@@ -312,6 +312,7 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
   },
   set_channel: async () => null,
   bar_menu: () => null,
+  bar_width: () => null,
   session_profile: async (a) => {
     // L'app écrit le profil en français, l'interface le traduit (localLabel).
     const names: Record<string, string> = { jeu: 'Jeu', bureau: 'Bureau', max: 'Max' }

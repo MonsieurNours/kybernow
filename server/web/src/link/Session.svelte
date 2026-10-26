@@ -69,6 +69,29 @@
   let engine: Engine | null = null
   let touch: TouchInput | null = null
   let barTimer: ReturnType<typeof setTimeout> | null = null
+  /** Largeur de la barre : celle de la zone du bord haut (sa largeur naturelle tant qu'elle est cachée). */
+  let barWidth = $state(0)
+  let barEl = $state<HTMLElement | null>(null)
+  let sessionEl: HTMLElement
+  /** Le pointeur s'est posé sur la barre (ou contre le bord qui l'ouvre) depuis qu'elle est ouverte. */
+  let barSeen = false
+  /** Minuteur du pointeur posé contre le bord haut : la barre s'ouvre à son échéance. */
+  let dwellTimer: ReturnType<typeof setTimeout> | null = null
+  /** Dernière position de la souris sur la session (null : elle n'y est plus). */
+  let hoverPos: { x: number; y: number } | null = null
+  /** La page a le focus (le trait du bord haut n'apparaît que si le geste est possible). */
+  let pageFocused = $state(document.hasFocus())
+  /** Le pointeur est capturé (souris des jeux). */
+  let pointerLocked = $state(!!document.pointerLockElement)
+  /** Appareil tactile sans souris : le trait reste, la page n'a que les doigts. */
+  const mouseless = hasTouchScreen && typeof matchMedia === 'function' && !matchMedia('(any-pointer: fine)').matches
+  const edgeShown = $derived(!barVisible && (mouseless || (pageFocused && !pointerLocked)))
+  /** Un bouton de la souris est tenu (dernier état connu) : une fenêtre glissée contre le bord haut n'ouvre pas la barre. */
+  let buttonHeld = false
+  /** Le pointeur doit d'abord sortir de la zone du bord haut avant de rouvrir la barre. */
+  let edgeReady = true
+  /** Le dernier appui sur la languette est un doigt. */
+  let edgeTouch = false
   let ended = false
   let ticketToken = ''
   let codecList: import('./engine').CodecSupport[] = []
@@ -609,20 +632,113 @@
 
   const mouseLabel = $derived(mouseMode === 'auto' ? t('session.mouse.auto') : mouseMode === 'jeu' ? t('session.mouse.game') : t('session.mouse.desktop'))
 
-  function showBar() {
-    barVisible = true
-    scheduleBarHide()
+  /** Largeur de la languette du haut, zone du bord tant que la barre n'est pas mesurée. */
+  const EDGE_WIDTH = 220
+  /** Distance au bord haut de la session, en pixels, qui compte comme « contre le bord ». */
+  const EDGE_REACH = 2
+  /** Le pointeur doit rester contre le bord haut ce temps-là pour ouvrir la barre. */
+  const EDGE_DWELL = 250
+  /** La barre se referme ce temps après que le pointeur l'a quittée. */
+  const BAR_LEAVE = 400
+  /** Barre ouverte sans pointeur dessus (doigt, raccourci) : elle se referme après ce temps. */
+  const BAR_IDLE = 2500
+
+  /** Le bord haut de l'image, centré sur la largeur de la barre. */
+  function inEdgeZone(x: number, y: number): boolean {
+    const r = sessionEl.getBoundingClientRect()
+    return y >= r.top && y - r.top <= EDGE_REACH && Math.abs(x - (r.left + r.width / 2)) <= (barWidth || EDGE_WIDTH) / 2
   }
 
-  function scheduleBarHide() {
+  /** Le pointeur est sur la barre, ses menus, ou dans l'espace qui la sépare du bord haut. */
+  function barInside(): boolean {
+    if (!hoverPos) return false
+    const { x, y } = hoverPos
+    if (document.elementFromPoint(x, y)?.closest('.bar, .metrics')) return true
+    const r = sessionEl.getBoundingClientRect()
+    // Dispositions sans transformation : la barre en cours d'apparition compte déjà.
+    const bottom = r.top + (barEl ? barEl.offsetTop + barEl.offsetHeight : 0)
+    return y >= r.top && y <= bottom && Math.abs(x - (r.left + r.width / 2)) <= (barWidth || EDGE_WIDTH) / 2
+  }
+
+  function clearBarTimer() {
     if (barTimer) clearTimeout(barTimer)
+    barTimer = null
+  }
+
+  function cancelDwell() {
+    if (dwellTimer) clearTimeout(dwellTimer)
+    dwellTimer = null
+  }
+
+  function showBar(byTouch = false) {
+    cancelDwell()
+    barVisible = true
+    barSeen = !byTouch && barInside()
+    settleBar()
+  }
+
+  function hideBar() {
+    clearBarTimer()
+    barVisible = false
+    edgeReady = !(hoverPos && inEdgeZone(hoverPos.x, hoverPos.y))
+  }
+
+  /** Arme la fermeture : jamais pendant qu'un menu est ouvert. */
+  function scheduleBarHide(delay: number) {
+    clearBarTimer()
     if (isTouch || metricsOpen || keysOpen || phase !== 'live') return
-    barTimer = setTimeout(() => (barVisible = false), 2500)
+    barTimer = setTimeout(() => {
+      barTimer = null
+      if (!metricsOpen && !keysOpen) hideBar()
+    }, delay)
+  }
+
+  /** Barre ouverte : sous le pointeur, elle reste ; sinon elle se referme (vite
+   * si le pointeur l'a déjà vue, après un délai si elle est venue au doigt ou au raccourci). */
+  function settleBar() {
+    if (!barVisible) return
+    if (barInside()) clearBarTimer()
+    else scheduleBarHide(barSeen ? BAR_LEAVE : BAR_IDLE)
+  }
+
+  // Un menu qui se ferme sous un pointeur parti ailleurs laisse la barre se refermer.
+  $effect(() => {
+    if (barVisible && !metricsOpen && !keysOpen) untrack(settleBar)
+  })
+
+  /** Le pointeur est resté contre le bord haut : la barre s'ouvre si la page a le focus et la souris n'est pas capturée. */
+  function openFromEdge() {
+    dwellTimer = null
+    if (barVisible || phase !== 'live' || buttonHeld || !document.hasFocus() || document.pointerLockElement) return
+    if (hoverPos && inEdgeZone(hoverPos.x, hoverPos.y)) showBar()
   }
 
   function onPointerMove(e: PointerEvent) {
     if (isTouch || e.pointerType === 'touch') return
-    if (e.clientY < 24 && !document.pointerLockElement) showBar()
+    hoverPos = { x: e.clientX, y: e.clientY }
+    buttonHeld = e.buttons !== 0
+    if (barVisible) {
+      if (barInside()) {
+        barSeen = true
+        clearBarTimer()
+      } else if (barSeen && !barTimer) scheduleBarHide(BAR_LEAVE)
+      return
+    }
+    if (!inEdgeZone(e.clientX, e.clientY)) {
+      edgeReady = true
+      cancelDwell()
+    } else if (buttonHeld) {
+      cancelDwell()
+    } else if (edgeReady && !dwellTimer && !document.pointerLockElement && document.hasFocus()) {
+      dwellTimer = setTimeout(openFromEdge, EDGE_DWELL)
+    }
+  }
+
+  function onPointerLeave(e: PointerEvent) {
+    if (isTouch || e.pointerType === 'touch') return
+    hoverPos = null
+    cancelDwell()
+    if (barVisible && barSeen && !barTimer) scheduleBarHide(BAR_LEAVE)
   }
 
   async function toggleFullscreen() {
@@ -766,11 +882,24 @@
     const shortcut = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.altKey && e.shiftKey && ['Control', 'Alt', 'Shift'].includes(e.key)) {
         releasePointer()
-        if (barVisible) barVisible = false
+        if (barVisible) hideBar()
         else showBar()
       }
     }
     window.addEventListener('keydown', shortcut, true)
+    const onBlur = () => {
+      pageFocused = false
+      cancelDwell()
+    }
+    const onFocus = () => (pageFocused = true)
+    const onLockChange = () => {
+      pointerLocked = !!document.pointerLockElement
+      if (pointerLocked) cancelDwell()
+    }
+    pageFocused = document.hasFocus()
+    window.addEventListener('blur', onBlur)
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('pointerlockchange', onLockChange)
     let prev = { ...diag }
     // Quinze secondes d'historique : on reproduit, puis on capture après coup.
     const hist: { souris: number; relayee: number; entrees: number; flux: number; tailles: string }[] = []
@@ -887,13 +1016,17 @@
       if (noticeTimer) clearTimeout(noticeTimer)
       if (stableTimer) clearTimeout(stableTimer)
       window.removeEventListener('keydown', shortcut, true)
+      window.removeEventListener('blur', onBlur)
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('pointerlockchange', onLockChange)
       releasePointer()
       removePointerGate()
       removeAbsoluteMouse()
       removeInputGuard()
       setPositionMapper(() => null)
       forgetInputSocket()
-      if (barTimer) clearTimeout(barTimer)
+      clearBarTimer()
+      cancelDwell()
       touch?.destroy()
       window.removeEventListener('resize', resize)
       window.visualViewport?.removeEventListener('resize', viewport)
@@ -913,7 +1046,7 @@
   })
 </script>
 
-<div class="session" class:touch={isTouch} onpointermove={onPointerMove} role="application" aria-label={t('session.aria', { host: hostname })}>
+<div class="session" class:touch={isTouch} bind:this={sessionEl} onpointermove={onPointerMove} onpointerleave={onPointerLeave} role="application" aria-label={t('session.aria', { host: hostname })}>
   <div class="stage" class:kb={keyboardOpen} bind:this={stage} oncontextmenu={(e) => e.preventDefault()} role="presentation">
     <div class="canvas-box" bind:this={canvasBox}></div>
     <div class="touch-layer" class:active={hasTouchScreen && phase === 'live'} bind:this={touchLayer}></div>
@@ -967,10 +1100,11 @@
 
   <!-- Barre de session (souris et clavier) -->
   {#if !isTouch && phase === 'live'}
-    {#if !barVisible}
-      <button type="button" class="edge" aria-label={t('session.bar.show')} title={t('session.bar.showHint')} onclick={showBar}><span></span></button>
+    {#if edgeShown}
+      <button type="button" class="edge" aria-label={t('session.bar.show')} title={t('session.bar.showHint')} onpointerdown={(e) => (edgeTouch = e.pointerType === 'touch')} onclick={() => showBar(edgeTouch)}><span></span></button>
     {/if}
-    <div class="bar glass" class:hidden={!barVisible} role="toolbar" tabindex="-1" aria-label="Session" onpointerenter={() => barTimer && clearTimeout(barTimer)} onpointerleave={scheduleBarHide}>
+    <!-- Souris : la fermeture suit le pointeur (onPointerMove). Doigt : elle attend un temps sans toucher. -->
+    <div class="bar glass" class:hidden={!barVisible} role="toolbar" tabindex="-1" aria-label="Session" bind:this={barEl} bind:clientWidth={barWidth} onpointerenter={(e) => e.pointerType === 'touch' && clearBarTimer()} onpointerleave={(e) => e.pointerType === 'touch' && scheduleBarHide(BAR_IDLE)}>
       <Mark size={22} state="now" lit breathe />
       <span class="host">{hostname}</span>
       <span class="sep" aria-hidden="true"></span>

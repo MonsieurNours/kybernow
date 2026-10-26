@@ -287,6 +287,7 @@ unsafe extern "C" {
     pub fn SDL_RegisterEvents(n: c_int) -> u32;
     pub fn SDL_ShowCursor(toggle: c_int) -> c_int;
     pub fn SDL_SetRelativeMouseMode(on: c_int) -> c_int;
+    pub fn SDL_GetMouseState(x: *mut c_int, y: *mut c_int) -> u32;
     pub fn SDL_CreateRGBSurfaceWithFormatFrom(pixels: *mut c_void, w: c_int, h: c_int, depth: c_int, pitch: c_int, format: u32) -> *mut SDL_Surface;
     pub fn SDL_FreeSurface(s: *mut SDL_Surface);
     pub fn SDL_CreateColorCursor(s: *mut SDL_Surface, hot_x: c_int, hot_y: c_int) -> *mut SDL_Cursor;
@@ -328,6 +329,11 @@ unsafe extern "C" {
 }
 
 pub const SDL_AUDIO_ALLOW_CHANNELS_CHANGE: c_int = 0x4;
+
+/// Un bouton de la souris est tenu (état des boutons connu de SDL).
+pub fn mouse_held() -> bool {
+    unsafe { SDL_GetMouseState(std::ptr::null_mut(), std::ptr::null_mut()) != 0 }
+}
 
 pub fn error() -> String {
     unsafe { CStr::from_ptr(SDL_GetError()).to_string_lossy().into_owned() }

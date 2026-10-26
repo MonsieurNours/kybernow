@@ -13,6 +13,11 @@
 //
 // Les plans Y et CbCr sortent de VideoToolbox en IOSurface : Metal les lit
 // sans copie (CVMetalTextureCache) et convertit en RGB dans le shader.
+// Option « trait de repère » (Mac, barre de session) : une capsule blanche
+// à 35 %, 220 × 3 points, centrée en haut de la vue, tracée dans la même passe
+// que l'image. Elle doit se voir sans composition (présentation directe en
+// plein écran) ; allumée ou éteinte, l'image affichée est redessinée en place.
+//
 // Indépendant d'AppKit : sert tel quel sur iOS et tvOS.
 
 import CoreGraphics
@@ -127,9 +132,46 @@ final class VideoRenderer {
     /// comptées comme remplacées ; le décodeur continue (références intactes).
     var paused = false
 
+    /// Trait de repère de la barre de session, par-dessus l'image. Coupé par
+    /// défaut : l'Apple TV, l'iPhone et l'iPad ne l'ont pas. Un changement
+    /// redessine l'image affichée (sans attendre la suivante, qui peut ne
+    /// jamais venir sur un bureau immobile).
+    var topMarker: Bool {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return markerOn
+        }
+        set {
+            lock.lock()
+            let changed = markerOn != newValue
+            markerOn = newValue
+            lock.unlock()
+            if changed { renderQueue.async { [weak self] in self?.redrawInPlace() } }
+        }
+    }
+
+    /// Pixels par point de la vue (`backingScaleFactor`) : le trait garde sa taille en points.
+    var markerScale: CGFloat {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return markerPixelsPerPoint
+        }
+        set {
+            lock.lock()
+            markerPixelsPerPoint = newValue
+            lock.unlock()
+        }
+    }
+    private var markerOn = false
+    private var markerPixelsPerPoint: CGFloat = 1
+
     private let device: MTLDevice
     private let queue: MTLCommandQueue
     private let pipeline: MTLRenderPipelineState
+    /// Trait de repère : absent si son shader n'a pas compilé (la session continue sans).
+    private let markerPipeline: MTLRenderPipelineState?
     private var cache: CVMetalTextureCache?
     /// Matrice de couleur du format en cours, relue au plus une fois par seconde
     /// (fil de rendu) : `CVBufferCopyAttachment` à chaque image coûtait pour rien.
@@ -175,9 +217,38 @@ final class VideoRenderer {
         }
     }()
 
-    /// Compile le pipeline (au lancement, hors du fil principal).
+    /// Pipeline du trait de repère, compilé à part : un échec est au journal et
+    /// n'empêche ni l'image ni la session.
+    private static let markerCore: MTLRenderPipelineState? = {
+        guard let device = core?.device else { return nil }
+        do {
+            let library = try device.makeLibrary(source: markerShader, options: nil)
+            let desc = MTLRenderPipelineDescriptor()
+            desc.vertexFunction = library.makeFunction(name: "kn_marker_vertex")
+            desc.fragmentFunction = library.makeFunction(name: "kn_marker_fragment")
+            let color = desc.colorAttachments[0]!
+            color.pixelFormat = .bgra8Unorm
+            color.isBlendingEnabled = true
+            color.rgbBlendOperation = .add
+            color.alphaBlendOperation = .add
+            color.sourceRGBBlendFactor = .sourceAlpha
+            color.sourceAlphaBlendFactor = .sourceAlpha
+            color.destinationRGBBlendFactor = .oneMinusSourceAlpha
+            color.destinationAlphaBlendFactor = .oneMinusSourceAlpha
+            return try device.makeRenderPipelineState(descriptor: desc)
+        } catch {
+            KyberLog.video.error("trait de repère : \(error.localizedDescription, privacy: .public) ; la session continue sans lui")
+            return nil
+        }
+    }()
+
+    /// Compile le pipeline (au lancement, hors du fil principal) ; le trait de
+    /// repère seulement sur Mac, les autres plateformes ne l'allument pas.
     static func warmUp() {
         _ = core
+        #if os(macOS)
+        _ = markerCore
+        #endif
     }
 
     init?() {
@@ -185,6 +256,7 @@ final class VideoRenderer {
         device = core.device
         queue = core.queue
         pipeline = core.pipeline
+        markerPipeline = Self.markerCore
         CVMetalTextureCacheCreate(kCFAllocatorDefault, nil, device, nil, &cache)
         layer = CAMetalLayer()
         configure(layer)
@@ -299,7 +371,7 @@ final class VideoRenderer {
             return
         }
         guard let drawable, let commands = queue.makeCommandBuffer(),
-              draw(buffer, layout: layout, into: drawable.texture, commands: commands, color: conversion(buffer, layout: layout))
+              draw(buffer, layout: layout, into: drawable.texture, commands: commands, color: conversion(buffer, layout: layout), marker: currentMarkerScale())
         else {
             latency?.skipped(pts: frame.pts)
             return
@@ -357,6 +429,29 @@ final class VideoRenderer {
         account(frame, width: CVPixelBufferGetWidth(buffer), height: CVPixelBufferGetHeight(buffer), layout: layout)
     }
 
+    /// Échelle du trait de repère s'il doit être tracé, sinon nil.
+    private func currentMarkerScale() -> Double? {
+        lock.lock()
+        defer { lock.unlock() }
+        return markerOn ? Double(markerPixelsPerPoint) : nil
+    }
+
+    /// Le trait de repère change : l'image affichée est redessinée telle
+    /// quelle, avec ou sans le trait (fil de rendu). Une image déjà en attente
+    /// le portera de toute façon ; fenêtre occultée, rien n'est rendu.
+    private func redrawInPlace() {
+        lock.lock()
+        let last = shown
+        let waiting = pending != nil || scheduled
+        lock.unlock()
+        guard !paused, !waiting, let last, let drawable = layer.nextDrawable(), let commands = queue.makeCommandBuffer(),
+              draw(last.buffer, layout: last.layout, into: drawable.texture, commands: commands,
+                   color: conversion(last.buffer, layout: last.layout), marker: currentMarkerScale())
+        else { return }
+        commands.present(drawable)
+        commands.commit()
+    }
+
     /// Matrice de couleur de l'image, lue à chaque changement de format ou de
     /// taille et au plus une fois par seconde (fil de rendu).
     private func conversion(_ buffer: CVPixelBuffer, layout: Layout) -> ColorConversion {
@@ -373,8 +468,11 @@ final class VideoRenderer {
     }
 
     /// Dessine l'image dans `target`, centrée et entière. Faux si les plans
-    /// ne se lisent pas en texture. `color` : conversion déjà connue (sinon lue sur l'image).
-    func draw(_ buffer: CVPixelBuffer, layout: Layout, into target: MTLTexture, commands: MTLCommandBuffer, color known: ColorConversion? = nil) -> Bool {
+    /// ne se lisent pas en texture. `color` : conversion déjà connue (sinon lue
+    /// sur l'image). `marker` : pixels par point du trait de repère, à tracer
+    /// par-dessus (nil : pas de trait, comme pour les photographies).
+    func draw(_ buffer: CVPixelBuffer, layout: Layout, into target: MTLTexture, commands: MTLCommandBuffer,
+              color known: ColorConversion? = nil, marker: Double? = nil) -> Bool {
         guard let cache,
               let luma = texture(buffer, plane: 0, format: layout.deep ? .r16Unorm : .r8Unorm, cache: cache),
               let chroma = texture(buffer, plane: 1, format: layout.deep ? .rg16Unorm : .rg8Unorm, cache: cache)
@@ -399,6 +497,19 @@ final class VideoRenderer {
         var color = known ?? Self.color(buffer, fullRange: layout.full, deep: layout.deep)
         encoder.setFragmentBytes(&color, length: MemoryLayout<ColorConversion>.stride, index: 0)
         encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+        if let marker, let markerPipeline {
+            // Capsule de 220 × 3 points contre le bord haut de la vue (et non de
+            // l'image : l'image peut être cernée de noir), centrée, mélange alpha.
+            let markerW = (220 * marker).rounded(), markerH = (3 * marker).rounded()
+            let x = ((targetW - markerW) / 2).rounded()
+            var uniforms = MarkerUniforms(rect: SIMD4(Float(x), 0, Float(x + markerW), Float(markerH)),
+                                          target: SIMD2(Float(targetW), Float(targetH)), opacity: 0.35)
+            encoder.setViewport(MTLViewport(originX: 0, originY: 0, width: targetW, height: targetH, znear: 0, zfar: 1))
+            encoder.setRenderPipelineState(markerPipeline)
+            encoder.setVertexBytes(&uniforms, length: MemoryLayout<MarkerUniforms>.stride, index: 0)
+            encoder.setFragmentBytes(&uniforms, length: MemoryLayout<MarkerUniforms>.stride, index: 0)
+            encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
+        }
         encoder.endEncoding()
         commands.addCompletedHandler { _ in _ = (luma, chroma) } // garde les textures jusqu'à la fin du GPU
         return true
@@ -596,6 +707,15 @@ final class VideoRenderer {
         var offset: simd_float3
     }
 
+    /// Paramètres du trait de repère (même disposition que `MarkerU` du shader) :
+    /// rectangle en pixels (x0, y0, x1, y1, origine en haut à gauche), taille
+    /// de la cible, opacité.
+    struct MarkerUniforms {
+        var rect: SIMD4<Float>
+        var target: SIMD2<Float>
+        var opacity: Float
+    }
+
     /// YCbCr → RGB selon la matrice annoncée par le flux (709 par défaut) et la plage.
     static func color(_ buffer: CVPixelBuffer, fullRange: Bool, deep: Bool) -> ColorConversion {
         let matrixName = CVBufferCopyAttachment(buffer, kCVImageBufferYCbCrMatrixKey, nil) as? String
@@ -634,6 +754,34 @@ final class VideoRenderer {
         let bytes = [24, 16, 8, 0].map { UInt8((code >> $0) & 0xFF) }
         return String(bytes: bytes, encoding: .ascii) ?? "\(code)"
     }
+
+    /// Capsule (rectangle aux bouts ronds) en distance signée, bords adoucis
+    /// sur un pixel ; blanche, de l'opacité demandée, mélangée à l'image.
+    private static let markerShader = """
+    #include <metal_stdlib>
+    using namespace metal;
+
+    struct MarkerU { float4 rect; float2 target; float opacity; };
+    struct MarkerOut { float4 position [[position]]; float2 local; };
+
+    // Un rectangle agrandi d'un pixel, en bande de deux triangles.
+    vertex MarkerOut kn_marker_vertex(uint id [[vertex_id]], constant MarkerU &u [[buffer(0)]]) {
+        float2 corner = float2(id & 1, id >> 1);
+        float2 px = mix(u.rect.xy - 1.0, u.rect.zw + 1.0, corner);
+        MarkerOut out;
+        out.position = float4(px.x / u.target.x * 2.0 - 1.0, 1.0 - px.y / u.target.y * 2.0, 0.0, 1.0);
+        out.local = px - (u.rect.xy + u.rect.zw) * 0.5;
+        return out;
+    }
+
+    fragment float4 kn_marker_fragment(MarkerOut in [[stage_in]], constant MarkerU &u [[buffer(0)]]) {
+        float2 halfSize = (u.rect.zw - u.rect.xy) * 0.5;
+        float r = halfSize.y;
+        float2 q = abs(in.local) - float2(halfSize.x - r, 0.0);
+        float d = length(max(q, 0.0)) - r;
+        return float4(1.0, 1.0, 1.0, u.opacity * saturate(0.5 - d));
+    }
+    """
 
     private static let shader = """
     #include <metal_stdlib>

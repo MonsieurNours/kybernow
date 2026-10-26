@@ -1,7 +1,9 @@
 //! Rendu Direct3D 11 : l'image décodée (sur la carte graphique ou venue du
 //! processeur) est convertie en RVB par un petit shader, à la taille de la
 //! fenêtre en gardant ses proportions, puis présentée aussitôt (chaîne
-//! d'échange « flip », déchirure permise sans synchro verticale).
+//! d'échange « flip », déchirure permise sans synchro verticale). Le trait
+//! du bord haut, qui signale où s'ouvre la barre de session, est tracé dans
+//! la même passe, par-dessus l'image.
 
 use std::ffi::c_void;
 
@@ -33,7 +35,7 @@ Texture2D t0 : register(t0);
 Texture2D t1 : register(t1);
 Texture2D t2 : register(t2);
 SamplerState smp : register(s0);
-cbuffer Params : register(b0) { float4 m0; float4 m1; float4 m2; uint mode; uint3 pad; };
+cbuffer Params : register(b0) { float4 m0; float4 m1; float4 m2; uint mode; float2 hint_px; float pad; };
 float4 ps(VSOut i) : SV_Target {
     float3 yuv;
     if (mode == 0) { yuv = float3(t0.Sample(smp, i.uv).r, t1.Sample(smp, i.uv).rg); }
@@ -42,14 +44,28 @@ float4 ps(VSOut i) : SV_Target {
     float4 v = float4(yuv, 1);
     return float4(saturate(float3(dot(m0, v), dot(m1, v), dot(m2, v))), 1);
 }
+// Trait du bord haut : une capsule blanche de `hint_px` pixels (le tracé
+// couvre exactement sa zone), bord adouci sur un pixel, opacité de 35 %.
+float4 ps_hint(VSOut i) : SV_Target {
+    float2 p = (i.uv - 0.5) * hint_px;
+    float d = length(float2(max(abs(p.x) - (hint_px.x - hint_px.y) * 0.5, 0.0), p.y)) - hint_px.y * 0.5;
+    return float4(1.0, 1.0, 1.0, saturate(0.5 - d) * 0.35);
+}
 "#;
+
+/// Trait du bord haut, en points : 220 × 3, comme sur Mac (capsule blanche à
+/// 35 % d'opacité, dans le shader).
+const HINT_WIDTH: f32 = 220.0;
+const HINT_HEIGHT: f32 = 3.0;
 
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
 struct Params {
     m: [[f32; 4]; 3],
     mode: u32,
-    pad: [u32; 3],
+    /// Taille du trait du bord haut en pixels (lue par `ps_hint` seulement).
+    hint_px: [f32; 2],
+    pad: f32,
 }
 
 /// Disposition des plans de l'image dans nos textures.
@@ -158,6 +174,30 @@ fn compile(entry: PCSTR, target: PCSTR) -> windows::core::Result<ID3DBlob> {
     Ok(code.unwrap())
 }
 
+/// Shader et mélange du trait du bord haut (couleur au prorata de son
+/// opacité, image dessous pour le reste).
+fn hint_pipeline(device: &ID3D11Device) -> windows::core::Result<(ID3D11PixelShader, ID3D11BlendState)> {
+    unsafe {
+        let code = compile(s!("ps_hint"), s!("ps_4_0"))?;
+        let mut ps = None;
+        device.CreatePixelShader(blob(&code), None, Some(&mut ps))?;
+        let mut desc = D3D11_BLEND_DESC::default();
+        desc.RenderTarget[0] = D3D11_RENDER_TARGET_BLEND_DESC {
+            BlendEnable: BOOL(1),
+            SrcBlend: D3D11_BLEND_SRC_ALPHA,
+            DestBlend: D3D11_BLEND_INV_SRC_ALPHA,
+            BlendOp: D3D11_BLEND_OP_ADD,
+            SrcBlendAlpha: D3D11_BLEND_ONE,
+            DestBlendAlpha: D3D11_BLEND_ZERO,
+            BlendOpAlpha: D3D11_BLEND_OP_ADD,
+            RenderTargetWriteMask: D3D11_COLOR_WRITE_ENABLE_ALL.0 as u8,
+        };
+        let mut blend = None;
+        device.CreateBlendState(&desc, Some(&mut blend))?;
+        Ok((ps.unwrap(), blend.unwrap()))
+    }
+}
+
 fn blob(b: &ID3DBlob) -> &[u8] {
     unsafe { std::slice::from_raw_parts(b.GetBufferPointer() as *const u8, b.GetBufferSize()) }
 }
@@ -189,6 +229,11 @@ pub struct Renderer {
     rtv: Option<ID3D11RenderTargetView>,
     vs: ID3D11VertexShader,
     ps: ID3D11PixelShader,
+    /// Trait du bord haut : son shader, et le mélange qui le pose sur l'image
+    /// (rien si l'un des deux n'a pas pu être créé : l'image se montre sans le trait).
+    hint_gpu: Option<(ID3D11PixelShader, ID3D11BlendState)>,
+    /// Échelle (en centièmes) du trait en place sur le dernier tracé ; 0 : aucun.
+    hint: u32,
     sampler: ID3D11SamplerState,
     cbuf: ID3D11Buffer,
     planes: Option<Planes>,
@@ -254,6 +299,9 @@ impl Renderer {
             device.CreateVertexShader(blob(&vsb), None, Some(&mut vs))?;
             let mut ps = None;
             device.CreatePixelShader(blob(&psb), None, Some(&mut ps))?;
+            let hint_gpu = hint_pipeline(&device)
+                .inspect_err(|e| log::warn!("trait du bord haut : {e}"))
+                .ok();
             let sdesc = D3D11_SAMPLER_DESC {
                 Filter: D3D11_FILTER_MIN_MAG_MIP_LINEAR,
                 AddressU: D3D11_TEXTURE_ADDRESS_CLAMP,
@@ -280,6 +328,8 @@ impl Renderer {
                 rtv: None,
                 vs: vs.unwrap(),
                 ps: ps.unwrap(),
+                hint_gpu,
+                hint: 0,
                 sampler: sampler.unwrap(),
                 cbuf: cbuf.unwrap(),
                 planes: None,
@@ -438,8 +488,9 @@ impl Renderer {
         Ok(())
     }
 
-    /// Montre une image décodée et la présente aussitôt.
-    pub fn draw(&mut self, f: &AVFrame) -> Result<(), Unsupported> {
+    /// Montre une image décodée et la présente aussitôt. `hint` : échelle (en
+    /// centièmes) du trait du bord haut posé par-dessus ; 0 : aucun.
+    pub fn draw(&mut self, f: &AVFrame, hint: u32) -> Result<(), Unsupported> {
         self.upload(f)?;
         let planes = self.planes.as_ref().unwrap();
         self.params.mode = match planes.layout {
@@ -448,6 +499,27 @@ impl Renderer {
             Layout::Ayuv => 2,
         };
         self.params.m = matrix(f.colorspace as i32, f.color_range as i32 == 2);
+        let (fw, fh) = (planes.width, planes.height);
+        if self.paint(hint) {
+            // Après la présentation : rien ne retarde l'image à l'écran.
+            self.snapshot(fw, fh);
+        }
+        Ok(())
+    }
+
+    /// Le trait du bord haut a changé alors qu'aucune image ne vient (écran
+    /// fixe) : l'image en place est redessinée, avec ou sans le trait.
+    pub fn repaint(&mut self, hint: u32) {
+        if hint != self.hint && self.planes.is_some() {
+            self.paint(hint);
+        }
+    }
+
+    /// Dessine l'image en place (textures de la dernière image) à la taille de
+    /// la fenêtre, le trait du bord haut par-dessus, et présente (faux : rien
+    /// à dessiner ou sur quoi dessiner).
+    fn paint(&mut self, hint: u32) -> bool {
+        let Some(planes) = self.planes.as_ref() else { return false };
         let (fw, fh) = (planes.width as f32, planes.height as f32);
         let (sw, sh) = (self.size.0 as f32, self.size.1 as f32);
         let scale = (sw / fw).min(sh / fh);
@@ -461,7 +533,7 @@ impl Renderer {
             MaxDepth: 1.0,
         };
         unsafe {
-            let Some(rtv) = self.rtv.clone() else { return Ok(()) };
+            let Some(rtv) = self.rtv.clone() else { return false };
             self.ctx.UpdateSubresource(&self.cbuf, 0, None, &self.params as *const _ as *const c_void, 0, 0);
             self.ctx.ClearRenderTargetView(&rtv, &[0.0, 0.0, 0.0, 1.0]);
             self.ctx.OMSetRenderTargets(Some(&[Some(rtv)]), None);
@@ -474,6 +546,10 @@ impl Renderer {
             self.ctx.PSSetSamplers(0, Some(&[Some(self.sampler.clone())]));
             self.ctx.PSSetConstantBuffers(0, Some(&[Some(self.cbuf.clone())]));
             self.ctx.Draw(3, 0);
+            if let (true, Some((hint_ps, hint_blend))) = (hint > 0, &self.hint_gpu) {
+                self.draw_hint(hint_ps, hint_blend, hint, sw);
+            }
+            self.hint = hint;
             let (interval, flags) = if self.vsync {
                 (1, DXGI_PRESENT(0))
             } else if self.tearing {
@@ -488,9 +564,34 @@ impl Renderer {
                 self.present_failed = true;
             }
         }
-        // Après la présentation : rien ne retarde l'image à l'écran.
-        self.snapshot(fw as u32, fh as u32);
-        Ok(())
+        true
+    }
+
+    /// Le trait du bord haut : capsule de 220 × 3 points (`hint` : échelle de
+    /// l'écran en centièmes), centrée en haut de la fenêtre, posée sur l'image
+    /// déjà tracée. L'état du contexte est remis comme l'image le laisse (le
+    /// tracé de l'aperçu, qui suit, en part).
+    unsafe fn draw_hint(&self, hint_ps: &ID3D11PixelShader, hint_blend: &ID3D11BlendState, hint: u32, width: f32) {
+        let k = hint as f32 / 100.0;
+        let (w, h) = ((HINT_WIDTH * k).round().max(1.0), (HINT_HEIGHT * k).round().max(1.0));
+        let viewport = D3D11_VIEWPORT {
+            TopLeftX: ((width - w) / 2.0).round(),
+            TopLeftY: 0.0,
+            Width: w,
+            Height: h,
+            MinDepth: 0.0,
+            MaxDepth: 1.0,
+        };
+        let params = Params { hint_px: [w, h], ..self.params };
+        unsafe {
+            self.ctx.UpdateSubresource(&self.cbuf, 0, None, &params as *const _ as *const c_void, 0, 0);
+            self.ctx.OMSetBlendState(hint_blend, None, 0xFFFF_FFFF);
+            self.ctx.PSSetShader(hint_ps, None);
+            self.ctx.RSSetViewports(Some(&[viewport]));
+            self.ctx.Draw(3, 0);
+            self.ctx.PSSetShader(&self.ps, None);
+            self.ctx.OMSetBlendState(None, None, 0xFFFF_FFFF);
+        }
     }
 
     /// Toutes les 2 s, l'image redessinée en petit dans une texture à part

@@ -17,11 +17,12 @@
 
 use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::UI::Input::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
@@ -46,6 +47,64 @@ pub const WM_APP_COMMAND: u32 = WM_APP + 5;
 
 /// Minuterie du recontrôle du mode de la souris (pointeur remontré en jeu).
 const TIMER_MOUSE: usize = 1;
+/// Minuterie de la barre de session : le pointeur reste contre le bord haut.
+const TIMER_EDGE: usize = 2;
+/// Le pointeur reste ce temps contre le bord haut avant que la barre s'ouvre
+/// (un passage rapide ne l'ouvre pas).
+const EDGE_DWELL_MS: u32 = 250;
+/// Boutons de la souris enfoncés dans le `wParam` d'un `WM_MOUSEMOVE`
+/// (MK_LBUTTON, MK_RBUTTON, MK_MBUTTON, MK_XBUTTON1, MK_XBUTTON2).
+const MK_BUTTONS: usize = 0x01 | 0x02 | 0x10 | 0x20 | 0x40;
+/// « Contre le bord haut » : 2 points au plus, mis à l'échelle de l'écran.
+const EDGE_SLACK_POINTS: f32 = 2.0;
+/// Largeur de la barre de session en points, tant que son interface ne l'a
+/// pas mesurée (sa largeur naturelle, à quelques points près).
+const BAR_WIDTH_GUESS: u32 = 860;
+/// Largeur de la barre de session en points, telle que son interface la
+/// mesure (elle change avec le texte des mesures et la langue).
+static BAR_WIDTH: AtomicU32 = AtomicU32::new(BAR_WIDTH_GUESS);
+
+/// La barre de session fait cette largeur (en points) : la zone du bord haut
+/// où le pointeur l'ouvre est centrée de cette largeur.
+pub fn set_bar_width(points: f64) {
+    if points.is_finite() && points >= 1.0 {
+        BAR_WIDTH.store(points.round() as u32, Ordering::Relaxed);
+    }
+}
+
+/// La barre de session vient de se montrer ou de se cacher : le trait du bord
+/// haut s'efface pendant qu'elle est là, et l'ouverture au pointeur attend.
+pub fn set_bar_visible(visible: bool) {
+    if let Some(a) = app() {
+        a.bar_visible.store(visible, Ordering::Relaxed);
+        a.refresh_hint();
+    }
+}
+
+/// Où se place la barre de session : le haut de la zone cliente de la session,
+/// en pixels de l'écran (son milieu, son bord haut) et l'échelle de son
+/// écran. Rien si la fenêtre n'existe pas ou est réduite.
+pub fn bar_anchor(hwnd: isize) -> Option<(i32, i32, f32)> {
+    let hwnd = HWND(hwnd as *mut _);
+    unsafe {
+        if hwnd.0.is_null() || IsIconic(hwnd).as_bool() {
+            return None;
+        }
+        let mut client = RECT::default();
+        GetClientRect(hwnd, &mut client).ok()?;
+        let mut tl = POINT { x: client.left, y: client.top };
+        let mut br = POINT { x: client.right, y: client.bottom };
+        let _ = ClientToScreen(hwnd, &mut tl);
+        let _ = ClientToScreen(hwnd, &mut br);
+        Some(((tl.x + br.x) / 2, tl.y, dpi_scale(hwnd)))
+    }
+}
+
+/// Échelle de l'écran de la fenêtre (1,5 : 150 %) ; 1 sans fenêtre.
+fn dpi_scale(hwnd: HWND) -> f32 {
+    let dpi = unsafe { GetDpiForWindow(hwnd) };
+    if dpi == 0 { 1.0 } else { dpi as f32 / 96.0 }
+}
 
 /// Auto : un jeu en plein écran qui cache son pointeur (comme sur Mac).
 const MOUSE_RULES: MouseModeRules = MouseModeRules { needs_hidden_pointer: true };
@@ -249,7 +308,12 @@ pub struct App {
     /// Plein écran en ce moment (lu par le crochet clavier, sans verrou).
     fullscreen_now: AtomicBool,
     shown: AtomicBool,
-    last_edge: Mutex<Option<Instant>>,
+    /// La fenêtre est la fenêtre active (premier plan).
+    active: AtomicBool,
+    /// La barre de session est affichée (fenêtre de l'interface).
+    bar_visible: AtomicBool,
+    /// Le pointeur est dans la zone du bord haut et la minuterie court.
+    edge_armed: AtomicBool,
 }
 
 /// La session en cours (une à la fois).
@@ -294,7 +358,9 @@ impl App {
             title_stats,
             fullscreen_now: AtomicBool::new(false),
             shown: AtomicBool::new(false),
-            last_edge: Mutex::new(None),
+            active: AtomicBool::new(false),
+            bar_visible: AtomicBool::new(false),
+            edge_armed: AtomicBool::new(false),
         });
         *APP.lock().unwrap() = Some(app.clone());
         app
@@ -307,6 +373,22 @@ impl App {
 
     pub fn shown(&self) -> bool {
         self.shown.load(Ordering::Relaxed)
+    }
+
+    /// La barre de session peut s'ouvrir au pointeur : une session montrée
+    /// (la ligne de commande n'a pas de barre), la souris du bureau (en souris
+    /// des jeux, le pointeur est capturé), la barre pas déjà là.
+    fn edge_ready(&self) -> bool {
+        !self.title_stats && self.shown() && !self.relative() && !self.bar_visible.load(Ordering::Relaxed)
+    }
+
+    /// Le trait du bord haut se montre quand le geste est possible et que la
+    /// fenêtre est au premier plan ; le fil de l'image le trace à sa prochaine
+    /// image (ou dans les 100 ms si l'écran est fixe).
+    fn refresh_hint(&self) {
+        let on = self.edge_ready() && self.active.load(Ordering::Relaxed);
+        let scale = if on { (dpi_scale(self.hwnd()) * 100.0).round() as u32 } else { 0 };
+        self.shared.edge_hint.store(scale, Ordering::Relaxed);
     }
 
     pub fn hwnd(&self) -> HWND {
@@ -348,6 +430,7 @@ impl App {
         if let Some(input) = current.as_ref() {
             input.set_relative(on);
         }
+        self.refresh_hint();
     }
 
     /// « {nom} · KyberNow Link » ; en ligne de commande, suivi de l'étape ou
@@ -476,6 +559,8 @@ pub fn update_client_size(hwnd: HWND) {
         if app.relative() {
             clip_cursor(hwnd, true);
         }
+        // Un changement d'écran change l'échelle du trait du bord haut.
+        app.refresh_hint();
     }
 }
 
@@ -602,6 +687,9 @@ fn apply_mouse_mode(hwnd: HWND) {
     }
     log::info!("souris : {}", if relative { "jeu (relative)" } else { "bureau" });
     app.set_relative(relative);
+    if relative {
+        edge_cancel(hwnd, &app);
+    }
     clip_cursor(hwnd, relative && focused);
     unsafe {
         if relative {
@@ -786,6 +874,84 @@ fn request_close(hwnd: HWND) {
     }
 }
 
+/// Le point (pixels de la zone cliente) est contre le bord haut de la fenêtre,
+/// à 2 points au plus, dans la zone centrée de la largeur de la barre de
+/// session : l'endroit que signale le trait.
+fn in_edge_zone(hwnd: HWND, app: &App, x: i32, y: i32) -> bool {
+    let scale = dpi_scale(hwnd);
+    let width = app.shared.client_size().0 as i32;
+    let half = ((BAR_WIDTH.load(Ordering::Relaxed) as f32 * scale / 2.0).round() as i32).min(width / 2);
+    (0..=(EDGE_SLACK_POINTS * scale).round() as i32).contains(&y) && (x - width / 2).abs() <= half
+}
+
+/// Le pointeur est, en ce moment, sur la fenêtre de la session et dans la
+/// zone du bord haut.
+fn cursor_in_edge_zone(hwnd: HWND, app: &App) -> bool {
+    unsafe {
+        let mut p = POINT::default();
+        if GetCursorPos(&mut p).is_err() || WindowFromPoint(p) != hwnd {
+            return false;
+        }
+        let _ = ScreenToClient(hwnd, &mut p);
+        in_edge_zone(hwnd, app, p.x, p.y)
+    }
+}
+
+/// Le pointeur ne reste plus contre le bord haut : plus d'attente.
+fn edge_cancel(hwnd: HWND, app: &App) {
+    if app.edge_armed.swap(false, Ordering::Relaxed) {
+        unsafe {
+            let _ = KillTimer(Some(hwnd), TIMER_EDGE);
+        }
+    }
+}
+
+/// Mouvement du pointeur sur la session : arrivé dans la zone du bord haut
+/// (fenêtre au premier plan, souris du bureau, aucun bouton enfoncé : un
+/// glisser vers le haut ne l'ouvre pas), il lance une attente de 0,25 s ;
+/// sorti de la zone, il l'annule. Un pointeur immobile n'envoie plus rien :
+/// c'est la minuterie qui décide (`edge_fired`).
+fn edge_pointer(hwnd: HWND, wparam: WPARAM, lparam: LPARAM) {
+    let Some(app) = app() else { return };
+    let x = (lparam.0 & 0xFFFF) as i16 as i32;
+    let y = ((lparam.0 >> 16) & 0xFFFF) as i16 as i32;
+    let on = wparam.0 & MK_BUTTONS == 0
+        && app.edge_ready()
+        && in_edge_zone(hwnd, &app, x, y)
+        && unsafe { GetForegroundWindow() } == hwnd;
+    if !on {
+        edge_cancel(hwnd, &app);
+    } else if !app.edge_armed.swap(true, Ordering::Relaxed) {
+        // Les petits mouvements dans la zone ne relancent pas l'attente.
+        unsafe {
+            SetTimer(Some(hwnd), TIMER_EDGE, EDGE_DWELL_MS, None);
+        }
+    }
+}
+
+/// Un bouton de la souris est tenu (une fenêtre de l'ordinateur glissée contre
+/// le bord haut, par exemple).
+fn mouse_button_held() -> bool {
+    [VK_LBUTTON, VK_RBUTTON, VK_MBUTTON, VK_XBUTTON1, VK_XBUTTON2]
+        .iter()
+        .any(|k| unsafe { GetAsyncKeyState(k.0 as i32) } < 0)
+}
+
+/// 0,25 s contre le bord haut : la barre s'ouvre si tout tient encore (le
+/// pointeur dans la zone et sur la session, premier plan, souris du bureau,
+/// aucun bouton tenu).
+fn edge_fired(hwnd: HWND) {
+    let Some(app) = app() else { return };
+    edge_cancel(hwnd, &app);
+    if app.edge_ready()
+        && unsafe { GetForegroundWindow() } == hwnd
+        && !mouse_button_held()
+        && cursor_in_edge_zone(hwnd, &app)
+    {
+        app.events.top_edge(hwnd.0 as isize);
+    }
+}
+
 fn mouse_position(hwnd: HWND, lparam: LPARAM) {
     let Some(app) = app() else { return };
     if app.relative() {
@@ -900,20 +1066,20 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             WM_SYSCHAR | WM_CHAR => LRESULT(0),
             WM_MOUSEMOVE => {
                 mouse_position(hwnd, lparam);
-                // Pointeur contre le haut de l'écran : la barre de session.
-                let y = ((lparam.0 >> 16) & 0xFFFF) as i16;
-                if y <= 1 {
-                    // Pas en souris des jeux : regarder vers le haut y plaque le pointeur.
-                    if let Some(a) = app().filter(|a| !a.relative()) {
-                        let mut last = a.last_edge.lock().unwrap();
-                        if a.shown() && last.is_none_or(|t| t.elapsed().as_millis() > 400) {
-                            *last = Some(Instant::now());
-                            drop(last);
-                            a.events.top_edge(hwnd.0 as isize);
-                        }
-                    }
-                }
+                edge_pointer(hwnd, wparam, lparam);
                 LRESULT(0)
+            }
+            WM_ACTIVATE => {
+                if let Some(a) = app() {
+                    // Active, et pas réduite : le trait du bord haut se montre.
+                    let active = wparam.0 & 0xFFFF != WA_INACTIVE as usize && (wparam.0 >> 16) & 0xFFFF == 0;
+                    a.active.store(active, Ordering::Relaxed);
+                    if !active {
+                        edge_cancel(hwnd, &a);
+                    }
+                    a.refresh_hint();
+                }
+                DefWindowProcW(hwnd, msg, wparam, lparam)
             }
             WM_APP_FIRST_IMAGE => {
                 if let Some(a) = app() {
@@ -927,6 +1093,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                         if !front {
                             log::warn!("Windows refuse le premier plan à la session : elle attend dans la barre des tâches");
                         }
+                        a.refresh_hint();
                         // L'accueil se cache dans tous les cas : laissé devant, il
                         // montrait le passage ouvert sur du noir.
                         a.events.visible(front);
@@ -1039,6 +1206,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             }
             WM_APP_MOUSE => {
                 apply_mouse_mode(hwnd);
+                LRESULT(0)
+            }
+            WM_TIMER if wparam.0 == TIMER_EDGE => {
+                edge_fired(hwnd);
                 LRESULT(0)
             }
             WM_TIMER if wparam.0 == TIMER_MOUSE => {

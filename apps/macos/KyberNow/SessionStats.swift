@@ -7,7 +7,7 @@
 import KyberKit
 import SwiftUI
 
-/// Bouton de fermeture du panneau, dans l'espace « chrome » de la session.
+/// Bouton de fermeture du panneau, dans le repère de la vue de session.
 struct StatsCloseRectKey: PreferenceKey {
     static let defaultValue: CGRect = .zero
     static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
@@ -94,7 +94,7 @@ struct StatsPanel: View {
             .help("Fermer les statistiques (⌃⌥⌘S)")
             .accessibilityLabel("Fermer les statistiques")
             .background(GeometryReader { g in
-                Color.clear.preference(key: StatsCloseRectKey.self, value: g.frame(in: .named(SessionChrome.space)))
+                Color.clear.preference(key: StatsCloseRectKey.self, value: g.frame(in: SessionChrome.space))
             })
         }
     }

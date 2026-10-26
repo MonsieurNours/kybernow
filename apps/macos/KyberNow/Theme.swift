@@ -156,6 +156,13 @@ struct Icon: View {
     }
 }
 
+/// Un menu en verre est ouvert (somme des menus de la vue) : la barre de
+/// session reste là tant qu'il l'est.
+struct GlassMenuOpenKey: PreferenceKey {
+    static let defaultValue = false
+    static func reduce(value: inout Bool, nextValue: () -> Bool) { value = value || nextValue() }
+}
+
 /// Menu en verre (barre de session) : un bouton, et la liste dans une bulle.
 struct GlassMenu<Label: View>: View {
     struct Item: Identifiable {
@@ -178,6 +185,7 @@ struct GlassMenu<Label: View>: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
+        .preference(key: GlassMenuOpenKey.self, value: open)
         .popover(isPresented: $open, arrowEdge: .bottom) {
             VStack(alignment: .leading, spacing: 2) {
                 ForEach(items) { item in

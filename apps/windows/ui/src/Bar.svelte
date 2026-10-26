@@ -1,12 +1,14 @@
 <!--
   Barre de session : fenêtre transparente au-dessus de la session, montrée
-  quand le pointeur touche le haut de l'écran, cachée quand il la quitte (le
-  clavier revient alors à la session). Statistiques en direct, profil,
-  touches, souris, plein écran, « Se déconnecter ». Un menu ouvert fait
-  grandir la fenêtre vers le bas le temps de son affichage.
+  quand le pointeur reste contre le bord haut (l'app décide : src/window.rs),
+  cachée 0,4 s après qu'il l'a quittée, jamais pendant qu'un de ses menus est
+  ouvert (le clavier revient alors à la session). Statistiques en direct,
+  profil, touches, souris, plein écran, « Se déconnecter ». Un menu ouvert
+  fait grandir la fenêtre vers le bas le temps de son affichage. Elle dit sa
+  largeur à l'app, qui en fait la zone du bord haut où le pointeur l'ouvre.
 -->
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, tick } from 'svelte'
   import Icon from './lib/Icon.svelte'
   import Mark from './lib/Mark.svelte'
   import type { AppInfo, Stats } from './lib/api'
@@ -18,7 +20,7 @@
   let profile = $state('')
   let menu = $state<'profile' | 'keys' | null>(null)
 
-  /** `pinned` : demandée par « Statistiques » (menu de l'icône), elle reste jusqu'au passage du pointeur. */
+  /** `pinned` : demandée par « Statistiques » (menu de l'icône), elle reste jusqu'au passage du pointeur ; sinon, ouverte par le pointeur, qui est sur elle. */
   type Shown = { label: string; profile: string; pinned?: boolean }
   const profiles = $derived(
     ['jeu', 'bureau', 'max'].map((id) => ({ id, name: t(`profiles.${id}`), hint: t(`profiles.${id}_sub`) })),
@@ -33,33 +35,64 @@
   )
   let history = $state<number[]>([])
   let hideTimer: ReturnType<typeof setTimeout> | null = null
+  let bar = $state<HTMLElement | null>(null)
+  /** Le pointeur est sur la barre, ou dans la bande au-dessus d'elle, contre le bord haut (là où il l'a ouverte). */
+  let inside = false
+  /** Demandée par « Statistiques » : rien ne la cache avant que le pointeur y soit passé. */
+  let held = false
+  /** Dernière largeur dite à l'app. */
+  let sentWidth = 0
 
   onMount(() => {
     const off = [
       listen<Stats>('stats', (s) => {
         stats = s
         if (s.latency_ms != null) history = [...history, s.latency_ms].slice(-40)
+        reportWidth()
       }),
       listen<Shown>('bar-label', (s) => {
         label = s.label
         profile = s.profile
+        reportWidth()
       }),
       listen<Shown>('bar-shown', (s) => {
         label = s.label
         profile = s.profile
         // Montrée de nouveau : aucun menu d'une fois précédente.
         menu = null
-        // Le pointeur n'y entre pas : elle repart d'elle-même (sauf demandée
-        // par « Statistiques » : elle reste, le menu de l'icône la cache).
-        if (s.pinned) cancelHide()
-        else scheduleHide(1600)
+        // Ouverte par le pointeur, immobile contre le bord haut : il est sur
+        // elle. Demandée par « Statistiques » : elle reste, le menu de
+        // l'icône la cache, ou le pointeur quand il y est passé puis l'a quittée.
+        held = !!s.pinned
+        inside = !s.pinned
+        cancelHide()
+        reportWidth()
       }),
-      listen<string>('lang', setLang),
+      listen<string>('lang', (l) => {
+        setLang(l)
+        reportWidth()
+      }),
     ]
     // Langue de l'app si la fenêtre a été rechargée depuis son ouverture.
-    invoke<AppInfo>('app_info').then((i) => setLang(i.lang))
+    invoke<AppInfo>('app_info').then((i) => {
+      setLang(i.lang)
+      reportWidth()
+    })
+    // Largeur avec les vraies polices, avant même la première fois montrée.
+    document.fonts?.ready.then(reportWidth)
+    reportWidth()
     return () => off.forEach((p) => p.then((f) => f()))
   })
+
+  /** Dit à l'app la largeur de la barre (en points) : le pointeur l'ouvre dans une zone du bord haut de cette largeur. */
+  async function reportWidth() {
+    await tick()
+    const width = Math.round(bar?.getBoundingClientRect().width ?? 0)
+    if (width > 0 && width !== sentWidth) {
+      sentWidth = width
+      invoke('bar_width', { width })
+    }
+  }
 
   const spark = $derived.by(() => {
     if (history.length < 2) return ''
@@ -72,10 +105,38 @@
     hideTimer = null
   }
 
-  function scheduleHide(delay = 700) {
+  /** Se cache dans 0,4 s, sauf menu ouvert ou barre de « Statistiques » pas encore visitée. */
+  function scheduleHide(delay = 400) {
     cancelHide()
-    if (menu) return
-    hideTimer = setTimeout(() => invoke('bar_hide'), delay)
+    if (menu || held) return
+    hideTimer = setTimeout(() => {
+      hideTimer = null
+      invoke('bar_hide')
+    }, delay)
+  }
+
+  /** Le pointeur bouge : sur la barre (et la bande au-dessus), elle reste ; ailleurs, le compte à rebours part (une fois : bouger dehors ne le prolonge pas). */
+  function track(e: MouseEvent) {
+    const r = bar?.getBoundingClientRect()
+    inside = !!r && e.clientX >= r.left && e.clientX <= r.right && e.clientY <= r.bottom
+    if (inside) {
+      held = false
+      cancelHide()
+    } else if (!hideTimer) {
+      scheduleHide()
+    }
+  }
+
+  /** Le pointeur quitte la fenêtre de la barre. */
+  function leave(e: MouseEvent) {
+    if (e.relatedTarget) return
+    inside = false
+    scheduleHide()
+  }
+
+  /** Menu refermé par un choix ou un clic ailleurs : si le pointeur n'est plus sur la barre, elle repart. */
+  function afterMenu() {
+    if (!inside) scheduleHide()
   }
 
   async function toggle(which: 'profile' | 'keys') {
@@ -92,6 +153,7 @@
 
   async function pickProfile(id: string) {
     await closeMenu()
+    afterMenu()
     // Même profil : remis tel quel (utile après des réglages personnalisés).
     await invoke('session_profile', { profile: id })
   }
@@ -108,14 +170,16 @@
 
 <!-- Clic ailleurs (la session) : le menu se referme. -->
 <svelte:window
-  onblur={() => menu && closeMenu().then(() => scheduleHide())}
+  onblur={() => menu && closeMenu().then(afterMenu)}
+  onmousemove={track}
+  onmouseout={leave}
   onpointerdown={(e) => {
     // Clic dans la partie transparente sous la barre : le menu se referme.
-    if (menu && !(e.target as Element).closest('.bar')) closeMenu().then(() => scheduleHide())
+    if (menu && !(e.target as Element).closest('.bar')) closeMenu().then(afterMenu)
   }}
 />
 
-<div class="bar" role="toolbar" aria-label={t('bar.toolbar')} tabindex="-1" onmouseleave={() => scheduleHide()} onmouseenter={cancelHide}>
+<div class="bar" role="toolbar" aria-label={t('bar.toolbar')} tabindex="-1" bind:this={bar}>
   <Mark size={20} state="now" lit />
   <div class="stats" role="group" aria-label={t('bar.statistics')} title={t('bar.statistics')}>
     <div class="lat" title={stats?.audio_ms != null ? t('bar.audio', { ms: ms(stats.audio_ms, 0), gaps: stats.audio_gaps ?? 0 }) : undefined}>

@@ -29,8 +29,11 @@ public final class StreamView: NSView {
     public var commandAsControl = true
     /// Raccourcis gardés par le Mac (menus de l'app) : ⌃⌥⌘ + lettre.
     public static let reservedModifiers: NSEvent.ModifierFlags = [.control, .option, .command]
-    /// Distance du pointeur au bord supérieur, à chaque mouvement (barre au survol).
-    public var onPointerMoved: ((CGFloat) -> Void)?
+    /// Où est le pointeur du Mac sur la vue (points depuis son coin haut gauche),
+    /// à chaque mouvement ; nil dès qu'il n'y est plus (sorti de la vue, sur un
+    /// autre écran ou une autre app, fenêtre ou app qui perd le premier plan,
+    /// souris des jeux). La barre au pointeur en vit.
+    public var onPointerMoved: ((CGPoint?) -> Void)?
     /// Bande du haut réservée à l'app (barre ouverte) : rien n'y part vers l'ordinateur.
     public var reservedTopBand: CGFloat = 0
 
@@ -269,6 +272,7 @@ public final class StreamView: NSView {
     private func keyboardLost() {
         releaseEverything()
         evaluateRelative()
+        onPointerMoved?(nil)
     }
 
     /// Relâche sur l'ordinateur ce que cette vue y tient : touches,
@@ -305,6 +309,7 @@ public final class StreamView: NSView {
             guard let window, bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil)) else { return }
             input?.setRelative(true)
             relative.start()
+            onPointerMoved?(nil)
             updatePointerLayer()
             KyberLog.app.notice("souris en mode jeu (\(self.mouseMode == .game ? "choisi" : "jeu en plein écran", privacy: .public))")
             onRelativeChanged?(true)
@@ -340,13 +345,28 @@ public final class StreamView: NSView {
         return bounds.height - p.y < reservedTopBand
     }
 
+    /// Pointeur du Mac sur la vue, en points depuis son coin haut gauche ; nil
+    /// hors de la vue. La fenêtre clé reçoit les mouvements même quand le
+    /// pointeur est ailleurs (autre écran, barre de titre) : la position doit
+    /// donc être vérifiée, jamais supposée.
+    public var pointerSpot: CGPoint? {
+        guard let window else { return nil }
+        return spot(inWindow: window.mouseLocationOutsideOfEventStream)
+    }
+
+    private func spot(inWindow location: NSPoint) -> CGPoint? {
+        let p = convert(location, from: nil)
+        guard p.x >= 0, p.x <= bounds.width, p.y >= 0, p.y <= bounds.height else { return nil }
+        return CGPoint(x: p.x, y: bounds.height - p.y)
+    }
+
     private func sendPosition(_ event: NSEvent) {
         if relative.active {
             relative.appKitMoved(dx: event.deltaX, dy: event.deltaY)
             return
         }
         let p = convert(event.locationInWindow, from: nil)
-        onPointerMoved?(bounds.height - p.y)
+        onPointerMoved?(spot(inWindow: event.locationInWindow))
         guard let input, let layout, !inReservedBand(event) else { return }
         var local = kynput_Position(x: p.x, y: bounds.height - p.y)
         var host = kynput_Position(x: 0, y: 0)
@@ -355,6 +375,7 @@ public final class StreamView: NSView {
     }
 
     public override func mouseMoved(with event: NSEvent) { sendPosition(event) }
+    public override func mouseExited(with event: NSEvent) { onPointerMoved?(nil) }
     public override func mouseDragged(with event: NSEvent) { sendPosition(event) }
     public override func rightMouseDragged(with event: NSEvent) { sendPosition(event) }
     public override func otherMouseDragged(with event: NSEvent) { sendPosition(event) }

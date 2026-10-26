@@ -61,11 +61,16 @@ final class SessionController: NSObject, ObservableObject {
     @Published private(set) var sessionLosses = (frames: 0, packets: 0)
     /// Panneau des mesures détaillées, en bas à droite (⌃⌥⌘S).
     @Published private(set) var statsPanel = false
-    /// Bouton de fermeture du panneau, dans la couche de la session : seul
-    /// endroit du panneau qui prend les clics.
+    /// Bouton de fermeture du panneau, dans le repère de la vue de session :
+    /// seul endroit du panneau qui prend les clics.
     var statsCloseRect: CGRect = .zero
     /// Souris en mode jeu en ce moment.
     @Published private(set) var mouseCaptured = false
+    /// L'app est au premier plan (le trait de repère de la barre n'a de sens
+    /// que là) ; suivi par les notifications d'activation.
+    @Published private(set) var appActive = true
+    /// Trait de repère allumé dans l'image en ce moment.
+    private var markerShown = false
     /// Jeu en plein écran sur l'ordinateur, d'après la veille de la console.
     @Published private(set) var pcGame = false
     @Published private(set) var audioStats: AudioStats?
@@ -95,10 +100,11 @@ final class SessionController: NSObject, ObservableObject {
     @Published private(set) var screenOffer: ScreenMode?
     /// Capsule de la proposition, en haut de l'image (quelques secondes).
     @Published private(set) var screenOfferShown = false
-    /// Capsule de la proposition, dans l'espace « chrome » : seul endroit
-    /// cliquable hors de la barre.
+    /// Capsule de la proposition, dans le repère de la vue de session : seul
+    /// endroit cliquable hors de la barre.
     var screenOfferRect: CGRect = .zero
     private var screenObservers: [NSObjectProtocol] = []
+    private var activeObservers: [NSObjectProtocol] = []
     private var screenCheck: Task<Void, Never>?
     private var screenOfferHide: Task<Void, Never>?
     /// Plein écran recalé sur l'écran restant, en cours.
@@ -152,6 +158,9 @@ final class SessionController: NSObject, ObservableObject {
     private var engine: SessionEngine?
     /// Le cœur dit l'image en cours (l'apparition attend `revealDelay`).
     private var engineStreaming = false
+    /// Minuteurs de la barre au pointeur : l'ouverture (le pointeur reste
+    /// contre le bord haut) et la fermeture (le pointeur a quitté la barre).
+    private var openBar: Task<Void, Never>?
     private var hideBar: Task<Void, Never>?
     /// Écrans de l'ordinateur, pour le choix dans la barre (sans écran virtuel).
     @Published private(set) var screens: [KyberDisplay] = []
@@ -160,8 +169,36 @@ final class SessionController: NSObject, ObservableObject {
 
     /// Hauteur de la bande où vit la barre au survol.
     static let barBand: CGFloat = 96
-    /// Bande occupée par la barre (plus haute avec le bandeau manette).
-    var barHeight: CGFloat { padMode ? 150 : Self.barBand }
+    /// Le pointeur doit rester contre le bord haut de l'image ce temps-là pour
+    /// ouvrir la barre : un passage rapide ne l'ouvre pas.
+    private static let barOpenDelay: Duration = .milliseconds(250)
+    /// La barre se referme ce temps après que le pointeur l'a quittée.
+    private static let barCloseDelay: Duration = .milliseconds(400)
+    /// « Contre le bord haut » : à 2 points au plus du haut de l'image.
+    private static let barEdge: CGFloat = 2
+    /// Marge autour de la barre où le pointeur la tient encore ouverte.
+    private static let barMargin: CGFloat = 12
+    /// Largeur de la barre avant sa première mesure (zone d'ouverture).
+    private static let barEstimatedWidth: CGFloat = 1020
+    /// Rectangle de la barre dans la vue de session (origine en haut à
+    /// gauche), mesuré par SwiftUI ; gardé quand la barre se ferme, pour que
+    /// la zone d'ouverture ait sa largeur réelle.
+    var barRect: CGRect = .zero
+    /// Un menu de la barre est ouvert : elle reste là tant qu'il l'est, puis
+    /// se referme si le pointeur est resté loin d'elle.
+    var barMenuOpen = false {
+        didSet {
+            guard barMenuOpen != oldValue else { return }
+            if barMenuOpen { cancelBarTimers() } else { pointerMoved(streamView.pointerSpot) }
+        }
+    }
+    /// Bande occupée par la barre, depuis le bord haut de l'image (plus haute
+    /// avec le bandeau manette) : la barre mesurée et de quoi voir son ombre ;
+    /// avant la première mesure, la bande prévue.
+    var barHeight: CGFloat {
+        guard !barRect.isEmpty else { return padMode ? 150 : Self.barBand }
+        return barRect.maxY + (padMode ? 84 : 30)
+    }
 
     init(host: Host, store: HostStore, window: NSWindow?, onFinish: @escaping (SessionController) -> Void) {
         self.host = host
@@ -180,7 +217,7 @@ final class SessionController: NSObject, ObservableObject {
         container.autoresizingMask = [.width, .height]
         streamView.frame = container.bounds
         streamView.autoresizingMask = [.width, .height]
-        streamView.onPointerMoved = { [weak self] distance in self?.pointerMoved(distanceFromTop: distance) }
+        streamView.onPointerMoved = { [weak self] spot in self?.pointerMoved(spot) }
         container.addSubview(streamView)
         scene.frame = container.bounds
         scene.autoresizingMask = [.width, .height]
@@ -207,6 +244,12 @@ final class SessionController: NSObject, ObservableObject {
                 MainActor.assumeIsolated { self?.screensChanged() }
             },
         ]
+        appActive = NSApp.isActive
+        activeObservers = [NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification].map { name in
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.appActive = NSApp.isActive }
+            }
+        }
         windowDelegate.original = window.delegate
         windowDelegate.onClose = { [weak self] in
             guard let self, self.phase != .ended else { return }
@@ -233,6 +276,14 @@ final class SessionController: NSObject, ObservableObject {
         let streaming = phase == .streaming
         let needed = !streaming || barVisible || padMode || hint != nil || statsPanel || screenOfferShown
         if chrome?.isHidden == needed { chrome?.isHidden = !needed }
+        // Trait de repère de la barre, tracé dans l'image : là où le geste qui
+        // ouvre la barre est possible (app au premier plan, souris du bureau,
+        // barre fermée), pas ailleurs.
+        let marker = streaming && !barVisible && appActive && !mouseCaptured
+        if marker != markerShown {
+            markerShown = marker
+            engine?.setTopMarker(marker)
+        }
         if streaming {
             guard sceneHide == nil, !scene.isHidden else { return }
             sceneHide = Task { [weak self] in
@@ -278,22 +329,93 @@ final class SessionController: NSObject, ObservableObject {
 
     // MARK: - Barre au survol
 
-    private func pointerMoved(distanceFromTop distance: CGFloat) {
+    /// Largeur de la zone d'ouverture : celle de la barre, mesurée ou estimée.
+    private var barWidth: CGFloat { barRect.width > 0 ? barRect.width : Self.barEstimatedWidth }
+
+    /// Contre le bord haut de l'image, dans la largeur de la barre, centrée.
+    private func inOpenZone(_ spot: CGPoint) -> Bool {
+        spot.y <= Self.barEdge && abs(spot.x - streamView.bounds.width / 2) <= barWidth / 2
+    }
+
+    /// Sur la barre, à 12 points près, ou entre elle et le bord haut de
+    /// l'image (là où le pointeur l'a ouverte).
+    private func keepsBarOpen(_ spot: CGPoint) -> Bool {
+        let rect = barRect.isEmpty
+            ? CGRect(x: (streamView.bounds.width - barWidth) / 2, y: 0, width: barWidth, height: Self.barBand)
+            : barRect
+        return spot.x >= rect.minX - Self.barMargin && spot.x <= rect.maxX + Self.barMargin && spot.y <= rect.maxY + Self.barMargin
+    }
+
+    private func cancelBarTimers() {
+        openBar?.cancel()
+        openBar = nil
+        hideBar?.cancel()
+        hideBar = nil
+    }
+
+    /// Le pointeur a bougé (`spot` : sa place sur l'image, nil s'il n'y est
+    /// plus). Barre fermée, le rester contre le bord haut, dans la largeur de
+    /// la barre, la fait venir, sauf un bouton de la souris tenu (une fenêtre
+    /// de l'ordinateur glissée contre le bord) ; barre ouverte, la quitter la
+    /// fait partir. Dans les deux cas par un minuteur : un pointeur immobile
+    /// n'envoie plus rien, et il a fini de passer ou de partir quand le
+    /// minuteur sonne.
+    private func pointerMoved(_ spot: CGPoint?) {
         guard phase == .streaming else { return }
-        if distance < 3 {
-            hideBar?.cancel()
-            setBar(true)
-        } else if barVisible, !padMode, distance > Self.barBand + 30 {
-            hideBar?.cancel()
-            hideBar = Task { [weak self] in
-                try? await Task.sleep(for: .milliseconds(350))
-                guard !Task.isCancelled else { return }
-                self?.setBar(false)
+        if barVisible {
+            openBar?.cancel()
+            openBar = nil
+            // La manette ou un menu tient la barre ouverte.
+            guard !padMode, !barMenuOpen else {
+                hideBar?.cancel()
+                hideBar = nil
+                return
             }
+            if let spot, keepsBarOpen(spot) {
+                hideBar?.cancel()
+                hideBar = nil
+            } else if hideBar == nil {
+                hideBar = Task { [weak self] in
+                    try? await Task.sleep(for: Self.barCloseDelay)
+                    guard !Task.isCancelled else { return }
+                    self?.closeBarIfAway()
+                }
+            }
+        } else if let spot, inOpenZone(spot), NSEvent.pressedMouseButtons == 0 {
+            if openBar == nil {
+                openBar = Task { [weak self] in
+                    try? await Task.sleep(for: Self.barOpenDelay)
+                    guard !Task.isCancelled else { return }
+                    self?.openBarIfAtEdge()
+                }
+            }
+        } else {
+            openBar?.cancel()
+            openBar = nil
         }
     }
 
+    /// Le pointeur est resté contre le bord : la barre s'ouvre si tout y est
+    /// encore (app au premier plan, fenêtre de la session clé, pointeur sur
+    /// l'image, souris en mode bureau, aucun bouton tenu).
+    private func openBarIfAtEdge() {
+        openBar = nil
+        guard phase == .streaming, !barVisible, NSApp.isActive, window?.isKeyWindow == true, !streamView.isRelative,
+              NSEvent.pressedMouseButtons == 0, let spot = streamView.pointerSpot, inOpenZone(spot) else { return }
+        setBar(true)
+    }
+
+    /// Le pointeur a quitté la barre : elle se ferme, sauf s'il y est revenu
+    /// (aucun mouvement n'arrive tant qu'il est sur ses boutons : on regarde où il est).
+    private func closeBarIfAway() {
+        hideBar = nil
+        guard phase == .streaming, barVisible, !padMode, !barMenuOpen else { return }
+        if let spot = streamView.pointerSpot, keepsBarOpen(spot) { return }
+        setBar(false)
+    }
+
     func setBar(_ visible: Bool) {
+        cancelBarTimers()
         if !visible, padMode {
             padMode = false
             engine?.setGamepadCaptured(false)
@@ -315,7 +437,6 @@ final class SessionController: NSObject, ObservableObject {
         if padMode {
             setBar(false)
         } else {
-            hideBar?.cancel()
             padFocus = 0
             withAnimation(.easeOut(duration: 0.2)) { padMode = true }
             engine?.setGamepadCaptured(true)
@@ -777,6 +898,8 @@ final class SessionController: NSObject, ObservableObject {
         occlusionObserver = nil
         screenObservers.forEach { NotificationCenter.default.removeObserver($0) }
         screenObservers = []
+        activeObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        activeObservers = []
         screenCheck?.cancel()
         screenOfferHide?.cancel()
         if let window {

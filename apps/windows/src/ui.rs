@@ -1426,7 +1426,13 @@ fn set_profile(app: AppHandle, id: String, profile: String) -> Result<(), String
     Ok(())
 }
 
-/// La barre de session sur l'écran de la session, à sa taille sans menu.
+/// Largeur de la fenêtre de la barre de session, en points (la barre
+/// elle-même, centrée dedans, est plus étroite : `bar_width`).
+const BAR_WINDOW_WIDTH: f64 = 1040.0;
+
+/// La barre de session au bord haut de la zone cliente de la session (en
+/// plein écran, le haut de l'écran), centrée sur elle : là où le trait la
+/// signale et où le pointeur l'ouvre. À sa taille sans menu.
 fn show_bar(app: &AppHandle, hwnd: isize, label: BarLabel, pinned: bool) {
     let mut mi = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
     unsafe {
@@ -1437,11 +1443,16 @@ fn show_bar(app: &AppHandle, hwnd: isize, label: BarLabel, pinned: bool) {
     // Toujours à sa taille sans menu en se montrant.
     bar_menu(app.clone(), false);
     let Some(bar) = app.get_webview_window("bar") else { return };
-    let size = bar.outer_size().unwrap_or(tauri::PhysicalSize::new(1040, 76));
-    let x = r.left + ((r.right - r.left) - size.width as i32) / 2;
-    let _ = bar.set_position(tauri::PhysicalPosition::new(x, r.top));
+    // Session réduite ou sans fenêtre : le haut de l'écran.
+    let (center, top, scale) =
+        window::bar_anchor(hwnd).unwrap_or(((r.left + r.right) / 2, r.top, bar.scale_factor().unwrap_or(1.0) as f32));
+    // Sa largeur à l'échelle de l'écran où elle va, pas de celui où elle était.
+    let width = (BAR_WINDOW_WIDTH * scale as f64).round() as i32;
+    let x = (center - width / 2).max(r.left).min(r.right - width);
+    let _ = bar.set_position(tauri::PhysicalPosition::new(x, top.max(r.top)));
     let _ = bar.set_always_on_top(true);
     let _ = bar.show();
+    window::set_bar_visible(true);
     let _ = app.emit_to("bar", "bar-shown", BarShown { label, pinned });
 }
 
@@ -1473,8 +1484,16 @@ fn bar_menu(app: AppHandle, open: bool) {
     if let Some(bar) = app.get_webview_window("bar") {
         let scale = bar.scale_factor().unwrap_or(1.0);
         let h = if open { 300.0 } else { 76.0 };
-        let _ = bar.set_size(tauri::Size::Physical(tauri::PhysicalSize::new((1040.0 * scale) as u32, (h * scale) as u32)));
+        let _ = bar.set_size(tauri::Size::Physical(tauri::PhysicalSize::new((BAR_WINDOW_WIDTH * scale) as u32, (h * scale) as u32)));
     }
+}
+
+/// La barre dit sa largeur en points (le texte des mesures et la langue la
+/// font varier) : le pointeur l'ouvre dans une zone du bord haut centrée de
+/// cette largeur.
+#[tauri::command]
+fn bar_width(width: f64) {
+    window::set_bar_width(width);
 }
 
 /// La barre se cache : le clavier revient à la session.
@@ -1483,6 +1502,7 @@ fn bar_hide(app: AppHandle) {
     if let Some(bar) = app.get_webview_window("bar") {
         let _ = bar.hide();
     }
+    window::set_bar_visible(false);
     // Un menu ouvert laissait la fenêtre agrandie pour la fois suivante.
     bar_menu(app.clone(), false);
     if let Some(r) = app.state::<UiState>().session.lock().unwrap().as_ref() {
@@ -1694,6 +1714,7 @@ pub fn run(args: Vec<String>) {
             session_command,
             bar_hide,
             bar_menu,
+            bar_width,
             session_profile,
             take_action,
             app_info,
@@ -1726,7 +1747,7 @@ pub fn run(args: Vec<String>) {
             WebviewWindowBuilder::new(app, "bar", WebviewUrl::App("bar.html".into()))
                 .initialization_script(&lang_script)
                 .title(t("app.bar_title", &[]))
-                .inner_size(1040.0, 76.0)
+                .inner_size(BAR_WINDOW_WIDTH, 76.0)
                 .decorations(false)
                 .transparent(true)
                 .always_on_top(true)

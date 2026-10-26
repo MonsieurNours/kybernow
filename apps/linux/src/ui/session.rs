@@ -12,7 +12,7 @@ use super::icons::Icon;
 use super::theme::*;
 use super::widgets::{self, eyebrow, legend};
 use super::{unit, Frame};
-use crate::app::{App, BarMenu, Layout, MenuItem, Phase, Rect, SessionUi, Target, SHORTCUTS};
+use crate::app::{App, BarMenu, Layout, MenuItem, Phase, Rect, Screen, SessionUi, Target, SHORTCUTS};
 use crate::i18n::{decimal, tr};
 use crate::model::Profile;
 
@@ -37,6 +37,8 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
                 }
                 if s.bar && app.layout == Layout::Desktop {
                     bar(app, cv, f, s);
+                } else if bar_hint(app) {
+                    hint(cv);
                 }
                 if let Phase::Reconnecting { attempt, max } = s.phase {
                     capsule(app, cv, &format!("{} ({attempt}/{max})", tr("Reconnexion…", "Reconnecting…")), true);
@@ -270,24 +272,98 @@ fn ended(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi, error: Option
 
 // MARK: - Barre du bureau
 
+/// Hauteur de la barre du bureau.
+const BAR_H: f32 = 46.0;
+/// Le pointeur ouvre la barre à 2 points au plus du bord haut ; il la garde
+/// ouverte à 8 points au plus de son rectangle.
+const BAR_EDGE: f32 = 2.0;
+const BAR_MARGIN: f32 = 8.0;
+/// Le trait qui signale l'endroit (celui de l'app Mac : capsule blanche à 35 %,
+/// 220 × 3 points) et la hauteur du bandeau qui le contient.
+const HINT_W: f32 = 220.0;
+const HINT_H: f32 = 3.0;
+pub const HINT_STRIP: f32 = 4.0;
+
+/// Ce que la barre du bureau montre, mesuré : ses textes, leurs largeurs et sa
+/// largeur totale (selon le contenu). Le dessin et le geste du pointeur
+/// (zone d'ouverture, rectangle) partent de la même mesure.
+struct BarLayout {
+    lat: String,
+    info: String,
+    profile: &'static str,
+    quit: &'static str,
+    mono14: Text,
+    mono12: Text,
+    lat_w: f32,
+    info_w: f32,
+    prof_w: f32,
+    quit_w: f32,
+    total: f32,
+}
+
+impl BarLayout {
+    fn measure(cv: &mut Canvas, s: &SessionUi) -> Self {
+        let st = s.stats.clone().unwrap_or_default();
+        let lat = st.latency_ms.map(|v| format!("{} ms", decimal(v, 1))).unwrap_or_else(|| "— ms".into());
+        let info = if st.fps > 0.0 { format!("{} · {:.0} {} · {}", st.mode, st.fps, tr("i/s", "fps"), st.decoder) } else { st.mode.clone() };
+        let mono14 = Text::new(Font::MonoMedium, 14.0, FROST);
+        let mono12 = Text::new(Font::Mono, 12.0, MUTED);
+        let lat_w = cv.text_width(mono14, &lat);
+        let info_w = cv.text_width(mono12, &info);
+        let profile = home::profile_label(s.profile);
+        let prof_w = cv.text_width(Text::new(Font::Regular, 13.0, FROST), profile) + 34.0;
+        let quit = tr("Se déconnecter", "Disconnect");
+        let quit_w = cv.text_width(Text::new(Font::Semibold, 13.0, BAD_TEXT), quit) + 24.0;
+        let total = 16.0 + 16.0 + 12.0 + lat_w + 8.0 + 64.0 + 12.0 + 1.0 + 12.0 + info_w + 12.0 + 1.0 + 12.0 + prof_w + 12.0 + 34.0 * 3.0 + 24.0 + 1.0 + 12.0 + quit_w + 10.0;
+        Self { lat, info, profile, quit, mono14, mono12, lat_w, info_w, prof_w, quit_w, total }
+    }
+}
+
+/// Le rectangle de la barre ouverte : sa largeur réelle, centrée en haut.
+fn bar_frame(w: f32, total: f32) -> Rect {
+    Rect::new((w - total) / 2.0, -1.0, total, BAR_H + 1.0)
+}
+
+fn bar_rect(cv: &mut Canvas, s: &SessionUi) -> Rect {
+    let total = BarLayout::measure(cv, s).total;
+    bar_frame(cv.w, total)
+}
+
+/// Le pointeur est contre le bord haut, dans la zone centrée de la largeur de
+/// la barre : l'endroit où elle s'ouvre (après un quart de seconde).
+pub fn at_bar_edge(cv: &mut Canvas, s: &SessionUi, ux: f32, uy: f32) -> bool {
+    if uy > BAR_EDGE {
+        return false;
+    }
+    let r = bar_rect(cv, s);
+    ux >= r.x && ux < r.x + r.w
+}
+
+/// Le pointeur est sur la barre ouverte (son rectangle avec une petite marge)
+/// ou sur un de ses éléments (`hits`, menus compris).
+pub fn over_bar(cv: &mut Canvas, s: &SessionUi, hits: &[(Target, Rect)], ux: f32, uy: f32) -> bool {
+    let r = bar_rect(cv, s);
+    (ux >= r.x - BAR_MARGIN && ux < r.x + r.w + BAR_MARGIN && uy < r.y + r.h + BAR_MARGIN) || hits.iter().any(|(_, h)| h.contains(ux, uy))
+}
+
+/// Le trait se voit : bureau, image en cours, barre fermée, souris du bureau
+/// (en souris des jeux le pointeur est capturé, la barre ne vient pas ainsi).
+pub fn bar_hint(app: &App) -> bool {
+    app.layout == Layout::Desktop && app.screen == Screen::Session && app.session.as_ref().is_some_and(|s| matches!(s.phase, Phase::Streaming | Phase::Reconnecting { .. }) && !s.menu && !s.keys && !s.bar && !s.relative)
+}
+
+/// Le trait qui signale la barre, centré contre le bord haut.
+fn hint(cv: &mut Canvas) {
+    let x = (cv.w - HINT_W) / 2.0;
+    cv.rrect(x, 0.0, HINT_W, HINT_H, HINT_H / 2.0, Rgba(255, 255, 255, 89));
+}
+
 fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
-    let w = cv.w;
-    let h = 46.0;
-    // Largeur selon le contenu : mesurée d'abord.
+    let h = BAR_H;
     let st = s.stats.clone().unwrap_or_default();
-    let lat = st.latency_ms.map(|v| format!("{} ms", decimal(v, 1))).unwrap_or_else(|| "— ms".into());
-    let info = if st.fps > 0.0 { format!("{} · {:.0} {} · {}", st.mode, st.fps, tr("i/s", "fps"), st.decoder) } else { st.mode.clone() };
-    let mono14 = Text::new(Font::MonoMedium, 14.0, FROST);
-    let mono12 = Text::new(Font::Mono, 12.0, MUTED);
-    let lat_w = cv.text_width(mono14, &lat);
-    let info_w = cv.text_width(mono12, &info);
-    let profile = home::profile_label(s.profile);
-    let prof_w = cv.text_width(Text::new(Font::Regular, 13.0, FROST), profile) + 34.0;
-    let quit = tr("Se déconnecter", "Disconnect");
-    let quit_w = cv.text_width(Text::new(Font::Semibold, 13.0, BAD_TEXT), quit) + 24.0;
-    let total = 16.0 + 16.0 + 12.0 + lat_w + 8.0 + 64.0 + 12.0 + 1.0 + 12.0 + info_w + 12.0 + 1.0 + 12.0 + prof_w + 12.0 + 34.0 * 3.0 + 24.0 + 1.0 + 12.0 + quit_w + 10.0;
-    let x0 = (w - total) / 2.0;
-    let r = Rect::new(x0, -1.0, total, h + 1.0);
+    let BarLayout { lat, info, profile, quit, mono14, mono12, lat_w, info_w, prof_w, quit_w, total } = BarLayout::measure(cv, s);
+    let r = bar_frame(cv.w, total);
+    let x0 = r.x;
     cv.rrect(r.x, r.y - 12.0, r.w, r.h + 12.0, 12.0, Rgba(9, 13, 18, 235));
     cv.rrect_stroke(r.x, r.y - 12.0, r.w, r.h + 12.0, 12.0, 1.0, LINE_2);
     let cy = h / 2.0;
@@ -306,11 +382,11 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         cv.polyline(&pts, 1.5, SPECTRE);
     }
     x += 64.0 + 12.0;
-    cv.rect(x, cy - 11.0, 1.0, 22.0, LINE_2);
+    cv.rect(x.round(), cy - 11.0, 1.0, 22.0, LINE_2);
     x += 13.0;
     cv.text(x, cy + 4.0, mono12, &info);
     x += info_w + 12.0;
-    cv.rect(x, cy - 11.0, 1.0, 22.0, LINE_2);
+    cv.rect(x.round(), cy - 11.0, 1.0, 22.0, LINE_2);
     x += 13.0;
     // Profil (menu).
     let pr = Rect::new(x, cy - 15.0, prof_w, 30.0);
@@ -341,7 +417,7 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         x += 34.0;
     }
     x += 12.0;
-    cv.rect(x, cy - 11.0, 1.0, 22.0, LINE_2);
+    cv.rect(x.round(), cy - 11.0, 1.0, 22.0, LINE_2);
     x += 13.0;
     let qr = Rect::new(x, cy - 15.0, quit_w, 30.0);
     let (focused, hover) = f.state(Target::BarQuit, qr);
