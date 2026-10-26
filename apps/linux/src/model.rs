@@ -42,6 +42,11 @@ pub struct HostSettings {
     pub profile: Profile,
     /// 0 : comme cet écran ; sinon hauteur (2160, 1440, 1080, 800, 720).
     pub resolution: u32,
+    /// Écrans pris par la session (multi-écrans, docs/multi-ecrans.md) : `auto`
+    /// (tous les écrans de cet appareil en Bureau et Max, un seul en Jeu et
+    /// en Personnalisé), `this` (cet écran), `all` (tous les écrans). Gardé
+    /// comme le cœur (`DisplaysSetting`) ; ne rend jamais le profil « Personnalisé ».
+    pub displays: String,
     /// Images par seconde : 30, 60, 90, 120, 144 (0 : celle de l'écran).
     pub fps: u32,
     /// `auto`, `hevc`, `h264`, `av1`.
@@ -77,6 +82,7 @@ impl Default for HostSettings {
         Self {
             profile: Profile::Jeu,
             resolution: 0,
+            displays: "auto".into(),
             fps: 0,
             codec: "auto".into(),
             mbps: 0,
@@ -125,12 +131,22 @@ pub struct LastSession {
     /// « HEVC », « H.264 », « AV1 » ; vide : inconnu.
     #[serde(default)]
     pub codec: String,
+    /// Écrans pris par la session (0 ou 1 : un seul) ; avec plusieurs, la
+    /// définition et la fréquence sont celles de l'écran principal, le débit
+    /// le total.
+    #[serde(default)]
+    pub screens: u32,
 }
 
 impl LastSession {
-    /// Ce qui a été transmis : « 2560 × 1440 · 120 Hz · HEVC · 80 Mbit/s ».
+    /// Ce qui a été transmis : « 2560 × 1440 · 120 Hz · HEVC · 80 Mbit/s » ; avec
+    /// plusieurs écrans, leur nombre d'abord : « 3 écrans · 3840 × 2160 · 160 Hz
+    /// · HEVC · 120 Mbit/s » (docs/link-ui.md, « Statistiques »).
     pub fn transmitted(&self) -> String {
         let mut v: Vec<String> = Vec::new();
+        if self.screens >= 2 {
+            v.push(format!("{} {}", self.screens, crate::i18n::tr("écrans", "displays")));
+        }
         if !self.mode.is_empty() {
             v.push(self.mode.clone());
         }

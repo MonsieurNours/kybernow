@@ -7,6 +7,7 @@ mod app;
 mod app_time;
 #[cfg(feature = "device")]
 mod device;
+mod displays;
 mod i18n;
 mod model;
 mod preview;

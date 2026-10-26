@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use tiny_skia::Pixmap;
 
-use crate::app::{AddStep, App, BarMenu, Confirm, Found, HostLive, Layout, MenuItem, NetKind, Online, PadInfo, Phase, Screen, Section, SessionUi, Setting, StationKind, StationLive, StationOp, StationStep, Stats, Target};
+use crate::app::{AddStep, App, BarMenu, Confirm, Found, HostLive, Layout, MenuItem, NetKind, Online, PadInfo, Phase, Screen, ScreensPlan, Section, SessionUi, Setting, StationKind, StationLive, StationOp, StationStep, Stats, Target};
 use crate::model::{Host, HostSettings, LastSession, Profile, Store, WakeCard};
 use crate::ui::{self, canvas::Canvas};
 
@@ -74,7 +74,7 @@ fn demo(english: bool, layout: Layout) -> App {
     let mut store = Store::default();
     let mut a = host("a", "Tour du salon", "192.168.1.42");
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-    a.last = Some(LastSession { median: 6.8, p95: 9.4, seconds: 4320, mode: "1920 × 1200".into(), hz: 120, codec: "HEVC".into(), mbps: 38.0, at: now - 86400 });
+    a.last = Some(LastSession { median: 6.8, p95: 9.4, seconds: 4320, mode: "1920 × 1200".into(), hz: 120, codec: "HEVC".into(), mbps: 38.0, at: now - 86400, screens: 1 });
     store.hosts.push(a);
     let mut b = host("b", "Portable pro", "100.84.12.9");
     b.os = Some("Windows 11 Pro".into());
@@ -124,9 +124,9 @@ fn demo(english: bool, layout: Layout) -> App {
     app.net.kind = if layout == Layout::Tv { NetKind::Ethernet } else { NetKind::Wifi };
     app.net.link_mbps = Some(2500);
     app.net.band = Some("5 GHz".into());
-    app.live.insert("a".into(), HostLive { online: Online::Online, virtual_display: Some(true), station: Some(station("0.5.0", None)), own_device: Some(true) });
+    app.live.insert("a".into(), HostLive { online: Online::Online, virtual_display: Some(true), station: Some(station("0.5.0", None)), own_device: Some(true), max_screens: Some(4) });
     app.live.insert("b".into(), HostLive { online: Online::Offline, ..Default::default() });
-    app.live.insert("c".into(), HostLive { online: Online::Online, virtual_display: Some(true), station: Some(station("0.5.0", None)), own_device: Some(true) });
+    app.live.insert("c".into(), HostLive { online: Online::Online, virtual_display: Some(true), station: Some(station("0.5.0", None)), own_device: Some(true), max_screens: Some(4) });
     app.images.insert("a".into(), demo_image(1));
     app.image_is_last.insert("a".into(), true);
     app.found.push(Found { name: "MINI-PC".into(), address: "192.168.1.57".into(), port: 31207, fingerprint: Some("sha256:7c:3a:91:e0:4b:2d:a8:1f".into()) });
@@ -167,15 +167,21 @@ fn session(app: &App) -> SessionUi {
         started: Instant::now() - Duration::from_millis(2100),
         ending_since: None,
         opened_at: Some(Instant::now() - Duration::from_secs(30)),
+        screens: 1,
     }
 }
 
 /// Une capture : l'écran dessiné deux fois (la seconde avec le focus posé
 /// sur un élément inscrit au premier dessin).
 fn shot(app: &mut App, cv: &mut Canvas, video: Option<&Pixmap>, dir: &Path, name: &str) {
-    let hits = ui::draw(app, cv);
+    shot_view(app, cv, video, dir, name, ui::View::SINGLE);
+}
+
+/// Une capture d'une fenêtre d'une session à plusieurs écrans (voir `ui::View`).
+fn shot_view(app: &mut App, cv: &mut Canvas, video: Option<&Pixmap>, dir: &Path, name: &str, view: ui::View) {
+    let hits = ui::draw_view(app, cv, view);
     app.hits = hits;
-    let hits = ui::draw(app, cv);
+    let hits = ui::draw_view(app, cv, view);
     app.hits = hits;
     let out = match video {
         Some(v) => {
@@ -193,6 +199,83 @@ fn shot(app: &mut App, cv: &mut Canvas, video: Option<&Pixmap>, dir: &Path, name
         let _ = std::fs::write(&path, bytes);
         println!("{}", path.display());
     }
+}
+
+/// Plusieurs écrans (docs/multi-ecrans.md) : la ligne de l'accueil, la ligne « Écrans » des
+/// réglages (Auto, Tous les écrans, inactive), le nombre d'écrans des statistiques, et chaque
+/// fenêtre de la session : la connexion sur l'écran principal, le fond des autres, un écran
+/// que l'ordinateur n'a pas pu créer, le trait du haut, la barre sans « Plein écran ».
+fn multi_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, prefix: &str) {
+    let name = |n: &str| format!("{prefix}-{n}");
+    app.session = None;
+    app.store.selected = Some("a".into());
+    // L'accueil : trois écrans, à la taille de ceux de l'appareil.
+    app.screens_plan = ScreensPlan { count: 3, enabled: true, shown: 0 };
+    app.go(Screen::Home);
+    shot(app, cv, None, dir, &name("15-accueil-ecrans"));
+    // Les réglages : Auto, puis Tous les écrans, puis inactive (définition sur mesure).
+    app.open_host_section(Section::Picture, Screen::Home);
+    shot(app, cv, None, dir, &name("15b-reglages-ecrans-auto"));
+    if let Some(h) = app.store.host_mut("a") {
+        h.settings.displays = "all".into();
+    }
+    app.screens_plan = ScreensPlan { count: 3, enabled: true, shown: 2 };
+    app.open_host_section(Section::Picture, Screen::Home);
+    shot(app, cv, None, dir, &name("15c-reglages-ecrans-tous"));
+    if let Some(h) = app.store.host_mut("a") {
+        h.settings.resolution = 1080;
+    }
+    app.screens_plan = ScreensPlan { count: 1, enabled: false, shown: 1 };
+    app.open_host_section(Section::Picture, Screen::Home);
+    shot(app, cv, None, dir, &name("15d-reglages-ecrans-inactif"));
+    if let Some(h) = app.store.host_mut("a") {
+        h.settings.resolution = 0;
+        h.settings.displays = "auto".into();
+    }
+    // Les statistiques : leur nombre d'abord, puis l'écran principal et le débit total.
+    let last = app.store.host_mut("a").and_then(|h| h.last.take());
+    if let Some(h) = app.store.host_mut("a") {
+        h.last = Some(LastSession { median: 8.9, p95: 14.2, seconds: 2520, mode: "3840 × 2160".into(), hz: 160, codec: "HEVC".into(), mbps: 120.0, at: 0, screens: 3 });
+    }
+    app.open_host_section(Section::Statistics, Screen::Home);
+    shot(app, cv, None, dir, &name("15e-reglages-statistiques-ecrans"));
+    if let Some(h) = app.store.host_mut("a") {
+        h.last = last;
+    }
+    app.screens_plan = ScreensPlan::default();
+
+    // La session à trois écrans : la connexion sur l'écran principal, le fond sur les autres.
+    let mut s = session(app);
+    s.menu = false;
+    s.relative = false;
+    s.screens = 3;
+    s.phase = Phase::Connecting;
+    s.opened_at = None;
+    app.session = Some(s);
+    app.screen = Screen::Session;
+    app.focus = Target::CancelConnect;
+    let main = ui::View { main: true, bar: false, missing: false, has_frame: false };
+    let other = ui::View { main: false, bar: false, missing: false, has_frame: false };
+    shot_view(app, cv, None, dir, &name("16-connexion-ecrans-principal"), main);
+    shot_view(app, cv, None, dir, &name("16b-connexion-ecrans-autre"), other);
+    shot_view(app, cv, None, dir, &name("16c-ecran-non-cree"), ui::View { missing: true, ..other });
+    // Écran suivant : l'image, le trait du haut seul ; la barre dans la fenêtre du geste, sans « Plein écran ».
+    let mut s = session(app);
+    s.menu = false;
+    s.relative = false;
+    s.screens = 3;
+    s.opened_at = Some(Instant::now() - Duration::from_secs(30));
+    app.session = Some(s);
+    let shown = ui::View { main: false, bar: false, missing: false, has_frame: true };
+    shot_view(app, cv, Some(video), dir, &name("16d-ecrans-image-trait"), shown);
+    if let Some(s) = app.session.as_mut() {
+        s.bar = true;
+    }
+    app.pointer = Some((700.0, 20.0));
+    shot_view(app, cv, Some(video), dir, &name("16e-ecrans-barre"), ui::View { bar: true, ..shown });
+    app.pointer = None;
+    app.session = None;
+    app.screen = Screen::Home;
 }
 
 pub fn run(dir: &Path, lang: &str) {
@@ -426,6 +509,10 @@ pub fn run(dir: &Path, lang: &str) {
         app.focus = Target::Back;
         shot(&mut app, &mut cv, None, dir, &p("14-session-fin"));
         app.session = None;
+        // Plusieurs écrans : seulement au bureau (le Deck, le salon et l'OS restent sur un écran).
+        if layout == Layout::Desktop {
+            multi_shots(&mut app, &mut cv, &video, dir, prefix);
+        }
     }
 
     // Raspberry Pi 5 sous Raspberry Pi OS (interface Bureau, écran 1080p) : les
@@ -489,7 +576,7 @@ fn os_shots(en: bool, dir: &Path) {
     app.machine.audio_name = "vc4hdmi0".into();
     if let Some(h) = app.store.host_mut("a") {
         h.settings.profile = Profile::Jeu;
-        h.last = Some(LastSession { median: 9.8, p95: 14.0, seconds: 6000, mode: "3840 × 2160".into(), hz: 60, codec: "HEVC".into(), mbps: 60.0, at: 0 });
+        h.last = Some(LastSession { median: 9.8, p95: 14.0, seconds: 6000, mode: "3840 × 2160".into(), hz: 60, codec: "HEVC".into(), mbps: 60.0, at: 0, screens: 1 });
     }
     let mut cv = Canvas::new();
     cv.resize(1920, 1080, 1.0);
@@ -592,7 +679,7 @@ fn raspberry(app: &mut App) {
     app.net.band = None;
     if let Some(h) = app.store.host_mut("a") {
         h.settings.profile = Profile::Bureau;
-        h.last = Some(LastSession { median: 11.2, p95: 15.0, seconds: 6000, mode: "1920 × 1080".into(), hz: 60, codec: "HEVC".into(), mbps: 28.0, at: 0 });
+        h.last = Some(LastSession { median: 11.2, p95: 15.0, seconds: 6000, mode: "1920 × 1080".into(), hz: 60, codec: "HEVC".into(), mbps: 28.0, at: 0, screens: 1 });
     }
 }
 
@@ -717,20 +804,112 @@ mod tests {
         let (left, right) = (*painted.first().unwrap() as f32, *painted.last().unwrap() as f32 + 1.0);
         assert!(left > 100.0 && right < 1180.0 && ((left + right) / 2.0 - 640.0).abs() < 1.0, "centrée, plus étroite que la fenêtre");
         let s = app.session.clone().unwrap();
+        let w = cv.w;
         for y in [0.0, 1.0, 2.0] {
-            assert!(ui::at_bar_edge(&mut cv, &s, left + 2.0, y) && ui::at_bar_edge(&mut cv, &s, right - 2.0, y));
-            assert!(!ui::at_bar_edge(&mut cv, &s, left - 2.0, y) && !ui::at_bar_edge(&mut cv, &s, right + 2.0, y));
+            assert!(ui::at_bar_edge(&mut cv, &s, w, left + 2.0, y) && ui::at_bar_edge(&mut cv, &s, w, right - 2.0, y));
+            assert!(!ui::at_bar_edge(&mut cv, &s, w, left - 2.0, y) && !ui::at_bar_edge(&mut cv, &s, w, right + 2.0, y));
         }
-        assert!(!ui::at_bar_edge(&mut cv, &s, 640.0, 2.5), "au-delà de 2 points : pas contre le bord");
+        assert!(!ui::at_bar_edge(&mut cv, &s, w, 640.0, 2.5), "au-delà de 2 points : pas contre le bord");
         // Rester ouverte : sur la barre (même hors de ses boutons) et 8 points autour, pas plus loin.
         let none: Vec<(Target, crate::app::Rect)> = Vec::new();
-        assert!(ui::over_bar(&mut cv, &s, &none, 640.0, 30.0));
-        assert!(ui::over_bar(&mut cv, &s, &none, right + 7.0, 20.0));
-        assert!(!ui::over_bar(&mut cv, &s, &none, right + 9.0, 20.0));
-        assert!(ui::over_bar(&mut cv, &s, &none, left - 7.0, 20.0));
-        assert!(ui::over_bar(&mut cv, &s, &none, 640.0, 46.0 + 7.0));
-        assert!(!ui::over_bar(&mut cv, &s, &none, 640.0, 46.0 + 9.0), "plus de bande de 58 points");
-        assert!(!ui::over_bar(&mut cv, &s, &none, 100.0, 20.0), "pas sur toute la largeur");
+        assert!(ui::over_bar(&mut cv, &s, w, &none, 640.0, 30.0));
+        assert!(ui::over_bar(&mut cv, &s, w, &none, right + 7.0, 20.0));
+        assert!(!ui::over_bar(&mut cv, &s, w, &none, right + 9.0, 20.0));
+        assert!(ui::over_bar(&mut cv, &s, w, &none, left - 7.0, 20.0));
+        assert!(ui::over_bar(&mut cv, &s, w, &none, 640.0, 46.0 + 7.0));
+        assert!(!ui::over_bar(&mut cv, &s, w, &none, 640.0, 46.0 + 9.0), "plus de bande de 58 points");
+        assert!(!ui::over_bar(&mut cv, &s, w, &none, 100.0, 20.0), "pas sur toute la largeur");
+    }
+
+    /// Plusieurs écrans : ce que montre chaque fenêtre de la session. L'écran principal porte la
+    /// connexion ; les autres le même fond sans texte (sa couleur, pas la photo de l'accueil), ou
+    /// la ligne d'un écran que l'ordinateur n'a pas pu créer ; chaque écran passe à son image
+    /// dès sa première image ; le trait du haut dans toutes, la barre dans une seule.
+    #[test]
+    fn windows_of_several_displays() {
+        let (mut app, mut cv) = streaming(Layout::Desktop);
+        app.session.as_mut().unwrap().screens = 3;
+        let main = ui::View { main: true, bar: false, missing: false, has_frame: false };
+        let other = ui::View { main: false, bar: false, missing: false, has_frame: false };
+        // La connexion : l'écran principal dessine les étapes, les autres un aplat sans texte.
+        app.session.as_mut().unwrap().phase = Phase::Connecting;
+        app.session.as_mut().unwrap().opened_at = None;
+        assert!(ui::overlay_visible(&app, main) && ui::overlay_visible(&app, other));
+        ui::draw_view(&app, &mut cv, other);
+        let flat = (cv.pix.pixel(10, 10).unwrap(), cv.pix.pixel(640, 400).unwrap(), cv.pix.pixel(1270, 790).unwrap());
+        assert!(flat.0 == flat.1 && flat.1 == flat.2, "un aplat : pas de photo, pas de tube, pas de texte");
+        assert_eq!((flat.0.red(), flat.0.green(), flat.0.blue(), flat.0.alpha()), (5, 7, 10, 255));
+        let hits = ui::draw_view(&app, &mut cv, main);
+        assert!(hits.iter().any(|(t, _)| *t == Target::CancelConnect), "Annuler : sur l'écran principal");
+        // Un écran que l'ordinateur n'a pas pu créer : le même fond, avec une seule ligne.
+        ui::draw_view(&app, &mut cv, ui::View { missing: true, ..other });
+        let lit = (0..cv.pix.width()).filter(|x| cv.pix.pixel(*x, 400).unwrap() != flat.0).count();
+        assert!(lit > 100, "la ligne d'un écran non créé se lit au milieu");
+        let hits = ui::draw_view(&app, &mut cv, ui::View { missing: true, ..other });
+        assert!(hits.is_empty());
+
+        // À l'image : un écran qui n'a pas encore la sienne garde le fond ; avec elle, le trait seul.
+        app.session.as_mut().unwrap().phase = Phase::Streaming;
+        app.session.as_mut().unwrap().opened_at = Some(Instant::now() - Duration::from_secs(30));
+        assert!(ui::overlay_visible(&app, other) && !ui::hint_only(&app, other), "pas d'image : le fond de la connexion");
+        let shown = ui::View { has_frame: true, ..other };
+        assert!(ui::hint_only(&app, shown) && ui::hint_only(&app, ui::View { has_frame: true, ..main }), "le trait du haut dans chaque fenêtre");
+        // Barre ouverte dans une fenêtre : elle y est seule ; les autres montrent l'image seule.
+        app.session.as_mut().unwrap().bar = true;
+        let bar = ui::View { bar: true, ..shown };
+        assert!(!ui::hint_only(&app, bar) && ui::overlay_visible(&app, bar));
+        let hits = ui::draw_view(&app, &mut cv, bar);
+        assert!(!hits.is_empty() && hits.iter().any(|(t, _)| *t == Target::BarQuit));
+        assert!(!hits.iter().any(|(t, _)| *t == Target::BarFullscreen), "« Plein écran » n'est pas proposé avec plusieurs écrans");
+        assert!(!ui::overlay_visible(&app, shown), "ni trait ni barre ailleurs : l'image seule");
+        let hits = ui::draw_view(&app, &mut cv, shown);
+        assert!(hits.is_empty());
+        // Une seule fenêtre : tout est comme avant, avec « Plein écran ».
+        app.session.as_mut().unwrap().screens = 1;
+        let hits = ui::draw(&app, &mut cv);
+        assert!(hits.iter().any(|(t, _)| *t == Target::BarFullscreen));
+    }
+
+    /// La barre de plusieurs écrans dit leur nombre et n'a pas de « Plein écran » : plus étroite ;
+    /// chaque fenêtre a sa largeur (le geste d'ouverture est centré sur la sienne).
+    #[test]
+    fn bar_of_several_displays() {
+        let width = |cv: &Canvas| {
+            let painted: Vec<u32> = (0..cv.pix.width()).filter(|x| cv.pix.pixel(*x, 30).unwrap().alpha() > 0).collect();
+            (*painted.first().unwrap(), *painted.last().unwrap() + 1)
+        };
+        let (mut app, mut cv) = streaming(Layout::Desktop);
+        app.session.as_mut().unwrap().bar = true;
+        ui::draw(&app, &mut cv);
+        let one = width(&cv);
+        app.session.as_mut().unwrap().screens = 3;
+        ui::draw(&app, &mut cv);
+        let three = width(&cv);
+        assert!(three.1 - three.0 > 100 && one != three, "la barre de plusieurs écrans a sa propre largeur : son texte dit leur nombre, sans le bouton « Plein écran »");
+        // La zone d'ouverture est celle de la barre, centrée sur la fenêtre dont on donne la largeur.
+        let s = app.session.clone().unwrap();
+        let (left, right) = (three.0 as f32, three.1 as f32);
+        assert!(ui::at_bar_edge(&mut cv, &s, 1280.0, left + 2.0, 1.0));
+        for w in [1920.0f32, 2560.0] {
+            let shift = (w - 1280.0) / 2.0;
+            assert!(ui::at_bar_edge(&mut cv, &s, w, left + shift + 2.0, 1.0) && ui::at_bar_edge(&mut cv, &s, w, right + shift - 2.0, 1.0));
+            assert!(!ui::at_bar_edge(&mut cv, &s, w, left + shift - 2.0, 1.0) && !ui::at_bar_edge(&mut cv, &s, w, right + shift + 2.0, 1.0));
+        }
+    }
+
+    /// Les captures de plusieurs écrans se produisent, dans les deux langues.
+    #[test]
+    fn several_displays_shots() {
+        let dir = std::env::temp_dir().join(format!("kn-linux-ecrans-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        for en in [false, true] {
+            let mut app = demo(en, Layout::Desktop);
+            let mut cv = Canvas::new();
+            cv.resize(1280, 800, 1.0);
+            multi_shots(&mut app, &mut cv, &demo_image(3), &dir, "bureau");
+        }
+        assert!(dir.join("bureau-16c-ecran-non-cree.png").exists() && dir.join("bureau-15e-reglages-statistiques-ecrans.png").exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Les sept rubriques des réglages de l'ordinateur se dessinent aux trois
