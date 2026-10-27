@@ -2,7 +2,7 @@
 
 English · [Français](kybernow-share.md)
 
-KyberNow Share lets someone else in on your computer: a **spectator**, who sees and hears, or a **player**, whose controllers become Windows' next controller. This first step works **on the same network**; the relay (away from home) and a separate encode for a remote guest come next ([ROADMAP.en.md](../ROADMAP.en.md)). This document is the shared contract of the Station, the Rust core, every Link app and the web client.
+KyberNow Share lets someone else in on your computer: a **spectator**, who sees and hears, or a **player**, whose controllers become Windows' next controller, and who can also get the keyboard and mouse. Each guest gets a picture that suits them, without ever getting in the way of the host's. This first step works **on the same network**; the relay (away from home) comes next ([ROADMAP.en.md](../ROADMAP.en.md)). This document is the shared contract of the Station, the Rust core, every Link app and the web client.
 
 Sharing has no screens of its own: it reuses the home screen, the connection, the session bar and the settings of [link-ui.en.md](link-ui.en.md), which gives the exact texts (“Sharing” section). Every app behaves the same and uses the same words.
 
@@ -20,9 +20,9 @@ Sharing opens a panel: a six-digit **code** (“123 456”), a **link** and its 
 ### Guests
 
 - A guest **arrives as a spectator**: they see and hear, and send nothing.
-- In the list, the host can **“Let play”** a guest: their controllers become Windows' next controller (a virtual controller of their own). Then **“Give keyboard and mouse”**, if they want; “Take back keyboard and mouse” removes them. “Remove” makes them leave the share; they can come back with the same code, which “New code” prevents (guests already there stay).
+- In the list, the host gives or takes back from each guest **two independent rights**: **“Give controllers”** (their controllers become Windows' next controller, a virtual controller of their own) and **“Give keyboard and mouse”**; “Take back controllers”, “Take back keyboard and mouse” remove them, one without touching the other. “Remove” makes them leave the share; they can come back with the same code, which “New code” prevents (guests already there stay).
 - **Four guests at most.** Beyond that, the code is refused with the reason.
-- The Station enforces these rights: a spectator has no input on the computer, a player only their controllers (and the keyboard and mouse if the host gave them), even if their device tried to send something else.
+- The Station enforces these rights: a spectator has no input on the computer, a guest only what the host gave them (their controllers, the keyboard and mouse, or both; never the clipboard), even if their device tried to send something else.
 - Admin shows the share (display, guests, each one's role), can remove a guest and stop the share; its feed tells the story (“Léa is watching your screen”, “Léa is playing with you”).
 
 ### Joining
@@ -33,10 +33,14 @@ Sharing opens a panel: a six-digit **code** (“123 456”), a **link** and its 
 - A guest is **not added to the device's list of computers**: nothing is kept after the share, except their name.
 - End: “{host} stopped sharing.”, “{host} removed you from the share.” or a failure's reason; never “Take back control”.
 
-### What stays as before
+### A guest's picture
 
-- The picture is **shared**: the guest gets the format the host chose (H.264, HEVC, AV1) and its resolution. A device that cannot play that format says so before joining (“This device cannot play this computer's picture (HEVC).”). The separate encode comes with remote access.
-- A slow guest can slow down everyone's picture (Kyber waits for the slowest): rare on the same network; the separate encode will fix it.
+- **The host always comes first.** Nothing a guest does changes the computer's displays or the host's picture, and a guest's picture is never above the host's (resolution, frame rate, bitrate, 4:4:4): a guest asking for 5K with a host in 4K gets 4K.
+- The guest chooses their **“Picture quality”** on the “Join” screen and in their bar: “Auto” (suggested: from the device's screen and what its decoder keeps up with), “Same as host”, “1080p · 60 Hz”, “720p · 30 Hz”. Changing it restarts their picture only.
+- A guest who keeps up with the host's picture **shares** it (nothing more for the graphics card). The others get a **separate picture**, encoded for them from the same capture; guests asking for the same quality share theirs. **Two separate pictures at most** besides the host's (one on an Intel card); beyond that, the guest gets the nearest open picture, lighter, and is told so (“The computer can't make another picture: you get {quality}.”).
+- Kyber **no longer waits for a guest falling behind**: on the host's picture, they move by themselves to a lighter picture (“Picture lightened to keep up.”); the host sees nothing. On their separate picture, a guest can ask for a keyframe again after an error; on the host's picture, their requests are spaced out.
+- The host sees each guest's quality in their panel (“1080p · 60 Hz”), without changing it.
+- A device that cannot play the format of the picture it would get says so before joining (“This device cannot play this computer's picture (HEVC).”).
 
 ## Exchange with Admin
 
@@ -44,7 +48,7 @@ All JSON, on Admin's port, certificate pinned by fingerprint as today. The names
 
 **Guest** (no account; rate-limited like pairing: 10 tries per minute and per address, 6-digit codes):
 
-- `POST /api/share/join` — `{"code":"123456","name":"Léa","device":"<device id>","app":"mac|windows|linux|ios|tvos|android|webos|web"}` → `200 {"guest":"<id>","secret":"<guest token>","role":"spectator|player|player_kbm","host":"<host's name or the computer's name>","computer":"<name>","kyber":{"port":12345,"fingerprint":"sha256:…","token":"<JWT>","expires":120},"display":{"id":2221634456,"width":1920,"height":1080,"refresh":60},"codec":"h264|hevc|av1"|null,"yuv444":false,"beat":5}`. Errors: `404 {"error":"no_share"}`, `409 {"error":"full"}`, `429` (too many tries). `codec` is the current picture's format (absent if the picture has not started yet): the guest checks it can play it before opening the picture.
+- `POST /api/share/join` — `{"code":"123456","name":"Léa","device":"<device id>","app":"mac|windows|linux|ios|tvos|android|webos|web"}` → `200 {"guest":"<id>","secret":"<guest token>","role":"spectator|player|kbm|player_kbm","host":"<host's name or the computer's name>","computer":"<name>","kyber":{"port":12345,"fingerprint":"sha256:…","token":"<JWT>","expires":120},"display":{"id":2221634456,"width":1920,"height":1080,"refresh":60},"codec":"h264|hevc|av1"|null,"yuv444":false,"beat":5}`. Errors: `404 {"error":"no_share"}`, `409 {"error":"full"}`, `429` (too many tries). `codec` is the current picture's format (absent if the picture has not started yet): the guest checks it can play it before opening the picture.
 - `POST /api/share/beat` — header `x-kybernow-guest: <secret>`, `{"guest":"<id>"}`, every `beat` seconds → `{"role":"…","token":"<renewed JWT>","expires":120,"end":null|"stopped"|"removed"}`. Without a sign of life for 20 s, the guest leaves.
 - `POST /api/share/leave` — same header, `{"guest":"<id>"}`.
 
@@ -53,7 +57,7 @@ All JSON, on Admin's port, certificate pinned by fingerprint as today. The names
 - `POST /api/share/open` `{}` → `{"code":"123456","link":"kybernow://join?host=…&port=…&fp=…&code=123456","web":"https://<host>:<port>/link/?join=123456","display":{"id":…,"label":"Display 1"}}` (their main display).
 - `GET /api/share` → `{"open":true,"code":"…","link":"…","web":"…","display":{…},"guests":[{"id":"…","name":"Léa","app":"ios","role":"spectator","since":<Unix seconds>}]}`; the same in the reply to the host's sign of life (`heartbeat`, field `share`, absent without a share).
 - `POST /api/share/code` → a new code (same reply as `open`).
-- `POST /api/share/guest/{id}` `{"role":"spectator|player|player_kbm"}`; `DELETE /api/share/guest/{id}` (remove); `DELETE /api/share` (stop).
+- `POST /api/share/guest/{id}` `{"role":"spectator|player|kbm|player_kbm"}` (`player`: controllers; `kbm`: keyboard and mouse; `player_kbm`: both); `DELETE /api/share/guest/{id}` (remove); `DELETE /api/share` (stop).
 
 **The PC itself** (the clock icon's local routes, the PC user's token): `GET /api/local/displays` → `[{"id":2221634456,"name":"\\\\.\\DISPLAY1","label":"Display 1","width":3840,"height":2160,"primary":true}]`; `POST /api/local/share/open {"display":<id>}` and the same routes as the host under `/api/local/share…`. Admin (its home page) the same with its session.
 
@@ -103,6 +107,6 @@ Every Link app (Mac, Windows, Linux, iPhone, iPad, Apple TV, Android, LG TVs) an
 
 ## Outside this first step
 
-- Joining from outside the network (relay), a separate encode for a remote guest: the next steps of KyberNow Share.
+- Joining from outside the network (relay): the next step of KyberNow Share.
 - Lending the computer in turns (dedicated Windows account, launcher): later.
 - Several displays shared at once: a share shows one display.

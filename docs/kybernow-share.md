@@ -2,7 +2,7 @@
 
 [English](kybernow-share.en.md) · Français
 
-KyberNow Share fait entrer quelqu'un d'autre sur votre ordinateur : un **spectateur**, qui voit et entend, ou un **joueur**, dont les manettes deviennent la manette suivante de Windows. Ce premier pas vaut **sur le même réseau** ; le relais (hors de chez soi) et l'encodage à part pour un invité à distance viendront ensuite ([ROADMAP.md](../ROADMAP.md)). Ce document est le contrat commun de la Station, du cœur Rust, de toutes les apps Link et du client web.
+KyberNow Share fait entrer quelqu'un d'autre sur votre ordinateur : un **spectateur**, qui voit et entend, ou un **joueur**, dont les manettes deviennent la manette suivante de Windows, et qui peut aussi recevoir le clavier et la souris. Chaque invité a une image à sa mesure, sans jamais gêner celle de l'hôte. Ce premier pas vaut **sur le même réseau** ; le relais (hors de chez soi) viendra ensuite ([ROADMAP.md](../ROADMAP.md)). Ce document est le contrat commun de la Station, du cœur Rust, de toutes les apps Link et du client web.
 
 Le partage n'a pas d'écrans à lui : il reprend l'accueil, la connexion, la barre de session et les réglages de [link-ui.md](link-ui.md), qui donne les textes exacts (section « Partage »). Toutes les apps se comportent pareil et emploient les mêmes mots.
 
@@ -20,9 +20,9 @@ Partager ouvre un panneau : un **code** à six chiffres (« 123 456 »), un **li
 ### Les invités
 
 - Un invité **arrive en spectateur** : il voit et entend, n'envoie rien.
-- Dans la liste, l'hôte peut **« Faire jouer »** un invité : ses manettes deviennent la manette suivante de Windows (une manette virtuelle à lui). Puis **« Donner le clavier et la souris »**, s'il le veut ; « Reprendre le clavier et la souris » les lui retire. « Retirer » le fait sortir du partage ; il peut revenir avec le même code, « Nouveau code » l'en empêche (les invités déjà là restent).
+- Dans la liste, l'hôte donne ou reprend à chaque invité **deux droits indépendants** : **« Donner les manettes »** (ses manettes deviennent la manette suivante de Windows, une manette virtuelle à lui) et **« Donner le clavier et la souris »** ; « Reprendre les manettes », « Reprendre le clavier et la souris » les lui retirent, l'un sans toucher à l'autre. « Retirer » le fait sortir du partage ; il peut revenir avec le même code, « Nouveau code » l'en empêche (les invités déjà là restent).
 - **Quatre invités au plus.** Au-delà, le code est refusé avec la raison.
-- La Station impose ces droits : un spectateur n'a aucune entrée sur l'ordinateur, un joueur seulement ses manettes (et le clavier et la souris si l'hôte les lui a donnés), même si son appareil essayait d'envoyer autre chose.
+- La Station impose ces droits : un spectateur n'a aucune entrée sur l'ordinateur, un invité seulement ce que l'hôte lui a donné (ses manettes, le clavier et la souris, ou les deux ; jamais le presse-papiers), même si son appareil essayait d'envoyer autre chose.
 - Admin montre le partage (écran, invités, rôle de chacun), peut retirer un invité et arrêter le partage ; son fil le raconte (« Léa regarde votre écran », « Léa joue avec vous »).
 
 ### Rejoindre
@@ -33,10 +33,14 @@ Partager ouvre un panneau : un **code** à six chiffres (« 123 456 »), un **li
 - Un invité n'est **pas ajouté à la liste des ordinateurs** de l'appareil : rien n'est gardé après le partage, sauf son prénom.
 - Fin : « {hôte} a arrêté le partage. », « {hôte} vous a retiré du partage. » ou la raison d'un échec ; jamais « Reprendre la main ».
 
-### Ce qui reste comme avant
+### L'image d'un invité
 
-- L'image est **commune** : l'invité reçoit le format choisi par l'hôte (H.264, HEVC, AV1) et sa définition. Un appareil qui ne lit pas ce format le dit avant d'entrer (« Cet appareil ne lit pas l'image de cet ordinateur (HEVC). »). L'encodage à part vient avec l'accès à distance.
-- Un invité lent peut ralentir l'image de tous (Kyber attend le plus lent) : sur le même réseau, c'est rare ; l'encodage à part le réglera.
+- **L'hôte passe toujours en premier.** Rien de ce que fait un invité ne change l'écran de l'ordinateur ni l'image de l'hôte, et l'image d'un invité n'est jamais au-dessus de celle de l'hôte (définition, fréquence, débit, 4:4:4) : un invité qui demande du 5K avec un hôte en 4K reçoit du 4K.
+- L'invité choisit sa **« Qualité de l'image »** à l'écran « Rejoindre » et dans sa barre : « Auto » (proposé : d'après l'écran de l'appareil et ce que son décodeur suit), « Comme l'hôte », « 1080p · 60 Hz », « 720p · 30 Hz ». La changer relance son image seulement.
+- Un invité qui suit l'image de l'hôte la **partage** (rien de plus pour la carte graphique). Les autres reçoivent une **image à part**, encodée pour eux depuis la même capture ; les invités qui demandent la même qualité partagent la leur. **Deux images à part au plus** en plus de celle de l'hôte (une sur une carte Intel) ; au-delà, l'invité reçoit l'image ouverte la plus proche, plus légère, et le sait (« L'ordinateur ne peut pas faire une image de plus : vous recevez {qualité}. »).
+- Kyber **n'attend plus un invité en retard** : sur l'image de l'hôte, il passe seul sur une image plus légère (« Image allégée pour suivre. ») ; l'hôte ne voit rien. Sur son image à part, un invité peut redemander une image clé après une erreur ; sur l'image de l'hôte, ses demandes sont espacées.
+- L'hôte voit la qualité de chaque invité dans son panneau (« 1080p · 60 Hz »), sans la changer.
+- Un appareil qui ne lit pas le format de l'image qu'il recevrait le dit avant d'entrer (« Cet appareil ne lit pas l'image de cet ordinateur (HEVC). »).
 
 ## Échange avec Admin
 
@@ -44,7 +48,7 @@ Tout en JSON, sur le port d'Admin, certificat épinglé par empreinte comme aujo
 
 **Invité** (sans compte ; limité comme l'appairage : 10 essais par minute et par adresse, codes de 6 chiffres) :
 
-- `POST /api/share/join` — `{"code":"123456","name":"Léa","device":"<identifiant de l'appareil>","app":"mac|windows|linux|ios|tvos|android|webos|web"}` → `200 {"guest":"<id>","secret":"<jeton de l'invité>","role":"spectator|player|player_kbm","host":"<prénom de l'hôte ou nom de l'ordinateur>","computer":"<nom>","kyber":{"port":12345,"fingerprint":"sha256:…","token":"<JWT>","expires":120},"display":{"id":2221634456,"width":1920,"height":1080,"refresh":60},"codec":"h264|hevc|av1"|null,"yuv444":false,"beat":5}`. Erreurs : `404 {"error":"no_share"}`, `409 {"error":"full"}`, `429` (trop d'essais). `codec` est le format de l'image en cours (absent si l'image n'a pas encore démarré) : l'invité vérifie qu'il sait le lire avant d'ouvrir l'image.
+- `POST /api/share/join` — `{"code":"123456","name":"Léa","device":"<identifiant de l'appareil>","app":"mac|windows|linux|ios|tvos|android|webos|web"}` → `200 {"guest":"<id>","secret":"<jeton de l'invité>","role":"spectator|player|kbm|player_kbm","host":"<prénom de l'hôte ou nom de l'ordinateur>","computer":"<nom>","kyber":{"port":12345,"fingerprint":"sha256:…","token":"<JWT>","expires":120},"display":{"id":2221634456,"width":1920,"height":1080,"refresh":60},"codec":"h264|hevc|av1"|null,"yuv444":false,"beat":5}`. Erreurs : `404 {"error":"no_share"}`, `409 {"error":"full"}`, `429` (trop d'essais). `codec` est le format de l'image en cours (absent si l'image n'a pas encore démarré) : l'invité vérifie qu'il sait le lire avant d'ouvrir l'image.
 - `POST /api/share/beat` — en-tête `x-kybernow-guest: <secret>`, `{"guest":"<id>"}`, toutes les `beat` secondes → `{"role":"…","token":"<JWT renouvelé>","expires":120,"end":null|"stopped"|"removed"}`. Sans signe de vie pendant 20 s, l'invité sort.
 - `POST /api/share/leave` — même en-tête, `{"guest":"<id>"}`.
 
@@ -53,7 +57,7 @@ Tout en JSON, sur le port d'Admin, certificat épinglé par empreinte comme aujo
 - `POST /api/share/open` `{}` → `{"code":"123456","link":"kybernow://join?host=…&port=…&fp=…&code=123456","web":"https://<hôte>:<port>/link/?join=123456","display":{"id":…,"label":"Écran 1"}}` (son écran principal).
 - `GET /api/share` → `{"open":true,"code":"…","link":"…","web":"…","display":{…},"guests":[{"id":"…","name":"Léa","app":"ios","role":"spectator","since":<secondes Unix>}]}` ; la même chose dans la réponse au signe de vie de l'hôte (`heartbeat`, champ `share`, absent sans partage).
 - `POST /api/share/code` → nouveau code (même réponse que `open`).
-- `POST /api/share/guest/{id}` `{"role":"spectator|player|player_kbm"}` ; `DELETE /api/share/guest/{id}` (retirer) ; `DELETE /api/share` (arrêter).
+- `POST /api/share/guest/{id}` `{"role":"spectator|player|kbm|player_kbm"}` (`player` : les manettes ; `kbm` : le clavier et la souris ; `player_kbm` : les deux) ; `DELETE /api/share/guest/{id}` (retirer) ; `DELETE /api/share` (arrêter).
 
 **Le PC lui-même** (routes locales de l'icône près de l'horloge, jeton de l'utilisateur du PC) : `GET /api/local/displays` → `[{"id":2221634456,"name":"\\\\.\\DISPLAY1","label":"Écran 1","width":3840,"height":2160,"primary":true}]` ; `POST /api/local/share/open {"display":<id>}` et les mêmes routes que l'hôte sous `/api/local/share…`. Admin (sa page d'accueil) les mêmes avec sa session.
 
@@ -103,6 +107,6 @@ Toutes les apps Link (Mac, Windows, Linux, iPhone, iPad, Apple TV, Android, tél
 
 ## Hors de ce premier pas
 
-- Rejoindre hors du réseau (relais), l'encodage à part pour un invité à distance : étapes suivantes de KyberNow Share.
+- Rejoindre hors du réseau (relais) : étape suivante de KyberNow Share.
 - Le prêt de l'ordinateur à tour de rôle (compte Windows dédié, lanceur) : plus tard.
 - Plusieurs écrans partagés à la fois : le partage montre un écran.
