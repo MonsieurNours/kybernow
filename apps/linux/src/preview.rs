@@ -1749,7 +1749,7 @@ mod tests {
         }
     }
 
-    /// Le refus du cœur sous « Rejoindre » (jusqu'à deux lignes : le format illisible d'un 4:4:4, un refus d'Admin) reste dans la fenêtre
+    /// Le refus du cœur sous « Rejoindre » (jusqu'à deux lignes : un refus long d'Admin) reste dans la fenêtre
     /// la plus basse (960 × 600), sous le bouton.
     #[test]
     fn join_refusal_fits_the_smallest_window() {

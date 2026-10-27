@@ -464,8 +464,9 @@ pub fn share_view(st: &ShareState) -> Option<ShareView> {
     })
 }
 
-/// Ce que cet appareil décode, pour lire l'image de l'hôte d'un partage (son format, choisi par l'hôte, est
-/// vérifié avant d'entrer) : le HEVC par la carte ou le processeur, le 4:4:4 avec lui, l'AV1 par la carte.
+/// Ce que cet appareil décode, pour lire l'image d'un partage (le format de l'hôte qu'il ne lit pas ne le refuse
+/// plus : il reçoit une image qu'il lit, `share::guest_format`) : le HEVC par la carte ou le processeur, le 4:4:4
+/// avec lui, l'AV1 par la carte.
 pub fn guest_capabilities(m: &Machine) -> Capabilities {
     Capabilities { hevc: m.decodes("hevc"), hevc444: m.decodes("hevc"), av1: m.decodes("av1") }
 }

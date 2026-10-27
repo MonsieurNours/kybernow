@@ -79,7 +79,7 @@ apps/linux/
 │   ├── model.rs         computers, settings ($XDG_CONFIG_HOME/kybernow/kybernow.json, 0600)
 │   ├── displays.rs      the device's displays (frame, resolution, refresh rate; mirrors grouped), no SDL
 │   ├── ui/              drawing (tiny-skia, fontdue): launch, home, adding, settings,
-│   │                    controllers, session; join.rs (join a share), share.rs (host panel);
+│   │                    controllers, session; join.rs (join a share), share.rs (host panel), quality.rs (a guest's picture quality);
 │   │                    logo traced from the brand geometry
 │   ├── device/          SDL (window, events, sound), session (core Platform), picture
 │   │                    focus.rs: the app and the core's session registry (several computers)

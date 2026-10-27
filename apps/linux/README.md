@@ -79,7 +79,7 @@ apps/linux/
 │   ├── model.rs         ordinateurs, réglages ($XDG_CONFIG_HOME/kybernow/kybernow.json, 0600)
 │   ├── displays.rs      écrans de l'appareil (cadre, définition, fréquence ; recopies regroupées), sans SDL
 │   ├── ui/              dessin (tiny-skia, fontdue) : lancement, accueil, ajout, réglages,
-│   │                    manettes, session ; join.rs (rejoindre un partage), share.rs (panneau de l'hôte) ;
+│   │                    manettes, session ; join.rs (rejoindre un partage), share.rs (panneau de l'hôte), quality.rs (qualité de l'image d'un invité) ;
 │   │                    logo tracé depuis la géométrie de la charte
 │   ├── device/          SDL (fenêtre, événements, son), session (Platform du cœur), image
 │   │                    focus.rs : l'app et le registre des sessions du cœur (plusieurs ordinateurs)
