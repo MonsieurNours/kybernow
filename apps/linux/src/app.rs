@@ -71,6 +71,8 @@ pub enum Nav {
     Options,
     /// X : ajouter un ordinateur.
     Add,
+    /// Sélection (⧉) : « Rejoindre avec un code » (KyberNow Share).
+    Join,
     /// L1 / R1 : profil précédent, suivant (accueil) ; rubrique (réglages).
     PrevTab,
     NextTab,
@@ -103,6 +105,9 @@ pub struct HostLive {
     /// `GET /api/stream/info`, multi-écrans) ; `None` : pas encore su, ou une
     /// Station antérieure, qui n'en crée qu'un.
     pub max_screens: Option<usize>,
+    /// KyberNow Share : ce que « Partager » peut faire avec cet ordinateur
+    /// (`Info::share`) ; `None` : pas encore su.
+    pub share: Option<ShareAvail>,
 }
 
 /// Multi-écrans (docs/multi-ecrans.md) : ce que la session prendra pour
@@ -464,6 +469,8 @@ pub enum MenuItem {
     Stats,
     Light,
     Gamepads,
+    /// KyberNow Share : « Partager » (hôte).
+    Share,
     Disconnect,
 }
 
@@ -488,7 +495,297 @@ pub enum BarMenu {
     Keys,
     /// Les autres ordinateurs (plusieurs ordinateurs à la fois, docs/plusieurs-ordinateurs.md).
     Computers,
+    /// KyberNow Share : le panneau de l'hôte (code, QR code, invités).
+    Share,
 }
+
+// MARK: - KyberNow Share (docs/kybernow-share.md, textes : docs/link-ui.md, « Partage »)
+
+/// Le rôle d'un invité, que la Station impose : miroir de `kybernow_core::share::ShareRole`
+/// (l'interface seule, celle des captures et des tests sur Mac, n'a pas le cœur).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum ShareRole {
+    /// Voit et entend, n'envoie rien (le rôle d'arrivée).
+    #[default]
+    Spectator,
+    /// Ses manettes deviennent la manette suivante de Windows.
+    Player,
+    /// Joueur à qui l'hôte a donné le clavier et la souris.
+    PlayerKbm,
+}
+
+impl ShareRole {
+    /// L'invité joue : une chaîne d'entrées, au moins pour ses manettes.
+    pub fn plays(self) -> bool {
+        self != ShareRole::Spectator
+    }
+
+    /// Le clavier et la souris lui sont donnés.
+    pub fn kbm(self) -> bool {
+        self == ShareRole::PlayerKbm
+    }
+
+    /// « Spectateur », « Joueur » : la barre réduite de l'invité.
+    pub fn label(self) -> &'static str {
+        match self {
+            ShareRole::Spectator => tr("Spectateur", "Spectator"),
+            ShareRole::Player | ShareRole::PlayerKbm => tr("Joueur", "Player"),
+        }
+    }
+
+    /// « Spectateur », « Joueur », « Joueur, clavier et souris » : la liste de l'hôte.
+    pub fn long_label(self) -> &'static str {
+        match self {
+            ShareRole::Spectator => tr("Spectateur", "Spectator"),
+            ShareRole::Player => tr("Joueur", "Player"),
+            ShareRole::PlayerKbm => tr("Joueur, clavier et souris", "Player, keyboard and mouse"),
+        }
+    }
+
+    /// L'avis bref d'un rôle changé par l'hôte (docs/link-ui.md) ; rien au départ (`previous` nul). Un joueur
+    /// que l'hôte fait de nouveau regarder (avec ou sans le clavier et la souris) : « Vous regardez de nouveau. ».
+    pub fn notice(self, previous: Option<ShareRole>) -> Option<&'static str> {
+        match (previous?, self) {
+            (a, b) if a == b => None,
+            (_, ShareRole::Spectator) => Some(tr("Vous regardez de nouveau.", "You are watching again.")),
+            (_, ShareRole::PlayerKbm) => Some(tr("Vous avez le clavier et la souris.", "You have the keyboard and mouse.")),
+            (ShareRole::PlayerKbm, ShareRole::Player) => Some(tr("Le clavier et la souris sont repris.", "The keyboard and mouse were taken back.")),
+            (ShareRole::Spectator, ShareRole::Player) => Some(tr("Vous pouvez jouer.", "You can play.")),
+            _ => None,
+        }
+    }
+}
+
+/// Ce que « Partager » peut faire avec un ordinateur (`Info::share`) : miroir de
+/// `kybernow_core::share::ShareAvailability`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShareAvail {
+    /// Une Station antérieure à la 0.8.0.
+    Unsupported,
+    /// Le partage est coupé sur l'ordinateur (`multi_client` de Kyber).
+    Disabled,
+    Available,
+}
+
+impl ShareAvail {
+    /// Le texte de « Partager » inactif ; rien quand le partage est disponible.
+    pub fn text(self) -> Option<&'static str> {
+        match self {
+            ShareAvail::Unsupported => Some(tr("Le partage demande KyberNow Station 0.8.0 ou plus récente.", "Sharing needs KyberNow Station 0.8.0 or later.")),
+            ShareAvail::Disabled => Some(tr("Le partage est coupé sur cet ordinateur (Admin › Appareils Link).", "Sharing is turned off on this computer (Admin › Link devices).")),
+            ShareAvail::Available => None,
+        }
+    }
+}
+
+/// Un invité du partage de l'hôte (`ShareGuest` du cœur).
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct ShareGuest {
+    pub id: String,
+    pub name: String,
+    pub role: ShareRole,
+    /// `mac`, `windows`, `linux`, `ios`, `tvos`, `android`, `webos`, `web`.
+    pub app: String,
+    /// Son arrivée (secondes depuis 1970), telle que la Station la donne.
+    pub since: Option<i64>,
+}
+
+impl ShareGuest {
+    /// « Léa · Spectateur », « Léa · Joueur », « Léa · Joueur, clavier et souris ».
+    pub fn line(&self) -> String {
+        format!("{} · {}", self.name, self.role.long_label())
+    }
+
+    /// « iPhone ou iPad · depuis 4 minutes » : son app, et depuis quand il est là (`now` : secondes
+    /// depuis 1970). Sans arrivée lisible, l'app seule.
+    pub fn meta(&self, now: i64) -> String {
+        let app = app_label(&self.app);
+        match self.since {
+            Some(t) => {
+                // Une Station qui donne des millisecondes reste lisible.
+                let t = if t > 100_000_000_000 { t / 1000 } else { t };
+                let d = tr("depuis", "for");
+                format!("{app} · {d} {}", duration_label((now - t).max(0) as u64))
+            }
+            None => app,
+        }
+    }
+}
+
+/// L'app d'un invité (champ `app`) : Mac, Windows, Linux, « iPhone ou iPad », Apple TV, Android,
+/// « Téléviseur LG », « Navigateur » ; une app inconnue (Station plus récente) se dit telle quelle.
+pub fn app_label(app: &str) -> String {
+    match app {
+        "mac" => "Mac".into(),
+        "windows" => "Windows".into(),
+        "linux" => "Linux".into(),
+        "ios" => tr("iPhone ou iPad", "iPhone or iPad").into(),
+        "tvos" => "Apple TV".into(),
+        "android" => "Android".into(),
+        "webos" => tr("Téléviseur LG", "LG TV").into(),
+        "web" => tr("Navigateur", "Browser").into(),
+        other => other.into(),
+    }
+}
+
+/// « moins d'une minute », « 42 minutes », « 2 h 05 » (le format d'Admin) : la durée d'un invité.
+pub fn duration_label(seconds: u64) -> String {
+    let m = seconds / 60;
+    if m < 1 {
+        tr("moins d'une minute", "less than a minute").into()
+    } else if m < 60 {
+        format!("{m} {}", if m == 1 { tr("minute", "minute") } else { tr("minutes", "minutes") })
+    } else {
+        format!("{} h {:02}", m / 60, m % 60)
+    }
+}
+
+/// Le partage ouvert d'une session d'hôte (`ShareState` du cœur) : le code à six chiffres, le lien des
+/// apps (`kybernow://join?…`, celui du QR code), l'adresse du client web (« Copier le lien ») et les
+/// invités. Quatre au plus.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct ShareView {
+    pub code: String,
+    pub link: String,
+    pub web: String,
+    pub guests: Vec<ShareGuest>,
+}
+
+/// Les invités qu'un partage reçoit au plus.
+pub const MAX_GUESTS: usize = 4;
+
+/// « 2 invités », « 1 invité », « 0 invité » ; “2 guests”, “1 guest” : la pastille de la barre.
+pub fn guests_label(n: usize) -> String {
+    if crate::i18n::english() {
+        format!("{n} {}", if n == 1 { "guest" } else { "guests" })
+    } else {
+        format!("{n} {}", if n >= 2 { "invités" } else { "invité" })
+    }
+}
+
+/// « 123 456 » : le code d'un partage (six chiffres, groupés par trois), tel quel s'il n'en a pas six.
+pub fn format_code(code: &str) -> String {
+    if code.len() == 6 && code.chars().all(|c| c.is_ascii_digit()) { format!("{} {}", &code[..3], &code[3..]) } else { code.to_string() }
+}
+
+/// « Invité sur Atelier », “Guest on Atelier” : le titre d'une session d'invité.
+pub fn guest_title(computer: &str) -> String {
+    format!("{} {computer}", tr("Invité sur", "Guest on"))
+}
+
+/// Un bouton de la ligne d'un invité (hors « Retirer »).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShareMove {
+    /// « Faire jouer » : `ShareRole(i)`.
+    Play,
+    /// « Faire regarder » : `ShareRole(i)`.
+    Watch,
+    /// « Donner » ou « Reprendre le clavier et la souris » : `ShareKbm(i)`.
+    Kbm,
+}
+
+impl ShareMove {
+    /// Ce que dit le bouton, et la cible qu'il inscrit pour l'invité `i`.
+    pub fn label(self, role: ShareRole) -> &'static str {
+        match (self, role) {
+            (ShareMove::Play, _) => tr("Faire jouer", "Let play"),
+            (ShareMove::Watch, _) => tr("Faire regarder", "Watch only"),
+            (ShareMove::Kbm, ShareRole::PlayerKbm) => tr("Reprendre le clavier et la souris", "Take back keyboard and mouse"),
+            (ShareMove::Kbm, _) => tr("Donner le clavier et la souris", "Give keyboard and mouse"),
+        }
+    }
+
+    pub fn target(self, i: usize) -> Target {
+        match self {
+            ShareMove::Play | ShareMove::Watch => Target::ShareRole(i),
+            ShareMove::Kbm => Target::ShareKbm(i),
+        }
+    }
+}
+
+impl ShareRole {
+    /// Ce que l'hôte peut faire d'un invité de ce rôle, comme le panneau d'Admin : un spectateur, « Faire
+    /// jouer » ; un joueur, « Donner le clavier et la souris » et « Faire regarder » ; un joueur avec le
+    /// clavier et la souris, « Reprendre le clavier et la souris ». Puis « Retirer ».
+    pub fn moves(self) -> &'static [ShareMove] {
+        match self {
+            ShareRole::Spectator => &[ShareMove::Play],
+            ShareRole::Player => &[ShareMove::Kbm, ShareMove::Watch],
+            ShareRole::PlayerKbm => &[ShareMove::Kbm],
+        }
+    }
+}
+
+/// Ce que fait l'hôte dans le panneau de son partage.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ShareOp {
+    /// « Partager » : ouvre le partage de l'écran principal.
+    Open,
+    /// « Nouveau code » : les invités déjà là restent.
+    NewCode,
+    /// « Faire jouer », « Donner le clavier et la souris », « Reprendre le clavier et la souris ».
+    Role(String, ShareRole),
+    /// « Retirer ».
+    Kick(String),
+    /// « Arrêter le partage » : tout le monde sort.
+    Close,
+}
+
+/// Ce que l'invité tient de sa session (une session d'invité n'a pas d'ordinateur dans la liste de l'appareil).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GuestUi {
+    /// Le nom de l'ordinateur qui partage.
+    pub computer: String,
+    pub role: ShareRole,
+}
+
+/// Le champ que la saisie de « Rejoindre un partage » remplit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JoinField {
+    /// Le code à six chiffres.
+    Code,
+    /// « Votre prénom ».
+    Name,
+}
+
+/// L'écran « Rejoindre un partage » : le code, le prénom (proposé : le nom de l'appareil, retenu), la
+/// recherche en cours et ce que le cœur a répondu.
+#[derive(Clone, Debug)]
+pub struct JoinState {
+    /// Les chiffres tapés, six au plus.
+    pub code: String,
+    pub name: String,
+    pub field: JoinField,
+    /// Majuscule du pavé des lettres (manette), pour la touche suivante.
+    pub shift: bool,
+    /// « Recherche du partage… » : le code est parti aux ordinateurs du réseau.
+    pub busy: bool,
+    /// Le refus du cœur (« Aucun partage avec ce code sur le réseau. »…).
+    pub message: Option<String>,
+    /// Numéro de la recherche : une réponse d'une recherche abandonnée n'ouvre rien.
+    pub attempt: u32,
+    pub started: Instant,
+}
+
+impl JoinState {
+    pub fn new() -> Self {
+        Self { code: String::new(), name: String::new(), field: JoinField::Code, shift: false, busy: false, message: None, attempt: 0, started: Instant::now() }
+    }
+
+    /// Six chiffres et un prénom : « Rejoindre » peut partir.
+    pub fn ready(&self) -> bool {
+        self.code.len() == 6 && !self.name.trim().is_empty()
+    }
+}
+
+impl Default for JoinState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Les prénoms ne dépassent pas cette longueur.
+pub const NAME_MAX: usize = 24;
 
 /// Identifiant d'une session de l'app : il croît à chaque session ouverte et ne se réutilise
 /// pas (un événement qui arrive après la fin d'une session ne vise jamais la suivante).
@@ -542,6 +839,16 @@ pub struct SessionUi {
     pub keep_sound: bool,
     /// La fenêtre de la session est en plein écran (« Plein écran » de la barre).
     pub fullscreen: bool,
+    /// KyberNow Share, session d'hôte : le partage ouvert (`None` : pas de partage), le panneau montré
+    /// (à la manette ; au bureau, c'est le menu `BarMenu::Share` de la barre), une demande à Admin en cours,
+    /// l'adresse du client web copiée (réussie ou non : le panneau le dit un instant), et ce qu'Admin a refusé.
+    pub share: Option<ShareView>,
+    pub share_panel: bool,
+    pub share_busy: bool,
+    pub share_copied: Option<(Instant, bool)>,
+    pub share_error: Option<String>,
+    /// KyberNow Share, session d'invité : l'ordinateur qui partage et le rôle donné par l'hôte.
+    pub guest: Option<GuestUi>,
 }
 
 impl SessionUi {
@@ -571,7 +878,36 @@ impl SessionUi {
             expected_screens,
             keep_sound: false,
             fullscreen: false,
+            share: None,
+            share_panel: false,
+            share_busy: false,
+            share_copied: None,
+            share_error: None,
+            guest: None,
         }
+    }
+
+    /// Une session d'invité d'un partage (« Invité sur Atelier ») : arrivé en spectateur, jamais dans la
+    /// liste des ordinateurs (`key` : une clé propre à la session, que le magasin ne connaît pas).
+    pub fn guest(id: SessionId, key: &str, computer: &str, role: ShareRole) -> Self {
+        let mut s = Self::new(id, key, &guest_title(computer), Profile::Jeu, false, false, 1);
+        s.guest = Some(GuestUi { computer: computer.into(), role });
+        s
+    }
+
+    /// Le rôle de l'invité ; `None` pour une session d'hôte.
+    pub fn role(&self) -> Option<ShareRole> {
+        self.guest.as_ref().map(|g| g.role)
+    }
+
+    /// Clavier et souris vont à l'ordinateur : une session d'hôte, ou un joueur à qui ils sont donnés.
+    pub fn keyboard_mouse(&self) -> bool {
+        self.guest.as_ref().is_none_or(|g| g.role.kbm())
+    }
+
+    /// Un panneau du partage est montré par-dessus l'image.
+    pub fn share_overlay(&self) -> bool {
+        self.share_panel || self.bar_menu == Some(BarMenu::Share)
     }
 
     /// La session est en cours : pas finie. Une session finie sur une erreur reste dans la liste avec son
@@ -829,6 +1165,8 @@ pub enum Screen {
     Launch,
     Home,
     Add,
+    /// KyberNow Share : « Rejoindre un partage » (code et prénom).
+    Join,
     Settings,
     Gamepads,
     Session,
@@ -940,6 +1278,8 @@ pub enum Target {
     Host(usize),
     Found(usize),
     AddCard,
+    /// « Rejoindre avec un code » sur l'accueil.
+    JoinCard,
     Wake,
     /// Hors ligne, sans adresse MAC : sonder l'ordinateur à nouveau.
     Retry,
@@ -983,6 +1323,20 @@ pub enum Target {
     BarComputers,
     BarComputer(usize),
     BarSound,
+    /// KyberNow Share, invité : les champs de « Rejoindre un partage » et le bouton « Rejoindre ».
+    JoinCode,
+    JoinName,
+    JoinGo,
+    /// KyberNow Share, hôte : « Partager » dans la barre ; le panneau (copier le lien, le rôle d'un
+    /// invité, le clavier et la souris, retirer, nouveau code, arrêter, fermer).
+    BarShare,
+    ShareCopy,
+    ShareRole(usize),
+    ShareKbm(usize),
+    ShareKick(usize),
+    ShareNewCode,
+    ShareStop,
+    ShareClose,
     /// Une mise à jour est publiée : sa page.
     UpdateNotice,
     /// KyberNow Link OS : premier démarrage.
@@ -1020,6 +1374,14 @@ pub enum Action {
     /// Redémarrer ou mettre à jour la Station de cet ordinateur ; `force` :
     /// même si un appareil est en session.
     Station { host: String, kind: StationKind, force: bool },
+    /// KyberNow Share, invité : le code part aux ordinateurs du réseau (`share::join_checked`).
+    JoinShare { code: String, name: String },
+    /// KyberNow Share, hôte : une demande à Admin pour le partage de cette session.
+    Share(SessionId, ShareOp),
+    /// Copier ce texte (le lien du partage) dans le presse-papiers du système.
+    CopyText(String),
+    /// La saisie de texte de SDL, sans le clavier de Steam (« Rejoindre un partage »).
+    TextInput,
     Rumble { pad: usize, low: u16, high: u16, triggers: bool },
     Shortcut(SessionId, Vec<u16>),
     SetProfile(SessionId, Profile),
@@ -1139,6 +1501,8 @@ pub struct App {
     /// Multi-écrans : ce que la session prendra pour l'ordinateur choisi
     /// (rempli par la couche appareil à chaque tour de boucle).
     pub screens_plan: ScreensPlan,
+    /// KyberNow Share : l'écran « Rejoindre un partage ».
+    pub join: JoinState,
 }
 
 impl App {
@@ -1333,6 +1697,7 @@ impl App {
             station_op: None,
             waking: None,
             screens_plan: ScreensPlan::default(),
+            join: JoinState::new(),
         }
     }
 
@@ -1448,6 +1813,12 @@ impl App {
                 AddStep::Address | AddStep::Mac => Target::KeyOk,
                 AddStep::Verify { .. } => Target::VerifyOk,
             },
+            Screen::Join => match (self.layout.console(), self.join.field) {
+                (false, JoinField::Code) => Target::JoinCode,
+                (false, JoinField::Name) => Target::JoinName,
+                (true, JoinField::Code) => Target::Key('1'),
+                (true, JoinField::Name) => Target::Key('q'),
+            },
             Screen::Settings => {
                 if self.layout == Layout::Desktop {
                     self.first_setting().map(Target::Setting).unwrap_or(Target::Back)
@@ -1526,6 +1897,11 @@ impl App {
     /// Le mot de passe d'un réseau Wi-Fi est en cours de saisie.
     pub fn typing_password(&self) -> bool {
         self.screen == Screen::Setup && self.setup.step == SetupStep::Network && self.setup.wifi_pick.is_some()
+    }
+
+    /// « Rejoindre un partage » : le code ou le prénom est en cours de saisie.
+    pub fn typing_join(&self) -> bool {
+        self.screen == Screen::Join
     }
 
     /// L'étape suivante du premier démarrage (ou la fin de l'étape seule).
@@ -1654,11 +2030,27 @@ impl App {
             return Vec::new();
         }
         match n {
+            // « Rejoindre un partage » : Entrée dans un champ passe au suivant, ou rejoint quand tout est donné.
+            Nav::Ok if self.screen == Screen::Join && matches!(self.focus, Target::JoinCode | Target::JoinName) => {
+                if self.join.ready() {
+                    return self.activate(Target::JoinGo);
+                }
+                let (field, focus) = if self.focus == Target::JoinCode { (JoinField::Name, Target::JoinName) } else { (JoinField::Code, Target::JoinCode) };
+                self.join.field = field;
+                self.focus = focus;
+                Vec::new()
+            }
             Nav::Ok => {
                 let t = self.focus;
                 self.activate(t)
             }
             Nav::Back => self.back(),
+            Nav::Join => {
+                if self.screen == Screen::Home {
+                    return self.activate(Target::JoinCard);
+                }
+                Vec::new()
+            }
             Nav::Options => {
                 if self.screen == Screen::Home && !self.store.hosts.is_empty() {
                     return self.activate(Target::HostSettings);
@@ -1713,13 +2105,13 @@ impl App {
                 }
             }
             Nav::Char(c) => {
-                if self.screen == Screen::Add && matches!(self.add.step, AddStep::Address | AddStep::Mac) || self.typing_password() {
+                if self.screen == Screen::Add && matches!(self.add.step, AddStep::Address | AddStep::Mac) || self.typing_password() || self.typing_join() {
                     return self.activate(Target::Key(c));
                 }
                 Vec::new()
             }
             Nav::Erase => {
-                if self.screen == Screen::Add && matches!(self.add.step, AddStep::Address | AddStep::Mac) || self.typing_password() {
+                if self.screen == Screen::Add && matches!(self.add.step, AddStep::Address | AddStep::Mac) || self.typing_password() || self.typing_join() {
                     return self.activate(Target::KeyErase);
                 }
                 Vec::new()
@@ -1738,8 +2130,22 @@ impl App {
             }
             _ => {
                 self.move_focus(n);
+                self.follow_join_field();
                 Vec::new()
             }
+        }
+    }
+
+    /// « Rejoindre un partage » : le champ que le focus atteint avec les flèches devient celui où l'on tape
+    /// (au pavé, le pavé change : chiffres pour le code, lettres pour le prénom).
+    fn follow_join_field(&mut self) {
+        if self.screen != Screen::Join {
+            return;
+        }
+        match self.focus {
+            Target::JoinCode => self.join.field = JoinField::Code,
+            Target::JoinName => self.join.field = JoinField::Name,
+            _ => {}
         }
     }
 
@@ -1809,6 +2215,13 @@ impl App {
                     Vec::new()
                 }
             },
+            // Une recherche en cours est abandonnée : sa réponse n'ouvrira rien (elle repart de la Station).
+            Screen::Join => {
+                self.join.attempt += 1;
+                self.join.busy = false;
+                self.go(Screen::Home);
+                Vec::new()
+            }
             Screen::Standby => {
                 self.standby = false;
                 self.go(Screen::Home);
@@ -1897,6 +2310,14 @@ impl App {
                     self.focus = Target::Menu(MenuItem::Keys);
                     return Vec::new();
                 }
+                // Le panneau du partage se referme sur l'image (il s'ouvre depuis le menu, ou la barre).
+                if s.share_overlay() {
+                    s.share_panel = false;
+                    if s.bar_menu == Some(BarMenu::Share) {
+                        s.bar_menu = None;
+                    }
+                    return Vec::new();
+                }
                 s.menu = !s.menu;
                 if s.menu {
                     self.focus = Target::Menu(MenuItem::Resume);
@@ -1912,6 +2333,7 @@ impl App {
     pub fn open_menu(&mut self) -> Vec<Action> {
         if let Some(s) = Self::active_in(&mut self.sessions, self.active)
             && !s.menu
+            && !s.share_panel
             && matches!(s.phase, Phase::Streaming | Phase::Reconnecting { .. })
         {
             let id = s.id;
@@ -1973,11 +2395,73 @@ impl App {
                 self.start_add();
                 vec![Action::StartPairing]
             }
+            Target::JoinCard => self.start_join(),
+            Target::JoinCode => {
+                self.join.field = JoinField::Code;
+                Vec::new()
+            }
+            Target::JoinName => {
+                self.join.field = JoinField::Name;
+                Vec::new()
+            }
+            Target::JoinGo => self.join_go(),
+            Target::BarShare => self.share_button(),
+            // « Copier le lien » copie l'adresse du client web (`web`) ; le QR code porte le lien des apps.
+            Target::ShareCopy => match self.session().and_then(|s| s.share.as_ref().map(|v| (s.id, v.web.clone()))) {
+                Some((id, web)) => {
+                    if let Some(s) = self.session_by_mut(id) {
+                        s.share_copied = Some((Instant::now(), true));
+                    }
+                    vec![Action::CopyText(web)]
+                }
+                None => Vec::new(),
+            },
+            Target::ShareRole(i) => self.share_guest_role(i, false),
+            Target::ShareKbm(i) => self.share_guest_role(i, true),
+            Target::ShareKick(i) => {
+                let Some((id, guest)) = self.session().and_then(|s| s.share.as_ref().and_then(|v| v.guests.get(i)).map(|g| (s.id, g.id.clone()))) else { return Vec::new() };
+                self.share_op(id, ShareOp::Kick(guest))
+            }
+            Target::ShareNewCode => match self.active_id() {
+                Some(id) => self.share_op(id, ShareOp::NewCode),
+                None => Vec::new(),
+            },
+            Target::ShareStop => match self.active_id() {
+                Some(id) => self.share_op(id, ShareOp::Close),
+                None => Vec::new(),
+            },
+            Target::ShareClose => {
+                if let Some(s) = self.session_mut() {
+                    s.share_panel = false;
+                    if s.bar_menu == Some(BarMenu::Share) {
+                        s.bar_menu = None;
+                    }
+                }
+                Vec::new()
+            }
             Target::AddByAddress => {
                 self.add.step = AddStep::Address;
                 self.add.message = None;
                 self.go(Screen::Add);
                 vec![Action::OpenKeyboard(None)]
+            }
+            Target::Key(c) if self.typing_join() => {
+                self.join_type(c);
+                Vec::new()
+            }
+            Target::KeyErase if self.typing_join() => {
+                if !self.join.busy {
+                    match self.join.field {
+                        JoinField::Code => self.join.code.pop(),
+                        JoinField::Name => self.join.name.pop(),
+                    };
+                    self.join.message = None;
+                }
+                Vec::new()
+            }
+            Target::KeyShift if self.typing_join() => {
+                self.join.shift = !self.join.shift;
+                Vec::new()
             }
             Target::Key(c) => {
                 if self.typing_password() {
@@ -2242,6 +2726,227 @@ impl App {
         vec![Action::Connect { host: id, profile }]
     }
 
+    // MARK: - KyberNow Share
+
+    /// « Rejoindre avec un code » : l'écran du code et du prénom (proposé : celui de la dernière fois,
+    /// sinon le nom de cet appareil).
+    fn start_join(&mut self) -> Vec<Action> {
+        let kept = self.store.app.share_name.trim();
+        let name: String = if kept.is_empty() { self.device_name.trim() } else { kept }.chars().take(NAME_MAX).collect();
+        self.join = JoinState { name, attempt: self.join.attempt + 1, ..JoinState::new() };
+        self.go(Screen::Join);
+        vec![Action::TextInput]
+    }
+
+    /// Une lettre ou un chiffre pour le champ de « Rejoindre un partage » : les chiffres du code (six au
+    /// plus), le prénom (un caractère imprimable, `NAME_MAX` au plus). À la manette, le sixième chiffre
+    /// porte le focus sur « Rejoindre ».
+    fn join_type(&mut self, c: char) {
+        if self.join.busy {
+            return;
+        }
+        match self.join.field {
+            JoinField::Code => {
+                if c.is_ascii_digit() && self.join.code.len() < 6 {
+                    self.join.code.push(c);
+                    self.join.message = None;
+                    if self.join.code.len() == 6 && self.layout.console() && self.join.ready() {
+                        self.focus = Target::JoinGo;
+                    }
+                }
+            }
+            JoinField::Name => {
+                if !c.is_control() && self.join.name.chars().count() < NAME_MAX {
+                    let c = if self.join.shift { c.to_uppercase().next().unwrap_or(c) } else { c };
+                    self.join.name.push(c);
+                    self.join.shift = false;
+                    self.join.message = None;
+                }
+            }
+        }
+    }
+
+    /// « Rejoindre » : le code part aux ordinateurs du réseau ; sans les six chiffres ou sans prénom, le
+    /// focus va au champ qui manque. Le prénom est retenu pour la fois suivante.
+    fn join_go(&mut self) -> Vec<Action> {
+        if self.join.busy {
+            return Vec::new();
+        }
+        if !self.join.ready() {
+            let field = if self.join.code.len() < 6 { JoinField::Code } else { JoinField::Name };
+            self.join.field = field;
+            self.focus = match (self.layout.console(), field) {
+                (false, JoinField::Code) => Target::JoinCode,
+                (false, JoinField::Name) => Target::JoinName,
+                (true, JoinField::Code) => Target::Key('1'),
+                (true, JoinField::Name) => Target::Key('q'),
+            };
+            return Vec::new();
+        }
+        self.join.busy = true;
+        self.join.message = None;
+        self.join.started = Instant::now();
+        let name = self.join.name.trim().to_string();
+        self.store.app.share_name = name.clone();
+        vec![Action::Save, Action::JoinShare { code: self.join.code.clone(), name }]
+    }
+
+    /// Le cœur n'a trouvé aucun partage (ou l'a refusé) : le texte du cœur, sous les champs.
+    pub fn join_failed(&mut self, attempt: u32, message: String) {
+        if self.screen != Screen::Join || self.join.attempt != attempt || !self.join.busy {
+            return;
+        }
+        self.join.busy = false;
+        self.join.message = Some(message);
+    }
+
+    /// La recherche `attempt` est toujours celle de l'écran : sa réponse ouvre la session.
+    pub fn join_current(&self, attempt: u32) -> bool {
+        self.screen == Screen::Join && self.join.attempt == attempt && self.join.busy
+    }
+
+    /// Ce que « Partager » peut faire avec l'ordinateur de cette session (`None` : pas encore su).
+    pub fn share_avail(&self, s: &SessionUi) -> Option<ShareAvail> {
+        self.live.get(&s.host).and_then(|l| l.share)
+    }
+
+    /// « Partager » (barre, menu) : inactif, il dit pourquoi ; sinon il ouvre le partage de l'écran
+    /// principal (une demande à Admin) ou, déjà ouvert, son panneau.
+    fn share_button(&mut self) -> Vec<Action> {
+        let console = self.layout.console();
+        let Some(s) = self.session() else { return Vec::new() };
+        if s.guest.is_some() {
+            return Vec::new();
+        }
+        let (id, open, shown) = (s.id, s.share.is_some(), s.share_overlay());
+        match self.share_avail(s) {
+            Some(ShareAvail::Available) => {}
+            Some(a) => {
+                if let Some(text) = a.text()
+                    && let Some(s) = self.session_mut()
+                {
+                    s.bar_menu = None;
+                    s.notice = Some((text.into(), Instant::now()));
+                }
+                return Vec::new();
+            }
+            None => return Vec::new(),
+        }
+        let Some(s) = self.session_mut() else { return Vec::new() };
+        if shown {
+            s.share_panel = false;
+            s.bar_menu = None;
+            return Vec::new();
+        }
+        s.share_error = None;
+        if console {
+            s.share_panel = true;
+        } else {
+            s.bar_menu = Some(BarMenu::Share);
+        }
+        let mut acts = if console { vec![Action::ReleaseAll(id)] } else { Vec::new() };
+        if open {
+            self.focus = Target::ShareNewCode;
+        } else {
+            s.share_busy = true;
+            self.focus = Target::ShareClose;
+            acts.push(Action::Share(id, ShareOp::Open));
+        }
+        acts
+    }
+
+    /// Une demande de l'hôte à Admin : « Nouveau code », « Retirer », « Arrêter le partage », un rôle.
+    fn share_op(&mut self, id: SessionId, op: ShareOp) -> Vec<Action> {
+        let Some(s) = self.session_by_mut(id) else { return Vec::new() };
+        if s.share_busy {
+            return Vec::new();
+        }
+        s.share_busy = true;
+        s.share_error = None;
+        vec![Action::Share(id, op)]
+    }
+
+    /// Le rôle suivant de l'invité `i` : `kbm` : le bouton du clavier et de la souris ; sinon « Faire jouer »
+    /// ou « Faire regarder » (`share_moves`).
+    fn share_guest_role(&mut self, i: usize, kbm: bool) -> Vec<Action> {
+        let Some((id, guest)) = self.session().and_then(|s| s.share.as_ref().and_then(|v| v.guests.get(i)).map(|g| (s.id, g.clone()))) else { return Vec::new() };
+        let role = match (guest.role, kbm) {
+            (ShareRole::Spectator, false) => ShareRole::Player,
+            (ShareRole::Player | ShareRole::PlayerKbm, false) => ShareRole::Spectator,
+            (ShareRole::Player, true) => ShareRole::PlayerKbm,
+            (ShareRole::PlayerKbm, true) => ShareRole::Player,
+            (ShareRole::Spectator, true) => return Vec::new(),
+        };
+        self.share_op(id, ShareOp::Role(guest.id, role))
+    }
+
+    /// La réponse d'Admin à une demande de l'hôte : le partage tel qu'il est maintenant (`None` : fermé),
+    /// ou ce qu'Admin a refusé.
+    pub fn share_reply(&mut self, id: SessionId, r: Result<Option<ShareView>, String>) {
+        let (console, active) = (self.layout.console(), self.active);
+        let Some(s) = self.session_by_mut(id) else { return };
+        s.share_busy = false;
+        let focus_panel = s.share_overlay();
+        match r {
+            Ok(view) => {
+                let first = s.share.is_none() && view.is_some();
+                if view.is_none() {
+                    s.share_panel = false;
+                    if s.bar_menu == Some(BarMenu::Share) {
+                        s.bar_menu = None;
+                    }
+                }
+                s.share = view;
+                s.share_error = None;
+                if first && focus_panel && console && active == Some(id) {
+                    self.focus = Target::ShareNewCode;
+                }
+            }
+            Err(e) => s.share_error = Some(e),
+        }
+    }
+
+    /// Le signe de vie de l'hôte porte la liste des invités (`Platform::on_guests`).
+    pub fn share_guests(&mut self, id: SessionId, view: Option<ShareView>) {
+        let Some(s) = self.session_by_mut(id) else { return };
+        // Une ouverture en cours (`Open`) n'est pas défaite par un signe de vie parti avant elle.
+        if view.is_none() && s.share_busy {
+            return;
+        }
+        if view.is_none() {
+            s.share_panel = false;
+            if s.bar_menu == Some(BarMenu::Share) {
+                s.bar_menu = None;
+            }
+        }
+        s.share = view;
+    }
+
+    /// Le rôle de l'invité a changé (au départ, `previous` nul ; puis par l'hôte) : l'avis bref, et ce que
+    /// le rôle n'ouvre plus se ferme (touches, souris, menus).
+    pub fn share_role_changed(&mut self, id: SessionId, role: ShareRole, previous: Option<ShareRole>) {
+        let active = self.active;
+        let Some(s) = self.session_by_mut(id) else { return };
+        let Some(g) = s.guest.as_mut() else { return };
+        g.role = role;
+        if let Some(text) = role.notice(previous) {
+            s.notice = Some((text.into(), Instant::now()));
+        }
+        // La souris des jeux se rend dans la boucle de l'appareil (`session_tick`), qui seule règle SDL.
+        if !role.kbm() {
+            s.keys = false;
+            if s.bar_menu == Some(BarMenu::Keys) {
+                s.bar_menu = None;
+            }
+            if s.pad_mouse {
+                s.pad_mouse = false;
+            }
+        }
+        if s.menu && active == Some(id) {
+            self.focus = Target::Menu(MenuItem::Resume);
+        }
+    }
+
     // MARK: - Confirmations et Station
 
     /// Ferme la confirmation ; le focus revient sur ce qui l'a ouverte.
@@ -2436,6 +3141,11 @@ impl App {
                 self.back_to = Screen::Session;
                 self.go(Screen::Gamepads);
                 Vec::new()
+            }
+            // « Partager » : le menu se ferme, le panneau du partage s'ouvre sur l'image.
+            MenuItem::Share => {
+                s.menu = false;
+                self.share_button()
             }
             MenuItem::Disconnect => vec![Action::Disconnect(id)],
         }
@@ -3708,5 +4418,243 @@ mod tests {
         app.session_mut().unwrap().phase = Phase::Ended { error: Some("coupée".into()) };
         assert!(app.session_back().is_empty());
         assert_eq!((app.active, app.screen, app.sessions.len()), (None, Screen::Home, 0));
+    }
+
+    // MARK: - KyberNow Share (docs/kybernow-share.md)
+
+    /// « Rejoindre avec un code » : l'écran s'ouvre sur le prénom proposé (le nom de l'appareil, puis celui de la
+    /// fois d'avant), les chiffres se tapent (six au plus, rien d'autre), « Rejoindre » ne part qu'avec six
+    /// chiffres et un prénom, et retient le prénom ; le refus du cœur s'affiche sous les champs ; B abandonne la
+    /// recherche.
+    #[test]
+    fn joining_a_share_by_code() {
+        crate::i18n::force_english(false);
+        let mut app = App::new(Store::default(), Layout::Desktop);
+        app.device_name = "fedora-bureau".into();
+        app.go(Screen::Home);
+        assert_eq!(app.activate(Target::JoinCard), vec![Action::TextInput]);
+        assert_eq!((app.screen, app.join.name.as_str(), app.join.field, app.focus), (Screen::Join, "fedora-bureau", JoinField::Code, Target::JoinCode));
+        // Les chiffres du code ; une lettre n'y entre pas, le prénom la prend.
+        for c in "48a29 17x3".chars() {
+            app.nav(Nav::Char(c));
+        }
+        assert_eq!(app.join.code, "482917");
+        // « Rejoindre » sans prénom : le focus va au prénom, rien ne part.
+        app.join.name.clear();
+        assert!(app.activate(Target::JoinGo).is_empty());
+        assert_eq!((app.join.field, app.focus, app.join.busy), (JoinField::Name, Target::JoinName, false));
+        for c in "Léa".chars() {
+            app.nav(Nav::Char(c));
+        }
+        assert_eq!(app.join.name, "Léa");
+        app.nav(Nav::Erase);
+        app.nav(Nav::Char('a'));
+        // Entrée dans le prénom, avec tout donné : « Rejoindre ».
+        let acts = app.nav(Nav::Ok);
+        assert_eq!(acts, vec![Action::Save, Action::JoinShare { code: "482917".into(), name: "Léa".into() }]);
+        assert!(app.join.busy && app.store.app.share_name == "Léa");
+        assert!(app.activate(Target::JoinGo).is_empty(), "une recherche à la fois");
+        // Le refus du cœur, pour cette recherche seulement.
+        let attempt = app.join.attempt;
+        app.join_failed(attempt + 1, "autre".into());
+        assert!(app.join.busy && app.join.message.is_none());
+        app.join_failed(attempt, "Aucun partage avec ce code sur le réseau.".into());
+        assert!(!app.join.busy && app.join.message.as_deref() == Some("Aucun partage avec ce code sur le réseau."));
+        // Taper efface le message ; B abandonne : l'accueil, et la recherche en vol n'ouvre plus rien.
+        app.nav(Nav::Erase);
+        app.join.busy = true;
+        assert!(app.join_current(attempt));
+        app.nav(Nav::Back);
+        assert!(app.screen == Screen::Home && !app.join_current(attempt));
+        // La fois suivante : le prénom retenu.
+        app.activate(Target::JoinCard);
+        assert_eq!(app.join.name, "Léa");
+    }
+
+    /// Au pavé (Deck, salon, Link OS) : les chiffres du code puis, le sixième tapé, le focus va à « Rejoindre » ; le
+    /// pavé des lettres sert au prénom (majuscule d'une touche) ; le Select (⧉) ouvre l'écran depuis l'accueil.
+    #[test]
+    fn joining_a_share_on_a_pad() {
+        crate::i18n::force_english(false);
+        let mut app = App::new(Store::default(), Layout::Handheld);
+        app.device_name = "Steam Deck".into();
+        app.go(Screen::Home);
+        assert_eq!(app.nav(Nav::Join), vec![Action::TextInput]);
+        assert_eq!((app.screen, app.focus), (Screen::Join, Target::Key('1')));
+        for c in "123456".chars() {
+            app.activate(Target::Key(c));
+        }
+        assert_eq!((app.join.code.as_str(), app.focus), ("123456", Target::JoinGo));
+        // Le prénom : le champ prend le pavé des lettres ; la majuscule ne vaut que pour la touche suivante.
+        app.activate(Target::JoinName);
+        assert_eq!(app.join.field, JoinField::Name);
+        app.join.name.clear();
+        app.activate(Target::KeyShift);
+        app.activate(Target::Key('é'));
+        app.activate(Target::Key('m'));
+        assert_eq!(app.join.name, "Ém");
+        let long = "x".repeat(40);
+        for c in long.chars() {
+            app.activate(Target::Key(c));
+        }
+        assert_eq!(app.join.name.chars().count(), NAME_MAX);
+        app.activate(Target::KeyErase);
+        assert_eq!(app.join.name.chars().count(), NAME_MAX - 1);
+        // Hors de l'accueil, Select ne fait rien.
+        assert!(app.nav(Nav::Join).is_empty());
+    }
+
+    /// Une Station qui ne partage pas : « Partager » dit pourquoi, rien ne part ; avec un partage possible, il ouvre
+    /// le panneau et demande l'ouverture à Admin, une fois ; le panneau déjà ouvert se referme au second clic.
+    #[test]
+    fn share_button_of_the_host() {
+        crate::i18n::force_english(false);
+        let mut app = desk();
+        let a = open(&mut app, "a");
+        // Sans réponse d'Admin : rien.
+        assert!(app.activate(Target::BarShare).is_empty());
+        app.live.get_mut("a").unwrap().share = Some(ShareAvail::Unsupported);
+        assert!(app.activate(Target::BarShare).is_empty());
+        assert_eq!(app.session().unwrap().notice.as_ref().map(|n| n.0.as_str()), Some("Le partage demande KyberNow Station 0.8.0 ou plus récente."));
+        app.live.get_mut("a").unwrap().share = Some(ShareAvail::Disabled);
+        assert!(app.activate(Target::BarShare).is_empty());
+        assert_eq!(app.session().unwrap().notice.as_ref().map(|n| n.0.as_str()), Some("Le partage est coupé sur cet ordinateur (Admin › Appareils Link)."));
+        // Disponible : le menu de la barre s'ouvre, Admin ouvre le partage.
+        app.live.get_mut("a").unwrap().share = Some(ShareAvail::Available);
+        assert_eq!(app.activate(Target::BarShare), vec![Action::Share(a, ShareOp::Open)]);
+        let s = app.session().unwrap();
+        assert!(s.share_busy && s.bar_menu == Some(BarMenu::Share));
+        // Une demande à la fois.
+        assert!(app.activate(Target::ShareNewCode).is_empty());
+        let view = ShareView { code: "482917".into(), link: "kybernow://join?x".into(), web: "https://h:1/link/?join=482917".into(), guests: vec![ShareGuest { id: "g1".into(), name: "Léa".into(), role: ShareRole::Spectator, app: "ios".into(), since: Some(1) }] };
+        app.share_reply(a, Ok(Some(view.clone())));
+        assert!(!app.session().unwrap().share_busy && app.session().unwrap().share.is_some());
+        // Ses invités : « Faire jouer », puis le clavier et la souris, « Faire regarder », « Retirer ».
+        assert_eq!(app.activate(Target::ShareRole(0)), vec![Action::Share(a, ShareOp::Role("g1".into(), ShareRole::Player))]);
+        app.share_reply(a, Ok(Some(ShareView { guests: vec![ShareGuest { role: ShareRole::Player, ..view.guests[0].clone() }], ..view.clone() })));
+        assert_eq!(app.activate(Target::ShareKbm(0)), vec![Action::Share(a, ShareOp::Role("g1".into(), ShareRole::PlayerKbm))]);
+        app.share_reply(a, Ok(Some(ShareView { guests: vec![ShareGuest { role: ShareRole::PlayerKbm, ..view.guests[0].clone() }], ..view.clone() })));
+        assert_eq!(app.activate(Target::ShareKbm(0)), vec![Action::Share(a, ShareOp::Role("g1".into(), ShareRole::Player))]);
+        app.share_reply(a, Ok(Some(ShareView { guests: vec![ShareGuest { role: ShareRole::Player, ..view.guests[0].clone() }], ..view.clone() })));
+        assert_eq!(app.activate(Target::ShareRole(0)), vec![Action::Share(a, ShareOp::Role("g1".into(), ShareRole::Spectator))]);
+        app.share_reply(a, Ok(Some(view.clone())));
+        assert_eq!(app.activate(Target::ShareKick(0)), vec![Action::Share(a, ShareOp::Kick("g1".into()))]);
+        app.share_reply(a, Ok(Some(ShareView { guests: Vec::new(), ..view.clone() })));
+        assert_eq!(app.activate(Target::ShareNewCode), vec![Action::Share(a, ShareOp::NewCode)]);
+        app.share_reply(a, Ok(Some(ShareView { code: "111222".into(), ..view.clone() })));
+        // « Copier le lien » : l'adresse du client web, jamais le lien des apps.
+        assert_eq!(app.activate(Target::ShareCopy), vec![Action::CopyText("https://h:1/link/?join=482917".into())]);
+        // Le panneau se ferme et se rouvre sans redemander l'ouverture ; « Arrêter le partage » le ferme.
+        assert!(app.activate(Target::BarShare).is_empty() && app.session().unwrap().bar_menu.is_none());
+        assert!(app.activate(Target::BarShare).is_empty() && app.session().unwrap().bar_menu == Some(BarMenu::Share));
+        assert_eq!(app.activate(Target::ShareStop), vec![Action::Share(a, ShareOp::Close)]);
+        app.share_reply(a, Ok(None));
+        assert!(app.session().unwrap().share.is_none() && app.session().unwrap().bar_menu.is_none());
+        // Un refus d'Admin reste dans le panneau.
+        assert!(!app.activate(Target::BarShare).is_empty());
+        app.share_reply(a, Err("Aucun partage en cours.".into()));
+        assert_eq!(app.session().unwrap().share_error.as_deref(), Some("Aucun partage en cours."));
+    }
+
+    /// À la manette, « Partager » est une tuile du menu : le panneau prend l'image, B le referme ; la liste des
+    /// invités du signe de vie le met à jour ; un signe de vie parti avant l'ouverture ne la défait pas.
+    #[test]
+    fn share_panel_on_a_pad() {
+        let mut app = App::new(Store::default(), Layout::Handheld);
+        app.store.hosts.push(Host { id: "a".into(), name: "A".into(), ..host() });
+        app.live.entry("a".into()).or_default().online = Online::Online;
+        app.live.get_mut("a").unwrap().share = Some(ShareAvail::Available);
+        let a = open(&mut app, "a");
+        app.session_mut().unwrap().menu = true;
+        let acts = app.activate(Target::Menu(MenuItem::Share));
+        assert_eq!(acts, vec![Action::ReleaseAll(a), Action::Share(a, ShareOp::Open)]);
+        let s = app.session().unwrap();
+        assert!(s.share_panel && !s.menu && s.share_busy);
+        app.share_guests(a, None);
+        assert!(app.session().unwrap().share_panel, "le signe de vie d'avant l'ouverture");
+        app.share_reply(a, Ok(Some(ShareView { code: "123456".into(), ..Default::default() })));
+        assert_eq!(app.focus, Target::ShareNewCode);
+        app.share_guests(a, Some(ShareView { code: "123456".into(), guests: vec![ShareGuest { id: "g".into(), name: "Tom".into(), role: ShareRole::Spectator, app: "web".into(), since: None }], ..Default::default() }));
+        assert_eq!(app.session().unwrap().share.as_ref().map(|v| v.guests.len()), Some(1));
+        // B referme le panneau ; l'image reprend (pas le menu).
+        assert!(app.session_back().is_empty());
+        let s = app.session().unwrap();
+        assert!(!s.share_panel && !s.menu);
+        // Le partage fermé par ailleurs (Admin) : le panneau se ferme.
+        app.session_mut().unwrap().share_panel = true;
+        app.share_guests(a, None);
+        assert!(!app.session().unwrap().share_panel && app.session().unwrap().share.is_none());
+    }
+
+    /// Une session d'invité : titrée « Invité sur … », jamais dans la liste des ordinateurs, elle compte pour la limite de
+    /// quatre ; le clavier et la souris seulement avec ce rôle ; l'avis du rôle changé ; ni profil ni « Partager ».
+    #[test]
+    fn a_guest_session() {
+        crate::i18n::force_english(false);
+        let mut app = desk();
+        let id = app.new_session_id();
+        app.open_session(SessionUi::guest(id, "share:g1", "Atelier", ShareRole::Spectator));
+        let s = app.session().unwrap();
+        assert_eq!((s.name.as_str(), s.role(), s.keyboard_mouse()), ("Invité sur Atelier", Some(ShareRole::Spectator), false));
+        assert!(app.store.hosts.iter().all(|h| h.id != s.host) && app.session_of_host("a").is_none());
+        // Elle compte : trois autres ordinateurs la remplissent.
+        for h in ["a", "b", "c"] {
+            open(&mut app, h);
+        }
+        assert!(app.sessions_full());
+        app.activate_session(id);
+        // Pas de « Partager » ni de profil pour un invité.
+        assert!(app.activate(Target::BarShare).is_empty() && app.session().unwrap().bar_menu.is_none());
+        // Le rôle change : l'avis, et ce que le rôle n'ouvre plus se ferme.
+        app.share_role_changed(id, ShareRole::Player, Some(ShareRole::Spectator));
+        assert_eq!(app.session().unwrap().notice.as_ref().map(|n| n.0.as_str()), Some("Vous pouvez jouer."));
+        assert!(!app.session().unwrap().keyboard_mouse());
+        app.share_role_changed(id, ShareRole::PlayerKbm, Some(ShareRole::Player));
+        assert_eq!(app.session().unwrap().notice.as_ref().map(|n| n.0.as_str()), Some("Vous avez le clavier et la souris."));
+        assert!(app.session().unwrap().keyboard_mouse());
+        app.session_mut().unwrap().keys = true;
+        app.session_mut().unwrap().relative = true;
+        app.share_role_changed(id, ShareRole::Player, Some(ShareRole::PlayerKbm));
+        let s = app.session().unwrap();
+        assert_eq!(s.notice.as_ref().map(|n| n.0.as_str()), Some("Le clavier et la souris sont repris."));
+        assert!(!s.keys);
+        // Un joueur que l'hôte fait de nouveau regarder.
+        app.share_role_changed(id, ShareRole::Spectator, Some(ShareRole::Player));
+        assert_eq!(app.session().unwrap().notice.as_ref().map(|n| n.0.as_str()), Some("Vous regardez de nouveau."));
+        assert_eq!(ShareRole::Spectator.notice(Some(ShareRole::PlayerKbm)), Some("Vous regardez de nouveau."));
+        // Le rôle de départ (avant la connexion) n'a pas d'avis.
+        assert_eq!(ShareRole::Spectator.notice(None), None);
+        assert_eq!(ShareRole::Player.notice(Some(ShareRole::Player)), None);
+        // Quitter le partage : « Se déconnecter », pour sa session.
+        assert_eq!(app.activate(Target::BarQuit), vec![Action::Disconnect(id)]);
+    }
+
+    /// Les mots du panneau : durée, app, pastille, code.
+    #[test]
+    fn share_words() {
+        crate::i18n::force_english(false);
+        assert_eq!(duration_label(20), "moins d'une minute");
+        assert_eq!(duration_label(60), "1 minute");
+        assert_eq!(duration_label(42 * 60 + 5), "42 minutes");
+        assert_eq!(duration_label(2 * 3600 + 5 * 60), "2 h 05");
+        assert_eq!(app_label("ios"), "iPhone ou iPad");
+        assert_eq!(app_label("webos"), "Téléviseur LG");
+        assert_eq!(app_label("web"), "Navigateur");
+        assert_eq!(app_label("tvos"), "Apple TV");
+        assert_eq!(app_label("plan9"), "plan9");
+        assert_eq!((guests_label(0), guests_label(1), guests_label(2)), ("0 invité".to_string(), "1 invité".to_string(), "2 invités".to_string()));
+        assert_eq!(format_code("482917"), "482 917");
+        assert_eq!(format_code("12"), "12");
+        let g = ShareGuest { id: "g".into(), name: "Léa".into(), role: ShareRole::PlayerKbm, app: "ios".into(), since: Some(1_000) };
+        assert_eq!(g.line(), "Léa · Joueur, clavier et souris");
+        assert_eq!(g.meta(1_000 + 4 * 60), "iPhone ou iPad · depuis 4 minutes");
+        // Des millisecondes, ou rien de lisible.
+        assert_eq!(ShareGuest { since: Some(1_000_000_000_000), ..g.clone() }.meta(1_000_000_000 + 120), "iPhone ou iPad · depuis 2 minutes");
+        assert_eq!(ShareGuest { since: None, ..g }.meta(5), "iPhone ou iPad");
+        crate::i18n::force_english(true);
+        assert_eq!((duration_label(20), guests_label(1), guests_label(3), app_label("webos")), ("less than a minute".to_string(), "1 guest".to_string(), "3 guests".to_string(), "LG TV".to_string()));
+        assert_eq!(ShareRole::PlayerKbm.long_label(), "Player, keyboard and mouse");
+        assert_eq!(ShareRole::Spectator.moves().len() + ShareRole::Player.moves().len() + ShareRole::PlayerKbm.moves().len(), 4);
+        crate::i18n::force_english(false);
     }
 }

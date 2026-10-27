@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use tiny_skia::Pixmap;
 
-use crate::app::{AddStep, App, BarMenu, Confirm, Found, HostLive, Layout, MenuItem, NetKind, Online, PadInfo, Phase, Screen, ScreensPlan, Section, SessionUi, Setting, StationKind, StationLive, StationOp, StationStep, Stats, Target};
+use crate::app::{AddStep, App, BarMenu, Confirm, Found, HostLive, JoinField, JoinState, Layout, MenuItem, NetKind, Online, PadInfo, Phase, Screen, ScreensPlan, Section, SessionUi, Setting, ShareAvail, ShareGuest, ShareRole, ShareView, StationKind, StationLive, StationOp, StationStep, Stats, Target};
 use crate::model::{Host, HostSettings, LastSession, Profile, Store, WakeCard};
 use crate::ui::{self, canvas::Canvas};
 
@@ -124,9 +124,9 @@ fn demo(english: bool, layout: Layout) -> App {
     app.net.kind = if layout == Layout::Tv { NetKind::Ethernet } else { NetKind::Wifi };
     app.net.link_mbps = Some(2500);
     app.net.band = Some("5 GHz".into());
-    app.live.insert("a".into(), HostLive { online: Online::Online, virtual_display: Some(true), station: Some(station("0.5.0", None)), own_device: Some(true), max_screens: Some(4) });
+    app.live.insert("a".into(), HostLive { online: Online::Online, virtual_display: Some(true), station: Some(station("0.5.0", None)), own_device: Some(true), max_screens: Some(4), share: Some(crate::app::ShareAvail::Available) });
     app.live.insert("b".into(), HostLive { online: Online::Offline, ..Default::default() });
-    app.live.insert("c".into(), HostLive { online: Online::Online, virtual_display: Some(true), station: Some(station("0.5.0", None)), own_device: Some(true), max_screens: Some(4) });
+    app.live.insert("c".into(), HostLive { online: Online::Online, virtual_display: Some(true), station: Some(station("0.5.0", None)), own_device: Some(true), max_screens: Some(4), share: Some(crate::app::ShareAvail::Available) });
     app.images.insert("a".into(), demo_image(1));
     app.image_is_last.insert("a".into(), true);
     app.found.push(Found { name: "MINI-PC".into(), address: "192.168.1.57".into(), port: 31207, fingerprint: Some("sha256:7c:3a:91:e0:4b:2d:a8:1f".into()) });
@@ -346,6 +346,166 @@ fn computers_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, p
     app.pointer = Some((700.0, 20.0));
     shot_view(app, cv, Some(video), dir, &name("17f-fenetre-suivante-barre"), ui::View { session: Some(2), ..ui::View::SINGLE });
     app.pointer = None;
+    app.set_session(None);
+    app.screen = Screen::Home;
+}
+
+/// Une session d'hôte avec un partage ouvert : le code, le lien, trois invités (spectateur, joueur, joueur avec
+/// le clavier et la souris).
+fn shared_view() -> ShareView {
+    let now = crate::model::now_secs() as i64;
+    ShareView {
+        code: "482917".into(),
+        link: "kybernow://join?host=192.168.1.42&port=24811&fp=sha256:7c:3a:91:e0:4b:2d:a8:1f&code=482917".into(),
+        web: "https://192.168.1.42:24811/link/?join=482917".into(),
+        guests: vec![
+            ShareGuest { id: "g1".into(), name: "Léa".into(), role: ShareRole::Spectator, app: "ios".into(), since: Some(now - 4 * 60) },
+            ShareGuest { id: "g2".into(), name: "Tom".into(), role: ShareRole::Player, app: "webos".into(), since: Some(now - 35 * 60) },
+            ShareGuest { id: "g3".into(), name: "Camille".into(), role: ShareRole::PlayerKbm, app: "windows".into(), since: Some(now - 3700) },
+        ],
+    }
+}
+
+/// Une session d'invité à l'image, sur « Atelier ».
+fn guest_session(role: ShareRole) -> SessionUi {
+    let mut s = SessionUi::guest(1, "share:g1", "Atelier", role);
+    s.phase = Phase::Streaming;
+    s.stats = Some(Stats { latency_ms: Some(8.1), fps: 60.0, mbps: 24.0, lost: 0, mode: "1920 × 1080".into(), decoder: "VA-API HEVC".into(), audio_ms: Some(14.0), history: vec![8.0, 8.4, 7.9, 9.1, 8.2, 8.0, 8.8, 8.1] });
+    s.started = Instant::now() - Duration::from_millis(2100);
+    s.opened_at = Some(Instant::now() - Duration::from_secs(30));
+    s
+}
+
+/// KyberNow Share (docs/kybernow-share.md) : « Rejoindre un partage » (code, prénom, recherche, refus), le panneau
+/// de l'hôte (ouverture, partage ouvert, « Partager » inactif), et la session d'invité (connexion, barre réduite,
+/// rôles, fin).
+fn share_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, prefix: &str) {
+    let name = |n: &str| format!("{prefix}-{n}");
+    let console = app.layout.console();
+    app.set_session(None);
+    app.pointer = None;
+    app.store.selected = Some("a".into());
+
+    // Rejoindre : le code à taper, le prénom proposé ; le code en cours ; la recherche ; ce que le cœur a répondu ; le prénom.
+    app.join = JoinState { name: "Atelier de Léa".into(), ..JoinState::new() };
+    app.go(Screen::Join);
+    shot(app, cv, None, dir, &name("20-rejoindre"));
+    app.join.code = "4829".into();
+    shot(app, cv, None, dir, &name("20b-rejoindre-code"));
+    app.join.code = "482917".into();
+    app.join.busy = true;
+    shot(app, cv, None, dir, &name("20c-rejoindre-recherche"));
+    app.join.busy = false;
+    app.join.message = Some(crate::i18n::tr("Aucun partage avec ce code sur le réseau.", "No share with this code on your network.").into());
+    shot(app, cv, None, dir, &name("20d-rejoindre-refus"));
+    app.join.message = None;
+    app.join.field = JoinField::Name;
+    app.go(Screen::Join);
+    shot(app, cv, None, dir, &name("20e-rejoindre-prenom"));
+    app.join = JoinState::new();
+
+    // L'hôte : la barre avec « Partager » et la pastille, le panneau, l'attente, « Partager » inactif.
+    let mut s = session(app);
+    s.menu = false;
+    s.relative = false;
+    s.share = Some(shared_view());
+    s.opened_at = Some(Instant::now() - Duration::from_secs(30));
+    if !console {
+        s.bar = true;
+        app.set_session(Some(s));
+        app.screen = Screen::Session;
+        app.pointer = Some((700.0, 20.0));
+        shot(app, cv, Some(video), dir, &name("21-partage-barre"));
+        if let Some(s) = app.session_mut() {
+            s.bar_menu = Some(BarMenu::Share);
+            s.share_copied = Some((Instant::now(), true));
+        }
+        shot(app, cv, Some(video), dir, &name("21b-partage-panneau"));
+        if let Some(s) = app.session_mut() {
+            s.share_copied = Some((Instant::now(), false));
+            s.share = Some(ShareView { guests: Vec::new(), ..shared_view() });
+        }
+        shot(app, cv, Some(video), dir, &name("21c-partage-panneau-vide"));
+        if let Some(s) = app.session_mut() {
+            s.share = None;
+            s.share_busy = true;
+        }
+        shot(app, cv, Some(video), dir, &name("21d-partage-ouverture"));
+        // Refusé par Admin.
+        if let Some(s) = app.session_mut() {
+            s.share_busy = false;
+            s.share_error = Some(crate::i18n::tr("Une connexion est en cours sur cet ordinateur : partagez un écran une fois qu'elle est finie.", "A connection is in progress on this computer: share a screen once it has ended.").into());
+        }
+        shot(app, cv, Some(video), dir, &name("21e-partage-refuse"));
+        // Station trop ancienne : le bouton est éteint, son nom dit pourquoi.
+        if let Some(s) = app.session_mut() {
+            s.bar_menu = None;
+            s.share_error = None;
+            s.share = None;
+        }
+        app.live.insert("a".into(), HostLive { share: Some(ShareAvail::Unsupported), ..app.live.get("a").cloned().unwrap_or_default() });
+        let hits = ui::draw(app, cv);
+        if let Some((_, r)) = hits.iter().find(|(t, _)| *t == Target::BarShare) {
+            app.pointer = Some((r.x + r.w / 2.0, r.y + r.h / 2.0));
+        }
+        shot(app, cv, Some(video), dir, &name("21f-partage-inactif"));
+        app.live.insert("a".into(), HostLive { share: Some(ShareAvail::Available), ..app.live.get("a").cloned().unwrap_or_default() });
+    } else {
+        s.share_panel = true;
+        app.set_session(Some(s));
+        app.screen = Screen::Session;
+        app.focus = Target::ShareNewCode;
+        shot(app, cv, Some(video), dir, &name("21-partage-panneau"));
+        if let Some(s) = app.session_mut() {
+            s.share = Some(ShareView { guests: Vec::new(), ..shared_view() });
+        }
+        shot(app, cv, Some(video), dir, &name("21c-partage-panneau-vide"));
+        // Le menu, avec la tuile « Partager » et le partage ouvert.
+        let mut s = session(app);
+        s.share = Some(shared_view());
+        app.set_session(Some(s));
+        app.screen = Screen::Session;
+        app.focus = Target::Menu(MenuItem::Share);
+        shot(app, cv, Some(video), dir, &name("21g-partage-menu"));
+    }
+
+    // L'invité : la connexion, la barre ou le menu d'un spectateur, d'un joueur, le rôle changé, la fin.
+    app.pointer = None;
+    let mut g = guest_session(ShareRole::Spectator);
+    g.phase = Phase::Connecting;
+    g.opened_at = None;
+    app.set_session(Some(g));
+    app.screen = Screen::Session;
+    app.focus = Target::CancelConnect;
+    shot(app, cv, None, dir, &name("22-invite-connexion"));
+    let mut g = guest_session(ShareRole::Spectator);
+    if console {
+        g.menu = true;
+    } else {
+        g.bar = true;
+        app.pointer = Some((700.0, 20.0));
+    }
+    app.set_session(Some(g));
+    app.screen = Screen::Session;
+    app.focus = Target::Menu(MenuItem::Resume);
+    shot(app, cv, Some(video), dir, &name("22b-invite-spectateur"));
+    for (role, n) in [(ShareRole::Player, "22c-invite-joueur"), (ShareRole::PlayerKbm, "22d-invite-joueur-clavier")] {
+        let mut g = guest_session(role);
+        if console {
+            g.menu = true;
+        } else {
+            g.bar = true;
+        }
+        g.notice = role.notice(Some(if role == ShareRole::Player { ShareRole::Spectator } else { ShareRole::Player })).map(|t| (t.to_string(), Instant::now()));
+        app.set_session(Some(g));
+        shot(app, cv, Some(video), dir, &name(n));
+    }
+    app.pointer = None;
+    let mut g = guest_session(ShareRole::Player);
+    g.phase = Phase::Ended { error: Some(crate::i18n::tr("Léa a arrêté le partage.", "Léa stopped sharing.").into()) };
+    app.set_session(Some(g));
+    app.focus = Target::Back;
+    shot(app, cv, None, dir, &name("22e-invite-fin"));
     app.set_session(None);
     app.screen = Screen::Home;
 }
@@ -586,6 +746,8 @@ pub fn run(dir: &Path, lang: &str) {
             multi_shots(&mut app, &mut cv, &video, dir, prefix);
             computers_shots(&mut app, &mut cv, &video, dir, prefix);
         }
+        // KyberNow Share : rejoindre, le panneau de l'hôte, la session d'invité.
+        share_shots(&mut app, &mut cv, &video, dir, prefix);
     }
 
     // Raspberry Pi 5 sous Raspberry Pi OS (interface Bureau, écran 1080p) : les
@@ -1137,5 +1299,209 @@ mod tests {
         let acts = app.pointer_click(r.x + 2.0, r.y + 2.0);
         assert_eq!(acts, vec![crate::app::Action::Save]);
         assert_eq!(app.selected().unwrap().settings.profile, Profile::Max);
+    }
+
+    // MARK: - KyberNow Share
+
+    /// Un hôte au bureau, partage ouvert, panneau déployé, `n` invités, dans une fenêtre de `(w, h)` points.
+    fn hosting(n: usize, size: (u32, u32)) -> (App, Canvas) {
+        crate::i18n::force_english(false);
+        let mut app = demo(false, Layout::Desktop);
+        let mut cv = Canvas::new();
+        cv.resize(size.0, size.1, 1.0);
+        let mut view = shared_view();
+        view.guests.truncate(n);
+        while view.guests.len() < n {
+            view.guests.push(ShareGuest { id: format!("x{}", view.guests.len()), name: "Zoé".into(), role: ShareRole::Spectator, app: "android".into(), since: None });
+        }
+        let mut s = session(&app);
+        s.menu = false;
+        s.relative = false;
+        s.bar = true;
+        s.bar_menu = Some(BarMenu::Share);
+        s.share = Some(view);
+        s.opened_at = Some(Instant::now() - Duration::from_secs(30));
+        app.set_session(Some(s));
+        app.screen = Screen::Session;
+        app.pointer = Some((size.0 as f32 / 2.0, 20.0));
+        (app, cv)
+    }
+
+    /// Le panneau de l'hôte au bureau tient dans la fenêtre la plus basse (960 × 600) avec quatre invités, chaque
+    /// bouton qu'il inscrit y est entier ; il a tout ce que dit link-ui : code, QR code, aide, invités, actions, boutons du bas.
+    #[test]
+    fn share_panel_fits_the_smallest_window() {
+        let (app, mut cv) = hosting(4, (960, 600));
+        let hits = ui::draw(&app, &mut cv);
+        let need = [Target::ShareClose, Target::ShareCopy, Target::ShareNewCode, Target::ShareStop, Target::ShareKick(0), Target::ShareKick(3), Target::ShareRole(0), Target::ShareKbm(1), Target::ShareRole(1), Target::ShareKbm(2)];
+        for t in need {
+            let (_, r) = hits.iter().find(|(h, _)| *h == t).unwrap_or_else(|| panic!("{t:?} absent du panneau"));
+            assert!(r.x >= 0.0 && r.y >= 0.0 && r.x + r.w <= 960.0 && r.y + r.h <= 600.0, "{t:?} sort de la fenêtre : {r:?}");
+        }
+        // Pas de bouton en trop : un spectateur n'a que « Faire jouer » ; le quatrième invité aussi.
+        assert!(hits.iter().all(|(t, _)| *t != Target::ShareKbm(0) && *t != Target::ShareKbm(3)));
+        // Le panneau ne chevauche pas la barre, et le bouton du bas est sous le dernier invité.
+        let bottom = hits.iter().find(|(t, _)| *t == Target::ShareKick(3)).unwrap().1;
+        let foot = hits.iter().find(|(t, _)| *t == Target::ShareNewCode).unwrap().1;
+        assert!(foot.y >= bottom.y + bottom.h);
+        // Sans invité : « Personne pour l'instant. » et rien à faire sur une ligne.
+        let (app, mut cv) = hosting(0, (1280, 800));
+        let hits = ui::draw(&app, &mut cv);
+        assert!(hits.iter().all(|(t, _)| !matches!(t, Target::ShareRole(_) | Target::ShareKbm(_) | Target::ShareKick(_))));
+        assert!(hits.iter().any(|(t, _)| *t == Target::ShareStop));
+    }
+
+    /// À la manette, le panneau prend l'image : ses boutons sont entiers à l'écran, sans « Copier le lien » ni croix
+    /// (pas de presse-papiers utile, B referme) ; au salon comme au Deck.
+    #[test]
+    fn share_panel_on_a_pad_has_no_copy() {
+        for (layout, size) in [(Layout::Handheld, (1280, 800)), (Layout::Tv, (1920, 1080))] {
+            crate::i18n::force_english(false);
+            let mut app = demo(false, layout);
+            let mut cv = Canvas::new();
+            cv.resize(size.0, size.1, 1.0);
+            let mut s = session(&app);
+            s.menu = false;
+            s.share = Some(shared_view());
+            s.share_panel = true;
+            app.set_session(Some(s));
+            app.screen = Screen::Session;
+            assert!(ui::session_overlay_visible(&app), "le panneau est une surimpression");
+            let hits = ui::draw(&app, &mut cv);
+            assert!(hits.iter().all(|(t, _)| *t != Target::ShareCopy && *t != Target::ShareClose));
+            for (t, r) in &hits {
+                assert!(r.x >= 0.0 && r.y >= 0.0 && r.x + r.w <= size.0 as f32 && r.y + r.h <= (size.1 - 40) as f32, "{layout:?} : {t:?} sort de l'écran : {r:?}");
+            }
+            assert!(hits.iter().any(|(t, _)| *t == Target::ShareStop) && hits.iter().any(|(t, _)| *t == Target::ShareKick(2)));
+        }
+    }
+
+    /// La barre d'un hôte propose « Partager » (éteint sans Station qui partage), celle d'un invité n'a ni profil ni
+    /// « Partager » ; le clavier et la souris n'y sont qu'avec ce rôle ; « Quitter le partage » remplace « Se déconnecter ».
+    #[test]
+    fn bar_of_a_host_and_of_a_guest() {
+        crate::i18n::force_english(false);
+        let mut app = demo(false, Layout::Desktop);
+        let mut cv = Canvas::new();
+        cv.resize(1280, 800, 1.0);
+        let mut s = session(&app);
+        s.menu = false;
+        s.relative = false;
+        s.bar = true;
+        s.opened_at = Some(Instant::now() - Duration::from_secs(30));
+        app.set_session(Some(s));
+        app.screen = Screen::Session;
+        let hits = ui::draw(&app, &mut cv);
+        for t in [Target::BarProfile, Target::BarKeys, Target::BarMouse, Target::BarShare, Target::BarQuit] {
+            assert!(hits.iter().any(|(h, _)| *h == t), "{t:?} manque à la barre de l'hôte");
+        }
+        // Le partage ouvert : la pastille « 3 invités » rouvre le panneau (deux endroits pour la même cible).
+        app.session_mut().unwrap().share = Some(shared_view());
+        let hits = ui::draw(&app, &mut cv);
+        assert_eq!(hits.iter().filter(|(h, _)| *h == Target::BarShare).count(), 2);
+        // Un invité : spectateur, puis joueur, puis joueur avec le clavier et la souris.
+        for (role, keys) in [(ShareRole::Spectator, false), (ShareRole::Player, false), (ShareRole::PlayerKbm, true)] {
+            let mut g = guest_session(role);
+            g.bar = true;
+            app.set_session(Some(g));
+            let hits = ui::draw(&app, &mut cv);
+            for t in [Target::BarProfile, Target::BarShare, Target::BarComputers, Target::BarPick(Profile::Jeu)] {
+                assert!(hits.iter().all(|(h, _)| *h != t), "{role:?} : {t:?} n'a pas sa place à la barre d'un invité");
+            }
+            assert_eq!(hits.iter().any(|(h, _)| *h == Target::BarKeys), keys, "{role:?} : touches");
+            assert_eq!(hits.iter().any(|(h, _)| *h == Target::BarMouse), keys, "{role:?} : souris");
+            assert!(hits.iter().any(|(h, _)| *h == Target::BarQuit) && hits.iter().any(|(h, _)| *h == Target::BarFullscreen));
+        }
+        // La zone du geste suit la largeur de la barre réduite.
+        let g = guest_session(ShareRole::Spectator);
+        app.set_session(Some(g));
+        let s = app.session().unwrap().clone();
+        assert!(ui::at_bar_edge(&mut cv, &app, &s, 1280.0, 640.0, 0.0));
+    }
+
+    /// Le menu à la manette d'un invité : « Quitter le partage » en dernier, rien d'un hôte (profils, « Alléger », « Partager »),
+    /// le clavier, la souris et la manette en souris seulement avec ce rôle ; celui d'un hôte a la tuile « Partager ».
+    #[test]
+    fn menu_of_a_guest_and_of_a_host() {
+        crate::i18n::force_english(false);
+        let mut app = demo(false, Layout::Handheld);
+        let mut cv = Canvas::new();
+        cv.resize(1280, 800, 1.0);
+        let items = |app: &App, cv: &mut Canvas| -> Vec<Target> { ui::draw(app, cv).into_iter().map(|(t, _)| t).filter(|t| matches!(t, Target::Menu(_))).collect() };
+        let mut host = session(&app);
+        host.menu = true;
+        app.set_session(Some(host));
+        app.screen = Screen::Session;
+        let t = items(&app, &mut cv);
+        assert!(t.contains(&Target::Menu(MenuItem::Share)) && t.contains(&Target::Menu(MenuItem::Profile(Profile::Bureau))));
+        assert_eq!(t.last(), Some(&Target::Menu(MenuItem::Disconnect)));
+        for (role, full) in [(ShareRole::Spectator, false), (ShareRole::Player, false), (ShareRole::PlayerKbm, true)] {
+            let mut g = guest_session(role);
+            g.menu = true;
+            app.set_session(Some(g));
+            let t = items(&app, &mut cv);
+            assert!(t.iter().all(|i| !matches!(i, Target::Menu(MenuItem::Share | MenuItem::Light | MenuItem::Profile(_)))), "{role:?} : {t:?}");
+            assert_eq!(t.contains(&Target::Menu(MenuItem::Keys)), full, "{role:?}");
+            assert_eq!(t.contains(&Target::Menu(MenuItem::PadMouse)), full, "{role:?}");
+            assert_eq!(t.contains(&Target::Menu(MenuItem::Gamepads)), role != ShareRole::Spectator, "{role:?} : la manette seulement en joueur");
+            assert_eq!(t.last(), Some(&Target::Menu(MenuItem::Disconnect)));
+            assert!(t.contains(&Target::Menu(MenuItem::Resume)) && t.contains(&Target::Menu(MenuItem::Sound)) && t.contains(&Target::Menu(MenuItem::Stats)));
+        }
+    }
+
+    /// « Rejoindre un partage » se dessine pour chaque interface : les champs, « Rejoindre », et à la manette le pavé qui suit le champ
+    /// (chiffres pour le code, lettres pour le prénom) ; rien ne sort de l'écran.
+    #[test]
+    fn join_screen_draws_for_every_interface() {
+        for (layout, size) in [(Layout::Desktop, (960, 600)), (Layout::Desktop, (1280, 800)), (Layout::Handheld, (1280, 800)), (Layout::Tv, (1920, 1080))] {
+            crate::i18n::force_english(false);
+            let mut app = demo(false, layout);
+            let mut cv = Canvas::new();
+            cv.resize(size.0, size.1, 1.0);
+            app.join = JoinState { name: "Atelier de Léa".into(), message: Some("Aucun partage avec ce code sur le réseau.".into()), ..JoinState::new() };
+            app.go(Screen::Join);
+            let hits = ui::draw(&app, &mut cv);
+            for t in [Target::JoinCode, Target::JoinName, Target::JoinGo] {
+                assert!(hits.iter().any(|(h, _)| *h == t), "{layout:?} : {t:?}");
+            }
+            for (t, r) in &hits {
+                assert!(r.x >= 0.0 && r.y >= 0.0 && r.x + r.w <= size.0 as f32 && r.y + r.h <= size.1 as f32, "{layout:?} {size:?} : {t:?} sort de l'écran : {r:?}");
+            }
+            let digits = hits.iter().filter(|(t, _)| matches!(t, Target::Key(c) if c.is_ascii_digit())).count();
+            if layout.console() {
+                assert_eq!(digits, 10, "le pavé des chiffres");
+                assert!(hits.iter().all(|(t, _)| *t != Target::Key('q')));
+                app.join.field = JoinField::Name;
+                let hits = ui::draw(&app, &mut cv);
+                assert!(hits.iter().any(|(t, _)| *t == Target::Key('q')) && hits.iter().any(|(t, _)| *t == Target::KeyShift) && hits.iter().any(|(t, _)| *t == Target::Key(' ')));
+            } else {
+                assert_eq!(digits, 0, "au bureau, le clavier");
+            }
+        }
+    }
+
+    /// Sur l'accueil, « Rejoindre avec un code » est à côté de « Ajouter un ordinateur » (deux cartes dans la place d'une),
+    /// et le Select (⧉) le porte à la manette ; sans ordinateur, un bouton à côté de l'ajout.
+    #[test]
+    fn home_offers_to_join() {
+        for layout in [Layout::Desktop, Layout::Handheld, Layout::Tv] {
+            crate::i18n::force_english(false);
+            let mut app = demo(false, layout);
+            let mut cv = Canvas::new();
+            let size = if layout == Layout::Tv { (1920, 1080) } else { (1280, 800) };
+            cv.resize(size.0, size.1, 1.0);
+            app.go(Screen::Home);
+            let hits = ui::draw(&app, &mut cv);
+            let add = hits.iter().find(|(t, _)| *t == Target::AddCard).expect("ajouter").1;
+            let join = hits.iter().find(|(t, _)| *t == Target::JoinCard).expect("rejoindre").1;
+            assert!((add.x - join.x).abs() < 1.0 && join.y >= add.y + add.h, "{layout:?} : une carte sous l'autre");
+            // Les ordinateurs gardent leur place : trois cartes d'ordinateur et la paire.
+            assert_eq!(hits.iter().filter(|(t, _)| matches!(t, Target::Host(_))).count(), 3);
+            let mut empty = App::new(Store::default(), layout);
+            empty.machine = app.machine.clone();
+            empty.go(Screen::Home);
+            let hits = ui::draw(&empty, &mut cv);
+            assert!(hits.iter().any(|(t, _)| *t == Target::AddCard) && hits.iter().any(|(t, _)| *t == Target::JoinCard), "{layout:?} : accueil vide");
+        }
     }
 }

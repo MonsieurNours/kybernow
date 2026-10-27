@@ -206,7 +206,9 @@ fn welcome(cv: &mut Canvas, f: &mut Frame, x0: f32, y: f32, u: f32, max: f32) {
         max.min(620.0 * u),
         23.0 * u,
     );
-    primary(cv, f, Target::AddCard, x0, y + 226.0 * u, 52.0 * u, tr("Ajouter un ordinateur", "Add a computer"), false);
+    let bw = primary(cv, f, Target::AddCard, x0, y + 226.0 * u, 52.0 * u, tr("Ajouter un ordinateur", "Add a computer"), false);
+    // KyberNow Share : rejoindre le partage de quelqu'un, à côté de « Ajouter un ordinateur ».
+    widgets::ghost(cv, f, Target::JoinCard, x0 + bw + 18.0 * u, y + 226.0 * u + 3.0 * u, 46.0 * u, 15.0 * u, Some(Icon::Share), tr("Rejoindre avec un code", "Join with a code"), MUTED);
 }
 
 /// La rangée des ordinateurs : enregistrés (nom et état), trouvés sur le
@@ -244,20 +246,30 @@ fn cards(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y: f32, cw: f32, ch
         slots -= 1;
     }
     if add_card {
-        let r = Rect::new(x, y, cw, ch);
-        let (focused, hover) = f.state(Target::AddCard, r);
-        if focused {
-            widgets::ring(cv, r, 10.0 * u);
-        }
-        cv.rrect(r.x, r.y, r.w, r.h, 10.0 * u, if hover { Rgba(20, 27, 35, 235) } else { CARD });
-        cv.rrect_dashed(r.x, r.y, r.w, r.h, 10.0 * u, 1.0, LINE_2);
-        let label = tr("Ajouter un ordinateur", "Add a computer");
-        let st = Text::new(Font::Regular, 15.0 * u, MUTED);
-        let tw = (cv.text_width(st, label) + 28.0 * u).min(r.w - 24.0 * u);
-        let tx = r.x + (r.w - tw) / 2.0;
-        cv.icon(&Icon::Plus, tx, r.y + r.h / 2.0 - 10.0 * u, 20.0 * u, 2.0, MUTED);
-        cv.text_fit(tx + 28.0 * u, r.y + r.h / 2.0 + 5.0 * u, st, label, r.w - 40.0 * u);
+        // Deux cartes dans la place d'une : « Ajouter un ordinateur » et, dessous, « Rejoindre avec un
+        // code » (KyberNow Share) ; la rangée ne perd pas un ordinateur de plus.
+        let gap = 8.0 * u;
+        let hh = (ch - gap) / 2.0;
+        action_card(cv, f, Target::AddCard, Rect::new(x, y, cw, hh), u, Icon::Plus, tr("Ajouter un ordinateur", "Add a computer"));
+        action_card(cv, f, Target::JoinCard, Rect::new(x, y + hh + gap, cw, hh), u, Icon::Share, tr("Rejoindre avec un code", "Join with a code"));
     }
+}
+
+/// Une carte en pointillés, une action : son icône et son libellé, centrés.
+fn action_card(cv: &mut Canvas, f: &mut Frame, t: Target, r: Rect, u: f32, icon: Icon, label: &str) {
+    let (focused, hover) = f.state(t, r);
+    if focused {
+        widgets::ring(cv, r, 10.0 * u);
+    }
+    cv.rrect(r.x, r.y, r.w, r.h, 10.0 * u, if hover { Rgba(20, 27, 35, 235) } else { CARD });
+    cv.rrect_dashed(r.x, r.y, r.w, r.h, 10.0 * u, 1.0, LINE_2);
+    let size = 15.0 * u;
+    let st = Text::new(Font::Regular, size, if hover { FROST } else { MUTED });
+    let isz = 18.0 * u;
+    let tw = (cv.text_width(st, label) + isz + 10.0 * u).min(r.w - 24.0 * u);
+    let tx = r.x + (r.w - tw) / 2.0;
+    cv.icon(&icon, tx, r.y + (r.h - isz) / 2.0, isz, 1.8, MUTED);
+    cv.text_fit(tx + isz + 10.0 * u, r.y + r.h / 2.0 + size * 0.36, st, label, tw - isz - 10.0 * u);
 }
 
 // MARK: - Console (Deck, salon)
@@ -336,6 +348,7 @@ fn console(app: &App, cv: &mut Canvas, f: &mut Frame, host: Option<&Host>, logo:
         x += legend(cv, x, gy, g, &["Y"], tr("Réglages", "Settings")) + 28.0 * u;
     }
     x += legend(cv, x, gy, g, &["X"], tr("Ajouter un ordinateur", "Add a computer")) + 28.0 * u;
+    x += legend(cv, x, gy, g, &["⧉"], tr("Rejoindre avec un code", "Join with a code")) + 28.0 * u;
     if host.is_some() {
         legend(cv, x, gy, g, &["L1", "R1"], tr("Profil", "Profile"));
     }

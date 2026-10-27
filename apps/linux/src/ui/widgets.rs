@@ -22,8 +22,16 @@ pub fn ring(cv: &mut Canvas, r: Rect, radius: f32) {
 /// Bouton principal (« Se connecter ») : aplat Spectre, coin bas droit coupé
 /// à 45° ; rend sa largeur. `h` : hauteur (52 bureau, 60 Deck, 76 salon).
 pub fn primary(cv: &mut Canvas, f: &mut Frame, t: Target, x: f32, y: f32, h: f32, s: &str, play: bool) -> f32 {
+    primary_state(cv, f, t, x, y, h, s, play, true)
+}
+
+/// Le bouton principal, éteint quand il ne peut pas partir (« Rejoindre » sans code) : il reste
+/// choisissable, et dit ce qui manque en y menant le focus.
+#[allow(clippy::too_many_arguments)]
+pub fn primary_state(cv: &mut Canvas, f: &mut Frame, t: Target, x: f32, y: f32, h: f32, s: &str, play: bool, enabled: bool) -> f32 {
     let size = h * 0.32;
-    let style = Text::new(Font::Semibold, size, Rgba(255, 255, 255, 255));
+    let ink = if enabled { Rgba(255, 255, 255, 255) } else { FAINT };
+    let style = Text::new(Font::Semibold, size, ink);
     let icon = if play { size * 1.05 } else { 0.0 };
     let gap = if play { size * 0.7 } else { 0.0 };
     let pad = h * 0.58;
@@ -34,12 +42,12 @@ pub fn primary(cv: &mut Canvas, f: &mut Frame, t: Target, x: f32, y: f32, h: f32
         ring(cv, r, 8.0);
     }
     let cut = h * 0.23;
-    let c = if hover { Rgba::hex(0x7E6EFF) } else { FLAT };
+    let c = if !enabled { INK_3 } else if hover { Rgba::hex(0x7E6EFF) } else { FLAT };
     cv.polygon(&[(x, y), (x + w, y), (x + w, y + h - cut), (x + w - cut, y + h), (x, y + h)], c);
     let mut tx = x + pad;
     if play {
         let cy = y + h / 2.0;
-        cv.polygon(&[(tx + icon * 0.2, cy - icon * 0.42), (tx + icon * 0.2, cy + icon * 0.42), (tx + icon * 0.9, cy)], Rgba(255, 255, 255, 255));
+        cv.polygon(&[(tx + icon * 0.2, cy - icon * 0.42), (tx + icon * 0.2, cy + icon * 0.42), (tx + icon * 0.9, cy)], ink);
         tx += icon + gap;
     }
     cv.text(tx, y + h / 2.0 + size * 0.36, style, s);
@@ -336,4 +344,26 @@ pub fn card(cv: &mut Canvas, f: &mut Frame, t: Target, r: Rect, scale: f32, name
 pub fn panel(cv: &mut Canvas, r: Rect, radius: f32) {
     cv.rrect(r.x, r.y, r.w, r.h, radius, PANEL);
     cv.rrect_stroke(r.x, r.y, r.w, r.h, radius, 1.0, LINE);
+}
+
+/// Un QR code sur une carte claire (marge de quatre modules), net sur les pixels de l'écran : les modules
+/// sont calés sur des pixels entiers. `side` : le côté voulu, en points ; rend le côté de la carte. `None` :
+/// le texte est trop long pour un QR code.
+pub fn qr_card(cv: &mut Canvas, text: &str, x: f32, y: f32, side: f32) -> Option<f32> {
+    let qr = qrcodegen::QrCode::encode_text(text, qrcodegen::QrCodeEcc::Medium).ok()?;
+    let n = qr.size();
+    let k = cv.k;
+    let module_px = ((side * k) / (n + 8) as f32).floor().max(1.0);
+    let card = module_px * (n + 8) as f32 / k;
+    let (cx, cy) = (((x) * k).round() / k, (y * k).round() / k);
+    cv.rrect(cx, cy, card, card, 8.0, Rgba(255, 255, 255, 255));
+    let m = module_px / k;
+    for my in 0..n {
+        for mx in 0..n {
+            if qr.get_module(mx, my) {
+                cv.rect(cx + (mx + 4) as f32 * m, cy + (my + 4) as f32 * m, m, m, INK);
+            }
+        }
+    }
+    Some(card)
 }

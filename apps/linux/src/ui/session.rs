@@ -10,9 +10,10 @@ use super::canvas::{Align, Canvas, Font, Rgba, Text};
 use super::home;
 use super::icons::Icon;
 use super::theme::*;
+use super::share;
 use super::widgets::{self, eyebrow, legend};
 use super::{unit, Frame};
-use crate::app::{App, BarMenu, Layout, MenuItem, Online, Phase, Rect, Screen, SessionUi, Target, SHORTCUTS};
+use crate::app::{guests_label, App, BarMenu, Layout, MenuItem, Online, Phase, Rect, Screen, SessionUi, ShareAvail, Target, SHORTCUTS};
 use crate::i18n::{decimal, tr};
 use crate::model::Profile;
 
@@ -41,6 +42,8 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame, view: super::View) {
                 keys(app, cv, f);
             } else if s.menu {
                 menu(app, cv, f, s);
+            } else if s.share_panel {
+                share::overlay(app, cv, f, s);
             } else {
                 if s.show_stats && view.main {
                     stats(app, cv, s);
@@ -312,12 +315,52 @@ const HINT_W: f32 = 220.0;
 const HINT_H: f32 = 3.0;
 pub const HINT_STRIP: f32 = 4.0;
 
+/// Un bouton de la barre : sa cible, son dessin, s'il est allumé, son nom au survol (le texte de
+/// « Partager » quand il est inactif) et s'il est éteint.
+struct BarIcon {
+    target: Target,
+    icon: Icon,
+    on: bool,
+    name: String,
+    dim: bool,
+}
+
+/// Les boutons de la barre, de gauche à droite : ordinateurs (plusieurs ordinateurs), touches et souris
+/// (une session d'hôte, ou un joueur à qui le clavier et la souris sont donnés), haut-parleur (« Garder le
+/// son »), plein écran (une seule fenêtre), « Partager » (une session d'hôte ; la pastille des invités le
+/// suit). Une session d'invité n'a ni profil, ni ordinateurs, ni « Partager ».
+fn bar_icons(app: &App, s: &SessionUi, computers: bool, sound: bool) -> Vec<BarIcon> {
+    let icon = |target, icon, on, name: &str| BarIcon { target, icon, on, name: name.into(), dim: false };
+    let mut v = Vec::new();
+    if computers {
+        v.push(icon(Target::BarComputers, Icon::Monitor, s.bar_menu == Some(BarMenu::Computers), tr("Ordinateurs", "Computers")));
+    }
+    if s.keyboard_mouse() {
+        v.push(icon(Target::BarKeys, Icon::Keys, s.bar_menu == Some(BarMenu::Keys), tr("Touches", "Keys")));
+        v.push(icon(Target::BarMouse, Icon::Mouse, s.relative, if s.relative { tr("Souris des jeux", "Game mouse") } else { tr("Souris du bureau", "Desktop mouse") }));
+    }
+    if sound {
+        v.push(icon(Target::BarSound, Icon::Speaker, s.keep_sound, tr("Garder le son", "Keep sound")));
+    }
+    if !s.multi() {
+        v.push(icon(Target::BarFullscreen, Icon::Fullscreen, s.fullscreen, tr("Plein écran", "Full screen")));
+    }
+    if s.guest.is_none() {
+        let avail = app.share_avail(s);
+        let usable = avail == Some(ShareAvail::Available);
+        let name = avail.and_then(|a| a.text()).unwrap_or(tr("Partager", "Share"));
+        v.push(BarIcon { target: Target::BarShare, icon: Icon::Share, on: s.share.is_some() || s.bar_menu == Some(BarMenu::Share), name: name.into(), dim: !usable });
+    }
+    v
+}
+
 /// Ce que la barre du bureau montre, mesuré : ses textes, leurs largeurs et sa
 /// largeur totale (selon le contenu). Le dessin et le geste du pointeur
 /// (zone d'ouverture, rectangle) partent de la même mesure.
 struct BarLayout {
     lat: String,
     info: String,
+    /// Le profil (menu) d'une session d'hôte ; le rôle d'un invité (« Spectateur », « Joueur »), sans menu.
     profile: &'static str,
     quit: &'static str,
     mono14: Text,
@@ -326,11 +369,9 @@ struct BarLayout {
     info_w: f32,
     prof_w: f32,
     quit_w: f32,
-    /// Plusieurs ordinateurs (docs/link-ui.md) : le menu « Ordinateurs », présenté comme « Touches »
-    /// (une icône), quand il y a un autre ordinateur à proposer ; le haut-parleur « Garder le son »,
-    /// à partir de deux sessions ouvertes (avec une seule, la barre reste comme avant).
-    computers: bool,
-    sound: bool,
+    icons: Vec<BarIcon>,
+    /// « 2 invités » : le partage est ouvert (il rouvre le panneau), et sa largeur.
+    pill: Option<(String, f32)>,
     total: f32,
 }
 
@@ -345,19 +386,25 @@ impl BarLayout {
         let mono12 = Text::new(Font::Mono, 12.0, MUTED);
         let lat_w = cv.text_width(mono14, &lat);
         let info_w = cv.text_width(mono12, &info);
-        let profile = home::profile_label(s.profile);
-        let prof_w = cv.text_width(Text::new(Font::Regular, 13.0, FROST), profile) + 34.0;
-        let quit = tr("Se déconnecter", "Disconnect");
+        let profile = match &s.guest {
+            Some(g) => g.role.label(),
+            None => home::profile_label(s.profile),
+        };
+        let prof_w = cv.text_width(Text::new(Font::Regular, 13.0, FROST), profile) + if s.guest.is_some() { 24.0 } else { 34.0 };
+        let quit = if s.guest.is_some() { tr("Quitter le partage", "Leave") } else { tr("Se déconnecter", "Disconnect") };
         let quit_w = cv.text_width(Text::new(Font::Semibold, 13.0, BAD_TEXT), quit) + 24.0;
         // Plusieurs ordinateurs (bureau, hors KyberNow Link OS) : le menu « Ordinateurs » s'il y a un autre
-        // ordinateur, le haut-parleur « Garder le son » avec au moins deux sessions.
+        // ordinateur, le haut-parleur « Garder le son » avec au moins deux sessions. Un invité n'a pas le premier.
         let multi = app.multi_sessions();
-        let computers = multi && app.store.hosts.iter().any(|h| h.id != s.host);
+        let computers = multi && s.guest.is_none() && app.store.hosts.iter().any(|h| h.id != s.host);
         let sound = multi && app.running_sessions() >= 2;
-        // Ordinateurs, touches, souris, haut-parleur, plein écran ; avec plusieurs écrans les fenêtres restent en plein écran : pas de bouton.
-        let buttons = if s.multi() { 2.0 } else { 3.0 } + if sound { 1.0 } else { 0.0 } + if computers { 1.0 } else { 0.0 };
-        let total = 16.0 + 16.0 + 12.0 + lat_w + 8.0 + 64.0 + 12.0 + 1.0 + 12.0 + info_w + 12.0 + 1.0 + 12.0 + prof_w + 12.0 + 34.0 * buttons + 24.0 + 1.0 + 12.0 + quit_w + 10.0;
-        Self { lat, info, profile, quit, mono14, mono12, lat_w, info_w, prof_w, quit_w, computers, sound, total }
+        let icons = bar_icons(app, s, computers, sound);
+        let pill = share::pill_label(s).map(|t| {
+            let w = cv.text_width(Text::new(Font::Regular, 12.5, FROST), &t) + 22.0;
+            (t, w)
+        });
+        let total = 16.0 + 16.0 + 12.0 + lat_w + 8.0 + 64.0 + 12.0 + 1.0 + 12.0 + info_w + 12.0 + 1.0 + 12.0 + prof_w + 12.0 + 34.0 * icons.len() as f32 + pill.as_ref().map_or(0.0, |(_, w)| w + 4.0) + 24.0 + 1.0 + 12.0 + quit_w + 10.0;
+        Self { lat, info, profile, quit, mono14, mono12, lat_w, info_w, prof_w, quit_w, icons, pill, total }
     }
 }
 
@@ -413,7 +460,7 @@ fn hint(cv: &mut Canvas) {
 fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     let h = BAR_H;
     let st = s.stats.clone().unwrap_or_default();
-    let BarLayout { lat, info, profile, quit, mono14, mono12, lat_w, info_w, prof_w, quit_w, computers, sound, total } = BarLayout::measure(cv, app, s);
+    let BarLayout { lat, info, profile, quit, mono14, mono12, lat_w, info_w, prof_w, quit_w, icons, pill, total } = BarLayout::measure(cv, app, s);
     let r = bar_frame(cv.w, total);
     let x0 = r.x;
     cv.rrect(r.x, r.y - 12.0, r.w, r.h + 12.0, 12.0, Rgba(9, 13, 18, 235));
@@ -440,35 +487,28 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     x += info_w + 12.0;
     cv.rect(x.round(), cy - 11.0, 1.0, 22.0, LINE_2);
     x += 13.0;
-    // Profil (menu).
+    // Profil (menu) ; un invité n'a pas de profil : son rôle, que l'hôte change, sans menu.
     let pr = Rect::new(x, cy - 15.0, prof_w, 30.0);
-    let (focused, hover) = f.state(Target::BarProfile, pr);
-    cv.rrect(pr.x, pr.y, pr.w, pr.h, 7.0, if hover || s.bar_menu == Some(BarMenu::Profile) { INK_3 } else { Rgba(20, 27, 35, 255) });
-    cv.rrect_stroke(pr.x, pr.y, pr.w, pr.h, 7.0, 1.0, LINE_2);
-    if focused {
-        widgets::ring(cv, pr, 7.0);
+    if s.guest.is_some() {
+        cv.rrect_stroke(pr.x, pr.y, pr.w, pr.h, 7.0, 1.0, LINE_2);
+        cv.text(pr.x + 12.0, cy + 5.0, Text::new(Font::Regular, 13.0, FROST), profile);
+    } else {
+        let (focused, hover) = f.state(Target::BarProfile, pr);
+        cv.rrect(pr.x, pr.y, pr.w, pr.h, 7.0, if hover || s.bar_menu == Some(BarMenu::Profile) { INK_3 } else { Rgba(20, 27, 35, 255) });
+        cv.rrect_stroke(pr.x, pr.y, pr.w, pr.h, 7.0, 1.0, LINE_2);
+        if focused {
+            widgets::ring(cv, pr, 7.0);
+        }
+        cv.text(pr.x + 12.0, cy + 5.0, Text::new(Font::Regular, 13.0, FROST), profile);
+        cv.text(pr.x + pr.w - 12.0, cy + 4.0, Text::new(Font::Regular, 11.0, FAINT).align(Align::Right), "▾");
     }
-    cv.text(pr.x + 12.0, cy + 5.0, Text::new(Font::Regular, 13.0, FROST), profile);
-    cv.text(pr.x + pr.w - 12.0, cy + 4.0, Text::new(Font::Regular, 11.0, FAINT).align(Align::Right), "▾");
     let profile_x = pr.x;
     x += prof_w + 12.0;
     // Ordinateurs et touches (deux menus du même dessin), souris, haut-parleur (« Garder le son »), plein
-    // écran ; chacun nomme son bouton au survol.
-    let (mut keys_x, mut computers_x) = (x, x);
-    let mut icons = Vec::new();
-    if computers {
-        icons.push((Target::BarComputers, Icon::Monitor, s.bar_menu == Some(BarMenu::Computers), tr("Ordinateurs", "Computers")));
-    }
-    icons.push((Target::BarKeys, Icon::Keys, s.bar_menu == Some(BarMenu::Keys), tr("Touches", "Keys")));
-    icons.push((Target::BarMouse, Icon::Mouse, s.relative, if s.relative { tr("Souris des jeux", "Game mouse") } else { tr("Souris du bureau", "Desktop mouse") }));
-    if sound {
-        icons.push((Target::BarSound, Icon::Speaker, s.keep_sound, tr("Garder le son", "Keep sound")));
-    }
-    if !s.multi() {
-        icons.push((Target::BarFullscreen, Icon::Fullscreen, s.fullscreen, tr("Plein écran", "Full screen")));
-    }
-    let mut tip: Option<(Rect, &str)> = None;
-    for (t, icon, on, name) in icons {
+    // écran, « Partager » ; chacun nomme son bouton au survol.
+    let (mut keys_x, mut computers_x, mut share_x) = (x, x, x);
+    let mut tip: Option<(Rect, String)> = None;
+    for BarIcon { target: t, icon, on, name, dim } in icons {
         let ir = Rect::new(x, cy - 17.0, 34.0, 34.0);
         let (focused, hover) = f.state(t, ir);
         if on {
@@ -485,10 +525,22 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         match t {
             Target::BarComputers => computers_x = ir.x,
             Target::BarKeys => keys_x = ir.x,
+            Target::BarShare => share_x = ir.x,
             _ => {}
         }
-        cv.icon(&icon, x + 8.0, cy - 9.0, 18.0, 1.8, if on { FROST } else { MUTED });
+        cv.icon(&icon, x + 8.0, cy - 9.0, 18.0, 1.8, if on { FROST } else if dim { GHOST } else { MUTED });
         x += 34.0;
+    }
+    // La pastille « 2 invités » : le partage est ouvert ; elle rouvre le panneau.
+    if let Some((label, pw)) = pill {
+        let pr = Rect::new(x + 2.0, cy - 12.0, pw, 24.0);
+        let (focused, hover) = f.state(Target::BarShare, pr);
+        cv.rrect(pr.x, pr.y, pr.w, pr.h, 12.0, FLAT.alpha(if hover || s.bar_menu == Some(BarMenu::Share) { 0.34 } else { 0.22 }));
+        if focused {
+            widgets::ring(cv, pr, 12.0);
+        }
+        cv.text(pr.x + pr.w / 2.0, cy + 4.5, Text::new(Font::Regular, 12.5, FROST).align(Align::Center), &label);
+        x += pw + 4.0;
     }
     x += 12.0;
     cv.rect(x.round(), cy - 11.0, 1.0, 22.0, LINE_2);
@@ -517,10 +569,11 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
             dropdown(cv, f, keys_x, h + 6.0, 280.0, &items);
         }
         Some(BarMenu::Computers) => computers_menu(cv, f, app, s, computers_x, h + 6.0),
+        Some(BarMenu::Share) => share::dropdown(cv, f, app, s, share_x + 17.0, h + 6.0),
         None => {
             // Le nom du bouton survolé, sous la barre (jamais par-dessus un menu).
             if let Some((r, name)) = tip {
-                tooltip(cv, r, h + 4.0, name);
+                tooltip(cv, r, h + 4.0, &name);
             }
         }
     }
@@ -723,6 +776,8 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         (home::profile_label(s.profile).into(), tr("Profil", "Profile"), FROST),
         (format!("{}", st.lost), tr("Perdues · 10 s", "Lost · 10 s"), lost_color),
     ];
+    // Un invité n'a pas de profil : la cellule n'y est pas.
+    let cells: Vec<_> = cells.into_iter().filter(|c| s.guest.is_none() || c.1 != tr("Profil", "Profile")).collect();
     for (v, k, c) in &cells {
         let vw = cv.text(x, head / 2.0 + 2.0 * u, Text::new(Font::MonoMedium, 20.0 * u, *c), v);
         let kw = eyebrow(cv, x, head / 2.0 + 22.0 * u, 11.0 * u, FAINT, k);
@@ -734,9 +789,11 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     let mode = if st.mode.is_empty() { "—".to_string() } else { st.mode.clone() };
     let vw = cv.text(w - x0, head / 2.0 + 2.0 * u, Text::new(Font::MonoMedium, 20.0 * u, FROST).align(Align::Right), &mode);
     let _ = vw;
-    let k = tr("Écran virtuel", "Virtual display");
-    let kw = cv.text_width(Text::new(Font::Mono, 11.0 * u, FAINT).tracking(0.88 * u), &k.to_uppercase());
-    eyebrow(cv, w - x0 - kw, head / 2.0 + 22.0 * u, 11.0 * u, FAINT, k);
+    if s.guest.is_none() {
+        let k = tr("Écran virtuel", "Virtual display");
+        let kw = cv.text_width(Text::new(Font::Mono, 11.0 * u, FAINT).tracking(0.88 * u), &k.to_uppercase());
+        eyebrow(cv, w - x0 - kw, head / 2.0 + 22.0 * u, 11.0 * u, FAINT, k);
+    }
 
     // Les tuiles : cinq par rangée.
     let gap = 14.0 * u;
@@ -749,22 +806,44 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     };
     let on_off = |b: bool| if b { tr("Actif", "On") } else { tr("Inactif", "Off") };
     let row2_keyboard = if app.layout == Layout::Tv { tr("Taper du texte", "Type text") } else { tr("Clavier", "Keyboard") };
-    let tiles: Vec<(MenuItem, String, String, bool, bool)> = vec![
-        (MenuItem::Resume, tr("Reprendre", "Resume").into(), tr("Retour au jeu", "Back to the game").into(), false, false),
-        (MenuItem::Profile(others[0]), home::profile_label(others[0]).into(), tr("Changer de profil", "Change profile").into(), false, false),
-        (MenuItem::Profile(others[1]), home::profile_label(others[1]).into(), tr("Changer de profil", "Change profile").into(), false, false),
-        (MenuItem::Sound, tr("Son", "Sound").into(), audio, s.muted, false),
-        (MenuItem::PadMouse, tr("Manette en souris", "Controller as mouse").into(), format!("{} · {}", on_off(s.pad_mouse), tr("stick gauche", "left stick")), s.pad_mouse, false),
-        (MenuItem::Keyboard, row2_keyboard.into(), tr("Clavier de Steam", "Steam keyboard").into(), false, false),
-        (MenuItem::Keys, tr("Touches", "Keys").into(), tr("Ctrl+Alt+Suppr, Alt+Tab", "Ctrl+Alt+Del, Alt+Tab").into(), false, false),
-        (MenuItem::Stats, tr("Statistiques", "Statistics").into(), tr("Latence, débit", "Latency, bitrate").into(), s.show_stats, false),
-        if tv || app.machine.battery.is_none() {
-            (MenuItem::Gamepads, tr("Manettes", "Controllers").into(), format!("{} · {}", app.pads.len(), tr("vibrations", "rumble")), false, false)
-        } else {
-            (MenuItem::Light, tr("Alléger", "Lighter").into(), tr("60 i/s, débit réduit", "60 fps, lower bitrate").into(), s.light, false)
-        },
-        (MenuItem::Disconnect, tr("Se déconnecter", "Disconnect").into(), tr("Fin de la session", "Ends the session").into(), false, true),
-    ];
+    // Les tuiles de l'hôte ; un invité n'a ni profil, ni « Alléger », ni « Partager », et le clavier, la souris
+    // et la manette en souris seulement quand ils lui sont donnés (KyberNow Share).
+    let guest = s.guest.is_some();
+    let kbm = s.keyboard_mouse();
+    let mut tiles: Vec<(MenuItem, String, String, bool, bool)> = vec![(MenuItem::Resume, tr("Reprendre", "Resume").into(), tr("Retour au jeu", "Back to the game").into(), false, false)];
+    if !guest {
+        for p in &others {
+            tiles.push((MenuItem::Profile(*p), home::profile_label(*p).into(), tr("Changer de profil", "Change profile").into(), false, false));
+        }
+    }
+    tiles.push((MenuItem::Sound, tr("Son", "Sound").into(), audio, s.muted, false));
+    if kbm {
+        tiles.push((MenuItem::PadMouse, tr("Manette en souris", "Controller as mouse").into(), format!("{} · {}", on_off(s.pad_mouse), tr("stick gauche", "left stick")), s.pad_mouse, false));
+        tiles.push((MenuItem::Keyboard, row2_keyboard.into(), tr("Clavier de Steam", "Steam keyboard").into(), false, false));
+        tiles.push((MenuItem::Keys, tr("Touches", "Keys").into(), tr("Ctrl+Alt+Suppr, Alt+Tab", "Ctrl+Alt+Del, Alt+Tab").into(), false, false));
+    }
+    tiles.push((MenuItem::Stats, tr("Statistiques", "Statistics").into(), tr("Latence, débit", "Latency, bitrate").into(), s.show_stats, false));
+    // La manette d'un invité ne sert qu'en joueur : un spectateur n'a pas la tuile.
+    let plays = s.role().is_none_or(|r| r.plays());
+    if guest || tv || app.machine.battery.is_none() {
+        if plays {
+            tiles.push((MenuItem::Gamepads, tr("Manettes", "Controllers").into(), format!("{} · {}", app.pads.len(), tr("vibrations", "rumble")), false, false));
+        }
+    } else {
+        tiles.push((MenuItem::Light, tr("Alléger", "Lighter").into(), tr("60 i/s, débit réduit", "60 fps, lower bitrate").into(), s.light, false));
+    }
+    if guest {
+        tiles.push((MenuItem::Disconnect, tr("Quitter le partage", "Leave").into(), s.name.clone(), false, true));
+    } else {
+        // « Partager » : « 2 invités » quand il est ouvert, le texte du refus quand il est inactif.
+        let (sub, on) = match (&s.share, app.share_avail(s)) {
+            (Some(v), _) => (guests_label(v.guests.len()), true),
+            (None, Some(a)) if a != ShareAvail::Available => (a.text().unwrap_or_default().to_string(), false),
+            _ => (tr("Code et QR code", "Code and QR code").to_string(), false),
+        };
+        tiles.push((MenuItem::Share, tr("Partager", "Share").into(), sub, on, false));
+        tiles.push((MenuItem::Disconnect, tr("Se déconnecter", "Disconnect").into(), tr("Fin de la session", "Ends the session").into(), false, true));
+    }
     let ty = head + 36.0 * u;
     for (i, (item, title, sub, on, danger)) in tiles.iter().enumerate() {
         let (col, row) = (i % 5, i / 5);
@@ -776,17 +855,22 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     let sy = h - footer - 30.0 * u;
     widgets::dot(cv, x0 + 4.0 * u, sy - 4.0 * u, 3.5 * u, OK, false);
     let mut line = s.name.clone();
+    if let Some(g) = &s.guest {
+        line.push_str(&format!(" · {}", g.role.label()));
+    }
     if s.relative {
         line.push_str(&format!(" · {}", tr("souris des jeux", "game mouse")));
     }
     if app.machine.vrr == Some(true) {
         line.push_str(" · VRR");
     }
-    if let Some(p) = app.pads.first() {
+    if let Some(p) = app.pads.first().filter(|_| s.role().is_none_or(|r| r.plays())) {
         line.push_str(&format!(" · {} {}, {}1", tr("manette :", "controller:"), p.name, tr("joueur ", "player ")));
     }
     cv.text_fit(x0 + 16.0 * u, sy, Text::new(Font::Mono, 12.0 * u, FAINT), &line, w * 0.6);
-    cv.text(w - x0, sy, Text::new(Font::Mono, 12.0 * u, FAINT).align(Align::Right), tr("Pendant ce menu, l'ordinateur relâche tout", "While this menu is open, the computer releases everything"));
+    if s.role().is_none_or(|r| r.plays()) {
+        cv.text(w - x0, sy, Text::new(Font::Mono, 12.0 * u, FAINT).align(Align::Right), tr("Pendant ce menu, l'ordinateur relâche tout", "While this menu is open, the computer releases everything"));
+    }
     // Légende.
     cv.rect(0.0, h - footer, w, footer, Rgba(5, 7, 10, 178));
     cv.rect(0.0, h - footer, w, 1.0, LINE);
@@ -796,9 +880,10 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     lx += legend(cv, lx, gy, g, &["A"], tr("Choisir", "Choose")) + 28.0 * u;
     legend(cv, lx, gy, g, &["B"], tr("Reprendre", "Resume"));
     let label = if app.layout == Layout::Handheld { tr("ouvre ce menu · ou un toucher en haut de l'écran", "opens this menu · or a touch at the top of the screen") } else { tr("ouvre ce menu", "opens this menu") };
-    let keys = ["L1", "R1", "☰", "⧉"];
-    let lw = widgets::legend_width(cv, g, &keys, label);
-    legend(cv, w - x0 - lw, gy, g, &keys, label);
+    // Un spectateur n'envoie rien : pas de combinaison (L1 + R1 + ☰ + ⧉), Start ou Select ouvrent le menu.
+    let keys: &[&str] = if s.role() == Some(crate::app::ShareRole::Spectator) { &["☰", "⧉"] } else { &["L1", "R1", "☰", "⧉"] };
+    let lw = widgets::legend_width(cv, g, keys, label);
+    legend(cv, w - x0 - lw, gy, g, keys, label);
 }
 
 #[allow(clippy::too_many_arguments)]

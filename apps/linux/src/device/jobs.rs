@@ -10,10 +10,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use kybernow_core::console::{Console, DeviceInfo, Info, PairStatus, StationError};
+use kybernow_core::profile::Capabilities;
+use kybernow_core::share::{self, JoinRequest, ShareAvailability, ShareTarget};
 use kybernow_core::wake::WakeTarget;
 
 use super::Event;
-use crate::app::{Found, StationKind, StationLive, StationRefusal};
+use crate::app::{Found, SessionId, ShareAvail, ShareOp, ShareView, StationKind, StationLive, StationRefusal};
 use crate::model::{new_id, Host, HostSettings, WakeCard};
 
 /// Sonde un ordinateur : en ligne ou non, son système, sa Station, et son
@@ -36,6 +38,7 @@ pub fn poll(host: Host, want_preview: bool, tx: Sender<Event>) {
                     station: Some(station),
                     wake: wake_cards(&info),
                     own_device: info.station.is_some().then_some(info.account.own_device),
+                    share: Some(share_avail(&info)),
                 });
                 if want_preview
                     && let Ok(bytes) = c.preview(960)
@@ -46,10 +49,19 @@ pub fn poll(host: Host, want_preview: bool, tx: Sender<Event>) {
             }
             Err(e) => {
                 log::info!("{} : hors ligne ({e})", host.name);
-                let _ = tx.send(Event::HostInfo { id: host.id.clone(), online: false, os: None, gpu: None, av1: false, virtual_display: None, max_screens: None, station: None, wake: Vec::new(), own_device: None });
+                let _ = tx.send(Event::HostInfo { id: host.id.clone(), online: false, os: None, gpu: None, av1: false, virtual_display: None, max_screens: None, station: None, wake: Vec::new(), own_device: None, share: None });
             }
         }
     });
+}
+
+/// Ce que « Partager » peut faire avec cet ordinateur (`Info::share`, le texte est celui de link-ui).
+fn share_avail(info: &Info) -> ShareAvail {
+    match ShareAvailability::of(info) {
+        ShareAvailability::Unsupported => ShareAvail::Unsupported,
+        ShareAvailability::Disabled => ShareAvail::Disabled,
+        ShareAvailability::Available => ShareAvail::Available,
+    }
 }
 
 /// La Station vue par l'interface : celle d'`Info::station` ; une Station
@@ -335,4 +347,60 @@ pub fn check_update(beta: bool, tx: Sender<Event>) {
             let _ = tx.send(Event::Update(r));
         })
         .ok();
+}
+
+/// KyberNow Share, invité : le code part à tous ces ordinateurs à la fois (les Stations trouvées sur le réseau,
+/// comme pour l'appairage), la première qui l'accepte répond (6 s au plus) ; le format de son image est vérifié
+/// avec ce que cet appareil décode. La réponse revient avec le numéro de la recherche : une recherche
+/// abandonnée n'ouvre rien.
+pub fn share_join(targets: Vec<ShareTarget>, request: JoinRequest, caps: Capabilities, attempt: u32, tx: Sender<Event>) {
+    std::thread::Builder::new()
+        .name("share-join".into())
+        .spawn(move || {
+            let result = share::join_checked(&targets, &request, caps);
+            let _ = tx.send(Event::ShareJoined { attempt, result });
+        })
+        .ok();
+}
+
+/// L'invité repart avant d'avoir ouvert sa session (recherche abandonnée, plus de place pour une session de plus) :
+/// la Station le sait, il ne reste pas dans la liste de l'hôte.
+pub fn share_leave(found: share::Found) {
+    std::thread::Builder::new().name("share-leave".into()).spawn(move || share::leave(&found)).ok();
+}
+
+/// KyberNow Share, hôte : une demande à Admin avec le compte de l'appareil en session (« Partager »,
+/// « Nouveau code », un rôle, « Retirer », « Arrêter le partage »), puis le partage tel qu'il est maintenant.
+pub fn share_host(session: SessionId, host: Host, op: ShareOp, tx: Sender<Event>) {
+    std::thread::Builder::new()
+        .name("share-host".into())
+        .spawn(move || {
+            let c = Console::new(&host.address, host.port, &host.user, &host.password, host.fingerprint.clone());
+            let result = share_run(&c, &op);
+            if let Err(e) = &result {
+                log::warn!("partage : {e}");
+            }
+            let _ = tx.send(Event::ShareHost { session, result });
+        })
+        .ok();
+}
+
+fn share_run(c: &Console, op: &ShareOp) -> Result<Option<ShareView>, String> {
+    let lang = kybernow_core::i18n::current();
+    let text = |e: kybernow_core::console::ConsoleError| e.text(lang);
+    match op {
+        ShareOp::Open => {
+            c.share_open().map_err(text)?;
+        }
+        ShareOp::NewCode => {
+            c.share_code().map_err(text)?;
+        }
+        ShareOp::Role(id, role) => c.share_guest(id, super::session::core_role(*role)).map_err(text)?,
+        ShareOp::Kick(id) => c.share_kick(id).map_err(text)?,
+        ShareOp::Close => {
+            c.share_close().map_err(text)?;
+            return Ok(None);
+        }
+    }
+    Ok(super::session::share_view(&c.share_state().map_err(text)?))
 }

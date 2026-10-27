@@ -41,6 +41,7 @@ use kybernow_core::kynput_rs::MouseButtonType;
 use kybernow_core::latency;
 use kybernow_core::profile::{Capabilities, StreamSettings};
 use kybernow_core::session::Status;
+use kybernow_core::share::{self, JoinRequest, ShareTarget};
 
 use crate::app::{Action, AddStep, App, Found, HostLive, Layout, Nav, Online, OsAction, Phase, Rect, Screen, SessionId, SessionUi, Stats, Target};
 use crate::displays::{self, Display};
@@ -63,6 +64,8 @@ pub enum Event {
         /// Les cartes réseau de l'ordinateur (vide : Station 0.4.9, ou rien de neuf).
         wake: Vec<crate::model::WakeCard>,
         own_device: Option<bool>,
+        /// Ce que « Partager » peut faire (KyberNow Share) ; `None` : pas de réponse d'Admin.
+        share: Option<crate::app::ShareAvail>,
     },
     /// Le réveil est parti (au moins un paquet), ou pourquoi rien n'est parti.
     Woken { id: String, result: Result<(), String> },
@@ -78,6 +81,11 @@ pub enum Event {
     /// canal. Un événement d'une session finie est écarté.
     Session(SessionId, SessionEvent),
     Update(Result<Option<kybernow_core::update::Available>, String>),
+    /// KyberNow Share, invité : la réponse de « Rejoindre » (numéro de la recherche), ou son refus.
+    ShareJoined { attempt: u32, result: Result<share::Found, share::ShareError> },
+    /// KyberNow Share, hôte : le partage de cette session après une demande à Admin (`None` : fermé), ou ce
+    /// qu'Admin a refusé.
+    ShareHost { session: SessionId, result: Result<Option<crate::app::ShareView>, String> },
     /// KyberNow Link OS.
     Bt(Vec<crate::app::BtDevice>),
     Wifi(Result<Vec<crate::app::WifiNet>, String>),
@@ -107,6 +115,12 @@ pub enum SessionEvent {
     Combo,
     GameFullscreen(bool),
     DecoderFailed(String),
+    /// KyberNow Share, hôte : le partage et ses invités (`None` : pas de partage).
+    Guests(Option<crate::app::ShareView>),
+    /// KyberNow Share, invité : son rôle (`previous` nul au départ), puis chaque changement de l'hôte.
+    ShareRole { role: crate::app::ShareRole, previous: Option<crate::app::ShareRole> },
+    /// KyberNow Share, invité : le partage a fini la session (`kind` : stopped, removed, unreadable) avec ce texte.
+    ShareEnd(String, String),
 }
 
 /// Règles de la souris Auto : le jeu doit aussi cacher son pointeur (comme Mac et Windows).
@@ -496,6 +510,9 @@ struct Live {
     focus: FocusId,
     /// L'ordinateur de la session (la dernière session y est enregistrée).
     host: String,
+    /// Une session d'invité (KyberNow Share) : rien n'en est gardé (ni dernière session, ni image), l'invité n'est
+    /// jamais dans la liste des ordinateurs.
+    guest: bool,
     /// Une session de plus : la surface de sa fenêtre (pixels) et la fréquence de son écran, dont
     /// elle prend le mode (l'écran de l'ordinateur a la taille de la fenêtre) ; `None` : le mode de
     /// l'écran de l'appareil.
@@ -803,6 +820,8 @@ pub fn run(args: &[String]) {
             || app.toast.as_ref().is_some_and(|(_, t)| t.elapsed().as_secs_f32() < 4.2)
             || app.screen == Screen::Gamepads
             || app.screen == Screen::Add
+            || app.screen == Screen::Join
+            || app.sessions.iter().any(|s| s.share_busy || s.share_copied.is_some_and(|(t, _)| t.elapsed().as_secs_f32() < 4.2))
             || pads.mouse_active();
         let timeout = if animating { 16 } else if streaming { 100 } else { 50 };
         let mut ev = sdl::SDL_Event::default();
@@ -838,7 +857,7 @@ pub fn run(args: &[String]) {
             } else {
                 dirty = true;
             }
-            handle_event(e, &mut app, &mut pads, &mut lives, &mut wins, &mut actions, &mut pairing);
+            handle_event(e, &mut app, &mut pads, &mut lives, &mut wins, &mut actions, &mut pairing, &tx);
         }
         for a in actions.drain(..) {
             perform(a, &mut app, &mut pads, &mut lives, &mut wins, &tx, &mut pairing, &mut quit);
@@ -1240,7 +1259,7 @@ fn draw_frame(win: &mut Win, show_ui: bool, strip: Option<c_int>, live: Option<&
         }
         // Le pointeur de l'ordinateur, dessiné par l'app : souris des jeux
         // (menus d'un jeu), console (pavés tactiles, manette en souris).
-        let draw_cursor = s.is_some_and(|s| !s.menu && !s.keys && s.phase == Phase::Streaming && (s.relative || s.pad_mouse || app.layout.console()));
+        let draw_cursor = s.is_some_and(|s| !s.menu && !s.keys && !s.share_panel && s.phase == Phase::Streaming && (s.relative || s.pad_mouse || app.layout.console()));
         // Chaque fenêtre ne dessine que le pointeur annoncé sur son écran (multi-écrans).
         let (pointer, pointer_hidden) = live.and_then(|l| l.pointers.get(&win.screen)).copied().unwrap_or((None, true));
         if let (true, Some(l), Some(dst)) = (draw_cursor, live, win.video_rect)
@@ -1276,7 +1295,7 @@ fn session_tick(app: &mut App, l: &mut Live, wins: &mut Wins, dirty: &mut bool, 
         let (remote_hidden, visible_for) = l.handle.shared.pointer_summary();
         let s = &mut app.sessions[si];
         let current = s.relative;
-        let wanted = streaming && !s.menu && !s.keys && !s.bar_menu.is_some() && MOUSE_RULES.wants_relative(l.mouse, l.game_fullscreen, remote_hidden, visible_for, current);
+        let wanted = streaming && !s.menu && !s.keys && !s.share_panel && !s.bar_menu.is_some() && s.keyboard_mouse() && MOUSE_RULES.wants_relative(l.mouse, l.game_fullscreen, remote_hidden, visible_for, current);
         if wanted != current {
             s.relative = wanted;
             l.handle.shared.relative.store(wanted, Ordering::Relaxed);
@@ -1300,7 +1319,7 @@ fn session_tick(app: &mut App, l: &mut Live, wins: &mut Wins, dirty: &mut bool, 
         // Bureau, souris du bureau : toujours visible. Windows masque son pointeur
         // par intermittence (sans souris branchée, à l'arrêt) ; le suivre ferait
         // perdre le curseur au repos.
-        let show_sys = !streaming || s.menu || s.keys || s.bar || (layout == Layout::Desktop && !s.relative);
+        let show_sys = !streaming || s.menu || s.keys || s.share_panel || s.bar || (layout == Layout::Desktop && !s.relative);
         // Le pointeur du système prend la forme que l'ordinateur a annoncée, dans la fenêtre survolée si
         // elle est de cette session (celle d'une autre session ne le change pas).
         let hovered = wins.hover.and_then(|id| wins.index_of(id)).filter(|i| wins.list[*i].session == Some(l.id));
@@ -1737,7 +1756,7 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
     let active = app.active_id();
     let stale = ws.is_some() && ws != active;
     let routed: Option<SessionId> = if on_window { ws.filter(|s| Some(*s) == active) } else { active };
-    let in_game = routed.and_then(|id| app.session_by(id)).is_some_and(|s| app.screen == Screen::Session && !s.menu && !s.keys && matches!(s.phase, Phase::Streaming | Phase::Reconnecting { .. }));
+    let in_game = routed.and_then(|id| app.session_by(id)).is_some_and(|s| app.screen == Screen::Session && !s.menu && !s.keys && !s.share_panel && matches!(s.phase, Phase::Streaming | Phase::Reconnecting { .. }));
     let input = routed.and_then(|id| lives.get(id)).and_then(|l| l.handle.shared.current_input());
     if kind == sdl::SDL_MOUSEMOTION {
         wins.hover = Some(wins.list[wi].id);
@@ -1907,6 +1926,7 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
                 sdl::SC_RETURN | sdl::SC_KP_ENTER => Some(Nav::Ok),
                 sdl::SC_ESCAPE | sdl::SC_AC_BACK => Some(Nav::Back),
                 sdl::SC_BACKSPACE => Some(Nav::Erase),
+                sdl::SC_TAB if app.screen == Screen::Join => Some(if mods & sdl::KMOD_SHIFT != 0 { Nav::Up } else { Nav::Down }),
                 sdl::SC_TAB => Some(if mods & sdl::KMOD_SHIFT != 0 { Nav::Left } else { Nav::Right }),
                 sdl::SC_F11 => {
                     actions.push(Action::ToggleFullscreen(routed));
@@ -1934,6 +1954,13 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
                     if c.is_ascii_alphanumeric() || matches!(c, '.' | ':' | '-' | '[' | ']') {
                         actions.extend(app.nav(Nav::Char(c)));
                     }
+                }
+                *dirty = true;
+            }
+            // « Rejoindre un partage » : les chiffres du code, les lettres du prénom (accents compris).
+            if app.screen == Screen::Join {
+                for c in text.chars() {
+                    actions.extend(app.nav(Nav::Char(c)));
                 }
                 *dirty = true;
             }
@@ -2148,6 +2175,13 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
                 *dirty = true;
                 return;
             }
+            // Un spectateur (KyberNow Share) n'a pas de chaîne d'entrées, donc pas de combinaison pour le menu :
+            // Start, Select ou B l'ouvrent (il n'envoie rien à l'ordinateur).
+            if in_game && is_button && down && matches!(which, 1 | 4 | 6) && app.session().is_some_and(|s| s.role() == Some(crate::app::ShareRole::Spectator)) {
+                actions.extend(app.open_menu());
+                *dirty = true;
+                return;
+            }
             // Boutons et axes : au lecteur du cœur, qui ne les envoie qu'à la session active (en jeu, ni
             // menu ni touches ouverts) ; en manette-souris, les clics partent par la chaîne de la session active.
             if in_game && app.session().is_some_and(|s| s.pad_mouse) {
@@ -2187,9 +2221,9 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
 }
 
 #[allow(clippy::too_many_arguments)]
-fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, wins: &mut Wins, actions: &mut Vec<Action>, pairing: &mut Vec<Arc<AtomicBool>>) {
+fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, wins: &mut Wins, actions: &mut Vec<Action>, pairing: &mut Vec<Arc<AtomicBool>>, tx: &Sender<Event>) {
     match e {
-        Event::HostInfo { id, online, os, gpu, av1, virtual_display, max_screens, station, wake, own_device } => {
+        Event::HostInfo { id, online, os, gpu, av1, virtual_display, max_screens, station, wake, own_device, share } => {
             let entry = app.live.entry(id.clone()).or_insert_with(HostLive::default);
             entry.online = if online { Online::Online } else { Online::Offline };
             if online {
@@ -2197,6 +2231,7 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, lives: &mut Live
                 entry.max_screens = max_screens;
                 entry.station = station;
                 entry.own_device = own_device;
+                entry.share = share;
                 // Le réveil a marché : l'ordinateur répond.
                 if app.waking.as_ref().is_some_and(|(w, _)| *w == id) {
                     app.waking = None;
@@ -2258,6 +2293,20 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, lives: &mut Live
         }
         Event::PairFailed(msg) => app.add.message = Some(msg),
         Event::Session(id, e) => session_event(id, e, app, pads, lives, wins, actions),
+        // KyberNow Share, invité : un ordinateur a pris le code. La session s'ouvre si la recherche est encore celle
+        // de l'écran ; sinon (retour, autre recherche) l'invité repart de la Station tout de suite.
+        Event::ShareJoined { attempt, result } => match result {
+            Ok(found) if app.join_current(attempt) => {
+                app.join.busy = false;
+                connect_guest(app, lives, wins, tx, found);
+            }
+            Ok(found) => jobs::share_leave(found),
+            Err(e) => {
+                log::info!("partage : {e}");
+                app.join_failed(attempt, e.to_string());
+            }
+        },
+        Event::ShareHost { session, result } => app.share_reply(session, result),
         Event::StationReply { host, kind, result } => app.station_reply(&host, kind, result),
         Event::Woken { id, result } => {
             if let Err(e) = result {
@@ -2511,6 +2560,20 @@ fn session_event(id: SessionId, e: SessionEvent, app: &mut App, pads: &mut pads:
                 s.notice = Some((format!("{} ({e})", tr("Décodeur indisponible", "Decoder unavailable")), Instant::now()));
             }
         }
+        SessionEvent::Guests(view) => app.share_guests(id, view),
+        SessionEvent::ShareRole { role, previous } => {
+            app.share_role_changed(id, role, previous);
+            // Un rôle sans clavier ni souris rend la souris des jeux (`session_tick` la coupe) et la manette en souris.
+            if !role.kbm() {
+                if let Some(l) = lives.get_mut(id) {
+                    l.typing = false;
+                }
+                if app.active == Some(id) {
+                    pads.set_mouse(false);
+                }
+            }
+        }
+        SessionEvent::ShareEnd(kind, text) => log::info!("partage : {kind} ({text})"),
     }
 }
 
@@ -2822,6 +2885,34 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, w
             }
         }
         Action::Probe { address, port } => jobs::probe(address, port, tx.clone()),
+        // KyberNow Share, invité : le code part aux Stations trouvées sur le réseau (celles de l'appairage), avec
+        // l'empreinte qu'on leur connaît ; l'appareil se nomme comme pour Admin.
+        Action::JoinShare { code, name } => {
+            let mut targets: Vec<ShareTarget> = app.found.iter().map(|f| ShareTarget { host: f.address.clone(), port: f.port, fingerprint: f.fingerprint.clone() }).collect();
+            // Un ordinateur de l'appareil, en ligne, que le réseau n'annonce pas (Tailscale, WireGuard) : il peut partager aussi.
+            for h in &app.store.hosts {
+                if app.live.get(&h.id).is_some_and(|l| l.online == Online::Online) && !targets.iter().any(|t| t.host == h.address && t.port == h.port) {
+                    targets.push(ShareTarget { host: h.address.clone(), port: h.port, fingerprint: h.fingerprint.clone() });
+                }
+            }
+            let request = JoinRequest { code, name, device: app.store.device_id.clone(), app: "linux".into() };
+            jobs::share_join(targets, request, session::guest_capabilities(&app.machine), app.join.attempt, tx.clone());
+        }
+        Action::Share(id, op) => {
+            let host = lives.get(id).and_then(|l| app.store.host(&l.host)).cloned();
+            match host {
+                Some(h) => jobs::share_host(id, h, op, tx.clone()),
+                None => app.share_reply(id, Err(tr("L'ordinateur n'est plus dans la liste de cet appareil.", "The computer is no longer in this device's list.").into())),
+            }
+        }
+        Action::CopyText(text) => {
+            if !sdl::set_clipboard(&text)
+                && let Some(s) = app.session_mut()
+            {
+                s.share_copied = Some((Instant::now(), false));
+            }
+        }
+        Action::TextInput => unsafe { sdl::SDL_StartTextInput() },
         Action::Poll => {
             for h in &app.store.hosts {
                 jobs::poll(h.clone(), false, tx.clone());
@@ -2850,16 +2941,61 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, w
 /// fenêtre sont ceux des deux aides du cœur (`screens_for_extra_session`, `extra_session_window`). Elle est
 /// inscrite au registre et devient la session active. Le même ordinateur deux fois : sa fenêtre passe devant.
 fn connect(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<Event>, host: &str, profile: crate::model::Profile) {
-    if let Some(id) = app.session_of_host(host).map(|s| s.id) {
+    open_session(app, lives, wins, tx, host, profile, None);
+}
+
+/// Ouvre la session d'invité d'un partage (KyberNow Share) : elle compte comme une session de plus (quatre au
+/// plus, une fenêtre chacune, le registre du cœur). Sans place pour elle, l'invité repart de la Station.
+fn connect_guest(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<Event>, found: share::Found) {
+    open_session(app, lives, wins, tx, "", crate::model::Profile::Jeu, Some(found));
+}
+
+/// Le « ordinateur » d'une session d'invité : une enveloppe (nom, adresse de la Station qui partage, réglages par
+/// défaut) que la session lit comme celle d'un ordinateur ; elle n'est jamais dans le magasin.
+fn guest_host(found: &share::Found, title: &str) -> crate::model::Host {
+    crate::model::Host {
+        id: format!("share:{}", found.joined.guest),
+        name: title.into(),
+        address: found.target.host.clone(),
+        port: found.target.port,
+        fingerprint: found.target.fingerprint.clone(),
+        user: String::new(),
+        password: String::new(),
+        os: None,
+        gpu: None,
+        av1: false,
+        mac: None,
+        wake: Vec::new(),
+        settings: crate::model::HostSettings::default(),
+        last: None,
+    }
+}
+
+/// Une session de plus : celle d'un ordinateur de l'appareil (`found` nul), ou celle d'un invité.
+#[allow(clippy::too_many_arguments)]
+fn open_session(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<Event>, host: &str, profile: crate::model::Profile, guest: Option<share::Found>) {
+    if guest.is_none()
+        && let Some(id) = app.session_of_host(host).map(|s| s.id)
+    {
         show_session(app, lives, wins, id);
         return;
     }
     let first = app.sessions.is_empty();
     // Le Steam Deck, le salon et KyberNow Link OS gardent une session ; quatre ordinateurs au plus.
     if !first && (!app.multi_sessions() || app.sessions_full()) {
+        if let Some(found) = guest {
+            jobs::share_leave(found);
+        }
         return;
     }
-    let Some(h) = app.store.host(host).cloned() else { return };
+    let guest_title = guest.as_ref().map(|f| crate::app::guest_title(f.joined.computer.trim()));
+    let h = match (&guest, &guest_title) {
+        (Some(f), Some(title)) => guest_host(f, title),
+        _ => {
+            let Some(h) = app.store.host(host).cloned() else { return };
+            h
+        }
+    };
     let id = app.new_session_id();
     // Les écrans de l'appareil à cet instant : « Cet écran » est celui de la fenêtre (la fenêtre de l'app
     // pour la première session, la fenêtre active pour les suivantes), dont la définition et la fréquence
@@ -2872,14 +3008,15 @@ fn connect(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<Event>
     }
     let codec = app.codec_for(&h);
     let device = device_info(app);
-    let light = h.settings.battery_light && app.machine.on_battery();
-    let relative = h.settings.mouse == "game";
-    let virtual_display = h.settings.virtual_display;
+    // Un invité n'a ni batterie à ménager, ni souris des jeux d'office, ni écran virtuel : l'écran est celui de l'hôte.
+    let light = guest.is_none() && h.settings.battery_light && app.machine.on_battery();
+    let relative = guest.is_none() && h.settings.mouse == "game";
+    let virtual_display = guest.is_none() && h.settings.virtual_display;
     // Multi-écrans (interface de bureau) : le cœur reçoit les écrans de l'appareil et décide du nombre
     // d'écrans (son calcul, sur les réglages du flux) ; sans (Steam Deck, salon, KyberNow Link OS), une
     // session à un écran. Une session de plus : les mêmes écrans réduits à « Cet écran » par le cœur, et sa
     // fenêtre.
-    let all = (first && app.multi_screens() || !first).then(|| {
+    let all = (first && app.multi_screens() && guest.is_none() || !first).then(|| {
         let capabilities = session::capabilities(&h, codec, &app.machine);
         screens::core_screens(&devices, window_screen, &h, station_screens(app, &h), capabilities, app.machine.on_battery())
     });
@@ -2889,18 +3026,26 @@ fn connect(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<Event>
     let extra_window = if first {
         None
     } else {
-        let Some(w) = base.as_ref().and_then(|b| b.list.get(b.current).or_else(|| b.list.first())).map(kybernow_core::screens::extra_session_window) else { return };
+        let Some(w) = base.as_ref().and_then(|b| b.list.get(b.current).or_else(|| b.list.first())).map(kybernow_core::screens::extra_session_window) else {
+            if let Some(found) = guest {
+                jobs::share_leave(found);
+            }
+            return;
+        };
         Some(w)
     };
     // Le mode : celui de l'écran de la fenêtre, ou, pour une session de plus, la surface de sa fenêtre.
     let surface = extra_window.map(|w| ((w.mode.width, w.mode.height), w.mode.refresh));
-    let first_mode = match surface {
-        Some((display, refresh)) => app.mode_for(&h, display, refresh),
-        None => app.session_mode(&h),
+    let first_mode = match (&guest, surface) {
+        // Un invité : l'écran du partage (celui de l'hôte), dans la fenêtre qu'il a.
+        (Some(f), _) => (f.joined.display.width, f.joined.display.height, f.joined.display.refresh),
+        (None, Some((display, refresh))) => app.mode_for(&h, display, refresh),
+        (None, None) => app.session_mode(&h),
     };
     // Les réglages du flux : ceux que reçoivent la Station et le calcul du nombre d'écrans.
     let settings = session::settings(&h, profile, codec, first_mode, &app.machine, light);
-    let plan = base.as_ref().and_then(|b| screens::session_plan(b, &settings, virtual_display));
+    // Un invité n'a jamais plusieurs écrans : l'écran du partage, un seul.
+    let plan = if guest.is_some() { None } else { base.as_ref().and_then(|b| screens::session_plan(b, &settings, virtual_display)) };
     // « Cet écran » est celui où se trouve la fenêtre pendant la session : avec plusieurs écrans,
     // elle passe en plein écran sur l'écran principal, et c'est là que le cœur la met (l'écran de
     // la session à un écran où le profil changé la ramènerait, et son mode), comme sur Mac, qui
@@ -2928,11 +3073,16 @@ fn connect(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<Event>
                     win.session = Some(id);
                     Some(win)
                 }
-                None => return,
+                None => {
+                    if let Some(found) = guest {
+                        jobs::share_leave(found);
+                    }
+                    return;
+                }
             }
         }
     };
-    let handle = session::start(id, &h, settings.clone(), mode, &app.machine, relative, device, base.clone(), current, tx.clone());
+    let handle = session::start(id, &h, settings.clone(), mode, &app.machine, relative, device, if guest.is_some() { None } else { base.clone() }, current, guest.as_ref(), tx.clone());
     // Le registre du cœur : quatre au plus, et la session devient active. Refusée (il n'en reste pas de
     // place : l'interface l'aurait déjà grisé), elle s'arrête et sa fenêtre se ferme.
     let focus_id = match focus::register(&handle.session, &h.name) {
@@ -2950,13 +3100,18 @@ fn connect(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<Event>
         "av1" => "AV1",
         _ => "HEVC",
     };
-    let mut ui = SessionUi::new(id, &h.id, &h.name, profile, light, relative, plan.as_ref().map_or(1, Vec::len));
+    let mut ui = match &guest {
+        // Arrivé en spectateur ; l'hôte donne la suite (`Platform::on_share_role`, avant la connexion).
+        Some(f) => SessionUi::guest(id, &h.id, f.joined.computer.trim(), session::role_of(f.joined.role)),
+        None => SessionUi::new(id, &h.id, &h.name, profile, light, relative, plan.as_ref().map_or(1, Vec::len)),
+    };
     ui.fullscreen = first && app.fullscreen;
     let mut l = Live {
         id,
         handle,
         focus: focus_id,
         host: h.id.clone(),
+        guest: guest.is_some(),
         surface,
         followed: current,
         pointers: HashMap::new(),
@@ -2983,9 +3138,9 @@ fn connect(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<Event>
         shown: None,
         snapshot: None,
         snapshot_at: None,
-        multi: base.is_some(),
+        multi: guest.is_none() && base.is_some(),
         devices,
-        screens_base: base,
+        screens_base: if guest.is_some() { None } else { base },
         settings,
         virtual_display,
         screens: 1,
@@ -3036,6 +3191,10 @@ fn connect(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<Event>
     lives.0.push(l);
     // Le presse-papiers de l'appareil est déjà dans la nouvelle session : elle l'annoncera à son ordinateur.
     focus::sync_clipboards(lives);
+    // « Partager » dans la barre sait ce que l'ordinateur permet : Admin est relu une fois la session partie.
+    if guest.is_none() {
+        jobs::poll(h, false, tx.clone());
+    }
 }
 
 /// « Se déconnecter » ou « Annuler » sur la session `id` : elle se termine, ses fenêtres de plus se
@@ -3070,6 +3229,7 @@ fn disconnect(app: &mut App, lives: &mut Lives, wins: &mut Wins, id: SessionId) 
     }
     // L'accueil qui revient montre déjà la dernière image de la session.
     if let (Some(l), Some(s)) = (lives.get(id), app.session_by(id))
+        && !l.guest
         && app.store.app.keep_last_image
         && let Some(img) = l.snapshot.clone()
     {
@@ -3177,6 +3337,11 @@ fn release_app_window(wins: &mut Wins) {
 /// (souris, curseur, économiseur d'écran, saisie de texte) et la session active suivante sont réglés
 /// par `focus::sync` d'après le registre du cœur, les fenêtres par `reap`.
 fn finish(app: &mut App, l: Live) {
+    // Un invité ne laisse rien : ni dernière session, ni image, ni ordinateur ajouté.
+    if l.guest {
+        log::info!("session d'invité {} : {} s", l.host, l.started.elapsed().as_secs());
+        return;
+    }
     let id = l.host.clone();
     let mut lat = l.latencies.clone();
     lat.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
