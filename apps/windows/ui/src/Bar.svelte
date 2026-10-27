@@ -33,7 +33,7 @@
   import Icon from './lib/Icon.svelte'
   import Mark from './lib/Mark.svelte'
   import type { AppInfo, BarComputer, GuestBar, KeepSound, SessionStats, Share, ShareGuest, ShareRole, ShareRoleEvent, ShareStateEvent, Stats } from './lib/api'
-  import { invoke, listen, localLabel, ms, sinceText } from './lib/api'
+  import { invoke, listen, localLabel, ms, roleKbm, roleOf, rolePads, rolePlays, sinceText } from './lib/api'
   import { setLang, t } from './lib/i18n/index.svelte'
 
   /** L'ordinateur de la session que la barre sert (`guest-N` pour une session d'invité). */
@@ -50,6 +50,8 @@
   const shares = new Map<string, Share>()
   /** « Partager » ouvre le partage (appel à Admin en cours). */
   let opening = $state(false)
+  /** Une action sur le partage (rôle d'un invité, retrait, nouveau code, arrêt) attend la réponse d'Admin. */
+  let acting = $state(false)
   /** Le refus d'une action du partage (Admin injoignable…), montré dans le panneau. */
   let shareError = $state<string | null>(null)
   /** « Copier le lien » : `ok` (« Lien copié. ») ou `fail` (« Copie impossible… »). */
@@ -160,7 +162,7 @@
       listen<ShareRoleEvent>('share-role', (e) => {
         if (e.id !== id || !guest) return
         guest = { ...guest, role: e.role }
-        if (menu === 'keys' && e.role !== 'player_kbm') closeMenu()
+        if (menu === 'keys' && !roleKbm(e.role)) closeMenu()
         reportWidth()
       }),
       listen<Shown>('bar-shown', (s) => {
@@ -386,7 +388,8 @@
   /** Le panneau, sans le texte déjà dit par un « Partager » inactif. */
   const shownError = $derived(shareError && shareError !== share?.text ? shareError : null)
   const guestCount = $derived(share?.open ? share.guests.length : 0)
-  const roleName = (r: ShareRole) => t(r === 'spectator' ? 'share.role_spectator' : 'share.role_player')
+  /** « Joueur » dès qu'il a un droit (manettes, ou clavier et souris), « Spectateur » sinon. */
+  const roleName = (r: ShareRole) => t(rolePlays(r) ? 'share.role_player' : 'share.role_spectator')
 
   /** Le dernier appui sur « Partager » est un doigt ou un stylet (pas une souris ni le clavier). */
   let shareTouch = false
@@ -424,6 +427,10 @@
 
   /** Une action sur le partage : Admin répond avec le partage à jour (celui de la session qui l'a demandée). */
   async function shareAction(call: () => Promise<Share>) {
+    // Une action à la fois : les droits d'un invité se déduisent de ce que le panneau montre, qui
+    // n'est à jour qu'à la réponse d'Admin (deux clics d'affilée sur deux droits se défairaient).
+    if (acting) return
+    acting = true
     shareError = null
     const mine = id
     try {
@@ -432,6 +439,8 @@
       if (id === mine) share = view
     } catch (e) {
       if (id === mine) shareError = String(e)
+    } finally {
+      acting = false
     }
     await growForMenu()
   }
@@ -508,7 +517,7 @@
   <span class="sep"></span>
   {#if guest}
     <!-- Invité d'un partage : son rôle, à la place du profil (ni profil ni réglages). -->
-    <span class="role" class:play={guest.role !== 'spectator'}>{roleName(guest.role)}</span>
+    <span class="role" class:play={rolePlays(guest.role)}>{roleName(guest.role)}</span>
   {:else}
   <div class="anchor">
     <button class="chip" class:open={menu === 'profile'} aria-haspopup="menu" aria-expanded={menu === 'profile'} title={t('bar.session_profile')} onclick={() => toggle('profile')}>
@@ -527,7 +536,7 @@
   </div>
   {/if}
   <!-- Un invité n'a le clavier et la souris que si l'hôte les lui a donnés. -->
-  {#if !guest || guest.role === 'player_kbm'}
+  {#if !guest || roleKbm(guest.role)}
   <div class="anchor">
     <button class="icon" class:on={menu === 'keys'} aria-haspopup="menu" aria-expanded={menu === 'keys'} aria-label={t('bar.keys')} title={t('bar.keys')} onclick={() => toggle('keys')}>
       <Icon name="keyboard" size={20} stroke={1.6} />
@@ -615,15 +624,12 @@
                     <span class="gmeta">{guestMeta(g)}</span>
                   </div>
                   <div class="acts">
-                    <!-- Spectateur : « Faire jouer ». Joueur, avec ou sans le clavier et la souris : « Faire regarder »
-                         (retour en spectateur) à la place, puis « Donner » ou « Reprendre le clavier et la souris ». -->
-                    {#if g.role === 'spectator'}
-                      <button onclick={() => setRole(g, 'player')}>{t('share.let_play')}</button>
-                    {:else}
-                      <button onclick={() => setRole(g, 'spectator')}>{t('share.watch_only')}</button>
-                      <button onclick={() => setRole(g, g.role === 'player' ? 'player_kbm' : 'player')}>{g.role === 'player' ? t('share.give_kbm') : t('share.take_kbm')}</button>
-                    {/if}
-                    <button class="danger" onclick={() => kick(g)}>{t('share.remove')}</button>
+                    <!-- Deux droits indépendants, chacun donné ou repris sans toucher à l'autre : les manettes, puis le
+                         clavier et la souris. Pas d'autre clic tant qu'Admin n'a pas répondu : le rôle qui part se
+                         déduit de celui qui est affiché. -->
+                    <button aria-disabled={acting} onclick={() => setRole(g, roleOf(!rolePads(g.role), roleKbm(g.role)))}>{t(rolePads(g.role) ? 'share.take_pads' : 'share.give_pads')}</button>
+                    <button aria-disabled={acting} onclick={() => setRole(g, roleOf(rolePads(g.role), !roleKbm(g.role)))}>{t(roleKbm(g.role) ? 'share.take_kbm' : 'share.give_kbm')}</button>
+                    <button class="danger" aria-disabled={acting} onclick={() => kick(g)}>{t('share.remove')}</button>
                   </div>
                 </li>
               {/each}
@@ -1112,6 +1118,12 @@
 
   .menu.share .acts button:hover {
     border-color: var(--faint);
+  }
+
+  /* Une action attend la réponse d'Admin : les autres patientent. */
+  .menu.share .acts button[aria-disabled="true"] {
+    opacity: 0.5;
+    pointer-events: none;
   }
 
   .menu.share .foot {

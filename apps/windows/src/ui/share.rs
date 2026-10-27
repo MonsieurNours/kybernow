@@ -418,9 +418,9 @@ pub fn share_code(app: AppHandle, id: String) -> Result<ShareView, String> {
     Ok(publish(&app, &id, Some(state)))
 }
 
-/// « Faire jouer », « Faire regarder », « Donner le clavier et la souris »,
-/// « Reprendre le clavier et la souris » : le rôle d'un invité
-/// (`spectator`, `player`, `player_kbm`).
+/// « Donner » ou « Reprendre les manettes », « Donner » ou « Reprendre le clavier
+/// et la souris » : le rôle d'un invité, que la barre déduit de celui qu'elle
+/// montre en changeant un seul droit (`spectator`, `player`, `kbm`, `player_kbm`).
 #[tauri::command(async)]
 pub fn share_guest(app: AppHandle, id: String, guest: String, role: String) -> Result<ShareView, String> {
     let role = ShareRole::parse(&role).ok_or_else(|| t("errors.share_code", &[]))?;

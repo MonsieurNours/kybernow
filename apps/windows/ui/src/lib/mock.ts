@@ -4,7 +4,7 @@
 // réglage Langue de l'app (comme dans l'app, sans recharger).
 
 import { i18n, langFromTag, t } from './i18n/index.svelte'
-import type { BarComputer, Computer, ConnectInfo, ConnexionView, DisplaysInfo, FondState, Info, KeepSound, LastSession, ScreensEvent, Settings, Share, ShareGuest, ShareJoined, ShareRole, StationInfo, StationOutcome, StationRestarting, WakeTarget } from './api'
+import type { BarComputer, Computer, ConnectInfo, ConnexionView, DisplaysInfo, FondState, Info, KeepSound, LastSession, ScreensEvent, Settings, Share, ShareGuest, ShareJoined, ShareRole, ShareRoleEvent, StationInfo, StationOutcome, StationRestarting, WakeTarget } from './api'
 
 const listeners = new Map<string, ((e: { payload: unknown }) => void)[]>()
 const emit = (name: string, payload: unknown) => listeners.get(name)?.forEach((cb) => cb({ payload }))
@@ -26,8 +26,10 @@ const emit = (name: string, payload: unknown) => listeners.get(name)?.forEach((c
 // la pastille « 2 invités » ; de 0 à 4, à 4 « Quatre invités au plus. »), `?partage` (« Partager » ouvre le
 // partage, puis un invité arrive), `?partage=ancienne` (Station trop ancienne) et `?partage=coupe` (partage
 // coupé sur l'ordinateur) : « Partager » inactif, avec le texte ; `?copie=non` : « Copier le lien » échoue.
-// L'invité : `/bar.html?invite=spectateur|joueur|clavier` (la barre réduite ; `&avis` : le changement de rôle
-// montré à la place des statistiques) ; l'accueil avec `?rejoindre` (l'écran « Rejoindre un partage » ouvert,
+// L'invité : `/bar.html?invite=spectateur|joueur|clavier|joueur-clavier` (la barre réduite : aucun droit, les
+// manettes, le clavier et la souris, les deux ; `&avis` : le changement de droits montré à la place des statistiques,
+// celui du dernier droit donné, ou `&avis=pads_back|kbm_back|watch` pour un droit repris ; `&droits` : l'hôte
+// change les droits toutes les 3 s, la barre suit) ; l'accueil avec `?rejoindre` (l'écran « Rejoindre un partage » ouvert,
 // `?rejoindre=123456` : le code d'un lien déjà rempli) ; le code 123456 est un partage, 000000 n'en est pas
 // un, 999999 est complet, 111111 est en AV1 (illisible), un autre : introuvable ; avec `?fin`, le partage
 // rejoint s'arrête de lui-même (« Léa a arrêté le partage. ») ; `/connexion.html?id=guest-9&invite` : la
@@ -354,7 +356,7 @@ const knownGuests: ShareGuest[] = [
   { id: 'g1', name: 'Léa', app: 'ios', role: 'spectator', since: now - 180 },
   { id: 'g2', name: 'Noé', app: 'android', role: 'player', since: now - 1500 },
   { id: 'g3', name: 'Camille', app: 'web', role: 'player_kbm', since: now - 20 },
-  { id: 'g4', name: 'Salon', app: 'tvos', role: 'spectator', since: now - 4320 },
+  { id: 'g4', name: 'Salon', app: 'tvos', role: 'kbm', since: now - 4320 },
 ]
 let shareOpen = shareFlag !== null && /^\d+$/.test(shareFlag)
 let sharedGuests: ShareGuest[] = shareOpen ? knownGuests.slice(0, Math.min(4, Number(shareFlag))) : []
@@ -378,7 +380,7 @@ const emitShare = () => emit('share-state', { id: sessions[0] ?? 'a1', share: sh
 
 /** La barre d'une session d'invité (`/bar.html?invite=…`) : le rôle et l'hôte. */
 const guestFlag = flags.get('invite')
-const guestRole: ShareRole = guestFlag === 'joueur' ? 'player' : guestFlag === 'clavier' ? 'player_kbm' : 'spectator'
+const guestRole: ShareRole = guestFlag === 'joueur' ? 'player' : guestFlag === 'clavier' ? 'kbm' : guestFlag === 'joueur-clavier' ? 'player_kbm' : 'spectator'
 let guestSeq = 0
 let joinAction = flags.has('rejoindre')
 
@@ -740,7 +742,15 @@ export function mockTauri() {
           const shown = { id: served, label: 'Jeu · HEVC', profile: 'jeu', multi: deviceScreens > 1, keep_sound: keepSound.has(served), sessions: Math.max(1, sessions.length), guest, share: guest ? null : shareView() }
           setTimeout(() => cb({ payload: shown }), 300)
           // `&avis` : le changement de rôle d'un invité, montré à la place des statistiques.
-          if (guest && flags.has('avis')) setTimeout(() => cb({ payload: { ...shown, pinned: true, notice: t(guestRole === 'player_kbm' ? 'mock.notice_kbm' : guestRole === 'spectator' ? 'mock.notice_watch' : 'mock.notice_play') } }), 2500)
+          if (guest && flags.has('avis')) {
+            const kind = flags.get('avis') || (guestRole === 'spectator' ? 'watch' : guestRole === 'player' ? 'play' : 'kbm')
+            setTimeout(() => cb({ payload: { ...shown, pinned: true, notice: t(`mock.notice_${kind}`) } }), 2500)
+          }
+          // `&droits` : l'hôte donne et reprend les droits à tour de rôle (manettes, clavier et souris, un à la fois).
+          if (guest && flags.has('droits')) {
+            const steps: ShareRole[] = ['player', 'player_kbm', 'kbm', 'spectator', 'kbm', 'player_kbm']
+            steps.forEach((role, i) => setTimeout(() => emit('share-role', { id: served, role } satisfies ShareRoleEvent), 3000 * (i + 1)))
+          }
         }
         if (name === 'bar-computers') setTimeout(() => cb({ payload: barComputers() }), 300)
         if (name === 'stats') {

@@ -305,8 +305,21 @@ export type FondState = { not_created: boolean }
 
 // KyberNow Share (docs/kybernow-share.md, textes de docs/link-ui.md « Partage »).
 
-/** Le rôle d'un invité : spectateur (voit et entend), joueur (ses manettes), joueur avec le clavier et la souris. */
-export type ShareRole = 'spectator' | 'player' | 'player_kbm'
+/**
+ * Le rôle d'un invité, deux droits indépendants que l'hôte donne ou reprend chacun sans toucher à
+ * l'autre : `spectator` (aucun droit : voit et entend), `player` (ses manettes), `kbm` (le clavier et
+ * la souris), `player_kbm` (les deux).
+ */
+export type ShareRole = 'spectator' | 'player' | 'kbm' | 'player_kbm'
+
+/** Ses manettes partent vers l'ordinateur. */
+export const rolePads = (r: ShareRole) => r === 'player' || r === 'player_kbm'
+/** Son clavier et sa souris partent vers l'ordinateur. */
+export const roleKbm = (r: ShareRole) => r === 'kbm' || r === 'player_kbm'
+/** Un droit au moins : la barre dit « Joueur » (« Spectateur » sinon). */
+export const rolePlays = (r: ShareRole) => r !== 'spectator'
+/** Le rôle de ces deux droits. */
+export const roleOf = (pads: boolean, kbm: boolean): ShareRole => (pads ? (kbm ? 'player_kbm' : 'player') : kbm ? 'kbm' : 'spectator')
 
 /**
  * Un invité de la liste de l'hôte. `app` : `mac`, `windows`, `linux`, `ios`, `tvos`, `android`, `webos`
