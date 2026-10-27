@@ -203,7 +203,7 @@ index 34cc5ad..4f3aefa 100644
      }
  }
 diff --git a/kycontroller/src/controller.rs b/kycontroller/src/controller.rs
-index ef07f3d..76fa363 100644
+index ef07f3d..736b1d7 100644
 --- a/kycontroller/src/controller.rs
 +++ b/kycontroller/src/controller.rs
 @@ -106,6 +106,9 @@ pub(crate) struct ClientSession {
@@ -271,27 +271,39 @@ index ef07f3d..76fa363 100644
          });
          let state_machine = statemachine::run(this.clone(), events_rx);
          (this, state_machine)
-@@ -364,9 +380,21 @@ impl Controller {
+@@ -364,9 +380,33 @@ impl Controller {
          self.sessions.lock().unwrap().values_mut().for_each(f);
      }
  
 -    pub fn insert_session(&self, session: ClientSession) {
 -        self.sessions.lock().unwrap().insert(session.uid, session);
-+    /// KyberNow: `false` (nothing inserted) while the user is banned by
-+    /// `/kybernow/close`; a role KyberNow Admin pushed after the token was
-+    /// signed replaces the token's. Both are read under the sessions lock: a
-+    /// concurrent close or role push, which records first and then goes
-+    /// through the sessions, never misses this one.
-+    pub fn insert_session(&self, mut session: ClientSession) -> bool {
++    /// KyberNow: refused (nothing inserted) while the user is banned by
++    /// `/kybernow/close`, or for a guest that already holds
++    /// `MAX_GUEST_SESSIONS` sessions; a role KyberNow Admin pushed after the
++    /// token was signed replaces the token's. All are read under the
++    /// sessions lock: a concurrent close or role push, which records first
++    /// and then goes through the sessions, never misses this one.
++    pub(crate) fn insert_session(
++        &self,
++        mut session: ClientSession,
++    ) -> std::result::Result<(), crate::kybernow::Refused> {
 +        {
 +            let mut sessions = self.sessions.lock().unwrap();
 +            if !self.share_memory.lock().unwrap().admit(&mut session) {
-+                return false;
++                return Err(crate::kybernow::Refused::Banned);
++            }
++            if crate::kybernow::too_many_sessions(sessions.values(), &session) {
++                warn!(
++                    "Refusing login for \"{}\": {} sessions already",
++                    session.username,
++                    crate::kybernow::MAX_GUEST_SESSIONS
++                );
++                return Err(crate::kybernow::Refused::TooManySessions);
 +            }
 +            sessions.insert(session.uid, session);
 +        }
          self.update_tray_status();
-+        true
++        Ok(())
      }
  
      /// Tear down the shared infra once the last session is gone. Sessions are
@@ -328,10 +340,10 @@ index 799f1e3..0ef2469 100644
          if let Err(err) = ret {
 diff --git a/kycontroller/src/kybernow.rs b/kycontroller/src/kybernow.rs
 new file mode 100644
-index 0000000..c8e4d18
+index 0000000..6a4e440
 --- /dev/null
 +++ b/kycontroller/src/kybernow.rs
-@@ -0,0 +1,580 @@
+@@ -0,0 +1,622 @@
 +// KyberNow: KyberNow Share, local sharing. KyberNow Admin, which holds the
 +// JWT key, gives each guest a short token (`kn_role`, `kn_display`,
 +// `kn_rev`) renewed through `/session/renew`, and drives Kyber through the
@@ -355,6 +367,34 @@ index 0000000..c8e4d18
 +
 +/// How long a role is remembered: longer than any token still valid (120 s).
 +const ROLE_MEMORY: Duration = Duration::from_secs(10 * 60);
++/// Kyber sessions one guest may hold at once: one, plus one while it
++/// reconnects. Each session has its own input server, so a guest token
++/// must not open them without end.
++pub(crate) const MAX_GUEST_SESSIONS: usize = 2;
++
++/// Why a login is refused (`Controller::insert_session`).
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub(crate) enum Refused {
++    /// Closed by KyberNow Admin (`/kybernow/close`), until its ban ends.
++    Banned,
++    /// A guest that already holds `MAX_GUEST_SESSIONS` sessions.
++    TooManySessions,
++}
++
++/// Whether one more session of `newcomer` would be one too many: a guest
++/// (with a share) already holding `MAX_GUEST_SESSIONS` sessions. Never the
++/// host.
++pub(crate) fn too_many_sessions<'a>(
++    sessions: impl Iterator<Item = &'a ClientSession>,
++    newcomer: &ClientSession,
++) -> bool {
++    newcomer.share.is_some()
++        && sessions
++            .filter(|s| s.username == newcomer.username)
++            .count()
++            >= MAX_GUEST_SESSIONS
++}
++
 +/// `/kybernow/close`: default and longest ban, in seconds.
 +const DEFAULT_BAN_SECONDS: u64 = 130;
 +const MAX_BAN_SECONDS: u64 = 600;
@@ -822,6 +862,20 @@ index 0000000..c8e4d18
 +    }
 +
 +    #[test]
++    fn a_guest_holds_two_sessions_at_most() {
++        let lea = || session("kn-guest-1", guest(ShareRole::Spectator, 1));
++        let one = [lea()];
++        let two = [lea(), lea()];
++        assert!(!too_many_sessions(one.iter(), &lea()));
++        assert!(too_many_sessions(two.iter(), &lea()));
++        // Another guest, and the host, are not counted against it.
++        let max = session("kn-guest-2", guest(ShareRole::Player, 1));
++        assert!(!too_many_sessions(two.iter(), &max));
++        let hosts = [session("matthieu", None), session("matthieu", None)];
++        assert!(!too_many_sessions(hosts.iter(), &session("matthieu", None)));
++    }
++
++    #[test]
 +    fn a_closed_user_is_refused_until_its_ban_ends() {
 +        let mut memory = ShareMemory::default();
 +        memory.ban("kn-guest-1", Duration::from_secs(60));
@@ -1012,7 +1066,7 @@ index 5abb6d8..e67f890 100644
              HttpResponse::Ok().json(StartSessionResponse {
                  session_id: Some(numeric_session_id),
 diff --git a/kycontroller/src/main.rs b/kycontroller/src/main.rs
-index f5df758..ae3a67c 100644
+index f5df758..2a0cb53 100644
 --- a/kycontroller/src/main.rs
 +++ b/kycontroller/src/main.rs
 @@ -49,6 +49,7 @@ mod host_events;
@@ -1036,19 +1090,24 @@ index f5df758..ae3a67c 100644
      if ctrl.config.session_mode() == config::SessionMode::Mono
          && !ctrl.sessions.lock().unwrap().is_empty()
      {
-@@ -195,7 +202,10 @@ async fn login(
+@@ -195,7 +202,15 @@ async fn login(
          websocket: client_session.auth_tokens.websocket.clone(),
      };
  
 -    ctrl.insert_session(client_session);
-+    // KyberNow: refused while the user is banned by /kybernow/close.
-+    if !ctrl.insert_session(client_session) {
-+        return HttpResponse::Unauthorized().finish();
++    // KyberNow: refused while the user is banned by /kybernow/close, or for a
++    // guest that already holds its sessions.
++    match ctrl.insert_session(client_session) {
++        Ok(()) => {}
++        Err(kybernow::Refused::Banned) => return HttpResponse::Unauthorized().finish(),
++        Err(kybernow::Refused::TooManySessions) => {
++            return HttpResponse::Conflict().json("Too many sessions for this guest");
++        }
 +    }
  
      HttpResponse::Ok().json(body)
  }
-@@ -268,27 +278,66 @@ async fn renew(
+@@ -268,27 +283,66 @@ async fn renew(
          return HttpResponse::Unauthorized().finish();
      };
  
@@ -1129,7 +1188,7 @@ index f5df758..ae3a67c 100644
  
      HttpResponse::Ok().finish()
  }
-@@ -313,7 +362,7 @@ fn validate_websocket_token(
+@@ -313,7 +367,7 @@ fn validate_websocket_token(
      ctrl: &web::Data<Controller>,
      token: &str,
  ) -> Option<(uuid::Uuid, Vec<host_events::Display>)> {
@@ -1138,7 +1197,7 @@ index f5df758..ae3a67c 100644
  
      let mut sessions = ctrl.sessions.lock().unwrap();
      let (session_id, client_session) = sessions.iter_mut().find(|(_, session)| {
-@@ -322,6 +371,8 @@ fn validate_websocket_token(
+@@ -322,6 +376,8 @@ fn validate_websocket_token(
  
      let session_id = *session_id;
      client_session.auth_tokens.websocket.clear();
@@ -1147,7 +1206,7 @@ index f5df758..ae3a67c 100644
      info!(
          "Websocket token validated and consumed for session {}",
          session_id
-@@ -454,9 +505,18 @@ async fn websocket_service(
+@@ -454,9 +510,18 @@ async fn websocket_service(
      http_response
  }
  
@@ -1168,7 +1227,7 @@ index f5df758..ae3a67c 100644
  }
  
  #[post("/stop_streaming")]
-@@ -514,6 +574,12 @@ pub(crate) async fn set_bitrate(
+@@ -514,6 +579,12 @@ pub(crate) async fn set_bitrate(
          return HttpResponse::Unauthorized().finish();
      };
  
@@ -1181,7 +1240,7 @@ index f5df758..ae3a67c 100644
      // Split the global bitrate evenly across `count` streams and cast to the
      // signed type the encoder expects. `count` is assumed non-zero; the call
      // sites guard against an empty stream set first.
-@@ -611,6 +677,13 @@ pub(crate) async fn force_idr(ctrl: web::Data<Controller>, user: Identity) -> Ht
+@@ -611,6 +682,13 @@ pub(crate) async fn force_idr(ctrl: web::Data<Controller>, user: Identity) -> Ht
          return HttpResponse::Unauthorized().finish();
      };
  
@@ -1195,7 +1254,7 @@ index f5df758..ae3a67c 100644
      // Checked and recorded under the sessions lock: of two concurrent
      // requests, only one gets through.
      let now = Instant::now();
-@@ -849,6 +922,13 @@ async fn real_main(config: config::Config) -> Result<()> {
+@@ -849,6 +927,13 @@ async fn real_main(config: config::Config) -> Result<()> {
                          .service(renew)
                          .service(logout),
                  )
