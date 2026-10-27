@@ -4,7 +4,7 @@
 // réglage Langue de l'app (comme dans l'app, sans recharger).
 
 import { i18n, langFromTag, t } from './i18n/index.svelte'
-import type { BarComputer, Computer, ConnectInfo, ConnexionView, DisplaysInfo, FondState, Info, KeepSound, LastSession, ScreensEvent, Settings, StationInfo, StationOutcome, StationRestarting, WakeTarget } from './api'
+import type { BarComputer, Computer, ConnectInfo, ConnexionView, DisplaysInfo, FondState, Info, KeepSound, LastSession, ScreensEvent, Settings, Share, ShareGuest, ShareJoined, ShareRole, StationInfo, StationOutcome, StationRestarting, WakeTarget } from './api'
 
 const listeners = new Map<string, ((e: { payload: unknown }) => void)[]>()
 const emit = (name: string, payload: unknown) => listeners.get(name)?.forEach((cb) => cb({ payload }))
@@ -22,6 +22,16 @@ const emit = (name: string, payload: unknown) => listeners.get(name)?.forEach((c
 // `/bar.html`, la barre sert le premier, le menu « Ordinateurs » coche les autres en session, et
 // « Garder le son »), `/connexion.html?id=c3` (la fenêtre de connexion d'une session suivante,
 // jusqu'à la première image) avec `?echec` (la connexion échoue : la raison et « Fermer »).
+// KyberNow Share, l'hôte (`/bar.html`) : `?partage=2` (le partage est ouvert, avec 2 invités : le panneau,
+// la pastille « 2 invités » ; de 0 à 4, à 4 « Quatre invités au plus. »), `?partage` (« Partager » ouvre le
+// partage, puis un invité arrive), `?partage=ancienne` (Station trop ancienne) et `?partage=coupe` (partage
+// coupé sur l'ordinateur) : « Partager » inactif, avec le texte ; `?copie=non` : « Copier le lien » échoue.
+// L'invité : `/bar.html?invite=spectateur|joueur|clavier` (la barre réduite ; `&avis` : le changement de rôle
+// montré à la place des statistiques) ; l'accueil avec `?rejoindre` (l'écran « Rejoindre un partage » ouvert,
+// `?rejoindre=123456` : le code d'un lien déjà rempli) ; le code 123456 est un partage, 000000 n'en est pas
+// un, 999999 est complet, 111111 est en AV1 (illisible), un autre : introuvable ; avec `?fin`, le partage
+// rejoint s'arrête de lui-même (« Léa a arrêté le partage. ») ; `/connexion.html?id=guest-9&invite` : la
+// connexion d'une session d'invité dans sa fenêtre.
 const flags = new URLSearchParams(location.search)
 /** Écrans de ce PC imité. */
 const deviceScreens = Math.max(1, Number(flags.get('ecrans') ?? 1) || 1)
@@ -315,7 +325,149 @@ const screensFor = (id: string) => {
   return all ? Math.max(1, Math.min(deviceScreens, c.info?.virtual_display.max_screens ?? 1, 4)) : 1
 }
 
+// MARK: - KyberNow Share
+
+/** Un QR code imité (25 modules : trois repères et un semis), au tracé SVG que l'app envoie. */
+const fakeQr = () => {
+  const size = 25
+  const finder = (x: number, y: number, cx: number, cy: number) => {
+    const dx = x - cx
+    const dy = y - cy
+    if (dx < 0 || dy < 0 || dx > 6 || dy > 6) return null
+    return dx === 0 || dy === 0 || dx === 6 || dy === 6 || (dx >= 2 && dx <= 4 && dy >= 2 && dy <= 4)
+  }
+  const dark = (x: number, y: number) => {
+    for (const [cx, cy] of [[0, 0], [size - 7, 0], [0, size - 7]]) {
+      const f = finder(x, y, cx, cy)
+      if (f !== null) return f
+    }
+    if ((x <= 7 && y <= 7) || (x >= size - 8 && y <= 7) || (x <= 7 && y >= size - 8)) return false
+    return (x * 7 + y * 13 + x * y) % 5 < 2
+  }
+  let path = ''
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) if (dark(x, y)) path += `M${x} ${y}h1v1h-1z`
+  return { size, path }
+}
+
+const shareFlag = flags.get('partage')
+const knownGuests: ShareGuest[] = [
+  { id: 'g1', name: 'Léa', app: 'ios', role: 'spectator', since: now - 180 },
+  { id: 'g2', name: 'Noé', app: 'android', role: 'player', since: now - 1500 },
+  { id: 'g3', name: 'Camille', app: 'web', role: 'player_kbm', since: now - 60 },
+  { id: 'g4', name: 'Salon', app: 'tvos', role: 'spectator', since: now - 7200 },
+]
+let shareOpen = shareFlag !== null && /^\d+$/.test(shareFlag)
+let sharedGuests: ShareGuest[] = shareOpen ? knownGuests.slice(0, Math.min(4, Number(shareFlag))) : []
+let shareCode = '482 913'
+const shareAvailability = (): Share['availability'] => (shareFlag === 'ancienne' ? 'unsupported' : shareFlag === 'coupe' ? 'disabled' : 'available')
+const shareText = () => (shareFlag === 'ancienne' ? t('mock.share_unsupported') : shareFlag === 'coupe' ? t('mock.share_disabled') : null)
+/** Le panneau de l'hôte, comme `ShareView` de l'app. */
+const shareView = (): Share => ({
+  availability: shareAvailability(),
+  text: shareText(),
+  open: shareOpen,
+  code: shareOpen ? shareCode : '',
+  link: shareOpen ? 'kybernow://join?host=192.168.1.100&port=9443&fp=sha256:aa&code=482913' : '',
+  web: shareOpen ? 'https://192.168.1.100:9443/link/?join=482913' : '',
+  display: shareOpen ? 'Écran 1' : null,
+  guests: structuredClone(sharedGuests),
+  full: sharedGuests.length >= 4,
+  qr: shareOpen ? fakeQr() : null,
+})
+const emitShare = () => emit('share-state', { id: sessions[0] ?? 'a1', share: shareView() })
+
+/** La barre d'une session d'invité (`/bar.html?invite=…`) : le rôle et l'hôte. */
+const guestFlag = flags.get('invite')
+const guestRole: ShareRole = guestFlag === 'joueur' ? 'player' : guestFlag === 'clavier' ? 'player_kbm' : 'spectator'
+let guestSeq = 0
+let joinAction = flags.has('rejoindre')
+
 const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
+  share_defaults: () => ({ name: thisPc.name }),
+  share_link_code: (a) => {
+    const m = String(a.link).match(/code=(\d{6})/)
+    if (!m) throw t('mock.not_a_link')
+    return m[1]
+  },
+  // « Rejoindre » : le code part aux ordinateurs du réseau (jusqu'à 6 s) ; le refus est le texte du cœur.
+  share_join: async (a) => {
+    await sleep(1200)
+    const code = String(a.code)
+    if (code === '999999') throw t('mock.share_full')
+    if (code === '111111') throw t('mock.share_unreadable')
+    if (code !== '123456' && code !== '482913') throw t('mock.no_share')
+    return { id: `guest-${++guestSeq}`, title: t('mock.guest_on'), host: 'Léa', role: 'spectator', fingerprint: fp('atelier') } satisfies ShareJoined
+  },
+  // La session d'invité : comme `connect` (passage de l'accueil pour la première, fenêtre pour les suivantes).
+  share_connect: (a) => {
+    const id = a.id as string
+    if (sessions.length >= 4) throw t('common.four_at_most')
+    if (sessions.length > 0) {
+      sessions = [...sessions, id]
+      emitSessions()
+      return { screens: 1, windowed: true } satisfies ConnectInfo
+    }
+    sessions = [id]
+    emitSessions()
+    void (async () => {
+      for (const phase of ['preparing', 'connecting', 'first_images']) {
+        emit('session-status', { id, phase, detail: null })
+        await sleep(1200)
+      }
+      emit('session-screens', { id, screens: 1 } satisfies ScreensEvent)
+      emit('session-status', { id, phase: 'streaming', detail: null })
+      await sleep(600)
+      emit('session-shown', id)
+      // ?fin : l'hôte arrête le partage.
+      if (!flags.has('fin')) return
+      await sleep(3000)
+      sessions = sessions.filter((s) => s !== id)
+      emit('session-ended', { id, summary: { error: t('mock.share_stopped'), median_ms: 9, p95_ms: 13, seconds: 5 } })
+      emitSessions()
+    })()
+    return { screens: 1, windowed: false } satisfies ConnectInfo
+  },
+  share_open: async () => {
+    await sleep(500)
+    if (shareAvailability() !== 'available') throw shareText()
+    shareOpen = true
+    shareCode = '482 913'
+    emitShare()
+    // Un invité arrive un peu plus tard (la pastille apparaît).
+    if (sharedGuests.length === 0) {
+      setTimeout(() => {
+        sharedGuests = [knownGuests[0]]
+        emitShare()
+      }, 2500)
+    }
+    return shareView()
+  },
+  share_code: () => {
+    shareCode = '731 064'
+    emitShare()
+    return shareView()
+  },
+  share_guest: (a) => {
+    sharedGuests = sharedGuests.map((g) => (g.id === a.guest ? { ...g, role: a.role as ShareRole } : g))
+    emitShare()
+    return shareView()
+  },
+  share_kick: (a) => {
+    sharedGuests = sharedGuests.filter((g) => g.id !== a.guest)
+    emitShare()
+    return shareView()
+  },
+  share_close: () => {
+    shareOpen = false
+    sharedGuests = []
+    emitShare()
+    return shareView()
+  },
+  copy_text: (a) => {
+    if (flags.get('copie') === 'non') throw ''
+    console.info(`copy_text : ${a.text}`)
+    return null
+  },
   snapshot: () => ({ computers: structuredClone(computers), discovered: flags.has('vide') ? [] : discovered, this_pc: thisPc, sessions: [...sessions], version: 'dev' }),
   poll_now: async () => {
     await sleep(700)
@@ -424,14 +576,16 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
         await sleep(1400)
       }
       if (flags.has('echec')) {
-        emit('session-ended', { id, summary: { error: t('mock.connect_refused'), median_ms: null, p95_ms: null, seconds: 4 } })
+        emit('session-ended', { id, summary: { error: flags.has('invite') ? t('mock.share_unreadable') : t('mock.connect_refused'), median_ms: null, p95_ms: null, seconds: 4 } })
         return
       }
       emit('session-status', { id, phase: 'streaming', detail: null })
       await sleep(600)
       emit('session-shown', id)
     })()
-    return { id, phase: 'preparing', restarting: false, error: null } satisfies ConnexionView
+    // `&invite` : la connexion d'une session d'invité, titrée « Invité sur {nom} ».
+    const guest = flags.has('invite') ? { title: t('mock.guest_on'), guest: true, fingerprint: fp('atelier') } : {}
+    return { id, phase: 'preparing', restarting: false, error: null, ...guest } satisfies ConnexionView
   },
   connexion_close: () => {
     console.info('connexion_close : Annuler, ou Fermer sous un échec')
@@ -454,7 +608,13 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
   fond_state: () => ({ not_created: flags.has('sanscreation') }) satisfies FondState,
   session_command: () => null,
   bar_hide: () => null,
-  take_action: () => null,
+  // `?rejoindre` : « Rejoindre avec un code » demandé à l'ouverture (`=123456` : par un lien, code rempli).
+  take_action: () => {
+    if (!joinAction) return null
+    joinAction = false
+    const code = flags.get('rejoindre')
+    return { kind: 'join', link: code ? `kybernow://join?host=192.168.1.77&port=31544&code=${code}` : null }
+  },
   app_info: () => ({ version: '0.5.0', channel: 'stable', language, lang: i18n.lang, update: update(), arch: 'x64', battery, open_at_login: openAtLogin }),
   set_open_at_login: (a) => (openAtLogin = Boolean(a.on)),
   set_profile: (a) => {
@@ -557,6 +717,10 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
 }
 
 export function mockTauri() {
+  // `?copie=non` : le presse-papiers de la page refuse aussi, « Copier le lien » échoue.
+  if (flags.get('copie') === 'non') {
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: () => Promise.reject(new Error('refusé')) } })
+  }
   return {
     core: {
       invoke: async (cmd: string, args: Record<string, unknown> = {}) => {
@@ -568,10 +732,16 @@ export function mockTauri() {
     event: {
       listen: async (name: string, cb: (e: { payload: unknown }) => void) => {
         listeners.set(name, [...(listeners.get(name) ?? []), cb])
-        // La barre sert la première session (`a1` sans `?ordinateurs`).
-        const served = sessions[0] ?? 'a1'
+        // La barre sert la première session (`a1` sans `?ordinateurs`), ou celle d'un invité (`?invite=…`).
+        const served = guestFlag !== null ? 'guest-1' : (sessions[0] ?? 'a1')
         // « Garder le son » à partir de deux sessions (`?ordinateurs=2`) ; sans session imitée, celle de la barre.
-        if (name === 'bar-shown') setTimeout(() => cb({ payload: { id: served, label: 'Jeu · HEVC', profile: 'jeu', multi: deviceScreens > 1, keep_sound: keepSound.has(served), sessions: Math.max(1, sessions.length) } }), 300)
+        if (name === 'bar-shown') {
+          const guest = guestFlag !== null ? { role: guestRole, host: 'Léa' } : null
+          const shown = { id: served, label: 'Jeu · HEVC', profile: 'jeu', multi: deviceScreens > 1, keep_sound: keepSound.has(served), sessions: Math.max(1, sessions.length), guest, share: guest ? null : shareView() }
+          setTimeout(() => cb({ payload: shown }), 300)
+          // `&avis` : le changement de rôle d'un invité, montré à la place des statistiques.
+          if (guest && flags.has('avis')) setTimeout(() => cb({ payload: { ...shown, pinned: true, notice: t(guestRole === 'player_kbm' ? 'mock.notice_kbm' : 'mock.notice_play') } }), 2500)
+        }
         if (name === 'bar-computers') setTimeout(() => cb({ payload: barComputers() }), 300)
         if (name === 'stats') {
           const timer = setInterval(() => cb({ payload: { id: served, latency_ms: 8 + Math.random() * 3, fps: 60, width: 1920, height: 1200, decoder: `HEVC · ${t('mock.hardware')}`, relative: false, rtt_ms: 2.1, audio_ms: 18 + Math.random() * 4, audio_gaps: 0, screens: deviceScreens } }), 1000)

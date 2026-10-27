@@ -8,6 +8,17 @@
   temps de son affichage. Elle dit sa largeur à l'app, qui en fait la zone du
   bord haut où le pointeur l'ouvre.
 
+  KyberNow Share (docs/link-ui.md « Partage ») : pour une session d'hôte,
+  « Partager » (icône de partage, comme les autres menus) ouvre le partage et son
+  panneau (code, « Copier le lien », QR code, invités et leurs actions, « Nouveau
+  code », « Arrêter le partage »), et une pastille « 2 invités » le rouvre ; inactif,
+  il dit pourquoi (Station trop ancienne, partage coupé). Pour une session d'invité,
+  la barre est réduite : son rôle (« Spectateur », « Joueur »), les statistiques,
+  « Touches » et la souris seulement avec le clavier et la souris, le plein écran,
+  « Quitter le partage » ; ni profil ni « Ordinateurs ». Un changement de rôle
+  s'affiche quelques secondes à la place des statistiques (la barre se montre alors
+  sans prendre le clavier à la session).
+
   Plusieurs ordinateurs (docs/plusieurs-ordinateurs.md) : une seule barre, qui
   sert la session de la fenêtre où elle s'ouvre (`id`) ; ses commandes et ses
   mesures sont celles de cette session. Le menu « Ordinateurs », présenté comme
@@ -20,16 +31,33 @@
   import { onMount, tick } from 'svelte'
   import Icon from './lib/Icon.svelte'
   import Mark from './lib/Mark.svelte'
-  import type { AppInfo, BarComputer, KeepSound, SessionStats, Stats } from './lib/api'
-  import { invoke, listen, localLabel, ms } from './lib/api'
+  import type { AppInfo, BarComputer, GuestBar, KeepSound, SessionStats, Share, ShareGuest, ShareRole, ShareRoleEvent, ShareStateEvent, Stats } from './lib/api'
+  import { duration, invoke, listen, localLabel, ms, seconds } from './lib/api'
   import { setLang, t } from './lib/i18n/index.svelte'
 
-  /** L'ordinateur de la session que la barre sert. */
+  /** L'ordinateur de la session que la barre sert (`guest-N` pour une session d'invité). */
   let id = $state('')
   let stats = $state<Stats | null>(null)
   let label = $state('')
   let profile = $state('')
-  let menu = $state<'profile' | 'keys' | 'computers' | null>(null)
+  let menu = $state<'profile' | 'keys' | 'computers' | 'share' | null>(null)
+  /** Session d'invité (KyberNow Share) : rôle et hôte ; la barre est réduite. */
+  let guest = $state<GuestBar | null>(null)
+  /** Session d'hôte : « Partager » et le partage ouvert, tels que l'app les dit. */
+  let share = $state<Share | null>(null)
+  /** Le partage de chaque session d'hôte, gardé même barre cachée (signe de vie de la session). */
+  const shares = new Map<string, Share>()
+  /** « Partager » ouvre le partage (appel à Admin en cours). */
+  let opening = $state(false)
+  /** Le refus d'une action du partage (Admin injoignable…), montré dans le panneau. */
+  let shareError = $state<string | null>(null)
+  /** « Copier le lien » : `ok` (« Lien copié. ») ou `fail` (« Copie impossible… »). */
+  let copied = $state<'ok' | 'fail' | null>(null)
+  /** Avis bref d'un changement de rôle, montré à la place des statistiques. */
+  let notice = $state<string | null>(null)
+  let noticeTimer: ReturnType<typeof setTimeout> | null = null
+  /** L'heure, pour « depuis 3 min » dans la liste des invités (revue toutes les 30 s). */
+  let now = $state(Date.now())
   /** Plusieurs écrans : « Plein écran » n'est pas proposé, les fenêtres y restent. */
   let multi = $state(false)
   /** « Garder le son » de cette session. */
@@ -45,8 +73,21 @@
    * `id` : la session servie. `pinned` : demandée par « Statistiques » (menu de l'icône), elle
    * reste jusqu'au passage du pointeur ; sinon, ouverte par le pointeur, qui est sur elle.
    * `multi` : plusieurs écrans. `keep_sound` : « Garder le son ». `sessions` : sessions ouvertes.
+   * `guest` : session d'invité (barre réduite). `share` : session d'hôte, « Partager » et son partage.
+   * `notice` : un avis bref à montrer (changement de rôle), la barre repart ensuite d'elle-même.
    */
-  type Shown = { id: string; label: string; profile: string; pinned?: boolean; multi?: boolean; keep_sound?: boolean; sessions?: number }
+  type Shown = {
+    id: string
+    label: string
+    profile: string
+    pinned?: boolean
+    multi?: boolean
+    keep_sound?: boolean
+    sessions?: number
+    guest?: GuestBar | null
+    share?: Share | null
+    notice?: string | null
+  }
   const profiles = $derived(
     ['jeu', 'bureau', 'max'].map((id) => ({ id, name: t(`profiles.${id}`), hint: t(`profiles.${id}_sub`) })),
   )
@@ -103,6 +144,22 @@
         sessionCount = s.length
         // Les mesures des sessions finies s'oublient.
         for (const k of [...seen.keys()]) if (!s.includes(k)) seen.delete(k)
+        for (const k of [...shares.keys()]) if (!s.includes(k)) shares.delete(k)
+        reportWidth()
+      }),
+      // Le partage de l'hôte change (arrivée, départ, rôle d'un invité, nouveau code, fin) : le panneau suit.
+      listen<ShareStateEvent>('share-state', (e) => {
+        shares.set(e.id, e.share)
+        if (e.id !== id || guest) return
+        share = e.share
+        reportWidth()
+        if (menu === 'share') growForMenu()
+      }),
+      // Le rôle de l'invité change (par l'hôte) : l'étiquette, et le clavier et la souris.
+      listen<ShareRoleEvent>('share-role', (e) => {
+        if (e.id !== id || !guest) return
+        guest = { ...guest, role: e.role }
+        if (menu === 'keys' && e.role !== 'player_kbm') closeMenu()
         reportWidth()
       }),
       listen<Shown>('bar-shown', (s) => {
@@ -119,13 +176,27 @@
         keepSound = !!s.keep_sound
         sessionCount = s.sessions ?? 1
         refusal = null
+        // KyberNow Share : l'invité (barre réduite) ou, pour un hôte, son partage.
+        guest = s.guest ?? null
+        share = s.share ?? shares.get(s.id) ?? null
+        if (s.share) shares.set(s.id, s.share)
+        shareError = null
+        copied = null
         // Montrée de nouveau : aucun menu d'une fois précédente.
         menu = null
-        // Ouverte par le pointeur, immobile contre le bord haut : il est sur
-        // elle. Demandée par « Statistiques » : elle reste, le menu de
-        // l'icône la cache, ou le pointeur quand il y est passé puis l'a quittée.
-        held = !!s.pinned
-        inside = !s.pinned
+        if (s.notice) {
+          // Un avis bref : la barre se montre sans prendre le clavier, et repart d'elle-même.
+          held = false
+          inside = false
+          showNotice(s.notice)
+        } else {
+          clearNotice()
+          // Ouverte par le pointeur, immobile contre le bord haut : il est sur
+          // elle. Demandée par « Statistiques » : elle reste, le menu de
+          // l'icône la cache, ou le pointeur quand il y est passé puis l'a quittée.
+          held = !!s.pinned
+          inside = !s.pinned
+        }
         cancelHide()
         reportWidth()
       }),
@@ -142,7 +213,11 @@
     // Largeur avec les vraies polices, avant même la première fois montrée.
     document.fonts?.ready.then(reportWidth)
     reportWidth()
-    return () => off.forEach((p) => p.then((f) => f()))
+    const clock = setInterval(() => (now = Date.now()), 30_000)
+    return () => {
+      clearInterval(clock)
+      off.forEach((p) => p.then((f) => f()))
+    }
   })
 
   /** Dit à l'app la largeur de la barre (en points) : le pointeur l'ouvre dans une zone du bord haut de cette largeur. */
@@ -206,7 +281,7 @@
     if (!inside) scheduleHide()
   }
 
-  async function toggle(which: 'profile' | 'keys' | 'computers') {
+  async function toggle(which: 'profile' | 'keys' | 'computers' | 'share') {
     const next = menu === which ? null : which
     refusal = null
     if (next === 'computers') computers = await invoke<BarComputer[]>('bar_computers')
@@ -283,6 +358,110 @@
   }
 
   const command = (c: string) => invoke('session_command', { id, command: c })
+
+  // MARK: - KyberNow Share
+
+  /** Un avis bref à la place des statistiques ; la barre repart ensuite d'elle-même (sauf pointeur dessus ou menu ouvert). */
+  function showNotice(text: string) {
+    clearNotice()
+    notice = text
+    noticeTimer = setTimeout(() => {
+      noticeTimer = null
+      notice = null
+      if (!inside && !menu) invoke('bar_hide', { id, focus: false })
+    }, 4000)
+  }
+
+  function clearNotice() {
+    if (noticeTimer) clearTimeout(noticeTimer)
+    noticeTimer = null
+    notice = null
+  }
+
+  /** Le nom de l'ordinateur de la session (titre du panneau). */
+  const computerName = $derived(computers.find((c) => c.id === id)?.name ?? '')
+  /** Le partage est inactif : Station trop ancienne, ou partage coupé sur l'ordinateur. */
+  const blocked = $derived(share?.availability === 'unsupported' || share?.availability === 'disabled')
+  /** Le panneau, sans le texte déjà dit par un « Partager » inactif. */
+  const shownError = $derived(shareError && shareError !== share?.text ? shareError : null)
+  const guestCount = $derived(share?.open ? share.guests.length : 0)
+  const roleName = (r: ShareRole) => t(r === 'spectator' ? 'share.role_spectator' : 'share.role_player')
+
+  /**
+   * « Partager » : ouvre le partage s'il ne l'est pas (code, lien, QR code) puis son panneau ; une
+   * pastille d'invités le rouvre. Inactif (Station trop ancienne, partage coupé), il ouvre le texte qui dit pourquoi.
+   */
+  async function toggleShare() {
+    if (menu === 'share') return toggle('share')
+    shareError = null
+    copied = null
+    if (!blocked && !share?.open) {
+      if (opening) return
+      opening = true
+      try {
+        share = await invoke<Share>('share_open', { id })
+      } catch (e) {
+        shareError = String(e)
+      } finally {
+        opening = false
+      }
+    }
+    await toggle('share')
+  }
+
+  /** Une action sur le partage : Admin répond avec le partage à jour. */
+  async function shareAction(call: () => Promise<Share>) {
+    shareError = null
+    try {
+      share = await call()
+    } catch (e) {
+      shareError = String(e)
+    }
+    await growForMenu()
+  }
+
+  const setRole = (g: ShareGuest, role: ShareRole) => shareAction(() => invoke<Share>('share_guest', { id, guest: g.id, role }))
+  const kick = (g: ShareGuest) => shareAction(() => invoke<Share>('share_kick', { id, guest: g.id }))
+  const newCode = () => shareAction(() => invoke<Share>('share_code', { id }))
+
+  async function stopSharing() {
+    await shareAction(() => invoke<Share>('share_close', { id }))
+    // Plus de partage : le panneau se referme (la barre repart si le pointeur n'y est plus).
+    if (!share?.open && !shareError) {
+      await closeMenu()
+      afterMenu()
+    }
+  }
+
+  /** « Copier le lien » : l'adresse du client web ; sinon l'adresse sélectionnable, à copier à la main. */
+  async function copyLink() {
+    const text = share?.web || share?.link || ''
+    if (!text) return
+    copied = null
+    let ok = true
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch {
+      // Le presse-papiers de Windows, par l'app.
+      ok = await invoke('copy_text', { text }).then(() => true, () => false)
+    }
+    copied = ok ? 'ok' : 'fail'
+    if (ok) setTimeout(() => copied === 'ok' && (copied = null), 3000)
+    await growForMenu()
+  }
+
+  /** Le lien se sélectionne en entier au premier clic (copie à la main). */
+  const selectAll = (e: Event) => (e.currentTarget as HTMLInputElement).select()
+
+  const apps = ['mac', 'windows', 'linux', 'ios', 'tvos', 'android', 'webos', 'web']
+  /** « iPhone ou iPad · depuis 3 min » : l'app de l'invité et son arrivée. */
+  const guestMeta = (g: ShareGuest) =>
+    [
+      apps.includes(g.app) ? t(`share.app_${g.app}`) : '',
+      g.since != null ? t('share.since', { duration: duration(Math.max(0, Math.floor(now / 1000) - seconds(g.since))) }) : '',
+    ]
+      .filter(Boolean)
+      .join(' · ')
 </script>
 
 <!-- Clic ailleurs (la session) : le menu se referme. -->
@@ -298,15 +477,23 @@
 
 <div class="bar" role="toolbar" aria-label={t('bar.toolbar')} tabindex="-1" bind:this={bar}>
   <Mark size={20} state="now" lit />
-  <div class="stats" role="group" aria-label={t('bar.statistics')} title={t('bar.statistics')}>
-    <div class="lat" title={stats?.audio_ms != null ? t('bar.audio', { ms: ms(stats.audio_ms, 0), gaps: stats.audio_gaps ?? 0 }) : undefined}>
-      <span class="mono">{ms(stats?.latency_ms)} ms</span>
-      <svg width="70" height="20" viewBox="0 0 70 20" aria-hidden="true"><polyline points={spark} fill="none" stroke="#9A8CFF" stroke-width="1.5" /></svg>
+  <!-- Un avis bref (changement de rôle d'un invité) prend la place des statistiques, sans changer la largeur de la barre. -->
+  <div class="slot">
+    <div class="stats" class:hidden={!!notice} role="group" aria-label={t('bar.statistics')} title={t('bar.statistics')}>
+      <div class="lat" title={stats?.audio_ms != null ? t('bar.audio', { ms: ms(stats.audio_ms, 0), gaps: stats.audio_gaps ?? 0 }) : undefined}>
+        <span class="mono">{ms(stats?.latency_ms)} ms</span>
+        <svg width="70" height="20" viewBox="0 0 70 20" aria-hidden="true"><polyline points={spark} fill="none" stroke="#9A8CFF" stroke-width="1.5" /></svg>
+      </div>
+      <span class="sep"></span>
+      <span class="mono info">{stats ? infoLine(stats) : '—'}</span>
     </div>
-    <span class="sep"></span>
-    <span class="mono info">{stats ? infoLine(stats) : '—'}</span>
+    {#if notice}<div class="notice" role="status">{notice}</div>{/if}
   </div>
   <span class="sep"></span>
+  {#if guest}
+    <!-- Invité d'un partage : son rôle, à la place du profil (ni profil ni réglages). -->
+    <span class="role" class:play={guest.role !== 'spectator'}>{roleName(guest.role)}</span>
+  {:else}
   <div class="anchor">
     <button class="chip" class:open={menu === 'profile'} aria-haspopup="menu" aria-expanded={menu === 'profile'} title={t('bar.session_profile')} onclick={() => toggle('profile')}>
       {label ? localLabel(label) : t('bar.profile')}<span class="caret" aria-hidden="true">▾</span>
@@ -322,6 +509,9 @@
       </div>
     {/if}
   </div>
+  {/if}
+  <!-- Un invité n'a le clavier et la souris que si l'hôte les lui a donnés. -->
+  {#if !guest || guest.role === 'player_kbm'}
   <div class="anchor">
     <button class="icon" class:on={menu === 'keys'} aria-haspopup="menu" aria-expanded={menu === 'keys'} aria-label={t('bar.keys')} title={t('bar.keys')} onclick={() => toggle('keys')}>
       <Icon name="keyboard" size={20} stroke={1.6} />
@@ -339,6 +529,7 @@
   <button class="icon" class:on={stats?.relative} aria-label={(stats?.relative ? t('bar.mouse_game') : t('bar.mouse_desktop')) + t('bar.mouse_shortcut')} title={stats?.relative ? t('bar.mouse_game') : t('bar.mouse_desktop')} onclick={() => command('mouse')}>
     <Icon name="mouse" size={20} stroke={1.6} />
   </button>
+  {/if}
   {#if !multi}
     <button class="icon" aria-label={t('bar.fullscreen') + t('bar.fullscreen_shortcut')} title={t('bar.fullscreen')} onclick={() => command('fullscreen')}>
       <Icon name="fullscreen" size={20} stroke={1.6} />
@@ -350,7 +541,90 @@
       <Icon name="speaker" size={20} stroke={1.6} />
     </button>
   {/if}
-  {#if others.length > 0}
+  {#if !guest}
+  <!-- KyberNow Share : « Partager », présenté comme les autres menus (icône seule, libellé accessible) ;
+       inactif, il dit pourquoi dans son panneau ; une pastille d'invités rouvre le panneau. -->
+  <div class="anchor" class:withpill={guestCount > 0}>
+    <button
+      class="icon"
+      class:on={menu === 'share' || !!share?.open}
+      class:inert={blocked}
+      aria-haspopup="dialog"
+      aria-expanded={menu === 'share'}
+      aria-disabled={blocked}
+      aria-label={t('share.share')}
+      title={blocked && share?.text ? share.text : t('share.share')}
+      disabled={opening}
+      onclick={toggleShare}
+    >
+      <Icon name="share" size={20} stroke={1.6} />
+    </button>
+    {#if guestCount > 0}
+      <button class="pill" aria-haspopup="dialog" aria-expanded={menu === 'share'} onclick={() => toggle('share')}>{t(guestCount === 1 ? 'share.guests_one' : 'share.guests_other', { count: guestCount })}</button>
+    {/if}
+    {#if menu === 'share'}
+      <div class="menu share" role="dialog" aria-label={t('share.title', { name: computerName })}>
+        {#if share?.open}
+          <h3>{t('share.title', { name: computerName })}</h3>
+          <div class="top">
+            <div class="codebox">
+              <span class="eyebrow">{t('share.code')}</span>
+              <span class="digits mono" aria-label={t('share.code') + ' ' + share.code}>{share.code}</span>
+              <button class="ghost" onclick={copyLink}><Icon name="copy" size={16} stroke={1.6} />{t('share.copy_link')}</button>
+              {#if copied === 'ok'}<span class="copied" role="status">{t('share.link_copied')}</span>{/if}
+            </div>
+            {#if share.qr}
+              <svg class="qr" role="img" aria-label={t('share.qr')} viewBox="-4 -4 {share.qr.size + 8} {share.qr.size + 8}" shape-rendering="crispEdges">
+                <rect x="-4" y="-4" width={share.qr.size + 8} height={share.qr.size + 8} fill="#fff" />
+                <path d={share.qr.path} fill="#000" />
+              </svg>
+            {/if}
+          </div>
+          {#if copied === 'fail'}
+            <!-- Copie impossible : l'adresse reste là, sélectionnée d'un clic. -->
+            <p class="note refusal" role="alert">{t('share.copy_failed')}</p>
+            <input class="field link mono" readonly value={share.web || share.link} onfocus={selectAll} onclick={selectAll} aria-label={t('share.copy_link')} />
+          {/if}
+          <p class="help">{t('share.help')}</p>
+          <div class="eyebrow list-title">{t('share.guests')}</div>
+          {#if share.guests.length === 0}
+            <p class="nobody">{t('share.nobody')}</p>
+          {:else}
+            <ul class="guests">
+              {#each share.guests as g (g.id)}
+                <li>
+                  <div class="who">
+                    <span class="gname">{t(`share.guest_${g.role}`, { name: g.name })}</span>
+                    <span class="gmeta">{guestMeta(g)}</span>
+                  </div>
+                  <div class="acts">
+                    {#if g.role === 'spectator'}
+                      <button onclick={() => setRole(g, 'player')}>{t('share.let_play')}</button>
+                    {:else}
+                      <button onclick={() => setRole(g, g.role === 'player' ? 'player_kbm' : 'player')}>{g.role === 'player' ? t('share.give_kbm') : t('share.take_kbm')}</button>
+                      <button onclick={() => setRole(g, 'spectator')}>{t('share.watch_only')}</button>
+                    {/if}
+                    <button class="danger" onclick={() => kick(g)}>{t('share.remove')}</button>
+                  </div>
+                </li>
+              {/each}
+            </ul>
+          {/if}
+          {#if share.full}<p class="note" role="note">{t('share.limit')}</p>{/if}
+          <div class="foot">
+            <button class="ghost" onclick={newCode}>{t('share.new_code')}</button>
+            <button class="ghost danger" onclick={stopSharing}>{t('share.stop')}</button>
+          </div>
+        {:else if share?.text}
+          <!-- « Partager » inactif : Station trop ancienne, partage coupé sur l'ordinateur. -->
+          <p class="note" role="note">{share.text}</p>
+        {/if}
+        {#if shownError}<p class="note refusal" role="alert">{shownError}</p>{/if}
+      </div>
+    {/if}
+  </div>
+  {/if}
+  {#if !guest && others.length > 0}
   <!-- Présenté comme le menu Touches (icône seule, libellé accessible) ; absent sans autre ordinateur. -->
   <div class="anchor">
     <button class="icon" class:on={menu === 'computers'} aria-haspopup="menu" aria-expanded={menu === 'computers'} aria-label={t('bar.computers')} title={t('bar.computers')} onclick={() => toggle('computers')}>
@@ -379,7 +653,7 @@
   </div>
   {/if}
   <span class="sep"></span>
-  <button class="quit" title={t('bar.disconnect') + t('bar.disconnect_shortcut')} onclick={() => command('disconnect')}>{t('bar.disconnect')}</button>
+  <button class="quit" title={(guest ? t('share.leave') : t('bar.disconnect')) + t('bar.disconnect_shortcut')} onclick={() => command('disconnect')}>{guest ? t('share.leave') : t('bar.disconnect')}</button>
 </div>
 
 <style>
@@ -601,6 +875,234 @@
 
   .note.refusal {
     color: var(--bad-text);
+  }
+
+  /* Les statistiques et, à leur place pour quelques secondes, l'avis d'un changement de rôle. */
+  .slot {
+    display: grid;
+    align-items: center;
+  }
+
+  .slot > * {
+    grid-area: 1 / 1;
+  }
+
+  .stats.hidden {
+    visibility: hidden;
+  }
+
+  .notice {
+    padding: 0 8px;
+    font-size: 14px;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    animation: drop 0.25s var(--ease-out);
+  }
+
+  /* Rôle de l'invité, à la place du profil : « Spectateur », « Joueur ». */
+  .role {
+    height: 34px;
+    padding: 0 12px;
+    display: flex;
+    align-items: center;
+    border: 1px solid var(--line-2);
+    border-radius: 8px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .role.play {
+    border-color: var(--signal);
+    background: var(--ink-3);
+    color: var(--text);
+  }
+
+  /* « Partager » inactif : il dit pourquoi dans son panneau. */
+  .icon.inert {
+    color: var(--ghost);
+  }
+
+  /* Pastille d'invités (« 2 invités »), à droite de « Partager » : rouvre le panneau. */
+  .anchor.withpill {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .pill {
+    height: 26px;
+    padding: 0 10px;
+    border: 1px solid var(--signal);
+    border-radius: 999px;
+    background: var(--signal-soft);
+    color: var(--text);
+    font-size: 12px;
+  }
+
+  .pill:hover {
+    background: var(--ink-3);
+  }
+
+  /* Panneau de l'hôte : à droite de la barre, aligné sur son bouton, comme « Ordinateurs ». */
+  .menu.share {
+    left: auto;
+    right: -8px;
+    transform: none;
+    width: 400px;
+    padding: 16px;
+    gap: 12px;
+    white-space: normal;
+    /* Un petit écran : le panneau défile dans la fenêtre de la barre (qui ne dépasse pas l'écran). */
+    max-height: calc(100vh - 90px);
+    overflow-y: auto;
+  }
+
+  .menu.share h3 {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 640;
+  }
+
+  .menu.share .top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+  }
+
+  .menu.share .codebox {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .menu.share .digits {
+    font-size: 32px;
+    letter-spacing: 0.08em;
+    user-select: text;
+  }
+
+  .menu.share .qr {
+    flex: none;
+    width: 150px;
+    height: 150px;
+    border-radius: 8px;
+  }
+
+  .menu.share .ghost {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 36px;
+    padding: 0 12px;
+    border: 1px solid var(--line-2);
+    border-radius: 8px;
+    background: none;
+    color: var(--muted);
+    font-size: 13px;
+    grid-template-columns: none;
+  }
+
+  .menu.share .ghost:hover {
+    color: var(--text);
+    border-color: var(--faint);
+    background: none;
+  }
+
+  .menu.share .ghost.danger,
+  .menu.share .danger {
+    color: #ff8a8a;
+  }
+
+  .copied {
+    font-size: 12px;
+    color: var(--ok);
+  }
+
+  .menu.share .field.link {
+    height: 36px;
+    font-size: 12px;
+  }
+
+  .menu.share .help,
+  .menu.share .nobody {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--muted);
+  }
+
+  .menu.share .list-title {
+    margin-top: 2px;
+  }
+
+  .menu.share .guests {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .menu.share .guests li {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--ink-2);
+  }
+
+  .menu.share .who {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .menu.share .gname {
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .menu.share .gmeta {
+    font-size: 12px;
+    color: var(--faint);
+  }
+
+  .menu.share .acts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  /* Les actions sur un invité : de petits boutons, pas des lignes de menu. */
+  .menu.share .acts button {
+    display: inline-flex;
+    padding: 5px 10px;
+    border: 1px solid var(--line-2);
+    border-radius: 7px;
+    font-size: 12px;
+    grid-template-columns: none;
+  }
+
+  .menu.share .acts button:hover {
+    border-color: var(--faint);
+  }
+
+  .menu.share .foot {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    padding-top: 4px;
+    border-top: 1px solid var(--line);
+  }
+
+  .menu.share .foot .ghost {
+    margin-top: 8px;
   }
 
   .quit {

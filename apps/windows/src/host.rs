@@ -25,7 +25,8 @@ use kybernow_core::input::{Clock, InputPipeline, InputPlatform, MonotonicClock, 
 use kybernow_core::kynput_rs::Pipeline;
 use kybernow_core::media::PacketHandler;
 use kybernow_core::screens::session_plan_for;
-use kybernow_core::session::{Platform, Session, SessionParams, Status, StreamScreen};
+use kybernow_core::session::{Platform, Session, SessionParams, SessionRole, Status, StreamScreen};
+use kybernow_core::share::{ShareEnd, ShareRole, ShareState};
 use kybernow_core::{Display, WindowHandle};
 
 use crate::audio::{self, AudioOutput};
@@ -132,6 +133,16 @@ pub trait HostEvents: Send + Sync {
     fn connexion_front(&self) {}
     /// Tout est arrêté, fenêtres fermées, console prévenue.
     fn ended(&self, _summary: &Summary) {}
+    /// KyberNow Share, session d'hôte : le partage ouvert et ses invités, tels
+    /// que le dit le signe de vie d'Admin ; `None` : pas de partage.
+    fn guests(&self, _share: Option<&ShareState>) {}
+    /// KyberNow Share, session d'invité : son rôle au départ (`previous`
+    /// nul), puis à chaque changement par l'hôte. Les droits du clavier et de
+    /// la souris de la fenêtre sont déjà à jour.
+    fn share_role(&self, _role: ShareRole, _previous: Option<ShareRole>) {}
+    /// KyberNow Share, session d'invité : c'est le partage qui la finit
+    /// (arrêté, retiré, format illisible), avec son texte.
+    fn share_end(&self, _end: &ShareEnd, _text: &str) {}
 }
 
 pub struct HostOptions {
@@ -434,6 +445,20 @@ impl Platform for WinPlatform {
         self.app.game.store(game, Ordering::Relaxed);
         self.app.post(WM_APP_MOUSE);
     }
+    // KyberNow Share (docs/kybernow-share.md).
+    fn on_guests(&self, share: Option<&ShareState>) {
+        self.events.guests(share);
+    }
+    /// Le clavier et la souris de ce PC ne partent que pour un joueur à qui
+    /// l'hôte les a donnés ; le cœur filtre de son côté (`InputRights`), la
+    /// fenêtre laisse en plus ses raccourcis à ce PC.
+    fn on_share_role(&self, role: ShareRole, previous: Option<ShareRole>) {
+        self.app.set_keyboard_mouse(crate::sharing::has_keyboard_mouse(role));
+        self.events.share_role(role, previous);
+    }
+    fn on_share_end(&self, end: &ShareEnd, text: &str) {
+        self.events.share_end(end, text);
+    }
 }
 
 fn run(
@@ -476,6 +501,11 @@ fn run(
         Some(true) => MouseMode::Game,
         Some(false) => MouseMode::Desktop,
     });
+    // Un invité n'a le clavier et la souris que s'ils lui sont donnés (le
+    // cœur le redit à chaque changement de rôle).
+    if let SessionRole::Guest(g) = &params.role {
+        app.set_keyboard_mouse(crate::sharing::has_keyboard_mouse(g.joined.role));
+    }
 
     let _ = app_out.set(app.clone());
     if let Err(e) = window::create_control(&app) {

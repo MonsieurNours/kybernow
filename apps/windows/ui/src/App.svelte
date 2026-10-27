@@ -7,8 +7,9 @@
   import Settings from './Settings.svelte'
   import Passage from './Passage.svelte'
   import AppSheet from './AppSheet.svelte'
-  import type { Action, AppInfo, Battery, Candidate, Computer, ConnectInfo, Found, Phase, ScreensEvent, Snapshot, StationRestarting, Summary, ThisPc, Update } from './lib/api'
-  import { invoke, listen } from './lib/api'
+  import JoinSheet from './JoinSheet.svelte'
+  import type { Action, AppInfo, Battery, Candidate, Computer, ConnectInfo, Found, Phase, ScreensEvent, ShareJoined, Snapshot, StationRestarting, Summary, ThisPc, Update } from './lib/api'
+  import { MAX_SESSIONS, guestComputer, invoke, listen } from './lib/api'
   import { setLang, t } from './lib/i18n/index.svelte'
 
   let computers = $state<Computer[]>([])
@@ -25,7 +26,13 @@
    * plusieurs écrans. Les sessions suivantes (plusieurs ordinateurs) ont leur propre fenêtre de
    * connexion, sans passage sur l'accueil.
    */
-  let passage = $state<{ id: string; phase: Phase['phase']; opening: boolean; closing: boolean; restarting: boolean; many: boolean } | null>(null)
+  let passage = $state<{ id: string; phase: Phase['phase']; opening: boolean; closing: boolean; restarting: boolean; many: boolean; guest?: ShareJoined } | null>(null)
+  /**
+   * « Rejoindre avec un code » (KyberNow Share) : l'écran du code et du prénom. `code` et `link` :
+   * ceux d'un lien `kybernow://join?…`, déjà remplis. Un partage rejoint ouvre une session d'invité
+   * (passage ou fenêtre, comme un ordinateur) sans rien ajouter à la liste des ordinateurs.
+   */
+  let joining = $state<{ code: string; link: string | null } | null>(null)
   /** Les ordinateurs en session, dans l'ordre d'ouverture (plusieurs ordinateurs, quatre au plus). */
   let sessions = $state<string[]>([])
   let error = $state<string | null>(null)
@@ -50,7 +57,8 @@
 
   const selected = $derived(computers.find((c) => c.id === selectedId) ?? computers[0] ?? null)
   const settingsFor = $derived(computers.find((c) => c.id === settingsId) ?? null)
-  const passageFor = $derived(computers.find((c) => c.id === passage?.id) ?? null)
+  /** Ce que le passage montre : l'ordinateur, ou « Invité sur {nom} » pour une session d'invité. */
+  const passageFor = $derived(computers.find((c) => c.id === passage?.id) ?? (passage?.guest ? guestComputer(passage.guest) : null))
 
   function select(id: string) {
     selectedId = id
@@ -105,7 +113,12 @@
         if (!passage || passage.id !== id) return
         // Avant la première image, c'est la connexion qui a échoué.
         const failed = !passage.opening
-        error = summary.error ? t(failed ? 'app.connect_failed' : 'app.session_stopped', { error: summary.error }) : null
+        // Un invité : la raison du partage, telle quelle (« Léa a arrêté le partage. »).
+        error = summary.error
+          ? passage.guest
+            ? summary.error
+            : t(failed ? 'app.connect_failed' : 'app.session_stopped', { error: summary.error })
+          : null
         passage.opening = false
         passage.closing = true
         setTimeout(() => {
@@ -157,6 +170,10 @@
       connect(a.id)
     } else if (a.kind === 'add') {
       adding = { found: null }
+    } else if (a.kind === 'join') {
+      adding = null
+      appSheet = false
+      join(a.link)
     } else if (a.kind === 'link') {
       try {
         const c = await invoke<Candidate>('parse_link', { link: a.link })
@@ -166,6 +183,45 @@
       }
     } else if (a.kind === 'updated') {
       invoke<AppInfo>('app_info').then((i) => (notice = t('app.installed', { version: i.version })))
+    }
+  }
+
+  /** « Rejoindre avec un code », avec le code d'un lien (`kybernow://join?…`) s'il y en a un. */
+  async function join(link: string | null = null) {
+    error = null
+    if (!link) {
+      joining = { code: '', link: null }
+      return
+    }
+    try {
+      joining = { code: await invoke<string>('share_link_code', { link }), link }
+    } catch (e) {
+      joining = null
+      error = String(e)
+    }
+  }
+
+  /**
+   * Le partage est rejoint : sa session s'ouvre comme celle d'un ordinateur — la première avec le passage
+   * de l'accueil (titré « Invité sur {nom} »), les suivantes dans une fenêtre avec leur propre fenêtre de
+   * connexion. La fin se lit telle que le cœur la dit.
+   */
+  async function joined(j: ShareJoined) {
+    joining = null
+    error = null
+    const following = sessions.length > 0 || passage !== null
+    const fresh = () => ({ id: j.id, phase: 'preparing' as const, opening: false, closing: false, restarting: false, many: false, guest: j })
+    if (!following) passage = fresh()
+    try {
+      const started = await invoke<ConnectInfo>('share_connect', { id: j.id })
+      if (started.windowed) {
+        if (passage?.id === j.id && !passage.opening) passage = null
+      } else if (!(passage?.id === j.id && !passage.closing)) {
+        passage = fresh()
+      }
+    } catch (e) {
+      if (passage?.id === j.id && !passage.opening) passage = null
+      error = String(e)
     }
   }
 
@@ -301,7 +357,12 @@
     onsettings={(id) => (settingsId = id)}
     onprofile={setProfile}
     onadd={(found) => (adding = { found: found ?? null })}
+    onjoin={() => join()}
   />
+{/if}
+
+{#if joining}
+  <JoinSheet code={joining.code} link={joining.link} full={sessions.length >= MAX_SESSIONS} onclose={() => (joining = null)} onjoined={joined} />
 {/if}
 
 {#if adding}
@@ -327,6 +388,7 @@
     closing={passage.closing}
     restarting={passage.restarting}
     many={passage.many}
+    guest={!!passage.guest}
     oncancel={() => passage && invoke('session_command', { id: passage.id, command: 'disconnect' })}
   />
 {/if}

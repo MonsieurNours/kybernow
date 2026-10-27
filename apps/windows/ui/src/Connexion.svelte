@@ -13,13 +13,15 @@
   import { onMount } from 'svelte'
   import Passage from './Passage.svelte'
   import type { AppInfo, Computer, ConnexionView, Phase, ScreensEvent, Snapshot, StationRestarting, Summary } from './lib/api'
-  import { invoke, listen } from './lib/api'
+  import { guestComputer, invoke, listen } from './lib/api'
   import { setLang, t } from './lib/i18n/index.svelte'
 
   /** L'ordinateur de cette connexion (donné par l'app ; `?id=` dans l'imitation). */
   const id: string = (window as unknown as { __KN_SESSION?: string }).__KN_SESSION ?? new URLSearchParams(location.search).get('id') ?? ''
 
-  let computer = $state<Computer | null>(null)
+  let computer = $state<Pick<Computer, 'name' | 'preview' | 'fingerprint'> | null>(null)
+  /** Session d'invité (KyberNow Share) : sa raison d'échec se lit telle quelle, pas d'ordinateur de l'app. */
+  let guest = $state(false)
   let phase = $state<Phase['phase']>('preparing')
   let restarting = $state(false)
   let opening = $state(false)
@@ -61,8 +63,16 @@
         phase = step(v.phase)
         restarting = v.restarting
         error = v.error
+        // Un invité : « Invité sur {nom} » à la place du nom d'un ordinateur de l'app.
+        if (v.guest && v.title) {
+          guest = true
+          computer = guestComputer({ title: v.title, fingerprint: v.fingerprint ?? null })
+        }
       })
-      invoke<Snapshot>('snapshot').then((s) => (computer = s.computers.find((c) => c.id === id) ?? null))
+      invoke<Snapshot>('snapshot').then((s) => {
+        const known = s.computers.find((c) => c.id === id)
+        if (known) computer = known
+      })
       invoke<AppInfo>('app_info').then((i) => setLang(i.lang))
     })
     return () => off.forEach((p) => p.then((f) => f()))
@@ -80,12 +90,12 @@
 </script>
 
 {#if computer}
-  <Passage {computer} {phase} {opening} closing={error !== null} {restarting} oncancel={close} />
+  <Passage {computer} {phase} {opening} closing={error !== null} {restarting} {guest} oncancel={close} />
 {/if}
 
 {#if error}
   <div class="failed" class:leaving role="alert">
-    <p>{t('app.connect_failed', { error })}</p>
+    <p>{guest ? error : t('app.connect_failed', { error })}</p>
     <button onclick={close} disabled={leaving}>{t('common.close')}</button>
   </div>
 {/if}

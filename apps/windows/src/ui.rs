@@ -50,7 +50,12 @@ use crate::i18n::t;
 use crate::follow::{self, Kind};
 use crate::menu::{self, Cmd};
 use crate::{audio, focus, i18n, instance, login, shell, snapshot, system, tray, window};
+use kybernow_core::share::{ShareEnd, ShareRole, ShareState};
 use kybernow_core::update::{self, Available, Channel};
+
+// KyberNow Share : « Rejoindre avec un code » (session d'invité) et « Partager »
+// (panneau de l'hôte dans la barre).
+mod share;
 
 #[derive(Debug, Clone, Default)]
 struct Live {
@@ -98,16 +103,22 @@ struct Pairing {
     id: String,
 }
 
-/// Une session en cours (une par ordinateur).
+/// Une session en cours (une par ordinateur, ou une session d'invité d'un
+/// partage : `id` est alors `guest-N`, jamais un ordinateur de l'app).
 struct Running {
     id: String,
-    /// Le nom de l'ordinateur (journal).
+    /// Le nom de l'ordinateur (journal) ; « Invité sur {nom} » pour un invité.
     name: String,
     host: SessionHost,
     bar: Arc<Mutex<BarLabel>>,
     sent: Arc<Mutex<Sent>>,
     /// Dernières mesures de la barre (menu de l'icône).
     stats: Arc<Mutex<Option<Stats>>>,
+    /// Session d'invité (KyberNow Share) : l'ordinateur qui partage et le rôle.
+    guest: Option<Arc<share::Guest>>,
+    /// Session d'hôte : le partage ouvert et ses invités, tels qu'Admin les dit
+    /// (signe de vie de la session, ou réponse à une action de la barre).
+    share: Arc<Mutex<Option<ShareState>>>,
 }
 
 /// La connexion d'une session ouverte pendant qu'une autre tourne (plusieurs
@@ -139,6 +150,13 @@ struct ConnexionView {
     restarting: bool,
     /// La session s'est terminée avant sa première image : la raison.
     error: Option<String>,
+    /// Session d'invité (KyberNow Share) : son titre (« Invité sur {nom} »,
+    /// que la page montre à la place du nom d'un ordinateur de l'app) et la
+    /// teinte de l'ordinateur qui partage ; la raison d'un échec se lit alors
+    /// telle quelle, sans « La connexion a échoué : ».
+    title: Option<String>,
+    fingerprint: Option<String>,
+    guest: bool,
 }
 
 /// Numéro des fenêtres de connexion (`connexion-N`).
@@ -232,6 +250,9 @@ pub struct UiState {
     poll_signal: Condvar,
     /// Fond de la connexion sur les écrans autres que l'écran principal.
     fonds: OnceLock<Arc<Fonds>>,
+    /// Un partage rejoint (`share_join`) dont la session s'ouvre
+    /// (`share_connect`) : un seul à la fois.
+    pending_guest: Mutex<Option<share::Pending>>,
 }
 
 /// Ce que l'ouverture demande à l'app.
@@ -240,6 +261,8 @@ pub struct UiState {
 pub enum Action {
     Connect { id: String },
     Add,
+    /// « Rejoindre avec un code » (menu de l'icône, `kybernow://join?…` : le lien).
+    Join { link: Option<String> },
     Link { link: String },
     Updated,
     Open,
@@ -253,6 +276,10 @@ pub enum Action {
 
 fn parse_action(args: &[String]) -> Option<Action> {
     let first = args.first()?;
+    // Le lien (ou le QR code) d'un partage : « Rejoindre avec un code ».
+    if crate::link::is_join(first) {
+        return Some(Action::Join { link: Some(first.clone()) });
+    }
     if first.starts_with("kybernow://") {
         // Actions des notifications (link.rs) : kybernow://connect?id=…,
         // kybernow://open (?id=… : sur cet ordinateur), kybernow://station?id=…
@@ -290,6 +317,10 @@ pub struct Prefs {
     pub open_at_login: Option<bool>,
     /// La notification « KyberNow Link est toujours là » a été montrée.
     pub close_hint: bool,
+    /// Le prénom donné à « Rejoindre avec un code » (KyberNow Share), proposé
+    /// la fois suivante ; absent : le nom de ce PC.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub share_name: Option<String>,
 }
 
 /// Sur batterie, pour toutes les sessions de ce PC : `alleger` ou `garder`.
@@ -1425,6 +1456,10 @@ struct UiEvents {
     /// fonds des autres écrans. Les suivantes : leur fenêtre de connexion.
     first: bool,
     connexion: Arc<Connexion>,
+    /// Session d'invité (KyberNow Share) : jamais l'ordinateur d'une liste de l'app.
+    guest: Option<Arc<share::Guest>>,
+    /// Le partage de cette session d'hôte (le même que celui de `Running`).
+    share: Arc<Mutex<Option<ShareState>>>,
 }
 
 /// `bar-shown` : la barre se montre pour la session `id` (une seule barre,
@@ -1443,6 +1478,22 @@ struct BarShown {
     /// Sessions ouvertes : « Garder le son » à partir de deux (ensuite,
     /// l'événement `sessions`).
     sessions: usize,
+    /// Session d'invité (KyberNow Share) : la barre est réduite (rôle,
+    /// « Quitter le partage »), sans profil ni « Ordinateurs ».
+    guest: Option<GuestBar>,
+    /// Session d'hôte : « Partager » et le panneau (partage ouvert, invités).
+    share: Option<crate::sharing::ShareView>,
+    /// Un avis bref (changement de rôle d'un invité) que la barre montre
+    /// quelques secondes, sans prendre le clavier à la session.
+    notice: Option<String>,
+}
+
+/// L'invité que sert la barre : son rôle (`spectator`, `player`, `player_kbm`)
+/// et l'hôte du partage.
+#[derive(Clone, Serialize)]
+struct GuestBar {
+    role: &'static str,
+    host: String,
 }
 
 /// `bar-label` : le profil de la session `id` a changé.
@@ -1666,6 +1717,32 @@ impl HostEvents for UiEvents {
         });
     }
 
+    /// Le partage de l'hôte et ses invités (signe de vie d'Admin) : gardés
+    /// pour la barre, qui les montre dans son panneau et sa pastille.
+    fn guests(&self, share: Option<&ShareState>) {
+        *self.share.lock().unwrap() = share.filter(|s| s.open).cloned();
+        share::emit_state(&self.app, &self.id, &self.share);
+    }
+
+    /// Le rôle de l'invité : au départ, puis chaque changement par l'hôte
+    /// (étiquette de la barre, menu de l'icône, avis bref).
+    fn share_role(&self, role: ShareRole, previous: Option<ShareRole>) {
+        let Some(g) = &self.guest else { return };
+        *g.role.lock().unwrap() = role;
+        log::info!("[{}] rôle d'invité : {role:?}", g.title);
+        let _ = self.app.emit_to("bar", "share-role", share::RoleEvent { id: self.id.clone(), role: role.as_str() });
+        tray::refresh();
+        if let Some(key) = crate::sharing::role_notice(role, previous) {
+            share::notice(&self.app, &self.id, &g.title, &t(key, &[]));
+        }
+    }
+
+    /// C'est le partage qui finit la session de l'invité : le texte est aussi
+    /// la raison de sa fin (`Summary::error`), montrée telle quelle.
+    fn share_end(&self, end: &ShareEnd, text: &str) {
+        log::info!("{} : fin du partage ({}) : {text}", self.connexion.name, end.kind());
+    }
+
     fn ended(&self, s: &Summary) {
         let state = self.app.state::<UiState>();
         // Cette session-là, pas une autre du même ordinateur.
@@ -1801,7 +1878,14 @@ impl HostEvents for UiEvents {
             started: self.first || s.shown,
             kept_in_window,
         });
-        if notify {
+        if notify && let Some(g) = &self.guest {
+            // Un invité : la raison du partage (« Léa a arrêté le partage. »), sous
+            // son titre ; jamais « Reprendre la main », et pas de bouton (il
+            // n'y a pas d'ordinateur à reprendre).
+            if let Some(text) = &s.error {
+                shell::notify_to("kybernow://open", &g.title, text, None);
+            }
+        } else if notify {
             let name = state.with_store(|st| st.get(&self.id).map(|c| c.name.clone())).unwrap_or_default();
             let home = format!("kybernow://open?id={}", self.id);
             let again = format!("kybernow://connect?id={}", self.id);
@@ -2248,6 +2332,23 @@ struct Follow {
     monitor: String,
 }
 
+/// Les écrans et la fenêtre d'une session ouverte pendant qu'une autre tourne
+/// (plusieurs ordinateurs, aussi la session d'un invité) : elle prend « Cet
+/// écran » en fenêtre, celui de la fenêtre active, quel que soit le réglage
+/// « Écrans » ; les deux règles du cœur (`screens_for_extra_session`, dans
+/// `Layout::screens`, et `extra_session_window`).
+fn follow_layout(state: &UiState, spec: Spec) -> (Layout, Follow) {
+    let fallback = state.active_id().and_then(|a| state.with_session(&a, |r| r.host.bar_window())).unwrap_or(0);
+    let layout = Layout { monitors: displays::enumerate(), spec, this_screen: system::active_monitor_key(fallback), extra_session: true };
+    let screens = layout.screens();
+    let w = screens::extra_session_window(&screens.list[screens.current()]);
+    // Les écrans de ce PC sont donnés au cœur en pixels : cadre et mode aussi.
+    let client = (w.mode.width as i32, w.mode.height as i32);
+    let at = system::frame_origin((w.x.round() as i32, w.y.round() as i32), client);
+    let monitor = layout.monitors.get(screens.current()).map(|m| m.key.clone()).unwrap_or_default();
+    (layout, Follow { mode: w.mode, client, at, monitor })
+}
+
 /// Une connexion qui se lance : sa place (une des quatre) est rendue en
 /// sortant de `connect`, session inscrite ou connexion refusée ; si l'app se
 /// fermait pendant ce temps, elle part alors (s'il ne reste rien).
@@ -2357,15 +2458,8 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
     let (layout, follow) = if first {
         (Layout::now(spec), None)
     } else {
-        let fallback = state.active_id().and_then(|a| state.with_session(&a, |r| r.host.bar_window())).unwrap_or(0);
-        let layout = Layout { monitors: displays::enumerate(), spec, this_screen: system::active_monitor_key(fallback), extra_session: true };
-        let screens = layout.screens();
-        let w = screens::extra_session_window(&screens.list[screens.current()]);
-        // Les écrans de ce PC sont donnés au cœur en pixels : cadre et mode aussi.
-        let client = (w.mode.width as i32, w.mode.height as i32);
-        let at = system::frame_origin((w.x.round() as i32, w.y.round() as i32), client);
-        let monitor = layout.monitors.get(screens.current()).map(|m| m.key.clone()).unwrap_or_default();
-        (layout, Some(Follow { mode: w.mode, client, at, monitor }))
+        let (layout, follow) = follow_layout(&state, spec);
+        (layout, Some(follow))
     };
     let (settings, mode, label) = session_plan(&c, &pc, lighten, follow.as_ref().map(|f| f.mode));
     let plan = screens::session_plan_for(&layout.screens(), &settings, s.virtual_display);
@@ -2437,6 +2531,7 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
     let connexion = Arc::new(Connexion { session, name: c.name.clone(), ..Default::default() });
     connexion.view.lock().unwrap().id = id.clone();
     connexion.view.lock().unwrap().phase = "preparing";
+    let share_state = Arc::new(Mutex::new(None));
     if let Some(f) = &follow {
         log::info!("session suivante : fenêtre de {}×{} sur {} (plusieurs ordinateurs)", f.client.0, f.client.1, f.monitor);
         open_connexion(&app, &connexion, f.at, (f.client.0 as u32, f.client.1 as u32), &c.name);
@@ -2471,10 +2566,12 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
             spot: spot.clone(),
             first,
             connexion: connexion.clone(),
+            guest: None,
+            share: share_state.clone(),
         }),
     );
     let screens = plan.as_ref().map_or(1, |p| p.len());
-    running.push(Running { id: id.clone(), name: c.name.clone(), host, bar, sent, stats });
+    running.push(Running { id: id.clone(), name: c.name.clone(), host, bar, sent, stats, guest: None, share: share_state });
     drop(running);
     drop(_launching);
     // « Quitter » pendant le lancement : elle s'arrête tout de suite (Admin
@@ -2581,12 +2678,29 @@ const BAR_WINDOW_WIDTH: f64 = 1240.0;
 /// signale et où le pointeur l'ouvre. À sa taille sans menu. Une seule barre :
 /// elle sert la session de l'ordinateur `id`, celle de la fenêtre `hwnd`.
 fn show_bar(app: &AppHandle, id: &str, hwnd: isize, pinned: bool) {
+    show_bar_with(app, id, hwnd, pinned, None);
+}
+
+/// [`show_bar`] ; `notice` : un avis bref à montrer (changement de rôle d'un
+/// invité). La barre se montre alors sans prendre le clavier à la session (une
+/// manette ou une touche en cours ne s'interrompt pas) et repart d'elle-même.
+fn show_bar_with(app: &AppHandle, id: &str, hwnd: isize, pinned: bool, notice: Option<String>) {
     let state = app.state::<UiState>();
-    let Some((label, multi, keep_sound, session)) =
-        state.with_session(id, |r| (r.bar.lock().unwrap().clone(), r.host.stream_count() > 1, r.host.keep_sound(), r.host.id()))
-    else {
+    let Some((label, multi, keep_sound, session, guest, share)) = state.with_session(id, |r| {
+        (
+            r.bar.lock().unwrap().clone(),
+            r.host.stream_count() > 1,
+            r.host.keep_sound(),
+            r.host.id(),
+            r.guest.clone(),
+            r.share.lock().unwrap().clone(),
+        )
+    }) else {
         return;
     };
+    // KyberNow Share : l'invité (rôle, hôte) ou, pour une session d'hôte, « Partager ».
+    let guest = guest.map(|g| GuestBar { role: g.role.lock().unwrap().as_str(), host: g.host.clone() });
+    let share = guest.is_none().then(|| share::view(app, id, share.as_ref()));
     *state.bar_session.lock().unwrap() = Some(id.to_string());
     let mut mi = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
     unsafe {
@@ -2605,10 +2719,15 @@ fn show_bar(app: &AppHandle, id: &str, hwnd: isize, pinned: bool) {
     let x = (center - width / 2).max(r.left).min(r.right - width);
     let _ = bar.set_position(tauri::PhysicalPosition::new(x, top.max(r.top)));
     let _ = bar.set_always_on_top(true);
-    let _ = bar.show();
+    if notice.is_some() {
+        share::show_without_focus(&bar);
+    } else {
+        let _ = bar.show();
+    }
     window::set_bar_session(Some(session));
     let sessions = state.sessions.lock().unwrap().len();
-    let _ = app.emit_to("bar", "bar-shown", BarShown { id: id.to_string(), label, pinned, multi, keep_sound, sessions });
+    let shown = BarShown { id: id.to_string(), label, pinned, multi, keep_sound, sessions, guest, share, notice };
+    let _ = app.emit_to("bar", "bar-shown", shown);
     let _ = app.emit_to("bar", "bar-computers", bar_computer_list(app));
 }
 
@@ -2642,7 +2761,14 @@ fn toggle_stats(app: &AppHandle, id: &str) {
 fn bar_menu(app: AppHandle, open: bool, height: Option<f64>) {
     if let Some(bar) = app.get_webview_window("bar") {
         let scale = bar.scale_factor().unwrap_or(1.0);
-        let h = if open { height.filter(|h| h.is_finite()).unwrap_or(300.0).clamp(300.0, 900.0) } else { 76.0 };
+        // Pas plus bas que l'écran où la barre est posée (le panneau de partage, haut,
+        // défile alors dans la fenêtre).
+        let room = match (bar.current_monitor(), bar.outer_position()) {
+            (Ok(Some(m)), Ok(p)) => f64::from(m.position().y + m.size().height as i32 - p.y) / scale,
+            _ => 900.0,
+        };
+        let top = 900.0f64.min(room.max(300.0));
+        let h = if open { height.filter(|h| h.is_finite()).unwrap_or(300.0).clamp(300.0, top) } else { 76.0 };
         let _ = bar.set_size(tauri::Size::Physical(tauri::PhysicalSize::new((BAR_WINDOW_WIDTH * scale) as u32, (h * scale) as u32)));
     }
 }
@@ -2699,16 +2825,25 @@ pub fn tray_state(app: &AppHandle) -> menu::State {
         .map(|r| {
             let stats = r.stats.lock().unwrap().clone();
             let sent = r.sent.lock().unwrap();
+            // Un invité : l'ordinateur qui partage et son rôle, sans réglages de l'app.
+            let guest = r.guest.as_ref().map(|g| (g.computer.clone(), *g.role.lock().unwrap()));
             menu::Session {
                 id: r.id.clone(),
-                name: computers.iter().find(|c| c.id == r.id).map(|c| c.name.clone()).unwrap_or_default(),
+                name: match &guest {
+                    Some((computer, _)) => computer.clone(),
+                    None => computers.iter().find(|c| c.id == r.id).map(|c| c.name.clone()).unwrap_or_default(),
+                },
                 latency_ms: stats.as_ref().and_then(|s| s.latency_ms),
                 fps: stats.as_ref().map(|s| s.fps),
                 mbps: Some(sent.mbps()),
                 fullscreen: r.host.fullscreen_now(),
                 multi: r.host.stream_count() > 1,
-                mouse: computers.iter().find(|c| c.id == r.id).map(|c| c.settings.mouse.clone()).unwrap_or_default(),
+                mouse: match &guest {
+                    Some(_) => "auto".into(),
+                    None => computers.iter().find(|c| c.id == r.id).map(|c| c.settings.mouse.clone()).unwrap_or_default(),
+                },
                 keep_sound: r.host.keep_sound(),
+                guest: guest.map(|(_, role)| role),
             }
         })
         .collect();
@@ -2810,6 +2945,7 @@ pub fn tray_command(app: &AppHandle, cmd: Cmd) {
             Cmd::Update(id) => station_from_menu(&app, &id, Kind::Update),
             Cmd::Open => show_action(&app, Action::Open),
             Cmd::Add => show_action(&app, Action::Add),
+            Cmd::Join => show_action(&app, Action::Join { link: None }),
             Cmd::AppSettings => show_action(&app, Action::App { check: false }),
             Cmd::CheckUpdates => show_action(&app, Action::App { check: true }),
             Cmd::Quit => quit(&app),
@@ -2927,7 +3063,17 @@ pub fn run(args: Vec<String>) {
             set_profile,
             set_open_at_login,
             displays_info,
-            fond_state
+            fond_state,
+            share::share_defaults,
+            share::share_link_code,
+            share::share_join,
+            share::share_connect,
+            share::share_open,
+            share::share_code,
+            share::share_guest,
+            share::share_kick,
+            share::share_close,
+            share::copy_text
         ])
         .setup(move |app| {
             let handle = app.handle().clone();

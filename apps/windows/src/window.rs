@@ -348,6 +348,11 @@ fn grab_key(k: &KBDLLHOOKSTRUCT, msg: u32) -> bool {
     if !win.fullscreen_now.load(Ordering::Relaxed) {
         return false;
     }
+    // Un invité sans le clavier et la souris : rien ne part, les raccourcis
+    // de Windows restent à ce PC (Alt+Tab, touche ⊞).
+    if !app.keyboard_mouse() {
+        return false;
+    }
     let alt = (k.flags.0 & LLKHF_ALTDOWN.0) != 0;
     let ctrl = unsafe { GetAsyncKeyState(VK_CONTROL.0 as i32) } < 0;
     let vk = VIRTUAL_KEY(k.vkCode as u16);
@@ -471,6 +476,13 @@ pub struct App {
     pub game: AtomicBool,
     /// Auto, ou forcé par Ctrl+Alt+Maj+M et la barre (Jeu, Bureau).
     pub mouse_mode: Mutex<MouseMode>,
+    /// Le clavier et la souris de ce PC vont à l'ordinateur. Toujours, sauf
+    /// pour un invité de KyberNow Share qui n'a pas reçu le clavier et la
+    /// souris (spectateur, ou joueur de manette seulement) : le crochet
+    /// clavier ne prend alors aucun raccourci de Windows, la souris reste celle
+    /// du bureau (jamais retenue dans la fenêtre) et ses réglages ne
+    /// changent rien. La Station l'impose aussi, de son côté.
+    keyboard_mouse: AtomicBool,
     pub closing: AtomicBool,
     pub error: Mutex<Option<String>>,
     pub events: Arc<dyn HostEvents>,
@@ -583,6 +595,7 @@ impl App {
             fps: Mutex::new(0),
             game: AtomicBool::new(false),
             mouse_mode: Mutex::new(MouseMode::Auto),
+            keyboard_mouse: AtomicBool::new(true),
             closing: AtomicBool::new(false),
             error: Mutex::new(None),
             events,
@@ -631,6 +644,20 @@ impl App {
 
     pub fn focus_id(&self) -> Option<FocusId> {
         self.focus.get().copied()
+    }
+
+    /// Le clavier et la souris vont à l'ordinateur (voir `keyboard_mouse`).
+    pub fn keyboard_mouse(&self) -> bool {
+        self.keyboard_mouse.load(Ordering::Relaxed)
+    }
+
+    /// Un invité reçoit ou perd le clavier et la souris : la souris relative
+    /// est relâchée s'il la tenait (le mode de la souris est revu).
+    pub fn set_keyboard_mouse(&self, on: bool) {
+        // Avant la fenêtre de contrôle (départ de la session), rien à revoir.
+        if self.keyboard_mouse.swap(on, Ordering::Relaxed) != on && self.control_hwnd() != 0 {
+            self.post(WM_APP_MOUSE);
+        }
     }
 
     /// Fin demandée par l'utilisateur.
@@ -1340,7 +1367,8 @@ fn clip_cursor(hwnd: HWND, on: bool) {
 /// 0,7 s après). Plusieurs écrans : le pointeur n'est caché que s'il l'est
 /// sur tous ; la souris des jeux est retenue dans la fenêtre active.
 fn apply_mouse_mode(app: &Arc<App>) {
-    let mode = *app.mouse_mode.lock().unwrap();
+    // Sans le clavier et la souris (invité d'un partage), toujours la souris du bureau.
+    let mode = if app.keyboard_mouse() { *app.mouse_mode.lock().unwrap() } else { MouseMode::Desktop };
     let (remote_hidden, visible_for) = app.pointer_summary();
     let current = app.relative();
     let relative = MOUSE_RULES.wants_relative(mode, app.game.load(Ordering::Relaxed), remote_hidden, visible_for, current);
@@ -1518,12 +1546,18 @@ fn draw_game_pointer(app: &App) {
 
 /// Ctrl+Alt+Maj+M, ou la barre : souris des jeux ou du bureau, forcée.
 fn toggle_mouse(app: &Arc<App>) {
+    if !app.keyboard_mouse() {
+        return;
+    }
     app.set_mouse_mode(if app.relative() { MouseMode::Desktop } else { MouseMode::Game });
     apply_mouse_mode(app);
 }
 
 /// Menu de l'icône : Auto, souris du bureau ou des jeux.
 fn set_mouse(app: &Arc<App>, mode: MouseMode) {
+    if !app.keyboard_mouse() {
+        return;
+    }
     app.set_mouse_mode(mode);
     apply_mouse_mode(app);
 }
