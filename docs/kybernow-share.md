@@ -40,7 +40,8 @@ Partager ouvre un panneau : un **code** à six chiffres (« 123 456 »), un **li
 - Un invité qui suit l'image de l'hôte la **partage** (rien de plus pour la carte graphique). Les autres reçoivent une **image à part**, encodée pour eux depuis la même capture ; les invités qui demandent la même qualité partagent la leur. **Deux images à part au plus** en plus de celle de l'hôte (une sur une carte Intel) ; au-delà, l'invité reçoit l'image ouverte la plus proche, plus légère, et le sait (« L'ordinateur ne peut pas faire une image de plus : vous recevez {qualité}. »).
 - Kyber **n'attend plus un invité en retard** : sur l'image de l'hôte, il passe seul sur une image plus légère (« Image allégée pour suivre. ») ; l'hôte ne voit rien. Sur son image à part, un invité peut redemander une image clé après une erreur ; sur l'image de l'hôte, ses demandes sont espacées.
 - L'hôte voit la qualité de chaque invité dans son panneau (« 1080p · 60 Hz »), sans la changer.
-- Un appareil qui ne lit pas le format de l'image qu'il recevrait le dit avant d'entrer (« Cet appareil ne lit pas l'image de cet ordinateur (HEVC). »).
+- Un appareil qui ne lit pas le format de l'hôte reçoit une image à part dans un format qu'il lit (H.264 sinon) ; « Comme l'hôte » sur un appareil qui ne lit pas le 4:4:4 de l'hôte : une image à part en 4:2:0 à la définition de l'hôte, 60 Hz au plus. Seul un appareil qui ne lit aucun format possible le dit avant d'entrer (« Cet appareil ne lit pas l'image de cet ordinateur (HEVC). »).
+- **Partage lancé depuis le PC** (pas d'hôte) : trois images au plus pour les invités (deux sur une carte Intel) ; « Comme l'hôte » est l'écran tel qu'il est.
 
 ## Échange avec Admin
 
@@ -49,7 +50,8 @@ Tout en JSON, sur le port d'Admin, certificat épinglé par empreinte comme aujo
 **Invité** (sans compte ; limité comme l'appairage : 10 essais par minute et par adresse, codes de 6 chiffres) :
 
 - `POST /api/share/join` — `{"code":"123456","name":"Léa","device":"<identifiant de l'appareil>","app":"mac|windows|linux|ios|tvos|android|webos|web"}` → `200 {"guest":"<id>","secret":"<jeton de l'invité>","role":"spectator|player|kbm|player_kbm","host":"<prénom de l'hôte ou nom de l'ordinateur>","computer":"<nom>","kyber":{"port":12345,"fingerprint":"sha256:…","token":"<JWT>","expires":120},"display":{"id":2221634456,"width":1920,"height":1080,"refresh":60},"codec":"h264|hevc|av1"|null,"yuv444":false,"beat":5}`. Erreurs : `404 {"error":"no_share"}`, `409 {"error":"full"}`, `429` (trop d'essais). `codec` est le format de l'image en cours (absent si l'image n'a pas encore démarré) : l'invité vérifie qu'il sait le lire avant d'ouvrir l'image.
-- `POST /api/share/beat` — en-tête `x-kybernow-guest: <secret>`, `{"guest":"<id>"}`, toutes les `beat` secondes → `{"role":"…","token":"<JWT renouvelé>","expires":120,"end":null|"stopped"|"removed"}`. Sans signe de vie pendant 20 s, l'invité sort.
+- `POST /api/share/beat` — en-tête `x-kybernow-guest: <secret>`, `{"guest":"<id>"}`, toutes les `beat` secondes → `{"role":"…","token":"<JWT renouvelé>","expires":120,"end":null|"stopped"|"removed","image":{"quality":"auto|host|1080p60|720p30","width":1920,"height":1080,"fps":60,"codec":"hevc","follows_host":false,"reason":"asked|capped|limit|lag"}}`. Sans signe de vie pendant 20 s, l'invité sort.
+- `POST /api/share/quality` — même en-tête, `{"guest":"<id>","quality":"auto|host|1080p60|720p30"}` → l'`image` ci-dessus ; Kyber relance l'image de l'invité seulement. `join` accepte aussi `"quality"` (et, pour « Auto », ce que l'appareil sait afficher et décoder : `"auto":{"width","height","fps","codecs":[…],"yuv444"}`) ; la vue de l'hôte donne `guests[].image`. La qualité voyage dans le jeton de Kyber (`kn_quality`) ; plan de Kyber : correctif 0020 ([kyber-changes.md](kyber-changes.md)).
 - `POST /api/share/leave` — même en-tête, `{"guest":"<id>"}`.
 
 **Hôte** (compte de l'appareil, comme `prepare` ; seulement l'appareil en session) :

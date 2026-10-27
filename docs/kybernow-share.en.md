@@ -40,7 +40,8 @@ Sharing opens a panel: a six-digit **code** (“123 456”), a **link** and its 
 - A guest who keeps up with the host's picture **shares** it (nothing more for the graphics card). The others get a **separate picture**, encoded for them from the same capture; guests asking for the same quality share theirs. **Two separate pictures at most** besides the host's (one on an Intel card); beyond that, the guest gets the nearest open picture, lighter, and is told so (“The computer can't make another picture: you get {quality}.”).
 - Kyber **no longer waits for a guest falling behind**: on the host's picture, they move by themselves to a lighter picture (“Picture lightened to keep up.”); the host sees nothing. On their separate picture, a guest can ask for a keyframe again after an error; on the host's picture, their requests are spaced out.
 - The host sees each guest's quality in their panel (“1080p · 60 Hz”), without changing it.
-- A device that cannot play the format of the picture it would get says so before joining (“This device cannot play this computer's picture (HEVC).”).
+- A device that cannot play the host's format gets a separate picture in a format it plays (otherwise H.264); “Same as host” on a device that cannot play the host's 4:4:4: a separate 4:2:0 picture at the host's resolution, 60 Hz at most. Only a device that plays no possible format says so before joining (“This device cannot play this computer's picture (HEVC).”).
+- **Share started from the PC** (no host): three pictures at most for guests (two on an Intel card); “Same as host” is the display as it is.
 
 ## Exchange with Admin
 
@@ -49,7 +50,8 @@ All JSON, on Admin's port, certificate pinned by fingerprint as today. The names
 **Guest** (no account; rate-limited like pairing: 10 tries per minute and per address, 6-digit codes):
 
 - `POST /api/share/join` — `{"code":"123456","name":"Léa","device":"<device id>","app":"mac|windows|linux|ios|tvos|android|webos|web"}` → `200 {"guest":"<id>","secret":"<guest token>","role":"spectator|player|kbm|player_kbm","host":"<host's name or the computer's name>","computer":"<name>","kyber":{"port":12345,"fingerprint":"sha256:…","token":"<JWT>","expires":120},"display":{"id":2221634456,"width":1920,"height":1080,"refresh":60},"codec":"h264|hevc|av1"|null,"yuv444":false,"beat":5}`. Errors: `404 {"error":"no_share"}`, `409 {"error":"full"}`, `429` (too many tries). `codec` is the current picture's format (absent if the picture has not started yet): the guest checks it can play it before opening the picture.
-- `POST /api/share/beat` — header `x-kybernow-guest: <secret>`, `{"guest":"<id>"}`, every `beat` seconds → `{"role":"…","token":"<renewed JWT>","expires":120,"end":null|"stopped"|"removed"}`. Without a sign of life for 20 s, the guest leaves.
+- `POST /api/share/beat` — header `x-kybernow-guest: <secret>`, `{"guest":"<id>"}`, every `beat` seconds → `{"role":"…","token":"<renewed JWT>","expires":120,"end":null|"stopped"|"removed","image":{"quality":"auto|host|1080p60|720p30","width":1920,"height":1080,"fps":60,"codec":"hevc","follows_host":false,"reason":"asked|capped|limit|lag"}}`. Without a sign of life for 20 s, the guest leaves.
+- `POST /api/share/quality` — same header, `{"guest":"<id>","quality":"auto|host|1080p60|720p30"}` → the `image` above; Kyber restarts the guest's picture only. `join` also takes `"quality"` (and, for “Auto”, what the device can show and decode: `"auto":{"width","height","fps","codecs":[…],"yuv444"}`); the host's view gives `guests[].image`. The quality travels in Kyber's token (`kn_quality`); Kyber's plan: patch 0020 ([kyber-changes.en.md](kyber-changes.en.md)).
 - `POST /api/share/leave` — same header, `{"guest":"<id>"}`.
 
 **Host** (the device account, like `prepare`; only the device in session):
