@@ -1272,7 +1272,8 @@ pub struct KnExtraWindow {
     pub width: f64,
     pub height: f64,
     /// Le mode à demander pour l'écran de l'ordinateur : la zone d'image en
-    /// pixels de l'écran (arrondie au pair), à sa fréquence.
+    /// pixels de l'écran (largeur et hauteur multiples de 8, le cadre
+    /// ci-dessus étant celui de ce mode), à sa fréquence.
     pub mode: KnMode,
 }
 
