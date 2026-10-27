@@ -366,11 +366,15 @@ impl std::fmt::Debug for ShareJoined {
 pub struct ShareBeat {
     #[serde(default)]
     pub role: ShareRole,
-    /// Jeton de Kyber renouvelé.
+    /// Jeton de Kyber renouvelé (nul avec une fin).
     #[serde(default)]
     pub token: Option<String>,
     #[serde(default)]
     pub expires: Option<u64>,
+    /// L'écran partagé, tel qu'il est maintenant (l'hôte a pu le refaire :
+    /// autre identifiant) ; le jeton qui l'accompagne porte son `kn_display`.
+    #[serde(default)]
+    pub display: Option<ShareDisplay>,
     /// Fin du partage pour cet invité.
     #[serde(default, deserialize_with = "lenient_end")]
     pub end: Option<ShareEnd>,
@@ -382,6 +386,7 @@ impl std::fmt::Debug for ShareBeat {
             .field("role", &self.role)
             .field("token", &self.token.as_ref().map(|_| "[masqué]"))
             .field("expires", &self.expires)
+            .field("display", &self.display)
             .field("end", &self.end)
             .finish()
     }
@@ -796,6 +801,12 @@ mod tests {
         // Une fin inconnue finit quand même le partage.
         let b: ShareBeat = serde_json::from_str(r#"{"end":"closed"}"#).unwrap();
         assert_eq!(b.end, Some(ShareEnd::Stopped));
+        // Pendant 60 s après un retrait : la fin, sans jeton.
+        let b: ShareBeat = serde_json::from_str(r#"{"role":"player","token":null,"expires":0,"end":"removed"}"#).unwrap();
+        assert_eq!((b.end, b.token, b.expires), (Some(ShareEnd::Removed), None, Some(0)));
+        // L'écran partagé, toujours donné.
+        let b: ShareBeat = serde_json::from_str(r#"{"role":"spectator","token":"t","display":{"id":9,"width":2560,"height":1440,"refresh":144}}"#).unwrap();
+        assert_eq!(b.display, Some(ShareDisplay { id: 9, width: 2560, height: 1440, refresh: 144 }));
     }
 
     #[test]

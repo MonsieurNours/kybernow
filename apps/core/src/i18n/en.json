@@ -58,6 +58,7 @@
     "removed": "{host} removed you from the share.",
     "no_kyber_fingerprint": "the computer did not give its Kyber server's fingerprint: update KyberNow Station",
     "display_missing": "the shared display is no longer on the computer",
-    "unauthorized": "the computer refuses the share's token: join again with the code"
+    "unauthorized": "the computer refuses the share's token: join again with the code",
+    "lost": "the share is no longer answering"
   }
 }
