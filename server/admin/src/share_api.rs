@@ -652,7 +652,7 @@ pub async fn join(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<Sock
     let display = &snapshot.display;
     let Some(token) = guest_token(&s, &guest, display.id) else {
         // Sans clé de jetons, Kyber ne le laisserait pas entrer.
-        s.share.leave(&guest.id, guest.secret());
+        let _ = s.share.leave(&guest.id, guest.secret());
         tracing::warn!("partage : pas de clé pour les jetons de Kyber, {} ne peut pas entrer", guest.name);
         return guest_error(StatusCode::SERVICE_UNAVAILABLE, "unavailable");
     };
@@ -718,13 +718,19 @@ pub async fn beat(State(s): State<AppState>, headers: HeaderMap, Json(body): Jso
     ([(header::CACHE_CONTROL, "no-store")], Json(answer)).into_response()
 }
 
-/// `POST /api/share/leave` : l'invité quitte le partage.
+/// `POST /api/share/leave` : l'invité quitte le partage. Un invité inconnu
+/// (comme pour `beat`) : 404 `unknown_guest` ; le cookie du navigateur est
+/// effacé dans tous les cas.
 pub async fn leave(State(s): State<AppState>, headers: HeaderMap, Json(body): Json<GuestBody>) -> Response {
-    if let Some(guest) = s.share.leave(&body.guest, &guest_secret(&headers)) {
-        tracing::info!("partage : {} part", guest.name);
-        guest_gone(&s, &guest).await;
-    }
-    let mut res = Json(json!({ "ok": true })).into_response();
+    let mut res = match s.share.leave(&body.guest, &guest_secret(&headers)) {
+        share::Leave::Left(guest) => {
+            tracing::info!("partage : {} part", guest.name);
+            guest_gone(&s, &guest).await;
+            Json(json!({ "ok": true })).into_response()
+        }
+        share::Leave::Ended => Json(json!({ "ok": true })).into_response(),
+        share::Leave::Unknown => guest_error(StatusCode::NOT_FOUND, "unknown_guest"),
+    };
     if share::guest_cookie(&headers).is_some()
         && let Ok(value) = HeaderValue::from_str(&share::clear_cookie(s.secure_cookies))
     {
@@ -1133,9 +1139,24 @@ mod tests {
         h.insert(header::COOKIE, format!("kybernow_guest={value}").parse().unwrap());
         let res = leave(State(s.clone()), h, Json(GuestBody { guest: joined["guest"].as_str().unwrap().into() })).await;
         assert!(res.headers()[header::SET_COOKIE].to_str().unwrap().contains("Max-Age=0"));
+        assert_eq!(res.status(), StatusCode::OK);
         assert!(!s.share.cookie_valid(&value));
         assert_eq!(texts(s)[0], "Max a quitté le partage");
         assert_eq!(s.share.guest_count(), 0);
+        // Reparti, ou un mauvais secret : inconnu (404 `unknown_guest`, comme
+        // `beat`) ; le cookie est quand même effacé.
+        let mut h = guest_headers(joined["secret"].as_str().unwrap());
+        h.insert(header::COOKIE, format!("kybernow_guest={value}").parse().unwrap());
+        let res = leave(State(s.clone()), h, Json(GuestBody { guest: joined["guest"].as_str().unwrap().into() })).await;
+        assert!(res.headers()[header::SET_COOKIE].to_str().unwrap().contains("Max-Age=0"));
+        let (status, v) = body(res).await;
+        assert_eq!((status, v["error"].as_str()), (StatusCode::NOT_FOUND, Some("unknown_guest")));
+        // Retiré depuis moins d'une minute : connu, il part sans erreur.
+        let (_, lea) = body(join(State(s.clone()), peer(21), join_body(code, "Léa", "ipad", "ios")).await).await;
+        let id = lea["guest"].as_str().unwrap().to_string();
+        let _ = local_guest_remove(State(s.clone()), peer(5), admin(s), Path(id.clone())).await.ok().unwrap();
+        let res = leave(State(s.clone()), guest_headers(lea["secret"].as_str().unwrap()), Json(GuestBody { guest: id })).await;
+        assert_eq!(res.status(), StatusCode::OK);
     }
 
     #[tokio::test]

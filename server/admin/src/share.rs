@@ -237,6 +237,19 @@ pub enum Beat {
     Ended { end: End, role: Role },
 }
 
+/// Ce que devient un invité qui part de lui-même (`leave`).
+#[derive(Debug)]
+pub enum Leave {
+    /// Il était dans le partage : à couper de Kyber.
+    Left(Guest),
+    /// Déjà sorti (retiré, partage arrêté) depuis moins d'une minute : sa
+    /// raison est oubliée.
+    Ended,
+    /// Inconnu : jamais venu, parti, sorti sans nouvelles ou depuis plus
+    /// d'une minute, ou mauvais secret.
+    Unknown,
+}
+
 /// Un changement de rôle : l'invité tel qu'il est maintenant, et son rôle d'avant.
 #[derive(Debug, Clone)]
 pub struct RoleChange {
@@ -484,16 +497,20 @@ impl Share {
         Some(Beat::Ended { end: ended.end, role: ended.role })
     }
 
-    /// L'invité part de lui-même. `None` : inconnu.
-    pub fn leave(&self, id: &str, secret: &str) -> Option<Guest> {
+    /// L'invité part de lui-même.
+    pub fn leave(&self, id: &str, secret: &str) -> Leave {
         let mut s = self.state.lock().unwrap();
+        let now = Instant::now();
+        s.ended.retain(|_, e| now.duration_since(e.at) < ENDED_KEEP);
         if s.ended.get(id).is_some_and(|e| same(secret, &e.secret)) {
             s.ended.remove(id);
-            return None;
+            return Leave::Ended;
         }
-        let open = s.open.as_mut()?;
-        let index = open.guests.iter().position(|g| g.id == id && same(secret, &g.secret))?;
-        Some(open.guests.remove(index))
+        let Some(open) = s.open.as_mut() else { return Leave::Unknown };
+        match open.guests.iter().position(|g| g.id == id && same(secret, &g.secret)) {
+            Some(index) => Leave::Left(open.guests.remove(index)),
+            None => Leave::Unknown,
+        }
     }
 
     /// Les invités sans signe de vie depuis `GUEST_GRACE` : sortis, rendus
@@ -674,9 +691,11 @@ mod tests {
         assert_eq!(closed.guests.len(), 1);
         assert!(matches!(share.beat(&max.id, max.secret()), Some(Beat::Ended { end: End::Stopped, .. })));
         assert!(share.beat(&max.id, "faux").is_none());
-        // Après la fin, `leave` oublie la raison.
-        assert!(share.leave(&max.id, max.secret()).is_none());
+        // Après la fin, `leave` oublie la raison ; ensuite, l'invité est inconnu.
+        assert!(matches!(share.leave(&max.id, "faux"), Leave::Unknown));
+        assert!(matches!(share.leave(&max.id, max.secret()), Leave::Ended));
         assert!(share.beat(&max.id, max.secret()).is_none());
+        assert!(matches!(share.leave(&max.id, max.secret()), Leave::Unknown));
     }
 
     #[test]
@@ -691,7 +710,8 @@ mod tests {
         assert_eq!(gone.iter().map(|g| g.name.as_str()).collect::<Vec<_>>(), ["Léa"]);
         assert!(share.beat(&lea.id, lea.secret()).is_none());
         assert!(share.beat(&max.id, max.secret()).is_some());
-        assert_eq!(share.leave(&max.id, max.secret()).unwrap().name, "Max");
+        assert!(matches!(share.leave(&max.id, max.secret()), Leave::Left(g) if g.name == "Max"));
+        assert!(matches!(share.leave(&lea.id, lea.secret()), Leave::Unknown), "sortie sans nouvelles : inconnue");
         assert_eq!(share.guest_count(), 0);
     }
 
