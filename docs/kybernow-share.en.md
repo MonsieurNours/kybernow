@@ -38,6 +38,31 @@ Sharing opens a panel: a six-digit **code** (“123 456”), a **link** and its 
 - The picture is **shared**: the guest gets the format the host chose (H.264, HEVC, AV1) and its resolution. A device that cannot play that format says so before joining (“This device cannot play this computer's picture (HEVC).”). The separate encode comes with remote access.
 - A slow guest can slow down everyone's picture (Kyber waits for the slowest): rare on the same network; the separate encode will fix it.
 
+## Exchange with Admin
+
+All JSON, on Admin's port, certificate pinned by fingerprint as today. The names below are authoritative for the Station, the core and the web client.
+
+**Guest** (no account; rate-limited like pairing: 10 tries per minute and per address, 6-digit codes):
+
+- `POST /api/share/join` — `{"code":"123456","name":"Léa","device":"<device id>","app":"mac|windows|linux|ios|tvos|android|webos|web"}` → `200 {"guest":"<id>","secret":"<guest token>","role":"spectator|player|player_kbm","host":"<host's name or the computer's name>","computer":"<name>","kyber":{"port":12345,"fingerprint":"sha256:…","token":"<JWT>","expires":120},"display":{"id":2221634456,"width":1920,"height":1080,"refresh":60},"codec":"h264|hevc|av1"|null,"yuv444":false,"beat":5}`. Errors: `404 {"error":"no_share"}`, `409 {"error":"full"}`, `429` (too many tries). `codec` is the current picture's format (absent if the picture has not started yet): the guest checks it can play it before opening the picture.
+- `POST /api/share/beat` — header `x-kybernow-guest: <secret>`, `{"guest":"<id>"}`, every `beat` seconds → `{"role":"…","token":"<renewed JWT>","expires":120,"end":null|"stopped"|"removed"}`. Without a sign of life for 20 s, the guest leaves.
+- `POST /api/share/leave` — same header, `{"guest":"<id>"}`.
+
+**Host** (the device account, like `prepare`; only the device in session):
+
+- `POST /api/share/open` `{}` → `{"code":"123456","link":"kybernow://join?host=…&port=…&fp=…&code=123456","web":"https://<host>:<port>/link/?join=123456","display":{"id":…,"label":"Display 1"}}` (their main display).
+- `GET /api/share` → `{"open":true,"code":"…","link":"…","web":"…","display":{…},"guests":[{"id":"…","name":"Léa","app":"ios","role":"spectator","since":<timestamp>}]}`; the same in the reply to the host's sign of life (`heartbeat`, field `share`, absent without a share).
+- `POST /api/share/code` → a new code (same reply as `open`).
+- `POST /api/share/guest/{id}` `{"role":"spectator|player|player_kbm"}`; `DELETE /api/share/guest/{id}` (remove); `DELETE /api/share` (stop).
+
+**The PC itself** (the clock icon's local routes, the PC user's token): `GET /api/local/displays` → `[{"id":2221634456,"name":"\\\\.\\DISPLAY1","label":"Display 1","width":3840,"height":2160,"primary":true}]`; `POST /api/local/share/open {"display":<id>}` and the same routes as the host under `/api/local/share…`. Admin (its home page) the same with its session.
+
+**`info`**: `"share":{"available":true,"enabled":true}` (`enabled` false if `multi_client` is off); absent for an older Station.
+
+**Link**: `kybernow://join?host=<address>&port=<Admin port>&fp=<Admin fingerprint>&code=<6 digits>`; browser: `https://<address>:<port>/link/?join=<6 digits>`.
+
+**Kyber**: the guest connects with the JWT (token login, like the web client), on the given display, without asking for inputs if they are a spectator. The token carries the role and the display (claims `kn_role`, `kn_display`), which Kyber enforces (patch 0019).
+
 ## Station
 
 - **Participants**: Admin moves from a single session to a host and guests (role, name, device, last sign of life). The host stays what the session is today (preparation, virtual display, takeover by another of the host's devices); a guest never goes through `prepare` nor the takeover. The guards (restart, update, end of session, pending accounts) see the guests.

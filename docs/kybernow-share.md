@@ -38,6 +38,31 @@ Partager ouvre un panneau : un **code** à six chiffres (« 123 456 »), un **li
 - L'image est **commune** : l'invité reçoit le format choisi par l'hôte (H.264, HEVC, AV1) et sa définition. Un appareil qui ne lit pas ce format le dit avant d'entrer (« Cet appareil ne lit pas l'image de cet ordinateur (HEVC). »). L'encodage à part vient avec l'accès à distance.
 - Un invité lent peut ralentir l'image de tous (Kyber attend le plus lent) : sur le même réseau, c'est rare ; l'encodage à part le réglera.
 
+## Échange avec Admin
+
+Tout en JSON, sur le port d'Admin, certificat épinglé par empreinte comme aujourd'hui. Les noms ci-dessous font foi pour la Station, le cœur et le client web.
+
+**Invité** (sans compte ; limité comme l'appairage : 10 essais par minute et par adresse, codes de 6 chiffres) :
+
+- `POST /api/share/join` — `{"code":"123456","name":"Léa","device":"<identifiant de l'appareil>","app":"mac|windows|linux|ios|tvos|android|webos|web"}` → `200 {"guest":"<id>","secret":"<jeton de l'invité>","role":"spectator|player|player_kbm","host":"<prénom de l'hôte ou nom de l'ordinateur>","computer":"<nom>","kyber":{"port":12345,"fingerprint":"sha256:…","token":"<JWT>","expires":120},"display":{"id":2221634456,"width":1920,"height":1080,"refresh":60},"codec":"h264|hevc|av1"|null,"yuv444":false,"beat":5}`. Erreurs : `404 {"error":"no_share"}`, `409 {"error":"full"}`, `429` (trop d'essais). `codec` est le format de l'image en cours (absent si l'image n'a pas encore démarré) : l'invité vérifie qu'il sait le lire avant d'ouvrir l'image.
+- `POST /api/share/beat` — en-tête `x-kybernow-guest: <secret>`, `{"guest":"<id>"}`, toutes les `beat` secondes → `{"role":"…","token":"<JWT renouvelé>","expires":120,"end":null|"stopped"|"removed"}`. Sans signe de vie pendant 20 s, l'invité sort.
+- `POST /api/share/leave` — même en-tête, `{"guest":"<id>"}`.
+
+**Hôte** (compte de l'appareil, comme `prepare` ; seulement l'appareil en session) :
+
+- `POST /api/share/open` `{}` → `{"code":"123456","link":"kybernow://join?host=…&port=…&fp=…&code=123456","web":"https://<hôte>:<port>/link/?join=123456","display":{"id":…,"label":"Écran 1"}}` (son écran principal).
+- `GET /api/share` → `{"open":true,"code":"…","link":"…","web":"…","display":{…},"guests":[{"id":"…","name":"Léa","app":"ios","role":"spectator","since":<horodatage>}]}` ; la même chose dans la réponse au signe de vie de l'hôte (`heartbeat`, champ `share`, absent sans partage).
+- `POST /api/share/code` → nouveau code (même réponse que `open`).
+- `POST /api/share/guest/{id}` `{"role":"spectator|player|player_kbm"}` ; `DELETE /api/share/guest/{id}` (retirer) ; `DELETE /api/share` (arrêter).
+
+**Le PC lui-même** (routes locales de l'icône près de l'horloge, jeton de l'utilisateur du PC) : `GET /api/local/displays` → `[{"id":2221634456,"name":"\\\\.\\DISPLAY1","label":"Écran 1","width":3840,"height":2160,"primary":true}]` ; `POST /api/local/share/open {"display":<id>}` et les mêmes routes que l'hôte sous `/api/local/share…`. Admin (sa page d'accueil) les mêmes avec sa session.
+
+**`info`** : `"share":{"available":true,"enabled":true}` (`enabled` faux si `multi_client` est coupé) ; absent pour une Station antérieure.
+
+**Lien** : `kybernow://join?host=<adresse>&port=<port d'Admin>&fp=<empreinte d'Admin>&code=<6 chiffres>` ; navigateur : `https://<adresse>:<port>/link/?join=<6 chiffres>`.
+
+**Kyber** : l'invité se connecte avec le JWT (connexion par jeton, comme le client web), sur l'écran donné, sans demander d'entrées s'il est spectateur. Le jeton porte le rôle et l'écran (revendications `kn_role`, `kn_display`), que Kyber impose (correctif 0019).
+
 ## Station
 
 - **Les participants** : Admin passe d'une seule session à un hôte et des invités (rôle, prénom, appareil, dernier signe de vie). L'hôte reste ce qu'est la session aujourd'hui (préparation, écran virtuel, reprise de main par un autre appareil de l'hôte) ; un invité ne passe jamais par `prepare` ni par la reprise de main. Les gardes (redémarrage, mise à jour, fin de session, comptes en attente) voient les invités.
