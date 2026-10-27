@@ -15,7 +15,7 @@ struct HomeView: View {
     @EnvironmentObject private var pads: GamepadBridge
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    enum Focus: Hashable { case connect, profile(Profile), settings, pads, host(UUID), found(String), add, appSettings }
+    enum Focus: Hashable { case connect, profile(Profile), settings, pads, host(UUID), found(String), add, join, appSettings }
     @FocusState private var focus: Focus?
     @State private var pulse = false
 
@@ -233,10 +233,12 @@ struct HomeView: View {
                 ForEach(store.ordered.prefix(4)) { h in
                     hostCard(h)
                 }
-                if let found = app.newOnNetwork.first, store.ordered.count < 5 {
+                // La rangée tient six cartes : l'annonce du réseau laisse sa place à « Rejoindre avec un code ».
+                if let found = app.newOnNetwork.first, store.ordered.count < 4 {
                     foundCard(found)
                 }
                 addCard
+                joinCard
                 Spacer(minLength: 0)
             }
             .focusSection()
@@ -325,6 +327,22 @@ struct HomeView: View {
         }
         .buttonStyle(GlassButton(radius: 18, fill: Theme.background.opacity(0.5)))
         .focused($focus, equals: .add)
+    }
+
+    /// « Rejoindre avec un code » (KyberNow Share), à côté de l'ajout d'un ordinateur.
+    private var joinCard: some View {
+        Button { app.screen = .join(nil) } label: {
+            VStack(alignment: .leading) {
+                Icon("share-network", size: 40).foregroundStyle(Theme.accent)
+                Spacer()
+                Text(ShareText.join).font(Theme.sans(23, .semibold))
+            }
+            .padding(20)
+            .frame(width: Self.cardWidth, height: 216, alignment: .leading)
+            .background(Stripes().opacity(0.03))
+        }
+        .buttonStyle(GlassButton(radius: 18, fill: Theme.background.opacity(0.5)))
+        .focused($focus, equals: .join)
     }
 
     // MARK: Bouton principal

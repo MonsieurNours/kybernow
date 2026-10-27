@@ -66,12 +66,60 @@ final class SessionController: ObservableObject {
     /// Repli quand l'image ne passe pas : un débit plus bas que sur Mac.
     private static let fallbackBitrate: UInt32 = 150_000_000
 
+    // MARK: KyberNow Share
+
+    /// KyberNow Share, session d'invité : la Station qui a accepté le code.
+    /// Un invité n'a ni compte, ni profil, ni écran virtuel ; son ordinateur
+    /// n'est pas dans la liste de cet appareil (`host` n'est qu'un nom et une
+    /// adresse), rien n'est gardé après le partage (docs/kybernow-share.md).
+    let guest: ShareFound?
+    var isGuest: Bool { guest != nil }
+    /// Le rôle de l'invité (« Spectateur », « Joueur »), changé par l'hôte en cours de partage.
+    @Published private(set) var shareRole: ShareRole = .spectator
+    /// La raison de la fin par le partage (« {hôte} a arrêté le partage. »).
+    @Published private(set) var shareEndText: String?
+    /// Le partage de cette session d'hôte (la tuile « Partager » du menu).
+    let share: ShareHostModel
+    /// Le panneau de l'hôte (code, QR code, invités) est ouvert, dans le menu.
+    @Published var sharePanel = false
+
+    /// Le titre de la session : le nom de l'ordinateur, ou « Invité sur {nom} ».
+    var title: String { guest.map { ShareText.guestOn($0.computer) } ?? host.name }
+
+    /// « Partager » avec cet ordinateur : disponible, ou inactif avec la raison.
+    var shareAvailability: ShareAvailability {
+        store.status[host.id]?.info?.share ?? Share.unknownStation
+    }
+
     init(host: Host, store: HostStore, onFinish: @escaping (SessionController) -> Void) {
         self.host = host
         self.store = store
         self.onFinish = onFinish
+        guest = nil
+        share = ShareHostModel(console: nil, availability: store.status[host.id]?.info?.share ?? Share.unknownStation)
         remoteMouse = host.settings.profile == .bureau || host.settings.mouse == .desktop
         padMouse = host.settings.profile == .bureau
+    }
+
+    /// Une session d'invité : une Station qui a accepté un code (`Share.join`).
+    init(guest found: ShareFound, store: HostStore, onFinish: @escaping (SessionController) -> Void) {
+        var host = Host(name: found.computer, address: found.target.host, consolePort: found.target.port, username: "")
+        // Pas d'écran virtuel, rien de partagé : l'image est celle de l'hôte ;
+        // seul le repli du transport vient d'ici.
+        host.settings.apply(.jeu)
+        host.settings.display = .physical
+        host.settings.mouse = .desktop
+        host.settings.clipboard = false
+        host.settings.keepLastImage = false
+        self.host = host
+        self.store = store
+        self.onFinish = onFinish
+        guest = found
+        shareRole = found.role
+        share = ShareHostModel(console: nil, availability: .available)
+        // Le pavé et la manette ne font souris que si l'hôte donne la souris : ensuite, « Pavé en souris ».
+        remoteMouse = false
+        padMouse = false
     }
 
     /// Les réglages de l'image, pour le cœur. L'Apple TV ne lit pas l'AV1 en
@@ -92,7 +140,9 @@ final class SessionController: ObservableObject {
     // MARK: - Déroulé
 
     func start() {
-        guard let password = store.password(for: host) else {
+        // Un invité n'a pas de compte : le code a suffi.
+        let password = isGuest ? "" : store.password(for: host)
+        guard let password else {
             fail(String(localized: "mot de passe introuvable dans le Trousseau"))
             return
         }
@@ -127,16 +177,27 @@ final class SessionController: ObservableObject {
         engine.onGameFullscreen = { game in
             KyberLog.app.notice("ordinateur : \(game ? "jeu en plein écran" : "pas de jeu en plein écran", privacy: .public)")
         }
+        // KyberNow Share : la liste des invités (hôte), le rôle et la fin (invité).
+        engine.onGuests = { [weak self] in self?.share.heartbeat($0) }
+        engine.onShareRole = { [weak self] role, previous in self?.shareRoleChanged(role, previous: previous) }
+        engine.onShareEnd = { [weak self] _, text in self?.shareEndText = text }
         self.engine = engine
+        if !isGuest { share.setConsole(store.console(for: host)) }
 
         // Son : celui de la sortie (ampli 5.1 ou 7.1, sinon stéréo), ou resté sur l'ordinateur.
         let channels = settings.audio == .off ? 0 : settings.audio.channels
-        var params = SessionEngine.Params(
-            host: host.address, consolePort: host.consolePort, username: host.username, password: password,
-            consoleFingerprint: host.consoleFingerprint,
-            mode: SessionEngine.Mode(width: mode.width, height: mode.height, refresh: mode.refresh),
-            audioChannels: channels, virtualDisplay: settings.display != .physical, settings: engineSettings
-        )
+        var params: SessionEngine.Params
+        if let guest {
+            // Un invité : la Station qui a accepté le code, sans compte ni écran virtuel.
+            params = SessionEngine.Params(guest: guest, audioChannels: channels, settings: engineSettings)
+        } else {
+            params = SessionEngine.Params(
+                host: host.address, consolePort: host.consolePort, username: host.username, password: password,
+                consoleFingerprint: host.consoleFingerprint,
+                mode: SessionEngine.Mode(width: mode.width, height: mode.height, refresh: mode.refresh),
+                audioChannels: channels, virtualDisplay: settings.display != .physical, settings: engineSettings
+            )
+        }
         params.autoReconnect = settings.autoReconnect
         params.gamepadAsXbox360 = settings.gamepad == .xbox360
         params.clipboard = false
@@ -200,6 +261,12 @@ final class SessionController: ObservableObject {
         case let .reconnecting(attempt, _):
             phase = .reconnecting(attempt)
         case .ending:
+            // Un invité dont l'hôte a arrêté ou retiré le partage : la raison
+            // reste à l'écran (jamais « Reprendre la main »).
+            if isGuest, revealedAt != nil, let reason = shareEndText, phase != .ending, phase != .ended {
+                fail(reason)
+                return
+            }
             // Fin demandée par Admin : comme une fin voulue.
             if phase != .ending, phase != .ended { end() }
         case let .ended(error, _):
@@ -217,6 +284,18 @@ final class SessionController: ObservableObject {
             guard let self, self.revealedAt != nil else { return }
             self.passageShown = false
         }
+    }
+
+    /// L'hôte a changé le rôle de l'invité (« Vous pouvez jouer. ») ; au
+    /// départ (`previous` nil), le rôle seulement. Le clavier et la souris
+    /// retirés : le pavé et la manette ne font plus souris.
+    private func shareRoleChanged(_ role: ShareRole, previous: ShareRole?) {
+        shareRole = role
+        if !role.keyboardAndMouse {
+            if remoteMouse { toggleRemoteMouse() }
+            if padMouse { togglePadMouse() }
+        }
+        if let text = ShareText.roleNotice(role, previous: previous) { show(notice: text, for: 4) }
     }
 
     /// Les avis du cœur, en capsules.
@@ -304,7 +383,8 @@ final class SessionController: ObservableObject {
     /// Profil changé dans le menu : le cœur change le débit en direct, ou
     /// relance l'image pour le 4:4:4, le format ou le transport.
     func select(_ profile: Profile) {
-        guard profile != host.settings.profile else { return }
+        // Un invité ne change rien chez l'hôte : ni profil, ni réglages.
+        guard !isGuest, profile != host.settings.profile else { return }
         host.settings.apply(profile)
         store.update(host)
         engine?.setSettings(engineSettings)
@@ -319,6 +399,8 @@ final class SessionController: ObservableObject {
     /// connexion (arrêtées sur « Connexion »), l'image seule, ou le menu.
     func demo(_ kind: Demo) {
         phase = .preparing
+        // KyberNow Share : le partage se joue ici, sans Station.
+        share.demo = true
         streamView.startTestPattern()
         if kind == .connecting || kind == .restarting {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
@@ -345,7 +427,51 @@ final class SessionController: ObservableObject {
             if kind == .menu {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.openMenu() }
             }
+            // `-demoShare YES` : le partage ouvert, trois invités, le panneau de l'hôte.
+            if UserDefaults.standard.bool(forKey: "demoShare") {
+                Task {
+                    await self.share.openIfNeeded()
+                    self.share.demoAddGuest(name: "Léa", app: "ios", role: .player)
+                    self.share.demoAddGuest(name: "Hugo", app: "tvos")
+                    self.share.demoAddGuest(name: "Sam", app: "web", role: .playerKbm)
+                    self.openMenu()
+                    self.sharePanel = true
+                }
+            }
+            // `-demoRoleThen player|player_kbm|end-stopped|end-removed` : ce que l'hôte fait 6 s plus tard (invité).
+            if let then = UserDefaults.standard.string(forKey: "demoRoleThen") {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 6) {
+                    switch then {
+                    case "player": self.demoRoleChanged(.player)
+                    case "player_kbm": self.demoRoleChanged(.playerKbm)
+                    case "end-stopped": self.demoShareEnded(removed: false)
+                    case "end-removed": self.demoShareEnded(removed: true)
+                    default: break
+                    }
+                }
+            }
         }
+    }
+
+    /// Démonstration : la session d'un invité (sans Station), au rôle demandé.
+    func demoGuest(role: ShareRole, menu: Bool) {
+        shareRole = role
+        demo(menu ? .menu : .passage)
+    }
+
+    /// Démonstration : l'hôte change le rôle de l'invité.
+    func demoRoleChanged(_ role: ShareRole) {
+        guard isGuest else { return }
+        let previous = shareRole
+        shareRoleChanged(role, previous: previous)
+    }
+
+    /// Démonstration : l'hôte arrête le partage ou retire l'invité.
+    func demoShareEnded(removed: Bool) {
+        guard isGuest, phase == .streaming else { return }
+        let host = guest?.host ?? "Léa"
+        shareEndText = removed ? String(localized: "\(host) vous a retiré du partage.") : String(localized: "\(host) a arrêté le partage.")
+        fail(shareEndText ?? "")
     }
     #endif
 
@@ -358,8 +484,9 @@ final class SessionController: ObservableObject {
         guard phase != .ending && phase != .ended else { return }
         GamepadBridge.shared.onMenuRequest = nil
         streamView.padMouse = false
-        if let last = engine?.snapshot(maxWidth: 1920) { store.imagery.saveLast(last, for: host) }
-        if let revealedAt {
+        // Un invité ne laisse rien sur cet appareil : ni dernière image, ni statistiques.
+        if let last = engine?.snapshot(maxWidth: 1920), !isGuest { store.imagery.saveLast(last, for: host) }
+        if let revealedAt, !isGuest {
             let m = streamMode
             host.recordSession(start: revealedAt, latency: engine?.sessionLatency, width: m.width, height: m.height, refresh: m.refresh,
                                codec: engineSettings.codec, mbps: host.settings.bitrate(width: m.width, height: m.height, refresh: m.refresh))

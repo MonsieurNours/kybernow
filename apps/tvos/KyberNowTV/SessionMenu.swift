@@ -18,15 +18,21 @@ struct SessionMenu: View {
     @State private var text = ""
     @FocusState private var focus: Item?
 
-    enum Item: Hashable { case resume, pads, sound, mouse, padMouse, type, quit, restoreMode }
+    enum Item: Hashable { case resume, pads, sound, mouse, padMouse, type, share, quit, restoreMode }
 
     var body: some View {
         ZStack(alignment: .topLeading) {
             // En haut : où l'on est, et la santé du flux.
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 10) {
-                    Theme.eyebrow(String(localized: "En session depuis \(minutesLabel)"))
-                    Text(session.host.name).font(Theme.display(60, 660)).tracking(-60 * 0.035).foregroundStyle(Theme.text)
+                    // Un invité : son rôle au-dessus de « Invité sur {nom} ».
+                    if session.isGuest {
+                        Theme.eyebrow(ShareText.role(session.shareRole))
+                    } else {
+                        Theme.eyebrow(String(localized: "En session depuis \(minutesLabel)"))
+                    }
+                    Text(session.title).font(Theme.display(60, 660)).tracking(-60 * 0.035).foregroundStyle(Theme.text)
+                        .lineLimit(1).minimumScaleFactor(0.5)
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 10) {
@@ -47,12 +53,23 @@ struct SessionMenu: View {
             VStack(alignment: .leading, spacing: 22) {
                 HStack(spacing: 24) {
                     resumeTile
-                    tile(.pads, icon: "game-controller", title: String(localized: "Manettes"), detail: padsDetail) { showPads = true }
+                    // Un invité : ses manettes s'il joue, le clavier et la souris
+                    // seulement si l'hôte les lui a donnés ; pas de profil ni de réglages.
+                    if !session.isGuest || session.shareRole.plays {
+                        tile(.pads, icon: "game-controller", title: String(localized: "Manettes"), detail: padsDetail) { showPads = true }
+                    }
                     soundTile
-                    mouseTile
-                    padMouseTile
-                    tile(.type, icon: "keyboard", title: String(localized: "Taper du texte"), detail: String(localized: "Clavier tvOS ou iPhone")) { typing = true }
-                    tile(.quit, icon: "power", iconColor: Theme.danger, title: String(localized: "Se déconnecter"), detail: String(localized: "L'ordinateur retrouve ses écrans")) { session.end() }
+                    if !session.isGuest || session.shareRole.keyboardAndMouse {
+                        mouseTile
+                        padMouseTile
+                        tile(.type, icon: "keyboard", title: String(localized: "Taper du texte"), detail: String(localized: "Clavier tvOS ou iPhone")) { typing = true }
+                    }
+                    if session.isGuest {
+                        tile(.quit, icon: "power", iconColor: Theme.danger, title: ShareText.leave, detail: ShareText.guestOn(session.guest?.computer ?? "")) { session.end() }
+                    } else {
+                        shareTile
+                        tile(.quit, icon: "power", iconColor: Theme.danger, title: String(localized: "Se déconnecter"), detail: String(localized: "L'ordinateur retrouve ses écrans")) { session.end() }
+                    }
                 }
                 .focusSection()
                 HStack {
@@ -88,6 +105,9 @@ struct SessionMenu: View {
             }
             if sound {
                 soundPanel
+            }
+            if session.sharePanel {
+                SharePanelTV(session: session, share: session.share) { session.sharePanel = false }
             }
         }
         .frame(width: 1920, height: 1080, alignment: .topLeading)
@@ -164,7 +184,13 @@ struct SessionMenu: View {
 
     // MARK: Tuiles
 
-    private static let tileWidth: CGFloat = (1920 - 192 - 6 * 24) / 7.3
+    /// Les tuiles se partagent la largeur : sept d'ordinaire, huit avec « Partager » ; moins pour un invité.
+    private var tileCount: Int {
+        if session.isGuest { return 3 + (session.shareRole.plays ? 1 : 0) + (session.shareRole.keyboardAndMouse ? 3 : 0) }
+        return 8
+    }
+
+    private var tileWidth: CGFloat { (1920 - 192 - CGFloat(tileCount - 1) * 24) / (CGFloat(tileCount) + 0.3) }
 
     private var resumeTile: some View {
         Button { session.closeMenu() } label: {
@@ -177,7 +203,7 @@ struct SessionMenu: View {
                 }
             }
             .padding(28)
-            .frame(width: Self.tileWidth * 1.3, height: 230, alignment: .leading)
+            .frame(width: tileWidth * 1.3, height: 230, alignment: .leading)
         }
         .buttonStyle(ResumeTileStyle())
         .focused($focus, equals: .resume)
@@ -205,7 +231,27 @@ struct SessionMenu: View {
             }
         }
         .padding(26)
-        .frame(width: Self.tileWidth, height: 230, alignment: .leading)
+        .frame(width: tileWidth, height: 230, alignment: .leading)
+    }
+
+    /// « Partager » (KyberNow Share) : ouvre le partage de l'écran principal et
+    /// son panneau ; « 2 invités » quand il y en a ; inactif (estompé) avec la
+    /// raison quand l'ordinateur ne le permet pas.
+    private var shareTile: some View {
+        let availability = session.shareAvailability
+        let count = session.share.guests.count
+        let detail = availability.reason ?? (count > 0 ? ShareText.guestCount(count) : (session.share.isOpen ? Share.formatCode(session.share.state?.code ?? "") : ShareText.title(session.host.name)))
+        return Button {
+            session.sharePanel = true
+            if availability.isAvailable { Task { await session.share.openIfNeeded() } }
+        } label: {
+            tileLabel(icon: "share-network", iconColor: session.share.isOpen ? Theme.accentLight : Theme.accent,
+                      title: ShareText.share, detail: detail,
+                      trailing: session.share.isOpen ? AnyView(Toggle2(on: true)) : nil)
+        }
+        .buttonStyle(GlassButton(radius: 22, scale: 1.07))
+        .focused($focus, equals: .share)
+        .opacity(availability.isAvailable ? 1 : 0.5)
     }
 
     private var padsDetail: String {

@@ -1,0 +1,342 @@
+// KyberNow Share sur l'Apple TV (docs/link-ui.md, « Partage »). L'invité :
+// « Rejoindre avec un code », l'écran du code à six chiffres, tapés sur un
+// pavé à la télécommande (comme les pavés des apps de salon), et du prénom
+// (le nom de l'Apple TV, au clavier tvOS ou de l'iPhone) ; la session d'invité
+// s'ouvre ensuite, sans que l'ordinateur soit ajouté. L'hôte : la tuile
+// « Partager » du menu de session ouvre le partage et ce panneau, en tuiles et
+// boutons : code, QR code, invités et ce qu'on peut faire de chacun,
+// « Nouveau code », « Arrêter le partage ». Les appels et les règles sont dans
+// Share.swift, commun aux apps d'Apple.
+
+import KyberKit
+import SwiftUI
+
+// MARK: - Rejoindre
+
+struct JoinView: View {
+    @EnvironmentObject private var app: AppModel
+    @EnvironmentObject private var store: HostStore
+    @StateObject private var model: ShareJoinModel
+    @FocusState private var focus: Target?
+
+    enum Target: Hashable { case back, digit(Int), delete, name, join }
+
+    init(link: ShareJoinLink?) {
+        _model = StateObject(wrappedValue: ShareJoinModel(link: link))
+    }
+
+    /// Les chiffres tapés, sans espace.
+    private var digits: String { model.code.filter(\.isNumber) }
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            AmbientBackground()
+            Button { leave() } label: {
+                HStack(spacing: 10) {
+                    Icon("arrow-left", size: 26, bold: true)
+                    Text("Retour").font(Theme.sans(22, .medium))
+                }
+                .padding(.leading, 18).padding(.trailing, 26)
+                .frame(height: 60)
+            }
+            .buttonStyle(GlassButton(radius: 30))
+            .focused($focus, equals: .back)
+            .padding(.leading, 96).padding(.top, 56)
+
+            // À gauche : le titre, le code et son pavé.
+            VStack(alignment: .leading, spacing: 18) {
+                Text(ShareText.joinTitle).font(Theme.display(64, 660)).tracking(-64 * 0.035).padding(.bottom, 4)
+                Text(ShareText.joinHelp).font(Theme.sans(23)).foregroundStyle(Theme.muted).padding(.bottom, 14)
+                codeSlots
+                pad
+            }
+            .focusSection()
+            .frame(width: 700, alignment: .leading)
+            .padding(.leading, 96).padding(.top, 150)
+
+            // À droite : le prénom, la recherche, « Rejoindre ».
+            VStack(alignment: .leading, spacing: 30) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(ShareText.yourName).font(Theme.sans(19)).foregroundStyle(Theme.muted)
+                    TextField(ShareText.yourName, text: $model.name)
+                        .font(Theme.sans(30))
+                        .textInputAutocapitalization(.words)
+                        .autocorrectionDisabled()
+                        .focused($focus, equals: .name)
+                        .frame(width: 640)
+                }
+                status
+                Spacer(minLength: 0)
+                HStack(spacing: 20) {
+                    Button(ShareText.joinButton) { join() }
+                        .buttonStyle(PrimaryButton(height: 80, fontSize: 28))
+                        .disabled(!model.canJoin)
+                        .focused($focus, equals: .join)
+                    if model.looking {
+                        Button(StationText.cancel) { model.cancel() }
+                            .buttonStyle(ChoiceButton(selected: false, height: 80, light: true))
+                    }
+                }
+            }
+            .padding(.horizontal, 60).padding(.vertical, 56)
+            .frame(width: 1920 - 880 - 96, height: 1080 - 180 - 96, alignment: .topLeading)
+            .glass(30)
+            .focusSection()
+            .padding(.leading, 880).padding(.top, 180)
+        }
+        .frame(width: 1920, height: 1080, alignment: .topLeading)
+        .ignoresSafeArea()
+        .defaultFocus($focus, .digit(1))
+        .onExitCommand { leave() }
+        .onAppear {
+            model.onJoined = { found in app.openGuestSession(found) }
+            model.start()
+        }
+        .onDisappear {
+            model.cancel()
+            model.stop()
+        }
+        .onChange(of: model.code) { _, _ in
+            model.codeChanged()
+            // Six chiffres : le focus passe au prénom, puis à « Rejoindre ».
+            if digits.count == 6, case .digit? = focus { focus = .join }
+        }
+    }
+
+    // MARK: Le code
+
+    /// Six cases, groupées par trois, la prochaine allumée.
+    private var codeSlots: some View {
+        HStack(spacing: 14) {
+            ForEach(0..<6, id: \.self) { i in
+                if i == 3 { Spacer().frame(width: 22) }
+                let char = i < digits.count ? String(Array(digits)[i]) : ""
+                Text(verbatim: char)
+                    .font(Theme.mono(60, .medium))
+                    .foregroundStyle(Theme.neonCore)
+                    .frame(width: 84, height: 112)
+                    .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white.opacity(0.06)))
+                    .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .strokeBorder(i == digits.count ? Theme.accent : Color.white.opacity(0.12), lineWidth: i == digits.count ? 2.5 : 1))
+            }
+        }
+        .padding(.bottom, 12)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: "\(ShareText.code) \(digits.map(String.init).joined(separator: " "))"))
+    }
+
+    /// Le pavé : 1 à 9, effacer, 0 ; un chiffre de plus que six est ignoré.
+    private var pad: some View {
+        VStack(spacing: 14) {
+            ForEach(0..<3, id: \.self) { row in
+                HStack(spacing: 14) {
+                    ForEach(1...3, id: \.self) { col in digitKey(row * 3 + col) }
+                }
+            }
+            HStack(spacing: 14) {
+                Button { eraseLast() } label: {
+                    Image(systemName: "delete.left").font(.system(size: 34, weight: .medium))
+                        .frame(width: 138, height: 84)
+                }
+                .buttonStyle(GlassButton(radius: 20, scale: 1.08))
+                .focused($focus, equals: .delete)
+                .accessibilityLabel(Text("Effacer"))
+                digitKey(0)
+                Spacer().frame(width: 138)
+            }
+        }
+    }
+
+    private func digitKey(_ n: Int) -> some View {
+        Button { type(n) } label: {
+            Text(verbatim: "\(n)").font(Theme.mono(40, .medium)).frame(width: 138, height: 84)
+        }
+        .buttonStyle(GlassButton(radius: 20, scale: 1.08))
+        .focused($focus, equals: .digit(n))
+    }
+
+    private func type(_ n: Int) {
+        guard digits.count < 6, !model.looking else { return }
+        model.code = digits + String(n)
+    }
+
+    private func eraseLast() {
+        guard !digits.isEmpty, !model.looking else { return }
+        model.code = String(digits.dropLast())
+    }
+
+    // MARK: État
+
+    @ViewBuilder private var status: some View {
+        switch model.state {
+        case .idle:
+            EmptyView()
+        case .looking:
+            HStack(spacing: 14) {
+                ProgressView()
+                Text(ShareText.looking).font(Theme.sans(24)).foregroundStyle(Theme.muted)
+            }
+        case let .failed(text):
+            HStack(alignment: .top, spacing: 16) {
+                Icon("warning", size: 30).foregroundStyle(Theme.warn)
+                Text(text).font(Theme.sans(24)).foregroundStyle(Theme.warnText).lineSpacing(4)
+                    .frame(maxWidth: 700, alignment: .leading)
+            }
+        }
+    }
+
+    private func join() {
+        guard model.canJoin else { return }
+        model.join(hosts: store.hosts)
+    }
+
+    private func leave() {
+        model.cancel()
+        app.screen = .home
+    }
+}
+
+// MARK: - Partager (hôte)
+
+/// Le panneau de l'hôte, sur le menu de session : code, QR code, invités et
+/// leurs actions, « Nouveau code », « Arrêter le partage ». Retour le ferme.
+struct SharePanelTV: View {
+    @ObservedObject var session: SessionController
+    @ObservedObject var share: ShareHostModel
+    let close: () -> Void
+    @FocusState private var focus: Target?
+    @State private var qr: (link: String, image: CGImage)?
+
+    enum Target: Hashable { case newCode, stop, close, role(String, Int), kick(String) }
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.55)
+            VStack(alignment: .leading, spacing: 30) {
+                Theme.eyebrow(ShareText.title(session.host.name))
+                if let reason = session.shareAvailability.reason {
+                    Text(reason).font(Theme.sans(30)).foregroundStyle(Theme.warnText).frame(width: 1000, alignment: .leading)
+                    closeButton
+                } else if let state = share.state {
+                    shared(state)
+                } else if let error = share.error {
+                    Text(error).font(Theme.sans(28)).foregroundStyle(Theme.dangerText).frame(width: 1000, alignment: .leading)
+                    HStack(spacing: 20) {
+                        Button(ShareText.share) { Task { await share.openIfNeeded() } }
+                            .buttonStyle(PrimaryButton(height: 72, fontSize: 25))
+                        closeButton
+                    }
+                } else {
+                    ProgressView()
+                    closeButton
+                }
+            }
+            .padding(56)
+            .glass(30, tint: 0.6)
+            .focusSection()
+        }
+        .frame(width: 1920, height: 1080)
+        .onExitCommand(perform: close)
+        .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { focus = .close } }
+    }
+
+    private var closeButton: some View {
+        Button("Fermer", action: close)
+            .buttonStyle(ChoiceButton(selected: false, height: 72))
+            .focused($focus, equals: .close)
+    }
+
+    @ViewBuilder private func shared(_ state: ShareState) -> some View {
+        HStack(alignment: .top, spacing: 64) {
+            VStack(alignment: .leading, spacing: 20) {
+                qrImage(for: state.link)
+                Theme.eyebrow(ShareText.code)
+                Text(verbatim: Share.formatCode(state.code))
+                    .font(Theme.mono(68, .medium)).tracking(2)
+                    .foregroundStyle(Theme.neonCore)
+                    .shadow(color: Theme.accent, radius: 14)
+                    .lineLimit(1)
+                    .fixedSize()
+                    .accessibilityLabel(Text(verbatim: "\(ShareText.code) \(state.code.map(String.init).joined(separator: " "))"))
+                Text(ShareText.help).font(Theme.sans(20)).foregroundStyle(Theme.muted).lineSpacing(4)
+                    .frame(width: 440, alignment: .leading)
+            }
+            VStack(alignment: .leading, spacing: 18) {
+                Theme.eyebrow(ShareText.guests)
+                if state.guests.isEmpty {
+                    Text(ShareText.nobody).font(Theme.sans(26)).foregroundStyle(Theme.muted)
+                } else {
+                    ForEach(state.guests) { guest in guestRow(guest) }
+                }
+                if share.full {
+                    Text(ShareText.fourGuests).font(Theme.sans(20)).foregroundStyle(Theme.faint)
+                }
+                if let error = share.error { Text(error).font(Theme.sans(22)).foregroundStyle(Theme.dangerText) }
+            }
+            .frame(width: 880, alignment: .topLeading)
+        }
+        HStack(spacing: 20) {
+            Button(ShareText.newCode) { Task { await share.newCode() } }
+                .buttonStyle(ChoiceButton(selected: false, height: 72))
+                .focused($focus, equals: .newCode)
+            Button(ShareText.stop) {
+                Task {
+                    await share.close()
+                    close()
+                }
+            }
+            .buttonStyle(ChoiceButton(selected: false, height: 72))
+            .focused($focus, equals: .stop)
+            closeButton
+        }
+        .disabled(share.busy)
+    }
+
+    /// Un invité : son prénom, son rôle, son app et depuis quand ; ses actions.
+    private func guestRow(_ guest: ShareGuest) -> some View {
+        HStack(spacing: 18) {
+            Icon(guest.role.plays ? "game-controller" : "eye", size: 32)
+                .foregroundStyle(guest.role.plays ? Theme.accent : Theme.faint)
+                .frame(width: 40)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(ShareText.guest(guest.name, guest.role)).font(Theme.sans(25, .semibold)).foregroundStyle(Theme.text).lineLimit(2)
+                Text(detail(guest)).font(Theme.sans(18)).foregroundStyle(Theme.faint).lineLimit(1)
+            }
+            .frame(width: 320, alignment: .leading)
+            Spacer(minLength: 0)
+            ForEach(Array(ShareHostModel.roleActions(for: guest.role).enumerated()), id: \.offset) { i, action in
+                Button(action.title) { Task { await share.setRole(action.role, of: guest) } }
+                    .buttonStyle(ChoiceButton(selected: false, height: 60, light: true))
+                    .focused($focus, equals: .role(guest.id, i))
+            }
+            Button(ShareText.remove) { Task { await share.kick(guest) } }
+                .buttonStyle(ChoiceButton(selected: false, height: 60, light: true))
+                .focused($focus, equals: .kick(guest.id))
+        }
+        .disabled(share.busy)
+    }
+
+    private func detail(_ guest: ShareGuest) -> String {
+        [ShareText.app(guest.app), guest.since.map(ShareText.since)].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    /// Le QR code du lien des apps (`kybernow://join…`), net, sur fond blanc.
+    @ViewBuilder private func qrImage(for link: String) -> some View {
+        let image = qr?.link == link ? qr?.image : Share.qrImage(for: link)
+        Group {
+            if let image {
+                Image(decorative: image, scale: 1)
+                    .interpolation(.none)
+                    .resizable()
+                    .aspectRatio(1, contentMode: .fit)
+                    .frame(width: 240, height: 240)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .accessibilityElement()
+                    .accessibilityLabel(ShareText.qrLabel)
+                    .onAppear { if qr?.link != link { qr = (link, image) } }
+            } else {
+                RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white.opacity(0.08)).frame(width: 240, height: 240)
+            }
+        }
+    }
+}

@@ -45,6 +45,9 @@ struct RootView: View {
             case .addHost:
                 AddHostView()
                     .transition(.opacity.combined(with: .scale(scale: 1.02)))
+            case let .join(link):
+                JoinView(link: link)
+                    .transition(.opacity.combined(with: .scale(scale: 1.02)))
             case let .settings(id):
                 SettingsView(hostID: id)
                     .transition(.opacity.combined(with: .scale(scale: 1.02)))
