@@ -19,6 +19,7 @@
 //! kycontroller, borne les WebSockets relayés et le temps d'attente de Kyber,
 //! et réutilise ses connexions HTTP.
 
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
@@ -62,6 +63,42 @@ const MAX_WEBSOCKETS: usize = 24;
 const POOL_MAX: usize = 4;
 
 static WEBSOCKETS: Semaphore = Semaphore::const_new(MAX_WEBSOCKETS);
+/// WebSockets relayés en même temps pour un même invité du navigateur
+/// (KyberNow Share) : deux sessions du client web, celle en cours et celle
+/// qui la remplace. Un invité ne prend jamais toutes les places du relais.
+const MAX_GUEST_WEBSOCKETS: usize = 6;
+/// WebSockets en cours, par cookie d'invité.
+static GUEST_WEBSOCKETS: Mutex<Option<HashMap<String, usize>>> = Mutex::new(None);
+
+/// Une place d'invité dans le relais, rendue quand la copie s'arrête.
+struct GuestSlot(String);
+
+impl GuestSlot {
+    /// `None` : cet invité a déjà `MAX_GUEST_WEBSOCKETS` WebSockets relayés.
+    fn take(cookie: &str) -> Option<GuestSlot> {
+        let mut all = GUEST_WEBSOCKETS.lock().unwrap();
+        let count = all.get_or_insert_with(HashMap::new).entry(cookie.to_string()).or_insert(0);
+        if *count >= MAX_GUEST_WEBSOCKETS {
+            return None;
+        }
+        *count += 1;
+        Some(GuestSlot(cookie.to_string()))
+    }
+}
+
+impl Drop for GuestSlot {
+    fn drop(&mut self) {
+        let mut all = GUEST_WEBSOCKETS.lock().unwrap();
+        if let Some(map) = all.as_mut()
+            && let Some(count) = map.get_mut(&self.0)
+        {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                map.remove(&self.0);
+            }
+        }
+    }
+}
 static POOL: Mutex<Vec<Idle>> = Mutex::new(Vec::new());
 static PIN: Mutex<Option<Pin>> = Mutex::new(None);
 
@@ -143,8 +180,8 @@ pub async fn proxy(State(s): State<AppState>, req: Request) -> Response {
     // page, en même origine, et le navigateur joint le cookie. Ou un invité
     // du navigateur, tant qu'il est dans le partage.
     let console = crate::auth::session_token(req.headers()).is_some_and(|t| s.auth.session_valid(&t));
-    let guest = !console && crate::share::guest_cookie(req.headers()).is_some_and(|c| s.share.cookie_valid(&c));
-    if !console && !guest {
+    let guest = (!console).then(|| crate::share::guest_cookie(req.headers())).flatten().filter(|c| s.share.cookie_valid(c));
+    if !console && guest.is_none() {
         return error(StatusCode::UNAUTHORIZED, "session de la console requise");
     }
     // Une origine, si le navigateur en donne une, ne peut être que la
@@ -169,6 +206,14 @@ pub async fn proxy(State(s): State<AppState>, req: Request) -> Response {
         None => req.uri().path_and_query().map(|p| p.as_str().to_string()).unwrap_or(path.clone()),
     };
     // Une poignée par WebSocket relayé, rendue quand la copie s'arrête.
+    // Un invité du navigateur : six WebSockets au plus, pour lui seul.
+    let guest_slot = match guest.as_deref().filter(|_| req.headers().contains_key(header::UPGRADE)) {
+        Some(cookie) => match GuestSlot::take(cookie) {
+            Some(slot) => Some(slot),
+            None => return error(StatusCode::SERVICE_UNAVAILABLE, "trop de connexions WebSocket pour cet invité"),
+        },
+        None => None,
+    };
     let permit = if req.headers().contains_key(header::UPGRADE) {
         match WEBSOCKETS.try_acquire() {
             Ok(p) => Some(p),
@@ -177,7 +222,7 @@ pub async fn proxy(State(s): State<AppState>, req: Request) -> Response {
     } else {
         None
     };
-    match forward(&s, &addr, connector, req, &upstream_path, permit).await {
+    match forward(&s, &addr, connector, req, &upstream_path, permit, guest_slot).await {
         Ok(mut res) => {
             if engine_file(&path).is_some() {
                 isolate(res.headers_mut());
@@ -237,6 +282,7 @@ async fn forward(
     mut req: Request,
     upstream_path: &str,
     permit: Option<tokio::sync::SemaphorePermit<'static>>,
+    guest_slot: Option<GuestSlot>,
 ) -> anyhow::Result<Response> {
     let upgrade = req.headers().contains_key(header::UPGRADE);
     let client_upgrade = upgrade.then(|| hyper::upgrade::on(&mut req));
@@ -281,6 +327,7 @@ async fn forward(
         let server_upgrade = hyper::upgrade::on(&mut res);
         tokio::spawn(async move {
             let _permit = permit;
+            let _guest_slot = guest_slot;
             match tokio::try_join!(client_upgrade, server_upgrade) {
                 Ok((client, server)) => {
                     let _ = tokio::io::copy_bidirectional(&mut TokioIo::new(client), &mut TokioIo::new(server)).await;
@@ -292,6 +339,7 @@ async fn forward(
         return Ok(Response::from_parts(parts, Body::empty()));
     }
     drop(permit);
+    drop(guest_slot);
     if !upgrade {
         give_back(addr, sender);
     }
@@ -634,6 +682,18 @@ mod tests {
         assert_eq!(engine_file("/ecran/kyclient_wasm.js"), Some("kyclient_wasm.js"));
         assert_eq!(engine_file("/link/../secret"), None);
         assert_eq!(engine_file("/link/kyclient_wasm.js/.."), None);
+    }
+
+    #[test]
+    fn a_guest_gets_six_websockets_at_most() {
+        let slots: Vec<GuestSlot> = (0..MAX_GUEST_WEBSOCKETS).map(|_| GuestSlot::take("invite-a").unwrap()).collect();
+        assert!(GuestSlot::take("invite-a").is_none());
+        // Un autre invité a ses propres places.
+        let other = GuestSlot::take("invite-b").unwrap();
+        drop(slots.into_iter().next());
+        assert!(GuestSlot::take("invite-a").is_some(), "une place rendue se reprend");
+        drop(other);
+        assert!(GUEST_WEBSOCKETS.lock().unwrap().as_ref().is_none_or(|m| !m.contains_key("invite-b")));
     }
 
     #[test]

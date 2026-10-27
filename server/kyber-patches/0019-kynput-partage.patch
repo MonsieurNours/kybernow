@@ -147,10 +147,10 @@ index 1b7ac4e..a36f0d1 100644
                  info!("Stop received. Reason: {reason}");
                  response.send(Ok(Response::None))?;
 diff --git a/kynputservice/src/pipeline_state.rs b/kynputservice/src/pipeline_state.rs
-index ec0db34..60559f3 100644
+index ec0db34..232a3d3 100644
 --- a/kynputservice/src/pipeline_state.rs
 +++ b/kynputservice/src/pipeline_state.rs
-@@ -20,8 +20,9 @@
+@@ -20,25 +20,127 @@
  
  use std::collections::{HashMap, HashSet};
  use std::mem;
@@ -160,8 +160,13 @@ index ec0db34..60559f3 100644
 +use kynputservice_types::InputRights;
  use log::{debug, error, info, warn};
  
++/// KyberNow: most gamepads remembered per client (Windows plugs four at most).
++/// A refused client could otherwise grow this table without end, and have
++/// all of it plugged at once when given the gamepads.
++const MAX_PLUGS: usize = 8;
++
  pub struct State {
-@@ -29,18 +30,110 @@ pub struct State {
+     keys: HashSet<u16>,
      mouse_btns: HashSet<kynput_rs::MouseButtonType>,
      gamepads: HashSet<kynput_rs::GamepadId>,
      cursors: HashMap<u32, kynput_rs::Packet>,
@@ -186,9 +191,9 @@ index ec0db34..60559f3 100644
 +            rights,
 +            plugs: HashMap::new(),
 +            injected: Vec::new(),
-         }
-     }
- 
++        }
++    }
++
 +    /// KyberNow: whether the rights let this packet type through. The
 +    /// computer itself only sends the pointer (`Cursor`, always let through),
 +    /// the clipboard, and rumble (`GamepadEvent`) for plugged gamepads.
@@ -212,7 +217,11 @@ index ec0db34..60559f3 100644
 +    fn remember_plug(&mut self, pkt: &kynput_rs::Packet) {
 +        match kynput_rs::GamepadControl::from_packet(pkt) {
 +            Some(kynput_rs::GamepadControl::Plug { id, .. }) => {
-+                self.plugs.insert(id, pkt.clone());
++                if self.plugs.len() < MAX_PLUGS || self.plugs.contains_key(&id) {
++                    self.plugs.insert(id, pkt.clone());
++                } else {
++                    debug!("Gamepad {id} not remembered: {MAX_PLUGS} already");
++                }
 +            }
 +            Some(kynput_rs::GamepadControl::Unplug { id }) => {
 +                self.plugs.remove(&id);
@@ -260,7 +269,7 @@ index ec0db34..60559f3 100644
 +                    .filter(|(id, _)| !self.gamepads.contains(*id))
 +                    .map(|(_, plug)| plug.clone()),
 +            );
-+        }
+         }
 +
 +        info!(
 +            "Input rights {rights:?}: {} packets to inject",
@@ -268,12 +277,10 @@ index ec0db34..60559f3 100644
 +        );
 +        self.injected.extend(packets.iter().cloned());
 +        packets
-+    }
-+
+     }
+ 
      fn on_keyboard_key(&mut self, key: &kynput_rs::KeyboardKey) {
-         if key.pressed {
-             self.keys.insert(key.scancode);
-@@ -110,6 +203,20 @@ impl State {
+@@ -110,6 +212,20 @@ impl State {
      }
  
      fn on_packet(&mut self, pkt: &kynput_rs::Packet) -> kynput_rs::RouterHookPacketResult {
@@ -294,7 +301,7 @@ index ec0db34..60559f3 100644
          let ret: Result<(), ()> = match pkt.get_type() {
              kynput_rs::InputType::Keyboard => {
                  if let Some(key) = kynput_rs::KeyboardKey::from_packet(pkt) {
-@@ -174,10 +281,23 @@ impl State {
+@@ -174,10 +290,23 @@ impl State {
      }
  
      fn on_flush_keys(&mut self) -> Option<Vec<kynput_rs::Packet>> {
@@ -320,7 +327,7 @@ index ec0db34..60559f3 100644
          // Flush keyboard
          for scancode in self.get_keypresses() {
              let key = kynput_rs::KeyboardKey {
-@@ -198,8 +318,14 @@ impl State {
+@@ -198,8 +327,14 @@ impl State {
              generated_events.push(button.to_packet(kynput_rs::InputTarget::Host));
          }
  
@@ -337,7 +344,7 @@ index ec0db34..60559f3 100644
              for button in kynput_rs::GamepadButton::values() {
                  let button = kynput_rs::GamepadEvent::Button {
                      id: *id,
-@@ -221,11 +347,7 @@ impl State {
+@@ -221,11 +356,7 @@ impl State {
              }
          }
  
@@ -350,7 +357,7 @@ index ec0db34..60559f3 100644
      }
  
      fn on_ctrl_msg(
-@@ -242,14 +364,33 @@ impl State {
+@@ -242,14 +373,33 @@ impl State {
      }
  }
  
@@ -387,7 +394,7 @@ index ec0db34..60559f3 100644
          }
      }
  }
-@@ -298,15 +439,15 @@ impl kynput_rs::RouterHook for ServerPipelineState {
+@@ -298,15 +448,15 @@ impl kynput_rs::RouterHook for ServerPipelineState {
  mod tests {
      use kynput_rs::{
          CmpStruct, ControlEvent, Cursor, CursorData, GamepadAxis, GamepadButton, GamepadControl,
@@ -406,7 +413,7 @@ index ec0db34..60559f3 100644
  
          let ret_process_true = RouterHookPacketResult {
              process_event: true,
-@@ -401,7 +542,7 @@ mod tests {
+@@ -401,7 +551,7 @@ mod tests {
  
      #[test]
      fn cursor_sync() {
@@ -415,7 +422,7 @@ index ec0db34..60559f3 100644
  
          let ret_process_true = RouterHookPacketResult {
              process_event: true,
-@@ -430,7 +571,7 @@ mod tests {
+@@ -430,7 +580,7 @@ mod tests {
  
      #[test]
      fn cursor_sync_keeps_shape_on_move() {
@@ -424,7 +431,7 @@ index ec0db34..60559f3 100644
  
          let shape = Cursor {
              display_id: 43,
-@@ -465,4 +606,183 @@ mod tests {
+@@ -465,4 +615,211 @@ mod tests {
              Some(vec![expected.to_packet(InputTarget::Client)])
          );
      }
@@ -606,5 +613,33 @@ index ec0db34..60559f3 100644
 +
 +        // Same rights again: nothing to inject.
 +        assert_eq!(state.set_rights(PLAYER), vec![]);
++    }
++
++    #[test]
++    fn remembered_gamepads_are_capped() {
++        let state = ServerPipelineState::new(InputRights::NONE);
++
++        // A spectator announcing gamepads without end: eight are kept.
++        for id in 0..100 {
++            assert!(!passes(&state, &plug(id)));
++        }
++        // One already kept is updated, not refused.
++        assert!(!passes(&state, &plug(3)));
++        let mut injected = state.set_rights(PLAYER);
++        injected.sort_by_key(|pkt| match GamepadControl::from_packet(pkt) {
++            Some(GamepadControl::Plug { id, .. }) => id,
++            _ => u32::MAX,
++        });
++        assert_eq!(injected, (0..MAX_PLUGS as u32).map(plug).collect::<Vec<_>>());
++
++        // An unplug frees a place for another gamepad.
++        let state = ServerPipelineState::new(InputRights::NONE);
++        for id in 0..MAX_PLUGS as u32 {
++            passes(&state, &plug(id));
++        }
++        passes(&state, &plug(50));
++        passes(&state, &unplug(0));
++        passes(&state, &plug(50));
++        assert!(state.set_rights(PLAYER).contains(&plug(50)));
 +    }
  }
