@@ -646,7 +646,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
             app.gamepads.setOnScreen(false)
         }
         if (!role.keyboardMouse) {
-            ui.keyboardOpen = false
+            // Le clavier de l'écran se replie aussi côté Android (sinon le clavier logiciel reste affiché sans champ).
+            if (ui.keyboardOpen) openKeyboard(false)
             ui.keysOpen = false
             ui.typing = false
             ui.sticky = emptySet()
