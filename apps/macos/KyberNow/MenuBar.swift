@@ -23,7 +23,7 @@ enum MenuAction: Equatable {
     case disconnect(UUID), fullScreen(UUID), statistics(UUID), show(UUID), keepSound(UUID)
     case mouse(UUID, MouseChoice)
     case connect(UUID), wake(UUID), retry(UUID), profile(UUID, Profile), settings(UUID), admin(UUID), restart(UUID), update(UUID)
-    case open, add, appSettings, checkForUpdates, quit
+    case open, add, join, appSettings, checkForUpdates, quit
 }
 
 /// Point d'état devant un ordinateur (couleurs d'état de brand/v2, `kybernow.css`).
@@ -137,6 +137,8 @@ enum MenuContent {
         out.append(MenuEntry(title: String(localized: "Ouvrir KyberNow Link"), action: .open))
         // L'accueil n'est plus la fenêtre d'une session : l'ajout et les réglages passent par-dessus les sessions.
         out.append(MenuEntry(title: String(localized: "Ajouter un ordinateur…"), action: .add))
+        // KyberNow Share : l'écran du code et du prénom (une fenêtre : points de suspension).
+        out.append(MenuEntry(title: ShareText.join + "…", action: .join))
         out.append(MenuEntry(title: String(localized: "Réglages de l'app…"), action: .appSettings))
         out.append(MenuEntry(title: String(localized: "Rechercher des mises à jour…"), action: .checkForUpdates))
         out.append(.line)
@@ -150,17 +152,26 @@ enum MenuContent {
         guard let session = app.sessions.active, session.isLive else { return [] }
         let id = session.host.id
         var out: [MenuEntry] = []
-        out.append(MenuEntry(title: String(localized: "En session sur \(session.host.name)"), enabled: false))
-        out.append(MenuEntry(title: metrics(session), enabled: false))
+        // Un invité : « Invité sur {nom} », la barre réduite (rôle, mesures), « Quitter le partage ».
+        if session.isGuest {
+            out.append(MenuEntry(title: session.title, enabled: false))
+            out.append(MenuEntry(title: ShareText.role(session.shareRole) + " · " + metrics(session), enabled: false))
+        } else {
+            out.append(MenuEntry(title: String(localized: "En session sur \(session.host.name)"), enabled: false))
+            out.append(MenuEntry(title: metrics(session), enabled: false))
+        }
         // Plusieurs écrans : les fenêtres restent en plein écran, pas de « Plein écran ».
         if session.canToggleFullScreen {
             out.append(MenuEntry(title: String(localized: "Plein écran"), checked: session.isFullScreen, action: .fullScreen(id)))
         }
         // Les trois modes, comme le menu Souris de la barre de session ; gardé pour l'ordinateur.
-        let mice = MouseChoice.allCases.map { MenuEntry(title: $0.label, checked: $0 == session.host.settings.mouse, action: .mouse(id, $0)) }
-        out.append(MenuEntry(title: String(localized: "Souris"), children: mice))
+        // Un invité ne les a que si l'hôte lui a donné le clavier et la souris.
+        if !session.isGuest || session.shareRole.keyboardAndMouse {
+            let mice = MouseChoice.allCases.map { MenuEntry(title: $0.label, checked: $0 == session.host.settings.mouse, action: .mouse(id, $0)) }
+            out.append(MenuEntry(title: String(localized: "Souris"), children: mice))
+        }
         out.append(MenuEntry(title: String(localized: "Statistiques"), action: .statistics(id)))
-        out.append(MenuEntry(title: String(localized: "Se déconnecter"), action: .disconnect(id)))
+        out.append(MenuEntry(title: session.isGuest ? ShareText.leave : String(localized: "Se déconnecter"), action: .disconnect(id)))
         out.append(.line)
         return out
     }
@@ -296,7 +307,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         let tip: String
         switch live.count {
         case 0: tip = "KyberNow Link"
-        case 1: tip = String(localized: "KyberNow Link · en session sur \(live[0].host.name)")
+        case 1: tip = live[0].isGuest ? "KyberNow Link · \(live[0].title)" : String(localized: "KyberNow Link · en session sur \(live[0].host.name)")
         default: tip = String(localized: "KyberNow Link · en session sur \(live.count) ordinateurs")
         }
         item.button?.toolTip = tip

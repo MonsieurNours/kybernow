@@ -299,7 +299,15 @@ extension AppModel {
             var shownInWindow = false
             if case .failed = session.phase { shownInWindow = true }
             let others = !shownInWindow && sessions.live.contains { $0 !== session }
-            notifier.sessionEnded(session.host, error: session.endError, evenInForeground: others)
+            if session.isGuest {
+                // Un invité : la raison du partage (« {hôte} a arrêté le partage. »), sans bouton :
+                // jamais « Reprendre la main ». Quand elle reste dans la fenêtre, app au second plan seulement.
+                if let text = session.shareEndText ?? session.endError.map(Notifier.sentence) {
+                    notifier.shareEnded(text, session: session.host.id, evenInForeground: others)
+                }
+            } else {
+                notifier.sessionEnded(session.host, error: session.endError, evenInForeground: others)
+            }
         }
         afterSessionEnded?(session)
     }
@@ -339,6 +347,9 @@ extension AppModel {
         case .add:
             showWindow()
             add()
+        case .join:
+            showWindow()
+            join()
         case .appSettings: openAppSettings()
         case .checkForUpdates:
             Dock.comeForward()
@@ -573,6 +584,15 @@ enum DemoRemote {
             try? handle.close()
         } else {
             try? text.write(toFile: path, atomically: true, encoding: .utf8)
+        }
+    }
+
+    /// `spectator`, `player` ou `player_kbm` (KyberNow Share).
+    private static func demoRole(_ name: String) -> ShareRole {
+        switch name {
+        case "player": return .player
+        case "player_kbm": return .playerKbm
+        default: return .spectator
         }
     }
 
@@ -815,6 +835,39 @@ enum DemoRemote {
             let h = parts.count > 2 ? host(parts[2]) : nil
             let action = parts.count > 3 && parts[3] != "default" ? parts[3] : UNNotificationDefaultActionIdentifier
             app.notifier.respond(kind: parts[1], host: h?.id.uuidString ?? "", action: action)
+        case "guest-join":
+            // guest-join:<spectator|player|player_kbm> : une session d'invité (sans Station), comme après « Rejoindre ».
+            app.openGuestSession(ShareFound(demoComputer: "PC-DE-MATTHIEU", host: "Matthieu", role: demoRole(parts.count > 1 ? parts[1] : "")))
+        case "guest-role":
+            // guest-role:<spectator|player|player_kbm> : l'hôte change le rôle de l'invité (la première session d'invité).
+            app.sessions.all.first(where: \.isGuest)?.demoRoleChanged(demoRole(parts.count > 1 ? parts[1] : ""))
+        case "guest-end":
+            // guest-end:stopped|removed : l'hôte arrête le partage ou retire l'invité.
+            app.sessions.all.first(where: \.isGuest)?.demoShareEnded(removed: parts.count > 1 && parts[1] == "removed")
+        case "share-guest":
+            // share-guest:<ordinateur>:<prénom>:<app>[:<rôle>] : un invité arrive dans le partage de sa session d'hôte.
+            guard parts.count > 3, let h = host(parts[1]), let session = app.sessions.session(for: h.id) else { return }
+            let rest = parts[3].split(separator: ":").map(String.init)
+            session.share.demoAddGuest(name: parts[2], app: rest.first ?? "ios", role: demoRole(rest.count > 1 ? rest[1] : ""))
+        case "share-render":
+            // share-render:<ordinateur>:<fichier> : le panneau « Partager » de sa session dessiné dans un PNG (partage ouvert au besoin).
+            guard parts.count > 2, let h = host(parts[1]), let session = app.sessions.session(for: h.id) else { return }
+            Task {
+                await session.share.openIfNeeded()
+                SharePanelDemo.render(session: session, to: parts[2])
+            }
+        case "panel-render":
+            // panel-render:<avec|sans>:<fichier> : le panneau « Partager » d'une session d'hôte sans fenêtre, avec ou sans invités.
+            guard parts.count > 2 else { return }
+            Task { await SharePanelDemo.renderPanel(app: app, guests: parts[1] == "avec", to: parts[2]) }
+        case "bar-render":
+            // bar-render:<host|spectator|player|player_kbm>:<fichier> : la barre de session ouverte, sans fenêtre.
+            guard parts.count > 2 else { return }
+            Task { await SharePanelDemo.renderBar(kind: parts[1], app: app, to: parts[2]) }
+        case "join-render":
+            // join-render:<fichier> : l'écran « Rejoindre » dessiné dans un PNG.
+            guard parts.count > 1 else { return }
+            SharePanelDemo.renderJoin(to: parts[1], app: app)
         case "delivered":
             UNUserNotificationCenter.current().getDeliveredNotifications { list in
                 let text = list.map { "\($0.request.identifier) | \($0.request.content.title) | \($0.request.content.body)" }

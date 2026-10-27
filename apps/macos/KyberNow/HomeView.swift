@@ -12,6 +12,7 @@ struct HomeView: View {
     var body: some View {
         HomeContent(imagery: app.store.imagery, discovery: app.discovery)
             .sheet(isPresented: $app.adding) { AddHostSheet(initialLink: app.pendingLink, initialTab: app.addTab) }
+            .sheet(isPresented: $app.joining) { JoinSheet(initialLink: app.pendingJoin) }
             .preferredColorScheme(.dark)
             .frame(minWidth: 1100, minHeight: 760)
     }
@@ -321,10 +322,17 @@ private struct Welcome: View {
                 .font(Theme.sans(16)).foregroundStyle(Theme.text2)
                 .frame(maxWidth: 560, alignment: .leading)
                 .modifier(Rise(arrived: arrived, delay: 0.35))
-            Button { app.add() } label: {
-                HStack(spacing: 12) { Icon("plus", size: 18, bold: true); Text("Ajouter un ordinateur") }
+            HStack(spacing: 14) {
+                Button { app.add() } label: {
+                    HStack(spacing: 12) { Icon("plus", size: 18, bold: true); Text("Ajouter un ordinateur") }
+                }
+                .buttonStyle(PrimaryButton(height: 56))
+                // KyberNow Share : rejoindre le partage de quelqu'un, sans ordinateur à soi.
+                Button { app.join() } label: {
+                    HStack(spacing: 12) { Icon("share-network", size: 18, bold: true); Text(ShareText.join) }
+                }
+                .buttonStyle(GhostButton(height: 56))
             }
-            .buttonStyle(PrimaryButton(height: 56))
             .padding(.top, 18)
             .modifier(Rise(arrived: arrived, delay: 0.45))
         }
@@ -374,6 +382,8 @@ private struct Shelf: View {
                     }
                     AddCard { app.add() }
                         .modifier(Rise(arrived: arrived, delay: 1.1))
+                    JoinCard { app.join() }
+                        .modifier(Rise(arrived: arrived, delay: 1.2))
                 }
                 .padding(.vertical, 18)
                 .padding(.horizontal, 2)
@@ -490,6 +500,34 @@ private struct AddCard: View {
                 Icon("plus", size: 22, bold: true).foregroundStyle(Theme.accent)
                 Spacer()
                 Text("Ajouter un ordinateur").font(Theme.sans(15, .semibold)).foregroundStyle(Theme.text)
+            }
+            .padding(16)
+            .frame(width: cardSize.width, height: cardSize.height, alignment: .topLeading)
+            .background {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Theme.background.opacity(0.5))
+                    .overlay(Hatching().clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous)))
+            }
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.white.opacity(hovering ? 0.2 : 0.1)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+    }
+}
+
+/// « Rejoindre avec un code » (KyberNow Share), à côté de l'ajout d'un ordinateur.
+private struct JoinCard: View {
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 12) {
+                Icon("share-network", size: 22, bold: true).foregroundStyle(Theme.accent)
+                Spacer()
+                Text(ShareText.join).font(Theme.sans(15, .semibold)).foregroundStyle(Theme.text)
+                    .multilineTextAlignment(.leading)
             }
             .padding(16)
             .frame(width: cardSize.width, height: cardSize.height, alignment: .topLeading)

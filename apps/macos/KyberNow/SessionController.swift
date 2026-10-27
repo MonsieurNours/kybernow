@@ -54,7 +54,8 @@ final class SessionController: NSObject, ObservableObject {
     @Published private(set) var padFocus = 0
     /// Éléments de la barre en mode manette : profil, souris, plein écran
     /// (absent avec plusieurs écrans), déconnexion.
-    var padItems: Int { canToggleFullScreen ? 4 : 3 }
+    /// Un invité n'a que le plein écran (absent avec plusieurs écrans) et « Quitter le partage ».
+    var padItems: Int { isGuest ? (canToggleFullScreen ? 2 : 1) : (canToggleFullScreen ? 4 : 3) }
     @Published private(set) var closing = Closing()
     @Published private(set) var host: Host
     @Published private(set) var modeLabel = ""
@@ -152,6 +153,32 @@ final class SessionController: NSObject, ObservableObject {
     var isFirst: Bool {
         if case .first = opening { return true }
         return false
+    }
+
+    // MARK: KyberNow Share
+
+    /// KyberNow Share, session d'invité : la Station qui a accepté le code.
+    /// Un invité n'a ni compte, ni profil, ni écran virtuel ; son ordinateur
+    /// n'est pas dans la liste de cet appareil (`host` n'est qu'un nom et une
+    /// adresse), rien n'est gardé après le partage (docs/kybernow-share.md).
+    let guest: ShareFound?
+    var isGuest: Bool { guest != nil }
+    /// Le rôle de l'invité (« Spectateur », « Joueur »), changé par l'hôte en cours de partage.
+    @Published private(set) var shareRole: ShareRole = .spectator
+    /// La raison de la fin de la session d'invité par le partage (« {hôte} a
+    /// arrêté le partage. ») : elle reste à l'écran, jamais « Reprendre la main ».
+    @Published private(set) var shareEndText: String?
+    /// Le partage de cette session d'hôte (« Partager » dans la barre) :
+    /// propre à chaque session, comme la barre qui le montre.
+    let share: ShareHostModel
+
+    /// Le titre de la session : le nom de l'ordinateur, ou « Invité sur {nom} ».
+    var title: String { guest.map { ShareText.guestOn($0.computer) } ?? host.name }
+
+    /// « Partager » avec cet ordinateur : disponible, ou inactif avec la raison
+    /// (d'après ce que la Station dit d'elle-même, relu à chaque sondage).
+    var shareAvailability: ShareAvailability {
+        store.status[host.id]?.info?.share ?? Share.unknownStation
     }
 
     /// Session active : sa fenêtre est (ou a été la dernière) au premier
@@ -283,6 +310,27 @@ final class SessionController: NSObject, ObservableObject {
         self.store = store
         self.opening = opening
         self.onFinish = onFinish
+        guest = nil
+        share = ShareHostModel(console: nil, availability: store.status[host.id]?.info?.share ?? Share.unknownStation)
+    }
+
+    /// Une session d'invité : un invité d'une Station qui a accepté un code (`Share.join`).
+    init(guest found: ShareFound, store: HostStore, opening: Opening, onFinish: @escaping (SessionController) -> Void) {
+        var host = Host(name: found.computer, address: found.target.host, consolePort: found.target.port, username: "")
+        // Pas d'écran virtuel, la souris du bureau, rien de partagé : l'image
+        // est celle de l'hôte ; seul le repli du transport vient d'ici.
+        host.settings.apply(.jeu)
+        host.settings.display = .physical
+        host.settings.mouse = .desktop
+        host.settings.clipboard = false
+        host.settings.keepLastImage = false
+        self.host = host
+        self.store = store
+        self.opening = opening
+        self.onFinish = onFinish
+        guest = found
+        shareRole = found.role
+        share = ShareHostModel(console: nil, availability: .available)
     }
 
     // MARK: - Fenêtre
@@ -335,7 +383,7 @@ final class SessionController: NSObject, ObservableObject {
             window.appearance = NSAppearance(named: .darkAqua)
             window.collectionBehavior = [.fullScreenAuxiliary, .managed]
         }
-        window.title = host.name
+        window.title = title
         window.tabbingMode = .disallowed
         window.isRestorable = false
         window.isReleasedWhenClosed = false
@@ -618,7 +666,7 @@ final class SessionController: NSObject, ObservableObject {
     /// Une fenêtre de plus, plein écran sur un autre écran de ce Mac.
     @discardableResult
     private func addSurface(for screen: NSScreen) -> ScreenSurface {
-        let surface = ScreenSurface(screen: screen, title: host.name) { [weak self] in
+        let surface = ScreenSurface(screen: screen, title: title) { [weak self] in
             guard let self, self.phase != .ended else { return }
             self.end()
         }
@@ -905,6 +953,10 @@ final class SessionController: NSObject, ObservableObject {
     }
 
     private func activatePadFocus() {
+        if isGuest {
+            if padFocus == 0, canToggleFullScreen { toggleFullScreen() } else { end() }
+            return
+        }
         switch padFocus {
         case 0:
             // Profil suivant (Jeu → Bureau → Max).
@@ -927,7 +979,8 @@ final class SessionController: NSObject, ObservableObject {
     /// direct, ou relance l'image si le 4:4:4, le format ou le transport
     /// changent (une seconde environ) ; le repli de la session repart de zéro.
     func select(_ profile: Profile) {
-        guard profile != host.settings.profile else { return }
+        // Un invité ne change rien chez l'hôte : ni profil, ni réglages.
+        guard !isGuest, profile != host.settings.profile else { return }
         commit { $0.settings.apply(profile) }
         // Multi-écrans : le nombre d'écrans suit le profil tout de suite (le
         // cœur refait la session s'il change).
@@ -965,8 +1018,9 @@ final class SessionController: NSObject, ObservableObject {
         var request = devices.request
         // Une session de plus : sa fenêtre, cadre et mode, règle du cœur.
         if !isFirst { extraWindow = SessionEngine.extraSessionWindow(request) }
-        let plan = SessionEngine.sessionPlan(request, profile: settings.profile?.rawValue,
-                                             virtualDisplay: settings.display != .physical, codec: settings.codec)
+        // Un invité n'a qu'un écran : celui de l'hôte, sans écran virtuel ni plan.
+        let plan = isGuest ? nil : SessionEngine.sessionPlan(request, profile: settings.profile?.rawValue,
+                                                             virtualDisplay: settings.display != .physical, codec: settings.codec)
         let primary = plan != nil ? devices.screens.first : nil
         deviceScreens = devices.screens
         expectedScreens = plan?.count ?? 1
@@ -981,7 +1035,9 @@ final class SessionController: NSObject, ObservableObject {
                 addSurface(for: deviceScreens[p.device])
             }
         }
-        guard let password = store.password(for: host) else {
+        // Un invité n'a pas de compte : le code a suffi.
+        let password = isGuest ? "" : store.password(for: host)
+        guard let password else {
             fail(String(localized: "mot de passe introuvable dans le Trousseau"))
             return
         }
@@ -1045,8 +1101,13 @@ final class SessionController: NSObject, ObservableObject {
             KyberLog.app.notice("ordinateur : \(game ? "jeu en plein écran" : "pas de jeu en plein écran", privacy: .public)")
             self.pcGame = game
         }
+        // KyberNow Share : la liste des invités (hôte), le rôle et la fin (invité).
+        engine.onGuests = { [weak self] in self?.share.heartbeat($0) }
+        engine.onShareRole = { [weak self] role, previous in self?.shareRoleChanged(role, previous: previous) }
+        engine.onShareEnd = { [weak self] _, text in self?.shareEnded(text) }
         self.engine = engine
         syncEngineViews()
+        if !isGuest { share.setConsole(store.console(for: host)) }
 
         var console = host.address
         #if DEBUG
@@ -1055,17 +1116,23 @@ final class SessionController: NSObject, ObservableObject {
         // ne route (RFC 5737) : jamais une Station, elle échoue au bout de 5 s.
         if AppModel.demo { console = "192.0.2.1" }
         #endif
-        var params = SessionEngine.Params(
-            host: console, consolePort: host.consolePort, username: host.username, password: password,
-            consoleFingerprint: host.consoleFingerprint,
-            mode: SessionEngine.Mode(width: mode.width, height: mode.height, refresh: mode.refresh),
-            audioChannels: settings.audio.channels, virtualDisplay: virtualDisplay, settings: engineSettings
-        )
+        var params: SessionEngine.Params
+        if let guest {
+            // Un invité : la Station qui a accepté le code, sans compte ni écran virtuel.
+            params = SessionEngine.Params(guest: guest, audioChannels: settings.audio.channels, settings: engineSettings)
+        } else {
+            params = SessionEngine.Params(
+                host: console, consolePort: host.consolePort, username: host.username, password: password,
+                consoleFingerprint: host.consoleFingerprint,
+                mode: SessionEngine.Mode(width: mode.width, height: mode.height, refresh: mode.refresh),
+                audioChannels: settings.audio.channels, virtualDisplay: virtualDisplay, settings: engineSettings
+            )
+            params.clipboard = settings.clipboard
+            params.screens = request
+        }
         params.autoReconnect = settings.autoReconnect
         params.gamepadAsXbox360 = settings.gamepad == .xbox360
-        params.clipboard = settings.clipboard
         params.vsync = settings.vsync
-        params.screens = request
         // Inscrite au registre des sessions du cœur dès son départ (plusieurs ordinateurs).
         params.focusName = host.name
         KyberLog.app.notice("session : \(mode.width)×\(mode.height) à \(mode.refresh) Hz, son \(settings.audio.channels) canaux, \(settings.consoleProfile, privacy: .public)")
@@ -1135,6 +1202,12 @@ final class SessionController: NSObject, ObservableObject {
             // La capsule de la connexion reste ; `ended` en dit la raison
             // (« La connexion a échoué »), comme sur Windows et Linux.
             if revealedAt == nil { break }
+            // Un invité dont l'hôte a arrêté ou retiré le partage : la raison
+            // reste à l'écran (jamais « Reprendre la main »), pas de passage qui se referme.
+            if isGuest, let reason = shareEndText {
+                fail(reason)
+                return
+            }
             // Fin demandée par la console (ou connexion perdue sans reprise) :
             // le passage se referme comme pour une fin voulue.
             end()
@@ -1158,6 +1231,23 @@ final class SessionController: NSObject, ObservableObject {
             // jamais préparée), rien à dire des écrans ni du son sur l'accueil.
             if report != nil { onReport?(host, closing) }
         }
+    }
+
+    // MARK: - KyberNow Share
+
+    /// L'hôte a changé le rôle de l'invité (« Vous pouvez jouer. ») ; au
+    /// départ (`previous` nil), le rôle seulement.
+    private func shareRoleChanged(_ role: ShareRole, previous: ShareRole?) {
+        shareRole = role
+        if let text = ShareText.roleNotice(role, previous: previous) {
+            showHint(.notice(text), after: 0, for: 4)
+        }
+    }
+
+    /// Fin par le partage : « {hôte} a arrêté le partage. », « {hôte} vous a
+    /// retiré du partage. » ; le texte vient du cœur. Dit avant `.ending`.
+    private func shareEnded(_ text: String) {
+        shareEndText = text
     }
 
     /// Les avis du cœur, en capsules.
@@ -1204,7 +1294,7 @@ final class SessionController: NSObject, ObservableObject {
             self.screenCheck = nil
             // Le cœur reçoit les écrans à jour : il refait la session si le
             // nombre ou la disposition change (multi-écrans).
-            if self.isLive, let request = self.refreshDeviceScreens() {
+            if self.isLive, !self.isGuest, let request = self.refreshDeviceScreens() {
                 self.updateExpectedScreens()
                 self.engine?.setScreens(request)
             }
@@ -1338,7 +1428,8 @@ final class SessionController: NSObject, ObservableObject {
         extraSurfaces.forEach(closeSurface)
         // La dernière image : gardée pour l'accueil, et figée sous le passage qui se referme.
         let last = engine?.snapshot(maxWidth: 1600)
-        if let last { store.imagery.saveLast(last, for: host) }
+        // Un invité ne laisse rien sur cet appareil : ni dernière image, ni statistiques.
+        if let last, !isGuest { store.imagery.saveLast(last, for: host) }
         recordSession()
         // Les moitiés se referment, puis la fenêtre se ferme tout de suite ; la
         // console vérifie la remise en état en arrière-plan (onReport).
@@ -1368,7 +1459,7 @@ final class SessionController: NSObject, ObservableObject {
     /// la latence (le cœur les donne aussi à la console), durée, mode, format
     /// et débit demandés ; gardée si elle a duré au moins 3 s.
     private func recordSession() {
-        guard let revealedAt else { return }
+        guard let revealedAt, !isGuest else { return }
         let m = streamMode
         let latency = engine?.sessionLatency, codec = host.settings.codec, mbps = sessionMbps, screens = screenCount
         commit { $0.recordSession(start: revealedAt, latency: latency, width: m.width, height: m.height, refresh: m.refresh,
@@ -1518,6 +1609,8 @@ final class SessionController: NSObject, ObservableObject {
     /// fenêtre de session sans ordinateur derrière, à l'étape demandée.
     func demo(_ screen: String) {
         openWindow()
+        // KyberNow Share : le partage se joue ici, sans Station.
+        share.demo = true
         modeLabel = "2560 × 1440 · 120 Hz"
         switch screen {
         case "failed":
@@ -1565,6 +1658,49 @@ final class SessionController: NSObject, ObservableObject {
             }
         }
         RunLoop.main.add(timer, forMode: .common)
+    }
+
+    /// Démonstration sans fenêtre : la session « en image », sa barre ouverte,
+    /// pour la dessiner dans un PNG (`bar-render`, SharePanel.swift) sans rien
+    /// ouvrir à l'écran.
+    func demoHeadless() {
+        share.demo = true
+        phase = .streaming
+        revealedAt = Date()
+        modeLabel = "2560 × 1440 · 120 Hz"
+        var s = VideoStats()
+        s.latencyMs = 11.8
+        s.fps = 120
+        s.mbps = 80
+        s.width = 2560
+        s.height = 1440
+        s.format = "4:2:0 8 bits"
+        stats = s
+        latencyHistory = (0..<40).map { 11 + Double($0 % 7) * 0.35 }
+        setBar(true)
+    }
+
+    /// Démonstration : la session d'un invité (sans Station), à l'étape demandée
+    /// (`-demoGuest spectator|player|player_kbm`).
+    func demoGuest(role: ShareRole) {
+        demo("session")
+        shareRole = role
+    }
+
+    /// Démonstration : l'hôte change le rôle de l'invité.
+    func demoRoleChanged(_ role: ShareRole) {
+        guard isGuest else { return }
+        let previous = shareRole
+        shareRoleChanged(role, previous: previous)
+    }
+
+    /// Démonstration : l'hôte arrête le partage ou retire l'invité.
+    func demoShareEnded(removed: Bool) {
+        guard isGuest, isLive else { return }
+        let host = guest?.host ?? "Léa"
+        shareEnded(removed ? String(localized: "\(host) vous a retiré du partage.") : String(localized: "\(host) a arrêté le partage."))
+        endedByComputer = true
+        fail(shareEndText ?? "")
     }
 
     /// Démonstration : fin venue de l'ordinateur (Admin, un autre appareil),

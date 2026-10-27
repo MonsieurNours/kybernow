@@ -244,6 +244,7 @@ private struct AddressTab: View {
 
 private struct LinkTab: View {
     let found: (Candidate) -> Void
+    @EnvironmentObject var app: AppModel
     @StateObject private var scanner = QRScanner()
     @State private var link = ""
     @State private var invalid = false
@@ -293,9 +294,16 @@ private struct LinkTab: View {
         }
         .onAppear {
             scanner.onCode = { code in
-                if let c = PairingLink.parse(code) {
+                switch LinkKind.parse(code) {
+                case let .computer(c)?:
                     scanner.stop()
                     found(c)
+                case let .join(share)?:
+                    // Le QR code d'un partage (KyberNow Share) : l'écran « Rejoindre » prend le relais.
+                    scanner.stop()
+                    app.join(fromAddSheet: share)
+                case nil:
+                    break
                 }
             }
             scanner.start()
@@ -304,7 +312,11 @@ private struct LinkTab: View {
     }
 
     private func useLink() {
-        if let c = PairingLink.parse(link) { found(c) } else { invalid = true }
+        switch LinkKind.parse(link) {
+        case let .computer(c)?: found(c)
+        case let .join(share)?: app.join(fromAddSheet: share)
+        case nil: invalid = true
+        }
     }
 }
 

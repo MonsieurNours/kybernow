@@ -198,6 +198,23 @@ public final class SessionEngine: @unchecked Sendable {
         /// (`kn_focus_register`), qui dit ensuite si elle est active et si on
         /// l'entend. Nil : hors registre, une session seule (Apple TV, iPhone, iPad).
         public var focusName: String?
+        /// KyberNow Share : session d'invité (rejoint par un code ou un
+        /// lien), sans compte ni écran virtuel ; `host`, `consolePort` et
+        /// `consoleFingerprint` sont ceux de la Station qui a accepté le code.
+        public var guest: Guest?
+
+        /// Session d'invité : la Station trouvée par `Share.join`, ce que
+        /// l'appareil décode (le format de l'image est celui de l'hôte) et les
+        /// réglages de repli (transport ; format si l'image de l'hôte n'a pas
+        /// démarré). Pas de profil : un invité ne change rien chez l'hôte.
+        public init(guest found: ShareFound, audioChannels: Int, settings: Settings) {
+            self.init(host: found.target.host, consolePort: found.target.port, username: "", password: "",
+                      consoleFingerprint: found.target.fingerprint, mode: Mode(width: 0, height: 0, refresh: 0),
+                      audioChannels: audioChannels, virtualDisplay: false, settings: settings)
+            guest = Guest(found: found, capabilities: .current)
+            clipboard = false
+            autoReconnect = true
+        }
 
         public init(host: String, consolePort: UInt16, username: String, password: String, consoleFingerprint: String?, mode: Mode, audioChannels: Int, virtualDisplay: Bool, settings: Settings) {
             self.host = host
@@ -210,6 +227,12 @@ public final class SessionEngine: @unchecked Sendable {
             self.virtualDisplay = virtualDisplay
             self.settings = settings
         }
+    }
+
+    /// Ce que la session d'un invité tient de « Rejoindre » (`Params.guest`).
+    public struct Guest: Sendable {
+        public let found: ShareFound
+        public let capabilities: DecoderCapabilities
     }
 
     /// Départ refusé avant toute connexion.
@@ -268,6 +291,15 @@ public final class SessionEngine: @unchecked Sendable {
     public var onScreens: (([StreamScreen], [Int]) -> Void)?
     /// Multi-écrans : la première image d'un écran est décodée.
     public var onScreenImage: ((Int) -> Void)?
+    /// KyberNow Share, session d'hôte : le partage ouvert et ses invités
+    /// quand cela change (signe de vie) ; nil : plus de partage.
+    public var onGuests: ((ShareState?) -> Void)?
+    /// KyberNow Share, session d'invité : son rôle au départ (`previous`
+    /// nil, avant la connexion), puis quand l'hôte le change.
+    public var onShareRole: ((ShareRole, _ previous: ShareRole?) -> Void)?
+    /// KyberNow Share, session d'invité finie par le partage, juste avant
+    /// `.ending` : la raison à montrer (celle de la fin), jamais « Reprendre la main ».
+    public var onShareEnd: ((ShareEnd, String) -> Void)?
 
     public let view: StreamView
     private let lock = NSLock()
@@ -314,13 +346,21 @@ public final class SessionEngine: @unchecked Sendable {
         vsync = p.vsync
         lock.unlock()
         var json: [String: Any] = [
-            "console_host": p.host, "console_port": Int(p.consolePort), "user": p.username, "password": p.password,
+            "console_host": p.host, "console_port": Int(p.consolePort),
             "device": ConsoleClient.thisDevice,
-            "mode": ["width": p.mode.width, "height": p.mode.height, "refresh": p.mode.refresh],
             "audio_channels": p.audioChannels, "virtual_display": p.virtualDisplay,
             "settings": p.settings.json,
             "auto_reconnect": p.autoReconnect, "gamepad_xbox360": p.gamepadAsXbox360, "clipboard": p.clipboard,
         ]
+        if let guest = p.guest {
+            // Un invité n'a ni compte ni mode : la réponse de `Share.join`, telle quelle.
+            let caps = guest.capabilities
+            json["guest"] = ["joined": guest.found.joined, "capabilities": ["hevc": caps.hevc, "hevc444": caps.hevc444, "av1": caps.av1]]
+        } else {
+            json["user"] = p.username
+            json["password"] = p.password
+            json["mode"] = ["width": p.mode.width, "height": p.mode.height, "refresh": p.mode.refresh]
+        }
         if let fp = p.consoleFingerprint { json["console_fingerprint"] = fp }
         if let screens = p.screens { json["screens"] = screens.json }
         var recovery: [String: Any] = ["watch_image": true]
@@ -389,6 +429,23 @@ public final class SessionEngine: @unchecked Sendable {
             }
             let notCreated = (0..<Int(missingCount)).map { Int(missing![$0]) }
             SessionEngine.from(ud).screensTaken(screens, notCreated)
+        }
+        platform.on_guests = { ud, share in
+            let state = ShareState(json: share.map { String(cString: $0) })
+            let me = SessionEngine.from(ud)
+            DispatchQueue.main.async { me.onGuests?(state) }
+        }
+        platform.on_share_role = { ud, role, previous in
+            guard let role = ShareRole(code: role) else { return }
+            let me = SessionEngine.from(ud)
+            let before = ShareRole(code: previous)
+            DispatchQueue.main.async { me.onShareRole?(role, before) }
+        }
+        platform.on_share_end = { ud, end, text in
+            let me = SessionEngine.from(ud)
+            let kind = ShareEnd(code: end)
+            let reason = text.map { String(cString: $0) } ?? ""
+            DispatchQueue.main.async { me.onShareEnd?(kind, reason) }
         }
 
         var error: UnsafeMutablePointer<CChar>?

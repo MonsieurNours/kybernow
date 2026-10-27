@@ -152,6 +152,11 @@ private struct PassageCapsule: View {
                     .accessibilityElement(children: .combine)
                 } else {
                     VStack(alignment: .leading, spacing: 7) {
+                        // Un invité : les mêmes étapes, titrées « Invité sur {nom} ».
+                        if session.isGuest {
+                            Text(session.title).font(Theme.sans(16, .semibold)).foregroundStyle(Theme.text).lineLimit(1)
+                                .padding(.bottom, 3)
+                        }
                         step(0, session.expectedScreens > 1 ? String(localized: "Préparation des écrans") : String(localized: "Préparation de l'écran"))
                         step(1, String(localized: "Connexion"))
                         step(2, String(localized: "Premières images"))
@@ -167,7 +172,12 @@ private struct PassageCapsule: View {
                 }
             case .failed:
                 if case let .failed(message) = session.phase {
-                    lines(title: String(localized: "La connexion a échoué"), sub: message.prefix(1).uppercased() + message.dropFirst(), warn: true)
+                    if session.shareEndText != nil {
+                        // Fin par le partage : « {hôte} a arrêté le partage. », seule, sans « Reprendre la main ».
+                        lines(title: message, sub: "")
+                    } else {
+                        lines(title: String(localized: "La connexion a échoué"), sub: message.prefix(1).uppercased() + message.dropFirst(), warn: true)
+                    }
                 }
                 // Une session suivante (ou une autre encore ouverte) : « Fermer »
                 // ferme sa fenêtre, les autres sessions continuent (docs/link-ui.md).
@@ -179,7 +189,12 @@ private struct PassageCapsule: View {
                         .buttonStyle(PrimaryButton(height: 40))
                 }
             case .closing:
-                lines(title: String(localized: "À bientôt"), sub: String(localized: "\(name) retrouve ses écrans et son son."))
+                // Un invité n'a rien changé chez l'hôte : rien à rendre à l'ordinateur.
+                if session.isGuest {
+                    lines(title: String(localized: "À bientôt"), sub: "")
+                } else {
+                    lines(title: String(localized: "À bientôt"), sub: String(localized: "\(name) retrouve ses écrans et son son."))
+                }
             case .hidden:
                 EmptyView()
             }
@@ -413,14 +428,9 @@ private struct SessionBar: View {
         }
     }
 
-    private func row(compact: Bool) -> some View {
-        HStack(spacing: 6) {
-            Mark(size: 22, level: .lit)
-            Text(session.host.name).font(Theme.sans(14, .semibold)).foregroundStyle(Theme.text).lineLimit(1)
-                .padding(.leading, 6).padding(.trailing, 8)
-            ComputersMenu(session: session, store: AppModel.shared.store, sessions: AppModel.shared.sessions, compact: compact)
-            divider
-            Button { session.toggleStatsPanel() } label: {
+    /// Les mesures en direct, qui ouvrent le panneau des statistiques.
+    private func statsButton(compact: Bool) -> some View {
+        Button { session.toggleStatsPanel() } label: {
             HStack(spacing: 10) {
                 if let ms = session.stats?.latencyMs {
                     LitNumber(text: Moment.ms(ms))
@@ -440,10 +450,82 @@ private struct SessionBar: View {
             .background(session.statsPanel ? Theme.accentSoft : .clear, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Theme.accentLine.opacity(session.statsPanel ? 1 : 0)))
             .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(session.statsPanel ? "Fermer les statistiques (⌃⌥⌘S)" : "Statistiques (⌃⌥⌘S)")
+        .accessibilityLabel("Statistiques")
+    }
+
+    /// Barre réduite d'un invité (docs/link-ui.md, « Partage ») : son rôle,
+    /// « Quitter le partage », les mesures et le son ; la souris seulement si
+    /// l'hôte lui a donné le clavier et la souris ; ni profil ni réglages.
+    private func guestRow(compact: Bool) -> some View {
+        let role = session.shareRole
+        return HStack(spacing: 6) {
+            Mark(size: 22, level: .lit)
+            Text(session.title).font(Theme.sans(14, .semibold)).foregroundStyle(Theme.text).lineLimit(1)
+                .padding(.leading, 6).padding(.trailing, 8)
+            divider
+            chip(icon: role.plays ? "game-controller" : "eye", text: ShareText.role(role), tint: role.plays ? Theme.accent : Theme.text2, compact: compact)
+            statsButton(compact: compact)
+            divider
+            keepSound(compact: compact)
+            if role.keyboardAndMouse {
+                GlassMenu(items: MouseChoice.allCases.map { choice in
+                    .init(id: "\(choice)", title: choice.label, checked: choice == session.host.settings.mouse) { session.setMouse(choice) }
+                }) {
+                    chip(icon: session.mouseCaptured ? "crosshair" : "cursor", text: mouseLabel, caret: true, compact: compact)
+                }
+                .help("Souris : Auto passe en souris des jeux quand un jeu est en plein écran sur l'ordinateur (⌃⌥⌘M bascule)")
+            }
+            divider
+            if session.canToggleFullScreen {
+                Button { session.toggleFullScreen() } label: {
+                    Icon("corners-out", size: 16, bold: true)
+                        .foregroundStyle(Theme.text2)
+                        .frame(width: 38, height: 34)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Plein écran (⌃⌥⌘F)")
+                .accessibilityLabel("Plein écran")
+                .overlay(ring(0))
+            }
+            Button { session.end() } label: {
+                HStack(spacing: 8) {
+                    Icon("power", size: 15, bold: true)
+                    Text(ShareText.leave).lineLimit(1).fixedSize()
+                }
+                .font(Theme.sans(13, .semibold))
+                .foregroundStyle(Theme.dangerText)
+                .padding(.horizontal, 14)
+                .frame(height: 36)
+                .background(Theme.danger.opacity(0.14), in: RoundedRectangle(cornerRadius: 9))
+                .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Theme.danger.opacity(0.4)))
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help(session.statsPanel ? "Fermer les statistiques (⌃⌥⌘S)" : "Statistiques (⌃⌥⌘S)")
-            .accessibilityLabel("Statistiques")
+            .help(ShareText.leave + " (⌃⌥⌘D)")
+            .overlay(ring(session.padItems - 1))
+        }
+        .padding(.leading, 14)
+        .padding(.trailing, 8)
+        .fixedSize()
+    }
+
+    @ViewBuilder private func row(compact: Bool) -> some View {
+        if session.isGuest { guestRow(compact: compact) } else { hostRow(compact: compact) }
+    }
+
+    private func hostRow(compact: Bool) -> some View {
+        HStack(spacing: 6) {
+            Mark(size: 22, level: .lit)
+            Text(session.title).font(Theme.sans(14, .semibold)).foregroundStyle(Theme.text).lineLimit(1)
+                .padding(.leading, 6).padding(.trailing, 8)
+            ComputersMenu(session: session, store: AppModel.shared.store, sessions: AppModel.shared.sessions, compact: compact)
+            ShareBarButton(session: session, share: session.share, compact: compact)
+            divider
+            statsButton(compact: compact)
             divider
             GlassMenu(items: Profile.allCases.map { profile in
                 .init(id: profile.rawValue, title: profile.label, checked: profile == session.host.settings.profile) { session.select(profile) }
