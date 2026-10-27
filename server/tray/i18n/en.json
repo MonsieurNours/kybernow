@@ -182,6 +182,7 @@
       "role": {
         "spectator": "{name} · Spectator",
         "player": "{name} · Player",
+        "kbm": "{name} · Keyboard and mouse",
         "player_kbm": "{name} · Player, keyboard and mouse"
       },
       "since": {
@@ -189,10 +190,10 @@
         "minutes": "for {m} min",
         "hours": "for {h} h {mm} min"
       },
-      "play": "Let play",
+      "givePads": "Give controllers",
+      "takePads": "Take back controllers",
       "giveKbm": "Give keyboard and mouse",
       "takeKbm": "Take back keyboard and mouse",
-      "watch": "Watch only",
       "remove": "Remove",
       "newCode": "New code",
       "stop": "Stop sharing",

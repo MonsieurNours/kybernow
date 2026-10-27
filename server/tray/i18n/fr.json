@@ -182,6 +182,7 @@
       "role": {
         "spectator": "{name} · Spectateur",
         "player": "{name} · Joueur",
+        "kbm": "{name} · Clavier et souris",
         "player_kbm": "{name} · Joueur, clavier et souris"
       },
       "since": {
@@ -189,10 +190,10 @@
         "minutes": "depuis {m} min",
         "hours": "depuis {h} h {mm}"
       },
-      "play": "Faire jouer",
+      "givePads": "Donner les manettes",
+      "takePads": "Reprendre les manettes",
       "giveKbm": "Donner le clavier et la souris",
       "takeKbm": "Reprendre le clavier et la souris",
-      "watch": "Faire regarder",
       "remove": "Retirer",
       "newCode": "Nouveau code",
       "stop": "Arrêter le partage",

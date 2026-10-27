@@ -175,12 +175,17 @@ function appName(app) {
   const name = t(`share.apps.${app}`)
   return name.startsWith('share.') ? app : name
 }
-// Ce que l'hôte peut faire d'un invité, selon ses droits : « Faire regarder »
-// pour un joueur, qu'il ait ou non le clavier et la souris (docs/link-ui.md).
+// Le rôle de deux droits : les manettes, le clavier et la souris.
+const roleOf = (pads, kbm) => (pads ? (kbm ? 'player_kbm' : 'player') : kbm ? 'kbm' : 'spectator')
+// Ce que l'hôte peut faire d'un invité (docs/link-ui.md) : deux droits
+// indépendants, chacun donné ou repris sans toucher à l'autre.
 function moves(g) {
-  if (g.role === 'spectator') return [{ role: 'player', label: t('share.play') }]
-  const kbm = g.role === 'player' ? { role: 'player_kbm', label: t('share.giveKbm') } : { role: 'player', label: t('share.takeKbm') }
-  return [kbm, { role: 'spectator', label: t('share.watch') }]
+  const pads = g.role === 'player' || g.role === 'player_kbm'
+  const kbm = g.role === 'kbm' || g.role === 'player_kbm'
+  return [
+    { role: roleOf(!pads, kbm), label: t(pads ? 'share.takePads' : 'share.givePads') },
+    { role: roleOf(pads, !kbm), label: t(kbm ? 'share.takeKbm' : 'share.giveKbm') },
+  ]
 }
 const pageHead = (title, sub) => `<header class="page-head"><button class="back" data-page="main" aria-label="${esc(t('share.back'))}">${icon('back')}</button>
   <span class="htext"><span class="ptitle">${esc(title)}</span>${sub ? `<span class="sub">${esc(sub)}</span>` : ''}</span></header>`

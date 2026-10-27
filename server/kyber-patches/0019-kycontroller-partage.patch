@@ -12,7 +12,7 @@ index 8c26cb3..d3ed26d 100644
      }
  }
 diff --git a/kycontroller/src/auth/jwt.rs b/kycontroller/src/auth/jwt.rs
-index 1195c56..7574163 100644
+index 1195c56..77fa2f1 100644
 --- a/kycontroller/src/auth/jwt.rs
 +++ b/kycontroller/src/auth/jwt.rs
 @@ -60,7 +60,7 @@ use std::{fs::File, io::Read};
@@ -72,7 +72,7 @@ index 1195c56..7574163 100644
          })
      }
  }
-@@ -247,3 +277,78 @@ impl From<JWTError> for Error {
+@@ -247,3 +277,90 @@ impl From<JWTError> for Error {
          }
      }
  }
@@ -125,6 +125,18 @@ index 1195c56..7574163 100644
 +    }
 +
 +    #[test]
++    fn keyboard_and_mouse_without_gamepads_is_a_role() {
++        let session = authenticate(serde_json::json!({
++            "sub": "kn-guest-1",
++            "kn_role": "kbm",
++            "kn_display": 7,
++            "kn_rev": 2,
++        }))
++        .unwrap();
++        assert_eq!(session.share.map(|s| s.role), Some(ShareRole::Kbm));
++    }
++
++    #[test]
 +    fn an_unknown_role_or_a_role_without_display_is_refused() {
 +        let unknown = authenticate(serde_json::json!({
 +            "sub": "kn-guest-1",
@@ -152,10 +164,10 @@ index 1195c56..7574163 100644
 +    }
 +}
 diff --git a/kycontroller/src/auth/mod.rs b/kycontroller/src/auth/mod.rs
-index b2b5071..2bdbfa0 100644
+index b2b5071..9653270 100644
 --- a/kycontroller/src/auth/mod.rs
 +++ b/kycontroller/src/auth/mod.rs
-@@ -116,6 +116,33 @@ pub struct Session {
+@@ -116,6 +116,35 @@ pub struct Session {
      pub sub: Option<String>,
      /// Session expiration time
      pub expiration: Option<OffsetDateTime>,
@@ -175,6 +187,8 @@ index b2b5071..2bdbfa0 100644
 +    Spectator,
 +    /// Gamepads.
 +    Player,
++    /// Keyboard and mouse, without gamepads.
++    Kbm,
 +    /// Gamepads, keyboard and mouse.
 +    PlayerKbm,
 +}
@@ -340,10 +354,10 @@ index 799f1e3..0ef2469 100644
          if let Err(err) = ret {
 diff --git a/kycontroller/src/kybernow.rs b/kycontroller/src/kybernow.rs
 new file mode 100644
-index 0000000..6a4e440
+index 0000000..4c9696c
 --- /dev/null
 +++ b/kycontroller/src/kybernow.rs
-@@ -0,0 +1,622 @@
+@@ -0,0 +1,631 @@
 +// KyberNow: KyberNow Share, local sharing. KyberNow Admin, which holds the
 +// JWT key, gives each guest a short token (`kn_role`, `kn_display`,
 +// `kn_rev`) renewed through `/session/renew`, and drives Kyber through the
@@ -466,11 +480,12 @@ index 0000000..6a4e440
 +    }
 +}
 +
-+/// The input rights of a role: never the clipboard for a guest.
++/// The input rights of a role: gamepads and keyboard-and-mouse are two
++/// independent rights; never the clipboard for a guest.
 +pub(crate) fn role_rights(role: ShareRole) -> InputRights {
 +    InputRights {
-+        keyboard_mouse: role == ShareRole::PlayerKbm,
-+        gamepads: role != ShareRole::Spectator,
++        keyboard_mouse: matches!(role, ShareRole::Kbm | ShareRole::PlayerKbm),
++        gamepads: matches!(role, ShareRole::Player | ShareRole::PlayerKbm),
 +        clipboard: false,
 +    }
 +}
@@ -807,6 +822,14 @@ index 0000000..6a4e440
 +            InputRights {
 +                keyboard_mouse: false,
 +                gamepads: true,
++                clipboard: false,
++            }
++        );
++        assert_eq!(
++            role_rights(ShareRole::Kbm),
++            InputRights {
++                keyboard_mouse: true,
++                gamepads: false,
 +                clipboard: false,
 +            }
 +        );

@@ -68,16 +68,22 @@
     return name.startsWith('share.') ? app : name
   }
 
+  /** Le rôle de deux droits : les manettes, le clavier et la souris. */
+  function roleOf(pads: boolean, kbm: boolean): ShareRole {
+    return pads ? (kbm ? 'player_kbm' : 'player') : kbm ? 'kbm' : 'spectator'
+  }
+
   /**
-   * Ce que l'hôte peut faire d'un invité, selon ses droits (docs/link-ui.md) : un spectateur « Faire jouer » ;
-   * un joueur, avec ou sans le clavier et la souris, « Faire regarder » (retour en spectateur) à la place,
-   * puis « Donner » ou « Reprendre le clavier et la souris ».
+   * Ce que l'hôte peut faire d'un invité (docs/link-ui.md) : deux droits indépendants, chacun donné ou
+   * repris sans toucher à l'autre, « Donner » ou « Reprendre les manettes », puis « Donner » ou
+   * « Reprendre le clavier et la souris ».
    */
   function moves(g: ShareGuest): { label: string; role: ShareRole }[] {
-    if (g.role === 'spectator') return [{ label: t('share.play'), role: 'player' }]
+    const pads = g.role === 'player' || g.role === 'player_kbm'
+    const kbm = g.role === 'kbm' || g.role === 'player_kbm'
     return [
-      { label: t('share.watch'), role: 'spectator' },
-      g.role === 'player' ? { label: t('share.giveKbm'), role: 'player_kbm' } : { label: t('share.takeKbm'), role: 'player' },
+      { label: t(pads ? 'share.takePads' : 'share.givePads'), role: roleOf(!pads, kbm) },
+      { label: t(kbm ? 'share.takeKbm' : 'share.giveKbm'), role: roleOf(pads, !kbm) },
     ]
   }
 

@@ -359,9 +359,11 @@ async fn change_role(s: &AppState, id: &str, role: Role) -> ShareResult<Json<Val
         kyber_role(s, &change.guest).await;
         let g = &change.guest;
         tracing::info!("partage : {} passe de {} à {}", g.name, change.before.as_str(), role.as_str());
-        if role.plays() && !change.before.plays() {
+        // « joue avec vous » dès qu'un droit est donné (manettes, ou clavier
+        // et souris) ; « regarde votre écran » quand il n'en reste aucun.
+        if change.before.gains_in(role) {
             s.activity.event("info", Msg::new("events.sharePlaying").with("name", g.name.as_str()));
-        } else if !role.plays() && change.before.plays() {
+        } else if !role.plays() {
             s.activity.event("info", Msg::new("events.shareWatching").with("name", g.name.as_str()));
         }
     }
@@ -971,6 +973,37 @@ mod tests {
         assert_eq!(ended["end"], "stopped");
         assert!(ended["token"].is_null());
         assert_eq!(texts(s)[0], "Partage arrêté");
+    }
+
+    #[tokio::test]
+    async fn manettes_et_clavier_souris_donnes_l_un_sans_l_autre() {
+        let st = station();
+        let s = &st.s;
+        let Json(opened) = local_open(State(s.clone()), peer(5), admin(s), Json(LocalOpenBody { display: kyber_display_id("\\\\.\\DISPLAY1") })).await.ok().unwrap();
+        let code = opened["code"].as_str().unwrap();
+        let (_, joined) = body(join(State(s.clone()), peer(20), join_body(code, "Léa", "ipad", "ios")).await).await;
+        let (guest, secret) = (joined["guest"].as_str().unwrap().to_string(), joined["secret"].as_str().unwrap().to_string());
+        let set = |r: &'static str| local_guest_role(State(s.clone()), peer(5), admin(s), Path(guest.clone()), Json(serde_json::from_value(json!({ "role": r })).unwrap()));
+        let token_role = || async {
+            let (_, b) = body(beat(State(s.clone()), guest_headers(&secret), Json(GuestBody { guest: guest.clone() })).await).await;
+            (b["role"].as_str().unwrap().to_string(), claims(b["token"].as_str().unwrap())["kn_role"].as_str().unwrap().to_string())
+        };
+        // Le clavier et la souris d'abord, sans les manettes.
+        let Json(v) = set("kbm").await.ok().unwrap();
+        assert_eq!(v["guests"][0]["role"], "kbm");
+        assert_eq!(token_role().await, ("kbm".to_string(), "kbm".to_string()));
+        assert_eq!(texts(s)[0], "Léa joue avec vous");
+        // Puis les manettes : un droit de plus, le fil le dit encore.
+        let _ = set("player_kbm").await.ok().unwrap();
+        assert_eq!(texts(s)[0], "Léa joue avec vous");
+        assert_eq!(texts(s)[1], "Léa joue avec vous");
+        // Le clavier et la souris repris : il reste les manettes, rien au fil.
+        let _ = set("player").await.ok().unwrap();
+        assert_eq!(texts(s).iter().filter(|t| t.starts_with("Léa")).count(), 3);
+        assert_eq!(token_role().await.1, "player");
+        // Plus aucun droit.
+        let _ = set("spectator").await.ok().unwrap();
+        assert_eq!(texts(s)[0], "Léa regarde votre écran");
     }
 
     #[tokio::test]
