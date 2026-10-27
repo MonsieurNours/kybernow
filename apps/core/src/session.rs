@@ -735,6 +735,38 @@ fn beat_outcome(r: Result<ShareBeat, ConsoleError>, since_ok: Duration) -> BeatO
     }
 }
 
+/// Un changement de qualité d'image d'un invité : `call` le demande à Admin ;
+/// refusé parce que trop rapproché (plus d'un par seconde), il est réessayé
+/// une fois après le délai (`sleep`), si `still_wanted` (session en cours, et
+/// rien de plus récent demandé). Rien n'est rendu à l'app en cas d'échec :
+/// l'image reçue reste dite par le signe de vie.
+fn ask_quality(
+    mut call: impl FnMut() -> Result<ShareImage, crate::console::QualityRefusal>,
+    mut sleep: impl FnMut(Duration),
+    still_wanted: impl Fn() -> bool,
+) -> Option<ShareImage> {
+    use crate::console::QualityRefusal;
+    for attempt in 0..2 {
+        match call() {
+            Ok(image) => return Some(image),
+            Err(QualityRefusal::TooSoon(wait)) if attempt == 0 => {
+                info!("qualité d'image : trop tôt, nouvel essai dans {} s", wait.as_secs());
+                sleep(wait);
+                if !still_wanted() {
+                    info!("qualité d'image : une autre a été demandée entre-temps");
+                    return None;
+                }
+            }
+            Err(QualityRefusal::TooSoon(_)) => warn!("qualité d'image pas changée : toujours trop tôt"),
+            Err(QualityRefusal::Failed(e)) => {
+                warn!("qualité d'image pas changée : {}", e.text(Lang::Fr));
+                return None;
+            }
+        }
+    }
+    None
+}
+
 /// L'écran d'un invité dans la liste de Kyber : celui que la Station donne
 /// (`id`), ou le seul écran utilisable que Kyber annonce (il ne laisse à un
 /// invité que l'écran du partage).
@@ -1291,6 +1323,8 @@ struct Worker {
     share_reconnecting: bool,
     /// L'image que l'invité reçoit, d'après la Station.
     share_image: Option<ShareImage>,
+    /// Changements de qualité demandés (le dernier gagne).
+    quality_asked: Arc<std::sync::atomic::AtomicU64>,
     /// Session d'hôte : le partage du dernier signe de vie.
     last_share: Option<ShareState>,
 }
@@ -1408,6 +1442,7 @@ impl Worker {
             stream_input: false,
             share_reconnecting: false,
             share_image: None,
+            quality_asked: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             last_share: None,
             guest,
         }
@@ -2012,6 +2047,11 @@ impl Worker {
             return;
         };
         info!("partage : qualité {} demandée", quality.as_str());
+        // Le dernier choix de l'invité gagne : une demande refusée (trop
+        // tôt) n'est réessayée que si aucune autre n'est venue entre-temps.
+        let ticket = self.quality_asked.fetch_add(1, Ordering::SeqCst) + 1;
+        let latest = self.quality_asked.clone();
+        let alive = self.alive.clone();
         let tx = self.tx.clone();
         let label = journal::current();
         std::thread::Builder::new()
@@ -2019,11 +2059,13 @@ impl Worker {
             .spawn(move || {
                 journal::resume(label);
                 // Avec « Auto », ce que l'appareil a mesuré à `join`.
-                match console.share_quality(&g.joined.guest, &g.joined.secret, quality, g.joined.auto.as_ref()) {
-                    Ok(image) => {
-                        let _ = tx.send(Msg::ShareImage(image));
-                    }
-                    Err(e) => warn!("qualité d'image pas changée : {}", e.text(Lang::Fr)),
+                let image = ask_quality(
+                    || console.share_quality_or_wait(&g.joined.guest, &g.joined.secret, quality, g.joined.auto.as_ref()),
+                    std::thread::sleep,
+                    || alive.load(Ordering::Relaxed) && latest.load(Ordering::SeqCst) == ticket,
+                );
+                if let Some(image) = image {
+                    let _ = tx.send(Msg::ShareImage(image));
                 }
             })
             .expect("fil de la qualité");
@@ -4154,6 +4196,59 @@ mod tests {
         let both = ShareBeat { display: Some(ShareDisplay { id: 4, width: 1920, height: 1080, refresh: 60 }), ..beat(ShareRole::Player) };
         assert!(w.on_share_beat(both).is_none());
         assert!(w.share_reconnecting && w.start_at.is_none() && w.wants_input());
+    }
+
+    #[test]
+    fn changement_de_qualite_trop_rapproche() {
+        use crate::console::QualityRefusal;
+        use std::cell::RefCell;
+        let image = || own(1280, 720, 30, share::ShareImageReason::Asked);
+        let too_soon = || Err(QualityRefusal::TooSoon(Duration::from_secs(1)));
+        // Refusé une fois : réessayé après le délai, l'image revient.
+        let answers = RefCell::new(vec![Ok(image()), too_soon()]);
+        let slept = RefCell::new(Vec::new());
+        let got = ask_quality(|| answers.borrow_mut().pop().unwrap(), |d| slept.borrow_mut().push(d), || true);
+        assert_eq!((got, slept.into_inner()), (Some(image()), vec![Duration::from_secs(1)]));
+        // Une autre qualité demandée pendant l'attente : celle-ci n'est pas réessayée.
+        let calls = RefCell::new(0);
+        let got = ask_quality(
+            || {
+                *calls.borrow_mut() += 1;
+                too_soon()
+            },
+            |_| {},
+            || false,
+        );
+        assert_eq!((got, calls.into_inner()), (None, 1));
+        // Encore trop tôt : une seule reprise, rien rendu à l'app.
+        let calls = RefCell::new(0);
+        let got = ask_quality(
+            || {
+                *calls.borrow_mut() += 1;
+                too_soon()
+            },
+            |_| {},
+            || true,
+        );
+        assert_eq!((got, calls.into_inner()), (None, 2));
+        // Un autre échec : pas de reprise.
+        let calls = RefCell::new(0);
+        let got = ask_quality(
+            || {
+                *calls.borrow_mut() += 1;
+                Err(QualityRefusal::Failed(ConsoleError::Network("hors ligne".into())))
+            },
+            |_| {},
+            || true,
+        );
+        assert_eq!((got, calls.into_inner()), (None, 1));
+        // Le dernier choix gagne : chaque demande prend son tour.
+        let (mut w, _) = guest(ShareRole::Spectator);
+        let port = w.params.console_port;
+        w.console = Some(Arc::new(Console::guest("127.0.0.1", port, None)));
+        w.ask_share_quality(ShareQuality::P2160_60);
+        w.ask_share_quality(ShareQuality::P720_30);
+        assert_eq!(w.quality_asked.load(Ordering::SeqCst), 2);
     }
 
     #[test]

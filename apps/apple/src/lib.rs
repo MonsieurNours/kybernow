@@ -1159,6 +1159,8 @@ pub unsafe extern "C" fn kn_session_restore_mode(s: *const KnSession) {
 /// KyberNow Share, session d'invité : la « Qualité de l'image » choisie
 /// (`KN_SHARE_QUALITY_*`), dite à la Station sans attendre ; Kyber relance
 /// l'image de l'invité seulement, l'image reçue arrive par `on_share_image`.
+/// Plus d'un changement par seconde : Admin refuse, le cœur réessaie une
+/// fois après son délai (seulement si rien de plus récent n'est demandé).
 /// `KN_ERROR` pour un code inconnu ; sans effet pour un hôte.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_session_set_share_quality(s: *const KnSession, quality: i32) -> i32 {

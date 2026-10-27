@@ -82,16 +82,19 @@ pub extern "C" fn kn_share_role_with_kbm(role_code: i32, kbm: bool) -> i32 {
 
 /// « Qualité de l'image » d'un invité (`kn_session_set_share_quality`,
 /// `kn_share_quality_label`) ; dans `request_json` de `kn_share_join`, le
-/// nom (`quality` : `auto`, `host`, `1080p60`, `720p30`).
+/// nom (`quality` : `auto`, `host`, `2160p60`, `1080p60`, `720p30`). Ordre
+/// des menus : Auto, comme l'hôte, 4K · 60 Hz, 1080p, 720p (les codes ne le
+/// suivent pas : 2160p60 est venu après).
 pub const KN_SHARE_QUALITY_AUTO: i32 = 0;
 pub const KN_SHARE_QUALITY_HOST: i32 = 1;
 pub const KN_SHARE_QUALITY_1080P60: i32 = 2;
 pub const KN_SHARE_QUALITY_720P30: i32 = 3;
+pub const KN_SHARE_QUALITY_2160P60: i32 = 4;
 
 // MARK: - Qualité de l'image
 
 /// Le libellé d'une qualité (`KN_SHARE_QUALITY_*`) dans la langue de l'app :
-/// « Auto », « Comme l'hôte », « 1080p · 60 Hz », « 720p · 30 Hz » ; nul
+/// « Auto », « Comme l'hôte », « 4K · 60 Hz », « 1080p · 60 Hz », « 720p · 30 Hz » ; nul
 /// pour un code inconnu.
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_share_quality_label(quality: i32) -> *mut c_char {
