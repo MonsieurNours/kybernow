@@ -20,7 +20,7 @@ Partager ouvre un panneau : un **code** à six chiffres (« 123 456 »), un **li
 ### Les invités
 
 - Un invité **arrive en spectateur** : il voit et entend, n'envoie rien.
-- Dans la liste, l'hôte peut **« Faire jouer »** un invité : ses manettes deviennent la manette suivante de Windows (une manette virtuelle à lui). Puis **« Donner le clavier et la souris »**, s'il le veut ; « Reprendre le clavier et la souris » les lui retire. « Retirer » le fait sortir du partage.
+- Dans la liste, l'hôte peut **« Faire jouer »** un invité : ses manettes deviennent la manette suivante de Windows (une manette virtuelle à lui). Puis **« Donner le clavier et la souris »**, s'il le veut ; « Reprendre le clavier et la souris » les lui retire. « Retirer » le fait sortir du partage ; il peut revenir avec le même code, « Nouveau code » l'en empêche (les invités déjà là restent).
 - **Quatre invités au plus.** Au-delà, le code est refusé avec la raison.
 - La Station impose ces droits : un spectateur n'a aucune entrée sur l'ordinateur, un joueur seulement ses manettes (et le clavier et la souris si l'hôte les lui a donnés), même si son appareil essayait d'envoyer autre chose.
 - Admin montre le partage (écran, invités, rôle de chacun), peut retirer un invité et arrêter le partage ; son fil le raconte (« Léa regarde votre écran », « Léa joue avec vous »).

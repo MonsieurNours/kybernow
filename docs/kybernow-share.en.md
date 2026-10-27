@@ -20,7 +20,7 @@ Sharing opens a panel: a six-digit **code** (“123 456”), a **link** and its 
 ### Guests
 
 - A guest **arrives as a spectator**: they see and hear, and send nothing.
-- In the list, the host can **“Let play”** a guest: their controllers become Windows' next controller (a virtual controller of their own). Then **“Give keyboard and mouse”**, if they want; “Take back keyboard and mouse” removes them. “Remove” makes them leave the share.
+- In the list, the host can **“Let play”** a guest: their controllers become Windows' next controller (a virtual controller of their own). Then **“Give keyboard and mouse”**, if they want; “Take back keyboard and mouse” removes them. “Remove” makes them leave the share; they can come back with the same code, which “New code” prevents (guests already there stay).
 - **Four guests at most.** Beyond that, the code is refused with the reason.
 - The Station enforces these rights: a spectator has no input on the computer, a player only their controllers (and the keyboard and mouse if the host gave them), even if their device tried to send something else.
 - Admin shows the share (display, guests, each one's role), can remove a guest and stop the share; its feed tells the story (“Léa is watching your screen”, “Léa is playing with you”).

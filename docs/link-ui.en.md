@@ -91,13 +91,13 @@ Contract: [kybernow-share.en.md](kybernow-share.en.md). Every Link app and the w
 | Actions on a guest | spectator: « Faire jouer »; player, with or without keyboard and mouse: « Faire regarder » (back to spectator) instead; then « Donner le clavier et la souris » or « Reprendre le clavier et la souris » (player only); « Retirer » | “Let play”; “Watch only”; “Give keyboard and mouse”; “Take back keyboard and mouse”; “Remove” |
 | New code | « Nouveau code » (guests already there stay) | “New code” |
 | End | « Arrêter le partage » (everyone leaves) | “Stop sharing” |
-| Limit | « Quatre invités au plus. » | “Four guests at most.” |
+| Limit | « Quatre invités au plus. », only when the four places are taken | “Four guests at most.” |
 | Station too old | « Le partage demande KyberNow Station 0.8.0 ou plus récente. » | “Sharing needs KyberNow Station 0.8.0 or later.” |
 | Sharing turned off on the computer | « Le partage est coupé sur cet ordinateur (Admin › Appareils Link). » | “Sharing is turned off on this computer (Admin › Link devices).” |
 
 Sharing impossible (Station too old, sharing turned off): “Share” dimmed; with a mouse, inactive with the reason as a tooltip; on touch and with a remote, it stays selectable and opens the panel reduced to the reason.
 
-An open share shows in the bar (a « 2 invités » / “2 guests” chip, which reopens the panel), in its always-visible part. Closing the session stops the share.
+An open share shows in the bar (a « 2 invités » / “2 guests” chip, from one guest on, never “0 guests”; it reopens the panel), in its always-visible part. In tile menus (Apple TV, TVs, living room, Deck, Android TV), the number is the subtitle of the “Share” tile, « Code et QR code » / “Code and QR code” while nobody is there. Closing the session stops the share.
 
 **The PC itself** (KyberNow Station: the icon's menu next to the clock, and Admin's home page): « Partager un écran… » / “Share a screen…”, then the choice of display (« Écran 1 — 3840 × 2160 », the main display first); the same panel (code, link, guests, actions), titled « Partage de l'écran 1 » / “Sharing display 1”. The PC stays usable as usual; no virtual display, no display switched off.
 
@@ -124,7 +124,9 @@ An open share shows in the bar (a « 2 invités » / “2 guests” chip, which 
 | Home screen, next to “Add a computer” | « Rejoindre avec un code » | “Join with a code” |
 | Screen | title « Rejoindre un partage »; help « Le code s'affiche chez la personne qui partage. »; « Votre prénom » (suggested: the device's name, remembered); button « Rejoindre » | “Join a share”; “The code is shown by the person sharing.”; “Your name”; “Join” |
 | With a camera (iPhone, iPad, Android phones and tablets) | at the top of the screen, the choice « Code » / « QR code »; a share's QR code read in “Add a computer › QR code” also leads here | “Code” / “QR code” |
-| Link | `kybernow://join…` (and the QR code) opens this screen, code and computer filled in; nothing is sent before “Join” | |
+| Link | `kybernow://join…` (and the QR code) opens this screen, code and computer filled in; nothing is sent before “Join”; unreadable link: « Ce lien de partage est illisible. » | “This share link cannot be read.” |
+| Incomplete code | « Le code a six chiffres. » | “The code has six digits.” |
+| Camera | denied: « KyberNow Link n'a pas accès à la caméra. Autorisez-la dans les Réglages, ou tapez le code. »; missing: « Pas de caméra disponible sur cet appareil. Tapez le code. » | “KyberNow Link can't access the camera. Allow it in Settings, or type the code.”; “No camera available on this device. Type the code.” |
 | Searching | « Recherche du partage… » | “Looking for the share…” |
 | Unknown code | « Aucun partage avec ce code sur le réseau. » | “No share with this code on your network.” |
 | Full | « Ce partage est complet (quatre invités au plus). » | “This share is full (four guests at most).” |
@@ -134,7 +136,7 @@ An open share shows in the bar (a « 2 invités » / “2 guests” chip, which 
 | Connecting | the connection's steps, titled « Invité sur {nom} » | “Guest on {name}” |
 | Bar (reduced) | what only touches the device (latency and statistics, sound, full screen if there is one); « Spectateur » or « Joueur »; « Quitter le partage »; the controller only as a player; keyboard, mouse and the keys menu only with keyboard and mouse; no profile, no computer settings, no “Computers”, no clipboard | “Spectator” or “Player”; “Leave” |
 | Rights changed | « Vous pouvez jouer. »; « Vous avez le clavier et la souris. »; « Le clavier et la souris sont repris. » (player with keyboard and mouse → player); made a spectator again: « Vous regardez de nouveau. » (a brief notice, instead of the others) | “You can play.”; “You have the keyboard and mouse.”; “The keyboard and mouse were taken back.”; “You are watching again.” |
-| End | « {hôte} a arrêté le partage. »; « {hôte} vous a retiré du partage. »; otherwise a failure's reason; never “Take back control” | “{host} stopped sharing.”; “{host} removed you from the share.” |
+| End | « {hôte} a arrêté le partage. »; « {hôte} vous a retiré du partage. »; otherwise a failure's reason; never “Take back control”; a guest's reconnection offers « Quitter le partage » (not « Se déconnecter ») | “{host} stopped sharing.”; “{host} removed you from the share.” |
 
 {host} is the host's name (the host device's name), or the computer's name for a share started from the PC. A guest is not added to the device's computers.
 
