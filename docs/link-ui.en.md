@@ -19,7 +19,7 @@ For the selected computer, in this order and nothing else:
 
 | Element | Français | English |
 |---|---|---|
-| State | « En ligne », « Hors ligne », « Recherche… » | “Online”, “Offline”, “Searching…” |
+| State | « En ligne », « Hors ligne », « Recherche… »; « Hors de chez vous » when the computer can only be reached through the relay ([relais.en.md](relais.en.md)) | “Online”, “Offline”, “Searching…”; “Away from home” |
 | Name | the computer's name | |
 | System | “Windows 11 Pro” (as the Station reports it) | |
 | Display, virtual display on, sized for this device | « Écran de 2560 × 1440 à 120 Hz, à la taille de cet écran » | “2560 × 1440 display at 120 Hz, sized for this screen” |
@@ -73,7 +73,7 @@ With touch (iPhone, iPad, Android outside the TV):
 
 ## Sharing (KyberNow Share)
 
-Contract: [kybernow-share.en.md](kybernow-share.en.md). Every Link app and the web client, the same texts everywhere; on the same network only for now.
+Contract: [kybernow-share.en.md](kybernow-share.en.md), and [relais.en.md](relais.en.md) away from home. Every Link app and the web client, the same texts everywhere.
 
 **The host, in their session**: « Partager » / “Share” in the bar (presented like the other menus of the app's bar, a share icon). It opens a panel:
 
@@ -84,8 +84,12 @@ Contract: [kybernow-share.en.md](kybernow-share.en.md). Every Link app and the w
 | Code, QR code | label « Code »; QR code of the apps' link (`link`, `kybernow://join…`), accessible label « QR code du partage » | “Code”; “QR code for the share” |
 | Link | « Copier le lien »: copies the web client's address (`web`); then « Lien copié. », or « Copie impossible : sélectionnez le lien à la main. » with the address to select; no copy without a useful clipboard (Apple TV, TVs, living room) | “Copy link”; “Link copied.”; “Could not copy: select the link by hand.” |
 | Help | « Sur le même réseau : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur. » | “On the same network: “Join with a code” in KyberNow Link, or this link in a browser.” |
+| Help, relay reached (`relay.state` `joined`) | « Sur le même réseau ou ailleurs : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur. Hors de chez vous, vous acceptez chaque invité. »; “Copy link” then copies the relay's link | “On the same network or elsewhere: “Join with a code” in KyberNow Link, or this link in a browser. Away from home, you accept each guest.” |
+| Relay unreachable (`relay.state` `unreachable`), under the same-network help | « Pas encore joignable hors de chez vous. » | “Not reachable away from home yet.” |
+| Requests (guests who came through the relay, `pending`), above the guests, only when there are some | title « Demandes »; « {prénom} demande à rejoindre », below « {app} · hors de chez vous »; buttons « Accepter » and « Refuser » | “Requests”; “{name} wants to join”, below “{app} · away from home”; “Accept” and “Decline” |
 | List | title « Invités »; none: « Personne pour l'instant. » | “Guests”; “Nobody yet.” |
 | A guest | « {prénom} · Spectateur » (no right), « {prénom} · Joueur » (controllers), « {prénom} · Clavier et souris », « {prénom} · Joueur, clavier et souris »; below, their app, their picture quality when it is not the host's (“1080p · 60 Hz”) and « depuis {durée} » | “{name} · Spectator”, “{name} · Player”, “{name} · Keyboard and mouse”, “{name} · Player, keyboard and mouse”; “for {duration}” |
+| A guest who came through the relay (`via` `relay`) | « hors de chez vous » after their app: « iPhone ou iPad · hors de chez vous · depuis 3 min » | “away from home”: “iPhone or iPad · away from home · for 3 min” |
 | A guest's app (`app`) | Mac, Windows, Linux, « iPhone ou iPad », Apple TV, Android, « Téléviseur LG », « Navigateur » | Mac, Windows, Linux, “iPhone or iPad”, Apple TV, Android, “LG TV”, “Browser” |
 | Duration (`since`, the Station's Unix seconds) | « moins d'une minute », « 3 min », « 1 h 12 »; never negative (clocks out of step) | “under a minute”, “3 min”, “1 h 12” |
 | Actions on a guest | two independent rights, each given or taken back without touching the other: « Donner les manettes » / « Reprendre les manettes »; « Donner le clavier et la souris » / « Reprendre le clavier et la souris »; then « Retirer » | “Give controllers”; “Take back controllers”; “Give keyboard and mouse”; “Take back keyboard and mouse”; “Remove” |
@@ -97,7 +101,7 @@ Contract: [kybernow-share.en.md](kybernow-share.en.md). Every Link app and the w
 
 Sharing impossible (Station too old, sharing turned off): “Share” dimmed; with a mouse, inactive with the reason as a tooltip; on touch and with a remote, it stays selectable and opens the panel reduced to the reason.
 
-An open share shows in the bar (a « 2 invités » / “2 guests” chip, from one guest on, never “0 guests”; it reopens the panel), in its always-visible part. In tile menus (Apple TV, TVs, living room, Deck, Android TV), the “Share” tile's subtitle is the number of guests as soon as there is one, otherwise the code (“123 456”) when the share is open, otherwise « Code et QR code » / “Code and QR code”. Closing the session stops the share.
+An open share shows in the bar (a « 2 invités » / “2 guests” chip, from one guest on, never “0 guests”; it reopens the panel), in its always-visible part. Requests have their own chip, next to the guests': « 1 demande », « 2 demandes » (“1 request”, “2 requests”), only when there are some; it also reopens the panel. A request does not count among the guests until it is accepted. In tile menus (Apple TV, TVs, living room, Deck, Android TV), the “Share” tile's subtitle is the number of guests as soon as there is one, otherwise the code (“123 456”) when the share is open, otherwise « Code et QR code » / “Code and QR code”. Closing the session stops the share.
 
 **The PC itself** (KyberNow Station: the icon's menu next to the clock, and Admin's home page): « Partager un écran… » / “Share a screen…”, then the choice of display (« Écran 1 — 3840 × 2160 », the main display first); the same panel (code, link, guests, actions), titled « Partage de l'écran 1 » / “Sharing display 1”. The PC stays usable as usual; no virtual display, no display switched off.
 
@@ -139,12 +143,39 @@ An open share shows in the bar (a « 2 invités » / “2 guests” chip, from o
 | Picture adjusted by the Station (brief notice) | falling behind on the host's picture, the guest moves by itself to a lighter picture: « Image allégée pour suivre. » (the same notice when the device's decoder cannot keep up and the app falls back to 720p30 by itself); no further separate picture possible (two at most, one on an Intel card; three and two for a share started from the PC; guests with the same quality share theirs): « L'ordinateur ne peut pas faire une image de plus : vous recevez {qualité}. » (the nearest open picture, lighter) | “Picture lightened to keep up.”; “The computer can't make another picture: you get {quality}.” |
 | Rights changed | « Vous pouvez jouer à la manette. »; « Les manettes sont reprises. »; « Vous avez le clavier et la souris. »; « Le clavier et la souris sont repris. »; no right left: « Vous regardez de nouveau. » instead of the taken-back notice; both rights changed at once: a single notice, the right given before the right taken back, controllers before keyboard and mouse (a brief notice) | “You can play with a controller.”; “The controllers were taken back.”; “You have the keyboard and mouse.”; “The keyboard and mouse were taken back.”; “You are watching again.” |
 | End | « {hôte} a arrêté le partage. »; « {hôte} vous a retiré du partage. »; otherwise a failure's reason; never “Take back control”; a guest's reconnection offers « Quitter le partage » (not « Se déconnecter ») | “{host} stopped sharing.”; “{host} removed you from the share.” |
+| Waiting, through the relay | « En attente de l'accord de l'hôte… », button « Annuler » (withdraws the request); the host's name and the computer's name are only known after approval: the screen stays titled « Rejoindre un partage » | “Waiting for the host to accept…”, “Cancel” |
+| Declined | « L'hôte a refusé. » | “The host declined.” |
+| No answer (120 s) | « L'hôte n'a pas répondu. » | “The host did not answer.” |
+| Relay silent | « Le relais ne répond pas. » | “The relay is not answering.” |
 
 {host} is the host's name (the host device's name), or the computer's name for a share started from the PC. A guest is not added to the device's computers.
 
 **Web client** (browser): the share's link (`https://<address>:<port>/link/?join=123456`, the host's “Copy link”) opens “Join a share” **without Admin's password**, with the code already filled in (“123 456”) and the suggested name (“Chrome on Mac”, remembered for next time); “Join” has to be clicked (it never connects by itself). “Join with a code” is also on Admin's password screen and on the web client's home screen (next to “Settings”), with “Cancel” to go back; the code is typed as six digits, grouped by three as you type. The browser has a single computer, the one serving the page: the code goes to it alone, with no search on the network. The picture's format is checked once the Station has answered (Kyber's engine only loads with the guest's cookie): the browser asks for the host's if it plays it, otherwise H.264 (a separate picture); it only leaves the share at once, saying so, if it plays neither H.264 nor HEVC. “Picture quality”: at “Join” and in the bar (a “1080p · 60 Hz” chip that opens the five choices); “Auto” from the screen (`screen × devicePixelRatio`), 60 Hz at most, and what the browser's decoder accepts at that size (otherwise 3840 × 2160, then 1920 × 1080, then 1280 × 720); a change made too soon (`429`) is sent again after `Retry-After`, without a notice; if the quality could not change: « La qualité de l'image n'a pas pu changer : réessayez. » / “The picture quality could not be changed: try again.”. A decoding error asks for a keyframe instead of cutting; if it comes back, the picture falls back once to 720p30 (« Image allégée pour suivre. »), then the usual failure text. When the share ends, the end card (“Session ended”, the end text) has a single button, “Join with a code”; no “Reconnect”. A guest's bar: latency and statistics, sound, full screen, “Spectator” or “Player”, “Leave”; with “keyboard and mouse”: the mouse mode and the “Keys” menu (on touch: trackpad, direct touch, keyboard); the controllers chip only as a player. No profile, no settings, no clipboard.
 
 **Admin's feed**: « {hôte} partage l'écran {n} » / “{host} is sharing display {n}”; « {prénom} regarde votre écran » / “{name} is watching your screen” (on arrival, or no right left); « {prénom} joue avec vous » / “{name} is playing with you” (a right given); « {prénom} a quitté le partage » / “{name} left the share” (gone, removed, or timed out); « Partage arrêté » / “Sharing stopped”.
+
+## Away from home (relay)
+
+Contract: [relais.en.md](relais.en.md). Through the relay, a session looks like a session on the network; only these texts change.
+
+| Item | French | English |
+|---|---|---|
+| Session bar, through the relay | chip « Par le relais », in the always-visible part of the bar (a tile in tile menus) | “Via the relay” |
+| Statistics, “Path” line | « Chemin » : « Direct », « Par le relais », « Par le relais (TCP) » (fallback when UDP does not get through) | “Path”: “Direct”, “Via the relay”, “Via the relay (TCP)” |
+| Home screen, reachable only through the relay | state « Hors de chez vous » (instead of « En ligne ») | “Away from home” |
+| Refusal, access off | « {nom} n'est pas joignable hors de chez vous (accès coupé dans Admin). » | “{name} cannot be reached away from home (access turned off in Admin).” |
+| Refusal, Station absent from the relay | « {nom} n'est pas joignable : l'ordinateur est éteint ou en veille. » | “{name} cannot be reached: the computer is off or asleep.” |
+
+**Admin** (Link devices section):
+
+| Item | French | English |
+|---|---|---|
+| Section | « Hors de chez vous » | “Away from home” |
+| Field | « Relais » (default `share.kybernow.app:8443`) | “Relay” |
+| State | « Relais joint »; « Relais injoignable ({raison}) » | “Relay reached”; “Relay unreachable ({reason})” |
+| Switch | « Accès hors de chez vous », help « Vos appareils appairés ouvrent cet ordinateur par le relais quand ils ne sont pas sur votre réseau. » | “Access away from home”, help “Your paired devices open this computer through the relay when they are not on your network.” |
+| Feed | « {appareil} est en session hors de chez vous » | “{device} is in a session away from home” |
+| Blocking | « Accès hors de chez vous bloqué 10 min après trop d'essais. » | “Access away from home blocked for 10 min after too many attempts.” |
 
 ## Computer settings
 

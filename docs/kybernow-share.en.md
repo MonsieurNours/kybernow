@@ -1,8 +1,8 @@
-# KyberNow Share: local sharing
+# KyberNow Share: sharing
 
 English · [Français](kybernow-share.md)
 
-KyberNow Share lets someone else in on your computer: a **spectator**, who sees and hears, or a **player**, whose controllers become Windows' next controller, and who can also get the keyboard and mouse. Each guest gets a picture that suits them, without ever getting in the way of the host's. This first step works **on the same network**; the relay (away from home) comes next ([ROADMAP.en.md](../ROADMAP.en.md)). This document is the shared contract of the Station, the Rust core, every Link app and the web client.
+KyberNow Share lets someone else in on your computer: a **spectator**, who sees and hears, or a **player**, whose controllers become Windows' next controller, and who can also get the keyboard and mouse. Each guest gets a picture that suits them, without ever getting in the way of the host's. On the same network, the guest joins with the code; away from home, they go through the KyberNow relay and the host accepts each guest ([relais.en.md](relais.en.md)). This document is the shared contract of the Station, the Rust core, every Link app and the web client.
 
 Sharing has no screens of its own: it reuses the home screen, the connection, the session bar and the settings of [link-ui.en.md](link-ui.en.md), which gives the exact texts (“Sharing” section). Every app behaves the same and uses the same words.
 
@@ -27,7 +27,7 @@ Sharing opens a panel: a six-digit **code** (“123 456”), a **link** and its 
 
 ### Joining
 
-- **“Join with a code”** on the home screen of every Link app (next to “Add a computer”): one types the six digits; the app sends them to the computers it finds on the network, and the one sharing answers. Or one opens the link, or scans the QR code (apps with a camera). In a **browser**, the link opens the web client as a guest, without Admin's password.
+- **“Join with a code”** on the home screen of every Link app (next to “Add a computer”): one types the six digits; the app sends them to the computers it finds on the network, and the one sharing answers; away from home, the relay finds the computer and the guest waits for the host to accept ([relais.en.md](relais.en.md)). Or one opens the link, or scans the QR code (apps with a camera). In a **browser**, the link opens the web client as a guest, without Admin's password.
 - The guest gives their name (suggested: the device's name), remembered for next time.
 - A guest session is an ordinary session on screen, with a reduced bar: “Spectator” or “Player”, “Leave”, and the commands their role allows (controller, keyboard and mouse if given). No profile, no computer settings, no virtual display: a guest never changes the computer's displays and never takes over from the host.
 - A guest is **not added to the device's list of computers**: nothing is kept after the share, except their name.
@@ -109,8 +109,11 @@ Every Link app (Mac, Windows, Linux, iPhone, iPad, Apple TV, Android, LG TVs) an
 
 **Web client** (`server/web/src/link/`): the same session as the host's (same page, `Session.svelte`), with a reduced bar for the guest. It has no Rust core: it does the exchange with Admin above itself (`app: "web"`, `device`: this browser's identifier) and keeps the `kybernow_guest` cookie, which only opens the relay to Kyber and `/api/share/*`; Kyber's engine therefore only loads after `join`, and the picture's format is checked then (otherwise `leave`). The engine opens its inputs from the start and the page filters by role; Kyber refuses what the role does not allow anyway. The host, in the browser: “Share” in the bar, Admin's panel on the host routes, guests read from the heartbeat's answer (`share`).
 
+## Away from home
+
+The KyberNow relay lets a guest join a share from the internet: same code, same link, same QR code. The host accepts each guest who comes through the relay (“Requests” in their panel); on the network, nothing changes. The contract (tunnel, Admin routes `wait`, `accept`, `refuse`, the `guests[].pending` and `via` fields, links, Admin's guard by route, trust) is in [relais.en.md](relais.en.md).
+
 ## Outside this first step
 
-- Joining from outside the network (relay): the next step of KyberNow Share.
 - Lending the computer in turns (dedicated Windows account, launcher): later.
 - Several displays shared at once: a share shows one display.
