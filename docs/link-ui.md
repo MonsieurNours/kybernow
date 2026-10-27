@@ -71,6 +71,50 @@ Au toucher (iPhone, iPad, Android hors téléviseur) :
 - **Clavier** : il s'ouvre depuis la barre ; un toucher sur l'image le replie (ce toucher ne clique pas sur l'ordinateur).
 - **Manette à l'écran** / “On-screen controller” : bouton de la barre, retenu pour chaque ordinateur. Deux dispositions fixes, pour les deux pouces en paysage : « Complète » / “Full”, une manette Xbox entière (deux sticks qui s'enfoncent : L3, R3 ; la croix ; A, B, X, Y ; LB, RB, LT et RT progressives ; Affichage, Menu et Guide) ; « Simple » / “Simple”, le stick gauche, la croix, A, B, X, Y et Menu. Un petit bouton sur la manette passe de l'une à l'autre (libellé accessible « Manette simple » / « Manette complète », “Simple controller” / “Full controller”), choix retenu pour chaque ordinateur. L'ordinateur la voit comme une manette Xbox 360, à la première place de joueur libre. Tant qu'elle est affichée, le reste de l'écran ne sert pas de souris. Réglages dans Commandes : « Disposition » / “Layout” (Complète, Simple), « Taille » / “Size” (Petite, Moyenne, Grande / Small, Medium, Large), « Opacité » / “Opacity” et « Retour haptique » / “Haptic feedback” (Désactivé, Faible, Moyen, Fort / Off, Light, Medium, Strong ; Moyen par défaut). Chaque appui se sent et se voit : le bouton s'allume et s'enfonce ; un clic net à l'appui d'un bouton, de la croix ou d'un stick enfoncé ; pour les gâchettes, un clic léger au début de la course et un clic franc en bout de course ; pour les sticks, un tic quand le stick quitte le centre, un tic très léger à chaque changement de direction (huit directions) et un tic en butée, jamais de vibration continue. Pendant que la manette est affichée, les vibrations du jeu font vibrer l'appareil. Sans moteur haptique (iPad), seul le retour visuel reste.
 
+## Partage (KyberNow Share)
+
+Contrat : [kybernow-share.md](kybernow-share.md). Toutes les apps Link et le client web, mêmes textes partout ; sur le même réseau seulement pour l'instant.
+
+**L'hôte, dans sa session** : « Partager » / “Share” dans la barre (présenté comme les autres menus de la barre de l'app, icône de partage). Il ouvre un panneau :
+
+| Élément | Français | English |
+|---|---|---|
+| Titre | « Partager {nom} » (l'ordinateur) | “Share {name}” |
+| Code | « 123 456 » (six chiffres, groupés par trois) | |
+| Lien | « Copier le lien » ; QR code du lien | “Copy link” |
+| Aide | « Sur le même réseau : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur. » | “On the same network: “Join with a code” in KyberNow Link, or this link in a browser.” |
+| Invités (aucun) | « Personne pour l'instant. » | “Nobody yet.” |
+| Un invité | « {prénom} · Spectateur », « {prénom} · Joueur », « {prénom} · Joueur, clavier et souris » | “{name} · Spectator”, “{name} · Player”, “{name} · Player, keyboard and mouse” |
+| Actions sur un invité | « Faire jouer » ; « Donner le clavier et la souris » ; « Reprendre le clavier et la souris » ; « Retirer » | “Let play”; “Give keyboard and mouse”; “Take back keyboard and mouse”; “Remove” |
+| Code changé | « Nouveau code » (les invités déjà là restent) | “New code” |
+| Fin | « Arrêter le partage » (tout le monde sort) | “Stop sharing” |
+| Limite | « Quatre invités au plus. » | “Four guests at most.” |
+| Station trop ancienne | « Le partage demande KyberNow Station 0.8.0 ou plus récente. » (« Partager » inactif) | “Sharing needs KyberNow Station 0.8.0 or later.” |
+| Partage coupé sur l'ordinateur | « Le partage est coupé sur cet ordinateur (Admin › Appareils Link). » | “Sharing is turned off on this computer (Admin › Link devices).” |
+
+Un partage ouvert se voit dans la barre (pastille « 2 invités » / “2 guests”, qui rouvre le panneau). Fermer la session arrête le partage.
+
+**Le PC lui-même** (KyberNow Station : menu de l'icône près de l'horloge, et accueil d'Admin) : « Partager un écran… » / “Share a screen…”, puis le choix de l'écran (« Écran 1 — 3840 × 2160 », l'écran principal d'abord) ; le même panneau (code, lien, invités, actions), titré « Partage de l'écran 1 » / “Sharing display 1”. Le PC reste utilisable normalement ; aucun écran virtuel, aucun écran éteint.
+
+**L'invité** :
+
+| Élément | Français | English |
+|---|---|---|
+| Accueil, à côté de « Ajouter un ordinateur » | « Rejoindre avec un code » | “Join with a code” |
+| Écran | titre « Rejoindre un partage » ; aide « Le code s'affiche chez la personne qui partage. » ; « Votre prénom » (proposé : le nom de l'appareil, retenu) ; bouton « Rejoindre » | “Join a share”; “The code is shown by the person sharing.”; “Your name”; “Join” |
+| Recherche | « Recherche du partage… » | “Looking for the share…” |
+| Code inconnu | « Aucun partage avec ce code sur le réseau. » | “No share with this code on your network.” |
+| Complet | « Ce partage est complet (quatre invités au plus). » | “This share is full (four guests at most).” |
+| Format illisible | « Cet appareil ne lit pas l'image de cet ordinateur ({format}). » | “This device cannot play this computer's picture ({format}).” |
+| Connexion | les étapes de la connexion, titrées « Invité sur {nom} » | “Guest on {name}” |
+| Barre (réduite) | « Spectateur » ou « Joueur » ; « Quitter le partage » ; la manette, le clavier et la souris s'ils sont donnés ; ni profil ni réglages | “Spectator” or “Player”; “Leave”; |
+| Droits changés | « Vous pouvez jouer. » ; « Vous avez le clavier et la souris. » ; « Le clavier et la souris sont repris. » (avis bref) | “You can play.”; “You have the keyboard and mouse.”; “The keyboard and mouse were taken back.” |
+| Fin | « {hôte} a arrêté le partage. » ; « {hôte} vous a retiré du partage. » ; sinon la raison d'un échec ; jamais « Reprendre la main » | “{host} stopped sharing.”; “{host} removed you from the share.” |
+
+{hôte} est le prénom de l'hôte (le nom de l'appareil de l'hôte), ou le nom de l'ordinateur pour un partage lancé depuis le PC. Un invité n'est pas ajouté aux ordinateurs de l'appareil.
+
+**Fil d'Admin** : « {prénom} regarde votre écran » / “{name} is watching your screen” ; « {prénom} joue avec vous » / “{name} is playing with you” ; « {prénom} a quitté le partage » / “{name} left the share”.
+
 ## Réglages de l'ordinateur
 
 Titre : « Réglages de {nom} » / “Settings for {name}”. En tête : « Profil » / “Profile” (Jeu, Bureau, Max, Personnalisé). Puis six rubriques, dans cet ordre (une plateforme peut en fusionner ou en cacher une si elle n'a rien à y mettre, jamais les renommer) :

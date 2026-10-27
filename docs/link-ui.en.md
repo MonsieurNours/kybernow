@@ -71,6 +71,50 @@ With touch (iPhone, iPad, Android outside the TV):
 - **Keyboard**: it opens from the bar; a touch on the picture folds it away (that touch does not click on the computer).
 - **On-screen controller** / « Manette à l'écran »: a bar button, remembered for each computer. Two fixed layouts, for both thumbs in landscape: “Full” / « Complète », a whole Xbox controller (two sticks which click: L3, R3; the D-pad; A, B, X, Y; LB, RB, LT and RT, progressive; View, Menu and Guide); “Simple” / « Simple », the left stick, the D-pad, A, B, X, Y and Menu. A small button on the controller switches between them (accessible label “Simple controller” / “Full controller”, « Manette simple » / « Manette complète »), the choice remembered for each computer. The computer sees it as an Xbox 360 controller, in the first free player slot. While it is shown, the rest of the screen does not act as a mouse. Settings in Controls: “Layout” (Full, Simple), “Size” (Small, Medium, Large), “Opacity” and “Haptic feedback” (Off, Light, Medium, Strong; Medium by default). Every press can be felt and seen: the button lights up and sinks slightly; a crisp click when pressing a button, the D-pad or a stick; for the triggers, a light click at the start of the travel and a firm click at the end; for the sticks, a tick when the stick leaves the centre, a very light tick at each change of direction (eight directions) and a tick at the edge, never a continuous vibration. While the controller is shown, the game's rumble vibrates the device. Without a haptic engine (iPad), only the visual feedback remains.
 
+## Sharing (KyberNow Share)
+
+Contract: [kybernow-share.en.md](kybernow-share.en.md). Every Link app and the web client, the same texts everywhere; on the same network only for now.
+
+**The host, in their session**: « Partager » / “Share” in the bar (presented like the other menus of the app's bar, a share icon). It opens a panel:
+
+| Item | French | English |
+|---|---|---|
+| Title | « Partager {nom} » (the computer) | “Share {name}” |
+| Code | « 123 456 » (six digits, in groups of three) | |
+| Link | « Copier le lien »; QR code of the link | “Copy link” |
+| Help | « Sur le même réseau : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur. » | “On the same network: “Join with a code” in KyberNow Link, or this link in a browser.” |
+| Guests (none) | « Personne pour l'instant. » | “Nobody yet.” |
+| A guest | « {prénom} · Spectateur », « {prénom} · Joueur », « {prénom} · Joueur, clavier et souris » | “{name} · Spectator”, “{name} · Player”, “{name} · Player, keyboard and mouse” |
+| Actions on a guest | « Faire jouer »; « Donner le clavier et la souris »; « Reprendre le clavier et la souris »; « Retirer » | “Let play”; “Give keyboard and mouse”; “Take back keyboard and mouse”; “Remove” |
+| New code | « Nouveau code » (guests already there stay) | “New code” |
+| End | « Arrêter le partage » (everyone leaves) | “Stop sharing” |
+| Limit | « Quatre invités au plus. » | “Four guests at most.” |
+| Station too old | « Le partage demande KyberNow Station 0.8.0 ou plus récente. » (“Share” inactive) | “Sharing needs KyberNow Station 0.8.0 or later.” |
+| Sharing turned off on the computer | « Le partage est coupé sur cet ordinateur (Admin › Appareils Link). » | “Sharing is turned off on this computer (Admin › Link devices).” |
+
+An open share shows in the bar (a « 2 invités » / “2 guests” chip, which reopens the panel). Closing the session stops the share.
+
+**The PC itself** (KyberNow Station: the icon's menu next to the clock, and Admin's home page): « Partager un écran… » / “Share a screen…”, then the choice of display (« Écran 1 — 3840 × 2160 », the main display first); the same panel (code, link, guests, actions), titled « Partage de l'écran 1 » / “Sharing display 1”. The PC stays usable as usual; no virtual display, no display switched off.
+
+**The guest**:
+
+| Item | French | English |
+|---|---|---|
+| Home screen, next to “Add a computer” | « Rejoindre avec un code » | “Join with a code” |
+| Screen | title « Rejoindre un partage »; help « Le code s'affiche chez la personne qui partage. »; « Votre prénom » (suggested: the device's name, remembered); button « Rejoindre » | “Join a share”; “The code is shown by the person sharing.”; “Your name”; “Join” |
+| Searching | « Recherche du partage… » | “Looking for the share…” |
+| Unknown code | « Aucun partage avec ce code sur le réseau. » | “No share with this code on your network.” |
+| Full | « Ce partage est complet (quatre invités au plus). » | “This share is full (four guests at most).” |
+| Unreadable format | « Cet appareil ne lit pas l'image de cet ordinateur ({format}). » | “This device cannot play this computer's picture ({format}).” |
+| Connecting | the connection's steps, titled « Invité sur {nom} » | “Guest on {name}” |
+| Bar (reduced) | « Spectateur » or « Joueur »; « Quitter le partage »; the controller, keyboard and mouse if given; no profile, no settings | “Spectator” or “Player”; “Leave” |
+| Rights changed | « Vous pouvez jouer. »; « Vous avez le clavier et la souris. »; « Le clavier et la souris sont repris. » (a brief notice) | “You can play.”; “You have the keyboard and mouse.”; “The keyboard and mouse were taken back.” |
+| End | « {hôte} a arrêté le partage. »; « {hôte} vous a retiré du partage. »; otherwise a failure's reason; never “Take back control” | “{host} stopped sharing.”; “{host} removed you from the share.” |
+
+{host} is the host's name (the host device's name), or the computer's name for a share started from the PC. A guest is not added to the device's computers.
+
+**Admin's feed**: « {prénom} regarde votre écran » / “{name} is watching your screen”; « {prénom} joue avec vous » / “{name} is playing with you”; « {prénom} a quitté le partage » / “{name} left the share”.
+
 ## Computer settings
 
 Title: « Réglages de {nom} » / “Settings for {name}”. At the top: « Profil » / “Profile” (Game, Desktop, Max, Custom). Then six sections, in this order (a platform may merge or hide one when it has nothing to put in it, never rename them):
