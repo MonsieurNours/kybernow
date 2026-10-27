@@ -3,6 +3,23 @@
     <channel>
         <title>KyberNow</title>
         <item>
+            <title>0.7.0</title>
+            <pubDate>Tue, 27 Oct 2026 10:47:28 +0100</pubDate>
+            <sparkle:version>202610271026</sparkle:version>
+            <sparkle:shortVersionString>0.7.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[
+- **Several computers at once, on Mac, Windows and Linux**: during a session, open another computer (the bar's “Computers” menu, the icon's menu next to the clock, or the home screen): it opens in its own window, on top. The foreground window gets the keyboard, the mouse, the controllers, the clipboard and the sound; the others keep their picture, without sound (“Keep sound”, in their bar, to hear another one). ⌃⌥⌘O (Ctrl+Alt+Shift+O on Windows and Linux) goes to the next computer. Up to four computers; a computer already in a session comes to the front instead of opening twice. Nothing to update on the computer: each one sees an ordinary session.
+- Controllers are read once by the app, for every session, and a rumble stops when you switch to another computer.
+- Mac: the home screen stays available during a session (“Open KyberNow Link”), and the icon menu's “Settings” and “Add a computer” are active there. A connection that fails shows its reason instead of closing the window.
+- Windows: text copied on the computer no longer goes into Windows' clipboard history or its sync (the clipboard is now text only).
+- On Windows and Linux, two sessions at once have not been tried yet with two real computers: your feedback is welcome on the Discord.
+]]></description>
+            <sparkle:releaseNotesLink xml:lang="fr">https://www.kybernow.app/updates/notes/0.7.0/KyberNow-Link-macOS.fr.html</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/MonsieurNours/kybernow/releases/download/v0.7.0/KyberNow-Link-macOS.zip" length="47556485" type="application/octet-stream" sparkle:edSignature="Chp0sd8wIfvHyRgRk0CA6xjkNRkSilM15KSlchaDQELzJ43ZgjuoBMn1XCFGduuUCWAE8QmK3HY5soFWdXa/Aw=="/>
+        </item>
+        <item>
             <title>0.6.0</title>
             <pubDate>Mon, 26 Oct 2026 20:49:27 +0100</pubDate>
             <sparkle:version>202610262018</sparkle:version>
