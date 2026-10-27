@@ -103,6 +103,57 @@ impl Role {
     }
 }
 
+/// La « Qualité de l'image » demandée par un invité (docs/kybernow-share.md,
+/// « L'image d'un invité »).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum Quality {
+    /// D'après l'écran de l'appareil et ce que son décodeur suit.
+    #[default]
+    #[serde(rename = "auto")]
+    Auto,
+    /// « Comme l'hôte ».
+    #[serde(rename = "host")]
+    Host,
+    #[serde(rename = "1080p60")]
+    P1080,
+    #[serde(rename = "720p30")]
+    P720,
+}
+
+impl Quality {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Quality::Auto => "auto",
+            Quality::Host => "host",
+            Quality::P1080 => "1080p60",
+            Quality::P720 => "720p30",
+        }
+    }
+}
+
+/// Ce que Kyber reçoit dans le jeton (`kn_quality`) : « Auto » y est déjà
+/// tranché par Admin (`share_api::resolve_auto`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum Preset {
+    #[default]
+    #[serde(rename = "host")]
+    Host,
+    #[serde(rename = "1080p60")]
+    P1080,
+    #[serde(rename = "720p30")]
+    P720,
+}
+
+impl Preset {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Preset::Host => "host",
+            Preset::P1080 => "1080p60",
+            Preset::P720 => "720p30",
+        }
+    }
+}
+
 /// L'écran montré aux invités.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ShareDisplay {
@@ -154,6 +205,9 @@ pub struct Guest {
     pub since: u64,
     pub last_beat_secs: u64,
     last_beat: Instant,
+    /// La qualité demandée, et le préréglage que Kyber reçoit pour elle.
+    pub quality: Quality,
+    pub preset: Preset,
 }
 
 impl Guest {
@@ -423,6 +477,16 @@ impl Share {
         Some(RoleChange { guest: guest.clone(), before })
     }
 
+    /// La qualité d'image d'un invité (à son arrivée, ou changée en cours).
+    /// `None` : invité inconnu (ou mauvais secret, si `secret` est donné).
+    pub fn set_quality(&self, id: &str, secret: Option<&str>, quality: Quality, preset: Preset) -> Option<Guest> {
+        let mut s = self.state.lock().unwrap();
+        let guest = s.open.as_mut()?.guests.iter_mut().find(|g| g.id == id && secret.is_none_or(|sec| same(sec, &g.secret)))?;
+        guest.quality = quality;
+        guest.preset = preset;
+        Some(guest.clone())
+    }
+
     /// Retire un invité (son signe de vie suivant apprend « retiré »).
     pub fn remove(&self, id: &str) -> Option<Guest> {
         let mut s = self.state.lock().unwrap();
@@ -499,6 +563,8 @@ impl Share {
                     since: now_secs(),
                     last_beat_secs: now_secs(),
                     last_beat: now,
+                    quality: Quality::Auto,
+                    preset: Preset::Host,
                 };
                 open.guests.push(g.clone());
                 (g, true)
