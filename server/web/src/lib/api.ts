@@ -233,7 +233,7 @@ export interface Status {
 }
 
 /** Droits d'un invité : il regarde, il joue (ses manettes), ou il a aussi le clavier et la souris. */
-export type ShareRole = 'spectator' | 'player' | 'player_kbm'
+export type ShareRole = 'spectator' | 'player' | 'kbm' | 'player_kbm'
 
 export interface ShareGuest {
   id: string

@@ -52,11 +52,13 @@ pub const GUEST_COOKIE: &str = "kybernow_guest";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Role {
-    /// Voit et entend, n'envoie rien.
+    /// Voit et entend, n'envoie rien (aucun droit).
     Spectator,
-    /// Ses manettes deviennent la manette suivante de Windows.
+    /// Les manettes : elles deviennent la manette suivante de Windows.
     Player,
-    /// Joueur, avec le clavier et la souris donnés par l'hôte.
+    /// Le clavier et la souris, sans les manettes.
+    Kbm,
+    /// Les deux droits : manettes, clavier et souris.
     PlayerKbm,
 }
 
@@ -65,12 +67,39 @@ impl Role {
         match self {
             Role::Spectator => "spectator",
             Role::Player => "player",
+            Role::Kbm => "kbm",
             Role::PlayerKbm => "player_kbm",
         }
     }
 
+    /// Le rôle de ces deux droits, donnés ou repris l'un sans l'autre.
+    pub fn from_rights(gamepads: bool, keyboard_mouse: bool) -> Role {
+        match (gamepads, keyboard_mouse) {
+            (false, false) => Role::Spectator,
+            (true, false) => Role::Player,
+            (false, true) => Role::Kbm,
+            (true, true) => Role::PlayerKbm,
+        }
+    }
+
+    /// Les manettes sont données.
+    pub fn gamepads(self) -> bool {
+        matches!(self, Role::Player | Role::PlayerKbm)
+    }
+
+    /// Le clavier et la souris sont donnés.
+    pub fn keyboard_mouse(self) -> bool {
+        matches!(self, Role::Kbm | Role::PlayerKbm)
+    }
+
+    /// Un droit au moins : l'invité « joue ».
     pub fn plays(self) -> bool {
         self != Role::Spectator
+    }
+
+    /// `next` donne un droit que `self` n'avait pas.
+    pub fn gains_in(self, next: Role) -> bool {
+        (next.gamepads() && !self.gamepads()) || (next.keyboard_mouse() && !self.keyboard_mouse())
     }
 }
 
@@ -713,6 +742,28 @@ mod tests {
         assert!(matches!(share.leave(&max.id, max.secret()), Leave::Left(g) if g.name == "Max"));
         assert!(matches!(share.leave(&lea.id, lea.secret()), Leave::Unknown), "sortie sans nouvelles : inconnue");
         assert_eq!(share.guest_count(), 0);
+    }
+
+    #[test]
+    fn deux_droits_independants() {
+        for (gamepads, kbm, role, name) in [
+            (false, false, Role::Spectator, "spectator"),
+            (true, false, Role::Player, "player"),
+            (false, true, Role::Kbm, "kbm"),
+            (true, true, Role::PlayerKbm, "player_kbm"),
+        ] {
+            assert_eq!(Role::from_rights(gamepads, kbm), role);
+            assert_eq!((role.gamepads(), role.keyboard_mouse(), role.as_str()), (gamepads, kbm, name));
+            assert_eq!(serde_json::to_value(role).unwrap(), name);
+            assert_eq!(serde_json::from_value::<Role>(serde_json::json!(name)).unwrap(), role);
+        }
+        // Donner l'un sans l'autre, puis le second : un droit gagné à chaque fois.
+        assert!(Role::Spectator.gains_in(Role::Kbm));
+        assert!(Role::Kbm.gains_in(Role::PlayerKbm));
+        assert!(Role::Player.gains_in(Role::Kbm), "changer de droit en gagne un");
+        // Reprendre : rien de gagné.
+        assert!(!Role::PlayerKbm.gains_in(Role::Player));
+        assert!(!Role::Kbm.gains_in(Role::Spectator));
     }
 
     #[test]

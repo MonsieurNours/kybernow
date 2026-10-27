@@ -222,7 +222,7 @@ export class Engine {
     b.audio = s.audio
     // Les entrées s'ouvrent toujours : la page filtre selon le rôle d'un
     // invité (`guard.ts`, `inputs.ts`) et Kyber refuse ce que son rôle ne
-    // permet pas ; « Faire jouer » n'a ainsi pas à relancer l'image.
+    // permet pas ; donner un droit n'a ainsi pas à relancer l'image.
     b.inputs = true
     b.clipboard = s.clipboard
     b.intra_refresh = true

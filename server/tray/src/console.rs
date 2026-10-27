@@ -211,7 +211,8 @@ impl Client {
         self.share_call("POST", port, "/api/local/share/code", None)
     }
 
-    /// Droits d'un invité : `spectator`, `player` ou `player_kbm`.
+    /// Droits d'un invité : `spectator`, `player` (manettes), `kbm` (clavier et
+    /// souris) ou `player_kbm` (les deux).
     pub fn share_role(&self, port: u16, guest: &str, role: &str) -> anyhow::Result<Value> {
         self.share_call("POST", port, &format!("/api/local/share/guest/{}", path_part(guest)), Some(serde_json::json!({ "role": role })))
     }
