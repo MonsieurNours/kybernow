@@ -231,7 +231,7 @@ enum SharePanelDemo {
     }
 
     static func renderJoin(to path: String, app: AppModel) {
-        write(JoinSheet(initialLink: nil).environmentObject(app), width: 560, to: path)
+        write(JoinSheet(initialLink: nil).environmentObject(app), width: 640, to: path)
     }
 
     /// Le panneau « Partager » d'une session d'hôte sans fenêtre (le premier

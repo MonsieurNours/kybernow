@@ -212,8 +212,9 @@ private struct JoinSourcePicker: View {
 }
 
 /// « Qualité de l'image », sous le prénom : « Auto » (proposé), « Comme
-/// l'hôte », « 1080p · 60 Hz », « 720p · 30 Hz ». Les quatre sur une ligne si
-/// l'écran est assez large (iPad), sinon deux par ligne (iPhone).
+/// l'hôte », « 4K · 60 Hz », « 1080p · 60 Hz », « 720p · 30 Hz ». Les cinq sur
+/// une ligne si la largeur le permet, sinon trois puis deux (iPhone et iPad en
+/// portrait), et deux par ligne si même cela ne tient pas (grand texte).
 private struct QualityPicker: View {
     @Binding var quality: ShareQuality
     @Environment(\.addHostWide) private var wide
@@ -224,8 +225,13 @@ private struct QualityPicker: View {
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 8) { ForEach(ShareQuality.allCases, id: \.self) { option($0) } }
                 VStack(spacing: 8) {
-                    HStack(spacing: 8) { option(.auto); option(.host) }
+                    HStack(spacing: 8) { option(.auto); option(.host); option(.p2160_60) }
                     HStack(spacing: 8) { option(.p1080_60); option(.p720_30) }
+                }
+                VStack(spacing: 8) {
+                    HStack(spacing: 8) { option(.auto); option(.host) }
+                    HStack(spacing: 8) { option(.p2160_60); option(.p1080_60) }
+                    HStack(spacing: 8) { option(.p720_30) }
                 }
             }
         }

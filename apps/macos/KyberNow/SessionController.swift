@@ -961,7 +961,7 @@ final class SessionController: NSObject, ObservableObject {
 
     private func activatePadFocus() {
         if isGuest {
-            // Qualité de l'image (suivante : Auto → Comme l'hôte → 1080p → 720p), plein écran, quitter.
+            // Qualité de l'image (suivante : Auto → Comme l'hôte → 4K → 1080p → 720p), plein écran, quitter.
             if padFocus == 0 {
                 let all = ShareQuality.allCases
                 setShareQuality(all[((all.firstIndex(of: shareQuality) ?? 0) + 1) % all.count])
