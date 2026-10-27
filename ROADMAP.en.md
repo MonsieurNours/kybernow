@@ -14,10 +14,12 @@ What is planned or still to try, and only here: the other documents describe wha
 - **Station**: the “For any connection” mode (virtual display created during the stream); on a real Windows PC, restarting and updating the Station from an app, the connection last resort, the network cards listed for waking, and a real wake from sleep and after a full shutdown.
 - **Icon next to the clock**: on the Mac, system notifications (and their permission request), registering to open at login and a real launch at login, closing the window in full screen during a session; on a real Windows PC, the top of the menu during a session and the lit icon, 100% and 200% scaling, notification banners, “still not responding” after 2 min of waking.
 - **Multiple displays**: on a Windows PC and a Linux machine with several displays (validated on Mac on 26/10/2026); a session on several displays right after the Station is installed or restarted.
+- **Several computers at once**: two sessions running at the same time on Windows and on Linux (checked on Mac on 27/10/2026); on Windows, a session end that once cut another session in the VM (every end path is now logged).
 - **Audit measurements** described in [docs/archives/mesures.en.md](docs/archives/mesures.en.md): Mac app display latency, Windows permissions, saturated Wi-Fi, SudoVDA virtual display modes.
 
 ## KyberNow Station and Admin
 
+- **H.264 silent on an Intel card**: PC-ATELIER (Intel UHD) does send HEVC but no picture in H.264 (“its encoder does not respond”), already in 0.5; to understand on the Station side (Kyber's encoder, QSV).
 - **Virtual display without workarounds**: a driver that truly handles several displays (SudoVDA fixed and rebuilt, or Kidd), to remove the pointer enlargement and the Windows Graphics Capture of secondary displays (see `server/README.en.md`).
 - **HDR**: FP16 capture and HDR10 conversion in Kyber (costed study, in French: [docs/archives/propositions-2026-10-22.md](docs/archives/propositions-2026-10-22.md)).
 - **Kidd virtual display** once Kyber ships it, behind the interface already in place.
@@ -29,7 +31,6 @@ What is planned or still to try, and only here: the other documents describe wha
 
 ## KyberNow Link
 
-- **Several computers at once** (in progress): one session window per computer in the Mac, Windows and Linux (desktop interface) apps; keyboard, mouse, controllers, clipboard and sound follow the active window (“Keep sound” to hear another one); a single controller reader per app, in the core. Contract: [docs/plusieurs-ordinateurs.en.md](docs/plusieurs-ordinateurs.en.md).
 - **Android**: foldable layouts; external display as a desk (image on the attached display, device as the desk); Play Store internal testing.
 - **Android TV + Station**: send the phone's computers to the TV (code shown on the TV, relayed by Admin).
 - **iPhone and iPad**: Apple Pencil; TestFlight for internal testers (App Store profile, Release archive, `xcodebuild -exportArchive`), then the App Store.

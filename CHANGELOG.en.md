@@ -4,6 +4,14 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## 0.7.0
+
+- **Several computers at once, on Mac, Windows and Linux**: during a session, open another computer (the bar's “Computers” menu, the icon's menu next to the clock, or the home screen): it opens in its own window, on top. The foreground window gets the keyboard, the mouse, the controllers, the clipboard and the sound; the others keep their picture, without sound (“Keep sound”, in their bar, to hear another one). ⌃⌥⌘O (Ctrl+Alt+Shift+O on Windows and Linux) goes to the next computer. Up to four computers; a computer already in a session comes to the front instead of opening twice. Nothing to update on the computer: each one sees an ordinary session.
+- Controllers are read once by the app, for every session, and a rumble stops when you switch to another computer.
+- Mac: the home screen stays available during a session (“Open KyberNow Link”), and the icon menu's “Settings” and “Add a computer” are active there. A connection that fails shows its reason instead of closing the window.
+- Windows: text copied on the computer no longer goes into Windows' clipboard history or its sync (the clipboard is now text only).
+- On Windows and Linux, two sessions at once have not been tried yet with two real computers: your feedback is welcome on the Discord.
+
 ## 0.6.0
 
 - **Several displays, on Mac, Windows and Linux**: a session can take every display of your device. The computer creates a display for each one, laid out the same way, and each of the device's displays shows its own in full screen; the pointer moves from one to the next, a dragged window follows. New “Displays” setting in the computer's settings (Picture section): Auto (all displays in the Desktop and Max profiles, one in Game and Custom), This display, All displays. The main display keeps its refresh rate, the others run at 60 Hz; up to four displays. A display plugged in or unplugged during the session: the session sets itself up again. It needs a Station on 0.6.0: with an older Station, the session stays on one display.
