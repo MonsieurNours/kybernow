@@ -866,6 +866,17 @@ pub struct QualityBody {
 /// change (ni le jeton, ni ce que l'invité reçoit), il peut réessayer.
 pub async fn quality(State(s): State<AppState>, headers: HeaderMap, Json(body): Json<QualityBody>) -> Response {
     let secret = guest_secret(&headers);
+    // Un changement par seconde et par invité : chacun relance son image.
+    match s.share.quality_request(&body.guest, &secret) {
+        None => return guest_error(StatusCode::NOT_FOUND, "unknown_guest"),
+        Some(Err(wait)) => {
+            let seconds = wait.as_secs_f64().ceil().max(1.0) as u64;
+            let mut res = (StatusCode::TOO_MANY_REQUESTS, Json(json!({ "error": "too_many", "retry_after": seconds }))).into_response();
+            res.headers_mut().insert(header::RETRY_AFTER, HeaderValue::from(seconds));
+            return res;
+        }
+        Some(Ok(())) => {}
+    }
     let Some(display) = s.share.snapshot().map(|snap| snap.display) else {
         return guest_error(StatusCode::NOT_FOUND, "unknown_guest");
     };
@@ -1234,6 +1245,13 @@ mod tests {
         let (_, beat_v) = body(beat(State(s.clone()), guest_headers(&secret), Json(GuestBody { guest: guest.clone() })).await).await;
         assert_eq!(claims(beat_v["token"].as_str().unwrap())["kn_quality"], "1080p60");
         assert_eq!(beat_v["image"]["quality"], "auto");
+        // Un changement par seconde au plus : 429 avec Retry-After.
+        let res = quality("1080p60", &secret).await;
+        assert_eq!(res.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(res.headers()[header::RETRY_AFTER], "1");
+        let (_, refused) = body(res).await;
+        assert_eq!((refused["error"].as_str(), refused["retry_after"].as_u64()), (Some("too_many"), Some(1)));
+        tokio::time::sleep(Duration::from_millis(1050)).await;
         // Le même préréglage (rien à relancer chez Kyber) : pris tel quel.
         let (status, image) = body(quality("1080p60", &secret).await).await;
         assert_eq!((status, image["quality"].as_str()), (StatusCode::OK, Some("1080p60")));
