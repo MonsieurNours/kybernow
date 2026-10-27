@@ -101,6 +101,7 @@ struct RootView: View {
         .sheet(item: $app.sheet) { sheet in
             switch sheet {
             case let .addHost(candidate): AddHostView(link: candidate)
+            case let .join(link): JoinView(link: link)
             case let .settings(id): SettingsView(hostID: id)
             case .appSettings: AppSettingsView()
             }

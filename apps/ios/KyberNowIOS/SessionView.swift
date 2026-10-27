@@ -38,7 +38,8 @@ struct SessionView: View {
                     .ignoresSafeArea()
 
                 if session.phase != .ended {
-                    Passage(host: session.host, open: revealed)
+                    Passage(host: session.host, open: revealed, title: session.title,
+                            button: session.isGuest ? ShareText.joinButton : String(localized: "Se connecter"))
                         .allowsHitTesting(false)
                         .ignoresSafeArea()
                 }
@@ -57,7 +58,8 @@ struct SessionView: View {
                 }
 
                 if case let .failed(message) = session.phase {
-                    SessionFailure(host: session.host, message: message, connecting: !revealed) { session.dismissFailure() }
+                    SessionFailure(host: session.host, title: session.title, message: message, connecting: !revealed,
+                                   shareEnd: session.shareEndText != nil) { session.dismissFailure() }
                         .transition(.opacity)
                 }
             }
@@ -70,6 +72,12 @@ struct SessionView: View {
             KeysMenu(session: session)
                 .presentationDetents([.medium])
                 .presentationBackground(.ultraThinMaterial)
+        }
+        // KyberNow Share, hôte : le panneau (code, QR code, invités).
+        .sheet(isPresented: $session.shareSheet) {
+            SharePanelView(session: session, share: session.share)
+                .presentationDetents([.medium, .large])
+                .presentationBackground(Theme.bar)
         }
         .sheet(isPresented: Binding(get: { session.statsSheet && !DeviceDisplay.isPad }, set: { session.statsSheet = $0 })) {
             SessionStatsView(session: session)
@@ -147,7 +155,8 @@ struct SessionView: View {
                     .transition(.opacity)
             }
 
-            if streaming, !session.barOpen, !padShown {
+            // Le bouton du clavier : pas pour un invité à qui l'hôte n'a pas donné le clavier et la souris.
+            if streaming, !session.barOpen, !padShown, !session.isGuest || session.shareRole.keyboardAndMouse {
                 HStack(alignment: .bottom) {
                     Spacer()
                     Button {
@@ -202,6 +211,9 @@ struct StreamStage: UIViewRepresentable {
 struct Passage: View {
     let host: Host
     let open: Bool
+    /// Le titre de la session (« Invité sur {nom} » pour un invité) et le bouton de l'accueil qu'il imite.
+    var title: String?
+    var button = String(localized: "Se connecter")
     @State private var tube = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -255,13 +267,13 @@ struct Passage: View {
         return ZStack(alignment: .topLeading) {
             HostBackdrop(host: host)
             VStack(alignment: .leading, spacing: 12) {
-                Text(host.name)
+                Text(title ?? host.name)
                     .font(Theme.display(compact ? 34 : 54, 680))
                     .tracking(-(compact ? 34 : 54) * 0.04)
                     .lineLimit(2)
                     .minimumScaleFactor(0.5)
                     .foregroundStyle(Theme.text)
-                Text("Se connecter")
+                Text(button)
                     .font(Theme.sans(17, .semibold))
                     .padding(.horizontal, 20)
                     .frame(height: 56)
@@ -341,6 +353,10 @@ struct ConnectingCard: View {
                     .transition(.opacity)
                 } else {
                     VStack(alignment: .leading, spacing: 9) {
+                        // Un invité : les mêmes étapes, titrées « Invité sur {nom} ».
+                        if session.isGuest {
+                            Text(session.title).font(Theme.sans(16, .semibold)).foregroundStyle(Theme.text).lineLimit(1)
+                        }
                         step(0, String(localized: "Préparation de l'écran"))
                         step(1, String(localized: "Connexion"))
                         step(2, String(localized: "Premières images"))
@@ -410,92 +426,21 @@ struct SessionBar: View {
             HStack(spacing: 4) {
                 Mark(size: 20, level: .lit).padding(.leading, 6)
                 if DeviceDisplay.isPad {
-                    Text(session.host.name).font(Theme.sans(14, .semibold)).foregroundStyle(Theme.text).padding(.horizontal, 6)
+                    Text(session.title).font(Theme.sans(14, .semibold)).foregroundStyle(Theme.text).padding(.horizontal, 6)
                     separator
                 }
-                Button { session.statsSheet = true } label: {
-                    HStack(spacing: 8) {
-                        VStack(alignment: .trailing, spacing: 1) {
-                            Text(session.stats?.latencyMs.map { Format.ms($0) } ?? "—")
-                                .font(Theme.mono(14, .medium)).foregroundStyle(Theme.accentLight)
-                            Text("Statistiques").font(Theme.sans(9.5)).foregroundStyle(Theme.text2).lineLimit(1)
-                        }
-                        .frame(minWidth: 58, alignment: .trailing)
-                        Sparkline(values: session.latencyHistory).frame(width: 52, height: 20)
-                    }
-                    .padding(.horizontal, 8)
-                    .frame(height: 44)
-                }
-                .accessibilityLabel(Text("Statistiques"))
+                statsButton
                 separator
-                Menu {
-                    ForEach(Profile.allCases) { profile in
-                        Button { session.select(profile) } label: {
-                            if session.host.settings.profile == profile { Label(profile.label, systemImage: "checkmark") } else { Text(profile.label) }
-                        }
-                    }
-                } label: {
-                    item("sliders-horizontal", session.host.settings.profileLabel)
-                }
+                if session.isGuest { guestRole } else { profileAndShare }
                 item("speaker-high", session.host.settings.audio == .off ? String(localized: "Ordinateur") : session.route.name)
-                Picker("Toucher", selection: Binding(get: { session.directTouch }, set: { session.setDirectTouch($0) })) {
-                    Text("Pavé").tag(false)
-                    Text("Direct").tag(true)
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 168)
-                .accessibilityLabel(Text("Toucher"))
-                Menu {
-                    ForEach(MouseChoice.allCases, id: \.self) { choice in
-                        Button { session.setMouse(choice) } label: {
-                            if session.host.settings.mouse == choice { Label(choice.label, systemImage: "checkmark") } else { Text(choice.label) }
-                        }
-                    }
-                } label: {
-                    item("cursor", session.host.settings.mouse == .auto ? String(localized: "Souris · \(session.host.settings.mouse.label)") : session.host.settings.mouse.label)
-                }
-                if session.canPickScreen {
-                    Menu {
-                        ForEach(session.screens, id: \.id) { d in
-                            Button("\(d.width) × \(d.height)") { session.showScreen(d.id) }
-                        }
-                    } label: {
-                        item("monitor", String(localized: "Écran"))
-                    }
-                }
-                if let offer = session.modeRestoreOffer {
-                    Button { session.restoreMode() } label: { item("arrows-clockwise", offer) }
-                }
-                Button { session.keysMenu = true } label: { item("keyboard", String(localized: "Touches")) }
-                Button { session.toggleKeyboard() } label: { item("keyboard", String(localized: "Clavier")) }
-                    .accessibilityLabel(Text(session.keyboardShown ? "Fermer le clavier" : "Ouvrir le clavier"))
-                Button { session.toggleScreenPad() } label: {
-                    item("game-controller", ScreenPadText.name)
-                        .background {
-                            if session.screenPad {
-                                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                    .fill(Color.white.opacity(0.12))
-                                    .overlay(alignment: .bottom) { Rectangle().fill(Theme.accent).frame(height: 2) }
-                                    .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-                            }
-                        }
-                }
-                .accessibilityLabel(Text(ScreenPadText.name))
-                .accessibilityValue(session.screenPad ? Text("Activé") : Text("Désactivé"))
-                .accessibilityAddTraits(session.screenPad ? .isSelected : [])
+                // Le clavier et la souris : pas pour un invité à qui l'hôte ne les a pas donnés.
+                if keyboardAndMouse { touchAndMouse }
+                screenAndOffer
+                if keyboardAndMouse { keysAndKeyboard }
+                // La manette à l'écran : pour un invité, seulement quand il joue.
+                if !session.isGuest || session.shareRole.plays { padButton }
                 separator
-                Button { session.setBar(false) } label: {
-                    Image(systemName: "chevron.up").font(.system(size: 15, weight: .bold)).foregroundStyle(Theme.text2).frame(width: 40, height: 44)
-                }
-                .accessibilityLabel(Text("Masquer la barre"))
-                Button { session.end() } label: {
-                    Icon("power", size: 18)
-                        .foregroundStyle(Theme.dangerText)
-                        .frame(width: 44, height: 44)
-                        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.danger.opacity(0.14)))
-                        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.danger.opacity(0.4)))
-                }
-                .accessibilityLabel(Text("Se déconnecter"))
+                hideAndExit
             }
             .padding(.horizontal, 6)
         }
@@ -510,8 +455,176 @@ struct SessionBar: View {
         }
     }
 
+    private var statsButton: some View {
+        Button { session.statsSheet = true } label: {
+            HStack(spacing: 8) {
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text(session.stats?.latencyMs.map { Format.ms($0) } ?? "—")
+                        .font(Theme.mono(14, .medium)).foregroundStyle(Theme.accentLight)
+                    Text("Statistiques").font(Theme.sans(9.5)).foregroundStyle(Theme.text2).lineLimit(1)
+                }
+                .frame(minWidth: 58, alignment: .trailing)
+                Sparkline(values: session.latencyHistory).frame(width: 52, height: 20)
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 44)
+        }
+        .accessibilityLabel(Text("Statistiques"))
+    }
+
+    /// Barre réduite d'un invité : son rôle ; ni profil ni réglages.
+    private var guestRole: some View {
+        item(session.shareRole.plays ? "game-controller" : "eye", ShareText.role(session.shareRole))
+            .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder private var profileAndShare: some View {
+        Menu {
+            ForEach(Profile.allCases) { profile in
+                Button { session.select(profile) } label: {
+                    if session.host.settings.profile == profile { Label(profile.label, systemImage: "checkmark") } else { Text(profile.label) }
+                }
+            }
+        } label: {
+            item("sliders-horizontal", session.host.settings.profileLabel)
+        }
+        shareItem
+    }
+
+    @ViewBuilder private var touchAndMouse: some View {
+        Picker("Toucher", selection: Binding(get: { session.directTouch }, set: { session.setDirectTouch($0) })) {
+            Text("Pavé").tag(false)
+            Text("Direct").tag(true)
+        }
+        .pickerStyle(.segmented)
+        .frame(width: 168)
+        .accessibilityLabel(Text("Toucher"))
+        Menu {
+            ForEach(MouseChoice.allCases, id: \.self) { choice in
+                Button { session.setMouse(choice) } label: {
+                    if session.host.settings.mouse == choice { Label(choice.label, systemImage: "checkmark") } else { Text(choice.label) }
+                }
+            }
+        } label: {
+            item("cursor", mouseLabel)
+        }
+    }
+
+    private var mouseLabel: String {
+        let choice = session.host.settings.mouse
+        return choice == .auto ? String(localized: "Souris · \(choice.label)") : choice.label
+    }
+
+    @ViewBuilder private var screenAndOffer: some View {
+        if session.canPickScreen, !session.isGuest {
+            Menu {
+                ForEach(session.screens, id: \.id) { d in
+                    Button("\(d.width) × \(d.height)") { session.showScreen(d.id) }
+                }
+            } label: {
+                item("monitor", String(localized: "Écran"))
+            }
+        }
+        if let offer = session.modeRestoreOffer {
+            Button { session.restoreMode() } label: { item("arrows-clockwise", offer) }
+        }
+    }
+
+    @ViewBuilder private var keysAndKeyboard: some View {
+        Button { session.keysMenu = true } label: { item("keyboard", String(localized: "Touches")) }
+        Button { session.toggleKeyboard() } label: { item("keyboard", String(localized: "Clavier")) }
+            .accessibilityLabel(Text(session.keyboardShown ? "Fermer le clavier" : "Ouvrir le clavier"))
+    }
+
+    private var padButton: some View {
+        Button { session.toggleScreenPad() } label: {
+            item("game-controller", ScreenPadText.name)
+                .background {
+                    if session.screenPad {
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .fill(Color.white.opacity(0.12))
+                            .overlay(alignment: .bottom) { Rectangle().fill(Theme.accent).frame(height: 2) }
+                            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    }
+                }
+        }
+        .accessibilityLabel(Text(ScreenPadText.name))
+        .accessibilityValue(session.screenPad ? Text("Activé") : Text("Désactivé"))
+        .accessibilityAddTraits(session.screenPad ? .isSelected : [])
+    }
+
+    @ViewBuilder private var hideAndExit: some View {
+        Button { session.setBar(false) } label: {
+            Image(systemName: "chevron.up").font(.system(size: 15, weight: .bold)).foregroundStyle(Theme.text2).frame(width: 40, height: 44)
+        }
+        .accessibilityLabel(Text("Masquer la barre"))
+        Button { session.end() } label: {
+            HStack(spacing: 8) {
+                Icon("power", size: 18)
+                // Un invité quitte le partage ; il n'éteint rien chez l'hôte.
+                if session.isGuest { Text(ShareText.leave).font(Theme.sans(13, .semibold)).lineLimit(1).fixedSize() }
+            }
+            .foregroundStyle(Theme.dangerText)
+            .padding(.horizontal, session.isGuest ? 12 : 0)
+            .frame(minWidth: 44, minHeight: 44)
+            .background(RoundedRectangle(cornerRadius: 10).fill(Theme.danger.opacity(0.14)))
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.danger.opacity(0.4)))
+        }
+        .accessibilityLabel(Text(session.isGuest ? ShareText.leave : String(localized: "Se déconnecter")))
+    }
+
     private var separator: some View {
         Rectangle().fill(Color.white.opacity(0.12)).frame(width: 1, height: 28)
+    }
+
+    /// Le clavier et la souris de l'appareil partent vers l'ordinateur : sa
+    /// session, ou un invité à qui l'hôte les a donnés.
+    private var keyboardAndMouse: Bool { !session.isGuest || session.shareRole.keyboardAndMouse }
+
+    /// « Partager » (KyberNow Share, hôte) : ouvre le partage et son panneau ;
+    /// inactif avec la raison quand l'ordinateur ne le permet pas. La pastille
+    /// « 2 invités » rouvre le panneau.
+    @ViewBuilder private var shareItem: some View {
+        let availability = session.shareAvailability
+        let count = session.share.guests.count
+        let label = count > 0 ? ShareText.share + ", " + ShareText.guestCount(count) : ShareText.share
+        // Inactif (estompé) : le panneau dit pourquoi, faute d'infobulle au toucher.
+        Button {
+            session.shareSheet = true
+            if availability.isAvailable { Task { await session.share.openIfNeeded() } }
+        } label: {
+            HStack(spacing: 2) {
+                item("share-network", ShareText.share)
+                if count > 0 { guestBadge(count) }
+            }
+            .background { shareHighlight }
+        }
+        .opacity(availability.isAvailable ? 1 : 0.45)
+        .accessibilityLabel(Text(verbatim: label))
+        .accessibilityHint(Text(verbatim: availability.reason ?? ""))
+    }
+
+    /// La pastille « 2 invités ».
+    private func guestBadge(_ count: Int) -> some View {
+        Text(ShareText.guestCount(count))
+            .font(Theme.sans(11.5, .semibold))
+            .foregroundStyle(Theme.text)
+            .lineLimit(1)
+            .fixedSize()
+            .padding(.horizontal, 8)
+            .frame(height: 22)
+            .background(Capsule().fill(Theme.accentFill.opacity(0.28)))
+            .overlay(Capsule().strokeBorder(Theme.accent.opacity(0.6)))
+    }
+
+    /// « Partager » allumé tant que le partage est ouvert.
+    @ViewBuilder private var shareHighlight: some View {
+        if session.share.isOpen {
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(Color.white.opacity(0.12))
+                .overlay(alignment: .bottom) { Rectangle().fill(Theme.accent).frame(height: 2) }
+                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        }
     }
 
     private func item(_ icon: String, _ text: String) -> some View {
@@ -764,9 +877,13 @@ private struct KeyboardRowView: View {
 /// puis la raison en une phrase.
 struct SessionFailure: View {
     let host: Host
+    /// Le titre : le nom de l'ordinateur, ou « Invité sur {nom} ».
+    var title: String?
     let message: String
     /// Avant la première image.
     var connecting = true
+    /// Fin d'une session d'invité par le partage : la raison seule, sans titre d'échec.
+    var shareEnd = false
     let done: () -> Void
 
     private var reason: String {
@@ -778,11 +895,13 @@ struct SessionFailure: View {
         ZStack(alignment: .topLeading) {
             HostBackdrop(host: host, online: false)
             VStack(alignment: .leading, spacing: 16) {
-                HStack(spacing: 10) {
-                    Icon("warning", size: 20).foregroundStyle(Theme.warn)
-                    Theme.eyebrow(connecting ? String(localized: "La connexion a échoué") : String(localized: "La session s'est arrêtée"), color: Theme.warnText)
+                if !shareEnd {
+                    HStack(spacing: 10) {
+                        Icon("warning", size: 20).foregroundStyle(Theme.warn)
+                        Theme.eyebrow(connecting ? String(localized: "La connexion a échoué") : String(localized: "La session s'est arrêtée"), color: Theme.warnText)
+                    }
                 }
-                Text(host.name).font(Theme.display(40, 680)).tracking(-40 * 0.04).foregroundStyle(Theme.text)
+                Text(title ?? host.name).font(Theme.display(40, 680)).tracking(-40 * 0.04).foregroundStyle(Theme.text)
                 Text(reason)
                     .font(Theme.sans(16)).foregroundStyle(Theme.text2)
                 Button("Retour", action: done)

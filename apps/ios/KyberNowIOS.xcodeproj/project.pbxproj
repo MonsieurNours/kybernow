@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		00BA5E4BEE7036BBEC9CE678 /* AddHostPanes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 410A9B3CA2E17E8B50C9D9E4 /* AddHostPanes.swift */; };
 		02594DD6D18BFE82BCB4798A /* VideoDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDC3D5B8E4E8636948D8DA1D /* VideoDecoder.swift */; };
+		03D28F3EBC73744D15FC4F83 /* Share.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDC7B1FA8B923B97CFD23EE6 /* Share.swift */; };
 		06785FC2BC19C1A9C896BAFC /* KyberTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B5D7314C1E329CB9A046BCD /* KyberTypes.swift */; };
 		0B20F98F515386F14517B926 /* ScreenPadLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6252F747ADD2695330E7860 /* ScreenPadLogic.swift */; };
 		0E7898AA1D72BAD6801ED2FF /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 1E301E824B7C8F017CF646A4 /* Localizable.xcstrings */; };
@@ -56,6 +57,7 @@
 		C17855BA68F77C49CA160194 /* CloudSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F2CC5531BE91A2E596139D8 /* CloudSync.swift */; };
 		CF1672C3B10A503BCCE9BB62 /* InputCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D096F84DF3830EBF98CCE6EF /* InputCore.swift */; };
 		D0970783026227DA84F25AEC /* SessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFDADC5155C777613D3C1002 /* SessionView.swift */; };
+		D1492923578D3C0489E60327 /* ShareViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10273F938926D2DE6E4A186F /* ShareViews.swift */; };
 		D260A6A7FC2F51F94B50C459 /* StreamView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ACCD81A8B16FC7E417CA554 /* StreamView.swift */; };
 		D70481EE69BF7971213BF5A4 /* KyberNow.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 14EDFA8B001CCA8A8F0BE2E1 /* KyberNow.xcframework */; };
 		D72A5578EFCFB0F409F02FF0 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 306546BE41AD345E7A328812 /* HomeView.swift */; };
@@ -65,6 +67,7 @@
 		F7F8816C831CE386C3848E6F /* TouchRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE9798DFB50233072B5736FF /* TouchRules.swift */; };
 		F948F3A6F51E9DAF681F542B /* Archivo-wdth-wght.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 2818F78F98BB9411EFA6DCC9 /* Archivo-wdth-wght.ttf */; };
 		FB877C0A30DB14192EF203A4 /* VideoRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D64DA3D036216DDE52A215AB /* VideoRenderer.swift */; };
+		FBDB346D99F1EDA2A3F86258 /* ShareCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC436DE0AD11DE6B0C09E612 /* ShareCore.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -93,6 +96,7 @@
 
 /* Begin PBXFileReference section */
 		0226C33E74431675895CF43B /* SystemConfiguration.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SystemConfiguration.framework; path = System/Library/Frameworks/SystemConfiguration.framework; sourceTree = SDKROOT; };
+		10273F938926D2DE6E4A186F /* ShareViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViews.swift; sourceTree = "<group>"; };
 		11E7F53DBCDC4AAFE88274F2 /* ScreenPad.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenPad.swift; sourceTree = "<group>"; };
 		14EDFA8B001CCA8A8F0BE2E1 /* KyberNow.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = KyberNow.xcframework; path = Vendor/KyberNow.xcframework; sourceTree = "<group>"; };
 		1E301E824B7C8F017CF646A4 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
@@ -134,6 +138,7 @@
 		B3F54BF416D5315CDBC05036 /* SessionStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStats.swift; sourceTree = "<group>"; };
 		B5B21EE1EB8228AF8F50DED6 /* SettingsStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsStats.swift; sourceTree = "<group>"; };
 		BAA93A815BCDC3DCEF4B2B8B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		BDC7B1FA8B923B97CFD23EE6 /* Share.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Share.swift; sourceTree = "<group>"; };
 		C061F9A3683E8F0952178D5A /* SessionEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionEngine.swift; sourceTree = "<group>"; };
 		C4F5C6D95599975901557ED5 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		C924F6C6F8139DA17F956040 /* KyberLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KyberLog.swift; sourceTree = "<group>"; };
@@ -142,6 +147,7 @@
 		D096F84DF3830EBF98CCE6EF /* InputCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputCore.swift; sourceTree = "<group>"; };
 		D2FAD67B06247A688500776D /* ExternalDisplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalDisplay.swift; sourceTree = "<group>"; };
 		D64DA3D036216DDE52A215AB /* VideoRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoRenderer.swift; sourceTree = "<group>"; };
+		DC436DE0AD11DE6B0C09E612 /* ShareCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareCore.swift; sourceTree = "<group>"; };
 		DC73DD292CBDBDF502F5FA6E /* HomeParts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeParts.swift; sourceTree = "<group>"; };
 		DDC3D5B8E4E8636948D8DA1D /* VideoDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoDecoder.swift; sourceTree = "<group>"; };
 		DE9798DFB50233072B5736FF /* TouchRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TouchRules.swift; sourceTree = "<group>"; };
@@ -232,6 +238,7 @@
 				66675E7942D7F082D80B96EB /* SettingsControls.swift */,
 				B5B21EE1EB8228AF8F50DED6 /* SettingsStats.swift */,
 				2E3E0113565D7CF768FB0FE2 /* SettingsView.swift */,
+				10273F938926D2DE6E4A186F /* ShareViews.swift */,
 				4D24E60CD6CB22677E5A6149 /* Theme.swift */,
 			);
 			path = KyberNowIOS;
@@ -281,6 +288,7 @@
 				A2B1FC1C1CB40956666D1104 /* Discovery.swift */,
 				B15AA9F9EFA3E6C151832988 /* LinkUI.swift */,
 				2A6E1351863BB088A8938F59 /* Model.swift */,
+				BDC7B1FA8B923B97CFD23EE6 /* Share.swift */,
 			);
 			name = KyberNow;
 			path = ../macos/KyberNow;
@@ -312,6 +320,7 @@
 				5E2993F29818468CCDB59BBB /* LatencyReporting.swift */,
 				C4F5C6D95599975901557ED5 /* Localizable.xcstrings */,
 				C061F9A3683E8F0952178D5A /* SessionEngine.swift */,
+				DC436DE0AD11DE6B0C09E612 /* ShareCore.swift */,
 				DDC3D5B8E4E8636948D8DA1D /* VideoDecoder.swift */,
 				EAFEE158257746E0783DAB51 /* VideoPipeline.swift */,
 				D64DA3D036216DDE52A215AB /* VideoRenderer.swift */,
@@ -456,6 +465,8 @@
 				1C13DF9E94B8190A40F99521 /* SettingsControls.swift in Sources */,
 				BA981DE8BEA2B6DDFA59F919 /* SettingsStats.swift in Sources */,
 				753300D2372C70A39FF07F61 /* SettingsView.swift in Sources */,
+				03D28F3EBC73744D15FC4F83 /* Share.swift in Sources */,
+				D1492923578D3C0489E60327 /* ShareViews.swift in Sources */,
 				644211D9653E7804B75A37CD /* Theme.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -478,6 +489,7 @@
 				1F6C9796230EE919A0E92F16 /* LatencyReporting.swift in Sources */,
 				19E6B33FA39328971210BB37 /* MetalSurface.swift in Sources */,
 				4A243449E9012A83F5B25EBA /* SessionEngine.swift in Sources */,
+				FBDB346D99F1EDA2A3F86258 /* ShareCore.swift in Sources */,
 				D260A6A7FC2F51F94B50C459 /* StreamView.swift in Sources */,
 				F7F8816C831CE386C3848E6F /* TouchRules.swift in Sources */,
 				02594DD6D18BFE82BCB4798A /* VideoDecoder.swift in Sources */,

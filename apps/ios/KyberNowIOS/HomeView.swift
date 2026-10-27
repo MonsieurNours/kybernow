@@ -209,6 +209,16 @@ struct HomeScreen: View {
                 Button { app.sheet = .addHost(nil) } label: { Icon("plus", size: 20, bold: true) }
                     .buttonStyle(HomeCircleStyle())
                     .accessibilityLabel(Text("Ajouter un ordinateur"))
+                // KyberNow Share : rejoindre le partage de quelqu'un (sur iPhone : la carte de la rangée).
+                if wide {
+                    Button { app.sheet = .join(nil) } label: {
+                        HStack(spacing: 10) {
+                            Icon("share-network", size: 18)
+                            Text(ShareText.join)
+                        }
+                    }
+                    .buttonStyle(HomePillStyle())
+                }
                 if wide {
                     Button { app.sheet = .appSettings } label: {
                         HStack(spacing: 10) {
@@ -472,6 +482,7 @@ struct HomeScreen: View {
                 .animation(Theme.easeOut, value: host.settings.profile)
             }
         } else {
+            VStack(alignment: .leading, spacing: 12) {
             Button { app.sheet = .addHost(nil) } label: {
                 HStack(spacing: 12) {
                     Text("Ajouter un ordinateur")
@@ -485,6 +496,22 @@ struct HomeScreen: View {
             .buttonStyle(HomeCTAStyle(online: true, height: wide ? 58 : 56, fontSize: wide ? 18 : 17, glow: ctaGlow))
             .keyboardShortcut(.defaultAction)
             .homeRise(revealed, 0.48)
+            // KyberNow Share : rejoindre le partage de quelqu'un, sans ordinateur à soi.
+            Button { app.sheet = .join(nil) } label: {
+                HStack(spacing: 10) {
+                    Icon("share-network", size: 18)
+                    Text(ShareText.join)
+                }
+                .font(Theme.sans(16, .medium))
+                .foregroundStyle(Theme.text)
+                .padding(.horizontal, 20)
+                .frame(maxWidth: wide ? nil : .infinity, minHeight: 50)
+                .glass(12)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(HomePressStyle())
+            .homeRise(revealed, 0.52)
+            }
         }
     }
 
@@ -514,6 +541,9 @@ struct HomeScreen: View {
                             .accessibilityLabel(Text("\(found.name), sur le réseau. Ajouter"))
                         }
                         Button { app.sheet = .addHost(nil) } label: { HomeAddCard(m: m, wide: wide) }
+                            .buttonStyle(HomePressStyle())
+                            .hoverEffect(.lift)
+                        Button { app.sheet = .join(nil) } label: { HomeJoinCard(m: m, wide: wide) }
                             .buttonStyle(HomePressStyle())
                             .hoverEffect(.lift)
                     }
