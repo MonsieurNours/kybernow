@@ -4177,6 +4177,22 @@
         }
       }
     },
+    "QR code" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "QR code"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "QR code"
+          }
+        }
+      }
+    },
     "QR code du partage" : {
       "localizations" : {
         "en" : {
@@ -6173,6 +6189,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "le %@"
+          }
+        }
+      }
+    },
+    "moins d'une minute" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "under a minute"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "moins d'une minute"
           }
         }
       }

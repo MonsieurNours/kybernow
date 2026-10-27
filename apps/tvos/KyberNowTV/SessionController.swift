@@ -87,16 +87,14 @@ final class SessionController: ObservableObject {
     var title: String { guest.map { ShareText.guestOn($0.computer) } ?? host.name }
 
     /// « Partager » avec cet ordinateur : disponible, ou inactif avec la raison.
-    var shareAvailability: ShareAvailability {
-        store.status[host.id]?.info?.share ?? Share.unknownStation
-    }
+    var shareAvailability: ShareAvailability { share.availability }
 
     init(host: Host, store: HostStore, onFinish: @escaping (SessionController) -> Void) {
         self.host = host
         self.store = store
         self.onFinish = onFinish
         guest = nil
-        share = ShareHostModel(console: nil, availability: store.status[host.id]?.info?.share ?? Share.unknownStation)
+        share = ShareHostModel(console: nil) { [store, id = host.id] in ShareHostModel.availability(of: id, in: store) }
         remoteMouse = host.settings.profile == .bureau || host.settings.mouse == .desktop
         padMouse = host.settings.profile == .bureau
     }
@@ -116,7 +114,7 @@ final class SessionController: ObservableObject {
         self.onFinish = onFinish
         guest = found
         shareRole = found.role
-        share = ShareHostModel(console: nil, availability: .available)
+        share = ShareHostModel(console: nil) { .available }
         // Le pavé et la manette ne font souris que si l'hôte donne la souris : ensuite, « Pavé en souris ».
         remoteMouse = false
         padMouse = false
@@ -290,6 +288,11 @@ final class SessionController: ObservableObject {
     /// départ (`previous` nil), le rôle seulement. Le clavier et la souris
     /// retirés : le pavé et la manette ne font plus souris.
     private func shareRoleChanged(_ role: ShareRole, previous: ShareRole?) {
+        // Une session finie, ou qui se ferme, n'écrit plus rien (avis).
+        switch phase {
+        case .ending, .ended, .failed: return
+        default: break
+        }
         shareRole = role
         if !role.keyboardAndMouse {
             if remoteMouse { toggleRemoteMouse() }

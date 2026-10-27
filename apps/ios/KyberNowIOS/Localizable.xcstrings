@@ -3428,6 +3428,22 @@
         }
       }
     },
+    "KyberNow Link n'a pas accès à la caméra. Autorisez-la dans les Réglages, ou tapez le code." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "KyberNow Link can't access the camera. Allow it in Settings, or type the code."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "KyberNow Link n'a pas accès à la caméra. Autorisez-la dans les Réglages, ou tapez le code."
+          }
+        }
+      }
+    },
     "KyberNow Link pour l'iPhone et l'iPad" : {
       "localizations" : {
         "en" : {
@@ -5044,6 +5060,22 @@
         }
       }
     },
+    "Pas de caméra disponible sur cet appareil. Tapez le code." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No camera available on this device. Type the code."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pas de caméra disponible sur cet appareil. Tapez le code."
+          }
+        }
+      }
+    },
     "Pas en AV1 : les décodeurs Apple ne lisent que le 4:2:0." : {
       "localizations" : {
         "en" : {
@@ -5424,6 +5456,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Publié par « %@ »"
+          }
+        }
+      }
+    },
+    "QR code" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "QR code"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "QR code"
           }
         }
       }
@@ -7792,6 +7840,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "le %@"
+          }
+        }
+      }
+    },
+    "moins d'une minute" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "under a minute"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "moins d'une minute"
           }
         }
       }

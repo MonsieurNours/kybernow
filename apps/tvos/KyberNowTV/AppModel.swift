@@ -166,7 +166,11 @@ final class AppModel: ObservableObject {
     /// code). Comme « Se connecter », sans ordinateur ajouté à cet appareil ;
     /// rien n'est gardé après le partage.
     func openGuestSession(_ found: ShareFound) {
-        guard session == nil else { return }
+        // Une session s'est ouverte entre-temps : l'invité repart tout de suite.
+        guard session == nil else {
+            Share.leave(found)
+            return
+        }
         let controller = SessionController(guest: found, store: store) { [weak self] _ in
             withAnimation(Theme.join) {
                 self?.session = nil

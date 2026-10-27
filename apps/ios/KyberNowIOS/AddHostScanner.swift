@@ -120,6 +120,56 @@ private struct AddHostCameraPreview: UIViewRepresentable {
     }
 }
 
+// MARK: - Image de la caméra
+
+/// Ce que montre la caméra qui cherche un QR code : son image et le viseur,
+/// ou pourquoi elle n'est pas là (autorisation refusée, pas de caméra). Les
+/// deux textes disent quelle autre voie reste à la personne, selon l'écran
+/// qui l'emploie (appairage d'un ordinateur, « Rejoindre un partage »).
+struct AddHostCameraViewer: View {
+    @ObservedObject var camera: AddHostCamera
+    let wide: Bool
+    let denied: LocalizedStringKey
+    let unavailable: LocalizedStringKey
+
+    var body: some View {
+        ZStack {
+            LinearGradient(colors: [Theme.rgb(0x1A2232), Theme.rgb(0x0A0F17)], startPoint: .topLeading, endPoint: .bottomTrailing)
+            switch camera.state {
+            case .running:
+                AddHostCameraPreview(camera: camera)
+                AddHostViewfinder(size: wide ? 220 : 180, corner: wide ? 40 : 30)
+            case .idle:
+                AddHostViewfinder(size: wide ? 220 : 180, corner: wide ? 40 : 30)
+            case .denied:
+                VStack(spacing: 14) {
+                    Text(denied)
+                        .font(Theme.sans(14)).foregroundStyle(Theme.text2)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("Ouvrir les Réglages") {
+                        if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                    }
+                    .buttonStyle(GlassButton())
+                }
+                .padding(24)
+            case .unavailable:
+                Text(unavailable)
+                    .font(Theme.sans(14)).foregroundStyle(Theme.text2)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(24)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: wide ? 420 : 320)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Color.white.opacity(0.1)))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text("Image de la caméra"))
+    }
+}
+
 // MARK: - Volet
 
 struct AddHostQRPane: View {
@@ -156,44 +206,19 @@ struct AddHostQRPane: View {
             camera.onCode = { use($0, pasted: false) }
             camera.start()
         }
-        .onDisappear { camera.stop() }
+        .onDisappear {
+            // Le rappel de la caméra tient cette vue, qui tient la caméra : il se défait avec l'écran.
+            camera.stop()
+            camera.onCode = nil
+        }
     }
 
     private var viewer: some View {
-        ZStack {
-            LinearGradient(colors: [Theme.rgb(0x1A2232), Theme.rgb(0x0A0F17)], startPoint: .topLeading, endPoint: .bottomTrailing)
-            switch camera.state {
-            case .running:
-                AddHostCameraPreview(camera: camera)
-                AddHostViewfinder(size: wide ? 220 : 180, corner: wide ? 40 : 30)
-            case .idle:
-                AddHostViewfinder(size: wide ? 220 : 180, corner: wide ? 40 : 30)
-            case .denied:
-                VStack(spacing: 14) {
-                    Text("KyberNow Link n'a pas accès à la caméra. Autorisez-la dans les Réglages, ou collez le lien copié depuis KyberNow Admin.")
-                        .font(Theme.sans(14)).foregroundStyle(Theme.text2)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Button("Ouvrir les Réglages") {
-                        if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
-                    }
-                    .buttonStyle(GlassButton())
-                }
-                .padding(24)
-            case .unavailable:
-                Text("Pas de caméra disponible sur cet appareil. Collez le lien copié depuis KyberNow Admin.")
-                    .font(Theme.sans(14)).foregroundStyle(Theme.text2)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(24)
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: wide ? 420 : 320)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Color.white.opacity(0.1)))
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(Text("Image de la caméra"))
+        AddHostCameraViewer(
+            camera: camera, wide: wide,
+            denied: "KyberNow Link n'a pas accès à la caméra. Autorisez-la dans les Réglages, ou collez le lien copié depuis KyberNow Admin.",
+            unavailable: "Pas de caméra disponible sur cet appareil. Collez le lien copié depuis KyberNow Admin."
+        )
     }
 
     /// Un code lu ou un lien collé : l'ordinateur qu'il désigne passe à la vérification.

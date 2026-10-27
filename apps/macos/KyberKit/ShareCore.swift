@@ -94,8 +94,8 @@ public struct ShareState: Sendable, Equatable {
         guard !code.isEmpty else { return nil }
         let guests = (j["guests"] as? [[String: Any]] ?? []).compactMap { g -> ShareGuest? in
             guard let id = g["id"] as? String, !id.isEmpty else { return nil }
-            // L'horodatage de la Station : en secondes, ou en millisecondes (plus de 10^11).
-            let since = (g["since"] as? NSNumber).map { $0.doubleValue }.map { Date(timeIntervalSince1970: $0 > 1e11 ? $0 / 1000 : $0) }
+            // `since` : secondes Unix de l'horloge de la Station (docs/kybernow-share.md).
+            let since = (g["since"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue) }
             return ShareGuest(id: id, name: g["name"] as? String ?? "", app: g["app"] as? String ?? "",
                               role: ShareRole(wire: g["role"] as? String) ?? .spectator, since: since)
         }
@@ -318,12 +318,6 @@ public enum Share {
         let code = kn_share_availability(infoJSON)
         guard code != KN_SHARE_AVAILABLE else { return .available }
         return .unavailable(Core.take(kn_share_availability_text(code)) ?? "")
-    }
-
-    /// Une Station qui ne dit rien du partage (console d'avant la 0.8.0,
-    /// jamais jointe) : « Le partage demande KyberNow Station 0.8.0 ou plus récente. »
-    public static var unknownStation: ShareAvailability {
-        availability(infoJSON: "{}")
     }
 
     // MARK: QR code

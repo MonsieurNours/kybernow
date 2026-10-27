@@ -203,7 +203,12 @@ final class AppModel: ObservableObject {
     func openGuestSession(_ found: ShareFound) {
         joining = false
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [self] in
-            guard !sessions.isFull else { return }
+            // Quatre ordinateurs au plus, invités compris : une session ouverte
+            // entre-temps a pris la dernière place, l'invité repart tout de suite.
+            guard !sessions.isFull else {
+                Share.leave(found)
+                return
+            }
             let first = sessions.isEmpty
             let opening: SessionController.Opening = first ? .first(home: homeWindow) : .next(anchor: sessions.anchorWindow)
             let session = SessionController(guest: found, store: store, opening: opening) { [weak self] in self?.sessionFinished($0) }
@@ -436,7 +441,8 @@ struct KyberNowApp: App {
             // sinon à la session active du registre ; relue au moment du clic.
             CommandMenu("Session") {
                 let target = app.sessions.commandTarget
-                Button("Se déconnecter") {
+                // Un invité quitte le partage (docs/link-ui.md, « Partage »).
+                Button(target?.isGuest == true ? ShareText.leave : String(localized: "Se déconnecter")) {
                     guard let s = app.sessions.commandTarget else { return }
                     if s.isLive { s.end() } else { s.dismissFailure() }
                 }
@@ -448,9 +454,10 @@ struct KyberNowApp: App {
                         .keyboardShortcut("f", modifiers: [.control, .option, .command])
                         .disabled(target?.isLive != true)
                 }
+                // La souris seulement avec le clavier et la souris (invité : s'ils lui sont donnés).
                 Button("Souris des jeux ou du bureau") { app.sessions.commandTarget?.toggleMouseCapture() }
                     .keyboardShortcut("m", modifiers: [.control, .option, .command])
-                    .disabled(target?.isLive != true)
+                    .disabled(target?.isLive != true || target?.hasKeyboardAndMouse != true)
                 Button("Statistiques") { app.sessions.commandTarget?.toggleStatsPanel() }
                     .keyboardShortcut("s", modifiers: [.control, .option, .command])
                     .disabled(target?.isLive != true)

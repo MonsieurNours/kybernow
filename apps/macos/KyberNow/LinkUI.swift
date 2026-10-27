@@ -160,13 +160,35 @@ enum ShareText {
     static var linkCopied: String { String(localized: "Lien copié.") }
     static var copyFailed: String { String(localized: "Copie impossible : sélectionnez le lien à la main.") }
     static var code: String { String(localized: "Code") }
+    /// Le choix « Code » / « QR code » de « Rejoindre un partage » (appareil photo).
+    static var qrCode: String { String(localized: "QR code") }
     static var qrLabel: String { String(localized: "QR code du partage") }
     static var guests: String { String(localized: "Invités") }
     static var watchOnly: String { String(localized: "Faire regarder") }
 
-    /// « depuis 3 min » : depuis combien de temps l'invité est là.
-    static func since(_ date: Date) -> String {
-        String(localized: "depuis \(LinkFormat.duration(Date().timeIntervalSince(date)))")
+    /// « moins d'une minute », « 3 min », « 1 h 12 » : jamais négative (l'horloge
+    /// de la Station peut avancer sur celle de cet appareil).
+    static func elapsed(_ seconds: TimeInterval) -> String {
+        seconds < 60 ? String(localized: "moins d'une minute") : LinkFormat.duration(seconds)
+    }
+
+    /// « depuis 3 min » : depuis combien de temps l'invité est là (`since`, en
+    /// secondes Unix de la Station).
+    static func since(_ date: Date) -> String { since(date, now: Date()) }
+
+    static func since(_ date: Date, now: Date) -> String {
+        String(localized: "depuis \(elapsed(now.timeIntervalSince(date)))")
+    }
+
+    /// Une phrase : majuscule au début, point à la fin. Les refus de la Station
+    /// et du cœur sont déjà des phrases ; les erreurs d'appel (Station
+    /// injoignable, réponse illisible, certificat) commencent par une minuscule,
+    /// sans point.
+    static func sentence(_ text: String) -> String {
+        guard !text.isEmpty else { return text }
+        var s = text.prefix(1).uppercased() + text.dropFirst()
+        if let last = s.last, !".!?…".contains(last) { s += "." }
+        return s
     }
 
     /// L'app de l'invité (`app` de la Station : mac, windows, linux, ios, tvos, android, webos, web).

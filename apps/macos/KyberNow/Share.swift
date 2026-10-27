@@ -91,8 +91,22 @@ final class ShareJoinModel: ObservableObject {
     var canJoin: Bool { normalizedCode != nil && !trimmedName.isEmpty && !looking }
 
     /// À l'ouverture de l'écran : l'annonce Bonjour démarre tout de suite.
+    /// Avec un lien, la Station est connue : rien n'est cherché ni envoyé
+    /// avant « Rejoindre » (docs/link-ui.md).
     func start() {
+        guard link == nil else { return }
         discovery.start()
+    }
+
+    /// Un QR code ou un lien lu pendant que l'écran est ouvert (appareil
+    /// photo) : le code et la Station sont remplis, comme avec un lien ; rien
+    /// ne part avant « Rejoindre ».
+    func use(link: ShareJoinLink) {
+        cancel()
+        discovery.stop()
+        self.link = link
+        code = Share.formatCode(link.code)
+        state = .idle
     }
 
     func stop() {
@@ -123,14 +137,14 @@ final class ShareJoinModel: ObservableObject {
                 let targets = await self.targets(hosts: hosts)
                 guard !targets.isEmpty else { throw ShareJoinError.noShare(ShareText.noShare) }
                 let found = try await Share.join(targets: targets, code: code, name: name)
-                guard mine == self.attempt else {
-                    // Annulé entre-temps : l'invité repart tout de suite.
+                // Annulé entre-temps, ou l'écran n'est plus là : l'invité repart tout de suite.
+                guard mine == self.attempt, let onJoined = self.onJoined else {
                     Share.leave(found)
                     return
                 }
                 GuestName.remember(name)
                 self.state = .idle
-                self.onJoined?(found)
+                onJoined(found)
             } catch {
                 guard mine == self.attempt else { return }
                 self.state = .failed(Self.text(error))
@@ -146,10 +160,11 @@ final class ShareJoinModel: ObservableObject {
         if looking { state = .idle }
     }
 
-    /// Le texte d'un refus : celui du cœur, dans la langue de l'app.
+    /// Le texte d'un refus : celui du cœur, dans la langue de l'app, en phrase
+    /// (les erreurs d'appel, comme un certificat changé, commencent par une minuscule).
     static func text(_ error: Error) -> String {
         let text = (error as? ShareJoinError)?.errorDescription ?? error.localizedDescription
-        return text.isEmpty ? ShareText.noShare : text
+        return text.isEmpty ? ShareText.noShare : ShareText.sentence(text)
     }
 
     // MARK: Les Stations à qui envoyer le code
@@ -196,17 +211,27 @@ final class ShareHostModel: ObservableObject {
     @Published private(set) var busy = false
     /// Le texte du dernier refus d'Admin, à montrer dans le panneau.
     @Published private(set) var error: String?
-    /// « Partager » est-il disponible avec cet ordinateur ?
-    @Published var availability: ShareAvailability
+    /// « Partager » est-il disponible avec cet ordinateur ? Relu à chaque fois,
+    /// d'après ce que la Station dit d'elle-même : la barre et l'ouverture du
+    /// partage n'ont ainsi qu'une seule réponse.
+    var availability: ShareAvailability { availabilityOf() }
+    private let availabilityOf: @MainActor () -> ShareAvailability
     private var console: ConsoleClient?
     private var openedAt = Date.distantPast
     private var closedAt = Date.distantPast
 
-    init(console: ConsoleClient?, availability: ShareAvailability) {
+    init(console: ConsoleClient?, availability: @escaping @MainActor () -> ShareAvailability) {
         self.console = console
-        self.availability = availability
+        availabilityOf = availability
     }
 
+    /// Ce que la Station d'un ordinateur dit du partage : tant qu'on ne l'a pas
+    /// lue (pas encore sondée, injoignable un instant), « Partager » reste
+    /// actif ; une Station qui ne connaît pas le partage, ou qui l'a coupé, le
+    /// rend inactif avec la raison.
+    static func availability(of host: UUID, in store: HostStore) -> ShareAvailability {
+        store.status[host]?.info?.share ?? .available
+    }
     var isOpen: Bool { state != nil }
     var guests: [ShareGuest] { state?.guests ?? [] }
     /// Quatre invités au plus : le texte se montre quand la liste est pleine.
@@ -272,7 +297,7 @@ final class ShareHostModel: ObservableObject {
             closedAt = Date()
             state = nil
         } catch {
-            self.error = error.localizedDescription
+            self.error = ShareText.sentence(error.localizedDescription)
         }
     }
 
@@ -301,7 +326,7 @@ final class ShareHostModel: ObservableObject {
                 state = nil
             }
         } catch {
-            self.error = error.localizedDescription
+            self.error = ShareText.sentence(error.localizedDescription)
         }
     }
 
@@ -346,12 +371,13 @@ final class ShareHostModel: ObservableObject {
 
     /// Ce que chaque rôle propose à l'hôte, dans cet ordre (« Retirer » est à
     /// part, toujours en dernier) : un spectateur, « Faire jouer » ; un
-    /// joueur, ses droits et « Faire regarder » (retour en spectateur).
+    /// joueur, « Faire regarder » (retour en spectateur) à la place, puis
+    /// « Donner » ou « Reprendre le clavier et la souris » (docs/link-ui.md).
     static func roleActions(for role: ShareRole) -> [(title: String, role: ShareRole)] {
         switch role {
         case .spectator: return [(ShareText.letPlay, .player)]
-        case .player: return [(ShareText.giveKeyboardMouse, .playerKbm), (ShareText.watchOnly, .spectator)]
-        case .playerKbm: return [(ShareText.takeBackKeyboardMouse, .player), (ShareText.watchOnly, .spectator)]
+        case .player: return [(ShareText.watchOnly, .spectator), (ShareText.giveKeyboardMouse, .playerKbm)]
+        case .playerKbm: return [(ShareText.watchOnly, .spectator), (ShareText.takeBackKeyboardMouse, .player)]
         }
     }
 

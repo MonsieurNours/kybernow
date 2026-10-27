@@ -308,7 +308,11 @@ private struct LinkTab: View {
             }
             scanner.start()
         }
-        .onDisappear { scanner.stop() }
+        .onDisappear {
+            // Le rappel tient cette vue, qui tient le lecteur : il se défait avec la feuille.
+            scanner.stop()
+            scanner.onCode = nil
+        }
     }
 
     private func useLink() {

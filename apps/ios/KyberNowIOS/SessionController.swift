@@ -118,16 +118,14 @@ final class SessionController: ObservableObject {
     var title: String { guest.map { ShareText.guestOn($0.computer) } ?? host.name }
 
     /// « Partager » avec cet ordinateur : disponible, ou inactif avec la raison.
-    var shareAvailability: ShareAvailability {
-        store.status[host.id]?.info?.share ?? Share.unknownStation
-    }
+    var shareAvailability: ShareAvailability { share.availability }
 
     init(host: Host, store: HostStore, onFinish: @escaping (SessionController) -> Void) {
         self.host = host
         self.store = store
         self.onFinish = onFinish
         guest = nil
-        share = ShareHostModel(console: nil, availability: store.status[host.id]?.info?.share ?? Share.unknownStation)
+        share = ShareHostModel(console: nil) { [store, id = host.id] in ShareHostModel.availability(of: id, in: store) }
     }
 
     /// Une session d'invité : une Station qui a accepté un code (`Share.join`).
@@ -146,7 +144,7 @@ final class SessionController: ObservableObject {
         guest = found
         shareRole = found.role
         virtualDisplay = false
-        share = ShareHostModel(console: nil, availability: .available)
+        share = ShareHostModel(console: nil) { .available }
     }
 
     /// Les réglages de l'image, pour le cœur. AV1 seulement si l'appareil le décode.
@@ -399,7 +397,14 @@ final class SessionController: ObservableObject {
     /// départ (`previous` nil), le rôle seulement. Le clavier et la souris
     /// retirés : le clavier de l'écran se replie.
     private func shareRoleChanged(_ role: ShareRole, previous: ShareRole?) {
+        // Une session finie, ou qui se ferme, n'écrit plus rien (réglages, avis).
+        switch phase {
+        case .ending, .ended, .failed: return
+        default: break
+        }
         shareRole = role
+        // Sans le clavier et la souris, la souris de l'iPad n'est plus capturée (souris des jeux).
+        streamView.mouseMode = role.keyboardAndMouse ? host.settings.mouse.streamMode : .desktop
         if !role.keyboardAndMouse, keyboardShown { toggleKeyboard() }
         // Redevenu spectateur : la manette à l'écran se retire (elle n'envoie plus rien).
         if !role.plays, screenPad { toggleScreenPad() }
