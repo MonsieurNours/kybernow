@@ -2,6 +2,8 @@
 //!
 //! Clic gauche : le panneau (`panel.rs`), dessiné comme le reste de KyberNow.
 //! Clic droit : le menu de Windows, qui sert aussi de secours si WebView2 manque.
+//! Le partage d'un écran du PC (KyberNow Share) part de l'un ou de l'autre :
+//! le choix de l'écran et le partage ouvert vivent dans le panneau.
 //! Un fil surveille les services et la console toutes les deux secondes ; les
 //! actions longues (démarrage, arrêt, invite UAC) tournent dans leur propre fil.
 //! Le fil principal ne fait qu'afficher : il relit l'état deux fois par seconde.
@@ -29,11 +31,11 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 use crate::console::{self, Client, LocalState};
-use crate::i18n::t;
+use crate::i18n::{list, t, tn};
 use crate::icons::{Icons, Look};
 use crate::panel::Panel;
 use crate::services::{self, ADMIN, KYBER, State};
-use crate::{password, startup};
+use crate::{password, qr, startup};
 
 /// Nom affiché : infobulle, boîtes de message, première ligne du menu.
 pub const TITLE: &str = "KyberNow Station";
@@ -87,6 +89,34 @@ fn poll(client: &Client) -> Snapshot {
     Snapshot { kyber, admin, console, start_with_computer: startup::enabled() }
 }
 
+/// Le partage vu du panneau, en plus de ce qu'en dit la console : les écrans
+/// à choisir, une action en cours, le dernier refus d'Admin.
+#[derive(Debug, Clone, Default, PartialEq)]
+struct ShareUi {
+    /// Écrans du PC, lus à l'ouverture du choix (`None` : en lecture).
+    displays: Option<Vec<Value>>,
+    busy: bool,
+    /// Refus d'Admin (partage coupé, appareil en session…), dans sa langue.
+    error: Option<String>,
+}
+
+/// Ce que donne une action du partage.
+enum ShareChange {
+    Displays(Vec<Value>),
+    /// Le partage après l'action (ouverture, nouveau code, droits, invité retiré).
+    View(Value),
+    Closed,
+}
+
+/// Qui occupe l'ordinateur, pour les confirmations (arrêter, redémarrer, quitter).
+enum Occupied {
+    Free,
+    /// Un appareil est en session (avec ou sans invités).
+    Device,
+    /// Un partage lancé depuis le PC, et les prénoms de ses invités.
+    Guests(Vec<String>),
+}
+
 #[derive(Default)]
 struct Shared {
     snapshot: Option<Snapshot>,
@@ -94,6 +124,15 @@ struct Shared {
     busy: Option<&'static str>,
     /// Code d'initialisation après « Réinitialiser le mot de passe de la console ».
     setup_code: Option<String>,
+    share_ui: ShareUi,
+}
+
+/// Le partage a changé (réponse d'une action) : montré sans attendre le prochain relevé.
+fn set_share(s: &mut Shared, view: Option<Value>) {
+    let view = view.filter(|v| v["open"].as_bool() != Some(false));
+    if let Some(console) = s.snapshot.as_mut().and_then(|snap| snap.console.as_mut()) {
+        console.share = view;
+    }
 }
 
 type SharedState = Arc<Mutex<Shared>>;
@@ -137,6 +176,7 @@ fn describe(s: &Snapshot, busy: Option<&str>) -> (String, String, Look) {
         (_, State::Unknown) => t("tray.status.unknown", &[]),
     };
     let live = s.console.as_ref().and_then(|c| c.live.as_ref()).and_then(|l| l["name"].as_str()).map(str::to_owned);
+    let has_live = live.is_some();
     let session = match (s.kyber, s.admin, &s.console) {
         (State::Running, State::Running, Some(_)) if live.is_some() => t("tray.session.connected", &[("name", &live.unwrap_or_default())]),
         (State::Running, State::Running, Some(LocalState { session: true, user: Some(user), .. })) => t("tray.session.userSession", &[("user", user)]),
@@ -148,7 +188,17 @@ fn describe(s: &Snapshot, busy: Option<&str>) -> (String, String, Look) {
         (State::Missing, _, _) => t("tray.session.reinstall", &[]),
         _ => t("tray.session.wait", &[]),
     };
-    let in_session = s.console.as_ref().is_some_and(|c| c.session || c.live.is_some());
+    // Partage ouvert : l'écran partagé depuis le PC, ou les invités de l'appareil hôte.
+    let guests = s.console.as_ref().map_or(0, LocalState::guests);
+    let session = match s.console.as_ref().and_then(|c| c.share.as_ref()) {
+        Some(share) if s.kyber == State::Running && !has_live && share["origin"] == "local" => {
+            let base = t("tray.session.sharing", &[("n", &share["display"]["index"])]);
+            if guests > 0 { format!("{base} · {}", tn("tray.guests", guests)) } else { base }
+        }
+        Some(_) if s.kyber == State::Running && guests > 0 => format!("{session} · {}", tn("tray.guests", guests)),
+        _ => session,
+    };
+    let in_session = s.console.as_ref().is_some_and(|c| c.device_session() || c.guests() > 0);
     let look = match s.kyber {
         _ if busy.is_some() => Look::Busy,
         State::Starting | State::Stopping => Look::Busy,
@@ -170,8 +220,15 @@ fn state_name(s: State) -> &'static str {
     }
 }
 
+/// Le partage tel que le panneau l'affiche, avec le QR code de son lien.
+fn share_for_panel(share: &Value) -> Value {
+    let mut share = share.clone();
+    share["qr"] = share["link"].as_str().and_then(qr::svg).map_or(Value::Null, Value::from);
+    share
+}
+
 /// L'état tel que le panneau l'affiche.
-fn panel_state(s: &Snapshot, busy: Option<&str>, setup_code: Option<&str>) -> Value {
+fn panel_state(s: &Snapshot, busy: Option<&str>, setup_code: Option<&str>, share_ui: &ShareUi) -> Value {
     json!({
         "service": state_name(s.kyber),
         "adminMissing": s.admin == State::Missing,
@@ -190,7 +247,14 @@ fn panel_state(s: &Snapshot, busy: Option<&str>, setup_code: Option<&str>) -> Va
             "address": c.address,
             "live": c.live,
             "last": c.last,
+            "share": c.share.as_ref().map(share_for_panel),
+            "shareEnabled": c.share_enabled,
         })),
+        "shareUi": {
+            "displays": share_ui.displays,
+            "busy": share_ui.busy,
+            "error": share_ui.error,
+        },
     })
 }
 
@@ -207,6 +271,8 @@ struct App {
     panel: Option<Panel>,
     status: MenuItem,
     session: MenuItem,
+    /// « Partager un écran… », ou « Arrêter le partage » quand un partage est ouvert.
+    share: MenuItem,
     open: MenuItem,
     updates: MenuItem,
     toggle: MenuItem,
@@ -216,7 +282,7 @@ struct App {
     quit: MenuItem,
     shared: SharedState,
     wake: Sender<()>,
-    shown: Option<(Snapshot, Option<&'static str>, Option<String>)>,
+    shown: Option<(Snapshot, Option<&'static str>, Option<String>, ShareUi)>,
     look: Option<Look>,
     /// Demandes d'accès déjà signalées (le panneau s'ouvre pour les nouvelles).
     seen_requests: std::collections::HashSet<String>,
@@ -264,6 +330,7 @@ pub fn run() -> Result<()> {
 
     let status = MenuItem::new(TITLE, false, None);
     let session = MenuItem::new(t("tray.session.wait", &[]), false, None);
+    let share = MenuItem::new(t("tray.menu.share", &[]), false, None);
     let open = MenuItem::new(t("tray.menu.openConsole", &[]), true, None);
     let updates = MenuItem::new(t("tray.menu.updates", &[]), true, None);
     let toggle = MenuItem::new(t("tray.menu.stopServer", &[]), false, None);
@@ -275,6 +342,8 @@ pub fn run() -> Result<()> {
     menu.append_items(&[
         &status,
         &session,
+        &PredefinedMenuItem::separator(),
+        &share,
         &PredefinedMenuItem::separator(),
         &open,
         &updates,
@@ -302,6 +371,7 @@ pub fn run() -> Result<()> {
         panel,
         status,
         session,
+        share,
         open,
         updates,
         toggle,
@@ -342,17 +412,17 @@ pub fn run() -> Result<()> {
 }
 
 impl App {
-    fn snapshot(&self) -> (Option<Snapshot>, Option<&'static str>, Option<String>) {
+    fn snapshot(&self) -> (Option<Snapshot>, Option<&'static str>, Option<String>, ShareUi) {
         let s = self.shared.lock().unwrap();
-        (s.snapshot.clone(), s.busy, s.setup_code.clone())
+        (s.snapshot.clone(), s.busy, s.setup_code.clone(), s.share_ui.clone())
     }
 
     fn refresh(&mut self) {
         if let Some(p) = self.panel.as_mut() {
             p.tick();
         }
-        let (Some(snap), busy, code) = self.snapshot() else { return };
-        if self.shown.as_ref().is_some_and(|(s, b, c)| *s == snap && *b == busy && *c == code) {
+        let (Some(snap), busy, code, share_ui) = self.snapshot() else { return };
+        if self.shown.as_ref().is_some_and(|(s, b, c, u)| *s == snap && *b == busy && *c == code && *u == share_ui) {
             return;
         }
         let (status, session, look) = describe(&snap, busy);
@@ -372,6 +442,14 @@ impl App {
             None => t("tray.menu.updates", &[]),
         });
         self.updates.set_enabled(snap.admin == State::Running);
+        // Partager un écran du PC : pas pendant la session d'un appareil (c'est lui
+        // qui partage), ni quand le partage est coupé ; un partage ouvert s'arrête d'ici.
+        let console = snap.console.as_ref().filter(|_| snap.kyber == State::Running);
+        let share_open = console.is_some_and(|c| c.share.is_some());
+        self.share.set_text(t(if share_open { "tray.menu.stopShare" } else { "tray.menu.share" }, &[]));
+        self.share.set_enabled(
+            idle && !share_ui.busy && console.is_some_and(|c| c.share.is_some() || (c.share_enabled && !c.device_session())),
+        );
         let _ = self.tray.set_tooltip(Some(format!("{TITLE}\n{status}\n{session}")));
         if self.look != Some(look) {
             if let Ok(icon) = self.icons.get(look) {
@@ -380,7 +458,7 @@ impl App {
             }
         }
         if let Some(panel) = &self.panel {
-            panel.push(&panel_state(&snap, busy, code.as_deref()).to_string());
+            panel.push(&panel_state(&snap, busy, code.as_deref(), &share_ui).to_string());
         }
         // Un appareil demande l'accès : le panneau s'ouvre de lui-même pour
         // que la personne devant l'ordinateur le voie.
@@ -391,7 +469,7 @@ impl App {
             .unwrap_or_default();
         let fresh = requests.iter().any(|id| !self.seen_requests.contains(id));
         self.seen_requests = requests;
-        self.shown = Some((snap, busy, code));
+        self.shown = Some((snap, busy, code, share_ui));
         if fresh {
             if let (Some(panel), Some(rect)) = (self.panel.as_mut(), self.tray.rect()) {
                 if !panel.is_visible() {
@@ -422,9 +500,76 @@ impl App {
         self.refresh();
     }
 
-    fn in_session(&self) -> bool {
-        let (snap, _, _) = self.snapshot();
-        snap.and_then(|s| s.console).is_some_and(|c| c.session || c.live.is_some())
+    /// Une action du partage dans son propre fil, sans bloquer l'icône : le
+    /// panneau montre l'attente, puis le partage à jour, ou le refus d'Admin
+    /// (dans le panneau s'il est ouvert, sinon dans une boîte de message).
+    fn share_act(&mut self, job: impl FnOnce(&Client, u16) -> Result<ShareChange> + Send + 'static) {
+        {
+            let mut s = self.shared.lock().unwrap();
+            if s.share_ui.busy {
+                return;
+            }
+            s.share_ui.busy = true;
+            s.share_ui.error = None;
+        }
+        let inline = self.panel.as_ref().is_some_and(Panel::is_visible);
+        let (shared, wake) = (self.shared.clone(), self.wake.clone());
+        std::thread::spawn(move || {
+            let result = console::port()
+                .ok_or_else(|| anyhow::anyhow!(t("tray.consolePortMissingShort", &[])))
+                .and_then(|port| job(&Client::new(), port));
+            let mut failure = None;
+            {
+                let mut s = shared.lock().unwrap();
+                s.share_ui.busy = false;
+                match result {
+                    Ok(ShareChange::Displays(list)) => s.share_ui.displays = Some(list),
+                    Ok(ShareChange::View(view)) => set_share(&mut s, Some(view)),
+                    Ok(ShareChange::Closed) => set_share(&mut s, None),
+                    Err(e) if inline => s.share_ui.error = Some(format!("{e:#}")),
+                    Err(e) => failure = Some(format!("{e:#}")),
+                }
+            }
+            let _ = wake.send(());
+            if let Some(text) = failure {
+                alert(&text);
+            }
+        });
+        self.refresh();
+    }
+
+    /// « Partager un écran… » du menu : le panneau s'ouvre sur le choix de
+    /// l'écran (sans panneau, l'accueil d'Admin, qui a le même choix).
+    fn open_share_choice(&mut self) {
+        match (self.panel.as_mut(), self.tray.rect()) {
+            (Some(panel), Some(rect)) => {
+                if !panel.is_visible() && panel.toggle(rect.position, (rect.size.width, rect.size.height)) {
+                    self.shown = None;
+                    let _ = self.wake.send(());
+                }
+                panel.show_page("choose");
+                self.refresh();
+            }
+            _ => {
+                if let Err(e) = open_console_at("ensemble") {
+                    alert(&format!("{e:#}"));
+                }
+            }
+        }
+    }
+
+    fn share_open(&self) -> bool {
+        let (snap, _, _, _) = self.snapshot();
+        snap.and_then(|s| s.console).is_some_and(|c| c.share.is_some())
+    }
+
+    fn occupied(&self) -> Occupied {
+        let (snap, _, _, _) = self.snapshot();
+        match snap.and_then(|s| s.console) {
+            Some(c) if c.device_session() => Occupied::Device,
+            Some(c) if c.guests() > 0 => Occupied::Guests(c.guest_names()),
+            _ => Occupied::Free,
+        }
     }
 
     fn hide_panel(&mut self) {
@@ -448,7 +593,13 @@ impl App {
 
     fn on_menu(&mut self, event: MenuEvent) {
         let id = event.id;
-        if id == *self.updates.id() {
+        if id == *self.share.id() {
+            if self.share_open() {
+                self.share_act(|c, port| c.share_stop(port).map(|()| ShareChange::Closed));
+            } else {
+                self.open_share_choice();
+            }
+        } else if id == *self.updates.id() {
             self.open_updates();
         } else if id == *self.open.id() {
             self.open_console();
@@ -471,6 +622,9 @@ impl App {
         let Ok(message) = serde_json::from_str::<Value>(json) else { return };
         match message["cmd"].as_str().unwrap_or_default() {
             "ready" => {
+                if let Some(p) = self.panel.as_mut() {
+                    p.mark_ready();
+                }
                 self.shown = None;
                 self.refresh();
             }
@@ -501,6 +655,40 @@ impl App {
                     self.pair_answer(id.to_string(), message["accept"].as_bool().unwrap_or(false));
                 }
             }
+            // Partage d'un écran du PC (KyberNow Share).
+            "shareChoose" => {
+                self.shared.lock().unwrap().share_ui.displays = None;
+                self.share_act(|c, port| c.displays(port).map(ShareChange::Displays));
+            }
+            // L'écran choisi, par sa place dans la liste lue pour le choix (son
+            // identifiant passe tel quel, sans détour par un nombre JavaScript).
+            "shareOpen" => {
+                let display = message["index"].as_u64().and_then(|i| {
+                    let s = self.shared.lock().unwrap();
+                    s.share_ui.displays.as_ref()?.get(i as usize).map(|d| d["id"].clone())
+                });
+                if let Some(display) = display {
+                    self.share_act(move |c, port| c.share_open(port, display).map(ShareChange::View));
+                }
+            }
+            "shareCode" => self.share_act(|c, port| c.share_code(port).map(ShareChange::View)),
+            "shareRole" => {
+                if let (Some(id), Some(role)) = (message["id"].as_str(), message["role"].as_str()) {
+                    let (id, role) = (id.to_string(), role.to_string());
+                    self.share_act(move |c, port| c.share_role(port, &id, &role).map(ShareChange::View));
+                }
+            }
+            "shareRemove" => {
+                if let Some(id) = message["id"].as_str() {
+                    let id = id.to_string();
+                    self.share_act(move |c, port| c.share_remove(port, &id).map(ShareChange::View));
+                }
+            }
+            "shareStop" => self.share_act(|c, port| c.share_stop(port).map(|()| ShareChange::Closed)),
+            "shareDismiss" => {
+                self.shared.lock().unwrap().share_ui.error = None;
+                self.refresh();
+            }
             "restart" => self.restart_server(),
             "toggleServer" => self.toggle_server(),
             "startWithComputer" => self.switch_start_with_computer(),
@@ -514,7 +702,7 @@ impl App {
     }
 
     fn open_console(&mut self) {
-        let (Some(snap), _, _) = self.snapshot() else { return };
+        let (Some(snap), _, _, _) = self.snapshot() else { return };
         if snap.admin == State::Running {
             if let Err(e) = open_console() {
                 alert(&format!("{e:#}"));
@@ -553,9 +741,14 @@ impl App {
     }
 
     fn toggle_server(&mut self) {
-        let (Some(snap), _, _) = self.snapshot() else { return };
+        let (Some(snap), _, _, _) = self.snapshot() else { return };
         if snap.kyber.is_up() {
-            if self.in_session() && !confirm(&t("tray.confirm.stopInSession", &[])) {
+            let sure = match self.occupied() {
+                Occupied::Free => true,
+                Occupied::Device => confirm(&t("tray.confirm.stopInSession", &[])),
+                Occupied::Guests(names) => confirm(&t("tray.confirm.stopSharing", &[("names", &list(&names))])),
+            };
+            if !sure {
                 return;
             }
             self.act("tray.busy.stopping", |_| services::stop_server());
@@ -565,14 +758,19 @@ impl App {
     }
 
     fn restart_server(&mut self) {
-        if self.in_session() && !confirm(&t("tray.confirm.restartInSession", &[])) {
+        let sure = match self.occupied() {
+            Occupied::Free => true,
+            Occupied::Device => confirm(&t("tray.confirm.restartInSession", &[])),
+            Occupied::Guests(names) => confirm(&t("tray.confirm.restartSharing", &[("names", &list(&names))])),
+        };
+        if !sure {
             return;
         }
         self.act("tray.busy.restarting", |_| services::restart_server());
     }
 
     fn switch_start_with_computer(&mut self) {
-        let (Some(snap), _, _) = self.snapshot() else { return };
+        let (Some(snap), _, _, _) = self.snapshot() else { return };
         let on = snap.start_with_computer != Some(true);
         self.act("tray.busy.startup", move |_| startup::set(on).map(|_| ()));
     }
@@ -592,7 +790,7 @@ impl App {
     }
 
     fn quit(&mut self) {
-        let (Some(snap), _, _) = self.snapshot() else {
+        let (Some(snap), _, _, _) = self.snapshot() else {
             self.done = true;
             return;
         };
@@ -600,7 +798,7 @@ impl App {
             self.done = true;
             return;
         }
-        match ask_quit(self.in_session()) {
+        match ask_quit(self.occupied()) {
             QuitChoice::KeepServer => self.done = true,
             QuitChoice::StopServer => {
                 if let Err(e) = services::stop(KYBER) {
@@ -622,10 +820,14 @@ enum QuitChoice {
 const KEEP: i32 = 100;
 const STOP: i32 = 101;
 
-fn ask_quit(in_session: bool) -> QuitChoice {
+fn ask_quit(occupied: Occupied) -> QuitChoice {
     let title = wide(TITLE);
     let instruction = wide(&t("tray.quit.instruction", &[]));
-    let content = wide(&t(if in_session { "tray.quit.inSession" } else { "tray.quit.idle" }, &[]));
+    let content = wide(&match occupied {
+        Occupied::Free => t("tray.quit.idle", &[]),
+        Occupied::Device => t("tray.quit.inSession", &[]),
+        Occupied::Guests(names) => t("tray.quit.sharing", &[("names", &list(&names))]),
+    });
     let keep = wide(&t("tray.quit.keep", &[]));
     let stop = wide(&t("tray.quit.stop", &[]));
     let buttons = [

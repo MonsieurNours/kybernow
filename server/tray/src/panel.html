@@ -61,6 +61,41 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: -2px; }
 .pair button { height: 30px; padding: 0 12px; border: 0; border-radius: 7px; background: none; box-shadow: inset 0 0 0 1px rgba(255,255,255,.16); font-size: 12.5px; }
 .pair button.accept { background: var(--signal-strong); box-shadow: none; color: #fff; font-weight: 600; }
 .pair button:disabled { opacity: .45; cursor: default; }
+/* Partage d'un écran du PC (KyberNow Share) : le choix de l'écran et le partage ouvert, en pages. */
+.page-head { display: flex; align-items: center; gap: 6px; padding: 12px 14px 6px 8px; }
+.back { width: 32px; height: 32px; flex: none; border: 0; border-radius: 8px; background: none; display: grid; place-items: center; }
+.back:hover { background: rgba(255,255,255,.06); }
+.page-head .htext { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.page-head .ptitle { font-stretch: 125%; font-size: 16px; font-weight: 650; letter-spacing: -.015em; line-height: 1.2; }
+.page-head .sub { font-size: 11.5px; color: var(--faint); }
+.page-hint { margin: 2px 16px 8px; font-size: 12px; line-height: 1.45; color: var(--text-2); }
+.why { margin: -2px 12px 4px 40px; font-size: 11.5px; line-height: 1.4; color: var(--faint); }
+.share-top { display: flex; gap: 14px; align-items: center; margin: 6px 16px 10px; }
+.qr { width: 112px; height: 112px; flex: none; }
+.qr svg { width: 100%; height: 100%; display: block; }
+.share-code { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.share-code .lbl { color: var(--signal-light); }
+.share-code strong { font-family: 'Martian Mono', Consolas, monospace; font-size: 24px; font-weight: 500; letter-spacing: .08em; white-space: nowrap; color: #F4F1FF; text-shadow: 0 0 1px #F4F1FF, 0 0 8px #9A8CFF, 0 0 18px #6D5BFF; user-select: text; }
+.share-code button, .moves button, .share-foot button { height: 28px; padding: 0 10px; border: 0; border-radius: 7px; background: none; box-shadow: inset 0 0 0 1px rgba(255,255,255,.16); font-size: 12px; display: inline-flex; align-items: center; gap: 6px; }
+.share-code button { align-self: flex-start; margin-top: 6px; }
+.share-code button:hover, .moves button:hover:not(:disabled), .share-foot button:hover:not(:disabled) { background: rgba(255,255,255,.06); }
+.moves button:disabled, .share-foot button:disabled { opacity: .45; cursor: default; }
+.people { margin: 0 16px; }
+.people-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 4px 0 6px; font-size: 11.5px; color: var(--faint); }
+.people-head .lbl { color: var(--muted); }
+.guest { padding: 9px 0; border-top: 1px solid rgba(255,255,255,.08); display: flex; flex-direction: column; gap: 7px; }
+.guest .who { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 8px; row-gap: 1px; align-items: baseline; }
+.guest .who small { grid-column: 1 / -1; }
+.guest .who button.remove { border: 0; background: none; padding: 0; color: var(--faint); font-size: 11.5px; }
+.guest .who button.remove:hover:not(:disabled) { color: #FFC9C4; text-decoration: underline; }
+.guest .who button.remove:disabled { opacity: .45; cursor: default; }
+.guest strong { font-size: 13px; font-weight: 600; }
+.guest small { font-size: 11.5px; color: var(--faint); }
+.moves { display: flex; flex-wrap: wrap; gap: 6px; }
+.nobody { margin: 0; padding: 9px 0; border-top: 1px solid rgba(255,255,255,.08); font-size: 12.5px; color: var(--faint); }
+.share-foot { display: flex; justify-content: space-between; gap: 8px; padding: 10px 16px 14px; margin-top: 4px; border-top: 1px solid rgba(255,255,255,.08); }
+.share-foot button.stop { background: rgba(255,107,107,.14); box-shadow: inset 0 0 0 1px rgba(255,107,107,.4); color: #FFC9C4; font-weight: 600; }
+.share-error { margin: 2px 16px 10px; padding: 10px 12px; border-radius: 10px; background: rgba(255,107,107,.12); box-shadow: inset 0 0 0 1px rgba(255,107,107,.4); color: #FFC9C4; font-size: 12px; line-height: 1.45; }
 .foot { display: flex; justify-content: space-between; align-items: center; padding: 4px 12px 6px; font-size: 12px; color: var(--faint); }
 .foot .mono { font-size: 10.5px; }
 .foot button { border: 0; background: none; padding: 6px 0; color: var(--muted); font-size: 12px; }
@@ -88,6 +123,10 @@ const ICONS = {
   play: 'M8 5l11 7-11 7z',
   boot: 'M12 3v9M5.6 7.6a8 8 0 1 0 12.8 0',
   key: 'M8 11a4 4 0 1 1 0 8 4 4 0 0 1 0-8zM11 12l9-9M17 6l3 3M14.5 8.5l2 2',
+  share: 'M18 3a3 3 0 1 1 0 6 3 3 0 0 1 0-6zM6 9a3 3 0 1 1 0 6 3 3 0 0 1 0-6zM18 15a3 3 0 1 1 0 6 3 3 0 0 1 0-6zM8.6 13.5l6.8 4M15.4 6.5l-6.8 4',
+  display: 'M4 4h16a1.5 1.5 0 0 1 1.5 1.5v10A1.5 1.5 0 0 1 20 17H4a1.5 1.5 0 0 1-1.5-1.5v-10A1.5 1.5 0 0 1 4 4zM9 21h6M12 17v4',
+  back: 'M15 6l-6 6 6 6',
+  copy: 'M10 8h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2zM16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3',
 }
 // Langue de Windows et textes du panneau, posés par l'icône avant la page
 // (window.__knI18n, src/i18n.rs). Le français est la source et le repli.
@@ -99,6 +138,8 @@ function t(key, vars = {}) {
   const text = lookup(I18N.strings, key) ?? lookup(I18N.fallback, key) ?? key
   return String(text).replace(/\{(\w+)\}/g, (all, name) => (name in vars ? String(vars[name]) : all))
 }
+// Singulier ou pluriel (`key.one`, `key.other`) : français, 0 et 1 au singulier ; anglais, 1 seulement.
+const tn = (key, n) => t(`${key}.${(LANG === 'fr' ? n < 2 : n === 1) ? 'one' : 'other'}`, { n })
 const send = (cmd, extra) => window.ipc && window.ipc.postMessage(JSON.stringify({ cmd, ...extra }))
 const esc = (t) => String(t ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c])
 const icon = (name, color = '#C9D3DC') => `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${ICONS[name]}"/></svg>`
@@ -115,8 +156,85 @@ function since(seconds) {
   return m < 1 ? t('since.lessThanMinute') : m < 60 ? t('since.minutes', { m }) : t('since.hours', { h: Math.floor(m / 60), mm: String(m % 60).padStart(2, '0') })
 }
 const ms = (v) => (v >= 100 ? `${Math.round(v)} ms` : `${LANG === 'fr' ? v.toFixed(1).replace('.', ',') : v.toFixed(1)} ms`)
+// « depuis 3 min », pour un participant du partage.
+function elapsed(seconds) {
+  const m = Math.floor((Date.now() / 1000 - seconds) / 60)
+  return m < 1 ? t('share.since.lessThanMinute') : m < 60 ? t('share.since.minutes', { m }) : t('share.since.hours', { h: Math.floor(m / 60), mm: String(m % 60).padStart(2, '0') })
+}
 
 let state = null
+// Page du panneau : l'accueil (« main »), le choix de l'écran à partager (« choose »), le partage ouvert (« share »).
+let page = 'main'
+
+// Partage (KyberNow Share) : mêmes textes et mêmes droits que dans Admin.
+const screenLine = (d) => t('share.display', { label: d.label, width: d.width, height: d.height })
+function shareTitle(s, share) {
+  return share.origin === 'local' ? t('share.titleLocal', { n: share.display.index }) : t('share.titleHost', { name: (s.console && s.console.hostname) || t('hero.thisComputer') })
+}
+function appName(app) {
+  const name = t(`share.apps.${app}`)
+  return name.startsWith('share.') ? app : name
+}
+// Ce que l'hôte peut faire d'un invité, selon ses droits.
+function moves(g) {
+  if (g.role === 'spectator') return [{ role: 'player', label: t('share.play') }]
+  if (g.role === 'player') return [{ role: 'player_kbm', label: t('share.giveKbm') }, { role: 'spectator', label: t('share.watch') }]
+  return [{ role: 'player', label: t('share.takeKbm') }]
+}
+const pageHead = (title, sub) => `<header class="page-head"><button class="back" data-page="main" aria-label="${esc(t('share.back'))}">${icon('back')}</button>
+  <span class="htext"><span class="ptitle">${esc(title)}</span>${sub ? `<span class="sub">${esc(sub)}</span>` : ''}</span></header>`
+const shareError = (ui) => (ui.error ? `<div class="share-error" role="alert">${esc(ui.error)}</div>` : '')
+
+function choosePage(s) {
+  const ui = s.shareUi || {}
+  const list = ui.displays
+  const rows = (list || []).map((d, i) => `<button class="item" data-cmd="shareOpen" data-index="${i}" ${ui.busy ? 'disabled' : ''}>${icon('display')}${esc(screenLine(d))}</button>`).join('')
+  const hint = list ? t('share.choose') : ui.busy ? t('share.loading') : ''
+  return `${pageHead(t('share.start'))}${hint ? `<p class="page-hint">${esc(hint)}</p>` : ''}${shareError(ui)}
+    <div class="items">${rows}${rows ? '<div class="sep"></div>' : ''}<button class="item" data-page="main">${esc(t('share.cancel'))}</button></div>`
+}
+
+function sharePage(s, share) {
+  const ui = s.shareUi || {}
+  const busy = ui.busy ? 'disabled' : ''
+  const sub = share.origin === 'host' ? t('share.openedBy', { name: share.host }) : screenLine(share.display)
+  const live = s.console && s.console.live
+  const host = share.origin === 'host' && live
+    ? `<div class="guest"><div class="who"><strong>${esc(t('share.host', { name: live.name }))}</strong><small>${esc(elapsed(live.started_at))}</small></div></div>`
+    : ''
+  const guests = share.guests.map((g) => `<div class="guest">
+      <div class="who"><strong>${esc(t(`share.role.${g.role}`, { name: g.name }))}</strong><button class="remove" data-cmd="shareRemove" data-id="${esc(g.id)}" ${busy}>${esc(t('share.remove'))}</button><small>${esc(`${appName(g.app)} · ${elapsed(g.since)}`)}</small></div>
+      <div class="moves">${moves(g).map((m) => `<button data-cmd="shareRole" data-id="${esc(g.id)}" data-role="${m.role}" ${busy}>${esc(m.label)}</button>`).join('')}</div>
+    </div>`).join('')
+  return `${pageHead(shareTitle(s, share), sub)}
+    <div class="share-top">
+      <div class="qr" role="img" aria-label="${esc(t('share.qrLabel'))}">${share.qr || ''}</div>
+      <div class="share-code"><span class="lbl">${esc(t('share.codeLabel'))}</span><strong>${esc(`${share.code.slice(0, 3)} ${share.code.slice(3)}`)}</strong><button data-cmd="copyLink">${icon('copy')}${esc(t('share.copy'))}</button></div>
+    </div>
+    <p class="page-hint">${esc(t('share.help'))}</p>
+    ${shareError(ui)}
+    <div class="people">
+      <div class="people-head"><span class="lbl">${esc(host ? t('share.participants') : t('share.people'))}</span><span>${esc(t('share.limit'))}</span></div>
+      ${host}${guests || `<p class="nobody">${esc(t('share.nobody'))}</p>`}
+    </div>
+    <div class="share-foot"><button data-cmd="shareCode" ${busy}>${esc(t('share.newCode'))}</button><button class="stop" data-cmd="shareStop" ${busy}>${esc(t('share.stop'))}</button></div>`
+}
+
+// L'entrée du partage sur l'accueil du panneau : « Partager un écran… », ou le partage ouvert.
+function shareItem(s, up, idle) {
+  const c = s.console
+  if (!c) return ''
+  const share = up && c.share
+  if (share) {
+    const n = share.guests.length
+    const detail = [`${t('share.codeLabel')} ${share.code.slice(0, 3)} ${share.code.slice(3)}`, n ? tn('share.guests', n) : null].filter(Boolean).join(' · ')
+    return `<button class="item signal" data-page="share">${icon('share', '#D4CEFF')}<span class="two"><span>${esc(shareTitle(s, share))}</span><small>${esc(detail)}</small></span></button>`
+  }
+  // Pendant la session d'un appareil, c'est lui qui partage (« Partager » dans sa barre).
+  const why = !c.shareEnabled ? t('share.off') : c.live ? t('share.inSession', { name: c.live.name }) : c.session ? t('share.busy') : ''
+  const ok = up && idle && !why
+  return `<button class="item" data-page="choose" ${ok ? '' : 'disabled'}>${icon('share')}${esc(t('share.start'))}</button>${why ? `<p class="why">${esc(why)}</p>` : ''}`
+}
 
 // « donner l'accès à Apple TV et retirer l'accès de iPad » (comme Admin).
 function accessReason(pending) {
@@ -133,6 +251,8 @@ function accessReason(pending) {
 function hero(s) {
   const live = s.console && s.console.live
   const session = s.console && s.console.session
+  const share = s.service === 'running' && s.console && s.console.share
+  const guests = share ? share.guests.length : 0
   const host = (s.console && s.console.hostname) || t('hero.thisComputer')
   let tone = { color: '#C9F2DA', dot: '#4CD68A', eyebrow: t('hero.running') }
   let title = t('hero.waiting', { host })
@@ -152,7 +272,12 @@ function hero(s) {
   } else if (live) {
     tone = { color: '#D4CEFF', dot: '#9A8CFF', eyebrow: t('hero.live') }
     title = live.name
-    sub = [since(live.started_at), live.latency_ms ? ms(live.latency_ms) : null, t('hero.screensOff')].filter(Boolean).join(' · ')
+    sub = [since(live.started_at), live.latency_ms ? ms(live.latency_ms) : null, guests ? tn('share.guests', guests) : null, t('hero.screensOff')].filter(Boolean).join(' · ')
+  } else if (share && share.origin === 'local') {
+    // Un écran du PC est partagé : avec des invités, l'ordinateur est « en session ».
+    tone = guests ? { color: '#D4CEFF', dot: '#9A8CFF', eyebrow: t('hero.sharing') } : { ...tone, eyebrow: t('hero.sharing') }
+    title = shareTitle(s, share)
+    sub = guests ? tn('share.guests', guests) : t('share.nobody')
   } else if (session) {
     tone = { color: '#D4CEFF', dot: '#9A8CFF', eyebrow: t('hero.live') }
     title = t('hero.deviceConnected')
@@ -161,7 +286,7 @@ function hero(s) {
     sub = t('hero.consoleSilent')
   }
   const lit = tone.dot === '#9A8CFF' || tone.dot === '#4CD68A'
-  return `<section class="hero ${live || session ? 'live' : ''}">
+  return `<section class="hero ${live || session || guests ? 'live' : ''}">
     <svg class="mark" viewBox="0 0 48 48" aria-hidden="true"><path fill="#141B23" d="${SRC}"/><path fill="#1A222C" d="${DST}"/><path class="seam" fill="${lit ? '#9A8CFF' : '#65737E'}" d="${SEAM}"/></svg>
     <div class="shade"></div>
     <div class="text">
@@ -180,8 +305,20 @@ function render() {
   const up = s.service === 'running'
   const session = s.console && (s.console.session || s.console.live)
   const update = s.console && s.console.update
+  // Pages du partage : le partage ouvert prend la place du choix, et la page du
+  // partage se referme avec lui.
+  const share = up && s.console && s.console.share
+  if (page === 'choose' && share) page = 'share'
+  if (page === 'share' && !share) page = 'main'
+  if (page === 'choose' && !(up && s.console)) page = 'main'
+  if (page !== 'main') {
+    root.innerHTML = page === 'share' ? sharePage(s, share) : choosePage(s)
+    requestAnimationFrame(() => send('size', { height: Math.ceil(root.getBoundingClientRect().height) }))
+    return
+  }
   const items = []
   if (up && session) items.push(`<button class="item danger" data-cmd="endSession" ${idle ? '' : 'disabled'}>${icon('end', '#FF8A80')}${esc(t('endSession'))}</button>`)
+  items.push(shareItem(s, up, idle))
   items.push(`<button class="item" data-cmd="openConsole" ${s.adminMissing ? 'disabled' : ''}>${icon('console')}${esc(t('openConsole'))}</button>`)
   if (update) items.push(`<button class="item signal" data-cmd="openUpdates">${icon('update', '#D4CEFF')}<span class="two"><span>${esc(t('installUpdate', { version: update }))}</span><small>${esc(t('aboutAMinute'))}</small></span></button>`)
   items.push('<div class="sep"></div>')
@@ -214,10 +351,37 @@ function render() {
   requestAnimationFrame(() => send('size', { height: Math.ceil(root.getBoundingClientRect().height) }))
 }
 
+function setPage(p) {
+  // Le refus d'Admin vaut pour la page qu'on quitte.
+  if (state && state.shareUi && state.shareUi.error) send('shareDismiss')
+  page = p
+  if (p === 'choose') send('shareChoose')
+  render()
+}
+
 document.addEventListener('click', (e) => {
+  const to = e.target.closest('[data-page]')
+  if (to) {
+    if (!to.disabled) setPage(to.dataset.page)
+    return
+  }
   const b = e.target.closest('[data-cmd]')
   if (!b || b.disabled) return
   const cmd = b.dataset.cmd
+  const share = state && state.console && state.console.share
+  if (cmd === 'copyLink' && share) {
+    navigator.clipboard && navigator.clipboard.writeText(share.web)
+    b.textContent = t('copied')
+    return
+  }
+  if (cmd === 'shareOpen') {
+    send(cmd, { index: Number(b.dataset.index) })
+    return
+  }
+  if (cmd === 'shareRole' || cmd === 'shareRemove') {
+    send(cmd, { id: b.dataset.id, role: b.dataset.role })
+    return
+  }
   if (cmd === 'copyCode' && state && state.setupCode) {
     navigator.clipboard && navigator.clipboard.writeText(state.setupCode)
     b.textContent = t('copied')
@@ -229,10 +393,14 @@ document.addEventListener('click', (e) => {
   }
   send(cmd)
 })
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') send('hide') })
+// Échap : d'une page du partage à l'accueil, puis le panneau se ferme.
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { if (page !== 'main') setPage('main'); else send('hide') } })
 
 window.__knState = (s) => { state = s; render() }
-window.__knShown = () => { document.body.classList.remove('shown'); void document.body.offsetWidth; document.body.classList.add('shown') }
+// À chaque ouverture : le choix d'un écran ne reste pas en plan (le partage ouvert, si).
+window.__knShown = () => { if (page === 'choose') page = 'main'; document.body.classList.remove('shown'); void document.body.offsetWidth; document.body.classList.add('shown'); render() }
+// L'icône ouvre une page (« Partager un écran… » de son menu).
+window.__knPage = (p) => setPage(p)
 // Les durées (« depuis 12 min ») avancent même sans nouvel état.
 setInterval(render, 30000)
 send('ready')

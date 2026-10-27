@@ -21,7 +21,8 @@
       "consoleStopped": "Admin est arrêté",
       "cannotConnect": "Vos appareils ne peuvent pas se connecter",
       "reinstall": "Réinstallez KyberNow Station",
-      "wait": "Patientez…"
+      "wait": "Patientez…",
+      "sharing": "Partage de l'écran {n}"
     },
     "menu": {
       "openConsole": "Ouvrir Admin",
@@ -32,7 +33,9 @@
       "restartServer": "Redémarrer la Station",
       "startWithComputer": "Démarrer avec l'ordinateur",
       "resetPassword": "Réinitialiser le mot de passe d'Admin…",
-      "quit": "Fermer l'icône"
+      "quit": "Fermer l'icône",
+      "share": "Partager un écran…",
+      "stopShare": "Arrêter le partage"
     },
     "busy": {
       "startingConsole": "Démarrage d'Admin…",
@@ -49,11 +52,14 @@
       "endSession": "Mettre fin à la session en cours ? L'appareil connecté sera déconnecté.",
       "stopInSession": "Un appareil est connecté. Arrêter la Station coupera sa session.\n\nArrêter la Station ?",
       "restartInSession": "Un appareil est connecté. Redémarrer la Station coupera sa session.\n\nRedémarrer la Station ?",
-      "resetPassword": "Réinitialiser le mot de passe d'Admin ?\n\nVous en choisirez un nouveau avec un code d'initialisation. Vos appareils et leurs comptes ne changent pas."
+      "resetPassword": "Réinitialiser le mot de passe d'Admin ?\n\nVous en choisirez un nouveau avec un code d'initialisation. Vos appareils et leurs comptes ne changent pas.",
+      "stopSharing": "Un partage est en cours avec {names} : arrêter la Station le coupera.\n\nArrêter la Station ?",
+      "restartSharing": "Un partage est en cours avec {names} : le redémarrage l'arrêtera.\n\nRedémarrer la Station ?"
     },
     "quit": {
       "instruction": "Fermer l'icône de KyberNow Station ?",
       "inSession": "Un appareil est connecté. La Station peut rester en marche : la session continue, et vous pourrez rouvrir l'icône depuis le menu Démarrer.",
+      "sharing": "Un partage est en cours avec {names}. La Station peut rester en marche : le partage continue, et vous pourrez rouvrir l'icône depuis le menu Démarrer.",
       "idle": "La Station peut rester en marche : vos appareils pourront toujours se connecter, et vous pourrez rouvrir l'icône depuis le menu Démarrer.",
       "keep": "Laisser la Station en marche",
       "stop": "Arrêter aussi la Station",
@@ -64,6 +70,7 @@
       "endSessionFailed": "Admin n'a pas pu mettre fin à la session ({error}).",
       "pairFailed": "Admin n'a pas pu répondre à la demande ({error}).",
       "pairExpired": "Cette demande a expiré : l'appareil en enverra une nouvelle, avec un autre code.",
+      "shareFailed": "Admin n'a pas pu changer le partage ({error}).",
       "consoleSilent": "Admin ne répond pas",
       "sendFailed": "envoi à Admin (certificat inattendu ?)",
       "wrongCertificate": "ce n'est pas le certificat de KyberNow Admin",
@@ -81,7 +88,12 @@
       "codeNotHandedOver": "Mot de passe effacé, mais le code d'initialisation n'a pas pu être transmis à l'icône : il est dans C:\\ProgramData\\KyberNow\\setup-code.txt, lisible par un administrateur.",
       "resetCommandFailed": "kyber-admin reset-password a échoué ({status}).",
       "noSetupCode": "Admin n'a pas écrit de code d'initialisation (C:\\ProgramData\\KyberNow\\setup-code.txt)."
-    }
+    },
+    "guests": {
+      "one": "{n} invité",
+      "other": "{n} invités"
+    },
+    "list": "{rest} et {last}"
   },
   "panel": {
     "ago": {
@@ -124,7 +136,8 @@
       "screensOff": "écrans éteints",
       "deviceConnected": "Un appareil est connecté",
       "account": "Compte {user}",
-      "consoleSilent": "Admin ne répond pas"
+      "consoleSilent": "Admin ne répond pas",
+      "sharing": "Partage en cours"
     },
     "endSession": "Mettre fin à la session",
     "openConsole": "Ouvrir Admin",
@@ -144,6 +157,60 @@
     "refuse": "Refuser",
     "waitTitle": "Redémarrage en attente",
     "waitHint": "Pour {reason} : la Station redémarrera toute seule dès la fin de la session en cours.",
-    "quit": "Fermer l'icône"
+    "quit": "Fermer l'icône",
+    "share": {
+      "start": "Partager un écran…",
+      "choose": "Choisissez l'écran à partager.",
+      "loading": "Recherche des écrans…",
+      "display": "{label} — {width} × {height}",
+      "cancel": "Annuler",
+      "back": "Retour",
+      "off": "Le partage est coupé sur cet ordinateur (Admin › Appareils Link).",
+      "inSession": "{name} est en session : le partage se lance depuis cet appareil.",
+      "busy": "Une connexion est en cours sur cet ordinateur : partagez un écran une fois qu'elle est finie.",
+      "titleLocal": "Partage de l'écran {n}",
+      "titleHost": "Partager {name}",
+      "openedBy": "Ouvert depuis la session de {name}.",
+      "codeLabel": "Code",
+      "copy": "Copier le lien",
+      "qrLabel": "QR code du partage",
+      "help": "Sur le même réseau : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur.",
+      "people": "Invités",
+      "participants": "Participants",
+      "nobody": "Personne pour l'instant.",
+      "host": "{name} · Hôte",
+      "role": {
+        "spectator": "{name} · Spectateur",
+        "player": "{name} · Joueur",
+        "player_kbm": "{name} · Joueur, clavier et souris"
+      },
+      "since": {
+        "lessThanMinute": "depuis moins d'une minute",
+        "minutes": "depuis {m} min",
+        "hours": "depuis {h} h {mm}"
+      },
+      "play": "Faire jouer",
+      "giveKbm": "Donner le clavier et la souris",
+      "takeKbm": "Reprendre le clavier et la souris",
+      "watch": "Faire regarder",
+      "remove": "Retirer",
+      "newCode": "Nouveau code",
+      "stop": "Arrêter le partage",
+      "limit": "Quatre invités au plus.",
+      "guests": {
+        "one": "{n} invité",
+        "other": "{n} invités"
+      },
+      "apps": {
+        "mac": "Mac",
+        "windows": "Windows",
+        "linux": "Linux",
+        "ios": "iPhone ou iPad",
+        "tvos": "Apple TV",
+        "android": "Android",
+        "webos": "Téléviseur LG",
+        "web": "Navigateur"
+      }
+    }
   }
 }

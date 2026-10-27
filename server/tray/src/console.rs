@@ -1,5 +1,7 @@
 //! Console d'administration : son adresse, et l'état qu'elle donne à l'ordinateur
-//! local (`GET /api/local/state` : serveur, session en cours, demandes d'accès).
+//! local (`GET /api/local/state` : serveur, session en cours, demandes d'accès,
+//! partage), et le partage d'un écran du PC (`/api/local/displays`,
+//! `/api/local/share…`, voir `docs/kybernow-share.md`).
 //!
 //! Les routes `/api/local/*` exigent, en plus de l'adresse locale, le jeton
 //! que la console tire à son démarrage et à chaque ouverture de session, et
@@ -80,6 +82,30 @@ pub struct LocalState {
     /// Accès d'appareils que Kyber ne connaît pas encore : il redémarre de
     /// lui-même dès la fin de la session en cours (compte, appareil, donné ou retiré).
     pub pending_access: Vec<Value>,
+    /// Partage ouvert (KyberNow Share), depuis un appareil ou depuis le PC :
+    /// origine, code, liens, écran, invités.
+    pub share: Option<Value>,
+    /// Faux si le partage est coupé (`multi_client` de Kyber), ou si la
+    /// console ne le connaît pas (avant la 0.8.0).
+    pub share_enabled: bool,
+}
+
+impl LocalState {
+    /// Nombre d'invités du partage ouvert.
+    pub fn guests(&self) -> usize {
+        self.share.as_ref().and_then(|s| s["guests"].as_array()).map_or(0, Vec::len)
+    }
+
+    /// Prénoms des invités du partage ouvert.
+    pub fn guest_names(&self) -> Vec<String> {
+        let guests = self.share.as_ref().and_then(|s| s["guests"].as_array());
+        guests.into_iter().flatten().filter_map(|g| g["name"].as_str().map(str::to_owned)).collect()
+    }
+
+    /// Un appareil est en session (le partage d'un écran du PC attend sa fin).
+    pub fn device_session(&self) -> bool {
+        self.session || self.live.is_some()
+    }
 }
 
 /// Client épinglé sur le certificat de la console. Sans empreinte connue,
@@ -142,7 +168,62 @@ impl Client {
             last: some(&body["activity"]["last"]),
             pair_requests: body["pair_requests"].as_array().cloned().unwrap_or_default(),
             pending_access: body["pending_access"].as_array().cloned().unwrap_or_default(),
+            share: some(&body["share"]).filter(|s| s["open"].as_bool() != Some(false)),
+            share_enabled: body["share_enabled"].as_bool().unwrap_or(false),
         })
+    }
+
+    /// Une route locale du partage, avec le jeton local ; la réponse en JSON.
+    /// Un refus d'Admin (partage coupé, appareil en session…) donne son
+    /// message, déjà dans la langue de l'icône.
+    fn share_call(&self, method: &str, port: u16, path: &str, body: Option<Value>) -> anyhow::Result<Value> {
+        let failed = |error: &dyn std::fmt::Display| anyhow::anyhow!(t("tray.errors.shareFailed", &[("error", error)]));
+        let Some(http) = self.http.as_ref() else {
+            anyhow::bail!(t("tray.errors.certificateUnknown", &[]));
+        };
+        let token = local_token();
+        let body = body.map(|b| b.to_string());
+        let reply = http
+            .send(method, port, path, &[("x-kyber-admin", "1"), (LOCAL_HEADER, &token)], body.as_deref().map(str::as_bytes), Duration::from_secs(15))
+            .map_err(|e| failed(&format!("{e:#}")))?;
+        let value = serde_json::from_slice::<Value>(&reply.body).unwrap_or(Value::Null);
+        if reply.status >= 400 {
+            return Err(match value["error"].as_str() {
+                Some(message) => anyhow::anyhow!(message.to_string()),
+                None => failed(&describe(&reply)),
+            });
+        }
+        Ok(value)
+    }
+
+    /// Écrans du PC, l'écran principal d'abord (`id`, `label` traduit, définition).
+    pub fn displays(&self, port: u16) -> anyhow::Result<Vec<Value>> {
+        Ok(self.share_call("GET", port, "/api/local/displays", None)?.as_array().cloned().unwrap_or_default())
+    }
+
+    /// Ouvre le partage d'un écran du PC ; la vue du partage.
+    pub fn share_open(&self, port: u16, display: Value) -> anyhow::Result<Value> {
+        self.share_call("POST", port, "/api/local/share/open", Some(serde_json::json!({ "display": display })))
+    }
+
+    /// Nouveau code (les invités déjà là restent).
+    pub fn share_code(&self, port: u16) -> anyhow::Result<Value> {
+        self.share_call("POST", port, "/api/local/share/code", None)
+    }
+
+    /// Droits d'un invité : `spectator`, `player` ou `player_kbm`.
+    pub fn share_role(&self, port: u16, guest: &str, role: &str) -> anyhow::Result<Value> {
+        self.share_call("POST", port, &format!("/api/local/share/guest/{}", path_part(guest)), Some(serde_json::json!({ "role": role })))
+    }
+
+    /// Retire un invité du partage.
+    pub fn share_remove(&self, port: u16, guest: &str) -> anyhow::Result<Value> {
+        self.share_call("DELETE", port, &format!("/api/local/share/guest/{}", path_part(guest)), None)
+    }
+
+    /// Arrête le partage : tout le monde sort.
+    pub fn share_stop(&self, port: u16) -> anyhow::Result<()> {
+        self.share_call("DELETE", port, "/api/local/share", None).map(|_| ())
     }
 
     /// Met fin à la session en cours (route réservée à l'ordinateur lui-même).
@@ -164,6 +245,14 @@ impl Client {
             _ => anyhow::bail!(t("tray.errors.pairFailed", &[("error", &describe(&reply))])),
         }
     }
+}
+
+/// Identifiant d'invité dans un chemin : lettres, chiffres, `-` et `_` tels
+/// quels, le reste encodé.
+fn path_part(id: &str) -> String {
+    id.bytes()
+        .map(|b| if b.is_ascii_alphanumeric() || b == b'-' || b == b'_' { (b as char).to_string() } else { format!("%{b:02X}") })
+        .collect()
 }
 
 /// « 403 : jeton local absent ou périmé », d'après le JSON d'erreur de la console.

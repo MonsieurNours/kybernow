@@ -19,6 +19,8 @@ mod icons;
 mod panel;
 #[cfg(windows)]
 mod password;
+#[cfg_attr(not(windows), allow(dead_code))]
+mod qr;
 #[cfg(windows)]
 mod services;
 #[cfg(windows)]

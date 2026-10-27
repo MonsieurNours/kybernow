@@ -329,7 +329,9 @@
       "stopped": "Server stopped",
       "missing": "Server not found",
       "inSession": "In session",
-      "running": "Running"
+      "running": "Running",
+      "sharing": "Sharing · {guests}",
+      "sharingAlone": "Sharing"
     },
     "pairBadge": {
       "one": "{n} access request",
@@ -899,6 +901,59 @@
       "before": "The encoder, capture engine and minimum bitrate are in ",
       "link": "System › Advanced",
       "after": "."
+    }
+  },
+  "share": {
+    "start": "Share a screen…",
+    "startHelp": "Show one of this computer's screens to someone on your network: they see it, hear the sound, and can play if you let them. You keep using the computer as usual.",
+    "choose": "Choose the screen to share.",
+    "loading": "Looking for screens…",
+    "display": "{label} — {width} × {height}",
+    "cancel": "Cancel",
+    "off": "Sharing is turned off on this computer (Admin › Link devices).",
+    "inSession": "{name} is in a session: share from that device.",
+    "titleLocal": "Sharing display {n}",
+    "titleHost": "Share {name}",
+    "openedBy": "Opened from {name}'s session.",
+    "codeLabel": "Code",
+    "codeAria": "Code {digits}",
+    "copy": "Copy link",
+    "copied": "Link copied.",
+    "copyFailed": "Could not copy: select the link by hand.",
+    "qrLabel": "QR code for the share",
+    "help": "On the same network: “Join with a code” in KyberNow Link, or this link in a browser.",
+    "people": "Guests",
+    "participants": "Participants",
+    "nobody": "Nobody yet.",
+    "host": "{name} · Host",
+    "role": {
+      "spectator": "{name} · Spectator",
+      "player": "{name} · Player",
+      "player_kbm": "{name} · Player, keyboard and mouse"
+    },
+    "since": "for {duration}",
+    "play": "Let play",
+    "giveKbm": "Give keyboard and mouse",
+    "takeKbm": "Take back keyboard and mouse",
+    "watch": "Watch only",
+    "remove": "Remove",
+    "newCode": "New code",
+    "stop": "Stop sharing",
+    "stopped": "Sharing stopped.",
+    "limit": "Four guests at most.",
+    "guests": {
+      "one": "{n} guest",
+      "other": "{n} guests"
+    },
+    "apps": {
+      "mac": "Mac",
+      "windows": "Windows",
+      "linux": "Linux",
+      "ios": "iPhone or iPad",
+      "tvos": "Apple TV",
+      "android": "Android",
+      "webos": "LG TV",
+      "web": "Browser"
     }
   }
 }

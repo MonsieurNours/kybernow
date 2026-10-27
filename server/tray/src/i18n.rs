@@ -64,6 +64,25 @@ pub fn t(key: &str, args: &[(&str, &dyn Display)]) -> String {
     tr(lang(), key, args)
 }
 
+/// Texte au singulier ou au pluriel : `key` a deux formes, `.one` et `.other`
+/// (`{n}` y est le nombre). Français : 0 et 1 au singulier ; anglais : 1 seulement.
+pub fn tn(key: &str, n: usize) -> String {
+    let one = match lang() {
+        Lang::Fr => n < 2,
+        Lang::En => n == 1,
+    };
+    t(&format!("{key}.{}", if one { "one" } else { "other" }), &[("n", &n)])
+}
+
+/// « Léa », « Léa et Max », « Léa, Max et Zoé » (« Léa, Max and Zoé »).
+pub fn list(items: &[String]) -> String {
+    match items {
+        [] => String::new(),
+        [one] => one.clone(),
+        [rest @ .., last] => t("tray.list", &[("rest", &rest.join(", ")), ("last", last)]),
+    }
+}
+
 /// Langue de l'icône, lue une fois.
 pub fn lang() -> Lang {
     static LANG: OnceLock<Lang> = OnceLock::new();

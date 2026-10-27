@@ -329,7 +329,9 @@
       "stopped": "Serveur arrêté",
       "missing": "Serveur introuvable",
       "inSession": "En session",
-      "running": "En marche"
+      "running": "En marche",
+      "sharing": "Partage en cours · {guests}",
+      "sharingAlone": "Partage en cours"
     },
     "pairBadge": {
       "one": "{n} demande d'accès",
@@ -899,6 +901,59 @@
       "before": "L'encodeur, le moteur de capture et le débit minimum sont dans ",
       "link": "Système › Avancé",
       "after": "."
+    }
+  },
+  "share": {
+    "start": "Partager un écran…",
+    "startHelp": "Montrez un écran de cet ordinateur à quelqu'un sur votre réseau : il le voit, entend le son, et peut jouer si vous le laissez. Vous continuez d'utiliser l'ordinateur normalement.",
+    "choose": "Choisissez l'écran à partager.",
+    "loading": "Recherche des écrans…",
+    "display": "{label} — {width} × {height}",
+    "cancel": "Annuler",
+    "off": "Le partage est coupé sur cet ordinateur (Admin › Appareils Link).",
+    "inSession": "{name} est en session : le partage se lance depuis cet appareil.",
+    "titleLocal": "Partage de l'écran {n}",
+    "titleHost": "Partager {name}",
+    "openedBy": "Ouvert depuis la session de {name}.",
+    "codeLabel": "Code",
+    "codeAria": "Code {digits}",
+    "copy": "Copier le lien",
+    "copied": "Lien copié.",
+    "copyFailed": "Copie impossible : sélectionnez le lien à la main.",
+    "qrLabel": "QR code du partage",
+    "help": "Sur le même réseau : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur.",
+    "people": "Invités",
+    "participants": "Participants",
+    "nobody": "Personne pour l'instant.",
+    "host": "{name} · Hôte",
+    "role": {
+      "spectator": "{name} · Spectateur",
+      "player": "{name} · Joueur",
+      "player_kbm": "{name} · Joueur, clavier et souris"
+    },
+    "since": "depuis {duration}",
+    "play": "Faire jouer",
+    "giveKbm": "Donner le clavier et la souris",
+    "takeKbm": "Reprendre le clavier et la souris",
+    "watch": "Faire regarder",
+    "remove": "Retirer",
+    "newCode": "Nouveau code",
+    "stop": "Arrêter le partage",
+    "stopped": "Partage arrêté.",
+    "limit": "Quatre invités au plus.",
+    "guests": {
+      "one": "{n} invité",
+      "other": "{n} invités"
+    },
+    "apps": {
+      "mac": "Mac",
+      "windows": "Windows",
+      "linux": "Linux",
+      "ios": "iPhone ou iPad",
+      "tvos": "Apple TV",
+      "android": "Android",
+      "webos": "Téléviseur LG",
+      "web": "Navigateur"
     }
   }
 }

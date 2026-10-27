@@ -21,7 +21,8 @@
       "consoleStopped": "Admin is stopped",
       "cannotConnect": "Your devices cannot connect",
       "reinstall": "Reinstall KyberNow Station",
-      "wait": "Please wait…"
+      "wait": "Please wait…",
+      "sharing": "Sharing display {n}"
     },
     "menu": {
       "openConsole": "Open Admin",
@@ -32,7 +33,9 @@
       "restartServer": "Restart the Station",
       "startWithComputer": "Start with the computer",
       "resetPassword": "Reset the Admin password…",
-      "quit": "Close the tray icon"
+      "quit": "Close the tray icon",
+      "share": "Share a screen…",
+      "stopShare": "Stop sharing"
     },
     "busy": {
       "startingConsole": "Starting Admin…",
@@ -49,11 +52,14 @@
       "endSession": "End the current session? The connected device will be disconnected.",
       "stopInSession": "A device is connected. Stopping the Station will end its session.\n\nStop the Station?",
       "restartInSession": "A device is connected. Restarting the Station will end its session.\n\nRestart the Station?",
-      "resetPassword": "Reset the Admin password?\n\nYou will choose a new one with a setup code. Your devices and their accounts do not change."
+      "resetPassword": "Reset the Admin password?\n\nYou will choose a new one with a setup code. Your devices and their accounts do not change.",
+      "stopSharing": "A share is in progress with {names}: stopping the Station will end it.\n\nStop the Station?",
+      "restartSharing": "A share is in progress with {names}: restarting will stop it.\n\nRestart the Station?"
     },
     "quit": {
       "instruction": "Close the KyberNow Station tray icon?",
       "inSession": "A device is connected. The Station can keep running: the session goes on, and you can reopen the tray icon from the Start menu.",
+      "sharing": "A share is in progress with {names}. The Station can keep running: the share goes on, and you can reopen the tray icon from the Start menu.",
       "idle": "The Station can keep running: your devices can still connect, and you can reopen the tray icon from the Start menu.",
       "keep": "Keep the Station running",
       "stop": "Stop the Station too",
@@ -64,6 +70,7 @@
       "endSessionFailed": "Admin could not end the session ({error}).",
       "pairFailed": "Admin could not answer the request ({error}).",
       "pairExpired": "This request has expired: the device will send a new one, with another code.",
+      "shareFailed": "Admin could not change the share ({error}).",
       "consoleSilent": "Admin is not responding",
       "sendFailed": "sending to Admin (unexpected certificate?)",
       "wrongCertificate": "this is not the KyberNow Admin certificate",
@@ -81,7 +88,12 @@
       "codeNotHandedOver": "Password cleared, but the setup code could not be passed to the tray icon: it is in C:\\ProgramData\\KyberNow\\setup-code.txt, readable by an administrator.",
       "resetCommandFailed": "kyber-admin reset-password failed ({status}).",
       "noSetupCode": "Admin did not write a setup code (C:\\ProgramData\\KyberNow\\setup-code.txt)."
-    }
+    },
+    "guests": {
+      "one": "{n} guest",
+      "other": "{n} guests"
+    },
+    "list": "{rest} and {last}"
   },
   "panel": {
     "ago": {
@@ -124,7 +136,8 @@
       "screensOff": "screens off",
       "deviceConnected": "A device is connected",
       "account": "Account {user}",
-      "consoleSilent": "Admin is not responding"
+      "consoleSilent": "Admin is not responding",
+      "sharing": "Sharing"
     },
     "endSession": "End the session",
     "openConsole": "Open Admin",
@@ -144,6 +157,60 @@
     "refuse": "Decline",
     "waitTitle": "Restart pending",
     "waitHint": "To {reason}: the Station will restart on its own as soon as the current session ends.",
-    "quit": "Close the tray icon"
+    "quit": "Close the tray icon",
+    "share": {
+      "start": "Share a screen…",
+      "choose": "Choose the screen to share.",
+      "loading": "Looking for screens…",
+      "display": "{label} — {width} × {height}",
+      "cancel": "Cancel",
+      "back": "Back",
+      "off": "Sharing is turned off on this computer (Admin › Link devices).",
+      "inSession": "{name} is in a session: share from that device.",
+      "busy": "A connection is in progress on this computer: share a screen once it has ended.",
+      "titleLocal": "Sharing display {n}",
+      "titleHost": "Share {name}",
+      "openedBy": "Opened from {name}'s session.",
+      "codeLabel": "Code",
+      "copy": "Copy link",
+      "qrLabel": "QR code for the share",
+      "help": "On the same network: “Join with a code” in KyberNow Link, or this link in a browser.",
+      "people": "Guests",
+      "participants": "Participants",
+      "nobody": "Nobody yet.",
+      "host": "{name} · Host",
+      "role": {
+        "spectator": "{name} · Spectator",
+        "player": "{name} · Player",
+        "player_kbm": "{name} · Player, keyboard and mouse"
+      },
+      "since": {
+        "lessThanMinute": "for less than a minute",
+        "minutes": "for {m} min",
+        "hours": "for {h} h {mm} min"
+      },
+      "play": "Let play",
+      "giveKbm": "Give keyboard and mouse",
+      "takeKbm": "Take back keyboard and mouse",
+      "watch": "Watch only",
+      "remove": "Remove",
+      "newCode": "New code",
+      "stop": "Stop sharing",
+      "limit": "Four guests at most.",
+      "guests": {
+        "one": "{n} guest",
+        "other": "{n} guests"
+      },
+      "apps": {
+        "mac": "Mac",
+        "windows": "Windows",
+        "linux": "Linux",
+        "ios": "iPhone or iPad",
+        "tvos": "Apple TV",
+        "android": "Android",
+        "webos": "LG TV",
+        "web": "Browser"
+      }
+    }
   }
 }

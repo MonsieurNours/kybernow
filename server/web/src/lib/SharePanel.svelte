@@ -1,0 +1,353 @@
+<!--
+  Panneau d'un partage ouvert (KyberNow Share) : le code, le lien et son QR
+  code, les participants et leurs droits, « Nouveau code », « Arrêter le
+  partage ». Le même sur l'accueil et dans Appareils Link ; textes de
+  docs/link-ui.md (« Partage »).
+-->
+<script lang="ts">
+  import { localShare, type ShareGuest, type ShareOps, type ShareRole, type ShareView } from './api'
+  import { errorText, notify, refreshStatus, setShare } from './store.svelte'
+  import { deviceIcon, duration, screenLine } from './format'
+  import Icon from './Icon.svelte'
+  import Qr from './Qr.svelte'
+  import { t, tn } from './i18n/index.svelte'
+
+  let {
+    share,
+    computer,
+    host = null,
+    ops = localShare,
+    onchange = setShare,
+  }: {
+    share: ShareView
+    /** Nom de l'ordinateur : titre d'un partage lancé depuis la session d'un appareil. */
+    computer: string
+    /** L'appareil en session qui partage, en tête des participants. */
+    host?: { name: string; kind: string; since: number } | null
+    /** Routes du partage : celles du PC par défaut (Admin). */
+    ops?: ShareOps
+    /** Le partage après une action (`null` : arrêté). */
+    onchange?: (view: ShareView | null) => void
+  } = $props()
+
+  /** Action en cours (« code », « stop », ou l'identifiant d'un invité). */
+  let busy = $state<string | null>(null)
+  let now = $state(Date.now() / 1000)
+
+  $effect(() => {
+    const timer = setInterval(() => (now = Date.now() / 1000), 15000)
+    return () => clearInterval(timer)
+  })
+
+  const title = $derived(
+    share.origin === 'local' ? t('share.titleLocal', { n: share.display.index }) : t('share.titleHost', { name: computer }),
+  )
+  const code = $derived(`${share.code.slice(0, 3)} ${share.code.slice(3)}`)
+  const screen = $derived(screenLine(share.display))
+
+  /** Icône de l'app d'un invité (mêmes dessins que les appareils). */
+  function appIcon(app: string): string {
+    if (app === 'ios' || app === 'android') return 'phone'
+    if (app === 'tvos' || app === 'webos') return 'tv'
+    if (app === 'web') return 'browser'
+    return ['mac', 'windows', 'linux'].includes(app) ? 'mac' : 'other'
+  }
+
+  function appName(app: string): string {
+    const name = t(`share.apps.${app}`)
+    return name.startsWith('share.') ? app : name
+  }
+
+  /** Ce que l'hôte peut faire d'un invité, selon ses droits. */
+  function moves(g: ShareGuest): { label: string; role: ShareRole }[] {
+    if (g.role === 'spectator') return [{ label: t('share.play'), role: 'player' }]
+    if (g.role === 'player')
+      return [
+        { label: t('share.giveKbm'), role: 'player_kbm' },
+        { label: t('share.watch'), role: 'spectator' },
+      ]
+    return [{ label: t('share.takeKbm'), role: 'player' }]
+  }
+
+  async function run(key: string, action: () => Promise<unknown>, done?: string) {
+    busy = key
+    try {
+      const view = (await action()) as ShareView | { open: false } | null
+      onchange(view?.open ? view : null)
+      if (done) notify('ok', done)
+    } catch (e) {
+      notify('error', errorText(e))
+      // Invité parti ou partage fermé entre-temps : l'état est relu.
+      refreshStatus()
+    } finally {
+      busy = null
+    }
+  }
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(share.web)
+      notify('ok', t('share.copied'))
+    } catch {
+      notify('error', t('share.copyFailed'))
+    }
+  }
+</script>
+
+<div class="share">
+  <div class="top">
+    <Qr text={share.link} size={152} label={t('share.qrLabel')} />
+    <div class="intro">
+      <div class="heading">
+        <h2 class="disp">{title}</h2>
+        <span class="sub">{share.origin === 'host' ? t('share.openedBy', { name: share.host }) : screen}</span>
+      </div>
+      <div class="code">
+        <span class="lbl">{t('share.codeLabel')}</span>
+        <strong class="mono" aria-label={t('share.codeAria', { digits: share.code.split('').join(' ') })}>{code}</strong>
+      </div>
+      <div class="link-row">
+        <button type="button" class="ghost small" onclick={copy}><Icon name="copy" size={15} stroke={2} />{t('share.copy')}</button>
+        <span class="mono link">{share.web}</span>
+      </div>
+      <p class="help">{t('share.help')}</p>
+    </div>
+  </div>
+
+  <div class="people">
+    <div class="people-head">
+      <h3>{host ? t('share.participants') : t('share.people')}</h3>
+      {#if share.guests.length}<span class="pill signal">{tn('share.guests', share.guests.length)}</span>{/if}
+      <span class="limit">{t('share.limit')}</span>
+    </div>
+    {#if host}
+      <div class="person">
+        <span class="device-icon live"><Icon name={deviceIcon(host.kind)} size={19} stroke={1.6} /></span>
+        <div class="who">
+          <span class="name">{t('share.host', { name: host.name })}</span>
+          <span class="meta">{t('share.since', { duration: duration(now - host.since) })}</span>
+        </div>
+      </div>
+    {/if}
+    {#each share.guests as g (g.id)}
+      <div class="person">
+        <span class="device-icon" class:live={g.role !== 'spectator'}><Icon name={appIcon(g.app)} size={19} stroke={1.6} /></span>
+        <div class="who">
+          <span class="name">{t(`share.role.${g.role}`, { name: g.name })}</span>
+          <span class="meta">{appName(g.app)} · {t('share.since', { duration: duration(now - g.since) })}</span>
+        </div>
+        <div class="moves">
+          {#each moves(g) as m (m.role)}
+            <button type="button" class="ghost small" disabled={busy !== null} onclick={() => run(g.id, () => ops.role(g.id, m.role))}>{m.label}</button>
+          {/each}
+          <button type="button" class="ghost small remove" disabled={busy !== null} onclick={() => run(g.id, () => ops.remove(g.id))}>{t('share.remove')}</button>
+        </div>
+      </div>
+    {:else}
+      <p class="empty">{t('share.nobody')}</p>
+    {/each}
+  </div>
+
+  <div class="foot">
+    <button type="button" class="ghost" disabled={busy !== null} onclick={() => run('code', () => ops.code())}><Icon name="restart" size={15} />{t('share.newCode')}</button>
+    <button type="button" class="danger" disabled={busy !== null} onclick={() => run('stop', () => ops.stop(), t('share.stopped'))}>{t('share.stop')}</button>
+  </div>
+</div>
+
+<style>
+  .share {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  .top {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 22px 26px;
+    align-items: flex-start;
+  }
+
+  .intro {
+    flex: 1 1 320px;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .heading {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .heading h2 {
+    font-size: 23px;
+    font-weight: 620;
+    letter-spacing: -0.02em;
+    overflow-wrap: anywhere;
+  }
+
+  .sub {
+    font-size: 13px;
+    color: var(--faint);
+  }
+
+  .code {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .code .lbl {
+    color: var(--signal-light);
+    font-size: 9.5px;
+  }
+
+  .code strong {
+    font-size: 34px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    color: var(--neon-core);
+    text-shadow: var(--text-glow);
+    white-space: nowrap;
+    user-select: all;
+  }
+
+  .link-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 14px;
+  }
+
+  .link {
+    font-size: 11px;
+    color: var(--faint);
+    overflow-wrap: anywhere;
+    user-select: all;
+  }
+
+  .help {
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--faint);
+    max-width: 60ch;
+  }
+
+  .people-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    padding-bottom: 8px;
+  }
+
+  .people-head h3 {
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  .people-head .pill {
+    padding: 3px 10px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .limit {
+    margin-left: auto;
+    font-size: 12.5px;
+    color: var(--faint);
+  }
+
+  .person {
+    display: grid;
+    grid-template-columns: 36px minmax(0, 1fr) auto;
+    gap: 10px 14px;
+    align-items: center;
+    padding: 12px 0;
+    border-top: 1px solid var(--line);
+  }
+
+  .device-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 9px;
+    display: grid;
+    place-items: center;
+    background: var(--ink-3);
+    color: var(--text-2);
+  }
+
+  .device-icon.live {
+    background: rgb(109 91 255 / 0.14);
+    box-shadow: inset 0 0 0 1px rgb(154 140 255 / 0.5);
+    color: var(--signal-light);
+  }
+
+  .who {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .name {
+    font-size: 14.5px;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+
+  .meta {
+    font-size: 12.5px;
+    color: var(--faint);
+  }
+
+  .moves {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  .moves .remove:hover:not(:disabled) {
+    color: var(--bad-text);
+  }
+
+  .empty {
+    font-size: 13.5px;
+    color: var(--faint);
+    padding: 12px 0 4px;
+    border-top: 1px solid var(--line);
+  }
+
+  .foot {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 10px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line);
+  }
+
+  @media (max-width: 760px) {
+    .person {
+      grid-template-columns: 36px minmax(0, 1fr);
+    }
+
+    .moves {
+      grid-column: 2;
+      justify-content: flex-start;
+    }
+
+    .limit {
+      margin-left: 0;
+      flex-basis: 100%;
+    }
+
+    .foot > button {
+      flex: 1 1 auto;
+    }
+  }
+</style>

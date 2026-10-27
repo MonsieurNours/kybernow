@@ -98,6 +98,26 @@ Un partage ouvert se voit dans la barre (pastille « 2 invités » / “2 guests
 
 **Refus de la Station** (Admin, icône, et `error` des routes de l'hôte) : « {nom} est en session : le partage se lance depuis cet appareil. » / “{name} is in a session: share from that device.” ; « Une connexion est en cours sur cet ordinateur : partagez un écran une fois qu'elle est finie. » / “A connection is in progress on this computer: share a screen once it has ended.” ; « Cet écran n'est plus branché. » / “This display is no longer connected.” ; « Cet invité n'est plus dans le partage. » / “This guest is no longer in the share.” ; « Seul l'appareil en session peut partager cet ordinateur. » / “Only the device in a session can share this computer.” ; « Aucun partage en cours. » / “No share in progress.” ; redémarrage ou mise à jour pendant un partage : « Un partage est en cours avec {prénoms} : le redémarrage l'arrêtera » / “A share is in progress with {names}: restarting will stop it” (« l'installation l'arrêtera » / “installing will stop it”).
 
+**Panneau de la Station** (Admin : accueil et Appareils Link ; panneau de l'icône), en plus des textes ci-dessus :
+
+| Élément | Français | English |
+|---|---|---|
+| Aide de la carte (Admin) | « Montrez un écran de cet ordinateur à quelqu'un sur votre réseau : il le voit, entend le son, et peut jouer si vous le laissez. Vous continuez d'utiliser l'ordinateur normalement. » | “Show one of this computer's screens to someone on your network: they see it, hear the sound, and can play if you let them. You keep using the computer as usual.” |
+| Choix de l'écran | « Choisissez l'écran à partager. » ; « Recherche des écrans… » ; « Annuler » | “Choose the screen to share.”; “Looking for screens…”; “Cancel” |
+| Partage d'un appareil | « Ouvert depuis la session de {nom}. » | “Opened from {name}'s session.” |
+| Code, QR code | « Code » ; « QR code du partage » (libellé accessible) | “Code”; “QR code for the share” |
+| Lien copié | « Lien copié. » ; « Copie impossible : sélectionnez le lien à la main. » | “Link copied.”; “Could not copy: select the link by hand.” |
+| Liste | « Invités », « Participants » quand l'hôte y figure ; « {nom} · Hôte » ; « depuis {durée} » | “Guests”, “Participants”; “{name} · Host”; “for {duration}” |
+| Revenir spectateur | « Faire regarder » | “Watch only” |
+| Arrêté | « Partage arrêté. » | “Sharing stopped.” |
+| En-tête d'Admin, haut du panneau | « Partage en cours · {n} invités » ; « Partage en cours » | “Sharing · {n} guests”; “Sharing” |
+| App d'un invité | Mac, Windows, Linux, « iPhone ou iPad », Apple TV, Android, « Téléviseur LG », « Navigateur » | Mac, Windows, Linux, “iPhone or iPad”, Apple TV, Android, “LG TV”, “Browser” |
+| Icône, ligne d'état | « Partage de l'écran {n} · {n} invités » | “Sharing display {n} · {n} guests” |
+| Icône, confirmations | « Un partage est en cours avec {prénoms} : arrêter la Station le coupera. Arrêter la Station ? » ; « … : le redémarrage l'arrêtera. Redémarrer la Station ? » ; en quittant : « Un partage est en cours avec {prénoms}. La Station peut rester en marche : le partage continue, et vous pourrez rouvrir l'icône depuis le menu Démarrer. » | “A share is in progress with {names}: stopping the Station will end it. Stop the Station?”; “… restarting will stop it. Restart the Station?”; “A share is in progress with {names}. The Station can keep running: the share goes on, and you can reopen the tray icon from the Start menu.” |
+| Icône, échec | « Admin n'a pas pu changer le partage ({erreur}). » | “Admin could not change the share ({error}).” |
+
+« Copier le lien » copie l'adresse du client web (`web`) ; le QR code porte le lien des apps (`link`, `kybernow://join…`).
+
 **L'invité** :
 
 | Élément | Français | English |

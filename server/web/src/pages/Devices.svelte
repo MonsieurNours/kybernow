@@ -1,8 +1,9 @@
 <!--
-  Appareils Link : ajouter un appareil (QR code, lien), les demandes d'accès
-  par code (Apple TV), et les appareils qui se sont connectés, chacun sur une
-  carte qui s'ouvre : l'app au début de la session et ses options, l'accès,
-  les sessions. Rien de caché dans un menu.
+  Appareils Link : ajouter un appareil (QR code, lien), le partage en cours
+  (l'hôte, les invités et leurs droits), les demandes d'accès par code
+  (Apple TV), et les appareils qui se sont connectés, chacun sur une carte
+  qui s'ouvre : l'app au début de la session et ses options, l'accès, les
+  sessions. Rien de caché dans un menu.
 -->
 <script lang="ts">
   import { api, canCloseLaunch, type Device, type Launch, type PairRequest, type Pairing } from '../lib/api'
@@ -11,6 +12,7 @@
   import Icon from '../lib/Icon.svelte'
   import LaunchPicker from '../lib/LaunchPicker.svelte'
   import Qr from '../lib/Qr.svelte'
+  import SharePanel from '../lib/SharePanel.svelte'
   import Switch from '../lib/Switch.svelte'
   import { t, tn } from '../lib/i18n/index.svelte'
 
@@ -25,6 +27,9 @@
   let ending = $state(false)
 
   const live = $derived(app.status?.activity?.live ?? null)
+  // Partage en cours (d'un appareil ou du PC) : ses participants, avec leurs droits.
+  const share = $derived(app.status?.share ?? null)
+  const guests = $derived(share?.guests.length ?? 0)
   const opened = $derived(open === undefined ? (live?.device_id ?? null) : open)
   // Demandes d'accès par code, relues avec l'état du serveur (toutes les 3 s).
   const requests = $derived(app.status?.pair_requests ?? [])
@@ -234,6 +239,17 @@
     </div>
   </section>
 
+  <!-- Partage en cours -->
+  {#if share}
+    <section id="partage" class="card share">
+      <SharePanel
+        {share}
+        computer={app.status?.hostname ?? t('overview.thisComputer')}
+        host={share.origin === 'host' && live ? { name: live.name, kind: live.kind, since: live.started_at } : null}
+      />
+    </section>
+  {/if}
+
   <!-- Vos appareils -->
   <section id="appareils" aria-labelledby="t-dev" class="card devices">
     <div class="card-head">
@@ -284,6 +300,7 @@
           <span class="status">
             {#if isLive && live}
               <span class="pill live"><span class="dot"></span>{now - live.started_at >= 60 ? t('devices.list.inSessionSince', { duration: duration(now - live.started_at) }) : t('devices.list.inSession')}</span>
+              {#if share?.origin === 'host' && guests}<span class="pill live">{tn('share.guests', guests)}</span>{/if}
               {#if live.latency_ms}<span class="mono latency live">{ms(live.latency_ms)}</span>{/if}
             {:else}
               <span class="pill">{d.sessions === 0 ? t('devices.list.paired', { ago: ago(d.last_seen) }) : capital(ago(d.last_seen))}</span>
@@ -757,6 +774,17 @@
 
   .multi {
     margin-top: 14px;
+  }
+
+  .share {
+    padding: 26px 28px 22px;
+    box-shadow: inset 0 0 0 1px var(--signal-line);
+  }
+
+  @media (max-width: 760px) {
+    .share {
+      padding: 20px 18px 16px;
+    }
   }
 
   @media (max-width: 760px) {

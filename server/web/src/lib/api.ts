@@ -226,6 +226,70 @@ export interface Status {
   pair_requests: PairRequest[]
   /** Cartes réseau pour le réveil par le réseau, Ethernet d'abord (absent avant la 0.5.0). */
   wake?: WakeCard[]
+  /** Partage en cours (KyberNow Share), qu'il vienne d'un appareil ou du PC (absent avant la 0.8.0). */
+  share?: ShareView | null
+  /** Faux si le partage est coupé (`network.multi_client`) ; absent avant la 0.8.0. */
+  share_enabled?: boolean
+}
+
+/** Droits d'un invité : il regarde, il joue (ses manettes), ou il a aussi le clavier et la souris. */
+export type ShareRole = 'spectator' | 'player' | 'player_kbm'
+
+export interface ShareGuest {
+  id: string
+  name: string
+  /** App qui a rejoint : `mac`, `windows`, `linux`, `ios`, `tvos`, `android`, `webos` ou `web`. */
+  app: string
+  device: string
+  role: ShareRole
+  since: number
+  last_beat: number
+}
+
+/** Un partage ouvert (KyberNow Share, docs/kybernow-share.md). */
+export interface ShareView {
+  open: true
+  /** Depuis la session d'un appareil (`host`), ou depuis le PC lui-même (`local`). */
+  origin: 'host' | 'local'
+  /** Nom de l'appareil hôte, ou nom de l'ordinateur. */
+  host: string
+  /** Six chiffres. */
+  code: string
+  /** `kybernow://join?…` : pour les apps (QR code). */
+  link: string
+  /** Adresse du client web en invité : pour un navigateur (« Copier le lien »). */
+  web: string
+  display: { id: number; index: number; label: string; width: number; height: number; refresh: number }
+  guests: ShareGuest[]
+  max_guests: number
+  opened_at: number
+}
+
+/** Un écran physique du PC, à partager (`GET /api/local/displays`, l'écran principal d'abord). */
+export interface LocalDisplay {
+  id: number
+  /** `\\.\DISPLAY1` */
+  name: string
+  index: number
+  /** « Écran 1 », dans la langue de la requête. */
+  label: string
+  width: number
+  height: number
+  refresh: number
+  primary: boolean
+  x: number
+  y: number
+}
+
+/**
+ * Ce que le panneau de partage sait faire : les routes du PC (`/api/local/share…`,
+ * Admin) ou, un jour, celles de l'hôte (`/api/share…`, client web).
+ */
+export interface ShareOps {
+  code(): Promise<ShareView>
+  role(id: string, role: ShareRole): Promise<ShareView>
+  remove(id: string): Promise<ShareView>
+  stop(): Promise<unknown>
 }
 
 /**
@@ -458,4 +522,24 @@ export const api = {
   logs: () => request<{ files: LogFile[] }>('GET', '/api/logs'),
   logTail: (name: string, lines: number) =>
     request<{ text: string }>('GET', `/api/logs/${encodeURIComponent(name)}?lines=${lines}`),
+
+  // Partage depuis le PC (KyberNow Share) : les routes de l'icône, avec la session d'Admin.
+  // Elles gèrent aussi le partage d'un appareil hôte (retirer un invité, arrêter).
+  displays: () => request<LocalDisplay[]>('GET', '/api/local/displays'),
+  /** Refus : `code` vaut `disabled` (partage coupé), `session` (un appareil est en session) ou `unknown_display`. */
+  shareOpen: (display: number) => request<ShareView>('POST', '/api/local/share/open', { display }),
+  share: () => request<ShareView | { open: false }>('GET', '/api/local/share'),
+  shareCode: () => request<ShareView>('POST', '/api/local/share/code'),
+  shareRole: (id: string, role: ShareRole) =>
+    request<ShareView>('POST', `/api/local/share/guest/${encodeURIComponent(id)}`, { role }),
+  shareRemove: (id: string) => request<ShareView>('DELETE', `/api/local/share/guest/${encodeURIComponent(id)}`),
+  shareStop: () => request<{ open: false }>('DELETE', '/api/local/share'),
+}
+
+/** Le panneau de partage d'Admin : routes du PC. */
+export const localShare: ShareOps = {
+  code: api.shareCode,
+  role: api.shareRole,
+  remove: api.shareRemove,
+  stop: api.shareStop,
 }
