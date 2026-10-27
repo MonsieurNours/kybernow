@@ -1,0 +1,5 @@
+# Ce qu'un relais installé garde à côté du compose : jamais dans le dépôt.
+/certs/
+/secrets/
+/config/
+/.env

@@ -11,6 +11,7 @@ KyberNow Station, tout ce qui tourne sur l'ordinateur Windows qui diffuse l'imag
 | `tray/` | Icône de KyberNow Station dans la zone de notification, `kybernow-tray.exe` |
 | `installer/` | `KyberNow-Station-Setup.exe`, voir [installer/README.md](installer/README.md) |
 | `kyber-patches/` | Correctifs de Kyber côté serveur et leur script de compilation |
+| `relay/` | Relais de KyberNow (serveur Linux, image Docker) et crate du tunnel partagé avec Admin et le cœur des apps, voir [relay/README.md](relay/README.md) et [docs/relais.md](../docs/relais.md) |
 
 ## KyberNow Admin (`kyber-admin`)
 

@@ -1,0 +1,58 @@
+# Relais de KyberNow (README.md) : le relais et lego, qui obtient et renouvelle
+# le certificat `<domaine>` + `*.<domaine>` (DNS-01 chez Gandi).
+#   cp .env.example .env   # puis le remplir
+#   docker compose up -d --build
+
+name: kybernow-relay
+
+services:
+  relay:
+    build: .
+    image: kybernow-relay:local
+    restart: unless-stopped
+    # Le port 8443 en TCP et en UDP, sans traduction d'adresse par Docker
+    # (les adresses des clients restent les vraies).
+    network_mode: host
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      KN_RELAY_DOMAIN: ${RELAY_DOMAIN:?RELAY_DOMAIN manque dans .env}
+      KN_RELAY_LISTEN: ${RELAY_LISTEN:-0.0.0.0:8443}
+      KN_RELAY_METRICS: ${RELAY_METRICS:-127.0.0.1:9464}
+      KN_RELAY_BANLIST: /config/banlist.txt
+      RUST_LOG: ${RUST_LOG:-info}
+    volumes:
+      - ./certs:/certs:ro
+      - ./config:/config:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  lego:
+    image: goacme/lego:v4.29.0
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/scripts/lego.sh"]
+    environment:
+      RELAY_DOMAIN: ${RELAY_DOMAIN:?RELAY_DOMAIN manque dans .env}
+      LEGO_EMAIL: ${LEGO_EMAIL:?LEGO_EMAIL manque dans .env}
+      # Serveur de test de Let's Encrypt par défaut (voir README.md).
+      LEGO_SERVER: ${LEGO_SERVER:-https://acme-staging-v02.api.letsencrypt.org/directory}
+      LEGO_ACCEPT_TOS: ${LEGO_ACCEPT_TOS:-no}
+      GANDIV5_PERSONAL_ACCESS_TOKEN_FILE: /run/secrets/gandi_pat
+    secrets:
+      - gandi_pat
+    volumes:
+      - ./certs:/certs
+      - ./lego.sh:/scripts/lego.sh:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+secrets:
+  gandi_pat:
+    file: ./secrets/gandi_pat
