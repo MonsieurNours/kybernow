@@ -88,7 +88,7 @@ Contract: [kybernow-share.en.md](kybernow-share.en.md). Every Link app and the w
 | A guest | « {prénom} · Spectateur », « {prénom} · Joueur », « {prénom} · Joueur, clavier et souris »; below, their app and « depuis {durée} » | “{name} · Spectator”, “{name} · Player”, “{name} · Player, keyboard and mouse”; “for {duration}” |
 | A guest's app (`app`) | Mac, Windows, Linux, « iPhone ou iPad », Apple TV, Android, « Téléviseur LG », « Navigateur » | Mac, Windows, Linux, “iPhone or iPad”, Apple TV, Android, “LG TV”, “Browser” |
 | Duration (`since`, the Station's Unix seconds) | « moins d'une minute », « 3 min », « 1 h 12 »; never negative (clocks out of step) | “under a minute”, “3 min”, “1 h 12” |
-| Actions on a guest | spectator: « Faire jouer »; player: « Faire regarder » (back to spectator) instead; then « Donner le clavier et la souris » or « Reprendre le clavier et la souris » (player only); « Retirer » | “Let play”; “Watch only”; “Give keyboard and mouse”; “Take back keyboard and mouse”; “Remove” |
+| Actions on a guest | spectator: « Faire jouer »; player, with or without keyboard and mouse: « Faire regarder » (back to spectator) instead; then « Donner le clavier et la souris » or « Reprendre le clavier et la souris » (player only); « Retirer » | “Let play”; “Watch only”; “Give keyboard and mouse”; “Take back keyboard and mouse”; “Remove” |
 | New code | « Nouveau code » (guests already there stay) | “New code” |
 | End | « Arrêter le partage » (everyone leaves) | “Stop sharing” |
 | Limit | « Quatre invités au plus. » | “Four guests at most.” |

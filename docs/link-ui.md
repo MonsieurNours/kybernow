@@ -88,7 +88,7 @@ Contrat : [kybernow-share.md](kybernow-share.md). Toutes les apps Link et le cli
 | Un invité | « {prénom} · Spectateur », « {prénom} · Joueur », « {prénom} · Joueur, clavier et souris » ; dessous, son app et « depuis {durée} » | “{name} · Spectator”, “{name} · Player”, “{name} · Player, keyboard and mouse”; “for {duration}” |
 | App d'un invité (`app`) | Mac, Windows, Linux, « iPhone ou iPad », Apple TV, Android, « Téléviseur LG », « Navigateur » | Mac, Windows, Linux, “iPhone or iPad”, Apple TV, Android, “LG TV”, “Browser” |
 | Durée (`since`, secondes Unix de la Station) | « moins d'une minute », « 3 min », « 1 h 12 » ; jamais négative (horloges décalées) | “under a minute”, “3 min”, “1 h 12” |
-| Actions sur un invité | spectateur : « Faire jouer » ; joueur : « Faire regarder » (retour en spectateur) à la place ; puis « Donner le clavier et la souris » ou « Reprendre le clavier et la souris » (joueur seulement) ; « Retirer » | “Let play”; “Watch only”; “Give keyboard and mouse”; “Take back keyboard and mouse”; “Remove” |
+| Actions sur un invité | spectateur : « Faire jouer » ; joueur, avec ou sans le clavier et la souris : « Faire regarder » (retour en spectateur) à la place ; puis « Donner le clavier et la souris » ou « Reprendre le clavier et la souris » (joueur seulement) ; « Retirer » | “Let play”; “Watch only”; “Give keyboard and mouse”; “Take back keyboard and mouse”; “Remove” |
 | Code changé | « Nouveau code » (les invités déjà là restent) | “New code” |
 | Fin | « Arrêter le partage » (tout le monde sort) | “Stop sharing” |
 | Limite | « Quatre invités au plus. » | “Four guests at most.” |
