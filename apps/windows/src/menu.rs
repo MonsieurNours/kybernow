@@ -8,13 +8,19 @@
 pub type Tr<'a> = &'a dyn Fn(&str, &[(&str, &str)]) -> String;
 
 /// Ce que fait une ligne du menu.
+/// Les commandes d'une session portent l'ordinateur de la session : la
+/// session active peut changer entre l'ouverture du menu et le choix.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Cmd {
-    Fullscreen,
+    Fullscreen(String),
     /// Mode de la souris de la session (`auto`, `bureau`, `jeu`), gardé pour l'ordinateur.
-    Mouse(&'static str),
-    Statistics,
-    Disconnect,
+    Mouse(String, &'static str),
+    Statistics(String),
+    Disconnect(String),
+    /// Sa fenêtre passe devant (plusieurs ordinateurs).
+    Show(String),
+    /// « Garder le son » allumé ou éteint pour cette session.
+    KeepSound(String),
     Connect(String),
     Wake(String),
     Retry(String),
@@ -99,7 +105,7 @@ impl Item {
     }
 }
 
-/// La session en cours.
+/// Une session en cours.
 #[derive(Debug, Clone, Default)]
 pub struct Session {
     pub id: String,
@@ -115,6 +121,8 @@ pub struct Session {
     pub multi: bool,
     /// Mode de la souris de l'ordinateur : `auto`, `bureau` ou `jeu`.
     pub mouse: String,
+    /// « Garder le son » (plusieurs ordinateurs).
+    pub keep_sound: bool,
 }
 
 /// Redémarrage ou mise à jour de la Station en cours.
@@ -153,10 +161,28 @@ pub struct Computer {
 
 #[derive(Debug, Clone, Default)]
 pub struct State {
-    pub session: Option<Session>,
+    /// Les sessions en cours, dans l'ordre d'ouverture (plusieurs ordinateurs).
+    pub sessions: Vec<Session>,
+    /// L'ordinateur de la session active (celle de la fenêtre au premier plan).
+    pub active: Option<String>,
+    /// Quatre ordinateurs sont déjà en session (ou s'y connectent) : « Se
+    /// connecter » est inactif.
+    pub full: bool,
     pub computers: Vec<Computer>,
     /// Version de l'app qui attend d'être installée.
     pub app_update: Option<String>,
+}
+
+impl State {
+    /// La session de la fenêtre active (la première à défaut).
+    pub fn active_session(&self) -> Option<&Session> {
+        self.active.as_ref().and_then(|id| self.session(id)).or_else(|| self.sessions.first())
+    }
+
+    /// La session de cet ordinateur.
+    pub fn session(&self, id: &str) -> Option<&Session> {
+        self.sessions.iter().find(|s| s.id == id)
+    }
 }
 
 const PROFILES: [&str; 3] = ["jeu", "bureau", "max"];
@@ -166,13 +192,15 @@ const MOUSE_MODES: [&str; 3] = ["auto", "bureau", "jeu"];
 /// Le menu, de haut en bas.
 pub fn build(s: &State, tr: Tr) -> Vec<Item> {
     let mut out = Vec::new();
-    if let Some(session) = &s.session {
+    // Avec plusieurs ordinateurs : pour la session de la fenêtre active.
+    if let Some(session) = s.active_session() {
+        let id = &session.id;
         out.push(Item::inactive(tr("tray.in_session", &[("name", &session.name)])));
         out.push(Item::inactive(measures(session, tr)));
         if !session.multi {
             out.push(Item::Line {
                 text: tr("tray.fullscreen", &[]),
-                cmd: Some(Cmd::Fullscreen),
+                cmd: Some(Cmd::Fullscreen(id.clone())),
                 enabled: true,
                 mark: if session.fullscreen { Mark::Check } else { Mark::None },
                 default: false,
@@ -182,28 +210,24 @@ pub fn build(s: &State, tr: Tr) -> Vec<Item> {
             .iter()
             .map(|m| Item::Line {
                 text: tr(&format!("tray.mouse_modes.{m}"), &[]),
-                cmd: Some(Cmd::Mouse(m)),
+                cmd: Some(Cmd::Mouse(id.clone(), m)),
                 enabled: true,
                 mark: if session.mouse == *m { Mark::Radio } else { Mark::None },
                 default: false,
             })
             .collect();
         out.push(Item::Sub { text: tr("tray.mouse", &[]), key: None, checked: false, dot: None, items: modes });
-        out.push(Item::line(tr("tray.statistics", &[]), Some(Cmd::Statistics)));
-        out.push(Item::line(tr("tray.disconnect", &[]), Some(Cmd::Disconnect)));
+        out.push(Item::line(tr("tray.statistics", &[]), Some(Cmd::Statistics(id.clone()))));
+        out.push(Item::line(tr("tray.disconnect", &[]), Some(Cmd::Disconnect(id.clone()))));
         out.push(Item::Separator);
     }
     for c in &s.computers {
-        let (state, dot) = match c.online {
-            Some(true) => (tr("tray.online", &[]), Dot::Ok),
-            Some(false) if c.waking || c.station.as_ref().is_some_and(|st| st.busy.is_some()) => (tr("tray.offline", &[]), Dot::Warn),
-            Some(false) => (tr("tray.offline", &[]), Dot::Bad),
-            None => (tr("tray.searching", &[]), Dot::Faint),
-        };
+        let (state, dot) = status(c);
+        let state = tr(&format!("tray.{}", state.code()), &[]);
         out.push(Item::Sub {
             text: tr("tray.computer", &[("name", &c.name), ("state", &state)]),
             key: Some(c.id.clone()),
-            checked: s.session.as_ref().is_some_and(|x| x.id == c.id),
+            checked: s.session(&c.id).is_some(),
             dot: Some(dot),
             items: computer(s, c, tr),
         });
@@ -223,6 +247,88 @@ pub fn build(s: &State, tr: Tr) -> Vec<Item> {
     out
 }
 
+/// L'état d'un ordinateur, tel que le menu de l'icône et le menu
+/// « Ordinateurs » de la barre l'écrivent (« {nom} — En ligne »…).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Seen {
+    Online,
+    Offline,
+    Searching,
+}
+
+impl Seen {
+    /// `online`, `offline`, `searching` : la clé du texte.
+    pub fn code(self) -> &'static str {
+        match self {
+            Seen::Online => "online",
+            Seen::Offline => "offline",
+            Seen::Searching => "searching",
+        }
+    }
+}
+
+/// L'état d'un ordinateur et son point de couleur : ambre hors ligne pendant
+/// un réveil, un redémarrage ou une mise à jour de la Station.
+pub fn status(c: &Computer) -> (Seen, Dot) {
+    match c.online {
+        Some(true) => (Seen::Online, Dot::Ok),
+        Some(false) if c.waking || c.station.as_ref().is_some_and(|st| st.busy.is_some()) => (Seen::Offline, Dot::Warn),
+        Some(false) => (Seen::Offline, Dot::Bad),
+        None => (Seen::Searching, Dot::Faint),
+    }
+}
+
+/// Ce que fait un clic sur un ordinateur dans le menu « Ordinateurs » de la
+/// barre (plusieurs ordinateurs) : comme le premier élément de son sous-menu
+/// dans le menu de l'icône, et le bouton principal de l'accueil.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Pick {
+    /// En session : sa fenêtre passe devant (« Afficher »).
+    Show,
+    /// En ligne (ou en recherche) : sa session s'ouvre ; `false` : quatre
+    /// ordinateurs sont déjà en session.
+    Connect(bool),
+    /// Hors ligne, adresse MAC connue : « Réveiller l'ordinateur ».
+    Wake,
+    /// Réveil en cours : inactif.
+    Waking,
+    /// Hors ligne sans adresse MAC : « Réessayer ».
+    Retry,
+    /// La Station redémarre ou s'installe : inactif, il revient de lui-même.
+    Busy,
+}
+
+impl Pick {
+    pub fn code(self) -> &'static str {
+        match self {
+            Pick::Show => "show",
+            Pick::Connect(true) => "connect",
+            Pick::Connect(false) => "full",
+            Pick::Wake => "wake",
+            Pick::Waking => "waking",
+            Pick::Retry => "retry",
+            Pick::Busy => "busy",
+        }
+    }
+}
+
+pub fn pick(s: &State, c: &Computer) -> Pick {
+    let busy = c.station.as_ref().is_some_and(|st| st.busy.is_some());
+    if s.session(&c.id).is_some() {
+        Pick::Show
+    } else if c.online == Some(false) && busy {
+        Pick::Busy
+    } else if c.online == Some(false) && c.waking {
+        Pick::Waking
+    } else if c.online == Some(false) && c.can_wake {
+        Pick::Wake
+    } else if c.online == Some(false) {
+        Pick::Retry
+    } else {
+        Pick::Connect(!s.full)
+    }
+}
+
 /// « 11,6 ms · 60 i/s · 80 Mbit/s » (la latence comme dans la barre de
 /// session, au dixième) ; « — » pour ce qui n'est pas encore mesuré.
 fn measures(s: &Session, tr: Tr) -> String {
@@ -237,7 +343,6 @@ fn measures(s: &Session, tr: Tr) -> String {
 /// Le sous-menu d'un ordinateur.
 pub fn computer(s: &State, c: &Computer, tr: Tr) -> Vec<Item> {
     let mut out = Vec::new();
-    let this_session = s.session.as_ref().is_some_and(|x| x.id == c.id);
     let busy = c.station.as_ref().and_then(|st| st.busy);
     let profile_name = |p: &str| tr(&format!("tray.profiles.{p}"), &[]);
     let profile = if c.custom { profile_name("custom") } else { profile_name(&c.profile) };
@@ -248,21 +353,32 @@ pub fn computer(s: &State, c: &Computer, tr: Tr) -> Vec<Item> {
         mark: Mark::None,
         default: false,
     };
-    out.push(if this_session {
-        Item::line(tr("tray.disconnect", &[]), Some(Cmd::Disconnect))
-    } else if c.online == Some(false) && busy.is_some() {
+    match pick(s, c) {
+        Pick::Show => {
+            // En session : « Afficher », « Garder le son » (à partir de deux
+            // sessions, comme dans la barre), « Se déconnecter », puis le reste.
+            let keep = s.session(&c.id).is_some_and(|x| x.keep_sound);
+            out.push(Item::line(tr("tray.show", &[]), Some(Cmd::Show(c.id.clone()))));
+            if s.sessions.len() >= 2 {
+                out.push(Item::Line {
+                    text: tr("tray.keep_sound", &[]),
+                    cmd: Some(Cmd::KeepSound(c.id.clone())),
+                    enabled: true,
+                    mark: if keep { Mark::Check } else { Mark::None },
+                    default: false,
+                });
+            }
+            out.push(Item::line(tr("tray.disconnect", &[]), Some(Cmd::Disconnect(c.id.clone()))));
+            out.push(Item::Separator);
+        }
         // La Station redémarre ou s'installe : l'ordinateur revient de lui-même.
-        connect(false)
-    } else if c.online == Some(false) && c.waking {
-        Item::inactive(tr("tray.waking", &[]))
-    } else if c.online == Some(false) && c.can_wake {
-        Item::line(tr("tray.wake", &[]), Some(Cmd::Wake(c.id.clone())))
-    } else if c.online == Some(false) {
-        Item::line(tr("tray.retry", &[]), Some(Cmd::Retry(c.id.clone())))
-    } else {
-        // Une session à la fois.
-        connect(s.session.is_none())
-    });
+        Pick::Busy => out.push(connect(false)),
+        Pick::Waking => out.push(Item::inactive(tr("tray.waking", &[]))),
+        Pick::Wake => out.push(Item::line(tr("tray.wake", &[]), Some(Cmd::Wake(c.id.clone())))),
+        Pick::Retry => out.push(Item::line(tr("tray.retry", &[]), Some(Cmd::Retry(c.id.clone())))),
+        // Quatre ordinateurs au plus en même temps.
+        Pick::Connect(enabled) => out.push(connect(enabled)),
+    }
 
     let mut profiles: Vec<Item> = PROFILES
         .iter()
@@ -316,9 +432,10 @@ pub fn computer(s: &State, c: &Computer, tr: Tr) -> Vec<Item> {
 
 /// Infobulle de l'icône.
 pub fn tooltip(s: &State, tr: Tr) -> String {
-    match &s.session {
-        Some(session) => tr("tray.tooltip_session", &[("name", &session.name)]),
-        None => tr("tray.tooltip", &[]),
+    match s.sessions.as_slice() {
+        [] => tr("tray.tooltip", &[]),
+        [session] => tr("tray.tooltip_session", &[("name", &session.name)]),
+        many => tr("tray.tooltip_sessions", &[("count", &many.len().to_string())]),
     }
 }
 
@@ -450,10 +567,15 @@ mod tests {
         assert_eq!(lines(&s, Lang::Fr)[..2], ["{gris} Atelier — Recherche… >", "  Se connecter (Jeu)"]);
     }
 
+    fn session_atelier() -> Session {
+        Session { id: "a".into(), name: "Atelier".into(), latency_ms: Some(11.6), fps: Some(60), mbps: Some(80), fullscreen: true, multi: false, mouse: "jeu".into(), keep_sound: false }
+    }
+
     #[test]
     fn en_session() {
         let s = State {
-            session: Some(Session { id: "a".into(), name: "Atelier".into(), latency_ms: Some(11.6), fps: Some(60), mbps: Some(80), fullscreen: true, multi: false, mouse: "jeu".into() }),
+            sessions: vec![session_atelier()],
+            active: Some("a".into()),
             computers: vec![atelier(), Computer { online: Some(true), ..salon() }],
             ..Default::default()
         };
@@ -473,25 +595,27 @@ mod tests {
                 "---"
             ]
         );
-        // L'ordinateur de la session est coché, son sous-menu se déconnecte ;
-        // l'autre ne se connecte pas (une session à la fois).
-        assert_eq!(l[10..12], ["[x] {vert} Atelier — En ligne >", "  Se déconnecter"]);
+        // L'ordinateur de la session est coché, son sous-menu commence par
+        // Afficher et Se déconnecter (« Garder le son » à partir de deux
+        // sessions) ; l'autre se connecte (plusieurs ordinateurs à la fois).
+        assert_eq!(l[10..14], ["[x] {vert} Atelier — En ligne >", "  Afficher", "  Se déconnecter", "  ---"]);
+        assert!(!l.iter().any(|x| x.contains("Garder le son")));
         let other = l.iter().position(|x| x == "{vert} Bureau-Salon — En ligne >").unwrap();
-        assert_eq!(l[other + 1], "  ~Se connecter (Bureau)");
+        assert_eq!(l[other + 1], "  Se connecter (Bureau)");
         let en = lines(&s, Lang::En);
         assert_eq!(
             en[..9],
             ["~In session on Atelier", "~11.6 ms · 60 fps · 80 Mbit/s", "[x] Full screen", "Mouse >", "  Auto", "  Desktop mouse", "  (o) Game mouse", "Statistics", "Disconnect"]
         );
-        // Choisir un mode : la commande porte le mode.
+        // Choisir un mode : la commande porte l'ordinateur et le mode.
         let menu = build(&s, &tr(Lang::Fr));
         let Item::Sub { items, .. } = &menu[3] else { panic!("sous-menu Souris") };
-        assert!(matches!(&items[0], Item::Line { cmd: Some(Cmd::Mouse("auto")), .. }));
+        assert!(matches!(&items[0], Item::Line { cmd: Some(Cmd::Mouse(id, "auto")), .. } if id == "a"));
         // Mesures pas encore arrivées.
         let mut early = s.clone();
-        early.session.as_mut().unwrap().latency_ms = None;
-        early.session.as_mut().unwrap().fps = None;
-        early.session.as_mut().unwrap().fullscreen = false;
+        early.sessions[0].latency_ms = None;
+        early.sessions[0].fps = None;
+        early.sessions[0].fullscreen = false;
         let l = lines(&early, Lang::Fr);
         assert_eq!(l[1..3], ["~— ms · — i/s · 80 Mbit/s", "Plein écran"]);
         assert_eq!(tooltip(&s, &tr(Lang::Fr)), "KyberNow Link · en session sur Atelier");
@@ -503,7 +627,7 @@ mod tests {
     fn plusieurs_ecrans_sans_plein_ecran() {
         // « Plein écran » n'est pas proposé : les fenêtres restent en plein écran.
         let s = State {
-            session: Some(Session { id: "a".into(), name: "Atelier".into(), latency_ms: Some(11.6), fps: Some(60), mbps: Some(120), fullscreen: true, multi: true, mouse: "auto".into() }),
+            sessions: vec![Session { mbps: Some(120), multi: true, mouse: "auto".into(), ..session_atelier() }],
             computers: vec![atelier()],
             ..Default::default()
         };
@@ -514,8 +638,70 @@ mod tests {
         assert!(!en.iter().any(|l| l.contains("Full screen")));
         // Un seul écran : comme avant.
         let mut one = s.clone();
-        one.session.as_mut().unwrap().multi = false;
+        one.sessions[0].multi = false;
         assert!(lines(&one, Lang::Fr).iter().any(|l| l == "[x] Plein écran"));
+    }
+
+    #[test]
+    fn plusieurs_ordinateurs() {
+        let salon_session = Session {
+            id: "b".into(),
+            name: "Bureau-Salon".into(),
+            latency_ms: Some(4.2),
+            fps: Some(120),
+            mbps: Some(60),
+            fullscreen: false,
+            multi: false,
+            mouse: "auto".into(),
+            keep_sound: true,
+        };
+        let s = State {
+            sessions: vec![session_atelier(), salon_session],
+            // La fenêtre de Bureau-Salon est au premier plan.
+            active: Some("b".into()),
+            computers: vec![atelier(), Computer { online: Some(true), ..salon() }, Computer { id: "c".into(), name: "Studio".into(), ..atelier() }],
+            ..Default::default()
+        };
+        let fr = lines(&s, Lang::Fr);
+        // Le haut du menu : la session de la fenêtre active.
+        assert_eq!(fr[..3], ["~En session sur Bureau-Salon", "~4,2 ms · 120 i/s · 60 Mbit/s", "Plein écran"]);
+        // Les deux ordinateurs en session sont cochés ; Garder le son coché
+        // pour Bureau-Salon.
+        let a = fr.iter().position(|x| x == "[x] {vert} Atelier — En ligne >").unwrap();
+        assert_eq!(fr[a + 1..a + 4], ["  Afficher", "  Garder le son", "  Se déconnecter"]);
+        let b = fr.iter().position(|x| x == "[x] {vert} Bureau-Salon — En ligne >").unwrap();
+        assert_eq!(fr[b + 1..b + 4], ["  Afficher", "  [x] Garder le son", "  Se déconnecter"]);
+        let c = fr.iter().position(|x| x == "{vert} Studio — En ligne >").unwrap();
+        assert_eq!(fr[c + 1], "  Se connecter (Jeu)");
+        let en = lines(&s, Lang::En);
+        let b = en.iter().position(|x| x == "[x] {vert} Bureau-Salon — Online >").unwrap();
+        assert_eq!(en[b + 1..b + 4], ["  Show", "  [x] Keep sound", "  Disconnect"]);
+        // Les commandes portent l'ordinateur.
+        let mut c = Vec::new();
+        cmds(&build(&s, &tr(Lang::Fr)), &mut c);
+        assert!(c.contains(&Cmd::Statistics("b".into())));
+        assert!(c.contains(&Cmd::Show("a".into())));
+        assert!(c.contains(&Cmd::KeepSound("a".into())));
+        assert!(c.contains(&Cmd::Disconnect("a".into())));
+        assert!(c.contains(&Cmd::Connect("c".into())));
+        // Infobulle : le nombre d'ordinateurs.
+        assert_eq!(tooltip(&s, &tr(Lang::Fr)), "KyberNow Link · en session sur 2 ordinateurs");
+        assert_eq!(tooltip(&s, &tr(Lang::En)), "KyberNow Link · in session on 2 computers");
+        // Le menu « Ordinateurs » de la barre : le même choix.
+        assert_eq!(pick(&s, &s.computers[0]), Pick::Show);
+        assert_eq!(pick(&s, &s.computers[2]).code(), "connect");
+        assert_eq!(status(&s.computers[2]), (Seen::Online, Dot::Ok));
+        let offline = salon();
+        assert_eq!(pick(&State::default(), &offline).code(), "wake");
+        assert_eq!(pick(&State::default(), &Computer { can_wake: false, ..offline.clone() }).code(), "retry");
+        assert_eq!(pick(&State::default(), &Computer { waking: true, ..offline.clone() }).code(), "waking");
+        assert_eq!(status(&Computer { waking: true, ..offline }), (Seen::Offline, Dot::Warn));
+        // Quatre en session : Se connecter inactif.
+        let full = State { full: true, ..s };
+        assert_eq!(pick(&full, &full.computers[2]).code(), "full");
+        let l = lines(&full, Lang::Fr);
+        let c = l.iter().position(|x| x == "{vert} Studio — En ligne >").unwrap();
+        assert_eq!(l[c + 1], "  ~Se connecter (Jeu)");
     }
 
     #[test]

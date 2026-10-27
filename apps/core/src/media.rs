@@ -42,6 +42,15 @@ pub trait PacketHandler: Send + Sync {
         let _ = source_id;
         self.packet(packet);
     }
+
+    /// Le moteur de son derrière ce gestionnaire de paquets de son, s'il y en
+    /// a un : la session y coupe et y rend le son (plusieurs ordinateurs à la
+    /// fois, [`crate::session::Session::set_muted`]). Le moteur lui-même se
+    /// rend ; un gestionnaire qui l'enveloppe rend le sien (ou la plateforme
+    /// le donne par [`crate::session::Session::attach_audio`]).
+    fn audio_engine(self: Arc<Self>) -> Option<Arc<crate::audio::AudioEngine>> {
+        None
+    }
 }
 
 extern "C" fn trampoline(packet: *const MediaPacket, userdata: *mut c_void) {

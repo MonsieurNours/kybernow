@@ -1,7 +1,7 @@
 // Multi-écrans (docs/multi-ecrans.md, docs/link-ui.md « Plusieurs écrans ») :
 // chaque écran de ce Mac pris par la session a sa surface, une vue de session
 // (son image, son rendu Metal, son trait de repère) dans une fenêtre plein
-// écran. La surface de l'écran de la fenêtre de l'accueil est celle de la
+// écran. La surface de l'écran de la fenêtre de la session est celle de la
 // session à un écran ; les autres ont leur propre fenêtre, ouverte et fermée
 // par la session. Le contrôleur (SessionController) tient la barre, unique,
 // et la pose sur la surface où le geste a lieu.
@@ -21,7 +21,7 @@ final class ScreenSurface {
     /// Fond de la connexion, sans texte, ou avec la ligne d'un écran que
     /// l'ordinateur n'a pas pu créer ; retiré dès la première image de l'écran.
     let backdrop: ScreenBackdrop
-    /// Fenêtre ouverte par la session (un autre écran que celui de l'accueil) :
+    /// Fenêtre d'un autre écran que celui de la fenêtre de la session :
     /// fermée à la fin.
     let owned: Bool
     /// Écran de cette surface (fenêtre ouverte par la session).
@@ -29,7 +29,7 @@ final class ScreenSurface {
     private let delegate: SessionWindowDelegate?
     private var observers: [NSObjectProtocol] = []
 
-    /// La surface de la fenêtre de l'accueil.
+    /// La surface de la fenêtre de la session.
     init(main view: StreamView, container: NSView, window: NSWindow?) {
         streamView = view
         self.container = container

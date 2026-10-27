@@ -139,37 +139,22 @@ fn demo(english: bool, layout: Layout) -> App {
 
 fn session(app: &App) -> SessionUi {
     let (w, h, fps) = app.session_mode(app.selected().unwrap());
-    SessionUi {
-        host: "a".into(),
-        name: "Tour du salon".into(),
-        profile: Profile::Jeu,
-        phase: Phase::Streaming,
-        menu: true,
-        keys: false,
-        stats: Some(Stats {
-            latency_ms: Some(7.4),
-            fps: fps as f64,
-            mbps: 31.0,
-            lost: 0,
-            mode: format!("{w} × {h}"),
-            decoder: "VA-API HEVC".into(),
-            audio_ms: Some(12.0),
-            history: vec![7.0, 7.4, 6.9, 8.1, 7.2, 7.6, 6.8, 9.0, 7.1, 7.3, 7.0, 7.5],
-        }),
-        show_stats: false,
-        pad_mouse: false,
-        muted: false,
-        light: false,
-        relative: true,
-        bar: false,
-        bar_menu: None,
-        notice: None,
-        started: Instant::now() - Duration::from_millis(2100),
-        ending_since: None,
-        opened_at: Some(Instant::now() - Duration::from_secs(30)),
-        screens: 1,
-        expected_screens: 1,
-    }
+    let mut s = SessionUi::new(1, "a", "Tour du salon", Profile::Jeu, false, true, 1);
+    s.phase = Phase::Streaming;
+    s.menu = true;
+    s.stats = Some(Stats {
+        latency_ms: Some(7.4),
+        fps: fps as f64,
+        mbps: 31.0,
+        lost: 0,
+        mode: format!("{w} × {h}"),
+        decoder: "VA-API HEVC".into(),
+        audio_ms: Some(12.0),
+        history: vec![7.0, 7.4, 6.9, 8.1, 7.2, 7.6, 6.8, 9.0, 7.1, 7.3, 7.0, 7.5],
+    });
+    s.started = Instant::now() - Duration::from_millis(2100);
+    s.opened_at = Some(Instant::now() - Duration::from_secs(30));
+    s
 }
 
 /// Une capture : l'écran dessiné deux fois (la seconde avec le focus posé
@@ -208,7 +193,7 @@ fn shot_view(app: &mut App, cv: &mut Canvas, video: Option<&Pixmap>, dir: &Path,
 /// que l'ordinateur n'a pas pu créer, le trait du haut, la barre sans « Plein écran ».
 fn multi_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, prefix: &str) {
     let name = |n: &str| format!("{prefix}-{n}");
-    app.session = None;
+    app.set_session(None);
     app.store.selected = Some("a".into());
     // L'accueil : trois écrans, à la taille de ceux de l'appareil.
     app.screens_plan = ScreensPlan { count: 3, enabled: true, shown: 0 };
@@ -258,11 +243,11 @@ fn multi_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, prefi
     s.expected_screens = 3;
     s.phase = Phase::Connecting;
     s.opened_at = None;
-    app.session = Some(s);
+    app.set_session(Some(s));
     app.screen = Screen::Session;
     app.focus = Target::CancelConnect;
-    let main = ui::View { main: true, bar: false, missing: false, has_frame: false };
-    let other = ui::View { main: false, bar: false, missing: false, has_frame: false };
+    let main = ui::View { session: None, main: true, bar: false, missing: false, has_frame: false };
+    let other = ui::View { session: None, main: false, bar: false, missing: false, has_frame: false };
     shot_view(app, cv, None, dir, &name("16-connexion-ecrans-principal"), main);
     shot_view(app, cv, None, dir, &name("16b-connexion-ecrans-autre"), other);
     shot_view(app, cv, None, dir, &name("16c-ecran-non-cree"), ui::View { missing: true, ..other });
@@ -273,16 +258,95 @@ fn multi_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, prefi
     s.screens = 3;
     s.expected_screens = 3;
     s.opened_at = Some(Instant::now() - Duration::from_secs(30));
-    app.session = Some(s);
-    let shown = ui::View { main: false, bar: false, missing: false, has_frame: true };
+    app.set_session(Some(s));
+    let shown = ui::View { session: None, main: false, bar: false, missing: false, has_frame: true };
     shot_view(app, cv, Some(video), dir, &name("16d-ecrans-image-trait"), shown);
-    if let Some(s) = app.session.as_mut() {
+    if let Some(s) = app.session_mut() {
         s.bar = true;
     }
     app.pointer = Some((700.0, 20.0));
     shot_view(app, cv, Some(video), dir, &name("16e-ecrans-barre"), ui::View { bar: true, ..shown });
     app.pointer = None;
-    app.session = None;
+    app.set_session(None);
+    app.screen = Screen::Home;
+}
+
+/// Plusieurs ordinateurs (docs/plusieurs-ordinateurs.md) : le menu « Ordinateurs » de la barre (autres
+/// ordinateurs, point et état, « Se connecter » ou « Réveiller », puis « Afficher » et le raccourci avec deux
+/// sessions, la limite de quatre), le haut-parleur « Garder le son » allumé et son nom au survol, la
+/// fenêtre d'une session de plus avec sa connexion et son « Plein écran ».
+fn computers_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, prefix: &str) {
+    let name = |n: &str| format!("{prefix}-{n}");
+    app.store.selected = Some("a".into());
+    // Une session sur « Tour du salon » : le menu montre les deux autres, l'un hors ligne (réveil possible), l'autre en ligne.
+    let mut s = session(app);
+    s.menu = false;
+    s.relative = false;
+    s.bar = true;
+    s.bar_menu = Some(BarMenu::Computers);
+    app.set_session(Some(s));
+    app.screen = Screen::Session;
+    app.pointer = Some((700.0, 20.0));
+    shot(app, cv, Some(video), dir, &name("17-barre-ordinateurs"));
+    // Deux sessions : « Mini du bureau » est ouverte, devant ; le menu la coche avec « Afficher », et dit le raccourci.
+    let mut second = SessionUi::new(2, "c", "Mini du bureau", Profile::Bureau, false, false, 1);
+    second.phase = Phase::Streaming;
+    second.opened_at = Some(Instant::now() - Duration::from_secs(30));
+    second.bar = true;
+    second.bar_menu = Some(BarMenu::Computers);
+    app.open_session(second);
+    shot(app, cv, Some(video), dir, &name("17b-ordinateurs-deux-sessions"));
+    // « Garder le son » allumé sur cette session, et son nom au survol du haut-parleur.
+    if let Some(s) = app.session_mut() {
+        s.bar_menu = None;
+        s.keep_sound = true;
+    }
+    let hits = ui::draw(app, cv);
+    if let Some((_, r)) = hits.iter().find(|(t, _)| *t == Target::BarSound) {
+        app.pointer = Some((r.x + r.w / 2.0, r.y + r.h / 2.0));
+    }
+    shot(app, cv, Some(video), dir, &name("17c-barre-garder-le-son"));
+    // Quatre ordinateurs : « Se connecter » est inactif, avec la raison.
+    for (id, host, label) in [(3, "d", "Atelier"), (4, "e", "Salon du haut")] {
+        if app.store.host(host).is_none() {
+            app.store.hosts.push(crate::model::Host { id: host.into(), name: label.into(), ..app.store.hosts[2].clone() });
+            app.live.insert(host.into(), HostLive { online: Online::Online, ..Default::default() });
+        }
+        let mut s = SessionUi::new(id, host, label, Profile::Jeu, false, false, 1);
+        s.phase = Phase::Streaming;
+        s.opened_at = Some(Instant::now() - Duration::from_secs(30));
+        app.open_session(s);
+    }
+    app.store.hosts.push(crate::model::Host { id: "f".into(), name: "Bureau de Léa".into(), ..app.store.hosts[2].clone() });
+    app.live.insert("f".into(), HostLive { online: Online::Online, ..Default::default() });
+    if let Some(s) = app.session_mut() {
+        s.bar = true;
+        s.bar_menu = Some(BarMenu::Computers);
+    }
+    app.pointer = Some((700.0, 20.0));
+    shot(app, cv, Some(video), dir, &name("17e-ordinateurs-quatre-au-plus"));
+    // La fenêtre d'une session de plus : sa connexion s'affiche dans sa fenêtre, pendant que l'autre garde son image.
+    app.pointer = None;
+    app.set_session(None);
+    let mut first = session(app);
+    first.menu = false;
+    first.relative = false;
+    app.open_session(first);
+    let mut next = SessionUi::new(2, "c", "Mini du bureau", Profile::Bureau, false, false, 1);
+    next.phase = Phase::Connecting;
+    app.open_session(next);
+    app.focus = Target::CancelConnect;
+    shot_view(app, cv, None, dir, &name("17d-fenetre-suivante"), ui::View { session: Some(2), ..ui::View::SINGLE });
+    // Une fois à l'image, sa barre propose « Plein écran » (elle n'a qu'un écran).
+    if let Some(s) = app.session_mut() {
+        s.phase = Phase::Streaming;
+        s.opened_at = Some(Instant::now() - Duration::from_secs(30));
+        s.bar = true;
+    }
+    app.pointer = Some((700.0, 20.0));
+    shot_view(app, cv, Some(video), dir, &name("17f-fenetre-suivante-barre"), ui::View { session: Some(2), ..ui::View::SINGLE });
+    app.pointer = None;
+    app.set_session(None);
     app.screen = Screen::Home;
 }
 
@@ -455,25 +519,25 @@ pub fn run(dir: &Path, lang: &str) {
         s.phase = Phase::Connecting;
         s.opened_at = None;
         s.menu = false;
-        app.session = Some(s);
+        app.set_session(Some(s));
         app.screen = Screen::Session;
         app.focus = Target::CancelConnect;
         shot(&mut app, &mut cv, None, dir, &p("10-connexion"));
         // Le dernier recours : la Station redémarre, puis les étapes reprennent.
-        if let Some(s) = app.session.as_mut() {
+        if let Some(s) = app.session_mut() {
             s.phase = Phase::StationRestarting;
         }
         shot(&mut app, &mut cv, None, dir, &p("10a-connexion-station-redemarre"));
         let mut s = session(&app);
         s.phase = Phase::Ended { error: Some(if en { "Admin did not answer: is the computer still on the network?" } else { "Admin ne répond plus : l'ordinateur est-il toujours sur le réseau ?" }.into()) };
         s.opened_at = None;
-        app.session = Some(s);
+        app.set_session(Some(s));
         app.focus = Target::Back;
         shot(&mut app, &mut cv, None, dir, &p("10b-connexion-echec"));
         let mut s = session(&app);
         s.menu = false;
         s.opened_at = Some(Instant::now() - Duration::from_millis(100));
-        app.session = Some(s);
+        app.set_session(Some(s));
         let overlay = ui::session_overlay_visible(&app);
         assert!(!overlay, "l'image seule dès la première image");
         shot(&mut app, &mut cv, Some(&video), dir, &p("10c-image-seule"));
@@ -482,7 +546,7 @@ pub fn run(dir: &Path, lang: &str) {
             let mut s = session(&app);
             s.menu = false;
             s.relative = false;
-            app.session = Some(s);
+            app.set_session(Some(s));
             assert!(ui::session_hint_only(&app));
             shot(&mut app, &mut cv, Some(&video), dir, &p("10d-image-trait-barre"));
         }
@@ -494,32 +558,33 @@ pub fn run(dir: &Path, lang: &str) {
             s.bar_menu = Some(BarMenu::Profile);
             app.pointer = Some((700.0, 20.0));
         }
-        app.session = Some(s);
+        app.set_session(Some(s));
         app.focus = Target::Menu(MenuItem::Resume);
         shot(&mut app, &mut cv, Some(&video), dir, &p("11-session"));
         app.pointer = None;
 
         let mut s = session(&app);
         s.keys = true;
-        app.session = Some(s);
+        app.set_session(Some(s));
         app.focus = Target::Shortcut(0);
         shot(&mut app, &mut cv, Some(&video), dir, &p("12-session-touches"));
 
         let mut s = session(&app);
         s.menu = false;
         s.show_stats = true;
-        app.session = Some(s);
+        app.set_session(Some(s));
         shot(&mut app, &mut cv, Some(&video), dir, &p("13-session-statistiques"));
 
         let mut s = session(&app);
         s.phase = Phase::Ended { error: Some(if en { "Admin did not answer: is the computer still on the network?" } else { "Admin ne répond plus : l'ordinateur est-il toujours sur le réseau ?" }.into()) };
-        app.session = Some(s);
+        app.set_session(Some(s));
         app.focus = Target::Back;
         shot(&mut app, &mut cv, None, dir, &p("14-session-fin"));
-        app.session = None;
+        app.set_session(None);
         // Plusieurs écrans : seulement au bureau (le Deck, le salon et l'OS restent sur un écran).
         if layout == Layout::Desktop {
             multi_shots(&mut app, &mut cv, &video, dir, prefix);
+            computers_shots(&mut app, &mut cv, &video, dir, prefix);
         }
     }
 
@@ -744,7 +809,7 @@ mod tests {
         let mut s = session(&app);
         s.menu = false;
         s.opened_at = Some(Instant::now() - Duration::from_millis(50));
-        app.session = Some(s);
+        app.set_session(Some(s));
         app.screen = Screen::Session;
         assert!(!ui::session_overlay_visible(&app));
         ui::draw(&app, &mut cv);
@@ -753,6 +818,9 @@ mod tests {
 
     /// Une session à l'image : barre fermée, menus fermés, souris du bureau.
     fn streaming(layout: Layout) -> (App, Canvas) {
+        // Les captures en anglais des autres tests changent la langue de tous les fils : celui de cet essai reste en
+        // français (les largeurs de la barre en dépendent).
+        crate::i18n::force_english(false);
         let mut app = demo(false, layout);
         let mut cv = Canvas::new();
         cv.resize(1280, 800, 1.0);
@@ -760,7 +828,7 @@ mod tests {
         s.menu = false;
         s.relative = false;
         s.opened_at = Some(Instant::now() - Duration::from_secs(30));
-        app.session = Some(s);
+        app.set_session(Some(s));
         app.screen = Screen::Session;
         (app, cv)
     }
@@ -782,16 +850,16 @@ mod tests {
         assert_eq!(alpha(&cv, 200, 400), 0);
 
         // Barre ouverte : la barre à la place du trait, l'interface entière.
-        app.session.as_mut().unwrap().bar = true;
+        app.session_mut().unwrap().bar = true;
         assert!(ui::session_overlay_visible(&app) && !ui::session_hint_only(&app));
         app.hits = ui::draw(&app, &mut cv);
         assert!(!app.hits.is_empty());
         // Souris des jeux : le pointeur est capturé, ni trait ni barre.
-        app.session.as_mut().unwrap().bar = false;
-        app.session.as_mut().unwrap().relative = true;
+        app.session_mut().unwrap().bar = false;
+        app.session_mut().unwrap().relative = true;
         assert!(!ui::session_overlay_visible(&app) && !ui::session_hint_only(&app));
         // Un réglage ouvert depuis la session : l'écran n'est plus la session.
-        app.session.as_mut().unwrap().relative = false;
+        app.session_mut().unwrap().relative = false;
         app.screen = Screen::Settings;
         assert!(!ui::session_hint_only(&app));
         for layout in [Layout::Handheld, Layout::Tv] {
@@ -805,28 +873,28 @@ mod tests {
     #[test]
     fn bar_zone_is_bar_width() {
         let (mut app, mut cv) = streaming(Layout::Desktop);
-        app.session.as_mut().unwrap().bar = true;
+        app.session_mut().unwrap().bar = true;
         app.hits = ui::draw(&app, &mut cv);
         // Où la barre est dessinée : première et dernière colonne peintes sur une ligne de la barre.
         let painted: Vec<u32> = (0..cv.pix.width()).filter(|x| cv.pix.pixel(*x, 30).unwrap().alpha() > 0).collect();
         let (left, right) = (*painted.first().unwrap() as f32, *painted.last().unwrap() as f32 + 1.0);
         assert!(left > 100.0 && right < 1180.0 && ((left + right) / 2.0 - 640.0).abs() < 1.0, "centrée, plus étroite que la fenêtre");
-        let s = app.session.clone().unwrap();
+        let s = app.session().cloned().unwrap();
         let w = cv.w;
         for y in [0.0, 1.0, 2.0] {
-            assert!(ui::at_bar_edge(&mut cv, &s, w, left + 2.0, y) && ui::at_bar_edge(&mut cv, &s, w, right - 2.0, y));
-            assert!(!ui::at_bar_edge(&mut cv, &s, w, left - 2.0, y) && !ui::at_bar_edge(&mut cv, &s, w, right + 2.0, y));
+            assert!(ui::at_bar_edge(&mut cv, &app, &s, w, left + 2.0, y) && ui::at_bar_edge(&mut cv, &app, &s, w, right - 2.0, y));
+            assert!(!ui::at_bar_edge(&mut cv, &app, &s, w, left - 2.0, y) && !ui::at_bar_edge(&mut cv, &app, &s, w, right + 2.0, y));
         }
-        assert!(!ui::at_bar_edge(&mut cv, &s, w, 640.0, 2.5), "au-delà de 2 points : pas contre le bord");
+        assert!(!ui::at_bar_edge(&mut cv, &app, &s, w, 640.0, 2.5), "au-delà de 2 points : pas contre le bord");
         // Rester ouverte : sur la barre (même hors de ses boutons) et 8 points autour, pas plus loin.
         let none: Vec<(Target, crate::app::Rect)> = Vec::new();
-        assert!(ui::over_bar(&mut cv, &s, w, &none, 640.0, 30.0));
-        assert!(ui::over_bar(&mut cv, &s, w, &none, right + 7.0, 20.0));
-        assert!(!ui::over_bar(&mut cv, &s, w, &none, right + 9.0, 20.0));
-        assert!(ui::over_bar(&mut cv, &s, w, &none, left - 7.0, 20.0));
-        assert!(ui::over_bar(&mut cv, &s, w, &none, 640.0, 46.0 + 7.0));
-        assert!(!ui::over_bar(&mut cv, &s, w, &none, 640.0, 46.0 + 9.0), "plus de bande de 58 points");
-        assert!(!ui::over_bar(&mut cv, &s, w, &none, 100.0, 20.0), "pas sur toute la largeur");
+        assert!(ui::over_bar(&mut cv, &app, &s, w, &none, 640.0, 30.0));
+        assert!(ui::over_bar(&mut cv, &app, &s, w, &none, right + 7.0, 20.0));
+        assert!(!ui::over_bar(&mut cv, &app, &s, w, &none, right + 9.0, 20.0));
+        assert!(ui::over_bar(&mut cv, &app, &s, w, &none, left - 7.0, 20.0));
+        assert!(ui::over_bar(&mut cv, &app, &s, w, &none, 640.0, 46.0 + 7.0));
+        assert!(!ui::over_bar(&mut cv, &app, &s, w, &none, 640.0, 46.0 + 9.0), "plus de bande de 58 points");
+        assert!(!ui::over_bar(&mut cv, &app, &s, w, &none, 100.0, 20.0), "pas sur toute la largeur");
     }
 
     /// Plusieurs écrans : ce que montre chaque fenêtre de la session. L'écran principal porte la
@@ -836,13 +904,13 @@ mod tests {
     #[test]
     fn windows_of_several_displays() {
         let (mut app, mut cv) = streaming(Layout::Desktop);
-        app.session.as_mut().unwrap().screens = 3;
-        app.session.as_mut().unwrap().expected_screens = 3;
-        let main = ui::View { main: true, bar: false, missing: false, has_frame: false };
-        let other = ui::View { main: false, bar: false, missing: false, has_frame: false };
+        app.session_mut().unwrap().screens = 3;
+        app.session_mut().unwrap().expected_screens = 3;
+        let main = ui::View { session: None, main: true, bar: false, missing: false, has_frame: false };
+        let other = ui::View { session: None, main: false, bar: false, missing: false, has_frame: false };
         // La connexion : l'écran principal dessine les étapes, les autres un aplat sans texte.
-        app.session.as_mut().unwrap().phase = Phase::Connecting;
-        app.session.as_mut().unwrap().opened_at = None;
+        app.session_mut().unwrap().phase = Phase::Connecting;
+        app.session_mut().unwrap().opened_at = None;
         assert!(ui::overlay_visible(&app, main) && ui::overlay_visible(&app, other));
         ui::draw_view(&app, &mut cv, other);
         let flat = (cv.pix.pixel(10, 10).unwrap(), cv.pix.pixel(640, 400).unwrap(), cv.pix.pixel(1270, 790).unwrap());
@@ -858,13 +926,13 @@ mod tests {
         assert!(hits.is_empty());
 
         // À l'image : un écran qui n'a pas encore la sienne garde le fond ; avec elle, le trait seul.
-        app.session.as_mut().unwrap().phase = Phase::Streaming;
-        app.session.as_mut().unwrap().opened_at = Some(Instant::now() - Duration::from_secs(30));
+        app.session_mut().unwrap().phase = Phase::Streaming;
+        app.session_mut().unwrap().opened_at = Some(Instant::now() - Duration::from_secs(30));
         assert!(ui::overlay_visible(&app, other) && !ui::hint_only(&app, other), "pas d'image : le fond de la connexion");
         let shown = ui::View { has_frame: true, ..other };
         assert!(ui::hint_only(&app, shown) && ui::hint_only(&app, ui::View { has_frame: true, ..main }), "le trait du haut dans chaque fenêtre");
         // Barre ouverte dans une fenêtre : elle y est seule ; les autres montrent l'image seule.
-        app.session.as_mut().unwrap().bar = true;
+        app.session_mut().unwrap().bar = true;
         let bar = ui::View { bar: true, ..shown };
         assert!(!ui::hint_only(&app, bar) && ui::overlay_visible(&app, bar));
         let hits = ui::draw_view(&app, &mut cv, bar);
@@ -874,8 +942,8 @@ mod tests {
         let hits = ui::draw_view(&app, &mut cv, shown);
         assert!(hits.is_empty());
         // Une seule fenêtre : tout est comme avant, avec « Plein écran ».
-        app.session.as_mut().unwrap().screens = 1;
-        app.session.as_mut().unwrap().expected_screens = 1;
+        app.session_mut().unwrap().screens = 1;
+        app.session_mut().unwrap().expected_screens = 1;
         let hits = ui::draw(&app, &mut cv);
         assert!(hits.iter().any(|(t, _)| *t == Target::BarFullscreen));
     }
@@ -889,22 +957,135 @@ mod tests {
             (*painted.first().unwrap(), *painted.last().unwrap() + 1)
         };
         let (mut app, mut cv) = streaming(Layout::Desktop);
-        app.session.as_mut().unwrap().bar = true;
+        app.session_mut().unwrap().bar = true;
         ui::draw(&app, &mut cv);
         let one = width(&cv);
-        app.session.as_mut().unwrap().screens = 3;
+        app.session_mut().unwrap().screens = 3;
         ui::draw(&app, &mut cv);
         let three = width(&cv);
         assert!(three.1 - three.0 > 100 && one != three, "la barre de plusieurs écrans a sa propre largeur : son texte dit leur nombre, sans le bouton « Plein écran »");
         // La zone d'ouverture est celle de la barre, centrée sur la fenêtre dont on donne la largeur.
-        let s = app.session.clone().unwrap();
+        let s = app.session().cloned().unwrap();
         let (left, right) = (three.0 as f32, three.1 as f32);
-        assert!(ui::at_bar_edge(&mut cv, &s, 1280.0, left + 2.0, 1.0));
+        assert!(ui::at_bar_edge(&mut cv, &app, &s, 1280.0, left + 2.0, 1.0));
         for w in [1920.0f32, 2560.0] {
             let shift = (w - 1280.0) / 2.0;
-            assert!(ui::at_bar_edge(&mut cv, &s, w, left + shift + 2.0, 1.0) && ui::at_bar_edge(&mut cv, &s, w, right + shift - 2.0, 1.0));
-            assert!(!ui::at_bar_edge(&mut cv, &s, w, left + shift - 2.0, 1.0) && !ui::at_bar_edge(&mut cv, &s, w, right + shift + 2.0, 1.0));
+            assert!(ui::at_bar_edge(&mut cv, &app, &s, w, left + shift + 2.0, 1.0) && ui::at_bar_edge(&mut cv, &app, &s, w, right + shift - 2.0, 1.0));
+            assert!(!ui::at_bar_edge(&mut cv, &app, &s, w, left + shift - 2.0, 1.0) && !ui::at_bar_edge(&mut cv, &app, &s, w, right + shift + 2.0, 1.0));
         }
+    }
+
+    /// Plusieurs ordinateurs (docs/link-ui.md) : la barre a le menu « Ordinateurs », présenté comme « Touches »
+    /// (une icône, dans le même groupe) s'il y a un autre ordinateur, et le haut-parleur « Garder le son » à
+    /// partir de deux sessions ouvertes ; au bureau seulement. Le menu liste les autres ordinateurs, jamais celui
+    /// de la session ; chaque bouton se nomme au survol.
+    #[test]
+    fn bar_of_several_computers() {
+        let (mut app, mut cv) = streaming(Layout::Desktop);
+        app.session_mut().unwrap().bar = true;
+        let hits = ui::draw(&app, &mut cv);
+        let has = |hits: &[(Target, crate::app::Rect)], t: Target| hits.iter().any(|(h, _)| *h == t);
+        // Une seule session : « Ordinateurs » à côté de « Touches », pas de haut-parleur (la barre reste comme avant).
+        assert!(has(&hits, Target::BarComputers) && !has(&hits, Target::BarSound));
+        let rect = |hits: &[(Target, crate::app::Rect)], t: Target| hits.iter().find(|(h, _)| *h == t).map(|(_, r)| *r).unwrap();
+        let (computers, keys) = (rect(&hits, Target::BarComputers), rect(&hits, Target::BarKeys));
+        assert!((computers.y, computers.w, computers.h) == (keys.y, keys.w, keys.h) && computers.x + computers.w == keys.x, "même bouton, juste avant « Touches »");
+        // Le menu : les deux autres ordinateurs (b et c), pas « Tour du salon » (a), celui de la session.
+        app.session_mut().unwrap().bar_menu = Some(BarMenu::Computers);
+        let hits = ui::draw(&app, &mut cv);
+        assert!(has(&hits, Target::BarComputer(1)) && has(&hits, Target::BarComputer(2)) && !has(&hits, Target::BarComputer(0)));
+        // Une seconde session ouverte : le haut-parleur apparaît.
+        app.session_mut().unwrap().bar_menu = None;
+        let mut second = SessionUi::new(2, "c", "Mini du bureau", Profile::Bureau, false, false, 1);
+        second.phase = Phase::Streaming;
+        app.open_session(second);
+        app.activate_session(1);
+        app.session_mut().unwrap().bar = true;
+        let hits = ui::draw(&app, &mut cv);
+        assert!(has(&hits, Target::BarSound));
+        // « Garder le son » allumé : le bouton est teinté, comme souris et plein écran allumés.
+        let r = rect(&hits, Target::BarSound);
+        let before = cv.pix.pixel((r.x + 2.0) as u32, (r.y + 2.0) as u32).unwrap();
+        app.session_mut().unwrap().keep_sound = true;
+        ui::draw(&app, &mut cv);
+        let on = cv.pix.pixel((r.x + 2.0) as u32, (r.y + 2.0) as u32).unwrap();
+        assert!(on != before && on.alpha() > 0, "le bouton allumé se voit");
+        // Le survol nomme le bouton, sous la barre ; hors survol, rien sous la barre.
+        let below = |cv: &Canvas| cv.pix.pixel((r.x + r.w / 2.0) as u32, 46 + 4 + 13).unwrap().alpha();
+        app.pointer = None;
+        ui::draw(&app, &mut cv);
+        assert_eq!(below(&cv), 0);
+        app.pointer = Some((r.x + r.w / 2.0, r.y + r.h / 2.0));
+        ui::draw(&app, &mut cv);
+        assert!(below(&cv) > 0, "« Garder le son » sous le haut-parleur");
+        // Un seul ordinateur enregistré : pas de menu ; deux sessions : le haut-parleur reste.
+        app.pointer = None;
+        app.store.hosts.truncate(1);
+        let hits = ui::draw(&app, &mut cv);
+        assert!(!has(&hits, Target::BarComputers) && has(&hits, Target::BarSound));
+        // Le Steam Deck, le salon et KyberNow Link OS gardent une session : ni l'un ni l'autre.
+        for layout in [Layout::Handheld, Layout::Tv] {
+            let (mut app, mut cv) = streaming(layout);
+            app.session_mut().unwrap().bar = true;
+            let hits = ui::draw(&app, &mut cv);
+            assert!(!has(&hits, Target::BarComputers) && !has(&hits, Target::BarSound), "{layout:?}");
+        }
+        let (mut app, mut cv) = streaming(Layout::Desktop);
+        app.os = Some(crate::app::OsInfo::default());
+        app.session_mut().unwrap().bar = true;
+        let hits = ui::draw(&app, &mut cv);
+        assert!(!has(&hits, Target::BarComputers) && !has(&hits, Target::BarSound), "KyberNow Link OS");
+    }
+
+    /// Chaque fenêtre dessine la session qui est la sienne : celle qui n'est pas active garde sa
+    /// connexion (avec son Annuler) ou son image, même quand la session active montre un autre écran.
+    #[test]
+    fn each_window_draws_its_own_session() {
+        let (mut app, mut cv) = streaming(Layout::Desktop);
+        let mut b = SessionUi::new(2, "c", "Mini du bureau", Profile::Bureau, false, false, 1);
+        b.phase = Phase::Connecting;
+        app.open_session(b);
+        app.activate_session(1);
+        let own = |id| ui::View { session: Some(id), ..ui::View::SINGLE };
+        let hits = ui::draw_view(&app, &mut cv, own(2));
+        assert!(hits.iter().any(|(t, _)| *t == Target::CancelConnect), "la connexion de la session de la fenêtre, active ou non");
+        let hits = ui::draw_view(&app, &mut cv, own(1));
+        assert!(!hits.iter().any(|(t, _)| *t == Target::CancelConnect), "la session à l'image n'a pas de connexion");
+        // La session active montre les manettes : l'autre fenêtre garde sa session.
+        app.screen = Screen::Gamepads;
+        let hits = ui::draw_view(&app, &mut cv, own(2));
+        assert!(hits.iter().any(|(t, _)| *t == Target::CancelConnect));
+        assert!(ui::overlay_visible(&app, own(2)) && !ui::overlay_visible(&app, own(1)), "la fenêtre de la session active est l'écran des manettes, pas l'image seule");
+        // Seule la session active a une barre (le trait du haut) : une session qui n'est pas active ne reçoit rien.
+        app.screen = Screen::Session;
+        app.session_by_mut(2).unwrap().phase = Phase::Streaming;
+        assert!(ui::hint_only(&app, own(1)) && !ui::overlay_visible(&app, own(2)));
+        app.activate_session(2);
+        assert!(ui::hint_only(&app, own(2)) && !ui::overlay_visible(&app, own(1)));
+        // Une session finie sur une erreur : « Fermer » avec d'autres sessions, « Retour à l'accueil » seule.
+        app.session_by_mut(2).unwrap().phase = Phase::Ended { error: Some("coupée".into()) };
+        app.session_by_mut(2).unwrap().opened_at = None;
+        let lit = |cv: &Canvas| (0..cv.pix.width()).filter(|x| cv.pix.pixel(*x, 400).unwrap().alpha() > 0).count();
+        ui::draw_view(&app, &mut cv, own(2));
+        let with_others = lit(&cv);
+        app.close_session(1);
+        ui::draw_view(&app, &mut cv, own(2));
+        assert!(with_others > 0 && lit(&cv) > 0);
+    }
+
+    /// Les captures de plusieurs ordinateurs se produisent, dans les deux langues.
+    #[test]
+    fn several_computers_shots() {
+        let dir = std::env::temp_dir().join(format!("kn-linux-ordinateurs-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        for en in [false, true] {
+            let mut app = demo(en, Layout::Desktop);
+            let mut cv = Canvas::new();
+            cv.resize(1280, 800, 1.0);
+            computers_shots(&mut app, &mut cv, &demo_image(3), &dir, "bureau");
+        }
+        assert!(dir.join("bureau-17-barre-ordinateurs.png").exists() && dir.join("bureau-17d-fenetre-suivante.png").exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Les captures de plusieurs écrans se produisent, dans les deux langues.

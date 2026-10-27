@@ -13,13 +13,24 @@
 //! | Ctrl+Alt+Maj+D | se déconnecter |
 //! | Ctrl+Alt+Maj+F | plein écran ou fenêtre (un seul écran) |
 //! | Ctrl+Alt+Maj+M | souris des jeux (relative) ou du bureau |
+//! | Ctrl+Alt+Maj+O | ordinateur suivant (plusieurs ordinateurs) |
 //!
 //! Tout vit sur le fil de la session (voir `host.rs`) : l'accueil de l'app
 //! garde le fil principal. Une fenêtre invisible (« de contrôle ») reçoit ce
 //! qui concerne toute la session (état, ordres de l'app, écrans) ; chaque
 //! fenêtre d'écran reste cachée jusqu'à la première image de son flux.
+//!
+//! Plusieurs ordinateurs à la fois (docs/plusieurs-ordinateurs.md) : une
+//! `App` par session, chacune sur son fil, toutes dans un registre (`APPS`,
+//! dans l'ordre d'ouverture) où chaque fenêtre retrouve la sienne. La session
+//! active est tenue par le registre du cœur (`kybernow_core::focus`, par
+//! `focus.rs`) : une fenêtre de session qui passe au premier plan l'y active,
+//! et le cœur coupe les entrées et le son des autres. Le crochet clavier (un
+//! seul pour l'app, sur son propre fil) et les déplacements bruts de la souris
+//! (Raw Input, réenregistré à chaque activation) suivent la fenêtre active.
 
-use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, AtomicUsize, Ordering};
+use std::cell::Cell;
+use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
@@ -32,6 +43,7 @@ use windows::Win32::UI::Input::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{PCWSTR, w};
 
+use kybernow_core::focus::FocusId;
 use kybernow_core::i18n::Lang;
 use kybernow_core::input::{Clock, InputPipeline, MouseMode, MouseModeRules, PointerLayer, ScreenTarget, Shape};
 use kybernow_core::kynput_rs::MouseButtonType;
@@ -39,6 +51,7 @@ use kybernow_core::media::PacketHandler;
 use kybernow_core::session::{Session, Status, StreamScreen};
 
 use crate::displays::{Layout, Monitor};
+use crate::focus;
 use crate::gpu::Gpu;
 use crate::host::{HostEvents, Role, ScreenSet, ScreenState};
 use crate::i18n::t;
@@ -80,7 +93,7 @@ const MK_BUTTONS: usize = 0x01 | 0x02 | 0x10 | 0x20 | 0x40;
 const EDGE_SLACK_POINTS: f32 = 2.0;
 /// Largeur de la barre de session en points, tant que son interface ne l'a
 /// pas mesurée (sa largeur naturelle, à quelques points près).
-const BAR_WIDTH_GUESS: u32 = 860;
+const BAR_WIDTH_GUESS: u32 = 1080;
 /// Largeur de la barre de session en points, telle que son interface la
 /// mesure (elle change avec le texte des mesures et la langue).
 static BAR_WIDTH: AtomicU32 = AtomicU32::new(BAR_WIDTH_GUESS);
@@ -93,11 +106,13 @@ pub fn set_bar_width(points: f64) {
     }
 }
 
-/// La barre de session vient de se montrer ou de se cacher : le trait du bord
-/// haut s'efface pendant qu'elle est là, et l'ouverture au pointeur attend.
-pub fn set_bar_visible(visible: bool) {
-    if let Some(a) = app() {
-        a.bar_visible.store(visible, Ordering::Relaxed);
+/// La barre de session vient de se montrer pour la session `id` (une seule
+/// barre : elle sert la session de la fenêtre où elle s'ouvre), ou de se
+/// cacher (`None`) : le trait du bord haut de cette session s'efface pendant
+/// qu'elle est là, et l'ouverture au pointeur attend.
+pub fn set_bar_session(id: Option<u64>) {
+    for a in apps() {
+        a.bar_visible.store(Some(a.id) == id, Ordering::Relaxed);
         a.refresh_hints();
     }
 }
@@ -121,22 +136,20 @@ pub fn bar_anchor(hwnd: isize) -> Option<(i32, i32, f32)> {
     }
 }
 
-/// La fenêtre de session où la barre s'ouvre quand l'app la demande sans
-/// geste (« Statistiques » du menu de l'icône) : celle où est le pointeur,
-/// sinon la dernière active, sinon l'écran principal. 0 sans session.
-pub fn bar_window() -> isize {
-    let Some(app) = app() else { return 0 };
-    let mut p = POINT::default();
-    if unsafe { GetCursorPos(&mut p) }.is_ok() {
-        if let Some(w) = app.window_at(p) {
-            return w.hwnd;
+/// Le cadre extérieur d'une fenêtre (pixels du bureau) et la taille de sa
+/// zone cliente : là où la connexion d'une session en fenêtre se montre de
+/// nouveau quand elle reprend. Rien si la fenêtre n'existe pas ou est réduite.
+pub fn window_frame(hwnd: isize) -> Option<((i32, i32), (u32, u32))> {
+    let hwnd = HWND(hwnd as *mut _);
+    unsafe {
+        if hwnd.0.is_null() || IsIconic(hwnd).as_bool() {
+            return None;
         }
+        let (mut outer, mut client) = (RECT::default(), RECT::default());
+        GetWindowRect(hwnd, &mut outer).ok()?;
+        GetClientRect(hwnd, &mut client).ok()?;
+        Some(((outer.left, outer.top), ((client.right - client.left).max(0) as u32, (client.bottom - client.top).max(0) as u32)))
     }
-    let last = app.last_active.load(Ordering::Relaxed);
-    if last != 0 && app.window(last).is_some() {
-        return last;
-    }
-    app.primary_window().map_or(0, |w| w.hwnd)
 }
 
 /// Échelle de l'écran de la fenêtre (1,5 : 150 %) ; 1 sans fenêtre.
@@ -202,33 +215,99 @@ fn key_held(app: &App, scancode: u16) -> bool {
     app.input().is_some_and(|i| i.held().lock().unwrap().is_held(scancode))
 }
 
-/// Touches dont l'enfoncement a été pris par le crochet (leur relâchement suit).
-static GRABBED: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+/// Le fil du crochet clavier : combien de sessions le demandent, et le fil
+/// en cours (son identifiant, et s'il doit s'arrêter).
+struct HookState {
+    users: usize,
+    thread: Option<Arc<HookThread>>,
+}
+
+struct HookThread {
+    id: AtomicU32,
+    quit: AtomicBool,
+    generation: u64,
+}
+
+static HOOK: Mutex<HookState> = Mutex::new(HookState { users: 0, thread: None });
+/// Génération du crochet en place : un crochet qui s'arrête (dernière session
+/// finie, puis une nouvelle aussitôt) laisse passer les touches, jamais deux
+/// crochets ne prennent la même.
+static HOOK_GENERATION: AtomicU64 = AtomicU64::new(0);
+
+thread_local! {
+    /// La génération du crochet de ce fil.
+    static MY_HOOK: Cell<u64> = const { Cell::new(0) };
+}
 
 /// Crochet clavier de bas niveau : en plein écran et au premier plan, les
 /// raccourcis que Windows garderait pour ce PC partent à l'ordinateur (touche
 /// ⊞ et ses combinaisons, Alt+Tab, Alt+Échap, Ctrl+Échap, touche Menu).
 /// Ctrl+Alt+Suppr reste à Windows : menu Touches de la barre. Un seul crochet
-/// pour tous les écrans : il regarde la fenêtre qui a le clavier.
-pub fn install_keyboard_hook() -> Option<HHOOK> {
-    unsafe {
-        let module = GetModuleHandleW(None).ok()?;
-        SetWindowsHookExW(WH_KEYBOARD_LL, Some(ll_keyboard), Some(module.into()), 0).ok()
+/// pour toutes les sessions et tous leurs écrans, sur son propre fil (posé à
+/// la première session, retiré à la fin de la dernière) : il regarde la
+/// fenêtre qui a le clavier, donc la session active. Chaque session demande
+/// le crochet au début et le rend à la fin.
+pub fn keyboard_hook_acquire() {
+    let mut h = HOOK.lock().unwrap();
+    h.users += 1;
+    if h.users > 1 {
+        return;
+    }
+    let generation = HOOK_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+    let thread = Arc::new(HookThread { id: AtomicU32::new(0), quit: AtomicBool::new(false), generation });
+    h.thread = Some(thread.clone());
+    let spawned = std::thread::Builder::new().name("kybernow-clavier".into()).spawn(move || hook_thread(thread));
+    if let Err(e) = spawned {
+        log::warn!("raccourcis de Windows : fil du crochet refusé ({e}), ils restent à ce PC");
     }
 }
 
-pub fn remove_keyboard_hook(hook: Option<HHOOK>) {
-    if let Some(h) = hook {
-        unsafe {
+pub fn keyboard_hook_release() {
+    let mut h = HOOK.lock().unwrap();
+    h.users = h.users.saturating_sub(1);
+    if h.users > 0 {
+        return;
+    }
+    HOOK_GENERATION.fetch_add(1, Ordering::SeqCst);
+    if let Some(t) = h.thread.take() {
+        t.quit.store(true, Ordering::SeqCst);
+        let id = t.id.load(Ordering::SeqCst);
+        if id != 0 {
+            unsafe {
+                let _ = PostThreadMessageW(id, WM_QUIT, WPARAM(0), LPARAM(0));
+            }
+        }
+    }
+}
+
+fn hook_thread(me: Arc<HookThread>) {
+    MY_HOOK.with(|g| g.set(me.generation));
+    unsafe {
+        // La file de messages du fil existe avant qu'on lui poste WM_QUIT.
+        let mut msg = MSG::default();
+        let _ = PeekMessageW(&mut msg, None, 0, 0, PM_NOREMOVE);
+        me.id.store(windows::Win32::System::Threading::GetCurrentThreadId(), Ordering::SeqCst);
+        if me.quit.load(Ordering::SeqCst) {
+            return;
+        }
+        let hook = GetModuleHandleW(None).ok().and_then(|m| SetWindowsHookExW(WH_KEYBOARD_LL, Some(ll_keyboard), Some(m.into()), 0).ok());
+        if hook.is_none() {
+            log::warn!("raccourcis de Windows : crochet clavier refusé, ils restent à ce PC");
+        }
+        while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+            let _ = TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+        if let Some(h) = hook {
             let _ = UnhookWindowsHookEx(h);
         }
     }
-    GRABBED.lock().unwrap().clear();
 }
 
 unsafe extern "system" fn ll_keyboard(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     unsafe {
-        if code == HC_ACTION as i32 {
+        let mine = MY_HOOK.with(|g| g.get()) == HOOK_GENERATION.load(Ordering::Relaxed);
+        if code == HC_ACTION as i32 && mine {
             let k = &*(lparam.0 as *const KBDLLHOOKSTRUCT);
             // Touches simulées (par une autre app, ou par Windows) : pas les nôtres.
             if (k.flags.0 & LLKHF_INJECTED.0) == 0 && grab_key(k, wparam.0 as u32) {
@@ -242,27 +321,31 @@ unsafe extern "system" fn ll_keyboard(code: i32, wparam: WPARAM, lparam: LPARAM)
 /// Vrai : la touche part à l'ordinateur et Windows ne la voit pas.
 fn grab_key(k: &KBDLLHOOKSTRUCT, msg: u32) -> bool {
     let down = msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN;
-    let Some(app) = app() else { return false };
     let sc = (k.scanCode & 0xFF) as u16;
     let code = if (k.flags.0 & LLKHF_EXTENDED.0) != 0 { 0xE000 | sc } else { sc };
     if !down {
-        let mut grabbed = GRABBED.lock().unwrap();
-        if let Some(i) = grabbed.iter().position(|&v| v == k.vkCode) {
-            grabbed.remove(i);
-            send_key(&app, code, false);
-            return true;
+        // Le relâchement va à la session qui a pris l'enfoncement, active ou non.
+        for app in apps() {
+            let mut grabbed = app.grabbed.lock().unwrap();
+            if let Some(i) = grabbed.iter().position(|&v| v == k.vkCode) {
+                grabbed.remove(i);
+                drop(grabbed);
+                send_key(&app, code, false);
+                return true;
+            }
         }
         return false;
     }
     // Répétition d'une touche déjà prise : prise aussi, même si la session a
     // perdu le premier plan entre-temps (sinon Windows verrait l'enfoncement
     // sans le relâchement, et la touche resterait tenue sur ce PC).
-    if GRABBED.lock().unwrap().contains(&k.vkCode) {
+    if apps().iter().any(|a| a.grabbed.lock().unwrap().contains(&k.vkCode)) {
         return true;
     }
-    // Pas de verrou ici : `set_fullscreen` tient le sien pendant SetWindowPos,
-    // et Windows peut appeler ce crochet sur ce même fil pendant ce temps.
-    if !app.foreground().is_some_and(|w| w.fullscreen_now.load(Ordering::Relaxed)) {
+    // La session active, en plein écran au premier plan. Sans verrou d'une
+    // fenêtre ici : `set_fullscreen` tient le sien pendant SetWindowPos.
+    let Some((app, win)) = foreground_app() else { return false };
+    if !win.fullscreen_now.load(Ordering::Relaxed) {
         return false;
     }
     let alt = (k.flags.0 & LLKHF_ALTDOWN.0) != 0;
@@ -277,38 +360,17 @@ fn grab_key(k: &KBDLLHOOKSTRUCT, msg: u32) -> bool {
     if !grab {
         return false;
     }
-    let mut grabbed = GRABBED.lock().unwrap();
-    if !grabbed.contains(&k.vkCode) {
-        grabbed.push(k.vkCode);
+    {
+        let mut grabbed = app.grabbed.lock().unwrap();
+        if !grabbed.contains(&k.vkCode) {
+            grabbed.push(k.vkCode);
+        }
     }
     // Les répétitions de Windows ne partent pas (l'ordinateur répète lui-même).
     if !key_held(&app, code) {
         send_key(&app, code, true);
     }
     true
-}
-
-/// Format demandé après un changement de profil (décodeur de secours).
-pub fn set_session_codec(fourcc: u32) {
-    if let Some(a) = app() {
-        a.link.codec.store(fourcc, Ordering::Relaxed);
-    }
-}
-
-/// La session est en plein écran (menu de l'icône : « Plein écran » coché).
-pub fn fullscreen_now() -> bool {
-    app().is_some_and(|a| a.primary_window().is_some_and(|w| w.fullscreen_now.load(Ordering::Relaxed)))
-}
-
-/// Écrans de la session (flux en cours) ; avec plusieurs, pas de « Plein
-/// écran » : les fenêtres y restent.
-pub fn stream_count() -> usize {
-    app().map_or(0, |a| a.streams.load(Ordering::Relaxed))
-}
-
-/// Session en cours, pour l'accueil (changement de profil).
-pub fn current_session() -> Option<Arc<Session>> {
-    app().and_then(|a| a.session.get().cloned())
 }
 
 /// Pointeur de Windows fait de la forme annoncée par l'ordinateur.
@@ -384,6 +446,10 @@ pub struct VideoSettings {
 }
 
 pub struct App {
+    /// Identifiant de la session dans l'app (`APPS`, barre de session).
+    pub id: u64,
+    /// Son inscription au registre des sessions du cœur.
+    focus: OnceLock<FocusId>,
     /// Fenêtre de contrôle (invisible).
     control: AtomicIsize,
     pub host_name: String,
@@ -413,12 +479,21 @@ pub struct App {
     fullscreen: bool,
     /// Mesures dans le titre (ligne de commande) ; sinon le nom seul.
     title_stats: bool,
-    /// La barre de session est affichée (fenêtre de l'interface).
+    /// La barre de session est affichée pour cette session (une seule barre).
     bar_visible: AtomicBool,
     /// Dernière fenêtre active (le clavier y revient quand la barre se cache).
     last_active: AtomicIsize,
-    /// Fenêtre qui reçoit les déplacements bruts de la souris (Raw Input).
-    raw_target: AtomicIsize,
+    /// Touches dont l'enfoncement a été pris par le crochet pour cette
+    /// session (leur relâchement suit, même si elle n'est plus active).
+    grabbed: Mutex<Vec<u32>>,
+    /// Fin demandée par l'utilisateur (« Se déconnecter », fermeture d'une
+    /// fenêtre, Ctrl+Alt+Maj+D) : pas de notification de fin.
+    user_ended: AtomicBool,
+    /// La fenêtre de l'écran principal s'est montrée (première image).
+    ever_shown: AtomicBool,
+    /// Une de ses fenêtres était au premier plan quand elle s'est arrêtée :
+    /// la session active qui reste reprend la place.
+    was_front: AtomicBool,
     windows: Mutex<Vec<Arc<ScreenWin>>>,
     /// Les écrans de ce PC tels que le cœur les a reçus.
     layout: Mutex<Layout>,
@@ -438,16 +513,50 @@ pub struct App {
     last_image: Mutex<Option<Vec<u8>>>,
 }
 
-/// La session en cours (une à la fois).
-static APP: Mutex<Option<Arc<App>>> = Mutex::new(None);
+/// Les sessions en cours, dans l'ordre d'ouverture (plusieurs ordinateurs à
+/// la fois) : chaque fenêtre de session et chaque fenêtre de contrôle
+/// appartient à l'une d'elles.
+static APPS: Mutex<Vec<Arc<App>>> = Mutex::new(Vec::new());
 
-fn app() -> Option<Arc<App>> {
-    APP.lock().unwrap().clone()
+/// Fenêtre qui reçoit les déplacements bruts de la souris (Raw Input) : un
+/// seul enregistrement pour tout le processus, celui de la session active.
+static RAW_TARGET: AtomicIsize = AtomicIsize::new(0);
+
+fn apps() -> Vec<Arc<App>> {
+    APPS.lock().unwrap().clone()
+}
+
+/// La session et la fenêtre d'écran de cette fenêtre.
+fn app_of(hwnd: isize) -> Option<(Arc<App>, Arc<ScreenWin>)> {
+    APPS.lock().unwrap().iter().find_map(|a| a.window(hwnd).map(|w| (a.clone(), w)))
+}
+
+/// La session de cette fenêtre de contrôle.
+fn app_of_control(hwnd: isize) -> Option<Arc<App>> {
+    APPS.lock().unwrap().iter().find(|a| a.control.load(Ordering::Relaxed) == hwnd).cloned()
+}
+
+/// La session dont une fenêtre a le clavier (le premier plan de Windows), et cette fenêtre.
+fn foreground_app() -> Option<(Arc<App>, Arc<ScreenWin>)> {
+    let fg = unsafe { GetForegroundWindow() };
+    if fg.0.is_null() { None } else { app_of(fg.0 as isize) }
+}
+
+/// L'inscription au registre du cœur de la session dont une fenêtre est au
+/// premier plan (plusieurs ordinateurs).
+pub fn foreground_focus_id() -> Option<FocusId> {
+    foreground_app().and_then(|(a, _)| a.focus_id())
+}
+
+/// Une session a une fenêtre au premier plan (la souris des jeux peut y être retenue).
+fn any_in_front() -> bool {
+    foreground_app().is_some()
 }
 
 impl App {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
+        id: u64,
         host_name: String,
         clock: Arc<dyn Clock>,
         link: Arc<Link>,
@@ -459,6 +568,8 @@ impl App {
         title_stats: bool,
     ) -> Arc<Self> {
         let app = Arc::new(Self {
+            id,
+            focus: OnceLock::new(),
             control: AtomicIsize::new(0),
             host_name,
             input: Mutex::new(None),
@@ -479,7 +590,10 @@ impl App {
             title_stats,
             bar_visible: AtomicBool::new(false),
             last_active: AtomicIsize::new(0),
-            raw_target: AtomicIsize::new(0),
+            grabbed: Mutex::new(Vec::new()),
+            user_ended: AtomicBool::new(false),
+            ever_shown: AtomicBool::new(false),
+            was_front: AtomicBool::new(false),
             windows: Mutex::new(Vec::new()),
             layout: Mutex::new(layout),
             gpu,
@@ -490,13 +604,93 @@ impl App {
             failed: Mutex::new(Vec::new()),
             last_image: Mutex::new(None),
         });
-        *APP.lock().unwrap() = Some(app.clone());
+        APPS.lock().unwrap().push(app.clone());
         app
     }
 
-    /// Fin de la session : les fenêtres n'ont plus d'état.
-    pub fn clear() {
-        *APP.lock().unwrap() = None;
+    /// Fin de la session : ses fenêtres n'ont plus d'état, elle quitte le
+    /// registre (les autres sessions continuent).
+    pub fn unregister(&self) {
+        APPS.lock().unwrap().retain(|a| a.id != self.id);
+        self.forget_raw_target();
+    }
+
+    /// Ses fenêtres partent : les déplacements bruts n'y vont plus (la
+    /// prochaine fenêtre activée les reprend).
+    fn forget_raw_target(&self) {
+        if self.window(RAW_TARGET.load(Ordering::Relaxed)).is_some() {
+            RAW_TARGET.store(0, Ordering::Relaxed);
+        }
+    }
+
+    /// Son inscription au registre des sessions du cœur (une fois la session
+    /// du cœur démarrée).
+    pub fn set_focus_id(&self, id: FocusId) {
+        let _ = self.focus.set(id);
+    }
+
+    pub fn focus_id(&self) -> Option<FocusId> {
+        self.focus.get().copied()
+    }
+
+    /// Fin demandée par l'utilisateur.
+    pub fn user_ended(&self) -> bool {
+        self.user_ended.load(Ordering::Relaxed)
+    }
+
+    /// Sa fenêtre principale s'est montrée au moins une fois.
+    pub fn ever_shown(&self) -> bool {
+        self.ever_shown.load(Ordering::Relaxed)
+    }
+
+    /// Une de ses fenêtres était au premier plan à sa fin.
+    pub fn was_front(&self) -> bool {
+        self.was_front.load(Ordering::Relaxed)
+    }
+
+    /// Un ordre à la fenêtre de contrôle de cette session (tout fil).
+    pub fn post_command(&self, c: Command, arg: isize) {
+        unsafe {
+            let _ = PostMessageW(Some(self.control()), WM_APP_COMMAND, WPARAM(c as usize), LPARAM(arg));
+        }
+    }
+
+    /// La fenêtre de session où la barre s'ouvre quand l'app la demande sans
+    /// geste (« Statistiques » du menu de l'icône) : celle de cette session où
+    /// est le pointeur, sinon sa dernière active, sinon son écran principal.
+    pub fn bar_window(&self) -> isize {
+        let mut p = POINT::default();
+        if unsafe { GetCursorPos(&mut p) }.is_ok() {
+            if let Some(w) = self.window_at(p) {
+                return w.hwnd;
+            }
+        }
+        let last = self.last_active.load(Ordering::Relaxed);
+        if last != 0 && self.window(last).is_some() {
+            return last;
+        }
+        self.primary_window().map_or(0, |w| w.hwnd)
+    }
+
+    /// Format demandé après un changement de profil (décodeur de secours).
+    pub fn set_codec(&self, fourcc: u32) {
+        self.link.codec.store(fourcc, Ordering::Relaxed);
+    }
+
+    /// La session est en plein écran (menu de l'icône : « Plein écran » coché).
+    pub fn fullscreen_now(&self) -> bool {
+        self.primary_window().is_some_and(|w| w.fullscreen_now.load(Ordering::Relaxed))
+    }
+
+    /// Écrans de la session (flux en cours) ; avec plusieurs, pas de « Plein
+    /// écran » : les fenêtres y restent.
+    pub fn stream_count(&self) -> usize {
+        self.streams.load(Ordering::Relaxed)
+    }
+
+    /// La session du cœur (changement de profil).
+    pub fn current_session(&self) -> Option<Arc<Session>> {
+        self.session.get().cloned()
     }
 
     pub fn set_mouse_mode(&self, mode: MouseMode) {
@@ -807,6 +1001,12 @@ impl App {
     }
 }
 
+/// Identifiant d'une nouvelle session dans l'app.
+pub fn new_app_id() -> u64 {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
+
 fn to_wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }
@@ -878,7 +1078,18 @@ pub fn create_screen(app: &Arc<App>, key: &str, primary: bool, at: Option<(i32, 
     let hwnd = unsafe {
         let instance = GetModuleHandleW(None).map_err(|e| e.to_string())?;
         let mut rect = RECT { left: 0, top: 0, right: size.0, bottom: size.1 };
-        let _ = AdjustWindowRectEx(&mut rect, WS_OVERLAPPEDWINDOW, false, WINDOW_EX_STYLE(0));
+        match at {
+            // Le cadre à l'échelle de l'écran où elle se pose : la zone
+            // cliente a la taille demandée (celle de l'écran de l'ordinateur
+            // d'une session en fenêtre).
+            Some(p) => {
+                let (_, _, w, h) = crate::system::session_frame(size, p);
+                rect = RECT { left: 0, top: 0, right: w, bottom: h };
+            }
+            None => {
+                let _ = AdjustWindowRectEx(&mut rect, WS_OVERLAPPEDWINDOW, false, WINDOW_EX_STYLE(0));
+            }
+        }
         let (x, y) = at.unwrap_or((CW_USEDEFAULT, CW_USEDEFAULT));
         // Une seule entrée dans la barre des tâches et Alt+Tab : celle de
         // l'écran principal ; les autres fenêtres de la session n'en ont pas.
@@ -925,13 +1136,14 @@ pub fn create_screen(app: &Arc<App>, key: &str, primary: bool, at: Option<(i32, 
             return Err(e);
         }
     };
-    // Déplacements bruts de la souris (mode jeu) : à une seule fenêtre, la
-    // première ; elle est reprise par une autre si elle disparaît. Seulement
-    // une fois la fenêtre sûre de rester (rendu et fil de l'image en place) :
-    // une fenêtre détruite ne les recevrait pas, et la souris des jeux ne
-    // marcherait plus.
-    if app.raw_target.load(Ordering::Relaxed) == 0 {
-        register_raw_input(app, hwnd);
+    // Déplacements bruts de la souris (mode jeu) : à une seule fenêtre de
+    // tout le processus, la première ; elle est reprise par une autre si elle
+    // disparaît, et par la session active à chaque activation (plusieurs
+    // ordinateurs). Seulement une fois la fenêtre sûre de rester (rendu et
+    // fil de l'image en place) : une fenêtre détruite ne les recevrait pas,
+    // et la souris des jeux ne marcherait plus.
+    if RAW_TARGET.load(Ordering::Relaxed) == 0 {
+        register_raw_input(hwnd);
     }
     let pointer = Arc::new(PointerLayer::new(app.clock.clone(), false));
     let weak_hwnd = hwnd.0 as isize;
@@ -962,13 +1174,13 @@ pub fn create_screen(app: &Arc<App>, key: &str, primary: bool, at: Option<(i32, 
     Ok(win)
 }
 
-/// Déplacements bruts de la souris (mode jeu) vers cette fenêtre.
-fn register_raw_input(app: &App, hwnd: HWND) {
+/// Déplacements bruts de la souris (mode jeu) vers cette fenêtre (sur son fil).
+fn register_raw_input(hwnd: HWND) {
     let rid = RAWINPUTDEVICE { usUsagePage: 0x01, usUsage: 0x02, dwFlags: RAWINPUTDEVICE_FLAGS(0), hwndTarget: hwnd };
     unsafe {
         let _ = RegisterRawInputDevices(&[rid], std::mem::size_of::<RAWINPUTDEVICE>() as u32);
     }
-    app.raw_target.store(hwnd.0 as isize, Ordering::Relaxed);
+    RAW_TARGET.store(hwnd.0 as isize, Ordering::Relaxed);
 }
 
 pub fn run_loop() {
@@ -1150,17 +1362,21 @@ fn apply_mouse_mode(app: &Arc<App>) {
             edge_cancel(&w);
         }
     }
+    // Le pointeur retenu (ClipCursor) vaut pour tout Windows : une session qui
+    // n'est pas au premier plan ne touche pas à celui d'une autre.
     match &focused {
         Some(w) => clip_cursor(w.hwnd(), relative),
-        None if !relative => clip_cursor(HWND::default(), false),
+        None if !relative && !any_in_front() => clip_cursor(HWND::default(), false),
         None => {}
     }
-    unsafe {
-        if relative {
-            SetCursor(None);
-        } else {
-            let cur = focused.as_ref().map_or(0, |w| w.cursor.lock().unwrap().current);
-            SetCursor(if cur != 0 { Some(HCURSOR(cur as *mut _)) } else { LoadCursorW(None, IDC_ARROW).ok() });
+    if let Some(w) = &focused {
+        unsafe {
+            if relative {
+                SetCursor(None);
+            } else {
+                let cur = w.cursor.lock().unwrap().current;
+                SetCursor(if cur != 0 { Some(HCURSOR(cur as *mut _)) } else { LoadCursorW(None, IDC_ARROW).ok() });
+            }
         }
     }
     // Pointeur visible sur l'ordinateur (menus d'un jeu) : montré tout de suite.
@@ -1330,19 +1546,48 @@ fn shortcut_held() -> bool {
     }
 }
 
+/// Fin de session demandée par l'utilisateur (« Se déconnecter » de la barre
+/// ou du menu de l'icône, fermeture d'une fenêtre, Ctrl+Alt+Maj+D) : seule
+/// cette session s'arrête, sans notification de fin. `why` : d'où vient la
+/// demande (journal).
+fn user_close(app: &Arc<App>, why: &str) {
+    log::info!("[{}] fin demandée : {why}", app.host_name);
+    app.user_ended.store(true, Ordering::Relaxed);
+    request_close(app);
+}
+
+/// Ctrl+Alt+Maj+O, « Ordinateur suivant » : la session ouverte après
+/// l'active (le registre du cœur le dit) ; sa fenêtre passe devant, même en
+/// plein écran, et l'y active en passant au premier plan.
+fn next_computer(app: &Arc<App>) {
+    let Some(next) = focus::next().filter(|n| Some(*n) != app.focus_id()) else { return };
+    if let Some(target) = apps().into_iter().find(|a| a.focus_id() == Some(next)) {
+        target.post_command(Command::Focus, 0);
+    }
+}
+
 /// Fin de session demandée (n'importe quelle fenêtre, la barre, l'icône).
 fn request_close(app: &Arc<App>) {
     if app.closing.swap(true, Ordering::Relaxed) {
+        log::info!("[{}] fin déjà en cours", app.host_name);
         return;
     }
     match app.session.get() {
         Some(s) => s.stop(),
-        None => quit(app),
+        None => quit(app, "fin demandée avant le départ du cœur"),
     }
 }
 
-/// Toutes les fenêtres ferment, la boucle de messages s'arrête.
-fn quit(app: &Arc<App>) {
+/// Toutes les fenêtres ferment, la boucle de messages s'arrête. `why` : la
+/// raison (journal).
+fn quit(app: &Arc<App>, why: &str) {
+    log::info!("[{}] fenêtres de la session fermées : {why}", app.host_name);
+    // Avant que ses fenêtres partent (une autre session prendrait la place).
+    app.was_front.store(app.in_front(), Ordering::Relaxed);
+    app.forget_raw_target();
+    if app.relative() && app.foreground().is_some() {
+        clip_cursor(HWND::default(), false);
+    }
     for w in app.windows() {
         unsafe {
             let _ = DestroyWindow(w.hwnd());
@@ -1435,6 +1680,8 @@ fn edge_fired(app: &App, win: &ScreenWin) {
 /// la fenêtre du clic même au-dessus d'une autre : l'écran qui est vraiment
 /// sous le pointeur compte.
 fn mouse_position(app: &App, win: &Arc<ScreenWin>, lparam: LPARAM) {
+    // Plusieurs ordinateurs : sur la fenêtre d'une session inactive, rien ne
+    // part (la chaîne d'entrées du cœur l'arrête, `Session::set_active`).
     if app.relative() {
         return;
     }
@@ -1470,7 +1717,9 @@ fn mouse_button(app: &App, hwnd: HWND, button: MouseButtonType, pressed: bool) {
         }
     }
     let Some(input) = app.input() else { return };
-    // Relâchement d'un bouton dont l'appui n'est pas parti : rien.
+    // Relâchement d'un bouton dont l'appui n'est pas parti : rien. Un clic
+    // sur la fenêtre d'une session inactive l'active d'abord (WM_ACTIVATE
+    // vient avant le bouton) : il part à son ordinateur.
     if !pressed && !input.held().lock().unwrap().mouse_buttons().contains(&button) {
         return;
     }
@@ -1512,7 +1761,7 @@ fn remove_window(app: &Arc<App>, win: &Arc<ScreenWin>) {
     // pendant ce temps) : il s'arrête de lui-même et lâche sa chaîne d'échange.
     win.video.stop();
     unsafe {
-        if app.relative() && app.foreground().is_none() {
+        if app.relative() && !any_in_front() {
             let _ = ClipCursor(None);
         }
         let _ = DestroyWindow(win.hwnd());
@@ -1525,10 +1774,10 @@ fn remove_window(app: &Arc<App>, win: &Arc<ScreenWin>) {
         cur.current = 0;
     }
     drop(cur);
-    if app.raw_target.load(Ordering::Relaxed) == win.hwnd {
+    if RAW_TARGET.load(Ordering::Relaxed) == win.hwnd {
         match app.windows().first() {
-            Some(other) => register_raw_input(app, other.hwnd()),
-            None => app.raw_target.store(0, Ordering::Relaxed),
+            Some(other) => register_raw_input(other.hwnd()),
+            None => RAW_TARGET.store(0, Ordering::Relaxed),
         }
     }
     if app.last_active.load(Ordering::Relaxed) == win.hwnd {
@@ -1669,6 +1918,7 @@ fn displays_changed(app: &Arc<App>) {
 
 unsafe extern "system" fn control_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     unsafe {
+        let app = || app_of_control(hwnd.0 as isize);
         match msg {
             WM_APP_SCREENS => {
                 if let Some(a) = app() {
@@ -1707,7 +1957,7 @@ unsafe extern "system" fn control_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpa
                         let _ = SetWindowTextW(w.hwnd(), PCWSTR(title.as_ptr()));
                     }
                     if matches!(*a.status.lock().unwrap(), Some(Status::Ended { .. })) {
-                        quit(&a);
+                        quit(&a, "session finie");
                     }
                 }
                 LRESULT(0)
@@ -1727,21 +1977,33 @@ unsafe extern "system" fn control_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpa
 /// visée par `Focus` (0 : la dernière active).
 fn command(app: &Arc<App>, c: usize, arg: isize) {
     match c {
-        x if x == Command::Disconnect as usize => request_close(app),
+        // L'ordre a été posté à la fenêtre de contrôle de cette session, et à
+        // elle seule (`SessionHost::post`) : l'app a dit pourquoi au journal.
+        x if x == Command::Disconnect as usize => user_close(app, "ordre de l'app"),
         x if x == Command::Fullscreen as usize => toggle_fullscreen(app),
         x if x == Command::MouseToggle as usize => toggle_mouse(app),
         x if x == Command::MouseAuto as usize => set_mouse(app, MouseMode::Auto),
         x if x == Command::MouseDesktop as usize => set_mouse(app, MouseMode::Desktop),
         x if x == Command::MouseGame as usize => set_mouse(app, MouseMode::Game),
         // Le clavier revient à la session : la fenêtre demandée (celle où la
-        // barre s'est ouverte), sinon la dernière active, sinon l'écran principal.
+        // barre s'est ouverte), sinon la dernière active, sinon l'écran
+        // principal. Aussi « Afficher » et « Ordinateur suivant » (plusieurs
+        // ordinateurs) : sa fenêtre passe devant, rouverte si elle était réduite.
         x if x == Command::Focus as usize => {
             let last = app.last_active.load(Ordering::Relaxed);
             let target = app.window(arg).or_else(|| app.window(last)).or_else(|| app.primary_window());
-            if let Some(w) = target {
-                unsafe {
-                    let _ = SetForegroundWindow(w.hwnd());
+            match target.filter(|w| w.shown.load(Ordering::Relaxed)) {
+                Some(w) => {
+                    unsafe {
+                        if IsIconic(w.hwnd()).as_bool() {
+                            let _ = ShowWindow(w.hwnd(), SW_RESTORE);
+                        }
+                    }
+                    bring_to_front(w.hwnd());
                 }
+                // Pas encore montrée (la session se connecte) : sa fenêtre de
+                // connexion passe devant (plusieurs ordinateurs).
+                None => app.events.connexion_front(),
             }
         }
         x if x == Command::CtrlAltDel as usize => send_combo(app, &[sc::CTRL, sc::ALT, sc::DEL]),
@@ -1767,6 +2029,7 @@ fn first_image(app: &Arc<App>, win: &Arc<ScreenWin>) {
         }
         update_client_size(app, win);
         if primary {
+            app.ever_shown.store(true, Ordering::Relaxed);
             let front = bring_to_front(hwnd);
             if !front {
                 log::warn!("Windows refuse le premier plan à la session : elle attend dans la barre des tâches");
@@ -1787,7 +2050,7 @@ fn first_image(app: &Arc<App>, win: &Arc<ScreenWin>) {
 
 unsafe extern "system" fn screen_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     unsafe {
-        let found = app().and_then(|a| a.window(hwnd.0 as isize).map(|w| (a, w)));
+        let found = app_of(hwnd.0 as isize);
         let Some((app, win)) = found else {
             // Fenêtre en création ou déjà retirée.
             return match msg {
@@ -1812,7 +2075,13 @@ unsafe extern "system" fn screen_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
                 if pressed && shortcut_held() {
                     let handled = match wparam.0 as u8 {
                         b'D' => {
-                            request_close(&app);
+                            user_close(&app, "Ctrl+Alt+Maj+D");
+                            true
+                        }
+                        b'O' => {
+                            if !repeat {
+                                next_computer(&app);
+                            }
                             true
                         }
                         b'F' => {
@@ -1858,6 +2127,27 @@ unsafe extern "system" fn screen_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
                 win.active.store(active, Ordering::Relaxed);
                 if active {
                     app.last_active.store(win.hwnd, Ordering::Relaxed);
+                    // Plusieurs ordinateurs : cette session devient la session
+                    // active du registre du cœur (clavier, souris, manettes,
+                    // presse-papiers, son) ; les déplacements bruts de la
+                    // souris viennent à ses fenêtres.
+                    if let Some(id) = app.focus_id() {
+                        focus::activate(id);
+                    }
+                    if app.window(RAW_TARGET.load(Ordering::Relaxed)).is_none() {
+                        register_raw_input(hwnd);
+                    }
+                    // Le clic qui l'a fait passer devant va à son ordinateur
+                    // (le bouton arrive après l'activation) : à l'endroit du
+                    // pointeur, dont les mouvements sur une fenêtre inactive
+                    // ne partaient pas.
+                    if !app.relative() {
+                        let mut p = POINT::default();
+                        if GetCursorPos(&mut p).is_ok() && WindowFromPoint(p) == hwnd {
+                            let _ = ScreenToClient(hwnd, &mut p);
+                            mouse_position(&app, &win, LPARAM(((p.y as u16 as isize) << 16) | (p.x as u16 as isize)));
+                        }
+                    }
                 } else {
                     edge_cancel(&win);
                 }
@@ -1886,6 +2176,8 @@ unsafe extern "system" fn screen_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
                 LRESULT(1)
             }
             WM_MOUSEWHEEL | WM_MOUSEHWHEEL => {
+                // Windows envoie la molette à la fenêtre sous le pointeur, même
+                // inactive : la chaîne d'une session inactive ne la laisse pas partir.
                 if let Some(input) = app.input() {
                     let delta = ((wparam.0 >> 16) & 0xFFFF) as i16 as f32 / 120.0;
                     if msg == WM_MOUSEWHEEL {
@@ -1939,9 +2231,16 @@ unsafe extern "system" fn screen_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
                 edge_fired(&app, &win);
                 LRESULT(0)
             }
+            WM_SYSCOMMAND if (wparam.0 & 0xFFF0) == SC_CLOSE as usize => {
+                // Fermeture par Windows : bouton de la barre des tâches, aperçu,
+                // menu système (le journal le distingue d'un message direct).
+                log::info!("[{}] Windows demande la fermeture d'une fenêtre de la session", app.host_name);
+                DefWindowProcW(hwnd, msg, wparam, lparam)
+            }
             WM_CLOSE => {
-                // Fermer une fenêtre, c'est se déconnecter : toute la session s'arrête.
-                request_close(&app);
+                // Fermer une fenêtre, c'est se déconnecter : toute sa session
+                // s'arrête (les autres ordinateurs continuent).
+                user_close(&app, "fenêtre de la session fermée");
                 LRESULT(0)
             }
             WM_DESTROY => {

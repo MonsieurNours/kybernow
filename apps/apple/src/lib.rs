@@ -21,6 +21,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 use serde::Deserialize;
 
 use kybernow_core::console::{Console, ConsoleError, DeviceInfo, Mode, PairStatus, StationError};
+use kybernow_core::focus::{self, FocusId};
+use kybernow_core::gamepads;
 use kybernow_core::i18n::{self, Lang};
 use kybernow_core::kynput_rs::Pipeline;
 use kybernow_core::latency::{self, Second};
@@ -582,9 +584,12 @@ pub const KN_STATUS_RECONNECTING: u32 = 4;
 pub const KN_STATUS_ENDING: u32 = 5;
 pub const KN_STATUS_ENDED: u32 = 6;
 
-/// État de la session. Terminée : `error` dit pourquoi si la fin n'était
-/// pas voulue ; `has_report` et les champs suivants, ce que la console a
-/// confirmé (écrans et son rétablis, ou son erreur).
+/// État de la session. Fin en cours (`KN_STATUS_ENDING`) et terminée
+/// (`KN_STATUS_ENDED`) : `error` dit pourquoi si la fin n'était pas voulue
+/// (la même raison les deux fois ; dès `KN_STATUS_ENDING`, l'app sait que
+/// c'est un échec sans attendre la réponse d'Admin) ; nul sinon, et pour les
+/// autres états. Terminée : `has_report` et les champs suivants, ce que la
+/// console a confirmé (écrans et son rétablis, ou son erreur).
 #[repr(C)]
 pub struct KnStatus {
     pub kind: u32,
@@ -723,6 +728,8 @@ pub struct KnPlatform {
 struct ApplePlatform {
     cb: KnPlatform,
     streams: AtomicU64,
+    /// Raison d'un échec, donnée juste avant `Status::Ending` (`on_ending`).
+    ending_error: Mutex<Option<String>>,
 }
 
 unsafe impl Send for ApplePlatform {}
@@ -798,6 +805,7 @@ impl Platform for ApplePlatform {
         };
         let (error, report): (Option<String>, Option<EndReport>) = match status {
             Status::Ended { error, report } => (error.clone(), report.clone()),
+            Status::Ending => (self.ending_error.lock().unwrap().take(), None),
             _ => (None, None),
         };
         let error_c = error.map(|e| CString::new(e.replace('\0', " ")).unwrap_or_default());
@@ -881,6 +889,11 @@ impl Platform for ApplePlatform {
         if let Some(f) = self.cb.on_game_fullscreen {
             unsafe { f(self.cb.userdata, game) };
         }
+    }
+
+    /// Gardée pour `KN_STATUS_ENDING`, qui suit tout de suite.
+    fn on_ending(&self, error: Option<&str>) {
+        *self.ending_error.lock().unwrap() = error.map(str::to_string);
     }
 
     fn on_notice(&self, notice: &Notice) {
@@ -1077,7 +1090,7 @@ pub unsafe extern "C" fn kn_session_start(
             restart_station: wire.recovery.restart_station,
         },
     };
-    let platform = Arc::new(ApplePlatform { cb: *cb, streams: AtomicU64::new(0) });
+    let platform = Arc::new(ApplePlatform { cb: *cb, streams: AtomicU64::new(0), ending_error: Mutex::new(None) });
     let session = match wire.screens {
         Some(screens) => Session::start_with_screens(params, screens, platform),
         None => Session::start(params, platform),
@@ -1234,6 +1247,49 @@ pub unsafe extern "C" fn kn_screens_session_plan(
     give(serde_json::Value::Array(list).to_string())
 }
 
+/// Plusieurs ordinateurs : les écrans d'une session ouverte pendant qu'une
+/// autre tourne, « Cet écran » quel que soit le réglage
+/// (`screens::screens_for_extra_session`) : même JSON que `screens` de
+/// `kn_session_start`, `current` étant l'écran de la fenêtre active, où
+/// s'ouvre la nouvelle. Nul si illisible. À libérer par `kn_string_free`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_screens_for_extra_session(screens_json: *const c_char) -> *mut c_char {
+    let Ok(screens) = serde_json::from_str::<Screens>(&text(screens_json)) else { return std::ptr::null_mut() };
+    match serde_json::to_string(&screens::screens_for_extra_session(&screens)) {
+        Ok(json) => give(json),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// La fenêtre d'une session de plus (`kn_screens_extra_session_window`).
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct KnExtraWindow {
+    /// Cadre de la zone d'image, dans le repère logique de l'appareil (celui
+    /// de `screens.list`, y vers le bas).
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    /// Le mode à demander pour l'écran de l'ordinateur : la zone d'image en
+    /// pixels de l'écran (largeur et hauteur multiples de 8, le cadre
+    /// ci-dessus étant celui de ce mode), à sa fréquence.
+    pub mode: KnMode,
+}
+
+/// Plusieurs ordinateurs : la fenêtre d'une session ouverte pendant qu'une
+/// autre tourne, « centrée, aux deux tiers de cet écran, en 16:9 »
+/// (`screens::extra_session_window`), sur l'écran `current` du JSON `screens`
+/// (même JSON que `kn_session_start`). Faux si illisible ou sans cet écran.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_screens_extra_session_window(screens_json: *const c_char, out: *mut KnExtraWindow) -> bool {
+    let Ok(screens) = serde_json::from_str::<Screens>(&text(screens_json)) else { return false };
+    let (Some(screen), Some(out)) = (screens.list.get(screens.current), unsafe { out.as_mut() }) else { return false };
+    let w = screens::extra_session_window(screen);
+    *out = KnExtraWindow { x: w.x, y: w.y, width: w.width, height: w.height, mode: w.mode.into() };
+    true
+}
+
 /// Index de l'écran principal dans `list` (même JSON que `screens`) : celui
 /// où s'affiche l'écran de connexion. -1 si illisible ou vide.
 #[unsafe(no_mangle)]
@@ -1266,6 +1322,134 @@ pub unsafe extern "C" fn kn_session_bytes_received(s: *const KnSession, bytes: u
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_session_hole(s: *const KnSession) {
     with(s, |s| s.latency().hole());
+}
+
+// MARK: - Plusieurs ordinateurs à la fois (docs/plusieurs-ordinateurs.md)
+
+/// La session devient active (vrai) ou passe derrière une autre : pas
+/// active, rien ne part de l'appareil vers son ordinateur (clavier, souris,
+/// texte, touches et axes des manettes), ce qu'elle tenait est relâché, ses
+/// manettes sont au repos, la souris relative est coupée, le presse-papiers
+/// est en pause et les vibrations sont ignorées ; de nouveau active, le
+/// contenu du presse-papiers de l'appareil est renvoyé à l'ordinateur. Tenu
+/// d'une image à l'autre. Active par défaut ; le registre (`kn_focus_*`)
+/// s'en charge pour les sessions inscrites.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_session_set_active(s: *const KnSession, active: bool) {
+    with(s, |s| s.set_active(active));
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_session_is_active(s: *const KnSession) -> bool {
+    with(s, |s| s.is_active()).unwrap_or(true)
+}
+
+/// Son de la session coupé (vrai) ou rendu, fondu de 20 ms, sur chaque
+/// `KnAudio` donné par `kn_session_attach_audio`. Tenu d'une image à
+/// l'autre. Pas coupé par défaut ; le registre s'en charge pour les
+/// sessions inscrites (sauf « Garder le son »).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_session_set_muted(s: *const KnSession, muted: bool) {
+    with(s, |s| s.set_muted(muted));
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_session_is_muted(s: *const KnSession) -> bool {
+    with(s, |s| s.is_muted()).unwrap_or(false)
+}
+
+/// Le moteur de son de la session (le son va à Swift, qui le donne à son
+/// `KnAudio` : le cœur ne le voit pas passer). À appeler pour chaque
+/// `KnAudio` de la session, dès sa création : il prend tout de suite l'état
+/// « son coupé » de la session, puis le suit. Le `KnAudio` peut être libéré
+/// sans prévenir.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_session_attach_audio(s: *const KnSession, audio: *const audio::KnAudio) {
+    let Some(a) = (unsafe { audio.as_ref() }) else { return };
+    with(s, |s| s.attach_audio(&a.0));
+}
+
+/// Inscrit la session dans le registre des sessions de l'app, `name` : le
+/// nom de son ordinateur (au début des lignes de son journal). Elle devient
+/// active ; les autres passent derrière, leur son coupé (sauf « Garder le
+/// son »). Rend son identifiant (positif), le même si elle est déjà
+/// inscrite ; -1 au-delà de quatre sessions (`kn_focus_max`) ou sans session.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_focus_register(s: *const KnSession, name: *const c_char) -> i64 {
+    let name = text(name);
+    with(s, |s| focus::global().register(s, &name).map_or(-1, |id| id.as_u64() as i64)).unwrap_or(-1)
+}
+
+fn focus_id(id: i64) -> Option<FocusId> {
+    (id > 0).then(|| FocusId::from_u64(id as u64))
+}
+
+/// Désinscrit une session (fenêtre fermée, « Se déconnecter », fin de la
+/// session) : elle passe derrière, son son est coupé ; si elle avait la main,
+/// la session qui l'avait juste avant la reprend.
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_focus_unregister(id: i64) {
+    if let Some(id) = focus_id(id) {
+        focus::global().unregister(id);
+    }
+}
+
+/// La fenêtre de cette session passe au premier plan : elle devient active.
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_focus_activate(id: i64) {
+    if let Some(id) = focus_id(id) {
+        focus::global().activate(id);
+    }
+}
+
+/// « Garder le son » : la session reste audible sans être active.
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_focus_set_keep_sound(id: i64, keep: bool) {
+    if let Some(id) = focus_id(id) {
+        focus::global().set_keep_sound(id, keep);
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_focus_keep_sound(id: i64) -> bool {
+    focus_id(id).is_some_and(|id| focus::global().keep_sound(id))
+}
+
+/// La session active (-1 : aucune).
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_focus_active() -> i64 {
+    focus::global().active().map_or(-1, |id| id.as_u64() as i64)
+}
+
+/// « Ordinateur suivant » : la session ouverte après l'active, dans l'ordre
+/// d'ouverture (-1 : aucune). À l'app de faire passer sa fenêtre devant.
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_focus_next() -> i64 {
+    focus::global().next().map_or(-1, |id| id.as_u64() as i64)
+}
+
+/// Sessions inscrites.
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_focus_count() -> u32 {
+    focus::global().count() as u32
+}
+
+/// Sessions au plus (4).
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_focus_max() -> u32 {
+    focus::MAX_SESSIONS as u32
+}
+
+/// Mac : le lecteur de manettes du cœur, sur son fil SDL, gardé pour toute
+/// la vie de l'app, manettes ouvertes dès l'appel (diode de joueur, mode
+/// HIDAPI). Inutile d'ordinaire : le lecteur démarre avec la première chaîne
+/// d'entrées et se ferme 5 s après la dernière ; seulement pour lire les
+/// manettes hors session. Faux sur l'Apple TV, l'iPhone et l'iPad (pas de
+/// SDL : leurs manettes passent par GameController dans l'app), si libkynput
+/// a encore son lecteur SDL, ou si SDL n'a pas pu s'ouvrir.
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_gamepads_start_sdl() -> bool {
+    gamepads::start_sdl()
 }
 
 /// Latence de la session : médiane des secondes et 95e centile (ms). Faux

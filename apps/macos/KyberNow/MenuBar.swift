@@ -1,9 +1,11 @@
 // Icône de la barre des menus (docs/link-ui.md, « Icône près de l'horloge ») :
 // le symbole de KyberNow Link en image modèle (le système le teinte), allumé
-// en session ; un clic ouvre le menu. En session : l'en-tête, les mesures en
-// direct, Plein écran, Souris, Statistiques, Se déconnecter ; puis chaque
-// ordinateur, dans l'ordre de l'accueil, avec son sous-menu ; puis la fenêtre,
-// l'ajout, les réglages de l'app, les mises à jour, Quitter.
+// en session ; un clic ouvre le menu. En session, pour la session active
+// (plusieurs ordinateurs : celle de la fenêtre au premier plan) : l'en-tête,
+// les mesures en direct, Plein écran, Souris, Statistiques, Se déconnecter ;
+// puis chaque ordinateur, dans l'ordre de l'accueil, avec son sous-menu (ceux
+// en session cochés : Afficher, Garder le son, Se déconnecter) ; puis la
+// fenêtre, l'ajout, les réglages de l'app, les mises à jour, Quitter.
 //
 // `NSStatusItem` et `NSMenu` plutôt que `MenuBarExtra` : le menu est
 // reconstruit à chaque ouverture (les ordinateurs sont sondés tout de suite),
@@ -15,10 +17,11 @@ import Combine
 import KyberKit
 import SwiftUI
 
-/// Ce que fait une ligne du menu (AppModel.perform, AppLife.swift).
+/// Ce que fait une ligne du menu (AppModel.perform, AppLife.swift). Les
+/// commandes d'une session portent l'identifiant de son ordinateur.
 enum MenuAction: Equatable {
-    case disconnect, fullScreen, statistics
-    case mouse(MouseChoice)
+    case disconnect(UUID), fullScreen(UUID), statistics(UUID), show(UUID), keepSound(UUID)
+    case mouse(UUID, MouseChoice)
     case connect(UUID), wake(UUID), retry(UUID), profile(UUID, Profile), settings(UUID), admin(UUID), restart(UUID), update(UUID)
     case open, add, appSettings, checkForUpdates, quit
 }
@@ -50,6 +53,9 @@ enum StatusDot: String, Equatable {
 
     private static var cache: [StatusDot: NSImage] = [:]
 
+    /// La version sombre, pour la barre de session (toujours sombre).
+    var darkColor: NSColor { Self.color(colors.dark) }
+
     /// Point de 8 points, dessiné à chaque affichage selon l'apparence du
     /// menu (pas une image modèle : il garde sa couleur).
     @MainActor
@@ -68,6 +74,38 @@ enum StatusDot: String, Equatable {
     }
 }
 
+/// L'état d'un ordinateur, dit pareil dans le menu de l'icône et dans le
+/// menu « Ordinateurs » de la barre de session : « {nom} — En ligne » et son
+/// point (ambre pendant le réveil, un redémarrage ou une mise à jour de la
+/// Station, comme la rubrique Station).
+@MainActor
+struct ComputerState {
+    let name: String
+    let online: Bool?
+    let waking: Bool
+    let restarting: Bool
+    let updating: Bool
+
+    init(_ host: Host, store: HostStore) {
+        let status = store.status[host.id]
+        name = host.name
+        online = status?.online
+        waking = store.waking.contains(host.id)
+        let station = status?.info?.station
+        let task = store.stationTasks[host.id]
+        var restarting = station?.restarting == true
+        var updating = station?.installing == true
+        if case .restarting? = task { restarting = true }
+        if case .updating? = task { updating = true }
+        self.restarting = restarting
+        self.updating = updating
+    }
+
+    var title: String { "\(name) — \(LinkText.status(online))" }
+
+    var dot: StatusDot { waking || restarting || updating ? .warn : online == true ? .ok : online == false ? .bad : .faint }
+}
+
 /// Une ligne du menu, tirée de l'état de l'app.
 struct MenuEntry: Equatable {
     var title = ""
@@ -79,6 +117,8 @@ struct MenuEntry: Equatable {
     var key = ""
     /// Point d'état (ordinateurs) ; le texte de l'état reste dans le titre.
     var dot: StatusDot?
+    /// Aide au survol (une ligne inactive dit pourquoi).
+    var help: String?
 
     static let line = MenuEntry(separator: true)
 }
@@ -88,34 +128,40 @@ struct MenuEntry: Equatable {
 enum MenuContent {
     static func entries(_ app: AppModel) -> [MenuEntry] {
         let store = app.store
-        let session = app.session.flatMap { $0.isLive ? $0 : nil }
-        var out: [MenuEntry] = []
-        if let session {
-            out.append(MenuEntry(title: String(localized: "En session sur \(session.host.name)"), enabled: false))
-            out.append(MenuEntry(title: metrics(session), enabled: false))
-            // Plusieurs écrans : les fenêtres restent en plein écran, pas de « Plein écran ».
-            if session.canToggleFullScreen {
-                out.append(MenuEntry(title: String(localized: "Plein écran"), checked: app.homeWindow?.styleMask.contains(.fullScreen) == true, action: .fullScreen))
-            }
-            // Les trois modes, comme le menu Souris de la barre de session ; gardé pour l'ordinateur.
-            let mice = MouseChoice.allCases.map { MenuEntry(title: $0.label, checked: $0 == session.host.settings.mouse, action: .mouse($0)) }
-            out.append(MenuEntry(title: String(localized: "Souris"), children: mice))
-            out.append(MenuEntry(title: String(localized: "Statistiques"), action: .statistics))
-            out.append(MenuEntry(title: String(localized: "Se déconnecter"), action: .disconnect))
-            out.append(.line)
-        }
+        var out = sessionBlock(app)
         let hosts = store.ordered
         for host in hosts {
-            out.append(computer(host, store: store, session: session))
+            out.append(computer(host, store: store, sessions: app.sessions))
         }
         if !hosts.isEmpty { out.append(.line) }
         out.append(MenuEntry(title: String(localized: "Ouvrir KyberNow Link"), action: .open))
-        // Pendant une session, la fenêtre est à la session : l'ajout et les réglages d'un ordinateur attendent.
-        out.append(MenuEntry(title: String(localized: "Ajouter un ordinateur…"), enabled: session == nil, action: .add))
+        // L'accueil n'est plus la fenêtre d'une session : l'ajout et les réglages passent par-dessus les sessions.
+        out.append(MenuEntry(title: String(localized: "Ajouter un ordinateur…"), action: .add))
         out.append(MenuEntry(title: String(localized: "Réglages de l'app…"), action: .appSettings))
         out.append(MenuEntry(title: String(localized: "Rechercher des mises à jour…"), action: .checkForUpdates))
         out.append(.line)
         out.append(MenuEntry(title: String(localized: "Quitter KyberNow Link"), action: .quit, key: "q"))
+        return out
+    }
+
+    /// En tête du menu, la session active (celle de la fenêtre au premier
+    /// plan), puis un trait ; rien sans session en cours.
+    static func sessionBlock(_ app: AppModel) -> [MenuEntry] {
+        guard let session = app.sessions.active, session.isLive else { return [] }
+        let id = session.host.id
+        var out: [MenuEntry] = []
+        out.append(MenuEntry(title: String(localized: "En session sur \(session.host.name)"), enabled: false))
+        out.append(MenuEntry(title: metrics(session), enabled: false))
+        // Plusieurs écrans : les fenêtres restent en plein écran, pas de « Plein écran ».
+        if session.canToggleFullScreen {
+            out.append(MenuEntry(title: String(localized: "Plein écran"), checked: session.isFullScreen, action: .fullScreen(id)))
+        }
+        // Les trois modes, comme le menu Souris de la barre de session ; gardé pour l'ordinateur.
+        let mice = MouseChoice.allCases.map { MenuEntry(title: $0.label, checked: $0 == session.host.settings.mouse, action: .mouse(id, $0)) }
+        out.append(MenuEntry(title: String(localized: "Souris"), children: mice))
+        out.append(MenuEntry(title: String(localized: "Statistiques"), action: .statistics(id)))
+        out.append(MenuEntry(title: String(localized: "Se déconnecter"), action: .disconnect(id)))
+        out.append(.line)
         return out
     }
 
@@ -139,22 +185,22 @@ enum MenuContent {
     }
 
     /// « {nom} — En ligne » et son sous-menu.
-    static func computer(_ host: Host, store: HostStore, session: SessionController?) -> MenuEntry {
-        let status = store.status[host.id]
-        let online = status?.online
-        let inSession = session?.host.id == host.id
+    static func computer(_ host: Host, store: HostStore, sessions: SessionManager) -> MenuEntry {
+        let state = ComputerState(host, store: store)
+        let online = state.online
+        let station = store.status[host.id]?.info?.station
+        let restarting = state.restarting, updating = state.updating
+        let session = sessions.session(for: host.id)
         var items: [MenuEntry] = []
 
-        // La Station : comme la rubrique Station (LinkUI.swift).
-        let station = status?.info?.station
-        let task = store.stationTasks[host.id]
-        var restarting = station?.restarting == true
-        var updating = station?.installing == true
-        if case .restarting? = task { restarting = true }
-        if case .updating? = task { updating = true }
-
-        if inSession {
-            items.append(MenuEntry(title: String(localized: "Se déconnecter"), action: .disconnect))
+        if let session {
+            // En session : sa fenêtre devant, son son gardé (plusieurs sessions), sa fin.
+            items.append(MenuEntry(title: String(localized: "Afficher"), action: .show(host.id)))
+            // « Garder le son » à partir de deux sessions ouvertes, comme dans la barre.
+            if sessions.count >= 2 {
+                items.append(MenuEntry(title: String(localized: "Garder le son"), checked: session.keepSound, action: .keepSound(host.id)))
+            }
+            items.append(MenuEntry(title: String(localized: "Se déconnecter"), action: .disconnect(host.id)))
         } else if online == false, restarting || updating {
             // La Station revient : ni réveil ni nouvel essai, la connexion attend son retour.
             items.append(MenuEntry(title: String(localized: "Se connecter (\(host.settings.profileLabel))"), enabled: false))
@@ -167,8 +213,9 @@ enum MenuContent {
                 items.append(MenuEntry(title: String(localized: "Réessayer"), action: .retry(host.id)))
             }
         } else {
-            // Comme le bouton de l'accueil (aussi pendant « Recherche… ») ; une session à la fois.
-            items.append(MenuEntry(title: String(localized: "Se connecter (\(host.settings.profileLabel))"), enabled: session == nil, action: .connect(host.id)))
+            // Comme le bouton de l'accueil (aussi pendant « Recherche… ») ; quatre ordinateurs au plus.
+            items.append(MenuEntry(title: String(localized: "Se connecter (\(host.settings.profileLabel))"), enabled: !sessions.isFull,
+                                   action: .connect(host.id), help: sessions.isFull ? LinkText.computersLimit : nil))
         }
 
         let current = host.settings.profile
@@ -176,7 +223,7 @@ enum MenuContent {
         if current == nil { profiles.append(MenuEntry(title: Profile.label(nil), enabled: false, checked: true)) }
         items.append(.line)
         items.append(MenuEntry(title: String(localized: "Profil"), children: profiles))
-        items.append(MenuEntry(title: String(localized: "Réglages…"), enabled: session == nil, action: .settings(host.id)))
+        items.append(MenuEntry(title: String(localized: "Réglages…"), action: .settings(host.id)))
 
         // Admin, redémarrer, mettre à jour.
         var admin: [MenuEntry] = []
@@ -195,8 +242,7 @@ enum MenuContent {
             items.append(.line)
             items += admin
         }
-        let dot: StatusDot = store.waking.contains(host.id) || restarting || updating ? .warn : online == true ? .ok : online == false ? .bad : .faint
-        return MenuEntry(title: "\(host.name) — \(LinkText.status(online))", checked: inSession, children: items, dot: dot)
+        return MenuEntry(title: state.title, checked: session != nil, children: items, dot: state.dot)
     }
 
     /// Le menu en texte, pour le vérifier (démonstration) : ✓ coché, ▸ sous-menu, [inactif].
@@ -207,6 +253,7 @@ enum MenuContent {
             var line = pad + (e.checked ? "✓ " : "  ") + (e.dot.map { "(\($0.rawValue)) " } ?? "") + e.title
             if e.children != nil { line += "  ▸" }
             if !e.enabled { line += "  [inactif]" }
+            if let help = e.help { line += "  (aide : \(help))" }
             if !e.key.isEmpty { line += "  ⌘\(e.key.uppercased())" }
             if let c = e.children { line += "\n" + text(c, depth: depth + 1) }
             return line
@@ -224,7 +271,6 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     /// Mise à jour du menu ouvert, chaque seconde.
     private var timer: Timer?
     private var watchers = Set<AnyCancellable>()
-    private var phaseWatch: AnyCancellable?
     private let icons = (off: MenuBarIcon.image(lit: false), lit: MenuBarIcon.image(lit: true))
 
     final class ActionBox: NSObject {
@@ -240,17 +286,19 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         item.menu = menu
         item.button?.imagePosition = .imageOnly
         updateIcon()
-        // L'icône s'allume pendant une session.
-        app.$session.receive(on: DispatchQueue.main).sink { [weak self] session in
-            self?.phaseWatch = session?.$phase.receive(on: DispatchQueue.main).sink { _ in self?.updateIcon() }
-            self?.updateIcon()
-        }.store(in: &watchers)
+        // L'icône s'allume pendant une session (le gestionnaire relaie aussi leurs changements d'état).
+        app.sessions.objectWillChange.receive(on: DispatchQueue.main).sink { [weak self] _ in self?.updateIcon() }.store(in: &watchers)
     }
 
     private func updateIcon() {
-        let session = app.session.flatMap { $0.isLive ? $0 : nil }
-        item.button?.image = session == nil ? icons.off : icons.lit
-        let tip = session.map { String(localized: "KyberNow Link · en session sur \($0.host.name)") } ?? "KyberNow Link"
+        let live = app.sessions.live
+        item.button?.image = live.isEmpty ? icons.off : icons.lit
+        let tip: String
+        switch live.count {
+        case 0: tip = "KyberNow Link"
+        case 1: tip = String(localized: "KyberNow Link · en session sur \(live[0].host.name)")
+        default: tip = String(localized: "KyberNow Link · en session sur \(live.count) ordinateurs")
+        }
         item.button?.toolTip = tip
         item.button?.setAccessibilityLabel(tip)
     }
@@ -324,6 +372,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         let state: NSControl.StateValue = e.checked ? .on : .off
         if it.state != state { it.state = state }
         if it.keyEquivalent != e.key { it.keyEquivalent = e.key }
+        if it.toolTip != e.help { it.toolTip = e.help }
         let image = e.dot?.image
         if it.image !== image { it.image = image }
         // macOS 27 cache d'ordinaire les images des menus : le point d'état reste visible.

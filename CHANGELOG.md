@@ -5,6 +5,14 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## 0.7.0
+
+- **Plusieurs ordinateurs à la fois, sur Mac, Windows et Linux** : pendant une session, ouvrez un autre ordinateur (menu « Ordinateurs » de la barre, menu de l'icône près de l'horloge ou accueil) : il s'ouvre dans sa fenêtre, par-dessus. La fenêtre au premier plan reçoit le clavier, la souris, les manettes, le presse-papiers et le son ; les autres gardent leur image, sans son (« Garder le son », dans leur barre, pour en entendre une autre). ⌃⌥⌘O (Ctrl+Alt+Maj+O sur Windows et Linux) passe à l'ordinateur suivant. Jusqu'à quatre ordinateurs ; un ordinateur déjà en session passe devant au lieu de s'ouvrir deux fois. Rien à mettre à jour sur l'ordinateur : chacun voit une session ordinaire.
+- Les manettes sont lues une seule fois par l'app, pour toutes les sessions, et une vibration s'arrête quand vous passez à un autre ordinateur.
+- Mac : l'accueil reste disponible pendant une session (« Ouvrir KyberNow Link »), et « Réglages » et « Ajouter un ordinateur » du menu de l'icône y sont actifs. Une connexion qui échoue affiche sa raison au lieu de refermer la fenêtre.
+- Windows : le texte copié sur l'ordinateur n'entre plus dans l'historique du presse-papiers de Windows ni dans sa synchronisation (le presse-papiers passe en texte seul).
+- Sur Windows et Linux, deux sessions à la fois n'ont pas encore été essayées avec deux ordinateurs réels : vos retours sont les bienvenus sur le Discord.
+
 ## 0.6.0
 
 - **Plusieurs écrans, sur Mac, Windows et Linux** : une session peut prendre tous les écrans de votre appareil. L'ordinateur crée un écran pour chacun, placé de la même façon, et chaque écran de l'appareil affiche le sien en plein écran ; le pointeur passe de l'un à l'autre, une fenêtre glissée suit. Nouveau réglage « Écrans » dans les réglages de l'ordinateur (rubrique Image) : Auto (tous les écrans en profil Bureau et Max, un seul en Jeu et en Personnalisé), Cet écran, Tous les écrans. L'écran principal garde sa fréquence, les autres passent à 60 Hz ; jusqu'à quatre écrans. Un écran branché ou débranché en cours de session : la session se refait toute seule. Il faut une Station en 0.6.0 : avec une Station plus ancienne, la session reste sur un écran.

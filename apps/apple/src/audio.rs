@@ -30,8 +30,9 @@ pub struct KnAudioStats {
     pub output_channels: u32,
 }
 
-/// Le moteur de son d'un flux.
-pub struct KnAudio(AudioEngine);
+/// Le moteur de son d'un flux (partagé avec la session qui le suit,
+/// `kn_session_attach_audio`).
+pub struct KnAudio(pub(crate) Arc<AudioEngine>);
 
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_audio_new(order: u32) -> *mut KnAudio {
@@ -40,7 +41,7 @@ pub extern "C" fn kn_audio_new(order: u32) -> *mut KnAudio {
         KN_AUDIO_ORDER_CORE_AUDIO => OutputOrder::CoreAudio,
         _ => OutputOrder::Opus,
     };
-    Box::into_raw(Box::new(KnAudio(AudioEngine::with_order(Arc::new(MonotonicClock::new()), order))))
+    Box::into_raw(Box::new(KnAudio(Arc::new(AudioEngine::with_order(Arc::new(MonotonicClock::new()), order)))))
 }
 
 #[unsafe(no_mangle)]
@@ -104,6 +105,17 @@ pub unsafe extern "C" fn kn_audio_fill(a: *const KnAudio, out: *mut f32, frames:
 pub unsafe extern "C" fn kn_audio_set_volume(a: *const KnAudio, volume: f32) {
     if let Some(a) = unsafe { a.as_ref() } {
         a.0.set_volume(volume);
+    }
+}
+
+/// Son coupé ou rendu, avec un fondu de 20 ms ; il continue d'être décodé et
+/// revient sans décalage (plusieurs ordinateurs à la fois). D'ordinaire, la
+/// session s'en charge : `kn_session_attach_audio` puis le registre
+/// (`kn_focus_*`) ou `kn_session_set_muted`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_audio_set_muted(a: *const KnAudio, muted: bool) {
+    if let Some(a) = unsafe { a.as_ref() } {
+        a.0.set_muted(muted);
     }
 }
 

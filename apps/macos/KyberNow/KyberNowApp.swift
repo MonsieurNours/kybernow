@@ -22,7 +22,8 @@ final class AppModel: ObservableObject {
     @Published var selectedID: UUID?
     /// Rubrique ouverte dans les réglages d'un ordinateur.
     @Published var section: ComputerSection = .picture
-    @Published private(set) var session: SessionController?
+    /// Les sessions, une fenêtre chacune (plusieurs ordinateurs à la fois, Sessions.swift).
+    let sessions = SessionManager()
     @Published var toast: String?
     /// Feuille « Ajouter un ordinateur », avec le lien kybernow:// qui l'a ouverte.
     @Published var adding = false
@@ -34,8 +35,9 @@ final class AppModel: ObservableObject {
     let cloud = CloudPublisher()
     /// « Version {v} disponible » : la vérification de Sparkle, à la demande.
     var checkForUpdates: () -> Void = {}
-    /// La fenêtre de l'accueil, où se joue aussi la session. Fermée, elle
-    /// n'est que cachée : l'app continue dans la barre des menus (AppLife.swift).
+    /// La fenêtre de l'accueil, disponible aussi pendant les sessions (elles
+    /// ont chacune la leur). Fermée, elle n'est que cachée : l'app continue
+    /// dans la barre des menus (AppLife.swift).
     weak var homeWindow: NSWindow?
     /// Préférences de l'app (celles de la démonstration à part).
     let defaults: UserDefaults
@@ -45,13 +47,8 @@ final class AppModel: ObservableObject {
     let homeDelegate = HomeWindowDelegate()
     /// Lancée à l'ouverture de session : la fenêtre reste cachée au démarrage.
     var startHidden = false
-    /// La fenêtre a été fermée pendant une session : cachée une fois la session finie.
-    var hideAfterSession = false
-    /// Fin de l'app en attente de la fin de la session.
-    var afterSessionEnded: (() -> Void)?
-    /// La session revenue à l'accueil avant que le cœur la dise finie (bilan
-    /// d'Admin) : gardée jusque-là, 10 s au plus, pour sa fin (notification, fin de l'app).
-    var lingering: SessionController?
+    /// Fin de l'app en attente de la fin des sessions : chaque fin dans le cœur l'appelle.
+    var afterSessionEnded: ((SessionController) -> Void)?
     var watchers = Set<AnyCancellable>()
 
     /// Ordinateurs de démonstration (`-demo YES`, en Debug) : voir `HostStore.loadDemo`.
@@ -68,6 +65,8 @@ final class AppModel: ObservableObject {
         Core.install()
         store = HostStore(demo: Self.demo)
         defaults = Self.demo ? (UserDefaults(suiteName: "fr.leslignesclaires.kybernow.demo") ?? .standard) : .standard
+        // Les sessions (ouvertes, fermées, active) redessinent l'accueil et les menus.
+        sessions.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &watchers)
         #if DEBUG
         if Self.demo {
             // Rien vers iCloud : les ordinateurs de démonstration restent sur ce Mac.
@@ -95,7 +94,7 @@ final class AppModel: ObservableObject {
 
     /// kybernow://adresse:port?name=…&fp=… (QR code ou lien de la console).
     func open(_ url: URL) {
-        guard session == nil, let candidate = PairingLink.parse(url.absoluteString) else { return }
+        guard let candidate = PairingLink.parse(url.absoluteString) else { return }
         // Fenêtre cachée (l'app vivait dans la barre des menus) : elle revient pour l'ajout.
         showWindow()
         if known(candidate) {
@@ -110,17 +109,26 @@ final class AppModel: ObservableObject {
         store.hosts.contains { ($0.consoleFingerprint != nil && $0.consoleFingerprint == c.expected) || ($0.address == c.address && $0.consolePort == c.port) }
     }
 
+    /// « Se connecter » : la session de cet ordinateur dans sa fenêtre. Déjà
+    /// en session, sa fenêtre passe devant ; quatre sessions, rien. La première
+    /// prend la place de l'accueil (plein écran, ou tous les écrans), les
+    /// suivantes s'ouvrent dans une fenêtre par-dessus (« Cet écran »).
     func connect(_ host: Host) {
-        guard session == nil else { return }
-        // La session se joue dans la fenêtre de l'accueil (jamais dans celle des réglages de l'app).
-        let window = homeWindow ?? NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first { $0.isVisible }
-        let session = SessionController(host: host, store: store, window: window) { [weak self] s in
-            self?.session = nil
-            self?.linger(s)
-            self?.sessionFinished(s)
+        openSession(host)
+    }
+
+    private func openSession(_ host: Host, demo: String? = nil) {
+        if let existing = sessions.session(for: host.id) {
+            existing.bringToFront()
+            return
         }
+        guard !sessions.isFull else { return }
+        let first = sessions.isEmpty
+        let opening: SessionController.Opening = first ? .first(home: homeWindow) : .next(anchor: sessions.anchorWindow)
+        let session = SessionController(host: host, store: store, opening: opening) { [weak self] in self?.sessionFinished($0) }
+        session.onWindowClosed = { [weak self] in self?.sessionWindowClosed($0) }
         session.onEnded = { [weak self] in self?.sessionEnded($0) }
-        // La console confirme la remise en état après le retour à l'accueil.
+        // La console confirme la remise en état après la fin de la session.
         session.onReport = { [weak self] host, closing in
             let elide = French.elides(host.name)
             if closing.displayRestored == true, closing.audioRestored == true, closing.error == nil {
@@ -135,15 +143,35 @@ final class AppModel: ObservableObject {
                     : String(localized: "Le son de \(host.name) n'est pas encore rétabli : il reviendra au prochain démarrage de KyberNow Station"), warning: true)
             }
         }
-        self.session = session
+        if !first { Dock.comeForward() }
+        // Sa fenêtre s'ouvre (l'accueil photographié pour le passage tel qu'il
+        // était, avant « Afficher la session »), puis elle rejoint les sessions.
         #if DEBUG
-        // Démonstration : la session sans ordinateur derrière, rien sur le réseau.
-        if Self.demo {
-            session.demo("session")
+        // Démonstration : la session sans ordinateur derrière, rien sur le réseau
+        // (`-demoCore YES` : une vraie session du cœur vers une adresse que rien
+        // ne route, pour essayer le registre des sessions).
+        if Self.demo, !UserDefaults.standard.bool(forKey: "demoCore") {
+            session.demo(demo ?? "session")
+            sessions.add(session)
+            sessions.refresh()
+            hideHomeForFirstSession(first)
             return
         }
         #endif
+        // Inscrite au registre des sessions du cœur à son départ : elle devient active.
         session.start()
+        sessions.add(session)
+        sessions.refresh()
+        hideHomeForFirstSession(first)
+    }
+
+    /// La première session a pris la place de l'accueil : il se cache
+    /// derrière elle, la dernière session le ramènera.
+    private func hideHomeForFirstSession(_ first: Bool) {
+        guard first, let home = homeWindow, home.isVisible, !home.styleMask.contains(.fullScreen) else { return }
+        home.orderOut(nil)
+        sessions.homeHidden = true
+        windowsChanged()
     }
 
     @Published var toastWarning = false
@@ -214,22 +242,13 @@ final class AppModel: ObservableObject {
     /// Démonstration, une fois l'accueil affiché : la connexion (sans
     /// ordinateur derrière), son échec, la session, les réglages de l'app.
     func demoAppeared() {
-        guard Self.demo, session == nil else { return }
+        guard Self.demo, sessions.isEmpty else { return }
         let screen = UserDefaults.standard.string(forKey: "screen")
         switch screen {
         case "connecting", "restarting", "failed", "session", "bar", "stats":
             guard let host = store.ordered.first(where: { $0.id == selectedID }) ?? store.ordered.first else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
-                guard let self else { return }
-                let window = self.homeWindow ?? NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first { $0.isVisible }
-                let session = SessionController(host: host, store: self.store, window: window) { [weak self] s in
-                    self?.session = nil
-                    self?.linger(s)
-                    self?.sessionFinished(s)
-                }
-                session.onEnded = { [weak self] in self?.sessionEnded($0) }
-                self.session = session
-                session.demo(screen ?? "connecting")
+                self?.openSession(host, demo: screen)
             }
         default: break
         }
@@ -352,22 +371,32 @@ struct KyberNowApp: App {
             }
             // Une seule fenêtre d'accueil : « Ouvrir KyberNow Link » (barre des menus) la montre.
             CommandGroup(replacing: .newItem) {}
+            // Les commandes vont à la session de la fenêtre clé (même en échec),
+            // sinon à la session active du registre ; relue au moment du clic.
             CommandMenu("Session") {
-                Button("Se déconnecter") { app.session?.end() }
-                    .keyboardShortcut("d", modifiers: [.control, .option, .command])
-                    .disabled(app.session == nil)
-                // Plusieurs écrans : pas de « Plein écran » (docs/link-ui.md).
-                if app.session?.canToggleFullScreen ?? true {
-                    Button("Plein écran") { app.session?.toggleFullScreen() }
-                        .keyboardShortcut("f", modifiers: [.control, .option, .command])
-                        .disabled(app.session == nil)
+                let target = app.sessions.commandTarget
+                Button("Se déconnecter") {
+                    guard let s = app.sessions.commandTarget else { return }
+                    if s.isLive { s.end() } else { s.dismissFailure() }
                 }
-                Button("Souris des jeux ou du bureau") { app.session?.toggleMouseCapture() }
+                .keyboardShortcut("d", modifiers: [.control, .option, .command])
+                .disabled(target == nil)
+                // Plusieurs écrans : pas de « Plein écran » (docs/link-ui.md).
+                if target?.canToggleFullScreen ?? true {
+                    Button("Plein écran") { app.sessions.commandTarget?.toggleFullScreen() }
+                        .keyboardShortcut("f", modifiers: [.control, .option, .command])
+                        .disabled(target?.isLive != true)
+                }
+                Button("Souris des jeux ou du bureau") { app.sessions.commandTarget?.toggleMouseCapture() }
                     .keyboardShortcut("m", modifiers: [.control, .option, .command])
-                    .disabled(app.session == nil)
-                Button("Statistiques") { app.session?.toggleStatsPanel() }
+                    .disabled(target?.isLive != true)
+                Button("Statistiques") { app.sessions.commandTarget?.toggleStatsPanel() }
                     .keyboardShortcut("s", modifiers: [.control, .option, .command])
-                    .disabled(app.session == nil)
+                    .disabled(target?.isLive != true)
+                // Plusieurs ordinateurs : la fenêtre de l'ordinateur suivant, dans l'ordre d'ouverture.
+                Button("Ordinateur suivant") { app.sessions.showNext() }
+                    .keyboardShortcut("o", modifiers: [.control, .option, .command])
+                    .disabled(app.sessions.count < 2)
             }
         }
         // Réglages de l'app (⌘,) ; ceux de connexion vont par ordinateur.

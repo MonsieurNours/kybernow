@@ -2,7 +2,7 @@
 // la fenêtre de l'accueil se cache au lieu de se fermer et l'app continue dans
 // la barre des menus (MenuBar.swift) ; l'icône du Dock n'est là que tant
 // qu'une fenêtre est ouverte ; « Ouvrir à l'ouverture de session » ; quitter
-// termine d'abord une session en cours. Les commandes du menu et des
+// termine d'abord les sessions en cours. Les commandes du menu et des
 // notifications passent par les mêmes fonctions que l'accueil et les réglages.
 
 import AppKit
@@ -31,6 +31,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
         if hidden { app.startInBackground() }
         LoginItem.shared.applyDefault()
+        // Le lecteur de manettes du cœur démarre de lui-même avec la première
+        // chaîne d'entrées (première image d'une session), pas au lancement.
         menuBar = MenuBarController(app: app)
         app.watchStationConfirmations()
         // Icône du Dock et sondage : à chaque fenêtre qui s'ouvre, se ferme, se réduit.
@@ -49,7 +51,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
     }
 
-    /// Rouvrir l'app (Finder, Launchpad, Spotlight, Dock) : l'accueil.
+    /// Rouvrir l'app (Finder, Launchpad, Spotlight, Dock) : l'accueil, aussi
+    /// pendant les sessions (elles ont chacune leur fenêtre).
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         AppModel.shared.showWindow()
         return false
@@ -59,7 +62,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
-    /// « Quitter KyberNow Link », ⌘Q, le Dock : une session en cours se termine d'abord.
+    /// « Quitter KyberNow Link », ⌘Q, le Dock, Sparkle : les sessions en cours se terminent d'abord.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         AppModel.shared.terminateReply()
     }
@@ -121,7 +124,7 @@ final class HomeWindowDelegate: NSObject, NSWindowDelegate {
 
 @MainActor
 enum Dock {
-    /// Une fenêtre est ouverte : accueil (ou session), réglages de l'app, mise
+    /// Une fenêtre est ouverte : accueil, session, réglages de l'app, mise
     /// à jour de l'app ; réduite dans le Dock, elle compte aussi. Pas les menus,
     /// l'icône de la barre des menus ni les alertes.
     static var windowOpen: Bool {
@@ -154,8 +157,7 @@ extension AppModel {
             homeWindow = window
             window.isReleasedWhenClosed = false
         }
-        // La session pose son propre délégué le temps de la session, puis remet celui-ci.
-        if !(window.delegate is HomeWindowDelegate), !(window.delegate is SessionWindowDelegate) {
+        if !(window.delegate is HomeWindowDelegate) {
             homeDelegate.original = window.delegate
             homeDelegate.onClose = { [weak self] in self?.closeWindow() }
             window.delegate = homeDelegate
@@ -198,7 +200,7 @@ extension AppModel {
     }
 
     /// « Ouvrir KyberNow Link », rouvrir l'app, une notification : la fenêtre
-    /// de l'accueil (ou de la session) au premier plan.
+    /// de l'accueil au premier plan (par-dessus les sessions).
     func showWindow() {
         startHidden = false
         Dock.comeForward()
@@ -208,55 +210,45 @@ extension AppModel {
         windowsChanged()
     }
 
-    /// Bouton rouge, ⌘W : la fenêtre se cache. Pendant une session, fermer la
-    /// fenêtre, c'est se déconnecter : elle se cache une fois la session finie.
+    /// Bouton rouge, ⌘W : la fenêtre de l'accueil se cache (les sessions
+    /// continuent dans leurs fenêtres).
     func closeWindow() {
         guard let window = homeWindow else { return }
-        if let session {
-            hideAfterSession = true
-            if session.isLive { session.end() } else { session.dismissFailure() }
-            return
-        }
-        hide(window, exiting: false)
+        hide(window)
     }
 
-    /// Après la session (la fenêtre a pu être fermée pendant) : `finish()` de
-    /// la session sort du plein écran où elle avait mis la fenêtre ; un plein
-    /// écran demandé à la main en session, on en sort ici.
-    func sessionFinished(_ session: SessionController) {
-        guard hideAfterSession, let homeWindow else { return }
-        hideAfterSession = false
-        let exiting = session.enteredFullScreen
-        DispatchQueue.main.async { self.hide(homeWindow, exiting: exiting) }
-    }
-
-    /// Cache la fenêtre ; en plein écran, après en être sortie (`exiting` :
-    /// la sortie est déjà lancée).
-    private func hide(_ window: NSWindow, exiting: Bool) {
+    /// Cache la fenêtre ; en plein écran, après en être sortie. Sans session,
+    /// la première fois, « KyberNow Link est toujours là ».
+    private func hide(_ window: NSWindow) {
         if window.styleMask.contains(.fullScreen) {
-            // Le délégué de la session remet le nôtre avant de sortir du plein écran.
-            homeDelegate.onExitFullScreen = { [weak self] in self?.hide(window, exiting: false) }
-            if !exiting { window.toggleFullScreen(nil) }
+            homeDelegate.onExitFullScreen = { [weak self] in self?.hide(window) }
+            window.toggleFullScreen(nil)
             return
         }
         window.orderOut(nil)
         windowsChanged()
-        notifier.stillHere()
+        if sessions.isEmpty { notifier.stillHere() }
     }
 
-    /// Fin de l'app : une session en cours se termine d'abord (Admin rend
-    /// à l'ordinateur ses écrans et son son), 6 s au plus.
+    /// Fin de l'app (Quitter, ⌘Q, le Dock, Sparkle) : les sessions en cours
+    /// se terminent d'abord (Admin rend à chaque ordinateur ses écrans et son
+    /// son), 6 s au plus pour toutes.
     func terminateReply() -> NSApplication.TerminateReply {
-        // La session en cours, ou celle revenue à l'accueil dont Admin n'a pas encore fait le bilan.
-        guard let pending = session.flatMap({ $0.isLive ? $0 : nil }) ?? lingering else { return .terminateNow }
+        // Celles en cours, et celles revenues dont Admin n'a pas encore fait le bilan.
+        let pending = sessions.live + sessions.lingering
+        guard !pending.isEmpty else { return .terminateNow }
+        var waiting = Set(pending.map(ObjectIdentifier.init))
         var replied = false
         let reply = {
             guard !replied else { return }
             replied = true
             NSApp.reply(toApplicationShouldTerminate: true)
         }
-        afterSessionEnded = reply
-        if pending.isLive { pending.end() }
+        afterSessionEnded = { session in
+            waiting.remove(ObjectIdentifier(session))
+            if waiting.isEmpty { reply() }
+        }
+        endAll()
         // Minuteur de la boucle (pas la file principale) : il tourne aussi quand la
         // demande de fin arrive depuis un bloc de la file principale, qui ne se vide
         // plus pendant l'attente.
@@ -266,40 +258,75 @@ extension AppModel {
         return .terminateLater
     }
 
-    /// La session est revenue à l'accueil : gardée jusqu'à sa fin dans le cœur.
-    func linger(_ session: SessionController) {
-        guard !session.closing.done else { return }
-        lingering = session
-        DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self, weak session] in
-            if let self, self.lingering === session { self.lingering = nil }
+    /// Toutes les sessions en cours se terminent (fin de l'app).
+    func endAll() {
+        for session in sessions.live { session.end() }
+    }
+
+    /// La session est revenue : retirée des sessions (sa fenêtre se ferme),
+    /// gardée jusqu'à sa fin dans le cœur.
+    func sessionFinished(_ session: SessionController) {
+        sessions.remove(session)
+    }
+
+    /// La fenêtre d'une session s'est fermée. Après la dernière, l'accueil
+    /// revient, comme avant les sessions ; fermée par son bouton rouge (ou
+    /// ⌘W), l'app reste dans l'icône, comme quand on ferme l'accueil.
+    func sessionWindowClosed(_ session: SessionController) {
+        guard sessions.isEmpty else { return }
+        let hidden = sessions.homeHidden
+        sessions.homeHidden = false
+        guard let home = homeWindow else { return windowsChanged() }
+        if session.closedByWindow {
+            if hidden { notifier.stillHere() }
+        } else if NSApp.isActive {
+            home.makeKeyAndOrderFront(nil)
+        } else {
+            // Fin venue de l'ordinateur, l'app au second plan : l'accueil revient sans prendre la main.
+            home.orderFront(nil)
         }
+        windowsChanged()
     }
 
     /// La session est finie dans le cœur : notification si elle s'est arrêtée
-    /// sans « Se déconnecter », et la fin de l'app si elle l'attendait.
+    /// sans « Se déconnecter » (toujours quand d'autres sessions continuent,
+    /// même app au premier plan et même si c'était la session active, sauf si
+    /// son message reste dans sa fenêtre : échec de la connexion, avec
+    /// « Fermer », pas de doublon), et la fin de l'app si elle l'attendait.
     func sessionEnded(_ session: SessionController) {
-        if lingering === session { lingering = nil }
-        if session.endedByComputer { notifier.sessionEnded(session.host, error: session.endError) }
-        if let next = afterSessionEnded {
-            afterSessionEnded = nil
-            next()
+        sessions.ended(session)
+        if session.endedByComputer {
+            var shownInWindow = false
+            if case .failed = session.phase { shownInWindow = true }
+            let others = !shownInWindow && sessions.live.contains { $0 !== session }
+            notifier.sessionEnded(session.host, error: session.endError, evenInForeground: others)
         }
+        afterSessionEnded?(session)
     }
 
     // MARK: - Commandes du menu et des notifications
 
     func perform(_ action: MenuAction) {
         switch action {
-        case .disconnect: session?.end()
-        case .fullScreen:
-            showWindow()
-            session?.toggleFullScreen()
-        case let .mouse(choice):
-            showWindow()
-            session?.setMouse(choice)
-        case .statistics:
-            showWindow()
-            session?.toggleStatsPanel()
+        case let .disconnect(id):
+            guard let session = sessions.session(for: id) else { return }
+            if session.isLive { session.end() } else { session.dismissFailure() }
+        case let .fullScreen(id):
+            guard let session = sessions.session(for: id) else { return }
+            session.bringToFront()
+            session.toggleFullScreen()
+        case let .mouse(id, choice):
+            guard let session = sessions.session(for: id) else { return }
+            session.bringToFront()
+            session.setMouse(choice)
+        case let .statistics(id):
+            guard let session = sessions.session(for: id) else { return }
+            session.bringToFront()
+            session.toggleStatsPanel()
+        case let .show(id): sessions.session(for: id)?.bringToFront()
+        case let .keepSound(id):
+            guard let session = sessions.session(for: id) else { return }
+            sessions.setKeepSound(!session.keepSound, for: session)
         case let .connect(id): if let host = store.host(id) { connectFromOutside(host) }
         case let .wake(id): if let host = store.host(id) { store.wake(host) }
         case let .retry(id): if let host = store.host(id) { Task { await store.refresh(host) } }
@@ -320,31 +347,43 @@ extension AppModel {
         }
     }
 
-    /// L'accueil, sur un ordinateur s'il est donné.
+    /// L'accueil, sur un ordinateur s'il est donné (par-dessus les sessions).
     func openHome(selecting host: Host?) {
-        if session == nil {
-            if let host { selectedID = host.id }
-            route = .home
-        }
+        if let host { selectedID = host.id }
+        route = .home
         showWindow()
     }
 
-    /// « Réglages… » d'un ordinateur, ou sa rubrique Station (notification).
+    /// « Réglages… » d'un ordinateur, ou sa rubrique Station (notification) :
+    /// l'accueil passe par-dessus les sessions.
     func openSettingsFromOutside(_ host: Host, section: ComputerSection? = nil) {
-        if session == nil { openSettings(host, section: section) }
+        openSettings(host, section: section)
         showWindow()
     }
 
-    /// « Se connecter », « Reprendre », « Reprendre la main » : l'accueil sur
-    /// cet ordinateur, puis la session dans sa fenêtre. Une session qui finit
-    /// encore (fermeture du passage) est attendue, 3 s au plus.
+    /// « Se connecter », « Reprendre », « Reprendre la main ». Sans autre
+    /// session : l'accueil sur cet ordinateur, puis la session à sa place.
+    /// Pendant d'autres sessions : une fenêtre de plus, par-dessus ; déjà en
+    /// session, sa fenêtre passe devant. Une session de cet ordinateur qui
+    /// finit encore (fermeture du passage), ou la dernière en train de finir,
+    /// est attendue, 3 s au plus.
     func connectFromOutside(_ host: Host, attempt: Int = 0) {
-        if let session {
-            guard !session.isLive || session.phase == .ending, attempt < 30 else { return }
-            if case .failed = session.phase { session.dismissFailure() }
+        let same = sessions.session(for: host.id)
+        if let same, same.isLive, same.phase != .ending {
+            same.bringToFront()
+            return
+        }
+        // Les sessions qui tiennent (ni en échec, ni en train de finir).
+        let running = sessions.all.filter { $0.isLive && $0.phase != .ending }
+        if same != nil || (running.isEmpty && !sessions.isEmpty) {
+            guard attempt < 30 else { return }
+            for s in sessions.all {
+                if case .failed = s.phase, s === same || running.isEmpty { s.dismissFailure() }
+            }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { self.connectFromOutside(host, attempt: attempt + 1) }
             return
         }
+        guard running.isEmpty else { return connect(host) }
         selectedID = host.id
         route = .home
         showWindow()
@@ -355,7 +394,7 @@ extension AppModel {
     /// Profil choisi dans le menu : comme sur l'accueil ; en session sur cet
     /// ordinateur, tout de suite (comme le menu de la barre).
     func apply(_ profile: Profile, to host: Host) {
-        if let session, session.isLive, session.host.id == host.id {
+        if let session = sessions.session(for: host.id), session.isLive {
             session.select(profile)
             return
         }
@@ -401,7 +440,7 @@ extension AppModel {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] confirm in
                 guard let self, let confirm, self.store.stationConfirm == confirm else { return }
-                let shown = self.homeWindow?.isVisible == true && self.session == nil && self.route == .settings(confirm.hostID)
+                let shown = self.homeWindow?.isVisible == true && self.route == .settings(confirm.hostID)
                 // À l'écran, la rubrique Station la demande et montre la suite : pas de notification à la fin.
                 if shown { self.notifier.unfollow(confirm.hostID) }
                 guard !shown, self.notifier.following.contains(confirm.hostID) else { return }
@@ -606,7 +645,8 @@ enum DemoRemote {
             menuBar.render()
             let path = parts.count > 1 ? parts[1].split(separator: "/").compactMap { Int($0) } : [0]
             let seconds = parts.count > 2 ? Double(parts[2]) ?? 5 : 5
-            let offset = app.session?.isLive == true ? 7 : 0
+            // Les lignes de la session active passent avant les ordinateurs.
+            let offset = MenuContent.sessionBlock(app).count
             guard let first = path.first, menuBar.menu.items.indices.contains(first + offset),
                   var sub = menuBar.menu.items[first + offset].submenu else { return }
             for i in path.dropFirst() {
@@ -646,9 +686,12 @@ enum DemoRemote {
                 "politique \(policy)", "active \(NSApp.isActive)", "fenêtre visible \(app.homeWindow?.isVisible == true)",
                 "fenêtres \(NSApp.windows.filter { $0.isVisible && $0.styleMask.contains(.titled) }.map { $0.title.isEmpty ? "(sans titre)" : $0.title })",
                 "premier plan \(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "?")",
-                "sondage \(Int(app.store.pollInterval)) s", "session \(app.session.map { "\($0.host.name) \($0.phase)" } ?? "aucune")",
+                "sondage \(Int(app.store.pollInterval)) s",
+                "sessions \(app.sessions.all.isEmpty ? "aucune" : app.sessions.all.map { "\($0.host.name) \($0.phase)\($0.focusActive ? " active" : "")\($0.keepSound ? " son gardé" : "")\($0.isFullScreen ? " plein écran" : "")" }.joined(separator: ", "))",
+                "registre \(SessionEngine.focusCount)/\(SessionEngine.focusMax) active \(SessionEngine.focusActiveID ?? -1) : \(app.sessions.all.map { "\($0.host.name) \($0.focusID ?? -1)" }.joined(separator: ", "))",
+                "fenêtres des sessions \(app.sessions.all.flatMap(\.windows).map { "\($0.title) \(Int($0.frame.width))x\(Int($0.frame.height)) \($0.isOnActiveSpace ? "espace actif" : "autre espace") \($0.occlusionState.contains(.visible) ? "visible" : "cachée") \($0.isKeyWindow ? "clé" : "")" })",
                 "icône \(Int(frame.minX)),\(Int(top)) \(Int(frame.width))x\(Int(frame.height))",
-                "ouverture de session \(LoginItem.shared.enabled)",
+                "ouverture de session \(LoginItem.shared.enabled)", "message de l'accueil \(app.toast ?? "aucun")",
             ]
             journal("état : " + lines.joined(separator: " | "))
             if parts.count > 1 { try? (lines.joined(separator: "\n") + "\n").write(toFile: parts[1], atomically: true, encoding: .utf8) }
@@ -697,8 +740,44 @@ enum DemoRemote {
                 }
             }
         case "ended":
-            // ended:<raison> (vide : Admin ou un autre appareil) : la session finie par l'ordinateur.
-            app.session?.demoEndedByComputer(error: parts.count > 1 && !parts[1].isEmpty ? parts[1] : nil)
+            // ended:<raison>[:<ordinateur>] (raison vide : Admin ou un autre appareil) :
+            // la session de cet ordinateur (sans lui : l'active) finie par l'ordinateur.
+            let session = parts.count > 2 ? host(parts[2]).flatMap { app.sessions.session(for: $0.id) } : app.sessions.active
+            session?.demoEndedByComputer(error: parts.count > 1 && !parts[1].isEmpty ? parts[1] : nil)
+        case "connect":
+            // connect:<ordinateur> : « Se connecter » du menu de l'icône (une session de plus pendant les autres).
+            if let h = host(parts[1]) { app.perform(.connect(h.id)) }
+        case "show":
+            // show:<ordinateur> : « Afficher » sa session.
+            if let h = host(parts[1]) { app.perform(.show(h.id)) }
+        case "next":
+            app.sessions.showNext()
+        case "fullscreen":
+            // fullscreen:<ordinateur> : « Plein écran » de sa session.
+            if let h = host(parts[1]) { app.perform(.fullScreen(h.id)) }
+        case "keep-sound":
+            // keep-sound:<ordinateur> : « Garder le son » de sa session, allumé ou éteint.
+            if let h = host(parts[1]) { app.perform(.keepSound(h.id)) }
+        case "disconnect":
+            // disconnect:<ordinateur> : « Se déconnecter » de sa session.
+            if let h = host(parts[1]) { app.perform(.disconnect(h.id)) }
+        case "bar":
+            // bar:<ordinateur> : la barre de sa session ouverte (comme au pointeur).
+            if let h = host(parts[1]), let session = app.sessions.session(for: h.id) {
+                session.bringToFront()
+                session.setBar(true)
+            }
+        case "bar-dump":
+            // bar-dump:<ordinateur>:<fichier> : le menu « Ordinateurs » de la barre de sa session, en texte.
+            guard let h = host(parts[1]), let session = app.sessions.session(for: h.id), parts.count > 2 else { return }
+            let lines = ComputersMenu.items(for: session, store: app.store, sessions: app.sessions).map { item in
+                (item.checked ? "✓ " : "  ") + (item.dot.map { "(\($0.rawValue)) " } ?? "") + item.title
+                    + (item.detail.map { "  → \($0)" } ?? "") + (item.enabled ? "" : "  [inactif]") + (item.help.map { "  (aide : \($0))" } ?? "")
+            }
+            try? (lines.joined(separator: "\n") + "\n").write(toFile: parts[2], atomically: true, encoding: .utf8)
+        case "session-close":
+            // session-close:<ordinateur> : le bouton rouge de la fenêtre de sa session.
+            if let h = host(parts[1]) { app.sessions.session(for: h.id)?.windows.first?.performClose(nil) }
         case "status":
             // status:<ordinateur>:online|offline|unknown|searching
             guard let h = host(parts[1]) else { return }

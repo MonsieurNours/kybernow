@@ -14,10 +14,12 @@ Ce qui est prévu ou à essayer, et seulement ici : les autres documents décriv
 - **Station** : le mode « Pour toute connexion » (écran virtuel créé en cours de flux) ; sur un vrai PC Windows, le redémarrage et la mise à jour de la Station depuis une app, le dernier recours de la connexion, les cartes réseau listées pour le réveil et un vrai réveil depuis la veille et après un arrêt complet.
 - **Icône près de l'horloge** : sur Mac, les notifications du système (et leur demande d'autorisation), l'inscription à l'ouverture de session et un vrai lancement à l'ouverture de session, la fenêtre fermée en plein écran pendant une session ; sur un vrai PC Windows, le haut du menu en session et l'icône allumée, les échelles 100 % et 200 %, les bannières de notification, « ne répond toujours pas » après 2 min de réveil.
 - **Multi-écrans** : sur un PC Windows et sur un Linux à plusieurs écrans (validé sur Mac le 26/10/2026) ; une session à plusieurs écrans juste après l'installation ou le redémarrage de la Station.
+- **Plusieurs ordinateurs à la fois** : deux sessions qui tournent en même temps sur Windows et sur Linux (validé sur Mac le 27/10/2026) ; sous Windows, une fin de session qui en a coupé une autre une fois dans la VM (chaque chemin de fin est maintenant au journal).
 - **Mesures de l'audit** décrites dans [docs/archives/mesures.md](docs/archives/mesures.md) : latence d'affichage de l'app Mac, droits Windows, Wi-Fi saturé, modes de l'écran virtuel SudoVDA.
 
 ## KyberNow Station et Admin
 
+- **H.264 muet sur une carte Intel** : PC-ATELIER (Intel UHD) envoie bien du HEVC mais aucune image en H.264 (« son encodeur ne répond pas »), déjà en 0.5 ; à comprendre côté Station (encodeur de Kyber, QSV).
 - **Écran virtuel sans contournement** : un pilote qui gère vraiment plusieurs écrans (SudoVDA corrigé et recompilé, ou Kidd), pour retirer l'agrandissement du pointeur et la capture des écrans secondaires par Windows Graphics Capture (voir `server/README.md`).
 - **HDR** : capture en FP16 et conversion HDR10 dans Kyber (étude chiffrée : [docs/archives/propositions-2026-10-22.md](docs/archives/propositions-2026-10-22.md)).
 - **Écran virtuel Kidd** quand Kyber le publiera, derrière l'interface déjà en place.
@@ -29,7 +31,6 @@ Ce qui est prévu ou à essayer, et seulement ici : les autres documents décriv
 
 ## KyberNow Link
 
-- **Plusieurs ordinateurs à la fois** : une fenêtre de session par ordinateur dans les apps Mac et Windows ; les manettes lues par l'app et envoyées à la fenêtre active (la SDL de kynput ne s'ouvre qu'une fois par app) ; le son des sessions mélangé.
 - **Android** : mise en page des pliables ; écran externe en pupitre (image sur l'écran branché, appareil en pupitre) ; Play Store en test interne.
 - **Android TV + Station** : envoi des ordinateurs du téléphone au téléviseur (code affiché au téléviseur, relais par Admin).
 - **iPhone et iPad** : Apple Pencil ; TestFlight pour testeurs internes (profil App Store, archive Release, `xcodebuild -exportArchive`), puis l'App Store.

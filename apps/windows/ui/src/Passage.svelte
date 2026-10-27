@@ -166,9 +166,12 @@
     }
   }
 
-  /* Ouvert pendant la session : l'accueil (montré depuis l'icône) reste utilisable dessous. */
+  /* Ouvert pendant la session : l'accueil (montré depuis l'icône) reste utilisable et visible
+     dessous (plusieurs ordinateurs : « Afficher la session », « Se connecter » sur un autre). */
   .passage.opening {
     pointer-events: none;
+    background: transparent;
+    transition: background 0.8s;
   }
 
   .opening .top {

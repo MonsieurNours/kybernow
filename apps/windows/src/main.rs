@@ -21,6 +21,10 @@ mod decoder;
 mod displays;
 #[cfg(windows)]
 mod discovery;
+// Plusieurs ordinateurs à la fois : la session active et « Garder le son »,
+// le point d'application unique (se teste sur le Mac).
+#[cfg_attr(not(windows), allow(dead_code))]
+mod focus;
 // Règles et dessins sans rien de Windows (menu de l'icône, suivis, dessin de
 // l'icône, textes) : compilés partout pour se tester sur le Mac.
 #[cfg_attr(not(windows), allow(dead_code))]
@@ -43,6 +47,10 @@ mod link;
 mod login;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod menu;
+#[cfg_attr(not(windows), allow(dead_code))]
+mod notice;
+#[cfg(windows)]
+mod pasteboard;
 #[cfg(windows)]
 mod pc;
 #[cfg(windows)]

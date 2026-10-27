@@ -6,12 +6,20 @@
 // (docs/coeur-apple.md) : le contrôleur lui donne les réglages et la vue,
 // et traduit ses états, ses avis et ses mesures pour SwiftUI.
 //
-// La session se joue dans la fenêtre de l'accueil : le passage (Passage.swift)
-// ouvre l'accueil en deux sur l'image, et l'y referme à la fin. Avec
+// Chaque session a sa fenêtre (docs/plusieurs-ordinateurs.md). La première
+// s'ouvre à la place de l'accueil : le passage (Passage.swift) ouvre
+// l'accueil photographié en deux sur l'image, la fenêtre passe en plein écran
+// (ou prend tous les écrans), et les moitiés se referment à la fin. Chaque
+// session suivante s'ouvre dans une fenêtre titrée du nom de l'ordinateur, par-
+// dessus, sur l'écran de la fenêtre active, avec un seul écran (« Cet écran »,
+// à la taille de la fenêtre) ; écrans, cadre et mode viennent du cœur
+// (`SessionEngine.screensForExtraSession`, `extraSessionWindow`). Avec
 // plusieurs écrans (docs/multi-ecrans.md), chaque autre écran de ce Mac a sa
-// fenêtre plein écran (SessionScreens.swift) ; la fenêtre de l'accueil passe
+// fenêtre plein écran (SessionScreens.swift) ; la fenêtre de la session est
 // sur l'écran principal, qui montre la connexion ; une seule barre, posée sur
-// l'écran où le geste a lieu.
+// l'écran où le geste a lieu. Chaque session s'inscrit au registre des
+// sessions du cœur, qui la dit active ou non ; le gestionnaire
+// (Sessions.swift) lui en donne l'état pour l'interface (`focusChanged`).
 
 import AppKit
 import Combine
@@ -125,6 +133,42 @@ final class SessionController: NSObject, ObservableObject {
     private(set) var endError: String?
     /// Appelé une fois la session finie dans le cœur (`ended`) : Admin a dit la remise en état.
     var onEnded: ((SessionController) -> Void)?
+    /// La session est finie dans le cœur (`onEnded` est passé).
+    private(set) var coreEnded = false
+
+    /// Où s'ouvre la fenêtre de la session (docs/plusieurs-ordinateurs.md).
+    enum Opening {
+        /// La première session : à la place de l'accueil (photographié pour le
+        /// passage s'il est à l'écran), puis plein écran ou tous les écrans,
+        /// selon les réglages de l'ordinateur.
+        case first(home: NSWindow?)
+        /// Une session de plus : une fenêtre sur l'écran de `anchor` (la
+        /// fenêtre active), centrée, aux deux tiers de l'écran en 16:9, avec un
+        /// seul écran à la taille de la fenêtre, comme toute session fenêtrée.
+        case next(anchor: NSWindow?)
+    }
+
+    let opening: Opening
+    var isFirst: Bool {
+        if case .first = opening { return true }
+        return false
+    }
+
+    /// Session active : sa fenêtre est (ou a été la dernière) au premier
+    /// plan. Elle seule reçoit le clavier, la souris, les manettes, le
+    /// presse-papiers et le son (le registre du cœur s'en charge) ; lu dans le
+    /// registre par le gestionnaire (`focusChanged`), pour l'interface.
+    @Published private(set) var focusActive = true
+    /// « Garder le son » : la session reste audible même quand elle n'est
+    /// pas active ; éteint au départ, pour cette session (registre du cœur).
+    @Published private(set) var keepSound = false
+    /// La fenêtre d'une session de plus, donnée par le cœur (`start`).
+    private var extraWindow: SessionEngine.ExtraWindow?
+    /// La session s'est terminée par la fermeture de sa fenêtre (bouton rouge,
+    /// ⌘W) : la dernière ne ramène pas l'accueil, l'app reste dans l'icône.
+    private(set) var closedByWindow = false
+    /// La session du cœur a démarré : sa fin (`onEnded`) viendra.
+    var coreStarted: Bool { engine?.hasSession == true }
 
     /// La session tient encore (ni finie, ni en échec).
     var isLive: Bool {
@@ -139,12 +183,10 @@ final class SessionController: NSObject, ObservableObject {
 
     private let streamView = StreamView(frame: .zero)
     private let scene = PassageScene(frame: .zero)
-    /// L'accueil, retiré de la fenêtre le temps de la session, et sa photographie.
-    private var homeView: NSView?
+    /// L'accueil photographié à l'ouverture de la première session : les
+    /// moitiés du passage (sans photographie, elles ont le fond du passage).
     private var homeImage: CGImage?
     private let windowDelegate = SessionWindowDelegate()
-    /// La session a mis la fenêtre en plein écran : `finish()` l'en fait sortir.
-    private(set) var enteredFullScreen = false
     /// Barre, rappels, panneaux (SwiftUI), par-dessus l'image. Retirée de la
     /// composition quand elle n'a rien à montrer : l'image peut aller
     /// directement à l'écran (présentation directe en plein écran).
@@ -173,7 +215,7 @@ final class SessionController: NSObject, ObservableObject {
 
     // MARK: Multi-écrans
 
-    /// La surface de la fenêtre de l'accueil, et celles des autres écrans de
+    /// La surface de la fenêtre de la session, et celles des autres écrans de
     /// ce Mac pris par la session (leurs fenêtres sont à la session).
     private var mainSurface: ScreenSurface?
     private var extraSurfaces: [ScreenSurface] = []
@@ -195,9 +237,6 @@ final class SessionController: NSObject, ObservableObject {
     /// La connexion a repris à sa première étape en session (écrans de ce
     /// Mac ou profil changés) : les étapes reviennent sur l'écran principal.
     @Published private(set) var replanning = false
-    /// Cadre de la fenêtre de l'accueil avant son passage sur l'écran principal.
-    private var homeFrame: NSRect?
-    private var homeFrameObserver: NSObjectProtocol?
 
     /// Plusieurs écrans dans cette session (pris ou attendus).
     var multiScreen: Bool { screenCount > 1 || expectedScreens > 1 || !extraSurfaces.isEmpty }
@@ -239,22 +278,89 @@ final class SessionController: NSObject, ObservableObject {
         return barRect.maxY + (padMode ? 84 : 30)
     }
 
-    init(host: Host, store: HostStore, window: NSWindow?, onFinish: @escaping (SessionController) -> Void) {
+    init(host: Host, store: HostStore, opening: Opening, onFinish: @escaping (SessionController) -> Void) {
         self.host = host
         self.store = store
-        self.window = window
+        self.opening = opening
         self.onFinish = onFinish
     }
 
     // MARK: - Fenêtre
 
-    /// `primary` : avec plusieurs écrans, la fenêtre passe d'abord sur
-    /// l'écran principal de ce Mac (celui de la connexion).
+    /// Les réglages de l'ordinateur vus par cette session : une session de
+    /// plus prend « Cet écran », à la taille de sa fenêtre (sauf sans écran
+    /// virtuel), quel que soit le réglage « Écrans ».
+    private var settings: ConnectionSettings {
+        var s = host.settings
+        if !isFirst, s.display != .physical { s.display = .window }
+        return s
+    }
+
+    /// Les écrans de ce Mac donnés au cœur ; pour une session de plus, sa
+    /// règle : « Cet écran », celui de la fenêtre active (`current`).
+    private func deviceScreens(current: NSScreen?) -> (screens: [NSScreen], request: SessionEngine.DeviceScreens) {
+        let devices = DisplayInfo.deviceScreens(current: current, settings: settings, info: store.status[host.id]?.info)
+        guard !isFirst else { return devices }
+        return (devices.screens, SessionEngine.screensForExtraSession(devices.request))
+    }
+
+    /// La fenêtre de la session. La première prend la place de l'accueil
+    /// (avec plusieurs écrans, centrée sur l'écran principal `primary`),
+    /// barre de titre masquée comme lui ; les suivantes ont leur barre de
+    /// titre, au nom de l'ordinateur, et passent par-dessus une session en
+    /// plein écran (`.fullScreenAuxiliary`, échangé contre
+    /// `.fullScreenPrimary` le temps de leur propre plein écran).
+    private func makeWindow(on primary: NSScreen?, home: NSWindow?) -> NSWindow {
+        let window: NSWindow
+        switch opening {
+        case .first:
+            let fallback = NSScreen.main ?? NSScreen.screens[0]
+            var frame = home?.frame ?? Self.centered(NSSize(width: 1100, height: 788), on: fallback)
+            if let primary, (home?.screen ?? fallback) != primary {
+                frame = Self.centered(frame.size, on: primary)
+            }
+            window = NSWindow(contentRect: frame, styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                              backing: .buffered, defer: false)
+            window.setFrame(frame, display: false)
+            window.titlebarAppearsTransparent = true
+            window.titleVisibility = .hidden
+            window.collectionBehavior = [.fullScreenPrimary, .managed]
+        case let .next(anchor):
+            // La zone d'image « centrée, aux deux tiers de l'écran, en 16:9 »,
+            // règle du cœur ; la barre de titre s'ajoute autour.
+            let fallback = Self.centered(NSSize(width: 1100, height: 788), on: anchor?.screen ?? NSScreen.main ?? NSScreen.screens[0])
+            let content = extraWindow.map { DisplayInfo.cocoaRect(x: $0.x, y: $0.y, width: $0.width, height: $0.height) } ?? fallback
+            window = NSWindow(contentRect: content, styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+            window.setFrame(window.frameRect(forContentRect: content), display: false)
+            window.appearance = NSAppearance(named: .darkAqua)
+            window.collectionBehavior = [.fullScreenAuxiliary, .managed]
+        }
+        window.title = host.name
+        window.tabbingMode = .disallowed
+        window.isRestorable = false
+        window.isReleasedWhenClosed = false
+        window.backgroundColor = .black
+        return window
+    }
+
+    /// Un cadre de cette taille (au plus la partie utile de l'écran), centré sur `screen`.
+    private static func centered(_ size: NSSize, on screen: NSScreen) -> NSRect {
+        let area = screen.visibleFrame
+        let w = min(size.width, area.width), h = min(size.height, area.height)
+        return NSRect(x: area.midX - w / 2, y: area.midY - h / 2, width: w, height: h)
+    }
+
+    /// `primary` : avec plusieurs écrans, la fenêtre s'ouvre sur l'écran
+    /// principal de ce Mac (celui de la connexion).
     private func openWindow(on primary: NSScreen? = nil) {
-        guard let window, let home = window.contentView else { return }
-        homeView = home
-        homeImage = Self.photograph(home)
-        let container = NSView(frame: home.frame)
+        var home: NSWindow?
+        if case let .first(window) = opening, let window, window.isVisible, !window.isMiniaturized, let view = window.contentView {
+            home = window
+            homeImage = Self.photograph(view)
+        }
+        let window = makeWindow(on: primary, home: home)
+        self.window = window
+        let container = NSView(frame: NSRect(origin: .zero, size: window.contentRect(forFrameRect: window.frame).size))
         container.autoresizingMask = [.width, .height]
         streamView.frame = container.bounds
         streamView.autoresizingMask = [.width, .height]
@@ -296,30 +402,30 @@ final class SessionController: NSObject, ObservableObject {
                 MainActor.assumeIsolated { self?.appActive = NSApp.isActive }
             }
         }
-        if let primary, window.screen != primary, !window.styleMask.contains(.fullScreen) {
-            homeFrame = window.frame
-            let area = primary.visibleFrame
-            var frame = window.frame
-            frame.size.width = min(frame.width, area.width)
-            frame.size.height = min(frame.height, area.height)
-            frame.origin = CGPoint(x: area.midX - frame.width / 2, y: area.midY - frame.height / 2)
-            window.setFrame(frame, display: true)
-        }
-        windowDelegate.original = window.delegate
-        windowDelegate.onClose = { [weak self] in
-            guard let self, self.phase != .ended else { return }
-            self.end()
-        }
+        // Fermer la fenêtre (bouton rouge, ⌘W), c'est se déconnecter : elle
+        // se ferme d'elle-même une fois la session finie.
+        windowDelegate.onClose = { [weak self] in self?.closeRequested() }
+        windowDelegate.onExitFullScreen = { [weak self] in self?.fullScreenExited() }
         window.delegate = windowDelegate
         window.acceptsMouseMovedEvents = true
+        window.makeKeyAndOrderFront(nil)
         window.makeFirstResponder(streamView)
         scene.ignite()
-        // Session fenêtrée : l'écran virtuel suivra la taille de la fenêtre.
-        // Démonstration : la fenêtre reste telle quelle, pour la capturer.
-        if host.settings.display != .window, !window.styleMask.contains(.fullScreen), !AppModel.demo {
-            enteredFullScreen = true
+        // La première session passe en plein écran, sauf fenêtrée ; les
+        // suivantes restent dans leur fenêtre (« Plein écran » dans la barre).
+        // Démonstration : la fenêtre reste telle quelle, pour la capturer
+        // (`-demoFullScreen YES` : plein écran comme en vrai).
+        if isFirst, settings.display != .window, !window.styleMask.contains(.fullScreen),
+           !AppModel.demo || UserDefaults.standard.bool(forKey: "demoFullScreen") {
             window.toggleFullScreen(nil)
         }
+    }
+
+    /// Bouton rouge, ⌘W : la session se termine (un échec affiché se ferme).
+    private func closeRequested() {
+        guard phase != .ended else { return }
+        closedByWindow = true
+        if isLive { end() } else { dismissFailure() }
     }
 
     /// Pendant le flux, seule la couche Metal doit rester dans la composition
@@ -332,9 +438,9 @@ final class SessionController: NSObject, ObservableObject {
         let needed = !streaming || barVisible || padMode || hint != nil || statsPanel || screenOfferShown
         if chrome?.isHidden == needed { chrome?.isHidden = !needed }
         // Trait de repère de la barre, tracé dans l'image : là où le geste qui
-        // ouvre la barre est possible (app au premier plan, souris du bureau,
-        // barre fermée), pas ailleurs.
-        let marker = streaming && !barVisible && appActive && !mouseCaptured
+        // ouvre la barre est possible (app au premier plan, session active,
+        // souris du bureau, barre fermée), pas ailleurs.
+        let marker = streaming && !barVisible && appActive && focusActive && !mouseCaptured
         if marker != markerShown {
             markerShown = marker
             engine?.setTopMarker(marker)
@@ -399,8 +505,78 @@ final class SessionController: NSObject, ObservableObject {
     }
 
     func toggleFullScreen() {
-        guard canToggleFullScreen else { return }
-        window?.toggleFullScreen(nil)
+        guard canToggleFullScreen, let window else { return }
+        // Une session de plus : sa fenêtre passe par-dessus le plein écran
+        // d'une autre (auxiliaire) ; pour le sien, elle prend son propre espace.
+        if !window.styleMask.contains(.fullScreen), window.collectionBehavior.contains(.fullScreenAuxiliary) {
+            window.collectionBehavior = [.fullScreenPrimary, .managed]
+        }
+        window.toggleFullScreen(nil)
+    }
+
+    /// Sortie du plein écran : une session de plus redevient une fenêtre qui
+    /// peut passer par-dessus le plein écran d'une autre.
+    private func fullScreenExited() {
+        guard !isFirst, phase != .ended, let window, !window.styleMask.contains(.fullScreen) else { return }
+        window.collectionBehavior = [.fullScreenAuxiliary, .managed]
+    }
+
+    /// La fenêtre de la session est en plein écran.
+    var isFullScreen: Bool { window?.styleMask.contains(.fullScreen) == true }
+
+    /// Les fenêtres de la session (celle de la session, puis celles des autres écrans).
+    var windows: [NSWindow] { surfaces.compactMap(\.window) }
+
+    /// Cette fenêtre est-elle à la session ?
+    func owns(_ window: NSWindow) -> Bool {
+        windows.contains { $0 === window }
+    }
+
+    /// « Afficher », « Ordinateur suivant », « Se connecter » sur un
+    /// ordinateur déjà en session : sa fenêtre passe devant (son espace, en
+    /// plein écran ; celles de ses autres écrans aussi).
+    func bringToFront() {
+        guard let window else { return }
+        Dock.comeForward()
+        for extra in extraSurfaces { extra.window?.orderFront(nil) }
+        if window.isMiniaturized { window.deminiaturize(nil) }
+        window.makeKeyAndOrderFront(nil)
+    }
+
+    /// L'identifiant de la session dans le registre du cœur (nil avant son
+    /// départ, hors registre ou une fois finie).
+    var focusID: Int64? { engine?.focusID }
+
+    /// La fenêtre de la session passe au premier plan : elle devient active
+    /// dans le registre du cœur, qui coupe les entrées et le son des autres.
+    func focusActivate() {
+        engine?.focusActivate()
+    }
+
+    /// « Garder le son », par le registre du cœur (démonstration, sans cœur :
+    /// l'interface seule).
+    func setKeepSound(_ on: Bool) {
+        guard let engine, engine.focusID != nil else {
+            keepSound = on
+            return
+        }
+        engine.keepSound = on
+        KyberLog.app.notice("\(self.host.name, privacy: .public) : garder le son \(on ? "allumé" : "éteint", privacy: .public)")
+    }
+
+    /// L'état du registre, pour l'interface (Sessions.swift) : une session
+    /// inactive n'allume pas le trait de repère, ferme sa barre, ignore la
+    /// combinaison de la manette et ne suit plus le pointeur dans ses
+    /// fenêtres d'autres écrans. Les entrées, le son, le presse-papiers et
+    /// les manettes, le cœur s'en est déjà chargé.
+    func focusChanged(active: Bool) {
+        if let engine, engine.focusID != nil, keepSound != engine.keepSound { keepSound = engine.keepSound }
+        guard focusActive != active else { return }
+        focusActive = active
+        KyberLog.app.notice("\(self.host.name, privacy: .public) : session \(active ? "active" : "inactive", privacy: .public)")
+        let multi = multiScreen
+        allViews.forEach { $0.tracksInActiveApp = multi && active }
+        if !active { setBar(false) }
     }
 
     /// Les couches SwiftUI captent-elles tout (attente, fin) ?
@@ -410,7 +586,7 @@ final class SessionController: NSObject, ObservableObject {
 
     // MARK: - Écrans de ce Mac (multi-écrans)
 
-    /// Toutes les surfaces de la session, celle de l'accueil d'abord.
+    /// Toutes les surfaces de la session, celle de sa fenêtre d'abord.
     private var surfaces: [ScreenSurface] { [mainSurface].compactMap { $0 } + extraSurfaces }
 
     /// Toutes les vues de session.
@@ -423,7 +599,7 @@ final class SessionController: NSObject, ObservableObject {
         view.commandAsControl = settings.commandAsControl
         view.mouseMode = settings.mouse.streamMode
         view.pcGameFullscreen = pcGame
-        view.tracksInActiveApp = multiScreen
+        view.tracksInActiveApp = multiScreen && focusActive
         view.onPointerMoved = { [weak self, weak surface] spot in
             guard let self, let surface else { return }
             self.pointerMoved(spot, on: surface)
@@ -442,15 +618,16 @@ final class SessionController: NSObject, ObservableObject {
     /// Une fenêtre de plus, plein écran sur un autre écran de ce Mac.
     @discardableResult
     private func addSurface(for screen: NSScreen) -> ScreenSurface {
-        let surface = ScreenSurface(screen: screen, title: window?.title ?? "KyberNow Link") { [weak self] in
+        let surface = ScreenSurface(screen: screen, title: host.name) { [weak self] in
             guard let self, self.phase != .ended else { return }
             self.end()
         }
         surface.observe(occlusion: { [weak self] in self?.occlusionChanged($0) },
                         fullScreen: { [weak self] in self?.fullScreenEntered($0) })
         extraSurfaces.append(surface)
-        // La fenêtre de l'accueil suit aussi les mouvements d'un écran à l'autre.
-        allViews.forEach { $0.tracksInActiveApp = true }
+        // La fenêtre de la session suit aussi les mouvements d'un écran à l'autre (session active).
+        let active = focusActive
+        allViews.forEach { $0.tracksInActiveApp = active }
         configure(surface)
         KyberLog.app.notice("fenêtre ouverte sur l'écran \(surface.screenID ?? 0)")
         return surface
@@ -466,7 +643,7 @@ final class SessionController: NSObject, ObservableObject {
         KyberLog.app.notice("fenêtre fermée sur l'écran \(surface.screenID ?? 0)")
     }
 
-    /// La surface d'un écran de ce Mac (fenêtre de l'accueil si elle y est).
+    /// La surface d'un écran de ce Mac (fenêtre de la session si elle y est).
     private func surface(on screen: NSScreen) -> ScreenSurface? {
         guard let id = DisplayInfo.displayID(screen) else { return nil }
         if let main = mainSurface, let w = window?.screen, DisplayInfo.displayID(w) == id { return main }
@@ -496,7 +673,7 @@ final class SessionController: NSObject, ObservableObject {
     private func screensTaken(_ streams: [SessionEngine.StreamScreen], _ notCreated: [Int]) {
         // Un seul flux, sans écran non créé : une session à un écran (ou le
         // principal seul accepté). Jamais de fenêtre de plus : l'image va dans
-        // la fenêtre de l'accueil, quel que soit l'écran que le cœur nomme.
+        // la fenêtre de la session, quel que soit l'écran que le cœur nomme.
         if streams.count == 1, notCreated.isEmpty, let only = streams.first, let main = mainSurface {
             extraSurfaces.forEach(closeSurface)
             engine?.setScreenViews([only.index: main.streamView])
@@ -523,7 +700,7 @@ final class SessionController: NSObject, ObservableObject {
         for st in streams { surface(forDevice: st.index)?.backdrop.message = nil }
         screenCount = max(1, streams.count)
         expectedScreens = max(1, streams.count + notCreated.count)
-        let multi = multiScreen
+        let multi = multiScreen && focusActive
         allViews.forEach { $0.tracksInActiveApp = multi }
         // La connexion s'affiche sur l'écran principal.
         if phase != .streaming || replanning, let p = streams.first(where: \.primary), let s = surface(forDevice: p.index) {
@@ -556,7 +733,7 @@ final class SessionController: NSObject, ObservableObject {
     /// débranchés se ferment tout de suite. Rend la nouvelle description si
     /// elle a changé.
     private func refreshDeviceScreens() -> SessionEngine.DeviceScreens? {
-        let devices = DisplayInfo.deviceScreens(current: window?.screen, settings: host.settings, info: store.status[host.id]?.info)
+        let devices = deviceScreens(current: window?.screen)
         let ids = Set(devices.screens.compactMap(DisplayInfo.displayID))
         for extra in extraSurfaces where !(extra.screenID.map(ids.contains) ?? false) { closeSurface(extra) }
         deviceScreens = devices.screens
@@ -569,8 +746,8 @@ final class SessionController: NSObject, ObservableObject {
     /// Écrans attendus d'après le plan du cœur (étape « Préparation des écrans »).
     private func updateExpectedScreens() {
         guard let request = screensRequest else { return }
-        let plan = SessionEngine.sessionPlan(request, profile: host.settings.profile?.rawValue,
-                                             virtualDisplay: virtualDisplay, codec: host.settings.codec)
+        let plan = SessionEngine.sessionPlan(request, profile: settings.profile?.rawValue,
+                                             virtualDisplay: virtualDisplay, codec: settings.codec)
         expectedScreens = plan?.count ?? 1
     }
 
@@ -704,7 +881,8 @@ final class SessionController: NSObject, ObservableObject {
     /// ou se ferme et la manette revient à l'ordinateur. Hors session
     /// (connexion, reconnexion), rien : la manette reste à l'ordinateur.
     private func gamepadCombo() {
-        guard phase == .streaming else { return }
+        // Seule la session active a la manette (plusieurs ordinateurs).
+        guard phase == .streaming, focusActive else { return }
         if padMode {
             setBar(false)
         } else {
@@ -750,8 +928,7 @@ final class SessionController: NSObject, ObservableObject {
     /// changent (une seconde environ) ; le repli de la session repart de zéro.
     func select(_ profile: Profile) {
         guard profile != host.settings.profile else { return }
-        host.settings.apply(profile)
-        store.update(host)
+        commit { $0.settings.apply(profile) }
         // Multi-écrans : le nombre d'écrans suit le profil tout de suite (le
         // cœur refait la session s'il change).
         updateExpectedScreens()
@@ -774,14 +951,20 @@ final class SessionController: NSObject, ObservableObject {
     // MARK: - Déroulé
 
     func start() {
-        let settings = host.settings
-        let current = window?.screen ?? NSScreen.main ?? NSScreen.screens[0]
+        let settings = self.settings
+        // L'écran où s'ouvre la fenêtre : celui de l'accueil, ou de la fenêtre active.
+        let current: NSScreen
+        switch opening {
+        case let .first(home): current = home?.screen ?? NSScreen.main ?? NSScreen.screens[0]
+        case let .next(anchor): current = anchor?.screen ?? NSScreen.main ?? NSScreen.screens[0]
+        }
         // Multi-écrans : le cœur décide du nombre d'écrans (réglage, profil,
         // Station) ; plusieurs, la fenêtre passe sur l'écran principal, et
         // chaque autre écran pris a sa fenêtre.
-        let info = store.status[host.id]?.info
-        let devices = DisplayInfo.deviceScreens(current: current, settings: settings, info: info)
+        let devices = deviceScreens(current: current)
         var request = devices.request
+        // Une session de plus : sa fenêtre, cadre et mode, règle du cœur.
+        if !isFirst { extraWindow = SessionEngine.extraSessionWindow(request) }
         let plan = SessionEngine.sessionPlan(request, profile: settings.profile?.rawValue,
                                              virtualDisplay: settings.display != .physical, codec: settings.codec)
         let primary = plan != nil ? devices.screens.first : nil
@@ -807,6 +990,10 @@ final class SessionController: NSObject, ObservableObject {
         switch settings.display {
         case .custom:
             mode = (settings.customWidth, settings.customHeight, settings.customRefresh)
+        case .window where extraWindow != nil:
+            // Session de plus : le mode de sa zone d'image, calculé par le cœur.
+            let m = extraWindow?.mode ?? SessionEngine.Mode(width: 0, height: 0, refresh: 0)
+            mode = (m.width, m.height, m.refresh)
         case .window:
             // Session fenêtrée : l'écran virtuel prend la taille de la fenêtre, en pixels.
             // Pixels de la dalle par point (moins que l'échelle de macOS en mode « plus d'espace »).
@@ -850,7 +1037,7 @@ final class SessionController: NSObject, ObservableObject {
         engine.onScreens = { [weak self] in self?.screensTaken($0, $1) }
         engine.onScreenImage = { [weak self] index in
             guard let self else { return }
-            // Une seule fenêtre : celle de l'accueil, quel que soit l'écran nommé.
+            // Une seule fenêtre : celle de la session, quel que soit l'écran nommé.
             (self.extraSurfaces.isEmpty ? self.mainSurface : self.surface(forDevice: index))?.backdrop.isHidden = true
         }
         engine.onGameFullscreen = { [weak self] game in
@@ -861,8 +1048,15 @@ final class SessionController: NSObject, ObservableObject {
         self.engine = engine
         syncEngineViews()
 
+        var console = host.address
+        #if DEBUG
+        // Démonstration avec `-demoCore YES` : une vraie session du cœur (pour
+        // le registre des sessions), vers une adresse de documentation que rien
+        // ne route (RFC 5737) : jamais une Station, elle échoue au bout de 5 s.
+        if AppModel.demo { console = "192.0.2.1" }
+        #endif
         var params = SessionEngine.Params(
-            host: host.address, consolePort: host.consolePort, username: host.username, password: password,
+            host: console, consolePort: host.consolePort, username: host.username, password: password,
             consoleFingerprint: host.consoleFingerprint,
             mode: SessionEngine.Mode(width: mode.width, height: mode.height, refresh: mode.refresh),
             audioChannels: settings.audio.channels, virtualDisplay: virtualDisplay, settings: engineSettings
@@ -872,9 +1066,13 @@ final class SessionController: NSObject, ObservableObject {
         params.clipboard = settings.clipboard
         params.vsync = settings.vsync
         params.screens = request
+        // Inscrite au registre des sessions du cœur dès son départ (plusieurs ordinateurs).
+        params.focusName = host.name
         KyberLog.app.notice("session : \(mode.width)×\(mode.height) à \(mode.refresh) Hz, son \(settings.audio.channels) canaux, \(settings.consoleProfile, privacy: .public)")
         do {
             try engine.start(params)
+        } catch SessionEngine.StartError.tooManyComputers {
+            fail(LinkText.computersLimit)
         } catch {
             fail(error.localizedDescription)
         }
@@ -883,7 +1081,15 @@ final class SessionController: NSObject, ObservableObject {
     /// Les états du cœur : l'image n'apparaît qu'après `revealDelay`, les
     /// fins voulues et les fins en erreur se séparent ici.
     private func phaseChanged(_ p: SessionEngine.Phase) {
-        if case .failed = phase { return }
+        if case .failed = phase {
+            // Échec dit par l'app (registre plein…) : la session du cœur finit
+            // quand même ; plus rien à attendre d'elle (fin de l'app).
+            if case .ended = p, !coreEnded {
+                coreEnded = true
+                onEnded?(self)
+            }
+            return
+        }
         engineStreaming = p == .streaming
         if p != .connecting { stationRestarting = false }
         switch p {
@@ -922,16 +1128,23 @@ final class SessionController: NSObject, ObservableObject {
         case let .reconnecting(attempt, _):
             phase = .reconnecting(attempt)
         case .ending:
+            guard phase != .ending, phase != .ended else { break }
+            endedByComputer = true
+            // Avant la première image, sans « Se déconnecter » demandé : la
+            // connexion a échoué (mot de passe, refus, certificat, Kyber…).
+            // La capsule de la connexion reste ; `ended` en dit la raison
+            // (« La connexion a échoué »), comme sur Windows et Linux.
+            if revealedAt == nil { break }
             // Fin demandée par la console (ou connexion perdue sans reprise) :
             // le passage se referme comme pour une fin voulue.
-            if phase != .ending, phase != .ended {
-                endedByComputer = true
-                end()
-            }
+            end()
         case let .ended(error, report):
             if phase != .ending, phase != .ended { endedByComputer = true }
             endError = error
-            defer { onEnded?(self) }
+            defer {
+                coreEnded = true
+                onEnded?(self)
+            }
             if let error, phase != .ending, phase != .ended {
                 fail(error)
                 return
@@ -941,7 +1154,9 @@ final class SessionController: NSObject, ObservableObject {
             closing.audioRestored = report?.audioRestored ?? false
             closing.error = error ?? report?.error
             closing.done = true
-            onReport?(host, closing)
+            // Le bilan d'Admin seulement : sans lui (Admin injoignable, session
+            // jamais préparée), rien à dire des écrans ni du son sur l'accueil.
+            if report != nil { onReport?(host, closing) }
         }
     }
 
@@ -1014,7 +1229,7 @@ final class SessionController: NSObject, ObservableObject {
             KyberLog.app.notice("plein écran sur un écran débranché : retour en plein écran sur l'écran restant")
             windowDelegate.onExitFullScreen = { [weak self] in
                 guard let self else { return }
-                self.windowDelegate.onExitFullScreen = nil
+                self.windowDelegate.onExitFullScreen = { [weak self] in self?.fullScreenExited() }
                 let area = (NSScreen.main ?? main).visibleFrame
                 self.window?.setFrame(area.insetBy(dx: area.width * 0.1, dy: area.height * 0.1), display: true)
                 DispatchQueue.main.async { [weak self] in
@@ -1029,7 +1244,7 @@ final class SessionController: NSObject, ObservableObject {
             DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
                 guard let self, self.refitting else { return }
                 self.refitting = false
-                self.windowDelegate.onExitFullScreen = nil
+                self.windowDelegate.onExitFullScreen = { [weak self] in self?.fullScreenExited() }
             }
         } else if !screens.contains(where: { $0.frame.intersects(window.frame) }) {
             var frame = window.frame
@@ -1045,7 +1260,7 @@ final class SessionController: NSObject, ObservableObject {
     /// on propose d'adapter l'image ; revenu au mode demandé, la proposition part.
     private func checkScreenMode() {
         guard phase == .streaming, requestedBeforeAdapt == nil else { return }
-        guard host.settings.display == .match, virtualDisplay, let r = requested,
+        guard settings.display == .match, virtualDisplay, let r = requested,
               let screen = window?.screen ?? NSScreen.main else {
             clearScreenOffer()
             return
@@ -1125,13 +1340,12 @@ final class SessionController: NSObject, ObservableObject {
         let last = engine?.snapshot(maxWidth: 1600)
         if let last { store.imagery.saveLast(last, for: host) }
         recordSession()
-        // Les moitiés se referment, puis l'accueil revient tout de suite ; la
+        // Les moitiés se referment, puis la fenêtre se ferme tout de suite ; la
         // console vérifie la remise en état en arrière-plan (onReport).
         scene.close(over: revealedAt != nil ? last : nil, home: homeImage) { [weak self] in self?.finish() }
         withAnimation(.easeInOut(duration: 0.3)) { phase = .ending }
         clearScreenOffer()
         streamView.detach()
-        store.update(host)
         engine?.stop()
         stats = nil
         audioStats = nil
@@ -1143,6 +1357,7 @@ final class SessionController: NSObject, ObservableObject {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
                 guard let self else { return }
                 self.closing.done = true
+                self.coreEnded = true
                 self.onEnded?(self)
             }
         }
@@ -1155,8 +1370,9 @@ final class SessionController: NSObject, ObservableObject {
     private func recordSession() {
         guard let revealedAt else { return }
         let m = streamMode
-        host.recordSession(start: revealedAt, latency: engine?.sessionLatency, width: m.width, height: m.height, refresh: m.refresh,
-                           codec: host.settings.codec, mbps: sessionMbps, screens: screenCount)
+        let latency = engine?.sessionLatency, codec = host.settings.codec, mbps = sessionMbps, screens = screenCount
+        commit { $0.recordSession(start: revealedAt, latency: latency, width: m.width, height: m.height, refresh: m.refresh,
+                                  codec: codec, mbps: mbps, screens: screens) }
     }
 
     /// Débit de la session en Mbit/s : avec plusieurs écrans, sur la somme
@@ -1201,26 +1417,38 @@ final class SessionController: NSObject, ObservableObject {
 
     /// Choix de la barre ou de ⌃⌥⌘M, gardé pour cet ordinateur.
     func setMouse(_ choice: MouseChoice) {
-        host.settings.mouse = choice
-        store.update(host)
+        commit { $0.settings.mouse = choice }
         streamView.mouseMode = choice.streamMode
     }
 
-    /// Retour à l'accueil : l'accueil reprend la fenêtre tout de suite (il est
-    /// utilisable pendant que la fenêtre quitte le plein écran).
+    /// Ce que la session change de son ordinateur (profil, souris, dernière
+    /// session) : sur sa copie, et sur celle du magasin telle qu'elle est
+    /// maintenant (l'accueil et les réglages restent ouverts pendant les
+    /// sessions : ce qu'on y a changé n'est pas écrasé).
+    private func commit(_ change: (inout Host) -> Void) {
+        change(&host)
+        guard var latest = store.host(host.id) else { return }
+        change(&latest)
+        store.update(latest)
+    }
+
+    /// Fin de la session côté interface : le gestionnaire la retire, puis sa
+    /// fenêtre se ferme (en plein écran, une fois sortie, sur l'accueil
+    /// photographié, comme elle s'était ouverte).
     func finish() {
         guard phase != .ended else { return }
         phase = .ended
-        let wasFullScreen = enteredFullScreen && window?.styleMask.contains(.fullScreen) == true
-        restoreHome()
-        if wasFullScreen { window?.toggleFullScreen(nil) }
+        teardown()
+        onFinish(self)
+        closeWindow()
     }
 
-    private func restoreHome() {
-        windowDelegate.onExitFullScreen = nil
+    private func teardown() {
         windowDelegate.onClose = nil
         compositing = nil
         sceneHide?.cancel()
+        // Seules les moitiés du passage restent à l'écran pendant la fermeture.
+        chrome?.removeFromSuperview()
         chrome = nil
         if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
         occlusionObserver = nil
@@ -1230,43 +1458,41 @@ final class SessionController: NSObject, ObservableObject {
         activeObservers = []
         screenCheck?.cancel()
         screenOfferHide?.cancel()
-        if let window {
-            window.delegate = windowDelegate.original
-            if let homeView { window.contentView = homeView }
-            window.makeFirstResponder(nil)
-        }
-        homeView = nil
+        window?.makeFirstResponder(nil)
         extraSurfaces.forEach(closeSurface)
         mainSurface?.close()
-        // La fenêtre de l'accueil revient où elle était avant de passer sur l'écran principal.
-        if let homeFrame, let window {
-            if window.styleMask.contains(.fullScreen) {
-                // Une fois sortie du plein écran (la session vit encore quelques instants).
-                let center = NotificationCenter.default
-                homeFrameObserver = center.addObserver(forName: NSWindow.didExitFullScreenNotification, object: window, queue: .main) { [weak self, weak window] _ in
-                    MainActor.assumeIsolated {
-                        window?.setFrame(homeFrame, display: true)
-                        if let token = self?.homeFrameObserver { center.removeObserver(token) }
-                        self?.homeFrameObserver = nil
-                    }
-                }
-            } else {
-                window.setFrame(homeFrame, display: true)
-            }
-        }
-        homeFrame = nil
-        onFinish(self)
     }
+
+    /// La fenêtre de la session se ferme ; en plein écran, après en être
+    /// sortie (3 s au plus : une sortie refusée pendant une transition).
+    private func closeWindow() {
+        guard let window else { return }
+        guard window.styleMask.contains(.fullScreen) else { return dropWindow() }
+        windowDelegate.onExitFullScreen = { [weak self] in self?.dropWindow() }
+        window.toggleFullScreen(nil)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in self?.dropWindow() }
+    }
+
+    private func dropWindow() {
+        guard let window else { return }
+        self.window = nil
+        windowDelegate.onExitFullScreen = nil
+        window.delegate = nil
+        window.orderOut(nil)
+        window.close()
+        onWindowClosed?(self)
+    }
+
+    /// Appelé une fois la fenêtre fermée : l'app ramène l'accueil après la
+    /// dernière session (AppLife.swift).
+    var onWindowClosed: ((SessionController) -> Void)?
 
     /// Session finie en erreur : l'image s'assombrit, le message reste jusqu'à
     /// « Fermer » ; le cœur a prévenu la console.
     private func fail(_ message: String) {
         KyberLog.app.error("session : \(message, privacy: .public)")
         // Une session coupée après l'image compte aussi.
-        if revealedAt != nil {
-            recordSession()
-            store.update(host)
-        }
+        if revealedAt != nil { recordSession() }
         clearScreenOffer()
         engine?.stop()
         stats = nil

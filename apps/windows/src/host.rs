@@ -7,9 +7,13 @@
 //! l'image (pour les écrans pris), arrêtée avec elle ; un `AudioEngine` pour
 //! la session, joué par WASAPI (`audio.rs`). Un seul appareil Direct3D pour
 //! tous les écrans (`gpu.rs`).
+//!
+//! Plusieurs ordinateurs à la fois : une `SessionHost` par session, chacune
+//! sur son fil, inscrite au registre des sessions du cœur (`focus.rs`), qui
+//! coupe les entrées et le son de celles qui ne sont pas actives.
 
 use std::sync::atomic::{AtomicIsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 
 use serde::Serialize;
@@ -17,7 +21,7 @@ use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 
 use kybernow_core::audio::AudioStats;
-use kybernow_core::input::{Clock, InputPipeline, InputPlatform, MonotonicClock, MouseMode, Options, PointerLayer};
+use kybernow_core::input::{Clock, InputPipeline, InputPlatform, MonotonicClock, MouseMode, Options, Pasteboard, PointerLayer};
 use kybernow_core::kynput_rs::Pipeline;
 use kybernow_core::media::PacketHandler;
 use kybernow_core::screens::session_plan_for;
@@ -26,6 +30,7 @@ use kybernow_core::{Display, WindowHandle};
 
 use crate::audio::{self, AudioOutput};
 use crate::displays::Layout;
+use crate::focus;
 use crate::gpu::Gpu;
 use crate::video::Link;
 use crate::window::{self, App, Command, VideoSettings, WM_APP_COMMAND, WM_APP_MOUSE, WM_APP_STATUS};
@@ -59,6 +64,16 @@ pub struct Summary {
     /// Dernière image de la session (JPEG), pour l'accueil.
     #[serde(skip)]
     pub last_image: Option<Vec<u8>>,
+    /// Fin demandée par l'utilisateur (« Se déconnecter », fenêtre fermée,
+    /// Ctrl+Alt+Maj+D) : pas de notification de fin.
+    #[serde(skip)]
+    pub requested: bool,
+    /// Sa fenêtre s'était montrée (première image).
+    #[serde(skip)]
+    pub shown: bool,
+    /// Une de ses fenêtres était au premier plan à sa fin.
+    #[serde(skip)]
+    pub was_front: bool,
 }
 
 /// Ce que la session fait d'un écran de ce PC.
@@ -112,6 +127,9 @@ pub trait HostEvents: Send + Sync {
     /// session, dans la zone de la barre (app au premier plan, souris du
     /// bureau) : la barre de session s'ouvre sur cet écran.
     fn top_edge(&self, _hwnd: isize) {}
+    /// « Afficher » (ou Ctrl+Alt+Maj+O) alors que sa fenêtre n'est pas encore
+    /// montrée : la session se connecte, sa fenêtre de connexion passe devant.
+    fn connexion_front(&self) {}
     /// Tout est arrêté, fenêtres fermées, console prévenue.
     fn ended(&self, _summary: &Summary) {}
 }
@@ -122,7 +140,12 @@ pub struct HostOptions {
     pub fullscreen: bool,
     /// Souris forcée (`Some(true)` : jeux) ; `None` : automatique.
     pub mouse: Option<bool>,
+    /// Taille de la zone cliente de la fenêtre (session à un écran, hors plein écran).
     pub window_size: (i32, i32),
+    /// Où poser la fenêtre (coin haut gauche du cadre) ; sinon centrée sur
+    /// « Cet écran ». Plusieurs ordinateurs : la fenêtre d'une session
+    /// suivante, là où sa connexion s'est montrée.
+    pub at: Option<(i32, i32)>,
     /// Mesures dans le titre de la fenêtre (ligne de commande, qui n'a pas de
     /// barre de session) ; sinon « {nom} · KyberNow Link ».
     pub title_stats: bool,
@@ -135,26 +158,52 @@ pub struct HostOptions {
 }
 
 pub struct SessionHost {
+    /// Identifiant de la session dans l'app (fenêtres, barre).
+    id: u64,
     control: Arc<AtomicIsize>,
+    /// Ses fenêtres, une fois créées sur son fil.
+    app: Arc<OnceLock<Arc<App>>>,
 }
 
 impl SessionHost {
     pub fn start(host_name: String, params: SessionParams, opts: HostOptions, events: Arc<dyn HostEvents>) -> Self {
-        let control = Arc::new(AtomicIsize::new(0));
-        let c = control.clone();
-        std::thread::Builder::new()
-            .name("kybernow-window".into())
-            .spawn(move || run(host_name, params, opts, events, c))
-            .expect("fil de la fenêtre de session");
-        Self { control }
+        Self::start_as(window::new_app_id(), host_name, params, opts, events)
     }
 
+    /// [`Self::start`] avec son identifiant (`window::new_app_id`), pris
+    /// avant : ce qui suit la session (sa fenêtre de connexion, sa fin) la
+    /// désigne par lui, jamais par son ordinateur seul.
+    pub fn start_as(id: u64, host_name: String, params: SessionParams, opts: HostOptions, events: Arc<dyn HostEvents>) -> Self {
+        let control = Arc::new(AtomicIsize::new(0));
+        let app = Arc::new(OnceLock::new());
+        let (c, a) = (control.clone(), app.clone());
+        std::thread::Builder::new()
+            .name("kybernow-window".into())
+            .spawn(move || run(id, host_name, params, opts, events, c, a))
+            .expect("fil de la fenêtre de session");
+        Self { id, control, app }
+    }
+
+    pub fn id(&self) -> u64 {
+        self.id
+    }
+
+    fn app(&self) -> Option<&Arc<App>> {
+        self.app.get()
+    }
+
+    /// Un ordre à la fenêtre de contrôle de cette session, et à elle seule
+    /// (le fil de ses fenêtres le prend) ; rien quand elle est fermée.
     fn post(&self, c: Command, arg: isize) {
         let h = self.control.load(Ordering::Relaxed);
-        if h != 0 {
-            unsafe {
-                let _ = PostMessageW(Some(HWND(h as *mut _)), WM_APP_COMMAND, WPARAM(c as usize), LPARAM(arg));
+        if h == 0 {
+            if matches!(c, Command::Disconnect) {
+                log::info!("session n°{} : ordre de fin ignoré, ses fenêtres sont déjà fermées", self.id);
             }
+            return;
+        }
+        unsafe {
+            let _ = PostMessageW(Some(HWND(h as *mut _)), WM_APP_COMMAND, WPARAM(c as usize), LPARAM(arg));
         }
     }
 
@@ -162,26 +211,85 @@ impl SessionHost {
         self.post(c, 0);
     }
 
-    /// Le clavier va à cette fenêtre de session (celle où la barre s'ouvre).
+    /// Le clavier va à cette fenêtre de session (celle où la barre s'ouvre ;
+    /// 0 : la dernière active). « Afficher » : sa fenêtre passe devant.
     pub fn focus(&self, hwnd: isize) {
         self.post(Command::Focus, hwnd);
     }
 
     /// La fenêtre de session où la barre s'ouvre quand l'app la demande sans
-    /// geste : celle où est le pointeur.
+    /// geste : celle de cette session où est le pointeur, sinon sa dernière active.
     pub fn bar_window(&self) -> isize {
-        window::bar_window()
+        self.app().map_or(0, |a| a.bar_window())
+    }
+
+    /// La fenêtre de son écran principal (0 avant sa création).
+    pub fn primary_window(&self) -> isize {
+        self.app().map_or(0, |a| a.primary_hwnd() as isize)
+    }
+
+    /// Plein écran (menu de l'icône : « Plein écran » coché).
+    pub fn fullscreen_now(&self) -> bool {
+        self.app().is_some_and(|a| a.fullscreen_now())
+    }
+
+    /// Écrans de la session (flux en cours).
+    pub fn stream_count(&self) -> usize {
+        self.app().map_or(0, |a| a.stream_count())
+    }
+
+    /// Un autre profil en session : le format qu'il demande, puis ses réglages.
+    pub fn set_settings(&self, settings: kybernow_core::profile::StreamSettings) -> bool {
+        let Some(app) = self.app() else { return false };
+        app.set_codec(settings.codec.fourcc());
+        match app.current_session() {
+            Some(s) => {
+                s.set_settings(settings);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Son inscription au registre des sessions du cœur.
+    fn focus_id(&self) -> Option<kybernow_core::focus::FocusId> {
+        self.app().and_then(|a| a.focus_id())
+    }
+
+    /// « Garder le son » (plusieurs ordinateurs).
+    pub fn keep_sound(&self) -> bool {
+        self.focus_id().is_some_and(focus::keep_sound)
+    }
+
+    pub fn set_keep_sound(&self, on: bool) {
+        if let Some(id) = self.focus_id() {
+            focus::set_keep_sound(id, on);
+        }
+    }
+
+    /// C'est la session active (registre du cœur).
+    pub fn is_active(&self) -> bool {
+        self.focus_id().is_some_and(|id| focus::active() == Some(id))
+    }
+
+    /// Sa fenêtre de connexion passe au premier plan : elle devient la session
+    /// active du registre, comme quand une de ses fenêtres passe devant.
+    pub fn activate(&self) {
+        if let Some(id) = self.focus_id() {
+            focus::activate(id);
+        }
     }
 }
 
 /// Rappels du module d'entrées : rien à faire sous Windows (manettes lues et
-/// vibrations jouées par kynput, pas de combinaison de manette).
+/// vibrations jouées par le lecteur du cœur, `kybernow_core::gamepads`, pas
+/// de combinaison de manette).
 struct WinInputs;
 
 impl InputPlatform for WinInputs {}
 
 /// Une chaîne d'entrées remplacée ou finie : plus rien n'en part (FlushKeys,
-/// pertes au journal) et kynput arrête ses gestionnaires (manettes SDL).
+/// pertes au journal) et kynput arrête ses gestionnaires.
 fn retire(input: Option<Arc<InputPipeline>>) {
     if let Some(old) = input {
         old.stop();
@@ -198,6 +306,8 @@ struct WinPlatform {
     last_frames: Mutex<u64>,
     events: Arc<dyn HostEvents>,
     session: Mutex<Option<Arc<Session>>>,
+    /// Presse-papiers partagé (réglage de l'ordinateur).
+    clipboard: bool,
 }
 
 impl Platform for WinPlatform {
@@ -220,8 +330,8 @@ impl Platform for WinPlatform {
         self.app.screens_changed(screens, not_created);
     }
     /// Chaîne d'entrées neuve pour les écrans pris (donnés juste avant par
-    /// `on_display` et `on_screens`) ; celle d'avant s'arrête (deux chaînes se
-    /// disputeraient les manettes SDL).
+    /// `on_display` et `on_screens`) ; celle d'avant s'arrête. Le cœur la
+    /// retrouve lui-même (état actif de la session, manettes de son lecteur).
     fn input_pipeline(&self) -> Pipeline {
         let (display_id, host_size) = self.app.primary_display();
         // Le pointeur de l'écran principal ; chaque autre écran a le sien
@@ -231,8 +341,10 @@ impl Platform for WinPlatform {
             Options {
                 display_id,
                 host_size,
-                // Presse-papiers : celui de kynput sous Windows (voir README).
-                clipboard: None,
+                // Presse-papiers : le pont du cœur sur celui de Windows, un par
+                // chaîne (kynput.dll du client construite sans le sien).
+                clipboard: self.clipboard.then(|| Arc::new(crate::pasteboard::WinPasteboard) as Arc<dyn Pasteboard>),
+                // Manettes : le lecteur du cœur (kynput.dll sans le sien).
                 gamepads_from_app: false,
             },
             pointer,
@@ -315,7 +427,7 @@ impl Platform for WinPlatform {
             rtt_ms,
             audio_ms: audio.map(|a| a.buffer_ms + a.output_ms),
             audio_gaps: audio.map(|a| a.gaps),
-            screens: window::stream_count(),
+            screens: self.app.stream_count(),
         });
     }
     fn on_game_fullscreen(&self, game: bool) {
@@ -324,7 +436,15 @@ impl Platform for WinPlatform {
     }
 }
 
-fn run(host_name: String, params: SessionParams, opts: HostOptions, events: Arc<dyn HostEvents>, control_out: Arc<AtomicIsize>) {
+fn run(
+    id: u64,
+    host_name: String,
+    params: SessionParams,
+    opts: HostOptions,
+    events: Arc<dyn HostEvents>,
+    control_out: Arc<AtomicIsize>,
+    app_out: Arc<OnceLock<Arc<App>>>,
+) {
     let started = Instant::now();
     let fail = |events: &Arc<dyn HostEvents>, e: String| {
         log::error!("{e}");
@@ -340,6 +460,7 @@ fn run(host_name: String, params: SessionParams, opts: HostOptions, events: Arc<
     let screens = opts.layout.screens();
     let layout = opts.layout.clone();
     let app = App::new(
+        id,
         host_name.clone(),
         clock.clone(),
         link,
@@ -356,8 +477,9 @@ fn run(host_name: String, params: SessionParams, opts: HostOptions, events: Arc<
         Some(false) => MouseMode::Desktop,
     });
 
+    let _ = app_out.set(app.clone());
     if let Err(e) = window::create_control(&app) {
-        App::clear();
+        app.unregister();
         return fail(&events, crate::i18n::t("errors.session_window", &[("error", &e.to_string())]));
     }
     control_out.store(app.control_hwnd(), Ordering::Relaxed);
@@ -370,15 +492,17 @@ fn run(host_name: String, params: SessionParams, opts: HostOptions, events: Arc<
     let index = plan.as_ref().and_then(|p| p.first()).map_or(screens.current, |p| p.device);
     let (key, at, size) = match layout.monitors.get(index) {
         Some(m) if plan.is_some() => (m.key.clone(), Some((m.x + 60, m.y + 60)), (((m.width as f32) * 0.8) as i32, ((m.height as f32) * 0.8) as i32)),
+        // Session suivante (plusieurs ordinateurs) : là où sa connexion s'est montrée.
+        Some(m) if opts.at.is_some() => (m.key.clone(), opts.at, opts.window_size),
         Some(m) => {
             // Centrée sur « Cet écran » (les autres écrans ne prennent pas cette fenêtre).
             let (w, h) = opts.window_size;
             (m.key.clone(), Some((m.x + (m.width - w).max(0) / 2, m.y + (m.height - h).max(0) / 2)), opts.window_size)
         }
-        None => (String::new(), None, opts.window_size),
+        None => (String::new(), opts.at, opts.window_size),
     };
     if let Err(e) = window::create_screen(&app, &key, true, at, size) {
-        App::clear();
+        app.unregister();
         return fail(&events, crate::i18n::t("errors.session_window", &[("error", &e)]));
     }
     let audio = (params.audio_channels > 0).then(|| Arc::new(audio::spawn(clock.clone())));
@@ -390,21 +514,47 @@ fn run(host_name: String, params: SessionParams, opts: HostOptions, events: Arc<
         last_frames: Mutex::new(0),
         events: events.clone(),
         session: Mutex::new(None),
+        clipboard: params.clipboard,
     });
     let session = Session::start_with_screens(params, screens, platform.clone());
+    // Plusieurs ordinateurs : inscrite au registre des sessions du cœur, elle
+    // devient active, comme sa fenêtre qui s'ouvre par-dessus (le cœur trouve
+    // lui-même sa chaîne d'entrées et son moteur de son). Au-delà de quatre
+    // (l'app le refuse avant ; ici, deux connexions au même instant), elle
+    // s'arrête avec la raison.
+    match focus::register(&session, &host_name) {
+        Ok(fid) => {
+            app.set_focus_id(fid);
+            // Sa fenêtre de connexion n'a pas eu le premier plan (`--connect`
+            // ou notification relayés par une autre instance, que Windows ne
+            // laisse pas passer devant) : la fenêtre restée devant est celle
+            // d'une autre session, qui reste active (le registre suit le
+            // premier plan, sinon ses entrées seraient jetées).
+            if let Some(other) = window::foreground_focus_id().filter(|o| *o != fid) {
+                focus::activate(other);
+            }
+        }
+        Err(_) => {
+            *app.error.lock().unwrap() = Some(crate::i18n::t("errors.four_at_most", &[]));
+            session.stop();
+        }
+    }
     *platform.session.lock().unwrap() = Some(session.clone());
     let _ = app.link.session.set(Arc::downgrade(&session));
     let _ = app.link.latency.set(session.latency());
     let _ = app.session.set(session.clone());
 
-    // Raccourcis de Windows (⊞, Alt+Tab…) vers l'ordinateur en plein écran.
-    let hook = window::install_keyboard_hook();
-    if hook.is_none() {
-        log::warn!("raccourcis de Windows : crochet clavier refusé, ils restent à ce PC");
-    }
+    // Raccourcis de Windows (⊞, Alt+Tab…) vers l'ordinateur en plein écran :
+    // un seul crochet pour toutes les sessions, tenu tant qu'il en reste une.
+    window::keyboard_hook_acquire();
     window::run_loop();
-    window::remove_keyboard_hook(hook);
+    window::keyboard_hook_release();
 
+    // La boucle ne s'arrête que par `quit` (fin dite par le cœur, ou fin
+    // demandée avant le cœur) : autrement, le journal le dit.
+    if !app.closing.load(Ordering::Relaxed) && !matches!(*app.status.lock().unwrap(), Some(Status::Ended { .. })) {
+        log::warn!("[{host_name}] boucle de messages arrêtée sans fin demandée : la session s'arrête");
+    }
     session.stop();
     session.wait();
     // Normalement déjà fait à l'arrêt de l'image.
@@ -421,7 +571,20 @@ fn run(host_name: String, params: SessionParams, opts: HostOptions, events: Arc<
     let error = app.error.lock().unwrap().clone();
     *platform.session.lock().unwrap() = None;
     let last_image = app.take_last_image();
-    App::clear();
+    let (requested, shown, was_front) = (app.user_ended(), app.ever_shown(), app.was_front());
+    if let Some(fid) = app.focus_id() {
+        focus::unregister(fid);
+    }
+    app.unregister();
     control_out.store(0, Ordering::Relaxed);
-    events.ended(&Summary { error, median_ms, p95_ms, seconds: started.elapsed().as_secs(), last_image });
+    events.ended(&Summary {
+        error,
+        median_ms,
+        p95_ms,
+        seconds: started.elapsed().as_secs(),
+        last_image,
+        requested,
+        shown,
+        was_front,
+    });
 }

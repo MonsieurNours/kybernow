@@ -5,6 +5,13 @@
 //! L1 / R1 : profil ou rubrique, Start : réglages de l'app) ; manette en souris.
 //! Et la conversion des touches du clavier (codes USB de SDL) en scancodes
 //! de Windows, ceux qu'attend kynput.
+//!
+//! Plusieurs ordinateurs à la fois : le routage vers les sessions (branchements sur chacune,
+//! boutons et axes à la seule session active, retour au repos, rebranchement quand une session
+//! rejoint son ordinateur) est celui du lecteur unique du cœur (`kybernow_core::gamepads`), que la
+//! boucle SDL nourrit (`plug`, `unplug`, `button`, `axis`). Ici reste ce que le lecteur n'a pas :
+//! les manettes que SDL a ouvertes (vibrations, batterie), l'état montré par l'écran de test, la
+//! navigation de l'interface et la manette en souris.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -241,6 +248,22 @@ impl Pads {
         }
         p.motors = (large as f32 / 65535.0, small as f32 / 65535.0);
         p.motors_until = Instant::now() + Duration::from_millis(ms as u64);
+    }
+
+    /// Les moteurs s'arrêtent : la session qui faisait vibrer les manettes n'est plus l'active. Une
+    /// vibration jouée par SDL dure jusqu'à son terme (5 s au plus quand l'ordinateur n'en donne pas) :
+    /// le cœur n'envoie plus celles d'une session en arrière-plan, mais ne rattrape pas celle en cours.
+    pub fn stop_rumble(&mut self) {
+        for p in &mut self.pads {
+            unsafe {
+                sdl::SDL_GameControllerRumble(p.ctrl, 0, 0, 0);
+                if p.triggers {
+                    sdl::SDL_GameControllerRumbleTriggers(p.ctrl, 0, 0, 0);
+                }
+            }
+            p.motors = (0.0, 0.0);
+            p.motors_until = Instant::now();
+        }
     }
 
     /// Vibration d'essai (écran des manettes).

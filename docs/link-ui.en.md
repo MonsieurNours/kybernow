@@ -27,6 +27,7 @@ For the selected computer, in this order and nothing else:
 | Display, custom | « Écran de 1920 × 1080 à 60 Hz » | “1920 × 1080 display at 60 Hz” |
 | Display, no virtual display | « Les écrans de l'ordinateur, tels quels » | “The computer's own displays, as they are” |
 | Main button, online | « Se connecter » | “Connect” |
+| Main button, computer already in a session (Mac, Windows) | « Afficher la session »: its window comes to the front | “Show session” |
 | Main button, offline | « Réveiller l'ordinateur » when the app knows its MAC address, otherwise « Réessayer »; while waking: « Réveil de l'ordinateur… » | “Wake the computer” when the app knows its MAC address, otherwise “Try again”; while waking: “Waking the computer…” |
 | Profiles | « Jeu », « Bureau », « Max », and « Personnalisé » when the settings differ | “Game”, “Desktop”, “Max”, “Custom” |
 | Profile sentence | Jeu: « La réactivité d'abord, pour jouer. » Bureau: « Un texte net, pour travailler. » Max: « La meilleure image que cet appareil affiche. » Personnalisé: « Vos propres réglages. » | Game: “Responsiveness first, for gaming.” Desktop: “Sharp text, for work.” Max: “The best picture this device can show.” Custom: “Your own settings.” |
@@ -59,7 +60,9 @@ From the first frame, the picture alone. No arrival capsule, no bar that shows t
 
 **Several displays** (Mac, Windows and Linux apps, see [multi-ecrans.en.md](multi-ecrans.en.md)): the connection screen shows on the device's main display; the others show its background (its colour, without the home screen photo), with no text; each display switches to its picture at its first frame. If the connection fails, the message is on the main display and the other windows close. A display the computer could not create keeps that background, with a single line: « L'ordinateur n'a pas pu créer cet écran. » / “The computer could not create this display.” When the device's displays change during the session, or a profile picked during the session changes their number, the connection starts again at its first step on the main display; if the computer then refuses the new displays, the session ends with the reason, like a failed connection. A display created but left without a picture (never announced, or its encoder did not open) shows the same line as a display not created. With a Station that handles only one display, the other displays' windows do not open, with no message. A single session bar, on the display the pointer is on; the window it opens in becomes the active window; its commands apply to the whole session. The “Displays” setting changed in Settings during a session applies to the next session; the profile picked in the bar or the icon's menu applies at once. “Full screen” is not offered (bar, menu, shortcut): the windows stay full screen; to work in a window, choose “This display”. Every window has the same title.
 
-During a session: « Se déconnecter » / “Disconnect” (bar, menu, shortcut), « Statistiques » / “Statistics” for live measurements, « Touches » / “Keys”, « Plein écran » / “Full screen”, « Clavier » / “Keyboard”.
+**Several computers** (Mac, Windows and Linux apps in Desktop mode, see [plusieurs-ordinateurs.en.md](plusieurs-ordinateurs.en.md)): during a session, the bar has a « Ordinateurs » / “Computers” menu, presented like the other menus of the app's bar (a computer icon; alone where the bar shows its menus as icons, like “Keys” on Windows and Linux; with its label on the Mac, the icon alone in a narrow bar) and absent when you have no other computer: your other computers, in the home screen's order, with their colour dot and state as in the icon's menu (“{name} — Online”…); a click on an online computer opens its session, on an offline computer wakes it (“Wake the computer”, like the home screen); those already in a session are checked and offer « Afficher » / “Show”. The first session opens as usual; each further session opens in a window on top, on the active window's display, centred, two thirds of that display, with a single display, and its connection shows in that window. Each window bears its computer's name. The session of the foreground window gets the keyboard, the mouse, the controllers, the clipboard and the sound; the others keep their picture, without sound. With at least two sessions open, the bar's sound chip becomes a button, accessible label « Garder le son » / “Keep sound” (a speaker icon, lit when the session stays audible even when not active; off by default, for the current session); with a single session, it stays as before. « Ordinateur suivant » / “Next computer” shortcut: ⌃⌥⌘O on the Mac, Ctrl+Alt+Shift+O on Windows and Linux, to the next computer's window in opening order. “Connect” on a computer already in a session brings its window to the front. Four computers at most: beyond that, “Connect” is inactive, help « Quatre ordinateurs au plus en même temps. » / “Four computers at most at the same time.” The click that brings a session window to the front also goes to its computer, as with a single session. A session that stops without “Disconnect” (another device, Admin, an error) while others go on always gives its notification, even with the app in front and even if it was the active session, except when its message stays shown in its window (a failed connection, with “Close”): no duplicate (Linux, without notifications: the message stays in its window until “Close”). If a further session's connection fails, the message stays in its window with a single button, « Fermer » / “Close”, which closes that window (instead of going back to the home screen: the other sessions go on). Closing a window or “Disconnect” only ends its own session; quitting the app ends them all.
+
+During a session: « Se déconnecter » / “Disconnect” (bar, menu, shortcut), « Statistiques » / “Statistics” for live measurements, « Touches » / “Keys”, « Plein écran » / “Full screen”, « Clavier » / “Keyboard”, « Ordinateurs » / “Computers” and « Garder le son » / “Keep sound” (several computers, below).
 
 **Session bar from the pointer** (Mac and Windows apps, Linux app in Desktop mode, web client): it opens when the pointer stays a quarter of a second against the top edge of the picture (2 points at most), in a centred zone as wide as the bar, and only if the app is in the foreground, the pointer is on the session window and the mouse is in desktop mode. Passing quickly does not open it; nor does a pointer on another display or another app, or a mouse button held down (a window on the computer dragged to the top). With the game mouse, the pointer is captured: the bar comes through the app's other means (the icon's menu, the controller). A short line (220 points), centred at the top of the picture, marks the spot, only when the gesture is possible (app in the foreground, desktop mouse, bar closed); the web client also makes it tappable. The bar closes 0.4 s after the pointer has left it, never while one of its menus is open. With several displays, it opens on the display where the gesture happens.
 
@@ -149,12 +152,12 @@ Wake on LAN: Admin gives the computer's network cards in `GET /api/stream/info` 
 
 The Mac and Windows apps have an icon next to the clock: in the menu bar on the Mac, in the notification area on Windows. It stays as long as the app runs, window open or closed, and gives access to everything needed to connect quickly.
 
-- **Drawing**: the KyberNow Link symbol alone (the `now` state of [brand/v2](../brand/v2/README.en.md)), in a single colour: a template image on the Mac (the system tints it), white or black depending on the taskbar theme on Windows. It does not look like the KyberNow Station icon (the coloured tile and its badge): a PC that has both shows two icons. In a session, the symbol lights up (a distinct variant, legible at small size). Tooltip: « KyberNow Link » / “KyberNow Link”, in a session « KyberNow Link · en session sur {nom} » / “KyberNow Link · in session on {name}”.
+- **Drawing**: the KyberNow Link symbol alone (the `now` state of [brand/v2](../brand/v2/README.en.md)), in a single colour: a template image on the Mac (the system tints it), white or black depending on the taskbar theme on Windows. It does not look like the KyberNow Station icon (the coloured tile and its badge): a PC that has both shows two icons. In a session, the symbol lights up (a distinct variant, legible at small size). Tooltip: « KyberNow Link » / “KyberNow Link”, in a session « KyberNow Link · en session sur {nom} » / “KyberNow Link · in session on {name}”, on several computers « KyberNow Link · en session sur {n} ordinateurs » / “KyberNow Link · in session on {n} computers”.
 - **Click**: on the Mac, a click opens the menu. On Windows, a right or left click opens the same menu (on a left click, after Windows' double-click delay); a double click opens the window.
 
 ### Menu
 
-From top to bottom. During a session, first:
+From top to bottom. During a session, first (with several computers, for the active window's session):
 
 | Item | Français | English |
 |---|---|---|
@@ -165,11 +168,11 @@ From top to bottom. During a session, first:
 | Live measurements | « Statistiques » (Mac: the measurements panel; Windows: the session bar stays shown until the pointer passes over it, a second click hides it) | “Statistics” |
 | End | « Se déconnecter » | “Disconnect” |
 
-Then your computers, in the home screen's order: « {nom} — En ligne », « {nom} — Hors ligne », « {nom} — Recherche… » (“{name} — Online”, “Offline”, “Searching…”), each preceded by a small coloured dot: green online, red offline, amber while waking and while the Station restarts or updates, grey while searching (state colours from [brand/v2](../brand/v2/tokens/kybernow.css), `--kn-ok`, `--kn-bad`, `--kn-warn`, `--kn-faint`, in their light or dark version to match the menu); the state's text stays, colour alone is not enough for everyone. The session's computer is checked. Each one opens a submenu:
+Then your computers, in the home screen's order: « {nom} — En ligne », « {nom} — Hors ligne », « {nom} — Recherche… » (“{name} — Online”, “Offline”, “Searching…”), each preceded by a small coloured dot: green online, red offline, amber while waking and while the Station restarts or updates, grey while searching (state colours from [brand/v2](../brand/v2/tokens/kybernow.css), `--kn-ok`, `--kn-bad`, `--kn-warn`, `--kn-faint`, in their light or dark version to match the menu); the state's text stays, colour alone is not enough for everyone. Those in a session are checked; their submenu starts with « Afficher » / “Show”, « Garder le son » / “Keep sound” (from two open sessions on, checked when on) and « Se déconnecter » / “Disconnect”. Each one opens a submenu:
 
 | Item | Français | English |
 |---|---|---|
-| Online (and “Searching…”, like the home screen's button) | « Se connecter ({profil}) », the computer's profile; inactive during a session on another computer (one session at a time); on the session's computer: « Se déconnecter » | “Connect ({profile})”; “Disconnect” |
+| Online (and “Searching…”, like the home screen's button) | « Se connecter ({profil}) », the computer's profile; inactive when four computers are already in a session; on a computer in a session: see above | “Connect ({profile})”; “Disconnect” |
 | Offline | « Réveiller l'ordinateur » when the app knows its MAC address, otherwise « Réessayer »; while waking: « Réveil de l'ordinateur… », inactive; while the Station restarts or updates: « Se connecter ({profil}) », inactive (it comes back by itself) | “Wake the computer”, “Try again”, “Waking the computer…” |
 | Profile | « Profil » ▸ « Jeu », « Bureau », « Max », the computer's one checked; « Personnalisé » checked and inactive when the settings depart from the profile. Picking a profile applies it as on the home screen (in a session, at once, like the bar's menu) | “Profile” ▸ “Game”, “Desktop”, “Max”, “Custom” |
 | Settings | « Réglages » (Mac: « Réglages… »): the window opens on the computer's settings | “Settings” (Mac: “Settings…”) |
@@ -177,7 +180,7 @@ Then your computers, in the home screen's order: « {nom} — En ligne », « {n
 | Restart (online, Station 0.5.0 and later) | « Redémarrer la Station »; meanwhile: « La Station redémarre… », inactive | “Restart the Station”; “The Station is restarting…” |
 | Update (a version that installs from a device) | « Mettre à jour la Station ({v}) »; meanwhile: « Mise à jour de la Station… », inactive | “Update the Station ({v})”; “Updating the Station…” |
 
-The menu's groups are separated by a line. During a session, “Settings” and “Add a computer” are inactive on the Mac (the window belongs to the session); on Windows, they show the home screen over the session.
+The menu's groups are separated by a line. During a session, “Settings” and “Add a computer” show the home screen over the session (Mac and Windows: the home screen no longer serves as the session window).
 
 Restarting and updating follow the **Station** section: the same confirmation when a device is in a session (“{device} is connected”, “Restart anyway”, “Cancel”), the same follow-up, the same texts at the end.
 
@@ -189,7 +192,7 @@ At the bottom:
 | Adding | « Ajouter un ordinateur » (Mac: « Ajouter un ordinateur… ») | “Add a computer” (Mac: “Add a computer…”) |
 | App settings | « Réglages de l'app » (Mac: « Réglages de l'app… ») | “App settings” (Mac: “App settings…”) |
 | App update | Mac: « Rechercher des mises à jour… »; Windows: « Version {v} disponible » when a version is waiting (opens the app settings), otherwise « Rechercher des mises à jour » (opens the app settings and starts the check) | “Check for updates…”; “Version {v} available”; “Check for updates” |
-| Quit | « Quitter KyberNow Link »; a session in progress ends first | “Quit KyberNow Link” |
+| Quit | « Quitter KyberNow Link »; the sessions in progress end first | “Quit KyberNow Link” |
 
 ### Window and startup
 
@@ -201,7 +204,7 @@ At the bottom:
 
 ### Notifications
 
-System notifications, only when the app is not in the foreground:
+System notifications, only when the app is not in the foreground (for the end of a session without “Disconnect”, also when other sessions go on, even with the app in front: see “Several computers”):
 
 | When | Title | Text | Button |
 |---|---|---|---|

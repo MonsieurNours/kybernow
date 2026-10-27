@@ -224,6 +224,75 @@ pub fn session_plan_for(screens: &Screens, settings: &StreamSettings, virtual_di
     session_plan(screens, screens_profile(settings, screens.capabilities), virtual_display, settings.codec)
 }
 
+/// Plusieurs ordinateurs à la fois (docs/plusieurs-ordinateurs.md) : les
+/// écrans à donner à une session ouverte pendant qu'une autre tourne
+/// ([`crate::session::Session::start_with_screens`]). Elle prend « Cet
+/// écran » (`current`, l'écran de la fenêtre active, où s'ouvre la sienne),
+/// en fenêtre, quel que soit le réglage « Écrans » : deux sessions ne
+/// prennent jamais les mêmes écrans, seule la première peut les prendre
+/// tous. Le reste (« Au plus 4K », Station, capacités) ne change pas ; le
+/// mode de la session est celui de sa fenêtre ([`extra_session_window`]).
+pub fn screens_for_extra_session(screens: &Screens) -> Screens {
+    Screens { setting: DisplaysSetting::This, ..screens.clone() }
+}
+
+/// La fenêtre d'une session ouverte pendant qu'une autre tourne.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ExtraWindow {
+    /// Cadre de la zone d'image, dans le repère logique de l'appareil
+    /// (celui de [`DeviceScreen`], y vers le bas).
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    /// Le mode à demander pour l'écran de l'ordinateur (`SessionParams::mode`) :
+    /// la zone d'image en pixels de l'écran (largeur et hauteur multiples
+    /// de 8), à la fréquence de l'écran.
+    pub mode: Mode,
+}
+
+/// Les dimensions du mode d'une fenêtre de plus sont des multiples de 8 :
+/// certains encodeurs (Quick Sync, AMF) et modes d'écran virtuel les
+/// préfèrent (en H.264, une hauteur qui ne l'est pas est complétée par
+/// l'encodeur). Ce n'est pas un plafond : rien ne dépend de l'encodeur.
+pub const EXTRA_WINDOW_STEP: u32 = 8;
+
+/// « Centrée, aux deux tiers de cet écran, en 16:9 » (docs/link-ui.md,
+/// « Plusieurs ordinateurs ») : le plus grand cadre 16:9 qui tient dans les
+/// deux tiers de la largeur et de la hauteur de l'écran, au centre. Son mode
+/// en pixels est arrondi vers le bas aux multiples de 8
+/// ([`EXTRA_WINDOW_STEP`]) en gardant le 16:9 au plus près : la plus grande
+/// hauteur multiple de 8 dont la largeur multiple de 8 la plus proche du
+/// 16:9 tient dans le cadre (écart au 16:9 sous 0,5 %) ; le cadre en points
+/// est celui de ce mode, recentré. Les trois
+/// apps l'ouvrent ainsi ; une barre de titre se prend sur la zone d'image ou
+/// s'ajoute autour, au choix de l'app, sans changer le mode.
+pub fn extra_session_window(screen: &DeviceScreen) -> ExtraWindow {
+    let (max_w, max_h) = (screen.width * 2.0 / 3.0, screen.height * 2.0 / 3.0);
+    let (width, height) = if max_w * 9.0 / 16.0 <= max_h { (max_w, max_w * 9.0 / 16.0) } else { (max_h * 16.0 / 9.0, max_h) };
+    let scale = if screen.width > 0.0 && screen.pixel_width > 0 { f64::from(screen.pixel_width) / screen.width } else { 1.0 };
+    let step = f64::from(EXTRA_WINDOW_STEP);
+    // Un epsilon pour qu'un 1920,000 000 1 calculé ne tombe pas à 1912.
+    let floor = |v: f64| ((v + 1e-6) / step).floor().max(1.0) * step;
+    let (pixel_w, pixel_h) = (width * scale, height * scale);
+    let mut mode_h = floor(pixel_h);
+    let mut mode_w = (mode_h * 16.0 / 9.0 / step).round() * step;
+    // La largeur arrondie au plus près déborde du cadre : une hauteur de moins.
+    while mode_w > floor(pixel_w) && mode_h > step {
+        mode_h -= step;
+        mode_w = (mode_h * 16.0 / 9.0 / step).round() * step;
+    }
+    let mode_w = mode_w.max(step);
+    let (width, height) = (mode_w / scale, mode_h / scale);
+    ExtraWindow {
+        x: screen.x + (screen.width - width) / 2.0,
+        y: screen.y + (screen.height - height) / 2.0,
+        width,
+        height,
+        mode: Mode { width: mode_w as u32, height: mode_h as u32, refresh: screen.refresh },
+    }
+}
+
 /// Les écrans virtuels que la session demandera avec ce profil et cet écran
 /// virtuel, ou `None` pour une session à un écran (« Cet écran ») : le
 /// réglage ne prend qu'un écran, la Station n'en crée qu'un
@@ -685,6 +754,53 @@ mod tests {
         assert_eq!((s.setting, s.max(), s.current, s.limit_4k), (DisplaysSetting::All, 4, 0, false));
         let s: Screens = serde_json::from_str(r#"{"list": []}"#).unwrap();
         assert_eq!((s.setting, s.max()), (DisplaysSetting::Auto, 1));
+    }
+
+    #[test]
+    fn session_de_plus_en_fenetre_sur_cet_ecran() {
+        use crate::profile::Capabilities;
+        let caps = Capabilities { hevc: true, hevc444: true, av1: false };
+        let bureau = StreamSettings::for_profile(Profile::Bureau, caps);
+        // « Tous les écrans » pour la première ; une session de plus prend « Cet écran ».
+        let first = Screens { setting: DisplaysSetting::All, current: 2, capabilities: Some(caps), ..auteur() };
+        assert_eq!(session_plan_for(&first, &bureau, true).map(|p| p.len()), Some(3));
+        let extra = screens_for_extra_session(&first);
+        assert_eq!(session_plan_for(&extra, &bureau, true), None, "un seul écran, quel que soit le réglage");
+        assert_eq!((extra.current, extra.list.len(), extra.max_screens), (2, 3, MAX_SCREENS), "le reste ne change pas");
+        // Sa fenêtre : deux tiers de l'écran en 16:9, au centre, mode en pixels
+        // de l'écran, multiples de 8 vers le bas, et le cadre en points qui va avec.
+        let studio = auteur().list[2];
+        let w = extra_session_window(&studio);
+        let near = |a: f64, b: f64| (a - b).abs() < 1e-6;
+        assert_eq!(w.mode, Mode { width: 3400, height: 1912, refresh: 60 }, "Studio Display : deux pixels par point (3416 × 1920 déborderait)");
+        assert!(near(w.width, 1700.0) && near(w.height, 956.0), "{w:?}");
+        assert!(near(w.x, 2560.0 + (2560.0 - 1700.0) / 2.0) && near(w.y, 242.0), "au centre : {w:?}");
+        // Écran plus large que 16:9 (21:9) : limité par la hauteur.
+        let wide = screen(0.0, 0.0, 3440.0, 1440.0, 3440, 1440, 100, true);
+        let w = extra_session_window(&wide);
+        assert_eq!((w.mode.width, w.mode.height, w.mode.refresh), (1704, 960, 100));
+        assert!(near(w.width, 1704.0) && near(w.height, 960.0), "{w:?}");
+        // L'essai réel (machine virtuelle Windows) : 5120 × 2744 demandait 3252 × 1830.
+        let vm = screen(0.0, 0.0, 5120.0, 2744.0, 5120, 2744, 60, true);
+        assert_eq!(extra_session_window(&vm).mode, Mode { width: 3240, height: 1824, refresh: 60 });
+        let vm_150 = screen(0.0, 0.0, 3413.333_333_333_333_5, 1829.333_333_333_333_5, 5120, 2744, 60, true);
+        let w = extra_session_window(&vm_150);
+        assert_eq!((w.mode.width, w.mode.height), (3240, 1824), "même mode à 150 %");
+        assert!(near(w.width * 1.5, 3240.0) && near(w.height * 1.5, 1824.0), "cadre en points du mode : {w:?}");
+        // Toutes sortes d'écrans et d'échelles : multiples de 8, dans les deux
+        // tiers, 16:9 à 0,5 % près, cadre centré qui correspond au mode.
+        for (pw, ph) in [(1280, 720), (1366, 768), (1440, 900), (1920, 1080), (1920, 1200), (2560, 1080), (2560, 1600), (2880, 1800), (3024, 1964), (3456, 2234), (3840, 1600), (3840, 2160), (5120, 1440), (5120, 2880), (6016, 3384), (7680, 4320), (1080, 1920)] {
+            for scale in [1.0, 1.25, 1.5, 1.75, 2.0] {
+                let s = screen(100.0, -50.0, f64::from(pw) / scale, f64::from(ph) / scale, pw, ph, 60, false);
+                let w = extra_session_window(&s);
+                let (mw, mh) = (w.mode.width, w.mode.height);
+                assert!(mw % 8 == 0 && mh % 8 == 0, "{pw}×{ph} à {scale} : {mw}×{mh}");
+                assert!(f64::from(mw) <= f64::from(pw) * 2.0 / 3.0 + 1e-6 && f64::from(mh) <= f64::from(ph) * 2.0 / 3.0 + 1e-6, "{pw}×{ph} : {mw}×{mh} dépasse les deux tiers");
+                assert!((f64::from(mw) / f64::from(mh) / (16.0 / 9.0) - 1.0).abs() < 0.005, "{pw}×{ph} à {scale} : {mw}×{mh} loin du 16:9");
+                assert!(near(w.width * scale, f64::from(mw)) && near(w.height * scale, f64::from(mh)), "cadre en points : {w:?}");
+                assert!(near(w.x + w.width / 2.0, s.x + s.width / 2.0) && near(w.y + w.height / 2.0, s.y + s.height / 2.0), "centrée : {w:?}");
+            }
+        }
     }
 
     #[test]

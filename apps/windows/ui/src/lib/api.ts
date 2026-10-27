@@ -204,7 +204,11 @@ export type Action =
  */
 export type StationOutcome = { id: string; outcome: 'restarted' | 'updated' | 'update_failed' | 'slow_back' | 'silent'; version: string | null }
 
-export type Snapshot = { computers: Computer[]; discovered: Found[]; this_pc: ThisPc | null; session: string | null; version: string }
+/** `sessions` : les ordinateurs en session, dans l'ordre d'ouverture (plusieurs ordinateurs, quatre au plus). */
+export type Snapshot = { computers: Computer[]; discovered: Found[]; this_pc: ThisPc | null; sessions: string[]; version: string }
+
+/** Plusieurs ordinateurs à la fois (docs/plusieurs-ordinateurs.md) : quatre au plus en même temps. */
+export const MAX_SESSIONS = 4
 
 export type Phase = { id: string; phase: 'preparing' | 'connecting' | 'first_images' | 'streaming' | 'reconnecting' | 'ending' | 'ended'; detail: string | null }
 
@@ -235,6 +239,34 @@ export type Stats = {
   screens: number
 }
 
+/** Événement `stats` de la barre : les mesures de la session `id` (une seule barre, elle garde celles de la session qu'elle sert). */
+export type SessionStats = Stats & { id: string }
+
+/**
+ * Un ordinateur du menu « Ordinateurs » de la barre (`bar_computers`, événement `bar-computers`) :
+ * son état et son point de couleur comme dans le menu de l'icône, et ce que fait un clic
+ * (`show` : en session, sa fenêtre passe devant ; `connect` : sa session s'ouvre, en fenêtre ;
+ * `full` : quatre ordinateurs sont déjà en session ; `wake`, `waking`, `retry` : comme l'accueil ;
+ * `busy` : la Station redémarre ou s'installe).
+ */
+export type BarComputer = {
+  id: string
+  name: string
+  state: 'online' | 'offline' | 'searching'
+  dot: 'ok' | 'bad' | 'warn' | 'faint'
+  pick: 'show' | 'connect' | 'full' | 'wake' | 'waking' | 'retry' | 'busy'
+}
+
+/** Événement `session-keep-sound` : « Garder le son » de la session `id`. */
+export type KeepSound = { id: string; on: boolean }
+
+/**
+ * `connexion_state` : ce que montre la fenêtre de connexion d'une session suivante (plusieurs
+ * ordinateurs) à son ouverture ; ensuite, les mêmes événements que l'accueil. `error` : la
+ * session s'est terminée avant sa première image, avec cette raison.
+ */
+export type ConnexionView = { id: string; phase: Phase['phase']; restarting: boolean; error: string | null }
+
 /**
  * Réponse de `displays_info` : le réglage « Écrans » tel que le cœur le décide (`enabled` : il se
  * change, sinon il est inactif sur « Cet écran » ; `shown` : sa valeur montrée), le nombre
@@ -244,8 +276,13 @@ export type Stats = {
  */
 export type DisplaysInfo = { enabled: boolean; shown: Settings['displays']; count: number; virtual_display: boolean }
 
-/** Réponse de `connect` : les écrans que la session prend (« Préparation des écrans »). */
-export type ConnectInfo = { screens: number }
+/**
+ * Réponse de `connect` : les écrans que la session prend (« Préparation des écrans ») ;
+ * `windowed` : une session suivante (plusieurs ordinateurs), qui s'ouvre dans sa fenêtre avec sa
+ * propre fenêtre de connexion, sans passage sur l'accueil, ou un ordinateur déjà en session, dont
+ * la fenêtre passe devant.
+ */
+export type ConnectInfo = { screens: number; windowed: boolean }
 
 /** Événements `session-screens` (écrans de la session) et `session-replan` (la connexion reprend en session, avec ce nombre d'écrans). */
 export type ScreensEvent = { id: string; screens: number }

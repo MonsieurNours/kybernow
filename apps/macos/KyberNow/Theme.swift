@@ -163,22 +163,37 @@ struct GlassMenuOpenKey: PreferenceKey {
     static func reduce(value: inout Bool, nextValue: () -> Bool) { value = value || nextValue() }
 }
 
+/// Une ligne d'un menu en verre.
+struct GlassMenuItem: Identifiable {
+    let id: String
+    let title: String
+    var checked = false
+    /// Point d'état devant le titre (menu « Ordinateurs »).
+    var dot: StatusDot?
+    /// Ce que fait la ligne, à droite, plus discret (« Afficher »).
+    var detail: String?
+    var enabled = true
+    /// Aide au survol (une ligne inactive dit pourquoi).
+    var help: String?
+    let action: () -> Void
+}
+
 /// Menu en verre (barre de session) : un bouton, et la liste dans une bulle.
 struct GlassMenu<Label: View>: View {
-    struct Item: Identifiable {
-        let id: String
-        let title: String
-        var checked = false
-        let action: () -> Void
-    }
+    typealias Item = GlassMenuItem
 
     let items: [Item]
+    /// À l'ouverture (le menu « Ordinateurs » sonde les ordinateurs).
+    var onOpen: (() -> Void)?
     @ViewBuilder var label: Label
     @State private var open = false
     @State private var hovering = false
 
     var body: some View {
-        Button { open.toggle() } label: {
+        Button {
+            open.toggle()
+            if open { onOpen?() }
+        } label: {
             label
                 .background(Color.white.opacity(hovering || open ? 0.07 : 0), in: RoundedRectangle(cornerRadius: 8))
                 .contentShape(Rectangle())
@@ -212,15 +227,24 @@ struct GlassMenu<Label: View>: View {
                     Icon("check", size: 14, bold: true)
                         .foregroundStyle(Theme.accent)
                         .opacity(item.checked ? 1 : 0)
+                    if let dot = item.dot {
+                        Circle().fill(Color(nsColor: dot.darkColor)).frame(width: 8, height: 8)
+                    }
                     Text(item.title).font(Theme.sans(13.5, item.checked ? .semibold : .regular)).foregroundStyle(Theme.text)
-                    Spacer(minLength: 0)
+                    Spacer(minLength: 16)
+                    if let detail = item.detail {
+                        Text(detail).font(Theme.sans(12.5)).foregroundStyle(Theme.muted)
+                    }
                 }
+                .opacity(item.enabled ? 1 : 0.45)
                 .padding(.horizontal, 10)
                 .frame(height: 32)
-                .background(hovering ? Theme.accentFill.opacity(0.35) : .clear, in: RoundedRectangle(cornerRadius: 6))
+                .background(hovering && item.enabled ? Theme.accentFill.opacity(0.35) : .clear, in: RoundedRectangle(cornerRadius: 6))
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .disabled(!item.enabled)
+            .help(item.help ?? "")
             .onHover { hovering = $0 }
         }
     }

@@ -218,6 +218,84 @@ pub fn screen_mode() -> Mode {
     }
 }
 
+/// Une fenêtre qu'on voit (pas une fenêtre cachée ou minuscule, comme celle
+/// de l'icône près de l'horloge, à qui Windows rend parfois le premier plan).
+fn seen(hwnd: HWND) -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::{GetWindowRect, IsIconic, IsWindowVisible};
+    let mut r = RECT::default();
+    unsafe {
+        !hwnd.0.is_null()
+            && IsWindowVisible(hwnd).as_bool()
+            && !IsIconic(hwnd).as_bool()
+            && GetWindowRect(hwnd, &mut r).is_ok()
+            && r.right - r.left > 100
+            && r.bottom - r.top > 60
+    }
+}
+
+/// Le cadre d'une fenêtre de session (`WS_OVERLAPPEDWINDOW`) autour de cette
+/// zone cliente, à l'échelle de l'écran où elle se pose (`at` : un point de
+/// cet écran) : décalage du coin haut gauche du cadre par rapport à celui de
+/// la zone cliente (négatif), puis taille du cadre.
+pub fn session_frame(client: (i32, i32), at: (i32, i32)) -> (i32, i32, i32, i32) {
+    use windows::Win32::Foundation::POINT;
+    use windows::Win32::Graphics::Gdi::{MONITOR_DEFAULTTONEAREST, MonitorFromPoint};
+    use windows::Win32::UI::HiDpi::{AdjustWindowRectExForDpi, GetDpiForMonitor, MDT_EFFECTIVE_DPI};
+    use windows::Win32::UI::WindowsAndMessaging::{WINDOW_EX_STYLE, WS_OVERLAPPEDWINDOW};
+    unsafe {
+        let monitor = MonitorFromPoint(POINT { x: at.0, y: at.1 }, MONITOR_DEFAULTTONEAREST);
+        let (mut dx, mut dy) = (96u32, 96u32);
+        let _ = GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dx, &mut dy);
+        let mut r = RECT { left: 0, top: 0, right: client.0, bottom: client.1 };
+        let _ = AdjustWindowRectExForDpi(&mut r, WS_OVERLAPPEDWINDOW, false, WINDOW_EX_STYLE(0), dx.max(48));
+        (r.left, r.top, r.right - r.left, r.bottom - r.top)
+    }
+}
+
+/// Le coin haut gauche du cadre d'une fenêtre de session dont la zone
+/// cliente commence en `client_at` (pixels du bureau).
+pub fn frame_origin(client_at: (i32, i32), client: (i32, i32)) -> (i32, i32) {
+    let (left, top, _, _) = session_frame(client, client_at);
+    (client_at.0 + left, client_at.1 + top)
+}
+
+/// L'écran (nom du périphérique) de la fenêtre active, où s'ouvre une session
+/// de plus (plusieurs ordinateurs) : une fenêtre de l'app au premier plan
+/// (une session, l'accueil, la barre) ; sinon `fallback`, la dernière fenêtre
+/// de la session active ; sinon l'accueil.
+pub fn active_monitor_key(fallback: isize) -> Option<String> {
+    use windows::Win32::System::Threading::GetCurrentProcessId;
+    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
+    let fg = unsafe { GetForegroundWindow() };
+    let mut pid = 0u32;
+    unsafe {
+        GetWindowThreadProcessId(fg, Some(&mut pid));
+    }
+    let ours = pid == unsafe { GetCurrentProcessId() } && seen(fg);
+    let fallback = HWND(fallback as *mut _);
+    let home = HWND(HOME_WINDOW.load(std::sync::atomic::Ordering::Relaxed) as *mut _);
+    let anchor = if ours {
+        fg
+    } else if seen(fallback) {
+        fallback
+    } else {
+        home
+    };
+    if anchor.0.is_null() {
+        return None;
+    }
+    let mut info = MONITORINFOEXW::default();
+    info.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
+    let ok = unsafe {
+        let monitor = MonitorFromWindow(anchor, MONITOR_DEFAULTTONEAREST);
+        GetMonitorInfoW(monitor, &mut info as *mut MONITORINFOEXW as *mut MONITORINFO).as_bool()
+    };
+    ok.then(|| {
+        let len = info.szDevice.iter().position(|&c| c == 0).unwrap_or(info.szDevice.len());
+        String::from_utf16_lossy(&info.szDevice[..len])
+    })
+}
+
 /// Fenêtre aux proportions de l'image, à 80 % de l'espace de travail.
 pub fn initial_window_size(mode: Mode) -> (i32, i32) {
     let mut r = RECT::default();

@@ -82,6 +82,11 @@ pub struct Layout {
     /// ce PC changés). `None`, ou écran débranché : l'écran de la fenêtre de
     /// l'accueil en ce moment.
     pub this_screen: Option<String>,
+    /// Plusieurs ordinateurs : une session ouverte pendant qu'une autre
+    /// tourne, qui prend « Cet écran » (celui de la fenêtre active, dans
+    /// `this_screen`) quel que soit le réglage (`screens_for_extra_session`
+    /// du cœur), au lancement comme quand les écrans de ce PC changent.
+    pub extra_session: bool,
 }
 
 impl Layout {
@@ -90,7 +95,7 @@ impl Layout {
         if let Some(i) = self.this_screen.as_ref().and_then(|k| self.monitors.iter().position(|m| m.key.eq_ignore_ascii_case(k))) {
             s.current = i;
         }
-        s
+        if self.extra_session { kybernow_core::screens::screens_for_extra_session(&s) } else { s }
     }
 
     /// Les écrans de ce PC maintenant, et « Cet écran » : celui de la fenêtre
@@ -99,7 +104,7 @@ impl Layout {
     pub fn now(spec: Spec) -> Self {
         let monitors = enumerate();
         let this_screen = monitors.get(current(&monitors)).map(|m| m.key.clone());
-        Self { monitors, spec, this_screen }
+        Self { monitors, spec, this_screen, extra_session: false }
     }
 
     /// L'écran de ce nom.
@@ -292,7 +297,7 @@ mod tests {
     fn cet_ecran_garde_au_lancement_de_la_session() {
         // L'accueil était sur l'écran de gauche au lancement, puis il est passé
         // sur l'écran principal pour la connexion : la session garde celui de gauche.
-        let layout = Layout { monitors: auteur(), spec: spec(), this_screen: Some("\\\\.\\display2".into()) };
+        let layout = Layout { monitors: auteur(), spec: spec(), this_screen: Some("\\\\.\\display2".into()), extra_session: false };
         assert_eq!(layout.screens().current, 0);
         // Écran débranché depuis : l'écran de l'accueil, à défaut le principal.
         let gone = Layout { this_screen: Some("\\\\.\\DISPLAY9".into()), ..layout.clone() };
@@ -356,6 +361,27 @@ mod tests {
         // Station qui ne crée qu'un écran.
         let old = screens(&m, Spec { max_screens: 1, ..spec() });
         assert!(kybernow_core::screens::session_plan(&old, Some(kybernow_core::profile::Profile::Bureau), true, kybernow_core::profile::Codec::Hevc).is_none());
+    }
+
+    #[test]
+    fn session_de_plus_sur_cet_ecran() {
+        // Plusieurs ordinateurs : une session de plus prend « Cet écran »,
+        // celui de la fenêtre active, quel que soit le réglage (la règle du
+        // cœur), et sa fenêtre est celle du cœur, en pixels de ce PC.
+        let layout = Layout { monitors: auteur(), spec: Spec { setting: DisplaysSetting::All, ..spec() }, this_screen: Some("\\\\.\\DISPLAY3".into()), extra_session: true };
+        let s = layout.screens();
+        assert_eq!(s.current, 2);
+        assert_eq!(s.setting, DisplaysSetting::This);
+        let caps = spec().capabilities.unwrap();
+        let bureau = kybernow_core::profile::StreamSettings::for_profile(kybernow_core::profile::Profile::Bureau, caps);
+        assert!(kybernow_core::screens::session_plan_for(&s, &bureau, true).is_none(), "un seul écran");
+        let w = kybernow_core::screens::extra_session_window(&s.list[s.current]);
+        // Le mode en multiples de 8 (16:9 à 0,5 % près), le cadre recentré.
+        assert_eq!((w.mode.width, w.mode.height, w.mode.refresh), (1704, 960, 60));
+        assert_eq!((w.x.round() as i32, w.y.round() as i32), (3840 + 428, 240));
+        // La première session : le réglage tel quel.
+        let first = Layout { extra_session: false, ..layout };
+        assert_eq!(first.screens().setting, DisplaysSetting::All);
     }
 
     #[test]

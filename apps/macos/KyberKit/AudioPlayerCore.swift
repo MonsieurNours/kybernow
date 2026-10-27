@@ -42,6 +42,8 @@ final class AudioPlayer: @unchecked Sendable {
     /// Le moteur du cœur ; la sortie déclare ses voies dans l'ordre d'Opus
     /// (étiquettes de `setLayout`), le moteur n'a rien à réordonner.
     private let engine: OpaquePointer
+    /// Le moteur, pour que la session le suive (son coupé : `kn_session_attach_audio`).
+    var core: OpaquePointer { engine }
     private var unit: AudioUnit?
     /// Voies du flux pour lesquelles la sortie est ouverte.
     private var channels = 0
