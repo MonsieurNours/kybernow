@@ -1,14 +1,14 @@
 <!--
   Panneau d'un partage ouvert (KyberNow Share) : le code, le lien et son QR
-  code, les participants et leurs droits, « Nouveau code », « Arrêter le
-  partage ». Le même sur l'accueil et dans Appareils Link d'Admin, et dans la
+  code, les participants, leurs droits et la qualité d'image d'un invité qui
+  ne reçoit pas celle de l'hôte, « Nouveau code », « Arrêter le partage ». Le même sur l'accueil et dans Appareils Link d'Admin, et dans la
   barre de session du client web (routes de l'hôte) ; textes de
   docs/link-ui.md (« Partage »).
 -->
 <script lang="ts">
   import { localShare, type ShareGuest, type ShareOps, type ShareRole, type ShareView } from './api'
   import { errorText, notify as storeNotify, refreshStatus, setShare } from './store.svelte'
-  import { deviceIcon, screenLine, sinceText } from './format'
+  import { deviceIcon, imageQuality, screenLine, sinceText } from './format'
   import Icon from './Icon.svelte'
   import Qr from './Qr.svelte'
   import { t, tn } from './i18n/index.svelte'
@@ -66,6 +66,11 @@
   function appName(app: string): string {
     const name = t(`share.apps.${app}`)
     return name.startsWith('share.') ? app : name
+  }
+
+  /** Sa qualité d'image, seulement quand ce n'est pas celle de l'hôte (« 1080p · 60 Hz ») ; l'hôte ne la change pas. */
+  function imageLine(g: ShareGuest): string {
+    return g.image?.follows_host === false ? imageQuality(g.image) : ''
   }
 
   /** Le rôle de deux droits : les manettes, le clavier et la souris. */
@@ -152,7 +157,7 @@
         <span class="device-icon" class:live={g.role !== 'spectator'}><Icon name={appIcon(g.app)} size={19} stroke={1.6} /></span>
         <div class="who">
           <span class="name">{t(`share.role.${g.role}`, { name: g.name })}</span>
-          <span class="meta">{appName(g.app)} · {t('share.since', { duration: sinceText(now - g.since) })}</span>
+          <span class="meta">{[appName(g.app), imageLine(g), t('share.since', { duration: sinceText(now - g.since) })].filter(Boolean).join(' · ')}</span>
         </div>
         <div class="moves">
           {#each moves(g) as m (m.role)}

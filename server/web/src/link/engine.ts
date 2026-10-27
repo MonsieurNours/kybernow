@@ -12,7 +12,7 @@ export interface CodecSupport {
 export interface StreamSettings {
   /** kymux : WebTransport (QUIC) ; websocket : par la console, quand WebTransport ne marche pas. */
   protocol: 'kymux' | 'websocket'
-  /** `av1` seulement pour un invité du partage : il reçoit le format de l'hôte (`share.ts`). */
+  /** `av1` : jamais demandé (le moteur ne le lit pas) ; un invité demande celui de l'hôte s'il le lit, sinon H.264 (`share.ts`). */
   codec: 'h264' | 'hevc' | 'av1'
   yuv444: boolean
   bitrate: number
@@ -193,6 +193,8 @@ export class Engine {
   private settings: StreamSettings | null = null
   /** Écran à recevoir (invité du partage) : sinon le premier de la liste de Kyber. */
   private displayId: number | undefined
+  /** Rang de cet écran dans la liste de Kyber (configuration en cours). */
+  private displayIndex = 0
   private stopping = false
   /** Fin de l'arrêt : l'événement `stopped` du moteur. */
   private stoppedNow: (() => void) | null = null
@@ -210,6 +212,7 @@ export class Engine {
   /** La configuration de l'image pour l'écran de rang `index` dans la liste de Kyber. */
   private buildConfig(index: number) {
     const s = this.settings!
+    this.displayIndex = index
     const b = new this.m.StreamingConfigBuilder()
     b.protocol = s.protocol
     if (s.protocol === 'kymux') {
@@ -392,6 +395,14 @@ export class Engine {
       this.restartWatch = null
       if (!this.stopping) this.onEvent({ type: 'stopped', reason: 'restart' })
     })
+  }
+
+  /** D'autres réglages de l'image (format, 4:4:4 d'un invité qui change de qualité) : ils valent à la
+   * prochaine relance (`restartVideo`), sur le même écran. */
+  updateSettings(s: StreamSettings) {
+    if (!this.m) return
+    this.settings = s
+    this.config = this.buildConfig(this.displayIndex)
   }
 
   /** Nouveau jeton (la console en signe pour 12 h) : servira aux reconnexions.

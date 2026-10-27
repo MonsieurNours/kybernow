@@ -9,8 +9,8 @@
   import { onMount, tick, untrack } from 'svelte'
   import { backend, endBody, heartbeatBody, type GuestBeat, type Info } from './backend'
   import { Heartbeat } from './heartbeat'
-  import { guestTarget, type HeartbeatResult } from './heartbeat-call'
-  import { ApiError, type ShareRole, type ShareView } from '../lib/api'
+  import { guestTarget, sendHeartbeat, type HeartbeatResult } from './heartbeat-call'
+  import { ApiError, type GuestImage, type ShareQuality, type ShareRole, type ShareView } from '../lib/api'
   import { Engine, allStopped, isFixedEngine, retire, supportedCodecs, type DisplayInfo, type Latency } from './engine'
   import { choose, preferredProtocol, type Plan } from './plan'
   import { deviceId, isCustom, MIN_SESSION_SECONDS, profileName, saveLastSession, type MouseMode, type Prefs, type TouchMode } from './prefs'
@@ -26,7 +26,8 @@
   import { i18n, t, tn } from '../lib/i18n/index.svelte'
   import { tName } from './names'
   import { lastResortAllowed, restartForConnection } from './station.svelte'
-  import { formatLabel, leaveShare, redact, type GuestStart } from './share'
+  import { autoCaps, formatLabel, guestFormat, leaveShare, QUALITIES, qualityName, redact, saveQuality, tokenPreset, type GuestStart } from './share'
+  import { imageQuality } from '../lib/format'
   import { gamepadsChanged, installGamepadGate, removeGamepadGate } from './gamepads'
   import ShareBox from './ShareBox.svelte'
 
@@ -87,6 +88,31 @@
   /** Le dernier appui sur « Partager » est un doigt ou un stylet (pas une souris ni le clavier). */
   let shareTouch = false
   let diagText = $state('')
+  /** « Qualité de l'image » d'un invité (docs/link-ui.md, « Partage ») : celle qu'il demande (retenue
+   * quand il la choisit), et ce que la Station dit de son image (`null` avant sa première réponse). */
+  let quality = $state<ShareQuality>(g?.quality ?? 'auto')
+  let image = $state<GuestImage | null>(null)
+  /** La Station connaît la qualité d'un invité (son signe de vie donne `image`) : le choix est dans la barre. */
+  let qualityKnown = $state(false)
+  let qualityOpen = $state(false)
+  let qualityBusy = $state(false)
+  /** Le menu de la qualité s'ouvre sous sa puce (barre de la souris). */
+  let qualityChip = $state<HTMLElement | null>(null)
+  let qualityLeft = $state(0)
+  /** La barre montre la qualité reçue (« 1080p · 60 Hz »), celle demandée tant que Kyber ne la dit pas. */
+  const receivedText = $derived(imageQuality(image) || qualityName(quality))
+  /** Qualité changée en cours de session : les étapes (« Premières images ») jusqu'à la nouvelle image. */
+  let switching = $state(false)
+  let switchTarget: { width: number; height: number } | null = null
+  let switchTimer: ReturnType<typeof setTimeout> | null = null
+  /** Taille de l'image décodée (`resized`) ; `null` après une relance de l'image. */
+  let decoded: { width: number; height: number } | null = null
+  /** Dernier avis d'image ajustée (raison et taille) : un avis par changement, pas à chaque signe de vie. */
+  let imageNoticeKey = ''
+  /** Avis à montrer à la prochaine image (après une relance). */
+  let pendingNotice = ''
+  /** Dernier recours après une erreur de décodage : l'invité est déjà repassé en 720p30. */
+  let fallbackTried = false
 
   let stage: HTMLElement
   let canvasBox: HTMLElement
@@ -190,6 +216,10 @@
     if (beat.end) return endedByHost(beat.end)
     if (beat.role && beat.role !== role) changeRole(beat.role)
     if (beat.token) ticketToken = beat.token
+    if (beat.image) {
+      qualityKnown = true
+      onImage(beat.image)
+    }
     const display = beat.display
     const moved = !!display && !!guestDisplay && display.id !== guestDisplay.id
     if (display && guestDisplay) {
@@ -216,6 +246,174 @@
   /** La Station dit pourquoi l'invité est sorti : l'hôte a arrêté le partage ou l'a retiré. */
   function endedByHost(end: 'stopped' | 'removed') {
     fail(t(end === 'removed' ? 'share.guest.removed' : 'share.guest.stopped', { host: g?.join.host ?? '' }))
+  }
+
+  /** Un signe de vie tout de suite, sans attendre le Worker : le jeton renouvelé et l'image. */
+  async function beatNow(): Promise<HeartbeatResult | null> {
+    if (!g) return null
+    const r = await sendHeartbeat(location.origin, { guest: g.join.guest }, guestTarget(g.join.secret))
+    if (!ended && phase !== 'ended') onGuestBeat(r)
+    return r
+  }
+
+  /**
+   * Ce que la Station dit de l'image de l'invité. Quand elle l'ajuste (docs/link-ui.md, « Image ajustée par
+   * la Station »), un avis bref, une fois par changement : en retard sur l'image de l'hôte, « Image
+   * allégée pour suivre. » ; pas d'image de plus possible, « L'ordinateur ne peut pas faire une image de
+   * plus : vous recevez 720p · 30 Hz. ».
+   */
+  function onImage(next: GuestImage) {
+    image = next
+    const adjusted = next.reason === 'lag' || next.reason === 'limit'
+    const key = adjusted ? `${next.reason} ${next.width}x${next.height}@${next.fps}` : ''
+    if (key === imageNoticeKey) return
+    imageNoticeKey = key
+    if (!adjusted) return
+    const text = next.reason === 'lag' ? t('share.guest.lightened') : t('share.guest.noMoreImage', { quality: imageQuality(next) || qualityName(next.quality) })
+    // Déjà dit à l'instant (l'image décodée a rapetissé) : pas deux fois.
+    if (notice === text) return
+    if (phase === 'live' && !switching) showNotice(text)
+    else pendingNotice = text
+  }
+
+  /**
+   * L'image décodée a changé de taille. Pendant un changement de qualité, c'est la nouvelle image qui
+   * arrive. Sinon, une image plus petite sans que l'invité ait rien changé, et qui n'est pas l'écran de
+   * l'hôte (l'hôte a pu changer de définition) : la Station l'a allégée, l'avis tout de suite (« Image
+   * allégée pour suivre. »), la raison exacte au signe de vie suivant, demandé aussitôt.
+   */
+  function onDecoded(size: { width: number; height: number }) {
+    const before = decoded
+    decoded = size
+    if (!g) return
+    if (switching) {
+      if (!switchTarget || near(size, switchTarget)) endSwitch()
+      return
+    }
+    const hostScreen = (!!guestDisplay && near(size, guestDisplay)) || !!displays?.some((d) => near(size, d))
+    if (before && phase === 'live' && size.width * size.height < before.width * before.height && !hostScreen) {
+      showNotice(t('share.guest.lightened'))
+      void beatNow()
+    }
+  }
+
+  const near = (a: { width: number; height: number }, b: { width: number; height: number }) => Math.abs(a.width - b.width) <= 8 && Math.abs(a.height - b.height) <= 8
+
+  /** Les étapes jusqu'à la nouvelle image : elle arrive dans le flux (Kyber déplace l'image de l'invité :
+   * en-têtes puis image clé). Pas de nouvelle taille en 4 s : l'image est relancée proprement. */
+  function startSwitch(target: { width: number; height: number } | null) {
+    endSwitch()
+    switching = true
+    switchTarget = target
+    const e = engine
+    switchTimer = setTimeout(() => {
+      if (!switching || engine !== e || !e) return
+      console.warn('KyberNow : nouvelle image pas arrivée dans le flux ; image relancée')
+      e.restartVideo()
+      // La relance a son propre délai (5 s, puis la session entière) : les étapes ne restent pas au-delà.
+      switchTimer = setTimeout(endSwitch, 10_000)
+    }, 4000)
+  }
+
+  function endSwitch() {
+    if (switchTimer) clearTimeout(switchTimer)
+    switchTimer = null
+    switching = false
+    switchTarget = null
+  }
+
+  /** Le format que l'invité demande à Kyber, d'après le préréglage de son jeton (`kn_quality`). */
+  function guestFormatNow(): { codec: 'h264' | 'hevc'; yuv444: boolean } | null {
+    if (!g) return null
+    const preset = tokenPreset(ticketToken)
+    return guestFormat(g.join.codec, g.join.yuv444, codecList, preset === null || preset === 'host')
+  }
+
+  function toggleQuality() {
+    qualityOpen = !qualityOpen
+    if (!qualityOpen) return
+    metricsOpen = false
+    keysOpen = false
+    // Sous la puce, dans la barre (positionnée) qui la contient.
+    if (qualityChip) qualityLeft = qualityChip.offsetLeft
+  }
+
+  /**
+   * « Qualité de l'image » changée dans la barre : retenue pour la fois suivante, envoyée à la Station
+   * (`POST /api/share/quality`), qui fait relancer à Kyber l'image de l'invité seulement. Le jeton
+   * renouvelé porte le nouveau préréglage. Préréglage inchangé (« Auto » qui donnait déjà 1080p60) : rien
+   * ne bouge. Format à changer (4:4:4 de l'image de l'hôte ou 4:2:0 d'une image à part) : l'image est
+   * relancée proprement ; sinon la nouvelle image arrive dans le flux.
+   */
+  async function pickQuality(q: ShareQuality) {
+    qualityOpen = false
+    if (!g || q === quality || qualityBusy || phase !== 'live') return
+    const before = quality
+    const presetBefore = tokenPreset(ticketToken)
+    const gen = generation
+    quality = q
+    qualityBusy = true
+    try {
+      const auto = q === 'auto' ? await autoCaps() : undefined
+      const next = await backend.shareQuality(g.join, q, auto)
+      saveQuality(q)
+      if (stale(gen)) return
+      onImage(next)
+      await beatNow()
+      if (stale(gen) || phase !== 'live' || !engine || !plan) return
+      const preset = tokenPreset(ticketToken)
+      if (preset && preset === presetBefore) return
+      const format = guestFormatNow()
+      if (format && (format.codec !== plan.codec || format.yuv444 !== plan.yuv444)) {
+        plan = { ...plan, ...format }
+        engine.updateSettings(plan)
+        startSwitch(null)
+        engine.restartVideo()
+        return
+      }
+      const target = next.width && next.height ? { width: next.width, height: next.height } : null
+      // Même taille (la fréquence seule change) : rien à attendre à l'écran.
+      if (target && decoded && near(target, decoded)) return
+      startSwitch(target)
+    } catch (e) {
+      console.warn('KyberNow : qualité non changée', redact(e instanceof Error ? e.message : e, [g.join.secret, ticketToken]))
+      if (stale(gen)) return
+      quality = before
+      showNotice(t('share.quality.failed'))
+    } finally {
+      qualityBusy = false
+    }
+  }
+
+  /**
+   * Dernier recours d'un invité dont ce navigateur ne décode pas l'image (le moteur a redemandé une image
+   * clé, en vain) : il rejoint de nouveau son image en 720p30 (sa qualité retenue ne change pas), avec
+   * l'avis « Image allégée pour suivre. ». Déjà en 720p30, ou une seconde fois : l'échec est dit.
+   */
+  async function guestFallback() {
+    if (!g) return
+    fallbackTried = true
+    const gen = generation
+    const e = engine
+    engine = null
+    clearWatches()
+    endSwitch()
+    phase = 'connecting'
+    connectStep = 'image'
+    await retire(e)
+    if (stale(gen)) return
+    try {
+      onImage(await backend.shareQuality(g.join, '720p30'))
+      // Le jeton renouvelé porte 720p30 (`kn_quality`) : Kyber le prend à la nouvelle connexion.
+      await beatNow()
+    } catch {
+      if (!stale(gen)) fail(t('share.guest.decode', { host: hostname }))
+      return
+    }
+    if (stale(gen)) return
+    quality = '720p30'
+    pendingNotice = t('share.guest.lightened')
+    start()
   }
 
   /**
@@ -280,7 +478,14 @@
   /** « 8,3 » en français, « 8.3 » en anglais. */
   const decimal = (text: string) => (i18n.lang === 'fr' ? text.replace('.', ',') : text)
   const latencyText = $derived(latency ? `${decimal(latency.total.toFixed(latency.total < 10 ? 1 : 0))} ms` : '— ms')
-  const formatText = $derived(mode && plan ? `${mode.width} × ${mode.height} · ${mode.refresh} Hz · ${formatLabel(plan.codec, plan.yuv444)}` : '')
+  const formatText = $derived.by(() => {
+    if (!mode || !plan) return ''
+    // Un invité : l'image qu'il reçoit (une image à part est en 4:2:0), une fois que Kyber la dit.
+    if (g && image?.width && image.height) {
+      return `${image.width} × ${image.height} · ${image.fps ?? mode.refresh} Hz · ${formatLabel(image.codec ?? plan.codec, plan.yuv444 && image.follows_host !== false)}`
+    }
+    return `${mode.width} × ${mode.height} · ${mode.refresh} Hz · ${formatLabel(plan.codec, plan.yuv444)}`
+  })
   const sparkPath = $derived(
     spark.length < 2
       ? ''
@@ -413,6 +618,7 @@
   async function start() {
     const gen = ++generation
     error = ''
+    endSwitch()
     phase = 'preparing'
     try {
       // La session d'avant doit avoir rendu son écran et arrêté son moteur.
@@ -481,12 +687,15 @@
     await e.connect(streamHost(), location.port || '443', ticketToken, plan, g ? guestDisplay?.id : undefined)
   }
 
-  /** L'invité reçoit le format de l'hôte (image commune), sans presse-papiers. Image pas encore
-   * démarrée : il prend celui que ce navigateur lit le mieux, et l'hôte le recevra aussi. */
+  /** L'invité demande le format de l'hôte s'il le lit (il partage alors son image), sinon un format qu'il
+   * lit : Kyber lui fait une image à part (docs/kybernow-share.md, « L'image d'un invité »). Le 4:4:4
+   * seulement pour l'image de l'hôte (`host` dans son jeton) ; jamais de presse-papiers. Image de l'hôte
+   * pas encore démarrée : le format que ce navigateur lit le mieux (l'hôte garde le sien). */
   function guestPlan(p: Plan): Plan {
-    const join = g!.join
-    if (!join.codec) return { ...p, clipboard: false }
-    return { ...p, codec: join.codec.toLowerCase() as Plan['codec'], yuv444: join.yuv444, clipboard: false }
+    const preset = tokenPreset(ticketToken)
+    const format = guestFormatNow()
+    if (!format) return { ...p, yuv444: p.yuv444 && (preset === null || preset === 'host'), clipboard: false }
+    return { ...p, ...format, clipboard: false }
   }
 
   /** Pas de plan de contrôle : Kyber ne répond pas (ce n'est pas une affaire de transport). */
@@ -612,12 +821,14 @@
       case 'resized':
         canvasSize = { width: e.width, height: e.height }
         fit()
+        onDecoded({ width: e.width, height: e.height })
         break
       case 'video-stopped':
         // Relance de l'image : l'ancienne toile appartient au moteur, il en
         // faut une neuve ; l'écran visé et la connexion des entrées changent.
         forgetInputSocket()
         freshCanvas()
+        decoded = null
         break
       case 'displays':
         onDisplays(e.displays)
@@ -632,8 +843,13 @@
         // Aussi après une relance de l'image : la session est déjà en cours.
         const first = phase !== 'live'
         clearWatches()
+        endSwitch()
         phase = 'live'
         reconnecting = ''
+        if (pendingNotice) {
+          showNotice(pendingNotice)
+          pendingNotice = ''
+        }
         if (!heartbeat.running) heartbeat.start(heartbeatBody(null, profileLabel, extra()))
         learnDisplayId().then((list) => {
           if (list && !displays) displays = list.map((d) => ({ id: d.id, name: String(d.name ?? ''), width: Number(d.width) || 0, height: Number(d.height) || 0 }))
@@ -643,6 +859,8 @@
         if (stableTimer) clearTimeout(stableTimer)
         stableTimer = setTimeout(() => (pipelineRestarts = 0), 30_000)
         if (first) {
+          // Un invité apprend tout de suite ce que la Station dit de son image (et si elle connaît la qualité).
+          if (g) void beatNow()
           // Pas après une relance : le clavier de l'appareil se fermerait.
           document.getElementById('kn-canvas')?.focus()
           wasLive = true
@@ -672,7 +890,9 @@
           // Le moteur a perdu sa toile en se reconnectant : on recommence proprement.
           restart()
         } else if (e.reason === 'decode_error') {
-          fail(g ? t('share.guest.decode', { host: hostname }) : t('session.error.decode'))
+          // Le moteur a redemandé une image clé, en vain (correctif 0020) : un invité repasse en 720p30, une fois.
+          if (g && !fallbackTried && tokenPreset(ticketToken) !== '720p30') void guestFallback()
+          else fail(g ? t('share.guest.decode', { host: hostname }) : t('session.error.decode'))
         } else if (e.reason === 'controlplane_closed') {
           const message = t('session.error.closed', { host: hostname })
           if (g) guestClosed(message)
@@ -699,6 +919,8 @@
 
   function fail(message: string) {
     generation++
+    endSwitch()
+    qualityOpen = false
     keepLastSession()
     leaveGuest()
     clearWatches()
@@ -836,10 +1058,10 @@
   /** Arme la fermeture : jamais pendant qu'un menu est ouvert. */
   function scheduleBarHide(delay: number) {
     clearBarTimer()
-    if (isTouch || metricsOpen || keysOpen || shareOpen || phase !== 'live') return
+    if (isTouch || metricsOpen || keysOpen || shareOpen || qualityOpen || phase !== 'live') return
     barTimer = setTimeout(() => {
       barTimer = null
-      if (!metricsOpen && !keysOpen && !shareOpen) hideBar()
+      if (!metricsOpen && !keysOpen && !shareOpen && !qualityOpen) hideBar()
     }, delay)
   }
 
@@ -853,7 +1075,7 @@
 
   // Un menu qui se ferme sous un pointeur parti ailleurs laisse la barre se refermer.
   $effect(() => {
-    if (barVisible && !metricsOpen && !keysOpen && !shareOpen) untrack(settleBar)
+    if (barVisible && !metricsOpen && !keysOpen && !shareOpen && !qualityOpen) untrack(settleBar)
   })
 
   // Un invité sans clavier ni souris n'envoie rien de la page, et ce qu'il tenait est relâché
@@ -1236,6 +1458,7 @@
       clearWatches()
       if (noticeTimer) clearTimeout(noticeTimer)
       if (stableTimer) clearTimeout(stableTimer)
+      endSwitch()
       window.removeEventListener('keydown', shortcut, true)
       window.removeEventListener('blur', onBlur)
       window.removeEventListener('focus', onFocus)
@@ -1279,7 +1502,7 @@
     {/if}
   </div>
 
-  {#if phase !== 'live'}
+  {#if phase !== 'live' || switching}
     <div class="overlay" role="status">
       {#if phase === 'ended'}
         <div class="card">
@@ -1297,7 +1520,7 @@
           </div>
         </div>
       {:else}
-        {@const current = phase === 'preparing' ? 0 : connectStep === 'kyber' ? 1 : 2}
+        {@const current = phase === 'live' ? 2 : phase === 'preparing' ? 0 : connectStep === 'kyber' ? 1 : 2}
         <div class="card">
           <Mark size={34} state="now" lit breathe />
           <h2 class="disp">{title}</h2>
@@ -1337,7 +1560,7 @@
       <Mark size={22} state="now" lit breathe />
       <span class="host">{title}</span>
       <span class="sep" aria-hidden="true"></span>
-      <button type="button" class="lat" aria-expanded={metricsOpen} aria-label={t('session.bar.metrics')} onclick={() => { metricsOpen = !metricsOpen; keysOpen = false; shareOpen = false }}>
+      <button type="button" class="lat" aria-expanded={metricsOpen} aria-label={t('session.bar.metrics')} onclick={() => { metricsOpen = !metricsOpen; keysOpen = false; shareOpen = false; qualityOpen = false }}>
         <span class="mono value">{latencyText}</span>
         <svg width="64" height="22" viewBox="0 0 64 22" aria-hidden="true"><path d={sparkPath} fill="none" stroke="#9A8CFF" stroke-width="1.5" stroke-linejoin="round" /></svg>
         <span class="mono fmt">{formatText}</span>
@@ -1351,6 +1574,13 @@
           </svg>
           <span class="label">{roleText}</span>
         </span>
+        {#if qualityKnown}
+          <!-- « Qualité de l'image » : la qualité reçue ; le menu la change (l'image de l'invité seulement). -->
+          <button type="button" class="chip" bind:this={qualityChip} aria-haspopup="menu" aria-expanded={qualityOpen} aria-label="{t('share.quality.title')} · {receivedText}" title={t('share.quality.title')} disabled={qualityBusy} onclick={toggleQuality}>
+            <Icon name="display" size={16} stroke={1.7} />
+            <span class="label">{receivedText}</span>
+          </button>
+        {/if}
       {:else}
         <span class="chip static">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9A8CFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M8 20h8M12 16v4" /></svg>
@@ -1376,7 +1606,7 @@
         </button>
       {/if}
       {#if canKbm}
-        <button type="button" class="chip" aria-label={t('session.bar.keys')} aria-expanded={keysOpen} onclick={() => { keysOpen = !keysOpen; metricsOpen = false; shareOpen = false }}>
+        <button type="button" class="chip" aria-label={t('session.bar.keys')} aria-expanded={keysOpen} onclick={() => { keysOpen = !keysOpen; metricsOpen = false; shareOpen = false; qualityOpen = false }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2" /><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8" /></svg>
           <span class="label">{t('session.bar.keys')}</span>
         </button>
@@ -1401,6 +1631,14 @@
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 3v9" /><path d="M6.3 6.3a8 8 0 1 0 11.4 0" /></svg>
         <span class="label">{g ? t('share.guest.leave') : t('session.bar.quit')}</span>
       </button>
+
+      {#if qualityOpen && g}
+        <div class="menu glass qmenu" role="menu" aria-label={t('share.quality.title')} style:left="{qualityLeft}px">
+          {#each QUALITIES as q (q)}
+            <button type="button" role="menuitemradio" aria-checked={q === quality} onclick={() => pickQuality(q)}>{qualityName(q)}{#if q === quality}<Icon name="check" size={15} stroke={2} />{/if}</button>
+          {/each}
+        </div>
+      {/if}
 
       {#if keysOpen && canKbm}
         <div class="menu glass" role="menu" aria-label={t('session.keys.title')}>
@@ -1448,6 +1686,11 @@
         <Mark size={20} state="now" lit />
         <span class="mono tlat">{latencyText}</span>
         {#if g}<span class="trole">{roleText}</span>{/if}
+        {#if g && qualityKnown}
+          <button type="button" class="tb" aria-haspopup="menu" aria-expanded={qualityOpen} aria-label="{t('share.quality.title')} · {receivedText}" disabled={qualityBusy} onclick={() => (qualityOpen = !qualityOpen)}>
+            <Icon name="display" size={20} stroke={1.7} />
+          </button>
+        {/if}
         {#if gamepads.length && canPlay}
           <span class="tpad" title={gamepads.map((p) => p.name).join(', ')} aria-label={gamepadAria}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#9A8CFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 8h10a4 4 0 0 1 4 4v1a3 3 0 0 1-5.4 1.8L14.5 13h-5l-1.1 1.8A3 3 0 0 1 3 13v-1a4 4 0 0 1 4-4z" /><path d="M8 10.5v3M6.5 12h3" /></svg>
@@ -1476,12 +1719,20 @@
           </button>
         {/if}
         <span class="sep" aria-hidden="true"></span>
-        <button type="button" class="tb" onclick={() => { touchBar = false; guide = false }} aria-label={t('session.touch.hideBar')}>
+        <button type="button" class="tb" onclick={() => { touchBar = false; guide = false; qualityOpen = false }} aria-label={t('session.touch.hideBar')}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 15l6-6 6 6" /></svg>
         </button>
         <button type="button" class="tb danger-tb" onclick={quit} aria-label={g ? t('share.guest.leave') : t('session.bar.quit')}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 3v9" /><path d="M6.3 6.3a8 8 0 1 0 11.4 0" /></svg>
         </button>
+        {#if qualityOpen && g}
+          <div class="menu glass tmenu" role="menu" aria-label={t('share.quality.title')}>
+            <span class="mhead-q">{t('share.quality.title')} · {receivedText}</span>
+            {#each QUALITIES as q (q)}
+              <button type="button" role="menuitemradio" aria-checked={q === quality} onclick={() => pickQuality(q)}>{qualityName(q)}{#if q === quality}<Icon name="check" size={16} stroke={2} />{/if}</button>
+            {/each}
+          </div>
+        {/if}
       </div>
     {/if}
 
@@ -1909,6 +2160,33 @@
 
   .menu .mono {
     font-size: 10px;
+    color: var(--faint);
+  }
+
+  /* « Qualité de l'image » : sous sa puce (barre de la souris), sous la barre tactile. */
+  .menu.qmenu {
+    right: auto;
+    width: 220px;
+  }
+
+  .menu.tmenu {
+    top: calc(100% + 8px);
+    right: 0;
+    width: 240px;
+    white-space: normal;
+  }
+
+  .menu button[aria-checked='true'] {
+    color: #fff;
+  }
+
+  .menu button[aria-checked='true'] :global(svg) {
+    color: var(--signal-light);
+  }
+
+  .mhead-q {
+    padding: 8px 11px 6px;
+    font-size: 11.5px;
     color: var(--faint);
   }
 

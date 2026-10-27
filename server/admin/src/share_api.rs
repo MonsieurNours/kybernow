@@ -130,7 +130,112 @@ fn guest_json(g: &Guest) -> Value {
         "role": g.role,
         "since": g.since,
         "last_beat": g.last_beat_secs,
+        "image": image_json(g),
     })
+}
+
+// --- L'image d'un invité (correctif Kyber 0020) ----------------------------------
+
+/// Ce que l'appareil sait afficher et décoder, pour « Auto » (`join`).
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct AutoCaps {
+    #[serde(default)]
+    width: u32,
+    #[serde(default)]
+    height: u32,
+    #[serde(default)]
+    fps: u32,
+    /// Lus par Kyber dans la demande d'image du client (format, 4:4:4) : ici
+    /// seulement acceptés.
+    #[serde(default)]
+    #[allow(dead_code)]
+    codecs: Vec<String>,
+    #[serde(default)]
+    #[allow(dead_code)]
+    yuv444: bool,
+}
+
+/// Le préréglage que Kyber reçoit (`kn_quality`). « Auto » : l'image de
+/// l'hôte si l'appareil couvre son écran et suit sa fréquence ; sinon
+/// 1080p60 s'il affiche au moins 1080p à 60 Hz ; sinon 720p30. Sans ce que
+/// l'appareil sait (app d'avant 0.8.0) : l'image de l'hôte, comme avant.
+/// Le format et le 4:4:4 restent à Kyber (demande d'image du client).
+pub fn resolve_quality(quality: share::Quality, auto: Option<&AutoCaps>, display: &ShareDisplay) -> share::Preset {
+    use share::{Preset, Quality};
+    match quality {
+        Quality::Host => Preset::Host,
+        Quality::P1080 => Preset::P1080,
+        Quality::P720 => Preset::P720,
+        Quality::Auto => {
+            let Some(a) = auto.filter(|a| a.width > 0 && a.height > 0) else { return Preset::Host };
+            let (long, short) = (a.width.max(a.height), a.width.min(a.height));
+            let (host_long, host_short) = (display.width.max(display.height), display.width.min(display.height));
+            if long >= host_long && short >= host_short && a.fps >= display.refresh.max(1) {
+                Preset::Host
+            } else if long >= 1920 && short >= 1080 && a.fps >= 60 {
+                Preset::P1080
+            } else {
+                Preset::P720
+            }
+        }
+    }
+}
+
+/// Les images des sessions de Kyber (`/kybernow/sessions`, 0020), par
+/// sujet, relues toutes les 2 s au plus pendant un partage avec invités.
+static IMAGES: std::sync::Mutex<Option<(std::time::Instant, std::collections::HashMap<String, Value>)>> = std::sync::Mutex::new(None);
+const IMAGES_MAX_AGE: Duration = Duration::from_secs(2);
+
+/// Relit les images des invités dans Kyber (sans 0020 : rien).
+async fn refresh_images(s: &AppState) {
+    let Ok((status, v)) = crate::kyber_proxy::kyber_call(s, Method::GET, "/kybernow/sessions", None).await else { return };
+    if !status.is_success() {
+        return;
+    }
+    let mut images = std::collections::HashMap::new();
+    for session in v["sessions"].as_array().into_iter().flatten() {
+        let (Some(user), image) = (session["user"].as_str(), &session["image"]) else { continue };
+        // Deux sessions d'un même invité (une qui remplace l'autre) : celle
+        // qui a une image et qui diffuse.
+        if image.is_object() && (session["streaming"].as_bool() == Some(true) || !images.contains_key(user)) {
+            images.insert(user.to_string(), image.clone());
+        }
+    }
+    *IMAGES.lock().unwrap() = Some((std::time::Instant::now(), images));
+}
+
+async fn fresh_images(s: &AppState) {
+    let stale = IMAGES.lock().unwrap().as_ref().is_none_or(|(at, _)| at.elapsed() > IMAGES_MAX_AGE);
+    if stale {
+        refresh_images(s).await;
+    }
+}
+
+/// L'image d'un invité (`image` du signe de vie, `guests[].image` de la
+/// vue de l'hôte) : la qualité demandée, puis ce que Kyber en a fait (`null`
+/// tant qu'il ne le sait pas).
+fn image_json(g: &Guest) -> Value {
+    let known = IMAGES.lock().unwrap().as_ref().and_then(|(_, m)| m.get(&g.kyber_user()).cloned()).unwrap_or(Value::Null);
+    json!({
+        "quality": g.quality.as_str(),
+        "width": known["width"],
+        "height": known["height"],
+        "fps": known["fps"],
+        "codec": known["codec"],
+        "follows_host": known["follows_host"],
+        "reason": known["reason"],
+    })
+}
+
+/// La qualité d'un invité, poussée tout de suite à Kyber (il relance
+/// l'image de l'invité seulement) ; sinon prise à sa prochaine connexion.
+async fn kyber_quality(s: &AppState, guest: &Guest) {
+    let body = json!({ "user": guest.kyber_user(), "quality": guest.preset.as_str() });
+    match crate::kyber_proxy::kyber_call(s, Method::POST, "/kybernow/quality", Some(body)).await {
+        Ok((status, _)) if status.is_success() => {}
+        Ok((status, _)) => tracing::warn!("partage : qualité de {} refusée par Kyber ({status}) ; correctif 0020 absent ?", guest.name),
+        Err(e) => tracing::warn!("partage : qualité de {} non transmise à Kyber : {e:#}", guest.name),
+    }
 }
 
 /// La vue d'un partage ouvert (`ShareView` des interfaces) ; elle contient
@@ -211,7 +316,7 @@ pub fn guest_names(s: &AppState) -> Option<String> {
 /// Le jeton de Kyber d'un invité : son rôle et son écran, 120 s.
 fn guest_token(s: &AppState, guest: &Guest, display: u32) -> Option<String> {
     let secret = s.kyber.jwt_secret()?;
-    let claims = json!({ "kn_role": guest.role.as_str(), "kn_display": display, "kn_rev": guest.rev });
+    let claims = json!({ "kn_role": guest.role.as_str(), "kn_display": display, "kn_rev": guest.rev, "kn_quality": guest.preset.as_str() });
     Some(crate::kyber_proxy::jwt_with(&secret, &guest.kyber_user(), share::TOKEN_LIFETIME, claims))
 }
 
@@ -246,7 +351,11 @@ async fn kyber_stream(s: &AppState, display: u32) -> Option<(String, bool)> {
     if !status.is_success() {
         return None;
     }
-    let stream = v["streams"].as_array()?.iter().find(|st| st["display"].as_u64() == Some(u64::from(display)))?;
+    // L'image de l'hôte seulement (0020 donne `kind` ; 0019 n'a qu'elle).
+    let stream = v["streams"]
+        .as_array()?
+        .iter()
+        .find(|st| st["display"].as_u64() == Some(u64::from(display)) && st["kind"].as_str().is_none_or(|k| k == "host"))?;
     Some((stream["codec"].as_str()?.to_string(), stream["yuv444"].as_bool().unwrap_or(false)))
 }
 
@@ -632,6 +741,12 @@ pub struct JoinBody {
     device: String,
     #[serde(default)]
     app: String,
+    /// « Qualité de l'image » (absent : « Auto »).
+    #[serde(default)]
+    quality: share::Quality,
+    /// Pour « Auto » : ce que l'appareil sait afficher et décoder.
+    #[serde(default)]
+    auto: Option<AutoCaps>,
 }
 
 /// `POST /api/share/join` : rejoindre avec le code (sans compte ; 10 essais
@@ -652,6 +767,8 @@ pub async fn join(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<Sock
     };
     let (guest, snapshot) = (joined.guest, joined.snapshot);
     let display = &snapshot.display;
+    let preset = resolve_quality(body.quality, body.auto.as_ref(), display);
+    let guest = s.share.set_quality(&guest.id, None, body.quality, preset).unwrap_or(guest);
     let Some(token) = guest_token(&s, &guest, display.id) else {
         // Sans clé de jetons, Kyber ne le laisserait pas entrer.
         let _ = s.share.leave(&guest.id, guest.secret());
@@ -701,6 +818,7 @@ fn guest_secret(headers: &HeaderMap) -> String {
 /// `POST /api/share/beat` : signe de vie de l'invité, toutes les 5 s ; il
 /// rend un jeton de Kyber renouvelé et, s'il est sorti, pourquoi.
 pub async fn beat(State(s): State<AppState>, headers: HeaderMap, Json(body): Json<GuestBody>) -> Response {
+    fresh_images(&s).await;
     let answer = match s.share.beat(&body.guest, &guest_secret(&headers)) {
         None => return guest_error(StatusCode::NOT_FOUND, "unknown_guest"),
         // `display` en plus du contrat : l'écran du partage peut changer
@@ -712,12 +830,41 @@ pub async fn beat(State(s): State<AppState>, headers: HeaderMap, Json(body): Jso
                 "expires": share::TOKEN_LIFETIME,
                 "end": null,
                 "display": { "id": display.id, "width": display.width, "height": display.height, "refresh": display.refresh },
+                "image": image_json(&guest),
             }),
             None => return guest_error(StatusCode::SERVICE_UNAVAILABLE, "unavailable"),
         },
         Some(Beat::Ended { end, role }) => json!({ "role": role, "token": null, "expires": 0, "end": end }),
     };
     ([(header::CACHE_CONTROL, "no-store")], Json(answer)).into_response()
+}
+
+#[derive(Deserialize)]
+pub struct QualityBody {
+    guest: String,
+    quality: share::Quality,
+    #[serde(default)]
+    auto: Option<AutoCaps>,
+}
+
+/// `POST /api/share/quality` : l'invité change sa « Qualité de l'image » ;
+/// Kyber relance son image seulement. Rend l'`image` du signe de vie.
+pub async fn quality(State(s): State<AppState>, headers: HeaderMap, Json(body): Json<QualityBody>) -> Response {
+    let secret = guest_secret(&headers);
+    let Some(display) = s.share.snapshot().map(|snap| snap.display) else {
+        return guest_error(StatusCode::NOT_FOUND, "unknown_guest");
+    };
+    let before = s.share.guests().into_iter().find(|g| g.id == body.guest).map(|g| g.preset);
+    let preset = resolve_quality(body.quality, body.auto.as_ref(), &display);
+    let Some(guest) = s.share.set_quality(&body.guest, Some(&secret), body.quality, preset) else {
+        return guest_error(StatusCode::NOT_FOUND, "unknown_guest");
+    };
+    if before != Some(preset) {
+        tracing::info!("partage : {} demande {} ({})", guest.name, body.quality.as_str(), preset.as_str());
+        kyber_quality(&s, &guest).await;
+    }
+    refresh_images(&s).await;
+    ([(header::CACHE_CONTROL, "no-store")], Json(image_json(&guest))).into_response()
 }
 
 /// `POST /api/share/leave` : l'invité quitte le partage. Un invité inconnu
@@ -760,6 +907,11 @@ pub fn supervise(s: AppState) {
 async fn supervise_tick(s: &AppState) {
     sync_sharing(s);
     let Some(snapshot) = s.share.snapshot() else { return };
+    // Les images des invités (vue de l'hôte, signe de vie), relues dans
+    // Kyber toutes les 2 s au plus.
+    if !snapshot.guests.is_empty() {
+        fresh_images(s).await;
+    }
     for guest in s.share.expire() {
         tracing::info!("partage : {} ne donne plus de nouvelles", guest.name);
         guest_gone(s, &guest).await;
@@ -1004,6 +1156,65 @@ mod tests {
         // Plus aucun droit.
         let _ = set("spectator").await.ok().unwrap();
         assert_eq!(texts(s)[0], "Léa regarde votre écran");
+    }
+
+    fn caps(width: u32, height: u32, fps: u32) -> AutoCaps {
+        AutoCaps { width, height, fps, codecs: vec!["h264".into()], yuv444: false }
+    }
+
+    #[test]
+    fn auto_choisit_d_apres_l_ecran_et_la_frequence() {
+        use share::{Preset, Quality};
+        let host_4k160 = ShareDisplay { id: 1, index: 1, width: 3840, height: 2160, refresh: 160, name: String::new() };
+        let host_1080 = ShareDisplay { id: 1, index: 1, width: 1920, height: 1080, refresh: 60, name: String::new() };
+        // iPhone dans Safari (écran × densité, 60 Hz au plus) : 1080p60.
+        assert_eq!(resolve_quality(Quality::Auto, Some(&caps(1170, 2532, 60)), &host_4k160), Preset::P1080);
+        // Un téléviseur 4K à 60 Hz face à un hôte à 160 Hz : 1080p60, pas l'image de l'hôte.
+        assert_eq!(resolve_quality(Quality::Auto, Some(&caps(3840, 2160, 60)), &host_4k160), Preset::P1080);
+        // Un appareil qui couvre l'écran et suit sa fréquence : l'image de l'hôte.
+        assert_eq!(resolve_quality(Quality::Auto, Some(&caps(5120, 2880, 165)), &host_4k160), Preset::Host);
+        assert_eq!(resolve_quality(Quality::Auto, Some(&caps(1920, 1080, 60)), &host_1080), Preset::Host);
+        // Petit écran, ou moins de 60 Hz : 720p30.
+        assert_eq!(resolve_quality(Quality::Auto, Some(&caps(1334, 750, 60)), &host_4k160), Preset::P720);
+        assert_eq!(resolve_quality(Quality::Auto, Some(&caps(1920, 1080, 30)), &host_4k160), Preset::P720);
+        // Sans ce que sait l'appareil (app d'avant 0.8.0) : comme avant, l'image de l'hôte.
+        assert_eq!(resolve_quality(Quality::Auto, None, &host_4k160), Preset::Host);
+        // Un choix explicite passe tel quel.
+        assert_eq!(resolve_quality(Quality::Host, Some(&caps(640, 480, 30)), &host_4k160), Preset::Host);
+        assert_eq!(resolve_quality(Quality::P720, None, &host_1080), Preset::P720);
+    }
+
+    #[tokio::test]
+    async fn la_qualite_va_dans_le_jeton_et_le_signe_de_vie() {
+        let st = station();
+        let s = &st.s;
+        let Json(opened) = local_open(State(s.clone()), peer(5), admin(s), Json(LocalOpenBody { display: kyber_display_id("\\\\.\\DISPLAY1") })).await.ok().unwrap();
+        let code = opened["code"].as_str().unwrap();
+        // L'écran simulé est en 3840 × 2160 à 144 Hz ; un iPhone en « Auto ».
+        let request = json!({ "code": code, "name": "Léa", "device": "iphone", "app": "web", "quality": "auto", "auto": { "width": 1170, "height": 2532, "fps": 60, "codecs": ["h264", "hevc"], "yuv444": false } });
+        let (status, joined) = body(join(State(s.clone()), peer(20), Json(serde_json::from_value(request).unwrap())).await).await;
+        assert_eq!(status, StatusCode::OK, "{joined}");
+        assert_eq!(claims(joined["kyber"]["token"].as_str().unwrap())["kn_quality"], "1080p60");
+        let (guest, secret) = (joined["guest"].as_str().unwrap().to_string(), joined["secret"].as_str().unwrap().to_string());
+        let (_, beat_v) = body(beat(State(s.clone()), guest_headers(&secret), Json(GuestBody { guest: guest.clone() })).await).await;
+        // Kyber absent : la qualité demandée, le reste encore inconnu.
+        assert_eq!(beat_v["image"]["quality"], "auto");
+        assert!(beat_v["image"]["width"].is_null() && beat_v["image"]["reason"].is_null());
+        assert_eq!(claims(beat_v["token"].as_str().unwrap())["kn_quality"], "1080p60");
+        // La vue de l'hôte donne la même image.
+        let Json(v) = local_get(State(s.clone()), peer(5), admin(s)).await.ok().unwrap();
+        assert_eq!(v["guests"][0]["image"]["quality"], "auto");
+        // Changer de qualité en cours.
+        let quality = |q: &str, secret: &str| quality(State(s.clone()), guest_headers(secret), Json(serde_json::from_value(json!({ "guest": guest, "quality": q })).unwrap()));
+        let (status, image) = body(quality("720p30", &secret).await).await;
+        assert_eq!((status, image["quality"].as_str()), (StatusCode::OK, Some("720p30")));
+        let (_, beat_v) = body(beat(State(s.clone()), guest_headers(&secret), Json(GuestBody { guest: guest.clone() })).await).await;
+        assert_eq!(claims(beat_v["token"].as_str().unwrap())["kn_quality"], "720p30");
+        let (status, _) = body(quality("host", "faux").await).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        // Sans `quality` (app d'avant 0.8.0) : « Auto » sans rien savoir, l'image de l'hôte.
+        let (_, old) = body(join(State(s.clone()), peer(21), join_body(code, "Max", "tv", "tvos")).await).await;
+        assert_eq!(claims(old["kyber"]["token"].as_str().unwrap())["kn_quality"], "host");
     }
 
     #[tokio::test]

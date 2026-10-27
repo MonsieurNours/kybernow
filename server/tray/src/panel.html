@@ -175,6 +175,12 @@ function appName(app) {
   const name = t(`share.apps.${app}`)
   return name.startsWith('share.') ? app : name
 }
+// La qualité d'image d'un invité quand ce n'est pas celle de l'hôte
+// (« 1080p · 60 Hz », docs/link-ui.md) ; rien tant que Kyber ne la dit pas.
+function imageLine(image) {
+  if (!image || image.follows_host !== false || !image.width || !image.height) return ''
+  return `${Math.min(image.width, image.height)}p · ${image.fps} Hz`
+}
 // Le rôle de deux droits : les manettes, le clavier et la souris.
 const roleOf = (pads, kbm) => (pads ? (kbm ? 'player_kbm' : 'player') : kbm ? 'kbm' : 'spectator')
 // Ce que l'hôte peut faire d'un invité (docs/link-ui.md) : deux droits
@@ -209,7 +215,7 @@ function sharePage(s, share) {
     ? `<div class="guest"><div class="who"><strong>${esc(t('share.host', { name: live.name }))}</strong><small>${esc(elapsed(live.started_at))}</small></div></div>`
     : ''
   const guests = share.guests.map((g) => `<div class="guest">
-      <div class="who"><strong>${esc(t(`share.role.${g.role}`, { name: g.name }))}</strong><button class="remove" data-cmd="shareRemove" data-id="${esc(g.id)}" ${busy}>${esc(t('share.remove'))}</button><small>${esc(`${appName(g.app)} · ${elapsed(g.since)}`)}</small></div>
+      <div class="who"><strong>${esc(t(`share.role.${g.role}`, { name: g.name }))}</strong><button class="remove" data-cmd="shareRemove" data-id="${esc(g.id)}" ${busy}>${esc(t('share.remove'))}</button><small>${esc([appName(g.app), imageLine(g.image), elapsed(g.since)].filter(Boolean).join(' · '))}</small></div>
       <div class="moves">${moves(g).map((m) => `<button data-cmd="shareRole" data-id="${esc(g.id)}" data-role="${m.role}" ${busy}>${esc(m.label)}</button>`).join('')}</div>
     </div>`).join('')
   return `${pageHead(shareTitle(s, share), sub)}

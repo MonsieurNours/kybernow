@@ -100,6 +100,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/share/guest/{id}", post(share_api::host_guest_role).delete(share_api::host_guest_remove))
         .route("/api/share/join", post(share_api::join))
         .route("/api/share/beat", post(share_api::beat))
+        .route("/api/share/quality", post(share_api::quality))
         .route("/api/share/leave", post(share_api::leave))
         .layer(axum::middleware::from_fn_with_state(state, auth::require_session))
         // La langue des réponses (`Accept-Language`, français sans en-tête),

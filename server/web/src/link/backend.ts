@@ -1,6 +1,6 @@
 // Appels du client web à la console (même origine, session de la console).
 
-import { ApiError, type ShareRole, type ShareView } from '../lib/api'
+import { ApiError, type GuestImage, type ShareQuality, type ShareRole, type ShareView } from '../lib/api'
 import { langHeaders, t } from '../lib/i18n/index.svelte'
 import type { Mode } from './device'
 import { deviceId } from './prefs'
@@ -128,6 +128,21 @@ export interface GuestBeat {
   expires: number
   end: null | 'stopped' | 'removed'
   display?: GuestDisplay
+  /** Son image : absente d'une Station qui ne connaît pas la qualité (avant le correctif Kyber 0020). */
+  image?: GuestImage
+}
+
+/**
+ * Pour « Auto » (`join`, `quality`) : ce que ce navigateur sait afficher et décoder. `width` et `height` :
+ * le côté long et le côté court, en pixels réels ; `fps` : 60 au plus (un navigateur) ; `codecs` et
+ * `yuv444` : ce que son décodeur accepte à cette taille.
+ */
+export interface AutoCaps {
+  width: number
+  height: number
+  fps: number
+  codecs: string[]
+  yuv444: boolean
 }
 
 /** Refus de `POST /api/share/join` : `kind` dit lequel (`message` n'est que le texte d'Admin, pour `other`). */
@@ -186,11 +201,11 @@ export const backend = {
   end: (latency: number | null, extra: Extra = {}) => call('POST', '/api/stream/end', endBody(latency, extra)),
 
   // KyberNow Share, côté invité (sans compte : le secret de l'invité, puis son cookie).
-  /** Rejoint le partage de cet ordinateur avec son code ; Admin pose le cookie de l'invité. */
-  joinShare: async (code: string, name: string): Promise<GuestJoin> => {
+  /** Rejoint le partage de cet ordinateur avec son code ; Admin pose le cookie de l'invité. `auto` : pour « Auto ». */
+  joinShare: async (code: string, name: string, quality: ShareQuality = 'auto', auto?: AutoCaps): Promise<GuestJoin> => {
     let out: { res: Response; data: any }
     try {
-      out = await request('POST', '/api/share/join', { code, name, device: deviceId(), app: 'web' })
+      out = await request('POST', '/api/share/join', { code, name, device: deviceId(), app: 'web', quality, ...(auto ? { auto } : {}) })
     } catch {
       throw new JoinRefusal('network')
     }
@@ -211,6 +226,24 @@ export const backend = {
       default:
         throw new JoinRefusal('other', data?.error ?? t('common.error', { status: res.status }))
     }
+  },
+
+  /** Change la « Qualité de l'image » d'un invité en cours de partage : Kyber relance son image seulement. */
+  shareQuality: async (join: GuestJoin, quality: ShareQuality, auto?: AutoCaps): Promise<GuestImage> => {
+    const res = await fetch('/api/share/quality', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { ...langHeaders(), 'x-kyber-admin': '1', 'content-type': 'application/json', 'x-kybernow-guest': join.secret },
+      body: JSON.stringify({ guest: join.guest, quality, ...(auto ? { auto } : {}) }),
+    })
+    let data: any = null
+    try {
+      data = await res.json()
+    } catch {
+      // Réponse vide ou illisible.
+    }
+    if (!res.ok) throw new ApiError(res.status, data?.error ?? t('common.error', { status: res.status }))
+    return data as GuestImage
   },
 
   // KyberNow Share, côté hôte (la session d'Admin, avec l'appareil en session).

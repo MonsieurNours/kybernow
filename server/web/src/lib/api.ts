@@ -244,6 +244,27 @@ export interface ShareGuest {
   role: ShareRole
   since: number
   last_beat: number
+  /** Son image (correctif Kyber 0020) ; absente d'une Station qui ne la connaît pas. */
+  image?: GuestImage | null
+}
+
+/** « Qualité de l'image » d'un invité (docs/kybernow-share.md, « L'image d'un invité »). */
+export type ShareQuality = 'auto' | 'host' | '1080p60' | '720p30'
+
+/**
+ * L'image d'un invité (`image` de son signe de vie, réponse de `POST /api/share/quality`,
+ * `guests[].image` de la vue de l'hôte) : la qualité demandée, puis ce que Kyber en a fait, `null`
+ * tant qu'il ne le sait pas. `reason` : `asked` (ce qui est demandé), `capped` (bornée par l'image de
+ * l'hôte), `limit` (pas d'image de plus : la plus proche, plus légère), `lag` (allégée pour suivre).
+ */
+export interface GuestImage {
+  quality: ShareQuality
+  width: number | null
+  height: number | null
+  fps: number | null
+  codec: string | null
+  follows_host: boolean | null
+  reason: 'asked' | 'capped' | 'limit' | 'lag' | null
 }
 
 /** Un partage ouvert (KyberNow Share, docs/kybernow-share.md). */
