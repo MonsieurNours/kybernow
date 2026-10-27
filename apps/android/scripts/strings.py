@@ -385,6 +385,13 @@ S = [
 ("share_notice_keyboard_mouse", "Vous avez le clavier et la souris.", "You have the keyboard and mouse."),
 ("share_notice_keyboard_mouse_back", "Le clavier et la souris sont repris.", "The keyboard and mouse were taken back."),
 ("share_notice_watch", "Vous regardez de nouveau.", "You are watching again."),
+# « Qualité de l'image » (« Rejoindre », barre et menu d'un invité). La qualité reçue (« 1080p · 60 Hz ») et les avis
+# de la Station (« Image allégée pour suivre. ») sont écrits par le cœur, dans la langue de l'app.
+("share_quality_title", "Qualité de l'image", "Picture quality"),
+("share_quality_auto", "Auto", "Auto"),
+("share_quality_host", "Comme l'hôte", "Same as host"),
+("share_quality_1080p60", "1080p · 60 Hz", "1080p · 60 Hz"),
+("share_quality_720p30", "720p · 30 Hz", "720p · 30 Hz"),
 # L'hôte
 ("share_button", "Partager", "Share"),
 ("share_tile_detail", "Code et QR code", "Code and QR code"),

@@ -20,7 +20,9 @@ import fr.leslignesclaires.kybernow.core.HostInfo
 import fr.leslignesclaires.kybernow.core.Pad
 import fr.leslignesclaires.kybernow.core.ShareAvailability
 import fr.leslignesclaires.kybernow.core.ShareGuest
+import fr.leslignesclaires.kybernow.core.ShareImage
 import fr.leslignesclaires.kybernow.core.ShareLink
+import fr.leslignesclaires.kybernow.core.ShareQuality
 import fr.leslignesclaires.kybernow.core.ShareRole
 import fr.leslignesclaires.kybernow.core.ShareState
 import fr.leslignesclaires.kybernow.core.ShareTarget
@@ -339,6 +341,7 @@ class Screenshots {
             override fun shareRemove(guest: ShareGuest) {}
             override fun shareStop() {}
             override fun shareCopyLink() {}
+            override fun setShareQuality(quality: ShareQuality) {}
         }
         return SessionUi(title, tv, state, actions, guest = guest, computerName = "Atelier").apply { passageDone = true; setup() }
     }
@@ -469,10 +472,16 @@ class Screenshots {
 
     // MARK: - KyberNow Share
 
-    /** Un partage ouvert avec deux invités : un spectateur et un joueur qui a le clavier et la souris. */
+    /** L'image reçue d'un invité telle que le cœur la décrit : [label] (« 1080p · 60 Hz ») n'existe que si la taille est connue. */
+    private fun image(quality: ShareQuality, label: String?, followsHost: Boolean?) = ShareImage(quality, followsHost = followsHost, reason = followsHost?.let { "asked" }, label = label?.replace(" Hz", "\u00a0Hz"))
+
+    /**
+     * Un partage ouvert avec deux invités : un spectateur qui suit l'image de l'hôte (aucune qualité sous son nom) et
+     * un joueur qui a le clavier et la souris, sur une image à part (« 720p · 30 Hz »).
+     */
     private fun SessionUi.sharing(guests: List<ShareGuest> = listOf(
-        ShareGuest("g1", "Léa", "ios", ShareRole.SPECTATOR, since = now / 1000 - 42),
-        ShareGuest("g2", "Max", "web", ShareRole.PLAYER_KBM, since = now / 1000 - 12 * 60),
+        ShareGuest("g1", "Léa", "ios", ShareRole.SPECTATOR, since = now / 1000 - 42, image = image(ShareQuality.HOST, "1080p · 60 Hz", followsHost = true)),
+        ShareGuest("g2", "Max", "web", ShareRole.PLAYER_KBM, since = now / 1000 - 12 * 60, image = image(ShareQuality.P720_30, "720p · 30 Hz", followsHost = false)),
     )) {
         state.share.value = ShareState("428913", "428 913", "kybernow://join?host=192.168.1.20&port=41234&fp=sha256:ab&code=428913", "https://192.168.1.20:41234/link/?join=428913", guests)
     }
@@ -561,6 +570,26 @@ class Screenshots {
         shot("invite-joueur", "telephone", FormFactor.PHONE) { WithImage(guest(false, ShareRole.PLAYER) { barOpen = true }) }
         shot("invite-joueur-clavier-souris", "telephone", FormFactor.PHONE) { WithImage(guest(false, ShareRole.PLAYER_KBM) { barOpen = true }) }
         shot("invite-clavier-souris", "telephone", FormFactor.PHONE) { WithImage(guest(false, ShareRole.KBM) { barOpen = true }) }
+        // « Qualité de l'image » : la barre montre la qualité reçue (écrite par le cœur) ; la feuille donne les quatre choix.
+        shot("invite-qualite", "telephone", FormFactor.PHONE) {
+            WithImage(guest(false, ShareRole.PLAYER) { barOpen = true; state.shareImage.value = image(ShareQuality.AUTO, "1080p · 60 Hz", followsHost = false) })
+        }
+        shot("invite-qualite-feuille", "telephone", FormFactor.PHONE) {
+            WithImage(guest(false, ShareRole.PLAYER) {
+                barOpen = true
+                qualityOpen = true
+                state.shareQuality.value = ShareQuality.P1080_60
+                state.shareImage.value = image(ShareQuality.P1080_60, "1080p · 60 Hz", followsHost = false)
+            })
+        }
+        // Tant que la Station ne dit pas la taille de l'image : aucune qualité reçue à montrer.
+        shot("invite-qualite-inconnue", "telephone", FormFactor.PHONE, listOf("fr")) {
+            WithImage(guest(false, ShareRole.SPECTATOR) { barOpen = true; state.shareImage.value = image(ShareQuality.AUTO, null, followsHost = null) })
+        }
+        shot("invite-avis-image", "telephone", FormFactor.PHONE) {
+            val fr = androidx.compose.ui.platform.LocalConfiguration.current.locales[0].language == "fr"
+            WithImage(guest(false, ShareRole.PLAYER) { state.capsule.value = Capsule.ShareNotice(if (fr) "Image allégée pour suivre." else "Picture lightened to keep up.") })
+        }
         shot("invite-manette", "telephone", FormFactor.PHONE, listOf("fr")) { WithImage(guest(false, ShareRole.PLAYER) { padShown = true; barOpen = true }) }
         shot("invite-avis-manettes-reprises", "telephone", FormFactor.PHONE, listOf("fr")) {
             WithImage(guest(false, ShareRole.KBM) { state.capsule.value = Capsule.ShareRights(R.string.share_notice_pads_back) })
@@ -581,7 +610,16 @@ class Screenshots {
     fun guestTv() {
         shot("invite-connexion", "tv", FormFactor.TV) { WithImage(guest(true, ShareRole.PLAYER) { passageDone = false; state.phase.value = Phase.CONNECTING; state.firstImageAt.set(0) }) }
         shot("invite-spectateur-menu", "tv", FormFactor.TV) { WithImage(guest(true, ShareRole.SPECTATOR) { menuOpen = true }) }
-        shot("invite-joueur-clavier-souris-menu", "tv", FormFactor.TV) { WithImage(guest(true, ShareRole.PLAYER_KBM) { menuOpen = true }) }
+        shot("invite-joueur-clavier-souris-menu", "tv", FormFactor.TV) {
+            WithImage(guest(true, ShareRole.PLAYER_KBM) { menuOpen = true; state.shareImage.value = image(ShareQuality.AUTO, "1080p · 60 Hz", followsHost = true) })
+        }
+        shot("invite-qualite-feuille", "tv", FormFactor.TV) {
+            WithImage(guest(true, ShareRole.PLAYER) {
+                menuOpen = true
+                qualityOpen = true
+                state.shareImage.value = image(ShareQuality.AUTO, "1080p · 60 Hz", followsHost = false)
+            })
+        }
         shot("invite-clavier-souris-menu", "tv", FormFactor.TV, listOf("fr")) { WithImage(guest(true, ShareRole.KBM) { menuOpen = true }) }
     }
 
@@ -590,19 +628,19 @@ class Screenshots {
 
     @Test @Config(qualifiers = PHONE)
     fun joinPhone() {
-        shot("rejoindre", "telephone", FormFactor.PHONE) { JoinContent(null, true, "Pixel de Léa", false, null, {}, { _, _, _ -> }) }
-        shot("rejoindre-lien", "telephone", FormFactor.PHONE, listOf("fr")) { JoinContent(shareLink, false, "Pixel de Léa", false, null, {}, { _, _, _ -> }) }
-        shot("rejoindre-recherche", "telephone", FormFactor.PHONE, listOf("fr")) { JoinContent(shareLink, false, "Léa", true, null, {}, { _, _, _ -> }) }
+        shot("rejoindre", "telephone", FormFactor.PHONE) { JoinContent(null, true, "Pixel de Léa", ShareQuality.AUTO, false, null, {}, { _, _, _, _ -> }) }
+        shot("rejoindre-lien", "telephone", FormFactor.PHONE, listOf("fr")) { JoinContent(shareLink, false, "Pixel de Léa", ShareQuality.P1080_60, false, null, {}, { _, _, _, _ -> }) }
+        shot("rejoindre-recherche", "telephone", FormFactor.PHONE, listOf("fr")) { JoinContent(shareLink, false, "Léa", ShareQuality.AUTO, true, null, {}, { _, _, _, _ -> }) }
         shot("rejoindre-refus", "telephone", FormFactor.PHONE) {
             val fr = androidx.compose.ui.platform.LocalConfiguration.current.locales[0].language == "fr"
-            JoinContent(shareLink, false, "Léa", false, if (fr) "Aucun partage avec ce code sur le réseau." else "No share with this code on your network.", {}, { _, _, _ -> })
+            JoinContent(shareLink, false, "Léa", ShareQuality.AUTO, false, if (fr) "Aucun partage avec ce code sur le réseau." else "No share with this code on your network.", {}, { _, _, _, _ -> })
         }
     }
 
     @Test @Config(qualifiers = TV)
     fun joinTv() {
-        shot("rejoindre", "tv", FormFactor.TV) { JoinContent(null, false, "SHIELD", false, null, {}, { _, _, _ -> }) }
-        shot("rejoindre-lien", "tv", FormFactor.TV, listOf("fr")) { JoinContent(shareLink, false, "SHIELD", false, null, {}, { _, _, _ -> }) }
+        shot("rejoindre", "tv", FormFactor.TV) { JoinContent(null, false, "SHIELD", ShareQuality.AUTO, false, null, {}, { _, _, _, _ -> }) }
+        shot("rejoindre-lien", "tv", FormFactor.TV, listOf("fr")) { JoinContent(shareLink, false, "SHIELD", ShareQuality.P720_30, false, null, {}, { _, _, _, _ -> }) }
     }
 
     @Test @Config(qualifiers = TABLET_TALL)

@@ -1,6 +1,8 @@
 package fr.leslignesclaires.kybernow.core
 
+import fr.leslignesclaires.kybernow.model.AutoQuality
 import fr.leslignesclaires.kybernow.model.Decoders
+import fr.leslignesclaires.kybernow.model.ScreenMode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
@@ -58,15 +60,82 @@ enum class ShareRole(val code: Int, val id: String) {
 }
 
 /**
- * Un invité, dans la liste de l'hôte : [app] (`mac`, `windows`, `linux`, `ios`, `tvos`, `android`,
- * `webos`, `web`) et [since], son arrivée en secondes depuis 1970 (l'horloge de la Station ; `null`
- * si elle ne la donne pas).
+ * La « Qualité de l'image » qu'un invité demande (`ShareQuality` du cœur, mêmes codes : 0 Auto, 1 comme l'hôte,
+ * 2 1080p · 60 Hz, 3 720p · 30 Hz ; [id] : le texte du fil). Une qualité inconnue (Station plus récente) se lit « Auto ».
+ * L'image reçue n'est jamais au-dessus de celle de l'hôte : c'est la Station qui tranche, « Auto » aussi.
  */
-data class ShareGuest(val id: String, val name: String, val app: String, val role: ShareRole, val since: Long? = null) {
+enum class ShareQuality(val code: Int, val id: String) {
+    AUTO(0, "auto"),
+    HOST(1, "host"),
+    P1080_60(2, "1080p60"),
+    P720_30(3, "720p30");
+
     companion object {
-        fun parse(o: JSONObject) = ShareGuest(
+        fun of(code: Int) = entries.firstOrNull { it.code == code } ?: AUTO
+
+        fun parse(id: String?) = entries.firstOrNull { it.id == id } ?: AUTO
+    }
+}
+
+/**
+ * L'image qu'un invité reçoit (`ShareImage` du cœur : `image` du signe de vie et de « Rejoindre », `guests[].image`
+ * chez l'hôte). [quality] est la qualité demandée (« Auto » compris) ; tout le reste vaut `null` tant que Kyber ne
+ * sait rien (relu toutes les 2 s au plus), et alors l'image compte comme celle de l'hôte. [label] est écrit par le
+ * cœur (« 1080p · 60 Hz ») et n'existe que si la taille est connue : sans libellé, l'interface ne montre rien.
+ */
+data class ShareImage(
+    val quality: ShareQuality,
+    val width: Int? = null,
+    val height: Int? = null,
+    val fps: Int? = null,
+    val codec: String? = null,
+    val followsHost: Boolean? = null,
+    val reason: String? = null,
+    val label: String? = null,
+) {
+    /** Une image à part (à lui ou à ceux de même qualité) : su, et pas celle de l'hôte. Inconnu : celle de l'hôte. */
+    val own get() = followsHost == false
+
+    companion object {
+        /** [label] donne le texte du cœur pour ce JSON (`Native.shareImageLabel` ; les essais sans bibliothèque native en donnent un). */
+        fun parse(o: JSONObject, label: (String) -> String? = Share::imageLabel): ShareImage {
+            fun int(key: String) = (o.opt(key) as? Number)?.toInt()
+            return ShareImage(
+                quality = ShareQuality.parse(o.optString("quality")),
+                width = int("width"),
+                height = int("height"),
+                fps = int("fps"),
+                codec = (o.opt("codec") as? String)?.takeIf { it.isNotEmpty() },
+                followsHost = o.opt("follows_host") as? Boolean,
+                reason = (o.opt("reason") as? String)?.takeIf { it.isNotEmpty() },
+                // « 1080p · 60 Hz » : jamais deviné ici, seulement ce que le cœur écrit quand il sait la taille (avec
+                // l'espace insécable de l'app avant « Hz », comme les autres textes : jamais « 60 » seul en fin de ligne).
+                label = runCatching { label(o.toString()) }.getOrNull()?.takeIf { it.isNotBlank() }?.replace(" Hz", "\u00a0Hz"),
+            )
+        }
+
+        fun parse(json: String?, label: (String) -> String? = Share::imageLabel): ShareImage? =
+            runCatching { json?.let { parse(JSONObject(it), label) } }.getOrNull()
+    }
+}
+
+/**
+ * Un invité, dans la liste de l'hôte : [app] (`mac`, `windows`, `linux`, `ios`, `tvos`, `android`,
+ * `webos`, `web`), [since], son arrivée en secondes depuis 1970 (l'horloge de la Station ; `null`
+ * si elle ne la donne pas) et [image], celle qu'il reçoit (`null` si la Station n'en dit rien).
+ */
+data class ShareGuest(val id: String, val name: String, val app: String, val role: ShareRole, val since: Long? = null, val image: ShareImage? = null) {
+    /**
+     * Sa qualité d'image pour le panneau de l'hôte (« 1080p · 60 Hz »), seulement si ce n'est pas celle de l'hôte et
+     * si le cœur sait l'écrire : une image encore inconnue compte comme celle de l'hôte.
+     */
+    val ownImageLabel get() = image?.takeIf { it.own }?.label
+
+    companion object {
+        fun parse(o: JSONObject, label: (String) -> String? = Share::imageLabel) = ShareGuest(
             o.optString("id"), o.optString("name"), o.optString("app"), ShareRole.parse(o.optString("role")),
             since = if (o.isNull("since") || !o.has("since")) null else o.optLong("since").takeIf { it > 0 },
+            image = o.optJSONObject("image")?.let { ShareImage.parse(it, label) },
         )
     }
 }
@@ -92,19 +161,20 @@ data class ShareState(
 
         /**
          * `null` sans partage (`open` faux, ou une réponse qui n'est pas un objet). [format] écrit le code
-         * comme on l'affiche (le cœur ; les essais sans bibliothèque native en donnent un).
+         * comme on l'affiche, [label] la qualité d'image d'un invité (le cœur ; les essais sans bibliothèque
+         * native en donnent un).
          */
-        fun parse(o: JSONObject?, format: (String) -> String = Share::formatCode): ShareState? {
+        fun parse(o: JSONObject?, format: (String) -> String = Share::formatCode, label: (String) -> String? = Share::imageLabel): ShareState? {
             if (o == null || (o.has("open") && !o.optBoolean("open"))) return null
             val code = o.optString("code")
             if (code.isEmpty()) return null
             val list = o.optJSONArray("guests")
-            val guests = if (list == null) emptyList() else (0 until list.length()).mapNotNull { i -> list.optJSONObject(i)?.let(ShareGuest::parse) }
+            val guests = if (list == null) emptyList() else (0 until list.length()).mapNotNull { i -> list.optJSONObject(i)?.let { g -> ShareGuest.parse(g, label) } }
             return ShareState(code, format(code), o.optString("link"), o.optString("web"), guests.take(MAX_GUESTS))
         }
 
-        fun parse(json: String?, format: (String) -> String = Share::formatCode): ShareState? =
-            runCatching { json?.let { parse(JSONObject(it), format) } }.getOrNull()
+        fun parse(json: String?, format: (String) -> String = Share::formatCode, label: (String) -> String? = Share::imageLabel): ShareState? =
+            runCatching { json?.let { parse(JSONObject(it), format, label) } }.getOrNull()
     }
 }
 
@@ -178,7 +248,10 @@ class ShareFound(
 sealed class JoinReply {
     data class Joined(val found: ShareFound) : JoinReply()
 
-    /** [kind] : `no_share`, `full`, `too_many`, `unreadable`, `other` ; [message] : le texte à montrer. */
+    /**
+     * [kind] : `no_share`, `full`, `too_many`, `other` (et `unreadable`, seulement si l'appareil ne lit aucun format
+     * possible, ce que H.264 empêche : jamais en pratique) ; [message] : le texte à montrer.
+     */
     data class Refused(val kind: String, val message: String) : JoinReply()
 }
 
@@ -198,16 +271,44 @@ object Share {
         }.getOrNull()
     }
 
-    /** `request` : `{code, name, device, app}` ; `capabilities` : ce que l'appareil décode (le format de l'hôte est vérifié avant d'entrer). */
+    /**
+     * `capabilities` : ce que l'appareil décode. Le cœur demande à Kyber le format de l'hôte si l'appareil le lit,
+     * sinon un format qu'il lit (une image à part) : le format de l'hôte ne refuse plus personne.
+     */
     private fun capabilities(d: Decoders) = JSONObject().put("hevc", d.hevc != null).put("hevc444", d.hevc444).put("av1", d.av1 != null)
 
     /**
-     * Envoie [code] à ces Stations à la fois et rend la première qui l'accepte (6 s au plus). Si
-     * l'appelant renonce pendant l'attente, l'invité repart tout de suite au lieu d'attendre la fin
-     * de son signe de vie.
+     * Le `request` de « Rejoindre » : `{code, name, device, app, quality}` et, pour « Auto », `auto` (ce que l'appareil
+     * sait afficher et décoder, [autoQuality]) ; sans `auto`, la Station garde l'image de l'hôte.
      */
-    suspend fun join(targets: List<ShareTarget>, code: String, name: String, device: DeviceIdentity, decoders: Decoders): JoinReply {
-        val request = JSONObject().put("code", code).put("name", name).put("device", device.id).put("app", "android")
+    internal fun joinRequest(code: String, name: String, deviceId: String, quality: ShareQuality, auto: JSONObject?): JSONObject =
+        JSONObject().put("code", code).put("name", name).put("device", deviceId).put("app", "android").put("quality", quality.id)
+            .also { if (quality == ShareQuality.AUTO && auto != null) it.put("auto", auto) }
+
+    /**
+     * « Auto » : l'écran de l'appareil ([screen] : sa définition native et sa fréquence) et ce que son décodeur suit
+     * (`MediaCodec`, [AutoQuality.limits]) ; le cœur (`share::auto_quality`) en tire le `auto` de [join], avec les
+     * formats lus. `null` si le cœur ne lit pas la mesure : « Auto » part alors sans `auto` (l'image de l'hôte).
+     */
+    fun autoQuality(screen: ScreenMode, decoders: Decoders): JSONObject? {
+        val limits = AutoQuality.limits(screen, decoders.any, decoders.follows())
+        val json = Native.shareAutoQuality(AutoQuality.screenJson(screen).toString(), AutoQuality.decoderJson(decoders, limits).toString(), null) ?: return null
+        return runCatching { JSONObject(json) }.getOrNull()
+    }
+
+    /** « 1080p · 60 Hz » d'une image reçue (`ShareImage::label` du cœur) ; `null` tant que la taille n'est pas sue. */
+    fun imageLabel(imageJson: String): String? = Native.shareImageLabel(imageJson)
+
+    /**
+     * Envoie [code] à ces Stations à la fois et rend la première qui l'accepte (6 s au plus), avec la
+     * « Qualité de l'image » [quality] (et, pour « Auto », [auto] : [autoQuality]). Si l'appelant renonce
+     * pendant l'attente, l'invité repart tout de suite au lieu d'attendre la fin de son signe de vie.
+     */
+    suspend fun join(
+        targets: List<ShareTarget>, code: String, name: String, device: DeviceIdentity, decoders: Decoders,
+        quality: ShareQuality = ShareQuality.AUTO, auto: JSONObject? = null,
+    ): JoinReply {
+        val request = joinRequest(code, name, device.id, quality, auto)
         val list = JSONArray().apply { targets.forEach { put(it.json()) } }
         val text = withContext(Dispatchers.IO) { Native.shareJoin(list.toString(), request.toString(), capabilities(decoders).toString()) }
         // Une réponse illisible ne fait pas tomber l'app : un refus sans texte (l'écran en met un).

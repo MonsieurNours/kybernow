@@ -54,6 +54,7 @@ import fr.leslignesclaires.kybernow.core.JoinReply
 import fr.leslignesclaires.kybernow.core.Share
 import fr.leslignesclaires.kybernow.core.ShareFound
 import fr.leslignesclaires.kybernow.core.ShareLink
+import fr.leslignesclaires.kybernow.core.ShareQuality
 import fr.leslignesclaires.kybernow.core.ShareTarget
 import fr.leslignesclaires.kybernow.ui.Body
 import fr.leslignesclaires.kybernow.ui.FocusCard
@@ -65,18 +66,22 @@ import fr.leslignesclaires.kybernow.ui.KnIcons
 import fr.leslignesclaires.kybernow.ui.LocalScale
 import fr.leslignesclaires.kybernow.ui.Mono
 import fr.leslignesclaires.kybernow.ui.PrimaryButton
+import fr.leslignesclaires.kybernow.model.Screen
 import fr.leslignesclaires.kybernow.ui.Title
 import fr.leslignesclaires.kybernow.ui.add.QrScanner
 import fr.leslignesclaires.kybernow.ui.panel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private enum class Way { CODE, QR }
 
 /**
  * « Rejoindre avec un code » (KyberNow Share, docs/link-ui.md, « Partage ») : le code à six chiffres
  * (le clavier numérique d'Android au téléphone et à la tablette, un pavé à la télécommande au
- * téléviseur), « Votre prénom » (le nom de l'appareil, retenu), « Rejoindre ». Le code part aux
+ * téléviseur), « Votre prénom » (le nom de l'appareil, retenu), « Qualité de l'image » (« Auto » proposé, le choix retenu),
+ * « Rejoindre ». « Auto » envoie ce que l'appareil sait afficher (son écran) et décoder (`MediaCodec`). Le code part aux
  * ordinateurs trouvés sur le réseau, comme l'appairage ; celui qui partage répond. Un lien
  * `kybernow://join` ou un QR code ([link]) fixe la Station et le code : l'écran s'ouvre rempli, et rien ne part
  * avant « Rejoindre » (le QR code lu avec « QR code » de cet écran en fait autant). Rien n'est ajouté aux
@@ -96,20 +101,23 @@ fun JoinScreen(link: ShareLink?, onBack: () -> Unit, onJoined: (ShareFound) -> U
     LaunchedEffect(link) { if (link == null) app.discovery.start() }
 
     JoinContent(
-        link = link, hasCamera = hasCamera, name = app.guestName, busy = busy, error = error, onBack = onBack,
+        link = link, hasCamera = hasCamera, name = app.guestName, quality = app.guestQuality, busy = busy, error = error, onBack = onBack,
         // Le code part à `targets` (ceux du lien ou du QR code) ou, sans eux, aux ordinateurs trouvés sur le réseau.
-        onJoin = { digits, name, targets ->
+        onJoin = { digits, name, quality, targets ->
             if (!busy) {
                 busy = true
                 error = null
                 val who = name.trim().ifEmpty { app.device.name }
                 scope.launch {
                     val list = targets ?: stations()
-                    val reply = Share.join(list, digits, who, app.device, app.decoders)
+                    // « Auto » : l'écran de l'appareil et ce que son décodeur suit (la Station tranche d'après l'écran du partage).
+                    val auto = if (quality == ShareQuality.AUTO) withContext(Dispatchers.Default) { Share.autoQuality(Screen.of(context).current, app.decoders) } else null
+                    val reply = Share.join(list, digits, who, app.device, app.decoders, quality, auto)
                     busy = false
                     when (reply) {
                         is JoinReply.Joined -> {
                             app.guestName = who
+                            app.guestQuality = quality
                             onJoined(reply.found)
                         }
                         is JoinReply.Refused -> error = reply.message.ifBlank { unreachable }
@@ -121,18 +129,20 @@ fun JoinScreen(link: ShareLink?, onBack: () -> Unit, onJoined: (ShareFound) -> U
 }
 
 /**
- * L'écran sans l'app (les captures le rendent tel quel) : [name] est « Votre prénom » au départ, [onJoin]
- * reçoit le code, le prénom et, pour un lien ou un QR code, la Station à qui l'envoyer.
+ * L'écran sans l'app (les captures le rendent tel quel) : [name] est « Votre prénom » au départ, [quality] la
+ * « Qualité de l'image » retenue ; [onJoin] reçoit le code, le prénom, la qualité et, pour un lien ou un QR code,
+ * la Station à qui l'envoyer.
  */
 @Composable
 internal fun JoinContent(
     link: ShareLink?,
     hasCamera: Boolean,
     name: String,
+    quality: ShareQuality,
     busy: Boolean,
     error: String?,
     onBack: () -> Unit,
-    onJoin: (String, String, List<ShareTarget>?) -> Unit,
+    onJoin: (String, String, ShareQuality, List<ShareTarget>?) -> Unit,
 ) {
     val s = LocalScale.current
     var way by remember { mutableStateOf(Way.CODE) }
@@ -141,6 +151,7 @@ internal fun JoinContent(
     val shown = link ?: scanned
     var code by remember(shown) { mutableStateOf(shown?.code ?: "") }
     var who by remember(name) { mutableStateOf(name) }
+    var how by remember(quality) { mutableStateOf(quality) }
     val fixed = shown?.let { listOf(it.target) }
 
     Box(Modifier.fillMaxSize().background(Kn.ink).statusBarsPadding().navigationBarsPadding()) {
@@ -168,12 +179,13 @@ internal fun JoinContent(
             if (way == Way.QR && link == null) {
                 QrWay { l -> scanned = l; way = Way.CODE }
             } else if (s.tv) {
-                TvJoin(code, { code = it }, who, { who = it }, busy, error) { onJoin(code, who, fixed) }
+                TvJoin(code, { code = it }, who, { who = it }, how, { how = it }, busy, error) { onJoin(code, who, how, fixed) }
             } else {
                 CodeField(code) { code = it }
                 NameField(who, { who = it })
+                QualityField(how, { how = it })
                 error?.let { Body(it, color = Kn.warn, size = 14f) }
-                JoinButton(busy, code.length == 6) { onJoin(code, who, fixed) }
+                JoinButton(busy, code.length == 6) { onJoin(code, who, how, fixed) }
             }
         }
     }
@@ -260,9 +272,9 @@ private fun QrWay(onFound: (ShareLink) -> Unit) {
 
 // MARK: - Téléviseur
 
-/** Au téléviseur : le pavé à gauche, le code en grand, le prénom et « Rejoindre » à droite. */
+/** Au téléviseur : le pavé à gauche, le code en grand, le prénom, la qualité de l'image et « Rejoindre » à droite. */
 @Composable
-private fun TvJoin(code: String, onCode: (String) -> Unit, name: String, onName: (String) -> Unit, busy: Boolean, error: String?, onJoin: () -> Unit) {
+private fun TvJoin(code: String, onCode: (String) -> Unit, name: String, onName: (String) -> Unit, quality: ShareQuality, onQuality: (ShareQuality) -> Unit, busy: Boolean, error: String?, onJoin: () -> Unit) {
     val s = LocalScale.current
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
@@ -273,6 +285,7 @@ private fun TvJoin(code: String, onCode: (String) -> Unit, name: String, onName:
                 Mono(codeShown(code), size = 56f, color = Kn.frost, weight = 500)
             }
             NameField(name, onName)
+            QualityField(quality, onQuality)
             error?.let { Body(it, color = Kn.warn, size = 15f) }
             JoinButton(busy, code.length == 6, onClick = onJoin)
         }

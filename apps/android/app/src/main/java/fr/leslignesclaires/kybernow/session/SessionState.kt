@@ -8,6 +8,9 @@ import android.os.Handler
 import android.os.Looper
 import fr.leslignesclaires.kybernow.R
 import fr.leslignesclaires.kybernow.core.SessionListener
+import fr.leslignesclaires.kybernow.core.Share
+import fr.leslignesclaires.kybernow.core.ShareImage
+import fr.leslignesclaires.kybernow.core.ShareQuality
 import fr.leslignesclaires.kybernow.core.ShareRole
 import fr.leslignesclaires.kybernow.core.ShareState
 import fr.leslignesclaires.kybernow.model.Gamepads
@@ -67,6 +70,8 @@ sealed class Capsule {
     data class GamepadConnected(val name: String, val slot: Int, val motors: Int) : Capsule()
     /** Invité : ses droits ont changé (« Vous pouvez jouer à la manette. ») ; [text] : le texte, `R.string.share_notice_…`. */
     data class ShareRights(@androidx.annotation.StringRes val text: Int) : Capsule()
+    /** Invité : la Station a ajusté son image (« Image allégée pour suivre. ») ; [text] : l'avis tel que le cœur l'écrit. */
+    data class ShareNotice(val text: String) : Capsule()
 }
 
 data class DisplayInfo(val id: Int, val width: Int, val height: Int)
@@ -116,6 +121,19 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
     val share = MutableStateFlow<ShareState?>(null)
     /** Invité : ce que son rôle lui permet, tel que la Station le dit (au départ, puis à chaque changement). */
     val shareRole = MutableStateFlow(ShareRole.SPECTATOR)
+    /**
+     * Invité : la « Qualité de l'image » qu'il a choisie (celle de « Rejoindre », puis celle de la barre). L'image
+     * qu'il reçoit est [shareImage] : la Station tranche, « Auto » aussi.
+     */
+    val shareQuality = MutableStateFlow(ShareQuality.AUTO)
+    /**
+     * Invité : l'image reçue (au départ, puis à chaque changement du signe de vie ou de la réponse de qualité) ;
+     * nulle tant que la Station n'en a rien dit. Son libellé (« 1080p · 60 Hz ») n'existe que si la taille est
+     * connue : sans lui, l'interface ne montre aucune qualité reçue.
+     */
+    val shareImage = MutableStateFlow<ShareImage?>(null)
+    /** Le libellé du cœur d'une image reçue ; les essais sans bibliothèque native en donnent un. */
+    internal var imageLabel: (String) -> String? = Share::imageLabel
     /**
      * Invité : le texte de la fin du partage (« Léa a arrêté le partage. »), tel que le cœur l'écrit ; il est aussi
      * `Ended.error`, que l'écran de fin montre sans y toucher (le nom de l'hôte n'a pas à changer de casse).
@@ -244,6 +262,12 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
         shareRole.value = now
         if (previous < 0) return
         shareRightsNotice(ShareRole.of(previous), now)?.let { show(Capsule.ShareRights(it)) }
+    }
+
+    override fun onShareImage(imageJson: String, previousJson: String?, notice: String?) {
+        ShareImage.parse(imageJson, imageLabel)?.let { shareImage.value = it }
+        // L'avis (« Image allégée pour suivre. ») se montre comme celui d'un changement de droits ; le cœur le tait quand il n'y a rien à dire.
+        if (!notice.isNullOrBlank()) show(Capsule.ShareNotice(notice))
     }
 
     override fun onShareEnd(end: Int, text: String) {

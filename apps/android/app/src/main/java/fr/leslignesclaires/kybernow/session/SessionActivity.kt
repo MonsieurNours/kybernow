@@ -37,6 +37,7 @@ import fr.leslignesclaires.kybernow.core.Reply
 import fr.leslignesclaires.kybernow.core.Share
 import fr.leslignesclaires.kybernow.core.ShareFound
 import fr.leslignesclaires.kybernow.core.ShareGuest
+import fr.leslignesclaires.kybernow.core.ShareQuality
 import fr.leslignesclaires.kybernow.core.ShareRole
 import fr.leslignesclaires.kybernow.model.AudioOutput
 import fr.leslignesclaires.kybernow.model.Gamepads
@@ -139,7 +140,11 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         }
 
         state = SessionState(this, app.gamepads)
-        guest?.let { state.shareRole.value = it.role }
+        guest?.let {
+            state.shareRole.value = it.role
+            // La « Qualité de l'image » de « Rejoindre » (retenue) ; la Station dit l'image reçue (`onShareImage`).
+            state.shareQuality.value = app.guestQuality
+        }
         pads = PadRouter({ handle }, app.gamepads).apply { guide = host.settings.guide }
         remote = RemoteRouter { handle }
         // Un invité : « Invité sur {nom} » (la connexion, le menu), la barre réduite.
@@ -252,7 +257,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         val device = JSONObject(app.device.json())
         val params = if (g != null) {
             // Pas de compte, pas de mode ni d'écran virtuel : le cœur ouvre la session avec la réponse de « Rejoindre »
-            // (jeton, empreinte de Kyber, écran, rôle) et vérifie que l'appareil lit le format de l'image de l'hôte.
+            // (jeton, empreinte de Kyber, écran, rôle, image) et, d'après ce que l'appareil décode, demande à Kyber le
+            // format de l'hôte s'il est lu, sinon un format lu (une image à part) : le format ne refuse plus personne.
             val d = app.decoders
             JSONObject()
                 .put("console_host", g.target.host)
@@ -427,6 +433,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         ui.barOpen = false
         ui.keysOpen = false
         ui.shareOpen = false
+        ui.qualityOpen = false
         ui.typing = false
         ui.statsOpen = false
         ui.pad.releaseAll()
@@ -524,6 +531,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
     private fun closeTop(): Boolean = when {
         ui.typing -> { ui.typing = false; true }
         ui.keysOpen -> { ui.keysOpen = false; true }
+        ui.qualityOpen -> { ui.qualityOpen = false; true }
         ui.shareOpen -> { ui.shareOpen = false; true }
         ui.statsOpen && !ui.menuOpen -> { ui.statsOpen = false; true }
         ui.keyboardOpen -> { openKeyboard(false); true }
@@ -536,6 +544,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         ui.menuOpen = false
         ui.keysOpen = false
         ui.shareOpen = false
+        ui.qualityOpen = false
         ui.typing = false
         padDowns.clear()
         pads.release()
@@ -661,6 +670,19 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
             if (handle != 0L) Native.inputReleaseAll(handle)
             pointerView.place(0f, 0f, false)
         }
+    }
+
+    /**
+     * Invité : la « Qualité de l'image » change en cours de session. Le cœur la dit à la Station (sur un fil, sans rien
+     * relancer ici) : elle relance l'image de l'invité seulement, jamais celle de l'hôte, et l'image reçue revient par
+     * `onShareImage`. Retenue pour la fois suivante.
+     */
+    override fun setShareQuality(quality: ShareQuality) {
+        if (guest == null || quality == state.shareQuality.value) return
+        state.shareQuality.value = quality
+        app.guestQuality = quality
+        val h = handle
+        if (h != 0L && !Native.sessionSetShareQuality(h, quality.code)) android.util.Log.w("KyberNow", "partage : qualité ${quality.id} refusée par le cœur")
     }
 
     /** Un compte de l'appareil pour les appels de l'hôte au partage (jamais pour un invité). */
@@ -949,7 +971,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
     private fun padsRouted() = padsAllowed() || pads.asMouse
 
     /** Ce qui prend les touches. La barre pilotée à la manette passe par `pads.captured`. */
-    private fun SessionUi.anythingModal() = menuOpen || keysOpen || typing || shareOpen
+    private fun SessionUi.anythingModal() = menuOpen || keysOpen || typing || shareOpen || qualityOpen
 
     private fun isKeyboard(e: KeyEvent): Boolean {
         val d = e.device ?: return false

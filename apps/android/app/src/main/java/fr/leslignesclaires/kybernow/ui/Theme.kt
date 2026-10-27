@@ -12,6 +12,8 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.selection.selectable
@@ -218,9 +220,9 @@ fun PrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifi
     }
 }
 
-/** Bouton secondaire, en verre. */
+/** Bouton secondaire, en verre ; [detail] : une valeur en chasse fixe après le texte (la qualité reçue de « Qualité de l'image »). */
 @Composable
-fun GlassButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, selected: Boolean = false, enabled: Boolean = true, leading: (@Composable RowScope.() -> Unit)? = null) {
+fun GlassButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, selected: Boolean = false, enabled: Boolean = true, leading: (@Composable RowScope.() -> Unit)? = null, detail: String? = null) {
     val s = LocalScale.current
     val i = remember { MutableInteractionSource() }
     Row(
@@ -235,6 +237,10 @@ fun GlassButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier
     ) {
         leading?.invoke(this)
         Text(text, color = if (!enabled) Kn.muted else if (selected) Kn.frost else Kn.frost2, style = TextStyle(fontFamily = KnFonts.text, fontSize = s.sp(15f), fontWeight = FontWeight(if (selected) 600 else 500)))
+        if (detail != null) {
+            Spacer(Modifier.width(s.dp(8f)))
+            Text(detail, color = if (enabled) Kn.spectre else Kn.muted, style = TextStyle(fontFamily = KnFonts.mono, fontSize = s.sp(12f), fontWeight = FontWeight(500)))
+        }
     }
 }
 
