@@ -98,6 +98,8 @@ git pull                    # or copy the new files
 docker compose up -d --build
 ```
 
+The image is built with the machine's network (`network: host` in `docker-compose.yml`): behind a local DNS (Pi-hole, unbound), Docker's build network does not resolve names.
+
 ## Settings
 
 Environment variables (`docker-compose.yml`) take precedence over `config/relay.toml` (template: `relay.toml.example`).

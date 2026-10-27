@@ -7,7 +7,12 @@ name: kybernow-relay
 
 services:
   relay:
-    build: .
+    # Construction avec le réseau de la machine : derrière un DNS local
+    # (Pi-hole, unbound sur 127.0.0.1), le réseau de construction de Docker ne
+    # résout pas les noms (crates.io).
+    build:
+      context: .
+      network: host
     image: kybernow-relay:local
     restart: unless-stopped
     # Le port 8443 en TCP et en UDP, sans traduction d'adresse par Docker
