@@ -220,6 +220,38 @@ enum SharePanelDemo {
         render(session: session, to: path)
     }
 
+    /// La session d'un invité sans fenêtre à un moment donné : `end` (retiré du
+    /// partage : la raison reste dans la capsule), `play` (spectateur devenu
+    /// joueur), `kbm` (joueur à qui l'hôte donne le clavier et la souris),
+    /// `watch` (joueur ramené en spectateur) : l'avis bref du changement de rôle.
+    static func renderGuestMoment(_ moment: String, app: AppModel, to path: String) async {
+        let start: ShareRole = moment == "play" ? .spectator : .player
+        let session = SessionController(guest: ShareFound(demoComputer: "PC-DE-MATTHIEU", host: "Matthieu", role: start), store: app.store,
+                                        opening: .first(home: nil)) { _ in }
+        session.demoHeadless()
+        switch moment {
+        case "end":
+            session.demoShareEnded(removed: true)
+        case "kbm":
+            session.setBar(false)
+            session.demoRoleChanged(.playerKbm)
+        case "watch":
+            session.setBar(false)
+            session.demoRoleChanged(.spectator)
+        default:
+            session.setBar(false)
+            session.demoRoleChanged(.player)
+        }
+        // L'avis s'affiche au tour suivant de la boucle.
+        try? await Task.sleep(for: .milliseconds(700))
+        let view = ZStack(alignment: .top) {
+            Color(white: 0.12)
+            SessionChrome(session: session)
+        }
+        .frame(width: 1200, height: 420)
+        write(view, width: 1200, to: path)
+    }
+
     /// La barre de session, ouverte, d'une session sans fenêtre : l'hôte
     /// (`host`, deux invités), ou un invité (`spectator`, `player`, `player_kbm`).
     static func renderBar(kind: String, app: AppModel, to path: String) async {

@@ -225,11 +225,11 @@ enum ShareText {
     /// Le rôle, dans la barre réduite.
     static func role(_ role: ShareRole) -> String { role.plays ? player : spectator }
 
-    /// L'avis bref quand l'hôte change le rôle ; rien au départ ni pour un retour au rôle de spectateur.
+    /// L'avis bref quand l'hôte change le rôle ; rien au départ.
     static func roleNotice(_ role: ShareRole, previous: ShareRole?) -> String? {
         guard let previous, previous != role else { return nil }
         switch role {
-        case .spectator: return nil
+        case .spectator: return String(localized: "Vous regardez de nouveau.")
         case .player: return previous == .playerKbm ? String(localized: "Le clavier et la souris sont repris.") : String(localized: "Vous pouvez jouer.")
         case .playerKbm: return String(localized: "Vous avez le clavier et la souris.")
         }

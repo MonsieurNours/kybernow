@@ -401,6 +401,8 @@ final class SessionController: ObservableObject {
     private func shareRoleChanged(_ role: ShareRole, previous: ShareRole?) {
         shareRole = role
         if !role.keyboardAndMouse, keyboardShown { toggleKeyboard() }
+        // Redevenu spectateur : la manette à l'écran se retire (elle n'envoie plus rien).
+        if !role.plays, screenPad { toggleScreenPad() }
         if let text = ShareText.roleNotice(role, previous: previous) { show(notice: text, for: 4) }
     }
 
@@ -612,6 +614,7 @@ final class SessionController: ObservableObject {
             if let then = UserDefaults.standard.string(forKey: "demoRoleThen") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 6) {
                     switch then {
+                    case "spectator": self.demoRoleChanged(.spectator)
                     case "player": self.demoRoleChanged(.player)
                     case "player_kbm": self.demoRoleChanged(.playerKbm)
                     case "end-stopped": self.demoShareEnded(removed: false)

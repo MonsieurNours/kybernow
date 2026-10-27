@@ -80,7 +80,7 @@ Not on the App Store: the app is installed from a Mac with Xcode, signed with yo
 
 ## Tests
 
-- KyberNow Share: built for the tvOS 27.0 simulator (Apple TV 4K); “Join” screen (digit pad), guest menu (player), host panel with three guests seen in the demo (`-demo YES -screen join|guest|guest-menu|menu`, `-demoRole spectator|player|player_kbm`, `-demoShare YES`, `-demoRoleThen player|player_kbm|end-stopped|end-removed`). **Not verified**: a real share (the KyberNow Share Station could not be tried yet), typing the code with the remote (the simulator has no remote: the pad and the focus hand-over are not tried), the tvOS keyboard for the name, the `kybernow-tv://join` link, a real Apple TV.
+- KyberNow Share: built for the tvOS 27.0 simulator (Apple TV 4K); “Join” screen (digit pad), guest menu (player), host panel with three guests seen in the demo (`-demo YES -screen join|guest|guest-menu|menu`, `-demoRole spectator|player|player_kbm`, `-demoShare YES`, `-demoRoleThen spectator|player|player_kbm|end-stopped|end-removed`). **Not verified**: a real share (the KyberNow Share Station could not be tried yet), typing the code with the remote (the simulator has no remote: the pad and the focus hand-over are not tried), the tvOS keyboard for the name, the `kybernow-tv://join` link, a real Apple TV.
 - Session on a real Apple TV with the Rust core: checked (0.3.1 and later).
 - Rumble on a DualSense in “As is” mode and on an Xbox controller: checked on a real Apple TV (25/10/2026).
 - Not checked yet on a real Apple TV: that the iCloud Keychain does bring the passwords published by the Mac, and the wheel unit of a Bluetooth mouse (log “molette Bluetooth”).

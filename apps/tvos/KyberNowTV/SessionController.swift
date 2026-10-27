@@ -442,6 +442,7 @@ final class SessionController: ObservableObject {
             if let then = UserDefaults.standard.string(forKey: "demoRoleThen") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 6) {
                     switch then {
+                    case "spectator": self.demoRoleChanged(.spectator)
                     case "player": self.demoRoleChanged(.player)
                     case "player_kbm": self.demoRoleChanged(.playerKbm)
                     case "end-stopped": self.demoShareEnded(removed: false)

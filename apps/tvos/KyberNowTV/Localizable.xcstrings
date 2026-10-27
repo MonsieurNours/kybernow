@@ -5969,6 +5969,22 @@
         }
       }
     },
+    "Vous regardez de nouveau." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You are watching again."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vous regardez de nouveau."
+          }
+        }
+      }
+    },
     "Voyant du joueur" : {
       "localizations" : {
         "en" : {

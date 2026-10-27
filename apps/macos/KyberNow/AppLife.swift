@@ -860,6 +860,10 @@ enum DemoRemote {
             // panel-render:<avec|sans>:<fichier> : le panneau « Partager » d'une session d'hôte sans fenêtre, avec ou sans invités.
             guard parts.count > 2 else { return }
             Task { await SharePanelDemo.renderPanel(app: app, guests: parts[1] == "avec", to: parts[2]) }
+        case "moment-render":
+            // moment-render:<end|play|kbm|watch>:<fichier> : une session d'invité sans fenêtre à ce moment (fin par le partage, avis de rôle).
+            guard parts.count > 2 else { return }
+            Task { await SharePanelDemo.renderGuestMoment(parts[1], app: app, to: parts[2]) }
         case "bar-render":
             // bar-render:<host|spectator|player|player_kbm>:<fichier> : la barre de session ouverte, sans fenêtre.
             guard parts.count > 2 else { return }
