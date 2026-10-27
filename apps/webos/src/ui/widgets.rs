@@ -17,17 +17,26 @@ pub fn label(cv: &mut Canvas, x: f32, y: f32, s: &str) {
 
 /// Bouton principal (« Se connecter ») ; rend sa largeur.
 pub fn primary(cv: &mut Canvas, f: &mut Frame, t: Target, x: f32, y: f32, s: &str) -> f32 {
+    primary_state(cv, f, t, x, y, s, true)
+}
+
+/// Le bouton principal, éteint quand il ne peut pas partir (« Rejoindre » sans code) : il reste
+/// choisissable, et dit ce qui manque en y menant le focus.
+pub fn primary_state(cv: &mut Canvas, f: &mut Frame, t: Target, x: f32, y: f32, s: &str, enabled: bool) -> f32 {
     let style = Text::new(Font::Semibold, 30.0, INK);
     let w = cv.text_width(style, s) + 104.0;
     let h = 84.0;
     let focused = f.hit(t, Rect::new(x, y, w, h));
     if focused {
         cv.neon(x, y, w, h, 14.0, 1.0);
-        cv.rrect(x, y, w, h, 14.0, CORE);
+        cv.rrect(x, y, w, h, 14.0, if enabled { CORE } else { FROST_2 });
         cv.text(x + 52.0, y + 53.0, style, s);
-    } else {
+    } else if enabled {
         cv.rrect(x, y, w, h, 14.0, FLAT);
         cv.text(x + 52.0, y + 53.0, style.color(CORE), s);
+    } else {
+        cv.rrect(x, y, w, h, 14.0, Rgba(227, 237, 240, 22));
+        cv.text(x + 52.0, y + 53.0, style.color(FROST_3), s);
     }
     w
 }
@@ -223,6 +232,8 @@ pub enum Key {
     Back,
     Dots,
     Pointer,
+    /// La touche verte de la télécommande.
+    Green,
 }
 
 pub fn hint(cv: &mut Canvas, x: f32, y: f32, key: Key, s: &str) -> f32 {
@@ -245,7 +256,33 @@ pub fn hint(cv: &mut Canvas, x: f32, y: f32, key: Key, s: &str) -> f32 {
             cv.icon(&Icon::Pointer, xx, y - 26.0, 30.0, 1.6, FROST_3);
             xx += 42.0;
         }
+        Key::Green => {
+            cv.circle(xx + 14.0, y - 10.0, 11.0, Rgba::hex(0x4CD68A));
+            xx += 42.0;
+        }
     }
     let w = cv.text(xx, y, Text::new(Font::Regular, 19.0, FROST_3), s);
     xx + w - x
+}
+
+/// Un QR code (modules sombres sur fond clair, avec sa marge) dans un carré de côté `side`, aux pixels
+/// entiers pour des modules nets. Correction faible : affiché à l'écran, il ne s'abîme pas, et ses modules
+/// sont plus gros. Rend le côté du carré, ou rien si le texte est trop long pour un QR code.
+pub fn qr(cv: &mut Canvas, text: &str, x: f32, y: f32, side: f32) -> Option<f32> {
+    use qrcodegen::{QrCode, QrCodeEcc};
+    let code = QrCode::encode_text(text, QrCodeEcc::Low).ok()?;
+    let n = code.size();
+    let total = n + 8;
+    let module = (side / total as f32).floor().max(1.0);
+    let drawn = module * total as f32;
+    let (x0, y0) = ((x + (side - drawn) / 2.0).round(), (y + (side - drawn) / 2.0).round());
+    cv.rrect(x, y, side, side, 12.0, FROST);
+    for my in 0..n {
+        for mx in 0..n {
+            if code.get_module(mx, my) {
+                cv.rect(x0 + (mx + 4) as f32 * module, y0 + (my + 4) as f32 * module, module, module, INK);
+            }
+        }
+    }
+    Some(side)
 }

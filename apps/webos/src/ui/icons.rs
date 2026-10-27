@@ -29,6 +29,8 @@ pub enum Icon {
     Usb,
     Refresh,
     Close,
+    /// Partager : trois points reliés (KyberNow Share).
+    Share,
 }
 
 impl Icon {
@@ -62,6 +64,7 @@ impl Icon {
             Icon::Usb => (&["M12 3 V18", "M9 6 L12 3 L15 6", "M12 14 L7 11 V9", "M12 12 L17 9 V7"], &[(12.0, 19.5, 1.8)], &[]),
             Icon::Refresh => (&["M20 11 Q19 5 12.5 4.5 Q7 4.5 5 9", "M4 13 Q5 19 11.5 19.5 Q17 19.5 19 15", "M20 5 V11 H14", "M4 19 V13 H10"], &[], &[]),
             Icon::Close => (&["M6 6 L18 18", "M18 6 L6 18"], &[], &[]),
+            Icon::Share => (&["M8.4 10.8 L15.6 6.4", "M8.4 13.2 L15.6 17.6"], &[(6.0, 12.0, 2.6), (18.0, 5.2, 2.6), (18.0, 18.8, 2.6)], &[]),
         }
     }
 

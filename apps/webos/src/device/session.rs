@@ -13,11 +13,13 @@ use kybernow_core::latency::Second;
 use kybernow_core::media::PacketHandler;
 use kybernow_core::profile::{Capabilities, Codec, Profile as CoreProfile, StreamSettings};
 use kybernow_core::session::{Notice, Platform, Recovery, Session, SessionParams, SessionRole, Status};
+use kybernow_core::share::{self, ShareEnd, ShareState};
 use kybernow_core::{Display, WindowHandle};
 
 use super::ndl;
 use super::media::{AudioSink, VideoSink};
 use super::Event;
+use crate::app::{ShareGuest, ShareView};
 use crate::model::{Host, Profile};
 
 /// Ce que partagent la session, ses flux et la boucle principale.
@@ -178,6 +180,57 @@ impl Platform for WebOsPlatform {
         };
         self.0.send(Event::Notice(msg));
     }
+
+    // KyberNow Share. Hôte : la liste des invités arrive avec le signe de vie.
+    fn on_guests(&self, state: Option<&ShareState>) {
+        self.0.send(Event::Guests(state.and_then(share_view)));
+    }
+
+    /// Invité : son rôle au départ (`previous` nul), puis chaque changement de l'hôte. Les entrées le
+    /// suivent déjà (le cœur) : l'interface montre l'avis et ce que le rôle ouvre.
+    fn on_share_role(&self, role: share::ShareRole, previous: Option<share::ShareRole>) {
+        self.0.send(Event::ShareRole { role: role_of(role), previous: previous.map(role_of) });
+    }
+
+    /// Invité : c'est le partage qui finit la session ; le texte est aussi la raison de la fin
+    /// (`Status::Ended`), que l'écran de fin montre : ici, seulement le journal.
+    fn on_share_end(&self, end: &ShareEnd, text: &str) {
+        self.0.send(Event::ShareEnd(end.kind().to_string(), text.to_string()));
+    }
+}
+
+/// Le rôle de l'interface d'après celui du cœur.
+pub fn role_of(r: share::ShareRole) -> crate::app::ShareRole {
+    match r {
+        share::ShareRole::Spectator => crate::app::ShareRole::Spectator,
+        share::ShareRole::Player => crate::app::ShareRole::Player,
+        share::ShareRole::PlayerKbm => crate::app::ShareRole::PlayerKbm,
+    }
+}
+
+/// Le rôle du cœur d'après celui de l'interface (« Faire jouer »…).
+pub fn core_role(r: crate::app::ShareRole) -> share::ShareRole {
+    match r {
+        crate::app::ShareRole::Spectator => share::ShareRole::Spectator,
+        crate::app::ShareRole::Player => share::ShareRole::Player,
+        crate::app::ShareRole::PlayerKbm => share::ShareRole::PlayerKbm,
+    }
+}
+
+/// Le partage ouvert d'une session d'hôte tel que l'interface le montre (`None` : fermé).
+pub fn share_view(st: &ShareState) -> Option<ShareView> {
+    st.open.then(|| ShareView {
+        code: st.code.clone(),
+        link: st.link.clone(),
+        web: st.web.clone(),
+        guests: st.guests.iter().map(|g| ShareGuest { id: g.id.clone(), name: g.name.clone(), role: role_of(g.role), app: g.app.clone(), since: g.since }).collect(),
+    })
+}
+
+/// Ce que décode ce téléviseur pour lire l'image de l'hôte d'un partage (son format, choisi par l'hôte, est
+/// vérifié avant d'entrer) : le HEVC par le décodeur du téléviseur (jamais en 4:4:4), l'AV1 s'il l'a.
+pub fn guest_capabilities(av1: bool) -> Capabilities {
+    Capabilities { hevc: true, hevc444: false, av1 }
 }
 
 struct InputCallbacks(Arc<Shared>);
@@ -242,9 +295,11 @@ pub fn settings(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32
     s
 }
 
-/// Démarre une session.
+/// Démarre une session. `guest` : la session d'invité d'un partage (KyberNow Share), avec ce que décode le
+/// téléviseur : l'écran et l'image sont ceux de l'hôte, jamais de réglage de l'ordinateur ; `host` n'est alors
+/// qu'une enveloppe (nom, adresse, réglages par défaut), absente du magasin.
 #[allow(clippy::too_many_arguments)]
-pub fn start(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32), refresh: u32, cap_mbps: u32, device: DeviceInfo, tx: Sender<Event>) -> Handle {
+pub fn start(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32), refresh: u32, cap_mbps: u32, device: DeviceInfo, guest: Option<(&share::Found, Capabilities)>, tx: Sender<Event>) -> Handle {
     let (w, h, fps) = mode;
     let clock = Arc::new(MonotonicClock::new());
     let pointer = Arc::new(PointerLayer::new(clock.clone(), true));
@@ -283,22 +338,28 @@ pub fn start(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32), 
         let shape = if change.shape { state.shape.as_ref().map(|s| (s.width, s.height, s.hot_x, s.hot_y, s.premultiplied())) } else { None };
         sh.send(Event::Pointer { position: state.position(), hidden: state.remote_hidden, shape });
     });
-    let params = SessionParams {
-        console_host: host.address.clone(),
-        console_port: host.port,
-        user: host.user.clone(),
-        password: host.password.clone(),
-        console_fingerprint: host.fingerprint.clone(),
-        device,
-        mode: Mode { width: w, height: h, refresh: fps },
-        audio_channels,
-        virtual_display: true,
-        settings: settings(host, profile, codec, mode, cap_mbps),
-        auto_reconnect: host.settings.reconnect,
-        gamepad_xbox360: host.settings.xbox360,
-        clipboard: false,
-        recovery: Recovery { watch_image: true, fallback_bitrate: Some((cap_mbps / 2).max(20) * 1_000_000), ..Recovery::default() },
-        role: SessionRole::Host,
+    let recovery = Recovery { watch_image: true, fallback_bitrate: Some((cap_mbps / 2).max(20) * 1_000_000), ..Recovery::default() };
+    let stream = settings(host, profile, codec, mode, cap_mbps);
+    let params = match guest {
+        // Un invité : la Station qui partage, le jeton de son partage, l'écran de l'hôte (`SessionParams::guest`).
+        Some((found, caps)) => SessionParams { auto_reconnect: host.settings.reconnect, gamepad_xbox360: host.settings.xbox360, recovery, ..SessionParams::guest(found, device, stream, caps, audio_channels) },
+        None => SessionParams {
+            console_host: host.address.clone(),
+            console_port: host.port,
+            user: host.user.clone(),
+            password: host.password.clone(),
+            console_fingerprint: host.fingerprint.clone(),
+            device,
+            mode: Mode { width: w, height: h, refresh: fps },
+            audio_channels,
+            virtual_display: true,
+            settings: stream,
+            auto_reconnect: host.settings.reconnect,
+            gamepad_xbox360: host.settings.xbox360,
+            clipboard: false,
+            recovery,
+            role: SessionRole::Host,
+        },
     };
     let session = Session::start(params, Arc::new(WebOsPlatform(shared.clone())));
     let _ = shared.session.set(Arc::downgrade(&session));

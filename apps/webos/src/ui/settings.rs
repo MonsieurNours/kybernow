@@ -467,7 +467,7 @@ fn admin_panel(cv: &mut Canvas, h: &Host, x: f32, y: f32, w: f32) {
     cv.rrect(x, y, w, ph, 18.0, PANEL);
     cv.rrect_stroke(x, y, w, ph, 18.0, 1.0, LINE);
     widgets::label(cv, x + 34.0, y + 52.0, "Admin");
-    qr(cv, &url, x + 34.0, y + 76.0, side);
+    widgets::qr(cv, &url, x + 34.0, y + 76.0, side);
     let used = cv.paragraph(
         x + 34.0,
         y + 76.0 + side + 40.0,
@@ -477,27 +477,6 @@ fn admin_panel(cv: &mut Canvas, h: &Host, x: f32, y: f32, w: f32) {
         28.0,
     );
     cv.text_fit(x + 34.0, y + 76.0 + side + 40.0 + used + 10.0, Text::new(Font::Mono, 15.0, FROST_3), &url, side);
-}
-
-/// Un QR code (modules sombres sur fond clair, avec sa marge) dans un carré
-/// de côté `side`, aux pixels entiers pour des modules nets. Correction
-/// faible : affiché à l'écran, il ne s'abîme pas, et ses modules sont plus gros.
-fn qr(cv: &mut Canvas, text: &str, x: f32, y: f32, side: f32) {
-    use qrcodegen::{QrCode, QrCodeEcc};
-    let Ok(code) = QrCode::encode_text(text, QrCodeEcc::Low) else { return };
-    let n = code.size();
-    let total = n + 8;
-    let module = (side / total as f32).floor().max(1.0);
-    let drawn = module * total as f32;
-    let (x0, y0) = ((x + (side - drawn) / 2.0).round(), (y + (side - drawn) / 2.0).round());
-    cv.rrect(x, y, side, side, 12.0, FROST);
-    for my in 0..n {
-        for mx in 0..n {
-            if code.get_module(mx, my) {
-                cv.rect(x0 + (mx + 4) as f32 * module, y0 + (my + 4) as f32 * module, module, module, INK);
-            }
-        }
-    }
 }
 
 /// La fenêtre de confirmation, par-dessus les réglages : retirer

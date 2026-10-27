@@ -8,7 +8,7 @@ use super::icons::Icon;
 use super::theme::*;
 use super::widgets::{self};
 use super::Frame;
-use crate::app::{App, MenuItem, Phase, Rect, SessionUi, Target, SHORTCUTS};
+use crate::app::{guests_label, App, MenuItem, Phase, Rect, SessionUi, ShareAvail, Target, SHORTCUTS};
 use crate::i18n::{decimal, english, tr};
 use crate::model::Profile;
 
@@ -25,6 +25,8 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
         Phase::Streaming | Phase::Reconnecting { .. } => {
             if s.menu {
                 menu(app, cv, f, s);
+            } else if s.share_panel {
+                super::share::draw(app, cv, f, s);
             } else if s.show_stats {
                 stats_pill(cv, s, 40.0);
             }
@@ -169,35 +171,62 @@ fn stats_pill(cv: &mut Canvas, s: &SessionUi, y: f32) {
 fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     cv.rect(0.0, 0.0, W, H, Rgba(2, 3, 4, 175));
     stats_pill(cv, s, 70.0);
-    let profile_name = super::home::profile_label(s.profile);
-    cv.text(W / 2.0, 200.0, Text::new(Font::Mono, 16.0, FROST_3).tracking(3.0).align(Align::Center), &format!("{} · {} {}", s.name.to_uppercase(), tr("PROFIL", "PROFILE"), profile_name.to_uppercase()));
+    // Sous les mesures : l'ordinateur et son profil ; pour un invité, son rôle (il n'a pas de profil).
+    let head = match &s.guest {
+        Some(g) => format!("{} · {}", s.name.to_uppercase(), g.role.label().to_uppercase()),
+        None => format!("{} · {} {}", s.name.to_uppercase(), tr("PROFIL", "PROFILE"), super::home::profile_label(s.profile).to_uppercase()),
+    };
+    cv.text(W / 2.0, 200.0, Text::new(Font::Mono, 16.0, FROST_3).tracking(3.0).align(Align::Center), &head);
 
     if s.keys {
         keys(cv, f);
         return;
     }
 
-    let others: Vec<Profile> = Profile::ALL.iter().copied().filter(|p| *p != s.profile).collect();
+    // Les tuiles de l'hôte ; un invité n'a ni profil, ni réglages de l'ordinateur, ni « Partager », et la
+    // Magic Remote en souris, les touches et la manette en souris seulement avec le clavier et la souris
+    // donnés, la tuile des manettes seulement en joueur (KyberNow Share).
+    let guest = s.guest.is_some();
+    let kbm = s.keyboard_mouse();
+    let plays = s.role().is_none_or(|r| r.plays());
     let mut tiles: Vec<(MenuItem, Icon, String, Option<String>, bool, bool)> = vec![(MenuItem::Resume, Icon::Play, tr("Reprendre", "Resume").into(), None, false, false)];
-    for p in &others {
-        let sub = match p {
-            Profile::Jeu => tr("faible latence", "low latency"),
-            Profile::Bureau => tr("texte net", "sharp text"),
-            Profile::Max => tr("tout au plus haut", "everything highest"),
-        };
-        tiles.push((MenuItem::Profile(*p), Icon::Monitor, format!("{} {}", tr("Profil", "Profile"), super::home::profile_label(*p)), Some(sub.into()), false, false));
+    if !guest {
+        for p in Profile::ALL.iter().copied().filter(|p| *p != s.profile) {
+            let sub = match p {
+                Profile::Jeu => tr("faible latence", "low latency"),
+                Profile::Bureau => tr("texte net", "sharp text"),
+                Profile::Max => tr("tout au plus haut", "everything highest"),
+            };
+            tiles.push((MenuItem::Profile(p), Icon::Monitor, format!("{} {}", tr("Profil", "Profile"), super::home::profile_label(p)), Some(sub.into()), false, false));
+        }
     }
-    tiles.push((MenuItem::RemoteMouse, Icon::Pointer, "Magic Remote".into(), Some(tr("en souris · OK = clic", "as mouse · OK = click").into()), false, s.remote_mouse));
-    tiles.push((MenuItem::PadMouse, Icon::Gamepad, tr("Manette en souris", "Controller as mouse").into(), Some(tr("stick gauche", "left stick").into()), false, s.pad_mouse));
-    tiles.push((MenuItem::Keys, Icon::Keys, tr("Touches", "Keys").into(), Some("Ctrl+Alt+Suppr…".into()), false, false));
+    if kbm {
+        tiles.push((MenuItem::RemoteMouse, Icon::Pointer, "Magic Remote".into(), Some(tr("en souris · OK = clic", "as mouse · OK = click").into()), false, s.remote_mouse));
+        tiles.push((MenuItem::PadMouse, Icon::Gamepad, tr("Manette en souris", "Controller as mouse").into(), Some(tr("stick gauche", "left stick").into()), false, s.pad_mouse));
+        tiles.push((MenuItem::Keys, Icon::Keys, tr("Touches", "Keys").into(), Some("Ctrl+Alt+Suppr…".into()), false, false));
+    }
     tiles.push((MenuItem::Stats, Icon::Chart, tr("Statistiques", "Statistics").into(), Some(tr("en haut de l'image", "over the picture").into()), false, s.show_stats));
-    tiles.push((MenuItem::Gamepads, Icon::Gamepad, tr("Manettes", "Controllers").into(), Some(format!("{} {}", app.pads.len(), tr("branchée(s)", "connected"))), false, false));
-    tiles.push((MenuItem::Settings, Icon::Gear, tr("Réglages", "Settings").into(), Some(tr("prochaine session", "next session").into()), false, false));
-    tiles.push((MenuItem::Disconnect, Icon::Logout, tr("Se déconnecter", "Disconnect").into(), None, true, false));
+    if plays {
+        tiles.push((MenuItem::Gamepads, Icon::Gamepad, tr("Manettes", "Controllers").into(), Some(format!("{} {}", app.pads.len(), tr("branchée(s)", "connected"))), false, false));
+    }
+    if guest {
+        tiles.push((MenuItem::Disconnect, Icon::Logout, tr("Quitter le partage", "Leave").into(), Some(s.name.clone()), true, false));
+    } else {
+        // « Partager » : « 2 invités » quand il est ouvert, le texte du refus quand il est inactif.
+        let (sub, on) = match (&s.share, app.share_avail()) {
+            (Some(v), _) => (guests_label(v.guests.len()), true),
+            (None, Some(a)) if a != ShareAvail::Available => (a.text().unwrap_or_default().to_string(), false),
+            _ => (tr("Code et QR code", "Code and QR code").to_string(), false),
+        };
+        tiles.push((MenuItem::Share, Icon::Share, tr("Partager", "Share").into(), Some(sub), false, on));
+        tiles.push((MenuItem::Settings, Icon::Gear, tr("Réglages", "Settings").into(), Some(tr("prochaine session", "next session").into()), false, false));
+        tiles.push((MenuItem::Disconnect, Icon::Logout, tr("Se déconnecter", "Disconnect").into(), None, true, false));
+    }
 
-    let (x0, y0, cols, gap) = (180.0, 270.0, 5usize, 26.0);
+    let rows = tiles.len().div_ceil(5);
+    let (x0, y0, cols, gap) = (180.0, if rows > 2 { 250.0 } else { 270.0 }, 5usize, 26.0);
     let tw = (W - 2.0 * x0 - gap * (cols as f32 - 1.0)) / cols as f32;
-    let th = 190.0;
+    let th = if rows > 2 { 168.0 } else { 190.0 };
     for (i, (item, icon, title, sub, danger, on)) in tiles.iter().enumerate() {
         let (c, r) = (i % cols, i / cols);
         let rect = Rect::new(x0 + c as f32 * (tw + gap), y0 + r as f32 * (th + gap), tw, th);
@@ -205,7 +234,7 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     }
 
     if s.game_hint {
-        let (x, y, w, h) = (180.0, 760.0, W - 360.0, 96.0);
+        let (x, y, w, h) = (180.0, if rows > 2 { 820.0 } else { 760.0 }, W - 360.0, 96.0);
         cv.rrect(x, y, w, h, 18.0, Rgba(14, 19, 28, 230));
         cv.rrect_stroke(x, y, w, h, 18.0, 1.0, BORDER);
         cv.icon(&Icon::Info, x + 30.0, y + 31.0, 34.0, 1.6, SPECTRE);
@@ -219,7 +248,12 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         widgets::secondary(cv, f, Target::HintDismiss, x + w - lw - 30.0, y + 22.0, label, 20.0);
     }
 
-    let hint = tr("Menu : bouton Retour de la Magic Remote, ou L1 + R1 + Start + Select · pendant le menu, l'ordinateur ne reçoit rien", "Menu: Magic Remote Back, or L1 + R1 + Start + Select · while the menu is open, the computer receives nothing");
+    // Un spectateur n'envoie rien : pas de combinaison de la manette (Start, Select ou B ouvrent le menu).
+    let hint = if s.role() == Some(crate::app::ShareRole::Spectator) {
+        tr("Menu : bouton Retour de la Magic Remote, ou Start, Select ou B d'une manette", "Menu: Magic Remote Back, or Start, Select or B on a controller")
+    } else {
+        tr("Menu : bouton Retour de la Magic Remote, ou L1 + R1 + Start + Select · pendant le menu, l'ordinateur ne reçoit rien", "Menu: Magic Remote Back, or L1 + R1 + Start + Select · while the menu is open, the computer receives nothing")
+    };
     cv.text(W / 2.0, H - 70.0, Text::new(Font::Regular, 19.0, FROST_3).align(Align::Center), hint);
 }
 
