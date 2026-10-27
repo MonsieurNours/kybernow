@@ -10,9 +10,9 @@
   import { backend, endBody, heartbeatBody, type AutoCaps, type GuestBeat, type GuestJoin, type Info } from './backend'
   import { Heartbeat } from './heartbeat'
   import { guestTarget, sendHeartbeat, type HeartbeatResult } from './heartbeat-call'
-  import { ApiError, type GuestImage, type ShareQuality, type ShareRole, type ShareView } from '../lib/api'
+  import { ApiError, joinedGuests, shareRequests, type GuestImage, type ShareQuality, type ShareRole, type ShareView } from '../lib/api'
   import { Engine, allStopped, isFixedEngine, retire, supportedCodecs, type DisplayInfo, type Latency } from './engine'
-  import { choose, preferredProtocol, type Plan } from './plan'
+  import { choose, preferredProtocol, viaRelay, type Plan } from './plan'
   import { deviceId, isCustom, MIN_SESSION_SECONDS, profileName, saveLastSession, type MouseMode, type Prefs, type TouchMode } from './prefs'
   import { deviceKind, deviceName, hasKeyboardLock, hasTouchScreen, isTouch, measureRefresh, screenMode, type Mode } from './device'
   import { installAbsoluteMouse, installPointerGate, isRemoteCursorHidden, releasePointer, removeAbsoluteMouse, removePointerGate, setPositionMapper, setRemoteCursorHidden } from './pointer'
@@ -84,7 +84,13 @@
   let shareSupport = $state<'ok' | 'old' | 'off'>('ok')
   const shareHint = $derived(shareSupport === 'old' ? t('share.bar.tooOld') : shareSupport === 'off' ? t('share.off') : '')
   /** Invités du partage ouvert : la pastille « 2 invités » (rien quand il n'y en a pas encore). */
-  const guestCount = $derived(share?.guests.length ?? 0)
+  const guestCount = $derived(joinedGuests(share).length)
+  /** Demandes venues par le relais : leur pastille « 1 demande », à côté de celle des invités. */
+  const requestCount = $derived(shareRequests(share).length)
+  /** « Partager », avec ses pastilles, pour les lecteurs d'écran. */
+  const shareAria = $derived([t('share.bar.share'), guestCount ? tn('share.guests', guestCount) : '', requestCount ? tn('share.requestCount', requestCount) : ''].filter(Boolean).join(' · '))
+  /** La session passe par le relais (un invité venu d'internet) : puce « Par le relais ». */
+  const relayed = viaRelay()
   /** Le dernier appui sur « Partager » est un doigt ou un stylet (pas une souris ni le clavier). */
   let shareTouch = false
   let diagText = $state('')
@@ -1592,6 +1598,13 @@
           </svg>
           <span class="label">{roleText}</span>
         </span>
+        {#if relayed}
+          <!-- Par le relais (docs/link-ui.md, « Hors de chez vous ») : toujours visible dans la barre. -->
+          <span class="chip static relay">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9A8CFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z" /></svg>
+            <span class="label">{t('session.bar.relay')}</span>
+          </span>
+        {/if}
         {#if qualityKnown}
           <!-- « Qualité de l'image » : la qualité reçue ; le menu la change (l'image de l'invité seulement). -->
           <button type="button" class="chip" bind:this={qualityChip} aria-haspopup="menu" aria-expanded={qualityOpen} aria-label="{t('share.quality.title')} · {receivedText}" title={t('share.quality.title')} disabled={qualityBusy} onclick={toggleQuality}>
@@ -1631,10 +1644,11 @@
       {/if}
       {#if !g}
         <!-- « Partager » (KyberNow Share) : inactif si la Station ne le sait pas ou l'a coupé ; le panneau dit pourquoi. -->
-        <button type="button" class="chip" class:inactive={shareSupport !== 'ok'} aria-expanded={shareOpen} aria-disabled={shareSupport !== 'ok'} aria-label={guestCount ? `${t('share.bar.share')} · ${tn('share.guests', guestCount)}` : t('share.bar.share')} title={shareHint} onpointerdown={(e) => (shareTouch = e.pointerType === 'touch' || e.pointerType === 'pen')} onclick={toggleShare}>
+        <button type="button" class="chip" class:inactive={shareSupport !== 'ok'} aria-expanded={shareOpen} aria-disabled={shareSupport !== 'ok'} aria-label={shareAria} title={shareHint} onpointerdown={(e) => (shareTouch = e.pointerType === 'touch' || e.pointerType === 'pen')} onclick={toggleShare}>
           <Icon name="share" size={16} stroke={1.7} />
           <span class="label">{t('share.bar.share')}</span>
           {#if guestCount}<span class="count" aria-hidden="true"><span class="full">{tn('share.guests', guestCount)}</span><span class="num">{guestCount}</span></span>{/if}
+          {#if requestCount}<span class="count ask" aria-hidden="true"><span class="full">{tn('share.requestCount', requestCount)}</span><span class="num">{requestCount}</span></span>{/if}
         </button>
       {/if}
       <span class="sep" aria-hidden="true"></span>
@@ -1685,7 +1699,7 @@
           <p class="muted">{t('session.metrics.waiting')}</p>
         {/if}
         <div class="mono foot">
-          <span>{t('session.metrics.fps', { fps })}</span>{#if !g}<span>{plan?.mbps ?? '—'} Mbit/s</span>{/if}<span>{plan?.reliable ? t('session.metrics.reliable') : t('session.metrics.fast')}</span>
+          <span>{t('session.metrics.fps', { fps })}</span>{#if !g}<span>{plan?.mbps ?? '—'} Mbit/s</span>{/if}<span>{plan?.reliable ? t('session.metrics.reliable') : t('session.metrics.fast')}</span>{#if relayed}<span>{t('session.bar.relay')}</span>{/if}
         </div>
         <p class="muted small">{t('session.metrics.browserNote')}</p>
       </section>
@@ -1704,6 +1718,11 @@
         <Mark size={20} state="now" lit />
         <span class="mono tlat">{latencyText}</span>
         {#if g}<span class="trole">{roleText}</span>{/if}
+        {#if relayed}
+          <span class="trelay" role="img" title={t('session.bar.relay')} aria-label={t('session.bar.relay')}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#9A8CFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z" /></svg>
+          </span>
+        {/if}
         {#if g && qualityKnown}
           <button type="button" class="tb" aria-haspopup="menu" aria-expanded={qualityOpen} aria-label="{t('share.quality.title')} · {receivedText}" disabled={qualityBusy} onclick={() => (qualityOpen = !qualityOpen)}>
             <Icon name="display" size={20} stroke={1.7} />
@@ -1731,9 +1750,10 @@
           </button>
         {/if}
         {#if !g}
-          <button type="button" class="tb" class:inactive={shareSupport !== 'ok'} aria-expanded={shareOpen} aria-disabled={shareSupport !== 'ok'} aria-label={guestCount ? `${t('share.bar.share')} · ${tn('share.guests', guestCount)}` : t('share.bar.share')} onclick={toggleShare}>
+          <button type="button" class="tb" class:inactive={shareSupport !== 'ok'} aria-expanded={shareOpen} aria-disabled={shareSupport !== 'ok'} aria-label={shareAria} onclick={toggleShare}>
             <Icon name="share" size={20} stroke={1.7} />
             {#if guestCount}<span class="tcount mono" aria-hidden="true">{guestCount}</span>{/if}
+            {#if requestCount}<span class="tcount ask mono" aria-hidden="true">{requestCount}</span>{/if}
           </button>
         {/if}
         <span class="sep" aria-hidden="true"></span>
@@ -2124,6 +2144,13 @@
     display: none;
   }
 
+  /* Pastille des demandes venues par le relais : « 1 demande », à côté de celle des invités. */
+  .count.ask {
+    background: var(--warn-bg);
+    box-shadow: inset 0 0 0 1px var(--warn);
+    color: var(--warn-text);
+  }
+
   .chip.icon {
     width: 40px;
     padding: 0;
@@ -2391,6 +2418,12 @@
     margin-right: 6px;
   }
 
+  .trelay {
+    display: grid;
+    place-items: center;
+    margin-right: 6px;
+  }
+
   .tpad {
     display: flex;
     align-items: center;
@@ -2453,6 +2486,14 @@
     font-size: 10px;
     line-height: 16px;
     text-align: center;
+  }
+
+  /* Demandes : en haut à gauche de l'icône, couleur d'une attente. */
+  .tcount.ask {
+    right: auto;
+    left: 3px;
+    background: var(--warn);
+    color: #1a1406;
   }
 
   .danger-tb {
@@ -2602,6 +2643,14 @@
 
     .count .num {
       display: inline;
+    }
+
+    .count.ask {
+      right: auto;
+      left: 1px;
+      background: var(--warn);
+      box-shadow: none;
+      color: #1a1406;
     }
   }
 

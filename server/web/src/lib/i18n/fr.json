@@ -86,6 +86,7 @@
       "fullscreen": "Plein écran",
       "exitFullscreen": "Quitter le plein écran",
       "quit": "Se déconnecter",
+      "relay": "Par le relais",
       "showHint": "Barre de session : Ctrl + Alt + Maj"
     },
     "keys": {
@@ -195,6 +196,7 @@
       "pathWebkit": "WebSocket dans Safari : son WebTransport ne sait pas vérifier le certificat de l’ordinateur (un peu plus de latence).",
       "pathFirefox": "WebSocket dans Firefox, et le format H.264 en Auto : la combinaison retenue pour ce navigateur (un peu plus de latence).",
       "pathUnsupported": "WebSocket : ce navigateur n’a pas WebTransport (un peu plus de latence).",
+      "pathRelay": "WebSocket par le relais : hors de chez vous, l’image passe par le relais de KyberNow (un peu plus de latence).",
       "pathDirect": "WebTransport, en direct ; si l’image n’arrive pas dans les 12 s qui suivent son démarrage par l’ordinateur (25 s après la connexion s’il ne la démarre pas), la page passe par WebSocket.",
       "transport": "Transport de l'image",
       "reliable": "Fiable",
@@ -269,6 +271,7 @@
       "hardware": "Image décodée par la carte graphique",
       "software": "Image décodée par le processeur",
       "websocket": "Image par WebSocket : un peu plus de latence qu'en WebTransport",
+      "relay": "Image par le relais, en WebSocket : un peu plus de latence qu'en WebTransport",
       "allKeys": "Toutes les touches en plein écran",
       "keysMenu": "Raccourcis système par le menu Touches",
       "text444": "Texte net (4:4:4)",
@@ -585,6 +588,19 @@
       "closeHint": "Sait se fermer seule à la fin de la session.",
       "noCloseHint": "Ne sait pas se fermer proprement.",
       "optionsHint": "Les autres options sont sur la carte de l'appareil."
+    },
+    "away": {
+      "title": "Hors de chez vous",
+      "server": "Relais",
+      "serverHelp": "Le relais fait passer le partage et vos appareils par internet, hors de chez vous. Laissez vide pour ne pas en utiliser.",
+      "save": "Enregistrer",
+      "saved": "Enregistré.",
+      "joined": "Relais joint",
+      "unreachable": "Relais injoignable ({reason})",
+      "unreachablePlain": "Relais injoignable",
+      "access": "Accès hors de chez vous",
+      "accessHelp": "Vos appareils appairés ouvrent cet ordinateur par le relais quand ils ne sont pas sur votre réseau.",
+      "locked": "Accès hors de chez vous bloqué 10 min après trop d'essais."
     }
   },
   "users": {
@@ -922,9 +938,16 @@
     "copyFailed": "Copie impossible : sélectionnez le lien à la main.",
     "qrLabel": "QR code du partage",
     "help": "Sur le même réseau : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur.",
+    "helpRelay": "Sur le même réseau ou ailleurs : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur. Hors de chez vous, vous acceptez chaque invité.",
+    "relayUnreachable": "Pas encore joignable hors de chez vous.",
     "people": "Invités",
     "participants": "Participants",
     "nobody": "Personne pour l'instant.",
+    "requests": "Demandes",
+    "asks": "{name} demande à rejoindre",
+    "away": "hors de chez vous",
+    "accept": "Accepter",
+    "refuse": "Refuser",
     "host": "{name} · Hôte",
     "role": {
       "spectator": "{name} · Spectateur",
@@ -948,6 +971,10 @@
     "guests": {
       "one": "{n} invité",
       "other": "{n} invités"
+    },
+    "requestCount": {
+      "one": "{n} demande",
+      "other": "{n} demandes"
     },
     "apps": {
       "mac": "Mac",
@@ -975,7 +1002,12 @@
       "tooMany": "Trop d'essais de code : réessayez dans une minute.",
       "unreadable": "Cet appareil ne lit pas l'image de cet ordinateur ({format}).",
       "unavailable": "Le partage n'est pas disponible pour le moment : réessayez dans un instant.",
-      "badRequest": "Le code a six chiffres, et le prénom ne peut pas être vide."
+      "badRequest": "Le code a six chiffres, et le prénom ne peut pas être vide.",
+      "waiting": "En attente de l'accord de l'hôte…",
+      "refused": "L'hôte a refusé.",
+      "expired": "L'hôte n'a pas répondu.",
+      "relayDown": "Le relais ne répond pas.",
+      "pendingFull": "Trop de demandes en attente : réessayez dans un instant."
     },
     "quality": {
       "title": "Qualité de l'image",

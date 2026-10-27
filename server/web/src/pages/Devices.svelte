@@ -3,10 +3,11 @@
   (l'hôte, les invités et leurs droits), les demandes d'accès par code
   (Apple TV), et les appareils qui se sont connectés, chacun sur une carte
   qui s'ouvre : l'app au début de la session et ses options, l'accès, les
-  sessions. Rien de caché dans un menu.
+  sessions. Puis « Hors de chez vous » : le relais et l'accès par le relais
+  (docs/relais.md). Rien de caché dans un menu.
 -->
 <script lang="ts">
-  import { api, canCloseLaunch, type Device, type Launch, type PairRequest, type Pairing } from '../lib/api'
+  import { api, canCloseLaunch, joinedGuests, type Device, type Launch, type PairRequest, type Pairing, type RelayStatus } from '../lib/api'
   import { app, errorText, field, kyber, loadKyber, markRestartPending, notify, refreshStatus, setValues, value } from '../lib/store.svelte'
   import { ago, capital, deviceIcon, duration, mode, ms, when } from '../lib/format'
   import Icon from '../lib/Icon.svelte'
@@ -29,7 +30,7 @@
   const live = $derived(app.status?.activity?.live ?? null)
   // Partage en cours (d'un appareil ou du PC) : ses participants, avec leurs droits.
   const share = $derived(app.status?.share ?? null)
-  const guests = $derived(share?.guests.length ?? 0)
+  const guests = $derived(joinedGuests(share).length)
   const opened = $derived(open === undefined ? (live?.device_id ?? null) : open)
   // Demandes d'accès par code, relues avec l'état du serveur (toutes les 3 s).
   const requests = $derived(app.status?.pair_requests ?? [])
@@ -99,9 +100,45 @@
     api.pairing().then((p) => (pairing = p)).catch((e) => notify('error', errorText(e)))
     loadDevices()
     loadKyber()
+    loadRelay()
     const timer = setInterval(loadDevices, 8000)
-    return () => clearInterval(timer)
+    // L'état du relais change vite après un enregistrement (connexion, puis joint ou injoignable).
+    const relayTimer = setInterval(loadRelay, 3000)
+    return () => {
+      clearInterval(timer)
+      clearInterval(relayTimer)
+    }
   })
+
+  // « Hors de chez vous » : le relais (`GET /api/relay`), relu tant que la page est ouverte.
+  let relay = $state<RelayStatus | null>(null)
+  /** L'adresse du relais en cours de saisie (`null` : pas encore lue). */
+  let relayServer = $state<string | null>(null)
+  let relaySaving = $state(false)
+  const relayLocked = $derived(!!relay?.locked_until && relay.locked_until > now)
+  const relayEdited = $derived(relay !== null && relayServer !== null && relayServer.trim() !== relay.server)
+
+  async function loadRelay() {
+    try {
+      relay = await api.relay()
+      if (relayServer === null) relayServer = relay.server
+    } catch {
+      // 401 gérée globalement ; une Station sans relais n'a pas la section.
+    }
+  }
+
+  async function saveRelay(changes: { server?: string; remote_access?: boolean }) {
+    relaySaving = true
+    try {
+      relay = await api.setRelay(changes)
+      if (changes.server !== undefined) relayServer = relay.server
+      notify('ok', t('devices.away.saved'))
+    } catch (e) {
+      notify('error', errorText(e))
+    } finally {
+      relaySaving = false
+    }
+  }
 
   // Empreinte groupée par quatre caractères : les quatre premiers groupes suffisent à comparer.
   const fingerprint = $derived(
@@ -384,6 +421,37 @@
       </div>
     {/if}
   </section>
+
+  <!-- Hors de chez vous : le relais et l'accès par le relais -->
+  {#if relay}
+    <section id="hors-de-chez-vous" aria-labelledby="t-away" class="card away">
+      <div class="card-head">
+        <h2 id="t-away">{t('devices.away.title')}</h2>
+      </div>
+      {#if relayLocked}
+        <div class="notice warn" role="status"><Icon name="warning" size={16} /><span>{t('devices.away.locked')}</span></div>
+      {/if}
+      <div class="set">
+        <div>
+          <label class="title" for="relay-server">{t('devices.away.server')}</label>
+          <p>{t('devices.away.serverHelp')}</p>
+          {#if relay.server && relay.state === 'joined'}
+            <span class="relay-state ok"><span class="dot"></span>{t('devices.away.joined')}</span>
+          {:else if relay.server && relay.state === 'unreachable'}
+            <span class="relay-state bad"><span class="dot"></span>{relay.reason ? t('devices.away.unreachable', { reason: relay.reason }) : t('devices.away.unreachablePlain')}</span>
+          {/if}
+        </div>
+        <form class="relay-form" onsubmit={(e) => (e.preventDefault(), saveRelay({ server: (relayServer ?? '').trim() }))}>
+          <input id="relay-server" class="mono" type="text" placeholder="share.kybernow.app:8443" autocomplete="off" autocapitalize="off" spellcheck="false" bind:value={relayServer} />
+          <button type="submit" class="ghost small" disabled={relaySaving || !relayEdited}>{t('devices.away.save')}</button>
+        </form>
+      </div>
+      <div class="set">
+        <div><h3>{t('devices.away.access')}</h3><p>{t('devices.away.accessHelp')}</p></div>
+        <Switch label={t('devices.away.access')} checked={relay.remote_access} disabled={relaySaving || !relay.server} onchange={(v) => saveRelay({ remote_access: v })} />
+      </div>
+    </section>
+  {/if}
 </div>
 
 {#if picking}
@@ -781,6 +849,58 @@
     box-shadow: inset 0 0 0 1px var(--signal-line);
   }
 
+  /* Hors de chez vous */
+
+  .away .notice {
+    margin-bottom: 14px;
+  }
+
+  .relay-form {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .relay-form input {
+    width: 260px;
+    max-width: 100%;
+    height: 36px;
+    font-size: 13px;
+  }
+
+  .relay-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 2px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .relay-state .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex: none;
+  }
+
+  .relay-state.ok {
+    color: var(--ok-text);
+  }
+
+  .relay-state.ok .dot {
+    background: var(--ok);
+    box-shadow: 0 0 8px var(--ok);
+  }
+
+  .relay-state.bad {
+    color: var(--bad-text);
+  }
+
+  .relay-state.bad .dot {
+    background: var(--bad);
+  }
+
   @media (max-width: 760px) {
     .share {
       padding: 20px 18px 16px;
@@ -820,6 +940,15 @@
 
     .launch {
       justify-content: flex-start;
+    }
+
+    .relay-form {
+      flex-wrap: wrap;
+    }
+
+    .relay-form input {
+      flex: 1 1 200px;
+      width: auto;
     }
   }
 </style>

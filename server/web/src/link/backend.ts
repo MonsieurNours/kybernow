@@ -3,6 +3,7 @@
 import { ApiError, type GuestImage, type ShareQuality, type ShareRole, type ShareView } from '../lib/api'
 import { langHeaders, t } from '../lib/i18n/index.svelte'
 import type { Mode } from './device'
+import { viaRelay } from './plan'
 import { deviceId } from './prefs'
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -11,9 +12,19 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   return data as T
 }
 
-async function request(method: string, path: string, body?: unknown): Promise<{ res: Response; data: any }> {
+/**
+ * `json` : la réponse est du JSON (celle d'Admin) ; faux pour une page d'erreur du relais (`502`,
+ * `503`, `504`) ou d'un mandataire. `headers` et `signal` : en plus (le secret d'un invité, l'attente
+ * qu'on annule).
+ */
+async function request(
+  method: string,
+  path: string,
+  body?: unknown,
+  extra: { headers?: Record<string, string>; signal?: AbortSignal } = {},
+): Promise<{ res: Response; data: any; json: boolean }> {
   // La console répond dans la langue de ce client (messages d'erreur).
-  const headers: Record<string, string> = { ...langHeaders() }
+  const headers: Record<string, string> = { ...langHeaders(), ...extra.headers }
   if (method !== 'GET') headers['x-kyber-admin'] = '1'
   if (body !== undefined) headers['content-type'] = 'application/json'
   const res = await fetch(path, {
@@ -21,15 +32,23 @@ async function request(method: string, path: string, body?: unknown): Promise<{ 
     headers,
     body: body === undefined ? undefined : JSON.stringify(body),
     credentials: 'same-origin',
+    signal: extra.signal,
   })
   const text = await res.text()
   let data: any = null
+  let json = true
   try {
     data = text ? JSON.parse(text) : null
   } catch {
     data = { error: text }
+    json = false
   }
-  return { res, data }
+  return { res, data, json }
+}
+
+/** Le relais (ou un mandataire) répond à la place d'Admin : une page d'erreur, pas du JSON. */
+function relaySilent(res: Response, json: boolean): boolean {
+  return !json && (res.status === 502 || res.status === 503 || res.status === 504)
 }
 
 /** Refus d'une route de la Station (`code` : `session`, `too_soon`…, voir server/README.md). */
@@ -60,6 +79,11 @@ export interface Session {
   configured: boolean
   authenticated: boolean
   hostname?: string | null
+  /**
+   * La page est venue par le relais (docs/relais.md, « Partage ») : seul « Rejoindre un partage » est
+   * ouvert, sans nom d'ordinateur (il n'est connu qu'après l'accord de l'hôte), image en WebSocket.
+   */
+  relay?: boolean
 }
 
 export interface Ticket {
@@ -119,6 +143,20 @@ export interface GuestJoin {
   yuv444: boolean
   /** Secondes entre deux signes de vie. */
   beat: number
+  /** Venu par le relais : l'image passe en WebSocket (raison `relay`), jamais en WebTransport. */
+  relay?: boolean
+}
+
+/**
+ * `POST /api/share/join` par le relais (`202`) : la demande attend l'accord de l'hôte. `guest` et
+ * `secret` servent à l'attente (`POST /api/share/wait`) et à l'annuler (`leave`) ; `expires` : secondes
+ * avant « L'hôte n'a pas répondu. ».
+ */
+export interface GuestPending {
+  pending: true
+  guest: string
+  secret: string
+  expires: number
 }
 
 /** Réponse de `POST /api/share/beat`. `end` : pourquoi l'invité est sorti. */
@@ -145,10 +183,25 @@ export interface AutoCaps {
   yuv444: boolean
 }
 
-/** Refus de `POST /api/share/join` : `kind` dit lequel (`message` n'est que le texte d'Admin, pour `other`). */
+/**
+ * Refus de `POST /api/share/join` ou de `POST /api/share/wait` : `kind` dit lequel (`message` n'est que
+ * le texte d'Admin, pour `other`). Par le relais : `pending_full` (trois demandes en attente déjà),
+ * `refused` (l'hôte a refusé), `expired` (pas de réponse en 120 s), `relay` (le relais ne répond pas).
+ */
 export class JoinRefusal extends Error {
   constructor(
-    public kind: 'no_share' | 'full' | 'too_many' | 'bad_request' | 'unavailable' | 'network' | 'other',
+    public kind:
+      | 'no_share'
+      | 'full'
+      | 'too_many'
+      | 'bad_request'
+      | 'unavailable'
+      | 'network'
+      | 'pending_full'
+      | 'refused'
+      | 'expired'
+      | 'relay'
+      | 'other',
     message = '',
     /** Secondes à attendre (`too_many`). */
     public retryAfter: number | null = null,
@@ -201,28 +254,66 @@ export const backend = {
   end: (latency: number | null, extra: Extra = {}) => call('POST', '/api/stream/end', endBody(latency, extra)),
 
   // KyberNow Share, côté invité (sans compte : le secret de l'invité, puis son cookie).
-  /** Rejoint le partage de cet ordinateur avec son code ; Admin pose le cookie de l'invité. `auto` : pour « Auto ». */
-  joinShare: async (code: string, name: string, quality: ShareQuality = 'auto', auto?: AutoCaps): Promise<GuestJoin> => {
-    let out: { res: Response; data: any }
+  /**
+   * Rejoint le partage de cet ordinateur avec son code ; Admin pose le cookie de l'invité. `auto` : pour
+   * « Auto ». Par le relais, la demande attend l'accord de l'hôte (`202`, `GuestPending`) : la suite
+   * vient de `shareWait`.
+   */
+  joinShare: async (code: string, name: string, quality: ShareQuality = 'auto', auto?: AutoCaps): Promise<GuestJoin | GuestPending> => {
+    let out: { res: Response; data: any; json: boolean }
     try {
       out = await request('POST', '/api/share/join', { code, name, device: deviceId(), app: 'web', quality, ...(auto ? { auto } : {}) })
     } catch {
-      throw new JoinRefusal('network')
+      throw new JoinRefusal(viaRelay() ? 'relay' : 'network')
     }
-    const { res, data } = out
+    const { res, data, json } = out
+    if (res.status === 202 && data?.pending) return data as GuestPending
     if (res.ok) return data as GuestJoin
+    if (viaRelay() && relaySilent(res, json)) throw new JoinRefusal('relay')
     const wait = Number(data?.retry_after ?? res.headers.get('retry-after'))
     switch (res.status) {
       case 404:
         throw new JoinRefusal('no_share')
+      case 403:
+        throw new JoinRefusal(data?.error === 'refused' ? 'refused' : 'other', data?.error ?? t('common.error', { status: res.status }))
       case 409:
-        throw new JoinRefusal(data?.error === 'full' ? 'full' : 'other', data?.error ?? '')
+        throw new JoinRefusal(data?.error === 'full' ? 'full' : data?.error === 'pending_full' ? 'pending_full' : 'other', data?.error ?? '')
       case 429:
         throw new JoinRefusal('too_many', '', Number.isFinite(wait) && wait > 0 ? wait : null)
       case 400:
         throw new JoinRefusal('bad_request')
       case 503:
         throw new JoinRefusal('unavailable')
+      default:
+        throw new JoinRefusal('other', data?.error ?? t('common.error', { status: res.status }))
+    }
+  },
+
+  /**
+   * Attend l'accord de l'hôte pour une demande venue par le relais (réponse tenue 25 s au plus) : `null`
+   * tant qu'elle attend (rappeler), la réponse de `join` une fois acceptée (Admin pose alors le cookie de
+   * l'invité). Refus : `refused`, `expired`, `no_share` (partage arrêté) ; `relay` quand le relais ne
+   * répond pas. Une attente annulée (`signal`) rejette avec l'erreur du navigateur.
+   */
+  shareWait: async (pending: GuestPending, signal?: AbortSignal): Promise<GuestJoin | null> => {
+    let out: { res: Response; data: any; json: boolean }
+    try {
+      out = await request('POST', '/api/share/wait', { guest: pending.guest }, { headers: { 'x-kybernow-guest': pending.secret }, signal })
+    } catch (e) {
+      if (signal?.aborted) throw e
+      throw new JoinRefusal('relay')
+    }
+    const { res, data, json } = out
+    if (res.status === 202) return null
+    if (res.ok) return data as GuestJoin
+    if (relaySilent(res, json)) throw new JoinRefusal('relay')
+    switch (res.status) {
+      case 403:
+        throw new JoinRefusal('refused')
+      case 410:
+        throw new JoinRefusal('expired')
+      case 404:
+        throw new JoinRefusal('no_share')
       default:
         throw new JoinRefusal('other', data?.error ?? t('common.error', { status: res.status }))
     }
@@ -259,6 +350,9 @@ export const backend = {
     role: (id: string, role: ShareRole) => call<ShareView>('POST', `/api/share/guest/${encodeURIComponent(id)}`, { role, device_id: deviceId() }),
     remove: (id: string) => call<ShareView>('DELETE', `/api/share/guest/${encodeURIComponent(id)}?device_id=${encodeURIComponent(deviceId())}`),
     stop: () => call<{ open: false }>('DELETE', `/api/share?device_id=${encodeURIComponent(deviceId())}`),
+    /** Une demande venue par le relais : l'hôte l'accepte ou la refuse. */
+    accept: (id: string) => call<ShareView>('POST', `/api/share/guest/${encodeURIComponent(id)}/accept`, { device_id: deviceId() }),
+    refuse: (id: string) => call<ShareView>('POST', `/api/share/guest/${encodeURIComponent(id)}/refuse`, { device_id: deviceId() }),
   },
 }
 

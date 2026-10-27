@@ -13,8 +13,8 @@ use std::time::Duration;
 
 use serde_json::Value;
 
-use crate::http;
 use crate::i18n::t;
+use crate::{http, share};
 
 fn env_dir(var: &str, fallback: &str) -> PathBuf {
     std::env::var_os(var).map(PathBuf::from).unwrap_or_else(|| PathBuf::from(fallback))
@@ -88,18 +88,26 @@ pub struct LocalState {
     /// Faux si le partage est coupé (`multi_client` de Kyber), ou si la
     /// console ne le connaît pas (avant la 0.8.0).
     pub share_enabled: bool,
+    /// Relais de KyberNow (`server`, `remote_access`, `state`, `reason`),
+    /// `None` pour une console qui ne le connaît pas.
+    pub relay: Option<Value>,
 }
 
 impl LocalState {
-    /// Nombre d'invités du partage ouvert.
+    /// Nombre d'invités du partage ouvert (les demandes n'en sont pas).
     pub fn guests(&self) -> usize {
-        self.share.as_ref().and_then(|s| s["guests"].as_array()).map_or(0, Vec::len)
+        self.share.as_ref().map_or(0, |s| share::guests(s).count())
+    }
+
+    /// Nombre de demandes en attente dans le partage ouvert.
+    pub fn requests(&self) -> usize {
+        self.share.as_ref().map_or(0, |s| share::requests(s).count())
     }
 
     /// Prénoms des invités du partage ouvert.
     pub fn guest_names(&self) -> Vec<String> {
-        let guests = self.share.as_ref().and_then(|s| s["guests"].as_array());
-        guests.into_iter().flatten().filter_map(|g| g["name"].as_str().map(str::to_owned)).collect()
+        let open = self.share.as_ref();
+        open.into_iter().flat_map(share::guests).filter_map(|g| g["name"].as_str().map(str::to_owned)).collect()
     }
 
     /// Un appareil est en session (le partage d'un écran du PC attend sa fin).
@@ -170,6 +178,7 @@ impl Client {
             pending_access: body["pending_access"].as_array().cloned().unwrap_or_default(),
             share: some(&body["share"]).filter(|s| s["open"].as_bool() != Some(false)),
             share_enabled: body["share_enabled"].as_bool().unwrap_or(false),
+            relay: some(&body["relay"]),
         })
     }
 
@@ -215,6 +224,14 @@ impl Client {
     /// souris) ou `player_kbm` (les deux).
     pub fn share_role(&self, port: u16, guest: &str, role: &str) -> anyhow::Result<Value> {
         self.share_call("POST", port, &format!("/api/local/share/guest/{}", path_part(guest)), Some(serde_json::json!({ "role": role })))
+    }
+
+    /// Accepte ou refuse une demande (un invité venu par le relais) ; la vue
+    /// du partage. Corps `{}` : rien à dire de plus que l'identifiant.
+    pub fn share_answer(&self, port: u16, guest: &str, accept: bool) -> anyhow::Result<Value> {
+        let action = if accept { "accept" } else { "refuse" };
+        let path = format!("/api/local/share/guest/{}/{action}", path_part(guest));
+        self.share_call("POST", port, &path, Some(serde_json::json!({})))
     }
 
     /// Retire un invité du partage.

@@ -86,6 +86,7 @@
       "fullscreen": "Full screen",
       "exitFullscreen": "Exit full screen",
       "quit": "Disconnect",
+      "relay": "Via the relay",
       "showHint": "Session bar: Ctrl + Alt + Shift"
     },
     "keys": {
@@ -195,6 +196,7 @@
       "pathWebkit": "WebSocket in Safari: its WebTransport cannot verify the computer’s certificate (a little more latency).",
       "pathFirefox": "WebSocket in Firefox, with H.264 in Auto: the combination chosen for this browser (a little more latency).",
       "pathUnsupported": "WebSocket: this browser does not have WebTransport (a little more latency).",
+      "pathRelay": "WebSocket through the relay: away from home, the picture goes through the KyberNow relay (a little more latency).",
       "pathDirect": "WebTransport, direct; if the picture does not arrive within 12 s of the computer starting it (25 s after connecting if it does not start it), the page switches to WebSocket.",
       "transport": "Picture transport",
       "reliable": "Reliable",
@@ -269,6 +271,7 @@
       "hardware": "Picture decoded by the graphics card",
       "software": "Picture decoded by the processor",
       "websocket": "Picture over WebSocket: a little more latency than WebTransport",
+      "relay": "Picture through the relay, over WebSocket: a little more latency than WebTransport",
       "allKeys": "Every key in full screen",
       "keysMenu": "System shortcuts from the Keys menu",
       "text444": "Sharp text (4:4:4)",
@@ -585,6 +588,19 @@
       "closeHint": "Can close by itself at the end of the session.",
       "noCloseHint": "Cannot be closed cleanly.",
       "optionsHint": "The other options are on the device's card."
+    },
+    "away": {
+      "title": "Away from home",
+      "server": "Relay",
+      "serverHelp": "The relay carries sharing and your devices over the internet, away from home. Leave it empty to use none.",
+      "save": "Save",
+      "saved": "Saved.",
+      "joined": "Relay reached",
+      "unreachable": "Relay unreachable ({reason})",
+      "unreachablePlain": "Relay unreachable",
+      "access": "Access away from home",
+      "accessHelp": "Your paired devices open this computer through the relay when they are not on your network.",
+      "locked": "Access away from home blocked for 10 min after too many attempts."
     }
   },
   "users": {
@@ -922,9 +938,16 @@
     "copyFailed": "Could not copy: select the link by hand.",
     "qrLabel": "QR code for the share",
     "help": "On the same network: “Join with a code” in KyberNow Link, or this link in a browser.",
+    "helpRelay": "On the same network or elsewhere: “Join with a code” in KyberNow Link, or this link in a browser. Away from home, you accept each guest.",
+    "relayUnreachable": "Not reachable away from home yet.",
     "people": "Guests",
     "participants": "Participants",
     "nobody": "Nobody yet.",
+    "requests": "Requests",
+    "asks": "{name} wants to join",
+    "away": "away from home",
+    "accept": "Accept",
+    "refuse": "Decline",
     "host": "{name} · Host",
     "role": {
       "spectator": "{name} · Spectator",
@@ -948,6 +971,10 @@
     "guests": {
       "one": "{n} guest",
       "other": "{n} guests"
+    },
+    "requestCount": {
+      "one": "{n} request",
+      "other": "{n} requests"
     },
     "apps": {
       "mac": "Mac",
@@ -975,7 +1002,12 @@
       "tooMany": "Too many code attempts: try again in a minute.",
       "unreadable": "This device cannot play this computer's picture ({format}).",
       "unavailable": "Sharing is not available right now: try again in a moment.",
-      "badRequest": "The code has six digits, and the name cannot be empty."
+      "badRequest": "The code has six digits, and the name cannot be empty.",
+      "waiting": "Waiting for the host to accept…",
+      "refused": "The host declined.",
+      "expired": "The host did not answer.",
+      "relayDown": "The relay is not answering.",
+      "pendingFull": "Too many requests waiting: try again in a moment."
     },
     "quality": {
       "title": "Picture quality",

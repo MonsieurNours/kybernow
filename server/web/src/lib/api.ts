@@ -246,6 +246,13 @@ export interface ShareGuest {
   last_beat: number
   /** Son image (correctif Kyber 0020) ; absente d'une Station qui ne la connaît pas. */
   image?: GuestImage | null
+  /**
+   * Une demande venue par le relais, pas encore acceptée (docs/relais.md, « Partage ») : spectatrice,
+   * `since` est l'heure de la demande ; elle ne compte pas dans les invités.
+   */
+  pending?: boolean
+  /** Par où l'invité est venu : le réseau (`lan`) ou le relais (`relay`, « hors de chez vous »). */
+  via?: 'lan' | 'relay'
 }
 
 /** « Qualité de l'image » d'un invité (docs/kybernow-share.md, « L'image d'un invité »). */
@@ -278,8 +285,12 @@ export interface ShareView {
   code: string
   /** `kybernow://join?…` : pour les apps (QR code). */
   link: string
-  /** Adresse du client web en invité : pour un navigateur (« Copier le lien »). */
+  /** Adresse du client web en invité : pour un navigateur (« Copier le lien ») ; le lien du relais quand il est joint. */
   web: string
+  /** Adresse du client web sur le réseau, même quand `web` est le lien du relais. */
+  web_local?: string
+  /** Le relais du partage : `null` (pas de relais réglé), joint ou injoignable (absent avant le relais). */
+  relay?: { state: 'joined' | 'unreachable' } | null
   display: { id: number; index: number; label: string; width: number; height: number; refresh: number }
   guests: ShareGuest[]
   max_guests: number
@@ -302,15 +313,45 @@ export interface LocalDisplay {
   y: number
 }
 
+/** Les invités entrés : une demande venue par le relais n'en est pas un tant qu'elle n'est pas acceptée. */
+export function joinedGuests(view: ShareView | null | undefined): ShareGuest[] {
+  return view?.guests.filter((g) => !g.pending) ?? []
+}
+
+/** Les demandes venues par le relais, en attente de l'accord de l'hôte. */
+export function shareRequests(view: ShareView | null | undefined): ShareGuest[] {
+  return view?.guests.filter((g) => g.pending) ?? []
+}
+
 /**
  * Ce que le panneau de partage sait faire : les routes du PC (`/api/local/share…`,
- * Admin) ou, un jour, celles de l'hôte (`/api/share…`, client web).
+ * Admin) ou celles de l'hôte (`/api/share…`, client web).
  */
 export interface ShareOps {
   code(): Promise<ShareView>
   role(id: string, role: ShareRole): Promise<ShareView>
   remove(id: string): Promise<ShareView>
+  /** Accepte ou refuse une demande venue par le relais. */
+  accept(id: string): Promise<ShareView>
+  refuse(id: string): Promise<ShareView>
   stop(): Promise<unknown>
+}
+
+/**
+ * Le relais de KyberNow (`GET /api/relay`, docs/relais.md, « Admin ») : l'adresse du relais (vide :
+ * pas de relais), « Accès hors de chez vous », l'identifiant de la Station, l'état de la connexion
+ * (`reason` dans la langue d'Admin), le blocage après trop d'essais et les sessions par le relais.
+ */
+export interface RelayStatus {
+  server: string
+  remote_access: boolean
+  id: string
+  state: 'off' | 'connecting' | 'joined' | 'unreachable'
+  reason: string | null
+  transport: 'quic' | 'tcp' | null
+  /** Accès par le relais bloqué jusqu'à cette heure (secondes Unix), après trop d'essais. */
+  locked_until: number | null
+  sessions: { device: string; since: number }[]
 }
 
 /**
@@ -557,7 +598,15 @@ export const api = {
   shareRole: (id: string, role: ShareRole) =>
     request<ShareView>('POST', `/api/local/share/guest/${encodeURIComponent(id)}`, { role }),
   shareRemove: (id: string) => request<ShareView>('DELETE', `/api/local/share/guest/${encodeURIComponent(id)}`),
+  /** Une demande venue par le relais : `404` (`unknown_guest`) si elle n'est plus là, `409` (`full`) si les quatre places sont prises. */
+  shareAccept: (id: string) => request<ShareView>('POST', `/api/local/share/guest/${encodeURIComponent(id)}/accept`),
+  shareRefuse: (id: string) => request<ShareView>('POST', `/api/local/share/guest/${encodeURIComponent(id)}/refuse`),
   shareStop: () => request<{ open: false }>('DELETE', '/api/local/share'),
+
+  // Relais de KyberNow (« Hors de chez vous ») : session d'Admin, jamais par le relais.
+  relay: () => request<RelayStatus>('GET', '/api/relay'),
+  /** `server` vide : pas de relais ; adresse invalide : `400` avec le texte d'Admin. */
+  setRelay: (changes: { server?: string; remote_access?: boolean }) => request<RelayStatus>('PUT', '/api/relay', changes),
 }
 
 /** Le panneau de partage d'Admin : routes du PC. */
@@ -565,5 +614,7 @@ export const localShare: ShareOps = {
   code: api.shareCode,
   role: api.shareRole,
   remove: api.shareRemove,
+  accept: api.shareAccept,
+  refuse: api.shareRefuse,
   stop: api.shareStop,
 }

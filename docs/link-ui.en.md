@@ -117,7 +117,8 @@ An open share shows in the bar (a « 2 invités » / “2 guests” chip, from o
 | List | « Participants » when the host is in it; « {nom} · Hôte » | “Participants”; “{name} · Host” |
 | Stopped | « Partage arrêté. » | “Sharing stopped.” |
 | Admin's header, top of the panel | « Partage en cours · {n} invités »; « Partage en cours » | “Sharing · {n} guests”; “Sharing” |
-| Icon, status line | « Partage de l'écran {n} · {n} invités » | “Sharing display {n} · {n} guests” |
+| Icon, status line | « Partage de l'écran {n} · {n} invités »; with requests: « … · 1 demande » (also at the top of its panel) | “Sharing display {n} · {n} guests”; “… · 1 request” |
+| Icon, request | a new request for a share started from the PC opens the panel on the share, once per request (not for a device's share, whose screen is the session's) | — |
 | Icon, confirmations | « Un partage est en cours avec {prénoms} : arrêter la Station le coupera. Arrêter la Station ? »; « … : le redémarrage l'arrêtera. Redémarrer la Station ? »; when quitting: « Un partage est en cours avec {prénoms}. La Station peut rester en marche : le partage continue, et vous pourrez rouvrir l'icône depuis le menu Démarrer. » | “A share is in progress with {names}: stopping the Station will end it. Stop the Station?”; “… restarting will stop it. Restart the Station?”; “A share is in progress with {names}. The Station can keep running: the share goes on, and you can reopen the tray icon from the Start menu.” |
 | Icon, failure | « Admin n'a pas pu changer le partage ({erreur}). » | “Admin could not change the share ({error}).” |
 
@@ -147,12 +148,13 @@ An open share shows in the bar (a « 2 invités » / “2 guests” chip, from o
 | Declined | « L'hôte a refusé. » | “The host declined.” |
 | No answer (120 s) | « L'hôte n'a pas répondu. » | “The host did not answer.” |
 | Relay silent | « Le relais ne répond pas. » | “The relay is not answering.” |
+| Too many requests (three waiting for the host) | « Trop de demandes en attente : réessayez dans un instant. » | “Too many requests waiting: try again in a moment.” |
 
 {host} is the host's name (the host device's name), or the computer's name for a share started from the PC. A guest is not added to the device's computers.
 
 **Web client** (browser): the share's link (`https://<address>:<port>/link/?join=123456`, the host's “Copy link”) opens “Join a share” **without Admin's password**, with the code already filled in (“123 456”) and the suggested name (“Chrome on Mac”, remembered for next time); “Join” has to be clicked (it never connects by itself). “Join with a code” is also on Admin's password screen and on the web client's home screen (next to “Settings”), with “Cancel” to go back; the code is typed as six digits, grouped by three as you type. The browser has a single computer, the one serving the page: the code goes to it alone, with no search on the network. The picture's format is checked once the Station has answered (Kyber's engine only loads with the guest's cookie): the browser asks for the host's if it plays it, otherwise H.264 (a separate picture); it only leaves the share at once, saying so, if it plays neither H.264 nor HEVC. “Picture quality”: at “Join” and in the bar (a “1080p · 60 Hz” chip that opens the five choices); “Auto” from the screen (`screen × devicePixelRatio`), 60 Hz at most, and what the browser's decoder accepts at that size (otherwise 3840 × 2160, then 1920 × 1080, then 1280 × 720); a change made too soon (`429`) is sent again after `Retry-After`, without a notice; if the quality could not change: « La qualité de l'image n'a pas pu changer : réessayez. » / “The picture quality could not be changed: try again.”. A decoding error asks for a keyframe instead of cutting; if it comes back, the picture falls back once to 720p30 (« Image allégée pour suivre. »), then the usual failure text. When the share ends, the end card (“Session ended”, the end text) has a single button, “Join with a code”; no “Reconnect”. A guest's bar: latency and statistics, sound, full screen, “Spectator” or “Player”, “Leave”; with “keyboard and mouse”: the mouse mode and the “Keys” menu (on touch: trackpad, direct touch, keyboard); the controllers chip only as a player. No profile, no settings, no clipboard.
 
-**Admin's feed**: « {hôte} partage l'écran {n} » / “{host} is sharing display {n}”; « {prénom} regarde votre écran » / “{name} is watching your screen” (on arrival, or no right left); « {prénom} joue avec vous » / “{name} is playing with you” (a right given); « {prénom} a quitté le partage » / “{name} left the share” (gone, removed, or timed out); « Partage arrêté » / “Sharing stopped”.
+**Admin's feed**: « {hôte} partage l'écran {n} » / “{host} is sharing display {n}”; « {prénom} regarde votre écran » / “{name} is watching your screen” (on arrival, or no right left); « {prénom} joue avec vous » / “{name} is playing with you” (a right given); « {prénom} a quitté le partage » / “{name} left the share” (gone, removed, or timed out); « Partage arrêté » / “Sharing stopped”; through the relay: « {prénom} demande à rejoindre (hors de chez vous) » / “{name} wants to join (away from home)”, « {prénom} : demande refusée » / “{name}: request declined”.
 
 ## Away from home (relay)
 
@@ -161,6 +163,7 @@ Contract: [relais.en.md](relais.en.md). Through the relay, a session looks like 
 | Item | French | English |
 |---|---|---|
 | Session bar, through the relay | chip « Par le relais », in the always-visible part of the bar (a tile in tile menus) | “Via the relay” |
+| Web client, Settings › Network and Statistics | « WebSocket par le relais : hors de chez vous, l'image passe par le relais de KyberNow (un peu plus de latence). »; « Image par le relais, en WebSocket : un peu plus de latence qu'en WebTransport » | “WebSocket through the relay: away from home, the picture goes through the KyberNow relay (a little more latency).”; “Picture through the relay, over WebSocket: a little more latency than WebTransport” |
 | Statistics, “Path” line | « Chemin » : « Direct », « Par le relais », « Par le relais (TCP) » (fallback when UDP does not get through) | “Path”: “Direct”, “Via the relay”, “Via the relay (TCP)” |
 | Home screen, reachable only through the relay | state « Hors de chez vous » (instead of « En ligne ») | “Away from home” |
 | Refusal, access off | « {nom} n'est pas joignable hors de chez vous (accès coupé dans Admin). » | “{name} cannot be reached away from home (access turned off in Admin).” |
@@ -171,10 +174,10 @@ Contract: [relais.en.md](relais.en.md). Through the relay, a session looks like 
 | Item | French | English |
 |---|---|---|
 | Section | « Hors de chez vous » | “Away from home” |
-| Field | « Relais » (default `share.kybernow.app:8443`) | “Relay” |
-| State | « Relais joint »; « Relais injoignable ({raison}) » | “Relay reached”; “Relay unreachable ({reason})” |
+| Field | « Relais » (default `share.kybernow.app:8443`), help « Le relais fait passer le partage et vos appareils par internet, hors de chez vous. Laissez vide pour ne pas en utiliser. », button « Enregistrer » (then « Enregistré. ») | “Relay”, help “The relay carries sharing and your devices over the internet, away from home. Leave it empty to use none.”, “Save” (then “Saved.”) |
+| State | « Relais joint »; « Relais injoignable ({raison}) », or « Relais injoignable » without a reason; only when an address is set; also in the icon's menu, when a share or the access needs the relay | “Relay reached”; “Relay unreachable ({reason})”, “Relay unreachable” |
 | Switch | « Accès hors de chez vous », help « Vos appareils appairés ouvrent cet ordinateur par le relais quand ils ne sont pas sur votre réseau. » | “Access away from home”, help “Your paired devices open this computer through the relay when they are not on your network.” |
-| Feed | « {appareil} est en session hors de chez vous » | “{device} is in a session away from home” |
+| Feed | « {appareil} est en session hors de chez vous »; « Accès hors de chez vous activé », « Accès hors de chez vous coupé » | “{device} is in a session away from home”; “Access away from home turned on”, “Access away from home turned off” |
 | Blocking | « Accès hors de chez vous bloqué 10 min après trop d'essais. » | “Access away from home blocked for 10 min after too many attempts.” |
 
 ## Computer settings
