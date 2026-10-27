@@ -282,7 +282,7 @@ fn share_shots(app: &mut App, cv: &mut Canvas, assets: &Assets, video: &Pixmap, 
     g.notice = ShareRole::Player.notice(Some(ShareRole::Spectator)).map(|t| (t.to_string(), Instant::now()));
     app.session = Some(g);
     shot(app, cv, assets, Some(video), dir, "22e-invite-avis");
-    // « Qualité de l'image » : la tuile du menu (la qualité reçue), puis ses quatre choix, puis l'avis de la Station.
+    // « Qualité de l'image » : la tuile du menu (la qualité reçue), puis ses cinq choix, puis l'avis de la Station.
     let mut g = guest_session(ShareRole::Spectator);
     g.menu = false;
     g.share_panel = true;
@@ -829,7 +829,7 @@ mod tests {
         assert_eq!(app.activate(Target::Menu(MenuItem::Disconnect)), vec![Action::Disconnect]);
     }
 
-    /// « Qualité de l'image » à « Rejoindre » : « Auto » est proposé, les quatre choix se prennent (croix, OK, Magic Remote), le
+    /// « Qualité de l'image » à « Rejoindre » : « Auto » est proposé, les cinq choix se prennent (croix, OK, Magic Remote), le
     /// choix est retenu avec le prénom (`kybernow.json`) et revient la fois suivante ; il part avec « Rejoindre » ; pendant la
     /// recherche, il ne change plus ; un nom inconnu du fichier se lit « Auto ». La croix y mène du prénom à « Rejoindre ».
     #[test]
@@ -838,17 +838,18 @@ mod tests {
         app.go(Screen::Home);
         app.activate(Target::JoinCard);
         assert_eq!(app.join.quality, ShareQuality::Auto, "« Auto » proposé");
-        assert_eq!(ShareQuality::ALL.map(ShareQuality::label), ["Auto", "Comme l'hôte", "1080p · 60 Hz", "720p · 30 Hz"]);
+        assert_eq!(ShareQuality::ALL.map(ShareQuality::label), ["Auto", "Comme l'hôte", "4K · 60 Hz", "1080p · 60 Hz", "720p · 30 Hz"]);
         crate::i18n::force_english(true);
-        assert_eq!(ShareQuality::ALL.map(ShareQuality::label), ["Auto", "Same as host", "1080p · 60 Hz", "720p · 30 Hz"]);
+        assert_eq!(ShareQuality::ALL.map(ShareQuality::label), ["Auto", "Same as host", "4K · 60 Hz", "1080p · 60 Hz", "720p · 30 Hz"]);
         crate::i18n::force_english(false);
+        assert_eq!(ShareQuality::ALL.map(ShareQuality::as_str), ["auto", "host", "2160p60", "1080p60", "720p30"], "les noms de l'échange avec Admin, dans l'ordre des choix");
         for q in ShareQuality::ALL {
             assert!(app.activate(Target::JoinQuality(q)).is_empty());
             assert_eq!(app.join.quality, q);
             assert_eq!(ShareQuality::parse(q.as_str()), q, "le nom retenu se relit");
         }
         assert_eq!((ShareQuality::parse(""), ShareQuality::parse("4k240")), (ShareQuality::Auto, ShareQuality::Auto));
-        // La croix : du prénom aux quatre choix, de l'un à l'autre, puis « Rejoindre ».
+        // La croix : du prénom aux cinq choix, de l'un à l'autre, puis « Rejoindre ».
         let mut cv = Canvas::new();
         let assets = Assets::load();
         app.hits = ui::draw(&app, &mut cv, &assets);
@@ -860,8 +861,27 @@ mod tests {
         assert_eq!(app.focus, Target::JoinQuality(ShareQuality::Host));
         app.nav(Nav::Ok);
         assert_eq!(app.join.quality, ShareQuality::Host, "OK choisit");
+        app.nav(Nav::Right);
+        assert_eq!(app.focus, Target::JoinQuality(ShareQuality::P2160_60), "« 4K · 60 Hz » après « Comme l'hôte »");
+        app.nav(Nav::Right);
+        assert_eq!(app.focus, Target::JoinQuality(ShareQuality::P1080_60));
+        app.nav(Nav::Left);
+        app.nav(Nav::Ok);
+        assert_eq!(app.join.quality, ShareQuality::P2160_60);
         app.nav(Nav::Down);
         assert_eq!(app.focus, Target::JoinGo);
+        // « 4K · 60 Hz » part avec le code et le prénom, et il est retenu (`2160p60`) pour la fois suivante.
+        for c in "482917".chars() {
+            app.nav(Nav::Char(c));
+        }
+        let acts = app.activate(Target::JoinGo);
+        assert_eq!(acts, vec![Action::Save, Action::JoinShare { code: "482917".into(), name: "LG OLED83G2".into(), quality: ShareQuality::P2160_60 }]);
+        assert_eq!(app.store.app.share_quality, "2160p60");
+        app.nav(Nav::Back);
+        app.activate(Target::JoinCard);
+        assert_eq!(app.join.quality, ShareQuality::P2160_60, "4K retenu pour la fois suivante");
+        app.nav(Nav::Back);
+        app.activate(Target::JoinCard);
         // Le choix part avec le code et le prénom, et il est retenu.
         app.activate(Target::JoinQuality(ShareQuality::P720_30));
         for c in "482917".chars() {
@@ -883,7 +903,7 @@ mod tests {
     }
 
     /// La qualité de l'image en session : la tuile montre la qualité reçue (le choix tant que Kyber ne la donne pas) ; elle
-    /// ouvre les quatre choix sur l'image, Retour revient au menu ; un choix part à la Station, est retenu, revient à
+    /// ouvre les cinq choix sur l'image, Retour revient au menu ; un choix part à la Station, est retenu, revient à
     /// l'image ; le même choix ne demande rien ; l'avis de la Station s'affiche en capsule ; l'hôte n'a pas ce choix.
     #[test]
     fn picture_quality_in_a_guest_session() {
@@ -917,6 +937,18 @@ mod tests {
         app.share_image(Some("720p · 30 Hz".into()), Some("Picture lightened to keep up.".into()));
         assert_eq!(shown(&app), "720p · 30 Hz");
         assert_eq!(app.session.as_ref().unwrap().notice.as_ref().map(|n| n.0.as_str()), Some("Picture lightened to keep up."));
+        // « 4K · 60 Hz » en cours de session : il part à la Station, est retenu, et la tuile dit la qualité reçue.
+        app.session.as_mut().unwrap().menu = true;
+        app.activate(Target::Menu(MenuItem::Quality));
+        let acts = app.activate(Target::QualityPick(ShareQuality::P2160_60));
+        assert_eq!(acts, vec![Action::ShareQuality(ShareQuality::P2160_60), Action::Save]);
+        assert_eq!(app.store.app.share_quality, "2160p60");
+        app.share_image(Some("4K · 60 Hz".into()), None);
+        assert_eq!(shown(&app), "4K · 60 Hz");
+        app.session.as_mut().unwrap().menu = true;
+        app.activate(Target::Menu(MenuItem::Quality));
+        app.activate(Target::QualityPick(ShareQuality::P720_30));
+        app.share_image(Some("720p · 30 Hz".into()), None);
         app.share_image(None, None);
         assert!(app.session.as_ref().unwrap().guest.as_ref().unwrap().image.is_none());
         assert_eq!(shown(&app), "720p · 30 Hz");
@@ -934,7 +966,7 @@ mod tests {
     }
 
     /// Le menu d'un invité a la tuile « Qualité de l'image » (sa qualité reçue en sous-titre), pour chaque rôle, dans l'écran ;
-    /// son panneau montre les quatre choix, rien d'autre ; l'hôte n'a ni l'une ni l'autre.
+    /// son panneau montre les cinq choix, rien d'autre ; l'hôte n'a ni l'une ni l'autre.
     #[test]
     fn picture_quality_draws() {
         let mut app = tv();
@@ -955,7 +987,7 @@ mod tests {
             app.activate(Target::Menu(MenuItem::Quality));
             let hits = ui::draw(&app, &mut cv, &assets);
             let picks: Vec<_> = hits.iter().filter(|(t, _)| matches!(t, Target::QualityPick(_))).collect();
-            assert_eq!(picks.len(), 4, "{role:?}");
+            assert_eq!(picks.len(), ShareQuality::ALL.len(), "{role:?}");
             for (t, r) in &picks {
                 assert!(r.x >= 0.0 && r.y >= 0.0 && r.x + r.w <= 1920.0 && r.y + r.h <= 1032.0, "{role:?} : {t:?} sort : {r:?}");
             }
@@ -1040,7 +1072,7 @@ mod tests {
             assert!(hits.iter().any(|(h, _)| *h == t), "{t:?}");
         }
         assert!(hits.iter().all(|(t, _)| *t != Target::Key('q')));
-        // « Qualité de l'image » : les quatre choix en rangée sous le prénom, entre lui et « Rejoindre », sans passer sous le pavé.
+        // « Qualité de l'image » : les cinq choix en rangée sous le prénom, entre lui et « Rejoindre », sans passer sous le pavé.
         let quality: Vec<crate::app::Rect> = ShareQuality::ALL.iter().map(|q| hits.iter().find(|(h, _)| *h == Target::JoinQuality(*q)).unwrap_or_else(|| panic!("{q:?}")).1).collect();
         assert!(quality.windows(2).all(|w| w[0].x + w[0].w <= w[1].x && (w[0].y - w[1].y).abs() < 0.5), "une ligne, dans l'ordre");
         let (name, go) = (hits.iter().find(|(t, _)| *t == Target::JoinName).unwrap().1, hits.iter().find(|(t, _)| *t == Target::JoinGo).unwrap().1);

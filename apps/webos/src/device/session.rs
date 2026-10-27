@@ -231,6 +231,7 @@ pub fn core_quality(q: crate::app::ShareQuality) -> share::ShareQuality {
     match q {
         crate::app::ShareQuality::Auto => share::ShareQuality::Auto,
         crate::app::ShareQuality::Host => share::ShareQuality::Host,
+        crate::app::ShareQuality::P2160_60 => share::ShareQuality::P2160_60,
         crate::app::ShareQuality::P1080_60 => share::ShareQuality::P1080_60,
         crate::app::ShareQuality::P720_30 => share::ShareQuality::P720_30,
     }

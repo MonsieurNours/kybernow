@@ -1,6 +1,6 @@
 //! « Rejoindre un partage » (KyberNow Share, docs/link-ui.md, « Partage ») : le code à six chiffres que
 //! l'hôte affiche, « Votre prénom » (proposé : le nom de ce téléviseur, puis celui de la dernière fois),
-//! « Qualité de l'image » (quatre choix, « Auto » proposé, retenue aussi) et « Rejoindre ». À la télécommande et à la manette, un pavé à droite qui suit le champ : les chiffres pour
+//! « Qualité de l'image » (cinq choix, « Auto » proposé, retenue aussi) et « Rejoindre ». À la télécommande et à la manette, un pavé à droite qui suit le champ : les chiffres pour
 //! le code, les lettres pour le prénom ; les touches chiffrées de la télécommande et un clavier branché
 //! marchent aussi. La recherche part aux ordinateurs trouvés sur le réseau ; le texte du refus est celui
 //! du cœur.
@@ -67,7 +67,7 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
         cv.text(field.x + field.w - 28.0, field.y + 54.0, Text::new(Font::Mono, 18.0, FROST_4).align(Align::Right), &format!("{NAME_MAX}"));
     }
 
-    // « Qualité de l'image » : les quatre choix en pastilles, « Auto » proposé ; retenue pour la fois suivante. La croix
+    // « Qualité de l'image » : les cinq choix en pastilles, « Auto » proposé ; retenue pour la fois suivante. La croix
     // de la télécommande passe d'un choix à l'autre, OK choisit.
     widgets::label(cv, 96.0, 680.0, tr("Qualité de l'image", "Picture quality"));
     let mut qx = 96.0;

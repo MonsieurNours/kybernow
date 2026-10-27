@@ -299,7 +299,7 @@ pub enum MenuItem {
     Gamepads,
     /// KyberNow Share : « Partager » (hôte).
     Share,
-    /// KyberNow Share, invité : « Qualité de l'image » (la tuile montre la qualité reçue ; ouvre les quatre choix).
+    /// KyberNow Share, invité : « Qualité de l'image » (la tuile montre la qualité reçue ; ouvre les cinq choix).
     Quality,
     Settings,
     Disconnect,
@@ -420,6 +420,8 @@ pub enum ShareQuality {
     Auto,
     /// « Comme l'hôte ».
     Host,
+    /// « 4K · 60 Hz ».
+    P2160_60,
     /// « 1080p · 60 Hz ».
     P1080_60,
     /// « 720p · 30 Hz ».
@@ -428,13 +430,14 @@ pub enum ShareQuality {
 
 impl ShareQuality {
     /// Dans l'ordre du choix.
-    pub const ALL: [ShareQuality; 4] = [Self::Auto, Self::Host, Self::P1080_60, Self::P720_30];
+    pub const ALL: [ShareQuality; 5] = [Self::Auto, Self::Host, Self::P2160_60, Self::P1080_60, Self::P720_30];
 
-    /// Le nom retenu dans `kybernow.json` : celui de l'échange avec Admin (`auto`, `host`, `1080p60`, `720p30`).
+    /// Le nom retenu dans `kybernow.json` : celui de l'échange avec Admin (`auto`, `host`, `2160p60`, `1080p60`, `720p30`).
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Auto => "auto",
             Self::Host => "host",
+            Self::P2160_60 => "2160p60",
             Self::P1080_60 => "1080p60",
             Self::P720_30 => "720p30",
         }
@@ -445,11 +448,12 @@ impl ShareQuality {
         Self::ALL.into_iter().find(|q| q.as_str() == s.trim()).unwrap_or_default()
     }
 
-    /// « Auto », « Comme l'hôte », « 1080p · 60 Hz », « 720p · 30 Hz » (docs/link-ui.md, « Qualité de l'image »).
+    /// « Auto », « Comme l'hôte », « 4K · 60 Hz », « 1080p · 60 Hz », « 720p · 30 Hz » (docs/link-ui.md, « Qualité de l'image »).
     pub fn label(self) -> &'static str {
         match self {
             Self::Auto => tr("Auto", "Auto"),
             Self::Host => tr("Comme l'hôte", "Same as host"),
+            Self::P2160_60 => "4K · 60 Hz",
             Self::P1080_60 => "1080p · 60 Hz",
             Self::P720_30 => "720p · 30 Hz",
         }
@@ -685,7 +689,7 @@ pub struct JoinState {
     /// Les chiffres tapés, six au plus.
     pub code: String,
     pub name: String,
-    /// « Qualité de l'image » : sous le prénom, quatre choix (`Target::JoinQuality`).
+    /// « Qualité de l'image » : sous le prénom, cinq choix (`Target::JoinQuality`).
     pub quality: ShareQuality,
     pub field: JoinField,
     /// Majuscule du pavé des lettres (manette), pour la touche suivante.
@@ -934,9 +938,9 @@ pub enum Target {
     JoinCode,
     JoinName,
     JoinGo,
-    /// KyberNow Share, invité : « Qualité de l'image », à « Rejoindre » (les quatre choix sous le prénom).
+    /// KyberNow Share, invité : « Qualité de l'image », à « Rejoindre » (les cinq choix sous le prénom).
     JoinQuality(ShareQuality),
-    /// Un des quatre choix du panneau « Qualité de l'image » d'une session d'invité.
+    /// Un des cinq choix du panneau « Qualité de l'image » d'une session d'invité.
     QualityPick(ShareQuality),
     /// KyberNow Share, hôte : le panneau du partage (les deux droits d'un invité : manettes, clavier et souris,
     /// retirer, nouveau code, arrêter, fermer).
@@ -1419,7 +1423,7 @@ impl App {
                 Vec::new()
             }
             Target::JoinGo => self.join_go(),
-            // « Qualité de l'image », sous le prénom : un des quatre choix (retenu au « Rejoindre »).
+            // « Qualité de l'image », sous le prénom : un des cinq choix (retenu au « Rejoindre »).
             Target::JoinQuality(q) => {
                 if !self.join.busy {
                     self.join.quality = q;
@@ -1897,7 +1901,7 @@ impl App {
             }
             // « Partager » : le menu se ferme, le panneau du partage s'ouvre sur l'image.
             MenuItem::Share => self.share_button(),
-            // « Qualité de l'image » (invité) : le menu se ferme, les quatre choix s'ouvrent sur l'image ; Retour revient au menu.
+            // « Qualité de l'image » (invité) : le menu se ferme, les cinq choix s'ouvrent sur l'image ; Retour revient au menu.
             MenuItem::Quality => {
                 let Some(q) = s.guest.as_ref().map(|g| g.quality) else { return Vec::new() };
                 s.menu = false;
