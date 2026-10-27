@@ -29,6 +29,9 @@ fn share_envelope(r: Result<Found, ShareError>) -> String {
         ShareError::Full => 21,
         ShareError::TooManyTries { .. } => 22,
         ShareError::Unreadable { .. } => 23,
+        ShareError::Refused => 24,
+        ShareError::Expired => 25,
+        ShareError::PendingFull => 26,
         ShareError::Other(_) => 1,
     };
     serde_json::json!({ "code": code, "error": e.to_string(), "kind": e.kind() }).to_string()
@@ -59,6 +62,80 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_shareJoin(
         (Err(e), _) | (_, Err(e)) => bad(e),
     };
     give(&mut env, &s)
+}
+
+fn joining_envelope(r: Result<share::Joining, ShareError>) -> String {
+    match r {
+        Ok(j) => serde_json::json!({ "code": 0, "value": j }).to_string(),
+        Err(e) => share_envelope(Err(e)),
+    }
+}
+
+/// « Rejoindre » sur le réseau et hors de chez soi (comme
+/// `kn_share_join_anywhere`) : `relays` `["share.kybernow.app:8443", …]`.
+/// `value` : `{"joined": {target, joined}}` ou `{"pending": {…}}` ; refus en
+/// plus : 24 refusé, 25 sans réponse, 26 trop de demandes ; 30, 31 relais.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_shareJoinAnywhere(
+    mut env: Env,
+    _: JClass,
+    targets: JString,
+    relays: JString,
+    request: JString,
+    capabilities: JString,
+) -> jstring {
+    let (targets, relays, request, caps) = (string(&mut env, &targets), string(&mut env, &relays), string(&mut env, &request), optional(&mut env, &capabilities));
+    let targets: Vec<ShareTarget> = serde_json::from_str(&targets).unwrap_or_default();
+    let relays: Vec<kybernow_core::relay::RelayAddr> = serde_json::from_str::<Vec<String>>(&relays).unwrap_or_default().iter().filter_map(|r| r.parse().ok()).collect();
+    let caps = caps.and_then(|c| serde_json::from_str::<Capabilities>(&c).ok());
+    let s = match serde_json::from_str::<JoinRequest>(&request) {
+        Ok(r) => joining_envelope(share::join_anywhere(&targets, &relays, &r, caps)),
+        Err(e) => bad(e),
+    };
+    give(&mut env, &s)
+}
+
+/// Un lien de partage (`link` : celui de `shareParseLink`), réseau d'abord puis relais ; même `value`.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_shareJoinLink(mut env: Env, _: JClass, link: JString, request: JString, capabilities: JString) -> jstring {
+    let (link, request, caps) = (string(&mut env, &link), string(&mut env, &request), optional(&mut env, &capabilities));
+    let caps = caps.and_then(|c| serde_json::from_str::<Capabilities>(&c).ok());
+    let s = match (serde_json::from_str::<share::JoinLink>(&link), serde_json::from_str::<JoinRequest>(&request)) {
+        (Ok(l), Ok(r)) => joining_envelope(share::join_link(&l, &r, caps)),
+        (Err(e), _) => bad(e),
+        (_, Err(e)) => bad(e),
+    };
+    give(&mut env, &s)
+}
+
+/// L'hôte a-t-il répondu (`pending` : la demande en attente) ? Tenu 25 s au
+/// plus : `{"code": 0, "value": {target, joined}}` (accepté), `{"code": 27}`
+/// (toujours en attente : rappeler), ou un refus (24, 25, 20…). Bloquant.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_shareWait(mut env: Env, _: JClass, pending: JString, capabilities: JString) -> jstring {
+    let (pending, caps) = (string(&mut env, &pending), optional(&mut env, &capabilities));
+    let caps = caps.and_then(|c| serde_json::from_str::<Capabilities>(&c).ok());
+    let s = match serde_json::from_str::<share::PendingJoin>(&pending) {
+        Ok(p) => match share::wait(&p, caps) {
+            Ok(Some(found)) => serde_json::json!({ "code": 0, "value": found }).to_string(),
+            Ok(None) => serde_json::json!({ "code": 27 }).to_string(),
+            Err(e) => share_envelope(Err(e)),
+        },
+        Err(e) => bad(e),
+    };
+    give(&mut env, &s)
+}
+
+/// « Annuler » une demande en attente. Bloquant.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_shareCancel(mut env: Env, _: JClass, pending: JString) -> jint {
+    match serde_json::from_str::<share::PendingJoin>(&string(&mut env, &pending)) {
+        Ok(p) => {
+            share::cancel(&p);
+            0
+        }
+        Err(_) => 1,
+    }
 }
 
 /// L'invité repart avant d'avoir ouvert sa session ; `found` : la `value` de `shareJoin`.

@@ -83,6 +83,9 @@ pub(crate) fn envelope<T: serde::Serialize>(r: Result<T, ConsoleError>) -> Strin
             let code = match &e {
                 ConsoleError::Http { status, .. } => -(*status as i32),
                 ConsoleError::CertificateChanged { .. } => 3,
+                // Par le relais : 30 relais muet, 31 ordinateur absent du relais.
+                ConsoleError::Relay(kybernow_core::relay::RelayError::StationOffline) => 31,
+                ConsoleError::Relay(_) => 30,
                 _ => 1,
             };
             serde_json::json!({ "code": code, "error": e.to_string() }).to_string()

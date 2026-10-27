@@ -394,6 +394,7 @@ pub fn start(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32), 
             clipboard: false,
             recovery,
             role: SessionRole::Host,
+            route: kybernow_core::session::Route::Direct,
         },
     };
     let session = Session::start(params, Arc::new(WebOsPlatform(shared.clone())));

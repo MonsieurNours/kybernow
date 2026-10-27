@@ -136,7 +136,30 @@ pub struct SessionParams {
     /// `console_host`, `console_port` et `console_fingerprint` sont ceux de
     /// la Station qui partage ([`Found::target`]).
     pub role: SessionRole,
+    /// Par où joindre l'ordinateur (docs/relais.md) : sur son réseau (par
+    /// défaut), par le relais, ou d'abord en direct puis par le relais.
+    pub route: Route,
 }
+
+/// Par où une session joint l'ordinateur (docs/relais.md). Par le relais,
+/// les empreintes d'Admin et de Kyber sont obligatoires : jamais de premier
+/// contact. `KYBERNOW_RELAY=force` fait passer `Auto(Some(_))` par le relais,
+/// `off` le coupe.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum Route {
+    /// Sur le réseau de l'ordinateur, comme toujours.
+    #[default]
+    Direct,
+    /// Toujours par ce relais.
+    Relay(crate::relay::RelayRoute),
+    /// `info` en direct (1,5 s) ; sans réponse du réseau, par le relais
+    /// (`info.relay` gardé par l'app). Une empreinte d'Admin changée n'y
+    /// passe jamais : l'erreur reste.
+    Auto(Option<crate::relay::RelayRoute>),
+}
+
+/// Délai d'`info` en direct avant de passer par le relais (`Route::Auto`).
+pub const DIRECT_PROBE: Duration = Duration::from_millis(1500);
 
 impl SessionParams {
     /// Les paramètres d'une session d'invité, d'après la Station trouvée par
@@ -163,6 +186,8 @@ impl SessionParams {
             clipboard: false,
             recovery: Recovery::default(),
             role: SessionRole::Guest(Box::new(GuestParams { joined: found.joined.clone(), capabilities })),
+            // Venu par le relais : il y reste (la route voyage avec `joined`).
+            route: found.joined.route.clone().map_or(Route::Direct, Route::Relay),
         }
     }
 
@@ -193,6 +218,14 @@ impl SessionParams {
             }
             (None, SessionRole::Host) => return Err("mode absent".into()),
         };
+        let route = match (wire.route.as_deref(), wire.relay) {
+            (Some("relay"), Some(r)) => Route::Relay(r),
+            (Some("relay"), None) => return Err("route par le relais sans relais".into()),
+            (Some("direct"), _) => Route::Direct,
+            (Some("auto"), r) | (None, r @ Some(_)) => Route::Auto(r),
+            (None, None) => Route::Direct,
+            (Some(other), _) => return Err(format!("route inconnue : {other}")),
+        };
         let params = SessionParams {
             console_host: wire.console_host,
             console_port: wire.console_port,
@@ -213,6 +246,7 @@ impl SessionParams {
                 restart_station: wire.recovery.restart_station,
             },
             role,
+            route,
         };
         Ok((params, wire.screens))
     }
@@ -264,6 +298,11 @@ struct ParamsJson {
     screens: Option<Screens>,
     #[serde(default)]
     guest: Option<GuestParams>,
+    /// `direct`, `relay`, `auto` (absent : `auto` avec `relay`, sinon direct).
+    #[serde(default)]
+    route: Option<String>,
+    #[serde(default)]
+    relay: Option<crate::relay::RelayRoute>,
 }
 
 fn yes() -> bool {
@@ -419,6 +458,13 @@ pub trait Platform: Send + Sync {
     /// [`ShareImage::notice`]), `None` s'il n'y a rien à dire. La barre montre
     /// la qualité reçue ([`ShareImage::label`]).
     fn on_share_image(&self, _image: &ShareImage, _previous: Option<&ShareImage>, _notice: Option<&str>) {}
+
+    /// Par où passe la session (docs/relais.md) : au début (après la
+    /// connexion à Admin), puis quand il change par le relais (repli TCP,
+    /// allers-retours, toutes les 5 s au plus). Puce « Par le relais » dans
+    /// la barre, ligne « Chemin » des statistiques, `route` de la « Dernière
+    /// session ».
+    fn on_route(&self, _route: &crate::relay::RouteInfo) {}
 }
 
 /// Ce qu'une session d'invité ne fait jamais : chaque appel à Admin ou à
@@ -765,6 +811,49 @@ fn ask_quality(
         }
     }
     None
+}
+
+/// Le chemin regardé de nouveau toutes les 5 s (par le relais).
+const ROUTE_CHECK: Duration = Duration::from_secs(5);
+
+/// Par où passer (`Some` : par ce relais), d'après la route de la session et
+/// `KYBERNOW_RELAY` ; `probe` : `info` en direct, appelé seulement pour
+/// `Route::Auto` (1,5 s). Admin qui répond, même par une erreur : en direct.
+/// Une empreinte changée : l'erreur, jamais de bascule vers le relais.
+fn choose_route(
+    route: &Route,
+    mode: crate::relay::RelayMode,
+    probe: impl FnOnce() -> Result<(), ConsoleError>,
+) -> Result<Option<crate::relay::RelayRoute>, Failure> {
+    use crate::relay::RelayMode;
+    if mode == RelayMode::Off {
+        return Ok(None);
+    }
+    match route {
+        Route::Direct | Route::Auto(None) => Ok(None),
+        Route::Relay(r) => Ok(Some(r.clone())),
+        Route::Auto(Some(r)) if mode == RelayMode::Force => Ok(Some(r.clone())),
+        Route::Auto(Some(r)) => match probe() {
+            Ok(()) | Err(ConsoleError::Http { .. }) => Ok(None),
+            Err(e @ ConsoleError::CertificateChanged { .. }) => Err(e.to_string().into()),
+            Err(e) => {
+                info!("ordinateur sans réponse sur le réseau ({}) : par le relais", e.text(Lang::Fr));
+                Ok(Some(r.clone()))
+            }
+        },
+    }
+}
+
+/// Par le relais, l'empreinte d'Admin est obligatoire, et doit être celle
+/// que l'appareil connaît de l'ordinateur.
+fn check_relay_fingerprint(known: Option<&str>, route: &crate::relay::RelayRoute) -> Result<(), Failure> {
+    if route.admin_fp.trim().is_empty() {
+        return Err(t("relay.no_fingerprint", &[]).into());
+    }
+    match known {
+        Some(k) if !k.trim().is_empty() && !k.trim().eq_ignore_ascii_case(route.admin_fp.trim()) => Err(t("relay.fingerprint_mismatch", &[]).into()),
+        _ => Ok(()),
+    }
 }
 
 /// L'écran d'un invité dans la liste de Kyber : celui que la Station donne
@@ -1321,6 +1410,11 @@ struct Worker {
     /// Invité reconnecté à Kyber pour un autre écran du partage : l'arrêt
     /// demandé par le cœur lui-même n'est pas une coupure.
     share_reconnecting: bool,
+    /// Par le relais : le tunnel (tenu toute la session), le dernier chemin
+    /// dit à la plateforme et quand le regarder de nouveau.
+    relay_tunnel: Option<crate::relay::RelayTunnel>,
+    last_route: Option<crate::relay::RouteInfo>,
+    route_check_at: Option<Instant>,
     /// L'image que l'invité reçoit, d'après la Station.
     share_image: Option<ShareImage>,
     /// Changements de qualité demandés (le dernier gagne).
@@ -1441,6 +1535,9 @@ impl Worker {
             refused: Mutex::new(HashSet::new()),
             stream_input: false,
             share_reconnecting: false,
+            relay_tunnel: None,
+            last_route: None,
+            route_check_at: None,
             share_image: None,
             quality_asked: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             last_share: None,
@@ -1758,14 +1855,18 @@ impl Worker {
         }
         self.status(Status::Preparing);
         let p = self.params.clone();
-        let console = Arc::new(Console::new(
-            &p.console_host,
-            p.console_port,
-            &p.user,
-            &p.password,
-            p.console_fingerprint.clone(),
-        ));
+        let direct = Arc::new(Console::new(&p.console_host, p.console_port, &p.user, &p.password, p.console_fingerprint.clone()));
+        // Par où passer : le réseau, ou le relais (docs/relais.md).
+        let relay = choose_route(&p.route, crate::relay::RelayMode::current(), || direct.info_within(DIRECT_PROBE).map(|_| ()))?;
+        let console = match relay {
+            None => direct,
+            Some(r) => {
+                check_relay_fingerprint(p.console_fingerprint.as_deref(), &r)?;
+                Arc::new(Console::new(&p.console_host, p.console_port, &p.user, &p.password, Some(r.admin_fp.clone())).with_relay(Some(r)))
+            }
+        };
         self.console = Some(console.clone());
+        self.open_relay(&console)?;
         self.prepare()?;
         let prepared = self.prepared.clone().expect("prepare");
 
@@ -1773,9 +1874,10 @@ impl Worker {
         // Fournisseur de chiffrement par défaut de rustls (kyclient::init_crypto
         // échoue s'il est déjà posé, à la deuxième session par exemple).
         let _ = rustls::crypto::ring::default_provider().install_default();
+        let (kyber_host, kyber_port) = self.kyber_endpoint(&console, prepared.kyber_port.unwrap_or(8080))?;
         let mut config = ConnectConfig {
-            host: console.host().to_string(),
-            port: prepared.kyber_port.unwrap_or(8080),
+            host: kyber_host,
+            port: kyber_port,
             tls_host: None,
             verify_mode: None,
             credentials: AuthCredentials::Basic {
@@ -1786,6 +1888,8 @@ impl Worker {
         };
         match &prepared.kyber_fingerprint {
             Some(fp) => config.set_tls_fingerprint(fp).map_err(|e| e.to_string())?,
+            // Par le relais : jamais de premier contact.
+            None if self.relay_tunnel.is_some() => return Err(t("relay.no_fingerprint", &[]).into()),
             // Console d'avant 0.2.8 : certificat retenu au premier contact.
             None => config.enable_tofu_auto_accept().map_err(|e| e.to_string())?,
         }
@@ -1823,8 +1927,20 @@ impl Worker {
         );
         self.status(Status::Preparing);
         let p = self.params.clone();
-        let console = Arc::new(Console::guest(&p.console_host, p.console_port, p.console_fingerprint.clone()));
+        // Venu par le relais (ou route donnée) : Admin et Kyber par le tunnel.
+        let relay = match &p.route {
+            Route::Relay(r) => Some(r.clone()),
+            _ => j.route.clone(),
+        };
+        let console = match relay {
+            None => Arc::new(Console::guest(&p.console_host, p.console_port, p.console_fingerprint.clone())),
+            Some(r) => {
+                check_relay_fingerprint(p.console_fingerprint.as_deref(), &r)?;
+                Arc::new(Console::guest(&p.console_host, p.console_port, Some(r.admin_fp.clone())).with_relay(Some(r)))
+            }
+        };
         self.console = Some(console.clone());
+        self.open_relay(&console)?;
         // Le format de l'hôte s'il est lisible ici (en 4:2:0 sans son 4:4:4),
         // sinon un format lisible : Kyber fait alors une image à part.
         match share::guest_format(j.codec.as_deref(), j.yuv444, g.capabilities) {
@@ -1863,9 +1979,10 @@ impl Worker {
 
         self.status(Status::Connecting);
         let _ = rustls::crypto::ring::default_provider().install_default();
+        let (kyber_host, kyber_port) = self.kyber_endpoint(&console, j.kyber.port)?;
         let mut config = ConnectConfig {
-            host: console.host().to_string(),
-            port: j.kyber.port,
+            host: kyber_host,
+            port: kyber_port,
             tls_host: None,
             verify_mode: None,
             credentials: AuthCredentials::Jwt { token: j.kyber.token.clone() },
@@ -1884,6 +2001,49 @@ impl Worker {
         client.connect().map_err(|e| format!("Kyber : {e}"))?;
         self.spawn_share_beat(j.beat.max(1));
         Ok(())
+    }
+
+    /// Par le relais : le tunnel ouvert tout de suite (raison claire s'il ne
+    /// s'ouvre pas), tenu pour toute la session ; le chemin dit à la
+    /// plateforme, puis regardé toutes les 5 s. Sans relais : « Direct ».
+    fn open_relay(&mut self, console: &Console) -> Result<(), Failure> {
+        if let Some(r) = console.relay_tunnel() {
+            let tunnel = r.map_err(|e| Failure::from(e.text(i18n::current(), Some(&self.focus.label().name()))))?;
+            info!("par le relais {} vers {}", tunnel.route().server, tunnel.route().station);
+            self.relay_tunnel = Some(tunnel);
+            self.route_check_at = Some(Instant::now() + ROUTE_CHECK);
+        }
+        self.announce_route();
+        Ok(())
+    }
+
+    /// Où kyclient joint Kyber : l'adresse de l'ordinateur et le port donné
+    /// par Admin, ou, par le relais, le point d'écoute du tunnel sur la
+    /// boucle locale (TCP et UDP, même numéro).
+    fn kyber_endpoint(&self, console: &Console, port: u16) -> Result<(String, u16), Failure> {
+        match &self.relay_tunnel {
+            None => Ok((console.host().to_string(), port)),
+            Some(t) => {
+                let a = t.kyber_addr(port).map_err(|e| Failure::from(e.text(i18n::current(), Some(&self.focus.label().name()))))?;
+                Ok(("127.0.0.1".to_string(), a.port()))
+            }
+        }
+    }
+
+    /// Le chemin à la plateforme quand il change (arrondi à 0,5 ms).
+    fn announce_route(&mut self) {
+        let route = match &self.relay_tunnel {
+            Some(t) => t.route_info().rounded(),
+            None => crate::relay::RouteInfo::direct(),
+        };
+        if self.last_route.as_ref() == Some(&route) {
+            return;
+        }
+        if self.last_route.as_ref().is_none_or(|r| r.transport != route.transport) {
+            info!("chemin : {}", route.transport.label(Lang::Fr));
+        }
+        self.last_route = Some(route.clone());
+        self.platform.on_route(&route);
     }
 
     /// Signe de vie de l'invité, toutes les `seconds` : rôle, jeton de Kyber,
@@ -2352,6 +2512,10 @@ impl Worker {
                     self.mode_restore_until = None;
                     self.refresh_restore_offer();
                 }
+            }
+            if self.route_check_at.is_some_and(|at| now >= at) {
+                self.route_check_at = Some(now + ROUTE_CHECK);
+                self.announce_route();
             }
             if now >= next_second {
                 next_second += Duration::from_secs(1);
@@ -3699,6 +3863,7 @@ mod tests {
         reports: Mutex<Vec<bool>>,
         modes: Mutex<Vec<(Mode, bool)>>,
         images: Mutex<Vec<(ShareImage, Option<ShareImage>, Option<String>)>>,
+        routes: Mutex<Vec<crate::relay::RouteInfo>>,
     }
 
     impl Platform for Recorder {
@@ -3736,6 +3901,9 @@ mod tests {
         }
         fn on_share_image(&self, image: &ShareImage, previous: Option<&ShareImage>, notice: Option<&str>) {
             self.images.lock().unwrap().push((image.clone(), previous.cloned(), notice.map(str::to_string)));
+        }
+        fn on_route(&self, route: &crate::relay::RouteInfo) {
+            self.routes.lock().unwrap().push(route.clone());
         }
         fn on_share_end(&self, end: &ShareEnd, text: &str) {
             self.events.lock().unwrap().push(format!("fin du partage {end:?} : {text}"));
@@ -3776,6 +3944,7 @@ mod tests {
             clipboard: false,
             recovery: Recovery::default(),
             role: SessionRole::Host,
+            route: Route::Direct,
         };
         let recorder = Arc::new(Recorder::default());
         let (tx, rx) = mpsc::channel();
@@ -4249,6 +4418,82 @@ mod tests {
         w.ask_share_quality(ShareQuality::P2160_60);
         w.ask_share_quality(ShareQuality::P720_30);
         assert_eq!(w.quality_asked.load(Ordering::SeqCst), 2);
+    }
+
+    fn relay_route() -> crate::relay::RelayRoute {
+        crate::relay::RelayRoute { server: "share.kybernow.app:8443".into(), station: "abcdefghijklmnopqrstuvwxyz".into(), admin_fp: "sha256:ad".into() }
+    }
+
+    #[test]
+    fn chemin_de_la_session() {
+        use crate::relay::RelayMode::{Force, Normal, Off};
+        let r = relay_route();
+        let probe_ok = || Ok(());
+        let never = || -> Result<(), ConsoleError> { panic!("pas d'essai en direct") };
+        let pick = |route: &Route, mode, probe: &dyn Fn() -> Result<(), ConsoleError>| choose_route(route, mode, probe).map_err(|f| f.text);
+        // Sur le réseau, comme toujours.
+        assert_eq!(pick(&Route::Direct, Normal, &never), Ok(None));
+        assert_eq!(pick(&Route::Auto(None), Normal, &never), Ok(None), "rien de connu du relais");
+        assert_eq!(pick(&Route::Relay(r.clone()), Normal, &never), Ok(Some(r.clone())));
+        // Auto : Admin répond en direct (même par une erreur) : en direct.
+        assert_eq!(pick(&Route::Auto(Some(r.clone())), Normal, &probe_ok), Ok(None));
+        assert_eq!(pick(&Route::Auto(Some(r.clone())), Normal, &|| Err(ConsoleError::Http { status: 401, message: "compte".into() })), Ok(None));
+        // Pas de réponse du réseau : par le relais.
+        assert_eq!(pick(&Route::Auto(Some(r.clone())), Normal, &|| Err(ConsoleError::Network("délai".into()))), Ok(Some(r.clone())));
+        // Empreinte changée : jamais de bascule.
+        let changed = pick(&Route::Auto(Some(r.clone())), Normal, &|| Err(ConsoleError::CertificateChanged { seen: "sha256:ff".into() }));
+        assert!(changed.is_err_and(|t| t.contains("sha256:ff")));
+        // KYBERNOW_RELAY : force (sans essai en direct), off.
+        assert_eq!(pick(&Route::Auto(Some(r.clone())), Force, &never), Ok(Some(r.clone())));
+        assert_eq!(pick(&Route::Direct, Force, &never), Ok(None), "rien à forcer sans relais connu");
+        assert_eq!(pick(&Route::Relay(r.clone()), Off, &never), Ok(None));
+        // Par le relais, l'empreinte d'Admin est obligatoire, et la même que celle connue.
+        assert!(check_relay_fingerprint(None, &r).is_ok());
+        assert!(check_relay_fingerprint(Some("SHA256:AD"), &r).is_ok());
+        assert_eq!(check_relay_fingerprint(Some("sha256:bb"), &r).map_err(|f| f.text), Err(t("relay.fingerprint_mismatch", &[])));
+        let no_fp = crate::relay::RelayRoute { admin_fp: String::new(), ..r };
+        assert_eq!(check_relay_fingerprint(None, &no_fp).map_err(|f| f.text), Err(t("relay.no_fingerprint", &[])));
+    }
+
+    #[test]
+    fn chemin_dit_a_la_plateforme() {
+        // Sur le réseau : « Direct », une fois, sans regarder de nouveau.
+        let (mut w, recorder) = worker(crate::profile::Profile::Jeu, two_screens(0));
+        let direct = Console::new("192.0.2.1", 9, "u", "p", None);
+        assert!(w.open_relay(&direct).is_ok());
+        w.announce_route();
+        assert_eq!(*recorder.routes.lock().unwrap(), [crate::relay::RouteInfo::direct()]);
+        assert!(w.route_check_at.is_none() && w.relay_tunnel.is_none());
+        // Kyber sur l'ordinateur, à son port.
+        assert_eq!(w.kyber_endpoint(&direct, 24812).map_err(|f| f.text), Ok(("192.0.2.1".to_string(), 24812)));
+    }
+
+    #[test]
+    fn chemin_en_json_et_invite_venu_par_le_relais() {
+        let base = serde_json::json!({
+            "console_host": "192.168.1.20", "console_port": 9443, "user": "u", "password": "p",
+            "device": { "id": "mac", "name": "Mac", "kind": "mac", "os": "macOS", "app": "test" },
+            "mode": { "width": 1920, "height": 1080, "refresh": 60 },
+            "settings": { "codec": "hevc", "mbps": 60 }
+        });
+        let with = |extra: serde_json::Value| {
+            let mut v = base.clone();
+            v.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            SessionParams::from_json(&v.to_string()).map(|(p, _)| p.route)
+        };
+        let relay = serde_json::to_value(relay_route()).unwrap();
+        assert_eq!(with(serde_json::json!({})), Ok(Route::Direct), "comme avant");
+        assert_eq!(with(serde_json::json!({ "relay": relay })), Ok(Route::Auto(Some(relay_route()))), "un relais connu : Auto");
+        assert_eq!(with(serde_json::json!({ "route": "auto" })), Ok(Route::Auto(None)));
+        assert_eq!(with(serde_json::json!({ "route": "relay", "relay": relay })), Ok(Route::Relay(relay_route())));
+        assert_eq!(with(serde_json::json!({ "route": "direct", "relay": relay })), Ok(Route::Direct));
+        assert!(with(serde_json::json!({ "route": "relay" })).is_err());
+        assert!(with(serde_json::json!({ "route": "ailleurs" })).is_err());
+        // Un invité venu par le relais y reste : la route voyage avec `joined`.
+        let mut j = joined(ShareRole::Spectator, Some("hevc"), Some("sha256:kk"));
+        j.route = Some(relay_route());
+        let (w, _) = guest_with(j, crate::profile::Capabilities::default());
+        assert_eq!(w.params.route, Route::Relay(relay_route()));
     }
 
     #[test]

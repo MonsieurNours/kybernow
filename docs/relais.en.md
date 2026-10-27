@@ -190,7 +190,7 @@ Admin considers “local” what comes from the loopback (`/api/local/*`, `local
 
 ## Core and apps
 
-- `apps/core/src/relay.rs` (its own tokio runtime, two threads): `Tunnel::open(RelayRoute {server, station, admin_fp})`, `admin_addr()`, `kyber_addr(port)`, `stats()`; one tunnel per (relay, Station), closed after 30 s unused; `lookup(code)`.
+- `apps/core/src/relay.rs` (its own tokio runtime, two threads): `relay::Tunnel::open(&RelayRoute {server, station, admin_fp})`, `admin_addr()`, `kyber_addr(port)`, `stats()`; one tunnel per (relay, Station), closed after 30 s unused; `lookup(&relay, code)`, `presence`. Sharing: `share::join_anywhere`, `share::join_link`, `share::wait`, `share::cancel` ([apps/core/README.en.md](../apps/core/README.en.md), “Relay” section).
 - `SessionParams::route`: `Route::Direct`, `Route::Relay(RelayRoute)`, `Route::Auto(Option<RelayRoute>)`; `Console::with_relay(Option<RelayRoute>)`.
 - Indicator: `Platform::on_route(&RouteInfo {transport: direct|relay|relay_tcp, relay, rtt_client, rtt_station})`; “Via the relay” chip, “Path” line in the statistics, `route` in “Last session”.
 - `KYBERNOW_RELAY=force` (always through the relay, to try it at home) or `off`.

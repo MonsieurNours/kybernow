@@ -641,6 +641,7 @@ pub fn start(id: SessionId, host: &Host, settings: StreamSettings, mode: (u32, u
             clipboard: host.settings.clipboard,
             recovery,
             role: SessionRole::Host,
+            route: kybernow_core::session::Route::Direct,
         },
     };
     let platform = Arc::new(LinuxPlatform(shared.clone()));

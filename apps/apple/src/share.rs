@@ -22,6 +22,13 @@ pub const KN_SHARE_NO_SHARE: i32 = 20;
 pub const KN_SHARE_FULL: i32 = 21;
 pub const KN_SHARE_TOO_MANY: i32 = 22;
 pub const KN_SHARE_UNREADABLE: i32 = 23;
+/// Par le relais (docs/relais.md) : l'hôte a refusé (« L'hôte a refusé. »),
+/// n'a pas répondu en 120 s (« L'hôte n'a pas répondu. »), trois demandes
+/// attendent déjà ; `kn_share_wait` : toujours en attente (rappeler).
+pub const KN_SHARE_REFUSED: i32 = 24;
+pub const KN_SHARE_EXPIRED: i32 = 25;
+pub const KN_SHARE_PENDING_FULL: i32 = 26;
+pub const KN_SHARE_WAITING: i32 = 27;
 
 /// Rôle d'un invité (`on_share_role`, `kn_console_share_guest`) : deux
 /// droits indépendants, les manettes et le clavier et la souris. Aucun
@@ -52,6 +59,9 @@ fn share_failure(e: ShareError, error: *mut *mut c_char) -> i32 {
         ShareError::Full => KN_SHARE_FULL,
         ShareError::TooManyTries { .. } => KN_SHARE_TOO_MANY,
         ShareError::Unreadable { .. } => KN_SHARE_UNREADABLE,
+        ShareError::Refused => KN_SHARE_REFUSED,
+        ShareError::Expired => KN_SHARE_EXPIRED,
+        ShareError::PendingFull => KN_SHARE_PENDING_FULL,
     };
     give_to(error, message);
     code
@@ -179,6 +189,102 @@ pub unsafe extern "C" fn kn_share_join(
             KN_OK
         }
         Err(e) => share_failure(e, error),
+    }
+}
+
+/// « Rejoindre » sur le réseau **et hors de chez soi** (docs/relais.md) :
+/// comme `kn_share_join`, plus `relays_json` (`["share.kybernow.app:8443",
+/// …]` : le relais par défaut et ceux des ordinateurs connus, `info.relay.server` ;
+/// vide : le relais par défaut). Une Station du réseau qui répond en 1,5 s
+/// est prise, sinon celle que donne un relais, par le tunnel. `out` :
+/// `{"joined": {target, joined}}` (comme `kn_share_join`) ou `{"pending":
+/// {route, guest, secret, expires}}` : « En attente de l'accord de l'hôte… »,
+/// à donner à `kn_share_wait` (ou `kn_share_cancel`). Bloquant (8 s au plus).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_share_join_anywhere(
+    targets_json: *const c_char,
+    relays_json: *const c_char,
+    request_json: *const c_char,
+    capabilities_json: *const c_char,
+    out: *mut *mut c_char,
+    error: *mut *mut c_char,
+) -> i32 {
+    let targets: Vec<ShareTarget> = serde_json::from_str(&text(targets_json)).unwrap_or_default();
+    let relays: Vec<kybernow_core::relay::RelayAddr> = serde_json::from_str::<Vec<String>>(&text(relays_json))
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|r| r.parse().ok())
+        .collect();
+    let request: JoinRequest = match serde_json::from_str(&text(request_json)) {
+        Ok(r) => r,
+        Err(e) => {
+            give_to(error, e.to_string());
+            return KN_ERROR;
+        }
+    };
+    let caps = optional(capabilities_json).and_then(|c| serde_json::from_str::<Capabilities>(&c).ok());
+    match share::join_anywhere(&targets, &relays, &request, caps) {
+        Ok(joining) => {
+            give_to(out, serde_json::to_string(&joining).unwrap_or_default());
+            KN_OK
+        }
+        Err(e) => share_failure(e, error),
+    }
+}
+
+/// Un lien de partage (`link_json` : celui de `kn_share_parse_link`) : la
+/// Station du réseau d'abord (1,5 s), puis, avec `relay` et `sid`, par le
+/// relais de bout en bout (Admin épinglé sur `fingerprint`). Même `out` que
+/// `kn_share_join_anywhere`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_share_join_link(
+    link_json: *const c_char,
+    request_json: *const c_char,
+    capabilities_json: *const c_char,
+    out: *mut *mut c_char,
+    error: *mut *mut c_char,
+) -> i32 {
+    let (Ok(link), Ok(request)) = (serde_json::from_str::<share::JoinLink>(&text(link_json)), serde_json::from_str::<JoinRequest>(&text(request_json))) else {
+        return KN_ERROR;
+    };
+    let caps = optional(capabilities_json).and_then(|c| serde_json::from_str::<Capabilities>(&c).ok());
+    match share::join_link(&link, &request, caps) {
+        Ok(joining) => {
+            give_to(out, serde_json::to_string(&joining).unwrap_or_default());
+            KN_OK
+        }
+        Err(e) => share_failure(e, error),
+    }
+}
+
+/// L'hôte a-t-il répondu à la demande (`pending_json` : `pending` de
+/// `kn_share_join_anywhere`) ? Tenu 25 s au plus : `KN_OK` et `out` = `{target,
+/// joined}` (accepté : `joined` pour `guest.joined`, la session passera par le
+/// relais), `KN_SHARE_WAITING` (rappeler), `KN_SHARE_REFUSED`,
+/// `KN_SHARE_EXPIRED`, `KN_SHARE_NO_SHARE` (partage arrêté). Bloquant.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_share_wait(pending_json: *const c_char, capabilities_json: *const c_char, out: *mut *mut c_char, error: *mut *mut c_char) -> i32 {
+    let Ok(pending) = serde_json::from_str::<share::PendingJoin>(&text(pending_json)) else { return KN_ERROR };
+    let caps = optional(capabilities_json).and_then(|c| serde_json::from_str::<Capabilities>(&c).ok());
+    match share::wait(&pending, caps) {
+        Ok(Some(found)) => {
+            give_to(out, serde_json::to_string(&found).unwrap_or_default());
+            KN_OK
+        }
+        Ok(None) => KN_SHARE_WAITING,
+        Err(e) => share_failure(e, error),
+    }
+}
+
+/// « Annuler » une demande en attente. Bloquant.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_share_cancel(pending_json: *const c_char) -> i32 {
+    match serde_json::from_str::<share::PendingJoin>(&text(pending_json)) {
+        Ok(p) => {
+            share::cancel(&p);
+            KN_OK
+        }
+        Err(_) => KN_ERROR,
     }
 }
 

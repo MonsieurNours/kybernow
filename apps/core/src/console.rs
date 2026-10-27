@@ -31,6 +31,9 @@ pub enum ConsoleError {
     CertificateChanged { seen: String },
     /// Réponse HTTP d'erreur, avec le message de la console.
     Http { status: u16, message: String },
+    /// Par le relais : le tunnel ne s'ouvre pas (relais muet, ordinateur
+    /// absent du relais).
+    Relay(crate::relay::RelayError),
     Network(String),
     Invalid(String),
 }
@@ -42,6 +45,7 @@ impl ConsoleError {
         match self {
             Self::CertificateChanged { seen } => tr(lang, "console.certificate_changed", &[("seen", seen)]),
             Self::Http { status, message } => tr(lang, "console.http", &[("message", message), ("status", &status.to_string())]),
+            Self::Relay(e) => e.text(lang, None),
             Self::Network(e) => tr(lang, "console.network", &[("error", e)]),
             Self::Invalid(e) => tr(lang, "console.invalid", &[("error", e)]),
         }
@@ -150,6 +154,11 @@ pub struct Info {
     /// ancienne : les apps n'y proposent ni redémarrage ni mise à jour.
     #[serde(default)]
     pub station: Option<StationInfo>,
+    /// Le relais de la Station (Station 0.8.0 et suivantes, relais réglé ;
+    /// `None` sinon) : l'app le garde pour chaque ordinateur, pour passer
+    /// par lui hors de chez soi ([`crate::relay::RelayInfo::route`]).
+    #[serde(default)]
+    pub relay: Option<crate::relay::RelayInfo>,
     /// Les cartes réseau de l'ordinateur pour le réveiller par le réseau
     /// (Station 0.5.0 et suivantes ; vide avec une plus ancienne), Ethernet
     /// d'abord. Les apps les gardent pour chaque ordinateur : voir [`crate::wake`].
@@ -518,6 +527,28 @@ pub struct Console {
     authorization: Option<String>,
     agent: ureq::Agent,
     seen: Arc<Mutex<Option<String>>>,
+    /// Par le relais ([`Self::with_relay`]) : Admin par le tunnel.
+    relay: Option<RelayLink>,
+}
+
+/// La console par le relais : le tunnel, ouvert au premier appel, et la
+/// raison d'un échec à l'ouvrir (rendue par l'appel qui échoue).
+struct RelayLink {
+    route: crate::relay::RelayRoute,
+    tunnel: Mutex<Option<crate::relay::RelayTunnel>>,
+    error: Mutex<Option<crate::relay::RelayError>>,
+}
+
+impl RelayLink {
+    fn tunnel(&self) -> std::result::Result<crate::relay::RelayTunnel, crate::relay::RelayError> {
+        let mut slot = self.tunnel.lock().unwrap();
+        if let Some(t) = slot.as_ref() {
+            return Ok(t.clone());
+        }
+        let t = crate::relay::open(&self.route)?;
+        *slot = Some(t.clone());
+        Ok(t)
+    }
 }
 
 impl Console {
@@ -558,6 +589,49 @@ impl Console {
             authorization,
             agent,
             seen,
+            relay: None,
+        }
+    }
+
+    /// Par le relais (`Some`) : tous les appels passent par le tunnel vers
+    /// la Station de `route` (ouvert au premier appel, partagé, fermé 30 s
+    /// après le dernier usage), Admin épinglé sur `route.admin_fp`, jamais de
+    /// premier contact. `None` : la console telle quelle. `host` reste
+    /// l'adresse de l'ordinateur sur son réseau (`admin_url`).
+    pub fn with_relay(self, route: Option<crate::relay::RelayRoute>) -> Self {
+        let Some(route) = route else { return self };
+        let mut c = Self::build(&self.host, 0, self.authorization, Some(route.admin_fp.clone()));
+        c.base = self.base;
+        c.relay = Some(RelayLink { route, tunnel: Mutex::new(None), error: Mutex::new(None) });
+        c
+    }
+
+    /// La route par le relais de cette console, s'il y en a une.
+    pub fn relay(&self) -> Option<&crate::relay::RelayRoute> {
+        self.relay.as_ref().map(|l| &l.route)
+    }
+
+    /// Le tunnel de cette console (ouvert s'il ne l'est pas) : la session y
+    /// prend aussi Kyber ([`crate::relay::RelayTunnel::kyber_addr`]).
+    pub fn relay_tunnel(&self) -> Option<std::result::Result<crate::relay::RelayTunnel, crate::relay::RelayError>> {
+        self.relay.as_ref().map(RelayLink::tunnel)
+    }
+
+    /// Où envoyer un appel : Admin sur son réseau, ou par le tunnel.
+    fn url(&self, path: &str) -> String {
+        let Some(link) = &self.relay else { return format!("{}/{path}", self.base) };
+        match link.tunnel() {
+            Ok(t) => {
+                *link.error.lock().unwrap() = None;
+                format!("https://127.0.0.1:{}/{path}", t.admin_addr().port())
+            }
+            Err(e) => {
+                log::warn!("relais : {}", e.text(Lang::Fr, None));
+                *link.error.lock().unwrap() = Some(e);
+                // Un port fermé de la boucle locale : l'appel échoue tout de
+                // suite, et rend la raison gardée (`read`).
+                format!("https://127.0.0.1:1/{path}")
+            }
         }
     }
 
@@ -580,7 +654,7 @@ impl Console {
     fn request(&self, method: &str, path: &str, timeout: Duration) -> ureq::Request {
         let r = self
             .agent
-            .request(method, &format!("{}/{path}", self.base))
+            .request(method, &self.url(path))
             .timeout(timeout)
             .set("x-kyber-admin", "1")
             // La console répond dans la langue de l'app (messages d'erreur, refus).
@@ -604,6 +678,9 @@ impl Console {
             }
             Err(ureq::Error::Transport(t)) => {
                 let text = t.to_string();
+                if let Some(e) = self.relay.as_ref().and_then(|l| l.error.lock().unwrap().take()) {
+                    return Err(ConsoleError::Relay(e));
+                }
                 if text.contains("certificat de la console") {
                     let seen = self.fingerprint_seen().unwrap_or_default();
                     Err(ConsoleError::CertificateChanged { seen })
@@ -623,7 +700,12 @@ impl Console {
     }
 
     pub fn info(&self) -> Result<Info> {
-        let r = self.request("GET", "api/stream/info", Duration::from_secs(4)).call();
+        self.info_within(Duration::from_secs(4))
+    }
+
+    /// [`Self::info`] avec un autre délai (`Route::Auto` : 1,5 s en direct).
+    pub fn info_within(&self, timeout: Duration) -> Result<Info> {
+        let r = self.request("GET", "api/stream/info", timeout).call();
         self.read(r)
     }
 
@@ -810,26 +892,58 @@ impl Console {
 
     /// `POST /api/share/join` : le code, le prénom, l'appareil. Voir
     /// [`crate::share::join`] pour l'envoyer à toutes les Stations du réseau.
+    /// Une demande par le relais mise en attente (202) se lit comme une
+    /// erreur ici : voir [`Self::share_join_answer`].
     pub fn share_join(&self, req: &JoinRequest) -> std::result::Result<ShareJoined, ShareError> {
+        match self.share_join_answer(req)? {
+            JoinAnswer::Joined(j) => Ok(j),
+            JoinAnswer::Pending { .. } => Err(ShareError::Other(ConsoleError::Invalid("demande en attente de l'hôte".into()))),
+        }
+    }
+
+    /// `POST /api/share/join`, avec la réponse d'une demande par le relais :
+    /// l'invité entre, ou attend l'accord de l'hôte (`202 {"pending":true,
+    /// "guest","secret","expires"}`).
+    pub fn share_join_answer(&self, req: &JoinRequest) -> std::result::Result<JoinAnswer, ShareError> {
         match self.request("POST", "api/share/join", Duration::from_secs(6)).send_json(req) {
             // Une Station antérieure peut répondre la page d'Admin (200, HTML) :
             // ce n'est pas elle qui partage.
-            Ok(resp) => resp.into_json::<ShareJoined>().map_err(|_| ShareError::NoShare).and_then(|j| {
-                if j.guest.is_empty() || j.secret.is_empty() { Err(ShareError::NoShare) } else { Ok(j) }
-            }),
+            Ok(resp) => {
+                let status = resp.status();
+                let v: serde_json::Value = resp.into_json().map_err(|_| ShareError::NoShare)?;
+                join_answer(status, v)
+            }
             Err(ureq::Error::Status(status, resp)) => {
                 let retry_after = resp.header("Retry-After").and_then(|h| h.trim().parse().ok());
                 let body: serde_json::Value = resp.into_json().unwrap_or(serde_json::Value::Null);
-                let code = body.get("error").and_then(|e| e.as_str()).unwrap_or_default();
-                Err(match (status, code) {
-                    (404 | 405, _) => ShareError::NoShare,
-                    (409, "full") => ShareError::Full,
-                    (429, _) => ShareError::TooManyTries { seconds: body.get("retry_after").and_then(|s| s.as_u64()).or(retry_after) },
-                    _ => {
-                        let message = if code.is_empty() { tr(i18n::current(), "console.http_status", &[("status", &status.to_string())]) } else { code.to_string() };
-                        ShareError::Other(ConsoleError::Http { status, message })
-                    }
-                })
+                Err(share_refusal(status, &body, retry_after))
+            }
+            Err(e) => Err(ShareError::Other(self.read::<serde_json::Value>(Err(e)).err().unwrap_or_else(|| ConsoleError::Invalid(String::new())))),
+        }
+    }
+
+    /// `POST /api/share/wait` (par le relais) : réponse tenue 25 s au plus ;
+    /// `Pending` : toujours en attente, rappeler ; `Joined` : l'hôte a
+    /// accepté. Refus : [`ShareError::Refused`], [`ShareError::Expired`],
+    /// [`ShareError::NoShare`] (partage arrêté).
+    pub fn share_wait(&self, guest: &str, secret: &str) -> std::result::Result<JoinAnswer, ShareError> {
+        let r = self
+            .request("POST", "api/share/wait", Duration::from_secs(35))
+            .set("x-kybernow-guest", secret)
+            .send_json(serde_json::json!({ "guest": guest }));
+        match r {
+            Ok(resp) => {
+                let status = resp.status();
+                let v: serde_json::Value = resp.into_json().map_err(|e| ShareError::Other(ConsoleError::Invalid(e.to_string())))?;
+                match join_answer(status, v)? {
+                    // `wait` ne redonne ni l'invité ni le secret : ceux de la demande.
+                    JoinAnswer::Pending { .. } => Ok(JoinAnswer::Pending { guest: guest.into(), secret: secret.into(), expires: 0 }),
+                    joined => Ok(joined),
+                }
+            }
+            Err(ureq::Error::Status(status, resp)) => {
+                let body: serde_json::Value = resp.into_json().unwrap_or(serde_json::Value::Null);
+                Err(share_refusal(status, &body, None))
             }
             Err(e) => Err(ShareError::Other(self.read::<serde_json::Value>(Err(e)).err().unwrap_or_else(|| ConsoleError::Invalid(String::new())))),
         }
@@ -901,6 +1015,42 @@ impl Console {
             .request("POST", "api/stream/end", Duration::from_secs(20))
             .send_json(body);
         self.read(r)
+    }
+}
+
+/// La réponse d'Admin à `join` (et à `wait`, par le relais).
+#[derive(Debug, Clone)]
+pub enum JoinAnswer {
+    /// L'invité entre (la réponse de `join` sur le réseau).
+    Joined(ShareJoined),
+    /// Par le relais : en attente de l'accord de l'hôte (`expires` : 120 s).
+    Pending { guest: String, secret: String, expires: u64 },
+}
+
+/// Une réponse 2xx de `join` ou `wait`.
+fn join_answer(status: u16, v: serde_json::Value) -> std::result::Result<JoinAnswer, ShareError> {
+    if status == 202 || v.get("pending").and_then(|p| p.as_bool()) == Some(true) {
+        let field = |k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or_default().to_string();
+        return Ok(JoinAnswer::Pending { guest: field("guest"), secret: field("secret"), expires: v.get("expires").and_then(|e| e.as_u64()).unwrap_or(120) });
+    }
+    let j: ShareJoined = serde_json::from_value(v).map_err(|_| ShareError::NoShare)?;
+    if j.guest.is_empty() || j.secret.is_empty() { Err(ShareError::NoShare) } else { Ok(JoinAnswer::Joined(j)) }
+}
+
+/// Un refus de `join` ou `wait`.
+fn share_refusal(status: u16, body: &serde_json::Value, retry_after: Option<u64>) -> ShareError {
+    let code = body.get("error").and_then(|e| e.as_str()).unwrap_or_default();
+    match (status, code) {
+        (404 | 405, _) => ShareError::NoShare,
+        (409, "full") => ShareError::Full,
+        (409, "pending_full") => ShareError::PendingFull,
+        (403, "refused") => ShareError::Refused,
+        (410, _) => ShareError::Expired,
+        (429, _) => ShareError::TooManyTries { seconds: body.get("retry_after").and_then(|s| s.as_u64()).or(retry_after) },
+        _ => {
+            let message = if code.is_empty() { tr(i18n::current(), "console.http_status", &[("status", &status.to_string())]) } else { code.to_string() };
+            ShareError::Other(ConsoleError::Http { status, message })
+        }
     }
 }
 
@@ -1125,6 +1275,22 @@ mod tests {
             let r: HeartbeatReply = serde_json::from_str(odd).unwrap();
             assert!(r.end && r.share.is_none(), "{odd}");
         }
+    }
+
+    #[test]
+    fn reponses_de_join_et_wait() {
+        let pending = join_answer(202, serde_json::json!({ "pending": true, "guest": "g1", "secret": "s", "expires": 120 })).unwrap();
+        assert!(matches!(pending, JoinAnswer::Pending { ref guest, ref secret, expires: 120 } if guest == "g1" && secret == "s"));
+        let joined = join_answer(200, serde_json::json!({ "guest": "g1", "secret": "s", "role": "spectator", "relay": true })).unwrap();
+        assert!(matches!(joined, JoinAnswer::Joined(ref j) if j.guest == "g1"));
+        assert!(matches!(join_answer(200, serde_json::json!({ "guest": "" })), Err(ShareError::NoShare)), "page d'une Station antérieure");
+        assert!(matches!(share_refusal(403, &serde_json::json!({ "error": "refused" }), None), ShareError::Refused));
+        assert!(matches!(share_refusal(410, &serde_json::json!({ "error": "expired" }), None), ShareError::Expired));
+        assert!(matches!(share_refusal(409, &serde_json::json!({ "error": "pending_full" }), None), ShareError::PendingFull));
+        assert!(matches!(share_refusal(409, &serde_json::json!({ "error": "full" }), None), ShareError::Full));
+        assert!(matches!(share_refusal(404, &serde_json::json!({ "error": "no_share" }), None), ShareError::NoShare));
+        assert!(matches!(share_refusal(429, &serde_json::Value::Null, Some(4)), ShareError::TooManyTries { seconds: Some(4) }));
+        assert!(matches!(share_refusal(500, &serde_json::Value::Null, None), ShareError::Other(ConsoleError::Http { status: 500, .. })));
     }
 
     #[test]

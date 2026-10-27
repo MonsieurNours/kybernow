@@ -63,6 +63,21 @@
     "quality_auto": "Auto",
     "quality_host": "Comme l'hôte",
     "image_lag": "Image allégée pour suivre.",
-    "image_limit": "L'ordinateur ne peut pas faire une image de plus : vous recevez {quality}."
+    "image_limit": "L'ordinateur ne peut pas faire une image de plus : vous recevez {quality}.",
+    "refused": "L'hôte a refusé.",
+    "expired": "L'hôte n'a pas répondu.",
+    "pending_full": "Trop de demandes attendent l'accord de l'hôte : réessayez dans un moment."
+  },
+  "relay": {
+    "unreachable": "Le relais ne répond pas.",
+    "offline": "L'ordinateur n'est pas joignable : il est éteint ou en veille.",
+    "offline_named": "{name} n'est pas joignable : l'ordinateur est éteint ou en veille.",
+    "refused": "le relais refuse la connexion ({reason})",
+    "bad": "adresse du relais illisible ({reason})",
+    "path_direct": "Direct",
+    "path_relay": "Par le relais",
+    "path_relay_tcp": "Par le relais (TCP)",
+    "no_fingerprint": "par le relais, l'empreinte de l'ordinateur est nécessaire : appairez cet appareil sur le réseau de l'ordinateur",
+    "fingerprint_mismatch": "l'empreinte de l'ordinateur donnée par le relais n'est pas celle que connaît cet appareil"
   }
 }
