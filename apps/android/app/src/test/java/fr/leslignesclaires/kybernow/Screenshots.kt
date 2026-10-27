@@ -487,15 +487,27 @@ class Screenshots {
             WithImage(session(false) { shareOpen = true; sharing(listOf(ShareGuest("g3", "Hugo", "android", ShareRole.PLAYER, since = now / 1000 - 3700), ShareGuest("g4", "Zoé", "webos", ShareRole.SPECTATOR), ShareGuest("g5", "Eva", "mac", ShareRole.SPECTATOR), ShareGuest("g6", "Tom", "windows", ShareRole.SPECTATOR))) })
         }
         shot("session-partage-vide", "telephone", FormFactor.PHONE, listOf("fr")) { WithImage(session(false) { shareOpen = true; sharing(emptyList()) }) }
-        // « Partager » inactif : le texte du cœur dit pourquoi (ici, Station trop ancienne).
+        // « Partager » impossible (ici, Station trop ancienne) : estompé, sélectionnable ; au toucher il ouvre le panneau
+        // réduit à la raison (le texte du cœur) ; à la souris, l'infobulle la donne.
         shot("session-partage-inactif", "telephone", FormFactor.PHONE) {
-            val fr = androidx.compose.ui.platform.LocalConfiguration.current.locales[0].language == "fr"
-            WithImage(session(false) {
-                barOpen = true
-                shareAvailability = ShareAvailability.UNSUPPORTED
-                shareUnavailable = if (fr) "Le partage demande KyberNow Station 0.8.0 ou plus récente." else "Sharing needs KyberNow Station 0.8.0 or later."
-            })
+            val off = unavailable(ShareAvailability.UNSUPPORTED)
+            WithImage(session(false) { barOpen = true; off() })
         }
+        shot("session-partage-raison", "telephone", FormFactor.PHONE) {
+            val off = unavailable(ShareAvailability.UNSUPPORTED)
+            WithImage(session(false) { barOpen = true; shareOpen = true; off() })
+        }
+    }
+
+    /** « Partager » impossible : ce que l'hôte a lu dans l'info de la Station, avec le texte du cœur dans la langue de l'app. */
+    @Composable
+    private fun unavailable(which: ShareAvailability): SessionUi.() -> Unit {
+        val fr = androidx.compose.ui.platform.LocalConfiguration.current.locales[0].language == "fr"
+        val text = when (which) {
+            ShareAvailability.UNSUPPORTED -> if (fr) "Le partage demande KyberNow Station 0.8.0 ou plus récente." else "Sharing needs KyberNow Station 0.8.0 or later."
+            else -> if (fr) "Le partage est coupé sur cet ordinateur (Admin › Appareils Link)." else "Sharing is turned off on this computer (Admin › Link devices)."
+        }
+        return { shareAvailability = which; shareUnavailable = text }
     }
 
     /** Un petit téléphone en paysage : « Partager » n'a que son icône, la pastille reste. */
@@ -508,6 +520,14 @@ class Screenshots {
     @Test @Config(qualifiers = TV)
     fun shareTv() {
         shot("session-partage-menu", "tv", FormFactor.TV) { WithImage(session(true) { menuOpen = true; sharing() }) }
+        shot("session-partage-inactif", "tv", FormFactor.TV) {
+            val off = unavailable(ShareAvailability.DISABLED)
+            WithImage(session(true) { menuOpen = true; off() })
+        }
+        shot("session-partage-raison", "tv", FormFactor.TV) {
+            val off = unavailable(ShareAvailability.DISABLED)
+            WithImage(session(true) { menuOpen = true; shareOpen = true; off() })
+        }
         shot("session-partage", "tv", FormFactor.TV) { WithImage(session(true) { menuOpen = true; shareOpen = true; sharing() }) }
     }
 

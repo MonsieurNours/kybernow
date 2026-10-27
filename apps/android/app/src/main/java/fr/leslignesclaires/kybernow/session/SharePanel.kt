@@ -53,11 +53,17 @@ import kotlinx.coroutines.delay
  * téléviseur), les invités (leur rôle, leur app, depuis quand ; « Faire jouer », « Faire regarder »,
  * « Donner le clavier et la souris », « Reprendre le clavier et la souris », « Retirer »), « Nouveau
  * code » et « Arrêter le partage ». Le partage reste ouvert quand le panneau se ferme : la pastille de
- * la barre le rouvre.
+ * la barre le rouvre. « Partager » impossible (Station trop ancienne, partage coupé) : le panneau se réduit à la
+ * raison, écrite par le cœur.
  */
 @Composable
 internal fun SharePanel(ui: SessionUi, modifier: Modifier) {
     val share by ui.state.share.collectAsState()
+    val unavailable = if (ui.shareUsable) null else ui.shareUnavailable
+    // Le partage s'est arrêté ailleurs (Admin, la Station) pendant que le panneau était ouvert : il n'y a plus rien à y montrer.
+    LaunchedEffect(share == null, ui.shareBusy, ui.shareError, unavailable) {
+        if (share == null && !ui.shareBusy && ui.shareError == null && unavailable == null) ui.shareOpen = false
+    }
     SharePanelContent(
         computer = ui.computerName,
         share = share,
@@ -68,6 +74,7 @@ internal fun SharePanel(ui: SessionUi, modifier: Modifier) {
         actions = ui.actions,
         onClose = { ui.shareOpen = false },
         modifier = modifier,
+        unavailable = unavailable,
     )
 }
 
@@ -83,12 +90,14 @@ internal fun SharePanelContent(
     actions: SessionActions,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
+    /** « Partager » est impossible : la raison, seule dans le panneau (le texte du cœur). */
+    unavailable: String? = null,
 ) {
     val s = LocalScale.current
     // À la télécommande et à la manette, le focus arrive sur « Copier le lien » (au téléviseur, qui ne le
-    // propose pas : sur « Fermer ») dès que le partage est ouvert.
+    // propose pas, ou quand il n'y a que la raison : sur « Fermer ») dès que le partage est ouvert.
     val first = remember { FocusRequester() }
-    LaunchedEffect(share != null) { if (share != null) runCatching { first.requestFocus() } }
+    LaunchedEffect(share != null, unavailable != null) { if (share != null || unavailable != null) runCatching { first.requestFocus() } }
     BoxWithConstraints(modifier.padding(s.dp(20f))) {
         val wide = maxWidth >= 600.dp
         val copyFocus = if (tv) Modifier else Modifier.focusRequester(first)
@@ -98,9 +107,10 @@ internal fun SharePanelContent(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(s.dp(12f))) {
                 Title(stringResource(R.string.share_title, computer), Modifier.weight(1f), size = 22f)
-                GlassButton(stringResource(R.string.session_close), onClose, if (tv) Modifier.focusRequester(first) else Modifier)
+                GlassButton(stringResource(R.string.session_close), onClose, if (tv || unavailable != null) Modifier.focusRequester(first) else Modifier)
             }
             when {
+                unavailable != null -> Body(unavailable, color = Kn.frost2, size = 15f)
                 share == null -> if (busy) androidx.compose.material3.CircularProgressIndicator(Modifier.size(s.dp(28f)), color = Kn.spectre, strokeWidth = s.dp(3f))
                 wide -> Row(horizontalArrangement = Arrangement.spacedBy(s.dp(28f))) {
                     ShareCode(share, copy, tv, actions, copyFocus)
@@ -193,14 +203,15 @@ private fun GuestRow(guest: ShareGuest, now: Long, busy: Boolean, actions: Sessi
             if (detail.isNotEmpty()) Mono(detail, size = 11f, color = Kn.muted)
         }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(s.dp(8f)), verticalArrangement = Arrangement.spacedBy(s.dp(8f))) {
-            // Spectateur : « Faire jouer ». Joueur : « Donner le clavier et la souris » (ou « Reprendre… » s'il les a)
-            // et « Faire regarder », qui le ramène spectateur.
+            // Spectateur : « Faire jouer ». Joueur : « Faire regarder » à la place (il redevient spectateur), puis
+            // « Donner le clavier et la souris » ou « Reprendre le clavier et la souris » (docs/link-ui.md, « Partage »).
+            if (guest.role.plays) GlassButton(stringResource(R.string.share_watch_only), { actions.shareSetRole(guest, ShareRole.SPECTATOR) }, enabled = !busy)
+            else GlassButton(stringResource(R.string.share_let_play), { actions.shareSetRole(guest, ShareRole.PLAYER) }, enabled = !busy)
             when (guest.role) {
-                ShareRole.SPECTATOR -> GlassButton(stringResource(R.string.share_let_play), { actions.shareSetRole(guest, ShareRole.PLAYER) }, enabled = !busy)
                 ShareRole.PLAYER -> GlassButton(stringResource(R.string.share_give_keyboard_mouse), { actions.shareSetRole(guest, ShareRole.PLAYER_KBM) }, enabled = !busy)
                 ShareRole.PLAYER_KBM -> GlassButton(stringResource(R.string.share_take_keyboard_mouse), { actions.shareSetRole(guest, ShareRole.PLAYER) }, enabled = !busy)
+                ShareRole.SPECTATOR -> {}
             }
-            if (guest.role.plays) GlassButton(stringResource(R.string.share_watch_only), { actions.shareSetRole(guest, ShareRole.SPECTATOR) }, enabled = !busy)
             GlassButton(stringResource(R.string.share_remove), { actions.shareRemove(guest) }, enabled = !busy)
         }
     }

@@ -436,6 +436,20 @@ class TouchInput(private val out: PointerOut, private val toHost: (Float, Float)
         dragging = true
     }
 
+    /**
+     * Le geste en cours est abandonné sans rien envoyer : les minuteries du maintien (glisser-déposer, toucher direct)
+     * ne partent pas, le doigt qui reste posé n'est plus un geste. Un invité à qui l'hôte retire le clavier et la souris
+     * au milieu d'un geste : le cœur relâche déjà ce qui était tenu, rien ne doit repartir après.
+     */
+    fun cancel() {
+        main.removeCallbacks(holdToDrag)
+        main.removeCallbacks(holdDirect)
+        moved = false; fingers = 0; twoFingerTap = false; dragging = false; multi = false; folding = false
+        directTarget = null
+        lastTapAt = 0L
+        scrollAcc = 0.0
+    }
+
     fun onTouch(e: MotionEvent): Boolean {
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {

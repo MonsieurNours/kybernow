@@ -90,6 +90,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
     private var tv = false
     private var relative = false
     private var mouseSeen = false
+    /** Le dernier appui venait d'une souris (et pas d'un doigt ni d'une touche) : voir [share]. */
+    private var mouseClick = false
     /**
      * La manette à l'écran vers l'ordinateur, à sa place de joueur (−1 : une cinquième manette,
      * en attente, rien ne part). Barre pilotée à la manette : les appuis ne partent pas (les
@@ -178,6 +180,11 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         overlay = ComposeView(this).apply { setContent { KnTheme(app.form) { SessionOverlay(ui) } } }
         root.addView(overlay, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         setContentView(root)
+        // Rotation d'une tablette, fenêtre redimensionnée (ni l'un ni l'autre ne recrée l'activité) : l'image reprend sa place
+        // dans le nouveau cadre ; `fitSurface` ne tournait qu'à l'arrivée d'une nouvelle taille d'image.
+        root.addOnLayoutChangeListener { _, l, t, r, b, ol, ot, or, ob ->
+            if (r - l != or - ol || b - t != ob - ot) root.post { state.videoSize.value?.let { (w, h) -> fitSurface(w, h) } }
+        }
         haptics = Haptics(overlay).apply { level = host.settings.padHaptics }
         // Les vibrations du jeu qui visent la manette à l'écran : l'appareil vibre, tant qu'elle est affichée.
         state.onScreenRumble = { large, small, ms -> if (ui.padShown) haptics.rumble(large, small, ms) }
@@ -310,7 +317,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
                         // Une manette branchée en cours de session : annoncée à l'ordinateur et dans une capsule
                         // (pas la manette à l'écran : on vient de l'afficher soi-même).
                         val added = pads.sync()
-                        if (state.firstImageAt.get() > 0) added.firstOrNull { !it.onScreen }?.let { p -> state.show(Capsule.GamepadConnected(p.name, p.slot, p.motors)) }
+                        // Un spectateur n'envoie rien : sa manette n'est annoncée à personne, pas de capsule.
+                        if (state.firstImageAt.get() > 0 && padsAllowed()) added.firstOrNull { !it.onScreen }?.let { p -> state.show(Capsule.GamepadConnected(p.name, p.slot, p.motors)) }
                     }
                 }
                 launch {
@@ -397,6 +405,9 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
 
     override fun onDestroy() {
         super.onDestroy()
+        // `onCreate` s'arrête avant de construire quoi que ce soit quand la remise d'un invité est perdue (processus ou
+        // activité recréés : les jetons ne se gardent pas) ou que l'ordinateur n'existe plus : `onDestroy` suit aussitôt.
+        if (!::state.isInitialized) return
         if (::haptics.isInitialized) haptics.stop()
         // La manette à l'écran n'existe qu'en session : sa place se libère.
         app.gamepads.setOnScreen(false)
@@ -642,6 +653,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
             if (ui.padMouse) { ui.padMouse = false; pads.asMouse = false }
             if (ui.remoteMouse) { ui.remoteMouse = false; remote.asMouse = false }
             pads.mouse.stop()
+            // Un geste au doigt en cours (maintien pour glisser, toucher direct) ne doit rien envoyer après coup.
+            touch.cancel()
             if (relative) { relative = false; surfaceView.releasePointerCapture() }
             if (handle != 0L) Native.inputReleaseAll(handle)
             pointerView.place(0f, 0f, false)
@@ -671,7 +684,14 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
      * ancienne) s'affiche dans le panneau avec son texte.
      */
     override fun share() {
-        if (guest != null || ui.shareBusy) return
+        if (guest != null) return
+        if (!ui.shareUsable) {
+            // « Partager » impossible (Station trop ancienne, partage coupé) : à la souris il est inactif, son infobulle
+            // donne la raison ; au toucher et à la télécommande il reste sélectionnable et ouvre le panneau réduit à la raison.
+            if (!mouseClick) ui.shareOpen = true
+            return
+        }
+        if (ui.shareBusy) return
         ui.shareOpen = true
         ui.shareError = null
         ui.shareCopy = null
@@ -685,7 +705,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
                     null
                 } else when (val r = c.shareOpen()) {
                     is Reply.Ok -> { state.share.value = r.value; null }
-                    is Reply.Failed -> r.message.ifBlank { "?" }
+                    is Reply.Failed -> r.message.ifBlank { getString(R.string.add_unreachable) }
                 }
             }
             ui.shareError = failure
@@ -709,7 +729,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         ui.shareError = null
         lifecycleScope.launch {
             val reply = console().use { call(it) }
-            ui.shareError = (reply as? Reply.Failed)?.message?.ifBlank { "?" }
+            ui.shareError = (reply as? Reply.Failed)?.message?.ifBlank { getString(R.string.add_unreachable) }
             ui.shareBusy = false
             refreshShare()
         }
@@ -730,7 +750,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
             val reply = console().use { it.shareClose() }
             ui.shareBusy = false
             if (reply is Reply.Failed) {
-                ui.shareError = reply.message.ifBlank { "?" }
+                ui.shareError = reply.message.ifBlank { getString(R.string.add_unreachable) }
                 refreshShare()
             } else {
                 state.share.value = null
@@ -785,6 +805,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
     }
 
     private fun capturedMouse(e: MotionEvent): Boolean {
+        // Un invité à qui l'hôte retire la souris pendant que le pointeur est capturé : rien ne part.
+        if (!ui.keyboardMouseAllowed()) return true
         val h = handle
         when (e.actionMasked) {
             MotionEvent.ACTION_MOVE -> Native.inputMouseMove(h, e.x.roundToInt(), e.y.roundToInt())
@@ -836,6 +858,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         val down = event.action == KeyEvent.ACTION_DOWN
         val code = event.keyCode
+        // Une touche n'est pas un clic de souris (voir `share`).
+        if (down) mouseClick = false
         // Volume, alimentation : au système.
         if (code == KeyEvent.KEYCODE_VOLUME_UP || code == KeyEvent.KEYCODE_VOLUME_DOWN || code == KeyEvent.KEYCODE_VOLUME_MUTE || code == KeyEvent.KEYCODE_POWER) {
             return super.dispatchKeyEvent(event)
@@ -855,6 +879,13 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
                     else -> true
                 }
             }
+            if (!padsAllowed()) {
+                // Un spectateur : ses manettes n'envoient rien (le cœur ne lui ouvre aucune chaîne d'entrées). Faute de la
+                // combinaison, que cette chaîne forme, Retour, Select et Start ouvrent le menu : une manette seule peut quitter.
+                val menuKey = code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_MENU || code == KeyEvent.KEYCODE_BUTTON_SELECT || code == KeyEvent.KEYCODE_BUTTON_START
+                if (!down && menuKey && event.repeatCount == 0) toggleMenu(fromPad = true)
+                return true
+            }
             if (pads.key(event)) return true
             return super.dispatchKeyEvent(event)
         }
@@ -862,7 +893,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         if (code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_ESCAPE && !isKeyboard(event)) {
             if (!down) {
                 if (!closeTop()) {
-                    if (tv && !host.settings.backOpensMenu) Sc.press(handle, Sc.ESC) else toggleMenu()
+                    // Retour part à l'ordinateur comme Échap si le réglage le veut ; jamais pour un invité sans le clavier.
+                    if (tv && !host.settings.backOpensMenu && ui.keyboardMouseAllowed()) Sc.press(handle, Sc.ESC) else toggleMenu()
                 }
             }
             return true
@@ -893,6 +925,9 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         return super.dispatchKeyEvent(event)
     }
 
+    /** Les manettes de l'appareil partent à l'ordinateur : toujours pour l'hôte, pour un invité s'il joue. */
+    private fun padsAllowed() = guest == null || state.shareRole.value.plays
+
     /** Ce qui prend les touches. La barre pilotée à la manette passe par `pads.captured`. */
     private fun SessionUi.anythingModal() = menuOpen || keysOpen || typing || shareOpen
 
@@ -903,7 +938,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
 
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
         if (event.isFromSource(InputDevice.SOURCE_JOYSTICK) && event.action == MotionEvent.ACTION_MOVE) {
-            if (!pads.captured && !ui.anythingModal() && pads.motion(event)) return true
+            if (!pads.captured && !ui.anythingModal() && padsAllowed() && pads.motion(event)) return true
             return super.dispatchGenericMotionEvent(event)
         }
         if (event.isFromSource(InputDevice.SOURCE_MOUSE) && !ui.anythingModal() && ui.keyboardMouseAllowed()) {
@@ -926,6 +961,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        if (ev.actionMasked == MotionEvent.ACTION_DOWN) mouseClick = ev.isFromSource(InputDevice.SOURCE_MOUSE)
         // Une souris (pas un doigt) qui clique hors capture : boutons gérés par dispatchGenericMotionEvent.
         // La manette à l'écran ne prend que les doigts : la souris reste une souris.
         if (ev.isFromSource(InputDevice.SOURCE_MOUSE) && !ui.covering) {

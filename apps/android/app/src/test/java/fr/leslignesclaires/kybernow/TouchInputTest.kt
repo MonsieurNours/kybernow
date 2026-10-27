@@ -116,4 +116,33 @@ class TouchInputTest {
         assertEquals(0, folds)
         assertEquals(listOf("to 100,100", "b0 down", "b0 up"), sent)
     }
+
+    // Un invité à qui l'hôte retire le clavier et la souris au milieu d'un geste (KyberNow Share) : rien ne repart après.
+    @Test
+    fun cancel_aHoldInProgressNeverDrags() {
+        keyboard = false
+        touch.onTouch(ev(MotionEvent.ACTION_DOWN, 0))
+        touch.cancel()
+        idle(600)
+        assertEquals(emptyList<String>(), sent)
+    }
+
+    @Test
+    fun cancel_aDirectHoldInProgressNeverPresses() {
+        touch.direct = true
+        touch.onTouch(ev(MotionEvent.ACTION_DOWN, 0))
+        touch.cancel()
+        idle(600)
+        assertEquals(emptyList<String>(), sent)
+    }
+
+    @Test
+    fun cancel_thenANewGestureWorksAsUsual() {
+        keyboard = false
+        touch.onTouch(ev(MotionEvent.ACTION_DOWN, 0))
+        touch.cancel()
+        touch.onTouch(ev(MotionEvent.ACTION_DOWN, 1000))
+        touch.onTouch(ev(MotionEvent.ACTION_UP, 1100))
+        assertEquals(listOf("b0 down", "b0 up"), sent)
+    }
 }
