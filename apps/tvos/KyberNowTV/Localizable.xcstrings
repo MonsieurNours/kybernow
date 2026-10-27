@@ -1489,6 +1489,22 @@
         }
       }
     },
+    "Code et QR code" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Code and QR code"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Code et QR code"
+          }
+        }
+      }
+    },
     "Code à l'écran" : {
       "localizations" : {
         "en" : {

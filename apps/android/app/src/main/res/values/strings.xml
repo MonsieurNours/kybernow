@@ -342,6 +342,7 @@
     <string name="share_notice_keyboard_mouse_back">The keyboard and mouse were taken back.</string>
     <string name="share_notice_watch">You are watching again.</string>
     <string name="share_button">Share</string>
+    <string name="share_tile_detail">Code and QR code</string>
     <string name="share_title" formatted="true">Share %1$s</string>
     <string name="share_code_label">Code</string>
     <string name="share_qr_label">QR code for the share</string>

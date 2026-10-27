@@ -1441,6 +1441,22 @@
         }
       }
     },
+    "Code et QR code" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Code and QR code"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Code et QR code"
+          }
+        }
+      }
+    },
     "Collez le lien copié depuis KyberNow Admin" : {
       "localizations" : {
         "en" : {

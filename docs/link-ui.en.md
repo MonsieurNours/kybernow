@@ -97,7 +97,7 @@ Contract: [kybernow-share.en.md](kybernow-share.en.md). Every Link app and the w
 
 Sharing impossible (Station too old, sharing turned off): “Share” dimmed; with a mouse, inactive with the reason as a tooltip; on touch and with a remote, it stays selectable and opens the panel reduced to the reason.
 
-An open share shows in the bar (a « 2 invités » / “2 guests” chip, from one guest on, never “0 guests”; it reopens the panel), in its always-visible part. In tile menus (Apple TV, TVs, living room, Deck, Android TV), the number is the subtitle of the “Share” tile, « Code et QR code » / “Code and QR code” while nobody is there. Closing the session stops the share.
+An open share shows in the bar (a « 2 invités » / “2 guests” chip, from one guest on, never “0 guests”; it reopens the panel), in its always-visible part. In tile menus (Apple TV, TVs, living room, Deck, Android TV), the “Share” tile's subtitle is the number of guests as soon as there is one, otherwise the code (“123 456”) when the share is open, otherwise « Code et QR code » / “Code and QR code”. Closing the session stops the share.
 
 **The PC itself** (KyberNow Station: the icon's menu next to the clock, and Admin's home page): « Partager un écran… » / “Share a screen…”, then the choice of display (« Écran 1 — 3840 × 2160 », the main display first); the same panel (code, link, guests, actions), titled « Partage de l'écran 1 » / “Sharing display 1”. The PC stays usable as usual; no virtual display, no display switched off.
 

@@ -524,7 +524,8 @@ private fun ShareItems(ui: SessionUi, compact: Boolean) {
             )
         }
     }
-    share?.let { GlassButton(guestsLabel(it.guests.size), { ui.actions.share() }, selected = true) }
+    // La pastille, à partir d'un invité (jamais « 0 invité ») : elle rouvre le panneau.
+    share?.takeIf { it.guests.isNotEmpty() }?.let { GlassButton(guestsLabel(it.guests.size), { ui.actions.share() }, selected = true) }
 }
 
 /** L'infobulle d'un élément inactif à la souris : [reason], au survol ; sans raison, l'élément seul. */
@@ -701,9 +702,16 @@ private fun TvTiles(ui: SessionUi, first: FocusRequester, audio: Pair<Int, Doubl
         screenChoice(ui)?.let { c -> Tile(KnIcons.screen, stringResource(R.string.session_computer_screen), "${c.index + 1} / ${c.count} · ${c.width} × ${c.height}") { ui.actions.pickDisplay(c.next) } }
         Tile(KnIcons.keyboard, stringResource(R.string.session_type_text), null) { ui.typing = true }
         Tile(KnIcons.keys, stringResource(R.string.session_keys), stringResource(R.string.keys_ctrl_alt_del_short)) { ui.keysOpen = true }
-        // Le partage ouvert se voit sur sa tuile (« 2 invités »), qui rouvre le panneau.
-        // Impossible : estompée, mais sélectionnable (OK ouvre le panneau réduit à la raison).
-        Tile(KnIcons.share, stringResource(R.string.share_button), share?.let { guestsLabel(it.guests.size) }, selected = share != null, dimmed = !ui.shareUsable) { ui.actions.share() }
+        // Sous-titre de la tuile (link-ui) : « 2 invités » dès qu'il y en a un, sinon le code
+        // du partage ouvert, sinon « Code et QR code ». Impossible : estompée, mais sélectionnable
+        // (OK ouvre le panneau réduit à la raison).
+        val open = share
+        val shareDetail = when {
+            open == null -> stringResource(R.string.share_tile_detail)
+            open.guests.isNotEmpty() -> guestsLabel(open.guests.size)
+            else -> open.codeText
+        }
+        Tile(KnIcons.share, stringResource(R.string.share_button), shareDetail, selected = share != null, dimmed = !ui.shareUsable) { ui.actions.share() }
         Tile(KnIcons.pulse, stringResource(R.string.session_stats), null) { ui.statsOpen = !ui.statsOpen }
         Tile(KnIcons.exit, stringResource(R.string.session_disconnect), null, danger = true) { ui.actions.quit() }
     }

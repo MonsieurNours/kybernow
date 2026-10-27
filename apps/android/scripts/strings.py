@@ -386,6 +386,7 @@ S = [
 ("share_notice_watch", "Vous regardez de nouveau.", "You are watching again."),
 # L'hôte
 ("share_button", "Partager", "Share"),
+("share_tile_detail", "Code et QR code", "Code and QR code"),
 ("share_title", "Partager %1$s", "Share %1$s"),
 ("share_code_label", "Code", "Code"),
 ("share_qr_label", "QR code du partage", "QR code for the share"),

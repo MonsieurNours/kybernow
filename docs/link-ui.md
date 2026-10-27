@@ -97,7 +97,7 @@ Contrat : [kybernow-share.md](kybernow-share.md). Toutes les apps Link et le cli
 
 Partage impossible (Station trop ancienne, partage coupé) : « Partager » estompé ; à la souris, inactif avec la raison en infobulle ; au toucher et à la télécommande, il reste sélectionnable et ouvre le panneau réduit à la raison.
 
-Un partage ouvert se voit dans la barre (pastille « 2 invités » / “2 guests”, à partir d'un invité, jamais « 0 invité » ; elle rouvre le panneau), dans sa partie toujours visible. Dans les menus à tuiles (Apple TV, téléviseurs, salon, Deck, Android TV), le nombre est le sous-titre de la tuile « Partager », « Code et QR code » / “Code and QR code” tant que personne n'est là. Fermer la session arrête le partage.
+Un partage ouvert se voit dans la barre (pastille « 2 invités » / “2 guests”, à partir d'un invité, jamais « 0 invité » ; elle rouvre le panneau), dans sa partie toujours visible. Dans les menus à tuiles (Apple TV, téléviseurs, salon, Deck, Android TV), le sous-titre de la tuile « Partager » est le nombre d'invités dès qu'il y en a un, sinon le code (« 123 456 ») quand le partage est ouvert, sinon « Code et QR code » / “Code and QR code”. Fermer la session arrête le partage.
 
 **Le PC lui-même** (KyberNow Station : menu de l'icône près de l'horloge, et accueil d'Admin) : « Partager un écran… » / “Share a screen…”, puis le choix de l'écran (« Écran 1 — 3840 × 2160 », l'écran principal d'abord) ; le même panneau (code, lien, invités, actions), titré « Partage de l'écran 1 » / “Sharing display 1”. Le PC reste utilisable normalement ; aucun écran virtuel, aucun écran éteint.
 

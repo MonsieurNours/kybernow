@@ -226,6 +226,9 @@ enum ShareText {
         }
     }
 
+    /// Sous-titre de la tuile « Partager » des menus quand rien n'est ouvert.
+    static var tileDetail: String { String(localized: "Code et QR code") }
+
     /// La pastille de la barre : « 1 invité », « 2 invités ».
     static func guestCount(_ n: Int) -> String {
         n == 1 ? String(localized: "1 invité") : String(localized: "\(n) invités")
