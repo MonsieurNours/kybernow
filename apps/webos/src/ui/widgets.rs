@@ -118,7 +118,8 @@ pub fn icon_chip(cv: &mut Canvas, f: &mut Frame, t: Target, x: f32, y: f32, icon
 
 /// Tuile du menu de session.
 #[allow(clippy::too_many_arguments)]
-pub fn tile(cv: &mut Canvas, f: &mut Frame, t: Target, r: Rect, icon: Icon, title: &str, sub: Option<&str>, danger: bool, on: bool) {
+#[allow(clippy::too_many_arguments)]
+pub fn tile(cv: &mut Canvas, f: &mut Frame, t: Target, r: Rect, icon: Icon, title: &str, sub: Option<&str>, danger: bool, on: bool, dim: bool) {
     let focused = f.hit(t, r);
     let (bg, fg) = if focused {
         cv.neon(r.x, r.y, r.w, r.h, 22.0, 1.0);
@@ -132,6 +133,8 @@ pub fn tile(cv: &mut Canvas, f: &mut Frame, t: Target, r: Rect, icon: Icon, titl
     if !focused {
         cv.rrect_stroke(r.x, r.y, r.w, r.h, 22.0, 1.0, if danger { DANGER_LINE } else if on { SPECTRE } else { BORDER });
     }
+    // Une tuile estompée (« Partager » impossible) se choisit quand même.
+    let fg = if dim && !focused { fg.alpha(0.45) } else { fg };
     cv.icon(&icon, r.x + 28.0, r.y + 26.0, 40.0, 1.8, fg);
     if on && !focused {
         cv.circle(r.x + r.w - 32.0, r.y + 34.0, 7.0, SPECTRE);
@@ -140,7 +143,7 @@ pub fn tile(cv: &mut Canvas, f: &mut Frame, t: Target, r: Rect, icon: Icon, titl
     match sub {
         Some(sub) => {
             cv.text_fit(r.x + 28.0, r.y + r.h - 54.0, title_style, title, r.w - 56.0);
-            let sub_color = if focused { Rgba(5, 7, 10, 170) } else if danger { DANGER } else { FROST_2 };
+            let sub_color = if focused { Rgba(5, 7, 10, 170) } else if danger { DANGER } else if dim { FROST_2.alpha(0.55) } else { FROST_2 };
             cv.text_fit(r.x + 28.0, r.y + r.h - 26.0, Text::new(Font::Mono, 14.0, sub_color), sub, r.w - 56.0);
         }
         None => {

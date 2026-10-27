@@ -29,11 +29,21 @@ fn lines(cv: &mut Canvas, style: Text, s: &str, w: f32) -> f32 {
     ((cv.text_width(style, s) / (w * 0.92)).ceil()).max(1.0)
 }
 
+/// Ce que dit le panneau tant que le partage n'est pas ouvert : ce qu'Admin a refusé (`true` : une erreur), ou,
+/// sinon, pourquoi le partage est impossible (Station trop ancienne, partage coupé) : le panneau est alors réduit
+/// à cette raison.
+fn closed_text(app: &App, s: &SessionUi) -> Option<(String, bool)> {
+    match &s.share_error {
+        Some(e) => Some((e.clone(), true)),
+        None => app.share_avail().and_then(|a| a.text()).map(|t| (t.to_string(), false)),
+    }
+}
+
 /// La hauteur du panneau : l'en-tête, le code et le QR code, l'aide, les invités, les boutons du bas.
-fn height(cv: &mut Canvas, s: &SessionUi, w: f32) -> f32 {
+fn height(cv: &mut Canvas, app: &App, s: &SessionUi, w: f32) -> f32 {
     let inner = w - 2.0 * PAD;
     let Some(v) = &s.share else {
-        let msg = s.share_error.as_ref().map(|e| lines(cv, Text::new(Font::Regular, 25.0, DANGER), e, inner) * 36.0 + 20.0).unwrap_or(0.0);
+        let msg = closed_text(app, s).map(|(e, _)| lines(cv, Text::new(Font::Regular, 25.0, DANGER), &e, inner) * 36.0 + 20.0).unwrap_or(0.0);
         return HEADER + 24.0 + msg.max(60.0);
     };
     let help_h = lines(cv, Text::new(Font::Regular, 22.0, FROST_2), help(), inner) * 31.0;
@@ -45,14 +55,17 @@ fn height(cv: &mut Canvas, s: &SessionUi, w: f32) -> f32 {
 pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     cv.rect(0.0, 0.0, W, H, Rgba(2, 3, 4, 200));
     let w = 1240.0;
-    let h = height(cv, s, w).min(H - 140.0);
+    let h = height(cv, app, s, w).min(H - 140.0);
     let (x, y) = ((W - w) / 2.0, ((H - 80.0 - h) / 2.0).max(30.0));
     cv.rrect(x, y, w, h, 28.0, PANEL_SOLID);
     cv.rrect_stroke(x, y, w, h, 28.0, 1.0, BORDER);
     card(app, cv, f, s, Rect::new(x, y, w, h));
     let hy = H - 48.0;
     let mut hx = 96.0;
-    hx += widgets::hint(cv, hx, hy, Key::Ok, tr("Choisir", "Select")) + 40.0;
+    // Réduit à une raison ou à l'attente, il n'y a rien à choisir.
+    if s.share.is_some() {
+        hx += widgets::hint(cv, hx, hy, Key::Ok, tr("Choisir", "Select")) + 40.0;
+    }
     widgets::hint(cv, hx, hy, Key::Back, tr("Retour", "Back"));
 }
 
@@ -94,9 +107,10 @@ fn card(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi, r: Rect) {
     y += HEADER;
 
     let Some(v) = &s.share else {
-        // Pas encore ouvert : l'attente (le cercle ci-dessus), ou ce qu'Admin a refusé.
-        if let Some(e) = &s.share_error {
-            cv.paragraph(x, y + 36.0, Text::new(Font::Regular, 25.0, DANGER), e, inner, 36.0);
+        // Pas encore ouvert : l'attente (le cercle ci-dessus), ce qu'Admin a refusé, ou pourquoi le partage est
+        // impossible.
+        if let Some((text, error)) = closed_text(app, s) {
+            cv.paragraph(x, y + 36.0, Text::new(Font::Regular, 25.0, if error { DANGER } else { FROST }), &text, inner, 36.0);
         }
         return;
     };
@@ -113,7 +127,10 @@ fn card(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi, r: Rect) {
     // Les invités.
     cv.rect(x, y, inner, 1.0, LINE);
     widgets::label(cv, x, y + 34.0, tr("Invités", "Guests"));
-    cv.text(x + inner, y + 34.0, Text::new(Font::Regular, 20.0, FROST_3).align(Align::Right), tr("Quatre invités au plus.", "Four guests at most."));
+    // La limite se dit quand la liste est pleine, comme dans les apps Apple.
+    if v.guests.len() >= MAX_GUESTS {
+        cv.text(x + inner, y + 34.0, Text::new(Font::Regular, 20.0, FROST_3).align(Align::Right), tr("Quatre invités au plus.", "Four guests at most."));
+    }
     y += 52.0;
     if v.guests.is_empty() {
         cv.text(x, y + 36.0, Text::new(Font::Regular, 26.0, FROST_2), tr("Personne pour l'instant.", "Nobody yet."));

@@ -200,53 +200,87 @@ fn backdrop(cv: &mut Canvas) {
     cv.line(1180.0, 980.0, 1900.0, 260.0, 3.0, SPECTRE.alpha(0.12));
 }
 
-/// La rangée des ordinateurs : enregistrés, trouvés sur le réseau, ajouter.
+/// L'écart entre deux cartes d'ordinateur (300 de large), et entre « Ajouter » et « Rejoindre » (168 de large).
+const PITCH: f32 = 328.0;
+const ACTION_PITCH: f32 = 196.0;
+/// Les ordinateurs du réseau qu'on propose d'ajouter, au plus.
+const FOUND_MAX: usize = 3;
+
+/// Combien la rangée a glissé vers la gauche : rien tant qu'elle tient dans l'écran ; sinon juste de quoi montrer
+/// en entier la carte qui a le focus (ou, hors de la rangée, l'ordinateur choisi). Elle ne dépend que du focus :
+/// tous les ordinateurs, puis « Ajouter » et « Rejoindre », restent atteignables à la croix, et la Magic Remote
+/// fait glisser la rangée en survolant la carte coupée au bord.
+pub fn row_offset(app: &App, focus: Target) -> f32 {
+    let hosts = app.store.hosts.len();
+    let found = app.new_found().len().min(FOUND_MAX);
+    let x_add = 96.0 + (hosts + found) as f32 * PITCH;
+    let end = x_add + ACTION_PITCH + 168.0;
+    let limit = W - 96.0;
+    if end <= limit {
+        return 0.0;
+    }
+    let selected = app.selected().and_then(|h| app.store.hosts.iter().position(|x| x.id == h.id)).unwrap_or(0);
+    let right = match focus {
+        Target::Host(i) => 96.0 + i as f32 * PITCH + 300.0,
+        Target::Found(i) => 96.0 + (hosts + i) as f32 * PITCH + 300.0,
+        Target::AddCard => x_add + 168.0,
+        Target::JoinCard => end,
+        _ => 96.0 + selected as f32 * PITCH + 300.0,
+    };
+    (right - limit).clamp(0.0, end - limit)
+}
+
+/// La rangée des ordinateurs : enregistrés (tous), trouvés sur le réseau, ajouter, rejoindre. Quand elle est plus
+/// large que l'écran elle glisse (`row_offset`).
 fn cards(app: &App, cv: &mut Canvas, f: &mut Frame) {
     let y = H - 120.0 - 168.0 - 44.0;
-    let mut x = 96.0;
     let selected = app.selected().map(|h| h.id.clone());
-    // Les ordinateurs d'abord, puis ceux du réseau, et la paire « Ajouter » (168 de large) et « Rejoindre »
-    // (KyberNow Share) : quatre cartes de 300 au plus avant elles.
-    let fit = ((W - 192.0 - 364.0) / 328.0).floor() as usize;
-    for (i, h) in app.store.hosts.iter().enumerate().take(fit) {
+    let mut x = 96.0 - row_offset(app, f.focus);
+    // Une carte entièrement hors de l'écran n'est pas dessinée, mais reste choisissable : le focus la ramène.
+    let on_screen = |x: f32, w: f32| x + w > 0.0 && x < W;
+    for (i, h) in app.store.hosts.iter().enumerate() {
         let r = Rect::new(x, y, 300.0, 168.0);
         let focused = f.hit(Target::Host(i), r);
-        let live = app.live.get(&h.id).map(|l| l.online).unwrap_or_default();
-        let dim = if live == Online::Offline { 0.6 } else { 1.0 };
-        if focused {
-            cv.neon(r.x, r.y, r.w, r.h, 14.0, 1.0);
+        if on_screen(x, 300.0) {
+            let live = app.live.get(&h.id).map(|l| l.online).unwrap_or_default();
+            let dim = if live == Online::Offline { 0.6 } else { 1.0 };
+            if focused {
+                cv.neon(r.x, r.y, r.w, r.h, 14.0, 1.0);
+            }
+            cv.rrect(r.x, r.y, r.w, r.h, 14.0, Rgba(26, 34, 50, (255.0 * dim) as u8));
+            if let Some(img) = app.images.get(&h.id) {
+                cv.image_cover_rounded(img, r.x, r.y, r.w, r.h, 14.0, dim);
+            }
+            let border = if focused { CORE } else if selected.as_deref() == Some(&h.id) { Rgba(227, 237, 240, 128) } else { BORDER };
+            cv.rrect_stroke(r.x, r.y, r.w, r.h, 14.0, if focused { 3.0 } else { 2.0 }, border);
+            let name = Text::new(Font::Semibold, 21.0, FROST.alpha(dim));
+            cv.text_fit(r.x, y + 168.0 + 34.0, name, &h.name, 300.0);
+            let state = match live {
+                Online::Online => tr("En ligne", "Online"),
+                Online::Offline => tr("Hors ligne", "Offline"),
+                Online::Unknown => "",
+            };
+            cv.text(r.x, y + 168.0 + 62.0, Text::new(Font::Regular, 17.0, FROST_3), state);
         }
-        cv.rrect(r.x, r.y, r.w, r.h, 14.0, Rgba(26, 34, 50, (255.0 * dim) as u8));
-        if let Some(img) = app.images.get(&h.id) {
-            cv.image_cover_rounded(img, r.x, r.y, r.w, r.h, 14.0, dim);
-        }
-        let border = if focused { CORE } else if selected.as_deref() == Some(&h.id) { Rgba(227, 237, 240, 128) } else { BORDER };
-        cv.rrect_stroke(r.x, r.y, r.w, r.h, 14.0, if focused { 3.0 } else { 2.0 }, border);
-        let name = Text::new(Font::Semibold, 21.0, FROST.alpha(dim));
-        cv.text_fit(r.x, y + 168.0 + 34.0, name, &h.name, 300.0);
-        let state = match live {
-            Online::Online => tr("En ligne", "Online"),
-            Online::Offline => tr("Hors ligne", "Offline"),
-            Online::Unknown => "",
-        };
-        cv.text(r.x, y + 168.0 + 62.0, Text::new(Font::Regular, 17.0, FROST_3), state);
-        x += 328.0;
+        x += PITCH;
     }
-    for (i, found) in app.new_found().iter().enumerate().take(fit.saturating_sub(app.store.hosts.len()).min(3)) {
+    for (i, found) in app.new_found().iter().enumerate().take(FOUND_MAX) {
         let r = Rect::new(x, y, 300.0, 168.0);
         let focused = f.hit(Target::Found(i), r);
-        if focused {
-            cv.neon(r.x, r.y, r.w, r.h, 14.0, 1.0);
-            cv.rrect(r.x, r.y, r.w, r.h, 14.0, Rgba(30, 28, 56, 255));
+        if on_screen(x, 300.0) {
+            if focused {
+                cv.neon(r.x, r.y, r.w, r.h, 14.0, 1.0);
+                cv.rrect(r.x, r.y, r.w, r.h, 14.0, Rgba(30, 28, 56, 255));
+            }
+            cv.rrect_dashed(r.x, r.y, r.w, r.h, 14.0, 1.5, SPECTRE.alpha(0.6));
+            cv.text(r.x + 150.0, r.y + 90.0, Text::new(Font::Mono, 15.0, SPECTRE).tracking(2.0).align(Align::Center), &tr("Sur le réseau", "On your network").to_uppercase());
+            cv.text_fit(r.x, y + 168.0 + 34.0, Text::new(Font::Regular, 21.0, FROST), &found.name, 300.0);
         }
-        cv.rrect_dashed(r.x, r.y, r.w, r.h, 14.0, 1.5, SPECTRE.alpha(0.6));
-        cv.text(r.x + 150.0, r.y + 90.0, Text::new(Font::Mono, 15.0, SPECTRE).tracking(2.0).align(Align::Center), &tr("Sur le réseau", "On your network").to_uppercase());
-        cv.text_fit(r.x, y + 168.0 + 34.0, Text::new(Font::Regular, 21.0, FROST), &found.name, 300.0);
-        x += 328.0;
+        x += PITCH;
     }
     action_card(cv, f, Target::AddCard, Rect::new(x, y, 168.0, 168.0), Icon::Plus, tr("Ajouter un ordinateur", "Add a computer"));
     // KyberNow Share : rejoindre le partage de quelqu'un, à côté de « Ajouter un ordinateur ».
-    action_card(cv, f, Target::JoinCard, Rect::new(x + 196.0, y, 168.0, 168.0), Icon::Share, tr("Rejoindre avec un code", "Join with a code"));
+    action_card(cv, f, Target::JoinCard, Rect::new(x + ACTION_PITCH, y, 168.0, 168.0), Icon::Share, tr("Rejoindre avec un code", "Join with a code"));
 }
 
 /// Une carte carrée, une action : son icône, et son libellé dessous sur deux lignes au plus.

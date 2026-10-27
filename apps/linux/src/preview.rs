@@ -467,6 +467,21 @@ fn share_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, prefi
         app.screen = Screen::Session;
         app.focus = Target::Menu(MenuItem::Share);
         shot(app, cv, Some(video), dir, &name("21g-partage-menu"));
+        // Partage ouvert, personne encore : la tuile dit le code.
+        let mut s = session(app);
+        s.share = Some(ShareView { guests: Vec::new(), ..shared_view() });
+        app.set_session(Some(s));
+        shot(app, cv, Some(video), dir, &name("21h-partage-menu-code"));
+        // Station trop ancienne : la tuile est estompée mais se choisit ; le panneau qu'elle ouvre dit pourquoi.
+        app.live.insert("a".into(), HostLive { share: Some(ShareAvail::Unsupported), ..app.live.get("a").cloned().unwrap_or_default() });
+        app.set_session(Some(session(app)));
+        shot(app, cv, Some(video), dir, &name("21i-partage-inactif"));
+        let mut s = session(app);
+        s.menu = false;
+        s.share_panel = true;
+        app.set_session(Some(s));
+        shot(app, cv, Some(video), dir, &name("21j-partage-raison"));
+        app.live.insert("a".into(), HostLive { share: Some(ShareAvail::Available), ..app.live.get("a").cloned().unwrap_or_default() });
     }
 
     // L'invité : la connexion, la barre ou le menu d'un spectateur, d'un joueur, le rôle changé, la fin.
@@ -1503,5 +1518,114 @@ mod tests {
             let hits = ui::draw(&empty, &mut cv);
             assert!(hits.iter().any(|(t, _)| *t == Target::AddCard) && hits.iter().any(|(t, _)| *t == Target::JoinCard), "{layout:?} : accueil vide");
         }
+    }
+
+    /// La barre d'un hôte qui partage, avec « Ordinateurs » et « Garder le son » (plusieurs sessions) et les quatre
+    /// invités, tient dans la fenêtre la plus étroite (960 points) : « Partager » et sa pastille « 4 invités »
+    /// restent entiers (sinon la pastille, qui rouvre le panneau, sortirait de la fenêtre).
+    #[test]
+    fn bar_with_a_share_fits_the_narrowest_window() {
+        let (mut app, mut cv) = hosting(4, (960, 600));
+        let mut second = SessionUi::new(2, "c", "Mini du bureau", Profile::Bureau, false, false, 1);
+        second.phase = Phase::Streaming;
+        app.open_session(second);
+        app.activate_session(1);
+        app.session_mut().unwrap().bar = true;
+        app.session_mut().unwrap().bar_menu = None;
+        let hits = ui::draw(&app, &mut cv);
+        let shares: Vec<_> = hits.iter().filter(|(t, _)| *t == Target::BarShare).map(|(_, r)| *r).collect();
+        assert_eq!(shares.len(), 2, "le bouton et la pastille");
+        for (t, r) in &hits {
+            assert!(r.x >= 0.0 && r.x + r.w <= 960.0, "{t:?} sort de la fenêtre étroite : {r:?}");
+        }
+        // Partage ouvert sans invité : le bouton seul, pas de pastille « 0 invité ».
+        let (mut app, mut cv) = hosting(0, (960, 600));
+        app.session_mut().unwrap().bar_menu = None;
+        let hits = ui::draw(&app, &mut cv);
+        assert_eq!(hits.iter().filter(|(t, _)| *t == Target::BarShare).count(), 1);
+    }
+
+    /// Le panneau d'un hôte dont le partage est ouvert propose, pour un joueur avec ou sans le clavier et la souris,
+    /// « Faire regarder » (le retour en spectateur) à côté de « Donner » ou « Reprendre le clavier et la souris » ;
+    /// un spectateur n'a que « Faire jouer ».
+    #[test]
+    fn share_panel_offers_watch_to_every_player() {
+        let (app, mut cv) = hosting(3, (1280, 800));
+        let hits = ui::draw(&app, &mut cv);
+        let has = |t: Target| hits.iter().any(|(h, _)| *h == t);
+        // Léa, spectatrice : jouer ; Tom, joueur : clavier et souris, regarder ; Camille, avec le clavier et la souris : le reprendre, regarder.
+        assert!(has(Target::ShareRole(0)) && !has(Target::ShareKbm(0)));
+        assert!(has(Target::ShareKbm(1)) && has(Target::ShareRole(1)));
+        assert!(has(Target::ShareKbm(2)) && has(Target::ShareRole(2)));
+    }
+
+    /// Partage impossible : à la souris le bouton de la barre est estompé et son infobulle dit pourquoi ; sur l'interface
+    /// de console la tuile « Partager » est estompée, se choisit, et le panneau qu'elle ouvre est réduit à la raison
+    /// (ni code, ni invités) ; avant la réponse d'Admin, ni l'un ni l'autre n'est estompé.
+    #[test]
+    fn share_unavailable_is_dimmed_and_says_why() {
+        crate::i18n::force_english(false);
+        let reason = |a: ShareAvail| a.text().unwrap();
+        // Le bureau.
+        let (mut app, mut cv) = streaming(Layout::Desktop);
+        app.session_mut().unwrap().bar = true;
+        let share_rect = |app: &App, cv: &mut Canvas| ui::draw(app, cv).iter().find(|(t, _)| *t == Target::BarShare).map(|(_, r)| *r).unwrap();
+        // Le pixel du bouton : la couleur de l'icône (estompée, ou non).
+        let icon_ink = |app: &App, cv: &mut Canvas, r: crate::app::Rect| {
+            ui::draw(app, cv);
+            let mut best = 0u32;
+            for y in (r.y as u32 + 8)..(r.y as u32 + 26) {
+                for x in (r.x as u32 + 8)..(r.x as u32 + 26) {
+                    let p = cv.pix.pixel(x, y).unwrap();
+                    best = best.max(p.red() as u32 + p.green() as u32 + p.blue() as u32);
+                }
+            }
+            best
+        };
+        app.live.get_mut("a").unwrap().share = None;
+        let r = share_rect(&app, &mut cv);
+        let unknown = icon_ink(&app, &mut cv, r);
+        app.live.get_mut("a").unwrap().share = Some(ShareAvail::Available);
+        let available = icon_ink(&app, &mut cv, r);
+        assert_eq!(unknown, available, "avant la réponse d'Admin, le bouton n'est pas estompé");
+        app.live.get_mut("a").unwrap().share = Some(ShareAvail::Unsupported);
+        assert!(icon_ink(&app, &mut cv, r) < available, "estompé");
+        // L'infobulle : la raison, sous la barre, au survol.
+        app.pointer = Some((r.x + r.w / 2.0, r.y + r.h / 2.0));
+        ui::draw(&app, &mut cv);
+        assert!(cv.pix.pixel((r.x + r.w / 2.0) as u32, 46 + 4 + 13).unwrap().alpha() > 0, "{}", reason(ShareAvail::Unsupported));
+        // La console : la tuile est choisissable, le panneau est réduit à la raison.
+        for layout in [Layout::Handheld, Layout::Tv] {
+            let (mut app, mut cv) = streaming(layout);
+            app.live.get_mut("a").unwrap().share = Some(ShareAvail::Disabled);
+            app.session_mut().unwrap().menu = true;
+            let hits = ui::draw(&app, &mut cv);
+            assert!(hits.iter().any(|(t, _)| *t == Target::Menu(MenuItem::Share)), "{layout:?} : la tuile se choisit");
+            app.activate(Target::Menu(MenuItem::Share));
+            assert!(app.session().unwrap().share_panel);
+            let hits = ui::draw(&app, &mut cv);
+            assert!(hits.iter().all(|(t, _)| !matches!(t, Target::ShareNewCode | Target::ShareStop | Target::ShareKick(_))), "{layout:?} : rien d'autre que la raison");
+        }
+    }
+
+    /// Le refus du cœur sous « Rejoindre » (jusqu'à deux lignes : le format illisible d'un 4:4:4, un refus d'Admin) reste dans la fenêtre
+    /// la plus basse (960 × 600), sous le bouton.
+    #[test]
+    fn join_refusal_fits_the_smallest_window() {
+        crate::i18n::force_english(false);
+        let mut app = demo(false, Layout::Desktop);
+        let mut cv = Canvas::new();
+        cv.resize(960, 600, 1.0);
+        let long = "Admin : le partage demandé n'existe plus sur cet ordinateur ; vérifiez le code affiché chez la personne qui partage, puis réessayez dans un instant (412).";
+        app.join = JoinState { name: "Atelier de Léa".into(), code: "482917".into(), message: Some(long.into()), ..JoinState::new() };
+        app.go(Screen::Join);
+        let hits = ui::draw(&app, &mut cv);
+        let go = hits.iter().find(|(t, _)| *t == Target::JoinGo).expect("rejoindre").1;
+        // Le texte est à droite du bouton, deux lignes de 22 points au plus : il ne sort ni du bas ni du côté de la fenêtre.
+        assert!(go.y + go.h <= 600.0 && go.x + go.w + 24.0 < 960.0 / 2.0, "le bouton est dans la fenêtre : {go:?}");
+        let ink_below = (go.y + go.h + 4.0) as u32..600;
+        let lit = |cv: &Canvas, rows: std::ops::Range<u32>, from: u32| rows.into_iter().any(|y| (from..960u32).any(|x| cv.pix.pixel(x, y).is_some_and(|p| p.alpha() > 0 && p.red() > 150 && p.green() > 120)));
+        assert!(!lit(&cv, ink_below, 0), "rien sous le bouton : le refus est à sa droite");
+        assert!(lit(&cv, go.y as u32..(go.y + go.h) as u32, (go.x + go.w + 24.0) as u32), "le refus se lit à droite du bouton");
     }
 }

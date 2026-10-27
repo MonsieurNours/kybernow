@@ -2238,6 +2238,8 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, lives: &mut Live
                 }
             }
             app.station_progress(&id);
+            // « Partager » attendait cette réponse : le partage s'ouvre, ou le panneau dit pourquoi il ne le peut pas.
+            actions.extend(app.share_known(&id));
             if online && let Some(h) = app.store.host_mut(&id) {
                 // Les cartes du réveil : les nouvelles, sauf une liste vide (Station 0.4.9).
                 let mut changed = h.os != os || h.gpu != gpu || h.av1 != av1;
@@ -2563,6 +2565,13 @@ fn session_event(id: SessionId, e: SessionEvent, app: &mut App, pads: &mut pads:
         SessionEvent::Guests(view) => app.share_guests(id, view),
         SessionEvent::ShareRole { role, previous } => {
             app.share_role_changed(id, role, previous);
+            // Le clavier saisi par une fenêtre en plein écran (les raccourcis du système vont alors à l'ordinateur)
+            // ne l'est que pour un rôle qui l'envoie : Alt+Tab revient au système quand le clavier est repris.
+            if let Some(wi) = wins.main_of(id)
+                && (if wi == 0 { app.fullscreen } else { wins.list[wi].fullscreen } || app.layout.console())
+            {
+                unsafe { sdl::SDL_SetWindowKeyboardGrab(wins.list[wi].window, role.kbm() as c_int) };
+            }
             // Un rôle sans clavier ni souris rend la souris des jeux (`session_tick` la coupe) et la manette en souris.
             if !role.kbm() {
                 if let Some(l) = lives.get_mut(id) {
@@ -2679,7 +2688,8 @@ fn toggle_fullscreen(app: &mut App, lives: &Lives, wins: &mut Wins, id: Option<S
     let window = wins.list[wi].window;
     unsafe {
         sdl::SDL_SetWindowFullscreen(window, if on { sdl::SDL_WINDOW_FULLSCREEN_DESKTOP } else { 0 });
-        sdl::SDL_SetWindowKeyboardGrab(window, (on && lives.get(id).is_some()) as c_int);
+        // Le clavier n'est saisi que pour une session qui l'envoie (pas un invité sans le clavier et la souris).
+        sdl::SDL_SetWindowKeyboardGrab(window, (on && lives.get(id).is_some() && app.session_by(id).is_some_and(SessionUi::keyboard_mouse)) as c_int);
     }
     if wi == 0 {
         app.fullscreen = on;
@@ -3173,7 +3183,9 @@ fn open_session(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<E
         take_over_main_window(app, &mut l, wins, plan[0].device);
         sync_windows(wins, id, &title, &plan_screens(plan), plan[0].device, &l.devices, true);
     }
-    if first && (app.fullscreen || app.layout.console()) {
+    // Le clavier n'est saisi que pour une session qui l'envoie : un invité arrive en spectateur (rien à envoyer),
+    // Alt+Tab et les raccourcis du système restent au système ; l'hôte lui donne le clavier plus tard (`ShareRole`).
+    if first && guest.is_none() && (app.fullscreen || app.layout.console()) {
         unsafe { sdl::SDL_SetWindowKeyboardGrab(wins.app().window, 1) };
     }
     log::info!(

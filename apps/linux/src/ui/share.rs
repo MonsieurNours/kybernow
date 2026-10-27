@@ -33,10 +33,20 @@ fn computer<'a>(app: &'a App, s: &'a SessionUi) -> &'a str {
     app.store.host(&s.host).map(|h| h.name.as_str()).unwrap_or(&s.name)
 }
 
+/// Ce que dit le panneau tant que le partage n'est pas ouvert : ce qu'Admin a refusé (`true` : une erreur), ou,
+/// sinon, pourquoi le partage est impossible (Station trop ancienne, partage coupé) : le panneau est alors réduit
+/// à cette raison.
+fn closed_text(app: &App, s: &SessionUi) -> Option<(String, bool)> {
+    match &s.share_error {
+        Some(e) => Some((e.clone(), true)),
+        None => app.share_avail(s).and_then(|a| a.text()).map(|t| (t.to_string(), false)),
+    }
+}
+
 /// La hauteur du panneau : l'en-tête, le code et le QR code, l'aide, les invités, les boutons du bas.
-fn height(cv: &mut Canvas, s: &SessionUi, w: f32, u: f32) -> f32 {
+fn height(cv: &mut Canvas, app: &App, s: &SessionUi, w: f32, u: f32) -> f32 {
     let Some(v) = &s.share else {
-        let msg = s.share_error.as_ref().map(|e| cv.line_count(Text::new(Font::Regular, 14.0 * u, WARN), e, w - 2.0 * PAD * u) as f32 * 20.0 * u + 12.0 * u).unwrap_or(0.0);
+        let msg = closed_text(app, s).map(|(e, _)| cv.line_count(Text::new(Font::Regular, 14.0 * u, WARN), &e, w - 2.0 * PAD * u) as f32 * 20.0 * u + 12.0 * u).unwrap_or(0.0);
         return (HEADER + 20.0) * u + msg.max(36.0 * u);
     };
     let help_lines = cv.line_count(Text::new(Font::Regular, 12.5 * u, FAINT), help(), w - 2.0 * PAD * u) as f32;
@@ -50,9 +60,9 @@ pub fn dropdown(cv: &mut Canvas, f: &mut Frame, app: &App, s: &SessionUi, anchor
     let w = 520.0f32.min(cv.w - 16.0);
     let x = (anchor - w / 2.0).clamp(8.0, (cv.w - w - 8.0).max(8.0));
     // Quatre invités dans la fenêtre la plus basse (600 points) : le panneau se resserre un peu plutôt que de sortir.
-    let full = height(cv, s, w, 1.0);
+    let full = height(cv, app, s, w, 1.0);
     let u = ((cv.h - y - 8.0) / full).clamp(0.8, 1.0);
-    let h = height(cv, s, w, u);
+    let h = height(cv, app, s, w, u);
     cv.rrect(x, y, w, h, 12.0, Rgba(9, 13, 18, 247));
     cv.rrect_stroke(x, y, w, h, 12.0, 1.0, LINE_2);
     card(cv, f, app, s, Rect::new(x, y, w, h), u);
@@ -66,7 +76,7 @@ pub fn overlay(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     cv.rect(0.0, 0.0, cw, ch, Rgba(5, 7, 10, 184));
     let footer = 56.0 * unit(app.layout);
     let w = (600.0 * u).min(cw - 80.0);
-    let h = height(cv, s, w, u).min(ch - footer - 40.0);
+    let h = height(cv, app, s, w, u).min(ch - footer - 40.0);
     let (x, y) = ((cw - w) / 2.0, ((ch - footer - h) / 2.0).max(20.0));
     cv.rrect(x, y, w, h, 14.0 * u, Rgba(9, 13, 18, 247));
     cv.rrect_stroke(x, y, w, h, 14.0 * u, 1.0, LINE_2);
@@ -77,7 +87,10 @@ pub fn overlay(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     let g = 26.0 * unit(app.layout);
     let x0 = if app.layout == Layout::Tv { 96.0 } else { 48.0 };
     let mut lx = x0;
-    lx += legend(cv, lx, gy, g, &["A"], tr("Choisir", "Choose")) + 28.0 * unit(app.layout);
+    // Réduit à une raison ou à l'attente, il n'y a rien à choisir.
+    if s.share.is_some() {
+        lx += legend(cv, lx, gy, g, &["A"], tr("Choisir", "Choose")) + 28.0 * unit(app.layout);
+    }
     legend(cv, lx, gy, g, &["B"], tr("Retour", "Back"));
 }
 
@@ -119,9 +132,10 @@ fn card(cv: &mut Canvas, f: &mut Frame, app: &App, s: &SessionUi, r: Rect, u: f3
     y += HEADER * u;
 
     let Some(v) = &s.share else {
-        // Pas encore ouvert : l'attente (le cercle ci-dessus), ou ce qu'Admin a refusé.
-        if let Some(e) = &s.share_error {
-            y += cv.paragraph(x, y + 8.0 * u, Text::new(Font::Regular, 14.0 * u, WARN), e, inner, 20.0 * u) + 12.0 * u;
+        // Pas encore ouvert : l'attente (le cercle ci-dessus), ce qu'Admin a refusé, ou pourquoi le partage est
+        // impossible.
+        if let Some((text, error)) = closed_text(app, s) {
+            y += cv.paragraph(x, y + 8.0 * u, Text::new(Font::Regular, 14.0 * u, if error { WARN } else { FROST }), &text, inner, 20.0 * u) + 12.0 * u;
         }
         return y - r.y;
     };
@@ -158,7 +172,10 @@ fn card(cv: &mut Canvas, f: &mut Frame, app: &App, s: &SessionUi, r: Rect, u: f3
     // Les invités.
     cv.rect(x, y, inner, 1.0, LINE);
     eyebrow(cv, x, y + 18.0 * u, 10.5 * u, FAINT, tr("Invités", "Guests"));
-    cv.text(x + inner, y + 18.0 * u, Text::new(Font::Regular, 11.5 * u, FAINT).align(Align::Right), tr("Quatre invités au plus.", "Four guests at most."));
+    // La limite se dit quand la liste est pleine, comme dans les apps Apple.
+    if v.guests.len() >= MAX_GUESTS {
+        cv.text(x + inner, y + 18.0 * u, Text::new(Font::Regular, 11.5 * u, FAINT).align(Align::Right), tr("Quatre invités au plus.", "Four guests at most."));
+    }
     y += 26.0 * u;
     if v.guests.is_empty() {
         cv.text(x, y + 20.0 * u, Text::new(Font::Regular, 13.5 * u, MUTED), tr("Personne pour l'instant.", "Nobody yet."));
@@ -193,7 +210,8 @@ fn card(cv: &mut Canvas, f: &mut Frame, app: &App, s: &SessionUi, r: Rect, u: f3
     y - r.y
 }
 
-/// La pastille de la barre : « 2 invités » (le partage est ouvert).
+/// La pastille de la barre : « 2 invités », à partir d'un invité (jamais « 0 invité » : le bouton « Partager » est
+/// allumé tant que le partage est ouvert, la pastille dit seulement qui est là).
 pub fn pill_label(s: &SessionUi) -> Option<String> {
-    s.share.as_ref().map(|v: &ShareView| guests_label(v.guests.len()))
+    s.share.as_ref().filter(|v: &&ShareView| !v.guests.is_empty()).map(|v| guests_label(v.guests.len()))
 }

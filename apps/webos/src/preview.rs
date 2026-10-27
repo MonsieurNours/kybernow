@@ -229,12 +229,23 @@ fn share_shots(app: &mut App, cv: &mut Canvas, assets: &Assets, video: &Pixmap, 
         s.share_error = Some(crate::i18n::tr("Une connexion est en cours sur cet ordinateur : partagez un écran une fois qu'elle est finie.", "A connection is in progress on this computer: share a screen once it has ended.").into());
     }
     shot(app, cv, assets, Some(video), dir, "21e-partage-refuse");
-    // Station trop ancienne : la tuile le dit, le choisir aussi.
+    // Station trop ancienne : la tuile est estompée mais se choisit ; le panneau qu'elle ouvre dit pourquoi.
     app.live.get_mut("a").unwrap().share = Some(ShareAvail::Unsupported);
     app.session = Some(session(app));
     app.focus = Target::Menu(MenuItem::Share);
     shot(app, cv, assets, Some(video), dir, "21f-partage-inactif");
+    let mut s = session(app);
+    s.menu = false;
+    s.share_panel = true;
+    app.session = Some(s);
+    shot(app, cv, assets, Some(video), dir, "21g-partage-raison");
+    // Partage ouvert, personne encore : la tuile du menu dit le code ; avec un invité, le nombre d'invités.
     app.live.get_mut("a").unwrap().share = Some(ShareAvail::Available);
+    let mut s = session(app);
+    s.share = Some(ShareView { guests: Vec::new(), ..shared_view() });
+    app.session = Some(s);
+    app.focus = Target::Menu(MenuItem::Share);
+    shot(app, cv, assets, Some(video), dir, "21h-partage-menu-code");
 
     // L'invité : la connexion, le menu d'un spectateur, d'un joueur, d'un joueur avec le clavier et la souris, l'avis, la fin.
     let mut g = guest_session(ShareRole::Spectator);
@@ -489,7 +500,7 @@ pub fn run(dir: &Path, lang: &str) {
 mod tests {
     use super::*;
     use crate::app::{
-        app_label, duration_label, format_code, guests_label, Action, Nav, ShareOp, NAME_MAX,
+        app_label, duration_label, format_code, guests_label, share_tile, Action, Nav, ShareOp, NAME_MAX,
     };
 
     /// Les réglages s'atteignent à la croix depuis « Se connecter », sans
@@ -589,9 +600,10 @@ mod tests {
         assert_eq!(app.join.name.chars().count(), NAME_MAX);
     }
 
-    /// Une Station qui ne partage pas : « Partager » dit pourquoi, rien ne part ; avec un partage possible, il ouvre le
-    /// panneau et demande l'ouverture à Admin, une fois ; ses invités : « Faire jouer », le clavier et la souris, « Faire
-    /// regarder », « Retirer » ; B referme le panneau, le signe de vie le met à jour.
+    /// Une Station qui ne partage pas : la tuile « Partager » se choisit et ouvre le panneau réduit à la raison ; avant la
+    /// première réponse d'Admin, le panneau attend cette réponse (jamais une tuile muette) ; avec un partage possible, il
+    /// ouvre le panneau et demande l'ouverture à Admin, une fois ; ses invités : « Faire jouer », le clavier et la souris,
+    /// « Faire regarder », « Retirer » ; B referme le panneau, le signe de vie le met à jour.
     #[test]
     fn sharing_from_the_menu() {
         let mut app = tv();
@@ -600,12 +612,40 @@ mod tests {
         s.menu = true;
         app.session = Some(s);
         app.screen = Screen::Session;
+        // Sans réponse d'Admin : le panneau s'ouvre et attend, Admin est sondé de nouveau.
+        app.live.get_mut("a").unwrap().share = None;
+        assert_eq!(app.activate(Target::Menu(MenuItem::Share)), vec![Action::ReleaseAll, Action::Poll("a".into())]);
+        let s = app.session.as_ref().unwrap();
+        assert!(s.share_wait && s.share_busy && s.share_panel && !s.menu);
+        // Ordinateur injoignable (rien de neuf) : la demande part quand même, son refus dira pourquoi.
+        assert_eq!(app.share_known("a"), vec![Action::Share(ShareOp::Open)]);
+        assert!(!app.session.as_ref().unwrap().share_wait && app.session.as_ref().unwrap().share_busy);
+        app.share_reply(Err("Admin injoignable".into()));
+        assert_eq!(app.session.as_ref().unwrap().share_error.as_deref(), Some("Admin injoignable"));
+        assert!(app.share_known("a").is_empty(), "plus rien n'attend");
+        // Le panneau refermé pendant l'attente n'ouvre rien.
+        assert!(app.session_back().is_empty());
+        app.session.as_mut().unwrap().menu = true;
+        assert_eq!(app.activate(Target::Menu(MenuItem::Share)), vec![Action::ReleaseAll, Action::Poll("a".into())]);
+        assert!(app.session_back().is_empty());
+        assert!(app.share_known("a").is_empty() && !app.session.as_ref().unwrap().share_busy);
+        // La réponse dit que le partage est impossible : le panneau se réduit à la raison, rien ne part.
+        app.session.as_mut().unwrap().menu = true;
+        assert_eq!(app.activate(Target::Menu(MenuItem::Share)), vec![Action::ReleaseAll, Action::Poll("a".into())]);
         app.live.get_mut("a").unwrap().share = Some(ShareAvail::Unsupported);
-        assert!(app.activate(Target::Menu(MenuItem::Share)).is_empty());
-        assert_eq!(app.session.as_ref().unwrap().notice.as_ref().map(|n| n.0.as_str()), Some("Le partage demande KyberNow Station 0.8.0 ou plus récente."));
-        app.live.get_mut("a").unwrap().share = Some(ShareAvail::Disabled);
-        assert!(app.activate(Target::Menu(MenuItem::Share)).is_empty());
-        assert_eq!(app.session.as_ref().unwrap().notice.as_ref().map(|n| n.0.as_str()), Some("Le partage est coupé sur cet ordinateur (Admin › Appareils Link)."));
+        assert!(app.share_known("a").is_empty());
+        let s = app.session.as_ref().unwrap();
+        assert!(s.share_panel && !s.share_busy && s.share.is_none());
+        assert!(app.session_back().is_empty() && !app.session.as_ref().unwrap().share_panel);
+        // Déjà su impossible : la tuile se choisit, le panneau s'ouvre réduit à la raison, sans rien demander.
+        for a in [ShareAvail::Unsupported, ShareAvail::Disabled] {
+            app.live.get_mut("a").unwrap().share = Some(a);
+            app.session.as_mut().unwrap().menu = true;
+            assert_eq!(app.activate(Target::Menu(MenuItem::Share)), vec![Action::ReleaseAll]);
+            let s = app.session.as_ref().unwrap();
+            assert!(s.share_panel && !s.menu && !s.share_busy && s.share.is_none() && s.notice.is_none());
+            assert!(app.session_back().is_empty() && !app.session.as_ref().unwrap().share_panel);
+        }
         app.live.get_mut("a").unwrap().share = Some(ShareAvail::Available);
         app.session.as_mut().unwrap().menu = true;
         assert_eq!(app.activate(Target::Menu(MenuItem::Share)), vec![Action::ReleaseAll, Action::Share(ShareOp::Open)]);
@@ -623,6 +663,8 @@ mod tests {
         assert_eq!(app.activate(Target::ShareRole(0)), role(ShareRole::Player));
         app.share_reply(Ok(Some(view(ShareRole::Player))));
         assert_eq!(app.activate(Target::ShareKbm(0)), role(ShareRole::PlayerKbm));
+        app.share_reply(Ok(Some(view(ShareRole::PlayerKbm))));
+        assert_eq!(app.activate(Target::ShareRole(0)), role(ShareRole::Spectator), "« Faire regarder » aussi avec le clavier et la souris");
         app.share_reply(Ok(Some(view(ShareRole::PlayerKbm))));
         assert_eq!(app.activate(Target::ShareKbm(0)), role(ShareRole::Player));
         app.share_reply(Ok(Some(view(ShareRole::Player))));
@@ -644,6 +686,19 @@ mod tests {
         assert_eq!(app.activate(Target::ShareStop), vec![Action::Share(ShareOp::Close)]);
         app.share_reply(Ok(None));
         assert!(app.session.as_ref().unwrap().share.is_none() && !app.session.as_ref().unwrap().share_panel);
+        // Un signe de vie parti avant l'arrêt ne rouvre rien (3 s) ; un plus tardif, si.
+        app.share_guests(Some(view(ShareRole::Spectator)));
+        assert!(app.session.as_ref().unwrap().share.is_none());
+        app.session.as_mut().unwrap().share_closed = Some(Instant::now() - Duration::from_secs(4));
+        app.share_guests(Some(view(ShareRole::Spectator)));
+        assert!(app.session.as_ref().unwrap().share.is_some());
+        // Le partage fermé par ailleurs (Admin) longtemps après son ouverture : il se ferme ; juste après, non.
+        app.share_guests(None);
+        assert!(app.session.as_ref().unwrap().share.is_some(), "ouvert il y a moins de 8 s");
+        app.session.as_mut().unwrap().share_opened = Some(Instant::now() - Duration::from_secs(9));
+        app.share_guests(None);
+        assert!(app.session.as_ref().unwrap().share.is_none());
+        app.share_reply(Ok(None));
         // Un refus d'Admin reste dans le panneau.
         app.session.as_mut().unwrap().share_panel = true;
         app.share_reply(Err("Aucun partage en cours.".into()));
@@ -688,19 +743,44 @@ mod tests {
     #[test]
     fn share_words() {
         crate::i18n::force_english(false);
-        assert_eq!(duration_label(20), "moins d'une minute");
-        assert_eq!(duration_label(60), "1 minute");
-        assert_eq!(duration_label(42 * 60 + 5), "42 minutes");
+        assert_eq!(duration_label(0), "moins d'une minute");
+        assert_eq!(duration_label(59), "moins d'une minute");
+        assert_eq!(duration_label(60), "1 min");
+        assert_eq!(duration_label(3 * 60 + 40), "3 min");
+        assert_eq!(duration_label(59 * 60 + 59), "59 min");
+        assert_eq!(duration_label(3600), "1 h 00");
+        assert_eq!(duration_label(3600 + 12 * 60), "1 h 12");
         assert_eq!(duration_label(2 * 3600 + 5 * 60), "2 h 05");
         assert_eq!((app_label("ios"), app_label("webos"), app_label("web"), app_label("tvos")), ("iPhone ou iPad".to_string(), "Téléviseur LG".to_string(), "Navigateur".to_string(), "Apple TV".to_string()));
         assert_eq!((guests_label(0), guests_label(1), guests_label(2)), ("0 invité".to_string(), "1 invité".to_string(), "2 invités".to_string()));
         assert_eq!(format_code("482917"), "482 917");
+        // Le sous-titre de la tuile « Partager » : les invités, sinon le code, sinon « Code et QR code ».
+        let view = |n: usize| ShareView { code: "482917".into(), guests: (0..n).map(|i| ShareGuest { id: format!("g{i}"), name: "Léa".into(), ..Default::default() }).collect(), ..Default::default() };
+        assert_eq!(share_tile(None), ("Code et QR code".to_string(), false));
+        assert_eq!(share_tile(Some(&view(0))), ("482 917".to_string(), true));
+        assert_eq!(share_tile(Some(&view(1))), ("1 invité".to_string(), true));
+        assert_eq!(share_tile(Some(&view(3))), ("3 invités".to_string(), true));
         let g = ShareGuest { id: "g".into(), name: "Léa".into(), role: ShareRole::PlayerKbm, app: "ios".into(), since: Some(1_000) };
         assert_eq!(g.line(), "Léa · Joueur, clavier et souris");
-        assert_eq!(g.meta(1_000 + 4 * 60), "iPhone ou iPad · depuis 4 minutes");
-        assert_eq!(ShareGuest { since: None, ..g }.meta(5), "iPhone ou iPad");
+        assert_eq!(g.meta(1_000 + 4 * 60), "iPhone ou iPad · depuis 4 min");
+        assert_eq!(g.meta(1_000 + 20), "iPhone ou iPad · depuis moins d'une minute");
+        // Une horloge du téléviseur en retard sur celle de la Station : jamais de durée négative.
+        assert_eq!(g.meta(1_000 - 90), "iPhone ou iPad · depuis moins d'une minute");
+        assert_eq!(ShareGuest { since: None, ..g.clone() }.meta(5), "iPhone ou iPad");
+        assert_eq!(ShareGuest { since: Some(0), ..g }.meta(5), "iPhone ou iPad");
         crate::i18n::force_english(true);
-        assert_eq!((duration_label(20), guests_label(1), guests_label(3), app_label("webos")), ("less than a minute".to_string(), "1 guest".to_string(), "3 guests".to_string(), "LG TV".to_string()));
+        assert_eq!(
+            (duration_label(20), duration_label(3 * 60), duration_label(3600 + 12 * 60), guests_label(1), guests_label(3), app_label("webos")),
+            ("under a minute".to_string(), "3 min".to_string(), "1 h 12".to_string(), "1 guest".to_string(), "3 guests".to_string(), "LG TV".to_string())
+        );
+        // Actions sur un invité : « Faire jouer » ; puis, pour un joueur avec ou sans le clavier et la souris, le clavier et la souris
+        // et « Faire regarder ».
+        let labels = |r: ShareRole| r.moves().iter().map(|m| m.label(r)).collect::<Vec<_>>();
+        assert_eq!(labels(ShareRole::Spectator), ["Let play"]);
+        assert_eq!(labels(ShareRole::Player), ["Give keyboard and mouse", "Watch only"]);
+        assert_eq!(labels(ShareRole::PlayerKbm), ["Take back keyboard and mouse", "Watch only"]);
+        crate::i18n::force_english(false);
+        assert_eq!(labels(ShareRole::PlayerKbm), ["Reprendre le clavier et la souris", "Faire regarder"]);
         crate::i18n::force_english(false);
     }
 
@@ -773,5 +853,107 @@ mod tests {
             assert_eq!(has(Target::Menu(MenuItem::Gamepads)), role != ShareRole::Spectator, "{role:?} : la manette seulement en joueur");
             assert!(has(Target::Menu(MenuItem::Resume)) && has(Target::Menu(MenuItem::Stats)) && has(Target::Menu(MenuItem::Disconnect)));
         }
+    }
+
+    /// Une rangée de l'accueil avec `n` ordinateurs (les deux de la démonstration et `n - 2` autres), le focus sur le premier.
+    fn home_with(n: usize) -> App {
+        let mut app = tv();
+        for i in 0..n.saturating_sub(2) {
+            let id = format!("x{i}");
+            app.store.hosts.push(host(&id, &format!("Ordinateur {i}"), "192.168.1.90"));
+            app.live.insert(id, HostLive { online: Online::Online, ..Default::default() });
+        }
+        app.go(Screen::Home);
+        app.focus = Target::Host(0);
+        app
+    }
+
+    fn rect_of(app: &App, t: Target) -> crate::app::Rect {
+        app.hits.iter().find(|(h, _)| *h == t).map(|(_, r)| *r).unwrap_or_else(|| panic!("{t:?} absent"))
+    }
+
+    /// Avec beaucoup d'ordinateurs, la rangée de l'accueil glisse : tous restent atteignables à la croix (puis la carte du
+    /// réseau, « Ajouter » et « Rejoindre »), la carte qui a le focus est toujours entière à l'écran, et un retour vers la
+    /// gauche ramène la rangée. Avec peu d'ordinateurs elle ne bouge pas.
+    #[test]
+    fn home_row_scrolls_to_reach_every_computer() {
+        let mut cv = Canvas::new();
+        let assets = Assets::load();
+        // Peu d'ordinateurs : la rangée tient, « Rejoindre » est entier à l'écran sans que rien ne glisse.
+        let mut app = home_with(2);
+        app.hits = ui::draw(&app, &mut cv, &assets);
+        assert_eq!(rect_of(&app, Target::Host(0)).x, 96.0);
+        let join = rect_of(&app, Target::JoinCard);
+        assert!(join.x + join.w <= 1920.0 - 96.0);
+        // Six ordinateurs : la croix passe par chaque carte, dans l'ordre, et chacune est entière à l'écran.
+        let n = 6;
+        let mut app = home_with(n);
+        app.hits = ui::draw(&app, &mut cv, &assets);
+        assert_eq!(app.hits.iter().filter(|(t, _)| matches!(t, Target::Host(_))).count(), n, "tous les ordinateurs sont inscrits");
+        assert_eq!(rect_of(&app, Target::Host(0)).x, 96.0, "la rangée commence à sa place");
+        let cut = rect_of(&app, Target::Host(5));
+        assert!(cut.x + cut.w > 1920.0 - 96.0 && cut.x < 1920.0, "le sixième est coupé au bord : {cut:?}");
+        let mut order = vec![Target::Host(0)];
+        while app.focus != Target::JoinCard && order.len() < n + 4 {
+            app.nav(Nav::Right);
+            app.hits = ui::draw(&app, &mut cv, &assets);
+            order.push(app.focus);
+            let r = rect_of(&app, app.focus);
+            assert!(r.x >= 0.0 && r.x + r.w <= 1920.0, "{:?} sort de l'écran : {r:?}", app.focus);
+        }
+        let mut expected: Vec<Target> = (0..n).map(Target::Host).collect();
+        expected.extend([Target::Found(0), Target::AddCard, Target::JoinCard]);
+        assert_eq!(order, expected, "la croix passe par chaque carte, dans l'ordre");
+        // Le retour, un pas à gauche : la carte d'avant, entière.
+        app.nav(Nav::Left);
+        app.hits = ui::draw(&app, &mut cv, &assets);
+        assert_eq!(app.focus, Target::AddCard);
+        let r = rect_of(&app, Target::AddCard);
+        assert!(r.x >= 0.0 && r.x + r.w <= 1920.0);
+        // La Magic Remote : la carte coupée au bord se choisit en la survolant, et vient en entier.
+        app.focus = Target::Host(0);
+        app.hits = ui::draw(&app, &mut cv, &assets);
+        let cut = rect_of(&app, Target::Host(5));
+        app.pointer_moved(cut.x + 20.0, cut.y + 20.0);
+        assert_eq!(app.focus, Target::Host(5));
+        app.hits = ui::draw(&app, &mut cv, &assets);
+        let r = rect_of(&app, Target::Host(5));
+        assert!(r.x + r.w <= 1920.0 - 96.0 + 0.5, "{r:?}");
+    }
+
+    /// Hors de la rangée (« Se connecter » a le focus), l'ordinateur choisi reste visible, même au bout de la rangée.
+    #[test]
+    fn home_row_keeps_the_selected_computer_visible() {
+        let mut cv = Canvas::new();
+        let assets = Assets::load();
+        let mut app = tv();
+        for i in 0..6 {
+            app.store.hosts.push(host(&format!("x{i}"), &format!("Ordinateur {i}"), "192.168.1.90"));
+        }
+        app.store.selected = Some("x5".into());
+        app.go(Screen::Home);
+        let hits = ui::draw(&app, &mut cv, &assets);
+        let r = hits.iter().find(|(t, _)| *t == Target::Host(7)).map(|(_, r)| *r).unwrap();
+        assert!(r.x >= 0.0 && r.x + r.w <= 1920.0, "{r:?}");
+    }
+
+    /// « Partager » impossible : le panneau que la tuile ouvre est réduit à la raison (ni code, ni invités, ni bouton),
+    /// et tient à l'écran.
+    #[test]
+    fn share_panel_reduced_to_the_reason() {
+        let mut cv = Canvas::new();
+        let assets = Assets::load();
+        let mut app = tv();
+        app.live.get_mut("a").unwrap().share = Some(ShareAvail::Unsupported);
+        let mut s = session(&app);
+        s.menu = true;
+        app.session = Some(s);
+        app.screen = Screen::Session;
+        let hits = ui::draw(&app, &mut cv, &assets);
+        assert!(hits.iter().any(|(t, _)| *t == Target::Menu(MenuItem::Share)), "la tuile se choisit");
+        app.activate(Target::Menu(MenuItem::Share));
+        assert!(app.session.as_ref().unwrap().share_panel);
+        let hits = ui::draw(&app, &mut cv, &assets);
+        assert!(hits.iter().all(|(t, _)| !matches!(t, Target::ShareNewCode | Target::ShareStop | Target::ShareKick(_) | Target::ShareRole(_))));
     }
 }
