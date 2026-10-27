@@ -82,6 +82,7 @@ All JSON, on Admin's port, certificate pinned by fingerprint as today. The names
   - the same device (`device`) joining again gets its place back (same `guest`, same role, new `secret`), without counting as one more guest;
   - a guest's Kyber token: `sub` = `kn-guest-<guest>`, and `kn_rev` (increasing with every role change) besides `kn_role` and `kn_display`;
   - sharing from the PC: refused during a device's session (`code` `session`) or another connection that took the displays or the sound (`busy`); a session that starts (a device's `prepare`) stops it; one share at a time;
+  - Kyber (0019): a spectator may open its inputs, Kyber lets nothing through to the computer; “Let play” then applies without restarting the image. A guest that restarts its image costs the shared encoder one keyframe (the one Kyber forces for any arriving client), without changing its configuration; its `/force_idr` has no effect. Each guest has its own input server, hence its own virtual gamepads;
   - the guards name the guests (“A share is in progress with Léa and Max: restarting will stop it”); with `force`, the share stops first (guests read `stopped`).
 
 ## Rust core

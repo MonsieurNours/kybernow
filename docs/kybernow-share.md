@@ -82,6 +82,7 @@ Tout en JSON, sur le port d'Admin, certificat épinglé par empreinte comme aujo
   - le même appareil (`device`) qui rejoint de nouveau reprend sa place (même `guest`, même rôle, nouveau `secret`), sans compter pour un invité de plus ;
   - jeton de Kyber d'un invité : `sub` = `kn-guest-<guest>`, et `kn_rev` (croissant à chaque changement de rôle) en plus de `kn_role` et `kn_display` ;
   - partage depuis le PC : refusé pendant la session d'un appareil (`code` `session`) ou une autre connexion qui a pris les écrans ou le son (`busy`) ; une session qui commence (`prepare` d'un appareil) l'arrête ; un seul partage à la fois ;
+  - Kyber (0019) : un spectateur peut ouvrir ses entrées, Kyber n'en laisse rien passer vers l'ordinateur ; « Faire jouer » s'applique alors sans relancer l'image. Un invité qui relance son image coûte une image clé à l'encodeur commun (celle que Kyber force pour tout client qui arrive), sans changer sa configuration ; son `/force_idr` est sans effet. Chaque invité a son propre serveur d'entrées, donc ses propres manettes virtuelles ;
   - les gardes nomment les invités (« Un partage est en cours avec Léa et Max : le redémarrage l'arrêtera ») ; avec `force`, le partage s'arrête avant (les invités lisent `stopped`).
 
 ## Cœur Rust
