@@ -96,6 +96,28 @@ An open share shows in the bar (a « 2 invités » / “2 guests” chip, which 
 
 **The PC itself** (KyberNow Station: the icon's menu next to the clock, and Admin's home page): « Partager un écran… » / “Share a screen…”, then the choice of display (« Écran 1 — 3840 × 2160 », the main display first); the same panel (code, link, guests, actions), titled « Partage de l'écran 1 » / “Sharing display 1”. The PC stays usable as usual; no virtual display, no display switched off.
 
+**Station refusals** (Admin, the icon, and the host routes' `error`): « {nom} est en session : le partage se lance depuis cet appareil. » / “{name} is in a session: share from that device.”; « Une connexion est en cours sur cet ordinateur : partagez un écran une fois qu'elle est finie. » / “A connection is in progress on this computer: share a screen once it has ended.”; « Cet écran n'est plus branché. » / “This display is no longer connected.”; « Cet invité n'est plus dans le partage. » / “This guest is no longer in the share.”; « Seul l'appareil en session peut partager cet ordinateur. » / “Only the device in a session can share this computer.”; « Aucun partage en cours. » / “No share in progress.”; restart or update during a share: « Un partage est en cours avec {prénoms} : le redémarrage l'arrêtera » / “A share is in progress with {names}: restarting will stop it” (« l'installation l'arrêtera » / “installing will stop it”).
+
+**Station panel** (Admin: home and Link devices; the icon's panel), besides the texts above:
+
+| Item | French | English |
+|---|---|---|
+| Card help (Admin) | « Montrez un écran de cet ordinateur à quelqu'un sur votre réseau : il le voit, entend le son, et peut jouer si vous le laissez. Vous continuez d'utiliser l'ordinateur normalement. » | “Show one of this computer's screens to someone on your network: they see it, hear the sound, and can play if you let them. You keep using the computer as usual.” |
+| Choice of display | « Choisissez l'écran à partager. »; « Recherche des écrans… »; « Annuler » | “Choose the screen to share.”; “Looking for screens…”; “Cancel” |
+| A device's share | « Ouvert depuis la session de {nom}. » | “Opened from {name}'s session.” |
+| Code, QR code | « Code »; « QR code du partage » (accessible label) | “Code”; “QR code for the share” |
+| Link copied | « Lien copié. »; « Copie impossible : sélectionnez le lien à la main. » | “Link copied.”; “Could not copy: select the link by hand.” |
+| List | « Invités », « Participants » when the host is in it; « {nom} · Hôte »; « depuis {durée} » | “Guests”, “Participants”; “{name} · Host”; “for {duration}” |
+| Back to spectator | « Faire regarder » | “Watch only” |
+| Stopped | « Partage arrêté. » | “Sharing stopped.” |
+| Admin's header, top of the panel | « Partage en cours · {n} invités »; « Partage en cours » | “Sharing · {n} guests”; “Sharing” |
+| A guest's app | Mac, Windows, Linux, « iPhone ou iPad », Apple TV, Android, « Téléviseur LG », « Navigateur » | Mac, Windows, Linux, “iPhone or iPad”, Apple TV, Android, “LG TV”, “Browser” |
+| Icon, status line | « Partage de l'écran {n} · {n} invités » | “Sharing display {n} · {n} guests” |
+| Icon, confirmations | « Un partage est en cours avec {prénoms} : arrêter la Station le coupera. Arrêter la Station ? »; « … : le redémarrage l'arrêtera. Redémarrer la Station ? »; when quitting: « Un partage est en cours avec {prénoms}. La Station peut rester en marche : le partage continue, et vous pourrez rouvrir l'icône depuis le menu Démarrer. » | “A share is in progress with {names}: stopping the Station will end it. Stop the Station?”; “… restarting will stop it. Restart the Station?”; “A share is in progress with {names}. The Station can keep running: the share goes on, and you can reopen the tray icon from the Start menu.” |
+| Icon, failure | « Admin n'a pas pu changer le partage ({erreur}). » | “Admin could not change the share ({error}).” |
+
+“Copy link” copies the web client's address (`web`); the QR code carries the apps' link (`link`, `kybernow://join…`).
+
 **The guest**:
 
 | Item | French | English |
@@ -107,14 +129,17 @@ An open share shows in the bar (a « 2 invités » / “2 guests” chip, which 
 | Full | « Ce partage est complet (quatre invités au plus). » | “This share is full (four guests at most).” |
 | Too many tries (10 a minute) | « Trop d'essais de code : réessayez dans une minute. » | “Too many code attempts: try again in a minute.” |
 | Unreadable format | « Cet appareil ne lit pas l'image de cet ordinateur ({format}). » | “This device cannot play this computer's picture ({format}).” |
+| Sharing unavailable (the Station cannot sign Kyber's token, momentarily) | « Le partage n'est pas disponible pour le moment : réessayez dans un instant. » | “Sharing is not available right now: try again in a moment.” |
 | Connecting | the connection's steps, titled « Invité sur {nom} » | “Guest on {name}” |
 | Bar (reduced) | « Spectateur » or « Joueur »; « Quitter le partage »; the controller, keyboard and mouse if given; no profile, no settings | “Spectator” or “Player”; “Leave” |
-| Rights changed | « Vous pouvez jouer. »; « Vous avez le clavier et la souris. »; « Le clavier et la souris sont repris. » (a brief notice) | “You can play.”; “You have the keyboard and mouse.”; “The keyboard and mouse were taken back.” |
+| Rights changed | « Vous pouvez jouer. »; « Vous avez le clavier et la souris. »; « Le clavier et la souris sont repris. »; made a spectator again: « Vous regardez de nouveau. » (a brief notice) | “You can play.”; “You have the keyboard and mouse.”; “The keyboard and mouse were taken back.”; “You are watching again.” |
 | End | « {hôte} a arrêté le partage. »; « {hôte} vous a retiré du partage. »; otherwise a failure's reason; never “Take back control” | “{host} stopped sharing.”; “{host} removed you from the share.” |
 
 {host} is the host's name (the host device's name), or the computer's name for a share started from the PC. A guest is not added to the device's computers.
 
-**Admin's feed**: « {prénom} regarde votre écran » / “{name} is watching your screen”; « {prénom} joue avec vous » / “{name} is playing with you”; « {prénom} a quitté le partage » / “{name} left the share”.
+**Web client** (browser): the share's link (`https://<address>:<port>/link/?join=123456`, the host's “Copy link”) opens “Join a share” **without Admin's password**, with the code already filled in (“123 456”) and the suggested name (“Chrome on Mac”, remembered for next time); “Join” has to be clicked (it never connects by itself). “Join with a code” is also on Admin's password screen and on the web client's home screen (next to “Settings”), with “Cancel” to go back; the code is typed as six digits, grouped by three as you type. The browser has a single computer, the one serving the page: the code goes to it alone, with no search on the network. The picture's format is checked once the Station has answered (Kyber's engine only loads with the guest's cookie): if this browser cannot play it, it leaves the share at once and says so. When the share ends, the end card (“Session ended”, the end text) has a single button, “Join with a code”; no “Reconnect”. A guest's bar: latency and statistics, sound, full screen, “Spectator” or “Player”, “Leave”; with “keyboard and mouse”: the mouse mode and the “Keys” menu (on touch: trackpad, direct touch, keyboard); the controllers chip only as a player. No profile, no settings, no clipboard.
+
+**Admin's feed**: « {hôte} partage l'écran {n} » / “{host} is sharing display {n}”; « {prénom} regarde votre écran » / “{name} is watching your screen” (on arrival, or made a spectator again); « {prénom} joue avec vous » / “{name} is playing with you”; « {prénom} a quitté le partage » / “{name} left the share” (gone, removed, or timed out); « Partage arrêté » / “Sharing stopped”.
 
 ## Computer settings
 

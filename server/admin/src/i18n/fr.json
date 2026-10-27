@@ -81,7 +81,8 @@
     "githubDown": "GitHub ne répond pas : {error}",
     "noRelease": "aucune version publiée sur le canal {channel}",
     "noTag": "version sans numéro",
-    "badGithubVersion": "numéro de version inattendu sur GitHub : {version}"
+    "badGithubVersion": "numéro de version inattendu sur GitHub : {version}",
+    "sessionConflictShare": "Un partage est en cours avec {name} : l'installation l'arrêtera"
   },
   "station": {
     "windowsOnly": "redémarrer la Station n'est possible que sous Windows",
@@ -90,7 +91,8 @@
     "tooSoon": "la Station vient de redémarrer : réessayez dans {seconds} s",
     "upToDate": "KyberNow Station {version} est à jour : rien à installer",
     "requiresSetup": "KyberNow Station {version} s'installe avec {setup}, sur l'ordinateur : téléchargez-le depuis Admin, page Système",
-    "notInstallable": "KyberNow Station {version} ne s'installe pas depuis un appareil : {reason}"
+    "notInstallable": "KyberNow Station {version} ne s'installe pas depuis un appareil : {reason}",
+    "restartConflictShare": "Un partage est en cours avec {name} : le redémarrage l'arrêtera"
   },
   "manifest": {
     "otherKey": "manifeste signé par une autre clé que celle de KyberNow",
@@ -163,6 +165,22 @@
     "launchKept": "{app} reste ouvert : {next} prend la main avec la même app",
     "launchSet": "Au début des sessions de {name} : {app}",
     "launchCleared": "Plus d'app ouverte au début des sessions de {name}",
-    "screensMissing": "L'ordinateur n'a pas pu créer {count} des {requested} écrans demandés : la session continue sur les autres"
+    "screensMissing": "L'ordinateur n'a pas pu créer {count} des {requested} écrans demandés : la session continue sur les autres",
+    "shareOpened": "{host} partage l'écran {n}",
+    "shareStopped": "Partage arrêté",
+    "shareWatching": "{name} regarde votre écran",
+    "sharePlaying": "{name} joue avec vous",
+    "shareLeft": "{name} a quitté le partage"
+  },
+  "share": {
+    "display": "Écran {n}",
+    "disabled": "Le partage est coupé sur cet ordinateur (Admin › Appareils Link).",
+    "inSession": "{name} est en session : le partage se lance depuis cet appareil.",
+    "busy": "Une connexion est en cours sur cet ordinateur : partagez un écran une fois qu'elle est finie.",
+    "notInSession": "Seul l'appareil en session peut partager cet ordinateur.",
+    "unknownDisplay": "Cet écran n'est plus branché.",
+    "unknownGuest": "Cet invité n'est plus dans le partage.",
+    "noShare": "Aucun partage en cours.",
+    "otherShare": "Un autre partage est en cours sur cet ordinateur."
   }
 }

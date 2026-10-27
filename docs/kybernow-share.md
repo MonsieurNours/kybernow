@@ -74,6 +74,16 @@ Tout en JSON, sur le port d'Admin, certificat épinglé par empreinte comme aujo
 - **Kyber (correctif 0019)** : le rôle porté par le jeton (spectateur, joueur, joueur avec clavier et souris), appliqué à l'ouverture des entrées (aucune pour un spectateur ; seulement les manettes pour un joueur), changé en cours de partage sans couper l'image ; l'écran autorisé imposé (la liste des écrans filtrée, un autre refusé) ; une session de Kyber qu'Admin peut fermer tout de suite (retirer un invité) ; débit et images clés de l'image commune réservés à l'hôte.
 - **Partage depuis le PC** : liste des écrans physiques (nom, cadre, identifiant de Kyber), un état « partage » qui empêche la création automatique d'un écran virtuel (mode « Pour toute connexion ») et le changement de la sortie son ; l'icône près de l'horloge et l'accueil d'Admin le lancent, le montrent et l'arrêtent.
 - `multi_client` de Kyber doit être actif (c'est le réglage par défaut) : s'il est coupé, « Partager » le dit.
+- **Précisions de la Station** (ce qu'elle fait en plus de « Échange avec Admin », sans rien y changer) :
+  - réponses : les routes de l'hôte et du PC rendent toutes la même vue du partage, qui contient celle du contrat (`code`, `link`, `web`, `display`) et ajoute `open`, `origin` (`host` ou `local`), `host`, `guests` (avec `device` et `last_beat`), `max_guests`, `opened_at`, et dans `display` `index`, `width`, `height`, `refresh` ; `GET /api/local/displays` ajoute `index`, `refresh`, `x`, `y`, et ne garde que les écrans que Kyber capture quand il répond ;
+  - routes de l'hôte : `device_id` facultatif (corps, ou requête pour `GET` et `DELETE`), comme le signe de vie, pour distinguer deux appareils sur le même compte ; refus `{"error": <texte>, "code": …}` avec `not_in_session`, `disabled`, `no_share`, `unknown_guest` ;
+  - invité : refus en plus de ceux du contrat, `400 {"error":"bad_request"}` (code ou prénom invalide), `503 {"error":"unavailable"}` (Kyber sans clé de jetons) ; `429` porte `{"error":"too_many","retry_after":<s>}` et `Retry-After` ; `beat` et `leave` d'un invité inconnu (parti, sorti sans nouvelles, ou plus d'une minute après sa sortie) : `404 {"error":"unknown_guest"}` ;
+  - `beat` donne aussi `display` (`id`, `width`, `height`, `refresh`) : l'écran du partage d'un hôte suit son écran principal quand il se prépare de nouveau (écran virtuel recréé sous un autre identifiant) ; le jeton renouvelé porte alors le nouveau `kn_display`, que Kyber ne prend qu'à une nouvelle connexion (pas au renouvellement) ;
+  - le même appareil (`device`) qui rejoint de nouveau reprend sa place (même `guest`, même rôle, nouveau `secret`), sans compter pour un invité de plus ;
+  - jeton de Kyber d'un invité : `sub` = `kn-guest-<guest>`, et `kn_rev` (croissant à chaque changement de rôle) en plus de `kn_role` et `kn_display` ;
+  - partage depuis le PC : refusé pendant la session d'un appareil (`code` `session`) ou une autre connexion qui a pris les écrans ou le son (`busy`) ; une session qui commence (`prepare` d'un appareil) l'arrête ; un seul partage à la fois ;
+  - Kyber (0019) : un spectateur peut ouvrir ses entrées, Kyber n'en laisse rien passer vers l'ordinateur ; « Faire jouer » s'applique alors sans relancer l'image. Un invité qui relance son image coûte une image clé à l'encodeur commun (celle que Kyber force pour tout client qui arrive), sans changer sa configuration ; son `/force_idr` est sans effet. Chaque invité a son propre serveur d'entrées, donc ses propres manettes virtuelles ;
+  - les gardes nomment les invités (« Un partage est en cours avec Léa et Max : le redémarrage l'arrêtera ») ; avec `force`, le partage s'arrête avant (les invités lisent `stopped`).
 
 ## Cœur Rust
 
@@ -88,6 +98,8 @@ Détail et noms exacts : [apps/core/README.md](../apps/core/README.md#kybernow-s
 ## Apps et client web
 
 Toutes les apps Link (Mac, Windows, Linux, iPhone, iPad, Apple TV, Android, téléviseurs LG) et le client web : « Rejoindre avec un code » sur l'accueil, la saisie du code (pavé à l'écran sur les téléviseurs, comme l'appairage), la session d'invité et sa barre réduite ; « Partager » et le panneau de l'hôte dans la barre de session. Un seul composant par famille d'apps quand c'est possible (KyberKit pour le Mac, l'iPhone, l'iPad et l'Apple TV). Les textes viennent de `link-ui.md`.
+
+**Client web** (`server/web/src/link/`) : même session que celle de l'hôte (même page, `Session.svelte`), avec une barre réduite pour l'invité. Il n'a pas de cœur Rust : il fait lui-même l'échange avec Admin ci-dessus (`app: "web"`, `device` : l'identifiant de ce navigateur) et garde le cookie `kybernow_guest`, qui ouvre seulement le relais vers Kyber et `/api/share/*` ; le moteur de Kyber ne se charge donc qu'après `join`, et le format de l'image se vérifie alors (sinon `leave`). Le moteur ouvre ses entrées dès le départ et la page filtre selon le rôle ; Kyber refuse de toute façon ce que le rôle ne permet pas. L'hôte, dans le navigateur : « Partager » dans la barre, panneau d'Admin sur les routes de l'hôte, invités lus dans la réponse du signe de vie (`share`).
 
 ## Hors de ce premier pas
 

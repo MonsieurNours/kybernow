@@ -1,0 +1,610 @@
+diff --git a/kynputservice-types/src/lib.rs b/kynputservice-types/src/lib.rs
+index 4f04ce8..4d1362d 100644
+--- a/kynputservice-types/src/lib.rs
++++ b/kynputservice-types/src/lib.rs
+@@ -42,12 +42,40 @@ pub enum CursorFormat {
+     Png,
+ }
+ 
++/// KyberNow: what a session's client may send to the computer (KyberNow
++/// Share). The pointer (from the computer to the client) always flows.
++#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
++pub struct InputRights {
++    pub keyboard_mouse: bool,
++    pub gamepads: bool,
++    pub clipboard: bool,
++}
++
++impl InputRights {
++    /// KyberNow: the host's rights.
++    pub const ALL: Self = Self {
++        keyboard_mouse: true,
++        gamepads: true,
++        clipboard: true,
++    };
++
++    /// KyberNow: a spectator's rights.
++    pub const NONE: Self = Self {
++        keyboard_mouse: false,
++        gamepads: false,
++        clipboard: false,
++    };
++}
++
+ #[derive(Clone, Debug, Serialize, Deserialize)]
+ pub struct ServiceConfig {
+     pub cursor_format: CursorFormat,
+     pub gamepad_force_xbox360: Option<bool>,
+     #[serde(default)]
+     pub clipboard: bool,
++    /// KyberNow: a share guest's rights; `None` for the host (everything).
++    #[serde(default)]
++    pub rights: Option<InputRights>,
+ }
+ 
+ pub struct IpcApi;
+@@ -72,6 +100,11 @@ pub enum Command {
+     UpdateHostConfig {
+         host_config: HostConfig,
+     },
++    /// KyberNow: new rights for the running service (a share guest's role
++    /// changed). What a withdrawn right holds is released first.
++    SetRights {
++        rights: InputRights,
++    },
+     Stop(i32),
+ }
+ 
+diff --git a/kynputservice/src/lib.rs b/kynputservice/src/lib.rs
+index 1b7ac4e..a36f0d1 100644
+--- a/kynputservice/src/lib.rs
++++ b/kynputservice/src/lib.rs
+@@ -28,7 +28,7 @@ use log::{debug, info, warn};
+ use kynput_rs::{
+     InputTarget, InputType, NetworkStream, NetworkStreamMsg, NetworkStreamObserver, Pipeline,
+ };
+-use kynputservice_types::{Command, HostConfig, IpcApi, Response, ServiceConfig};
++use kynputservice_types::{Command, HostConfig, InputRights, IpcApi, Response, ServiceConfig};
+ use libkypc::Worker;
+ 
+ pub use config::{Config, from_table, parse};
+@@ -53,6 +53,8 @@ impl NetworkStreamObserver for NetworkSink {
+ struct Service {
+     pipeline: Pipeline,
+     host_network: NetworkStream,
++    /// KyberNow: the hook's state, to change the client's rights.
++    state: ServerPipelineState,
+ }
+ 
+ impl Service {
+@@ -62,6 +64,11 @@ impl Service {
+         host_network: NetworkStream,
+         config: &config::Config,
+     ) -> Result<Service> {
++        // KyberNow: a share guest's rights (`None`: the host, everything);
++        // no clipboard without its right.
++        let rights = service_config.rights.unwrap_or(InputRights::ALL);
++        let clipboard = service_config.clipboard && rights.clipboard;
++
+         let pipeline_config = kynput_rs::Config::default_host(
+             host_config.convert(),
+             kynput_rs::ServiceConfig::new(
+@@ -69,8 +76,8 @@ impl Service {
+                 service_config
+                     .gamepad_force_xbox360
+                     .unwrap_or_else(|| config.gamepad_force_xbox360()),
+-                service_config.clipboard && config.clipboard_allow_copy(),
+-                service_config.clipboard && config.clipboard_allow_paste(),
++                clipboard && config.clipboard_allow_copy(),
++                clipboard && config.clipboard_allow_paste(),
+                 config.keyboard_key_repeat(),
+             ),
+         );
+@@ -82,15 +89,26 @@ impl Service {
+ 
+         pipeline.plug_network(&host_network.clone_consumer())?;
+ 
+-        let state = Box::new(ServerPipelineState::new());
+-        pipeline.set_hook(state)?;
++        let state = ServerPipelineState::new(rights);
++        pipeline.set_hook(Box::new(state.clone()))?;
+ 
+         Ok(Self {
+             host_network,
+             pipeline,
++            state,
+         })
+     }
+ 
++    /// KyberNow: new rights for the client. The releases (or the gamepads
++    /// plugged again) go through the pipeline's input, outside the state
++    /// lock, like the client's packets.
++    fn set_rights(&self, rights: InputRights) {
++        let sink = self.pipeline.get_input_sink();
++        for pkt in self.state.set_rights(rights) {
++            sink.consume(pkt);
++        }
++    }
++
+     fn start(&self) -> Result<()> {
+         // Start pipeline
+         self.pipeline.start()?;
+@@ -161,6 +179,16 @@ pub async fn run(mut worker: Worker<IpcApi>, config: Config) -> Result<()> {
+                 info!("Update host configuration");
+                 service.pipeline.update_host_config(host_config.convert())?;
+             }
++            Command::SetRights { rights } => {
++                // Applied before answering: once answered, nothing the
++                // withdrawn right held is still pressed.
++                match service.as_ref() {
++                    Some(service) => service.set_rights(rights),
++                    None => warn!("Ignoring SetRights. The service isn't started"),
++                }
++
++                response.send(Ok(Response::None))?;
++            }
+             Command::Stop(reason) => {
+                 info!("Stop received. Reason: {reason}");
+                 response.send(Ok(Response::None))?;
+diff --git a/kynputservice/src/pipeline_state.rs b/kynputservice/src/pipeline_state.rs
+index ec0db34..60559f3 100644
+--- a/kynputservice/src/pipeline_state.rs
++++ b/kynputservice/src/pipeline_state.rs
+@@ -20,8 +20,9 @@
+ 
+ use std::collections::{HashMap, HashSet};
+ use std::mem;
+-use std::sync::Mutex;
++use std::sync::{Arc, Mutex};
+ 
++use kynputservice_types::InputRights;
+ use log::{debug, error, info, warn};
+ 
+ pub struct State {
+@@ -29,18 +30,110 @@ pub struct State {
+     mouse_btns: HashSet<kynput_rs::MouseButtonType>,
+     gamepads: HashSet<kynput_rs::GamepadId>,
+     cursors: HashMap<u32, kynput_rs::Packet>,
++    /// KyberNow: what the client may send to the computer (KyberNow Share).
++    rights: InputRights,
++    /// KyberNow: the Plug packet of each of the client's gamepads, plugged
++    /// on the computer or refused, to plug it again when gamepads are given.
++    plugs: HashMap<kynput_rs::GamepadId, kynput_rs::Packet>,
++    /// KyberNow: packets injected by `set_rights`, let through once whatever
++    /// the rights (releases sent after a right was withdrawn).
++    injected: Vec<kynput_rs::Packet>,
+ }
+ 
+ impl State {
+-    pub fn new() -> Self {
++    pub fn new(rights: InputRights) -> Self {
+         Self {
+             keys: HashSet::new(),
+             mouse_btns: HashSet::new(),
+             gamepads: HashSet::new(),
+             cursors: HashMap::new(),
++            rights,
++            plugs: HashMap::new(),
++            injected: Vec::new(),
+         }
+     }
+ 
++    /// KyberNow: whether the rights let this packet type through. The
++    /// computer itself only sends the pointer (`Cursor`, always let through),
++    /// the clipboard, and rumble (`GamepadEvent`) for plugged gamepads.
++    fn allows(&self, type_: kynput_rs::InputType) -> bool {
++        use kynput_rs::InputType;
++
++        match type_ {
++            InputType::Keyboard
++            | InputType::Unicode
++            | InputType::MouseMove
++            | InputType::MousePosition
++            | InputType::MouseButton
++            | InputType::MouseWheel => self.rights.keyboard_mouse,
++            InputType::GamepadControl | InputType::GamepadEvent => self.rights.gamepads,
++            InputType::Clipboard => self.rights.clipboard,
++            InputType::Cursor | InputType::ControlEvent => true,
++        }
++    }
++
++    /// KyberNow: keeps the client's Plug packets (forgotten on Unplug).
++    fn remember_plug(&mut self, pkt: &kynput_rs::Packet) {
++        match kynput_rs::GamepadControl::from_packet(pkt) {
++            Some(kynput_rs::GamepadControl::Plug { id, .. }) => {
++                self.plugs.insert(id, pkt.clone());
++            }
++            Some(kynput_rs::GamepadControl::Unplug { id }) => {
++                self.plugs.remove(&id);
++            }
++            None => {}
++        }
++    }
++
++    /// KyberNow: `true` once for a packet injected by `set_rights`.
++    fn take_injected(&mut self, pkt: &kynput_rs::Packet) -> bool {
++        match self.injected.iter().position(|injected| injected == pkt) {
++            Some(index) => {
++                self.injected.remove(index);
++                true
++            }
++            None => false,
++        }
++    }
++
++    /// KyberNow: applies new rights. Returns the packets to inject into the
++    /// pipeline, outside the state lock: releases of what a withdrawn right
++    /// holds (keys and buttons; gamepad buttons and axes, then Unplug, their
++    /// Plug being kept), or the client's gamepads plugged again.
++    fn set_rights(&mut self, rights: InputRights) -> Vec<kynput_rs::Packet> {
++        let old = mem::replace(&mut self.rights, rights);
++        let mut packets = vec![];
++
++        if old.keyboard_mouse && !rights.keyboard_mouse {
++            packets.append(&mut self.release_keys_and_buttons());
++        }
++
++        if old.gamepads && !rights.gamepads {
++            let ids: Vec<_> = self.gamepads.drain().collect();
++            packets.append(&mut Self::release_gamepads(&ids));
++            for id in ids {
++                let unplug = kynput_rs::GamepadControl::Unplug { id };
++                packets.extend(unplug.to_packet(kynput_rs::InputTarget::Host));
++            }
++        }
++
++        if !old.gamepads && rights.gamepads {
++            packets.extend(
++                self.plugs
++                    .iter()
++                    .filter(|(id, _)| !self.gamepads.contains(*id))
++                    .map(|(_, plug)| plug.clone()),
++            );
++        }
++
++        info!(
++            "Input rights {rights:?}: {} packets to inject",
++            packets.len()
++        );
++        self.injected.extend(packets.iter().cloned());
++        packets
++    }
++
+     fn on_keyboard_key(&mut self, key: &kynput_rs::KeyboardKey) {
+         if key.pressed {
+             self.keys.insert(key.scancode);
+@@ -110,6 +203,20 @@ impl State {
+     }
+ 
+     fn on_packet(&mut self, pkt: &kynput_rs::Packet) -> kynput_rs::RouterHookPacketResult {
++        // KyberNow: a client's packet the rights refuse goes no further (its
++        // gamepads are remembered). Injected packets pass once regardless.
++        let injected = self.take_injected(pkt);
++        if !injected {
++            if pkt.get_type() == kynput_rs::InputType::GamepadControl {
++                self.remember_plug(pkt);
++            }
++            if !self.allows(pkt.get_type()) {
++                return kynput_rs::RouterHookPacketResult {
++                    process_event: false,
++                };
++            }
++        }
++
+         let ret: Result<(), ()> = match pkt.get_type() {
+             kynput_rs::InputType::Keyboard => {
+                 if let Some(key) = kynput_rs::KeyboardKey::from_packet(pkt) {
+@@ -174,10 +281,23 @@ impl State {
+     }
+ 
+     fn on_flush_keys(&mut self) -> Option<Vec<kynput_rs::Packet>> {
+-        let mut generated_events = vec![];
+-
+         info!("Flush keys");
+ 
++        let ids: Vec<_> = self.gamepads.iter().copied().collect();
++        let mut generated_events = self.release_keys_and_buttons();
++        generated_events.append(&mut Self::release_gamepads(&ids));
++
++        if generated_events.is_empty() {
++            None
++        } else {
++            Some(generated_events)
++        }
++    }
++
++    /// Releases of the pressed keys and mouse buttons, which are forgotten.
++    fn release_keys_and_buttons(&mut self) -> Vec<kynput_rs::Packet> {
++        let mut generated_events = vec![];
++
+         // Flush keyboard
+         for scancode in self.get_keypresses() {
+             let key = kynput_rs::KeyboardKey {
+@@ -198,8 +318,14 @@ impl State {
+             generated_events.push(button.to_packet(kynput_rs::InputTarget::Host));
+         }
+ 
+-        // Flush gamepads
+-        for id in &self.gamepads {
++        generated_events
++    }
++
++    /// Every button released and every axis at rest, for these gamepads.
++    fn release_gamepads(ids: &[kynput_rs::GamepadId]) -> Vec<kynput_rs::Packet> {
++        let mut generated_events = vec![];
++
++        for id in ids {
+             for button in kynput_rs::GamepadButton::values() {
+                 let button = kynput_rs::GamepadEvent::Button {
+                     id: *id,
+@@ -221,11 +347,7 @@ impl State {
+             }
+         }
+ 
+-        if generated_events.is_empty() {
+-            None
+-        } else {
+-            Some(generated_events)
+-        }
++        generated_events
+     }
+ 
+     fn on_ctrl_msg(
+@@ -242,14 +364,33 @@ impl State {
+     }
+ }
+ 
++/// The state is shared (KyberNow): the input service changes its rights
++/// while the pipeline holds the hook.
++#[derive(Clone)]
+ pub struct ServerPipelineState {
+-    state: Mutex<State>,
++    state: Arc<Mutex<State>>,
+ }
+ 
+ impl ServerPipelineState {
+-    pub fn new() -> Self {
++    pub fn new(rights: InputRights) -> Self {
+         ServerPipelineState {
+-            state: Mutex::new(State::new()),
++            state: Arc::new(Mutex::new(State::new(rights))),
++        }
++    }
++
++    /// KyberNow: applies new rights. The returned packets must be injected
++    /// into the pipeline (its input sink) by the caller: the hook sees them
++    /// and takes the state lock again.
++    pub fn set_rights(&self, rights: InputRights) -> Vec<kynput_rs::Packet> {
++        match self.state.lock() {
++            Ok(mut state) => state.set_rights(rights),
++            Err(err) => {
++                warn!(
++                    "ServerPipelineState::set_rights: Fail to lock state: {:?}",
++                    err
++                );
++                vec![]
++            }
+         }
+     }
+ }
+@@ -298,15 +439,15 @@ impl kynput_rs::RouterHook for ServerPipelineState {
+ mod tests {
+     use kynput_rs::{
+         CmpStruct, ControlEvent, Cursor, CursorData, GamepadAxis, GamepadButton, GamepadControl,
+-        GamepadEvent, InputTarget, KeyboardKey, MouseButton, MouseButtonType, RouterHook,
+-        RouterHookPacketResult,
++        GamepadEvent, InputTarget, KeyboardKey, MouseButton, MouseButtonType, MouseMove,
++        MousePosition, Packet, RouterHook, RouterHookPacketResult,
+     };
+ 
+     use super::*;
+ 
+     #[test]
+     fn input_flush() {
+-        let state = ServerPipelineState::new();
++        let state = ServerPipelineState::new(InputRights::ALL);
+ 
+         let ret_process_true = RouterHookPacketResult {
+             process_event: true,
+@@ -401,7 +542,7 @@ mod tests {
+ 
+     #[test]
+     fn cursor_sync() {
+-        let state = ServerPipelineState::new();
++        let state = ServerPipelineState::new(InputRights::ALL);
+ 
+         let ret_process_true = RouterHookPacketResult {
+             process_event: true,
+@@ -430,7 +571,7 @@ mod tests {
+ 
+     #[test]
+     fn cursor_sync_keeps_shape_on_move() {
+-        let state = ServerPipelineState::new();
++        let state = ServerPipelineState::new(InputRights::ALL);
+ 
+         let shape = Cursor {
+             display_id: 43,
+@@ -465,4 +606,183 @@ mod tests {
+             Some(vec![expected.to_packet(InputTarget::Client)])
+         );
+     }
++
++    // KyberNow: rights of a share guest.
++
++    const PLAYER: InputRights = InputRights {
++        keyboard_mouse: false,
++        gamepads: true,
++        clipboard: false,
++    };
++
++    fn passes(state: &ServerPipelineState, pkt: &Packet) -> bool {
++        state.on_packet(pkt).eq(&RouterHookPacketResult {
++            process_event: true,
++        })
++    }
++
++    fn plug(id: u32) -> Packet {
++        GamepadControl::Plug {
++            id,
++            vendor_id: None,
++            product_id: None,
++        }
++        .to_packet(InputTarget::Host)
++        .unwrap()
++    }
++
++    fn unplug(id: u32) -> Packet {
++        GamepadControl::Unplug { id }
++            .to_packet(InputTarget::Host)
++            .unwrap()
++    }
++
++    fn gamepad_rest(id: u32) -> Vec<Packet> {
++        let buttons = GamepadButton::values()
++            .into_iter()
++            .map(|type_| GamepadEvent::Button {
++                id,
++                type_,
++                pressed: false,
++            });
++        let axes = GamepadAxis::values()
++            .into_iter()
++            .map(|type_| GamepadEvent::Axis {
++                id,
++                type_,
++                value: 0,
++            });
++        buttons
++            .chain(axes)
++            .map(|event| event.to_packet(InputTarget::Host).unwrap())
++            .collect()
++    }
++
++    #[test]
++    fn spectator_sends_nothing_but_gets_the_pointer() {
++        let state = ServerPipelineState::new(InputRights::NONE);
++
++        let refused = [
++            KeyboardKey {
++                scancode: 10,
++                pressed: true,
++            }
++            .to_packet(InputTarget::Host),
++            MouseButton {
++                button: MouseButtonType::Left,
++                pressed: true,
++            }
++            .to_packet(InputTarget::Host),
++            MouseMove { dx: 1, dy: 2 }.to_packet(InputTarget::Host),
++            MousePosition {
++                display_id: 1,
++                x: 3,
++                y: 4,
++            }
++            .to_packet(InputTarget::Host),
++            plug(0),
++            GamepadEvent::Button {
++                id: 0,
++                type_: GamepadButton::A,
++                pressed: true,
++            }
++            .to_packet(InputTarget::Host)
++            .unwrap(),
++        ];
++        for pkt in &refused {
++            assert!(!passes(&state, pkt), "{pkt:?}");
++        }
++
++        let cursor = Cursor {
++            display_id: 43,
++            visible: true,
++            x: 1,
++            y: 2,
++            xhot: 3,
++            yhot: 4,
++            width: 5,
++            height: 6,
++            data: CursorData::Raw(vec![7, 8, 9, 10]),
++        };
++        assert!(passes(&state, &cursor.to_packet(InputTarget::Client)));
++
++        // Nothing refused was held: nothing to release.
++        let ret = state.on_control_event(&ControlEvent::FlushKeys);
++        assert_eq!(ret.generated_events, None);
++    }
++
++    #[test]
++    fn withdrawn_rights_release_what_they_held() {
++        let state = ServerPipelineState::new(InputRights::ALL);
++
++        let key = |pressed| KeyboardKey {
++            scancode: 10,
++            pressed,
++        };
++        let button = |pressed| MouseButton {
++            button: MouseButtonType::Left,
++            pressed,
++        };
++        assert!(passes(&state, &key(true).to_packet(InputTarget::Host)));
++        assert!(passes(&state, &button(true).to_packet(InputTarget::Host)));
++        assert!(passes(&state, &plug(0)));
++
++        // Releases first, then the gamepad leaves the computer.
++        let mut expected = vec![
++            key(false).to_packet(InputTarget::Host),
++            button(false).to_packet(InputTarget::Host),
++        ];
++        expected.append(&mut gamepad_rest(0));
++        expected.push(unplug(0));
++
++        let injected = state.set_rights(InputRights::NONE);
++        assert_eq!(injected, expected);
++
++        // The injected packets pass once, the client's ones no longer.
++        for pkt in &injected {
++            assert!(passes(&state, pkt), "{pkt:?}");
++        }
++        assert!(!passes(&state, &key(false).to_packet(InputTarget::Host)));
++        assert!(!passes(&state, &key(true).to_packet(InputTarget::Host)));
++
++        let ret = state.on_control_event(&ControlEvent::FlushKeys);
++        assert_eq!(ret.generated_events, None);
++
++        // Given back: the kept gamepad is plugged again.
++        let injected = state.set_rights(PLAYER);
++        assert_eq!(injected, vec![plug(0)]);
++        assert!(passes(&state, &injected[0]));
++        let ret = state.on_control_event(&ControlEvent::FlushKeys);
++        assert_eq!(ret.generated_events, Some(gamepad_rest(0)));
++
++        // Keyboard and mouse still refused to a player.
++        assert!(!passes(&state, &key(true).to_packet(InputTarget::Host)));
++    }
++
++    #[test]
++    fn refused_gamepads_are_plugged_when_given() {
++        let state = ServerPipelineState::new(InputRights::NONE);
++
++        assert!(!passes(&state, &plug(1)));
++        assert!(!passes(&state, &plug(2)));
++        assert!(!passes(&state, &unplug(2)));
++
++        let injected = state.set_rights(PLAYER);
++        assert_eq!(injected, vec![plug(1)]);
++        assert!(passes(&state, &injected[0]));
++
++        // The gamepad is now on the computer and in use.
++        let pressed = GamepadEvent::Button {
++            id: 1,
++            type_: GamepadButton::A,
++            pressed: true,
++        };
++        assert!(passes(
++            &state,
++            &pressed.to_packet(InputTarget::Host).unwrap()
++        ));
++
++        // Same rights again: nothing to inject.
++        assert_eq!(state.set_rights(PLAYER), vec![]);
++    }
+ }

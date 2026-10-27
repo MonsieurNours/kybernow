@@ -1,12 +1,13 @@
 // Appels du client web à la console (même origine, session de la console).
 
-import { ApiError } from '../lib/api'
+import { ApiError, type ShareRole, type ShareView } from '../lib/api'
 import { langHeaders, t } from '../lib/i18n/index.svelte'
 import type { Mode } from './device'
+import { deviceId } from './prefs'
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   const { res, data } = await request(method, path, body)
-  if (!res.ok) throw new ApiError(res.status, data?.error ?? t('common.error', { status: res.status }))
+  if (!res.ok) throw new ApiError(res.status, data?.error ?? t('common.error', { status: res.status }), typeof data?.code === 'string' ? data.code : undefined)
   return data as T
 }
 
@@ -90,6 +91,55 @@ export interface Info {
   gpu: string | null
   virtual_display: { available: boolean; active: boolean }
   station?: StationInfo
+  /** KyberNow Share : absent pour une Station d'avant la 0.8.0 ; `enabled` est faux si `multi_client` est coupé. */
+  share?: { available: boolean; enabled: boolean }
+}
+
+/** Écran que reçoit un invité (celui du partage). */
+export interface GuestDisplay {
+  id: number
+  width: number
+  height: number
+  refresh: number
+}
+
+/** Réponse de `POST /api/share/join` (docs/kybernow-share.md, « Échange avec Admin »). */
+export interface GuestJoin {
+  guest: string
+  secret: string
+  role: ShareRole
+  /** Prénom de l'hôte, ou nom de l'ordinateur pour un partage lancé depuis le PC. */
+  host: string
+  /** Nom de l'ordinateur. */
+  computer: string
+  kyber: { port: number; fingerprint: string; token: string; expires: number }
+  display: GuestDisplay
+  /** Format de l'image en cours (`h264`, `hevc`, `av1`), `null` si elle n'a pas encore démarré. */
+  codec: string | null
+  yuv444: boolean
+  /** Secondes entre deux signes de vie. */
+  beat: number
+}
+
+/** Réponse de `POST /api/share/beat`. `end` : pourquoi l'invité est sorti. */
+export interface GuestBeat {
+  role: ShareRole
+  token: string | null
+  expires: number
+  end: null | 'stopped' | 'removed'
+  display?: GuestDisplay
+}
+
+/** Refus de `POST /api/share/join` : `kind` dit lequel (`message` n'est que le texte d'Admin, pour `other`). */
+export class JoinRefusal extends Error {
+  constructor(
+    public kind: 'no_share' | 'full' | 'too_many' | 'bad_request' | 'unavailable' | 'network' | 'other',
+    message = '',
+    /** Secondes à attendre (`too_many`). */
+    public retryAfter: number | null = null,
+  ) {
+    super(message)
+  }
 }
 
 export interface Preview {
@@ -134,6 +184,44 @@ export const backend = {
     call<{ active: boolean; end: boolean }>('POST', '/api/stream/heartbeat', heartbeatBody(latency, profile, extra)),
   foreground: () => call<{ known: boolean; fullscreen: boolean; game: boolean }>('GET', '/api/stream/foreground'),
   end: (latency: number | null, extra: Extra = {}) => call('POST', '/api/stream/end', endBody(latency, extra)),
+
+  // KyberNow Share, côté invité (sans compte : le secret de l'invité, puis son cookie).
+  /** Rejoint le partage de cet ordinateur avec son code ; Admin pose le cookie de l'invité. */
+  joinShare: async (code: string, name: string): Promise<GuestJoin> => {
+    let out: { res: Response; data: any }
+    try {
+      out = await request('POST', '/api/share/join', { code, name, device: deviceId(), app: 'web' })
+    } catch {
+      throw new JoinRefusal('network')
+    }
+    const { res, data } = out
+    if (res.ok) return data as GuestJoin
+    const wait = Number(data?.retry_after ?? res.headers.get('retry-after'))
+    switch (res.status) {
+      case 404:
+        throw new JoinRefusal('no_share')
+      case 409:
+        throw new JoinRefusal(data?.error === 'full' ? 'full' : 'other', data?.error ?? '')
+      case 429:
+        throw new JoinRefusal('too_many', '', Number.isFinite(wait) && wait > 0 ? wait : null)
+      case 400:
+        throw new JoinRefusal('bad_request')
+      case 503:
+        throw new JoinRefusal('unavailable')
+      default:
+        throw new JoinRefusal('other', data?.error ?? t('common.error', { status: res.status }))
+    }
+  },
+
+  // KyberNow Share, côté hôte (la session d'Admin, avec l'appareil en session).
+  hostShare: {
+    open: () => call<ShareView>('POST', '/api/share/open', { device_id: deviceId() }),
+    get: () => call<ShareView | { open: false }>('GET', `/api/share?device_id=${encodeURIComponent(deviceId())}`),
+    code: () => call<ShareView>('POST', '/api/share/code', { device_id: deviceId() }),
+    role: (id: string, role: ShareRole) => call<ShareView>('POST', `/api/share/guest/${encodeURIComponent(id)}`, { role, device_id: deviceId() }),
+    remove: (id: string) => call<ShareView>('DELETE', `/api/share/guest/${encodeURIComponent(id)}?device_id=${encodeURIComponent(deviceId())}`),
+    stop: () => call<{ open: false }>('DELETE', `/api/share?device_id=${encodeURIComponent(deviceId())}`),
+  },
 }
 
 /** Champs en plus dans les corps du signal de vie et de la fin (par exemple

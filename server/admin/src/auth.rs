@@ -223,14 +223,7 @@ pub fn clear_cookie(secure: bool) -> String {
 
 /// Protège les routes `/api/*` autres que la connexion et l'initialisation.
 pub async fn require_session(State(state): State<AppState>, req: Request, next: Next) -> Response {
-    let path = req.uri().path();
-    // Les appels des appareils s'authentifient eux-mêmes (compte Kyber).
-    // Les routes /api/local/* vérifient elles-mêmes qu'on les appelle depuis l'ordinateur.
-    // L'appairage par code se fait sans compte : la demande, puis son état.
-    let public = matches!(path, "/api/session" | "/api/login" | "/api/setup")
-        || path.starts_with("/api/local/")
-        || path.starts_with("/api/stream/")
-        || is_pair_request(path);
+    let public = is_public(req.uri().path());
     if req.method() != Method::GET && req.headers().get(CSRF_HEADER).is_none() {
         return (StatusCode::FORBIDDEN, Msg::new("auth.adminHeader").text()).into_response();
     }
@@ -241,6 +234,21 @@ pub async fn require_session(State(state): State<AppState>, req: Request, next: 
         }
     }
     next.run(req).await
+}
+
+/// Les routes qui vérifient elles-mêmes qui appelle. Les appels des
+/// appareils s'authentifient eux-mêmes (compte Kyber). Les routes
+/// `/api/local/*` vérifient qu'on les appelle depuis l'ordinateur (ou avec
+/// la session d'Admin). L'appairage par code se fait sans compte : la
+/// demande, puis son état. Le partage (KyberNow Share) vérifie lui-même :
+/// compte de l'appareil hôte, secret de l'invité, ou code pour rejoindre
+/// (limité).
+fn is_public(path: &str) -> bool {
+    matches!(path, "/api/session" | "/api/login" | "/api/setup" | "/api/share")
+        || path.starts_with("/api/local/")
+        || path.starts_with("/api/stream/")
+        || path.starts_with("/api/share/")
+        || is_pair_request(path)
 }
 
 /// `/api/pair/request` et `/api/pair/request/{id}`, seulement.
@@ -261,6 +269,16 @@ mod tests {
         assert!(!is_pair_request("/api/pair/request/0a1b2c/accept"));
         assert!(!is_pair_request("/api/pair/accept/0a1b2c"));
         assert!(!is_pair_request("/api/pair/requests"));
+    }
+
+    #[test]
+    fn le_partage_verifie_lui_meme() {
+        for path in ["/api/share", "/api/share/join", "/api/share/beat", "/api/share/leave", "/api/share/open", "/api/share/guest/abc", "/api/local/displays", "/api/local/share/open"] {
+            assert!(is_public(path), "{path}");
+        }
+        for path in ["/api/status", "/api/shares", "/api/sharex/join", "/api/devices", "/api/events"] {
+            assert!(!is_public(path), "{path}");
+        }
     }
 
     #[test]

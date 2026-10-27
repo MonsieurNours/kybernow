@@ -7,7 +7,9 @@
 //! fenêtre, vide et cachée, reste. Panneau fermé, rien n'est évalué dedans.
 //!
 //! L'icône pousse son état au panneau (`window.__knState`) ; le panneau envoie
-//! ses actions par `window.ipc.postMessage`.
+//! ses actions par `window.ipc.postMessage`. Le panneau a des pages (l'accueil,
+//! le choix de l'écran à partager, le partage) : l'icône peut en ouvrir une
+//! (`window.__knPage`), par exemple depuis son menu.
 
 use std::borrow::Cow;
 use std::time::{Duration, Instant};
@@ -48,6 +50,10 @@ pub struct Panel {
     hidden_at: Instant,
     /// Dernier emplacement de l'icône, pour replacer le panneau quand sa hauteur change.
     anchor: Option<(PhysicalPosition<f64>, (u32, u32))>,
+    /// La page a dit « ready » : elle peut recevoir des scripts.
+    ready: bool,
+    /// Page à montrer dès que la page sera prête (vue web toute neuve).
+    pending_page: Option<&'static str>,
     // La vue web garde son dossier de données tant qu'elle vit.
     context: WebContext,
 }
@@ -85,7 +91,17 @@ impl Panel {
             .unwrap_or_else(std::env::temp_dir)
             .join(r"KyberNow\tray-webview");
         let context = WebContext::new(Some(data));
-        Ok(Panel { window, webview: None, proxy, height: 440.0, hidden_at: Instant::now() - Duration::from_secs(1), anchor: None, context })
+        Ok(Panel {
+            window,
+            webview: None,
+            proxy,
+            height: 440.0,
+            hidden_at: Instant::now() - Duration::from_secs(1),
+            anchor: None,
+            ready: false,
+            pending_page: None,
+            context,
+        })
     }
 
     /// La vue web, créée si elle ne l'est pas (premier clic, ou après `KEEP_ALIVE`).
@@ -111,7 +127,27 @@ impl Panel {
             .build(&self.window)
             .context("vue web du panneau (WebView2)")?;
         self.webview = Some(webview);
+        self.ready = false;
         Ok(())
+    }
+
+    /// La page a envoyé « ready » : la page demandée entre-temps s'affiche.
+    pub fn mark_ready(&mut self) {
+        self.ready = true;
+        if let Some(page) = self.pending_page.take() {
+            self.show_page(page);
+        }
+    }
+
+    /// Montre une page du panneau (`main`, `choose`, `share`), tout de suite
+    /// ou dès que la page sera prête.
+    pub fn show_page(&mut self, page: &'static str) {
+        match &self.webview {
+            Some(webview) if self.ready => {
+                let _ = webview.evaluate_script(&format!("window.__knPage && window.__knPage({page:?})"));
+            }
+            _ => self.pending_page = Some(page),
+        }
     }
 
     /// Fermé depuis plus de `KEEP_ALIVE` : la vue web est rendue (appelé
@@ -119,6 +155,7 @@ impl Panel {
     pub fn tick(&mut self) {
         if self.webview.is_some() && !self.is_visible() && self.hidden_at.elapsed() > KEEP_ALIVE {
             self.webview = None;
+            self.ready = false;
         }
     }
 

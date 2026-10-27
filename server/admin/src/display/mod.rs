@@ -395,6 +395,46 @@ impl Observed {
     }
 }
 
+/// Un écran actif de l'ordinateur (partage depuis le PC, KyberNow Share).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PhysicalDisplay {
+    /// Nom GDI (`\\.\DISPLAY1`).
+    pub name: String,
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    pub refresh: u32,
+    /// Placé en (0, 0) : l'écran principal de Windows.
+    pub primary: bool,
+}
+
+/// Identifiant d'un écran pour Kyber, le même que txproto : le CRC-32 du nom
+/// GDI (`AV_CRC_32_IEEE` de FFmpeg, valeur de départ tous les bits à 1, sans
+/// inversion finale), comme `display_id` du correctif 0008.
+pub fn kyber_display_id(name: &str) -> u32 {
+    static TABLE: std::sync::OnceLock<[u32; 256]> = std::sync::OnceLock::new();
+    let table = TABLE.get_or_init(|| {
+        let mut t = [0u32; 256];
+        for (i, entry) in t.iter_mut().enumerate() {
+            let mut c = (i as u32) << 24;
+            for _ in 0..8 {
+                c = if c & 0x8000_0000 != 0 { (c << 1) ^ 0x04C1_1DB7 } else { c << 1 };
+            }
+            *entry = c.swap_bytes();
+        }
+        t
+    });
+    name.bytes().fold(u32::MAX, |crc, b| table[((crc ^ u32::from(b)) & 0xff) as usize] ^ (crc >> 8))
+}
+
+/// Les écrans dans l'ordre où le partage les propose : le principal d'abord,
+/// puis de gauche à droite et de haut en bas (« Écran 1 », « Écran 2 »…).
+pub fn order_displays(mut list: Vec<PhysicalDisplay>) -> Vec<PhysicalDisplay> {
+    list.sort_by_key(|d| (!d.primary, d.x, d.y));
+    list
+}
+
 /// Ce qu'une session a mis en place (réponse de `prepare`).
 #[derive(Debug, Clone)]
 pub struct Started {
@@ -691,6 +731,8 @@ trait Backend: Send + Sync {
     fn observe(&self) -> Option<Observed>;
     /// Remet `mode` sur l'écran `gdi_name` ; rend le mode obtenu.
     fn set_mode(&self, gdi_name: &str, mode: Mode) -> Result<Mode>;
+    /// Les écrans actifs de l'ordinateur (partage depuis le PC).
+    fn displays(&self) -> Result<Vec<PhysicalDisplay>>;
 }
 
 pub struct Manager {
@@ -710,6 +752,10 @@ pub struct Manager {
     pointer_retry_after: Mutex<Option<Instant>>,
     pub settings: Mutex<VdSettings>,
     events: Mutex<Option<EventSink>>,
+    /// Un partage lancé depuis le PC est ouvert (KyberNow Share) : pas
+    /// d'écran virtuel automatique (« Pour toute connexion »), les écrans de
+    /// l'utilisateur restent allumés.
+    sharing: AtomicBool,
 }
 
 pub fn now_secs() -> u64 {
@@ -738,7 +784,38 @@ impl Manager {
             pointer_retry_after: Mutex::new(None),
             settings: Mutex::new(settings),
             events: Mutex::new(None),
+            sharing: AtomicBool::new(false),
         })
+    }
+
+    /// Partage depuis le PC ouvert ou fermé (voir `sharing`).
+    pub fn set_sharing(&self, on: bool) {
+        self.sharing.store(on, Ordering::SeqCst);
+    }
+
+    pub fn sharing(&self) -> bool {
+        self.sharing.load(Ordering::SeqCst)
+    }
+
+    /// Les écrans actifs de l'ordinateur, dans l'ordre du partage.
+    pub fn displays(&self) -> Result<Vec<PhysicalDisplay>> {
+        Ok(order_displays(self.backend.displays()?))
+    }
+
+    /// L'écran principal de la session en cours : son nom GDI (s'il est
+    /// connu) et son mode courant. `None` sans écran virtuel.
+    pub fn primary_screen(&self) -> Option<(String, Mode)> {
+        let session = self.session.lock().unwrap();
+        let s = session.as_ref()?;
+        let slot = s.slots.first()?;
+        let observed = s.observed.as_ref().filter(|o| o.mode.width > 0);
+        let name = observed
+            .map(|o| o.gdi_name.clone())
+            .filter(|n| !n.is_empty())
+            .or_else(|| slot.gdi_name.clone())
+            .or_else(|| s.applied["gdi_name"].as_str().map(str::to_owned))
+            .unwrap_or_default();
+        Some((name, observed.map_or(slot.target(), |o| o.mode)))
     }
 
     /// Branche le fil des événements (vue d'ensemble de la console).
@@ -1525,7 +1602,9 @@ impl Manager {
 
                 idle_since = None;
                 let settings = self.settings.lock().unwrap().clone();
-                if settings.trigger == Trigger::All && encoding {
+                // Partage depuis le PC : l'image est celle d'un écran de
+                // l'utilisateur, qui continue de s'en servir.
+                if settings.trigger == Trigger::All && encoding && !self.sharing.load(Ordering::SeqCst) {
                     // Une opération en cours (l'écran d'une app en train d'être
                     // créé) a la priorité : on ne lui passe pas devant.
                     let Ok(_op) = self.ops.try_lock() else { continue };
@@ -1751,6 +1830,19 @@ impl Backend for Simulated {
             .collect();
         let virtuals = screen.exists() as u32;
         Some(Observed { mode, gdi_name: sim_gdi_name(0), displays: virtuals + screen.others, others: screen.others, extra })
+    }
+    fn displays(&self) -> Result<Vec<PhysicalDisplay>> {
+        // Deux écrans, le second à gauche du principal (l'ordre du partage les remet).
+        let d = |n: u32, x: i32, width: u32, height: u32, refresh: u32| PhysicalDisplay {
+            name: format!("\\\\.\\DISPLAY{n}"),
+            x,
+            y: 0,
+            width,
+            height,
+            refresh,
+            primary: x == 0,
+        };
+        Ok(vec![d(2, -1920, 1920, 1080, 60), d(1, 0, 3840, 2160, 144)])
     }
 }
 
@@ -2094,12 +2186,31 @@ mod windows {
             let n = |k: &str| v[k].as_u64().unwrap_or(0) as u32;
             Ok(Mode { width: n("width"), height: n("height"), refresh: n("refresh") })
         }
+        fn displays(&self) -> Result<Vec<PhysicalDisplay>> {
+            // Lu dans la session de l'écran : la session 0 du service n'en a pas.
+            let v = agent::run_with_timeout(&self.data_dir, &["displays".to_string()], 10_000)?;
+            Ok(serde_json::from_value(v["displays"].clone())?)
+        }
     }
 }
 
 #[cfg(all(test, not(windows)))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn identifiant_de_kyber_comme_txproto() {
+        // La valeur de l'exemple du contrat (docs/kybernow-share.md) : `\\.\DISPLAY5`.
+        assert_eq!(kyber_display_id("\\\\.\\DISPLAY5"), 2221634456);
+        assert_eq!(kyber_display_id("\\\\.\\DISPLAY1"), 1478326155);
+    }
+
+    #[test]
+    fn ecrans_du_partage_principal_d_abord() {
+        let d = |n: u32, x: i32, y: i32, primary: bool| PhysicalDisplay { name: format!("D{n}"), x, y, width: 1920, height: 1080, refresh: 60, primary };
+        let ordered = order_displays(vec![d(3, 1920, 0, false), d(2, -1920, 0, false), d(1, 0, 0, true), d(4, 0, 1080, false)]);
+        assert_eq!(ordered.iter().map(|d| d.name.as_str()).collect::<Vec<_>>(), ["D1", "D2", "D4", "D3"]);
+    }
 
     fn manager() -> Arc<Manager> {
         let dir = std::env::temp_dir().join(format!("kn-display-{}", rand::random::<u64>()));

@@ -1,15 +1,16 @@
 <!--
   Vue d'ensemble : l'image d'abord (aperçu de l'écran de l'ordinateur), qui
-  est connecté en ce moment, l'état en quatre cartes, les appareils et ce qui
-  s'est passé aujourd'hui.
+  est connecté en ce moment, le partage d'un écran, l'état en quatre cartes,
+  les appareils et ce qui s'est passé aujourd'hui.
 -->
 <script lang="ts">
   import { api, type ActivityEvent, type AudioStatus, type Device, type DisplayStatus } from '../lib/api'
-  import { app, errorText, notify, refreshStatus } from '../lib/store.svelte'
-  import { ago, capital, deviceIcon, duration, hhmm, isToday, mode, ms, when } from '../lib/format'
+  import { app, errorText, notify, refreshStatus, setShare } from '../lib/store.svelte'
+  import { ago, capital, deviceIcon, duration, hhmm, isToday, mode, ms, screenLine, when } from '../lib/format'
   import Icon from '../lib/Icon.svelte'
   import Mark from '../lib/Mark.svelte'
-  import { i18n, t } from '../lib/i18n/index.svelte'
+  import ShareCard from '../lib/ShareCard.svelte'
+  import { i18n, t, tn } from '../lib/i18n/index.svelte'
 
   let display = $state<DisplayStatus | null>(null)
   let audio = $state<AudioStatus | null>(null)
@@ -23,9 +24,15 @@
   const status = $derived(app.status)
   const live = $derived(status?.activity?.live ?? null)
   const last = $derived(status?.activity?.last ?? null)
+  const share = $derived(status?.share ?? null)
+  // Partage lancé depuis le PC (icône ou cette page), sans appareil en session.
+  const pcShare = $derived(!live && share?.origin === 'local' ? share : null)
+  const guests = $derived(share?.guests.length ?? 0)
+  // Station qui connaît le partage (0.8.0 et après).
+  const sharing = $derived(status?.share_enabled !== undefined)
   const hostname = $derived(status?.hostname ?? t('overview.thisComputer'))
   // Un autre client que les apps (navigateur, ligne de commande) : écran ou son virtuels actifs.
-  const other = $derived(!live && (!!display?.session || !!audio?.session))
+  const other = $derived(!live && !pcShare && (!!display?.session || !!audio?.session))
   const gpuName = $derived(status?.gpu?.devices[0]?.name ?? null)
 
   async function loadPreview() {
@@ -102,6 +109,20 @@
     }
   }
 
+  async function stopShare() {
+    ending = true
+    try {
+      await api.shareStop()
+      setShare(null)
+      notify('ok', t('share.stopped'))
+    } catch (e) {
+      notify('error', errorText(e))
+      refreshStatus()
+    } finally {
+      ending = false
+    }
+  }
+
   const visibleEvents = $derived.by(() => {
     const today = events.filter((e) => isToday(e.at))
     return { today: today.length > 0, list: (today.length ? today : events).slice(0, 5) }
@@ -157,7 +178,7 @@
   </div>
 
   <div class="top">
-    {#if live || other}
+    {#if live || other || (pcShare && guests)}
       <span class="lbl live"><span class="dot live"></span>{t('overview.live')}</span>
     {:else if preview}
       <span class="lbl">{t('overview.previewAgo', { ago: ago(preview.at) })}</span>
@@ -171,7 +192,7 @@
     {#if live}
       <div class="title">
         <h1 class="disp">{t('overview.liveTitle', { name: live.name })}</h1>
-        <span>{t('overview.since', { duration: duration(now - live.started_at) })}{live.profile ? ` · ${t('overview.profile', { profile: live.profile })}` : ''}{(live.screens?.length ?? 0) > 1 ? ` · ${t('overview.screens', { count: live.screens!.length })}` : live.mode ? ` · ${mode(live.mode)}` : ''}</span>
+        <span>{t('overview.since', { duration: duration(now - live.started_at) })}{live.profile ? ` · ${t('overview.profile', { profile: live.profile })}` : ''}{(live.screens?.length ?? 0) > 1 ? ` · ${t('overview.screens', { count: live.screens!.length })}` : live.mode ? ` · ${mode(live.mode)}` : ''}{guests ? ` · ${tn('share.guests', guests)}` : ''}</span>
       </div>
       <div class="actions">
         {#if live.latency_ms}
@@ -184,6 +205,12 @@
           {live.end_requested ? t('overview.endRequested') : t('overview.endSession')}
         </button>
       </div>
+    {:else if pcShare}
+      <div class="title">
+        <h1 class="disp">{t('share.titleLocal', { n: pcShare.display.index })}</h1>
+        <span>{screenLine(pcShare.display)}{guests ? ` · ${tn('share.guests', guests)}` : ''}</span>
+      </div>
+      <button type="button" class="danger" disabled={ending} onclick={stopShare}>{t('share.stop')}</button>
     {:else if other}
       <div class="title">
         <h1 class="disp">{t('overview.otherTitle')}</h1>
@@ -210,6 +237,8 @@
 </section>
 
 <div class="body rise">
+  {#if sharing}<ShareCard />{/if}
+
   <section class="health" aria-label={t('overview.healthLabel')}>
     <a href="#/systeme/serveur" class="tile">
       <span class="lbl">{t('overview.serverTile')}</span>

@@ -22,6 +22,8 @@ mod preview;
 mod schema;
 mod service;
 mod settings;
+mod share;
+mod share_api;
 mod station;
 mod system;
 mod tls;
@@ -151,6 +153,11 @@ enum AgentAction {
         out: PathBuf,
     },
     Restore {
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Les écrans actifs (nom GDI, cadre, fréquence), pour le partage depuis le PC.
+    Displays {
         #[arg(long)]
         out: PathBuf,
     },
@@ -368,6 +375,7 @@ fn display_agent(action: AgentAction) -> Result<()> {
             let (w, h, hz) = display::topology::set_mode(&gdi_name, width, height, refresh);
             (out, Ok(serde_json::json!({ "width": w, "height": h, "refresh": hz })))
         }
+        AgentAction::Displays { out } => (out, display::topology::physical_displays().map(|d| serde_json::json!({ "displays": d }))),
         AgentAction::AudioRoute { channels, out } => {
             display::pointer::begin(agent_dir(&out));
             (out, audio::endpoint::route(channels).and_then(|r| Ok(serde_json::to_value(r)?)))
@@ -399,6 +407,7 @@ fn display_agent(action: AgentAction) -> Result<()> {
         | AgentAction::PointerRestore { out, .. }
         | AgentAction::Restore { out }
         | AgentAction::SetMode { out, .. }
+        | AgentAction::Displays { out }
         | AgentAction::AudioRoute { out, .. }
         | AgentAction::AudioRestore { out, .. }
         | AgentAction::LocalToken { out, .. } => (out, Err(anyhow::anyhow!("réservé à Windows"))),
@@ -433,6 +442,8 @@ pub struct Inner {
     pub launcher: Arc<launch::Launcher>,
     /// Demandes d'appairage par code (app Apple TV), en mémoire.
     pub pairing: pairing::Pairing,
+    /// KyberNow Share : le partage ouvert et ses invités, en mémoire.
+    pub share: share::Share,
     /// Jeton des routes locales (icône de la zone de notification).
     pub local_token: Arc<local_token::LocalToken>,
     /// Mises à jour depuis les versions publiées sur GitHub.
@@ -484,6 +495,7 @@ impl AppState {
             activity: Arc::new(activity::Activity::new(&data_dir)),
             launcher: launch::Launcher::new(&data_dir),
             pairing: pairing::Pairing::new(),
+            share: share::Share::new(),
             local_token: local_token::LocalToken::new(&data_dir),
             updater: Arc::new(update::Updater::new(&data_dir)),
             // L'assistant n'est jamais lancé : un redémarrage accepté est seulement noté.
@@ -757,6 +769,7 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
         activity,
         launcher,
         pairing: pairing::Pairing::new(),
+        share: share::Share::new(),
         local_token,
         updater: updater.clone(),
         station: station::Restarter::new(&data_dir),
@@ -775,6 +788,8 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
 
     // Comptes en attente : Kyber redémarre dès qu'il redevient libre.
     api::supervise_access(state.clone());
+    // Partage : invités sans nouvelles, fin de la session de l'hôte.
+    share_api::supervise(state.clone());
 
     let on_shutdown = state.clone();
     let app = Router::new()

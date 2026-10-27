@@ -329,7 +329,9 @@
       "stopped": "Server stopped",
       "missing": "Server not found",
       "inSession": "In session",
-      "running": "Running"
+      "running": "Running",
+      "sharing": "Sharing · {guests}",
+      "sharingAlone": "Sharing"
     },
     "pairBadge": {
       "one": "{n} access request",
@@ -899,6 +901,92 @@
       "before": "The encoder, capture engine and minimum bitrate are in ",
       "link": "System › Advanced",
       "after": "."
+    }
+  },
+  "share": {
+    "start": "Share a screen…",
+    "startHelp": "Show one of this computer's screens to someone on your network: they see it, hear the sound, and can play if you let them. You keep using the computer as usual.",
+    "choose": "Choose the screen to share.",
+    "loading": "Looking for screens…",
+    "display": "{label} — {width} × {height}",
+    "cancel": "Cancel",
+    "off": "Sharing is turned off on this computer (Admin › Link devices).",
+    "inSession": "{name} is in a session: share from that device.",
+    "titleLocal": "Sharing display {n}",
+    "titleHost": "Share {name}",
+    "openedBy": "Opened from {name}'s session.",
+    "codeLabel": "Code",
+    "codeAria": "Code {digits}",
+    "copy": "Copy link",
+    "copied": "Link copied.",
+    "copyFailed": "Could not copy: select the link by hand.",
+    "qrLabel": "QR code for the share",
+    "help": "On the same network: “Join with a code” in KyberNow Link, or this link in a browser.",
+    "people": "Guests",
+    "participants": "Participants",
+    "nobody": "Nobody yet.",
+    "host": "{name} · Host",
+    "role": {
+      "spectator": "{name} · Spectator",
+      "player": "{name} · Player",
+      "player_kbm": "{name} · Player, keyboard and mouse"
+    },
+    "since": "for {duration}",
+    "play": "Let play",
+    "giveKbm": "Give keyboard and mouse",
+    "takeKbm": "Take back keyboard and mouse",
+    "watch": "Watch only",
+    "remove": "Remove",
+    "newCode": "New code",
+    "stop": "Stop sharing",
+    "stopped": "Sharing stopped.",
+    "limit": "Four guests at most.",
+    "guests": {
+      "one": "{n} guest",
+      "other": "{n} guests"
+    },
+    "apps": {
+      "mac": "Mac",
+      "windows": "Windows",
+      "linux": "Linux",
+      "ios": "iPhone or iPad",
+      "tvos": "Apple TV",
+      "android": "Android",
+      "webos": "LG TV",
+      "web": "Browser"
+    },
+    "bar": {
+      "share": "Share",
+      "tooOld": "Sharing needs KyberNow Station 0.8.0 or later."
+    },
+    "join": {
+      "button": "Join with a code",
+      "title": "Join a share",
+      "lead": "The code is shown by the person sharing.",
+      "name": "Your name",
+      "submit": "Join",
+      "looking": "Looking for the share…",
+      "noShare": "No share with this code on your network.",
+      "full": "This share is full (four guests at most).",
+      "tooMany": "Too many code attempts: try again in a minute.",
+      "unreadable": "This device cannot play this computer's picture ({format}).",
+      "unavailable": "Sharing is not available right now: try again in a moment.",
+      "badRequest": "The code has six digits, and the name cannot be empty."
+    },
+    "guest": {
+      "on": "Guest on {name}",
+      "spectator": "Spectator",
+      "player": "Player",
+      "leave": "Leave",
+      "canPlay": "You can play.",
+      "gotKbm": "You have the keyboard and mouse.",
+      "lostKbm": "The keyboard and mouse were taken back.",
+      "watching": "You are watching again.",
+      "stopped": "{host} stopped sharing.",
+      "removed": "{host} removed you from the share.",
+      "unauthorized": "Kyber on {host} refuses the share's token. Join again with the code.",
+      "noImage": "{host} is sending the picture, but it does not reach this browser. Try Chrome or Edge.",
+      "decode": "This browser cannot decode {host}'s picture."
     }
   }
 }

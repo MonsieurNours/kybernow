@@ -74,6 +74,16 @@ All JSON, on Admin's port, certificate pinned by fingerprint as today. The names
 - **Kyber (patch 0019)**: the role carried by the token (spectator, player, player with keyboard and mouse), applied when inputs open (none for a spectator; controllers only for a player), changed during the share without cutting the picture; the allowed display enforced (the display list filtered, another one refused); a Kyber session Admin can close at once (removing a guest); bitrate and keyframes of the shared picture reserved to the host.
 - **Sharing from the PC**: the list of physical displays (name, frame, Kyber id), a “sharing” state that prevents automatic virtual display creation (the “For any connection” mode) and changes of the sound output; the icon next to the clock and Admin's home page start it, show it and stop it.
 - Kyber's `multi_client` must be on (the default): if it is off, “Share” says so.
+- **Station details** (what it does on top of “Exchange with Admin”, without changing it):
+  - replies: the host and PC routes all return the same share view, which contains the contract's (`code`, `link`, `web`, `display`) and adds `open`, `origin` (`host` or `local`), `host`, `guests` (with `device` and `last_beat`), `max_guests`, `opened_at`, and in `display` `index`, `width`, `height`, `refresh`; `GET /api/local/displays` adds `index`, `refresh`, `x`, `y`, and only keeps the displays Kyber captures when it answers;
+  - host routes: optional `device_id` (body, or query for `GET` and `DELETE`), as in the heartbeat, to tell two devices on the same account apart; refusals `{"error": <text>, "code": …}` with `not_in_session`, `disabled`, `no_share`, `unknown_guest`;
+  - guest: refusals beyond the contract's, `400 {"error":"bad_request"}` (invalid code or name), `503 {"error":"unavailable"}` (Kyber without a token key); `429` carries `{"error":"too_many","retry_after":<s>}` and `Retry-After`; `beat` and `leave` from an unknown guest (gone, timed out, or more than a minute after leaving): `404 {"error":"unknown_guest"}`;
+  - `beat` also gives `display` (`id`, `width`, `height`, `refresh`): a host's share follows its main screen when it prepares again (virtual display recreated under another identifier); the renewed token then carries the new `kn_display`, which Kyber only takes at a new connection (not on renewal);
+  - the same device (`device`) joining again gets its place back (same `guest`, same role, new `secret`), without counting as one more guest;
+  - a guest's Kyber token: `sub` = `kn-guest-<guest>`, and `kn_rev` (increasing with every role change) besides `kn_role` and `kn_display`;
+  - sharing from the PC: refused during a device's session (`code` `session`) or another connection that took the displays or the sound (`busy`); a session that starts (a device's `prepare`) stops it; one share at a time;
+  - Kyber (0019): a spectator may open its inputs, Kyber lets nothing through to the computer; “Let play” then applies without restarting the image. A guest that restarts its image costs the shared encoder one keyframe (the one Kyber forces for any arriving client), without changing its configuration; its `/force_idr` has no effect. Each guest has its own input server, hence its own virtual gamepads;
+  - the guards name the guests (“A share is in progress with Léa and Max: restarting will stop it”); with `force`, the share stops first (guests read `stopped`).
 
 ## Rust core
 
@@ -88,6 +98,8 @@ Details and exact names: [apps/core/README.en.md](../apps/core/README.en.md#kybe
 ## Apps and web client
 
 Every Link app (Mac, Windows, Linux, iPhone, iPad, Apple TV, Android, LG TVs) and the web client: “Join with a code” on the home screen, code entry (on-screen keypad on TVs, as for pairing), the guest session and its reduced bar; “Share” and the host's panel in the session bar. One component per family of apps when possible (KyberKit for the Mac, iPhone, iPad and Apple TV). The texts come from `link-ui.md`.
+
+**Web client** (`server/web/src/link/`): the same session as the host's (same page, `Session.svelte`), with a reduced bar for the guest. It has no Rust core: it does the exchange with Admin above itself (`app: "web"`, `device`: this browser's identifier) and keeps the `kybernow_guest` cookie, which only opens the relay to Kyber and `/api/share/*`; Kyber's engine therefore only loads after `join`, and the picture's format is checked then (otherwise `leave`). The engine opens its inputs from the start and the page filters by role; Kyber refuses what the role does not allow anyway. The host, in the browser: “Share” in the bar, Admin's panel on the host routes, guests read from the heartbeat's answer (`share`).
 
 ## Outside this first step
 

@@ -329,7 +329,9 @@
       "stopped": "Serveur arrêté",
       "missing": "Serveur introuvable",
       "inSession": "En session",
-      "running": "En marche"
+      "running": "En marche",
+      "sharing": "Partage en cours · {guests}",
+      "sharingAlone": "Partage en cours"
     },
     "pairBadge": {
       "one": "{n} demande d'accès",
@@ -899,6 +901,92 @@
       "before": "L'encodeur, le moteur de capture et le débit minimum sont dans ",
       "link": "Système › Avancé",
       "after": "."
+    }
+  },
+  "share": {
+    "start": "Partager un écran…",
+    "startHelp": "Montrez un écran de cet ordinateur à quelqu'un sur votre réseau : il le voit, entend le son, et peut jouer si vous le laissez. Vous continuez d'utiliser l'ordinateur normalement.",
+    "choose": "Choisissez l'écran à partager.",
+    "loading": "Recherche des écrans…",
+    "display": "{label} — {width} × {height}",
+    "cancel": "Annuler",
+    "off": "Le partage est coupé sur cet ordinateur (Admin › Appareils Link).",
+    "inSession": "{name} est en session : le partage se lance depuis cet appareil.",
+    "titleLocal": "Partage de l'écran {n}",
+    "titleHost": "Partager {name}",
+    "openedBy": "Ouvert depuis la session de {name}.",
+    "codeLabel": "Code",
+    "codeAria": "Code {digits}",
+    "copy": "Copier le lien",
+    "copied": "Lien copié.",
+    "copyFailed": "Copie impossible : sélectionnez le lien à la main.",
+    "qrLabel": "QR code du partage",
+    "help": "Sur le même réseau : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur.",
+    "people": "Invités",
+    "participants": "Participants",
+    "nobody": "Personne pour l'instant.",
+    "host": "{name} · Hôte",
+    "role": {
+      "spectator": "{name} · Spectateur",
+      "player": "{name} · Joueur",
+      "player_kbm": "{name} · Joueur, clavier et souris"
+    },
+    "since": "depuis {duration}",
+    "play": "Faire jouer",
+    "giveKbm": "Donner le clavier et la souris",
+    "takeKbm": "Reprendre le clavier et la souris",
+    "watch": "Faire regarder",
+    "remove": "Retirer",
+    "newCode": "Nouveau code",
+    "stop": "Arrêter le partage",
+    "stopped": "Partage arrêté.",
+    "limit": "Quatre invités au plus.",
+    "guests": {
+      "one": "{n} invité",
+      "other": "{n} invités"
+    },
+    "apps": {
+      "mac": "Mac",
+      "windows": "Windows",
+      "linux": "Linux",
+      "ios": "iPhone ou iPad",
+      "tvos": "Apple TV",
+      "android": "Android",
+      "webos": "Téléviseur LG",
+      "web": "Navigateur"
+    },
+    "bar": {
+      "share": "Partager",
+      "tooOld": "Le partage demande KyberNow Station 0.8.0 ou plus récente."
+    },
+    "join": {
+      "button": "Rejoindre avec un code",
+      "title": "Rejoindre un partage",
+      "lead": "Le code s'affiche chez la personne qui partage.",
+      "name": "Votre prénom",
+      "submit": "Rejoindre",
+      "looking": "Recherche du partage…",
+      "noShare": "Aucun partage avec ce code sur le réseau.",
+      "full": "Ce partage est complet (quatre invités au plus).",
+      "tooMany": "Trop d'essais de code : réessayez dans une minute.",
+      "unreadable": "Cet appareil ne lit pas l'image de cet ordinateur ({format}).",
+      "unavailable": "Le partage n'est pas disponible pour le moment : réessayez dans un instant.",
+      "badRequest": "Le code a six chiffres, et le prénom ne peut pas être vide."
+    },
+    "guest": {
+      "on": "Invité sur {name}",
+      "spectator": "Spectateur",
+      "player": "Joueur",
+      "leave": "Quitter le partage",
+      "canPlay": "Vous pouvez jouer.",
+      "gotKbm": "Vous avez le clavier et la souris.",
+      "lostKbm": "Le clavier et la souris sont repris.",
+      "watching": "Vous regardez de nouveau.",
+      "stopped": "{host} a arrêté le partage.",
+      "removed": "{host} vous a retiré du partage.",
+      "unauthorized": "Kyber sur {host} refuse le jeton du partage. Rejoignez-le de nouveau avec le code.",
+      "noImage": "{host} envoie l'image, mais elle n'arrive pas dans ce navigateur. Essayez Chrome ou Edge.",
+      "decode": "Ce navigateur n'arrive pas à décoder l'image de {host}."
     }
   }
 }

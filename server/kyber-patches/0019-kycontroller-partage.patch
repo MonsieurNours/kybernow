@@ -1,0 +1,1268 @@
+diff --git a/kycontroller/src/auth/basic.rs b/kycontroller/src/auth/basic.rs
+index 8c26cb3..d3ed26d 100644
+--- a/kycontroller/src/auth/basic.rs
++++ b/kycontroller/src/auth/basic.rs
+@@ -44,6 +44,8 @@ impl Backend for Basic {
+             username: credentials.username.0,
+             sub: None,
+             expiration: None,
++            share: None,
++            admin: false,
+         })
+     }
+ }
+diff --git a/kycontroller/src/auth/jwt.rs b/kycontroller/src/auth/jwt.rs
+index 1195c56..7574163 100644
+--- a/kycontroller/src/auth/jwt.rs
++++ b/kycontroller/src/auth/jwt.rs
+@@ -60,7 +60,7 @@ use std::{fs::File, io::Read};
+ 
+ use crate::auth::Backend;
+ 
+-use super::{Error, Session};
++use super::{Error, GuestShare, Session, ShareRole};
+ use jsonwebtoken::{
+     Algorithm, DecodingKey, Validation, decode,
+     errors::{Error as JWTError, ErrorKind},
+@@ -119,6 +119,20 @@ struct Claims {
+     /// Subject - identifies the principal (user) that the token represents.
+     /// This becomes the `username` in the session.
+     sub: String,
++
++    /// KyberNow: a KyberNow Share guest's role. An unknown role fails the
++    /// token's decoding. Absent: the host.
++    kn_role: Option<ShareRole>,
++
++    /// KyberNow: the display imposed on a guest, required with `kn_role`.
++    kn_display: Option<u32>,
++
++    /// KyberNow: revision of the guest's role (0 when absent).
++    kn_rev: Option<u64>,
++
++    /// KyberNow: KyberNow Admin's own token, for the `/kybernow` routes.
++    #[serde(default)]
++    kn_admin: bool,
+ }
+ 
+ pub struct Jwt {
+@@ -173,10 +187,26 @@ impl Backend for Jwt {
+         let jwt = jwt?;
+         let exp = OffsetDateTime::from_unix_timestamp(jwt.claims.exp)
+             .or(Err(Error::InvalidCredentialsFormat))?;
++        // KyberNow: a guest's role always comes with its display.
++        let share = match (jwt.claims.kn_role, jwt.claims.kn_display) {
++            (None, _) => None,
++            (Some(role), Some(display)) => Some(GuestShare {
++                role,
++                display,
++                rev: jwt.claims.kn_rev.unwrap_or(0),
++            }),
++            (Some(_), None) => {
++                return Err(Error::MissingField {
++                    field: "kn_display".to_owned(),
++                });
++            }
++        };
+         Ok(Session {
+             username: jwt.claims.sub.clone(),
+             sub: Some(jwt.claims.sub),
+             expiration: Some(exp),
++            share,
++            admin: jwt.claims.kn_admin,
+         })
+     }
+ }
+@@ -247,3 +277,78 @@ impl From<JWTError> for Error {
+         }
+     }
+ }
++
++/// KyberNow: KyberNow Share claims.
++#[cfg(test)]
++mod tests {
++    use jsonwebtoken::{EncodingKey, Header, encode};
++
++    use super::*;
++
++    fn authenticate(claims: serde_json::Value) -> Result<Session, Error> {
++        let mut claims = claims;
++        claims["aud"] = "kyber".into();
++        claims["exp"] = (OffsetDateTime::now_utc().unix_timestamp() + 60).into();
++        let token = encode(
++            &Header::default(),
++            &claims,
++            &EncodingKey::from_secret(b"kyber-authentication-development-key"),
++        )
++        .unwrap();
++        Jwt::new(&Config::default()).authenticate(&token)
++    }
++
++    #[test]
++    fn a_token_without_share_claims_is_the_host() {
++        let session = authenticate(serde_json::json!({"sub": "matthieu"})).unwrap();
++        assert_eq!(session.share, None);
++        assert!(!session.admin);
++    }
++
++    #[test]
++    fn a_guest_token_carries_its_role_display_and_revision() {
++        let session = authenticate(serde_json::json!({
++            "sub": "kn-guest-1",
++            "kn_role": "player_kbm",
++            "kn_display": 2221634456u32,
++            "kn_rev": 3,
++        }))
++        .unwrap();
++        assert_eq!(
++            session.share,
++            Some(GuestShare {
++                role: ShareRole::PlayerKbm,
++                display: 2221634456,
++                rev: 3,
++            })
++        );
++        assert!(!session.admin);
++    }
++
++    #[test]
++    fn an_unknown_role_or_a_role_without_display_is_refused() {
++        let unknown = authenticate(serde_json::json!({
++            "sub": "kn-guest-1",
++            "kn_role": "owner",
++            "kn_display": 1,
++        }));
++        assert!(unknown.is_err());
++
++        let no_display = authenticate(serde_json::json!({
++            "sub": "kn-guest-1",
++            "kn_role": "spectator",
++        }));
++        assert!(matches!(no_display, Err(Error::MissingField { .. })));
++    }
++
++    #[test]
++    fn the_admin_token_is_flagged() {
++        let session = authenticate(serde_json::json!({
++            "sub": "kybernow-admin",
++            "kn_admin": true,
++        }))
++        .unwrap();
++        assert!(session.admin);
++        assert_eq!(session.share, None);
++    }
++}
+diff --git a/kycontroller/src/auth/mod.rs b/kycontroller/src/auth/mod.rs
+index b2b5071..2bdbfa0 100644
+--- a/kycontroller/src/auth/mod.rs
++++ b/kycontroller/src/auth/mod.rs
+@@ -116,6 +116,33 @@ pub struct Session {
+     pub sub: Option<String>,
+     /// Session expiration time
+     pub expiration: Option<OffsetDateTime>,
++    /// KyberNow: a KyberNow Share guest's part of the token (`kn_role`);
++    /// `None` for the host (full rights).
++    pub share: Option<GuestShare>,
++    /// KyberNow: KyberNow Admin's own token (`kn_admin`), which only opens
++    /// the `/kybernow` routes. Always `false` for Basic and OIDC.
++    pub admin: bool,
++}
++
++/// KyberNow: a share guest's role (`kn_role`).
++#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
++#[serde(rename_all = "snake_case")]
++pub enum ShareRole {
++    /// Watches: the image and the sound, no input.
++    Spectator,
++    /// Gamepads.
++    Player,
++    /// Gamepads, keyboard and mouse.
++    PlayerKbm,
++}
++
++/// KyberNow: a share guest's role, imposed display (`kn_display`) and role
++/// revision (`kn_rev`, raised by KyberNow Admin at each change).
++#[derive(Clone, Debug, PartialEq, Eq)]
++pub struct GuestShare {
++    pub role: ShareRole,
++    pub display: u32,
++    pub rev: u64,
+ }
+ 
+ /// Configuration for authentication backends loaded from TOML.
+diff --git a/kycontroller/src/auth/oidc.rs b/kycontroller/src/auth/oidc.rs
+index 34cc5ad..4f3aefa 100644
+--- a/kycontroller/src/auth/oidc.rs
++++ b/kycontroller/src/auth/oidc.rs
+@@ -383,6 +383,8 @@ impl Backend for Oidc {
+             username: identity,
+             sub,
+             expiration: Some(exp),
++            share: None,
++            admin: false,
+         })
+     }
+ }
+diff --git a/kycontroller/src/controller.rs b/kycontroller/src/controller.rs
+index ef07f3d..76fa363 100644
+--- a/kycontroller/src/controller.rs
++++ b/kycontroller/src/controller.rs
+@@ -106,6 +106,9 @@ pub(crate) struct ClientSession {
+     pub services: Arc<AsyncMutex<StreamingServices>>,
+     /// KyberNow: when this session last forced a keyframe (`POST /force_idr`).
+     pub(crate) last_force_idr: Option<std::time::Instant>,
++    /// KyberNow: a KyberNow Share guest's role, display and role revision;
++    /// `None` for the host.
++    pub(crate) share: Option<auth::GuestShare>,
+ }
+ 
+ impl ClientSession {
+@@ -129,6 +132,8 @@ impl ClientSession {
+             username,
+             sub,
+             expiration,
++            share,
++            admin: _,
+         } = session;
+ 
+         Self {
+@@ -143,6 +148,7 @@ impl ClientSession {
+             session: None,
+             services: Default::default(),
+             last_force_idr: None,
++            share,
+         }
+     }
+ }
+@@ -158,6 +164,8 @@ mod kyhub_user_sub_tests {
+                 username: "operator".to_owned(),
+                 sub: sub.map(str::to_owned),
+                 expiration: None,
++                share: None,
++                admin: false,
+             },
+         )
+     }
+@@ -202,6 +210,9 @@ pub(crate) struct StreamingServices {
+     pub(crate) video_subscriptions: Vec<VideoSubscription>,
+     /// RAII subscription to an [`AVServicesManager`] audio entry. See `video_subscriptions`.
+     pub(crate) audio_subscription: Option<AudioSubscription>,
++    /// KyberNow: the rights `input` enforces for a share guest (`None`: the
++    /// host's, everything).
++    pub(crate) input_rights: Option<kynputservice_types::InputRights>,
+ }
+ 
+ impl StreamingServices {
+@@ -246,6 +257,10 @@ pub struct Controller {
+ 
+     // Shared AV services: avservers and duplicators shared across clients
+     pub(crate) av_services_manager: AsyncMutex<AVServicesManager>,
++
++    /// KyberNow: roles pushed by KyberNow Admin and closed users' bans.
++    /// Taken after `sessions` when both are held.
++    pub(crate) share_memory: Mutex<crate::kybernow::ShareMemory>,
+ }
+ 
+ impl Controller {
+@@ -270,6 +285,7 @@ impl Controller {
+             kyhub_reporter: Mutex::new(None),
+             kycom,
+             av_services_manager: Default::default(),
++            share_memory: Default::default(),
+         });
+         let state_machine = statemachine::run(this.clone(), events_rx);
+         (this, state_machine)
+@@ -364,9 +380,21 @@ impl Controller {
+         self.sessions.lock().unwrap().values_mut().for_each(f);
+     }
+ 
+-    pub fn insert_session(&self, session: ClientSession) {
+-        self.sessions.lock().unwrap().insert(session.uid, session);
++    /// KyberNow: `false` (nothing inserted) while the user is banned by
++    /// `/kybernow/close`; a role KyberNow Admin pushed after the token was
++    /// signed replaces the token's. Both are read under the sessions lock: a
++    /// concurrent close or role push, which records first and then goes
++    /// through the sessions, never misses this one.
++    pub fn insert_session(&self, mut session: ClientSession) -> bool {
++        {
++            let mut sessions = self.sessions.lock().unwrap();
++            if !self.share_memory.lock().unwrap().admit(&mut session) {
++                return false;
++            }
++            sessions.insert(session.uid, session);
++        }
+         self.update_tray_status();
++        true
+     }
+ 
+     /// Tear down the shared infra once the last session is gone. Sessions are
+diff --git a/kycontroller/src/inputservice.rs b/kycontroller/src/inputservice.rs
+index 799f1e3..0ef2469 100644
+--- a/kycontroller/src/inputservice.rs
++++ b/kycontroller/src/inputservice.rs
+@@ -22,7 +22,7 @@ use std::sync::Arc;
+ 
+ use log::{debug, warn};
+ 
+-use kynputservice_types::{Command, HostConfig, IpcApi, Response, ServiceConfig};
++use kynputservice_types::{Command, HostConfig, InputRights, IpcApi, Response, ServiceConfig};
+ use libkypc::{
+     Commander,
+     process::{Process, ProcessFactory},
+@@ -94,6 +94,17 @@ impl Handler {
+         Ok(())
+     }
+ 
++    /// KyberNow: a share guest's new rights. Answered once what a withdrawn
++    /// right held is released.
++    pub(crate) async fn set_rights(&mut self, rights: InputRights) -> Result<()> {
++        self.commander
++            .commands
++            .send(Command::SetRights { rights })
++            .await??;
++
++        Ok(())
++    }
++
+     pub(crate) async fn stop(mut self) -> Result<()> {
+         let ret = self.commander.commands.send(Command::Stop(0)).await;
+         if let Err(err) = ret {
+diff --git a/kycontroller/src/kybernow.rs b/kycontroller/src/kybernow.rs
+new file mode 100644
+index 0000000..c8e4d18
+--- /dev/null
++++ b/kycontroller/src/kybernow.rs
+@@ -0,0 +1,580 @@
++// KyberNow: KyberNow Share, local sharing. KyberNow Admin, which holds the
++// JWT key, gives each guest a short token (`kn_role`, `kn_display`,
++// `kn_rev`) renewed through `/session/renew`, and drives Kyber through the
++// `/kybernow` routes with its own token (`kn_admin`). A session without
++// `kn_role` is the host's: nothing changes for it.
++
++use std::collections::HashMap;
++use std::net::IpAddr;
++use std::time::{Duration, Instant};
++
++use actix_web::{HttpRequest, HttpResponse, get, http::header, post, web};
++use kyavservice_types::VideoCodec;
++use kynputservice_types::InputRights;
++use log::{info, warn};
++use serde::{Deserialize, Serialize, de::DeserializeOwned};
++use uuid::Uuid;
++
++use crate::auth::{self, GuestShare, ShareRole};
++use crate::avservices_manager::VideoStreamKey;
++use crate::controller::{ClientSession, Controller, SessionEndReason};
++
++/// How long a role is remembered: longer than any token still valid (120 s).
++const ROLE_MEMORY: Duration = Duration::from_secs(10 * 60);
++/// `/kybernow/close`: default and longest ban, in seconds.
++const DEFAULT_BAN_SECONDS: u64 = 130;
++const MAX_BAN_SECONDS: u64 = 600;
++
++/// The latest role of each guest (`sub`) and the closed guests' bans, kept
++/// even without a session. Small: stale entries go at each change.
++#[derive(Default)]
++pub(crate) struct ShareMemory {
++    /// Revision, role, and when it was recorded.
++    roles: HashMap<String, (u64, ShareRole, Instant)>,
++    /// End of the ban.
++    bans: HashMap<String, Instant>,
++}
++
++impl ShareMemory {
++    fn prune(&mut self, now: Instant) {
++        self.roles
++            .retain(|_, (_, _, at)| now.saturating_duration_since(*at) < ROLE_MEMORY);
++        self.bans.retain(|_, until| *until > now);
++    }
++
++    /// Keeps the role with the highest revision.
++    pub(crate) fn remember(&mut self, user: &str, rev: u64, role: ShareRole) {
++        let now = Instant::now();
++        self.prune(now);
++        if self
++            .roles
++            .get(user)
++            .is_none_or(|(known, _, _)| rev > *known)
++        {
++            self.roles.insert(user.to_owned(), (rev, role, now));
++        }
++    }
++
++    pub(crate) fn ban(&mut self, user: &str, duration: Duration) {
++        let now = Instant::now();
++        self.prune(now);
++        self.bans.insert(user.to_owned(), now + duration);
++    }
++
++    pub(crate) fn is_banned(&mut self, user: &str) -> bool {
++        self.prune(Instant::now());
++        self.bans.contains_key(user)
++    }
++
++    /// Login: refused (`false`) while the user is banned. A role remembered
++    /// with a newer revision than the token's replaces it.
++    pub(crate) fn admit(&mut self, session: &mut ClientSession) -> bool {
++        if self.is_banned(&session.username) {
++            warn!(
++                "Refusing login for \"{}\": closed by KyberNow Admin",
++                session.username
++            );
++            return false;
++        }
++
++        if let Some(share) = &mut session.share
++            && let Some((rev, role, _)) = self.roles.get(&session.username)
++            && *rev > share.rev
++        {
++            info!(
++                "\"{}\" logs in as {role:?} (rev {rev}), not {:?} (rev {})",
++                session.username, share.role, share.rev
++            );
++            share.role = *role;
++            share.rev = *rev;
++        }
++        true
++    }
++}
++
++/// The input rights of a role: never the clipboard for a guest.
++pub(crate) fn role_rights(role: ShareRole) -> InputRights {
++    InputRights {
++        keyboard_mouse: role == ShareRole::PlayerKbm,
++        gamepads: role != ShareRole::Spectator,
++        clipboard: false,
++    }
++}
++
++/// `None` for the host (everything).
++pub(crate) fn input_rights(share: Option<&GuestShare>) -> Option<InputRights> {
++    share.map(|share| role_rights(share.role))
++}
++
++/// Whether a session sees this display: a guest only sees its own.
++pub(crate) fn shows(share: Option<&GuestShare>, display_id: u32) -> bool {
++    share.is_none_or(|share| share.display == display_id)
++}
++
++/// The display imposed on a guest session; `None` for the host (or a
++/// session that is gone).
++pub(crate) fn guest_display(ctrl: &Controller, uid: &Uuid) -> Option<u32> {
++    ctrl.with_session(uid, |s| Ok(s.share.as_ref().map(|share| share.display)))
++        .ok()
++        .flatten()
++}
++
++pub(crate) fn is_guest(ctrl: &Controller, uid: &Uuid) -> bool {
++    guest_display(ctrl, uid).is_some()
++}
++
++/// Gives a guest session a role of a newer revision (its display stays).
++/// `false` for the host or an older or equal revision: a token still valid
++/// never gives back a withdrawn right.
++pub(crate) fn update_role(session: &mut ClientSession, rev: u64, role: ShareRole) -> bool {
++    match &mut session.share {
++        Some(share) if rev > share.rev => {
++            share.rev = rev;
++            share.role = role;
++            true
++        }
++        _ => false,
++    }
++}
++
++/// Brings the session's input server in line with its current role,
++/// without touching the image. The role is read under the services lock, as
++/// at the start of a session: of a start and a role change, the last one
++/// applies the latest role.
++pub(crate) async fn apply_input_rights(ctrl: &Controller, uid: &Uuid) {
++    let Ok(services) = ctrl.session_services(uid) else {
++        return;
++    };
++    let mut services = services.lock().await;
++
++    let Ok(Some(rights)) = ctrl.with_session(uid, |s| Ok(input_rights(s.share.as_ref()))) else {
++        return;
++    };
++    if services.input_rights == Some(rights) {
++        return;
++    }
++    let Some(input) = services.input.as_mut() else {
++        return;
++    };
++
++    match input.set_rights(rights).await {
++        Ok(()) => {
++            info!("Session {uid}: input rights {rights:?}");
++            services.input_rights = Some(rights);
++        }
++        Err(err) => warn!("Session {uid}: failed to set input rights: {err:?}"),
++    }
++}
++
++fn from_loopback(req: &HttpRequest) -> bool {
++    req.peer_addr().is_some_and(|peer| match peer.ip() {
++        IpAddr::V4(v4) => v4.is_loopback(),
++        // A dual-stack listener reports 127.0.0.1 as ::ffff:127.0.0.1.
++        IpAddr::V6(v6) => {
++            v6.is_loopback() || v6.to_ipv4_mapped().is_some_and(|v4| v4.is_loopback())
++        }
++    })
++}
++
++/// KyberNow Admin only: from this computer (403), with its own token (401).
++fn admin_refusal(req: &HttpRequest) -> Option<HttpResponse> {
++    if !from_loopback(req) {
++        warn!("/kybernow refused to {:?}: not local", req.peer_addr());
++        return Some(HttpResponse::Forbidden().finish());
++    }
++
++    let admin = req
++        .headers()
++        .get(header::AUTHORIZATION)
++        .and_then(|h| auth::AuthorizationHeader::from_header(h, None))
++        .and_then(|h| Some((auth::registry().backend(h.kind)?, h.creds)))
++        .is_some_and(|(backend, creds)| backend.authenticate(creds).is_ok_and(|s| s.admin));
++    if !admin {
++        warn!("/kybernow refused: no valid KyberNow Admin token");
++        return Some(HttpResponse::Unauthorized().finish());
++    }
++
++    None
++}
++
++/// The body is only read once the caller is known to be KyberNow Admin.
++fn admin_request<T: DeserializeOwned>(req: &HttpRequest, body: &[u8]) -> Result<T, HttpResponse> {
++    if let Some(refusal) = admin_refusal(req) {
++        return Err(refusal);
++    }
++    serde_json::from_slice(body).map_err(|err| {
++        warn!("/kybernow: invalid request: {err}");
++        HttpResponse::BadRequest().finish()
++    })
++}
++
++#[derive(Serialize)]
++struct SessionEntry {
++    uid: Uuid,
++    user: String,
++    role: Option<ShareRole>,
++    display: Option<u32>,
++    streaming: bool,
++    inputs: bool,
++}
++
++#[derive(Serialize)]
++struct StreamEntry {
++    display: u32,
++    codec: &'static str,
++    yuv444: bool,
++}
++
++#[derive(Serialize)]
++struct SessionsResponse {
++    sessions: Vec<SessionEntry>,
++    streams: Vec<StreamEntry>,
++}
++
++fn codec_name(codec: &VideoCodec) -> &'static str {
++    match codec {
++        VideoCodec::H264 => "h264",
++        VideoCodec::HEVC => "hevc",
++        VideoCodec::AV1 => "av1",
++    }
++}
++
++/// `GET /kybernow/sessions`: every session, and the shared video streams.
++#[get("/sessions")]
++pub(crate) async fn get_sessions(ctrl: web::Data<Controller>, req: HttpRequest) -> HttpResponse {
++    if let Some(refusal) = admin_refusal(&req) {
++        return refusal;
++    }
++
++    let listed: Vec<_> = ctrl
++        .sessions
++        .lock()
++        .unwrap()
++        .values()
++        .map(|s| {
++            let entry = SessionEntry {
++                uid: s.uid,
++                user: s.username.clone(),
++                role: s.share.as_ref().map(|share| share.role),
++                display: s.share.as_ref().map(|share| share.display),
++                streaming: s.session.as_ref().is_some_and(|s| s.data_plane.is_some()),
++                inputs: false,
++            };
++            (entry, s.services.clone())
++        })
++        .collect();
++
++    let mut sessions = Vec::with_capacity(listed.len());
++    for (mut entry, services) in listed {
++        entry.inputs = services.lock().await.input.is_some();
++        sessions.push(entry);
++    }
++
++    let streams = ctrl
++        .av_services_manager
++        .lock()
++        .await
++        .video_streams
++        .iter()
++        .filter_map(|(key, stream)| match key {
++            VideoStreamKey::Shared { display_id } => Some(StreamEntry {
++                display: *display_id,
++                codec: codec_name(&stream.config.codec),
++                yuv444: stream.config.yuv444,
++            }),
++            VideoStreamKey::Exclusive { .. } => None,
++        })
++        .collect();
++
++    HttpResponse::Ok().json(SessionsResponse { sessions, streams })
++}
++
++#[derive(Deserialize)]
++struct RoleRequest {
++    user: String,
++    role: ShareRole,
++    rev: u64,
++}
++
++/// `POST /kybernow/role`: a guest's new role, for its sessions (newer
++/// revision only) and its next logins.
++#[post("/role")]
++pub(crate) async fn post_role(
++    ctrl: web::Data<Controller>,
++    req: HttpRequest,
++    body: web::Bytes,
++) -> HttpResponse {
++    let RoleRequest { user, role, rev } = match admin_request(&req, &body) {
++        Ok(request) => request,
++        Err(refusal) => return refusal,
++    };
++
++    // Recorded before going through the sessions: a login running now
++    // either reads it or is among them (see `Controller::insert_session`).
++    ctrl.share_memory.lock().unwrap().remember(&user, rev, role);
++
++    let updated: Vec<Uuid> = ctrl
++        .sessions
++        .lock()
++        .unwrap()
++        .values_mut()
++        .filter(|s| s.username == user)
++        .filter_map(|s| update_role(s, rev, role).then_some(s.uid))
++        .collect();
++    info!(
++        "\"{user}\" is now {role:?} (rev {rev}): {} sessions",
++        updated.len()
++    );
++
++    // The image goes on; only the inputs change.
++    for uid in &updated {
++        apply_input_rights(&ctrl, uid).await;
++    }
++
++    HttpResponse::Ok().json(serde_json::json!({ "sessions": updated.len() }))
++}
++
++#[derive(Deserialize)]
++struct CloseRequest {
++    user: String,
++    ban_seconds: Option<u64>,
++}
++
++/// `POST /kybernow/close`: closes every session of a guest now, and refuses
++/// its logins and renewals for a while.
++#[post("/close")]
++pub(crate) async fn post_close(
++    ctrl: web::Data<Controller>,
++    req: HttpRequest,
++    body: web::Bytes,
++) -> HttpResponse {
++    let CloseRequest { user, ban_seconds } = match admin_request(&req, &body) {
++        Ok(request) => request,
++        Err(refusal) => return refusal,
++    };
++    let ban = Duration::from_secs(
++        ban_seconds
++            .unwrap_or(DEFAULT_BAN_SECONDS)
++            .min(MAX_BAN_SECONDS),
++    );
++
++    // Banned first: a login running now is refused, or closed below.
++    ctrl.share_memory.lock().unwrap().ban(&user, ban);
++
++    // The input servers go first: what the guest holds is released (every
++    // right withdrawn, answered once done) before they stop.
++    let services: Vec<_> = ctrl
++        .sessions
++        .lock()
++        .unwrap()
++        .values()
++        .filter(|s| s.username == user)
++        .map(|s| s.services.clone())
++        .collect();
++    for services in services {
++        let input = services.lock().await.input.take();
++        if let Some(mut input) = input {
++            if let Err(err) = input.set_rights(InputRights::NONE).await {
++                warn!("Failed to release the inputs of \"{user}\": {err:?}");
++            }
++            if let Err(err) = input.stop().await {
++                warn!("Failed to stop the input server of \"{user}\": {err:?}");
++            }
++        }
++    }
++
++    // Then as an expired session: image and sound released (their encoder
++    // stops with its last viewer), control and data planes dropped.
++    let mut closed = 0;
++    ctrl.remove_sessions_if(
++        |s| {
++            let matches = s.username == user;
++            closed += usize::from(matches);
++            matches
++        },
++        SessionEndReason::UserLogout,
++    )
++    .await;
++    info!("Closed {closed} sessions of \"{user}\", banned for {ban:?}");
++
++    HttpResponse::Ok().json(serde_json::json!({ "closed": closed }))
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn session(user: &str, share: Option<GuestShare>) -> ClientSession {
++        ClientSession::new(
++            Uuid::new_v4(),
++            auth::Session {
++                username: user.to_owned(),
++                sub: Some(user.to_owned()),
++                expiration: None,
++                share,
++                admin: false,
++            },
++        )
++    }
++
++    fn guest(role: ShareRole, rev: u64) -> Option<GuestShare> {
++        Some(GuestShare {
++            role,
++            display: 7,
++            rev,
++        })
++    }
++
++    #[test]
++    fn roles_give_their_rights() {
++        assert_eq!(role_rights(ShareRole::Spectator), InputRights::NONE);
++        assert_eq!(
++            role_rights(ShareRole::Player),
++            InputRights {
++                keyboard_mouse: false,
++                gamepads: true,
++                clipboard: false,
++            }
++        );
++        assert_eq!(
++            role_rights(ShareRole::PlayerKbm),
++            InputRights {
++                keyboard_mouse: true,
++                gamepads: true,
++                clipboard: false,
++            }
++        );
++        assert_eq!(input_rights(None), None);
++    }
++
++    #[test]
++    fn a_guest_only_sees_its_display() {
++        let share = guest(ShareRole::Spectator, 0);
++        assert!(shows(share.as_ref(), 7));
++        assert!(!shows(share.as_ref(), 8));
++        assert!(shows(None, 8));
++    }
++
++    #[test]
++    fn only_a_newer_revision_changes_the_role() {
++        let mut s = session("kn-guest-1", guest(ShareRole::Player, 3));
++        assert!(!update_role(&mut s, 3, ShareRole::PlayerKbm));
++        assert!(!update_role(&mut s, 2, ShareRole::PlayerKbm));
++        assert!(update_role(&mut s, 4, ShareRole::Spectator));
++        assert_eq!(s.share, guest(ShareRole::Spectator, 4));
++
++        let mut host = session("matthieu", None);
++        assert!(!update_role(&mut host, 9, ShareRole::Spectator));
++        assert_eq!(host.share, None);
++    }
++
++    #[test]
++    fn a_pushed_role_wins_over_an_older_token_at_login() {
++        let mut memory = ShareMemory::default();
++        memory.remember("kn-guest-1", 5, ShareRole::Spectator);
++        memory.remember("kn-guest-1", 4, ShareRole::PlayerKbm);
++
++        let mut old_token = session("kn-guest-1", guest(ShareRole::PlayerKbm, 4));
++        assert!(memory.admit(&mut old_token));
++        assert_eq!(old_token.share, guest(ShareRole::Spectator, 5));
++
++        let mut newer_token = session("kn-guest-1", guest(ShareRole::Player, 6));
++        assert!(memory.admit(&mut newer_token));
++        assert_eq!(newer_token.share, guest(ShareRole::Player, 6));
++
++        let mut host = session("kn-guest-1", None);
++        assert!(memory.admit(&mut host));
++        assert_eq!(host.share, None);
++    }
++
++    #[test]
++    fn a_closed_user_is_refused_until_its_ban_ends() {
++        let mut memory = ShareMemory::default();
++        memory.ban("kn-guest-1", Duration::from_secs(60));
++        assert!(!memory.admit(&mut session("kn-guest-1", guest(ShareRole::Player, 1))));
++        assert!(memory.admit(&mut session("kn-guest-2", guest(ShareRole::Player, 1))));
++
++        memory.ban("kn-guest-1", Duration::ZERO);
++        assert!(!memory.is_banned("kn-guest-1"));
++        assert!(memory.bans.is_empty());
++    }
++
++    #[test]
++    fn the_memory_forgets_stale_roles() {
++        let mut memory = ShareMemory::default();
++        memory.remember("kn-guest-1", 1, ShareRole::Player);
++        let later = Instant::now() + ROLE_MEMORY + Duration::from_secs(1);
++        memory.prune(later);
++        assert!(memory.roles.is_empty());
++    }
++
++    #[test]
++    fn only_this_computer_reaches_the_admin_routes() {
++        use actix_web::test::TestRequest;
++
++        let from = |peer: &str| {
++            TestRequest::default()
++                .peer_addr(peer.parse().unwrap())
++                .to_http_request()
++        };
++        assert!(from_loopback(&from("127.0.0.1:5000")));
++        assert!(from_loopback(&from("[::1]:5000")));
++        assert!(from_loopback(&from("[::ffff:127.0.0.1]:5000")));
++        assert!(!from_loopback(&from("192.168.1.20:5000")));
++        assert!(!from_loopback(&from("[::ffff:192.168.1.20]:5000")));
++
++        let refusal = admin_refusal(&from("192.168.1.20:5000"));
++        assert_eq!(
++            refusal.map(|r| r.status()),
++            Some(actix_web::http::StatusCode::FORBIDDEN)
++        );
++    }
++
++    #[cfg(feature = "auth-jwt")]
++    #[test]
++    fn the_admin_routes_need_the_admin_token() {
++        use actix_web::http::StatusCode;
++        use actix_web::test::TestRequest;
++        use jsonwebtoken::{EncodingKey, Header, encode};
++
++        static AUTH: std::sync::Once = std::sync::Once::new();
++        AUTH.call_once(|| {
++            actix_web::rt::System::new()
++                .block_on(auth::init(&auth::Config::default()))
++                .unwrap();
++        });
++
++        let token = |claims: serde_json::Value| {
++            let mut claims = claims;
++            claims["aud"] = "kyber".into();
++            claims["exp"] = (time::OffsetDateTime::now_utc().unix_timestamp() + 60).into();
++            encode(
++                &Header::default(),
++                &claims,
++                &EncodingKey::from_secret(b"kyber-authentication-development-key"),
++            )
++            .unwrap()
++        };
++        let status = |authorization: Option<String>| {
++            let mut req = TestRequest::default().peer_addr("127.0.0.1:5000".parse().unwrap());
++            if let Some(authorization) = authorization {
++                req = req.insert_header((header::AUTHORIZATION, authorization));
++            }
++            admin_refusal(&req.to_http_request()).map(|r| r.status())
++        };
++
++        let admin = token(serde_json::json!({"sub": "kybernow-admin", "kn_admin": true}));
++        assert_eq!(status(Some(format!("Bearer {admin}"))), None);
++
++        let guest = token(serde_json::json!({
++            "sub": "kn-guest-1",
++            "kn_role": "player",
++            "kn_display": 1,
++        }));
++        assert_eq!(
++            status(Some(format!("Bearer {guest}"))),
++            Some(StatusCode::UNAUTHORIZED)
++        );
++        assert_eq!(status(None), Some(StatusCode::UNAUTHORIZED));
++    }
++}
+diff --git a/kycontroller/src/kymux_controller/mod.rs b/kycontroller/src/kymux_controller/mod.rs
+index ecdf310..0bd8416 100644
+--- a/kycontroller/src/kymux_controller/mod.rs
++++ b/kycontroller/src/kymux_controller/mod.rs
+@@ -595,6 +595,7 @@ async fn start_input(
+     request: &requests::StartRequest,
+     transport: &KyTransport,
+     host_config: kynputservice_types::HostConfig,
++    rights: Option<kynputservice_types::InputRights>,
+ ) -> Result<Option<StartSessionInputResponse>> {
+     let Some(inputs_request) = &request.inputs else {
+         warn!("Input server disabled");
+@@ -621,10 +622,14 @@ async fn start_input(
+         info!("Start Inputservice.");
+     }
+ 
++    // KyberNow: a share guest gets its role's rights, never the clipboard.
++    // A spectator's input server still starts: nothing it sends reaches the
++    // computer, the pointer reaches it, and a role change needs no restart.
+     let service_config = kynputservice_types::ServiceConfig {
+         cursor_format: inputs_request.cursor_format.convert(),
+         gamepad_force_xbox360: inputs_request.gamepad_force_xbox360,
+-        clipboard: inputs_request.clipboard,
++        clipboard: inputs_request.clipboard && rights.is_none(),
++        rights,
+     };
+ 
+     let (inputservice, response) =
+@@ -641,6 +646,7 @@ async fn start_input(
+         endpoint: endpoint_id,
+         clipboard,
+         connection_tx,
++        rights,
+     }))
+ }
+ 
+@@ -671,6 +677,8 @@ pub(crate) struct StartSessionInputResponse {
+     endpoint: Option<u16>,
+     clipboard: bool,
+     connection_tx: Option<oneshot::Sender<io::Result<kywebsocket::Connection>>>,
++    /// KyberNow: the rights the input server started with.
++    rights: Option<kynputservice_types::InputRights>,
+ }
+ 
+ pub(crate) struct StartSessionClockSyncResponse {
+@@ -791,11 +799,16 @@ async fn start_session(
+ 
+     // Input still uses register_and_forward (1:1, not shared via kydup)
+     let display_list = ctrl.displays.lock().unwrap().convert();
++    // KyberNow: a share guest's input rights, from its role.
++    let rights = ctrl.with_session(&session_id, |s| {
++        Ok(crate::kybernow::input_rights(s.share.as_ref()))
++    })?;
+     let mut input = start_input(
+         ctrl,
+         &request,
+         &transport,
+         kynputservice_types::HostConfig { display_list },
++        rights,
+     )
+     .await?;
+ 
+diff --git a/kycontroller/src/kymux_controller/requests.rs b/kycontroller/src/kymux_controller/requests.rs
+index 5abb6d8..e67f890 100644
+--- a/kycontroller/src/kymux_controller/requests.rs
++++ b/kycontroller/src/kymux_controller/requests.rs
+@@ -83,6 +83,15 @@ pub(crate) async fn start_session(
+         }
+     }
+ 
++    // KyberNow: a share guest only streams its display.
++    if let Some(display) = crate::kybernow::guest_display(&ctrl, &session_id)
++        && let Some(video_request) = request.video.as_ref()
++        && video_request.iter().any(|v| v.display_id != display)
++    {
++        warn!("Share guest restricted to display {display}");
++        return HttpResponse::Forbidden().finish();
++    }
++
+     // Start session
+     let ret = super::start_session(&ctrl, session_id, request.into_inner()).await;
+     match ret {
+@@ -128,6 +137,7 @@ pub(crate) async fn start_session(
+ 
+             let input = if let Some(input) = response.input {
+                 services.input = Some(input.inputservice);
++                services.input_rights = input.rights;
+ 
+                 Some(StartSessionInputResponse {
+                     endpoint: input.endpoint,
+@@ -164,6 +174,8 @@ pub(crate) async fn start_session(
+                 return HttpResponse::InternalServerError().finish();
+             };
+             *session_services.lock().await = services;
++            // KyberNow: a role changed while the services started applies now.
++            crate::kybernow::apply_input_rights(&ctrl, &session_id).await;
+ 
+             HttpResponse::Ok().json(StartSessionResponse {
+                 session_id: Some(numeric_session_id),
+diff --git a/kycontroller/src/main.rs b/kycontroller/src/main.rs
+index f5df758..ae3a67c 100644
+--- a/kycontroller/src/main.rs
++++ b/kycontroller/src/main.rs
+@@ -49,6 +49,7 @@ mod host_events;
+ mod inputservice;
+ #[cfg(feature = "kyhub")]
+ mod kyber_agent;
++mod kybernow;
+ pub(crate) mod kydup;
+ mod kymux_controller;
+ mod rtp;
+@@ -177,6 +178,12 @@ async fn login(
+         }
+     };
+ 
++    // KyberNow: KyberNow Admin's own token only opens the /kybernow routes.
++    if auth_session.admin {
++        warn!("Refusing login with KyberNow Admin's token");
++        return HttpResponse::Unauthorized().finish();
++    }
++
+     if ctrl.config.session_mode() == config::SessionMode::Mono
+         && !ctrl.sessions.lock().unwrap().is_empty()
+     {
+@@ -195,7 +202,10 @@ async fn login(
+         websocket: client_session.auth_tokens.websocket.clone(),
+     };
+ 
+-    ctrl.insert_session(client_session);
++    // KyberNow: refused while the user is banned by /kybernow/close.
++    if !ctrl.insert_session(client_session) {
++        return HttpResponse::Unauthorized().finish();
++    }
+ 
+     HttpResponse::Ok().json(body)
+ }
+@@ -268,27 +278,66 @@ async fn renew(
+         return HttpResponse::Unauthorized().finish();
+     };
+ 
+-    let Ok(uid) = user.uid() else {
++    // KyberNow: never KyberNow Admin's own token, nor a closed user.
++    if auth_session.admin
++        || ctrl
++            .share_memory
++            .lock()
++            .unwrap()
++            .is_banned(&auth_session.username)
++    {
++        warn!("Refusing renewal for \"{}\"", auth_session.username);
+         return HttpResponse::Unauthorized().finish();
+-    };
++    }
+ 
+-    let mut sessions = ctrl.sessions.lock().unwrap();
+-    let Some(session) = sessions.get_mut(&uid) else {
+-        warn!("Session destroyed during renewal");
+-        user.logout();
++    let Ok(uid) = user.uid() else {
+         return HttpResponse::Unauthorized().finish();
+     };
+ 
+-    // Prevent credential swapping: username must match existing session
+-    if session.username != auth_session.username {
+-        warn!("Credentials and renewed session mismatch");
+-        return HttpResponse::Unauthorized().finish();
+-    }
++    // KyberNow: scoped, so that a new role reaches the inputs after.
++    let role_changed = {
++        let mut sessions = ctrl.sessions.lock().unwrap();
++        let Some(session) = sessions.get_mut(&uid) else {
++            warn!("Session destroyed during renewal");
++            user.logout();
++            return HttpResponse::Unauthorized().finish();
++        };
+ 
+-    let Ok(_) = user.renew(exp) else {
+-        return HttpResponse::Unauthorized().finish();
++        // Prevent credential swapping: username must match existing session
++        if session.username != auth_session.username {
++            warn!("Credentials and renewed session mismatch");
++            return HttpResponse::Unauthorized().finish();
++        }
++
++        // KyberNow: a guest stays a guest (on its display), and only takes
++        // the role of a token with a newer revision: a token still valid
++        // never gives back a withdrawn right.
++        let role_changed = match (&session.share, &auth_session.share) {
++            (None, None) => false,
++            (Some(_), Some(renewed)) => {
++                ctrl.share_memory.lock().unwrap().remember(
++                    &session.username,
++                    renewed.rev,
++                    renewed.role,
++                );
++                kybernow::update_role(session, renewed.rev, renewed.role)
++            }
++            _ => {
++                warn!("Share guest and host credentials mismatch");
++                return HttpResponse::Unauthorized().finish();
++            }
++        };
++
++        let Ok(_) = user.renew(exp) else {
++            return HttpResponse::Unauthorized().finish();
++        };
++        session.expiration = Some(exp);
++        role_changed
+     };
+-    session.expiration = Some(exp);
++
++    if role_changed {
++        kybernow::apply_input_rights(&ctrl, &uid).await;
++    }
+ 
+     HttpResponse::Ok().finish()
+ }
+@@ -313,7 +362,7 @@ fn validate_websocket_token(
+     ctrl: &web::Data<Controller>,
+     token: &str,
+ ) -> Option<(uuid::Uuid, Vec<host_events::Display>)> {
+-    let displays = ctrl.displays.lock().unwrap().convert();
++    let mut displays: Vec<host_events::Display> = ctrl.displays.lock().unwrap().convert();
+ 
+     let mut sessions = ctrl.sessions.lock().unwrap();
+     let (session_id, client_session) = sessions.iter_mut().find(|(_, session)| {
+@@ -322,6 +371,8 @@ fn validate_websocket_token(
+ 
+     let session_id = *session_id;
+     client_session.auth_tokens.websocket.clear();
++    // KyberNow: a share guest only sees its display.
++    displays.retain(|d| kybernow::shows(client_session.share.as_ref(), d.id));
+     info!(
+         "Websocket token validated and consumed for session {}",
+         session_id
+@@ -454,9 +505,18 @@ async fn websocket_service(
+     http_response
+ }
+ 
++/// KyberNow: a share guest's session cookie (optional, nothing changes
++/// without it) only lists its display.
+ #[get("/enumerate_displays")]
+-async fn enumerate_displays(ctrl: web::Data<Controller>) -> HttpResponse {
+-    HttpResponse::Ok().json(ctrl.displays.lock().unwrap().clone())
++async fn enumerate_displays(ctrl: web::Data<Controller>, user: Option<Identity>) -> HttpResponse {
++    let mut displays = ctrl.displays.lock().unwrap().clone();
++    if let Some(display) = user
++        .and_then(|user| user.uid().ok())
++        .and_then(|uid| kybernow::guest_display(&ctrl, &uid))
++    {
++        displays.retain(|d| d.id == display);
++    }
++    HttpResponse::Ok().json(displays)
+ }
+ 
+ #[post("/stop_streaming")]
+@@ -514,6 +574,12 @@ pub(crate) async fn set_bitrate(
+         return HttpResponse::Unauthorized().finish();
+     };
+ 
++    // KyberNow: the shared image stays the host's to tune.
++    if kybernow::is_guest(&ctrl, &uid) {
++        warn!("Bitrate change refused to a share guest");
++        return HttpResponse::Forbidden().finish();
++    }
++
+     // Split the global bitrate evenly across `count` streams and cast to the
+     // signed type the encoder expects. `count` is assumed non-zero; the call
+     // sites guard against an empty stream set first.
+@@ -611,6 +677,13 @@ pub(crate) async fn force_idr(ctrl: web::Data<Controller>, user: Identity) -> Ht
+         return HttpResponse::Unauthorized().finish();
+     };
+ 
++    // KyberNow: a share guest's keyframes would weigh on every viewer of the
++    // shared image; it gets one when it joins and when it lags (kydup).
++    if kybernow::is_guest(&ctrl, &uid) {
++        debug!("Keyframe request from a share guest ignored");
++        return HttpResponse::Ok().finish();
++    }
++
+     // Checked and recorded under the sessions lock: of two concurrent
+     // requests, only one gets through.
+     let now = Instant::now();
+@@ -849,6 +922,13 @@ async fn real_main(config: config::Config) -> Result<()> {
+                         .service(renew)
+                         .service(logout),
+                 )
++                // KyberNow: KyberNow Admin's routes (KyberNow Share)
++                .service(
++                    web::scope("/kybernow")
++                        .service(kybernow::get_sessions)
++                        .service(kybernow::post_role)
++                        .service(kybernow::post_close),
++                )
+                 .service(capabilities)
+                 .service(websocket_service)
+                 .service(enumerate_displays)
+diff --git a/kycontroller/src/rtp/mod.rs b/kycontroller/src/rtp/mod.rs
+index 2859133..e0bcb6e 100644
+--- a/kycontroller/src/rtp/mod.rs
++++ b/kycontroller/src/rtp/mod.rs
+@@ -99,6 +99,8 @@ pub async fn start(
+             cursor_format: inputs_request.cursor_format.convert(),
+             gamepad_force_xbox360: inputs_request.gamepad_force_xbox360,
+             clipboard: inputs_request.clipboard,
++            // KyberNow: never a share guest (refused in `requests::start`).
++            rights: None,
+         };
+ 
+         let (inputservice, _) =
+@@ -129,6 +131,7 @@ pub async fn start(
+         tasks: Vec::new(),
+         video_subscriptions: Vec::new(),
+         audio_subscription: None,
++        input_rights: None,
+     };
+ 
+     time::sleep(Duration::from_millis(100)).await;
+diff --git a/kycontroller/src/rtp/requests.rs b/kycontroller/src/rtp/requests.rs
+index 38a578f..8974738 100644
+--- a/kycontroller/src/rtp/requests.rs
++++ b/kycontroller/src/rtp/requests.rs
+@@ -103,6 +103,12 @@ async fn start(
+         return HttpResponse::Conflict().json("RTP backend unavailable in multi-client mode");
+     }
+ 
++    // KyberNow: RTP enforces neither a share guest's display nor its rights.
++    if crate::kybernow::is_guest(&ctrl, &session_id) {
++        warn!("RTP refused to a share guest");
++        return HttpResponse::Forbidden().finish();
++    }
++
+     // Check request validity
+     if let Some(video_request) = request.video.as_ref()
+         && !ctrl.display_known(video_request.display_id)
+diff --git a/kycontroller/src/statemachine.rs b/kycontroller/src/statemachine.rs
+index 484dd8e..5a4d750 100644
+--- a/kycontroller/src/statemachine.rs
++++ b/kycontroller/src/statemachine.rs
+@@ -151,9 +151,11 @@ impl StateMachine {
+                     // Broadcast display list to all sessions
+                     ctrl.for_each_session(|session| {
+                         if let Some(s) = &session.session {
+-                            s.host_event_sender.send(HostEvent::DisplayList {
+-                                displays: displays.convert(),
+-                            });
++                            // KyberNow: a share guest only sees its display.
++                            let mut list: Vec<host_events::Display> = displays.convert();
++                            list.retain(|d| crate::kybernow::shows(session.share.as_ref(), d.id));
++                            s.host_event_sender
++                                .send(HostEvent::DisplayList { displays: list });
+                         }
+                     });
+ 

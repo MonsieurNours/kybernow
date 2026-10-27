@@ -69,6 +69,11 @@ export function mode(m: { width: number; height: number; refresh: number } | nul
   return m ? t('format.mode', m) : ''
 }
 
+/** « Écran 1 — 3840 × 2160 » : un écran du PC à partager (le libellé vient d'Admin, déjà traduit). */
+export function screenLine(d: { label: string; width: number; height: number }): string {
+  return t('share.display', { label: d.label, width: d.width, height: d.height })
+}
+
 export function deviceIcon(kind: string): string {
   return ['mac', 'tv', 'phone', 'tablet', 'browser'].includes(kind) ? kind : 'other'
 }

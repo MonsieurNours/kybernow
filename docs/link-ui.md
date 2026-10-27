@@ -96,6 +96,28 @@ Un partage ouvert se voit dans la barre (pastille « 2 invités » / “2 guests
 
 **Le PC lui-même** (KyberNow Station : menu de l'icône près de l'horloge, et accueil d'Admin) : « Partager un écran… » / “Share a screen…”, puis le choix de l'écran (« Écran 1 — 3840 × 2160 », l'écran principal d'abord) ; le même panneau (code, lien, invités, actions), titré « Partage de l'écran 1 » / “Sharing display 1”. Le PC reste utilisable normalement ; aucun écran virtuel, aucun écran éteint.
 
+**Refus de la Station** (Admin, icône, et `error` des routes de l'hôte) : « {nom} est en session : le partage se lance depuis cet appareil. » / “{name} is in a session: share from that device.” ; « Une connexion est en cours sur cet ordinateur : partagez un écran une fois qu'elle est finie. » / “A connection is in progress on this computer: share a screen once it has ended.” ; « Cet écran n'est plus branché. » / “This display is no longer connected.” ; « Cet invité n'est plus dans le partage. » / “This guest is no longer in the share.” ; « Seul l'appareil en session peut partager cet ordinateur. » / “Only the device in a session can share this computer.” ; « Aucun partage en cours. » / “No share in progress.” ; redémarrage ou mise à jour pendant un partage : « Un partage est en cours avec {prénoms} : le redémarrage l'arrêtera » / “A share is in progress with {names}: restarting will stop it” (« l'installation l'arrêtera » / “installing will stop it”).
+
+**Panneau de la Station** (Admin : accueil et Appareils Link ; panneau de l'icône), en plus des textes ci-dessus :
+
+| Élément | Français | English |
+|---|---|---|
+| Aide de la carte (Admin) | « Montrez un écran de cet ordinateur à quelqu'un sur votre réseau : il le voit, entend le son, et peut jouer si vous le laissez. Vous continuez d'utiliser l'ordinateur normalement. » | “Show one of this computer's screens to someone on your network: they see it, hear the sound, and can play if you let them. You keep using the computer as usual.” |
+| Choix de l'écran | « Choisissez l'écran à partager. » ; « Recherche des écrans… » ; « Annuler » | “Choose the screen to share.”; “Looking for screens…”; “Cancel” |
+| Partage d'un appareil | « Ouvert depuis la session de {nom}. » | “Opened from {name}'s session.” |
+| Code, QR code | « Code » ; « QR code du partage » (libellé accessible) | “Code”; “QR code for the share” |
+| Lien copié | « Lien copié. » ; « Copie impossible : sélectionnez le lien à la main. » | “Link copied.”; “Could not copy: select the link by hand.” |
+| Liste | « Invités », « Participants » quand l'hôte y figure ; « {nom} · Hôte » ; « depuis {durée} » | “Guests”, “Participants”; “{name} · Host”; “for {duration}” |
+| Revenir spectateur | « Faire regarder » | “Watch only” |
+| Arrêté | « Partage arrêté. » | “Sharing stopped.” |
+| En-tête d'Admin, haut du panneau | « Partage en cours · {n} invités » ; « Partage en cours » | “Sharing · {n} guests”; “Sharing” |
+| App d'un invité | Mac, Windows, Linux, « iPhone ou iPad », Apple TV, Android, « Téléviseur LG », « Navigateur » | Mac, Windows, Linux, “iPhone or iPad”, Apple TV, Android, “LG TV”, “Browser” |
+| Icône, ligne d'état | « Partage de l'écran {n} · {n} invités » | “Sharing display {n} · {n} guests” |
+| Icône, confirmations | « Un partage est en cours avec {prénoms} : arrêter la Station le coupera. Arrêter la Station ? » ; « … : le redémarrage l'arrêtera. Redémarrer la Station ? » ; en quittant : « Un partage est en cours avec {prénoms}. La Station peut rester en marche : le partage continue, et vous pourrez rouvrir l'icône depuis le menu Démarrer. » | “A share is in progress with {names}: stopping the Station will end it. Stop the Station?”; “… restarting will stop it. Restart the Station?”; “A share is in progress with {names}. The Station can keep running: the share goes on, and you can reopen the tray icon from the Start menu.” |
+| Icône, échec | « Admin n'a pas pu changer le partage ({erreur}). » | “Admin could not change the share ({error}).” |
+
+« Copier le lien » copie l'adresse du client web (`web`) ; le QR code porte le lien des apps (`link`, `kybernow://join…`).
+
 **L'invité** :
 
 | Élément | Français | English |
@@ -107,14 +129,17 @@ Un partage ouvert se voit dans la barre (pastille « 2 invités » / “2 guests
 | Complet | « Ce partage est complet (quatre invités au plus). » | “This share is full (four guests at most).” |
 | Trop d'essais (10 par minute) | « Trop d'essais de code : réessayez dans une minute. » | “Too many code attempts: try again in a minute.” |
 | Format illisible | « Cet appareil ne lit pas l'image de cet ordinateur ({format}). » | “This device cannot play this computer's picture ({format}).” |
+| Partage indisponible (la Station ne peut pas signer le jeton de Kyber, passager) | « Le partage n'est pas disponible pour le moment : réessayez dans un instant. » | “Sharing is not available right now: try again in a moment.” |
 | Connexion | les étapes de la connexion, titrées « Invité sur {nom} » | “Guest on {name}” |
 | Barre (réduite) | « Spectateur » ou « Joueur » ; « Quitter le partage » ; la manette, le clavier et la souris s'ils sont donnés ; ni profil ni réglages | “Spectator” or “Player”; “Leave”; |
-| Droits changés | « Vous pouvez jouer. » ; « Vous avez le clavier et la souris. » ; « Le clavier et la souris sont repris. » (avis bref) | “You can play.”; “You have the keyboard and mouse.”; “The keyboard and mouse were taken back.” |
+| Droits changés | « Vous pouvez jouer. » ; « Vous avez le clavier et la souris. » ; « Le clavier et la souris sont repris. » ; rendu spectateur : « Vous regardez de nouveau. » (avis bref) | “You can play.”; “You have the keyboard and mouse.”; “The keyboard and mouse were taken back.”; “You are watching again.” |
 | Fin | « {hôte} a arrêté le partage. » ; « {hôte} vous a retiré du partage. » ; sinon la raison d'un échec ; jamais « Reprendre la main » | “{host} stopped sharing.”; “{host} removed you from the share.” |
 
 {hôte} est le prénom de l'hôte (le nom de l'appareil de l'hôte), ou le nom de l'ordinateur pour un partage lancé depuis le PC. Un invité n'est pas ajouté aux ordinateurs de l'appareil.
 
-**Fil d'Admin** : « {prénom} regarde votre écran » / “{name} is watching your screen” ; « {prénom} joue avec vous » / “{name} is playing with you” ; « {prénom} a quitté le partage » / “{name} left the share”.
+**Client web** (navigateur) : le lien du partage (`https://<adresse>:<port>/link/?join=123456`, « Copier le lien » de l'hôte) ouvre « Rejoindre un partage » **sans le mot de passe d'Admin**, avec le code déjà rempli (« 123 456 ») et le prénom proposé (« Chrome sur Mac », retenu pour la fois suivante) ; il faut cliquer « Rejoindre » (jamais de connexion toute seule). « Rejoindre avec un code » est aussi sur l'écran du mot de passe d'Admin et sur l'accueil du client web (à côté de « Réglages »), avec « Annuler » pour revenir ; le code se tape en six chiffres, groupés par trois à mesure. Le navigateur n'a qu'un ordinateur, celui qui sert la page : le code va à lui seul, sans recherche sur le réseau. Le format de l'image se vérifie une fois la Station répondue (le moteur de Kyber ne se charge qu'avec le cookie de l'invité) : si ce navigateur ne le lit pas, il sort aussitôt du partage et le dit. Fin du partage : la carte de fin (« Session terminée », le texte de fin) n'a qu'un bouton, « Rejoindre avec un code » ; pas de « Se reconnecter ». Barre d'un invité : latence et statistiques, son, plein écran, « Spectateur » ou « Joueur », « Quitter le partage » ; avec « le clavier et la souris » : le mode de la souris et le menu « Touches » (en tactile : pavé, toucher direct, clavier) ; la puce des manettes seulement en joueur. Pas de profil, de réglages ni de presse-papiers.
+
+**Fil d'Admin** : « {hôte} partage l'écran {n} » / “{host} is sharing display {n}” ; « {prénom} regarde votre écran » / “{name} is watching your screen” (en arrivant, ou rendu spectateur) ; « {prénom} joue avec vous » / “{name} is playing with you” ; « {prénom} a quitté le partage » / “{name} left the share” (parti, retiré, ou sans nouvelles) ; « Partage arrêté » / “Sharing stopped”.
 
 ## Réglages de l'ordinateur
 

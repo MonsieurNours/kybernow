@@ -48,21 +48,29 @@
 
   const status = $derived(app.status)
   const live = $derived(status?.activity?.live ?? null)
+  // Partage ouvert (KyberNow Share) et ses invités : l'ordinateur est occupé dès qu'un invité est là.
+  const share = $derived(status?.share ?? null)
+  const guests = $derived(share?.guests.length ?? 0)
+  const busy = $derived(!!live || guests > 0)
   const serviceState = $derived(status?.service.state)
   const hostLine = $derived(
     !status
       ? ''
       : serviceState === 'running'
-        ? live
-          ? t('app.host.inSessionWith', { name: live.name })
-          : t('app.host.ready')
+        ? guests
+          ? t('app.host.sharing', { guests: tn('share.guests', guests) })
+          : live
+            ? t('app.host.inSessionWith', { name: live.name })
+            : share
+              ? t('app.host.sharingAlone')
+              : t('app.host.ready')
         : serviceState === 'starting'
           ? t('app.host.starting')
           : serviceState === 'stopped'
             ? t('app.host.stopped')
             : t('app.host.missing'),
   )
-  const hostDot = $derived(serviceState === 'running' ? (live ? 'live' : 'ok') : serviceState === 'starting' ? 'warn' : 'bad')
+  const hostDot = $derived(serviceState === 'running' ? (busy ? 'live' : 'ok') : serviceState === 'starting' ? 'warn' : 'bad')
   const updateBadge = $derived(status?.update_available?.split('.').slice(0, 2).join('.') ?? null)
   // Un appareil demande l'accès par code (Apple TV) : signalé partout.
   const pairRequests = $derived(status?.pair_requests ?? [])
@@ -148,7 +156,7 @@
   <div class="shell">
     <aside>
       <div class="brand">
-        <Mark product="admin" size={26} lit={!!live} breathe={!!live} />
+        <Mark product="admin" size={26} lit={busy} breathe={busy} />
       </div>
 
       <div class="host">
@@ -178,9 +186,9 @@
     </aside>
 
     <header class="mobile-top">
-      <Mark size={22} lit={!!live} />
+      <Mark size={22} lit={busy} />
       <span class="name">{status?.hostname ?? ''}</span>
-      <span class="state"><span class="dot {hostDot}"></span>{serviceState === 'running' ? (live ? t('app.host.inSession') : t('app.host.running')) : hostLine}</span>
+      <span class="state"><span class="dot {hostDot}"></span>{serviceState === 'running' ? (guests || (share && !live) ? t('app.host.sharingAlone') : live ? t('app.host.inSession') : t('app.host.running')) : hostLine}</span>
     </header>
 
     <main>

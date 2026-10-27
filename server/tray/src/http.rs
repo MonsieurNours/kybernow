@@ -6,9 +6,9 @@
 //! celui que le serveur présente à `console_fingerprint` de
 //! `C:\Program Files\KyberNow\kybernow.json` (écrit par `kyber-admin init`
 //! et par la console à chaque démarrage ; le dossier n'est modifiable que
-//! par les administrateurs). Les trois appels de l'icône tiennent dans une
-//! requête HTTP/1.1 par connexion (`Connection: close`) : le corps va jusqu'à
-//! la fermeture, sans découpage à décoder.
+//! par les administrateurs). Les appels de l'icône tiennent dans une requête
+//! HTTP/1.1 par connexion (`Connection: close`, un petit corps JSON pour
+//! celles du partage) : la réponse va jusqu'à la fermeture, sans découpage à décoder.
 
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpStream};
@@ -51,6 +51,11 @@ impl Client {
     /// Une requête sans corps vers `https://127.0.0.1:{port}{path}`, avec la
     /// langue de l'icône (`Accept-Language`) : la console y répond dans cette langue.
     pub fn call(&self, method: &str, port: u16, path: &str, headers: &[(&str, &str)], timeout: Duration) -> Result<Reply> {
+        self.send(method, port, path, headers, None, timeout)
+    }
+
+    /// [`Client::call`] avec un corps JSON (`body`), pour les actions du partage.
+    pub fn send(&self, method: &str, port: u16, path: &str, headers: &[(&str, &str)], body: Option<&[u8]>, timeout: Duration) -> Result<Reply> {
         let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
         let tcp = TcpStream::connect_timeout(&addr, timeout).with_context(|| t("tray.errors.consoleSilent", &[]))?;
         tcp.set_read_timeout(Some(timeout))?;
@@ -60,12 +65,18 @@ impl Client {
         let conn = rustls::ClientConnection::new(self.config.clone(), name).context("connexion TLS")?;
         let mut tls = rustls::StreamOwned::new(conn, tcp);
 
-        let mut request = format!("{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\nContent-Length: 0\r\nAccept-Language: {}\r\n", lang().code());
+        let length = body.map_or(0, <[u8]>::len);
+        let mut request = format!("{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\nContent-Length: {length}\r\nAccept-Language: {}\r\n", lang().code());
+        if body.is_some() {
+            request.push_str("Content-Type: application/json\r\n");
+        }
         for (name, value) in headers {
             request.push_str(&format!("{name}: {value}\r\n"));
         }
         request.push_str("\r\n");
-        tls.write_all(request.as_bytes()).with_context(|| t("tray.errors.sendFailed", &[]))?;
+        let mut bytes = request.into_bytes();
+        bytes.extend_from_slice(body.unwrap_or_default());
+        tls.write_all(&bytes).with_context(|| t("tray.errors.sendFailed", &[]))?;
 
         let mut raw = Vec::new();
         match tls.read_to_end(&mut raw) {
