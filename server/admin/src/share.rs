@@ -182,6 +182,18 @@ struct Open {
     guests: Vec<Guest>,
 }
 
+impl Open {
+    fn snapshot(&self) -> Snapshot {
+        Snapshot {
+            code: self.code.clone(),
+            origin: self.origin.clone(),
+            display: self.display.clone(),
+            opened_at: self.opened_at,
+            guests: self.guests.clone(),
+        }
+    }
+}
+
 #[derive(Default)]
 struct State {
     open: Option<Open>,
@@ -264,14 +276,7 @@ impl Share {
 
     /// Le partage ouvert, s'il y en a un.
     pub fn snapshot(&self) -> Option<Snapshot> {
-        let s = self.state.lock().unwrap();
-        s.open.as_ref().map(|o| Snapshot {
-            code: o.code.clone(),
-            origin: o.origin.clone(),
-            display: o.display.clone(),
-            opened_at: o.opened_at,
-            guests: o.guests.clone(),
-        })
+        self.state.lock().unwrap().open.as_ref().map(Open::snapshot)
     }
 
     pub fn is_open(&self) -> bool {
@@ -296,25 +301,26 @@ impl Share {
     /// Ouvre un partage, ou rend celui de la même origine déjà ouvert (son
     /// écran est alors celui donné). Faux en second : déjà ouvert.
     pub fn open(&self, origin: Origin, display: ShareDisplay) -> Result<(Snapshot, bool), OpenError> {
-        {
-            let mut s = self.state.lock().unwrap();
-            match s.open.as_mut() {
-                Some(o) if o.origin == origin => {
-                    // Des invités déjà là regardent l'écran du partage : il
-                    // ne change plus sous eux.
-                    if o.guests.is_empty() {
-                        o.display = display;
-                    }
+        // Ce qui est rendu est lu sous le même verrou : un « Arrêter » qui
+        // passerait entre les deux ne fait pas rendre un partage fermé.
+        let mut s = self.state.lock().unwrap();
+        match s.open.as_mut() {
+            Some(o) if o.origin == origin => {
+                // Des invités déjà là regardent l'écran du partage : il
+                // ne change plus sous eux.
+                if o.guests.is_empty() {
+                    o.display = display;
                 }
-                Some(_) => return Err(OpenError::Other),
-                None => {
-                    s.open = Some(Open { code: new_code(), origin, display, opened_at: now_secs(), guests: Vec::new() });
-                    drop(s);
-                    return Ok((self.snapshot().expect("ouvert"), true));
-                }
+                Ok((o.snapshot(), false))
+            }
+            Some(_) => Err(OpenError::Other),
+            None => {
+                let open = Open { code: new_code(), origin, display, opened_at: now_secs(), guests: Vec::new() };
+                let snapshot = open.snapshot();
+                s.open = Some(open);
+                Ok((snapshot, true))
             }
         }
-        Ok((self.snapshot().expect("ouvert"), false))
     }
 
     /// L'écran de l'hôte a changé (son écran virtuel recréé sous un autre
@@ -338,9 +344,12 @@ impl Share {
     /// Arrête le partage : rend les invités à couper (leur signe de vie
     /// suivant apprend « arrêté ») et ce qu'était le partage.
     pub fn close(&self) -> Option<Snapshot> {
-        let snapshot = self.snapshot()?;
+        // Les invités rendus (à couper de Kyber) sont exactement ceux que le
+        // partage avait en se fermant : un invité qui rejoint en même temps
+        // est l'un d'eux, ou trouve le partage fermé.
         let mut s = self.state.lock().unwrap();
         let open = s.open.take()?;
+        let snapshot = open.snapshot();
         let now = Instant::now();
         for g in open.guests {
             s.ended.insert(g.id.clone(), Ended { secret: g.secret, end: End::Stopped, role: g.role, at: now });
@@ -350,16 +359,14 @@ impl Share {
 
     /// Nouveau code ; les invités déjà là restent.
     pub fn renew_code(&self) -> Option<Snapshot> {
-        {
-            let mut s = self.state.lock().unwrap();
-            let open = s.open.as_mut()?;
-            let mut code = new_code();
-            while code == open.code {
-                code = new_code();
-            }
-            open.code = code;
+        let mut s = self.state.lock().unwrap();
+        let open = s.open.as_mut()?;
+        let mut code = new_code();
+        while code == open.code {
+            code = new_code();
         }
-        self.snapshot()
+        open.code = code;
+        Some(open.snapshot())
     }
 
     /// Change le rôle d'un invité. `None` : invité inconnu.
@@ -455,8 +462,8 @@ impl Share {
                 (g, true)
             }
         };
-        drop(s);
-        Ok(Joined { guest, snapshot: self.snapshot().expect("ouvert"), new })
+        // Lu sous le verrou : le partage ne se ferme pas sous l'invité.
+        Ok(Joined { guest, snapshot: open.snapshot(), new })
     }
 
     /// Signe de vie d'un invité. `None` : inconnu (jamais venu, parti, ou
@@ -720,5 +727,35 @@ mod tests {
         headers.insert(axum::http::header::COOKIE, format!("a=1; {GUEST_COOKIE}=abc").parse().unwrap());
         assert_eq!(guest_cookie(&headers).as_deref(), Some("abc"));
         assert!(set_cookie("abc", true).ends_with("; Secure"));
+    }
+
+    /// « Arrêter » pendant qu'un invité rejoint : l'invité accepté est dans ce
+    /// que rend `close` (il est coupé de Kyber), ou refusé ; jamais entre les
+    /// deux, et `join` ne tombe pas sur un partage fermé sous lui.
+    #[test]
+    fn arreter_pendant_qu_un_invite_rejoint() {
+        let share = std::sync::Arc::new(Share::new());
+        for round in 0..3000u32 {
+            let code = share.open(Origin::Local, display(1)).unwrap().0.code;
+            let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+            let joiner = {
+                let (share, barrier) = (share.clone(), barrier.clone());
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    // Une adresse par tour : la limite d'essais ne s'en mêle pas.
+                    let peer = IpAddr::from((round + 1).to_be_bytes());
+                    share.join(&code, "Léa", "ipad", "ios", peer, false)
+                })
+            };
+            barrier.wait();
+            let closed = share.close().expect("ouvert");
+            match joiner.join().expect("join ne panique pas") {
+                Ok(joined) => {
+                    assert!(closed.guests.iter().any(|g| g.id == joined.guest.id), "tour {round} : invité accepté mais pas coupé");
+                    assert!(joined.snapshot.guests.iter().any(|g| g.id == joined.guest.id));
+                }
+                Err(e) => assert_eq!(e, JoinError::NoShare),
+            }
+        }
     }
 }
