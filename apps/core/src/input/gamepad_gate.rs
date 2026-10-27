@@ -243,6 +243,20 @@ mod tests {
     }
 
     #[test]
+    fn manettes_retenues_d_un_invite() {
+        // KyberNow Share : manettes retenues (spectateur), comme une manette
+        // prise, mais sans navigation dans la barre.
+        let (gate, combo) = setup();
+        let f = gate.filter(button(0, PadButton::DpadLeft, true).0, &combo, true);
+        assert!(!f.pass && f.navigate.is_none(), "appui retenu, pas de navigation");
+        assert!(gate.filter(button(0, PadButton::DpadLeft, false).0, &combo, true).pass, "relâchement transmis");
+        assert!(!gate.filter(axis(0, PadAxis::LeftX, 12_000).0, &combo, true).pass);
+        assert!(gate.filter(axis(0, PadAxis::LeftX, 0).0, &combo, true).pass, "retour au repos transmis");
+        // Rendues : tout repasse.
+        assert!(gate.filter(button(0, PadButton::A, true).0, &combo, false).pass);
+    }
+
+    #[test]
     fn combinaison_vue_par_le_portier() {
         let (gate, combo) = setup();
         for b in COMBO {

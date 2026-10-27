@@ -1357,6 +1357,97 @@ mod tests {
         }
     }
 
+    /// KyberNow Share : la chaîne d'un invité ne laisse partir que ses droits.
+    #[test]
+    fn droits_d_un_invite() {
+        use crate::share::ShareRole;
+        use std::sync::atomic::AtomicUsize;
+        struct Announces(AtomicUsize);
+        impl InputPlatform for Announces {
+            fn connected(&self) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+        let host = Arc::new(Host::default());
+        let clock = Arc::new(ManualClock::new());
+        let platform = Arc::new(Announces(AtomicUsize::new(0)));
+        let p = InputPipeline::new_with_sink(
+            Options { display_id: 1, host_size: (1920, 1080), clipboard: None, gamepads_from_app: true },
+            Arc::new(PointerLayer::new(clock.clone(), true)),
+            platform.clone(),
+            clock.clone(),
+            host.clone(),
+        );
+        let slice = || {
+            clock.advance(AXIS_SLICE);
+            p.poll();
+        };
+        assert_eq!(p.rights(), InputRights::ALL, "un hôte : tout");
+        p.network_connected();
+        p.gamepad_plug(0, None, None);
+        host.clear();
+
+        // Joueur : ses manettes, ni clavier ni souris.
+        p.set_rights(ShareRole::Player.rights());
+        p.key(0x1E, true);
+        p.mouse(10, 0);
+        p.mouse_move(3, 3);
+        p.mouse_button(MouseButtonType::Left, true);
+        p.wheel(0.0, 1.0);
+        p.type_text("a");
+        p.set_relative(true);
+        assert!(host.received().is_empty(), "{:?}", host.received());
+        assert!(!p.is_relative(), "souris relative retenue");
+        p.gamepad_button(0, PadButton::A, true);
+        assert_eq!(host.received(), ["manette 0 A appuyée"]);
+        host.clear();
+
+        // Clavier et souris donnés.
+        p.set_rights(ShareRole::PlayerKbm.rights());
+        assert!(p.is_relative(), "la souris relative demandée reprend");
+        p.key(0x1E, true);
+        p.mouse_button(MouseButtonType::Left, true);
+        assert_eq!(host.received(), ["touche 0x1e appuyée", "clic Left appuyé"]);
+        host.clear();
+
+        // Repris : touches et clics relâchés, puis plus rien ne part.
+        p.set_rights(ShareRole::Player.rights());
+        let mut got = host.received();
+        got.sort();
+        assert_eq!(got, ["clic Left relâché", "touche 0x1e relâchée"]);
+        assert!(!p.is_relative());
+        host.clear();
+        p.key(0x1F, true);
+        assert!(host.received().is_empty());
+
+        // Redevenu spectateur : manettes au repos (touche relâchée, six axes au centre).
+        p.gamepad_axis(0, PadAxis::LeftX, 12_000);
+        slice();
+        host.clear();
+        p.set_rights(ShareRole::Spectator.rights());
+        let got = host.received();
+        assert_eq!(got[0], "manette 0 A relâchée", "{got:?}");
+        assert_eq!(got.len(), 7, "{got:?}");
+        assert!(got[1..].iter().all(|a| a.starts_with("axe 0 ") && a.ends_with(" 0")), "{got:?}");
+        host.clear();
+        p.gamepad_button(0, PadButton::B, true);
+        p.gamepad_axis(0, PadAxis::LeftY, 9_000);
+        slice();
+        let announced = platform.0.load(Ordering::SeqCst);
+        p.gamepad_plug(1, Some(0x054C), Some(0x0CE6));
+        assert!(host.received().is_empty(), "aucun appui, axe ni branchement : {:?}", host.received());
+
+        // Manettes rendues : réannoncées à l'ordinateur, puis transmises.
+        p.set_rights(ShareRole::Player.rights());
+        assert_eq!(platform.0.load(Ordering::SeqCst), announced + 1, "réannoncées");
+        p.gamepad_button(0, PadButton::B, true);
+        assert_eq!(host.received(), ["manette 0 B appuyée"]);
+        // Jamais le presse-papiers pour un invité ; un hôte reprend tout.
+        assert!(!p.rights().clipboard);
+        p.set_rights(InputRights::ALL);
+        assert_eq!(p.rights(), InputRights::ALL);
+    }
+
     #[test]
     fn filtrage_des_axes() {
         assert!(InputPipeline::axis_moved(None, 0) && InputPipeline::axis_moved(None, 5), "première valeur : passe toujours");
