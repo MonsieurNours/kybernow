@@ -69,6 +69,16 @@ export function sinceText(seconds: number): string {
   return t('share.hours', { h: Math.floor(m / 60), m: String(m % 60).padStart(2, '0') })
 }
 
+/**
+ * La qualité d'une image reçue (docs/link-ui.md, « Partage ») : « 1080p · 60 Hz », le côté court puis
+ * la fréquence, comme le panneau de l'icône ; `''` tant que Kyber ne la dit pas.
+ */
+export function imageQuality(image: { width: number | null; height: number | null; fps: number | null } | null | undefined): string {
+  if (!image?.width || !image.height) return ''
+  const lines = `${Math.min(image.width, image.height)}p`
+  return image.fps ? `${lines} · ${Math.round(image.fps)} Hz` : lines
+}
+
 /** « 8,3 ms » (anglais : « 8.3 ms ») */
 export function ms(value: number): string {
   if (value >= 100) return `${Math.round(value)} ms`

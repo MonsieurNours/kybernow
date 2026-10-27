@@ -58,6 +58,11 @@
 #         et imposé (entrées selon le rôle, changées sans couper l'image,
 #         jamais le presse-papiers ; seulement son écran ; ni débit ni image
 #         clé) ; routes /kybernow (sessions, role, close) pour KyberNow Admin
+#   0020  moteur web, image clé au lieu de couper (0020-kyctlweb-*, kyclient et
+#         kywebplayer de la copie du moteur web seulement) : le décodeur qui
+#         attend une image clé (après une erreur, ou une image clé perdue) la
+#         demande (POST /force_idr, une par seconde au plus) ; la session ne
+#         s'arrête (decode_error) que sans image clé 3 s après une erreur
 #
 # Prérequis (Homebrew) : mingw-w64 meson ninja nasm cmake bison lua@5.4
 # binaryen, wasm-bindgen-cli (cargo install), rustup target
@@ -143,8 +148,13 @@ echo "==> Correctifs"
 # *-kynet-* kysdk/kymux, *-kynput-* kysdk/kynput, *-kyberweb-* kyber-web, les
 # autres kysdk/kymedia. Seuls les fichiers des correctifs sont remis à
 # l'origine : kyctl et kymux portent aussi les correctifs des apps.
+# *-kyctlweb-* ne vise que la copie de kyctl du moteur web (plus bas), jamais
+# le kyctl partagé : ils touchent kyclient (lib.rs, enums.rs, host_service.rs),
+# comme le correctif kyclient des apps (apps/macos/kyber-patches/0001-kyclient-…),
+# qui ne s'y reposerait plus. Ici, repo_of ne rend rien pour eux.
 repo_of() {
     case "$(basename "$1")" in
+        *-kyctlweb-*) ;;
         *-kycontroller-* | *-kywebplayer-*) echo "$KYCTL" ;;
         *-kyberweb-*) echo "$KYWEB" ;;
         *-kynet-*) echo "$KYMUX" ;;
@@ -176,6 +186,7 @@ for p in ${CLIENT_APPLIED[@]+"${CLIENT_APPLIED[@]}"}; do
 done
 for p in "$HERE"/*.patch; do
     repo=$(repo_of "$p")
+    [ -n "$repo" ] || continue
     for f in $(grep -h '^+++ b/' "$p" | sed 's|^+++ b/||; s|[[:space:]].*||'); do
         case "$f" in
             subprojects/txproto/*) dir="$repo/subprojects/txproto" f="${f#subprojects/txproto/}" ;;
@@ -190,8 +201,10 @@ for p in "$HERE"/*.patch; do
     done
 done
 for p in "$HERE"/*.patch; do
+    repo=$(repo_of "$p")
+    [ -n "$repo" ] || continue
     echo "    $(basename "$p")"
-    (cd "$(repo_of "$p")" && patch -p1 --forward --no-backup-if-mismatch -r - < "$p" | sed 's/^/        /') || {
+    (cd "$repo" && patch -p1 --forward --no-backup-if-mismatch -r - < "$p" | sed 's/^/        /') || {
         echo "Correctif $(basename "$p") inapplicable (hunk en échec ci-dessus)" >&2
         exit 1
     }
@@ -234,13 +247,15 @@ echo "==> Moteur web (kyclient_wasm)"
 # kyber-web compile kyclient et kywebplayer depuis son dossier kysdk. Le
 # kysdk/kyctl de third_party porte aussi les correctifs des apps, qui changent
 # l'API de kyclient : le moteur web part d'un kyctl d'origine (git archive),
-# plus les correctifs *-kywebplayer-*. Les autres dépôts sont ceux de
+# plus les correctifs *-kywebplayer-* et *-kyctlweb-* (ceux-ci posés ici
+# seulement), dans l'ordre de leurs numéros. Les autres dépôts sont ceux de
 # third_party, correctifs serveur appliqués (kynput, kymux…).
 WEB_KYSDK="$THIRD_PARTY/kyber-web-kysdk"
 rm -rf "$WEB_KYSDK/kyctl" && mkdir -p "$WEB_KYSDK/kyctl"
 git -C "$KYCTL" archive HEAD | tar -x -C "$WEB_KYSDK/kyctl"
-for p in "$HERE"/*-kywebplayer-*.patch; do
-    [ -e "$p" ] || continue
+for p in "$HERE"/*.patch; do
+    case "$(basename "$p")" in *-kywebplayer-* | *-kyctlweb-*) ;; *) continue ;; esac
+    echo "    $(basename "$p") (moteur web)"
     (cd "$WEB_KYSDK/kyctl" && patch -p1 --forward --no-backup-if-mismatch -r - < "$p" | sed 's/^/        /') || {
         echo "Correctif $(basename "$p") inapplicable au kyctl d'origine" >&2
         exit 1

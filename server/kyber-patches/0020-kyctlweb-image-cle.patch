@@ -1,0 +1,265 @@
+diff --git a/kyclient/src/enums.rs b/kyclient/src/enums.rs
+index 38b3c57..b9e0a1d 100644
+--- a/kyclient/src/enums.rs
++++ b/kyclient/src/enums.rs
+@@ -121,6 +121,8 @@ pub(crate) enum Message {
+         state: crate::player::AudioResumeState,
+     },
+ 
++    /// KyberNow: ask the host for a keyframe (the decoder lost a reference).
++    RequestKeyframe,
+     SetBitrate {
+         bitrate: u32,
+     },
+diff --git a/kyclient/src/host_service.rs b/kyclient/src/host_service.rs
+index c214ec2..bf28881 100644
+--- a/kyclient/src/host_service.rs
++++ b/kyclient/src/host_service.rs
+@@ -236,6 +236,19 @@ pub(crate) async fn logout(client: &HttpClient) -> Result<()> {
+     Ok(())
+ }
+ 
++/// KyberNow: `POST /force_idr` (kycontroller patched by KyberNow).
++pub(crate) async fn force_idr(http_client: &HttpClient) -> Result<()> {
++    let url = format!("{base_url}/force_idr", base_url = http_client.base_url());
++
++    http_client
++        .post(&url)
++        .send()
++        .await?
++        .error_for_status()?;
++
++    Ok(())
++}
++
+ pub(crate) async fn set_bitrate(http_client: &HttpClient, bitrate: u32) -> Result<()> {
+     let url = format!("{base_url}/set_bitrate", base_url = http_client.base_url());
+ 
+diff --git a/kyclient/src/lib.rs b/kyclient/src/lib.rs
+index f09fec4..e808c4f 100644
+--- a/kyclient/src/lib.rs
++++ b/kyclient/src/lib.rs
+@@ -197,10 +197,12 @@ enum ConnectOutcome {
+ 
+ struct Handler {
+     conn_params: ConnectionParams,
+-    http_client: HttpClient,
++    http_client: Arc<HttpClient>,
+     event_manager: EventManager,
+     message_sender: MessageSender,
+     metrics: Option<MetricsProducer>,
++    /// KyberNow: a keyframe request is being sent (see `Message::RequestKeyframe`).
++    keyframe_in_flight: Arc<std::sync::atomic::AtomicBool>,
+ 
+     state: Arc<Mutex<State>>,
+     reconnection_state: ReconnectionState,
+@@ -240,7 +242,7 @@ impl Handler {
+     ) -> Result<Self> {
+         let auto_reconnection = connect_config.auto_reconnection;
+         let conn_params = ConnectionParams::new(connect_config)?;
+-        let http_client = HttpClient::new(conn_params.clone())?;
++        let http_client = Arc::new(HttpClient::new(conn_params.clone())?);
+ 
+         Ok(Self {
+             conn_params,
+@@ -248,6 +250,7 @@ impl Handler {
+             event_manager,
+             message_sender,
+             metrics,
++            keyframe_in_flight: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+             state,
+             reconnection_state: ReconnectionState::new(auto_reconnection),
+ 
+@@ -671,6 +674,35 @@ impl Handler {
+             Message::SetBitrate { bitrate } => {
+                 host_service::set_bitrate(&self.http_client, bitrate).await?
+             }
++            Message::RequestKeyframe => {
++                // KyberNow: the web decoder lost a reference and waits for a
++                // keyframe (kywebplayer asks again every second, and reports
++                // VideoDecodeError only if none comes within 3 s). A host
++                // without this endpoint (unpatched Kyber) answers 404, and a
++                // guest on the host's picture may be spaced out: log it,
++                // never stop the main loop for it. The request runs off the
++                // main loop, bounded to a second and one at a time.
++                use std::sync::atomic::Ordering::SeqCst;
++                if !self.keyframe_in_flight.swap(true, SeqCst) {
++                    let http_client = self.http_client.clone();
++                    let in_flight = self.keyframe_in_flight.clone();
++                    runtime::spawn(async move {
++                        let request = host_service::force_idr(&http_client);
++                        let deadline = runtime::sleep(Duration::from_secs(1));
++                        futures::pin_mut!(request, deadline);
++                        match futures::future::select(request, deadline).await {
++                            futures::future::Either::Left((Ok(()), _)) => {}
++                            futures::future::Either::Left((Err(err), _)) => {
++                                warn!("Keyframe request failed: {err:?}");
++                            }
++                            futures::future::Either::Right(_) => {
++                                warn!("Keyframe request not answered within 1 s");
++                            }
++                        }
++                        in_flight.store(false, SeqCst);
++                    });
++                }
++            }
+             Message::BitrateChanged { bitrate } => self.bitrate_changed(bitrate)?,
+             Message::PlayerStarted => {
+                 info!("Player started");
+@@ -715,6 +747,9 @@ impl Handler {
+                 });
+             }
+             Message::VideoDecodeError => {
++                // KyberNow: on the web, only once the decoder could not start
++                // again (no keyframe within 3 s of asking for one, see
++                // Message::RequestKeyframe), or cannot be configured.
+                 self.disconnect(true).await;
+ 
+                 self.event_manager.send_event(Event::Stopped {
+diff --git a/kyclient/src/platform/web/message.rs b/kyclient/src/platform/web/message.rs
+index a69a6e4..0f95097 100644
+--- a/kyclient/src/platform/web/message.rs
++++ b/kyclient/src/platform/web/message.rs
+@@ -77,6 +77,9 @@ impl VideoPlayerListener for VideoMessageForwarder {
+             VideoPlayerEvent::FrameDecoded { pts } => {
+                 self.send(Message::ImageDecoded { pts });
+             }
++            VideoPlayerEvent::KeyframeNeeded => {
++                self.send(Message::RequestKeyframe);
++            }
+             VideoPlayerEvent::DecoderError => {
+                 self.send(Message::VideoDecodeError);
+             }
+diff --git a/kywebplayer/src/video/decoder.rs b/kywebplayer/src/video/decoder.rs
+index 94e1884..c1d830d 100644
+--- a/kywebplayer/src/video/decoder.rs
++++ b/kywebplayer/src/video/decoder.rs
+@@ -32,8 +32,15 @@ use kywasmtime::Instant;
+ 
+ /// After a decoding error, how long to wait for a keyframe to start again
+ /// before reporting the error. With intra refresh, the encoder may never send
+-/// one by itself.
+-const RECOVERY_TIMEOUT_US: u64 = 1_000_000;
++/// one by itself: the decoder asks for one (`VideoPlayerEvent::KeyframeNeeded`,
++/// a `POST /force_idr` from kyclient), again every `KEYFRAME_RETRY_US`. A host
++/// may space a guest's requests (KyberNow Share): three seconds leave room for
++/// a second one.
++const RECOVERY_TIMEOUT_US: u64 = 3_000_000;
++
++/// While delta frames arrive without the keyframe the decoder waits for, it
++/// asks for one at most this often.
++const KEYFRAME_RETRY_US: u64 = 1_000_000;
+ 
+ pub struct VideoDecoder {
+     listener: Rc<dyn VideoPlayerListener>,
+@@ -52,6 +59,8 @@ pub struct VideoDecoder {
+     failed: Rc<Cell<bool>>,
+     /// When the decoder was reset after an error, until the next keyframe.
+     recovering_since: Option<u64>,
++    /// When a keyframe was last asked for, until the next keyframe.
++    keyframe_requested_at: Option<u64>,
+     /// Reception dates of the frames handed to the decoder, read back by the
+     /// output callback in the same order.
+     recv_dates: Rc<RefCell<VecDeque<i64>>>,
+@@ -95,6 +104,7 @@ impl VideoDecoder {
+             waiting_keyframe: true,
+             failed: cbs.failed,
+             recovering_since: None,
++            keyframe_requested_at: None,
+             recv_dates: cbs.recv_dates,
+             kymux_codec,
+             force_software_decoding,
+@@ -131,11 +141,30 @@ impl VideoDecoder {
+             self.pending_config = Some(data.clone());
+         }
+         self.waiting_keyframe = true;
+-        self.recovering_since = Some(Instant::now().raw_us());
++        let now = Instant::now().raw_us();
++        self.recovering_since = Some(now);
++        // Without intra refresh's help, only a keyframe restarts the image:
++        // ask for one now rather than at the next delta frame.
++        self.keyframe_requested_at = None;
++        self.request_keyframe(now);
+ 
+         Ok(())
+     }
+ 
++    /// Asks the host for a keyframe (through kyclient), at most once every
++    /// `KEYFRAME_RETRY_US`: the previous request may have been lost, refused,
++    /// or its keyframe dropped on the way.
++    fn request_keyframe(&mut self, now: u64) {
++        if let Some(at) = self.keyframe_requested_at {
++            if now.saturating_sub(at) < KEYFRAME_RETRY_US {
++                return;
++            }
++        }
++        self.keyframe_requested_at = Some(now);
++        info!("Video decoder waiting for a keyframe: asking for one");
++        self.listener.on_event(VideoPlayerEvent::KeyframeNeeded);
++    }
++
+     fn get_video_codec(kymux_codec: u32) -> Option<VideoCodec> {
+         match kymux_codec {
+             packet::CODEC_H264 => Some(VideoCodec::H264),
+@@ -205,15 +234,23 @@ impl VideoDecoder {
+             let header = &packet.header;
+             if self.waiting_keyframe {
+                 if !header.is_key {
++                    let now = Instant::now().raw_us();
+                     if let Some(since) = self.recovering_since {
+-                        if Instant::now().raw_us().saturating_sub(since) > RECOVERY_TIMEOUT_US {
++                        if now.saturating_sub(since) > RECOVERY_TIMEOUT_US {
++                            // Reported once per timeout (DecoderError stops the
++                            // session), not for every frame that follows.
++                            self.recovering_since = Some(now);
+                             return Err(JsError::new("No keyframe to restart the video decoder").into());
+                         }
+                     }
++                    // A delta frame while waiting: the keyframe that should
++                    // have come first (a new configuration, a reset) is lost.
++                    self.request_keyframe(now);
+                     debug!("Video frame dropped: waiting for a keyframe");
+                     return Ok(false);
+                 }
+                 self.waiting_keyframe = false;
++                self.keyframe_requested_at = None;
+                 if self.recovering_since.take().is_some() {
+                     info!("Video decoder restarted");
+                 }
+@@ -249,6 +286,10 @@ impl VideoDecoder {
+             let ret = self.video_decoder.decode(&chunk);
+             if let Err(err) = &ret {
+                 error!("decode() error: {err:?}");
++                // A decoder that refuses a frame is closed, or will refuse
++                // the next ones: start a new one from the next keyframe, as
++                // after an error reported by the browser.
++                self.failed.set(true);
+                 return Ok(false);
+             }
+             Ok(true)
+diff --git a/kywebplayer/src/video/player.rs b/kywebplayer/src/video/player.rs
+index 3e29dd7..293695e 100644
+--- a/kywebplayer/src/video/player.rs
++++ b/kywebplayer/src/video/player.rs
+@@ -73,6 +73,10 @@ pub enum VideoPlayerEvent {
+     FrameDecoded {
+         pts: u64,
+     },
++    /// The decoder waits for a keyframe (after an error, or a lost one): the
++    /// host should send one (`POST /force_idr`).
++    KeyframeNeeded,
++    /// The decoder could not start again: the stream cannot be played.
+     DecoderError,
+ }
+ 
+@@ -150,8 +154,8 @@ impl VideoPlayer {
+ 
+                 Ok(())
+             }),
+-            // The decoder restarts at the next keyframe (VideoDecoder::reset);
+-            // DecoderError is only reported if none comes.
++            // The decoder restarts at the next keyframe (VideoDecoder::reset),
++            // asking for one; DecoderError is only reported if none comes.
+             error: Box::new(move |error| {
+                 warn!("video decoding error: {error:?}");
+ 

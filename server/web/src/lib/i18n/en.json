@@ -977,6 +977,14 @@
       "unavailable": "Sharing is not available right now: try again in a moment.",
       "badRequest": "The code has six digits, and the name cannot be empty."
     },
+    "quality": {
+      "title": "Picture quality",
+      "auto": "Auto",
+      "host": "Same as host",
+      "1080p60": "1080p · 60 Hz",
+      "720p30": "720p · 30 Hz",
+      "failed": "The picture quality could not be changed: try again."
+    },
     "guest": {
       "on": "Guest on {name}",
       "spectator": "Spectator",
@@ -991,7 +999,9 @@
       "removed": "{host} removed you from the share.",
       "unauthorized": "Kyber on {host} refuses the share's token. Join again with the code.",
       "noImage": "{host} is sending the picture, but it does not reach this browser. Try Chrome or Edge.",
-      "decode": "This browser cannot decode {host}'s picture."
+      "decode": "This browser cannot decode {host}'s picture.",
+      "lightened": "Picture lightened to keep up.",
+      "noMoreImage": "The computer can't make another picture: you get {quality}."
     }
   }
 }
