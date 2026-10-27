@@ -58,7 +58,7 @@ Le bout qui se connecte ouvre le premier flux bidirectionnel de `kn-ctl/1` (ou l
 |---|---|---|
 | `hello` | Station → relais | `v`, `role: "station"`, `version` (Admin), `admin_fp` (empreinte d'Admin), `sig` (signature de la Station sur `admin_fp`, ci-dessous), `codes` (codes à garder, après une reconnexion) |
 | `hello` | app → relais | `v`, `role: "client"`, `station` (identifiant, ou absent pour une connexion qui ne sert qu'à `status`), `token` |
-| `welcome` | relais → bout | `v`, `id` (identifiant de la Station, ou du client), `relay` (version du relais) ; pour une app : `online` (la Station est-elle là) |
+| `welcome` | relais → bout | `v`, `id` (identifiant de la Station, ou du client), `relay` (version du relais) ; pour une app : `online` (la Station est-elle là) ; pour la Station : `codes` (ceux de `hello` que le relais a gardés ; les autres sont à réserver de nouveau) |
 | `error` | relais → bout | `req` (si c'est une réponse), `code` : `version`, `bad_request`, `unknown_station`, `too_many`, `banned`, `replaced`, `no_code`, `not_bound` ; `message` facultatif (journaux, jamais affiché tel quel) |
 | `reserve` | Station → relais | `req`, `preferred` (code voulu, facultatif) |
 | `reserved` | relais → Station | `req`, `code` (le code voulu s'il est libre, sinon un autre) |

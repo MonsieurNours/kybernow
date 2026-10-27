@@ -58,7 +58,7 @@ The connecting end opens the first bidirectional stream of `kn-ctl/1` (or the fi
 |---|---|---|
 | `hello` | Station → relay | `v`, `role: "station"`, `version` (Admin), `admin_fp` (Admin's fingerprint), `sig` (the Station's signature over `admin_fp`, below), `codes` (codes to keep, after a reconnection) |
 | `hello` | app → relay | `v`, `role: "client"`, `station` (identifier, or absent for a connection used only for `status`), `token` |
-| `welcome` | relay → end | `v`, `id` (the Station's identifier, or the client's), `relay` (relay version); for an app: `online` (is the Station there) |
+| `welcome` | relay → end | `v`, `id` (the Station's identifier, or the client's), `relay` (relay version); for an app: `online` (is the Station there); for the Station: `codes` (those from `hello` the relay kept; the others must be reserved again) |
 | `error` | relay → end | `req` (when it is an answer), `code`: `version`, `bad_request`, `unknown_station`, `too_many`, `banned`, `replaced`, `no_code`, `not_bound`; optional `message` (logs, never shown as is) |
 | `reserve` | Station → relay | `req`, `preferred` (wanted code, optional) |
 | `reserved` | relay → Station | `req`, `code` (the wanted code if free, otherwise another) |

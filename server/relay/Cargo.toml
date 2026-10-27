@@ -1,0 +1,7 @@
+# Relais de KyberNow (docs/relais.md) : le crate commun du tunnel, partagé par
+# le relais, Admin (server/admin) et le cœur des apps (apps/core), qui le
+# prennent par chemin.
+
+[workspace]
+resolver = "3"
+members = ["tunnel"]
