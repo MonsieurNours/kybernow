@@ -1233,8 +1233,8 @@ final class SessionController: NSObject, ObservableObject {
 
     // MARK: - KyberNow Share
 
-    /// L'hôte a changé le rôle de l'invité (« Vous pouvez jouer. ») ; au
-    /// départ (`previous` nil), le rôle seulement.
+    /// L'hôte a changé les droits de l'invité (« Vous pouvez jouer à la
+    /// manette. ») ; au départ (`previous` nil), le rôle seulement.
     private func shareRoleChanged(_ role: ShareRole, previous: ShareRole?) {
         // Une session finie, ou qui se ferme, n'affiche plus rien.
         guard isLive, phase != .ending else { return }

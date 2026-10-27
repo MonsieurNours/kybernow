@@ -284,9 +284,9 @@ final class SessionController: ObservableObject {
         }
     }
 
-    /// L'hôte a changé le rôle de l'invité (« Vous pouvez jouer. ») ; au
-    /// départ (`previous` nil), le rôle seulement. Le clavier et la souris
-    /// retirés : le pavé et la manette ne font plus souris.
+    /// L'hôte a changé les droits de l'invité (« Vous pouvez jouer à la
+    /// manette. ») ; au départ (`previous` nil), le rôle seulement. Le clavier
+    /// et la souris retirés : le pavé et la manette ne font plus souris.
     private func shareRoleChanged(_ role: ShareRole, previous: ShareRole?) {
         // Une session finie, ou qui se ferme, n'écrit plus rien (avis).
         switch phase {
@@ -430,23 +430,25 @@ final class SessionController: ObservableObject {
             if kind == .menu {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.openMenu() }
             }
-            // `-demoShare YES` : le partage ouvert, trois invités, le panneau de l'hôte.
+            // `-demoShare YES` : le partage ouvert, quatre invités, le panneau de l'hôte.
             if UserDefaults.standard.bool(forKey: "demoShare") {
                 Task {
                     await self.share.openIfNeeded()
                     self.share.demoAddGuest(name: "Léa", app: "ios", role: .player)
                     self.share.demoAddGuest(name: "Hugo", app: "tvos")
                     self.share.demoAddGuest(name: "Sam", app: "web", role: .playerKbm)
+                    self.share.demoAddGuest(name: "Zoé", app: "mac", role: .kbm)
                     self.openMenu()
                     self.sharePanel = true
                 }
             }
-            // `-demoRoleThen player|player_kbm|end-stopped|end-removed` : ce que l'hôte fait 6 s plus tard (invité).
+            // `-demoRoleThen spectator|player|kbm|player_kbm|end-stopped|end-removed` : ce que l'hôte fait 6 s plus tard (invité).
             if let then = UserDefaults.standard.string(forKey: "demoRoleThen") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 6) {
                     switch then {
                     case "spectator": self.demoRoleChanged(.spectator)
                     case "player": self.demoRoleChanged(.player)
+                    case "kbm": self.demoRoleChanged(.kbm)
                     case "player_kbm": self.demoRoleChanged(.playerKbm)
                     case "end-stopped": self.demoShareEnded(removed: false)
                     case "end-removed": self.demoShareEnded(removed: true)

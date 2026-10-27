@@ -360,7 +360,7 @@ private struct GuestRow: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
-            Icon(guest.role.plays ? "game-controller" : "eye", size: 20)
+            Icon(ShareText.icon(guest.role), size: 20)
                 .foregroundStyle(guest.role.plays ? Theme.accent : Theme.faint)
                 .frame(width: 24)
             VStack(alignment: .leading, spacing: 3) {
@@ -373,7 +373,7 @@ private struct GuestRow: View {
             Spacer(minLength: 8)
             Menu {
                 ForEach(Array(ShareHostModel.roleActions(for: guest.role).enumerated()), id: \.offset) { _, action in
-                    Button(action.title) { Task { await share.setRole(action.role, of: guest) } }
+                    Button(action.title) { Task { await share.setRight(action.right, on: action.on, of: guest) } }
                 }
                 Divider()
                 Button(ShareText.remove, role: .destructive) { Task { await share.kick(guest) } }

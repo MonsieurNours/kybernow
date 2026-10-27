@@ -463,7 +463,7 @@ struct SessionBar: View {
                     screenAndOffer
                     if keyboardAndMouse { keysAndKeyboard }
                     // La manette à l'écran : pour un invité, seulement quand il joue.
-                    if !session.isGuest || session.shareRole.plays { padButton }
+                    if !session.isGuest || session.shareRole.pads { padButton }
                 }
                 .padding(.leading, 6)
             }
@@ -506,7 +506,7 @@ struct SessionBar: View {
 
     /// Barre réduite d'un invité : son rôle ; ni profil ni réglages.
     private var guestRole: some View {
-        item(session.shareRole.plays ? "game-controller" : "eye", ShareText.role(session.shareRole))
+        item(ShareText.icon(session.shareRole), ShareText.role(session.shareRole))
             .accessibilityElement(children: .combine)
     }
 

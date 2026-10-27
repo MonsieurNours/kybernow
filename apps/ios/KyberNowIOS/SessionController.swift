@@ -393,9 +393,10 @@ final class SessionController: ObservableObject {
         store.update(host)
     }
 
-    /// L'hôte a changé le rôle de l'invité (« Vous pouvez jouer. ») ; au
-    /// départ (`previous` nil), le rôle seulement. Le clavier et la souris
-    /// retirés : le clavier de l'écran se replie.
+    /// L'hôte a changé les droits de l'invité (« Vous pouvez jouer à la
+    /// manette. ») ; au départ (`previous` nil), le rôle seulement. Le clavier
+    /// et la souris retirés : le clavier de l'écran se replie ; les manettes
+    /// retirées : la manette à l'écran se retire.
     private func shareRoleChanged(_ role: ShareRole, previous: ShareRole?) {
         // Une session finie, ou qui se ferme, n'écrit plus rien (réglages, avis).
         switch phase {
@@ -406,8 +407,8 @@ final class SessionController: ObservableObject {
         // Sans le clavier et la souris, la souris de l'iPad n'est plus capturée (souris des jeux).
         streamView.mouseMode = role.keyboardAndMouse ? host.settings.mouse.streamMode : .desktop
         if !role.keyboardAndMouse, keyboardShown { toggleKeyboard() }
-        // Redevenu spectateur : la manette à l'écran se retire (elle n'envoie plus rien).
-        if !role.plays, screenPad { toggleScreenPad() }
+        // Sans les manettes, la manette à l'écran se retire (elle n'envoie plus rien).
+        if !role.pads, screenPad { toggleScreenPad() }
         if let text = ShareText.roleNotice(role, previous: previous) { show(notice: text, for: 4) }
     }
 
@@ -604,23 +605,25 @@ final class SessionController: ObservableObject {
             if UserDefaults.standard.bool(forKey: "demoKeyboard") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { self.toggleKeyboard() }
             }
-            // `-demoShare YES` : le partage ouvert, trois invités, le panneau de l'hôte.
+            // `-demoShare YES` : le partage ouvert, quatre invités, le panneau de l'hôte.
             if UserDefaults.standard.bool(forKey: "demoShare") {
                 Task {
                     await self.share.openIfNeeded()
                     self.share.demoAddGuest(name: "Léa", app: "ios", role: .player)
                     self.share.demoAddGuest(name: "Hugo", app: "tvos")
                     self.share.demoAddGuest(name: "Sam", app: "web", role: .playerKbm)
+                    self.share.demoAddGuest(name: "Zoé", app: "mac", role: .kbm)
                     self.shareSheet = true
                 }
             }
-            // `-demoRole spectator|player|player_kbm` : séance d'invité (`-screen guest`), le rôle d'abord ;
-            // `-demoRoleThen player|player_kbm|end-stopped|end-removed` : ce que l'hôte fait 6 s plus tard.
+            // `-demoRole spectator|player|kbm|player_kbm` : séance d'invité (`-screen guest`), les droits d'abord ;
+            // `-demoRoleThen spectator|player|kbm|player_kbm|end-stopped|end-removed` : ce que l'hôte fait 6 s plus tard.
             if let then = UserDefaults.standard.string(forKey: "demoRoleThen") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 6) {
                     switch then {
                     case "spectator": self.demoRoleChanged(.spectator)
                     case "player": self.demoRoleChanged(.player)
+                    case "kbm": self.demoRoleChanged(.kbm)
                     case "player_kbm": self.demoRoleChanged(.playerKbm)
                     case "end-stopped": self.demoShareEnded(removed: false)
                     case "end-removed": self.demoShareEnded(removed: true)
