@@ -1167,6 +1167,8 @@ async fn stream_prepare(
     // La session n'est ouverte qu'une fois l'écran en place : un échec ne
     // laisse pas un appareil « connecté » dans la vue d'ensemble.
     s.activity.begin_screens(body.device.clone(), &user, Some(mode_info), taken, body.profile.clone());
+    // Son partage suit son écran principal (recréé, il a pu changer de nom).
+    share_api::refresh_host_display(&s, &device_id).await;
     // L'app de l'appareil s'ouvre sur l'écran virtuel, en fond (elle attend
     // le déverrouillage de Windows s'il le faut).
     if let Some(l) = launch {

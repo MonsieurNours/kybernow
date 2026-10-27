@@ -287,6 +287,19 @@ async fn host_display(s: &AppState) -> ShareResult<ShareDisplay> {
     Ok(ShareDisplay { id, index: 1, width: d.width, height: d.height, refresh: d.refresh, name: d.name })
 }
 
+/// L'hôte s'est préparé de nouveau (`prepare` du même appareil) : son écran
+/// principal a pu changer d'identifiant ; le partage le suit.
+pub async fn refresh_host_display(s: &AppState, device_id: &str) {
+    if !s.share.hosted_by(device_id) {
+        return;
+    }
+    if let Ok(screen) = host_display(s).await
+        && s.share.set_display(screen.clone())
+    {
+        tracing::info!("partage : l'écran de l'hôte est maintenant {} ({})", screen.id, screen.name);
+    }
+}
+
 fn opened(s: &AppState, snapshot: &Snapshot) {
     if snapshot.origin == Origin::Local {
         s.display.set_sharing(true);
@@ -663,8 +676,16 @@ fn guest_secret(headers: &HeaderMap) -> String {
 pub async fn beat(State(s): State<AppState>, headers: HeaderMap, Json(body): Json<GuestBody>) -> Response {
     let answer = match s.share.beat(&body.guest, &guest_secret(&headers)) {
         None => return guest_error(StatusCode::NOT_FOUND, "unknown_guest"),
+        // `display` en plus du contrat : l'écran du partage peut changer
+        // (écran virtuel de l'hôte recréé) ; le jeton porte toujours le bon.
         Some(Beat::Live { guest, display }) => match guest_token(&s, &guest, display.id) {
-            Some(token) => json!({ "role": guest.role, "token": token, "expires": share::TOKEN_LIFETIME, "end": null }),
+            Some(token) => json!({
+                "role": guest.role,
+                "token": token,
+                "expires": share::TOKEN_LIFETIME,
+                "end": null,
+                "display": { "id": display.id, "width": display.width, "height": display.height, "refresh": display.refresh },
+            }),
             None => return guest_error(StatusCode::SERVICE_UNAVAILABLE, "unavailable"),
         },
         Some(Beat::Ended { end, role }) => json!({ "role": role, "token": null, "expires": 0, "end": end }),
@@ -889,6 +910,7 @@ mod tests {
         let _ = host_guest_role(State(s.clone()), basic("mac", "mot-de-passe-mac"), Path(guest.clone()), role("player_kbm")).await.ok().unwrap();
         let (_, beat_v) = body(beat(State(s.clone()), guest_headers(&secret), Json(GuestBody { guest: guest.clone() })).await).await;
         assert_eq!(beat_v["role"], "player_kbm");
+        assert_eq!(beat_v["display"]["id"], opened["display"]["id"]);
         assert!(beat_v["end"].is_null());
         let renewed = claims(beat_v["token"].as_str().unwrap());
         assert_eq!((renewed["kn_role"].as_str(), renewed["kn_rev"].as_u64()), (Some("player_kbm"), Some(3)));

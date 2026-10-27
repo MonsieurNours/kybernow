@@ -317,6 +317,24 @@ impl Share {
         Ok((self.snapshot().expect("ouvert"), false))
     }
 
+    /// L'écran de l'hôte a changé (son écran virtuel recréé sous un autre
+    /// nom) : le partage le suit, les jetons suivants des invités le portent.
+    /// Vrai s'il a changé.
+    pub fn set_display(&self, display: ShareDisplay) -> bool {
+        let mut s = self.state.lock().unwrap();
+        match s.open.as_mut() {
+            Some(o) if o.display.id != display.id => {
+                o.display = display;
+                true
+            }
+            Some(o) => {
+                o.display = display;
+                false
+            }
+            None => false,
+        }
+    }
+
     /// Arrête le partage : rend les invités à couper (leur signe de vie
     /// suivant apprend « arrêté ») et ce qu'était le partage.
     pub fn close(&self) -> Option<Snapshot> {
@@ -668,6 +686,21 @@ mod tests {
         assert!(share.beat(&max.id, max.secret()).is_some());
         assert_eq!(share.leave(&max.id, max.secret()).unwrap().name, "Max");
         assert_eq!(share.guest_count(), 0);
+    }
+
+    #[test]
+    fn l_ecran_de_l_hote_peut_changer_sous_les_invites() {
+        let share = Share::new();
+        let code = share.open(host(), display(1)).unwrap().0.code;
+        let g = share.join(&code, "Léa", "ipad", "ios", peer(1), false).unwrap().guest;
+        // `open` ne change pas l'écran sous des invités ; l'hôte qui se prépare de nouveau, si.
+        share.open(host(), display(2)).unwrap();
+        assert_eq!(share.snapshot().unwrap().display.id, 1);
+        assert!(share.set_display(display(3)));
+        assert!(!share.set_display(display(3)));
+        assert!(matches!(share.beat(&g.id, g.secret()), Some(Beat::Live { display, .. }) if display.id == 3));
+        share.close();
+        assert!(!share.set_display(display(4)));
     }
 
     #[test]
