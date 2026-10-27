@@ -197,6 +197,13 @@ impl Platform for WebOsPlatform {
     fn on_share_end(&self, end: &ShareEnd, text: &str) {
         self.0.send(Event::ShareEnd(end.kind().to_string(), text.to_string()));
     }
+
+    /// Invité : l'image qu'il reçoit, au départ puis à chaque changement (signe de vie, réponse à un changement de
+    /// qualité). Le menu en montre la qualité (`label`, nul tant que Kyber n'en sait pas la taille) ; `notice` est
+    /// l'avis bref de la Station, dans la langue de l'app (« Image allégée pour suivre. »).
+    fn on_share_image(&self, image: &share::ShareImage, _previous: Option<&share::ShareImage>, notice: Option<&str>) {
+        self.0.send(Event::ShareImage { label: image.label(), notice: notice.map(str::to_string) });
+    }
 }
 
 /// Le rôle de l'interface d'après celui du cœur.
@@ -219,18 +226,43 @@ pub fn core_role(r: crate::app::ShareRole) -> share::ShareRole {
     }
 }
 
+/// La « Qualité de l'image » du cœur d'après celle de l'interface (le choix de « Rejoindre » et du menu).
+pub fn core_quality(q: crate::app::ShareQuality) -> share::ShareQuality {
+    match q {
+        crate::app::ShareQuality::Auto => share::ShareQuality::Auto,
+        crate::app::ShareQuality::Host => share::ShareQuality::Host,
+        crate::app::ShareQuality::P1080_60 => share::ShareQuality::P1080_60,
+        crate::app::ShareQuality::P720_30 => share::ShareQuality::P720_30,
+    }
+}
+
+/// La qualité de l'image d'un invité telle que le panneau de l'hôte la montre : seulement quand c'est une image à
+/// part (pas celle de l'hôte) dont Kyber sait la taille. Une image encore inconnue compte comme celle de l'hôte.
+fn guest_quality(g: &share::ShareGuest) -> Option<String> {
+    g.image.as_ref().filter(|i| i.own()).and_then(|i| i.label())
+}
+
 /// Le partage ouvert d'une session d'hôte tel que l'interface le montre (`None` : fermé).
 pub fn share_view(st: &ShareState) -> Option<ShareView> {
     st.open.then(|| ShareView {
         code: st.code.clone(),
         link: st.link.clone(),
         web: st.web.clone(),
-        guests: st.guests.iter().map(|g| ShareGuest { id: g.id.clone(), name: g.name.clone(), role: role_of(g.role), app: g.app.clone(), since: g.since }).collect(),
+        guests: st.guests.iter().map(|g| ShareGuest { id: g.id.clone(), name: g.name.clone(), role: role_of(g.role), app: g.app.clone(), since: g.since, quality: guest_quality(g) }).collect(),
     })
 }
 
-/// Ce que décode ce téléviseur pour lire l'image de l'hôte d'un partage (son format, choisi par l'hôte, est
-/// vérifié avant d'entrer) : le HEVC par le décodeur du téléviseur (jamais en 4:4:4), l'AV1 s'il l'a.
+/// « Auto » (KyberNow Share, invité) : ce que ce téléviseur sait afficher et décoder, pour `share::auto_quality` :
+/// la sortie du téléviseur (sa dalle en paysage, sa fréquence) et ce que son décodeur suit (HEVC, AV1 s'il l'a,
+/// jamais de 4:4:4 ; aucune autre borne connue que la dalle). La Station tranche et borne par l'image de l'hôte.
+pub fn auto_quality(tv: &crate::app::TvInfo) -> share::ShareAuto {
+    let screen = kybernow_core::screens::DeviceScreen { x: 0.0, y: 0.0, width: f64::from(tv.panel.0), height: f64::from(tv.panel.1), pixel_width: tv.panel.0, pixel_height: tv.panel.1, refresh: tv.refresh, primary: true };
+    share::auto_quality(&screen, &share::DecoderCaps::from(guest_capabilities(tv.av1)), None)
+}
+
+/// Ce que décode ce téléviseur pour lire l'image d'un partage (le format de l'hôte qu'il ne lit pas ne le refuse
+/// plus : il reçoit une image qu'il lit, `share::guest_format`) : le HEVC par le décodeur du téléviseur (jamais en
+/// 4:4:4), l'AV1 s'il l'a.
 pub fn guest_capabilities(av1: bool) -> Capabilities {
     Capabilities { hevc: true, hevc444: false, av1 }
 }
