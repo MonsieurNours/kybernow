@@ -50,8 +50,8 @@ import kotlinx.coroutines.delay
 /**
  * Le panneau du partage de l'hôte (docs/link-ui.md, « Partage ») : « Partager {nom} », le code à six
  * chiffres, le QR code du lien des apps et « Copier le lien » (l'adresse du client web ; pas au
- * téléviseur), les invités (leur rôle, leur app, depuis quand ; « Faire jouer », « Faire regarder »,
- * « Donner le clavier et la souris », « Reprendre le clavier et la souris », « Retirer »), « Nouveau
+ * téléviseur), les invités (leurs droits, leur app, depuis quand ; « Donner les manettes » ou « Reprendre les
+ * manettes », « Donner le clavier et la souris » ou « Reprendre le clavier et la souris », « Retirer »), « Nouveau
  * code » et « Arrêter le partage ». Le partage reste ouvert quand le panneau se ferme : la pastille de
  * la barre le rouvre. « Partager » impossible (Station trop ancienne, partage coupé) : le panneau se réduit à la
  * raison, écrite par le cœur.
@@ -188,7 +188,7 @@ private fun ShareGuests(share: ShareState, busy: Boolean, actions: SessionAction
     }
 }
 
-/** « Léa · Spectateur », son app et « depuis 3 min », et ce que l'hôte peut en faire. */
+/** « Léa · Spectateur », son app et « depuis 3 min », et ce que l'hôte peut en faire (ses deux droits, à part). */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun GuestRow(guest: ShareGuest, now: Long, busy: Boolean, actions: SessionActions) {
@@ -203,26 +203,24 @@ private fun GuestRow(guest: ShareGuest, now: Long, busy: Boolean, actions: Sessi
             if (detail.isNotEmpty()) Mono(detail, size = 11f, color = Kn.muted)
         }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(s.dp(8f)), verticalArrangement = Arrangement.spacedBy(s.dp(8f))) {
-            // Spectateur : « Faire jouer ». Joueur : « Faire regarder » à la place (il redevient spectateur), puis
-            // « Donner le clavier et la souris » ou « Reprendre le clavier et la souris » (docs/link-ui.md, « Partage »).
-            if (guest.role.plays) GlassButton(stringResource(R.string.share_watch_only), { actions.shareSetRole(guest, ShareRole.SPECTATOR) }, enabled = !busy)
-            else GlassButton(stringResource(R.string.share_let_play), { actions.shareSetRole(guest, ShareRole.PLAYER) }, enabled = !busy)
-            when (guest.role) {
-                ShareRole.PLAYER -> GlassButton(stringResource(R.string.share_give_keyboard_mouse), { actions.shareSetRole(guest, ShareRole.PLAYER_KBM) }, enabled = !busy)
-                ShareRole.PLAYER_KBM -> GlassButton(stringResource(R.string.share_take_keyboard_mouse), { actions.shareSetRole(guest, ShareRole.PLAYER) }, enabled = !busy)
-                ShareRole.SPECTATOR -> {}
-            }
+            // Deux droits indépendants, chacun donné ou repris sans toucher à l'autre : les manettes, puis le clavier et
+            // la souris (docs/link-ui.md, « Partage »). Reprendre le dernier droit ramène l'invité spectateur.
+            if (guest.role.pads) GlassButton(stringResource(R.string.share_take_pads), { actions.shareSetPads(guest, false) }, enabled = !busy)
+            else GlassButton(stringResource(R.string.share_give_pads), { actions.shareSetPads(guest, true) }, enabled = !busy)
+            if (guest.role.keyboardMouse) GlassButton(stringResource(R.string.share_take_keyboard_mouse), { actions.shareSetKeyboardMouse(guest, false) }, enabled = !busy)
+            else GlassButton(stringResource(R.string.share_give_keyboard_mouse), { actions.shareSetKeyboardMouse(guest, true) }, enabled = !busy)
             GlassButton(stringResource(R.string.share_remove), { actions.shareRemove(guest) }, enabled = !busy)
         }
     }
 }
 
-/** « Léa · Spectateur », « Léa · Joueur », « Léa · Joueur, clavier et souris ». */
+/** « Léa · Spectateur », « Léa · Joueur », « Léa · Clavier et souris », « Léa · Joueur, clavier et souris ». */
 @Composable
 private fun guestLabel(g: ShareGuest): String = stringResource(
     when (g.role) {
         ShareRole.SPECTATOR -> R.string.share_guest_spectator
         ShareRole.PLAYER -> R.string.share_guest_player
+        ShareRole.KBM -> R.string.share_guest_kbm
         ShareRole.PLAYER_KBM -> R.string.share_guest_player_kbm
     },
     g.name,

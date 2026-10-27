@@ -10,6 +10,7 @@ import fr.leslignesclaires.kybernow.core.ShareState
 import fr.leslignesclaires.kybernow.model.Gamepads
 import fr.leslignesclaires.kybernow.session.Capsule
 import fr.leslignesclaires.kybernow.session.SessionState
+import fr.leslignesclaires.kybernow.session.shareRightsNotice
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -35,14 +36,47 @@ class ShareTest {
         assertEquals(ShareRole.SPECTATOR, ShareRole.of(0))
         assertEquals(ShareRole.PLAYER, ShareRole.of(1))
         assertEquals(ShareRole.PLAYER_KBM, ShareRole.of(2))
+        assertEquals(ShareRole.KBM, ShareRole.of(3))
         // Un rôle inconnu n'ouvre rien : spectateur.
         assertEquals(ShareRole.SPECTATOR, ShareRole.of(9))
         assertEquals(ShareRole.SPECTATOR, ShareRole.parse("admin"))
         assertEquals(ShareRole.PLAYER_KBM, ShareRole.parse("player_kbm"))
-        assertFalse(ShareRole.SPECTATOR.plays)
-        assertTrue(ShareRole.PLAYER.plays)
-        assertFalse(ShareRole.PLAYER.keyboardMouse)
-        assertTrue(ShareRole.PLAYER_KBM.keyboardMouse)
+        assertEquals(ShareRole.KBM, ShareRole.parse("kbm"))
+        assertEquals(listOf(0, 1, 2, 3), ShareRole.entries.map { it.code })
+    }
+
+    @Test
+    fun roles_haveTwoIndependentRights() {
+        // Les deux droits de chaque rôle (`ShareRole::pads` et `kbm` du cœur).
+        assertEquals(listOf(false, true, true, false), ShareRole.entries.map { it.pads })
+        assertEquals(listOf(false, false, true, true), ShareRole.entries.map { it.keyboardMouse })
+        // « Joueur » dans la barre : un droit au moins.
+        assertEquals(listOf(false, true, true, true), ShareRole.entries.map { it.plays })
+        assertEquals(ShareRole.SPECTATOR, ShareRole.of(false, false))
+        assertEquals(ShareRole.PLAYER, ShareRole.of(true, false))
+        assertEquals(ShareRole.KBM, ShareRole.of(false, true))
+        assertEquals(ShareRole.PLAYER_KBM, ShareRole.of(true, true))
+        for (r in ShareRole.entries) assertEquals(r, ShareRole.of(r.pads, r.keyboardMouse))
+    }
+
+    @Test
+    fun givingOrTakingOneRight_neverTouchesTheOther() {
+        for (r in ShareRole.entries) {
+            for (on in listOf(true, false)) {
+                assertEquals("manettes $on de $r", on, r.withPads(on).pads)
+                assertEquals("clavier et souris inchangés par les manettes ($r)", r.keyboardMouse, r.withPads(on).keyboardMouse)
+                assertEquals("clavier et souris $on de $r", on, r.withKeyboardMouse(on).keyboardMouse)
+                assertEquals("manettes inchangées par le clavier et la souris ($r)", r.pads, r.withKeyboardMouse(on).pads)
+            }
+        }
+        // Le dernier droit repris : spectateur.
+        assertEquals(ShareRole.SPECTATOR, ShareRole.PLAYER.withPads(false))
+        assertEquals(ShareRole.SPECTATOR, ShareRole.KBM.withKeyboardMouse(false))
+        // Les parcours des deux boutons, dans les deux ordres.
+        assertEquals(ShareRole.PLAYER_KBM, ShareRole.SPECTATOR.withPads(true).withKeyboardMouse(true))
+        assertEquals(ShareRole.PLAYER_KBM, ShareRole.SPECTATOR.withKeyboardMouse(true).withPads(true))
+        assertEquals(ShareRole.KBM, ShareRole.PLAYER_KBM.withPads(false))
+        assertEquals(ShareRole.PLAYER, ShareRole.PLAYER_KBM.withKeyboardMouse(false))
     }
 
     @Test
@@ -68,10 +102,21 @@ class ShareTest {
         assertTrue(s.web.startsWith("https://"))
         assertEquals(listOf("Léa", "Max", "Zoé"), s.guests.map { it.name })
         assertEquals(listOf(ShareRole.SPECTATOR, ShareRole.PLAYER_KBM, ShareRole.SPECTATOR), s.guests.map { it.role })
+        assertEquals("Max", s.guest("g2")?.name)
+        assertNull(s.guest("g9"))
         assertEquals(1761561600L, s.guests[0].since)
         assertNull(s.guests[1].since)
         assertNull(s.guests[2].since)
         assertFalse(s.full)
+    }
+
+    @Test
+    fun theKeyboardAndMouseOnlyRole_isReadFromTheGuestList() {
+        val json = """{"open":true,"code":"428913","link":"l","guests":[{"id":"g1","name":"Léa","app":"mac","role":"kbm"}]}"""
+        assertEquals(ShareRole.KBM, ShareState.parse(json, format)!!.guests.single().role)
+        // Le rôle de « Rejoindre » aussi.
+        val found = ShareFound.parse(JSONObject("""{"target":{"host":"h","port":1},"joined":{"role":"kbm","host":"Léa","computer":"Atelier"}}"""))
+        assertEquals(ShareRole.KBM, found.role)
     }
 
     @Test
@@ -128,19 +173,45 @@ class ShareTest {
 
     @Test
     fun rightsNotices_followTheCommonTexts() {
-        val n = notices(0 to -1, 1 to 0, 2 to 1, 1 to 2, 0 to 2, 0 to 1, 2 to 0)
-        // Au départ : rien. Spectateur → joueur : « Vous pouvez jouer. ».
+        // 0 spectateur, 1 manettes, 2 manettes avec clavier et souris, 3 clavier et souris.
+        val n = notices(0 to -1, 1 to 0, 0 to 1, 3 to 0, 0 to 3, 2 to 1, 1 to 2, 2 to 3, 3 to 2)
+        // Au départ : rien.
         assertNull(n[0])
+        // Spectateur → manettes : « Vous pouvez jouer à la manette. » ; et plus aucun droit : « Vous regardez de nouveau. ».
         assertEquals(R.string.share_notice_play, n[1])
-        // Joueur → clavier et souris : « Vous avez le clavier et la souris. ».
-        assertEquals(R.string.share_notice_keyboard_mouse, n[2])
-        // Clavier et souris retirés, le joueur reste joueur : « Le clavier et la souris sont repris. ».
-        assertEquals(R.string.share_notice_keyboard_mouse_back, n[3])
-        // Ramené spectateur (« Faire regarder »), avec ou sans le clavier et la souris : « Vous regardez de nouveau. ».
+        assertEquals(R.string.share_notice_watch, n[2])
+        // Spectateur → clavier et souris : « Vous avez le clavier et la souris. » ; et plus aucun droit : « Vous regardez de nouveau. ».
+        assertEquals(R.string.share_notice_keyboard_mouse, n[3])
         assertEquals(R.string.share_notice_watch, n[4])
-        assertEquals(R.string.share_notice_watch, n[5])
-        // Spectateur → clavier et souris d'un coup : le plus précis.
-        assertEquals(R.string.share_notice_keyboard_mouse, n[6])
+        // Un droit donné en plus de l'autre : celui-là seulement ; repris, l'autre reste.
+        assertEquals(R.string.share_notice_keyboard_mouse, n[5])
+        assertEquals(R.string.share_notice_keyboard_mouse_back, n[6])
+        assertEquals(R.string.share_notice_play, n[7])
+        assertEquals(R.string.share_notice_pads_back, n[8])
+    }
+
+    @Test
+    fun rightsNotice_everyPassage() {
+        val s = ShareRole.SPECTATOR
+        val p = ShareRole.PLAYER
+        val k = ShareRole.KBM
+        val pk = ShareRole.PLAYER_KBM
+        // Rien de changé : pas d'avis.
+        for (r in ShareRole.entries) assertNull(shareRightsNotice(r, r))
+        // Plus aucun droit : « Vous regardez de nouveau. » à la place de l'avis de reprise, d'où qu'on vienne.
+        for (r in listOf(p, k, pk)) assertEquals(R.string.share_notice_watch, shareRightsNotice(r, s))
+        // Un droit donné.
+        assertEquals(R.string.share_notice_play, shareRightsNotice(s, p))
+        assertEquals(R.string.share_notice_play, shareRightsNotice(k, pk))
+        assertEquals(R.string.share_notice_keyboard_mouse, shareRightsNotice(s, k))
+        assertEquals(R.string.share_notice_keyboard_mouse, shareRightsNotice(p, pk))
+        // Un droit repris, l'autre gardé.
+        assertEquals(R.string.share_notice_pads_back, shareRightsNotice(pk, k))
+        assertEquals(R.string.share_notice_keyboard_mouse_back, shareRightsNotice(pk, p))
+        // Les deux changent d'un coup : le droit donné passe avant le droit repris, les manettes avant le clavier et la souris.
+        assertEquals(R.string.share_notice_keyboard_mouse, shareRightsNotice(p, k))
+        assertEquals(R.string.share_notice_play, shareRightsNotice(k, p))
+        assertEquals(R.string.share_notice_play, shareRightsNotice(s, pk))
     }
 
     @Test
@@ -150,6 +221,8 @@ class ShareTest {
         assertEquals(ShareRole.PLAYER_KBM, state.shareRole.value)
         state.onShareRole(0, 2)
         assertEquals(ShareRole.SPECTATOR, state.shareRole.value)
+        state.onShareRole(3, 0)
+        assertEquals(ShareRole.KBM, state.shareRole.value)
         // Sans partage (l'hôte n'en a pas, ou il est fermé) : pas de liste.
         state.onGuests(null)
         assertNull(state.share.value)

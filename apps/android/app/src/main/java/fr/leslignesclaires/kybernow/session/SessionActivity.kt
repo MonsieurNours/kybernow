@@ -317,7 +317,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
                         // Une manette branchée en cours de session : annoncée à l'ordinateur et dans une capsule
                         // (pas la manette à l'écran : on vient de l'afficher soi-même).
                         val added = pads.sync()
-                        // Un spectateur n'envoie rien : sa manette n'est annoncée à personne, pas de capsule.
+                        // Un invité sans les manettes n'en envoie pas : sa manette n'est annoncée à personne, pas de capsule.
                         if (state.firstImageAt.get() > 0 && padsAllowed()) added.firstOrNull { !it.onScreen }?.let { p -> state.show(Capsule.GamepadConnected(p.name, p.slot, p.motors)) }
                     }
                 }
@@ -636,10 +636,11 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
     /**
      * Invité : le rôle a changé (au départ, ou par l'hôte). Ce que l'interface montrait et que le rôle ne
      * permet plus est retiré : la manette à l'écran sans les manettes, le clavier, la souris et les
-     * commandes à distance sans le clavier et la souris. Le cœur, lui, applique déjà les droits.
+     * commandes à distance sans le clavier et la souris (chaque droit à part : reprendre l'un ne touche
+     * pas à l'autre). Le cœur, lui, applique déjà les droits.
      */
     private fun applyShareRole(role: ShareRole) {
-        if (!role.plays && ui.padShown) {
+        if (!role.pads && ui.padShown) {
             ui.pad.releaseAll()
             haptics.stop()
             ui.padShown = false
@@ -738,7 +739,18 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
 
     override fun shareNewCode() = shareCall { it.shareCode() }
 
-    override fun shareSetRole(guest: ShareGuest, role: ShareRole) = shareCall { it.shareGuest(guest.id, role) }
+    override fun shareSetPads(guest: ShareGuest, on: Boolean) = shareRights(guest) { it.withPads(on) }
+
+    override fun shareSetKeyboardMouse(guest: ShareGuest, on: Boolean) = shareRights(guest) { it.withKeyboardMouse(on) }
+
+    /**
+     * Un droit donné ou repris : calculé sur le rôle de l'invité tel que la Station le dit maintenant (pas sur
+     * celui que le panneau montrait : l'autre droit a pu changer depuis, par Admin), pour ne pas toucher à l'autre.
+     */
+    private fun shareRights(guest: ShareGuest, change: (ShareRole) -> ShareRole) = shareCall { c ->
+        val now = (c.shareState() as? Reply.Ok)?.value?.guest(guest.id)?.role ?: state.share.value?.guest(guest.id)?.role ?: guest.role
+        c.shareGuest(guest.id, change(now))
+    }
 
     override fun shareRemove(guest: ShareGuest) = shareCall { it.shareKick(guest.id) }
 
@@ -880,9 +892,10 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
                     else -> true
                 }
             }
-            if (!padsAllowed()) {
-                // Un spectateur : ses manettes n'envoient rien (le cœur ne lui ouvre aucune chaîne d'entrées). Faute de la
-                // combinaison, que cette chaîne forme, Retour, Select et Start ouvrent le menu : une manette seule peut quitter.
+            if (!padsRouted()) {
+                // Un invité sans les manettes : elles n'envoient rien (le cœur ne lui laisse pas ses touches de manette, même
+                // avec le clavier et la souris). Faute de la combinaison, que ces touches forment, Retour, Select et Start
+                // ouvrent le menu : une manette seule peut quitter.
                 val menuKey = code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_MENU || code == KeyEvent.KEYCODE_BUTTON_SELECT || code == KeyEvent.KEYCODE_BUTTON_START
                 if (!down && menuKey && event.repeatCount == 0) toggleMenu(fromPad = true)
                 return true
@@ -926,8 +939,14 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         return super.dispatchKeyEvent(event)
     }
 
-    /** Les manettes de l'appareil partent à l'ordinateur : toujours pour l'hôte, pour un invité s'il joue. */
-    private fun padsAllowed() = guest == null || state.shareRole.value.plays
+    /** Les manettes de l'appareil partent à l'ordinateur : toujours pour l'hôte, pour un invité qui a les manettes. */
+    private fun padsAllowed() = guest == null || state.shareRole.value.pads
+
+    /**
+     * Les manettes de l'appareil sont lues par l'app : elles partent à l'ordinateur ([padsAllowed]), ou elles
+     * pilotent la souris (« Manette en souris », que seul un invité qui a le clavier et la souris peut mettre).
+     */
+    private fun padsRouted() = padsAllowed() || pads.asMouse
 
     /** Ce qui prend les touches. La barre pilotée à la manette passe par `pads.captured`. */
     private fun SessionUi.anythingModal() = menuOpen || keysOpen || typing || shareOpen
@@ -939,7 +958,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
 
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
         if (event.isFromSource(InputDevice.SOURCE_JOYSTICK) && event.action == MotionEvent.ACTION_MOVE) {
-            if (!pads.captured && !ui.anythingModal() && padsAllowed() && pads.motion(event)) return true
+            if (!pads.captured && !ui.anythingModal() && padsRouted() && pads.motion(event)) return true
             return super.dispatchGenericMotionEvent(event)
         }
         if (event.isFromSource(InputDevice.SOURCE_MOUSE) && !ui.anythingModal() && ui.keyboardMouseAllowed()) {

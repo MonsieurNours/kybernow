@@ -192,8 +192,10 @@ interface SessionActions {
     fun share()
     /** « Nouveau code » : les invités déjà là restent. */
     fun shareNewCode()
-    /** « Faire jouer », « Donner le clavier et la souris », « Reprendre le clavier et la souris ». */
-    fun shareSetRole(guest: ShareGuest, role: ShareRole)
+    /** « Donner les manettes » (`on`) ou « Reprendre les manettes » : le clavier et la souris de l'invité ne changent pas. */
+    fun shareSetPads(guest: ShareGuest, on: Boolean)
+    /** « Donner le clavier et la souris » (`on`) ou « Reprendre le clavier et la souris » : ses manettes ne changent pas. */
+    fun shareSetKeyboardMouse(guest: ShareGuest, on: Boolean)
     /** « Retirer » un invité. */
     fun shareRemove(guest: ShareGuest)
     /** « Arrêter le partage » : tout le monde sort. */
@@ -208,8 +210,8 @@ fun SessionOverlay(ui: SessionUi) {
     val role by ui.state.shareRole.collectAsState()
     Box(Modifier.fillMaxSize()) {
         // La manette sous tout le reste : la barre, la rangée du clavier et les feuilles gardent leurs touchers.
-        // Un invité spectateur n'en a pas : rien de ce qu'il toucherait ne partirait.
-        if (!ui.tv && ui.padShown && (!ui.guest || role.plays) && ui.passageDone && !ui.leaving && ended?.error == null) OnScreenPadLayer(ui)
+        // Un invité sans les manettes n'en a pas : rien de ce qu'il toucherait ne partirait.
+        if (!ui.tv && ui.padShown && (!ui.guest || role.pads) && ui.passageDone && !ui.leaving && ended?.error == null) OnScreenPadLayer(ui)
         Capsules(ui, Modifier.align(Alignment.TopCenter))
         if (!ui.passageDone) Passage(ui)
         if (ui.tv) {
@@ -337,8 +339,8 @@ private fun StepLine(label: String, done: Boolean, current: Boolean) {
 @Composable
 private fun hint(ui: SessionUi): String? {
     val role by ui.state.shareRole.collectAsState()
-    // Un spectateur n'a pas de chaîne d'entrées, qui forme la combinaison de la manette : Retour ouvre le menu, la combinaison non.
-    val combo = ui.combo && !(ui.guest && !role.plays)
+    // Un invité sans les manettes ne forme pas la combinaison de la manette (le cœur ne reçoit pas ses touches) : Retour ouvre le menu, la combinaison non.
+    val combo = ui.combo && !(ui.guest && !role.pads)
     return when {
         !ui.tv -> stringResource(R.string.session_hint_touch)
         ui.backOpensMenu && combo -> stringResource(R.string.session_hint_tv_both)
@@ -468,10 +470,10 @@ private fun HostBarItems(ui: SessionUi, sec: Second?, first: FocusRequester) {
 
 /**
  * La barre réduite d'un invité (docs/link-ui.md, « Partage », comme le client web) : ce qui ne touche que
- * l'appareil (la latence et les statistiques), son rôle (« Spectateur » ou « Joueur ») et « Quitter le
- * partage » ; la manette à l'écran seulement en joueur ; le toucher, le mode de la souris, le clavier et les
- * touches seulement en joueur qui a le clavier et la souris. Ni profil, ni réglages de l'ordinateur, ni
- * presse-papiers.
+ * l'appareil (la latence et les statistiques), son rôle (« Spectateur » sans aucun droit, « Joueur » dès qu'il
+ * en a un) et « Quitter le partage » ; la manette à l'écran seulement avec les manettes ; le toucher, le mode
+ * de la souris, le clavier et les touches seulement avec le clavier et la souris. Ni profil, ni réglages de
+ * l'ordinateur, ni presse-papiers.
  */
 @Composable
 private fun GuestBarItems(ui: SessionUi, sec: Second?, role: ShareRole, first: FocusRequester) {
@@ -481,7 +483,7 @@ private fun GuestBarItems(ui: SessionUi, sec: Second?, role: ShareRole, first: F
         roleLabel(role), Modifier.clip(RoundedCornerShape(999.dp)).background(Kn.frost.copy(alpha = 0.06f)).padding(horizontal = s.dp(14f), vertical = s.dp(8f)),
         size = 14f, weight = 600, color = Kn.frost,
     )
-    if (role.plays) GlassButton(stringResource(R.string.pad_on_screen), { ui.actions.setOnScreenPad(!ui.padShown) }, selected = ui.padShown)
+    if (role.pads) GlassButton(stringResource(R.string.pad_on_screen), { ui.actions.setOnScreenPad(!ui.padShown) }, selected = ui.padShown)
     if (role.keyboardMouse) {
         GlassButton(stringResource(if (ui.directTouch) R.string.touch_direct else R.string.touch_trackpad), { ui.actions.setDirectTouch(!ui.directTouch) })
         GlassButton(
@@ -543,7 +545,7 @@ private fun WithReason(reason: String?, content: @Composable () -> Unit) {
     ) { content() }
 }
 
-/** « Spectateur » ou « Joueur » (le joueur qui a le clavier et la souris reste « Joueur »). */
+/** « Spectateur » (aucun droit) ou « Joueur » (un droit au moins : les manettes, le clavier et la souris, ou les deux). */
 @Composable
 fun roleLabel(role: ShareRole) = stringResource(if (role.plays) R.string.share_role_player else R.string.share_role_spectator)
 

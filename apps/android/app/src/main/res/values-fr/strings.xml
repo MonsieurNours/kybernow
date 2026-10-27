@@ -337,7 +337,8 @@
     <string name="share_role_spectator">Spectateur</string>
     <string name="share_role_player">Joueur</string>
     <string name="share_leave">Quitter le partage</string>
-    <string name="share_notice_play">Vous pouvez jouer.</string>
+    <string name="share_notice_play">Vous pouvez jouer à la manette.</string>
+    <string name="share_notice_pads_back">Les manettes sont reprises.</string>
     <string name="share_notice_keyboard_mouse">Vous avez le clavier et la souris.</string>
     <string name="share_notice_keyboard_mouse_back">Le clavier et la souris sont repris.</string>
     <string name="share_notice_watch">Vous regardez de nouveau.</string>
@@ -354,9 +355,10 @@
     <string name="share_nobody">Personne pour l\'instant.</string>
     <string name="share_guest_spectator" formatted="true">%1$s · Spectateur</string>
     <string name="share_guest_player" formatted="true">%1$s · Joueur</string>
+    <string name="share_guest_kbm" formatted="true">%1$s · Clavier et souris</string>
     <string name="share_guest_player_kbm" formatted="true">%1$s · Joueur, clavier et souris</string>
-    <string name="share_let_play">Faire jouer</string>
-    <string name="share_watch_only">Faire regarder</string>
+    <string name="share_give_pads">Donner les manettes</string>
+    <string name="share_take_pads">Reprendre les manettes</string>
     <string name="share_give_keyboard_mouse">Donner le clavier et la souris</string>
     <string name="share_take_keyboard_mouse">Reprendre le clavier et la souris</string>
     <string name="share_remove">Retirer</string>

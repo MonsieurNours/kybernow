@@ -8,6 +8,7 @@ import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
@@ -72,7 +73,9 @@ class ShareUiTest {
         override fun setPadLayout(simple: Boolean) {}
         override fun share() { shares++ }
         override fun shareNewCode() {}
-        override fun shareSetRole(guest: ShareGuest, role: ShareRole) {}
+        val rights = mutableListOf<String>()
+        override fun shareSetPads(guest: ShareGuest, on: Boolean) { rights += "${guest.name} manettes $on" }
+        override fun shareSetKeyboardMouse(guest: ShareGuest, on: Boolean) { rights += "${guest.name} clavier et souris $on" }
         override fun shareRemove(guest: ShareGuest) {}
         override fun shareStop() {}
         override fun shareCopyLink() {}
@@ -137,26 +140,68 @@ class ShareUiTest {
         ShareState("428913", "428 913", "kybernow://join?host=192.168.1.20&port=41234&fp=sha256:ab&code=428913", "https://192.168.1.20:41234/link/?join=428913", guests.toList())
 
     private val guestLabels = listOf(
-        "Faire jouer", "Faire regarder", "Donner le clavier et la souris", "Reprendre le clavier et la souris", "Retirer",
+        "Donner les manettes", "Reprendre les manettes", "Donner le clavier et la souris", "Reprendre le clavier et la souris", "Retirer",
     )
 
+    private fun shownActions() = rule.onAllNodes(hasClickAction()).fetchSemanticsNodes().mapNotNull { it.config.getOrNull(SemanticsProperties.Text)?.firstOrNull()?.text }.filter { it in guestLabels }
+
     @Test
-    fun guestActions_followTheCommonOrder() {
+    fun guestActions_followTheCommonOrder_twoIndependentRights() {
         val state = share(
             ShareGuest("g1", "Léa", "ios", ShareRole.SPECTATOR),
             ShareGuest("g2", "Max", "web", ShareRole.PLAYER),
-            ShareGuest("g3", "Zoé", "android", ShareRole.PLAYER_KBM),
+            ShareGuest("g3", "Zoé", "android", ShareRole.KBM),
+            ShareGuest("g4", "Eva", "mac", ShareRole.PLAYER_KBM),
         )
         show(FormFactor.PHONE) { SharePanelContent("Atelier", state, false, null, null, false, actions, {}) }
-        val shown = rule.onAllNodes(hasClickAction()).fetchSemanticsNodes().mapNotNull { it.config.getOrNull(SemanticsProperties.Text)?.firstOrNull()?.text }.filter { it in guestLabels }
-        // Spectateur : « Faire jouer ». Joueur : « Faire regarder » à la place, puis le clavier et la souris. Et « Retirer ».
+        // Les manettes, puis le clavier et la souris, chacun « Donner » ou « Reprendre » selon l'invité, puis « Retirer ».
         assertEquals(
             listOf(
-                "Faire jouer", "Retirer",
-                "Faire regarder", "Donner le clavier et la souris", "Retirer",
-                "Faire regarder", "Reprendre le clavier et la souris", "Retirer",
+                "Donner les manettes", "Donner le clavier et la souris", "Retirer",
+                "Reprendre les manettes", "Donner le clavier et la souris", "Retirer",
+                "Donner les manettes", "Reprendre le clavier et la souris", "Retirer",
+                "Reprendre les manettes", "Reprendre le clavier et la souris", "Retirer",
             ),
-            shown,
+            shownActions(),
+        )
+        // « Faire jouer » et « Faire regarder » n'existent plus.
+        rule.onNodeWithText("Faire jouer").assertDoesNotExist()
+        rule.onNodeWithText("Faire regarder").assertDoesNotExist()
+    }
+
+    @Test
+    fun guestLabels_nameTheirRights() {
+        val state = share(
+            ShareGuest("g1", "Léa", "ios", ShareRole.SPECTATOR),
+            ShareGuest("g2", "Max", "web", ShareRole.PLAYER),
+            ShareGuest("g3", "Zoé", "android", ShareRole.KBM),
+            ShareGuest("g4", "Eva", "mac", ShareRole.PLAYER_KBM),
+        )
+        show(FormFactor.PHONE) { SharePanelContent("Atelier", state, false, null, null, false, actions, {}) }
+        rule.onNodeWithText("Léa · Spectateur").assertExists()
+        rule.onNodeWithText("Max · Joueur").assertExists()
+        rule.onNodeWithText("Zoé · Clavier et souris").assertExists()
+        rule.onNodeWithText("Eva · Joueur, clavier et souris").assertExists()
+    }
+
+    @Test
+    fun eachButton_changesItsOwnRightOnly() {
+        val state = share(
+            ShareGuest("g2", "Max", "web", ShareRole.PLAYER),
+            ShareGuest("g4", "Eva", "mac", ShareRole.PLAYER_KBM),
+        )
+        actions.rights.clear()
+        show(FormFactor.PHONE) { SharePanelContent("Atelier", state, false, null, null, false, actions, {}) }
+        // Max (manettes) : « Donner le clavier et la souris » ne parle que du clavier et de la souris.
+        rule.onAllNodesWithText("Donner le clavier et la souris")[0].performClick()
+        // Eva (les deux) : chaque reprise à part.
+        rule.onAllNodesWithText("Reprendre les manettes")[1].performClick()
+        rule.onAllNodesWithText("Reprendre le clavier et la souris")[0].performClick()
+        // Max : « Reprendre les manettes » (le dernier droit).
+        rule.onAllNodesWithText("Reprendre les manettes")[0].performClick()
+        assertEquals(
+            listOf("Max clavier et souris true", "Eva manettes false", "Eva clavier et souris false", "Max manettes false"),
+            actions.rights,
         )
     }
 
@@ -205,6 +250,29 @@ class ShareUiTest {
         rule.onNodeWithText("Manette à l'écran").assertExists()
         rule.onNodeWithText("Souris", substring = true).assertDoesNotExist()
         rule.onNodeWithText("Pavé tactile").assertDoesNotExist()
+    }
+
+    @Test
+    fun guestBar_keyboardAndMouseOnly_hasNoControllerButIsAPlayer() {
+        val kbm = ui(guest = true, role = ShareRole.KBM) { barOpen = true }
+        show(FormFactor.PHONE) { SessionOverlay(kbm) }
+        // « Joueur » dès qu'il a un droit ; le toucher, la souris, le clavier et les touches avec le clavier et la souris...
+        rule.onNodeWithText("Joueur").assertExists()
+        rule.onNodeWithText("Souris", substring = true).assertExists()
+        rule.onNodeWithText("Pavé tactile").assertExists()
+        rule.onNodeWithText("Touches").assertExists()
+        // ... mais pas la manette à l'écran, sans les manettes.
+        rule.onNodeWithText("Manette à l'écran").assertDoesNotExist()
+        rule.onNodeWithText("Spectateur").assertDoesNotExist()
+    }
+
+    @Test
+    fun guestBar_playerWithKeyboardAndMouse_hasEverything() {
+        val both = ui(guest = true, role = ShareRole.PLAYER_KBM) { barOpen = true }
+        show(FormFactor.PHONE) { SessionOverlay(both) }
+        rule.onNodeWithText("Joueur").assertExists()
+        rule.onNodeWithText("Manette à l'écran").assertExists()
+        rule.onNodeWithText("Pavé tactile").assertExists()
     }
 
     @Test
@@ -260,9 +328,24 @@ class ShareUiTest {
         assertFalse(ui(guest = true, role = ShareRole.SPECTATOR).keyboardMouseAllowed())
         assertFalse(ui(guest = true, role = ShareRole.PLAYER).keyboardMouseAllowed())
         assertTrue(ui(guest = true, role = ShareRole.PLAYER_KBM).keyboardMouseAllowed())
-        // Le rôle qui change en cours de partage : l'interface le suit.
+        assertTrue(ui(guest = true, role = ShareRole.KBM).keyboardMouseAllowed())
+        // Le rôle qui change en cours de partage : l'interface le suit, chaque droit à part.
         val g = ui(guest = true, role = ShareRole.PLAYER_KBM)
         g.state.onShareRole(ShareRole.PLAYER.code, ShareRole.PLAYER_KBM.code)
         assertFalse(g.keyboardMouseAllowed())
+        g.state.onShareRole(ShareRole.PLAYER_KBM.code, ShareRole.PLAYER.code)
+        assertTrue(g.keyboardMouseAllowed())
+        g.state.onShareRole(ShareRole.KBM.code, ShareRole.PLAYER_KBM.code)
+        assertTrue(g.keyboardMouseAllowed())
+    }
+
+    @Test
+    fun rightsNoticeCapsule_saysWhichRightChanged() {
+        val ui = ui(guest = true, role = ShareRole.PLAYER_KBM)
+        show(FormFactor.PHONE) { SessionOverlay(ui) }
+        ui.state.capsule.value = Capsule.ShareRights(R.string.share_notice_pads_back)
+        rule.onNodeWithText("Les manettes sont reprises.").assertExists()
+        ui.state.capsule.value = Capsule.ShareRights(R.string.share_notice_play)
+        rule.onNodeWithText("Vous pouvez jouer à la manette.").assertExists()
     }
 }
