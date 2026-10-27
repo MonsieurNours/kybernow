@@ -319,57 +319,91 @@ pub const SHORTCUTS: [(&str, &str, &[u16]); 10] = [
 
 // MARK: - KyberNow Share (docs/kybernow-share.md, textes : docs/link-ui.md, « Partage »)
 
-/// Le rôle d'un invité, que la Station impose : miroir de `kybernow_core::share::ShareRole`
-/// (l'interface seule, celle des captures et des tests sur Mac, n'a pas le cœur).
+/// Le rôle d'un invité, que la Station impose : miroir de `kybernow_core::share::ShareRole` (l'interface seule,
+/// celle des captures et des tests sur Mac, n'a pas le cœur). Deux droits indépendants, les manettes et le clavier
+/// et la souris, que l'hôte donne ou reprend chacun sans toucher à l'autre.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum ShareRole {
-    /// Voit et entend, n'envoie rien (le rôle d'arrivée).
+    /// Aucun droit : voit et entend, n'envoie rien (le rôle d'arrivée).
     #[default]
     Spectator,
-    /// Ses manettes deviennent la manette suivante de Windows.
+    /// Les manettes : elles deviennent la manette suivante de Windows.
     Player,
-    /// Joueur à qui l'hôte a donné le clavier et la souris.
+    /// Le clavier et la souris, sans les manettes.
+    Kbm,
+    /// Les manettes, et le clavier et la souris.
     PlayerKbm,
 }
 
 impl ShareRole {
-    /// L'invité joue : une chaîne d'entrées, au moins pour ses manettes.
-    pub fn plays(self) -> bool {
-        self != ShareRole::Spectator
+    /// Le rôle de ces deux droits.
+    pub fn of(pads: bool, kbm: bool) -> Self {
+        match (pads, kbm) {
+            (false, false) => ShareRole::Spectator,
+            (true, false) => ShareRole::Player,
+            (false, true) => ShareRole::Kbm,
+            (true, true) => ShareRole::PlayerKbm,
+        }
     }
 
-    /// Le clavier et la souris lui sont donnés.
+    /// Les manettes de l'invité partent vers l'ordinateur.
+    pub fn pads(self) -> bool {
+        matches!(self, ShareRole::Player | ShareRole::PlayerKbm)
+    }
+
+    /// Le clavier et la souris de l'invité partent vers l'ordinateur.
     pub fn kbm(self) -> bool {
-        self == ShareRole::PlayerKbm
+        matches!(self, ShareRole::Kbm | ShareRole::PlayerKbm)
+    }
+
+    /// Un droit au moins : l'invité a une chaîne d'entrées, et la barre le dit « Joueur ».
+    pub fn plays(self) -> bool {
+        self.pads() || self.kbm()
+    }
+
+    /// Le rôle quand l'hôte donne (`true`) ou reprend (`false`) les manettes, le clavier et la souris tels quels.
+    pub fn with_pads(self, on: bool) -> Self {
+        Self::of(on, self.kbm())
+    }
+
+    /// Le rôle quand l'hôte donne ou reprend le clavier et la souris, les manettes telles quelles.
+    pub fn with_kbm(self, on: bool) -> Self {
+        Self::of(self.pads(), on)
     }
 
     /// « Spectateur », « Joueur » : la barre réduite de l'invité.
     pub fn label(self) -> &'static str {
-        match self {
-            ShareRole::Spectator => tr("Spectateur", "Spectator"),
-            ShareRole::Player | ShareRole::PlayerKbm => tr("Joueur", "Player"),
-        }
+        if self.plays() { tr("Joueur", "Player") } else { tr("Spectateur", "Spectator") }
     }
 
-    /// « Spectateur », « Joueur », « Joueur, clavier et souris » : la liste de l'hôte.
+    /// « Spectateur », « Joueur », « Clavier et souris », « Joueur, clavier et souris » : la liste de l'hôte.
     pub fn long_label(self) -> &'static str {
         match self {
             ShareRole::Spectator => tr("Spectateur", "Spectator"),
             ShareRole::Player => tr("Joueur", "Player"),
+            ShareRole::Kbm => tr("Clavier et souris", "Keyboard and mouse"),
             ShareRole::PlayerKbm => tr("Joueur, clavier et souris", "Player, keyboard and mouse"),
         }
     }
 
-    /// L'avis bref d'un rôle changé par l'hôte (docs/link-ui.md) ; rien au départ (`previous` nul). Un joueur
-    /// que l'hôte fait de nouveau regarder (avec ou sans le clavier et la souris) : « Vous regardez de nouveau. ».
+    /// L'avis bref d'un rôle changé par l'hôte (docs/link-ui.md). Les deux droits changés d'un coup : un seul
+    /// avis, le droit donné avant le droit repris, les manettes avant le clavier et la souris. Plus aucun droit :
+    /// « Vous regardez de nouveau. » à la place de l'avis de reprise. Rien au départ (`previous` nul) ni sans
+    /// changement.
     pub fn notice(self, previous: Option<ShareRole>) -> Option<&'static str> {
-        match (previous?, self) {
-            (a, b) if a == b => None,
-            (_, ShareRole::Spectator) => Some(tr("Vous regardez de nouveau.", "You are watching again.")),
-            (_, ShareRole::PlayerKbm) => Some(tr("Vous avez le clavier et la souris.", "You have the keyboard and mouse.")),
-            (ShareRole::PlayerKbm, ShareRole::Player) => Some(tr("Le clavier et la souris sont repris.", "The keyboard and mouse were taken back.")),
-            (ShareRole::Spectator, ShareRole::Player) => Some(tr("Vous pouvez jouer.", "You can play.")),
-            _ => None,
+        let before = previous?;
+        if self.pads() && !before.pads() {
+            Some(tr("Vous pouvez jouer à la manette.", "You can play with a controller."))
+        } else if self.kbm() && !before.kbm() {
+            Some(tr("Vous avez le clavier et la souris.", "You have the keyboard and mouse."))
+        } else if !self.plays() && before.plays() {
+            Some(tr("Vous regardez de nouveau.", "You are watching again."))
+        } else if !self.pads() && before.pads() {
+            Some(tr("Les manettes sont reprises.", "The controllers were taken back."))
+        } else if !self.kbm() && before.kbm() {
+            Some(tr("Le clavier et la souris sont repris.", "The keyboard and mouse were taken back."))
+        } else {
+            None
         }
     }
 }
@@ -497,45 +531,51 @@ pub fn guest_title(computer: &str) -> String {
     format!("{} {computer}", tr("Invité sur", "Guest on"))
 }
 
-/// Un bouton de la ligne d'un invité (hors « Retirer »).
+/// Un des deux boutons de la ligne d'un invité (hors « Retirer ») : un droit, donné ou repris sans toucher à
+/// l'autre.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ShareMove {
-    /// « Faire jouer » : `ShareRole(i)`.
-    Play,
-    /// « Faire regarder » : `ShareRole(i)`.
-    Watch,
+    /// « Donner » ou « Reprendre les manettes » : `SharePads(i)`.
+    Pads,
     /// « Donner » ou « Reprendre le clavier et la souris » : `ShareKbm(i)`.
     Kbm,
 }
 
 impl ShareMove {
-    /// Ce que dit le bouton, et la cible qu'il inscrit pour l'invité `i`.
+    /// Les deux boutons, dans l'ordre de la ligne : les manettes, puis le clavier et la souris.
+    pub const ALL: [ShareMove; 2] = [ShareMove::Pads, ShareMove::Kbm];
+
+    /// Ce que dit le bouton pour un invité de ce rôle : donner le droit qu'il n'a pas, reprendre celui qu'il a.
     pub fn label(self, role: ShareRole) -> &'static str {
-        match (self, role) {
-            (ShareMove::Play, _) => tr("Faire jouer", "Let play"),
-            (ShareMove::Watch, _) => tr("Faire regarder", "Watch only"),
-            (ShareMove::Kbm, ShareRole::PlayerKbm) => tr("Reprendre le clavier et la souris", "Take back keyboard and mouse"),
-            (ShareMove::Kbm, _) => tr("Donner le clavier et la souris", "Give keyboard and mouse"),
+        match (self, self.held(role)) {
+            (ShareMove::Pads, false) => tr("Donner les manettes", "Give controllers"),
+            (ShareMove::Pads, true) => tr("Reprendre les manettes", "Take back controllers"),
+            (ShareMove::Kbm, false) => tr("Donner le clavier et la souris", "Give keyboard and mouse"),
+            (ShareMove::Kbm, true) => tr("Reprendre le clavier et la souris", "Take back keyboard and mouse"),
         }
     }
 
+    /// L'invité a ce droit.
+    pub fn held(self, role: ShareRole) -> bool {
+        match self {
+            ShareMove::Pads => role.pads(),
+            ShareMove::Kbm => role.kbm(),
+        }
+    }
+
+    /// Le rôle que demande le bouton : ce droit basculé, l'autre tel quel.
+    pub fn toggled(self, role: ShareRole) -> ShareRole {
+        match self {
+            ShareMove::Pads => role.with_pads(!role.pads()),
+            ShareMove::Kbm => role.with_kbm(!role.kbm()),
+        }
+    }
+
+    /// La cible du bouton pour l'invité `i`.
     pub fn target(self, i: usize) -> Target {
         match self {
-            ShareMove::Play | ShareMove::Watch => Target::ShareRole(i),
+            ShareMove::Pads => Target::SharePads(i),
             ShareMove::Kbm => Target::ShareKbm(i),
-        }
-    }
-}
-
-impl ShareRole {
-    /// Ce que l'hôte peut faire d'un invité de ce rôle, comme le panneau d'Admin et les autres apps : un
-    /// spectateur, « Faire jouer » ; un joueur, « Faire regarder » (retour en spectateur) puis « Donner le
-    /// clavier et la souris » ; un joueur avec le clavier et la souris, « Faire regarder » puis « Reprendre le
-    /// clavier et la souris » (link-ui). Puis « Retirer ».
-    pub fn moves(self) -> &'static [ShareMove] {
-        match self {
-            ShareRole::Spectator => &[ShareMove::Play],
-            ShareRole::Player | ShareRole::PlayerKbm => &[ShareMove::Watch, ShareMove::Kbm],
         }
     }
 }
@@ -547,7 +587,7 @@ pub enum ShareOp {
     Open,
     /// « Nouveau code » : les invités déjà là restent.
     NewCode,
-    /// « Faire jouer », « Donner le clavier et la souris », « Reprendre le clavier et la souris ».
+    /// Un droit donné ou repris (« Donner les manettes », « Reprendre le clavier et la souris »…) : le rôle voulu.
     Role(String, ShareRole),
     /// « Retirer ».
     Kick(String),
@@ -826,9 +866,9 @@ pub enum Target {
     JoinCode,
     JoinName,
     JoinGo,
-    /// KyberNow Share, hôte : le panneau du partage (le rôle d'un invité, le clavier et la souris,
+    /// KyberNow Share, hôte : le panneau du partage (les deux droits d'un invité : manettes, clavier et souris,
     /// retirer, nouveau code, arrêter, fermer).
-    ShareRole(usize),
+    SharePads(usize),
     ShareKbm(usize),
     ShareKick(usize),
     ShareNewCode,
@@ -1176,7 +1216,9 @@ impl App {
                 let to = self.back_to;
                 self.back_to = Screen::Home;
                 if to == Screen::Session && self.session.is_some() {
-                    let item = if self.screen == Screen::Settings { MenuItem::Settings } else { MenuItem::Gamepads };
+                    // Un invité à qui l'hôte a repris les manettes n'a plus la tuile : le focus revient sur « Reprendre ».
+                    let pads = self.session.as_ref().and_then(|s| s.role()).is_none_or(|r| r.pads());
+                    let item = if self.screen == Screen::Settings { MenuItem::Settings } else if pads { MenuItem::Gamepads } else { MenuItem::Resume };
                     self.screen = Screen::Session;
                     self.focus = Target::Menu(item);
                 } else if to == Screen::Settings && self.screen == Screen::Gamepads {
@@ -1295,8 +1337,8 @@ impl App {
                 Vec::new()
             }
             Target::JoinGo => self.join_go(),
-            Target::ShareRole(i) => self.share_guest_role(i, false),
-            Target::ShareKbm(i) => self.share_guest_role(i, true),
+            Target::SharePads(i) => self.share_guest_move(i, ShareMove::Pads),
+            Target::ShareKbm(i) => self.share_guest_move(i, ShareMove::Kbm),
             Target::ShareKick(i) => {
                 let Some(guest) = self.session.as_ref().and_then(|s| s.share.as_ref()).and_then(|v| v.guests.get(i)).map(|g| g.id.clone()) else { return Vec::new() };
                 self.share_op(ShareOp::Kick(guest))
@@ -1605,18 +1647,12 @@ impl App {
         vec![Action::Share(op)]
     }
 
-    /// Le rôle suivant de l'invité `i` : `kbm` : le bouton du clavier et de la souris ; sinon « Faire jouer »
-    /// ou « Faire regarder » (`ShareRole::moves`).
-    fn share_guest_role(&mut self, i: usize, kbm: bool) -> Vec<Action> {
+    /// Un des deux boutons de l'invité `i` : son droit basculé (donné ou repris), l'autre tel quel. Le rôle voulu
+    /// se calcule d'après celui qui est montré : `share_op` ne laisse partir qu'une demande à la fois, jusqu'à la
+    /// réponse d'Admin, sinon deux clics rapides sur les deux droits s'annuleraient.
+    fn share_guest_move(&mut self, i: usize, m: ShareMove) -> Vec<Action> {
         let Some(guest) = self.session.as_ref().and_then(|s| s.share.as_ref()).and_then(|v| v.guests.get(i)).cloned() else { return Vec::new() };
-        let role = match (guest.role, kbm) {
-            (ShareRole::Spectator, false) => ShareRole::Player,
-            (ShareRole::Player | ShareRole::PlayerKbm, false) => ShareRole::Spectator,
-            (ShareRole::Player, true) => ShareRole::PlayerKbm,
-            (ShareRole::PlayerKbm, true) => ShareRole::Player,
-            (ShareRole::Spectator, true) => return Vec::new(),
-        };
-        self.share_op(ShareOp::Role(guest.id, role))
+        self.share_op(ShareOp::Role(guest.id, m.toggled(guest.role)))
     }
 
     /// La réponse d'Admin à une demande de l'hôte : le partage tel qu'il est maintenant (`None` : fermé),

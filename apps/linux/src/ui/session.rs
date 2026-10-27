@@ -831,10 +831,10 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         tiles.push((MenuItem::Keys, tr("Touches", "Keys").into(), tr("Ctrl+Alt+Suppr, Alt+Tab", "Ctrl+Alt+Del, Alt+Tab").into(), false, false));
     }
     tiles.push((MenuItem::Stats, tr("Statistiques", "Statistics").into(), tr("Latence, débit", "Latency, bitrate").into(), s.show_stats, false));
-    // La manette d'un invité ne sert qu'en joueur : un spectateur n'a pas la tuile.
-    let plays = s.role().is_none_or(|r| r.plays());
+    // Les manettes d'un invité ne servent qu'avec ce droit : sans lui, pas de tuile.
+    let pads = s.role().is_none_or(|r| r.pads());
     if guest || tv || app.machine.battery.is_none() {
-        if plays {
+        if pads {
             tiles.push((MenuItem::Gamepads, tr("Manettes", "Controllers").into(), format!("{} · {}", app.pads.len(), tr("vibrations", "rumble")), false, false));
         }
     } else {
@@ -870,7 +870,7 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     if app.machine.vrr == Some(true) {
         line.push_str(" · VRR");
     }
-    if let Some(p) = app.pads.first().filter(|_| s.role().is_none_or(|r| r.plays())) {
+    if let Some(p) = app.pads.first().filter(|_| pads) {
         line.push_str(&format!(" · {} {}, {}1", tr("manette :", "controller:"), p.name, tr("joueur ", "player ")));
     }
     cv.text_fit(x0 + 16.0 * u, sy, Text::new(Font::Mono, 12.0 * u, FAINT), &line, w * 0.6);
@@ -886,8 +886,8 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     lx += legend(cv, lx, gy, g, &["A"], tr("Choisir", "Choose")) + 28.0 * u;
     legend(cv, lx, gy, g, &["B"], tr("Reprendre", "Resume"));
     let label = if app.layout == Layout::Handheld { tr("ouvre ce menu · ou un toucher en haut de l'écran", "opens this menu · or a touch at the top of the screen") } else { tr("ouvre ce menu", "opens this menu") };
-    // Un spectateur n'envoie rien : pas de combinaison (L1 + R1 + ☰ + ⧉), Start ou Select ouvrent le menu.
-    let keys: &[&str] = if s.role() == Some(crate::app::ShareRole::Spectator) { &["☰", "⧉"] } else { &["L1", "R1", "☰", "⧉"] };
+    // Sans les manettes, un invité n'envoie aucune touche de manette : pas de combinaison (L1 + R1 + ☰ + ⧉), Start ou Select ouvrent le menu.
+    let keys: &[&str] = if pads { &["L1", "R1", "☰", "⧉"] } else { &["☰", "⧉"] };
     let lw = widgets::legend_width(cv, g, keys, label);
     legend(cv, w - x0 - lw, gy, g, keys, label);
 }

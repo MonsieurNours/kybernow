@@ -416,15 +416,17 @@ pub fn role_of(r: share::ShareRole) -> crate::app::ShareRole {
     match r {
         share::ShareRole::Spectator => crate::app::ShareRole::Spectator,
         share::ShareRole::Player => crate::app::ShareRole::Player,
+        share::ShareRole::Kbm => crate::app::ShareRole::Kbm,
         share::ShareRole::PlayerKbm => crate::app::ShareRole::PlayerKbm,
     }
 }
 
-/// Le rôle du cœur d'après celui de l'interface (« Faire jouer »…).
+/// Le rôle du cœur d'après celui de l'interface (les deux boutons de droits de l'hôte).
 pub fn core_role(r: crate::app::ShareRole) -> share::ShareRole {
     match r {
         crate::app::ShareRole::Spectator => share::ShareRole::Spectator,
         crate::app::ShareRole::Player => share::ShareRole::Player,
+        crate::app::ShareRole::Kbm => share::ShareRole::Kbm,
         crate::app::ShareRole::PlayerKbm => share::ShareRole::PlayerKbm,
     }
 }
@@ -860,9 +862,15 @@ mod tests {
             _ => panic!("la fin arrive avec son texte"),
         }
         // Les rôles de l'interface et ceux du cœur se correspondent.
-        for r in [share::ShareRole::Spectator, share::ShareRole::Player, share::ShareRole::PlayerKbm] {
+        for r in [share::ShareRole::Spectator, share::ShareRole::Player, share::ShareRole::Kbm, share::ShareRole::PlayerKbm] {
             assert_eq!(core_role(role_of(r)), r);
-            assert_eq!((role_of(r).kbm(), role_of(r).plays()), (r.rights().keyboard_mouse, r.plays()));
+            let ui = role_of(r);
+            assert_eq!((ui.pads(), ui.kbm(), ui.plays()), (r.rights().gamepads, r.rights().keyboard_mouse, r.plays()));
+            assert_eq!((ui.pads(), ui.kbm()), (r.pads(), r.kbm()));
+            for on in [false, true] {
+                assert_eq!(core_role(ui.with_pads(on)), r.with_pads(on));
+                assert_eq!(core_role(ui.with_kbm(on)), r.with_kbm(on));
+            }
         }
     }
 

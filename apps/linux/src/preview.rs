@@ -350,8 +350,8 @@ fn computers_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, p
     app.screen = Screen::Home;
 }
 
-/// Une session d'hôte avec un partage ouvert : le code, le lien, trois invités (spectateur, joueur, joueur avec
-/// le clavier et la souris).
+/// Une session d'hôte avec un partage ouvert : le code, le lien, quatre invités, un par combinaison de droits
+/// (spectateur, manettes, clavier et souris, les deux).
 fn shared_view() -> ShareView {
     let now = crate::model::now_secs() as i64;
     ShareView {
@@ -361,7 +361,8 @@ fn shared_view() -> ShareView {
         guests: vec![
             ShareGuest { id: "g1".into(), name: "Léa".into(), role: ShareRole::Spectator, app: "ios".into(), since: Some(now - 4 * 60) },
             ShareGuest { id: "g2".into(), name: "Tom".into(), role: ShareRole::Player, app: "webos".into(), since: Some(now - 35 * 60) },
-            ShareGuest { id: "g3".into(), name: "Camille".into(), role: ShareRole::PlayerKbm, app: "windows".into(), since: Some(now - 3700) },
+            ShareGuest { id: "g3".into(), name: "Hugo".into(), role: ShareRole::Kbm, app: "mac".into(), since: Some(now - 12 * 60) },
+            ShareGuest { id: "g4".into(), name: "Camille".into(), role: ShareRole::PlayerKbm, app: "windows".into(), since: Some(now - 3700) },
         ],
     }
 }
@@ -504,14 +505,19 @@ fn share_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, prefi
     app.screen = Screen::Session;
     app.focus = Target::Menu(MenuItem::Resume);
     shot(app, cv, Some(video), dir, &name("22b-invite-spectateur"));
-    for (role, n) in [(ShareRole::Player, "22c-invite-joueur"), (ShareRole::PlayerKbm, "22d-invite-joueur-clavier")] {
+    // Chaque droit donné par l'hôte, avec son avis : les manettes, le clavier et la souris, puis les deux.
+    for (role, from, n) in [
+        (ShareRole::Player, ShareRole::Spectator, "22c-invite-joueur"),
+        (ShareRole::Kbm, ShareRole::Spectator, "22d-invite-clavier-souris"),
+        (ShareRole::PlayerKbm, ShareRole::Player, "22d-invite-joueur-clavier"),
+    ] {
         let mut g = guest_session(role);
         if console {
             g.menu = true;
         } else {
             g.bar = true;
         }
-        g.notice = role.notice(Some(if role == ShareRole::Player { ShareRole::Spectator } else { ShareRole::Player })).map(|t| (t.to_string(), Instant::now()));
+        g.notice = role.notice(Some(from)).map(|t| (t.to_string(), Instant::now()));
         app.set_session(Some(g));
         shot(app, cv, Some(video), dir, &name(n));
     }
@@ -1344,25 +1350,35 @@ mod tests {
 
     /// Le panneau de l'hôte au bureau tient dans la fenêtre la plus basse (960 × 600) avec quatre invités, chaque
     /// bouton qu'il inscrit y est entier ; il a tout ce que dit link-ui : code, QR code, aide, invités, actions, boutons du bas.
+    /// Chaque invité a ses deux boutons de droits et « Retirer », sans chevauchement, dans la largeur du panneau.
     #[test]
     fn share_panel_fits_the_smallest_window() {
         let (app, mut cv) = hosting(4, (960, 600));
         let hits = ui::draw(&app, &mut cv);
-        let need = [Target::ShareClose, Target::ShareCopy, Target::ShareNewCode, Target::ShareStop, Target::ShareKick(0), Target::ShareKick(3), Target::ShareRole(0), Target::ShareKbm(1), Target::ShareRole(1), Target::ShareKbm(2)];
+        let rect = |t: Target| hits.iter().find(|(h, _)| *h == t).unwrap_or_else(|| panic!("{t:?} absent du panneau")).1;
+        let mut need = vec![Target::ShareClose, Target::ShareCopy, Target::ShareNewCode, Target::ShareStop];
+        for i in 0..4 {
+            need.extend([Target::SharePads(i), Target::ShareKbm(i), Target::ShareKick(i)]);
+        }
         for t in need {
-            let (_, r) = hits.iter().find(|(h, _)| *h == t).unwrap_or_else(|| panic!("{t:?} absent du panneau"));
+            let r = rect(t);
             assert!(r.x >= 0.0 && r.y >= 0.0 && r.x + r.w <= 960.0 && r.y + r.h <= 600.0, "{t:?} sort de la fenêtre : {r:?}");
         }
-        // Pas de bouton en trop : un spectateur n'a que « Faire jouer » ; le quatrième invité aussi.
-        assert!(hits.iter().all(|(t, _)| *t != Target::ShareKbm(0) && *t != Target::ShareKbm(3)));
+        // Sur une ligne : manettes, clavier et souris, « Retirer », côte à côte et dans la largeur du panneau.
+        let right = rect(Target::ShareStop);
+        for i in 0..4 {
+            let (p, k, x) = (rect(Target::SharePads(i)), rect(Target::ShareKbm(i)), rect(Target::ShareKick(i)));
+            assert!(p.x + p.w <= k.x && k.x + k.w <= x.x, "ligne {i} : boutons qui se chevauchent : {p:?} {k:?} {x:?}");
+            assert!(x.x + x.w <= right.x + right.w, "ligne {i} : « Retirer » sort du panneau : {x:?} contre {right:?}");
+        }
         // Le panneau ne chevauche pas la barre, et le bouton du bas est sous le dernier invité.
-        let bottom = hits.iter().find(|(t, _)| *t == Target::ShareKick(3)).unwrap().1;
-        let foot = hits.iter().find(|(t, _)| *t == Target::ShareNewCode).unwrap().1;
+        let bottom = rect(Target::ShareKick(3));
+        let foot = rect(Target::ShareNewCode);
         assert!(foot.y >= bottom.y + bottom.h);
         // Sans invité : « Personne pour l'instant. » et rien à faire sur une ligne.
         let (app, mut cv) = hosting(0, (1280, 800));
         let hits = ui::draw(&app, &mut cv);
-        assert!(hits.iter().all(|(t, _)| !matches!(t, Target::ShareRole(_) | Target::ShareKbm(_) | Target::ShareKick(_))));
+        assert!(hits.iter().all(|(t, _)| !matches!(t, Target::SharePads(_) | Target::ShareKbm(_) | Target::ShareKick(_))));
         assert!(hits.iter().any(|(t, _)| *t == Target::ShareStop));
     }
 
@@ -1387,7 +1403,7 @@ mod tests {
             for (t, r) in &hits {
                 assert!(r.x >= 0.0 && r.y >= 0.0 && r.x + r.w <= size.0 as f32 && r.y + r.h <= (size.1 - 40) as f32, "{layout:?} : {t:?} sort de l'écran : {r:?}");
             }
-            assert!(hits.iter().any(|(t, _)| *t == Target::ShareStop) && hits.iter().any(|(t, _)| *t == Target::ShareKick(2)));
+            assert!(hits.iter().any(|(t, _)| *t == Target::ShareStop) && hits.iter().any(|(t, _)| *t == Target::ShareKick(3)));
         }
     }
 
@@ -1410,12 +1426,13 @@ mod tests {
         for t in [Target::BarProfile, Target::BarKeys, Target::BarMouse, Target::BarShare, Target::BarQuit] {
             assert!(hits.iter().any(|(h, _)| *h == t), "{t:?} manque à la barre de l'hôte");
         }
-        // Le partage ouvert : la pastille « 3 invités » rouvre le panneau (deux endroits pour la même cible).
+        // Le partage ouvert : la pastille « 4 invités » rouvre le panneau (deux endroits pour la même cible).
         app.session_mut().unwrap().share = Some(shared_view());
         let hits = ui::draw(&app, &mut cv);
         assert_eq!(hits.iter().filter(|(h, _)| *h == Target::BarShare).count(), 2);
-        // Un invité : spectateur, puis joueur, puis joueur avec le clavier et la souris.
-        for (role, keys) in [(ShareRole::Spectator, false), (ShareRole::Player, false), (ShareRole::PlayerKbm, true)] {
+        // Un invité, avec chacun des quatre rôles : touches et souris seulement avec le clavier et la souris.
+        for role in [ShareRole::Spectator, ShareRole::Player, ShareRole::Kbm, ShareRole::PlayerKbm] {
+            let keys = role.kbm();
             let mut g = guest_session(role);
             g.bar = true;
             app.set_session(Some(g));
@@ -1450,15 +1467,16 @@ mod tests {
         let t = items(&app, &mut cv);
         assert!(t.contains(&Target::Menu(MenuItem::Share)) && t.contains(&Target::Menu(MenuItem::Profile(Profile::Bureau))));
         assert_eq!(t.last(), Some(&Target::Menu(MenuItem::Disconnect)));
-        for (role, full) in [(ShareRole::Spectator, false), (ShareRole::Player, false), (ShareRole::PlayerKbm, true)] {
+        for role in [ShareRole::Spectator, ShareRole::Player, ShareRole::Kbm, ShareRole::PlayerKbm] {
             let mut g = guest_session(role);
             g.menu = true;
             app.set_session(Some(g));
             let t = items(&app, &mut cv);
             assert!(t.iter().all(|i| !matches!(i, Target::Menu(MenuItem::Share | MenuItem::Light | MenuItem::Profile(_)))), "{role:?} : {t:?}");
-            assert_eq!(t.contains(&Target::Menu(MenuItem::Keys)), full, "{role:?}");
-            assert_eq!(t.contains(&Target::Menu(MenuItem::PadMouse)), full, "{role:?}");
-            assert_eq!(t.contains(&Target::Menu(MenuItem::Gamepads)), role != ShareRole::Spectator, "{role:?} : la manette seulement en joueur");
+            assert_eq!(t.contains(&Target::Menu(MenuItem::Keys)), role.kbm(), "{role:?}");
+            assert_eq!(t.contains(&Target::Menu(MenuItem::Keyboard)), role.kbm(), "{role:?}");
+            assert_eq!(t.contains(&Target::Menu(MenuItem::PadMouse)), role.kbm(), "{role:?}");
+            assert_eq!(t.contains(&Target::Menu(MenuItem::Gamepads)), role.pads(), "{role:?} : les manettes seulement avec les manettes");
             assert_eq!(t.last(), Some(&Target::Menu(MenuItem::Disconnect)));
             assert!(t.contains(&Target::Menu(MenuItem::Resume)) && t.contains(&Target::Menu(MenuItem::Sound)) && t.contains(&Target::Menu(MenuItem::Stats)));
         }
@@ -1545,18 +1563,20 @@ mod tests {
         assert_eq!(hits.iter().filter(|(t, _)| *t == Target::BarShare).count(), 1);
     }
 
-    /// Le panneau d'un hôte dont le partage est ouvert propose, pour un joueur avec ou sans le clavier et la souris,
-    /// « Faire regarder » (le retour en spectateur) à côté de « Donner » ou « Reprendre le clavier et la souris » ;
-    /// un spectateur n'a que « Faire jouer ».
+    /// Le panneau d'un hôte dont le partage est ouvert propose à chaque invité les deux droits, quel que soit son rôle
+    /// (spectateur, manettes, clavier et souris, les deux) : « Donner » ou « Reprendre les manettes », « Donner » ou
+    /// « Reprendre le clavier et la souris », puis « Retirer » ; jamais « Faire jouer » ni « Faire regarder ».
     #[test]
-    fn share_panel_offers_watch_to_every_player() {
-        let (app, mut cv) = hosting(3, (1280, 800));
+    fn share_panel_offers_both_rights_to_every_guest() {
+        let (app, mut cv) = hosting(4, (1280, 800));
         let hits = ui::draw(&app, &mut cv);
         let has = |t: Target| hits.iter().any(|(h, _)| *h == t);
-        // Léa, spectatrice : jouer ; Tom, joueur : clavier et souris, regarder ; Camille, avec le clavier et la souris : le reprendre, regarder.
-        assert!(has(Target::ShareRole(0)) && !has(Target::ShareKbm(0)));
-        assert!(has(Target::ShareKbm(1)) && has(Target::ShareRole(1)));
-        assert!(has(Target::ShareKbm(2)) && has(Target::ShareRole(2)));
+        for i in 0..4 {
+            assert!(has(Target::SharePads(i)) && has(Target::ShareKbm(i)) && has(Target::ShareKick(i)), "invité {i}");
+        }
+        // Un seul bouton par droit et par invité : trois cibles par ligne, pas une de plus.
+        let per_guest = hits.iter().filter(|(t, _)| matches!(t, Target::SharePads(_) | Target::ShareKbm(_) | Target::ShareKick(_))).count();
+        assert_eq!(per_guest, 12);
     }
 
     /// Partage impossible : à la souris le bouton de la barre est estompé et son infobulle dit pourquoi ; sur l'interface

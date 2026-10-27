@@ -204,15 +204,17 @@ pub fn role_of(r: share::ShareRole) -> crate::app::ShareRole {
     match r {
         share::ShareRole::Spectator => crate::app::ShareRole::Spectator,
         share::ShareRole::Player => crate::app::ShareRole::Player,
+        share::ShareRole::Kbm => crate::app::ShareRole::Kbm,
         share::ShareRole::PlayerKbm => crate::app::ShareRole::PlayerKbm,
     }
 }
 
-/// Le rôle du cœur d'après celui de l'interface (« Faire jouer »…).
+/// Le rôle du cœur d'après celui de l'interface (les deux boutons de droits de l'hôte).
 pub fn core_role(r: crate::app::ShareRole) -> share::ShareRole {
     match r {
         crate::app::ShareRole::Spectator => share::ShareRole::Spectator,
         crate::app::ShareRole::Player => share::ShareRole::Player,
+        crate::app::ShareRole::Kbm => share::ShareRole::Kbm,
         crate::app::ShareRole::PlayerKbm => share::ShareRole::PlayerKbm,
     }
 }

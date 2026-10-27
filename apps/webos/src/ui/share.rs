@@ -8,7 +8,7 @@ use super::canvas::{Align, Canvas, Font, Rgba, Text, H, W};
 use super::theme::*;
 use super::widgets::{self, Key};
 use super::Frame;
-use crate::app::{App, Rect, SessionUi, Target, MAX_GUESTS};
+use crate::app::{App, Rect, SessionUi, ShareMove, Target, MAX_GUESTS};
 use crate::i18n::tr;
 
 const HEADER: f32 = 92.0;
@@ -142,9 +142,9 @@ fn card(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi, r: Rect) {
         let mw = cv.text_width(Text::new(Font::Regular, 20.0, FROST_3), &meta);
         cv.text_fit(x, y + 30.0, Text::new(Font::Semibold, 27.0, FROST), &g.line(), (inner - mw - 24.0).max(80.0));
         cv.text(x + inner, y + 30.0, Text::new(Font::Regular, 20.0, FROST_3).align(Align::Right), &meta);
-        // Ce que l'hôte peut en faire, puis « Retirer ».
+        // Ses deux droits, chacun donné ou repris sans toucher à l'autre, puis « Retirer ».
         let mut bx = x;
-        for m in g.role.moves() {
+        for m in ShareMove::ALL {
             bx += button(cv, f, m.target(i), bx, y + 40.0, m.label(g.role), 21.0, false) + 12.0;
         }
         button(cv, f, Target::ShareKick(i), bx, y + 40.0, tr("Retirer", "Remove"), 21.0, true);
