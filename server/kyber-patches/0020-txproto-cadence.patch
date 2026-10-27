@@ -1,0 +1,301 @@
+--- a/subprojects/txproto/src/iosys_dxgi.c
++++ b/subprojects/txproto/src/iosys_dxgi.c
+@@ -126,6 +126,7 @@
+     IDXGIOutputDuplication *output_duplication;
+     DxgiCursorHandler *cursor_sink;
+     int cursor_move_rate; /* KyberNow: "cursor_move_rate" option */
++    int max_framerate; /* KyberNow (0020): "max_framerate" option, 0 = none */
+ 
+     int64_t epoch;
+ 
+@@ -162,8 +163,48 @@
+         default:
+             return ROTATION_IDENTITY;
+     }
++}
++
++/* KyberNow (0020): "max_framerate", at most this many images per second (a
++ * KyberNow Share guest's own image). Images go out on a grid of
++ * 1/max_framerate, each within a quarter of an interval of its time: one
++ * that comes then goes at once; one that comes earlier is held (the latest
++ * one only) until the end of that window, unless a newer one comes. A still
++ * desktop sends nothing more than without it, and a display at that rate (or
++ * a multiple of it) is not held back by its own jitter. Without the option,
++ * every image goes out as it comes. Times in microseconds. */
++static int64_t kn_interval_us(const DxgiCapture *priv)
++{
++    return priv->max_framerate > 0 ? 1000000 / priv->max_framerate : 0;
++}
++
++/* Time left to hold an image that came at `arrived`, <= 0: it goes now. */
++static int64_t kn_hold_us(int64_t arrived, int64_t now, int64_t due, int64_t interval)
++{
++    if (arrived >= due - interval / 4)
++        return 0;
++    return due + interval / 4 - now;
++}
++
++/* Time of the next image, after one sent at `now` for the time `due`: on
++ * time or a little late, the grid goes on; after a pause, it starts again. */
++static int64_t kn_next_due(int64_t due, int64_t now, int64_t interval)
++{
++    return now - due < interval ? due + interval : now + interval;
+ }
+ 
++/* The frame rate given to the encoder (its rate control): the display's
++ * refresh rate, at most max_framerate. */
++static AVRational kn_frame_rate(const DxgiCapture *priv, AVRational refresh)
++{
++    const AVRational max = av_make_q(priv->max_framerate, 1);
++
++    if (priv->max_framerate > 0 &&
++        (!refresh.num || !refresh.den || av_cmp_q(refresh, max) > 0))
++        return max;
++    return refresh;
++}
++
+ static int log_adapter_info(DxgiCtx *ctx, IDXGIAdapter1 *adapter,
+                             const char *prefix)
+ {
+@@ -819,8 +860,8 @@
+ 
+     priv->rotation = convert_rotation(desc.Rotation);
+ 
+-    priv->framerate = av_make_q(desc.ModeDesc.RefreshRate.Numerator,
+-                                desc.ModeDesc.RefreshRate.Denominator);
++    priv->framerate = kn_frame_rate(priv, av_make_q(desc.ModeDesc.RefreshRate.Numerator,
++                                                    desc.ModeDesc.RefreshRate.Denominator));
+ 
+     sp_log(priv, SP_LOG_INFO, "Duplication started. Resolution: %dx%d\n",
+            desc.ModeDesc.Width, desc.ModeDesc.Height);
+@@ -1413,6 +1454,11 @@
+     DWORD wait_ms = priv->cursor_move_rate > 0 ? (DWORD)(1000 / priv->cursor_move_rate) : 16;
+     if (wait_ms < 4)
+         wait_ms = 4;
++    /* KyberNow (0020): "max_framerate", see kn_interval_us(); the latest
++     * image seen and when, until it is copied. */
++    const int64_t kn_interval = kn_interval_us(priv);
++    int64_t kn_due = 0, kn_seen_at = 0;
++    uint64_t kn_seen = 0;
+     int err = 0;
+ 
+     kn_thread_dpi_aware();
+@@ -1420,11 +1466,19 @@
+     priv->current_desk = OpenInputDesktop(0, FALSE, GENERIC_ALL);
+     if (priv->current_desk)
+         SetThreadDesktop(priv->current_desk);
+-    priv->framerate = av_make_q(w->header->refresh ? w->header->refresh : 60, 1);
++    priv->framerate = kn_frame_rate(priv,
++                                    av_make_q(w->header->refresh ? w->header->refresh : 60, 1));
+     priv->rotation = ROTATION_IDENTITY;
+ 
+     while (!atomic_load(&priv->quit)) {
+-        WaitForSingleObject(w->event, wait_ms);
++        /* KyberNow (0020): a held image: wake up at the end of its window. */
++        DWORD wait = wait_ms;
++        if (kn_interval && kn_seen != w->last_counter) {
++            const int64_t left = kn_hold_us(kn_seen_at, av_gettime_relative(), kn_due, kn_interval);
++            if (left > 0)
++                wait = (DWORD)FFMIN((left + 999) / 1000, (int64_t)wait_ms);
++        }
++        WaitForSingleObject(w->event, wait);
+ 
+         if (w->header->state != KN_WGC_STATE_RUNNING ||
+             kn_now_100ns() - w->header->heartbeat_time > KN_WGC_STALE_100NS) {
+@@ -1465,6 +1519,16 @@
+         const int repeat = !fresh && copied && now_us - last_push >= 1000000;
+         if (!fresh && !repeat)
+             continue;
++        /* KyberNow (0020): a new image held stays in the ring (the agent
++         * keeps the latest one). */
++        if (fresh && kn_interval) {
++            if (counter != kn_seen) {
++                kn_seen = counter;
++                kn_seen_at = now_us;
++            }
++            if (kn_hold_us(kn_seen_at, now_us, kn_due, kn_interval) > 0)
++                continue;
++        }
+ 
+         const uint32_t slot = w->header->latest_slot % KN_WGC_SLOTS;
+         const uint32_t generation = w->header->generation;
+@@ -1514,6 +1578,8 @@
+         w->last_counter = counter;
+         copied++;
+         last_push = now_us;
++        if (kn_interval)
++            kn_due = kn_next_due(kn_due, now_us, kn_interval);
+         if (fresh)
+             kn_latency_add(entry, &latency, "WGC", (double)(kn_now_100ns() - frame_time) / 10000.0);
+ 
+@@ -1555,6 +1621,46 @@
+     return 0;
+ }
+ 
++/* Sends a captured image downstream; KyberNow (0020): a held one too.
++ * Returns sp_frame_fifo_push()'s result: 0, AVERROR(ENOBUFS) for a dropped
++ * image (counted), or the error that stops the capture. */
++static int kn_send_frame(IOSysEntry *entry, DxgiCapture *priv, DxgiCtx *ctx,
++                         AVFrame **frame)
++{
++    FormatExtraData *fe = (FormatExtraData *)(*frame)->opaque_ref->data;
++    int err;
++
++    if (ctx->metrics) {
++        const tx_metrics_entry metrics[] = {
++            { .key = "pts", .value = (*frame)->pts },
++            { .key = "acquired", .value = (*frame)->pts + priv->epoch },
++        };
++        tx_metrics_push(ctx->metrics, metrics, SP_ARRAY_ELEMS(metrics));
++    }
++
++    sp_log(entry, SP_LOG_TRACE, "Pushing frame to FIFO, pts = %f (%I64d)\n",
++           av_q2d(fe->time_base) * (*frame)->pts, (*frame)->pts);
++
++    err = sp_frame_fifo_push(entry->frames, *frame);
++    av_frame_free(frame);
++    if (err == AVERROR(ENOBUFS)) {
++        priv->dropped_frames++;
++        sp_log(entry, SP_LOG_WARN, "Dropping frame (%i dropped so far)!\n",
++            priv->dropped_frames);
++
++        SPGenericData entries[] = {
++            { "dropped_frames", NULL, &priv->dropped_frames, SP_DATA_TYPE_INT},
++            { 0 },
++        };
++        sp_eventlist_dispatch(entry, entry->events, SP_EVENT_ON_STATS, entries);
++    } else if (err) {
++        sp_log(entry, SP_LOG_ERROR, "Unable to push frame to FIFO: %s!\n",
++               av_err2str(err));
++    }
++
++    return err;
++}
++
+ static void *dxgi_capture_thread(void *s)
+ {
+     IOSysEntry *entry = s;
+@@ -1565,6 +1671,11 @@
+     HRESULT hr;
+     int err = 0;
+     KnLatency dda_latency = { 0 };
++    /* KyberNow (0020): "max_framerate", see kn_interval_us(); the image
++     * held and when it came. */
++    const int64_t kn_interval = kn_interval_us(priv);
++    int64_t kn_due = 0, kn_held_at = 0;
++    AVFrame *kn_held = NULL;
+ 
+     sp_set_thread_name_self(sp_class_get_name(entry));
+     sp_eventlist_dispatch(entry, entry->events, SP_EVENT_ON_CONFIG | SP_EVENT_ON_INIT, NULL);
+@@ -1583,6 +1694,9 @@
+         goto fail;
+     }
+ 
++    if (kn_interval)
++        sp_log(entry, SP_LOG_INFO, "At most %d images per second\n", priv->max_framerate);
++
+     /* KyberNow (0018): secondary displays of a multi-display session are
+      * captured through Windows Graphics Capture when KyberNow Admin started
+      * a capture agent for them; desktop duplication otherwise, or if it stops. */
+@@ -1624,11 +1738,29 @@
+         IDXGIResource *acquired_resource;
+         DXGI_OUTDUPL_FRAME_INFO frame_info;
+         memset(&frame_info, 0, sizeof(frame_info));
++
++        /* KyberNow (0020): with a held image, a newer one is awaited until the
++         * end of its window (at least 1 ms: one may be on its way). */
++        DWORD acquire_ms = 100;
++        if (kn_held) {
++            const int64_t left = kn_hold_us(kn_held_at, av_gettime_relative(), kn_due, kn_interval);
++            acquire_ms = (DWORD)av_clip64((left + 999) / 1000, 1, 100);
++        }
++
+         hr = IDXGIOutputDuplication_AcquireNextFrame(priv->output_duplication,
+-                                                     100, /* 100 ms */
++                                                     acquire_ms, /* 100 ms, less with a held image */
+                                                      &frame_info,
+                                                      &acquired_resource);
+         if (hr == DXGI_ERROR_WAIT_TIMEOUT) {
++            /* KyberNow (0020): no newer image: the held one goes at the end
++             * of its window. */
++            const int64_t now = av_gettime_relative();
++            if (kn_held && kn_hold_us(kn_held_at, now, kn_due, kn_interval) <= 0) {
++                kn_due = kn_next_due(kn_due, now, kn_interval);
++                err = kn_send_frame(entry, priv, ctx, &kn_held);
++                if (err && err != AVERROR(ENOBUFS))
++                    break;
++            }
+             continue;
+         } else if (hr == DXGI_ERROR_ACCESS_LOST) {
+             sp_log(entry, SP_LOG_WARN, "Acquisition access lost\n");
+@@ -1751,35 +1883,22 @@
+         fe->avg_frame_rate  = priv->framerate;
+         fe->rotation        = priv->rotation;
+ 
+-        if (ctx->metrics) {
+-            const tx_metrics_entry metrics[] = {
+-                { .key = "pts", .value = frame->pts },
+-                { .key = "acquired", .value = ts },
+-            };
+-            tx_metrics_push(ctx->metrics, metrics, SP_ARRAY_ELEMS(metrics));
+-        }
++        if (kn_interval && kn_hold_us(ts, ts, kn_due, kn_interval) > 0) {
++            /* KyberNow (0020): too early: held in place of an older one. */
++            av_frame_free(&kn_held);
++            kn_held = frame;
++            kn_held_at = ts;
++            frame = NULL;
++        } else {
++            av_frame_free(&kn_held); /* KyberNow (0020): a newer one goes */
++            if (kn_interval)
++                kn_due = kn_next_due(kn_due, ts, kn_interval);
+ 
+-        sp_log(entry, SP_LOG_TRACE, "Pushing frame to FIFO, pts = %f (%I64d)\n",
+-               av_q2d(fe->time_base) * frame->pts, frame->pts);
+-
+-        /* We don't do this check at the start on since there's still some chance
+-        * whatever's consuming the FIFO will be done by now. */
+-        err = sp_frame_fifo_push(entry->frames, frame);
+-        av_frame_free(&frame);
+-        if (err == AVERROR(ENOBUFS)) {
+-            priv->dropped_frames++;
+-            sp_log(entry, SP_LOG_WARN, "Dropping frame (%i dropped so far)!\n",
+-                priv->dropped_frames);
+-
+-            SPGenericData entries[] = {
+-                { "dropped_frames", NULL, &priv->dropped_frames, SP_DATA_TYPE_INT},
+-                { 0 },
+-            };
+-            sp_eventlist_dispatch(entry, entry->events, SP_EVENT_ON_STATS, entries);
+-        } else if (err) {
+-            sp_log(entry, SP_LOG_ERROR, "Unable to push frame to FIFO: %s!\n",
+-                   av_err2str(err));
+-            break;
++            /* We don't do this check at the start on since there's still some chance
++            * whatever's consuming the FIFO will be done by now. */
++            err = kn_send_frame(entry, priv, ctx, &frame);
++            if (err && err != AVERROR(ENOBUFS))
++                break;
+         }
+ 
+         /* /!\ Hack /!\
+@@ -1796,6 +1915,7 @@
+ fail:
+     SetThreadExecutionState(ES_CONTINUOUS);
+     av_frame_free(&frame);
++    av_frame_free(&kn_held); /* KyberNow (0020) */
+ 
+     stop_capture(priv);
+     release_texture_pool(priv);
+@@ -1867,6 +1987,11 @@
+     if (move_rate)
+         cap_priv->cursor_move_rate = av_clip(strtol(move_rate->value, NULL, 10), 0, 1000);
+ 
++    /* KyberNow (0020): at most this many images per second, 0 = all. */
++    AVDictionaryEntry *max_rate = av_dict_get(opts, "max_framerate", NULL, 0);
++    if (max_rate)
++        cap_priv->max_framerate = av_clip(strtol(max_rate->value, NULL, 10), 0, 1000);
++
+     iosys_entry->ctrl = dxgi_ioctx_ctrl;
+     iosys_entry->events = sp_bufferlist_new();
+ 

@@ -1,0 +1,5047 @@
+diff --git a/kycontroller/Cargo.toml b/kycontroller/Cargo.toml
+index 34800a1..99af85d 100644
+--- a/kycontroller/Cargo.toml
++++ b/kycontroller/Cargo.toml
+@@ -85,6 +85,10 @@ auth-oidc = ["dep:jsonwebtoken", "dep:awc", "dep:rustls-platform-verifier"]
+ 
+ kyhub = ["dep:kyagent"]
+ 
++# KyberNow: paused time in the KyberNow Share tests (patch 0020).
++[dev-dependencies]
++tokio = { version = "1.47.1", features = ["test-util"] }
++
+ [build-dependencies]
+ vergen = { version = "8.3.1", features = ["build", "git", "gitcl"] }
+ 
+diff --git a/kycontroller/src/auth/jwt.rs b/kycontroller/src/auth/jwt.rs
+index 77fa2f1..77c6532 100644
+--- a/kycontroller/src/auth/jwt.rs
++++ b/kycontroller/src/auth/jwt.rs
+@@ -60,7 +60,7 @@ use std::{fs::File, io::Read};
+ 
+ use crate::auth::Backend;
+ 
+-use super::{Error, GuestShare, Session, ShareRole};
++use super::{Error, GuestShare, Session, ShareQuality, ShareRole};
+ use jsonwebtoken::{
+     Algorithm, DecodingKey, Validation, decode,
+     errors::{Error as JWTError, ErrorKind},
+@@ -130,6 +130,10 @@ struct Claims {
+     /// KyberNow: revision of the guest's role (0 when absent).
+     kn_rev: Option<u64>,
+ 
++    /// KyberNow: the image a guest asks for (`host`, `1080p60`, `720p30`;
++    /// absent or unknown: `host`). Read at login only, not at renewal.
++    kn_quality: Option<String>,
++
+     /// KyberNow: KyberNow Admin's own token, for the `/kybernow` routes.
+     #[serde(default)]
+     kn_admin: bool,
+@@ -194,6 +198,7 @@ impl Backend for Jwt {
+                 role,
+                 display,
+                 rev: jwt.claims.kn_rev.unwrap_or(0),
++                quality: guest_quality(jwt.claims.kn_quality.as_deref()),
+             }),
+             (Some(_), None) => {
+                 return Err(Error::MissingField {
+@@ -211,6 +216,18 @@ impl Backend for Jwt {
+     }
+ }
+ 
++/// KyberNow: an unknown quality (a newer KyberNow Admin) is the host's
++/// image rather than a refused token.
++fn guest_quality(name: Option<&str>) -> ShareQuality {
++    let Some(name) = name else {
++        return ShareQuality::Host;
++    };
++    ShareQuality::parse(name).unwrap_or_else(|| {
++        log::warn!("Unknown kn_quality \"{name}\": host");
++        ShareQuality::Host
++    })
++}
++
+ impl Jwt {
+     /// Initializes the JWT backend.
+     ///
+@@ -320,6 +337,7 @@ mod tests {
+                 role: ShareRole::PlayerKbm,
+                 display: 2221634456,
+                 rev: 3,
++                quality: ShareQuality::Host,
+             })
+         );
+         assert!(!session.admin);
+@@ -353,6 +371,26 @@ mod tests {
+         assert!(matches!(no_display, Err(Error::MissingField { .. })));
+     }
+ 
++    #[test]
++    fn a_guest_token_carries_its_quality() {
++        let quality = |value: serde_json::Value| {
++            let mut claims = serde_json::json!({
++                "sub": "kn-guest-1",
++                "kn_role": "spectator",
++                "kn_display": 7,
++            });
++            if !value.is_null() {
++                claims["kn_quality"] = value;
++            }
++            authenticate(claims).unwrap().share.unwrap().quality
++        };
++        assert_eq!(quality(serde_json::Value::Null), ShareQuality::Host);
++        assert_eq!(quality("host".into()), ShareQuality::Host);
++        assert_eq!(quality("1080p60".into()), ShareQuality::P1080);
++        assert_eq!(quality("720p30".into()), ShareQuality::P720);
++        assert_eq!(quality("auto".into()), ShareQuality::Host);
++    }
++
+     #[test]
+     fn the_admin_token_is_flagged() {
+         let session = authenticate(serde_json::json!({
+diff --git a/kycontroller/src/auth/mod.rs b/kycontroller/src/auth/mod.rs
+index 9653270..d0cfc8e 100644
+--- a/kycontroller/src/auth/mod.rs
++++ b/kycontroller/src/auth/mod.rs
+@@ -138,13 +138,46 @@ pub enum ShareRole {
+     PlayerKbm,
+ }
+ 
++/// KyberNow: the image a share guest asks for (`kn_quality`, patch 0020).
++#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
++pub enum ShareQuality {
++    /// As the host: the host's image (the display as it is).
++    #[default]
++    #[serde(rename = "host")]
++    Host,
++    /// 1080p at 60 Hz at most.
++    #[serde(rename = "1080p60")]
++    P1080,
++    /// 720p at 30 Hz at most.
++    #[serde(rename = "720p30")]
++    P720,
++}
++
++impl ShareQuality {
++    pub fn name(self) -> &'static str {
++        match self {
++            Self::Host => "host",
++            Self::P1080 => "1080p60",
++            Self::P720 => "720p30",
++        }
++    }
++
++    pub fn parse(name: &str) -> Option<Self> {
++        [Self::Host, Self::P1080, Self::P720]
++            .into_iter()
++            .find(|quality| quality.name() == name)
++    }
++}
++
+ /// KyberNow: a share guest's role, imposed display (`kn_display`) and role
+-/// revision (`kn_rev`, raised by KyberNow Admin at each change).
++/// revision (`kn_rev`, raised by KyberNow Admin at each change), and the
++/// image it asks for (`kn_quality`, patch 0020).
+ #[derive(Clone, Debug, PartialEq, Eq)]
+ pub struct GuestShare {
+     pub role: ShareRole,
+     pub display: u32,
+     pub rev: u64,
++    pub quality: ShareQuality,
+ }
+ 
+ /// Configuration for authentication backends loaded from TOML.
+diff --git a/kycontroller/src/avservice.rs b/kycontroller/src/avservice.rs
+index d52630a..c2deb57 100644
+--- a/kycontroller/src/avservice.rs
++++ b/kycontroller/src/avservice.rs
+@@ -239,6 +239,10 @@ impl Handler {
+         codec: VideoCodec,
+         yuv444: bool,
+         intra_refresh: Option<bool>,
++        // KyberNow: a share guest's own image (patch 0020): the display
++        // scaled down, at a lower rate; `None` for the display as it is.
++        scale: Option<kyavservice_types::VideoScale>,
++        max_fps: Option<u32>,
+     ) -> Result<Self> {
+         Self::start_inner(
+             process_factory,
+@@ -254,6 +258,8 @@ impl Handler {
+                 codec,
+                 yuv444,
+                 intra_refresh,
++                scale,
++                max_fps,
+             },
+         )
+         .await
+diff --git a/kycontroller/src/avservices_manager.rs b/kycontroller/src/avservices_manager.rs
+index 137c909..3ce7fee 100644
+--- a/kycontroller/src/avservices_manager.rs
++++ b/kycontroller/src/avservices_manager.rs
+@@ -19,18 +19,28 @@
+ // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ 
+ use std::collections::HashMap;
+-use std::time::Duration;
++use std::time::{Duration, Instant};
+ 
+-use kyavservice_types::VideoCodec;
++use kyavservice_types::{VideoCodec, VideoScale};
+ use log::{error, info, warn};
+ use uuid::Uuid;
+ 
+ use crate::avservice;
+ use crate::controller::Controller;
+ use crate::error::Result;
++use crate::guest_image::{GuestImage, HostImage, ImageCodec, Mode};
++use crate::kybernow::ShareSignal;
+ use crate::kydup;
+ use crate::utils::Task;
+ 
++/// KyberNow: a guest image that sent no image this long after it opened is
++/// given up (KyberNow Share, patch 0020): its guests go to another image.
++const GUEST_IMAGE_FIRST_PACKET: Duration = Duration::from_secs(3);
++
++/// KyberNow: how long the slot of a guest image given up stays unused
++/// (the capture it could not get is likely still out of reach).
++const GUEST_SLOT_SET_ASIDE: Duration = Duration::from_secs(60);
++
+ /// Backstop on a single reaper teardown batch. Each `avservice.stop()` is
+ /// individually bounded (it force-kills the child and falls back to aborting
+ /// its actor on timeout) and [`AVCleanup::run`] fans them out concurrently, so
+@@ -68,6 +78,21 @@ impl AVCleanup {
+         self.videos.is_empty() && self.audios.is_empty()
+     }
+ 
++    /// KyberNow: [`Self::run`] in its own task, bounded.
++    pub(crate) fn run_detached(self) {
++        if self.is_empty() {
++            return;
++        }
++        tokio::spawn(async move {
++            if tokio::time::timeout(AV_CLEANUP_TIMEOUT, self.run())
++                .await
++                .is_err()
++            {
++                warn!("AV cleanup exceeded {AV_CLEANUP_TIMEOUT:?}; stops continue detached");
++            }
++        });
++    }
++
+     pub(crate) async fn run(self) {
+         // Stop every stream concurrently. Each `avservice.stop()` is itself
+         // bounded, so fanning them out keeps total teardown at ~one per-stream
+@@ -182,10 +207,27 @@ pub(crate) async fn metrics_forwarder_loop(
+ /// are unique to a single session (mono-client mode), so each session gets
+ /// its own avservice regardless of which display it targets; no kydup, the
+ /// avservice writes directly to that session's client endpoint via kycom.
++///
++/// KyberNow (KyberNow Share): `Shared` is the host's image of the display.
++/// Only a session without share (the host) creates it or redefines it; a
++/// host coming back with another format while only guests watch the old
++/// one gets the next `generation`, and the guests move. `Guest` is a
++/// guest's own image, shared by the guests asking for the same one.
+ #[derive(Clone, Hash, PartialEq, Eq, Debug)]
+ pub(crate) enum VideoStreamKey {
+-    Shared { display_id: u32 },
++    Shared { display_id: u32, generation: u32 },
+     Exclusive { session_id: Uuid, display_id: u32 },
++    Guest { display_id: u32, image: GuestImage },
++}
++
++impl VideoStreamKey {
++    pub(crate) fn display_id(&self) -> u32 {
++        match self {
++            Self::Shared { display_id, .. }
++            | Self::Exclusive { display_id, .. }
++            | Self::Guest { display_id, .. } => *display_id,
++        }
++    }
+ }
+ 
+ /// Audio counterpart of [`VideoStreamKey`]. Audio has no display_id.
+@@ -223,19 +265,33 @@ pub(crate) enum StreamId {
+ pub(crate) enum VideoTopology {
+     Shared {
+         display_id: u32,
++        /// KyberNow: see [`VideoStreamKey::Shared`].
++        generation: u32,
+     },
+     Exclusive {
+         session_id: Uuid,
+         display_id: u32,
+         kycom_uri: String,
+     },
++    /// KyberNow: a share guest's own image, through a kydup like `Shared`;
++    /// `scale` and `max_fps` go to kyavserver.
++    Guest {
++        display_id: u32,
++        image: GuestImage,
++        scale: Option<VideoScale>,
++        max_fps: Option<u32>,
++    },
+ }
+ 
+ impl VideoTopology {
+     fn key(&self) -> VideoStreamKey {
+         match self {
+-            VideoTopology::Shared { display_id } => VideoStreamKey::Shared {
++            VideoTopology::Shared {
++                display_id,
++                generation,
++            } => VideoStreamKey::Shared {
+                 display_id: *display_id,
++                generation: *generation,
+             },
+             VideoTopology::Exclusive {
+                 session_id,
+@@ -245,15 +301,17 @@ impl VideoTopology {
+                 session_id: *session_id,
+                 display_id: *display_id,
+             },
++            VideoTopology::Guest {
++                display_id, image, ..
++            } => VideoStreamKey::Guest {
++                display_id: *display_id,
++                image: *image,
++            },
+         }
+     }
+ 
+     fn display_id(&self) -> u32 {
+-        match self {
+-            VideoTopology::Shared { display_id } | VideoTopology::Exclusive { display_id, .. } => {
+-                *display_id
+-            }
+-        }
++        self.key().display_id()
+     }
+ }
+ 
+@@ -313,6 +371,22 @@ pub(crate) struct VideoStream {
+     /// later subscribers can be warned when they ask for something different.
+     pub(crate) config: VideoStreamConfig,
+     pub(crate) client_count: usize,
++    /// KyberNow: subscribers that are share guests (all of them on a
++    /// `Guest` image). `client_count - guest_count` are the host's.
++    pub(crate) guest_count: usize,
++    /// KyberNow: a guest image's most bitrate, before the host's own:
++    /// what its preset (`cap`) and its guest allow. `u32::MAX` for the
++    /// others.
++    pub(crate) ceiling: u32,
++    /// KyberNow: a guest image's preset ceiling (`u32::MAX`: none).
++    pub(crate) cap: u32,
++}
++
++impl VideoStream {
++    /// KyberNow: sessions without share (the host) on this stream.
++    pub(crate) fn host_count(&self) -> usize {
++        self.client_count.saturating_sub(self.guest_count)
++    }
+ }
+ 
+ pub(crate) struct AudioStream {
+@@ -326,6 +400,8 @@ pub(crate) struct AudioStream {
+ #[derive(Debug)]
+ pub(crate) enum AvReaperMsg {
+     VideoDropped(VideoStreamKey),
++    /// KyberNow: a share guest's video subscription.
++    VideoDroppedByGuest(VideoStreamKey),
+     AudioDropped(AudioStreamKey),
+ }
+ 
+@@ -337,16 +413,31 @@ pub(crate) struct VideoSubscription {
+     /// Set once `release_all` has applied the decrement; Drop then stays
+     /// silent so each subscription decrements exactly once.
+     released: bool,
++    /// KyberNow: a share guest's subscription (counted in `guest_count`).
++    guest: bool,
+ }
+ 
+ impl VideoSubscription {
++    /// KyberNow: a host's subscription (tests; Kyber builds them with
++    /// [`Self::with_guest`]).
++    #[cfg(test)]
++    fn new(key: VideoStreamKey, tx: tokio::sync::mpsc::UnboundedSender<AvReaperMsg>) -> Self {
++        Self::with_guest(key, tx, false)
++    }
++
+     /// The only way to build a subscription: `released` always starts false
+     /// so every handle decrements exactly once (via Drop or `release_all`).
+-    fn new(key: VideoStreamKey, tx: tokio::sync::mpsc::UnboundedSender<AvReaperMsg>) -> Self {
++    /// KyberNow: `guest` for a share guest's.
++    fn with_guest(
++        key: VideoStreamKey,
++        tx: tokio::sync::mpsc::UnboundedSender<AvReaperMsg>,
++        guest: bool,
++    ) -> Self {
+         Self {
+             key,
+             tx,
+             released: false,
++            guest,
+         }
+     }
+ 
+@@ -358,7 +449,13 @@ impl VideoSubscription {
+ impl Drop for VideoSubscription {
+     fn drop(&mut self) {
+         if !self.released {
+-            let _ = self.tx.send(AvReaperMsg::VideoDropped(self.key.clone()));
++            let key = self.key.clone();
++            let msg = if self.guest {
++                AvReaperMsg::VideoDroppedByGuest(key)
++            } else {
++                AvReaperMsg::VideoDropped(key)
++            };
++            let _ = self.tx.send(msg);
+         }
+     }
+ }
+@@ -407,6 +504,40 @@ pub(crate) struct VideoStreamConfig {
+     pub(crate) pixel_rate: u64,
+ }
+ 
++/// KyberNow: tells the share supervisor when the guest image `key` sent no
++/// image within [`GUEST_IMAGE_FIRST_PACKET`] of its start.
++fn watch_first_image(
++    dup: kydup::KydupVideo,
++    signals: tokio::sync::mpsc::UnboundedSender<ShareSignal>,
++    key: VideoStreamKey,
++) {
++    tokio::spawn(async move {
++        tokio::time::sleep(GUEST_IMAGE_FIRST_PACKET).await;
++        if !dup.received() {
++            let _ = signals.send(ShareSignal::Stalled { key });
++        }
++    });
++}
++
++/// KyberNow: see [`AVServicesManager::acquire_host_video`].
++#[derive(Debug, PartialEq, Eq)]
++enum HostStart {
++    /// The current host image, its bitrate redefined (`bitrate`).
++    Join { generation: u32, bitrate: bool },
++    /// A new host image, of the next generation.
++    New,
++}
++
++impl VideoStreamConfig {
++    /// KyberNow: whether `other` asks the same of the encoder, but for the
++    /// bitrate (which changes without a restart).
++    pub(crate) fn same_encoder(&self, other: &Self) -> bool {
++        self.codec == other.codec
++            && self.yuv444 == other.yuv444
++            && self.intra_refresh == other.intra_refresh
++    }
++}
++
+ /// KyberNow: splits the session bitrate between its video streams in
+ /// proportion to `weights` (pixels per second of each display), or evenly,
+ /// as before, when one of them is unknown (0). Rounded down.
+@@ -437,6 +568,16 @@ pub(crate) fn pixel_rate(displays: &[kyavservice_types::Display], display_id: u3
+     width * height * u64::from(refresh_rate)
+ }
+ 
++/// KyberNow: the display's refresh rate (Hz), 0 when unknown (KyberNow
++/// Share's guest images).
++pub(crate) fn refresh_rate(displays: &[kyavservice_types::Display], display_id: u32) -> u32 {
++    displays
++        .iter()
++        .find(|d| d.id == display_id)
++        .and_then(|d| refresh_rate_at(d.x, d.y))
++        .unwrap_or(0)
++}
++
+ /// KyberNow: current refresh rate (Hz) of the Windows display whose top-left
+ /// corner is at `(x, y)` on the desktop.
+ #[cfg(windows)]
+@@ -504,12 +645,23 @@ pub(crate) struct AVServicesManager {
+     reaper_tx: tokio::sync::mpsc::UnboundedSender<AvReaperMsg>,
+     /// Taken by `ensure_reaper` on first call to hand over to the spawned task.
+     reaper_rx: Option<tokio::sync::mpsc::UnboundedReceiver<AvReaperMsg>>,
++    /// KyberNow: the current generation of each display's host image
++    /// ([`VideoStreamKey::Shared`]).
++    host_generations: HashMap<u32, u32>,
++    next_generation: u32,
++    /// KyberNow: guest images given up, and when their slot is free again.
++    set_aside: Vec<(u32, GuestImage, Instant)>,
++    /// KyberNow: signs from kydup and the guest images to the share
++    /// supervisor ([`crate::kybernow::run_share_supervisor`]).
++    share_tx: tokio::sync::mpsc::UnboundedSender<ShareSignal>,
++    share_rx: Option<tokio::sync::mpsc::UnboundedReceiver<ShareSignal>>,
+ }
+ 
+ impl Default for AVServicesManager {
+     fn default() -> Self {
+         let (idr_tx, idr_rx) = tokio::sync::mpsc::channel::<VideoStreamKey>(32);
+         let (reaper_tx, reaper_rx) = tokio::sync::mpsc::unbounded_channel();
++        let (share_tx, share_rx) = tokio::sync::mpsc::unbounded_channel();
+         Self {
+             video_streams: HashMap::new(),
+             audio_streams: HashMap::new(),
+@@ -517,6 +669,11 @@ impl Default for AVServicesManager {
+             idr_rx: Some(idr_rx),
+             reaper_tx,
+             reaper_rx: Some(reaper_rx),
++            host_generations: HashMap::new(),
++            next_generation: 0,
++            set_aside: Vec::new(),
++            share_tx,
++            share_rx: Some(share_rx),
+         }
+     }
+ }
+@@ -556,7 +713,13 @@ impl AVServicesManager {
+     pub(crate) fn init(&mut self, weak: std::sync::Weak<Controller>) -> AvServicesTasksHandle {
+         let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+         self.spawn_idr_dispatcher(weak.clone(), cancel_rx.clone());
+-        self.spawn_reaper(weak, cancel_rx);
++        self.spawn_reaper(weak.clone(), cancel_rx.clone());
++        // KyberNow: KyberNow Share's guest images.
++        if let Some(share_rx) = self.share_rx.take() {
++            tokio::spawn(crate::kybernow::run_share_supervisor(
++                weak, share_rx, cancel_rx,
++            ));
++        }
+         AvServicesTasksHandle { cancel_tx }
+     }
+ 
+@@ -647,7 +810,13 @@ impl AVServicesManager {
+                     for msg in batch {
+                         match msg {
+                             AvReaperMsg::VideoDropped(key) => {
+-                                cleanup.push_video(av_services_manager.take_video_if_last(&key));
++                                cleanup.push_video(
++                                    av_services_manager.take_video_if_last(&key, false),
++                                );
++                            }
++                            AvReaperMsg::VideoDroppedByGuest(key) => {
++                                cleanup
++                                    .push_video(av_services_manager.take_video_if_last(&key, true));
+                             }
+                             AvReaperMsg::AudioDropped(key) => {
+                                 cleanup.push_audio(av_services_manager.take_audio_if_last(&key));
+@@ -699,10 +868,15 @@ impl AVServicesManager {
+         //  - Exclusive: the caller already registered its client endpoint with
+         //    kycom and got an URI back; no kydup in the path, and the entry must
+         //    not already exist.
++        let (scale, max_fps) = match &topology {
++            VideoTopology::Guest { scale, max_fps, .. } => (*scale, *max_fps),
++            _ => (None, None),
++        };
++        let guest_image = matches!(topology, VideoTopology::Guest { .. });
+         let (dup, kycom_uri) = match topology {
+-            VideoTopology::Shared { .. } => {
++            VideoTopology::Shared { .. } | VideoTopology::Guest { .. } => {
+                 if let Some(stream) = self.video_streams.get_mut(&key) {
+-                    if stream.config != config {
++                    if !guest_image && stream.config != config {
+                         warn!(
+                             "Shared video stream for display {display_id} already running with \
+                              {:?}; new subscriber requested {:?}; existing config is kept.",
+@@ -785,7 +959,10 @@ impl AVServicesManager {
+             (None, None, None)
+         };
+ 
+-        info!("Start Video avservice for display {display_id} ({key:?})");
++        info!(
++            "Start Video avservice for display {display_id} ({key:?}, scale {scale:?}, max fps \
++             {max_fps:?})"
++        );
+         // session_id: None; the StateMachine routes events by `stream_id` to
+         // every session whose `video_subscriptions` hold this exact key. For
+         // `Shared` that's the multi-client fan-out; for `Exclusive` only the
+@@ -802,9 +979,17 @@ impl AVServicesManager {
+             config.codec.clone(),
+             config.yuv444,
+             config.intra_refresh,
++            scale,
++            max_fps,
+         )
+         .await?;
+ 
++        // KyberNow: a guest image that never sends an image (a capture out
++        // of reach) is given up after a while.
++        if guest_image && let Some(dup) = &dup {
++            watch_first_image(dup.clone(), self.share_tx.clone(), key.clone());
++        }
++
+         let dup_for_return = dup.clone();
+         self.video_streams.insert(
+             key.clone(),
+@@ -814,15 +999,19 @@ impl AVServicesManager {
+                 _metrics,
+                 config,
+                 client_count: 0,
++                guest_count: 0,
++                ceiling: u32::MAX,
++                cap: u32::MAX,
+             },
+         );
+ 
+         Ok((key, dup_for_return, metrics_claim))
+     }
+ 
+-    fn subscribe_video(&mut self, key: &VideoStreamKey) {
++    fn subscribe_video(&mut self, key: &VideoStreamKey, guest: bool) {
+         if let Some(stream) = self.video_streams.get_mut(key) {
+             stream.client_count += 1;
++            stream.guest_count += usize::from(guest);
+         }
+     }
+ 
+@@ -901,18 +1090,328 @@ impl AVServicesManager {
+             self.reaper_rx.is_none(),
+             "AVServicesManager::init must be called before acquire_video"
+         );
++        self.acquire_video_as(ctrl, topology, config, metrics_requested, false)
++            .await
++    }
++
++    /// KyberNow: [`Self::acquire_video`] for a share guest (`guest`) or not.
++    pub(crate) async fn acquire_video_as(
++        &mut self,
++        ctrl: &Controller,
++        topology: VideoTopology,
++        config: VideoStreamConfig,
++        metrics_requested: bool,
++        guest: bool,
++    ) -> Result<VideoAcquisition> {
+         let tx = self.reaper_tx.clone();
+         let (key, dup, metrics_claim) = self
+             .get_or_create_video(ctrl, topology, config, metrics_requested)
+             .await?;
+-        self.subscribe_video(&key);
++        self.subscribe_video(&key, guest);
+         Ok(VideoAcquisition {
+             dup,
+             metrics_claim,
+-            subscription: VideoSubscription::new(key, tx),
++            subscription: VideoSubscription::with_guest(key, tx, guest),
+         })
+     }
+ 
++    /// KyberNow: a share guest joins a running image (the host's, or a
++    /// guest image), never creating one. `None` when it is gone.
++    pub(crate) fn join_video(&mut self, key: &VideoStreamKey) -> Option<VideoAcquisition> {
++        let dup = self.video_streams.get(key)?.dup.clone();
++        self.subscribe_video(key, true);
++        Some(VideoAcquisition {
++            dup,
++            metrics_claim: None,
++            subscription: VideoSubscription::with_guest(key.clone(), self.reaper_tx.clone(), true),
++        })
++    }
++
++    /// KyberNow: the host's image of `display_id`. Only a session without
++    /// share (the host) creates it or redefines it: when only guests watch
++    /// it, a host asking for another format (or 4:4:4, or intra-refresh)
++    /// gets a new generation (the guests are moved by
++    /// [`crate::kybernow::after_host_start`]), and its bitrate is the
++    /// host's. With another host session on it, the first one's settings
++    /// stay, as before.
++    pub(crate) async fn acquire_host_video(
++        &mut self,
++        ctrl: &Controller,
++        display_id: u32,
++        config: VideoStreamConfig,
++        metrics_requested: bool,
++    ) -> Result<VideoAcquisition> {
++        let start = self.host_start(display_id, &config);
++        let generation = match start {
++            HostStart::Join {
++                generation,
++                bitrate: redefined,
++            } => {
++                if redefined {
++                    self.redefine_host_bitrate(display_id, generation, config.bitrate);
++                }
++                generation
++            }
++            HostStart::New => self.next_generation.wrapping_add(1),
++        };
++        let acquisition = self
++            .acquire_video(
++                ctrl,
++                VideoTopology::Shared {
++                    display_id,
++                    generation,
++                },
++                config,
++                metrics_requested,
++            )
++            .await?;
++        // Only once it runs: a host that failed to start leaves the current
++        // image to its guests.
++        if start == HostStart::New {
++            self.next_generation = generation;
++        }
++        self.host_generations.insert(display_id, generation);
++        Ok(acquisition)
++    }
++
++    /// KyberNow: what a host starting its image of `display_id` with
++    /// `config` does: join the current one (redefining its bitrate when
++    /// only guests watch it), or start the next generation.
++    fn host_start(&self, display_id: u32, config: &VideoStreamConfig) -> HostStart {
++        let Some(VideoStreamKey::Shared { generation, .. }) = self.current_host_key(display_id)
++        else {
++            return HostStart::New;
++        };
++        let Some(stream) = self.video_streams.get(&VideoStreamKey::Shared {
++            display_id,
++            generation,
++        }) else {
++            return HostStart::New;
++        };
++        if stream.host_count() > 0 {
++            // Another session of the host: the first one's settings stay.
++            return HostStart::Join {
++                generation,
++                bitrate: false,
++            };
++        }
++        if stream.config.same_encoder(config) {
++            return HostStart::Join {
++                generation,
++                bitrate: stream.config.bitrate != config.bitrate,
++            };
++        }
++        info!(
++            "Host image of display {display_id} now {config:?} (was {:?}, watched by guests \
++             only): next generation, generation {generation} kept until its guests move",
++            stream.config
++        );
++        HostStart::New
++    }
++
++    fn redefine_host_bitrate(&mut self, display_id: u32, generation: u32, bitrate: u32) {
++        let key = VideoStreamKey::Shared {
++            display_id,
++            generation,
++        };
++        let Some(stream) = self.video_streams.get_mut(&key) else {
++            return;
++        };
++        info!(
++            "Host image of display {display_id}: bitrate {} → {bitrate}",
++            stream.config.bitrate
++        );
++        if let Err(err) = stream
++            .avservice
++            .video_set_bitrate(bitrate.min(i32::MAX as u32) as i32)
++        {
++            warn!("Failed to set bitrate: {err:?}");
++        }
++        stream.config.bitrate = bitrate;
++        self.cap_guest_images(display_id);
++    }
++
++    /// KyberNow: the key of `display_id`'s current host image, if it runs.
++    pub(crate) fn current_host_key(&self, display_id: u32) -> Option<VideoStreamKey> {
++        let generation = *self.host_generations.get(&display_id)?;
++        let key = VideoStreamKey::Shared {
++            display_id,
++            generation,
++        };
++        self.video_streams.contains_key(&key).then_some(key)
++    }
++
++    /// KyberNow: `display_id`'s current host image, as `choose` sees it.
++    pub(crate) fn host_image(&self, display_id: u32, screen: Mode) -> Option<HostImage> {
++        let stream = self
++            .video_streams
++            .get(&self.current_host_key(display_id)?)?;
++        Some(HostImage {
++            mode: screen,
++            codec: ImageCodec::from(&stream.config.codec),
++            yuv444: stream.config.yuv444,
++            bitrate: stream.config.bitrate,
++        })
++    }
++
++    /// KyberNow: a host image of an older generation (its guests move).
++    pub(crate) fn is_retired_host_key(&self, key: &VideoStreamKey) -> bool {
++        matches!(key, VideoStreamKey::Shared { display_id, .. }
++            if self.current_host_key(*display_id).as_ref() != Some(key))
++    }
++
++    /// KyberNow: guest images open on `display_id`, those given up left
++    /// out.
++    pub(crate) fn open_guest_images(&self, display_id: u32) -> Vec<GuestImage> {
++        let now = Instant::now();
++        self.video_streams
++            .keys()
++            .filter_map(|key| match key {
++                VideoStreamKey::Guest {
++                    display_id: d,
++                    image,
++                } if *d == display_id && !self.is_set_aside(*d, image, now) => Some(*image),
++                _ => None,
++            })
++            .collect()
++    }
++
++    fn is_set_aside(&self, display_id: u32, image: &GuestImage, now: Instant) -> bool {
++        self.set_aside
++            .iter()
++            .any(|(d, i, until)| *d == display_id && i == image && now < *until)
++    }
++
++    /// KyberNow: guest image slots in use on every display: the images
++    /// open and the slots set aside, without `leaving` (the image a guest
++    /// is alone on and leaves).
++    pub(crate) fn guest_slots_used(&self, leaving: Option<&VideoStreamKey>) -> usize {
++        let now = Instant::now();
++        let open = self
++            .video_streams
++            .keys()
++            .filter(|key| matches!(key, VideoStreamKey::Guest { .. }) && Some(*key) != leaving)
++            .count();
++        let set_aside = self
++            .set_aside
++            .iter()
++            .filter(|(display_id, image, until)| {
++                now < *until
++                    && (Some(&VideoStreamKey::Guest {
++                        display_id: *display_id,
++                        image: *image,
++                    }) == leaving
++                        || !self.video_streams.contains_key(&VideoStreamKey::Guest {
++                            display_id: *display_id,
++                            image: *image,
++                        }))
++            })
++            .count();
++        open + set_aside
++    }
++
++    /// KyberNow: a guest image that sent nothing is given up: its slot
++    /// stays unused for a while. `false` if it is gone or sent something
++    /// since.
++    pub(crate) fn set_aside_stalled(&mut self, key: &VideoStreamKey) -> bool {
++        let VideoStreamKey::Guest { display_id, image } = key else {
++            return false;
++        };
++        let stalled = self
++            .video_streams
++            .get(key)
++            .and_then(|stream| stream.dup.as_ref())
++            .is_some_and(|dup| !dup.received());
++        if stalled {
++            let now = Instant::now();
++            self.set_aside.retain(|(_, _, until)| now < *until);
++            self.set_aside
++                .push((*display_id, *image, now + GUEST_SLOT_SET_ASIDE));
++        }
++        stalled
++    }
++
++    /// KyberNow: no guest image above the host's bitrate: each guest image
++    /// of `display_id` gets what its ceiling and the host's current
++    /// bitrate allow (down, or back up).
++    pub(crate) fn cap_guest_images(&mut self, display_id: u32) {
++        let Some(host_bitrate) = self
++            .current_host_key(display_id)
++            .and_then(|key| self.video_streams.get(&key))
++            .map(|stream| stream.config.bitrate)
++        else {
++            return;
++        };
++        for (key, stream) in &mut self.video_streams {
++            if !matches!(key, VideoStreamKey::Guest { display_id: d, .. } if *d == display_id) {
++                continue;
++            }
++            let bitrate = stream.ceiling.min(host_bitrate);
++            if bitrate != stream.config.bitrate {
++                info!(
++                    "Guest image {key:?}: bitrate {} → {bitrate}",
++                    stream.config.bitrate
++                );
++                if let Err(err) = stream
++                    .avservice
++                    .video_set_bitrate(bitrate.min(i32::MAX as u32) as i32)
++                {
++                    warn!("Failed to set bitrate: {err:?}");
++                }
++                stream.config.bitrate = bitrate;
++            }
++        }
++    }
++
++    /// KyberNow: a closure asking for a keyframe on `key`, for kydup.
++    pub(crate) fn idr_sender(
++        &self,
++        key: VideoStreamKey,
++    ) -> impl Fn() + Send + Sync + 'static + use<> {
++        let idr_tx = self.idr_tx.clone();
++        move || {
++            if let Err(e) = idr_tx.try_send(key.clone()) {
++                warn!("IDR request dropped for {key:?}: {e}");
++            }
++        }
++    }
++
++    /// KyberNow: a stream without avservice, `hosts` and `guests` on it (a
++    /// `Shared` key becomes its display's current host image).
++    #[cfg(test)]
++    pub(crate) fn insert_for_test(
++        &mut self,
++        key: VideoStreamKey,
++        (hosts, guests): (usize, usize),
++        config: VideoStreamConfig,
++    ) {
++        if let VideoStreamKey::Shared {
++            display_id,
++            generation,
++        } = key
++        {
++            self.host_generations.insert(display_id, generation);
++        }
++        self.video_streams.insert(
++            key,
++            VideoStream {
++                avservice: avservice::SharedHandler::stub(avservice::HandlerType::Video),
++                dup: None,
++                _metrics: None,
++                config,
++                client_count: hosts + guests,
++                guest_count: guests,
++                ceiling: u32::MAX,
++                cap: u32::MAX,
++            },
++        );
++    }
++
++    /// KyberNow: where kydup sends a guest's lag episodes.
++    pub(crate) fn share_signals(&self) -> tokio::sync::mpsc::UnboundedSender<ShareSignal> {
++        self.share_tx.clone()
++    }
++
+     /// Acquire an audio subscription atomically. See `acquire_video`.
+     pub(crate) async fn acquire_audio(
+         &mut self,
+@@ -935,9 +1434,12 @@ impl AVServicesManager {
+     /// Decrement a video client count, and if it hits zero, remove and
+     /// return the stream so the caller can stop it OUTSIDE the Controller
+     /// lock via `AVCleanup::run`.
+-    fn take_video_if_last(&mut self, key: &VideoStreamKey) -> Option<VideoStream> {
++    fn take_video_if_last(&mut self, key: &VideoStreamKey, guest: bool) -> Option<VideoStream> {
+         let stream = self.video_streams.get_mut(key)?;
+         stream.client_count -= 1;
++        if guest {
++            stream.guest_count = stream.guest_count.saturating_sub(1);
++        }
+         if stream.client_count != 0 {
+             return None;
+         }
+@@ -967,7 +1469,7 @@ impl AVServicesManager {
+         let mut cleanup = AVCleanup::default();
+         for mut sub in videos {
+             sub.released = true;
+-            cleanup.push_video(self.take_video_if_last(&sub.key));
++            cleanup.push_video(self.take_video_if_last(&sub.key, sub.guest));
+         }
+         if let Some(mut sub) = audio {
+             sub.released = true;
+@@ -999,7 +1501,10 @@ mod tests {
+     use tokio::sync::mpsc::{error::TryRecvError, unbounded_channel};
+ 
+     fn shared_key(display_id: u32) -> VideoStreamKey {
+-        VideoStreamKey::Shared { display_id }
++        VideoStreamKey::Shared {
++            display_id,
++            generation: 0,
++        }
+     }
+ 
+     #[test]
+@@ -1040,6 +1545,7 @@ mod tests {
+         while let Ok(msg) = rx.try_recv() {
+             match msg {
+                 AvReaperMsg::VideoDropped(k) => seen.push(k),
++                AvReaperMsg::VideoDroppedByGuest(_) => panic!("unexpected VideoDroppedByGuest"),
+                 AvReaperMsg::AudioDropped(_) => panic!("unexpected AudioDropped"),
+             }
+         }
+@@ -1126,6 +1632,9 @@ mod tests {
+                 _metrics: None,
+                 config: video_config(),
+                 client_count,
++                guest_count: 0,
++                ceiling: u32::MAX,
++                cap: u32::MAX,
+             },
+         );
+     }
+@@ -1340,7 +1849,7 @@ mod tests {
+     fn stream_ids_on_same_display_are_distinct() {
+         let s1 = Uuid::new_v4();
+         let s2 = Uuid::new_v4();
+-        let shared = StreamId::Video(VideoStreamKey::Shared { display_id: 0 });
++        let shared = StreamId::Video(shared_key(0));
+         let excl1 = StreamId::Video(VideoStreamKey::Exclusive {
+             session_id: s1,
+             display_id: 0,
+@@ -1360,4 +1869,238 @@ mod tests {
+         let a_excl = StreamId::Audio(AudioStreamKey::Exclusive { session_id: s1 });
+         assert_ne!(a_shared, a_excl);
+     }
++
++    // -----------------------------------------------------------------------
++    // KyberNow: KyberNow Share's images (patch 0020)
++    // -----------------------------------------------------------------------
++
++    fn host_key(display_id: u32, generation: u32) -> VideoStreamKey {
++        VideoStreamKey::Shared {
++            display_id,
++            generation,
++        }
++    }
++
++    fn guest_key(display_id: u32, width: u32, height: u32, fps: u32) -> VideoStreamKey {
++        VideoStreamKey::Guest {
++            display_id,
++            image: GuestImage {
++                width,
++                height,
++                fps,
++                codec: ImageCodec::H264,
++            },
++        }
++    }
++
++    fn insert_stream(
++        manager: &mut AVServicesManager,
++        key: VideoStreamKey,
++        counts: (usize, usize),
++        config: VideoStreamConfig,
++    ) {
++        manager.insert_for_test(key, counts, config);
++    }
++
++    fn with_bitrate(bitrate: u32) -> VideoStreamConfig {
++        VideoStreamConfig {
++            bitrate,
++            ..video_config()
++        }
++    }
++
++    #[test]
++    fn a_guest_subscription_is_counted_apart() {
++        let mut manager = AVServicesManager::default();
++        let mut rx = manager.reaper_rx.take().unwrap();
++        let key = host_key(1, 1);
++        insert_stream(&mut manager, key.clone(), (1, 1), video_config());
++        assert_eq!(manager.video_streams[&key].host_count(), 1);
++
++        let guest = VideoSubscription::with_guest(key.clone(), manager.reaper_tx.clone(), true);
++        let cleanup = manager.release_all(vec![guest], None);
++        assert!(cleanup.is_empty());
++        assert_eq!(manager.video_streams[&key].guest_count, 0);
++        assert_eq!(manager.video_streams[&key].host_count(), 1);
++
++        drop(VideoSubscription::with_guest(
++            key.clone(),
++            manager.reaper_tx.clone(),
++            true,
++        ));
++        match rx.try_recv() {
++            Ok(AvReaperMsg::VideoDroppedByGuest(k)) if k == key => (),
++            other => panic!("expected VideoDroppedByGuest, got {other:?}"),
++        }
++    }
++
++    #[test]
++    fn a_guest_never_holds_the_host_image_settings() {
++        let mut manager = AVServicesManager::default();
++        assert_eq!(manager.host_start(1, &video_config()), HostStart::New);
++
++        // Watched by guests only: the host's format makes a new
++        // generation, its bitrate is the host's.
++        insert_stream(&mut manager, host_key(1, 4), (0, 2), video_config());
++        let hevc = VideoStreamConfig {
++            codec: VideoCodec::HEVC,
++            ..video_config()
++        };
++        assert_eq!(manager.host_start(1, &hevc), HostStart::New);
++        let yuv444 = VideoStreamConfig {
++            yuv444: true,
++            ..video_config()
++        };
++        assert_eq!(manager.host_start(1, &yuv444), HostStart::New);
++        assert_eq!(
++            manager.host_start(1, &with_bitrate(20_000_000)),
++            HostStart::Join {
++                generation: 4,
++                bitrate: true
++            }
++        );
++        assert_eq!(
++            manager.host_start(1, &video_config()),
++            HostStart::Join {
++                generation: 4,
++                bitrate: false
++            }
++        );
++
++        // Another host session on it: the first one's settings stay.
++        manager
++            .video_streams
++            .get_mut(&host_key(1, 4))
++            .unwrap()
++            .client_count = 3;
++        assert_eq!(
++            manager.host_start(1, &hevc),
++            HostStart::Join {
++                generation: 4,
++                bitrate: false
++            }
++        );
++    }
++
++    #[test]
++    fn an_older_host_generation_is_retired() {
++        let mut manager = AVServicesManager::default();
++        insert_stream(&mut manager, host_key(1, 1), (0, 1), video_config());
++        insert_stream(&mut manager, host_key(1, 2), (1, 0), video_config());
++        assert_eq!(manager.current_host_key(1), Some(host_key(1, 2)));
++        assert!(manager.is_retired_host_key(&host_key(1, 1)));
++        assert!(!manager.is_retired_host_key(&host_key(1, 2)));
++        assert!(!manager.is_retired_host_key(&guest_key(1, 1280, 720, 30)));
++        assert_eq!(manager.current_host_key(2), None);
++    }
++
++    #[test]
++    fn guest_images_use_slots_on_every_display() {
++        let mut manager = AVServicesManager::default();
++        let p1080 = guest_key(1, 1920, 1080, 60);
++        let p720 = guest_key(2, 1280, 720, 30);
++        insert_stream(&mut manager, host_key(1, 1), (1, 0), video_config());
++        insert_stream(&mut manager, p1080.clone(), (0, 1), video_config());
++        insert_stream(&mut manager, p720.clone(), (0, 2), video_config());
++        assert_eq!(manager.guest_slots_used(None), 2);
++        assert_eq!(manager.guest_slots_used(Some(&p1080)), 1);
++        assert_eq!(manager.open_guest_images(1).len(), 1);
++        assert_eq!(manager.open_guest_images(2).len(), 1);
++        assert_eq!(manager.open_guest_images(3).len(), 0);
++    }
++
++    #[test]
++    fn a_guest_image_that_sends_nothing_is_set_aside() {
++        let mut manager = AVServicesManager::default();
++        let key = guest_key(1, 1920, 1080, 60);
++        insert_stream(&mut manager, key.clone(), (0, 1), video_config());
++        // No kydup: nothing to tell.
++        assert!(!manager.set_aside_stalled(&key));
++
++        let (dup, _upstream) = kydup::KydupVideo::new(|| kydup::LagAction::Continue);
++        manager.video_streams.get_mut(&key).unwrap().dup = Some(dup);
++        assert!(manager.set_aside_stalled(&key));
++        // Not offered any more, its slot still used, even once it is gone.
++        assert!(manager.open_guest_images(1).is_empty());
++        assert_eq!(manager.guest_slots_used(None), 1);
++        assert_eq!(manager.guest_slots_used(Some(&key)), 1);
++        manager.video_streams.remove(&key);
++        assert_eq!(manager.guest_slots_used(None), 1);
++
++        // Its time over, the slot is free.
++        manager.set_aside[0].2 = Instant::now();
++        assert_eq!(manager.guest_slots_used(None), 0);
++        assert!(!manager.set_aside_stalled(&guest_key(9, 2, 2, 2)));
++    }
++
++    #[tokio::test(start_paused = true)]
++    async fn a_guest_image_without_an_image_in_3_s_is_reported() {
++        use kymux::types::{AVPacket, MediaPacket, MediaPacketHeader};
++
++        let key = guest_key(1, 1920, 1080, 60);
++        let (signals, mut rx) = tokio::sync::mpsc::unbounded_channel();
++        let (silent, _upstream) = kydup::KydupVideo::new(|| kydup::LagAction::Continue);
++        watch_first_image(silent, signals.clone(), key.clone());
++        tokio::time::sleep(Duration::from_millis(2900)).await;
++        assert!(rx.try_recv().is_err());
++        tokio::time::sleep(Duration::from_millis(200)).await;
++        assert!(matches!(rx.try_recv(), Ok(ShareSignal::Stalled { key: k }) if k == key));
++
++        let (alive, upstream) = kydup::KydupVideo::new(|| kydup::LagAction::Continue);
++        watch_first_image(alive, signals, key);
++        let mut proto = upstream.ready().await.unwrap();
++        proto
++            .send(AVPacket::Media(MediaPacket {
++                header: MediaPacketHeader {
++                    is_config: false,
++                    is_key: true,
++                    pts: 0,
++                    size: 1,
++                },
++                payload: bytes::Bytes::from_static(b"k"),
++            }))
++            .await
++            .unwrap();
++        tokio::time::sleep(Duration::from_secs(4)).await;
++        assert!(rx.try_recv().is_err());
++    }
++
++    #[test]
++    fn guest_images_follow_the_host_bitrate_within_their_ceiling() {
++        let mut manager = AVServicesManager::default();
++        let host = host_key(1, 1);
++        let p1080 = guest_key(1, 1920, 1080, 60);
++        let p720 = guest_key(1, 1280, 720, 30);
++        let elsewhere = guest_key(2, 1280, 720, 30);
++        insert_stream(&mut manager, host.clone(), (1, 0), with_bitrate(10_000_000));
++        for (key, ceiling) in [
++            (&p1080, 16_000_000),
++            (&p720, 6_000_000),
++            (&elsewhere, 6_000_000),
++        ] {
++            insert_stream(&mut manager, key.clone(), (0, 1), with_bitrate(ceiling));
++            manager.video_streams.get_mut(key).unwrap().ceiling = ceiling;
++        }
++
++        manager.cap_guest_images(1);
++        let bitrate =
++            |m: &AVServicesManager, key: &VideoStreamKey| m.video_streams[key].config.bitrate;
++        assert_eq!(bitrate(&manager, &p1080), 10_000_000);
++        assert_eq!(bitrate(&manager, &p720), 6_000_000);
++
++        // The host's bitrate up again: back to their ceiling.
++        manager.video_streams.get_mut(&host).unwrap().config.bitrate = 40_000_000;
++        manager.cap_guest_images(1);
++        assert_eq!(bitrate(&manager, &p1080), 16_000_000);
++
++        // The host's bitrate changes only the images of its display.
++        manager.video_streams.get_mut(&host).unwrap().config.bitrate = 1_000_000;
++        manager.cap_guest_images(1);
++        assert_eq!(bitrate(&manager, &p720), 1_000_000);
++        assert_eq!(bitrate(&manager, &elsewhere), 6_000_000);
++
++        // Without a host image (a share from the computer): unchanged.
++        manager.cap_guest_images(2);
++        assert_eq!(bitrate(&manager, &elsewhere), 6_000_000);
++    }
+ }
+diff --git a/kycontroller/src/config.rs b/kycontroller/src/config.rs
+index 48991e4..3516040 100644
+--- a/kycontroller/src/config.rs
++++ b/kycontroller/src/config.rs
+@@ -104,6 +104,12 @@ pub(crate) struct Config {
+     /// Overrides the size of the `datagram_send_queue` policy, in bytes.
+     datagram_send_queue_size: Option<usize>,
+     webclient: Option<String>,
++    /// KyberNow: images a share guest may get beside the host's (patch
++    /// 0020), instead of what the encoder allows.
++    share_extra_images: Option<usize>,
++    /// KyberNow: `[kyavserver] backend` and `encoder`, read by `from_table`.
++    #[serde(skip)]
++    kyavserver: KyavserverEngine,
+     /// Read from the top-level [kyhub] section by `from_table`.
+     #[cfg(feature = "kyhub")]
+     #[serde(skip)]
+@@ -172,6 +178,15 @@ impl Config {
+         self.webclient.as_deref()
+     }
+ 
++    /// KyberNow: how many images the encoder can make for share guests.
++    pub(crate) fn share_images(&self) -> crate::guest_image::ImageBudget {
++        crate::guest_image::image_budget(
++            self.kyavserver.backend.as_deref(),
++            self.kyavserver.encoder.as_deref(),
++            self.share_extra_images,
++        )
++    }
++
+     #[cfg(feature = "kyhub")]
+     #[inline]
+     pub(crate) fn kyhub(&self) -> Option<&kyagent::Config> {
+@@ -179,6 +194,14 @@ impl Config {
+     }
+ }
+ 
++/// KyberNow: what kyavserver encodes with (`[kyavserver]`), for the images
++/// of share guests.
++#[derive(Debug, Default, Deserialize)]
++struct KyavserverEngine {
++    backend: Option<String>,
++    encoder: Option<String>,
++}
++
+ #[derive(Debug, thiserror::Error)]
+ pub enum ParseError {
+     #[error("cannot read configuration file {path:?}: {source}")]
+@@ -225,7 +248,6 @@ pub(crate) fn parse(override_path: Option<&Path>) -> Result<Option<toml::Table>,
+ }
+ 
+ pub(crate) fn from_table(table: &toml::Table) -> Result<Config, ParseError> {
+-    #[cfg_attr(not(feature = "kyhub"), allow(unused_mut))]
+     let mut config = match table.get("kycontroller") {
+         Some(controller_conf) => controller_conf
+             .clone()
+@@ -242,5 +264,44 @@ pub(crate) fn from_table(table: &toml::Table) -> Result<Config, ParseError> {
+         config.kyhub = kyagent::Config::from_toml(table)?;
+     }
+ 
++    // KyberNow: the other keys of [kyavserver] are kyavserver's own.
++    if let Some(engine) = table.get("kyavserver").and_then(|t| t.as_table()) {
++        let text = |key: &str| engine.get(key).and_then(|v| v.as_str()).map(str::to_owned);
++        config.kyavserver = KyavserverEngine {
++            backend: text("backend"),
++            encoder: text("encoder"),
++        };
++    }
++
+     Ok(config)
+ }
++
++/// KyberNow: KyberNow Share's guest images (patch 0020).
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::guest_image::ImageBudget;
++
++    fn budget(text: &str) -> ImageBudget {
++        from_table(&text.parse().unwrap()).unwrap().share_images()
++    }
++
++    #[test]
++    fn the_guest_image_budget_comes_from_kyavserver() {
++        let both = |with_host, can_scale| ImageBudget {
++            with_host,
++            can_scale,
++        };
++        assert_eq!(budget(""), both(2, true));
++        assert_eq!(budget("[kyavserver]\nencoder = \"qsv\""), both(1, true));
++        assert_eq!(budget("[kyavserver]\nencoder = \"x264\""), both(0, true));
++        assert_eq!(
++            budget("[kyavserver]\nbackend = \"libavconv\"\nencoder = \"nvenc\""),
++            both(0, false)
++        );
++        assert_eq!(
++            budget("[kycontroller]\nshare_extra_images = 3\n[kyavserver]\nencoder = \"qsv\""),
++            both(3, true)
++        );
++    }
++}
+diff --git a/kycontroller/src/controller.rs b/kycontroller/src/controller.rs
+index 736b1d7..21e05ee 100644
+--- a/kycontroller/src/controller.rs
++++ b/kycontroller/src/controller.rs
+@@ -34,9 +34,7 @@ use libkypc::process::ProcessFactory;
+ 
+ use crate::auth;
+ use crate::avservice;
+-use crate::avservices_manager::{
+-    AV_CLEANUP_TIMEOUT, AVServicesManager, AudioSubscription, VideoSubscription,
+-};
++use crate::avservices_manager::{AVServicesManager, AudioSubscription, VideoSubscription};
+ use crate::config;
+ use crate::error::{Error, Result};
+ use crate::host_events;
+@@ -109,6 +107,9 @@ pub(crate) struct ClientSession {
+     /// KyberNow: a KyberNow Share guest's role, display and role revision;
+     /// `None` for the host.
+     pub(crate) share: Option<auth::GuestShare>,
++    /// KyberNow: a share guest's image (patch 0020): how far it was lowered
++    /// for lagging, its signs of lag, its keyframes on the host's image.
++    pub(crate) guest_image: crate::kybernow::GuestImageState,
+ }
+ 
+ impl ClientSession {
+@@ -149,6 +150,7 @@ impl ClientSession {
+             services: Default::default(),
+             last_force_idr: None,
+             share,
++            guest_image: Default::default(),
+         }
+     }
+ }
+@@ -213,6 +215,10 @@ pub(crate) struct StreamingServices {
+     /// KyberNow: the rights `input` enforces for a share guest (`None`: the
+     /// host's, everything).
+     pub(crate) input_rights: Option<kynputservice_types::InputRights>,
++    /// KyberNow: a share guest's video outputs (patch 0020), each with the
++    /// command that moves it to another image; its subscription is in
++    /// `video_subscriptions` (none while it waits for the host's image).
++    pub(crate) guest_outputs: Vec<crate::kybernow::GuestOutput>,
+ }
+ 
+ impl StreamingServices {
+@@ -437,6 +443,9 @@ impl Controller {
+     async fn release_av_services(&self, services: &Arc<AsyncMutex<StreamingServices>>) {
+         let (videos, audio) = {
+             let mut services = services.lock().await;
++            // KyberNow: a share guest's outputs go with their subscriptions:
++            // nothing moves them any more.
++            services.guest_outputs.clear();
+             (
+                 mem::take(&mut services.video_subscriptions),
+                 services.audio_subscription.take(),
+@@ -447,25 +456,13 @@ impl Controller {
+         }
+ 
+         // Lock order: services then av_services_manager, same as set_bitrate.
+-        let cleanup = self
+-            .av_services_manager
++        // Every released stream may still have other subscribers: nothing
++        // to stop then.
++        self.av_services_manager
+             .lock()
+             .await
+-            .release_all(videos, audio);
+-        if cleanup.is_empty() {
+-            // Every released stream still has other subscribers: nothing to stop.
+-            return;
+-        }
+-        tokio::spawn(async move {
+-            if tokio::time::timeout(AV_CLEANUP_TIMEOUT, cleanup.run())
+-                .await
+-                .is_err()
+-            {
+-                warn!(
+-                    "AV release cleanup exceeded {AV_CLEANUP_TIMEOUT:?}; stops continue detached"
+-                );
+-            }
+-        });
++            .release_all(videos, audio)
++            .run_detached();
+     }
+ 
+     /// Remove a session.
+diff --git a/kycontroller/src/error.rs b/kycontroller/src/error.rs
+index 1ad43f4..6cd2174 100644
+--- a/kycontroller/src/error.rs
++++ b/kycontroller/src/error.rs
+@@ -106,6 +106,9 @@ pub enum Error {
+     },
+     #[error("Invalid configuration: {reason}")]
+     InvalidConfig { reason: String },
++    /// KyberNow: no image a share guest's device can read (patch 0020).
++    #[error("No image this share guest can read")]
++    ShareNoImage,
+     // Tray errors are only used on Windows with win32-tray feature
+     #[allow(dead_code)]
+     #[error("Tray not supported on this platform")]
+diff --git a/kycontroller/src/guest_image.rs b/kycontroller/src/guest_image.rs
+new file mode 100644
+index 0000000..ac23971
+--- /dev/null
++++ b/kycontroller/src/guest_image.rs
+@@ -0,0 +1,1199 @@
++// KyberNow: KyberNow Share, a guest's own image (patch 0020). The decisions
++// only, without Kyber's state, so that they can be tested anywhere: which
++// image a guest gets (`choose`), how many images beside the host's the
++// encoder can make (`image_budget`), and when a guest is falling behind
++// (`LagMeter`).
++//
++// The host always comes first: a guest's image is never above the host's
++// (size, rate, bitrate, 4:4:4), and nothing a guest does changes the host's
++// image. A guest that can follow the host's image shares it; the others get
++// an image of their own, encoded for them from the same display, always in
++// 4:2:0; guests asking for the same image share it.
++
++use std::collections::VecDeque;
++use std::time::{Duration, Instant};
++
++use kyavservice_types::{VideoCodec, VideoScale};
++
++use crate::auth::ShareQuality;
++
++/// Refresh rate assumed for a display whose rate Windows does not give.
++const ASSUMED_REFRESH: u32 = 60;
++
++/// A guest asking for the host's image that cannot read it (format, 4:4:4)
++/// gets a copy at the host's size, at most this rate: a second full-rate
++/// encoding of a 160 Hz display would weigh on the host's.
++const HOST_COPY_MAX_FPS: u32 = 60;
++
++/// A video format, as a registry key (`VideoCodec` is neither `Eq` nor
++/// `Hash`).
++#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
++pub(crate) enum ImageCodec {
++    H264,
++    Hevc,
++    Av1,
++}
++
++impl ImageCodec {
++    pub(crate) fn name(self) -> &'static str {
++        match self {
++            Self::H264 => "h264",
++            Self::Hevc => "hevc",
++            Self::Av1 => "av1",
++        }
++    }
++}
++
++impl From<&VideoCodec> for ImageCodec {
++    fn from(codec: &VideoCodec) -> Self {
++        match codec {
++            VideoCodec::H264 => Self::H264,
++            VideoCodec::HEVC => Self::Hevc,
++            VideoCodec::AV1 => Self::Av1,
++        }
++    }
++}
++
++impl From<ImageCodec> for VideoCodec {
++    fn from(codec: ImageCodec) -> Self {
++        match codec {
++            ImageCodec::H264 => Self::H264,
++            ImageCodec::Hevc => Self::HEVC,
++            ImageCodec::Av1 => Self::AV1,
++        }
++    }
++}
++
++/// A size and a rate; `fps` 0 when unknown (taken as 60 Hz).
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub(crate) struct Mode {
++    pub(crate) width: u32,
++    pub(crate) height: u32,
++    pub(crate) fps: u32,
++}
++
++impl Mode {
++    fn refresh(self) -> u32 {
++        if self.fps == 0 {
++            ASSUMED_REFRESH
++        } else {
++            self.fps
++        }
++    }
++
++    /// Pixels per second: how heavy an image is.
++    pub(crate) fn weight(self) -> u64 {
++        u64::from(self.width) * u64::from(self.height) * u64::from(self.refresh())
++    }
++
++    /// Whether `self` (never above `reference`) is all of it.
++    fn covers(self, reference: Mode) -> bool {
++        self.width == reference.width
++            && self.height == reference.height
++            && self.refresh() >= reference.refresh()
++    }
++}
++
++/// A guest's own image: its key in the registry (`VideoStreamKey::Guest`).
++/// Guests asking for the same image share it.
++#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
++pub(crate) struct GuestImage {
++    pub(crate) width: u32,
++    pub(crate) height: u32,
++    /// 0: the display's own rate, unknown.
++    pub(crate) fps: u32,
++    pub(crate) codec: ImageCodec,
++}
++
++impl GuestImage {
++    fn new(mode: Mode, codec: ImageCodec) -> Self {
++        Self {
++            width: mode.width,
++            height: mode.height,
++            fps: mode.fps,
++            codec,
++        }
++    }
++
++    pub(crate) fn mode(self) -> Mode {
++        Mode {
++            width: self.width,
++            height: self.height,
++            fps: self.fps,
++        }
++    }
++
++    /// The size asked of kyavserver: only when scaled down from `screen`.
++    pub(crate) fn scale(self, screen: Mode) -> Option<VideoScale> {
++        ((self.width, self.height) != (screen.width, screen.height)).then_some(VideoScale {
++            width: self.width,
++            height: self.height,
++        })
++    }
++
++    /// The rate asked of kyavserver: only when below `screen`'s (or when
++    /// that one is unknown).
++    pub(crate) fn max_fps(self, screen: Mode) -> Option<u32> {
++        (self.fps != 0 && (screen.fps == 0 || self.fps < screen.fps)).then_some(self.fps)
++    }
++}
++
++/// The frame of a preset (long side, short side, rate); `None` for the
++/// host's image, the display as it is.
++fn frame(quality: ShareQuality) -> Option<(u32, u32, u32)> {
++    match quality {
++        ShareQuality::Host => None,
++        ShareQuality::P1080 => Some((1920, 1080, 60)),
++        ShareQuality::P720 => Some((1280, 720, 30)),
++    }
++}
++
++fn rank(quality: ShareQuality) -> u8 {
++    match quality {
++        ShareQuality::Host => 0,
++        ShareQuality::P1080 => 1,
++        ShareQuality::P720 => 2,
++    }
++}
++
++/// `quality` lowered by `steps` notches (host → 1080p60 → 720p30).
++pub(crate) fn lowered(quality: ShareQuality, steps: u8) -> ShareQuality {
++    match rank(quality).saturating_add(steps) {
++        0 => ShareQuality::Host,
++        1 => ShareQuality::P1080,
++        _ => ShareQuality::P720,
++    }
++}
++
++/// How many notches `quality` can go down.
++pub(crate) fn max_steps(quality: ShareQuality) -> u8 {
++    2 - rank(quality)
++}
++
++/// Bitrate ceiling of a preset's image (bits per second); the host's image
++/// has none but the host's own bitrate.
++fn preset_cap(quality: ShareQuality, codec: ImageCodec) -> Option<u32> {
++    match (quality, codec) {
++        (ShareQuality::Host, _) => None,
++        (ShareQuality::P1080, ImageCodec::H264) => Some(16_000_000),
++        (ShareQuality::P1080, _) => Some(12_000_000),
++        (ShareQuality::P720, _) => Some(6_000_000),
++    }
++}
++
++/// Why a guest gets the image it gets (`/kybernow/sessions`, and the guest's
++/// notice through KyberNow Admin).
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub(crate) enum Reason {
++    /// What it asked for.
++    Asked,
++    /// Below what it asked for: the host's image is smaller or slower.
++    Capped,
++    /// The computer cannot make one more image: the closest one open.
++    Limit,
++    /// Lowered because the guest fell behind.
++    Lag,
++}
++
++impl Reason {
++    pub(crate) fn name(self) -> &'static str {
++        match self {
++            Self::Asked => "asked",
++            Self::Capped => "capped",
++            Self::Limit => "limit",
++            Self::Lag => "lag",
++        }
++    }
++}
++
++/// How many images the encoder can make beside the host's.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub(crate) struct ImageBudget {
++    /// Guest images while a host is in session.
++    pub(crate) with_host: usize,
++    /// Whether kyavserver can scale the display down and lower its rate;
++    /// without, a guest image can only be a copy of the display as it is.
++    pub(crate) can_scale: bool,
++}
++
++impl ImageBudget {
++    /// One more without a host in session (a share from the computer
++    /// itself): the host's encoder is free.
++    pub(crate) fn limit(self, host_session: bool) -> usize {
++        self.with_host + usize::from(!host_session)
++    }
++}
++
++/// The only place that knows what each capture engine and encoder can do
++/// (`[kyavserver] backend` and `encoder`, `[kycontroller]
++/// share_extra_images`). NVENC and AMF: two images beside the host's; Quick
++/// Sync: one; x264 (the processor): none. The libavconv engine can neither
++/// scale nor lower the rate yet: no image of its own beside the host's, and
++/// only copies of the display without a host.
++pub(crate) fn image_budget(
++    backend: Option<&str>,
++    encoder: Option<&str>,
++    forced: Option<usize>,
++) -> ImageBudget {
++    let libavconv = backend.is_some_and(|b| b.eq_ignore_ascii_case("libavconv"));
++    let with_host = forced.unwrap_or_else(|| {
++        if libavconv {
++            return 0;
++        }
++        match encoder.map(str::to_ascii_lowercase).as_deref() {
++            // kyavserver's default on Windows.
++            None | Some("nvenc") | Some("amf") => 2,
++            Some("qsv") => 1,
++            Some("x264") => 0,
++            Some(_) => 1,
++        }
++    });
++    ImageBudget {
++        with_host,
++        can_scale: !libavconv,
++    }
++}
++
++/// The host's image of the display: the display as it is.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub(crate) struct HostImage {
++    pub(crate) mode: Mode,
++    pub(crate) codec: ImageCodec,
++    pub(crate) yuv444: bool,
++    /// Its current bitrate.
++    pub(crate) bitrate: u32,
++}
++
++/// What the guest's device reads: the format and 4:4:4 of its start
++/// request.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub(crate) struct Reader {
++    pub(crate) codec: ImageCodec,
++    pub(crate) yuv444: bool,
++}
++
++impl Reader {
++    fn reads(self, host: &HostImage) -> bool {
++        self.codec == host.codec && (!host.yuv444 || self.yuv444)
++    }
++}
++
++/// The images around a guest, as the registry sees them.
++#[derive(Clone, Copy, Debug)]
++pub(crate) struct Situation<'a> {
++    /// The host's image of this display, if it runs.
++    pub(crate) host: Option<HostImage>,
++    /// A host is in session (sharing from its session). Without, the share
++    /// comes from the computer itself.
++    pub(crate) host_session: bool,
++    /// The display as it is.
++    pub(crate) screen: Mode,
++    /// Guest images open on this display (set aside ones left out).
++    pub(crate) open: &'a [GuestImage],
++    /// Guest images open on every display, slots set aside included, the
++    /// one this guest leaves (when it is alone on it) left out.
++    pub(crate) used: usize,
++    pub(crate) budget: ImageBudget,
++}
++
++/// What a guest asks for.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub(crate) struct Ask {
++    pub(crate) quality: ShareQuality,
++    /// Notches lowered because it fell behind.
++    pub(crate) steps: u8,
++    pub(crate) reader: Reader,
++    /// Its bitrate.
++    pub(crate) bitrate: u32,
++}
++
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub(crate) enum Placement {
++    /// The host's image.
++    FollowHost,
++    /// Nothing yet: the host is in session and its image will come back
++    /// (it restarts it); the guest is attached to it then.
++    Wait,
++    /// A guest image already open.
++    Join(GuestImage),
++    /// A new guest image, at `bitrate`; `ceiling`: the most it may use
++    /// when the host's bitrate allows (its preset's `cap` and the guest's
++    /// bitrate).
++    Open {
++        image: GuestImage,
++        bitrate: u32,
++        ceiling: u32,
++        cap: u32,
++    },
++}
++
++impl Placement {
++    /// How heavy it is; 0 while waiting.
++    pub(crate) fn weight(self, host: Option<&HostImage>) -> u64 {
++        match self {
++            Self::FollowHost => host.map_or(0, |h| h.mode.weight()),
++            Self::Wait => 0,
++            Self::Join(image) | Self::Open { image, .. } => image.mode().weight(),
++        }
++    }
++}
++
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub(crate) struct Choice {
++    pub(crate) placement: Placement,
++    pub(crate) reason: Reason,
++}
++
++/// No image this guest can read: refused (409).
++#[derive(Debug, PartialEq, Eq)]
++pub(crate) struct Refused;
++
++fn even(value: u32) -> u32 {
++    (value & !1).max(2)
++}
++
++/// `reference` fitted in a `box_width` × `box_height` frame, proportions
++/// kept, even; never above `reference`.
++fn fit(reference: Mode, box_width: u32, box_height: u32) -> (u32, u32) {
++    let (w, h) = (reference.width, reference.height);
++    if w == 0 || h == 0 {
++        return (box_width, box_height);
++    }
++    if w <= box_width && h <= box_height {
++        return (w, h);
++    }
++    let (w64, h64) = (u64::from(w), u64::from(h));
++    let (bw, bh) = (u64::from(box_width), u64::from(box_height));
++    let (width, height) = if bw * h64 <= bh * w64 {
++        (bw, h64 * bw / w64)
++    } else {
++        (w64 * bh / h64, bh)
++    };
++    (even(width as u32), even(height as u32))
++}
++
++/// The image of `quality` against `reference` (the host's image, or the
++/// display without one): the preset's frame (turned like the display),
++/// never above `reference`; `Capped` when `reference` makes it smaller or
++/// slower than the preset.
++fn target(quality: ShareQuality, reference: Mode) -> (Mode, Reason) {
++    let Some((long, short, fps)) = frame(quality) else {
++        return (reference, Reason::Asked);
++    };
++    let (box_width, box_height) = if reference.height > reference.width {
++        (short, long)
++    } else {
++        (long, short)
++    };
++    let (width, height) = fit(reference, box_width, box_height);
++    let rate = fps.min(reference.refresh());
++    let capped = rate < fps || (width < box_width && height < box_height);
++    let mode = Mode {
++        width,
++        height,
++        fps: rate,
++    };
++    (
++        mode,
++        if capped {
++            Reason::Capped
++        } else {
++            Reason::Asked
++        },
++    )
++}
++
++/// The image a guest gets:
++/// - with the host's image: the host's when the guest's image would be all
++///   of it and the device reads its format (and its 4:4:4); otherwise an
++///   image of its own, in the device's format, in 4:2:0 (the host's size at
++///   60 Hz at most for "as the host");
++/// - without it, while a host is in session: wait for it when the guest
++///   would follow it, an image of its own otherwise;
++/// - without a host (a share from the computer): an image of its own, "as
++///   the host" being the display as it is.
++///
++/// An image of its own is joined when open, opened while the budget
++/// allows; beyond, the closest open image the guest reads, lighter (or
++/// else the lightest one), with `Limit`. None: `Refused`.
++pub(crate) fn choose(s: &Situation, ask: &Ask) -> Result<Choice, Refused> {
++    let quality = lowered(ask.quality, ask.steps);
++    let reference = s.host.map_or(s.screen, |h| h.mode);
++    let (mut mode, mut reason) = target(quality, reference);
++    if quality != ask.quality {
++        reason = Reason::Lag;
++    }
++    // Bitrate ceiling: the preset's, unless the image is the display as is.
++    let mut capped_by = quality;
++    if !s.budget.can_scale && mode != reference {
++        mode = reference;
++        reason = Reason::Limit;
++        capped_by = ShareQuality::Host;
++    }
++
++    match &s.host {
++        Some(host) => {
++            let reads_host = ask.reader.reads(host);
++            if mode.covers(reference) && reads_host {
++                return Ok(Choice {
++                    placement: Placement::FollowHost,
++                    reason,
++                });
++            }
++            if quality == ShareQuality::Host
++                && s.budget.can_scale
++                && mode.refresh() > HOST_COPY_MAX_FPS
++            {
++                mode.fps = HOST_COPY_MAX_FPS;
++                if reason == Reason::Asked {
++                    reason = Reason::Capped;
++                }
++            }
++            place(s, ask, mode, reason, capped_by, reads_host)
++        }
++        None if s.host_session && mode.covers(reference) => Ok(Choice {
++            placement: Placement::Wait,
++            reason,
++        }),
++        None => place(s, ask, mode, reason, capped_by, false),
++    }
++}
++
++/// An image of the guest's own: joined, opened, or the closest one open.
++fn place(
++    s: &Situation,
++    ask: &Ask,
++    mode: Mode,
++    reason: Reason,
++    capped_by: ShareQuality,
++    reads_host: bool,
++) -> Result<Choice, Refused> {
++    let image = GuestImage::new(mode, ask.reader.codec);
++    if s.open.contains(&image) {
++        return Ok(Choice {
++            placement: Placement::Join(image),
++            reason,
++        });
++    }
++
++    if s.used < s.budget.limit(s.host_session) {
++        let cap = preset_cap(capped_by, image.codec).unwrap_or(u32::MAX);
++        let ceiling = cap.min(ask.bitrate);
++        let bitrate = s.host.map_or(ceiling, |h| ceiling.min(h.bitrate));
++        return Ok(Choice {
++            placement: Placement::Open {
++                image,
++                bitrate,
++                ceiling,
++                cap,
++            },
++            reason,
++        });
++    }
++
++    let candidates: Vec<(u64, Placement)> = s
++        .open
++        .iter()
++        .filter(|open| open.codec == ask.reader.codec)
++        .map(|open| (open.mode().weight(), Placement::Join(*open)))
++        .chain(
++            s.host
++                .filter(|_| reads_host)
++                .map(|h| (h.mode.weight(), Placement::FollowHost)),
++        )
++        .collect();
++    let wanted = mode.weight();
++    let lighter = candidates
++        .iter()
++        .filter(|(weight, _)| *weight <= wanted)
++        .max_by_key(|(weight, _)| *weight);
++    let (_, placement) = lighter
++        .or_else(|| candidates.iter().min_by_key(|(weight, _)| *weight))
++        .ok_or(Refused)?;
++    Ok(Choice {
++        placement: *placement,
++        reason: Reason::Limit,
++    })
++}
++
++/// The window in which a guest's signs of lag are counted.
++const LAG_WINDOW: Duration = Duration::from_secs(10);
++/// Lag episodes (its output on an image overflowed) in `LAG_WINDOW` that
++/// lower a guest's image.
++const LAG_EPISODES: usize = 2;
++/// Keyframe requests in `LAG_WINDOW` that lower a guest's image.
++const LAG_KEYFRAMES: usize = 3;
++/// After a guest gets an image, its signs are not counted for this long:
++/// it is catching up with it.
++const LAG_GRACE: Duration = Duration::from_secs(3);
++
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub(crate) enum LagSign {
++    /// Its output on an image overflowed (kydup).
++    Episode,
++    /// It asked for a keyframe (`/force_idr`).
++    KeyframeRequest,
++}
++
++/// A guest's signs of lag: two episodes or three keyframe requests within
++/// ten seconds lower its image a notch.
++#[derive(Debug, Default)]
++pub(crate) struct LagMeter {
++    episodes: VecDeque<Instant>,
++    keyframes: VecDeque<Instant>,
++    quiet_until: Option<Instant>,
++}
++
++impl LagMeter {
++    /// The guest got an image: start over, after a grace period.
++    pub(crate) fn restart(&mut self, now: Instant) {
++        self.episodes.clear();
++        self.keyframes.clear();
++        self.quiet_until = Some(now + LAG_GRACE);
++    }
++
++    /// Records a sign; `true` when the guest should go a notch down (the
++    /// count then starts over).
++    pub(crate) fn record(&mut self, sign: LagSign, now: Instant) -> bool {
++        if self.quiet_until.is_some_and(|until| now < until) {
++            return false;
++        }
++        match sign {
++            LagSign::Episode => self.episodes.push_back(now),
++            LagSign::KeyframeRequest => self.keyframes.push_back(now),
++        }
++        for signs in [&mut self.episodes, &mut self.keyframes] {
++            while signs
++                .front()
++                .is_some_and(|at| now.saturating_duration_since(*at) > LAG_WINDOW)
++            {
++                signs.pop_front();
++            }
++        }
++        let lagging = self.episodes.len() >= LAG_EPISODES || self.keyframes.len() >= LAG_KEYFRAMES;
++        if lagging {
++            self.episodes.clear();
++            self.keyframes.clear();
++        }
++        lagging
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    const UHD160: Mode = Mode {
++        width: 3840,
++        height: 2160,
++        fps: 160,
++    };
++    const NVENC: ImageBudget = ImageBudget {
++        with_host: 2,
++        can_scale: true,
++    };
++
++    fn host(mode: Mode, codec: ImageCodec, yuv444: bool) -> HostImage {
++        HostImage {
++            mode,
++            codec,
++            yuv444,
++            bitrate: 80_000_000,
++        }
++    }
++
++    fn reader(codec: ImageCodec, yuv444: bool) -> Reader {
++        Reader { codec, yuv444 }
++    }
++
++    fn ask(quality: ShareQuality, reader: Reader) -> Ask {
++        Ask {
++            quality,
++            steps: 0,
++            reader,
++            bitrate: 50_000_000,
++        }
++    }
++
++    fn with_host(host: HostImage, open: &[GuestImage], used: usize) -> Situation<'_> {
++        Situation {
++            host: Some(host),
++            host_session: true,
++            screen: host.mode,
++            open,
++            used,
++            budget: NVENC,
++        }
++    }
++
++    fn image(width: u32, height: u32, fps: u32, codec: ImageCodec) -> GuestImage {
++        GuestImage {
++            width,
++            height,
++            fps,
++            codec,
++        }
++    }
++
++    fn opened(choice: Choice) -> GuestImage {
++        match choice.placement {
++            Placement::Open { image, .. } => image,
++            other => panic!("expected a new image, got {other:?}"),
++        }
++    }
++
++    #[test]
++    fn as_the_host_follows_the_host() {
++        let h = host(UHD160, ImageCodec::Hevc, false);
++        let choice = choose(
++            &with_host(h, &[], 0),
++            &ask(ShareQuality::Host, reader(ImageCodec::Hevc, false)),
++        )
++        .unwrap();
++        assert_eq!(choice.placement, Placement::FollowHost);
++        assert_eq!(choice.reason, Reason::Asked);
++    }
++
++    #[test]
++    fn a_preset_is_fitted_in_its_frame_and_never_above_the_host() {
++        let h = host(UHD160, ImageCodec::Hevc, true);
++        let s = with_host(h, &[], 0);
++        let c = choose(
++            &s,
++            &ask(ShareQuality::P1080, reader(ImageCodec::Hevc, true)),
++        )
++        .unwrap();
++        assert_eq!(opened(c), image(1920, 1080, 60, ImageCodec::Hevc));
++        assert_eq!(c.reason, Reason::Asked);
++        let c = choose(
++            &s,
++            &ask(ShareQuality::P720, reader(ImageCodec::H264, false)),
++        )
++        .unwrap();
++        assert_eq!(opened(c), image(1280, 720, 30, ImageCodec::H264));
++
++        // An ultrawide display keeps its proportions, in even sizes.
++        let wide = host(
++            Mode {
++                width: 3440,
++                height: 1440,
++                fps: 100,
++            },
++            ImageCodec::H264,
++            false,
++        );
++        let c = choose(
++            &with_host(wide, &[], 0),
++            &ask(ShareQuality::P1080, reader(ImageCodec::H264, false)),
++        )
++        .unwrap();
++        assert_eq!(opened(c), image(1920, 802, 60, ImageCodec::H264));
++        assert_eq!(c.reason, Reason::Asked);
++
++        // A display turned upright: the frame turns with it.
++        let upright = host(
++            Mode {
++                width: 2160,
++                height: 3840,
++                fps: 60,
++            },
++            ImageCodec::H264,
++            false,
++        );
++        let c = choose(
++            &with_host(upright, &[], 0),
++            &ask(ShareQuality::P1080, reader(ImageCodec::H264, false)),
++        )
++        .unwrap();
++        assert_eq!(opened(c), image(1080, 1920, 60, ImageCodec::H264));
++    }
++
++    #[test]
++    fn a_preset_at_or_above_the_host_follows_the_host_capped() {
++        let small = host(
++            Mode {
++                width: 1280,
++                height: 720,
++                fps: 60,
++            },
++            ImageCodec::H264,
++            false,
++        );
++        let c = choose(
++            &with_host(small, &[], 0),
++            &ask(ShareQuality::P1080, reader(ImageCodec::H264, false)),
++        )
++        .unwrap();
++        assert_eq!(c.placement, Placement::FollowHost);
++        assert_eq!(c.reason, Reason::Capped);
++
++        // Same size, lower rate: an image of its own.
++        let c = choose(
++            &with_host(small, &[], 0),
++            &ask(ShareQuality::P720, reader(ImageCodec::H264, false)),
++        )
++        .unwrap();
++        assert_eq!(opened(c), image(1280, 720, 30, ImageCodec::H264));
++        assert_eq!(c.reason, Reason::Asked);
++
++        // A 4K host at 30 Hz: 1080p at 30 Hz, capped.
++        let slow = host(
++            Mode {
++                width: 3840,
++                height: 2160,
++                fps: 30,
++            },
++            ImageCodec::H264,
++            false,
++        );
++        let c = choose(
++            &with_host(slow, &[], 0),
++            &ask(ShareQuality::P1080, reader(ImageCodec::H264, false)),
++        )
++        .unwrap();
++        assert_eq!(opened(c), image(1920, 1080, 30, ImageCodec::H264));
++        assert_eq!(c.reason, Reason::Capped);
++    }
++
++    #[test]
++    fn as_the_host_without_444_is_a_420_copy_at_60_hz_at_most() {
++        let h = host(UHD160, ImageCodec::Hevc, true);
++        let c = choose(
++            &with_host(h, &[], 0),
++            &ask(ShareQuality::Host, reader(ImageCodec::Hevc, false)),
++        )
++        .unwrap();
++        assert_eq!(opened(c), image(3840, 2160, 60, ImageCodec::Hevc));
++        assert_eq!(c.reason, Reason::Capped);
++
++        // At 60 Hz already: the host's rate, what was asked.
++        let h60 = host(
++            Mode {
++                width: 2560,
++                height: 1440,
++                fps: 60,
++            },
++            ImageCodec::Hevc,
++            true,
++        );
++        let c = choose(
++            &with_host(h60, &[], 0),
++            &ask(ShareQuality::Host, reader(ImageCodec::Hevc, false)),
++        )
++        .unwrap();
++        assert_eq!(opened(c), image(2560, 1440, 60, ImageCodec::Hevc));
++        assert_eq!(c.reason, Reason::Asked);
++    }
++
++    #[test]
++    fn a_device_that_does_not_read_the_host_format_gets_its_own() {
++        let h = host(UHD160, ImageCodec::Av1, false);
++        let s = with_host(h, &[], 0);
++        let c = choose(
++            &s,
++            &ask(ShareQuality::Host, reader(ImageCodec::H264, false)),
++        )
++        .unwrap();
++        assert_eq!(opened(c), image(3840, 2160, 60, ImageCodec::H264));
++        let c = choose(
++            &s,
++            &ask(ShareQuality::P1080, reader(ImageCodec::H264, false)),
++        )
++        .unwrap();
++        assert_eq!(opened(c), image(1920, 1080, 60, ImageCodec::H264));
++    }
++
++    #[test]
++    fn the_same_image_is_shared() {
++        let h = host(UHD160, ImageCodec::Hevc, false);
++        let open = [image(1920, 1080, 60, ImageCodec::Hevc)];
++        // Even with the budget used up.
++        let c = choose(
++            &with_host(h, &open, 2),
++            &ask(ShareQuality::P1080, reader(ImageCodec::Hevc, false)),
++        )
++        .unwrap();
++        assert_eq!(c.placement, Placement::Join(open[0]));
++        assert_eq!(c.reason, Reason::Asked);
++    }
++
++    #[test]
++    fn beyond_the_budget_the_closest_lighter_open_image() {
++        let h = host(UHD160, ImageCodec::Hevc, false);
++        let p1080 = image(1920, 1080, 60, ImageCodec::Hevc);
++        let p720 = image(1280, 720, 30, ImageCodec::Hevc);
++        let open = [p720, p1080];
++        let s = with_host(h, &open, 2);
++        let c = choose(
++            &s,
++            &ask(ShareQuality::P1080, reader(ImageCodec::Hevc, true)),
++        )
++        .unwrap();
++        assert_eq!(c.placement, Placement::Join(p1080));
++        // "As the host" but no 4:4:4... the host's image is 4:2:0 here: followed.
++        let c = choose(
++            &s,
++            &ask(ShareQuality::Host, reader(ImageCodec::Hevc, false)),
++        )
++        .unwrap();
++        assert_eq!(c.placement, Placement::FollowHost);
++
++        // A 4:4:4 host: "as the host" without 4:4:4 → the closest lighter.
++        let h444 = host(UHD160, ImageCodec::Hevc, true);
++        let s = with_host(h444, &open, 2);
++        let c = choose(
++            &s,
++            &ask(ShareQuality::Host, reader(ImageCodec::Hevc, false)),
++        )
++        .unwrap();
++        assert_eq!(c.placement, Placement::Join(p1080));
++        assert_eq!(c.reason, Reason::Limit);
++
++        // Nothing lighter: the lightest one.
++        let only_1080 = [p1080];
++        let s = with_host(h444, &only_1080, 2);
++        let c = choose(
++            &s,
++            &ask(ShareQuality::P720, reader(ImageCodec::Hevc, false)),
++        )
++        .unwrap();
++        assert_eq!(c.placement, Placement::Join(p1080));
++        assert_eq!(c.reason, Reason::Limit);
++    }
++
++    #[test]
++    fn beyond_the_budget_with_nothing_readable_is_refused() {
++        let h = host(UHD160, ImageCodec::Hevc, true);
++        let open = [image(1920, 1080, 60, ImageCodec::Hevc)];
++        let s = Situation {
++            budget: ImageBudget {
++                with_host: 0,
++                can_scale: true,
++            },
++            ..with_host(h, &open, 1)
++        };
++        assert_eq!(
++            choose(
++                &s,
++                &ask(ShareQuality::P720, reader(ImageCodec::H264, false))
++            ),
++            Err(Refused)
++        );
++        // x264 (no image beside the host's): the host's image if readable.
++        let h264 = host(UHD160, ImageCodec::H264, false);
++        let s = Situation {
++            budget: image_budget(None, Some("x264"), None),
++            ..with_host(h264, &[], 0)
++        };
++        let c = choose(
++            &s,
++            &ask(ShareQuality::P720, reader(ImageCodec::H264, false)),
++        )
++        .unwrap();
++        assert_eq!(c.placement, Placement::FollowHost);
++        assert_eq!(c.reason, Reason::Limit);
++    }
++
++    #[test]
++    fn a_guest_leaving_its_image_does_not_count_it() {
++        // `used` leaves out the image a guest is alone on: with Quick Sync
++        // (one image), switching from 1080p60 to 720p30 opens the new one.
++        let h = host(UHD160, ImageCodec::H264, false);
++        let open = [image(1920, 1080, 60, ImageCodec::H264)];
++        let s = Situation {
++            budget: image_budget(None, Some("qsv"), None),
++            ..with_host(h, &open, 0)
++        };
++        let c = choose(
++            &s,
++            &ask(ShareQuality::P720, reader(ImageCodec::H264, false)),
++        )
++        .unwrap();
++        assert_eq!(opened(c), image(1280, 720, 30, ImageCodec::H264));
++    }
++
++    #[test]
++    fn the_bitrate_of_a_new_image_is_never_above_the_preset_nor_the_host() {
++        let h = HostImage {
++            bitrate: 10_000_000,
++            ..host(UHD160, ImageCodec::H264, false)
++        };
++        let c = choose(
++            &with_host(h, &[], 0),
++            &ask(ShareQuality::P1080, reader(ImageCodec::H264, false)),
++        )
++        .unwrap();
++        assert_eq!(
++            c.placement,
++            Placement::Open {
++                image: image(1920, 1080, 60, ImageCodec::H264),
++                bitrate: 10_000_000,
++                ceiling: 16_000_000,
++                cap: 16_000_000,
++            }
++        );
++        let h = host(UHD160, ImageCodec::Hevc, false);
++        let mut a = ask(ShareQuality::P1080, reader(ImageCodec::Hevc, false));
++        a.steps = 1;
++        let c = choose(&with_host(h, &[], 0), &a).unwrap();
++        assert!(matches!(
++            c.placement,
++            Placement::Open {
++                bitrate: 6_000_000,
++                ceiling: 6_000_000,
++                ..
++            }
++        ));
++        // "As the host" copy: the guest's bitrate, under the host's.
++        let h = HostImage {
++            bitrate: 30_000_000,
++            ..host(UHD160, ImageCodec::Hevc, true)
++        };
++        let c = choose(
++            &with_host(h, &[], 0),
++            &ask(ShareQuality::Host, reader(ImageCodec::Hevc, false)),
++        )
++        .unwrap();
++        assert!(matches!(
++            c.placement,
++            Placement::Open {
++                bitrate: 30_000_000,
++                ceiling: 50_000_000,
++                cap: u32::MAX,
++                ..
++            }
++        ));
++    }
++
++    #[test]
++    fn lag_lowers_a_notch() {
++        let h = host(UHD160, ImageCodec::Hevc, false);
++        let s = with_host(h, &[], 0);
++        let mut a = ask(ShareQuality::Host, reader(ImageCodec::Hevc, false));
++        a.steps = 1;
++        let c = choose(&s, &a).unwrap();
++        assert_eq!(opened(c), image(1920, 1080, 60, ImageCodec::Hevc));
++        assert_eq!(c.reason, Reason::Lag);
++        a.steps = 2;
++        assert_eq!(
++            opened(choose(&s, &a).unwrap()),
++            image(1280, 720, 30, ImageCodec::Hevc)
++        );
++        a.steps = 7;
++        assert_eq!(
++            opened(choose(&s, &a).unwrap()),
++            image(1280, 720, 30, ImageCodec::Hevc)
++        );
++
++        assert_eq!(lowered(ShareQuality::Host, 0), ShareQuality::Host);
++        assert_eq!(lowered(ShareQuality::Host, 1), ShareQuality::P1080);
++        assert_eq!(lowered(ShareQuality::P1080, 1), ShareQuality::P720);
++        assert_eq!(lowered(ShareQuality::P720, 3), ShareQuality::P720);
++        assert_eq!(max_steps(ShareQuality::Host), 2);
++        assert_eq!(max_steps(ShareQuality::P720), 0);
++    }
++
++    #[test]
++    fn while_the_host_restarts_its_image_a_follower_waits() {
++        let screen = UHD160;
++        let s = Situation {
++            host: None,
++            host_session: true,
++            screen,
++            open: &[],
++            used: 0,
++            budget: NVENC,
++        };
++        let c = choose(
++            &s,
++            &ask(ShareQuality::Host, reader(ImageCodec::Hevc, false)),
++        )
++        .unwrap();
++        assert_eq!(c.placement, Placement::Wait);
++        // A preset below the display: its own image, against the display.
++        let c = choose(
++            &s,
++            &ask(ShareQuality::P720, reader(ImageCodec::Hevc, false)),
++        )
++        .unwrap();
++        assert_eq!(opened(c), image(1280, 720, 30, ImageCodec::Hevc));
++    }
++
++    #[test]
++    fn a_share_from_the_computer_gives_the_display_as_it_is() {
++        let screen = UHD160;
++        let open = [image(1920, 1080, 60, ImageCodec::H264)];
++        let s = Situation {
++            host: None,
++            host_session: false,
++            screen,
++            open: &open,
++            used: 2,
++            budget: NVENC,
++        };
++        // Three images: a third one opens.
++        let c = choose(
++            &s,
++            &ask(ShareQuality::Host, reader(ImageCodec::Hevc, false)),
++        )
++        .unwrap();
++        let copy = opened(c);
++        assert_eq!(copy, image(3840, 2160, 160, ImageCodec::Hevc));
++        assert_eq!(copy.scale(screen), None);
++        assert_eq!(copy.max_fps(screen), None);
++        assert_eq!(c.reason, Reason::Asked);
++        // A fourth: the closest lighter one the device reads.
++        let s = Situation { used: 3, ..s };
++        let c = choose(
++            &s,
++            &ask(ShareQuality::Host, reader(ImageCodec::H264, false)),
++        )
++        .unwrap();
++        assert_eq!(c.placement, Placement::Join(open[0]));
++        assert_eq!(c.reason, Reason::Limit);
++    }
++
++    #[test]
++    fn kyavserver_is_asked_for_a_size_and_a_rate_only_when_they_change() {
++        let p1080 = image(1920, 1080, 60, ImageCodec::H264);
++        assert_eq!(
++            p1080.scale(UHD160),
++            Some(VideoScale {
++                width: 1920,
++                height: 1080
++            })
++        );
++        assert_eq!(p1080.max_fps(UHD160), Some(60));
++        let fhd60 = Mode {
++            width: 1920,
++            height: 1080,
++            fps: 60,
++        };
++        assert_eq!(p1080.scale(fhd60), None);
++        assert_eq!(p1080.max_fps(fhd60), None);
++        // Unknown display rate: the preset's, asked.
++        let unknown = Mode { fps: 0, ..UHD160 };
++        assert_eq!(p1080.max_fps(unknown), Some(60));
++    }
++
++    #[test]
++    fn unknown_refresh_is_taken_as_60_hz() {
++        let h = host(
++            Mode {
++                width: 1920,
++                height: 1080,
++                fps: 0,
++            },
++            ImageCodec::H264,
++            false,
++        );
++        let s = with_host(h, &[], 0);
++        let c = choose(
++            &s,
++            &ask(ShareQuality::P1080, reader(ImageCodec::H264, false)),
++        )
++        .unwrap();
++        assert_eq!(c.placement, Placement::FollowHost);
++        let c = choose(
++            &s,
++            &ask(ShareQuality::P720, reader(ImageCodec::H264, false)),
++        )
++        .unwrap();
++        assert_eq!(opened(c), image(1280, 720, 30, ImageCodec::H264));
++    }
++
++    #[test]
++    fn without_scaling_only_copies_of_the_display() {
++        let libavconv = image_budget(Some("libavconv"), Some("nvenc"), None);
++        assert_eq!(
++            libavconv,
++            ImageBudget {
++                with_host: 0,
++                can_scale: false
++            }
++        );
++        // With a host: its image, with the reason.
++        let h = host(UHD160, ImageCodec::H264, false);
++        let s = Situation {
++            budget: libavconv,
++            ..with_host(h, &[], 0)
++        };
++        let c = choose(
++            &s,
++            &ask(ShareQuality::P720, reader(ImageCodec::H264, false)),
++        )
++        .unwrap();
++        assert_eq!(c.placement, Placement::FollowHost);
++        assert_eq!(c.reason, Reason::Limit);
++        // From the computer: one copy of the display, shared.
++        let s = Situation {
++            host: None,
++            host_session: false,
++            screen: UHD160,
++            open: &[],
++            used: 0,
++            budget: libavconv,
++        };
++        let c = choose(
++            &s,
++            &ask(ShareQuality::P1080, reader(ImageCodec::H264, false)),
++        )
++        .unwrap();
++        assert_eq!(opened(c), image(3840, 2160, 160, ImageCodec::H264));
++        assert_eq!(c.reason, Reason::Limit);
++    }
++
++    #[test]
++    fn the_budget_follows_the_encoder() {
++        let b = |encoder: Option<&str>| image_budget(None, encoder, None).with_host;
++        assert_eq!(b(None), 2);
++        assert_eq!(b(Some("nvenc")), 2);
++        assert_eq!(b(Some("NVENC")), 2);
++        assert_eq!(b(Some("amf")), 2);
++        assert_eq!(b(Some("qsv")), 1);
++        assert_eq!(b(Some("x264")), 0);
++        assert_eq!(
++            image_budget(Some("txproto"), Some("qsv"), Some(3)).with_host,
++            3
++        );
++        assert_eq!(image_budget(Some("libavconv"), None, Some(1)).with_host, 1);
++        let qsv = image_budget(None, Some("qsv"), None);
++        assert_eq!(qsv.limit(true), 1);
++        assert_eq!(qsv.limit(false), 2);
++    }
++
++    #[test]
++    fn two_episodes_or_three_keyframe_requests_in_ten_seconds() {
++        let t0 = Instant::now();
++        let at = |s: u64| t0 + Duration::from_secs(s);
++        let mut meter = LagMeter::default();
++        assert!(!meter.record(LagSign::Episode, at(0)));
++        assert!(meter.record(LagSign::Episode, at(9)));
++        // Counted again from zero.
++        assert!(!meter.record(LagSign::Episode, at(10)));
++        // Too far apart.
++        assert!(!meter.record(LagSign::Episode, at(21)));
++
++        let mut meter = LagMeter::default();
++        assert!(!meter.record(LagSign::KeyframeRequest, at(0)));
++        assert!(!meter.record(LagSign::KeyframeRequest, at(4)));
++        assert!(!meter.record(LagSign::Episode, at(5)));
++        assert!(meter.record(LagSign::KeyframeRequest, at(8)));
++
++        let mut meter = LagMeter::default();
++        assert!(!meter.record(LagSign::KeyframeRequest, at(0)));
++        assert!(!meter.record(LagSign::KeyframeRequest, at(6)));
++        assert!(!meter.record(LagSign::KeyframeRequest, at(11)));
++    }
++
++    #[test]
++    fn signs_right_after_a_new_image_do_not_count() {
++        let t0 = Instant::now();
++        let mut meter = LagMeter::default();
++        meter.restart(t0);
++        assert!(!meter.record(LagSign::Episode, t0));
++        assert!(!meter.record(LagSign::Episode, t0 + Duration::from_secs(2)));
++        assert!(!meter.record(LagSign::Episode, t0 + Duration::from_secs(4)));
++        assert!(meter.record(LagSign::Episode, t0 + Duration::from_secs(5)));
++    }
++}
+diff --git a/kycontroller/src/kybernow.rs b/kycontroller/src/kybernow.rs
+index 4c9696c..fb1eb69 100644
+--- a/kycontroller/src/kybernow.rs
++++ b/kycontroller/src/kybernow.rs
+@@ -1,23 +1,39 @@
+ // KyberNow: KyberNow Share, local sharing. KyberNow Admin, which holds the
+ // JWT key, gives each guest a short token (`kn_role`, `kn_display`,
+-// `kn_rev`) renewed through `/session/renew`, and drives Kyber through the
+-// `/kybernow` routes with its own token (`kn_admin`). A session without
+-// `kn_role` is the host's: nothing changes for it.
++// `kn_rev`, `kn_quality`) renewed through `/session/renew`, and drives Kyber
++// through the `/kybernow` routes with its own token (`kn_admin`). A session
++// without `kn_role` is the host's: nothing changes for it.
++//
++// Patch 0020, a guest's own image: in multi-client mode, a guest follows
++// the host's image when it can, or gets an image of its own
++// (`crate::guest_image::choose`); it never holds the host's image back
++// (kydup), and moves to a lighter image when it falls behind.
+ 
+ use std::collections::HashMap;
+ use std::net::IpAddr;
++use std::sync::Arc;
+ use std::time::{Duration, Instant};
+ 
+ use actix_web::{HttpRequest, HttpResponse, get, http::header, post, web};
+-use kyavservice_types::VideoCodec;
+ use kynputservice_types::InputRights;
+ use log::{info, warn};
+ use serde::{Deserialize, Serialize, de::DeserializeOwned};
++use tokio::sync::watch;
+ use uuid::Uuid;
+ 
+-use crate::auth::{self, GuestShare, ShareRole};
+-use crate::avservices_manager::VideoStreamKey;
++use crate::auth::{self, GuestShare, ShareQuality, ShareRole};
++use crate::avservices_manager::{
++    AVServicesManager, VideoAcquisition, VideoStreamConfig, VideoStreamKey, VideoSubscription,
++    VideoTopology,
++};
+ use crate::controller::{ClientSession, Controller, SessionEndReason};
++use crate::error::Error;
++use crate::guest_image::{
++    self, Ask, Choice, HostImage, ImageCodec, LagMeter, LagSign, Mode, Placement, Reader, Reason,
++    Situation,
++};
++use crate::kydup;
++use crate::utils::Task;
+ 
+ /// How long a role is remembered: longer than any token still valid (120 s).
+ const ROLE_MEMORY: Duration = Duration::from_secs(10 * 60);
+@@ -61,6 +77,10 @@ pub(crate) struct ShareMemory {
+     roles: HashMap<String, (u64, ShareRole, Instant)>,
+     /// End of the ban.
+     bans: HashMap<String, Instant>,
++    /// Patch 0020: the quality pushed by KyberNow Admin
++    /// (`/kybernow/quality`), the notches it was lowered for lagging, and
++    /// when it was recorded.
++    qualities: HashMap<String, (ShareQuality, u8, Instant)>,
+ }
+ 
+ impl ShareMemory {
+@@ -68,6 +88,17 @@ impl ShareMemory {
+         self.roles
+             .retain(|_, (_, _, at)| now.saturating_duration_since(*at) < ROLE_MEMORY);
+         self.bans.retain(|_, until| *until > now);
++        self.qualities
++            .retain(|_, (_, _, at)| now.saturating_duration_since(*at) < ROLE_MEMORY);
++    }
++
++    /// A guest's quality, and how far it was lowered, for its next logins
++    /// (its tokens may be older than the change).
++    pub(crate) fn remember_quality(&mut self, user: &str, quality: ShareQuality, steps: u8) {
++        let now = Instant::now();
++        self.prune(now);
++        self.qualities
++            .insert(user.to_owned(), (quality, steps, now));
+     }
+ 
+     /// Keeps the role with the highest revision.
+@@ -116,6 +147,15 @@ impl ShareMemory {
+             share.role = *role;
+             share.rev = *rev;
+         }
++
++        // Patch 0020: a quality pushed since, and a guest lowered for
++        // lagging stays lowered.
++        if let Some(share) = &mut session.share
++            && let Some((quality, steps, _)) = self.qualities.get(&session.username)
++        {
++            share.quality = *quality;
++            session.guest_image.steps = *steps;
++        }
+         true
+     }
+ }
+@@ -195,6 +235,684 @@ pub(crate) async fn apply_input_rights(ctrl: &Controller, uid: &Uuid) {
+     }
+ }
+ 
++// ---------------------------------------------------------------------------
++// Patch 0020: a guest's own image
++// ---------------------------------------------------------------------------
++
++/// On the host's image, a guest gets one keyframe every this long at most.
++const HOST_KEYFRAME_SPACING: Duration = Duration::from_secs(2);
++
++/// What a share guest's session knows of its image.
++#[derive(Debug, Default)]
++pub(crate) struct GuestImageState {
++    /// Notches its image was lowered for lagging; back to 0 only when its
++    /// quality changes.
++    pub(crate) steps: u8,
++    pub(crate) meter: LagMeter,
++    /// When its last keyframe on the host's image was (or will be) asked.
++    last_host_keyframe: Option<Instant>,
++}
++
++impl GuestImageState {
++    /// When to ask for a keyframe on the host's image for this guest: now,
++    /// or once `HOST_KEYFRAME_SPACING` after the last one; `None` when one
++    /// is already on its way.
++    fn host_keyframe(&mut self, now: Instant) -> Option<Duration> {
++        let at = match self.last_host_keyframe {
++            Some(last) if last > now => return None,
++            Some(last) => (last + HOST_KEYFRAME_SPACING).max(now),
++            None => now,
++        };
++        self.last_host_keyframe = Some(at);
++        Some(at - now)
++    }
++}
++
++/// What a guest's start request asks for its image of one display.
++#[derive(Clone, Copy, Debug)]
++pub(crate) struct GuestRequest {
++    /// The format its device reads, and whether it reads 4:4:4.
++    pub(crate) codec: ImageCodec,
++    pub(crate) yuv444: bool,
++    pub(crate) bitrate: u32,
++    pub(crate) intra_refresh: Option<bool>,
++}
++
++/// A guest's video output: kept for the whole session, moved from image
++/// to image.
++pub(crate) struct GuestOutput {
++    pub(crate) display_id: u32,
++    pub(crate) request: GuestRequest,
++    /// Moves the output (kydup reads the image it names).
++    source: watch::Sender<Option<kydup::VideoSource>>,
++    /// The image it reads; `None` while it waits for the host's.
++    pub(crate) current: Option<VideoStreamKey>,
++    pub(crate) reason: Reason,
++}
++
++/// Signs sent to the share supervisor.
++#[derive(Debug)]
++pub(crate) enum ShareSignal {
++    /// A guest output fell behind on `key` (kydup).
++    Episode { uid: Uuid, key: VideoStreamKey },
++    /// A guest image sent nothing for a while after it opened.
++    Stalled { key: VideoStreamKey },
++}
++
++/// Why a guest's image is chosen again.
++#[derive(Clone, Debug, PartialEq, Eq)]
++pub(crate) enum Relocation {
++    /// Its quality changed (`/kybernow/quality`).
++    Quality,
++    /// It fell behind: a notch down, to a lighter image.
++    Lag,
++    /// The host's image of its display came (back) or changed: a guest
++    /// waiting for it, on an older generation, or that would follow it
++    /// now, goes to it.
++    HostImage,
++    /// Its image sent nothing: given up.
++    Stalled(VideoStreamKey),
++}
++
++/// The display as it is: Kyber's size, Windows' refresh rate.
++pub(crate) fn screen_mode(ctrl: &Controller, display_id: u32) -> Mode {
++    let displays = ctrl.displays.lock().unwrap();
++    let Some(display) = displays.iter().find(|d| d.id == display_id) else {
++        return Mode {
++            width: 0,
++            height: 0,
++            fps: 0,
++        };
++    };
++    Mode {
++        width: u32::try_from(display.width).unwrap_or(0),
++        height: u32::try_from(display.height).unwrap_or(0),
++        fps: crate::avservices_manager::refresh_rate(&displays, display_id),
++    }
++}
++
++/// A host is in session: the share comes from its session. Without, it
++/// comes from the computer itself (one image more for the guests).
++fn host_in_session(ctrl: &Controller) -> bool {
++    ctrl.sessions
++        .lock()
++        .unwrap()
++        .values()
++        .any(|s| s.share.is_none())
++}
++
++fn guest_ask(ctrl: &Controller, uid: &Uuid, request: &GuestRequest) -> crate::error::Result<Ask> {
++    ctrl.with_session(uid, |s| {
++        Ok(Ask {
++            quality: s
++                .share
++                .as_ref()
++                .map_or(ShareQuality::Host, |share| share.quality),
++            steps: s.guest_image.steps,
++            reader: Reader {
++                codec: request.codec,
++                yuv444: request.yuv444,
++            },
++            bitrate: request.bitrate,
++        })
++    })
++}
++
++/// What `choose` needs besides the registry: the display, whether a host
++/// is in session, what the encoder can do.
++#[derive(Clone, Copy, Debug)]
++struct Context {
++    screen: Mode,
++    host_session: bool,
++    budget: guest_image::ImageBudget,
++}
++
++impl Context {
++    fn of(ctrl: &Controller, display_id: u32) -> Self {
++        Self {
++            screen: screen_mode(ctrl, display_id),
++            host_session: host_in_session(ctrl),
++            budget: ctrl.config.share_images(),
++        }
++    }
++}
++
++/// `choose` with the registry's state. `current`: the image the guest
++/// reads now, whose slot is free if the guest is alone on it.
++fn decide(
++    context: &Context,
++    manager: &AVServicesManager,
++    display_id: u32,
++    ask: &Ask,
++    current: Option<&VideoStreamKey>,
++) -> std::result::Result<(Choice, Option<HostImage>), guest_image::Refused> {
++    let screen = context.screen;
++    let host = manager.host_image(display_id, screen);
++    let open = manager.open_guest_images(display_id);
++    let leaving = current.filter(|key| {
++        matches!(key, VideoStreamKey::Guest { .. })
++            && manager
++                .video_streams
++                .get(key)
++                .is_some_and(|stream| stream.client_count == 1)
++    });
++    let situation = Situation {
++        host,
++        host_session: context.host_session,
++        screen,
++        open: &open,
++        used: manager.guest_slots_used(leaving),
++        budget: context.budget,
++    };
++    guest_image::choose(&situation, ask).map(|choice| (choice, host))
++}
++
++/// The registry key of a placement (`None` while waiting).
++fn placement_key(
++    manager: &AVServicesManager,
++    display_id: u32,
++    placement: Placement,
++) -> Option<VideoStreamKey> {
++    match placement {
++        Placement::FollowHost => manager.current_host_key(display_id),
++        Placement::Wait => None,
++        Placement::Join(image) | Placement::Open { image, .. } => {
++            Some(VideoStreamKey::Guest { display_id, image })
++        }
++    }
++}
++
++/// Subscribes a guest to its placement: joins the host's image or a guest
++/// image, or opens one. `None` while it waits.
++async fn acquire_placement(
++    ctrl: &Controller,
++    manager: &mut AVServicesManager,
++    display_id: u32,
++    placement: Placement,
++    request: &GuestRequest,
++) -> crate::error::Result<Option<(VideoAcquisition, VideoStreamKey)>> {
++    let Some(key) = placement_key(manager, display_id, placement) else {
++        return match placement {
++            Placement::Wait => Ok(None),
++            // The host's image went in between: none to follow.
++            _ => Err(Error::ShareNoImage),
++        };
++    };
++    let acquisition = match placement {
++        // A guest image given up still running (guests that could not
++        // move): never joined again.
++        Placement::Open { .. } if manager.video_streams.contains_key(&key) => {
++            warn!("Guest image {key:?} given up: not joined");
++            return Err(Error::ShareNoImage);
++        }
++        Placement::Open {
++            image,
++            bitrate,
++            ceiling,
++            cap,
++        } => {
++            let screen = screen_mode(ctrl, display_id);
++            let config = VideoStreamConfig {
++                bitrate,
++                codec: image.codec.into(),
++                // Always 4:2:0 (kyavserver scales to NV12).
++                yuv444: false,
++                intra_refresh: request.intra_refresh,
++                pixel_rate: image.mode().weight(),
++            };
++            let topology = VideoTopology::Guest {
++                display_id,
++                image,
++                scale: image.scale(screen),
++                max_fps: image.max_fps(screen),
++            };
++            let acquisition = manager
++                .acquire_video_as(ctrl, topology, config, false, true)
++                .await?;
++            if let Some(stream) = manager.video_streams.get_mut(&key) {
++                stream.ceiling = ceiling;
++                stream.cap = cap;
++            }
++            acquisition
++        }
++        _ => manager.join_video(&key).ok_or(Error::ShareNoImage)?,
++    };
++    Ok(Some((acquisition, key)))
++}
++
++/// What a guest output reads on `key`: a keyframe once subscribed, a lag
++/// episode to the supervisor when it falls behind.
++fn video_source(
++    manager: &AVServicesManager,
++    uid: Uuid,
++    key: &VideoStreamKey,
++    acquisition: &VideoAcquisition,
++) -> crate::error::Result<kydup::VideoSource> {
++    let dup = acquisition.dup.clone().ok_or(Error::ShareNoImage)?;
++    let signals = manager.share_signals();
++    let lagging = key.clone();
++    Ok(kydup::VideoSource::new(
++        dup,
++        manager.idr_sender(key.clone()),
++        move || {
++            let _ = signals.send(ShareSignal::Episode {
++                uid,
++                key: lagging.clone(),
++            });
++        },
++    ))
++}
++
++/// A guest's video output on `display_id` (multi-client mode): its image
++/// chosen, its output started on it (or waiting for the host's).
++pub(crate) async fn start_guest_video(
++    ctrl: &Controller,
++    manager: &mut AVServicesManager,
++    uid: Uuid,
++    display_id: u32,
++    request: GuestRequest,
++    endpoint: kymux::types::VideoServerEndpoint,
++) -> crate::error::Result<(Option<VideoSubscription>, GuestOutput, Task)> {
++    let ask = guest_ask(ctrl, &uid, &request)?;
++    let context = Context::of(ctrl, display_id);
++    let (choice, _) = decide(&context, manager, display_id, &ask, None).map_err(|_| {
++        warn!(
++            "Session {uid}: no image of display {display_id} its device reads ({:?})",
++            ask.reader
++        );
++        Error::ShareNoImage
++    })?;
++    let acquired = acquire_placement(ctrl, manager, display_id, choice.placement, &request).await?;
++    let (subscription, source, current) = match acquired {
++        Some((acquisition, key)) => {
++            let source = video_source(manager, uid, &key, &acquisition)?;
++            (Some(acquisition.subscription), Some(source), Some(key))
++        }
++        None => (None, None, None),
++    };
++    info!(
++        "Session {uid}: {:?} on display {display_id}: {:?} ({})",
++        ask.quality,
++        current,
++        choice.reason.name()
++    );
++    ctrl.with_session(&uid, |s| {
++        s.guest_image.meter.restart(Instant::now());
++        Ok(())
++    })?;
++    let (tx, rx) = watch::channel(source);
++    let output = GuestOutput {
++        display_id,
++        request,
++        source: tx,
++        current,
++        reason: choice.reason,
++    };
++    Ok((
++        subscription,
++        output,
++        kydup::spawn_guest_video_output(endpoint, rx),
++    ))
++}
++
++/// Whether `current` already is `placement`.
++fn already_there(
++    manager: &AVServicesManager,
++    display_id: u32,
++    placement: Placement,
++    current: Option<&VideoStreamKey>,
++) -> bool {
++    placement_key(manager, display_id, placement).as_ref() == current
++}
++
++/// How heavy the image `current` is (the host's: the display).
++fn current_weight(context: &Context, current: &VideoStreamKey) -> u64 {
++    match current {
++        VideoStreamKey::Guest { image, .. } => image.mode().weight(),
++        _ => context.screen.weight(),
++    }
++}
++
++/// The new placement of one output, or `None` to stay; with the notches
++/// lowered for `Lag`.
++fn plan(
++    context: &Context,
++    manager: &AVServicesManager,
++    output: &GuestOutput,
++    mut ask: Ask,
++    why: &Relocation,
++) -> Option<(Choice, u8)> {
++    let display_id = output.display_id;
++    let current = output.current.as_ref();
++    match why {
++        Relocation::Quality | Relocation::Stalled(_) => {
++            if let Relocation::Stalled(key) = why
++                && current != Some(key)
++            {
++                return None;
++            }
++            let (choice, _) = decide(context, manager, display_id, &ask, current).ok()?;
++            Some((choice, ask.steps))
++        }
++        Relocation::HostImage => {
++            let (choice, _) = decide(context, manager, display_id, &ask, current).ok()?;
++            let waiting = current.is_none() && choice.placement != Placement::Wait;
++            let retired = current.is_some_and(|key| manager.is_retired_host_key(key));
++            let follows = choice.placement == Placement::FollowHost;
++            (waiting || retired || follows).then_some((choice, ask.steps))
++        }
++        Relocation::Lag => {
++            // Waiting: nothing to lighten.
++            let weight = current_weight(context, current?);
++            for steps in ask.steps + 1..=guest_image::max_steps(ask.quality) {
++                ask.steps = steps;
++                let Ok((choice, host)) = decide(context, manager, display_id, &ask, current) else {
++                    continue;
++                };
++                let lighter = choice.placement.weight(host.as_ref());
++                if choice.placement != Placement::Wait && lighter < weight {
++                    // Lowered for lagging, even when the budget picked it.
++                    let choice = Choice {
++                        reason: Reason::Lag,
++                        ..choice
++                    };
++                    return Some((choice, steps));
++                }
++            }
++            None
++        }
++    }
++}
++
++/// Chooses again the image of each of a guest's outputs, and moves those
++/// that change: subscribed to the new image, the output follows it (the
++/// guest gets its headers and a keyframe), the old subscription released.
++/// Sound and inputs are not touched. Returns how many moved.
++pub(crate) async fn relocate(ctrl: &Controller, uid: Uuid, why: Relocation) -> usize {
++    let Ok(services) = ctrl.session_services(&uid) else {
++        return 0;
++    };
++    let mut services = services.lock().await;
++    if services.guest_outputs.is_empty() {
++        return 0;
++    }
++    let mut manager = ctrl.av_services_manager.lock().await;
++    let mut released = Vec::new();
++    let mut moved = 0;
++
++    for index in 0..services.guest_outputs.len() {
++        let output = &services.guest_outputs[index];
++        let (display_id, request) = (output.display_id, output.request);
++        let Ok(ask) = guest_ask(ctrl, &uid, &request) else {
++            break;
++        };
++        let context = Context::of(ctrl, display_id);
++        let Some((choice, steps)) = plan(&context, &manager, output, ask, &why) else {
++            continue;
++        };
++        let current = output.current.clone();
++        if already_there(&manager, display_id, choice.placement, current.as_ref()) {
++            services.guest_outputs[index].reason = choice.reason;
++            continue;
++        }
++
++        let acquired =
++            match acquire_placement(ctrl, &mut manager, display_id, choice.placement, &request)
++                .await
++            {
++                Ok(acquired) => acquired,
++                Err(err) => {
++                    warn!("Session {uid}: image of display {display_id} not moved: {err}");
++                    continue;
++                }
++            };
++        let (source, key, subscription) = match acquired {
++            Some((acquisition, key)) => {
++                // Failing, the new subscription drops (and is undone).
++                let Ok(source) = video_source(&manager, uid, &key, &acquisition) else {
++                    continue;
++                };
++                (Some(source), Some(key), Some(acquisition.subscription))
++            }
++            None => (None, None, None),
++        };
++        // The old subscription goes out first (both may be on the same
++        // key), released once the new ones are all taken.
++        if let Some(old) = &current
++            && let Some(at) = services
++                .video_subscriptions
++                .iter()
++                .position(|sub| sub.key() == old)
++        {
++            released.push(services.video_subscriptions.remove(at));
++        }
++        services.video_subscriptions.extend(subscription);
++        info!(
++            "Session {uid}: image of display {display_id} {current:?} → {key:?} ({why:?}, {})",
++            choice.reason.name()
++        );
++        let output = &mut services.guest_outputs[index];
++        output.source.send_replace(source);
++        output.current = key;
++        output.reason = choice.reason;
++        moved += 1;
++
++        let _ = ctrl.with_session(&uid, |s| {
++            s.guest_image.meter.restart(Instant::now());
++            if s.guest_image.steps != steps {
++                s.guest_image.steps = steps;
++                if let Some(share) = &s.share {
++                    ctrl.share_memory.lock().unwrap().remember_quality(
++                        &s.username,
++                        share.quality,
++                        steps,
++                    );
++                }
++            }
++            Ok(())
++        });
++    }
++
++    // An image one output leaves and another joins is not stopped between.
++    let cleanup = manager.release_all(released, None);
++    drop(manager);
++    drop(services);
++    cleanup.run_detached();
++    moved
++}
++
++/// After a host started its image of `displays`: guest images within its
++/// bitrate, and the guests waiting for it, on an older generation, or that
++/// would follow it now, moved to it.
++pub(crate) async fn after_host_start(ctrl: Arc<Controller>, displays: Vec<u32>) {
++    {
++        let mut manager = ctrl.av_services_manager.lock().await;
++        for display_id in &displays {
++            manager.cap_guest_images(*display_id);
++        }
++    }
++    let guests: Vec<Uuid> = ctrl
++        .sessions
++        .lock()
++        .unwrap()
++        .values()
++        .filter(|s| {
++            s.share
++                .as_ref()
++                .is_some_and(|share| displays.contains(&share.display))
++        })
++        .map(|s| s.uid)
++        .collect();
++    for uid in guests {
++        relocate(&ctrl, uid, Relocation::HostImage).await;
++    }
++}
++
++/// Records a sign of lag; `true` when the guest should go a notch down.
++fn lag_sign(ctrl: &Controller, uid: &Uuid, sign: LagSign) -> bool {
++    ctrl.with_session(uid, |s| {
++        Ok(s.share.is_some() && s.guest_image.meter.record(sign, Instant::now()))
++    })
++    .unwrap_or(false)
++}
++
++/// A keyframe for a guest on `key`: right away on its own image; on the
++/// host's image, one every `HOST_KEYFRAME_SPACING` at most for this guest
++/// (a later one is put off, not dropped: the guest waits for it).
++async fn keyframe_for_guest(ctrl: &Controller, uid: &Uuid, key: &VideoStreamKey) {
++    let delay = if matches!(key, VideoStreamKey::Shared { .. }) {
++        let now = Instant::now();
++        match ctrl.with_session(uid, |s| Ok(s.guest_image.host_keyframe(now))) {
++            Ok(Some(delay)) => delay,
++            _ => return,
++        }
++    } else {
++        Duration::ZERO
++    };
++    let idr = ctrl
++        .av_services_manager
++        .lock()
++        .await
++        .idr_sender(key.clone());
++    if delay.is_zero() {
++        idr();
++    } else {
++        tokio::spawn(async move {
++            tokio::time::sleep(delay).await;
++            idr();
++        });
++    }
++}
++
++/// `/force_idr` from a share guest (past the 150 ms rule): a keyframe on
++/// each image it reads (spaced on the host's), and a sign of lag.
++pub(crate) async fn guest_force_idr(ctrl: Arc<Controller>, uid: Uuid) {
++    let Ok(services) = ctrl.session_services(&uid) else {
++        return;
++    };
++    let keys: Vec<VideoStreamKey> = services
++        .lock()
++        .await
++        .guest_outputs
++        .iter()
++        .filter_map(|output| output.current.clone())
++        .collect();
++    for key in &keys {
++        keyframe_for_guest(&ctrl, &uid, key).await;
++    }
++    if !keys.is_empty() && lag_sign(&ctrl, &uid, LagSign::KeyframeRequest) {
++        info!("Session {uid}: keyframes asked again and again, image lowered");
++        relocate(&ctrl, uid, Relocation::Lag).await;
++    }
++}
++
++/// `/set_bitrate` from a share guest: only on images of its own that it
++/// is alone on, within its preset's ceiling and the host's bitrate.
++/// `false`: refused (403).
++pub(crate) async fn guest_set_bitrate(ctrl: &Controller, uid: &Uuid, bitrate: u32) -> bool {
++    let Ok(services) = ctrl.session_services(uid) else {
++        return false;
++    };
++    let services = services.lock().await;
++    let keys: Vec<&VideoStreamKey> = services
++        .guest_outputs
++        .iter()
++        .filter_map(|output| output.current.as_ref())
++        .collect();
++    let mut manager = ctrl.av_services_manager.lock().await;
++    let alone = |key: &VideoStreamKey| {
++        matches!(key, VideoStreamKey::Guest { .. })
++            && manager
++                .video_streams
++                .get(key)
++                .is_some_and(|stream| stream.client_count == 1)
++    };
++    if keys.is_empty()
++        || keys.len() != services.guest_outputs.len()
++        || !keys.iter().all(|k| alone(k))
++    {
++        return false;
++    }
++    for key in keys {
++        let host = manager
++            .current_host_key(key.display_id())
++            .and_then(|host| manager.video_streams.get(&host))
++            .map_or(u32::MAX, |host| host.config.bitrate);
++        let Some(stream) = manager.video_streams.get_mut(key) else {
++            continue;
++        };
++        stream.ceiling = stream.cap.min(bitrate);
++        let applied = stream.ceiling.min(host);
++        info!("Session {uid}: guest image {key:?} bitrate {applied}");
++        if let Err(err) = stream
++            .avservice
++            .video_set_bitrate(applied.min(i32::MAX as u32) as i32)
++        {
++            warn!("Failed to set bitrate: {err:?}");
++        }
++        stream.config.bitrate = applied;
++    }
++    true
++}
++
++/// The share supervisor: a guest's lag episodes (a keyframe to catch up,
++/// a notch down when they repeat) and the guest images that never sent
++/// anything (given up, their guests moved).
++pub(crate) async fn run_share_supervisor(
++    weak: std::sync::Weak<Controller>,
++    mut signals: tokio::sync::mpsc::UnboundedReceiver<ShareSignal>,
++    mut cancel_rx: watch::Receiver<bool>,
++) {
++    loop {
++        let signal = tokio::select! {
++            _ = cancel_rx.changed() => break,
++            signal = signals.recv() => match signal {
++                Some(signal) => signal,
++                None => break,
++            },
++        };
++        let Some(ctrl) = weak.upgrade() else {
++            break;
++        };
++        match signal {
++            ShareSignal::Episode { uid, key } => {
++                keyframe_for_guest(&ctrl, &uid, &key).await;
++                if lag_sign(&ctrl, &uid, LagSign::Episode) {
++                    info!("Session {uid}: behind on {key:?} again, image lowered");
++                    tokio::spawn(async move {
++                        relocate(&ctrl, uid, Relocation::Lag).await;
++                    });
++                }
++            }
++            ShareSignal::Stalled { key } => {
++                tokio::spawn(async move {
++                    if !ctrl
++                        .av_services_manager
++                        .lock()
++                        .await
++                        .set_aside_stalled(&key)
++                    {
++                        return;
++                    }
++                    warn!("Guest image {key:?} sent nothing: given up, its slot set aside");
++                    let display_id = key.display_id();
++                    let guests: Vec<Uuid> = ctrl
++                        .sessions
++                        .lock()
++                        .unwrap()
++                        .values()
++                        .filter(|s| s.share.as_ref().is_some_and(|sh| sh.display == display_id))
++                        .map(|s| s.uid)
++                        .collect();
++                    for uid in guests {
++                        relocate(&ctrl, uid, Relocation::Stalled(key.clone())).await;
++                    }
++                });
++            }
++        }
++    }
++}
++
+ fn from_loopback(req: &HttpRequest) -> bool {
+     req.peer_addr().is_some_and(|peer| match peer.ip() {
+         IpAddr::V4(v4) => v4.is_loopback(),
+@@ -245,6 +963,24 @@ struct SessionEntry {
+     display: Option<u32>,
+     streaming: bool,
+     inputs: bool,
++    /// Patch 0020: a guest's image; `null` for the host, or a guest without
++    /// one (not streaming, or waiting for the host's).
++    image: Option<ImageEntry>,
++}
++
++/// Patch 0020: the image a guest gets.
++#[derive(Serialize)]
++struct ImageEntry {
++    /// What it asked for (`kn_quality`).
++    quality: &'static str,
++    width: u32,
++    height: u32,
++    /// 0: unknown.
++    fps: u32,
++    codec: &'static str,
++    bitrate: u32,
++    follows_host: bool,
++    reason: &'static str,
+ }
+ 
+ #[derive(Serialize)]
+@@ -252,6 +988,13 @@ struct StreamEntry {
+     display: u32,
+     codec: &'static str,
+     yuv444: bool,
++    /// Patch 0020: `host` (the host's image, first) or `guest` (a guest
++    /// image).
++    kind: &'static str,
++    width: u32,
++    height: u32,
++    fps: u32,
++    clients: usize,
+ }
+ 
+ #[derive(Serialize)]
+@@ -260,15 +1003,16 @@ struct SessionsResponse {
+     streams: Vec<StreamEntry>,
+ }
+ 
+-fn codec_name(codec: &VideoCodec) -> &'static str {
+-    match codec {
+-        VideoCodec::H264 => "h264",
+-        VideoCodec::HEVC => "hevc",
+-        VideoCodec::AV1 => "av1",
++/// Size and rate of a stream: the display as it is for the host's image.
++fn stream_mode(ctrl: &Controller, key: &VideoStreamKey) -> Mode {
++    match key {
++        VideoStreamKey::Guest { image, .. } => image.mode(),
++        _ => screen_mode(ctrl, key.display_id()),
+     }
+ }
+ 
+-/// `GET /kybernow/sessions`: every session, and the shared video streams.
++/// `GET /kybernow/sessions`: every session (a guest's image with it), and
++/// the shared video streams (the hosts' first, then the guests').
+ #[get("/sessions")]
+ pub(crate) async fn get_sessions(ctrl: web::Data<Controller>, req: HttpRequest) -> HttpResponse {
+     if let Some(refusal) = admin_refusal(&req) {
+@@ -288,32 +1032,78 @@ pub(crate) async fn get_sessions(ctrl: web::Data<Controller>, req: HttpRequest)
+                 display: s.share.as_ref().map(|share| share.display),
+                 streaming: s.session.as_ref().is_some_and(|s| s.data_plane.is_some()),
+                 inputs: false,
++                image: None,
+             };
+-            (entry, s.services.clone())
++            let quality = s.share.as_ref().map(|share| share.quality);
++            (entry, quality, s.services.clone())
+         })
+         .collect();
+ 
+     let mut sessions = Vec::with_capacity(listed.len());
+-    for (mut entry, services) in listed {
+-        entry.inputs = services.lock().await.input.is_some();
++    let mut images = Vec::with_capacity(listed.len());
++    for (mut entry, quality, services) in listed {
++        let services = services.lock().await;
++        entry.inputs = services.input.is_some();
++        let image = services
++            .guest_outputs
++            .first()
++            .and_then(|output| Some((output.current.clone()?, output.reason)));
++        images.push(quality.zip(image));
+         sessions.push(entry);
+     }
+ 
+-    let streams = ctrl
+-        .av_services_manager
+-        .lock()
+-        .await
++    let manager = ctrl.av_services_manager.lock().await;
++    for (entry, image) in sessions.iter_mut().zip(images) {
++        let Some((quality, (key, reason))) = image else {
++            continue;
++        };
++        let Some(stream) = manager.video_streams.get(&key) else {
++            continue;
++        };
++        let mode = stream_mode(&ctrl, &key);
++        entry.image = Some(ImageEntry {
++            quality: quality.name(),
++            width: mode.width,
++            height: mode.height,
++            fps: mode.fps,
++            codec: ImageCodec::from(&stream.config.codec).name(),
++            bitrate: stream.config.bitrate,
++            follows_host: matches!(key, VideoStreamKey::Shared { .. }),
++            reason: reason.name(),
++        });
++    }
++
++    let mut streams: Vec<(u8, StreamEntry)> = manager
+         .video_streams
+         .iter()
+-        .filter_map(|(key, stream)| match key {
+-            VideoStreamKey::Shared { display_id } => Some(StreamEntry {
+-                display: *display_id,
+-                codec: codec_name(&stream.config.codec),
+-                yuv444: stream.config.yuv444,
+-            }),
+-            VideoStreamKey::Exclusive { .. } => None,
++        .filter_map(|(key, stream)| {
++            let (order, kind) = match key {
++                VideoStreamKey::Shared { display_id, .. } => {
++                    let current = manager.current_host_key(*display_id).as_ref() == Some(key);
++                    (if current { 0 } else { 1 }, "host")
++                }
++                VideoStreamKey::Guest { .. } => (2, "guest"),
++                VideoStreamKey::Exclusive { .. } => return None,
++            };
++            let mode = stream_mode(&ctrl, key);
++            Some((
++                order,
++                StreamEntry {
++                    display: key.display_id(),
++                    codec: ImageCodec::from(&stream.config.codec).name(),
++                    yuv444: stream.config.yuv444,
++                    kind,
++                    width: mode.width,
++                    height: mode.height,
++                    fps: mode.fps,
++                    clients: stream.client_count,
++                },
++            ))
+         })
+         .collect();
++    drop(manager);
++    streams.sort_by_key(|(order, _)| *order);
++    let streams = streams.into_iter().map(|(_, stream)| stream).collect();
+ 
+     HttpResponse::Ok().json(SessionsResponse { sessions, streams })
+ }
+@@ -363,6 +1153,59 @@ pub(crate) async fn post_role(
+     HttpResponse::Ok().json(serde_json::json!({ "sessions": updated.len() }))
+ }
+ 
++#[derive(Deserialize)]
++struct QualityRequest {
++    user: String,
++    quality: ShareQuality,
++}
++
++/// `POST /kybernow/quality` (patch 0020): a guest's new quality, for its
++/// sessions (their image chosen again and moved; sound and inputs
++/// untouched) and its next logins. Back to its full quality: a guest
++/// lowered for lagging starts over.
++#[post("/quality")]
++pub(crate) async fn post_quality(
++    ctrl: web::Data<Controller>,
++    req: HttpRequest,
++    body: web::Bytes,
++) -> HttpResponse {
++    let QualityRequest { user, quality } = match admin_request(&req, &body) {
++        Ok(request) => request,
++        Err(refusal) => return refusal,
++    };
++
++    // Recorded first, as roles are (see `post_role`).
++    ctrl.share_memory
++        .lock()
++        .unwrap()
++        .remember_quality(&user, quality, 0);
++
++    let updated: Vec<Uuid> = ctrl
++        .sessions
++        .lock()
++        .unwrap()
++        .values_mut()
++        .filter(|s| s.username == user)
++        .filter_map(|s| {
++            let share = s.share.as_mut()?;
++            share.quality = quality;
++            s.guest_image.steps = 0;
++            Some(s.uid)
++        })
++        .collect();
++    info!(
++        "\"{user}\" now asks for {}: {} sessions",
++        quality.name(),
++        updated.len()
++    );
++
++    for uid in &updated {
++        relocate(&ctrl, *uid, Relocation::Quality).await;
++    }
++
++    HttpResponse::Ok().json(serde_json::json!({ "sessions": updated.len() }))
++}
++
+ #[derive(Deserialize)]
+ struct CloseRequest {
+     user: String,
+@@ -451,6 +1294,7 @@ mod tests {
+             role,
+             display: 7,
+             rev,
++            quality: ShareQuality::Host,
+         })
+     }
+ 
+@@ -550,6 +1394,336 @@ mod tests {
+         assert!(memory.bans.is_empty());
+     }
+ 
++    #[test]
++    fn a_pushed_quality_and_its_lag_win_at_login() {
++        let mut memory = ShareMemory::default();
++        memory.remember_quality("kn-guest-1", ShareQuality::P1080, 1);
++
++        let mut lea = session("kn-guest-1", guest(ShareRole::Spectator, 1));
++        assert!(memory.admit(&mut lea));
++        assert_eq!(lea.share.as_ref().unwrap().quality, ShareQuality::P1080);
++        assert_eq!(lea.guest_image.steps, 1);
++
++        // Another guest, and the host, keep theirs.
++        let mut max = session("kn-guest-2", guest(ShareRole::Player, 1));
++        assert!(memory.admit(&mut max));
++        assert_eq!(max.share.as_ref().unwrap().quality, ShareQuality::Host);
++        assert_eq!(max.guest_image.steps, 0);
++        let mut host = session("kn-guest-1", None);
++        assert!(memory.admit(&mut host));
++        assert_eq!(host.guest_image.steps, 0);
++
++        let later = Instant::now() + ROLE_MEMORY + Duration::from_secs(1);
++        memory.prune(later);
++        assert!(memory.qualities.is_empty());
++    }
++
++    #[test]
++    fn a_guest_gets_a_keyframe_on_the_host_image_every_two_seconds() {
++        let t0 = Instant::now();
++        let mut state = GuestImageState::default();
++        assert_eq!(state.host_keyframe(t0), Some(Duration::ZERO));
++        // 0.5 s later: put off to 2 s after the first.
++        assert_eq!(
++            state.host_keyframe(t0 + Duration::from_millis(500)),
++            Some(Duration::from_millis(1500))
++        );
++        // Already on its way: nothing more.
++        assert_eq!(state.host_keyframe(t0 + Duration::from_secs(1)), None);
++        // After the one put off, 2 s again.
++        assert_eq!(
++            state.host_keyframe(t0 + Duration::from_millis(2500)),
++            Some(Duration::from_millis(1500))
++        );
++        assert_eq!(
++            state.host_keyframe(t0 + Duration::from_secs(10)),
++            Some(Duration::ZERO)
++        );
++    }
++
++    // Patch 0020: the image chosen again (`plan`).
++
++    const UHD160: Mode = Mode {
++        width: 3840,
++        height: 2160,
++        fps: 160,
++    };
++
++    fn context(screen: Mode, host_session: bool, with_host: usize) -> Context {
++        Context {
++            screen,
++            host_session,
++            budget: guest_image::ImageBudget {
++                with_host,
++                can_scale: true,
++            },
++        }
++    }
++
++    fn h264(bitrate: u32) -> VideoStreamConfig {
++        VideoStreamConfig {
++            bitrate,
++            codec: kyavservice_types::VideoCodec::H264,
++            yuv444: false,
++            intra_refresh: None,
++            pixel_rate: 0,
++        }
++    }
++
++    fn host_key(generation: u32) -> VideoStreamKey {
++        VideoStreamKey::Shared {
++            display_id: 7,
++            generation,
++        }
++    }
++
++    fn guest_key(width: u32, height: u32, fps: u32) -> VideoStreamKey {
++        VideoStreamKey::Guest {
++            display_id: 7,
++            image: guest_image::GuestImage {
++                width,
++                height,
++                fps,
++                codec: ImageCodec::H264,
++            },
++        }
++    }
++
++    fn output(current: Option<VideoStreamKey>) -> GuestOutput {
++        GuestOutput {
++            display_id: 7,
++            request: GuestRequest {
++                codec: ImageCodec::H264,
++                yuv444: false,
++                bitrate: 40_000_000,
++                intra_refresh: None,
++            },
++            source: watch::channel(None).0,
++            current,
++            reason: Reason::Asked,
++        }
++    }
++
++    fn asking(quality: ShareQuality, steps: u8) -> Ask {
++        Ask {
++            quality,
++            steps,
++            reader: Reader {
++                codec: ImageCodec::H264,
++                yuv444: false,
++            },
++            bitrate: 40_000_000,
++        }
++    }
++
++    fn placed_key(manager: &AVServicesManager, choice: Choice) -> Option<VideoStreamKey> {
++        placement_key(manager, 7, choice.placement)
++    }
++
++    #[test]
++    fn a_guest_behind_goes_a_notch_down() {
++        let mut manager = AVServicesManager::default();
++        manager.insert_for_test(host_key(1), (1, 1), h264(80_000_000));
++        let ctx = context(UHD160, true, 2);
++
++        // The host's image → 1080p60, its own.
++        let (choice, steps) = plan(
++            &ctx,
++            &manager,
++            &output(Some(host_key(1))),
++            asking(ShareQuality::Host, 0),
++            &Relocation::Lag,
++        )
++        .unwrap();
++        assert_eq!(
++            placed_key(&manager, choice),
++            Some(guest_key(1920, 1080, 60))
++        );
++        assert_eq!((choice.reason, steps), (Reason::Lag, 1));
++
++        // 1080p60 → 720p30.
++        manager.insert_for_test(guest_key(1920, 1080, 60), (0, 1), h264(16_000_000));
++        let (choice, steps) = plan(
++            &ctx,
++            &manager,
++            &output(Some(guest_key(1920, 1080, 60))),
++            asking(ShareQuality::Host, 1),
++            &Relocation::Lag,
++        )
++        .unwrap();
++        assert_eq!(placed_key(&manager, choice), Some(guest_key(1280, 720, 30)));
++        assert_eq!(steps, 2);
++
++        // At 720p30: nothing lighter.
++        assert_eq!(
++            plan(
++                &ctx,
++                &manager,
++                &output(Some(guest_key(1280, 720, 30))),
++                asking(ShareQuality::Host, 2),
++                &Relocation::Lag,
++            ),
++            None
++        );
++        // Waiting: nothing to lighten.
++        assert_eq!(
++            plan(
++                &ctx,
++                &manager,
++                &output(None),
++                asking(ShareQuality::Host, 0),
++                &Relocation::Lag
++            ),
++            None
++        );
++    }
++
++    #[test]
++    fn a_notch_that_changes_nothing_is_skipped() {
++        // A 1080p60 display: 1080p60 is the host's image, 720p30 is next.
++        let fhd = Mode {
++            width: 1920,
++            height: 1080,
++            fps: 60,
++        };
++        let mut manager = AVServicesManager::default();
++        manager.insert_for_test(host_key(1), (1, 1), h264(20_000_000));
++        let (choice, steps) = plan(
++            &context(fhd, true, 2),
++            &manager,
++            &output(Some(host_key(1))),
++            asking(ShareQuality::Host, 0),
++            &Relocation::Lag,
++        )
++        .unwrap();
++        assert_eq!(placed_key(&manager, choice), Some(guest_key(1280, 720, 30)));
++        assert_eq!(steps, 2);
++
++        // Nothing open nor possible beside the host's: it stays.
++        assert_eq!(
++            plan(
++                &context(fhd, true, 0),
++                &manager,
++                &output(Some(host_key(1))),
++                asking(ShareQuality::Host, 0),
++                &Relocation::Lag,
++            ),
++            None
++        );
++    }
++
++    #[test]
++    fn a_guest_goes_to_the_host_image_when_it_comes_back() {
++        let mut manager = AVServicesManager::default();
++        let ctx = context(UHD160, true, 2);
++        // No host image yet: "as the host" waits.
++        let (choice, _) = decide(&ctx, &manager, 7, &asking(ShareQuality::Host, 0), None).unwrap();
++        assert_eq!(choice.placement, Placement::Wait);
++        assert_eq!(
++            plan(
++                &ctx,
++                &manager,
++                &output(None),
++                asking(ShareQuality::Host, 0),
++                &Relocation::HostImage
++            ),
++            None
++        );
++
++        // Back: the waiting guest follows it.
++        manager.insert_for_test(host_key(2), (1, 0), h264(80_000_000));
++        let (choice, _) = plan(
++            &ctx,
++            &manager,
++            &output(None),
++            asking(ShareQuality::Host, 0),
++            &Relocation::HostImage,
++        )
++        .unwrap();
++        assert_eq!(placed_key(&manager, choice), Some(host_key(2)));
++
++        // On an older generation: moved too.
++        manager.insert_for_test(host_key(1), (0, 1), h264(80_000_000));
++        manager.insert_for_test(host_key(2), (1, 0), h264(80_000_000));
++        let (choice, _) = plan(
++            &ctx,
++            &manager,
++            &output(Some(host_key(1))),
++            asking(ShareQuality::Host, 0),
++            &Relocation::HostImage,
++        )
++        .unwrap();
++        assert_eq!(placed_key(&manager, choice), Some(host_key(2)));
++
++        // Already on it, or on an image of its own: it stays.
++        assert!(
++            plan(
++                &ctx,
++                &manager,
++                &output(Some(host_key(2))),
++                asking(ShareQuality::Host, 0),
++                &Relocation::HostImage,
++            )
++            .is_some_and(|(choice, _)| already_there(
++                &manager,
++                7,
++                choice.placement,
++                Some(&host_key(2))
++            ))
++        );
++        manager.insert_for_test(guest_key(1280, 720, 30), (0, 1), h264(6_000_000));
++        assert_eq!(
++            plan(
++                &ctx,
++                &manager,
++                &output(Some(guest_key(1280, 720, 30))),
++                asking(ShareQuality::P720, 0),
++                &Relocation::HostImage,
++            ),
++            None
++        );
++    }
++
++    #[test]
++    fn a_new_quality_is_chosen_again_and_only_its_image_given_up_moves() {
++        let mut manager = AVServicesManager::default();
++        manager.insert_for_test(host_key(1), (1, 1), h264(80_000_000));
++        let ctx = context(UHD160, true, 1);
++        let (choice, _) = plan(
++            &ctx,
++            &manager,
++            &output(Some(host_key(1))),
++            asking(ShareQuality::P720, 0),
++            &Relocation::Quality,
++        )
++        .unwrap();
++        assert_eq!(placed_key(&manager, choice), Some(guest_key(1280, 720, 30)));
++
++        // Its own 1080p60 (alone on it, budget of one): its slot is free.
++        manager.insert_for_test(guest_key(1920, 1080, 60), (0, 1), h264(16_000_000));
++        let (choice, _) = plan(
++            &ctx,
++            &manager,
++            &output(Some(guest_key(1920, 1080, 60))),
++            asking(ShareQuality::P720, 0),
++            &Relocation::Quality,
++        )
++        .unwrap();
++        assert_eq!(placed_key(&manager, choice), Some(guest_key(1280, 720, 30)));
++
++        let stalled = Relocation::Stalled(guest_key(1280, 720, 30));
++        assert_eq!(
++            plan(
++                &ctx,
++                &manager,
++                &output(Some(host_key(1))),
++                asking(ShareQuality::P720, 0),
++                &stalled
++            ),
++            None
++        );
++    }
++
+     #[test]
+     fn the_memory_forgets_stale_roles() {
+         let mut memory = ShareMemory::default();
+diff --git a/kycontroller/src/kydup.rs b/kycontroller/src/kydup.rs
+index bf79947..c010120 100644
+--- a/kycontroller/src/kydup.rs
++++ b/kycontroller/src/kydup.rs
+@@ -40,9 +40,16 @@
+ //!     kydup.register_and_forward(client_endpoint, || { /* runs once subscribed */ });
+ //! }
+ //! ```
++//!
++//! KyberNow: a KyberNow Share guest's outputs never hold the stream back
++//! (see [`spawn_guest_video_output`]): only the host's outputs gate the
++//! upstream push. A guest's video output can also move from one image to
++//! another without its client endpoint changing.
+ 
++use std::collections::VecDeque;
+ use std::future::Future;
+ use std::sync::Arc;
++use std::sync::atomic::{AtomicBool, Ordering};
+ use std::time::Duration;
+ 
+ use async_trait::async_trait;
+@@ -52,7 +59,7 @@ use kymux::types::{
+     VideoServerProtocol,
+ };
+ use log::{debug, error, warn};
+-use tokio::sync::{Notify, broadcast};
++use tokio::sync::{Notify, broadcast, watch};
+ 
+ use crate::utils::Task;
+ 
+@@ -75,6 +82,14 @@ const BACKPRESSURE_GATE_FALLBACK: Duration = Duration::from_secs(1);
+ /// Time budget for an output's endpoint readiness handshake.
+ const OUTPUT_READY_TIMEOUT: Duration = Duration::from_secs(5);
+ 
++/// KyberNow: how old the oldest packet waiting for a guest may get before
++/// the guest is dropped back to the next keyframe (video), or its backlog
++/// dropped (audio).
++const GUEST_QUEUE_MAX_AGE: Duration = Duration::from_millis(250);
++
++/// KyberNow: packets waiting for a guest, at most (a backstop to the age).
++const GUEST_QUEUE_MAX_LEN: usize = 512;
++
+ // ===========================================================================
+ // Public types
+ // ===========================================================================
+@@ -114,6 +129,8 @@ pub struct KydupVideo {
+     /// Shared with the upstream send driver and every output; wakes the
+     /// backpressure gate.
+     notify: Arc<Notify>,
++    /// KyberNow: set by the upstream send driver on the first image.
++    received: Arc<AtomicBool>,
+ }
+ 
+ impl KydupVideo {
+@@ -127,18 +144,27 @@ impl KydupVideo {
+     ) -> (Self, VideoServerEndpoint) {
+         let (tx, _) = broadcast::channel(DEFAULT_CAPACITY);
+         let notify = Arc::new(Notify::new());
++        let received = Arc::new(AtomicBool::new(false));
+         let kydup = Self {
+             tx: tx.clone(),
+             lag_handler: Arc::new(lag_handler),
+             notify: Arc::clone(&notify),
++            received: Arc::clone(&received),
+         };
+         let endpoint = ProtocolEndpoint::new(KydupVideoUpstreamDriver {
+             tx: Some(tx),
+             notify,
++            received,
+         });
+         (kydup, endpoint)
+     }
+ 
++    /// KyberNow: whether an image (not only its headers) came from the
++    /// encoder yet.
++    pub fn received(&self) -> bool {
++        self.received.load(Ordering::Relaxed)
++    }
++
+     /// Wire a client endpoint as an output of this kydup.
+     ///
+     /// Subscribes to the broadcast only after the endpoint's readiness
+@@ -189,6 +215,8 @@ struct KydupVideoUpstreamDriver {
+     /// would wait forever.
+     tx: Option<broadcast::Sender<AVBroadcast>>,
+     notify: Arc<Notify>,
++    /// See [`KydupVideo::received`].
++    received: Arc<AtomicBool>,
+ }
+ 
+ #[async_trait]
+@@ -200,10 +228,9 @@ impl ProtocolEndpointDriver for KydupVideoUpstreamDriver {
+             .tx
+             .take()
+             .expect("KydupVideoUpstreamDriver::ready_boxed called twice");
+-        Ok(ProtocolSend::new(KydupBroadcastSendDriver::new(
+-            tx,
+-            Arc::clone(&self.notify),
+-        )))
++        let mut driver = KydupBroadcastSendDriver::new(tx, Arc::clone(&self.notify));
++        driver.received = Some(Arc::clone(&self.received));
++        Ok(ProtocolSend::new(driver))
+     }
+ }
+ 
+@@ -272,6 +299,31 @@ impl KydupAudio {
+         )
+     }
+ 
++    /// KyberNow: a share guest's sound: never holds the stream back; a
++    /// guest falling behind loses its backlog instead (see
++    /// [`spawn_guest_video_output`]).
++    pub fn register_guest(&self, endpoint: AudioServerEndpoint) -> Task {
++        let tx = self.tx.clone();
++        let notify = Arc::clone(&self.notify);
++        Task::spawn(async move {
++            let send = match ready_with_timeout(endpoint).await {
++                Ok(s) => s,
++                Err(e) => {
++                    error!("Kydup guest audio output ready failed: {e}");
++                    return;
++                }
++            };
++            run_guest_audio(tx, notify, send).await;
++        })
++    }
++
++    /// KyberNow: [`Self::register_guest`] from an already-ready send.
++    #[cfg(test)]
++    pub fn add_guest_output(&self, send: ProtocolSend<AVPacket>) -> Task {
++        let rx = GatedReceiver::new(self.tx.subscribe(), Arc::clone(&self.notify));
++        Task::spawn(run_guest_audio_from(rx, send))
++    }
++
+     #[cfg(test)]
+     pub fn output_count(&self) -> usize {
+         self.tx.receiver_count()
+@@ -320,6 +372,8 @@ struct KydupBroadcastSendDriver {
+     tx: broadcast::Sender<AVBroadcast>,
+     headers: Arc<HeaderPackets>,
+     notify: Arc<Notify>,
++    /// KyberNow: video only, see [`KydupVideo::received`].
++    received: Option<Arc<AtomicBool>>,
+ }
+ 
+ impl KydupBroadcastSendDriver {
+@@ -328,12 +382,17 @@ impl KydupBroadcastSendDriver {
+             tx,
+             headers: Arc::new(HeaderPackets::default()),
+             notify,
++            received: None,
+         }
+     }
+ 
+     /// Block the upstream push until the slowest output's backlog
+     /// (`broadcast::Sender::len()`) drops below [`BACKPRESSURE_THRESHOLD`]: a
+     /// lagging output throttles the whole shared stream.
++    ///
++    /// KyberNow: a share guest's outputs read the broadcast without ever
++    /// waiting (their own queue is bounded in age), so only the host's
++    /// outputs hold this gate.
+     async fn await_backpressure(&self) {
+         loop {
+             if self.tx.len() < BACKPRESSURE_THRESHOLD {
+@@ -361,6 +420,11 @@ impl ProtocolSendDriver for KydupBroadcastSendDriver {
+ 
+     async fn send(&mut self, packet: AVPacket) -> Result<(), ProtocolError> {
+         self.await_backpressure().await;
++        if let Some(received) = &self.received
++            && matches!(&packet, AVPacket::Media(m) if !m.header.is_config)
++        {
++            received.store(true, Ordering::Relaxed);
++        }
+         if is_header(&packet) {
+             let mut updated = (*self.headers).clone();
+             cache_header(&mut updated, &packet);
+@@ -662,6 +726,275 @@ async fn forward_until_desync(
+     }
+ }
+ 
++// ===========================================================================
++// KyberNow: a KyberNow Share guest's outputs
++// ===========================================================================
++
++/// KyberNow: the image a guest's video output reads: its kydup, what to run
++/// once subscribed (a keyframe request on that image), and what to run when
++/// the guest falls behind on it (a lag episode, and a keyframe).
++#[derive(Clone)]
++pub struct VideoSource {
++    dup: KydupVideo,
++    on_subscribed: Arc<dyn Fn() + Send + Sync>,
++    on_overflow: Arc<dyn Fn() + Send + Sync>,
++}
++
++impl VideoSource {
++    pub fn new(
++        dup: KydupVideo,
++        on_subscribed: impl Fn() + Send + Sync + 'static,
++        on_overflow: impl Fn() + Send + Sync + 'static,
++    ) -> Self {
++        Self {
++            dup,
++            on_subscribed: Arc::new(on_subscribed),
++            on_overflow: Arc::new(on_overflow),
++        }
++    }
++}
++
++/// KyberNow: a guest's video output. It keeps its client endpoint and
++/// reads the image `source` names: `None` waits for one; a new value moves
++/// it (it leaves the old image, subscribes to the new one, asks for a
++/// keyframe, and sends that image's headers before its keyframe).
++///
++/// It never holds the image back: one half reads the broadcast without
++/// waiting into a queue of its own, bounded in age
++/// ([`GUEST_QUEUE_MAX_AGE`]); the other half sends it. A guest falling
++/// behind loses its queue and waits for the next keyframe (`on_overflow`).
++pub fn spawn_guest_video_output(
++    endpoint: VideoServerEndpoint,
++    source: watch::Receiver<Option<VideoSource>>,
++) -> Task {
++    Task::spawn(async move {
++        let send = match ready_with_timeout(endpoint).await {
++            Ok(s) => s,
++            Err(e) => {
++                error!("Kydup guest video output ready failed: {e}");
++                return;
++            }
++        };
++        run_guest_video(send, source).await;
++    })
++}
++
++/// KyberNow: [`spawn_guest_video_output`] from an already-ready send.
++#[cfg(test)]
++fn add_guest_video_output(
++    send: ProtocolSend<AVPacket>,
++    source: watch::Receiver<Option<VideoSource>>,
++) -> Task {
++    Task::spawn(run_guest_video(send, source))
++}
++
++/// KyberNow: packets waiting for a guest, each with the time it was read.
++#[derive(Default)]
++struct GuestQueue {
++    packets: std::sync::Mutex<VecDeque<(tokio::time::Instant, AVPacket)>>,
++    notify: Notify,
++}
++
++impl GuestQueue {
++    /// `false` (nothing queued) when the guest is too far behind: its
++    /// oldest packet waits for longer than [`GUEST_QUEUE_MAX_AGE`].
++    fn push(&self, packet: AVPacket) -> bool {
++        let now = tokio::time::Instant::now();
++        {
++            let mut packets = self.packets.lock().unwrap();
++            let stale = packets
++                .front()
++                .is_some_and(|(at, _)| now.saturating_duration_since(*at) > GUEST_QUEUE_MAX_AGE);
++            if stale || packets.len() >= GUEST_QUEUE_MAX_LEN {
++                return false;
++            }
++            packets.push_back((now, packet));
++        }
++        self.notify.notify_one();
++        true
++    }
++
++    fn clear(&self) {
++        self.packets.lock().unwrap().clear();
++    }
++
++    async fn pop(&self) -> AVPacket {
++        loop {
++            if let Some((_, packet)) = self.packets.lock().unwrap().pop_front() {
++                return packet;
++            }
++            // `notify_one` keeps a permit when nobody waits: a push between
++            // the check and this await is not missed.
++            self.notify.notified().await;
++        }
++    }
++}
++
++/// KyberNow: sends what the reader queued, until the client is gone.
++async fn send_guest_queue(
++    mut send: ProtocolSend<AVPacket>,
++    queue: &GuestQueue,
++) -> Result<(), ProtocolError> {
++    loop {
++        let packet = queue.pop().await;
++        send.send(packet).await?;
++    }
++}
++
++async fn run_guest_video(
++    send: ProtocolSend<AVPacket>,
++    source: watch::Receiver<Option<VideoSource>>,
++) {
++    let queue = GuestQueue::default();
++    tokio::select! {
++        () = read_guest_video(source, &queue) => {}
++        res = send_guest_queue(send, &queue) => {
++            if let Err(e) = res {
++                debug!("Kydup guest video output send error: {e}");
++            }
++        }
++    }
++}
++
++/// KyberNow: what ends the reading of one image.
++enum GuestRead {
++    /// Another image (or none) to read.
++    Moved,
++    /// The output is dropped (its `watch` sender is gone).
++    Closed,
++}
++
++/// KyberNow: reads the image `source` names into `queue`, from its next
++/// keyframe on, following each move.
++async fn read_guest_video(mut source: watch::Receiver<Option<VideoSource>>, queue: &GuestQueue) {
++    loop {
++        let current = source.borrow_and_update().clone();
++        // Nothing of the previous image goes out once it is left.
++        queue.clear();
++        let read = match current {
++            None => match source.changed().await {
++                Ok(()) => GuestRead::Moved,
++                Err(_) => GuestRead::Closed,
++            },
++            Some(current) => read_guest_image(&current, &mut source, queue).await,
++        };
++        if matches!(read, GuestRead::Closed) {
++            return;
++        }
++    }
++}
++
++async fn read_guest_image(
++    current: &VideoSource,
++    source: &mut watch::Receiver<Option<VideoSource>>,
++    queue: &GuestQueue,
++) -> GuestRead {
++    let mut rx = GatedReceiver::new(current.dup.tx.subscribe(), Arc::clone(&current.dup.notify));
++    (current.on_subscribed)();
++    let mut synced = false;
++    loop {
++        let msg = tokio::select! {
++            biased;
++            changed = source.changed() => {
++                return if changed.is_ok() { GuestRead::Moved } else { GuestRead::Closed };
++            }
++            msg = rx.recv() => msg,
++        };
++        match msg {
++            Ok(AVBroadcast::Data(packet, headers)) => {
++                if !synced {
++                    if matches!(&packet, AVPacket::Media(m) if m.header.is_key) {
++                        // Just cleared or emptied: these fit.
++                        for header in [&headers.codec, &headers.config].into_iter().flatten() {
++                            queue.push(header.clone());
++                        }
++                        queue.push(packet);
++                        synced = true;
++                    }
++                } else if !queue.push(packet) {
++                    warn!("Kydup guest video output fell behind: back to the next keyframe");
++                    queue.clear();
++                    synced = false;
++                    (current.on_overflow)();
++                }
++            }
++            Err(broadcast::error::RecvError::Lagged(skipped)) => {
++                warn!("Kydup guest video output lagged, skipped {skipped} packets");
++                queue.clear();
++                synced = false;
++                (current.on_overflow)();
++            }
++            // The image ended: wait for another one (the client is told
++            // through its stream events).
++            Ok(AVBroadcast::Shutdown) | Err(broadcast::error::RecvError::Closed) => {
++                drop(rx);
++                return match source.changed().await {
++                    Ok(()) => GuestRead::Moved,
++                    Err(_) => GuestRead::Closed,
++                };
++            }
++        }
++    }
++}
++
++async fn run_guest_audio(
++    tx: broadcast::Sender<AVBroadcast>,
++    notify: Arc<Notify>,
++    send: ProtocolSend<AVPacket>,
++) {
++    let rx = GatedReceiver::new(tx.subscribe(), notify);
++    drop(tx);
++    run_guest_audio_from(rx, send).await;
++}
++
++async fn run_guest_audio_from(rx: GatedReceiver, send: ProtocolSend<AVPacket>) {
++    let queue = GuestQueue::default();
++    tokio::select! {
++        () = read_guest_audio(rx, &queue) => {}
++        res = send_guest_queue(send, &queue) => {
++            if let Err(e) = res {
++                debug!("Kydup guest audio output send error: {e}");
++            }
++        }
++    }
++}
++
++/// KyberNow: a guest's sound, read without waiting: when the guest falls
++/// behind, its backlog goes and it starts again on the next packet (with
++/// the headers, if they changed).
++async fn read_guest_audio(mut rx: GatedReceiver, queue: &GuestQueue) {
++    let mut headers_version = 0u64;
++    let mut synced = false;
++    loop {
++        match rx.recv().await {
++            Ok(AVBroadcast::Data(packet, headers)) => {
++                if is_header(&packet) {
++                    headers_version = headers.version;
++                }
++                if !synced {
++                    if headers.version != headers_version {
++                        for header in [&headers.codec, &headers.config].into_iter().flatten() {
++                            queue.push(header.clone());
++                        }
++                        headers_version = headers.version;
++                    }
++                    queue.push(packet);
++                    synced = true;
++                } else if !queue.push(packet) {
++                    debug!("Kydup guest audio output fell behind: backlog dropped");
++                    queue.clear();
++                    synced = false;
++                }
++            }
++            Err(broadcast::error::RecvError::Lagged(_)) => {
++                queue.clear();
++                synced = false;
++            }
++            Ok(AVBroadcast::Shutdown) | Err(broadcast::error::RecvError::Closed) => return,
++        }
++    }
++}
++
+ // ===========================================================================
+ // Tests
+ // ===========================================================================
+@@ -1005,4 +1338,334 @@ mod tests {
+ 
+         assert_eq!(fast_pkts.lock().unwrap().len(), 3 + total_media);
+     }
++
++    // -----------------------------------------------------------------------
++    // KyberNow: a KyberNow Share guest's outputs (patch 0020), in paused
++    // time: sleeping lets every task run, then moves the clock.
++    // -----------------------------------------------------------------------
++
++    use std::sync::atomic::AtomicUsize;
++
++    /// Lets the outputs subscribe and drain.
++    async fn settle() {
++        tokio::time::sleep(Duration::from_millis(1)).await;
++    }
++
++    fn counter() -> (Arc<AtomicUsize>, impl Fn() + Send + Sync + 'static) {
++        let count = Arc::new(AtomicUsize::new(0));
++        let counted = Arc::clone(&count);
++        (count, move || {
++            counted.fetch_add(1, Ordering::SeqCst);
++        })
++    }
++
++    fn blocking_output(
++        permits: usize,
++    ) -> (
++        ProtocolSend<AVPacket>,
++        Arc<tokio::sync::Semaphore>,
++        Arc<Mutex<Vec<AVPacket>>>,
++    ) {
++        let gate = Arc::new(tokio::sync::Semaphore::new(permits));
++        let received = Arc::new(Mutex::new(Vec::new()));
++        let send = ProtocolSend::new(BlockingSink {
++            gate: Arc::clone(&gate),
++            received: Arc::clone(&received),
++        });
++        (send, gate, received)
++    }
++
++    fn pts_of(packets: &[AVPacket]) -> Vec<String> {
++        packets
++            .iter()
++            .map(|p| match p {
++                AVPacket::Codec(c) => format!("codec{}", c.header.codec),
++                AVPacket::Media(m) if m.header.is_config => {
++                    format!("cfg:{}", String::from_utf8_lossy(&m.payload))
++                }
++                AVPacket::Media(m) if m.header.is_key => format!("key{}", m.header.pts),
++                AVPacket::Media(m) => format!("p{}", m.header.pts),
++                #[allow(unreachable_patterns)]
++                _ => "other".to_owned(),
++            })
++            .collect()
++    }
++
++    /// A guest that stops reading never stops the source: the host's
++    /// output gets everything, the guest overflows instead.
++    #[tokio::test(start_paused = true)]
++    async fn a_slow_guest_never_holds_the_source_back() {
++        let (kydup, upstream) = KydupVideo::new(|| LagAction::Continue);
++        let (host, host_pkts) = collect_output();
++        let host_h = kydup.add_output(host);
++        let (slow, _gate, slow_pkts) = blocking_output(0);
++        let (overflows, on_overflow) = counter();
++        let (tx, rx) = watch::channel(Some(VideoSource::new(kydup.clone(), || {}, on_overflow)));
++        let guest_h = add_guest_video_output(slow, rx);
++        settle().await;
++
++        let total_media = BACKPRESSURE_THRESHOLD * 5;
++        let pump = async {
++            let mut proto = upstream.ready().await.unwrap();
++            proto.send(codec(1)).await.unwrap();
++            proto.send(config(b"sps")).await.unwrap();
++            proto.send(keyframe(0, b"idr")).await.unwrap();
++            for i in 0..total_media {
++                proto.send(media(i as u64 + 1, b"p")).await.unwrap();
++                tokio::time::sleep(Duration::from_millis(10)).await;
++            }
++            proto
++        };
++        let proto = tokio::time::timeout(Duration::from_secs(30), pump)
++            .await
++            .expect("a stalled guest must never hold the source back");
++        drop(proto);
++        host_h.await;
++        assert_eq!(host_pkts.lock().unwrap().len(), 3 + total_media);
++        assert!(
++            overflows.load(Ordering::SeqCst) >= 1,
++            "the guest fell behind"
++        );
++        assert!(slow_pkts.lock().unwrap().is_empty());
++
++        drop(tx);
++        guest_h.await;
++    }
++
++    /// The host's outputs still hold the source back, guests or not.
++    #[tokio::test(start_paused = true)]
++    async fn the_host_still_holds_the_source_back() {
++        let (kydup, upstream) = KydupVideo::new(|| LagAction::Continue);
++        let (host, gate, host_pkts) = blocking_output(0);
++        let host_h = kydup.add_output(host);
++        let (guest, guest_pkts) = collect_output();
++        let (overflows, on_overflow) = counter();
++        let (tx, rx) = watch::channel(Some(VideoSource::new(kydup.clone(), || {}, on_overflow)));
++        let guest_h = add_guest_video_output(guest, rx);
++        settle().await;
++
++        let total_media = BACKPRESSURE_THRESHOLD + 10;
++        let proto = upstream.ready().await.unwrap();
++        let pump = spawn_pump(proto, total_media);
++        tokio::time::sleep(Duration::from_millis(100)).await;
++        assert!(!pump.is_finished(), "a stalled host holds the source back");
++        assert!(guest_pkts.lock().unwrap().len() < 3 + total_media);
++
++        gate.add_permits(3 + total_media);
++        let proto = tokio::time::timeout(Duration::from_secs(5), pump)
++            .await
++            .expect("push must finish once the host drains")
++            .unwrap();
++        drop(proto);
++        host_h.await;
++        settle().await;
++        assert_eq!(host_pkts.lock().unwrap().len(), 3 + total_media);
++        assert_eq!(guest_pkts.lock().unwrap().len(), 3 + total_media);
++        assert_eq!(overflows.load(Ordering::SeqCst), 0);
++        drop(tx);
++        guest_h.await;
++    }
++
++    /// A guest moved to another image leaves the first one, asks for a
++    /// keyframe on the new one, and gets its headers then its keyframe.
++    #[tokio::test(start_paused = true)]
++    async fn moving_a_guest_sends_the_new_headers_then_a_keyframe() {
++        let (a, up_a) = KydupVideo::new(|| LagAction::Continue);
++        let (b, up_b) = KydupVideo::new(|| LagAction::Continue);
++        let subscribed = Arc::new(Mutex::new(Vec::new()));
++        let source = |dup: &KydupVideo, name: &'static str| {
++            let subscribed = Arc::clone(&subscribed);
++            VideoSource::new(
++                dup.clone(),
++                move || subscribed.lock().unwrap().push(name),
++                || {},
++            )
++        };
++        let (out, pkts) = collect_output();
++        let (tx, rx) = watch::channel(Some(source(&a, "a")));
++        let h = add_guest_video_output(out, rx);
++        let mut pa = up_a.ready().await.unwrap();
++        let mut pb = up_b.ready().await.unwrap();
++        settle().await;
++        assert_eq!(a.output_count(), 1);
++
++        pa.send(codec(1)).await.unwrap();
++        pa.send(config(b"a")).await.unwrap();
++        pa.send(keyframe(0, b"a0")).await.unwrap();
++        pa.send(media(1, b"a1")).await.unwrap();
++        pb.send(codec(2)).await.unwrap();
++        pb.send(config(b"b")).await.unwrap();
++        settle().await;
++
++        tx.send_replace(Some(source(&b, "b")));
++        settle().await;
++        assert_eq!(a.output_count(), 0, "the old image is left");
++        assert_eq!(b.output_count(), 1);
++
++        pa.send(media(2, b"a2")).await.unwrap();
++        pb.send(media(10, b"b0")).await.unwrap();
++        pb.send(keyframe(11, b"b1")).await.unwrap();
++        pb.send(media(12, b"b2")).await.unwrap();
++        settle().await;
++        drop(tx);
++        h.await;
++
++        assert_eq!(
++            pts_of(&pkts.lock().unwrap()),
++            [
++                "codec1", "cfg:a", "key0", "p1", "codec2", "cfg:b", "key11", "p12"
++            ]
++        );
++        assert_eq!(*subscribed.lock().unwrap(), ["a", "b"]);
++    }
++
++    /// A guest without an image waits (while the host restarts its own),
++    /// then starts on the next keyframe of the image it gets.
++    #[tokio::test(start_paused = true)]
++    async fn a_guest_without_an_image_waits_for_one() {
++        let (a, up_a) = KydupVideo::new(|| LagAction::Continue);
++        let (out, pkts) = collect_output();
++        let (tx, rx) = watch::channel(None);
++        let h = add_guest_video_output(out, rx);
++        let mut pa = up_a.ready().await.unwrap();
++        settle().await;
++        pa.send(codec(1)).await.unwrap();
++        pa.send(config(b"a")).await.unwrap();
++        pa.send(keyframe(0, b"a0")).await.unwrap();
++        settle().await;
++        assert!(pkts.lock().unwrap().is_empty());
++        assert_eq!(a.output_count(), 0);
++
++        let (asked, on_subscribed) = counter();
++        tx.send_replace(Some(VideoSource::new(a.clone(), on_subscribed, || {})));
++        settle().await;
++        assert_eq!(
++            asked.load(Ordering::SeqCst),
++            1,
++            "a keyframe is asked once subscribed"
++        );
++        pa.send(media(1, b"a1")).await.unwrap();
++        pa.send(keyframe(2, b"a2")).await.unwrap();
++        settle().await;
++        drop(tx);
++        h.await;
++        assert_eq!(pts_of(&pkts.lock().unwrap()), ["codec1", "cfg:a", "key2"]);
++    }
++
++    /// A guest whose queue gets too old loses it, reports an episode, and
++    /// starts again on the next keyframe, with the headers.
++    #[tokio::test(start_paused = true)]
++    async fn a_guest_falling_behind_waits_for_the_next_keyframe() {
++        let (kydup, upstream) = KydupVideo::new(|| LagAction::Continue);
++        let (out, gate, pkts) = blocking_output(3);
++        let (overflows, on_overflow) = counter();
++        let (tx, rx) = watch::channel(Some(VideoSource::new(kydup.clone(), || {}, on_overflow)));
++        let h = add_guest_video_output(out, rx);
++        let mut proto = upstream.ready().await.unwrap();
++        settle().await;
++
++        proto.send(codec(1)).await.unwrap();
++        proto.send(config(b"sps")).await.unwrap();
++        proto.send(keyframe(0, b"k")).await.unwrap();
++        for pts in 1..=30 {
++            proto.send(media(pts, b"p")).await.unwrap();
++            tokio::time::sleep(Duration::from_millis(10)).await;
++        }
++        assert_eq!(overflows.load(Ordering::SeqCst), 1);
++
++        gate.add_permits(100);
++        proto.send(media(40, b"p")).await.unwrap();
++        proto.send(keyframe(41, b"k")).await.unwrap();
++        proto.send(media(42, b"p")).await.unwrap();
++        settle().await;
++        drop(tx);
++        h.await;
++        assert_eq!(
++            pts_of(&pkts.lock().unwrap()),
++            [
++                "codec1", "cfg:sps", "key0", "p1", "codec1", "cfg:sps", "key41", "p42"
++            ]
++        );
++        assert_eq!(overflows.load(Ordering::SeqCst), 1);
++    }
++
++    /// A guest whose image ends (its encoder stopped) waits for another.
++    #[tokio::test(start_paused = true)]
++    async fn a_guest_whose_image_ends_waits_for_another() {
++        let (a, up_a) = KydupVideo::new(|| LagAction::Continue);
++        let (b, up_b) = KydupVideo::new(|| LagAction::Continue);
++        let (out, pkts) = collect_output();
++        let (tx, rx) = watch::channel(Some(VideoSource::new(a.clone(), || {}, || {})));
++        let h = add_guest_video_output(out, rx);
++        let pa = up_a.ready().await.unwrap();
++        let mut pb = up_b.ready().await.unwrap();
++        settle().await;
++        drop(pa);
++        settle().await;
++        assert_eq!(a.output_count(), 0, "the ended image is left");
++
++        tx.send_replace(Some(VideoSource::new(b.clone(), || {}, || {})));
++        settle().await;
++        pb.send(codec(2)).await.unwrap();
++        pb.send(keyframe(5, b"b")).await.unwrap();
++        settle().await;
++        drop(tx);
++        h.await;
++        assert_eq!(pts_of(&pkts.lock().unwrap()), ["codec2", "key5"]);
++    }
++
++    /// A guest's sound never holds the host's back either.
++    #[tokio::test(start_paused = true)]
++    async fn a_slow_guest_loses_its_sound_backlog_not_the_host() {
++        let (kydup, upstream) = KydupAudio::new(|| LagAction::Continue);
++        let (host, host_pkts) = collect_output();
++        let host_h = kydup.add_output(host);
++        let (slow, gate, slow_pkts) = blocking_output(2);
++        let guest_h = kydup.add_guest_output(slow);
++        settle().await;
++
++        let total = BACKPRESSURE_THRESHOLD * 5;
++        let pump = async {
++            let mut proto = upstream.ready().await.unwrap();
++            proto.send(codec(7)).await.unwrap();
++            for i in 0..total {
++                proto.send(media(i as u64, b"a")).await.unwrap();
++                tokio::time::sleep(Duration::from_millis(10)).await;
++            }
++            proto
++        };
++        let mut proto = tokio::time::timeout(Duration::from_secs(30), pump)
++            .await
++            .expect("a stalled guest must never hold the sound back");
++        let host_media = pts_of(&host_pkts.lock().unwrap())
++            .iter()
++            .filter(|p| p.starts_with('p'))
++            .count();
++        assert_eq!(host_media, total);
++
++        // Caught up again: the next packets, without the headers again.
++        gate.add_permits(100);
++        settle().await;
++        proto.send(media(1000, b"a")).await.unwrap();
++        settle().await;
++        drop(proto);
++        host_h.await;
++        guest_h.await;
++        let got = pts_of(&slow_pkts.lock().unwrap());
++        assert_eq!(&got[..2], ["codec7", "p0"]);
++        assert_eq!(got.last().unwrap(), "p1000");
++        assert!(got.len() < 1 + total, "the backlog was dropped");
++        assert_eq!(got.iter().filter(|p| p.starts_with("codec")).count(), 1);
++    }
++
++    #[tokio::test]
++    async fn an_image_is_received_once_a_frame_comes() {
++        let (kydup, upstream) = KydupVideo::new(|| LagAction::Continue);
++        let mut proto = upstream.ready().await.unwrap();
++        proto.send(codec(1)).await.unwrap();
++        proto.send(config(b"sps")).await.unwrap();
++        assert!(!kydup.received(), "headers alone are not an image");
++        proto.send(keyframe(0, b"k")).await.unwrap();
++        assert!(kydup.received());
++    }
+ }
+diff --git a/kycontroller/src/kymux_controller/mod.rs b/kycontroller/src/kymux_controller/mod.rs
+index 0bd8416..fd01cc4 100644
+--- a/kycontroller/src/kymux_controller/mod.rs
++++ b/kycontroller/src/kymux_controller/mod.rs
+@@ -348,6 +348,10 @@ async fn start_video(
+     let bitrates = crate::avservices_manager::bitrate_shares(request.bitrate, &pixel_rates);
+     info!("Video bitrate per stream: {bitrates:?} (pixels per second: {pixel_rates:?})");
+ 
++    // KyberNow: a share guest gets its own image when it needs one (patch
++    // 0020), multi-client mode only.
++    let guest = mode == SessionMode::Multi && crate::kybernow::is_guest(ctrl, &session_id);
++
+     let mut video_streams = vec![];
+ 
+     for ((stream_request, bitrate), pixel_rate) in
+@@ -404,10 +408,41 @@ async fn start_video(
+         // keep `client_endpoint` aside to attach it to the kydup that
+         // `av_services_manager` creates (or reuses).
+         let (acquisition, output) = match mode {
++            SessionMode::Multi if guest => {
++                // KyberNow: never creates nor redefines the host's image;
++                // its output never holds an image back, and moves.
++                let guest_request = crate::kybernow::GuestRequest {
++                    codec: crate::guest_image::ImageCodec::from(&config.codec),
++                    yuv444: config.yuv444,
++                    bitrate: config.bitrate,
++                    intra_refresh: config.intra_refresh,
++                };
++                let (subscription, guest_output, out) = crate::kybernow::start_guest_video(
++                    ctrl,
++                    av_services_manager,
++                    session_id,
++                    display_id,
++                    guest_request,
++                    client_endpoint,
++                )
++                .await?;
++                video_streams.push(StartSessionVideoResponse {
++                    display_id,
++                    endpoint: endpoint_id,
++                    metrics_endpoint: None,
++                    output: Some(out),
++                    metrics_output: None,
++                    subscription,
++                    connection_tx,
++                    guest: Some(guest_output),
++                });
++                continue;
++            }
+             SessionMode::Multi => {
+-                let topology = crate::avservices_manager::VideoTopology::Shared { display_id };
++                // KyberNow: only a session without share (the host) creates
++                // or redefines its display's host image.
+                 let acq = av_services_manager
+-                    .acquire_video(ctrl, topology, config, request.metrics)
++                    .acquire_host_video(ctrl, display_id, config, request.metrics)
+                     .await?;
+                 let dup = acq
+                     .dup
+@@ -520,8 +555,9 @@ async fn start_video(
+             metrics_endpoint: metrics_endpoint_id,
+             output,
+             metrics_output,
+-            subscription,
++            subscription: Some(subscription),
+             connection_tx,
++            guest: None,
+         });
+     }
+ 
+@@ -567,7 +603,12 @@ async fn start_audio(
+                 .as_ref()
+                 .expect("Shared topology guarantees Some(dup)")
+                 .clone();
+-            let out = dup.register_and_forward(client_endpoint);
++            // KyberNow: a share guest's sound never holds the host's back.
++            let out = if crate::kybernow::is_guest(ctrl, &session_id) {
++                dup.register_guest(client_endpoint)
++            } else {
++                dup.register_and_forward(client_endpoint)
++            };
+             (acq, Some(out))
+         }
+         SessionMode::Mono => {
+@@ -660,8 +701,11 @@ pub(crate) struct StartSessionVideoResponse {
+     pub(crate) output: Option<Task>,
+     /// `Some` when the kyproto metrics endpoint task was spawned.
+     pub(crate) metrics_output: Option<Task>,
+-    pub(crate) subscription: crate::avservices_manager::VideoSubscription,
++    /// KyberNow: `None` for a share guest waiting for the host's image.
++    pub(crate) subscription: Option<crate::avservices_manager::VideoSubscription>,
+     pub(crate) connection_tx: Option<oneshot::Sender<io::Result<kywebsocket::Connection>>>,
++    /// KyberNow: a share guest's output, which moves from image to image.
++    pub(crate) guest: Option<crate::kybernow::GuestOutput>,
+ }
+ 
+ pub(crate) struct StartSessionAudioResponse {
+diff --git a/kycontroller/src/kymux_controller/requests.rs b/kycontroller/src/kymux_controller/requests.rs
+index e67f890..23f32e4 100644
+--- a/kycontroller/src/kymux_controller/requests.rs
++++ b/kycontroller/src/kymux_controller/requests.rs
+@@ -92,6 +92,18 @@ pub(crate) async fn start_session(
+         return HttpResponse::Forbidden().finish();
+     }
+ 
++    // KyberNow: the displays a host starts, for its guests (patch 0020).
++    let host_displays: Vec<u32> = if crate::kybernow::is_guest(&ctrl, &session_id) {
++        Vec::new()
++    } else {
++        request
++            .video
++            .iter()
++            .flatten()
++            .map(|v| v.display_id)
++            .collect()
++    };
++
+     // Start session
+     let ret = super::start_session(&ctrl, session_id, request.into_inner()).await;
+     match ret {
+@@ -111,7 +123,8 @@ pub(crate) async fn start_session(
+                         if let Some(m) = v.metrics_output {
+                             services.tasks.push(m);
+                         }
+-                        services.video_subscriptions.push(v.subscription);
++                        services.video_subscriptions.extend(v.subscription);
++                        services.guest_outputs.extend(v.guest);
+ 
+                         StartSessionVideoResponse {
+                             display_id: v.display_id,
+@@ -173,9 +186,28 @@ pub(crate) async fn start_session(
+                 error!("Session {session_id} disappeared after successful start_session",);
+                 return HttpResponse::InternalServerError().finish();
+             };
++            let guest = !services.guest_outputs.is_empty();
+             *session_services.lock().await = services;
+             // KyberNow: a role changed while the services started applies now.
+             crate::kybernow::apply_input_rights(&ctrl, &session_id).await;
++            // KyberNow: a guest placed while the host's image was starting
++            // or changing goes to it now; a host's start brings its guests
++            // to its image (patch 0020).
++            if guest {
++                crate::kybernow::relocate(
++                    &ctrl,
++                    session_id,
++                    crate::kybernow::Relocation::HostImage,
++                )
++                .await;
++            } else if !host_displays.is_empty()
++                && ctrl.config.session_mode() == crate::config::SessionMode::Multi
++            {
++                tokio::spawn(crate::kybernow::after_host_start(
++                    ctrl.clone().into_inner(),
++                    host_displays,
++                ));
++            }
+ 
+             HttpResponse::Ok().json(StartSessionResponse {
+                 session_id: Some(numeric_session_id),
+@@ -186,6 +218,11 @@ pub(crate) async fn start_session(
+                 metrics,
+             })
+         }
++        // KyberNow: no image the share guest's device reads.
++        Err(crate::error::Error::ShareNoImage) => {
++            info!("Stream start rejected: no image this share guest reads");
++            HttpResponse::Conflict().json("No image this device reads")
++        }
+         Err(err) => {
+             info!("Stream start rejected: {:?}", err);
+             HttpResponse::Forbidden().finish()
+diff --git a/kycontroller/src/main.rs b/kycontroller/src/main.rs
+index 2a0cb53..a35d677 100644
+--- a/kycontroller/src/main.rs
++++ b/kycontroller/src/main.rs
+@@ -45,6 +45,7 @@ mod cli;
+ mod config;
+ mod controller;
+ mod error;
++mod guest_image;
+ mod host_events;
+ mod inputservice;
+ #[cfg(feature = "kyhub")]
+@@ -579,10 +580,23 @@ pub(crate) async fn set_bitrate(
+         return HttpResponse::Unauthorized().finish();
+     };
+ 
+-    // KyberNow: the shared image stays the host's to tune.
++    // KyberNow: the host's image stays the host's to tune; a share guest
++    // tunes only an image of its own that it is alone on (patch 0020).
+     if kybernow::is_guest(&ctrl, &uid) {
+-        warn!("Bitrate change refused to a share guest");
+-        return HttpResponse::Forbidden().finish();
++        if !kybernow::guest_set_bitrate(&ctrl, &uid, request.bitrate).await {
++            warn!("Bitrate change refused to a share guest");
++            return HttpResponse::Forbidden().finish();
++        }
++        let _ = ctrl.with_session(&uid, |s| {
++            if let Some(s) = &s.session {
++                s.host_event_sender
++                    .send(host_events::HostEvent::BitrateChanged {
++                        bitrate: request.bitrate,
++                    });
++            }
++            Ok(())
++        });
++        return HttpResponse::Ok().finish();
+     }
+ 
+     // Split the global bitrate evenly across `count` streams and cast to the
+@@ -609,7 +623,7 @@ pub(crate) async fn set_bitrate(
+     // global; log a warning since the change will affect every other client
+     // on the same display (last-writer-wins, temporary).
+     if !services.video_subscriptions.is_empty() {
+-        let av_services_manager = ctrl.av_services_manager.lock().await;
++        let mut av_services_manager = ctrl.av_services_manager.lock().await;
+         // KyberNow: same split as at session start, by each display's pixels
+         // per second (evenly if one is unknown).
+         let weights: Vec<u64> = services
+@@ -636,12 +650,17 @@ pub(crate) async fn set_bitrate(
+                 );
+             }
+ 
+-            let Some(stream) = av_services_manager.video_streams.get(key) else {
++            let Some(stream) = av_services_manager.video_streams.get_mut(key) else {
+                 continue;
+             };
+             if let Err(err) = stream.avservice.video_set_bitrate(per_stream as i32) {
+                 warn!("Failed to set bitrate: {err:?}");
+             }
++            // KyberNow: kept, for the share guests' images (never above).
++            stream.config.bitrate = per_stream;
++            if let crate::avservices_manager::VideoStreamKey::Shared { display_id, .. } = key {
++                av_services_manager.cap_guest_images(*display_id);
++            }
+         }
+     } else if !services.video.is_empty() {
+         let per_stream = split_bitrate(services.video.len());
+@@ -682,13 +701,6 @@ pub(crate) async fn force_idr(ctrl: web::Data<Controller>, user: Identity) -> Ht
+         return HttpResponse::Unauthorized().finish();
+     };
+ 
+-    // KyberNow: a share guest's keyframes would weigh on every viewer of the
+-    // shared image; it gets one when it joins and when it lags (kydup).
+-    if kybernow::is_guest(&ctrl, &uid) {
+-        debug!("Keyframe request from a share guest ignored");
+-        return HttpResponse::Ok().finish();
+-    }
+-
+     // Checked and recorded under the sessions lock: of two concurrent
+     // requests, only one gets through.
+     let now = Instant::now();
+@@ -715,6 +727,16 @@ pub(crate) async fn force_idr(ctrl: web::Data<Controller>, user: Identity) -> Ht
+         }
+     };
+ 
++    // KyberNow: a share guest gets its keyframe on an image of its own; on
++    // the host's, one every 2 s at most; each request is a sign of lag
++    // (patch 0020).
++    if kybernow::is_guest(&ctrl, &uid) {
++        drop(services);
++        debug!("Keyframe requested by a share guest");
++        kybernow::guest_force_idr(ctrl.into_inner(), uid).await;
++        return HttpResponse::Ok().finish();
++    }
++
+     let mut services = services.lock().await;
+     debug!("Keyframe requested by the client");
+ 
+@@ -932,6 +954,7 @@ async fn real_main(config: config::Config) -> Result<()> {
+                     web::scope("/kybernow")
+                         .service(kybernow::get_sessions)
+                         .service(kybernow::post_role)
++                        .service(kybernow::post_quality)
+                         .service(kybernow::post_close),
+                 )
+                 .service(capabilities)
+diff --git a/kycontroller/src/rtp/mod.rs b/kycontroller/src/rtp/mod.rs
+index e0bcb6e..c666f0a 100644
+--- a/kycontroller/src/rtp/mod.rs
++++ b/kycontroller/src/rtp/mod.rs
+@@ -132,6 +132,7 @@ pub async fn start(
+         video_subscriptions: Vec::new(),
+         audio_subscription: None,
+         input_rights: None,
++        guest_outputs: Vec::new(),
+     };
+ 
+     time::sleep(Duration::from_millis(100)).await;

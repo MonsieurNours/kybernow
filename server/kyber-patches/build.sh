@@ -58,7 +58,19 @@
 #         et imposé (entrées selon le rôle, changées sans couper l'image,
 #         jamais le presse-papiers ; seulement son écran ; ni débit ni image
 #         clé) ; routes /kybernow (sessions, role, close) pour KyberNow Admin
-#   0020  moteur web, image clé au lieu de couper (0020-kyctlweb-*, kyclient et
+#   0020  image à part d'un invité (KyberNow Share) : kyavservice et txproto
+#         (0020-kyavservice-*, 0020-txproto-*) : scale et max_fps dans
+#         KymuxStartVideo ; image réduite sur la carte (scale_d3d11 pour NVENC
+#         et AMF, scale_qsv, scale logiciel pour x264), toujours 4:2:0 ;
+#         cadence plafonnée dans la capture (duplication et WGC, dernière image
+#         retenue jusqu'à son heure) ; plancher de débit à 1 Mbit/s pour une
+#         image d'invité ; libavconv : réduction seulement, max_fps refusé.
+#         kycontroller (0020-kycontroller-*) : seule une session d'hôte crée
+#         ou redéfinit l'image de l'hôte ; image à part par qualité d'invité
+#         (kn_quality, choose(), limites par encodeur) ; sorties d'invité de
+#         kydup qui ne retiennent jamais la source, déplaçables ; image clé et
+#         débit par image ; descente d'un cran en retard ; /kybernow/quality.
+#         Moteur web, image clé au lieu de couper (0020-kyctlweb-*, kyclient et
 #         kywebplayer de la copie du moteur web seulement) : le décodeur qui
 #         attend une image clé (après une erreur, ou une image clé perdue) la
 #         demande (POST /force_idr, une par seconde au plus) ; la session ne

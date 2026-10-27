@@ -1,0 +1,849 @@
+diff --git a/kyavservice-types/src/lib.rs b/kyavservice-types/src/lib.rs
+index ee0c8c6..b5b28f5 100644
+--- a/kyavservice-types/src/lib.rs
++++ b/kyavservice-types/src/lib.rs
+@@ -67,6 +67,14 @@ pub enum Command {
+         yuv444: bool,
+         intra_refresh: Option<bool>,
+         metrics_uri: Option<String>,
++        /// KyberNow (0020): encode the display scaled down to this size (a
++        /// share guest's own image, always 4:2:0). `None`: the display as is.
++        #[serde(default)]
++        scale: Option<VideoScale>,
++        /// KyberNow (0020): at most this many images per second. `None`:
++        /// the display's own rate.
++        #[serde(default)]
++        max_fps: Option<u32>,
+     },
+     KymuxStartAudio {
+         uri: String,
+@@ -78,6 +86,13 @@ pub enum Command {
+     Stop,
+ }
+ 
++/// KyberNow (0020): the size of a scaled-down image (even numbers).
++#[derive(Clone, Copy, Serialize, Deserialize, Debug, PartialEq, Eq, Hash)]
++pub struct VideoScale {
++    pub width: u32,
++    pub height: u32,
++}
++
+ #[derive(Clone, Serialize, Deserialize, Debug)]
+ pub enum Response {
+     None,
+diff --git a/kyavservice/src/avconv/mod.rs b/kyavservice/src/avconv/mod.rs
+index 4fbd011..f7700b4 100644
+--- a/kyavservice/src/avconv/mod.rs
++++ b/kyavservice/src/avconv/mod.rs
+@@ -43,13 +43,14 @@ use log::{debug, error, info, trace, warn};
+ 
+ use kyavservice_types::{
+     Command, Event, IpcApi, PipelineEvent, PipelineEventType, PipelineStage, PipelineType,
+-    Response, VideoCodec,
++    Response, VideoCodec, VideoScale,
+ };
+ use libavconv_rs::sys;
+ use libkypc::{EventSender, Worker};
+ 
+ use crate::TargetLogLevel;
+ use crate::config::Config;
++use crate::kybernow;
+ 
+ use self::encoder_control::EncoderControl;
+ pub use self::error::{Error, Result};
+@@ -168,8 +169,9 @@ fn av_log_level(level: log::LevelFilter) -> i32 {
+     }
+ }
+ 
+-fn ajust_min_bitrate(config: &Config, bitrate: u32) -> u32 {
+-    let min_bitrate = config.minimum_bitrate();
++fn ajust_min_bitrate(config: &Config, bitrate: u32, guest_image: bool) -> u32 {
++    // KyberNow (0020): a lower floor for a share guest's own image.
++    let min_bitrate = kybernow::minimum_bitrate(config.minimum_bitrate(), guest_image);
+     if bitrate < min_bitrate {
+         warn!("Bitrate too low. Reconfigure it: {bitrate} -> {min_bitrate}");
+         min_bitrate
+@@ -185,6 +187,7 @@ fn video_config(
+     codec: VideoCodec,
+     yuv444: bool,
+     intra_refresh: Option<bool>,
++    scale: Option<VideoScale>,
+ ) -> Result<VideoConfig> {
+     #[cfg(target_os = "linux")]
+     let (source_mode, source_size, output_size, gstreamer_pipeline) = match config
+@@ -223,13 +226,15 @@ fn video_config(
+         #[cfg(target_os = "linux")]
+         output_size,
+         encoder: config.encoder(),
+-        bitrate: ajust_min_bitrate(config, bitrate),
++        bitrate: ajust_min_bitrate(config, bitrate, kybernow::is_guest_image(scale, None)),
+         codec,
+-        yuv444,
++        // KyberNow (0020): the scaler outputs NV12 (4:2:0).
++        yuv444: yuv444 && scale.is_none(),
+         intra_refresh: intra_refresh.unwrap_or(config.intra_refresh()),
+         encoder_config: config.video_encoder_config.clone(),
+         clock_type: config.clock_type(),
+         cursor_move_rate: config.cursor_move_rate(),
++        scale,
+         #[cfg(feature = "watermark")]
+         watermark: None,
+         #[cfg(target_os = "linux")]
+@@ -259,6 +264,7 @@ fn sdp_probe_config(
+         VideoCodec::H264,
+         yuv444,
+         intra_refresh,
++        None,
+     )?;
+ 
+     #[cfg(target_os = "linux")]
+@@ -344,6 +350,7 @@ async fn handle_command(
+                 VideoCodec::H264,
+                 yuv444,
+                 intra_refresh,
++                None,
+             )?;
+ 
+             let ret = rtp::start_video(video_config, ip, port, sender.clone());
+@@ -376,14 +383,30 @@ async fn handle_command(
+             yuv444,
+             intra_refresh,
+             metrics_uri,
++            scale,
++            max_fps,
+         } => {
+             info!(
+-                "Start Kymux Video: URI {uri:?}, bitrate: {bitrate}, codec: {codec:?}, yuv444: {yuv444}, intra_refresh: {intra_refresh:?}"
++                "Start Kymux Video: URI {uri:?}, bitrate: {bitrate}, codec: {codec:?}, yuv444: {yuv444}, intra_refresh: {intra_refresh:?}, scale: {scale:?}, max_fps: {max_fps:?}"
+             );
+ 
++            // KyberNow (0020): this engine scales a share guest's own image
++            // down but can't cap its rate; refused otherwise, and
++            // kycontroller's start fails.
++            let scaling = kybernow::can_scale(config.encoder(), cfg!(target_os = "windows"));
++            kybernow::check(scale, max_fps, scaling, false)
++                .map_err(|reason| Error::ConfigInvalid { reason })?;
++
+             #[cfg_attr(not(feature = "watermark"), allow(unused_mut))]
+-            let mut video_config =
+-                video_config(config, display_id, bitrate, codec, yuv444, intra_refresh)?;
++            let mut video_config = video_config(
++                config,
++                display_id,
++                bitrate,
++                codec,
++                yuv444,
++                intra_refresh,
++                scale,
++            )?;
+             #[cfg(feature = "watermark")]
+             {
+                 video_config.watermark = config.watermark.clone();
+diff --git a/kyavservice/src/avconv/video.rs b/kyavservice/src/avconv/video.rs
+index 8220eb3..6f7ac5f 100644
+--- a/kyavservice/src/avconv/video.rs
++++ b/kyavservice/src/avconv/video.rs
+@@ -22,7 +22,7 @@ use std::sync::Arc;
+ 
+ use log::{info, warn};
+ 
+-use kyavservice_types::VideoCodec;
++use kyavservice_types::{VideoCodec, VideoScale};
+ use libavconv_rs::{
+     AvconvContext, DataSink, EncoderBuilder, FilterGraph, FilterGraphBuilder, GrabCapture,
+     GrabCaptureBuilder, GrabProviderCtx, GrabSource, Handle, HwDeviceRef, StreamType, sys,
+@@ -41,6 +41,7 @@ use crate::config;
+ use crate::config::VideoEncoder;
+ #[cfg(feature = "watermark")]
+ use crate::config::WatermarkConfig;
++use crate::kybernow;
+ 
+ pub(crate) struct VideoConfig {
+     pub(crate) display_id: u32,
+@@ -59,6 +60,9 @@ pub(crate) struct VideoConfig {
+     pub(crate) clock_type: config::ClockType,
+     /// Pointer moves forwarded per second (`[kyavserver] cursor_move_rate`).
+     pub(crate) cursor_move_rate: u32,
++    /// KyberNow (0020): a share guest's own image, scaled down to this size
++    /// before the encoder (4:2:0, `yuv444` is false).
++    pub(crate) scale: Option<VideoScale>,
+     #[cfg(feature = "watermark")]
+     pub(crate) watermark: Option<config::WatermarkConfig>,
+     #[cfg(target_os = "linux")]
+@@ -402,6 +406,14 @@ fn add_output_scale(config: &VideoConfig, filter: String) -> String {
+     filter
+ }
+ 
++/// NVENC and AMF take the D3D11 capture as is. KyberNow (0020): a guest's own
++/// image is scaled down on the graphics card first.
++fn d3d11_filter(config: &VideoConfig) -> String {
++    config
++        .scale
++        .map_or_else(|| "null".to_string(), kybernow::d3d11_scale)
++}
++
+ fn encoder_names(config: &VideoConfig) -> (&'static str, String) {
+     let (enc, filter): (&'static str, String) = match config.encoder {
+         VideoEncoder::NVENC => {
+@@ -410,7 +422,7 @@ fn encoder_names(config: &VideoConfig) -> (&'static str, String) {
+                 VideoCodec::HEVC => "hevc_nvenc",
+                 VideoCodec::AV1 => "av1_nvenc",
+             };
+-            (enc, "null".to_string())
++            (enc, d3d11_filter(config))
+         }
+         VideoEncoder::AMF => {
+             let enc = match config.codec {
+@@ -418,7 +430,7 @@ fn encoder_names(config: &VideoConfig) -> (&'static str, String) {
+                 VideoCodec::HEVC => "hevc_amf",
+                 VideoCodec::AV1 => "av1_amf",
+             };
+-            (enc, "null".to_string())
++            (enc, d3d11_filter(config))
+         }
+         VideoEncoder::VAAPI => {
+             let enc = match config.codec {
+@@ -447,15 +459,24 @@ fn encoder_names(config: &VideoConfig) -> (&'static str, String) {
+                     format!("{map},scale_vaapi=format=nv12,hwmap=derive_device=qsv,format=qsv")
+                 }
+                 (Some(map), true) => format!("{map},hwmap=derive_device=qsv,format=qsv"),
+-                (None, false) => "hwmap,format=qsv,scale_qsv=format=nv12".to_string(),
++                // KyberNow (0020): scale_qsv also scales a guest's own image down.
++                (None, false) => format!(
++                    "hwmap,format=qsv,scale_qsv={}format=nv12",
++                    kybernow::qsv_size(config.scale)
++                ),
+                 (None, true) => "hwmap,format=qsv".to_string(),
+             };
+             (enc, filter)
+         }
+         VideoEncoder::X264 => {
+             let pix_fmt = if config.yuv444 { "yuv444p" } else { "nv12" };
++            // KyberNow (0020): a guest's own image is also scaled down, in the
++            // same software pass as the conversion.
+             #[cfg(target_os = "windows")]
+-            let filter = format!("hwdownload,format=bgra,format={pix_fmt}");
++            let filter = format!(
++                "hwdownload,format=bgra,{}format={pix_fmt}",
++                kybernow::software_scale(config.scale)
++            );
+             #[cfg(target_os = "linux")]
+             let filter = if matches!(
+                 config.grab_backend,
+@@ -873,6 +894,7 @@ mod tests {
+             encoder_config: None,
+             clock_type: config::ClockType::ZeroedOrigin,
+             cursor_move_rate: config::DEFAULT_CURSOR_MOVE_RATE,
++            scale: None,
+             #[cfg(feature = "watermark")]
+             watermark: None,
+             #[cfg(target_os = "linux")]
+@@ -919,4 +941,58 @@ mod tests {
+             assert_eq!(filter, "null");
+         }
+     }
++
++    #[cfg(target_os = "windows")]
++    const P720: VideoScale = VideoScale {
++        width: 1280,
++        height: 720,
++    };
++
++    #[cfg(target_os = "windows")]
++    #[test]
++    fn d3d11_encoders_scale_only_a_guest_image() {
++        for (encoder, name) in [
++            (VideoEncoder::NVENC, "h264_nvenc"),
++            (VideoEncoder::AMF, "h264_amf"),
++        ] {
++            let mut config = video_config(encoder);
++            assert_eq!(encoder_names(&config), (name, "null".to_string()));
++
++            config.scale = Some(P720);
++            assert_eq!(
++                encoder_names(&config),
++                (
++                    name,
++                    "scale_d3d11=width=1280:height=720:format=nv12,setparams=colorspace=bt470bg:range=tv"
++                        .to_string()
++                )
++            );
++        }
++    }
++
++    #[cfg(target_os = "windows")]
++    #[test]
++    fn qsv_and_x264_scale_only_a_guest_image() {
++        let mut config = video_config(VideoEncoder::QSV);
++        assert_eq!(
++            encoder_names(&config).1,
++            "hwmap,format=qsv,scale_qsv=format=nv12"
++        );
++        config.scale = Some(P720);
++        assert_eq!(
++            encoder_names(&config).1,
++            "hwmap,format=qsv,scale_qsv=w=1280:h=720:format=nv12"
++        );
++
++        let mut config = video_config(VideoEncoder::X264);
++        assert_eq!(
++            encoder_names(&config),
++            ("libx264", "hwdownload,format=bgra,format=nv12".to_string())
++        );
++        config.scale = Some(P720);
++        assert_eq!(
++            encoder_names(&config).1,
++            "hwdownload,format=bgra,scale=w=1280:h=720,format=nv12"
++        );
++    }
+ }
+diff --git a/kyavservice/src/kybernow.rs b/kyavservice/src/kybernow.rs
+new file mode 100644
+index 0000000..7ef6d6b
+--- /dev/null
++++ b/kyavservice/src/kybernow.rs
+@@ -0,0 +1,189 @@
++// KyberNow (0020): KyberNow Share, a guest's own image. kycontroller may ask
++// kyavserver for an image made for a guest: scaled down (`scale`, always
++// 4:2:0) and at a lower rate (`max_fps`). Neither is given for the host's
++// image, which stays as it was. Here, what both engines share: what they can
++// make, the scaling filters put before the encoder, and the bitrate floor.
++
++use kyavservice_types::VideoScale;
++
++use crate::config::VideoEncoder;
++
++/// Lowest bitrate of a guest's own image (bits/s). The display's floor
++/// (`[kyavserver] minimum_bitrate`, 5 Mbit/s by default) would lift a 720p30
++/// image above the bitrate kycontroller gives it.
++const GUEST_MIN_BITRATE: u32 = 1_000_000;
++
++/// Whether the image is a guest's own one (scaled down or at a lower rate).
++pub(crate) fn is_guest_image(scale: Option<VideoScale>, max_fps: Option<u32>) -> bool {
++    scale.is_some() || max_fps.is_some()
++}
++
++/// Bitrate floor of an image: the display's, at most 1 Mbit/s for a guest's
++/// own image.
++pub(crate) fn minimum_bitrate(display_floor: u32, guest_image: bool) -> u32 {
++    if guest_image {
++        display_floor.min(GUEST_MIN_BITRATE)
++    } else {
++        display_floor
++    }
++}
++
++/// Encoders whose image can be scaled down: on Windows only (D3D11 frames of
++/// the desktop capture), on the graphics card for NVENC, AMF and QSV, in
++/// software for x264.
++pub(crate) fn can_scale(encoder: VideoEncoder, windows: bool) -> bool {
++    windows
++        && matches!(
++            encoder,
++            VideoEncoder::NVENC | VideoEncoder::AMF | VideoEncoder::QSV | VideoEncoder::X264
++        )
++}
++
++/// Checks a guest's own image against what the engine can make: `scaling`
++/// with this encoder, `rate_limit` a capped rate. The error is why the
++/// stream is refused at start.
++pub(crate) fn check(
++    scale: Option<VideoScale>,
++    max_fps: Option<u32>,
++    scaling: bool,
++    rate_limit: bool,
++) -> Result<(), String> {
++    if let Some(VideoScale { width, height }) = scale {
++        if !scaling {
++            return Err(format!(
++                "cannot scale the image down to {width}x{height} with this encoder"
++            ));
++        }
++        if width == 0 || height == 0 || width % 2 != 0 || height % 2 != 0 {
++            return Err(format!(
++                "cannot scale the image down to {width}x{height}: even, non-zero sizes only"
++            ));
++        }
++    }
++    match max_fps {
++        Some(_) if !rate_limit => Err("cannot cap the image rate with this engine".to_string()),
++        Some(0) => Err("cannot cap the image rate to 0".to_string()),
++        _ => Ok(()),
++    }
++}
++
++/// NVENC and AMF: the D3D11 video processor scales the BGRA capture down and
++/// converts it to NV12, on the device of its input frames (the capture's).
++/// Its output is BT.601 limited range (the processor's default color space),
++/// labelled as such so that players convert it back right (NVENC labels the
++/// host's BGRA image the same way).
++pub(crate) fn d3d11_scale(scale: VideoScale) -> String {
++    format!(
++        "scale_d3d11=width={}:height={}:format=nv12,setparams=colorspace=bt470bg:range=tv",
++        scale.width, scale.height
++    )
++}
++
++/// QSV: the size options of `scale_qsv`, nothing for the display as is.
++pub(crate) fn qsv_size(scale: Option<VideoScale>) -> String {
++    scale
++        .map(|s| format!("w={}:h={}:", s.width, s.height))
++        .unwrap_or_default()
++}
++
++/// x264: the software scaler, after the image is downloaded, nothing for the
++/// display as is.
++pub(crate) fn software_scale(scale: Option<VideoScale>) -> String {
++    scale
++        .map(|s| format!("scale=w={}:h={},", s.width, s.height))
++        .unwrap_or_default()
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    const P1080: VideoScale = VideoScale {
++        width: 1920,
++        height: 1080,
++    };
++
++    #[test]
++    fn host_image_keeps_the_display_floor() {
++        assert!(!is_guest_image(None, None));
++        assert_eq!(minimum_bitrate(5_000_000, false), 5_000_000);
++        assert_eq!(minimum_bitrate(500_000, false), 500_000);
++    }
++
++    #[test]
++    fn guest_image_floor_is_one_megabit_at_most() {
++        assert!(is_guest_image(Some(P1080), None));
++        assert!(is_guest_image(None, Some(60)));
++        assert_eq!(minimum_bitrate(5_000_000, true), 1_000_000);
++        assert_eq!(minimum_bitrate(500_000, true), 500_000);
++    }
++
++    #[test]
++    fn windows_encoders_scale() {
++        for encoder in [
++            VideoEncoder::NVENC,
++            VideoEncoder::AMF,
++            VideoEncoder::QSV,
++            VideoEncoder::X264,
++        ] {
++            assert!(can_scale(encoder, true), "{encoder:?}");
++            assert!(!can_scale(encoder, false), "{encoder:?}");
++        }
++        for encoder in [
++            VideoEncoder::VAAPI,
++            VideoEncoder::V4L2M2M,
++            VideoEncoder::VIDEOTOOLBOX,
++        ] {
++            assert!(!can_scale(encoder, true), "{encoder:?}");
++        }
++    }
++
++    #[test]
++    fn check_accepts_the_host_image_everywhere() {
++        assert_eq!(check(None, None, false, false), Ok(()));
++    }
++
++    #[test]
++    fn check_accepts_what_the_engine_makes() {
++        assert_eq!(check(Some(P1080), Some(60), true, true), Ok(()));
++        assert_eq!(check(Some(P1080), None, true, false), Ok(()));
++        assert_eq!(check(None, Some(30), false, true), Ok(()));
++    }
++
++    #[test]
++    fn check_refuses_what_the_engine_cannot_make() {
++        assert!(check(Some(P1080), None, false, true).is_err());
++        assert!(check(None, Some(30), true, false).is_err());
++        assert!(check(Some(P1080), Some(30), true, false).is_err());
++    }
++
++    #[test]
++    fn check_refuses_odd_or_empty_sizes_and_zero_rate() {
++        for (width, height) in [(1281, 720), (1280, 721), (0, 720), (1280, 0)] {
++            assert!(
++                check(Some(VideoScale { width, height }), None, true, true).is_err(),
++                "{width}x{height}"
++            );
++        }
++        assert!(check(None, Some(0), true, true).is_err());
++    }
++
++    #[test]
++    fn d3d11_scale_outputs_labelled_nv12() {
++        assert_eq!(
++            d3d11_scale(VideoScale {
++                width: 1280,
++                height: 720
++            }),
++            "scale_d3d11=width=1280:height=720:format=nv12,setparams=colorspace=bt470bg:range=tv"
++        );
++    }
++
++    #[test]
++    fn qsv_and_software_sizes_are_empty_for_the_host() {
++        assert_eq!(qsv_size(None), "");
++        assert_eq!(software_scale(None), "");
++        assert_eq!(qsv_size(Some(P1080)), "w=1920:h=1080:");
++        assert_eq!(software_scale(Some(P1080)), "scale=w=1920:h=1080,");
++    }
++}
+diff --git a/kyavservice/src/lib.rs b/kyavservice/src/lib.rs
+index 6df58c8..319f0ec 100644
+--- a/kyavservice/src/lib.rs
++++ b/kyavservice/src/lib.rs
+@@ -20,6 +20,7 @@
+ 
+ mod avconv;
+ mod config;
++mod kybernow;
+ mod txproto;
+ 
+ use kyavservice_types::IpcApi;
+diff --git a/kyavservice/src/txproto/rtp.rs b/kyavservice/src/txproto/rtp.rs
+index 56c4dd0..300fbde 100644
+--- a/kyavservice/src/txproto/rtp.rs
++++ b/kyavservice/src/txproto/rtp.rs
+@@ -97,6 +97,8 @@ pub(crate) async fn generate_sdp(
+         encoder_config: encoder_config.clone(),
+         clock_type: config::ClockType::ZeroedOrigin,
+         cursor_move_rate: config::DEFAULT_CURSOR_MOVE_RATE,
++        scale: None,
++        max_fps: None,
+         #[cfg(feature = "watermark")]
+         watermark: None,
+         #[cfg(target_os = "linux")]
+diff --git a/kyavservice/src/txproto/run.rs b/kyavservice/src/txproto/run.rs
+index e3d6598..3dc2884 100644
+--- a/kyavservice/src/txproto/run.rs
++++ b/kyavservice/src/txproto/run.rs
+@@ -32,6 +32,7 @@ use super::{Error, Result};
+ use super::{displays, kymux, rtp};
+ use crate::TargetLogLevel;
+ use crate::config::Config;
++use crate::kybernow;
+ 
+ #[allow(unused)]
+ pub(crate) struct Context {
+@@ -99,8 +100,9 @@ fn handle_video_force_idr(
+     Ok(())
+ }
+ 
+-fn ajust_min_bitrate(config: &Config, bitrate: u32) -> u32 {
+-    let min_bitrate = config.minimum_bitrate();
++fn ajust_min_bitrate(config: &Config, bitrate: u32, guest_image: bool) -> u32 {
++    // KyberNow (0020): a lower floor for a share guest's own image.
++    let min_bitrate = kybernow::minimum_bitrate(config.minimum_bitrate(), guest_image);
+     if bitrate < min_bitrate {
+         warn!("Bitrate too low. Reconfigure it: {bitrate} -> {min_bitrate}");
+         min_bitrate
+@@ -178,13 +180,15 @@ async fn handle_command(
+             let video_config = VideoConfig {
+                 display_id,
+                 encoder: config.encoder(),
+-                bitrate: ajust_min_bitrate(config, bitrate),
++                bitrate: ajust_min_bitrate(config, bitrate, false),
+                 codec: VideoCodec::H264,
+                 yuv444,
+                 intra_refresh: intra_refresh.unwrap_or(config.intra_refresh()),
+                 encoder_config: config.video_encoder_config.clone(),
+                 clock_type: config.clock_type(),
+                 cursor_move_rate: config.cursor_move_rate(),
++                scale: None,
++                max_fps: None,
+                 #[cfg(feature = "watermark")]
+                 watermark: None,
+                 #[cfg(target_os = "linux")]
+@@ -215,22 +219,41 @@ async fn handle_command(
+             yuv444,
+             intra_refresh,
+             metrics_uri,
++            scale,
++            max_fps,
+         } => {
++            // KyberNow (0020): a share guest's own image this encoder can't
++            // make is refused here, so that kycontroller's start fails.
++            let windows = cfg!(target_os = "windows");
++            let scaling = kybernow::can_scale(config.encoder(), windows);
++            if let Err(reason) = kybernow::check(scale, max_fps, scaling, windows) {
++                error!("Refused Kymux Video: {reason}");
++                response.send(Err(kyavservice_types::Error(reason)))?;
++                return Ok(());
++            }
++
+             response.send(Ok(Response::None))?;
+             info!(
+-                "Start Kymux Video: URI {uri:?}, bitrate: {bitrate}, codec: {codec:?}, yuv444: {yuv444}, intra_refresh: {intra_refresh:?}"
++                "Start Kymux Video: URI {uri:?}, bitrate: {bitrate}, codec: {codec:?}, yuv444: {yuv444}, intra_refresh: {intra_refresh:?}, scale: {scale:?}, max_fps: {max_fps:?}"
+             );
+ 
+             let video_config = VideoConfig {
+                 display_id,
+                 encoder: config.encoder(),
+-                bitrate: ajust_min_bitrate(config, bitrate),
++                bitrate: ajust_min_bitrate(
++                    config,
++                    bitrate,
++                    kybernow::is_guest_image(scale, max_fps),
++                ),
+                 codec,
+-                yuv444,
++                // KyberNow (0020): the scaler outputs NV12 (4:2:0).
++                yuv444: yuv444 && scale.is_none(),
+                 intra_refresh: intra_refresh.unwrap_or(config.intra_refresh()),
+                 encoder_config: config.video_encoder_config.clone(),
+                 clock_type: config.clock_type(),
+                 cursor_move_rate: config.cursor_move_rate(),
++                scale,
++                max_fps,
+                 #[cfg(feature = "watermark")]
+                 watermark: config.watermark.clone(),
+                 #[cfg(target_os = "linux")]
+diff --git a/kyavservice/src/txproto/video.rs b/kyavservice/src/txproto/video.rs
+index 3e29388..c13e300 100644
+--- a/kyavservice/src/txproto/video.rs
++++ b/kyavservice/src/txproto/video.rs
+@@ -21,13 +21,14 @@
+ use log::{info, warn};
+ 
+ use kyavservice_types::{
+-    IpcApi, PipelineEvent, PipelineEventType, PipelineStage, PipelineType, VideoCodec,
++    IpcApi, PipelineEvent, PipelineEventType, PipelineStage, PipelineType, VideoCodec, VideoScale,
+ };
+ use libkypc::EventSender;
+ use txproto_rs::{Dictionary, DictionaryEntry, DictionaryValue, Txproto};
+ 
+ use crate::config;
+ use crate::config::VideoEncoder;
++use crate::kybernow;
+ use crate::txproto::{Event, Result};
+ 
+ pub(crate) struct VideoConfig {
+@@ -41,6 +42,12 @@ pub(crate) struct VideoConfig {
+     pub(crate) clock_type: config::ClockType,
+     /// Pointer moves forwarded per second (`[kyavserver] cursor_move_rate`).
+     pub(crate) cursor_move_rate: u32,
++    /// KyberNow (0020): a share guest's own image, scaled down to this size
++    /// before the encoder (4:2:0, `yuv444` is false).
++    pub(crate) scale: Option<VideoScale>,
++    /// KyberNow (0020): at most this many images per second (Windows
++    /// capture, `max_framerate`).
++    pub(crate) max_fps: Option<u32>,
+     #[cfg(feature = "watermark")]
+     pub(crate) watermark: Option<config::WatermarkConfig>,
+     #[cfg(target_os = "linux")]
+@@ -201,6 +208,7 @@ fn create_nvenc(
+         VideoCodec::AV1 => "av1_nvenc",
+     };
+ 
++    let scale = config.scale;
+     let config = txproto_rs::EncoderConfig {
+         enc_name,
+         options: Some(options),
+@@ -210,11 +218,40 @@ fn create_nvenc(
+ 
+     info!("Create encoder {enc_name}");
+     let encoder = ctx.create_encoder(config)?;
+-    ctx.link(video_source, &encoder, 0)?;
++    link_d3d11(ctx, scale, video_source, &encoder)?;
+ 
+     Ok(encoder)
+ }
+ 
++/// KyberNow (0020): links the capture to NVENC or AMF, through the scaling
++/// filter of a guest's own image if there is one.
++fn link_d3d11(
++    ctx: &Txproto,
++    scale: Option<VideoScale>,
++    video_source: &txproto_rs::Handle,
++    encoder: &txproto_rs::Handle,
++) -> Result<()> {
++    let Some(scale) = scale else {
++        ctx.link(video_source, encoder, 0)?;
++        return Ok(());
++    };
++
++    // No device for txproto to attach: it would open a new D3D11 device,
++    // while scale_d3d11 works on the device of its input frames (the
++    // capture's), the one NVENC and AMF encode on.
++    let graph = kybernow::d3d11_scale(scale);
++    info!("Scale the image down: {graph}");
++    let options = Dictionary::from_entries(&[("dump_graph", false).into()])?;
++    let filter = ctx.create_filtergraph(&graph, txproto_rs::HWDeviceType::NONE, Some(options))?;
++    let init_opts = Dictionary::from_entries(&[("fifo_size", 1).into()])?;
++    ctx.ctrl_opts(&filter, init_opts)?;
++
++    ctx.link(video_source, &filter, 0)?;
++    ctx.link(&filter, encoder, 0)?;
++
++    Ok(())
++}
++
+ fn create_vaapi(
+     ctx: &Txproto,
+     config: &VideoConfig,
+@@ -283,14 +320,23 @@ fn create_vaapi(
+     Ok(encoder)
+ }
+ 
+-fn create_qsv_nv12_filter(ctx: &Txproto) -> Result<txproto_rs::Handle> {
++/// KyberNow (0020): with `scale` (a guest's own image), scale_qsv also
++/// scales the image down.
++fn qsv_nv12_graph(scale: Option<VideoScale>) -> String {
++    format!(
++        "hwmap=derive_device=qsv,format=qsv,scale_qsv={}format=nv12",
++        kybernow::qsv_size(scale)
++    )
++}
++
++fn create_qsv_nv12_filter(ctx: &Txproto, scale: Option<VideoScale>) -> Result<txproto_rs::Handle> {
+     let options = Dictionary::from_entries(&[("dump_graph", false).into()])?;
+ 
+     // Derive the QSV device from the capture frames' device: QSV can only
+     // process textures owned by the D3D11 device its session runs on, and
+     // txproto may attach an unrelated device to the filters.
+     let filter = ctx.create_filtergraph(
+-        "hwmap=derive_device=qsv,format=qsv,scale_qsv=format=nv12",
++        &qsv_nv12_graph(scale),
+         txproto_rs::HWDeviceType::QSV,
+         Some(options),
+     )?;
+@@ -348,7 +394,7 @@ fn create_qsv(
+     // Encoder
+     let (enc_name, filter) = match config.codec {
+         VideoCodec::H264 => {
+-            let filter = create_qsv_nv12_filter(ctx)?;
++            let filter = create_qsv_nv12_filter(ctx, config.scale)?;
+ 
+             ("h264_qsv", Some(filter))
+         }
+@@ -356,13 +402,13 @@ fn create_qsv(
+             let filter = if config.yuv444 {
+                 None
+             } else {
+-                Some(create_qsv_nv12_filter(ctx)?)
++                Some(create_qsv_nv12_filter(ctx, config.scale)?)
+             };
+ 
+             ("hevc_qsv", filter)
+         }
+         VideoCodec::AV1 => {
+-            let filter = create_qsv_nv12_filter(ctx)?;
++            let filter = create_qsv_nv12_filter(ctx, config.scale)?;
+ 
+             ("av1_qsv", Some(filter))
+         }
+@@ -432,6 +478,7 @@ fn create_amf(
+ 
+     let init_opts = Dictionary::from_entries(&[("fifo_size", 1).into()])?;
+ 
++    let scale = config.scale;
+     let config = txproto_rs::EncoderConfig {
+         enc_name,
+         options: Some(options),
+@@ -442,11 +489,23 @@ fn create_amf(
+     info!("Creating encoder {enc_name}");
+     let encoder = ctx.create_encoder(config)?;
+ 
+-    ctx.link(video_source, &encoder, 0)?;
++    link_d3d11(ctx, scale, video_source, &encoder)?;
+ 
+     Ok(encoder)
+ }
+ 
++/// Filters before x264. KyberNow (0020): with `scale` (a guest's own image),
++/// the downloaded image is also scaled down, in the same software pass as
++/// the conversion.
++fn x264_graph(pix_fmt: &str, scale: Option<VideoScale>) -> String {
++    let scale = kybernow::software_scale(scale);
++    #[cfg(target_os = "windows")]
++    let graph = format!("hwdownload,format=bgra,{scale}format={pix_fmt}");
++    #[cfg(not(target_os = "windows"))]
++    let graph = format!("{scale}format={pix_fmt}");
++    graph
++}
++
+ fn create_x264(
+     ctx: &Txproto,
+     config: &VideoConfig,
+@@ -455,11 +514,7 @@ fn create_x264(
+     let options = Dictionary::from_entries(&[("dump_graph", false).into()])?;
+ 
+     let pix_fmt = if config.yuv444 { "yuv444p" } else { "nv12" };
+-
+-    #[cfg(target_os = "windows")]
+-    let filter_desc = format!("hwdownload,format=bgra,format={pix_fmt}");
+-    #[cfg(not(target_os = "windows"))]
+-    let filter_desc = format!("format={pix_fmt}");
++    let filter_desc = x264_graph(pix_fmt, config.scale);
+ 
+     let filter =
+         ctx.create_filtergraph(&filter_desc, txproto_rs::HWDeviceType::NONE, Some(options))?;
+@@ -607,11 +662,15 @@ pub(crate) fn configure(
+     let grab_options = Some(grab_backend_to_dict(video_config.grab_backend)?);
+ 
+     #[cfg(target_os = "windows")]
+-    let grab_options = Some(Dictionary::from_entries(&[(
+-        "cursor_move_rate",
+-        i64::from(video_config.cursor_move_rate),
+-    )
+-        .into()])?);
++    let grab_options = {
++        let mut options: Vec<DictionaryEntry> =
++            vec![("cursor_move_rate", i64::from(video_config.cursor_move_rate)).into()];
++        // KyberNow (0020): a guest's own image at a lower rate.
++        if let Some(max_fps) = video_config.max_fps {
++            options.push(("max_framerate", i64::from(max_fps)).into());
++        }
++        Some(Dictionary::from_entries(&options)?)
++    };
+ 
+     #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+     let grab_options = None;
+@@ -679,3 +738,42 @@ pub(crate) fn configure(
+         events,
+     })
+ }
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    const P720: VideoScale = VideoScale {
++        width: 1280,
++        height: 720,
++    };
++
++    #[test]
++    fn qsv_graph_scales_only_a_guest_image() {
++        assert_eq!(
++            qsv_nv12_graph(None),
++            "hwmap=derive_device=qsv,format=qsv,scale_qsv=format=nv12"
++        );
++        assert_eq!(
++            qsv_nv12_graph(Some(P720)),
++            "hwmap=derive_device=qsv,format=qsv,scale_qsv=w=1280:h=720:format=nv12"
++        );
++    }
++
++    #[cfg(target_os = "windows")]
++    #[test]
++    fn x264_graph_scales_only_a_guest_image() {
++        assert_eq!(
++            x264_graph("yuv444p", None),
++            "hwdownload,format=bgra,format=yuv444p"
++        );
++        assert_eq!(
++            x264_graph("nv12", None),
++            "hwdownload,format=bgra,format=nv12"
++        );
++        assert_eq!(
++            x264_graph("nv12", Some(P720)),
++            "hwdownload,format=bgra,scale=w=1280:h=720,format=nv12"
++        );
++    }
++}
