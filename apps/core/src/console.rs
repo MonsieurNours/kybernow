@@ -856,12 +856,31 @@ impl Console {
     /// rend l'image qu'il reçoit désormais. Avec « Auto », `auto` : ce que
     /// l'appareil sait afficher et décoder (celui de `join` ; sans lui, Admin
     /// lit « Auto » comme l'image de l'hôte).
+    /// Admin refuse plus d'un changement par seconde : `429`, que
+    /// [`crate::session::Session::set_share_quality`] réessaie une fois
+    /// après le délai (voir [`Self::share_quality_or_wait`]).
     pub fn share_quality(&self, guest: &str, secret: &str, quality: ShareQuality, auto: Option<&ShareAuto>) -> Result<ShareImage> {
+        self.share_quality_or_wait(guest, secret, quality, auto).map_err(|e| match e {
+            QualityRefusal::TooSoon(wait) => ConsoleError::Http { status: 429, message: tr(i18n::current(), "console.http_status", &[("status", &format!("429, {} s", wait.as_secs()))]) },
+            QualityRefusal::Failed(e) => e,
+        })
+    }
+
+    /// [`Self::share_quality`], avec le délai d'un refus `429` (`retry_after`
+    /// du corps, sinon `Retry-After`, 1 s sinon ; entre 1 et 5 s).
+    pub fn share_quality_or_wait(&self, guest: &str, secret: &str, quality: ShareQuality, auto: Option<&ShareAuto>) -> std::result::Result<ShareImage, QualityRefusal> {
         let r = self
             .request("POST", "api/share/quality", Duration::from_secs(10))
             .set("x-kybernow-guest", secret)
             .send_json(crate::share::quality_body(guest, quality, auto));
-        self.read(r)
+        match r {
+            Err(ureq::Error::Status(429, resp)) => {
+                let header = resp.header("Retry-After").and_then(|h| h.trim().parse().ok());
+                let body: serde_json::Value = resp.into_json().unwrap_or(serde_json::Value::Null);
+                Err(QualityRefusal::TooSoon(quality_retry_delay(body.get("retry_after").and_then(|s| s.as_u64()), header)))
+            }
+            r => self.read(r).map_err(QualityRefusal::Failed),
+        }
     }
 
     /// L'invité quitte le partage.
@@ -883,6 +902,20 @@ impl Console {
             .send_json(body);
         self.read(r)
     }
+}
+
+/// Refus d'un changement de qualité d'image d'un invité.
+#[derive(Debug)]
+pub enum QualityRefusal {
+    /// Plus d'un changement par seconde (429) : réessayer après ce délai.
+    TooSoon(Duration),
+    Failed(ConsoleError),
+}
+
+/// Délai avant de réessayer un changement de qualité refusé : `retry_after`
+/// du corps, sinon l'en-tête `Retry-After`, sinon 1 s ; entre 1 et 5 s.
+pub(crate) fn quality_retry_delay(body: Option<u64>, header: Option<u64>) -> Duration {
+    Duration::from_secs(body.or(header).unwrap_or(1).clamp(1, 5))
 }
 
 /// Un identifiant d'invité dans un chemin : seulement ce qui ne demande pas
@@ -1092,6 +1125,15 @@ mod tests {
             let r: HeartbeatReply = serde_json::from_str(odd).unwrap();
             assert!(r.end && r.share.is_none(), "{odd}");
         }
+    }
+
+    #[test]
+    fn delai_d_un_changement_de_qualite() {
+        assert_eq!(quality_retry_delay(Some(1), Some(3)), Duration::from_secs(1), "le corps d'abord");
+        assert_eq!(quality_retry_delay(None, Some(2)), Duration::from_secs(2), "puis l'en-tête");
+        assert_eq!(quality_retry_delay(None, None), Duration::from_secs(1));
+        assert_eq!(quality_retry_delay(Some(0), None), Duration::from_secs(1), "jamais tout de suite");
+        assert_eq!(quality_retry_delay(Some(60), None), Duration::from_secs(5), "jamais plus de 5 s");
     }
 
     #[test]

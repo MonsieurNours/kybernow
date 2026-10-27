@@ -64,8 +64,9 @@ object Native {
     @JvmStatic external fun shareRoleWithPads(role: Int, pads: Boolean): Int
     /** Le rôle avec le clavier et la souris donnés ou repris, les manettes telles quelles (−1 : code inconnu). */
     @JvmStatic external fun shareRoleWithKbm(role: Int, kbm: Boolean): Int
-    // « Qualité de l'image » d'un invité : 0 Auto, 1 comme l'hôte, 2 1080p · 60 Hz, 3 720p · 30 Hz
-    // (dans `requestJson` de [shareJoin] : `quality` `auto|host|1080p60|720p30`, et pour Auto `auto`).
+    // « Qualité de l'image » d'un invité : 0 Auto, 1 comme l'hôte, 2 1080p · 60 Hz, 3 720p · 30 Hz, 4 4K · 60 Hz
+    // (menus : Auto, comme l'hôte, 4K, 1080p, 720p ; dans `requestJson` de [shareJoin] : `quality`
+    // `auto|host|2160p60|1080p60|720p30`, et `auto`).
     @JvmStatic external fun shareQualityLabel(quality: Int): String?
     /** `screen` `{pixel_width, pixel_height, refresh}`, `decoder` `{hevc, hevc444, av1, max_width, max_height, max_fps}`, `host` l'écran partagé ou `null` ; rend `auto`. */
     @JvmStatic external fun shareAutoQuality(screenJson: String, decoderJson: String, hostJson: String?): String?

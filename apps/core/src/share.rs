@@ -330,6 +330,8 @@ pub enum ShareQuality {
     Auto,
     /// « Comme l'hôte ».
     Host,
+    /// « 4K · 60 Hz ».
+    P2160_60,
     /// « 1080p · 60 Hz ».
     P1080_60,
     /// « 720p · 30 Hz ».
@@ -337,14 +339,15 @@ pub enum ShareQuality {
 }
 
 impl ShareQuality {
-    /// Dans l'ordre du choix.
-    pub const ALL: [ShareQuality; 4] = [Self::Auto, Self::Host, Self::P1080_60, Self::P720_30];
+    /// Dans l'ordre du choix (et des menus).
+    pub const ALL: [ShareQuality; 5] = [Self::Auto, Self::Host, Self::P2160_60, Self::P1080_60, Self::P720_30];
 
-    /// Nom dans l'échange avec Admin : `auto`, `host`, `1080p60`, `720p30`.
+    /// Nom dans l'échange avec Admin : `auto`, `host`, `2160p60`, `1080p60`, `720p30`.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Auto => "auto",
             Self::Host => "host",
+            Self::P2160_60 => "2160p60",
             Self::P1080_60 => "1080p60",
             Self::P720_30 => "720p30",
         }
@@ -354,19 +357,22 @@ impl ShareQuality {
         match s {
             "auto" => Some(Self::Auto),
             "host" => Some(Self::Host),
+            "2160p60" => Some(Self::P2160_60),
             "1080p60" => Some(Self::P1080_60),
             "720p30" => Some(Self::P720_30),
             _ => None,
         }
     }
 
-    /// Pour les ponts C et JNI : 0 Auto, 1 comme l'hôte, 2 1080p60, 3 720p30.
+    /// Pour les ponts C et JNI : 0 Auto, 1 comme l'hôte, 2 1080p60, 3 720p30,
+    /// 4 2160p60 (ajouté après : les codes ne suivent pas l'ordre de [`Self::ALL`]).
     pub fn code(self) -> i32 {
         match self {
             Self::Auto => 0,
             Self::Host => 1,
             Self::P1080_60 => 2,
             Self::P720_30 => 3,
+            Self::P2160_60 => 4,
         }
     }
 
@@ -374,21 +380,25 @@ impl ShareQuality {
         Self::ALL.into_iter().find(|q| q.code() == code)
     }
 
-    /// Le libellé du choix : « Auto », « Comme l'hôte », « 1080p · 60 Hz »,
-    /// « 720p · 30 Hz ».
+    /// Le libellé du choix : « Auto », « Comme l'hôte », « 4K · 60 Hz »,
+    /// « 1080p · 60 Hz », « 720p · 30 Hz ».
     pub fn label(self, lang: Lang) -> String {
         match self {
             Self::Auto => tr(lang, "share.quality_auto", &[]),
             Self::Host => tr(lang, "share.quality_host", &[]),
+            Self::P2160_60 => quality_label(2160, 60),
             Self::P1080_60 => quality_label(1080, 60),
             Self::P720_30 => quality_label(720, 30),
         }
     }
 }
 
-/// « 1080p · 60 Hz ».
+/// « 1080p · 60 Hz » ; 2160 lignes se disent « 4K » (« 4K · 60 Hz »).
 fn quality_label(height: u32, fps: u32) -> String {
-    format!("{height}p · {fps} Hz")
+    match height {
+        2160 => format!("4K · {fps} Hz"),
+        h => format!("{h}p · {fps} Hz"),
+    }
 }
 
 impl Serialize for ShareQuality {
@@ -1288,6 +1298,7 @@ mod tests {
         for (s, q, code, fr, en) in [
             ("auto", ShareQuality::Auto, 0, "Auto", "Auto"),
             ("host", ShareQuality::Host, 1, "Comme l'hôte", "Same as host"),
+            ("2160p60", ShareQuality::P2160_60, 4, "4K · 60 Hz", "4K · 60 Hz"),
             ("1080p60", ShareQuality::P1080_60, 2, "1080p · 60 Hz", "1080p · 60 Hz"),
             ("720p30", ShareQuality::P720_30, 3, "720p · 30 Hz", "720p · 30 Hz"),
         ] {
@@ -1296,7 +1307,9 @@ mod tests {
             assert_eq!((q.label(Lang::Fr), q.label(Lang::En)), (fr.to_string(), en.to_string()));
         }
         assert_eq!(serde_json::from_value::<ShareQuality>(serde_json::json!("4k120")).unwrap(), ShareQuality::Auto, "inconnue : Auto");
-        assert_eq!(ShareQuality::from_code(4), None);
+        assert_eq!(ShareQuality::from_code(5), None);
+        // L'ordre des menus : 4K entre « Comme l'hôte » et 1080p ; les codes des ponts gardent leur sens.
+        assert_eq!(ShareQuality::ALL.map(ShareQuality::code), [0, 1, 4, 2, 3]);
         // Dans `join` : « Auto » par défaut, `auto` seulement s'il est donné.
         let req = JoinRequest { code: "123456".into(), name: "Léa".into(), device: "ipad".into(), app: "ios".into(), ..JoinRequest::default() };
         let v = serde_json::to_value(&req).unwrap();
@@ -1375,6 +1388,14 @@ mod tests {
         assert_eq!(g.image.and_then(|i| i.label()), Some("1080p · 60 Hz".into()));
         let g: ShareGuest = serde_json::from_str(r#"{"id":"g","name":"Léa","image":[]}"#).unwrap();
         assert!(g.image.is_none() && g.name == "Léa");
+        // Une image de 3840 × 2160 se lit « 4K » ; les autres, par leurs lignes.
+        let at = |w, h, f| ShareImage { width: Some(w), height: Some(h), fps: Some(f), ..ShareImage::default() }.label();
+        assert_eq!(at(3840, 2160, 60).as_deref(), Some("4K · 60 Hz"));
+        assert_eq!(at(3840, 2160, 120).as_deref(), Some("4K · 120 Hz"), "4K de l'hôte à 120 Hz");
+        assert_eq!(at(5120, 2880, 60).as_deref(), Some("2880p · 60 Hz"));
+        assert_eq!(at(2560, 1440, 144).as_deref(), Some("1440p · 144 Hz"));
+        let i: ShareImage = serde_json::from_str(r#"{"quality":"2160p60","width":3840,"height":2160,"fps":60,"reason":"asked"}"#).unwrap();
+        assert_eq!((i.quality, i.label().as_deref()), (ShareQuality::P2160_60, Some("4K · 60 Hz")));
     }
 
     #[test]

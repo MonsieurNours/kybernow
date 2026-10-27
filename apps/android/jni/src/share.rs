@@ -133,7 +133,7 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_shareRoleWi
     ShareRole::from_code(role).map_or(-1, |r| r.with_kbm(kbm != 0).code())
 }
 
-// MARK: - Qualité de l'image d'un invité (0 Auto, 1 comme l'hôte, 2 1080p60, 3 720p30)
+// MARK: - Qualité de l'image d'un invité (0 Auto, 1 comme l'hôte, 2 1080p60, 3 720p30, 4 2160p60)
 
 /// Le libellé d'une qualité dans la langue de l'app, nul pour un code inconnu.
 #[unsafe(no_mangle)]
