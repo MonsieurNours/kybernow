@@ -100,7 +100,7 @@ Details and exact names: [apps/core/README.en.md](../apps/core/README.en.md#kybe
 - **Host side**: `Console::share_open`, `share_state`, `share_code`, `share_guest`, `share_kick`, `share_close`; the guest list comes with the host's sign of life (`Platform::on_guests`); `Info::share` and `ShareAvailability` for “Share”.
 - **Joining**: `share::join` sends the code to the Stations found on the network (like pairing) and returns the first that accepts it; `share::parse_link` reads the `kybernow://join?host&port&fp&code` link (and the web client's).
 - **The format**: the guest asks for the host's format if it reads it, otherwise for a format it reads (`share::guest_format`, `share::join_checked`, and the session itself); it only refuses to join when none is possible.
-- **A guest's picture**: `ShareQuality` (`auto`, `host`, `1080p60`, `720p30`) in `join` (`JoinRequest::quality`, and `auto` from `share::auto_quality`), `Session::set_share_quality` during the session; the picture received (`ShareImage`) and the notice through `Platform::on_share_image`; keyframes allowed for a guest, bitrate of its own picture only.
+- **A guest's picture**: `ShareQuality` (`auto`, `host`, `2160p60`, `1080p60`, `720p30`) in `join` (`JoinRequest::quality`, and `auto` from `share::auto_quality`), `Session::set_share_quality` during the session; the picture received (`ShareImage`) and the notice through `Platform::on_share_image`; keyframes allowed for a guest, bitrate of its own picture only.
 - C bridge and JNI: the same functions, for every app (`kn_share_*`, `kn_console_share_*`; `Native.share*`, `Native.consoleShare*`).
 
 ## Apps and web client

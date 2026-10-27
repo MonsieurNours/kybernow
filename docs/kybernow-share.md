@@ -100,7 +100,7 @@ Détail et noms exacts : [apps/core/README.md](../apps/core/README.md#kybernow-s
 - **Côté hôte** : `Console::share_open`, `share_state`, `share_code`, `share_guest`, `share_kick`, `share_close` ; la liste des invités arrive avec le signe de vie de l'hôte (`Platform::on_guests`) ; `Info::share` et `ShareAvailability` pour « Partager ».
 - **Rejoindre** : `share::join` envoie le code aux Stations trouvées sur le réseau (comme l'appairage) et rend la première qui l'accepte ; `share::parse_link` lit le lien `kybernow://join?host&port&fp&code` (et celui du client web).
 - **Le format** : l'invité demande le format de l'hôte s'il le lit, sinon un format qu'il lit (`share::guest_format`, `share::join_checked`, et la session elle-même) ; il ne refuse d'entrer que si aucun n'est possible.
-- **L'image d'un invité** : `ShareQuality` (`auto`, `host`, `1080p60`, `720p30`) dans `join` (`JoinRequest::quality`, et `auto` d'après `share::auto_quality`), `Session::set_share_quality` en cours de session ; l'image reçue (`ShareImage`) et l'avis par `Platform::on_share_image` ; images clés permises à un invité, débit de son image à part seulement.
+- **L'image d'un invité** : `ShareQuality` (`auto`, `host`, `2160p60`, `1080p60`, `720p30`) dans `join` (`JoinRequest::quality`, et `auto` d'après `share::auto_quality`), `Session::set_share_quality` en cours de session ; l'image reçue (`ShareImage`) et l'avis par `Platform::on_share_image` ; images clés permises à un invité, débit de son image à part seulement.
 - Pont C et JNI : les mêmes fonctions, pour toutes les apps (`kn_share_*`, `kn_console_share_*` ; `Native.share*`, `Native.consoleShare*`).
 
 ## Apps et client web
