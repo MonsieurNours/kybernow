@@ -456,9 +456,11 @@ pub fn clipboard() -> Option<String> {
     }
 }
 
-pub fn set_clipboard(text: &str) {
-    if let Ok(c) = CString::new(text.replace('\0', "")) {
-        unsafe { SDL_SetClipboardText(c.as_ptr()) };
+/// Pose le texte sur le presse-papiers du système ; faux si SDL ne l'a pas pu.
+pub fn set_clipboard(text: &str) -> bool {
+    match CString::new(text.replace('\0', "")) {
+        Ok(c) => unsafe { SDL_SetClipboardText(c.as_ptr()) == 0 },
+        Err(_) => false,
     }
 }
 

@@ -228,11 +228,15 @@ pub struct AppSettings {
     pub language: String,
     /// Mises à jour : aussi les bêtas (sinon les versions stables seules).
     pub beta: bool,
+    /// KyberNow Share : le prénom donné en rejoignant un partage, retenu pour la fois suivante (vide : le nom
+    /// de ce téléviseur est proposé). Seule trace d'un partage sur l'appareil : un invité n'est jamais
+    /// ajouté aux ordinateurs.
+    pub share_name: String,
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
-        Self { language: "auto".into(), beta: false }
+        Self { language: "auto".into(), beta: false, share_name: String::new() }
     }
 }
 

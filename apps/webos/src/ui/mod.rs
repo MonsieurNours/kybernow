@@ -7,10 +7,12 @@
 pub mod canvas;
 mod home;
 pub mod icons;
+mod join;
 mod pads;
 mod pair;
 mod session;
 mod settings;
+mod share;
 pub mod theme;
 mod widgets;
 
@@ -55,6 +57,7 @@ pub fn session_overlay_visible(app: &App) -> bool {
     use crate::app::Phase::*;
     s.menu
         || s.keys
+        || s.share_panel
         || s.show_stats
         || !matches!(s.phase, Streaming)
         || s.notice.as_ref().is_some_and(|(_, t)| t.elapsed().as_secs_f32() < 4.0)
@@ -66,6 +69,7 @@ pub fn draw(app: &App, cv: &mut Canvas, assets: &Assets) -> Vec<(Target, Rect)> 
     match app.screen {
         Screen::Home => home::draw(app, cv, assets, &mut f),
         Screen::Add => pair::draw(app, cv, &mut f),
+        Screen::Join => join::draw(app, cv, &mut f),
         // Une confirmation ouverte : seuls ses boutons se choisissent.
         Screen::Settings if app.dialog.is_some() => {
             let mut under = Frame { hits: Vec::new(), focus: Target::DialogOk };

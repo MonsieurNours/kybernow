@@ -2,7 +2,8 @@
 //! d'arrivée ; vibrations des deux moteurs (et des gâchettes quand la
 //! manette en a) ; la manette pilote l'app hors du jeu (croix et stick :
 //! flèches, A : OK, B : retour, Y : réglages de l'ordinateur, X : ajouter,
-//! L1 / R1 : profil ou rubrique, Start : réglages de l'app) ; manette en souris.
+//! Select : rejoindre un partage, L1 / R1 : profil ou rubrique, Start : réglages de l'app) ;
+//! manette en souris.
 //! Et la conversion des touches du clavier (codes USB de SDL) en scancodes
 //! de Windows, ceux qu'attend kynput.
 //!
@@ -193,6 +194,8 @@ impl Pads {
                 1 => Some(Nav::Back),
                 2 => Some(Nav::Add),
                 3 => Some(Nav::Options),
+                // Select (⧉) : « Rejoindre avec un code » (accueil).
+                4 => Some(Nav::Join),
                 6 => Some(Nav::Menu),
                 9 => Some(Nav::PrevTab),
                 10 => Some(Nav::NextTab),

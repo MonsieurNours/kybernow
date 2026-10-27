@@ -16,12 +16,13 @@ use kybernow_core::media::PacketHandler;
 use kybernow_core::profile::{Capabilities, Codec, Profile as CoreProfile, StreamSettings};
 use kybernow_core::screens::Screens;
 use kybernow_core::session::{Notice, Platform, Recovery, Session, SessionParams, SessionRole, Status, StreamScreen};
+use kybernow_core::share::{self, ShareEnd, ShareState};
 use kybernow_core::{Display, WindowHandle};
 
 use super::media::AudioSink;
 use super::video::{Latest, VideoSink};
 use super::{sdl, Event, SessionEvent};
-use crate::app::{Machine, SessionId};
+use crate::app::{Machine, SessionId, ShareGuest, ShareView};
 use crate::model::{Host, Profile};
 
 /// Le presse-papiers du système, vu depuis le fil des entrées : SDL ne se
@@ -391,6 +392,57 @@ impl Platform for LinuxPlatform {
         };
         self.0.send(SessionEvent::Notice(msg));
     }
+
+    // KyberNow Share. Hôte : la liste des invités arrive avec le signe de vie.
+    fn on_guests(&self, state: Option<&ShareState>) {
+        self.0.send(SessionEvent::Guests(state.and_then(share_view)));
+    }
+
+    /// Invité : son rôle au départ (`previous` nul), puis chaque changement de l'hôte. Les entrées le
+    /// suivent déjà (le cœur) : l'interface montre l'avis et ce que le rôle ouvre.
+    fn on_share_role(&self, role: share::ShareRole, previous: Option<share::ShareRole>) {
+        self.0.send(SessionEvent::ShareRole { role: role_of(role), previous: previous.map(role_of) });
+    }
+
+    /// Invité : c'est le partage qui finit la session ; le texte est aussi la raison de la fin
+    /// (`Status::Ended`), que la fenêtre montre : ici, seulement le journal.
+    fn on_share_end(&self, end: &ShareEnd, text: &str) {
+        self.0.send(SessionEvent::ShareEnd(end.kind().to_string(), text.to_string()));
+    }
+}
+
+/// Le rôle de l'interface d'après celui du cœur.
+pub fn role_of(r: share::ShareRole) -> crate::app::ShareRole {
+    match r {
+        share::ShareRole::Spectator => crate::app::ShareRole::Spectator,
+        share::ShareRole::Player => crate::app::ShareRole::Player,
+        share::ShareRole::PlayerKbm => crate::app::ShareRole::PlayerKbm,
+    }
+}
+
+/// Le rôle du cœur d'après celui de l'interface (« Faire jouer »…).
+pub fn core_role(r: crate::app::ShareRole) -> share::ShareRole {
+    match r {
+        crate::app::ShareRole::Spectator => share::ShareRole::Spectator,
+        crate::app::ShareRole::Player => share::ShareRole::Player,
+        crate::app::ShareRole::PlayerKbm => share::ShareRole::PlayerKbm,
+    }
+}
+
+/// Le partage ouvert d'une session d'hôte tel que l'interface le montre (`None` : fermé).
+pub fn share_view(st: &ShareState) -> Option<ShareView> {
+    st.open.then(|| ShareView {
+        code: st.code.clone(),
+        link: st.link.clone(),
+        web: st.web.clone(),
+        guests: st.guests.iter().map(|g| ShareGuest { id: g.id.clone(), name: g.name.clone(), role: role_of(g.role), app: g.app.clone(), since: g.since }).collect(),
+    })
+}
+
+/// Ce que cet appareil décode, pour lire l'image de l'hôte d'un partage (son format, choisi par l'hôte, est
+/// vérifié avant d'entrer) : le HEVC par la carte ou le processeur, le 4:4:4 avec lui, l'AV1 par la carte.
+pub fn guest_capabilities(m: &Machine) -> Capabilities {
+    Capabilities { hevc: m.decodes("hevc"), hevc444: m.decodes("hevc"), av1: m.decodes("av1") }
 }
 
 struct InputCallbacks(Arc<Shared>);
@@ -481,9 +533,11 @@ pub fn audio_channels(host: &Host, m: &Machine) -> u16 {
 /// les écrans de l'appareil, pour l'interface de bureau (multi-écrans : le cœur
 /// décide du nombre d'écrans) ; `None` : une session à un écran, comme avant
 /// (Steam Deck, salon, KyberNow Link OS). `current` : l'écran de la fenêtre,
-/// celui d'une session à un écran ; `mode` est celui de cet écran.
+/// celui d'une session à un écran ; `mode` est celui de cet écran. `guest` : la session d'invité d'un
+/// partage (KyberNow Share) : l'écran et l'image sont ceux de l'hôte, jamais de presse-papiers, aucun écran
+/// de plus ; `host` n'est alors qu'une enveloppe (nom, adresse, réglages par défaut), absente du magasin.
 #[allow(clippy::too_many_arguments)]
-pub fn start(id: SessionId, host: &Host, settings: StreamSettings, mode: (u32, u32, u32), m: &Machine, relative: bool, device: DeviceInfo, screens: Option<Screens>, current: usize, tx: Sender<Event>) -> Handle {
+pub fn start(id: SessionId, host: &Host, settings: StreamSettings, mode: (u32, u32, u32), m: &Machine, relative: bool, device: DeviceInfo, screens: Option<Screens>, current: usize, guest: Option<&share::Found>, tx: Sender<Event>) -> Handle {
     let (w, h, fps) = mode;
     let clock = Arc::new(MonotonicClock::new());
     let pointer = Arc::new(PointerLayer::new(clock.clone(), true));
@@ -507,7 +561,7 @@ pub fn start(id: SessionId, host: &Host, settings: StreamSettings, mode: (u32, u
         primary: AtomicUsize::new(current),
         hw: [m.hw_h264 && (m.vaapi || m.pi.is_some()), m.hw_hevc && (m.vaapi || m.pi.is_some()), m.hw_av1 && m.vaapi],
         hw_backend: if m.pi.is_some() && !m.vaapi { 2 } else { 1 },
-        clipboard: host.settings.clipboard.then(|| Arc::new(Clipboard::new())),
+        clipboard: (host.settings.clipboard && guest.is_none()).then(|| Arc::new(Clipboard::new())),
         audio: Mutex::new(None),
         silenced: Arc::new(AtomicBool::new(false)),
     });
@@ -518,22 +572,27 @@ pub fn start(id: SessionId, host: &Host, settings: StreamSettings, mode: (u32, u
         let shape = if change.shape { state.shape.as_ref().map(|s| (s.width, s.height, s.hot_x, s.hot_y, s.premultiplied())) } else { None };
         sh.send(SessionEvent::Pointer { screen: sh.primary(), position: state.position(), hidden: state.remote_hidden, shape });
     });
-    let params = SessionParams {
-        console_host: host.address.clone(),
-        console_port: host.port,
-        user: host.user.clone(),
-        password: host.password.clone(),
-        console_fingerprint: host.fingerprint.clone(),
-        device,
-        mode: Mode { width: w, height: h, refresh: fps },
-        audio_channels,
-        virtual_display: host.settings.virtual_display,
-        settings,
-        auto_reconnect: host.settings.reconnect,
-        gamepad_xbox360: host.settings.xbox360,
-        clipboard: host.settings.clipboard,
-        recovery: Recovery { watch_image: true, fallback_bitrate: Some(20_000_000), ..Recovery::default() },
-        role: SessionRole::Host,
+    let recovery = Recovery { watch_image: true, fallback_bitrate: Some(20_000_000), ..Recovery::default() };
+    let params = match guest {
+        // Un invité : la Station qui partage, le jeton de son partage, l'écran de l'hôte (`SessionParams::guest`).
+        Some(found) => SessionParams { auto_reconnect: host.settings.reconnect, gamepad_xbox360: host.settings.xbox360, recovery, ..SessionParams::guest(found, device, settings, guest_capabilities(m), audio_channels) },
+        None => SessionParams {
+            console_host: host.address.clone(),
+            console_port: host.port,
+            user: host.user.clone(),
+            password: host.password.clone(),
+            console_fingerprint: host.fingerprint.clone(),
+            device,
+            mode: Mode { width: w, height: h, refresh: fps },
+            audio_channels,
+            virtual_display: host.settings.virtual_display,
+            settings,
+            auto_reconnect: host.settings.reconnect,
+            gamepad_xbox360: host.settings.xbox360,
+            clipboard: host.settings.clipboard,
+            recovery,
+            role: SessionRole::Host,
+        },
     };
     let platform = Arc::new(LinuxPlatform(shared.clone()));
     let session = match screens {
@@ -759,5 +818,69 @@ mod tests {
         // Plusieurs écrans : rien ne bouge d'un écran à l'autre.
         platform.on_screens(&[stream(0, 5, 1920, 1080, true), stream(1, 7, 1920, 1080, false)], &[]);
         assert!(Arc::ptr_eq(&decoder_side, &sh.latest_for(0)));
+    }
+
+    /// KyberNow Share : ce que le cœur dit d'un partage arrive à la boucle, étiqueté par sa session : la liste des invités
+    /// de l'hôte (fermé : rien), le rôle d'un invité (au départ puis changé), la fin par le partage ; les rôles passent
+    /// de l'un à l'autre sans rien perdre.
+    #[test]
+    fn share_callbacks_reach_the_loop() {
+        let (sh, rx) = shared(0);
+        let platform = LinuxPlatform(sh);
+        // Invité : le rôle de départ, puis celui que l'hôte donne.
+        platform.on_share_role(share::ShareRole::Spectator, None);
+        match rx.try_recv() {
+            Ok(Event::Session(7, SessionEvent::ShareRole { role, previous })) => assert_eq!((role, previous), (crate::app::ShareRole::Spectator, None)),
+            _ => panic!("le rôle de départ arrive avec sa session"),
+        }
+        platform.on_share_role(share::ShareRole::PlayerKbm, Some(share::ShareRole::Player));
+        match rx.try_recv() {
+            Ok(Event::Session(7, SessionEvent::ShareRole { role, previous })) => assert_eq!((role, previous), (crate::app::ShareRole::PlayerKbm, Some(crate::app::ShareRole::Player))),
+            _ => panic!("le rôle changé arrive avec le précédent"),
+        }
+        // Hôte : la liste des invités, telle que l'interface la montre ; sans partage ouvert, rien.
+        let guest = share::ShareGuest { id: "g1".into(), name: "Léa".into(), app: "ios".into(), role: share::ShareRole::Player, since: Some(1_761_500_000) };
+        let state = ShareState { open: true, code: "482917".into(), link: "kybernow://join?x".into(), web: "https://h:1/link/?join=482917".into(), display: None, guests: vec![guest] };
+        platform.on_guests(Some(&state));
+        match rx.try_recv() {
+            Ok(Event::Session(7, SessionEvent::Guests(Some(v)))) => {
+                assert_eq!((v.code.as_str(), v.link.as_str(), v.web.as_str()), ("482917", "kybernow://join?x", "https://h:1/link/?join=482917"));
+                assert_eq!(v.guests, vec![ShareGuest { id: "g1".into(), name: "Léa".into(), role: crate::app::ShareRole::Player, app: "ios".into(), since: Some(1_761_500_000) }]);
+            }
+            _ => panic!("les invités arrivent avec leur session"),
+        }
+        platform.on_guests(Some(&ShareState { open: false, ..state.clone() }));
+        assert!(matches!(rx.try_recv(), Ok(Event::Session(7, SessionEvent::Guests(None)))), "un partage fermé n'est pas un partage");
+        platform.on_guests(None);
+        assert!(matches!(rx.try_recv(), Ok(Event::Session(7, SessionEvent::Guests(None)))));
+        // Invité : le partage finit la session, avec le texte du cœur.
+        platform.on_share_end(&share::ShareEnd::Removed, "Léa vous a retiré du partage.");
+        match rx.try_recv() {
+            Ok(Event::Session(7, SessionEvent::ShareEnd(kind, text))) => assert_eq!((kind.as_str(), text.as_str()), ("removed", "Léa vous a retiré du partage.")),
+            _ => panic!("la fin arrive avec son texte"),
+        }
+        // Les rôles de l'interface et ceux du cœur se correspondent.
+        for r in [share::ShareRole::Spectator, share::ShareRole::Player, share::ShareRole::PlayerKbm] {
+            assert_eq!(core_role(role_of(r)), r);
+            assert_eq!((role_of(r).kbm(), role_of(r).plays()), (r.rights().keyboard_mouse, r.plays()));
+        }
+    }
+
+    /// Ce que cet appareil décode pour lire l'image d'un hôte : le HEVC (et son 4:4:4) par la carte ou le processeur,
+    /// l'AV1 par la carte seulement ; le format de l'hôte est vérifié avec cela avant d'entrer.
+    #[test]
+    fn a_guest_reads_what_the_device_decodes() {
+        let mut m = Machine::default();
+        let caps = guest_capabilities(&m);
+        assert!(caps.hevc && caps.hevc444 && !caps.av1);
+        assert!(share::check_codec(Some("hevc"), true, caps).is_ok());
+        match share::check_codec(Some("av1"), false, caps) {
+            Err(share::ShareError::Unreadable { format }) => assert_eq!(format, "AV1"),
+            _ => panic!("l'AV1 n'est pas lu sans décodeur de carte"),
+        }
+        m.hw_av1 = true;
+        assert!(share::check_codec(Some("av1"), false, guest_capabilities(&m)).is_ok());
+        // Image de l'hôte pas encore démarrée : rien à vérifier.
+        assert!(share::check_codec(None, false, caps).is_ok());
     }
 }

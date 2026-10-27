@@ -143,7 +143,7 @@ fn address(app: &App, cv: &mut Canvas, f: &mut Frame) {
     key(cv, f, Target::KeyOk, r, "OK", true);
 }
 
-fn key(cv: &mut Canvas, f: &mut Frame, t: Target, r: Rect, s: &str, primary: bool) {
+pub(super) fn key(cv: &mut Canvas, f: &mut Frame, t: Target, r: Rect, s: &str, primary: bool) {
     let focused = f.hit(t, r);
     let (bg, fg) = if focused {
         cv.neon(r.x, r.y, r.w, r.h, 18.0, 0.9);

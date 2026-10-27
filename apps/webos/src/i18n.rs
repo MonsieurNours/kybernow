@@ -11,7 +11,23 @@ pub fn set_english(en: bool) {
 }
 
 pub fn english() -> bool {
+    #[cfg(test)]
+    if let Some(en) = FORCED.with(|f| f.get()) {
+        return en;
+    }
     ENGLISH.load(Ordering::Relaxed)
+}
+
+// Les tests tournent chacun sur leur fil : une langue forcée n'en gêne pas un autre.
+#[cfg(test)]
+thread_local! {
+    static FORCED: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
+}
+
+/// La langue du fil de ce test (sans toucher à celle des autres tests).
+#[cfg(test)]
+pub fn force_english(en: bool) {
+    FORCED.with(|f| f.set(Some(en)));
 }
 
 /// Le texte dans la langue de l'app.

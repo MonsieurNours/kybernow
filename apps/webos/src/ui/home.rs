@@ -138,6 +138,7 @@ pub fn draw(app: &App, cv: &mut Canvas, assets: &Assets, f: &mut Frame) {
         x += widgets::hint(cv, x, y, Key::Dots, &settings_for(&h.name)) + 40.0;
     }
     x += widgets::hint(cv, x, y, Key::Back, tr("Quitter", "Quit")) + 40.0;
+    x += widgets::hint(cv, x, y, Key::Green, tr("Rejoindre avec un code", "Join with a code")) + 40.0;
     widgets::hint(cv, x, y, Key::Pointer, tr("Pointeur de la Magic Remote ou croix", "Magic Remote pointer or arrows"));
     cv.text(W - 96.0, y, Text::new(Font::Mono, 15.0, FROST_4).align(Align::Right), &format!("KyberNow Link {}", app.version));
 }
@@ -204,7 +205,10 @@ fn cards(app: &App, cv: &mut Canvas, f: &mut Frame) {
     let y = H - 120.0 - 168.0 - 44.0;
     let mut x = 96.0;
     let selected = app.selected().map(|h| h.id.clone());
-    for (i, h) in app.store.hosts.iter().enumerate().take(5) {
+    // Les ordinateurs d'abord, puis ceux du réseau, et la paire « Ajouter » (168 de large) et « Rejoindre »
+    // (KyberNow Share) : quatre cartes de 300 au plus avant elles.
+    let fit = ((W - 192.0 - 364.0) / 328.0).floor() as usize;
+    for (i, h) in app.store.hosts.iter().enumerate().take(fit) {
         let r = Rect::new(x, y, 300.0, 168.0);
         let focused = f.hit(Target::Host(i), r);
         let live = app.live.get(&h.id).map(|l| l.online).unwrap_or_default();
@@ -228,7 +232,7 @@ fn cards(app: &App, cv: &mut Canvas, f: &mut Frame) {
         cv.text(r.x, y + 168.0 + 62.0, Text::new(Font::Regular, 17.0, FROST_3), state);
         x += 328.0;
     }
-    for (i, found) in app.new_found().iter().enumerate().take(3) {
+    for (i, found) in app.new_found().iter().enumerate().take(fit.saturating_sub(app.store.hosts.len()).min(3)) {
         let r = Rect::new(x, y, 300.0, 168.0);
         let focused = f.hit(Target::Found(i), r);
         if focused {
@@ -240,16 +244,22 @@ fn cards(app: &App, cv: &mut Canvas, f: &mut Frame) {
         cv.text_fit(r.x, y + 168.0 + 34.0, Text::new(Font::Regular, 21.0, FROST), &found.name, 300.0);
         x += 328.0;
     }
-    let r = Rect::new(x, y, 168.0, 168.0);
-    let focused = f.hit(Target::AddCard, r);
+    action_card(cv, f, Target::AddCard, Rect::new(x, y, 168.0, 168.0), Icon::Plus, tr("Ajouter un ordinateur", "Add a computer"));
+    // KyberNow Share : rejoindre le partage de quelqu'un, à côté de « Ajouter un ordinateur ».
+    action_card(cv, f, Target::JoinCard, Rect::new(x + 196.0, y, 168.0, 168.0), Icon::Share, tr("Rejoindre avec un code", "Join with a code"));
+}
+
+/// Une carte carrée, une action : son icône, et son libellé dessous sur deux lignes au plus.
+fn action_card(cv: &mut Canvas, f: &mut Frame, t: Target, r: Rect, icon: Icon, label: &str) {
+    let focused = f.hit(t, r);
     if focused {
         cv.neon(r.x, r.y, r.w, r.h, 14.0, 1.0);
         cv.rrect(r.x, r.y, r.w, r.h, 14.0, CORE);
-        cv.icon(&Icon::Plus, r.x + 62.0, r.y + 62.0, 44.0, 1.8, INK);
+        cv.icon(&icon, r.x + 62.0, r.y + 62.0, 44.0, 1.8, INK);
     } else {
         cv.rrect(r.x, r.y, r.w, r.h, 14.0, Rgba(227, 237, 240, 15));
         cv.rrect_stroke(r.x, r.y, r.w, r.h, 14.0, 1.0, BORDER);
-        cv.icon(&Icon::Plus, r.x + 62.0, r.y + 62.0, 44.0, 1.5, FROST);
+        cv.icon(&icon, r.x + 62.0, r.y + 62.0, 44.0, 1.5, FROST);
     }
-    cv.text(r.x, y + 168.0 + 34.0, Text::new(Font::Regular, 21.0, FROST), tr("Ajouter un ordinateur", "Add a computer"));
+    cv.paragraph(r.x, r.y + 168.0 + 34.0, Text::new(Font::Regular, 21.0, FROST), label, 184.0, 27.0);
 }

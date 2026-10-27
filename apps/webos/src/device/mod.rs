@@ -28,8 +28,9 @@ use kybernow_core::console::{DeviceInfo, Mode};
 use kybernow_core::input::GamepadRumble;
 use kybernow_core::kynput_rs::MouseButtonType;
 use kybernow_core::session::Status;
+use kybernow_core::share::{self, JoinRequest, ShareTarget};
 
-use crate::app::{Action, AddStep, App, Found, Nav, Phase, Polled, Screen, SessionUi, StationOp, StationRefusal, Stats};
+use crate::app::{Action, AddStep, App, Found, Nav, Online, Phase, Polled, Screen, SessionUi, ShareRole, StationOp, StationRefusal, Stats};
 use crate::i18n::{self, tr};
 use crate::model::{now_secs, LastSession, Store};
 use crate::ui::{self, canvas::Canvas, Assets};
@@ -58,6 +59,17 @@ pub enum Event {
     GameFullscreen(bool),
     DecoderFailed(String),
     Update(Result<Option<kybernow_core::update::Available>, String>),
+    /// KyberNow Share, invité : la réponse de « Rejoindre » (numéro de la recherche), ou son refus.
+    ShareJoined { attempt: u32, result: Result<share::Found, share::ShareError> },
+    /// KyberNow Share, hôte : le partage de la session après une demande à Admin (`None` : fermé), ou ce
+    /// qu'Admin a refusé.
+    ShareHost(Result<Option<crate::app::ShareView>, String>),
+    /// KyberNow Share, hôte : le partage et ses invités, au signe de vie (`None` : pas de partage).
+    Guests(Option<crate::app::ShareView>),
+    /// KyberNow Share, invité : son rôle (`previous` nul au départ), puis chaque changement de l'hôte.
+    ShareRole { role: ShareRole, previous: Option<ShareRole> },
+    /// KyberNow Share, invité : le partage a fini la session (`kind` : stopped, removed, unreadable) avec ce texte.
+    ShareEnd(String, String),
 }
 
 struct Video {
@@ -70,6 +82,9 @@ struct Video {
 /// État de la session en cours (le cœur, le pointeur de l'ordinateur).
 struct Live {
     handle: session::Handle,
+    /// Une session d'invité (KyberNow Share) : rien n'en est gardé (ni dernière session, ni aperçu), l'invité
+    /// n'est jamais dans la liste des ordinateurs.
+    guest: bool,
     pointer: Option<(f64, f64)>,
     pointer_hidden: bool,
     started: Instant,
@@ -175,6 +190,8 @@ pub fn run() {
             || app.toast.as_ref().is_some_and(|(_, t)| t.elapsed().as_secs_f32() < 4.2)
             || app.session.as_ref().and_then(|s| s.notice.as_ref()).is_some_and(|(_, t)| t.elapsed().as_secs_f32() < 4.2)
             || (app.screen == Screen::Gamepads)
+            || app.screen == Screen::Join
+            || app.session.as_ref().is_some_and(|s| s.share_busy)
             || pads.mouse_active();
         let timeout = if animating { 16 } else { 50 };
         let mut ev = sdl::SDL_Event::default();
@@ -207,7 +224,7 @@ pub fn run() {
             } else {
                 dirty = true;
             }
-            handle_event(e, &mut app, &mut pads, &mut live, &mut video, &mut actions, &mut pairing);
+            handle_event(e, &mut app, &mut pads, &mut live, &mut video, &mut actions, &mut pairing, &tx);
         }
 
         for a in actions {
@@ -363,7 +380,7 @@ fn draw_frame(video: &Video, show_ui: bool, live: Option<&Live>, app: &App) {
 
 #[allow(clippy::too_many_arguments)]
 fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, live: Option<&mut Live>, actions: &mut Vec<Action>, dirty: &mut bool, present: &mut bool, quit: &mut bool) {
-    let in_game = app.screen == Screen::Session && app.session.as_ref().is_some_and(|s| !s.menu && !s.keys && matches!(s.phase, Phase::Streaming | Phase::Reconnecting { .. }));
+    let in_game = app.screen == Screen::Session && app.session.as_ref().is_some_and(|s| !s.menu && !s.keys && !s.share_panel && matches!(s.phase, Phase::Streaming | Phase::Reconnecting { .. }));
     let input = live.as_ref().and_then(|l| l.handle.shared.current_input());
     match ev.kind() {
         sdl::SDL_QUIT => *quit = true,
@@ -379,7 +396,8 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, live: O
             let remote_back = sc == sdl::SC_WEBOS_BACK || sc == sdl::SC_AC_BACK;
             if in_game {
                 let s = app.session.as_ref().unwrap();
-                let back_menu = app.selected().map(|h| h.settings.back_opens_menu).unwrap_or(true);
+                // Un invité n'a que le menu à ouvrir : Retour l'ouvre toujours.
+                let back_menu = s.guest.is_some() || app.selected().map(|h| h.settings.back_opens_menu).unwrap_or(true);
                 if (remote_back && back_menu) || sc == sdl::SC_WEBOS_EXIT || sc == sdl::SC_WEBOS_RED {
                     if down && !repeat {
                         actions.extend(app.open_menu());
@@ -416,6 +434,8 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, live: O
                 sdl::SC_WEBOS_EXIT => Some(Nav::Back),
                 sdl::SC_BACKSPACE => Some(Nav::Erase),
                 sdl::SC_WEBOS_YELLOW | sdl::SC_WEBOS_BLUE => Some(Nav::Options),
+                // La touche verte : « Rejoindre avec un code » (accueil).
+                sdl::SC_WEBOS_GREEN => Some(Nav::Join),
                 sdl::SC_WEBOS_CURSOR_HIDE => {
                     app.pointer = None;
                     *dirty = true;
@@ -433,7 +453,8 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, live: O
                 return;
             }
             for c in ev.text().chars() {
-                if c.is_ascii_digit() || c == '.' || c == ':' || c.is_ascii_alphabetic() || c == '-' {
+                // « Rejoindre un partage » : les chiffres du code, les lettres du prénom (accents compris).
+                if app.screen == Screen::Join || c.is_ascii_digit() || c == '.' || c == ':' || c.is_ascii_alphabetic() || c == '-' {
                     actions.extend(app.nav(Nav::Char(c)));
                 }
             }
@@ -529,6 +550,13 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, live: O
                 *dirty = true;
             }
             let s = app.session.as_ref();
+            // Un spectateur (KyberNow Share) n'a pas de chaîne d'entrées, donc pas de combinaison pour le menu :
+            // Start, Select ou B l'ouvrent (il n'envoie rien à l'ordinateur).
+            if in_game && is_button && down && matches!(which, 1 | 4 | 6) && s.is_some_and(|s| s.role() == Some(ShareRole::Spectator)) {
+                actions.extend(app.open_menu());
+                *dirty = true;
+                return;
+            }
             if in_game && s.is_some_and(|s| s.pad_mouse) {
                 if let Some(p) = &input {
                     pads.mouse_input(p, is_button, which, down, value);
@@ -574,7 +602,7 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, live: O
 }
 
 #[allow(clippy::too_many_arguments)]
-fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Live>, video: &mut Video, actions: &mut Vec<Action>, pairing: &mut Vec<Arc<AtomicBool>>) {
+fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Live>, video: &mut Video, actions: &mut Vec<Action>, pairing: &mut Vec<Arc<AtomicBool>>, tx: &Sender<Event>) {
     match e {
         Event::Polled { id, polled } => {
             if app.polled(&id, polled) {
@@ -729,6 +757,29 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
                 s.notice = Some((format!("{} ({e})", tr("Décodeur du téléviseur indisponible", "TV decoder unavailable")), Instant::now()));
             }
         }
+        // KyberNow Share, invité : un ordinateur a pris le code. La session s'ouvre si la recherche est encore celle
+        // de l'écran ; sinon (retour, autre recherche) l'invité repart de la Station tout de suite.
+        Event::ShareJoined { attempt, result } => match result {
+            Ok(found) if app.join_current(attempt) => {
+                app.join.busy = false;
+                connect_guest(app, live, tx, found);
+            }
+            Ok(found) => jobs::share_leave(found),
+            Err(e) => {
+                log::info!("partage : {e}");
+                app.join_failed(attempt, e.to_string());
+            }
+        },
+        Event::ShareHost(result) => app.share_reply(result),
+        Event::Guests(view) => app.share_guests(view),
+        Event::ShareRole { role, previous } => {
+            app.share_role_changed(role, previous);
+            // Un rôle sans clavier ni souris rend la manette en souris.
+            if !role.kbm() {
+                pads.set_mouse(false);
+            }
+        }
+        Event::ShareEnd(kind, text) => log::info!("partage : {kind} ({text})"),
         Event::Update(r) => {
             app.update = match r {
                 Ok(Some(a)) => {
@@ -772,27 +823,15 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
             let mode = app.session_mode(&h);
             let codec = app.codec_for(&h);
             let device = device_info(&app.store, &app.tv);
-            let handle = session::start(&h, profile, codec, mode, app.tv.refresh, app.net.cap_mbps(), device, tx.clone());
-            app.session = Some(SessionUi {
-                host: h.id.clone(),
-                name: h.name.clone(),
-                profile,
-                phase: Phase::Preparing,
-                streamed: false,
-                menu: false,
-                keys: false,
-                stats: None,
-                show_stats: false,
-                remote_mouse: false,
-                pad_mouse: false,
-                notice: None,
-                game_hint: h.settings.game_mode_hint,
-                started: Instant::now(),
-            });
+            let handle = session::start(&h, profile, codec, mode, app.tv.refresh, app.net.cap_mbps(), device, None, tx.clone());
+            app.session = Some(SessionUi::new(&h.id, &h.name, profile, h.settings.game_mode_hint));
             app.screen = Screen::Session;
             app.focus = crate::app::Target::CancelConnect;
+            // « Partager » dans le menu sait ce que l'ordinateur permet : Admin est relu une fois la session partie.
+            jobs::poll(h.clone(), false, tx.clone());
             *live = Some(Live {
                 handle,
+                guest: false,
                 pointer: None,
                 pointer_hidden: true,
                 started: Instant::now(),
@@ -884,6 +923,26 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
             }
         }
         Action::Probe { address, port } => jobs::probe(address, port, tx.clone()),
+        // KyberNow Share, invité : le code part aux Stations trouvées sur le réseau (celles de l'ajout), avec
+        // l'empreinte qu'on leur connaît ; ce téléviseur se nomme comme pour Admin.
+        Action::JoinShare { code, name } => {
+            let mut targets: Vec<ShareTarget> = app.found.iter().map(|f| ShareTarget { host: f.address.clone(), port: f.port, fingerprint: f.fingerprint.clone() }).collect();
+            // Un ordinateur du téléviseur, en ligne, que le réseau n'annonce pas : il peut partager aussi.
+            for h in &app.store.hosts {
+                if app.live.get(&h.id).is_some_and(|l| l.online == Online::Online) && !targets.iter().any(|t| t.host == h.address && t.port == h.port) {
+                    targets.push(ShareTarget { host: h.address.clone(), port: h.port, fingerprint: h.fingerprint.clone() });
+                }
+            }
+            let request = JoinRequest { code, name, device: app.store.device_id.clone(), app: "webos".into() };
+            jobs::share_join(targets, request, session::guest_capabilities(app.tv.av1), app.join.attempt, tx.clone());
+        }
+        Action::Share(op) => {
+            let host = live.as_ref().and_then(|_| app.session.as_ref()).and_then(|s| app.store.host(&s.host)).cloned();
+            match host {
+                Some(h) => jobs::share_host(h, op, tx.clone()),
+                None => app.share_reply(Err(tr("L'ordinateur n'est plus dans la liste de ce téléviseur.", "The computer is no longer in this TV's list.").into())),
+            }
+        }
         Action::Poll(id) => {
             if let Some(h) = app.store.host(&id) {
                 jobs::poll(h.clone(), !app.images.contains_key(&id), tx.clone());
@@ -908,8 +967,69 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
     }
 }
 
+/// Le « ordinateur » d'une session d'invité : une enveloppe (nom, adresse de la Station qui partage, réglages par
+/// défaut) que la session lit comme celle d'un ordinateur ; elle n'est jamais dans le magasin.
+fn guest_host(found: &share::Found, title: &str) -> crate::model::Host {
+    crate::model::Host {
+        id: format!("share:{}", found.joined.guest),
+        name: title.into(),
+        address: found.target.host.clone(),
+        port: found.target.port,
+        fingerprint: found.target.fingerprint.clone(),
+        user: String::new(),
+        password: String::new(),
+        os: None,
+        gpu: None,
+        av1: false,
+        mac: None,
+        wake: Vec::new(),
+        settings: crate::model::HostSettings::default(),
+        last: None,
+    }
+}
+
+/// Ouvre la session d'invité d'un partage (KyberNow Share) : l'écran du partage, l'image et le son de l'hôte,
+/// arrivée en spectateur (l'hôte donne la suite). Sans décodeur, ou une session déjà là, l'invité repart de la
+/// Station.
+fn connect_guest(app: &mut App, live: &mut Option<Live>, tx: &Sender<Event>, found: share::Found) {
+    if live.is_some() {
+        jobs::share_leave(found);
+        return;
+    }
+    if !app.tv.decoder {
+        app.toast(tr("Décodeur du téléviseur introuvable : webOS 5 (2020) au moins", "TV decoder not found: webOS 5 (2020) or later required"));
+        jobs::share_leave(found);
+        return;
+    }
+    let computer = found.joined.computer.trim().to_string();
+    let title = crate::app::guest_title(&computer);
+    let h = guest_host(&found, &title);
+    let d = found.joined.display;
+    let mode = (d.width, d.height, d.refresh);
+    let codec = app.codec_for(&h);
+    let device = device_info(&app.store, &app.tv);
+    let caps = session::guest_capabilities(app.tv.av1);
+    let handle = session::start(&h, crate::model::Profile::Jeu, codec, mode, app.tv.refresh, app.net.cap_mbps(), device, Some((&found, caps)), tx.clone());
+    app.session = Some(SessionUi::guest(&h.id, &computer, session::role_of(found.joined.role)));
+    app.screen = Screen::Session;
+    app.focus = crate::app::Target::CancelConnect;
+    *live = Some(Live { handle, guest: true, pointer: None, pointer_hidden: true, started: Instant::now(), latencies: Vec::new(), mbps: Vec::new(), mode, remote: None, game_fullscreen: false });
+    log::info!("session d'invité : {title} ({} × {} à {} Hz)", mode.0, mode.1, mode.2);
+}
+
 /// Fin de session : la dernière session (au moins 3 s), pour Statistiques.
 fn finish(app: &mut App, l: Live) {
+    // Un invité ne laisse rien : ni dernière session, ni aperçu, ni ordinateur ajouté.
+    if l.guest {
+        log::info!("session d'invité : {} s", l.started.elapsed().as_secs());
+        if app.session.as_ref().is_some_and(|s| !matches!(s.phase, Phase::Ended { error: Some(_) })) {
+            app.session = None;
+            if app.screen == Screen::Session {
+                app.go(Screen::Home);
+            }
+        }
+        return;
+    }
     let host = app.session.as_ref().map(|s| s.host.clone());
     if app.session.as_ref().is_some_and(|s| !matches!(s.phase, Phase::Ended { error: Some(_) })) {
         app.session = None;
