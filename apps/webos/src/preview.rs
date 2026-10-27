@@ -152,7 +152,8 @@ fn open(app: &mut App, section: Section, focus: Target) {
     app.focus = focus;
 }
 
-/// Un partage ouvert : le code, le lien, trois invités (spectateur, joueur, joueur avec le clavier et la souris).
+/// Un partage ouvert : le code, le lien, quatre invités, un par combinaison de droits (spectateur, manettes, clavier
+/// et souris, les deux).
 fn shared_view() -> ShareView {
     let now = crate::model::now_secs() as i64;
     ShareView {
@@ -162,7 +163,8 @@ fn shared_view() -> ShareView {
         guests: vec![
             ShareGuest { id: "g1".into(), name: "Léa".into(), role: ShareRole::Spectator, app: "ios".into(), since: Some(now - 4 * 60) },
             ShareGuest { id: "g2".into(), name: "Tom".into(), role: ShareRole::Player, app: "android".into(), since: Some(now - 35 * 60) },
-            ShareGuest { id: "g3".into(), name: "Camille".into(), role: ShareRole::PlayerKbm, app: "windows".into(), since: Some(now - 3700) },
+            ShareGuest { id: "g3".into(), name: "Hugo".into(), role: ShareRole::Kbm, app: "mac".into(), since: Some(now - 12 * 60) },
+            ShareGuest { id: "g4".into(), name: "Camille".into(), role: ShareRole::PlayerKbm, app: "windows".into(), since: Some(now - 3700) },
         ],
     }
 }
@@ -247,14 +249,19 @@ fn share_shots(app: &mut App, cv: &mut Canvas, assets: &Assets, video: &Pixmap, 
     app.focus = Target::Menu(MenuItem::Share);
     shot(app, cv, assets, Some(video), dir, "21h-partage-menu-code");
 
-    // L'invité : la connexion, le menu d'un spectateur, d'un joueur, d'un joueur avec le clavier et la souris, l'avis, la fin.
+    // L'invité : la connexion, le menu pour chaque combinaison de droits (aucun, manettes, clavier et souris, les deux), l'avis, la fin.
     let mut g = guest_session(ShareRole::Spectator);
     g.phase = Phase::Connecting;
     g.streamed = false;
     app.session = Some(g);
     app.focus = Target::CancelConnect;
     shot(app, cv, assets, None, dir, "22-invite-connexion");
-    for (role, name) in [(ShareRole::Spectator, "22b-invite-spectateur"), (ShareRole::Player, "22c-invite-joueur"), (ShareRole::PlayerKbm, "22d-invite-joueur-clavier")] {
+    for (role, name) in [
+        (ShareRole::Spectator, "22b-invite-spectateur"),
+        (ShareRole::Player, "22c-invite-joueur"),
+        (ShareRole::Kbm, "22d-invite-clavier-souris"),
+        (ShareRole::PlayerKbm, "22d-invite-joueur-clavier"),
+    ] {
         let mut g = guest_session(role);
         g.menu = true;
         app.session = Some(g);
@@ -500,7 +507,7 @@ pub fn run(dir: &Path, lang: &str) {
 mod tests {
     use super::*;
     use crate::app::{
-        app_label, duration_label, format_code, guests_label, share_tile, Action, Nav, ShareOp, NAME_MAX,
+        app_label, duration_label, format_code, guests_label, share_tile, Action, Nav, ShareMove, ShareOp, NAME_MAX,
     };
 
     /// Les réglages s'atteignent à la croix depuis « Se connecter », sans
@@ -602,8 +609,8 @@ mod tests {
 
     /// Une Station qui ne partage pas : la tuile « Partager » se choisit et ouvre le panneau réduit à la raison ; avant la
     /// première réponse d'Admin, le panneau attend cette réponse (jamais une tuile muette) ; avec un partage possible, il
-    /// ouvre le panneau et demande l'ouverture à Admin, une fois ; ses invités : « Faire jouer », le clavier et la souris,
-    /// « Faire regarder », « Retirer » ; B referme le panneau, le signe de vie le met à jour.
+    /// ouvre le panneau et demande l'ouverture à Admin, une fois ; ses invités : les manettes et le clavier et la souris, donnés
+    /// ou repris chacun sans toucher à l'autre, « Retirer » ; B referme le panneau, le signe de vie le met à jour.
     #[test]
     fn sharing_from_the_menu() {
         let mut app = tv();
@@ -660,16 +667,23 @@ mod tests {
         app.share_reply(Ok(Some(view(ShareRole::Spectator))));
         assert_eq!(app.focus, Target::ShareNewCode);
         let role = |r| vec![Action::Share(ShareOp::Role("g1".into(), r))];
-        assert_eq!(app.activate(Target::ShareRole(0)), role(ShareRole::Player));
-        app.share_reply(Ok(Some(view(ShareRole::Player))));
-        assert_eq!(app.activate(Target::ShareKbm(0)), role(ShareRole::PlayerKbm));
-        app.share_reply(Ok(Some(view(ShareRole::PlayerKbm))));
-        assert_eq!(app.activate(Target::ShareRole(0)), role(ShareRole::Spectator), "« Faire regarder » aussi avec le clavier et la souris");
-        app.share_reply(Ok(Some(view(ShareRole::PlayerKbm))));
-        assert_eq!(app.activate(Target::ShareKbm(0)), role(ShareRole::Player));
-        app.share_reply(Ok(Some(view(ShareRole::Player))));
-        assert_eq!(app.activate(Target::ShareRole(0)), role(ShareRole::Spectator), "« Faire regarder »");
-        app.share_reply(Ok(Some(view(ShareRole::Spectator))));
+        // Deux droits indépendants, chacun donné ou repris sans toucher à l'autre. Une seule demande à la fois,
+        // jusqu'à la réponse d'Admin : le rôle voulu se calcule d'après celui qui est montré, deux clics rapides
+        // sur les deux droits s'annuleraient sinon (Spectator → Kbm écraserait Player).
+        assert_eq!(app.activate(Target::SharePads(0)), role(ShareRole::Player));
+        assert!(app.activate(Target::ShareKbm(0)).is_empty() && app.activate(Target::SharePads(0)).is_empty() && app.activate(Target::ShareKick(0)).is_empty());
+        app.share_reply(Ok(Some(view(ShareRole::Player)))); // les manettes données
+        let ask = |app: &mut App, t: Target, to: ShareRole| {
+            assert_eq!(app.activate(t), role(to), "{t:?}");
+            app.share_reply(Ok(Some(view(to))));
+        };
+        ask(&mut app, Target::ShareKbm(0), ShareRole::PlayerKbm); // puis le clavier et la souris, les manettes gardées
+        ask(&mut app, Target::SharePads(0), ShareRole::Kbm); // les manettes reprises, le clavier et la souris gardés
+        ask(&mut app, Target::SharePads(0), ShareRole::PlayerKbm); // rendues
+        ask(&mut app, Target::ShareKbm(0), ShareRole::Player); // le clavier et la souris repris, les manettes gardées
+        ask(&mut app, Target::SharePads(0), ShareRole::Spectator); // plus aucun droit
+        ask(&mut app, Target::ShareKbm(0), ShareRole::Kbm); // le clavier et la souris seuls, sans passer par les manettes
+        ask(&mut app, Target::ShareKbm(0), ShareRole::Spectator);
         assert_eq!(app.activate(Target::ShareKick(0)), vec![Action::Share(ShareOp::Kick("g1".into()))]);
         app.share_reply(Ok(Some(ShareView { guests: Vec::new(), ..view(ShareRole::Spectator) })));
         assert_eq!(app.activate(Target::ShareNewCode), vec![Action::Share(ShareOp::NewCode)]);
@@ -716,10 +730,13 @@ mod tests {
         assert_eq!((s.name.as_str(), s.role(), s.keyboard_mouse()), ("Invité sur Atelier", Some(ShareRole::Spectator), false));
         assert!(app.store.host(&s.host).is_none());
         assert!(app.activate(Target::Menu(MenuItem::Share)).is_empty() && !app.session.as_ref().unwrap().share_panel);
+        let notice = |app: &App| app.session.as_ref().unwrap().notice.as_ref().map(|n| n.0.clone());
         app.share_role_changed(ShareRole::Player, Some(ShareRole::Spectator));
-        assert_eq!(app.session.as_ref().unwrap().notice.as_ref().map(|n| n.0.as_str()), Some("Vous pouvez jouer."));
+        assert_eq!(notice(&app).as_deref(), Some("Vous pouvez jouer à la manette."));
+        assert!(!app.session.as_ref().unwrap().keyboard_mouse());
+        // Le clavier et la souris donnés par-dessus les manettes : un avis pour le droit donné seulement.
         app.share_role_changed(ShareRole::PlayerKbm, Some(ShareRole::Player));
-        assert_eq!(app.session.as_ref().unwrap().notice.as_ref().map(|n| n.0.as_str()), Some("Vous avez le clavier et la souris."));
+        assert_eq!(notice(&app).as_deref(), Some("Vous avez le clavier et la souris."));
         assert!(app.session.as_ref().unwrap().keyboard_mouse());
         {
             let s = app.session.as_mut().unwrap();
@@ -727,14 +744,60 @@ mod tests {
             s.remote_mouse = true;
             s.pad_mouse = true;
         }
+        // Les manettes reprises : le clavier et la souris restent ouverts (touches, Magic Remote, manette en souris).
+        app.share_role_changed(ShareRole::Kbm, Some(ShareRole::PlayerKbm));
+        let s = app.session.as_ref().unwrap();
+        assert_eq!(notice(&app).as_deref(), Some("Les manettes sont reprises."));
+        assert!(s.keys && s.remote_mouse && s.pad_mouse && s.keyboard_mouse());
+        // Les manettes rendues, puis le clavier et la souris repris : ce qu'ils ouvraient se ferme.
+        app.share_role_changed(ShareRole::PlayerKbm, Some(ShareRole::Kbm));
+        assert_eq!(notice(&app).as_deref(), Some("Vous pouvez jouer à la manette."));
         app.share_role_changed(ShareRole::Player, Some(ShareRole::PlayerKbm));
         let s = app.session.as_ref().unwrap();
-        assert_eq!(s.notice.as_ref().map(|n| n.0.as_str()), Some("Le clavier et la souris sont repris."));
-        assert!(!s.keys && !s.remote_mouse && !s.pad_mouse);
+        assert_eq!(notice(&app).as_deref(), Some("Le clavier et la souris sont repris."));
+        assert!(!s.keys && !s.remote_mouse && !s.pad_mouse && !s.keyboard_mouse());
+        // Plus aucun droit : « Vous regardez de nouveau. » à la place de l'avis de reprise.
         app.share_role_changed(ShareRole::Spectator, Some(ShareRole::Player));
-        assert_eq!(app.session.as_ref().unwrap().notice.as_ref().map(|n| n.0.as_str()), Some("Vous regardez de nouveau."));
-        // Le rôle de départ n'a pas d'avis.
-        assert_eq!(ShareRole::Spectator.notice(None), None);
+        assert_eq!(notice(&app).as_deref(), Some("Vous regardez de nouveau."));
+        // Les quatre rôles, de l'un à l'autre : un seul avis ; les deux droits changés d'un coup, le droit donné
+        // avant le droit repris, les manettes avant le clavier et la souris ; plus aucun droit : « Vous regardez
+        // de nouveau. » à la place de l'avis de reprise.
+        use ShareRole::{Kbm, Player, PlayerKbm, Spectator};
+        let said = |to: ShareRole, from: ShareRole| to.notice(Some(from));
+        assert_eq!(said(Player, Spectator), Some("Vous pouvez jouer à la manette."));
+        assert_eq!(said(Kbm, Spectator), Some("Vous avez le clavier et la souris."));
+        assert_eq!(said(PlayerKbm, Spectator), Some("Vous pouvez jouer à la manette."), "deux droits donnés : les manettes d'abord");
+        assert_eq!(said(PlayerKbm, Kbm), Some("Vous pouvez jouer à la manette."));
+        assert_eq!(said(PlayerKbm, Player), Some("Vous avez le clavier et la souris."));
+        assert_eq!(said(Kbm, Player), Some("Vous avez le clavier et la souris."), "un droit donné, un repris : le donné d'abord");
+        assert_eq!(said(Player, Kbm), Some("Vous pouvez jouer à la manette."), "un droit donné, un repris : le donné d'abord");
+        assert_eq!(said(Spectator, Player), Some("Vous regardez de nouveau."));
+        assert_eq!(said(Spectator, Kbm), Some("Vous regardez de nouveau."));
+        assert_eq!(said(Spectator, PlayerKbm), Some("Vous regardez de nouveau."), "deux droits repris : plus aucun, un seul avis");
+        assert_eq!(said(Kbm, PlayerKbm), Some("Les manettes sont reprises."));
+        assert_eq!(said(Player, PlayerKbm), Some("Le clavier et la souris sont repris."));
+        // Le rôle de départ (avant la connexion) et un rôle inchangé n'ont pas d'avis.
+        assert_eq!(Spectator.notice(None), None);
+        for r in [Spectator, Player, Kbm, PlayerKbm] {
+            assert_eq!(r.notice(Some(r)), None);
+        }
+        crate::i18n::force_english(true);
+        assert_eq!(said(Player, Spectator), Some("You can play with a controller."));
+        assert_eq!(said(Kbm, Spectator), Some("You have the keyboard and mouse."));
+        assert_eq!(said(Spectator, Player), Some("You are watching again."));
+        assert_eq!(said(Kbm, PlayerKbm), Some("The controllers were taken back."));
+        assert_eq!(said(Player, PlayerKbm), Some("The keyboard and mouse were taken back."));
+        crate::i18n::force_english(false);
+        // Les deux droits : « Joueur » dès qu'il y en a un ; chacun donné ou repris sans toucher à l'autre.
+        assert_eq!([Spectator, Player, Kbm, PlayerKbm].map(|r| (r.label(), r.pads(), r.kbm(), r.plays())), [("Spectateur", false, false, false), ("Joueur", true, false, true), ("Joueur", false, true, true), ("Joueur", true, true, true)]);
+        for (pads, kbm) in [(false, false), (true, false), (false, true), (true, true)] {
+            let r = ShareRole::of(pads, kbm);
+            assert_eq!((r.pads(), r.kbm()), (pads, kbm));
+            for on in [false, true] {
+                assert_eq!((r.with_pads(on).pads(), r.with_pads(on).kbm()), (on, kbm), "{r:?} : les manettes, le clavier et la souris tels quels");
+                assert_eq!((r.with_kbm(on).pads(), r.with_kbm(on).kbm()), (pads, on), "{r:?} : le clavier et la souris, les manettes telles quelles");
+            }
+        }
         // Quitter le partage : « Se déconnecter ».
         assert_eq!(app.activate(Target::Menu(MenuItem::Disconnect)), vec![Action::Disconnect]);
     }
@@ -773,14 +836,24 @@ mod tests {
             (duration_label(20), duration_label(3 * 60), duration_label(3600 + 12 * 60), guests_label(1), guests_label(3), app_label("webos")),
             ("under a minute".to_string(), "3 min".to_string(), "1 h 12".to_string(), "1 guest".to_string(), "3 guests".to_string(), "LG TV".to_string())
         );
-        // Actions sur un invité : « Faire jouer » ; puis, pour un joueur avec ou sans le clavier et la souris, « Faire regarder »
-        // et le clavier et la souris.
-        let labels = |r: ShareRole| r.moves().iter().map(|m| m.label(r)).collect::<Vec<_>>();
-        assert_eq!(labels(ShareRole::Spectator), ["Let play"]);
-        assert_eq!(labels(ShareRole::Player), ["Watch only", "Give keyboard and mouse"]);
-        assert_eq!(labels(ShareRole::PlayerKbm), ["Watch only", "Take back keyboard and mouse"]);
+        assert_eq!(
+            [ShareRole::Spectator, ShareRole::Player, ShareRole::Kbm, ShareRole::PlayerKbm].map(|r| r.long_label()),
+            ["Spectator", "Player", "Keyboard and mouse", "Player, keyboard and mouse"]
+        );
+        // Actions sur un invité : deux droits indépendants, chacun donné ou repris, jamais « Faire jouer » ni « Faire regarder ».
+        let labels = |r: ShareRole| ShareMove::ALL.map(|m| m.label(r));
+        assert_eq!(labels(ShareRole::Spectator), ["Give controllers", "Give keyboard and mouse"]);
+        assert_eq!(labels(ShareRole::Player), ["Take back controllers", "Give keyboard and mouse"]);
+        assert_eq!(labels(ShareRole::Kbm), ["Give controllers", "Take back keyboard and mouse"]);
+        assert_eq!(labels(ShareRole::PlayerKbm), ["Take back controllers", "Take back keyboard and mouse"]);
         crate::i18n::force_english(false);
-        assert_eq!(labels(ShareRole::PlayerKbm), ["Faire regarder", "Reprendre le clavier et la souris"]);
+        assert_eq!(labels(ShareRole::Spectator), ["Donner les manettes", "Donner le clavier et la souris"]);
+        assert_eq!(labels(ShareRole::Player), ["Reprendre les manettes", "Donner le clavier et la souris"]);
+        assert_eq!(labels(ShareRole::Kbm), ["Donner les manettes", "Reprendre le clavier et la souris"]);
+        assert_eq!(labels(ShareRole::PlayerKbm), ["Reprendre les manettes", "Reprendre le clavier et la souris"]);
+        // Les libellés d'un invité : « Léa · Spectateur », « · Joueur », « · Clavier et souris », « · Joueur, clavier et souris ».
+        let lines = [ShareRole::Spectator, ShareRole::Player, ShareRole::Kbm, ShareRole::PlayerKbm].map(|role| ShareGuest { name: "Léa".into(), role, ..Default::default() }.line());
+        assert_eq!(lines, ["Léa · Spectateur", "Léa · Joueur", "Léa · Clavier et souris", "Léa · Joueur, clavier et souris"]);
         crate::i18n::force_english(false);
     }
 
@@ -814,9 +887,10 @@ mod tests {
         for (t, r) in &hits {
             assert!(r.x >= 0.0 && r.y >= 0.0 && r.x + r.w <= 1920.0 && r.y + r.h <= 1080.0, "{t:?} sort de l'écran : {r:?}");
         }
-        // Le panneau de l'hôte, avec quatre invités, tient à l'écran, boutons du bas compris.
-        let mut view = shared_view();
-        view.guests.push(ShareGuest { id: "g4".into(), name: "Zoé".into(), role: ShareRole::Spectator, app: "web".into(), since: None });
+        // Le panneau de l'hôte, avec quatre invités (un par combinaison de droits), tient à l'écran, boutons du bas
+        // compris ; chaque invité a ses deux boutons de droits et « Retirer », côte à côte, dans la largeur du panneau.
+        let view = shared_view();
+        assert_eq!(view.guests.len(), 4);
         let mut s = session(&app);
         s.menu = false;
         s.share = Some(view);
@@ -825,11 +899,23 @@ mod tests {
         app.screen = Screen::Session;
         assert!(ui::session_overlay_visible(&app));
         let hits = ui::draw(&app, &mut cv, &assets);
-        for t in [Target::ShareNewCode, Target::ShareStop, Target::ShareKick(0), Target::ShareKick(3), Target::ShareRole(0), Target::ShareKbm(1), Target::ShareRole(1), Target::ShareKbm(2), Target::ShareRole(3)] {
-            let (_, r) = hits.iter().find(|(h, _)| *h == t).unwrap_or_else(|| panic!("{t:?} absent du panneau"));
+        let rect = |t: Target| hits.iter().find(|(h, _)| *h == t).unwrap_or_else(|| panic!("{t:?} absent du panneau")).1;
+        let mut need = vec![Target::ShareNewCode, Target::ShareStop];
+        for i in 0..4 {
+            need.extend([Target::SharePads(i), Target::ShareKbm(i), Target::ShareKick(i)]);
+        }
+        for t in need {
+            let r = rect(t);
             assert!(r.x >= 0.0 && r.y >= 0.0 && r.x + r.w <= 1920.0 && r.y + r.h <= 1032.0, "{t:?} sort de l'écran : {r:?}");
         }
-        assert!(hits.iter().all(|(t, _)| *t != Target::ShareKbm(0) && *t != Target::ShareKbm(3)), "un spectateur n'a que « Faire jouer »");
+        let right = rect(Target::ShareStop);
+        for i in 0..4 {
+            let (p, k, x) = (rect(Target::SharePads(i)), rect(Target::ShareKbm(i)), rect(Target::ShareKick(i)));
+            assert!(p.x + p.w <= k.x && k.x + k.w <= x.x, "ligne {i} : boutons qui se chevauchent : {p:?} {k:?} {x:?}");
+            assert!(x.x + x.w <= right.x + right.w, "ligne {i} : « Retirer » sort du panneau : {x:?} contre {right:?}");
+        }
+        let per_guest = hits.iter().filter(|(t, _)| matches!(t, Target::SharePads(_) | Target::ShareKbm(_) | Target::ShareKick(_))).count();
+        assert_eq!(per_guest, 12, "trois boutons par invité, jamais « Faire jouer » ni « Faire regarder »");
         // Le menu d'un hôte (trois rangées : « Partager » y est, le rappel du mode jeu ne les recouvre pas), puis d'un invité.
         let mut s = session(&app);
         s.menu = true;
@@ -840,17 +926,17 @@ mod tests {
         let dismiss = hits.iter().find(|(t, _)| *t == Target::HintDismiss).expect("le rappel").1;
         let last = hits.iter().filter(|(t, _)| matches!(t, Target::Menu(_))).map(|(_, r)| r.y + r.h).fold(0.0, f32::max);
         assert!(share.w > 0.0 && dismiss.y >= last, "le rappel est sous les tuiles ({dismiss:?}, {last})");
-        for (role, full) in [(ShareRole::Spectator, false), (ShareRole::Player, false), (ShareRole::PlayerKbm, true)] {
+        for role in [ShareRole::Spectator, ShareRole::Player, ShareRole::Kbm, ShareRole::PlayerKbm] {
             let mut g = guest_session(role);
             g.menu = true;
             app.session = Some(g);
             let hits = ui::draw(&app, &mut cv, &assets);
             let has = |t: Target| hits.iter().any(|(h, _)| *h == t);
             assert!(!has(Target::Menu(MenuItem::Share)) && !has(Target::Menu(MenuItem::Settings)) && !has(Target::Menu(MenuItem::Profile(Profile::Bureau))), "{role:?}");
-            assert_eq!(has(Target::Menu(MenuItem::Keys)), full, "{role:?} : touches");
-            assert_eq!(has(Target::Menu(MenuItem::RemoteMouse)), full, "{role:?} : Magic Remote en souris");
-            assert_eq!(has(Target::Menu(MenuItem::PadMouse)), full, "{role:?} : manette en souris");
-            assert_eq!(has(Target::Menu(MenuItem::Gamepads)), role != ShareRole::Spectator, "{role:?} : la manette seulement en joueur");
+            assert_eq!(has(Target::Menu(MenuItem::Keys)), role.kbm(), "{role:?} : touches");
+            assert_eq!(has(Target::Menu(MenuItem::RemoteMouse)), role.kbm(), "{role:?} : Magic Remote en souris");
+            assert_eq!(has(Target::Menu(MenuItem::PadMouse)), role.kbm(), "{role:?} : manette en souris");
+            assert_eq!(has(Target::Menu(MenuItem::Gamepads)), role.pads(), "{role:?} : les manettes seulement avec les manettes");
             assert!(has(Target::Menu(MenuItem::Resume)) && has(Target::Menu(MenuItem::Stats)) && has(Target::Menu(MenuItem::Disconnect)));
         }
     }
@@ -954,6 +1040,6 @@ mod tests {
         app.activate(Target::Menu(MenuItem::Share));
         assert!(app.session.as_ref().unwrap().share_panel);
         let hits = ui::draw(&app, &mut cv, &assets);
-        assert!(hits.iter().all(|(t, _)| !matches!(t, Target::ShareNewCode | Target::ShareStop | Target::ShareKick(_) | Target::ShareRole(_))));
+        assert!(hits.iter().all(|(t, _)| !matches!(t, Target::ShareNewCode | Target::ShareStop | Target::ShareKick(_) | Target::SharePads(_) | Target::ShareKbm(_))));
     }
 }

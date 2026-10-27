@@ -550,9 +550,15 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, live: O
                 *dirty = true;
             }
             let s = app.session.as_ref();
-            // Un spectateur (KyberNow Share) n'a pas de chaîne d'entrées, donc pas de combinaison pour le menu :
-            // Start, Select ou B l'ouvrent (il n'envoie rien à l'ordinateur).
-            if in_game && is_button && down && matches!(which, 1 | 4 | 6) && s.is_some_and(|s| s.role() == Some(ShareRole::Spectator)) {
+            // Un invité sans les manettes (KyberNow Share : spectateur, ou clavier et souris seuls) n'envoie aucune
+            // touche de manette, donc la combinaison du menu ne se forme pas : Start, Select ou B l'ouvrent. En
+            // manette-souris (clavier et souris donnés), B est le clic droit : Start et Select seulement.
+            if in_game
+                && is_button
+                && down
+                && let Some((true, mouse)) = s.and_then(|s| s.role().map(|r| (!r.pads(), s.pad_mouse)))
+                && (matches!(which, 4 | 6) || (which == 1 && !mouse))
+            {
                 actions.extend(app.open_menu());
                 *dirty = true;
                 return;

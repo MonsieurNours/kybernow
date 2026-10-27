@@ -185,10 +185,10 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
 
     // Les tuiles de l'hôte ; un invité n'a ni profil, ni réglages de l'ordinateur, ni « Partager », et la
     // Magic Remote en souris, les touches et la manette en souris seulement avec le clavier et la souris
-    // donnés, la tuile des manettes seulement en joueur (KyberNow Share).
+    // donnés, la tuile des manettes seulement avec les manettes (KyberNow Share).
     let guest = s.guest.is_some();
     let kbm = s.keyboard_mouse();
-    let plays = s.role().is_none_or(|r| r.plays());
+    let pads = s.role().is_none_or(|r| r.pads());
     let mut tiles: Vec<(MenuItem, Icon, String, Option<String>, bool, bool)> = vec![(MenuItem::Resume, Icon::Play, tr("Reprendre", "Resume").into(), None, false, false)];
     if !guest {
         for p in Profile::ALL.iter().copied().filter(|p| *p != s.profile) {
@@ -206,7 +206,7 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         tiles.push((MenuItem::Keys, Icon::Keys, tr("Touches", "Keys").into(), Some("Ctrl+Alt+Suppr…".into()), false, false));
     }
     tiles.push((MenuItem::Stats, Icon::Chart, tr("Statistiques", "Statistics").into(), Some(tr("en haut de l'image", "over the picture").into()), false, s.show_stats));
-    if plays {
+    if pads {
         tiles.push((MenuItem::Gamepads, Icon::Gamepad, tr("Manettes", "Controllers").into(), Some(format!("{} {}", app.pads.len(), tr("branchée(s)", "connected"))), false, false));
     }
     if guest {
@@ -246,11 +246,11 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         widgets::secondary(cv, f, Target::HintDismiss, x + w - lw - 30.0, y + 22.0, label, 20.0);
     }
 
-    // Un spectateur n'envoie rien : pas de combinaison de la manette (Start, Select ou B ouvrent le menu).
-    let hint = if s.role() == Some(crate::app::ShareRole::Spectator) {
-        tr("Menu : bouton Retour de la Magic Remote, ou Start, Select ou B d'une manette", "Menu: Magic Remote Back, or Start, Select or B on a controller")
-    } else {
+    // Sans les manettes, un invité n'envoie aucune touche de manette : pas de combinaison (Start, Select ou B ouvrent le menu).
+    let hint = if pads {
         tr("Menu : bouton Retour de la Magic Remote, ou L1 + R1 + Start + Select · pendant le menu, l'ordinateur ne reçoit rien", "Menu: Magic Remote Back, or L1 + R1 + Start + Select · while the menu is open, the computer receives nothing")
+    } else {
+        tr("Menu : bouton Retour de la Magic Remote, ou Start, Select ou B d'une manette", "Menu: Magic Remote Back, or Start, Select or B on a controller")
     };
     cv.text(W / 2.0, H - 70.0, Text::new(Font::Regular, 19.0, FROST_3).align(Align::Center), hint);
 }

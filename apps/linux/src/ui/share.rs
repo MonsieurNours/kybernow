@@ -11,7 +11,7 @@ use super::icons::Icon;
 use super::theme::*;
 use super::widgets::{self, eyebrow, legend};
 use super::{unit, Frame};
-use crate::app::{guests_label, App, Layout, Rect, SessionUi, ShareView, Target, MAX_GUESTS};
+use crate::app::{guests_label, App, Layout, Rect, SessionUi, ShareMove, ShareView, Target, MAX_GUESTS};
 use crate::i18n::tr;
 
 /// Ce que le panneau mesure, en points de l'interface (`u` : l'échelle de l'interface).
@@ -187,9 +187,9 @@ fn card(cv: &mut Canvas, f: &mut Frame, app: &App, s: &SessionUi, r: Rect, u: f3
         let mw = cv.text_width(Text::new(Font::Regular, 11.5 * u, FAINT), &meta);
         cv.text_fit(x, y + 16.0 * u, Text::new(Font::Regular, 13.5 * u, FROST), &g.line(), (inner - mw - 16.0 * u).max(60.0));
         cv.text(x + inner, y + 16.0 * u, Text::new(Font::Regular, 11.5 * u, FAINT).align(Align::Right), &meta);
-        // Ce que l'hôte peut en faire, puis « Retirer ».
+        // Ses deux droits, chacun donné ou repris sans toucher à l'autre, puis « Retirer ».
         let mut bx = x;
-        for m in g.role.moves() {
+        for m in ShareMove::ALL {
             bx += widgets::ghost(cv, f, m.target(i), bx, y + 24.0 * u, 26.0 * u, 12.0 * u, None, m.label(g.role), MUTED) + 8.0 * u;
         }
         widgets::ghost(cv, f, Target::ShareKick(i), bx, y + 24.0 * u, 26.0 * u, 12.0 * u, None, tr("Retirer", "Remove"), BAD_TEXT);
