@@ -242,6 +242,11 @@ export const backend = {
     } catch {
       // Réponse vide ou illisible.
     }
+    if (res.status === 429) {
+      // Un changement par seconde et par invité : la Station dit quand refaire la demande.
+      const wait = Number(data?.retry_after ?? res.headers.get('retry-after'))
+      throw new ApiError(429, data?.error ?? 'too_many', 'too_many', Number.isFinite(wait) && wait > 0 ? wait : 1)
+    }
     if (!res.ok) throw new ApiError(res.status, data?.error ?? t('common.error', { status: res.status }))
     return data as GuestImage
   },

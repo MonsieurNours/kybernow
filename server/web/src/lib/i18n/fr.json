@@ -981,6 +981,7 @@
       "title": "Qualité de l'image",
       "auto": "Auto",
       "host": "Comme l'hôte",
+      "2160p60": "4K · 60 Hz",
       "1080p60": "1080p · 60 Hz",
       "720p30": "720p · 30 Hz",
       "failed": "La qualité de l'image n'a pas pu changer : réessayez."

@@ -249,7 +249,7 @@ export interface ShareGuest {
 }
 
 /** « Qualité de l'image » d'un invité (docs/kybernow-share.md, « L'image d'un invité »). */
-export type ShareQuality = 'auto' | 'host' | '1080p60' | '720p30'
+export type ShareQuality = 'auto' | 'host' | '2160p60' | '1080p60' | '720p30'
 
 /**
  * L'image d'un invité (`image` de son signe de vie, réponse de `POST /api/share/quality`,
@@ -432,8 +432,11 @@ export interface Pairing {
 }
 
 export class ApiError extends Error {
-  /** `code` : raison stable d'un refus, quand Admin en donne une (`session`, `too_soon`…). */
-  constructor(public status: number, message: string, public code?: string) {
+  /**
+   * `code` : raison stable d'un refus, quand Admin en donne une (`session`, `too_soon`…) ;
+   * `retryAfter` : secondes à attendre avant de refaire la demande (429 avec `Retry-After`).
+   */
+  constructor(public status: number, message: string, public code?: string, public retryAfter?: number) {
     super(message)
   }
 }

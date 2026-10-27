@@ -71,11 +71,12 @@ export function sinceText(seconds: number): string {
 
 /**
  * La qualité d'une image reçue (docs/link-ui.md, « Partage ») : « 1080p · 60 Hz », le côté court puis
- * la fréquence, comme le panneau de l'icône ; `''` tant que Kyber ne la dit pas.
+ * la fréquence (« 4K » dès 2160 lignes), comme le panneau de l'icône ; `''` tant que Kyber ne la dit pas.
  */
 export function imageQuality(image: { width: number | null; height: number | null; fps: number | null } | null | undefined): string {
   if (!image?.width || !image.height) return ''
-  const lines = `${Math.min(image.width, image.height)}p`
+  const short = Math.min(image.width, image.height)
+  const lines = short >= 2160 ? '4K' : `${short}p`
   return image.fps ? `${lines} · ${Math.round(image.fps)} Hz` : lines
 }
 

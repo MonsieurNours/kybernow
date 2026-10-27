@@ -7,7 +7,7 @@
 -->
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte'
-  import { backend, endBody, heartbeatBody, type GuestBeat, type Info } from './backend'
+  import { backend, endBody, heartbeatBody, type AutoCaps, type GuestBeat, type GuestJoin, type Info } from './backend'
   import { Heartbeat } from './heartbeat'
   import { guestTarget, sendHeartbeat, type HeartbeatResult } from './heartbeat-call'
   import { ApiError, type GuestImage, type ShareQuality, type ShareRole, type ShareView } from '../lib/api'
@@ -339,6 +339,22 @@
   }
 
   /**
+   * `POST /api/share/quality` : un changement trop rapproché (429, un par seconde et par invité) est refait
+   * après le délai donné par la Station, sans avis. `null` : la session a changé pendant l'attente.
+   */
+  async function askQuality(gen: number, join: GuestJoin, q: ShareQuality, auto?: AutoCaps): Promise<GuestImage | null> {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await backend.shareQuality(join, q, auto)
+      } catch (e) {
+        if (!(e instanceof ApiError) || e.status !== 429 || attempt >= 5) throw e
+        await new Promise((resolve) => setTimeout(resolve, Math.min(e.retryAfter ?? 1, 10) * 1000))
+        if (stale(gen)) return null
+      }
+    }
+  }
+
+  /**
    * « Qualité de l'image » changée dans la barre : retenue pour la fois suivante, envoyée à la Station
    * (`POST /api/share/quality`), qui fait relancer à Kyber l'image de l'invité seulement. Le jeton
    * renouvelé porte le nouveau préréglage. Préréglage inchangé (« Auto » qui donnait déjà 1080p60) : rien
@@ -355,9 +371,9 @@
     qualityBusy = true
     try {
       const auto = q === 'auto' ? await autoCaps() : undefined
-      const next = await backend.shareQuality(g.join, q, auto)
+      const next = await askQuality(gen, g.join, q, auto)
       saveQuality(q)
-      if (stale(gen)) return
+      if (!next || stale(gen)) return
       onImage(next)
       await beatNow()
       if (stale(gen) || phase !== 'live' || !engine || !plan) return
@@ -403,7 +419,9 @@
     await retire(e)
     if (stale(gen)) return
     try {
-      onImage(await backend.shareQuality(g.join, '720p30'))
+      const next = await askQuality(gen, g.join, '720p30')
+      if (!next) return
+      onImage(next)
       // Le jeton renouvelé porte 720p30 (`kn_quality`) : Kyber le prend à la nouvelle connexion.
       await beatNow()
     } catch {

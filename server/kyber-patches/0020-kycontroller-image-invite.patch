@@ -14,7 +14,7 @@ index 34800a1..99af85d 100644
  vergen = { version = "8.3.1", features = ["build", "git", "gitcl"] }
  
 diff --git a/kycontroller/src/auth/jwt.rs b/kycontroller/src/auth/jwt.rs
-index 77fa2f1..77c6532 100644
+index 77fa2f1..35e6fa4 100644
 --- a/kycontroller/src/auth/jwt.rs
 +++ b/kycontroller/src/auth/jwt.rs
 @@ -60,7 +60,7 @@ use std::{fs::File, io::Read};
@@ -30,7 +30,7 @@ index 77fa2f1..77c6532 100644
      /// KyberNow: revision of the guest's role (0 when absent).
      kn_rev: Option<u64>,
  
-+    /// KyberNow: the image a guest asks for (`host`, `1080p60`, `720p30`;
++    /// KyberNow: the image a guest asks for (`host`, `2160p60`, `1080p60`, `720p30`;
 +    /// absent or unknown: `host`). Read at login only, not at renewal.
 +    kn_quality: Option<String>,
 +
@@ -72,7 +72,7 @@ index 77fa2f1..77c6532 100644
              })
          );
          assert!(!session.admin);
-@@ -353,6 +371,26 @@ mod tests {
+@@ -353,6 +371,27 @@ mod tests {
          assert!(matches!(no_display, Err(Error::MissingField { .. })));
      }
  
@@ -91,6 +91,7 @@ index 77fa2f1..77c6532 100644
 +        };
 +        assert_eq!(quality(serde_json::Value::Null), ShareQuality::Host);
 +        assert_eq!(quality("host".into()), ShareQuality::Host);
++        assert_eq!(quality("2160p60".into()), ShareQuality::P2160);
 +        assert_eq!(quality("1080p60".into()), ShareQuality::P1080);
 +        assert_eq!(quality("720p30".into()), ShareQuality::P720);
 +        assert_eq!(quality("auto".into()), ShareQuality::Host);
@@ -100,10 +101,10 @@ index 77fa2f1..77c6532 100644
      fn the_admin_token_is_flagged() {
          let session = authenticate(serde_json::json!({
 diff --git a/kycontroller/src/auth/mod.rs b/kycontroller/src/auth/mod.rs
-index 9653270..d0cfc8e 100644
+index 9653270..25d681c 100644
 --- a/kycontroller/src/auth/mod.rs
 +++ b/kycontroller/src/auth/mod.rs
-@@ -138,13 +138,46 @@ pub enum ShareRole {
+@@ -138,13 +138,50 @@ pub enum ShareRole {
      PlayerKbm,
  }
  
@@ -114,6 +115,9 @@ index 9653270..d0cfc8e 100644
 +    #[default]
 +    #[serde(rename = "host")]
 +    Host,
++    /// 4K (2160p) at 60 Hz at most.
++    #[serde(rename = "2160p60")]
++    P2160,
 +    /// 1080p at 60 Hz at most.
 +    #[serde(rename = "1080p60")]
 +    P1080,
@@ -126,13 +130,14 @@ index 9653270..d0cfc8e 100644
 +    pub fn name(self) -> &'static str {
 +        match self {
 +            Self::Host => "host",
++            Self::P2160 => "2160p60",
 +            Self::P1080 => "1080p60",
 +            Self::P720 => "720p30",
 +        }
 +    }
 +
 +    pub fn parse(name: &str) -> Option<Self> {
-+        [Self::Host, Self::P1080, Self::P720]
++        [Self::Host, Self::P2160, Self::P1080, Self::P720]
 +            .into_iter()
 +            .find(|quality| quality.name() == name)
 +    }
@@ -1680,10 +1685,10 @@ index 1ad43f4..6cd2174 100644
      #[error("Tray not supported on this platform")]
 diff --git a/kycontroller/src/guest_image.rs b/kycontroller/src/guest_image.rs
 new file mode 100644
-index 0000000..beffcdb
+index 0000000..4328727
 --- /dev/null
 +++ b/kycontroller/src/guest_image.rs
-@@ -0,0 +1,1243 @@
+@@ -0,0 +1,1288 @@
 +// KyberNow: KyberNow Share, a guest's own image (patch 0020). The decisions
 +// only, without Kyber's state, so that they can be tested anywhere: which
 +// image a guest gets (`choose`), how many images beside the host's the
@@ -1829,6 +1834,7 @@ index 0000000..beffcdb
 +fn frame(quality: ShareQuality) -> Option<(u32, u32, u32)> {
 +    match quality {
 +        ShareQuality::Host => None,
++        ShareQuality::P2160 => Some((3840, 2160, 60)),
 +        ShareQuality::P1080 => Some((1920, 1080, 60)),
 +        ShareQuality::P720 => Some((1280, 720, 30)),
 +    }
@@ -1837,23 +1843,25 @@ index 0000000..beffcdb
 +fn rank(quality: ShareQuality) -> u8 {
 +    match quality {
 +        ShareQuality::Host => 0,
-+        ShareQuality::P1080 => 1,
-+        ShareQuality::P720 => 2,
++        ShareQuality::P2160 => 1,
++        ShareQuality::P1080 => 2,
++        ShareQuality::P720 => 3,
 +    }
 +}
 +
-+/// `quality` lowered by `steps` notches (host → 1080p60 → 720p30).
++/// `quality` lowered by `steps` notches (host → 2160p60 → 1080p60 → 720p30).
 +pub(crate) fn lowered(quality: ShareQuality, steps: u8) -> ShareQuality {
 +    match rank(quality).saturating_add(steps) {
 +        0 => ShareQuality::Host,
-+        1 => ShareQuality::P1080,
++        1 => ShareQuality::P2160,
++        2 => ShareQuality::P1080,
 +        _ => ShareQuality::P720,
 +    }
 +}
 +
 +/// How many notches `quality` can go down.
 +pub(crate) fn max_steps(quality: ShareQuality) -> u8 {
-+    2 - rank(quality)
++    3 - rank(quality)
 +}
 +
 +/// Bitrate ceiling of a preset's image (bits per second); the host's image
@@ -1861,6 +1869,10 @@ index 0000000..beffcdb
 +fn preset_cap(quality: ShareQuality, codec: ImageCodec) -> Option<u32> {
 +    match (quality, codec) {
 +        (ShareQuality::Host, _) => None,
++        // 4K at 60 Hz: four times 1080p's pixels for a little over three times
++        // its bitrate (HEVC, AV1); some more for H.264, which compresses less.
++        (ShareQuality::P2160, ImageCodec::H264) => Some(50_000_000),
++        (ShareQuality::P2160, _) => Some(40_000_000),
 +        (ShareQuality::P1080, ImageCodec::H264) => Some(16_000_000),
 +        (ShareQuality::P1080, _) => Some(12_000_000),
 +        (ShareQuality::P720, _) => Some(6_000_000),
@@ -2680,15 +2692,51 @@ index 0000000..beffcdb
 +    }
 +
 +    #[test]
++    fn a_4k60_image_has_its_own_ceiling_and_never_tops_the_host() {
++        // KyberNow: 2160p60 on a 4K 160 Hz host: an image of its own at 60 Hz,
++        // 40 Mbit/s at most in HEVC, 50 in H.264.
++        let s = with_host(host(UHD160, ImageCodec::Hevc, false), &[], 0);
++        let c = choose(&s, &ask(ShareQuality::P2160, reader(ImageCodec::Hevc, false))).unwrap();
++        assert!(matches!(
++            c.placement,
++            Placement::Open { image, bitrate: 40_000_000, cap: 40_000_000, .. }
++                if image == image_of(3840, 2160, 60, ImageCodec::Hevc)
++        ));
++        let c = choose(&s, &ask(ShareQuality::P2160, reader(ImageCodec::H264, false))).unwrap();
++        assert!(matches!(
++            c.placement,
++            Placement::Open { bitrate: 50_000_000, cap: 50_000_000, .. }
++        ));
++        // A 1080p60 host: 2160p60 is capped to the host's image.
++        let fhd = Mode { width: 1920, height: 1080, fps: 60 };
++        let c = choose(
++            &with_host(host(fhd, ImageCodec::Hevc, false), &[], 0),
++            &ask(ShareQuality::P2160, reader(ImageCodec::Hevc, false)),
++        )
++        .unwrap();
++        assert_eq!((c.placement, c.reason), (Placement::FollowHost, Reason::Capped));
++    }
++
++    fn image_of(width: u32, height: u32, fps: u32, codec: ImageCodec) -> GuestImage {
++        image(width, height, fps, codec)
++    }
++
++    #[test]
 +    fn lag_lowers_a_notch() {
 +        let h = host(UHD160, ImageCodec::Hevc, false);
 +        let s = with_host(h, &[], 0);
 +        let mut a = ask(ShareQuality::Host, reader(ImageCodec::Hevc, false));
++        // KyberNow: host → 2160p60 → 1080p60 → 720p30.
 +        a.steps = 1;
 +        let c = choose(&s, &a).unwrap();
-+        assert_eq!(opened(c), image(1920, 1080, 60, ImageCodec::Hevc));
++        assert_eq!(opened(c), image(3840, 2160, 60, ImageCodec::Hevc));
 +        assert_eq!(c.reason, Reason::Lag);
 +        a.steps = 2;
++        assert_eq!(
++            opened(choose(&s, &a).unwrap()),
++            image(1920, 1080, 60, ImageCodec::Hevc)
++        );
++        a.steps = 3;
 +        assert_eq!(
 +            opened(choose(&s, &a).unwrap()),
 +            image(1280, 720, 30, ImageCodec::Hevc)
@@ -2700,10 +2748,12 @@ index 0000000..beffcdb
 +        );
 +
 +        assert_eq!(lowered(ShareQuality::Host, 0), ShareQuality::Host);
-+        assert_eq!(lowered(ShareQuality::Host, 1), ShareQuality::P1080);
++        assert_eq!(lowered(ShareQuality::Host, 1), ShareQuality::P2160);
++        assert_eq!(lowered(ShareQuality::P2160, 1), ShareQuality::P1080);
 +        assert_eq!(lowered(ShareQuality::P1080, 1), ShareQuality::P720);
 +        assert_eq!(lowered(ShareQuality::P720, 3), ShareQuality::P720);
-+        assert_eq!(max_steps(ShareQuality::Host), 2);
++        assert_eq!(max_steps(ShareQuality::Host), 3);
++        assert_eq!(max_steps(ShareQuality::P2160), 2);
 +        assert_eq!(max_steps(ShareQuality::P720), 0);
 +    }
 +
@@ -2928,7 +2978,7 @@ index 0000000..beffcdb
 +    }
 +}
 diff --git a/kycontroller/src/kybernow.rs b/kycontroller/src/kybernow.rs
-index 4c9696c..aff434a 100644
+index 4c9696c..44d95c6 100644
 --- a/kycontroller/src/kybernow.rs
 +++ b/kycontroller/src/kybernow.rs
 @@ -1,23 +1,39 @@
@@ -4153,7 +4203,7 @@ index 4c9696c..aff434a 100644
          })
      }
  
-@@ -550,6 +1616,738 @@ mod tests {
+@@ -550,6 +1616,755 @@ mod tests {
          assert!(memory.bans.is_empty());
      }
  
@@ -4287,7 +4337,7 @@ index 4c9696c..aff434a 100644
 +        manager.insert_for_test(host_key(1), (1, 1), h264(80_000_000));
 +        let ctx = context(UHD160, true, 2);
 +
-+        // The host's image → 1080p60, its own.
++        // The host's image → 2160p60, its own.
 +        let (choice, steps) = plan(
 +            &ctx,
 +            &manager,
@@ -4298,22 +4348,38 @@ index 4c9696c..aff434a 100644
 +        .unwrap();
 +        assert_eq!(
 +            placed_key(&manager, choice),
-+            Some(guest_key(1920, 1080, 60))
++            Some(guest_key(3840, 2160, 60))
 +        );
 +        assert_eq!((choice.reason, steps), (Reason::Lag, 1));
 +
-+        // 1080p60 → 720p30.
-+        manager.insert_for_test(guest_key(1920, 1080, 60), (0, 1), h264(16_000_000));
++        // 2160p60 → 1080p60.
++        manager.insert_for_test(guest_key(3840, 2160, 60), (0, 1), h264(50_000_000));
 +        let (choice, steps) = plan(
 +            &ctx,
 +            &manager,
-+            &output(Some(guest_key(1920, 1080, 60))),
++            &output(Some(guest_key(3840, 2160, 60))),
 +            asking(ShareQuality::Host, 1),
 +            &Relocation::Lag,
 +        )
 +        .unwrap();
-+        assert_eq!(placed_key(&manager, choice), Some(guest_key(1280, 720, 30)));
++        assert_eq!(
++            placed_key(&manager, choice),
++            Some(guest_key(1920, 1080, 60))
++        );
 +        assert_eq!(steps, 2);
++
++        // 1080p60 → 720p30 (the 2160p60 image keeps the budget's other slot).
++        manager.insert_for_test(guest_key(1920, 1080, 60), (0, 1), h264(16_000_000));
++        let (choice, steps) = plan(
++            &context(UHD160, true, 3),
++            &manager,
++            &output(Some(guest_key(1920, 1080, 60))),
++            asking(ShareQuality::Host, 2),
++            &Relocation::Lag,
++        )
++        .unwrap();
++        assert_eq!(placed_key(&manager, choice), Some(guest_key(1280, 720, 30)));
++        assert_eq!(steps, 3);
 +
 +        // At 720p30: nothing lighter.
 +        assert_eq!(
@@ -4321,7 +4387,7 @@ index 4c9696c..aff434a 100644
 +                &ctx,
 +                &manager,
 +                &output(Some(guest_key(1280, 720, 30))),
-+                asking(ShareQuality::Host, 2),
++                asking(ShareQuality::Host, 3),
 +                &Relocation::Lag,
 +            ),
 +            None
@@ -4341,7 +4407,8 @@ index 4c9696c..aff434a 100644
 +
 +    #[test]
 +    fn a_notch_that_changes_nothing_is_skipped() {
-+        // A 1080p60 display: 1080p60 is the host's image, 720p30 is next.
++        // A 1080p60 display: 2160p60 and 1080p60 are the host's image,
++        // 720p30 is next.
 +        let fhd = Mode {
 +            width: 1920,
 +            height: 1080,
@@ -4361,7 +4428,7 @@ index 4c9696c..aff434a 100644
 +            placed_key_on(&manager, fhd, choice),
 +            Some(guest_key_on(fhd, 1280, 720, 30))
 +        );
-+        assert_eq!(steps, 2);
++        assert_eq!(steps, 3);
 +
 +        // Nothing open nor possible beside the host's: it stays.
 +        assert_eq!(

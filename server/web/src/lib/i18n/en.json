@@ -981,6 +981,7 @@
       "title": "Picture quality",
       "auto": "Auto",
       "host": "Same as host",
+      "2160p60": "4K · 60 Hz",
       "1080p60": "1080p · 60 Hz",
       "720p30": "720p · 30 Hz",
       "failed": "The picture quality could not be changed: try again."

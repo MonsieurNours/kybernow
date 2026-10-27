@@ -21,9 +21,9 @@ const NAME_KEY = 'kybernow.share.name'
 const QUALITY_KEY = 'kybernow.share.quality'
 
 /** Les choix de « Qualité de l'image », dans l'ordre de docs/link-ui.md (« Auto » proposé). */
-export const QUALITIES: ShareQuality[] = ['auto', 'host', '1080p60', '720p30']
+export const QUALITIES: ShareQuality[] = ['auto', 'host', '2160p60', '1080p60', '720p30']
 
-/** « Auto », « Comme l'hôte », « 1080p · 60 Hz », « 720p · 30 Hz ». */
+/** « Auto », « Comme l'hôte », « 4K · 60 Hz », « 1080p · 60 Hz », « 720p · 30 Hz ». */
 export function qualityName(q: ShareQuality): string {
   return t(`share.quality.${q}`)
 }
@@ -48,7 +48,7 @@ export function saveQuality(q: ShareQuality) {
 }
 
 /** Ce que Kyber reçoit pour la qualité de l'invité (`kn_quality` de son jeton : « Auto » y est tranché par Admin). */
-export type Preset = 'host' | '1080p60' | '720p30'
+export type Preset = 'host' | '2160p60' | '1080p60' | '720p30'
 
 /** Le préréglage porté par le jeton de Kyber d'un invité, ou `null` (Station qui ne le met pas). */
 export function tokenPreset(token: string): Preset | null {
@@ -57,7 +57,7 @@ export function tokenPreset(token: string): Preset | null {
     const b64 = part.replace(/-/g, '+').replace(/_/g, '/')
     const claims = JSON.parse(atob(b64.padEnd(Math.ceil(b64.length / 4) * 4, '=')))
     const q = claims?.kn_quality
-    return q === 'host' || q === '1080p60' || q === '720p30' ? q : null
+    return q === 'host' || q === '2160p60' || q === '1080p60' || q === '720p30' ? q : null
   } catch {
     return null
   }
@@ -96,8 +96,10 @@ const even = (v: number) => Math.max(2, Math.round(v / 2) * 2)
 /**
  * « Auto » : ce que ce navigateur sait afficher et décoder (docs/kybernow-share.md, « Échange avec
  * Admin »). L'écran en pixels réels (côté long, côté court, quelle que soit l'orientation), 60 Hz au plus ;
- * les formats que le décodeur accepte à cette taille. S'il n'en accepte aucun (un téléphone qui ne suit
- * pas la 4K), la taille suivante qu'il suit : 1920 × 1080, puis 1280 × 720. Admin en tire le préréglage.
+ * les formats que le décodeur accepte à cette taille. S'il n'en accepte aucun (un écran 5K dont le
+ * décodeur s'arrête à la 4K, un téléphone qui ne suit pas la 4K), la taille suivante qu'il suit :
+ * 3840 × 2160, puis 1920 × 1080, puis 1280 × 720. Admin en tire le préréglage (« 4K · 60 Hz » dès
+ * 3840 × 2160 à 60 Hz).
  */
 export async function autoCaps(): Promise<AutoCaps> {
   const dpr = window.devicePixelRatio || 1
@@ -108,6 +110,7 @@ export async function autoCaps(): Promise<AutoCaps> {
   const refresh = measureRefresh()
   const sizes: [number, number][] = [[long, short]]
   for (const [w, h] of [
+    [3840, 2160],
     [1920, 1080],
     [1280, 720],
   ] as [number, number][]) {

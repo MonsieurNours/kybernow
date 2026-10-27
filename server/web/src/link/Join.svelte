@@ -154,4 +154,16 @@
     gap: 8px;
     margin-top: 2px;
   }
+
+  /* Les cinq choix sur la largeur des champs : une ligne sur un ordinateur, des lignes pleines sur un
+     téléphone. */
+  .quality :global(.seg) {
+    display: flex;
+    width: 100%;
+  }
+
+  .quality :global(.seg button) {
+    flex: 1 1 auto;
+    padding: 0 10px;
+  }
 </style>
