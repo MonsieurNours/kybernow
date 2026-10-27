@@ -103,12 +103,13 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
     }
     y += fh + 26.0 * u;
 
-    // « Rejoindre », puis ce que la recherche a dit.
-    widgets::primary_state(cv, f, Target::JoinGo, x0, y, 56.0 * u, tr("Rejoindre", "Join"), false, j.ready() && !j.busy);
-    y += 56.0 * u + 24.0 * u;
+    // « Rejoindre », et à sa droite ce que la recherche a dit : le texte (jusqu'à deux lignes, celui du cœur ou d'Admin)
+    // reste dans la fenêtre la plus basse, sans passer sous le bouton.
+    let bw = widgets::primary_state(cv, f, Target::JoinGo, x0, y, 56.0 * u, tr("Rejoindre", "Join"), false, j.ready() && !j.busy);
+    let (mx, mid) = (x0 + bw + 24.0 * u, y + 28.0 * u);
     if j.busy {
         let t = j.started.elapsed().as_secs_f32();
-        let (cx, cy) = (x0 + 9.0 * u, y + 2.0 * u);
+        let (cx, cy) = (mx + 9.0 * u, mid);
         let a0 = if app.reduce_motion { 0.0 } else { t * 4.0 };
         let pts: Vec<(f32, f32)> = (0..=16)
             .map(|i| {
@@ -117,9 +118,12 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
             })
             .collect();
         cv.polyline(&pts, 2.0 * u, SPECTRE);
-        cv.text(x0 + 28.0 * u, y + 7.0 * u, Text::new(Font::Regular, 15.0 * u, MUTED), tr("Recherche du partage…", "Looking for the share…"));
+        cv.text(mx + 28.0 * u, mid + 5.0 * u, Text::new(Font::Regular, 15.0 * u, MUTED), tr("Recherche du partage…", "Looking for the share…"));
     } else if let Some(m) = &j.message {
-        cv.paragraph(x0, y + 6.0 * u, Text::new(Font::Regular, 15.0 * u, WARN), m, left_w + 120.0 * u, 22.0 * u);
+        let style = Text::new(Font::Regular, 15.0 * u, WARN);
+        let width = (x0 + left_w + 100.0 * u - mx).max(160.0 * u);
+        let lines = cv.line_count(style, m, width).clamp(1, 2) as f32;
+        cv.paragraph(mx, mid + 5.0 * u - 11.0 * u * (lines - 1.0), style, m, width, 22.0 * u);
     }
 
     if console {

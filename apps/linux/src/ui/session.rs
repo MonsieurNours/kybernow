@@ -13,7 +13,7 @@ use super::theme::*;
 use super::share;
 use super::widgets::{self, eyebrow, legend};
 use super::{unit, Frame};
-use crate::app::{guests_label, App, BarMenu, Layout, MenuItem, Online, Phase, Rect, Screen, SessionUi, ShareAvail, Target, SHORTCUTS};
+use crate::app::{share_tile, App, BarMenu, Layout, MenuItem, Online, Phase, Rect, Screen, SessionUi, ShareAvail, Target, SHORTCUTS};
 use crate::i18n::{decimal, tr};
 use crate::model::Profile;
 
@@ -346,10 +346,12 @@ fn bar_icons(app: &App, s: &SessionUi, computers: bool, sound: bool) -> Vec<BarI
         v.push(icon(Target::BarFullscreen, Icon::Fullscreen, s.fullscreen, tr("Plein écran", "Full screen")));
     }
     if s.guest.is_none() {
-        let avail = app.share_avail(s);
-        let usable = avail == Some(ShareAvail::Available);
-        let name = avail.and_then(|a| a.text()).unwrap_or(tr("Partager", "Share"));
-        v.push(BarIcon { target: Target::BarShare, icon: Icon::Share, on: s.share.is_some() || s.bar_menu == Some(BarMenu::Share), name: name.into(), dim: !usable });
+        // Partage impossible (Station trop ancienne, partage coupé) : le bouton est estompé et inactif à la
+        // souris, sa raison est son infobulle. Tant qu'Admin n'a pas répondu, il reste comme les autres : le
+        // panneau attend la réponse (`App::share_known`).
+        let blocked = app.share_avail(s).filter(|a| *a != ShareAvail::Available);
+        let name = blocked.and_then(|a| a.text()).unwrap_or(tr("Partager", "Share"));
+        v.push(BarIcon { target: Target::BarShare, icon: Icon::Share, on: s.share.is_some() || s.bar_menu == Some(BarMenu::Share), name: name.into(), dim: blocked.is_some() });
     }
     v
 }
@@ -376,7 +378,9 @@ struct BarLayout {
 }
 
 impl BarLayout {
-    fn measure(cv: &mut Canvas, app: &App, s: &SessionUi) -> Self {
+    /// `w` : la largeur de la fenêtre, en points. Les mesures (définition, images par seconde, décodeur) sont la
+    /// seule partie qui cède de la place : « Partager », sa pastille d'invités et « Se déconnecter » restent entiers.
+    fn measure(cv: &mut Canvas, app: &App, s: &SessionUi, w: f32) -> Self {
         let st = s.stats.clone().unwrap_or_default();
         let lat = st.latency_ms.map(|v| format!("{} ms", decimal(v, 1))).unwrap_or_else(|| "— ms".into());
         // Avec plusieurs écrans pris, leur nombre d'abord (le même compte que les statistiques de la dernière session).
@@ -385,7 +389,7 @@ impl BarLayout {
         let mono14 = Text::new(Font::MonoMedium, 14.0, FROST);
         let mono12 = Text::new(Font::Mono, 12.0, MUTED);
         let lat_w = cv.text_width(mono14, &lat);
-        let info_w = cv.text_width(mono12, &info);
+        let mut info_w = cv.text_width(mono12, &info);
         let profile = match &s.guest {
             Some(g) => g.role.label(),
             None => home::profile_label(s.profile),
@@ -403,7 +407,10 @@ impl BarLayout {
             let w = cv.text_width(Text::new(Font::Regular, 12.5, FROST), &t) + 22.0;
             (t, w)
         });
-        let total = 16.0 + 16.0 + 12.0 + lat_w + 8.0 + 64.0 + 12.0 + 1.0 + 12.0 + info_w + 12.0 + 1.0 + 12.0 + prof_w + 12.0 + 34.0 * icons.len() as f32 + pill.as_ref().map_or(0.0, |(_, w)| w + 4.0) + 24.0 + 1.0 + 12.0 + quit_w + 10.0;
+        let others = 16.0 + 16.0 + 12.0 + lat_w + 8.0 + 64.0 + 12.0 + 1.0 + 12.0 + 12.0 + 1.0 + 12.0 + prof_w + 12.0 + 34.0 * icons.len() as f32 + pill.as_ref().map_or(0.0, |(_, pw)| pw + 4.0) + 24.0 + 1.0 + 12.0 + quit_w + 10.0;
+        // Une fenêtre étroite (960 points) avec « Ordinateurs », « Garder le son » et la pastille : les mesures se resserrent.
+        info_w = info_w.min((w - 8.0 - others).max(60.0));
+        let total = others + info_w;
         Self { lat, info, profile, quit, mono14, mono12, lat_w, info_w, prof_w, quit_w, icons, pill, total }
     }
 }
@@ -415,7 +422,7 @@ fn bar_frame(w: f32, total: f32) -> Rect {
 
 /// `w` : la largeur de la fenêtre, en points (chaque écran a la sienne).
 fn bar_rect(cv: &mut Canvas, app: &App, s: &SessionUi, w: f32) -> Rect {
-    let total = BarLayout::measure(cv, app, s).total;
+    let total = BarLayout::measure(cv, app, s, w).total;
     bar_frame(w, total)
 }
 
@@ -460,7 +467,8 @@ fn hint(cv: &mut Canvas) {
 fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     let h = BAR_H;
     let st = s.stats.clone().unwrap_or_default();
-    let BarLayout { lat, info, profile, quit, mono14, mono12, lat_w, info_w, prof_w, quit_w, icons, pill, total } = BarLayout::measure(cv, app, s);
+    let width = cv.w;
+    let BarLayout { lat, info, profile, quit, mono14, mono12, lat_w, info_w, prof_w, quit_w, icons, pill, total } = BarLayout::measure(cv, app, s, width);
     let r = bar_frame(cv.w, total);
     let x0 = r.x;
     cv.rrect(r.x, r.y - 12.0, r.w, r.h + 12.0, 12.0, Rgba(9, 13, 18, 235));
@@ -483,7 +491,7 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     x += 64.0 + 12.0;
     cv.rect(x.round(), cy - 11.0, 1.0, 22.0, LINE_2);
     x += 13.0;
-    cv.text(x, cy + 4.0, mono12, &info);
+    cv.text_fit(x, cy + 4.0, mono12, &info, info_w);
     x += info_w + 12.0;
     cv.rect(x.round(), cy - 11.0, 1.0, 22.0, LINE_2);
     x += 13.0;
@@ -835,20 +843,18 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     if guest {
         tiles.push((MenuItem::Disconnect, tr("Quitter le partage", "Leave").into(), s.name.clone(), false, true));
     } else {
-        // « Partager » : « 2 invités » quand il est ouvert, le texte du refus quand il est inactif.
-        let (sub, on) = match (&s.share, app.share_avail(s)) {
-            (Some(v), _) => (guests_label(v.guests.len()), true),
-            (None, Some(a)) if a != ShareAvail::Available => (a.text().unwrap_or_default().to_string(), false),
-            _ => (tr("Code et QR code", "Code and QR code").to_string(), false),
-        };
+        // « Partager » : son sous-titre dit « 2 invités », le code ou « Code et QR code » (`share_tile`). Impossible,
+        // elle est estompée mais se choisit : elle ouvre le panneau réduit à la raison.
+        let (sub, on) = share_tile(s.share.as_ref());
         tiles.push((MenuItem::Share, tr("Partager", "Share").into(), sub, on, false));
         tiles.push((MenuItem::Disconnect, tr("Se déconnecter", "Disconnect").into(), tr("Fin de la session", "Ends the session").into(), false, true));
     }
     let ty = head + 36.0 * u;
+    let share_blocked = !guest && s.share.is_none() && app.share_avail(s).is_some_and(|a| a != ShareAvail::Available);
     for (i, (item, title, sub, on, danger)) in tiles.iter().enumerate() {
         let (col, row) = (i % 5, i / 5);
         let r = Rect::new(x0 + col as f32 * (tw + gap), ty + row as f32 * (th + gap), tw, th);
-        tile(cv, f, Target::Menu(*item), r, u, title, sub, i == 0, *on, *danger);
+        tile(cv, f, Target::Menu(*item), r, u, title, sub, i == 0, *on, *danger, *item == MenuItem::Share && share_blocked);
     }
     // État, au-dessus de la légende.
     let footer = 56.0 * u;
@@ -887,7 +893,7 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn tile(cv: &mut Canvas, f: &mut Frame, t: Target, r: Rect, u: f32, title: &str, sub: &str, primary: bool, on: bool, danger: bool) {
+fn tile(cv: &mut Canvas, f: &mut Frame, t: Target, r: Rect, u: f32, title: &str, sub: &str, primary: bool, on: bool, danger: bool, dim: bool) {
     let (focused, hover) = f.state(t, r);
     let radius = 12.0 * u;
     if focused {
@@ -902,6 +908,8 @@ fn tile(cv: &mut Canvas, f: &mut Frame, t: Target, r: Rect, u: f32, title: &str,
     }
     let pad = 18.0 * u;
     let fg = if danger { BAD_TEXT } else if primary { Rgba(255, 255, 255, 255) } else { FROST };
+    // Une tuile estompée (« Partager » impossible) se choisit quand même.
+    let fg = if dim { fg.alpha(0.45) } else { fg };
     let mut tx = r.x + pad;
     if primary {
         let s = 16.0 * u;
@@ -911,6 +919,7 @@ fn tile(cv: &mut Canvas, f: &mut Frame, t: Target, r: Rect, u: f32, title: &str,
     }
     cv.text_fit(tx, r.y + pad + 17.0 * u, Text::new(Font::Semibold, 17.0 * u, fg), title, r.w - 2.0 * pad);
     let sub_c = if danger { Rgba::hex(0xC98C86) } else if primary { Rgba::hex(0xE9E4FF) } else { FAINT };
+    let sub_c = if dim { sub_c.alpha(0.55) } else { sub_c };
     cv.text_fit(r.x + pad, r.y + r.h - pad, Text::new(Font::Mono, 11.5 * u, sub_c), sub, r.w - 2.0 * pad);
     if on && !primary {
         widgets::dot(cv, r.x + r.w - pad, r.y + pad + 10.0 * u, 4.0 * u, SPECTRE, true);
