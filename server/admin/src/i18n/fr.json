@@ -170,7 +170,13 @@
     "shareStopped": "Partage arrêté",
     "shareWatching": "{name} regarde votre écran",
     "sharePlaying": "{name} joue avec vous",
-    "shareLeft": "{name} a quitté le partage"
+    "shareLeft": "{name} a quitté le partage",
+    "shareRequest": "{name} demande à rejoindre (hors de chez vous)",
+    "shareRefused": "{name} : demande refusée",
+    "relaySession": "{name} est en session hors de chez vous",
+    "relayLocked": "Accès hors de chez vous bloqué 10 min après trop d'essais.",
+    "relayAccessOn": "Accès hors de chez vous activé",
+    "relayAccessOff": "Accès hors de chez vous coupé"
   },
   "share": {
     "display": "Écran {n}",
@@ -181,6 +187,14 @@
     "unknownDisplay": "Cet écran n'est plus branché.",
     "unknownGuest": "Cet invité n'est plus dans le partage.",
     "noShare": "Aucun partage en cours.",
-    "otherShare": "Un autre partage est en cours sur cet ordinateur."
+    "otherShare": "Un autre partage est en cours sur cet ordinateur.",
+    "full": "Le partage est complet (quatre invités au plus)."
+  },
+  "relay": {
+    "badServer": "Adresse de relais illisible : {server}",
+    "refused": "refusé par le relais",
+    "forbidden": "Pas accessible hors de chez vous.",
+    "accessOff": "L'accès hors de chez vous est coupé dans Admin.",
+    "locked": "Accès hors de chez vous bloqué 10 min après trop d'essais."
   }
 }

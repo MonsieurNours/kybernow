@@ -170,7 +170,13 @@
     "shareStopped": "Sharing stopped",
     "shareWatching": "{name} is watching your screen",
     "sharePlaying": "{name} is playing with you",
-    "shareLeft": "{name} left the share"
+    "shareLeft": "{name} left the share",
+    "shareRequest": "{name} wants to join (away from home)",
+    "shareRefused": "{name}: request declined",
+    "relaySession": "{name} is in a session away from home",
+    "relayLocked": "Access away from home blocked for 10 min after too many attempts.",
+    "relayAccessOn": "Access away from home turned on",
+    "relayAccessOff": "Access away from home turned off"
   },
   "share": {
     "display": "Display {n}",
@@ -181,6 +187,14 @@
     "unknownDisplay": "This display is no longer connected.",
     "unknownGuest": "This guest is no longer in the share.",
     "noShare": "No share in progress.",
-    "otherShare": "Another share is in progress on this computer."
+    "otherShare": "Another share is in progress on this computer.",
+    "full": "This share is full (four guests at most)."
+  },
+  "relay": {
+    "badServer": "Unreadable relay address: {server}",
+    "refused": "refused by the relay",
+    "forbidden": "Not available away from home.",
+    "accessOff": "Access away from home is turned off in Admin.",
+    "locked": "Access away from home blocked for 10 min after too many attempts."
   }
 }

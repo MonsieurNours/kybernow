@@ -40,6 +40,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/local/share/open", post(share_api::local_open))
         .route("/api/local/share/code", post(share_api::local_code))
         .route("/api/local/share/guest/{id}", post(share_api::local_guest_role).delete(share_api::local_guest_remove))
+        .route("/api/local/share/guest/{id}/{action}", post(share_api::local_guest_answer))
         .route("/api/schema", get(schema_route))
         .route("/api/config", get(config).put(update_config))
         .route("/api/config/raw", get(raw_config).put(update_raw_config))
@@ -82,6 +83,9 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/web/ticket", get(web_ticket))
         // Lien d'appairage (QR code de la page Appareils Link, session de la console).
         .route("/api/pairing", get(pairing))
+        // Hors de chez vous (docs/relais.md) : adresse du relais, accès des
+        // appareils, état (session d'Admin, jamais par le relais).
+        .route("/api/relay", get(crate::relay::get_relay).put(crate::relay::put_relay))
         // Appels des appareils (apps KyberNow), authentifiés par un compte Kyber.
         .route("/api/stream/info", get(stream_info))
         .route("/api/stream/prepare", post(stream_prepare))
@@ -98,7 +102,9 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/share/open", post(share_api::host_open))
         .route("/api/share/code", post(share_api::host_code))
         .route("/api/share/guest/{id}", post(share_api::host_guest_role).delete(share_api::host_guest_remove))
+        .route("/api/share/guest/{id}/{action}", post(share_api::host_guest_answer))
         .route("/api/share/join", post(share_api::join))
+        .route("/api/share/wait", post(share_api::wait))
         .route("/api/share/beat", post(share_api::beat))
         .route("/api/share/quality", post(share_api::quality))
         .route("/api/share/leave", post(share_api::leave))
@@ -134,7 +140,18 @@ impl From<anyhow::Error> for ApiError {
 
 type ApiResult<T> = Result<T, ApiError>;
 
-async fn session(State(s): State<AppState>, headers: HeaderMap) -> Json<Value> {
+async fn session(State(s): State<AppState>, headers: HeaderMap, via: Option<axum::Extension<crate::relay::Via>>) -> Json<Value> {
+    // Par le relais : un invité du navigateur. Ni nom de l'ordinateur (connu
+    // seulement après l'accord de l'hôte), ni fichier du code d'initialisation ;
+    // l'image passera en WebSocket.
+    if via.is_some() {
+        return Json(json!({
+            "configured": s.auth.is_configured(),
+            "authenticated": false,
+            "relay": true,
+            "version": crate::update::current(),
+        }));
+    }
     let authenticated = auth::session_token(&headers).is_some_and(|t| s.auth.session_valid(&t));
     Json(json!({
         "configured": s.auth.is_configured(),
@@ -330,6 +347,8 @@ async fn local_state(
         "pair_requests": requests,
         "share": share_api::status(&s),
         "share_enabled": share_api::enabled(&s),
+        // Hors de chez vous : adresse du relais, accès, état (icône).
+        "relay": s.relay.brief(&s, &s.settings.lock().unwrap().relay.clone()),
     })))
 }
 
@@ -807,6 +826,8 @@ async fn stream_info(State(s): State<AppState>, headers: HeaderMap) -> ApiResult
         // Cartes Ethernet et Wi-Fi pour le réveil par le réseau (`wake.rs`),
         // lues en mémoire ; les apps les gardent pour réveiller l'ordinateur.
         "wake": crate::wake::cards(),
+        // Le relais réglé (docs/relais.md, « info ») : absent sans relais.
+        "relay": s.relay.info(&s),
     })))
 }
 
@@ -1068,6 +1089,7 @@ async fn stream_station_update(
 async fn stream_prepare(
     State(s): State<AppState>,
     headers: HeaderMap,
+    via: Option<axum::Extension<crate::relay::Via>>,
     Json(body): Json<PrepareBody>,
 ) -> ApiResult<Json<Value>> {
     let user = stream_user(&s, &headers)?;
@@ -1081,6 +1103,16 @@ async fn stream_prepare(
     let _preparing = Preparing::new(&s.preparing);
     let port = s.kyber.port();
     let (device_id, device_name) = activity::identity(body.device.as_ref(), &user);
+    // Par le relais : ce client joint Kyber, et le fil le dit une fois.
+    let relay_session = via.map(|axum::Extension(v)| (v, device_id.clone(), device_name.clone()));
+    let relay_ready = |s: &AppState| {
+        if let Some((via, id, name)) = &relay_session
+            && s.relay.note_session(via, id, name)
+        {
+            tracing::info!("{name} est en session par le relais");
+            s.activity.event("info", Msg::new("events.relaySession").with("name", name.as_str()));
+        }
+    };
 
     // Compte accepté pendant la session d'un autre : Kyber ne le connaît pas encore.
     if s.pending_access.waits_for(&user) {
@@ -1135,6 +1167,7 @@ async fn stream_prepare(
         if let Some(l) = launch {
             s.launcher.session_started(device_id, device_name, l, body.profile.clone());
         }
+        relay_ready(&s);
         return Ok(Json(json!({
             "virtual_display": false, "audio": audio, "kyber_port": port, "heartbeat_seconds": 5,
             "kyber_fingerprint": crate::kyber_proxy::kyber_fingerprint(&s),
@@ -1175,6 +1208,7 @@ async fn stream_prepare(
     if let Some(l) = launch {
         s.launcher.session_started(device_id, device_name, l, body.profile.clone());
     }
+    relay_ready(&s);
     let mut answer = json!({
         "virtual_display": true, "applied": applied, "audio": audio, "kyber_port": port, "heartbeat_seconds": 5,
         "kyber_fingerprint": crate::kyber_proxy::kyber_fingerprint(&s),
@@ -1212,11 +1246,23 @@ struct HeartbeatBody {
 /// `mode` : mode courant de l'écran virtuel (il a pu changer : un jeu) et
 /// `displays` : écrans actifs sur l'ordinateur (null : pas encore relus) ;
 /// `mode_policy` : la politique appliquée si le mode change.
-async fn stream_heartbeat(State(s): State<AppState>, headers: HeaderMap, body: Bytes) -> ApiResult<Json<Value>> {
+async fn stream_heartbeat(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    via: Option<axum::Extension<crate::relay::Via>>,
+    body: Bytes,
+) -> ApiResult<Json<Value>> {
     let user = stream_user(&s, &headers)?;
     // Corps facultatif : les apps d'avant 0.2.1 n'en envoient pas.
     let body: HeartbeatBody = serde_json::from_slice(&body).unwrap_or_default();
     let device = body.device_id.as_deref();
+    // Par le relais : l'appareil en session reste autorisé à joindre Kyber.
+    if let Some(axum::Extension(via)) = &via {
+        let id = device.map(str::to_owned).unwrap_or_else(|| activity::identity(None, &user).0);
+        if s.activity.live().is_some_and(|l| l.device_id == id) {
+            s.relay.grant_device(via, &id);
+        }
+    }
     s.audio.heartbeat();
     s.foreground.touch();
     let end = s.activity.heartbeat(&user, device, body.latency_ms, body.profile);
@@ -1309,6 +1355,8 @@ async fn stream_end(State(s): State<AppState>, headers: HeaderMap, body: Bytes) 
     s.foreground.stop();
     let (ended_id, _) = activity::identity(None, &user);
     let ended_id = body.device_id.clone().unwrap_or(ended_id);
+    // Par le relais, il ne joint plus Kyber.
+    s.relay.revoke_device(&ended_id);
     // Fermer la session de l'hôte arrête son partage : ses invités sont
     // coupés avant que son écran virtuel ne disparaisse.
     if s.share.hosted_by(&ended_id) {
@@ -1963,7 +2011,7 @@ mod tests {
             json!([]),
         ];
         for screens in bad {
-            let err = stream_prepare(State(c.s.clone()), basic("mac", "mot-de-passe-mac"), prepare_body(screens.clone())).await.unwrap_err();
+            let err = stream_prepare(State(c.s.clone()), basic("mac", "mot-de-passe-mac"), None, prepare_body(screens.clone())).await.unwrap_err();
             assert_eq!(err.0, StatusCode::BAD_REQUEST, "{screens}");
             assert!(!err.1.is_empty());
         }
@@ -2165,7 +2213,7 @@ mod tests {
         let Json(info) = stream_info(State(c.s.clone()), basic("mac", "mot-de-passe-mac")).await.ok().unwrap();
         assert_eq!(info["share"], json!({ "available": true, "enabled": true }));
         c.s.activity.begin(Some(device("mac-1", "Mac")), "mac", None, None);
-        let beat = || stream_heartbeat(State(c.s.clone()), basic("mac", "mot-de-passe-mac"), Bytes::from(r#"{"device_id":"mac-1"}"#));
+        let beat = || stream_heartbeat(State(c.s.clone()), basic("mac", "mot-de-passe-mac"), None, Bytes::from(r#"{"device_id":"mac-1"}"#));
         let Json(v) = beat().await.ok().unwrap();
         assert!(v.get("share").is_none(), "absent sans partage");
         let display = crate::share::ShareDisplay { id: 1, index: 1, width: 1920, height: 1080, refresh: 60, name: String::new() };

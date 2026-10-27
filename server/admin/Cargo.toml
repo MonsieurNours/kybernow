@@ -15,8 +15,10 @@ clap = { version = "4.6.7", features = ["derive"] }
 flate2 = "1"
 hex = "0.4.3"
 hostname = "0.4.2"
-hyper = { version = "1.12", features = ["client", "http1"] }
-hyper-util = { version = "0.1.21", features = ["tokio"] }
+hyper = { version = "1.12", features = ["client", "http1", "server"] }
+hyper-util = { version = "0.1.21", features = ["tokio", "service"] }
+# Relais de KyberNow (docs/relais.md) : l'agent de la Station.
+kybernow-tunnel = { path = "../relay/tunnel", default-features = false, features = ["station"] }
 mdns-sd = "0.21.6"
 mime_guess = "2.0.5"
 nvml-wrapper = "0.13.0"
@@ -31,6 +33,7 @@ time = { version = "0.3.55", features = ["formatting", "macros"] }
 tokio = { version = "1.53.3", features = ["full"] }
 tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12", "logging"] }
 toml = "1.1.8"
+tower = { version = "0.5", features = ["util"] }
 toml_edit = "0.25.17"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }

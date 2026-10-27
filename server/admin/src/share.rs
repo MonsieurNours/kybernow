@@ -14,6 +14,11 @@
 //! d'Admin, sans session, sur un écran physique choisi). Un seul partage à la
 //! fois, quatre invités au plus.
 //!
+//! Hors de chez soi (docs/relais.md), un invité venu par le relais fait une
+//! **demande** (`pending`) : il attend l'accord de l'hôte (`wait`), ne prend
+//! pas de place tant qu'il n'est pas accepté (trois demandes au plus,
+//! 120 s), et un appareil refusé ne redemande pas avant 10 minutes.
+//!
 //! Ce module ne parle ni à Kyber ni au réseau : il rend ce qu'il faut faire
 //! (invités à couper, rôle à pousser), `share_api.rs` le fait.
 
@@ -50,6 +55,15 @@ const APPS: &[&str] = &["mac", "windows", "linux", "ios", "tvos", "android", "we
 /// Cookie d'un invité du navigateur (client web) : ouvre le relais vers Kyber
 /// et `/api/share/*`, rien d'autre.
 pub const GUEST_COOKIE: &str = "kybernow_guest";
+/// Le même, posé par le relais (origine `https://<id>.share.kybernow.app`) :
+/// préfixe `__Host-` (sécurisé, sans domaine, tout le site).
+pub const GUEST_COOKIE_RELAY: &str = "__Host-kybernow_guest";
+/// Demandes venues par le relais en attente de l'accord de l'hôte, au plus.
+pub const MAX_PENDING: usize = 3;
+/// Une demande sans réponse de l'hôte expire après ce temps.
+pub const PENDING_TTL: Duration = Duration::from_secs(120);
+/// Un appareil refusé ne redemande pas avant ce temps.
+const REFUSED_FOR: Duration = Duration::from_secs(10 * 60);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -219,6 +233,14 @@ pub struct Guest {
     pub preset: Preset,
     /// Dernier changement de qualité demandé (un par seconde au plus).
     last_quality: Option<Instant>,
+    /// Une demande venue par le relais, pas encore acceptée par l'hôte.
+    pub pending: bool,
+    /// Venu par le relais (`via` : `relay`), sinon par le réseau (`lan`).
+    pub via_relay: bool,
+    /// Heure de la demande (son expiration).
+    requested: Instant,
+    /// Ce qui est bloqué 10 minutes s'il est refusé : l'appareil, sinon l'adresse.
+    refuse_key: String,
 }
 
 impl Guest {
@@ -233,6 +255,10 @@ impl Guest {
 
     pub fn cookie(&self) -> Option<&str> {
         self.cookie.as_deref()
+    }
+
+    pub fn via(&self) -> &'static str {
+        if self.via_relay { "relay" } else { "lan" }
     }
 }
 
@@ -249,6 +275,10 @@ pub enum End {
     Stopped,
     /// L'hôte l'a retiré.
     Removed,
+    /// L'hôte a refusé sa demande (par le relais).
+    Refused,
+    /// Sa demande est restée sans réponse (120 s).
+    Expired,
 }
 
 struct Ended {
@@ -295,6 +325,8 @@ struct State {
     ended: HashMap<String, Ended>,
     /// Heures des derniers essais de `join`, par adresse.
     tries: HashMap<IpAddr, Vec<Instant>>,
+    /// Appareils (ou adresses) refusés, et quand.
+    refused: HashMap<String, Instant>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -313,6 +345,33 @@ pub enum JoinError {
     Full,
     /// Trop d'essais depuis cette adresse : attendre ce nombre de secondes.
     TooMany(u64),
+    /// Par le relais : trois demandes attendent déjà l'hôte.
+    PendingFull,
+    /// Par le relais : cet appareil a été refusé il y a moins de 10 minutes.
+    Refused,
+}
+
+/// Accepter une demande.
+#[derive(Debug, PartialEq, Eq)]
+pub enum AcceptError {
+    /// Pas une demande en cours (déjà acceptée, partie, expirée).
+    Unknown,
+    /// Quatre invités déjà.
+    Full,
+}
+
+/// Où en est une demande (`POST /api/share/wait`).
+#[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)] // rendue une fois par attente, jamais gardée
+pub enum Wait {
+    Pending,
+    Admitted { guest: Guest, snapshot: Snapshot },
+    Refused,
+    Expired,
+    /// Le partage est arrêté.
+    NoShare,
+    /// Inconnue (jamais venue, mauvais secret, ou sortie depuis plus d'une minute).
+    Unknown,
 }
 
 /// Ce qu'un invité reçoit en rejoignant.
@@ -329,6 +388,8 @@ pub struct Joined {
 pub enum Beat {
     Live { guest: Guest, display: ShareDisplay },
     Ended { end: End, role: Role },
+    /// Une demande pas encore acceptée.
+    Pending,
 }
 
 /// Ce que devient un invité qui part de lui-même (`leave`).
@@ -336,6 +397,8 @@ pub enum Beat {
 pub enum Leave {
     /// Il était dans le partage : à couper de Kyber.
     Left(Guest),
+    /// Il annule sa demande (jamais entré dans Kyber).
+    Cancelled(Guest),
     /// Déjà sorti (retiré, partage arrêté) depuis moins d'une minute : sa
     /// raison est oubliée.
     Ended,
@@ -354,6 +417,9 @@ pub struct RoleChange {
 #[derive(Default)]
 pub struct Share {
     state: Mutex<State>,
+    /// Réveille les attentes (`wait`) : demande acceptée, refusée, expirée,
+    /// partage arrêté.
+    changed: tokio::sync::Notify,
 }
 
 fn random_hex(bytes: usize) -> String {
@@ -396,13 +462,19 @@ impl Share {
         self.state.lock().unwrap().open.as_ref().is_some_and(|o| o.origin == Origin::Local)
     }
 
-    /// Les invités du partage ouvert.
+    /// Les invités du partage ouvert (pas les demandes en attente).
     pub fn guests(&self) -> Vec<Guest> {
-        self.state.lock().unwrap().open.as_ref().map(|o| o.guests.clone()).unwrap_or_default()
+        self.state.lock().unwrap().open.as_ref().map(|o| o.guests.iter().filter(|g| !g.pending).cloned().collect()).unwrap_or_default()
     }
 
     pub fn guest_count(&self) -> usize {
-        self.state.lock().unwrap().open.as_ref().map_or(0, |o| o.guests.len())
+        self.state.lock().unwrap().open.as_ref().map_or(0, |o| o.guests.iter().filter(|g| !g.pending).count())
+    }
+
+    /// Une attente à prendre **avant** de relire l'état, pour ne manquer
+    /// aucun changement (`Notified::enable`).
+    pub fn changed(&self) -> tokio::sync::futures::Notified<'_> {
+        self.changed.notified()
     }
 
     /// Ouvre un partage, ou rend celui de la même origine déjà ouvert (son
@@ -461,7 +533,22 @@ impl Share {
         for g in open.guests {
             s.ended.insert(g.id.clone(), Ended { secret: g.secret, end: End::Stopped, role: g.role, at: now });
         }
+        drop(s);
+        self.changed.notify_waiters();
         Some(snapshot)
+    }
+
+    /// Le code réservé chez le relais remplace celui du partage, s'il est
+    /// toujours `old` (un « Nouveau code » ne s'est pas glissé entre-temps).
+    pub fn replace_code(&self, old: &str, new: &str) -> bool {
+        let mut s = self.state.lock().unwrap();
+        match s.open.as_mut() {
+            Some(o) if o.code == old => {
+                o.code = new.to_string();
+                true
+            }
+            _ => false,
+        }
     }
 
     /// Nouveau code ; les invités déjà là restent.
@@ -479,7 +566,7 @@ impl Share {
     /// Change le rôle d'un invité. `None` : invité inconnu.
     pub fn set_role(&self, id: &str, role: Role) -> Option<RoleChange> {
         let mut s = self.state.lock().unwrap();
-        let guest = s.open.as_mut()?.guests.iter_mut().find(|g| g.id == id)?;
+        let guest = s.open.as_mut()?.guests.iter_mut().find(|g| g.id == id && !g.pending)?;
         let before = guest.role;
         if before != role {
             guest.role = role;
@@ -499,7 +586,7 @@ impl Share {
 
     fn quality_request_at(&self, id: &str, secret: &str, now: Instant) -> Option<Result<(), Duration>> {
         let mut s = self.state.lock().unwrap();
-        let guest = s.open.as_mut()?.guests.iter_mut().find(|g| g.id == id && same(secret, &g.secret))?;
+        let guest = s.open.as_mut()?.guests.iter_mut().find(|g| g.id == id && !g.pending && same(secret, &g.secret))?;
         if let Some(last) = guest.last_quality {
             let since = now.saturating_duration_since(last);
             if since < QUALITY_EVERY {
@@ -524,11 +611,76 @@ impl Share {
         let open = s.open.as_mut()?;
         let index = open.guests.iter().position(|g| g.id == id)?;
         let guest = open.guests.remove(index);
-        s.ended.insert(
-            guest.id.clone(),
-            Ended { secret: guest.secret.clone(), end: End::Removed, role: guest.role, at: Instant::now() },
-        );
+        // Une demande retirée est une demande refusée (sans blocage de l'appareil).
+        let end = if guest.pending { End::Refused } else { End::Removed };
+        s.ended.insert(guest.id.clone(), Ended { secret: guest.secret.clone(), end, role: guest.role, at: Instant::now() });
+        drop(s);
+        self.changed.notify_waiters();
         Some(guest)
+    }
+
+    /// L'hôte accepte une demande venue par le relais : elle devient un
+    /// invité (spectateur) si une place est libre.
+    pub fn accept(&self, id: &str) -> Result<Guest, AcceptError> {
+        let mut s = self.state.lock().unwrap();
+        let open = s.open.as_mut().ok_or(AcceptError::Unknown)?;
+        if !open.guests.iter().any(|g| g.id == id && g.pending) {
+            return Err(AcceptError::Unknown);
+        }
+        if open.guests.iter().filter(|g| !g.pending).count() >= MAX_GUESTS {
+            return Err(AcceptError::Full);
+        }
+        let now = Instant::now();
+        let guest = open.guests.iter_mut().find(|g| g.id == id).ok_or(AcceptError::Unknown)?;
+        guest.pending = false;
+        guest.since = now_secs();
+        guest.last_beat = now;
+        guest.last_beat_secs = now_secs();
+        let guest = guest.clone();
+        drop(s);
+        self.changed.notify_waiters();
+        Ok(guest)
+    }
+
+    /// L'hôte refuse une demande : l'appareil (ou, sans identifiant,
+    /// l'adresse) ne redemande pas avant 10 minutes.
+    pub fn refuse(&self, id: &str) -> Option<Guest> {
+        let mut s = self.state.lock().unwrap();
+        let open = s.open.as_mut()?;
+        let index = open.guests.iter().position(|g| g.id == id && g.pending)?;
+        let guest = open.guests.remove(index);
+        let now = Instant::now();
+        s.refused.insert(guest.refuse_key.clone(), now);
+        s.ended.insert(guest.id.clone(), Ended { secret: guest.secret.clone(), end: End::Refused, role: guest.role, at: now });
+        drop(s);
+        self.changed.notify_waiters();
+        Some(guest)
+    }
+
+    /// Où en est la demande `id` (avec son secret).
+    pub fn wait(&self, id: &str, secret: &str) -> Wait {
+        let mut s = self.state.lock().unwrap();
+        let now = Instant::now();
+        s.ended.retain(|_, e| now.duration_since(e.at) < ENDED_KEEP);
+        if let Some(open) = s.open.as_mut()
+            && let Some(g) = open.guests.iter_mut().find(|g| g.id == id && same(secret, &g.secret))
+        {
+            if g.pending {
+                return Wait::Pending;
+            }
+            // L'invité accepté qui attend sa réponse compte comme un signe de vie.
+            g.last_beat = now;
+            g.last_beat_secs = now_secs();
+            let guest = g.clone();
+            return Wait::Admitted { guest, snapshot: open.snapshot() };
+        }
+        match s.ended.get(id).filter(|e| same(secret, &e.secret)).map(|e| e.end) {
+            Some(End::Refused | End::Removed) => Wait::Refused,
+            Some(End::Expired) => Wait::Expired,
+            Some(End::Stopped) => Wait::NoShare,
+            None if s.open.is_none() => Wait::NoShare,
+            None => Wait::Unknown,
+        }
     }
 
     /// Un essai de `join` depuis `peer` : compté (comme l'appairage) avant
@@ -548,12 +700,21 @@ impl Share {
         Ok(())
     }
 
-    /// Un invité rejoint avec le code. Le même appareil déjà là reprend sa
-    /// place (même identifiant, même rôle, nouveau secret).
+    /// Un invité rejoint avec le code, sur le réseau. Le même appareil déjà
+    /// là reprend sa place (même identifiant, même rôle, nouveau secret).
     pub fn join(&self, code: &str, name: &str, device: &str, app: &str, peer: IpAddr, browser: bool) -> Result<Joined, JoinError> {
+        self.join_from(code, name, device, app, peer, browser, false)
+    }
+
+    /// Un invité rejoint avec le code, sur le réseau ou par le relais. Par le
+    /// relais, c'est une demande (`Joined::guest.pending`) que l'hôte accepte
+    /// ou refuse ; un appareil déjà accepté reprend sa place sans attendre.
+    #[allow(clippy::too_many_arguments)]
+    pub fn join_from(&self, code: &str, name: &str, device: &str, app: &str, peer: IpAddr, browser: bool, relay: bool) -> Result<Joined, JoinError> {
         let now = Instant::now();
         let mut s = self.state.lock().unwrap();
         Self::count_try(&mut s, peer, now)?;
+        s.refused.retain(|_, at| now.duration_since(*at) < REFUSED_FOR);
         let code: String = code.chars().filter(|c| !c.is_whitespace()).collect();
         let name = clean(name, MAX_NAME);
         if code.len() != 6 || !code.bytes().all(|b| b.is_ascii_digit()) || name.is_empty() {
@@ -561,6 +722,8 @@ impl Share {
         }
         let device = clean(device, MAX_DEVICE);
         let app = if APPS.contains(&app) { app.to_string() } else { "other".to_string() };
+        let refuse_key = if device.is_empty() { format!("ip:{}", peer.to_canonical()) } else { format!("device:{device}") };
+        let refused = relay && s.refused.contains_key(&refuse_key);
         let open = match s.open.as_mut() {
             Some(o) if same(&code, &o.code) => o,
             _ => return Err(JoinError::NoShare),
@@ -576,10 +739,46 @@ impl Share {
                 g.app = app;
                 g.last_beat = now;
                 g.last_beat_secs = now_secs();
+                if g.pending {
+                    g.requested = now;
+                } else {
+                    // Revenu sur le réseau, il ne passe plus par le relais (et inversement).
+                    g.via_relay = relay;
+                }
                 (g.clone(), false)
             }
+            None if relay => {
+                if refused {
+                    return Err(JoinError::Refused);
+                }
+                if open.guests.iter().filter(|g| g.pending).count() >= MAX_PENDING {
+                    return Err(JoinError::PendingFull);
+                }
+                let g = Guest {
+                    id: random_hex(8),
+                    secret,
+                    cookie,
+                    name,
+                    device,
+                    app,
+                    role: Role::Spectator,
+                    rev: 1,
+                    since: now_secs(),
+                    last_beat_secs: now_secs(),
+                    last_beat: now,
+                    quality: Quality::Auto,
+                    preset: Preset::Host,
+                    last_quality: None,
+                    pending: true,
+                    via_relay: true,
+                    requested: now,
+                    refuse_key,
+                };
+                open.guests.push(g.clone());
+                (g, true)
+            }
             None => {
-                if open.guests.len() >= MAX_GUESTS {
+                if open.guests.iter().filter(|g| !g.pending).count() >= MAX_GUESTS {
                     return Err(JoinError::Full);
                 }
                 let g = Guest {
@@ -597,6 +796,10 @@ impl Share {
                     quality: Quality::Auto,
                     preset: Preset::Host,
                     last_quality: None,
+                    pending: false,
+                    via_relay: false,
+                    requested: now,
+                    refuse_key: String::new(),
                 };
                 open.guests.push(g.clone());
                 (g, true)
@@ -615,6 +818,9 @@ impl Share {
         if let Some(open) = s.open.as_mut() {
             let display = open.display.clone();
             if let Some(g) = open.guests.iter_mut().find(|g| g.id == id && same(secret, &g.secret)) {
+                if g.pending {
+                    return Some(Beat::Pending);
+                }
                 g.last_beat = now;
                 g.last_beat_secs = now_secs();
                 return Some(Beat::Live { guest: g.clone(), display });
@@ -635,7 +841,12 @@ impl Share {
         }
         let Some(open) = s.open.as_mut() else { return Leave::Unknown };
         match open.guests.iter().position(|g| g.id == id && same(secret, &g.secret)) {
-            Some(index) => Leave::Left(open.guests.remove(index)),
+            Some(index) => {
+                let guest = open.guests.remove(index);
+                drop(s);
+                self.changed.notify_waiters();
+                if guest.pending { Leave::Cancelled(guest) } else { Leave::Left(guest) }
+            }
             None => Leave::Unknown,
         }
     }
@@ -650,16 +861,26 @@ impl Share {
         let mut s = self.state.lock().unwrap();
         s.ended.retain(|_, e| now.duration_since(e.at) < ENDED_KEEP);
         let Some(open) = s.open.as_mut() else { return Vec::new() };
-        let (gone, kept): (Vec<Guest>, Vec<Guest>) =
-            open.guests.drain(..).partition(|g| now.saturating_duration_since(g.last_beat) > GUEST_GRACE);
+        // Une demande attend l'hôte 120 s ; un invité donne signe de vie.
+        let (gone, kept): (Vec<Guest>, Vec<Guest>) = open.guests.drain(..).partition(|g| {
+            if g.pending { now.saturating_duration_since(g.requested) > PENDING_TTL } else { now.saturating_duration_since(g.last_beat) > GUEST_GRACE }
+        });
         open.guests = kept;
+        let (expired, gone): (Vec<Guest>, Vec<Guest>) = gone.into_iter().partition(|g| g.pending);
+        for g in &expired {
+            s.ended.insert(g.id.clone(), Ended { secret: g.secret.clone(), end: End::Expired, role: g.role, at: now });
+        }
+        drop(s);
+        if !expired.is_empty() {
+            self.changed.notify_waiters();
+        }
         gone
     }
 
     /// Le cookie d'un invité du navigateur encore dans le partage.
     pub fn cookie_valid(&self, cookie: &str) -> bool {
         let s = self.state.lock().unwrap();
-        s.open.as_ref().is_some_and(|o| o.guests.iter().any(|g| g.cookie.as_deref().is_some_and(|c| same(cookie, c))))
+        s.open.as_ref().is_some_and(|o| o.guests.iter().any(|g| !g.pending && g.cookie.as_deref().is_some_and(|c| same(cookie, c))))
     }
 
     /// Le partage est-il celui de cet appareil hôte ?
@@ -677,7 +898,8 @@ impl Share {
     }
 }
 
-/// Le cookie d'invité d'une requête, s'il y en a un.
+/// Le cookie d'invité d'une requête, s'il y en a un (sur le réseau ou par le
+/// relais : les deux noms).
 pub fn guest_cookie(headers: &axum::http::HeaderMap) -> Option<String> {
     headers
         .get_all(axum::http::header::COOKIE)
@@ -685,17 +907,24 @@ pub fn guest_cookie(headers: &axum::http::HeaderMap) -> Option<String> {
         .filter_map(|v| v.to_str().ok())
         .flat_map(|v| v.split(';'))
         .filter_map(|c| c.trim().split_once('='))
-        .find(|(k, _)| *k == GUEST_COOKIE)
+        .find(|(k, _)| *k == GUEST_COOKIE || *k == GUEST_COOKIE_RELAY)
         .map(|(_, v)| v.to_string())
 }
 
 /// En-tête `Set-Cookie` d'un invité du navigateur (12 h au plus ; il ne vaut
-/// que tant que l'invité est dans le partage).
-pub fn set_cookie(value: &str, secure: bool) -> String {
+/// que tant que l'invité est dans le partage). Par le relais : `__Host-`,
+/// toujours sécurisé.
+pub fn set_cookie(value: &str, secure: bool, relay: bool) -> String {
+    if relay {
+        return format!("{GUEST_COOKIE_RELAY}={value}; Path=/; HttpOnly; SameSite=Strict; Secure; Max-Age=43200");
+    }
     format!("{GUEST_COOKIE}={value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=43200{}", if secure { "; Secure" } else { "" })
 }
 
-pub fn clear_cookie(secure: bool) -> String {
+pub fn clear_cookie(secure: bool, relay: bool) -> String {
+    if relay {
+        return format!("{GUEST_COOKIE_RELAY}=; Path=/; HttpOnly; SameSite=Strict; Secure; Max-Age=0");
+    }
     format!("{GUEST_COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0{}", if secure { "; Secure" } else { "" })
 }
 
@@ -911,7 +1140,7 @@ mod tests {
         let mut headers = axum::http::HeaderMap::new();
         headers.insert(axum::http::header::COOKIE, format!("a=1; {GUEST_COOKIE}=abc").parse().unwrap());
         assert_eq!(guest_cookie(&headers).as_deref(), Some("abc"));
-        assert!(set_cookie("abc", true).ends_with("; Secure"));
+        assert!(set_cookie("abc", true, false).ends_with("; Secure"));
     }
 
     /// « Arrêter » pendant qu'un invité rejoint : l'invité accepté est dans ce
@@ -943,4 +1172,38 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn une_demande_sans_reponse_expire() {
+        let share = Share::new();
+        let (snap, _) = share.open(Origin::Local, display(1)).unwrap();
+        let asked = share.join_from(&snap.code, "Léa", "ipad", "ios", peer(1), false, true).unwrap();
+        assert!(asked.guest.pending);
+        assert!(matches!(share.wait(&asked.guest.id, asked.guest.secret()), Wait::Pending));
+        // Un signe de vie manqué ne fait pas sortir une demande ; 120 s, si.
+        assert!(share.expire_at(Instant::now() + GUEST_GRACE + Duration::from_secs(1)).is_empty());
+        assert_eq!(share.snapshot().unwrap().guests.len(), 1);
+        let gone = share.expire_at(Instant::now() + PENDING_TTL + Duration::from_secs(1));
+        assert!(gone.is_empty(), "une demande n'a rien à couper dans Kyber");
+        assert!(matches!(share.wait(&asked.guest.id, asked.guest.secret()), Wait::Expired));
+        assert!(matches!(share.wait(&asked.guest.id, "faux"), Wait::Unknown));
+        // Annuler sa demande.
+        let again = share.join_from(&snap.code, "Léa", "ipad", "ios", peer(1), false, true).unwrap();
+        assert!(matches!(share.leave(&again.guest.id, again.guest.secret()), Leave::Cancelled(_)));
+        // Le partage arrêté pendant une demande.
+        let third = share.join_from(&snap.code, "Max", "tv", "tvos", peer(2), false, true).unwrap();
+        share.close();
+        assert!(matches!(share.wait(&third.guest.id, third.guest.secret()), Wait::NoShare));
+    }
+
+    #[test]
+    fn le_code_reserve_par_le_relais_remplace_le_code() {
+        let share = Share::new();
+        let (snap, _) = share.open(Origin::Local, display(1)).unwrap();
+        assert!(!share.replace_code("000000", "111111") || snap.code == "000000");
+        assert!(share.replace_code(&snap.code, "424242"));
+        assert_eq!(share.snapshot().unwrap().code, "424242");
+        assert!(share.join("424242", "Léa", "ipad", "ios", peer(1), false).is_ok());
+    }
 }
+
