@@ -1,11 +1,15 @@
 //! KyberNow Share, ce que l'app en tire sans rien de Windows (docs/kybernow-share.md,
 //! textes de docs/link-ui.md, « Partage »), pour se tester sur le Mac : les
-//! Stations à qui envoyer un code, le prénom de l'invité, le panneau de
-//! l'hôte tel que la barre le montre (code, lien, QR code, invités), et les
-//! avis de changement de rôle. Les appels à Admin, la session d'invité et les
-//! fenêtres sont dans `ui/share.rs`.
+//! Stations à qui envoyer un code, le prénom de l'invité, sa « Qualité de
+//! l'image » (ce que « Auto » envoie, la qualité reçue que la barre montre),
+//! le panneau de l'hôte tel que la barre le montre (code, lien, QR code,
+//! invités et leur qualité d'image), et les avis de changement de rôle. Les
+//! appels à Admin, la session d'invité et les fenêtres sont dans `ui/share.rs`.
 
-use kybernow_core::share::{self, ShareAvailability, ShareGuest, ShareRole, ShareState, ShareTarget};
+use kybernow_core::console::Mode;
+use kybernow_core::profile::Capabilities;
+use kybernow_core::screens::DeviceScreen;
+use kybernow_core::share::{self, DecoderCaps, ShareAuto, ShareAvailability, ShareGuest, ShareImage, ShareQuality, ShareRole, ShareState, ShareTarget};
 use serde::Serialize;
 
 /// Une Station vue sur le réseau ou déjà ajoutée à l'app : son adresse, le
@@ -54,6 +58,56 @@ pub fn clean_name(name: &str) -> String {
 pub fn proposed_name(remembered: Option<&str>, device: &str) -> String {
     let remembered = remembered.map(clean_name).unwrap_or_default();
     if remembered.is_empty() { clean_name(device) } else { remembered }
+}
+
+/// Ce que « Auto » envoie à la Station à « Rejoindre » (`auto` de la demande) :
+/// la définition (en pixels, en paysage) et la fréquence de l'écran de ce PC
+/// (`screen`, « Cet écran »), et ce que sa carte graphique décode (`caps`,
+/// la sonde de l'app). Aucune limite de définition ni de fréquence ajoutée au
+/// décodeur : la sonde ne mesure que les formats. L'image de l'hôte n'est pas
+/// encore connue à ce moment-là (`host` nul) : c'est la Station qui borne, et
+/// qui tranche. `None` pour un autre choix que « Auto » : le bloc `auto`
+/// n'est alors pas envoyé.
+pub fn join_auto(quality: ShareQuality, screen: Mode, caps: Capabilities) -> Option<ShareAuto> {
+    if quality != ShareQuality::Auto {
+        return None;
+    }
+    let device = DeviceScreen {
+        x: 0.0,
+        y: 0.0,
+        width: f64::from(screen.width),
+        height: f64::from(screen.height),
+        pixel_width: screen.width,
+        pixel_height: screen.height,
+        refresh: screen.refresh,
+        primary: true,
+    };
+    Some(share::auto_quality(&device, &DecoderCaps::from(caps), None))
+}
+
+/// La qualité qu'un invité voit sous son nom dans le panneau de l'hôte
+/// (« 1080p · 60 Hz ») : seulement quand ce n'est pas celle de l'hôte (une
+/// image à part, `own`) et que Kyber en connaît la taille. Une image encore
+/// inconnue compte comme celle de l'hôte : rien à dire.
+pub fn guest_image(image: Option<&ShareImage>) -> Option<String> {
+    image.filter(|i| i.own()).and_then(ShareImage::label)
+}
+
+/// L'image que reçoit l'invité de la session (événement `share-image`, et
+/// dans `bar-shown`) : la qualité demandée (`auto`, `host`, `1080p60`,
+/// `720p30`) et, quand Kyber en connaît la taille, la qualité reçue
+/// (« 1080p · 60 Hz »), que la barre montre. Sans libellé, la barre ne dit
+/// que la qualité demandée.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ImageView {
+    pub quality: &'static str,
+    pub label: Option<String>,
+}
+
+impl From<&ShareImage> for ImageView {
+    fn from(i: &ShareImage) -> Self {
+        ImageView { quality: i.quality.as_str(), label: i.label() }
+    }
 }
 
 /// L'avis bref d'un changement de droits (clé du catalogue de l'app), les deux
@@ -157,11 +211,14 @@ pub struct GuestView {
     /// Arrivée, en secondes Unix de la Station (docs/link-ui.md, « Durée ») : la
     /// liste dit « depuis 3 min ».
     pub since: Option<i64>,
+    /// Sa qualité d'image (« 1080p · 60 Hz »), seulement quand ce n'est pas celle
+    /// de l'hôte ([`guest_image`]) : lecture seule, sous son nom.
+    pub image: Option<String>,
 }
 
 impl From<&ShareGuest> for GuestView {
     fn from(g: &ShareGuest) -> Self {
-        GuestView { id: g.id.clone(), name: g.name.clone(), app: g.app.clone(), role: g.role.as_str(), since: g.since }
+        GuestView { id: g.id.clone(), name: g.name.clone(), app: g.app.clone(), role: g.role.as_str(), since: g.since, image: guest_image(g.image.as_ref()) }
     }
 }
 
@@ -229,7 +286,7 @@ impl ShareView {
 mod tests {
     use super::*;
     use kybernow_core::i18n::Lang;
-    use kybernow_core::share::ShareScreen;
+    use kybernow_core::share::{ShareImageReason, ShareScreen};
 
     fn known(host: &str, port: u16, fp: Option<&str>) -> Known {
         Known { host: host.into(), port, fingerprint: fp.map(str::to_string) }
@@ -354,6 +411,85 @@ mod tests {
         // Un partage dit fermé n'est pas ouvert.
         let closed = ShareState { open: false, ..state };
         assert!(!ShareView::new(Some(&closed), None, Lang::Fr).open);
+    }
+
+    fn mode(width: u32, height: u32, refresh: u32) -> Mode {
+        Mode { width, height, refresh }
+    }
+
+    #[test]
+    fn auto_a_rejoindre() {
+        let all = Capabilities { hevc: true, hevc444: true, av1: true };
+        // « Auto » envoie l'écran de ce PC (pixels, fréquence) et ce que la carte décode.
+        let a = join_auto(ShareQuality::Auto, mode(3840, 2160, 144), all).unwrap();
+        assert_eq!((a.width, a.height, a.fps, a.yuv444), (3840, 2160, 144, true));
+        assert_eq!(a.codecs, ["h264", "hevc", "av1"]);
+        // H.264 toujours ; le HEVC 4:4:4 seulement avec le HEVC.
+        let h264 = join_auto(ShareQuality::Auto, mode(1920, 1080, 60), Capabilities::default()).unwrap();
+        assert_eq!((h264.codecs, h264.yuv444), (vec!["h264".to_string()], false));
+        let no_hevc = join_auto(ShareQuality::Auto, mode(1920, 1080, 60), Capabilities { hevc: false, hevc444: true, av1: true }).unwrap();
+        assert_eq!((no_hevc.codecs, no_hevc.yuv444), (vec!["h264".to_string(), "av1".to_string()], false));
+        // En paysage, même pour un écran tourné.
+        let portrait = join_auto(ShareQuality::Auto, mode(1080, 1920, 60), all).unwrap();
+        assert_eq!((portrait.width, portrait.height), (1920, 1080));
+        // Aucune limite de définition ni de fréquence ajoutée : celles de l'écran.
+        let wide = join_auto(ShareQuality::Auto, mode(5120, 1440, 240), all).unwrap();
+        assert_eq!((wide.width, wide.height, wide.fps), (5120, 1440, 240));
+        // Un autre choix que « Auto » : pas de bloc `auto`.
+        for q in [ShareQuality::Host, ShareQuality::P1080_60, ShareQuality::P720_30] {
+            assert_eq!(join_auto(q, mode(3840, 2160, 60), all), None, "{q:?}");
+        }
+    }
+
+    fn image(quality: ShareQuality, h: u32, fps: u32, follows_host: Option<bool>) -> ShareImage {
+        ShareImage { quality, width: Some(h * 16 / 9), height: Some(h), fps: Some(fps), follows_host, reason: Some(ShareImageReason::Asked), ..ShareImage::default() }
+    }
+
+    #[test]
+    fn qualite_sous_l_invite() {
+        // Une image à part, de taille connue : la qualité sous le nom de l'invité.
+        let own = image(ShareQuality::P720_30, 720, 30, Some(false));
+        assert_eq!(guest_image(Some(&own)).as_deref(), Some("720p · 30 Hz"));
+        // L'image de l'hôte, ou pas encore su : rien (compté comme celle de l'hôte).
+        assert_eq!(guest_image(Some(&image(ShareQuality::Host, 1080, 60, Some(true)))), None);
+        assert_eq!(guest_image(Some(&image(ShareQuality::Auto, 1080, 60, None))), None);
+        // Une image à part dont Kyber ne sait pas encore la taille : rien non plus.
+        assert_eq!(guest_image(Some(&ShareImage { width: None, ..own.clone() })), None);
+        assert_eq!(guest_image(Some(&ShareImage { follows_host: Some(false), ..ShareImage::default() })), None);
+        assert_eq!(guest_image(None), None);
+        // Dans la liste de l'hôte : lecture seule, avec le nom.
+        let mut g = guest("g1", "Léa", ShareRole::Spectator);
+        assert_eq!(GuestView::from(&g).image, None);
+        g.image = Some(own);
+        assert_eq!(GuestView::from(&g).image.as_deref(), Some("720p · 30 Hz"));
+    }
+
+    #[test]
+    fn image_recue_de_l_invite() {
+        // La barre : la qualité demandée, et la reçue quand Kyber la connaît.
+        let v = ImageView::from(&image(ShareQuality::Auto, 1080, 60, Some(true)));
+        assert_eq!((v.quality, v.label.as_deref()), ("auto", Some("1080p · 60 Hz")));
+        let v = ImageView::from(&image(ShareQuality::P720_30, 720, 30, Some(false)));
+        assert_eq!((v.quality, v.label.as_deref()), ("720p30", Some("720p · 30 Hz")));
+        // Pas encore su : seulement la qualité demandée, jamais un libellé inventé.
+        let v = ImageView::from(&ShareImage { quality: ShareQuality::Host, ..ShareImage::default() });
+        assert_eq!((v.quality, v.label), ("host", None));
+        // Un écran en 21:9 : la hauteur, comme le cœur (`label`).
+        let v = ImageView::from(&ShareImage { width: Some(3440), height: Some(1440), fps: Some(120), ..ShareImage::default() });
+        assert_eq!(v.label.as_deref(), Some("1440p · 120 Hz"));
+    }
+
+    #[test]
+    fn libelles_de_qualite() {
+        // Les choix de la barre et de « Rejoindre » (catalogues de l'interface) disent ce que dit le cœur.
+        for (lang, ui) in [(Lang::Fr, include_str!("../ui/src/lib/i18n/fr.json")), (Lang::En, include_str!("../ui/src/lib/i18n/en.json"))] {
+            let ui: serde_json::Value = serde_json::from_str(ui).unwrap();
+            let share = &ui["share"];
+            for (q, key) in [(ShareQuality::Auto, "quality_auto"), (ShareQuality::Host, "quality_host"), (ShareQuality::P1080_60, "quality_1080p60"), (ShareQuality::P720_30, "quality_720p30")] {
+                assert_eq!(share[key].as_str(), Some(q.label(lang).as_str()), "{lang:?} {key}");
+            }
+        }
+        assert_eq!(ShareQuality::P1080_60.label(Lang::Fr), "1080p · 60 Hz");
     }
 
     #[test]

@@ -329,7 +329,12 @@
     "join_help": "Le code s'affiche chez la personne qui partage.",
     "your_name": "Votre prénom",
     "join": "Rejoindre",
-    "searching": "Recherche du partage…"
+    "searching": "Recherche du partage…",
+    "quality": "Qualité de l'image",
+    "quality_auto": "Auto",
+    "quality_host": "Comme l'hôte",
+    "quality_1080p60": "1080p · 60 Hz",
+    "quality_720p30": "720p · 30 Hz"
   },
   "fond": {
     "not_created": "L'ordinateur n'a pas pu créer cet écran."
@@ -337,7 +342,6 @@
   "mock": {
     "no_share": "Aucun partage avec ce code sur le réseau.",
     "share_full": "Ce partage est complet (quatre invités au plus).",
-    "share_unreadable": "Cet appareil ne lit pas l'image de cet ordinateur (AV1).",
     "share_unsupported": "Le partage demande KyberNow Station 0.8.0 ou plus récente.",
     "share_disabled": "Le partage est coupé sur cet ordinateur (Admin › Appareils Link).",
     "share_stopped": "Léa a arrêté le partage.",
@@ -347,6 +351,8 @@
     "notice_kbm": "Vous avez le clavier et la souris.",
     "notice_kbm_back": "Le clavier et la souris sont repris.",
     "notice_watch": "Vous regardez de nouveau.",
+    "notice_image_lag": "Image allégée pour suivre.",
+    "notice_image_limit": "L'ordinateur ne peut pas faire une image de plus : vous recevez {quality}.",
     "not_a_link": "ce n'est pas un lien kybernow://",
     "from_link": "Depuis le lien",
     "bad_account": "Admin : compte ou mot de passe incorrect (401)",

@@ -4,7 +4,7 @@
 // réglage Langue de l'app (comme dans l'app, sans recharger).
 
 import { i18n, langFromTag, t } from './i18n/index.svelte'
-import type { BarComputer, Computer, ConnectInfo, ConnexionView, DisplaysInfo, FondState, Info, KeepSound, LastSession, ScreensEvent, Settings, Share, ShareGuest, ShareJoined, ShareRole, ShareRoleEvent, StationInfo, StationOutcome, StationRestarting, WakeTarget } from './api'
+import type { BarComputer, Computer, ConnectInfo, ConnexionView, DisplaysInfo, FondState, GuestBar, Info, KeepSound, LastSession, ScreensEvent, Settings, Share, ShareGuest, ShareImageEvent, ShareJoined, ShareQuality, ShareRole, ShareRoleEvent, StationInfo, StationOutcome, StationRestarting, WakeTarget } from './api'
 
 const listeners = new Map<string, ((e: { payload: unknown }) => void)[]>()
 const emit = (name: string, payload: unknown) => listeners.get(name)?.forEach((cb) => cb({ payload }))
@@ -29,9 +29,14 @@ const emit = (name: string, payload: unknown) => listeners.get(name)?.forEach((c
 // L'invité : `/bar.html?invite=spectateur|joueur|clavier|joueur-clavier` (la barre réduite : aucun droit, les
 // manettes, le clavier et la souris, les deux ; `&avis` : le changement de droits montré à la place des statistiques,
 // celui du dernier droit donné, ou `&avis=pads_back|kbm_back|watch` pour un droit repris ; `&droits` : l'hôte
-// change les droits toutes les 3 s, la barre suit) ; l'accueil avec `?rejoindre` (l'écran « Rejoindre un partage » ouvert,
-// `?rejoindre=123456` : le code d'un lien déjà rempli) ; le code 123456 est un partage, 000000 n'en est pas
-// un, 999999 est complet, 111111 est en AV1 (illisible), un autre : introuvable ; avec `?fin`, le partage
+// change les droits toutes les 3 s, la barre suit ; `&qualite=auto|hote|1080p60|720p30` : la « Qualité de l'image »
+// demandée au départ, que la puce de la barre montre en qualité reçue et qui se change (l'ordinateur de l'hôte est
+// en 3840 × 2160 à 60 Hz, ce PC en 1920 × 1080 à 60 Hz) ; `&image=inconnue` : Kyber ne sait pas encore la qualité
+// reçue, la puce dit celle qui est demandée ; `&avis=image|limite` : l'avis « Image allégée pour suivre. » ou
+// « L'ordinateur ne peut pas faire une image de plus… ») ; l'accueil avec `?rejoindre` (l'écran « Rejoindre un
+// partage » ouvert, `?rejoindre=123456` : le code d'un lien déjà rempli) ; le code 123456 est un partage, 000000
+// n'en est pas un, 999999 est complet, 111111 est un partage dont le format n'est pas lu ici (on entre quand même,
+// avec une image à part), un autre : introuvable ; avec `?fin`, le partage
 // rejoint s'arrête de lui-même (« Léa a arrêté le partage. ») ; `/connexion.html?id=guest-9&invite` : la
 // connexion d'une session d'invité dans sa fenêtre.
 const flags = new URLSearchParams(location.search)
@@ -353,10 +358,11 @@ const fakeQr = () => {
 
 const shareFlag = flags.get('partage')
 const knownGuests: ShareGuest[] = [
-  { id: 'g1', name: 'Léa', app: 'ios', role: 'spectator', since: now - 180 },
-  { id: 'g2', name: 'Noé', app: 'android', role: 'player', since: now - 1500 },
-  { id: 'g3', name: 'Camille', app: 'web', role: 'player_kbm', since: now - 20 },
-  { id: 'g4', name: 'Salon', app: 'tvos', role: 'kbm', since: now - 4320 },
+  // `image` : sa qualité d'image seulement quand ce n'est pas celle de l'hôte (une image à part).
+  { id: 'g1', name: 'Léa', app: 'ios', role: 'spectator', since: now - 180, image: null },
+  { id: 'g2', name: 'Noé', app: 'android', role: 'player', since: now - 1500, image: '720p · 30 Hz' },
+  { id: 'g3', name: 'Camille', app: 'web', role: 'player_kbm', since: now - 20, image: '1080p · 60 Hz' },
+  { id: 'g4', name: 'Salon', app: 'tvos', role: 'kbm', since: now - 4320, image: null },
 ]
 let shareOpen = shareFlag !== null && /^\d+$/.test(shareFlag)
 let sharedGuests: ShareGuest[] = shareOpen ? knownGuests.slice(0, Math.min(4, Number(shareFlag))) : []
@@ -378,14 +384,21 @@ const shareView = (): Share => ({
 })
 const emitShare = () => emit('share-state', { id: sessions[0] ?? 'a1', share: shareView() })
 
-/** La barre d'une session d'invité (`/bar.html?invite=…`) : le rôle et l'hôte. */
+/** La barre d'une session d'invité (`/bar.html?invite=…`) : le rôle, l'hôte et l'image reçue. */
 const guestFlag = flags.get('invite')
+/** La « Qualité de l'image » demandée (`&qualite=`), puis celle que l'invité choisit. */
+let guestQuality: ShareQuality = ({ hote: 'host', '1080p60': '1080p60', '720p30': '720p30' } as Record<string, ShareQuality>)[flags.get('qualite') ?? ''] ?? 'auto'
+/** Celle de « Rejoindre », retenue pour la fois suivante (`app.json`, `share_quality`). */
+let rememberedQuality: ShareQuality = 'auto'
+/** Ce que la Station imitée répond : la qualité reçue (`null` avec `&image=inconnue` : Kyber ne sait pas encore). */
+const imageOf = (q: ShareQuality): string | null =>
+  flags.get('image') === 'inconnue' ? null : { auto: '1080p · 60 Hz', host: '2160p · 60 Hz', '1080p60': '1080p · 60 Hz', '720p30': '720p · 30 Hz' }[q]
 const guestRole: ShareRole = guestFlag === 'joueur' ? 'player' : guestFlag === 'clavier' ? 'kbm' : guestFlag === 'joueur-clavier' ? 'player_kbm' : 'spectator'
 let guestSeq = 0
 let joinAction = flags.has('rejoindre')
 
 const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
-  share_defaults: () => ({ name: thisPc.name }),
+  share_defaults: () => ({ name: thisPc.name, quality: rememberedQuality }),
   share_link_code: (a) => {
     const m = String(a.link).match(/code=(\d{6})/)
     if (!m) throw t('mock.not_a_link')
@@ -396,8 +409,11 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
     await sleep(1200)
     const code = String(a.code)
     if (code === '999999') throw t('mock.share_full')
-    if (code === '111111') throw t('mock.share_unreadable')
-    if (code !== '123456' && code !== '482913') throw t('mock.no_share')
+    // 111111 : l'hôte envoie un format que ce PC ne lit pas, on entre quand même (image à part).
+    if (code !== '123456' && code !== '482913' && code !== '111111') throw t('mock.no_share')
+    console.info(`share_join : qualité de l'image ${a.quality}`)
+    guestQuality = ['auto', 'host', '1080p60', '720p30'].includes(String(a.quality)) ? (a.quality as ShareQuality) : 'auto'
+    rememberedQuality = guestQuality
     return { id: `guest-${++guestSeq}`, title: t('mock.guest_on'), host: 'Léa', role: 'spectator', fingerprint: fp('atelier') } satisfies ShareJoined
   },
   // La session d'invité : comme `connect` (passage de l'accueil pour la première, fenêtre pour les suivantes).
@@ -428,6 +444,14 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
       emitSessions()
     })()
     return { screens: 1, windowed: false } satisfies ConnectInfo
+  },
+  // « Qualité de l'image » depuis la barre : retenue, la Station la prend et dit l'image reçue.
+  share_quality: async (a) => {
+    await sleep(400)
+    guestQuality = a.quality as ShareQuality
+    rememberedQuality = guestQuality
+    emit('share-image', { id: a.id as string, quality: guestQuality, label: imageOf(guestQuality) } satisfies ShareImageEvent)
+    return null
   },
   share_open: async () => {
     await sleep(500)
@@ -578,7 +602,7 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
         await sleep(1400)
       }
       if (flags.has('echec')) {
-        emit('session-ended', { id, summary: { error: flags.has('invite') ? t('mock.share_unreadable') : t('mock.connect_refused'), median_ms: null, p95_ms: null, seconds: 4 } })
+        emit('session-ended', { id, summary: { error: t('mock.connect_refused'), median_ms: null, p95_ms: null, seconds: 4 } })
         return
       }
       emit('session-status', { id, phase: 'streaming', detail: null })
@@ -738,13 +762,15 @@ export function mockTauri() {
         const served = guestFlag !== null ? 'guest-1' : (sessions[0] ?? 'a1')
         // « Garder le son » à partir de deux sessions (`?ordinateurs=2`) ; sans session imitée, celle de la barre.
         if (name === 'bar-shown') {
-          const guest = guestFlag !== null ? { role: guestRole, host: 'Léa' } : null
+          const guest: GuestBar | null = guestFlag !== null ? { role: guestRole, host: 'Léa', quality: guestQuality, image: imageOf(guestQuality) } : null
           const shown = { id: served, label: 'Jeu · HEVC', profile: 'jeu', multi: deviceScreens > 1, keep_sound: keepSound.has(served), sessions: Math.max(1, sessions.length), guest, share: guest ? null : shareView() }
           setTimeout(() => cb({ payload: shown }), 300)
           // `&avis` : le changement de rôle d'un invité, montré à la place des statistiques.
           if (guest && flags.has('avis')) {
             const kind = flags.get('avis') || (guestRole === 'spectator' ? 'watch' : guestRole === 'player' ? 'play' : 'kbm')
-            setTimeout(() => cb({ payload: { ...shown, pinned: true, notice: t(`mock.notice_${kind}`) } }), 2500)
+            // `image` : « Image allégée pour suivre. » ; `limite` : plus d'image à part possible, la qualité reçue est celle du texte.
+            const text = kind === 'image' ? t('mock.notice_image_lag') : kind === 'limite' ? t('mock.notice_image_limit', { quality: '720p · 30 Hz' }) : t(`mock.notice_${kind}`)
+            setTimeout(() => cb({ payload: { ...shown, pinned: true, notice: text } }), 2500)
           }
           // `&droits` : l'hôte donne et reprend les droits à tour de rôle (manettes, clavier et souris, un à la fois).
           if (guest && flags.has('droits')) {

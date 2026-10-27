@@ -1,18 +1,21 @@
 <!--
   « Rejoindre avec un code » (KyberNow Share, docs/link-ui.md « Partage ») : les six
   chiffres affichés chez la personne qui partage (ou ceux d'un lien kybernow://join,
-  déjà remplis) et votre prénom (proposé : le nom de ce PC, retenu pour la fois
-  suivante). Le code part aux ordinateurs du réseau, ou à celui du lien ; celui qui
-  partage répond. La session s'ouvre ensuite (App.svelte) : rien n'est ajouté à la
-  liste des ordinateurs. Le refus se lit tel que le cœur le dit (« Aucun partage avec
-  ce code sur le réseau. », « Ce partage est complet… », « Trop d'essais de code… »,
-  « Cet appareil ne lit pas l'image de cet ordinateur (HEVC). »).
+  déjà remplis), votre prénom (proposé : le nom de ce PC, retenu pour la fois
+  suivante) et la « Qualité de l'image » (« Auto » proposé, le dernier choix sinon :
+  « Auto » envoie l'écran de ce PC et ce que sa carte graphique décode). Le code part
+  aux ordinateurs du réseau, ou à celui du lien ; celui qui partage répond. La session
+  s'ouvre ensuite (App.svelte) : rien n'est ajouté à la liste des ordinateurs. Le refus
+  se lit tel que le cœur le dit (« Aucun partage avec ce code sur le réseau. », « Ce
+  partage est complet… », « Trop d'essais de code… ») ; le format de l'image de l'hôte
+  n'en est plus un : un format que ce PC ne lit pas lui vaut une image à part.
 -->
 <script lang="ts">
   import { onMount, untrack } from 'svelte'
   import Icon from './lib/Icon.svelte'
-  import type { ShareJoined } from './lib/api'
-  import { invoke } from './lib/api'
+  import Segmented from './lib/Segmented.svelte'
+  import type { ShareJoined, ShareQuality } from './lib/api'
+  import { invoke, shareQualities } from './lib/api'
   import { t } from './lib/i18n/index.svelte'
 
   let {
@@ -40,15 +43,20 @@
   let name = $state('')
   /** Le prénom a été tapé : celui proposé n'arrive plus par-dessus. */
   let touched = false
+  /** « Qualité de l'image » : « Auto » proposé, ou le dernier choix (retenu pour la fois suivante). */
+  let quality = $state<ShareQuality>('auto')
+  /** Elle a été choisie : celle retenue n'arrive plus par-dessus. */
+  let picked = false
   let working = $state(false)
   let error = $state<string | null>(null)
   let codeField = $state<HTMLInputElement | null>(null)
   let nameField = $state<HTMLInputElement | null>(null)
 
   onMount(() => {
-    invoke<{ name: string }>('share_defaults')
+    invoke<{ name: string; quality: ShareQuality }>('share_defaults')
       .then((d) => {
         if (!touched) name = d.name
+        if (!picked && shareQualities.includes(d.quality)) quality = d.quality
       })
       .catch(() => {})
     // Le code d'un lien est là : le prénom à confirmer ; sinon, le code d'abord.
@@ -70,7 +78,7 @@
     working = true
     error = null
     try {
-      onjoined(await invoke<ShareJoined>('share_join', { code: digits, name, link }))
+      onjoined(await invoke<ShareJoined>('share_join', { code: digits, name, quality, link }))
     } catch (err) {
       error = String(err)
       working = false
@@ -114,6 +122,19 @@
         disabled={working}
       />
     </label>
+    <div class="col">
+      <span class="eyebrow">{t('share.quality')}</span>
+      <Segmented
+        label={t('share.quality')}
+        options={shareQualities.map((q) => ({ value: q, label: t(`share.quality_${q}`) }))}
+        value={quality}
+        disabled={working}
+        onchange={(q) => {
+          quality = q
+          picked = true
+        }}
+      />
+    </div>
 
     {#if working}
       <div class="wait" role="status"><span class="pulse"></span>{t('share.searching')}</div>

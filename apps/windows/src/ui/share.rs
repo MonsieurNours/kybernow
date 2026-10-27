@@ -10,7 +10,10 @@
 //!   compte parmi les quatre), mais son identifiant est `guest-N`, jamais un
 //!   ordinateur de l'app : rien n'est écrit dans `computers.json`, ni profil
 //!   ni réglages, et sa fin vient du partage (texte du cœur, jamais « Reprendre
-//!   la main »).
+//!   la main »). Sa « Qualité de l'image » est choisie à « Rejoindre » (« Auto »
+//!   envoie l'écran de ce PC et ce que sa carte décode) et changée dans la
+//!   barre (`share_quality`, sans relancer la session) ; l'image reçue et son
+//!   avis arrivent par `HostEvents::share_image`.
 //! - **Hôte** : « Partager » dans la barre de la session. Les appels à Admin
 //!   (ouvrir, nouveau code, rôle d'un invité, retirer, arrêter) passent par le
 //!   compte de l'appareil (`console_of`), seulement pour une session d'hôte ;
@@ -29,7 +32,7 @@ use kybernow_core::console::{Console, ConsoleError, Mode};
 use kybernow_core::profile::{Profile, StreamSettings};
 use kybernow_core::screens::DisplaysSetting;
 use kybernow_core::session::SessionParams;
-use kybernow_core::share::{self, Found, JoinRequest, ShareAvailability, ShareGuest, ShareOpened, ShareRole, ShareState, ShareTarget};
+use kybernow_core::share::{self, Found, JoinRequest, ShareAvailability, ShareGuest, ShareOpened, ShareQuality, ShareRole, ShareState, ShareTarget};
 
 use super::*;
 use crate::sharing::{self, Known, ShareView};
@@ -43,6 +46,11 @@ pub struct Guest {
     /// « Invité sur {nom} » : le titre de ses fenêtres et de sa connexion.
     pub title: String,
     pub role: Mutex<ShareRole>,
+    /// La « Qualité de l'image » demandée : celle de « Rejoindre », puis celle
+    /// que dit la Station (`ShareImage::quality`) ou que l'invité choisit.
+    pub quality: Mutex<ShareQuality>,
+    /// La qualité reçue (« 1080p · 60 Hz »), quand Kyber en connaît la taille.
+    pub image: Mutex<Option<String>>,
 }
 
 /// Un partage rejoint, en attente de sa session (`share_connect`).
@@ -73,6 +81,15 @@ pub struct Joined {
 pub struct RoleEvent {
     pub id: String,
     pub role: &'static str,
+}
+
+/// `share-image` : l'image que reçoit l'invité de la session `id` (la qualité
+/// demandée, et la reçue quand Kyber la connaît).
+#[derive(Clone, Serialize)]
+pub struct ImageEvent {
+    pub id: String,
+    pub quality: &'static str,
+    pub label: Option<String>,
 }
 
 /// `share-state` : le panneau de l'hôte de la session `id`.
@@ -111,16 +128,22 @@ fn join_targets(state: &UiState) -> Vec<ShareTarget> {
     sharing::targets(discovered, saved, system::is_this_pc)
 }
 
-/// Le prénom proposé à « Rejoindre » : celui d'avant, sinon le nom de ce PC.
+/// Ce que propose « Rejoindre » : le prénom d'avant, sinon le nom de ce PC, et
+/// la « Qualité de l'image » d'avant, sinon « Auto ».
 #[derive(Serialize)]
 pub struct Defaults {
     name: String,
+    quality: &'static str,
 }
 
 #[tauri::command(async)]
 pub fn share_defaults(app: AppHandle) -> Defaults {
-    let remembered = app.state::<UiState>().prefs.lock().unwrap().share_name.clone();
-    Defaults { name: sharing::proposed_name(remembered.as_deref(), &system::device_info().name) }
+    let state = app.state::<UiState>();
+    let (remembered, quality) = {
+        let p = state.prefs.lock().unwrap();
+        (p.share_name.clone(), p.share_quality.unwrap_or_default())
+    };
+    Defaults { name: sharing::proposed_name(remembered.as_deref(), &system::device_info().name), quality: quality.as_str() }
 }
 
 /// Le code d'un lien de partage (`kybernow://join?…`), pour l'écran de
@@ -130,14 +153,17 @@ pub fn share_link_code(link: String) -> Result<String, String> {
     share::parse_link(&link).map(|l| l.code).ok_or_else(|| t("errors.share_link", &[]))
 }
 
-/// « Rejoindre » : le code part aux Stations du réseau (ou à celle du lien),
-/// celle qui partage répond, et l'app vérifie qu'elle sait lire son image.
-/// Rend la session à ouvrir (`share_connect`), ou le texte du refus (celui du
-/// cœur : « Aucun partage avec ce code sur le réseau. », « Ce partage est
-/// complet… », « Trop d'essais… », « Cet appareil ne lit pas l'image… »).
-/// Bloque 6 s au plus.
+/// « Rejoindre » : le code part aux Stations du réseau (ou à celle du lien) avec
+/// la « Qualité de l'image » choisie (`auto`, `host`, `1080p60`, `720p30` ;
+/// « Auto » ajoute l'écran de ce PC et ce que sa carte décode), celle qui
+/// partage répond. Rend la session à ouvrir (`share_connect`), ou le texte du
+/// refus (celui du cœur : « Aucun partage avec ce code sur le réseau. », « Ce
+/// partage est complet… », « Trop d'essais… »). Le format de l'image de l'hôte
+/// n'en est plus un : un format que ce PC ne lit pas lui vaut une image à part
+/// (`join_checked` ne refuse que si aucun format n'est possible). Bloque 6 s
+/// au plus.
 #[tauri::command(async)]
-pub fn share_join(app: AppHandle, code: String, name: String, link: Option<String>) -> Result<Joined, String> {
+pub fn share_join(app: AppHandle, code: String, name: String, quality: String, link: Option<String>) -> Result<Joined, String> {
     let state = app.state::<UiState>();
     if state.quitting.load(Ordering::Relaxed) {
         return Err(t("errors.session_not_ready", &[]));
@@ -156,17 +182,26 @@ pub fn share_join(app: AppHandle, code: String, name: String, link: Option<Strin
         n if n.is_empty() => sharing::proposed_name(None, &device.name),
         n => n,
     };
+    let quality = ShareQuality::parse(&quality).ok_or_else(|| t("errors.unknown_quality", &[]))?;
     let pc = this_pc_of(&state);
-    let request = JoinRequest { code, name: name.clone(), device: device.id.clone(), app: "windows".into(), ..JoinRequest::default() };
-    log::info!("partage : code envoyé à {} Station(s)", targets.len());
+    // « Auto » : l'écran de ce PC, tel qu'il est maintenant, et ce que sa carte décode.
+    let auto = sharing::join_auto(quality, system::screen_mode(), capabilities(&pc));
+    let request = JoinRequest { code, name: name.clone(), device: device.id.clone(), app: "windows".into(), quality, auto, ..JoinRequest::default() };
+    log::info!(
+        "partage : code envoyé à {} Station(s), image {}{}",
+        targets.len(),
+        quality.as_str(),
+        request.auto.as_ref().map(|a| format!(" ({}×{} à {} Hz)", a.width, a.height, a.fps)).unwrap_or_default()
+    );
     let found = share::join_checked(&targets, &request, capabilities(&pc)).map_err(|e| {
         log::info!("partage : refusé ({})", e.kind());
         e.text(i18n::lang())
     })?;
-    // Le prénom est retenu pour la fois suivante.
+    // Le prénom et la qualité de l'image sont retenus pour la fois suivante.
     let prefs = {
         let mut p = state.prefs.lock().unwrap();
         p.share_name = Some(name);
+        p.share_quality = Some(quality);
         p.clone()
     };
     save_prefs(&prefs);
@@ -178,7 +213,14 @@ pub fn share_join(app: AppHandle, code: String, name: String, link: Option<Strin
     let session = window::new_app_id();
     let id = format!("guest-{session}");
     log::info!("partage : rejoint, chez {computer} (partage de {host}), {:?}", j.role);
-    let guest = Arc::new(Guest { computer, host: host.clone(), title: title.clone(), role: Mutex::new(j.role) });
+    let guest = Arc::new(Guest {
+        computer,
+        host: host.clone(),
+        title: title.clone(),
+        role: Mutex::new(j.role),
+        quality: Mutex::new(quality),
+        image: Mutex::new(j.image.as_ref().and_then(|i| i.label())),
+    });
     let joined = Joined { id: id.clone(), title, host, role: j.role.as_str(), fingerprint: found.target.fingerprint.clone() };
     // Un partage rejoint dont la session ne s'est jamais ouverte repart.
     let old = state.pending_guest.lock().unwrap().replace(Pending { id, session, found, guest });
@@ -322,6 +364,32 @@ pub fn share_connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> 
     }
     emit_sessions(&app);
     Ok(ConnectInfo { screens: 1, windowed: !first })
+}
+
+/// « Qualité de l'image » depuis la barre d'un invité : dite à la Station sans
+/// relancer la session (l'image de l'invité seulement repart, celle de l'hôte
+/// jamais) et retenue pour la fois suivante. L'image reçue revient par
+/// `HostEvents::share_image` (événement `share-image`). Refus : la session n'est
+/// pas celle d'un invité, ou pas encore prête.
+#[tauri::command(async)]
+pub fn share_quality(app: AppHandle, id: String, quality: String) -> Result<(), String> {
+    let quality = ShareQuality::parse(&quality).ok_or_else(|| t("errors.unknown_quality", &[]))?;
+    let state = app.state::<UiState>();
+    let Some(guest) = state.with_session(&id, |r| r.guest.clone()).flatten() else {
+        return Err(t("errors.no_session", &[]));
+    };
+    if !state.with_session(&id, |r| r.host.set_share_quality(quality)).unwrap_or(false) {
+        return Err(t("errors.session_not_ready", &[]));
+    }
+    log::info!("[{}] qualité de l'image demandée : {}", guest.title, quality.as_str());
+    *guest.quality.lock().unwrap() = quality;
+    let prefs = {
+        let mut p = state.prefs.lock().unwrap();
+        p.share_quality = Some(quality);
+        p.clone()
+    };
+    save_prefs(&prefs);
+    Ok(())
 }
 
 // MARK: - Hôte
