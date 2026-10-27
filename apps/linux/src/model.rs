@@ -251,7 +251,7 @@ pub struct AppSettings {
     /// seule trace d'un partage sur l'appareil : un invité n'est jamais ajouté aux ordinateurs.
     pub share_name: String,
     /// KyberNow Share : la « Qualité de l'image » choisie en rejoignant un partage ou dans la barre, retenue
-    /// pour la fois suivante (`auto`, `host`, `1080p60`, `720p30` ; vide ou inconnue : « Auto »).
+    /// pour la fois suivante (`auto`, `host`, `2160p60`, `1080p60`, `720p30` ; vide ou inconnue : « Auto »).
     pub share_quality: String,
 }
 

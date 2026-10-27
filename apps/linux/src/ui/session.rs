@@ -529,7 +529,7 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     x += prof_w + 12.0;
     let mut tip: Option<(Rect, String)> = None;
     // Un invité : « Qualité de l'image », une puce qui montre la qualité reçue (« 1080p · 60 Hz ») et ouvre les
-    // quatre choix, comme le profil d'un hôte.
+    // cinq choix, comme le profil d'un hôte.
     let mut quality_x = x;
     if let Some((label, qw)) = &quality {
         let qr = Rect::new(x, cy - 15.0, *qw, 30.0);
