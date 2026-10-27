@@ -836,8 +836,14 @@ impl Console {
     /// Signe de vie de l'invité (toutes les `beat` secondes) : rôle, jeton
     /// de Kyber renouvelé, fin du partage.
     pub fn share_beat(&self, guest: &str, secret: &str) -> Result<ShareBeat> {
+        self.share_beat_within(guest, secret, Duration::from_secs(10))
+    }
+
+    /// [`Self::share_beat`] avec un autre délai (la session d'un invité qui
+    /// finit demande vite si c'est le partage qui l'a finie).
+    pub fn share_beat_within(&self, guest: &str, secret: &str, timeout: Duration) -> Result<ShareBeat> {
         let r = self
-            .request("POST", "api/share/beat", Duration::from_secs(10))
+            .request("POST", "api/share/beat", timeout)
             .set("x-kybernow-guest", secret)
             .send_json(serde_json::json!({ "guest": guest }));
         self.read(r)
@@ -1056,6 +1062,27 @@ mod tests {
         assert!(station_refusal(401, &serde_json::json!({ "error": "identifiants", "code": "unauthorized" }), None).is_none());
         assert!(station_refusal(500, &serde_json::json!({ "error": "échec", "code": "failed" }), None).is_none());
         assert!(station_refusal(409, &serde_json::json!({ "error": "autre" }), None).is_none());
+    }
+
+    #[test]
+    fn signe_de_vie_avec_le_partage() {
+        let r: HeartbeatReply = serde_json::from_str(
+            r#"{"active":true,"end":false,"share":{"open":true,"code":"123456","guests":[{"id":"g1","name":"Léa","app":"ios","role":"player"}]}}"#,
+        )
+        .unwrap();
+        let share = r.share.expect("partage");
+        assert_eq!((share.code.as_str(), share.guests[0].role), ("123456", ShareRole::Player));
+        // Sans partage, ou illisible : ignoré, la fin demandée est toujours lue.
+        for odd in [r#"{"end":true}"#, r#"{"end":true,"share":null}"#, r#"{"end":true,"share":"?"}"#, r#"{"end":true,"share":{"guests":7,"open":"oui"}}"#] {
+            let r: HeartbeatReply = serde_json::from_str(odd).unwrap();
+            assert!(r.end && r.share.is_none(), "{odd}");
+        }
+    }
+
+    #[test]
+    fn identifiant_d_invite_dans_un_chemin() {
+        assert_eq!(path_segment("g1-a_b.c"), "g1-a_b.c");
+        assert_eq!(path_segment("../../api/stream/end?x=1"), "....apistreamendx1");
     }
 
     #[test]
