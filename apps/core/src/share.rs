@@ -22,24 +22,30 @@ use crate::profile::{Capabilities, Codec};
 
 // MARK: - Rôle
 
-/// Le rôle d'un invité, que la Station impose (correctif 0019 de Kyber).
+/// Le rôle d'un invité, que la Station impose (correctif 0019 de Kyber) :
+/// deux droits indépendants, les manettes et le clavier et la souris, que
+/// l'hôte donne ou reprend chacun sans toucher à l'autre
+/// ([`Self::with_pads`], [`Self::with_kbm`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum ShareRole {
-    /// Voit et entend, n'envoie rien (le rôle d'arrivée).
+    /// Aucun droit : voit et entend, n'envoie rien (le rôle d'arrivée).
     #[default]
     Spectator,
-    /// Ses manettes deviennent la manette suivante de Windows.
+    /// Les manettes : elles deviennent la manette suivante de Windows.
     Player,
-    /// Joueur à qui l'hôte a donné le clavier et la souris.
+    /// Le clavier et la souris, sans les manettes.
+    Kbm,
+    /// Les manettes, et le clavier et la souris.
     PlayerKbm,
 }
 
 impl ShareRole {
-    /// Nom dans l'échange avec Admin : `spectator`, `player`, `player_kbm`.
+    /// Nom dans l'échange avec Admin : `spectator`, `player`, `kbm`, `player_kbm`.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Spectator => "spectator",
             Self::Player => "player",
+            Self::Kbm => "kbm",
             Self::PlayerKbm => "player_kbm",
         }
     }
@@ -48,33 +54,76 @@ impl ShareRole {
         match s {
             "spectator" => Some(Self::Spectator),
             "player" => Some(Self::Player),
+            "kbm" => Some(Self::Kbm),
             "player_kbm" => Some(Self::PlayerKbm),
             _ => None,
         }
     }
 
-    /// L'invité joue (une chaîne d'entrées, au moins pour ses manettes).
+    /// Le rôle de ces deux droits.
+    pub fn of(pads: bool, kbm: bool) -> Self {
+        match (pads, kbm) {
+            (false, false) => Self::Spectator,
+            (true, false) => Self::Player,
+            (false, true) => Self::Kbm,
+            (true, true) => Self::PlayerKbm,
+        }
+    }
+
+    /// Les manettes de l'invité partent vers l'ordinateur.
+    pub fn pads(self) -> bool {
+        matches!(self, Self::Player | Self::PlayerKbm)
+    }
+
+    /// Le clavier et la souris de l'invité partent vers l'ordinateur.
+    pub fn kbm(self) -> bool {
+        matches!(self, Self::Kbm | Self::PlayerKbm)
+    }
+
+    /// Un droit au moins (manettes, ou clavier et souris) : l'invité a une
+    /// chaîne d'entrées, et la barre le dit « Joueur » (« Spectateur » sinon,
+    /// docs/link-ui.md).
     pub fn plays(self) -> bool {
-        self != Self::Spectator
+        self.pads() || self.kbm()
+    }
+
+    /// « Donner les manettes » (`true`) ou « Reprendre les manettes »
+    /// (`false`), le clavier et la souris tels quels.
+    pub fn with_pads(self, on: bool) -> Self {
+        Self::of(on, self.kbm())
+    }
+
+    /// « Donner le clavier et la souris » ou « Reprendre le clavier et la
+    /// souris », les manettes telles quelles.
+    pub fn with_kbm(self, on: bool) -> Self {
+        Self::of(self.pads(), on)
     }
 
     /// Ce que la chaîne d'entrées d'un invité de ce rôle laisse partir
     /// (jamais le presse-papiers).
     pub fn rights(self) -> InputRights {
-        match self {
-            Self::Spectator => InputRights::NONE,
-            Self::Player => InputRights { gamepads: true, keyboard_mouse: false, clipboard: false },
-            Self::PlayerKbm => InputRights { gamepads: true, keyboard_mouse: true, clipboard: false },
-        }
+        InputRights { gamepads: self.pads(), keyboard_mouse: self.kbm(), clipboard: false }
     }
 
-    /// Pour les ponts C et JNI : 0 spectateur, 1 joueur, 2 joueur avec le
-    /// clavier et la souris.
+    /// Pour les ponts C et JNI : 0 spectateur, 1 manettes, 2 manettes avec
+    /// le clavier et la souris, 3 le clavier et la souris seuls.
     pub fn code(self) -> i32 {
         match self {
             Self::Spectator => 0,
             Self::Player => 1,
             Self::PlayerKbm => 2,
+            Self::Kbm => 3,
+        }
+    }
+
+    /// L'inverse de [`Self::code`].
+    pub fn from_code(code: i32) -> Option<Self> {
+        match code {
+            0 => Some(Self::Spectator),
+            1 => Some(Self::Player),
+            2 => Some(Self::PlayerKbm),
+            3 => Some(Self::Kbm),
+            _ => None,
         }
     }
 }
@@ -755,18 +804,35 @@ mod tests {
 
     #[test]
     fn roles() {
-        for (s, r) in [("spectator", ShareRole::Spectator), ("player", ShareRole::Player), ("player_kbm", ShareRole::PlayerKbm)] {
+        for (s, r, code) in [("spectator", ShareRole::Spectator, 0), ("player", ShareRole::Player, 1), ("player_kbm", ShareRole::PlayerKbm, 2), ("kbm", ShareRole::Kbm, 3)] {
             assert_eq!(ShareRole::parse(s), Some(r));
             assert_eq!(serde_json::to_value(r).unwrap(), serde_json::json!(s));
             assert_eq!(serde_json::from_value::<ShareRole>(serde_json::json!(s)).unwrap(), r);
+            assert_eq!((r.code(), ShareRole::from_code(code)), (code, Some(r)));
+            assert_eq!(ShareRole::of(r.pads(), r.kbm()), r);
         }
+        assert_eq!(ShareRole::from_code(4), None);
         // Inconnu ou absent : spectateur, rien ne part.
         assert_eq!(serde_json::from_value::<ShareRole>(serde_json::json!("admin")).unwrap(), ShareRole::Spectator);
         assert_eq!(serde_json::from_value::<ShareRole>(serde_json::Value::Null).unwrap(), ShareRole::Spectator);
         assert_eq!(ShareRole::Spectator.rights(), InputRights::NONE);
         assert_eq!(ShareRole::Player.rights(), InputRights { gamepads: true, keyboard_mouse: false, clipboard: false });
         assert_eq!(ShareRole::PlayerKbm.rights(), InputRights { gamepads: true, keyboard_mouse: true, clipboard: false });
-        assert!(!ShareRole::Spectator.plays() && ShareRole::Player.plays() && ShareRole::PlayerKbm.plays());
+        assert_eq!(ShareRole::Kbm.rights(), InputRights { gamepads: false, keyboard_mouse: true, clipboard: false }, "le clavier et la souris sans les manettes");
+        // « Joueur » : un droit au moins.
+        assert!(!ShareRole::Spectator.plays() && ShareRole::Player.plays() && ShareRole::Kbm.plays() && ShareRole::PlayerKbm.plays());
+        assert_eq!(
+            [ShareRole::Spectator, ShareRole::Player, ShareRole::Kbm, ShareRole::PlayerKbm].map(|r| (r.pads(), r.kbm())),
+            [(false, false), (true, false), (false, true), (true, true)]
+        );
+        // Deux droits indépendants : chacun donné ou repris sans toucher à l'autre.
+        assert_eq!(ShareRole::Spectator.with_kbm(true), ShareRole::Kbm);
+        assert_eq!(ShareRole::Kbm.with_pads(true), ShareRole::PlayerKbm);
+        assert_eq!(ShareRole::PlayerKbm.with_pads(false), ShareRole::Kbm);
+        assert_eq!(ShareRole::PlayerKbm.with_kbm(false), ShareRole::Player);
+        assert_eq!(ShareRole::Player.with_pads(false), ShareRole::Spectator);
+        assert_eq!(ShareRole::Kbm.with_kbm(false), ShareRole::Spectator);
+        assert_eq!(ShareRole::Player.with_pads(true), ShareRole::Player);
     }
 
     #[test]
@@ -796,6 +862,8 @@ mod tests {
         assert_eq!((b.role, b.end.clone(), b.token.as_deref()), (ShareRole::PlayerKbm, None, Some("t")));
         let b: ShareBeat = serde_json::from_str(r#"{"role":"spectator","end":"stopped"}"#).unwrap();
         assert_eq!(b.end, Some(ShareEnd::Stopped));
+        let b: ShareBeat = serde_json::from_str(r#"{"role":"kbm","token":"t"}"#).unwrap();
+        assert_eq!(b.role, ShareRole::Kbm, "le clavier et la souris seuls");
         let b: ShareBeat = serde_json::from_str(r#"{"role":"spectator","end":"removed"}"#).unwrap();
         assert_eq!(b.end, Some(ShareEnd::Removed));
         // Une fin inconnue finit quand même le partage.

@@ -399,9 +399,12 @@ pub trait Platform: Send + Sync {
     /// en porte un, chaque arrivée, départ ou rôle changé, la fin).
     fn on_guests(&self, _share: Option<&ShareState>) {}
     /// Session d'invité : son rôle au départ (`previous` nul, avant la
-    /// connexion à Kyber), puis à chaque changement par l'hôte (avis bref :
-    /// « Vous pouvez jouer. », « Vous avez le clavier et la souris. », « Le
-    /// clavier et la souris sont repris. »). Les entrées le suivent déjà.
+    /// connexion à Kyber), puis à chaque changement par l'hôte (avis bref de
+    /// link-ui : « Vous pouvez jouer à la manette. », « Les manettes sont
+    /// reprises. », « Vous avez le clavier et la souris. », « Le clavier et
+    /// la souris sont repris. », « Vous regardez de nouveau. »). Les entrées
+    /// le suivent déjà ; un passage entre deux rôles qui ont chacun une
+    /// chaîne d'entrées ne relance pas l'image.
     fn on_share_role(&self, _role: ShareRole, _previous: Option<ShareRole>) {}
     /// Session d'invité : c'est le partage qui la finit (arrêté, retiré,
     /// format illisible), juste avant [`Self::on_ending`] ; `text` : le texte
@@ -3926,6 +3929,38 @@ mod tests {
         host.params.clipboard = true;
         assert!(host.wants_input() && host.input_clipboard());
         assert_eq!(host.focus.rights(), InputRights::ALL);
+    }
+
+    #[test]
+    fn deux_droits_et_passages_de_role() {
+        // Spectateur → clavier et souris seuls : une chaîne d'entrées (sans
+        // manettes), donc une image relancée pour l'ouvrir.
+        let (mut w, recorder) = guest(ShareRole::Spectator);
+        w.streaming = Some(display(7, 0, 0, 1920, 1080));
+        w.stream_input = false;
+        assert!(w.on_share_beat(beat(ShareRole::Kbm)).is_none());
+        assert!(w.wants_input() && w.streaming.is_none() && w.start_at.is_some(), "image relancée");
+        assert_eq!(w.focus.rights(), InputRights { gamepads: false, keyboard_mouse: true, clipboard: false });
+        // Entre deux rôles qui ont chacun une chaîne : jamais de relance.
+        let (chain, host) = input_chain();
+        w.focus.attach_input(&chain);
+        w.streaming = Some(display(7, 0, 0, 1920, 1080));
+        w.stream_input = true;
+        w.start_at = None;
+        for r in [ShareRole::PlayerKbm, ShareRole::Player, ShareRole::Kbm, ShareRole::PlayerKbm, ShareRole::Kbm] {
+            assert!(w.on_share_beat(beat(r)).is_none());
+            assert_eq!(chain.rights(), r.rights(), "{r:?}");
+            assert!(w.streaming.is_some() && w.start_at.is_none(), "pas de relance vers {r:?}");
+        }
+        // Le clavier et la souris partent, pas les manettes.
+        host.clear();
+        chain.key(0x1E, true);
+        chain.gamepad_button(0, crate::input::PadButton::A, true);
+        assert_eq!(host.received(), ["touche 0x1e appuyée"]);
+        // Plus aucun droit : la chaîne reste, sans relance.
+        assert!(w.on_share_beat(beat(ShareRole::Spectator)).is_none());
+        assert!(w.streaming.is_some() && w.start_at.is_none() && chain.rights() == InputRights::NONE);
+        assert_eq!(recorder.roles.lock().unwrap().len(), 7);
     }
 
     #[test]

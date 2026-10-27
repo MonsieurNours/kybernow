@@ -6,7 +6,7 @@
 //! code, 21 complet, 22 trop d'essais, 23 format de l'image illisible.
 
 use jni::objects::{JClass, JString};
-use jni::sys::{jint, jlong, jstring};
+use jni::sys::{jboolean, jint, jlong, jstring};
 
 use kybernow_core::console::Info;
 use kybernow_core::i18n;
@@ -117,6 +117,19 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_shareAvaila
     }
 }
 
+/// Le rôle avec les manettes données ou reprises, le clavier et la souris
+/// tels quels (codes de `consoleShareGuest` ; −1 pour un code inconnu).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_shareRoleWithPads(_: Env, _: JClass, role: jint, pads: jboolean) -> jint {
+    ShareRole::from_code(role).map_or(-1, |r| r.with_pads(pads != 0).code())
+}
+
+/// Le rôle avec le clavier et la souris donnés ou repris, les manettes telles quelles.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_shareRoleWithKbm(_: Env, _: JClass, role: jint, kbm: jboolean) -> jint {
+    ShareRole::from_code(role).map_or(-1, |r| r.with_kbm(kbm != 0).code())
+}
+
 // MARK: - Hôte (console de l'ordinateur, compte de l'appareil en session)
 
 #[unsafe(no_mangle)]
@@ -140,17 +153,13 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_consoleShar
     give(&mut env, &s)
 }
 
-/// `role` : 0 spectateur, 1 joueur, 2 joueur avec clavier et souris.
+/// `role` : 0 spectateur, 1 manettes, 2 manettes avec clavier et souris, 3
+/// clavier et souris seuls.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_consoleShareGuest(mut env: Env, _: JClass, h: jlong, guest: JString, role: jint) -> jstring {
     let Some(c) = console(h) else { return std::ptr::null_mut() };
     let guest = string(&mut env, &guest);
-    let role = match role {
-        0 => ShareRole::Spectator,
-        1 => ShareRole::Player,
-        2 => ShareRole::PlayerKbm,
-        _ => return give(&mut env, &bad("rôle inconnu")),
-    };
+    let Some(role) = ShareRole::from_code(role) else { return give(&mut env, &bad("rôle inconnu")) };
     let s = envelope(c.share_guest(&guest, role));
     give(&mut env, &s)
 }

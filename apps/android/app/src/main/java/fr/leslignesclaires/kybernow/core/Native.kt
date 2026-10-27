@@ -53,7 +53,13 @@ object Native {
     /** 0 Station trop ancienne, 1 partage coupé sur l'ordinateur, 2 disponible ; `infoJson` : celui de [consoleInfo]. */
     @JvmStatic external fun shareAvailability(infoJson: String): Int
     @JvmStatic external fun shareAvailabilityText(availability: Int): String?
-    // Côté hôte (compte de l'appareil en session) ; `role` : 0 spectateur, 1 joueur, 2 joueur avec clavier et souris.
+    // Rôle d'un invité : deux droits indépendants. 0 spectateur (aucun), 1 manettes, 2 manettes avec clavier
+    // et souris, 3 clavier et souris seuls ; « Joueur » dans la barre : un droit au moins.
+    /** Le rôle avec les manettes données ou reprises, le clavier et la souris tels quels (−1 : code inconnu). */
+    @JvmStatic external fun shareRoleWithPads(role: Int, pads: Boolean): Int
+    /** Le rôle avec le clavier et la souris donnés ou repris, les manettes telles quelles (−1 : code inconnu). */
+    @JvmStatic external fun shareRoleWithKbm(role: Int, kbm: Boolean): Int
+    // Côté hôte (compte de l'appareil en session) ; `role` : un code ci-dessus.
     @JvmStatic external fun consoleShareOpen(handle: Long): String?
     @JvmStatic external fun consoleShareState(handle: Long): String?
     @JvmStatic external fun consoleShareCode(handle: Long): String?
@@ -192,7 +198,7 @@ interface SessionListener {
     // KyberNow Share : rien à faire tant que l'app ne partage pas.
     /** Hôte : le partage et ses invités en JSON (`open`, `code`, `link`, `web`, `display`, `guests`), `null` sans partage ; quand cela change. */
     fun onGuests(json: String?) {}
-    /** Invité : son rôle (0 spectateur, 1 joueur, 2 joueur avec clavier et souris) ; `previous` −1 au départ. */
+    /** Invité : son rôle (0 spectateur, 1 manettes, 2 manettes avec clavier et souris, 3 clavier et souris seuls) ; `previous` −1 au départ. */
     fun onShareRole(role: Int, previous: Int) {}
     /** Invité : le partage finit la session (0 arrêté, 1 retiré, 2 format illisible), juste avant la fin ; `text` : la raison à montrer. */
     fun onShareEnd(end: Int, text: String) {}

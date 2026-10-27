@@ -97,7 +97,8 @@ impl Platform for AndroidPlatform {
     }
 
     /// KyberNow Share, invité : `SessionListener.onShareRole(role, previous)`
-    /// (0 spectateur, 1 joueur, 2 joueur avec clavier et souris ; −1 au départ).
+    /// (0 spectateur, 1 manettes, 2 manettes avec clavier et souris, 3 clavier
+    /// et souris seuls ; −1 au départ).
     fn on_share_role(&self, role: ShareRole, previous: Option<ShareRole>) {
         self.0.listener.void("onShareRole", "(II)V", &[JValue::Int(role.code()), JValue::Int(previous.map_or(-1, ShareRole::code))]);
     }

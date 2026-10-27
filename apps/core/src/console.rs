@@ -783,8 +783,10 @@ impl Console {
         self.read(r)
     }
 
-    /// « Faire jouer », « Donner le clavier et la souris », « Reprendre le
-    /// clavier et la souris » : le rôle d'un invité.
+    /// Le rôle d'un invité : « Donner les manettes », « Reprendre les
+    /// manettes », « Donner le clavier et la souris », « Reprendre le clavier
+    /// et la souris », chacun sans toucher à l'autre droit
+    /// ([`ShareRole::with_pads`], [`ShareRole::with_kbm`]).
     pub fn share_guest(&self, guest: &str, role: ShareRole) -> Result<()> {
         let path = format!("api/share/guest/{}", path_segment(guest));
         let r = self.request("POST", &path, Duration::from_secs(6)).send_json(serde_json::json!({ "role": role.as_str() }));
