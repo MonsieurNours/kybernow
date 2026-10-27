@@ -705,3 +705,24 @@ pub fn restore() -> Result<()> {
     }
     Ok(())
 }
+
+/// Les écrans actifs de l'ordinateur (partage depuis le PC, KyberNow Share) :
+/// nom GDI, cadre sur le bureau et fréquence. L'écran principal est celui
+/// placé en (0, 0).
+pub fn physical_displays() -> Result<Vec<super::PhysicalDisplay>> {
+    let (paths, _) = active_config()?;
+    let mut list = Vec::new();
+    for path in &paths {
+        let Some(name) = gdi_name(path).filter(|n| !n.is_empty()) else { continue };
+        if list.iter().any(|d: &super::PhysicalDisplay| d.name == name) {
+            continue; // Écrans dupliqués : une seule source.
+        }
+        let (width, height, refresh) = current_mode(&name);
+        if width == 0 {
+            continue;
+        }
+        let (x, y) = current_position(&name);
+        list.push(super::PhysicalDisplay { primary: x == 0 && y == 0, name, x, y, width, height, refresh });
+    }
+    Ok(list)
+}

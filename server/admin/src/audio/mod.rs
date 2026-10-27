@@ -14,6 +14,7 @@
 pub mod endpoint;
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -96,6 +97,9 @@ pub struct Router {
     ops: Mutex<()>,
     last_error: Mutex<Option<String>>,
     pub settings: Mutex<AudioSettings>,
+    /// Un partage lancé depuis le PC est ouvert (KyberNow Share) : la sortie
+    /// son de l'utilisateur ne change pas (« Pour toute connexion »).
+    sharing: AtomicBool,
 }
 
 impl Router {
@@ -111,7 +115,17 @@ impl Router {
             ops: Mutex::new(()),
             last_error: Mutex::new(None),
             settings: Mutex::new(settings),
+            sharing: AtomicBool::new(false),
         })
+    }
+
+    /// Partage depuis le PC ouvert ou fermé (voir `sharing`).
+    pub fn set_sharing(&self, on: bool) {
+        self.sharing.store(on, Ordering::SeqCst);
+    }
+
+    pub fn sharing(&self) -> bool {
+        self.sharing.load(Ordering::SeqCst)
     }
 
     fn record_path(&self) -> PathBuf {
@@ -249,7 +263,8 @@ impl Router {
                     }
                     None => {
                         idle_since = None;
-                        if encoding && self.settings.lock().unwrap().trigger == Trigger::All {
+                        // Partage depuis le PC : le son reste sur la sortie de l'utilisateur.
+                        if encoding && self.settings.lock().unwrap().trigger == Trigger::All && !self.sharing.load(Ordering::SeqCst) {
                             self.start(Origin::Auto, None);
                         }
                     }

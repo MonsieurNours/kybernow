@@ -96,6 +96,8 @@ An open share shows in the bar (a « 2 invités » / “2 guests” chip, which 
 
 **The PC itself** (KyberNow Station: the icon's menu next to the clock, and Admin's home page): « Partager un écran… » / “Share a screen…”, then the choice of display (« Écran 1 — 3840 × 2160 », the main display first); the same panel (code, link, guests, actions), titled « Partage de l'écran 1 » / “Sharing display 1”. The PC stays usable as usual; no virtual display, no display switched off.
 
+**Station refusals** (Admin, the icon, and the host routes' `error`): « {nom} est en session : le partage se lance depuis cet appareil. » / “{name} is in a session: share from that device.”; « Une connexion est en cours sur cet ordinateur : partagez un écran une fois qu'elle est finie. » / “A connection is in progress on this computer: share a screen once it has ended.”; « Cet écran n'est plus branché. » / “This display is no longer connected.”; « Cet invité n'est plus dans le partage. » / “This guest is no longer in the share.”; « Seul l'appareil en session peut partager cet ordinateur. » / “Only the device in a session can share this computer.”; « Aucun partage en cours. » / “No share in progress.”; restart or update during a share: « Un partage est en cours avec {prénoms} : le redémarrage l'arrêtera » / “A share is in progress with {names}: restarting will stop it” (« l'installation l'arrêtera » / “installing will stop it”).
+
 **The guest**:
 
 | Item | French | English |
@@ -113,7 +115,7 @@ An open share shows in the bar (a « 2 invités » / “2 guests” chip, which 
 
 {host} is the host's name (the host device's name), or the computer's name for a share started from the PC. A guest is not added to the device's computers.
 
-**Admin's feed**: « {prénom} regarde votre écran » / “{name} is watching your screen”; « {prénom} joue avec vous » / “{name} is playing with you”; « {prénom} a quitté le partage » / “{name} left the share”.
+**Admin's feed**: « {hôte} partage l'écran {n} » / “{host} is sharing display {n}”; « {prénom} regarde votre écran » / “{name} is watching your screen” (on arrival, or made a spectator again); « {prénom} joue avec vous » / “{name} is playing with you”; « {prénom} a quitté le partage » / “{name} left the share” (gone, removed, or timed out); « Partage arrêté » / “Sharing stopped”.
 
 ## Computer settings
 

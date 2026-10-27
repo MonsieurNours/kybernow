@@ -81,7 +81,8 @@
     "githubDown": "GitHub is not responding: {error}",
     "noRelease": "no version published on the {channel} channel",
     "noTag": "version without a number",
-    "badGithubVersion": "unexpected version number on GitHub: {version}"
+    "badGithubVersion": "unexpected version number on GitHub: {version}",
+    "sessionConflictShare": "A share is in progress with {name}: installing will stop it"
   },
   "station": {
     "windowsOnly": "restarting the Station only works on Windows",
@@ -90,7 +91,8 @@
     "tooSoon": "the Station has just restarted: try again in {seconds} s",
     "upToDate": "KyberNow Station {version} is up to date: nothing to install",
     "requiresSetup": "KyberNow Station {version} installs with {setup}, on the computer: download it from Admin, System page",
-    "notInstallable": "KyberNow Station {version} can’t be installed from a device: {reason}"
+    "notInstallable": "KyberNow Station {version} can’t be installed from a device: {reason}",
+    "restartConflictShare": "A share is in progress with {name}: restarting will stop it"
   },
   "manifest": {
     "otherKey": "manifest signed with a key other than KyberNow’s",
@@ -163,6 +165,22 @@
     "launchKept": "{app} stays open: {next} is taking over with the same app",
     "launchSet": "At the start of {name}'s sessions: {app}",
     "launchCleared": "No app opened at the start of {name}'s sessions any more",
-    "screensMissing": "The computer could not create {count} of the {requested} requested displays: the session goes on with the others"
+    "screensMissing": "The computer could not create {count} of the {requested} requested displays: the session goes on with the others",
+    "shareOpened": "{host} is sharing display {n}",
+    "shareStopped": "Sharing stopped",
+    "shareWatching": "{name} is watching your screen",
+    "sharePlaying": "{name} is playing with you",
+    "shareLeft": "{name} left the share"
+  },
+  "share": {
+    "display": "Display {n}",
+    "disabled": "Sharing is turned off on this computer (Admin › Link devices).",
+    "inSession": "{name} is in a session: share from that device.",
+    "busy": "A connection is in progress on this computer: share a screen once it has ended.",
+    "notInSession": "Only the device in a session can share this computer.",
+    "unknownDisplay": "This display is no longer connected.",
+    "unknownGuest": "This guest is no longer in the share.",
+    "noShare": "No share in progress.",
+    "otherShare": "Another share is in progress on this computer."
   }
 }

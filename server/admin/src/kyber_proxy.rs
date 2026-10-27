@@ -10,8 +10,10 @@
 //! Kyber : toujours de la même version que le serveur.
 //!
 //! Le relais n'est pas une porte ouverte sur kycontroller : il exige la
-//! session de la console (le moteur, en même origine, envoie le cookie sur
-//! `fetch` et WebSocket ; le cookie est retiré avant Kyber), n'accepte une
+//! session de la console, ou le cookie d'un invité du navigateur encore dans
+//! le partage (KyberNow Share, `share.rs`) (le moteur, en même origine,
+//! envoie le cookie sur `fetch` et WebSocket ; ces cookies sont retirés avant
+//! Kyber, et Kyber impose lui-même les droits d'un invité), n'accepte une
 //! origine que si c'est celle de la console elle-même, ne relaie que des
 //! chemins connus (rien qui remonte), épingle l'empreinte du certificat de
 //! kycontroller, borne les WebSockets relayés et le temps d'attente de Kyber,
@@ -53,8 +55,9 @@ const FINGERPRINT_ENV: &str = "KYBERNOW_KYBER_FINGERPRINT";
 /// (en-têtes) ; le corps d'une réponse et un WebSocket ouvert n'ont pas de limite.
 const UPSTREAM_TIMEOUT: Duration = Duration::from_secs(15);
 /// WebSockets relayés en même temps (une session du client web en ouvre
-/// deux ou trois : contrôle, image en WebSocket, entrées).
-const MAX_WEBSOCKETS: usize = 8;
+/// deux ou trois : contrôle, image en WebSocket, entrées ; le client web
+/// d'Admin et quatre invités du navigateur, avec de la marge).
+const MAX_WEBSOCKETS: usize = 24;
 /// Connexions HTTP gardées ouvertes vers kycontroller entre deux requêtes.
 const POOL_MAX: usize = 4;
 
@@ -137,8 +140,11 @@ fn error(status: StatusCode, text: &str) -> Response {
 /// Relaie une requête du moteur web vers kycontroller.
 pub async fn proxy(State(s): State<AppState>, req: Request) -> Response {
     // La session de la console, comme pour /api : le moteur tourne dans la
-    // page, en même origine, et le navigateur joint le cookie.
-    if !crate::auth::session_token(req.headers()).is_some_and(|t| s.auth.session_valid(&t)) {
+    // page, en même origine, et le navigateur joint le cookie. Ou un invité
+    // du navigateur, tant qu'il est dans le partage.
+    let console = crate::auth::session_token(req.headers()).is_some_and(|t| s.auth.session_valid(&t));
+    let guest = !console && crate::share::guest_cookie(req.headers()).is_some_and(|c| s.share.cookie_valid(&c));
+    if !console && !guest {
         return error(StatusCode::UNAUTHORIZED, "session de la console requise");
     }
     // Une origine, si le navigateur en donne une, ne peut être que la
@@ -298,6 +304,54 @@ async fn forward(
     Ok(Response::from_parts(parts, Body::new(body)))
 }
 
+/// Sujet du jeton d'Admin pour les routes `/kybernow/*` de Kyber (correctif 0019).
+const ADMIN_SUBJECT: &str = "kybernow-admin";
+/// Temps laissé à Kyber pour répondre à un appel d'Admin : la fin d'une
+/// session ou l'arrivée d'un invité n'attendent pas un Kyber bloqué.
+const ADMIN_CALL_TIMEOUT: Duration = Duration::from_secs(4);
+
+/// Un appel d'Admin à kycontroller (sur cette machine, certificat épinglé) :
+/// `/kybernow/*` du correctif 0019 avec un jeton `kn_admin` d'une minute, ou
+/// une route sans compte (`/enumerate_displays`). Rend le statut et le JSON
+/// de la réponse (`null` si elle n'en est pas).
+pub async fn kyber_call(s: &AppState, method: Method, path: &str, body: Option<serde_json::Value>) -> anyhow::Result<(StatusCode, serde_json::Value)> {
+    let addr = target(s).ok_or_else(|| anyhow::anyhow!("port de Kyber inconnu"))?;
+    let connector = pinned_connector(s)?;
+    let mut builder = hyper::Request::builder()
+        .method(method)
+        .uri(path.parse::<Uri>()?)
+        .version(Version::HTTP_11)
+        .header(header::HOST, addr.as_str());
+    if path.starts_with("/kybernow/") {
+        let secret = s.kyber.jwt_secret().ok_or_else(|| anyhow::anyhow!("pas de clé pour les jetons de Kyber"))?;
+        let token = jwt_with(&secret, ADMIN_SUBJECT, 60, serde_json::json!({ "kn_admin": true }));
+        builder = builder.header(header::AUTHORIZATION, format!("Bearer {token}"));
+    }
+    let request = match body {
+        Some(json) => {
+            let bytes = serde_json::to_vec(&json)?;
+            builder
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::CONTENT_LENGTH, bytes.len())
+                .body(Body::from(bytes))?
+        }
+        None => builder.body(Body::empty())?,
+    };
+    let call = async {
+        let mut sender = match take_idle(&addr) {
+            Some(sender) => sender,
+            None => connect(&addr, connector).await?,
+        };
+        let res = sender.send_request(request).await?;
+        give_back(&addr, sender);
+        let status = res.status();
+        let bytes = axum::body::to_bytes(Body::new(res.into_body()), 256 * 1024).await?;
+        let json = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
+        anyhow::Ok((status, json))
+    };
+    tokio::time::timeout(ADMIN_CALL_TIMEOUT, call).await.map_err(|_| anyhow::anyhow!("Kyber ne répond pas en {} s", ADMIN_CALL_TIMEOUT.as_secs()))?
+}
+
 /// Nouvelle connexion TCP + TLS (empreinte vérifiée) + HTTP/1.1 vers kycontroller.
 async fn connect(addr: &str, connector: tokio_rustls::TlsConnector) -> anyhow::Result<SendRequest<Body>> {
     let tcp = TcpStream::connect(addr).await?;
@@ -335,12 +389,14 @@ fn is_hop_by_hop(name: &HeaderName) -> bool {
     )
 }
 
+/// Retire le cookie de la console et celui d'un invité : ils restent à la console.
 fn strip_console_cookie(value: &HeaderValue) -> Option<HeaderValue> {
     let text = value.to_str().ok()?;
+    let ours = [format!("{}=", crate::auth::COOKIE), format!("{}=", crate::share::GUEST_COOKIE)];
     let kept: Vec<&str> = text
         .split(';')
         .map(str::trim)
-        .filter(|c| !c.is_empty() && !c.starts_with(&format!("{}=", crate::auth::COOKIE)))
+        .filter(|c| !c.is_empty() && !ours.iter().any(|o| c.starts_with(o.as_str())))
         .collect();
     if kept.is_empty() { None } else { HeaderValue::from_str(&kept.join("; ")).ok() }
 }
@@ -458,9 +514,22 @@ impl ServerCertVerifier for PinnedCertificate {
 
 /// Jeton JWT (HS256) accepté par Kyber : audience « kyber », sujet, expiration.
 pub fn jwt(secret: &str, subject: &str, lifetime_secs: i64) -> String {
+    jwt_with(secret, subject, lifetime_secs, serde_json::json!({}))
+}
+
+/// Comme `jwt`, avec des revendications en plus (`extra`, un objet) : celles
+/// de KyberNow Share (`kn_role`, `kn_display`, `kn_rev`, `kn_admin`), que
+/// Kyber impose avec le correctif 0019.
+pub fn jwt_with(secret: &str, subject: &str, lifetime_secs: i64, extra: serde_json::Value) -> String {
     let exp = time::OffsetDateTime::now_utc().unix_timestamp() + lifetime_secs;
     let header = b64url(br#"{"alg":"HS256","typ":"JWT"}"#);
-    let claims = b64url(serde_json::json!({ "aud": "kyber", "sub": subject, "exp": exp }).to_string().as_bytes());
+    let mut claims = serde_json::json!({ "aud": "kyber", "sub": subject, "exp": exp });
+    if let (Some(all), Some(more)) = (claims.as_object_mut(), extra.as_object()) {
+        for (k, v) in more {
+            all.insert(k.clone(), v.clone());
+        }
+    }
+    let claims = b64url(claims.to_string().as_bytes());
     let signing_input = format!("{header}.{claims}");
     let signature = b64url(&hmac_sha256(secret.as_bytes(), signing_input.as_bytes()));
     format!("{signing_input}.{signature}")
@@ -515,6 +584,29 @@ mod tests {
     }
 
     #[test]
+    fn jwt_carries_the_share_claims() {
+        let token = jwt_with("secret", "kn-guest-1", 120, serde_json::json!({ "kn_role": "player", "kn_display": 7, "kn_rev": 2 }));
+        let part = token.split('.').nth(1).unwrap();
+        const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+        let (mut bits, mut count, mut out) = (0u32, 0, Vec::new());
+        for c in part.bytes() {
+            bits = (bits << 6) | ALPHABET.iter().position(|a| *a == c).unwrap() as u32;
+            count += 6;
+            if count >= 8 {
+                count -= 8;
+                out.push((bits >> count) as u8);
+                bits &= (1 << count) - 1;
+            }
+        }
+        let claims: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!((claims["aud"].as_str(), claims["sub"].as_str()), (Some("kyber"), Some("kn-guest-1")));
+        assert_eq!((claims["kn_role"].as_str(), claims["kn_display"].as_u64(), claims["kn_rev"].as_u64()), (Some("player"), Some(7), Some(2)));
+        assert!(claims["exp"].as_i64().unwrap() > time::OffsetDateTime::now_utc().unix_timestamp() + 100);
+        // Sans revendication en plus : le jeton d'avant, à l'identique.
+        assert_eq!(jwt("secret", "matthieu", 60).split('.').count(), 3);
+    }
+
+    #[test]
     fn jwt_has_three_parts_and_kyber_audience() {
         let token = jwt("secret", "matthieu", 60);
         let parts: Vec<&str> = token.split('.').collect();
@@ -565,6 +657,11 @@ mod tests {
         let ws = upstream_headers(&h, true, "127.0.0.1:30241");
         assert_eq!(ws.get(header::CONNECTION).unwrap(), "keep-alive");
         assert_eq!(ws.get(header::UPGRADE).unwrap(), "websocket");
+
+        // Le cookie d'un invité du navigateur reste aussi à la console.
+        let mut guest = HeaderMap::new();
+        guest.insert(header::COOKIE, format!("a=1; {}=secret", crate::share::GUEST_COOKIE).parse().unwrap());
+        assert_eq!(upstream_headers(&guest, false, "127.0.0.1:1").get(header::COOKIE).unwrap(), "a=1");
 
         // Seul le cookie de la console : plus de Cookie du tout.
         let mut only = HeaderMap::new();

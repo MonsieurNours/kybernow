@@ -21,7 +21,7 @@ use crate::activity::{self, DeviceInfo, ModeInfo};
 use crate::i18n::{self, Msg};
 use crate::launch::Launch;
 use crate::pairing::{self, RequestError};
-use crate::{AppState, auth, gpu, logs, preview, schema, service, station};
+use crate::{AppState, auth, gpu, logs, preview, schema, service, share_api, station};
 
 pub fn router(state: AppState) -> Router<AppState> {
     Router::new()
@@ -34,6 +34,12 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/local/state", get(local_state))
         .route("/api/local/end", post(local_end))
         .route("/api/local/pair/{id}/{action}", post(local_pair_answer))
+        // KyberNow Share depuis le PC (icône près de l'horloge, ou accueil d'Admin avec sa session).
+        .route("/api/local/displays", get(share_api::local_displays))
+        .route("/api/local/share", get(share_api::local_get).delete(share_api::local_close))
+        .route("/api/local/share/open", post(share_api::local_open))
+        .route("/api/local/share/code", post(share_api::local_code))
+        .route("/api/local/share/guest/{id}", post(share_api::local_guest_role).delete(share_api::local_guest_remove))
         .route("/api/schema", get(schema_route))
         .route("/api/config", get(config).put(update_config))
         .route("/api/config/raw", get(raw_config).put(update_raw_config))
@@ -86,13 +92,22 @@ pub fn router(state: AppState) -> Router<AppState> {
         // Réglages « Station » des apps : redémarrer, mettre à jour.
         .route("/api/stream/station/restart", post(stream_station_restart))
         .route("/api/stream/station/update", post(stream_station_update))
+        // KyberNow Share (docs/kybernow-share.md) : l'hôte (compte de
+        // l'appareil en session), puis l'invité (sans compte).
+        .route("/api/share", get(share_api::host_get).delete(share_api::host_close))
+        .route("/api/share/open", post(share_api::host_open))
+        .route("/api/share/code", post(share_api::host_code))
+        .route("/api/share/guest/{id}", post(share_api::host_guest_role).delete(share_api::host_guest_remove))
+        .route("/api/share/join", post(share_api::join))
+        .route("/api/share/beat", post(share_api::beat))
+        .route("/api/share/leave", post(share_api::leave))
         .layer(axum::middleware::from_fn_with_state(state, auth::require_session))
         // La langue des réponses (`Accept-Language`, français sans en-tête),
         // posée avant tout le reste : les refus de `require_session` aussi.
         .layer(axum::middleware::from_fn(i18n::scope))
 }
 
-pub struct ApiError(StatusCode, String);
+pub struct ApiError(pub(crate) StatusCode, pub(crate) String);
 
 impl ApiError {
     /// Un refus, écrit dans la langue de la requête.
@@ -259,6 +274,9 @@ async fn status(State(s): State<AppState>) -> ApiResult<Json<Value>> {
         "pair_requests": s.pairing.pending(),
         // Ligne « Réveil par le réseau » de la page Système.
         "wake": crate::wake::cards(),
+        // KyberNow Share : le partage ouvert (ou null), et s'il est possible.
+        "share": share_api::status(&s),
+        "share_enabled": share_api::enabled(&s),
     })))
 }
 
@@ -309,6 +327,8 @@ async fn local_state(
         "version": crate::update::current(),
         "pair_requests_count": requests.len(),
         "pair_requests": requests,
+        "share": share_api::status(&s),
+        "share_enabled": share_api::enabled(&s),
     })))
 }
 
@@ -379,8 +399,13 @@ fn session_guard(s: &AppState, body: &Bytes) -> ApiResult<()> {
         serde_json::from_slice(body)
             .map_err(|e| ApiError::msg(StatusCode::BAD_REQUEST, Msg::new("api.unreadableBody").with("error", e.to_string())))?
     };
-    match crate::update::session_conflict(&s.activity.summary()["live"], body.force) {
-        Some(message) => Err(ApiError::msg(StatusCode::CONFLICT, message)),
+    // L'appareil en session, ou les invités d'un partage.
+    match share_api::occupant(s).filter(|_| !body.force) {
+        Some(share_api::Occupant::Guests(names)) => Err(ApiError::msg(StatusCode::CONFLICT, Msg::new("update.sessionConflictShare").with("name", names))),
+        Some(share_api::Occupant::Host(name)) => {
+            let message = crate::update::session_conflict(&json!({ "name": name }), false).unwrap_or_else(|| Msg::new("update.sessionConflict"));
+            Err(ApiError::msg(StatusCode::CONFLICT, message))
+        }
         None => Ok(()),
     }
 }
@@ -411,6 +436,7 @@ async fn launch_install(s: &AppState) -> ApiResult<String> {
 async fn update_install(State(s): State<AppState>, body: Bytes) -> ApiResult<Json<Value>> {
     session_guard(&s, &body)?;
     let version = launch_install(&s).await?;
+    share_api::close_share(&s).await;
     s.activity.event("info", Msg::new("events.installing").with("version", version.as_str()));
     Ok(Json(json!({ "ok": true, "version": version })))
 }
@@ -423,6 +449,7 @@ async fn update_rollback(State(s): State<AppState>, body: Bytes) -> ApiResult<Js
     not_restarting(&s)?;
     let u = s.updater.clone();
     let version = blocking(move || u.rollback()).await?;
+    share_api::close_share(&s).await;
     tracing::info!("retour à la version {version} lancé");
     s.activity.event("info", Msg::new("events.rollingBack").with("version", version.as_str()));
     Ok(Json(json!({ "ok": true, "version": version })))
@@ -552,7 +579,7 @@ async fn log_tail(
 }
 
 /// `f` dans un fil à part, avec la langue de la requête (textes écrits par `f`).
-async fn blocking<T: Send + 'static>(f: impl FnOnce() -> anyhow::Result<T> + Send + 'static) -> ApiResult<T> {
+pub(crate) async fn blocking<T: Send + 'static>(f: impl FnOnce() -> anyhow::Result<T> + Send + 'static) -> ApiResult<T> {
     let lang = i18n::current();
     tokio::task::spawn_blocking(move || i18n::with_lang(lang, f))
         .await
@@ -626,7 +653,7 @@ async fn audio_settings(State(s): State<AppState>, Json(body): Json<AudioSetting
 }
 
 /// Identifiant Kyber si l'en-tête `Authorization: Basic` est valide.
-fn stream_user(s: &AppState, headers: &HeaderMap) -> ApiResult<String> {
+pub(crate) fn stream_user(s: &AppState, headers: &HeaderMap) -> ApiResult<String> {
     let bad = || ApiError::msg(StatusCode::UNAUTHORIZED, Msg::new("api.kyberCredentials"));
     // Le client web (/link) passe par la session de la console.
     if !headers.contains_key(header::AUTHORIZATION) && auth::session_token(headers).is_some_and(|t| s.auth.session_valid(&t)) {
@@ -772,6 +799,8 @@ async fn stream_info(State(s): State<AppState>, headers: HeaderMap) -> ApiResult
             "trigger": audio["settings"]["trigger"],
         },
         "admin_version": env!("CARGO_PKG_VERSION"),
+        // KyberNow Share : cette Station le connaît ; coupé avec `multi_client`.
+        "share": { "available": true, "enabled": share_api::enabled(&s) },
         "account": { "own_device": own_account },
         "station": station_info(&s),
         // Cartes Ethernet et Wi-Fi pour le réveil par le réseau (`wake.rs`),
@@ -939,9 +968,11 @@ fn station_busy(s: &AppState, installing: bool) -> Result<(), Refusal> {
 /// le précédent. `event` : la ligne du fil, écrite si le redémarrage part.
 fn restart_station(s: &AppState, force: bool, event: Msg) -> Result<(), Refusal> {
     station_busy(s, s.updater.installing())?;
-    if !force && let Some(live) = s.activity.live() {
-        let msg = Msg::new("station.restartConflict").with("name", live.name.as_str());
-        return Err(Refusal::new(StatusCode::CONFLICT, "session", msg).device(&live.name));
+    // L'appareil en session, ou les invités d'un partage (leurs prénoms).
+    if !force && let Some(who) = share_api::occupant(s) {
+        let key = if matches!(who, share_api::Occupant::Guests(_)) { "station.restartConflictShare" } else { "station.restartConflict" };
+        let msg = Msg::new(key).with("name", who.name());
+        return Err(Refusal::new(StatusCode::CONFLICT, "session", msg).device(who.name()));
     }
     match s.station.restart() {
         Ok(()) => {
@@ -977,6 +1008,8 @@ async fn stream_station_restart(
     let keys = ["events.stationRestarted", "events.stationRestartedAccount", "events.stationRestartedAdmin"];
     let event = station_event(&s, &caller, body.device_id.as_deref(), keys);
     restart_station(&s, body.force, event)?;
+    // Les invités d'un partage l'apprennent (« arrêté ») avant l'arrêt.
+    share_api::close_share(&s).await;
     Ok(accepted(json!({ "ok": true })))
 }
 
@@ -984,6 +1017,7 @@ async fn stream_station_restart(
 async fn admin_station_restart(State(s): State<AppState>, body: Bytes) -> Result<Response, Refusal> {
     let body = station_body(&body)?;
     restart_station(&s, body.force, Msg::new("events.stationRestartedAdmin"))?;
+    share_api::close_share(&s).await;
     Ok(accepted(json!({ "ok": true })))
 }
 
@@ -1016,11 +1050,13 @@ async fn stream_station_update(
         let msg = Msg::new("station.notInstallable").with("version", version).with_msg("reason", reason);
         return Err(Refusal::new(StatusCode::CONFLICT, "not_installable", msg));
     }
-    if !body.force && let Some(live) = s.activity.live() {
-        let msg = Msg::new("update.sessionConflictNamed").with("name", live.name.as_str());
-        return Err(Refusal::new(StatusCode::CONFLICT, "session", msg).device(&live.name));
+    if !body.force && let Some(who) = share_api::occupant(&s) {
+        let key = if matches!(who, share_api::Occupant::Guests(_)) { "update.sessionConflictShare" } else { "update.sessionConflictNamed" };
+        let msg = Msg::new(key).with("name", who.name());
+        return Err(Refusal::new(StatusCode::CONFLICT, "session", msg).device(who.name()));
     }
     let installed = launch_install(&s).await?;
+    share_api::close_share(&s).await;
     let keys = ["events.stationUpdate", "events.stationUpdateAccount", "events.installing"];
     let event = station_event(&s, &caller, body.device_id.as_deref(), keys).with("version", installed.as_str());
     s.activity.event("info", event);
@@ -1075,6 +1111,13 @@ async fn stream_prepare(
             }
             tokio::time::sleep(Duration::from_millis(200)).await;
         }
+    }
+
+    // Un partage qui n'est pas celui de cet appareil (lancé depuis le PC, ou
+    // celui d'un appareil qui vient de rendre la main) s'arrête : l'écran
+    // virtuel de l'arrivant éteindrait celui que regardent les invités.
+    if s.share.is_open() && !s.share.hosted_by(&device_id) {
+        share_api::close_share(&s).await;
     }
 
     // Le son d'abord : la sortie d'origine (souvent l'HDMI d'un écran)
@@ -1176,13 +1219,18 @@ async fn stream_heartbeat(State(s): State<AppState>, headers: HeaderMap, body: B
     let end = s.activity.heartbeat(&user, device, body.latency_ms, body.profile);
     let active = s.display.heartbeat(device, body.mode_policy);
     let observed = if active { s.display.observed() } else { None };
-    Ok(Json(json!({
+    let mut answer = json!({
         "active": active,
         "end": end,
         "mode": observed.as_ref().map(|o| o.mode).filter(|m| m.width > 0),
         "displays": observed.as_ref().map(|o| o.displays),
         "mode_policy": if active { s.display.policy() } else { None },
-    })))
+    });
+    // Le partage de cet appareil (KyberNow Share), absent sans partage.
+    if let Some(share) = share_api::for_host(&s, device) {
+        answer["share"] = share;
+    }
+    Ok(Json(answer))
 }
 
 /// App au premier plan sur l'ordinateur : plein écran, jeu (l'app du Mac
@@ -1256,9 +1304,14 @@ async fn stream_end(State(s): State<AppState>, headers: HeaderMap, body: Bytes) 
         }
     }
     s.foreground.stop();
-    let (d, a, l) = (s.display.clone(), s.audio.clone(), s.launcher.clone());
     let (ended_id, _) = activity::identity(None, &user);
     let ended_id = body.device_id.clone().unwrap_or(ended_id);
+    // Fermer la session de l'hôte arrête son partage : ses invités sont
+    // coupés avant que son écran virtuel ne disparaisse.
+    if s.share.hosted_by(&ended_id) {
+        share_api::close_share(&s).await;
+    }
+    let (d, a, l) = (s.display.clone(), s.audio.clone(), s.launcher.clone());
     let report = blocking(move || {
         // L'app ouverte pour cet appareil, fermée si l'appareil le demande,
         // avant que ses fenêtres ne migrent vers les écrans d'origine.
@@ -1389,9 +1442,12 @@ const ACCESS_FREE_WAIT: Duration = Duration::from_secs(20);
 const KYBER_UP_WAIT: Duration = Duration::from_secs(12);
 
 /// Kyber sert-il quelqu'un d'autre que l'appareil `except` ? Le redémarrer
-/// couperait cette connexion.
-async fn kyber_busy(s: &AppState, except: Option<&str>) -> bool {
+/// couperait cette connexion (les invités d'un partage comptent).
+pub(crate) async fn kyber_busy(s: &AppState, except: Option<&str>) -> bool {
     if s.activity.live().is_some_and(|l| Some(l.device_id.as_str()) != except) {
+        return true;
+    }
+    if s.share.guest_count() > 0 {
         return true;
     }
     // Une autre préparation en cours : son appareil va se connecter.
@@ -1505,19 +1561,26 @@ async fn grant_pending_access(s: &AppState, user: &str, device_id: &str, port: u
         let who = name.map_or_else(|| Msg::new("api.currentConnection"), |n| Msg::new("api.sessionOf").with("name", n));
         ApiError::msg(StatusCode::CONFLICT, Msg::new("api.accessPending").with_msg("who", who))
     };
-    let other_live = || s.activity.live().filter(|l| l.device_id != device_id);
+    // L'appareil en session (pas celui-ci), ou les invités d'un partage.
+    let other_live = || {
+        s.activity
+            .live()
+            .filter(|l| l.device_id != device_id)
+            .map(|l| l.name)
+            .or_else(|| share_api::guest_names(s))
+    };
     // Ne jamais couper la session d'un autre appareil (ni la lui prendre :
     // Kyber refuserait de toute façon ce compte tant qu'il n'a pas redémarré).
-    if let Some(live) = other_live() {
-        return Err(busy(Some(live.name)));
+    if let Some(name) = other_live() {
+        return Err(busy(Some(name)));
     }
     let deadline = tokio::time::Instant::now() + ACCESS_FREE_WAIT;
     while s.pending_access.waits_for(user) {
         if apply_pending_access(s, Some(device_id), Some("events.contextConnecting")).await {
             break;
         }
-        if let Some(live) = other_live() {
-            return Err(busy(Some(live.name)));
+        if let Some(name) = other_live() {
+            return Err(busy(Some(name)));
         }
         if tokio::time::Instant::now() >= deadline {
             return Err(busy(None));
@@ -1653,12 +1716,16 @@ async fn events(State(s): State<AppState>, Query(q): Query<EventsQuery>) -> Json
 /// ligne de commande) est coupé en redémarrant Kyber.
 async fn end_session(State(s): State<AppState>) -> ApiResult<Json<Value>> {
     if s.activity.request_end() {
+        // Le partage de l'hôte s'arrête avec sa session (`share_api::supervise`).
         return Ok(Json(json!({ "ok": true, "method": "app" })));
     }
+    // Un partage sans session (lancé depuis le PC) : ses invités sont
+    // prévenus (« arrêté ») et coupés de Kyber, jamais par un redémarrage.
+    let shared = share_api::close_share(&s).await.is_some();
     let (d, a) = (s.display.clone(), s.audio.clone());
     let active = blocking(move || Ok(!d.status()["session"].is_null() || !a.status()["session"].is_null())).await?;
     if !active {
-        return Ok(Json(json!({ "ok": true, "method": "none" })));
+        return Ok(Json(json!({ "ok": true, "method": if shared { "share" } else { "none" } })));
     }
     let (d, a) = (s.display.clone(), s.audio.clone());
     blocking(move || {
@@ -2044,6 +2111,69 @@ mod tests {
         assert_eq!(refused.error, format!("KyberNow Station {} est à jour : rien à installer", crate::update::current()));
         let body = station_body(&Bytes::from("{pas du json")).err().unwrap();
         assert_eq!((body.status, body.code), (StatusCode::BAD_REQUEST, "bad_request"));
+    }
+
+    /// Un partage lancé depuis le PC, avec Léa et Max dedans.
+    fn pc_share_with_guests(s: &AppState) {
+        let display = crate::share::ShareDisplay { id: 1, index: 1, width: 1920, height: 1080, refresh: 60, name: "\\\\.\\DISPLAY1".into() };
+        let code = s.share.open(crate::share::Origin::Local, display).unwrap().0.code;
+        let ip: std::net::IpAddr = "192.168.1.30".parse().unwrap();
+        s.share.join(&code, "Léa", "ipad", "ios", ip, false).unwrap();
+        s.share.join(&code, "Max", "tv", "tvos", ip, false).unwrap();
+    }
+
+    #[tokio::test]
+    async fn guests_hold_restarts_and_updates() {
+        let c = console_with_account();
+        pc_share_with_guests(&c.s);
+        let refused = restart_from(&c.s, basic("mac", "mot-de-passe-mac"), "").await.err().unwrap();
+        assert_eq!((refused.status, refused.code, refused.device.as_deref()), (StatusCode::CONFLICT, "session", Some("Léa et Max")));
+        assert_eq!(refused.error, "Un partage est en cours avec Léa et Max : le redémarrage l'arrêtera");
+        let install = update_install(State(c.s.clone()), Bytes::new()).await.err().unwrap();
+        assert_eq!(install.0, StatusCode::CONFLICT);
+        assert!(install.1.contains("Léa et Max"), "{}", install.1);
+        // Les comptes en attente attendent aussi.
+        assert!(!apply_accounts(&c.s, "apple-tv", "Apple TV", true).await);
+        assert_eq!(c.restarts.load(Ordering::SeqCst), 0);
+        let err = grant_pending_access(&c.s, "apple-tv", "tv-1", 1).await.unwrap_err();
+        assert!(err.1.contains("Léa et Max"), "{}", err.1);
+        // Forcé : le partage s'arrête d'abord (les invités l'apprennent).
+        let ok = restart_from(&c.s, basic("mac", "mot-de-passe-mac"), r#"{"force": true}"#).await.ok().unwrap();
+        assert_eq!(ok.status(), StatusCode::ACCEPTED);
+        assert!(!c.s.share.is_open());
+    }
+
+    #[tokio::test]
+    async fn ending_a_pc_share_never_restarts_kyber() {
+        let c = console();
+        pc_share_with_guests(&c.s);
+        let Json(v) = end_session(State(c.s.clone())).await.ok().unwrap();
+        assert_eq!(v["method"], "share");
+        assert!(!c.s.share.is_open());
+        assert_eq!(c.restarts.load(Ordering::SeqCst), 0);
+        // Rien en cours : comme avant.
+        let Json(v) = end_session(State(c.s.clone())).await.ok().unwrap();
+        assert_eq!(v["method"], "none");
+    }
+
+    #[tokio::test]
+    async fn the_host_heartbeat_carries_its_share_and_info_announces_it() {
+        let c = console_with_account();
+        let Json(info) = stream_info(State(c.s.clone()), basic("mac", "mot-de-passe-mac")).await.ok().unwrap();
+        assert_eq!(info["share"], json!({ "available": true, "enabled": true }));
+        c.s.activity.begin(Some(device("mac-1", "Mac")), "mac", None, None);
+        let beat = || stream_heartbeat(State(c.s.clone()), basic("mac", "mot-de-passe-mac"), Bytes::from(r#"{"device_id":"mac-1"}"#));
+        let Json(v) = beat().await.ok().unwrap();
+        assert!(v.get("share").is_none(), "absent sans partage");
+        let display = crate::share::ShareDisplay { id: 1, index: 1, width: 1920, height: 1080, refresh: 60, name: String::new() };
+        let origin = crate::share::Origin::Host { device_id: "mac-1".into(), user: "mac".into(), name: "Mac".into() };
+        c.s.share.open(origin, display).unwrap();
+        let Json(v) = beat().await.ok().unwrap();
+        assert_eq!((v["share"]["open"].as_bool(), v["share"]["origin"].as_str()), (Some(true), Some("host")));
+        // Fermer la session de l'hôte arrête son partage.
+        let Json(end) = stream_end(State(c.s.clone()), basic("mac", "mot-de-passe-mac"), Bytes::from(r#"{"device_id":"mac-1"}"#)).await.ok().unwrap();
+        assert_eq!(end["ok"], true);
+        assert!(!c.s.share.is_open());
     }
 
     #[tokio::test]

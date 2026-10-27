@@ -74,6 +74,14 @@ All JSON, on Admin's port, certificate pinned by fingerprint as today. The names
 - **Kyber (patch 0019)**: the role carried by the token (spectator, player, player with keyboard and mouse), applied when inputs open (none for a spectator; controllers only for a player), changed during the share without cutting the picture; the allowed display enforced (the display list filtered, another one refused); a Kyber session Admin can close at once (removing a guest); bitrate and keyframes of the shared picture reserved to the host.
 - **Sharing from the PC**: the list of physical displays (name, frame, Kyber id), a “sharing” state that prevents automatic virtual display creation (the “For any connection” mode) and changes of the sound output; the icon next to the clock and Admin's home page start it, show it and stop it.
 - Kyber's `multi_client` must be on (the default): if it is off, “Share” says so.
+- **Station details** (what it does on top of “Exchange with Admin”, without changing it):
+  - replies: the host and PC routes all return the same share view, which contains the contract's (`code`, `link`, `web`, `display`) and adds `open`, `origin` (`host` or `local`), `host`, `guests` (with `device` and `last_beat`), `max_guests`, `opened_at`, and in `display` `index`, `width`, `height`, `refresh`; `GET /api/local/displays` adds `index`, `refresh`, `x`, `y`, and only keeps the displays Kyber captures when it answers;
+  - host routes: optional `device_id` (body, or query for `GET` and `DELETE`), as in the heartbeat, to tell two devices on the same account apart; refusals `{"error": <text>, "code": …}` with `not_in_session`, `disabled`, `no_share`, `unknown_guest`;
+  - guest: refusals beyond the contract's, `400 {"error":"bad_request"}` (invalid code or name), `503 {"error":"unavailable"}` (Kyber without a token key); `429` carries `{"error":"too_many","retry_after":<s>}` and `Retry-After`; `beat` and `leave` from an unknown guest (gone, timed out, or more than a minute after leaving): `404 {"error":"unknown_guest"}`;
+  - the same device (`device`) joining again gets its place back (same `guest`, same role, new `secret`), without counting as one more guest;
+  - a guest's Kyber token: `sub` = `kn-guest-<guest>`, and `kn_rev` (increasing with every role change) besides `kn_role` and `kn_display`;
+  - sharing from the PC: refused during a device's session (`code` `session`) or another connection that took the displays or the sound (`busy`); a session that starts (a device's `prepare`) stops it; one share at a time;
+  - the guards name the guests (“A share is in progress with Léa and Max: restarting will stop it”); with `force`, the share stops first (guests read `stopped`).
 
 ## Rust core
 

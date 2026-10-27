@@ -96,6 +96,8 @@ Un partage ouvert se voit dans la barre (pastille « 2 invités » / “2 guests
 
 **Le PC lui-même** (KyberNow Station : menu de l'icône près de l'horloge, et accueil d'Admin) : « Partager un écran… » / “Share a screen…”, puis le choix de l'écran (« Écran 1 — 3840 × 2160 », l'écran principal d'abord) ; le même panneau (code, lien, invités, actions), titré « Partage de l'écran 1 » / “Sharing display 1”. Le PC reste utilisable normalement ; aucun écran virtuel, aucun écran éteint.
 
+**Refus de la Station** (Admin, icône, et `error` des routes de l'hôte) : « {nom} est en session : le partage se lance depuis cet appareil. » / “{name} is in a session: share from that device.” ; « Une connexion est en cours sur cet ordinateur : partagez un écran une fois qu'elle est finie. » / “A connection is in progress on this computer: share a screen once it has ended.” ; « Cet écran n'est plus branché. » / “This display is no longer connected.” ; « Cet invité n'est plus dans le partage. » / “This guest is no longer in the share.” ; « Seul l'appareil en session peut partager cet ordinateur. » / “Only the device in a session can share this computer.” ; « Aucun partage en cours. » / “No share in progress.” ; redémarrage ou mise à jour pendant un partage : « Un partage est en cours avec {prénoms} : le redémarrage l'arrêtera » / “A share is in progress with {names}: restarting will stop it” (« l'installation l'arrêtera » / “installing will stop it”).
+
 **L'invité** :
 
 | Élément | Français | English |
@@ -113,7 +115,7 @@ Un partage ouvert se voit dans la barre (pastille « 2 invités » / “2 guests
 
 {hôte} est le prénom de l'hôte (le nom de l'appareil de l'hôte), ou le nom de l'ordinateur pour un partage lancé depuis le PC. Un invité n'est pas ajouté aux ordinateurs de l'appareil.
 
-**Fil d'Admin** : « {prénom} regarde votre écran » / “{name} is watching your screen” ; « {prénom} joue avec vous » / “{name} is playing with you” ; « {prénom} a quitté le partage » / “{name} left the share”.
+**Fil d'Admin** : « {hôte} partage l'écran {n} » / “{host} is sharing display {n}” ; « {prénom} regarde votre écran » / “{name} is watching your screen” (en arrivant, ou rendu spectateur) ; « {prénom} joue avec vous » / “{name} is playing with you” ; « {prénom} a quitté le partage » / “{name} left the share” (parti, retiré, ou sans nouvelles) ; « Partage arrêté » / “Sharing stopped”.
 
 ## Réglages de l'ordinateur
 
