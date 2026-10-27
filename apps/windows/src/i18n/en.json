@@ -137,7 +137,8 @@
     "role_spectator": "Spectator",
     "role_player": "Player",
     "leave": "Leave",
-    "notice_play": "You can play.",
+    "notice_play": "You can play with a controller.",
+    "notice_pads_back": "The controllers were taken back.",
     "notice_kbm": "You have the keyboard and mouse.",
     "notice_kbm_back": "The keyboard and mouse were taken back.",
     "notice_watch": "You are watching again."

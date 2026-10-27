@@ -137,7 +137,8 @@
     "role_spectator": "Spectateur",
     "role_player": "Joueur",
     "leave": "Quitter le partage",
-    "notice_play": "Vous pouvez jouer.",
+    "notice_play": "Vous pouvez jouer à la manette.",
+    "notice_pads_back": "Les manettes sont reprises.",
     "notice_kbm": "Vous avez le clavier et la souris.",
     "notice_kbm_back": "Le clavier et la souris sont repris.",
     "notice_watch": "Vous regardez de nouveau."

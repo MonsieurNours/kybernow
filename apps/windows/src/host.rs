@@ -449,9 +449,10 @@ impl Platform for WinPlatform {
     fn on_guests(&self, share: Option<&ShareState>) {
         self.events.guests(share);
     }
-    /// Le clavier et la souris de ce PC ne partent que pour un joueur à qui
-    /// l'hôte les a donnés ; le cœur filtre de son côté (`InputRights`), la
-    /// fenêtre laisse en plus ses raccourcis à ce PC.
+    /// Le clavier et la souris de ce PC ne partent que pour un invité à qui
+    /// l'hôte les a donnés (un droit à part des manettes, avec ou sans elles) ;
+    /// le cœur filtre de son côté (`InputRights`), la fenêtre laisse en plus
+    /// ses raccourcis à ce PC.
     fn on_share_role(&self, role: ShareRole, previous: Option<ShareRole>) {
         self.app.set_keyboard_mouse(crate::sharing::has_keyboard_mouse(role));
         self.events.share_role(role, previous);

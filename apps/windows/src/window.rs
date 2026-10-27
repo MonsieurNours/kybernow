@@ -483,7 +483,7 @@ pub struct App {
     pub mouse_mode: Mutex<MouseMode>,
     /// Le clavier et la souris de ce PC vont à l'ordinateur. Toujours, sauf
     /// pour un invité de KyberNow Share qui n'a pas reçu le clavier et la
-    /// souris (spectateur, ou joueur de manette seulement) : le crochet
+    /// souris (spectateur, ou manettes seules) : le crochet
     /// clavier ne prend alors aucun raccourci de Windows, la souris reste celle
     /// du bureau (jamais retenue dans la fenêtre) et ses réglages ne
     /// changent rien. La Station l'impose aussi, de son côté.

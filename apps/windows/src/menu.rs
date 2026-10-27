@@ -748,6 +748,26 @@ mod tests {
     }
 
     #[test]
+    fn textes_des_avis_de_droits() {
+        // Les textes de docs/link-ui.md (« Droits changés »), dans les deux langues.
+        let texts = |lang| ["share.notice_play", "share.notice_pads_back", "share.notice_kbm", "share.notice_kbm_back", "share.notice_watch"].map(|k| tr(lang)(k, &[]));
+        assert_eq!(
+            texts(Lang::Fr),
+            ["Vous pouvez jouer à la manette.", "Les manettes sont reprises.", "Vous avez le clavier et la souris.", "Le clavier et la souris sont repris.", "Vous regardez de nouveau."]
+        );
+        assert_eq!(
+            texts(Lang::En),
+            [
+                "You can play with a controller.",
+                "The controllers were taken back.",
+                "You have the keyboard and mouse.",
+                "The keyboard and mouse were taken back.",
+                "You are watching again."
+            ]
+        );
+    }
+
+    #[test]
     fn invite_d_un_partage() {
         let s = State { sessions: vec![guest_session(ShareRole::Spectator)], active: Some("guest-7".into()), computers: vec![atelier()], ..Default::default() };
         let fr = lines(&s, Lang::Fr);
@@ -758,14 +778,18 @@ mod tests {
         assert_eq!(fr[7..9], ["{vert} Atelier — En ligne >", "  Se connecter (Jeu)"]);
         let en = lines(&s, Lang::En);
         assert_eq!(en[..6], ["~Guest on Atelier", "~Spectator", "~9.0 ms · 60 fps", "Full screen", "Statistics", "Leave"]);
-        // Joueur : « Joueur » ; la souris seulement avec le clavier et la souris.
+        // Joueur : « Joueur » dès un droit ; la souris seulement avec le clavier et la souris
+        // (avec ou sans les manettes : deux droits indépendants).
         let player = State { sessions: vec![guest_session(ShareRole::Player)], ..s.clone() };
         assert_eq!(lines(&player, Lang::Fr)[1], "~Joueur");
         assert!(!lines(&player, Lang::Fr).iter().any(|l| l.starts_with("Souris")));
-        let kbm = State { sessions: vec![guest_session(ShareRole::PlayerKbm)], ..s.clone() };
-        let l = lines(&kbm, Lang::Fr);
-        assert_eq!(l[1], "~Joueur");
-        assert_eq!(l[4..8], ["Souris >", "  (o) Auto", "  Souris du bureau", "  Souris des jeux"]);
+        for role in [ShareRole::PlayerKbm, ShareRole::Kbm] {
+            let kbm = State { sessions: vec![guest_session(role)], ..s.clone() };
+            let l = lines(&kbm, Lang::Fr);
+            assert_eq!(l[1], "~Joueur", "{role:?}");
+            assert_eq!(l[4..8], ["Souris >", "  (o) Auto", "  Souris du bureau", "  Souris des jeux"], "{role:?}");
+        }
+        assert_eq!(lines(&State { sessions: vec![guest_session(ShareRole::Kbm)], ..s.clone() }, Lang::En)[1], "~Player");
         // La commande de sortie porte la session de l'invité.
         let mut c = Vec::new();
         cmds(&build(&s, &tr(Lang::Fr)), &mut c);

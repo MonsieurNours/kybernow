@@ -1488,8 +1488,8 @@ struct BarShown {
     notice: Option<String>,
 }
 
-/// L'invité que sert la barre : son rôle (`spectator`, `player`, `player_kbm`)
-/// et l'hôte du partage.
+/// L'invité que sert la barre : son rôle (`spectator`, `player`, `kbm`,
+/// `player_kbm`) et l'hôte du partage.
 #[derive(Clone, Serialize)]
 struct GuestBar {
     role: &'static str,

@@ -56,35 +56,49 @@ pub fn proposed_name(remembered: Option<&str>, device: &str) -> String {
     if remembered.is_empty() { clean_name(device) } else { remembered }
 }
 
-/// L'avis bref d'un changement de rôle (clé du catalogue de l'app) : « Vous
-/// pouvez jouer. », « Vous avez le clavier et la souris. », « Le clavier et la
-/// souris sont repris. », « Vous regardez de nouveau. » (un joueur, avec ou sans
-/// le clavier et la souris, redevient spectateur : ce dernier avis dit tout).
-/// Rien au départ (`previous` nul), ni quand le rôle ne change pas.
+/// L'avis bref d'un changement de droits (clé du catalogue de l'app), les deux
+/// droits étant indépendants : « Vous pouvez jouer à la manette. » et « Vous
+/// avez le clavier et la souris. » (un droit donné), « Les manettes sont
+/// reprises. » et « Le clavier et la souris sont repris. » (un droit repris,
+/// l'autre gardé), « Vous regardez de nouveau. » quand il ne reste aucun droit
+/// (à la place de l'avis de reprise : ce dernier dit tout). Rien au départ
+/// (`previous` nul), ni quand les droits ne changent pas.
+///
+/// Deux changements dans un même signe de vie (l'hôte a touché aux deux boutons
+/// entre deux battements) : un seul avis tient dans la barre ; le droit donné
+/// passe avant le droit repris, les manettes avant le clavier et la souris.
 pub fn role_notice(role: ShareRole, previous: Option<ShareRole>) -> Option<&'static str> {
     let previous = previous?;
-    match (previous, role) {
-        (a, b) if a == b => None,
-        (_, ShareRole::Spectator) => Some("share.notice_watch"),
-        (_, ShareRole::PlayerKbm) => Some("share.notice_kbm"),
-        (ShareRole::Spectator, ShareRole::Player) => Some("share.notice_play"),
-        (ShareRole::PlayerKbm, ShareRole::Player) => Some("share.notice_kbm_back"),
-        _ => None,
+    if role == previous {
+        return None;
+    }
+    if !role.plays() {
+        return Some("share.notice_watch");
+    }
+    if role.pads() && !previous.pads() {
+        Some("share.notice_play")
+    } else if role.kbm() && !previous.kbm() {
+        Some("share.notice_kbm")
+    } else if previous.pads() && !role.pads() {
+        Some("share.notice_pads_back")
+    } else if previous.kbm() && !role.kbm() {
+        Some("share.notice_kbm_back")
+    } else {
+        None
     }
 }
 
-/// L'étiquette d'un rôle dans la barre de l'invité : « Spectateur » ou
-/// « Joueur » (la clé du catalogue de l'app).
+/// L'étiquette d'un rôle dans la barre de l'invité : « Joueur » dès qu'il a un
+/// droit (manettes, ou clavier et souris), « Spectateur » sinon (la clé du
+/// catalogue de l'app).
 pub fn role_label(role: ShareRole) -> &'static str {
-    match role {
-        ShareRole::Spectator => "share.role_spectator",
-        ShareRole::Player | ShareRole::PlayerKbm => "share.role_player",
-    }
+    if role.plays() { "share.role_player" } else { "share.role_spectator" }
 }
 
-/// Le clavier et la souris de l'invité partent vers l'ordinateur.
+/// Le clavier et la souris de l'invité partent vers l'ordinateur : avec ce
+/// droit-là seulement, que les manettes soient données ou non.
 pub fn has_keyboard_mouse(role: ShareRole) -> bool {
-    role == ShareRole::PlayerKbm
+    role.kbm()
 }
 
 /// Ce que « Partager » peut faire, tel que la barre le montre : `available`,
@@ -137,7 +151,8 @@ pub struct GuestView {
     pub name: String,
     /// `mac`, `windows`, `linux`, `ios`, `tvos`, `android`, `webos`, `web`.
     pub app: String,
-    /// `spectator`, `player` ou `player_kbm`.
+    /// `spectator`, `player` (les manettes), `kbm` (le clavier et la souris) ou
+    /// `player_kbm` (les deux).
     pub role: &'static str,
     /// Arrivée, en secondes Unix de la Station (docs/link-ui.md, « Durée ») : la
     /// liste dit « depuis 3 min ».
@@ -265,26 +280,41 @@ mod tests {
         use ShareRole::*;
         // Rien au départ, ni sans changement.
         assert_eq!(role_notice(Spectator, None), None);
-        assert_eq!(role_notice(Player, Some(Player)), None);
-        // (rôle d'arrivée, rôle d'avant)
+        assert_eq!(role_notice(PlayerKbm, None), None);
+        for r in [Spectator, Player, Kbm, PlayerKbm] {
+            assert_eq!(role_notice(r, Some(r)), None);
+        }
+        // Un droit donné (rôle d'arrivée, rôle d'avant).
         assert_eq!(role_notice(Player, Some(Spectator)), Some("share.notice_play"));
+        assert_eq!(role_notice(PlayerKbm, Some(Kbm)), Some("share.notice_play"));
+        assert_eq!(role_notice(Kbm, Some(Spectator)), Some("share.notice_kbm"));
         assert_eq!(role_notice(PlayerKbm, Some(Player)), Some("share.notice_kbm"));
-        assert_eq!(role_notice(PlayerKbm, Some(Spectator)), Some("share.notice_kbm"));
+        // Un droit repris, l'autre gardé.
+        assert_eq!(role_notice(Kbm, Some(PlayerKbm)), Some("share.notice_pads_back"));
         assert_eq!(role_notice(Player, Some(PlayerKbm)), Some("share.notice_kbm_back"));
-        // Un joueur, avec ou sans le clavier et la souris, remis spectateur : « Vous regardez de nouveau. »
+        // Plus aucun droit : « Vous regardez de nouveau. » à la place de l'avis de reprise.
         assert_eq!(role_notice(Spectator, Some(Player)), Some("share.notice_watch"));
+        assert_eq!(role_notice(Spectator, Some(Kbm)), Some("share.notice_watch"));
         assert_eq!(role_notice(Spectator, Some(PlayerKbm)), Some("share.notice_watch"));
-        assert_eq!(role_notice(Spectator, Some(Spectator)), None);
+        // Deux changements d'un coup : le droit donné passe avant le droit repris, les manettes avant le clavier.
+        assert_eq!(role_notice(PlayerKbm, Some(Spectator)), Some("share.notice_play"));
+        assert_eq!(role_notice(Kbm, Some(Player)), Some("share.notice_kbm"));
+        assert_eq!(role_notice(Player, Some(Kbm)), Some("share.notice_play"));
     }
 
     #[test]
     fn etiquettes() {
-        assert_eq!(role_label(ShareRole::Spectator), "share.role_spectator");
-        assert_eq!(role_label(ShareRole::Player), "share.role_player");
-        assert_eq!(role_label(ShareRole::PlayerKbm), "share.role_player");
-        assert!(has_keyboard_mouse(ShareRole::PlayerKbm));
-        assert!(!has_keyboard_mouse(ShareRole::Player));
-        assert!(!has_keyboard_mouse(ShareRole::Spectator));
+        use ShareRole::*;
+        // « Joueur » dès qu'il a un droit, « Spectateur » sans aucun.
+        assert_eq!(role_label(Spectator), "share.role_spectator");
+        for r in [Player, Kbm, PlayerKbm] {
+            assert_eq!(role_label(r), "share.role_player");
+        }
+        // Le clavier et la souris partent avec leur droit, que les manettes soient données ou non.
+        assert!(has_keyboard_mouse(PlayerKbm));
+        assert!(has_keyboard_mouse(Kbm));
+        assert!(!has_keyboard_mouse(Player));
+        assert!(!has_keyboard_mouse(Spectator));
     }
 
     fn guest(id: &str, name: &str, role: ShareRole) -> ShareGuest {
@@ -299,7 +329,7 @@ mod tests {
             link: "kybernow://join?host=192.168.1.100&port=9443&fp=sha256:aa&code=123456".into(),
             web: "https://192.168.1.100:9443/link/?join=123456".into(),
             display: Some(ShareScreen { id: 1, label: "Écran 1".into() }),
-            guests: vec![guest("g1", "Léa", ShareRole::Spectator), guest("g2", "Noé", ShareRole::PlayerKbm)],
+            guests: vec![guest("g1", "Léa", ShareRole::Spectator), guest("g2", "Noé", ShareRole::PlayerKbm), guest("g3", "Zoé", ShareRole::Kbm)],
         };
         let v = ShareView::new(Some(&state), Some(ShareAvailability::Available), Lang::Fr);
         assert_eq!((v.availability, v.open, v.code.as_str(), v.full), ("available", true, "123 456", false));
@@ -310,8 +340,9 @@ mod tests {
         assert!(v.link.starts_with("kybernow://join?"));
         assert_eq!(v.guests[0].since, Some(1));
         assert_eq!(v.guests[0].app, "ios");
-        assert_eq!(v.guests.len(), 2);
+        assert_eq!(v.guests.len(), 3);
         assert_eq!((v.guests[1].name.as_str(), v.guests[1].role), ("Noé", "player_kbm"));
+        assert_eq!((v.guests[2].name.as_str(), v.guests[2].role), ("Zoé", "kbm"));
         assert!(v.qr.as_ref().is_some_and(|q| q.size >= 21 && q.path.starts_with('M')));
         // Quatre invités : la limite.
         let mut full = state.clone();
