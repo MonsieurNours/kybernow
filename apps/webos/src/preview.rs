@@ -773,14 +773,14 @@ mod tests {
             (duration_label(20), duration_label(3 * 60), duration_label(3600 + 12 * 60), guests_label(1), guests_label(3), app_label("webos")),
             ("under a minute".to_string(), "3 min".to_string(), "1 h 12".to_string(), "1 guest".to_string(), "3 guests".to_string(), "LG TV".to_string())
         );
-        // Actions sur un invité : « Faire jouer » ; puis, pour un joueur avec ou sans le clavier et la souris, le clavier et la souris
-        // et « Faire regarder ».
+        // Actions sur un invité : « Faire jouer » ; puis, pour un joueur avec ou sans le clavier et la souris, « Faire regarder »
+        // et le clavier et la souris.
         let labels = |r: ShareRole| r.moves().iter().map(|m| m.label(r)).collect::<Vec<_>>();
         assert_eq!(labels(ShareRole::Spectator), ["Let play"]);
-        assert_eq!(labels(ShareRole::Player), ["Give keyboard and mouse", "Watch only"]);
-        assert_eq!(labels(ShareRole::PlayerKbm), ["Take back keyboard and mouse", "Watch only"]);
+        assert_eq!(labels(ShareRole::Player), ["Watch only", "Give keyboard and mouse"]);
+        assert_eq!(labels(ShareRole::PlayerKbm), ["Watch only", "Take back keyboard and mouse"]);
         crate::i18n::force_english(false);
-        assert_eq!(labels(ShareRole::PlayerKbm), ["Reprendre le clavier et la souris", "Faire regarder"]);
+        assert_eq!(labels(ShareRole::PlayerKbm), ["Faire regarder", "Reprendre le clavier et la souris"]);
         crate::i18n::force_english(false);
     }
 

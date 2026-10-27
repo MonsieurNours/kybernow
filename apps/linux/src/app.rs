@@ -711,13 +711,13 @@ impl ShareMove {
 
 impl ShareRole {
     /// Ce que l'hôte peut faire d'un invité de ce rôle, comme le panneau d'Admin et les autres apps : un
-    /// spectateur, « Faire jouer » ; un joueur, « Donner le clavier et la souris » et « Faire regarder » ; un
-    /// joueur avec le clavier et la souris, « Reprendre le clavier et la souris » et « Faire regarder » (retour
-    /// en spectateur, dans les deux cas). Puis « Retirer ».
+    /// spectateur, « Faire jouer » ; un joueur, « Faire regarder » (retour en spectateur) puis « Donner le
+    /// clavier et la souris » ; un joueur avec le clavier et la souris, « Faire regarder » puis « Reprendre le
+    /// clavier et la souris » (link-ui). Puis « Retirer ».
     pub fn moves(self) -> &'static [ShareMove] {
         match self {
             ShareRole::Spectator => &[ShareMove::Play],
-            ShareRole::Player | ShareRole::PlayerKbm => &[ShareMove::Kbm, ShareMove::Watch],
+            ShareRole::Player | ShareRole::PlayerKbm => &[ShareMove::Watch, ShareMove::Kbm],
         }
     }
 }
@@ -4767,14 +4767,14 @@ mod tests {
         );
         assert_eq!(ShareGuest { id: "g".into(), name: "Léa".into(), role: ShareRole::Player, app: "web".into(), since: Some(100) }.meta(100 + 20), "Browser · for under a minute");
         assert_eq!(ShareRole::PlayerKbm.long_label(), "Player, keyboard and mouse");
-        // Actions sur un invité : « Faire jouer » ; puis, pour un joueur avec ou sans le clavier et la souris, le clavier et la souris
-        // et « Faire regarder ».
+        // Actions sur un invité : « Faire jouer » ; puis, pour un joueur avec ou sans le clavier et la souris, « Faire regarder »
+        // et le clavier et la souris.
         let labels = |r: ShareRole| r.moves().iter().map(|m| m.label(r)).collect::<Vec<_>>();
         assert_eq!(labels(ShareRole::Spectator), ["Let play"]);
-        assert_eq!(labels(ShareRole::Player), ["Give keyboard and mouse", "Watch only"]);
-        assert_eq!(labels(ShareRole::PlayerKbm), ["Take back keyboard and mouse", "Watch only"]);
+        assert_eq!(labels(ShareRole::Player), ["Watch only", "Give keyboard and mouse"]);
+        assert_eq!(labels(ShareRole::PlayerKbm), ["Watch only", "Take back keyboard and mouse"]);
         crate::i18n::force_english(false);
-        assert_eq!(labels(ShareRole::PlayerKbm), ["Reprendre le clavier et la souris", "Faire regarder"]);
+        assert_eq!(labels(ShareRole::PlayerKbm), ["Faire regarder", "Reprendre le clavier et la souris"]);
         crate::i18n::force_english(false);
     }
 }

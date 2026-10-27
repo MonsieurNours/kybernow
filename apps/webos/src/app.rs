@@ -529,13 +529,13 @@ impl ShareMove {
 
 impl ShareRole {
     /// Ce que l'hôte peut faire d'un invité de ce rôle, comme le panneau d'Admin et les autres apps : un
-    /// spectateur, « Faire jouer » ; un joueur, « Donner le clavier et la souris » et « Faire regarder » ; un
-    /// joueur avec le clavier et la souris, « Reprendre le clavier et la souris » et « Faire regarder » (retour
-    /// en spectateur, dans les deux cas). Puis « Retirer ».
+    /// spectateur, « Faire jouer » ; un joueur, « Faire regarder » (retour en spectateur) puis « Donner le
+    /// clavier et la souris » ; un joueur avec le clavier et la souris, « Faire regarder » puis « Reprendre le
+    /// clavier et la souris » (link-ui). Puis « Retirer ».
     pub fn moves(self) -> &'static [ShareMove] {
         match self {
             ShareRole::Spectator => &[ShareMove::Play],
-            ShareRole::Player | ShareRole::PlayerKbm => &[ShareMove::Kbm, ShareMove::Watch],
+            ShareRole::Player | ShareRole::PlayerKbm => &[ShareMove::Watch, ShareMove::Kbm],
         }
     }
 }
