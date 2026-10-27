@@ -300,11 +300,19 @@ pub async fn refresh_host_display(s: &AppState, device_id: &str) {
     }
 }
 
+/// Les écrans et le son suivent le partage du PC (pas d'écran virtuel
+/// automatique, pas de sortie son changée tant qu'il est ouvert) : réglés
+/// d'après le partage tel qu'il est, jamais d'après ce qu'on croit avoir
+/// fait (une ouverture et un arrêt qui se croisent ne les laissent pas
+/// faux ; la veille les relit chaque seconde).
+fn sync_sharing(s: &AppState) {
+    let local = s.share.local_open();
+    s.display.set_sharing(local);
+    s.audio.set_sharing(local);
+}
+
 fn opened(s: &AppState, snapshot: &Snapshot) {
-    if snapshot.origin == Origin::Local {
-        s.display.set_sharing(true);
-        s.audio.set_sharing(true);
-    }
+    sync_sharing(s);
     s.activity.event("info", Msg::new("events.shareOpened").with("host", host_name(snapshot)).with("n", snapshot.display.index));
 }
 
@@ -312,8 +320,7 @@ fn opened(s: &AppState, snapshot: &Snapshot) {
 /// vie suivant dit « arrêté »). Rend ce qu'il était.
 pub async fn close_share(s: &AppState) -> Option<Snapshot> {
     let snapshot = s.share.close()?;
-    s.display.set_sharing(false);
-    s.audio.set_sharing(false);
+    sync_sharing(s);
     // Tous les invités à la fois : un Kyber lent ne fait attendre qu'une fois.
     let mut kicks = tokio::task::JoinSet::new();
     for g in snapshot.guests.clone() {
@@ -520,6 +527,18 @@ pub struct LocalOpenBody {
     display: u32,
 }
 
+/// Aucun appareil en session ni en train de se préparer (son écran virtuel
+/// éteindrait l'écran partagé) : sinon `session` (avec son nom) ou `busy`.
+fn device_free(s: &AppState) -> ShareResult<()> {
+    if let Some(live) = s.activity.live() {
+        return Err(ShareError::new(StatusCode::CONFLICT, "session", Msg::new("share.inSession").with("name", live.name)));
+    }
+    if s.preparing.load(std::sync::atomic::Ordering::SeqCst) > 0 {
+        return Err(ShareError::new(StatusCode::CONFLICT, "busy", Msg::new("share.busy")));
+    }
+    Ok(())
+}
+
 /// `POST /api/local/share/open` `{"display": <id>}` : partager un écran du PC,
 /// sans session. Refusé pendant la session d'un appareil (son écran virtuel
 /// éteint ceux du PC) ou une autre connexion qui a pris les écrans ou le son.
@@ -533,9 +552,7 @@ pub async fn local_open(
     if !enabled(&s) {
         return Err(ShareError::new(StatusCode::CONFLICT, "disabled", Msg::new("share.disabled")));
     }
-    if let Some(live) = s.activity.live() {
-        return Err(ShareError::new(StatusCode::CONFLICT, "session", Msg::new("share.inSession").with("name", live.name)));
-    }
+    device_free(&s)?;
     let (d, a) = (s.display.clone(), s.audio.clone());
     let taken = blocking(move || Ok(!d.status()["session"].is_null() || !a.status()["session"].is_null())).await?;
     if taken {
@@ -549,6 +566,14 @@ pub async fn local_open(
     let display = ShareDisplay { id, index, width: chosen.width, height: chosen.height, refresh: chosen.refresh, name: chosen.name };
     let (snapshot, fresh) =
         s.share.open(Origin::Local, display).map_err(|_| ShareError::new(StatusCode::CONFLICT, "other_share", Msg::new("share.otherShare")))?;
+    // La lecture des écrans prend du temps (Kyber, l'agent de la session de
+    // l'écran) : un appareil a pu commencer à se préparer entre-temps, après
+    // avoir vu qu'aucun partage n'était ouvert. Revu une fois ouvert : l'un
+    // des deux voit toujours l'autre.
+    if fresh && let Err(refusal) = device_free(&s) {
+        close_share(&s).await;
+        return Err(refusal);
+    }
     if fresh {
         tracing::info!("partage de l'écran {} ({}) ouvert depuis le PC", snapshot.display.index, snapshot.display.name);
         opened(&s, &snapshot);
@@ -718,21 +743,35 @@ pub fn supervise(s: AppState) {
         let mut tick = tokio::time::interval(Duration::from_secs(1));
         loop {
             tick.tick().await;
-            if !s.share.is_open() {
-                continue;
-            }
-            for guest in s.share.expire() {
-                tracing::info!("partage : {} ne donne plus de nouvelles", guest.name);
-                guest_gone(&s, &guest).await;
-            }
-            if let Some(Origin::Host { device_id, name, .. }) = s.share.snapshot().map(|snap| snap.origin)
-                && s.activity.live().is_none_or(|l| l.device_id != device_id)
-            {
-                tracing::info!("partage de {name} arrêté : sa session est finie");
-                close_share(&s).await;
-            }
+            supervise_tick(&s).await;
         }
     });
+}
+
+/// Un tour de la veille.
+async fn supervise_tick(s: &AppState) {
+    sync_sharing(s);
+    let Some(snapshot) = s.share.snapshot() else { return };
+    for guest in s.share.expire() {
+        tracing::info!("partage : {} ne donne plus de nouvelles", guest.name);
+        guest_gone(s, &guest).await;
+    }
+    match snapshot.origin {
+        Origin::Host { device_id, name, .. } if s.activity.live().is_none_or(|l| l.device_id != device_id) => {
+            tracing::info!("partage de {name} arrêté : sa session est finie");
+            close_share(s).await;
+        }
+        // Une session d'appareil a commencé quand même (sa préparation a
+        // regardé juste avant que le PC ouvre son partage) : son écran
+        // virtuel éteindrait celui que regardent les invités.
+        Origin::Local => {
+            if let Some(live) = s.activity.live() {
+                tracing::info!("partage du PC arrêté : {} est en session", live.name);
+                close_share(s).await;
+            }
+        }
+        Origin::Host { .. } => {}
+    }
 }
 
 #[cfg(all(test, not(windows)))]
@@ -1029,6 +1068,53 @@ mod tests {
         close_share(s).await;
         assert!(!s.display.sharing() && !s.audio.sharing());
         assert_eq!(st.restarts.load(Ordering::SeqCst), 0);
+    }
+
+    /// Une session qui commence pendant que le PC ouvre son partage (le
+    /// partage lit les écrans, Kyber, l'agent : plusieurs secondes) : le
+    /// partage ne reste pas ouvert sous l'écran virtuel de l'appareil.
+    #[tokio::test]
+    async fn une_session_qui_commence_pendant_le_partage_du_pc() {
+        let st = station();
+        let s = &st.s;
+        let screen = || Json(LocalOpenBody { display: kyber_display_id("\\\\.\\DISPLAY1") });
+        // Un appareil se prépare (`prepare` en cours) : pas de partage du PC.
+        s.preparing.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let refused = local_open(State(s.clone()), peer(5), admin(s), screen()).await.err().unwrap();
+        assert_eq!((refused.status, refused.code), (StatusCode::CONFLICT, "busy"));
+        assert!(!s.share.is_open() && !s.display.sharing() && !s.audio.sharing());
+        s.preparing.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        // Partage ouvert, puis la session de l'appareil commence quand même
+        // (sa préparation a regardé avant l'ouverture) : la veille l'arrête.
+        let Json(opened) = local_open(State(s.clone()), peer(5), admin(s), screen()).await.ok().unwrap();
+        let code = opened["code"].as_str().unwrap();
+        let (_, joined) = body(join(State(s.clone()), peer(20), join_body(code, "Léa", "ipad", "ios")).await).await;
+        s.activity.begin(Some(mac()), "mac", None, None);
+        supervise_tick(s).await;
+        assert!(!s.share.is_open(), "le partage du PC ne survit pas à une session d'appareil");
+        assert!(!s.display.sharing() && !s.audio.sharing());
+        let secret = joined["secret"].as_str().unwrap();
+        let (_, ended) = body(beat(State(s.clone()), guest_headers(secret), Json(GuestBody { guest: joined["guest"].as_str().unwrap().into() })).await).await;
+        assert_eq!(ended["end"], "stopped");
+    }
+
+    /// Les réglages « partage du PC » de l'écran et du son suivent le partage,
+    /// même si une ouverture et un arrêt se croisent.
+    #[tokio::test]
+    async fn ecran_et_son_suivent_le_partage_du_pc() {
+        let st = station();
+        let s = &st.s;
+        // Restés allumés sans partage (ouverture et arrêt croisés) : rendus.
+        s.display.set_sharing(true);
+        s.audio.set_sharing(true);
+        supervise_tick(s).await;
+        assert!(!s.display.sharing() && !s.audio.sharing());
+        // Éteints sous un partage du PC ouvert : rallumés.
+        let _ = local_open(State(s.clone()), peer(5), admin(s), Json(LocalOpenBody { display: kyber_display_id("\\\\.\\DISPLAY1") })).await.ok().unwrap();
+        s.display.set_sharing(false);
+        s.audio.set_sharing(false);
+        supervise_tick(s).await;
+        assert!(s.display.sharing() && s.audio.sharing());
     }
 
     #[tokio::test]
