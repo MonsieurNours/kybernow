@@ -228,13 +228,21 @@ fn image_json(g: &Guest) -> Value {
 }
 
 /// La qualité d'un invité, poussée tout de suite à Kyber (il relance
-/// l'image de l'invité seulement) ; sinon prise à sa prochaine connexion.
-async fn kyber_quality(s: &AppState, guest: &Guest) {
+/// l'image de l'invité seulement, et la retient 10 min : à une nouvelle
+/// connexion, il la préfère à celle du jeton). `false` : Kyber ne l'a pas
+/// prise.
+async fn kyber_quality(s: &AppState, guest: &Guest) -> bool {
     let body = json!({ "user": guest.kyber_user(), "quality": guest.preset.as_str() });
     match crate::kyber_proxy::kyber_call(s, Method::POST, "/kybernow/quality", Some(body)).await {
-        Ok((status, _)) if status.is_success() => {}
-        Ok((status, _)) => tracing::warn!("partage : qualité de {} refusée par Kyber ({status}) ; correctif 0020 absent ?", guest.name),
-        Err(e) => tracing::warn!("partage : qualité de {} non transmise à Kyber : {e:#}", guest.name),
+        Ok((status, _)) if status.is_success() => true,
+        Ok((status, _)) => {
+            tracing::warn!("partage : qualité de {} refusée par Kyber ({status}) ; correctif 0020 absent ?", guest.name);
+            false
+        }
+        Err(e) => {
+            tracing::warn!("partage : qualité de {} non transmise à Kyber : {e:#}", guest.name);
+            false
+        }
     }
 }
 
@@ -778,6 +786,11 @@ pub async fn join(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<Sock
     if joined.new {
         tracing::info!("partage : {} rejoint ({}, {})", guest.name, guest.app, peer.ip());
         s.activity.event("info", Msg::new("events.shareWatching").with("name", guest.name.as_str()));
+    } else {
+        // Le même appareil qui revient : Kyber retient la qualité poussée en
+        // cours de partage (et un cran descendu pour retard), qu'il
+        // préférerait à celle de ce jeton ; il prend celle d'aujourd'hui.
+        kyber_quality(&s, &guest).await;
     }
     let stream = kyber_stream(&s, display.id).await;
     let answer = json!({
@@ -848,20 +861,29 @@ pub struct QualityBody {
 }
 
 /// `POST /api/share/quality` : l'invité change sa « Qualité de l'image » ;
-/// Kyber relance son image seulement. Rend l'`image` du signe de vie.
+/// Kyber relance son image seulement. Rend l'`image` du signe de vie. Un
+/// autre préréglage que Kyber ne prend pas : `503 unavailable`, rien ne
+/// change (ni le jeton, ni ce que l'invité reçoit), il peut réessayer.
 pub async fn quality(State(s): State<AppState>, headers: HeaderMap, Json(body): Json<QualityBody>) -> Response {
     let secret = guest_secret(&headers);
     let Some(display) = s.share.snapshot().map(|snap| snap.display) else {
         return guest_error(StatusCode::NOT_FOUND, "unknown_guest");
     };
-    let before = s.share.guests().into_iter().find(|g| g.id == body.guest).map(|g| g.preset);
+    let before = s.share.guests().into_iter().find(|g| g.id == body.guest).map(|g| (g.quality, g.preset));
     let preset = resolve_quality(body.quality, body.auto.as_ref(), &display);
     let Some(guest) = s.share.set_quality(&body.guest, Some(&secret), body.quality, preset) else {
         return guest_error(StatusCode::NOT_FOUND, "unknown_guest");
     };
-    if before != Some(preset) {
+    if let Some((quality_before, preset_before)) = before
+        && preset_before != preset
+    {
         tracing::info!("partage : {} demande {} ({})", guest.name, body.quality.as_str(), preset.as_str());
-        kyber_quality(&s, &guest).await;
+        if !kyber_quality(&s, &guest).await {
+            // Gardée, elle partirait dans le jeton sans que Kyber relance
+            // l'image, et la même demande ne serait plus jamais poussée.
+            let _ = s.share.set_quality(&body.guest, Some(&secret), quality_before, preset_before);
+            return guest_error(StatusCode::SERVICE_UNAVAILABLE, "unavailable");
+        }
     }
     refresh_images(&s).await;
     ([(header::CACHE_CONTROL, "no-store")], Json(image_json(&guest))).into_response()
@@ -1204,12 +1226,19 @@ mod tests {
         // La vue de l'hôte donne la même image.
         let Json(v) = local_get(State(s.clone()), peer(5), admin(s)).await.ok().unwrap();
         assert_eq!(v["guests"][0]["image"]["quality"], "auto");
-        // Changer de qualité en cours.
+        // Changer de qualité en cours : Kyber (absent ici) ne la prend pas,
+        // rien ne change (ni le jeton ni l'image lue), l'invité peut réessayer.
         let quality = |q: &str, secret: &str| quality(State(s.clone()), guest_headers(secret), Json(serde_json::from_value(json!({ "guest": guest, "quality": q })).unwrap()));
-        let (status, image) = body(quality("720p30", &secret).await).await;
-        assert_eq!((status, image["quality"].as_str()), (StatusCode::OK, Some("720p30")));
+        let (status, refused) = body(quality("720p30", &secret).await).await;
+        assert_eq!((status, refused["error"].as_str()), (StatusCode::SERVICE_UNAVAILABLE, Some("unavailable")));
         let (_, beat_v) = body(beat(State(s.clone()), guest_headers(&secret), Json(GuestBody { guest: guest.clone() })).await).await;
-        assert_eq!(claims(beat_v["token"].as_str().unwrap())["kn_quality"], "720p30");
+        assert_eq!(claims(beat_v["token"].as_str().unwrap())["kn_quality"], "1080p60");
+        assert_eq!(beat_v["image"]["quality"], "auto");
+        // Le même préréglage (rien à relancer chez Kyber) : pris tel quel.
+        let (status, image) = body(quality("1080p60", &secret).await).await;
+        assert_eq!((status, image["quality"].as_str()), (StatusCode::OK, Some("1080p60")));
+        let (_, beat_v) = body(beat(State(s.clone()), guest_headers(&secret), Json(GuestBody { guest: guest.clone() })).await).await;
+        assert_eq!(claims(beat_v["token"].as_str().unwrap())["kn_quality"], "1080p60");
         let (status, _) = body(quality("host", "faux").await).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
         // Sans `quality` (app d'avant 0.8.0) : « Auto » sans rien savoir, l'image de l'hôte.
