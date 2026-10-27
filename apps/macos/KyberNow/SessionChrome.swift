@@ -467,7 +467,7 @@ private struct SessionBar: View {
             Text(session.title).font(Theme.sans(14, .semibold)).foregroundStyle(Theme.text).lineLimit(1)
                 .padding(.leading, 6).padding(.trailing, 8)
             divider
-            chip(icon: role.plays ? "game-controller" : "eye", text: ShareText.role(role), tint: role.plays ? Theme.accent : Theme.text2, compact: compact)
+            chip(icon: ShareText.icon(role), text: ShareText.role(role), tint: role.plays ? Theme.accent : Theme.text2, compact: compact)
             statsButton(compact: compact)
             divider
             keepSound(compact: compact)

@@ -301,7 +301,7 @@ struct SharePanelTV: View {
     private func guestRow(_ guest: ShareGuest) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 18) {
-                Icon(guest.role.plays ? "game-controller" : "eye", size: 32)
+                Icon(ShareText.icon(guest.role), size: 32)
                     .foregroundStyle(guest.role.plays ? Theme.accent : Theme.faint)
                     .frame(width: 40)
                 VStack(alignment: .leading, spacing: 4) {
@@ -312,7 +312,7 @@ struct SharePanelTV: View {
             }
             HStack(spacing: 14) {
                 ForEach(Array(ShareHostModel.roleActions(for: guest.role).enumerated()), id: \.offset) { i, action in
-                    Button { Task { await share.setRole(action.role, of: guest) } } label: { Text(action.title).lineLimit(1).fixedSize() }
+                    Button { Task { await share.setRight(action.right, on: action.on, of: guest) } } label: { Text(action.title).lineLimit(1).fixedSize() }
                         .buttonStyle(ChoiceButton(selected: false, height: 56, light: true))
                         .focused($focus, equals: .role(guest.id, i))
                 }

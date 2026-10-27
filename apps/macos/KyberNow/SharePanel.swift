@@ -210,6 +210,26 @@ enum SharePanelDemo {
         write(view, width: 372, to: path)
     }
 
+    /// Les textes des deux droits en clair, pour les relire sans fenêtre : pour
+    /// chacun des quatre rôles, le libellé de l'invité, ce que dit la barre,
+    /// son icône et les boutons de l'hôte (avec le rôle que chacun demande) ;
+    /// puis l'avis de chacun des douze changements de droits.
+    static func texts() -> String {
+        let roles: [ShareRole] = [.spectator, .player, .kbm, .playerKbm]
+        var lines: [String] = []
+        for role in roles {
+            lines.append("\(ShareText.guest("Léa", role)) | barre : \(ShareText.role(role)) | icône : \(ShareText.icon(role))")
+            for action in ShareHostModel.roleActions(for: role) { lines.append("    \(action.title) → \(role.with(action.right, on: action.on))") }
+        }
+        lines.append("")
+        for from in roles {
+            for to in roles where from != to {
+                lines.append("\(from) → \(to) : \(ShareText.roleNotice(to, previous: from) ?? "(aucun avis)")")
+            }
+        }
+        return lines.joined(separator: "\n")
+    }
+
     static func renderJoin(to path: String, app: AppModel) {
         write(JoinSheet(initialLink: nil).environmentObject(app), width: 560, to: path)
     }
@@ -225,31 +245,34 @@ enum SharePanelDemo {
             session.share.demoAddGuest(name: "Léa", app: "ios", role: .player)
             session.share.demoAddGuest(name: "Hugo", app: "tvos")
             session.share.demoAddGuest(name: "Sam", app: "web", role: .playerKbm)
+            session.share.demoAddGuest(name: "Zoé", app: "mac", role: .kbm)
         }
         render(session: session, to: path)
     }
 
     /// La session d'un invité sans fenêtre à un moment donné : `end` (retiré du
-    /// partage : la raison reste dans la capsule), `play` (spectateur devenu
-    /// joueur), `kbm` (joueur à qui l'hôte donne le clavier et la souris),
-    /// `watch` (joueur ramené en spectateur) : l'avis bref du changement de rôle.
+    /// partage : la raison reste dans la capsule), puis l'avis bref d'un
+    /// changement de droits : `play` (spectateur à qui l'hôte donne les
+    /// manettes), `kbm` (joueur à qui il donne le clavier et la souris),
+    /// `watch` (joueur ramené en spectateur), `unpads` (joueur avec clavier et
+    /// souris, manettes reprises), `unkbm` (le clavier et la souris repris).
     static func renderGuestMoment(_ moment: String, app: AppModel, to path: String) async {
-        let start: ShareRole = moment == "play" ? .spectator : .player
+        let (start, next): (ShareRole, ShareRole) = switch moment {
+        case "play": (.spectator, .player)
+        case "kbm": (.player, .playerKbm)
+        case "watch": (.player, .spectator)
+        case "unpads": (.playerKbm, .kbm)
+        case "unkbm": (.playerKbm, .player)
+        default: (.player, .player)
+        }
         let session = SessionController(guest: ShareFound(demoComputer: "PC-DE-MATTHIEU", host: "Matthieu", role: start), store: app.store,
                                         opening: .first(home: nil)) { _ in }
         session.demoHeadless()
-        switch moment {
-        case "end":
+        if moment == "end" {
             session.demoShareEnded(removed: true)
-        case "kbm":
+        } else {
             session.setBar(false)
-            session.demoRoleChanged(.playerKbm)
-        case "watch":
-            session.setBar(false)
-            session.demoRoleChanged(.spectator)
-        default:
-            session.setBar(false)
-            session.demoRoleChanged(.player)
+            session.demoRoleChanged(next)
         }
         // L'avis s'affiche au tour suivant de la boucle.
         try? await Task.sleep(for: .milliseconds(700))
@@ -262,7 +285,7 @@ enum SharePanelDemo {
     }
 
     /// La barre de session, ouverte, d'une session sans fenêtre : l'hôte
-    /// (`host`, deux invités), ou un invité (`spectator`, `player`, `player_kbm`).
+    /// (`host`, deux invités), ou un invité (`spectator`, `player`, `kbm`, `player_kbm`).
     static func renderBar(kind: String, app: AppModel, to path: String) async {
         let session: SessionController
         if kind == "host" {
@@ -273,7 +296,12 @@ enum SharePanelDemo {
             session.share.demoAddGuest(name: "Léa", app: "ios", role: .player)
             session.share.demoAddGuest(name: "Hugo", app: "tvos")
         } else {
-            let role: ShareRole = kind == "player" ? .player : kind == "player_kbm" ? .playerKbm : .spectator
+            let role: ShareRole = switch kind {
+            case "player": .player
+            case "kbm": .kbm
+            case "player_kbm": .playerKbm
+            default: .spectator
+            }
             session = SessionController(guest: ShareFound(demoComputer: "PC-DE-MATTHIEU", host: "Matthieu", role: role), store: app.store,
                                         opening: .first(home: nil)) { _ in }
         }
@@ -309,7 +337,7 @@ private struct GuestRow: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
-            Icon(guest.role.plays ? "game-controller" : "eye", size: 16, bold: true)
+            Icon(ShareText.icon(guest.role), size: 16, bold: true)
                 .foregroundStyle(guest.role.plays ? Theme.accent : Theme.faint)
                 .frame(width: 20)
             VStack(alignment: .leading, spacing: 2) {
@@ -322,7 +350,7 @@ private struct GuestRow: View {
             Spacer(minLength: 8)
             Menu {
                 ForEach(Array(ShareHostModel.roleActions(for: guest.role).enumerated()), id: \.offset) { _, action in
-                    Button(action.title) { Task { await share.setRole(action.role, of: guest) } }
+                    Button(action.title) { Task { await share.setRight(action.right, on: action.on, of: guest) } }
                 }
                 Divider()
                 Button(ShareText.remove, role: .destructive) { Task { await share.kick(guest) } }

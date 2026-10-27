@@ -199,6 +199,24 @@ final class ShareJoinModel: ObservableObject {
 
 // MARK: - Hôte
 
+/// L'un des deux droits d'un invité, que l'hôte donne ou reprend sans toucher à l'autre.
+enum ShareRight: Equatable {
+    /// Les manettes.
+    case pads
+    /// Le clavier et la souris.
+    case keyboardAndMouse
+}
+
+extension ShareRole {
+    /// Le rôle avec ce droit donné ou repris, l'autre tel quel (le calcul est celui du cœur).
+    func with(_ right: ShareRight, on: Bool) -> ShareRole {
+        switch right {
+        case .pads: return with(pads: on)
+        case .keyboardAndMouse: return with(keyboardAndMouse: on)
+        }
+    }
+}
+
 /// Le partage de la session d'hôte : « Partager » l'ouvre, le panneau le
 /// montre (code, lien, QR code, invités), ses actions passent par Admin. La
 /// liste des invités se met à jour avec le signe de vie du cœur
@@ -260,7 +278,16 @@ final class ShareHostModel: ObservableObject {
         await run { try await $0.shareNewCode() }
     }
 
-    func setRole(_ role: ShareRole, of guest: ShareGuest) async {
+    /// « Donner » ou « Reprendre les manettes », « Donner » ou « Reprendre le
+    /// clavier et la souris » : un droit change, l'autre reste tel quel. Une
+    /// seule action à la fois, jusqu'à la réponse d'Admin (`busy`, et les
+    /// boutons sont inactifs d'ici là) : deux clics rapides sur les deux droits
+    /// ne s'annulent pas. Le rôle demandé se calcule d'après le dernier état
+    /// connu de l'invité, pas d'après ce que le menu affichait quand il s'est
+    /// ouvert : le droit que l'autre bouton vient de changer n'est jamais défait.
+    func setRight(_ right: ShareRight, on: Bool, of guest: ShareGuest) async {
+        guard !busy else { return }
+        let role = (guests.first { $0.id == guest.id } ?? guest).role.with(right, on: on)
         #if DEBUG
         if demo { return demoUpdate { $0.guests = $0.guests.map { $0.id == guest.id ? $0.with(role: role) : $0 } } }
         #endif
@@ -369,16 +396,15 @@ final class ShareHostModel: ObservableObject {
 
     // MARK: Ce que le panneau dit
 
-    /// Ce que chaque rôle propose à l'hôte, dans cet ordre (« Retirer » est à
-    /// part, toujours en dernier) : un spectateur, « Faire jouer » ; un
-    /// joueur, « Faire regarder » (retour en spectateur) à la place, puis
-    /// « Donner » ou « Reprendre le clavier et la souris » (docs/link-ui.md).
-    static func roleActions(for role: ShareRole) -> [(title: String, role: ShareRole)] {
-        switch role {
-        case .spectator: return [(ShareText.letPlay, .player)]
-        case .player: return [(ShareText.watchOnly, .spectator), (ShareText.giveKeyboardMouse, .playerKbm)]
-        case .playerKbm: return [(ShareText.watchOnly, .spectator), (ShareText.takeBackKeyboardMouse, .player)]
-        }
+    /// Ce que chaque invité propose à l'hôte, dans cet ordre (« Retirer » est à
+    /// part, toujours en dernier) : deux droits indépendants, chacun donné ou
+    /// repris sans toucher à l'autre, « Donner » ou « Reprendre les manettes »,
+    /// puis « Donner » ou « Reprendre le clavier et la souris »
+    /// (docs/link-ui.md). Chaque bouton dit quel droit il change et s'il le
+    /// donne (`on`) ou le reprend ; `ShareHostModel.setRight` fait le reste.
+    static func roleActions(for role: ShareRole) -> [(title: String, right: ShareRight, on: Bool)] {
+        [(role.pads ? ShareText.takeBackPads : ShareText.givePads, .pads, !role.pads),
+         (role.keyboardAndMouse ? ShareText.takeBackKeyboardMouse : ShareText.giveKeyboardMouse, .keyboardAndMouse, !role.keyboardAndMouse)]
     }
 
     /// « Copier le lien » : l'adresse du client web (`web`), à défaut le lien

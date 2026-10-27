@@ -72,8 +72,8 @@ final class AppModel: ObservableObject {
         case "add": screen = .addHost
         case "join": screen = .join(nil)
         case "guest", "guest-menu":
-            // `-screen guest|guest-menu -demoRole spectator|player|player_kbm` : la session d'un invité, sans Station.
-            let role: ShareRole = switch UserDefaults.standard.string(forKey: "demoRole") { case "player": .player; case "player_kbm": .playerKbm; default: .spectator }
+            // `-screen guest|guest-menu -demoRole spectator|player|kbm|player_kbm` : la session d'un invité, sans Station.
+            let role: ShareRole = switch UserDefaults.standard.string(forKey: "demoRole") { case "player": .player; case "kbm": .kbm; case "player_kbm": .playerKbm; default: .spectator }
             openGuestSession(ShareFound(demoComputer: "PC-DE-MATTHIEU", host: "Matthieu", role: role))
         case "app": screen = .appSettings
         case "gamepads": screen = .gamepads

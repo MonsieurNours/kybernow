@@ -587,10 +587,12 @@ enum DemoRemote {
         }
     }
 
-    /// `spectator`, `player` ou `player_kbm` (KyberNow Share).
+    /// `spectator`, `player` (les manettes), `kbm` (le clavier et la souris) ou
+    /// `player_kbm` (les deux) : les rôles de KyberNow Share.
     private static func demoRole(_ name: String) -> ShareRole {
         switch name {
         case "player": return .player
+        case "kbm": return .kbm
         case "player_kbm": return .playerKbm
         default: return .spectator
         }
@@ -836,10 +838,10 @@ enum DemoRemote {
             let action = parts.count > 3 && parts[3] != "default" ? parts[3] : UNNotificationDefaultActionIdentifier
             app.notifier.respond(kind: parts[1], host: h?.id.uuidString ?? "", action: action)
         case "guest-join":
-            // guest-join:<spectator|player|player_kbm> : une session d'invité (sans Station), comme après « Rejoindre ».
+            // guest-join:<spectator|player|kbm|player_kbm> : une session d'invité (sans Station), comme après « Rejoindre ».
             app.openGuestSession(ShareFound(demoComputer: "PC-DE-MATTHIEU", host: "Matthieu", role: demoRole(parts.count > 1 ? parts[1] : "")))
         case "guest-role":
-            // guest-role:<spectator|player|player_kbm> : l'hôte change le rôle de l'invité (la première session d'invité).
+            // guest-role:<spectator|player|kbm|player_kbm> : l'hôte change les droits de l'invité (la première session d'invité).
             app.sessions.all.first(where: \.isGuest)?.demoRoleChanged(demoRole(parts.count > 1 ? parts[1] : ""))
         case "guest-end":
             // guest-end:stopped|removed : l'hôte arrête le partage ou retire l'invité.
@@ -861,13 +863,17 @@ enum DemoRemote {
             guard parts.count > 2 else { return }
             Task { await SharePanelDemo.renderPanel(app: app, guests: parts[1] == "avec", to: parts[2]) }
         case "moment-render":
-            // moment-render:<end|play|kbm|watch>:<fichier> : une session d'invité sans fenêtre à ce moment (fin par le partage, avis de rôle).
+            // moment-render:<end|play|kbm|watch|unpads|unkbm>:<fichier> : une session d'invité sans fenêtre à ce moment (fin par le partage, avis de droits).
             guard parts.count > 2 else { return }
             Task { await SharePanelDemo.renderGuestMoment(parts[1], app: app, to: parts[2]) }
         case "bar-render":
-            // bar-render:<host|spectator|player|player_kbm>:<fichier> : la barre de session ouverte, sans fenêtre.
+            // bar-render:<host|spectator|player|kbm|player_kbm>:<fichier> : la barre de session ouverte, sans fenêtre.
             guard parts.count > 2 else { return }
             Task { await SharePanelDemo.renderBar(kind: parts[1], app: app, to: parts[2]) }
+        case "share-texts":
+            // share-texts:<fichier> : les textes des droits en clair (libellé, icône, boutons de l'hôte, avis de chaque changement).
+            guard parts.count > 1 else { return }
+            try? (SharePanelDemo.texts() + "\n").write(toFile: parts[1], atomically: true, encoding: .utf8)
         case "join-render":
             // join-render:<fichier> : l'écran « Rejoindre » dessiné dans un PNG.
             guard parts.count > 1 else { return }

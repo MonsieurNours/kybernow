@@ -164,7 +164,6 @@ enum ShareText {
     static var qrCode: String { String(localized: "QR code") }
     static var qrLabel: String { String(localized: "QR code du partage") }
     static var guests: String { String(localized: "Invités") }
-    static var watchOnly: String { String(localized: "Faire regarder") }
 
     /// « moins d'une minute », « 3 min », « 1 h 12 » : jamais négative (l'horloge
     /// de la Station peut avancer sur celle de cet appareil).
@@ -212,18 +211,27 @@ enum ShareText {
     static var newCode: String { String(localized: "Nouveau code") }
     static var stop: String { String(localized: "Arrêter le partage") }
     static var fourGuests: String { String(localized: "Quatre invités au plus.") }
-    static var letPlay: String { String(localized: "Faire jouer") }
+    static var givePads: String { String(localized: "Donner les manettes") }
+    static var takeBackPads: String { String(localized: "Reprendre les manettes") }
     static var giveKeyboardMouse: String { String(localized: "Donner le clavier et la souris") }
     static var takeBackKeyboardMouse: String { String(localized: "Reprendre le clavier et la souris") }
     static var remove: String { String(localized: "Retirer") }
 
-    /// « Léa · Spectateur », « Léa · Joueur », « Léa · Joueur, clavier et souris ».
+    /// « Léa · Spectateur », « Léa · Joueur », « Léa · Clavier et souris »,
+    /// « Léa · Joueur, clavier et souris ».
     static func guest(_ name: String, _ role: ShareRole) -> String {
         switch role {
         case .spectator: return String(localized: "\(name) · Spectateur")
         case .player: return String(localized: "\(name) · Joueur")
+        case .kbm: return String(localized: "\(name) · Clavier et souris")
         case .playerKbm: return String(localized: "\(name) · Joueur, clavier et souris")
         }
+    }
+
+    /// L'icône d'un rôle : la manette dès qu'il a les manettes, le clavier avec
+    /// le clavier et la souris seuls, l'œil sans aucun droit.
+    static func icon(_ role: ShareRole) -> String {
+        role.pads ? "game-controller" : role.keyboardAndMouse ? "keyboard" : "eye"
     }
 
     /// Sous-titre de la tuile « Partager » des menus quand rien n'est ouvert.
@@ -250,14 +258,19 @@ enum ShareText {
     /// Le rôle, dans la barre réduite.
     static func role(_ role: ShareRole) -> String { role.plays ? player : spectator }
 
-    /// L'avis bref quand l'hôte change le rôle ; rien au départ.
+    /// L'avis bref quand l'hôte change les droits ; rien au départ. Un seul avis,
+    /// même quand les deux droits changent d'un coup (docs/link-ui.md, « Droits
+    /// changés ») : le droit donné avant le droit repris, les manettes avant le
+    /// clavier et la souris ; quand il ne reste aucun droit, « Vous regardez de
+    /// nouveau. » prend la place de l'avis de reprise.
     static func roleNotice(_ role: ShareRole, previous: ShareRole?) -> String? {
         guard let previous, previous != role else { return nil }
-        switch role {
-        case .spectator: return String(localized: "Vous regardez de nouveau.")
-        case .player: return previous == .playerKbm ? String(localized: "Le clavier et la souris sont repris.") : String(localized: "Vous pouvez jouer.")
-        case .playerKbm: return String(localized: "Vous avez le clavier et la souris.")
-        }
+        if role.pads, !previous.pads { return String(localized: "Vous pouvez jouer à la manette.") }
+        if role.keyboardAndMouse, !previous.keyboardAndMouse { return String(localized: "Vous avez le clavier et la souris.") }
+        if role == .spectator { return String(localized: "Vous regardez de nouveau.") }
+        if !role.pads, previous.pads { return String(localized: "Les manettes sont reprises.") }
+        if !role.keyboardAndMouse, previous.keyboardAndMouse { return String(localized: "Le clavier et la souris sont repris.") }
+        return nil
     }
 }
 

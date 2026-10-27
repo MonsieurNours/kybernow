@@ -11,7 +11,9 @@ import CoreImage
 import Foundation
 @_implementationOnly import CKyberNow
 
-/// Ce qu'un invité a le droit de faire sur l'ordinateur de l'hôte.
+/// Ce qu'un invité a le droit de faire sur l'ordinateur de l'hôte : deux
+/// droits indépendants, les manettes et le clavier et la souris, que l'hôte
+/// donne ou reprend chacun sans toucher à l'autre (docs/kybernow-share.md).
 public enum ShareRole: Int, Sendable, Equatable {
     /// Voit et entend, n'envoie rien.
     case spectator = 0
@@ -19,17 +21,34 @@ public enum ShareRole: Int, Sendable, Equatable {
     case player = 1
     /// Ses manettes, et le clavier et la souris que l'hôte lui a donnés.
     case playerKbm = 2
+    /// Son clavier et sa souris seulement, sans manettes.
+    case kbm = 3
 
     /// Les manettes de l'invité partent vers l'ordinateur.
-    public var plays: Bool { self != .spectator }
+    public var pads: Bool { self == .player || self == .playerKbm }
     /// Le clavier et la souris de l'invité partent vers l'ordinateur.
-    public var keyboardAndMouse: Bool { self == .playerKbm }
+    public var keyboardAndMouse: Bool { self == .kbm || self == .playerKbm }
+    /// Un droit au moins : « Joueur » dans la barre (sinon « Spectateur »).
+    public var plays: Bool { self != .spectator }
 
-    /// Le nom du rôle dans l'échange avec Admin (`spectator`, `player`, `player_kbm`).
+    /// Le rôle que demande « Donner » ou « Reprendre les manettes » : le clavier
+    /// et la souris restent tels quels (le calcul est celui du cœur).
+    public func with(pads on: Bool) -> ShareRole {
+        ShareRole(code: kn_share_role_with_pads(Int32(rawValue), on)) ?? self
+    }
+
+    /// Le rôle que demande « Donner » ou « Reprendre le clavier et la souris » :
+    /// les manettes restent telles quelles.
+    public func with(keyboardAndMouse on: Bool) -> ShareRole {
+        ShareRole(code: kn_share_role_with_kbm(Int32(rawValue), on)) ?? self
+    }
+
+    /// Le nom du rôle dans l'échange avec Admin (`spectator`, `player`, `kbm`, `player_kbm`).
     init?(wire: String?) {
         switch wire {
         case "spectator": self = .spectator
         case "player": self = .player
+        case "kbm": self = .kbm
         case "player_kbm": self = .playerKbm
         default: return nil
         }
@@ -385,7 +404,8 @@ extension ConsoleClient {
         return ShareState(json: text)
     }
 
-    /// « Faire jouer », « Donner le clavier et la souris », « Reprendre le clavier et la souris ».
+    /// « Donner » ou « Reprendre les manettes », « Donner » ou « Reprendre le
+    /// clavier et la souris » : le rôle entier que demande l'un des deux boutons.
     public func shareSetRole(_ role: ShareRole, of guest: String) async throws {
         try await call { console in
             var error: UnsafeMutablePointer<CChar>?

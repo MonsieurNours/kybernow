@@ -244,6 +244,22 @@
         }
       }
     },
+    "%@ · Clavier et souris" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · Keyboard and mouse"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · Clavier et souris"
+          }
+        }
+      }
+    },
     "%@ · Joueur" : {
       "localizations" : {
         "en" : {
@@ -2404,6 +2420,22 @@
         }
       }
     },
+    "Donner les manettes" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Give controllers"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Donner les manettes"
+          }
+        }
+      }
+    },
     "Données mobiles" : {
       "localizations" : {
         "en" : {
@@ -2869,6 +2901,7 @@
       }
     },
     "Faire jouer" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2885,6 +2918,7 @@
       }
     },
     "Faire regarder" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4368,6 +4402,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Lente"
+          }
+        }
+      }
+    },
+    "Les manettes sont reprises." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The controllers were taken back."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les manettes sont reprises."
           }
         }
       }
@@ -5872,6 +5922,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Reprendre le clavier et la souris"
+          }
+        }
+      }
+    },
+    "Reprendre les manettes" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Take back controllers"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reprendre les manettes"
           }
         }
       }
@@ -7556,7 +7622,24 @@
         }
       }
     },
+    "Vous pouvez jouer à la manette." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You can play with a controller."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vous pouvez jouer à la manette."
+          }
+        }
+      }
+    },
     "Vous pouvez jouer." : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {

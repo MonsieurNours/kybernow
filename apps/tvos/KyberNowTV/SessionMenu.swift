@@ -62,7 +62,7 @@ struct SessionMenu: View {
                     resumeTile
                     // Un invité : ses manettes s'il joue, le clavier et la souris
                     // seulement si l'hôte les lui a donnés ; pas de profil ni de réglages.
-                    if !session.isGuest || session.shareRole.plays {
+                    if !session.isGuest || session.shareRole.pads {
                         tile(.pads, icon: "game-controller", title: String(localized: "Manettes"), detail: padsDetail) { showPads = true }
                     }
                     soundTile
@@ -122,6 +122,12 @@ struct SessionMenu: View {
         .onAppear {
             // Le menu s'ouvre sur « Reprendre », allumé.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { focus = .resume }
+        }
+        // Un droit repris pendant que sa fenêtre est ouverte : elle se ferme (le texte tapé ne partirait plus).
+        .onChange(of: session.shareRole) { _, role in
+            guard session.isGuest else { return }
+            if !role.keyboardAndMouse, typing { typing = false; text = "" }
+            if !role.pads { showPads = false }
         }
         .fullScreenCover(isPresented: $showPads) {
             GamepadsView(inSession: true) { showPads = false }
@@ -193,7 +199,7 @@ struct SessionMenu: View {
 
     /// Les tuiles se partagent la largeur : sept d'ordinaire, huit avec « Partager » ; moins pour un invité.
     private var tileCount: Int {
-        if session.isGuest { return 3 + (session.shareRole.plays ? 1 : 0) + (session.shareRole.keyboardAndMouse ? 3 : 0) }
+        if session.isGuest { return 3 + (session.shareRole.pads ? 1 : 0) + (session.shareRole.keyboardAndMouse ? 3 : 0) }
         return 8
     }
 
