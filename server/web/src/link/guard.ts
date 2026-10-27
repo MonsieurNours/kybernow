@@ -38,8 +38,12 @@ function rights() {
   return options?.allowed?.() ?? { keyboard: true, mouse: true }
 }
 
+/** `releaseAll` est en train de relâcher : ses relâchements (touches, boutons) passent même sans le droit
+ * qui vient d'être repris, pour que le moteur n'en garde rien d'enfoncé (Kyber relâche de son côté). */
+let releasing = false
+
 function onMouseButton(e: MouseEvent) {
-  if (!rights().mouse) {
+  if (!rights().mouse && !releasing) {
     e.stopImmediatePropagation()
     return
   }
@@ -60,6 +64,7 @@ function onMouseMove(e: MouseEvent) {
 }
 
 function onKey(e: KeyboardEvent) {
+  if (releasing) return
   if (!rights().keyboard) {
     // Le moteur écoute `document` : l'arrêter ici suffit, et les autres
     // écouteurs de `window` (raccourci de la barre) restent servis.
@@ -123,12 +128,17 @@ export function releaseAll() {
     key('keydown', 'ControlLeft', 'Control')
     key('keyup', 'ControlLeft', 'Control')
   }
-  for (const [code, k] of [...keys]) key('keyup', code, k)
-  keys.clear()
-  for (const button of [...buttons]) {
-    target.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, button, buttons: 0 }))
+  releasing = true
+  try {
+    for (const [code, k] of [...keys]) key('keyup', code, k)
+    keys.clear()
+    for (const button of [...buttons]) {
+      target.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, button, buttons: 0 }))
+    }
+    buttons.clear()
+  } finally {
+    releasing = false
   }
-  buttons.clear()
   options?.onRelease()
 }
 

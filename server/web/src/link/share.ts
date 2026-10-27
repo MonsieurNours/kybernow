@@ -106,6 +106,17 @@ export function unreadableFormat(codec: string | null, yuv444: boolean, codecs: 
   return null
 }
 
+/**
+ * Un texte du moteur ou du navigateur sans le jeton de Kyber (JWT) ni le secret de l'invité, avant
+ * qu'il aille dans la console du navigateur : ils ne sont jamais écrits dans un journal, une adresse
+ * ni le stockage de la page.
+ */
+export function redact(text: unknown, secrets: string[] = []): string {
+  let out = String(text)
+  for (const secret of secrets) if (secret) out = out.split(secret).join('…')
+  return out.replace(/eyJ[\w-]{5,}\.[\w-]{5,}(?:\.[\w-]*)?/g, '…')
+}
+
 /** Sort du partage : à la fermeture de la page comme sur « Quitter le partage » (`keepalive`). */
 export function leaveShare(join: GuestJoin): Promise<unknown> {
   return fetch('/api/share/leave', {
