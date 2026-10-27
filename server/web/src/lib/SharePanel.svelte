@@ -8,7 +8,7 @@
 <script lang="ts">
   import { localShare, type ShareGuest, type ShareOps, type ShareRole, type ShareView } from './api'
   import { errorText, notify as storeNotify, refreshStatus, setShare } from './store.svelte'
-  import { deviceIcon, duration, screenLine } from './format'
+  import { deviceIcon, screenLine, sinceText } from './format'
   import Icon from './Icon.svelte'
   import Qr from './Qr.svelte'
   import { t, tn } from './i18n/index.svelte'
@@ -68,15 +68,17 @@
     return name.startsWith('share.') ? app : name
   }
 
-  /** Ce que l'hôte peut faire d'un invité, selon ses droits. */
+  /**
+   * Ce que l'hôte peut faire d'un invité, selon ses droits (docs/link-ui.md) : un spectateur « Faire jouer » ;
+   * un joueur, avec ou sans le clavier et la souris, « Faire regarder » (retour en spectateur) à la place,
+   * puis « Donner » ou « Reprendre le clavier et la souris ».
+   */
   function moves(g: ShareGuest): { label: string; role: ShareRole }[] {
     if (g.role === 'spectator') return [{ label: t('share.play'), role: 'player' }]
-    if (g.role === 'player')
-      return [
-        { label: t('share.giveKbm'), role: 'player_kbm' },
-        { label: t('share.watch'), role: 'spectator' },
-      ]
-    return [{ label: t('share.takeKbm'), role: 'player' }]
+    return [
+      { label: t('share.watch'), role: 'spectator' },
+      g.role === 'player' ? { label: t('share.giveKbm'), role: 'player_kbm' } : { label: t('share.takeKbm'), role: 'player' },
+    ]
   }
 
   async function run(key: string, action: () => Promise<unknown>, done?: string) {
@@ -135,7 +137,7 @@
         <span class="device-icon live"><Icon name={deviceIcon(host.kind)} size={19} stroke={1.6} /></span>
         <div class="who">
           <span class="name">{t('share.host', { name: host.name })}</span>
-          <span class="meta">{t('share.since', { duration: duration(now - host.since) })}</span>
+          <span class="meta">{t('share.since', { duration: sinceText(now - host.since) })}</span>
         </div>
       </div>
     {/if}
@@ -144,7 +146,7 @@
         <span class="device-icon" class:live={g.role !== 'spectator'}><Icon name={appIcon(g.app)} size={19} stroke={1.6} /></span>
         <div class="who">
           <span class="name">{t(`share.role.${g.role}`, { name: g.name })}</span>
-          <span class="meta">{appName(g.app)} · {t('share.since', { duration: duration(now - g.since) })}</span>
+          <span class="meta">{appName(g.app)} · {t('share.since', { duration: sinceText(now - g.since) })}</span>
         </div>
         <div class="moves">
           {#each moves(g) as m (m.role)}

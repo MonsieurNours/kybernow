@@ -932,6 +932,9 @@
       "player_kbm": "{name} · Player, keyboard and mouse"
     },
     "since": "for {duration}",
+    "under": "under a minute",
+    "minutes": "{n} min",
+    "hours": "{h} h {m}",
     "play": "Let play",
     "giveKbm": "Give keyboard and mouse",
     "takeKbm": "Take back keyboard and mouse",
