@@ -167,7 +167,13 @@ pub struct SessionHost {
 
 impl SessionHost {
     pub fn start(host_name: String, params: SessionParams, opts: HostOptions, events: Arc<dyn HostEvents>) -> Self {
-        let id = window::new_app_id();
+        Self::start_as(window::new_app_id(), host_name, params, opts, events)
+    }
+
+    /// [`Self::start`] avec son identifiant (`window::new_app_id`), pris
+    /// avant : ce qui suit la session (sa fenêtre de connexion, sa fin) la
+    /// désigne par lui, jamais par son ordinateur seul.
+    pub fn start_as(id: u64, host_name: String, params: SessionParams, opts: HostOptions, events: Arc<dyn HostEvents>) -> Self {
         let control = Arc::new(AtomicIsize::new(0));
         let app = Arc::new(OnceLock::new());
         let (c, a) = (control.clone(), app.clone());
@@ -186,12 +192,18 @@ impl SessionHost {
         self.app.get()
     }
 
+    /// Un ordre à la fenêtre de contrôle de cette session, et à elle seule
+    /// (le fil de ses fenêtres le prend) ; rien quand elle est fermée.
     fn post(&self, c: Command, arg: isize) {
         let h = self.control.load(Ordering::Relaxed);
-        if h != 0 {
-            unsafe {
-                let _ = PostMessageW(Some(HWND(h as *mut _)), WM_APP_COMMAND, WPARAM(c as usize), LPARAM(arg));
+        if h == 0 {
+            if matches!(c, Command::Disconnect) {
+                log::info!("session n°{} : ordre de fin ignoré, ses fenêtres sont déjà fermées", self.id);
             }
+            return;
+        }
+        unsafe {
+            let _ = PostMessageW(Some(HWND(h as *mut _)), WM_APP_COMMAND, WPARAM(c as usize), LPARAM(arg));
         }
     }
 
@@ -538,6 +550,11 @@ fn run(
     window::run_loop();
     window::keyboard_hook_release();
 
+    // La boucle ne s'arrête que par `quit` (fin dite par le cœur, ou fin
+    // demandée avant le cœur) : autrement, le journal le dit.
+    if !app.closing.load(Ordering::Relaxed) && !matches!(*app.status.lock().unwrap(), Some(Status::Ended { .. })) {
+        log::warn!("[{host_name}] boucle de messages arrêtée sans fin demandée : la session s'arrête");
+    }
     session.stop();
     session.wait();
     // Normalement déjà fait à l'arrêt de l'image.

@@ -101,6 +101,8 @@ struct Pairing {
 /// Une session en cours (une par ordinateur).
 struct Running {
     id: String,
+    /// Le nom de l'ordinateur (journal).
+    name: String,
     host: SessionHost,
     bar: Arc<Mutex<BarLabel>>,
     sent: Arc<Mutex<Sent>>,
@@ -114,10 +116,20 @@ struct Running {
 /// image ; un échec y reste, avec sa raison, jusqu'à « Fermer ».
 #[derive(Default)]
 struct Connexion {
+    /// La session qu'elle montre (`SessionHost::id`) : « Annuler » et sa
+    /// fermeture ne visent qu'elle, jamais une autre session du même
+    /// ordinateur ni une autre session ; rien quand elle est finie.
+    session: u64,
+    /// Le nom de l'ordinateur (journal).
+    name: String,
     /// Sa fenêtre Tauri quand elle est ouverte.
     label: Mutex<Option<String>>,
     /// Ce qu'elle montre (lu par la page à son ouverture, puis les événements).
     view: Mutex<ConnexionView>,
+    /// Dernier geste qui la ferme (« Fermer », « Annuler », sa croix) : elle
+    /// reste le temps d'un double clic, pour que le second clic ne tombe pas
+    /// sur la fenêtre d'une session restée dessous (`close_connexion`).
+    closed_at: Mutex<Option<Instant>>,
 }
 
 #[derive(Clone, Serialize, Default)]
@@ -365,6 +377,11 @@ impl UiState {
         self.sessions.lock().unwrap().iter().find(|r| r.id == id).map(f)
     }
 
+    /// `f` sur cette session-là (`SessionHost::id`), si elle tourne encore.
+    fn with_instance<T>(&self, session: u64, f: impl FnOnce(&Running) -> T) -> Option<T> {
+        self.sessions.lock().unwrap().iter().find(|r| r.host.id() == session).map(f)
+    }
+
     /// La session active (celle de la dernière fenêtre de session au premier
     /// plan), sinon la première.
     fn active_id(&self) -> Option<String> {
@@ -378,6 +395,38 @@ impl UiState {
         let sessions = self.sessions.lock().unwrap();
         sessions.len() + self.launching.lock().unwrap().len() >= focus::MAX_SESSIONS || focus::count() >= focus::MAX_SESSIONS
     }
+}
+
+/// Un ordre de fin à la session de cet ordinateur (barre, menu de l'icône,
+/// passage de l'accueil), et pourquoi (journal) : à elle seule, jamais à la
+/// session active ni à une autre ; rien s'il n'est plus en session.
+fn end_session(state: &UiState, id: &str, why: &str) -> bool {
+    let sent = state
+        .with_session(id, |r| {
+            log::info!("[{}] {why} : ordre de fin à sa session (n°{})", r.name, r.host.id());
+            r.host.command(Command::Disconnect);
+        })
+        .is_some();
+    if !sent {
+        log::info!("{why} pour {id} : plus en session, rien à arrêter");
+    }
+    sent
+}
+
+/// Un ordre de fin à cette session-là (`SessionHost::id` : sa fenêtre de
+/// connexion, Quitter pendant son lancement), et pourquoi : rien si elle est
+/// finie, même si son ordinateur a une autre session depuis.
+fn end_instance(state: &UiState, session: u64, why: &str) -> bool {
+    let sent = state
+        .with_instance(session, |r| {
+            log::info!("[{}] {why} : ordre de fin à sa session (n°{session})", r.name);
+            r.host.command(Command::Disconnect);
+        })
+        .is_some();
+    if !sent {
+        log::info!("{why} : la session n°{session} est finie, rien à arrêter");
+    }
+    sent
 }
 
 #[derive(Serialize)]
@@ -1619,9 +1668,10 @@ impl HostEvents for UiEvents {
 
     fn ended(&self, s: &Summary) {
         let state = self.app.state::<UiState>();
+        // Cette session-là, pas une autre du même ordinateur.
         let remaining = {
             let mut sessions = state.sessions.lock().unwrap();
-            sessions.retain(|r| r.id != self.id);
+            sessions.retain(|r| r.host.id() != self.connexion.session);
             sessions.len()
         };
         // Dernière image : le fond de cet ordinateur sur l'accueil.
@@ -1710,10 +1760,12 @@ impl HostEvents for UiEvents {
             // Session suivante : sa fenêtre de connexion part, sauf un échec
             // pendant qu'elle est ouverte (avant la première image, ou quand
             // la connexion a repris en session), qu'elle montre jusqu'à « Fermer ».
+            // Pas après « Annuler » (une fin demandée n'est pas un échec).
             let open = self.connexion.label.lock().unwrap().is_some();
-            kept_in_window = open && s.error.is_some() && !quitting;
+            kept_in_window = open && s.error.is_some() && !s.requested && !quitting;
             if kept_in_window {
                 self.connexion.view.lock().unwrap().error = s.error.clone();
+                keep_failure_in_front(&self.app, &self.connexion);
             } else {
                 close_connexion(&self.app, &self.connexion, Duration::ZERO);
             }
@@ -1722,12 +1774,17 @@ impl HostEvents for UiEvents {
         // reste ni connexion qui se lance ni fenêtre de connexion ouverte
         // (l'accueil ne passe pas devant elles) ; s'il reste des sessions,
         // l'accueil ne leur prend pas le premier plan, et si celle-ci était
-        // devant, la session active reprend la place.
+        // devant, la session active reprend la place — sauf quand le message
+        // de son échec reste dans sa fenêtre de connexion : c'est elle qui
+        // reste devant.
         if remaining == 0 {
             show_home_if_idle(&self.app);
-        } else if (s.was_front || served) && !quitting && let Some(next) = state.active_id() {
+        } else if (s.was_front || served) && !quitting && !kept_in_window && let Some(next) = state.active_id() {
             // Sa fenêtre (ou sa barre : « Se déconnecter ») était devant.
-            state.with_session(&next, |r| r.host.focus(0));
+            state.with_session(&next, |r| {
+                log::info!("[{}] reprend le premier plan après la fin de {}", r.name, self.connexion.name);
+                r.host.focus(0)
+            });
         }
         // Une fin non demandée (pas « Se déconnecter », ni la fenêtre fermée)
         // dont la fenêtre disparaît : une notification si personne ne
@@ -1829,7 +1886,7 @@ impl UiEvents {
             let _ = self.app.emit("session-replan", ReplanEvent { id: self.id.clone(), screens: 1 });
             self.hide_bar_if_mine();
             let state = self.app.state::<UiState>();
-            let hwnd = state.with_session(&self.id, |r| r.host.primary_window()).unwrap_or(0);
+            let hwnd = state.with_instance(self.connexion.session, |r| r.host.primary_window()).unwrap_or(0);
             let title = state.with_store(|s| s.get(&self.id).map(|c| c.name.clone())).unwrap_or_default();
             if let Some((at, client)) = window::window_frame(hwnd) {
                 open_connexion(&self.app, &self.connexion, at, client, &title);
@@ -2024,10 +2081,18 @@ fn open_connexion(app: &AppHandle, conn: &Arc<Connexion>, at: (i32, i32), client
 }
 
 /// La fenêtre de connexion part (après `delay` : le passage s'ouvre sur la
-/// fenêtre de la session, montrée par-dessus).
+/// fenêtre de la session, montrée par-dessus). Fermée d'un geste (« Fermer »,
+/// « Annuler », sa croix), elle reste au moins le temps d'un double clic
+/// depuis ce geste : le second clic tombe sur elle, pas sur la fenêtre d'une
+/// autre session restée dessous, qui l'enverrait à son ordinateur.
 fn close_connexion(app: &AppHandle, conn: &Arc<Connexion>, delay: Duration) {
     let Some(label) = conn.label.lock().unwrap().take() else { return };
     app.state::<UiState>().connexions.lock().unwrap().remove(&label);
+    let delay = match *conn.closed_at.lock().unwrap() {
+        Some(at) => delay.max(double_click_time().saturating_sub(at.elapsed())),
+        None => delay,
+    };
+    log::info!("fenêtre de connexion de {} fermée ({label}, dans {} ms)", conn.name, delay.as_millis());
     let a = app.clone();
     std::thread::spawn(move || {
         if !delay.is_zero() {
@@ -2055,18 +2120,27 @@ fn connexion_close(app: AppHandle, window: tauri::WebviewWindow) {
     connexion_closed(&app, window.label());
 }
 
+/// La fenêtre de connexion `label` se ferme d'un geste : sa session, et
+/// elle seule (`Connexion::session`), est annulée si elle tourne encore ;
+/// sinon (le message d'un échec), la fenêtre part, rien d'autre ne s'arrête.
 fn connexion_closed(app: &AppHandle, label: &str) {
     let state = app.state::<UiState>();
     let conn = state.connexions.lock().unwrap().get(label).cloned();
     let Some(conn) = conn else {
-        if let Some(w) = app.get_webview_window(label) {
-            let _ = w.destroy();
-        }
+        // Déjà en partance (second clic) : elle part, rien d'autre.
+        log::info!("fenêtre de connexion {label} fermée : déjà en partance, aucun ordre");
         return;
     };
-    let id = conn.view.lock().unwrap().id.clone();
-    let cancelled = state.with_session(&id, |r| r.host.command(Command::Disconnect)).is_some();
+    *conn.closed_at.lock().unwrap() = Some(Instant::now());
+    let failed = conn.view.lock().unwrap().error.is_some();
+    let cancelled = !failed && end_instance(&state, conn.session, &format!("fenêtre de connexion de {} fermée (« Annuler »)", conn.name));
     if !cancelled {
+        log::info!(
+            "fenêtre de connexion de {} fermée{} : aucune session à arrêter (n°{} finie)",
+            conn.name,
+            if failed { " (« Fermer » sous l'échec)" } else { "" },
+            conn.session
+        );
         close_connexion(app, &conn, Duration::ZERO);
         // L'échec d'une session suivante refermé alors que plus rien ne
         // tourne : l'accueil revient.
@@ -2074,13 +2148,40 @@ fn connexion_closed(app: &AppHandle, label: &str) {
     }
 }
 
-/// Une fenêtre de connexion passe au premier plan : sa session devient la
-/// session active du registre du cœur.
+/// Le temps d'un double clic de Windows (au plus 1 s).
+fn double_click_time() -> Duration {
+    let ms = unsafe { windows::Win32::UI::Input::KeyboardAndMouse::GetDoubleClickTime() };
+    Duration::from_millis(u64::from(ms.clamp(200, 1000)))
+}
+
+/// Le message de l'échec d'une session suivante reste dans sa fenêtre de
+/// connexion : elle reste devant (au-dessus des fenêtres des autres
+/// sessions, même plein écran, même si l'une d'elles repasse au premier
+/// plan) jusqu'à « Fermer » ; elle prend le clavier si l'app est devant.
+fn keep_failure_in_front(app: &AppHandle, conn: &Arc<Connexion>) {
+    let Some(label) = conn.label.lock().unwrap().clone() else { return };
+    let name = conn.name.clone();
+    let a = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        let Some(w) = a.get_webview_window(&label) else { return };
+        let _ = w.set_always_on_top(true);
+        let _ = w.unminimize();
+        let _ = w.show();
+        let front = shell::app_in_front();
+        if front {
+            let _ = w.set_focus();
+        }
+        log::info!("échec de {name} : sa fenêtre de connexion reste devant jusqu'à « Fermer »{}", if front { ", avec le clavier" } else { "" });
+    });
+}
+
+/// Une fenêtre de connexion passe au premier plan : sa session (et elle
+/// seule) devient la session active du registre du cœur, si elle tourne.
 fn connexion_focused(app: &AppHandle, label: &str) {
     let state = app.state::<UiState>();
-    let id = state.connexions.lock().unwrap().get(label).map(|c| c.view.lock().unwrap().id.clone());
-    if let Some(id) = id {
-        state.with_session(&id, |r| r.host.activate());
+    let session = state.connexions.lock().unwrap().get(label).map(|c| c.session);
+    if let Some(session) = session {
+        state.with_instance(session, |r| r.host.activate());
     }
 }
 
@@ -2327,9 +2428,12 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
     }
     let spec = layout.spec;
     let this_screen = layout.this_screen.clone();
+    // Son identifiant, pris avant tout : sa fenêtre de connexion et sa fin la
+    // désignent par lui (`SessionHost::id`).
+    let session = window::new_app_id();
     // Session suivante : sa connexion se montre tout de suite dans une
     // fenêtre, là où la sienne va s'ouvrir.
-    let connexion = Arc::new(Connexion::default());
+    let connexion = Arc::new(Connexion { session, name: c.name.clone(), ..Default::default() });
     connexion.view.lock().unwrap().id = id.clone();
     connexion.view.lock().unwrap().phase = "preparing";
     if let Some(f) = &follow {
@@ -2339,7 +2443,8 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
     // Tenu jusqu'à l'inscription de la session : une fin très rapide (dans
     // `ended`) ne peut pas passer avant.
     let mut running = state.sessions.lock().unwrap();
-    let host = SessionHost::start(
+    let host = SessionHost::start_as(
+        session,
         c.name.clone(),
         params,
         HostOptions {
@@ -2368,13 +2473,13 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
         }),
     );
     let screens = plan.as_ref().map_or(1, |p| p.len());
-    running.push(Running { id: id.clone(), host, bar, sent, stats });
+    running.push(Running { id: id.clone(), name: c.name.clone(), host, bar, sent, stats });
     drop(running);
     drop(_launching);
     // « Quitter » pendant le lancement : elle s'arrête tout de suite (Admin
     // prévenue), l'app part à sa fin.
     if state.quitting.load(Ordering::Relaxed) {
-        state.with_session(&id, |r| r.host.command(Command::Disconnect));
+        end_instance(&state, session, "Quitter pendant le lancement");
     }
     emit_sessions(&app);
     Ok(ConnectInfo { screens, windowed: !first })
@@ -2384,7 +2489,10 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
 #[tauri::command(async)]
 fn session_command(state: tauri::State<'_, UiState>, id: String, command: String) {
     let c = match command.as_str() {
-        "disconnect" => Command::Disconnect,
+        "disconnect" => {
+            end_session(&state, &id, "« Se déconnecter » de la barre, ou « Annuler » du passage de l'accueil");
+            return;
+        }
         "fullscreen" => Command::Fullscreen,
         "mouse" => Command::MouseToggle,
         "keys:ctrl-alt-del" => Command::CtrlAltDel,
@@ -2679,7 +2787,9 @@ pub fn tray_command(app: &AppHandle, cmd: Cmd) {
                 session(&id, Command::Focus);
             }
             Cmd::Statistics(id) => toggle_stats(&app, &id),
-            Cmd::Disconnect(id) => session(&id, Command::Disconnect),
+            Cmd::Disconnect(id) => {
+                end_session(&state, &id, "« Se déconnecter » du menu de l'icône");
+            }
             Cmd::Show(id) => {
                 show_session_of(&state, &id);
             }
@@ -2719,6 +2829,7 @@ pub fn quit(app: &AppHandle) {
             log::info!("quitter : fin des {} session(s) d'abord", sessions.len());
         }
         for r in sessions.iter() {
+            log::info!("[{}] Quitter : ordre de fin à sa session (n°{})", r.name, r.host.id());
             r.host.command(Command::Disconnect);
         }
     }

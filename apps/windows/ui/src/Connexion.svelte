@@ -68,8 +68,15 @@
     return () => off.forEach((p) => p.then((f) => f()))
   })
 
+  /** « Fermer » choisi : le message s'efface ; la fenêtre reste le temps d'un double clic (src/ui.rs). */
+  let leaving = $state(false)
+
   /** « Annuler », ou « Fermer » sous un échec : l'app arrête la connexion ou ferme la fenêtre. */
-  const close = () => invoke('connexion_close')
+  const close = () => {
+    if (leaving) return
+    if (error) leaving = true
+    invoke('connexion_close')
+  }
 </script>
 
 {#if computer}
@@ -77,9 +84,9 @@
 {/if}
 
 {#if error}
-  <div class="failed" role="alert">
+  <div class="failed" class:leaving role="alert">
     <p>{t('app.connect_failed', { error })}</p>
-    <button onclick={close}>{t('common.close')}</button>
+    <button onclick={close} disabled={leaving}>{t('common.close')}</button>
   </div>
 {/if}
 
@@ -100,6 +107,19 @@
     background: rgb(9 13 18 / 0.94);
     box-shadow: 0 20px 60px rgb(0 0 0 / 0.5);
     animation: up 0.4s var(--ease-out) 0.3s both;
+  }
+
+  /* « Fermer » choisi : le message s'efface pendant que la fenêtre attend
+     le temps d'un double clic avant de partir. */
+  .failed.leaving {
+    pointer-events: none;
+    animation: gone 0.15s ease-out forwards;
+  }
+
+  @keyframes gone {
+    to {
+      opacity: 0;
+    }
   }
 
   @keyframes up {

@@ -376,8 +376,9 @@ mod tests {
         let bureau = kybernow_core::profile::StreamSettings::for_profile(kybernow_core::profile::Profile::Bureau, caps);
         assert!(kybernow_core::screens::session_plan_for(&s, &bureau, true).is_none(), "un seul écran");
         let w = kybernow_core::screens::extra_session_window(&s.list[s.current]);
-        assert_eq!((w.mode.width, w.mode.height, w.mode.refresh), (1706, 960, 60));
-        assert_eq!((w.x.round() as i32, w.y.round() as i32), (3840 + 427, 240));
+        // Le mode en multiples de 8 (16:9 à 0,5 % près), le cadre recentré.
+        assert_eq!((w.mode.width, w.mode.height, w.mode.refresh), (1704, 960, 60));
+        assert_eq!((w.x.round() as i32, w.y.round() as i32), (3840 + 428, 240));
         // La première session : le réglage tel quel.
         let first = Layout { extra_session: false, ..layout };
         assert_eq!(first.screens().setting, DisplaysSetting::All);
