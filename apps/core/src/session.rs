@@ -1071,8 +1071,9 @@ impl Session {
     /// clé toutes les 300 ms jusqu'à [`Self::keyframe_recovered`], et relance
     /// le flux au bout de 1,5 s (ordinateur sans le correctif d'image clé).
     /// KyberNow Share, session d'invité : la « Qualité de l'image » changée
-    /// (`POST /api/share/quality`, sur un fil d'appel) ; Kyber relance l'image
-    /// de l'invité seulement, la session n'a rien à relancer. L'image reçue
+    /// (`POST /api/share/quality`, sur un fil d'appel ; avec « Auto », le
+    /// `auto` mesuré à `join`, gardé dans `joined.auto`) ; Kyber relance
+    /// l'image de l'invité seulement, la session n'a rien à relancer. L'image reçue
     /// arrive par [`Platform::on_share_image`]. Sans effet pour un hôte.
     pub fn set_share_quality(&self, quality: ShareQuality) {
         self.send(Msg::ShareQuality(quality));
@@ -2017,7 +2018,8 @@ impl Worker {
             .name("kybernow-qualite".into())
             .spawn(move || {
                 journal::resume(label);
-                match console.share_quality(&g.joined.guest, &g.joined.secret, quality) {
+                // Avec « Auto », ce que l'appareil a mesuré à `join`.
+                match console.share_quality(&g.joined.guest, &g.joined.secret, quality, g.joined.auto.as_ref()) {
                     Ok(image) => {
                         let _ = tx.send(Msg::ShareImage(image));
                     }
@@ -4314,6 +4316,14 @@ mod tests {
         assert!(p.user.is_empty() && p.password.is_empty());
         let SessionRole::Guest(g) = &p.role else { panic!() };
         assert_eq!((g.joined.role, g.joined.display.id, g.capabilities.hevc), (ShareRole::Player, 7, true));
+        // Le `auto` mesuré à `join` arrive avec `joined` : la session le renverra avec « Auto ».
+        let mut j = joined(ShareRole::Player, Some("hevc"), Some("sha256:kk"));
+        j.auto = Some(share::ShareAuto { width: 2556, height: 1179, fps: 60, codecs: vec!["h264".into()], yuv444: false });
+        let mut with_auto = guest_json.clone();
+        with_auto["guest"]["joined"] = serde_json::to_value(&j).unwrap();
+        let (p, _) = SessionParams::from_json(&with_auto.to_string()).unwrap();
+        let SessionRole::Guest(g) = &p.role else { panic!() };
+        assert_eq!(g.joined.auto.as_ref().map(|a| (a.width, a.fps)), Some((2556, 60)));
         // Les paramètres d'un invité d'après la Station trouvée.
         let (w, _) = guest(ShareRole::Spectator);
         assert_eq!((w.params.console_host.as_str(), w.params.console_fingerprint.as_deref()), ("127.0.0.1", Some("sha256:ad")));
