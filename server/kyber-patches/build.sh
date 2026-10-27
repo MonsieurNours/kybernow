@@ -53,6 +53,11 @@
 #         image reprise dès l'ouverture et renvoyée chaque seconde, repli sur
 #         la duplication sans image en 2,5 s) ; pointeur lu par
 #         GetCursorInfo ; méthode, première image et latence au journal
+#   0019  KyberNow Share (kycontroller et serveur d'entrées, deux fichiers) :
+#         rôle d'un invité porté par son jeton (kn_role, kn_display, kn_rev)
+#         et imposé (entrées selon le rôle, changées sans couper l'image,
+#         jamais le presse-papiers ; seulement son écran ; ni débit ni image
+#         clé) ; routes /kybernow (sessions, role, close) pour KyberNow Admin
 #
 # Prérequis (Homebrew) : mingw-w64 meson ninja nasm cmake bison lua@5.4
 # binaryen, wasm-bindgen-cli (cargo install), rustup target
