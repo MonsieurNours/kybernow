@@ -1448,6 +1448,63 @@ mod tests {
         assert_eq!(p.rights(), InputRights::ALL);
     }
 
+    /// Les deux droits d'un invité sont indépendants : l'un donné ou repris
+    /// ne touche pas à ce que l'autre tient.
+    #[test]
+    fn deux_droits_independants() {
+        use crate::share::ShareRole;
+        use std::sync::atomic::AtomicUsize;
+        struct Announces(AtomicUsize);
+        impl InputPlatform for Announces {
+            fn connected(&self) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+        let host = Arc::new(Host::default());
+        let clock = Arc::new(ManualClock::new());
+        let platform = Arc::new(Announces(AtomicUsize::new(0)));
+        let p = InputPipeline::new_with_sink(
+            Options { display_id: 1, host_size: (1920, 1080), clipboard: None, gamepads_from_app: true },
+            Arc::new(PointerLayer::new(clock.clone(), true)),
+            platform.clone(),
+            clock.clone(),
+            host.clone(),
+        );
+        // Le clavier et la souris seuls : une chaîne, sans manettes.
+        p.set_rights(ShareRole::Kbm.rights());
+        p.network_connected();
+        p.gamepad_plug(0, None, None);
+        p.gamepad_button(0, PadButton::A, true);
+        assert!(host.received().is_empty(), "ni branchement ni touche de manette : {:?}", host.received());
+        p.key(0x1E, true);
+        p.mouse_button(MouseButtonType::Left, true);
+        assert_eq!(host.received(), ["touche 0x1e appuyée", "clic Left appuyé"]);
+        host.clear();
+        // Les manettes données en plus : réannoncées, et rien de relâché au clavier.
+        let announced = platform.0.load(Ordering::SeqCst);
+        p.set_rights(ShareRole::Kbm.with_pads(true).rights());
+        assert_eq!(platform.0.load(Ordering::SeqCst), announced + 1);
+        assert!(host.received().is_empty(), "{:?}", host.received());
+        p.gamepad_button(0, PadButton::B, true);
+        assert_eq!(host.received(), ["manette 0 B appuyée"]);
+        host.clear();
+        // Les manettes reprises : seules elles vont au repos ; touche et clic restent tenus.
+        p.set_rights(ShareRole::PlayerKbm.with_pads(false).rights());
+        let got = host.received();
+        assert_eq!(got[0], "manette 0 B relâchée", "{got:?}");
+        assert!(got[1..].iter().all(|a| a.starts_with("axe 0 ")), "{got:?}");
+        assert_eq!(p.held().lock().unwrap().scancodes().len(), 1, "la touche reste tenue");
+        host.clear();
+        p.key(0x1F, true);
+        assert_eq!(host.received(), ["touche 0x1f appuyée"], "le clavier continue");
+        host.clear();
+        // Le clavier et la souris repris, manettes rendues : touches et clics relâchés seulement.
+        p.set_rights(ShareRole::Player.rights());
+        let mut got = host.received();
+        got.sort();
+        assert_eq!(got, ["clic Left relâché", "touche 0x1e relâchée", "touche 0x1f relâchée"]);
+    }
+
     #[test]
     fn filtrage_des_axes() {
         assert!(InputPipeline::axis_moved(None, 0) && InputPipeline::axis_moved(None, 5), "première valeur : passe toujours");

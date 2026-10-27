@@ -22,10 +22,15 @@ pub const KN_SHARE_FULL: i32 = 21;
 pub const KN_SHARE_TOO_MANY: i32 = 22;
 pub const KN_SHARE_UNREADABLE: i32 = 23;
 
-/// Rôle d'un invité (`on_share_role`, `kn_console_share_guest`).
+/// Rôle d'un invité (`on_share_role`, `kn_console_share_guest`) : deux
+/// droits indépendants, les manettes et le clavier et la souris. Aucun
+/// (spectateur), les manettes (`PLAYER`), les deux (`PLAYER_KBM`), le
+/// clavier et la souris seuls (`KBM`). « Joueur » dans la barre : un droit au
+/// moins.
 pub const KN_SHARE_ROLE_SPECTATOR: i32 = 0;
 pub const KN_SHARE_ROLE_PLAYER: i32 = 1;
 pub const KN_SHARE_ROLE_PLAYER_KBM: i32 = 2;
+pub const KN_SHARE_ROLE_KBM: i32 = 3;
 
 /// Fin d'une session d'invité par le partage (`on_share_end`).
 pub const KN_SHARE_END_STOPPED: i32 = 0;
@@ -56,8 +61,22 @@ fn role(code: i32) -> Option<ShareRole> {
         KN_SHARE_ROLE_SPECTATOR => Some(ShareRole::Spectator),
         KN_SHARE_ROLE_PLAYER => Some(ShareRole::Player),
         KN_SHARE_ROLE_PLAYER_KBM => Some(ShareRole::PlayerKbm),
+        KN_SHARE_ROLE_KBM => Some(ShareRole::Kbm),
         _ => None,
     }
+}
+
+/// Le rôle avec les manettes données (`pads` vrai) ou reprises, le clavier et
+/// la souris tels quels (`KN_SHARE_ROLE_*` ; −1 pour un code inconnu).
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_share_role_with_pads(role_code: i32, pads: bool) -> i32 {
+    role(role_code).map_or(-1, |r| r.with_pads(pads).code())
+}
+
+/// Le rôle avec le clavier et la souris donnés ou repris, les manettes telles quelles.
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_share_role_with_kbm(role_code: i32, kbm: bool) -> i32 {
+    role(role_code).map_or(-1, |r| r.with_kbm(kbm).code())
 }
 
 // MARK: - Rejoindre
@@ -197,8 +216,10 @@ pub unsafe extern "C" fn kn_console_share_code(c: *const KnConsole, out: *mut *m
     console_result(c.0.share_code(), out, error)
 }
 
-/// Le rôle d'un invité (`KN_SHARE_ROLE_*`) : « Faire jouer », « Donner le
-/// clavier et la souris », « Reprendre le clavier et la souris ».
+/// Le rôle d'un invité (`KN_SHARE_ROLE_*`) : « Donner les manettes »,
+/// « Reprendre les manettes », « Donner le clavier et la souris »,
+/// « Reprendre le clavier et la souris » (`kn_share_role_with_pads`,
+/// `kn_share_role_with_kbm` : l'autre droit tel quel).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_console_share_guest(c: *const KnConsole, guest: *const c_char, role_code: i32, error: *mut *mut c_char) -> i32 {
     let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
