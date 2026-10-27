@@ -15,7 +15,7 @@ use kybernow_core::latency::Second;
 use kybernow_core::media::PacketHandler;
 use kybernow_core::profile::{Capabilities, Codec, Profile as CoreProfile, StreamSettings};
 use kybernow_core::screens::Screens;
-use kybernow_core::session::{Notice, Platform, Recovery, Session, SessionParams, Status, StreamScreen};
+use kybernow_core::session::{Notice, Platform, Recovery, Session, SessionParams, SessionRole, Status, StreamScreen};
 use kybernow_core::{Display, WindowHandle};
 
 use super::media::AudioSink;
@@ -533,6 +533,7 @@ pub fn start(id: SessionId, host: &Host, settings: StreamSettings, mode: (u32, u
         gamepad_xbox360: host.settings.xbox360,
         clipboard: host.settings.clipboard,
         recovery: Recovery { watch_image: true, fallback_bitrate: Some(20_000_000), ..Recovery::default() },
+        role: SessionRole::Host,
     };
     let platform = Arc::new(LinuxPlatform(shared.clone()));
     let session = match screens {

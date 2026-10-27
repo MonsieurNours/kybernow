@@ -12,10 +12,17 @@
 //! [`crate::focus`], docs/plusieurs-ordinateurs.md) : la session tient son
 //! état « active » et « son coupé » d'un démarrage de l'image à l'autre et
 //! l'applique à chaque chaîne d'entrées et moteur de son de la plateforme.
+//! KyberNow Share ([`SessionRole`], docs/kybernow-share.md) : une session
+//! d'invité rejoint par `share_join` au lieu de `prepare`, se connecte à
+//! Kyber avec le jeton de la Station, reçoit l'écran qu'elle donne, ne
+//! change jamais rien sur l'ordinateur ([`HostOnly`]) et part par
+//! `share_leave` ; ses entrées suivent son rôle. Une session d'hôte reçoit
+//! la liste de ses invités ([`Platform::on_guests`]).
 //!
 //! Tout se décide sur un fil dédié ; les événements de Kyber, le signal de vie
 //! et les demandes de l'app lui arrivent par un canal.
 
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, Weak};
@@ -32,7 +39,7 @@ use kynput_rs::{ControlEvent, InputTarget, Pipeline};
 use kyvlcplayer::WindowHandle;
 
 use crate::audio::AudioEngine;
-use crate::input::InputPipeline;
+use crate::input::{InputPipeline, InputRights};
 use crate::journal::{self, Label, jinfo as info, jwarn as warn};
 
 use crate::console::{
@@ -42,8 +49,9 @@ use crate::console::{
 use crate::i18n::{self, Lang};
 use crate::latency::{LatencyTracker, Second};
 use crate::media::{Packet, PacketHandler, packet_sink};
-use crate::profile::StreamSettings;
+use crate::profile::{Capabilities, SettingsJson, StreamSettings};
 use crate::screens::{self, PlannedScreen, Screens};
+use crate::share::{self, Found, ShareBeat, ShareEnd, ShareError, ShareJoined, ShareRole, ShareState};
 
 /// Reprise de l'image par le cœur (apps Apple, Android, Linux, webOS). Par
 /// défaut (Windows), la plateforme tient elle-même ses veilles et appelle
@@ -75,6 +83,28 @@ impl Default for Recovery {
     }
 }
 
+/// Le rôle de la session (KyberNow Share, docs/kybernow-share.md).
+#[derive(Clone, Debug, Default)]
+pub enum SessionRole {
+    /// La session de l'appareil, comme toujours : `prepare`, écran virtuel,
+    /// signe de vie, fin dite à Admin ; elle peut partager son écran.
+    #[default]
+    Host,
+    /// Un invité d'un partage : spectateur ou joueur, selon la Station.
+    Guest(Box<GuestParams>),
+}
+
+/// Ce qu'une session d'invité tient de « Rejoindre » ([`share::join`]).
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct GuestParams {
+    /// La réponse de `share_join`, telle quelle.
+    pub joined: ShareJoined,
+    /// Ce que l'appareil décode : le format de l'image de l'hôte est vérifié
+    /// avant l'image ([`share::check_codec`]).
+    #[serde(default)]
+    pub capabilities: Capabilities,
+}
+
 /// Ce qu'il faut pour ouvrir une session.
 #[derive(Clone)]
 pub struct SessionParams {
@@ -97,6 +127,145 @@ pub struct SessionParams {
     pub gamepad_xbox360: bool,
     pub clipboard: bool,
     pub recovery: Recovery,
+    /// Hôte (par défaut) ou invité d'un partage. Un invité ne se sert ni de
+    /// `user` et `password` (jeton de la Station), ni de `mode` et
+    /// `virtual_display` (l'écran du partage), ni du format de `settings`
+    /// (celui de l'hôte), ni de `clipboard` (jamais pour un invité) ;
+    /// `console_host`, `console_port` et `console_fingerprint` sont ceux de
+    /// la Station qui partage ([`Found::target`]).
+    pub role: SessionRole,
+}
+
+impl SessionParams {
+    /// Les paramètres d'une session d'invité, d'après la Station trouvée par
+    /// [`share::join`] : `settings` (le profil de l'app : transport ; format
+    /// de repli tant que l'image de l'hôte n'a pas démarré), `capabilities`
+    /// (format vérifié), `audio_channels` (0 : pas de son sur l'appareil).
+    /// Les autres champs sont ceux d'une session ordinaire, à ajuster par
+    /// l'app (`recovery`, `gamepad_xbox360`, `auto_reconnect`).
+    pub fn guest(found: &Found, device: DeviceInfo, settings: StreamSettings, capabilities: Capabilities, audio_channels: u16) -> Self {
+        let d = found.joined.display;
+        SessionParams {
+            console_host: found.target.host.clone(),
+            console_port: found.target.port,
+            user: String::new(),
+            password: String::new(),
+            console_fingerprint: found.target.fingerprint.clone(),
+            device,
+            mode: Mode { width: d.width, height: d.height, refresh: d.refresh },
+            audio_channels,
+            virtual_display: false,
+            settings,
+            auto_reconnect: true,
+            gamepad_xbox360: true,
+            clipboard: false,
+            recovery: Recovery::default(),
+            role: SessionRole::Guest(Box::new(GuestParams { joined: found.joined.clone(), capabilities })),
+        }
+    }
+
+    pub fn is_guest(&self) -> bool {
+        matches!(self.role, SessionRole::Guest(_))
+    }
+
+    /// Les paramètres en JSON, comme les donnent les ponts des apps
+    /// (`kn_session_start`, JNI) : `console_host`, `console_port`, `user`,
+    /// `password`, `console_fingerprint`, `device`, `mode`, `audio_channels`,
+    /// `virtual_display`, `settings`, `auto_reconnect`, `gamepad_xbox360`,
+    /// `clipboard`, `recovery`, et `screens` (multi-écrans, rendu à part pour
+    /// [`Session::start_with_screens`]) ; pour un invité, `guest` :
+    /// `{"joined": <réponse de share_join>, "capabilities": {hevc, hevc444,
+    /// av1}}` (`user`, `password` et `mode` sont alors facultatifs).
+    pub fn from_json(json: &str) -> Result<(SessionParams, Option<Screens>), String> {
+        let wire: ParamsJson = serde_json::from_str(json).map_err(|e| e.to_string())?;
+        let settings = wire.settings.settings()?;
+        let role = match wire.guest {
+            Some(g) => SessionRole::Guest(Box::new(g)),
+            None => SessionRole::Host,
+        };
+        let mode = match (wire.mode, &role) {
+            (Some(m), _) => m,
+            (None, SessionRole::Guest(g)) => {
+                let d = g.joined.display;
+                Mode { width: d.width, height: d.height, refresh: d.refresh }
+            }
+            (None, SessionRole::Host) => return Err("mode absent".into()),
+        };
+        let params = SessionParams {
+            console_host: wire.console_host,
+            console_port: wire.console_port,
+            user: wire.user,
+            password: wire.password,
+            console_fingerprint: wire.console_fingerprint.filter(|f| !f.is_empty()),
+            device: wire.device,
+            mode,
+            audio_channels: wire.audio_channels,
+            virtual_display: wire.virtual_display,
+            settings,
+            auto_reconnect: wire.auto_reconnect,
+            gamepad_xbox360: wire.gamepad_xbox360,
+            clipboard: wire.clipboard,
+            recovery: Recovery {
+                watch_image: wire.recovery.watch_image,
+                fallback_bitrate: wire.recovery.fallback_bitrate,
+                restart_station: wire.recovery.restart_station,
+            },
+            role,
+        };
+        Ok((params, wire.screens))
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct RecoveryJson {
+    #[serde(default)]
+    watch_image: bool,
+    /// Plafond du repli, en bit/s (comme `Recovery::fallback_bitrate`).
+    fallback_bitrate: Option<u32>,
+    /// Dernier recours (`Recovery::restart_station`) : vrai si absent.
+    #[serde(default = "yes")]
+    restart_station: bool,
+}
+
+impl Default for RecoveryJson {
+    fn default() -> Self {
+        Self { watch_image: false, fallback_bitrate: None, restart_station: true }
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct ParamsJson {
+    console_host: String,
+    console_port: u16,
+    #[serde(default)]
+    user: String,
+    #[serde(default)]
+    password: String,
+    console_fingerprint: Option<String>,
+    device: DeviceInfo,
+    #[serde(default)]
+    mode: Option<Mode>,
+    #[serde(default)]
+    audio_channels: u16,
+    #[serde(default = "yes")]
+    virtual_display: bool,
+    settings: SettingsJson,
+    #[serde(default = "yes")]
+    auto_reconnect: bool,
+    #[serde(default = "yes")]
+    gamepad_xbox360: bool,
+    #[serde(default = "yes")]
+    clipboard: bool,
+    #[serde(default)]
+    recovery: RecoveryJson,
+    #[serde(default)]
+    screens: Option<Screens>,
+    #[serde(default)]
+    guest: Option<GuestParams>,
+}
+
+fn yes() -> bool {
+    true
 }
 
 /// Ce que la console confirme en fin de session.
@@ -218,6 +387,58 @@ pub trait Platform: Send + Sync {
     /// deux listes : la Station ne gère qu'un écran (ou n'a pas créé l'écran
     /// principal) et la session se fait sur l'écran principal seul.
     fn on_screens(&self, _screens: &[StreamScreen], _not_created: &[usize]) {}
+
+    // KyberNow Share (docs/kybernow-share.md) : rien à faire pour une app
+    // qui ne partage pas encore.
+
+    /// Session d'hôte : le partage ouvert et ses invités, tels que le dit le
+    /// signe de vie (champ `share`) ; `None` : pas de partage (ou Station
+    /// antérieure). Appelée quand cela change (le premier signe de vie qui
+    /// en porte un, chaque arrivée, départ ou rôle changé, la fin).
+    fn on_guests(&self, _share: Option<&ShareState>) {}
+    /// Session d'invité : son rôle au départ (`previous` nul, avant la
+    /// connexion à Kyber), puis à chaque changement par l'hôte (avis bref :
+    /// « Vous pouvez jouer. », « Vous avez le clavier et la souris. », « Le
+    /// clavier et la souris sont repris. »). Les entrées le suivent déjà.
+    fn on_share_role(&self, _role: ShareRole, _previous: Option<ShareRole>) {}
+    /// Session d'invité : c'est le partage qui la finit (arrêté, retiré,
+    /// format illisible), juste avant [`Self::on_ending`] ; `text` : le texte
+    /// de cette fin dans la langue de l'app (link-ui), qui est aussi la
+    /// raison de la fin. Jamais « Reprendre la main ».
+    fn on_share_end(&self, _end: &ShareEnd, _text: &str) {}
+}
+
+/// Ce qu'une session d'invité ne fait jamais : chaque appel à Admin ou à
+/// Kyber qui change l'ordinateur passe par [`Worker::host_only`], qui le
+/// ferme pour un invité (et le note, pour les tests).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum HostOnly {
+    /// `POST /api/stream/prepare` (écran virtuel, son, mode).
+    Prepare,
+    /// `POST /api/stream/heartbeat`.
+    Heartbeat,
+    /// `GET /api/stream/foreground`.
+    Foreground,
+    /// Écran virtuel refait à un autre mode.
+    Adapt,
+    /// Session refaite (écrans de l'appareil, profil).
+    Replan,
+    /// « Remettre » le mode de l'ordinateur.
+    RestoreMode,
+    /// Débit de l'image commune.
+    Bitrate,
+    /// Image clé de l'image commune.
+    Keyframe,
+    /// Image allégée (débit, 4:2:0).
+    Fallback,
+    /// Redémarrage de la Station en dernier recours.
+    StationRestart,
+    /// `POST /api/stream/end` (écrans et son rétablis).
+    End,
+    /// Un autre écran de l'ordinateur.
+    PickDisplay,
+    /// Un autre profil.
+    Settings,
 }
 
 /// Paquets d'un écran d'une session à plusieurs écrans : note les premières
@@ -258,6 +479,10 @@ enum Msg {
     NoImage,
     /// Réponse du signal de vie.
     Beat(HeartbeatReply),
+    /// Réponse du signe de vie d'un invité.
+    ShareBeat(ShareBeat),
+    /// La Station ne connaît plus l'invité (partage fermé, invité retiré).
+    ShareGone(ShareEnd),
     /// Autre profil pendant la session.
     Settings(StreamSettings),
     /// Plafond de débit (fenêtre occultée) ; `None` : plus de plafond.
@@ -458,6 +683,14 @@ fn after_restart(f: Failure) -> Failure {
     }
 }
 
+/// L'écran d'un invité dans la liste de Kyber : celui que la Station donne
+/// (`id`), ou le seul écran utilisable que Kyber annonce (il ne laisse à un
+/// invité que l'écran du partage).
+fn share_display(id: u32, displays: &[Display]) -> Option<Display> {
+    let list: Vec<&Display> = displays.iter().filter(|d| usable(d)).collect();
+    list.iter().find(|d| d.id == id).or(if list.len() == 1 { list.first() } else { None }).map(|d| (*d).clone())
+}
+
 /// Un écran secondaire sans données au bout de ce délai, alors que le
 /// principal en reçoit, est retiré de la session.
 const MUTED_AFTER: Duration = Duration::from_secs(4);
@@ -552,6 +785,9 @@ fn wanted_plan(screens: &Screens, params: &SessionParams, excluded: &[usize]) ->
 pub(crate) struct FocusState {
     active: AtomicBool,
     muted: AtomicBool,
+    /// KyberNow Share : ce que les chaînes d'entrées laissent partir (tout
+    /// pour un hôte).
+    rights: Mutex<InputRights>,
     label: Arc<Label>,
     input: Mutex<Weak<InputPipeline>>,
     audio: Mutex<Vec<Weak<AudioEngine>>>,
@@ -562,6 +798,7 @@ impl FocusState {
         Arc::new(Self {
             active: AtomicBool::new(true),
             muted: AtomicBool::new(false),
+            rights: Mutex::new(InputRights::ALL),
             label: Label::new(),
             input: Mutex::new(Weak::new()),
             audio: Mutex::new(Vec::new()),
@@ -599,6 +836,20 @@ impl FocusState {
         self.muted.load(Ordering::SeqCst)
     }
 
+    /// Les droits des chaînes d'entrées de la session (KyberNow Share),
+    /// appliqués à la chaîne en cours et à chaque chaîne suivante.
+    pub(crate) fn set_rights(&self, rights: InputRights) {
+        let input = self.input.lock().unwrap();
+        *self.rights.lock().unwrap() = rights;
+        if let Some(i) = input.upgrade() {
+            i.set_rights(rights);
+        }
+    }
+
+    pub(crate) fn rights(&self) -> InputRights {
+        *self.rights.lock().unwrap()
+    }
+
     pub(crate) fn label(&self) -> &Arc<Label> {
         &self.label
     }
@@ -612,6 +863,7 @@ impl FocusState {
         }
         {
             let mut slot = self.input.lock().unwrap();
+            input.set_rights(self.rights());
             input.set_active(self.is_active());
             *slot = Arc::downgrade(input);
         }
@@ -965,6 +1217,16 @@ struct Worker {
     mute_check_at: Option<Instant>,
     /// Plusieurs ordinateurs : état « active » et « son coupé » de la session.
     focus: Arc<FocusState>,
+    /// KyberNow Share : l'invité (`None` : session d'hôte), son rôle en
+    /// cours, la fin que le partage a décidée, ce qui lui a été refusé.
+    guest: Option<GuestParams>,
+    share_role: ShareRole,
+    share_end: Option<(ShareEnd, String)>,
+    refused: Mutex<HashSet<HostOnly>>,
+    /// L'image en cours a une chaîne d'entrées (un spectateur n'en a pas).
+    stream_input: bool,
+    /// Session d'hôte : le partage du dernier signe de vie.
+    last_share: Option<ShareState>,
 }
 
 /// Raison d'une fin de session, dans la langue de l'app (montrée à l'utilisateur).
@@ -990,7 +1252,20 @@ impl Worker {
         focus: Arc<FocusState>,
     ) -> Self {
         let profile_label = Arc::new(Mutex::new((params.settings.label().to_string(), params.settings.mode_policy().to_string())));
-        let plan = screens.as_ref().map(|s| wanted_plan(s, &params, &[])).unwrap_or_default();
+        let guest = match &params.role {
+            SessionRole::Guest(g) => Some((**g).clone()),
+            SessionRole::Host => None,
+        };
+        let share_role = guest.as_ref().map(|g| g.joined.role).unwrap_or_default();
+        if guest.is_some() {
+            // Un invité n'a d'entrées que selon son rôle, jamais le presse-papiers.
+            focus.set_rights(share_role.rights());
+        }
+        // Un invité : l'écran du partage, jamais de plan.
+        let plan = match (&screens, &guest) {
+            (Some(s), None) => wanted_plan(s, &params, &[]),
+            _ => Vec::new(),
+        };
         // Le mode de l'écran principal, d'après le plan.
         let mode = plan.first().map_or(params.mode, |p| p.mode);
         let single_mode = params.mode;
@@ -1053,7 +1328,7 @@ impl Worker {
             keyframe_held_logged: false,
             pending_screens: None,
             single_mode,
-            station_single: false,
+            station_single: guest.is_some(),
             pending_replan: None,
             excluded: Vec::new(),
             muted: Vec::new(),
@@ -1061,6 +1336,12 @@ impl Worker {
             reconnect_after_prepare: false,
             mute_check_at: None,
             focus,
+            share_role,
+            share_end: None,
+            refused: Mutex::new(HashSet::new()),
+            stream_input: false,
+            last_share: None,
+            guest,
         }
     }
 
@@ -1081,11 +1362,36 @@ impl Worker {
         }
     }
 
+    /// KyberNow Share : vrai pour une session d'hôte ; pour un invité,
+    /// l'action est fermée (et notée) : il ne change jamais l'ordinateur.
+    fn host_only(&self, action: HostOnly) -> bool {
+        if self.guest.is_none() {
+            return true;
+        }
+        if self.refused.lock().unwrap().insert(action) {
+            info!("invité : {action:?} jamais demandé à l'ordinateur");
+        }
+        false
+    }
+
+    /// {hôte} des textes du partage.
+    fn share_host(&self) -> String {
+        self.guest.as_ref().map(|g| g.joined.host_name().to_string()).unwrap_or_default()
+    }
+
+    /// Le partage finit la session d'un invité : la raison (texte de link-ui).
+    fn share_ended(&mut self, end: ShareEnd) -> Failure {
+        let text = end.text(i18n::current(), &self.share_host());
+        info!("partage : {}", end.text(Lang::Fr, &self.share_host()));
+        self.share_end = Some((end, text.clone()));
+        text.into()
+    }
+
     fn restart_wanted(&self, f: &Failure) -> bool {
         restart_wanted(
             f.cause,
             Attempt {
-                enabled: self.params.recovery.restart_station,
+                enabled: self.params.recovery.restart_station && self.guest.is_none(),
                 prepared: self.prepared_ok,
                 shown: self.shown(),
                 end_requested: self.end_requested,
@@ -1104,6 +1410,9 @@ impl Worker {
     /// en session et refuserait), la Station redémarrée et attendue, puis la
     /// session refaite depuis le début (écran virtuel recréé), une fois.
     fn last_resort(&mut self, first: Failure) -> Option<Failure> {
+        if !self.host_only(HostOnly::StationRestart) {
+            return Some(first);
+        }
         warn!("connexion sans issue ({}) : redémarrage de la Station en dernier recours", first.text);
         self.station_restarted = true;
         let Some((report, answered)) = self.release(true) else { return Some(first) };
@@ -1220,6 +1529,9 @@ impl Worker {
     }
 
     fn prepare(&mut self) -> Result<(), String> {
+        if !self.host_only(HostOnly::Prepare) {
+            return Ok(());
+        }
         let console = self.console.clone().expect("console");
         let req = self.prepare_request(self.requested, None);
         let prepared = console.prepare(&req).map_err(|e| e.to_string())?;
@@ -1303,6 +1615,9 @@ impl Worker {
     }
 
     fn open(&mut self) -> Result<(), Failure> {
+        if self.guest.is_some() {
+            return self.open_guest();
+        }
         self.status(Status::Preparing);
         let p = self.params.clone();
         let console = Arc::new(Console::new(
@@ -1352,7 +1667,154 @@ impl Worker {
         Ok(())
     }
 
+    /// Session d'invité : rien n'est préparé sur l'ordinateur. Le format de
+    /// l'image de l'hôte est vérifié, l'écran du partage pris pour mode, puis
+    /// Kyber est joint avec le jeton de la Station et l'empreinte qu'elle
+    /// donne (jamais de premier contact), et le signe de vie de l'invité démarre.
+    fn open_guest(&mut self) -> Result<(), Failure> {
+        let g = self.guest.clone().expect("invité");
+        let j = &g.joined;
+        info!(
+            "invité sur {} (partage de {}), {:?}, écran {} ({}×{})",
+            j.computer,
+            j.host_name(),
+            j.role,
+            j.display.id,
+            j.display.width,
+            j.display.height
+        );
+        self.status(Status::Preparing);
+        let p = self.params.clone();
+        let console = Arc::new(Console::guest(&p.console_host, p.console_port, p.console_fingerprint.clone()));
+        self.console = Some(console.clone());
+        // L'image est commune : le format de l'hôte, s'il est lisible ici.
+        match share::check_codec(j.codec.as_deref(), j.yuv444, g.capabilities) {
+            Ok(Some(codec)) => {
+                self.params.settings.codec = codec;
+                self.params.settings.yuv444 = j.yuv444;
+            }
+            // Image pas encore démarrée chez l'hôte : le format de l'app, en 4:2:0.
+            Ok(None) => self.params.settings.yuv444 = false,
+            Err(ShareError::Unreadable { format }) => return Err(self.share_ended(ShareEnd::Unreadable { format })),
+            Err(e) => return Err(e.to_string().into()),
+        }
+        let Some(fingerprint) = j.kyber.fingerprint.clone().filter(|f| !f.is_empty()) else {
+            return Err(t("share.no_kyber_fingerprint", &[]).into());
+        };
+        let d = j.display;
+        let mode = Mode { width: d.width, height: d.height, refresh: d.refresh.max(1) };
+        self.requested = mode;
+        self.single_mode = mode;
+        self.apply_prepared(Prepared {
+            virtual_display: false,
+            applied: (d.width > 0 && d.height > 0).then_some(mode),
+            audio_channels: None,
+            kyber_port: Some(j.kyber.port),
+            heartbeat_seconds: j.beat.max(1),
+            kyber_fingerprint: Some(fingerprint.clone()),
+            screens: None,
+        });
+        self.platform.on_share_role(self.share_role, None);
+
+        self.status(Status::Connecting);
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let mut config = ConnectConfig {
+            host: console.host().to_string(),
+            port: j.kyber.port,
+            tls_host: None,
+            verify_mode: None,
+            credentials: AuthCredentials::Jwt { token: j.kyber.token.clone() },
+            auto_reconnection: p.auto_reconnect,
+        };
+        config.set_tls_fingerprint(&fingerprint).map_err(|e| e.to_string())?;
+        let client = Client::new(config, true).map_err(|e| format!("Kyber : {e}"))?;
+        let tracker = self.latency.clone();
+        client.set_metrics_callback(Some(Box::new(move |m| tracker.on_metric(&m))));
+        client.get_event_manager().add_event_sink(Box::new(Events {
+            tx: Mutex::new(self.tx.clone()),
+            alive: self.alive.clone(),
+        }));
+        let client = Arc::new(client);
+        self.client = Some(client.clone());
+        client.connect().map_err(|e| format!("Kyber : {e}"))?;
+        self.spawn_share_beat(j.beat.max(1));
+        Ok(())
+    }
+
+    /// Signe de vie de l'invité, toutes les `seconds` : rôle, jeton de Kyber,
+    /// fin. Une Station qui ne connaît plus l'invité (404 : partage fermé ;
+    /// 401, 403 : invité retiré) finit la session.
+    fn spawn_share_beat(&self, seconds: u64) {
+        let Some(g) = self.guest.clone() else { return };
+        let console = self.console.clone().expect("console");
+        let tx = self.tx.clone();
+        let alive = self.alive.clone();
+        let label = journal::current();
+        std::thread::Builder::new()
+            .name("kybernow-partage".into())
+            .spawn(move || {
+                journal::resume(label);
+                loop {
+                    std::thread::sleep(Duration::from_secs(seconds));
+                    if !alive.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    let reply = console.share_beat(&g.joined.guest, &g.joined.secret);
+                    if !alive.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    match reply {
+                        Ok(b) => {
+                            let end = b.end.is_some();
+                            let _ = tx.send(Msg::ShareBeat(b));
+                            if end {
+                                return;
+                            }
+                        }
+                        Err(ConsoleError::Http { status, .. }) if matches!(status, 401 | 403 | 404 | 410) => {
+                            warn!("signe de vie de l'invité : HTTP {status}, la Station ne le connaît plus");
+                            let end = if status == 404 || status == 410 { ShareEnd::Stopped } else { ShareEnd::Removed };
+                            let _ = tx.send(Msg::ShareGone(end));
+                            return;
+                        }
+                        Err(e) => warn!("signe de vie de l'invité : {}", e.text(Lang::Fr)),
+                    }
+                }
+            })
+            .expect("fil du signe de vie de l'invité");
+    }
+
+    /// Réponse du signe de vie de l'invité : la fin, le jeton de Kyber
+    /// renouvelé (pour ses reconnexions), le rôle changé par l'hôte.
+    fn on_share_beat(&mut self, b: ShareBeat) -> Option<Failure> {
+        if let Some(end) = b.end {
+            return Some(self.share_ended(end));
+        }
+        if let Some(token) = b.token.filter(|t| !t.is_empty())
+            && let Some(c) = &self.client
+            && let Err(e) = c.update_credentials(AuthCredentials::Jwt { token })
+        {
+            warn!("jeton de Kyber pas renouvelé : {e}");
+        }
+        if b.role != self.share_role {
+            let previous = std::mem::replace(&mut self.share_role, b.role);
+            info!("partage : rôle {previous:?} → {:?}", b.role);
+            self.focus.set_rights(b.role.rights());
+            self.platform.on_share_role(b.role, Some(previous));
+            // Un spectateur devient joueur : ses entrées s'ouvrent avec une
+            // image neuve (Kyber les ouvre au démarrage de l'image).
+            if b.role.plays() && !self.stream_input && self.streaming.is_some() {
+                info!("partage : entrées ouvertes, image relancée");
+                self.restart_streaming(Duration::from_millis(300));
+            }
+        }
+        None
+    }
+
     fn spawn_heartbeat(&self, seconds: u64) {
+        if !self.host_only(HostOnly::Heartbeat) {
+            return;
+        }
         let console = self.console.clone().expect("console");
         let tx = self.tx.clone();
         let hb = Heartbeat {
@@ -1400,6 +1862,9 @@ impl Worker {
     }
 
     fn spawn_foreground(&self) {
+        if !self.host_only(HostOnly::Foreground) {
+            return;
+        }
         let console = self.console.clone().expect("console");
         let platform = self.platform.clone();
         let alive = self.alive.clone();
@@ -1468,6 +1933,10 @@ impl Worker {
     }
 
     fn apply_bitrate(&self) {
+        // Débit de l'image commune : réservé à l'hôte (Kyber l'impose aussi).
+        if !self.host_only(HostOnly::Bitrate) {
+            return;
+        }
         if self.streaming.is_some() {
             if let Some(c) = &self.client {
                 let _ = c.set_bitrate(self.effective_bitrate());
@@ -1494,6 +1963,8 @@ impl Worker {
                         info!("image clé reçue en {} ms", asked.elapsed().as_millis());
                     }
                 }
+                Ok(Msg::Settings(_)) if !self.host_only(HostOnly::Settings) => {}
+                Ok(Msg::PickDisplay(_)) if !self.host_only(HostOnly::PickDisplay) => {}
                 Ok(Msg::Settings(s)) => {
                     let before = self.effective();
                     self.params.settings = s.clone();
@@ -1548,6 +2019,12 @@ impl Worker {
                         return Some(e);
                     }
                 }
+                Ok(Msg::ShareBeat(beat)) => {
+                    if let Some(e) = self.on_share_beat(beat) {
+                        return Some(e);
+                    }
+                }
+                Ok(Msg::ShareGone(end)) => return Some(self.share_ended(end)),
                 Ok(Msg::NoImage) => {
                     if let Some(e) = self.no_image_restart() {
                         return Some(e);
@@ -1599,6 +2076,10 @@ impl Worker {
     }
 
     fn request_keyframe(&mut self) {
+        // L'image clé vaut pour toute l'image commune : réservée à l'hôte.
+        if !self.host_only(HostOnly::Keyframe) {
+            return;
+        }
         // Plusieurs flux : Kyber demande l'image clé à tous à la fois, et une
         // demande avant les premières données d'un flux laisse son encodeur
         // muet. On attend donc que chacun ait reçu quelque chose (il commence
@@ -1660,6 +2141,9 @@ impl Worker {
     /// Allège le flux d'un cran (débit, puis 4:2:0) et le relance. Faux s'il
     /// n'y a plus rien à alléger.
     fn degrade(&mut self) -> bool {
+        if !self.host_only(HostOnly::Fallback) {
+            return false;
+        }
         let Some(cap) = self.params.recovery.fallback_bitrate else { return false };
         let mut next = self.fallback + 1;
         // Cran sans effet (débit déjà bas) : on passe au suivant.
@@ -1696,6 +2180,14 @@ impl Worker {
     }
 
     fn on_beat(&mut self, r: HeartbeatReply) -> Option<Failure> {
+        // KyberNow Share : les invités de cet hôte, quand ils changent.
+        if r.share != self.last_share {
+            self.last_share = r.share.clone();
+            if let Some(s) = &self.last_share {
+                info!("partage : {} invité(s){}", s.guests.len(), if s.open { "" } else { ", fermé" });
+            }
+            self.platform.on_guests(self.last_share.as_ref());
+        }
         if r.end {
             info!("la console met fin à la session");
             self.end_requested = true;
@@ -1749,6 +2241,8 @@ impl Worker {
                     // Compte d'appareil tout juste créé par la console : Kyber
                     // ne le lit qu'à son démarrage, que la console reporte
                     // pendant une session.
+                    // Invité : le jeton de la Station refusé (expiré, invité retiré).
+                    ConnectFailedReason::Unauthorized if self.guest.is_some() => t("share.unauthorized", &[]),
                     ConnectFailedReason::Unauthorized => t("session.unauthorized", &[]),
                     ConnectFailedReason::TlsVerificationFailed => t("session.tls", &[]),
                     other => t("session.connect_failed", &[("reason", &format!("{other:?}"))]),
@@ -1877,6 +2371,9 @@ impl Worker {
     /// est refait à ce mode par la console (sur un fil d'appel), puis l'image
     /// repart dessus comme après une reconnexion.
     fn adapt(&mut self, mode: Mode) {
+        if !self.host_only(HostOnly::Adapt) {
+            return;
+        }
         let Some(console) = self.console.clone() else { return };
         if !self.plan.is_empty() {
             info!("multi-écrans : un nouveau mode passe par la liste des écrans (set_screens)");
@@ -1947,6 +2444,9 @@ impl Worker {
     /// `reconnect` : Kyber s'est déconnecté (refus au démarrage), il est
     /// reconnecté une fois la Station prête.
     fn replan(&mut self, reconnect: bool) {
+        if !self.host_only(HostOnly::Replan) {
+            return;
+        }
         // Une préparation est en cours (adaptation, autre session refaite) :
         // celle-ci attend sa fin, jamais deux à la fois.
         if self.adapting {
@@ -2047,6 +2547,9 @@ impl Worker {
 
     /// « Remettre » : la console remet le mode demandé au début de la session.
     fn start_restore_mode(&mut self) {
+        if !self.host_only(HostOnly::RestoreMode) {
+            return;
+        }
         let Some(console) = self.console.clone() else { return };
         if self.mode_restoring || self.streaming.is_none() {
             return;
@@ -2230,6 +2733,9 @@ impl Worker {
         if self.adapting {
             return;
         }
+        if self.guest.is_some() {
+            return self.choose_share_display(deadline_passed);
+        }
         let usable_count = self.displays.iter().filter(|d| usable(d)).count();
         if usable_count == 0 {
             if self.wait_until.is_none() {
@@ -2272,6 +2778,30 @@ impl Worker {
         self.wait_until = None;
         if let Some(d) = self.best_display() {
             self.start_streaming(d);
+        }
+    }
+
+    /// Session d'invité : l'écran que la Station donne (Kyber ne laisse que
+    /// lui), attendu 6 s au plus ; à défaut le seul écran que Kyber annonce.
+    fn choose_share_display(&mut self, deadline_passed: bool) {
+        let Some(id) = self.guest.as_ref().map(|g| g.joined.display.id) else { return };
+        match share_display(id, &self.displays) {
+            Some(d) => {
+                self.wait_until = None;
+                if d.id != id {
+                    info!("écran du partage annoncé sous le numéro {} (attendu : {id})", d.id);
+                }
+                self.start_streaming(d);
+            }
+            None if !deadline_passed => {
+                if self.wait_until.is_none() {
+                    self.wait_until = Some(Instant::now() + Duration::from_secs(6));
+                }
+            }
+            None => {
+                self.wait_until = None;
+                let _ = self.tx.send(Msg::Fail(Failure::no_image(t("share.display_missing", &[]))));
+            }
         }
     }
 
@@ -2376,11 +2906,27 @@ impl Worker {
         }
         // La plateforme crée sa chaîne d'entrées ici (sur ce fil) et n'en rend
         // que la chaîne kynput : le cœur la retrouve pour lui donner l'état de
-        // la session (active ou non) et les manettes de son lecteur.
-        let (pipeline, input) = crate::input::pipeline::created_during(|| self.platform.input_pipeline());
-        if let Some(input) = &input {
-            self.focus.attach_input(input);
-        }
+        // la session (active ou non), ses droits (invité) et les manettes de
+        // son lecteur. Un spectateur n'en a pas : aucune entrée demandée à
+        // Kyber, rien de branché au lecteur de manettes.
+        let wants_input = self.guest.is_none() || self.share_role.plays();
+        let input_config = if wants_input {
+            let (pipeline, input) = crate::input::pipeline::created_during(|| self.platform.input_pipeline());
+            if let Some(input) = &input {
+                self.focus.attach_input(input);
+            }
+            self.pipeline = Some(pipeline.clone());
+            Some(InputSessionConfig {
+                pipeline,
+                gamepad_force_xbox360: Some(self.params.gamepad_xbox360),
+                // Jamais le presse-papiers pour un invité.
+                clipboard: self.params.clipboard && self.guest.is_none(),
+            })
+        } else {
+            self.pipeline = None;
+            None
+        };
+        self.stream_input = wants_input;
         let window_handle = self.platform.window_handle();
         let video: Vec<VideoSessionConfig> = self
             .streams
@@ -2418,13 +2964,8 @@ impl Worker {
             bitrate,
             video,
             audio,
-            input: Some(InputSessionConfig {
-                pipeline: pipeline.clone(),
-                gamepad_force_xbox360: Some(self.params.gamepad_xbox360),
-                clipboard: self.params.clipboard,
-            }),
+            input: input_config,
         };
-        self.pipeline = Some(pipeline);
         self.streaming = Some(display.clone());
         self.last_shown = Some(display);
         self.streaming_fallback = self.fallback;
@@ -2480,6 +3021,10 @@ impl Worker {
     fn finish(&mut self, error: Option<String>) {
         self.ending = true;
         self.alive.store(false, Ordering::Relaxed);
+        // Session d'invité finie par le partage : dit avant la raison.
+        if let Some((end, text)) = &self.share_end {
+            self.platform.on_share_end(end, text);
+        }
         // La raison d'un échec dès l'état « fin en cours » : Admin peut mettre
         // quelques secondes à répondre avant `Ended`.
         self.platform.on_ending(error.as_deref());
@@ -2511,7 +3056,17 @@ impl Worker {
         }
         self.pipeline = None;
         self.streaming = None;
-        let console = self.console.as_ref()?;
+        let console = self.console.clone()?;
+        if !self.host_only(HostOnly::End) {
+            // Invité : il quitte le partage ; rien à rétablir, pas de rapport.
+            if let Some(g) = &self.guest {
+                match console.share_leave(&g.joined.guest, &g.joined.secret) {
+                    Ok(()) => info!("partage quitté"),
+                    Err(e) => warn!("départ du partage : {}", e.text(Lang::Fr)),
+                }
+            }
+            return None;
+        }
         let latency = if failed { None } else { self.latency.session().0 };
         Some(match console.end(&self.device_id, latency) {
             Ok(e) => {
@@ -2896,6 +3451,7 @@ mod tests {
             gamepad_xbox360: true,
             clipboard: false,
             recovery: Recovery::default(),
+            role: SessionRole::Host,
         };
         let recorder = Arc::new(Recorder::default());
         let (tx, rx) = mpsc::channel();

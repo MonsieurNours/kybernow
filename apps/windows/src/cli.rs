@@ -325,6 +325,7 @@ pub fn main() -> i32 {
         gamepad_xbox360: true,
         clipboard: true,
         recovery: kybernow_core::session::Recovery { restart_station: args.station_restart, ..Default::default() },
+        role: kybernow_core::session::SessionRole::Host,
     };
     let (tx, rx) = mpsc::channel();
     let _host = SessionHost::start(

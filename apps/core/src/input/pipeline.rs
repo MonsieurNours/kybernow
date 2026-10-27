@@ -35,6 +35,12 @@
 //! manettes, les relâchements et les retours au repos passent toujours. Les
 //! manettes de Mac et de Windows sont lues par le lecteur unique du cœur
 //! ([`crate::gamepads`]) quand libkynput est construite sans le sien.
+//!
+//! KyberNow Share ([`InputPipeline::set_rights`], docs/kybernow-share.md) :
+//! la chaîne d'un invité joueur ne laisse partir que ce que son rôle permet
+//! (ses manettes ; le clavier et la souris quand l'hôte les donne ; jamais
+//! le presse-papiers). Un droit retiré relâche ce qu'il tenait, comme une
+//! session qui passe derrière. La Station l'impose aussi de son côté.
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -106,6 +112,30 @@ pub struct Options {
     pub gamepads_from_app: bool,
 }
 
+/// Ce que la chaîne laisse partir vers l'ordinateur (KyberNow Share) : tout
+/// pour un hôte ([`Self::ALL`], par défaut) ; pour un invité, ce que son rôle
+/// permet ([`crate::share::ShareRole::rights`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct InputRights {
+    /// Touches et axes des manettes, branchements, vibrations reçues.
+    pub gamepads: bool,
+    /// Clavier, souris (positions, déplacements, clics, molette), texte.
+    pub keyboard_mouse: bool,
+    /// Presse-papiers partagé.
+    pub clipboard: bool,
+}
+
+impl InputRights {
+    pub const ALL: Self = Self { gamepads: true, keyboard_mouse: true, clipboard: true };
+    pub const NONE: Self = Self { gamepads: false, keyboard_mouse: false, clipboard: false };
+}
+
+impl Default for InputRights {
+    fn default() -> Self {
+        Self::ALL
+    }
+}
+
 /// Multi-écrans : un écran de l'ordinateur pris par la session
 /// ([`crate::session::StreamScreen`]), vu des entrées.
 #[derive(Clone)]
@@ -174,6 +204,12 @@ pub struct InputPipeline {
     switch: Mutex<()>,
     /// La chaîne tient le fil SDL du cœur (à rendre à l'arrêt).
     sdl_held: AtomicBool,
+    /// KyberNow Share : les droits de la chaîne ([`InputRights`], tous par défaut).
+    kbm_allowed: AtomicBool,
+    pads_allowed: AtomicBool,
+    clipboard_allowed: AtomicBool,
+    /// Les entrées ont rejoint l'ordinateur ([`Self::network_connected`]).
+    connected: AtomicBool,
     /// Manettes que l'ordinateur fait vibrer par cette chaîne (arrêtées
     /// quand elle passe derrière).
     rumbling: Mutex<HashSet<PadId>>,
@@ -277,6 +313,10 @@ impl InputPipeline {
                 switch: Mutex::new(()),
                 sdl_held: AtomicBool::new(core_pads),
                 rumbling: Mutex::new(HashSet::new()),
+                kbm_allowed: AtomicBool::new(true),
+                pads_allowed: AtomicBool::new(true),
+                clipboard_allowed: AtomicBool::new(true),
+                connected: AtomicBool::new(false),
             }
         });
         let weak = Arc::downgrade(&this);
@@ -494,7 +534,7 @@ impl InputPipeline {
     }
 
     fn apply_relative(&self) {
-        let on = self.relative_wanted.load(Ordering::Relaxed) && self.is_active();
+        let on = self.relative_wanted.load(Ordering::Relaxed) && self.kbm_ok();
         self.relative.store(on, Ordering::Relaxed);
         let _ = self.kynput.set_type_processing_state(InputType::MouseMove, RouterProcessingState::from_boolean(on));
     }
@@ -532,7 +572,9 @@ impl InputPipeline {
         log::debug!("{}entrées : session {}", self.label.prefix(), if active { "active" } else { "en arrière-plan" });
         if active {
             self.apply_relative();
-            if let Some(c) = &self.clipboard {
+            if let Some(c) = &self.clipboard
+                && self.clipboard_allowed.load(Ordering::SeqCst)
+            {
                 c.set_paused(false);
                 self.wake();
             }
@@ -549,6 +591,89 @@ impl InputPipeline {
 
     pub fn is_active(&self) -> bool {
         self.active.load(Ordering::SeqCst)
+    }
+
+    /// Clavier et souris peuvent partir : session active, et droit donné.
+    fn kbm_ok(&self) -> bool {
+        self.is_active() && self.kbm_allowed.load(Ordering::SeqCst)
+    }
+
+    /// Appuis et axes des manettes peuvent partir : session active, et droit donné.
+    fn pads_ok(&self) -> bool {
+        self.is_active() && self.pads_allowed.load(Ordering::SeqCst)
+    }
+
+    /// Les manettes sont permises (KyberNow Share), active ou non.
+    pub(crate) fn pads_allowed(&self) -> bool {
+        self.pads_allowed.load(Ordering::SeqCst)
+    }
+
+    // KyberNow Share.
+
+    /// Ce que la chaîne laisse partir (KyberNow Share ; un hôte : tout). Un
+    /// droit retiré se comporte comme une session qui passe derrière : le
+    /// clavier et la souris retirés relâchent touches et clics tenus et
+    /// coupent la souris relative ; les manettes retirées sont mises au repos
+    /// (touches relâchées, axes au centre), leurs vibrations arrêtées puis
+    /// ignorées, et une manette branchée ensuite n'est pas annoncée ; le
+    /// presse-papiers retiré est en pause. Les manettes rendues sont
+    /// réannoncées à l'ordinateur (lecteur du cœur, et
+    /// [`InputPlatform::connected`] pour une app qui produit les siennes).
+    /// La session de l'invité l'appelle elle-même à chaque démarrage de
+    /// l'image et quand son rôle change.
+    pub fn set_rights(&self, rights: InputRights) {
+        let regained_pads;
+        {
+            let _switch = self.switch.lock().unwrap();
+            let kbm = self.kbm_allowed.swap(rights.keyboard_mouse, Ordering::SeqCst);
+            let pads = self.pads_allowed.swap(rights.gamepads, Ordering::SeqCst);
+            let clipboard = self.clipboard_allowed.swap(rights.clipboard, Ordering::SeqCst);
+            if (kbm, pads, clipboard) == (rights.keyboard_mouse, rights.gamepads, rights.clipboard) {
+                return;
+            }
+            log::info!(
+                "{}entrées : manettes {}, clavier et souris {}, presse-papiers {}",
+                self.label.prefix(),
+                if rights.gamepads { "permises" } else { "retenues" },
+                if rights.keyboard_mouse { "permis" } else { "retenus" },
+                if rights.clipboard { "permis" } else { "retenu" }
+            );
+            if let Some(c) = &self.clipboard {
+                let paused = !(rights.clipboard && self.is_active());
+                c.set_paused(paused);
+                if !paused {
+                    self.wake();
+                }
+            }
+            self.apply_relative();
+            if kbm && !rights.keyboard_mouse {
+                self.release_all();
+            }
+            if pads && !rights.gamepads {
+                self.rest_gamepads();
+                self.stop_rumble();
+            }
+            regained_pads = !pads && rights.gamepads;
+        }
+        if regained_pads && self.connected.load(Ordering::SeqCst) {
+            self.announce_gamepads();
+        }
+    }
+
+    pub fn rights(&self) -> InputRights {
+        InputRights {
+            gamepads: self.pads_allowed.load(Ordering::SeqCst),
+            keyboard_mouse: self.kbm_allowed.load(Ordering::SeqCst),
+            clipboard: self.clipboard_allowed.load(Ordering::SeqCst),
+        }
+    }
+
+    /// Les manettes présentes, (ré)annoncées à l'ordinateur.
+    fn announce_gamepads(&self) {
+        if self.reader_attached() {
+            crate::gamepads::global().connected(self);
+        }
+        self.platform.connected();
     }
 
     /// Toutes les manettes connues au repos : touches tenues relâchées, six
@@ -596,7 +721,7 @@ impl InputPipeline {
     /// basculé.
     pub(crate) fn rumble_received(&self, r: GamepadRumble) {
         let mut rumbling = self.rumbling.lock().unwrap();
-        if !self.is_active() {
+        if !self.pads_ok() {
             return;
         }
         if r.large_motor != 0 || r.small_motor != 0 {
@@ -684,12 +809,10 @@ impl InputPipeline {
     /// reconnexion).
     pub fn network_connected(&self) {
         log::info!("{}entrées reliées à l'ordinateur", self.label.prefix());
+        self.connected.store(true, Ordering::SeqCst);
         // Les manettes du lecteur du cœur y sont branchées (l'app qui produit
         // les siennes les réannonce dans `connected`).
-        if self.reader_attached() {
-            crate::gamepads::global().connected(self);
-        }
-        self.platform.connected();
+        self.announce_gamepads();
     }
 
     // Envoi.
@@ -714,7 +837,7 @@ impl InputPipeline {
     }
 
     pub fn mouse_move(&self, dx: i16, dy: i16) {
-        if !self.is_active() {
+        if !self.kbm_ok() {
             return;
         }
         self.once(OwnedPacket::from_packet(MouseMove { dx, dy }.to_packet(InputTarget::Host)), "déplacement relatif");
@@ -724,7 +847,7 @@ impl InputPipeline {
     /// Notée dans [`Self::held`] pour « tout relâcher ».
     pub fn key(&self, scancode: u16, pressed: bool) {
         let _switch = self.switch.lock().unwrap();
-        if pressed && !self.is_active() {
+        if pressed && !self.kbm_ok() {
             return;
         }
         self.held.lock().unwrap().key(scancode, pressed);
@@ -746,7 +869,7 @@ impl InputPipeline {
     }
 
     fn mouse_at(&self, display_id: u32, x: i16, y: i16) {
-        if !self.is_active() {
+        if !self.kbm_ok() {
             return;
         }
         self.once(OwnedPacket::from_packet(MousePosition { display_id, x, y }.to_packet(InputTarget::Host)), "position");
@@ -754,7 +877,7 @@ impl InputPipeline {
 
     pub fn mouse_button(&self, button: MouseButtonType, pressed: bool) {
         let _switch = self.switch.lock().unwrap();
-        if pressed && !self.is_active() {
+        if pressed && !self.kbm_ok() {
             return;
         }
         self.held.lock().unwrap().mouse_button(button, pressed);
@@ -762,7 +885,7 @@ impl InputPipeline {
     }
 
     pub fn wheel(&self, dx: f32, dy: f32) {
-        if !self.is_active() {
+        if !self.kbm_ok() {
             return;
         }
         self.once(OwnedPacket::from_packet(MouseWheel { dx, dy }.to_packet(InputTarget::Host)), "molette");
@@ -790,7 +913,7 @@ impl InputPipeline {
 
     /// Texte tapé (clavier de l'écran, de l'iPhone) : un caractère à la fois.
     pub fn type_text(&self, text: &str) {
-        if !self.is_active() {
+        if !self.kbm_ok() {
             return;
         }
         for character in text.chars() {
@@ -803,6 +926,10 @@ impl InputPipeline {
 
     pub fn gamepad_plug(&self, id: PadId, vendor_id: Option<u16>, product_id: Option<u16>) {
         self.combo.note(id);
+        // Manettes retenues (KyberNow Share) : annoncée quand elles seront rendues.
+        if !self.pads_allowed() {
+            return;
+        }
         let packet = GamepadControl::Plug { id, vendor_id, product_id }.to_packet(InputTarget::Host).and_then(OwnedPacket::from_packet);
         self.reliably(packet, "manette branchée");
     }
@@ -821,7 +948,7 @@ impl InputPipeline {
     /// Touche de manette : envoyée tout de suite, et passée à la combinaison.
     pub fn gamepad_button(&self, id: PadId, button: PadButton, pressed: bool) {
         let _switch = self.switch.lock().unwrap();
-        if pressed && !self.is_active() {
+        if pressed && !self.pads_ok() {
             return;
         }
         self.combo.button(id, button, pressed);
@@ -871,7 +998,7 @@ impl InputPipeline {
     /// Valeur d'un axe produit par l'app : filtrée, regroupée, envoyée (voir ci-dessus).
     pub fn gamepad_axis(&self, id: PadId, axis: PadAxis, value: i16) {
         let _switch = self.switch.lock().unwrap();
-        if value != 0 && !self.is_active() {
+        if value != 0 && !self.pads_ok() {
             return;
         }
         let mut axes = self.axes.lock().unwrap();
@@ -914,8 +1041,8 @@ impl InputPipeline {
         }
         axes.flush_at = None;
         let mut pending = std::mem::take(&mut axes.pending);
-        if !self.is_active() {
-            // Passée derrière depuis : seuls les retours au repos partent.
+        if !self.pads_ok() {
+            // Passée derrière depuis (ou manettes retenues) : seuls les retours au repos partent.
             for values in pending.values_mut() {
                 values.retain(|_, value| *value == 0);
             }

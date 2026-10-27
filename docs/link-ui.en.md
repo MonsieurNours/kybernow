@@ -105,6 +105,7 @@ An open share shows in the bar (a « 2 invités » / “2 guests” chip, which 
 | Searching | « Recherche du partage… » | “Looking for the share…” |
 | Unknown code | « Aucun partage avec ce code sur le réseau. » | “No share with this code on your network.” |
 | Full | « Ce partage est complet (quatre invités au plus). » | “This share is full (four guests at most).” |
+| Too many tries (10 a minute) | « Trop d'essais de code : réessayez dans une minute. » | “Too many code attempts: try again in a minute.” |
 | Unreadable format | « Cet appareil ne lit pas l'image de cet ordinateur ({format}). » | “This device cannot play this computer's picture ({format}).” |
 | Connecting | the connection's steps, titled « Invité sur {nom} » | “Guest on {name}” |
 | Bar (reduced) | « Spectateur » or « Joueur »; « Quitter le partage »; the controller, keyboard and mouse if given; no profile, no settings | “Spectator” or “Player”; “Leave” |

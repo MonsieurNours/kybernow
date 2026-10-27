@@ -27,21 +27,21 @@ use kybernow_core::wake;
 use crate::jvm::Listener;
 use crate::session::{self, Handle};
 
-type Env<'a> = JNIEnv<'a>;
+pub(crate) type Env<'a> = JNIEnv<'a>;
 
-fn string(env: &mut Env, s: &JString) -> String {
+pub(crate) fn string(env: &mut Env, s: &JString) -> String {
     if s.is_null() {
         return String::new();
     }
     env.get_string(s).map(Into::into).unwrap_or_default()
 }
 
-fn optional(env: &mut Env, s: &JString) -> Option<String> {
+pub(crate) fn optional(env: &mut Env, s: &JString) -> Option<String> {
     let v = string(env, s);
     (!v.is_empty()).then_some(v)
 }
 
-fn give(env: &mut Env, s: &str) -> jstring {
+pub(crate) fn give(env: &mut Env, s: &str) -> jstring {
     env.new_string(s).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut())
 }
 
@@ -76,7 +76,7 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_nowMicros(_
 
 // MARK: - Admin
 
-fn envelope<T: serde::Serialize>(r: Result<T, ConsoleError>) -> String {
+pub(crate) fn envelope<T: serde::Serialize>(r: Result<T, ConsoleError>) -> String {
     match r {
         Ok(v) => serde_json::json!({ "code": 0, "value": v }).to_string(),
         Err(e) => {
@@ -90,7 +90,7 @@ fn envelope<T: serde::Serialize>(r: Result<T, ConsoleError>) -> String {
     }
 }
 
-fn console<'a>(h: jlong) -> Option<&'a Console> {
+pub(crate) fn console<'a>(h: jlong) -> Option<&'a Console> {
     (h != 0).then(|| unsafe { &*(h as *const Console) })
 }
 

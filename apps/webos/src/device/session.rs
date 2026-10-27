@@ -12,7 +12,7 @@ use kybernow_core::kynput_rs::Pipeline;
 use kybernow_core::latency::Second;
 use kybernow_core::media::PacketHandler;
 use kybernow_core::profile::{Capabilities, Codec, Profile as CoreProfile, StreamSettings};
-use kybernow_core::session::{Notice, Platform, Recovery, Session, SessionParams, Status};
+use kybernow_core::session::{Notice, Platform, Recovery, Session, SessionParams, SessionRole, Status};
 use kybernow_core::{Display, WindowHandle};
 
 use super::ndl;
@@ -298,6 +298,7 @@ pub fn start(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32), 
         gamepad_xbox360: host.settings.xbox360,
         clipboard: false,
         recovery: Recovery { watch_image: true, fallback_bitrate: Some((cap_mbps / 2).max(20) * 1_000_000), ..Recovery::default() },
+        role: SessionRole::Host,
     };
     let session = Session::start(params, Arc::new(WebOsPlatform(shared.clone())));
     let _ = shared.session.set(Arc::downgrade(&session));

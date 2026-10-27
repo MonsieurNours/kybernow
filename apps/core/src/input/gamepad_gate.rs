@@ -61,8 +61,9 @@ impl GamepadGate {
         self.state.lock().unwrap().last_axis.entry(id).or_default().insert(axis, value);
     }
 
-    /// `true` : le paquet part vers l'ordinateur.
-    fn filter(&self, packet: *const sys::kynput_Packet, combo: &PadCombo) -> Filtered {
+    /// `true` : le paquet part vers l'ordinateur. `held_back` : manettes
+    /// retenues (KyberNow Share), comme une manette prise mais sans navigation.
+    fn filter(&self, packet: *const sys::kynput_Packet, combo: &PadCombo, held_back: bool) -> Filtered {
         unsafe {
             let mut control: sys::kynput_GamepadControlId = 0;
             if sys::kynput_gamepad_control_id_from_packet(packet, &mut control) {
@@ -86,14 +87,16 @@ impl GamepadGate {
                 return Filtered::pass();
             }
             let mut state = self.state.lock().unwrap();
+            let navigating = state.captured;
+            let captured = state.captured || held_back;
             if event == sys::kynput_GamepadEventId_KYNPUT_GAMEPAD_EVENT_ID_AXIS {
                 let mut a = std::mem::zeroed::<sys::kynput_GamepadEventAxis>();
                 if !sys::kynput_gamepad_axis_from_packet(packet, &mut a) {
-                    return Filtered::verdict(!state.captured);
+                    return Filtered::verdict(!captured);
                 }
                 combo.note(a.id);
                 let axis = a.type_ as u32;
-                if state.captured {
+                if captured {
                     // Manette prise : seuls les retours au repos passent.
                     if a.value != 0 {
                         return Filtered::verdict(false);
@@ -109,16 +112,15 @@ impl GamepadGate {
                 return Filtered::pass();
             }
             if event != sys::kynput_GamepadEventId_KYNPUT_GAMEPAD_EVENT_ID_BUTTON {
-                return Filtered::verdict(!state.captured);
+                return Filtered::verdict(!captured);
             }
             let mut b = std::mem::zeroed::<sys::kynput_GamepadEventButton>();
             if !sys::kynput_gamepad_button_from_packet(packet, &mut b) {
-                return Filtered::verdict(!state.captured);
+                return Filtered::verdict(!captured);
             }
             let Some(button) = PadButton::from_u32(b.type_ as u32) else {
-                return Filtered::verdict(!state.captured);
+                return Filtered::verdict(!captured);
             };
-            let captured = state.captured;
             drop(state);
             // Les touches de la combinaison partent au jeu comme les autres ;
             // elle se forme après 250 ms tenues (PadCombo).
@@ -132,7 +134,7 @@ impl GamepadGate {
             }
             Filtered {
                 pass: false,
-                navigate: PadCombo::navigation_key(button),
+                navigate: if navigating { PadCombo::navigation_key(button) } else { None },
                 armed: combo.next_deadline().is_some(),
             }
         }
@@ -169,7 +171,7 @@ impl RouterHook for GateHook {
         let Some(gate) = p.gamepad_gate() else {
             return RouterHookPacketResult { process_event: true };
         };
-        let f = gate.filter(pkt.to_ptr(), p.combo());
+        let f = gate.filter(pkt.to_ptr(), p.combo(), !p.pads_allowed());
         if f.armed {
             p.wake();
         }
@@ -214,12 +216,12 @@ mod tests {
     #[test]
     fn libre_tout_passe_et_axes_immobiles_ecartes() {
         let (gate, combo) = setup();
-        assert!(gate.filter(button(0, PadButton::A, true).0, &combo).pass);
-        assert!(gate.filter(button(0, PadButton::A, false).0, &combo).pass);
-        assert!(gate.filter(axis(0, PadAxis::LeftX, 10_000).0, &combo).pass);
+        assert!(gate.filter(button(0, PadButton::A, true).0, &combo, false).pass);
+        assert!(gate.filter(button(0, PadButton::A, false).0, &combo, false).pass);
+        assert!(gate.filter(axis(0, PadAxis::LeftX, 10_000).0, &combo, false).pass);
         // Même valeur au 1/512 près : écartée.
-        assert!(!gate.filter(axis(0, PadAxis::LeftX, 10_010).0, &combo).pass);
-        assert!(gate.filter(axis(0, PadAxis::LeftX, 0).0, &combo).pass);
+        assert!(!gate.filter(axis(0, PadAxis::LeftX, 10_010).0, &combo, false).pass);
+        assert!(gate.filter(axis(0, PadAxis::LeftX, 0).0, &combo, false).pass);
     }
 
     #[test]
@@ -227,24 +229,24 @@ mod tests {
         let (gate, combo) = setup();
         assert!(gate.set_captured(true));
         assert!(!gate.set_captured(true), "déjà prise : rien à relâcher");
-        let f = gate.filter(button(0, PadButton::DpadLeft, true).0, &combo);
+        let f = gate.filter(button(0, PadButton::DpadLeft, true).0, &combo, false);
         assert!(!f.pass);
         assert_eq!(f.navigate, Some(PadKey::Left));
-        let f = gate.filter(button(0, PadButton::A, true).0, &combo);
+        let f = gate.filter(button(0, PadButton::A, true).0, &combo, false);
         assert!(!f.pass);
         assert_eq!(f.navigate, Some(PadKey::Accept));
-        assert!(gate.filter(button(0, PadButton::A, false).0, &combo).pass);
-        assert!(!gate.filter(axis(0, PadAxis::RightY, -20_000).0, &combo).pass);
-        assert!(gate.filter(axis(0, PadAxis::RightY, 0).0, &combo).pass);
+        assert!(gate.filter(button(0, PadButton::A, false).0, &combo, false).pass);
+        assert!(!gate.filter(axis(0, PadAxis::RightY, -20_000).0, &combo, false).pass);
+        assert!(gate.filter(axis(0, PadAxis::RightY, 0).0, &combo, false).pass);
         gate.set_captured(false);
-        assert!(gate.filter(button(0, PadButton::A, true).0, &combo).pass);
+        assert!(gate.filter(button(0, PadButton::A, true).0, &combo, false).pass);
     }
 
     #[test]
     fn combinaison_vue_par_le_portier() {
         let (gate, combo) = setup();
         for b in COMBO {
-            assert!(gate.filter(button(3, b, true).0, &combo).pass, "les touches de la combinaison partent au jeu");
+            assert!(gate.filter(button(3, b, true).0, &combo, false).pass, "les touches de la combinaison partent au jeu");
         }
         assert!(combo.next_deadline().is_some(), "la combinaison attend ses 250 ms");
         assert_eq!(combo.pads(), vec![3]);

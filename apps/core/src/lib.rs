@@ -18,6 +18,7 @@ pub mod latency;
 pub mod media;
 pub mod profile;
 pub mod screens;
+pub mod share;
 pub mod session;
 pub mod update;
 pub mod wake;

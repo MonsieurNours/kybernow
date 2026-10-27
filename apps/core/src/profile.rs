@@ -89,6 +89,31 @@ pub struct Capabilities {
     pub av1: bool,
 }
 
+/// Réglages d'une session en JSON ([`StreamSettings::from_json`]).
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct SettingsJson {
+    pub profile: Option<String>,
+    pub codec: String,
+    #[serde(default)]
+    pub yuv444: bool,
+    pub mbps: u32,
+    #[serde(default)]
+    pub reliable: bool,
+}
+
+impl SettingsJson {
+    pub fn settings(&self) -> Result<StreamSettings, String> {
+        let codec = Codec::parse(&self.codec).ok_or_else(|| format!("format inconnu : {}", self.codec))?;
+        Ok(StreamSettings {
+            profile: self.profile.as_deref().and_then(Profile::parse),
+            codec,
+            yuv444: self.yuv444,
+            mbps: self.mbps,
+            reliable: self.reliable,
+        })
+    }
+}
+
 /// Réglages d'une session.
 #[derive(Debug, Clone)]
 pub struct StreamSettings {
@@ -125,6 +150,14 @@ impl StreamSettings {
             mbps,
             reliable,
         }
+    }
+
+    /// Réglages en JSON, comme les donnent les ponts des apps (C, JNI) :
+    /// `profile` (`jeu`, `bureau`, `max` ; absent : personnalisé), `codec`
+    /// (`h264`, `hevc`, `av1`), `yuv444`, `mbps`, `reliable`.
+    pub fn from_json(json: &str) -> Result<Self, String> {
+        let wire: SettingsJson = serde_json::from_str(json).map_err(|e| e.to_string())?;
+        wire.settings()
     }
 
     pub fn label(&self) -> &'static str {

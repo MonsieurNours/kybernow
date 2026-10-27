@@ -16,6 +16,8 @@ mod jvm;
 #[cfg(target_os = "android")]
 mod session;
 #[cfg(target_os = "android")]
+mod share;
+#[cfg(target_os = "android")]
 mod update;
 #[cfg(target_os = "android")]
 mod video;

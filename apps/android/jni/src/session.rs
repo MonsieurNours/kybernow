@@ -14,13 +14,14 @@ use jni::objects::{JObject, JValue};
 use ndk::native_window::NativeWindow;
 use serde::Deserialize;
 
-use kybernow_core::console::{DeviceInfo, Mode};
+use kybernow_core::console::Mode;
 use kybernow_core::input::{Clock, GamepadRumble, InputPipeline, InputPlatform, MonotonicClock, Options, PadId, PadKey, Pasteboard, PointerLayer};
 use kybernow_core::kynput_rs::Pipeline;
 use kybernow_core::latency::Second;
 use kybernow_core::media::PacketHandler;
-use kybernow_core::profile::{Codec, Profile, StreamSettings};
-use kybernow_core::session::{Notice, Platform, Recovery, Session, SessionParams, Status};
+use kybernow_core::profile::StreamSettings;
+use kybernow_core::session::{Notice, Platform, Session, SessionParams, Status};
+use kybernow_core::share::{ShareEnd, ShareRole, ShareState};
 use kybernow_core::{Display, WindowHandle};
 
 use crate::audio::AudioSink;
@@ -86,6 +87,30 @@ struct AndroidPlatform(Arc<Shared>);
 const NOTICE_STATION_RESTARTING: i32 = 7;
 
 impl Platform for AndroidPlatform {
+    /// KyberNow Share, hôte : `SessionListener.onGuests(json)` (nul sans partage).
+    fn on_guests(&self, share: Option<&ShareState>) {
+        let json = share.map(|s| serde_json::to_string(s).unwrap_or_default());
+        self.0.listener.with(|env, obj| {
+            let s = jstring_or_null(env, json.as_deref())?;
+            env.call_method(obj, "onGuests", "(Ljava/lang/String;)V", &[JValue::Object(&s)]).map(|_| ())
+        });
+    }
+
+    /// KyberNow Share, invité : `SessionListener.onShareRole(role, previous)`
+    /// (0 spectateur, 1 joueur, 2 joueur avec clavier et souris ; −1 au départ).
+    fn on_share_role(&self, role: ShareRole, previous: Option<ShareRole>) {
+        self.0.listener.void("onShareRole", "(II)V", &[JValue::Int(role.code()), JValue::Int(previous.map_or(-1, ShareRole::code))]);
+    }
+
+    /// KyberNow Share, invité : `SessionListener.onShareEnd(end, text)` (0
+    /// arrêté, 1 retiré, 2 format illisible), juste avant la fin.
+    fn on_share_end(&self, end: &ShareEnd, text: &str) {
+        self.0.listener.with(|env, obj| {
+            let s = env.new_string(text)?;
+            env.call_method(obj, "onShareEnd", "(ILjava/lang/String;)V", &[JValue::Int(end.code()), JValue::Object(&s)]).map(|_| ())
+        });
+    }
+
     fn window_handle(&self) -> WindowHandle {
         // L'image et le son vont à l'app : Kyber ne crée pas de lecteur VLC.
         WindowHandle::Android(0)
@@ -369,74 +394,14 @@ impl Pasteboard for Board {
 
 // MARK: - Démarrage
 
-#[derive(Deserialize)]
-struct SettingsWire {
-    profile: Option<String>,
-    codec: String,
-    #[serde(default)]
-    yuv444: bool,
-    mbps: u32,
-    #[serde(default)]
-    reliable: bool,
-}
-
-impl SettingsWire {
-    fn settings(&self) -> Result<StreamSettings, String> {
-        let codec = Codec::parse(&self.codec).ok_or_else(|| format!("format inconnu : {}", self.codec))?;
-        Ok(StreamSettings {
-            profile: self.profile.as_deref().and_then(Profile::parse),
-            codec,
-            yuv444: self.yuv444,
-            mbps: self.mbps,
-            reliable: self.reliable,
-        })
-    }
-}
-
 pub fn parse_settings(json: &str) -> Result<StreamSettings, String> {
-    let wire: SettingsWire = serde_json::from_str(json).map_err(|e| e.to_string())?;
-    wire.settings()
+    StreamSettings::from_json(json)
 }
 
+/// Ce que le JSON des paramètres ajoute pour Android.
 #[derive(Deserialize)]
-struct RecoveryWire {
-    #[serde(default)]
-    watch_image: bool,
-    /// Plafond du repli, en bit/s (comme `Recovery::fallback_bitrate`).
-    fallback_bitrate: Option<u32>,
-    /// Dernier recours (`Recovery::restart_station`) : vrai si absent.
-    #[serde(default = "yes")]
-    restart_station: bool,
-}
-
-impl Default for RecoveryWire {
-    fn default() -> Self {
-        Self { watch_image: false, fallback_bitrate: None, restart_station: true }
-    }
-}
-
-#[derive(Deserialize)]
-struct ParamsWire {
-    console_host: String,
-    console_port: u16,
-    user: String,
-    password: String,
-    console_fingerprint: Option<String>,
-    device: DeviceInfo,
-    mode: Mode,
-    #[serde(default)]
-    audio_channels: u16,
-    #[serde(default = "yes")]
-    virtual_display: bool,
-    settings: SettingsWire,
-    #[serde(default = "yes")]
-    auto_reconnect: bool,
-    #[serde(default = "yes")]
-    gamepad_xbox360: bool,
-    #[serde(default = "yes")]
-    clipboard: bool,
-    #[serde(default)]
-    recovery: RecoveryWire,
+struct AndroidJson {
+    /// La combinaison L1 + R1 + Start + Select ouvre le menu.
     #[serde(default = "yes")]
     combo: bool,
 }
@@ -451,10 +416,12 @@ pub struct Handle {
 }
 
 /// Démarre une session ; même JSON que `kn_session_start` des apps Apple
-/// (voir apps/apple/src/lib.rs), plus `combo` (la combinaison ouvre le menu).
+/// (`SessionParams::from_json` du cœur, `guest` compris pour une session
+/// d'invité de KyberNow Share), plus `combo` (la combinaison ouvre le menu).
 pub fn start(params_json: &str, listener: Listener, window: Option<NativeWindow>, refresh: u32) -> Result<Handle, String> {
-    let wire: ParamsWire = serde_json::from_str(params_json).map_err(|e| e.to_string())?;
-    let settings = wire.settings.settings()?;
+    let (params, _screens) = SessionParams::from_json(params_json)?;
+    let android: AndroidJson = serde_json::from_str(params_json).map_err(|e| e.to_string())?;
+    let mode = params.mode;
     let clock = Arc::new(MonotonicClock::new());
     let pointer = Arc::new(PointerLayer::new(clock.clone(), true));
     let shared = Arc::new(Shared {
@@ -465,12 +432,13 @@ pub fn start(params_json: &str, listener: Listener, window: Option<NativeWindow>
         pointer: pointer.clone(),
         clock: clock.clone(),
         input: Mutex::new(None),
-        display: Mutex::new((0, wire.mode.width, wire.mode.height)),
-        mode: Mutex::new(wire.mode),
+        display: Mutex::new((0, mode.width, mode.height)),
+        mode: Mutex::new(mode),
         refresh: AtomicU32::new(refresh),
-        has_audio: wire.audio_channels > 0,
-        clipboard: wire.clipboard,
-        combo_enabled: AtomicBool::new(wire.combo),
+        has_audio: params.audio_channels > 0,
+        // Jamais le presse-papiers pour un invité.
+        clipboard: params.clipboard && !params.is_guest(),
+        combo_enabled: AtomicBool::new(android.combo),
     });
     // Le pointeur à dessiner : position, visibilité, forme.
     let weak = Arc::downgrade(&shared);
@@ -511,26 +479,6 @@ pub fn start(params_json: &str, listener: Listener, window: Option<NativeWindow>
             .map(|_| ())
         });
     });
-    let params = SessionParams {
-        console_host: wire.console_host,
-        console_port: wire.console_port,
-        user: wire.user,
-        password: wire.password,
-        console_fingerprint: wire.console_fingerprint,
-        device: wire.device,
-        mode: wire.mode,
-        audio_channels: wire.audio_channels,
-        virtual_display: wire.virtual_display,
-        settings,
-        auto_reconnect: wire.auto_reconnect,
-        gamepad_xbox360: wire.gamepad_xbox360,
-        clipboard: wire.clipboard,
-        recovery: Recovery {
-            watch_image: wire.recovery.watch_image,
-            fallback_bitrate: wire.recovery.fallback_bitrate,
-            restart_station: wire.recovery.restart_station,
-        },
-    };
     let session = Session::start(params, Arc::new(AndroidPlatform(shared.clone())));
     let _ = shared.session.set(Arc::downgrade(&session));
     Ok(Handle { shared, session })

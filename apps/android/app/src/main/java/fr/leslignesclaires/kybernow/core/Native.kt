@@ -39,6 +39,28 @@ object Native {
     /** 0 : le paquet magique est parti ; 20 : aucune cible lisible ; 1 : rien n'est parti. Hors du fil principal. */
     @JvmStatic external fun wake(targetsJson: String): Int
 
+    // KyberNow Share (docs/kybernow-share.md). Réponses comme les autres appels d'Admin ;
+    // « Rejoindre » ajoute ses refus : 20 aucun partage avec ce code, 21 complet, 22 trop
+    // d'essais, 23 format de l'image illisible (`error` : le texte à montrer). Hors du fil principal.
+    /** `targets` `[{host, port, fingerprint}]`, `request` `{code, name, device, app}`, `capabilities` `{hevc, hevc444, av1}` ou `null` ; `value` : `{target, joined}`. */
+    @JvmStatic external fun shareJoin(targetsJson: String, requestJson: String, capabilitiesJson: String?): String
+    /** L'invité repart avant d'ouvrir sa session ; `foundJson` : la `value` de [shareJoin]. */
+    @JvmStatic external fun shareLeave(foundJson: String): Int
+    /** `{host, port, fingerprint, code}`, ou `null` si ce n'est pas un lien de partage. */
+    @JvmStatic external fun shareParseLink(url: String): String?
+    @JvmStatic external fun shareNormalizeCode(code: String): String?
+    @JvmStatic external fun shareFormatCode(code: String): String
+    /** 0 Station trop ancienne, 1 partage coupé sur l'ordinateur, 2 disponible ; `infoJson` : celui de [consoleInfo]. */
+    @JvmStatic external fun shareAvailability(infoJson: String): Int
+    @JvmStatic external fun shareAvailabilityText(availability: Int): String?
+    // Côté hôte (compte de l'appareil en session) ; `role` : 0 spectateur, 1 joueur, 2 joueur avec clavier et souris.
+    @JvmStatic external fun consoleShareOpen(handle: Long): String?
+    @JvmStatic external fun consoleShareState(handle: Long): String?
+    @JvmStatic external fun consoleShareCode(handle: Long): String?
+    @JvmStatic external fun consoleShareGuest(handle: Long, guest: String, role: Int): String?
+    @JvmStatic external fun consoleShareKick(handle: Long, guest: String): String?
+    @JvmStatic external fun consoleShareClose(handle: Long): String?
+
     // Mises à jour de l'app (réseau : jamais sur le fil principal).
     /** `{"available": {version, channel, notes, page, size}}`, `{"none": true}` ou `{"error": "…"}`. */
     @JvmStatic external fun updateCheck(current: String, beta: Boolean): String
@@ -166,4 +188,12 @@ interface SessionListener {
     fun clipHasText(): Boolean
     fun clipText(): String?
     fun clipSetText(text: String)
+
+    // KyberNow Share : rien à faire tant que l'app ne partage pas.
+    /** Hôte : le partage et ses invités en JSON (`open`, `code`, `link`, `web`, `display`, `guests`), `null` sans partage ; quand cela change. */
+    fun onGuests(json: String?) {}
+    /** Invité : son rôle (0 spectateur, 1 joueur, 2 joueur avec clavier et souris) ; `previous` −1 au départ. */
+    fun onShareRole(role: Int, previous: Int) {}
+    /** Invité : le partage finit la session (0 arrêté, 1 retiré, 2 format illisible), juste avant la fin ; `text` : la raison à montrer. */
+    fun onShareEnd(end: Int, text: String) {}
 }

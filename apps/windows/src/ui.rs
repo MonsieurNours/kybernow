@@ -36,7 +36,7 @@ use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, M
 use kybernow_core::console::{Console, Info, PairStatus, StationError};
 use kybernow_core::profile::{Codec, Profile};
 use kybernow_core::screens::{self, DisplaysSetting};
-use kybernow_core::session::{SessionParams, Status};
+use kybernow_core::session::{SessionParams, SessionRole, Status};
 
 use crate::discovery::{self, Discovery, Found};
 use crate::displays::{self, Layout, Spec};
@@ -2388,6 +2388,7 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
         gamepad_xbox360: s.gamepad != "fidele",
         clipboard: s.clipboard,
         recovery: Default::default(),
+        role: SessionRole::Host,
     };
     let mouse = match s.mouse.as_str() {
         "jeu" => Some(true),
