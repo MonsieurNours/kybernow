@@ -1,11 +1,14 @@
 //! Client de KyberNow Admin (kyber-admin) : les routes `/api/stream/*` d'une
 //! session et de l'accueil (info, aperçu), de la rubrique « Station » des
-//! réglages (redémarrer, mettre à jour la Station, ouvrir Admin), et
-//! `/api/pair/*` (appairage par code). Les apps Apple y passent par
-//! `ConsoleClient` (ConsoleClientCore.swift).
+//! réglages (redémarrer, mettre à jour la Station, ouvrir Admin),
+//! `/api/pair/*` (appairage par code) et `/api/share/*` (KyberNow Share,
+//! [`crate::share`]). Les apps Apple y passent par `ConsoleClient`
+//! (ConsoleClientCore.swift).
 //!
-//! Compte : Basic, le même que pour Kyber. Certificat : auto-signé, épinglé
-//! par son empreinte (`sha256:aa:bb:…`, SHA-256 du certificat DER).
+//! Compte : Basic, le même que pour Kyber ; aucun pour un invité de KyberNow
+//! Share ([`Console::guest`], son jeton dans `x-kybernow-guest`). Certificat :
+//! auto-signé, épinglé par son empreinte (`sha256:aa:bb:…`, SHA-256 du
+//! certificat DER).
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -19,6 +22,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::i18n::{self, Lang, tr};
+use crate::share::{JoinRequest, ShareBeat, ShareError, ShareInfo, ShareJoined, ShareOpened, ShareRole, ShareState};
 use crate::wake::WakeTarget;
 
 #[derive(Debug)]
@@ -151,6 +155,10 @@ pub struct Info {
     /// d'abord. Les apps les gardent pour chaque ordinateur : voir [`crate::wake`].
     #[serde(default, deserialize_with = "crate::wake::lenient")]
     pub wake: Vec<WakeTarget>,
+    /// KyberNow Share (Station 0.8.0 et suivantes) ; `None` avec une Station
+    /// antérieure : voir [`crate::share::ShareAvailability`].
+    #[serde(default)]
+    pub share: Option<ShareInfo>,
 }
 
 /// Le compte avec lequel l'app appelle Admin.
@@ -463,6 +471,9 @@ pub struct HeartbeatReply {
     pub mode: Option<Mode>,
     pub displays: Option<u32>,
     pub mode_policy: Option<String>,
+    /// Le partage ouvert par cet hôte (KyberNow Share) ; absent sans partage.
+    #[serde(default, deserialize_with = "crate::share::lenient_state")]
+    pub share: Option<ShareState>,
 }
 
 /// Réponse de `GET /api/stream/foreground`.
@@ -503,7 +514,8 @@ pub enum PairStatus {
 pub struct Console {
     base: String,
     host: String,
-    authorization: String,
+    /// `None` : invité de KyberNow Share, sans compte.
+    authorization: Option<String>,
     agent: ureq::Agent,
     seen: Arc<Mutex<Option<String>>>,
 }
@@ -512,6 +524,17 @@ impl Console {
     /// `pinned` : empreinte attendue ; sans elle, le premier certificat vu est
     /// accepté (lisible ensuite par `fingerprint_seen`).
     pub fn new(host: &str, port: u16, user: &str, password: &str, pinned: Option<String>) -> Self {
+        let token = base64::engine::general_purpose::STANDARD.encode(format!("{user}:{password}"));
+        Self::build(host, port, Some(format!("Basic {token}")), pinned)
+    }
+
+    /// Sans compte, pour un invité de KyberNow Share (`share_join`,
+    /// `share_beat`, `share_leave`) ; `pinned` comme pour [`Self::new`].
+    pub fn guest(host: &str, port: u16, pinned: Option<String>) -> Self {
+        Self::build(host, port, None, pinned)
+    }
+
+    fn build(host: &str, port: u16, authorization: Option<String>, pinned: Option<String>) -> Self {
         let provider = Arc::new(rustls::crypto::ring::default_provider());
         let seen = Arc::new(Mutex::new(None));
         let verifier = PinVerifier {
@@ -529,11 +552,10 @@ impl Console {
             .tls_config(Arc::new(tls))
             .timeout_connect(Duration::from_secs(5))
             .build();
-        let token = base64::engine::general_purpose::STANDARD.encode(format!("{user}:{password}"));
         Self {
             base: base_url(host, port),
             host: host.to_string(),
-            authorization: format!("Basic {token}"),
+            authorization,
             agent,
             seen,
         }
@@ -556,13 +578,17 @@ impl Console {
     }
 
     fn request(&self, method: &str, path: &str, timeout: Duration) -> ureq::Request {
-        self.agent
+        let r = self
+            .agent
             .request(method, &format!("{}/{path}", self.base))
             .timeout(timeout)
-            .set("Authorization", &self.authorization)
             .set("x-kyber-admin", "1")
             // La console répond dans la langue de l'app (messages d'erreur, refus).
-            .set("Accept-Language", i18n::current().code())
+            .set("Accept-Language", i18n::current().code());
+        match &self.authorization {
+            Some(a) => r.set("Authorization", a),
+            None => r,
+        }
     }
 
     fn read<T: for<'de> Deserialize<'de>>(&self, r: std::result::Result<ureq::Response, ureq::Error>) -> Result<T> {
@@ -585,6 +611,14 @@ impl Console {
                     Err(ConsoleError::Network(text))
                 }
             }
+        }
+    }
+
+    /// Une réponse sans contenu utile (corps vide, `{}`, `{"ok":true}`).
+    fn read_unit(&self, r: std::result::Result<ureq::Response, ureq::Error>) -> Result<()> {
+        match r {
+            Ok(_) => Ok(()),
+            Err(e) => self.read::<serde_json::Value>(Err(e)).map(|_| ()),
         }
     }
 
@@ -726,6 +760,98 @@ impl Console {
         }
     }
 
+    // KyberNow Share, côté hôte (docs/kybernow-share.md, « Échange avec
+    // Admin ») : le compte de l'appareil en session. Bloquants.
+
+    /// Ouvre le partage de l'écran principal de la session : code, lien, lien
+    /// du client web. Admin refuse (409) sans session de cet appareil, ou si
+    /// le partage est coupé sur l'ordinateur ; une Station antérieure répond 404.
+    pub fn share_open(&self) -> Result<ShareOpened> {
+        let r = self.request("POST", "api/share/open", Duration::from_secs(10)).send_json(serde_json::json!({}));
+        self.read(r)
+    }
+
+    /// Le partage en cours (`open` faux sans partage), avec ses invités.
+    pub fn share_state(&self) -> Result<ShareState> {
+        let r = self.request("GET", "api/share", Duration::from_secs(6)).call();
+        self.read(r)
+    }
+
+    /// « Nouveau code » : les invités déjà là restent.
+    pub fn share_code(&self) -> Result<ShareOpened> {
+        let r = self.request("POST", "api/share/code", Duration::from_secs(6)).send_json(serde_json::json!({}));
+        self.read(r)
+    }
+
+    /// « Faire jouer », « Donner le clavier et la souris », « Reprendre le
+    /// clavier et la souris » : le rôle d'un invité.
+    pub fn share_guest(&self, guest: &str, role: ShareRole) -> Result<()> {
+        let path = format!("api/share/guest/{}", path_segment(guest));
+        let r = self.request("POST", &path, Duration::from_secs(6)).send_json(serde_json::json!({ "role": role.as_str() }));
+        self.read_unit(r)
+    }
+
+    /// « Retirer » un invité du partage.
+    pub fn share_kick(&self, guest: &str) -> Result<()> {
+        let path = format!("api/share/guest/{}", path_segment(guest));
+        let r = self.request("DELETE", &path, Duration::from_secs(6)).call();
+        self.read_unit(r)
+    }
+
+    /// « Arrêter le partage » : tout le monde sort.
+    pub fn share_close(&self) -> Result<()> {
+        let r = self.request("DELETE", "api/share", Duration::from_secs(6)).call();
+        self.read_unit(r)
+    }
+
+    // KyberNow Share, côté invité ([`Self::guest`], sans compte).
+
+    /// `POST /api/share/join` : le code, le prénom, l'appareil. Voir
+    /// [`crate::share::join`] pour l'envoyer à toutes les Stations du réseau.
+    pub fn share_join(&self, req: &JoinRequest) -> std::result::Result<ShareJoined, ShareError> {
+        match self.request("POST", "api/share/join", Duration::from_secs(6)).send_json(req) {
+            // Une Station antérieure peut répondre la page d'Admin (200, HTML) :
+            // ce n'est pas elle qui partage.
+            Ok(resp) => resp.into_json::<ShareJoined>().map_err(|_| ShareError::NoShare).and_then(|j| {
+                if j.guest.is_empty() || j.secret.is_empty() { Err(ShareError::NoShare) } else { Ok(j) }
+            }),
+            Err(ureq::Error::Status(status, resp)) => {
+                let retry_after = resp.header("Retry-After").and_then(|h| h.trim().parse().ok());
+                let body: serde_json::Value = resp.into_json().unwrap_or(serde_json::Value::Null);
+                let code = body.get("error").and_then(|e| e.as_str()).unwrap_or_default();
+                Err(match (status, code) {
+                    (404 | 405, _) => ShareError::NoShare,
+                    (409, "full") => ShareError::Full,
+                    (429, _) => ShareError::TooManyTries { seconds: body.get("retry_after").and_then(|s| s.as_u64()).or(retry_after) },
+                    _ => {
+                        let message = if code.is_empty() { tr(i18n::current(), "console.http_status", &[("status", &status.to_string())]) } else { code.to_string() };
+                        ShareError::Other(ConsoleError::Http { status, message })
+                    }
+                })
+            }
+            Err(e) => Err(ShareError::Other(self.read::<serde_json::Value>(Err(e)).err().unwrap_or_else(|| ConsoleError::Invalid(String::new())))),
+        }
+    }
+
+    /// Signe de vie de l'invité (toutes les `beat` secondes) : rôle, jeton
+    /// de Kyber renouvelé, fin du partage.
+    pub fn share_beat(&self, guest: &str, secret: &str) -> Result<ShareBeat> {
+        let r = self
+            .request("POST", "api/share/beat", Duration::from_secs(10))
+            .set("x-kybernow-guest", secret)
+            .send_json(serde_json::json!({ "guest": guest }));
+        self.read(r)
+    }
+
+    /// L'invité quitte le partage.
+    pub fn share_leave(&self, guest: &str, secret: &str) -> Result<()> {
+        let r = self
+            .request("POST", "api/share/leave", Duration::from_secs(6))
+            .set("x-kybernow-guest", secret)
+            .send_json(serde_json::json!({ "guest": guest }));
+        self.read_unit(r)
+    }
+
     pub fn end(&self, device_id: &str, latency_ms: Option<f64>) -> Result<Ended> {
         let mut body = serde_json::json!({ "device_id": device_id });
         if let Some(l) = latency_ms {
@@ -736,6 +862,12 @@ impl Console {
             .send_json(body);
         self.read(r)
     }
+}
+
+/// Un identifiant d'invité dans un chemin : seulement ce qui ne demande pas
+/// d'encodage (les identifiants de la Station sont alphanumériques).
+fn path_segment(id: &str) -> String {
+    id.chars().filter(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.')).collect()
 }
 
 #[cfg(test)]

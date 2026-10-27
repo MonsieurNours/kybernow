@@ -77,11 +77,13 @@ Tout en JSON, sur le port d'Admin, certificat épinglé par empreinte comme aujo
 
 ## Cœur Rust
 
-- **Le rôle de la session** : hôte (comme aujourd'hui) ou invité (spectateur, joueur). Une session d'invité rejoint par `share_join` au lieu de `prepare`, n'envoie ni `foreground` ni changement de mode, d'écran ou de débit, ne redémarre jamais la Station, refuse l'empreinte de Kyber sans celle d'Admin, et part par `share_leave`. Ses entrées suivent ses droits (aucune chaîne d'entrées pour un spectateur ; manettes seulement pour un joueur, clavier et souris quand ils sont donnés), changés en cours de partage par le signe de vie.
-- **Côté hôte** : `share_open`, `share_code`, `share_guest`, `share_kick`, `share_close` ; la liste des invités arrive avec le signe de vie de l'hôte (`Platform::on_guests`).
-- **Rejoindre** : envoyer le code aux Stations trouvées sur le réseau (comme l'appairage), lire le lien `kybernow://join?host&port&fp&code`.
-- **Le format** : avant d'entrer, l'invité vérifie qu'il sait lire le format de l'image de l'hôte.
-- Pont C et JNI : les mêmes fonctions, pour toutes les apps.
+Détail et noms exacts : [apps/core/README.md](../apps/core/README.md#kybernow-share-srcsharers-srcsessionrs-srcinputpipeliners) ; pont C : [coeur-apple.md](coeur-apple.md).
+
+- **Le rôle de la session** (`SessionParams::role`) : `SessionRole::Host` (comme aujourd'hui) ou `SessionRole::Guest` (la réponse de `share_join` et ce que l'appareil décode ; `SessionParams::guest`, `SessionParams::from_json` pour les ponts). Une session d'invité rejoint par `share_join` au lieu de `prepare`, se connecte à Kyber avec le jeton (renouvelé par le signe de vie), reçoit l'écran donné par la réponse, n'envoie ni `heartbeat` d'hôte ni `foreground`, ni changement de mode, d'écran, de profil ou de débit, ni image clé, ne redémarre jamais la Station, refuse un Kyber sans l'empreinte qu'Admin donne (jamais de premier contact), et part par `share_leave` (jamais `end`, pas de rapport d'écrans rendus). Ses entrées suivent ses droits (`InputRights` : aucune chaîne d'entrées pour un spectateur ; manettes seulement pour un joueur, clavier et souris quand ils sont donnés ; jamais le presse-papiers), changés en cours de partage par le signe de vie (`Platform::on_share_role`). Fin par le partage (`end: stopped|removed`) : `Platform::on_share_end`, avec le texte de [link-ui.md](link-ui.md).
+- **Côté hôte** : `Console::share_open`, `share_state`, `share_code`, `share_guest`, `share_kick`, `share_close` ; la liste des invités arrive avec le signe de vie de l'hôte (`Platform::on_guests`) ; `Info::share` et `ShareAvailability` pour « Partager ».
+- **Rejoindre** : `share::join` envoie le code aux Stations trouvées sur le réseau (comme l'appairage) et rend la première qui l'accepte ; `share::parse_link` lit le lien `kybernow://join?host&port&fp&code` (et celui du client web).
+- **Le format** : avant d'entrer, l'invité vérifie qu'il sait lire le format de l'image de l'hôte (`share::check_codec`, `share::join_checked`, et la session elle-même).
+- Pont C et JNI : les mêmes fonctions, pour toutes les apps (`kn_share_*`, `kn_console_share_*` ; `Native.share*`, `Native.consoleShare*`).
 
 ## Apps et client web
 

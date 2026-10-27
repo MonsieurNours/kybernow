@@ -46,5 +46,18 @@
     "version_mismatch": "le manifeste signé annonce {manifest} mais GitHub publie {version}",
     "file_missing": "{file} absent du manifeste signé de la version {version}",
     "tampered": "fichier téléchargé différent du manifeste signé : abîmé ou falsifié"
+  },
+  "share": {
+    "unsupported": "Le partage demande KyberNow Station 0.8.0 ou plus récente.",
+    "disabled": "Le partage est coupé sur cet ordinateur (Admin › Appareils Link).",
+    "no_share": "Aucun partage avec ce code sur le réseau.",
+    "full": "Ce partage est complet (quatre invités au plus).",
+    "too_many": "Trop d'essais de code : réessayez dans une minute.",
+    "unreadable": "Cet appareil ne lit pas l'image de cet ordinateur ({format}).",
+    "stopped": "{host} a arrêté le partage.",
+    "removed": "{host} vous a retiré du partage.",
+    "no_kyber_fingerprint": "l'ordinateur n'a pas donné l'empreinte de son serveur Kyber : mettez KyberNow Station à jour",
+    "display_missing": "l'écran partagé n'est plus sur l'ordinateur",
+    "unauthorized": "l'ordinateur refuse le jeton du partage : rejoignez-le de nouveau avec le code"
   }
 }

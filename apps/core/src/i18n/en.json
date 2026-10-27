@@ -46,5 +46,18 @@
     "version_mismatch": "the signed manifest announces {manifest} but GitHub publishes {version}",
     "file_missing": "{file} is missing from the signed manifest of version {version}",
     "tampered": "downloaded file differs from the signed manifest: damaged or tampered with"
+  },
+  "share": {
+    "unsupported": "Sharing needs KyberNow Station 0.8.0 or later.",
+    "disabled": "Sharing is turned off on this computer (Admin › Link devices).",
+    "no_share": "No share with this code on your network.",
+    "full": "This share is full (four guests at most).",
+    "too_many": "Too many code attempts: try again in a minute.",
+    "unreadable": "This device cannot play this computer's picture ({format}).",
+    "stopped": "{host} stopped sharing.",
+    "removed": "{host} removed you from the share.",
+    "no_kyber_fingerprint": "the computer did not give its Kyber server's fingerprint: update KyberNow Station",
+    "display_missing": "the shared display is no longer on the computer",
+    "unauthorized": "the computer refuses the share's token: join again with the code"
   }
 }

@@ -105,6 +105,7 @@ Un partage ouvert se voit dans la barre (pastille « 2 invités » / “2 guests
 | Recherche | « Recherche du partage… » | “Looking for the share…” |
 | Code inconnu | « Aucun partage avec ce code sur le réseau. » | “No share with this code on your network.” |
 | Complet | « Ce partage est complet (quatre invités au plus). » | “This share is full (four guests at most).” |
+| Trop d'essais (10 par minute) | « Trop d'essais de code : réessayez dans une minute. » | “Too many code attempts: try again in a minute.” |
 | Format illisible | « Cet appareil ne lit pas l'image de cet ordinateur ({format}). » | “This device cannot play this computer's picture ({format}).” |
 | Connexion | les étapes de la connexion, titrées « Invité sur {nom} » | “Guest on {name}” |
 | Barre (réduite) | « Spectateur » ou « Joueur » ; « Quitter le partage » ; la manette, le clavier et la souris s'ils sont donnés ; ni profil ni réglages | “Spectator” or “Player”; “Leave”; |

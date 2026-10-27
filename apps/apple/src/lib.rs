@@ -18,7 +18,6 @@ use std::ffi::{c_char, c_void, CStr, CString};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use serde::Deserialize;
 
 use kybernow_core::console::{Console, ConsoleError, DeviceInfo, Mode, PairStatus, StationError};
 use kybernow_core::focus::{self, FocusId};
@@ -29,12 +28,14 @@ use kybernow_core::latency::{self, Second};
 use kybernow_core::media::{Packet, PacketHandler};
 use kybernow_core::profile::{Codec, Profile, StreamSettings};
 use kybernow_core::screens::{self, DisplaysChoice, DisplaysSetting, Screens};
-use kybernow_core::session::{EndReport, Notice, Platform, Recovery, Session, SessionParams, Status, StreamScreen};
+use kybernow_core::session::{EndReport, Notice, Platform, Session, SessionParams, Status, StreamScreen};
+use kybernow_core::share::{ShareEnd, ShareRole, ShareState};
 use kybernow_core::wake;
 use kybernow_core::{Display, WindowHandle};
 
 pub mod audio;
 pub mod input;
+pub mod share;
 
 // MARK: - Chaînes
 
@@ -723,6 +724,18 @@ pub struct KnPlatform {
     pub on_screens: Option<
         unsafe extern "C" fn(userdata: *mut c_void, screens: *const KnStreamScreen, count: usize, not_created: *const u32, not_created_count: usize),
     >,
+    /// KyberNow Share, session d'hôte : le partage ouvert et ses invités en
+    /// JSON (`open`, `code`, `link`, `web`, `display` {`id`, `label`},
+    /// `guests` [{`id`, `name`, `app`, `role`, `since`}]), nul sans partage ;
+    /// quand cela change (signe de vie).
+    pub on_guests: Option<unsafe extern "C" fn(userdata: *mut c_void, share_json: *const c_char)>,
+    /// KyberNow Share, session d'invité : son rôle (`KN_SHARE_ROLE_*`) au
+    /// départ (`previous` = −1), puis quand l'hôte le change.
+    pub on_share_role: Option<unsafe extern "C" fn(userdata: *mut c_void, role: i32, previous: i32)>,
+    /// KyberNow Share, session d'invité finie par le partage
+    /// (`KN_SHARE_END_*`), juste avant `KN_STATUS_ENDING` ; `text` : la raison
+    /// à montrer (la même que l'`error` de la fin), jamais « Reprendre la main ».
+    pub on_share_end: Option<unsafe extern "C" fn(userdata: *mut c_void, end: i32, text: *const c_char)>,
 }
 
 struct ApplePlatform {
@@ -768,6 +781,24 @@ impl Platform for ApplePlatform {
 
     fn screen_video_handler(&self, screen: usize) -> Arc<dyn PacketHandler> {
         self.sink(self.cb.video_packet, screen as u32).unwrap_or_else(|| Arc::new(Mute))
+    }
+
+    fn on_guests(&self, share: Option<&ShareState>) {
+        let Some(f) = self.cb.on_guests else { return };
+        let json = share.map(|s| CString::new(serde_json::to_string(s).unwrap_or_default().replace('\0', " ")).unwrap_or_default());
+        unsafe { f(self.cb.userdata, json.as_ref().map_or(std::ptr::null(), |c| c.as_ptr())) };
+    }
+
+    fn on_share_role(&self, role: ShareRole, previous: Option<ShareRole>) {
+        if let Some(f) = self.cb.on_share_role {
+            unsafe { f(self.cb.userdata, role.code(), previous.map_or(-1, ShareRole::code)) };
+        }
+    }
+
+    fn on_share_end(&self, end: &ShareEnd, text: &str) {
+        let Some(f) = self.cb.on_share_end else { return };
+        let c = CString::new(text.replace('\0', " ")).unwrap_or_default();
+        unsafe { f(self.cb.userdata, end.code(), c.as_ptr()) };
     }
 
     fn on_screens(&self, screens: &[StreamScreen], not_created: &[usize]) {
@@ -950,80 +981,7 @@ impl Platform for ApplePlatform {
     }
 }
 
-// MARK: - Session : réglages (JSON)
-
-#[derive(Deserialize)]
-struct SettingsWire {
-    /// `jeu`, `bureau`, `max` ; absent : personnalisé.
-    profile: Option<String>,
-    codec: String,
-    #[serde(default)]
-    yuv444: bool,
-    mbps: u32,
-    #[serde(default)]
-    reliable: bool,
-}
-
-impl SettingsWire {
-    fn settings(&self) -> Result<StreamSettings, String> {
-        let codec = Codec::parse(&self.codec).ok_or_else(|| format!("format inconnu : {}", self.codec))?;
-        Ok(StreamSettings {
-            profile: self.profile.as_deref().and_then(Profile::parse),
-            codec,
-            yuv444: self.yuv444,
-            mbps: self.mbps,
-            reliable: self.reliable,
-        })
-    }
-}
-
-#[derive(Deserialize)]
-struct RecoveryWire {
-    #[serde(default)]
-    watch_image: bool,
-    /// Plafond du repli, en bit/s (comme `Recovery::fallback_bitrate`).
-    fallback_bitrate: Option<u32>,
-    /// Dernier recours (`Recovery::restart_station`) : vrai si absent.
-    #[serde(default = "yes")]
-    restart_station: bool,
-}
-
-impl Default for RecoveryWire {
-    fn default() -> Self {
-        Self { watch_image: false, fallback_bitrate: None, restart_station: true }
-    }
-}
-
-#[derive(Deserialize)]
-struct ParamsWire {
-    console_host: String,
-    console_port: u16,
-    user: String,
-    password: String,
-    console_fingerprint: Option<String>,
-    device: DeviceInfo,
-    mode: Mode,
-    #[serde(default)]
-    audio_channels: u16,
-    #[serde(default = "yes")]
-    virtual_display: bool,
-    settings: SettingsWire,
-    #[serde(default = "yes")]
-    auto_reconnect: bool,
-    #[serde(default = "yes")]
-    gamepad_xbox360: bool,
-    #[serde(default = "yes")]
-    clipboard: bool,
-    #[serde(default)]
-    recovery: RecoveryWire,
-    /// Multi-écrans : les écrans de l'appareil (`list`, `limit_4k`).
-    #[serde(default)]
-    screens: Option<Screens>,
-}
-
-fn yes() -> bool {
-    true
-}
+// MARK: - Session
 
 /// Une session (voir `kybernow_core::session`).
 pub struct KnSession {
@@ -1047,6 +1005,12 @@ pub struct KnSession {
 /// départ et quand le profil change (`kn_session_set_settings`). `mode` :
 /// le mode de « Cet écran », comme sans `screens`. La plateforme reçoit
 /// `on_screens` et les paquets de chaque écran (`KnPacket::screen`).
+/// KyberNow Share, session d'invité : `guest` (`{"joined": <la réponse de
+/// kn_share_join>, "capabilities": {hevc, hevc444, av1}}`), `console_host`,
+/// `console_port` et `console_fingerprint` de la Station trouvée (`target`
+/// de kn_share_join) ; `user`, `password` et `mode` sont alors facultatifs.
+/// La plateforme reçoit `on_share_role` et `on_share_end` ; une session
+/// d'hôte reçoit `on_guests`.
 /// Nul si les paramètres sont illisibles (`error`). La session commence tout
 /// de suite ; `on_status` suit.
 #[unsafe(no_mangle)]
@@ -1056,42 +1020,15 @@ pub unsafe extern "C" fn kn_session_start(
     error: *mut *mut c_char,
 ) -> *mut KnSession {
     let Some(cb) = (unsafe { platform.as_ref() }) else { return std::ptr::null_mut() };
-    let wire: ParamsWire = match serde_json::from_str(&text(params_json)) {
-        Ok(w) => w,
-        Err(e) => {
-            give_to(error, e.to_string());
-            return std::ptr::null_mut();
-        }
-    };
-    let settings = match wire.settings.settings() {
-        Ok(s) => s,
+    let (params, screens) = match SessionParams::from_json(&text(params_json)) {
+        Ok(p) => p,
         Err(e) => {
             give_to(error, e);
             return std::ptr::null_mut();
         }
     };
-    let params = SessionParams {
-        console_host: wire.console_host,
-        console_port: wire.console_port,
-        user: wire.user,
-        password: wire.password,
-        console_fingerprint: wire.console_fingerprint,
-        device: wire.device,
-        mode: wire.mode,
-        audio_channels: wire.audio_channels,
-        virtual_display: wire.virtual_display,
-        settings,
-        auto_reconnect: wire.auto_reconnect,
-        gamepad_xbox360: wire.gamepad_xbox360,
-        clipboard: wire.clipboard,
-        recovery: Recovery {
-            watch_image: wire.recovery.watch_image,
-            fallback_bitrate: wire.recovery.fallback_bitrate,
-            restart_station: wire.recovery.restart_station,
-        },
-    };
     let platform = Arc::new(ApplePlatform { cb: *cb, streams: AtomicU64::new(0), ending_error: Mutex::new(None) });
-    let session = match wire.screens {
+    let session = match screens {
         Some(screens) => Session::start_with_screens(params, screens, platform),
         None => Session::start(params, platform),
     };
@@ -1151,11 +1088,7 @@ pub unsafe extern "C" fn kn_session_no_image(s: *const KnSession) {
 /// format, le 4:4:4 ou le transport changent.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_session_set_settings(s: *const KnSession, settings_json: *const c_char) -> i32 {
-    let wire: SettingsWire = match serde_json::from_str(&text(settings_json)) {
-        Ok(w) => w,
-        Err(_) => return KN_ERROR,
-    };
-    let Ok(settings) = wire.settings() else { return KN_ERROR };
+    let Ok(settings) = StreamSettings::from_json(&text(settings_json)) else { return KN_ERROR };
     with(s, |s| s.set_settings(settings));
     KN_OK
 }
