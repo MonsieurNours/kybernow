@@ -85,6 +85,8 @@ private const val PHONE_PAGE = "w411dp-h1600dp-port-xhdpi"
 private const val PHONE_TALL = "w411dp-h1900dp-port-xhdpi"
 private const val PHONE_LAND = "w914dp-h411dp-land-xxhdpi"
 private const val TABLET = "w1280dp-h800dp-land-xhdpi"
+/** Un petit téléphone en paysage (moins de 700 dp de large). */
+private const val PHONE_SMALL_LAND = "w640dp-h360dp-land-xxhdpi"
 private const val TABLET_PORTRAIT = "w800dp-h1280dp-port-xhdpi"
 /** La tablette, assez haute pour la rubrique Commandes entière (elle défile sur l'appareil). */
 private const val TABLET_TALL = "w1280dp-h1500dp-xhdpi"
@@ -494,6 +496,13 @@ class Screenshots {
                 shareUnavailable = if (fr) "Le partage demande KyberNow Station 0.8.0 ou plus récente." else "Sharing needs KyberNow Station 0.8.0 or later."
             })
         }
+    }
+
+    /** Un petit téléphone en paysage : « Partager » n'a que son icône, la pastille reste. */
+    @Test @Config(qualifiers = PHONE_SMALL_LAND)
+    fun sharePhoneSmall() {
+        shot("session-partage-barre", "petit-telephone", FormFactor.PHONE) { WithImage(session(false) { barOpen = true; sharing() }) }
+        shot("invite-joueur-clavier-souris", "petit-telephone", FormFactor.PHONE, listOf("fr")) { WithImage(guest(false, ShareRole.PLAYER_KBM) { barOpen = true }) }
     }
 
     @Test @Config(qualifiers = TV)

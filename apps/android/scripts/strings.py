@@ -383,6 +383,7 @@ S = [
 ("share_notice_play", "Vous pouvez jouer.", "You can play."),
 ("share_notice_keyboard_mouse", "Vous avez le clavier et la souris.", "You have the keyboard and mouse."),
 ("share_notice_keyboard_mouse_back", "Le clavier et la souris sont repris.", "The keyboard and mouse were taken back."),
+("share_notice_watch", "Vous regardez de nouveau.", "You are watching again."),
 # L'hôte
 ("share_button", "Partager", "Share"),
 ("share_title", "Partager %1$s", "Share %1$s"),

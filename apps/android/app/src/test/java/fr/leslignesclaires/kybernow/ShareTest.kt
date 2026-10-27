@@ -134,11 +134,11 @@ class ShareTest {
         assertEquals(R.string.share_notice_play, n[1])
         // Joueur → clavier et souris : « Vous avez le clavier et la souris. ».
         assertEquals(R.string.share_notice_keyboard_mouse, n[2])
-        // Clavier et souris retirés, joueur ou spectateur : « Le clavier et la souris sont repris. ».
+        // Clavier et souris retirés, le joueur reste joueur : « Le clavier et la souris sont repris. ».
         assertEquals(R.string.share_notice_keyboard_mouse_back, n[3])
-        assertEquals(R.string.share_notice_keyboard_mouse_back, n[4])
-        // Joueur → spectateur : pas de texte dans le catalogue.
-        assertNull(n[5])
+        // Ramené spectateur (« Faire regarder »), avec ou sans le clavier et la souris : « Vous regardez de nouveau. ».
+        assertEquals(R.string.share_notice_watch, n[4])
+        assertEquals(R.string.share_notice_watch, n[5])
         // Spectateur → clavier et souris d'un coup : le plus précis.
         assertEquals(R.string.share_notice_keyboard_mouse, n[6])
     }

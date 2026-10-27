@@ -218,8 +218,10 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
         shareRole.value = now
         if (previous < 0) return
         val before = ShareRole.of(previous)
-        // « Vous pouvez jouer. », « Vous avez le clavier et la souris. », « Le clavier et la souris sont repris. »
+        // « Vous pouvez jouer. », « Vous avez le clavier et la souris. », « Le clavier et la souris sont repris. »,
+        // et, quand l'hôte le ramène spectateur (« Faire regarder », avec ou sans le clavier et la souris), « Vous regardez de nouveau. »
         when {
+            !now.plays && before.plays -> show(Capsule.ShareRights(R.string.share_notice_watch))
             now.keyboardMouse && !before.keyboardMouse -> show(Capsule.ShareRights(R.string.share_notice_keyboard_mouse))
             before.keyboardMouse && !now.keyboardMouse -> show(Capsule.ShareRights(R.string.share_notice_keyboard_mouse_back))
             now.plays && !before.plays -> show(Capsule.ShareRights(R.string.share_notice_play))

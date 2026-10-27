@@ -340,6 +340,7 @@
     <string name="share_notice_play">You can play.</string>
     <string name="share_notice_keyboard_mouse">You have the keyboard and mouse.</string>
     <string name="share_notice_keyboard_mouse_back">The keyboard and mouse were taken back.</string>
+    <string name="share_notice_watch">You are watching again.</string>
     <string name="share_button">Share</string>
     <string name="share_title" formatted="true">Share %1$s</string>
     <string name="share_code_label">Code</string>
