@@ -9,7 +9,8 @@ use std::ffi::c_char;
 use kybernow_core::console::Info;
 use kybernow_core::i18n;
 use kybernow_core::profile::Capabilities;
-use kybernow_core::share::{self, Found, JoinRequest, ShareAvailability, ShareError, ShareRole, ShareTarget};
+use kybernow_core::screens::DeviceScreen;
+use kybernow_core::share::{self, DecoderCaps, Found, JoinRequest, ShareAvailability, ShareDisplay, ShareError, ShareImage, ShareQuality, ShareRole, ShareTarget};
 
 use crate::{KN_ERROR, KN_OK, KnConsole, console_result, failure, give, give_to, optional, text};
 
@@ -79,6 +80,51 @@ pub extern "C" fn kn_share_role_with_kbm(role_code: i32, kbm: bool) -> i32 {
     role(role_code).map_or(-1, |r| r.with_kbm(kbm).code())
 }
 
+/// « Qualité de l'image » d'un invité (`kn_session_set_share_quality`,
+/// `kn_share_quality_label`) ; dans `request_json` de `kn_share_join`, le
+/// nom (`quality` : `auto`, `host`, `1080p60`, `720p30`).
+pub const KN_SHARE_QUALITY_AUTO: i32 = 0;
+pub const KN_SHARE_QUALITY_HOST: i32 = 1;
+pub const KN_SHARE_QUALITY_1080P60: i32 = 2;
+pub const KN_SHARE_QUALITY_720P30: i32 = 3;
+
+// MARK: - Qualité de l'image
+
+/// Le libellé d'une qualité (`KN_SHARE_QUALITY_*`) dans la langue de l'app :
+/// « Auto », « Comme l'hôte », « 1080p · 60 Hz », « 720p · 30 Hz » ; nul
+/// pour un code inconnu.
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_share_quality_label(quality: i32) -> *mut c_char {
+    ShareQuality::from_code(quality).map_or(std::ptr::null_mut(), |q| give(q.label(i18n::current())))
+}
+
+/// « Auto » : ce que l'appareil sait afficher et décoder, à mettre dans
+/// `auto` de `request_json` (`kn_share_join`) avec `"quality": "auto"`.
+/// `screen_json` : l'écran de l'appareil (celui de la fenêtre ; comme une
+/// entrée de `screens.list` : `pixel_width`, `pixel_height`, `refresh`) ;
+/// `decoder_json` : `{hevc, hevc444, av1, max_width, max_height, max_fps}`
+/// (0 ou absent : pas de limite connue) ; `host_json` : l'écran partagé
+/// (`display` de `joined`), ou nul. Rend `{width, height, fps, codecs,
+/// yuv444}`, nul si un JSON est illisible.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_share_auto_quality(screen_json: *const c_char, decoder_json: *const c_char, host_json: *const c_char) -> *mut c_char {
+    let Ok(screen) = serde_json::from_str::<DeviceScreen>(&text(screen_json)) else { return std::ptr::null_mut() };
+    let Ok(decoder) = serde_json::from_str::<DecoderCaps>(&text(decoder_json)) else { return std::ptr::null_mut() };
+    let host = optional(host_json).and_then(|h| serde_json::from_str::<ShareDisplay>(&h).ok());
+    give(serde_json::to_string(&share::auto_quality(&screen, &decoder, host.as_ref())).unwrap_or_default())
+}
+
+/// La qualité reçue (`image_json` de `on_share_image`, ou `guests[].image`
+/// chez l'hôte), telle que la barre et le panneau la montrent : « 1080p ·
+/// 60 Hz » ; nul si illisible.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_share_image_label(image_json: *const c_char) -> *mut c_char {
+    match serde_json::from_str::<ShareImage>(&text(image_json)) {
+        Ok(i) => give(i.label()),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
 // MARK: - Rejoindre
 
 /// « Rejoindre » : envoie le code à ces Stations à la fois et rend la
@@ -86,11 +132,14 @@ pub extern "C" fn kn_share_role_with_kbm(role_code: i32, kbm: bool) -> i32 {
 /// "fingerprint"}]` (les ordinateurs trouvés sur le réseau, comme pour
 /// l'appairage, ou celui du lien ; `fingerprint` facultatif) ;
 /// `request_json` : `{"code" (six chiffres), "name" (le prénom), "device"
-/// (l'identifiant de l'appareil), "app" (mac, ios, tvos)}` ;
+/// (l'identifiant de l'appareil), "app" (mac, ios, tvos), "quality" (`auto`
+/// par défaut, `host`, `1080p60`, `720p30`), "auto" (pour `auto` :
+/// `kn_share_auto_quality`)}` ;
 /// `capabilities_json` (`{hevc, hevc444, av1}`, nul : pas de vérification) :
-/// le format de l'image de l'hôte est vérifié, et l'invité repart tout de
-/// suite s'il ne le lit pas (`KN_SHARE_UNREADABLE`). `out` : `{"target":
-/// {host, port, fingerprint}, "joined": {…}}` : `target` donne
+/// un format de l'hôte que l'appareil ne lit pas n'empêche pas d'entrer
+/// (Kyber lui fait une image à part dans un format qu'il lit) ; seul un
+/// appareil qui ne lit aucun format possible repart (`KN_SHARE_UNREADABLE`).
+/// `out` : `{"target": {host, port, fingerprint}, "joined": {…}}` : `target` donne
 /// `console_host`, `console_port` et `console_fingerprint` de la session,
 /// `joined` va tel quel dans `guest.joined` de `kn_session_start`. Bloquant
 /// (6 s au plus).

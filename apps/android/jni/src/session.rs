@@ -21,7 +21,7 @@ use kybernow_core::latency::Second;
 use kybernow_core::media::PacketHandler;
 use kybernow_core::profile::StreamSettings;
 use kybernow_core::session::{Notice, Platform, Session, SessionParams, Status};
-use kybernow_core::share::{ShareEnd, ShareRole, ShareState};
+use kybernow_core::share::{ShareEnd, ShareImage, ShareRole, ShareState};
 use kybernow_core::{Display, WindowHandle};
 
 use crate::audio::AudioSink;
@@ -105,6 +105,26 @@ impl Platform for AndroidPlatform {
 
     /// KyberNow Share, invité : `SessionListener.onShareEnd(end, text)` (0
     /// arrêté, 1 retiré, 2 format illisible), juste avant la fin.
+    /// KyberNow Share, invité : `SessionListener.onShareImage(image, previous,
+    /// notice)` (JSON ; `previous` nul au départ ; `notice` : l'avis bref, nul
+    /// s'il n'y a rien à dire).
+    fn on_share_image(&self, image: &ShareImage, previous: Option<&ShareImage>, notice: Option<&str>) {
+        let image = serde_json::to_string(image).unwrap_or_default();
+        let previous = previous.map(|p| serde_json::to_string(p).unwrap_or_default());
+        self.0.listener.with(|env, obj| {
+            let i = env.new_string(&image)?;
+            let p = jstring_or_null(env, previous.as_deref())?;
+            let n = jstring_or_null(env, notice)?;
+            env.call_method(
+                obj,
+                "onShareImage",
+                "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
+                &[JValue::Object(&i), JValue::Object(&p), JValue::Object(&n)],
+            )
+            .map(|_| ())
+        });
+    }
+
     fn on_share_end(&self, end: &ShareEnd, text: &str) {
         self.0.listener.with(|env, obj| {
             let s = env.new_string(text)?;

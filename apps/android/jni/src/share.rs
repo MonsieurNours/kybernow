@@ -13,7 +13,10 @@ use kybernow_core::i18n;
 use kybernow_core::profile::Capabilities;
 use kybernow_core::share::{self, Found, JoinRequest, ShareAvailability, ShareError, ShareRole, ShareTarget};
 
-use crate::exports::{console, envelope, give, optional, string, Env};
+use kybernow_core::screens::DeviceScreen;
+use kybernow_core::share::{DecoderCaps, ShareDisplay, ShareImage, ShareQuality};
+
+use crate::exports::{console, envelope, give, handle, optional, string, Env};
 
 fn share_envelope(r: Result<Found, ShareError>) -> String {
     let e = match r {
@@ -128,6 +131,51 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_shareRoleWi
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_shareRoleWithKbm(_: Env, _: JClass, role: jint, kbm: jboolean) -> jint {
     ShareRole::from_code(role).map_or(-1, |r| r.with_kbm(kbm != 0).code())
+}
+
+// MARK: - Qualité de l'image d'un invité (0 Auto, 1 comme l'hôte, 2 1080p60, 3 720p30)
+
+/// Le libellé d'une qualité dans la langue de l'app, nul pour un code inconnu.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_shareQualityLabel(mut env: Env, _: JClass, quality: jint) -> jstring {
+    match ShareQuality::from_code(quality) {
+        Some(q) => give(&mut env, &q.label(i18n::current())),
+        None => std::ptr::null_mut(),
+    }
+}
+
+/// « Auto » (comme `kn_share_auto_quality`) : `screen` (`pixel_width`,
+/// `pixel_height`, `refresh`), `decoder` (`hevc`, `hevc444`, `av1`,
+/// `max_width`, `max_height`, `max_fps`), `host` (l'écran partagé) ou nul ;
+/// rend `{width, height, fps, codecs, yuv444}` pour `auto` de `shareJoin`, nul
+/// si illisible.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_shareAutoQuality(mut env: Env, _: JClass, screen: JString, decoder: JString, host: JString) -> jstring {
+    let (screen, decoder, host) = (string(&mut env, &screen), string(&mut env, &decoder), optional(&mut env, &host));
+    let (Ok(screen), Ok(decoder)) = (serde_json::from_str::<DeviceScreen>(&screen), serde_json::from_str::<DecoderCaps>(&decoder)) else {
+        return std::ptr::null_mut();
+    };
+    let host = host.and_then(|h| serde_json::from_str::<ShareDisplay>(&h).ok());
+    let s = serde_json::to_string(&share::auto_quality(&screen, &decoder, host.as_ref())).unwrap_or_default();
+    give(&mut env, &s)
+}
+
+/// La qualité reçue (« 1080p · 60 Hz ») d'une image (`onShareImage`, `guests[].image`), nul si illisible.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_shareImageLabel(mut env: Env, _: JClass, image: JString) -> jstring {
+    match serde_json::from_str::<ShareImage>(&string(&mut env, &image)) {
+        Ok(i) => give(&mut env, &i.label()),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Session d'invité : la « Qualité de l'image » choisie ; l'image reçue
+/// arrive par `onShareImage`. Faux pour un code inconnu.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionSetShareQuality(_: Env, _: JClass, h: jlong, quality: jint) -> jboolean {
+    let (Some(h), Some(q)) = (handle(h), ShareQuality::from_code(quality)) else { return 0 };
+    h.session.set_share_quality(q);
+    1
 }
 
 // MARK: - Hôte (console de l'ordinateur, compte de l'appareil en session)

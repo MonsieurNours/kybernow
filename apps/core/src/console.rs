@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::i18n::{self, Lang, tr};
-use crate::share::{JoinRequest, ShareBeat, ShareError, ShareInfo, ShareJoined, ShareOpened, ShareRole, ShareState};
+use crate::share::{JoinRequest, ShareBeat, ShareError, ShareImage, ShareInfo, ShareJoined, ShareOpened, ShareQuality, ShareRole, ShareState};
 use crate::wake::WakeTarget;
 
 #[derive(Debug)]
@@ -848,6 +848,17 @@ impl Console {
             .request("POST", "api/share/beat", timeout)
             .set("x-kybernow-guest", secret)
             .send_json(serde_json::json!({ "guest": guest }));
+        self.read(r)
+    }
+
+    /// La « Qualité de l'image » de l'invité changée en cours de session :
+    /// Kyber relance l'image de l'invité seulement (rien à relancer ici) ;
+    /// rend l'image qu'il reçoit désormais.
+    pub fn share_quality(&self, guest: &str, secret: &str, quality: ShareQuality) -> Result<ShareImage> {
+        let r = self
+            .request("POST", "api/share/quality", Duration::from_secs(10))
+            .set("x-kybernow-guest", secret)
+            .send_json(serde_json::json!({ "guest": guest, "quality": quality.as_str() }));
         self.read(r)
     }
 

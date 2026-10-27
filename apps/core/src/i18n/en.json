@@ -59,6 +59,10 @@
     "no_kyber_fingerprint": "the computer did not give its Kyber server's fingerprint: update KyberNow Station",
     "display_missing": "the shared display is no longer on the computer",
     "unauthorized": "the computer refuses the share's token: join again with the code",
-    "lost": "the share is no longer answering"
+    "lost": "the share is no longer answering",
+    "quality_auto": "Auto",
+    "quality_host": "Same as host",
+    "image_lag": "Picture lightened to keep up.",
+    "image_limit": "The computer can't make another picture: you get {quality}."
   }
 }

@@ -59,6 +59,15 @@ object Native {
     @JvmStatic external fun shareRoleWithPads(role: Int, pads: Boolean): Int
     /** Le rôle avec le clavier et la souris donnés ou repris, les manettes telles quelles (−1 : code inconnu). */
     @JvmStatic external fun shareRoleWithKbm(role: Int, kbm: Boolean): Int
+    // « Qualité de l'image » d'un invité : 0 Auto, 1 comme l'hôte, 2 1080p · 60 Hz, 3 720p · 30 Hz
+    // (dans `requestJson` de [shareJoin] : `quality` `auto|host|1080p60|720p30`, et pour Auto `auto`).
+    @JvmStatic external fun shareQualityLabel(quality: Int): String?
+    /** `screen` `{pixel_width, pixel_height, refresh}`, `decoder` `{hevc, hevc444, av1, max_width, max_height, max_fps}`, `host` l'écran partagé ou `null` ; rend `auto`. */
+    @JvmStatic external fun shareAutoQuality(screenJson: String, decoderJson: String, hostJson: String?): String?
+    /** « 1080p · 60 Hz » d'une image ([SessionListener.onShareImage], `guests[].image`). */
+    @JvmStatic external fun shareImageLabel(imageJson: String): String?
+    /** Session d'invité : la qualité choisie ; l'image reçue arrive par [SessionListener.onShareImage]. */
+    @JvmStatic external fun sessionSetShareQuality(handle: Long, quality: Int): Boolean
     // Côté hôte (compte de l'appareil en session) ; `role` : un code ci-dessus.
     @JvmStatic external fun consoleShareOpen(handle: Long): String?
     @JvmStatic external fun consoleShareState(handle: Long): String?
@@ -202,4 +211,6 @@ interface SessionListener {
     fun onShareRole(role: Int, previous: Int) {}
     /** Invité : le partage finit la session (0 arrêté, 1 retiré, 2 format illisible), juste avant la fin ; `text` : la raison à montrer. */
     fun onShareEnd(end: Int, text: String) {}
+    /** Invité : l'image reçue en JSON (`quality`, `width`, `height`, `fps`, `codec`, `follows_host`, `reason`), celle d'avant (`null` au départ), l'avis bref à montrer ou `null`. */
+    fun onShareImage(imageJson: String, previousJson: String?, notice: String?) {}
 }

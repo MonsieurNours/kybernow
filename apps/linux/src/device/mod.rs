@@ -2911,7 +2911,7 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, w
                     targets.push(ShareTarget { host: h.address.clone(), port: h.port, fingerprint: h.fingerprint.clone() });
                 }
             }
-            let request = JoinRequest { code, name, device: app.store.device_id.clone(), app: "linux".into() };
+            let request = JoinRequest { code, name, device: app.store.device_id.clone(), app: "linux".into(), ..JoinRequest::default() };
             jobs::share_join(targets, request, session::guest_capabilities(&app.machine), app.join.attempt, tx.clone());
         }
         Action::Share(id, op) => {

@@ -941,7 +941,7 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
                     targets.push(ShareTarget { host: h.address.clone(), port: h.port, fingerprint: h.fingerprint.clone() });
                 }
             }
-            let request = JoinRequest { code, name, device: app.store.device_id.clone(), app: "webos".into() };
+            let request = JoinRequest { code, name, device: app.store.device_id.clone(), app: "webos".into(), ..JoinRequest::default() };
             jobs::share_join(targets, request, session::guest_capabilities(app.tv.av1), app.join.attempt, tx.clone());
         }
         Action::Share(op) => {

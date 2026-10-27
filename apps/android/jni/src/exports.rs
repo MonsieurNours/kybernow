@@ -278,7 +278,7 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_wake(mut en
 
 // MARK: - Session
 
-fn handle<'a>(h: jlong) -> Option<&'a Handle> {
+pub(crate) fn handle<'a>(h: jlong) -> Option<&'a Handle> {
     (h != 0).then(|| unsafe { &*(h as *const Handle) })
 }
 

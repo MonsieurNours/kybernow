@@ -29,7 +29,7 @@ use kybernow_core::media::{Packet, PacketHandler};
 use kybernow_core::profile::{Codec, Profile, StreamSettings};
 use kybernow_core::screens::{self, DisplaysChoice, DisplaysSetting, Screens};
 use kybernow_core::session::{EndReport, Notice, Platform, Session, SessionParams, Status, StreamScreen};
-use kybernow_core::share::{ShareEnd, ShareRole, ShareState};
+use kybernow_core::share::{ShareEnd, ShareImage, ShareQuality, ShareRole, ShareState};
 use kybernow_core::wake;
 use kybernow_core::{Display, WindowHandle};
 
@@ -736,6 +736,15 @@ pub struct KnPlatform {
     /// (`KN_SHARE_END_*`), juste avant `KN_STATUS_ENDING` ; `text` : la raison
     /// à montrer (la même que l'`error` de la fin), jamais « Reprendre la main ».
     pub on_share_end: Option<unsafe extern "C" fn(userdata: *mut c_void, end: i32, text: *const c_char)>,
+    /// KyberNow Share, session d'invité : l'image qu'il reçoit, en JSON
+    /// (`quality`, `width`, `height`, `fps`, `codec`, `follows_host`,
+    /// `reason` : `asked`, `capped`, `limit`, `lag`), au départ si la
+    /// Station la dit déjà et quand elle change ; `previous_json` : celle
+    /// d'avant (nul au départ) ; `notice` : l'avis bref à montrer (« Image
+    /// allégée pour suivre. », « L'ordinateur ne peut pas faire une image de
+    /// plus : vous recevez {qualité}. »), nul sinon. La barre montre
+    /// `kn_share_image_label`.
+    pub on_share_image: Option<unsafe extern "C" fn(userdata: *mut c_void, image_json: *const c_char, previous_json: *const c_char, notice: *const c_char)>,
 }
 
 struct ApplePlatform {
@@ -799,6 +808,22 @@ impl Platform for ApplePlatform {
         let Some(f) = self.cb.on_share_end else { return };
         let c = CString::new(text.replace('\0', " ")).unwrap_or_default();
         unsafe { f(self.cb.userdata, end.code(), c.as_ptr()) };
+    }
+
+    fn on_share_image(&self, image: &ShareImage, previous: Option<&ShareImage>, notice: Option<&str>) {
+        let Some(f) = self.cb.on_share_image else { return };
+        let json = |i: &ShareImage| CString::new(serde_json::to_string(i).unwrap_or_default().replace('\0', " ")).unwrap_or_default();
+        let image_c = json(image);
+        let previous_c = previous.map(json);
+        let notice_c = notice.map(|n| CString::new(n.replace('\0', " ")).unwrap_or_default());
+        unsafe {
+            f(
+                self.cb.userdata,
+                image_c.as_ptr(),
+                previous_c.as_ref().map_or(std::ptr::null(), |c| c.as_ptr()),
+                notice_c.as_ref().map_or(std::ptr::null(), |c| c.as_ptr()),
+            )
+        };
     }
 
     fn on_screens(&self, screens: &[StreamScreen], not_created: &[usize]) {
@@ -1129,6 +1154,17 @@ pub unsafe extern "C" fn kn_session_set_mode(s: *const KnSession, mode: KnMode) 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_session_restore_mode(s: *const KnSession) {
     with(s, |s| s.restore_mode());
+}
+
+/// KyberNow Share, session d'invité : la « Qualité de l'image » choisie
+/// (`KN_SHARE_QUALITY_*`), dite à la Station sans attendre ; Kyber relance
+/// l'image de l'invité seulement, l'image reçue arrive par `on_share_image`.
+/// `KN_ERROR` pour un code inconnu ; sans effet pour un hôte.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_session_set_share_quality(s: *const KnSession, quality: i32) -> i32 {
+    let Some(q) = ShareQuality::from_code(quality) else { return KN_ERROR };
+    with(s, |s| s.set_share_quality(q));
+    KN_OK
 }
 
 /// Multi-écrans : les écrans de l'appareil ont changé (même JSON que
