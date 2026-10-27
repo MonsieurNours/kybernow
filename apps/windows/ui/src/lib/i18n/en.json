@@ -329,7 +329,12 @@
     "join_help": "The code is shown by the person sharing.",
     "your_name": "Your name",
     "join": "Join",
-    "searching": "Looking for the share…"
+    "searching": "Looking for the share…",
+    "quality": "Picture quality",
+    "quality_auto": "Auto",
+    "quality_host": "Same as host",
+    "quality_1080p60": "1080p · 60 Hz",
+    "quality_720p30": "720p · 30 Hz"
   },
   "fond": {
     "not_created": "The computer could not create this display."
@@ -337,7 +342,6 @@
   "mock": {
     "no_share": "No share with this code on your network.",
     "share_full": "This share is full (four guests at most).",
-    "share_unreadable": "This device cannot play this computer's picture (AV1).",
     "share_unsupported": "Sharing needs KyberNow Station 0.8.0 or later.",
     "share_disabled": "Sharing is turned off on this computer (Admin › Link devices).",
     "share_stopped": "Léa stopped sharing.",
@@ -347,6 +351,8 @@
     "notice_kbm": "You have the keyboard and mouse.",
     "notice_kbm_back": "The keyboard and mouse were taken back.",
     "notice_watch": "You are watching again.",
+    "notice_image_lag": "Picture lightened to keep up.",
+    "notice_image_limit": "The computer can't make another picture: you get {quality}.",
     "not_a_link": "this is not a kybernow:// link",
     "from_link": "From the link",
     "bad_account": "Admin: wrong account or password (401)",

@@ -16,9 +16,13 @@
   raison en infobulle ; au toucher, il ouvre le panneau réduit à la raison. Pour une session d'invité,
   la barre est réduite : son rôle (« Spectateur », « Joueur »), les statistiques,
   « Touches » et la souris seulement avec le clavier et la souris, le plein écran,
-  « Quitter le partage » ; ni profil ni « Ordinateurs ». Un changement de rôle
-  s'affiche quelques secondes à la place des statistiques (la barre se montre alors
-  sans prendre le clavier à la session).
+  « Quitter le partage » ; ni profil ni « Ordinateurs ». Sa « Qualité de l'image »
+  (à la place du profil) montre la qualité reçue (« 1080p · 60 Hz ») et se change :
+  « Auto », « Comme l'hôte », « 1080p · 60 Hz », « 720p · 30 Hz » (l'image de l'invité
+  seulement, jamais celle de l'hôte). Un changement de rôle ou d'image (« Image allégée
+  pour suivre. ») s'affiche quelques secondes à la place des statistiques (la barre se
+  montre alors sans prendre le clavier à la session). Dans le panneau de l'hôte, la
+  qualité d'un invité est sous son nom quand ce n'est pas celle de l'hôte (lecture seule).
 
   Plusieurs ordinateurs (docs/plusieurs-ordinateurs.md) : une seule barre, qui
   sert la session de la fenêtre où elle s'ouvre (`id`) ; ses commandes et ses
@@ -32,8 +36,8 @@
   import { onMount, tick } from 'svelte'
   import Icon from './lib/Icon.svelte'
   import Mark from './lib/Mark.svelte'
-  import type { AppInfo, BarComputer, GuestBar, KeepSound, SessionStats, Share, ShareGuest, ShareRole, ShareRoleEvent, ShareStateEvent, Stats } from './lib/api'
-  import { invoke, listen, localLabel, ms, roleKbm, roleOf, rolePads, rolePlays, sinceText } from './lib/api'
+  import type { AppInfo, BarComputer, GuestBar, KeepSound, SessionStats, Share, ShareGuest, ShareImageEvent, ShareQuality, ShareRole, ShareRoleEvent, ShareStateEvent, Stats } from './lib/api'
+  import { invoke, listen, localLabel, ms, roleKbm, roleOf, rolePads, rolePlays, shareQualities, sinceText } from './lib/api'
   import { setLang, t } from './lib/i18n/index.svelte'
 
   /** L'ordinateur de la session que la barre sert (`guest-N` pour une session d'invité). */
@@ -41,9 +45,14 @@
   let stats = $state<Stats | null>(null)
   let label = $state('')
   let profile = $state('')
-  let menu = $state<'profile' | 'keys' | 'computers' | 'share' | null>(null)
-  /** Session d'invité (KyberNow Share) : rôle et hôte ; la barre est réduite. */
+  let menu = $state<'profile' | 'keys' | 'computers' | 'share' | 'quality' | null>(null)
+  /** Session d'invité (KyberNow Share) : rôle, hôte et image ; la barre est réduite. */
   let guest = $state<GuestBar | null>(null)
+  /**
+   * La qualité que l'invité vient de choisir, tant que la Station n'a pas répondu : un signe de vie
+   * parti avant le changement porte encore l'ancienne et ne la remet pas dans le menu.
+   */
+  let asked: { id: string; quality: ShareQuality; until: number } | null = null
   /** Session d'hôte : « Partager » et le partage ouvert, tels que l'app les dit. */
   let share = $state<Share | null>(null)
   /** Le partage de chaque session d'hôte, gardé même barre cachée (signe de vie de la session). */
@@ -165,6 +174,19 @@
         if (menu === 'keys' && !roleKbm(e.role)) closeMenu()
         reportWidth()
       }),
+      // L'image que reçoit l'invité change (qualité changée, image allégée, Station qui l'apprend).
+      listen<ShareImageEvent>('share-image', (e) => {
+        if (e.id !== id || !guest) return
+        // Un signe de vie parti avant le changement porte encore l'ancienne qualité : tant que la Station
+        // n'a pas pris le choix de l'invité (3 s au plus), le menu garde ce choix.
+        let quality = e.quality
+        if (asked && asked.id === e.id) {
+          if (e.quality === asked.quality || Date.now() >= asked.until) asked = null
+          else quality = asked.quality
+        }
+        guest = { ...guest, quality, image: e.label }
+        reportWidth()
+      }),
       listen<Shown>('bar-shown', (s) => {
         // Les mesures et la courbe de cette session, déjà reçues barre cachée.
         if (s.id !== id) {
@@ -181,6 +203,7 @@
         refusal = null
         // KyberNow Share : l'invité (barre réduite) ou, pour un hôte, son partage.
         guest = s.guest ?? null
+        asked = null
         share = s.share ?? shares.get(s.id) ?? null
         if (s.share) shares.set(s.id, s.share)
         shareError = null
@@ -284,7 +307,7 @@
     if (!inside) scheduleHide()
   }
 
-  async function toggle(which: 'profile' | 'keys' | 'computers' | 'share') {
+  async function toggle(which: 'profile' | 'keys' | 'computers' | 'share' | 'quality') {
     const next = menu === which ? null : which
     refusal = null
     if (next === 'computers') computers = await invoke<BarComputer[]>('bar_computers')
@@ -363,6 +386,38 @@
   const command = (c: string) => invoke('session_command', { id, command: c })
 
   // MARK: - KyberNow Share
+
+  /** Le nom d'un choix de « Qualité de l'image » : « Auto », « Comme l'hôte », « 1080p · 60 Hz », « 720p · 30 Hz ». */
+  const qualityName = (q: ShareQuality) => t(`share.quality_${q}`)
+  /** Ce que la puce montre : la qualité reçue quand Kyber la connaît, sinon celle qui est demandée. */
+  const shownQuality = $derived(guest ? (guest.image ?? qualityName(guest.quality)) : '')
+  /** Sur la ligne cochée : la qualité reçue, quand elle dit autre chose que le choix (« Auto » : « 1080p · 60 Hz »). */
+  const receivedFor = (q: ShareQuality) => (guest && q === guest.quality && guest.image && guest.image !== qualityName(q) ? guest.image : '')
+
+  /**
+   * Une autre « Qualité de l'image » : l'app la dit à la Station et la retient pour la fois suivante ;
+   * l'image de l'invité repart seule, celle de l'hôte ne bouge pas. La puce montre la nouvelle qualité
+   * reçue dès que la Station l'a dite (événement `share-image`).
+   */
+  async function pickQuality(q: ShareQuality) {
+    await closeMenu()
+    afterMenu()
+    if (!guest || q === guest.quality) return
+    const mine = id
+    const before = guest.quality
+    asked = { id: mine, quality: q, until: Date.now() + 3000 }
+    guest = { ...guest, quality: q }
+    try {
+      await invoke('share_quality', { id: mine, quality: q })
+    } catch (e) {
+      // La session n'a pas pris le choix : le menu redit celui qui reste.
+      if (id === mine && guest) {
+        asked = null
+        guest = { ...guest, quality: before }
+        showNotice(String(e))
+      }
+    }
+  }
 
   /** Un avis bref à la place des statistiques ; la barre repart ensuite d'elle-même (sauf pointeur dessus ou menu ouvert). */
   function showNotice(text: string) {
@@ -479,10 +534,11 @@
   const selectAll = (e: Event) => (e.currentTarget as HTMLInputElement).select()
 
   const apps = ['mac', 'windows', 'linux', 'ios', 'tvos', 'android', 'webos', 'web']
-  /** « iPhone ou iPad · depuis 3 min » : l'app de l'invité et son arrivée. */
+  /** « iPhone ou iPad · 720p · 30 Hz · depuis 3 min » : l'app de l'invité, sa qualité d'image si ce n'est pas celle de l'hôte, et son arrivée. */
   const guestMeta = (g: ShareGuest) =>
     [
       apps.includes(g.app) ? t(`share.app_${g.app}`) : '',
+      g.image ?? '',
       g.since != null ? t('share.since', { duration: sinceText(g.since, now / 1000) }) : '',
     ]
       .filter(Boolean)
@@ -518,6 +574,31 @@
   {#if guest}
     <!-- Invité d'un partage : son rôle, à la place du profil (ni profil ni réglages). -->
     <span class="role" class:play={rolePlays(guest.role)}>{roleName(guest.role)}</span>
+    <!-- « Qualité de l'image » : montre la qualité reçue, et permet d'en changer. -->
+    <div class="anchor">
+      <button
+        class="chip"
+        class:open={menu === 'quality'}
+        aria-haspopup="menu"
+        aria-expanded={menu === 'quality'}
+        aria-label={t('share.quality') + ' : ' + shownQuality}
+        title={t('share.quality')}
+        onclick={() => toggle('quality')}
+      >
+        {shownQuality}<span class="caret" aria-hidden="true">▾</span>
+      </button>
+      {#if menu === 'quality'}
+        <div class="menu quality" role="menu" aria-label={t('share.quality')}>
+          <div class="menu-title" aria-hidden="true">{t('share.quality')}</div>
+          {#each shareQualities as q (q)}
+            <button role="menuitemradio" aria-checked={q === guest.quality} onclick={() => pickQuality(q)}>
+              <span class="tick">{#if q === guest.quality}<Icon name="check" size={14} stroke={2.2} />{/if}</span>
+              <span class="name">{qualityName(q)}</span><span class="hint">{receivedFor(q)}</span>
+            </button>
+          {/each}
+        </div>
+      {/if}
+    </div>
   {:else}
   <div class="anchor">
     <button class="chip" class:open={menu === 'profile'} aria-haspopup="menu" aria-expanded={menu === 'profile'} title={t('bar.session_profile')} onclick={() => toggle('profile')}>
@@ -923,6 +1004,21 @@
     overflow: hidden;
     text-overflow: ellipsis;
     animation: drop 0.25s var(--ease-out);
+  }
+
+  /* « Qualité de l'image » de l'invité : le menu s'aligne sur sa puce, avec son titre. */
+  .menu.quality {
+    left: 0;
+    transform: none;
+    min-width: 260px;
+  }
+
+  .menu-title {
+    padding: 6px 10px 8px;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--faint);
   }
 
   /* Rôle de l'invité, à la place du profil : « Spectateur », « Joueur ». */

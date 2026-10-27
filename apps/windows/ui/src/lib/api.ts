@@ -322,10 +322,21 @@ export const rolePlays = (r: ShareRole) => r !== 'spectator'
 export const roleOf = (pads: boolean, kbm: boolean): ShareRole => (pads ? (kbm ? 'player_kbm' : 'player') : kbm ? 'kbm' : 'spectator')
 
 /**
- * Un invité de la liste de l'hôte. `app` : `mac`, `windows`, `linux`, `ios`, `tvos`, `android`, `webos`
- * ou `web` ; `since` : son arrivée, en secondes Unix de la Station.
+ * La « Qualité de l'image » d'un invité : `auto` (proposée : l'écran de ce PC et ce que son décodeur
+ * suit), `host` (« Comme l'hôte »), `1080p60`, `720p30`. L'image d'un invité n'est jamais au-dessus de
+ * celle de l'hôte. Retenue dans `app.json` pour la fois suivante.
  */
-export type ShareGuest = { id: string; name: string; app: string; role: ShareRole; since: number | null }
+export type ShareQuality = 'auto' | 'host' | '1080p60' | '720p30'
+
+/** Dans l'ordre du choix. */
+export const shareQualities: ShareQuality[] = ['auto', 'host', '1080p60', '720p30']
+
+/**
+ * Un invité de la liste de l'hôte. `app` : `mac`, `windows`, `linux`, `ios`, `tvos`, `android`, `webos`
+ * ou `web` ; `since` : son arrivée, en secondes Unix de la Station ; `image` : sa qualité d'image
+ * (« 1080p · 60 Hz »), seulement quand ce n'est pas celle de l'hôte.
+ */
+export type ShareGuest = { id: string; name: string; app: string; role: ShareRole; since: number | null; image: string | null }
 
 /** Un QR code : `size` modules de côté, `path` le tracé SVG de ses modules sombres (sans marge). */
 export type ShareQr = { size: number; path: string }
@@ -350,14 +361,22 @@ export type Share = {
   qr: ShareQr | null
 }
 
-/** L'invité que la barre sert (barre réduite) : son rôle et l'hôte du partage. */
-export type GuestBar = { role: ShareRole; host: string }
+/**
+ * L'invité que la barre sert (barre réduite) : son rôle, l'hôte du partage, la « Qualité de l'image »
+ * demandée (`quality`) et la qualité reçue (`image`, « 1080p · 60 Hz » ; `null` tant que Kyber ne la
+ * connaît pas : la barre ne dit alors que la qualité demandée).
+ */
+export type GuestBar = { role: ShareRole; host: string; quality: ShareQuality; image: string | null }
 
 /** Réponse de `share_join` : la session d'invité à ouvrir (`share_connect`), son titre (« Invité sur Atelier ») et la teinte du passage. */
 export type ShareJoined = { id: string; title: string; host: string; role: ShareRole; fingerprint: string | null }
 
-/** Événements `share-role` (le rôle de l'invité de la session `id` a changé) et `share-state` (le panneau de l'hôte de la session `id`). */
+/**
+ * Événements `share-role` (le rôle de l'invité de la session `id` a changé), `share-image` (l'image
+ * qu'il reçoit : qualité demandée et qualité reçue) et `share-state` (le panneau de l'hôte de la session `id`).
+ */
 export type ShareRoleEvent = { id: string; role: ShareRole }
+export type ShareImageEvent = { id: string; quality: ShareQuality; label: string | null }
 export type ShareStateEvent = { id: string; share: Share }
 
 /** Une pseudo-fiche d'ordinateur pour le passage et la connexion d'une session d'invité (ni dans la liste, ni gardée). */

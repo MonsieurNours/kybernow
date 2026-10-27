@@ -26,7 +26,7 @@ use kybernow_core::kynput_rs::Pipeline;
 use kybernow_core::media::PacketHandler;
 use kybernow_core::screens::session_plan_for;
 use kybernow_core::session::{Platform, Session, SessionParams, SessionRole, Status, StreamScreen};
-use kybernow_core::share::{ShareEnd, ShareRole, ShareState};
+use kybernow_core::share::{ShareEnd, ShareImage, ShareQuality, ShareRole, ShareState};
 use kybernow_core::{Display, WindowHandle};
 
 use crate::audio::{self, AudioOutput};
@@ -143,6 +143,11 @@ pub trait HostEvents: Send + Sync {
     /// KyberNow Share, session d'invité : c'est le partage qui la finit
     /// (arrêté, retiré, format illisible), avec son texte.
     fn share_end(&self, _end: &ShareEnd, _text: &str) {}
+    /// KyberNow Share, session d'invité : l'image qu'il reçoit, au départ
+    /// (`previous` nul) puis à chaque changement (signe de vie, « Qualité de
+    /// l'image » changée) ; `notice` : l'avis bref, dans la langue de l'app
+    /// (« Image allégée pour suivre. »), quand il y en a un.
+    fn share_image(&self, _image: &ShareImage, _previous: Option<&ShareImage>, _notice: Option<&str>) {}
 }
 
 pub struct HostOptions {
@@ -256,6 +261,20 @@ impl SessionHost {
         match app.current_session() {
             Some(s) => {
                 s.set_settings(settings);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// KyberNow Share, session d'invité : une autre « Qualité de l'image » ;
+    /// Kyber relance l'image de l'invité seulement, la session n'a rien à
+    /// relancer (l'image reçue revient par `HostEvents::share_image`). Faux
+    /// quand la session n'est pas encore là.
+    pub fn set_share_quality(&self, quality: ShareQuality) -> bool {
+        match self.app().and_then(|a| a.current_session()) {
+            Some(s) => {
+                s.set_share_quality(quality);
                 true
             }
             None => false,
@@ -459,6 +478,9 @@ impl Platform for WinPlatform {
     }
     fn on_share_end(&self, end: &ShareEnd, text: &str) {
         self.events.share_end(end, text);
+    }
+    fn on_share_image(&self, image: &ShareImage, previous: Option<&ShareImage>, notice: Option<&str>) {
+        self.events.share_image(image, previous, notice);
     }
 }
 

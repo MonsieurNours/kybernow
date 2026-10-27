@@ -25,7 +25,8 @@
     "video_thread": "le fil de l'image s'est arrêté",
     "open_admin": "Admin n'a pas pu s'ouvrir dans le navigateur (code {code})",
     "share_link": "Ce lien de partage est illisible.",
-    "share_code": "Le code a six chiffres."
+    "share_code": "Le code a six chiffres.",
+    "unknown_quality": "qualité d'image inconnue"
   },
   "notify": {
     "update_title": "KyberNow Link {version} est prête",

@@ -25,7 +25,8 @@
     "video_thread": "the picture thread stopped",
     "open_admin": "Admin could not be opened in the browser (code {code})",
     "share_link": "This share link cannot be read.",
-    "share_code": "The code has six digits."
+    "share_code": "The code has six digits.",
+    "unknown_quality": "unknown picture quality"
   },
   "notify": {
     "update_title": "KyberNow Link {version} is ready",

@@ -50,7 +50,7 @@ use crate::i18n::t;
 use crate::follow::{self, Kind};
 use crate::menu::{self, Cmd};
 use crate::{audio, focus, i18n, instance, login, shell, snapshot, system, tray, window};
-use kybernow_core::share::{ShareEnd, ShareRole, ShareState};
+use kybernow_core::share::{ShareEnd, ShareImage, ShareQuality, ShareRole, ShareState};
 use kybernow_core::update::{self, Available, Channel};
 
 // KyberNow Share : « Rejoindre avec un code » (session d'invité) et « Partager »
@@ -321,6 +321,11 @@ pub struct Prefs {
     /// la fois suivante ; absent : le nom de ce PC.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub share_name: Option<String>,
+    /// La « Qualité de l'image » choisie à « Rejoindre » ou dans la barre d'un
+    /// invité (`auto`, `host`, `1080p60`, `720p30`), proposée la fois suivante ;
+    /// absent : « Auto ».
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub share_quality: Option<ShareQuality>,
 }
 
 /// Sur batterie, pour toutes les sessions de ce PC : `alleger` ou `garder`.
@@ -1489,11 +1494,15 @@ struct BarShown {
 }
 
 /// L'invité que sert la barre : son rôle (`spectator`, `player`, `kbm`,
-/// `player_kbm`) et l'hôte du partage.
+/// `player_kbm`), l'hôte du partage, la « Qualité de l'image » demandée
+/// (`auto`, `host`, `1080p60`, `720p30`) et la qualité reçue (« 1080p · 60 Hz »,
+/// absente tant que Kyber ne la connaît pas).
 #[derive(Clone, Serialize)]
 struct GuestBar {
     role: &'static str,
     host: String,
+    quality: &'static str,
+    image: Option<String>,
 }
 
 /// `bar-label` : le profil de la session `id` a changé.
@@ -1734,6 +1743,21 @@ impl HostEvents for UiEvents {
         tray::refresh();
         if let Some(key) = crate::sharing::role_notice(role, previous) {
             share::notice(&self.app, &self.id, &g.title, &t(key, &[]));
+        }
+    }
+
+    /// L'image que reçoit l'invité : au départ, puis à chaque changement
+    /// (signe de vie, « Qualité de l'image » changée). La barre montre la
+    /// qualité reçue ; l'avis (« Image allégée pour suivre. », « L'ordinateur ne
+    /// peut pas faire une image de plus… ») s'affiche comme celui d'un rôle.
+    fn share_image(&self, image: &ShareImage, _previous: Option<&ShareImage>, notice: Option<&str>) {
+        let Some(g) = &self.guest else { return };
+        let view = crate::sharing::ImageView::from(image);
+        *g.quality.lock().unwrap() = image.quality;
+        *g.image.lock().unwrap() = view.label.clone();
+        let _ = self.app.emit_to("bar", "share-image", share::ImageEvent { id: self.id.clone(), quality: view.quality, label: view.label });
+        if let Some(text) = notice {
+            share::notice(&self.app, &self.id, &g.title, text);
         }
     }
 
@@ -2699,7 +2723,12 @@ fn show_bar_with(app: &AppHandle, id: &str, hwnd: isize, pinned: bool, notice: O
         return;
     };
     // KyberNow Share : l'invité (rôle, hôte) ou, pour une session d'hôte, « Partager ».
-    let guest = guest.map(|g| GuestBar { role: g.role.lock().unwrap().as_str(), host: g.host.clone() });
+    let guest = guest.map(|g| GuestBar {
+        role: g.role.lock().unwrap().as_str(),
+        host: g.host.clone(),
+        quality: g.quality.lock().unwrap().as_str(),
+        image: g.image.lock().unwrap().clone(),
+    });
     let share = guest.is_none().then(|| share::view(app, id, share.as_ref()));
     *state.bar_session.lock().unwrap() = Some(id.to_string());
     let mut mi = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
@@ -3071,6 +3100,7 @@ pub fn run(args: Vec<String>) {
             share::share_open,
             share::share_code,
             share::share_guest,
+            share::share_quality,
             share::share_kick,
             share::share_close,
             share::copy_text
