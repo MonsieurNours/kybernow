@@ -175,11 +175,12 @@ function appName(app) {
   const name = t(`share.apps.${app}`)
   return name.startsWith('share.') ? app : name
 }
-// Ce que l'hôte peut faire d'un invité, selon ses droits.
+// Ce que l'hôte peut faire d'un invité, selon ses droits : « Faire regarder »
+// pour un joueur, qu'il ait ou non le clavier et la souris (docs/link-ui.md).
 function moves(g) {
   if (g.role === 'spectator') return [{ role: 'player', label: t('share.play') }]
-  if (g.role === 'player') return [{ role: 'player_kbm', label: t('share.giveKbm') }, { role: 'spectator', label: t('share.watch') }]
-  return [{ role: 'player', label: t('share.takeKbm') }]
+  const kbm = g.role === 'player' ? { role: 'player_kbm', label: t('share.giveKbm') } : { role: 'player', label: t('share.takeKbm') }
+  return [kbm, { role: 'spectator', label: t('share.watch') }]
 }
 const pageHead = (title, sub) => `<header class="page-head"><button class="back" data-page="main" aria-label="${esc(t('share.back'))}">${icon('back')}</button>
   <span class="htext"><span class="ptitle">${esc(title)}</span>${sub ? `<span class="sub">${esc(sub)}</span>` : ''}</span></header>`
