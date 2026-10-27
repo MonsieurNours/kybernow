@@ -116,6 +116,9 @@ pub enum Quality {
     /// « Comme l'hôte ».
     #[serde(rename = "host")]
     Host,
+    /// « 4K · 60 Hz ».
+    #[serde(rename = "2160p60")]
+    P2160,
     #[serde(rename = "1080p60")]
     P1080,
     #[serde(rename = "720p30")]
@@ -127,6 +130,7 @@ impl Quality {
         match self {
             Quality::Auto => "auto",
             Quality::Host => "host",
+            Quality::P2160 => "2160p60",
             Quality::P1080 => "1080p60",
             Quality::P720 => "720p30",
         }
@@ -140,6 +144,8 @@ pub enum Preset {
     #[default]
     #[serde(rename = "host")]
     Host,
+    #[serde(rename = "2160p60")]
+    P2160,
     #[serde(rename = "1080p60")]
     P1080,
     #[serde(rename = "720p30")]
@@ -150,6 +156,7 @@ impl Preset {
     pub fn as_str(self) -> &'static str {
         match self {
             Preset::Host => "host",
+            Preset::P2160 => "2160p60",
             Preset::P1080 => "1080p60",
             Preset::P720 => "720p30",
         }

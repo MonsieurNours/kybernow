@@ -179,7 +179,8 @@ function appName(app) {
 // (« 1080p · 60 Hz », docs/link-ui.md) ; rien tant que Kyber ne la dit pas.
 function imageLine(image) {
   if (!image || image.follows_host !== false || !image.width || !image.height) return ''
-  return `${Math.min(image.width, image.height)}p · ${image.fps} Hz`
+  const lines = Math.min(image.width, image.height)
+  return `${lines >= 2160 ? '4K' : `${lines}p`} · ${image.fps} Hz`
 }
 // Le rôle de deux droits : les manettes, le clavier et la souris.
 const roleOf = (pads, kbm) => (pads ? (kbm ? 'player_kbm' : 'player') : kbm ? 'kbm' : 'spectator')

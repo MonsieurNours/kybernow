@@ -157,13 +157,15 @@ pub struct AutoCaps {
 
 /// Le préréglage que Kyber reçoit (`kn_quality`). « Auto » : l'image de
 /// l'hôte si l'appareil couvre son écran et suit sa fréquence ; sinon
-/// 1080p60 s'il affiche au moins 1080p à 60 Hz ; sinon 720p30. Sans ce que
+/// 2160p60 s'il affiche au moins 3840 × 2160 à 60 Hz ; sinon 1080p60 s'il
+/// affiche au moins 1080p à 60 Hz ; sinon 720p30. Sans ce que
 /// l'appareil sait (app d'avant 0.8.0) : l'image de l'hôte, comme avant.
 /// Le format et le 4:4:4 restent à Kyber (demande d'image du client).
 pub fn resolve_quality(quality: share::Quality, auto: Option<&AutoCaps>, display: &ShareDisplay) -> share::Preset {
     use share::{Preset, Quality};
     match quality {
         Quality::Host => Preset::Host,
+        Quality::P2160 => Preset::P2160,
         Quality::P1080 => Preset::P1080,
         Quality::P720 => Preset::P720,
         Quality::Auto => {
@@ -172,6 +174,8 @@ pub fn resolve_quality(quality: share::Quality, auto: Option<&AutoCaps>, display
             let (host_long, host_short) = (display.width.max(display.height), display.width.min(display.height));
             if long >= host_long && short >= host_short && a.fps >= display.refresh.max(1) {
                 Preset::Host
+            } else if long >= 3840 && short >= 2160 && a.fps >= 60 {
+                Preset::P2160
             } else if long >= 1920 && short >= 1080 && a.fps >= 60 {
                 Preset::P1080
             } else {
@@ -1202,8 +1206,12 @@ mod tests {
         let host_1080 = ShareDisplay { id: 1, index: 1, width: 1920, height: 1080, refresh: 60, name: String::new() };
         // iPhone dans Safari (écran × densité, 60 Hz au plus) : 1080p60.
         assert_eq!(resolve_quality(Quality::Auto, Some(&caps(1170, 2532, 60)), &host_4k160), Preset::P1080);
-        // Un téléviseur 4K à 60 Hz face à un hôte à 160 Hz : 1080p60, pas l'image de l'hôte.
-        assert_eq!(resolve_quality(Quality::Auto, Some(&caps(3840, 2160, 60)), &host_4k160), Preset::P1080);
+        // Un téléviseur 4K à 60 Hz face à un hôte à 160 Hz : 2160p60, pas l'image de l'hôte.
+        assert_eq!(resolve_quality(Quality::Auto, Some(&caps(3840, 2160, 60)), &host_4k160), Preset::P2160);
+        assert_eq!(resolve_quality(Quality::Auto, Some(&caps(2160, 3840, 120)), &host_4k160), Preset::P2160);
+        // Un écran 1440p à 144 Hz : 1080p60.
+        assert_eq!(resolve_quality(Quality::Auto, Some(&caps(2560, 1440, 144)), &host_4k160), Preset::P1080);
+        assert_eq!(resolve_quality(Quality::P2160, None, &host_4k160), Preset::P2160);
         // Un appareil qui couvre l'écran et suit sa fréquence : l'image de l'hôte.
         assert_eq!(resolve_quality(Quality::Auto, Some(&caps(5120, 2880, 165)), &host_4k160), Preset::Host);
         assert_eq!(resolve_quality(Quality::Auto, Some(&caps(1920, 1080, 60)), &host_1080), Preset::Host);
