@@ -11,6 +11,7 @@ KyberNow Station, everything that runs on the Windows computer that streams the 
 | `tray/` | KyberNow Station's notification area icon, `kybernow-tray.exe` |
 | `installer/` | `KyberNow-Station-Setup.exe`, see [installer/README.en.md](installer/README.en.md) |
 | `kyber-patches/` | Server-side patches to Kyber and their build script |
+| `relay/` | The KyberNow relay (Linux server, Docker image) and the tunnel crate shared with Admin and the apps' core, see [relay/README.en.md](relay/README.en.md) and [docs/relais.en.md](../docs/relais.en.md) |
 
 ## KyberNow Admin (`kyber-admin`)
 

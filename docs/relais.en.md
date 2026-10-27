@@ -115,7 +115,8 @@ On TCP 8443, the relay looks at the start of each TLS connection:
 |---|---|
 | `GET /` | Home page and code entry (French or English depending on the browser) |
 | `GET /j/{code}` | Redirects (302) to `https://<id>.share.kybernow.app:8443/link/?join=<code>`; unknown code, or Station absent: a page that says so |
-| `GET /v1/codes/{code}` | `200 {"station":"<id>","station_key":"<SPKI base64>","admin_fp":"sha256:…","sig":"<base64>","online":true}`; `404 {"error":"unknown_code"}`; `400 {"error":"bad_request"}`; `429 {"error":"too_many","retry_after":<s>}` with `Retry-After` |
+| `GET /v1/codes/{code}` | `200 {"station":"<id>","station_key":"<SPKI base64>","admin_fp":"sha256:…","sig":"<base64>","online":true}`; `online:false`: Station gone for less than 120 s, the other fields empty; `404 {"error":"unknown_code"}`; `400 {"error":"bad_request"}`; `429 {"error":"too_many","retry_after":<s>}` with `Retry-After` |
+| `GET /privacy` | What the relay sees and keeps (French or English) |
 | `GET /v1/health` | `200 {"ok":true,"version":"…"}`; the iPhone and iPad apps call it before opening the tunnel (wakes the cellular radio) |
 | `https://<id>.share…:8443/*` | HTTP/1.1 proxy to the Station's Admin (WebSocket included); Station absent: “computer unreachable” page (503) |
 
@@ -204,7 +205,7 @@ Admin considers “local” what comes from the loopback (`/api/local/*`, `local
 - **Link and QR code**: `fp` and `sid` come from the Station; the exchange is end to end, the relay cannot get in the middle.
 - **Paired devices**: fingerprints pinned at pairing (on the network). Through the relay, never trust on first use.
 - **Browser**: the relay decrypts (real `*.share.kybernow.app` certificate). The apps stay encrypted end to end.
-- The public relay is in France; it keeps IP addresses in its logs (7 days), without codes. Privacy page on the relay.
+- The public relay is in France; it keeps IP addresses in its logs for a few days (logs rotated by size), never codes. Privacy page on the relay (`/privacy`).
 
 ## Relay limits and protections
 

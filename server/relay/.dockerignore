@@ -1,0 +1,6 @@
+target
+**/target
+certs
+secrets
+config
+.env

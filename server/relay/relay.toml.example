@@ -1,0 +1,35 @@
+# Réglages facultatifs du relais : copiez ce fichier en config/relay.toml.
+# Les variables d'environnement KN_RELAY_* (docker-compose.yml) passent avant.
+
+# domain = "relais.exemple.org"
+# listen = "0.0.0.0:8443"
+# Port écrit dans les liens /j/{code} si la box en publie un autre :
+# public_port = 8443
+# cert = "/certs/certificates/relais.exemple.org.crt"
+# key = "/certs/certificates/relais.exemple.org.key"
+# banlist = "/config/banlist.txt"
+
+# Avertissement dans le journal au-delà de ce débit relayé (0 : jamais).
+# egress_alert_mbps = 400
+# Plafond global des paquets relayés (0 : aucun plafond).
+# global_cap_mbps = 0
+
+# [metrics]
+# listen = "127.0.0.1:9464"
+
+# [limits]
+# lookups_per_minute = 10
+# lookups_per_hour = 60
+# lookups_per_minute_subnet = 30
+# lookups_per_minute_total = 600
+# quic_per_ip = 16
+# quic_handshakes_per_minute_per_ip = 60
+# quic_total = 4096
+# retry_above_per_second = 100
+# tcp_per_ip = 32
+# stations_per_ip = 4
+# clients_per_station = 8
+# flows_per_client = 4
+# codes_per_station = 4
+# header_timeout_secs = 10
+# max_header_bytes = 16384

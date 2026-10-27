@@ -115,7 +115,8 @@ Sur TCP 8443, le relais regarde le début de chaque connexion TLS :
 |---|---|
 | `GET /` | Accueil et saisie du code (français ou anglais selon le navigateur) |
 | `GET /j/{code}` | Redirige (302) vers `https://<id>.share.kybernow.app:8443/link/?join=<code>` ; code inconnu, ou Station absente : une page qui le dit |
-| `GET /v1/codes/{code}` | `200 {"station":"<id>","station_key":"<SPKI base64>","admin_fp":"sha256:…","sig":"<base64>","online":true}` ; `404 {"error":"unknown_code"}` ; `400 {"error":"bad_request"}` ; `429 {"error":"too_many","retry_after":<s>}` avec `Retry-After` |
+| `GET /v1/codes/{code}` | `200 {"station":"<id>","station_key":"<SPKI base64>","admin_fp":"sha256:…","sig":"<base64>","online":true}` ; `online:false` : Station partie depuis moins de 120 s, les autres champs vides ; `404 {"error":"unknown_code"}` ; `400 {"error":"bad_request"}` ; `429 {"error":"too_many","retry_after":<s>}` avec `Retry-After` |
+| `GET /privacy` | Ce que le relais voit et garde (français ou anglais) |
 | `GET /v1/health` | `200 {"ok":true,"version":"…"}` ; les apps iPhone et iPad l'appellent avant d'ouvrir le tunnel (réveil de la radio cellulaire) |
 | `https://<id>.share…:8443/*` | Mandataire HTTP/1.1 vers Admin de la Station (WebSocket compris) ; Station absente : page « ordinateur injoignable » (503) |
 
@@ -204,7 +205,7 @@ Admin juge « local » ce qui vient de la boucle locale (`/api/local/*`, `local_
 - **Lien et QR code** : `fp` et `sid` viennent de la Station ; l'échange est de bout en bout, le relais ne peut pas s'interposer.
 - **Appareils appairés** : empreintes épinglées à l'appairage (sur le réseau). Par le relais, jamais de premier contact.
 - **Navigateur** : le relais déchiffre (vrai certificat `*.share.kybernow.app`). Les apps, elles, restent chiffrées de bout en bout.
-- Le relais public est en France ; il garde les adresses IP dans ses journaux (7 jours), sans les codes. Page de confidentialité sur le relais.
+- Le relais public est en France ; il garde les adresses IP dans ses journaux quelques jours (journaux tournés par taille), jamais les codes. Page de confidentialité sur le relais (`/privacy`).
 
 ## Limites et protections du relais
 
