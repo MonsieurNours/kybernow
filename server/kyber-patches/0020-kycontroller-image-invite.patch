@@ -176,7 +176,7 @@ index d52630a..c2deb57 100644
          )
          .await
 diff --git a/kycontroller/src/avservices_manager.rs b/kycontroller/src/avservices_manager.rs
-index 137c909..3ce7fee 100644
+index 137c909..b8b0627 100644
 --- a/kycontroller/src/avservices_manager.rs
 +++ b/kycontroller/src/avservices_manager.rs
 @@ -19,18 +19,28 @@
@@ -592,7 +592,7 @@ index 137c909..3ce7fee 100644
          }
      }
  
-@@ -901,18 +1090,328 @@ impl AVServicesManager {
+@@ -901,18 +1090,364 @@ impl AVServicesManager {
              self.reaper_rx.is_none(),
              "AVServicesManager::init must be called before acquire_video"
          );
@@ -831,12 +831,24 @@ index 137c909..3ce7fee 100644
 +            .and_then(|stream| stream.dup.as_ref())
 +            .is_some_and(|dup| !dup.received());
 +        if stalled {
-+            let now = Instant::now();
-+            self.set_aside.retain(|(_, _, until)| now < *until);
-+            self.set_aside
-+                .push((*display_id, *image, now + GUEST_SLOT_SET_ASIDE));
++            self.set_aside(*display_id, *image, Instant::now());
 +        }
 +        stalled
++    }
++
++    /// An image set aside again (opened again after its slot came back, or
++    /// its guests started it again) keeps one slot: its time starts over.
++    fn set_aside(&mut self, display_id: u32, image: GuestImage, now: Instant) {
++        self.set_aside
++            .retain(|(d, i, until)| now < *until && (*d, *i) != (display_id, image));
++        self.set_aside
++            .push((display_id, image, now + GUEST_SLOT_SET_ASIDE));
++    }
++
++    /// KyberNow: whether the guest image `image` of `display_id` was given
++    /// up and its slot is still set aside: it is not opened again.
++    pub(crate) fn is_set_aside_now(&self, display_id: u32, image: &GuestImage) -> bool {
++        self.is_set_aside(display_id, image, Instant::now())
 +    }
 +
 +    /// KyberNow: no guest image above the host's bitrate: each guest image
@@ -915,6 +927,30 @@ index 137c909..3ce7fee 100644
 +        );
 +    }
 +
++    /// KyberNow: sets `key`'s slot aside, as [`Self::set_aside_stalled`]
++    /// does for an image that sent nothing.
++    #[cfg(test)]
++    pub(crate) fn set_aside_for_test(&mut self, key: &VideoStreamKey) {
++        if let VideoStreamKey::Guest { display_id, image } = key {
++            self.set_aside(*display_id, *image, Instant::now());
++        }
++    }
++
++    /// KyberNow: the keyframe requests and the share signals, which
++    /// `init` hands to its tasks.
++    #[cfg(test)]
++    pub(crate) fn take_receivers_for_test(
++        &mut self,
++    ) -> (
++        tokio::sync::mpsc::Receiver<VideoStreamKey>,
++        tokio::sync::mpsc::UnboundedReceiver<ShareSignal>,
++    ) {
++        (
++            self.idr_rx.take().expect("idr receiver"),
++            self.share_rx.take().expect("share receiver"),
++        )
++    }
++
 +    /// KyberNow: where kydup sends a guest's lag episodes.
 +    pub(crate) fn share_signals(&self) -> tokio::sync::mpsc::UnboundedSender<ShareSignal> {
 +        self.share_tx.clone()
@@ -923,7 +959,7 @@ index 137c909..3ce7fee 100644
      /// Acquire an audio subscription atomically. See `acquire_video`.
      pub(crate) async fn acquire_audio(
          &mut self,
-@@ -935,9 +1434,12 @@ impl AVServicesManager {
+@@ -935,9 +1470,12 @@ impl AVServicesManager {
      /// Decrement a video client count, and if it hits zero, remove and
      /// return the stream so the caller can stop it OUTSIDE the Controller
      /// lock via `AVCleanup::run`.
@@ -937,7 +973,7 @@ index 137c909..3ce7fee 100644
          if stream.client_count != 0 {
              return None;
          }
-@@ -967,7 +1469,7 @@ impl AVServicesManager {
+@@ -967,7 +1505,7 @@ impl AVServicesManager {
          let mut cleanup = AVCleanup::default();
          for mut sub in videos {
              sub.released = true;
@@ -946,7 +982,7 @@ index 137c909..3ce7fee 100644
          }
          if let Some(mut sub) = audio {
              sub.released = true;
-@@ -999,7 +1501,10 @@ mod tests {
+@@ -999,7 +1537,10 @@ mod tests {
      use tokio::sync::mpsc::{error::TryRecvError, unbounded_channel};
  
      fn shared_key(display_id: u32) -> VideoStreamKey {
@@ -958,7 +994,7 @@ index 137c909..3ce7fee 100644
      }
  
      #[test]
-@@ -1040,6 +1545,7 @@ mod tests {
+@@ -1040,6 +1581,7 @@ mod tests {
          while let Ok(msg) = rx.try_recv() {
              match msg {
                  AvReaperMsg::VideoDropped(k) => seen.push(k),
@@ -966,7 +1002,7 @@ index 137c909..3ce7fee 100644
                  AvReaperMsg::AudioDropped(_) => panic!("unexpected AudioDropped"),
              }
          }
-@@ -1126,6 +1632,9 @@ mod tests {
+@@ -1126,6 +1668,9 @@ mod tests {
                  _metrics: None,
                  config: video_config(),
                  client_count,
@@ -976,7 +1012,7 @@ index 137c909..3ce7fee 100644
              },
          );
      }
-@@ -1340,7 +1849,7 @@ mod tests {
+@@ -1340,7 +1885,7 @@ mod tests {
      fn stream_ids_on_same_display_are_distinct() {
          let s1 = Uuid::new_v4();
          let s2 = Uuid::new_v4();
@@ -985,7 +1021,7 @@ index 137c909..3ce7fee 100644
          let excl1 = StreamId::Video(VideoStreamKey::Exclusive {
              session_id: s1,
              display_id: 0,
-@@ -1360,4 +1869,238 @@ mod tests {
+@@ -1360,4 +1905,238 @@ mod tests {
          let a_excl = StreamId::Audio(AudioStreamKey::Exclusive { session_id: s1 });
          assert_ne!(a_shared, a_excl);
      }
@@ -2630,7 +2666,7 @@ index 0000000..ac23971
 +    }
 +}
 diff --git a/kycontroller/src/kybernow.rs b/kycontroller/src/kybernow.rs
-index 4c9696c..fb1eb69 100644
+index 4c9696c..d556877 100644
 --- a/kycontroller/src/kybernow.rs
 +++ b/kycontroller/src/kybernow.rs
 @@ -1,23 +1,39 @@
@@ -2724,7 +2760,7 @@ index 4c9696c..fb1eb69 100644
          true
      }
  }
-@@ -195,6 +235,684 @@ pub(crate) async fn apply_input_rights(ctrl: &Controller, uid: &Uuid) {
+@@ -195,6 +235,728 @@ pub(crate) async fn apply_input_rights(ctrl: &Controller, uid: &Uuid) {
      }
  }
  
@@ -2790,6 +2826,8 @@ index 4c9696c..fb1eb69 100644
 +    Episode { uid: Uuid, key: VideoStreamKey },
 +    /// A guest image sent nothing for a while after it opened.
 +    Stalled { key: VideoStreamKey },
++    /// A guest output subscribed to the host's image `key`: its keyframe.
++    Keyframe { uid: Uuid, key: VideoStreamKey },
 +}
 +
 +/// Why a guest's image is chosen again.
@@ -2871,7 +2909,9 @@ index 4c9696c..fb1eb69 100644
 +}
 +
 +/// `choose` with the registry's state. `current`: the image the guest
-+/// reads now, whose slot is free if the guest is alone on it.
++/// reads now, whose slot is free if the guest is alone on it. An image
++/// given up (it sent nothing) is not opened again while its slot is set
++/// aside: the closest image open instead, as beyond the budget (`Limit`).
 +fn decide(
 +    context: &Context,
 +    manager: &AVServicesManager,
@@ -2897,7 +2937,17 @@ index 4c9696c..fb1eb69 100644
 +        used: manager.guest_slots_used(leaving),
 +        budget: context.budget,
 +    };
-+    guest_image::choose(&situation, ask).map(|choice| (choice, host))
++    let choice = guest_image::choose(&situation, ask)?;
++    if let Placement::Open { image, .. } = choice.placement
++        && manager.is_set_aside_now(display_id, &image)
++    {
++        let full = Situation {
++            used: usize::MAX,
++            ..situation
++        };
++        return guest_image::choose(&full, ask).map(|choice| (choice, host));
++    }
++    Ok((choice, host))
 +}
 +
 +/// The registry key of a placement (`None` while waiting).
@@ -2986,7 +3036,7 @@ index 4c9696c..fb1eb69 100644
 +    let lagging = key.clone();
 +    Ok(kydup::VideoSource::new(
 +        dup,
-+        manager.idr_sender(key.clone()),
++        subscribe_keyframe(manager, uid, key),
 +        move || {
 +            let _ = signals.send(ShareSignal::Episode {
 +                uid,
@@ -2994,6 +3044,32 @@ index 4c9696c..fb1eb69 100644
 +            });
 +        },
 +    ))
++}
++
++/// The keyframe a guest output asks for once subscribed to `key`: right
++/// away on a guest image; on the host's image, through the share
++/// supervisor, spaced like the guest's other keyframes there
++/// ([`keyframe_for_guest`]): a guest going back and forth to the host's
++/// image (its quality changed again and again) never forces the host's
++/// encoder more often than that.
++fn subscribe_keyframe(
++    manager: &AVServicesManager,
++    uid: Uuid,
++    key: &VideoStreamKey,
++) -> impl Fn() + Send + Sync + 'static + use<> {
++    let idr = manager.idr_sender(key.clone());
++    let signals = manager.share_signals();
++    let key = key.clone();
++    move || {
++        if matches!(key, VideoStreamKey::Shared { .. }) {
++            let _ = signals.send(ShareSignal::Keyframe {
++                uid,
++                key: key.clone(),
++            });
++        } else {
++            idr();
++        }
++    }
 +}
 +
 +/// A guest's video output on `display_id` (multi-client mode): its image
@@ -3349,8 +3425,9 @@ index 4c9696c..fb1eb69 100644
 +}
 +
 +/// The share supervisor: a guest's lag episodes (a keyframe to catch up,
-+/// a notch down when they repeat) and the guest images that never sent
-+/// anything (given up, their guests moved).
++/// a notch down when they repeat), its keyframe when it joins the host's
++/// image (spaced), and the guest images that never sent anything (given
++/// up, their guests moved elsewhere).
 +pub(crate) async fn run_share_supervisor(
 +    weak: std::sync::Weak<Controller>,
 +    mut signals: tokio::sync::mpsc::UnboundedReceiver<ShareSignal>,
@@ -3376,6 +3453,9 @@ index 4c9696c..fb1eb69 100644
 +                        relocate(&ctrl, uid, Relocation::Lag).await;
 +                    });
 +                }
++            }
++            ShareSignal::Keyframe { uid, key } => {
++                keyframe_for_guest(&ctrl, &uid, &key).await;
 +            }
 +            ShareSignal::Stalled { key } => {
 +                tokio::spawn(async move {
@@ -3409,7 +3489,7 @@ index 4c9696c..fb1eb69 100644
  fn from_loopback(req: &HttpRequest) -> bool {
      req.peer_addr().is_some_and(|peer| match peer.ip() {
          IpAddr::V4(v4) => v4.is_loopback(),
-@@ -245,6 +963,24 @@ struct SessionEntry {
+@@ -245,6 +1007,24 @@ struct SessionEntry {
      display: Option<u32>,
      streaming: bool,
      inputs: bool,
@@ -3434,7 +3514,7 @@ index 4c9696c..fb1eb69 100644
  }
  
  #[derive(Serialize)]
-@@ -252,6 +988,13 @@ struct StreamEntry {
+@@ -252,6 +1032,13 @@ struct StreamEntry {
      display: u32,
      codec: &'static str,
      yuv444: bool,
@@ -3448,7 +3528,7 @@ index 4c9696c..fb1eb69 100644
  }
  
  #[derive(Serialize)]
-@@ -260,15 +1003,16 @@ struct SessionsResponse {
+@@ -260,15 +1047,16 @@ struct SessionsResponse {
      streams: Vec<StreamEntry>,
  }
  
@@ -3471,7 +3551,7 @@ index 4c9696c..fb1eb69 100644
  #[get("/sessions")]
  pub(crate) async fn get_sessions(ctrl: web::Data<Controller>, req: HttpRequest) -> HttpResponse {
      if let Some(refusal) = admin_refusal(&req) {
-@@ -288,32 +1032,78 @@ pub(crate) async fn get_sessions(ctrl: web::Data<Controller>, req: HttpRequest)
+@@ -288,32 +1076,78 @@ pub(crate) async fn get_sessions(ctrl: web::Data<Controller>, req: HttpRequest)
                  display: s.share.as_ref().map(|share| share.display),
                  streaming: s.session.as_ref().is_some_and(|s| s.data_plane.is_some()),
                  inputs: false,
@@ -3564,7 +3644,7 @@ index 4c9696c..fb1eb69 100644
  
      HttpResponse::Ok().json(SessionsResponse { sessions, streams })
  }
-@@ -363,6 +1153,59 @@ pub(crate) async fn post_role(
+@@ -363,6 +1197,59 @@ pub(crate) async fn post_role(
      HttpResponse::Ok().json(serde_json::json!({ "sessions": updated.len() }))
  }
  
@@ -3624,7 +3704,7 @@ index 4c9696c..fb1eb69 100644
  #[derive(Deserialize)]
  struct CloseRequest {
      user: String,
-@@ -451,6 +1294,7 @@ mod tests {
+@@ -451,6 +1338,7 @@ mod tests {
              role,
              display: 7,
              rev,
@@ -3632,7 +3712,7 @@ index 4c9696c..fb1eb69 100644
          })
      }
  
-@@ -550,6 +1394,336 @@ mod tests {
+@@ -550,6 +1438,400 @@ mod tests {
          assert!(memory.bans.is_empty());
      }
  
@@ -3964,6 +4044,70 @@ index 4c9696c..fb1eb69 100644
 +            ),
 +            None
 +        );
++    }
++
++    #[test]
++    fn a_guest_image_given_up_is_not_opened_again() {
++        // A 1080p60 guest image that sent nothing: its slot set aside.
++        let stalled = guest_key(1920, 1080, 60);
++        let mut manager = AVServicesManager::default();
++        manager.insert_for_test(host_key(1), (1, 0), h264(80_000_000));
++        manager.insert_for_test(stalled.clone(), (0, 1), h264(16_000_000));
++        manager.set_aside_for_test(&stalled);
++        let ctx = context(UHD160, true, 2);
++
++        // Its guest leaves it for the closest image open (here the host's),
++        // even with a slot free: never the same image again.
++        let (choice, _) = plan(
++            &ctx,
++            &manager,
++            &output(Some(stalled.clone())),
++            asking(ShareQuality::P1080, 0),
++            &Relocation::Stalled(stalled.clone()),
++        )
++        .unwrap();
++        assert_eq!(placed_key(&manager, choice), Some(host_key(1)));
++        assert_eq!(choice.reason, Reason::Limit);
++
++        // Gone (its guest started its image again): not opened again while
++        // its slot is set aside; another image still is.
++        let mut manager = AVServicesManager::default();
++        manager.insert_for_test(host_key(1), (1, 0), h264(80_000_000));
++        manager.set_aside_for_test(&stalled);
++        let (choice, _) = decide(&ctx, &manager, 7, &asking(ShareQuality::P1080, 0), None).unwrap();
++        assert_eq!(placed_key(&manager, choice), Some(host_key(1)));
++        let (choice, _) = decide(&ctx, &manager, 7, &asking(ShareQuality::P720, 0), None).unwrap();
++        assert_eq!(placed_key(&manager, choice), Some(guest_key(1280, 720, 30)));
++        assert!(matches!(choice.placement, Placement::Open { .. }));
++    }
++
++    #[test]
++    fn a_slot_set_aside_twice_counts_once() {
++        let stalled = guest_key(1920, 1080, 60);
++        let mut manager = AVServicesManager::default();
++        manager.set_aside_for_test(&stalled);
++        manager.set_aside_for_test(&stalled);
++        assert_eq!(manager.guest_slots_used(None), 1);
++    }
++
++    #[test]
++    fn a_guest_joining_the_host_image_asks_its_keyframe_through_the_spacing() {
++        let mut manager = AVServicesManager::default();
++        let (mut idr_rx, mut share_rx) = manager.take_receivers_for_test();
++        let uid = Uuid::new_v4();
++
++        // On the host's image: to the share supervisor (spaced per guest).
++        subscribe_keyframe(&manager, uid, &host_key(1))();
++        assert!(idr_rx.try_recv().is_err(), "never straight to the encoder");
++        assert!(matches!(
++            share_rx.try_recv(),
++            Ok(ShareSignal::Keyframe { uid: u, key }) if u == uid && key == host_key(1)
++        ));
++
++        // On a guest image: right away.
++        subscribe_keyframe(&manager, uid, &guest_key(1280, 720, 30))();
++        assert_eq!(idr_rx.try_recv().ok(), Some(guest_key(1280, 720, 30)));
++        assert!(share_rx.try_recv().is_err());
 +    }
 +
      #[test]
