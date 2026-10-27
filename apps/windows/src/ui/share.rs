@@ -261,6 +261,8 @@ pub fn share_connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> 
     let sent = Arc::new(Mutex::new(Sent { settings, mode, screens: 1, pixel_rate: 0.0, virtual_display: false }));
     let stats = Arc::new(Mutex::new(None));
     let spot = Arc::new(Mutex::new(Spot::default()));
+    // Un invité n'a pas de partage à lui (toujours vide), mais le même fil que les hôtes.
+    let share = Arc::new(Mutex::new(None));
     let spec = layout.spec;
     let this_screen = layout.this_screen.clone();
     // Sa connexion : une fenêtre à sa place pendant une autre session, titrée comme elle.
@@ -308,10 +310,10 @@ pub fn share_connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> 
             first,
             connexion,
             guest: Some(guest.clone()),
-            share: Arc::new(Mutex::new(None)),
+            share: share.clone(),
         }),
     );
-    running.push(Running { id: id.clone(), name: guest.title.clone(), host, bar, sent, stats, guest: Some(guest), share: Arc::new(Mutex::new(None)) });
+    running.push(Running { id: id.clone(), name: guest.title.clone(), host, bar, sent, stats, guest: Some(guest), share });
     drop(running);
     drop(_launching);
     // « Quitter » pendant le lancement : elle s'arrête tout de suite, l'app part à sa fin.
@@ -339,7 +341,10 @@ pub fn view(app: &AppHandle, id: &str, state: Option<&ShareState>) -> ShareView 
 
 /// Le partage de la session `id` a changé : la barre en est prévenue.
 pub fn emit_state(app: &AppHandle, id: &str, share: &Mutex<Option<ShareState>>) {
-    let share = view(app, id, share.lock().unwrap().as_ref());
+    // Copié d'abord : le verrou du partage n'est pas tenu pendant que `view` lit
+    // `live` (les deux ne se tiennent jamais ensemble).
+    let current = share.lock().unwrap().clone();
+    let share = view(app, id, current.as_ref());
     let _ = app.emit_to("bar", "share-state", ShareEvent { id: id.to_string(), share });
 }
 
@@ -479,17 +484,20 @@ pub fn show_without_focus(bar: &tauri::WebviewWindow) {
 /// à la session, la barre repart d'elle-même), sinon dans une notification de
 /// Windows (les notifications ne s'affichent pas par-dessus un jeu en plein
 /// écran, d'où la barre). La barre sert déjà une autre session : la notification.
+/// Appelé depuis le fil du cœur (signe de vie de l'invité) : tout se décide sur
+/// le fil de Tauri, comme `top_edge`, pour que le cœur n'attende ni la fenêtre
+/// de la barre (`is_visible` attend le fil de Tauri) ni les verrous de l'app.
 pub fn notice(app: &AppHandle, id: &str, title: &str, text: &str) {
-    let state = app.state::<UiState>();
-    let bar_shown = app.get_webview_window("bar").and_then(|b| b.is_visible().ok()).unwrap_or(false);
-    let bar_elsewhere = bar_shown && state.bar_session.lock().unwrap().as_deref() != Some(id);
-    if shell::app_in_front() && !bar_elsewhere {
-        let (a, id, text) = (app.clone(), id.to_string(), text.to_string());
-        let _ = app.run_on_main_thread(move || {
-            let hwnd = a.state::<UiState>().with_session(&id, |r| r.host.bar_window()).unwrap_or(0);
+    let (a, id, title, text) = (app.clone(), id.to_string(), title.to_string(), text.to_string());
+    let _ = app.run_on_main_thread(move || {
+        let state = a.state::<UiState>();
+        let bar_shown = a.get_webview_window("bar").and_then(|b| b.is_visible().ok()).unwrap_or(false);
+        let bar_elsewhere = bar_shown && state.bar_session.lock().unwrap().as_deref() != Some(id.as_str());
+        if shell::app_in_front() && !bar_elsewhere {
+            let hwnd = state.with_session(&id, |r| r.host.bar_window()).unwrap_or(0);
             show_bar_with(&a, &id, hwnd, true, Some(text));
-        });
-    } else {
-        shell::notify_to("kybernow://open", title, text, None);
-    }
+        } else {
+            shell::notify_to("kybernow://open", &title, &text, None);
+        }
+    });
 }

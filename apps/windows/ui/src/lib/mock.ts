@@ -353,8 +353,8 @@ const shareFlag = flags.get('partage')
 const knownGuests: ShareGuest[] = [
   { id: 'g1', name: 'Léa', app: 'ios', role: 'spectator', since: now - 180 },
   { id: 'g2', name: 'Noé', app: 'android', role: 'player', since: now - 1500 },
-  { id: 'g3', name: 'Camille', app: 'web', role: 'player_kbm', since: now - 60 },
-  { id: 'g4', name: 'Salon', app: 'tvos', role: 'spectator', since: now - 7200 },
+  { id: 'g3', name: 'Camille', app: 'web', role: 'player_kbm', since: now - 20 },
+  { id: 'g4', name: 'Salon', app: 'tvos', role: 'spectator', since: now - 4320 },
 ]
 let shareOpen = shareFlag !== null && /^\d+$/.test(shareFlag)
 let sharedGuests: ShareGuest[] = shareOpen ? knownGuests.slice(0, Math.min(4, Number(shareFlag))) : []

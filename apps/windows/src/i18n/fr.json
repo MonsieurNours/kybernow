@@ -24,8 +24,8 @@
     "session_window": "fenêtre de session : {error}",
     "video_thread": "le fil de l'image s'est arrêté",
     "open_admin": "Admin n'a pas pu s'ouvrir dans le navigateur (code {code})",
-    "share_link": "ce lien de partage est illisible",
-    "share_code": "le code a six chiffres"
+    "share_link": "Ce lien de partage est illisible.",
+    "share_code": "Le code a six chiffres."
   },
   "notify": {
     "update_title": "KyberNow Link {version} est prête",

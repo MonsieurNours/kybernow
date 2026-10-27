@@ -203,6 +203,11 @@ fn send_combo(app: &App, keys: &[u16]) {
 /// pas parti (raccourci de l'app, touche tenue avant la session ou avant une
 /// relance de l'image) ne part pas.
 fn send_key(app: &App, scancode: u16, pressed: bool) {
+    // Un invité sans le clavier et la souris : rien ne part (le cœur filtre aussi,
+    // mais la page n'a pas à lui donner ces touches).
+    if !app.keyboard_mouse() {
+        return;
+    }
     let Some(input) = app.input() else { return };
     if !pressed && !input.held().lock().unwrap().is_held(scancode) {
         return;
@@ -1716,7 +1721,7 @@ fn edge_fired(app: &App, win: &ScreenWin) {
 fn mouse_position(app: &App, win: &Arc<ScreenWin>, lparam: LPARAM) {
     // Plusieurs ordinateurs : sur la fenêtre d'une session inactive, rien ne
     // part (la chaîne d'entrées du cœur l'arrête, `Session::set_active`).
-    if app.relative() {
+    if app.relative() || !app.keyboard_mouse() {
         return;
     }
     let Some(input) = app.input() else { return };
@@ -1743,6 +1748,17 @@ fn mouse_position(app: &App, win: &Arc<ScreenWin>, lparam: LPARAM) {
 }
 
 fn mouse_button(app: &App, hwnd: HWND, button: MouseButtonType, pressed: bool) {
+    // Un invité sans le clavier et la souris : la souris reste celle du bureau
+    // (ni capturée par la fenêtre, ni envoyée à l'ordinateur) ; une capture prise
+    // avant le retrait des droits est quand même rendue au relâchement.
+    if !app.keyboard_mouse() {
+        if !pressed {
+            unsafe {
+                let _ = ReleaseCapture();
+            }
+        }
+        return;
+    }
     unsafe {
         if pressed {
             SetCapture(hwnd);
@@ -1761,7 +1777,7 @@ fn mouse_button(app: &App, hwnd: HWND, button: MouseButtonType, pressed: bool) {
 }
 
 fn raw_input(app: &App, lparam: LPARAM) {
-    if !app.relative() {
+    if !app.relative() || !app.keyboard_mouse() {
         return;
     }
     let Some(input) = app.input() else { return };
@@ -2136,6 +2152,11 @@ unsafe extern "system" fn screen_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
                         return LRESULT(0);
                     }
                 }
+                // Un invité sans le clavier et la souris : les touches restent à ce PC
+                // (Alt+F4 ferme la fenêtre, Alt+Espace ouvre son menu).
+                if !app.keyboard_mouse() {
+                    return DefWindowProcW(hwnd, msg, wparam, lparam);
+                }
                 if pressed && repeat {
                     // L'ordinateur répète lui-même les touches tenues.
                     return LRESULT(0);
@@ -2212,7 +2233,8 @@ unsafe extern "system" fn screen_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
             WM_MOUSEWHEEL | WM_MOUSEHWHEEL => {
                 // Windows envoie la molette à la fenêtre sous le pointeur, même
                 // inactive : la chaîne d'une session inactive ne la laisse pas partir.
-                if let Some(input) = app.input() {
+                // Un invité sans le clavier et la souris : rien ne part.
+                if let Some(input) = app.input().filter(|_| app.keyboard_mouse()) {
                     let delta = ((wparam.0 >> 16) & 0xFFFF) as i16 as f32 / 120.0;
                     if msg == WM_MOUSEWHEEL {
                         input.wheel(0.0, -delta);
