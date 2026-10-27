@@ -41,8 +41,13 @@ object Native {
 
     // KyberNow Share (docs/kybernow-share.md). Réponses comme les autres appels d'Admin ;
     // « Rejoindre » ajoute ses refus : 20 aucun partage avec ce code, 21 complet, 22 trop
-    // d'essais, 23 format de l'image illisible (`error` : le texte à montrer). Hors du fil principal.
-    /** `targets` `[{host, port, fingerprint}]`, `request` `{code, name, device, app}`, `capabilities` `{hevc, hevc444, av1}` ou `null` ; `value` : `{target, joined}`. */
+    // d'essais (`error` : le texte à montrer ; 23, format illisible, seulement si l'appareil ne lit aucun format :
+    // jamais, H.264 compte comme toujours lu). Hors du fil principal.
+    /**
+     * `targets` `[{host, port, fingerprint}]`, `request` `{code, name, device, app, quality}` (et `auto` pour « Auto »),
+     * `capabilities` `{hevc, hevc444, av1}` ou `null` (le format que le cœur demande à Kyber : celui de l'hôte s'il est
+     * lu, sinon un format lu, dans une image à part) ; `value` : `{target, joined}`, `joined.image` : l'image reçue.
+     */
     @JvmStatic external fun shareJoin(targetsJson: String, requestJson: String, capabilitiesJson: String?): String
     /** L'invité repart avant d'ouvrir sa session ; `foundJson` : la `value` de [shareJoin]. */
     @JvmStatic external fun shareLeave(foundJson: String): Int
@@ -64,7 +69,7 @@ object Native {
     @JvmStatic external fun shareQualityLabel(quality: Int): String?
     /** `screen` `{pixel_width, pixel_height, refresh}`, `decoder` `{hevc, hevc444, av1, max_width, max_height, max_fps}`, `host` l'écran partagé ou `null` ; rend `auto`. */
     @JvmStatic external fun shareAutoQuality(screenJson: String, decoderJson: String, hostJson: String?): String?
-    /** « 1080p · 60 Hz » d'une image ([SessionListener.onShareImage], `guests[].image`). */
+    /** « 1080p · 60 Hz » d'une image ([SessionListener.onShareImage], `guests[].image`) ; `null` tant que la taille n'est pas sue (Kyber ne dit rien). */
     @JvmStatic external fun shareImageLabel(imageJson: String): String?
     /** Session d'invité : la qualité choisie ; l'image reçue arrive par [SessionListener.onShareImage]. */
     @JvmStatic external fun sessionSetShareQuality(handle: Long, quality: Int): Boolean
@@ -209,8 +214,12 @@ interface SessionListener {
     fun onGuests(json: String?) {}
     /** Invité : son rôle (0 spectateur, 1 manettes, 2 manettes avec clavier et souris, 3 clavier et souris seuls) ; `previous` −1 au départ. */
     fun onShareRole(role: Int, previous: Int) {}
-    /** Invité : le partage finit la session (0 arrêté, 1 retiré, 2 format illisible), juste avant la fin ; `text` : la raison à montrer. */
+    /** Invité : le partage finit la session (0 arrêté, 1 retiré, 2 format illisible : jamais en pratique), juste avant la fin ; `text` : la raison à montrer. */
     fun onShareEnd(end: Int, text: String) {}
-    /** Invité : l'image reçue en JSON (`quality`, `width`, `height`, `fps`, `codec`, `follows_host`, `reason`), celle d'avant (`null` au départ), l'avis bref à montrer ou `null`. */
+    /**
+     * Invité : l'image reçue en JSON (`quality` : celle qu'il a demandée ; `width`, `height`, `fps`, `codec`,
+     * `follows_host`, `reason` valent `null` tant que Kyber ne sait rien), celle d'avant (`null` au départ), l'avis
+     * bref à montrer ou `null` (« Image allégée pour suivre. », « L'ordinateur ne peut pas faire une image de plus… »).
+     */
     fun onShareImage(imageJson: String, previousJson: String?, notice: String?) {}
 }

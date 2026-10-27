@@ -342,6 +342,11 @@
     <string name="share_notice_keyboard_mouse">Vous avez le clavier et la souris.</string>
     <string name="share_notice_keyboard_mouse_back">Le clavier et la souris sont repris.</string>
     <string name="share_notice_watch">Vous regardez de nouveau.</string>
+    <string name="share_quality_title">Qualité de l\'image</string>
+    <string name="share_quality_auto">Auto</string>
+    <string name="share_quality_host">Comme l\'hôte</string>
+    <string name="share_quality_1080p60">1080p · 60 Hz</string>
+    <string name="share_quality_720p30">720p · 30 Hz</string>
     <string name="share_button">Partager</string>
     <string name="share_tile_detail">Code et QR code</string>
     <string name="share_title" formatted="true">Partager %1$s</string>

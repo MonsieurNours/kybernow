@@ -5,18 +5,26 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.assertHasClickAction
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.core.app.ApplicationProvider
 import fr.leslignesclaires.kybernow.core.FormFactor
 import fr.leslignesclaires.kybernow.core.ShareAvailability
 import fr.leslignesclaires.kybernow.core.ShareGuest
+import fr.leslignesclaires.kybernow.core.ShareImage
+import fr.leslignesclaires.kybernow.core.ShareLink
+import fr.leslignesclaires.kybernow.core.ShareQuality
 import fr.leslignesclaires.kybernow.core.ShareRole
 import fr.leslignesclaires.kybernow.core.ShareState
+import fr.leslignesclaires.kybernow.core.ShareTarget
 import fr.leslignesclaires.kybernow.model.Gamepads
 import fr.leslignesclaires.kybernow.model.Profile
 import fr.leslignesclaires.kybernow.session.Capsule
@@ -29,6 +37,7 @@ import fr.leslignesclaires.kybernow.session.SessionUi
 import fr.leslignesclaires.kybernow.session.SharePanelContent
 import fr.leslignesclaires.kybernow.session.Shortcut
 import fr.leslignesclaires.kybernow.ui.KnTheme
+import fr.leslignesclaires.kybernow.ui.share.JoinContent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -79,6 +88,8 @@ class ShareUiTest {
         override fun shareRemove(guest: ShareGuest) {}
         override fun shareStop() {}
         override fun shareCopyLink() {}
+        val qualities = mutableListOf<ShareQuality>()
+        override fun setShareQuality(quality: ShareQuality) { qualities += quality }
     }
 
     private val actions = Actions()
@@ -217,8 +228,8 @@ class ShareUiTest {
         )
         show(FormFactor.PHONE) { SharePanelContent("Atelier", state, false, null, null, false, actions, {}) }
         rule.onNodeWithText("iPhone ou iPad · depuis moins d'une minute").assertExists()
-        rule.onNodeWithText("Navigateur · depuis 3 min").assertExists()
-        rule.onNodeWithText("Android · depuis 1 h 12").assertExists()
+        rule.onNodeWithText("Navigateur · depuis 3\u00a0min").assertExists()
+        rule.onNodeWithText("Android · depuis 1\u00a0h\u00a012").assertExists()
         rule.onNodeWithText("Mac · depuis moins d'une minute").assertExists()
     }
 
@@ -347,5 +358,164 @@ class ShareUiTest {
         rule.onNodeWithText("Les manettes sont reprises.").assertExists()
         ui.state.capsule.value = Capsule.ShareRights(R.string.share_notice_play)
         rule.onNodeWithText("Vous pouvez jouer à la manette.").assertExists()
+    }
+
+    // MARK: - Qualité de l'image
+
+    /** « 1080p · 60 Hz » tel que le cœur l'écrit, avec l'espace insécable de l'app avant « Hz ». */
+    private fun hz(label: String) = label.replace(" Hz", "\u00a0Hz")
+
+    /** L'image reçue d'un invité : [label] n'existe que si la Station dit la taille. */
+    private fun received(label: String? = "1080p · 60 Hz", followsHost: Boolean? = false, quality: ShareQuality = ShareQuality.AUTO) =
+        ShareImage(quality, followsHost = followsHost, reason = followsHost?.let { "asked" }, label = label?.let(::hz))
+
+    @Test
+    fun guestBar_hasQualityOfTheImage_whateverTheRole_andShowsTheReceivedQuality() {
+        val ui = ui(guest = true, role = ShareRole.SPECTATOR) { barOpen = true; state.shareImage.value = received() }
+        show(FormFactor.PHONE) { SessionOverlay(ui) }
+        // Ce qui ne touche que l'appareil : un spectateur l'a aussi ; le bouton montre la qualité reçue.
+        rule.onNodeWithText("Qualité de l'image").assertHasClickAction()
+        rule.onNodeWithText(hz("1080p · 60 Hz")).assertExists()
+        rule.onNodeWithText("Spectateur").assertExists()
+    }
+
+    @Test
+    fun hostBar_hasNoQualityOfTheImage() {
+        val ui = ui { barOpen = true }
+        show(FormFactor.PHONE) { SessionOverlay(ui) }
+        rule.onNodeWithText("Qualité de l'image").assertDoesNotExist()
+    }
+
+    @Test
+    fun theQualitySheet_opensFromTheBar_andChoosingTellsTheSessionOnce() {
+        val ui = ui(guest = true, role = ShareRole.PLAYER) { barOpen = true; state.shareImage.value = received() }
+        show(FormFactor.PHONE) { SessionOverlay(ui) }
+        rule.onNodeWithText("Comme l'hôte").assertDoesNotExist()
+        rule.onNodeWithText("Qualité de l'image").performClick()
+        assertTrue(ui.qualityOpen)
+        // Les quatre choix, dans l'ordre de link-ui ; « Auto » allumé (la qualité choisie au départ).
+        rule.onNodeWithText("Auto").assertIsSelected()
+        rule.onNodeWithText("Comme l'hôte").assertIsNotSelected()
+        rule.onNodeWithText(hz("720p · 30 Hz")).assertExists()
+        // La qualité reçue est dite en tête de la feuille, en plus du choix de même nom : trois fois à l'écran avec la barre.
+        rule.onAllNodesWithText(hz("1080p · 60 Hz")).assertCountEquals(3)
+        rule.onNodeWithText("Comme l'hôte").performClick()
+        assertEquals(listOf(ShareQuality.HOST), actions.qualities)
+        assertFalse(ui.qualityOpen)
+    }
+
+    @Test
+    fun theQualitySheet_marksTheChosenQuality() {
+        val ui = ui(guest = true, role = ShareRole.PLAYER) { qualityOpen = true; state.shareQuality.value = ShareQuality.P720_30 }
+        show(FormFactor.PHONE) { SessionOverlay(ui) }
+        rule.onNodeWithText(hz("720p · 30 Hz")).assertIsSelected()
+        rule.onNodeWithText("Auto").assertIsNotSelected()
+        rule.onNodeWithText(hz("1080p · 60 Hz")).assertIsNotSelected()
+        rule.onNodeWithText("Fermer").performClick()
+        assertFalse(ui.qualityOpen)
+        assertTrue(actions.qualities.isEmpty())
+    }
+
+    @Test
+    fun anUnknownImage_showsNoReceivedQuality() {
+        // Kyber ne dit rien de la taille : le cœur n'écrit aucun libellé, l'interface ne montre aucune qualité reçue.
+        val ui = ui(guest = true, role = ShareRole.PLAYER) { barOpen = true; state.shareImage.value = received(label = null, followsHost = null) }
+        show(FormFactor.PHONE) { SessionOverlay(ui) }
+        rule.onNodeWithText("Qualité de l'image").assertHasClickAction()
+        rule.onNodeWithText("1080p", substring = true).assertDoesNotExist()
+        rule.onNodeWithText("720p", substring = true).assertDoesNotExist()
+        rule.onNodeWithText("Qualité de l'image").performClick()
+        // Seul le choix « 1080p · 60 Hz » : pas de ligne de qualité reçue.
+        rule.onAllNodesWithText(hz("1080p · 60 Hz")).assertCountEquals(1)
+    }
+
+    @Test
+    fun tvMenu_hasTheQualityTile_showingTheReceivedQuality_andOpensTheSheet() {
+        val ui = ui(tv = true, guest = true, role = ShareRole.PLAYER) { menuOpen = true; state.shareImage.value = received("720p · 30 Hz") }
+        show(FormFactor.TV) { SessionOverlay(ui) }
+        rule.onNodeWithText("Qualité de l'image").assertHasClickAction()
+        rule.onNodeWithText(hz("720p · 30 Hz")).assertExists()
+        rule.onNodeWithText("Qualité de l'image").performClick()
+        assertTrue(ui.qualityOpen)
+        rule.onNodeWithText("Comme l'hôte").performClick()
+        assertEquals(listOf(ShareQuality.HOST), actions.qualities)
+    }
+
+    @Test
+    fun tvMenu_withoutAKnownImage_showsTheChosenQuality() {
+        val ui = ui(tv = true, guest = true, role = ShareRole.SPECTATOR) { menuOpen = true; state.shareQuality.value = ShareQuality.HOST }
+        show(FormFactor.TV) { SessionOverlay(ui) }
+        // Pas de qualité reçue : la tuile dit celle qu'on a choisie.
+        rule.onNodeWithText("Qualité de l'image").assertExists()
+        rule.onNodeWithText("Comme l'hôte").assertExists()
+    }
+
+    @Test
+    fun theStationsNotice_isShownLikeARightsNotice() {
+        val ui = ui(guest = true, role = ShareRole.PLAYER)
+        show(FormFactor.PHONE) { SessionOverlay(ui) }
+        ui.state.capsule.value = Capsule.ShareNotice("Image allégée pour suivre.")
+        rule.onNodeWithText("Image allégée pour suivre.").assertExists()
+        ui.state.capsule.value = Capsule.ShareNotice("L'ordinateur ne peut pas faire une image de plus : vous recevez 720p · 30 Hz.")
+        rule.onNodeWithText("L'ordinateur ne peut pas faire une image de plus : vous recevez 720p · 30 Hz.").assertExists()
+    }
+
+    @Test
+    fun theHostPanel_showsTheQualityUnderAGuest_onlyWhenItIsNotTheHosts() {
+        val now = System.currentTimeMillis() / 1000
+        val state = share(
+            // Suit l'image de l'hôte : rien.
+            ShareGuest("g1", "Léa", "ios", ShareRole.SPECTATOR, image = received("1080p · 60 Hz", followsHost = true, quality = ShareQuality.HOST)),
+            // Image à part : « app · qualité · depuis ».
+            ShareGuest("g2", "Max", "web", ShareRole.PLAYER, since = now - 200, image = received("720p · 30 Hz", followsHost = false, quality = ShareQuality.P720_30)),
+            // Image encore inconnue : comme l'hôte, rien.
+            ShareGuest("g3", "Zoé", "android", ShareRole.SPECTATOR, image = received(null, followsHost = null)),
+            // Image à part dont la taille n'est pas encore sue : pas de libellé, rien.
+            ShareGuest("g4", "Eva", "mac", ShareRole.SPECTATOR, image = received(null, followsHost = false)),
+        )
+        show(FormFactor.PHONE) { SharePanelContent("Atelier", state, false, null, null, false, actions, {}) }
+        rule.onNodeWithText("iPhone ou iPad").assertExists()
+        rule.onNodeWithText(hz("Navigateur · 720p · 30 Hz · depuis 3\u00a0min")).assertExists()
+        rule.onNodeWithText("Android").assertExists()
+        rule.onNodeWithText("Mac").assertExists()
+        // Lecture seule : aucune action ne parle de la qualité.
+        rule.onNodeWithText("Qualité de l'image").assertDoesNotExist()
+    }
+
+    // MARK: - « Rejoindre »
+
+    private val link = ShareLink(ShareTarget("192.168.1.20", 41234, "sha256:ab"), "428913")
+
+    @Test
+    fun join_offersTheFourQualities_autoProposed_andSendsTheChoice() {
+        val joins = mutableListOf<Triple<String, String, ShareQuality>>()
+        show(FormFactor.PHONE) { JoinContent(link, false, "Pixel de Léa", ShareQuality.AUTO, false, null, {}, { code, name, quality, _ -> joins += Triple(code, name, quality) }) }
+        // Sous le prénom : « Qualité de l'image » (en capitales dans la charte) et les quatre choix, « Auto » proposé.
+        rule.onNodeWithText("Qualité de l'image", ignoreCase = true).performScrollTo().assertExists()
+        rule.onNodeWithText("Auto").assertIsSelected()
+        rule.onNodeWithText("Comme l'hôte").assertIsNotSelected()
+        rule.onNodeWithText(hz("1080p · 60 Hz")).assertExists()
+        rule.onNodeWithText(hz("720p · 30 Hz")).performScrollTo().performClick()
+        rule.onNodeWithText(hz("720p · 30 Hz")).assertIsSelected()
+        rule.onNodeWithText("Auto").assertIsNotSelected()
+        rule.onNodeWithText("Rejoindre").performScrollTo().performClick()
+        // Rien ne part sans « Rejoindre » ; puis le code, le prénom et la qualité choisie.
+        assertEquals(listOf(Triple("428913", "Pixel de Léa", ShareQuality.P720_30)), joins)
+    }
+
+    @Test
+    fun join_startsFromTheRememberedQuality() {
+        show(FormFactor.PHONE) { JoinContent(link, false, "Léa", ShareQuality.P1080_60, false, null, {}, { _, _, _, _ -> }) }
+        rule.onNodeWithText(hz("1080p · 60 Hz")).performScrollTo().assertIsSelected()
+        rule.onNodeWithText("Auto").assertIsNotSelected()
+    }
+
+    @Test
+    fun join_onATelevision_hasTheQualityToo() {
+        show(FormFactor.TV) { JoinContent(null, false, "SHIELD", ShareQuality.HOST, false, null, {}, { _, _, _, _ -> }) }
+        rule.onNodeWithText("Qualité de l'image", ignoreCase = true).assertExists()
+        rule.onNodeWithText("Comme l'hôte").assertIsSelected()
+        rule.onNodeWithText("Auto").assertExists()
+        rule.onNodeWithText(hz("720p · 30 Hz")).assertExists()
     }
 }

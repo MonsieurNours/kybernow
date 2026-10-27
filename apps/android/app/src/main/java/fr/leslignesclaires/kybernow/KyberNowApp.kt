@@ -6,6 +6,7 @@ import fr.leslignesclaires.kybernow.core.DeviceIdentity
 import fr.leslignesclaires.kybernow.core.FormFactor
 import fr.leslignesclaires.kybernow.core.Native
 import fr.leslignesclaires.kybernow.core.ShareFound
+import fr.leslignesclaires.kybernow.core.ShareQuality
 import fr.leslignesclaires.kybernow.model.Decoders
 import fr.leslignesclaires.kybernow.model.Discovery
 import fr.leslignesclaires.kybernow.model.Gamepads
@@ -49,6 +50,14 @@ class KyberNowApp : Application() {
     var guestName: String
         get() = getSharedPreferences("share", MODE_PRIVATE).getString("name", null)?.takeIf { it.isNotBlank() } ?: device.name
         set(v) = getSharedPreferences("share", MODE_PRIVATE).edit().putString("name", v.trim()).apply()
+
+    /**
+     * La « Qualité de l'image » d'invité retenue pour la fois suivante (« Rejoindre » et la barre d'un invité) ;
+     * au début, « Auto ».
+     */
+    var guestQuality: ShareQuality
+        get() = ShareQuality.parse(getSharedPreferences("share", MODE_PRIVATE).getString("quality", null))
+        set(v) = getSharedPreferences("share", MODE_PRIVATE).edit().putString("quality", v.id).apply()
 
     override fun onCreate() {
         super.onCreate()

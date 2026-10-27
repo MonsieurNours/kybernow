@@ -14,6 +14,24 @@ data class DecoderInfo(val name: String, val maxWidth: Int, val maxHeight: Int, 
 
 /** Ce que l'appareil décode en matériel (vérifié au lancement, comme les autres apps). */
 data class Decoders(val h264: DecoderInfo?, val hevc: DecoderInfo?, val av1: DecoderInfo?, val hevc444: Boolean) {
+    /** Au moins un décodeur matériel est connu : sinon, rien à interroger pour « Auto » ([AutoQuality.limits]). */
+    val any get() = h264 != null || hevc != null || av1 != null
+
+    /**
+     * Un décodeur matériel de l'appareil suit-il cette définition à cette fréquence ? Ce que `MediaCodec` en dit
+     * (`VideoCapabilities.areSizeAndRateSupported`), pour « Auto » de « Qualité de l'image ». Les capacités sont lues
+     * une fois par appel de cette fonction : elle rend le test, à garder le temps de plusieurs questions.
+     */
+    fun follows(): (Int, Int, Int) -> Boolean {
+        val infos = runCatching { MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos }.getOrNull() ?: return { _, _, _ -> false }
+        val caps = listOf(h264 to "video/avc", hevc to "video/hevc", av1 to "video/av01").mapNotNull { (decoder, mime) ->
+            decoder?.let { d -> infos.firstOrNull { it.name == d.name }?.let { runCatching { it.getCapabilitiesForType(mime).videoCapabilities }.getOrNull() } }
+        }
+        return { width, height, fps ->
+            caps.any { runCatching { it.areSizeAndRateSupported(width, height, fps.toDouble()) }.getOrDefault(false) }
+        }
+    }
+
     companion object {
         fun detect(): Decoders {
             val infos = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.filter { !it.isEncoder && it.isHardwareAccelerated && !it.isAlias }

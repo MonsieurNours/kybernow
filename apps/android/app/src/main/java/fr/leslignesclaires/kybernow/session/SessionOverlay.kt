@@ -79,6 +79,7 @@ import androidx.compose.ui.unit.sp
 import fr.leslignesclaires.kybernow.R
 import fr.leslignesclaires.kybernow.core.ShareAvailability
 import fr.leslignesclaires.kybernow.core.ShareGuest
+import fr.leslignesclaires.kybernow.core.ShareQuality
 import fr.leslignesclaires.kybernow.core.ShareRole
 import fr.leslignesclaires.kybernow.model.Profile
 import fr.leslignesclaires.kybernow.ui.Body
@@ -97,6 +98,8 @@ import fr.leslignesclaires.kybernow.ui.fmt
 import fr.leslignesclaires.kybernow.ui.home.motorsLabel
 import fr.leslignesclaires.kybernow.ui.home.profileLabel
 import fr.leslignesclaires.kybernow.ui.panel
+import fr.leslignesclaires.kybernow.ui.share.QualityChoices
+import fr.leslignesclaires.kybernow.ui.share.qualityLabel
 
 /** Ce qu'a donné « Copier le lien ». */
 enum class ShareCopy { COPIED, FAILED }
@@ -141,6 +144,10 @@ class SessionUi(
     var padSize by mutableStateOf(1)
     var padOpacity by mutableStateOf(70)
 
+    // KyberNow Share, côté invité.
+    /** La feuille « Qualité de l'image » (les quatre choix, la qualité reçue) est ouverte. */
+    var qualityOpen by mutableStateOf(false)
+
     // KyberNow Share, côté hôte.
     /** Le panneau du partage (code, lien, QR code, invités) est ouvert. */
     var shareOpen by mutableStateOf(false)
@@ -162,7 +169,7 @@ class SessionUi(
     fun keyboardMouseAllowed(role: ShareRole = state.shareRole.value) = !guest || role.keyboardMouse
 
     /** Un menu, une feuille, la barre, le clavier… par-dessus l'image (la manette à part). */
-    val covering get() = leaving || !passageDone || menuOpen || barOpen || keyboardOpen || statsOpen || typing || shareOpen
+    val covering get() = leaving || !passageDone || menuOpen || barOpen || keyboardOpen || statsOpen || typing || shareOpen || qualityOpen
 
     /** Quelque chose est à l'écran par-dessus l'image. */
     val anything get() = covering || padShown
@@ -186,6 +193,10 @@ interface SessionActions {
     fun setOnScreenPad(on: Boolean)
     /** Disposition de la manette à l'écran : « Simple » ou « Complète » (retenue pour l'ordinateur). */
     fun setPadLayout(simple: Boolean)
+
+    // KyberNow Share, côté invité (docs/link-ui.md, « Partage », « Qualité de l'image »).
+    /** La « Qualité de l'image » choisie : dite à la Station, qui relance l'image de l'invité seulement ; retenue pour la fois suivante. */
+    fun setShareQuality(quality: ShareQuality)
 
     // KyberNow Share, côté hôte (docs/link-ui.md, « Partage »).
     /** « Partager » : ouvre le partage de l'écran principal (ou montre celui qui est ouvert) et son panneau. */
@@ -223,6 +234,7 @@ fun SessionOverlay(ui: SessionUi) {
         }
         if (ui.statsOpen) Stats(ui, Modifier.align(if (ui.tv) Alignment.TopEnd else Alignment.BottomEnd).padding(LocalScale.current.dp(20f)))
         if (ui.keysOpen) KeysSheet(ui, Modifier.align(Alignment.Center))
+        if (ui.qualityOpen && ui.guest) QualitySheet(ui, Modifier.align(Alignment.Center))
         if (ui.typing) TypeText(ui, Modifier.align(Alignment.Center))
         if (ui.shareOpen) SharePanel(ui, Modifier.align(Alignment.Center))
         ended?.takeIf { it.error != null }?.let { EndedCard(ui, it, Modifier.align(Alignment.Center)) }
@@ -390,6 +402,8 @@ private fun capsuleText(c: Capsule): String = when (c) {
     is Capsule.AdaptFailed -> stringResource(R.string.capsule_adapt_failed)
     is Capsule.GamepadConnected -> stringResource(R.string.capsule_gamepad, c.name, c.slot + 1, motorsLabel(c.motors))
     is Capsule.ShareRights -> stringResource(c.text)
+    // L'avis de la Station sur l'image de l'invité (« Image allégée pour suivre. ») : le texte du cœur, tel quel.
+    is Capsule.ShareNotice -> c.text
 }
 
 // MARK: - Téléphone et tablette
@@ -402,8 +416,8 @@ private fun PhoneBar(ui: SessionUi) {
     val first = remember { FocusRequester() }
     // Ouverte à la manette : le focus sur le premier élément, et de nouveau quand la feuille des
     // touches se ferme. Une image d'attente : la vue d'interface vient de passer de GONE à visible.
-    LaunchedEffect(ui.padBar, ui.keysOpen, ui.shareOpen) {
-        if (ui.padBar && !ui.keysOpen && !ui.shareOpen) {
+    LaunchedEffect(ui.padBar, ui.keysOpen, ui.shareOpen, ui.qualityOpen) {
+        if (ui.padBar && !ui.keysOpen && !ui.shareOpen && !ui.qualityOpen) {
             withFrameNanos { }
             runCatching { first.requestFocus() }
         }
@@ -470,15 +484,16 @@ private fun HostBarItems(ui: SessionUi, sec: Second?, first: FocusRequester) {
 
 /**
  * La barre réduite d'un invité (docs/link-ui.md, « Partage », comme le client web) : ce qui ne touche que
- * l'appareil (la latence et les statistiques), son rôle (« Spectateur » sans aucun droit, « Joueur » dès qu'il
- * en a un) et « Quitter le partage » ; la manette à l'écran seulement avec les manettes ; le toucher, le mode
- * de la souris, le clavier et les touches seulement avec le clavier et la souris. Ni profil, ni réglages de
- * l'ordinateur, ni presse-papiers.
+ * l'appareil (la latence et les statistiques, « Qualité de l'image » qui montre la qualité reçue), son rôle
+ * (« Spectateur » sans aucun droit, « Joueur » dès qu'il en a un) et « Quitter le partage » ; la manette à l'écran
+ * seulement avec les manettes ; le toucher, le mode de la souris, le clavier et les touches seulement avec le
+ * clavier et la souris. Ni profil, ni réglages de l'ordinateur, ni presse-papiers.
  */
 @Composable
 private fun GuestBarItems(ui: SessionUi, sec: Second?, role: ShareRole, first: FocusRequester) {
     val s = LocalScale.current
     StatsCard(ui, sec, Modifier.focusRequester(first))
+    QualityButton(ui)
     Body(
         roleLabel(role), Modifier.clip(RoundedCornerShape(999.dp)).background(Kn.frost.copy(alpha = 0.06f)).padding(horizontal = s.dp(14f), vertical = s.dp(8f)),
         size = 14f, weight = 600, color = Kn.frost,
@@ -492,6 +507,37 @@ private fun GuestBarItems(ui: SessionUi, sec: Second?, role: ShareRole, first: F
         )
         BarIcon(KnIcons.keyboard, stringResource(R.string.session_keyboard)) { ui.actions.openKeyboard(true) }
         GlassButton(stringResource(R.string.session_keys), { ui.keysOpen = true })
+    }
+}
+
+/**
+ * « Qualité de l'image » d'un invité : montre la qualité reçue (« 1080p · 60 Hz », écrite par le cœur) et ouvre
+ * [QualitySheet] pour en changer. Tant que la Station ne dit pas la taille de l'image, aucune qualité n'est montrée.
+ */
+@Composable
+private fun QualityButton(ui: SessionUi) {
+    val image by ui.state.shareImage.collectAsState()
+    GlassButton(stringResource(R.string.share_quality_title), { ui.qualityOpen = true }, selected = ui.qualityOpen, detail = image?.label)
+}
+
+/**
+ * La feuille « Qualité de l'image » d'un invité : les quatre choix (« Auto », « Comme l'hôte », « 1080p · 60 Hz »,
+ * « 720p · 30 Hz »), celui qu'il a choisi allumé, et la qualité reçue quand la Station la dit. Choisir relance son
+ * image seulement (jamais celle de l'hôte), puis la feuille se ferme.
+ */
+@Composable
+private fun QualitySheet(ui: SessionUi, modifier: Modifier) {
+    val s = LocalScale.current
+    val chosen by ui.state.shareQuality.collectAsState()
+    val image by ui.state.shareImage.collectAsState()
+    val first = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
+    // Pleine, comme le panneau du partage : par-dessus le menu du téléviseur, le verre laisserait transparaître les tuiles.
+    Column(modifier.padding(s.dp(20f)).widthIn(max = s.dp(720f)).opaquePanel().padding(s.dp(22f)), verticalArrangement = Arrangement.spacedBy(s.dp(14f))) {
+        Eyebrow(stringResource(R.string.share_quality_title))
+        image?.label?.let { Mono(it, size = 14f, color = Kn.spectre) }
+        QualityChoices(chosen, { ui.actions.setShareQuality(it); ui.qualityOpen = false }, focus = first)
+        GlassButton(stringResource(R.string.session_close), { ui.qualityOpen = false })
     }
 }
 
@@ -666,17 +712,22 @@ private fun TvMenu(ui: SessionUi) {
 }
 
 /**
- * Le menu d'un invité : reprendre, le son et les statistiques (ce qui ne touche que l'appareil), puis ce que son
- * rôle permet (la souris, le texte et les touches avec le clavier et la souris), et quitter le partage.
+ * Le menu d'un invité : reprendre, le son, les statistiques et « Qualité de l'image » (ce qui ne touche que
+ * l'appareil), puis ce que son rôle permet (la souris, le texte et les touches avec le clavier et la souris), et
+ * quitter le partage.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun GuestTiles(ui: SessionUi, role: ShareRole, first: FocusRequester, audio: Pair<Int, Double>?) {
     val s = LocalScale.current
+    val image by ui.state.shareImage.collectAsState()
+    val chosen by ui.state.shareQuality.collectAsState()
     FlowRow(Modifier.widthIn(max = s.dp(900f)), horizontalArrangement = Arrangement.spacedBy(s.dp(14f), Alignment.CenterHorizontally), verticalArrangement = Arrangement.spacedBy(s.dp(14f)), maxItemsInEachRow = 5) {
         Tile(KnIcons.play, stringResource(R.string.session_resume), null, Modifier.focusRequester(first), primary = true) { ui.actions.resume() }
         Tile(KnIcons.sound, stringResource(R.string.session_sound), audio?.let { (c, _) -> stringResource(R.string.session_sound_channels, c) }) { ui.statsOpen = !ui.statsOpen }
         Tile(KnIcons.pulse, stringResource(R.string.session_stats), null) { ui.statsOpen = !ui.statsOpen }
+        // La qualité reçue (« 1080p · 60 Hz ») quand la Station la dit, sinon celle qu'on a choisie (« Auto »).
+        Tile(KnIcons.screen, stringResource(R.string.share_quality_title), image?.label ?: qualityLabel(chosen)) { ui.qualityOpen = true }
         if (role.keyboardMouse) {
             Tile(KnIcons.remote, stringResource(R.string.session_remote_mouse), stringResource(if (ui.remoteMouse) R.string.session_on else R.string.session_off), selected = ui.remoteMouse) { ui.actions.setRemoteMouse(!ui.remoteMouse) }
             Tile(KnIcons.gamepad, stringResource(R.string.session_pad_mouse), stringResource(if (ui.padMouse) R.string.session_on else R.string.session_off), selected = ui.padMouse) { ui.actions.setPadMouse(!ui.padMouse) }

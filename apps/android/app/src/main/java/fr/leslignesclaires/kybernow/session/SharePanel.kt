@@ -130,7 +130,7 @@ internal fun SharePanelContent(
  * Le panneau est plein : il porte le code et le QR code, qui doivent rester lisibles par-dessus la barre ou
  * le menu (le verre des autres feuilles les laisserait transparaître).
  */
-private fun Modifier.opaquePanel(): Modifier = this
+internal fun Modifier.opaquePanel(): Modifier = this
     .clip(RoundedCornerShape(22.dp))
     .background(Kn.panel)
     .border(BorderStroke(1.dp, Kn.line), RoundedCornerShape(22.dp))
@@ -188,7 +188,11 @@ private fun ShareGuests(share: ShareState, busy: Boolean, actions: SessionAction
     }
 }
 
-/** « Léa · Spectateur », son app et « depuis 3 min », et ce que l'hôte peut en faire (ses deux droits, à part). */
+/**
+ * « Léa · Spectateur », son app, sa qualité d'image (« 1080p · 60 Hz », en lecture seule, seulement si ce n'est pas
+ * celle de l'hôte et si le cœur sait l'écrire) et « depuis 3 min », et ce que l'hôte peut en faire (ses deux droits,
+ * à part).
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun GuestRow(guest: ShareGuest, now: Long, busy: Boolean, actions: SessionActions) {
@@ -199,7 +203,8 @@ private fun GuestRow(guest: ShareGuest, now: Long, busy: Boolean, actions: Sessi
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(s.dp(2f))) {
             Body(guestLabel(guest), size = 15f, weight = 600, color = Kn.frost)
-            val detail = listOfNotNull(appLabel(guest.app), sinceLabel(guest.since, now)).joinToString(" · ")
+            // Son app, sa qualité d'image si elle n'est pas celle de l'hôte, puis depuis quand (docs/link-ui.md, « Un invité »).
+            val detail = listOfNotNull(appLabel(guest.app), guest.ownImageLabel, sinceLabel(guest.since, now)).joinToString(" · ")
             if (detail.isNotEmpty()) Mono(detail, size = 11f, color = Kn.muted)
         }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(s.dp(8f)), verticalArrangement = Arrangement.spacedBy(s.dp(8f))) {

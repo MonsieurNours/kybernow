@@ -5,6 +5,8 @@ import android.os.Looper
 import androidx.test.core.app.ApplicationProvider
 import fr.leslignesclaires.kybernow.core.Share
 import fr.leslignesclaires.kybernow.core.ShareFound
+import fr.leslignesclaires.kybernow.core.ShareImage
+import fr.leslignesclaires.kybernow.core.ShareQuality
 import fr.leslignesclaires.kybernow.core.ShareRole
 import fr.leslignesclaires.kybernow.core.ShareState
 import fr.leslignesclaires.kybernow.model.Gamepads
@@ -157,6 +159,140 @@ class ShareTest {
         // Aucun jeton dans ce qui pourrait finir dans un journal.
         assertFalse(f.toString().contains("SECRET"))
         assertFalse(f.toString().contains("JETON"))
+    }
+
+    // MARK: - Qualité de l'image
+
+    /** Le libellé du cœur sans bibliothèque native : seulement quand la taille est connue, comme `ShareImage::label`. */
+    private val label = { json: String ->
+        JSONObject(json).let { o -> if (o.isNull("width") || o.isNull("height") || o.isNull("fps")) null else "${minOf(o.getInt("width"), o.getInt("height"))}p · ${o.getInt("fps")} Hz" }
+    }
+
+    @Test
+    fun qualities_followTheCoreCodes_andAnUnknownOneIsAuto() {
+        assertEquals(listOf(0, 1, 2, 3), ShareQuality.entries.map { it.code })
+        assertEquals(listOf("auto", "host", "1080p60", "720p30"), ShareQuality.entries.map { it.id })
+        assertEquals(ShareQuality.AUTO, ShareQuality.of(0))
+        assertEquals(ShareQuality.HOST, ShareQuality.of(1))
+        assertEquals(ShareQuality.P1080_60, ShareQuality.of(2))
+        assertEquals(ShareQuality.P720_30, ShareQuality.of(3))
+        // Une qualité inconnue (Station plus récente) se lit « Auto », comme le cœur.
+        assertEquals(ShareQuality.AUTO, ShareQuality.of(9))
+        assertEquals(ShareQuality.AUTO, ShareQuality.parse("4k120"))
+        assertEquals(ShareQuality.AUTO, ShareQuality.parse(null))
+        assertEquals(ShareQuality.P720_30, ShareQuality.parse("720p30"))
+    }
+
+    @Test
+    fun theReceivedImage_isNullUntilKyberKnows_andHasNoLabelThen() {
+        val unknown = ShareImage.parse("""{"quality":"auto","width":null,"height":null,"fps":null,"codec":null,"follows_host":null,"reason":null}""", label)!!
+        assertEquals(ShareQuality.AUTO, unknown.quality)
+        assertNull(unknown.width)
+        assertNull(unknown.fps)
+        assertNull(unknown.followsHost)
+        assertNull(unknown.reason)
+        // Sans taille, aucun libellé : l'interface ne montre aucune qualité reçue.
+        assertNull(unknown.label)
+        // Une image encore inconnue compte comme celle de l'hôte.
+        assertFalse(unknown.own)
+        // Un champ du mauvais type se lit « inconnu », sans faire tomber le reste.
+        val odd = ShareImage.parse("""{"quality":"host","width":"large","height":720,"fps":30,"follows_host":"yes"}""", label)!!
+        assertNull(odd.width)
+        assertNull(odd.followsHost)
+        assertEquals(720, odd.height)
+        assertEquals(ShareQuality.HOST, odd.quality)
+        assertNull(ShareImage.parse("pas du json", label))
+        assertNull(ShareImage.parse(null as String?, label))
+    }
+
+    @Test
+    fun theReceivedImage_keepsTheCoreLabel_withANonBreakingSpaceBeforeHz() {
+        val own = ShareImage.parse("""{"quality":"720p30","width":1280,"height":720,"fps":30,"codec":"h264","follows_host":false,"reason":"asked"}""", label)!!
+        assertEquals("720p · 30\u00a0Hz", own.label)
+        assertEquals(1280, own.width)
+        assertEquals("h264", own.codec)
+        assertTrue(own.own)
+        assertEquals("asked", own.reason)
+        // Sur l'image de l'hôte : le libellé existe, l'image n'est pas « à part ».
+        val host = ShareImage.parse("""{"quality":"host","width":1920,"height":1080,"fps":60,"follows_host":true,"reason":"asked"}""", label)!!
+        assertEquals("1080p · 60\u00a0Hz", host.label)
+        assertFalse(host.own)
+        // Une image dont le libellé échoue (bibliothèque absente) : pas de libellé, pas d'erreur.
+        assertNull(ShareImage.parse("""{"quality":"auto","width":1920,"height":1080,"fps":60}""", { error("pas de bibliothèque") })!!.label)
+    }
+
+    @Test
+    fun theHostPanel_showsAGuestQualityOnlyWhenItIsNotTheHosts_andTheCoreCanWriteIt() {
+        val json = """
+            {"open":true,"code":"428913","link":"l","guests":[
+              {"id":"g1","name":"Léa","app":"ios","role":"spectator","image":{"quality":"host","width":1920,"height":1080,"fps":60,"follows_host":true,"reason":"asked"}},
+              {"id":"g2","name":"Max","app":"web","role":"player","image":{"quality":"720p30","width":1280,"height":720,"fps":30,"follows_host":false,"reason":"asked"}},
+              {"id":"g3","name":"Zoé","app":"android","role":"spectator","image":{"quality":"auto","width":null,"height":null,"fps":null,"follows_host":null,"reason":null}},
+              {"id":"g4","name":"Eva","app":"mac","role":"spectator","image":{"quality":"1080p60","width":null,"height":null,"fps":null,"follows_host":false,"reason":"limit"}}]}
+        """
+        val guests = ShareState.parse(json, format, label)!!.guests
+        // Qui suit l'image de l'hôte, ou dont l'image est inconnue, ou sans taille connue : rien.
+        assertEquals(listOf(null, "720p · 30\u00a0Hz", null, null), guests.map { it.ownImageLabel })
+        assertEquals(ShareQuality.HOST, guests[0].image?.quality)
+        assertEquals(ShareQuality.P1080_60, guests[3].image?.quality)
+        // Sans image (Station d'avant le correctif), ou une image illisible : rien, et le reste de l'invité se lit.
+        val without = """{"open":true,"code":"428913","link":"l","guests":[
+            {"id":"g5","name":"Tom","app":"linux","role":"spectator"},
+            {"id":"g6","name":"Ana","app":"windows","role":"player","image":"illisible"}]}"""
+        val others = ShareState.parse(without, format, label)!!.guests
+        assertEquals(listOf("Tom", "Ana"), others.map { it.name })
+        assertEquals(listOf(null, null), others.map { it.image })
+        assertEquals(listOf(null, null), others.map { it.ownImageLabel })
+    }
+
+    @Test
+    fun joinRequest_carriesTheQuality_andAutoOnlyForAuto() {
+        val auto = JSONObject("""{"width":2400,"height":1080,"fps":120,"codecs":["h264","hevc"],"yuv444":false}""")
+        val a = Share.joinRequest("428913", "Léa", "pixel", ShareQuality.AUTO, auto)
+        assertEquals("auto", a.getString("quality"))
+        assertEquals(120, a.getJSONObject("auto").getInt("fps"))
+        assertEquals("android", a.getString("app"))
+        // Une autre qualité n'envoie pas `auto` ; « Auto » sans mesure non plus (la Station garde l'image de l'hôte).
+        val host = Share.joinRequest("428913", "Léa", "pixel", ShareQuality.HOST, auto)
+        assertEquals("host", host.getString("quality"))
+        assertFalse(host.has("auto"))
+        assertEquals("720p30", Share.joinRequest("428913", "Léa", "pixel", ShareQuality.P720_30, null).getString("quality"))
+        assertFalse(Share.joinRequest("428913", "Léa", "pixel", ShareQuality.AUTO, null).has("auto"))
+    }
+
+    @Test
+    fun theSessionKeepsTheReceivedImage_andShowsTheNoticeOnlyWhenThereIsOne() {
+        val state = SessionState(ApplicationProvider.getApplicationContext(), Gamepads(ApplicationProvider.getApplicationContext()))
+        state.imageLabel = label
+        // Au départ : la Station ne dit rien de la taille.
+        state.onShareImage("""{"quality":"auto","width":null,"height":null,"fps":null,"codec":null,"follows_host":null,"reason":null}""", null, null)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(ShareQuality.AUTO, state.shareImage.value?.quality)
+        assertNull(state.shareImage.value?.label)
+        assertNull(state.capsule.value)
+        // Puis l'image : le libellé du cœur.
+        state.onShareImage("""{"quality":"auto","width":1920,"height":1080,"fps":60,"codec":"hevc","follows_host":true,"reason":"asked"}""", null, null)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals("1080p · 60\u00a0Hz", state.shareImage.value?.label)
+        assertNull(state.capsule.value)
+        // Retard : l'image passe plus légère, avec l'avis du cœur, montré comme les avis de droits.
+        state.onShareImage(
+            """{"quality":"auto","width":1280,"height":720,"fps":30,"codec":"hevc","follows_host":false,"reason":"lag"}""",
+            """{"quality":"auto","width":1920,"height":1080,"fps":60,"follows_host":true}""",
+            "Image allégée pour suivre.",
+        )
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals("720p · 30\u00a0Hz", state.shareImage.value?.label)
+        assertEquals(Capsule.ShareNotice("Image allégée pour suivre."), state.capsule.value)
+        // Un avis vide n'ouvre rien.
+        state.capsule.value = null
+        state.onShareImage("""{"quality":"auto","width":1280,"height":720,"fps":30}""", null, "  ")
+        shadowOf(Looper.getMainLooper()).idle()
+        assertNull(state.capsule.value)
+        // La qualité choisie reste celle de l'invité : l'image reçue ne la remplace pas.
+        state.shareQuality.value = ShareQuality.P720_30
+        state.onShareImage("""{"quality":"720p30","width":1280,"height":720,"fps":30}""", null, null)
+        assertEquals(ShareQuality.P720_30, state.shareQuality.value)
     }
 
     // MARK: - Avis de changement de droits
