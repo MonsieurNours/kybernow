@@ -2198,6 +2198,20 @@ mod windows {
 mod tests {
     use super::*;
 
+    #[test]
+    fn identifiant_de_kyber_comme_txproto() {
+        // La valeur de l'exemple du contrat (docs/kybernow-share.md) : `\\.\DISPLAY5`.
+        assert_eq!(kyber_display_id("\\\\.\\DISPLAY5"), 2221634456);
+        assert_eq!(kyber_display_id("\\\\.\\DISPLAY1"), 1478326155);
+    }
+
+    #[test]
+    fn ecrans_du_partage_principal_d_abord() {
+        let d = |n: u32, x: i32, y: i32, primary: bool| PhysicalDisplay { name: format!("D{n}"), x, y, width: 1920, height: 1080, refresh: 60, primary };
+        let ordered = order_displays(vec![d(3, 1920, 0, false), d(2, -1920, 0, false), d(1, 0, 0, true), d(4, 0, 1080, false)]);
+        assert_eq!(ordered.iter().map(|d| d.name.as_str()).collect::<Vec<_>>(), ["D1", "D2", "D4", "D3"]);
+    }
+
     fn manager() -> Arc<Manager> {
         let dir = std::env::temp_dir().join(format!("kn-display-{}", rand::random::<u64>()));
         std::fs::create_dir_all(&dir).unwrap();
