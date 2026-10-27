@@ -14,6 +14,11 @@
 # (apps/core/src/gamepads, plusieurs ordinateurs à la fois), qui lie SDL
 # lui-même (libkybernow.dylib, apps/apple/scripts/build-apple.sh).
 #
+# Empreinte : à la fin, Vendor/kyclient.stamp reçoit l'empreinte des correctifs
+# (kyber-patches/*.patch), de ce script et de scripts/kyber-toolchain.sh ;
+# scripts/release.sh la compare à `build-kyclient.sh --stamp` (l'empreinte
+# attendue, sans rien compiler) et recompile si elles diffèrent.
+#
 # S'arrête à la première erreur (correctif inapplicable, compilation ratée)
 # sans toucher à Vendor/. Refuse de tourner pendant que l'app est ouverte
 # (dans un worktree git : KYBERNOW_IGNORE_RUNNING=1, voir app_closed).
@@ -29,6 +34,16 @@ KYSDK="$THIRD_PARTY/kyber-desktop/kysdk"
 ROOTFS="$THIRD_PARTY/kyber-desktop/rootfs-arm64-macos"
 OUT="$HERE/Vendor"
 . "$ROOT/scripts/kyber-toolchain.sh"
+
+# Empreinte de ce qui fait les bibliothèques client : correctifs, ce script,
+# versions des outils.
+stamp() {
+    cat "$HERE"/kyber-patches/*.patch "$HERE/scripts/build-kyclient.sh" "$ROOT/scripts/kyber-toolchain.sh" | shasum -a 256 | cut -d' ' -f1
+}
+if [ "${1:-}" = --stamp ]; then
+    stamp
+    exit 0
+fi
 
 [ -d "$OUT/Frameworks" ] || { echo "Lancez d'abord scripts/vendor-kyber.sh" >&2; exit 1; }
 
@@ -106,4 +121,5 @@ for name in kynput kyclient; do
         install_name_tool -change "$dep" "@rpath/$(basename "$dep")" "$LIB" 2>/dev/null
     done
 done
+stamp > "$OUT/kyclient.stamp"
 echo "libkynput et libkyclient à jour dans $OUT"

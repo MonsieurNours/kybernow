@@ -11,7 +11,8 @@
 # Ordre, pour que les binaires publiés soient ceux du commit étiqueté :
 #   1. vérifications préalables (branche main, arbre propre et à jour avec
 #      origin, CHANGELOG.md et CHANGELOG.en.md, surcouche Kyber compilée avec
-#      les correctifs du dépôt, SDK et bibliothèques natives des apps, clé de
+#      les correctifs du dépôt, SDK et bibliothèques natives des apps (celles
+#      du client Kyber de l'app Mac recompilées si leur empreinte a changé), clé de
 #      l'app Android, VM « KyberNow Linux », outils, gh connecté, profil
 #      notarytool, sign-manifest.sh, aucune KyberNow Link ouverte) ;
 #   2. alignement des versions (Admin, icône, installateur de la Station, apps
@@ -231,6 +232,36 @@ fi
 # SDK client de Kyber des apps (hors git, compilés à part).
 if [ -d apps/macos/Vendor ]; then ok "SDK Kyber de l'app Mac (apps/macos/Vendor)"
 else problem "apps/macos/Vendor absent : apps/macos/scripts/build-kyclient.sh"; fi
+# Bibliothèques client de Kyber de l'app Mac (libkynput, libkyclient) : compilées
+# avec les correctifs du dépôt (empreinte de build-kyclient.sh) et libkynput
+# sans son lecteur de manettes SDL (le cœur lit les manettes). Les copies de
+# travail reconstruisent leur propre Vendor/, pas celui-ci : périmées, la
+# publication les recompile avant le cœur de l'app Mac.
+KYCLIENT_REBUILD=0
+KYNPUT_LIB=apps/macos/Vendor/Frameworks/libkynput.0.1.0.dylib
+kyclient_state() {
+    local want have
+    want="$(apps/macos/scripts/build-kyclient.sh --stamp)"
+    have="$(cat apps/macos/Vendor/kyclient.stamp 2>/dev/null || true)"
+    if [ ! -f "$KYNPUT_LIB" ]; then echo "libkynput absente"
+    elif otool -L "$KYNPUT_LIB" | grep -qi sdl; then echo "libkynput lie encore SDL"
+    elif [ -z "$have" ]; then echo "sans empreinte"
+    elif [ "$have" != "$want" ]; then echo "empreinte différente des correctifs"
+    fi
+}
+if [ -d apps/macos/Vendor/Frameworks ]; then
+    KYCLIENT_WHY="$(kyclient_state)"
+    if [ -z "$KYCLIENT_WHY" ]; then
+        ok "bibliothèques client de Kyber de l'app Mac compilées avec les correctifs actuels (empreinte, libkynput sans SDL)"
+    else
+        KYCLIENT_REBUILD=1
+        if [ "$MODE" = release ]; then
+            ok "bibliothèques client de Kyber de l'app Mac périmées ($KYCLIENT_WHY) : recompilées avant l'app Mac (build-kyclient.sh)"
+        else
+            echo "  note bibliothèques client de Kyber de l'app Mac périmées ($KYCLIENT_WHY) : la publication les recompilera ; l'essai les reprend telles quelles"
+        fi
+    fi
+fi
 if [ "$MODE" != release ]; then
     # L'essai ne recompile pas le SDK Apple TV (build-kyber-tvos.sh applique
     # les correctifs dans third_party/, partagé) : il reprend celui en place.
@@ -386,6 +417,18 @@ server/installer/build.sh 2>&1 > /dev/null \
 server/installer/package-update.sh ${UPDATE_FLAGS[@]+"${UPDATE_FLAGS[@]}"}
 
 step "Cœur Rust de l'app Mac (apps/core, apps/apple)"
+# Bibliothèques client de Kyber périmées (vérifications préalables) : recompilées
+# d'abord, puis contrôlées (empreinte, libkynput sans SDL).
+if [ "$KYCLIENT_REBUILD" = 1 ]; then
+    if [ "$MODE" = release ]; then
+        echo "    bibliothèques client de Kyber recompilées ($KYCLIENT_WHY)"
+        apps/macos/scripts/build-kyclient.sh > /dev/null
+        KYCLIENT_WHY="$(kyclient_state)"
+        [ -z "$KYCLIENT_WHY" ] || { echo "bibliothèques client de Kyber toujours périmées après build-kyclient.sh : $KYCLIENT_WHY" >&2; false; }
+    else
+        echo "    [essai] bibliothèques client reprises de apps/macos/Vendor (build-kyclient.sh non lancé : $KYCLIENT_WHY)"
+    fi
+fi
 # libkybernow.dylib et son en-tête dans apps/macos/Vendor (docs/coeur-apple.md).
 apps/apple/scripts/build-apple.sh 2>&1 > /dev/null \
     | { grep -Ev '^ +(Compiling|Checking|Fresh|Downloaded|Downloading|Locking|Adding|Updating|Finished) ' || true; }
