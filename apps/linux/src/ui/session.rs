@@ -10,6 +10,7 @@ use super::canvas::{Align, Canvas, Font, Rgba, Text};
 use super::home;
 use super::icons::Icon;
 use super::theme::*;
+use super::quality;
 use super::share;
 use super::widgets::{self, eyebrow, legend};
 use super::{unit, Frame};
@@ -43,7 +44,12 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame, view: super::View) {
             } else if s.menu {
                 menu(app, cv, f, s);
             } else if s.share_panel {
-                share::overlay(app, cv, f, s);
+                // Un invité n'a pas de panneau d'hôte : le sien est la « Qualité de l'image ».
+                if s.guest.is_some() {
+                    quality::overlay(app, cv, f, s);
+                } else {
+                    share::overlay(app, cv, f, s);
+                }
             } else {
                 if s.show_stats && view.main {
                     stats(app, cv, s);
@@ -374,6 +380,9 @@ struct BarLayout {
     icons: Vec<BarIcon>,
     /// « 2 invités » : le partage est ouvert (il rouvre le panneau), et sa largeur.
     pill: Option<(String, f32)>,
+    /// La puce de « Qualité de l'image » d'un invité : la qualité reçue (le choix tant qu'on ne la connaît pas), et sa
+    /// largeur.
+    quality: Option<(String, f32)>,
     total: f32,
 }
 
@@ -403,15 +412,21 @@ impl BarLayout {
         let computers = multi && s.guest.is_none() && app.store.hosts.iter().any(|h| h.id != s.host);
         let sound = multi && app.running_sessions() >= 2;
         let icons = bar_icons(app, s, computers, sound);
+        // Un invité : la qualité de l'image qu'il reçoit, en menu (il n'a pas de profil).
+        let quality = s.guest.as_ref().map(|g| {
+            let t = g.shown().to_string();
+            let w = cv.text_width(Text::new(Font::Regular, 13.0, FROST), &t) + 34.0;
+            (t, w)
+        });
         let pill = share::pill_label(s).map(|t| {
             let w = cv.text_width(Text::new(Font::Regular, 12.5, FROST), &t) + 22.0;
             (t, w)
         });
-        let others = 16.0 + 16.0 + 12.0 + lat_w + 8.0 + 64.0 + 12.0 + 1.0 + 12.0 + 12.0 + 1.0 + 12.0 + prof_w + 12.0 + 34.0 * icons.len() as f32 + pill.as_ref().map_or(0.0, |(_, pw)| pw + 4.0) + 24.0 + 1.0 + 12.0 + quit_w + 10.0;
+        let others = 16.0 + 16.0 + 12.0 + lat_w + 8.0 + 64.0 + 12.0 + 1.0 + 12.0 + 12.0 + 1.0 + 12.0 + prof_w + 12.0 + quality.as_ref().map_or(0.0, |(_, qw)| qw + 8.0) + 34.0 * icons.len() as f32 + pill.as_ref().map_or(0.0, |(_, pw)| pw + 4.0) + 24.0 + 1.0 + 12.0 + quit_w + 10.0;
         // Une fenêtre étroite (960 points) avec « Ordinateurs », « Garder le son » et la pastille : les mesures se resserrent.
         info_w = info_w.min((w - 8.0 - others).max(60.0));
         let total = others + info_w;
-        Self { lat, info, profile, quit, mono14, mono12, lat_w, info_w, prof_w, quit_w, icons, pill, total }
+        Self { lat, info, profile, quit, mono14, mono12, lat_w, info_w, prof_w, quit_w, icons, pill, quality, total }
     }
 }
 
@@ -468,7 +483,7 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     let h = BAR_H;
     let st = s.stats.clone().unwrap_or_default();
     let width = cv.w;
-    let BarLayout { lat, info, profile, quit, mono14, mono12, lat_w, info_w, prof_w, quit_w, icons, pill, total } = BarLayout::measure(cv, app, s, width);
+    let BarLayout { lat, info, profile, quit, mono14, mono12, lat_w, info_w, prof_w, quit_w, icons, pill, quality, total } = BarLayout::measure(cv, app, s, width);
     let r = bar_frame(cv.w, total);
     let x0 = r.x;
     cv.rrect(r.x, r.y - 12.0, r.w, r.h + 12.0, 12.0, Rgba(9, 13, 18, 235));
@@ -512,10 +527,29 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     }
     let profile_x = pr.x;
     x += prof_w + 12.0;
+    let mut tip: Option<(Rect, String)> = None;
+    // Un invité : « Qualité de l'image », une puce qui montre la qualité reçue (« 1080p · 60 Hz ») et ouvre les
+    // quatre choix, comme le profil d'un hôte.
+    let mut quality_x = x;
+    if let Some((label, qw)) = &quality {
+        let qr = Rect::new(x, cy - 15.0, *qw, 30.0);
+        let (focused, hover) = f.state(Target::BarQuality, qr);
+        cv.rrect(qr.x, qr.y, qr.w, qr.h, 7.0, if hover || s.bar_menu == Some(BarMenu::Quality) { INK_3 } else { Rgba(20, 27, 35, 255) });
+        cv.rrect_stroke(qr.x, qr.y, qr.w, qr.h, 7.0, 1.0, LINE_2);
+        if focused {
+            widgets::ring(cv, qr, 7.0);
+        }
+        if hover {
+            tip = Some((qr, tr("Qualité de l'image", "Picture quality").to_string()));
+        }
+        cv.text(qr.x + 12.0, cy + 5.0, Text::new(Font::Regular, 13.0, FROST), label);
+        cv.text(qr.x + qr.w - 12.0, cy + 4.0, Text::new(Font::Regular, 11.0, FAINT).align(Align::Right), "▾");
+        quality_x = qr.x;
+        x += qw + 8.0;
+    }
     // Ordinateurs et touches (deux menus du même dessin), souris, haut-parleur (« Garder le son »), plein
     // écran, « Partager » ; chacun nomme son bouton au survol.
     let (mut keys_x, mut computers_x, mut share_x) = (x, x, x);
-    let mut tip: Option<(Rect, String)> = None;
     for BarIcon { target: t, icon, on, name, dim } in icons {
         let ir = Rect::new(x, cy - 17.0, 34.0, 34.0);
         let (focused, hover) = f.state(t, ir);
@@ -578,6 +612,7 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         }
         Some(BarMenu::Computers) => computers_menu(cv, f, app, s, computers_x, h + 6.0),
         Some(BarMenu::Share) => share::dropdown(cv, f, app, s, share_x + 17.0, h + 6.0),
+        Some(BarMenu::Quality) => dropdown_titled(cv, f, quality_x, h + 6.0, 300.0, Some(tr("Qualité de l'image", "Picture quality")), &quality::items(s)),
         None => {
             // Le nom du bouton survolé, sous la barre (jamais par-dessus un menu).
             if let Some((r, name)) = tip {
@@ -689,11 +724,20 @@ fn computers_menu(cv: &mut Canvas, f: &mut Frame, app: &App, s: &SessionUi, x: f
 }
 
 fn dropdown(cv: &mut Canvas, f: &mut Frame, x: f32, y: f32, w: f32, items: &[(Target, String, String, bool)]) {
+    dropdown_titled(cv, f, x, y, w, None, items);
+}
+
+/// Un menu déroulant, avec son titre en capitales au-dessus de ses lignes s'il en a un.
+fn dropdown_titled(cv: &mut Canvas, f: &mut Frame, x: f32, y: f32, w: f32, title: Option<&str>, items: &[(Target, String, String, bool)]) {
     let ih = 36.0;
-    let h = items.len() as f32 * ih + 12.0;
+    let head = if title.is_some() { 30.0 } else { 0.0 };
+    let h = items.len() as f32 * ih + 12.0 + head;
     cv.rrect(x, y, w, h, 10.0, Rgba(9, 13, 18, 245));
     cv.rrect_stroke(x, y, w, h, 10.0, 1.0, LINE_2);
-    let mut yy = y + 6.0;
+    if let Some(t) = title {
+        eyebrow(cv, x + 16.0, y + 24.0, 10.5, FAINT, t);
+    }
+    let mut yy = y + 6.0 + head;
     for (t, label, hint, on) in items {
         let r = Rect::new(x + 6.0, yy, w - 12.0, ih);
         let (focused, hover) = f.state(*t, r);
@@ -831,6 +875,10 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         tiles.push((MenuItem::Keys, tr("Touches", "Keys").into(), tr("Ctrl+Alt+Suppr, Alt+Tab", "Ctrl+Alt+Del, Alt+Tab").into(), false, false));
     }
     tiles.push((MenuItem::Stats, tr("Statistiques", "Statistics").into(), tr("Latence, débit", "Latency, bitrate").into(), s.show_stats, false));
+    // Un invité : « Qualité de l'image », qui montre la qualité reçue (le choix tant qu'on ne la connaît pas).
+    if let Some(g) = &s.guest {
+        tiles.push((MenuItem::Quality, tr("Qualité de l'image", "Picture quality").into(), g.shown().into(), false, false));
+    }
     // Les manettes d'un invité ne servent qu'avec ce droit : sans lui, pas de tuile.
     let pads = s.role().is_none_or(|r| r.pads());
     if guest || tv || app.machine.battery.is_none() {

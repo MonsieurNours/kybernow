@@ -471,6 +471,8 @@ pub enum MenuItem {
     Gamepads,
     /// KyberNow Share : « Partager » (hôte).
     Share,
+    /// KyberNow Share, invité : « Qualité de l'image » (la tuile montre la qualité reçue ; ouvre les quatre choix).
+    Quality,
     Disconnect,
 }
 
@@ -497,6 +499,8 @@ pub enum BarMenu {
     Computers,
     /// KyberNow Share : le panneau de l'hôte (code, QR code, invités).
     Share,
+    /// KyberNow Share, invité : « Qualité de l'image » (les quatre choix).
+    Quality,
 }
 
 // MARK: - KyberNow Share (docs/kybernow-share.md, textes : docs/link-ui.md, « Partage »)
@@ -590,6 +594,52 @@ impl ShareRole {
     }
 }
 
+/// La « Qualité de l'image » qu'un invité demande : miroir de `kybernow_core::share::ShareQuality` (l'interface
+/// seule, celle des captures et des tests sur Mac, n'a pas le cœur). L'image reçue n'est jamais au-dessus de
+/// celle de l'hôte ; la Station décide et le dit (`ShareGuest::quality`, `GuestUi::image`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum ShareQuality {
+    /// D'après l'écran de l'appareil et ce que son décodeur suit : proposé.
+    #[default]
+    Auto,
+    /// « Comme l'hôte ».
+    Host,
+    /// « 1080p · 60 Hz ».
+    P1080_60,
+    /// « 720p · 30 Hz ».
+    P720_30,
+}
+
+impl ShareQuality {
+    /// Dans l'ordre du choix.
+    pub const ALL: [ShareQuality; 4] = [Self::Auto, Self::Host, Self::P1080_60, Self::P720_30];
+
+    /// Le nom retenu dans `kybernow.json` : celui de l'échange avec Admin (`auto`, `host`, `1080p60`, `720p30`).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Host => "host",
+            Self::P1080_60 => "1080p60",
+            Self::P720_30 => "720p30",
+        }
+    }
+
+    /// Un nom inconnu (fichier plus récent ou écrit à la main) se lit « Auto ».
+    pub fn parse(s: &str) -> Self {
+        Self::ALL.into_iter().find(|q| q.as_str() == s.trim()).unwrap_or_default()
+    }
+
+    /// « Auto », « Comme l'hôte », « 1080p · 60 Hz », « 720p · 30 Hz » (docs/link-ui.md, « Qualité de l'image »).
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Auto => tr("Auto", "Auto"),
+            Self::Host => tr("Comme l'hôte", "Same as host"),
+            Self::P1080_60 => "1080p · 60 Hz",
+            Self::P720_30 => "720p · 30 Hz",
+        }
+    }
+}
+
 /// Ce que « Partager » peut faire avec un ordinateur (`Info::share`) : miroir de
 /// `kybernow_core::share::ShareAvailability`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -622,6 +672,10 @@ pub struct ShareGuest {
     pub app: String,
     /// Son arrivée (secondes depuis 1970), telle que la Station la donne.
     pub since: Option<i64>,
+    /// La qualité de l'image qu'il reçoit (« 720p · 30 Hz »), seulement quand c'est une image à part, pas celle
+    /// de l'hôte, et que Kyber en sait la taille : sinon `None` (une image encore inconnue compte comme celle de
+    /// l'hôte). L'hôte la voit sans la changer.
+    pub quality: Option<String>,
 }
 
 impl ShareGuest {
@@ -630,15 +684,17 @@ impl ShareGuest {
         format!("{} · {}", self.name, self.role.long_label())
     }
 
-    /// « iPhone ou iPad · depuis 4 min » : son app, et depuis quand il est là (`now` : secondes depuis 1970).
-    /// `since` est en secondes Unix, d'après l'horloge de la Station : la durée n'est jamais négative (horloges
-    /// décalées). Sans arrivée lisible, l'app seule.
+    /// « iPhone ou iPad · 720p · 30 Hz · depuis 4 min » : son app, sa qualité d'image si elle n'est pas celle de
+    /// l'hôte, et depuis quand il est là (`now` : secondes depuis 1970). `since` est en secondes Unix, d'après
+    /// l'horloge de la Station : la durée n'est jamais négative (horloges décalées). Sans arrivée lisible, sans
+    /// la durée.
     pub fn meta(&self, now: i64) -> String {
-        let app = app_label(&self.app);
-        match self.since {
-            Some(t) if t > 0 => format!("{app} · {} {}", tr("depuis", "for"), duration_label(now.saturating_sub(t).max(0) as u64)),
-            _ => app,
+        let mut parts = vec![app_label(&self.app)];
+        parts.extend(self.quality.clone());
+        if let Some(t) = self.since.filter(|t| *t > 0) {
+            parts.push(format!("{} {}", tr("depuis", "for"), duration_label(now.saturating_sub(t).max(0) as u64)));
         }
+        parts.join(" · ")
     }
 }
 
@@ -783,6 +839,19 @@ pub struct GuestUi {
     /// Le nom de l'ordinateur qui partage.
     pub computer: String,
     pub role: ShareRole,
+    /// La « Qualité de l'image » choisie (celle de « Rejoindre », puis celle de la barre).
+    pub quality: ShareQuality,
+    /// La qualité reçue (« 1080p · 60 Hz »), telle que `Platform::on_share_image` la donne ; `None` tant que
+    /// Kyber n'en sait pas la taille : la barre ne la montre alors pas.
+    pub image: Option<String>,
+}
+
+impl GuestUi {
+    /// Ce que montrent la puce de la barre et la tuile du menu : la qualité reçue quand on la connaît, sinon le
+    /// choix (« Auto »).
+    pub fn shown(&self) -> &str {
+        self.image.as_deref().unwrap_or(self.quality.label())
+    }
 }
 
 /// Le champ que la saisie de « Rejoindre un partage » remplit.
@@ -795,12 +864,14 @@ pub enum JoinField {
 }
 
 /// L'écran « Rejoindre un partage » : le code, le prénom (proposé : le nom de l'appareil, retenu), la
-/// recherche en cours et ce que le cœur a répondu.
+/// « Qualité de l'image » (« Auto » proposé, retenue aussi), la recherche en cours et ce que le cœur a répondu.
 #[derive(Clone, Debug)]
 pub struct JoinState {
     /// Les chiffres tapés, six au plus.
     pub code: String,
     pub name: String,
+    /// « Qualité de l'image » : sous le prénom, quatre choix (`Target::JoinQuality`).
+    pub quality: ShareQuality,
     pub field: JoinField,
     /// Majuscule du pavé des lettres (manette), pour la touche suivante.
     pub shift: bool,
@@ -815,7 +886,7 @@ pub struct JoinState {
 
 impl JoinState {
     pub fn new() -> Self {
-        Self { code: String::new(), name: String::new(), field: JoinField::Code, shift: false, busy: false, message: None, attempt: 0, started: Instant::now() }
+        Self { code: String::new(), name: String::new(), quality: ShareQuality::Auto, field: JoinField::Code, shift: false, busy: false, message: None, attempt: 0, started: Instant::now() }
     }
 
     /// Six chiffres et un prénom : « Rejoindre » peut partir.
@@ -947,7 +1018,7 @@ impl SessionUi {
     /// liste des ordinateurs (`key` : une clé propre à la session, que le magasin ne connaît pas).
     pub fn guest(id: SessionId, key: &str, computer: &str, role: ShareRole) -> Self {
         let mut s = Self::new(id, key, &guest_title(computer), Profile::Jeu, false, false, 1);
-        s.guest = Some(GuestUi { computer: computer.into(), role });
+        s.guest = Some(GuestUi { computer: computer.into(), role, quality: ShareQuality::Auto, image: None });
         s
     }
 
@@ -1383,6 +1454,12 @@ pub enum Target {
     JoinCode,
     JoinName,
     JoinGo,
+    /// KyberNow Share, invité : « Qualité de l'image », à « Rejoindre » (les quatre choix sous le prénom).
+    JoinQuality(ShareQuality),
+    /// La puce de la barre d'un invité (la qualité reçue) et son menu ; un choix de ce menu, ou du panneau à la
+    /// manette.
+    BarQuality,
+    QualityPick(ShareQuality),
     /// KyberNow Share, hôte : « Partager » dans la barre ; le panneau (copier le lien, les deux droits d'un
     /// invité : manettes, clavier et souris, retirer ; nouveau code, arrêter, fermer).
     BarShare,
@@ -1430,8 +1507,12 @@ pub enum Action {
     /// Redémarrer ou mettre à jour la Station de cet ordinateur ; `force` :
     /// même si un appareil est en session.
     Station { host: String, kind: StationKind, force: bool },
-    /// KyberNow Share, invité : le code part aux ordinateurs du réseau (`share::join_checked`).
-    JoinShare { code: String, name: String },
+    /// KyberNow Share, invité : le code part aux ordinateurs du réseau (`share::join_checked`), avec la
+    /// « Qualité de l'image » choisie (pour « Auto », l'écran de la fenêtre et ce que le décodeur suit).
+    JoinShare { code: String, name: String, quality: ShareQuality },
+    /// KyberNow Share, invité : la « Qualité de l'image » changée en session (`Session::set_share_quality`,
+    /// sans rien relancer de la session).
+    ShareQuality(SessionId, ShareQuality),
     /// KyberNow Share, hôte : une demande à Admin pour le partage de cette session.
     Share(SessionId, ShareOp),
     /// Copier ce texte (le lien du partage) dans le presse-papiers du système.
@@ -2370,9 +2451,15 @@ impl App {
                 }
                 // Le panneau du partage se referme sur l'image (il s'ouvre depuis le menu, ou la barre).
                 if s.share_overlay() {
+                    // Le panneau de la qualité de l'image d'un invité (à la manette) revient au menu d'où il s'ouvre.
+                    let quality = s.share_panel && s.guest.is_some();
                     s.share_panel = false;
                     if s.bar_menu == Some(BarMenu::Share) {
                         s.bar_menu = None;
+                    }
+                    if quality {
+                        s.menu = true;
+                        self.focus = Target::Menu(MenuItem::Quality);
                     }
                     return Vec::new();
                 }
@@ -2463,6 +2550,14 @@ impl App {
                 Vec::new()
             }
             Target::JoinGo => self.join_go(),
+            // « Qualité de l'image », sous le prénom : un des quatre choix (retenu au « Rejoindre »).
+            Target::JoinQuality(q) => {
+                if !self.join.busy {
+                    self.join.quality = q;
+                    self.join.message = None;
+                }
+                Vec::new()
+            }
             Target::BarShare => self.share_button(false),
             // « Copier le lien » copie l'adresse du client web (`web`) ; le QR code porte le lien des apps.
             Target::ShareCopy => match self.session().and_then(|s| s.share.as_ref().map(|v| (s.id, v.web.clone()))) {
@@ -2716,6 +2811,8 @@ impl App {
             Target::BarProfile => self.toggle_bar_menu(BarMenu::Profile),
             Target::BarKeys => self.toggle_bar_menu(BarMenu::Keys),
             Target::BarComputers => self.toggle_bar_menu(BarMenu::Computers),
+            Target::BarQuality => self.toggle_bar_menu(BarMenu::Quality),
+            Target::QualityPick(q) => self.quality_pick(q),
             Target::BarComputer(i) => self.bar_computer(i),
             Target::BarPick(p) => {
                 let Some(s) = self.session_mut() else { return Vec::new() };
@@ -2786,12 +2883,13 @@ impl App {
 
     // MARK: - KyberNow Share
 
-    /// « Rejoindre avec un code » : l'écran du code et du prénom (proposé : celui de la dernière fois,
-    /// sinon le nom de cet appareil).
+    /// « Rejoindre avec un code » : l'écran du code, du prénom (proposé : celui de la dernière fois, sinon le nom de
+    /// cet appareil) et de la « Qualité de l'image » (celle de la dernière fois, sinon « Auto »).
     fn start_join(&mut self) -> Vec<Action> {
         let kept = self.store.app.share_name.trim();
         let name: String = if kept.is_empty() { self.device_name.trim() } else { kept }.chars().take(NAME_MAX).collect();
-        self.join = JoinState { name, attempt: self.join.attempt + 1, ..JoinState::new() };
+        let quality = ShareQuality::parse(&self.store.app.share_quality);
+        self.join = JoinState { name, quality, attempt: self.join.attempt + 1, ..JoinState::new() };
         self.go(Screen::Join);
         vec![Action::TextInput]
     }
@@ -2846,7 +2944,9 @@ impl App {
         self.join.started = Instant::now();
         let name = self.join.name.trim().to_string();
         self.store.app.share_name = name.clone();
-        vec![Action::Save, Action::JoinShare { code: self.join.code.clone(), name }]
+        let quality = self.join.quality;
+        self.store.app.share_quality = quality.as_str().into();
+        vec![Action::Save, Action::JoinShare { code: self.join.code.clone(), name, quality }]
     }
 
     /// Le cœur n'a trouvé aucun partage (ou l'a refusé) : le texte du cœur, sous les champs.
@@ -3004,6 +3104,36 @@ impl App {
             s.share_opened = Some(Instant::now());
         }
         s.share = view;
+    }
+
+    /// Un choix de « Qualité de l'image » en session (menu de la barre, ou panneau à la manette) : retenu pour la
+    /// fois suivante, et demandé à la Station (l'image de l'invité seulement est relancée, jamais celle de l'hôte).
+    /// Le menu ou le panneau se ferme ; choisir la qualité déjà en place ne demande rien.
+    fn quality_pick(&mut self, q: ShareQuality) -> Vec<Action> {
+        let Some(s) = self.session_mut() else { return Vec::new() };
+        let id = s.id;
+        let Some(g) = s.guest.as_mut() else { return Vec::new() };
+        let changed = g.quality != q;
+        g.quality = q;
+        s.bar_menu = None;
+        s.share_panel = false;
+        if !changed {
+            return Vec::new();
+        }
+        self.store.app.share_quality = q.as_str().into();
+        vec![Action::ShareQuality(id, q), Action::Save]
+    }
+
+    /// L'image que l'invité reçoit (`Platform::on_share_image`, au départ puis à chaque changement) : sa qualité,
+    /// que la barre et le menu montrent quand Kyber en sait la taille (`label` nul sinon), et l'avis bref de la
+    /// Station s'il y en a un (« Image allégée pour suivre. »).
+    pub fn share_image(&mut self, id: SessionId, label: Option<String>, notice: Option<String>) {
+        let Some(s) = self.session_by_mut(id) else { return };
+        let Some(g) = s.guest.as_mut() else { return };
+        g.image = label;
+        if let Some(text) = notice {
+            s.notice = Some((text, Instant::now()));
+        }
     }
 
     /// Le rôle de l'invité a changé (au départ, `previous` nul ; puis par l'hôte) : l'avis bref, et ce que
@@ -3230,6 +3360,14 @@ impl App {
             MenuItem::Share => {
                 s.menu = false;
                 self.share_button(true)
+            }
+            // « Qualité de l'image » (invité) : le menu se ferme, les quatre choix s'ouvrent sur l'image ; B revient au menu.
+            MenuItem::Quality => {
+                let Some(q) = s.guest.as_ref().map(|g| g.quality) else { return Vec::new() };
+                s.menu = false;
+                s.share_panel = true;
+                self.focus = Target::QualityPick(q);
+                vec![Action::ReleaseAll(id)]
             }
             MenuItem::Disconnect => vec![Action::Disconnect(id)],
         }
@@ -4535,7 +4673,7 @@ mod tests {
         app.nav(Nav::Char('a'));
         // Entrée dans le prénom, avec tout donné : « Rejoindre ».
         let acts = app.nav(Nav::Ok);
-        assert_eq!(acts, vec![Action::Save, Action::JoinShare { code: "482917".into(), name: "Léa".into() }]);
+        assert_eq!(acts, vec![Action::Save, Action::JoinShare { code: "482917".into(), name: "Léa".into(), quality: ShareQuality::Auto }]);
         assert!(app.join.busy && app.store.app.share_name == "Léa");
         assert!(app.activate(Target::JoinGo).is_empty(), "une recherche à la fois");
         // Le refus du cœur, pour cette recherche seulement.
@@ -4553,6 +4691,149 @@ mod tests {
         // La fois suivante : le prénom retenu.
         app.activate(Target::JoinCard);
         assert_eq!(app.join.name, "Léa");
+    }
+
+    /// « Qualité de l'image » à « Rejoindre » : « Auto » est proposé, les quatre choix se prennent (clavier, pavé, souris),
+    /// le choix est retenu avec le prénom (`kybernow.json`) et revient la fois suivante ; il part avec « Rejoindre » ;
+    /// pendant la recherche, il ne change plus ; un nom inconnu du fichier se lit « Auto ».
+    #[test]
+    fn joining_a_share_with_a_picture_quality() {
+        crate::i18n::force_english(false);
+        let mut app = App::new(Store::default(), Layout::Desktop);
+        app.device_name = "fedora-bureau".into();
+        app.go(Screen::Home);
+        app.activate(Target::JoinCard);
+        assert_eq!(app.join.quality, ShareQuality::Auto, "« Auto » proposé");
+        assert_eq!(ShareQuality::ALL.map(ShareQuality::label), ["Auto", "Comme l'hôte", "1080p · 60 Hz", "720p · 30 Hz"]);
+        crate::i18n::force_english(true);
+        assert_eq!(ShareQuality::ALL.map(ShareQuality::label), ["Auto", "Same as host", "1080p · 60 Hz", "720p · 30 Hz"]);
+        crate::i18n::force_english(false);
+        for q in ShareQuality::ALL {
+            assert!(app.activate(Target::JoinQuality(q)).is_empty());
+            assert_eq!(app.join.quality, q);
+            assert_eq!(ShareQuality::parse(q.as_str()), q, "le nom retenu se relit");
+        }
+        assert_eq!((ShareQuality::parse(""), ShareQuality::parse("4k240")), (ShareQuality::Auto, ShareQuality::Auto));
+        // Le choix part avec le code et le prénom, et il est retenu.
+        app.activate(Target::JoinQuality(ShareQuality::P720_30));
+        for c in "482917".chars() {
+            app.nav(Nav::Char(c));
+        }
+        let acts = app.activate(Target::JoinGo);
+        assert_eq!(acts, vec![Action::Save, Action::JoinShare { code: "482917".into(), name: "fedora-bureau".into(), quality: ShareQuality::P720_30 }]);
+        assert_eq!(app.store.app.share_quality, "720p30");
+        // Pendant la recherche, le choix ne bouge plus.
+        app.activate(Target::JoinQuality(ShareQuality::Host));
+        assert_eq!(app.join.quality, ShareQuality::P720_30);
+        // La fois suivante : le choix retenu, et un fichier à la main avec un nom inconnu : « Auto ».
+        app.nav(Nav::Back);
+        app.activate(Target::JoinCard);
+        assert_eq!(app.join.quality, ShareQuality::P720_30);
+        app.nav(Nav::Back);
+        app.store.app.share_quality = "4k240".into();
+        app.activate(Target::JoinCard);
+        assert_eq!(app.join.quality, ShareQuality::Auto);
+    }
+
+    /// Au pavé, les flèches vont du prénom aux quatre choix de « Qualité de l'image », puis à « Rejoindre » : rien n'est
+    /// atteint sans eux.
+    #[test]
+    fn picture_quality_is_reached_with_the_pad() {
+        crate::i18n::force_english(false);
+        for (layout, size) in [(Layout::Handheld, (1280, 800)), (Layout::Tv, (1920, 1080)), (Layout::Desktop, (1280, 800))] {
+            let mut app = App::new(Store::default(), layout);
+            app.go(Screen::Home);
+            app.activate(Target::JoinCard);
+            let mut cv = crate::ui::canvas::Canvas::new();
+            cv.resize(size.0, size.1, 1.0);
+            app.hits = crate::ui::draw(&app, &mut cv);
+            let quality: Vec<Rect> = ShareQuality::ALL.iter().map(|q| app.hits.iter().find(|(t, _)| *t == Target::JoinQuality(*q)).expect("un choix").1).collect();
+            assert!(quality.windows(2).all(|w| w[0].x + w[0].w <= w[1].x + 0.5 && (w[0].y - w[1].y).abs() < 0.5), "{layout:?} : quatre choix sur une ligne");
+            let name = app.hits.iter().find(|(t, _)| *t == Target::JoinName).unwrap().1;
+            let go = app.hits.iter().find(|(t, _)| *t == Target::JoinGo).unwrap().1;
+            assert!(name.y + name.h <= quality[0].y && quality[0].y + quality[0].h <= go.y, "{layout:?} : sous le prénom, au-dessus de « Rejoindre »");
+            app.focus = Target::JoinName;
+            app.nav(Nav::Down);
+            assert!(matches!(app.focus, Target::JoinQuality(_)), "{layout:?} : {:?}", app.focus);
+            app.focus = Target::JoinQuality(ShareQuality::Auto);
+            app.nav(Nav::Right);
+            assert_eq!(app.focus, Target::JoinQuality(ShareQuality::Host), "{layout:?}");
+            app.nav(Nav::Ok);
+            assert_eq!(app.join.quality, ShareQuality::Host, "{layout:?} : Entrée choisit");
+            app.nav(Nav::Down);
+            assert_eq!(app.focus, Target::JoinGo, "{layout:?}");
+        }
+    }
+
+    /// La qualité de l'image en session : la barre et la tuile montrent la qualité reçue (le choix tant que Kyber ne la
+    /// donne pas) ; un choix part à la Station, est retenu, ferme le menu ; le même choix ne demande rien ; à la manette,
+    /// la tuile ouvre les quatre choix et B revient au menu ; l'avis de la Station s'affiche en capsule.
+    #[test]
+    fn picture_quality_in_a_guest_session() {
+        crate::i18n::force_english(false);
+        let mut app = desk();
+        let id = app.new_session_id();
+        app.open_session(SessionUi::guest(id, "share:g1", "Atelier", ShareRole::Spectator));
+        app.session_mut().unwrap().phase = Phase::Streaming;
+        let shown = |app: &App| app.session().unwrap().guest.as_ref().unwrap().shown().to_string();
+        assert_eq!(shown(&app), "Auto", "la qualité reçue n'est pas connue : le choix");
+        app.share_image(id, Some("1080p · 60 Hz".into()), None);
+        assert_eq!(shown(&app), "1080p · 60 Hz");
+        assert!(app.session().unwrap().notice.is_none());
+        // Le menu de la barre : s'ouvre et se ferme à la puce ; un choix part à la Station et se retient.
+        assert!(app.activate(Target::BarQuality).is_empty());
+        assert_eq!(app.session().unwrap().bar_menu, Some(BarMenu::Quality));
+        let acts = app.activate(Target::QualityPick(ShareQuality::P720_30));
+        assert_eq!(acts, vec![Action::ShareQuality(id, ShareQuality::P720_30), Action::Save]);
+        assert_eq!((app.session().unwrap().bar_menu, app.store.app.share_quality.as_str()), (None, "720p30"));
+        assert_eq!(app.session().unwrap().guest.as_ref().unwrap().quality, ShareQuality::P720_30);
+        // La Station répond : la qualité reçue ; l'avis bref arrive avec.
+        app.share_image(id, Some("720p · 30 Hz".into()), Some("Picture lightened to keep up.".into()));
+        assert_eq!(shown(&app), "720p · 30 Hz");
+        assert_eq!(app.session().unwrap().notice.as_ref().map(|n| n.0.as_str()), Some("Picture lightened to keep up."));
+        // Kyber ne sait plus la taille : plus de qualité reçue, le choix se montre.
+        app.share_image(id, None, None);
+        assert!(app.session().unwrap().guest.as_ref().unwrap().image.is_none());
+        assert_eq!(shown(&app), "720p · 30 Hz");
+        app.activate(Target::BarQuality);
+        assert!(app.activate(Target::QualityPick(ShareQuality::P720_30)).is_empty(), "le même choix : rien à demander");
+        assert!(app.session().unwrap().bar_menu.is_none());
+        // Une session d'hôte n'a pas ce choix.
+        open(&mut app, "a");
+        assert_ne!(app.active, Some(id));
+        assert!(app.activate(Target::QualityPick(ShareQuality::Host)).is_empty());
+        app.activate_session(id);
+        // À la manette : la tuile du menu ouvre les quatre choix sur l'image ; B revient au menu ; un choix revient à l'image.
+        app.layout = Layout::Handheld;
+        app.session_mut().unwrap().menu = true;
+        assert_eq!(app.activate(Target::Menu(MenuItem::Quality)), vec![Action::ReleaseAll(id)]);
+        let s = app.session().unwrap();
+        assert!(s.share_panel && !s.menu);
+        assert_eq!(app.focus, Target::QualityPick(ShareQuality::P720_30), "le focus sur le choix en place");
+        assert!(app.session_back().is_empty());
+        let s = app.session().unwrap();
+        assert!(!s.share_panel && s.menu, "B revient au menu");
+        assert_eq!(app.focus, Target::Menu(MenuItem::Quality));
+        app.activate(Target::Menu(MenuItem::Quality));
+        let acts = app.activate(Target::QualityPick(ShareQuality::Host));
+        assert_eq!(acts, vec![Action::ShareQuality(id, ShareQuality::Host), Action::Save]);
+        let s = app.session().unwrap();
+        assert!(!s.share_panel && !s.menu, "le choix revient à l'image");
+        // Un événement d'une session qui n'existe plus ne fait rien.
+        app.share_image(id + 99, Some("1080p · 60 Hz".into()), Some("x".into()));
+    }
+
+    /// Le panneau de l'hôte dit la qualité d'un invité entre son app et la durée, seulement quand c'est une image à part.
+    #[test]
+    fn a_guest_line_tells_its_picture_quality() {
+        crate::i18n::force_english(false);
+        let g = ShareGuest { id: "g".into(), name: "Léa".into(), role: ShareRole::Spectator, app: "ios".into(), since: Some(1_000), quality: Some("720p · 30 Hz".into()) };
+        assert_eq!(g.meta(1_000 + 4 * 60), "iPhone ou iPad · 720p · 30 Hz · depuis 4 min");
+        assert_eq!(ShareGuest { quality: None, ..g.clone() }.meta(1_000 + 4 * 60), "iPhone ou iPad · depuis 4 min", "l'image de l'hôte : rien");
+        assert_eq!(ShareGuest { since: None, ..g.clone() }.meta(5), "iPhone ou iPad · 720p · 30 Hz");
+        crate::i18n::force_english(true);
+        assert_eq!(g.meta(1_000 + 4 * 60), "iPhone or iPad · 720p · 30 Hz · for 4 min");
+        crate::i18n::force_english(false);
     }
 
     /// Au pavé (Deck, salon, Link OS) : les chiffres du code puis, le sixième tapé, le focus va à « Rejoindre » ; le
@@ -4642,7 +4923,7 @@ mod tests {
         assert!(s.share_busy && s.bar_menu == Some(BarMenu::Share));
         // Une demande à la fois.
         assert!(app.activate(Target::ShareNewCode).is_empty());
-        let view = ShareView { code: "482917".into(), link: "kybernow://join?x".into(), web: "https://h:1/link/?join=482917".into(), guests: vec![ShareGuest { id: "g1".into(), name: "Léa".into(), role: ShareRole::Spectator, app: "ios".into(), since: Some(1) }] };
+        let view = ShareView { code: "482917".into(), link: "kybernow://join?x".into(), web: "https://h:1/link/?join=482917".into(), guests: vec![ShareGuest { id: "g1".into(), name: "Léa".into(), role: ShareRole::Spectator, app: "ios".into(), since: Some(1), quality: None }] };
         app.share_reply(a, Ok(Some(view.clone())));
         assert!(!app.session().unwrap().share_busy && app.session().unwrap().share.is_some());
         // Ses invités : deux droits indépendants, chacun donné ou repris sans toucher à l'autre, puis « Retirer ».
@@ -4700,7 +4981,7 @@ mod tests {
         assert!(app.session().unwrap().share_panel, "le signe de vie d'avant l'ouverture");
         app.share_reply(a, Ok(Some(ShareView { code: "123456".into(), ..Default::default() })));
         assert_eq!(app.focus, Target::ShareNewCode);
-        app.share_guests(a, Some(ShareView { code: "123456".into(), guests: vec![ShareGuest { id: "g".into(), name: "Tom".into(), role: ShareRole::Spectator, app: "web".into(), since: None }], ..Default::default() }));
+        app.share_guests(a, Some(ShareView { code: "123456".into(), guests: vec![ShareGuest { id: "g".into(), name: "Tom".into(), role: ShareRole::Spectator, app: "web".into(), since: None, quality: None }], ..Default::default() }));
         assert_eq!(app.session().unwrap().share.as_ref().map(|v| v.guests.len()), Some(1));
         // B referme le panneau ; l'image reprend (pas le menu).
         assert!(app.session_back().is_empty());
@@ -4840,7 +5121,7 @@ mod tests {
         assert_eq!(share_tile(Some(&view(0))), ("482 917".to_string(), true));
         assert_eq!(share_tile(Some(&view(1))), ("1 invité".to_string(), true));
         assert_eq!(share_tile(Some(&view(3))), ("3 invités".to_string(), true));
-        let g = ShareGuest { id: "g".into(), name: "Léa".into(), role: ShareRole::PlayerKbm, app: "ios".into(), since: Some(1_000) };
+        let g = ShareGuest { id: "g".into(), name: "Léa".into(), role: ShareRole::PlayerKbm, app: "ios".into(), since: Some(1_000), quality: None };
         assert_eq!(g.line(), "Léa · Joueur, clavier et souris");
         assert_eq!(g.meta(1_000 + 4 * 60), "iPhone ou iPad · depuis 4 min");
         assert_eq!(g.meta(1_000 + 20), "iPhone ou iPad · depuis moins d'une minute");
@@ -4854,7 +5135,7 @@ mod tests {
             (duration_label(20), duration_label(3 * 60), duration_label(3600 + 12 * 60), guests_label(1), guests_label(3), app_label("webos")),
             ("under a minute".to_string(), "3 min".to_string(), "1 h 12".to_string(), "1 guest".to_string(), "3 guests".to_string(), "LG TV".to_string())
         );
-        assert_eq!(ShareGuest { id: "g".into(), name: "Léa".into(), role: ShareRole::Player, app: "web".into(), since: Some(100) }.meta(100 + 20), "Browser · for under a minute");
+        assert_eq!(ShareGuest { id: "g".into(), name: "Léa".into(), role: ShareRole::Player, app: "web".into(), since: Some(100), quality: None }.meta(100 + 20), "Browser · for under a minute");
         assert_eq!(
             [ShareRole::Spectator, ShareRole::Player, ShareRole::Kbm, ShareRole::PlayerKbm].map(|r| r.long_label()),
             ["Spectator", "Player", "Keyboard and mouse", "Player, keyboard and mouse"]

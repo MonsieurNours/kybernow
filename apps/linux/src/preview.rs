@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use tiny_skia::Pixmap;
 
-use crate::app::{AddStep, App, BarMenu, Confirm, Found, HostLive, JoinField, JoinState, Layout, MenuItem, NetKind, Online, PadInfo, Phase, Screen, ScreensPlan, Section, SessionUi, Setting, ShareAvail, ShareGuest, ShareRole, ShareView, StationKind, StationLive, StationOp, StationStep, Stats, Target};
+use crate::app::{AddStep, App, BarMenu, Confirm, Found, HostLive, JoinField, JoinState, Layout, MenuItem, NetKind, Online, PadInfo, Phase, Screen, ScreensPlan, Section, SessionUi, Setting, ShareAvail, ShareGuest, ShareQuality, ShareRole, ShareView, StationKind, StationLive, StationOp, StationStep, Stats, Target};
 use crate::model::{Host, HostSettings, LastSession, Profile, Store, WakeCard};
 use crate::ui::{self, canvas::Canvas};
 
@@ -359,10 +359,10 @@ fn shared_view() -> ShareView {
         link: "kybernow://join?host=192.168.1.42&port=24811&fp=sha256:7c:3a:91:e0:4b:2d:a8:1f&code=482917".into(),
         web: "https://192.168.1.42:24811/link/?join=482917".into(),
         guests: vec![
-            ShareGuest { id: "g1".into(), name: "Léa".into(), role: ShareRole::Spectator, app: "ios".into(), since: Some(now - 4 * 60) },
-            ShareGuest { id: "g2".into(), name: "Tom".into(), role: ShareRole::Player, app: "webos".into(), since: Some(now - 35 * 60) },
-            ShareGuest { id: "g3".into(), name: "Hugo".into(), role: ShareRole::Kbm, app: "mac".into(), since: Some(now - 12 * 60) },
-            ShareGuest { id: "g4".into(), name: "Camille".into(), role: ShareRole::PlayerKbm, app: "windows".into(), since: Some(now - 3700) },
+            ShareGuest { id: "g1".into(), name: "Léa".into(), role: ShareRole::Spectator, app: "ios".into(), since: Some(now - 4 * 60), quality: None },
+            ShareGuest { id: "g2".into(), name: "Tom".into(), role: ShareRole::Player, app: "webos".into(), since: Some(now - 35 * 60), quality: Some("1080p · 60 Hz".into()) },
+            ShareGuest { id: "g3".into(), name: "Hugo".into(), role: ShareRole::Kbm, app: "mac".into(), since: Some(now - 12 * 60), quality: None },
+            ShareGuest { id: "g4".into(), name: "Camille".into(), role: ShareRole::PlayerKbm, app: "windows".into(), since: Some(now - 3700), quality: Some("720p · 30 Hz".into()) },
         ],
     }
 }
@@ -374,6 +374,10 @@ fn guest_session(role: ShareRole) -> SessionUi {
     s.stats = Some(Stats { latency_ms: Some(8.1), fps: 60.0, mbps: 24.0, lost: 0, mode: "1920 × 1080".into(), decoder: "VA-API HEVC".into(), audio_ms: Some(14.0), history: vec![8.0, 8.4, 7.9, 9.1, 8.2, 8.0, 8.8, 8.1] });
     s.started = Instant::now() - Duration::from_millis(2100);
     s.opened_at = Some(Instant::now() - Duration::from_secs(30));
+    // « Auto » demandé, 1080p à 60 Hz reçu : la puce de la barre et la tuile du menu montrent la qualité reçue.
+    if let Some(g) = s.guest.as_mut() {
+        g.image = Some("1080p · 60 Hz".into());
+    }
     s
 }
 
@@ -391,6 +395,12 @@ fn share_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, prefi
     app.join = JoinState { name: "Atelier de Léa".into(), ..JoinState::new() };
     app.go(Screen::Join);
     shot(app, cv, None, dir, &name("20-rejoindre"));
+    // « Qualité de l'image » : un autre choix, le focus dessus.
+    app.join.quality = ShareQuality::P720_30;
+    app.focus = Target::JoinQuality(ShareQuality::P720_30);
+    shot(app, cv, None, dir, &name("20f-rejoindre-qualite"));
+    app.join.quality = ShareQuality::Auto;
+    app.focus = if console { Target::Key('1') } else { Target::JoinCode };
     app.join.code = "4829".into();
     shot(app, cv, None, dir, &name("20b-rejoindre-code"));
     app.join.code = "482917".into();
@@ -505,6 +515,34 @@ fn share_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, prefi
     app.screen = Screen::Session;
     app.focus = Target::Menu(MenuItem::Resume);
     shot(app, cv, Some(video), dir, &name("22b-invite-spectateur"));
+    // « Qualité de l'image » : au bureau le menu de la puce de la barre, à la manette la tuile du menu puis ses quatre
+    // choix ; puis l'avis de la Station (image allégée).
+    let mut g = guest_session(ShareRole::Spectator);
+    if console {
+        g.menu = false;
+        g.share_panel = true;
+        app.focus = Target::QualityPick(ShareQuality::Auto);
+    } else {
+        g.bar = true;
+        g.bar_menu = Some(BarMenu::Quality);
+        app.pointer = None;
+    }
+    app.set_session(Some(g));
+    shot(app, cv, Some(video), dir, &name("22f-invite-qualite"));
+    let mut g = guest_session(ShareRole::Spectator);
+    if let Some(u) = g.guest.as_mut() {
+        u.quality = ShareQuality::P720_30;
+        u.image = Some("720p · 30 Hz".into());
+    }
+    g.notice = Some((crate::i18n::tr("Image allégée pour suivre.", "Picture lightened to keep up.").to_string(), Instant::now()));
+    if console {
+        g.menu = true;
+    } else {
+        g.bar = true;
+    }
+    app.set_session(Some(g));
+    app.focus = Target::Menu(MenuItem::Quality);
+    shot(app, cv, Some(video), dir, &name("22g-invite-image-allegee"));
     // Chaque droit donné par l'hôte, avec son avis : les manettes, le clavier et la souris, puis les deux.
     for (role, from, n) in [
         (ShareRole::Player, ShareRole::Spectator, "22c-invite-joueur"),
@@ -1333,7 +1371,7 @@ mod tests {
         let mut view = shared_view();
         view.guests.truncate(n);
         while view.guests.len() < n {
-            view.guests.push(ShareGuest { id: format!("x{}", view.guests.len()), name: "Zoé".into(), role: ShareRole::Spectator, app: "android".into(), since: None });
+            view.guests.push(ShareGuest { id: format!("x{}", view.guests.len()), name: "Zoé".into(), role: ShareRole::Spectator, app: "android".into(), since: None, quality: None });
         }
         let mut s = session(&app);
         s.menu = false;
@@ -1451,6 +1489,82 @@ mod tests {
         assert!(ui::at_bar_edge(&mut cv, &app, &s, 1280.0, 640.0, 0.0));
     }
 
+    /// « Qualité de l'image » d'un invité, au bureau : une puce dans la barre (la qualité reçue), les quatre choix dans son
+    /// menu ; l'hôte n'en a pas. Même dans la fenêtre la plus étroite (960 points), avec tous les droits et la qualité reçue
+    /// la plus longue, la barre reste dans la fenêtre.
+    #[test]
+    fn picture_quality_on_the_bar_of_a_guest() {
+        crate::i18n::force_english(false);
+        for size in [(960u32, 600u32), (1280, 800)] {
+            let mut app = demo(false, Layout::Desktop);
+            let mut cv = Canvas::new();
+            cv.resize(size.0, size.1, 1.0);
+            let mut host = session(&app);
+            host.menu = false;
+            host.bar = true;
+            app.set_session(Some(host));
+            app.screen = Screen::Session;
+            let hits = ui::draw(&app, &mut cv);
+            assert!(hits.iter().all(|(t, _)| !matches!(t, Target::BarQuality | Target::QualityPick(_))), "{size:?} : l'hôte n'a pas de qualité d'image");
+            for role in [ShareRole::Spectator, ShareRole::PlayerKbm] {
+                let mut g = guest_session(role);
+                g.bar = true;
+                if let Some(u) = g.guest.as_mut() {
+                    u.quality = ShareQuality::Host;
+                    u.image = Some("2160p · 120 Hz".into());
+                }
+                app.set_session(Some(g));
+                let hits = ui::draw(&app, &mut cv);
+                assert_eq!(hits.iter().filter(|(t, _)| *t == Target::BarQuality).count(), 1, "{size:?} {role:?} : la puce");
+                assert!(hits.iter().all(|(t, _)| !matches!(t, Target::QualityPick(_))), "menu fermé");
+                for (t, r) in &hits {
+                    assert!(r.x >= 0.0 && r.x + r.w <= size.0 as f32, "{size:?} {role:?} : {t:?} sort de la fenêtre : {r:?}");
+                }
+                // Le menu : les quatre choix, dans la fenêtre, chacun choisissable.
+                app.session_mut().unwrap().bar_menu = Some(BarMenu::Quality);
+                let hits = ui::draw(&app, &mut cv);
+                let picks: Vec<_> = hits.iter().filter(|(t, _)| matches!(t, Target::QualityPick(_))).collect();
+                assert_eq!(picks.len(), 4, "{size:?} {role:?}");
+                for (t, r) in &picks {
+                    assert!(r.x >= 0.0 && r.y >= 0.0 && r.x + r.w <= size.0 as f32 && r.y + r.h <= size.1 as f32, "{size:?} : {t:?} sort : {r:?}");
+                }
+            }
+        }
+    }
+
+    /// « Qualité de l'image » d'un invité à la manette : la tuile du menu (sa qualité reçue en sous-titre), puis le panneau des
+    /// quatre choix ; rien de cela pour l'hôte.
+    #[test]
+    fn picture_quality_in_the_menu_of_a_guest() {
+        crate::i18n::force_english(false);
+        for (layout, size) in [(Layout::Handheld, (1280u32, 800u32)), (Layout::Tv, (1920, 1080))] {
+            let mut app = demo(false, layout);
+            let mut cv = Canvas::new();
+            cv.resize(size.0, size.1, 1.0);
+            let mut host = session(&app);
+            host.menu = true;
+            app.set_session(Some(host));
+            app.screen = Screen::Session;
+            assert!(ui::draw(&app, &mut cv).iter().all(|(t, _)| *t != Target::Menu(MenuItem::Quality)), "{layout:?} : pas pour l'hôte");
+            let mut g = guest_session(ShareRole::PlayerKbm);
+            g.menu = true;
+            app.set_session(Some(g));
+            let hits = ui::draw(&app, &mut cv);
+            let tile = hits.iter().find(|(t, _)| *t == Target::Menu(MenuItem::Quality)).unwrap_or_else(|| panic!("{layout:?} : la tuile")).1;
+            assert!(tile.x + tile.w <= size.0 as f32 && tile.y + tile.h <= size.1 as f32, "{layout:?} : {tile:?}");
+            // Le panneau.
+            app.activate(Target::Menu(MenuItem::Quality));
+            let hits = ui::draw(&app, &mut cv);
+            let picks: Vec<_> = hits.iter().filter(|(t, _)| matches!(t, Target::QualityPick(_))).collect();
+            assert_eq!(picks.len(), 4, "{layout:?}");
+            for (t, r) in &picks {
+                assert!(r.x >= 0.0 && r.y >= 0.0 && r.x + r.w <= size.0 as f32 && r.y + r.h <= size.1 as f32, "{layout:?} : {t:?} sort : {r:?}");
+            }
+            assert_eq!(app.focus, Target::QualityPick(ShareQuality::Auto));
+            assert!(hits.iter().all(|(t, _)| !matches!(t, Target::Menu(_) | Target::ShareNewCode)), "{layout:?} : rien d'autre que les choix");
+        }
+    }
+
     /// Le menu à la manette d'un invité : « Quitter le partage » en dernier, rien d'un hôte (profils, « Alléger », « Partager »),
     /// le clavier, la souris et la manette en souris seulement avec ce rôle ; celui d'un hôte a la tuile « Partager ».
     #[test]
@@ -1496,6 +1610,13 @@ mod tests {
             let hits = ui::draw(&app, &mut cv);
             for t in [Target::JoinCode, Target::JoinName, Target::JoinGo] {
                 assert!(hits.iter().any(|(h, _)| *h == t), "{layout:?} : {t:?}");
+            }
+            // « Qualité de l'image » : les quatre choix, sous le prénom ; à la manette, ils ne passent pas sous le pavé.
+            let quality: Vec<crate::app::Rect> = ShareQuality::ALL.iter().map(|q| hits.iter().find(|(h, _)| *h == Target::JoinQuality(*q)).unwrap_or_else(|| panic!("{layout:?} : {q:?}")).1).collect();
+            if layout.console() {
+                let pad_x = hits.iter().filter(|(t, _)| matches!(t, Target::Key(_))).map(|(_, r)| r.x).fold(f32::MAX, f32::min);
+                let last = quality.last().unwrap();
+                assert!(last.x + last.w < pad_x, "{layout:?} : les choix passent sous le pavé ({} > {pad_x})", last.x + last.w);
             }
             for (t, r) in &hits {
                 assert!(r.x >= 0.0 && r.y >= 0.0 && r.x + r.w <= size.0 as f32 && r.y + r.h <= size.1 as f32, "{layout:?} {size:?} : {t:?} sort de l'écran : {r:?}");

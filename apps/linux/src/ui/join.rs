@@ -1,6 +1,6 @@
 //! « Rejoindre un partage » (KyberNow Share, docs/link-ui.md, « Partage ») : le code à six chiffres que
-//! l'hôte affiche, « Votre prénom » (proposé : le nom de l'appareil, retenu pour la fois suivante) et
-//! « Rejoindre ». Au bureau, au clavier ; à la manette (Steam Deck, salon, KyberNow Link OS), un pavé à
+//! l'hôte affiche, « Votre prénom » (proposé : le nom de l'appareil, retenu pour la fois suivante),
+//! « Qualité de l'image » (quatre choix, « Auto » proposé, retenue aussi) et « Rejoindre ». Au bureau, au clavier ; à la manette (Steam Deck, salon, KyberNow Link OS), un pavé à
 //! droite : les chiffres pour le code, les lettres pour le prénom (comme le mot de passe du Wi-Fi) ; un
 //! clavier marche partout. La recherche part aux ordinateurs trouvés sur le réseau ; le texte du refus est
 //! celui du cœur.
@@ -11,7 +11,7 @@ use super::pair::key;
 use super::theme::*;
 use super::widgets::{self, eyebrow, legend};
 use super::{launch, title_bar, unit, Frame};
-use crate::app::{App, JoinField, Layout, Rect, Target, NAME_MAX};
+use crate::app::{App, JoinField, Layout, Rect, ShareQuality, Target, NAME_MAX};
 use crate::i18n::tr;
 
 pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
@@ -30,17 +30,20 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
         56.0 * u + if tv { 12.0 } else { 0.0 }
     };
     let footer = if console { 56.0 * u } else { 0.0 };
+    // La fenêtre la plus basse du bureau (600 points) : avec « Qualité de l'image », les espaces se resserrent pour
+    // que « Rejoindre » et le refus à sa droite restent dans la fenêtre.
+    let tight = !console && h < 700.0;
     let mut y = top + 28.0 * u;
     if app.layout == Layout::Desktop {
         widgets::ghost(cv, f, Target::Back, x0, y, 40.0 * u, 14.0 * u, Some(Icon::Back), tr("Retour", "Back"), MUTED);
-        y += 56.0;
+        y += if tight { 46.0 } else { 56.0 };
     }
     let left_w = if console { (w * 0.46).min(560.0 * u) } else { (w - 2.0 * x0).min(640.0) };
     let j = &app.join;
 
     eyebrow(cv, x0, y + 12.0 * u, 12.0 * u, FAINT, "KyberNow Share");
     cv.text_shrink(x0 - 1.0, y + 58.0 * u, Text::new(Font::Display, 40.0 * u, FROST).tracking(-0.8 * u), tr("Rejoindre un partage", "Join a share"), (w - 2.0 * x0).min(left_w + 80.0 * u));
-    y += 80.0 * u;
+    y += if tight { 70.0 } else { 80.0 } * u;
     y += cv.paragraph(
         x0,
         y + 6.0 * u,
@@ -49,12 +52,13 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
         left_w + 60.0 * u,
         24.0 * u,
     ) + 6.0 * u
-        + 22.0 * u;
+        + if tight { 14.0 } else { 22.0 } * u;
 
     // Le code : six chiffres, groupés par trois.
+    let label_h = if tight { 20.0 } else { 22.0 } * u;
     eyebrow(cv, x0, y + 8.0 * u, 11.5 * u, FAINT, tr("Code", "Code"));
-    y += 22.0 * u;
-    let (dw, dh) = if console { (58.0 * u, 72.0 * u) } else { (64.0 * u, 76.0 * u) };
+    y += label_h;
+    let (dw, dh) = if console { (58.0 * u, 72.0 * u) } else { (64.0 * u, if tight { 64.0 } else { 76.0 } * u) };
     let gap = 10.0 * u;
     let group = 14.0 * u;
     let row = Rect::new(x0, y, 6.0 * dw + 5.0 * gap + group - gap, dh);
@@ -80,12 +84,12 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
         }
         dx += dw + gap;
     }
-    y += dh + 22.0 * u;
+    y += dh + if tight { 16.0 } else { 22.0 } * u;
 
     // Le prénom.
     eyebrow(cv, x0, y + 8.0 * u, 11.5 * u, FAINT, tr("Votre prénom", "Your name"));
-    y += 22.0 * u;
-    let fh = 56.0 * u;
+    y += label_h;
+    let fh = if tight { 50.0 } else { 56.0 } * u;
     let field = Rect::new(x0, y, left_w, fh);
     let (focused, hover) = f.state(Target::JoinName, field);
     if focused {
@@ -101,7 +105,16 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
     if j.name.chars().count() >= NAME_MAX {
         cv.text(field.x + field.w - 16.0 * u, field.y + fh / 2.0 + 5.0 * u, Text::new(Font::Mono, 11.0 * u, GHOST).align(Align::Right), &format!("{NAME_MAX}"));
     }
-    y += fh + 26.0 * u;
+    y += fh + if tight { 18.0 } else { 26.0 } * u;
+
+    // « Qualité de l'image » : les quatre choix, « Auto » proposé ; retenue pour la fois suivante. Au clavier, au
+    // pavé ou à la télécommande, les flèches passent d'un choix à l'autre.
+    eyebrow(cv, x0, y + 8.0 * u, 11.5 * u, FAINT, tr("Qualité de l'image", "Picture quality"));
+    y += label_h;
+    let qh = if tight { 40.0 } else { 44.0 } * u;
+    let items: Vec<(Target, String, bool, bool)> = ShareQuality::ALL.iter().map(|q| (Target::JoinQuality(*q), q.label().to_string(), j.quality == *q, false)).collect();
+    widgets::segments(cv, f, x0, y, qh, 15.0 * u, &items);
+    y += qh + if tight { 20.0 } else { 26.0 } * u;
 
     // « Rejoindre », et à sa droite ce que la recherche a dit : le texte (jusqu'à deux lignes, celui du cœur ou d'Admin)
     // reste dans la fenêtre la plus basse, sans passer sous le bouton.
