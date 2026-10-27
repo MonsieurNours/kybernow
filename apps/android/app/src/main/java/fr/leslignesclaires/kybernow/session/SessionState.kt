@@ -35,6 +35,27 @@ data class Second(
     val chain: DoubleArray?,
 )
 
+/**
+ * L'avis d'un changement de droits d'un invité (docs/link-ui.md, « Droits changés »), `R.string.share_notice_…` ;
+ * `null` si rien n'a changé. Les deux droits (les manettes, le clavier et la souris) sont indépendants : « Vous
+ * pouvez jouer à la manette. », « Les manettes sont reprises. », « Vous avez le clavier et la souris. », « Le
+ * clavier et la souris sont repris. » ; plus aucun droit : « Vous regardez de nouveau. » à la place de l'avis de
+ * reprise. Une capsule n'a qu'un texte : quand les deux droits changent d'un coup, un droit donné passe avant un
+ * droit repris (les manettes remplacées par le clavier et la souris : « Vous avez le clavier et la souris. »), et
+ * les manettes avant le clavier et la souris.
+ */
+@androidx.annotation.StringRes
+internal fun shareRightsNotice(before: ShareRole, now: ShareRole): Int? = when {
+    now == before -> null
+    // Un rôle sans droit n'est que le spectateur : l'invité en avait au moins un.
+    !now.plays -> R.string.share_notice_watch
+    now.pads && !before.pads -> R.string.share_notice_play
+    now.keyboardMouse && !before.keyboardMouse -> R.string.share_notice_keyboard_mouse
+    before.pads && !now.pads -> R.string.share_notice_pads_back
+    before.keyboardMouse && !now.keyboardMouse -> R.string.share_notice_keyboard_mouse_back
+    else -> null
+}
+
 /** Une capsule en haut de l'image (jamais une alerte). */
 sealed class Capsule {
     data class Reconnecting(val attempt: Int, val max: Int) : Capsule()
@@ -44,7 +65,7 @@ sealed class Capsule {
     data class Adapting(val width: Int, val height: Int) : Capsule()
     data class AdaptFailed(val error: String) : Capsule()
     data class GamepadConnected(val name: String, val slot: Int, val motors: Int) : Capsule()
-    /** Invité : ses droits ont changé (« Vous pouvez jouer. ») ; [text] : le texte, `R.string.share_notice_…`. */
+    /** Invité : ses droits ont changé (« Vous pouvez jouer à la manette. ») ; [text] : le texte, `R.string.share_notice_…`. */
     data class ShareRights(@androidx.annotation.StringRes val text: Int) : Capsule()
 }
 
@@ -222,15 +243,7 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
         val now = ShareRole.of(role)
         shareRole.value = now
         if (previous < 0) return
-        val before = ShareRole.of(previous)
-        // « Vous pouvez jouer. », « Vous avez le clavier et la souris. », « Le clavier et la souris sont repris. »,
-        // et, quand l'hôte le ramène spectateur (« Faire regarder », avec ou sans le clavier et la souris), « Vous regardez de nouveau. »
-        when {
-            !now.plays && before.plays -> show(Capsule.ShareRights(R.string.share_notice_watch))
-            now.keyboardMouse && !before.keyboardMouse -> show(Capsule.ShareRights(R.string.share_notice_keyboard_mouse))
-            before.keyboardMouse && !now.keyboardMouse -> show(Capsule.ShareRights(R.string.share_notice_keyboard_mouse_back))
-            now.plays && !before.plays -> show(Capsule.ShareRights(R.string.share_notice_play))
-        }
+        shareRightsNotice(ShareRole.of(previous), now)?.let { show(Capsule.ShareRights(it)) }
     }
 
     override fun onShareEnd(end: Int, text: String) {

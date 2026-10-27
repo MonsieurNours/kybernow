@@ -243,7 +243,7 @@ class ConsoleClient(host: String, port: Int, user: String = "", password: String
         parse(Native.consoleShareCode(handle)) { ShareState.parse(it as? JSONObject) }
     }
 
-    /** « Faire jouer », « Donner le clavier et la souris », « Reprendre le clavier et la souris ». */
+    /** Le rôle d'un invité, ses deux droits (manettes, clavier et souris) : donner ou reprendre l'un, l'autre, ou les deux. */
     suspend fun shareGuest(guest: String, role: ShareRole): Reply<Unit> = withContext(Dispatchers.IO) {
         parse(Native.consoleShareGuest(handle, guest, role.code)) { }
     }

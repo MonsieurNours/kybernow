@@ -334,7 +334,8 @@ class Screenshots {
             override fun setPadLayout(simple: Boolean) {}
             override fun share() {}
             override fun shareNewCode() {}
-            override fun shareSetRole(guest: ShareGuest, role: ShareRole) {}
+            override fun shareSetPads(guest: ShareGuest, on: Boolean) {}
+            override fun shareSetKeyboardMouse(guest: ShareGuest, on: Boolean) {}
             override fun shareRemove(guest: ShareGuest) {}
             override fun shareStop() {}
             override fun shareCopyLink() {}
@@ -534,6 +535,18 @@ class Screenshots {
     @Test @Config(qualifiers = TABLET)
     fun shareTablet() {
         shot("session-partage", "tablette", FormFactor.TABLET, listOf("fr")) { WithImage(session(false) { barOpen = true; shareOpen = true; sharing() }) }
+        // Les deux droits, chacun donné ou repris à part : aucun droit, les manettes, le clavier et la souris, les deux.
+        shot("session-partage-droits", "tablette", FormFactor.TABLET) {
+            WithImage(session(false) {
+                shareOpen = true
+                sharing(listOf(
+                    ShareGuest("g1", "Léa", "ios", ShareRole.SPECTATOR, since = now / 1000 - 42),
+                    ShareGuest("g2", "Hugo", "android", ShareRole.PLAYER, since = now / 1000 - 3700),
+                    ShareGuest("g3", "Zoé", "webos", ShareRole.KBM, since = now / 1000 - 5 * 60),
+                    ShareGuest("g4", "Max", "web", ShareRole.PLAYER_KBM, since = now / 1000 - 12 * 60),
+                ))
+            })
+        }
     }
 
     /** La session d'un invité : « Invité sur … », la barre réduite selon son rôle. */
@@ -547,7 +560,11 @@ class Screenshots {
         shot("invite-spectateur", "telephone", FormFactor.PHONE) { WithImage(guest(false, ShareRole.SPECTATOR) { barOpen = true }) }
         shot("invite-joueur", "telephone", FormFactor.PHONE) { WithImage(guest(false, ShareRole.PLAYER) { barOpen = true }) }
         shot("invite-joueur-clavier-souris", "telephone", FormFactor.PHONE) { WithImage(guest(false, ShareRole.PLAYER_KBM) { barOpen = true }) }
+        shot("invite-clavier-souris", "telephone", FormFactor.PHONE) { WithImage(guest(false, ShareRole.KBM) { barOpen = true }) }
         shot("invite-manette", "telephone", FormFactor.PHONE, listOf("fr")) { WithImage(guest(false, ShareRole.PLAYER) { padShown = true; barOpen = true }) }
+        shot("invite-avis-manettes-reprises", "telephone", FormFactor.PHONE, listOf("fr")) {
+            WithImage(guest(false, ShareRole.KBM) { state.capsule.value = Capsule.ShareRights(R.string.share_notice_pads_back) })
+        }
         shot("invite-avis", "telephone", FormFactor.PHONE) {
             WithImage(guest(false, ShareRole.PLAYER) { state.capsule.value = Capsule.ShareRights(R.string.share_notice_play) })
         }
@@ -565,6 +582,7 @@ class Screenshots {
         shot("invite-connexion", "tv", FormFactor.TV) { WithImage(guest(true, ShareRole.PLAYER) { passageDone = false; state.phase.value = Phase.CONNECTING; state.firstImageAt.set(0) }) }
         shot("invite-spectateur-menu", "tv", FormFactor.TV) { WithImage(guest(true, ShareRole.SPECTATOR) { menuOpen = true }) }
         shot("invite-joueur-clavier-souris-menu", "tv", FormFactor.TV) { WithImage(guest(true, ShareRole.PLAYER_KBM) { menuOpen = true }) }
+        shot("invite-clavier-souris-menu", "tv", FormFactor.TV, listOf("fr")) { WithImage(guest(true, ShareRole.KBM) { menuOpen = true }) }
     }
 
     /** « Rejoindre avec un code » : le code et le prénom ; lien ouvert ; pavé du téléviseur. */

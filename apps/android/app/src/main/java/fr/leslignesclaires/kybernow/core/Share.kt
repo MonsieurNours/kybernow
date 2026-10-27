@@ -15,20 +15,44 @@ import org.json.JSONObject
  * des refus et des fins) ; ce fichier range ses réponses JSON pour l'interface.
  */
 
-/** Le rôle d'un invité : 0 spectateur, 1 joueur, 2 joueur avec clavier et souris (`ShareRole::code` du cœur). */
+/**
+ * Le rôle d'un invité : deux droits indépendants, les manettes et le clavier avec la souris (`ShareRole` du
+ * cœur, mêmes codes : 0 spectateur, aucun droit ; 1 les manettes ; 2 les manettes, le clavier et la souris ;
+ * 3 le clavier et la souris, sans les manettes). Chaque droit se donne ou se reprend sans toucher à l'autre
+ * ([withPads], [withKeyboardMouse]).
+ */
 enum class ShareRole(val code: Int, val id: String) {
     SPECTATOR(0, "spectator"),
     PLAYER(1, "player"),
-    PLAYER_KBM(2, "player_kbm");
+    PLAYER_KBM(2, "player_kbm"),
+    KBM(3, "kbm");
 
-    /** Ses manettes comptent. */
-    val plays get() = this != SPECTATOR
+    /** Les manettes de l'invité partent vers l'ordinateur (et la manette à l'écran a un sens). */
+    val pads get() = this == PLAYER || this == PLAYER_KBM
 
-    /** Le clavier et la souris aussi. */
-    val keyboardMouse get() = this == PLAYER_KBM
+    /** Le clavier, la souris et le toucher de l'invité partent vers l'ordinateur. */
+    val keyboardMouse get() = this == KBM || this == PLAYER_KBM
+
+    /** Un droit au moins : l'invité a une chaîne d'entrées, et la barre le dit « Joueur » (« Spectateur » sinon). */
+    val plays get() = pads || keyboardMouse
+
+    /** « Donner les manettes » (`true`) ou « Reprendre les manettes », le clavier et la souris tels quels. */
+    fun withPads(on: Boolean) = of(on, keyboardMouse)
+
+    /** « Donner le clavier et la souris » ou « Reprendre le clavier et la souris », les manettes telles quelles. */
+    fun withKeyboardMouse(on: Boolean) = of(pads, on)
 
     companion object {
         fun of(code: Int) = entries.firstOrNull { it.code == code } ?: SPECTATOR
+
+        /** Le rôle de ces deux droits. */
+        fun of(pads: Boolean, keyboardMouse: Boolean) = when {
+            pads && keyboardMouse -> PLAYER_KBM
+            pads -> PLAYER
+            keyboardMouse -> KBM
+            else -> SPECTATOR
+        }
+
         fun parse(id: String?) = entries.firstOrNull { it.id == id } ?: SPECTATOR
     }
 }
@@ -59,6 +83,9 @@ data class ShareState(
     val guests: List<ShareGuest> = emptyList(),
 ) {
     val full get() = guests.size >= MAX_GUESTS
+
+    /** Un invité d'après son identifiant ; `null` s'il est parti. */
+    fun guest(id: String) = guests.firstOrNull { it.id == id }
 
     companion object {
         const val MAX_GUESTS = 4

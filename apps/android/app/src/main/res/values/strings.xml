@@ -337,7 +337,8 @@
     <string name="share_role_spectator">Spectator</string>
     <string name="share_role_player">Player</string>
     <string name="share_leave">Leave</string>
-    <string name="share_notice_play">You can play.</string>
+    <string name="share_notice_play">You can play with a controller.</string>
+    <string name="share_notice_pads_back">The controllers were taken back.</string>
     <string name="share_notice_keyboard_mouse">You have the keyboard and mouse.</string>
     <string name="share_notice_keyboard_mouse_back">The keyboard and mouse were taken back.</string>
     <string name="share_notice_watch">You are watching again.</string>
@@ -354,9 +355,10 @@
     <string name="share_nobody">Nobody yet.</string>
     <string name="share_guest_spectator" formatted="true">%1$s · Spectator</string>
     <string name="share_guest_player" formatted="true">%1$s · Player</string>
+    <string name="share_guest_kbm" formatted="true">%1$s · Keyboard and mouse</string>
     <string name="share_guest_player_kbm" formatted="true">%1$s · Player, keyboard and mouse</string>
-    <string name="share_let_play">Let play</string>
-    <string name="share_watch_only">Watch only</string>
+    <string name="share_give_pads">Give controllers</string>
+    <string name="share_take_pads">Take back controllers</string>
     <string name="share_give_keyboard_mouse">Give keyboard and mouse</string>
     <string name="share_take_keyboard_mouse">Take back keyboard and mouse</string>
     <string name="share_remove">Remove</string>
