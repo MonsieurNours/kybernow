@@ -66,12 +66,10 @@ pub fn proposed_name(remembered: Option<&str>, device: &str) -> String {
 /// la sonde de l'app). Aucune limite de définition ni de fréquence ajoutée au
 /// décodeur : la sonde ne mesure que les formats. L'image de l'hôte n'est pas
 /// encore connue à ce moment-là (`host` nul) : c'est la Station qui borne, et
-/// qui tranche. `None` pour un autre choix que « Auto » : le bloc `auto`
-/// n'est alors pas envoyé.
-pub fn join_auto(quality: ShareQuality, screen: Mode, caps: Capabilities) -> Option<ShareAuto> {
-    if quality != ShareQuality::Auto {
-        return None;
-    }
+/// qui tranche. Envoyé quel que soit le choix : la Station l'ignore hors
+/// « Auto », et le cœur le garde pour un passage à « Auto » en cours de
+/// session (sans lui, « Auto » donnerait l'image de l'hôte).
+pub fn join_auto(_quality: ShareQuality, screen: Mode, caps: Capabilities) -> Option<ShareAuto> {
     let device = DeviceScreen {
         x: 0.0,
         y: 0.0,
@@ -435,9 +433,9 @@ mod tests {
         // Aucune limite de définition ni de fréquence ajoutée : celles de l'écran.
         let wide = join_auto(ShareQuality::Auto, mode(5120, 1440, 240), all).unwrap();
         assert_eq!((wide.width, wide.height, wide.fps), (5120, 1440, 240));
-        // Un autre choix que « Auto » : pas de bloc `auto`.
+        // Un autre choix que « Auto » : le bloc `auto` part quand même (passage à « Auto » en session).
         for q in [ShareQuality::Host, ShareQuality::P1080_60, ShareQuality::P720_30] {
-            assert_eq!(join_auto(q, mode(3840, 2160, 60), all), None, "{q:?}");
+            assert!(join_auto(q, mode(3840, 2160, 60), all).is_some(), "{q:?}");
         }
     }
 

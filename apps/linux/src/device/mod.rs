@@ -2916,8 +2916,9 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, w
                 }
             }
             // « Auto » : l'écran de la fenêtre et ce que le décodeur suit ; la Station en tire l'image de l'invité (jamais
-            // au-dessus de celle de l'hôte). Les trois autres choix n'ont pas besoin de cette mesure.
-            let auto = (quality == crate::app::ShareQuality::Auto).then(|| join_auto(app, wins));
+            // au-dessus de celle de l'hôte). Envoyé quel que soit le choix : le cœur le garde pour un passage à « Auto »
+            // en cours de session (sans lui, « Auto » donnerait l'image de l'hôte).
+            let auto = Some(join_auto(app, wins));
             let request = JoinRequest { code, name, device: app.store.device_id.clone(), app: "linux".into(), quality: session::core_quality(quality), auto, ..JoinRequest::default() };
             jobs::share_join(targets, request, session::guest_capabilities(&app.machine), app.join.attempt, tx.clone());
         }

@@ -428,7 +428,9 @@ public enum Share {
                             capabilities: DecoderCapabilities = .current) async throws -> ShareFound {
         let targetsJSON = json(targets.map(\.json))
         var fields: [String: Any] = ["code": code, "name": name, "device": ConsoleClient.thisDeviceID, "app": app, "quality": quality.wire]
-        if quality == .auto, let screen, let auto = autoQuality(screen: screen, capabilities: capabilities) { fields["auto"] = auto }
+        // `auto` part quel que soit le choix : la Station l'ignore hors « Auto », et le cœur le garde pour un passage
+        // à « Auto » en cours de session (sans lui, « Auto » donnerait l'image de l'hôte).
+        if let screen, let auto = autoQuality(screen: screen, capabilities: capabilities) { fields["auto"] = auto }
         let request = json(fields)
         let caps = json(["hevc": capabilities.hevc, "hevc444": capabilities.hevc444, "av1": capabilities.av1])
         return try await withCheckedThrowingContinuation { continuation in

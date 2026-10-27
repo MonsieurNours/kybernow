@@ -246,16 +246,16 @@ class ShareTest {
     }
 
     @Test
-    fun joinRequest_carriesTheQuality_andAutoOnlyForAuto() {
+    fun joinRequest_carriesTheQuality_andAutoWhateverTheChoice() {
         val auto = JSONObject("""{"width":2400,"height":1080,"fps":120,"codecs":["h264","hevc"],"yuv444":false}""")
         val a = Share.joinRequest("428913", "Léa", "pixel", ShareQuality.AUTO, auto)
         assertEquals("auto", a.getString("quality"))
         assertEquals(120, a.getJSONObject("auto").getInt("fps"))
         assertEquals("android", a.getString("app"))
-        // Une autre qualité n'envoie pas `auto` ; « Auto » sans mesure non plus (la Station garde l'image de l'hôte).
+        // Une autre qualité envoie aussi `auto` (passage à « Auto » en session) ; sans mesure, rien (la Station garde l'image de l'hôte).
         val host = Share.joinRequest("428913", "Léa", "pixel", ShareQuality.HOST, auto)
         assertEquals("host", host.getString("quality"))
-        assertFalse(host.has("auto"))
+        assertEquals(120, host.getJSONObject("auto").getInt("fps"))
         assertEquals("720p30", Share.joinRequest("428913", "Léa", "pixel", ShareQuality.P720_30, null).getString("quality"))
         assertFalse(Share.joinRequest("428913", "Léa", "pixel", ShareQuality.AUTO, null).has("auto"))
     }

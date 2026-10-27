@@ -111,7 +111,7 @@ fun JoinScreen(link: ShareLink?, onBack: () -> Unit, onJoined: (ShareFound) -> U
                 scope.launch {
                     val list = targets ?: stations()
                     // « Auto » : l'écran de l'appareil et ce que son décodeur suit (la Station tranche d'après l'écran du partage).
-                    val auto = if (quality == ShareQuality.AUTO) withContext(Dispatchers.Default) { Share.autoQuality(Screen.of(context).current, app.decoders) } else null
+                    val auto = withContext(Dispatchers.Default) { Share.autoQuality(Screen.of(context).current, app.decoders) }
                     val reply = Share.join(list, digits, who, app.device, app.decoders, quality, auto)
                     busy = false
                     when (reply) {

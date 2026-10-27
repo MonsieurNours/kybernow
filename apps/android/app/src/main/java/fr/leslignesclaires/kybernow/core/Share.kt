@@ -278,12 +278,13 @@ object Share {
     private fun capabilities(d: Decoders) = JSONObject().put("hevc", d.hevc != null).put("hevc444", d.hevc444).put("av1", d.av1 != null)
 
     /**
-     * Le `request` de « Rejoindre » : `{code, name, device, app, quality}` et, pour « Auto », `auto` (ce que l'appareil
-     * sait afficher et décoder, [autoQuality]) ; sans `auto`, la Station garde l'image de l'hôte.
+     * Le `request` de « Rejoindre » : `{code, name, device, app, quality}` et `auto` (ce que l'appareil sait afficher et
+     * décoder, [autoQuality]), quel que soit le choix : la Station l'ignore hors « Auto », et le cœur le garde pour un
+     * passage à « Auto » en cours de session ; sans `auto`, « Auto » garde l'image de l'hôte.
      */
     internal fun joinRequest(code: String, name: String, deviceId: String, quality: ShareQuality, auto: JSONObject?): JSONObject =
         JSONObject().put("code", code).put("name", name).put("device", deviceId).put("app", "android").put("quality", quality.id)
-            .also { if (quality == ShareQuality.AUTO && auto != null) it.put("auto", auto) }
+            .also { if (auto != null) it.put("auto", auto) }
 
     /**
      * « Auto » : l'écran de l'appareil ([screen] : sa définition native et sa fréquence) et ce que son décodeur suit
