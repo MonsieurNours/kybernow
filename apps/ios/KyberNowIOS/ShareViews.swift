@@ -25,7 +25,8 @@ struct JoinView: View {
     enum Source: Hashable { case code, qr }
 
     init(link: ShareJoinLink?) {
-        _model = StateObject(wrappedValue: ShareJoinModel(link: link))
+        // « Auto » : l'écran de l'appareil (pixels réels, fréquence).
+        _model = StateObject(wrappedValue: ShareJoinModel(link: link) { DeviceDisplay.shareScreen() })
     }
 
     var body: some View {
@@ -49,6 +50,8 @@ struct JoinView: View {
                 JoinSourcePicker(source: $source)
                 if source == .qr { scanner } else { codeField }
                 AddHostField(label: ShareText.yourName, text: $model.name, submit: .go) { join() }
+                // « Qualité de l'image » : « Auto » proposé, retenu pour la fois suivante.
+                QualityPicker(quality: $model.quality).disabled(model.looking)
                 status
                 Button(ShareText.joinButton) { join() }
                     .buttonStyle(PrimaryButton(height: 54, fontSize: 17))
@@ -201,6 +204,52 @@ private struct JoinSourcePicker: View {
                             .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
                     }
                 }
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(AddHostPressStyle())
+        .accessibilityAddTraits(on ? .isSelected : [])
+    }
+}
+
+/// « Qualité de l'image », sous le prénom : « Auto » (proposé), « Comme
+/// l'hôte », « 1080p · 60 Hz », « 720p · 30 Hz ». Les quatre sur une ligne si
+/// l'écran est assez large (iPad), sinon deux par ligne (iPhone).
+private struct QualityPicker: View {
+    @Binding var quality: ShareQuality
+    @Environment(\.addHostWide) private var wide
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: wide ? 8 : 6) {
+            Text(ShareText.imageQuality).font(Theme.sans(wide ? 14 : 13)).foregroundStyle(Theme.muted)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) { ForEach(ShareQuality.allCases, id: \.self) { option($0) } }
+                VStack(spacing: 8) {
+                    HStack(spacing: 8) { option(.auto); option(.host) }
+                    HStack(spacing: 8) { option(.p1080_60); option(.p720_30) }
+                }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text(ShareText.imageQuality))
+    }
+
+    private func option(_ value: ShareQuality) -> some View {
+        let on = quality == value
+        return Button { quality = value } label: {
+            Text(value.label)
+                .font(Theme.sans(15, .semibold))
+                .foregroundStyle(on ? Theme.text : Theme.muted)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .padding(.horizontal, 12)
+                .frame(maxWidth: .infinity, minHeight: 48)
+                .background {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(on ? Color.white.opacity(0.12) : Theme.surface)
+                        .overlay(alignment: .bottom) { if on { Rectangle().fill(Theme.accent).frame(height: 2) } }
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(on ? Theme.accent.opacity(0.6) : Theme.line2))
                 .contentShape(Rectangle())
         }
         .buttonStyle(AddHostPressStyle())
@@ -386,8 +435,7 @@ private struct GuestRow: View {
         }
     }
 
-    /// « iPhone ou iPad · depuis 3 min ».
-    private var detail: String {
-        [ShareText.app(guest.app), guest.since.map(ShareText.since)].compactMap { $0 }.joined(separator: " · ")
-    }
+    /// « iPhone ou iPad · 1080p · 60 Hz · depuis 3 min » : sa qualité d'image
+    /// seulement si ce n'est pas celle de l'hôte.
+    private var detail: String { ShareText.guestDetail(guest) }
 }

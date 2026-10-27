@@ -60,7 +60,7 @@ struct SessionStatsView: View {
     }
 
     private var codecName: String {
-        switch session.host.settings.codec {
+        switch session.imageCodec {
         case .h264: return "H.264"
         case .hevc: return "HEVC"
         case .av1: return "AV1"

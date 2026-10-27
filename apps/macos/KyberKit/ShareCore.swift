@@ -59,6 +59,90 @@ public enum ShareRole: Int, Sendable, Equatable {
     }
 }
 
+/// La « Qualité de l'image » d'un invité (docs/link-ui.md, « Partage ») : celle
+/// qu'il demande à « Rejoindre » et dans sa barre. Les libellés viennent du
+/// cœur (« Auto », « Comme l'hôte », « 1080p · 60 Hz », « 720p · 30 Hz »).
+public enum ShareQuality: Int, CaseIterable, Sendable, Equatable {
+    /// D'après l'écran de l'appareil et ce que son décodeur suit (proposé) ;
+    /// c'est la Station qui tranche.
+    case auto = 0
+    /// Celle de l'hôte, partagée.
+    case host = 1
+    case p1080_60 = 2
+    case p720_30 = 3
+
+    /// Le libellé, dans la langue de l'app.
+    public var label: String {
+        Core.take(kn_share_quality_label(Int32(rawValue))) ?? ""
+    }
+
+    /// Le nom de la qualité dans l'échange avec Admin (`auto`, `host`, `1080p60`, `720p30`).
+    var wire: String {
+        switch self {
+        case .auto: return "auto"
+        case .host: return "host"
+        case .p1080_60: return "1080p60"
+        case .p720_30: return "720p30"
+        }
+    }
+
+    init?(wire: String?) {
+        switch wire {
+        case "auto": self = .auto
+        case "host": self = .host
+        case "1080p60": self = .p1080_60
+        case "720p30": self = .p720_30
+        default: return nil
+        }
+    }
+}
+
+/// L'image que reçoit un invité (`on_share_image`, `guests[].image` chez
+/// l'hôte). Tant que Kyber ne sait rien, la taille et le format manquent : la
+/// qualité reçue (`label`) ne se montre que si le cœur la sait dire.
+public struct ShareImage: Sendable, Equatable {
+    /// La qualité demandée.
+    public let quality: ShareQuality
+    /// La qualité reçue (« 1080p · 60 Hz »), nil tant que la taille n'est pas sue.
+    public let label: String?
+    /// Elle est celle de l'hôte (partagée) ; nil tant qu'on ne sait pas.
+    public let followsHost: Bool?
+    /// Le format de l'image reçue, s'il est su.
+    public let codec: VideoCodec?
+
+    /// Une image à part, d'une qualité qui n'est pas celle de l'hôte : c'est
+    /// elle que le panneau de l'hôte montre sous l'invité.
+    public var own: Bool { followsHost == false }
+
+    public init(quality: ShareQuality, label: String?, followsHost: Bool? = nil, codec: VideoCodec? = nil) {
+        self.quality = quality
+        self.label = label
+        self.followsHost = followsHost
+        self.codec = codec
+    }
+
+    /// Lu dans le JSON du cœur (`on_share_image`, `guests[].image`). Nil si ce
+    /// n'en est pas une.
+    public init?(json text: String?) {
+        guard let text, let data = text.data(using: .utf8),
+              let j = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
+        self.init(json: j, text: text)
+    }
+
+    /// Lu dans `guests[].image` de la vue de l'hôte (déjà un dictionnaire).
+    init?(json j: [String: Any]) {
+        guard let data = try? JSONSerialization.data(withJSONObject: j), let text = String(data: data, encoding: .utf8) else { return nil }
+        self.init(json: j, text: text)
+    }
+
+    private init(json j: [String: Any], text: String) {
+        quality = ShareQuality(wire: j["quality"] as? String) ?? .auto
+        label = Core.take(kn_share_image_label(text))
+        followsHost = j["follows_host"] as? Bool
+        codec = (j["codec"] as? String).flatMap(VideoCodec.init(rawValue:))
+    }
+}
+
 /// Un invité, dans la liste de l'hôte.
 public struct ShareGuest: Identifiable, Sendable, Equatable {
     public let id: String
@@ -68,18 +152,28 @@ public struct ShareGuest: Identifiable, Sendable, Equatable {
     public let role: ShareRole
     /// Arrivée dans le partage (« depuis 3 min »), si la Station la donne.
     public let since: Date?
+    /// L'image qu'il reçoit, si la Station la dit.
+    public let image: ShareImage?
 
-    public init(id: String, name: String, app: String, role: ShareRole, since: Date? = nil) {
+    public init(id: String, name: String, app: String, role: ShareRole, since: Date? = nil, image: ShareImage? = nil) {
         self.id = id
         self.name = name
         self.app = app
         self.role = role
         self.since = since
+        self.image = image
     }
 
     /// Le même invité avec un autre rôle.
     public func with(role: ShareRole) -> ShareGuest {
-        ShareGuest(id: id, name: name, app: app, role: role, since: since)
+        ShareGuest(id: id, name: name, app: app, role: role, since: since, image: image)
+    }
+
+    /// Sa qualité sous son nom (« 1080p · 60 Hz ») : seulement si elle n'est
+    /// pas celle de l'hôte, et si le cœur sait la dire (docs/link-ui.md).
+    public var imageLabel: String? {
+        guard let image, image.own else { return nil }
+        return image.label
     }
 }
 
@@ -115,8 +209,10 @@ public struct ShareState: Sendable, Equatable {
             guard let id = g["id"] as? String, !id.isEmpty else { return nil }
             // `since` : secondes Unix de l'horloge de la Station (docs/kybernow-share.md).
             let since = (g["since"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue) }
+            // `image` : ce que l'invité reçoit (absent, ou rien de su encore, pour une Station sans qualité d'image).
+            let image = (g["image"] as? [String: Any]).flatMap { ShareImage(json: $0) }
             return ShareGuest(id: id, name: g["name"] as? String ?? "", app: g["app"] as? String ?? "",
-                              role: ShareRole(wire: g["role"] as? String) ?? .spectator, since: since)
+                              role: ShareRole(wire: g["role"] as? String) ?? .spectator, since: since, image: image)
         }
         self.init(code: code, link: j["link"] as? String ?? "", web: j["web"] as? String ?? "",
                   display: (j["display"] as? [String: Any])?["label"] as? String, guests: guests)
@@ -129,7 +225,7 @@ public enum ShareEnd: Sendable, Equatable {
     case stopped
     /// L'hôte a retiré cet invité.
     case removed
-    /// L'appareil ne lit pas le format de l'image.
+    /// L'appareil ne lit aucun format possible (rare : voir `ShareJoinError.unreadable`).
     case unreadable
 
     init(code: Int32) {
@@ -199,9 +295,13 @@ public struct ShareFound: Sendable {
     public let host: String
     /// Le rôle de départ.
     public let role: ShareRole
-    /// Le format de l'image de l'hôte (absent si elle n'avait pas démarré) :
-    /// c'est celui que reçoit l'invité, pas celui de ses réglages.
+    /// Le format de l'image de l'hôte (absent si elle n'avait pas démarré), pas
+    /// celui de ses réglages : un appareil qui ne le lit pas reçoit une image à
+    /// part dans un format qu'il lit (`ShareImage.codec` le dit).
     public let codec: VideoCodec?
+    /// La « Qualité de l'image » demandée à « Rejoindre » ; l'image reçue vient
+    /// ensuite de `SessionEngine.onShareImage`.
+    public internal(set) var quality: ShareQuality = .auto
 
     init?(json text: String) {
         guard let data = text.data(using: .utf8), let j = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
@@ -221,8 +321,9 @@ public struct ShareFound: Sendable {
     #if DEBUG
     /// Démonstration (Debug, sans Station) : un partage rejoint pour de faux,
     /// pour dessiner la session d'un invité.
-    public init(demoComputer: String, host: String, role: ShareRole) {
+    public init(demoComputer: String, host: String, role: ShareRole, quality: ShareQuality = .auto) {
         json = "{}"
+        self.quality = quality
         target = ShareTarget(host: "192.0.2.1", port: 1)
         computer = demoComputer
         self.host = host
@@ -246,7 +347,9 @@ public enum ShareJoinError: LocalizedError, Sendable, Equatable {
     case full(String)
     /// Dix essais de code par minute au plus.
     case tooManyTries(String)
-    /// L'appareil ne lit pas le format de l'image de l'ordinateur.
+    /// L'appareil ne lit aucun format que l'ordinateur puisse lui donner (jamais
+    /// avec H.264, que tout appareil d'Apple décode) : un format de l'hôte qu'il
+    /// ne lit pas ne refuse plus personne.
     case unreadable(String)
     /// Le certificat de la Station a changé depuis le lien ou l'annonce.
     case certificateChanged
@@ -258,6 +361,24 @@ public enum ShareJoinError: LocalizedError, Sendable, Equatable {
         case let .noShare(m), let .full(m), let .tooManyTries(m), let .unreadable(m), let .other(m): return m
         case .certificateChanged: return String(localized: "le certificat de la Station a changé : ce n'est peut-être pas votre ordinateur", bundle: .kyberKit)
         }
+    }
+}
+
+/// L'écran de l'appareil, pour « Auto » : sa définition native en pixels et sa
+/// fréquence (celle de l'écran de la fenêtre sur Mac, iPhone et iPad ; la sortie
+/// du téléviseur sur Apple TV).
+public struct ShareScreen: Sendable, Equatable {
+    public let pixelWidth: Int
+    public let pixelHeight: Int
+    public let refresh: Int
+
+    /// Mis en paysage ; une définition ou une fréquence nulle est ramenée à 1080p, 60 Hz.
+    public init(pixelWidth: Int, pixelHeight: Int, refresh: Int) {
+        let long = max(pixelWidth, pixelHeight), short = min(pixelWidth, pixelHeight)
+        let valid = long > 0 && short > 0
+        self.pixelWidth = valid ? long : 1920
+        self.pixelHeight = valid ? short : 1080
+        self.refresh = refresh > 0 ? refresh : 60
     }
 }
 
@@ -297,12 +418,18 @@ public enum Share {
     // MARK: Rejoindre
 
     /// Envoie le code à ces Stations à la fois et rend la première qui
-    /// l'accepte ; le format de l'image de l'hôte est vérifié avec ce que
-    /// l'appareil décode. Bloquant jusqu'à 6 s : hors du fil principal.
+    /// l'accepte, avec la « Qualité de l'image » demandée ; pour « Auto », ce
+    /// que l'appareil sait afficher (`screen`) et décoder, la Station tranchant.
+    /// Un format de l'hôte que l'appareil ne lit pas n'empêche pas d'entrer
+    /// (il reçoit une image à part dans un format qu'il lit). Bloquant jusqu'à
+    /// 6 s : hors du fil principal.
     public static func join(targets: [ShareTarget], code: String, name: String,
+                            quality: ShareQuality = .auto, screen: ShareScreen? = nil,
                             capabilities: DecoderCapabilities = .current) async throws -> ShareFound {
         let targetsJSON = json(targets.map(\.json))
-        let request = json(["code": code, "name": name, "device": ConsoleClient.thisDeviceID, "app": app])
+        var fields: [String: Any] = ["code": code, "name": name, "device": ConsoleClient.thisDeviceID, "app": app, "quality": quality.wire]
+        if quality == .auto, let screen, let auto = autoQuality(screen: screen, capabilities: capabilities) { fields["auto"] = auto }
+        let request = json(fields)
         let caps = json(["hevc": capabilities.hevc, "hevc444": capabilities.hevc444, "av1": capabilities.av1])
         return try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
@@ -313,7 +440,8 @@ public enum Share {
                 let result = Core.take(out)
                 switch status {
                 case KN_OK:
-                    if let result, let found = ShareFound(json: result) {
+                    if let result, var found = ShareFound(json: result) {
+                        found.quality = quality
                         continuation.resume(returning: found)
                     } else {
                         continuation.resume(throwing: ShareJoinError.other(String(localized: "réponse inattendue de la Station", bundle: .kyberKit)))
@@ -327,6 +455,20 @@ public enum Share {
                 }
             }
         }
+    }
+
+    /// « Auto » : ce que l'appareil sait afficher (la définition et la fréquence
+    /// de son écran, en paysage) et décoder (les formats, le 4:4:4) ; le cœur
+    /// en tire `auto` de `join`, que la Station borne à l'image de l'hôte. Le
+    /// décodeur matériel d'Apple ne donne pas de limite de taille ni de
+    /// fréquence au-delà de l'écran : rien n'est ajouté. Nil si le cœur ne le lit pas.
+    static func autoQuality(screen: ShareScreen, capabilities: DecoderCapabilities) -> [String: Any]? {
+        let screenJSON = json(["x": 0, "y": 0, "width": screen.pixelWidth, "height": screen.pixelHeight,
+                               "pixel_width": screen.pixelWidth, "pixel_height": screen.pixelHeight,
+                               "refresh": screen.refresh, "primary": true] as [String: Any])
+        let decoderJSON = json(["hevc": capabilities.hevc, "hevc444": capabilities.hevc444, "av1": capabilities.av1])
+        guard let text = Core.take(kn_share_auto_quality(screenJSON, decoderJSON, nil)), let data = text.data(using: .utf8) else { return nil }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
     }
 
     /// L'invité renonce avant d'avoir ouvert sa session (une session d'invité, elle, part seule).

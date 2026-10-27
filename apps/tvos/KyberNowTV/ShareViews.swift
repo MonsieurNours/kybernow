@@ -19,10 +19,14 @@ struct JoinView: View {
     @StateObject private var model: ShareJoinModel
     @FocusState private var focus: Target?
 
-    enum Target: Hashable { case back, digit(Int), delete, name, join }
+    enum Target: Hashable { case back, digit(Int), delete, name, quality(ShareQuality), join }
 
     init(link: ShareJoinLink?) {
-        _model = StateObject(wrappedValue: ShareJoinModel(link: link))
+        // « Auto » : la sortie du téléviseur (au plus 4K à 60 Hz).
+        _model = StateObject(wrappedValue: ShareJoinModel(link: link) {
+            let tv = TVDisplay.native
+            return ShareScreen(pixelWidth: tv.width, pixelHeight: tv.height, refresh: tv.refresh)
+        })
     }
 
     /// Les chiffres tapés, sans espace.
@@ -65,6 +69,7 @@ struct JoinView: View {
                         .focused($focus, equals: .name)
                         .frame(width: 640)
                 }
+                qualityChoice
                 status
                 Spacer(minLength: 0)
                 HStack(spacing: 20) {
@@ -166,6 +171,30 @@ struct JoinView: View {
     private func eraseLast() {
         guard !digits.isEmpty, !model.looking else { return }
         model.code = String(digits.dropLast())
+    }
+
+    // MARK: La qualité de l'image
+
+    /// « Qualité de l'image », sous le prénom : « Auto » (proposé), « Comme
+    /// l'hôte », « 1080p · 60 Hz », « 720p · 30 Hz » ; retenue pour la fois suivante.
+    private var qualityChoice: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(ShareText.imageQuality).font(Theme.sans(19)).foregroundStyle(Theme.muted)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 14) { ForEach(ShareQuality.allCases, id: \.self) { choice($0) } }
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack(spacing: 14) { choice(.auto); choice(.host) }
+                    HStack(spacing: 14) { choice(.p1080_60); choice(.p720_30) }
+                }
+            }
+        }
+        .disabled(model.looking)
+    }
+
+    private func choice(_ quality: ShareQuality) -> some View {
+        Button { model.quality = quality } label: { Text(quality.label).lineLimit(1).fixedSize() }
+            .buttonStyle(ChoiceButton(selected: model.quality == quality, height: 64))
+            .focused($focus, equals: .quality(quality))
     }
 
     // MARK: État
@@ -325,9 +354,8 @@ struct SharePanelTV: View {
         .disabled(share.busy)
     }
 
-    private func detail(_ guest: ShareGuest) -> String {
-        [ShareText.app(guest.app), guest.since.map(ShareText.since)].compactMap { $0 }.joined(separator: " · ")
-    }
+    /// L'app, la qualité d'image si ce n'est pas celle de l'hôte, depuis quand.
+    private func detail(_ guest: ShareGuest) -> String { ShareText.guestDetail(guest) }
 
     /// Le QR code du lien des apps (`kybernow://join…`), net, sur fond blanc.
     @ViewBuilder private func qrImage(for link: String) -> some View {

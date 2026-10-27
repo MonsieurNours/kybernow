@@ -456,7 +456,12 @@ struct SessionBar: View {
                     }
                     statsButton
                     separator
-                    if session.isGuest { guestRole } else { profileMenu }
+                    if session.isGuest {
+                        guestRole
+                        qualityMenu
+                    } else {
+                        profileMenu
+                    }
                     item("speaker-high", session.host.settings.audio == .off ? String(localized: "Ordinateur") : session.route.name)
                     // Le clavier et la souris : pas pour un invité à qui l'hôte ne les a pas donnés.
                     if keyboardAndMouse { touchAndMouse }
@@ -508,6 +513,23 @@ struct SessionBar: View {
     private var guestRole: some View {
         item(ShareText.icon(session.shareRole), ShareText.role(session.shareRole))
             .accessibilityElement(children: .combine)
+    }
+
+    /// « Qualité de l'image » d'un invité : la qualité reçue (« 1080p · 60 Hz »)
+    /// et le choix des quatre ; le cœur relance l'image de l'invité seulement.
+    private var qualityMenu: some View {
+        Menu {
+            Section(ShareText.imageQuality) {
+                ForEach(ShareQuality.allCases, id: \.self) { quality in
+                    Button { session.setShareQuality(quality) } label: {
+                        if session.shareQuality == quality { Label(quality.label, systemImage: "checkmark") } else { Text(quality.label) }
+                    }
+                }
+            }
+        } label: {
+            item("monitor", session.shareImageLabel)
+        }
+        .accessibilityLabel(Text(verbatim: "\(ShareText.imageQuality), \(session.shareImageLabel)"))
     }
 
     private var profileMenu: some View {

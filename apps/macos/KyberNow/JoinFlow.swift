@@ -14,7 +14,21 @@ struct JoinSheet: View {
     @FocusState private var codeFocused: Bool
 
     init(initialLink: ShareJoinLink?) {
-        _model = StateObject(wrappedValue: ShareJoinModel(link: initialLink))
+        // « Auto » : l'écran de la fenêtre, où s'ouvre la session d'invité.
+        _model = StateObject(wrappedValue: ShareJoinModel(link: initialLink) { DisplayInfo.shareScreen(NSApp.keyWindow?.screen) })
+    }
+
+    /// Les quatre qualités, « Auto » proposé ; le choix est retenu pour la fois suivante.
+    private var qualityChoice: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(ShareText.imageQuality).font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text2)
+            Segmented(options: ShareQuality.allCases.map { ($0, $0.label) },
+                      selection: Binding(get: { model.quality }, set: { model.quality = $0 ?? model.quality }),
+                      height: 38, fill: true)
+                .disabled(model.looking)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(ShareText.imageQuality)
     }
 
     /// Quatre ordinateurs au plus, invités compris.
@@ -36,6 +50,7 @@ struct JoinSheet: View {
             codeField
             LabeledField(label: ShareText.yourName, text: $model.name)
                 .onSubmit(join)
+            qualityChoice
             status
             HStack {
                 Spacer()

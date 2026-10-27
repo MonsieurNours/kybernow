@@ -242,22 +242,27 @@ enum SharePanelDemo {
         session.share.demo = true
         await session.share.openIfNeeded()
         if guests {
-            session.share.demoAddGuest(name: "Léa", app: "ios", role: .player)
-            session.share.demoAddGuest(name: "Hugo", app: "tvos")
-            session.share.demoAddGuest(name: "Sam", app: "web", role: .playerKbm)
-            session.share.demoAddGuest(name: "Zoé", app: "mac", role: .kbm)
+            // Léa et Sam reçoivent une image à part (leur qualité se voit), Hugo suit
+            // l'hôte, Zoé n'a rien de su encore : seules les images à part se montrent.
+            session.share.demoAddGuest(name: "Léa", app: "ios", role: .player, image: ShareImage.demo("1080p60", 1920, 1080, 60, follows: false))
+            session.share.demoAddGuest(name: "Hugo", app: "tvos", image: ShareImage.demo("host", 2560, 1440, 120, follows: true))
+            session.share.demoAddGuest(name: "Sam", app: "web", role: .playerKbm, image: ShareImage.demo("720p30", 1280, 720, 30, follows: false))
+            session.share.demoAddGuest(name: "Zoé", app: "mac", role: .kbm, image: ShareImage.demo("auto"))
         }
         render(session: session, to: path)
     }
 
     /// La session d'un invité sans fenêtre à un moment donné : `end` (retiré du
-    /// partage : la raison reste dans la capsule), puis l'avis bref d'un
-    /// changement de droits : `play` (spectateur à qui l'hôte donne les
+    /// partage : la raison reste dans la capsule), `lag` ou `limit` (l'avis de
+    /// la Station sur l'image : plus légère, ou plus d'image à part possible),
+    /// puis l'avis bref d'un changement de droits : `play` (spectateur à qui
+    /// l'hôte donne les
     /// manettes), `kbm` (joueur à qui il donne le clavier et la souris),
     /// `watch` (joueur ramené en spectateur), `unpads` (joueur avec clavier et
     /// souris, manettes reprises), `unkbm` (le clavier et la souris repris).
     static func renderGuestMoment(_ moment: String, app: AppModel, to path: String) async {
         let (start, next): (ShareRole, ShareRole) = switch moment {
+        case "lag", "limit": (.player, .player)
         case "play": (.spectator, .player)
         case "kbm": (.player, .playerKbm)
         case "watch": (.player, .spectator)
@@ -270,6 +275,12 @@ enum SharePanelDemo {
         session.demoHeadless()
         if moment == "end" {
             session.demoShareEnded(removed: true)
+        } else if moment == "lag" || moment == "limit" {
+            // L'avis de la Station sur l'image : en retard (plus légère), ou plus d'image à part possible.
+            session.setBar(false)
+            let shown = moment == "lag" ? ShareImage.demo("1080p60", 1920, 1080, 30, follows: false) : ShareImage.demo("host", 1920, 1080, 60, follows: false)
+            let notice = moment == "lag" ? "Image allégée pour suivre." : "L'ordinateur ne peut pas faire une image de plus : vous recevez 1080p · 60 Hz."
+            session.demoShareImage(shown, notice: notice)
         } else {
             session.setBar(false)
             session.demoRoleChanged(next)
@@ -306,12 +317,14 @@ enum SharePanelDemo {
                                         opening: .first(home: nil)) { _ in }
         }
         session.demoHeadless()
+        // Un invité : la qualité reçue dans la barre (« 1080p · 60 Hz »).
+        if kind != "host" { session.demoShareImage(ShareImage.demo("1080p60", 1920, 1080, 60, follows: false)) }
         let view = ZStack(alignment: .top) {
             Color(white: 0.12)
             SessionChrome(session: session)
         }
-        .frame(width: 1200, height: 170)
-        write(view, width: 1200, to: path)
+        .frame(width: 1500, height: 170)
+        write(view, width: 1500, to: path)
     }
 
     private static func write<V: View>(_ view: V, width: CGFloat, to path: String) {
@@ -365,8 +378,7 @@ private struct GuestRow: View {
         }
     }
 
-    /// « Mac · depuis 3 min ».
-    private var detail: String {
-        [ShareText.app(guest.app), guest.since.map(ShareText.since)].compactMap { $0 }.joined(separator: " · ")
-    }
+    /// « Mac · 1080p · 60 Hz · depuis 3 min » : sa qualité d'image seulement si
+    /// ce n'est pas celle de l'hôte.
+    private var detail: String { ShareText.guestDetail(guest) }
 }

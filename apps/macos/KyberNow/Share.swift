@@ -36,6 +36,45 @@ enum GuestName {
     }
 }
 
+// MARK: - La qualité de l'image de l'invité
+
+enum GuestQuality {
+    private static let key = "kybernow.guestQuality"
+
+    /// La qualité retenue la dernière fois (à « Rejoindre » ou dans la barre),
+    /// sinon « Auto » (proposé).
+    static var proposed: ShareQuality {
+        let saved = UserDefaults.standard.object(forKey: key) as? Int
+        return saved.flatMap(ShareQuality.init(rawValue:)) ?? .auto
+    }
+
+    static func remember(_ quality: ShareQuality) {
+        UserDefaults.standard.set(quality.rawValue, forKey: key)
+    }
+
+    /// Ce que dit la barre de l'image reçue : « 1080p · 60 Hz » quand le cœur
+    /// sait la dire, sinon la qualité choisie (« Auto ») tant que la taille
+    /// n'est pas sue.
+    static func barLabel(image: ShareImage?, quality: ShareQuality) -> String {
+        image?.label ?? quality.label
+    }
+}
+
+#if DEBUG
+extension ShareImage {
+    /// Démonstration (Debug, sans Station) : une image d'invité lue par le cœur
+    /// comme celle de l'échange avec Admin ; sans taille, elle est « encore
+    /// inconnue » (pas de libellé).
+    static func demo(_ quality: String, _ width: Int? = nil, _ height: Int? = nil, _ fps: Int? = nil, follows: Bool? = nil) -> ShareImage {
+        var json: [String: Any] = ["quality": quality]
+        if let width, let height, let fps { (json["width"], json["height"], json["fps"], json["codec"]) = (width, height, fps, "h264") }
+        if let follows { json["follows_host"] = follows }
+        let text = (try? JSONSerialization.data(withJSONObject: json)).flatMap { String(data: $0, encoding: .utf8) }
+        return ShareImage(json: text) ?? ShareImage(quality: .auto, label: nil)
+    }
+}
+#endif
+
 // MARK: - Liens
 
 /// Ce que lit un lien ou un QR code `kybernow://` : l'ajout d'un ordinateur
@@ -68,6 +107,8 @@ final class ShareJoinModel: ObservableObject {
     /// Les six chiffres, tapés comme on veut (« 123 456 »).
     @Published var code = ""
     @Published var name = GuestName.proposed
+    /// « Qualité de l'image » : « Auto » proposé, retenue pour la fois suivante.
+    @Published var quality = GuestQuality.proposed
     @Published private(set) var state: State = .idle
     /// Les ordinateurs annoncés sur le réseau, à qui le code est envoyé.
     let discovery = Discovery()
@@ -77,8 +118,12 @@ final class ShareJoinModel: ObservableObject {
     var onJoined: ((ShareFound) -> Void)?
     private var task: Task<Void, Never>?
     private var attempt = 0
+    /// L'écran de l'appareil (celui de la fenêtre ; la sortie du téléviseur sur
+    /// Apple TV), pour « Auto » : sa définition et sa fréquence.
+    private let screen: @MainActor () -> ShareScreen
 
-    init(link: ShareJoinLink? = nil) {
+    init(link: ShareJoinLink? = nil, screen: @escaping @MainActor () -> ShareScreen) {
+        self.screen = screen
         if let link {
             self.link = link
             code = Share.formatCode(link.code)
@@ -127,6 +172,8 @@ final class ShareJoinModel: ObservableObject {
     func join(hosts: [Host]) {
         guard canJoin, let code = normalizedCode else { return }
         let name = trimmedName
+        let quality = quality
+        let screen = screen()
         attempt += 1
         let mine = attempt
         state = .looking
@@ -136,13 +183,14 @@ final class ShareJoinModel: ObservableObject {
             do {
                 let targets = await self.targets(hosts: hosts)
                 guard !targets.isEmpty else { throw ShareJoinError.noShare(ShareText.noShare) }
-                let found = try await Share.join(targets: targets, code: code, name: name)
+                let found = try await Share.join(targets: targets, code: code, name: name, quality: quality, screen: screen)
                 // Annulé entre-temps, ou l'écran n'est plus là : l'invité repart tout de suite.
                 guard mine == self.attempt, let onJoined = self.onJoined else {
                     Share.leave(found)
                     return
                 }
                 GuestName.remember(name)
+                GuestQuality.remember(quality)
                 self.state = .idle
                 onJoined(found)
             } catch {
@@ -385,11 +433,12 @@ final class ShareHostModel: ObservableObject {
     }
 
     /// Un invité qui arrive (commande de démonstration).
-    func demoAddGuest(name: String, app: String, role: ShareRole = .spectator) {
+    func demoAddGuest(name: String, app: String, role: ShareRole = .spectator, image: ShareImage? = nil) {
         if state == nil { demoOpen() }
         demoUpdate {
             guard $0.guests.count < 4 else { return }
-            $0.guests.append(ShareGuest(id: UUID().uuidString, name: name, app: app, role: role, since: Date().addingTimeInterval(-Double.random(in: 30 ... 900))))
+            $0.guests.append(ShareGuest(id: UUID().uuidString, name: name, app: app, role: role,
+                                        since: Date().addingTimeInterval(-Double.random(in: 30 ... 900)), image: image))
         }
     }
     #endif

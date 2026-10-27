@@ -400,8 +400,9 @@ private struct SessionBar: View {
     private var formatLabel: String {
         var parts = [session.modeLabel.replacingOccurrences(of: " · ", with: " · ")]
         if let s = session.stats, !s.format.isEmpty {
-            // Un invité reçoit le format de l'hôte, pas celui de ses réglages.
-            let codec = (session.guest?.codec ?? session.host.settings.codec).rawValue.uppercased()
+            // Un invité reçoit le format de son image (celui de l'hôte, ou un
+            // format qu'il lit si le sien ne l'est pas), pas celui de ses réglages.
+            let codec = session.imageCodec.rawValue.uppercased()
             parts.append("\(codec == "H264" ? "H.264" : codec) \(s.format.contains("4:4:4") ? "4:4:4" : "4:2:0")")
         }
         return parts.joined(separator: " · ")
@@ -471,6 +472,15 @@ private struct SessionBar: View {
             statsButton(compact: compact)
             divider
             keepSound(compact: compact)
+            // « Qualité de l'image » : la qualité reçue, et le choix des quatre.
+            GlassMenu(items: ShareQuality.allCases.map { quality in
+                .init(id: "\(quality.rawValue)", title: quality.label, checked: quality == session.shareQuality) { session.setShareQuality(quality) }
+            }) {
+                chip(icon: "monitor", text: session.shareImageLabel, caret: true, compact: compact)
+            }
+            .help(ShareText.imageQuality)
+            .accessibilityLabel(Text(verbatim: "\(ShareText.imageQuality), \(session.shareImageLabel)"))
+            .overlay(ring(0))
             if role.keyboardAndMouse {
                 GlassMenu(items: MouseChoice.allCases.map { choice in
                     .init(id: "\(choice)", title: choice.label, checked: choice == session.host.settings.mouse) { session.setMouse(choice) }
@@ -490,7 +500,7 @@ private struct SessionBar: View {
                 .buttonStyle(.plain)
                 .help("Plein écran (⌃⌥⌘F)")
                 .accessibilityLabel("Plein écran")
-                .overlay(ring(0))
+                .overlay(ring(1))
             }
             Button { session.end() } label: {
                 HStack(spacing: 8) {
