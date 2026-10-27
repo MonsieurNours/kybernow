@@ -17,7 +17,12 @@ struct JoinView: View {
     @EnvironmentObject private var store: HostStore
     @Environment(\.dismiss) private var dismiss
     @StateObject private var model: ShareJoinModel
+    @StateObject private var camera = AddHostCamera()
     @FocusState private var codeFocused: Bool
+    /// « Code » (taper les six chiffres) ou « QR code » (scanner celui de l'hôte).
+    @State private var source: Source = .code
+
+    enum Source: Hashable { case code, qr }
 
     init(link: ShareJoinLink?) {
         _model = StateObject(wrappedValue: ShareJoinModel(link: link))
@@ -40,7 +45,9 @@ struct JoinView: View {
                 }
                 Text(ShareText.joinHelp).font(Theme.sans(15)).foregroundStyle(Theme.muted)
                     .fixedSize(horizontal: false, vertical: true)
-                codeField
+                // Un appareil photo : le choix « Code » / « QR code » en haut de l'écran.
+                JoinSourcePicker(source: $source)
+                if source == .qr { scanner } else { codeField }
                 AddHostField(label: ShareText.yourName, text: $model.name, submit: .go) { join() }
                 status
                 Button(ShareText.joinButton) { join() }
@@ -62,19 +69,57 @@ struct JoinView: View {
         .background(Theme.background)
         .environment(\.addHostWide, DeviceDisplay.isPad)
         .onAppear {
-            model.onJoined = { found in
+            // Le rappel ne retient que l'app et l'action de fermeture : en
+            // capturant la vue, qui tient `model` (StateObject), le modèle se
+            // retiendrait lui-même.
+            model.onJoined = { [app, dismiss] found in
                 dismiss()
                 // La feuille se ferme, puis la session s'ouvre à sa place.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { app.openGuestSession(found) }
             }
             model.start()
-            codeFocused = true
+            codeFocused = source == .code
         }
         .onDisappear {
             model.cancel()
             model.stop()
+            model.onJoined = nil
+            camera.stop()
+            camera.onCode = nil
         }
         .onChange(of: model.code) { _, _ in model.codeChanged() }
+        .onChange(of: source) { _, now in
+            // La caméra ne s'ouvre (et l'autorisation n'est demandée) que quand la personne choisit « QR code ».
+            if now == .qr {
+                codeFocused = false
+                camera.onCode = { [self] in scanned($0) }
+                camera.start()
+            } else {
+                camera.stop()
+                camera.onCode = nil
+            }
+        }
+    }
+
+    /// La caméra : le QR code du partage (celui de l'hôte, ou un lien `kybernow://join`).
+    private var scanner: some View {
+        AddHostCameraViewer(
+            camera: camera, wide: DeviceDisplay.isPad,
+            denied: "KyberNow Link n'a pas accès à la caméra. Autorisez-la dans les Réglages, ou tapez le code.",
+            unavailable: "Pas de caméra disponible sur cet appareil. Tapez le code."
+        )
+        .disabled(model.looking)
+    }
+
+    /// Un QR code lu : le code et l'ordinateur sont remplis, comme avec un lien ;
+    /// rien ne part avant « Rejoindre ». Les autres QR codes croisés sont ignorés.
+    private func scanned(_ text: String) {
+        guard case let .join(link)? = LinkKind.parse(text) else { return }
+        camera.onCode = nil
+        camera.stop()
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        model.use(link: link)
+        source = .code
     }
 
     /// Les six chiffres, en grand, groupés par trois.
@@ -121,6 +166,45 @@ struct JoinView: View {
     private func close() {
         model.cancel()
         dismiss()
+    }
+}
+
+/// « Code » / « QR code » : le choix en haut de « Rejoindre un partage » (appareil photo).
+private struct JoinSourcePicker: View {
+    @Binding var source: JoinView.Source
+
+    var body: some View {
+        HStack(spacing: 3) {
+            option(.code, ShareText.code)
+            option(.qr, ShareText.qrCode)
+        }
+        .padding(4)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white.opacity(0.05)))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.white.opacity(0.08)))
+        .animation(.easeOut(duration: 0.2), value: source)
+        .accessibilityElement(children: .contain)
+    }
+
+    private func option(_ value: JoinView.Source, _ title: String) -> some View {
+        let on = source == value
+        return Button { source = value } label: {
+            Text(title)
+                .font(Theme.sans(14, .semibold))
+                .foregroundStyle(on ? Theme.text : Theme.muted)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .background {
+                    if on {
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .fill(Color.white.opacity(0.12))
+                            .overlay(alignment: .bottom) { Rectangle().fill(Theme.accent).frame(height: 2) }
+                            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    }
+                }
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(AddHostPressStyle())
+        .accessibilityAddTraits(on ? .isSelected : [])
     }
 }
 
@@ -221,6 +305,12 @@ struct SharePanelView: View {
             if let copyResult {
                 Text(copyResult).font(Theme.sans(13)).foregroundStyle(copied ? Theme.ok : Theme.warnText)
                     .fixedSize(horizontal: false, vertical: true)
+                // Copie impossible : l'adresse à sélectionner à la main.
+                if !copied, let link = share.linkToCopy {
+                    Text(verbatim: link).font(Theme.mono(12)).foregroundStyle(Theme.text2)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
     }
@@ -251,8 +341,11 @@ struct SharePanelView: View {
         let ok = UIPasteboard.general.hasStrings
         copied = ok
         copyResult = ok ? ShareText.linkCopied : ShareText.copyFailed
+        // « Lien copié. » s'efface ; « Copie impossible… » et l'adresse restent à sélectionner.
+        guard ok else { return }
         Task {
             try? await Task.sleep(for: .seconds(3))
+            guard copied else { return }
             copyResult = nil
             copied = false
         }

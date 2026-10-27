@@ -59,13 +59,16 @@ struct JoinSheet: View {
         }
         .preferredColorScheme(.dark)
         .onAppear {
-            model.onJoined = { found in app.openGuestSession(found) }
+            // Le rappel ne retient que l'app : en capturant la vue, qui tient
+            // `model` (StateObject), le modèle se retiendrait lui-même.
+            model.onJoined = { [app] found in app.openGuestSession(found) }
             model.start()
             codeFocused = true
         }
         .onDisappear {
             model.cancel()
             model.stop()
+            model.onJoined = nil
         }
         .onChange(of: model.code) { _, _ in model.codeChanged() }
     }

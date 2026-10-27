@@ -150,7 +150,7 @@ struct SessionView: View {
                     .padding(.horizontal, 16)
                     .transition(.move(edge: .top).combined(with: .opacity))
             } else if streaming {
-                Tab(session: session)
+                Tab(session: session, share: session.share)
                     .frame(maxHeight: .infinity, alignment: .top)
                     .transition(.opacity)
             }
@@ -401,19 +401,43 @@ struct ConnectingCard: View {
 // MARK: - Languette et barre
 
 /// La languette : la toucher ouvre la barre (et ses statistiques). Aucun
-/// chiffre sur l'image tant qu'on ne les demande pas.
+/// chiffre sur l'image tant qu'on ne les demande pas, sauf un partage ouvert :
+/// sa pastille « 2 invités » reste là, avec la languette (la partie toujours
+/// visible de la barre), et rouvre le panneau du partage.
 private struct Tab: View {
     @ObservedObject var session: SessionController
+    @ObservedObject var share: ShareHostModel
 
     var body: some View {
-        Button { session.setBar(true) } label: {
-            Image(systemName: "chevron.down").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.muted)
-            .frame(width: 88, height: 26)
-            .background(UnevenRoundedRectangle(bottomLeadingRadius: 14, bottomTrailingRadius: 14).fill(.ultraThinMaterial))
-            .background(UnevenRoundedRectangle(bottomLeadingRadius: 14, bottomTrailingRadius: 14).fill(Theme.background.opacity(0.5)))
-            .environment(\.colorScheme, .dark)
+        let count = session.isGuest ? 0 : share.guests.count
+        HStack(spacing: 0) {
+            if count > 0 {
+                Button { session.shareSheet = true } label: {
+                    Text(ShareText.guestCount(count))
+                        .font(Theme.sans(11.5, .semibold))
+                        .foregroundStyle(Theme.text)
+                        .lineLimit(1)
+                        .fixedSize()
+                        .padding(.horizontal, 8)
+                        .frame(height: 20)
+                        .background(Capsule().fill(Theme.accentFill.opacity(0.28)))
+                        .overlay(Capsule().strokeBorder(Theme.accent.opacity(0.6)))
+                        .frame(minWidth: 44, minHeight: 26)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel(Text(verbatim: ShareText.share + ", " + ShareText.guestCount(count)))
+            }
+            Button { session.setBar(true) } label: {
+                Image(systemName: "chevron.down").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.muted)
+                    .frame(width: 88, height: 26)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel(Text("Afficher la barre de session"))
         }
-        .accessibilityLabel(Text("Afficher la barre de session"))
+        .padding(.horizontal, count > 0 ? 6 : 0)
+        .background(UnevenRoundedRectangle(bottomLeadingRadius: 14, bottomTrailingRadius: 14).fill(.ultraThinMaterial))
+        .background(UnevenRoundedRectangle(bottomLeadingRadius: 14, bottomTrailingRadius: 14).fill(Theme.background.opacity(0.5)))
+        .environment(\.colorScheme, .dark)
     }
 }
 
@@ -422,24 +446,32 @@ struct SessionBar: View {
     @ObservedObject var session: SessionController
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 4) {
-                Mark(size: 20, level: .lit).padding(.leading, 6)
-                if DeviceDisplay.isPad {
-                    Text(session.title).font(Theme.sans(14, .semibold)).foregroundStyle(Theme.text).padding(.horizontal, 6)
+        HStack(spacing: 0) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 4) {
+                    Mark(size: 20, level: .lit).padding(.leading, 6)
+                    if DeviceDisplay.isPad {
+                        Text(session.title).font(Theme.sans(14, .semibold)).foregroundStyle(Theme.text).padding(.horizontal, 6)
+                        separator
+                    }
+                    statsButton
                     separator
+                    if session.isGuest { guestRole } else { profileMenu }
+                    item("speaker-high", session.host.settings.audio == .off ? String(localized: "Ordinateur") : session.route.name)
+                    // Le clavier et la souris : pas pour un invité à qui l'hôte ne les a pas donnés.
+                    if keyboardAndMouse { touchAndMouse }
+                    screenAndOffer
+                    if keyboardAndMouse { keysAndKeyboard }
+                    // La manette à l'écran : pour un invité, seulement quand il joue.
+                    if !session.isGuest || session.shareRole.plays { padButton }
                 }
-                statsButton
+                .padding(.leading, 6)
+            }
+            // La partie qui ne défile pas, toujours visible : « Partager » et sa
+            // pastille « 2 invités » (hôte), masquer la barre, se déconnecter.
+            HStack(spacing: 4) {
                 separator
-                if session.isGuest { guestRole } else { profileAndShare }
-                item("speaker-high", session.host.settings.audio == .off ? String(localized: "Ordinateur") : session.route.name)
-                // Le clavier et la souris : pas pour un invité à qui l'hôte ne les a pas donnés.
-                if keyboardAndMouse { touchAndMouse }
-                screenAndOffer
-                if keyboardAndMouse { keysAndKeyboard }
-                // La manette à l'écran : pour un invité, seulement quand il joue.
-                if !session.isGuest || session.shareRole.plays { padButton }
-                separator
+                if !session.isGuest { ShareBarItem(session: session, share: session.share) }
                 hideAndExit
             }
             .padding(.horizontal, 6)
@@ -478,7 +510,7 @@ struct SessionBar: View {
             .accessibilityElement(children: .combine)
     }
 
-    @ViewBuilder private var profileAndShare: some View {
+    private var profileMenu: some View {
         Menu {
             ForEach(Profile.allCases) { profile in
                 Button { session.select(profile) } label: {
@@ -488,7 +520,6 @@ struct SessionBar: View {
         } label: {
             item("sliders-horizontal", session.host.settings.profileLabel)
         }
-        shareItem
     }
 
     @ViewBuilder private var touchAndMouse: some View {
@@ -525,7 +556,8 @@ struct SessionBar: View {
                 item("monitor", String(localized: "Écran"))
             }
         }
-        if let offer = session.modeRestoreOffer {
+        // Un invité ne change jamais l'écran de l'ordinateur : rien à remettre.
+        if let offer = session.modeRestoreOffer, !session.isGuest {
             Button { session.restoreMode() } label: { item("arrows-clockwise", offer) }
         }
     }
@@ -581,23 +613,48 @@ struct SessionBar: View {
     /// session, ou un invité à qui l'hôte les a donnés.
     private var keyboardAndMouse: Bool { !session.isGuest || session.shareRole.keyboardAndMouse }
 
-    /// « Partager » (KyberNow Share, hôte) : ouvre le partage et son panneau ;
-    /// inactif avec la raison quand l'ordinateur ne le permet pas. La pastille
-    /// « 2 invités » rouvre le panneau.
-    @ViewBuilder private var shareItem: some View {
+    private func item(_ icon: String, _ text: String) -> some View {
+        BarItemLabel(icon: icon, text: text)
+    }
+}
+
+/// Une commande de la barre : son icône et son libellé.
+private struct BarItemLabel: View {
+    let icon: String
+    let text: String
+
+    var body: some View {
+        VStack(spacing: 2) {
+            Icon(icon, size: 18).foregroundStyle(Theme.accentLight)
+            Text(text).font(Theme.sans(9.5)).foregroundStyle(Theme.text2).lineLimit(1)
+        }
+        .frame(minWidth: 48, minHeight: 44)
+        .padding(.horizontal, 4)
+    }
+}
+
+/// « Partager » (KyberNow Share, hôte), dans la partie de la barre qui ne
+/// défile pas : ouvre le partage et son panneau ; inactif (estompé) quand
+/// l'ordinateur ne le permet pas, le panneau dit alors pourquoi (pas
+/// d'infobulle au toucher). La pastille « 2 invités » rouvre le panneau.
+private struct ShareBarItem: View {
+    @ObservedObject var session: SessionController
+    /// Observé à part : la liste des invités change avec le signe de vie, pas avec la session.
+    @ObservedObject var share: ShareHostModel
+
+    var body: some View {
         let availability = session.shareAvailability
-        let count = session.share.guests.count
+        let count = share.guests.count
         let label = count > 0 ? ShareText.share + ", " + ShareText.guestCount(count) : ShareText.share
-        // Inactif (estompé) : le panneau dit pourquoi, faute d'infobulle au toucher.
         Button {
             session.shareSheet = true
-            if availability.isAvailable { Task { await session.share.openIfNeeded() } }
+            if availability.isAvailable { Task { await share.openIfNeeded() } }
         } label: {
             HStack(spacing: 2) {
-                item("share-network", ShareText.share)
-                if count > 0 { guestBadge(count) }
+                BarItemLabel(icon: "share-network", text: ShareText.share)
+                if count > 0 { badge(count) }
             }
-            .background { shareHighlight }
+            .background { highlight }
         }
         .opacity(availability.isAvailable ? 1 : 0.45)
         .accessibilityLabel(Text(verbatim: label))
@@ -605,7 +662,7 @@ struct SessionBar: View {
     }
 
     /// La pastille « 2 invités ».
-    private func guestBadge(_ count: Int) -> some View {
+    private func badge(_ count: Int) -> some View {
         Text(ShareText.guestCount(count))
             .font(Theme.sans(11.5, .semibold))
             .foregroundStyle(Theme.text)
@@ -618,22 +675,13 @@ struct SessionBar: View {
     }
 
     /// « Partager » allumé tant que le partage est ouvert.
-    @ViewBuilder private var shareHighlight: some View {
-        if session.share.isOpen {
+    @ViewBuilder private var highlight: some View {
+        if share.isOpen {
             RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .fill(Color.white.opacity(0.12))
                 .overlay(alignment: .bottom) { Rectangle().fill(Theme.accent).frame(height: 2) }
                 .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         }
-    }
-
-    private func item(_ icon: String, _ text: String) -> some View {
-        VStack(spacing: 2) {
-            Icon(icon, size: 18).foregroundStyle(Theme.accentLight)
-            Text(text).font(Theme.sans(9.5)).foregroundStyle(Theme.text2).lineLimit(1)
-        }
-        .frame(minWidth: 48, minHeight: 44)
-        .padding(.horizontal, 4)
     }
 }
 

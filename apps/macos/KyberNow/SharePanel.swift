@@ -126,6 +126,12 @@ struct SharePanel: View {
                 if let copyResult {
                     Text(copyResult).font(Theme.sans(12)).foregroundStyle(copied ? Theme.ok : Theme.warnText)
                         .fixedSize(horizontal: false, vertical: true)
+                    // Copie impossible : l'adresse à sélectionner à la main.
+                    if !copied, let link = share.linkToCopy {
+                        Text(verbatim: link).font(Theme.mono(11)).foregroundStyle(Theme.text2)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }
         }
@@ -181,8 +187,11 @@ struct SharePanel: View {
         let ok = board.setString(text, forType: .string)
         copied = ok
         copyResult = ok ? ShareText.linkCopied : ShareText.copyFailed
+        // « Lien copié. » s'efface ; « Copie impossible… » et l'adresse restent à sélectionner.
+        guard ok else { return }
         Task {
             try? await Task.sleep(for: .seconds(3))
+            guard copied else { return }
             copyResult = nil
             copied = false
         }

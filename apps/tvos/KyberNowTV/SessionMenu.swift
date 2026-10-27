@@ -10,6 +10,8 @@ import SwiftUI
 
 struct SessionMenu: View {
     @ObservedObject var session: SessionController
+    /// Le partage est observé à part : la liste des invités change avec le signe de vie, pas avec la session.
+    @ObservedObject private var share: ShareHostModel
     @EnvironmentObject private var pads: GamepadBridge
     @ObservedObject private var prefs = Preferences.shared
     @State private var showPads = false
@@ -19,6 +21,11 @@ struct SessionMenu: View {
     @FocusState private var focus: Item?
 
     enum Item: Hashable { case resume, pads, sound, mouse, padMouse, type, share, quit, restoreMode }
+
+    init(session: SessionController) {
+        self.session = session
+        _share = ObservedObject(wrappedValue: session.share)
+    }
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -235,19 +242,19 @@ struct SessionMenu: View {
     }
 
     /// « Partager » (KyberNow Share) : ouvre le partage de l'écran principal et
-    /// son panneau ; « 2 invités » quand il y en a ; inactif (estompé) avec la
-    /// raison quand l'ordinateur ne le permet pas.
+    /// son panneau ; « 2 invités » quand il y en a ; estompé quand l'ordinateur
+    /// ne le permet pas : la tuile reste sélectionnable, le panneau dit pourquoi.
     private var shareTile: some View {
         let availability = session.shareAvailability
-        let count = session.share.guests.count
-        let detail = availability.reason ?? (count > 0 ? ShareText.guestCount(count) : (session.share.isOpen ? Share.formatCode(session.share.state?.code ?? "") : ShareText.title(session.host.name)))
+        let count = share.guests.count
+        let detail = count > 0 ? ShareText.guestCount(count) : (share.isOpen ? Share.formatCode(share.state?.code ?? "") : ShareText.title(session.host.name))
         return Button {
             session.sharePanel = true
-            if availability.isAvailable { Task { await session.share.openIfNeeded() } }
+            if availability.isAvailable { Task { await share.openIfNeeded() } }
         } label: {
-            tileLabel(icon: "share-network", iconColor: session.share.isOpen ? Theme.accentLight : Theme.accent,
+            tileLabel(icon: "share-network", iconColor: share.isOpen ? Theme.accentLight : Theme.accent,
                       title: ShareText.share, detail: detail,
-                      trailing: session.share.isOpen ? AnyView(Toggle2(on: true)) : nil)
+                      trailing: share.isOpen ? AnyView(Toggle2(on: true)) : nil)
         }
         .buttonStyle(GlassButton(radius: 22, scale: 1.07))
         .focused($focus, equals: .share)

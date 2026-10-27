@@ -177,9 +177,7 @@ final class SessionController: NSObject, ObservableObject {
 
     /// « Partager » avec cet ordinateur : disponible, ou inactif avec la raison
     /// (d'après ce que la Station dit d'elle-même, relu à chaque sondage).
-    var shareAvailability: ShareAvailability {
-        store.status[host.id]?.info?.share ?? Share.unknownStation
-    }
+    var shareAvailability: ShareAvailability { share.availability }
 
     /// Session active : sa fenêtre est (ou a été la dernière) au premier
     /// plan. Elle seule reçoit le clavier, la souris, les manettes, le
@@ -311,7 +309,7 @@ final class SessionController: NSObject, ObservableObject {
         self.opening = opening
         self.onFinish = onFinish
         guest = nil
-        share = ShareHostModel(console: nil, availability: store.status[host.id]?.info?.share ?? Share.unknownStation)
+        share = ShareHostModel(console: nil) { [store, id = host.id] in ShareHostModel.availability(of: id, in: store) }
     }
 
     /// Une session d'invité : un invité d'une Station qui a accepté un code (`Share.join`).
@@ -330,7 +328,7 @@ final class SessionController: NSObject, ObservableObject {
         self.onFinish = onFinish
         guest = found
         shareRole = found.role
-        share = ShareHostModel(console: nil, availability: .available)
+        share = ShareHostModel(console: nil) { .available }
     }
 
     // MARK: - Fenêtre
@@ -1238,7 +1236,13 @@ final class SessionController: NSObject, ObservableObject {
     /// L'hôte a changé le rôle de l'invité (« Vous pouvez jouer. ») ; au
     /// départ (`previous` nil), le rôle seulement.
     private func shareRoleChanged(_ role: ShareRole, previous: ShareRole?) {
+        // Une session finie, ou qui se ferme, n'affiche plus rien.
+        guard isLive, phase != .ending else { return }
         shareRole = role
+        // Sans le clavier et la souris, rien ne part vers l'ordinateur : le
+        // pointeur du Mac n'est plus capturé (souris des jeux) ; avec, le choix
+        // de la barre reprend.
+        streamView.mouseMode = role.keyboardAndMouse ? host.settings.mouse.streamMode : .desktop
         if let text = ShareText.roleNotice(role, previous: previous) {
             showHint(.notice(text), after: 0, for: 4)
         }
@@ -1506,8 +1510,14 @@ final class SessionController: NSObject, ObservableObject {
         setMouse(streamView.isRelative ? .desktop : .game)
     }
 
+    /// Le clavier et la souris de ce Mac partent vers l'ordinateur : une
+    /// session d'hôte, ou un invité à qui l'hôte les a donnés.
+    var hasKeyboardAndMouse: Bool { !isGuest || shareRole.keyboardAndMouse }
+
     /// Choix de la barre ou de ⌃⌥⌘M, gardé pour cet ordinateur.
     func setMouse(_ choice: MouseChoice) {
+        // Un invité sans le clavier et la souris n'a pas de souris à régler.
+        guard hasKeyboardAndMouse else { return }
         commit { $0.settings.mouse = choice }
         streamView.mouseMode = choice.streamMode
     }

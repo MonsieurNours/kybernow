@@ -89,12 +89,15 @@ struct JoinView: View {
         .defaultFocus($focus, .digit(1))
         .onExitCommand { leave() }
         .onAppear {
-            model.onJoined = { found in app.openGuestSession(found) }
+            // Le rappel ne retient que l'app : en capturant la vue, qui tient
+            // `model` (StateObject), le modèle se retiendrait lui-même.
+            model.onJoined = { [app] found in app.openGuestSession(found) }
             model.start()
         }
         .onDisappear {
             model.cancel()
             model.stop()
+            model.onJoined = nil
         }
         .onChange(of: model.code) { _, _ in
             model.codeChanged()
@@ -293,25 +296,31 @@ struct SharePanelTV: View {
     }
 
     /// Un invité : son prénom, son rôle, son app et depuis quand ; ses actions.
+    /// Le prénom, le rôle, l'app et la durée sur une ligne, les actions dessous :
+    /// « Donner le clavier et la souris » tient en entier, sans être coupé.
     private func guestRow(_ guest: ShareGuest) -> some View {
-        HStack(spacing: 18) {
-            Icon(guest.role.plays ? "game-controller" : "eye", size: 32)
-                .foregroundStyle(guest.role.plays ? Theme.accent : Theme.faint)
-                .frame(width: 40)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(ShareText.guest(guest.name, guest.role)).font(Theme.sans(25, .semibold)).foregroundStyle(Theme.text).lineLimit(2)
-                Text(detail(guest)).font(Theme.sans(18)).foregroundStyle(Theme.faint).lineLimit(1)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 18) {
+                Icon(guest.role.plays ? "game-controller" : "eye", size: 32)
+                    .foregroundStyle(guest.role.plays ? Theme.accent : Theme.faint)
+                    .frame(width: 40)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(ShareText.guest(guest.name, guest.role)).font(Theme.sans(25, .semibold)).foregroundStyle(Theme.text).lineLimit(2)
+                    Text(detail(guest)).font(Theme.sans(18)).foregroundStyle(Theme.faint).lineLimit(1)
+                }
+                Spacer(minLength: 0)
             }
-            .frame(width: 320, alignment: .leading)
-            Spacer(minLength: 0)
-            ForEach(Array(ShareHostModel.roleActions(for: guest.role).enumerated()), id: \.offset) { i, action in
-                Button(action.title) { Task { await share.setRole(action.role, of: guest) } }
-                    .buttonStyle(ChoiceButton(selected: false, height: 60, light: true))
-                    .focused($focus, equals: .role(guest.id, i))
+            HStack(spacing: 14) {
+                ForEach(Array(ShareHostModel.roleActions(for: guest.role).enumerated()), id: \.offset) { i, action in
+                    Button { Task { await share.setRole(action.role, of: guest) } } label: { Text(action.title).lineLimit(1).fixedSize() }
+                        .buttonStyle(ChoiceButton(selected: false, height: 56, light: true))
+                        .focused($focus, equals: .role(guest.id, i))
+                }
+                Button { Task { await share.kick(guest) } } label: { Text(ShareText.remove).lineLimit(1).fixedSize() }
+                    .buttonStyle(ChoiceButton(selected: false, height: 56, light: true))
+                    .focused($focus, equals: .kick(guest.id))
             }
-            Button(ShareText.remove) { Task { await share.kick(guest) } }
-                .buttonStyle(ChoiceButton(selected: false, height: 60, light: true))
-                .focused($focus, equals: .kick(guest.id))
+            .padding(.leading, 58)
         }
         .disabled(share.busy)
     }
