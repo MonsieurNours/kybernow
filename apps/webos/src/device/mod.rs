@@ -608,6 +608,8 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
             if app.polled(&id, polled) {
                 app.store.save();
             }
+            // « Partager » attendait cette réponse : le partage s'ouvre, ou le panneau dit pourquoi il ne le peut pas.
+            actions.extend(app.share_known(&id));
         }
         Event::Station { id, op, result } => app.station_answer(&id, op, result),
         Event::Preview { id, jpeg } => {

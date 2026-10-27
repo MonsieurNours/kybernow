@@ -9,7 +9,7 @@
 //! choix rendent des `Action`, que le pilote du téléviseur (`device`) exécute.
 
 use std::collections::HashMap;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use tiny_skia::Pixmap;
 
@@ -414,18 +414,14 @@ impl ShareGuest {
         format!("{} · {}", self.name, self.role.long_label())
     }
 
-    /// « iPhone ou iPad · depuis 4 minutes » : son app, et depuis quand il est là (`now` : secondes
-    /// depuis 1970). Sans arrivée lisible, l'app seule.
+    /// « iPhone ou iPad · depuis 4 min » : son app, et depuis quand il est là (`now` : secondes depuis 1970).
+    /// `since` est en secondes Unix, d'après l'horloge de la Station : la durée n'est jamais négative (horloges
+    /// décalées). Sans arrivée lisible, l'app seule.
     pub fn meta(&self, now: i64) -> String {
         let app = app_label(&self.app);
         match self.since {
-            Some(t) => {
-                // Une Station qui donne des millisecondes reste lisible.
-                let t = if t > 100_000_000_000 { t / 1000 } else { t };
-                let d = tr("depuis", "for");
-                format!("{app} · {d} {}", duration_label((now - t).max(0) as u64))
-            }
-            None => app,
+            Some(t) if t > 0 => format!("{app} · {} {}", tr("depuis", "for"), duration_label(now.saturating_sub(t).max(0) as u64)),
+            _ => app,
         }
     }
 }
@@ -446,13 +442,13 @@ pub fn app_label(app: &str) -> String {
     }
 }
 
-/// « moins d'une minute », « 42 minutes », « 2 h 05 » (le format d'Admin) : la durée d'un invité.
+/// « moins d'une minute », « 3 min », « 1 h 12 » (docs/link-ui.md) : la durée d'un invité.
 pub fn duration_label(seconds: u64) -> String {
     let m = seconds / 60;
     if m < 1 {
-        tr("moins d'une minute", "less than a minute").into()
+        tr("moins d'une minute", "under a minute").into()
     } else if m < 60 {
-        format!("{m} {}", if m == 1 { tr("minute", "minute") } else { tr("minutes", "minutes") })
+        format!("{m} min")
     } else {
         format!("{} h {:02}", m / 60, m % 60)
     }
@@ -478,6 +474,16 @@ pub fn guests_label(n: usize) -> String {
         format!("{n} {}", if n == 1 { "guest" } else { "guests" })
     } else {
         format!("{n} {}", if n >= 2 { "invités" } else { "invité" })
+    }
+}
+
+/// Le sous-titre de la tuile « Partager » du menu, et si la tuile est allumée (le partage est ouvert) : « 2 invités »
+/// dès qu'il y a un invité ; sinon, le partage ouvert, son code (« 123 456 ») ; sinon « Code et QR code ».
+pub fn share_tile(share: Option<&ShareView>) -> (String, bool) {
+    match share {
+        Some(v) if !v.guests.is_empty() => (guests_label(v.guests.len()), true),
+        Some(v) => (format_code(&v.code), true),
+        None => (tr("Code et QR code", "Code and QR code").to_string(), false),
     }
 }
 
@@ -522,14 +528,14 @@ impl ShareMove {
 }
 
 impl ShareRole {
-    /// Ce que l'hôte peut faire d'un invité de ce rôle, comme le panneau d'Admin : un spectateur, « Faire
-    /// jouer » ; un joueur, « Donner le clavier et la souris » et « Faire regarder » ; un joueur avec le
-    /// clavier et la souris, « Reprendre le clavier et la souris ». Puis « Retirer ».
+    /// Ce que l'hôte peut faire d'un invité de ce rôle, comme le panneau d'Admin et les autres apps : un
+    /// spectateur, « Faire jouer » ; un joueur, « Donner le clavier et la souris » et « Faire regarder » ; un
+    /// joueur avec le clavier et la souris, « Reprendre le clavier et la souris » et « Faire regarder » (retour
+    /// en spectateur, dans les deux cas). Puis « Retirer ».
     pub fn moves(self) -> &'static [ShareMove] {
         match self {
             ShareRole::Spectator => &[ShareMove::Play],
-            ShareRole::Player => &[ShareMove::Kbm, ShareMove::Watch],
-            ShareRole::PlayerKbm => &[ShareMove::Kbm],
+            ShareRole::Player | ShareRole::PlayerKbm => &[ShareMove::Kbm, ShareMove::Watch],
         }
     }
 }
@@ -632,6 +638,13 @@ pub struct SessionUi {
     pub share_panel: bool,
     pub share_busy: bool,
     pub share_error: Option<String>,
+    /// « Partager » choisi avant la première réponse d'Admin (`Info::share` pas encore connue) : le panneau attend
+    /// cette réponse, puis ouvre le partage ou dit pourquoi il ne peut pas (`App::share_known`).
+    pub share_wait: bool,
+    /// Quand le partage s'est ouvert, et quand l'hôte l'a arrêté : un signe de vie parti avant ne le défait pas
+    /// (`None` : un partage fermé) ni ne le rouvre (comme l'app Mac).
+    pub share_opened: Option<Instant>,
+    pub share_closed: Option<Instant>,
     /// KyberNow Share, session d'invité : l'ordinateur qui partage et le rôle donné par l'hôte.
     pub guest: Option<GuestUi>,
 }
@@ -658,6 +671,9 @@ impl SessionUi {
             share_panel: false,
             share_busy: false,
             share_error: None,
+            share_wait: false,
+            share_opened: None,
+            share_closed: None,
             guest: None,
         }
     }
@@ -1528,27 +1544,18 @@ impl App {
         self.live.get(&s.host).and_then(|l| l.share)
     }
 
-    /// « Partager » (menu de session) : inactif, il dit pourquoi ; sinon il ouvre le partage de l'écran
-    /// principal (une demande à Admin) et son panneau, ou, déjà ouvert, le panneau.
+    /// « Partager » (tuile du menu de session) : il ouvre le partage de l'écran principal (une demande à Admin) et
+    /// son panneau, ou, déjà ouvert, le panneau. Partage impossible (Station trop ancienne, partage coupé) : la
+    /// tuile est estompée mais se choisit, et le panneau qu'elle ouvre est réduit à la raison. Tant qu'Admin n'a pas
+    /// dit ce que l'ordinateur permet, le panneau attend sa réponse (`share_known`) au lieu de laisser une tuile muette.
     fn share_button(&mut self) -> Vec<Action> {
         let Some(s) = self.session.as_ref() else { return Vec::new() };
         if s.guest.is_some() {
             return Vec::new();
         }
         let (open, shown) = (s.share.is_some(), s.share_panel);
-        match self.share_avail() {
-            Some(ShareAvail::Available) => {}
-            Some(a) => {
-                if let Some(text) = a.text()
-                    && let Some(s) = self.session.as_mut()
-                {
-                    s.menu = false;
-                    s.notice = Some((text.into(), Instant::now()));
-                }
-                return Vec::new();
-            }
-            None => return Vec::new(),
-        }
+        let avail = self.share_avail();
+        let blocked = avail.is_some_and(|a| a != ShareAvail::Available);
         let Some(s) = self.session.as_mut() else { return Vec::new() };
         if shown {
             s.share_panel = false;
@@ -1558,14 +1565,33 @@ impl App {
         s.share_panel = true;
         s.menu = false;
         let mut acts = vec![Action::ReleaseAll];
-        if open {
-            self.focus = Target::ShareNewCode;
-        } else {
+        let focus = if open { Target::ShareNewCode } else { Target::ShareClose };
+        if !open && !blocked {
             s.share_busy = true;
-            self.focus = Target::ShareClose;
-            acts.push(Action::Share(ShareOp::Open));
+            if avail.is_some() {
+                acts.push(Action::Share(ShareOp::Open));
+            } else {
+                s.share_wait = true;
+                acts.push(Action::Poll(s.host.clone()));
+            }
         }
+        self.focus = focus;
         acts
+    }
+
+    /// Admin a répondu à un sondage de l'ordinateur `host` : la session dont le panneau de « Partager » attendait
+    /// cette réponse ouvre le partage, ou dit pourquoi elle ne le peut pas (le panneau se réduit à la raison).
+    /// Sans réponse (ordinateur injoignable), la demande part quand même : le refus qui revient dit pourquoi. Un
+    /// panneau refermé entre-temps n'ouvre rien.
+    pub fn share_known(&mut self, host: &str) -> Vec<Action> {
+        let avail = self.live.get(host).and_then(|l| l.share);
+        let Some(s) = self.session.as_mut().filter(|s| s.host == host && s.share_wait) else { return Vec::new() };
+        s.share_wait = false;
+        if !s.share_panel || avail.is_some_and(|a| a != ShareAvail::Available) {
+            s.share_busy = false;
+            return Vec::new();
+        }
+        vec![Action::Share(ShareOp::Open)]
     }
 
     /// Une demande de l'hôte à Admin : « Nouveau code », « Retirer », « Arrêter le partage », un rôle.
@@ -1604,6 +1630,11 @@ impl App {
                 let first = s.share.is_none() && view.is_some();
                 if view.is_none() {
                     s.share_panel = false;
+                    s.share_opened = None;
+                    s.share_closed = Some(Instant::now());
+                } else if first {
+                    s.share_opened = Some(Instant::now());
+                    s.share_closed = None;
                 }
                 s.share = view;
                 s.share_error = None;
@@ -1615,15 +1646,21 @@ impl App {
         }
     }
 
-    /// Le signe de vie de l'hôte porte la liste des invités (`Platform::on_guests`).
+    /// Le signe de vie de l'hôte porte la liste des invités (`Platform::on_guests`). Un signe de vie parti avant
+    /// une réponse d'Admin ne la défait pas : ni un partage qu'on vient d'ouvrir (fermé pendant 8 s au plus), ni
+    /// un partage qu'on vient d'arrêter (rouvert pendant 3 s au plus), comme l'app Mac.
     pub fn share_guests(&mut self, view: Option<ShareView>) {
         let Some(s) = self.session.as_mut() else { return };
-        // Une ouverture en cours (`Open`) n'est pas défaite par un signe de vie parti avant elle.
-        if view.is_none() && s.share_busy {
-            return;
+        match &view {
+            None if s.share_busy || s.share_opened.is_some_and(|t| t.elapsed() < Duration::from_secs(8)) => return,
+            Some(_) if s.share_closed.is_some_and(|t| t.elapsed() < Duration::from_secs(3)) => return,
+            _ => {}
         }
         if view.is_none() {
             s.share_panel = false;
+            s.share_opened = None;
+        } else if s.share.is_none() {
+            s.share_opened = Some(Instant::now());
         }
         s.share = view;
     }
