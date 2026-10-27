@@ -1,6 +1,6 @@
 //! « Rejoindre un partage » (KyberNow Share, docs/link-ui.md, « Partage ») : le code à six chiffres que
 //! l'hôte affiche, « Votre prénom » (proposé : le nom de l'appareil, retenu pour la fois suivante),
-//! « Qualité de l'image » (quatre choix, « Auto » proposé, retenue aussi) et « Rejoindre ». Au bureau, au clavier ; à la manette (Steam Deck, salon, KyberNow Link OS), un pavé à
+//! « Qualité de l'image » (cinq choix, « Auto » proposé, retenue aussi) et « Rejoindre ». Au bureau, au clavier ; à la manette (Steam Deck, salon, KyberNow Link OS), un pavé à
 //! droite : les chiffres pour le code, les lettres pour le prénom (comme le mot de passe du Wi-Fi) ; un
 //! clavier marche partout. La recherche part aux ordinateurs trouvés sur le réseau ; le texte du refus est
 //! celui du cœur.
@@ -107,7 +107,7 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
     }
     y += fh + if tight { 18.0 } else { 26.0 } * u;
 
-    // « Qualité de l'image » : les quatre choix, « Auto » proposé ; retenue pour la fois suivante. Au clavier, au
+    // « Qualité de l'image » : les cinq choix, « Auto » proposé ; retenue pour la fois suivante. Au clavier, au
     // pavé ou à la télécommande, les flèches passent d'un choix à l'autre.
     eyebrow(cv, x0, y + 8.0 * u, 11.5 * u, FAINT, tr("Qualité de l'image", "Picture quality"));
     y += label_h;

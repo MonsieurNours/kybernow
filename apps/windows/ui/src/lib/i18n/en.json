@@ -333,6 +333,7 @@
     "quality": "Picture quality",
     "quality_auto": "Auto",
     "quality_host": "Same as host",
+    "quality_2160p60": "4K · 60 Hz",
     "quality_1080p60": "1080p · 60 Hz",
     "quality_720p30": "720p · 30 Hz"
   },

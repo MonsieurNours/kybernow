@@ -471,7 +471,7 @@ pub enum MenuItem {
     Gamepads,
     /// KyberNow Share : « Partager » (hôte).
     Share,
-    /// KyberNow Share, invité : « Qualité de l'image » (la tuile montre la qualité reçue ; ouvre les quatre choix).
+    /// KyberNow Share, invité : « Qualité de l'image » (la tuile montre la qualité reçue ; ouvre les cinq choix).
     Quality,
     Disconnect,
 }
@@ -499,7 +499,7 @@ pub enum BarMenu {
     Computers,
     /// KyberNow Share : le panneau de l'hôte (code, QR code, invités).
     Share,
-    /// KyberNow Share, invité : « Qualité de l'image » (les quatre choix).
+    /// KyberNow Share, invité : « Qualité de l'image » (les cinq choix).
     Quality,
 }
 
@@ -604,6 +604,8 @@ pub enum ShareQuality {
     Auto,
     /// « Comme l'hôte ».
     Host,
+    /// « 4K · 60 Hz ».
+    P2160_60,
     /// « 1080p · 60 Hz ».
     P1080_60,
     /// « 720p · 30 Hz ».
@@ -612,13 +614,14 @@ pub enum ShareQuality {
 
 impl ShareQuality {
     /// Dans l'ordre du choix.
-    pub const ALL: [ShareQuality; 4] = [Self::Auto, Self::Host, Self::P1080_60, Self::P720_30];
+    pub const ALL: [ShareQuality; 5] = [Self::Auto, Self::Host, Self::P2160_60, Self::P1080_60, Self::P720_30];
 
-    /// Le nom retenu dans `kybernow.json` : celui de l'échange avec Admin (`auto`, `host`, `1080p60`, `720p30`).
+    /// Le nom retenu dans `kybernow.json` : celui de l'échange avec Admin (`auto`, `host`, `2160p60`, `1080p60`, `720p30`).
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Auto => "auto",
             Self::Host => "host",
+            Self::P2160_60 => "2160p60",
             Self::P1080_60 => "1080p60",
             Self::P720_30 => "720p30",
         }
@@ -629,11 +632,12 @@ impl ShareQuality {
         Self::ALL.into_iter().find(|q| q.as_str() == s.trim()).unwrap_or_default()
     }
 
-    /// « Auto », « Comme l'hôte », « 1080p · 60 Hz », « 720p · 30 Hz » (docs/link-ui.md, « Qualité de l'image »).
+    /// « Auto », « Comme l'hôte », « 4K · 60 Hz », « 1080p · 60 Hz », « 720p · 30 Hz » (docs/link-ui.md, « Qualité de l'image »).
     pub fn label(self) -> &'static str {
         match self {
             Self::Auto => tr("Auto", "Auto"),
             Self::Host => tr("Comme l'hôte", "Same as host"),
+            Self::P2160_60 => "4K · 60 Hz",
             Self::P1080_60 => "1080p · 60 Hz",
             Self::P720_30 => "720p · 30 Hz",
         }
@@ -870,7 +874,7 @@ pub struct JoinState {
     /// Les chiffres tapés, six au plus.
     pub code: String,
     pub name: String,
-    /// « Qualité de l'image » : sous le prénom, quatre choix (`Target::JoinQuality`).
+    /// « Qualité de l'image » : sous le prénom, cinq choix (`Target::JoinQuality`).
     pub quality: ShareQuality,
     pub field: JoinField,
     /// Majuscule du pavé des lettres (manette), pour la touche suivante.
@@ -1454,7 +1458,7 @@ pub enum Target {
     JoinCode,
     JoinName,
     JoinGo,
-    /// KyberNow Share, invité : « Qualité de l'image », à « Rejoindre » (les quatre choix sous le prénom).
+    /// KyberNow Share, invité : « Qualité de l'image », à « Rejoindre » (les cinq choix sous le prénom).
     JoinQuality(ShareQuality),
     /// La puce de la barre d'un invité (la qualité reçue) et son menu ; un choix de ce menu, ou du panneau à la
     /// manette.
@@ -2550,7 +2554,7 @@ impl App {
                 Vec::new()
             }
             Target::JoinGo => self.join_go(),
-            // « Qualité de l'image », sous le prénom : un des quatre choix (retenu au « Rejoindre »).
+            // « Qualité de l'image », sous le prénom : un des cinq choix (retenu au « Rejoindre »).
             Target::JoinQuality(q) => {
                 if !self.join.busy {
                     self.join.quality = q;
@@ -3361,7 +3365,7 @@ impl App {
                 s.menu = false;
                 self.share_button(true)
             }
-            // « Qualité de l'image » (invité) : le menu se ferme, les quatre choix s'ouvrent sur l'image ; B revient au menu.
+            // « Qualité de l'image » (invité) : le menu se ferme, les cinq choix s'ouvrent sur l'image ; B revient au menu.
             MenuItem::Quality => {
                 let Some(q) = s.guest.as_ref().map(|g| g.quality) else { return Vec::new() };
                 s.menu = false;
@@ -4693,7 +4697,7 @@ mod tests {
         assert_eq!(app.join.name, "Léa");
     }
 
-    /// « Qualité de l'image » à « Rejoindre » : « Auto » est proposé, les quatre choix se prennent (clavier, pavé, souris),
+    /// « Qualité de l'image » à « Rejoindre » : « Auto » est proposé, les cinq choix se prennent (clavier, pavé, souris),
     /// le choix est retenu avec le prénom (`kybernow.json`) et revient la fois suivante ; il part avec « Rejoindre » ;
     /// pendant la recherche, il ne change plus ; un nom inconnu du fichier se lit « Auto ».
     #[test]
@@ -4704,10 +4708,11 @@ mod tests {
         app.go(Screen::Home);
         app.activate(Target::JoinCard);
         assert_eq!(app.join.quality, ShareQuality::Auto, "« Auto » proposé");
-        assert_eq!(ShareQuality::ALL.map(ShareQuality::label), ["Auto", "Comme l'hôte", "1080p · 60 Hz", "720p · 30 Hz"]);
+        assert_eq!(ShareQuality::ALL.map(ShareQuality::label), ["Auto", "Comme l'hôte", "4K · 60 Hz", "1080p · 60 Hz", "720p · 30 Hz"]);
         crate::i18n::force_english(true);
-        assert_eq!(ShareQuality::ALL.map(ShareQuality::label), ["Auto", "Same as host", "1080p · 60 Hz", "720p · 30 Hz"]);
+        assert_eq!(ShareQuality::ALL.map(ShareQuality::label), ["Auto", "Same as host", "4K · 60 Hz", "1080p · 60 Hz", "720p · 30 Hz"]);
         crate::i18n::force_english(false);
+        assert_eq!(ShareQuality::ALL.map(ShareQuality::as_str), ["auto", "host", "2160p60", "1080p60", "720p30"], "les noms de l'échange avec Admin, dans l'ordre des choix");
         for q in ShareQuality::ALL {
             assert!(app.activate(Target::JoinQuality(q)).is_empty());
             assert_eq!(app.join.quality, q);
@@ -4735,7 +4740,31 @@ mod tests {
         assert_eq!(app.join.quality, ShareQuality::Auto);
     }
 
-    /// Au pavé, les flèches vont du prénom aux quatre choix de « Qualité de l'image », puis à « Rejoindre » : rien n'est
+    /// « 4K · 60 Hz » à « Rejoindre » : placé entre « Comme l'hôte » et « 1080p · 60 Hz », il part avec le code
+    /// (`2160p60` dans `kybernow.json`) et revient la fois suivante.
+    #[test]
+    fn joining_a_share_in_4k() {
+        crate::i18n::force_english(false);
+        let mut app = App::new(Store::default(), Layout::Desktop);
+        app.device_name = "fedora-bureau".into();
+        app.go(Screen::Home);
+        app.activate(Target::JoinCard);
+        assert_eq!(ShareQuality::ALL.iter().position(|q| *q == ShareQuality::P2160_60), Some(2), "après « Comme l'hôte »");
+        assert!(app.activate(Target::JoinQuality(ShareQuality::P2160_60)).is_empty());
+        assert_eq!(app.join.quality, ShareQuality::P2160_60);
+        for c in "482917".chars() {
+            app.nav(Nav::Char(c));
+        }
+        let acts = app.activate(Target::JoinGo);
+        assert_eq!(acts, vec![Action::Save, Action::JoinShare { code: "482917".into(), name: "fedora-bureau".into(), quality: ShareQuality::P2160_60 }]);
+        assert_eq!(app.store.app.share_quality, "2160p60");
+        app.nav(Nav::Back);
+        app.activate(Target::JoinCard);
+        assert_eq!(app.join.quality, ShareQuality::P2160_60, "retenu pour la fois suivante");
+        assert_eq!(ShareQuality::parse("2160p60"), ShareQuality::P2160_60);
+    }
+
+    /// Au pavé, les flèches vont du prénom aux cinq choix de « Qualité de l'image », puis à « Rejoindre » : rien n'est
     /// atteint sans eux.
     #[test]
     fn picture_quality_is_reached_with_the_pad() {
@@ -4748,7 +4777,7 @@ mod tests {
             cv.resize(size.0, size.1, 1.0);
             app.hits = crate::ui::draw(&app, &mut cv);
             let quality: Vec<Rect> = ShareQuality::ALL.iter().map(|q| app.hits.iter().find(|(t, _)| *t == Target::JoinQuality(*q)).expect("un choix").1).collect();
-            assert!(quality.windows(2).all(|w| w[0].x + w[0].w <= w[1].x + 0.5 && (w[0].y - w[1].y).abs() < 0.5), "{layout:?} : quatre choix sur une ligne");
+            assert!(quality.windows(2).all(|w| w[0].x + w[0].w <= w[1].x + 0.5 && (w[0].y - w[1].y).abs() < 0.5), "{layout:?} : cinq choix sur une ligne");
             let name = app.hits.iter().find(|(t, _)| *t == Target::JoinName).unwrap().1;
             let go = app.hits.iter().find(|(t, _)| *t == Target::JoinGo).unwrap().1;
             assert!(name.y + name.h <= quality[0].y && quality[0].y + quality[0].h <= go.y, "{layout:?} : sous le prénom, au-dessus de « Rejoindre »");
@@ -4760,6 +4789,13 @@ mod tests {
             assert_eq!(app.focus, Target::JoinQuality(ShareQuality::Host), "{layout:?}");
             app.nav(Nav::Ok);
             assert_eq!(app.join.quality, ShareQuality::Host, "{layout:?} : Entrée choisit");
+            app.nav(Nav::Right);
+            assert_eq!(app.focus, Target::JoinQuality(ShareQuality::P2160_60), "{layout:?} : « 4K · 60 Hz » après « Comme l'hôte »");
+            app.nav(Nav::Right);
+            assert_eq!(app.focus, Target::JoinQuality(ShareQuality::P1080_60), "{layout:?}");
+            app.nav(Nav::Left);
+            app.nav(Nav::Ok);
+            assert_eq!(app.join.quality, ShareQuality::P2160_60, "{layout:?}");
             app.nav(Nav::Down);
             assert_eq!(app.focus, Target::JoinGo, "{layout:?}");
         }
@@ -4767,7 +4803,7 @@ mod tests {
 
     /// La qualité de l'image en session : la barre et la tuile montrent la qualité reçue (le choix tant que Kyber ne la
     /// donne pas) ; un choix part à la Station, est retenu, ferme le menu ; le même choix ne demande rien ; à la manette,
-    /// la tuile ouvre les quatre choix et B revient au menu ; l'avis de la Station s'affiche en capsule.
+    /// la tuile ouvre les cinq choix et B revient au menu ; l'avis de la Station s'affiche en capsule.
     #[test]
     fn picture_quality_in_a_guest_session() {
         crate::i18n::force_english(false);
@@ -4791,6 +4827,16 @@ mod tests {
         app.share_image(id, Some("720p · 30 Hz".into()), Some("Picture lightened to keep up.".into()));
         assert_eq!(shown(&app), "720p · 30 Hz");
         assert_eq!(app.session().unwrap().notice.as_ref().map(|n| n.0.as_str()), Some("Picture lightened to keep up."));
+        // « 4K · 60 Hz » en cours de session : il part à la Station, est retenu, et la qualité reçue le dit.
+        app.activate(Target::BarQuality);
+        let acts = app.activate(Target::QualityPick(ShareQuality::P2160_60));
+        assert_eq!(acts, vec![Action::ShareQuality(id, ShareQuality::P2160_60), Action::Save]);
+        assert_eq!(app.store.app.share_quality, "2160p60");
+        app.share_image(id, Some("4K · 60 Hz".into()), None);
+        assert_eq!(shown(&app), "4K · 60 Hz");
+        app.activate(Target::BarQuality);
+        app.activate(Target::QualityPick(ShareQuality::P720_30));
+        app.share_image(id, Some("720p · 30 Hz".into()), None);
         // Kyber ne sait plus la taille : plus de qualité reçue, le choix se montre.
         app.share_image(id, None, None);
         assert!(app.session().unwrap().guest.as_ref().unwrap().image.is_none());
@@ -4803,7 +4849,7 @@ mod tests {
         assert_ne!(app.active, Some(id));
         assert!(app.activate(Target::QualityPick(ShareQuality::Host)).is_empty());
         app.activate_session(id);
-        // À la manette : la tuile du menu ouvre les quatre choix sur l'image ; B revient au menu ; un choix revient à l'image.
+        // À la manette : la tuile du menu ouvre les cinq choix sur l'image ; B revient au menu ; un choix revient à l'image.
         app.layout = Layout::Handheld;
         app.session_mut().unwrap().menu = true;
         assert_eq!(app.activate(Target::Menu(MenuItem::Quality)), vec![Action::ReleaseAll(id)]);

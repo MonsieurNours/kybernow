@@ -215,7 +215,7 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         tiles.push((MenuItem::Gamepads, Icon::Gamepad, tr("Manettes", "Controllers").into(), Some(format!("{} {}", app.pads.len(), tr("branchée(s)", "connected"))), false, false));
     }
     if let Some(g) = &s.guest {
-        // « Qualité de l'image » : la tuile montre la qualité reçue (le choix tant que Kyber ne la donne pas) et ouvre les quatre choix.
+        // « Qualité de l'image » : la tuile montre la qualité reçue (le choix tant que Kyber ne la donne pas) et ouvre les cinq choix.
         tiles.push((MenuItem::Quality, Icon::Monitor, tr("Qualité de l'image", "Picture quality").into(), Some(g.shown().into()), false, false));
         tiles.push((MenuItem::Disconnect, Icon::Logout, tr("Quitter le partage", "Leave").into(), Some(s.name.clone()), true, false));
     } else {

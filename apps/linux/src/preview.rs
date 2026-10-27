@@ -1489,7 +1489,7 @@ mod tests {
         assert!(ui::at_bar_edge(&mut cv, &app, &s, 1280.0, 640.0, 0.0));
     }
 
-    /// « Qualité de l'image » d'un invité, au bureau : une puce dans la barre (la qualité reçue), les quatre choix dans son
+    /// « Qualité de l'image » d'un invité, au bureau : une puce dans la barre (la qualité reçue), les cinq choix dans son
     /// menu ; l'hôte n'en a pas. Même dans la fenêtre la plus étroite (960 points), avec tous les droits et la qualité reçue
     /// la plus longue, la barre reste dans la fenêtre.
     #[test]
@@ -1520,11 +1520,11 @@ mod tests {
                 for (t, r) in &hits {
                     assert!(r.x >= 0.0 && r.x + r.w <= size.0 as f32, "{size:?} {role:?} : {t:?} sort de la fenêtre : {r:?}");
                 }
-                // Le menu : les quatre choix, dans la fenêtre, chacun choisissable.
+                // Le menu : les cinq choix, dans la fenêtre, chacun choisissable.
                 app.session_mut().unwrap().bar_menu = Some(BarMenu::Quality);
                 let hits = ui::draw(&app, &mut cv);
                 let picks: Vec<_> = hits.iter().filter(|(t, _)| matches!(t, Target::QualityPick(_))).collect();
-                assert_eq!(picks.len(), 4, "{size:?} {role:?}");
+                assert_eq!(picks.len(), ShareQuality::ALL.len(), "{size:?} {role:?}");
                 for (t, r) in &picks {
                     assert!(r.x >= 0.0 && r.y >= 0.0 && r.x + r.w <= size.0 as f32 && r.y + r.h <= size.1 as f32, "{size:?} : {t:?} sort : {r:?}");
                 }
@@ -1533,7 +1533,7 @@ mod tests {
     }
 
     /// « Qualité de l'image » d'un invité à la manette : la tuile du menu (sa qualité reçue en sous-titre), puis le panneau des
-    /// quatre choix ; rien de cela pour l'hôte.
+    /// cinq choix ; rien de cela pour l'hôte.
     #[test]
     fn picture_quality_in_the_menu_of_a_guest() {
         crate::i18n::force_english(false);
@@ -1556,7 +1556,7 @@ mod tests {
             app.activate(Target::Menu(MenuItem::Quality));
             let hits = ui::draw(&app, &mut cv);
             let picks: Vec<_> = hits.iter().filter(|(t, _)| matches!(t, Target::QualityPick(_))).collect();
-            assert_eq!(picks.len(), 4, "{layout:?}");
+            assert_eq!(picks.len(), ShareQuality::ALL.len(), "{layout:?}");
             for (t, r) in &picks {
                 assert!(r.x >= 0.0 && r.y >= 0.0 && r.x + r.w <= size.0 as f32 && r.y + r.h <= size.1 as f32, "{layout:?} : {t:?} sort : {r:?}");
             }
@@ -1611,7 +1611,7 @@ mod tests {
             for t in [Target::JoinCode, Target::JoinName, Target::JoinGo] {
                 assert!(hits.iter().any(|(h, _)| *h == t), "{layout:?} : {t:?}");
             }
-            // « Qualité de l'image » : les quatre choix, sous le prénom ; à la manette, ils ne passent pas sous le pavé.
+            // « Qualité de l'image » : les cinq choix, sous le prénom ; à la manette, ils ne passent pas sous le pavé.
             let quality: Vec<crate::app::Rect> = ShareQuality::ALL.iter().map(|q| hits.iter().find(|(h, _)| *h == Target::JoinQuality(*q)).unwrap_or_else(|| panic!("{layout:?} : {q:?}")).1).collect();
             if layout.console() {
                 let pad_x = hits.iter().filter(|(t, _)| matches!(t, Target::Key(_))).map(|(_, r)| r.x).fold(f32::MAX, f32::min);

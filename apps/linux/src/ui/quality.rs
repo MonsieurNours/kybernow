@@ -1,5 +1,5 @@
-//! La « Qualité de l'image » d'un invité de KyberNow Share en session (docs/link-ui.md, « Partage ») : les quatre
-//! choix (« Auto », « Comme l'hôte », « 1080p · 60 Hz », « 720p · 30 Hz »), le choisi coché ; sur la ligne choisie,
+//! La « Qualité de l'image » d'un invité de KyberNow Share en session (docs/link-ui.md, « Partage ») : les cinq
+//! choix (« Auto », « Comme l'hôte », « 4K · 60 Hz », « 1080p · 60 Hz », « 720p · 30 Hz »), le choisi coché ; sur la ligne choisie,
 //! la qualité reçue quand elle diffère du libellé (« Auto » : « 1080p · 60 Hz »). Au bureau, c'est le menu de la
 //! puce de la barre (`session::bar`) ; à la manette (Steam Deck, salon, KyberNow Link OS), un panneau par-dessus
 //! l'image, ouvert par la tuile « Qualité de l'image » du menu (B revient au menu). La changer ne relance que
@@ -13,7 +13,7 @@ use super::{unit, Frame};
 use crate::app::{App, Layout, Rect, SessionUi, ShareQuality, Target};
 use crate::i18n::tr;
 
-/// Les quatre choix d'une session d'invité : (cible, libellé, la qualité reçue sur la ligne choisie, choisi).
+/// Les cinq choix d'une session d'invité : (cible, libellé, la qualité reçue sur la ligne choisie, choisi).
 pub fn items(s: &SessionUi) -> Vec<(Target, String, String, bool)> {
     let Some(g) = &s.guest else { return Vec::new() };
     ShareQuality::ALL

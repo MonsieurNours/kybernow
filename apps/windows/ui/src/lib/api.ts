@@ -323,13 +323,13 @@ export const roleOf = (pads: boolean, kbm: boolean): ShareRole => (pads ? (kbm ?
 
 /**
  * La « Qualité de l'image » d'un invité : `auto` (proposée : l'écran de ce PC et ce que son décodeur
- * suit), `host` (« Comme l'hôte »), `1080p60`, `720p30`. L'image d'un invité n'est jamais au-dessus de
- * celle de l'hôte. Retenue dans `app.json` pour la fois suivante.
+ * suit), `host` (« Comme l'hôte »), `2160p60` (« 4K · 60 Hz »), `1080p60`, `720p30`. L'image d'un invité
+ * n'est jamais au-dessus de celle de l'hôte. Retenue dans `app.json` pour la fois suivante.
  */
-export type ShareQuality = 'auto' | 'host' | '1080p60' | '720p30'
+export type ShareQuality = 'auto' | 'host' | '2160p60' | '1080p60' | '720p30'
 
 /** Dans l'ordre du choix. */
-export const shareQualities: ShareQuality[] = ['auto', 'host', '1080p60', '720p30']
+export const shareQualities: ShareQuality[] = ['auto', 'host', '2160p60', '1080p60', '720p30']
 
 /**
  * Un invité de la liste de l'hôte. `app` : `mac`, `windows`, `linux`, `ios`, `tvos`, `android`, `webos`

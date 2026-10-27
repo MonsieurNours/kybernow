@@ -322,7 +322,7 @@ pub struct Prefs {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub share_name: Option<String>,
     /// La « Qualité de l'image » choisie à « Rejoindre » ou dans la barre d'un
-    /// invité (`auto`, `host`, `1080p60`, `720p30`), proposée la fois suivante ;
+    /// invité (`auto`, `host`, `2160p60`, `1080p60`, `720p30`), proposée la fois suivante ;
     /// absent : « Auto ».
     #[serde(skip_serializing_if = "Option::is_none")]
     pub share_quality: Option<ShareQuality>,
@@ -1495,7 +1495,7 @@ struct BarShown {
 
 /// L'invité que sert la barre : son rôle (`spectator`, `player`, `kbm`,
 /// `player_kbm`), l'hôte du partage, la « Qualité de l'image » demandée
-/// (`auto`, `host`, `1080p60`, `720p30`) et la qualité reçue (« 1080p · 60 Hz »,
+/// (`auto`, `host`, `2160p60`, `1080p60`, `720p30`) et la qualité reçue (« 1080p · 60 Hz »,
 /// absente tant que Kyber ne la connaît pas).
 #[derive(Clone, Serialize)]
 struct GuestBar {
