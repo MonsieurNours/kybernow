@@ -2666,7 +2666,7 @@ index 0000000..ac23971
 +    }
 +}
 diff --git a/kycontroller/src/kybernow.rs b/kycontroller/src/kybernow.rs
-index 4c9696c..d556877 100644
+index 4c9696c..0b5a401 100644
 --- a/kycontroller/src/kybernow.rs
 +++ b/kycontroller/src/kybernow.rs
 @@ -1,23 +1,39 @@
@@ -2760,7 +2760,7 @@ index 4c9696c..d556877 100644
          true
      }
  }
-@@ -195,6 +235,728 @@ pub(crate) async fn apply_input_rights(ctrl: &Controller, uid: &Uuid) {
+@@ -195,6 +235,733 @@ pub(crate) async fn apply_input_rights(ctrl: &Controller, uid: &Uuid) {
      }
  }
  
@@ -2835,6 +2835,11 @@ index 4c9696c..d556877 100644
 +pub(crate) enum Relocation {
 +    /// Its quality changed (`/kybernow/quality`).
 +    Quality,
++    /// Its image just started: chosen again, as for `Quality` (its
++    /// quality, pushed while it started, found no output to move then;
++    /// or the host's image came or changed meanwhile). Nothing changed:
++    /// it stays.
++    Started,
 +    /// It fell behind: a notch down, to a lighter image.
 +    Lag,
 +    /// The host's image of its display came (back) or changed: a guest
@@ -3154,7 +3159,7 @@ index 4c9696c..d556877 100644
 +    let display_id = output.display_id;
 +    let current = output.current.as_ref();
 +    match why {
-+        Relocation::Quality | Relocation::Stalled(_) => {
++        Relocation::Quality | Relocation::Started | Relocation::Stalled(_) => {
 +            if let Relocation::Stalled(key) = why
 +                && current != Some(key)
 +            {
@@ -3489,7 +3494,7 @@ index 4c9696c..d556877 100644
  fn from_loopback(req: &HttpRequest) -> bool {
      req.peer_addr().is_some_and(|peer| match peer.ip() {
          IpAddr::V4(v4) => v4.is_loopback(),
-@@ -245,6 +1007,24 @@ struct SessionEntry {
+@@ -245,6 +1012,24 @@ struct SessionEntry {
      display: Option<u32>,
      streaming: bool,
      inputs: bool,
@@ -3514,7 +3519,7 @@ index 4c9696c..d556877 100644
  }
  
  #[derive(Serialize)]
-@@ -252,6 +1032,13 @@ struct StreamEntry {
+@@ -252,6 +1037,13 @@ struct StreamEntry {
      display: u32,
      codec: &'static str,
      yuv444: bool,
@@ -3528,7 +3533,7 @@ index 4c9696c..d556877 100644
  }
  
  #[derive(Serialize)]
-@@ -260,15 +1047,16 @@ struct SessionsResponse {
+@@ -260,15 +1052,16 @@ struct SessionsResponse {
      streams: Vec<StreamEntry>,
  }
  
@@ -3551,7 +3556,7 @@ index 4c9696c..d556877 100644
  #[get("/sessions")]
  pub(crate) async fn get_sessions(ctrl: web::Data<Controller>, req: HttpRequest) -> HttpResponse {
      if let Some(refusal) = admin_refusal(&req) {
-@@ -288,32 +1076,78 @@ pub(crate) async fn get_sessions(ctrl: web::Data<Controller>, req: HttpRequest)
+@@ -288,32 +1081,78 @@ pub(crate) async fn get_sessions(ctrl: web::Data<Controller>, req: HttpRequest)
                  display: s.share.as_ref().map(|share| share.display),
                  streaming: s.session.as_ref().is_some_and(|s| s.data_plane.is_some()),
                  inputs: false,
@@ -3644,7 +3649,7 @@ index 4c9696c..d556877 100644
  
      HttpResponse::Ok().json(SessionsResponse { sessions, streams })
  }
-@@ -363,6 +1197,59 @@ pub(crate) async fn post_role(
+@@ -363,6 +1202,59 @@ pub(crate) async fn post_role(
      HttpResponse::Ok().json(serde_json::json!({ "sessions": updated.len() }))
  }
  
@@ -3704,7 +3709,7 @@ index 4c9696c..d556877 100644
  #[derive(Deserialize)]
  struct CloseRequest {
      user: String,
-@@ -451,6 +1338,7 @@ mod tests {
+@@ -451,6 +1343,7 @@ mod tests {
              role,
              display: 7,
              rev,
@@ -3712,7 +3717,7 @@ index 4c9696c..d556877 100644
          })
      }
  
-@@ -550,6 +1438,400 @@ mod tests {
+@@ -550,6 +1443,447 @@ mod tests {
          assert!(memory.bans.is_empty());
      }
  
@@ -4044,6 +4049,53 @@ index 4c9696c..d556877 100644
 +            ),
 +            None
 +        );
++    }
++
++    #[test]
++    fn a_quality_changed_while_the_image_started_is_taken_at_once() {
++        // The guest started on its own 1080p60 while its quality became
++        // 720p30 (`/kybernow/quality` found no output to move yet).
++        let mut manager = AVServicesManager::default();
++        manager.insert_for_test(host_key(1), (1, 0), h264(80_000_000));
++        manager.insert_for_test(guest_key(1920, 1080, 60), (0, 1), h264(16_000_000));
++        let ctx = context(UHD160, true, 2);
++        let started = output(Some(guest_key(1920, 1080, 60)));
++        // Only the host's image in mind, it would stay there.
++        assert_eq!(
++            plan(
++                &ctx,
++                &manager,
++                &started,
++                asking(ShareQuality::P720, 0),
++                &Relocation::HostImage
++            ),
++            None
++        );
++        let (choice, _) = plan(
++            &ctx,
++            &manager,
++            &started,
++            asking(ShareQuality::P720, 0),
++            &Relocation::Started,
++        )
++        .unwrap();
++        assert_eq!(placed_key(&manager, choice), Some(guest_key(1280, 720, 30)));
++
++        // Nothing changed meanwhile: it stays where it started.
++        let (choice, _) = plan(
++            &ctx,
++            &manager,
++            &started,
++            asking(ShareQuality::P1080, 0),
++            &Relocation::Started,
++        )
++        .unwrap();
++        assert!(already_there(
++            &manager,
++            7,
++            choice.placement,
++            Some(&guest_key(1920, 1080, 60))
++        ));
 +    }
 +
 +    #[test]
@@ -4998,7 +5050,7 @@ index 0bd8416..fd01cc4 100644
  
  pub(crate) struct StartSessionAudioResponse {
 diff --git a/kycontroller/src/kymux_controller/requests.rs b/kycontroller/src/kymux_controller/requests.rs
-index e67f890..23f32e4 100644
+index e67f890..d48e7db 100644
 --- a/kycontroller/src/kymux_controller/requests.rs
 +++ b/kycontroller/src/kymux_controller/requests.rs
 @@ -92,6 +92,18 @@ pub(crate) async fn start_session(
@@ -5030,7 +5082,7 @@ index e67f890..23f32e4 100644
  
                          StartSessionVideoResponse {
                              display_id: v.display_id,
-@@ -173,9 +186,28 @@ pub(crate) async fn start_session(
+@@ -173,9 +186,29 @@ pub(crate) async fn start_session(
                  error!("Session {session_id} disappeared after successful start_session",);
                  return HttpResponse::InternalServerError().finish();
              };
@@ -5038,14 +5090,15 @@ index e67f890..23f32e4 100644
              *session_services.lock().await = services;
              // KyberNow: a role changed while the services started applies now.
              crate::kybernow::apply_input_rights(&ctrl, &session_id).await;
-+            // KyberNow: a guest placed while the host's image was starting
-+            // or changing goes to it now; a host's start brings its guests
-+            // to its image (patch 0020).
++            // KyberNow: a guest's image chosen again now that its output can
++            // move: a quality pushed while it started, or the host's image
++            // that came or changed meanwhile, applies; a host's start brings
++            // its guests to its image (patch 0020).
 +            if guest {
 +                crate::kybernow::relocate(
 +                    &ctrl,
 +                    session_id,
-+                    crate::kybernow::Relocation::HostImage,
++                    crate::kybernow::Relocation::Started,
 +                )
 +                .await;
 +            } else if !host_displays.is_empty()
@@ -5059,7 +5112,7 @@ index e67f890..23f32e4 100644
  
              HttpResponse::Ok().json(StartSessionResponse {
                  session_id: Some(numeric_session_id),
-@@ -186,6 +218,11 @@ pub(crate) async fn start_session(
+@@ -186,6 +219,11 @@ pub(crate) async fn start_session(
                  metrics,
              })
          }
