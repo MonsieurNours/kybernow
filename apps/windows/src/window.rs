@@ -1548,8 +1548,10 @@ fn shortcut_held() -> bool {
 
 /// Fin de session demandée par l'utilisateur (« Se déconnecter » de la barre
 /// ou du menu de l'icône, fermeture d'une fenêtre, Ctrl+Alt+Maj+D) : seule
-/// cette session s'arrête, sans notification de fin.
-fn user_close(app: &Arc<App>) {
+/// cette session s'arrête, sans notification de fin. `why` : d'où vient la
+/// demande (journal).
+fn user_close(app: &Arc<App>, why: &str) {
+    log::info!("[{}] fin demandée : {why}", app.host_name);
     app.user_ended.store(true, Ordering::Relaxed);
     request_close(app);
 }
@@ -1567,16 +1569,19 @@ fn next_computer(app: &Arc<App>) {
 /// Fin de session demandée (n'importe quelle fenêtre, la barre, l'icône).
 fn request_close(app: &Arc<App>) {
     if app.closing.swap(true, Ordering::Relaxed) {
+        log::info!("[{}] fin déjà en cours", app.host_name);
         return;
     }
     match app.session.get() {
         Some(s) => s.stop(),
-        None => quit(app),
+        None => quit(app, "fin demandée avant le départ du cœur"),
     }
 }
 
-/// Toutes les fenêtres ferment, la boucle de messages s'arrête.
-fn quit(app: &Arc<App>) {
+/// Toutes les fenêtres ferment, la boucle de messages s'arrête. `why` : la
+/// raison (journal).
+fn quit(app: &Arc<App>, why: &str) {
+    log::info!("[{}] fenêtres de la session fermées : {why}", app.host_name);
     // Avant que ses fenêtres partent (une autre session prendrait la place).
     app.was_front.store(app.in_front(), Ordering::Relaxed);
     app.forget_raw_target();
@@ -1952,7 +1957,7 @@ unsafe extern "system" fn control_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpa
                         let _ = SetWindowTextW(w.hwnd(), PCWSTR(title.as_ptr()));
                     }
                     if matches!(*a.status.lock().unwrap(), Some(Status::Ended { .. })) {
-                        quit(&a);
+                        quit(&a, "session finie");
                     }
                 }
                 LRESULT(0)
@@ -1972,7 +1977,9 @@ unsafe extern "system" fn control_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpa
 /// visée par `Focus` (0 : la dernière active).
 fn command(app: &Arc<App>, c: usize, arg: isize) {
     match c {
-        x if x == Command::Disconnect as usize => user_close(app),
+        // L'ordre a été posté à la fenêtre de contrôle de cette session, et à
+        // elle seule (`SessionHost::post`) : l'app a dit pourquoi au journal.
+        x if x == Command::Disconnect as usize => user_close(app, "ordre de l'app"),
         x if x == Command::Fullscreen as usize => toggle_fullscreen(app),
         x if x == Command::MouseToggle as usize => toggle_mouse(app),
         x if x == Command::MouseAuto as usize => set_mouse(app, MouseMode::Auto),
@@ -2068,7 +2075,7 @@ unsafe extern "system" fn screen_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
                 if pressed && shortcut_held() {
                     let handled = match wparam.0 as u8 {
                         b'D' => {
-                            user_close(&app);
+                            user_close(&app, "Ctrl+Alt+Maj+D");
                             true
                         }
                         b'O' => {
@@ -2224,10 +2231,16 @@ unsafe extern "system" fn screen_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
                 edge_fired(&app, &win);
                 LRESULT(0)
             }
+            WM_SYSCOMMAND if (wparam.0 & 0xFFF0) == SC_CLOSE as usize => {
+                // Fermeture par Windows : bouton de la barre des tâches, aperçu,
+                // menu système (le journal le distingue d'un message direct).
+                log::info!("[{}] Windows demande la fermeture d'une fenêtre de la session", app.host_name);
+                DefWindowProcW(hwnd, msg, wparam, lparam)
+            }
             WM_CLOSE => {
                 // Fermer une fenêtre, c'est se déconnecter : toute sa session
                 // s'arrête (les autres ordinateurs continuent).
-                user_close(&app);
+                user_close(&app, "fenêtre de la session fermée");
                 LRESULT(0)
             }
             WM_DESTROY => {
