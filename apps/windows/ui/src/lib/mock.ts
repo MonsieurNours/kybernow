@@ -29,7 +29,7 @@ const emit = (name: string, payload: unknown) => listeners.get(name)?.forEach((c
 // L'invité : `/bar.html?invite=spectateur|joueur|clavier|joueur-clavier` (la barre réduite : aucun droit, les
 // manettes, le clavier et la souris, les deux ; `&avis` : le changement de droits montré à la place des statistiques,
 // celui du dernier droit donné, ou `&avis=pads_back|kbm_back|watch` pour un droit repris ; `&droits` : l'hôte
-// change les droits toutes les 3 s, la barre suit ; `&qualite=auto|hote|1080p60|720p30` : la « Qualité de l'image »
+// change les droits toutes les 3 s, la barre suit ; `&qualite=auto|hote|2160p60|1080p60|720p30` : la « Qualité de l'image »
 // demandée au départ, que la puce de la barre montre en qualité reçue et qui se change (l'ordinateur de l'hôte est
 // en 3840 × 2160 à 60 Hz, ce PC en 1920 × 1080 à 60 Hz) ; `&image=inconnue` : Kyber ne sait pas encore la qualité
 // reçue, la puce dit celle qui est demandée ; `&avis=image|limite` : l'avis « Image allégée pour suivre. » ou
@@ -387,12 +387,12 @@ const emitShare = () => emit('share-state', { id: sessions[0] ?? 'a1', share: sh
 /** La barre d'une session d'invité (`/bar.html?invite=…`) : le rôle, l'hôte et l'image reçue. */
 const guestFlag = flags.get('invite')
 /** La « Qualité de l'image » demandée (`&qualite=`), puis celle que l'invité choisit. */
-let guestQuality: ShareQuality = ({ hote: 'host', '1080p60': '1080p60', '720p30': '720p30' } as Record<string, ShareQuality>)[flags.get('qualite') ?? ''] ?? 'auto'
+let guestQuality: ShareQuality = ({ hote: 'host', '2160p60': '2160p60', '1080p60': '1080p60', '720p30': '720p30' } as Record<string, ShareQuality>)[flags.get('qualite') ?? ''] ?? 'auto'
 /** Celle de « Rejoindre », retenue pour la fois suivante (`app.json`, `share_quality`). */
 let rememberedQuality: ShareQuality = 'auto'
 /** Ce que la Station imitée répond : la qualité reçue (`null` avec `&image=inconnue` : Kyber ne sait pas encore). */
 const imageOf = (q: ShareQuality): string | null =>
-  flags.get('image') === 'inconnue' ? null : { auto: '1080p · 60 Hz', host: '2160p · 60 Hz', '1080p60': '1080p · 60 Hz', '720p30': '720p · 30 Hz' }[q]
+  flags.get('image') === 'inconnue' ? null : { auto: '1080p · 60 Hz', host: '4K · 60 Hz', '2160p60': '4K · 60 Hz', '1080p60': '1080p · 60 Hz', '720p30': '720p · 30 Hz' }[q]
 const guestRole: ShareRole = guestFlag === 'joueur' ? 'player' : guestFlag === 'clavier' ? 'kbm' : guestFlag === 'joueur-clavier' ? 'player_kbm' : 'spectator'
 let guestSeq = 0
 let joinAction = flags.has('rejoindre')
@@ -412,7 +412,7 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
     // 111111 : l'hôte envoie un format que ce PC ne lit pas, on entre quand même (image à part).
     if (code !== '123456' && code !== '482913' && code !== '111111') throw t('mock.no_share')
     console.info(`share_join : qualité de l'image ${a.quality}`)
-    guestQuality = ['auto', 'host', '1080p60', '720p30'].includes(String(a.quality)) ? (a.quality as ShareQuality) : 'auto'
+    guestQuality = ['auto', 'host', '2160p60', '1080p60', '720p30'].includes(String(a.quality)) ? (a.quality as ShareQuality) : 'auto'
     rememberedQuality = guestQuality
     return { id: `guest-${++guestSeq}`, title: t('mock.guest_on'), host: 'Léa', role: 'spectator', fingerprint: fp('atelier') } satisfies ShareJoined
   },

@@ -170,7 +170,8 @@
 
   .sheet {
     position: relative;
-    width: min(520px, 100%);
+    /* Assez large pour que les cinq choix de « Qualité de l'image » tiennent sur une ligne (ils passent à la ligne sur un écran étroit). */
+    width: min(560px, 100%);
     display: flex;
     flex-direction: column;
     gap: 20px;

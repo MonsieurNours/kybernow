@@ -18,7 +18,7 @@
   « Touches » et la souris seulement avec le clavier et la souris, le plein écran,
   « Quitter le partage » ; ni profil ni « Ordinateurs ». Sa « Qualité de l'image »
   (à la place du profil) montre la qualité reçue (« 1080p · 60 Hz ») et se change :
-  « Auto », « Comme l'hôte », « 1080p · 60 Hz », « 720p · 30 Hz » (l'image de l'invité
+  « Auto », « Comme l'hôte », « 4K · 60 Hz », « 1080p · 60 Hz », « 720p · 30 Hz » (l'image de l'invité
   seulement, jamais celle de l'hôte). Un changement de rôle ou d'image (« Image allégée
   pour suivre. ») s'affiche quelques secondes à la place des statistiques (la barre se
   montre alors sans prendre le clavier à la session). Dans le panneau de l'hôte, la
@@ -387,7 +387,7 @@
 
   // MARK: - KyberNow Share
 
-  /** Le nom d'un choix de « Qualité de l'image » : « Auto », « Comme l'hôte », « 1080p · 60 Hz », « 720p · 30 Hz ». */
+  /** Le nom d'un choix de « Qualité de l'image » : « Auto », « Comme l'hôte », « 4K · 60 Hz », « 1080p · 60 Hz », « 720p · 30 Hz ». */
   const qualityName = (q: ShareQuality) => t(`share.quality_${q}`)
   /** Ce que la puce montre : la qualité reçue quand Kyber la connaît, sinon celle qui est demandée. */
   const shownQuality = $derived(guest ? (guest.image ?? qualityName(guest.quality)) : '')

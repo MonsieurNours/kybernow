@@ -92,8 +92,8 @@ pub fn guest_image(image: Option<&ShareImage>) -> Option<String> {
 }
 
 /// L'image que reçoit l'invité de la session (événement `share-image`, et
-/// dans `bar-shown`) : la qualité demandée (`auto`, `host`, `1080p60`,
-/// `720p30`) et, quand Kyber en connaît la taille, la qualité reçue
+/// dans `bar-shown`) : la qualité demandée (`auto`, `host`, `2160p60`,
+/// `1080p60`, `720p30`) et, quand Kyber en connaît la taille, la qualité reçue
 /// (« 1080p · 60 Hz »), que la barre montre. Sans libellé, la barre ne dit
 /// que la qualité demandée.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -434,7 +434,7 @@ mod tests {
         let wide = join_auto(ShareQuality::Auto, mode(5120, 1440, 240), all).unwrap();
         assert_eq!((wide.width, wide.height, wide.fps), (5120, 1440, 240));
         // Un autre choix que « Auto » : le bloc `auto` part quand même (passage à « Auto » en session).
-        for q in [ShareQuality::Host, ShareQuality::P1080_60, ShareQuality::P720_30] {
+        for q in [ShareQuality::Host, ShareQuality::P2160_60, ShareQuality::P1080_60, ShareQuality::P720_30] {
             assert!(join_auto(q, mode(3840, 2160, 60), all).is_some(), "{q:?}");
         }
     }
@@ -448,6 +448,8 @@ mod tests {
         // Une image à part, de taille connue : la qualité sous le nom de l'invité.
         let own = image(ShareQuality::P720_30, 720, 30, Some(false));
         assert_eq!(guest_image(Some(&own)).as_deref(), Some("720p · 30 Hz"));
+        // 2160 lignes se disent « 4K ».
+        assert_eq!(guest_image(Some(&image(ShareQuality::P2160_60, 2160, 60, Some(false)))).as_deref(), Some("4K · 60 Hz"));
         // L'image de l'hôte, ou pas encore su : rien (compté comme celle de l'hôte).
         assert_eq!(guest_image(Some(&image(ShareQuality::Host, 1080, 60, Some(true)))), None);
         assert_eq!(guest_image(Some(&image(ShareQuality::Auto, 1080, 60, None))), None);
@@ -469,6 +471,12 @@ mod tests {
         assert_eq!((v.quality, v.label.as_deref()), ("auto", Some("1080p · 60 Hz")));
         let v = ImageView::from(&image(ShareQuality::P720_30, 720, 30, Some(false)));
         assert_eq!((v.quality, v.label.as_deref()), ("720p30", Some("720p · 30 Hz")));
+        // « 4K · 60 Hz » : la qualité demandée part sous son nom de l'échange, la reçue se lit « 4K » à 2160 lignes (celle
+        // de l'hôte aussi).
+        let v = ImageView::from(&image(ShareQuality::P2160_60, 2160, 60, Some(false)));
+        assert_eq!((v.quality, v.label.as_deref()), ("2160p60", Some("4K · 60 Hz")));
+        let v = ImageView::from(&image(ShareQuality::Host, 2160, 60, Some(true)));
+        assert_eq!((v.quality, v.label.as_deref()), ("host", Some("4K · 60 Hz")));
         // Pas encore su : seulement la qualité demandée, jamais un libellé inventé.
         let v = ImageView::from(&ShareImage { quality: ShareQuality::Host, ..ShareImage::default() });
         assert_eq!((v.quality, v.label), ("host", None));
@@ -483,11 +491,49 @@ mod tests {
         for (lang, ui) in [(Lang::Fr, include_str!("../ui/src/lib/i18n/fr.json")), (Lang::En, include_str!("../ui/src/lib/i18n/en.json"))] {
             let ui: serde_json::Value = serde_json::from_str(ui).unwrap();
             let share = &ui["share"];
-            for (q, key) in [(ShareQuality::Auto, "quality_auto"), (ShareQuality::Host, "quality_host"), (ShareQuality::P1080_60, "quality_1080p60"), (ShareQuality::P720_30, "quality_720p30")] {
+            for (q, key) in [
+                (ShareQuality::Auto, "quality_auto"),
+                (ShareQuality::Host, "quality_host"),
+                (ShareQuality::P2160_60, "quality_2160p60"),
+                (ShareQuality::P1080_60, "quality_1080p60"),
+                (ShareQuality::P720_30, "quality_720p30"),
+            ] {
                 assert_eq!(share[key].as_str(), Some(q.label(lang).as_str()), "{lang:?} {key}");
             }
         }
         assert_eq!(ShareQuality::P1080_60.label(Lang::Fr), "1080p · 60 Hz");
+        assert_eq!((ShareQuality::P2160_60.label(Lang::Fr), ShareQuality::P2160_60.label(Lang::En)), ("4K · 60 Hz".to_string(), "4K · 60 Hz".to_string()));
+    }
+
+    /// Les choix de la barre et de « Rejoindre » (`shareQualities` et le type `ShareQuality` de `api.ts`) sont ceux du
+    /// cœur, dans son ordre, sous leurs noms de l'échange avec Admin ; le catalogue dit chacun des cinq.
+    #[test]
+    fn choix_de_qualite_de_l_interface() {
+        let api = include_str!("../ui/src/lib/api.ts");
+        let list = api.lines().find(|l| l.starts_with("export const shareQualities")).expect("la liste des choix");
+        let listed: Vec<&str> = list.split('\'').skip(1).step_by(2).collect();
+        let core: Vec<&str> = ShareQuality::ALL.iter().map(|q| q.as_str()).collect();
+        assert_eq!(listed, core, "même ordre que le cœur");
+        let kind = api.lines().find(|l| l.starts_with("export type ShareQuality")).expect("le type");
+        let typed: Vec<&str> = kind.split('\'').skip(1).step_by(2).collect();
+        assert_eq!(typed, core, "le type dit les mêmes noms");
+        for ui in [include_str!("../ui/src/lib/i18n/fr.json"), include_str!("../ui/src/lib/i18n/en.json")] {
+            let ui: serde_json::Value = serde_json::from_str(ui).unwrap();
+            for name in &core {
+                assert!(ui["share"][format!("quality_{name}")].is_string(), "libellé de {name}");
+            }
+        }
+    }
+
+    /// `app.json` retient « 4K · 60 Hz » (`2160p60`) et le relit ; un nom inconnu (fichier plus récent ou écrit à la
+    /// main) se lit « Auto ».
+    #[test]
+    fn qualite_retenue_dans_app_json() {
+        let q: ShareQuality = serde_json::from_value(serde_json::json!("2160p60")).unwrap();
+        assert_eq!(q, ShareQuality::P2160_60);
+        assert_eq!(serde_json::to_value(q).unwrap(), serde_json::json!("2160p60"));
+        assert_eq!(ShareQuality::parse("2160p60"), Some(ShareQuality::P2160_60));
+        assert_eq!(serde_json::from_value::<ShareQuality>(serde_json::json!("4k120")).unwrap(), ShareQuality::Auto);
     }
 
     #[test]

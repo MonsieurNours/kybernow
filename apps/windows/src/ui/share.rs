@@ -154,7 +154,7 @@ pub fn share_link_code(link: String) -> Result<String, String> {
 }
 
 /// « Rejoindre » : le code part aux Stations du réseau (ou à celle du lien) avec
-/// la « Qualité de l'image » choisie (`auto`, `host`, `1080p60`, `720p30` ;
+/// la « Qualité de l'image » choisie (`auto`, `host`, `2160p60`, `1080p60`, `720p30` ;
 /// « Auto » ajoute l'écran de ce PC et ce que sa carte décode), celle qui
 /// partage répond. Rend la session à ouvrir (`share_connect`), ou le texte du
 /// refus (celui du cœur : « Aucun partage avec ce code sur le réseau. », « Ce
