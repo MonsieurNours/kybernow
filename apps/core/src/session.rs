@@ -1988,11 +1988,14 @@ impl Worker {
         }
         let previous = self.share_image.replace(image.clone());
         info!(
-            "partage : image {}×{} à {} Hz ({}, {:?}{})",
-            image.width,
-            image.height,
-            image.fps,
-            if image.follows_host { "celle de l'hôte" } else { "à part" },
+            "partage : image {} demandée, reçue {} ({}, {:?}{})",
+            image.quality.as_str(),
+            image.size().map_or_else(|| "pas encore sue".to_string(), |(w, h, f)| format!("{w}×{h} à {f} Hz")),
+            match image.follows_host {
+                Some(true) => "celle de l'hôte",
+                Some(false) => "à part",
+                None => "?",
+            },
             image.reason,
             image.codec.as_ref().map(|c| format!(", {c}")).unwrap_or_default()
         );
@@ -2024,10 +2027,11 @@ impl Worker {
             .expect("fil de la qualité");
     }
 
-    /// L'invité reçoit une image à part (à lui ou à ceux de même qualité) :
-    /// il peut en régler le débit et y demander des images clés sans attendre.
+    /// L'invité reçoit une image à part (à lui ou à ceux de même qualité),
+    /// et la Station le sait : il peut en régler le débit et y demander des
+    /// images clés sans attendre. Tant que ce n'est pas su : l'image de l'hôte.
     fn own_image(&self) -> bool {
-        self.guest.is_some() && self.share_image.as_ref().is_some_and(|i| !i.follows_host)
+        self.guest.is_some() && self.share_image.as_ref().is_some_and(ShareImage::own)
     }
 
     /// Image clé : redemandée toutes les `.0`, flux relancé au bout de `.1`.
@@ -2148,9 +2152,9 @@ impl Worker {
         }
         // Un invité sur son image à part : le débit de cette image.
         if self.own_image()
-            && let Some(i) = self.share_image.as_ref().filter(|i| i.width > 0 && i.height > 0)
+            && let Some((w, h, f)) = self.share_image.as_ref().and_then(ShareImage::size)
         {
-            return self.params.settings.bitrate(i.width, i.height, i.fps.max(1));
+            return self.params.settings.bitrate(w, h, f);
         }
         let m = self.stream_mode;
         self.params.settings.bitrate(m.width, m.height, m.refresh)
@@ -4195,7 +4199,15 @@ mod tests {
     }
 
     fn own(width: u32, height: u32, fps: u32, reason: share::ShareImageReason) -> ShareImage {
-        ShareImage { quality: ShareQuality::P1080_60, width, height, fps, codec: Some("h264".into()), follows_host: false, reason }
+        ShareImage {
+            quality: ShareQuality::P1080_60,
+            width: Some(width),
+            height: Some(height),
+            fps: Some(fps),
+            codec: Some("h264".into()),
+            follows_host: Some(false),
+            reason: Some(reason),
+        }
     }
 
     #[test]
@@ -4222,16 +4234,16 @@ mod tests {
         w.share_image_changed(own(1280, 720, 30, R::Lag));
         w.share_image_changed(own(1280, 720, 30, R::Limit));
         // Comme l'hôte : rien à dire.
-        w.share_image_changed(ShareImage { follows_host: true, reason: R::Capped, ..own(3840, 2160, 120, R::Capped) });
+        w.share_image_changed(ShareImage { follows_host: Some(true), ..own(3840, 2160, 120, R::Capped) });
         let images = recorder.images.lock().unwrap().clone();
         let lang = i18n::current();
         assert_eq!(
-            images.iter().map(|(i, p, n)| (i.height, p.as_ref().map(|p| p.height), n.clone())).collect::<Vec<_>>(),
+            images.iter().map(|(i, p, n)| (i.height, p.as_ref().and_then(|p| p.height), n.clone())).collect::<Vec<_>>(),
             [
-                (1080, None, None),
-                (720, Some(1080), Some(i18n::tr(lang, "share.image_lag", &[]))),
-                (720, Some(720), Some(i18n::tr(lang, "share.image_limit", &[("quality", "720p · 30 Hz")]))),
-                (2160, Some(720), None)
+                (Some(1080), None, None),
+                (Some(720), Some(1080), Some(i18n::tr(lang, "share.image_lag", &[]))),
+                (Some(720), Some(720), Some(i18n::tr(lang, "share.image_limit", &[("quality", "720p · 30 Hz")]))),
+                (Some(2160), Some(720), None)
             ]
         );
         assert!(!w.own_image());
@@ -4246,7 +4258,12 @@ mod tests {
         w.tx.send(Msg::ShareImage(own(1280, 720, 30, R::Asked))).unwrap();
         w.tx.send(Msg::Stop).unwrap();
         assert!(w.event_loop().is_none());
-        assert_eq!(recorder.images.lock().unwrap().last().map(|(i, _, _)| (i.height, i.reason)), Some((720, R::Asked)));
+        assert_eq!(recorder.images.lock().unwrap().last().map(|(i, _, _)| (i.height, i.reason)), Some((Some(720), Some(R::Asked))));
+        // Pas encore su (tout à `null`) : compté comme l'image de l'hôte, sans avis.
+        w.share_image_changed(ShareImage { quality: ShareQuality::Auto, ..ShareImage::default() });
+        assert!(!w.own_image());
+        assert_eq!(w.keyframe_timing(), (Duration::from_secs(2), Duration::from_secs(5)));
+        assert_eq!(recorder.images.lock().unwrap().last().map(|(_, _, n)| n.clone()), Some(None));
         // Un hôte : rien à demander, images clés et relance comme toujours.
         let (mut host, _) = worker(crate::profile::Profile::Jeu, two_screens(0));
         host.ask_share_quality(ShareQuality::Host);

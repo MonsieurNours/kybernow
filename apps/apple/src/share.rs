@@ -120,7 +120,7 @@ pub unsafe extern "C" fn kn_share_auto_quality(screen_json: *const c_char, decod
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_share_image_label(image_json: *const c_char) -> *mut c_char {
     match serde_json::from_str::<ShareImage>(&text(image_json)) {
-        Ok(i) => give(i.label()),
+        Ok(i) => i.label().map_or(std::ptr::null_mut(), give),
         Err(_) => std::ptr::null_mut(),
     }
 }

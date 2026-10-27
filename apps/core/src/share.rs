@@ -477,10 +477,9 @@ pub fn auto_quality(screen: &DeviceScreen, decoder: &DecoderCaps, host: Option<&
 }
 
 /// Pourquoi l'image reçue est celle-là.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ShareImageReason {
     /// La qualité demandée.
-    #[default]
     Asked,
     /// Bornée par l'image de l'hôte (jamais au-dessus).
     Capped,
@@ -499,6 +498,16 @@ impl ShareImageReason {
             Self::Lag => "lag",
         }
     }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "asked" => Some(Self::Asked),
+            "capped" => Some(Self::Capped),
+            "limit" => Some(Self::Limit),
+            "lag" => Some(Self::Lag),
+            _ => None,
+        }
+    }
 }
 
 impl Serialize for ShareImageReason {
@@ -509,44 +518,63 @@ impl Serialize for ShareImageReason {
 
 impl<'de> Deserialize<'de> for ShareImageReason {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let s = Option::<String>::deserialize(d)?;
-        Ok(match s.as_deref() {
-            Some("capped") => Self::Capped,
-            Some("limit") => Self::Limit,
-            Some("lag") => Self::Lag,
-            _ => Self::Asked,
-        })
+        let s = String::deserialize(d)?;
+        Self::parse(&s).ok_or_else(|| serde::de::Error::custom("raison inconnue"))
     }
 }
 
+/// Une valeur d'`image` : `null` tant que Kyber ne sait rien ; une valeur
+/// d'un autre type (Station plus récente) se lit `None` aussi.
+fn lenient<'de, D: Deserializer<'de>, T: serde::de::DeserializeOwned>(d: D) -> Result<Option<T>, D::Error> {
+    let v = Option::<serde_json::Value>::deserialize(d)?;
+    Ok(v.and_then(|v| serde_json::from_value(v).ok()))
+}
+
 /// L'image qu'un invité reçoit (`image` de `join`, du signe de vie et de
-/// `POST /api/share/quality` ; `guests[].image` chez l'hôte).
+/// `POST /api/share/quality` ; `guests[].image` chez l'hôte). Toujours un
+/// objet ; `quality` est la qualité demandée (« Auto » compris), les autres
+/// champs sont `None` tant que Kyber ne sait rien (Admin les relit toutes
+/// les 2 s au plus).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ShareImage {
     /// La qualité demandée.
     #[serde(default)]
     pub quality: ShareQuality,
-    #[serde(default)]
-    pub width: u32,
-    #[serde(default)]
-    pub height: u32,
-    #[serde(default)]
-    pub fps: u32,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
+    pub width: Option<u32>,
+    #[serde(default, deserialize_with = "lenient")]
+    pub height: Option<u32>,
+    #[serde(default, deserialize_with = "lenient")]
+    pub fps: Option<u32>,
+    #[serde(default, deserialize_with = "lenient")]
     pub codec: Option<String>,
-    /// L'invité partage l'image de l'hôte (sinon : une image à part, à lui
-    /// ou à ceux de même qualité).
-    #[serde(default)]
-    pub follows_host: bool,
-    #[serde(default)]
-    pub reason: ShareImageReason,
+    /// L'invité partage l'image de l'hôte (`Some(false)` : une image à part,
+    /// à lui ou à ceux de même qualité ; `None` : pas encore su, compté comme
+    /// l'image de l'hôte).
+    #[serde(default, deserialize_with = "lenient")]
+    pub follows_host: Option<bool>,
+    #[serde(default, deserialize_with = "lenient")]
+    pub reason: Option<ShareImageReason>,
 }
 
 impl ShareImage {
+    /// Définition et fréquence reçues, quand Kyber les connaît.
+    pub fn size(&self) -> Option<(u32, u32, u32)> {
+        match (self.width, self.height, self.fps) {
+            (Some(w), Some(h), Some(f)) if w > 0 && h > 0 && f > 0 => Some((w, h, f)),
+            _ => None,
+        }
+    }
+
+    /// L'invité reçoit une image à part (su : `follows_host` faux).
+    pub fn own(&self) -> bool {
+        self.follows_host == Some(false)
+    }
+
     /// La qualité reçue, telle que la barre et le panneau de l'hôte la
-    /// montrent : « 1080p · 60 Hz ».
-    pub fn label(&self) -> String {
-        quality_label(self.height.min(self.width), self.fps)
+    /// montrent : « 1080p · 60 Hz » ; `None` tant que Kyber ne la connaît pas.
+    pub fn label(&self) -> Option<String> {
+        self.size().map(|(w, h, f)| quality_label(h.min(w), f))
     }
 
     pub fn codec(&self) -> Option<Codec> {
@@ -554,22 +582,26 @@ impl ShareImage {
     }
 
     /// L'avis bref à montrer quand l'image devient celle-ci (`previous` :
-    /// celle d'avant, `None` au départ) : « Image allégée pour suivre. »
-    /// (retard), « L'ordinateur ne peut pas faire une image de plus : vous
-    /// recevez {qualité}. » (plus d'image à part) ; rien sinon, ni quand
-    /// l'image ne change pas de taille ni de raison.
+    /// celle d'avant, `None` au départ), seulement sur ce qui est su :
+    /// « Image allégée pour suivre. » quand elle descend vraiment (raison
+    /// `lag`, et moins de pixels par seconde qu'avant, les deux tailles
+    /// connues) ; « L'ordinateur ne peut pas faire une image de plus : vous
+    /// recevez {qualité}. » (raison `limit`, taille connue, pas déjà dit
+    /// pour cette image) ; rien sinon.
     pub fn notice(&self, previous: Option<&ShareImage>, lang: Lang) -> Option<String> {
-        if !matches!(self.reason, ShareImageReason::Lag | ShareImageReason::Limit) {
-            return None;
+        let (w, h, f) = self.size()?;
+        let rate = |(w, h, f): (u32, u32, u32)| u64::from(w) * u64::from(h) * u64::from(f);
+        match self.reason? {
+            ShareImageReason::Lag => {
+                let before = previous.and_then(ShareImage::size)?;
+                (rate((w, h, f)) < rate(before)).then(|| tr(lang, "share.image_lag", &[]))
+            }
+            ShareImageReason::Limit => {
+                let said = previous.is_some_and(|p| p.reason == Some(ShareImageReason::Limit) && p.size() == Some((w, h, f)));
+                (!said).then(|| tr(lang, "share.image_limit", &[("quality", &quality_label(h.min(w), f))]))
+            }
+            _ => None,
         }
-        let same = previous.is_some_and(|p| p.reason == self.reason && (p.width, p.height, p.fps) == (self.width, self.height, self.fps));
-        if same {
-            return None;
-        }
-        Some(match self.reason {
-            ShareImageReason::Lag => tr(lang, "share.image_lag", &[]),
-            _ => tr(lang, "share.image_limit", &[("quality", &self.label())]),
-        })
     }
 }
 
@@ -1287,37 +1319,52 @@ mod tests {
     #[test]
     fn image_recue() {
         let i: ShareImage = serde_json::from_str(r#"{"quality":"1080p60","width":1920,"height":1080,"fps":60,"codec":"hevc","follows_host":false,"reason":"asked"}"#).unwrap();
-        assert_eq!((i.quality, i.label(), i.codec(), i.follows_host, i.reason), (ShareQuality::P1080_60, "1080p · 60 Hz".to_string(), Some(Codec::Hevc), false, ShareImageReason::Asked));
-        let odd: ShareImage = serde_json::from_str(r#"{"reason":"autre","quality":"8k"}"#).unwrap();
-        assert_eq!((odd.reason, odd.quality), (ShareImageReason::Asked, ShareQuality::Auto));
-        // Dans le signe de vie, `join` et la liste de l'hôte ; illisible : ignorée.
-        let b: ShareBeat = serde_json::from_str(r#"{"role":"spectator","image":{"width":1280,"height":720,"fps":30,"reason":"lag"}}"#).unwrap();
-        assert_eq!(b.image.map(|i| (i.height, i.reason)), Some((720, ShareImageReason::Lag)));
+        assert_eq!((i.quality, i.label(), i.codec(), i.own(), i.reason), (ShareQuality::P1080_60, Some("1080p · 60 Hz".to_string()), Some(Codec::Hevc), true, Some(ShareImageReason::Asked)));
+        // Tant que Kyber ne sait rien : tout à `null`, sauf la qualité demandée.
+        let unknown: ShareImage =
+            serde_json::from_str(r#"{"quality":"auto","width":null,"height":null,"fps":null,"codec":null,"follows_host":null,"reason":null}"#).unwrap();
+        assert_eq!(unknown, ShareImage { quality: ShareQuality::Auto, ..ShareImage::default() });
+        assert_eq!((unknown.size(), unknown.label(), unknown.own()), (None, None, false), "compté comme l'image de l'hôte");
+        let odd: ShareImage = serde_json::from_str(r#"{"reason":"autre","quality":"8k","width":"1920","fps":60}"#).unwrap();
+        assert_eq!((odd.reason, odd.quality, odd.width, odd.fps), (None, ShareQuality::Auto, None, Some(60)));
+        // Dans le signe de vie, `join` et la liste de l'hôte ; pas un objet : ignorée.
+        let b: ShareBeat = serde_json::from_str(r#"{"role":"spectator","image":{"quality":"auto","width":1280,"height":720,"fps":30,"reason":"lag"}}"#).unwrap();
+        assert_eq!(b.image.map(|i| (i.height, i.reason)), Some((Some(720), Some(ShareImageReason::Lag))));
+        let b: ShareBeat = serde_json::from_str(r#"{"role":"spectator","image":{"quality":"720p30","width":null,"height":null,"fps":null}}"#).unwrap();
+        assert_eq!(b.image.map(|i| (i.quality, i.size())), Some((ShareQuality::P720_30, None)));
         let b: ShareBeat = serde_json::from_str(r#"{"role":"spectator","image":"720p"}"#).unwrap();
         assert!(b.image.is_none());
         let j: ShareJoined = serde_json::from_str(r#"{"guest":"g","secret":"s","image":{"width":1920,"height":1080,"fps":60,"follows_host":true}}"#).unwrap();
-        assert!(j.image.is_some_and(|i| i.follows_host));
-        let g: ShareGuest = serde_json::from_str(r#"{"id":"g","name":"Léa","image":{"width":1920,"height":1080,"fps":60}}"#).unwrap();
-        assert_eq!(g.image.map(|i| i.label()), Some("1080p · 60 Hz".into()));
+        assert!(j.image.is_some_and(|i| i.follows_host == Some(true)));
+        let g: ShareGuest = serde_json::from_str(r#"{"id":"g","name":"Léa","image":{"quality":"host","width":1920,"height":1080,"fps":60}}"#).unwrap();
+        assert_eq!(g.image.and_then(|i| i.label()), Some("1080p · 60 Hz".into()));
         let g: ShareGuest = serde_json::from_str(r#"{"id":"g","name":"Léa","image":[]}"#).unwrap();
         assert!(g.image.is_none() && g.name == "Léa");
     }
 
     #[test]
     fn avis_de_l_image() {
-        let img = |h: u32, fps: u32, reason| ShareImage { width: h * 16 / 9, height: h, fps, reason, ..ShareImage::default() };
+        let img = |h: u32, fps: u32, reason| ShareImage { width: Some(h * 16 / 9), height: Some(h), fps: Some(fps), reason: Some(reason), ..ShareImage::default() };
+        let full = img(1080, 60, ShareImageReason::Asked);
         let lag = img(720, 30, ShareImageReason::Lag);
-        assert_eq!(lag.notice(Some(&img(1080, 60, ShareImageReason::Asked)), Lang::Fr).as_deref(), Some("Image allégée pour suivre."));
-        assert_eq!(lag.notice(None, Lang::En).as_deref(), Some("Picture lightened to keep up."));
+        assert_eq!(lag.notice(Some(&full), Lang::Fr).as_deref(), Some("Image allégée pour suivre."));
+        assert_eq!(lag.notice(Some(&full), Lang::En).as_deref(), Some("Picture lightened to keep up."));
+        // Seulement sur une vraie baisse connue.
+        let unknown = ShareImage::default();
+        assert_eq!(lag.notice(None, Lang::Fr), None, "rien d'avant");
+        assert_eq!(lag.notice(Some(&unknown), Lang::Fr), None, "taille d'avant inconnue");
+        assert_eq!(img(1080, 60, ShareImageReason::Lag).notice(Some(&lag), Lang::Fr), None, "pas une baisse");
+        assert_eq!(ShareImage { fps: None, ..lag.clone() }.notice(Some(&full), Lang::Fr), None, "taille reçue inconnue");
+        assert!(img(540, 30, ShareImageReason::Lag).notice(Some(&lag), Lang::Fr).is_some(), "encore un cran plus bas");
         let limit = img(1080, 60, ShareImageReason::Limit);
         assert_eq!(limit.notice(None, Lang::Fr).as_deref(), Some("L'ordinateur ne peut pas faire une image de plus : vous recevez 1080p · 60 Hz."));
-        assert_eq!(limit.notice(None, Lang::En).as_deref(), Some("The computer can't make another picture: you get 1080p · 60 Hz."));
-        // Rien à dire : demandée, bornée par l'hôte, ou la même encore.
-        assert_eq!(img(1080, 60, ShareImageReason::Asked).notice(None, Lang::Fr), None);
+        assert_eq!(limit.notice(Some(&unknown), Lang::En).as_deref(), Some("The computer can't make another picture: you get 1080p · 60 Hz."));
+        assert_eq!(limit.notice(Some(&ShareImage { codec: Some("h264".into()), ..limit.clone() }), Lang::Fr), None, "déjà dit pour cette image");
+        assert_eq!(ShareImage { width: None, ..limit }.notice(None, Lang::Fr), None);
+        // Rien à dire : demandée, bornée par l'hôte, raison inconnue.
+        assert_eq!(full.notice(None, Lang::Fr), None);
         assert_eq!(img(2160, 120, ShareImageReason::Capped).notice(Some(&lag), Lang::Fr), None);
-        assert_eq!(lag.notice(Some(&ShareImage { codec: Some("h264".into()), ..lag.clone() }), Lang::Fr), None, "seul le format change");
-        // Encore un cran plus bas : de nouveau l'avis.
-        assert!(img(540, 30, ShareImageReason::Lag).notice(Some(&lag), Lang::Fr).is_some());
+        assert_eq!(ShareImage { reason: None, ..lag.clone() }.notice(Some(&full), Lang::Fr), None);
     }
 
     #[test]
