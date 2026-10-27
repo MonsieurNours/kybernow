@@ -38,6 +38,7 @@ S = [
 ("home_app_settings", "Réglages de l'app", "App settings"),
 ("home_host_settings", "Réglages", "Settings"),
 ("home_add", "Ajouter un ordinateur", "Add a computer"),
+("home_join", "Rejoindre avec un code", "Join with a code"),
 ("home_on_network", "Sur le réseau", "On your network"),
 ("home_your_computers", "Vos ordinateurs", "Your computers"),
 ("home_searching", "Recherche…", "Searching…"),
@@ -367,6 +368,63 @@ S = [
 ("stats_display", "affichage", "display"),
 ("stats_rtt", "Aller-retour", "Round trip"),
 ("stats_losses", "Pertes : %1$d images, %2$d trous, %3$d paquets", "Losses: %1$d frames, %2$d gaps, %3$d packets"),
+# KyberNow Share (docs/link-ui.md, « Partage »). Les refus de « Rejoindre », les fins du partage et les
+# raisons de « Partager » inactif sont écrits par le cœur (catalogue `share.*`), dans la langue de l'app.
+# L'invité
+("share_join_title", "Rejoindre un partage", "Join a share"),
+("share_join_help", "Le code s'affiche chez la personne qui partage.", "The code is shown by the person sharing."),
+("share_join_name", "Votre prénom", "Your name"),
+("share_join_button", "Rejoindre", "Join"),
+("share_join_searching", "Recherche du partage…", "Looking for the share…"),
+("share_guest_on", "Invité sur %1$s", "Guest on %1$s"),
+("share_role_spectator", "Spectateur", "Spectator"),
+("share_role_player", "Joueur", "Player"),
+("share_leave", "Quitter le partage", "Leave"),
+("share_notice_play", "Vous pouvez jouer.", "You can play."),
+("share_notice_keyboard_mouse", "Vous avez le clavier et la souris.", "You have the keyboard and mouse."),
+("share_notice_keyboard_mouse_back", "Le clavier et la souris sont repris.", "The keyboard and mouse were taken back."),
+# L'hôte
+("share_button", "Partager", "Share"),
+("share_title", "Partager %1$s", "Share %1$s"),
+("share_code_label", "Code", "Code"),
+("share_qr_label", "QR code du partage", "QR code for the share"),
+("share_copy_link", "Copier le lien", "Copy link"),
+("share_link_copied", "Lien copié.", "Link copied."),
+("share_copy_failed", "Copie impossible : sélectionnez le lien à la main.", "Could not copy: select the link by hand."),
+("share_help", "Sur le même réseau : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur.", "On the same network: “Join with a code” in KyberNow Link, or this link in a browser."),
+("share_guests_title", "Invités", "Guests"),
+("share_nobody", "Personne pour l'instant.", "Nobody yet."),
+("share_guest_spectator", "%1$s · Spectateur", "%1$s · Spectator"),
+("share_guest_player", "%1$s · Joueur", "%1$s · Player"),
+("share_guest_player_kbm", "%1$s · Joueur, clavier et souris", "%1$s · Player, keyboard and mouse"),
+("share_let_play", "Faire jouer", "Let play"),
+("share_watch_only", "Faire regarder", "Watch only"),
+("share_give_keyboard_mouse", "Donner le clavier et la souris", "Give keyboard and mouse"),
+("share_take_keyboard_mouse", "Reprendre le clavier et la souris", "Take back keyboard and mouse"),
+("share_remove", "Retirer", "Remove"),
+("share_new_code", "Nouveau code", "New code"),
+("share_stop", "Arrêter le partage", "Stop sharing"),
+("share_limit", "Quatre invités au plus.", "Four guests at most."),
+("share_since", "depuis %1$s", "for %1$s"),
+("share_duration_short", "moins d'une minute", "under a minute"),
+("share_app_mac", "Mac", "Mac"),
+("share_app_windows", "Windows", "Windows"),
+("share_app_linux", "Linux", "Linux"),
+("share_app_ios", "iPhone ou iPad", "iPhone or iPad"),
+("share_app_tvos", "Apple TV", "Apple TV"),
+("share_app_android", "Android", "Android"),
+("share_app_webos", "Téléviseur LG", "LG TV"),
+("share_app_web", "Navigateur", "Browser"),
+]
+
+# Pluriels : (clé, {quantité: (français, anglais)}). Android choisit la quantité selon la langue :
+# en français, 0 et 1 sont au singulier (« 0 invité »).
+PLURALS = [
+("share_guests", {
+    "one": ("%d invité", "%d guest"),
+    "many": ("%d invités", "%d guests"),
+    "other": ("%d invités", "%d guests"),
+}),
 ]
 
 def esc(s):
@@ -384,6 +442,14 @@ def write(path, idx, f):
         extra = ""
         fmt = ' formatted="true"' if "%" in text else ""
         out.append(f'    <string name="{key}"{extra}{fmt}>{esc(text)}</string>')
+    for key, forms in PLURALS:
+        out.append(f'    <plurals name="{key}">')
+        for quantity, texts in forms.items():
+            # « many » n'existe qu'en français (millions) ; l'anglais n'a que « one » et « other ».
+            if quantity == "many" and idx == 2:
+                continue
+            out.append(f'        <item quantity="{quantity}">{esc(f(texts[idx - 1]))}</item>')
+        out.append("    </plurals>")
     out.append("</resources>")
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     Path(path).write_text("\n".join(out) + "\n", encoding="utf-8")

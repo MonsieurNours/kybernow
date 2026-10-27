@@ -29,8 +29,15 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import fr.leslignesclaires.kybernow.KyberNowApp
+import fr.leslignesclaires.kybernow.R
+import fr.leslignesclaires.kybernow.core.ConsoleClient
 import fr.leslignesclaires.kybernow.core.FormFactor
 import fr.leslignesclaires.kybernow.core.Native
+import fr.leslignesclaires.kybernow.core.Reply
+import fr.leslignesclaires.kybernow.core.Share
+import fr.leslignesclaires.kybernow.core.ShareFound
+import fr.leslignesclaires.kybernow.core.ShareGuest
+import fr.leslignesclaires.kybernow.core.ShareRole
 import fr.leslignesclaires.kybernow.model.AudioOutput
 import fr.leslignesclaires.kybernow.model.Gamepads
 import fr.leslignesclaires.kybernow.model.Host
@@ -58,10 +65,14 @@ import kotlin.math.roundToInt
 class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActions {
     companion object {
         const val EXTRA_HOST = "host"
+        /** Session d'invité (KyberNow Share) : la Station et ses jetons sont remis en mémoire par `KyberNowApp.handOverGuest`. */
+        const val EXTRA_GUEST = "guest"
     }
 
     private val app get() = KyberNowApp.instance
     private lateinit var host: Host
+    /** KyberNow Share : la Station qui a accepté cet invité ; nul pour la session d'un ordinateur de l'appareil. */
+    private var guest: ShareFound? = null
     private lateinit var state: SessionState
     private lateinit var ui: SessionUi
     private lateinit var surfaceView: SurfaceView
@@ -103,7 +114,19 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        host = intent.getStringExtra(EXTRA_HOST)?.let { app.hosts.get(it) } ?: run { finish(); return }
+        if (intent.getBooleanExtra(EXTRA_GUEST, false)) {
+            // Un invité n'est jamais ajouté aux ordinateurs de l'appareil : un ordinateur d'attente, en mémoire,
+            // pour l'adresse et le nom ; rien ne s'en écrit (`saveLast`, `saveSettings`, `quit` testent `guest`). Remise perdue (le processus a été
+            // recréé) : pas de session, les jetons ne se gardent pas.
+            val found = app.takeGuest() ?: run { finish(); return }
+            guest = found
+            host = Host(
+                id = "invite", name = found.computer, address = found.target.host, port = found.target.port,
+                fingerprint = found.target.fingerprint, user = "", virtualDisplay = false,
+            )
+        } else {
+            host = intent.getStringExtra(EXTRA_HOST)?.let { app.hosts.get(it) } ?: run { finish(); return }
+        }
         tv = app.form == FormFactor.TV
         if (app.form == FormFactor.PHONE) requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -114,9 +137,12 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         }
 
         state = SessionState(this, app.gamepads)
+        guest?.let { state.shareRole.value = it.role }
         pads = PadRouter({ handle }, app.gamepads).apply { guide = host.settings.guide }
         remote = RemoteRouter { handle }
-        ui = SessionUi(host.name, tv, state, this, OnScreenPad(onScreenOut)).apply {
+        // Un invité : « Invité sur {nom} » (la connexion, le menu), la barre réduite.
+        val title = guest?.let { getString(R.string.share_guest_on, it.computer) } ?: host.name
+        ui = SessionUi(title, tv, state, this, OnScreenPad(onScreenOut), guest = guest != null, computerName = host.name).apply {
             profile = host.settings.profile
             mouseMode = host.settings.mouse
             directTouch = host.settings.directTouch
@@ -142,7 +168,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
             isFocusable = true
             isFocusableInTouchMode = true
             // La manette à l'écran prend les doigts au-dessus (vue d'interface) : l'image ne sert plus de souris.
-            setOnTouchListener { _, e -> if (!e.isFromSource(InputDevice.SOURCE_TOUCHSCREEN)) false else if (ui.padShown) true else touch.onTouch(e) }
+            // Un invité sans le clavier et la souris : l'image ne sert pas de souris (rien ne partirait).
+            setOnTouchListener { _, e -> if (!e.isFromSource(InputDevice.SOURCE_TOUCHSCREEN)) false else if (ui.padShown || !ui.keyboardMouseAllowed()) true else touch.onTouch(e) }
             setOnCapturedPointerListener { _, e -> capturedMouse(e) }
         }
         root.addView(surfaceView, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT, Gravity.CENTER))
@@ -209,12 +236,32 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
     private fun start() {
         val screen = Screen.of(display ?: return)
         val settings = settingsJson(ui.profile)
-        // Le même calcul que l'accueil (« Écran de … »).
-        sessionMode = SessionMode.pick(screen, host.settings, settings.optString("codec"), app.decoders)
+        val g = guest
+        // Le même calcul que l'accueil (« Écran de … »). Un invité reçoit l'écran du partage, tel que la Station le donne.
+        sessionMode = if (g != null && g.width > 0 && g.height > 0) Triple(g.width, g.height, if (g.refresh > 0) g.refresh.coerceIn(24, 240) else 60)
+        else SessionMode.pick(screen, host.settings, settings.optString("codec"), app.decoders)
         applyDisplay()
         val (w, h, r) = sessionMode
         val device = JSONObject(app.device.json())
-        val params = JSONObject()
+        val params = if (g != null) {
+            // Pas de compte, pas de mode ni d'écran virtuel : le cœur ouvre la session avec la réponse de « Rejoindre »
+            // (jeton, empreinte de Kyber, écran, rôle) et vérifie que l'appareil lit le format de l'image de l'hôte.
+            val d = app.decoders
+            JSONObject()
+                .put("console_host", g.target.host)
+                .put("console_port", g.target.port)
+                .put("console_fingerprint", g.target.fingerprint ?: JSONObject.NULL)
+                .put("device", device)
+                .put("audio_channels", audioChannels())
+                .put("virtual_display", false)
+                .put("settings", settings)
+                .put("auto_reconnect", host.settings.reconnect)
+                .put("gamepad_xbox360", host.settings.xbox360)
+                .put("clipboard", false)
+                .put("combo", host.settings.combo)
+                .put("recovery", JSONObject().put("watch_image", true))
+                .put("guest", JSONObject().put("joined", g.joined).put("capabilities", JSONObject().put("hevc", d.hevc != null).put("hevc444", d.hevc444).put("av1", d.av1 != null)))
+        } else JSONObject()
             .put("console_host", host.address)
             .put("console_port", host.port)
             .put("user", host.user)
@@ -231,7 +278,11 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
             .put("combo", host.settings.combo)
             .put("recovery", JSONObject().put("watch_image", true).put("fallback_bitrate", 150_000_000))
         handle = Native.sessionStart(params.toString(), null, state, refresh)
-        if (handle == 0L) finish()
+        if (handle == 0L) {
+            // Un invité que la Station a déjà accepté repart tout de suite (sinon elle l'attend 20 s sans signe de vie).
+            g?.let(Share::leave)
+            finish()
+        }
     }
 
     private fun observe() {
@@ -267,6 +318,15 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
                         .collect { visible -> overlay.visibility = if (visible) View.VISIBLE else View.GONE }
                 }
                 launch { state.ended.collect { if (it?.error != null) overlay.visibility = View.VISIBLE } }
+                launch {
+                    // Invité : ce que son rôle permet change en cours de partage. Un droit retiré relâche ce qui était tenu
+                    // (le cœur le fait de son côté ; ici, ce que l'interface montre).
+                    state.shareRole.collect { role -> if (guest != null) applyShareRole(role) }
+                }
+                launch {
+                    // Hôte : ce que « Partager » peut faire avec cet ordinateur, relu à chaque ouverture de la barre ou du menu.
+                    snapshotFlow { ui.barOpen || ui.menuOpen }.collect { open -> if (open && guest == null) refreshShareAvailability() }
+                }
                 launch {
                     // La barre se ferme, quelle que soit la façon (B, la croix, le clavier de l'écran) :
                     // la manette qui la pilotait revient à l'ordinateur.
@@ -355,6 +415,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         ui.menuOpen = false
         ui.barOpen = false
         ui.keysOpen = false
+        ui.shareOpen = false
         ui.typing = false
         ui.statsOpen = false
         ui.pad.releaseAll()
@@ -368,7 +429,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         // L'ordinateur remet son écran et son son avant de répondre ; au-delà de 6 s, on part
         // quand même (la session finit en arrière-plan, voir onDestroy).
         main.postDelayed({ finishSession() }, 6000)
-        captureLastImage { Native.sessionStop(h) }
+        // Un invité ne garde pas d'image : elle n'appartient à aucun ordinateur de l'appareil.
+        if (guest != null) Native.sessionStop(h) else captureLastImage { Native.sessionStop(h) }
     }
 
     /** La dernière image de la session, pour l'accueil et la rangée d'Android TV. */
@@ -398,6 +460,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
      * médiane et 95e centile, durée, quand, et ce qui a été transmis (mode, format, débit).
      */
     private fun saveLast() {
+        // Un invité n'écrit rien dans les ordinateurs de l'appareil.
+        if (guest != null) return
         val h = handle
         if (h == 0L) return
         val started = state.firstImageAt.get()
@@ -449,6 +513,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
     private fun closeTop(): Boolean = when {
         ui.typing -> { ui.typing = false; true }
         ui.keysOpen -> { ui.keysOpen = false; true }
+        ui.shareOpen -> { ui.shareOpen = false; true }
         ui.statsOpen && !ui.menuOpen -> { ui.statsOpen = false; true }
         ui.keyboardOpen -> { openKeyboard(false); true }
         ui.menuOpen -> { resume(); true }
@@ -459,6 +524,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
     override fun resume() {
         ui.menuOpen = false
         ui.keysOpen = false
+        ui.shareOpen = false
         ui.typing = false
         padDowns.clear()
         pads.release()
@@ -554,10 +620,142 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         saveSettings { it.copy(padLayout = if (simple) "simple" else "full") }
     }
 
+    // MARK: - KyberNow Share
+
+    /**
+     * Invité : le rôle a changé (au départ, ou par l'hôte). Ce que l'interface montrait et que le rôle ne
+     * permet plus est retiré : la manette à l'écran sans les manettes, le clavier, la souris et les
+     * commandes à distance sans le clavier et la souris. Le cœur, lui, applique déjà les droits.
+     */
+    private fun applyShareRole(role: ShareRole) {
+        if (!role.plays && ui.padShown) {
+            ui.pad.releaseAll()
+            haptics.stop()
+            ui.padShown = false
+            app.gamepads.setOnScreen(false)
+        }
+        if (!role.keyboardMouse) {
+            ui.keyboardOpen = false
+            ui.keysOpen = false
+            ui.typing = false
+            ui.sticky = emptySet()
+            if (ui.padMouse) { ui.padMouse = false; pads.asMouse = false }
+            if (ui.remoteMouse) { ui.remoteMouse = false; remote.asMouse = false }
+            pads.mouse.stop()
+            if (relative) { relative = false; surfaceView.releasePointerCapture() }
+            if (handle != 0L) Native.inputReleaseAll(handle)
+            pointerView.place(0f, 0f, false)
+        }
+    }
+
+    /** Un compte de l'appareil pour les appels de l'hôte au partage (jamais pour un invité). */
+    private fun console() = ConsoleClient(host.address, host.port, host.user, app.hosts.password(host.id) ?: "", host.fingerprint)
+
+    /**
+     * Hôte : ce que « Partager » peut faire avec cet ordinateur d'après son info (Station 0.8.0 ou plus,
+     * partage coupé ou non), les textes étant ceux du cœur.
+     */
+    private fun refreshShareAvailability() {
+        lifecycleScope.launch {
+            val reply = console().use { it.info() }
+            val info = (reply as? Reply.Ok)?.value ?: return@launch
+            val a = Share.availability(info.raw)
+            ui.shareAvailability = a
+            ui.shareUnavailable = Share.availabilityText(a)
+        }
+    }
+
+    /**
+     * « Partager » : le partage ouvert est montré tel quel, sinon Admin ouvre celui de l'écran principal de la
+     * session (code, lien). Un refus d'Admin (409 : pas en session, partage coupé ; 404 : Station trop
+     * ancienne) s'affiche dans le panneau avec son texte.
+     */
+    override fun share() {
+        if (guest != null || ui.shareBusy) return
+        ui.shareOpen = true
+        ui.shareError = null
+        ui.shareCopy = null
+        ui.shareBusy = true
+        lifecycleScope.launch {
+            val failure = console().use { c ->
+                // Le partage ouvert d'abord : « Partager » ne le remplace pas (ses invités resteraient sans lien).
+                val current = (c.shareState() as? Reply.Ok)?.value
+                if (current != null) {
+                    state.share.value = current
+                    null
+                } else when (val r = c.shareOpen()) {
+                    is Reply.Ok -> { state.share.value = r.value; null }
+                    is Reply.Failed -> r.message.ifBlank { "?" }
+                }
+            }
+            ui.shareError = failure
+            ui.shareBusy = false
+            // Les invités déjà là (et leurs rôles) : relus pour qu'ils soient à jour dans le panneau.
+            if (failure == null) refreshShare()
+        }
+    }
+
+    /** Relit le partage ouvert (les rôles et les invités arrivent aussi avec le signe de vie de la session). */
+    private fun refreshShare() {
+        lifecycleScope.launch {
+            (console().use { it.shareState() } as? Reply.Ok)?.let { state.share.value = it.value }
+        }
+    }
+
+    /** Un appel au partage : les boutons attendent sa fin, un refus d'Admin s'affiche, le partage est relu. */
+    private fun shareCall(call: suspend (ConsoleClient) -> Reply<*>) {
+        if (guest != null || ui.shareBusy) return
+        ui.shareBusy = true
+        ui.shareError = null
+        lifecycleScope.launch {
+            val reply = console().use { call(it) }
+            ui.shareError = (reply as? Reply.Failed)?.message?.ifBlank { "?" }
+            ui.shareBusy = false
+            refreshShare()
+        }
+    }
+
+    override fun shareNewCode() = shareCall { it.shareCode() }
+
+    override fun shareSetRole(guest: ShareGuest, role: ShareRole) = shareCall { it.shareGuest(guest.id, role) }
+
+    override fun shareRemove(guest: ShareGuest) = shareCall { it.shareKick(guest.id) }
+
+    /** « Arrêter le partage » : tout le monde sort ; le panneau se ferme. */
+    override fun shareStop() {
+        if (guest != null || ui.shareBusy) return
+        ui.shareBusy = true
+        ui.shareError = null
+        lifecycleScope.launch {
+            val reply = console().use { it.shareClose() }
+            ui.shareBusy = false
+            if (reply is Reply.Failed) {
+                ui.shareError = reply.message.ifBlank { "?" }
+                refreshShare()
+            } else {
+                state.share.value = null
+                ui.shareOpen = false
+            }
+        }
+    }
+
+    /**
+     * « Copier le lien » : l'adresse du client web du partage (`web`) ; sans elle, le lien des apps. Android
+     * peut refuser : le panneau le dit et montre l'adresse à sélectionner.
+     */
+    override fun shareCopyLink() {
+        val s = state.share.value ?: return
+        val ok = state.copyText(s.web.ifBlank { s.link })
+        ui.shareCopy = if (ok) ShareCopy.COPIED else ShareCopy.FAILED
+        val shown = ui.shareCopy
+        main.postDelayed({ if (ui.shareCopy == shown) ui.shareCopy = null }, if (ok) 2500 else 8000)
+    }
+
     /** Un réglage de l'ordinateur changé depuis la session, retenu pour la suivante. */
     private fun saveSettings(f: (fr.leslignesclaires.kybernow.model.HostSettings) -> fr.leslignesclaires.kybernow.model.HostSettings) {
         host = host.copy(settings = f(host.settings))
-        app.hosts.update(host.id) { it.copy(settings = f(it.settings)) }
+        // Un invité n'écrit rien dans les ordinateurs de l'appareil : ses choix valent pour cette session.
+        if (guest == null) app.hosts.update(host.id) { it.copy(settings = f(it.settings)) }
     }
 
     /** Lettres A à Z et chiffres : code Linux, pour le scancode de kynput. */
@@ -575,7 +773,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
 
     /** Souris Auto / Bureau / Jeu : capture du pointeur (déplacements bruts) quand un jeu le veut. */
     private fun updateMouseMode() {
-        if (!mouseSeen) return
+        if (!mouseSeen || !ui.keyboardMouseAllowed()) return
         val p = state.pointer.value
         val visibleFor = if (p.shownAt > 0 && !p.remoteHidden) (System.currentTimeMillis() - p.shownAt).toDouble() else 0.0
         val want = Native.mouseWantsRelative(ui.mouseMode, state.gameFullscreen.value, p.remoteHidden, visibleFor, relative)
@@ -678,6 +876,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
                     KeyEvent.KEYCODE_Q -> { quit(); return true }
                 }
             }
+            // Un invité sans le clavier : ses touches ne partent pas.
+            if (!ui.keyboardMouseAllowed()) return true
             val sc = Native.scancode(event.scanCode)
             if (sc >= 0) {
                 if (event.repeatCount == 0) Native.inputKey(handle, sc, down)
@@ -687,13 +887,14 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
             if (down) event.unicodeChar.takeIf { it > 0 }?.let { Native.inputText(handle, String(Character.toChars(it))); return true }
             return super.dispatchKeyEvent(event)
         }
-        // Télécommande.
+        // Télécommande (flèches et Entrée vers l'ordinateur : pas pour un invité sans le clavier et la souris).
+        if (!ui.keyboardMouseAllowed()) return true
         if (remote.key(event)) return true
         return super.dispatchKeyEvent(event)
     }
 
     /** Ce qui prend les touches. La barre pilotée à la manette passe par `pads.captured`. */
-    private fun SessionUi.anythingModal() = menuOpen || keysOpen || typing
+    private fun SessionUi.anythingModal() = menuOpen || keysOpen || typing || shareOpen
 
     private fun isKeyboard(e: KeyEvent): Boolean {
         val d = e.device ?: return false
@@ -705,7 +906,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
             if (!pads.captured && !ui.anythingModal() && pads.motion(event)) return true
             return super.dispatchGenericMotionEvent(event)
         }
-        if (event.isFromSource(InputDevice.SOURCE_MOUSE) && !ui.anythingModal()) {
+        if (event.isFromSource(InputDevice.SOURCE_MOUSE) && !ui.anythingModal() && ui.keyboardMouseAllowed()) {
             if (!mouseSeen) {
                 mouseSeen = true
                 surfaceView.pointerIcon = PointerIcon.getSystemIcon(this, PointerIcon.TYPE_NULL)
@@ -730,7 +931,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         if (ev.isFromSource(InputDevice.SOURCE_MOUSE) && !ui.covering) {
             val h = handle
             when (ev.actionMasked) {
-                MotionEvent.ACTION_MOVE -> viewToHost(ev.x, ev.y)?.let { (x, y) -> Native.pointerMoveTo(h, x, y) }
+                MotionEvent.ACTION_MOVE -> if (ui.keyboardMouseAllowed()) viewToHost(ev.x, ev.y)?.let { (x, y) -> Native.pointerMoveTo(h, x, y) }
             }
             return true
         }

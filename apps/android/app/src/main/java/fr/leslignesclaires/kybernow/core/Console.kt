@@ -20,6 +20,8 @@ data class HostInfo(
     val wake: List<WakeTarget> = emptyList(),
     /** Le compte de l'app a été créé pour cet appareil par un code (`account.own_device`, Station 0.5.0 et suivantes). */
     val ownDevice: Boolean = false,
+    /** La réponse d'Admin en JSON, telle que le cœur la rend : [Share.availability] la relit (`share`). */
+    val raw: String = "",
 ) {
     companion object {
         fun parse(o: JSONObject) = HostInfo(
@@ -33,6 +35,7 @@ data class HostInfo(
             station = o.optJSONObject("station")?.let(StationInfo::parse),
             wake = WakeTarget.parseList(o.optJSONArray("wake")),
             ownDevice = o.optJSONObject("account")?.optBoolean("own_device") ?: false,
+            raw = o.toString(),
         )
     }
 }
@@ -220,6 +223,39 @@ class ConsoleClient(host: String, port: Int, user: String = "", password: String
      */
     suspend fun stationUpdate(deviceId: String?, force: Boolean = false): Reply<String> = withContext(Dispatchers.IO) {
         parse(Native.consoleStationUpdate(handle, deviceId, force)) { (it as JSONObject).optString("version") }
+    }
+
+    // KyberNow Share, côté hôte (compte de l'appareil en session). Refus : le texte d'Admin ou du cœur
+    // (409 sans session de cet appareil ou partage coupé, 404 Station antérieure à la 0.8.0).
+
+    /** « Partager » : ouvre le partage de l'écran principal de la session ; le code, le lien. */
+    suspend fun shareOpen(): Reply<ShareState?> = withContext(Dispatchers.IO) {
+        parse(Native.consoleShareOpen(handle)) { ShareState.parse(it as? JSONObject) }
+    }
+
+    /** Le partage en cours, ses invités ; `null` sans partage. */
+    suspend fun shareState(): Reply<ShareState?> = withContext(Dispatchers.IO) {
+        parse(Native.consoleShareState(handle)) { ShareState.parse(it as? JSONObject) }
+    }
+
+    /** « Nouveau code » : les invités déjà là restent. */
+    suspend fun shareCode(): Reply<ShareState?> = withContext(Dispatchers.IO) {
+        parse(Native.consoleShareCode(handle)) { ShareState.parse(it as? JSONObject) }
+    }
+
+    /** « Faire jouer », « Donner le clavier et la souris », « Reprendre le clavier et la souris ». */
+    suspend fun shareGuest(guest: String, role: ShareRole): Reply<Unit> = withContext(Dispatchers.IO) {
+        parse(Native.consoleShareGuest(handle, guest, role.code)) { }
+    }
+
+    /** « Retirer » un invité. */
+    suspend fun shareKick(guest: String): Reply<Unit> = withContext(Dispatchers.IO) {
+        parse(Native.consoleShareKick(handle, guest)) { }
+    }
+
+    /** « Arrêter le partage » : tout le monde sort. */
+    suspend fun shareClose(): Reply<Unit> = withContext(Dispatchers.IO) {
+        parse(Native.consoleShareClose(handle)) { }
     }
 
     override fun close() {

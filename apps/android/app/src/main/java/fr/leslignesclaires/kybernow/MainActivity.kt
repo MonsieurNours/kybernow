@@ -13,6 +13,9 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import fr.leslignesclaires.kybernow.core.Share
+import fr.leslignesclaires.kybernow.core.ShareFound
+import fr.leslignesclaires.kybernow.core.ShareLink
 import fr.leslignesclaires.kybernow.model.Host
 import fr.leslignesclaires.kybernow.session.SessionActivity
 import fr.leslignesclaires.kybernow.tv.TvChannel
@@ -25,6 +28,7 @@ import fr.leslignesclaires.kybernow.ui.gamepads.GamepadsScreen
 import fr.leslignesclaires.kybernow.ui.gamepads.PadMonitor
 import fr.leslignesclaires.kybernow.ui.home.HomeActions
 import fr.leslignesclaires.kybernow.ui.home.HomeScreen
+import fr.leslignesclaires.kybernow.ui.share.JoinScreen
 import fr.leslignesclaires.kybernow.ui.settings.AppSettingsScreen
 import fr.leslignesclaires.kybernow.ui.settings.HostSettingsScreen
 
@@ -35,6 +39,8 @@ sealed class Route {
     data class HostSettings(val id: String) : Route()
     data object AppSettings : Route()
     data object Gamepads : Route()
+    /** « Rejoindre avec un code » (KyberNow Share) ; [link] : un lien ou un QR code `kybernow://join` qui donne la Station et le code. */
+    data class Join(val link: ShareLink? = null) : Route()
 }
 
 class MainActivity : AppCompatActivity() {
@@ -63,9 +69,14 @@ class MainActivity : AppCompatActivity() {
                             hostSettings = { h -> route = Route.HostSettings(h.id) },
                             appSettings = { route = Route.AppSettings },
                             wake = ::wake,
+                            join = { route = Route.Join() },
                         ),
                     )
-                    is Route.Add -> AddHostScreen(r.target, onDone = { h -> model.select(h.id); route = Route.Home }, onBack = { route = Route.Home })
+                    is Route.Add -> AddHostScreen(
+                        r.target, onDone = { h -> model.select(h.id); route = Route.Home }, onBack = { route = Route.Home },
+                        onShareLink = { link -> route = Route.Join(link) },
+                    )
+                    is Route.Join -> JoinScreen(r.link, onBack = { route = Route.Home }, onJoined = ::joined)
                     is Route.HostSettings -> HostSettingsScreen(model, r.id, onBack = { route = Route.Home }, onRemoved = { route = Route.Home })
                     Route.AppSettings -> AppSettingsScreen(onBack = { route = Route.Home }, onGamepads = { route = Route.Gamepads })
                     Route.Gamepads -> {
@@ -86,14 +97,26 @@ class MainActivity : AppCompatActivity() {
         handle(intent)
     }
 
-    /** Lien `kybernow://` (QR code d'Admin, lien partagé) ou rangée de l'accueil d'Android TV. */
+    /**
+     * Lien `kybernow://` (QR code d'Admin, lien de partage de KyberNow Share, lien partagé) ou rangée de
+     * l'accueil d'Android TV.
+     */
     private fun handle(intent: Intent?) {
         val data = intent?.data ?: return
         TvChannel.hostIdOf(data)?.let { id ->
             KyberNowApp.instance.hosts.get(id)?.let { connect(it) }
             return
         }
+        // `kybernow://join?host=…&port=…&fp=…&code=…` : « Rejoindre avec un code », la Station et le code remplis.
+        Share.parseLink(data.toString())?.let { route = Route.Join(it); return }
         PairingLink.parse(data.toString())?.let { route = Route.Add(it) }
+    }
+
+    /** Un invité a rejoint un partage : sa session s'ouvre (la Station et ses jetons restent en mémoire, rien n'est enregistré). */
+    private fun joined(found: ShareFound) {
+        KyberNowApp.instance.handOverGuest(found)
+        startActivity(Intent(this, SessionActivity::class.java).putExtra(SessionActivity.EXTRA_GUEST, true))
+        route = Route.Home
     }
 
     override fun onStart() {

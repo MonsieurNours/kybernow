@@ -60,6 +60,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -69,6 +70,9 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import fr.leslignesclaires.kybernow.R
+import fr.leslignesclaires.kybernow.core.ShareAvailability
+import fr.leslignesclaires.kybernow.core.ShareGuest
+import fr.leslignesclaires.kybernow.core.ShareRole
 import fr.leslignesclaires.kybernow.model.Profile
 import fr.leslignesclaires.kybernow.ui.Body
 import fr.leslignesclaires.kybernow.ui.Eyebrow
@@ -87,14 +91,22 @@ import fr.leslignesclaires.kybernow.ui.home.motorsLabel
 import fr.leslignesclaires.kybernow.ui.home.profileLabel
 import fr.leslignesclaires.kybernow.ui.panel
 
+/** Ce qu'a donné « Copier le lien ». */
+enum class ShareCopy { COPIED, FAILED }
+
 /** Ce que l'interface de session montre et ce qu'elle peut demander. */
 class SessionUi(
+    /** Le nom de l'ordinateur ; pour un invité, « Invité sur {nom} » (docs/link-ui.md, « Partage »). */
     val hostName: String,
     val tv: Boolean,
     val state: SessionState,
     val actions: SessionActions,
     /** La manette à l'écran (téléphone, tablette) : ses touchers, ce qu'elle envoie, son état pour le dessin. */
     val pad: OnScreenPad = OnScreenPad(PadOut.NONE),
+    /** Session d'invité (KyberNow Share) : barre réduite selon son rôle ([SessionState.shareRole]), ni profil ni réglages. */
+    val guest: Boolean = false,
+    /** Le nom de l'ordinateur tel quel, pour le panneau de partage de l'hôte (« Partager {nom} »). */
+    val computerName: String = hostName,
 ) {
     var menuOpen by mutableStateOf(false)
     var barOpen by mutableStateOf(false)
@@ -122,8 +134,28 @@ class SessionUi(
     var padSize by mutableStateOf(1)
     var padOpacity by mutableStateOf(70)
 
+    // KyberNow Share, côté hôte.
+    /** Le panneau du partage (code, lien, QR code, invités) est ouvert. */
+    var shareOpen by mutableStateOf(false)
+    /** Ce que « Partager » peut faire avec cet ordinateur d'après son info ; nul tant qu'on ne le sait pas (« Partager » reste actif : le toucher le vérifie). */
+    var shareAvailability by mutableStateOf<ShareAvailability?>(null)
+    /** Pourquoi « Partager » est inactif (le texte du cœur) ; nul s'il est disponible. */
+    var shareUnavailable by mutableStateOf<String?>(null)
+    /** Un appel d'Admin du partage est en cours. */
+    var shareBusy by mutableStateOf(false)
+    /** Le dernier refus d'Admin, dans le panneau. */
+    var shareError by mutableStateOf<String?>(null)
+    /** Le résultat de « Copier le lien » (« Lien copié. » ou « Copie impossible… »), montré un instant. */
+    var shareCopy by mutableStateOf<ShareCopy?>(null)
+
+    /** « Partager » est actif : l'ordinateur le permet, ou on ne sait pas encore (le toucher le vérifie). */
+    val shareUsable get() = shareAvailability.let { it == null || it == ShareAvailability.AVAILABLE }
+
+    /** Un invité n'a ni le clavier ni la souris à moins que son rôle les donne ; l'hôte, toujours. */
+    fun keyboardMouseAllowed(role: ShareRole = state.shareRole.value) = !guest || role.keyboardMouse
+
     /** Un menu, une feuille, la barre, le clavier… par-dessus l'image (la manette à part). */
-    val covering get() = leaving || !passageDone || menuOpen || barOpen || keyboardOpen || statsOpen || typing
+    val covering get() = leaving || !passageDone || menuOpen || barOpen || keyboardOpen || statsOpen || typing || shareOpen
 
     /** Quelque chose est à l'écran par-dessus l'image. */
     val anything get() = covering || padShown
@@ -147,14 +179,30 @@ interface SessionActions {
     fun setOnScreenPad(on: Boolean)
     /** Disposition de la manette à l'écran : « Simple » ou « Complète » (retenue pour l'ordinateur). */
     fun setPadLayout(simple: Boolean)
+
+    // KyberNow Share, côté hôte (docs/link-ui.md, « Partage »).
+    /** « Partager » : ouvre le partage de l'écran principal (ou montre celui qui est ouvert) et son panneau. */
+    fun share()
+    /** « Nouveau code » : les invités déjà là restent. */
+    fun shareNewCode()
+    /** « Faire jouer », « Donner le clavier et la souris », « Reprendre le clavier et la souris ». */
+    fun shareSetRole(guest: ShareGuest, role: ShareRole)
+    /** « Retirer » un invité. */
+    fun shareRemove(guest: ShareGuest)
+    /** « Arrêter le partage » : tout le monde sort. */
+    fun shareStop()
+    /** « Copier le lien ». */
+    fun shareCopyLink()
 }
 
 @Composable
 fun SessionOverlay(ui: SessionUi) {
     val ended by ui.state.ended.collectAsState()
+    val role by ui.state.shareRole.collectAsState()
     Box(Modifier.fillMaxSize()) {
         // La manette sous tout le reste : la barre, la rangée du clavier et les feuilles gardent leurs touchers.
-        if (!ui.tv && ui.padShown && ui.passageDone && !ui.leaving && ended?.error == null) OnScreenPadLayer(ui)
+        // Un invité spectateur n'en a pas : rien de ce qu'il toucherait ne partirait.
+        if (!ui.tv && ui.padShown && (!ui.guest || role.plays) && ui.passageDone && !ui.leaving && ended?.error == null) OnScreenPadLayer(ui)
         Capsules(ui, Modifier.align(Alignment.TopCenter))
         if (!ui.passageDone) Passage(ui)
         if (ui.tv) {
@@ -167,20 +215,24 @@ fun SessionOverlay(ui: SessionUi) {
         if (ui.statsOpen) Stats(ui, Modifier.align(if (ui.tv) Alignment.TopEnd else Alignment.BottomEnd).padding(LocalScale.current.dp(20f)))
         if (ui.keysOpen) KeysSheet(ui, Modifier.align(Alignment.Center))
         if (ui.typing) TypeText(ui, Modifier.align(Alignment.Center))
+        if (ui.shareOpen) SharePanel(ui, Modifier.align(Alignment.Center))
         ended?.takeIf { it.error != null }?.let { EndedCard(ui, it, Modifier.align(Alignment.Center)) }
-        AnimatedVisibility(ui.leaving, enter = fadeIn(tween(220)), exit = fadeOut(tween(160))) { Leaving() }
+        AnimatedVisibility(ui.leaving, enter = fadeIn(tween(220)), exit = fadeOut(tween(160))) { Leaving(ui.guest) }
     }
 }
 
-/** Pendant la fin de session : l'image s'efface, l'ordinateur se remet. */
+/**
+ * Pendant la fin de session : l'image s'efface, l'ordinateur se remet (un invité ne change rien à
+ * l'ordinateur : pas de remise en place à attendre).
+ */
 @Composable
-private fun Leaving() {
+private fun Leaving(guest: Boolean) {
     val s = LocalScale.current
     Box(Modifier.fillMaxSize().background(Kn.ink.copy(alpha = 0.9f)), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(s.dp(14f))) {
             androidx.compose.material3.CircularProgressIndicator(Modifier.size(s.dp(36f)), color = Kn.spectre, strokeWidth = s.dp(3f))
             Body(stringResource(R.string.session_leaving), size = 20f, weight = 600)
-            Body(stringResource(R.string.session_leaving_detail), size = 14f, color = Kn.muted)
+            if (!guest) Body(stringResource(R.string.session_leaving_detail), size = 14f, color = Kn.muted)
         }
     }
 }
@@ -323,6 +375,7 @@ private fun capsuleText(c: Capsule): String = when (c) {
     is Capsule.Adapting -> stringResource(R.string.capsule_adapting, c.width, c.height)
     is Capsule.AdaptFailed -> stringResource(R.string.capsule_adapt_failed)
     is Capsule.GamepadConnected -> stringResource(R.string.capsule_gamepad, c.name, c.slot + 1, motorsLabel(c.motors))
+    is Capsule.ShareRights -> stringResource(c.text)
 }
 
 // MARK: - Téléphone et tablette
@@ -331,11 +384,12 @@ private fun capsuleText(c: Capsule): String = when (c) {
 private fun PhoneBar(ui: SessionUi) {
     val s = LocalScale.current
     val sec by ui.state.second.collectAsState()
+    val role by ui.state.shareRole.collectAsState()
     val first = remember { FocusRequester() }
     // Ouverte à la manette : le focus sur le premier élément, et de nouveau quand la feuille des
     // touches se ferme. Une image d'attente : la vue d'interface vient de passer de GONE à visible.
-    LaunchedEffect(ui.padBar, ui.keysOpen) {
-        if (ui.padBar && !ui.keysOpen) {
+    LaunchedEffect(ui.padBar, ui.keysOpen, ui.shareOpen) {
+        if (ui.padBar && !ui.keysOpen && !ui.shareOpen) {
             withFrameNanos { }
             runCatching { first.requestFocus() }
         }
@@ -352,31 +406,88 @@ private fun PhoneBar(ui: SessionUi) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(s.dp(6f)),
             ) {
-                // Statistiques : les mesures en direct, et leur panneau au toucher.
-                val statsLabel = stringResource(R.string.session_stats)
-                FocusCard({ ui.statsOpen = !ui.statsOpen }, Modifier.focusRequester(first).semantics { contentDescription = statsLabel }) {
-                    Column(Modifier.padding(horizontal = s.dp(8f))) {
-                        Mono(sec?.latencyMs?.let { fmt("%.1f ms", it) } ?: "—", size = 14f, color = Kn.frost, weight = 500)
-                        Mono(stringResource(R.string.session_fps, sec?.fps ?: 0) + " · " + fmt("%.0f Mbit/s", sec?.mbps ?: 0.0), size = 9f)
-                    }
-                }
-                Profile.entries.forEach { p -> GlassButton(profileLabel(p), { ui.actions.setProfile(p) }, selected = ui.profile == p) }
-                GlassButton(stringResource(if (ui.directTouch) R.string.touch_direct else R.string.touch_trackpad), { ui.actions.setDirectTouch(!ui.directTouch) })
-                GlassButton(stringResource(R.string.pad_on_screen), { ui.actions.setOnScreenPad(!ui.padShown) }, selected = ui.padShown)
-                GlassButton(
-                    stringResource(listOf(R.string.session_mouse_auto, R.string.mouse_desktop, R.string.mouse_game)[ui.mouseMode]),
-                    { ui.actions.setMouseMode((ui.mouseMode + 1) % 3) },
-                )
-                screenChoice(ui)?.let { c -> GlassButton(stringResource(R.string.session_screen, c.index + 1, c.width, c.height), { ui.actions.pickDisplay(c.next) }) }
-                BarIcon(KnIcons.keyboard, stringResource(R.string.session_keyboard)) { ui.actions.openKeyboard(true) }
-                GlassButton(stringResource(R.string.session_keys), { ui.keysOpen = true })
+                if (ui.guest) GuestBarItems(ui, role, first) else HostBarItems(ui, sec, first)
             }
-            GlassButton(stringResource(R.string.session_disconnect), { ui.actions.quit() })
+            // Un invité quitte le partage : l'ordinateur, lui, ne change pas.
+            GlassButton(
+                stringResource(if (ui.guest) R.string.share_leave else R.string.session_disconnect), { ui.actions.quit() },
+                if (ui.guest && !role.plays) Modifier.focusRequester(first) else Modifier,
+            )
             BarIcon(KnIcons.close, stringResource(R.string.session_close)) { ui.barOpen = false }
         }
         if (ui.padBar) Body(stringResource(R.string.session_pad_bar), Modifier.panel(999.dp).padding(horizontal = s.dp(14f), vertical = s.dp(6f)), size = 12f, color = Kn.frost2)
+        // « Partager » inactif : le texte du cœur dit pourquoi (Station trop ancienne, partage coupé).
+        if (!ui.guest) ui.shareUnavailable?.let { Body(it, Modifier.panel(999.dp).padding(horizontal = s.dp(14f), vertical = s.dp(6f)), size = 12f, color = Kn.frost2) }
     }
 }
+
+/** La barre de l'hôte (ordinateur ajouté à l'appareil) : mesures, profils, toucher, manette, souris, écran, clavier, touches, partage. */
+@Composable
+private fun HostBarItems(ui: SessionUi, sec: Second?, first: FocusRequester) {
+    val s = LocalScale.current
+    // Statistiques : les mesures en direct, et leur panneau au toucher.
+    val statsLabel = stringResource(R.string.session_stats)
+    FocusCard({ ui.statsOpen = !ui.statsOpen }, Modifier.focusRequester(first).semantics { contentDescription = statsLabel }) {
+        Column(Modifier.padding(horizontal = s.dp(8f))) {
+            Mono(sec?.latencyMs?.let { fmt("%.1f ms", it) } ?: "—", size = 14f, color = Kn.frost, weight = 500)
+            Mono(stringResource(R.string.session_fps, sec?.fps ?: 0) + " · " + fmt("%.0f Mbit/s", sec?.mbps ?: 0.0), size = 9f)
+        }
+    }
+    Profile.entries.forEach { p -> GlassButton(profileLabel(p), { ui.actions.setProfile(p) }, selected = ui.profile == p) }
+    GlassButton(stringResource(if (ui.directTouch) R.string.touch_direct else R.string.touch_trackpad), { ui.actions.setDirectTouch(!ui.directTouch) })
+    GlassButton(stringResource(R.string.pad_on_screen), { ui.actions.setOnScreenPad(!ui.padShown) }, selected = ui.padShown)
+    GlassButton(
+        stringResource(listOf(R.string.session_mouse_auto, R.string.mouse_desktop, R.string.mouse_game)[ui.mouseMode]),
+        { ui.actions.setMouseMode((ui.mouseMode + 1) % 3) },
+    )
+    screenChoice(ui)?.let { c -> GlassButton(stringResource(R.string.session_screen, c.index + 1, c.width, c.height), { ui.actions.pickDisplay(c.next) }) }
+    BarIcon(KnIcons.keyboard, stringResource(R.string.session_keyboard)) { ui.actions.openKeyboard(true) }
+    GlassButton(stringResource(R.string.session_keys), { ui.keysOpen = true })
+    ShareItems(ui)
+}
+
+/**
+ * La barre réduite d'un invité (docs/link-ui.md, « Partage ») : son rôle (« Spectateur » ou « Joueur »),
+ * puis seulement ce que ce rôle permet, la manette à l'écran pour un joueur, le toucher, le clavier
+ * et les touches pour un joueur qui a le clavier et la souris. Ni profil ni réglages.
+ */
+@Composable
+private fun GuestBarItems(ui: SessionUi, role: ShareRole, first: FocusRequester) {
+    val s = LocalScale.current
+    Body(
+        roleLabel(role), Modifier.clip(RoundedCornerShape(999.dp)).background(Kn.frost.copy(alpha = 0.06f)).padding(horizontal = s.dp(14f), vertical = s.dp(8f)),
+        size = 14f, weight = 600, color = Kn.frost,
+    )
+    var used = false
+    fun firstIf(): Modifier = if (used) Modifier else { used = true; Modifier.focusRequester(first) }
+    if (role.plays) GlassButton(stringResource(R.string.pad_on_screen), { ui.actions.setOnScreenPad(!ui.padShown) }, firstIf(), selected = ui.padShown)
+    if (role.keyboardMouse) {
+        GlassButton(stringResource(if (ui.directTouch) R.string.touch_direct else R.string.touch_trackpad), { ui.actions.setDirectTouch(!ui.directTouch) }, firstIf())
+        BarIcon(KnIcons.keyboard, stringResource(R.string.session_keyboard)) { ui.actions.openKeyboard(true) }
+        GlassButton(stringResource(R.string.session_keys), { ui.keysOpen = true })
+    }
+}
+
+/** « Partager » ; un partage ouvert se voit aussi par sa pastille (« 2 invités »), qui rouvre le panneau. */
+@Composable
+private fun ShareItems(ui: SessionUi) {
+    val s = LocalScale.current
+    val share by ui.state.share.collectAsState()
+    GlassButton(
+        stringResource(R.string.share_button), { ui.actions.share() },
+        selected = share != null, enabled = ui.shareUsable,
+        leading = { KnIcon(KnIcons.share, size = 16f); Spacer(Modifier.width(s.dp(6f))) },
+    )
+    share?.let { GlassButton(guestsLabel(it.guests.size), { ui.actions.share() }, selected = true) }
+}
+
+/** « Spectateur » ou « Joueur » (le joueur qui a le clavier et la souris reste « Joueur »). */
+@Composable
+fun roleLabel(role: ShareRole) = stringResource(if (role.plays) R.string.share_role_player else R.string.share_role_spectator)
+
+/** « 0 invité », « 1 invité », « 2 invités » (le pluriel suit la langue de l'app). */
+@Composable
+fun guestsLabel(count: Int) = pluralStringResource(R.plurals.share_guests, count, count)
 
 /** L'écran de l'ordinateur à l'image : son rang, sa taille, et le suivant (un toucher passe à lui). */
 private class ScreenChoice(val index: Int, val count: Int, val width: Int, val height: Int, val next: Int)
@@ -470,11 +581,13 @@ private fun TvMenu(ui: SessionUi) {
     val sec by ui.state.second.collectAsState()
     val mode by ui.state.mode.collectAsState()
     val audio by ui.state.audioOutput.collectAsState()
+    val role by ui.state.shareRole.collectAsState()
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
     Box(Modifier.fillMaxSize().background(Kn.ink.copy(alpha = 0.72f))) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = s.dp(32f), vertical = s.dp(28f)), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(s.dp(16f))) {
-            Row(Modifier.panel(999.dp).padding(horizontal = s.dp(26f), vertical = s.dp(12f)), horizontalArrangement = Arrangement.spacedBy(s.dp(26f)), verticalAlignment = Alignment.CenterVertically) {
+            // Un invité n'a ni mesures ni profil : son rôle, et ce qu'il permet.
+            if (!ui.guest) Row(Modifier.panel(999.dp).padding(horizontal = s.dp(26f), vertical = s.dp(12f)), horizontalArrangement = Arrangement.spacedBy(s.dp(26f)), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(s.dp(8f)).clip(CircleShape).background(Kn.spectre))
                 Mono(sec?.latencyMs?.let { fmt("%.1f ms", it) } ?: "—", size = 15f, color = Kn.frost)
                 Mono(stringResource(R.string.session_fps, sec?.fps ?: 0), size = 15f, color = Kn.frost)
@@ -482,9 +595,28 @@ private fun TvMenu(ui: SessionUi) {
                 mode?.let { (w, h, r) -> Mono("$w × $h · $r Hz", size = 15f, color = Kn.frost) }
                 Mono(stringResource(R.string.session_losses, (sec?.lostFrames ?: 0) + (sec?.holes ?: 0)), size = 15f)
             }
-            Eyebrow("${ui.hostName} · ${profileLabel(ui.profile)}")
-            TvTiles(ui, first, audio)
+            Eyebrow("${ui.hostName} · ${if (ui.guest) roleLabel(role) else profileLabel(ui.profile)}")
+            if (ui.guest) GuestTiles(ui, role, first) else TvTiles(ui, first, audio)
+            // « Partager » inactif : le texte du cœur dit pourquoi.
+            if (!ui.guest) ui.shareUnavailable?.let { Body(it, size = 14f, color = Kn.frost2) }
         }
+    }
+}
+
+/** Le menu d'un invité : reprendre, ce que son rôle permet (la souris, le texte et les touches avec le clavier et la souris), quitter le partage. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun GuestTiles(ui: SessionUi, role: ShareRole, first: FocusRequester) {
+    val s = LocalScale.current
+    FlowRow(Modifier.widthIn(max = s.dp(900f)), horizontalArrangement = Arrangement.spacedBy(s.dp(14f), Alignment.CenterHorizontally), verticalArrangement = Arrangement.spacedBy(s.dp(14f)), maxItemsInEachRow = 5) {
+        Tile(KnIcons.play, stringResource(R.string.session_resume), null, Modifier.focusRequester(first), primary = true) { ui.actions.resume() }
+        if (role.keyboardMouse) {
+            Tile(KnIcons.remote, stringResource(R.string.session_remote_mouse), stringResource(if (ui.remoteMouse) R.string.session_on else R.string.session_off), selected = ui.remoteMouse) { ui.actions.setRemoteMouse(!ui.remoteMouse) }
+            Tile(KnIcons.gamepad, stringResource(R.string.session_pad_mouse), stringResource(if (ui.padMouse) R.string.session_on else R.string.session_off), selected = ui.padMouse) { ui.actions.setPadMouse(!ui.padMouse) }
+            Tile(KnIcons.keyboard, stringResource(R.string.session_type_text), null) { ui.typing = true }
+            Tile(KnIcons.keys, stringResource(R.string.session_keys), stringResource(R.string.keys_ctrl_alt_del_short)) { ui.keysOpen = true }
+        }
+        Tile(KnIcons.exit, stringResource(R.string.share_leave), null, danger = true) { ui.actions.quit() }
     }
 }
 
@@ -492,6 +624,7 @@ private fun TvMenu(ui: SessionUi) {
 @Composable
 private fun TvTiles(ui: SessionUi, first: FocusRequester, audio: Pair<Int, Double>?) {
     val s = LocalScale.current
+    val share by ui.state.share.collectAsState()
     FlowRow(Modifier.widthIn(max = s.dp(900f)), horizontalArrangement = Arrangement.spacedBy(s.dp(14f), Alignment.CenterHorizontally), verticalArrangement = Arrangement.spacedBy(s.dp(14f)), maxItemsInEachRow = 5) {
         Tile(KnIcons.play, stringResource(R.string.session_resume), null, Modifier.focusRequester(first), primary = true) { ui.actions.resume() }
         Profile.entries.forEach { p ->
@@ -504,17 +637,20 @@ private fun TvTiles(ui: SessionUi, first: FocusRequester, audio: Pair<Int, Doubl
         screenChoice(ui)?.let { c -> Tile(KnIcons.screen, stringResource(R.string.session_computer_screen), "${c.index + 1} / ${c.count} · ${c.width} × ${c.height}") { ui.actions.pickDisplay(c.next) } }
         Tile(KnIcons.keyboard, stringResource(R.string.session_type_text), null) { ui.typing = true }
         Tile(KnIcons.keys, stringResource(R.string.session_keys), stringResource(R.string.keys_ctrl_alt_del_short)) { ui.keysOpen = true }
+        // Le partage ouvert se voit sur sa tuile (« 2 invités »), qui rouvre le panneau.
+        Tile(KnIcons.share, stringResource(R.string.share_button), share?.let { guestsLabel(it.guests.size) }, selected = share != null, enabled = ui.shareUsable) { ui.actions.share() }
         Tile(KnIcons.pulse, stringResource(R.string.session_stats), null) { ui.statsOpen = !ui.statsOpen }
         Tile(KnIcons.exit, stringResource(R.string.session_disconnect), null, danger = true) { ui.actions.quit() }
     }
 }
 
 @Composable
-private fun Tile(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, detail: String?, modifier: Modifier = Modifier, primary: Boolean = false, selected: Boolean = false, danger: Boolean = false, onClick: () -> Unit) {
+private fun Tile(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, detail: String?, modifier: Modifier = Modifier, primary: Boolean = false, selected: Boolean = false, danger: Boolean = false, enabled: Boolean = true, onClick: () -> Unit) {
     val s = LocalScale.current
-    FocusCard(onClick, modifier.width(s.dp(160f)).height(s.dp(104f)), shape = RoundedCornerShape(16.dp)) { focused ->
+    // Inactive, une tuile reste atteignable à la télécommande (le focus ne se perd pas) mais ne fait rien.
+    FocusCard({ if (enabled) onClick() }, modifier.width(s.dp(160f)).height(s.dp(104f)), shape = RoundedCornerShape(16.dp)) { focused ->
         Column(
-            Modifier.fillMaxSize().background(if (focused && danger) Kn.danger else if (focused) Kn.neonCore else if (danger) Kn.danger.copy(alpha = 0.22f) else if (selected) Kn.spectre.copy(alpha = 0.22f) else Kn.panel.copy(alpha = 0.92f)).padding(s.dp(14f)),
+            Modifier.fillMaxSize().alpha(if (enabled) 1f else 0.5f).background(if (focused && danger) Kn.danger else if (focused) Kn.neonCore else if (danger) Kn.danger.copy(alpha = 0.22f) else if (selected) Kn.spectre.copy(alpha = 0.22f) else Kn.panel.copy(alpha = 0.92f)).padding(s.dp(14f)),
             verticalArrangement = Arrangement.SpaceBetween,
         ) {
             KnIcon(icon, tint = if (focused) Kn.ink else if (danger) Kn.danger else Kn.frost, size = 22f)

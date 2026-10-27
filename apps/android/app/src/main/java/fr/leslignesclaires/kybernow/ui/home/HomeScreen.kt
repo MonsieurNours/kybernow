@@ -109,6 +109,8 @@ class HomeActions(
     val hostSettings: (Host) -> Unit,
     val appSettings: () -> Unit,
     val wake: (Host) -> Unit,
+    /** « Rejoindre avec un code » : KyberNow Share, comme invité (rien n'est ajouté aux ordinateurs). */
+    val join: () -> Unit = {},
 )
 
 /** Tout ce que l'accueil montre. */
@@ -464,6 +466,17 @@ private fun HostRow(state: HomeState, actions: HomeActions, card: Float) {
                 Body(stringResource(R.string.home_add), size = 15f, maxLines = 2)
             }
         }
+        // À côté de « Ajouter un ordinateur » : rejoindre le partage de quelqu'un d'autre.
+        item(key = "rejoindre") {
+            Column(Modifier.width(s.dp(card)), verticalArrangement = Arrangement.spacedBy(s.dp(6f))) {
+                FocusCard(actions.join) {
+                    Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(Kn.frost.copy(alpha = 0.06f)), contentAlignment = Alignment.Center) {
+                        KnIcon(KnIcons.code, size = 30f)
+                    }
+                }
+                Body(stringResource(R.string.home_join), size = 15f, maxLines = 2)
+            }
+        }
     }
 }
 
@@ -536,6 +549,7 @@ private fun Welcome(announced: List<Announced>, update: String?, actions: HomeAc
                     }
                 }
                 PrimaryButton(stringResource(R.string.home_add), actions.add, Modifier.focusRequester(focus))
+                GlassButton(stringResource(R.string.home_join), actions.join)
             }
         }
     }

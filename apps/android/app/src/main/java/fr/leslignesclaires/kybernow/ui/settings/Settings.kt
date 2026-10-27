@@ -38,7 +38,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -73,6 +72,7 @@ import fr.leslignesclaires.kybernow.ui.LocalForm
 import fr.leslignesclaires.kybernow.ui.LocalMotion
 import fr.leslignesclaires.kybernow.ui.LocalScale
 import fr.leslignesclaires.kybernow.ui.Mono
+import fr.leslignesclaires.kybernow.ui.QrCode
 import fr.leslignesclaires.kybernow.ui.StationAction
 import fr.leslignesclaires.kybernow.ui.StationTask
 import fr.leslignesclaires.kybernow.ui.Title
@@ -1001,22 +1001,4 @@ private fun UpdateRow(st: UpdateState, version: String, act: () -> Unit) {
         Body(stringResource(R.string.updates_signed), size = 12f, color = Kn.muted)
         button?.let { GlassButton(it, act, selected = st.offered != null) }
     }
-}
-
-/** Le QR code d'une adresse (Admin), noir sur blanc, net à toute taille. */
-@Composable
-private fun QrCode(text: String, size: Float) {
-    val s = LocalScale.current
-    val image = remember(text) {
-        val m = com.google.zxing.qrcode.QRCodeWriter().encode(text, com.google.zxing.BarcodeFormat.QR_CODE, 0, 0, mapOf(com.google.zxing.EncodeHintType.MARGIN to 2))
-        val w = m.width
-        val h = m.height
-        val px = IntArray(w * h) { i -> if (m.get(i % w, i / w)) 0xFF05070A.toInt() else 0xFFFFFFFF.toInt() }
-        android.graphics.Bitmap.createBitmap(px, w, h, android.graphics.Bitmap.Config.ARGB_8888).asImageBitmap()
-    }
-    androidx.compose.foundation.Image(
-        image, contentDescription = text,
-        modifier = Modifier.width(s.dp(size)).height(s.dp(size)).clip(RoundedCornerShape(10.dp)),
-        filterQuality = androidx.compose.ui.graphics.FilterQuality.None,
-    )
 }

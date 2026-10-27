@@ -10,6 +10,7 @@
     <string name="home_app_settings">Réglages de l\'app</string>
     <string name="home_host_settings">Réglages</string>
     <string name="home_add">Ajouter un ordinateur</string>
+    <string name="home_join">Rejoindre avec un code</string>
     <string name="home_on_network">Sur le réseau</string>
     <string name="home_your_computers">Vos ordinateurs</string>
     <string name="home_searching">Recherche…</string>
@@ -327,4 +328,52 @@
     <string name="stats_display">affichage</string>
     <string name="stats_rtt">Aller-retour</string>
     <string name="stats_losses" formatted="true">Pertes : %1$d images, %2$d trous, %3$d paquets</string>
+    <string name="share_join_title">Rejoindre un partage</string>
+    <string name="share_join_help">Le code s\'affiche chez la personne qui partage.</string>
+    <string name="share_join_name">Votre prénom</string>
+    <string name="share_join_button">Rejoindre</string>
+    <string name="share_join_searching">Recherche du partage…</string>
+    <string name="share_guest_on" formatted="true">Invité sur %1$s</string>
+    <string name="share_role_spectator">Spectateur</string>
+    <string name="share_role_player">Joueur</string>
+    <string name="share_leave">Quitter le partage</string>
+    <string name="share_notice_play">Vous pouvez jouer.</string>
+    <string name="share_notice_keyboard_mouse">Vous avez le clavier et la souris.</string>
+    <string name="share_notice_keyboard_mouse_back">Le clavier et la souris sont repris.</string>
+    <string name="share_button">Partager</string>
+    <string name="share_title" formatted="true">Partager %1$s</string>
+    <string name="share_code_label">Code</string>
+    <string name="share_qr_label">QR code du partage</string>
+    <string name="share_copy_link">Copier le lien</string>
+    <string name="share_link_copied">Lien copié.</string>
+    <string name="share_copy_failed">Copie impossible : sélectionnez le lien à la main.</string>
+    <string name="share_help">Sur le même réseau : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur.</string>
+    <string name="share_guests_title">Invités</string>
+    <string name="share_nobody">Personne pour l\'instant.</string>
+    <string name="share_guest_spectator" formatted="true">%1$s · Spectateur</string>
+    <string name="share_guest_player" formatted="true">%1$s · Joueur</string>
+    <string name="share_guest_player_kbm" formatted="true">%1$s · Joueur, clavier et souris</string>
+    <string name="share_let_play">Faire jouer</string>
+    <string name="share_watch_only">Faire regarder</string>
+    <string name="share_give_keyboard_mouse">Donner le clavier et la souris</string>
+    <string name="share_take_keyboard_mouse">Reprendre le clavier et la souris</string>
+    <string name="share_remove">Retirer</string>
+    <string name="share_new_code">Nouveau code</string>
+    <string name="share_stop">Arrêter le partage</string>
+    <string name="share_limit">Quatre invités au plus.</string>
+    <string name="share_since" formatted="true">depuis %1$s</string>
+    <string name="share_duration_short">moins d\'une minute</string>
+    <string name="share_app_mac">Mac</string>
+    <string name="share_app_windows">Windows</string>
+    <string name="share_app_linux">Linux</string>
+    <string name="share_app_ios">iPhone ou iPad</string>
+    <string name="share_app_tvos">Apple TV</string>
+    <string name="share_app_android">Android</string>
+    <string name="share_app_webos">Téléviseur LG</string>
+    <string name="share_app_web">Navigateur</string>
+    <plurals name="share_guests">
+        <item quantity="one">%d invité</item>
+        <item quantity="many">%d invités</item>
+        <item quantity="other">%d invités</item>
+    </plurals>
 </resources>
