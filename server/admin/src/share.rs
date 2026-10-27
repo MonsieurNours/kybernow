@@ -40,6 +40,8 @@ const JOIN_TRIES_PER_MINUTE: usize = 10;
 /// Un invité retiré ou un partage arrêté : la raison reste lisible ce temps-là
 /// au signe de vie suivant de l'invité.
 const ENDED_KEEP: Duration = Duration::from_secs(60);
+/// Un changement de « Qualité de l'image » par invité au plus dans ce temps.
+const QUALITY_EVERY: Duration = Duration::from_secs(1);
 /// Prénom gardé, en caractères.
 const MAX_NAME: usize = 40;
 const MAX_DEVICE: usize = 80;
@@ -208,6 +210,8 @@ pub struct Guest {
     /// La qualité demandée, et le préréglage que Kyber reçoit pour elle.
     pub quality: Quality,
     pub preset: Preset,
+    /// Dernier changement de qualité demandé (un par seconde au plus).
+    last_quality: Option<Instant>,
 }
 
 impl Guest {
@@ -479,6 +483,26 @@ impl Share {
 
     /// La qualité d'image d'un invité (à son arrivée, ou changée en cours).
     /// `None` : invité inconnu (ou mauvais secret, si `secret` est donné).
+    /// Un changement de qualité demandé par l'invité : un par seconde au plus
+    /// (chacun relance son image dans Kyber). `None` : invité inconnu ;
+    /// `Some(Err(attente))` : trop tôt.
+    pub fn quality_request(&self, id: &str, secret: &str) -> Option<Result<(), Duration>> {
+        self.quality_request_at(id, secret, Instant::now())
+    }
+
+    fn quality_request_at(&self, id: &str, secret: &str, now: Instant) -> Option<Result<(), Duration>> {
+        let mut s = self.state.lock().unwrap();
+        let guest = s.open.as_mut()?.guests.iter_mut().find(|g| g.id == id && same(secret, &g.secret))?;
+        if let Some(last) = guest.last_quality {
+            let since = now.saturating_duration_since(last);
+            if since < QUALITY_EVERY {
+                return Some(Err(QUALITY_EVERY - since));
+            }
+        }
+        guest.last_quality = Some(now);
+        Some(Ok(()))
+    }
+
     pub fn set_quality(&self, id: &str, secret: Option<&str>, quality: Quality, preset: Preset) -> Option<Guest> {
         let mut s = self.state.lock().unwrap();
         let guest = s.open.as_mut()?.guests.iter_mut().find(|g| g.id == id && secret.is_none_or(|sec| same(sec, &g.secret)))?;
@@ -565,6 +589,7 @@ impl Share {
                     last_beat: now,
                     quality: Quality::Auto,
                     preset: Preset::Host,
+                    last_quality: None,
                 };
                 open.guests.push(g.clone());
                 (g, true)
@@ -808,6 +833,22 @@ mod tests {
         assert!(matches!(share.leave(&max.id, max.secret()), Leave::Left(g) if g.name == "Max"));
         assert!(matches!(share.leave(&lea.id, lea.secret()), Leave::Unknown), "sortie sans nouvelles : inconnue");
         assert_eq!(share.guest_count(), 0);
+    }
+
+    #[test]
+    fn un_changement_de_qualite_par_seconde() {
+        let share = Share::new();
+        let code = share.open(Origin::Local, display(1)).unwrap().0.code;
+        let g = share.join(&code, "Léa", "ipad", "ios", peer(1), false).unwrap().guest;
+        let now = Instant::now();
+        assert_eq!(share.quality_request_at(&g.id, g.secret(), now), Some(Ok(())));
+        let wait = share.quality_request_at(&g.id, g.secret(), now + Duration::from_millis(400)).unwrap().unwrap_err();
+        assert_eq!(wait, Duration::from_millis(600));
+        // Refusé ne compte pas : la seconde suivante passe.
+        assert_eq!(share.quality_request_at(&g.id, g.secret(), now + Duration::from_millis(1000)), Some(Ok(())));
+        // Un mauvais secret, un invité inconnu : rien.
+        assert_eq!(share.quality_request_at(&g.id, "faux", now), None);
+        assert_eq!(share.quality_request_at("inconnu", g.secret(), now), None);
     }
 
     #[test]
