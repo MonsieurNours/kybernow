@@ -740,7 +740,7 @@ export function mockTauri() {
           const shown = { id: served, label: 'Jeu · HEVC', profile: 'jeu', multi: deviceScreens > 1, keep_sound: keepSound.has(served), sessions: Math.max(1, sessions.length), guest, share: guest ? null : shareView() }
           setTimeout(() => cb({ payload: shown }), 300)
           // `&avis` : le changement de rôle d'un invité, montré à la place des statistiques.
-          if (guest && flags.has('avis')) setTimeout(() => cb({ payload: { ...shown, pinned: true, notice: t(guestRole === 'player_kbm' ? 'mock.notice_kbm' : 'mock.notice_play') } }), 2500)
+          if (guest && flags.has('avis')) setTimeout(() => cb({ payload: { ...shown, pinned: true, notice: t(guestRole === 'player_kbm' ? 'mock.notice_kbm' : guestRole === 'spectator' ? 'mock.notice_watch' : 'mock.notice_play') } }), 2500)
         }
         if (name === 'bar-computers') setTimeout(() => cb({ payload: barComputers() }), 300)
         if (name === 'stats') {

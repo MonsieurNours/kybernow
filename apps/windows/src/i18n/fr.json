@@ -139,6 +139,7 @@
     "leave": "Quitter le partage",
     "notice_play": "Vous pouvez jouer.",
     "notice_kbm": "Vous avez le clavier et la souris.",
-    "notice_kbm_back": "Le clavier et la souris sont repris."
+    "notice_kbm_back": "Le clavier et la souris sont repris.",
+    "notice_watch": "Vous regardez de nouveau."
   }
 }

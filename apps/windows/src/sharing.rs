@@ -58,16 +58,17 @@ pub fn proposed_name(remembered: Option<&str>, device: &str) -> String {
 
 /// L'avis bref d'un changement de rôle (clé du catalogue de l'app) : « Vous
 /// pouvez jouer. », « Vous avez le clavier et la souris. », « Le clavier et la
-/// souris sont repris. ». Rien au départ (`previous` nul), ni quand le rôle ne
-/// change pas, ni quand un joueur redevient spectateur (docs/link-ui.md n'a
-/// pas de texte pour cela : la barre change d'étiquette).
+/// souris sont repris. », « Vous regardez de nouveau. » (un joueur, avec ou sans
+/// le clavier et la souris, redevient spectateur : ce dernier avis dit tout).
+/// Rien au départ (`previous` nul), ni quand le rôle ne change pas.
 pub fn role_notice(role: ShareRole, previous: Option<ShareRole>) -> Option<&'static str> {
     let previous = previous?;
     match (previous, role) {
         (a, b) if a == b => None,
+        (_, ShareRole::Spectator) => Some("share.notice_watch"),
         (_, ShareRole::PlayerKbm) => Some("share.notice_kbm"),
         (ShareRole::Spectator, ShareRole::Player) => Some("share.notice_play"),
-        (ShareRole::PlayerKbm, ShareRole::Player | ShareRole::Spectator) => Some("share.notice_kbm_back"),
+        (ShareRole::PlayerKbm, ShareRole::Player) => Some("share.notice_kbm_back"),
         _ => None,
     }
 }
@@ -270,9 +271,10 @@ mod tests {
         assert_eq!(role_notice(PlayerKbm, Some(Player)), Some("share.notice_kbm"));
         assert_eq!(role_notice(PlayerKbm, Some(Spectator)), Some("share.notice_kbm"));
         assert_eq!(role_notice(Player, Some(PlayerKbm)), Some("share.notice_kbm_back"));
-        assert_eq!(role_notice(Spectator, Some(PlayerKbm)), Some("share.notice_kbm_back"));
-        // Un joueur remis spectateur : pas de texte dans link-ui.
-        assert_eq!(role_notice(Spectator, Some(Player)), None);
+        // Un joueur, avec ou sans le clavier et la souris, remis spectateur : « Vous regardez de nouveau. »
+        assert_eq!(role_notice(Spectator, Some(Player)), Some("share.notice_watch"));
+        assert_eq!(role_notice(Spectator, Some(PlayerKbm)), Some("share.notice_watch"));
+        assert_eq!(role_notice(Spectator, Some(Spectator)), None);
     }
 
     #[test]

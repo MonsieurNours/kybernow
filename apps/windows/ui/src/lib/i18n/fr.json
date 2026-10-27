@@ -342,6 +342,7 @@
     "guest_on": "Invité sur Atelier",
     "notice_play": "Vous pouvez jouer.",
     "notice_kbm": "Vous avez le clavier et la souris.",
+    "notice_watch": "Vous regardez de nouveau.",
     "not_a_link": "ce n'est pas un lien kybernow://",
     "from_link": "Depuis le lien",
     "bad_account": "Admin : compte ou mot de passe incorrect (401)",

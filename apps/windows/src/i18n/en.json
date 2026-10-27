@@ -139,6 +139,7 @@
     "leave": "Leave",
     "notice_play": "You can play.",
     "notice_kbm": "You have the keyboard and mouse.",
-    "notice_kbm_back": "The keyboard and mouse were taken back."
+    "notice_kbm_back": "The keyboard and mouse were taken back.",
+    "notice_watch": "You are watching again."
   }
 }
