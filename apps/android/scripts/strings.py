@@ -390,6 +390,7 @@ S = [
 ("share_quality_title", "Qualité de l'image", "Picture quality"),
 ("share_quality_auto", "Auto", "Auto"),
 ("share_quality_host", "Comme l'hôte", "Same as host"),
+("share_quality_2160p60", "4K · 60 Hz", "4K · 60 Hz"),
 ("share_quality_1080p60", "1080p · 60 Hz", "1080p · 60 Hz"),
 ("share_quality_720p30", "720p · 30 Hz", "720p · 30 Hz"),
 # L'hôte

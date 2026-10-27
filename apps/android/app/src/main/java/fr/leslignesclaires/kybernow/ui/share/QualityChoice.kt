@@ -16,8 +16,8 @@ import fr.leslignesclaires.kybernow.ui.GlassButton
 import fr.leslignesclaires.kybernow.ui.LocalScale
 
 /**
- * « Auto », « Comme l'hôte », « 1080p · 60 Hz », « 720p · 30 Hz » (docs/link-ui.md, « Partage », « Qualité de
- * l'image ») : le nom d'une qualité demandée. La qualité reçue (« 1080p · 60 Hz ») est celle du cœur, pas celle-ci.
+ * « Auto », « Comme l'hôte », « 4K · 60 Hz », « 1080p · 60 Hz », « 720p · 30 Hz » (docs/link-ui.md, « Partage »,
+ * « Qualité de l'image ») : le nom d'une qualité demandée. La qualité reçue (« 1080p · 60 Hz ») est celle du cœur, pas celle-ci.
  */
 @Composable
 fun qualityLabel(quality: ShareQuality): String = stringResource(qualityText(quality))
@@ -26,12 +26,13 @@ fun qualityLabel(quality: ShareQuality): String = stringResource(qualityText(qua
 internal fun qualityText(quality: ShareQuality): Int = when (quality) {
     ShareQuality.AUTO -> R.string.share_quality_auto
     ShareQuality.HOST -> R.string.share_quality_host
+    ShareQuality.P2160_60 -> R.string.share_quality_2160p60
     ShareQuality.P1080_60 -> R.string.share_quality_1080p60
     ShareQuality.P720_30 -> R.string.share_quality_720p30
 }
 
 /**
- * Les quatre choix de la « Qualité de l'image », celui de [selected] allumé ; [focus] va sur celui-là (la
+ * Les cinq choix de la « Qualité de l'image », celui de [selected] allumé ; [focus] va sur celui-là (la
  * télécommande et la manette arrivent sur le choix en cours).
  */
 @OptIn(ExperimentalLayoutApi::class)
@@ -45,7 +46,7 @@ fun QualityChoices(selected: ShareQuality, onSelect: (ShareQuality) -> Unit, mod
     }
 }
 
-/** « Qualité de l'image » et ses quatre choix, sous le prénom de « Rejoindre ». */
+/** « Qualité de l'image » et ses cinq choix, sous le prénom de « Rejoindre ». */
 @Composable
 fun QualityField(selected: ShareQuality, onSelect: (ShareQuality) -> Unit, modifier: Modifier = Modifier) {
     val s = LocalScale.current

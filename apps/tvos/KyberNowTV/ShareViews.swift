@@ -176,14 +176,15 @@ struct JoinView: View {
     // MARK: La qualité de l'image
 
     /// « Qualité de l'image », sous le prénom : « Auto » (proposé), « Comme
-    /// l'hôte », « 1080p · 60 Hz », « 720p · 30 Hz » ; retenue pour la fois suivante.
+    /// l'hôte », « 4K · 60 Hz », « 1080p · 60 Hz », « 720p · 30 Hz » ; retenue
+    /// pour la fois suivante. Les cinq sur une ligne si elle tient, sinon trois puis deux.
     private var qualityChoice: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(ShareText.imageQuality).font(Theme.sans(19)).foregroundStyle(Theme.muted)
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 14) { ForEach(ShareQuality.allCases, id: \.self) { choice($0) } }
                 VStack(alignment: .leading, spacing: 14) {
-                    HStack(spacing: 14) { choice(.auto); choice(.host) }
+                    HStack(spacing: 14) { choice(.auto); choice(.host); choice(.p2160_60) }
                     HStack(spacing: 14) { choice(.p1080_60); choice(.p720_30) }
                 }
             }

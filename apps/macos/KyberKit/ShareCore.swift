@@ -61,13 +61,18 @@ public enum ShareRole: Int, Sendable, Equatable {
 
 /// La « Qualité de l'image » d'un invité (docs/link-ui.md, « Partage ») : celle
 /// qu'il demande à « Rejoindre » et dans sa barre. Les libellés viennent du
-/// cœur (« Auto », « Comme l'hôte », « 1080p · 60 Hz », « 720p · 30 Hz »).
+/// cœur (« Auto », « Comme l'hôte », « 4K · 60 Hz », « 1080p · 60 Hz »,
+/// « 720p · 30 Hz »). L'ordre des cas est celui des menus (`allCases`) ; les
+/// valeurs sont les codes du cœur (`KN_SHARE_QUALITY_*`), qui ne le suivent pas
+/// (la 4K est venue après).
 public enum ShareQuality: Int, CaseIterable, Sendable, Equatable {
     /// D'après l'écran de l'appareil et ce que son décodeur suit (proposé) ;
     /// c'est la Station qui tranche.
     case auto = 0
     /// Celle de l'hôte, partagée.
     case host = 1
+    /// 3840 × 2160 à 60 Hz au plus (jamais au-dessus de l'image de l'hôte).
+    case p2160_60 = 4
     case p1080_60 = 2
     case p720_30 = 3
 
@@ -76,11 +81,12 @@ public enum ShareQuality: Int, CaseIterable, Sendable, Equatable {
         Core.take(kn_share_quality_label(Int32(rawValue))) ?? ""
     }
 
-    /// Le nom de la qualité dans l'échange avec Admin (`auto`, `host`, `1080p60`, `720p30`).
+    /// Le nom de la qualité dans l'échange avec Admin (`auto`, `host`, `2160p60`, `1080p60`, `720p30`).
     var wire: String {
         switch self {
         case .auto: return "auto"
         case .host: return "host"
+        case .p2160_60: return "2160p60"
         case .p1080_60: return "1080p60"
         case .p720_30: return "720p30"
         }
@@ -90,6 +96,7 @@ public enum ShareQuality: Int, CaseIterable, Sendable, Equatable {
         switch wire {
         case "auto": self = .auto
         case "host": self = .host
+        case "2160p60": self = .p2160_60
         case "1080p60": self = .p1080_60
         case "720p30": self = .p720_30
         default: return nil

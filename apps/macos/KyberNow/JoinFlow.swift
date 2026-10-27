@@ -18,7 +18,7 @@ struct JoinSheet: View {
         _model = StateObject(wrappedValue: ShareJoinModel(link: initialLink) { DisplayInfo.shareScreen(NSApp.keyWindow?.screen) })
     }
 
-    /// Les quatre qualités, « Auto » proposé ; le choix est retenu pour la fois suivante.
+    /// Les cinq qualités, « Auto » proposé ; le choix est retenu pour la fois suivante.
     private var qualityChoice: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(ShareText.imageQuality).font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text2)
@@ -65,7 +65,7 @@ struct JoinSheet: View {
             }
         }
         .padding(.horizontal, 36).padding(.vertical, 32)
-        .frame(width: 560)
+        .frame(width: 640)
         .background {
             ZStack {
                 Theme.background

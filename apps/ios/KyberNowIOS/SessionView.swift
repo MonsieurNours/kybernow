@@ -516,7 +516,7 @@ struct SessionBar: View {
     }
 
     /// « Qualité de l'image » d'un invité : la qualité reçue (« 1080p · 60 Hz »)
-    /// et le choix des quatre ; le cœur relance l'image de l'invité seulement.
+    /// et les cinq choix ; le cœur relance l'image de l'invité seulement.
     private var qualityMenu: some View {
         Menu {
             Section(ShareText.imageQuality) {

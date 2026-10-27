@@ -12,6 +12,7 @@ import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -393,14 +394,26 @@ class ShareUiTest {
         rule.onNodeWithText("Comme l'hôte").assertDoesNotExist()
         rule.onNodeWithText("Qualité de l'image").performClick()
         assertTrue(ui.qualityOpen)
-        // Les quatre choix, dans l'ordre de link-ui ; « Auto » allumé (la qualité choisie au départ).
+        // Les cinq choix, dans l'ordre de link-ui ; « Auto » allumé (la qualité choisie au départ).
         rule.onNodeWithText("Auto").assertIsSelected()
         rule.onNodeWithText("Comme l'hôte").assertIsNotSelected()
+        rule.onNodeWithText(hz("4K · 60 Hz")).assertIsNotSelected()
         rule.onNodeWithText(hz("720p · 30 Hz")).assertExists()
         // La qualité reçue est dite en tête de la feuille, en plus du choix de même nom : trois fois à l'écran avec la barre.
         rule.onAllNodesWithText(hz("1080p · 60 Hz")).assertCountEquals(3)
         rule.onNodeWithText("Comme l'hôte").performClick()
         assertEquals(listOf(ShareQuality.HOST), actions.qualities)
+        assertFalse(ui.qualityOpen)
+    }
+
+    @Test
+    fun theQualitySheet_offers4K_andChoosingItAsksFor2160p60() {
+        val ui = ui(guest = true, role = ShareRole.PLAYER) { qualityOpen = true; state.shareImage.value = received(label = "4K · 60 Hz", quality = ShareQuality.P2160_60) }
+        show(FormFactor.PHONE) { SessionOverlay(ui) }
+        // La qualité reçue en tête (« 4K · 60 Hz ») et le choix de même nom : deux fois.
+        rule.onAllNodesWithText(hz("4K · 60 Hz")).assertCountEquals(2)
+        rule.onAllNodesWithText(hz("4K · 60 Hz")).onLast().performClick()
+        assertEquals(listOf(ShareQuality.P2160_60), actions.qualities)
         assertFalse(ui.qualityOpen)
     }
 
@@ -487,13 +500,14 @@ class ShareUiTest {
     private val link = ShareLink(ShareTarget("192.168.1.20", 41234, "sha256:ab"), "428913")
 
     @Test
-    fun join_offersTheFourQualities_autoProposed_andSendsTheChoice() {
+    fun join_offersTheFiveQualities_autoProposed_andSendsTheChoice() {
         val joins = mutableListOf<Triple<String, String, ShareQuality>>()
         show(FormFactor.PHONE) { JoinContent(link, false, "Pixel de Léa", ShareQuality.AUTO, false, null, {}, { code, name, quality, _ -> joins += Triple(code, name, quality) }) }
-        // Sous le prénom : « Qualité de l'image » (en capitales dans la charte) et les quatre choix, « Auto » proposé.
+        // Sous le prénom : « Qualité de l'image » (en capitales dans la charte) et les cinq choix, « Auto » proposé.
         rule.onNodeWithText("Qualité de l'image", ignoreCase = true).performScrollTo().assertExists()
         rule.onNodeWithText("Auto").assertIsSelected()
         rule.onNodeWithText("Comme l'hôte").assertIsNotSelected()
+        rule.onNodeWithText(hz("4K · 60 Hz")).assertIsNotSelected()
         rule.onNodeWithText(hz("1080p · 60 Hz")).assertExists()
         rule.onNodeWithText(hz("720p · 30 Hz")).performScrollTo().performClick()
         rule.onNodeWithText(hz("720p · 30 Hz")).assertIsSelected()
@@ -501,6 +515,17 @@ class ShareUiTest {
         rule.onNodeWithText("Rejoindre").performScrollTo().performClick()
         // Rien ne part sans « Rejoindre » ; puis le code, le prénom et la qualité choisie.
         assertEquals(listOf(Triple("428913", "Pixel de Léa", ShareQuality.P720_30)), joins)
+    }
+
+    @Test
+    fun join_sendsTheChoiceOf4K() {
+        val joins = mutableListOf<Triple<String, String, ShareQuality>>()
+        show(FormFactor.PHONE) { JoinContent(link, false, "Pixel de Léa", ShareQuality.AUTO, false, null, {}, { code, name, quality, _ -> joins += Triple(code, name, quality) }) }
+        rule.onNodeWithText(hz("4K · 60 Hz")).performScrollTo().performClick()
+        rule.onNodeWithText(hz("4K · 60 Hz")).assertIsSelected()
+        rule.onNodeWithText("Auto").assertIsNotSelected()
+        rule.onNodeWithText("Rejoindre").performScrollTo().performClick()
+        assertEquals(listOf(Triple("428913", "Pixel de Léa", ShareQuality.P2160_60)), joins)
     }
 
     @Test
@@ -516,6 +541,7 @@ class ShareUiTest {
         rule.onNodeWithText("Qualité de l'image", ignoreCase = true).assertExists()
         rule.onNodeWithText("Comme l'hôte").assertIsSelected()
         rule.onNodeWithText("Auto").assertExists()
+        rule.onNodeWithText(hz("4K · 60 Hz")).assertExists()
         rule.onNodeWithText(hz("720p · 30 Hz")).assertExists()
     }
 }

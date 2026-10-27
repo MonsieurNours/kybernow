@@ -345,6 +345,7 @@
     <string name="share_quality_title">Picture quality</string>
     <string name="share_quality_auto">Auto</string>
     <string name="share_quality_host">Same as host</string>
+    <string name="share_quality_2160p60">4K · 60 Hz</string>
     <string name="share_quality_1080p60">1080p · 60 Hz</string>
     <string name="share_quality_720p30">720p · 30 Hz</string>
     <string name="share_button">Share</string>

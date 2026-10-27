@@ -472,7 +472,7 @@ private struct SessionBar: View {
             statsButton(compact: compact)
             divider
             keepSound(compact: compact)
-            // « Qualité de l'image » : la qualité reçue, et le choix des quatre.
+            // « Qualité de l'image » : la qualité reçue, et les cinq choix.
             GlassMenu(items: ShareQuality.allCases.map { quality in
                 .init(id: "\(quality.rawValue)", title: quality.label, checked: quality == session.shareQuality) { session.setShareQuality(quality) }
             }) {

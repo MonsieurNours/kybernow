@@ -304,8 +304,8 @@ struct SessionMenu: View {
         .focused($focus, equals: .quality)
     }
 
-    /// Le choix de la qualité : « Auto », « Comme l'hôte », « 1080p · 60 Hz »,
-    /// « 720p · 30 Hz » ; le cœur relance l'image de l'invité seulement.
+    /// Le choix de la qualité : « Auto », « Comme l'hôte », « 4K · 60 Hz »,
+    /// « 1080p · 60 Hz », « 720p · 30 Hz » ; le cœur relance l'image de l'invité seulement.
     private var qualityPanelView: some View {
         ZStack {
             Color.black.opacity(0.55)
