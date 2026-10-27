@@ -107,6 +107,13 @@ final class SessionController: ObservableObject {
     var isGuest: Bool { guest != nil }
     /// Le rôle de l'invité (« Spectateur », « Joueur »), changé par l'hôte en cours de partage.
     @Published private(set) var shareRole: ShareRole = .spectator
+    /// La « Qualité de l'image » de l'invité (celle demandée, changée dans la
+    /// barre) et l'image qu'il reçoit (`on_share_image`) ; la barre montre
+    /// « 1080p · 60 Hz » quand le cœur sait la dire (`shareImageLabel`).
+    @Published private(set) var shareQuality: ShareQuality = .auto
+    @Published private(set) var shareImage: ShareImage?
+    /// La qualité reçue dans la barre, ou la qualité choisie tant que la taille n'est pas sue.
+    var shareImageLabel: String { GuestQuality.barLabel(image: shareImage, quality: shareQuality) }
     /// La raison de la fin par le partage (« {hôte} a arrêté le partage. »).
     @Published private(set) var shareEndText: String?
     /// Le partage de cette session d'hôte (« Partager » dans la barre).
@@ -143,6 +150,7 @@ final class SessionController: ObservableObject {
         self.onFinish = onFinish
         guest = found
         shareRole = found.role
+        shareQuality = found.quality
         virtualDisplay = false
         share = ShareHostModel(console: nil) { .available }
     }
@@ -203,6 +211,7 @@ final class SessionController: ObservableObject {
         engine.onGuests = { [weak self] in self?.share.heartbeat($0) }
         engine.onShareRole = { [weak self] role, previous in self?.shareRoleChanged(role, previous: previous) }
         engine.onShareEnd = { [weak self] _, text in self?.shareEndText = text }
+        engine.onShareImage = { [weak self] image, _, notice in self?.shareImageChanged(image, notice: notice) }
         self.engine = engine
         if !isGuest { share.setConsole(store.console(for: host)) }
 
@@ -412,6 +421,39 @@ final class SessionController: ObservableObject {
         if let text = ShareText.roleNotice(role, previous: previous) { show(notice: text, for: 4) }
     }
 
+    /// « Qualité de l'image » dans la barre : le cœur relance l'image de
+    /// l'invité seulement (jamais celle de l'hôte) ; la qualité est retenue
+    /// pour la fois suivante. La qualité reçue est inconnue jusqu'à
+    /// `on_share_image` : la barre dit d'ici là la qualité choisie.
+    func setShareQuality(_ quality: ShareQuality) {
+        guard isGuest, quality != shareQuality else { return }
+        switch phase {
+        case .ending, .ended, .failed: return
+        default: break
+        }
+        shareQuality = quality
+        shareImage = nil
+        GuestQuality.remember(quality)
+        engine?.setShareQuality(quality)
+    }
+
+    /// Le format de l'image reçue : celui de son image (un invité), à défaut
+    /// celui de l'hôte, sinon celui des réglages.
+    var imageCodec: VideoCodec { shareImage?.codec ?? guest?.codec ?? host.settings.codec }
+
+    /// L'image que reçoit l'invité a changé (au départ, ou après un changement
+    /// de qualité, un retard, une limite de l'ordinateur) ; l'avis du cœur
+    /// (« Image allégée pour suivre. ») s'affiche en capsule comme les autres.
+    private func shareImageChanged(_ image: ShareImage, notice: String?) {
+        guard isGuest else { return }
+        switch phase {
+        case .ending, .ended, .failed: return
+        default: break
+        }
+        shareImage = image
+        if let notice, !notice.isEmpty { show(notice: notice, for: 4) }
+    }
+
     /// Les avis du cœur, en capsules.
     private func notice(_ n: SessionEngine.Notice) {
         switch n {
@@ -609,10 +651,11 @@ final class SessionController: ObservableObject {
             if UserDefaults.standard.bool(forKey: "demoShare") {
                 Task {
                     await self.share.openIfNeeded()
-                    self.share.demoAddGuest(name: "Léa", app: "ios", role: .player)
-                    self.share.demoAddGuest(name: "Hugo", app: "tvos")
-                    self.share.demoAddGuest(name: "Sam", app: "web", role: .playerKbm)
-                    self.share.demoAddGuest(name: "Zoé", app: "mac", role: .kbm)
+                    // Léa et Sam reçoivent une image à part (leur qualité se voit) ; Hugo suit l'hôte ; Zoé : rien de su.
+                    self.share.demoAddGuest(name: "Léa", app: "ios", role: .player, image: ShareImage.demo("1080p60", 1920, 1080, 60, follows: false))
+                    self.share.demoAddGuest(name: "Hugo", app: "tvos", image: ShareImage.demo("host", 2560, 1440, 120, follows: true))
+                    self.share.demoAddGuest(name: "Sam", app: "web", role: .playerKbm, image: ShareImage.demo("720p30", 1280, 720, 30, follows: false))
+                    self.share.demoAddGuest(name: "Zoé", app: "mac", role: .kbm, image: ShareImage.demo("auto"))
                     self.shareSheet = true
                 }
             }
@@ -627,6 +670,8 @@ final class SessionController: ObservableObject {
                     case "player_kbm": self.demoRoleChanged(.playerKbm)
                     case "end-stopped": self.demoShareEnded(removed: false)
                     case "end-removed": self.demoShareEnded(removed: true)
+                    case "lag": self.demoImageNotice(limit: false)
+                    case "limit": self.demoImageNotice(limit: true)
                     default: break
                     }
                 }
@@ -637,7 +682,19 @@ final class SessionController: ObservableObject {
     /// Démonstration : la session d'un invité (sans Station), au rôle demandé.
     func demoGuest(role: ShareRole) {
         shareRole = role
+        // La qualité reçue dans la barre : une image à part en 1080p · 60 Hz.
+        shareImage = ShareImage.demo("1080p60", 1920, 1080, 60, follows: false)
         demo(.bar)
+    }
+
+    /// Démonstration : l'avis du cœur sur l'image (`-demoRoleThen lag|limit`).
+    func demoImageNotice(limit: Bool) {
+        guard isGuest else { return }
+        if limit {
+            shareImageChanged(ShareImage.demo("host", 1920, 1080, 60, follows: false), notice: "L'ordinateur ne peut pas faire une image de plus : vous recevez 1080p · 60 Hz.")
+        } else {
+            shareImageChanged(ShareImage.demo("1080p60", 1920, 1080, 30, follows: false), notice: "Image allégée pour suivre.")
+        }
     }
 
     /// Démonstration : l'hôte change le rôle de l'invité.

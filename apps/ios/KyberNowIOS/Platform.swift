@@ -22,6 +22,16 @@ enum DeviceDisplay {
         return (w / 2 * 2, h / 2 * 2, hz)
     }
 
+    /// L'écran de l'invité pour « Auto » (KyberNow Share) : celui de la fenêtre
+    /// de l'app, ses pixels réels et sa fréquence.
+    static func shareScreen() -> ShareScreen {
+        let screen = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.session.role == .windowApplication }?.screen ?? UIScreen.main
+        let n = native(screen)
+        return ShareScreen(pixelWidth: n.width, pixelHeight: n.height, refresh: n.refresh)
+    }
+
     /// Mode de la session selon les réglages de l'ordinateur : « comme cet
     /// écran » (au plus 4K si demandé), ou une définition choisie.
     static func mode(for settings: ConnectionSettings, screen: UIScreen = .main) -> (width: Int, height: Int, refresh: Int) {

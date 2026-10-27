@@ -20,7 +20,7 @@ struct SessionMenu: View {
     @State private var text = ""
     @FocusState private var focus: Item?
 
-    enum Item: Hashable { case resume, pads, sound, mouse, padMouse, type, share, quit, restoreMode }
+    enum Item: Hashable { case resume, pads, sound, quality, qualityChoice(ShareQuality), mouse, padMouse, type, share, quit, restoreMode }
 
     init(session: SessionController) {
         self.session = session
@@ -66,6 +66,8 @@ struct SessionMenu: View {
                         tile(.pads, icon: "game-controller", title: String(localized: "Manettes"), detail: padsDetail) { showPads = true }
                     }
                     soundTile
+                    // Un invité : la qualité de l'image reçue, et le choix des quatre.
+                    if session.isGuest { qualityTile }
                     if !session.isGuest || session.shareRole.keyboardAndMouse {
                         mouseTile
                         padMouseTile
@@ -113,6 +115,9 @@ struct SessionMenu: View {
             if sound {
                 soundPanel
             }
+            if session.qualityPanel {
+                qualityPanelView
+            }
             if session.sharePanel {
                 SharePanelTV(session: session, share: session.share) { session.sharePanel = false }
             }
@@ -146,7 +151,7 @@ struct SessionMenu: View {
     private var statsStrip: some View {
         let s = session.stats
         let lost = (s?.lostFrames ?? 0) + (s?.lostPackets ?? 0)
-        let codec = session.host.settings.codec == .h264 ? "H.264" : "HEVC"
+        let codec = session.imageCodec == .h264 ? "H.264" : "HEVC"
         let format = s?.format.components(separatedBy: " ").first ?? "4:2:0"
         return HStack(spacing: 28) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -199,7 +204,7 @@ struct SessionMenu: View {
 
     /// Les tuiles se partagent la largeur : sept d'ordinaire, huit avec « Partager » ; moins pour un invité.
     private var tileCount: Int {
-        if session.isGuest { return 3 + (session.shareRole.pads ? 1 : 0) + (session.shareRole.keyboardAndMouse ? 3 : 0) }
+        if session.isGuest { return 4 + (session.shareRole.pads ? 1 : 0) + (session.shareRole.keyboardAndMouse ? 3 : 0) }
         return 8
     }
 
@@ -287,6 +292,44 @@ struct SessionMenu: View {
         }
         .buttonStyle(GlassButton(radius: 22, scale: 1.07))
         .focused($focus, equals: .sound)
+    }
+
+    /// « Qualité de l'image » (invité) : la qualité reçue (« 1080p · 60 Hz »,
+    /// ou la qualité choisie tant que la taille n'est pas sue) ; un clic ouvre le choix des quatre.
+    private var qualityTile: some View {
+        Button { session.qualityPanel = true } label: {
+            tileLabel(icon: "monitor", title: ShareText.imageQuality, detail: session.shareImageLabel)
+        }
+        .buttonStyle(GlassButton(radius: 22, scale: 1.07))
+        .focused($focus, equals: .quality)
+    }
+
+    /// Le choix de la qualité : « Auto », « Comme l'hôte », « 1080p · 60 Hz »,
+    /// « 720p · 30 Hz » ; le cœur relance l'image de l'invité seulement.
+    private var qualityPanelView: some View {
+        ZStack {
+            Color.black.opacity(0.55)
+            VStack(alignment: .leading, spacing: 24) {
+                Theme.eyebrow(ShareText.imageQuality)
+                Text(verbatim: session.shareImageLabel)
+                    .font(Theme.display(44, 640)).tracking(-1.2)
+                HStack(spacing: 16) {
+                    ForEach(ShareQuality.allCases, id: \.self) { quality in
+                        Button { session.setShareQuality(quality) } label: { Text(quality.label).lineLimit(1).fixedSize() }
+                            .buttonStyle(ChoiceButton(selected: session.shareQuality == quality, height: 72))
+                            .focused($focus, equals: .qualityChoice(quality))
+                    }
+                }
+                Button("Fermer") { session.qualityPanel = false }
+                    .buttonStyle(ChoiceButton(selected: false, height: 72))
+            }
+            .padding(56)
+            .glass(30, tint: 0.6)
+            .focusSection()
+        }
+        .frame(width: 1920, height: 1080)
+        .onExitCommand { session.qualityPanel = false }
+        .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { focus = .qualityChoice(session.shareQuality) } }
     }
 
     private var soundPanel: some View {

@@ -54,8 +54,9 @@ final class SessionController: NSObject, ObservableObject {
     @Published private(set) var padFocus = 0
     /// Éléments de la barre en mode manette : profil, souris, plein écran
     /// (absent avec plusieurs écrans), déconnexion.
-    /// Un invité n'a que le plein écran (absent avec plusieurs écrans) et « Quitter le partage ».
-    var padItems: Int { isGuest ? (canToggleFullScreen ? 2 : 1) : (canToggleFullScreen ? 4 : 3) }
+    /// Un invité n'a que la qualité de l'image, le plein écran (absent avec
+    /// plusieurs écrans) et « Quitter le partage ».
+    var padItems: Int { isGuest ? (canToggleFullScreen ? 3 : 2) : (canToggleFullScreen ? 4 : 3) }
     @Published private(set) var closing = Closing()
     @Published private(set) var host: Host
     @Published private(set) var modeLabel = ""
@@ -165,6 +166,13 @@ final class SessionController: NSObject, ObservableObject {
     var isGuest: Bool { guest != nil }
     /// Le rôle de l'invité (« Spectateur », « Joueur »), changé par l'hôte en cours de partage.
     @Published private(set) var shareRole: ShareRole = .spectator
+    /// La « Qualité de l'image » de l'invité (celle demandée, changée dans la
+    /// barre) et l'image qu'il reçoit (`on_share_image`) ; la barre montre
+    /// « 1080p · 60 Hz » quand le cœur sait la dire (`shareImageLabel`).
+    @Published private(set) var shareQuality: ShareQuality = .auto
+    @Published private(set) var shareImage: ShareImage?
+    /// La qualité reçue dans la barre, ou la qualité choisie tant que la taille n'est pas sue.
+    var shareImageLabel: String { GuestQuality.barLabel(image: shareImage, quality: shareQuality) }
     /// La raison de la fin de la session d'invité par le partage (« {hôte} a
     /// arrêté le partage. ») : elle reste à l'écran, jamais « Reprendre la main ».
     @Published private(set) var shareEndText: String?
@@ -328,6 +336,7 @@ final class SessionController: NSObject, ObservableObject {
         self.onFinish = onFinish
         guest = found
         shareRole = found.role
+        shareQuality = found.quality
         share = ShareHostModel(console: nil) { .available }
     }
 
@@ -952,7 +961,15 @@ final class SessionController: NSObject, ObservableObject {
 
     private func activatePadFocus() {
         if isGuest {
-            if padFocus == 0, canToggleFullScreen { toggleFullScreen() } else { end() }
+            // Qualité de l'image (suivante : Auto → Comme l'hôte → 1080p → 720p), plein écran, quitter.
+            if padFocus == 0 {
+                let all = ShareQuality.allCases
+                setShareQuality(all[((all.firstIndex(of: shareQuality) ?? 0) + 1) % all.count])
+            } else if padFocus == 1, canToggleFullScreen {
+                toggleFullScreen()
+            } else {
+                end()
+            }
             return
         }
         switch padFocus {
@@ -1103,6 +1120,7 @@ final class SessionController: NSObject, ObservableObject {
         engine.onGuests = { [weak self] in self?.share.heartbeat($0) }
         engine.onShareRole = { [weak self] role, previous in self?.shareRoleChanged(role, previous: previous) }
         engine.onShareEnd = { [weak self] _, text in self?.shareEnded(text) }
+        engine.onShareImage = { [weak self] image, _, notice in self?.shareImageChanged(image, notice: notice) }
         self.engine = engine
         syncEngineViews()
         if !isGuest { share.setConsole(store.console(for: host)) }
@@ -1252,6 +1270,31 @@ final class SessionController: NSObject, ObservableObject {
     /// retiré du partage. » ; le texte vient du cœur. Dit avant `.ending`.
     private func shareEnded(_ text: String) {
         shareEndText = text
+    }
+
+    /// « Qualité de l'image » dans la barre : le cœur relance l'image de
+    /// l'invité seulement (jamais celle de l'hôte) ; la qualité est retenue
+    /// pour la fois suivante. La qualité reçue est inconnue jusqu'à
+    /// `on_share_image` : la barre dit d'ici là la qualité choisie.
+    func setShareQuality(_ quality: ShareQuality) {
+        guard isGuest, isLive, phase != .ending, quality != shareQuality else { return }
+        shareQuality = quality
+        shareImage = nil
+        GuestQuality.remember(quality)
+        engine?.setShareQuality(quality)
+    }
+
+    /// Le format de l'image reçue : celui de son image (un invité), à défaut
+    /// celui de l'hôte, sinon celui des réglages.
+    var imageCodec: VideoCodec { shareImage?.codec ?? guest?.codec ?? host.settings.codec }
+
+    /// L'image que reçoit l'invité a changé (au départ, ou après un changement
+    /// de qualité, un retard, une limite de l'ordinateur) ; l'avis du cœur
+    /// (« Image allégée pour suivre. ») s'affiche en capsule comme les autres.
+    private func shareImageChanged(_ image: ShareImage, notice: String?) {
+        guard isGuest, isLive, phase != .ending else { return }
+        shareImage = image
+        if let notice, !notice.isEmpty { showHint(.notice(notice), after: 0, for: 4) }
     }
 
     /// Les avis du cœur, en capsules.
@@ -1695,6 +1738,13 @@ final class SessionController: NSObject, ObservableObject {
     func demoGuest(role: ShareRole) {
         demo("session")
         shareRole = role
+    }
+
+    /// Démonstration : l'image que reçoit l'invité (nil : encore inconnue), avec
+    /// l'avis du cœur s'il y en a un (`moment-render:lag|limit`).
+    func demoShareImage(_ image: ShareImage?, notice: String? = nil) {
+        guard isGuest else { return }
+        if let image { shareImageChanged(image, notice: notice) } else { shareImage = nil }
     }
 
     /// Démonstration : l'hôte change le rôle de l'invité.

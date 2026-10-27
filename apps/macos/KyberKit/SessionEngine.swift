@@ -300,6 +300,12 @@ public final class SessionEngine: @unchecked Sendable {
     /// KyberNow Share, session d'invité finie par le partage, juste avant
     /// `.ending` : la raison à montrer (celle de la fin), jamais « Reprendre la main ».
     public var onShareEnd: ((ShareEnd, String) -> Void)?
+    /// KyberNow Share, session d'invité : l'image qu'il reçoit, au départ si la
+    /// Station la dit déjà puis quand elle change ; `previous` : celle d'avant
+    /// (nil au départ) ; `notice` : l'avis bref du cœur (« Image allégée pour
+    /// suivre. », « L'ordinateur ne peut pas faire une image de plus : vous
+    /// recevez {qualité}. »), nil sinon.
+    public var onShareImage: ((ShareImage, _ previous: ShareImage?, _ notice: String?) -> Void)?
 
     public let view: StreamView
     private let lock = NSLock()
@@ -441,6 +447,13 @@ public final class SessionEngine: @unchecked Sendable {
             let before = ShareRole(code: previous)
             DispatchQueue.main.async { me.onShareRole?(role, before) }
         }
+        platform.on_share_image = { ud, image, previous, notice in
+            guard let image, let now = ShareImage(json: String(cString: image)) else { return }
+            let before = previous.flatMap { ShareImage(json: String(cString: $0)) }
+            let text = notice.map { String(cString: $0) }
+            let me = SessionEngine.from(ud)
+            DispatchQueue.main.async { me.onShareImage?(now, before, text) }
+        }
         platform.on_share_end = { ud, end, text in
             let me = SessionEngine.from(ud)
             let kind = ShareEnd(code: end)
@@ -580,6 +593,13 @@ public final class SessionEngine: @unchecked Sendable {
         guard let s = live, let data = try? JSONSerialization.data(withJSONObject: settings.json),
               let text = String(data: data, encoding: .utf8) else { return }
         kn_session_set_settings(s, text)
+    }
+
+    /// KyberNow Share, session d'invité : change sa « Qualité de l'image » en
+    /// cours de session. Le cœur relance l'image de l'invité seulement, jamais
+    /// celle de l'hôte ; l'image reçue arrive par `onShareImage`.
+    public func setShareQuality(_ quality: ShareQuality) {
+        if let s = live { _ = kn_session_set_share_quality(s, Int32(quality.rawValue)) }
     }
 
     /// Plafond de débit (fenêtre occultée) ; nil le retire.

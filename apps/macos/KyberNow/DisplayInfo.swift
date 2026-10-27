@@ -35,6 +35,16 @@ enum DisplayInfo {
         return (native.pixelWidth, native.pixelHeight)
     }
 
+    /// L'écran de l'invité pour « Auto » (KyberNow Share) : ses pixels réels et
+    /// sa fréquence ; l'écran de la fenêtre, à défaut l'écran principal.
+    static func shareScreen(_ screen: NSScreen?) -> ShareScreen {
+        guard let screen = screen ?? NSScreen.main ?? NSScreen.screens.first else {
+            return ShareScreen(pixelWidth: 0, pixelHeight: 0, refresh: 0)
+        }
+        let native = nativePixels(screen)
+        return ShareScreen(pixelWidth: native.width, pixelHeight: native.height, refresh: max(30, screen.maximumFramesPerSecond))
+    }
+
     /// Identifiant Core Graphics d'un écran.
     static func displayID(_ screen: NSScreen) -> CGDirectDisplayID? {
         screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID

@@ -4643,6 +4643,22 @@
         }
       }
     },
+    "Qualité de l'image" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Picture quality"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Qualité de l'image"
+          }
+        }
+      }
+    },
     "Quatre invités au plus." : {
       "localizations" : {
         "en" : {

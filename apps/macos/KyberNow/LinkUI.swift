@@ -204,6 +204,13 @@ enum ShareText {
         default: return nil
         }
     }
+    /// Sous le nom d'un invité : son app, sa qualité d'image si elle n'est pas
+    /// celle de l'hôte (« 1080p · 60 Hz »), puis « depuis 3 min »
+    /// (docs/link-ui.md, « Un invité »).
+    static func guestDetail(_ guest: ShareGuest) -> String {
+        [app(guest.app), guest.imageLabel, guest.since.map(since)].compactMap { $0 }.joined(separator: " · ")
+    }
+
     static var help: String {
         String(localized: "Sur le même réseau : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur.")
     }
@@ -254,6 +261,8 @@ enum ShareText {
     static var spectator: String { String(localized: "Spectateur") }
     static var player: String { String(localized: "Joueur") }
     static var leave: String { String(localized: "Quitter le partage") }
+    /// « Qualité de l'image » : le choix à « Rejoindre » et dans la barre de l'invité.
+    static var imageQuality: String { String(localized: "Qualité de l'image") }
 
     /// Le rôle, dans la barre réduite.
     static func role(_ role: ShareRole) -> String { role.plays ? player : spectator }

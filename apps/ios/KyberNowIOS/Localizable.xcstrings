@@ -468,6 +468,38 @@
         }
       }
     },
+    "%lld écrans" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld displays"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld écrans"
+          }
+        }
+      }
+    },
+    "%lld écrans, à la taille de ceux de cet appareil" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld displays, sized for this device's screens"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld écrans, à la taille de ceux de cet appareil"
+          }
+        }
+      }
+    },
     "1 invité" : {
       "localizations" : {
         "en" : {
@@ -784,6 +816,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Afficher la barre de session"
+          }
+        }
+      }
+    },
+    "Afficher la session" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show session"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Afficher la session"
           }
         }
       }
@@ -1332,6 +1380,22 @@
         }
       }
     },
+    "Auto : tous les écrans de cet appareil en Bureau et Max, un seul en Jeu et en Personnalisé. Chaque écran reçoit un écran de l'ordinateur, placé de la même façon." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto: all of this device's displays in Desktop and Max, one in Game and Custom. Each display gets a display on the computer, laid out the same way."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto : tous les écrans de cet appareil en Bureau et Max, un seul en Jeu et en Personnalisé. Chaque écran reçoit un écran de l'ordinateur, placé de la même façon."
+          }
+        }
+      }
+    },
     "Avec la caméra de l'iPad" : {
       "localizations" : {
         "en" : {
@@ -1376,6 +1440,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Avec le QR code ou une annonce sur le réseau, cette étape se fait toute seule."
+          }
+        }
+      }
+    },
+    "Avec une définition sur mesure, la session prend un seul écran." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "With a custom resolution, the session takes a single display."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avec une définition sur mesure, la session prend un seul écran."
           }
         }
       }
@@ -1744,6 +1824,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cet ordinateur est déjà dans vos ordinateurs."
+          }
+        }
+      }
+    },
+    "Cet écran" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This display"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cet écran"
           }
         }
       }
@@ -3734,6 +3830,22 @@
         }
       }
     },
+    "L'ordinateur n'a pas pu créer cet écran." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The computer could not create this display."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L'ordinateur n'a pas pu créer cet écran."
+          }
+        }
+      }
+    },
     "L'ordinateur n'envoie pas encore le détail de ses étapes." : {
       "localizations" : {
         "en" : {
@@ -5574,6 +5686,22 @@
         }
       }
     },
+    "Qualité de l'image" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Picture quality"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Qualité de l'image"
+          }
+        }
+      }
+    },
     "Quatre invités au plus." : {
       "localizations" : {
         "en" : {
@@ -5586,6 +5714,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Quatre invités au plus."
+          }
+        }
+      }
+    },
+    "Quatre ordinateurs au plus en même temps." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Four computers at most at the same time."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quatre ordinateurs au plus en même temps."
           }
         }
       }
@@ -7046,6 +7190,22 @@
         }
       }
     },
+    "Tous les écrans" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "All displays"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tous les écrans"
+          }
+        }
+      }
+    },
     "Tout l'iPad est le pavé tactile : un doigt déplace le pointeur, toucher clique, deux doigts pour le clic droit et la molette. Le trackpad et le clavier vont aussi à l'ordinateur." : {
       "localizations" : {
         "en" : {
@@ -8259,6 +8419,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Écran virtuel"
+          }
+        }
+      }
+    },
+    "Écrans" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Displays"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Écrans"
           }
         }
       }
