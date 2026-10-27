@@ -954,6 +954,39 @@
       "android": "Android",
       "webos": "LG TV",
       "web": "Browser"
+    },
+    "bar": {
+      "share": "Share",
+      "tooOld": "Sharing needs KyberNow Station 0.8.0 or later."
+    },
+    "join": {
+      "button": "Join with a code",
+      "title": "Join a share",
+      "lead": "The code is shown by the person sharing.",
+      "name": "Your name",
+      "submit": "Join",
+      "looking": "Looking for the share…",
+      "noShare": "No share with this code on your network.",
+      "full": "This share is full (four guests at most).",
+      "tooMany": "Too many code attempts: try again in a minute.",
+      "unreadable": "This device cannot play this computer's picture ({format}).",
+      "unavailable": "Sharing is not available right now: try again in a moment.",
+      "badRequest": "The code has six digits, and the name cannot be empty."
+    },
+    "guest": {
+      "on": "Guest on {name}",
+      "spectator": "Spectator",
+      "player": "Player",
+      "leave": "Leave",
+      "canPlay": "You can play.",
+      "gotKbm": "You have the keyboard and mouse.",
+      "lostKbm": "The keyboard and mouse were taken back.",
+      "watching": "You are watching again.",
+      "stopped": "{host} stopped sharing.",
+      "removed": "{host} removed you from the share.",
+      "unauthorized": "Kyber on {host} refuses the share's token. Join again with the code.",
+      "noImage": "{host} is sending the picture, but it does not reach this browser. Try Chrome or Edge.",
+      "decode": "This browser cannot decode {host}'s picture."
     }
   }
 }

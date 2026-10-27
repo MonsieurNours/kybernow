@@ -7,7 +7,7 @@
 // Worker, ou s'il n'a jamais de réponse, la page envoie elle-même.
 
 import HeartbeatWorker from './heartbeat.worker?worker&inline'
-import { sendHeartbeat, type HeartbeatResult } from './heartbeat-call'
+import { HOST_TARGET, sendHeartbeat, type HeartbeatResult, type HeartbeatTarget } from './heartbeat-call'
 
 export type { HeartbeatResult }
 
@@ -22,6 +22,8 @@ export class Heartbeat {
   constructor(
     private onResult: (r: HeartbeatResult) => void,
     private period = 5000,
+    /** Signal de l'hôte par défaut ; un invité du partage a le sien (`guestTarget`). */
+    private target: HeartbeatTarget = HOST_TARGET,
   ) {}
 
   get running(): boolean {
@@ -37,7 +39,7 @@ export class Heartbeat {
       const w = new HeartbeatWorker()
       w.onmessage = (e: MessageEvent<HeartbeatResult>) => this.fromWorker(e.data)
       w.onerror = () => this.fallback()
-      w.postMessage({ type: 'start', origin: location.origin, body, period: this.period })
+      w.postMessage({ type: 'start', origin: location.origin, body, period: this.period, target: this.target })
       this.worker = w
     } catch {
       this.fallback()
@@ -82,6 +84,6 @@ export class Heartbeat {
   }
 
   private async beat() {
-    this.onResult(await sendHeartbeat(location.origin, this.body))
+    this.onResult(await sendHeartbeat(location.origin, this.body, this.target))
   }
 }

@@ -21,6 +21,8 @@ interface GuardOptions {
   canvas: () => HTMLElement | null
   /** Après un relâchement général (modificateurs collants à oublier). */
   onRelease: () => void
+  /** Ce que cette session peut envoyer à l'ordinateur (tout, pour l'hôte). */
+  allowed?: () => { keyboard: boolean; mouse: boolean }
 }
 
 let options: GuardOptions | null = null
@@ -32,7 +34,15 @@ const buttons = new Set<number>()
 /** Touches enfoncées, par `code` (ce que lit le moteur), avec leur `key`. */
 const keys = new Map<string, string>()
 
+function rights() {
+  return options?.allowed?.() ?? { keyboard: true, mouse: true }
+}
+
 function onMouseButton(e: MouseEvent) {
+  if (!rights().mouse) {
+    e.stopImmediatePropagation()
+    return
+  }
   if (e.type === 'mousedown') {
     if (options?.isVideo(e.target)) {
       buttons.add(e.button)
@@ -44,7 +54,18 @@ function onMouseButton(e: MouseEvent) {
   e.stopImmediatePropagation()
 }
 
+/** Mouvements de la souris d'un invité sans souris : le moteur ne les voit pas. */
+function onMouseMove(e: MouseEvent) {
+  if (!rights().mouse) e.stopImmediatePropagation()
+}
+
 function onKey(e: KeyboardEvent) {
+  if (!rights().keyboard) {
+    // Le moteur écoute `document` : l'arrêter ici suffit, et les autres
+    // écouteurs de `window` (raccourci de la barre) restent servis.
+    e.stopPropagation()
+    return
+  }
   if (!e.code) return
   if (e.type === 'keydown') keys.set(e.code, e.key)
   else keys.delete(e.code)
@@ -57,7 +78,12 @@ function onKey(e: KeyboardEvent) {
 const LINE_PX = 40
 
 function onWheel(e: WheelEvent) {
-  if (!e.isTrusted || !options || !options.isVideo(e.target)) return
+  if (!options || !options.isVideo(e.target)) return
+  if (!rights().mouse) {
+    e.stopImmediatePropagation()
+    return
+  }
+  if (!e.isTrusted) return
   const canvas = options.canvas()
   if (!canvas) return
   // `deltaMode` lu en premier : Firefox garde alors les lignes d'une molette
@@ -122,6 +148,7 @@ export function installInputGuard(o: GuardOptions) {
   options = o
   window.addEventListener('mousedown', onMouseButton, true)
   window.addEventListener('mouseup', onMouseButton, true)
+  window.addEventListener('mousemove', onMouseMove, true)
   window.addEventListener('keydown', onKey, true)
   window.addEventListener('keyup', onKey, true)
   window.addEventListener('wheel', onWheel, { capture: true, passive: false })
@@ -133,6 +160,7 @@ export function installInputGuard(o: GuardOptions) {
 export function removeInputGuard() {
   window.removeEventListener('mousedown', onMouseButton, true)
   window.removeEventListener('mouseup', onMouseButton, true)
+  window.removeEventListener('mousemove', onMouseMove, true)
   window.removeEventListener('keydown', onKey, true)
   window.removeEventListener('keyup', onKey, true)
   window.removeEventListener('wheel', onWheel, true)

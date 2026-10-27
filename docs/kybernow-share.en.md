@@ -97,6 +97,8 @@ All JSON, on Admin's port, certificate pinned by fingerprint as today. The names
 
 Every Link app (Mac, Windows, Linux, iPhone, iPad, Apple TV, Android, LG TVs) and the web client: “Join with a code” on the home screen, code entry (on-screen keypad on TVs, as for pairing), the guest session and its reduced bar; “Share” and the host's panel in the session bar. One component per family of apps when possible (KyberKit for the Mac, iPhone, iPad and Apple TV). The texts come from `link-ui.md`.
 
+**Web client** (`server/web/src/link/`): the same session as the host's (same page, `Session.svelte`), with a reduced bar for the guest. It has no Rust core: it does the exchange with Admin above itself (`app: "web"`, `device`: this browser's identifier) and keeps the `kybernow_guest` cookie, which only opens the relay to Kyber and `/api/share/*`; Kyber's engine therefore only loads after `join`, and the picture's format is checked then (otherwise `leave`). The engine opens its inputs from the start and the page filters by role; Kyber refuses what the role does not allow anyway. The host, in the browser: “Share” in the bar, Admin's panel on the host routes, guests read from the heartbeat's answer (`share`).
+
 ## Outside this first step
 
 - Joining from outside the network (relay), a separate encode for a remote guest: the next steps of KyberNow Share.

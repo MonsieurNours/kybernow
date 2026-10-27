@@ -7,25 +7,35 @@
 -->
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte'
-  import { backend, endBody, heartbeatBody } from './backend'
+  import { backend, endBody, heartbeatBody, type GuestBeat, type Info } from './backend'
   import { Heartbeat } from './heartbeat'
-  import { ApiError } from '../lib/api'
+  import { guestTarget, type HeartbeatResult } from './heartbeat-call'
+  import { ApiError, type ShareRole, type ShareView } from '../lib/api'
   import { Engine, allStopped, isFixedEngine, retire, supportedCodecs, type DisplayInfo, type Latency } from './engine'
   import { choose, preferredProtocol, type Plan } from './plan'
   import { deviceId, isCustom, MIN_SESSION_SECONDS, profileName, saveLastSession, type MouseMode, type Prefs, type TouchMode } from './prefs'
   import { deviceKind, deviceName, hasKeyboardLock, hasTouchScreen, isTouch, measureRefresh, screenMode, type Mode } from './device'
   import { installAbsoluteMouse, installPointerGate, isRemoteCursorHidden, releasePointer, removeAbsoluteMouse, removePointerGate, setPositionMapper, setRemoteCursorHidden } from './pointer'
-  import { currentDisplayId, engineInputs, forgetInputSocket, injected, learnDisplayId, watchInputSocket } from './inputs'
-  import { installInputGuard, removeInputGuard } from './guard'
+  import { allowPackets, currentDisplayId, engineInputs, forgetInputSocket, injected, learnDisplayId, watchInputSocket } from './inputs'
+  import { installInputGuard, releaseAll, removeInputGuard } from './guard'
   import { SPECIAL_KEYS, TEXT_ATTRIBUTE, TouchInput, TypedText, sendKey } from './touch'
   import { errorText } from '../lib/store.svelte'
   import Mark from '../lib/Mark.svelte'
+  import Icon from '../lib/Icon.svelte'
   import { diag, diagEnabled, installDiag } from './diag'
   import { i18n, t, tn } from '../lib/i18n/index.svelte'
   import { tName } from './names'
   import { lastResortAllowed, restartForConnection } from './station.svelte'
+  import { formatLabel, leaveShare, type GuestStart } from './share'
+  import ShareBox from './ShareBox.svelte'
 
-  let { hostname, prefs = $bindable(), onEnd }: { hostname: string; prefs: Prefs; onEnd: () => void } = $props()
+  /** `guest` : la session d'un invité du partage (KyberNow Share, docs/kybernow-share.md) : pas de
+   * préparation de l'écran ni de jeton d'Admin, une barre réduite, les droits de son rôle. */
+  let { hostname, prefs = $bindable(), guest = null, onEnd }: { hostname: string; prefs: Prefs; guest?: GuestStart | null; onEnd: () => void } = $props()
+  /** La session d'un invité, fixée pour toute la durée de la page. */
+  const g = untrack(() => guest)
+  /** Titre de la session : le nom de l'ordinateur, ou « Invité sur {nom} ». */
+  const title = $derived(g ? t('share.guest.on', { name: hostname }) : hostname)
 
   /** `restarting` : dernier recours, la Station redémarre (station.svelte.ts). */
   type Phase = 'preparing' | 'connecting' | 'restarting' | 'live' | 'ended'
@@ -49,7 +59,8 @@
   let guide = $state(false)
   let cursor = $state<{ x: number; y: number } | null>(null)
   let mods = $state(new Set<string>())
-  let mouseMode = $state<MouseMode>(untrack(() => prefs.mouse))
+  // Un invité n'a pas le mode « auto » (il ne sait pas si un jeu est au premier plan) et ne change pas les réglages.
+  let mouseMode = $state<MouseMode>(untrack(() => (g && prefs.mouse === 'auto' ? 'bureau' : prefs.mouse)))
   /** Le navigateur attend un geste pour jouer le son. */
   let soundBlocked = $state(false)
   /** Information passagère (écran changé, image relancée). */
@@ -58,7 +69,17 @@
   /** Manettes vues par le moteur (et transmises à l'ordinateur). */
   let gamepads = $state<{ index: number; name: string }[]>([])
   const gamepadText = $derived(tn('session.gamepads.count', gamepads.length))
-  const gamepadAria = $derived(t('session.gamepads.aria', { count: gamepadText, names: gamepads.map((g) => g.name).join(', ') }))
+  const gamepadAria = $derived(t('session.gamepads.aria', { count: gamepadText, names: gamepads.map((p) => p.name).join(', ') }))
+  /** Droits d'un invité : son rôle, changé en cours de partage par le signe de vie. L'hôte a tout. */
+  let role = $state<ShareRole>(g?.join.role ?? 'player_kbm')
+  const canPlay = $derived(!g || role !== 'spectator')
+  const canKbm = $derived(!g || role === 'player_kbm')
+  const roleText = $derived(role === 'spectator' ? t('share.guest.spectator') : t('share.guest.player'))
+  /** Le partage de cet appareil (signe de vie de l'hôte), le panneau « Partager », et ce que la Station en dit. */
+  let share = $state<ShareView | null>(null)
+  let shareOpen = $state(false)
+  let shareSupport = $state<'ok' | 'old' | 'off'>('ok')
+  const shareHint = $derived(shareSupport === 'old' ? t('share.bar.tooOld') : shareSupport === 'off' ? t('share.off') : '')
   let diagText = $state('')
 
   let stage: HTMLElement
@@ -93,7 +114,12 @@
   /** Le dernier appui sur la languette est un doigt. */
   let edgeTouch = false
   let ended = false
-  let ticketToken = ''
+  /** Jeton de Kyber : celui d'Admin (`/api/web/ticket`), ou celui de l'invité, renouvelé par son signe de vie. */
+  let ticketToken = g?.join.kyber.token ?? ''
+  /** Écran du partage que reçoit l'invité (il change si l'écran de l'hôte est recréé). */
+  let guestDisplay = g?.join.display
+  /** L'invité est déjà sorti du partage (`share/leave` envoyé). */
+  let left = false
   let codecList: import('./engine').CodecSupport[] = []
   /** Kyber a démarré l'image, mais elle n'arrive pas : on essaie l'autre transport. */
   let imageWatch: ReturnType<typeof setTimeout> | null = null
@@ -129,18 +155,93 @@
   /** La session de la console (le cookie et le jeton durent 12 h) a expiré. */
   const expired = () => t('session.error.expired')
 
-  // Signal de vie depuis un Worker : il continue dans un onglet masqué.
-  const heartbeat = new Heartbeat((r) => {
-    if (ended || phase === 'ended') return
-    if (r.status === 401) fail(expired())
-    // Fin demandée depuis la console, ou un autre appareil prend la main.
-    else if (r.end) fail(t('session.error.taken'))
-  })
+  // Signal de vie depuis un Worker : il continue dans un onglet masqué. Celui
+  // d'un invité du partage va à `/api/share/beat`, avec son secret.
+  const heartbeat = new Heartbeat(
+    (r) => {
+      if (ended || phase === 'ended') return
+      if (g) {
+        onGuestBeat(r)
+        return
+      }
+      if (r.status === 401) fail(expired())
+      // Fin demandée depuis la console, ou un autre appareil prend la main.
+      else if (r.end) fail(t('session.error.taken'))
+      // Le partage de cet appareil, absent sans partage.
+      else if (r.status === 200) share = r.data?.share?.open ? (r.data.share as ShareView) : null
+    },
+    g ? g.join.beat * 1000 : 5000,
+    g ? guestTarget(g.join.secret) : undefined,
+  )
+
+  /** Signe de vie d'un invité : son rôle, le jeton renouvelé, l'écran du partage, ou la fin. */
+  function onGuestBeat(r: HeartbeatResult) {
+    // Parti (sorti sans nouvelles, partage rouvert) : comme un partage arrêté.
+    if (r.status === 404) return endedByHost('stopped')
+    // Station injoignable, ou passagèrement sans clé (503) : le signe suivant le dira.
+    if (r.status !== 200 || !r.data) return
+    const beat = r.data as GuestBeat
+    if (beat.end) return endedByHost(beat.end)
+    if (beat.role && beat.role !== role) changeRole(beat.role)
+    if (beat.token) ticketToken = beat.token
+    const display = beat.display
+    const moved = !!display && !!guestDisplay && display.id !== guestDisplay.id
+    if (display && guestDisplay) {
+      // Le format annoncé suit l'écran de l'hôte (taille et fréquence : `display_list_updated` relance l'image).
+      if (display.width !== guestDisplay.width || display.height !== guestDisplay.height || display.refresh !== guestDisplay.refresh) {
+        mode = { width: display.width, height: display.height, refresh: display.refresh }
+      }
+      guestDisplay = display
+    }
+    if (moved) {
+      // L'hôte s'est préparé de nouveau : son écran a un autre identifiant, que Kyber ne prend
+      // qu'à une nouvelle connexion, avec le jeton renouvelé.
+      if (phase === 'live' || phase === 'connecting') restart()
+    } else if (beat.token) {
+      engine?.updateCredentials(beat.token)
+    }
+  }
+
+  /** La Station dit pourquoi l'invité est sorti : l'hôte a arrêté le partage ou l'a retiré. */
+  function endedByHost(end: 'stopped' | 'removed') {
+    fail(t(end === 'removed' ? 'share.guest.removed' : 'share.guest.stopped', { host: g?.join.host ?? '' }))
+  }
+
+  /** Droits changés par l'hôte : un avis bref, et ce que le nouveau rôle ne permet plus est relâché. */
+  function changeRole(next: ShareRole) {
+    const before = role
+    role = next
+    if (next === 'spectator') showNotice(t('share.guest.watching'))
+    else if (next === 'player_kbm') showNotice(t('share.guest.gotKbm'))
+    else if (before === 'player_kbm') showNotice(t('share.guest.lostKbm'))
+    else showNotice(t('share.guest.canPlay'))
+  }
+
+  /** Sort du partage (une seule fois) : « Quitter le partage », fermeture de la page, échec. */
+  function leaveGuest() {
+    if (!g || left) return
+    left = true
+    void leaveShare(g.join)
+  }
+
+  /** Connexion coupée sous un invité : l'hôte l'a peut-être retiré, ou arrêté le partage (Kyber
+   * coupe tout de suite). Le signe de vie dit pourquoi ; sans réponse en 2,5 s, l'échec est dit tel quel. */
+  function guestClosed(message: string) {
+    heartbeat.now()
+    const gen = generation
+    setTimeout(() => !stale(gen) && fail(message), 2500)
+  }
 
   /** Jeton Kyber relu sur la console (reconnexion, puis toutes les heures),
-   * pour que le moteur ne se reconnecte pas avec un jeton périmé. */
+   * pour que le moteur ne se reconnecte pas avec un jeton périmé. Un invité
+   * n'a pas de jeton d'Admin : son signe de vie renouvelle le sien. */
   let ticketAt = 0
   async function refreshTicket(resume = false) {
+    if (g) {
+      heartbeat.now()
+      if (resume) engine?.updateCredentials(ticketToken, true)
+      return
+    }
     if (!resume && Date.now() - ticketAt < 30_000) return
     ticketAt = Date.now()
     try {
@@ -158,9 +259,7 @@
   /** « 8,3 » en français, « 8.3 » en anglais. */
   const decimal = (text: string) => (i18n.lang === 'fr' ? text.replace('.', ',') : text)
   const latencyText = $derived(latency ? `${decimal(latency.total.toFixed(latency.total < 10 ? 1 : 0))} ms` : '— ms')
-  const formatText = $derived(
-    mode && plan ? `${mode.width} × ${mode.height} · ${mode.refresh} Hz · ${plan.codec === 'hevc' ? 'HEVC' : 'H.264'}${plan.yuv444 ? ' 4:4:4' : ''}` : '',
-  )
+  const formatText = $derived(mode && plan ? `${mode.width} × ${mode.height} · ${mode.refresh} Hz · ${formatLabel(plan.codec, plan.yuv444)}` : '')
   const sparkPath = $derived(
     spark.length < 2
       ? ''
@@ -193,7 +292,8 @@
 
   /** Garde la dernière session (rubrique Statistiques) à partir de 3 s d'image. */
   function keepLastSession() {
-    if (lastSaved || !firstImageAt || !mode || !plan) return
+    // Un invité n'a pas de statistiques à garder : ce n'est pas son ordinateur.
+    if (g || lastSaved || !firstImageAt || !mode || !plan) return
     const stats = sessionStats()
     const duration = (Date.now() - firstImageAt) / 1000
     if (!stats || duration < MIN_SESSION_SECONDS) return
@@ -297,6 +397,15 @@
       // La session d'avant doit avoir rendu son écran et arrêté son moteur.
       await allStopped()
       if (stale(gen)) return
+      if (g && guestDisplay) {
+        // Invité : ni écran à préparer ni jeton d'Admin. Le jeton et l'écran viennent de `join`
+        // (le moteur est chargé, le format lu avant d'entrer : `Join.svelte`).
+        mode = { width: guestDisplay.width, height: guestDisplay.height, refresh: guestDisplay.refresh }
+        codecList = g.codecs
+        textInput?.toggleAttribute(TEXT_ATTRIBUTE, engineInputs())
+        await connect(preferredProtocol(), gen)
+        return
+      }
       const [refresh, codecs, ticket] = await Promise.all([measureRefresh(), supportedCodecs(), backend.ticket()])
       if (stale(gen)) return
       mode = screenMode(refresh)
@@ -338,6 +447,7 @@
     connectStep = 'kyber'
     clearWatches()
     plan = choose(prefs, mode, codecList, protocol)
+    if (g) plan = guestPlan(plan)
     // Jamais deux moteurs à la fois : chacun écoute souris et clavier sur la page.
     await allStopped()
     if (stale(gen)) return
@@ -347,7 +457,15 @@
     const e: Engine = new Engine('kn-canvas', (ev) => onEngine(ev, e, protocol))
     engine = e
     connectWatch = setTimeout(() => noControlPlane(e), 25000)
-    await e.connect(streamHost(), location.port || '443', ticketToken, plan)
+    await e.connect(streamHost(), location.port || '443', ticketToken, plan, g ? guestDisplay?.id : undefined)
+  }
+
+  /** L'invité reçoit le format de l'hôte (image commune), sans presse-papiers. Image pas encore
+   * démarrée : il prend celui que ce navigateur lit le mieux, et l'hôte le recevra aussi. */
+  function guestPlan(p: Plan): Plan {
+    const join = g!.join
+    if (!join.codec) return { ...p, clipboard: false }
+    return { ...p, codec: join.codec.toLowerCase() as Plan['codec'], yuv444: join.yuv444, clipboard: false }
   }
 
   /** Pas de plan de contrôle : Kyber ne répond pas (ce n'est pas une affaire de transport). */
@@ -388,7 +506,7 @@
     } else if (from === 'connected') {
       failOrRestart(t('session.error.noImageStart', { host: hostname }))
     } else {
-      fail(t('session.error.noImageArrive', { host: hostname }))
+      fail(g ? t('share.guest.noImage', { host: hostname }) : t('session.error.noImageArrive', { host: hostname }))
     }
   }
 
@@ -441,7 +559,7 @@
   }
 
   function connectError(message: string): string {
-    if (message === 'unauthorized') return t('session.error.unauthorized', { host: hostname })
+    if (message === 'unauthorized') return g ? t('share.guest.unauthorized', { host: hostname }) : t('session.error.unauthorized', { host: hostname })
     if (message === 'streaming_start_failed' || message.startsWith('start_streaming')) return t('session.error.startFailed', { host: hostname })
     return tName('session.error.noReply', 'host', hostname)
   }
@@ -521,8 +639,11 @@
       case 'error':
         console.warn('KyberNow : connexion impossible', e.message)
         // Un jeton refusé ne se répare pas en redémarrant la Station.
-        if (e.message === 'unauthorized') fail(connectError(e.message))
-        else failOrRestart(connectError(e.message))
+        if (e.message === 'unauthorized') {
+          // Un invité retiré n'a plus de jeton : son signe de vie dit pourquoi.
+          if (g) guestClosed(connectError(e.message))
+          else fail(connectError(e.message))
+        } else failOrRestart(connectError(e.message))
         break
       case 'stopped':
         if (ended) return
@@ -530,14 +651,18 @@
           // Le moteur a perdu sa toile en se reconnectant : on recommence proprement.
           restart()
         } else if (e.reason === 'decode_error') {
-          fail(t('session.error.decode'))
+          fail(g ? t('share.guest.decode', { host: hostname }) : t('session.error.decode'))
         } else if (e.reason === 'controlplane_closed') {
-          fail(t('session.error.closed', { host: hostname }))
+          const message = t('session.error.closed', { host: hostname })
+          if (g) guestClosed(message)
+          else fail(message)
         } else if (e.reason === 'requested') {
           // Arrêt demandé par ce client, sans que la page l'ait voulu.
           fail(t('session.error.stopped'))
         } else {
-          fail(t('session.error.interrupted', { host: hostname }))
+          const message = t('session.error.interrupted', { host: hostname })
+          if (g) guestClosed(message)
+          else fail(message)
         }
         break
     }
@@ -554,6 +679,7 @@
   function fail(message: string) {
     generation++
     keepLastSession()
+    leaveGuest()
     clearWatches()
     gamepads = []
     soundBlocked = false
@@ -574,7 +700,8 @@
    * puis la page reprend la connexion après le mot de passe. Pas pour une
    * image qui part mais n'arrive pas : c'est ce navigateur ou le réseau. */
   function failOrRestart(message: string) {
-    if (wasLive || !lastResortAllowed()) fail(message)
+    // Un invité ne redémarre jamais la Station.
+    if (g || wasLive || !lastResortAllowed()) fail(message)
     else void lastResort(message)
   }
 
@@ -603,6 +730,7 @@
     generation++
     clearWatches()
     keepLastSession()
+    leaveGuest()
     const median = sessionStats()?.median ?? null
     const e = engine
     engine = null
@@ -618,16 +746,17 @@
 
   function setMouseMode(m: MouseMode) {
     mouseMode = m
-    prefs.mouse = m
+    if (!g) prefs.mouse = m
     if (!pointerAllowed()) releasePointer()
   }
 
   function pointerAllowed(): boolean {
+    if (!canKbm) return false
     return mouseMode === 'jeu' || (mouseMode === 'auto' && gameInForeground)
   }
 
   function cycleMouse() {
-    setMouseMode(mouseMode === 'auto' ? 'bureau' : mouseMode === 'bureau' ? 'jeu' : 'auto')
+    setMouseMode(mouseMode === 'auto' ? 'bureau' : mouseMode === 'bureau' ? 'jeu' : g ? 'bureau' : 'auto')
   }
 
   const mouseLabel = $derived(mouseMode === 'auto' ? t('session.mouse.auto') : mouseMode === 'jeu' ? t('session.mouse.game') : t('session.mouse.desktop'))
@@ -653,7 +782,7 @@
   function barInside(): boolean {
     if (!hoverPos) return false
     const { x, y } = hoverPos
-    if (document.elementFromPoint(x, y)?.closest('.bar, .metrics')) return true
+    if (document.elementFromPoint(x, y)?.closest('.bar, .metrics, .sharebox')) return true
     const r = sessionEl.getBoundingClientRect()
     // Dispositions sans transformation : la barre en cours d'apparition compte déjà.
     const bottom = r.top + (barEl ? barEl.offsetTop + barEl.offsetHeight : 0)
@@ -686,10 +815,10 @@
   /** Arme la fermeture : jamais pendant qu'un menu est ouvert. */
   function scheduleBarHide(delay: number) {
     clearBarTimer()
-    if (isTouch || metricsOpen || keysOpen || phase !== 'live') return
+    if (isTouch || metricsOpen || keysOpen || shareOpen || phase !== 'live') return
     barTimer = setTimeout(() => {
       barTimer = null
-      if (!metricsOpen && !keysOpen) hideBar()
+      if (!metricsOpen && !keysOpen && !shareOpen) hideBar()
     }, delay)
   }
 
@@ -703,7 +832,20 @@
 
   // Un menu qui se ferme sous un pointeur parti ailleurs laisse la barre se refermer.
   $effect(() => {
-    if (barVisible && !metricsOpen && !keysOpen) untrack(settleBar)
+    if (barVisible && !metricsOpen && !keysOpen && !shareOpen) untrack(settleBar)
+  })
+
+  // Un invité sans clavier ni souris n'envoie rien de la page, et ce qu'il tenait est relâché
+  // (touches, boutons, pointeur capturé, clavier de l'appareil, menu Touches).
+  $effect(() => {
+    allowPackets(canKbm)
+    if (canKbm) return
+    untrack(() => {
+      releaseAll()
+      releasePointer()
+      keysOpen = false
+      if (keyboardOpen) closeKeyboard()
+    })
   })
 
   /** Le pointeur est resté contre le bord haut : la barre s'ouvre si la page a le focus et la souris n'est pas capturée. */
@@ -749,7 +891,7 @@
   async function onFullscreenChange() {
     fullscreen = !!document.fullscreenElement
     // Plein écran : toutes les touches vont à l'ordinateur (Chrome, Edge).
-    if (fullscreen && hasKeyboardLock) {
+    if (fullscreen && hasKeyboardLock && canKbm) {
       await (navigator as any).keyboard.lock().catch(() => {})
     }
     setTimeout(fit, 50)
@@ -783,6 +925,15 @@
     if (!e) return
     await e.audioResume()
     soundBlocked = (await e.audioState()) === 'suspended'
+  }
+
+  /** « Partager » : le panneau de l'hôte ; les autres menus de la barre se ferment. */
+  function toggleShare() {
+    shareOpen = !shareOpen
+    if (shareOpen) {
+      metricsOpen = false
+      keysOpen = false
+    }
   }
 
   function toggleMute() {
@@ -861,6 +1012,7 @@
       onRelease: () => {
         if (mods.size) mods = new Set()
       },
+      allowed: () => ({ keyboard: canKbm, mouse: canKbm }),
     })
     installPointerGate(pointerAllowed)
     installAbsoluteMouse()
@@ -878,6 +1030,16 @@
       }
     })
     start()
+    // Un invité signale sa présence dès l'arrivée : sans nouvelles pendant 20 s, il sort du partage.
+    if (g) heartbeat.start({ guest: g.join.guest })
+    else {
+      // Ce que la Station sait du partage : une Station d'avant la 0.8.0 ne le connaît pas,
+      // et il est coupé quand `multi_client` l'est (docs/link-ui.md).
+      backend
+        .info()
+        .then((i: Info) => (shareSupport = !i.share ? 'old' : i.share.enabled ? 'ok' : 'off'))
+        .catch(() => {})
+    }
     // Ctrl + Alt + Maj : la barre, et la souris rendue.
     const shortcut = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.altKey && e.shiftKey && ['Control', 'Alt', 'Shift'].includes(e.key)) {
@@ -931,7 +1093,8 @@
         }, 1000)
       : null
     const foreground = setInterval(async () => {
-      if (phase !== 'live' || mouseMode !== 'auto') return
+      // Un invité n'a pas de compte pour le demander : sa souris reste celle du bureau (ou des jeux, à la main).
+      if (g || phase !== 'live' || mouseMode !== 'auto') return
       const f = await backend.foreground().catch(() => null)
       const game = !!f?.game
       if (game !== gameInForeground) {
@@ -945,7 +1108,8 @@
     window.visualViewport?.addEventListener('scroll', viewport)
     // Ctrl+W, ⌘W, ⌘Q en pleine session : le navigateur demande confirmation.
     const beforeUnload = (e: BeforeUnloadEvent) => {
-      if (phase !== 'live' || ended) return
+      // Un invité sort sans façon : il rejoint de nouveau avec le code.
+      if (g || phase !== 'live' || ended) return
       e.preventDefault()
       e.returnValue = ''
     }
@@ -956,6 +1120,8 @@
     }
     const leave = () => {
       keepLastSession()
+      // Un invité sort du partage à la fermeture de la page.
+      leaveGuest()
       if (ended || !prepared) return
       fetch('/api/stream/end', { method: 'POST', keepalive: true, credentials: 'same-origin', headers: { 'x-kyber-admin': '1', 'content-type': 'application/json' }, body: JSON.stringify(endBody(null, extra())) })
     }
@@ -986,11 +1152,12 @@
     }, 1000)
     // La latence du signal de vie (le Worker envoie la dernière connue).
     const sampler = setInterval(() => {
-      if (!engine || phase !== 'live') return
+      // Le signe de vie d'un invité porte seulement son identifiant.
+      if (g || !engine || phase !== 'live') return
       const l = engine.sample()
       heartbeat.update(heartbeatBody(l?.total ?? null, profileLabel, extra()))
     }, 5000)
-    const ticketTimer = setInterval(() => phase === 'live' && refreshTicket(), 3_600_000)
+    const ticketTimer = setInterval(() => phase === 'live' && !g && refreshTicket(), 3_600_000)
 
     // Safari : pas de correction automatique (elle remplacerait un mot déjà parti).
     textInput.setAttribute('autocorrect', 'off')
@@ -1023,6 +1190,7 @@
       removePointerGate()
       removeAbsoluteMouse()
       removeInputGuard()
+      allowPackets(true)
       setPositionMapper(() => null)
       forgetInputSocket()
       clearBarTimer()
@@ -1040,6 +1208,7 @@
       if (!ended) {
         ended = true
         keepLastSession()
+        leaveGuest()
         retire(engine, prepared ? () => backend.end(null, extra()) : undefined)
       }
     }
@@ -1049,7 +1218,7 @@
 <div class="session" class:touch={isTouch} bind:this={sessionEl} onpointermove={onPointerMove} onpointerleave={onPointerLeave} role="application" aria-label={t('session.aria', { host: hostname })}>
   <div class="stage" class:kb={keyboardOpen} bind:this={stage} oncontextmenu={(e) => e.preventDefault()} role="presentation">
     <div class="canvas-box" bind:this={canvasBox}></div>
-    <div class="touch-layer" class:active={hasTouchScreen && phase === 'live'} bind:this={touchLayer}></div>
+    <div class="touch-layer" class:active={hasTouchScreen && phase === 'live' && canKbm} bind:this={touchLayer}></div>
     {#if cursor && phase === 'live'}
       <div class="tcursor" style="left: {cursor.x}px; top: {cursor.y}px" aria-hidden="true"></div>
     {/if}
@@ -1063,15 +1232,20 @@
           <h2 class="disp">{wasLive ? t('session.start.ended') : t('session.start.failed')}</h2>
           <p>{error}</p>
           <div class="row">
-            <button type="button" class="primary" onclick={() => { ended = false; wasLive = false; resetStats(); restart() }}>{t('session.start.reconnect')}</button>
-            <button type="button" class="ghost" onclick={quit}>{t('session.start.home')}</button>
+            {#if g}
+              <!-- Un invité sorti du partage ne le reprend pas : il rejoint de nouveau avec un code. -->
+              <button type="button" class="primary" onclick={quit}>{t('share.join.button')}</button>
+            {:else}
+              <button type="button" class="primary" onclick={() => { ended = false; wasLive = false; resetStats(); restart() }}>{t('session.start.reconnect')}</button>
+              <button type="button" class="ghost" onclick={quit}>{t('session.start.home')}</button>
+            {/if}
           </div>
         </div>
       {:else}
         {@const current = phase === 'preparing' ? 0 : connectStep === 'kyber' ? 1 : 2}
         <div class="card">
           <Mark size={34} state="now" lit breathe />
-          <h2 class="disp">{hostname}</h2>
+          <h2 class="disp">{title}</h2>
           <ol class="steps">
             {#if phase === 'restarting'}
               <li class="current" aria-current="step"><span class="mark" aria-hidden="true"></span>{t('web.station.restarting')}</li>
@@ -1106,24 +1280,36 @@
     <!-- Souris : la fermeture suit le pointeur (onPointerMove). Doigt : elle attend un temps sans toucher. -->
     <div class="bar glass" class:hidden={!barVisible} role="toolbar" tabindex="-1" aria-label="Session" bind:this={barEl} bind:clientWidth={barWidth} onpointerenter={(e) => e.pointerType === 'touch' && clearBarTimer()} onpointerleave={(e) => e.pointerType === 'touch' && scheduleBarHide(BAR_IDLE)}>
       <Mark size={22} state="now" lit breathe />
-      <span class="host">{hostname}</span>
+      <span class="host">{title}</span>
       <span class="sep" aria-hidden="true"></span>
-      <button type="button" class="lat" aria-expanded={metricsOpen} aria-label={t('session.bar.metrics')} onclick={() => { metricsOpen = !metricsOpen; keysOpen = false }}>
+      <button type="button" class="lat" aria-expanded={metricsOpen} aria-label={t('session.bar.metrics')} onclick={() => { metricsOpen = !metricsOpen; keysOpen = false; shareOpen = false }}>
         <span class="mono value">{latencyText}</span>
         <svg width="64" height="22" viewBox="0 0 64 22" aria-hidden="true"><path d={sparkPath} fill="none" stroke="#9A8CFF" stroke-width="1.5" stroke-linejoin="round" /></svg>
         <span class="mono fmt">{formatText}</span>
       </button>
       <span class="sep" aria-hidden="true"></span>
-      <span class="chip static">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9A8CFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M8 20h8M12 16v4" /></svg>
-        <span class="label">{profileText}</span>
-      </span>
-      <button type="button" class="chip" aria-label={mouseLabel} title={t('session.mouse.hint')} onclick={cycleMouse}>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="M5 3l14 7-6 2-2 6z" /></svg>
-        <span class="label">{mouseLabel}</span>
-      </button>
-      {#if gamepads.length}
-        <span class="chip static" title={gamepads.map((g) => g.name).join(', ')} aria-label={gamepadAria}>
+      {#if g}
+        <!-- Invité : son rôle, ni profil ni réglages de l'ordinateur. -->
+        <span class="chip static role">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9A8CFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            {#if role === 'spectator'}<path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z" /><circle cx="12" cy="12" r="2.6" />{:else}<path d="M7 8h10a4 4 0 0 1 4 4v1a3 3 0 0 1-5.4 1.8L14.5 13h-5l-1.1 1.8A3 3 0 0 1 3 13v-1a4 4 0 0 1 4-4z" /><path d="M8 10.5v3M6.5 12h3" />{/if}
+          </svg>
+          <span class="label">{roleText}</span>
+        </span>
+      {:else}
+        <span class="chip static">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9A8CFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M8 20h8M12 16v4" /></svg>
+          <span class="label">{profileText}</span>
+        </span>
+      {/if}
+      {#if canKbm}
+        <button type="button" class="chip" aria-label={mouseLabel} title={t('session.mouse.hint')} onclick={cycleMouse}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="M5 3l14 7-6 2-2 6z" /></svg>
+          <span class="label">{mouseLabel}</span>
+        </button>
+      {/if}
+      {#if gamepads.length && canPlay}
+        <span class="chip static" title={gamepads.map((p) => p.name).join(', ')} aria-label={gamepadAria}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9A8CFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 8h10a4 4 0 0 1 4 4v1a3 3 0 0 1-5.4 1.8L14.5 13h-5l-1.1 1.8A3 3 0 0 1 3 13v-1a4 4 0 0 1 4-4z" /><path d="M8 10.5v3M6.5 12h3" /></svg>
           <span class="label">{gamepadText}</span>
         </span>
@@ -1134,10 +1320,20 @@
           <span class="label">{muted ? t('session.sound.muted') : t('session.sound.on')}</span>
         </button>
       {/if}
-      <button type="button" class="chip" aria-label={t('session.bar.keys')} aria-expanded={keysOpen} onclick={() => { keysOpen = !keysOpen; metricsOpen = false }}>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2" /><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8" /></svg>
-        <span class="label">{t('session.bar.keys')}</span>
-      </button>
+      {#if canKbm}
+        <button type="button" class="chip" aria-label={t('session.bar.keys')} aria-expanded={keysOpen} onclick={() => { keysOpen = !keysOpen; metricsOpen = false; shareOpen = false }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2" /><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8" /></svg>
+          <span class="label">{t('session.bar.keys')}</span>
+        </button>
+      {/if}
+      {#if !g}
+        <!-- « Partager » (KyberNow Share) : inactif si la Station ne le sait pas ou l'a coupé ; le panneau dit pourquoi. -->
+        <button type="button" class="chip" class:inactive={shareSupport !== 'ok'} aria-expanded={shareOpen} aria-disabled={shareSupport !== 'ok'} aria-label={share ? `${t('share.bar.share')} · ${tn('share.guests', share.guests.length)}` : t('share.bar.share')} title={shareHint} onclick={toggleShare}>
+          <Icon name="share" size={16} stroke={1.7} />
+          <span class="label">{t('share.bar.share')}</span>
+          {#if share}<span class="count" aria-hidden="true"><span class="full">{tn('share.guests', share.guests.length)}</span><span class="num">{share.guests.length}</span></span>{/if}
+        </button>
+      {/if}
       <span class="sep" aria-hidden="true"></span>
       <button type="button" class="chip icon" aria-label={fullscreen ? t('session.bar.exitFullscreen') : t('session.bar.fullscreen')} onclick={toggleFullscreen}>
         {#if fullscreen}
@@ -1146,12 +1342,12 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></svg>
         {/if}
       </button>
-      <button type="button" class="quit" aria-label={t('session.bar.quit')} onclick={quit}>
+      <button type="button" class="quit" aria-label={g ? t('share.guest.leave') : t('session.bar.quit')} onclick={quit}>
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 3v9" /><path d="M6.3 6.3a8 8 0 1 0 11.4 0" /></svg>
-        <span class="label">{t('session.bar.quit')}</span>
+        <span class="label">{g ? t('share.guest.leave') : t('session.bar.quit')}</span>
       </button>
 
-      {#if keysOpen}
+      {#if keysOpen && canKbm}
         <div class="menu glass" role="menu" aria-label={t('session.keys.title')}>
           <button type="button" role="menuitem" onclick={() => { engine?.ctrlAltDel(); keysOpen = false }}>{t('session.keys.cad')}<span class="mono">{t('session.keys.cadSub')}</span></button>
           <button type="button" role="menuitem" onclick={() => { sendKey(canvas(), 'Meta', 'MetaLeft', new Set()); keysOpen = false }}>{t('session.keys.win')}<span class="mono">{t('session.keys.winSub')}</span></button>
@@ -1189,46 +1385,57 @@
   <!-- Tactile : languette, barre compacte, clavier -->
   {#if isTouch && phase === 'live'}
     {#if !touchBar}
-      <button type="button" class="tab glass" aria-label={t('session.bar.show')} onpointerdown={(e) => e.preventDefault()} onclick={() => { touchBar = true; guide = !prefs.touchGuideSeen }}>
+      <button type="button" class="tab glass" aria-label={t('session.bar.show')} onpointerdown={(e) => e.preventDefault()} onclick={() => { touchBar = true; guide = canKbm && !prefs.touchGuideSeen }}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
       </button>
     {:else}
       <div class="tbar glass" role="toolbar" tabindex="-1" aria-label="Session" onpointerdown={(e) => e.preventDefault()}>
         <Mark size={20} state="now" lit />
         <span class="mono tlat">{latencyText}</span>
-        {#if gamepads.length}
-          <span class="tpad" title={gamepads.map((g) => g.name).join(', ')} aria-label={gamepadAria}>
+        {#if g}<span class="trole">{roleText}</span>{/if}
+        {#if gamepads.length && canPlay}
+          <span class="tpad" title={gamepads.map((p) => p.name).join(', ')} aria-label={gamepadAria}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#9A8CFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 8h10a4 4 0 0 1 4 4v1a3 3 0 0 1-5.4 1.8L14.5 13h-5l-1.1 1.8A3 3 0 0 1 3 13v-1a4 4 0 0 1 4-4z" /><path d="M8 10.5v3M6.5 12h3" /></svg>
             {#if gamepads.length > 1}<span class="mono">{gamepads.length}</span>{/if}
           </span>
         {/if}
         <span class="sep" aria-hidden="true"></span>
-        <div class="tmodes" role="radiogroup" aria-label={t('session.touch.modes')}>
-          <button type="button" role="radio" aria-checked={touchMode === 'trackpad'} onclick={() => setTouchMode('trackpad')}>{t('session.touch.trackpad')}</button>
-          <button type="button" role="radio" aria-checked={touchMode === 'direct'} onclick={() => setTouchMode('direct')}>{t('session.touch.direct')}</button>
-        </div>
-        <button type="button" class="tb" onclick={openKeyboard} aria-label={t('session.touch.keyboard')}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2" /><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8" /></svg>
-        </button>
+        {#if canKbm}
+          <div class="tmodes" role="radiogroup" aria-label={t('session.touch.modes')}>
+            <button type="button" role="radio" aria-checked={touchMode === 'trackpad'} onclick={() => setTouchMode('trackpad')}>{t('session.touch.trackpad')}</button>
+            <button type="button" role="radio" aria-checked={touchMode === 'direct'} onclick={() => setTouchMode('direct')}>{t('session.touch.direct')}</button>
+          </div>
+          <button type="button" class="tb" onclick={openKeyboard} aria-label={t('session.touch.keyboard')}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2" /><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8" /></svg>
+          </button>
+        {/if}
         {#if prefs.audio}
           <button type="button" class="tb" aria-pressed={muted} onclick={toggleMute} aria-label={muted ? t('session.sound.unmute') : t('session.sound.mute')}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" />{#if muted}<path d="M17 9l4 6M21 9l-4 6" />{:else}<path d="M17 9a4 4 0 0 1 0 6" />{/if}</svg>
+          </button>
+        {/if}
+        {#if !g}
+          <button type="button" class="tb" class:inactive={shareSupport !== 'ok'} aria-expanded={shareOpen} aria-disabled={shareSupport !== 'ok'} aria-label={share ? `${t('share.bar.share')} · ${tn('share.guests', share.guests.length)}` : t('share.bar.share')} onclick={toggleShare}>
+            <Icon name="share" size={20} stroke={1.7} />
+            {#if share}<span class="tcount mono" aria-hidden="true">{share.guests.length}</span>{/if}
           </button>
         {/if}
         <span class="sep" aria-hidden="true"></span>
         <button type="button" class="tb" onclick={() => { touchBar = false; guide = false }} aria-label={t('session.touch.hideBar')}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 15l6-6 6 6" /></svg>
         </button>
-        <button type="button" class="tb danger-tb" onclick={quit} aria-label={t('session.bar.quit')}>
+        <button type="button" class="tb danger-tb" onclick={quit} aria-label={g ? t('share.guest.leave') : t('session.bar.quit')}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 3v9" /><path d="M6.3 6.3a8 8 0 1 0 11.4 0" /></svg>
         </button>
       </div>
     {/if}
 
     {#if !keyboardOpen}
-      <button type="button" class="fab glass" onpointerdown={(e) => e.preventDefault()} onclick={openKeyboard} aria-label={t('session.touch.openKeyboard')}>
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2" /><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8" /></svg>
-      </button>
+      {#if canKbm}
+        <button type="button" class="fab glass" onpointerdown={(e) => e.preventDefault()} onclick={openKeyboard} aria-label={t('session.touch.openKeyboard')}>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2" /><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8" /></svg>
+        </button>
+      {/if}
     {:else}
       <div class="keys" role="toolbar" aria-label={t('session.touch.specialKeys')}>
         {#each SPECIAL_KEYS as k (k.code)}
@@ -1252,6 +1459,10 @@
         <button type="button" onclick={closeGuide}>{t('session.touch.gotIt')}</button>
       </section>
     {/if}
+  {/if}
+
+  {#if shareOpen && !g && phase === 'live'}
+    <ShareBox {share} support={shareSupport} computer={hostname} onshare={(view) => (share = view)} onclose={() => (shareOpen = false)} />
   {/if}
 
   {#if diagEnabled && diagText}
@@ -1533,6 +1744,7 @@
   }
 
   .chip {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 7px;
@@ -1553,6 +1765,32 @@
 
   .chip.static {
     cursor: default;
+  }
+
+  .chip.role {
+    color: var(--signal-light);
+  }
+
+  /* « Partager » : inactif quand la Station ne le sait pas ou l'a coupé (le panneau dit pourquoi). */
+  .chip.inactive,
+  .tb.inactive {
+    opacity: 0.5;
+  }
+
+  /* Pastille du partage ouvert : « 2 invités ». */
+  .count {
+    margin-left: 2px;
+    padding: 2px 9px;
+    border-radius: 10px;
+    background: rgb(154 140 255 / 0.2);
+    box-shadow: inset 0 0 0 1px rgb(154 140 255 / 0.5);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .count .num {
+    display: none;
   }
 
   .chip.icon {
@@ -1789,6 +2027,12 @@
     min-width: 46px;
   }
 
+  .trole {
+    font-size: 12px;
+    color: var(--text-2);
+    margin-right: 6px;
+  }
+
   .tpad {
     display: flex;
     align-items: center;
@@ -1823,6 +2067,7 @@
   }
 
   .tb {
+    position: relative;
     width: 44px;
     height: 44px;
     border: 0;
@@ -1835,6 +2080,21 @@
 
   .tb[aria-pressed='true'] {
     color: var(--warn);
+  }
+
+  .tcount {
+    position: absolute;
+    right: 3px;
+    top: 3px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: 8px;
+    background: var(--signal-strong);
+    color: #fff;
+    font-size: 10px;
+    line-height: 16px;
+    text-align: center;
   }
 
   .danger-tb {
@@ -1958,6 +2218,33 @@
     border: 0;
     resize: none;
     font-size: 16px;
+  }
+
+  /* Barre de l'hôte, avec « Partager » : le nombre d'invités passe en pastille sur l'icône avant que la barre ne déborde. */
+  @media (max-width: 1400px) {
+    .count {
+      position: absolute;
+      right: 1px;
+      top: 1px;
+      margin: 0;
+      min-width: 16px;
+      height: 16px;
+      padding: 0 4px;
+      border-radius: 8px;
+      background: var(--signal-strong);
+      box-shadow: none;
+      font-size: 10px;
+      line-height: 16px;
+      text-align: center;
+    }
+
+    .count .full {
+      display: none;
+    }
+
+    .count .num {
+      display: inline;
+    }
   }
 
   /* Fenêtre étroite : la barre se resserre. */

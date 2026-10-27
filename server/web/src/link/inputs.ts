@@ -24,6 +24,14 @@ export function engineInputs(): boolean {
 const MOUSE_POSITION = 2
 const UNICODE = 10
 
+/** Un invité du partage sans clavier ni souris n'envoie aucun paquet de la page
+ * (Kyber les refuserait) ; l'hôte envoie tout. */
+let allowed = true
+
+export function allowPackets(yes: boolean) {
+  allowed = yes
+}
+
 let socket: WebSocket | null = null
 let displayId: number | null = null
 /** Positions envoyées par la page (diagnostic). */
@@ -81,12 +89,12 @@ export function currentDisplayId(): number | null {
 
 /** La connexion WebSocket des entrées est-elle ouverte ? */
 export function canSendPackets(): boolean {
-  return !!socket && socket.readyState === WebSocket.OPEN
+  return allowed && !!socket && socket.readyState === WebSocket.OPEN
 }
 
 /** Envoie un paquet kynput `[type][contenu]`. `false` sans connexion WebSocket. */
 export function sendPacket(type: number, payload: Uint8Array): boolean {
-  if (!socket || socket.readyState !== WebSocket.OPEN) return false
+  if (!allowed || !socket || socket.readyState !== WebSocket.OPEN) return false
   const msg = new Uint8Array(1 + payload.byteLength)
   msg[0] = type
   msg.set(payload, 1)

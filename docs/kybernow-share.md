@@ -97,6 +97,8 @@ Tout en JSON, sur le port d'Admin, certificat épinglé par empreinte comme aujo
 
 Toutes les apps Link (Mac, Windows, Linux, iPhone, iPad, Apple TV, Android, téléviseurs LG) et le client web : « Rejoindre avec un code » sur l'accueil, la saisie du code (pavé à l'écran sur les téléviseurs, comme l'appairage), la session d'invité et sa barre réduite ; « Partager » et le panneau de l'hôte dans la barre de session. Un seul composant par famille d'apps quand c'est possible (KyberKit pour le Mac, l'iPhone, l'iPad et l'Apple TV). Les textes viennent de `link-ui.md`.
 
+**Client web** (`server/web/src/link/`) : même session que celle de l'hôte (même page, `Session.svelte`), avec une barre réduite pour l'invité. Il n'a pas de cœur Rust : il fait lui-même l'échange avec Admin ci-dessus (`app: "web"`, `device` : l'identifiant de ce navigateur) et garde le cookie `kybernow_guest`, qui ouvre seulement le relais vers Kyber et `/api/share/*` ; le moteur de Kyber ne se charge donc qu'après `join`, et le format de l'image se vérifie alors (sinon `leave`). Le moteur ouvre ses entrées dès le départ et la page filtre selon le rôle ; Kyber refuse de toute façon ce que le rôle ne permet pas. L'hôte, dans le navigateur : « Partager » dans la barre, panneau d'Admin sur les routes de l'hôte, invités lus dans la réponse du signe de vie (`share`).
+
 ## Hors de ce premier pas
 
 - Rejoindre hors du réseau (relais), l'encodage à part pour un invité à distance : étapes suivantes de KyberNow Share.

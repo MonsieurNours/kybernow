@@ -954,6 +954,39 @@
       "android": "Android",
       "webos": "Téléviseur LG",
       "web": "Navigateur"
+    },
+    "bar": {
+      "share": "Partager",
+      "tooOld": "Le partage demande KyberNow Station 0.8.0 ou plus récente."
+    },
+    "join": {
+      "button": "Rejoindre avec un code",
+      "title": "Rejoindre un partage",
+      "lead": "Le code s'affiche chez la personne qui partage.",
+      "name": "Votre prénom",
+      "submit": "Rejoindre",
+      "looking": "Recherche du partage…",
+      "noShare": "Aucun partage avec ce code sur le réseau.",
+      "full": "Ce partage est complet (quatre invités au plus).",
+      "tooMany": "Trop d'essais de code : réessayez dans une minute.",
+      "unreadable": "Cet appareil ne lit pas l'image de cet ordinateur ({format}).",
+      "unavailable": "Le partage n'est pas disponible pour le moment : réessayez dans un instant.",
+      "badRequest": "Le code a six chiffres, et le prénom ne peut pas être vide."
+    },
+    "guest": {
+      "on": "Invité sur {name}",
+      "spectator": "Spectateur",
+      "player": "Joueur",
+      "leave": "Quitter le partage",
+      "canPlay": "Vous pouvez jouer.",
+      "gotKbm": "Vous avez le clavier et la souris.",
+      "lostKbm": "Le clavier et la souris sont repris.",
+      "watching": "Vous regardez de nouveau.",
+      "stopped": "{host} a arrêté le partage.",
+      "removed": "{host} vous a retiré du partage.",
+      "unauthorized": "Kyber sur {host} refuse le jeton du partage. Rejoignez-le de nouveau avec le code.",
+      "noImage": "{host} envoie l'image, mais elle n'arrive pas dans ce navigateur. Essayez Chrome ou Edge.",
+      "decode": "Ce navigateur n'arrive pas à décoder l'image de {host}."
     }
   }
 }

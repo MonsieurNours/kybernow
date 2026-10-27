@@ -127,13 +127,17 @@ An open share shows in the bar (a « 2 invités » / “2 guests” chip, which 
 | Searching | « Recherche du partage… » | “Looking for the share…” |
 | Unknown code | « Aucun partage avec ce code sur le réseau. » | “No share with this code on your network.” |
 | Full | « Ce partage est complet (quatre invités au plus). » | “This share is full (four guests at most).” |
+| Too many tries (10 a minute) | « Trop d'essais de code : réessayez dans une minute. » | “Too many code attempts: try again in a minute.” |
 | Unreadable format | « Cet appareil ne lit pas l'image de cet ordinateur ({format}). » | “This device cannot play this computer's picture ({format}).” |
+| Sharing unavailable (the Station cannot sign Kyber's token, momentarily) | « Le partage n'est pas disponible pour le moment : réessayez dans un instant. » | “Sharing is not available right now: try again in a moment.” |
 | Connecting | the connection's steps, titled « Invité sur {nom} » | “Guest on {name}” |
 | Bar (reduced) | « Spectateur » or « Joueur »; « Quitter le partage »; the controller, keyboard and mouse if given; no profile, no settings | “Spectator” or “Player”; “Leave” |
-| Rights changed | « Vous pouvez jouer. »; « Vous avez le clavier et la souris. »; « Le clavier et la souris sont repris. » (a brief notice) | “You can play.”; “You have the keyboard and mouse.”; “The keyboard and mouse were taken back.” |
+| Rights changed | « Vous pouvez jouer. »; « Vous avez le clavier et la souris. »; « Le clavier et la souris sont repris. »; made a spectator again: « Vous regardez de nouveau. » (a brief notice) | “You can play.”; “You have the keyboard and mouse.”; “The keyboard and mouse were taken back.”; “You are watching again.” |
 | End | « {hôte} a arrêté le partage. »; « {hôte} vous a retiré du partage. »; otherwise a failure's reason; never “Take back control” | “{host} stopped sharing.”; “{host} removed you from the share.” |
 
 {host} is the host's name (the host device's name), or the computer's name for a share started from the PC. A guest is not added to the device's computers.
+
+**Web client** (browser): the share's link (`https://<address>:<port>/link/?join=123456`, the host's “Copy link”) opens “Join a share” **without Admin's password**, with the code already filled in (“123 456”) and the suggested name (“Chrome on Mac”, remembered for next time); “Join” has to be clicked (it never connects by itself). “Join with a code” is also on Admin's password screen and on the web client's home screen (next to “Settings”), with “Cancel” to go back; the code is typed as six digits, grouped by three as you type. The browser has a single computer, the one serving the page: the code goes to it alone, with no search on the network. The picture's format is checked once the Station has answered (Kyber's engine only loads with the guest's cookie): if this browser cannot play it, it leaves the share at once and says so. When the share ends, the end card (“Session ended”, the end text) has a single button, “Join with a code”; no “Reconnect”. A guest's bar: latency and statistics, sound, full screen, “Spectator” or “Player”, “Leave”; with “keyboard and mouse”: the mouse mode and the “Keys” menu (on touch: trackpad, direct touch, keyboard); the controllers chip only as a player. No profile, no settings, no clipboard.
 
 **Admin's feed**: « {hôte} partage l'écran {n} » / “{host} is sharing display {n}”; « {prénom} regarde votre écran » / “{name} is watching your screen” (on arrival, or made a spectator again); « {prénom} joue avec vous » / “{name} is playing with you”; « {prénom} a quitté le partage » / “{name} left the share” (gone, removed, or timed out); « Partage arrêté » / “Sharing stopped”.
 

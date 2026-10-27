@@ -23,7 +23,8 @@
     notice = '',
     onConnect,
     onSignedOut,
-  }: { hostname: string; prefs: Prefs; notice?: string; onConnect: () => void; onSignedOut: () => void } = $props()
+    onJoin,
+  }: { hostname: string; prefs: Prefs; notice?: string; onConnect: () => void; onSignedOut: () => void; onJoin: () => void } = $props()
 
   let preview = $state<Preview | null>(null)
   let live = $state<Live | null>(null)
@@ -189,6 +190,10 @@
       <button type="button" class="glassbtn" aria-label={tName('web.home.settingsFor', 'name', hostname)} onclick={() => (sheet = true)}>
         <Icon name="gear" size={18} stroke={1.7} />
         {t('web.home.settings')}
+      </button>
+      <button type="button" class="glassbtn" onclick={onJoin}>
+        <Icon name="share" size={18} stroke={1.7} />
+        {t('share.join.button')}
       </button>
     </div>
   </main>

@@ -1,12 +1,13 @@
 <!--
   Panneau d'un partage ouvert (KyberNow Share) : le code, le lien et son QR
   code, les participants et leurs droits, « Nouveau code », « Arrêter le
-  partage ». Le même sur l'accueil et dans Appareils Link ; textes de
+  partage ». Le même sur l'accueil et dans Appareils Link d'Admin, et dans la
+  barre de session du client web (routes de l'hôte) ; textes de
   docs/link-ui.md (« Partage »).
 -->
 <script lang="ts">
   import { localShare, type ShareGuest, type ShareOps, type ShareRole, type ShareView } from './api'
-  import { errorText, notify, refreshStatus, setShare } from './store.svelte'
+  import { errorText, notify as storeNotify, refreshStatus, setShare } from './store.svelte'
   import { deviceIcon, duration, screenLine } from './format'
   import Icon from './Icon.svelte'
   import Qr from './Qr.svelte'
@@ -18,6 +19,9 @@
     host = null,
     ops = localShare,
     onchange = setShare,
+    notify = storeNotify,
+    refresh = refreshStatus,
+    own = false,
   }: {
     share: ShareView
     /** Nom de l'ordinateur : titre d'un partage lancé depuis la session d'un appareil. */
@@ -28,6 +32,12 @@
     ops?: ShareOps
     /** Le partage après une action (`null` : arrêté). */
     onchange?: (view: ShareView | null) => void
+    /** Où dire le résultat d'une action : le fil de messages d'Admin par défaut. */
+    notify?: (kind: 'ok' | 'error', text: string) => void
+    /** Relit le partage (invité parti ou partage fermé entre-temps). */
+    refresh?: () => unknown
+    /** Panneau de l'hôte dans sa propre session : pas de « Ouvert depuis la session de… ». */
+    own?: boolean
   } = $props()
 
   /** Action en cours (« code », « stop », ou l'identifiant d'un invité). */
@@ -78,7 +88,7 @@
     } catch (e) {
       notify('error', errorText(e))
       // Invité parti ou partage fermé entre-temps : l'état est relu.
-      refreshStatus()
+      refresh()
     } finally {
       busy = null
     }
@@ -100,7 +110,7 @@
     <div class="intro">
       <div class="heading">
         <h2 class="disp">{title}</h2>
-        <span class="sub">{share.origin === 'host' ? t('share.openedBy', { name: share.host }) : screen}</span>
+        {#if !own}<span class="sub">{share.origin === 'host' ? t('share.openedBy', { name: share.host }) : screen}</span>{/if}
       </div>
       <div class="code">
         <span class="lbl">{t('share.codeLabel')}</span>

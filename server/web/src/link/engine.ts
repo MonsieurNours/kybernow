@@ -12,7 +12,8 @@ export interface CodecSupport {
 export interface StreamSettings {
   /** kymux : WebTransport (QUIC) ; websocket : par la console, quand WebTransport ne marche pas. */
   protocol: 'kymux' | 'websocket'
-  codec: 'h264' | 'hevc'
+  /** `av1` seulement pour un invité du partage : il reçoit le format de l'hôte (`share.ts`). */
+  codec: 'h264' | 'hevc' | 'av1'
   yuv444: boolean
   bitrate: number
   reliable: boolean
@@ -189,6 +190,9 @@ export class Engine {
   private m: Wasm = null
   private client: any = null
   private config: any = null
+  private settings: StreamSettings | null = null
+  /** Écran à recevoir (invité du partage) : sinon le premier de la liste de Kyber. */
+  private displayId: number | undefined
   private stopping = false
   /** Fin de l'arrêt : l'événement `stopped` du moteur. */
   private stoppedNow: (() => void) | null = null
@@ -203,10 +207,10 @@ export class Engine {
     private onEvent: (e: EngineEvent) => void,
   ) {}
 
-  async connect(host: string, port: string, token: string, s: StreamSettings) {
-    const m = await loadEngine()
-    this.m = m
-    const b = new m.StreamingConfigBuilder()
+  /** La configuration de l'image pour l'écran de rang `index` dans la liste de Kyber. */
+  private buildConfig(index: number) {
+    const s = this.settings!
+    const b = new this.m.StreamingConfigBuilder()
     b.protocol = s.protocol
     if (s.protocol === 'kymux') {
       b.kymux_video = s.reliable ? 'reliable' : 'unreliable_fec'
@@ -216,12 +220,24 @@ export class Engine {
     b.codec = s.codec
     b.yuv444 = s.yuv444
     b.audio = s.audio
+    // Les entrées s'ouvrent toujours : la page filtre selon le rôle d'un
+    // invité (`guard.ts`, `inputs.ts`) et Kyber refuse ce que son rôle ne
+    // permet pas ; « Faire jouer » n'a ainsi pas à relancer l'image.
     b.inputs = true
     b.clipboard = s.clipboard
     b.intra_refresh = true
-    b.display_index = 0
+    b.display_index = index
     b.video_buffer = 0
-    this.config = b.build()
+    return b.build()
+  }
+
+  /** `displayId` : l'écran du partage, pour un invité (son rang dans la liste de Kyber). */
+  async connect(host: string, port: string, token: string, s: StreamSettings, displayId?: number) {
+    const m = await loadEngine()
+    this.m = m
+    this.settings = s
+    this.displayId = displayId
+    this.config = this.buildConfig(0)
 
     const credentials = m.AuthCredentials.jwt(token)
     this.onEvent({ type: 'connecting' })
@@ -261,7 +277,10 @@ export class Engine {
       case 'controlplane_connected': {
         this.onEvent({ type: 'connected' })
         const displays = displayList(event?.displays)
-        if (displays) this.onEvent({ type: 'displays', displays })
+        if (displays) {
+          this.onEvent({ type: 'displays', displays })
+          this.pickDisplay(displays)
+        }
         try {
           await this.client.start_streaming(this.canvasId, this.config.clone())
           // `streaming_started` le dit aussi ; la page n'en tient compte qu'une fois.
@@ -341,6 +360,15 @@ export class Engine {
         break
       }
     }
+  }
+
+  /** L'écran à recevoir est-il ailleurs que le premier de la liste ? (Kyber ne montre
+   * à un invité que celui de son jeton : le premier, sauf liste plus longue.) */
+  private pickDisplay(list: DisplayInfo[]) {
+    if (this.displayId === undefined) return
+    const index = list.findIndex((d) => d.id === this.displayId)
+    if (index > 0) this.config = this.buildConfig(index)
+    else if (index < 0) console.warn('KyberNow : écran du partage absent de la liste de Kyber', this.displayId)
   }
 
   /** Médiane de bout en bout des dernières secondes (signal de vie). */
