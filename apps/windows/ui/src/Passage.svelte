@@ -19,9 +19,11 @@
     closing,
     restarting = false,
     many = false,
+    guest = false,
     oncancel,
   }: {
-    computer: Computer
+    /** L'ordinateur ; pour un invité (KyberNow Share), « Invité sur {nom} » et la teinte de l'ordinateur qui partage. */
+    computer: Pick<Computer, 'name' | 'preview' | 'fingerprint'>
     phase: Phase['phase']
     opening: boolean
     closing: boolean
@@ -29,6 +31,8 @@
     restarting?: boolean
     /** Plusieurs écrans : « Préparation des écrans ». */
     many?: boolean
+    /** Session d'invité : pas de conseil sur le journal d'Admin (l'invité n'y a pas accès). */
+    guest?: boolean
     oncancel: () => void
   } = $props()
 
@@ -75,7 +79,7 @@
       {/if}
       <button onclick={oncancel}>{t('common.cancel')}</button>
     </div>
-    {#if slow}
+    {#if slow && !guest}
       <p class="slow" role="status">
         {t('passage.slow', { name: computer.name })}
       </p>

@@ -34,6 +34,7 @@
     onsettings,
     onprofile,
     onadd,
+    onjoin,
   }: {
     computers: Computer[]
     discovered: Found[]
@@ -56,6 +57,8 @@
     onsettings: (id: string) => void
     onprofile: (id: string, p: Settings['profile']) => void
     onadd: (found?: Found) => void
+    /** « Rejoindre avec un code » (KyberNow Share) : à côté de « Ajouter un ordinateur ». */
+    onjoin: () => void
   } = $props()
 
   const fresh = $derived(discovered.filter((f) => !computers.some((c) => c.host === f.host && c.port === f.port)))
@@ -201,6 +204,7 @@
       <p class="lead">{t('home.welcome_lead')}</p>
       <div class="actions">
         <button class="primary" onclick={() => onadd()}><Icon name="plus" size={18} />{t('home.add_computer')}</button>
+        <button class="gear" onclick={onjoin}><Icon name="key" size={18} stroke={1.6} />{t('home.join')}</button>
       </div>
       {#if error}<div class="error" role="alert">{error}</div>{/if}
     {/if}
@@ -229,6 +233,11 @@
       <button class="card add" onclick={() => onadd()}>
         <Icon name="plus" size={24} />
         <span>{t('home.add_computer')}</span>
+      </button>
+      <!-- À côté de « Ajouter un ordinateur » : rejoindre le partage de quelqu'un, avec son code. -->
+      <button class="card add" onclick={onjoin}>
+        <Icon name="key" size={24} stroke={1.6} />
+        <span>{t('home.join')}</span>
       </button>
     </div>
   </section>

@@ -23,7 +23,9 @@
     "session_not_ready": "session not ready yet",
     "session_window": "session window: {error}",
     "video_thread": "the picture thread stopped",
-    "open_admin": "Admin could not be opened in the browser (code {code})"
+    "open_admin": "Admin could not be opened in the browser (code {code})",
+    "share_link": "this share link cannot be read",
+    "share_code": "the code has six digits"
   },
   "notify": {
     "update_title": "KyberNow Link {version} is ready",
@@ -69,8 +71,10 @@
     "tooltip": "KyberNow Link",
     "tooltip_session": "KyberNow Link · in session on {name}",
     "tooltip_sessions": "KyberNow Link · in session on {count} computers",
+    "tooltip_guest": "KyberNow Link · guest on {name}",
     "in_session": "In session on {name}",
     "measures": "{latency} ms · {fps} fps · {mbps} Mbit/s",
+    "measures_guest": "{latency} ms · {fps} fps",
     "decimal": ".",
     "fullscreen": "Full screen",
     "mouse": "Mouse",
@@ -106,6 +110,7 @@
     "updating": "Updating the Station…",
     "open": "Open KyberNow Link",
     "add": "Add a computer",
+    "join": "Join with a code",
     "app_settings": "App settings",
     "app_update": "Version {version} available",
     "check_updates": "Check for updates",
@@ -126,5 +131,15 @@
     "updated": "KyberNow Station {version} is installed.",
     "slow_back": "The Station is taking a while to come back. Open Admin to find out more.",
     "update_failed": "The update did not complete. Open Admin to find out more."
+  },
+  "share": {
+    "guest_on": "Guest on {name}",
+    "role_spectator": "Spectator",
+    "role_player": "Player",
+    "leave": "Leave",
+    "notice_play": "You can play.",
+    "notice_kbm": "You have the keyboard and mouse.",
+    "notice_kbm_back": "The keyboard and mouse were taken back.",
+    "notice_watch": "You are watching again."
   }
 }

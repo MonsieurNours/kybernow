@@ -65,6 +65,10 @@ mod shell;
 mod store;
 #[cfg(windows)]
 mod system;
+// KyberNow Share : Stations à essayer, prénom, panneau de l'hôte, QR code, avis
+// de rôle (se teste sur le Mac).
+#[cfg_attr(not(windows), allow(dead_code))]
+mod sharing;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod text;
 #[cfg(windows)]

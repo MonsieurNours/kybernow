@@ -91,6 +91,8 @@ export type Info = {
   wake?: WakeTarget[]
   /** `own_device` : un compte créé pour cet appareil par l'appairage par code (Station 0.5.0 et suivantes). */
   account?: { own_device: boolean }
+  /** KyberNow Share (Station 0.8.0 et suivantes) ; `enabled` faux : partage coupé sur l'ordinateur. Absent : Station antérieure. */
+  share?: { available: boolean; enabled: boolean }
 }
 
 /**
@@ -191,6 +193,8 @@ export type AppInfo = {
 export type Action =
   | { kind: 'connect'; id: string }
   | { kind: 'add' }
+  /** « Rejoindre avec un code » (menu de l'icône) ; `link` : `kybernow://join?…` (lien ou QR code d'un partage). */
+  | { kind: 'join'; link: string | null }
   | { kind: 'link'; link: string }
   | { kind: 'updated' }
   | { kind: 'open' }
@@ -265,7 +269,16 @@ export type KeepSound = { id: string; on: boolean }
  * ordinateurs) à son ouverture ; ensuite, les mêmes événements que l'accueil. `error` : la
  * session s'est terminée avant sa première image, avec cette raison.
  */
-export type ConnexionView = { id: string; phase: Phase['phase']; restarting: boolean; error: string | null }
+export type ConnexionView = {
+  id: string
+  phase: Phase['phase']
+  restarting: boolean
+  error: string | null
+  /** Session d'invité (KyberNow Share) : « Invité sur {nom} », la teinte de l'ordinateur qui partage ; la raison d'un échec se lit telle quelle. */
+  title?: string | null
+  fingerprint?: string | null
+  guest?: boolean
+}
 
 /**
  * Réponse de `displays_info` : le réglage « Écrans » tel que le cœur le décide (`enabled` : il se
@@ -289,6 +302,56 @@ export type ScreensEvent = { id: string; screens: number }
 
 /** `fond_state` et événement `fond-state` : ce que montre le fond de la connexion d'un écran (la ligne d'un écran que l'ordinateur n'a pas pu créer). */
 export type FondState = { not_created: boolean }
+
+// KyberNow Share (docs/kybernow-share.md, textes de docs/link-ui.md « Partage »).
+
+/** Le rôle d'un invité : spectateur (voit et entend), joueur (ses manettes), joueur avec le clavier et la souris. */
+export type ShareRole = 'spectator' | 'player' | 'player_kbm'
+
+/**
+ * Un invité de la liste de l'hôte. `app` : `mac`, `windows`, `linux`, `ios`, `tvos`, `android`, `webos`
+ * ou `web` ; `since` : son arrivée, en secondes ou en millisecondes depuis 1970 (selon la Station).
+ */
+export type ShareGuest = { id: string; name: string; app: string; role: ShareRole; since: number | null }
+
+/** Un QR code : `size` modules de côté, `path` le tracé SVG de ses modules sombres (sans marge). */
+export type ShareQr = { size: number; path: string }
+
+/**
+ * Le panneau de l'hôte (`bar-shown`, événement `share-state`, réponses des actions) : ce que « Partager »
+ * peut faire (`availability` : `unsupported` Station trop ancienne, `disabled` partage coupé, `unknown`
+ * l'ordinateur n'a rien dit encore ; `text` : le texte du cœur quand « Partager » est inactif), puis le
+ * partage ouvert : `code` « 123 456 », `link` (apps, le QR code) et `web` (« Copier le lien »), l'écran
+ * partagé, les invités, `full` (quatre invités).
+ */
+export type Share = {
+  availability: 'available' | 'unsupported' | 'disabled' | 'unknown'
+  text: string | null
+  open: boolean
+  code: string
+  link: string
+  web: string
+  display: string | null
+  guests: ShareGuest[]
+  full: boolean
+  qr: ShareQr | null
+}
+
+/** L'invité que la barre sert (barre réduite) : son rôle et l'hôte du partage. */
+export type GuestBar = { role: ShareRole; host: string }
+
+/** Réponse de `share_join` : la session d'invité à ouvrir (`share_connect`), son titre (« Invité sur Atelier ») et la teinte du passage. */
+export type ShareJoined = { id: string; title: string; host: string; role: ShareRole; fingerprint: string | null }
+
+/** Événements `share-role` (le rôle de l'invité de la session `id` a changé) et `share-state` (le panneau de l'hôte de la session `id`). */
+export type ShareRoleEvent = { id: string; role: ShareRole }
+export type ShareStateEvent = { id: string; share: Share }
+
+/** Une pseudo-fiche d'ordinateur pour le passage et la connexion d'une session d'invité (ni dans la liste, ni gardée). */
+export const guestComputer = (j: { title: string; fingerprint: string | null }) => ({ name: j.title, preview: null, fingerprint: j.fingerprint })
+
+/** L'arrivée d'un invité telle que la Station la donne : secondes ou millisecondes depuis 1970. */
+export const seconds = (since: number) => (since > 1e11 ? Math.floor(since / 1000) : since)
 
 /** « 8,9 » en français, « 8.9 » en anglais. */
 export const ms = (v: number | null | undefined, digits = 1) => {

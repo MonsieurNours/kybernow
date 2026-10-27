@@ -23,7 +23,9 @@
     "session_not_ready": "session pas encore prête",
     "session_window": "fenêtre de session : {error}",
     "video_thread": "le fil de l'image s'est arrêté",
-    "open_admin": "Admin n'a pas pu s'ouvrir dans le navigateur (code {code})"
+    "open_admin": "Admin n'a pas pu s'ouvrir dans le navigateur (code {code})",
+    "share_link": "ce lien de partage est illisible",
+    "share_code": "le code a six chiffres"
   },
   "notify": {
     "update_title": "KyberNow Link {version} est prête",
@@ -69,8 +71,10 @@
     "tooltip": "KyberNow Link",
     "tooltip_session": "KyberNow Link · en session sur {name}",
     "tooltip_sessions": "KyberNow Link · en session sur {count} ordinateurs",
+    "tooltip_guest": "KyberNow Link · invité sur {name}",
     "in_session": "En session sur {name}",
     "measures": "{latency} ms · {fps} i/s · {mbps} Mbit/s",
+    "measures_guest": "{latency} ms · {fps} i/s",
     "decimal": ",",
     "fullscreen": "Plein écran",
     "mouse": "Souris",
@@ -106,6 +110,7 @@
     "updating": "Mise à jour de la Station…",
     "open": "Ouvrir KyberNow Link",
     "add": "Ajouter un ordinateur",
+    "join": "Rejoindre avec un code",
     "app_settings": "Réglages de l'app",
     "app_update": "Version {version} disponible",
     "check_updates": "Rechercher des mises à jour",
@@ -126,5 +131,15 @@
     "updated": "KyberNow Station {version} est en place.",
     "slow_back": "La Station tarde à revenir. Ouvrez Admin pour en savoir plus.",
     "update_failed": "La mise à jour n'a pas abouti. Ouvrez Admin pour en savoir plus."
+  },
+  "share": {
+    "guest_on": "Invité sur {name}",
+    "role_spectator": "Spectateur",
+    "role_player": "Joueur",
+    "leave": "Quitter le partage",
+    "notice_play": "Vous pouvez jouer.",
+    "notice_kbm": "Vous avez le clavier et la souris.",
+    "notice_kbm_back": "Le clavier et la souris sont repris.",
+    "notice_watch": "Vous regardez de nouveau."
   }
 }

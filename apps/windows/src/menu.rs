@@ -4,6 +4,8 @@
 //! ([`State`]), `tray.rs` en fait un menu de Windows et rend à `ui.rs` la
 //! commande choisie ([`Cmd`]).
 
+use kybernow_core::share::ShareRole;
+
 /// Textes : clé du catalogue de l'app (`src/i18n/`) et paramètres.
 pub type Tr<'a> = &'a dyn Fn(&str, &[(&str, &str)]) -> String;
 
@@ -32,6 +34,8 @@ pub enum Cmd {
     Update(String),
     Open,
     Add,
+    /// « Rejoindre avec un code » (KyberNow Share).
+    Join,
     AppSettings,
     CheckUpdates,
     Quit,
@@ -123,6 +127,11 @@ pub struct Session {
     pub mouse: String,
     /// « Garder le son » (plusieurs ordinateurs).
     pub keep_sound: bool,
+    /// Session d'invité (KyberNow Share) : son rôle. `name` est alors
+    /// l'ordinateur qui partage, pas un ordinateur de l'app ; ni profil ni
+    /// réglages, la souris seulement avec le clavier et la souris, et
+    /// « Quitter le partage » à la place de « Se déconnecter ».
+    pub guest: Option<ShareRole>,
 }
 
 /// Redémarrage ou mise à jour de la Station en cours.
@@ -195,7 +204,14 @@ pub fn build(s: &State, tr: Tr) -> Vec<Item> {
     // Avec plusieurs ordinateurs : pour la session de la fenêtre active.
     if let Some(session) = s.active_session() {
         let id = &session.id;
-        out.push(Item::inactive(tr("tray.in_session", &[("name", &session.name)])));
+        match session.guest {
+            // Invité d'un partage : son titre et son rôle (« Spectateur », « Joueur »).
+            Some(role) => {
+                out.push(Item::inactive(tr("share.guest_on", &[("name", &session.name)])));
+                out.push(Item::inactive(tr(crate::sharing::role_label(role), &[])));
+            }
+            None => out.push(Item::inactive(tr("tray.in_session", &[("name", &session.name)]))),
+        }
         out.push(Item::inactive(measures(session, tr)));
         if !session.multi {
             out.push(Item::Line {
@@ -206,19 +222,23 @@ pub fn build(s: &State, tr: Tr) -> Vec<Item> {
                 default: false,
             });
         }
-        let modes = MOUSE_MODES
-            .iter()
-            .map(|m| Item::Line {
-                text: tr(&format!("tray.mouse_modes.{m}"), &[]),
-                cmd: Some(Cmd::Mouse(id.clone(), m)),
-                enabled: true,
-                mark: if session.mouse == *m { Mark::Radio } else { Mark::None },
-                default: false,
-            })
-            .collect();
-        out.push(Item::Sub { text: tr("tray.mouse", &[]), key: None, checked: false, dot: None, items: modes });
+        // Un invité n'a la souris que s'il a le clavier et la souris.
+        if session.guest.is_none_or(crate::sharing::has_keyboard_mouse) {
+            let modes = MOUSE_MODES
+                .iter()
+                .map(|m| Item::Line {
+                    text: tr(&format!("tray.mouse_modes.{m}"), &[]),
+                    cmd: Some(Cmd::Mouse(id.clone(), m)),
+                    enabled: true,
+                    mark: if session.mouse == *m { Mark::Radio } else { Mark::None },
+                    default: false,
+                })
+                .collect();
+            out.push(Item::Sub { text: tr("tray.mouse", &[]), key: None, checked: false, dot: None, items: modes });
+        }
         out.push(Item::line(tr("tray.statistics", &[]), Some(Cmd::Statistics(id.clone()))));
-        out.push(Item::line(tr("tray.disconnect", &[]), Some(Cmd::Disconnect(id.clone()))));
+        let leave = if session.guest.is_some() { "share.leave" } else { "tray.disconnect" };
+        out.push(Item::line(tr(leave, &[]), Some(Cmd::Disconnect(id.clone()))));
         out.push(Item::Separator);
     }
     for c in &s.computers {
@@ -237,6 +257,7 @@ pub fn build(s: &State, tr: Tr) -> Vec<Item> {
     }
     out.push(Item::Line { text: tr("tray.open", &[]), cmd: Some(Cmd::Open), enabled: true, mark: Mark::None, default: true });
     out.push(Item::line(tr("tray.add", &[]), Some(Cmd::Add)));
+    out.push(Item::line(tr("tray.join", &[]), Some(Cmd::Join)));
     out.push(Item::line(tr("tray.app_settings", &[]), Some(Cmd::AppSettings)));
     out.push(match &s.app_update {
         Some(v) => Item::line(tr("tray.app_update", &[("version", v)]), Some(Cmd::AppSettings)),
@@ -330,12 +351,16 @@ pub fn pick(s: &State, c: &Computer) -> Pick {
 }
 
 /// « 11,6 ms · 60 i/s · 80 Mbit/s » (la latence comme dans la barre de
-/// session, au dixième) ; « — » pour ce qui n'est pas encore mesuré.
+/// session, au dixième) ; « — » pour ce qui n'est pas encore mesuré. Un
+/// invité n'a pas de débit demandé (l'image est celle de l'hôte).
 fn measures(s: &Session, tr: Tr) -> String {
     let dash = || "—".to_string();
     let decimal = tr("tray.decimal", &[]);
     let latency = s.latency_ms.map(|v| format!("{v:.1}").replace('.', &decimal)).unwrap_or_else(dash);
     let fps = s.fps.map(|v| v.to_string()).unwrap_or_else(dash);
+    if s.guest.is_some() {
+        return tr("tray.measures_guest", &[("latency", &latency), ("fps", &fps)]);
+    }
     let mbps = s.mbps.map(|v| v.to_string()).unwrap_or_else(dash);
     tr("tray.measures", &[("latency", &latency), ("fps", &fps), ("mbps", &mbps)])
 }
@@ -434,6 +459,7 @@ pub fn computer(s: &State, c: &Computer, tr: Tr) -> Vec<Item> {
 pub fn tooltip(s: &State, tr: Tr) -> String {
     match s.sessions.as_slice() {
         [] => tr("tray.tooltip", &[]),
+        [session] if session.guest.is_some() => tr("tray.tooltip_guest", &[("name", &session.name)]),
         [session] => tr("tray.tooltip_session", &[("name", &session.name)]),
         many => tr("tray.tooltip_sessions", &[("count", &many.len().to_string())]),
     }
@@ -513,13 +539,14 @@ mod tests {
         Computer { id: "b".into(), name: "Bureau-Salon".into(), online: Some(false), profile: "bureau".into(), can_wake: true, ..Default::default() }
     }
 
-    const BOTTOM_FR: [&str; 6] = ["Ouvrir KyberNow Link *", "Ajouter un ordinateur", "Réglages de l'app", "Rechercher des mises à jour", "---", "Quitter KyberNow Link"];
+    const BOTTOM_FR: [&str; 7] =
+        ["Ouvrir KyberNow Link *", "Ajouter un ordinateur", "Rejoindre avec un code", "Réglages de l'app", "Rechercher des mises à jour", "---", "Quitter KyberNow Link"];
 
     #[test]
     fn sans_ordinateur() {
         assert_eq!(lines(&State::default(), Lang::Fr), BOTTOM_FR);
         let en = lines(&State { app_update: Some("0.5.3".into()), ..Default::default() }, Lang::En);
-        assert_eq!(en, ["Open KyberNow Link *", "Add a computer", "App settings", "Version 0.5.3 available", "---", "Quit KyberNow Link"]);
+        assert_eq!(en, ["Open KyberNow Link *", "Add a computer", "Join with a code", "App settings", "Version 0.5.3 available", "---", "Quit KyberNow Link"]);
     }
 
     #[test]
@@ -568,7 +595,7 @@ mod tests {
     }
 
     fn session_atelier() -> Session {
-        Session { id: "a".into(), name: "Atelier".into(), latency_ms: Some(11.6), fps: Some(60), mbps: Some(80), fullscreen: true, multi: false, mouse: "jeu".into(), keep_sound: false }
+        Session { id: "a".into(), name: "Atelier".into(), latency_ms: Some(11.6), fps: Some(60), mbps: Some(80), fullscreen: true, multi: false, mouse: "jeu".into(), keep_sound: false, guest: None }
     }
 
     #[test]
@@ -654,6 +681,7 @@ mod tests {
             multi: false,
             mouse: "auto".into(),
             keep_sound: true,
+            guest: None,
         };
         let s = State {
             sessions: vec![session_atelier(), salon_session],
@@ -702,6 +730,55 @@ mod tests {
         let l = lines(&full, Lang::Fr);
         let c = l.iter().position(|x| x == "{vert} Studio — En ligne >").unwrap();
         assert_eq!(l[c + 1], "  ~Se connecter (Jeu)");
+    }
+
+    fn guest_session(role: ShareRole) -> Session {
+        Session {
+            id: "guest-7".into(),
+            name: "Atelier".into(),
+            latency_ms: Some(9.0),
+            fps: Some(60),
+            mbps: None,
+            fullscreen: false,
+            multi: false,
+            mouse: "auto".into(),
+            keep_sound: false,
+            guest: Some(role),
+        }
+    }
+
+    #[test]
+    fn invite_d_un_partage() {
+        let s = State { sessions: vec![guest_session(ShareRole::Spectator)], active: Some("guest-7".into()), computers: vec![atelier()], ..Default::default() };
+        let fr = lines(&s, Lang::Fr);
+        // Titre, rôle, mesures sans débit ; ni souris (rien ne part de ce PC), ni « Se déconnecter ».
+        assert_eq!(fr[..7], ["~Invité sur Atelier", "~Spectateur", "~9,0 ms · 60 i/s", "Plein écran", "Statistiques", "Quitter le partage", "---"]);
+        assert!(!fr.iter().any(|l| l.starts_with("Souris") || l.contains("Se déconnecter")));
+        // L'ordinateur de l'app du même nom n'est pas en session : son sous-menu se connecte.
+        assert_eq!(fr[7..9], ["{vert} Atelier — En ligne >", "  Se connecter (Jeu)"]);
+        let en = lines(&s, Lang::En);
+        assert_eq!(en[..6], ["~Guest on Atelier", "~Spectator", "~9.0 ms · 60 fps", "Full screen", "Statistics", "Leave"]);
+        // Joueur : « Joueur » ; la souris seulement avec le clavier et la souris.
+        let player = State { sessions: vec![guest_session(ShareRole::Player)], ..s.clone() };
+        assert_eq!(lines(&player, Lang::Fr)[1], "~Joueur");
+        assert!(!lines(&player, Lang::Fr).iter().any(|l| l.starts_with("Souris")));
+        let kbm = State { sessions: vec![guest_session(ShareRole::PlayerKbm)], ..s.clone() };
+        let l = lines(&kbm, Lang::Fr);
+        assert_eq!(l[1], "~Joueur");
+        assert_eq!(l[4..8], ["Souris >", "  (o) Auto", "  Souris du bureau", "  Souris des jeux"]);
+        // La commande de sortie porte la session de l'invité.
+        let mut c = Vec::new();
+        cmds(&build(&s, &tr(Lang::Fr)), &mut c);
+        assert!(c.contains(&Cmd::Disconnect("guest-7".into())));
+        assert!(c.contains(&Cmd::Statistics("guest-7".into())));
+        assert!(!c.iter().any(|c| matches!(c, Cmd::Mouse(..))));
+        // « Rejoindre avec un code » est toujours là, à côté de « Ajouter un ordinateur ».
+        assert!(c.contains(&Cmd::Join));
+        // Infobulle : invité sur l'ordinateur ; avec une autre session, le nombre.
+        assert_eq!(tooltip(&s, &tr(Lang::Fr)), "KyberNow Link · invité sur Atelier");
+        assert_eq!(tooltip(&s, &tr(Lang::En)), "KyberNow Link · guest on Atelier");
+        let two = State { sessions: vec![session_atelier(), guest_session(ShareRole::Spectator)], ..s };
+        assert_eq!(tooltip(&two, &tr(Lang::Fr)), "KyberNow Link · en session sur 2 ordinateurs");
     }
 
     #[test]
