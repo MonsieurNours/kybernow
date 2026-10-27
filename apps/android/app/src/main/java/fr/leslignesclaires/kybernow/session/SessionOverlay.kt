@@ -37,6 +37,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.PlainTooltip
+import androidx.compose.material3.TooltipAnchorPosition
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
+import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -329,12 +335,17 @@ private fun StepLine(label: String, done: Boolean, current: Boolean) {
 
 /** Comment ouvrir le menu ou la barre, d'après les réglages de l'ordinateur ; nul s'il n'y a rien à dire. */
 @Composable
-private fun hint(ui: SessionUi): String? = when {
-    !ui.tv -> stringResource(R.string.session_hint_touch)
-    ui.backOpensMenu && ui.combo -> stringResource(R.string.session_hint_tv_both)
-    ui.backOpensMenu -> stringResource(R.string.session_hint_tv_back)
-    ui.combo -> stringResource(R.string.session_hint_combo)
-    else -> null
+private fun hint(ui: SessionUi): String? {
+    val role by ui.state.shareRole.collectAsState()
+    // Un spectateur n'a pas de chaîne d'entrées, qui forme la combinaison de la manette : Retour ouvre le menu, la combinaison non.
+    val combo = ui.combo && !(ui.guest && !role.plays)
+    return when {
+        !ui.tv -> stringResource(R.string.session_hint_touch)
+        ui.backOpensMenu && combo -> stringResource(R.string.session_hint_tv_both)
+        ui.backOpensMenu -> stringResource(R.string.session_hint_tv_back)
+        combo -> stringResource(R.string.session_hint_combo)
+        else -> null
+    }
 }
 
 // MARK: - Capsules
@@ -357,7 +368,7 @@ private fun Capsules(ui: SessionUi, modifier: Modifier) {
                 Body(capsuleText(capsule), size = 14f)
                 if (capsule is Capsule.Reconnecting) {
                     Spacer(Modifier.width(s.dp(12f)))
-                    GlassButton(stringResource(R.string.session_disconnect), { ui.actions.quit() })
+                    GlassButton(stringResource(if (ui.guest) R.string.share_leave else R.string.session_disconnect), { ui.actions.quit() })
                 }
             }
         }
@@ -419,8 +430,6 @@ private fun PhoneBar(ui: SessionUi) {
                 BarIcon(KnIcons.close, stringResource(R.string.session_close)) { ui.barOpen = false }
             }
             if (ui.padBar) Body(stringResource(R.string.session_pad_bar), Modifier.panel(999.dp).padding(horizontal = s.dp(14f), vertical = s.dp(6f)), size = 12f, color = Kn.frost2)
-            // « Partager » inactif : le texte du cœur dit pourquoi (Station trop ancienne, partage coupé).
-            if (!ui.guest) ui.shareUnavailable?.let { Body(it, Modifier.panel(999.dp).padding(horizontal = s.dp(14f), vertical = s.dp(6f)), size = 12f, color = Kn.frost2) }
         }
     }
 }
@@ -460,8 +469,9 @@ private fun HostBarItems(ui: SessionUi, sec: Second?, first: FocusRequester) {
 /**
  * La barre réduite d'un invité (docs/link-ui.md, « Partage », comme le client web) : ce qui ne touche que
  * l'appareil (la latence et les statistiques), son rôle (« Spectateur » ou « Joueur ») et « Quitter le
- * partage » ; la manette à l'écran seulement en joueur ; le toucher, le clavier et les touches seulement en
- * joueur qui a le clavier et la souris. Ni profil, ni réglages de l'ordinateur, ni presse-papiers.
+ * partage » ; la manette à l'écran seulement en joueur ; le toucher, le mode de la souris, le clavier et les
+ * touches seulement en joueur qui a le clavier et la souris. Ni profil, ni réglages de l'ordinateur, ni
+ * presse-papiers.
  */
 @Composable
 private fun GuestBarItems(ui: SessionUi, sec: Second?, role: ShareRole, first: FocusRequester) {
@@ -474,6 +484,10 @@ private fun GuestBarItems(ui: SessionUi, sec: Second?, role: ShareRole, first: F
     if (role.plays) GlassButton(stringResource(R.string.pad_on_screen), { ui.actions.setOnScreenPad(!ui.padShown) }, selected = ui.padShown)
     if (role.keyboardMouse) {
         GlassButton(stringResource(if (ui.directTouch) R.string.touch_direct else R.string.touch_trackpad), { ui.actions.setDirectTouch(!ui.directTouch) })
+        GlassButton(
+            stringResource(listOf(R.string.session_mouse_auto, R.string.mouse_desktop, R.string.mouse_game)[ui.mouseMode]),
+            { ui.actions.setMouseMode((ui.mouseMode + 1) % 3) },
+        )
         BarIcon(KnIcons.keyboard, stringResource(R.string.session_keyboard)) { ui.actions.openKeyboard(true) }
         GlassButton(stringResource(R.string.session_keys), { ui.keysOpen = true })
     }
@@ -483,27 +497,49 @@ private fun GuestBarItems(ui: SessionUi, sec: Second?, role: ShareRole, first: F
  * « Partager » ; un partage ouvert se voit aussi par sa pastille (« 2 invités »), qui rouvre le panneau. Dans la
  * partie fixe de la barre, à côté de « Se déconnecter » : on les voit sans la faire défiler. [compact] : un petit
  * écran, « Partager » n'a que son icône (nommée pour l'accessibilité).
+ *
+ * Impossible (Station trop ancienne, partage coupé), il est estompé mais reste sélectionnable : au toucher et à la
+ * télécommande il ouvre le panneau réduit à la raison ; à la souris il est inactif et son infobulle dit pourquoi
+ * (`SessionActivity.share`).
  */
 @Composable
 private fun ShareItems(ui: SessionUi, compact: Boolean) {
     val s = LocalScale.current
     val share by ui.state.share.collectAsState()
     val label = stringResource(R.string.share_button)
-    if (compact) {
-        val shape = RoundedCornerShape(12.dp)
-        FocusCard({ if (ui.shareUsable) ui.actions.share() }, Modifier.semantics { contentDescription = label }, shape = shape) {
-            Box(Modifier.alpha(if (ui.shareUsable) 1f else 0.5f).background(if (share != null) Kn.spectre.copy(alpha = 0.22f) else Kn.frost.copy(alpha = 0.07f)).padding(s.dp(10f))) {
-                KnIcon(KnIcons.share, size = 18f, tint = if (ui.shareUsable) Kn.frost else Kn.muted)
+    val dim = if (ui.shareUsable) 1f else 0.5f
+    WithReason(if (ui.shareUsable) null else ui.shareUnavailable) {
+        if (compact) {
+            val shape = RoundedCornerShape(12.dp)
+            FocusCard({ ui.actions.share() }, Modifier.semantics { contentDescription = label }, shape = shape) {
+                Box(Modifier.alpha(dim).background(if (share != null) Kn.spectre.copy(alpha = 0.22f) else Kn.frost.copy(alpha = 0.07f)).padding(s.dp(10f))) {
+                    KnIcon(KnIcons.share, size = 18f, tint = Kn.frost)
+                }
             }
+        } else {
+            GlassButton(
+                label, { ui.actions.share() }, Modifier.alpha(dim),
+                selected = share != null,
+                leading = { KnIcon(KnIcons.share, size = 16f); Spacer(Modifier.width(s.dp(6f))) },
+            )
         }
-    } else {
-        GlassButton(
-            label, { ui.actions.share() },
-            selected = share != null, enabled = ui.shareUsable,
-            leading = { KnIcon(KnIcons.share, size = 16f); Spacer(Modifier.width(s.dp(6f))) },
-        )
     }
     share?.let { GlassButton(guestsLabel(it.guests.size), { ui.actions.share() }, selected = true) }
+}
+
+/** L'infobulle d'un élément inactif à la souris : [reason], au survol ; sans raison, l'élément seul. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun WithReason(reason: String?, content: @Composable () -> Unit) {
+    if (reason == null) {
+        content()
+        return
+    }
+    TooltipBox(
+        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below),
+        tooltip = { PlainTooltip(containerColor = Kn.panel, contentColor = Kn.frost) { Body(reason, size = 13f) } },
+        state = rememberTooltipState(),
+    ) { content() }
 }
 
 /** « Spectateur » ou « Joueur » (le joueur qui a le clavier et la souris reste « Joueur »). */
@@ -622,8 +658,6 @@ private fun TvMenu(ui: SessionUi) {
             }
             Eyebrow("${ui.hostName} · ${if (ui.guest) roleLabel(role) else profileLabel(ui.profile)}")
             if (ui.guest) GuestTiles(ui, role, first, audio) else TvTiles(ui, first, audio)
-            // « Partager » inactif : le texte du cœur dit pourquoi.
-            if (!ui.guest) ui.shareUnavailable?.let { Body(it, size = 14f, color = Kn.frost2) }
         }
     }
 }
@@ -668,19 +702,20 @@ private fun TvTiles(ui: SessionUi, first: FocusRequester, audio: Pair<Int, Doubl
         Tile(KnIcons.keyboard, stringResource(R.string.session_type_text), null) { ui.typing = true }
         Tile(KnIcons.keys, stringResource(R.string.session_keys), stringResource(R.string.keys_ctrl_alt_del_short)) { ui.keysOpen = true }
         // Le partage ouvert se voit sur sa tuile (« 2 invités »), qui rouvre le panneau.
-        Tile(KnIcons.share, stringResource(R.string.share_button), share?.let { guestsLabel(it.guests.size) }, selected = share != null, enabled = ui.shareUsable) { ui.actions.share() }
+        // Impossible : estompée, mais sélectionnable (OK ouvre le panneau réduit à la raison).
+        Tile(KnIcons.share, stringResource(R.string.share_button), share?.let { guestsLabel(it.guests.size) }, selected = share != null, dimmed = !ui.shareUsable) { ui.actions.share() }
         Tile(KnIcons.pulse, stringResource(R.string.session_stats), null) { ui.statsOpen = !ui.statsOpen }
         Tile(KnIcons.exit, stringResource(R.string.session_disconnect), null, danger = true) { ui.actions.quit() }
     }
 }
 
 @Composable
-private fun Tile(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, detail: String?, modifier: Modifier = Modifier, primary: Boolean = false, selected: Boolean = false, danger: Boolean = false, enabled: Boolean = true, onClick: () -> Unit) {
+private fun Tile(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, detail: String?, modifier: Modifier = Modifier, primary: Boolean = false, selected: Boolean = false, danger: Boolean = false, dimmed: Boolean = false, onClick: () -> Unit) {
     val s = LocalScale.current
-    // Inactive, une tuile reste atteignable à la télécommande (le focus ne se perd pas) mais ne fait rien.
-    FocusCard({ if (enabled) onClick() }, modifier.width(s.dp(160f)).height(s.dp(104f)), shape = RoundedCornerShape(16.dp)) { focused ->
+    // Estompée, une tuile reste atteignable et sélectionnable à la télécommande.
+    FocusCard(onClick, modifier.width(s.dp(160f)).height(s.dp(104f)), shape = RoundedCornerShape(16.dp)) { focused ->
         Column(
-            Modifier.fillMaxSize().alpha(if (enabled) 1f else 0.5f).background(if (focused && danger) Kn.danger else if (focused) Kn.neonCore else if (danger) Kn.danger.copy(alpha = 0.22f) else if (selected) Kn.spectre.copy(alpha = 0.22f) else Kn.panel.copy(alpha = 0.92f)).padding(s.dp(14f)),
+            Modifier.fillMaxSize().alpha(if (dimmed) 0.5f else 1f).background(if (focused && danger) Kn.danger else if (focused) Kn.neonCore else if (danger) Kn.danger.copy(alpha = 0.22f) else if (selected) Kn.spectre.copy(alpha = 0.22f) else Kn.panel.copy(alpha = 0.92f)).padding(s.dp(14f)),
             verticalArrangement = Arrangement.SpaceBetween,
         ) {
             KnIcon(icon, tint = if (focused) Kn.ink else if (danger) Kn.danger else Kn.frost, size = 22f)
@@ -773,7 +808,9 @@ private fun EndedCard(ui: SessionUi, e: Ended, modifier: Modifier) {
         // Avant la première image, c'est la connexion qui a échoué ; la raison, en une phrase.
         val failed = ui.state.firstImageAt.get() == 0L
         Title(stringResource(if (failed) R.string.session_failed else R.string.session_ended_title), size = 24f)
-        Body(sentence(e.error ?: ""), color = Kn.frost2, size = 15f)
+        // La fin d'un partage est une phrase du cœur, avec le nom de l'hôte (« iPhone de Léa a arrêté le partage. ») : telle quelle.
+        val text = e.error ?: ""
+        Body(if (text == ui.state.shareEndText) text else sentence(text), color = Kn.frost2, size = 15f)
         if (e.displayRestored == false || e.audioRestored == false) Body(stringResource(R.string.session_not_restored), color = Kn.warn, size = 13f)
         PrimaryButton(stringResource(R.string.session_back_home), { ui.actions.quit() }, Modifier.focusRequester(focus))
     }

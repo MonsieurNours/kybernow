@@ -183,9 +183,10 @@ object Share {
         val request = JSONObject().put("code", code).put("name", name).put("device", device.id).put("app", "android")
         val list = JSONArray().apply { targets.forEach { put(it.json()) } }
         val text = withContext(Dispatchers.IO) { Native.shareJoin(list.toString(), request.toString(), capabilities(decoders).toString()) }
-        val o = JSONObject(text)
+        // Une réponse illisible ne fait pas tomber l'app : un refus sans texte (l'écran en met un).
+        val o = runCatching { JSONObject(text) }.getOrNull() ?: return JoinReply.Refused("other", "")
         if (o.optInt("code", 1) != 0) return JoinReply.Refused(o.optString("kind", "other"), o.optString("error"))
-        val found = ShareFound.parse(o.getJSONObject("value"))
+        val found = runCatching { ShareFound.parse(o.getJSONObject("value")) }.getOrNull() ?: return JoinReply.Refused("other", "")
         if (!currentCoroutineContext().isActive) {
             leave(found)
             throw CancellationException("rejoindre annulé")

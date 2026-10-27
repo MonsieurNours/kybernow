@@ -95,6 +95,11 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
     val share = MutableStateFlow<ShareState?>(null)
     /** Invité : ce que son rôle lui permet, tel que la Station le dit (au départ, puis à chaque changement). */
     val shareRole = MutableStateFlow(ShareRole.SPECTATOR)
+    /**
+     * Invité : le texte de la fin du partage (« Léa a arrêté le partage. »), tel que le cœur l'écrit ; il est aussi
+     * `Ended.error`, que l'écran de fin montre sans y toucher (le nom de l'hôte n'a pas à changer de casse).
+     */
+    @Volatile var shareEndText: String? = null
 
     private var capsuleClear: Runnable? = null
 
@@ -229,7 +234,8 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
     }
 
     override fun onShareEnd(end: Int, text: String) {
-        // Le texte arrive aussi avec la fin de la session (`Ended.error`), que l'écran de fin affiche : rien à garder ici.
+        // Le texte arrive aussi avec la fin de la session (`Ended.error`) : gardé pour que l'écran de fin le montre tel quel.
+        shareEndText = text
         android.util.Log.i("KyberNow", "partage : fin ${listOf("arrêté", "retiré", "format illisible").getOrElse(end) { end.toString() }}")
     }
 

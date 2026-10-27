@@ -13,6 +13,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
 import fr.leslignesclaires.kybernow.core.Share
 import fr.leslignesclaires.kybernow.core.ShareFound
 import fr.leslignesclaires.kybernow.core.ShareLink
@@ -114,6 +115,12 @@ class MainActivity : AppCompatActivity() {
 
     /** Un invité a rejoint un partage : sa session s'ouvre (la Station et ses jetons restent en mémoire, rien n'est enregistré). */
     private fun joined(found: ShareFound) {
+        // L'app est partie en arrière-plan pendant la recherche : Android ne laisse pas ouvrir de fenêtre, la session ne
+        // s'ouvrirait jamais. L'invité repart tout de suite (la Station l'attendrait 20 s) et ses jetons ne restent nulle part.
+        if (!lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+            Share.leave(found)
+            return
+        }
         KyberNowApp.instance.handOverGuest(found)
         startActivity(Intent(this, SessionActivity::class.java).putExtra(SessionActivity.EXTRA_GUEST, true))
         route = Route.Home

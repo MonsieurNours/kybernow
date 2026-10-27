@@ -78,7 +78,8 @@ private enum class Way { CODE, QR }
  * (le clavier numérique d'Android au téléphone et à la tablette, un pavé à la télécommande au
  * téléviseur), « Votre prénom » (le nom de l'appareil, retenu), « Rejoindre ». Le code part aux
  * ordinateurs trouvés sur le réseau, comme l'appairage ; celui qui partage répond. Un lien
- * `kybernow://join` ou un QR code ([link]) fixe la Station et le code. Rien n'est ajouté aux
+ * `kybernow://join` ou un QR code ([link]) fixe la Station et le code : l'écran s'ouvre rempli, et rien ne part
+ * avant « Rejoindre » (le QR code lu avec « QR code » de cet écran en fait autant). Rien n'est ajouté aux
  * ordinateurs de l'appareil : [onJoined] ouvre la session d'invité.
  */
 @Composable
@@ -91,7 +92,8 @@ fun JoinScreen(link: ShareLink?, onBack: () -> Unit, onJoined: (ShareFound) -> U
     var error by remember { mutableStateOf<String?>(null) }
     // Le cœur écrit les refus ; ce texte ne sert que s'il n'en donne aucun.
     val unreachable = stringResource(R.string.add_unreachable)
-    LaunchedEffect(Unit) { app.discovery.start() }
+    // Avec un lien, la Station est donnée : on ne cherche rien sur le réseau (rien ne part avant « Rejoindre »).
+    LaunchedEffect(link) { if (link == null) app.discovery.start() }
 
     JoinContent(
         link = link, hasCamera = hasCamera, name = app.guestName, busy = busy, error = error, onBack = onBack,
@@ -134,9 +136,12 @@ internal fun JoinContent(
 ) {
     val s = LocalScale.current
     var way by remember { mutableStateOf(Way.CODE) }
-    var code by remember(link) { mutableStateOf(link?.code ?: "") }
+    // Un QR code lu ici fait comme un lien : la Station et le code sont remplis, il reste à toucher « Rejoindre ».
+    var scanned by remember(link) { mutableStateOf<ShareLink?>(null) }
+    val shown = link ?: scanned
+    var code by remember(shown) { mutableStateOf(shown?.code ?: "") }
     var who by remember(name) { mutableStateOf(name) }
-    val fixed = link?.let { listOf(it.target) }
+    val fixed = shown?.let { listOf(it.target) }
 
     Box(Modifier.fillMaxSize().background(Kn.ink).statusBarsPadding().navigationBarsPadding()) {
         Column(
@@ -151,19 +156,17 @@ internal fun JoinContent(
                 Title(stringResource(R.string.share_join_title), size = if (s.tv) 40f else 26f)
             }
             Body(stringResource(R.string.share_join_help), color = Kn.frost2, size = 15f)
-            // Un lien dit où va le code : on le montre avant d'envoyer quoi que ce soit.
-            link?.let { Mono("${it.target.host}:${it.target.port}", size = 12f) }
+            // Le choix « Code » / « QR code », en haut, avec un appareil photo.
             if (link == null && hasCamera && !s.tv) {
                 Row(horizontalArrangement = Arrangement.spacedBy(s.dp(8f))) {
                     GlassButton(stringResource(R.string.add_tab_code), { way = Way.CODE }, selected = way == Way.CODE)
                     GlassButton(stringResource(R.string.add_tab_qr), { way = Way.QR }, selected = way == Way.QR)
                 }
             }
+            // Un lien ou un QR code dit où va le code : on le montre avant d'envoyer quoi que ce soit.
+            if (way == Way.CODE || link != null) shown?.let { Mono("${it.target.host}:${it.target.port}", size = 12f) }
             if (way == Way.QR && link == null) {
-                QrWay { l -> if (!busy) onJoin(l.code, who, listOf(l.target)) }
-                NameField(who, { who = it })
-                error?.let { Body(it, color = Kn.warn, size = 14f) }
-                if (busy) Body(stringResource(R.string.share_join_searching), color = Kn.frost2, size = 15f)
+                QrWay { l -> scanned = l; way = Way.CODE }
             } else if (s.tv) {
                 TvJoin(code, { code = it }, who, { who = it }, busy, error) { onJoin(code, who, fixed) }
             } else {
