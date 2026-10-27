@@ -1,8 +1,8 @@
-# KyberNow Share : le partage en local
+# KyberNow Share : le partage
 
 [English](kybernow-share.en.md) · Français
 
-KyberNow Share fait entrer quelqu'un d'autre sur votre ordinateur : un **spectateur**, qui voit et entend, ou un **joueur**, dont les manettes deviennent la manette suivante de Windows, et qui peut aussi recevoir le clavier et la souris. Chaque invité a une image à sa mesure, sans jamais gêner celle de l'hôte. Ce premier pas vaut **sur le même réseau** ; le relais (hors de chez soi) viendra ensuite ([ROADMAP.md](../ROADMAP.md)). Ce document est le contrat commun de la Station, du cœur Rust, de toutes les apps Link et du client web.
+KyberNow Share fait entrer quelqu'un d'autre sur votre ordinateur : un **spectateur**, qui voit et entend, ou un **joueur**, dont les manettes deviennent la manette suivante de Windows, et qui peut aussi recevoir le clavier et la souris. Chaque invité a une image à sa mesure, sans jamais gêner celle de l'hôte. Sur le même réseau, l'invité entre avec le code ; hors de chez soi, il passe par le relais de KyberNow et l'hôte accepte chaque invité ([relais.md](relais.md)). Ce document est le contrat commun de la Station, du cœur Rust, de toutes les apps Link et du client web.
 
 Le partage n'a pas d'écrans à lui : il reprend l'accueil, la connexion, la barre de session et les réglages de [link-ui.md](link-ui.md), qui donne les textes exacts (section « Partage »). Toutes les apps se comportent pareil et emploient les mêmes mots.
 
@@ -27,7 +27,7 @@ Partager ouvre un panneau : un **code** à six chiffres (« 123 456 »), un **li
 
 ### Rejoindre
 
-- **« Rejoindre avec un code »** sur l'accueil de toutes les apps Link (à côté de « Ajouter un ordinateur ») : on tape les six chiffres ; l'app les envoie aux ordinateurs qu'elle trouve sur le réseau, celui qui partage répond. Ou on ouvre le lien, ou on scanne le QR code (apps qui ont un appareil photo). Dans le **navigateur**, le lien ouvre le client web en invité, sans mot de passe d'Admin.
+- **« Rejoindre avec un code »** sur l'accueil de toutes les apps Link (à côté de « Ajouter un ordinateur ») : on tape les six chiffres ; l'app les envoie aux ordinateurs qu'elle trouve sur le réseau, celui qui partage répond ; hors de chez soi, le relais trouve l'ordinateur et l'invité attend l'accord de l'hôte ([relais.md](relais.md)). Ou on ouvre le lien, ou on scanne le QR code (apps qui ont un appareil photo). Dans le **navigateur**, le lien ouvre le client web en invité, sans mot de passe d'Admin.
 - L'invité donne son prénom (proposé : le nom de l'appareil), retenu pour la fois suivante.
 - La session d'invité est une session ordinaire à l'écran, avec une barre réduite : « Spectateur » ou « Joueur », « Quitter le partage », et les commandes que son rôle permet (manette, clavier et souris s'ils lui sont donnés). Pas de profil, pas de réglages de l'ordinateur, pas d'écran virtuel : un invité ne change jamais les écrans de l'ordinateur et ne prend jamais la main à l'hôte.
 - Un invité n'est **pas ajouté à la liste des ordinateurs** de l'appareil : rien n'est gardé après le partage, sauf son prénom.
@@ -109,8 +109,11 @@ Toutes les apps Link (Mac, Windows, Linux, iPhone, iPad, Apple TV, Android, tél
 
 **Client web** (`server/web/src/link/`) : même session que celle de l'hôte (même page, `Session.svelte`), avec une barre réduite pour l'invité. Il n'a pas de cœur Rust : il fait lui-même l'échange avec Admin ci-dessus (`app: "web"`, `device` : l'identifiant de ce navigateur) et garde le cookie `kybernow_guest`, qui ouvre seulement le relais vers Kyber et `/api/share/*` ; le moteur de Kyber ne se charge donc qu'après `join`, et le format de l'image se vérifie alors (sinon `leave`). Le moteur ouvre ses entrées dès le départ et la page filtre selon le rôle ; Kyber refuse de toute façon ce que le rôle ne permet pas. L'hôte, dans le navigateur : « Partager » dans la barre, panneau d'Admin sur les routes de l'hôte, invités lus dans la réponse du signe de vie (`share`).
 
+## Hors de chez soi
+
+Le relais de KyberNow fait rejoindre un partage depuis internet : même code, même lien, même QR code. L'hôte accepte chaque invité venu par le relais (« Demandes » dans son panneau) ; sur le réseau, rien ne change. Le contrat (tunnel, routes d'Admin `wait`, `accept`, `refuse`, champs `guests[].pending` et `via`, liens, garde d'Admin selon la voie, confiance) est dans [relais.md](relais.md).
+
 ## Hors de ce premier pas
 
-- Rejoindre hors du réseau (relais) : étape suivante de KyberNow Share.
 - Le prêt de l'ordinateur à tour de rôle (compte Windows dédié, lanceur) : plus tard.
 - Plusieurs écrans partagés à la fois : le partage montre un écran.
