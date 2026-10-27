@@ -68,6 +68,9 @@ pub enum Event {
     Guests(Option<crate::app::ShareView>),
     /// KyberNow Share, invité : son rôle (`previous` nul au départ), puis chaque changement de l'hôte.
     ShareRole { role: ShareRole, previous: Option<ShareRole> },
+    /// KyberNow Share, invité : l'image qu'il reçoit (`label` : sa qualité, nulle tant que Kyber n'en sait pas la taille)
+    /// et l'avis bref de la Station, s'il y en a un.
+    ShareImage { label: Option<String>, notice: Option<String> },
     /// KyberNow Share, invité : le partage a fini la session (`kind` : stopped, removed, unreadable) avec ce texte.
     ShareEnd(String, String),
 }
@@ -787,6 +790,7 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
                 pads.set_mouse(false);
             }
         }
+        Event::ShareImage { label, notice } => app.share_image(label, notice),
         Event::ShareEnd(kind, text) => log::info!("partage : {kind} ({text})"),
         Event::Update(r) => {
             app.update = match r {
@@ -933,7 +937,7 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
         Action::Probe { address, port } => jobs::probe(address, port, tx.clone()),
         // KyberNow Share, invité : le code part aux Stations trouvées sur le réseau (celles de l'ajout), avec
         // l'empreinte qu'on leur connaît ; ce téléviseur se nomme comme pour Admin.
-        Action::JoinShare { code, name } => {
+        Action::JoinShare { code, name, quality } => {
             let mut targets: Vec<ShareTarget> = app.found.iter().map(|f| ShareTarget { host: f.address.clone(), port: f.port, fingerprint: f.fingerprint.clone() }).collect();
             // Un ordinateur du téléviseur, en ligne, que le réseau n'annonce pas : il peut partager aussi.
             for h in &app.store.hosts {
@@ -941,8 +945,18 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
                     targets.push(ShareTarget { host: h.address.clone(), port: h.port, fingerprint: h.fingerprint.clone() });
                 }
             }
-            let request = JoinRequest { code, name, device: app.store.device_id.clone(), app: "webos".into(), ..JoinRequest::default() };
+            // « Auto » : la sortie du téléviseur et ce que son décodeur suit ; la Station en tire l'image de l'invité (jamais
+            // au-dessus de celle de l'hôte). Les trois autres choix n'ont pas besoin de cette mesure.
+            let auto = (quality == crate::app::ShareQuality::Auto).then(|| session::auto_quality(&app.tv));
+            let request = JoinRequest { code, name, device: app.store.device_id.clone(), app: "webos".into(), quality: session::core_quality(quality), auto, ..JoinRequest::default() };
             jobs::share_join(targets, request, session::guest_capabilities(app.tv.av1), app.join.attempt, tx.clone());
+        }
+        // KyberNow Share, invité : la « Qualité de l'image » changée en session ; la Station relance l'image de l'invité
+        // seulement, la session n'a rien à relancer (l'image reçue revient par `Platform::on_share_image`).
+        Action::ShareQuality(q) => {
+            if let Some(l) = live.as_ref() {
+                l.handle.session.set_share_quality(session::core_quality(q));
+            }
         }
         Action::Share(op) => {
             let host = live.as_ref().and_then(|_| app.session.as_ref()).and_then(|s| app.store.host(&s.host)).cloned();
@@ -1018,7 +1032,13 @@ fn connect_guest(app: &mut App, live: &mut Option<Live>, tx: &Sender<Event>, fou
     let device = device_info(&app.store, &app.tv);
     let caps = session::guest_capabilities(app.tv.av1);
     let handle = session::start(&h, crate::model::Profile::Jeu, codec, mode, app.tv.refresh, app.net.cap_mbps(), device, Some((&found, caps)), tx.clone());
-    app.session = Some(SessionUi::guest(&h.id, &computer, session::role_of(found.joined.role)));
+    let mut ui = SessionUi::guest(&h.id, &computer, session::role_of(found.joined.role));
+    // La « Qualité de l'image » demandée à « Rejoindre », et l'image que la Station dit déjà (`on_share_image` la suit).
+    if let Some(g) = ui.guest.as_mut() {
+        g.quality = app.join.quality;
+        g.image = found.joined.image.as_ref().and_then(|i| i.label());
+    }
+    app.session = Some(ui);
     app.screen = Screen::Session;
     app.focus = crate::app::Target::CancelConnect;
     *live = Some(Live { handle, guest: true, pointer: None, pointer_hidden: true, started: Instant::now(), latencies: Vec::new(), mbps: Vec::new(), mode, remote: None, game_fullscreen: false });

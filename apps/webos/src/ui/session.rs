@@ -26,7 +26,12 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
             if s.menu {
                 menu(app, cv, f, s);
             } else if s.share_panel {
-                super::share::draw(app, cv, f, s);
+                // Un invité n'a pas de panneau d'hôte : le sien est la « Qualité de l'image ».
+                if s.guest.is_some() {
+                    super::quality::draw(cv, f, s);
+                } else {
+                    super::share::draw(app, cv, f, s);
+                }
             } else if s.show_stats {
                 stats_pill(cv, s, 40.0);
             }
@@ -209,7 +214,9 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     if pads {
         tiles.push((MenuItem::Gamepads, Icon::Gamepad, tr("Manettes", "Controllers").into(), Some(format!("{} {}", app.pads.len(), tr("branchée(s)", "connected"))), false, false));
     }
-    if guest {
+    if let Some(g) = &s.guest {
+        // « Qualité de l'image » : la tuile montre la qualité reçue (le choix tant que Kyber ne la donne pas) et ouvre les quatre choix.
+        tiles.push((MenuItem::Quality, Icon::Monitor, tr("Qualité de l'image", "Picture quality").into(), Some(g.shown().into()), false, false));
         tiles.push((MenuItem::Disconnect, Icon::Logout, tr("Quitter le partage", "Leave").into(), Some(s.name.clone()), true, false));
     } else {
         // « Partager » : son sous-titre dit « 2 invités », le code ou « Code et QR code » (`share_tile`). Impossible,

@@ -229,14 +229,17 @@ pub struct AppSettings {
     /// Mises à jour : aussi les bêtas (sinon les versions stables seules).
     pub beta: bool,
     /// KyberNow Share : le prénom donné en rejoignant un partage, retenu pour la fois suivante (vide : le nom
-    /// de ce téléviseur est proposé). Seule trace d'un partage sur l'appareil : un invité n'est jamais
-    /// ajouté aux ordinateurs.
+    /// de ce téléviseur est proposé). Avec la qualité de l'image ci-dessous, la seule trace d'un partage sur
+    /// l'appareil : un invité n'est jamais ajouté aux ordinateurs.
     pub share_name: String,
+    /// KyberNow Share : la « Qualité de l'image » choisie en rejoignant un partage ou dans le menu de la session,
+    /// retenue pour la fois suivante (`auto`, `host`, `1080p60`, `720p30` ; vide ou inconnue : « Auto »).
+    pub share_quality: String,
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
-        Self { language: "auto".into(), beta: false, share_name: String::new() }
+        Self { language: "auto".into(), beta: false, share_name: String::new(), share_quality: String::new() }
     }
 }
 

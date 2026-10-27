@@ -10,6 +10,7 @@ pub mod icons;
 mod join;
 mod pads;
 mod pair;
+mod quality;
 mod session;
 mod settings;
 mod share;

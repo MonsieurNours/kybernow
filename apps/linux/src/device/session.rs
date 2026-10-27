@@ -16,7 +16,7 @@ use kybernow_core::media::PacketHandler;
 use kybernow_core::profile::{Capabilities, Codec, Profile as CoreProfile, StreamSettings};
 use kybernow_core::screens::Screens;
 use kybernow_core::session::{Notice, Platform, Recovery, Session, SessionParams, SessionRole, Status, StreamScreen};
-use kybernow_core::share::{self, ShareEnd, ShareState};
+use kybernow_core::share::{self, DecoderCaps, ShareEnd, ShareState};
 use kybernow_core::{Display, WindowHandle};
 
 use super::media::AudioSink;
@@ -409,6 +409,13 @@ impl Platform for LinuxPlatform {
     fn on_share_end(&self, end: &ShareEnd, text: &str) {
         self.0.send(SessionEvent::ShareEnd(end.kind().to_string(), text.to_string()));
     }
+
+    /// Invité : l'image qu'il reçoit, au départ puis à chaque changement (signe de vie, réponse à un changement de
+    /// qualité). La barre et le menu en montrent la qualité (`label`, nul tant que Kyber n'en sait pas la taille) ;
+    /// `notice` est l'avis bref de la Station, dans la langue de l'app (« Image allégée pour suivre. »).
+    fn on_share_image(&self, image: &share::ShareImage, _previous: Option<&share::ShareImage>, notice: Option<&str>) {
+        self.0.send(SessionEvent::ShareImage { label: image.label(), notice: notice.map(str::to_string) });
+    }
 }
 
 /// Le rôle de l'interface d'après celui du cœur.
@@ -431,20 +438,59 @@ pub fn core_role(r: crate::app::ShareRole) -> share::ShareRole {
     }
 }
 
+/// La « Qualité de l'image » du cœur d'après celle de l'interface (le choix de « Rejoindre » et de la barre).
+pub fn core_quality(q: crate::app::ShareQuality) -> share::ShareQuality {
+    match q {
+        crate::app::ShareQuality::Auto => share::ShareQuality::Auto,
+        crate::app::ShareQuality::Host => share::ShareQuality::Host,
+        crate::app::ShareQuality::P1080_60 => share::ShareQuality::P1080_60,
+        crate::app::ShareQuality::P720_30 => share::ShareQuality::P720_30,
+    }
+}
+
+/// La qualité de l'image d'un invité telle que le panneau de l'hôte la montre : seulement quand c'est une image à
+/// part (pas celle de l'hôte) dont Kyber sait la taille. Une image encore inconnue compte comme celle de l'hôte.
+fn guest_quality(g: &share::ShareGuest) -> Option<String> {
+    g.image.as_ref().filter(|i| i.own()).and_then(|i| i.label())
+}
+
 /// Le partage ouvert d'une session d'hôte tel que l'interface le montre (`None` : fermé).
 pub fn share_view(st: &ShareState) -> Option<ShareView> {
     st.open.then(|| ShareView {
         code: st.code.clone(),
         link: st.link.clone(),
         web: st.web.clone(),
-        guests: st.guests.iter().map(|g| ShareGuest { id: g.id.clone(), name: g.name.clone(), role: role_of(g.role), app: g.app.clone(), since: g.since }).collect(),
+        guests: st.guests.iter().map(|g| ShareGuest { id: g.id.clone(), name: g.name.clone(), role: role_of(g.role), app: g.app.clone(), since: g.since, quality: guest_quality(g) }).collect(),
     })
 }
 
-/// Ce que cet appareil décode, pour lire l'image de l'hôte d'un partage (son format, choisi par l'hôte, est
-/// vérifié avant d'entrer) : le HEVC par la carte ou le processeur, le 4:4:4 avec lui, l'AV1 par la carte.
+/// Ce que cet appareil décode, pour lire l'image d'un partage (le format de l'hôte qu'il ne lit pas ne le refuse
+/// plus : il reçoit une image qu'il lit, `share::guest_format`) : le HEVC par la carte ou le processeur, le 4:4:4
+/// avec lui, l'AV1 par la carte.
 pub fn guest_capabilities(m: &Machine) -> Capabilities {
     Capabilities { hevc: m.decodes("hevc"), hevc444: m.decodes("hevc"), av1: m.decodes("av1") }
+}
+
+/// Ce que le décodeur de cet appareil suit, pour « Auto » (`auto_quality`) : ses formats et, quand on les connaît,
+/// la définition et la fréquence au-delà desquelles il décroche (0 : rien de connu au-delà de l'écran). Le Raspberry
+/// Pi : ce que sa sortie HDMI affiche (4K sur les Pi 4 et 5, 1080p avant) à 60 Hz au plus ; sans décodeur matériel
+/// (le processeur décode) : 1080p, 60 Hz. Ailleurs, la carte graphique suit l'écran.
+pub fn decoder_caps(m: &Machine) -> DecoderCaps {
+    let capabilities = guest_capabilities(m);
+    let (max_width, max_height, max_fps) = if let Some(pi) = &m.pi {
+        let height = pi.max_height();
+        (height * 16 / 9, height, 60)
+    } else if !m.hw_any() {
+        (1920, 1080, 60)
+    } else {
+        (0, 0, 0)
+    };
+    DecoderCaps { capabilities, max_width, max_height, max_fps }
+}
+
+/// L'écran de la fenêtre, pour « Auto » : définition native (en paysage) et fréquence (`auto_quality`).
+pub fn auto_screen(pixel: (u32, u32), refresh: u32) -> kybernow_core::screens::DeviceScreen {
+    kybernow_core::screens::DeviceScreen { x: 0.0, y: 0.0, width: f64::from(pixel.0), height: f64::from(pixel.1), pixel_width: pixel.0, pixel_height: pixel.1, refresh, primary: true }
 }
 
 struct InputCallbacks(Arc<Shared>);
@@ -847,7 +893,7 @@ mod tests {
         match rx.try_recv() {
             Ok(Event::Session(7, SessionEvent::Guests(Some(v)))) => {
                 assert_eq!((v.code.as_str(), v.link.as_str(), v.web.as_str()), ("482917", "kybernow://join?x", "https://h:1/link/?join=482917"));
-                assert_eq!(v.guests, vec![ShareGuest { id: "g1".into(), name: "Léa".into(), role: crate::app::ShareRole::Player, app: "ios".into(), since: Some(1_761_500_000) }]);
+                assert_eq!(v.guests, vec![ShareGuest { id: "g1".into(), name: "Léa".into(), role: crate::app::ShareRole::Player, app: "ios".into(), since: Some(1_761_500_000), quality: None }]);
             }
             _ => panic!("les invités arrivent avec leur session"),
         }
@@ -860,6 +906,39 @@ mod tests {
         match rx.try_recv() {
             Ok(Event::Session(7, SessionEvent::ShareEnd(kind, text))) => assert_eq!((kind.as_str(), text.as_str()), ("removed", "Léa vous a retiré du partage.")),
             _ => panic!("la fin arrive avec son texte"),
+        }
+        // Invité : l'image reçue arrive avec sa qualité (nulle tant que Kyber n'en sait pas la taille) et l'avis de la Station.
+        let image = share::ShareImage { quality: share::ShareQuality::Auto, width: Some(1920), height: Some(1080), fps: Some(60), follows_host: Some(true), ..share::ShareImage::default() };
+        platform.on_share_image(&image, None, None);
+        match rx.try_recv() {
+            Ok(Event::Session(7, SessionEvent::ShareImage { label, notice })) => assert_eq!((label.as_deref(), notice), (Some("1080p · 60 Hz"), None)),
+            _ => panic!("l'image reçue arrive avec sa qualité"),
+        }
+        let lighter = share::ShareImage { width: Some(1280), height: Some(720), fps: Some(30), follows_host: Some(false), reason: Some(share::ShareImageReason::Lag), ..image.clone() };
+        platform.on_share_image(&lighter, Some(&image), Some("Image allégée pour suivre."));
+        match rx.try_recv() {
+            Ok(Event::Session(7, SessionEvent::ShareImage { label, notice })) => assert_eq!((label.as_deref(), notice.as_deref()), (Some("720p · 30 Hz"), Some("Image allégée pour suivre."))),
+            _ => panic!("l'avis arrive avec l'image"),
+        }
+        platform.on_share_image(&share::ShareImage::default(), None, None);
+        match rx.try_recv() {
+            Ok(Event::Session(7, SessionEvent::ShareImage { label, notice })) => assert_eq!((label, notice), (None, None), "taille inconnue : pas de qualité à montrer"),
+            _ => panic!("une image encore inconnue arrive aussi"),
+        }
+        // Hôte : la qualité d'un invité n'est dite que pour une image à part dont la taille est connue ; une image
+        // inconnue ou celle de l'hôte : rien.
+        let guest_with = |image: Option<share::ShareImage>| share::ShareGuest { id: "g".into(), name: "Tom".into(), image, ..share::ShareGuest::default() };
+        assert_eq!(guest_quality(&guest_with(Some(lighter.clone()))).as_deref(), Some("720p · 30 Hz"));
+        assert_eq!(guest_quality(&guest_with(Some(image.clone()))), None, "l'image de l'hôte");
+        assert_eq!(guest_quality(&guest_with(Some(share::ShareImage { follows_host: None, ..lighter.clone() }))), None, "pas encore su : compté comme celui de l'hôte");
+        assert_eq!(guest_quality(&guest_with(Some(share::ShareImage { width: None, ..lighter }))), None, "taille inconnue");
+        assert_eq!(guest_quality(&guest_with(None)), None, "Station sans l'image");
+        // Les qualités de l'interface et celles du cœur se correspondent, avec les mêmes libellés.
+        for q in crate::app::ShareQuality::ALL {
+            let c = core_quality(q);
+            assert_eq!(c.as_str(), q.as_str());
+            crate::i18n::force_english(false);
+            assert_eq!(c.label(kybernow_core::i18n::Lang::Fr), q.label());
         }
         // Les rôles de l'interface et ceux du cœur se correspondent.
         for r in [share::ShareRole::Spectator, share::ShareRole::Player, share::ShareRole::Kbm, share::ShareRole::PlayerKbm] {
@@ -875,20 +954,47 @@ mod tests {
     }
 
     /// Ce que cet appareil décode pour lire l'image d'un hôte : le HEVC (et son 4:4:4) par la carte ou le processeur,
-    /// l'AV1 par la carte seulement ; le format de l'hôte est vérifié avec cela avant d'entrer.
+    /// l'AV1 par la carte seulement. Le format de l'hôte qu'il ne lit pas ne le refuse plus : il reçoit une image qu'il
+    /// lit (`share::guest_format`), le HEVC avant l'AV1 avant le H.264.
     #[test]
     fn a_guest_reads_what_the_device_decodes() {
+        use kybernow_core::profile::Codec;
         let mut m = Machine::default();
         let caps = guest_capabilities(&m);
         assert!(caps.hevc && caps.hevc444 && !caps.av1);
-        assert!(share::check_codec(Some("hevc"), true, caps).is_ok());
-        match share::check_codec(Some("av1"), false, caps) {
-            Err(share::ShareError::Unreadable { format }) => assert_eq!(format, "AV1"),
-            _ => panic!("l'AV1 n'est pas lu sans décodeur de carte"),
-        }
+        assert_eq!(share::guest_format(Some("hevc"), true, caps).unwrap(), Some((Codec::Hevc, true)));
+        // L'AV1 de l'hôte sans décodeur de carte : plus de refus, une image HEVC.
+        assert_eq!(share::guest_format(Some("av1"), false, caps).unwrap(), Some((Codec::Hevc, false)));
         m.hw_av1 = true;
-        assert!(share::check_codec(Some("av1"), false, guest_capabilities(&m)).is_ok());
+        assert_eq!(share::guest_format(Some("av1"), false, guest_capabilities(&m)).unwrap(), Some((Codec::Av1, false)));
         // Image de l'hôte pas encore démarrée : rien à vérifier.
-        assert!(share::check_codec(None, false, caps).is_ok());
+        assert_eq!(share::guest_format(None, false, caps).unwrap(), None);
+    }
+
+    /// « Auto » : ce que le décodeur suit. Une carte graphique suit l'écran (aucune borne) ; le Raspberry Pi, ce que sa
+    /// sortie HDMI affiche à 60 Hz au plus (4K sur les Pi 4 et 5, 1080p avant) ; sans aucun décodeur matériel, 1080p à
+    /// 60 Hz. L'écran de la fenêtre se met en paysage, et la mesure rend la plus petite des deux bornes.
+    #[test]
+    fn auto_is_what_the_screen_and_the_decoder_follow() {
+        let m = Machine::default();
+        let none = decoder_caps(&m);
+        assert_eq!((none.max_width, none.max_height, none.max_fps), (0, 0, 0));
+        assert_eq!(share::auto_quality(&auto_screen((3840, 2160), 120), &none, None), share::ShareAuto { width: 3840, height: 2160, fps: 120, codecs: vec!["h264".into(), "hevc".into()], yuv444: true });
+        // Le Deck tenu en portrait ou en paysage : toujours en paysage.
+        let deck = share::auto_quality(&auto_screen((800, 1280), 60), &none, None);
+        assert_eq!((deck.width, deck.height, deck.fps), (1280, 800, 60));
+        // Le Pi 3, sur un écran 4K : 1080p ; le Pi 5 : 4K à 60 Hz au plus.
+        for (generation, height) in [(3u8, 1080u32), (4, 2160), (5, 2160)] {
+            let pi = Machine { pi: Some(crate::app::Pi { generation, ..Default::default() }), ..Machine::default() };
+            let a = share::auto_quality(&auto_screen((3840, 2160), 120), &decoder_caps(&pi), None);
+            assert_eq!((a.height, a.width, a.fps), (height, height * 16 / 9, 60), "Pi {generation}");
+        }
+        // Un décodeur logiciel seulement : 1080p à 60 Hz sur un écran 1440p à 144 Hz.
+        let cpu = Machine { hw_h264: false, hw_hevc: false, hw_av1: false, ..Machine::default() };
+        let a = share::auto_quality(&auto_screen((2560, 1440), 144), &decoder_caps(&cpu), None);
+        assert_eq!((a.width, a.height, a.fps), (1920, 1080, 60));
+        // L'AV1 par la carte : annoncé.
+        let av1 = Machine { hw_av1: true, ..Machine::default() };
+        assert!(share::auto_quality(&auto_screen((1920, 1080), 60), &decoder_caps(&av1), None).codecs.contains(&"av1".to_string()));
     }
 }

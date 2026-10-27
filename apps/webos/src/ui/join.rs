@@ -1,6 +1,6 @@
 //! « Rejoindre un partage » (KyberNow Share, docs/link-ui.md, « Partage ») : le code à six chiffres que
-//! l'hôte affiche, « Votre prénom » (proposé : le nom de ce téléviseur, puis celui de la dernière fois) et
-//! « Rejoindre ». À la télécommande et à la manette, un pavé à droite qui suit le champ : les chiffres pour
+//! l'hôte affiche, « Votre prénom » (proposé : le nom de ce téléviseur, puis celui de la dernière fois),
+//! « Qualité de l'image » (quatre choix, « Auto » proposé, retenue aussi) et « Rejoindre ». À la télécommande et à la manette, un pavé à droite qui suit le champ : les chiffres pour
 //! le code, les lettres pour le prénom ; les touches chiffrées de la télécommande et un clavier branché
 //! marchent aussi. La recherche part aux ordinateurs trouvés sur le réseau ; le texte du refus est celui
 //! du cœur.
@@ -10,7 +10,7 @@ use super::pair::key;
 use super::theme::*;
 use super::widgets::{self, Key};
 use super::Frame;
-use crate::app::{App, JoinField, Rect, Target, NAME_MAX};
+use crate::app::{App, JoinField, Rect, ShareQuality, Target, NAME_MAX};
 use crate::i18n::tr;
 
 pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
@@ -23,9 +23,10 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
     let blink = (app.join.started.elapsed().as_millis() / 530) % 2 == 0;
 
     // Le code : six chiffres, groupés par trois.
-    widgets::label(cv, 96.0, 352.0, tr("Code", "Code"));
-    let (dw, dh, gap, group) = (116.0, 140.0, 14.0, 30.0);
-    let row = Rect::new(96.0, 372.0, 6.0 * dw + 4.0 * gap + group, dh);
+    widgets::label(cv, 96.0, 332.0, tr("Code", "Code"));
+    let (dw, dh, gap, group) = (116.0, 132.0, 14.0, 30.0);
+    let top = 350.0;
+    let row = Rect::new(96.0, top, 6.0 * dw + 4.0 * gap + group, dh);
     let focused = f.hit(Target::JoinCode, row);
     if focused {
         cv.neon(row.x - 6.0, row.y - 6.0, row.w + 12.0, row.h + 12.0, 22.0, 0.8);
@@ -38,19 +39,19 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
             dx += group - gap;
         }
         let current = active_code && i == digits.len();
-        cv.rrect(dx, 372.0, dw, dh, 18.0, PANEL_SOLID);
-        cv.rrect_stroke(dx, 372.0, dw, dh, 18.0, if current { 2.5 } else { 1.0 }, if current { SPECTRE } else { BORDER });
+        cv.rrect(dx, top, dw, dh, 18.0, PANEL_SOLID);
+        cv.rrect_stroke(dx, top, dw, dh, 18.0, if current { 2.5 } else { 1.0 }, if current { SPECTRE } else { BORDER });
         if let Some(c) = digits.get(i) {
-            cv.text(dx + dw / 2.0, 372.0 + dh / 2.0 + 30.0, Text::new(Font::MonoMedium, 84.0, FROST).align(Align::Center), &c.to_string());
+            cv.text(dx + dw / 2.0, top + dh / 2.0 + 30.0, Text::new(Font::MonoMedium, 84.0, FROST).align(Align::Center), &c.to_string());
         } else if current && blink && !j.busy {
-            cv.rect(dx + dw / 2.0 - 2.0, 372.0 + 36.0, 4.0, dh - 72.0, SPECTRE);
+            cv.rect(dx + dw / 2.0 - 2.0, top + 34.0, 4.0, dh - 68.0, SPECTRE);
         }
         dx += dw + gap;
     }
 
     // Le prénom.
-    widgets::label(cv, 96.0, 566.0, tr("Votre prénom", "Your name"));
-    let field = Rect::new(96.0, 588.0, 860.0, 96.0);
+    widgets::label(cv, 96.0, 530.0, tr("Votre prénom", "Your name"));
+    let field = Rect::new(96.0, 552.0, 860.0, 88.0);
     let focused = f.hit(Target::JoinName, field);
     let active_name = j.field == JoinField::Name;
     if focused {
@@ -58,24 +59,32 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
     }
     cv.rrect(field.x, field.y, field.w, field.h, 18.0, PANEL_SOLID);
     cv.rrect_stroke(field.x, field.y, field.w, field.h, 18.0, if active_name { 2.5 } else { 1.0 }, if active_name { SPECTRE } else { BORDER });
-    let tw = cv.text_fit(field.x + 32.0, field.y + 62.0, Text::new(Font::Regular, 40.0, FROST), &j.name, field.w - 120.0);
+    let tw = cv.text_fit(field.x + 32.0, field.y + 58.0, Text::new(Font::Regular, 40.0, FROST), &j.name, field.w - 120.0);
     if active_name && blink && !j.busy {
-        cv.rect(field.x + 36.0 + tw, field.y + 24.0, 4.0, 48.0, SPECTRE);
+        cv.rect(field.x + 36.0 + tw, field.y + 20.0, 4.0, 48.0, SPECTRE);
     }
     if j.name.chars().count() >= NAME_MAX {
-        cv.text(field.x + field.w - 28.0, field.y + 58.0, Text::new(Font::Mono, 18.0, FROST_4).align(Align::Right), &format!("{NAME_MAX}"));
+        cv.text(field.x + field.w - 28.0, field.y + 54.0, Text::new(Font::Mono, 18.0, FROST_4).align(Align::Right), &format!("{NAME_MAX}"));
+    }
+
+    // « Qualité de l'image » : les quatre choix en pastilles, « Auto » proposé ; retenue pour la fois suivante. La croix
+    // de la télécommande passe d'un choix à l'autre, OK choisit.
+    widgets::label(cv, 96.0, 680.0, tr("Qualité de l'image", "Picture quality"));
+    let mut qx = 96.0;
+    for q in ShareQuality::ALL {
+        qx += widgets::chip(cv, f, Target::JoinQuality(q), qx, 700.0, q.label(), j.quality == q) + 14.0;
     }
 
     // « Rejoindre », puis ce que la recherche a dit.
-    widgets::primary_state(cv, f, Target::JoinGo, 96.0, 728.0, tr("Rejoindre", "Join"), j.ready() && !j.busy);
+    widgets::primary_state(cv, f, Target::JoinGo, 96.0, 796.0, tr("Rejoindre", "Join"), j.ready() && !j.busy);
     if j.busy {
         let t = j.started.elapsed().as_secs_f32();
-        let (cx, cy) = (116.0, 884.0);
+        let (cx, cy) = (116.0, 940.0);
         cv.circle(cx, cy, 14.0, HALO.alpha(0.2 + 0.3 * (t * 4.0).sin().abs()));
         cv.circle(cx, cy, 6.0, SPECTRE);
         cv.text(cx + 30.0, cy + 9.0, Text::new(Font::Regular, 25.0, FROST), tr("Recherche du partage…", "Looking for the share…"));
     } else if let Some(m) = &j.message {
-        cv.paragraph(96.0, 870.0, Text::new(Font::Regular, 25.0, DANGER), m, 860.0, 36.0);
+        cv.paragraph(96.0, 926.0, Text::new(Font::Regular, 25.0, DANGER), m, 860.0, 36.0);
     }
 
     // À droite : le pavé du champ.

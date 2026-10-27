@@ -12,6 +12,7 @@ mod join;
 mod launch;
 mod pads;
 mod pair;
+mod quality;
 mod session;
 mod settings;
 mod setup;

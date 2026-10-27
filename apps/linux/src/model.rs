@@ -247,14 +247,17 @@ pub struct AppSettings {
     /// `2160p60`, `1080p120`, `1080p60`.
     pub os_hdmi: String,
     /// KyberNow Share : le prénom donné en rejoignant un partage, retenu pour
-    /// la fois suivante (vide : le nom de cet appareil est proposé). Seule trace
-    /// d'un partage sur l'appareil : un invité n'est jamais ajouté aux ordinateurs.
+    /// la fois suivante (vide : le nom de cet appareil est proposé). Avec la qualité de l'image ci-dessous, la
+    /// seule trace d'un partage sur l'appareil : un invité n'est jamais ajouté aux ordinateurs.
     pub share_name: String,
+    /// KyberNow Share : la « Qualité de l'image » choisie en rejoignant un partage ou dans la barre, retenue
+    /// pour la fois suivante (`auto`, `host`, `1080p60`, `720p30` ; vide ou inconnue : « Auto »).
+    pub share_quality: String,
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
-        Self { language: "auto".into(), beta: false, interface: "auto".into(), keep_last_image: true, os_setup_done: false, os_cec: true, os_auto_update: true, os_hdmi: "auto".into(), share_name: String::new() }
+        Self { language: "auto".into(), beta: false, interface: "auto".into(), keep_last_image: true, os_setup_done: false, os_cec: true, os_auto_update: true, os_hdmi: "auto".into(), share_name: String::new(), share_quality: String::new() }
     }
 }
 
