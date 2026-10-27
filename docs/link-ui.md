@@ -81,18 +81,23 @@ Contrat : [kybernow-share.md](kybernow-share.md). Toutes les apps Link et le cli
 |---|---|---|
 | Titre | « Partager {nom} » (l'ordinateur) | “Share {name}” |
 | Code | « 123 456 » (six chiffres, groupés par trois) | |
-| Lien | « Copier le lien » ; QR code du lien | “Copy link” |
+| Code, QR code | étiquette « Code » ; QR code du lien des apps (`link`, `kybernow://join…`), libellé accessible « QR code du partage » | “Code”; “QR code for the share” |
+| Lien | « Copier le lien » : copie l'adresse du client web (`web`) ; puis « Lien copié. », ou « Copie impossible : sélectionnez le lien à la main. » avec l'adresse à sélectionner ; pas de copie sans presse-papiers utile (Apple TV, téléviseurs, salon) | “Copy link”; “Link copied.”; “Could not copy: select the link by hand.” |
 | Aide | « Sur le même réseau : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur. » | “On the same network: “Join with a code” in KyberNow Link, or this link in a browser.” |
-| Invités (aucun) | « Personne pour l'instant. » | “Nobody yet.” |
-| Un invité | « {prénom} · Spectateur », « {prénom} · Joueur », « {prénom} · Joueur, clavier et souris » | “{name} · Spectator”, “{name} · Player”, “{name} · Player, keyboard and mouse” |
-| Actions sur un invité | « Faire jouer » ; « Donner le clavier et la souris » ; « Reprendre le clavier et la souris » ; « Retirer » | “Let play”; “Give keyboard and mouse”; “Take back keyboard and mouse”; “Remove” |
+| Liste | titre « Invités » ; aucun : « Personne pour l'instant. » | “Guests”; “Nobody yet.” |
+| Un invité | « {prénom} · Spectateur », « {prénom} · Joueur », « {prénom} · Joueur, clavier et souris » ; dessous, son app et « depuis {durée} » | “{name} · Spectator”, “{name} · Player”, “{name} · Player, keyboard and mouse”; “for {duration}” |
+| App d'un invité (`app`) | Mac, Windows, Linux, « iPhone ou iPad », Apple TV, Android, « Téléviseur LG », « Navigateur » | Mac, Windows, Linux, “iPhone or iPad”, Apple TV, Android, “LG TV”, “Browser” |
+| Durée (`since`, secondes Unix de la Station) | « moins d'une minute », « 3 min », « 1 h 12 » ; jamais négative (horloges décalées) | “under a minute”, “3 min”, “1 h 12” |
+| Actions sur un invité | spectateur : « Faire jouer » ; joueur : « Faire regarder » (retour en spectateur) à la place ; puis « Donner le clavier et la souris » ou « Reprendre le clavier et la souris » (joueur seulement) ; « Retirer » | “Let play”; “Watch only”; “Give keyboard and mouse”; “Take back keyboard and mouse”; “Remove” |
 | Code changé | « Nouveau code » (les invités déjà là restent) | “New code” |
 | Fin | « Arrêter le partage » (tout le monde sort) | “Stop sharing” |
 | Limite | « Quatre invités au plus. » | “Four guests at most.” |
-| Station trop ancienne | « Le partage demande KyberNow Station 0.8.0 ou plus récente. » (« Partager » inactif) | “Sharing needs KyberNow Station 0.8.0 or later.” |
+| Station trop ancienne | « Le partage demande KyberNow Station 0.8.0 ou plus récente. » | “Sharing needs KyberNow Station 0.8.0 or later.” |
 | Partage coupé sur l'ordinateur | « Le partage est coupé sur cet ordinateur (Admin › Appareils Link). » | “Sharing is turned off on this computer (Admin › Link devices).” |
 
-Un partage ouvert se voit dans la barre (pastille « 2 invités » / “2 guests”, qui rouvre le panneau). Fermer la session arrête le partage.
+Partage impossible (Station trop ancienne, partage coupé) : « Partager » estompé ; à la souris, inactif avec la raison en infobulle ; au toucher et à la télécommande, il reste sélectionnable et ouvre le panneau réduit à la raison.
+
+Un partage ouvert se voit dans la barre (pastille « 2 invités » / “2 guests”, qui rouvre le panneau), dans sa partie toujours visible. Fermer la session arrête le partage.
 
 **Le PC lui-même** (KyberNow Station : menu de l'icône près de l'horloge, et accueil d'Admin) : « Partager un écran… » / “Share a screen…”, puis le choix de l'écran (« Écran 1 — 3840 × 2160 », l'écran principal d'abord) ; le même panneau (code, lien, invités, actions), titré « Partage de l'écran 1 » / “Sharing display 1”. Le PC reste utilisable normalement ; aucun écran virtuel, aucun écran éteint.
 
@@ -105,18 +110,12 @@ Un partage ouvert se voit dans la barre (pastille « 2 invités » / “2 guests
 | Aide de la carte (Admin) | « Montrez un écran de cet ordinateur à quelqu'un sur votre réseau : il le voit, entend le son, et peut jouer si vous le laissez. Vous continuez d'utiliser l'ordinateur normalement. » | “Show one of this computer's screens to someone on your network: they see it, hear the sound, and can play if you let them. You keep using the computer as usual.” |
 | Choix de l'écran | « Choisissez l'écran à partager. » ; « Recherche des écrans… » ; « Annuler » | “Choose the screen to share.”; “Looking for screens…”; “Cancel” |
 | Partage d'un appareil | « Ouvert depuis la session de {nom}. » | “Opened from {name}'s session.” |
-| Code, QR code | « Code » ; « QR code du partage » (libellé accessible) | “Code”; “QR code for the share” |
-| Lien copié | « Lien copié. » ; « Copie impossible : sélectionnez le lien à la main. » | “Link copied.”; “Could not copy: select the link by hand.” |
-| Liste | « Invités », « Participants » quand l'hôte y figure ; « {nom} · Hôte » ; « depuis {durée} » | “Guests”, “Participants”; “{name} · Host”; “for {duration}” |
-| Revenir spectateur | « Faire regarder » | “Watch only” |
+| Liste | « Participants » quand l'hôte y figure ; « {nom} · Hôte » | “Participants”; “{name} · Host” |
 | Arrêté | « Partage arrêté. » | “Sharing stopped.” |
 | En-tête d'Admin, haut du panneau | « Partage en cours · {n} invités » ; « Partage en cours » | “Sharing · {n} guests”; “Sharing” |
-| App d'un invité | Mac, Windows, Linux, « iPhone ou iPad », Apple TV, Android, « Téléviseur LG », « Navigateur » | Mac, Windows, Linux, “iPhone or iPad”, Apple TV, Android, “LG TV”, “Browser” |
 | Icône, ligne d'état | « Partage de l'écran {n} · {n} invités » | “Sharing display {n} · {n} guests” |
 | Icône, confirmations | « Un partage est en cours avec {prénoms} : arrêter la Station le coupera. Arrêter la Station ? » ; « … : le redémarrage l'arrêtera. Redémarrer la Station ? » ; en quittant : « Un partage est en cours avec {prénoms}. La Station peut rester en marche : le partage continue, et vous pourrez rouvrir l'icône depuis le menu Démarrer. » | “A share is in progress with {names}: stopping the Station will end it. Stop the Station?”; “… restarting will stop it. Restart the Station?”; “A share is in progress with {names}. The Station can keep running: the share goes on, and you can reopen the tray icon from the Start menu.” |
 | Icône, échec | « Admin n'a pas pu changer le partage ({erreur}). » | “Admin could not change the share ({error}).” |
-
-« Copier le lien » copie l'adresse du client web (`web`) ; le QR code porte le lien des apps (`link`, `kybernow://join…`).
 
 **L'invité** :
 
@@ -124,6 +123,8 @@ Un partage ouvert se voit dans la barre (pastille « 2 invités » / “2 guests
 |---|---|---|
 | Accueil, à côté de « Ajouter un ordinateur » | « Rejoindre avec un code » | “Join with a code” |
 | Écran | titre « Rejoindre un partage » ; aide « Le code s'affiche chez la personne qui partage. » ; « Votre prénom » (proposé : le nom de l'appareil, retenu) ; bouton « Rejoindre » | “Join a share”; “The code is shown by the person sharing.”; “Your name”; “Join” |
+| Avec un appareil photo (iPhone, iPad, téléphones et tablettes Android) | en haut de l'écran, le choix « Code » / « QR code » ; un QR code de partage lu dans « Ajouter un ordinateur › QR code » mène aussi ici | “Code” / “QR code” |
+| Lien | `kybernow://join…` (et le QR code) ouvre cet écran, code et ordinateur remplis ; rien ne part avant « Rejoindre » | |
 | Recherche | « Recherche du partage… » | “Looking for the share…” |
 | Code inconnu | « Aucun partage avec ce code sur le réseau. » | “No share with this code on your network.” |
 | Complet | « Ce partage est complet (quatre invités au plus). » | “This share is full (four guests at most).” |
@@ -131,8 +132,8 @@ Un partage ouvert se voit dans la barre (pastille « 2 invités » / “2 guests
 | Format illisible | « Cet appareil ne lit pas l'image de cet ordinateur ({format}). » | “This device cannot play this computer's picture ({format}).” |
 | Partage indisponible (la Station ne peut pas signer le jeton de Kyber, passager) | « Le partage n'est pas disponible pour le moment : réessayez dans un instant. » | “Sharing is not available right now: try again in a moment.” |
 | Connexion | les étapes de la connexion, titrées « Invité sur {nom} » | “Guest on {name}” |
-| Barre (réduite) | « Spectateur » ou « Joueur » ; « Quitter le partage » ; la manette, le clavier et la souris s'ils sont donnés ; ni profil ni réglages | “Spectator” or “Player”; “Leave”; |
-| Droits changés | « Vous pouvez jouer. » ; « Vous avez le clavier et la souris. » ; « Le clavier et la souris sont repris. » ; rendu spectateur : « Vous regardez de nouveau. » (avis bref) | “You can play.”; “You have the keyboard and mouse.”; “The keyboard and mouse were taken back.”; “You are watching again.” |
+| Barre (réduite) | ce qui ne touche que l'appareil (latence et statistiques, son, plein écran s'il existe) ; « Spectateur » ou « Joueur » ; « Quitter le partage » ; la manette seulement en joueur ; clavier, souris et menu des touches seulement avec le clavier et la souris ; ni profil, ni réglages de l'ordinateur, ni « Ordinateurs », ni presse-papiers | “Spectator” or “Player”; “Leave” |
+| Droits changés | « Vous pouvez jouer. » ; « Vous avez le clavier et la souris. » ; « Le clavier et la souris sont repris. » (joueur avec clavier et souris → joueur) ; rendu spectateur : « Vous regardez de nouveau. » (avis bref, à la place des autres) | “You can play.”; “You have the keyboard and mouse.”; “The keyboard and mouse were taken back.”; “You are watching again.” |
 | Fin | « {hôte} a arrêté le partage. » ; « {hôte} vous a retiré du partage. » ; sinon la raison d'un échec ; jamais « Reprendre la main » | “{host} stopped sharing.”; “{host} removed you from the share.” |
 
 {hôte} est le prénom de l'hôte (le nom de l'appareil de l'hôte), ou le nom de l'ordinateur pour un partage lancé depuis le PC. Un invité n'est pas ajouté aux ordinateurs de l'appareil.

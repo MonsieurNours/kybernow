@@ -51,7 +51,7 @@ Tout en JSON, sur le port d'Admin, certificat épinglé par empreinte comme aujo
 **Hôte** (compte de l'appareil, comme `prepare` ; seulement l'appareil en session) :
 
 - `POST /api/share/open` `{}` → `{"code":"123456","link":"kybernow://join?host=…&port=…&fp=…&code=123456","web":"https://<hôte>:<port>/link/?join=123456","display":{"id":…,"label":"Écran 1"}}` (son écran principal).
-- `GET /api/share` → `{"open":true,"code":"…","link":"…","web":"…","display":{…},"guests":[{"id":"…","name":"Léa","app":"ios","role":"spectator","since":<horodatage>}]}` ; la même chose dans la réponse au signe de vie de l'hôte (`heartbeat`, champ `share`, absent sans partage).
+- `GET /api/share` → `{"open":true,"code":"…","link":"…","web":"…","display":{…},"guests":[{"id":"…","name":"Léa","app":"ios","role":"spectator","since":<secondes Unix>}]}` ; la même chose dans la réponse au signe de vie de l'hôte (`heartbeat`, champ `share`, absent sans partage).
 - `POST /api/share/code` → nouveau code (même réponse que `open`).
 - `POST /api/share/guest/{id}` `{"role":"spectator|player|player_kbm"}` ; `DELETE /api/share/guest/{id}` (retirer) ; `DELETE /api/share` (arrêter).
 

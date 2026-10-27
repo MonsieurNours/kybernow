@@ -51,7 +51,7 @@ All JSON, on Admin's port, certificate pinned by fingerprint as today. The names
 **Host** (the device account, like `prepare`; only the device in session):
 
 - `POST /api/share/open` `{}` → `{"code":"123456","link":"kybernow://join?host=…&port=…&fp=…&code=123456","web":"https://<host>:<port>/link/?join=123456","display":{"id":…,"label":"Display 1"}}` (their main display).
-- `GET /api/share` → `{"open":true,"code":"…","link":"…","web":"…","display":{…},"guests":[{"id":"…","name":"Léa","app":"ios","role":"spectator","since":<timestamp>}]}`; the same in the reply to the host's sign of life (`heartbeat`, field `share`, absent without a share).
+- `GET /api/share` → `{"open":true,"code":"…","link":"…","web":"…","display":{…},"guests":[{"id":"…","name":"Léa","app":"ios","role":"spectator","since":<Unix seconds>}]}`; the same in the reply to the host's sign of life (`heartbeat`, field `share`, absent without a share).
 - `POST /api/share/code` → a new code (same reply as `open`).
 - `POST /api/share/guest/{id}` `{"role":"spectator|player|player_kbm"}`; `DELETE /api/share/guest/{id}` (remove); `DELETE /api/share` (stop).
 
