@@ -45,6 +45,8 @@ import fr.leslignesclaires.kybernow.R
 import fr.leslignesclaires.kybernow.core.ConsoleClient
 import fr.leslignesclaires.kybernow.core.PairState
 import fr.leslignesclaires.kybernow.core.Reply
+import fr.leslignesclaires.kybernow.core.Share
+import fr.leslignesclaires.kybernow.core.ShareLink
 import fr.leslignesclaires.kybernow.model.Announced
 import fr.leslignesclaires.kybernow.model.Host
 import fr.leslignesclaires.kybernow.ui.Body
@@ -91,7 +93,7 @@ private sealed class Step {
 }
 
 @Composable
-fun AddHostScreen(initial: Target?, onDone: (Host) -> Unit, onBack: () -> Unit) {
+fun AddHostScreen(initial: Target?, onDone: (Host) -> Unit, onBack: () -> Unit, onShareLink: (ShareLink) -> Unit = {}) {
     val s = LocalScale.current
     val app = KyberNowApp.instance
     val context = LocalContext.current
@@ -127,7 +129,7 @@ fun AddHostScreen(initial: Target?, onDone: (Host) -> Unit, onBack: () -> Unit) 
                         Tab.ADDRESS -> AddressPane(
                             onSeen = { t, fp -> step = Step.Verify(t, fp) },
                         )
-                        Tab.QR -> QrPane { t -> step = Step.Account(t) }
+                        Tab.QR -> QrPane(onShareLink) { t -> step = Step.Account(t) }
                     }
                 }
                 is Step.Verify -> VerifyPane(st.target, st.seen, onAccept = { step = Step.Account(st.target.copy(fingerprint = st.seen)) }, onCancel = { step = Step.Choose })
@@ -343,9 +345,12 @@ private fun CodePane(targets: List<Target>, onDone: (Host) -> Unit) {
     message?.let { Body(stringResource(it), color = Kn.warn, size = 14f) }
 }
 
-/** QR code d'Admin à la caméra (téléphone, tablette). */
+/**
+ * QR code d'Admin à la caméra (téléphone, tablette). Le QR code d'un partage (`kybernow://join`, KyberNow
+ * Share) ne s'ajoute pas comme ordinateur : il mène à « Rejoindre avec un code » ([onShareLink]).
+ */
 @Composable
-private fun QrPane(onFound: (Target) -> Unit) {
+private fun QrPane(onShareLink: (ShareLink) -> Unit, onFound: (Target) -> Unit) {
     val context = LocalContext.current
     var granted by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) }
     val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted = it }
@@ -353,7 +358,7 @@ private fun QrPane(onFound: (Target) -> Unit) {
     Body(stringResource(R.string.add_qr_help), color = Kn.frost2, size = 15f)
     if (granted) {
         QrScanner(Modifier.fillMaxWidth().height(LocalScale.current.dp(320f))) { text ->
-            PairingLink.parse(text)?.let(onFound)
+            PairingLink.parse(text)?.let(onFound) ?: Share.parseLink(text)?.let(onShareLink)
         }
     } else {
         Body(stringResource(R.string.add_qr_permission), color = Kn.warn, size = 14f)

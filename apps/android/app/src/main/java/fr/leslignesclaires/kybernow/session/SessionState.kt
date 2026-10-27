@@ -6,7 +6,10 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.os.Handler
 import android.os.Looper
+import fr.leslignesclaires.kybernow.R
 import fr.leslignesclaires.kybernow.core.SessionListener
+import fr.leslignesclaires.kybernow.core.ShareRole
+import fr.leslignesclaires.kybernow.core.ShareState
 import fr.leslignesclaires.kybernow.model.Gamepads
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -41,6 +44,8 @@ sealed class Capsule {
     data class Adapting(val width: Int, val height: Int) : Capsule()
     data class AdaptFailed(val error: String) : Capsule()
     data class GamepadConnected(val name: String, val slot: Int, val motors: Int) : Capsule()
+    /** Invité : ses droits ont changé (« Vous pouvez jouer. ») ; [text] : le texte, `R.string.share_notice_…`. */
+    data class ShareRights(@androidx.annotation.StringRes val text: Int) : Capsule()
 }
 
 data class DisplayInfo(val id: Int, val width: Int, val height: Int)
@@ -84,6 +89,12 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
     @Volatile var onScreenRumble: ((Int, Int, Int) -> Unit)? = null
     /** Premier instant d'image, pour le passage et la durée de la session. */
     val firstImageAt = AtomicLong(0)
+
+    // KyberNow Share (docs/kybernow-share.md).
+    /** Hôte : le partage ouvert et ses invités (le signe de vie de la session le tient à jour) ; nul sans partage. */
+    val share = MutableStateFlow<ShareState?>(null)
+    /** Invité : ce que son rôle lui permet, tel que la Station le dit (au départ, puis à chaque changement). */
+    val shareRole = MutableStateFlow(ShareRole.SPECTATOR)
 
     private var capsuleClear: Runnable? = null
 
@@ -196,6 +207,32 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
         main.post { onCombo?.invoke() }
     }
 
+    // MARK: - KyberNow Share
+
+    override fun onGuests(json: String?) {
+        share.value = ShareState.parse(json)
+    }
+
+    override fun onShareRole(role: Int, previous: Int) {
+        val now = ShareRole.of(role)
+        shareRole.value = now
+        if (previous < 0) return
+        val before = ShareRole.of(previous)
+        // « Vous pouvez jouer. », « Vous avez le clavier et la souris. », « Le clavier et la souris sont repris. »,
+        // et, quand l'hôte le ramène spectateur (« Faire regarder », avec ou sans le clavier et la souris), « Vous regardez de nouveau. »
+        when {
+            !now.plays && before.plays -> show(Capsule.ShareRights(R.string.share_notice_watch))
+            now.keyboardMouse && !before.keyboardMouse -> show(Capsule.ShareRights(R.string.share_notice_keyboard_mouse))
+            before.keyboardMouse && !now.keyboardMouse -> show(Capsule.ShareRights(R.string.share_notice_keyboard_mouse_back))
+            now.plays && !before.plays -> show(Capsule.ShareRights(R.string.share_notice_play))
+        }
+    }
+
+    override fun onShareEnd(end: Int, text: String) {
+        // Le texte arrive aussi avec la fin de la session (`Ended.error`), que l'écran de fin affiche : rien à garder ici.
+        android.util.Log.i("KyberNow", "partage : fin ${listOf("arrêté", "retiré", "format illisible").getOrElse(end) { end.toString() }}")
+    }
+
     override fun onPointer(hasPosition: Boolean, x: Double, y: Double, remoteHidden: Boolean, width: Int, height: Int, hotX: Int, hotY: Int, pixels: IntArray?) {
         if (pixels != null && width > 0 && height > 0) {
             val bmp = Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888).apply { isPremultiplied = true }
@@ -231,7 +268,19 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
     override fun clipText(): String? = runCatching { clipboard?.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString() }.getOrNull()
 
     override fun clipSetText(text: String) {
+        copyText(text)
+    }
+
+    /**
+     * Écrit [text] dans le presse-papiers de l'appareil sans que l'ordinateur le prenne pour une copie
+     * de l'utilisateur (« Copier le lien » : le lien du partage ne va pas coller sur l'ordinateur) ;
+     * `false` si Android refuse.
+     */
+    fun copyText(text: String): Boolean {
+        val manager = clipboard ?: return false
         ownWrite.set(true)
-        if (runCatching { clipboard?.setPrimaryClip(ClipData.newPlainText("KyberNow", text)) }.isFailure) ownWrite.set(false)
+        val ok = runCatching { manager.setPrimaryClip(ClipData.newPlainText("KyberNow", text)) }.isSuccess
+        if (!ok) ownWrite.set(false)
+        return ok
     }
 }

@@ -9,6 +9,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -17,6 +18,12 @@ import com.github.takahirom.roborazzi.captureRoboImage
 import fr.leslignesclaires.kybernow.core.FormFactor
 import fr.leslignesclaires.kybernow.core.HostInfo
 import fr.leslignesclaires.kybernow.core.Pad
+import fr.leslignesclaires.kybernow.core.ShareAvailability
+import fr.leslignesclaires.kybernow.core.ShareGuest
+import fr.leslignesclaires.kybernow.core.ShareLink
+import fr.leslignesclaires.kybernow.core.ShareRole
+import fr.leslignesclaires.kybernow.core.ShareState
+import fr.leslignesclaires.kybernow.core.ShareTarget
 import fr.leslignesclaires.kybernow.core.StationInfo
 import fr.leslignesclaires.kybernow.core.StationUpdate
 import fr.leslignesclaires.kybernow.core.WakeTarget
@@ -33,6 +40,7 @@ import fr.leslignesclaires.kybernow.model.PadAxes
 import fr.leslignesclaires.kybernow.model.Profile
 import fr.leslignesclaires.kybernow.model.Screen
 import fr.leslignesclaires.kybernow.model.ScreenMode
+import fr.leslignesclaires.kybernow.session.Capsule
 import fr.leslignesclaires.kybernow.session.Ended
 import fr.leslignesclaires.kybernow.session.Phase
 import fr.leslignesclaires.kybernow.session.Second
@@ -40,6 +48,7 @@ import fr.leslignesclaires.kybernow.session.SessionActions
 import fr.leslignesclaires.kybernow.session.SessionOverlay
 import fr.leslignesclaires.kybernow.session.SessionState
 import fr.leslignesclaires.kybernow.session.SessionUi
+import fr.leslignesclaires.kybernow.session.ShareCopy
 import fr.leslignesclaires.kybernow.session.Shortcut
 import fr.leslignesclaires.kybernow.ui.HostStatus
 import fr.leslignesclaires.kybernow.ui.KnTheme
@@ -52,6 +61,7 @@ import fr.leslignesclaires.kybernow.ui.home.HomeActions
 import fr.leslignesclaires.kybernow.ui.home.HomeContent
 import fr.leslignesclaires.kybernow.ui.home.HomeState
 import fr.leslignesclaires.kybernow.ui.settings.AppSettingsActions
+import fr.leslignesclaires.kybernow.ui.share.JoinContent
 import fr.leslignesclaires.kybernow.ui.settings.AppSettingsContent
 import fr.leslignesclaires.kybernow.ui.settings.AppSettingsState
 import fr.leslignesclaires.kybernow.ui.settings.FingerprintCheck
@@ -75,6 +85,8 @@ private const val PHONE_PAGE = "w411dp-h1600dp-port-xhdpi"
 private const val PHONE_TALL = "w411dp-h1900dp-port-xhdpi"
 private const val PHONE_LAND = "w914dp-h411dp-land-xxhdpi"
 private const val TABLET = "w1280dp-h800dp-land-xhdpi"
+/** Un petit téléphone en paysage (moins de 700 dp de large). */
+private const val PHONE_SMALL_LAND = "w640dp-h360dp-land-xxhdpi"
 private const val TABLET_PORTRAIT = "w800dp-h1280dp-port-xhdpi"
 /** La tablette, assez haute pour la rubrique Commandes entière (elle défile sur l'appareil). */
 private const val TABLET_TALL = "w1280dp-h1500dp-xhdpi"
@@ -143,7 +155,7 @@ class Screenshots {
     private fun info(station: StationInfo? = station(), name: String = "ATELIER") =
         HostInfo(name, "Windows 11 Pro 24H2", "NVIDIA GeForce RTX 3080 Ti", false, station?.version ?: "0.4.9", true, true, station)
 
-    private val noActions = HomeActions({}, { _, _ -> }, {}, {}, {}, {}, {}, {}, {})
+    private val noActions = HomeActions({}, { _, _ -> }, {}, {}, {}, {}, {}, {}, {}, {})
 
     private fun home(form: FormFactor, selected: String = "a", status: Map<String, HostStatus>? = null, hosts: List<Host> = listOf(atelier, portable, bureau)) = HomeState(
         hosts = hosts,
@@ -295,7 +307,7 @@ class Screenshots {
 
     // MARK: - Connexion et session
 
-    private fun session(tv: Boolean, setup: SessionUi.() -> Unit): SessionUi {
+    private fun session(tv: Boolean, title: String = "Atelier", guest: Boolean = false, setup: SessionUi.() -> Unit): SessionUi {
         val state = SessionState(context, Gamepads(context))
         state.phase.value = Phase.STREAMING
         state.second.value = Second(8.1, 3.4, 120, 0, 0, 0, 46.0, doubleArrayOf(1.2, 2.1, 0.4, 1.6, 1.9, 0.9))
@@ -320,8 +332,14 @@ class Screenshots {
             override fun openKeyboard(open: Boolean) {}
             override fun setOnScreenPad(on: Boolean) {}
             override fun setPadLayout(simple: Boolean) {}
+            override fun share() {}
+            override fun shareNewCode() {}
+            override fun shareSetRole(guest: ShareGuest, role: ShareRole) {}
+            override fun shareRemove(guest: ShareGuest) {}
+            override fun shareStop() {}
+            override fun shareCopyLink() {}
         }
-        return SessionUi("Atelier", tv, state, actions).apply { passageDone = true; setup() }
+        return SessionUi(title, tv, state, actions, guest = guest, computerName = "Atelier").apply { passageDone = true; setup() }
     }
 
     /** L'écran de connexion, à la deuxième étape. */
@@ -446,6 +464,107 @@ class Screenshots {
         shot("reglages-commandes-sans-vibreur", "telephone", FormFactor.PHONE) {
             HostSettingsContent(settings(FormFactor.PHONE).copy(vibrator = false), settingsActions, Rubric.CONTROLS, only = Rubric.CONTROLS)
         }
+    }
+
+    // MARK: - KyberNow Share
+
+    /** Un partage ouvert avec deux invités : un spectateur et un joueur qui a le clavier et la souris. */
+    private fun SessionUi.sharing(guests: List<ShareGuest> = listOf(
+        ShareGuest("g1", "Léa", "ios", ShareRole.SPECTATOR, since = now / 1000 - 42),
+        ShareGuest("g2", "Max", "web", ShareRole.PLAYER_KBM, since = now / 1000 - 12 * 60),
+    )) {
+        state.share.value = ShareState("428913", "428 913", "kybernow://join?host=192.168.1.20&port=41234&fp=sha256:ab&code=428913", "https://192.168.1.20:41234/link/?join=428913", guests)
+    }
+
+    @Test @Config(qualifiers = PHONE_LAND)
+    fun sharePhone() {
+        shot("session-partage-barre", "telephone", FormFactor.PHONE) { WithImage(session(false) { barOpen = true; sharing() }) }
+        shot("session-partage", "telephone", FormFactor.PHONE) { WithImage(session(false) { barOpen = true; shareOpen = true; sharing() }) }
+        shot("session-partage-copie", "telephone", FormFactor.PHONE, listOf("fr")) {
+            WithImage(session(false) { barOpen = true; shareOpen = true; sharing(); shareCopy = ShareCopy.COPIED })
+        }
+        shot("session-partage-joueur", "telephone", FormFactor.PHONE, listOf("fr")) {
+            WithImage(session(false) { shareOpen = true; sharing(listOf(ShareGuest("g3", "Hugo", "android", ShareRole.PLAYER, since = now / 1000 - 3700), ShareGuest("g4", "Zoé", "webos", ShareRole.SPECTATOR), ShareGuest("g5", "Eva", "mac", ShareRole.SPECTATOR), ShareGuest("g6", "Tom", "windows", ShareRole.SPECTATOR))) })
+        }
+        shot("session-partage-vide", "telephone", FormFactor.PHONE, listOf("fr")) { WithImage(session(false) { shareOpen = true; sharing(emptyList()) }) }
+        // « Partager » inactif : le texte du cœur dit pourquoi (ici, Station trop ancienne).
+        shot("session-partage-inactif", "telephone", FormFactor.PHONE) {
+            val fr = androidx.compose.ui.platform.LocalConfiguration.current.locales[0].language == "fr"
+            WithImage(session(false) {
+                barOpen = true
+                shareAvailability = ShareAvailability.UNSUPPORTED
+                shareUnavailable = if (fr) "Le partage demande KyberNow Station 0.8.0 ou plus récente." else "Sharing needs KyberNow Station 0.8.0 or later."
+            })
+        }
+    }
+
+    /** Un petit téléphone en paysage : « Partager » n'a que son icône, la pastille reste. */
+    @Test @Config(qualifiers = PHONE_SMALL_LAND)
+    fun sharePhoneSmall() {
+        shot("session-partage-barre", "petit-telephone", FormFactor.PHONE) { WithImage(session(false) { barOpen = true; sharing() }) }
+        shot("invite-joueur-clavier-souris", "petit-telephone", FormFactor.PHONE, listOf("fr")) { WithImage(guest(false, ShareRole.PLAYER_KBM) { barOpen = true }) }
+    }
+
+    @Test @Config(qualifiers = TV)
+    fun shareTv() {
+        shot("session-partage-menu", "tv", FormFactor.TV) { WithImage(session(true) { menuOpen = true; sharing() }) }
+        shot("session-partage", "tv", FormFactor.TV) { WithImage(session(true) { menuOpen = true; shareOpen = true; sharing() }) }
+    }
+
+    @Test @Config(qualifiers = TABLET)
+    fun shareTablet() {
+        shot("session-partage", "tablette", FormFactor.TABLET, listOf("fr")) { WithImage(session(false) { barOpen = true; shareOpen = true; sharing() }) }
+    }
+
+    /** La session d'un invité : « Invité sur … », la barre réduite selon son rôle. */
+    @Composable
+    private fun guest(tv: Boolean, role: ShareRole, setup: SessionUi.() -> Unit = {}): SessionUi =
+        session(tv, title = stringResource(R.string.share_guest_on, "Atelier"), guest = true) { state.shareRole.value = role; setup() }
+
+    @Test @Config(qualifiers = PHONE_LAND)
+    fun guestPhone() {
+        shot("invite-connexion", "telephone", FormFactor.PHONE) { WithImage(guest(false, ShareRole.SPECTATOR) { passageDone = false; state.phase.value = Phase.CONNECTING; state.firstImageAt.set(0) }) }
+        shot("invite-spectateur", "telephone", FormFactor.PHONE) { WithImage(guest(false, ShareRole.SPECTATOR) { barOpen = true }) }
+        shot("invite-joueur", "telephone", FormFactor.PHONE) { WithImage(guest(false, ShareRole.PLAYER) { barOpen = true }) }
+        shot("invite-joueur-clavier-souris", "telephone", FormFactor.PHONE) { WithImage(guest(false, ShareRole.PLAYER_KBM) { barOpen = true }) }
+        shot("invite-manette", "telephone", FormFactor.PHONE, listOf("fr")) { WithImage(guest(false, ShareRole.PLAYER) { padShown = true; barOpen = true }) }
+        shot("invite-avis", "telephone", FormFactor.PHONE) {
+            WithImage(guest(false, ShareRole.PLAYER) { state.capsule.value = Capsule.ShareRights(R.string.share_notice_play) })
+        }
+        shot("invite-fin", "telephone", FormFactor.PHONE) {
+            val fr = androidx.compose.ui.platform.LocalConfiguration.current.locales[0].language == "fr"
+            WithImage(guest(false, ShareRole.PLAYER) {
+                state.phase.value = Phase.ENDED
+                state.ended.value = Ended(if (fr) "Léa a arrêté le partage." else "Léa stopped sharing.", null, null, null)
+            })
+        }
+    }
+
+    @Test @Config(qualifiers = TV)
+    fun guestTv() {
+        shot("invite-connexion", "tv", FormFactor.TV) { WithImage(guest(true, ShareRole.PLAYER) { passageDone = false; state.phase.value = Phase.CONNECTING; state.firstImageAt.set(0) }) }
+        shot("invite-spectateur-menu", "tv", FormFactor.TV) { WithImage(guest(true, ShareRole.SPECTATOR) { menuOpen = true }) }
+        shot("invite-joueur-clavier-souris-menu", "tv", FormFactor.TV) { WithImage(guest(true, ShareRole.PLAYER_KBM) { menuOpen = true }) }
+    }
+
+    /** « Rejoindre avec un code » : le code et le prénom ; lien ouvert ; pavé du téléviseur. */
+    private val shareLink = ShareLink(ShareTarget("192.168.1.20", 41234, "sha256:ab:cd:ef:01:23:45:67:89"), "428913")
+
+    @Test @Config(qualifiers = PHONE)
+    fun joinPhone() {
+        shot("rejoindre", "telephone", FormFactor.PHONE) { JoinContent(null, true, "Pixel de Léa", false, null, {}, { _, _, _ -> }) }
+        shot("rejoindre-lien", "telephone", FormFactor.PHONE, listOf("fr")) { JoinContent(shareLink, false, "Pixel de Léa", false, null, {}, { _, _, _ -> }) }
+        shot("rejoindre-recherche", "telephone", FormFactor.PHONE, listOf("fr")) { JoinContent(shareLink, false, "Léa", true, null, {}, { _, _, _ -> }) }
+        shot("rejoindre-refus", "telephone", FormFactor.PHONE) {
+            val fr = androidx.compose.ui.platform.LocalConfiguration.current.locales[0].language == "fr"
+            JoinContent(shareLink, false, "Léa", false, if (fr) "Aucun partage avec ce code sur le réseau." else "No share with this code on your network.", {}, { _, _, _ -> })
+        }
+    }
+
+    @Test @Config(qualifiers = TV)
+    fun joinTv() {
+        shot("rejoindre", "tv", FormFactor.TV) { JoinContent(null, false, "SHIELD", false, null, {}, { _, _, _ -> }) }
+        shot("rejoindre-lien", "tv", FormFactor.TV, listOf("fr")) { JoinContent(shareLink, false, "SHIELD", false, null, {}, { _, _, _ -> }) }
     }
 
     @Test @Config(qualifiers = TABLET_TALL)
