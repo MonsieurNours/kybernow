@@ -453,11 +453,12 @@ pub fn share_close(app: AppHandle, id: String) -> Result<ShareView, String> {
 /// « Copier le lien » : le texte part dans le presse-papiers de Windows (le
 /// presse-papiers de l'interface demande un geste et peut être refusé). Vrai
 /// refus (« Copie impossible… ») si le presse-papiers n'a pas pris le texte.
+/// Il entre dans l'historique de Windows (Win+V) : on le copie pour le coller.
 #[tauri::command(async)]
 pub fn copy_text(text: String) -> Result<(), String> {
     use kybernow_core::input::Pasteboard;
     let board = crate::pasteboard::WinPasteboard;
-    board.set_text(&text);
+    board.set_plain_text(&text);
     if board.text().as_deref() == Some(text.as_str()) { Ok(()) } else { Err(String::new()) }
 }
 

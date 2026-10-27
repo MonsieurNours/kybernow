@@ -180,6 +180,9 @@ public struct ShareFound: Sendable {
     public let host: String
     /// Le rôle de départ.
     public let role: ShareRole
+    /// Le format de l'image de l'hôte (absent si elle n'avait pas démarré) :
+    /// c'est celui que reçoit l'invité, pas celui de ses réglages.
+    public let codec: VideoCodec?
 
     init?(json text: String) {
         guard let data = text.data(using: .utf8), let j = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
@@ -193,6 +196,7 @@ public struct ShareFound: Sendable {
         let name = joined["host"] as? String ?? ""
         self.host = name.isEmpty ? self.computer : name
         role = ShareRole(wire: joined["role"] as? String) ?? .spectator
+        codec = (joined["codec"] as? String).flatMap(VideoCodec.init(rawValue:))
     }
 
     #if DEBUG
@@ -204,6 +208,7 @@ public struct ShareFound: Sendable {
         computer = demoComputer
         self.host = host
         self.role = role
+        codec = .hevc
     }
     #endif
 

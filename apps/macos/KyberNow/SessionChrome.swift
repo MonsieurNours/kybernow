@@ -400,7 +400,8 @@ private struct SessionBar: View {
     private var formatLabel: String {
         var parts = [session.modeLabel.replacingOccurrences(of: " · ", with: " · ")]
         if let s = session.stats, !s.format.isEmpty {
-            let codec = session.host.settings.codec.rawValue.uppercased()
+            // Un invité reçoit le format de l'hôte, pas celui de ses réglages.
+            let codec = (session.guest?.codec ?? session.host.settings.codec).rawValue.uppercased()
             parts.append("\(codec == "H264" ? "H.264" : codec) \(s.format.contains("4:4:4") ? "4:4:4" : "4:2:0")")
         }
         return parts.joined(separator: " · ")

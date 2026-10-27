@@ -20,6 +20,8 @@
 //! sa synchronisation entre appareils, comme le faisait kynput : formats
 //! `ExcludeClipboardContentFromMonitorProcessing`,
 //! `CanIncludeInClipboardHistory` et `CanUploadToCloudClipboard` (à 0).
+//! Le lien d'un partage (« Copier le lien », `set_plain_text`) y entre, lui :
+//! on le copie pour le coller ailleurs.
 
 #[cfg(windows)]
 pub use imp::WinPasteboard;
@@ -224,7 +226,7 @@ mod imp {
         }
     }
 
-    fn write(hwnd: HWND, text: String) {
+    fn write(hwnd: HWND, text: String, private: bool) {
         let Some(_open) = Open::new(hwnd) else {
             log::warn!("presse-papiers : occupé par une autre app, texte de l'ordinateur pas écrit");
             return;
@@ -233,7 +235,9 @@ mod imp {
             if EmptyClipboard().is_err() {
                 return;
             }
-            keep_out_of_history();
+            if private {
+                keep_out_of_history();
+            }
             let wide: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
             let bytes = std::slice::from_raw_parts(wide.as_ptr() as *const u8, wide.len() * 2);
             put(FORMAT, bytes);
@@ -241,6 +245,17 @@ mod imp {
     }
 
     pub struct WinPasteboard;
+
+    impl WinPasteboard {
+        /// Texte copié par l'utilisateur dans l'app (« Copier le lien ») : il
+        /// entre dans l'historique (Win+V) et la synchronisation de Windows.
+        pub fn set_plain_text(&self, text: &str) {
+            let text = text.to_string();
+            if on_owner(move |hwnd| write(hwnd, text, false)).is_none() {
+                log::warn!("presse-papiers : le fil du presse-papiers n'a pas répondu, lien pas copié");
+            }
+        }
+    }
 
     impl Pasteboard for WinPasteboard {
         fn change_count(&self) -> u64 {
@@ -253,7 +268,7 @@ mod imp {
 
         fn set_text(&self, text: &str) {
             let text = text.to_string();
-            if on_owner(move |hwnd| write(hwnd, text)).is_none() {
+            if on_owner(move |hwnd| write(hwnd, text, true)).is_none() {
                 log::warn!("presse-papiers : le fil du presse-papiers n'a pas répondu, texte de l'ordinateur pas écrit");
             }
         }

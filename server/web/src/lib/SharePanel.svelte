@@ -130,7 +130,7 @@
     <div class="people-head">
       <h3>{host ? t('share.participants') : t('share.people')}</h3>
       {#if share.guests.length}<span class="pill signal">{tn('share.guests', share.guests.length)}</span>{/if}
-      <span class="limit">{t('share.limit')}</span>
+      {#if share.guests.length >= 4}<span class="limit">{t('share.limit')}</span>{/if}
     </div>
     {#if host}
       <div class="person">
