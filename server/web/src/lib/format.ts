@@ -57,6 +57,18 @@ export function duration(seconds: number): string {
   return t('format.hours', { h: Math.floor(m / 60), m: String(m % 60).padStart(2, '0') })
 }
 
+/**
+ * « moins d'une minute », « 3 min », « 1 h 12 » : depuis combien de temps un invité (ou l'hôte) est
+ * dans le partage (docs/link-ui.md, « Durée »). `seconds` : l'écart entre l'arrivée, en secondes Unix de
+ * la Station, et l'heure de cette page ; jamais négatif (horloges décalées).
+ */
+export function sinceText(seconds: number): string {
+  const m = Math.floor(Math.max(0, seconds) / 60)
+  if (m < 1) return t('share.under')
+  if (m < 60) return t('share.minutes', { n: m })
+  return t('share.hours', { h: Math.floor(m / 60), m: String(m % 60).padStart(2, '0') })
+}
+
 /** « 8,3 ms » (anglais : « 8.3 ms ») */
 export function ms(value: number): string {
   if (value >= 100) return `${Math.round(value)} ms`

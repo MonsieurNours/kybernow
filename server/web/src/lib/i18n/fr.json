@@ -932,6 +932,9 @@
       "player_kbm": "{name} · Joueur, clavier et souris"
     },
     "since": "depuis {duration}",
+    "under": "moins d'une minute",
+    "minutes": "{n} min",
+    "hours": "{h} h {m}",
     "play": "Faire jouer",
     "giveKbm": "Donner le clavier et la souris",
     "takeKbm": "Reprendre le clavier et la souris",

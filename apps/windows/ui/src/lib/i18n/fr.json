@@ -305,6 +305,7 @@
     "guest_player": "{name} · Joueur",
     "guest_player_kbm": "{name} · Joueur, clavier et souris",
     "since": "depuis {duration}",
+    "under_minute": "moins d'une minute",
     "app_mac": "Mac",
     "app_windows": "Windows",
     "app_linux": "Linux",

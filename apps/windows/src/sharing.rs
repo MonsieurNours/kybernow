@@ -139,8 +139,8 @@ pub struct GuestView {
     pub app: String,
     /// `spectator`, `player` ou `player_kbm`.
     pub role: &'static str,
-    /// Arrivée, telle que la Station la donne (secondes ou millisecondes depuis
-    /// 1970) : la liste dit « depuis 3 min ».
+    /// Arrivée, en secondes Unix de la Station (docs/link-ui.md, « Durée ») : la
+    /// liste dit « depuis 3 min ».
     pub since: Option<i64>,
 }
 

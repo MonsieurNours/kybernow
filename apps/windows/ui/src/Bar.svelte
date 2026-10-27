@@ -11,8 +11,9 @@
   KyberNow Share (docs/link-ui.md « Partage ») : pour une session d'hôte,
   « Partager » (icône de partage, comme les autres menus) ouvre le partage et son
   panneau (code, « Copier le lien », QR code, invités et leurs actions, « Nouveau
-  code », « Arrêter le partage »), et une pastille « 2 invités » le rouvre ; inactif,
-  il dit pourquoi (Station trop ancienne, partage coupé). Pour une session d'invité,
+  code », « Arrêter le partage »), et une pastille « 2 invités » le rouvre ; impossible
+  (Station trop ancienne, partage coupé), il est estompé : à la souris sans effet, avec la
+  raison en infobulle ; au toucher, il ouvre le panneau réduit à la raison. Pour une session d'invité,
   la barre est réduite : son rôle (« Spectateur », « Joueur »), les statistiques,
   « Touches » et la souris seulement avec le clavier et la souris, le plein écran,
   « Quitter le partage » ; ni profil ni « Ordinateurs ». Un changement de rôle
@@ -32,7 +33,7 @@
   import Icon from './lib/Icon.svelte'
   import Mark from './lib/Mark.svelte'
   import type { AppInfo, BarComputer, GuestBar, KeepSound, SessionStats, Share, ShareGuest, ShareRole, ShareRoleEvent, ShareStateEvent, Stats } from './lib/api'
-  import { duration, invoke, listen, localLabel, ms, seconds } from './lib/api'
+  import { invoke, listen, localLabel, ms, sinceText } from './lib/api'
   import { setLang, t } from './lib/i18n/index.svelte'
 
   /** L'ordinateur de la session que la barre sert (`guest-N` pour une session d'invité). */
@@ -387,21 +388,33 @@
   const guestCount = $derived(share?.open ? share.guests.length : 0)
   const roleName = (r: ShareRole) => t(r === 'spectator' ? 'share.role_spectator' : 'share.role_player')
 
+  /** Le dernier appui sur « Partager » est un doigt ou un stylet (pas une souris ni le clavier). */
+  let shareTouch = false
+
   /**
    * « Partager » : ouvre le partage s'il ne l'est pas (code, lien, QR code) puis son panneau ; une
-   * pastille d'invités le rouvre. Inactif (Station trop ancienne, partage coupé), il ouvre le texte qui dit pourquoi.
+   * pastille d'invités le rouvre. Inactif (Station trop ancienne, partage coupé) : à la souris et au
+   * clavier, il ne fait rien (l'infobulle dit pourquoi) ; au toucher, qui n'a pas d'infobulle, il reste
+   * sélectionnable et ouvre le panneau réduit à la raison (docs/link-ui.md, « Partage »).
    */
   async function toggleShare() {
     if (menu === 'share') return toggle('share')
+    const touched = shareTouch
+    shareTouch = false
+    if (blocked && !touched) return
     shareError = null
     copied = null
     if (!blocked && !share?.open) {
       if (opening) return
       opening = true
+      // La barre a pu passer à une autre session pendant l'appel : le partage ne se range que chez la sienne.
+      const mine = id
       try {
-        share = await invoke<Share>('share_open', { id })
+        const view = await invoke<Share>('share_open', { id: mine })
+        shares.set(mine, view)
+        if (id === mine) share = view
       } catch (e) {
-        shareError = String(e)
+        if (id === mine) shareError = String(e)
       } finally {
         opening = false
       }
@@ -409,13 +422,16 @@
     await toggle('share')
   }
 
-  /** Une action sur le partage : Admin répond avec le partage à jour. */
+  /** Une action sur le partage : Admin répond avec le partage à jour (celui de la session qui l'a demandée). */
   async function shareAction(call: () => Promise<Share>) {
     shareError = null
+    const mine = id
     try {
-      share = await call()
+      const view = await call()
+      shares.set(mine, view)
+      if (id === mine) share = view
     } catch (e) {
-      shareError = String(e)
+      if (id === mine) shareError = String(e)
     }
     await growForMenu()
   }
@@ -458,7 +474,7 @@
   const guestMeta = (g: ShareGuest) =>
     [
       apps.includes(g.app) ? t(`share.app_${g.app}`) : '',
-      g.since != null ? t('share.since', { duration: duration(Math.max(0, Math.floor(now / 1000) - seconds(g.since))) }) : '',
+      g.since != null ? t('share.since', { duration: sinceText(g.since, now / 1000) }) : '',
     ]
       .filter(Boolean)
       .join(' · ')
@@ -555,6 +571,7 @@
       aria-label={t('share.share')}
       title={blocked && share?.text ? share.text : t('share.share')}
       disabled={opening}
+      onpointerdown={(e) => (shareTouch = e.pointerType === 'touch' || e.pointerType === 'pen')}
       onclick={toggleShare}
     >
       <Icon name="share" size={20} stroke={1.6} />
@@ -598,11 +615,13 @@
                     <span class="gmeta">{guestMeta(g)}</span>
                   </div>
                   <div class="acts">
+                    <!-- Spectateur : « Faire jouer ». Joueur, avec ou sans le clavier et la souris : « Faire regarder »
+                         (retour en spectateur) à la place, puis « Donner » ou « Reprendre le clavier et la souris ». -->
                     {#if g.role === 'spectator'}
                       <button onclick={() => setRole(g, 'player')}>{t('share.let_play')}</button>
                     {:else}
-                      <button onclick={() => setRole(g, g.role === 'player' ? 'player_kbm' : 'player')}>{g.role === 'player' ? t('share.give_kbm') : t('share.take_kbm')}</button>
                       <button onclick={() => setRole(g, 'spectator')}>{t('share.watch_only')}</button>
+                      <button onclick={() => setRole(g, g.role === 'player' ? 'player_kbm' : 'player')}>{g.role === 'player' ? t('share.give_kbm') : t('share.take_kbm')}</button>
                     {/if}
                     <button class="danger" onclick={() => kick(g)}>{t('share.remove')}</button>
                   </div>
@@ -918,8 +937,10 @@
     color: var(--text);
   }
 
-  /* « Partager » inactif : il dit pourquoi dans son panneau. */
-  .icon.inert {
+  /* « Partager » inactif : estompé ; à la souris sans effet (l'infobulle dit pourquoi), au toucher il ouvre la raison. */
+  .icon.inert,
+  .icon.inert:hover {
+    background: none;
     color: var(--ghost);
   }
 

@@ -24,8 +24,8 @@
     "session_window": "session window: {error}",
     "video_thread": "the picture thread stopped",
     "open_admin": "Admin could not be opened in the browser (code {code})",
-    "share_link": "this share link cannot be read",
-    "share_code": "the code has six digits"
+    "share_link": "This share link cannot be read.",
+    "share_code": "The code has six digits."
   },
   "notify": {
     "update_title": "KyberNow Link {version} is ready",

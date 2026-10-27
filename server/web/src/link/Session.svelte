@@ -26,7 +26,8 @@
   import { i18n, t, tn } from '../lib/i18n/index.svelte'
   import { tName } from './names'
   import { lastResortAllowed, restartForConnection } from './station.svelte'
-  import { formatLabel, leaveShare, type GuestStart } from './share'
+  import { formatLabel, leaveShare, redact, type GuestStart } from './share'
+  import { gamepadsChanged, installGamepadGate, removeGamepadGate } from './gamepads'
   import ShareBox from './ShareBox.svelte'
 
   /** `guest` : la session d'un invité du partage (KyberNow Share, docs/kybernow-share.md) : pas de
@@ -80,6 +81,10 @@
   let shareOpen = $state(false)
   let shareSupport = $state<'ok' | 'old' | 'off'>('ok')
   const shareHint = $derived(shareSupport === 'old' ? t('share.bar.tooOld') : shareSupport === 'off' ? t('share.off') : '')
+  /** Invités du partage ouvert : la pastille « 2 invités » (rien quand il n'y en a pas encore). */
+  const guestCount = $derived(share?.guests.length ?? 0)
+  /** Le dernier appui sur « Partager » est un doigt ou un stylet (pas une souris ni le clavier). */
+  let shareTouch = false
   let diagText = $state('')
 
   let stage: HTMLElement
@@ -195,8 +200,13 @@
     }
     if (moved) {
       // L'hôte s'est préparé de nouveau : son écran a un autre identifiant, que Kyber ne prend
-      // qu'à une nouvelle connexion, avec le jeton renouvelé.
-      if (phase === 'live' || phase === 'connecting') restart()
+      // qu'à une nouvelle connexion, avec le jeton renouvelé. L'écran que visent les positions
+      // et la liste de Kyber sont à réapprendre (sinon les positions iraient à l'ancien écran).
+      if (phase === 'live' || phase === 'connecting') {
+        forgetInputSocket()
+        displays = null
+        restart()
+      }
     } else if (beat.token) {
       engine?.updateCredentials(beat.token)
     }
@@ -402,7 +412,7 @@
         // (le moteur est chargé, le format lu avant d'entrer : `Join.svelte`).
         mode = { width: guestDisplay.width, height: guestDisplay.height, refresh: guestDisplay.refresh }
         codecList = g.codecs
-        textInput?.toggleAttribute(TEXT_ATTRIBUTE, engineInputs())
+        textInput?.toggleAttribute(TEXT_ATTRIBUTE, engineInputs() && canKbm)
         await connect(preferredProtocol(), gen)
         return
       }
@@ -637,7 +647,7 @@
         break
       }
       case 'error':
-        console.warn('KyberNow : connexion impossible', e.message)
+        console.warn('KyberNow : connexion impossible', redact(e.message, g ? [g.join.secret, ticketToken] : []))
         // Un jeton refusé ne se répare pas en redémarrant la Station.
         if (e.message === 'unauthorized') {
           // Un invité retiré n'a plus de jeton : son signe de vie dit pourquoi.
@@ -848,6 +858,31 @@
     })
   })
 
+  // Le clavier du navigateur et le champ de texte du moteur suivent les mêmes droits : en plein écran
+  // (Chrome, Edge), toutes les touches vont à l'ordinateur seulement avec le clavier et la souris ; sans,
+  // elles reviennent au navigateur (Échap, raccourcis), et le champ que le moteur lit n'écoute plus.
+  $effect(() => {
+    const kbm = canKbm
+    untrack(() => {
+      textInput?.toggleAttribute(TEXT_ATTRIBUTE, engineInputs() && kbm)
+      if (!g || !hasKeyboardLock || !document.fullscreenElement) return
+      const keyboard = (navigator as any).keyboard
+      if (kbm) keyboard.lock().catch(() => {})
+      else keyboard.unlock?.()
+    })
+  })
+
+  // Les manettes d'un invité suivent son rôle (voir `gamepads.ts`) : le moteur ne les voit que s'il joue.
+  let padsAllowed = untrack(() => canPlay)
+  $effect(() => {
+    const play = canPlay
+    untrack(() => {
+      if (play === padsAllowed) return
+      padsAllowed = play
+      gamepadsChanged(play)
+    })
+  })
+
   /** Le pointeur est resté contre le bord haut : la barre s'ouvre si la page a le focus et la souris n'est pas capturée. */
   function openFromEdge() {
     dwellTimer = null
@@ -927,8 +962,15 @@
     soundBlocked = (await e.audioState()) === 'suspended'
   }
 
-  /** « Partager » : le panneau de l'hôte ; les autres menus de la barre se ferment. */
+  /**
+   * « Partager » : le panneau de l'hôte ; les autres menus de la barre se ferment. Impossible (Station
+   * trop ancienne, partage coupé) : à la souris et au clavier, sans effet (l'infobulle dit pourquoi) ;
+   * au toucher, il ouvre le panneau réduit à la raison (docs/link-ui.md, « Partage »).
+   */
   function toggleShare() {
+    const touched = shareTouch || isTouch
+    shareTouch = false
+    if (shareSupport !== 'ok' && !touched && !shareOpen) return
     shareOpen = !shareOpen
     if (shareOpen) {
       metricsOpen = false
@@ -1017,6 +1059,7 @@
     installPointerGate(pointerAllowed)
     installAbsoluteMouse()
     watchInputSocket()
+    if (g) installGamepadGate(() => canPlay)
     // La toile a les proportions de l'image : un point de la toile donne une
     // position sur l'écran de l'ordinateur (taille de l'image reçue).
     setPositionMapper((cx, cy) => {
@@ -1190,6 +1233,7 @@
       removePointerGate()
       removeAbsoluteMouse()
       removeInputGuard()
+      removeGamepadGate()
       allowPackets(true)
       setPositionMapper(() => null)
       forgetInputSocket()
@@ -1328,10 +1372,10 @@
       {/if}
       {#if !g}
         <!-- « Partager » (KyberNow Share) : inactif si la Station ne le sait pas ou l'a coupé ; le panneau dit pourquoi. -->
-        <button type="button" class="chip" class:inactive={shareSupport !== 'ok'} aria-expanded={shareOpen} aria-disabled={shareSupport !== 'ok'} aria-label={share ? `${t('share.bar.share')} · ${tn('share.guests', share.guests.length)}` : t('share.bar.share')} title={shareHint} onclick={toggleShare}>
+        <button type="button" class="chip" class:inactive={shareSupport !== 'ok'} aria-expanded={shareOpen} aria-disabled={shareSupport !== 'ok'} aria-label={guestCount ? `${t('share.bar.share')} · ${tn('share.guests', guestCount)}` : t('share.bar.share')} title={shareHint} onpointerdown={(e) => (shareTouch = e.pointerType === 'touch' || e.pointerType === 'pen')} onclick={toggleShare}>
           <Icon name="share" size={16} stroke={1.7} />
           <span class="label">{t('share.bar.share')}</span>
-          {#if share}<span class="count" aria-hidden="true"><span class="full">{tn('share.guests', share.guests.length)}</span><span class="num">{share.guests.length}</span></span>{/if}
+          {#if guestCount}<span class="count" aria-hidden="true"><span class="full">{tn('share.guests', guestCount)}</span><span class="num">{guestCount}</span></span>{/if}
         </button>
       {/if}
       <span class="sep" aria-hidden="true"></span>
@@ -1374,7 +1418,7 @@
           <p class="muted">{t('session.metrics.waiting')}</p>
         {/if}
         <div class="mono foot">
-          <span>{t('session.metrics.fps', { fps })}</span><span>{plan?.mbps ?? '—'} Mbit/s</span><span>{plan?.reliable ? t('session.metrics.reliable') : t('session.metrics.fast')}</span>
+          <span>{t('session.metrics.fps', { fps })}</span>{#if !g}<span>{plan?.mbps ?? '—'} Mbit/s</span>{/if}<span>{plan?.reliable ? t('session.metrics.reliable') : t('session.metrics.fast')}</span>
         </div>
         <p class="muted small">{t('session.metrics.browserNote')}</p>
       </section>
@@ -1415,9 +1459,9 @@
           </button>
         {/if}
         {#if !g}
-          <button type="button" class="tb" class:inactive={shareSupport !== 'ok'} aria-expanded={shareOpen} aria-disabled={shareSupport !== 'ok'} aria-label={share ? `${t('share.bar.share')} · ${tn('share.guests', share.guests.length)}` : t('share.bar.share')} onclick={toggleShare}>
+          <button type="button" class="tb" class:inactive={shareSupport !== 'ok'} aria-expanded={shareOpen} aria-disabled={shareSupport !== 'ok'} aria-label={guestCount ? `${t('share.bar.share')} · ${tn('share.guests', guestCount)}` : t('share.bar.share')} onclick={toggleShare}>
             <Icon name="share" size={20} stroke={1.7} />
-            {#if share}<span class="tcount mono" aria-hidden="true">{share.guests.length}</span>{/if}
+            {#if guestCount}<span class="tcount mono" aria-hidden="true">{guestCount}</span>{/if}
           </button>
         {/if}
         <span class="sep" aria-hidden="true"></span>
@@ -1472,6 +1516,7 @@
   <textarea
     class="ime"
     bind:this={textInput}
+    disabled={!canKbm}
     onkeydown={typed.keydown}
     onbeforeinput={typed.beforeinput}
     oncompositionstart={typed.compositionstart}
@@ -1771,10 +1816,16 @@
     color: var(--signal-light);
   }
 
-  /* « Partager » : inactif quand la Station ne le sait pas ou l'a coupé (le panneau dit pourquoi). */
+  /* « Partager » impossible (la Station ne le sait pas, ou l'a coupé) : estompé ; à la souris sans effet
+     (l'infobulle dit pourquoi), au toucher il ouvre le panneau réduit à la raison. */
   .chip.inactive,
   .tb.inactive {
     opacity: 0.5;
+  }
+
+  button.chip.inactive:hover {
+    background: none;
+    color: var(--text-2);
   }
 
   /* Pastille du partage ouvert : « 2 invités ». */

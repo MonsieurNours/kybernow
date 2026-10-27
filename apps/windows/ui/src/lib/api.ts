@@ -310,7 +310,7 @@ export type ShareRole = 'spectator' | 'player' | 'player_kbm'
 
 /**
  * Un invité de la liste de l'hôte. `app` : `mac`, `windows`, `linux`, `ios`, `tvos`, `android`, `webos`
- * ou `web` ; `since` : son arrivée, en secondes ou en millisecondes depuis 1970 (selon la Station).
+ * ou `web` ; `since` : son arrivée, en secondes Unix de la Station.
  */
 export type ShareGuest = { id: string; name: string; app: string; role: ShareRole; since: number | null }
 
@@ -350,8 +350,15 @@ export type ShareStateEvent = { id: string; share: Share }
 /** Une pseudo-fiche d'ordinateur pour le passage et la connexion d'une session d'invité (ni dans la liste, ni gardée). */
 export const guestComputer = (j: { title: string; fingerprint: string | null }) => ({ name: j.title, preview: null, fingerprint: j.fingerprint })
 
-/** L'arrivée d'un invité telle que la Station la donne : secondes ou millisecondes depuis 1970. */
-export const seconds = (since: number) => (since > 1e11 ? Math.floor(since / 1000) : since)
+/**
+ * « moins d'une minute », « 3 min », « 1 h 12 » : depuis combien de temps un invité est là
+ * (docs/link-ui.md, « Durée »). `since` : son arrivée en secondes Unix de la Station, `now` :
+ * l'heure de ce PC en secondes ; jamais négative (horloges décalées).
+ */
+export const sinceText = (since: number, now = Date.now() / 1000) => {
+  const s = Math.max(0, Math.floor(now - since))
+  return s < 60 ? t('share.under_minute') : duration(s)
+}
 
 /** « 8,9 » en français, « 8.9 » en anglais. */
 export const ms = (v: number | null | undefined, digits = 1) => {
