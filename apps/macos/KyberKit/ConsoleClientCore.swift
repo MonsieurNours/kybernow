@@ -32,9 +32,13 @@ public struct HostInfo: Sendable, Equatable {
     /// Écrans que la Station sait créer en une session (multi-écrans) ; 1
     /// avec une Station antérieure.
     public let maxScreens: Int
+    /// « Partager » (KyberNow Share) : disponible, ou la raison pour laquelle
+    /// il ne l'est pas (Station trop ancienne, partage coupé sur l'ordinateur).
+    public let share: ShareAvailability
 
     public init(hostname: String? = nil, gpu: String? = nil, av1: Bool = false, virtualDisplay: Bool = true, speakers: Bool = true,
-                os: String? = nil, adminVersion: String? = nil, station: StationInfo? = nil, wake: [WakeTarget] = [], ownDevice: Bool = false, maxScreens: Int = 1) {
+                os: String? = nil, adminVersion: String? = nil, station: StationInfo? = nil, wake: [WakeTarget] = [], ownDevice: Bool = false, maxScreens: Int = 1,
+                share: ShareAvailability = .available) {
         self.hostname = hostname
         self.gpu = gpu
         self.av1 = av1
@@ -46,6 +50,7 @@ public struct HostInfo: Sendable, Equatable {
         self.wake = wake
         self.ownDevice = ownDevice
         self.maxScreens = max(1, maxScreens)
+        self.share = share
     }
 
     /// Version de la Station : celle de `station`, sinon celle d'Admin.
@@ -220,7 +225,7 @@ public final class ConsoleClient: @unchecked Sendable {
     }
 
     /// Un appel au cœur, sur la file de la console.
-    private func call<T: Sendable>(_ body: @escaping @Sendable (OpaquePointer) throws -> T) async throws -> T {
+    func call<T: Sendable>(_ body: @escaping @Sendable (OpaquePointer) throws -> T) async throws -> T {
         let console = self.console
         return try await withCheckedThrowingContinuation { continuation in
             queue.async {
@@ -230,7 +235,7 @@ public final class ConsoleClient: @unchecked Sendable {
     }
 
     /// Traduit un code de retour du cœur en erreur Swift.
-    private static func check(_ code: Int32, _ error: UnsafeMutablePointer<CChar>?) throws {
+    static func check(_ code: Int32, _ error: UnsafeMutablePointer<CChar>?) throws {
         let message = Core.take(error) ?? ""
         switch code {
         case KN_OK: return
@@ -247,7 +252,7 @@ public final class ConsoleClient: @unchecked Sendable {
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
     }
 
-    private static func hostInfo(_ json: [String: Any]) -> HostInfo {
+    private static func hostInfo(_ json: [String: Any], share: ShareAvailability) -> HostInfo {
         let vd = json["virtual_display"] as? [String: Any]
         let audio = json["audio"] as? [String: Any]
         return HostInfo(
@@ -261,7 +266,8 @@ public final class ConsoleClient: @unchecked Sendable {
             station: (json["station"] as? [String: Any]).map(stationInfo),
             wake: wakeTargets(json["wake"]),
             ownDevice: (json["account"] as? [String: Any])?["own_device"] as? Bool ?? false,
-            maxScreens: vd?["max_screens"] as? Int ?? 1
+            maxScreens: vd?["max_screens"] as? Int ?? 1,
+            share: share
         )
     }
 
@@ -288,7 +294,8 @@ public final class ConsoleClient: @unchecked Sendable {
             var out: UnsafeMutablePointer<CChar>?
             var error: UnsafeMutablePointer<CChar>?
             try Self.check(kn_console_info(console, &out, &error), error)
-            return Self.hostInfo(Self.json(Core.take(out)))
+            let text = Core.take(out)
+            return Self.hostInfo(Self.json(text), share: Share.availability(infoJSON: text ?? "{}"))
         }
     }
 

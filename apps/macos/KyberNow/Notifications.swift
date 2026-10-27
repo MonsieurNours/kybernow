@@ -26,6 +26,8 @@ final class Notifier: NSObject {
         case sessionStopped = "session-stopped"
         case stationDone = "station-done"
         case stillHere = "still-here"
+        /// Session d'invité finie par le partage (KyberNow Share), sans bouton.
+        case shareEnded = "share-ended"
     }
 
     /// Boutons des notifications.
@@ -149,6 +151,12 @@ final class Notifier: NSObject {
             post(.sessionEnded, host: host.id, title: String(localized: "La session sur \(host.name) est terminée"),
                  body: String(localized: "Un autre appareil a pris la main, ou Admin y a mis fin."), always: evenInForeground)
         }
+    }
+
+    /// Une session d'invité finie par le partage : sa raison (« {hôte} a
+    /// arrêté le partage. »), seule, sans bouton. Un clic ouvre l'app.
+    func shareEnded(_ text: String, session: UUID, evenInForeground: Bool = false) {
+        post(.shareEnded, host: session, title: text, body: "", always: evenInForeground)
     }
 
     /// Première fermeture de la fenêtre, une seule fois.

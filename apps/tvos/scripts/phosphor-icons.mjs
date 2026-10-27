@@ -15,6 +15,8 @@ const ICONS = [
   "warning", "wifi-high", "plus", "cloud", "check", "keyboard", "power", "play", "cursor", "headphones", "television-simple",
   "battery-high", "battery-medium", "battery-low", "vibrate", "number-square-one", "hand-pointing", "arrows-clockwise",
   "lock-simple", "link-simple", "device-mobile", "trash", "x", "lightning", "article", "globe-hemisphere-west",
+  // KyberNow Share (aussi dans le catalogue de l'iPhone et de l'iPad).
+  "share-network", "eye", "copy", "qr-code",
 ];
 
 const assets = process.argv[2];

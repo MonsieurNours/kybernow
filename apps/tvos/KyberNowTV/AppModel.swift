@@ -12,6 +12,8 @@ final class AppModel: ObservableObject {
     enum Screen: Equatable {
         case home
         case addHost
+        /// KyberNow Share : « Rejoindre avec un code » (le lien qui l'ouvre, s'il y en a un).
+        case join(ShareJoinLink?)
         case settings(UUID)
         case appSettings
         case gamepads
@@ -68,6 +70,11 @@ final class AppModel: ObservableObject {
         }
         switch UserDefaults.standard.string(forKey: "screen") {
         case "add": screen = .addHost
+        case "join": screen = .join(nil)
+        case "guest", "guest-menu":
+            // `-screen guest|guest-menu -demoRole spectator|player|player_kbm` : la session d'un invité, sans Station.
+            let role: ShareRole = switch UserDefaults.standard.string(forKey: "demoRole") { case "player": .player; case "player_kbm": .playerKbm; default: .spectator }
+            openGuestSession(ShareFound(demoComputer: "PC-DE-MATTHIEU", host: "Matthieu", role: role))
         case "app": screen = .appSettings
         case "gamepads": screen = .gamepads
         case "settings": if let id = selected { screen = .settings(id) }
@@ -155,8 +162,37 @@ final class AppModel: ObservableObject {
         controller.start()
     }
 
-    /// Liens du Top Shelf : `kybernow-tv://connect/<id>` ou `show/<id>`.
+    /// KyberNow Share : la session d'un invité (une Station qui a accepté un
+    /// code). Comme « Se connecter », sans ordinateur ajouté à cet appareil ;
+    /// rien n'est gardé après le partage.
+    func openGuestSession(_ found: ShareFound) {
+        guard session == nil else { return }
+        let controller = SessionController(guest: found, store: store) { [weak self] _ in
+            withAnimation(Theme.join) {
+                self?.session = nil
+                self?.screen = .home
+            }
+        }
+        session = controller
+        screen = .session(controller.host.id)
+        #if DEBUG
+        if store.demo {
+            controller.demoGuest(role: found.role, menu: UserDefaults.standard.string(forKey: "screen") == "guest-menu")
+            return
+        }
+        #endif
+        controller.start()
+    }
+
+    /// Liens du Top Shelf : `kybernow-tv://connect/<id>` ou `show/<id>` ;
+    /// `kybernow-tv://join?host=…&port=…&fp=…&code=…` : un partage à rejoindre
+    /// (le lien `kybernow://join` de l'hôte, sous le schéma de l'Apple TV).
     func open(_ url: URL) {
+        if url.scheme == "kybernow-tv", url.host == "join" {
+            let text = url.absoluteString.replacingOccurrences(of: "kybernow-tv://", with: "kybernow://")
+            if session == nil, let link = Share.parseLink(text) { screen = .join(link) }
+            return
+        }
         guard url.scheme == "kybernow-tv", let id = UUID(uuidString: url.lastPathComponent), store.host(id) != nil else { return }
         if url.host == "connect", store.status[id]?.online != false {
             connect(id)

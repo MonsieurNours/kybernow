@@ -425,6 +425,29 @@ struct HomeAddCard: View {
     }
 }
 
+/// « Rejoindre avec un code » (KyberNow Share) : la carte d'à côté, même facture.
+struct HomeJoinCard: View {
+    let m: HomeCardMetrics
+    let wide: Bool
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: m.radius, style: .continuous)
+        VStack(alignment: .leading, spacing: 0) {
+            Icon("share-network", size: wide ? 28 : 24).foregroundStyle(Theme.accent)
+            Spacer(minLength: 0)
+            Text(ShareText.join).font(Theme.sans(m.name, .semibold)).foregroundStyle(Theme.text)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(wide ? 16 : 12)
+        .frame(width: m.width, height: m.height, alignment: .leading)
+        .background(HomeStripes(step: wide ? 13 : 10).opacity(0.03))
+        .background(Theme.rgb(0x090C11, 0.5))
+        .clipShape(shape)
+        .overlay(shape.strokeBorder(Color.white.opacity(0.12)))
+        .contentShape(shape)
+    }
+}
+
 /// Rayures fines à 135° (carte d'ajout).
 struct HomeStripes: View {
     var step: CGFloat = 10

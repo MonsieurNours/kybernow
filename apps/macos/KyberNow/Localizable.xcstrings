@@ -1,6 +1,22 @@
 {
   "sourceLanguage" : "fr",
   "strings" : {
+    "%@ a arrêté le partage." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ stopped sharing."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ a arrêté le partage."
+          }
+        }
+      }
+    },
     "%@ a retrouvé ses écrans et son son" : {
       "localizations" : {
         "en" : {
@@ -113,6 +129,70 @@
         }
       }
     },
+    "%@ vous a retiré du partage." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ removed you from the share."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ vous a retiré du partage."
+          }
+        }
+      }
+    },
+    "%@ · Joueur" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · Player"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · Joueur"
+          }
+        }
+      }
+    },
+    "%@ · Joueur, clavier et souris" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · Player, keyboard and mouse"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · Joueur, clavier et souris"
+          }
+        }
+      }
+    },
+    "%@ · Spectateur" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · Spectator"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · Spectateur"
+          }
+        }
+      }
+    },
     "%lld %% des images" : {
       "localizations" : {
         "en" : {
@@ -157,6 +237,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%lld i/s"
+          }
+        }
+      }
+    },
+    "%lld invités" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld guests"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld invités"
           }
         }
       }
@@ -333,6 +429,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "1 image · %@"
+          }
+        }
+      }
+    },
+    "1 invité" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 guest"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 invité"
           }
         }
       }
@@ -705,6 +817,22 @@
         }
       }
     },
+    "Android" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Android"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Android"
+          }
+        }
+      }
+    },
     "Annuler" : {
       "localizations" : {
         "en" : {
@@ -737,6 +865,22 @@
         }
       }
     },
+    "Apple TV" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apple TV"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apple TV"
+          }
+        }
+      }
+    },
     "Après une coupure, la session reprend où elle était." : {
       "localizations" : {
         "en" : {
@@ -749,6 +893,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Après une coupure, la session reprend où elle était."
+          }
+        }
+      }
+    },
+    "Arrêter le partage" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stop sharing"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Arrêter le partage"
           }
         }
       }
@@ -829,6 +989,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Aucun ordinateur à publier pour l'instant."
+          }
+        }
+      }
+    },
+    "Aucun partage avec ce code sur le réseau." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No share with this code on your network."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucun partage avec ce code sur le réseau."
           }
         }
       }
@@ -1249,6 +1425,22 @@
         }
       }
     },
+    "Code" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Code"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Code"
+          }
+        }
+      }
+    },
     "Collez le lien copié depuis KyberNow Admin" : {
       "localizations" : {
         "en" : {
@@ -1393,6 +1585,38 @@
         }
       }
     },
+    "Copie impossible : sélectionnez le lien à la main." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Could not copy: select the link by hand."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copie impossible : sélectionnez le lien à la main."
+          }
+        }
+      }
+    },
+    "Copier le lien" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy link"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copier le lien"
+          }
+        }
+      }
+    },
     "Couleurs complètes : le texte reste net, au prix d'un débit plus élevé." : {
       "localizations" : {
         "en" : {
@@ -1469,6 +1693,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Deux canaux : idéal au casque ou sur les haut-parleurs du Mac."
+          }
+        }
+      }
+    },
+    "Donner le clavier et la souris" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Give keyboard and mouse"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Donner le clavier et la souris"
           }
         }
       }
@@ -1873,6 +2113,38 @@
         }
       }
     },
+    "Faire jouer" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Let play"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Faire jouer"
+          }
+        }
+      }
+    },
+    "Faire regarder" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Watch only"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Faire regarder"
+          }
+        }
+      }
+    },
     "Fermer" : {
       "localizations" : {
         "en" : {
@@ -2209,6 +2481,38 @@
         }
       }
     },
+    "Invité sur %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Guest on %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invité sur %@"
+          }
+        }
+      }
+    },
+    "Invités" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Guests"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invités"
+          }
+        }
+      }
+    },
     "Jeu" : {
       "localizations" : {
         "en" : {
@@ -2221,6 +2525,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Jeu"
+          }
+        }
+      }
+    },
+    "Joueur" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Player"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Joueur"
           }
         }
       }
@@ -2913,6 +3233,38 @@
         }
       }
     },
+    "Le clavier et la souris sont repris." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The keyboard and mouse were taken back."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le clavier et la souris sont repris."
+          }
+        }
+      }
+    },
+    "Le code s'affiche chez la personne qui partage." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The code is shown by the person sharing."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le code s'affiche chez la personne qui partage."
+          }
+        }
+      }
+    },
     "Le délai entre l'ordinateur et cet écran. Sous un repère, l'image arrive avant l'image suivante à cette fréquence." : {
       "localizations" : {
         "en" : {
@@ -3233,6 +3585,54 @@
         }
       }
     },
+    "Lien copié." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Link copied."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lien copié."
+          }
+        }
+      }
+    },
+    "Linux" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Linux"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Linux"
+          }
+        }
+      }
+    },
+    "Mac" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mac"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mac"
+          }
+        }
+      }
+    },
     "Manette" : {
       "localizations" : {
         "en" : {
@@ -3489,6 +3889,22 @@
         }
       }
     },
+    "Navigateur" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Browser"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Navigateur"
+          }
+        }
+      }
+    },
     "Ne pas ajouter cet ordinateur" : {
       "localizations" : {
         "en" : {
@@ -3501,6 +3917,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ne pas ajouter cet ordinateur"
+          }
+        }
+      }
+    },
+    "Nouveau code" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New code"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nouveau code"
           }
         }
       }
@@ -3681,6 +4113,38 @@
         }
       }
     },
+    "Partager" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Share"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Partager"
+          }
+        }
+      }
+    },
+    "Partager %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Share %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Partager %@"
+          }
+        }
+      }
+    },
     "Pas encore d'adresse : connectez-vous une fois à cet ordinateur." : {
       "localizations" : {
         "en" : {
@@ -3757,6 +4221,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Personnalisé"
+          }
+        }
+      }
+    },
+    "Personne pour l'instant." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nobody yet."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Personne pour l'instant."
           }
         }
       }
@@ -4049,6 +4529,22 @@
         }
       }
     },
+    "QR code du partage" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "QR code for the share"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "QR code du partage"
+          }
+        }
+      }
+    },
     "QR code ou lien" : {
       "localizations" : {
         "en" : {
@@ -4061,6 +4557,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "QR code ou lien"
+          }
+        }
+      }
+    },
+    "Quatre invités au plus." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Four guests at most."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quatre invités au plus."
           }
         }
       }
@@ -4093,6 +4605,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Quitter KyberNow Link"
+          }
+        }
+      }
+    },
+    "Quitter le partage" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Leave"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quitter le partage"
           }
         }
       }
@@ -4141,6 +4669,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Recevoir les versions bêta"
+          }
+        }
+      }
+    },
+    "Recherche du partage…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Looking for the share…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recherche du partage…"
           }
         }
       }
@@ -4305,6 +4849,54 @@
         }
       }
     },
+    "Rejoindre" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Join"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rejoindre"
+          }
+        }
+      }
+    },
+    "Rejoindre avec un code" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Join with a code"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rejoindre avec un code"
+          }
+        }
+      }
+    },
+    "Rejoindre un partage" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Join a share"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rejoindre un partage"
+          }
+        }
+      }
+    },
     "Relancez KyberNow Link pour changer de langue." : {
       "localizations" : {
         "en" : {
@@ -4397,6 +4989,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Reprendre la main"
+          }
+        }
+      }
+    },
+    "Reprendre le clavier et la souris" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Take back keyboard and mouse"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reprendre le clavier et la souris"
           }
         }
       }
@@ -5025,6 +5633,22 @@
         }
       }
     },
+    "Spectateur" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Spectator"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Spectateur"
+          }
+        }
+      }
+    },
     "Station" : {
       "localizations" : {
         "en" : {
@@ -5133,6 +5757,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sur l'ordinateur"
+          }
+        }
+      }
+    },
+    "Sur le même réseau : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On the same network: “Join with a code” in KyberNow Link, or this link in a browser."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sur le même réseau : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur."
           }
         }
       }
@@ -5425,6 +6065,22 @@
         }
       }
     },
+    "Téléviseur LG" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "LG TV"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Téléviseur LG"
+          }
+        }
+      }
+    },
     "Un appareil" : {
       "localizations" : {
         "en" : {
@@ -5649,6 +6305,22 @@
         }
       }
     },
+    "Votre prénom" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your name"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Votre prénom"
+          }
+        }
+      }
+    },
     "Votre écran suit déjà l'image (fréquence variable) : en immédiat, vous ne gagnez presque rien." : {
       "localizations" : {
         "en" : {
@@ -5665,6 +6337,38 @@
         }
       }
     },
+    "Vous avez le clavier et la souris." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You have the keyboard and mouse."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vous avez le clavier et la souris."
+          }
+        }
+      }
+    },
+    "Vous pouvez jouer." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You can play."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vous pouvez jouer."
+          }
+        }
+      }
+    },
     "Vous pouvez vous connecter." : {
       "localizations" : {
         "en" : {
@@ -5677,6 +6381,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Vous pouvez vous connecter."
+          }
+        }
+      }
+    },
+    "Vous regardez de nouveau." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You are watching again."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vous regardez de nouveau."
           }
         }
       }
@@ -5725,6 +6445,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Vérifiez qu'il est branché au réseau et que le réveil est autorisé sur l'ordinateur (Admin › Système)."
+          }
+        }
+      }
+    },
+    "Windows" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Windows"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Windows"
           }
         }
       }
@@ -5873,6 +6609,22 @@
         }
       }
     },
+    "depuis %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "for %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "depuis %@"
+          }
+        }
+      }
+    },
     "désactivé" : {
       "localizations" : {
         "en" : {
@@ -5981,6 +6733,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "hier, %@"
+          }
+        }
+      }
+    },
+    "iPhone ou iPad" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iPhone or iPad"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iPhone ou iPad"
           }
         }
       }

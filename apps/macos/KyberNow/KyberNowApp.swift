@@ -86,6 +86,27 @@ final class AppModel: ObservableObject {
         adding = true
     }
 
+    /// Feuille « Rejoindre un partage » (KyberNow Share), avec le lien
+    /// `kybernow://join?…` qui l'a ouverte, s'il y en a un.
+    @Published var joining = false
+    var pendingJoin: ShareJoinLink?
+
+    /// « Rejoindre avec un code » : l'écran du code et du prénom, par-dessus
+    /// l'accueil (aussi pendant les sessions).
+    func join(link: ShareJoinLink? = nil) {
+        pendingJoin = link
+        route = .home
+        showWindow()
+        joining = true
+    }
+
+    /// Un QR code ou un lien de partage lu dans la feuille d'ajout : elle se
+    /// ferme, puis l'écran « Rejoindre » s'ouvre à sa place.
+    func join(fromAddSheet link: ShareJoinLink) {
+        adding = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.join(link: link) }
+    }
+
     /// Réglages d'un ordinateur, à la rubrique ouverte la dernière fois.
     func openSettings(_ host: Host, section: ComputerSection? = nil) {
         if let section { self.section = section }
@@ -94,7 +115,16 @@ final class AppModel: ObservableObject {
 
     /// kybernow://adresse:port?name=…&fp=… (QR code ou lien de la console).
     func open(_ url: URL) {
-        guard let candidate = PairingLink.parse(url.absoluteString) else { return }
+        guard let kind = LinkKind.parse(url.absoluteString) else { return }
+        // kybernow://join?… : un partage à rejoindre (le code est déjà dans le lien).
+        guard case let .computer(candidate) = kind else {
+            if case let .join(link) = kind {
+                adding = false
+                joining = false
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { self.join(link: link) }
+            }
+            return
+        }
         // Fenêtre cachée (l'app vivait dans la barre des menus) : elle revient pour l'ajout.
         showWindow()
         if known(candidate) {
@@ -163,6 +193,37 @@ final class AppModel: ObservableObject {
         sessions.add(session)
         sessions.refresh()
         hideHomeForFirstSession(first)
+    }
+
+    /// KyberNow Share : la session d'un invité, dans sa fenêtre comme toute
+    /// session (la première prend la place de l'accueil, les suivantes
+    /// s'ouvrent par-dessus), comptée parmi les quatre. Aucun ordinateur
+    /// n'est ajouté à la liste de cet appareil. La feuille « Rejoindre » se
+    /// ferme d'abord : l'accueil est photographié sans elle pour le passage.
+    func openGuestSession(_ found: ShareFound) {
+        joining = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [self] in
+            guard !sessions.isFull else { return }
+            let first = sessions.isEmpty
+            let opening: SessionController.Opening = first ? .first(home: homeWindow) : .next(anchor: sessions.anchorWindow)
+            let session = SessionController(guest: found, store: store, opening: opening) { [weak self] in self?.sessionFinished($0) }
+            session.onWindowClosed = { [weak self] in self?.sessionWindowClosed($0) }
+            session.onEnded = { [weak self] in self?.sessionEnded($0) }
+            if !first { Dock.comeForward() }
+            #if DEBUG
+            if Self.demo, !UserDefaults.standard.bool(forKey: "demoCore") {
+                session.demoGuest(role: found.role)
+                sessions.add(session)
+                sessions.refresh()
+                hideHomeForFirstSession(first)
+                return
+            }
+            #endif
+            session.start()
+            sessions.add(session)
+            sessions.refresh()
+            hideHomeForFirstSession(first)
+        }
     }
 
     /// La première session a pris la place de l'accueil : il se cache

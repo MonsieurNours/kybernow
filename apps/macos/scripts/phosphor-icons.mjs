@@ -17,6 +17,7 @@ const ICONS = [
   "gear-six", "camera", "shield-check", "globe-hemisphere-west", "trash", "fingerprint", "lock-simple",
   "magnifying-glass", "monitor-play", "caret-down", "arrow-left", "image", "eye", "eye-slash", "sparkle",
   "broadcast", "plugs-connected", "wifi-slash", "arrows-clockwise", "copy", "user", "key", "cloud", "chart-line",
+  "share-network",
 ];
 
 const assets = process.argv[2];

@@ -125,6 +125,7 @@ private struct AddHostCameraPreview: UIViewRepresentable {
 struct AddHostQRPane: View {
     @EnvironmentObject private var flow: AddHostFlow
     @EnvironmentObject private var store: HostStore
+    @EnvironmentObject private var app: AppModel
     @Environment(\.addHostWide) private var wide
     @StateObject private var camera = AddHostCamera()
     @State private var notice: String?
@@ -197,6 +198,14 @@ struct AddHostQRPane: View {
 
     /// Un code lu ou un lien collé : l'ordinateur qu'il désigne passe à la vérification.
     private func use(_ text: String, pasted: Bool) {
+        // Le QR code d'un partage (KyberNow Share) : l'écran « Rejoindre » prend le relais.
+        if case let .join(link)? = LinkKind.parse(text) {
+            camera.onCode = nil
+            camera.stop()
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            app.join(fromAddSheet: link)
+            return
+        }
         guard let c = PairingLink.parse(text) else {
             // La caméra peut croiser d'autres QR codes : seul un lien collé est signalé.
             if pasted { notice = String(localized: "Ce n'est pas un lien KyberNow.") }

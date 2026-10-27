@@ -11,6 +11,7 @@
 		009D902343AEA9CBC7B52ADD /* TopShelfStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6D77E82DEC090B1E6892D2A /* TopShelfStore.swift */; };
 		02646086A5CA49D6860CA49F /* AudioPlayerCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97688B68F968EDC6090177A0 /* AudioPlayerCore.swift */; };
 		05C565A318B71698A830D14D /* ContentProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BA7B9099D4A9045D214DCA7 /* ContentProvider.swift */; };
+		070160D72E8133354BD67397 /* Share.swift in Sources */ = {isa = PBXBuildFile; fileRef = D19CC41E754DD4C2F46DE418 /* Share.swift */; };
 		0A5FD018AF3848551CC2F981 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = F065E6E2F15BE6A4F620DA44 /* Localizable.xcstrings */; };
 		0A9225E3DA6FE766EA75FBF3 /* KyberSDK.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = C5EBB9D1294B8B710001295B /* KyberSDK.xcframework */; };
 		0F100D4FEADC9813FD933D9D /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 62FE3E9D1E34B31C3A9DD531 /* Localizable.xcstrings */; };
@@ -25,6 +26,7 @@
 		3B32560D26298A0CA67CAFF0 /* KyberNow.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0339810BB789E02E13966DEA /* KyberNow.xcframework */; };
 		3CD791B99CD93807066C5E54 /* KyberTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F22A9A1742A4CB4D03CD55A /* KyberTypes.swift */; };
 		49222371EEE67F2DE41F4B4A /* Backdrops.swift in Sources */ = {isa = PBXBuildFile; fileRef = F939135052A5C51A4CDFEDB0 /* Backdrops.swift */; };
+		4B99531C369F2FD1A6D6C197 /* ShareViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6868865EAC1D2E55F4CB9836 /* ShareViews.swift */; };
 		52771D6BEBD682855A334064 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = C01C02F7344D665AEF5528C9 /* InfoPlist.xcstrings */; };
 		55648362D3F43B7B69A955D2 /* VideoPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E56869493711B171A05A7A2 /* VideoPipeline.swift */; };
 		587E08141723DEE88741D971 /* InputCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC0716FDE27E489961A197FD /* InputCore.swift */; };
@@ -63,6 +65,7 @@
 		E82B7C26247B96A00884AB17 /* Discovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72AAACDD20D1A7BE25E7960F /* Discovery.swift */; };
 		F1356014C5801F4CEC87CB2E /* StreamView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 244CC1D072B43F4A58082CF6 /* StreamView.swift */; };
 		F7523557BADDFFF74D023474 /* SessionMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32AF9E5AF89DE0A46B958768 /* SessionMenu.swift */; };
+		F7AE3287A1E7E95408692797 /* ShareCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98802BF2F33E3D7BC10FF259 /* ShareCore.swift */; };
 		FDB08F08EAF177204FF53CEC /* ConsoleClientCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 068D8A600E0E74D6C09073FD /* ConsoleClientCore.swift */; };
 /* End PBXBuildFile section */
 
@@ -138,6 +141,7 @@
 		5F22A9A1742A4CB4D03CD55A /* KyberTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KyberTypes.swift; sourceTree = "<group>"; };
 		609D971655FAFD446DC66236 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		62FE3E9D1E34B31C3A9DD531 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		6868865EAC1D2E55F4CB9836 /* ShareViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViews.swift; sourceTree = "<group>"; };
 		68E5FAAE774C0DD788031289 /* KyberLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KyberLog.swift; sourceTree = "<group>"; };
 		717AA2D038A1CC613B959D31 /* CloudSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSync.swift; sourceTree = "<group>"; };
 		72AAACDD20D1A7BE25E7960F /* Discovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Discovery.swift; sourceTree = "<group>"; };
@@ -150,6 +154,7 @@
 		943CF5575AABD133E0381912 /* OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = OFL.txt; sourceTree = "<group>"; };
 		967E9CA93E220D6FB480C877 /* AV1.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AV1.swift; sourceTree = "<group>"; };
 		97688B68F968EDC6090177A0 /* AudioPlayerCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayerCore.swift; sourceTree = "<group>"; };
+		98802BF2F33E3D7BC10FF259 /* ShareCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareCore.swift; sourceTree = "<group>"; };
 		99A7F2997495AE8E0846FCF2 /* KyberKit.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = KyberKit.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		9D4C7D00D61D4DFD1B56106D /* AddHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddHostView.swift; sourceTree = "<group>"; };
 		A19F4EA9662B59217966495B /* LatencyReporting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LatencyReporting.swift; sourceTree = "<group>"; };
@@ -164,6 +169,7 @@
 		C48FEEB2EF3F0C1C29CF932A /* SystemConfiguration.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SystemConfiguration.framework; path = System/Library/Frameworks/SystemConfiguration.framework; sourceTree = SDKROOT; };
 		C5EBB9D1294B8B710001295B /* KyberSDK.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = KyberSDK.xcframework; path = Vendor/KyberSDK.xcframework; sourceTree = "<group>"; };
 		C9000517004D823B86FDA012 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		D19CC41E754DD4C2F46DE418 /* Share.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Share.swift; sourceTree = "<group>"; };
 		D2CB1819AEAB327E349B2FDD /* Archivo-wdth-wght.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Archivo-wdth-wght.ttf"; sourceTree = "<group>"; };
 		D3AE175305815BE8C8A6C859 /* TopShelf.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = TopShelf.entitlements; sourceTree = "<group>"; };
 		DA5781CC43CFB55F18BB4B91 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
@@ -255,6 +261,7 @@
 				72AAACDD20D1A7BE25E7960F /* Discovery.swift */,
 				C038544172704B17A5CAB374 /* LinkUI.swift */,
 				E21C4D60AA32188AAD952FAB /* Model.swift */,
+				D19CC41E754DD4C2F46DE418 /* Share.swift */,
 			);
 			name = KyberNow;
 			path = ../macos/KyberNow;
@@ -325,6 +332,7 @@
 				A19F4EA9662B59217966495B /* LatencyReporting.swift */,
 				F065E6E2F15BE6A4F620DA44 /* Localizable.xcstrings */,
 				26D28B4D290D3288CCF63CD9 /* SessionEngine.swift */,
+				98802BF2F33E3D7BC10FF259 /* ShareCore.swift */,
 				93E03D3845A43D3E44AA9AF8 /* VideoDecoder.swift */,
 				4E56869493711B171A05A7A2 /* VideoPipeline.swift */,
 				3545217235A0986F4EC8F7D3 /* VideoRenderer.swift */,
@@ -354,6 +362,7 @@
 				32AF9E5AF89DE0A46B958768 /* SessionMenu.swift */,
 				E0F2BA8BAEB89A64A30ECB9F /* SessionView.swift */,
 				DA5781CC43CFB55F18BB4B91 /* SettingsView.swift */,
+				6868865EAC1D2E55F4CB9836 /* ShareViews.swift */,
 				7531C686A3D883AC1D448499 /* StatsCard.swift */,
 				E0E4AFD0C75F8B87AA9B1CE5 /* Theme.swift */,
 				03F9F1EF316B759497E181F0 /* Shared */,
@@ -547,6 +556,8 @@
 				F7523557BADDFFF74D023474 /* SessionMenu.swift in Sources */,
 				78859B87684A3E6F58C5BA7D /* SessionView.swift in Sources */,
 				C3E62956C630251A7B89D7B7 /* SettingsView.swift in Sources */,
+				070160D72E8133354BD67397 /* Share.swift in Sources */,
+				4B99531C369F2FD1A6D6C197 /* ShareViews.swift in Sources */,
 				AAA56A471D38C873853CFD6E /* StatsCard.swift in Sources */,
 				72E9242B4F7DCC758E7412EA /* Theme.swift in Sources */,
 				009D902343AEA9CBC7B52ADD /* TopShelfStore.swift in Sources */,
@@ -580,6 +591,7 @@
 				9704175EEB845367EC3549E0 /* LatencyReporting.swift in Sources */,
 				00722BFAA10040A920BCD6D1 /* MetalSurface.swift in Sources */,
 				E500B3D5892A7F414E0B3893 /* SessionEngine.swift in Sources */,
+				F7AE3287A1E7E95408692797 /* ShareCore.swift in Sources */,
 				F1356014C5801F4CEC87CB2E /* StreamView.swift in Sources */,
 				C061C90F011E8A35C9773AD7 /* VideoDecoder.swift in Sources */,
 				55648362D3F43B7B69A955D2 /* VideoPipeline.swift in Sources */,

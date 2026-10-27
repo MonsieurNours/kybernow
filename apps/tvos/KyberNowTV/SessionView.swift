@@ -52,7 +52,8 @@ struct SessionView: View {
             // Le passage : l'accueil s'ouvre en deux le long de la couture,
             // puis disparaît de la hiérarchie une fois ouvert (même raison).
             if session.phase != .ended, session.passageShown {
-                Passage(host: session.host, open: revealed)
+                Passage(host: session.host, open: revealed, title: session.title,
+                        button: session.isGuest ? ShareText.joinButton : String(localized: "Se connecter"))
                     .allowsHitTesting(false)
             }
 
@@ -105,7 +106,8 @@ struct SessionView: View {
             }
 
             if case let .failed(message) = session.phase {
-                SessionFailure(host: session.host, message: message, afterImage: revealed) { session.finish() }
+                SessionFailure(host: session.host, title: session.title, message: message, afterImage: revealed,
+                               shareEnd: session.shareEndText != nil) { session.finish() }
                     .transition(.opacity)
             }
         }
@@ -192,6 +194,9 @@ struct SessionStage: UIViewControllerRepresentable {
 struct Passage: View {
     let host: Host
     let open: Bool
+    /// Le titre de la session (« Invité sur {nom} » pour un invité) et le bouton de l'accueil qu'il imite.
+    var title: String?
+    var button = String(localized: "Se connecter")
     @EnvironmentObject private var store: HostStore
     @State private var tube = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -249,7 +254,7 @@ struct Passage: View {
                 .padding(.leading, 16).padding(.trailing, 18)
                 .frame(height: 44)
                 .glass(22)
-                Text(host.name)
+                Text(title ?? host.name)
                     .font(Theme.display(140, 680))
                     .tracking(-140 * 0.045)
                     .lineLimit(1)
@@ -263,7 +268,7 @@ struct Passage: View {
                     Icon("monitor", size: 28).foregroundStyle(Theme.accent)
                     Text(HomeView.screenLine(host, info: store.status[host.id]?.info)).font(Theme.sans(24)).foregroundStyle(Theme.text2)
                 }
-                Text(String(localized: "Se connecter"))
+                Text(button)
                     .font(Theme.sans(28, .semibold))
                     .padding(.horizontal, 36)
                     .frame(height: 80)
@@ -331,6 +336,10 @@ struct ConnectingPanel: View {
                     // Dernier recours : la Station redémarre, puis les étapes reprennent.
                     restartLine
                 } else {
+                    // Un invité : les mêmes étapes, titrées « Invité sur {nom} ».
+                    if session.isGuest {
+                        Text(session.title).font(Theme.sans(28, .semibold)).foregroundStyle(Theme.text).lineLimit(1)
+                    }
                     step(0, String(localized: "Préparation de l'écran"))
                     step(1, String(localized: "Connexion"))
                     step(2, String(localized: "Premières images"))
@@ -404,21 +413,28 @@ struct MenuHint: View {
 
 struct SessionFailure: View {
     let host: Host
+    /// Le titre : le nom de l'ordinateur, ou « Invité sur {nom} ».
+    var title: String?
     let message: String
     /// L'image était arrivée : la session s'est arrêtée en route.
     var afterImage = false
+    /// Fin d'une session d'invité par le partage : la raison seule, sans titre d'échec.
+    var shareEnd = false
     let done: () -> Void
 
     var body: some View {
         ZStack {
             HostBackdrop(host: host, online: false)
             VStack(alignment: .leading, spacing: 26) {
-                HStack(spacing: 14) {
-                    Icon("warning", size: 28).foregroundStyle(Theme.warn)
-                    Theme.eyebrow(afterImage ? String(localized: "La session s'est arrêtée") : String(localized: "La connexion a échoué"), color: Theme.warnText).font(Theme.mono(18))
+                if !shareEnd {
+                    HStack(spacing: 14) {
+                        Icon("warning", size: 28).foregroundStyle(Theme.warn)
+                        Theme.eyebrow(afterImage ? String(localized: "La session s'est arrêtée") : String(localized: "La connexion a échoué"), color: Theme.warnText).font(Theme.mono(18))
+                    }
                 }
-                Text(host.name).font(Theme.display(110, 680)).tracking(-110 * 0.045).foregroundStyle(Theme.text)
-                Text(message.prefix(1).uppercased() + message.dropFirst() + ".")
+                Text(title ?? host.name).font(Theme.display(110, 680)).tracking(-110 * 0.045).foregroundStyle(Theme.text)
+                // La raison du cœur n'a pas de point final, sauf celle du partage (« {hôte} a arrêté le partage. »).
+                Text(message.prefix(1).uppercased() + message.dropFirst() + (message.hasSuffix(".") ? "" : "."))
                     .font(Theme.sans(28)).foregroundStyle(Theme.text2)
                 Button("Retour à l'accueil", action: done)
                     .buttonStyle(PrimaryButton(height: 80, fontSize: 28))

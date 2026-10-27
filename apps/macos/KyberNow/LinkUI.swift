@@ -145,6 +145,97 @@ enum French {
     }
 }
 
+// MARK: - Partage
+
+/// KyberNow Share (docs/kybernow-share.md, docs/link-ui.md « Partage ») :
+/// l'hôte partage depuis sa session, un invité rejoint avec un code. Les
+/// textes de refus et de fin (« {hôte} a arrêté le partage. », code inconnu,
+/// partage complet, format illisible) et ceux de « Partager » inactif viennent
+/// du cœur, dans la langue de l'app.
+enum ShareText {
+    // L'hôte, dans sa session.
+    static var share: String { String(localized: "Partager") }
+    static func title(_ computer: String) -> String { String(localized: "Partager \(computer)") }
+    static var copyLink: String { String(localized: "Copier le lien") }
+    static var linkCopied: String { String(localized: "Lien copié.") }
+    static var copyFailed: String { String(localized: "Copie impossible : sélectionnez le lien à la main.") }
+    static var code: String { String(localized: "Code") }
+    static var qrLabel: String { String(localized: "QR code du partage") }
+    static var guests: String { String(localized: "Invités") }
+    static var watchOnly: String { String(localized: "Faire regarder") }
+
+    /// « depuis 3 min » : depuis combien de temps l'invité est là.
+    static func since(_ date: Date) -> String {
+        String(localized: "depuis \(LinkFormat.duration(Date().timeIntervalSince(date)))")
+    }
+
+    /// L'app de l'invité (`app` de la Station : mac, windows, linux, ios, tvos, android, webos, web).
+    static func app(_ app: String) -> String? {
+        switch app {
+        case "mac": return String(localized: "Mac")
+        case "windows": return String(localized: "Windows")
+        case "linux": return String(localized: "Linux")
+        case "ios": return String(localized: "iPhone ou iPad")
+        case "tvos": return String(localized: "Apple TV")
+        case "android": return String(localized: "Android")
+        case "webos": return String(localized: "Téléviseur LG")
+        case "web": return String(localized: "Navigateur")
+        default: return nil
+        }
+    }
+    static var help: String {
+        String(localized: "Sur le même réseau : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur.")
+    }
+    static var nobody: String { String(localized: "Personne pour l'instant.") }
+    static var newCode: String { String(localized: "Nouveau code") }
+    static var stop: String { String(localized: "Arrêter le partage") }
+    static var fourGuests: String { String(localized: "Quatre invités au plus.") }
+    static var letPlay: String { String(localized: "Faire jouer") }
+    static var giveKeyboardMouse: String { String(localized: "Donner le clavier et la souris") }
+    static var takeBackKeyboardMouse: String { String(localized: "Reprendre le clavier et la souris") }
+    static var remove: String { String(localized: "Retirer") }
+
+    /// « Léa · Spectateur », « Léa · Joueur », « Léa · Joueur, clavier et souris ».
+    static func guest(_ name: String, _ role: ShareRole) -> String {
+        switch role {
+        case .spectator: return String(localized: "\(name) · Spectateur")
+        case .player: return String(localized: "\(name) · Joueur")
+        case .playerKbm: return String(localized: "\(name) · Joueur, clavier et souris")
+        }
+    }
+
+    /// La pastille de la barre : « 1 invité », « 2 invités ».
+    static func guestCount(_ n: Int) -> String {
+        n == 1 ? String(localized: "1 invité") : String(localized: "\(n) invités")
+    }
+
+    // L'invité.
+    static var join: String { String(localized: "Rejoindre avec un code") }
+    static var joinTitle: String { String(localized: "Rejoindre un partage") }
+    static var joinHelp: String { String(localized: "Le code s'affiche chez la personne qui partage.") }
+    static var yourName: String { String(localized: "Votre prénom") }
+    static var joinButton: String { String(localized: "Rejoindre") }
+    static var looking: String { String(localized: "Recherche du partage…") }
+    static var noShare: String { String(localized: "Aucun partage avec ce code sur le réseau.") }
+    static func guestOn(_ computer: String) -> String { String(localized: "Invité sur \(computer)") }
+    static var spectator: String { String(localized: "Spectateur") }
+    static var player: String { String(localized: "Joueur") }
+    static var leave: String { String(localized: "Quitter le partage") }
+
+    /// Le rôle, dans la barre réduite.
+    static func role(_ role: ShareRole) -> String { role.plays ? player : spectator }
+
+    /// L'avis bref quand l'hôte change le rôle ; rien au départ.
+    static func roleNotice(_ role: ShareRole, previous: ShareRole?) -> String? {
+        guard let previous, previous != role else { return nil }
+        switch role {
+        case .spectator: return String(localized: "Vous regardez de nouveau.")
+        case .player: return previous == .playerKbm ? String(localized: "Le clavier et la souris sont repris.") : String(localized: "Vous pouvez jouer.")
+        case .playerKbm: return String(localized: "Vous avez le clavier et la souris.")
+        }
+    }
+}
+
 // MARK: - Réglages de l'ordinateur
 
 /// Les six rubriques des réglages d'un ordinateur, dans cet ordre.

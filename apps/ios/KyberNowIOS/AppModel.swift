@@ -11,12 +11,15 @@ import SwiftUI
 final class AppModel: ObservableObject {
     enum Sheet: Identifiable, Equatable {
         case addHost(Candidate?)
+        /// KyberNow Share : « Rejoindre avec un code » (le lien `kybernow://join` qui l'ouvre, s'il y en a un).
+        case join(ShareJoinLink?)
         case settings(UUID)
         case appSettings
 
         var id: String {
             switch self {
             case .addHost: return "add"
+            case .join: return "join"
             case let .settings(id): return "settings-\(id)"
             case .appSettings: return "app"
             }
@@ -82,6 +85,12 @@ final class AppModel: ObservableObject {
         if UserDefaults.standard.bool(forKey: "demoWaking"), let host = selectedHost { store.wake(host) }
         switch UserDefaults.standard.string(forKey: "screen") {
         case "add": sheet = .addHost(nil)
+        case "join": sheet = .join(nil)
+        case "guest":
+            // `-screen guest -demoRole spectator|player|player_kbm` : la session d'un invité, sans Station.
+            launched = true
+            let role: ShareRole = switch UserDefaults.standard.string(forKey: "demoRole") { case "player": .player; case "player_kbm": .playerKbm; default: .spectator }
+            openGuestSession(ShareFound(demoComputer: "PC-DE-MATTHIEU", host: "Matthieu", role: role))
         case "app": sheet = .appSettings
         case "settings": if let id = selected { sheet = .settings(id) }
         case "connecting", "restarting", "session", "bar":
@@ -188,10 +197,41 @@ final class AppModel: ObservableObject {
         return p.status == .satisfied && (p.usesInterfaceType(.cellular) || p.isExpensive)
     }
 
+    /// KyberNow Share : la session d'un invité (une Station qui a accepté un
+    /// code). Une session à la fois : comme « Se connecter », sans ordinateur
+    /// ajouté à cet appareil ; rien n'est gardé après le partage.
+    func openGuestSession(_ found: ShareFound) {
+        guard session == nil else { return }
+        sheet = nil
+        let controller = SessionController(guest: found, store: store) { [weak self] _ in
+            withAnimation(Theme.join) { self?.session = nil }
+        }
+        session = controller
+        #if DEBUG && targetEnvironment(simulator)
+        if store.demo {
+            launched = true
+            controller.demoGuest(role: found.role)
+            return
+        }
+        #endif
+        controller.start()
+    }
+
+    /// Un QR code ou un lien de partage lu dans la fenêtre d'ajout : l'écran « Rejoindre » prend sa place.
+    func join(fromAddSheet link: ShareJoinLink) {
+        sheet = nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.sheet = .join(link) }
+    }
+
     /// kybernow://adresse:port?name=…&fp=… (QR code ou lien d'Admin,
-    /// AirDrop, Messages) : l'ajout s'ouvre, pré-rempli.
+    /// AirDrop, Messages) : l'ajout s'ouvre, pré-rempli. kybernow://join?… :
+    /// l'écran « Rejoindre », le code déjà rempli.
     func open(_ url: URL) {
-        guard session == nil, let candidate = PairingLink.parse(url.absoluteString) else { return }
+        guard session == nil, let kind = LinkKind.parse(url.absoluteString) else { return }
+        guard case let .computer(candidate) = kind else {
+            if case let .join(link) = kind { sheet = .join(link) }
+            return
+        }
         if store.hosts.contains(where: { ($0.consoleFingerprint != nil && $0.consoleFingerprint == candidate.expected) || ($0.address == candidate.address && $0.consolePort == candidate.port) }) {
             show(String(localized: "\(candidate.name) est déjà dans vos ordinateurs"))
             return
