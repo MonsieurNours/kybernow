@@ -164,7 +164,10 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_shareAutoQu
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_shareImageLabel(mut env: Env, _: JClass, image: JString) -> jstring {
     match serde_json::from_str::<ShareImage>(&string(&mut env, &image)) {
-        Ok(i) => give(&mut env, &i.label()),
+        Ok(i) => match i.label() {
+            Some(l) => give(&mut env, &l),
+            None => std::ptr::null_mut(),
+        },
         Err(_) => std::ptr::null_mut(),
     }
 }
