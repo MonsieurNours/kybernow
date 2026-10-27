@@ -61,12 +61,15 @@ enum class ShareRole(val code: Int, val id: String) {
 
 /**
  * La « Qualité de l'image » qu'un invité demande (`ShareQuality` du cœur, mêmes codes : 0 Auto, 1 comme l'hôte,
- * 2 1080p · 60 Hz, 3 720p · 30 Hz ; [id] : le texte du fil). Une qualité inconnue (Station plus récente) se lit « Auto ».
- * L'image reçue n'est jamais au-dessus de celle de l'hôte : c'est la Station qui tranche, « Auto » aussi.
+ * 2 1080p · 60 Hz, 3 720p · 30 Hz, 4 4K · 60 Hz ; [id] : le texte du fil). L'ordre des cas est celui des choix
+ * (Auto, comme l'hôte, 4K, 1080p, 720p) ; les codes ne le suivent pas, la 4K est venue après. Une qualité inconnue
+ * (Station plus récente) se lit « Auto ». L'image reçue n'est jamais au-dessus de celle de l'hôte : c'est la Station
+ * qui tranche, « Auto » aussi.
  */
 enum class ShareQuality(val code: Int, val id: String) {
     AUTO(0, "auto"),
     HOST(1, "host"),
+    P2160_60(4, "2160p60"),
     P1080_60(2, "1080p60"),
     P720_30(3, "720p30");
 

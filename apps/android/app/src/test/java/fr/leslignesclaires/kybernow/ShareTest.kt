@@ -165,22 +165,28 @@ class ShareTest {
 
     /** Le libellé du cœur sans bibliothèque native : seulement quand la taille est connue, comme `ShareImage::label`. */
     private val label = { json: String ->
-        JSONObject(json).let { o -> if (o.isNull("width") || o.isNull("height") || o.isNull("fps")) null else "${minOf(o.getInt("width"), o.getInt("height"))}p · ${o.getInt("fps")} Hz" }
+        JSONObject(json).let { o ->
+            if (o.isNull("width") || o.isNull("height") || o.isNull("fps")) null
+            else minOf(o.getInt("width"), o.getInt("height")).let { lines -> "${if (lines == 2160) "4K" else "${lines}p"} · ${o.getInt("fps")} Hz" }
+        }
     }
 
     @Test
     fun qualities_followTheCoreCodes_andAnUnknownOneIsAuto() {
-        assertEquals(listOf(0, 1, 2, 3), ShareQuality.entries.map { it.code })
-        assertEquals(listOf("auto", "host", "1080p60", "720p30"), ShareQuality.entries.map { it.id })
+        // L'ordre des cas est celui des choix (Auto, comme l'hôte, 4K, 1080p, 720p) ; les codes sont ceux du cœur, 4 pour la 4K.
+        assertEquals(listOf(0, 1, 4, 2, 3), ShareQuality.entries.map { it.code })
+        assertEquals(listOf("auto", "host", "2160p60", "1080p60", "720p30"), ShareQuality.entries.map { it.id })
         assertEquals(ShareQuality.AUTO, ShareQuality.of(0))
         assertEquals(ShareQuality.HOST, ShareQuality.of(1))
         assertEquals(ShareQuality.P1080_60, ShareQuality.of(2))
         assertEquals(ShareQuality.P720_30, ShareQuality.of(3))
+        assertEquals(ShareQuality.P2160_60, ShareQuality.of(4))
         // Une qualité inconnue (Station plus récente) se lit « Auto », comme le cœur.
         assertEquals(ShareQuality.AUTO, ShareQuality.of(9))
         assertEquals(ShareQuality.AUTO, ShareQuality.parse("4k120"))
         assertEquals(ShareQuality.AUTO, ShareQuality.parse(null))
         assertEquals(ShareQuality.P720_30, ShareQuality.parse("720p30"))
+        assertEquals(ShareQuality.P2160_60, ShareQuality.parse("2160p60"))
     }
 
     @Test
@@ -217,6 +223,11 @@ class ShareTest {
         val host = ShareImage.parse("""{"quality":"host","width":1920,"height":1080,"fps":60,"follows_host":true,"reason":"asked"}""", label)!!
         assertEquals("1080p · 60\u00a0Hz", host.label)
         assertFalse(host.own)
+        // Une image de 2160 lignes se lit « 4K » (et celle qui la demande est « 2160p60 »).
+        val uhd = ShareImage.parse("""{"quality":"2160p60","width":3840,"height":2160,"fps":60,"follows_host":false,"reason":"asked"}""", label)!!
+        assertEquals("4K · 60\u00a0Hz", uhd.label)
+        assertEquals(ShareQuality.P2160_60, uhd.quality)
+        assertTrue(uhd.own)
         // Une image dont le libellé échoue (bibliothèque absente) : pas de libellé, pas d'erreur.
         assertNull(ShareImage.parse("""{"quality":"auto","width":1920,"height":1080,"fps":60}""", { error("pas de bibliothèque") })!!.label)
     }
@@ -257,6 +268,7 @@ class ShareTest {
         assertEquals("host", host.getString("quality"))
         assertEquals(120, host.getJSONObject("auto").getInt("fps"))
         assertEquals("720p30", Share.joinRequest("428913", "Léa", "pixel", ShareQuality.P720_30, null).getString("quality"))
+        assertEquals("2160p60", Share.joinRequest("428913", "Léa", "pixel", ShareQuality.P2160_60, auto).getString("quality"))
         assertFalse(Share.joinRequest("428913", "Léa", "pixel", ShareQuality.AUTO, null).has("auto"))
     }
 

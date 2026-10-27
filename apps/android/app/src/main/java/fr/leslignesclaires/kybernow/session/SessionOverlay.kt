@@ -145,7 +145,7 @@ class SessionUi(
     var padOpacity by mutableStateOf(70)
 
     // KyberNow Share, côté invité.
-    /** La feuille « Qualité de l'image » (les quatre choix, la qualité reçue) est ouverte. */
+    /** La feuille « Qualité de l'image » (les cinq choix, la qualité reçue) est ouverte. */
     var qualityOpen by mutableStateOf(false)
 
     // KyberNow Share, côté hôte.
@@ -521,8 +521,8 @@ private fun QualityButton(ui: SessionUi) {
 }
 
 /**
- * La feuille « Qualité de l'image » d'un invité : les quatre choix (« Auto », « Comme l'hôte », « 1080p · 60 Hz »,
- * « 720p · 30 Hz »), celui qu'il a choisi allumé, et la qualité reçue quand la Station la dit. Choisir relance son
+ * La feuille « Qualité de l'image » d'un invité : les cinq choix (« Auto », « Comme l'hôte », « 4K · 60 Hz »,
+ * « 1080p · 60 Hz », « 720p · 30 Hz »), celui qu'il a choisi allumé, et la qualité reçue quand la Station la dit. Choisir relance son
  * image seulement (jamais celle de l'hôte), puis la feuille se ferme.
  */
 @Composable
