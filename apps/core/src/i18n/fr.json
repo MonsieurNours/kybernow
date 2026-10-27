@@ -59,6 +59,10 @@
     "no_kyber_fingerprint": "l'ordinateur n'a pas donné l'empreinte de son serveur Kyber : mettez KyberNow Station à jour",
     "display_missing": "l'écran partagé n'est plus sur l'ordinateur",
     "unauthorized": "l'ordinateur refuse le jeton du partage : rejoignez-le de nouveau avec le code",
-    "lost": "le partage ne répond plus"
+    "lost": "le partage ne répond plus",
+    "quality_auto": "Auto",
+    "quality_host": "Comme l'hôte",
+    "image_lag": "Image allégée pour suivre.",
+    "image_limit": "L'ordinateur ne peut pas faire une image de plus : vous recevez {quality}."
   }
 }

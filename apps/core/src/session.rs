@@ -51,7 +51,7 @@ use crate::latency::{LatencyTracker, Second};
 use crate::media::{Packet, PacketHandler, packet_sink};
 use crate::profile::{Capabilities, SettingsJson, StreamSettings};
 use crate::screens::{self, PlannedScreen, Screens};
-use crate::share::{self, Found, ShareBeat, ShareDisplay, ShareEnd, ShareError, ShareJoined, ShareRole, ShareState};
+use crate::share::{self, Found, ShareBeat, ShareDisplay, ShareEnd, ShareError, ShareImage, ShareJoined, ShareQuality, ShareRole, ShareState};
 #[cfg(test)]
 use crate::share::ShareGuest;
 
@@ -102,7 +102,7 @@ pub struct GuestParams {
     /// La réponse de `share_join`, telle quelle.
     pub joined: ShareJoined,
     /// Ce que l'appareil décode : le format de l'image de l'hôte est vérifié
-    /// avant l'image ([`share::check_codec`]).
+    /// avant l'image ([`share::guest_format`] : le sien, ou un format lisible).
     #[serde(default)]
     pub capabilities: Capabilities,
 }
@@ -411,6 +411,14 @@ pub trait Platform: Send + Sync {
     /// de cette fin dans la langue de l'app (link-ui), qui est aussi la
     /// raison de la fin. Jamais « Reprendre la main ».
     fn on_share_end(&self, _end: &ShareEnd, _text: &str) {}
+    /// Session d'invité : l'image qu'il reçoit (`join`, puis quand elle
+    /// change : signe de vie, [`Session::set_share_quality`]), et celle d'avant
+    /// (`None` au départ) ; `notice` : l'avis bref à montrer, dans la langue
+    /// de l'app (« Image allégée pour suivre. », « L'ordinateur ne peut pas
+    /// faire une image de plus : vous recevez {qualité}. », voir
+    /// [`ShareImage::notice`]), `None` s'il n'y a rien à dire. La barre montre
+    /// la qualité reçue ([`ShareImage::label`]).
+    fn on_share_image(&self, _image: &ShareImage, _previous: Option<&ShareImage>, _notice: Option<&str>) {}
 }
 
 /// Ce qu'une session d'invité ne fait jamais : chaque appel à Admin ou à
@@ -430,10 +438,9 @@ enum HostOnly {
     Replan,
     /// « Remettre » le mode de l'ordinateur.
     RestoreMode,
-    /// Débit de l'image commune.
+    /// Débit de l'image de l'hôte (un invité règle celui de son image à
+    /// part seulement : Kyber le borne).
     Bitrate,
-    /// Image clé de l'image commune.
-    Keyframe,
     /// Image allégée (débit, 4:2:0).
     Fallback,
     /// Redémarrage de la Station en dernier recours.
@@ -488,6 +495,10 @@ enum Msg {
     ShareBeat(ShareBeat),
     /// La Station ne connaît plus l'invité (partage fermé, invité retiré).
     ShareGone(ShareEnd),
+    /// « Qualité de l'image » choisie par l'invité.
+    ShareQuality(ShareQuality),
+    /// L'image de l'invité, répondue par `POST /api/share/quality`.
+    ShareImage(ShareImage),
     /// Autre profil pendant la session.
     Settings(StreamSettings),
     /// Plafond de débit (fenêtre occultée) ; `None` : plus de plafond.
@@ -1059,6 +1070,14 @@ impl Session {
     /// Le décodeur a perdu une image de référence : le cœur demande une image
     /// clé toutes les 300 ms jusqu'à [`Self::keyframe_recovered`], et relance
     /// le flux au bout de 1,5 s (ordinateur sans le correctif d'image clé).
+    /// KyberNow Share, session d'invité : la « Qualité de l'image » changée
+    /// (`POST /api/share/quality`, sur un fil d'appel) ; Kyber relance l'image
+    /// de l'invité seulement, la session n'a rien à relancer. L'image reçue
+    /// arrive par [`Platform::on_share_image`]. Sans effet pour un hôte.
+    pub fn set_share_quality(&self, quality: ShareQuality) {
+        self.send(Msg::ShareQuality(quality));
+    }
+
     pub fn keyframe_lost(&self) {
         self.send(Msg::KeyframeLost);
     }
@@ -1269,6 +1288,8 @@ struct Worker {
     /// Invité reconnecté à Kyber pour un autre écran du partage : l'arrêt
     /// demandé par le cœur lui-même n'est pas une coupure.
     share_reconnecting: bool,
+    /// L'image que l'invité reçoit, d'après la Station.
+    share_image: Option<ShareImage>,
     /// Session d'hôte : le partage du dernier signe de vie.
     last_share: Option<ShareState>,
 }
@@ -1385,6 +1406,7 @@ impl Worker {
             refused: Mutex::new(HashSet::new()),
             stream_input: false,
             share_reconnecting: false,
+            share_image: None,
             last_share: None,
             guest,
         }
@@ -1767,11 +1789,15 @@ impl Worker {
         let p = self.params.clone();
         let console = Arc::new(Console::guest(&p.console_host, p.console_port, p.console_fingerprint.clone()));
         self.console = Some(console.clone());
-        // L'image est commune : le format de l'hôte, s'il est lisible ici.
-        match share::check_codec(j.codec.as_deref(), j.yuv444, g.capabilities) {
-            Ok(Some(codec)) => {
+        // Le format de l'hôte s'il est lisible ici (en 4:2:0 sans son 4:4:4),
+        // sinon un format lisible : Kyber fait alors une image à part.
+        match share::guest_format(j.codec.as_deref(), j.yuv444, g.capabilities) {
+            Ok(Some((codec, yuv444))) => {
+                if j.codec() != Some(codec) || yuv444 != j.yuv444 {
+                    info!("format de l'hôte {:?} (4:4:4 {}) : {} {} demandé", j.codec, j.yuv444, codec.label(), if yuv444 { "4:4:4" } else { "4:2:0" });
+                }
                 self.params.settings.codec = codec;
-                self.params.settings.yuv444 = j.yuv444;
+                self.params.settings.yuv444 = yuv444;
             }
             // Image pas encore démarrée chez l'hôte : le format de l'app, en 4:2:0.
             Ok(None) => self.params.settings.yuv444 = false,
@@ -1795,6 +1821,9 @@ impl Worker {
             screens: None,
         });
         self.platform.on_share_role(self.share_role, None);
+        if let Some(image) = j.image.clone() {
+            self.share_image_changed(image);
+        }
 
         self.status(Status::Connecting);
         let _ = rustls::crypto::ring::default_provider().install_default();
@@ -1902,6 +1931,9 @@ impl Worker {
             // image neuve (Kyber les ouvre au démarrage de l'image).
             open_inputs = b.role.plays() && !self.stream_input && self.streaming.is_some();
         }
+        if let Some(image) = b.image {
+            self.share_image_changed(image);
+        }
         let current = self.guest.as_ref().map(|g| g.joined.display.id);
         match b.display {
             // L'écran partagé a changé (refait par l'hôte) : Kyber ne change
@@ -1946,6 +1978,67 @@ impl Worker {
             if let Err(e) = c.connect() {
                 let _ = self.tx.send(Msg::Fail(Failure::kyber(t("session.connect_failed", &[("reason", &e.to_string())]))));
             }
+        }
+    }
+
+    /// L'image de l'invité a changé (ou arrive) : à la plateforme, avec l'avis.
+    fn share_image_changed(&mut self, image: ShareImage) {
+        if self.share_image.as_ref() == Some(&image) {
+            return;
+        }
+        let previous = self.share_image.replace(image.clone());
+        info!(
+            "partage : image {}×{} à {} Hz ({}, {:?}{})",
+            image.width,
+            image.height,
+            image.fps,
+            if image.follows_host { "celle de l'hôte" } else { "à part" },
+            image.reason,
+            image.codec.as_ref().map(|c| format!(", {c}")).unwrap_or_default()
+        );
+        let notice = image.notice(previous.as_ref(), i18n::current());
+        self.platform.on_share_image(&image, previous.as_ref(), notice.as_deref());
+    }
+
+    /// « Qualité de l'image » choisie par l'invité : dite à la Station sur un
+    /// fil d'appel ; l'image reçue revient par le fil de session.
+    fn ask_share_quality(&mut self, quality: ShareQuality) {
+        let (Some(g), Some(console)) = (self.guest.clone(), self.console.clone()) else {
+            info!("qualité d'image d'invité demandée hors d'une session d'invité : ignorée");
+            return;
+        };
+        info!("partage : qualité {} demandée", quality.as_str());
+        let tx = self.tx.clone();
+        let label = journal::current();
+        std::thread::Builder::new()
+            .name("kybernow-qualite".into())
+            .spawn(move || {
+                journal::resume(label);
+                match console.share_quality(&g.joined.guest, &g.joined.secret, quality) {
+                    Ok(image) => {
+                        let _ = tx.send(Msg::ShareImage(image));
+                    }
+                    Err(e) => warn!("qualité d'image pas changée : {}", e.text(Lang::Fr)),
+                }
+            })
+            .expect("fil de la qualité");
+    }
+
+    /// L'invité reçoit une image à part (à lui ou à ceux de même qualité) :
+    /// il peut en régler le débit et y demander des images clés sans attendre.
+    fn own_image(&self) -> bool {
+        self.guest.is_some() && self.share_image.as_ref().is_some_and(|i| !i.follows_host)
+    }
+
+    /// Image clé : redemandée toutes les `.0`, flux relancé au bout de `.1`.
+    /// Un invité sur l'image de l'hôte : toutes les 2 s (Kyber les espace et
+    /// y voit un retard), relance à 5 s ; sur son image à part : comme un
+    /// hôte, relance à 5 s (chaque relance le réabonne à l'image).
+    fn keyframe_timing(&self) -> (Duration, Duration) {
+        match (&self.guest, self.own_image()) {
+            (None, _) => (Duration::from_millis(300), Duration::from_millis(1500)),
+            (Some(_), true) => (Duration::from_millis(300), Duration::from_secs(5)),
+            (Some(_), false) => (Duration::from_secs(2), Duration::from_secs(5)),
         }
     }
 
@@ -2053,6 +2146,12 @@ impl Worker {
                 .sum();
             return self.params.settings.bitrate_for_pixel_rate(rate);
         }
+        // Un invité sur son image à part : le débit de cette image.
+        if self.own_image()
+            && let Some(i) = self.share_image.as_ref().filter(|i| i.width > 0 && i.height > 0)
+        {
+            return self.params.settings.bitrate(i.width, i.height, i.fps.max(1));
+        }
         let m = self.stream_mode;
         self.params.settings.bitrate(m.width, m.height, m.refresh)
     }
@@ -2071,8 +2170,9 @@ impl Worker {
     }
 
     fn apply_bitrate(&self) {
-        // Débit de l'image commune : réservé à l'hôte (Kyber l'impose aussi).
-        if !self.host_only(HostOnly::Bitrate) {
+        // Débit de l'image de l'hôte : réservé à l'hôte ; un invité règle
+        // celui de son image à part (Kyber le borne).
+        if !self.own_image() && !self.host_only(HostOnly::Bitrate) {
             return;
         }
         if self.streaming.is_some() {
@@ -2163,6 +2263,8 @@ impl Worker {
                     }
                 }
                 Ok(Msg::ShareGone(end)) => return Some(self.share_ended(end)),
+                Ok(Msg::ShareQuality(quality)) => self.ask_share_quality(quality),
+                Ok(Msg::ShareImage(image)) => self.share_image_changed(image),
                 Ok(Msg::NoImage) => {
                     if let Some(e) = self.no_image_restart() {
                         return Some(e);
@@ -2214,10 +2316,8 @@ impl Worker {
     }
 
     fn request_keyframe(&mut self) {
-        // L'image clé vaut pour toute l'image commune : réservée à l'hôte.
-        if !self.host_only(HostOnly::Keyframe) {
-            return;
-        }
+        // Un invité aussi : permise sur son image à part, espacée par Kyber
+        // sur l'image de l'hôte (voir `keyframe_timing`).
         // Plusieurs flux : Kyber demande l'image clé à tous à la fois, et une
         // demande avant les premières données d'un flux laisse son encodeur
         // muet. On attend donc que chacun ait reçu quelque chose (il commence
@@ -2238,7 +2338,7 @@ impl Worker {
     }
 
     /// Veilles du cœur (`watch_image`) : première image en 4 s, image clé en
-    /// 1,5 s (redemandée toutes les 300 ms).
+    /// 1,5 s (redemandée toutes les 300 ms ; un invité : `keyframe_timing`).
     fn watch_image(&mut self, now: Instant) -> Option<Failure> {
         if self.hidden.load(Ordering::Relaxed) && self.image_deadline.is_some() {
             // Rien n'est montré tant que l'app a figé l'image : 4 s de nouveau au retour.
@@ -2256,9 +2356,10 @@ impl Worker {
             }
         }
         if let Some((asked, last)) = self.keyframe {
-            if asked.elapsed() > Duration::from_millis(1500) {
+            let (repeat, relaunch) = self.keyframe_timing();
+            if asked.elapsed() > relaunch {
                 self.keyframe = None;
-                warn!("pas d'image clé en 1,5 s : relance du flux");
+                warn!("pas d'image clé en {} ms : relance du flux", relaunch.as_millis());
                 // Jamais d'image depuis le démarrage : le flux est trop lourd, on l'allège.
                 if !self.has_image.load(Ordering::Relaxed) && self.degrade() {
                     return None;
@@ -2268,7 +2369,7 @@ impl Worker {
                     self.last_stall_restart = Some(now);
                     self.restart_streaming(Duration::from_millis(300));
                 }
-            } else if last.elapsed() >= Duration::from_millis(300) {
+            } else if last.elapsed() >= repeat {
                 self.keyframe = Some((asked, now));
                 self.request_keyframe();
             }
@@ -2745,6 +2846,13 @@ impl Worker {
     /// référence.
     fn decoded(&mut self, width: u32, height: u32) {
         if width == 0 || height == 0 {
+            return;
+        }
+        // Un invité reçoit une image à sa mesure (plus petite que l'écran de
+        // l'ordinateur) : seule la liste de Kyber dit la taille de l'écran,
+        // repère de ses positions de souris.
+        if self.guest.is_some() {
+            self.frame_size = Some((width, height));
             return;
         }
         let Some(previous) = self.frame_size else {
@@ -3542,6 +3650,7 @@ mod tests {
         guests: Mutex<Vec<Option<usize>>>,
         reports: Mutex<Vec<bool>>,
         modes: Mutex<Vec<(Mode, bool)>>,
+        images: Mutex<Vec<(ShareImage, Option<ShareImage>, Option<String>)>>,
     }
 
     impl Platform for Recorder {
@@ -3576,6 +3685,9 @@ mod tests {
         }
         fn on_mode(&self, mode: Mode, virtual_display: bool) {
             self.modes.lock().unwrap().push((mode, virtual_display));
+        }
+        fn on_share_image(&self, image: &ShareImage, previous: Option<&ShareImage>, notice: Option<&str>) {
+            self.images.lock().unwrap().push((image.clone(), previous.cloned(), notice.map(str::to_string)));
         }
         fn on_share_end(&self, end: &ShareEnd, text: &str) {
             self.events.lock().unwrap().push(format!("fin du partage {end:?} : {text}"));
@@ -3797,10 +3909,10 @@ mod tests {
     }
 
     fn beat(role: ShareRole) -> ShareBeat {
-        ShareBeat { role, token: Some("jwt-2".into()), expires: Some(120), display: Some(ShareDisplay { id: 7, width: 1920, height: 1080, refresh: 60 }), end: None }
+        ShareBeat { role, token: Some("jwt-2".into()), expires: Some(120), display: Some(ShareDisplay { id: 7, width: 1920, height: 1080, refresh: 60 }), image: None, end: None }
     }
 
-    const ALL_HOST_ONLY: [HostOnly; 13] = [
+    const ALL_HOST_ONLY: [HostOnly; 12] = [
         HostOnly::Prepare,
         HostOnly::Heartbeat,
         HostOnly::Foreground,
@@ -3808,7 +3920,6 @@ mod tests {
         HostOnly::Replan,
         HostOnly::RestoreMode,
         HostOnly::Bitrate,
-        HostOnly::Keyframe,
         HostOnly::Fallback,
         HostOnly::StationRestart,
         HostOnly::End,
@@ -3979,7 +4090,7 @@ mod tests {
         assert_eq!(*recorder.reports.lock().unwrap(), [false], "pas de rapport d'écrans rendus");
         // Retiré : 200 avec la fin, sans jeton (60 s durant) ; fin propre, rien de renouvelé.
         let (mut w, _) = guest(ShareRole::Spectator);
-        w.tx.send(Msg::ShareBeat(ShareBeat { role: ShareRole::Spectator, token: None, expires: Some(0), display: None, end: Some(ShareEnd::Removed) })).unwrap();
+        w.tx.send(Msg::ShareBeat(ShareBeat { role: ShareRole::Spectator, token: None, expires: Some(0), display: None, image: None, end: Some(ShareEnd::Removed) })).unwrap();
         let f = w.event_loop().expect("fin");
         assert_eq!(f.text, ShareEnd::Removed.text(i18n::current(), "Léa"));
         assert_eq!(w.share_end.as_ref().map(|(e, _)| e.clone()), Some(ShareEnd::Removed));
@@ -4059,24 +4170,87 @@ mod tests {
     }
 
     #[test]
-    fn format_de_l_image_verifie_avant_tout() {
-        // AV1 chez l'hôte, l'appareil ne le lit pas : fin dédiée, avant Kyber.
-        let caps = crate::profile::Capabilities { hevc: true, hevc444: false, av1: false };
-        let (mut w, recorder) = guest_with(joined(ShareRole::Spectator, Some("av1"), Some("sha256:kk")), caps);
-        let f = w.open_guest().unwrap_err();
-        let end = ShareEnd::Unreadable { format: "AV1".into() };
-        assert_eq!(f.text, end.text(i18n::current(), "Léa"));
-        assert!(w.client.is_none(), "Kyber n'est pas joint");
-        w.finish(Some(f.text.clone()));
-        assert!(recorder.events.lock().unwrap().contains(&format!("fin du partage {end:?} : {}", f.text)));
-        // Le format de l'hôte remplace celui de l'app.
-        let (mut w, _) = guest_with(joined(ShareRole::Spectator, Some("h264"), None), caps);
-        assert_eq!(w.params.settings.codec, crate::profile::Codec::Hevc, "le profil de l'app avant");
-        let f = w.open_guest().unwrap_err();
-        assert_eq!(w.params.settings.codec, crate::profile::Codec::H264);
-        // … et sans l'empreinte de Kyber donnée par Admin, rien : jamais de premier contact.
-        assert_eq!(f.text, t("share.no_kyber_fingerprint", &[]));
-        assert!(w.client.is_none());
+    fn format_lisible_au_lieu_de_refuser() {
+        // Sans l'empreinte de Kyber, `open_guest` s'arrête juste après le
+        // choix du format : on y lit ce qui serait demandé à Kyber.
+        let pick = |codec: &str, yuv444: bool, caps: crate::profile::Capabilities| {
+            let mut j = joined(ShareRole::Spectator, Some(codec), None);
+            j.yuv444 = yuv444;
+            let (mut w, recorder) = guest_with(j, caps);
+            let f = w.open_guest().unwrap_err();
+            assert_eq!(f.text, t("share.no_kyber_fingerprint", &[]), "jamais de premier contact");
+            assert!(w.share_end.is_none() && w.client.is_none());
+            assert!(recorder.events.lock().unwrap().iter().all(|e| !e.contains("fin du partage")), "on entre");
+            (w.params.settings.codec, w.params.settings.yuv444)
+        };
+        use crate::profile::{Capabilities, Codec};
+        let hevc = Capabilities { hevc: true, hevc444: false, av1: false };
+        let hevc444 = Capabilities { hevc: true, hevc444: true, av1: false };
+        let h264 = Capabilities::default();
+        assert_eq!(pick("hevc", true, hevc444), (Codec::Hevc, true), "le format de l'hôte, tel quel");
+        assert_eq!(pick("hevc", true, hevc), (Codec::Hevc, false), "sans son 4:4:4 : image à part en 4:2:0");
+        assert_eq!(pick("av1", false, hevc), (Codec::Hevc, false), "AV1 illisible : un format lisible");
+        assert_eq!(pick("hevc", false, h264), (Codec::H264, false), "H.264 sinon");
+        assert_eq!(pick("h264", false, hevc444), (Codec::H264, false));
+    }
+
+    fn own(width: u32, height: u32, fps: u32, reason: share::ShareImageReason) -> ShareImage {
+        ShareImage { quality: ShareQuality::P1080_60, width, height, fps, codec: Some("h264".into()), follows_host: false, reason }
+    }
+
+    #[test]
+    fn image_de_l_invite() {
+        use share::ShareImageReason as R;
+        let (mut w, recorder) = guest(ShareRole::Spectator);
+        // Sur l'image de l'hôte : images clés espacées, débit à l'hôte.
+        assert_eq!(w.keyframe_timing(), (Duration::from_secs(2), Duration::from_secs(5)));
+        w.apply_bitrate();
+        assert!(w.refused.lock().unwrap().contains(&HostOnly::Bitrate));
+        w.refused.lock().unwrap().clear();
+        // Son image à part : annoncée sans avis, débit et images clés à lui.
+        let mut b = beat(ShareRole::Spectator);
+        b.image = Some(own(1920, 1080, 60, R::Asked));
+        assert!(w.on_share_beat(b.clone()).is_none());
+        assert!(w.own_image());
+        assert_eq!(w.keyframe_timing(), (Duration::from_millis(300), Duration::from_secs(5)));
+        w.apply_bitrate();
+        assert!(w.refused.lock().unwrap().is_empty(), "son image à part : il en règle le débit");
+        assert_eq!(w.profile_bitrate(), w.params.settings.bitrate(1920, 1080, 60), "le débit de son image");
+        // La même image : rien de nouveau.
+        assert!(w.on_share_beat(b).is_none());
+        // En retard : un cran plus bas, avec l'avis ; plus d'image à part : l'image ouverte, avec l'autre avis.
+        w.share_image_changed(own(1280, 720, 30, R::Lag));
+        w.share_image_changed(own(1280, 720, 30, R::Limit));
+        // Comme l'hôte : rien à dire.
+        w.share_image_changed(ShareImage { follows_host: true, reason: R::Capped, ..own(3840, 2160, 120, R::Capped) });
+        let images = recorder.images.lock().unwrap().clone();
+        let lang = i18n::current();
+        assert_eq!(
+            images.iter().map(|(i, p, n)| (i.height, p.as_ref().map(|p| p.height), n.clone())).collect::<Vec<_>>(),
+            [
+                (1080, None, None),
+                (720, Some(1080), Some(i18n::tr(lang, "share.image_lag", &[]))),
+                (720, Some(720), Some(i18n::tr(lang, "share.image_limit", &[("quality", "720p · 30 Hz")]))),
+                (2160, Some(720), None)
+            ]
+        );
+        assert!(!w.own_image());
+        // Une image à sa mesure ne change pas l'écran de l'ordinateur (repère de la souris).
+        w.streaming = Some(display(7, 0, 0, 3840, 2160));
+        w.host_size = (3840, 2160);
+        w.decoded(3840, 2160);
+        w.decoded(1280, 720);
+        assert_eq!(w.host_size, (3840, 2160));
+        // Qualité choisie : demandée à la Station, l'image revient par le fil de session.
+        w.tx.send(Msg::ShareQuality(ShareQuality::P720_30)).unwrap();
+        w.tx.send(Msg::ShareImage(own(1280, 720, 30, R::Asked))).unwrap();
+        w.tx.send(Msg::Stop).unwrap();
+        assert!(w.event_loop().is_none());
+        assert_eq!(recorder.images.lock().unwrap().last().map(|(i, _, _)| (i.height, i.reason)), Some((720, R::Asked)));
+        // Un hôte : rien à demander, images clés et relance comme toujours.
+        let (mut host, _) = worker(crate::profile::Profile::Jeu, two_screens(0));
+        host.ask_share_quality(ShareQuality::Host);
+        assert_eq!(host.keyframe_timing(), (Duration::from_millis(300), Duration::from_millis(1500)));
     }
 
     #[test]

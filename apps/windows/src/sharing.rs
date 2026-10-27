@@ -318,7 +318,7 @@ mod tests {
     }
 
     fn guest(id: &str, name: &str, role: ShareRole) -> ShareGuest {
-        ShareGuest { id: id.into(), name: name.into(), app: "ios".into(), role, since: Some(1) }
+        ShareGuest { id: id.into(), name: name.into(), app: "ios".into(), role, since: Some(1), ..ShareGuest::default() }
     }
 
     #[test]

@@ -19,6 +19,7 @@ use crate::console::{Console, ConsoleError, Info};
 use crate::i18n::{self, Lang, tr};
 use crate::input::InputRights;
 use crate::profile::{Capabilities, Codec};
+use crate::screens::DeviceScreen;
 
 // MARK: - Rôle
 
@@ -240,6 +241,16 @@ pub struct ShareGuest {
     /// s'il est illisible).
     #[serde(default, deserialize_with = "lenient_i64")]
     pub since: Option<i64>,
+    /// L'image qu'il reçoit (Station 0.8 avec le correctif 0020 ; absente
+    /// sinon), que l'hôte voit sans la changer.
+    #[serde(default, deserialize_with = "lenient_image")]
+    pub image: Option<ShareImage>,
+}
+
+/// Une image illisible est ignorée, pas tout ce qui la porte.
+fn lenient_image<'de, D: Deserializer<'de>>(d: D) -> Result<Option<ShareImage>, D::Error> {
+    let v = Option::<serde_json::Value>::deserialize(d)?;
+    Ok(v.filter(|v| v.is_object()).and_then(|v| serde_json::from_value(v).ok()))
 }
 
 /// Le partage ouvert : `GET /api/share`, et le champ `share` du signe de vie
@@ -288,7 +299,7 @@ pub(crate) fn lenient_state<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Sh
 // MARK: - Invité
 
 /// Corps de `POST /api/share/join`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct JoinRequest {
     /// Six chiffres ([`normalize_code`]).
     pub code: String,
@@ -298,6 +309,268 @@ pub struct JoinRequest {
     pub device: String,
     /// `mac`, `windows`, `linux`, `ios`, `tvos`, `android`, `webos`.
     pub app: String,
+    /// « Qualité de l'image » choisie (retenue par l'app ; « Auto » par défaut).
+    #[serde(default)]
+    pub quality: ShareQuality,
+    /// Pour « Auto » : ce que l'appareil sait afficher et décoder
+    /// ([`auto_quality`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto: Option<ShareAuto>,
+}
+
+// MARK: - Qualité de l'image d'un invité
+
+/// La « Qualité de l'image » qu'un invité demande (docs/link-ui.md). L'image
+/// reçue n'est jamais au-dessus de celle de l'hôte ; la Station (Kyber,
+/// correctif 0020) décide et le dit ([`ShareImage`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum ShareQuality {
+    /// D'après l'écran de l'appareil et ce que son décodeur suit ([`ShareAuto`]).
+    #[default]
+    Auto,
+    /// « Comme l'hôte ».
+    Host,
+    /// « 1080p · 60 Hz ».
+    P1080_60,
+    /// « 720p · 30 Hz ».
+    P720_30,
+}
+
+impl ShareQuality {
+    /// Dans l'ordre du choix.
+    pub const ALL: [ShareQuality; 4] = [Self::Auto, Self::Host, Self::P1080_60, Self::P720_30];
+
+    /// Nom dans l'échange avec Admin : `auto`, `host`, `1080p60`, `720p30`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Host => "host",
+            Self::P1080_60 => "1080p60",
+            Self::P720_30 => "720p30",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "auto" => Some(Self::Auto),
+            "host" => Some(Self::Host),
+            "1080p60" => Some(Self::P1080_60),
+            "720p30" => Some(Self::P720_30),
+            _ => None,
+        }
+    }
+
+    /// Pour les ponts C et JNI : 0 Auto, 1 comme l'hôte, 2 1080p60, 3 720p30.
+    pub fn code(self) -> i32 {
+        match self {
+            Self::Auto => 0,
+            Self::Host => 1,
+            Self::P1080_60 => 2,
+            Self::P720_30 => 3,
+        }
+    }
+
+    pub fn from_code(code: i32) -> Option<Self> {
+        Self::ALL.into_iter().find(|q| q.code() == code)
+    }
+
+    /// Le libellé du choix : « Auto », « Comme l'hôte », « 1080p · 60 Hz »,
+    /// « 720p · 30 Hz ».
+    pub fn label(self, lang: Lang) -> String {
+        match self {
+            Self::Auto => tr(lang, "share.quality_auto", &[]),
+            Self::Host => tr(lang, "share.quality_host", &[]),
+            Self::P1080_60 => quality_label(1080, 60),
+            Self::P720_30 => quality_label(720, 30),
+        }
+    }
+}
+
+/// « 1080p · 60 Hz ».
+fn quality_label(height: u32, fps: u32) -> String {
+    format!("{height}p · {fps} Hz")
+}
+
+impl Serialize for ShareQuality {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(self.as_str())
+    }
+}
+
+/// Une qualité inconnue (Station plus récente) se lit « Auto ».
+impl<'de> Deserialize<'de> for ShareQuality {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = Option::<String>::deserialize(d)?;
+        Ok(s.as_deref().and_then(Self::parse).unwrap_or_default())
+    }
+}
+
+/// Pour « Auto », ce que l'appareil sait afficher et décoder (`auto` de
+/// `join`) : la Station en tire l'image de l'invité.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ShareAuto {
+    /// Définition au plus, en pixels, en paysage.
+    #[serde(default)]
+    pub width: u32,
+    #[serde(default)]
+    pub height: u32,
+    /// Images par seconde au plus.
+    #[serde(default)]
+    pub fps: u32,
+    /// Les formats que l'appareil décode (`h264`, `hevc`, `av1`).
+    #[serde(default)]
+    pub codecs: Vec<String>,
+    /// Il décode le HEVC 4:4:4.
+    #[serde(default)]
+    pub yuv444: bool,
+}
+
+/// Ce que le décodeur de l'appareil sait faire, pour « Auto » : ses formats,
+/// et la définition et la fréquence qu'il suit (0 : rien de connu au-delà de
+/// l'écran).
+/// En JSON (ponts) : `{"hevc", "hevc444", "av1", "max_width", "max_height",
+/// "max_fps"}`, tous facultatifs.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DecoderCaps {
+    #[serde(flatten)]
+    pub capabilities: Capabilities,
+    pub max_width: u32,
+    pub max_height: u32,
+    pub max_fps: u32,
+}
+
+impl From<Capabilities> for DecoderCaps {
+    fn from(capabilities: Capabilities) -> Self {
+        Self { capabilities, ..Self::default() }
+    }
+}
+
+/// « Auto » : la définition et la fréquence au plus celles de l'écran de
+/// l'appareil (`screen` : sa définition native et sa fréquence) et de ce que
+/// son décodeur suit, en paysage ; jamais au-dessus de l'image de l'hôte
+/// quand on la connaît (`host`, l'écran partagé : en cours de session). Les
+/// formats sont ceux du décodeur (H.264 toujours). Ce qu'on envoie à la
+/// Station avec `quality: auto`.
+pub fn auto_quality(screen: &DeviceScreen, decoder: &DecoderCaps, host: Option<&ShareDisplay>) -> ShareAuto {
+    let limit = |v: u32, max: u32| if max > 0 { v.min(max) } else { v };
+    let (long, short) = (screen.pixel_width.max(screen.pixel_height), screen.pixel_width.min(screen.pixel_height));
+    let (max_long, max_short) = (decoder.max_width.max(decoder.max_height), decoder.max_width.min(decoder.max_height));
+    let (mut width, mut height) = (limit(long, max_long), limit(short, max_short));
+    let mut fps = limit(screen.refresh.max(1), decoder.max_fps);
+    if let Some(h) = host.filter(|h| h.width > 0 && h.height > 0) {
+        width = width.min(h.width.max(h.height));
+        height = height.min(h.width.min(h.height));
+        if h.refresh > 0 {
+            fps = fps.min(h.refresh);
+        }
+    }
+    let c = decoder.capabilities;
+    let mut codecs = vec!["h264".to_string()];
+    if c.hevc {
+        codecs.push("hevc".into());
+    }
+    if c.av1 {
+        codecs.push("av1".into());
+    }
+    ShareAuto { width, height, fps, codecs, yuv444: c.hevc && c.hevc444 }
+}
+
+/// Pourquoi l'image reçue est celle-là.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum ShareImageReason {
+    /// La qualité demandée.
+    #[default]
+    Asked,
+    /// Bornée par l'image de l'hôte (jamais au-dessus).
+    Capped,
+    /// Plus d'image à part possible : l'image ouverte la plus proche, plus légère.
+    Limit,
+    /// En retard sur l'image de l'hôte : un cran plus bas.
+    Lag,
+}
+
+impl ShareImageReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Asked => "asked",
+            Self::Capped => "capped",
+            Self::Limit => "limit",
+            Self::Lag => "lag",
+        }
+    }
+}
+
+impl Serialize for ShareImageReason {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for ShareImageReason {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = Option::<String>::deserialize(d)?;
+        Ok(match s.as_deref() {
+            Some("capped") => Self::Capped,
+            Some("limit") => Self::Limit,
+            Some("lag") => Self::Lag,
+            _ => Self::Asked,
+        })
+    }
+}
+
+/// L'image qu'un invité reçoit (`image` de `join`, du signe de vie et de
+/// `POST /api/share/quality` ; `guests[].image` chez l'hôte).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ShareImage {
+    /// La qualité demandée.
+    #[serde(default)]
+    pub quality: ShareQuality,
+    #[serde(default)]
+    pub width: u32,
+    #[serde(default)]
+    pub height: u32,
+    #[serde(default)]
+    pub fps: u32,
+    #[serde(default)]
+    pub codec: Option<String>,
+    /// L'invité partage l'image de l'hôte (sinon : une image à part, à lui
+    /// ou à ceux de même qualité).
+    #[serde(default)]
+    pub follows_host: bool,
+    #[serde(default)]
+    pub reason: ShareImageReason,
+}
+
+impl ShareImage {
+    /// La qualité reçue, telle que la barre et le panneau de l'hôte la
+    /// montrent : « 1080p · 60 Hz ».
+    pub fn label(&self) -> String {
+        quality_label(self.height.min(self.width), self.fps)
+    }
+
+    pub fn codec(&self) -> Option<Codec> {
+        self.codec.as_deref().and_then(Codec::parse)
+    }
+
+    /// L'avis bref à montrer quand l'image devient celle-ci (`previous` :
+    /// celle d'avant, `None` au départ) : « Image allégée pour suivre. »
+    /// (retard), « L'ordinateur ne peut pas faire une image de plus : vous
+    /// recevez {qualité}. » (plus d'image à part) ; rien sinon, ni quand
+    /// l'image ne change pas de taille ni de raison.
+    pub fn notice(&self, previous: Option<&ShareImage>, lang: Lang) -> Option<String> {
+        if !matches!(self.reason, ShareImageReason::Lag | ShareImageReason::Limit) {
+            return None;
+        }
+        let same = previous.is_some_and(|p| p.reason == self.reason && (p.width, p.height, p.fps) == (self.width, self.height, self.fps));
+        if same {
+            return None;
+        }
+        Some(match self.reason {
+            ShareImageReason::Lag => tr(lang, "share.image_lag", &[]),
+            _ => tr(lang, "share.image_limit", &[("quality", &self.label())]),
+        })
+    }
 }
 
 /// Connexion à Kyber d'un invité.
@@ -375,6 +648,9 @@ pub struct ShareJoined {
     /// Signe de vie toutes les `beat` secondes.
     #[serde(default = "five")]
     pub beat: u64,
+    /// L'image que l'invité recevra, si la Station la dit déjà.
+    #[serde(default, deserialize_with = "lenient_image")]
+    pub image: Option<ShareImage>,
 }
 
 fn five() -> u64 {
@@ -406,6 +682,7 @@ impl std::fmt::Debug for ShareJoined {
             .field("codec", &self.codec)
             .field("yuv444", &self.yuv444)
             .field("beat", &self.beat)
+            .field("image", &self.image)
             .finish()
     }
 }
@@ -424,6 +701,9 @@ pub struct ShareBeat {
     /// autre identifiant) ; le jeton qui l'accompagne porte son `kn_display`.
     #[serde(default)]
     pub display: Option<ShareDisplay>,
+    /// L'image que l'invité reçoit maintenant.
+    #[serde(default, deserialize_with = "lenient_image")]
+    pub image: Option<ShareImage>,
     /// Fin du partage pour cet invité.
     #[serde(default, deserialize_with = "lenient_end")]
     pub end: Option<ShareEnd>,
@@ -436,6 +716,7 @@ impl std::fmt::Debug for ShareBeat {
             .field("token", &self.token.as_ref().map(|_| "[masqué]"))
             .field("expires", &self.expires)
             .field("display", &self.display)
+            .field("image", &self.image)
             .field("end", &self.end)
             .finish()
     }
@@ -547,8 +828,10 @@ impl std::error::Error for ShareError {}
 
 // MARK: - Format de l'image
 
-/// L'appareil sait-il lire l'image de l'hôte ? `codec` : celui de la réponse
-/// de `join` (absent : l'image n'a pas encore démarré, rien à vérifier).
+/// L'appareil sait-il lire l'image de l'hôte telle quelle ? `codec` : celui
+/// de la réponse de `join` (absent : l'image n'a pas encore démarré, rien à
+/// vérifier). Un non n'empêche plus d'entrer ([`guest_format`] : image à
+/// part) ; « Comme l'hôte » et la barre peuvent s'en servir.
 /// Rend le format lu, ou [`ShareError::Unreadable`] avec son nom
 /// (« HEVC », « HEVC 4:4:4 », « AV1 »).
 pub fn check_codec(codec: Option<&str>, yuv444: bool, caps: Capabilities) -> Result<Option<Codec>, ShareError> {
@@ -566,6 +849,29 @@ pub fn check_codec(codec: Option<&str>, yuv444: bool, caps: Capabilities) -> Res
     }
     let format = if codec == Codec::Hevc && yuv444 && caps.hevc { format!("{} 4:4:4", codec.label()) } else { codec.label().to_string() };
     Err(ShareError::Unreadable { format })
+}
+
+/// Le format qu'un invité demande à Kyber : celui de l'image de l'hôte
+/// (`codec`, `yuv444` de `join`) quand l'appareil le lit (en 4:2:0 s'il ne
+/// lit pas son 4:4:4 : Kyber lui fait alors une image à part) ; sinon un
+/// format qu'il lit (HEVC, puis AV1, H.264 sinon), dans lequel Kyber lui fait
+/// une image à part. `None` : l'image de l'hôte n'a pas démarré (le format
+/// de l'app, en 4:2:0). [`ShareError::Unreadable`] seulement si l'appareil
+/// ne lit aucun format possible.
+pub fn guest_format(codec: Option<&str>, yuv444: bool, caps: Capabilities) -> Result<Option<(Codec, bool)>, ShareError> {
+    let Some(raw) = codec.map(str::trim).filter(|c| !c.is_empty()) else { return Ok(None) };
+    let reads = |c: Codec| match c {
+        Codec::H264 => true,
+        Codec::Hevc => caps.hevc,
+        Codec::Av1 => caps.av1,
+    };
+    if let Some(c) = Codec::parse(raw).filter(|c| reads(*c)) {
+        return Ok(Some((c, yuv444 && c == Codec::Hevc && caps.hevc444)));
+    }
+    match [Codec::Hevc, Codec::Av1, Codec::H264].into_iter().find(|c| reads(*c)) {
+        Some(c) => Ok(Some((c, false))),
+        None => Err(ShareError::Unreadable { format: Codec::parse(raw).map_or_else(|| raw.to_ascii_uppercase(), |c| c.label().to_string()) }),
+    }
 }
 
 // MARK: - Code et lien
@@ -732,12 +1038,14 @@ pub fn join(targets: &[ShareTarget], req: &JoinRequest) -> Result<Found, ShareEr
     })
 }
 
-/// [`join`], puis la vérification du format de l'image avec ce que
-/// l'appareil décode ([`check_codec`]) : s'il ne le lit pas, l'invité repart
-/// tout de suite (`share_leave`) et l'appel rend [`ShareError::Unreadable`].
+/// [`join`], puis la vérification du format avec ce que l'appareil décode
+/// ([`guest_format`]) : un format de l'hôte qu'il ne lit pas n'empêche plus
+/// d'entrer (Kyber lui fait une image à part dans un format qu'il lit) ;
+/// seul un appareil qui ne lit aucun format possible repart tout de suite
+/// (`share_leave`), avec [`ShareError::Unreadable`].
 pub fn join_checked(targets: &[ShareTarget], req: &JoinRequest, caps: Capabilities) -> Result<Found, ShareError> {
     let found = join(targets, req)?;
-    if let Err(e) = check_codec(found.joined.codec.as_deref(), found.joined.yuv444, caps) {
+    if let Err(e) = guest_format(found.joined.codec.as_deref(), found.joined.yuv444, caps) {
         leave(&found);
         return Err(e);
     }
@@ -920,6 +1228,115 @@ mod tests {
     }
 
     #[test]
+    fn qualites() {
+        for (s, q, code, fr, en) in [
+            ("auto", ShareQuality::Auto, 0, "Auto", "Auto"),
+            ("host", ShareQuality::Host, 1, "Comme l'hôte", "Same as host"),
+            ("1080p60", ShareQuality::P1080_60, 2, "1080p · 60 Hz", "1080p · 60 Hz"),
+            ("720p30", ShareQuality::P720_30, 3, "720p · 30 Hz", "720p · 30 Hz"),
+        ] {
+            assert_eq!((q.as_str(), ShareQuality::parse(s), q.code(), ShareQuality::from_code(code)), (s, Some(q), code, Some(q)));
+            assert_eq!(serde_json::to_value(q).unwrap(), serde_json::json!(s));
+            assert_eq!((q.label(Lang::Fr), q.label(Lang::En)), (fr.to_string(), en.to_string()));
+        }
+        assert_eq!(serde_json::from_value::<ShareQuality>(serde_json::json!("4k120")).unwrap(), ShareQuality::Auto, "inconnue : Auto");
+        assert_eq!(ShareQuality::from_code(4), None);
+        // Dans `join` : « Auto » par défaut, `auto` seulement s'il est donné.
+        let req = JoinRequest { code: "123456".into(), name: "Léa".into(), device: "ipad".into(), app: "ios".into(), ..JoinRequest::default() };
+        let v = serde_json::to_value(&req).unwrap();
+        assert_eq!((v["quality"].clone(), v.get("auto").is_none()), (serde_json::json!("auto"), true));
+        let auto = ShareAuto { width: 2556, height: 1179, fps: 60, codecs: vec!["h264".into(), "hevc".into()], yuv444: false };
+        let v = serde_json::to_value(JoinRequest { quality: ShareQuality::Auto, auto: Some(auto), ..req.clone() }).unwrap();
+        assert_eq!(v["auto"], serde_json::json!({ "width": 2556, "height": 1179, "fps": 60, "codecs": ["h264", "hevc"], "yuv444": false }));
+        let v = serde_json::to_value(JoinRequest { quality: ShareQuality::P720_30, ..req }).unwrap();
+        assert_eq!(v["quality"], serde_json::json!("720p30"));
+        // Les ponts donnent le JSON sans les champs nouveaux : « Auto ».
+        let old: JoinRequest = serde_json::from_str(r#"{"code":"123456","name":"Léa","device":"d","app":"mac"}"#).unwrap();
+        assert_eq!((old.quality, old.auto), (ShareQuality::Auto, None));
+    }
+
+    fn screen(w: u32, h: u32, hz: u32) -> DeviceScreen {
+        DeviceScreen { x: 0.0, y: 0.0, width: f64::from(w) / 3.0, height: f64::from(h) / 3.0, pixel_width: w, pixel_height: h, refresh: hz, primary: true }
+    }
+
+    #[test]
+    fn qualite_auto() {
+        let hevc = Capabilities { hevc: true, hevc444: false, av1: false };
+        // Un iPhone (écran en portrait, 120 Hz), décodeur qui suit la 4K à 60 Hz : en paysage.
+        let iphone = screen(1179, 2556, 120);
+        let decoder = DecoderCaps { capabilities: hevc, max_width: 3840, max_height: 2160, max_fps: 60 };
+        let a = auto_quality(&iphone, &decoder, None);
+        assert_eq!((a.width, a.height, a.fps, a.yuv444), (2556, 1179, 60, false));
+        assert_eq!(a.codecs, ["h264", "hevc"]);
+        // Jamais au-dessus de l'image de l'hôte, quand on la connaît.
+        let host = ShareDisplay { id: 7, width: 1920, height: 1080, refresh: 50 };
+        let a = auto_quality(&iphone, &decoder, Some(&host));
+        assert_eq!((a.width, a.height, a.fps), (1920, 1080, 50), "des bornes : la Station garde les proportions de l'image de l'hôte");
+        // Un téléviseur 4K dont le décodeur suit 1080p ; sans limite connue : l'écran.
+        let tv = screen(3840, 2160, 60);
+        let a = auto_quality(&tv, &DecoderCaps { capabilities: Capabilities::default(), max_width: 1920, max_height: 1080, max_fps: 0 }, None);
+        assert_eq!((a.width, a.height, a.fps, a.codecs.len()), (1920, 1080, 60, 1));
+        let a = auto_quality(&tv, &DecoderCaps::from(Capabilities { hevc: true, hevc444: true, av1: true }), None);
+        assert_eq!((a.width, a.height, a.fps, a.yuv444), (3840, 2160, 60, true));
+        assert_eq!(a.codecs, ["h264", "hevc", "av1"]);
+        // Le décodeur en JSON, pour les ponts.
+        let d: DecoderCaps = serde_json::from_str(r#"{"hevc":true,"max_width":1920,"max_height":1080}"#).unwrap();
+        assert_eq!(d, DecoderCaps { capabilities: Capabilities { hevc: true, ..Capabilities::default() }, max_width: 1920, max_height: 1080, max_fps: 0 });
+    }
+
+    #[test]
+    fn image_recue() {
+        let i: ShareImage = serde_json::from_str(r#"{"quality":"1080p60","width":1920,"height":1080,"fps":60,"codec":"hevc","follows_host":false,"reason":"asked"}"#).unwrap();
+        assert_eq!((i.quality, i.label(), i.codec(), i.follows_host, i.reason), (ShareQuality::P1080_60, "1080p · 60 Hz".to_string(), Some(Codec::Hevc), false, ShareImageReason::Asked));
+        let odd: ShareImage = serde_json::from_str(r#"{"reason":"autre","quality":"8k"}"#).unwrap();
+        assert_eq!((odd.reason, odd.quality), (ShareImageReason::Asked, ShareQuality::Auto));
+        // Dans le signe de vie, `join` et la liste de l'hôte ; illisible : ignorée.
+        let b: ShareBeat = serde_json::from_str(r#"{"role":"spectator","image":{"width":1280,"height":720,"fps":30,"reason":"lag"}}"#).unwrap();
+        assert_eq!(b.image.map(|i| (i.height, i.reason)), Some((720, ShareImageReason::Lag)));
+        let b: ShareBeat = serde_json::from_str(r#"{"role":"spectator","image":"720p"}"#).unwrap();
+        assert!(b.image.is_none());
+        let j: ShareJoined = serde_json::from_str(r#"{"guest":"g","secret":"s","image":{"width":1920,"height":1080,"fps":60,"follows_host":true}}"#).unwrap();
+        assert!(j.image.is_some_and(|i| i.follows_host));
+        let g: ShareGuest = serde_json::from_str(r#"{"id":"g","name":"Léa","image":{"width":1920,"height":1080,"fps":60}}"#).unwrap();
+        assert_eq!(g.image.map(|i| i.label()), Some("1080p · 60 Hz".into()));
+        let g: ShareGuest = serde_json::from_str(r#"{"id":"g","name":"Léa","image":[]}"#).unwrap();
+        assert!(g.image.is_none() && g.name == "Léa");
+    }
+
+    #[test]
+    fn avis_de_l_image() {
+        let img = |h: u32, fps: u32, reason| ShareImage { width: h * 16 / 9, height: h, fps, reason, ..ShareImage::default() };
+        let lag = img(720, 30, ShareImageReason::Lag);
+        assert_eq!(lag.notice(Some(&img(1080, 60, ShareImageReason::Asked)), Lang::Fr).as_deref(), Some("Image allégée pour suivre."));
+        assert_eq!(lag.notice(None, Lang::En).as_deref(), Some("Picture lightened to keep up."));
+        let limit = img(1080, 60, ShareImageReason::Limit);
+        assert_eq!(limit.notice(None, Lang::Fr).as_deref(), Some("L'ordinateur ne peut pas faire une image de plus : vous recevez 1080p · 60 Hz."));
+        assert_eq!(limit.notice(None, Lang::En).as_deref(), Some("The computer can't make another picture: you get 1080p · 60 Hz."));
+        // Rien à dire : demandée, bornée par l'hôte, ou la même encore.
+        assert_eq!(img(1080, 60, ShareImageReason::Asked).notice(None, Lang::Fr), None);
+        assert_eq!(img(2160, 120, ShareImageReason::Capped).notice(Some(&lag), Lang::Fr), None);
+        assert_eq!(lag.notice(Some(&ShareImage { codec: Some("h264".into()), ..lag.clone() }), Lang::Fr), None, "seul le format change");
+        // Encore un cran plus bas : de nouveau l'avis.
+        assert!(img(540, 30, ShareImageReason::Lag).notice(Some(&lag), Lang::Fr).is_some());
+    }
+
+    #[test]
+    fn format_demande_a_kyber() {
+        let hevc = Capabilities { hevc: true, hevc444: false, av1: false };
+        let hevc444 = Capabilities { hevc: true, hevc444: true, av1: false };
+        let all = Capabilities { hevc: true, hevc444: true, av1: true };
+        let h264 = Capabilities::default();
+        assert_eq!(guest_format(None, false, h264).unwrap(), None, "image de l'hôte pas encore démarrée");
+        assert_eq!(guest_format(Some("hevc"), true, hevc444).unwrap(), Some((Codec::Hevc, true)));
+        assert_eq!(guest_format(Some("hevc"), true, hevc).unwrap(), Some((Codec::Hevc, false)), "4:2:0 sans le 4:4:4");
+        assert_eq!(guest_format(Some("av1"), false, all).unwrap(), Some((Codec::Av1, false)));
+        assert_eq!(guest_format(Some("av1"), false, hevc).unwrap(), Some((Codec::Hevc, false)), "un format lisible");
+        assert_eq!(guest_format(Some("hevc"), false, h264).unwrap(), Some((Codec::H264, false)), "H.264 sinon");
+        assert_eq!(guest_format(Some("vp9"), false, h264).unwrap(), Some((Codec::H264, false)), "format inconnu de l'hôte");
+        assert_eq!(guest_format(Some("h264"), true, all).unwrap(), Some((Codec::H264, false)));
+    }
+
+    #[test]
     fn formats_lisibles() {
         let all = Capabilities { hevc: true, hevc444: true, av1: true };
         let h264_only = Capabilities::default();
@@ -978,7 +1395,7 @@ mod tests {
     }
 
     fn request() -> JoinRequest {
-        JoinRequest { code: "123456".into(), name: "Léa".into(), device: "ipad-1".into(), app: "ios".into() }
+        JoinRequest { code: "123456".into(), name: "Léa".into(), device: "ipad-1".into(), app: "ios".into(), ..JoinRequest::default() }
     }
 
     #[test]

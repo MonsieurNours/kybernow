@@ -839,7 +839,7 @@ mod tests {
             _ => panic!("le rôle changé arrive avec le précédent"),
         }
         // Hôte : la liste des invités, telle que l'interface la montre ; sans partage ouvert, rien.
-        let guest = share::ShareGuest { id: "g1".into(), name: "Léa".into(), app: "ios".into(), role: share::ShareRole::Player, since: Some(1_761_500_000) };
+        let guest = share::ShareGuest { id: "g1".into(), name: "Léa".into(), app: "ios".into(), role: share::ShareRole::Player, since: Some(1_761_500_000), ..share::ShareGuest::default() };
         let state = ShareState { open: true, code: "482917".into(), link: "kybernow://join?x".into(), web: "https://h:1/link/?join=482917".into(), display: None, guests: vec![guest] };
         platform.on_guests(Some(&state));
         match rx.try_recv() {

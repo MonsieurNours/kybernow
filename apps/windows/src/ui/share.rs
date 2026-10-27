@@ -157,7 +157,7 @@ pub fn share_join(app: AppHandle, code: String, name: String, link: Option<Strin
         n => n,
     };
     let pc = this_pc_of(&state);
-    let request = JoinRequest { code, name: name.clone(), device: device.id.clone(), app: "windows".into() };
+    let request = JoinRequest { code, name: name.clone(), device: device.id.clone(), app: "windows".into(), ..JoinRequest::default() };
     log::info!("partage : code envoyé à {} Station(s)", targets.len());
     let found = share::join_checked(&targets, &request, capabilities(&pc)).map_err(|e| {
         log::info!("partage : refusé ({})", e.kind());
