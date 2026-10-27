@@ -683,6 +683,13 @@ pub struct ShareJoined {
     /// L'image que l'invité recevra, si la Station la dit déjà.
     #[serde(default, deserialize_with = "lenient_image")]
     pub image: Option<ShareImage>,
+    /// Gardé par le cœur, pas dans la réponse d'Admin : le `auto` envoyé à
+    /// `join` (ce que l'appareil sait afficher et décoder), que
+    /// [`crate::session::Session::set_share_quality`] renvoie avec « Auto »
+    /// (sans lui, Admin lit « Auto » comme l'image de l'hôte). [`join`] le
+    /// met ici ; il voyage avec `joined` jusqu'à la session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto: Option<ShareAuto>,
 }
 
 fn five() -> u64 {
@@ -715,6 +722,7 @@ impl std::fmt::Debug for ShareJoined {
             .field("yuv444", &self.yuv444)
             .field("beat", &self.beat)
             .field("image", &self.image)
+            .field("auto", &self.auto)
             .finish()
     }
 }
@@ -1094,6 +1102,18 @@ pub fn leave(found: &Found) {
     }
 }
 
+/// Corps de `POST /api/share/quality` : avec « Auto », le `auto` mesuré par
+/// l'appareil (sans lui, Admin lit « Auto » comme l'image de l'hôte).
+pub(crate) fn quality_body(guest: &str, quality: ShareQuality, auto: Option<&ShareAuto>) -> serde_json::Value {
+    let mut body = serde_json::json!({ "guest": guest, "quality": quality.as_str() });
+    if quality == ShareQuality::Auto
+        && let Some(a) = auto
+    {
+        body["auto"] = serde_json::to_value(a).unwrap_or_default();
+    }
+    body
+}
+
 /// [`join`] avec l'appel substitué (tests).
 fn join_with<F>(targets: &[ShareTarget], req: &JoinRequest, call: F) -> Result<Found, ShareError>
 where
@@ -1121,7 +1141,11 @@ where
     let mut errors: Vec<ShareError> = Vec::new();
     while errors.len() < seen.len() {
         match rx.recv_timeout(deadline.saturating_duration_since(std::time::Instant::now())) {
-            Ok(Ok(found)) => return Ok(found),
+            Ok(Ok(mut found)) => {
+                // Le `auto` mesuré par l'appareil, renvoyé plus tard avec « Auto ».
+                found.joined.auto = req.auto.clone();
+                return Ok(found);
+            }
             Ok(Err(e)) => errors.push(e),
             Err(_) => break,
         }
@@ -1292,6 +1316,17 @@ mod tests {
     }
 
     #[test]
+    fn qualite_changee_en_session() {
+        let auto = ShareAuto { width: 2556, height: 1179, fps: 60, codecs: vec!["h264".into()], yuv444: false };
+        assert_eq!(
+            quality_body("g1", ShareQuality::Auto, Some(&auto)),
+            serde_json::json!({ "guest": "g1", "quality": "auto", "auto": { "width": 2556, "height": 1179, "fps": 60, "codecs": ["h264"], "yuv444": false } })
+        );
+        assert_eq!(quality_body("g1", ShareQuality::Auto, None), serde_json::json!({ "guest": "g1", "quality": "auto" }), "rien de mesuré : l'image de l'hôte");
+        assert_eq!(quality_body("g1", ShareQuality::P720_30, Some(&auto)), serde_json::json!({ "guest": "g1", "quality": "720p30" }), "seulement avec « Auto »");
+    }
+
+    #[test]
     fn qualite_auto() {
         let hevc = Capabilities { hevc: true, hevc444: false, av1: false };
         // Un iPhone (écran en portrait, 120 Hz), décodeur qui suit la 4K à 60 Hz : en paysage.
@@ -1454,6 +1489,15 @@ mod tests {
         };
         let found = join_with(&[target("a"), target("b"), target("c"), target("a")], &request(), call).unwrap();
         assert_eq!(found.target.host, "b");
+        assert_eq!(found.joined.auto, None, "rien envoyé pour « Auto »");
+        // Le `auto` envoyé à `join` reste avec la réponse, pour la session.
+        let auto = ShareAuto { width: 2556, height: 1179, fps: 60, codecs: vec!["h264".into(), "hevc".into()], yuv444: false };
+        let with_auto = JoinRequest { auto: Some(auto.clone()), ..request() };
+        let found = join_with(&[target("b")], &with_auto, call).unwrap();
+        assert_eq!(found.joined.auto.as_ref(), Some(&auto));
+        let again: ShareJoined = serde_json::from_value(serde_json::to_value(&found.joined).unwrap()).unwrap();
+        assert_eq!(again.auto, Some(auto), "et voyage dans le JSON des ponts");
+        assert!(serde_json::to_value(ShareJoined::default()).unwrap().get("auto").is_none());
         assert_eq!(found.target.fingerprint.as_deref(), Some("sha256:bb"), "l'empreinte d'Admin vue pendant l'appel");
         // Personne n'a ce code, ou personne à qui demander.
         assert!(matches!(join_with(&[target("a"), target("c")], &request(), call), Err(ShareError::NoShare)));
