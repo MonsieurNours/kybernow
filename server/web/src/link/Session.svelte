@@ -73,8 +73,9 @@
   const gamepadAria = $derived(t('session.gamepads.aria', { count: gamepadText, names: gamepads.map((p) => p.name).join(', ') }))
   /** Droits d'un invité : son rôle, changé en cours de partage par le signe de vie. L'hôte a tout. */
   let role = $state<ShareRole>(g?.join.role ?? 'player_kbm')
-  const canPlay = $derived(!g || role !== 'spectator')
-  const canKbm = $derived(!g || role === 'player_kbm')
+  // Deux droits indépendants : les manettes (`player`), le clavier et la souris (`kbm`), ou les deux.
+  const canPlay = $derived(!g || role === 'player' || role === 'player_kbm')
+  const canKbm = $derived(!g || role === 'kbm' || role === 'player_kbm')
   const roleText = $derived(role === 'spectator' ? t('share.guest.spectator') : t('share.guest.player'))
   /** Le partage de cet appareil (signe de vie de l'hôte), le panneau « Partager », et ce que la Station en dit. */
   let share = $state<ShareView | null>(null)
@@ -217,14 +218,24 @@
     fail(t(end === 'removed' ? 'share.guest.removed' : 'share.guest.stopped', { host: g?.join.host ?? '' }))
   }
 
-  /** Droits changés par l'hôte : un avis bref, et ce que le nouveau rôle ne permet plus est relâché. */
+  /**
+   * Droits changés par l'hôte : un avis bref par droit donné ou repris (plus aucun droit : « Vous regardez
+   * de nouveau. » à la place de l'avis de reprise), et ce que le nouveau rôle ne permet plus est relâché.
+   */
   function changeRole(next: ShareRole) {
+    const pads = (r: ShareRole) => r === 'player' || r === 'player_kbm'
+    const kbm = (r: ShareRole) => r === 'kbm' || r === 'player_kbm'
     const before = role
     role = next
-    if (next === 'spectator') showNotice(t('share.guest.watching'))
-    else if (next === 'player_kbm') showNotice(t('share.guest.gotKbm'))
-    else if (before === 'player_kbm') showNotice(t('share.guest.lostKbm'))
-    else showNotice(t('share.guest.canPlay'))
+    const notices: string[] = []
+    if (pads(next) && !pads(before)) notices.push(t('share.guest.canPlay'))
+    if (kbm(next) && !kbm(before)) notices.push(t('share.guest.gotKbm'))
+    if (next === 'spectator') notices.push(t('share.guest.watching'))
+    else {
+      if (!pads(next) && pads(before)) notices.push(t('share.guest.lostPads'))
+      if (!kbm(next) && kbm(before)) notices.push(t('share.guest.lostKbm'))
+    }
+    if (notices.length) showNotice(notices.join(' '))
   }
 
   /** Sort du partage (une seule fois) : « Quitter le partage », fermeture de la page, échec. */
