@@ -47,8 +47,12 @@ pub const DEFAULT_SERVER: &str = kybernow_tunnel::DEFAULT_RELAY;
 /// Un client autorisé à joindre Kyber l'est pour ce temps, renouvelé par le
 /// signe de vie (un invité toutes les 5 s, un appareil en session aussi).
 const GRANT: Duration = Duration::from_secs(30);
-/// Comptes refusés par le relais avant le blocage, sur cette durée.
-const LOCK_AFTER: usize = 20;
+/// Comptes refusés par le relais depuis une même adresse (un /64 en IPv6),
+/// sur `LOCK_WINDOW`, avant de bloquer cette adresse seulement.
+const LOCK_AFTER: usize = 10;
+/// Garde-fou : comptes refusés par le relais, toutes adresses confondues,
+/// avant de bloquer tout l'accès des appareils par le relais.
+const LOCK_AFTER_ALL: usize = 100;
 const LOCK_WINDOW: Duration = Duration::from_secs(10 * 60);
 const LOCK_FOR: Duration = Duration::from_secs(10 * 60);
 /// Réponse à un compte refusé : ralentit les essais, comme la connexion d'Admin.
@@ -152,10 +156,73 @@ struct Grant {
     until: Instant,
 }
 
+/// Les comptes refusés d'une adresse (ou de toutes), sur `LOCK_WINDOW`.
+#[derive(Default)]
+struct Strikes {
+    failures: VecDeque<Instant>,
+    /// Comptes en cours de vérification : comptés d'avance, pour que des
+    /// requêtes simultanées ne dépassent jamais la limite.
+    pending: usize,
+    until: Option<Instant>,
+}
+
+impl Strikes {
+    fn prune(&mut self, now: Instant) {
+        while self.failures.front().is_some_and(|t| now.saturating_duration_since(*t) >= LOCK_WINDOW) {
+            self.failures.pop_front();
+        }
+    }
+
+    fn locked_for(&self, now: Instant) -> Option<Duration> {
+        self.until.filter(|u| *u > now).map(|u| u - now)
+    }
+
+    /// Les échecs, plus les essais en cours s'ils échouaient tous, atteignent la limite.
+    fn full(&self, limit: usize) -> bool {
+        self.failures.len() + self.pending >= limit
+    }
+
+    /// Un échec ; vrai s'il déclenche le blocage.
+    fn fail(&mut self, now: Instant, limit: usize) -> bool {
+        self.failures.push_back(now);
+        if self.failures.len() >= limit {
+            self.until = Some(now + LOCK_FOR);
+            self.failures.clear();
+            return true;
+        }
+        false
+    }
+
+    fn idle(&self, now: Instant) -> bool {
+        self.failures.is_empty() && self.pending == 0 && self.locked_for(now).is_none()
+    }
+}
+
 #[derive(Default)]
 struct Lockout {
-    failures: VecDeque<Instant>,
-    until: Option<Instant>,
+    by_ip: HashMap<IpAddr, Strikes>,
+    all: Strikes,
+}
+
+/// Ce qu'un compte refusé vient de bloquer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Blocked {
+    /// Cette adresse seulement.
+    Address,
+    /// Tout l'accès des appareils par le relais (garde-fou).
+    All,
+}
+
+/// L'adresse comptée pour le blocage : IPv4 telle quelle, IPv6 réduite à son
+/// /64 (un abonné en a tout un).
+fn ip_key(ip: IpAddr) -> IpAddr {
+    match ip.to_canonical() {
+        IpAddr::V6(v6) => {
+            let s = v6.segments();
+            IpAddr::V6(Ipv6Addr::new(s[0], s[1], s[2], s[3], 0, 0, 0, 0))
+        }
+        v4 => v4,
+    }
 }
 
 /// L'appareil en session par le relais (`GET /api/relay`, `sessions`).
@@ -361,28 +428,64 @@ impl Relay {
 
     // --- Blocage ---
 
+    /// Tout l'accès des appareils par le relais est bloqué (garde-fou) : pour combien de temps.
     fn locked_for_at(&self, now: Instant) -> Option<Duration> {
-        let until = self.lockout.lock().unwrap().until?;
-        (until > now).then(|| until - now)
+        self.lockout.lock().unwrap().all.locked_for(now)
     }
 
     pub fn locked_for(&self) -> Option<Duration> {
         self.locked_for_at(Instant::now())
     }
 
-    /// Un compte refusé par le relais ; vrai quand il déclenche le blocage.
-    fn note_failure_at(&self, now: Instant) -> bool {
+    /// Avant de vérifier un compte venu du relais depuis `ip` : `Err(attente)`
+    /// si cette adresse, ou tout l'accès, est bloquée, ou si les essais déjà
+    /// en cours suffiraient à la bloquer (des requêtes simultanées ne
+    /// dépassent jamais la limite). Sinon l'essai est compté en cours, et
+    /// [`Relay::end_attempt_at`] doit suivre.
+    fn begin_attempt_at(&self, ip: IpAddr, now: Instant) -> Result<(), Duration> {
         let mut l = self.lockout.lock().unwrap();
-        while l.failures.front().is_some_and(|t| now.saturating_duration_since(*t) >= LOCK_WINDOW) {
-            l.failures.pop_front();
+        l.all.prune(now);
+        l.by_ip.retain(|_, s| {
+            s.prune(now);
+            !s.idle(now)
+        });
+        if let Some(wait) = l.all.locked_for(now) {
+            return Err(wait);
         }
-        l.failures.push_back(now);
-        if l.failures.len() >= LOCK_AFTER && l.until.is_none_or(|u| u <= now) {
-            l.until = Some(now + LOCK_FOR);
-            l.failures.clear();
-            return true;
+        let key = ip_key(ip);
+        let mine = l.by_ip.entry(key).or_default();
+        if let Some(wait) = mine.locked_for(now) {
+            return Err(wait);
         }
-        false
+        let mine_full = mine.full(LOCK_AFTER);
+        if mine_full || l.all.full(LOCK_AFTER_ALL) {
+            return Err(Duration::from_secs(1));
+        }
+        l.by_ip.entry(key).or_default().pending += 1;
+        l.all.pending += 1;
+        Ok(())
+    }
+
+    /// Après la vérification : un compte refusé compte pour son adresse et
+    /// pour toutes ; rend ce qu'il vient de bloquer.
+    fn end_attempt_at(&self, ip: IpAddr, ok: bool, now: Instant) -> Option<Blocked> {
+        let mut l = self.lockout.lock().unwrap();
+        let key = ip_key(ip);
+        l.all.pending = l.all.pending.saturating_sub(1);
+        let mine = l.by_ip.entry(key).or_default();
+        mine.pending = mine.pending.saturating_sub(1);
+        if ok {
+            return None;
+        }
+        let address = mine.fail(now, LOCK_AFTER);
+        let all = l.all.fail(now, LOCK_AFTER_ALL);
+        if all {
+            Some(Blocked::All)
+        } else if address {
+            Some(Blocked::Address)
+        } else {
+            None
+        }
     }
 
     // --- Sessions par le relais ---
@@ -812,7 +915,9 @@ pub async fn guard(State(s): State<AppState>, mut req: Request, next: Next) -> R
             if !s.settings.lock().unwrap().relay.remote_access {
                 return refusal(StatusCode::FORBIDDEN, "remote_access_off", Msg::new("relay.accessOff"));
             }
-            if let Some(wait) = s.relay.locked_for() {
+            // L'adresse donnée par le relais (déjà forcée hors des adresses locales).
+            let ip = req.extensions().get::<ConnectInfo<SocketAddr>>().map_or(IpAddr::V6(OUTSIDE), |c| c.0.ip());
+            if let Err(wait) = s.relay.begin_attempt_at(ip, Instant::now()) {
                 let seconds = wait.as_secs().max(1);
                 let mut res = (
                     StatusCode::TOO_MANY_REQUESTS,
@@ -822,11 +927,20 @@ pub async fn guard(State(s): State<AppState>, mut req: Request, next: Next) -> R
                 res.headers_mut().insert(header::RETRY_AFTER, HeaderValue::from(seconds));
                 return res;
             }
-            if crate::api::stream_user(&s, req.headers()).is_err() {
-                if s.relay.note_failure_at(Instant::now()) {
-                    tracing::warn!("relais : {LOCK_AFTER} comptes refusés, accès hors de chez vous bloqué 10 min");
+            // Vérifié sans rien attendre entre le début et la fin de l'essai.
+            let ok = crate::api::stream_user(&s, req.headers()).is_ok();
+            match s.relay.end_attempt_at(ip, ok, Instant::now()) {
+                Some(Blocked::All) => {
+                    tracing::warn!("relais : {LOCK_AFTER_ALL} comptes refusés en 10 min, tout l'accès hors de chez vous bloqué 10 min");
                     s.activity.event("warn", Msg::new("events.relayLocked"));
                 }
+                Some(Blocked::Address) => {
+                    tracing::warn!("relais : {LOCK_AFTER} comptes refusés depuis {ip}, cette adresse est bloquée 10 min");
+                    s.activity.event("warn", Msg::new("events.relayLockedAddress").with("address", ip_key(ip).to_string()));
+                }
+                None => {}
+            }
+            if !ok {
                 tokio::time::sleep(FAILED_TRY_DELAY).await;
                 return refusal(StatusCode::UNAUTHORIZED, "unauthorized", Msg::new("api.kyberCredentials"));
             }
@@ -947,23 +1061,78 @@ mod tests {
         }
     }
 
+    /// Un essai complet (début et fin) ; `Err` s'il est refusé d'avance.
+    fn attempt(relay: &Relay, ip: &str, ok: bool, at: Instant) -> Result<Option<Blocked>, Duration> {
+        let ip: IpAddr = ip.parse().unwrap();
+        relay.begin_attempt_at(ip, at)?;
+        Ok(relay.end_attempt_at(ip, ok, at))
+    }
+
     #[test]
-    fn vingt_comptes_refuses_bloquent_dix_minutes() {
+    fn dix_comptes_refuses_bloquent_cette_adresse_seulement() {
         let relay = Relay::new(Path::new("/nonexistent"));
         let t0 = Instant::now();
         for i in 0..LOCK_AFTER - 1 {
-            assert!(!relay.note_failure_at(t0 + Duration::from_secs(i as u64)));
+            assert_eq!(attempt(&relay, "203.0.113.9", false, t0 + Duration::from_secs(i as u64)), Ok(None));
         }
-        assert!(relay.locked_for_at(t0 + Duration::from_secs(30)).is_none());
-        assert!(relay.note_failure_at(t0 + Duration::from_secs(30)));
-        let left = relay.locked_for_at(t0 + Duration::from_secs(31)).unwrap();
+        assert_eq!(attempt(&relay, "203.0.113.9", false, t0 + Duration::from_secs(30)), Ok(Some(Blocked::Address)));
+        let left = attempt(&relay, "203.0.113.9", true, t0 + Duration::from_secs(31)).unwrap_err();
         assert!(left > Duration::from_secs(9 * 60) && left <= LOCK_FOR);
-        assert!(relay.locked_for_at(t0 + Duration::from_secs(31) + LOCK_FOR).is_none());
-        // Des échecs espacés de plus de dix minutes ne s'additionnent pas.
-        let relay = Relay::new(Path::new("/nonexistent"));
-        for i in 0..LOCK_AFTER * 2 {
-            assert!(!relay.note_failure_at(t0 + Duration::from_secs(40 * i as u64)));
+        // Le propriétaire, d'une autre adresse, passe toujours ; tout l'accès n'est pas bloqué.
+        assert_eq!(attempt(&relay, "198.51.100.4", true, t0 + Duration::from_secs(31)), Ok(None));
+        assert!(relay.locked_for_at(t0 + Duration::from_secs(31)).is_none());
+        // Une adresse IPv6 compte pour son /64.
+        for i in 0..LOCK_AFTER {
+            let ip = format!("2001:db8:7:1::{:x}", i + 1);
+            let _ = attempt(&relay, &ip, false, t0 + Duration::from_secs(40));
         }
+        assert!(attempt(&relay, "2001:db8:7:1::ffff", true, t0 + Duration::from_secs(41)).is_err());
+        assert!(attempt(&relay, "2001:db8:7:2::1", true, t0 + Duration::from_secs(41)).is_ok());
+        // Dix minutes plus tard, l'adresse est libre.
+        assert_eq!(attempt(&relay, "203.0.113.9", true, t0 + Duration::from_secs(31) + LOCK_FOR), Ok(None));
+        // Des échecs espacés de plus d'une minute ne s'additionnent pas.
+        let relay = Relay::new(Path::new("/nonexistent"));
+        for i in 0..LOCK_AFTER * 3 {
+            assert_eq!(attempt(&relay, "203.0.113.9", false, t0 + Duration::from_secs(70 * i as u64)), Ok(None));
+        }
+    }
+
+    #[test]
+    fn cent_comptes_refuses_bloquent_tout_l_acces() {
+        let relay = Relay::new(Path::new("/nonexistent"));
+        let t0 = Instant::now();
+        // Cent échecs de vingt-cinq adresses, quatre chacune : aucune bloquée seule.
+        for i in 0..LOCK_AFTER_ALL {
+            let ip = format!("203.0.113.{}", i % 25);
+            let blocked = attempt(&relay, &ip, false, t0).unwrap();
+            assert_eq!(blocked, if i + 1 == LOCK_AFTER_ALL { Some(Blocked::All) } else { None }, "essai {i}");
+        }
+        assert!(relay.locked_for_at(t0).is_some());
+        assert!(attempt(&relay, "198.51.100.4", true, t0).is_err());
+        assert!(attempt(&relay, "198.51.100.4", true, t0 + LOCK_FOR).is_ok());
+    }
+
+    /// Des requêtes simultanées : celles qui pourraient faire dépasser la
+    /// limite attendent la fin des essais en cours.
+    #[test]
+    fn des_essais_simultanes_ne_depassent_pas_la_limite() {
+        let relay = Relay::new(Path::new("/nonexistent"));
+        let ip: IpAddr = "203.0.113.9".parse().unwrap();
+        let t0 = Instant::now();
+        for _ in 0..LOCK_AFTER - 2 {
+            attempt(&relay, "203.0.113.9", false, t0).unwrap();
+        }
+        // Deux essais en même temps, puis un troisième : refusé d'avance.
+        relay.begin_attempt_at(ip, t0).unwrap();
+        relay.begin_attempt_at(ip, t0).unwrap();
+        assert_eq!(relay.begin_attempt_at(ip, t0), Err(Duration::from_secs(1)));
+        // Le premier réussit : une place se libère.
+        assert_eq!(relay.end_attempt_at(ip, true, t0), None);
+        relay.begin_attempt_at(ip, t0).unwrap();
+        // Les deux en cours échouent : bloquée exactement au dixième échec.
+        assert_eq!(relay.end_attempt_at(ip, false, t0), None);
+        assert_eq!(relay.end_attempt_at(ip, false, t0), Some(Blocked::Address));
+        assert!(relay.begin_attempt_at(ip, t0).is_err());
     }
 
     #[test]
@@ -1067,7 +1236,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
-    /// Accès actif : un compte refusé compte pour le blocage, 20 bloquent.
+    /// Accès actif : un compte refusé compte pour le blocage de son adresse,
+    /// dix la bloquent ; une autre adresse passe encore.
     #[tokio::test]
     async fn les_comptes_refuses_par_le_relais_bloquent() {
         let dir = std::env::temp_dir().join(format!("kyber-admin-relay-{}", rand::random::<u64>()));
@@ -1075,23 +1245,26 @@ mod tests {
         let s = AppState::for_tests(dir.clone(), Box::new(crate::service::Simulated::default()));
         s.settings.lock().unwrap().relay.remote_access = true;
         let router = router(s.clone());
-        let call = || {
+        let call = |ip: &str| {
             let mut req = axum::http::Request::builder()
                 .uri("/api/stream/info")
                 .header(header::AUTHORIZATION, "Basic bWF4Om1hdXZhaXM=")
                 .body(Body::empty())
                 .unwrap();
-            req.extensions_mut().insert(ConnectInfo(SocketAddr::new(IpAddr::V6(OUTSIDE), 0)));
+            req.extensions_mut().insert(ConnectInfo(SocketAddr::new(ip.parse().unwrap(), 0)));
             req.extensions_mut().insert(Via { kind: StreamKind::AdminTls, client: "c".into() });
             tower::ServiceExt::oneshot(router.clone(), req)
         };
         for _ in 0..LOCK_AFTER {
-            assert_eq!(call().await.unwrap().status(), StatusCode::UNAUTHORIZED);
+            assert_eq!(call("203.0.113.9").await.unwrap().status(), StatusCode::UNAUTHORIZED);
         }
-        let res = call().await.unwrap();
+        let res = call("203.0.113.9").await.unwrap();
         assert_eq!(res.status(), StatusCode::TOO_MANY_REQUESTS);
         assert!(res.headers().contains_key(header::RETRY_AFTER));
-        assert!(s.relay.locked_for().is_some());
+        // Le propriétaire, ailleurs, n'est pas bloqué.
+        assert_eq!(call("198.51.100.4").await.unwrap().status(), StatusCode::UNAUTHORIZED);
+        assert!(s.relay.locked_for().is_none());
+        assert!(s.activity.events(5, crate::i18n::Lang::Fr).iter().any(|e| e.text.contains("203.0.113.9")));
         let _ = std::fs::remove_dir_all(dir);
     }
 
