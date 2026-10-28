@@ -238,7 +238,7 @@ Ce qu'Admin fait en plus de ce qui précède, sans rien y changer (`server/admin
 
 ## Installer un relais chez soi
 
-Une machine Linux avec Docker, un nom de domaine dont la zone DNS accepte un jeton d'API (Gandi par défaut, pour le certificat générique), un port ouvert en TCP **et** UDP, le 443 de préférence. Le relais écoute sur un port de la machine (`RELAY_LISTEN`, 8443 par défaut) et annonce le port public que la box renvoie vers lui (`RELAY_PUBLIC_PORT`) ; le pas à pas est dans [server/relay/README.md](../server/relay/README.md), « Les ports et la box ». Dans Admin de chaque Station : « Hors de chez vous › Relais » = l'adresse avec son port public, `relais.exemple.org` pour le 443, `relais.exemple.org:9443` pour un autre.
+Une machine Linux avec Docker, un nom de domaine dont la zone DNS accepte un jeton d'API (Gandi par défaut, pour le certificat générique), un port ouvert en TCP **et** UDP, le 443 de préférence. Le relais écoute sur un port de la machine (`RELAY_LISTEN`, 8443 par défaut) et annonce le port public que la box renvoie vers lui (`RELAY_PUBLIC_PORT`) ; le pas à pas est dans [server/relay/README.md](../server/relay/README.md), « Les ports et la box ». L'image du relais est publiée à chaque version (`ghcr.io/monsieurnours/kybernow-relay`, par `.github/workflows/relay-image.yml`) ; le service `updater` du compose la reprend chaque nuit. Dans Admin de chaque Station : « Hors de chez vous › Relais » = l'adresse avec son port public, `relais.exemple.org` pour le 443, `relais.exemple.org:9443` pour un autre.
 
 ## Plus tard
 

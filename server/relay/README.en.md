@@ -66,9 +66,11 @@ chmod 600 secrets/gandi_pat
 
 ### 5. The files
 
-Copy this folder's contents into `~/kybernow-relay` (or clone the repository and work in `server/relay`), then:
+The relay image is published with every KyberNow version (`ghcr.io/monsieurnours/kybernow-relay`): there is nothing to compile. You only need four files from this folder:
 
 ```sh
+mkdir -p ~/kybernow-relay && cd ~/kybernow-relay
+for f in docker-compose.yml lego.sh update.sh .env.example; do curl -fsSLO https://raw.githubusercontent.com/MonsieurNours/kybernow/main/server/relay/$f; done
 cp .env.example .env
 nano .env                   # RELAY_DOMAIN, LEGO_EMAIL, and the ports (“Ports and the router”)
 ```
@@ -86,7 +88,7 @@ ss -ltnup | grep 8443       # nothing should already listen on the listening por
 Read Let's Encrypt's terms (https://letsencrypt.org/repository/), set `LEGO_ACCEPT_TOS=yes` in `.env`, then:
 
 ```sh
-docker compose up -d --build
+docker compose up -d
 docker compose logs -f lego
 ```
 
@@ -108,12 +110,18 @@ Without a real certificate (self-signed relay), the apps work if the address car
 
 ### Updating
 
+**By itself**: the compose's `updater` service pulls the latest relay image every night (at 4 am UTC, `RELAY_UPDATE_HOUR` in `.env`) and only restarts the relay if it changed. `RELAY_AUTO_UPDATE=no` turns it off. The certificate and settings are not touched. Run `docker compose` from the relay's folder: the service sees it at the same path as the machine.
+
+**By hand**, whenever you like:
+
 ```sh
-git pull                    # or copy the new files
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
 
-The image is built with the machine's network (`network: host` in `docker-compose.yml`): behind a local DNS (Pi-hole, unbound), Docker's build network does not resolve names.
+When a version changes the compose file itself (rare, the changelog says so), fetch the files again (`for f in docker-compose.yml lego.sh update.sh; do curl -fsSLO https://raw.githubusercontent.com/MonsieurNours/kybernow/main/server/relay/$f; done`) before these two commands.
+
+**From source**, without the published image: clone the repository and, in `server/relay`, `docker compose build relay && docker compose up -d`. The image is built with the machine's network (`network: host`): behind a local DNS (Pi-hole, unbound), Docker's build network does not resolve names. `RELAY_IMAGE` in `.env` picks another image (a specific version, `…:0.8.0`).
 
 ## Settings
 

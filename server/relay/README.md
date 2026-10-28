@@ -66,9 +66,11 @@ chmod 600 secrets/gandi_pat
 
 ### 5. Les fichiers
 
-Copiez dans `~/kybernow-relay` le contenu de ce dossier (ou clonez le dépôt et travaillez dans `server/relay`), puis :
+L'image du relais est publiée à chaque version de KyberNow (`ghcr.io/monsieurnours/kybernow-relay`) : il n'y a rien à compiler. Il suffit de quatre fichiers de ce dossier :
 
 ```sh
+mkdir -p ~/kybernow-relay && cd ~/kybernow-relay
+for f in docker-compose.yml lego.sh update.sh .env.example; do curl -fsSLO https://raw.githubusercontent.com/MonsieurNours/kybernow/main/server/relay/$f; done
 cp .env.example .env
 nano .env                   # RELAY_DOMAIN, LEGO_EMAIL, et les ports (« Les ports et la box »)
 ```
@@ -86,7 +88,7 @@ ss -ltnup | grep 8443       # rien ne doit déjà écouter sur le port d'écoute
 Lisez les conditions de Let's Encrypt (https://letsencrypt.org/repository/), mettez `LEGO_ACCEPT_TOS=yes` dans `.env`, puis :
 
 ```sh
-docker compose up -d --build
+docker compose up -d
 docker compose logs -f lego
 ```
 
@@ -108,12 +110,18 @@ Sans vrai certificat (relais signé par lui-même), les apps marchent si l'adres
 
 ### Mettre à jour
 
+**Tout seul** : le service `updater` du compose reprend chaque nuit la dernière image du relais (à 4 h UTC, `RELAY_UPDATE_HOUR` dans `.env`), et ne relance le relais que si elle a changé. `RELAY_AUTO_UPDATE=no` le coupe. Le certificat et les réglages ne sont pas touchés. Lancez `docker compose` depuis le dossier du relais : le service le voit au même chemin que la machine.
+
+**À la main**, quand vous voulez :
+
 ```sh
-git pull                    # ou copiez les nouveaux fichiers
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
 
-L'image se construit avec le réseau de la machine (`network: host` dans `docker-compose.yml`) : derrière un DNS local (Pi-hole, unbound), le réseau de construction de Docker ne résout pas les noms.
+Quand une version change le compose lui-même (rare, le journal des versions le dit), reprenez les fichiers (`for f in docker-compose.yml lego.sh update.sh; do curl -fsSLO https://raw.githubusercontent.com/MonsieurNours/kybernow/main/server/relay/$f; done`) avant ces deux commandes.
+
+**Depuis les sources**, sans l'image publiée : clonez le dépôt et, dans `server/relay`, `docker compose build relay && docker compose up -d`. L'image se construit avec le réseau de la machine (`network: host`) : derrière un DNS local (Pi-hole, unbound), le réseau de construction de Docker ne résout pas les noms. `RELAY_IMAGE` dans `.env` choisit une autre image (une version précise, `…:0.8.0`).
 
 ## Réglages
 

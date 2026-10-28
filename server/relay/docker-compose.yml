@@ -1,7 +1,11 @@
-# Relais de KyberNow (README.md) : le relais et lego, qui obtient et renouvelle
-# le certificat `<domaine>` + `*.<domaine>` (DNS-01 chez Gandi).
+# Relais de KyberNow (README.md) : le relais (image publiée à chaque version de
+# KyberNow sur ghcr.io), lego, qui obtient et renouvelle le certificat
+# `<domaine>` + `*.<domaine>` (DNS-01 chez Gandi), et updater, qui reprend
+# chaque nuit la dernière image du relais.
 #   cp .env.example .env   # puis le remplir
-#   docker compose up -d --build
+#   docker compose up -d
+# Construire l'image ici depuis les sources plutôt que la télécharger :
+#   docker compose build relay && docker compose up -d
 
 name: kybernow-relay
 
@@ -13,7 +17,7 @@ services:
     build:
       context: .
       network: host
-    image: kybernow-relay:local
+    image: ${RELAY_IMAGE:-ghcr.io/monsieurnours/kybernow-relay:latest}
     restart: unless-stopped
     # Le port d'écoute (8443 par défaut) en TCP et en UDP, sans traduction
     # d'adresse par Docker (les adresses des clients restent les vraies). La
@@ -61,6 +65,28 @@ services:
       options:
         max-size: "20m"
         max-file: "5"
+
+  # Mise à jour du relais : chaque nuit (RELAY_UPDATE_HOUR, 4 h par défaut, heure
+  # du conteneur, UTC), `docker compose pull relay` puis `up -d relay` : le relais
+  # ne redémarre que si l'image a changé. RELAY_AUTO_UPDATE=no le coupe. Il voit
+  # ce dossier au même chemin que la machine (les chemins ./certs, ./config du
+  # compose restent justes) : lancer docker compose depuis ce dossier.
+  updater:
+    image: docker:27.5.1-cli
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "${PWD}/update.sh"]
+    working_dir: ${PWD}
+    environment:
+      RELAY_UPDATE_HOUR: ${RELAY_UPDATE_HOUR:-4}
+      RELAY_AUTO_UPDATE: ${RELAY_AUTO_UPDATE:-yes}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${PWD}:${PWD}:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
 
 secrets:
   gandi_pat:

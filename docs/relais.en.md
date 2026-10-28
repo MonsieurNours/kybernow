@@ -238,7 +238,7 @@ What Admin does on top of the above, without changing any of it (`server/admin/s
 
 ## Installing a relay at home
 
-A Linux machine with Docker, a domain name whose DNS zone accepts an API token (Gandi by default, for the wildcard certificate), one port open over TCP **and** UDP, 443 preferably. The relay listens on a port of the machine (`RELAY_LISTEN`, 8443 by default) and announces the public port the router forwards to it (`RELAY_PUBLIC_PORT`); the step by step is in [server/relay/README.en.md](../server/relay/README.en.md), “Ports and the router”. In each Station's Admin: “Away from home › Relay” = the address with its public port, `relay.example.org` for 443, `relay.example.org:9443` for another one.
+A Linux machine with Docker, a domain name whose DNS zone accepts an API token (Gandi by default, for the wildcard certificate), one port open over TCP **and** UDP, 443 preferably. The relay listens on a port of the machine (`RELAY_LISTEN`, 8443 by default) and announces the public port the router forwards to it (`RELAY_PUBLIC_PORT`); the step by step is in [server/relay/README.en.md](../server/relay/README.en.md), “Ports and the router”. The relay image is published with every version (`ghcr.io/monsieurnours/kybernow-relay`, by `.github/workflows/relay-image.yml`); the compose's `updater` service pulls it every night. In each Station's Admin: “Away from home › Relay” = the address with its public port, `relay.example.org` for 443, `relay.example.org:9443` for another one.
 
 ## Later
 
