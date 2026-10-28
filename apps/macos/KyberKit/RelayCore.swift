@@ -18,7 +18,7 @@ import Network
 /// Station 0.8.0 et suivantes quand un relais est réglé) : l'app le garde pour
 /// chaque ordinateur, pour passer par lui hors de chez soi.
 public struct RelayInfo: Sendable, Equatable, Hashable, Codable {
-    /// Le relais de la Station (`share.kybernow.app:8443`).
+    /// Le relais de la Station (`share.kybernow.app` : sans port, c'est le 443 ; un autre port reste écrit).
     public var server: String
     /// L'identifiant de la Station chez ce relais.
     public var id: String
@@ -91,7 +91,7 @@ public struct RelayRoute: Sendable, Equatable, Hashable {
 /// de la barre et la ligne « Chemin » des statistiques.
 public struct RouteInfo: Sendable, Equatable {
     /// Les trois chemins, dans l'ordre des codes du cœur (`kn_relay_path_label`).
-    public enum Transport: Int, Sendable {
+    public enum Transport: Int, Sendable, Codable {
         case direct = 0
         /// Par le relais, en QUIC.
         case relay = 1
@@ -100,7 +100,7 @@ public struct RouteInfo: Sendable, Equatable {
     }
 
     public let transport: Transport
-    /// Le relais (`share.kybernow.app:8443`), par le relais.
+    /// Le relais (`share.kybernow.app`, ou `hôte:port` s'il n'est pas sur le 443), par le relais.
     public let relay: String?
     /// Aller-retour appareil ↔ relais, en millisecondes.
     public let rttClient: Double?
@@ -141,10 +141,38 @@ public struct RouteInfo: Sendable, Equatable {
     }
 }
 
+/// Pourquoi le relais n'a pas mené à l'ordinateur : le code que donne le cœur
+/// (`KN_RELAY_*`, `on_relay_error`). Jamais reconnu au texte du message d'Admin.
+public enum RelayFailure: Int32, Sendable, Equatable {
+    /// 30 : le relais ne répond pas (et le reste : refus du relais, adresse illisible).
+    case unreachable = 30
+    /// 31 : l'ordinateur n'est pas connecté au relais (éteint, en veille).
+    case stationOffline = 31
+    /// 32 : « Accès hors de chez vous » est coupé dans Admin (403 `remote_access_off` par le relais).
+    case accessOff = 32
+
+    /// Le texte de link-ui avec le nom de l'ordinateur, dans la langue de l'app
+    /// (le cœur l'écrit) : « {nom} n'est pas joignable hors de chez vous (accès
+    /// coupé dans Admin). », « {nom} n'est pas joignable : l'ordinateur est
+    /// éteint ou en veille. », « Le relais ne répond pas. ».
+    public func text(name: String?) -> String {
+        Core.take(kn_relay_error_text(rawValue, name)) ?? ""
+    }
+}
+
 public enum Relay {
-    /// Le relais public (`share.kybernow.app:8443`), celui qu'une Station utilise sans réglage.
+    /// Le relais public, `share.kybernow.app` (le 443, sans port), celui qu'une
+    /// Station utilise sans réglage.
     public static var defaultServer: String {
-        Core.take(kn_relay_default()) ?? "share.kybernow.app:8443"
+        Core.take(kn_relay_default()) ?? "share.kybernow.app"
+    }
+
+    /// L'adresse d'un relais sous sa forme normale (le cœur : `share.kybernow.app`
+    /// pour le 443, un autre port gardé : `relais.exemple.org:9443`) : deux relais
+    /// sont le même si leurs formes sont égales. Illisible : l'adresse sans espaces
+    /// ni majuscules.
+    public static func normalize(_ address: String) -> String {
+        Core.take(kn_relay_normalize(address)) ?? address.trimmingCharacters(in: .whitespaces).lowercased()
     }
 
     /// `KYBERNOW_RELAY` (essais) : `force` fait passer toute session par le

@@ -335,9 +335,10 @@ sealed class JoinReply {
 
     /**
      * [kind] : `no_share`, `full`, `too_many`, `refused` (« L'hôte a refusé. »), `expired` (« L'hôte n'a pas
-     * répondu. »), `pending_full` (trois demandes attendent déjà l'hôte), `relay` (« Le relais ne répond pas. », ou
-     * l'ordinateur absent du relais), `other` (et `unreadable`, seulement si l'appareil ne lit aucun format possible,
-     * ce que H.264 empêche : jamais en pratique) ; [message] : le texte à montrer.
+     * répondu. »), `stopped` (« Ce partage est arrêté. » : l'hôte l'a arrêté pendant l'attente), `pending_full` (trois
+     * demandes attendent déjà l'hôte), `relay` (« Le relais ne répond pas. », ou l'ordinateur absent du relais),
+     * `other` (et `unreadable`, seulement si l'appareil ne lit aucun format possible, ce que H.264 empêche : jamais en
+     * pratique) ; [message] : le texte à montrer.
      */
     data class Refused(val kind: String, val message: String) : JoinReply()
 }
@@ -431,10 +432,15 @@ object Share {
         return runCatching { JoinReply.Joined(ShareFound.parse(joined)) }.getOrNull() ?: JoinReply.Refused("other", "")
     }
 
-    /** Un refus du cœur : son genre (`kind`), ou `relay` pour un relais muet (30) ou un ordinateur absent du relais (31) ; son texte. */
+    /**
+     * Un refus du cœur : son genre (`kind`, `stopped` pour le partage arrêté pendant l'attente : code 28), ou `relay` pour
+     * un refus du relais ([RelayFailure] : 30 relais muet, 31 ordinateur absent du relais, 32 accès coupé dans Admin) ;
+     * son texte. Jamais reconnu au texte.
+     */
     private fun refusal(o: JSONObject): JoinReply.Refused {
         val code = o.optInt("code", 1)
-        val kind = o.optString("kind").takeIf { it.isNotEmpty() } ?: if (code == RELAY_UNREACHABLE || code == STATION_OFFLINE) "relay" else "other"
+        val kind = o.optString("kind").takeIf { it.isNotEmpty() }
+            ?: if (code == STOPPED) "stopped" else if (RelayFailure.of(code) != null) "relay" else "other"
         return JoinReply.Refused(kind, o.optString("error"))
     }
 
@@ -455,8 +461,8 @@ object Share {
     /**
      * « En attente de l'accord de l'hôte… » : redemande à l'hôte (un appel tenu 25 s à chaque fois) jusqu'à sa réponse :
      * [JoinReply.Joined] (accepté : la session s'ouvre, par le relais), ou un refus (`refused` « L'hôte a refusé. »,
-     * `expired` « L'hôte n'a pas répondu. » au bout de 120 s, `no_share` si le partage s'arrête, `relay` si le relais
-     * ne répond plus). Un à-coup du réseau (le relais muet une ou deux fois de suite) ne coupe pas l'attente. Annulée
+     * `expired` « L'hôte n'a pas répondu. » au bout de 120 s, `stopped` « Ce partage est arrêté. » si l'hôte l'arrête
+     * pendant l'attente, `relay` si le relais ne répond plus). Un à-coup du réseau (le relais muet une ou deux fois de suite) ne coupe pas l'attente. Annulée
      * (« Annuler », l'écran qui se ferme), la demande est retirée chez l'hôte ([cancel]).
      */
     suspend fun waitForHost(pending: PendingJoin, decoders: Decoders): JoinReply {
@@ -476,7 +482,7 @@ object Share {
                         return JoinReply.Joined(found)
                     }
                     WAITING -> failures = 0
-                    RELAY_UNREACHABLE -> if (++failures >= 3) return refusal(o) else delay(2000)
+                    RelayFailure.UNREACHABLE.code -> if (++failures >= 3) return refusal(o) else delay(2000)
                     else -> return refusal(o).also { android.util.Log.i("KyberNow", "partage : attente finie (code $code)") }
                 }
                 currentCoroutineContext().ensureActive()
@@ -498,10 +504,9 @@ object Share {
         Thread({ Native.shareLeave(found.json) }, "kybernow-partage-depart").start()
     }
 
-    /** Codes du cœur : `shareWait` toujours en attente ; relais muet ; ordinateur absent du relais. */
+    /** Codes du cœur : `shareWait` toujours en attente ; partage arrêté pendant l'attente (`ShareError::Stopped`). Ceux du relais : [RelayFailure]. */
     private const val WAITING = 27
-    private const val RELAY_UNREACHABLE = 30
-    private const val STATION_OFFLINE = 31
+    private const val STOPPED = 28
 
     /** La capacité de « Partager » d'après l'info d'Admin (`HostInfo.raw`). */
     fun availability(infoJson: String): ShareAvailability = ShareAvailability.of(Native.shareAvailability(infoJson))

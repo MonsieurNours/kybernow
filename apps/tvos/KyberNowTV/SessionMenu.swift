@@ -270,16 +270,14 @@ struct SessionMenu: View {
     }
 
     /// « Partager » (KyberNow Share) : ouvre le partage de l'écran principal et
-    /// son panneau ; sous-titre « 2 invités » dès qu'il y en a un, sinon le code du
-    /// partage ouvert, sinon « Code et QR code » (link-ui) ; estompé quand l'ordinateur
-    /// ne le permet pas : la tuile reste sélectionnable, le panneau dit pourquoi.
+    /// son panneau ; sous-titre : les demandes d'abord, puis les invités (« 1 demande ·
+    /// 2 invités »), sinon le code du partage ouvert, sinon « Code et QR code »
+    /// (link-ui) ; estompé quand l'ordinateur ne le permet pas : la tuile reste
+    /// sélectionnable, le panneau dit pourquoi.
     private var shareTile: some View {
         let availability = session.shareAvailability
-        let count = share.guests.count
-        let requests = share.requests.count
-        // « 2 invités », avec « 1 demande » quand l'hôte a une réponse à donner ; sinon le code, sinon « Code et QR code ».
-        let counts = [count > 0 ? ShareText.guestCount(count) : nil, requests > 0 ? ShareText.requestCount(requests) : nil].compactMap { $0 }
-        let detail = !counts.isEmpty ? counts.joined(separator: " · ") : (share.isOpen ? Share.formatCode(share.state?.code ?? "") : ShareText.tileDetail)
+        let detail = ShareText.tileDetail(requests: share.requests.count, guests: share.guests.count)
+            ?? (share.isOpen ? Share.formatCode(share.state?.code ?? "") : ShareText.tileDetail)
         return Button {
             session.sharePanel = true
             if availability.isAvailable { Task { await share.openIfNeeded() } }

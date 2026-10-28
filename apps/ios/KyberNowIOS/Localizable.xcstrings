@@ -116,6 +116,22 @@
         }
       }
     },
+    "%@ demande à rejoindre." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ wants to join."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ demande à rejoindre."
+          }
+        }
+      }
+    },
     "%@ est ajouté" : {
       "localizations" : {
         "en" : {
@@ -176,38 +192,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ est déjà dans vos ordinateurs."
-          }
-        }
-      }
-    },
-    "%@ n'est pas joignable : l'ordinateur est éteint ou en veille." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ cannot be reached: the computer is off or asleep."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ n'est pas joignable : l'ordinateur est éteint ou en veille."
-          }
-        }
-      }
-    },
-    "%@ n'est pas joignable hors de chez vous (accès coupé dans Admin)." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ cannot be reached away from home (access turned off in Admin)."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ n'est pas joignable hors de chez vous (accès coupé dans Admin)."
           }
         }
       }
@@ -1716,6 +1700,22 @@
         }
       }
     },
+    "Ce partage est arrêté." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This share has stopped."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce partage est arrêté."
+          }
+        }
+      }
+    },
     "Ce que le clavier de l'appareil ne sait pas faire" : {
       "localizations" : {
         "en" : {
@@ -1968,6 +1968,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Chemin"
+          }
+        }
+      }
+    },
+    "Chemin : %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Path: %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chemin : %@"
           }
         }
       }
@@ -3394,6 +3410,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Hors de chez vous"
+          }
+        }
+      }
+    },
+    "Hors de chez vous, l'app ne peut ni redémarrer ni mettre à jour la Station." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Away from home, the app can neither restart nor update the Station."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hors de chez vous, l'app ne peut ni redémarrer ni mettre à jour la Station."
           }
         }
       }

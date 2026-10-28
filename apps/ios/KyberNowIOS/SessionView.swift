@@ -127,10 +127,17 @@ struct SessionView: View {
                 } else if let note = session.fallbackNote {
                     StateCapsule(icon: "warning", tint: Theme.warn, title: note, detail: nil) { EmptyView() }
                 } else if let note = session.notice {
-                    StateCapsule(icon: nil, title: note, detail: nil) {
+                    let capsule = StateCapsule(icon: nil, title: note, detail: nil) {
                         if let offer = session.modeRestoreOffer {
                             Button(offer) { session.restoreMode() }.buttonStyle(GlassButton(height: 44, fontSize: 14))
                         }
+                    }
+                    if session.noticeOpensShare {
+                        // La demande d'un invité se choisit : elle ouvre le panneau du partage.
+                        Button { session.shareSheet = true } label: { capsule }
+                            .buttonStyle(.plain)
+                    } else {
+                        capsule
                     }
                 } else if let pad = pads.notice {
                     StateCapsule(icon: "game-controller", title: pad, detail: nil) { EmptyView() }

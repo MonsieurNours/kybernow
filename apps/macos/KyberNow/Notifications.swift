@@ -89,6 +89,8 @@ final class Notifier: NSObject {
             guard let station = app.store.status[host.id]?.info?.station, station.updateAvailable,
                   let v = station.updateVersion, station.installable || station.requiresSetup,
                   !station.installing, app.store.stationTasks[host.id]?.working != true,
+                  // Par le relais, l'app ne met pas la Station à jour : l'annonce attend le retour sur le réseau.
+                  !app.store.viaRelay(host),
                   announced[host.id.uuidString] != v else { continue }
             announced[host.id.uuidString] = v
             let title = French.elides(host.name)

@@ -36,6 +36,10 @@ struct LastSessionCard: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
                 }
+                // « Chemin : Direct » ou « Chemin : Par le relais » (rien pour une session d'avant le relais).
+                if let path = summary.pathLine {
+                    Text(verbatim: path).font(Theme.sans(13).monospacedDigit()).foregroundStyle(Theme.muted)
+                }
                 Text(StatsText.help)
                     .font(Theme.sans(12)).foregroundStyle(Theme.faint)
                     .lineSpacing(1.5)

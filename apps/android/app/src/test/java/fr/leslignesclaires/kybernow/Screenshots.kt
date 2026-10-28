@@ -257,6 +257,8 @@ class Screenshots {
             Rubric.NETWORK to "reseau", Rubric.STATS to "statistiques", Rubric.STATION to "station",
         )
         Rubric.entries.forEach { r -> shot("reglages-${names[r]}", size, form) { page(settings(form), r) } }
+        // Par le relais (« Hors de chez vous ») : ni redémarrage ni mise à jour, et la raison.
+        shot("reglages-station-relais", size, form) { page(settings(form, status = HostStatus(true, away = true)), Rubric.STATION) }
         shot("reglages-reseau-sans-adresse", size, form) { page(settings(form, host = bureau, status = HostStatus(true, info(station = null))), Rubric.NETWORK) }
         shot("reglages-reseau-saisie", size, form, listOf("fr")) { page(settings(form, host = bureau.copy(mac = "A1:B2:C3:D4:E5:F6")), Rubric.NETWORK) }
         shot("reglages-statistiques-vide", size, form) { page(settings(form, host = atelier.copy(last = null, fingerprint = null)), Rubric.STATS) }
@@ -505,7 +507,7 @@ class Screenshots {
     ), requests: List<ShareGuest> = emptyList(), relay: ShareRelay? = null) {
         state.share.value = ShareState(
             "428913", "428 913", "kybernow://join?host=192.168.1.20&port=41234&fp=sha256:ab&code=428913",
-            if (relay == ShareRelay.JOINED) "https://share.kybernow.app:8443/j/428913" else "https://192.168.1.20:41234/link/?join=428913",
+            if (relay == ShareRelay.JOINED) "https://share.kybernow.app/j/428913" else "https://192.168.1.20:41234/link/?join=428913",
             guests, relay, requests,
         )
     }
@@ -516,7 +518,7 @@ class Screenshots {
     /** Un invité venu par le relais. */
     private val awayGuest get() = ShareGuest("g3", "Eva", "android", ShareRole.SPECTATOR, since = now / 1000 - 3 * 60, via = ShareVia.RELAY)
 
-    private val relayRoute = RouteInfo(RouteTransport.RELAY, "share.kybernow.app:8443", 14.0, 3.5)
+    private val relayRoute = RouteInfo(RouteTransport.RELAY, "share.kybernow.app", 14.0, 3.5)
 
     /** Hors de chez soi : relais joint, une demande et un invité venu par le relais ; les deux premières lignes du panneau. */
     @Test @Config(qualifiers = PHONE_LAND)

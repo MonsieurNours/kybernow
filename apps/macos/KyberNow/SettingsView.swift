@@ -655,6 +655,10 @@ struct LastSessionCard: View {
                 if !summary.transmitted.isEmpty {
                     Text(verbatim: summary.transmitted).font(Theme.mono(12)).foregroundStyle(Theme.muted)
                 }
+                // « Chemin : Direct » ou « Chemin : Par le relais » (rien pour une session d'avant le relais).
+                if let path = summary.pathLine {
+                    Text(verbatim: path).font(Theme.mono(12)).foregroundStyle(Theme.muted)
+                }
                 Text(StatsText.help).font(Theme.sans(12)).foregroundStyle(Theme.faint).fixedSize(horizontal: false, vertical: true)
             } else {
                 Text(StatsText.none).font(Theme.sans(14)).foregroundStyle(Theme.text2)
@@ -735,7 +739,11 @@ private struct StationCard: View {
                 }
             }
             if let task { line(task) }
-            if status?.info != nil, station == nil {
+            if app.store.viaRelay(host) {
+                // Par le relais, pas d'action lourde : Admin refuse le redémarrage et la mise à jour
+                // (docs/relais.md) ; le bouton reste, inactif, avec la raison.
+                action(StationText.restart, StationText.viaRelay, off: true) {}
+            } else if status?.info != nil, station == nil {
                 Notice(kind: .info, text: StationText.tooOld)
             } else if let station {
                 action(StationText.restart, StationText.restartHelp) { app.store.restartStation(host) }
@@ -782,22 +790,27 @@ private struct StationCard: View {
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.line))
     }
 
-    @ViewBuilder private func action(_ title: String, _ help: String, primary: Bool = false, run: @escaping () -> Void) -> some View {
+    /// `off` : l'action n'est pas possible (par le relais) ; `help` en dit la raison.
+    @ViewBuilder private func action(_ title: String, _ help: String, primary: Bool = false, off: Bool = false, run: @escaping () -> Void) -> some View {
+        let unavailable = working || !online || off
         VStack(alignment: .leading, spacing: 6) {
-            if primary {
-                Button(action: run) { Text(title) }
-                    .buttonStyle(PrimaryButton(height: 38))
-                    .disabled(working || !online)
-            } else {
-                Button(action: run) {
-                    HStack(spacing: 8) { Icon("arrows-clockwise", size: 15, bold: true); Text(title) }
+            Group {
+                if primary {
+                    Button(action: run) { Text(title) }
+                        .buttonStyle(PrimaryButton(height: 38))
+                } else {
+                    Button(action: run) {
+                        HStack(spacing: 8) { Icon("arrows-clockwise", size: 15, bold: true); Text(title) }
+                    }
+                    .buttonStyle(GhostButton(height: 36))
                 }
-                .buttonStyle(GhostButton(height: 36))
-                .disabled(working || !online)
             }
+            .disabled(unavailable)
+            // La raison d'un bouton inactif (par le relais) se lit comme un texte, pas estompée.
+            .opacity(off ? 0.5 : 1)
             Text(help).font(Theme.sans(12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
         }
-        .opacity(working || !online ? 0.5 : 1)
+        .opacity(unavailable && !off ? 0.5 : 1)
     }
 }
 

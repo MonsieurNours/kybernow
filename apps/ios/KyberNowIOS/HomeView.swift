@@ -364,7 +364,7 @@ struct HomeScreen: View {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Icon("warning", size: wide ? 17 : 15).foregroundStyle(Theme.warn)
                             .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 3 }
-                        Text(LinkText.problem(problem, name: host.name))
+                        Text(LinkText.problem(problem))
                             .font(Theme.sans(wide ? 15 : 13.5))
                             .foregroundStyle(Theme.warnText)
                             .fixedSize(horizontal: false, vertical: true)

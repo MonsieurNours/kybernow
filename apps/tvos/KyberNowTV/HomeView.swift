@@ -114,7 +114,7 @@ struct HomeView: View {
                 if let problem {
                     HStack(spacing: 12) {
                         Icon("warning", size: 26).foregroundStyle(Theme.warn)
-                        Text(LinkText.problem(problem, name: host.name)).font(Theme.sans(22)).foregroundStyle(Theme.warnText)
+                        Text(LinkText.problem(problem)).font(Theme.sans(22)).foregroundStyle(Theme.warnText)
                     }
                 }
                 HStack(spacing: 14) {

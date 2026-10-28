@@ -196,6 +196,7 @@
     <string name="station_admin_qr">Scan this code with your phone to open Admin.</string>
     <string name="station_restart">Restart the Station</string>
     <string name="station_restart_help">About 30 seconds. A session in progress will be cut off.</string>
+    <string name="station_via_relay">Away from home, the app can neither restart nor update the Station.</string>
     <string name="station_update">Update the Station</string>
     <string name="station_update_help" formatted="true">Version %1$s. About a minute. A session in progress will be cut off.</string>
     <string name="station_requires_setup" formatted="true">Version %1$s installs on the computer, with KyberNow-Station-Setup.exe.</string>
@@ -370,6 +371,7 @@
     <string name="share_relay_unreachable">Not reachable away from home yet.</string>
     <string name="share_requests_title">Requests</string>
     <string name="share_request_wants" formatted="true">%1$s wants to join</string>
+    <string name="share_request_notice" formatted="true">%1$s wants to join.</string>
     <string name="share_accept">Accept</string>
     <string name="share_refuse">Decline</string>
     <string name="share_away">away from home</string>

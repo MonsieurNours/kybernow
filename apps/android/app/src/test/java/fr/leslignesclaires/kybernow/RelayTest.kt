@@ -7,6 +7,8 @@ import fr.leslignesclaires.kybernow.core.HostInfo
 import fr.leslignesclaires.kybernow.core.HostRelay
 import fr.leslignesclaires.kybernow.core.JoinReply
 import fr.leslignesclaires.kybernow.core.PendingJoin
+import fr.leslignesclaires.kybernow.core.RelayFailure
+import fr.leslignesclaires.kybernow.core.Relays
 import fr.leslignesclaires.kybernow.core.Reply
 import fr.leslignesclaires.kybernow.core.RouteInfo
 import fr.leslignesclaires.kybernow.core.RouteTransport
@@ -21,6 +23,7 @@ import fr.leslignesclaires.kybernow.model.Host
 import fr.leslignesclaires.kybernow.model.LastSession
 import fr.leslignesclaires.kybernow.session.Capsule
 import fr.leslignesclaires.kybernow.session.SessionState
+import fr.leslignesclaires.kybernow.ui.RelayRefusal
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -49,7 +52,7 @@ class RelayTest {
     @Test
     fun requestsAreNotGuests_andComeInWithTheirRoute() {
         val json = """
-            {"open":true,"code":"428913","link":"kybernow://join?x&relay=r&sid=s","web":"https://share.kybernow.app:8443/j/428913",
+            {"open":true,"code":"428913","link":"kybernow://join?x&relay=r&sid=s","web":"https://share.kybernow.app/j/428913",
              "web_local":"https://192.168.1.20:24811/link/?join=428913","relay":{"state":"joined"},
              "guests":[{"id":"g1","name":"Léa","app":"ios","role":"spectator","since":10,"pending":true,"via":"relay"},
                        {"id":"g2","name":"Tom","app":"mac","role":"player","since":5,"pending":false,"via":"lan"},
@@ -67,7 +70,7 @@ class RelayTest {
         // Un invité du réseau n'est pas « hors de chez vous » ; un invité venu par le relais l'est.
         assertEquals(listOf(false, true), s.guests.map { it.away })
         // Le lien du relais est celui de Copier le lien (`web`).
-        assertEquals("https://share.kybernow.app:8443/j/428913", s.web)
+        assertEquals("https://share.kybernow.app/j/428913", s.web)
         // Les trois demandes en attente ne remplissent pas le partage : les quatre places restent libres.
         val three = (1..3).joinToString(",") { """{"id":"p$it","name":"P$it","app":"ios","pending":true,"via":"relay"}""" }
         val four = (1..4).joinToString(",") { """{"id":"g$it","name":"I$it","app":"mac"}""" }
@@ -133,13 +136,13 @@ class RelayTest {
 
     @Test
     fun aShareLinkCarriesItsRelay_asTheCoreReadsIt() {
-        val link = ShareLink(ShareTarget("192.168.1.20", 24811, "sha256:ab:cd"), "428913", relay = "share.kybernow.app:8443", sid = station)
+        val link = ShareLink(ShareTarget("192.168.1.20", 24811, "sha256:ab:cd"), "428913", relay = "share.kybernow.app", sid = station)
         val o = link.json()
         assertEquals("192.168.1.20", o.getString("host"))
         assertEquals(24811, o.getInt("port"))
         assertEquals("sha256:ab:cd", o.getString("fingerprint"))
         assertEquals("428913", o.getString("code"))
-        assertEquals("share.kybernow.app:8443", o.getString("relay"))
+        assertEquals("share.kybernow.app", o.getString("relay"))
         assertEquals(station, o.getString("sid"))
         // Sans relais, le lien du réseau seulement : `relay` et `sid` nuls.
         val plain = ShareLink(ShareTarget("192.168.1.20", 24811, null), "428913").json()
@@ -152,7 +155,7 @@ class RelayTest {
 
     // MARK: - Rejoindre, les réponses du cœur
 
-    private val found = """{"target":{"host":"$station","port":0,"fingerprint":"sha256:ad"},"joined":{"guest":"g1","secret":"S","role":"spectator","host":"Léa","computer":"Atelier","display":{"id":1,"width":1920,"height":1080,"refresh":60},"route":{"server":"share.kybernow.app:8443","station":"$station","admin_fp":"sha256:ad"}}}"""
+    private val found = """{"target":{"host":"$station","port":0,"fingerprint":"sha256:ad"},"joined":{"guest":"g1","secret":"S","role":"spectator","host":"Léa","computer":"Atelier","display":{"id":1,"width":1920,"height":1080,"refresh":60},"route":{"server":"share.kybernow.app","station":"$station","admin_fp":"sha256:ad"}}}"""
 
     @Test
     fun joiningOnTheNetwork_enters() {
@@ -160,12 +163,12 @@ class RelayTest {
         reply as JoinReply.Joined
         assertEquals("Atelier", reply.found.computer)
         // La route par le relais voyage avec `joined`, jusqu'à la session d'invité.
-        assertEquals("share.kybernow.app:8443", reply.found.joined.getJSONObject("route").getString("server"))
+        assertEquals("share.kybernow.app", reply.found.joined.getJSONObject("route").getString("server"))
     }
 
     @Test
     fun joiningByTheRelay_waitsForTheHost_andNeverPrintsTheSecret() {
-        val pending = """{"route":{"server":"share.kybernow.app:8443","station":"$station","admin_fp":"sha256:ad"},"guest":"g1","secret":"SECRET-DE-LA-DEMANDE","expires":120}"""
+        val pending = """{"route":{"server":"share.kybernow.app","station":"$station","admin_fp":"sha256:ad"},"guest":"g1","secret":"SECRET-DE-LA-DEMANDE","expires":120}"""
         val reply = Share.readJoin("""{"code":0,"value":{"pending":$pending}}""")
         reply as JoinReply.Pending
         assertEquals(120, reply.pending.expires)
@@ -208,25 +211,25 @@ class RelayTest {
 
     // MARK: - L'ordinateur et son relais
 
-    private val infoWithRelay = """{"hostname":"Atelier","os":"Windows 11 Pro","relay":{"server":"share.kybernow.app:8443","id":"$station","remote_access":true}}"""
+    private val infoWithRelay = """{"hostname":"Atelier","os":"Windows 11 Pro","relay":{"server":"share.kybernow.app","id":"$station","remote_access":true}}"""
 
     @Test
     fun theInfoGivesTheRelayOfTheComputer() {
         val info = HostInfo.parse(JSONObject(infoWithRelay))
-        assertEquals(HostRelay("share.kybernow.app:8443", station, true), info.relay)
+        assertEquals(HostRelay("share.kybernow.app", station, true), info.relay)
         // Une Station sans relais réglé, ou d'avant le relais : rien.
         assertNull(HostInfo.parse(JSONObject("""{"hostname":"Atelier"}""")).relay)
         assertNull(HostInfo.parse(JSONObject("""{"hostname":"Atelier","relay":null}""")).relay)
         assertNull(HostInfo.parse(JSONObject("""{"hostname":"Atelier","relay":{"server":"","id":""}}""")).relay)
         // L'accès coupé dans Admin n'efface pas le relais : l'ordinateur le garde, l'accès est refusé à la connexion.
-        assertFalse(HostInfo.parse(JSONObject("""{"relay":{"server":"share.kybernow.app:8443","id":"$station","remote_access":false}}""")).relay!!.remoteAccess)
+        assertFalse(HostInfo.parse(JSONObject("""{"relay":{"server":"share.kybernow.app","id":"$station","remote_access":false}}""")).relay!!.remoteAccess)
     }
 
     @Test
     fun theRouteNeedsThePinnedFingerprint_neverAFirstContactByTheRelay() {
-        val relay = HostRelay("share.kybernow.app:8443", station, true)
+        val relay = HostRelay("share.kybernow.app", station, true)
         val route = JSONObject(relay.route("sha256:ad:be")!!)
-        assertEquals("share.kybernow.app:8443", route.getString("server"))
+        assertEquals("share.kybernow.app", route.getString("server"))
         assertEquals(station, route.getString("station"))
         assertEquals("sha256:ad:be", route.getString("admin_fp"))
         assertNull(relay.route(null))
@@ -237,7 +240,7 @@ class RelayTest {
     fun aComputerKeepsItsRelay_withItsOtherData() {
         val host = Host(
             id = "a", name = "Atelier", address = "192.168.1.20", port = 24811, fingerprint = "sha256:ad", user = "iphone",
-            relay = HostRelay("share.kybernow.app:8443", station, false),
+            relay = HostRelay("share.kybernow.app", station, false),
         )
         val back = Host.parse(JSONObject(host.json().toString()))
         assertEquals(host.relay, back.relay)
@@ -255,11 +258,11 @@ class RelayTest {
 
     @Test
     fun theRouteOfASession_isDirectOrByTheRelay() {
-        val relay = RouteInfo.parse("""{"transport":"relay","relay":"share.kybernow.app:8443","rtt_client":23.5,"rtt_station":4.0}""")!!
+        val relay = RouteInfo.parse("""{"transport":"relay","relay":"share.kybernow.app","rtt_client":23.5,"rtt_station":4.0}""")!!
         assertEquals(RouteTransport.RELAY, relay.transport)
         assertTrue(relay.viaRelay)
         assertEquals(23.5, relay.rttClient!!, 0.0)
-        assertEquals("share.kybernow.app:8443", relay.relay)
+        assertEquals("share.kybernow.app", relay.relay)
         val tcp = RouteInfo.parse("""{"transport":"relay_tcp","relay":"r","rtt_client":null,"rtt_station":null}""")!!
         assertEquals(RouteTransport.RELAY_TCP, tcp.transport)
         assertTrue(tcp.viaRelay)
@@ -279,7 +282,7 @@ class RelayTest {
         assertNull(state.route.value)
         state.onRoute("""{"transport":"direct","relay":null,"rtt_client":null,"rtt_station":null}""")
         assertFalse(state.route.value!!.viaRelay)
-        state.onRoute("""{"transport":"relay","relay":"share.kybernow.app:8443","rtt_client":12.0,"rtt_station":3.5}""")
+        state.onRoute("""{"transport":"relay","relay":"share.kybernow.app","rtt_client":12.0,"rtt_station":3.5}""")
         assertTrue(state.route.value!!.viaRelay)
         // Un avis illisible garde le dernier chemin.
         state.onRoute("???")
@@ -302,9 +305,72 @@ class RelayTest {
     fun theRelayRefusals_haveTheirOwnNames() {
         assertTrue(Reply.Failed(31, "").stationOffline)
         assertTrue(Reply.Failed(30, "Le relais ne répond pas.").relayUnreachable)
-        // L'accès coupé dans Admin arrive en 403 : jamais pris pour un autre refus.
-        assertTrue(Reply.Failed(-403, "L'accès hors de chez vous est coupé dans Admin.").remoteAccessOff)
+        // L'accès coupé dans Admin arrive avec son code (32, le cœur a lu le 403 `remote_access_off`) : jamais pris pour un autre refus.
+        assertTrue(Reply.Failed(32, "L'accès hors de chez vous est coupé dans Admin.").remoteAccessOff)
         assertFalse(Reply.Failed(-401, "").remoteAccessOff)
         assertFalse(Reply.Failed(31, "").remoteAccessOff)
+        assertFalse(Reply.Failed(32, "").stationOffline)
+    }
+
+    @Test
+    fun theRelayRefusals_areChosenByTheirCode_neverByTheirText() {
+        assertEquals(RelayFailure.UNREACHABLE, RelayFailure.of(30))
+        assertEquals(RelayFailure.STATION_OFFLINE, RelayFailure.of(31))
+        assertEquals(RelayFailure.ACCESS_OFF, RelayFailure.of(32))
+        // Un autre code (compte refusé, certificat, partage…) n'est pas un refus du relais, quel que soit son texte.
+        listOf(0, 1, 3, 20, 28, -401, -403, -404).forEach { assertNull(it.toString(), RelayFailure.of(it)) }
+        assertNull(Reply.Failed(-403, "L'accès hors de chez vous est coupé dans Admin.").relayFailure)
+        assertNull(Reply.Failed(1, "n'est pas joignable : l'ordinateur est éteint ou en veille.").relayFailure)
+        // Le refus de l'accueil : par le code, le texte du cœur gardé seulement pour le relais muet.
+        assertEquals(RelayRefusal.StationOffline, RelayRefusal.of(RelayFailure.STATION_OFFLINE, "x"))
+        assertEquals(RelayRefusal.AccessOff, RelayRefusal.of(RelayFailure.ACCESS_OFF, "x"))
+        assertEquals(RelayRefusal.Message("Le relais ne répond pas."), RelayRefusal.of(RelayFailure.UNREACHABLE, "Le relais ne répond pas."))
+        assertNull(RelayRefusal.of(null, "x"))
+    }
+
+    @Test
+    fun aShareStoppedWhileWaiting_andTheRelayCodes_keepTheirKind() {
+        fun kind(code: Int, error: String = "", kind: String? = null): String {
+            val o = JSONObject().put("code", code).put("error", error)
+            if (kind != null) o.put("kind", kind)
+            return (Share.readJoin(o.toString()) as JoinReply.Refused).kind
+        }
+        // « Ce partage est arrêté. » : code 28, `kind` « stopped » (jamais « Aucun partage avec ce code »).
+        assertEquals("stopped", kind(28, "Ce partage est arrêté.", "stopped"))
+        assertEquals("stopped", kind(28, "Ce partage est arrêté."))
+        assertEquals("relay", kind(32, "L'accès hors de chez vous est coupé dans Admin."))
+        assertEquals("relay", kind(31))
+        assertEquals("relay", kind(30))
+        assertEquals("other", kind(-403))
+    }
+
+    @Test
+    fun theSessionEndedByTheRelay_saysItWithTheComputerName_chosenByTheCode() {
+        val context = ApplicationProvider.getApplicationContext<Application>()
+        fun ended(code: Int, coreText: String): String? {
+            val state = SessionState(context, Gamepads(context))
+            state.computerName = "Atelier"
+            state.onRelayError(code, coreText)
+            state.onStatus(6, 0, 0, coreText, false, false, false, null)
+            return state.ended.value?.error
+        }
+        // Les textes de link-ui avec le nom (la langue de l'essai : celle du catalogue d'Android).
+        assertEquals(context.getString(R.string.relay_access_off, "Atelier"), ended(32, "L'accès hors de chez vous est coupé dans Admin."))
+        assertEquals(context.getString(R.string.relay_station_offline, "Atelier"), ended(31, "L'ordinateur n'est pas joignable."))
+        assertTrue(ended(32, "x")!!.startsWith("Atelier "))
+        // Relais muet : le texte du cœur, tel quel.
+        assertEquals("Le relais ne répond pas.", ended(30, "Le relais ne répond pas."))
+        // Une fin sans refus du relais garde le texte du cœur ; un code qui n'est pas au relais n'y change rien.
+        val plain = SessionState(context, Gamepads(context))
+        plain.onRelayError(28, "x")
+        plain.onStatus(6, 0, 0, "La connexion a échoué.", false, false, false, null)
+        assertEquals("La connexion a échoué.", plain.ended.value?.error)
+    }
+
+    @Test
+    fun theRelayAddress_hasNoPortFor443_andKeepsAnotherOne() {
+        // Sans bibliothèque native (essais), la forme normale est l'adresse sans espaces ni majuscules ; le cœur fait le reste.
+        assertEquals("share.kybernow.app", Relays.normalize("  Share.Kybernow.app "))
+        assertEquals("relais.exemple.org:9443", Relays.normalize("relais.exemple.org:9443"))
     }
 }

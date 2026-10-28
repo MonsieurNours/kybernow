@@ -19,6 +19,11 @@ final class ChromeHostingView: NSHostingView<SessionChrome> {
         if session.chromeCapturesAll { return super.hitTest(point) }
         let local = convert(point, from: superview)
         let fromTop = isFlipped ? local.y : bounds.height - local.y
+        // L'avis d'une demande (« Léa demande à rejoindre. ») prend les clics : il ouvre le panneau du partage.
+        if case .request? = session.hint, !session.barVisible,
+           session.hintRect.insetBy(dx: -4, dy: -4).contains(CGPoint(x: local.x, y: fromTop)) {
+            return super.hitTest(point)
+        }
         // La proposition « adapter à cet écran » prend les clics, le reste passe.
         if session.screenOfferShown, !session.barVisible,
            session.screenOfferRect.insetBy(dx: -4, dy: -4).contains(CGPoint(x: local.x, y: fromTop)) {
@@ -52,9 +57,19 @@ struct SessionChrome: View {
             if !session.barVisible {
                 VStack(spacing: 10) {
                     if let hint = session.hint {
-                        HintToast(hint: hint)
-                            .transition(.move(edge: .top).combined(with: .opacity))
-                            .allowsHitTesting(false)
+                        if case let .request(text) = hint {
+                            // Se choisit : il ouvre le panneau du partage (la barre, puis « Partager »).
+                            Button { session.openSharePanel() } label: { HintToast(hint: .request(text)) }
+                                .buttonStyle(.plain)
+                                .background(GeometryReader { g in
+                                    Color.clear.preference(key: HintRectKey.self, value: g.frame(in: Self.space))
+                                })
+                                .transition(.move(edge: .top).combined(with: .opacity))
+                        } else {
+                            HintToast(hint: hint)
+                                .transition(.move(edge: .top).combined(with: .opacity))
+                                .allowsHitTesting(false)
+                        }
                     }
                     if streaming, session.screenOfferShown, let offer = session.screenOffer {
                         ScreenOfferToast(offer: offer, adapt: session.adaptToScreen, later: session.dismissScreenOffer)
@@ -94,6 +109,7 @@ struct SessionChrome: View {
         }
         .onPreferenceChange(GlassMenuOpenKey.self) { open in session.barMenuOpen = open }
         .onPreferenceChange(ScreenOfferRectKey.self) { rect in session.screenOfferRect = rect }
+        .onPreferenceChange(HintRectKey.self) { rect in session.hintRect = rect }
         .animation(Theme.easeOut, value: session.screenOfferShown)
         .animation(Theme.easeOut, value: session.barVisible)
         .animation(Theme.easeOut, value: session.statsPanel)
@@ -274,6 +290,15 @@ private struct ScreenOfferRectKey: PreferenceKey {
     }
 }
 
+/// L'avis d'une demande (« Léa demande à rejoindre. »), dans le repère de la vue de session.
+private struct HintRectKey: PreferenceKey {
+    static let defaultValue: CGRect = .zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        let next = nextValue()
+        if next != .zero { value = next }
+    }
+}
+
 /// « L'écran a changé : adapter l'image à 2560 × 1440 ? » [Adapter] [×]
 private struct ScreenOfferToast: View {
     let offer: SessionController.ScreenMode
@@ -331,6 +356,9 @@ private struct HintToast: View {
                 Text(text)
             case let .notice(text):
                 Icon("monitor", size: 14, bold: true).foregroundStyle(Theme.accent)
+                Text(text)
+            case let .request(text):
+                Icon("share-network", size: 14, bold: true).foregroundStyle(Theme.accent)
                 Text(text)
             }
         }

@@ -208,6 +208,12 @@ public final class SessionEngine: @unchecked Sendable {
         /// bascule jamais. Nil : toujours sur le réseau. Un invité venu par le
         /// relais y reste de lui-même (la route voyage avec `guest`).
         public var relay: RelayRoute?
+        /// Le nom de l'ordinateur (celui de l'ordinateur du partage pour un
+        /// invité), pour les refus du relais : si la session finit faute de
+        /// joindre l'ordinateur par le relais, la raison de la fin le dit avec
+        /// ce nom (« {nom} n'est pas joignable hors de chez vous (accès coupé
+        /// dans Admin). »).
+        public var computerName: String?
 
         /// Session d'invité : la Station trouvée par `Share.join`, ce que
         /// l'appareil décode (le format de l'image est celui de l'hôte) et les
@@ -345,6 +351,8 @@ public final class SessionEngine: @unchecked Sendable {
     private var topMarker = false
     private var volume: Float = 1
     private var ended = false
+    /// Par le relais : pourquoi la session a fini faute de joindre l'ordinateur (`on_relay_error`).
+    private var relayFailure: RelayFailure?
 
     public init(view: StreamView) {
         Core.install()
@@ -360,6 +368,7 @@ public final class SessionEngine: @unchecked Sendable {
         lock.lock()
         params = p
         vsync = p.vsync
+        relayFailure = nil
         lock.unlock()
         var json: [String: Any] = [
             "console_host": p.host, "console_port": Int(p.consolePort),
@@ -479,6 +488,12 @@ public final class SessionEngine: @unchecked Sendable {
             guard let info = RouteInfo(json: route.map { String(cString: $0) }) else { return }
             let me = SessionEngine.from(ud)
             DispatchQueue.main.async { me.onRoute?(info) }
+        }
+        // Par le relais, la session finit faute de joindre l'ordinateur : le code du
+        // cœur (jamais le texte d'Admin), dit juste avant la fin ; `status` en fait
+        // la raison de la fin, avec le nom de l'ordinateur.
+        platform.on_relay_error = { ud, code, _ in
+            SessionEngine.from(ud).relayError(code)
         }
 
         var error: UnsafeMutablePointer<CChar>?
@@ -788,6 +803,24 @@ public final class SessionEngine: @unchecked Sendable {
 
     // MARK: - Rappels du cœur
 
+    /// Le refus du relais qui termine la session (`on_relay_error`).
+    private func relayError(_ code: Int32) {
+        guard let failure = RelayFailure(rawValue: code) else { return }
+        lock.lock()
+        relayFailure = failure
+        lock.unlock()
+    }
+
+    /// La raison de la fin quand la session finit par un refus du relais : le
+    /// texte de link-ui avec le nom de l'ordinateur, choisi par le code.
+    private func relayEndText() -> String? {
+        lock.lock()
+        let failure = relayFailure
+        let name = params?.computerName
+        lock.unlock()
+        return failure?.text(name: name)
+    }
+
     private func status(_ s: KnStatus) {
         let phase: Phase
         // Les constantes de l'en-tête C (`#define`) arrivent en Int32 dans Swift.
@@ -799,7 +832,9 @@ public final class SessionEngine: @unchecked Sendable {
         case KN_STATUS_RECONNECTING: phase = .reconnecting(attempt: Int(s.attempt), of: Int(s.max))
         case KN_STATUS_ENDING: phase = .ending
         default:
-            let error = s.error.map { String(cString: $0) }
+            // Fin par le relais (accès coupé dans Admin, ordinateur éteint ou en veille,
+            // relais muet) : le texte de link-ui avec le nom de l'ordinateur.
+            let error = relayEndText() ?? s.error.map { String(cString: $0) }
             let report = s.has_report ? EndReport(displayRestored: s.display_restored, audioRestored: s.audio_restored, error: s.report_error.map { String(cString: $0) }) : nil
             phase = .ended(error: error, report: report)
         }

@@ -33,6 +33,10 @@ struct LastSessionCard: View {
                 if !summary.transmitted.isEmpty {
                     Text(verbatim: summary.transmitted).font(Theme.mono(19)).foregroundStyle(Theme.muted)
                 }
+                // « Chemin : Direct » ou « Chemin : Par le relais » (rien pour une session d'avant le relais).
+                if let path = summary.pathLine {
+                    Text(verbatim: path).font(Theme.mono(19)).foregroundStyle(Theme.muted)
+                }
                 Text(StatsText.help)
                     .font(Theme.sans(18)).foregroundStyle(Theme.faint)
                     .fixedSize(horizontal: false, vertical: true)

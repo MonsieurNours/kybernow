@@ -882,7 +882,11 @@ private struct SettingsPane: View {
                 openURL(url)
             }
         }
-        if station != nil {
+        if store.viaRelay(host) {
+            // Par le relais, pas d'action lourde : Admin refuse le redémarrage et la mise à jour
+            // (docs/relais.md) ; la ligne reste, sans action, avec la raison.
+            rows.value(StationText.restart, StationText.viaRelay, "", color: Theme.text2)
+        } else if station != nil {
             rows.value(StationText.restart, StationText.restartHelp, "") { store.restartStation(host) }
                 .disabled(!online || working)
                 .opacity(!online || working ? 0.5 : 1)

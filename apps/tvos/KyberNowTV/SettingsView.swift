@@ -229,7 +229,7 @@ struct SettingsView: View {
         case .network: return .row("transport.\(Transport.fast.rawValue)")
         case .statistics: return .row("fact.\(StatsText.system)")
         case .station:
-            let ready = info?.station != nil && status?.online == true && store.stationTasks[hostID]?.working != true
+            let ready = info?.station != nil && status?.online == true && store.stationTasks[hostID]?.working != true && !store.viaRelay(hostID)
             return ready ? .row("restart") : .row("fact.\(StationText.account)")
         }
     }
@@ -501,7 +501,12 @@ struct SettingsView: View {
                 }
                 .padding(.bottom, 6)
                 if let task { taskLine(task) }
-                if station == nil, info != nil {
+                if store.viaRelay(host) {
+                    // Par le relais, pas d'action lourde : Admin refuse le redémarrage et la mise à jour
+                    // (docs/relais.md) ; plus de bouton, et la raison.
+                    Text(StationText.viaRelay).font(Theme.sans(20)).foregroundStyle(Theme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if station == nil, info != nil {
                     // Station 0.4.9 ou plus ancienne : ni redémarrage ni mise à jour d'ici.
                     Text(StationText.tooOld).font(Theme.sans(20)).foregroundStyle(Theme.warnText)
                         .fixedSize(horizontal: false, vertical: true)

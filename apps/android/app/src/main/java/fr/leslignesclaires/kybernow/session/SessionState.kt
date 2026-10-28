@@ -7,6 +7,7 @@ import android.graphics.Bitmap
 import android.os.Handler
 import android.os.Looper
 import fr.leslignesclaires.kybernow.R
+import fr.leslignesclaires.kybernow.core.RelayFailure
 import fr.leslignesclaires.kybernow.core.RouteInfo
 import fr.leslignesclaires.kybernow.core.SessionListener
 import fr.leslignesclaires.kybernow.core.Share
@@ -58,6 +59,17 @@ internal fun shareRightsNotice(before: ShareRole, now: ShareRole): Int? = when {
     before.pads && !now.pads -> R.string.share_notice_pads_back
     before.keyboardMouse && !now.keyboardMouse -> R.string.share_notice_keyboard_mouse_back
     else -> null
+}
+
+/**
+ * Le texte de link-ui (« Hors de chez vous ») d'un refus du relais, avec le nom de l'ordinateur : « {nom} n'est pas
+ * joignable hors de chez vous (accès coupé dans Admin). » (32), « {nom} n'est pas joignable : l'ordinateur est éteint ou
+ * en veille. » (31). Nul pour le relais muet (30) : le texte du cœur (« Le relais ne répond pas. ») est gardé.
+ */
+internal fun relayText(context: Context, failure: RelayFailure, name: String): String? = when (failure) {
+    RelayFailure.ACCESS_OFF -> context.getString(R.string.relay_access_off, name)
+    RelayFailure.STATION_OFFLINE -> context.getString(R.string.relay_station_offline, name)
+    RelayFailure.UNREACHABLE -> null
 }
 
 /** Une capsule en haut de l'image (jamais une alerte). */
@@ -151,6 +163,20 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
      */
     @Volatile var shareEndText: String? = null
 
+    /**
+     * Le nom de l'ordinateur (pour un invité, celui de l'ordinateur du partage), pour les refus du relais : « {nom} n'est
+     * pas joignable… » (docs/link-ui.md, « Hors de chez vous »).
+     */
+    @Volatile var computerName: String = ""
+    /**
+     * Par le relais, la session a fini faute de joindre l'ordinateur (`onRelayError`, juste avant la fin) : le code du
+     * cœur, et son texte. La fin le dit avec le nom de l'ordinateur ([relayEndText]), choisi par le code.
+     */
+    @Volatile private var relayEnd: Pair<RelayFailure, String>? = null
+
+    /** Le texte de la fin par le relais (avec le nom de l'ordinateur) ; nul si la session n'a pas fini ainsi. */
+    internal fun relayEndText(): String? = relayEnd?.let { (failure, text) -> relayText(context, failure, computerName) ?: text }
+
     private var capsuleClear: Runnable? = null
 
     fun show(c: Capsule, ms: Long = 4000) = main.post {
@@ -174,7 +200,9 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
                 firstImageAt.compareAndSet(0, System.currentTimeMillis())
                 if (capsule.value is Capsule.Reconnecting) main.post { capsule.value = null }
             }
-            Phase.ENDED -> ended.value = Ended(error, if (hasReport) displayRestored else null, if (hasReport) audioRestored else null, reportError)
+            // Fin par le relais (accès coupé dans Admin, ordinateur éteint ou en veille) : ce texte, avec le nom de l'ordinateur,
+            // à la place de celui du cœur (qui n'a pas le nom d'une session de l'app).
+            Phase.ENDED -> ended.value = Ended(relayEndText() ?: error, if (hasReport) displayRestored else null, if (hasReport) audioRestored else null, reportError)
             else -> {}
         }
     }
@@ -275,6 +303,10 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
 
     override fun onRoute(json: String) {
         RouteInfo.parse(json)?.let { route.value = it }
+    }
+
+    override fun onRelayError(code: Int, text: String) {
+        RelayFailure.of(code)?.let { relayEnd = it to text }
     }
 
     override fun onShareRole(role: Int, previous: Int) {

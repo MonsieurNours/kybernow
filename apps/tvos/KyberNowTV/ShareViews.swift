@@ -358,9 +358,11 @@ struct SharePanelTV: View {
                 Text(ShareText.requestDetail(request)).font(Theme.sans(18)).foregroundStyle(Theme.faint).lineLimit(1)
             }
             Spacer(minLength: 0)
+            // Quatre invités au plus : « Accepter » est inactif quand les quatre places sont prises.
             Button { Task { await share.answer(request, accept: true) } } label: { Text(ShareText.accept).lineLimit(1).fixedSize() }
                 .buttonStyle(ChoiceButton(selected: true, height: 56, light: true))
                 .focused($focus, equals: .accept(request.id))
+                .disabled(share.full)
             Button { Task { await share.answer(request, accept: false) } } label: { Text(ShareText.decline).lineLimit(1).fixedSize() }
                 .buttonStyle(ChoiceButton(selected: false, height: 56, light: true))
                 .focused($focus, equals: .decline(request.id))

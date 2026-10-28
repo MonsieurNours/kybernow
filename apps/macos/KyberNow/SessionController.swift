@@ -94,7 +94,7 @@ final class SessionController: NSObject, ObservableObject {
     /// redémarre… » à la place des étapes, jusqu'à la phase suivante).
     @Published private(set) var stationRestarting = false
     /// Rappel affiché quelques secondes, sur un événement de la session (jamais à l'arrivée de l'image).
-    enum Hint: Equatable { case mouse, fallback(String), notice(String) }
+    enum Hint: Equatable { case mouse, fallback(String), notice(String), request(String) }
     /// Profil Bureau, écran de l'ordinateur passé à un autre mode : « Remettre
     /// 3840 × 2160 » dans la barre (le cœur le propose et le retire).
     @Published private(set) var modeRestoreOffer: String?
@@ -119,6 +119,13 @@ final class SessionController: NSObject, ObservableObject {
     /// Capsule de la proposition, dans le repère de la vue de session : seul
     /// endroit cliquable hors de la barre.
     var screenOfferRect: CGRect = .zero
+    /// L'avis d'une demande (« Léa demande à rejoindre. »), dans le repère de la
+    /// vue de session : il se choisit, il ouvre le panneau du partage.
+    var hintRect: CGRect = .zero
+    /// Le panneau du partage a été demandé (l'avis d'une demande choisi) : la barre
+    /// s'ouvre et son bouton « Partager » ouvre le panneau (`ShareBarButton`).
+    @Published private(set) var sharePanelRequests = 0
+    private var sharePanelAskedAt = Date.distantPast
     private var screenObservers: [NSObjectProtocol] = []
     private var activeObservers: [NSObjectProtocol] = []
     private var screenCheck: Task<Void, Never>?
@@ -1123,6 +1130,7 @@ final class SessionController: NSObject, ObservableObject {
         }
         // KyberNow Share : la liste des invités (hôte), le rôle et la fin (invité).
         engine.onGuests = { [weak self] in self?.share.heartbeat($0) }
+        share.onRequest = { [weak self] in self?.requestArrived($0) }
         engine.onShareRole = { [weak self] role, previous in self?.shareRoleChanged(role, previous: previous) }
         engine.onShareEnd = { [weak self] _, text in self?.shareEnded(text) }
         engine.onShareImage = { [weak self] image, _, notice in self?.shareImageChanged(image, notice: notice) }
@@ -1154,6 +1162,8 @@ final class SessionController: NSObject, ObservableObject {
             // Hors de chez soi : le réseau d'abord, puis le relais si l'accès est actif.
             params.relay = host.sessionRelay
         }
+        // Par le relais, une fin faute de joindre l'ordinateur le dit avec son nom (l'ordinateur du partage pour un invité).
+        params.computerName = host.name
         params.autoReconnect = settings.autoReconnect
         params.gamepadAsXbox360 = settings.gamepad == .xbox360
         params.vsync = settings.vsync
@@ -1266,7 +1276,11 @@ final class SessionController: NSObject, ObservableObject {
         guard isLive, phase != .ending, info != path else { return }
         let wasRelay = path.viaRelay
         path = info
-        if info.viaRelay != wasRelay, !isGuest { share.setConsole(store.console(for: host, route: info.viaRelay ? .relay : .direct)) }
+        if info.viaRelay != wasRelay, !isGuest {
+            share.setConsole(store.console(for: host, route: info.viaRelay ? .relay : .direct))
+            // Par le relais, l'app ne redémarre ni ne met à jour la Station (réglages, menu).
+            store.setSessionViaRelay(host, info.viaRelay)
+        }
     }
 
     // MARK: - KyberNow Share
@@ -1529,8 +1543,10 @@ final class SessionController: NSObject, ObservableObject {
         guard let revealedAt, !isGuest else { return }
         let m = streamMode
         let latency = engine?.sessionLatency, codec = host.settings.codec, mbps = sessionMbps, screens = screenCount
+        // Par où la session est passée (ligne « Chemin » de la « Dernière session »).
+        let route = path.transport
         commit { $0.recordSession(start: revealedAt, latency: latency, width: m.width, height: m.height, refresh: m.refresh,
-                                  codec: codec, mbps: mbps, screens: screens) }
+                                  codec: codec, mbps: mbps, screens: screens, route: route) }
     }
 
     /// Débit de la session en Mbit/s : avec plusieurs écrans, sur la somme
@@ -1551,6 +1567,30 @@ final class SessionController: NSObject, ObservableObject {
 
     /// Résultat de la remise en état par la console, après le retour à l'accueil.
     var onReport: ((Host, Closing) -> Void)?
+
+    /// L'avis d'une demande choisi : la barre s'ouvre et le panneau du partage avec elle.
+    func openSharePanel() {
+        guard !isGuest, phase == .streaming else { return }
+        withAnimation(.easeIn(duration: 0.2)) { hint = nil }
+        hintRect = .zero
+        setBar(true)
+        sharePanelAskedAt = Date()
+        sharePanelRequests += 1
+    }
+
+    /// La barre, une fois ouverte, ouvre le panneau du partage si l'avis d'une
+    /// demande vient d'être choisi (vrai une seule fois, dans les deux secondes).
+    func takeSharePanelRequest() -> Bool {
+        defer { sharePanelAskedAt = .distantPast }
+        return Date().timeIntervalSince(sharePanelAskedAt) < 2
+    }
+
+    /// Une demande vient d'arriver pendant la session : l'avis bref « {prénom}
+    /// demande à rejoindre. » (6 s ; la barre, ouverte, montre déjà la pastille).
+    private func requestArrived(_ request: ShareGuest) {
+        guard isLive, phase != .ending, !barVisible else { return }
+        showHint(.request(ShareText.requestNotice(request.name)), after: 0, for: 6)
+    }
 
     private func showHint(_ which: Hint, after delay: TimeInterval = 1.6, for duration: TimeInterval = 3.4) {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
@@ -1602,6 +1642,7 @@ final class SessionController: NSObject, ObservableObject {
     func finish() {
         guard phase != .ended else { return }
         phase = .ended
+        if !isGuest { store.setSessionViaRelay(host, false) }
         teardown()
         onFinish(self)
         closeWindow()
@@ -1688,9 +1729,18 @@ final class SessionController: NSObject, ObservableObject {
         switch screen {
         case "failed":
             phase = .connecting
+            // `-demoFailure accessoff|asleep|relay` : un refus du relais, avec le nom de l'ordinateur (le texte du cœur,
+            // choisi par son code), à la place de la connexion.
+            let text: String
+            switch UserDefaults.standard.string(forKey: "demoFailure") {
+            case "accessoff": text = RelayFailure.accessOff.text(name: host.name)
+            case "asleep": text = RelayFailure.stationOffline.text(name: host.name)
+            case "relay": text = RelayFailure.unreachable.text(name: host.name)
+            default: text = String(localized: "la Station ne répond pas")
+            }
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
                 self?.scene.dim()
-                self?.phase = .failed(String(localized: "la Station ne répond pas"))
+                self?.phase = .failed(text)
             }
         case "restarting":
             phase = .connecting
