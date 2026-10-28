@@ -180,7 +180,8 @@ pub async fn proxy(State(s): State<AppState>, req: Request) -> Response {
     // page, en même origine, et le navigateur joint le cookie. Ou un invité
     // du navigateur, tant qu'il est dans le partage.
     let console = crate::auth::session_token(req.headers()).is_some_and(|t| s.auth.session_valid(&t));
-    let guest = (!console).then(|| crate::share::guest_cookie(req.headers())).flatten().filter(|c| s.share.cookie_valid(c));
+    let relay = req.extensions().get::<crate::relay::Via>().is_some();
+    let guest = (!console).then(|| crate::share::guest_cookie(req.headers(), relay)).flatten().filter(|c| s.share.cookie_valid(c));
     if !console && guest.is_none() {
         return error(StatusCode::UNAUTHORIZED, "session de la console requise");
     }
@@ -440,7 +441,7 @@ fn is_hop_by_hop(name: &HeaderName) -> bool {
 /// Retire le cookie de la console et celui d'un invité : ils restent à la console.
 fn strip_console_cookie(value: &HeaderValue) -> Option<HeaderValue> {
     let text = value.to_str().ok()?;
-    let ours = [format!("{}=", crate::auth::COOKIE), format!("{}=", crate::share::GUEST_COOKIE)];
+    let ours = [format!("{}=", crate::auth::COOKIE), format!("{}=", crate::share::GUEST_COOKIE), format!("{}=", crate::share::GUEST_COOKIE_RELAY)];
     let kept: Vec<&str> = text
         .split(';')
         .map(str::trim)

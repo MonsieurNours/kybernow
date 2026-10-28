@@ -24,7 +24,7 @@ use tokio::time::timeout;
 use crate::certs::CertStore;
 use crate::codes::Codes;
 use crate::config::Config;
-use crate::limits::{Banlist, Bucket, LookupLimiter};
+use crate::limits::{Banlist, Bucket, Buckets, LookupLimiter};
 use crate::metrics::{Dg, Dir, Gauges, Leg, Metrics};
 
 /// Version du relais, donnée dans `welcome` et `/v1/health`.
@@ -37,11 +37,15 @@ const FLOW_TIMEOUT: Duration = Duration::from_secs(10);
 const TCP_SILENCE: Duration = Duration::from_secs(35);
 /// Stations demandées dans un `status`, au plus.
 const MAX_STATUS: usize = 16;
+/// Messages en attente d'envoi vers un bout, au plus : un bout qui ne lit pas
+/// ses réponses (`pong`, `presence`…) est coupé au lieu de faire grossir la
+/// mémoire du relais.
+const CTL_QUEUE: usize = 1024;
 
 pub struct StationPeer {
     pub id: String,
     conn: Conn,
-    ctl: mpsc::UnboundedSender<Msg>,
+    ctl: Ctl,
     pub ip: IpAddr,
     admin_fp: String,
     sig: String,
@@ -62,7 +66,7 @@ struct Pending {
 pub struct ClientPeer {
     pub id: String,
     conn: Conn,
-    ctl: mpsc::UnboundedSender<Msg>,
+    ctl: Ctl,
     pub ip: IpAddr,
     pub station: Option<String>,
     media: RwLock<Option<(u64, MediaSender)>>,
@@ -80,6 +84,8 @@ pub struct Hub {
     clients: Mutex<HashMap<String, Arc<ClientPeer>>>,
     codes: Mutex<Codes>,
     lookups: Mutex<LookupLimiter>,
+    /// Connexions de Station par minute, par adresse.
+    station_hellos: Mutex<Buckets<IpAddr>>,
     web_clients: AtomicUsize,
     next_media: AtomicU64,
     cap: Option<Mutex<Bucket>>,
@@ -96,8 +102,31 @@ impl Drop for WebGuard {
     }
 }
 
-fn start_writer<W: AsyncWrite + Unpin + Send + 'static>(mut w: W) -> (mpsc::UnboundedSender<Msg>, tokio::task::JoinHandle<()>) {
-    let (tx, mut rx) = mpsc::unbounded_channel::<Msg>();
+/// Les messages vers un bout : une file bornée ([`CTL_QUEUE`]) ; pleine, le
+/// bout ne lit plus ce qu'on lui envoie et sa connexion est coupée.
+#[derive(Clone)]
+struct Ctl {
+    tx: mpsc::Sender<Msg>,
+    conn: Conn,
+}
+
+impl Ctl {
+    /// Faux si la connexion est finie, ou vient d'être coupée (file pleine).
+    fn send(&self, msg: Msg) -> bool {
+        match self.tx.try_send(msg) {
+            Ok(()) => true,
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                tracing::debug!("messages non lus : connexion coupée");
+                self.conn.close("messages non lus");
+                false
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => false,
+        }
+    }
+}
+
+fn start_writer<W: AsyncWrite + Unpin + Send + 'static>(mut w: W, conn: Conn) -> (Ctl, tokio::task::JoinHandle<()>) {
+    let (tx, mut rx) = mpsc::channel::<Msg>(CTL_QUEUE);
     let task = tokio::spawn(async move {
         while let Some(m) = rx.recv().await {
             if write_msg(&mut w, &m).await.is_err() {
@@ -105,11 +134,11 @@ fn start_writer<W: AsyncWrite + Unpin + Send + 'static>(mut w: W) -> (mpsc::Unbo
             }
         }
     });
-    (tx, task)
+    (Ctl { tx, conn }, task)
 }
 
 /// Refuse une connexion : le message part, puis la connexion se ferme.
-async fn refuse(conn: &Conn, tx: mpsc::UnboundedSender<Msg>, writer: tokio::task::JoinHandle<()>, code: ErrorCode, why: &str) {
+async fn refuse(conn: &Conn, tx: Ctl, writer: tokio::task::JoinHandle<()>, code: ErrorCode, why: &str) {
     let _ = tx.send(Msg::error(None, code, Some(why.to_string())));
     drop(tx);
     let _ = timeout(Duration::from_secs(1), writer).await;
@@ -125,6 +154,7 @@ impl Hub {
         });
         Arc::new(Hub {
             lookups: Mutex::new(LookupLimiter::new(&cfg.limits, now)),
+            station_hellos: Mutex::new(Buckets::new(cfg.limits.stations_per_minute_per_ip, Duration::from_secs(60))),
             link_port: AtomicU16::new(cfg.listen.port()),
             cfg,
             metrics: Arc::new(Metrics::default()),
@@ -173,6 +203,7 @@ impl Hub {
     pub fn sweep(&self) {
         let now = Instant::now();
         self.lookups.lock().unwrap().sweep(now);
+        self.station_hellos.lock().unwrap().sweep(now);
         self.codes.lock().unwrap().sweep(now);
     }
 
@@ -218,7 +249,7 @@ impl Hub {
                 return;
             }
         };
-        let (tx, writer) = start_writer(write);
+        let (tx, writer) = start_writer(write, conn.clone());
         if hello.v == 0 {
             return refuse(&conn, tx, writer, ErrorCode::Version, "version").await;
         }
@@ -233,12 +264,16 @@ impl Hub {
         self: Arc<Self>,
         conn: Conn,
         mut read: ReadHalf<RelayStream>,
-        tx: mpsc::UnboundedSender<Msg>,
+        tx: Ctl,
         writer: tokio::task::JoinHandle<()>,
         hello: Hello,
         spki: Option<Vec<u8>>,
         ip: IpAddr,
     ) {
+        if self.station_hellos.lock().unwrap().take(&ip, Instant::now()).is_err() {
+            self.metrics.limit_hit("stations_per_minute_ip");
+            return refuse(&conn, tx, writer, ErrorCode::TooMany, "trop de connexions de Station pour cette adresse").await;
+        }
         let Some(spki) = spki else {
             return refuse(&conn, tx, writer, ErrorCode::BadRequest, "certificat client manquant").await;
         };
@@ -413,7 +448,7 @@ impl Hub {
         self: Arc<Self>,
         conn: Conn,
         mut read: ReadHalf<RelayStream>,
-        tx: mpsc::UnboundedSender<Msg>,
+        tx: Ctl,
         writer: tokio::task::JoinHandle<()>,
         hello: Hello,
         ip: IpAddr,
@@ -460,7 +495,7 @@ impl Hub {
                     tick.tick().await;
                     let rtt = hub.station(&station).and_then(|s| s.conn.rtt());
                     if let Some(rtt) = rtt
-                        && ctl.send(Msg::Stats { rtt_station_ms: Some(rtt.as_millis().min(u128::from(u32::MAX)) as u32) }).is_err()
+                        && !ctl.send(Msg::Stats { rtt_station_ms: Some(rtt.as_millis().min(u128::from(u32::MAX)) as u32) })
                     {
                         return;
                     }
@@ -696,10 +731,18 @@ impl Hub {
     }
 }
 
+/// Un flux vers la Station, en-tête écrit ; `None` si la Station ne le
+/// prend pas à temps (ses flux tous pris, connexion perdue) : la tâche qui
+/// l'attend ne reste pas suspendue.
 async fn open_to_station(station: &StationPeer, header: StreamHeader) -> Option<RelayStream> {
-    let mut s = station.conn.open().await.ok()?;
-    write_msg(&mut s, &Msg::Stream(header)).await.ok()?;
-    Some(s)
+    timeout(HELLO_TIMEOUT, async {
+        let mut s = station.conn.open().await.ok()?;
+        write_msg(&mut s, &Msg::Stream(header)).await.ok()?;
+        Some(s)
+    })
+    .await
+    .ok()
+    .flatten()
 }
 
 /// Origine des `ping` du relais (`n` en microsecondes depuis elle).
@@ -711,13 +754,13 @@ fn micros() -> u64 {
 
 /// Repli TCP : QUIC mesure l'aller-retour lui-même, yamux non ; le relais
 /// envoie un `ping` toutes les 5 s et note l'aller-retour au `pong`.
-fn pinger(transport: Transport, ctl: mpsc::UnboundedSender<Msg>) -> Option<tokio::task::JoinHandle<()>> {
+fn pinger(transport: Transport, ctl: Ctl) -> Option<tokio::task::JoinHandle<()>> {
     (transport == Transport::Tcp).then(|| {
         tokio::spawn(async move {
             let mut tick = tokio::time::interval(Duration::from_secs(5));
             loop {
                 tick.tick().await;
-                if ctl.send(Msg::Ping { n: micros() }).is_err() {
+                if !ctl.send(Msg::Ping { n: micros() }) {
                     return;
                 }
             }

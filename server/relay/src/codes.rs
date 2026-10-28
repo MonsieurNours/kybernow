@@ -9,6 +9,8 @@ use ring::rand::{SecureRandom, SystemRandom};
 
 /// Codes d'une Station partie, gardés ce temps-là.
 pub const CODE_KEEP: Duration = Duration::from_secs(120);
+/// Codes tirés au hasard avant de renoncer (`no_code`).
+const RANDOM_TRIES: usize = 1000;
 
 #[derive(Debug, Clone)]
 struct Entry {
@@ -17,20 +19,28 @@ struct Entry {
     expires: Option<Instant>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Codes {
     by_code: HashMap<String, Entry>,
     by_station: HashMap<String, BTreeSet<String>>,
+    /// Les codes possibles : `000000` à `999999` (moins dans les essais).
+    space: u32,
 }
 
-fn random_code() -> String {
+impl Default for Codes {
+    fn default() -> Self {
+        Codes { by_code: HashMap::new(), by_station: HashMap::new(), space: 1_000_000 }
+    }
+}
+
+fn random_code(space: u32) -> String {
     let mut b = [0u8; 4];
     loop {
         SystemRandom::new().fill(&mut b).expect("aléa du système");
         let n = u32::from_be_bytes(b);
         // Rejet des valeurs qui fausseraient la répartition.
-        if n < u32::MAX - u32::MAX % 1_000_000 {
-            return format!("{:06}", n % 1_000_000);
+        if n < u32::MAX - u32::MAX % space {
+            return format!("{:06}", n % space);
         }
     }
 }
@@ -60,13 +70,16 @@ impl Codes {
         if self.count(station) >= max {
             return None;
         }
-        loop {
-            let c = random_code();
+        // Un nombre d'essais borné : des codes presque tous pris ne bloquent
+        // jamais le relais (le verrou des codes est tenu pendant ce temps).
+        for _ in 0..RANDOM_TRIES {
+            let c = random_code(self.space);
             if self.live(&c, now).is_none() {
                 self.insert(station, &c);
                 return Some(c);
             }
         }
+        None
     }
 
     fn count(&self, station: &str) -> usize {
@@ -110,20 +123,25 @@ impl Codes {
     }
 
     /// La Station revient et repropose ses codes : ceux qu'elle tient encore,
-    /// ou qui sont libres, lui restent (rendus) ; ses autres codes tombent.
+    /// ou qui sont libres, lui restent (rendus), `max` au plus ; tous ses
+    /// autres codes tombent (une Station ne garde jamais plus de `max` codes,
+    /// reconnexion après reconnexion).
     pub fn station_back(&mut self, station: &str, proposed: &[String], max: usize, now: Instant) -> Vec<String> {
         self.sweep(now);
-        let old: Vec<String> = self.by_station.get(station).into_iter().flatten().cloned().collect();
-        for code in old.iter().filter(|c| !proposed.contains(c)) {
-            self.release(station, code);
-        }
-        let mut kept = Vec::new();
+        let mut kept: Vec<String> = Vec::new();
         for code in proposed.iter().filter(|c| kybernow_tunnel::lookup::is_code(c)) {
+            if kept.len() >= max {
+                break;
+            }
             let free_or_mine = self.live(code, now).is_none_or(|e| e.station == station);
-            if free_or_mine && (kept.len() < max) {
+            if free_or_mine && !kept.contains(code) {
                 self.insert(station, code);
                 kept.push(code.clone());
             }
+        }
+        let held: Vec<String> = self.by_station.get(station).into_iter().flatten().cloned().collect();
+        for code in held.iter().filter(|c| !kept.contains(c)) {
+            self.release(station, code);
         }
         kept
     }
@@ -199,5 +217,48 @@ mod tests {
         c.station_left("a", t + Duration::from_secs(100));
         assert_eq!(c.lookup("111111", t + Duration::from_secs(221)), None);
         assert_eq!(c.station_back("a", &["111111".into()], 4, t + Duration::from_secs(300)), vec!["111111".to_string()]);
+    }
+
+    /// Reconnexion après reconnexion, une Station qui repropose ses codes et
+    /// quatre nouveaux n'en garde jamais plus de quatre chez le relais (sans
+    /// quoi une seule clé finirait par prendre tous les codes).
+    #[test]
+    fn jamais_plus_de_quatre_codes_apres_une_reconnexion() {
+        let t = Instant::now();
+        let mut c = Codes::default();
+        let mut held: Vec<String> = (0..4).map(|_| c.reserve("a", None, 4, t).unwrap()).collect();
+        for round in 0..5u32 {
+            let fresh: Vec<String> = (0..4).map(|i| format!("{:06}", 900_000 + round * 10 + i)).collect();
+            let proposed: Vec<String> = fresh.iter().chain(held.iter()).cloned().collect();
+            let kept = c.station_back("a", &proposed, 4, t);
+            assert_eq!(kept, fresh);
+            assert_eq!(c.active(t), 4, "tour {round}");
+            for old in &held {
+                assert_eq!(c.lookup(old, t), None, "{old} rendu");
+            }
+            held = kept;
+        }
+        // Le même code proposé deux fois ne compte qu'une fois.
+        let kept = c.station_back("a", &["123123".into(), "123123".into()], 4, t);
+        assert_eq!(kept, vec!["123123".to_string()]);
+        assert_eq!(c.active(t), 1);
+    }
+
+    /// Tous les codes pris : la réservation renonce (`no_code`) au lieu de
+    /// tourner sans fin, verrou des codes tenu.
+    #[test]
+    fn codes_tous_pris_sans_boucle_sans_fin() {
+        let t = Instant::now();
+        let mut c = Codes { space: 8, ..Codes::default() };
+        let mut got = 0;
+        for s in ["a", "b", "c"] {
+            for _ in 0..4 {
+                if c.reserve(s, None, 4, t).is_some() {
+                    got += 1;
+                }
+            }
+        }
+        assert_eq!(got, 8, "les huit codes possibles, puis plus rien");
+        assert_eq!(c.reserve("d", None, 4, t), None);
     }
 }

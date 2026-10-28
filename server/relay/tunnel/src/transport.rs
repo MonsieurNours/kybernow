@@ -23,11 +23,18 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 use tokio_util::compat::{Compat, FuturesAsyncReadCompatExt};
 
-use crate::frame::{decode_datagram, encode_datagram, encode_record, read_record};
+use crate::frame::{MAX_VARINT, decode_datagram, encode_datagram, encode_record, read_record};
 
 /// Un paquet de 1200 octets au plus passe toujours, en datagramme ou en flux
 /// de secours ; plus grand, il est jeté s'il ne tient pas.
 pub const SMALL_PACKET: usize = 1200;
+/// Paquets de secours (règle de taille) en route en même temps sur une
+/// connexion, au plus : un bout qui ne prend pas ces flux (ou n'en donne plus
+/// le droit) ne fait pas s'entasser les envois en attente ; au-delà, le
+/// paquet est perdu, comme en UDP.
+pub const MAX_FALLBACK_IN_FLIGHT: usize = 64;
+/// Un paquet de secours qui n'est pas parti dans ce délai est perdu.
+const FALLBACK_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Le transport d'une connexion au relais.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -187,11 +194,15 @@ struct YamuxShared {
 #[derive(Clone)]
 pub struct YamuxHandle(Arc<YamuxShared>);
 
-/// Configuration yamux du tunnel : 256 flux, fenêtres réglées d'elles-mêmes.
+/// Configuration yamux du tunnel : 256 flux, fenêtres réglées d'elles-mêmes
+/// dans 64 Mio par connexion (le plus petit plafond qui laisse à chacun des
+/// 256 flux sa fenêtre de départ). Sur le relais, c'est ce qu'une connexion
+/// peut lui faire garder en mémoire quand l'autre bout ne lit plus : assez
+/// pour plusieurs Gbit/s, pas de quoi le faire tomber avec quelques connexions.
 pub fn yamux_config() -> yamux::Config {
     let mut cfg = yamux::Config::default();
-    cfg.set_max_connection_receive_window(Some(256 * 1024 * 1024));
     cfg.set_max_num_streams(256);
+    cfg.set_max_connection_receive_window(Some(256 * 256 * 1024));
     cfg
 }
 
@@ -437,8 +448,18 @@ impl DropReason {
 
 #[derive(Clone)]
 enum SendInner {
-    Quic(quinn::Connection),
+    /// La connexion, et ses paquets de secours en route.
+    Quic(quinn::Connection, Arc<AtomicUsize>),
     Records(mpsc::Sender<Bytes>),
+}
+
+/// Un paquet de secours en route, compté jusqu'à ce que sa tâche finisse.
+struct InFlight(Arc<AtomicUsize>);
+
+impl Drop for InFlight {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::Relaxed);
+    }
 }
 
 /// L'envoi des paquets UDP relayés.
@@ -448,7 +469,7 @@ pub struct MediaSender(SendInner);
 impl fmt::Debug for MediaSender {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.0 {
-            SendInner::Quic(_) => f.write_str("MediaSender(quic)"),
+            SendInner::Quic(..) => f.write_str("MediaSender(quic)"),
             SendInner::Records(_) => f.write_str("MediaSender(tcp)"),
         }
     }
@@ -456,11 +477,16 @@ impl fmt::Debug for MediaSender {
 
 impl MediaSender {
     pub fn quic(conn: quinn::Connection) -> Self {
-        MediaSender(SendInner::Quic(conn))
+        MediaSender(SendInner::Quic(conn, Arc::new(AtomicUsize::new(0))))
     }
 
-    /// Envoie un paquet sur un flux.
+    /// Envoie un paquet sur un flux. Un numéro de flux qui ne s'écrit pas en
+    /// entier variable de QUIC (au-delà de 2^62, venu d'un message mal formé)
+    /// ne s'envoie pas.
     pub fn send(&self, flow: u64, payload: &[u8]) -> Sent {
+        if flow > MAX_VARINT {
+            return Sent::Dropped(DropReason::Unsupported);
+        }
         self.send_datagram(encode_datagram(flow, payload), payload.len())
     }
 
@@ -468,15 +494,24 @@ impl MediaSender {
     /// la taille du paquet seul, pour la règle de taille.
     pub fn send_datagram(&self, datagram: Bytes, payload_len: usize) -> Sent {
         match &self.0 {
-            SendInner::Quic(conn) => match conn.send_datagram(datagram.clone()) {
+            SendInner::Quic(conn, in_flight) => match conn.send_datagram(datagram.clone()) {
                 Ok(()) => Sent::Datagram,
                 Err(quinn::SendDatagramError::TooLarge) if payload_len <= SMALL_PACKET => {
+                    if in_flight.fetch_add(1, Ordering::Relaxed) >= MAX_FALLBACK_IN_FLIGHT {
+                        in_flight.fetch_sub(1, Ordering::Relaxed);
+                        return Sent::Dropped(DropReason::Full);
+                    }
+                    let guard = InFlight(in_flight.clone());
                     let conn = conn.clone();
                     tokio::spawn(async move {
-                        if let Ok(mut s) = conn.open_uni().await {
-                            let _ = s.write_all(&datagram).await;
-                            let _ = s.finish();
-                        }
+                        let _guard = guard;
+                        let _ = tokio::time::timeout(FALLBACK_TIMEOUT, async {
+                            if let Ok(mut s) = conn.open_uni().await {
+                                let _ = s.write_all(&datagram).await;
+                                let _ = s.finish();
+                            }
+                        })
+                        .await;
                     });
                     Sent::Fallback
                 }
@@ -498,14 +533,14 @@ impl MediaSender {
     /// Plus grand datagramme que le chemin laisse passer en ce moment.
     pub fn max_datagram_size(&self) -> Option<usize> {
         match &self.0 {
-            SendInner::Quic(conn) => conn.max_datagram_size(),
+            SendInner::Quic(conn, _) => conn.max_datagram_size(),
             SendInner::Records(_) => Some(u16::MAX as usize),
         }
     }
 
     pub fn is_closed(&self) -> bool {
         match &self.0 {
-            SendInner::Quic(conn) => conn.close_reason().is_some(),
+            SendInner::Quic(conn, _) => conn.close_reason().is_some(),
             SendInner::Records(tx) => tx.is_closed(),
         }
     }

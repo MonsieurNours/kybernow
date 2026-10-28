@@ -246,3 +246,49 @@ async fn repli_tls_sur_tcp_avec_yamux() {
     conn.close("fin");
     assert_eq!(server.await.unwrap().as_deref(), Some(expected.as_str()));
 }
+
+/// Un bout qui ne prend jamais les flux de secours (règle de taille) : au
+/// plus `MAX_FALLBACK_IN_FLIGHT` paquets attendent de partir, les suivants
+/// sont perdus au lieu de s'entasser en tâches sans fin (sur le relais, le
+/// bout d'en face peut être n'importe qui).
+#[tokio::test]
+async fn paquets_de_secours_bornes() {
+    use kybernow_tunnel::transport::MAX_FALLBACK_IN_FLIGHT;
+    let pki = Pki::new();
+    let (ep, base) = quic_server(&pki).await;
+    let addr = ep.local_addr().unwrap();
+    // L'autre bout : accepte la connexion, ne lit aucun flux unidirectionnel.
+    let server = tokio::spawn(async move {
+        let (c, _) = accept(&ep, &base).await;
+        c.closed().await;
+    });
+    let c = connect(&relay(addr.port()), addr, Some(pki.roots.clone()), ALPN_MEDIA, Kind::Media, None).await.unwrap();
+    let tx = MediaSender::quic(c.clone());
+    let huge = encode_datagram(9, &[3u8; 1500]);
+    let mut fallback = 0;
+    for _ in 0..1000 {
+        match tx.send_datagram(huge.clone(), 1200) {
+            Sent::Fallback => fallback += 1,
+            Sent::Dropped(DropReason::Full) => {}
+            other => panic!("{other:?}"),
+        }
+    }
+    assert_eq!(fallback, MAX_FALLBACK_IN_FLIGHT, "envois de secours en attente bornés");
+    c.close(0u32.into(), b"fin");
+    let _ = server.await;
+}
+
+/// Un numéro de flux qui ne s'écrit pas en entier variable de QUIC (venu
+/// d'un `flow_ready` ou d'un `flow_open` mal formé) n'est pas envoyé, et ne
+/// fait pas paniquer la tâche qui envoie.
+#[tokio::test]
+async fn numero_de_flux_hors_des_entiers_de_quic() {
+    let (a, b) = tokio::io::duplex(64 * 1024);
+    let addr: SocketAddr = "127.0.0.1:1".parse().unwrap();
+    let left = Conn::Yamux(YamuxHandle::start(a.compat(), yamux::Mode::Client, addr));
+    let _right = Conn::Yamux(YamuxHandle::start(b.compat(), yamux::Mode::Server, addr));
+    let stream = left.open().await.unwrap();
+    let (tx, _rx) = media_over_stream(stream);
+    assert_eq!(tx.send(u64::MAX, b"x"), Sent::Dropped(DropReason::Unsupported));
+    assert_eq!(tx.send(kybernow_tunnel::frame::MAX_VARINT, b"x"), Sent::Datagram);
+}

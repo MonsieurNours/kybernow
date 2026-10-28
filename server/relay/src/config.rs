@@ -59,6 +59,10 @@ pub struct Limits {
     pub retry_above_per_second: u32,
     pub tcp_per_ip: usize,
     pub stations_per_ip: usize,
+    /// Connexions de Station acceptées par minute et par adresse (une
+    /// Station se reconnecte rarement ; sans cette limite, des clés jetables
+    /// en rafale garderaient des codes 120 s chacune).
+    pub stations_per_minute_per_ip: u32,
     pub clients_per_station: usize,
     pub flows_per_client: usize,
     pub codes_per_station: usize,
@@ -79,6 +83,7 @@ impl Default for Limits {
             retry_above_per_second: 100,
             tcp_per_ip: 32,
             stations_per_ip: 4,
+            stations_per_minute_per_ip: 20,
             clients_per_station: 8,
             flows_per_client: 4,
             codes_per_station: 4,
