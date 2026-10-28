@@ -199,6 +199,8 @@ export function joinRefusalText(e: unknown): string {
       return t('share.join.refused')
     case 'expired':
       return t('share.join.expired')
+    case 'stopped':
+      return t('share.join.stopped')
     case 'relay':
       return t('share.join.relayDown')
     default:

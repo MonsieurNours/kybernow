@@ -11,7 +11,7 @@ This document is the common contract of the relay, Admin, the Rust core, the Lin
 
 ## In short
 
-- The public relay is `share.kybernow.app:8443`, at the author's home. **A single port, 8443, over TCP and UDP.** It is open to every Station, with no bitrate cap. Anyone can install their own (Docker image, [server/relay/README.en.md](../server/relay/README.en.md)); the Station picks its relay in Admin.
+- The public relay is `share.kybernow.app`, at the author's home. **A single public port, 443, over TCP and UDP** (the router forwards it to the machine's 8443). A relay address without a port means 443, and links never write `:443`; a relay installed elsewhere can carry its port (`relay.example.org:9443`). It is open to every Station, with no bitrate cap. Anyone can install their own (Docker image, [server/relay/README.en.md](../server/relay/README.en.md)); the Station picks its relay in Admin.
 - The relay does not see what the apps exchange with the Station: they talk to Admin over TLS **end to end** (Admin's certificate pinned), and to Kyber with its fingerprint. It sees addresses, bitrates and share codes. The **browser** is the exception: the relay presents a real certificate (`*.share.kybernow.app`) and decrypts that traffic to forward it.
 - Kyber is not modified. The apps do not have to change kyclient: the core opens a tunnel and gives kyclient an address on the device's loopback (`127.0.0.1:L`, over TCP and UDP on the same number).
 - Cost: one more round trip through the relay (close to nothing when the relay sits in the same house as the computer, 5 to 20 ms within France otherwise), under half a millisecond of processing, about thirty bytes per packet.
@@ -29,7 +29,7 @@ This document is the common contract of the relay, Admin, the Rust core, the Lin
 
 ### Connections
 
-Each end (the Station, an app) opens to the relay, on port 8443:
+Each end (the Station, an app) opens to the relay, on its port (443 for the public relay):
 
 | Connection | Transport | ALPN | Content |
 |---|---|---|---|
@@ -37,7 +37,7 @@ Each end (the Station, an app) opens to the relay, on port 8443:
 | Picture | QUIC (UDP) | `kn-media/1` | The relayed UDP packets, as QUIC datagrams |
 | Fallback | TLS 1.3 over TCP | `kn-tcp/1` | Everything at once, multiplexed with yamux, when UDP does not get through |
 
-- Name presented (SNI): the relay's name (`share.kybernow.app`). The relay presents its certificate; the apps and the Station check it against the web's usual authorities (`webpki-roots`), or by its fingerprint when the relay's address carries one (a relay installed at home, self-signed certificate): `relay.example.org:8443#sha256:ab:cd:…` (SHA-256 of the certificate, same form as Admin's fingerprint; the name is then not checked).
+- Name presented (SNI): the relay's name (`share.kybernow.app`). The relay presents its certificate; the apps and the Station check it against the web's usual authorities (`webpki-roots`), or by its fingerprint when the relay's address carries one (a relay installed at home, self-signed certificate): `relay.example.org:9443#sha256:ab:cd:…` (SHA-256 of the certificate, same form as Admin's fingerprint; the name is then not checked).
 - QUIC: initial MTU 1280 bytes, discovery up to 1472. Keep-alive every 10 s for the Station, 5 s for an app; cut after 30 s without news.
 - `kn-ctl/1` keeps the usual congestion control (Cubic). `kn-media/1` has a **permissive** controller: a very large window, no pacing, losses ignored; the datagram send queue is bounded (the oldest are dropped). Kyber already runs its own rate control inside.
 - Order: `kn-ctl/1` first; `kn-media/1` after the `welcome` answer. If QUIC does not answer within 3 s, the end switches to the `kn-tcp/1` fallback, and retries QUIC every 5 minutes. The fallback shows (“Via the relay (TCP)”): fine for watching, less so for playing.
@@ -94,7 +94,7 @@ The connecting end opens the first bidirectional stream of `kn-ctl/1` (or the fi
 
 ### TCP fallback (`kn-tcp/1`)
 
-TLS 1.3 over TCP 8443, ALPN `kn-tcp/1`, client certificate for the Station; yamux on top (the connecting end is the yamux client). First stream: the messages (as on `kn-ctl/1`). Second stream, opened by the connecting end after `welcome`: the datagrams, a `{"t":"media"…}` frame as above then records `[length of the rest, 2 bytes big-endian][flow number][UDP packet]`. Other streams: the relayed TCP connections, as over QUIC. A Station on the fallback and an app on QUIC (or the reverse) talk normally.
+TLS 1.3 over TCP (the same port), ALPN `kn-tcp/1`, client certificate for the Station; yamux on top (the connecting end is the yamux client). First stream: the messages (as on `kn-ctl/1`). Second stream, opened by the connecting end after `welcome`: the datagrams, a `{"t":"media"…}` frame as above then records `[length of the rest, 2 bytes big-endian][flow number][UDP packet]`. Other streams: the relayed TCP connections, as over QUIC. A Station on the fallback and an app on QUIC (or the reverse) talk normally.
 
 ### Reconnection
 
@@ -104,7 +104,7 @@ TLS 1.3 over TCP 8443, ALPN `kn-tcp/1`, client certificate for the Station; yamu
 
 ## The relay on the web
 
-On TCP 8443, the relay looks at the start of each TLS connection:
+On TCP, the relay looks at the start of each TLS connection:
 
 - ALPN `kn-tcp/1`: the tunnel's fallback;
 - name `share.kybernow.app`: its pages;
@@ -114,14 +114,14 @@ On TCP 8443, the relay looks at the start of each TLS connection:
 | Address | Answer |
 |---|---|
 | `GET /` | KyberNow Share presentation and code entry (French or English depending on the browser, or `?lang=fr` / `?lang=en`); the form sends `/j?code=…` |
-| `GET /j/{code}` | Redirects (302) to `https://<id>.share.kybernow.app:8443/link/?join=<code>`; unknown code, or Station absent: a page that says so |
+| `GET /j/{code}` | Redirects (302) to `https://<id>.share.kybernow.app/link/?join=<code>` (with `:<port>` when the relay's announced public port is not 443); unknown code, or Station absent: a page that says so |
 | `GET /v1/codes/{code}` | `200 {"station":"<id>","station_key":"<SPKI base64>","admin_fp":"sha256:…","sig":"<base64>","online":true}`; `online:false`: Station gone for less than 120 s, the other fields empty; `404 {"error":"unknown_code"}`; `400 {"error":"bad_request"}`; `429 {"error":"too_many","retry_after":<s>}` with `Retry-After` |
 | `GET /privacy` | What the relay sees and keeps (French or English) |
 | `GET /assets/<file>?v=<version>` | The page's stylesheet, fonts, logo and favicon, embedded in the binary; kept for a year (`immutable`, the address carries the version); unknown file: the “not found” page |
 | `GET /v1/health` | `200 {"ok":true,"version":"…"}`; the iPhone and iPad apps call it before opening the tunnel (wakes the cellular radio) |
-| `https://<id>.share…:8443/*` | HTTP/1.1 proxy to the Station's Admin (WebSocket included); Station absent: “computer unreachable” page (503) |
+| `https://<id>.share…/*` | HTTP/1.1 proxy to the Station's Admin (WebSocket included); Station absent: “computer unreachable” page (503) |
 
-The relay's pages have no script, no cookie and no audience measurement, and load nothing from another site: content policy `default-src 'none'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`. They never write the relay's address (relative paths): the same page serves on 8443 and, once the router forwards 443 to it, on `https://share.kybernow.app`. Details: [server/relay/README.en.md](../server/relay/README.en.md#the-home-page).
+The relay's pages have no script, no cookie and no audience measurement, and load nothing from another site: content policy `default-src 'none'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`. They never write the relay's address (relative paths): the same page serves on the relay's listening port and on its public port (`https://share.kybernow.app`, without a port at 443). Details: [server/relay/README.en.md](../server/relay/README.en.md#the-home-page).
 
 Proxy: `Host` passed as is, `X-Forwarded-For` and `Forwarded` removed (the browser's address travels in the stream header), `Domain=` removed from every `Set-Cookie`. One origin per Station: one Station's code never reads another's cookies.
 
@@ -133,24 +133,24 @@ Codes: the relay **reserves codes**, unique across all the Stations connected to
 
 | Route | Content |
 |---|---|
-| `GET /api/relay` | `{"server":"share.kybernow.app:8443","remote_access":false,"id":"<identifier>","state":"off"|"connecting"|"joined"|"unreachable","reason":null|"<text>","transport":null|"quic"|"tcp","locked_until":null|<Unix seconds>,"sessions":[{"device":"<name>","since":<Unix seconds>}]}` |
+| `GET /api/relay` | `{"server":"share.kybernow.app","remote_access":false,"id":"<identifier>","state":"off"|"connecting"|"joined"|"unreachable","reason":null|"<text>","transport":null|"quic"|"tcp","locked_until":null|<Unix seconds>,"sessions":[{"device":"<name>","since":<Unix seconds>}]}` |
 | `PUT /api/relay` | `{"server":"…","remote_access":true}` (each field optional) → same answer |
 
-Admin session only, never through the relay. Empty `server`: no relay (neither sharing away from home nor access). `state`: `off` (nothing needs the relay: no open share and access off), `connecting`, `joined`, `unreachable` with `reason` (in Admin's language). Default: `share.kybernow.app:8443`, access off. The installer keeps the data's `relay\` folder (same identifier after an update or a reinstall that keeps the data).
+Admin session only, never through the relay. Empty `server`: no relay (neither sharing away from home nor access). `state`: `off` (nothing needs the relay: no open share and access off), `connecting`, `joined`, `unreachable` with `reason` (in Admin's language). Default: `share.kybernow.app` (port 443), access off. The installer keeps the data's `relay\` folder (same identifier after an update or a reinstall that keeps the data).
 
 ### `info`
 
-`GET /api/stream/info` adds `"relay":{"server":"share.kybernow.app:8443","id":"<identifier>","remote_access":true}` when a relay is set (absent otherwise, and for an earlier Station). The app keeps it for each computer.
+`GET /api/stream/info` adds `"relay":{"server":"share.kybernow.app","id":"<identifier>","remote_access":true}` when a relay is set (absent otherwise, and for an earlier Station). The app keeps it for each computer.
 
 ### Sharing
 
 - **Share view** (`open`, `GET /api/share`, `code`, the host's heartbeat, local routes):
   - `relay`: `null` (no relay) or `{"state":"joined"|"unreachable"}`;
-  - relay reached: `link` also carries `&relay=<relay>&sid=<identifier>`, and `web` becomes `https://share.kybernow.app:8443/j/<code>`; `web_local` always keeps the address on the network (`https://<address>:<port>/link/?join=<code>`);
+  - relay reached: `link` also carries `&relay=<relay>&sid=<identifier>`, and `web` becomes `https://share.kybernow.app/j/<code>` (the relay keeps its port when it is not 443: `https://relay.example.org:9443/j/<code>`, `&relay=relay.example.org%3A9443`); `web_local` always keeps the address on the network (`https://<address>:<port>/link/?join=<code>`);
   - `guests[]` gains `pending` (true for a request not yet accepted) and `via` (`"lan"` or `"relay"`). A request is a spectator, `since` is the time of the request; it takes no place until accepted.
 - **Codes**: with the relay reached, Admin no longer draws the code itself: it asks `reserve` (“New code”: `reserve` then `release` of the old one). Relay unreachable: code drawn by Admin, offered to the relay on connection (replaced only if taken). The code always works on the network, without approval.
 - **Joining through the relay**: `POST /api/share/join` (same body) → `202 {"pending":true,"guest":"<id>","secret":"<secret>","expires":120}`. No host name yet: it is given only after approval. Refusals on top of the share's: `409 {"error":"pending_full"}` (three pending requests at most), `403 {"error":"refused"}` (device refused less than 10 minutes ago).
-- **Waiting**: `POST /api/share/wait`, header `x-kybernow-guest: <secret>`, `{"guest":"<id>"}`, answer held for 25 s at most: `202 {"pending":true}` (still waiting, call again), `200` (the answer of `join` on the network, with `"relay":true`), `403 {"error":"refused"}`, `410 {"error":"expired"}` (no answer within 120 s), `404 {"error":"no_share"}` (share stopped). `POST /api/share/leave` cancels a request.
+- **Waiting**: `POST /api/share/wait`, header `x-kybernow-guest: <secret>`, `{"guest":"<id>"}`, answer held for 25 s at most: `202 {"pending":true}` (still waiting, call again), `200` (the answer of `join` on the network, with `"relay":true`), `403 {"error":"refused"}`, `410 {"error":"expired"}` (no answer within 120 s), `410 {"error":"stopped"}` (the share stopped while waiting: “This share has stopped.”). `POST /api/share/leave` cancels a request.
 - **Accept, decline**: `POST /api/share/guest/{id}/accept`, `POST /api/share/guest/{id}/refuse` (host), and `/api/local/share/guest/{id}/accept|refuse` (the PC) → the share view. Places are counted on acceptance: `409 {"error":"full"}` if all four are taken.
 - The answer of `join` and `wait` carries `"relay":true` through the relay, and so does `GET /api/session`: the web client then takes the picture over WebSocket (reason `relay`), never WebTransport.
 - Browser cookie through the relay: `__Host-kybernow_guest` (`Secure`, `Path=/`, `SameSite=Strict`, `HttpOnly`, no `Domain`); Admin reads both names.
@@ -166,8 +166,8 @@ Admin considers “local” what comes from the loopback (`/api/local/*`, `local
 - The agent **serves itself** what arrives through the relay, inside Admin's process (`admin_tls`: TLS on Admin's certificate, then HTTP; `admin_http`: HTTP), never by reconnecting over TCP to `127.0.0.1`. The peer address is the one given by the stream header, **forced outside the loopback and private addresses**, and the request carries the route (`Via::Relay {kind, client}`).
 - A separate `Router`, `relay_guard`, only opens:
   - to a **guest**, when a share is open: `/api/share/join|wait|beat|quality|leave`, `/link/*`, `/assets/*`, a reduced `GET /api/session`, Admin's proxy to Kyber (`kyber_proxy`) with an accepted guest's cookie (WebSocket only, never `/kymux/start_mux`);
-  - to a **paired device** (Basic account), only when “Access away from home” is on: `/api/stream/*` and the host routes `/api/share*`; access off: `403 {"error":…,"code":"remote_access_off"}`;
-  - **never** through the relay: `/api/login`, `/api/setup`, `/api/password`, `/api/web/ticket`, `/api/pair*`, `/api/pairing`, `/api/local/*`, configuration, accounts, logs, service, display, sound, Admin's update, devices, apps, `/api/events`, Admin's interface. Pairing happens on the network only.
+  - to a **paired device** (Basic account), only when “Access away from home” is on: `/api/stream/*` (except `/api/stream/station/*`) and the host routes `/api/share*`; access off: `403 {"error":…,"code":"remote_access_off"}`;
+  - **never** through the relay: restarting and updating the Station (`/api/stream/station/restart`, `/api/stream/station/update`: a heavy action, done on site or in Admin), `/api/login`, `/api/setup`, `/api/password`, `/api/web/ticket`, `/api/pair*`, `/api/pairing`, `/api/local/*`, configuration, accounts, logs, service, display, sound, Admin's update, devices, apps, `/api/events`, Admin's interface. Pairing happens on the network only.
 - **Blocking**: 20 Basic account failures through the relay within 10 minutes block access through the relay for 10 minutes (`429 {"code":"locked"}`), with a line in the feed.
 - **Kyber**: the agent reaches Kyber only for an authorised client (an accepted guest, while it keeps sending signs of life; a paired device after `prepare`, for 30 s renewed by the heartbeat), and always **from and to the computer's local network address**, never through the loopback (patch 0019 keeps `/kybernow/*` for the loopback). Kyber listens on all addresses.
 - Admin authorises a **relay client** (its identifier): the one that made the successful `wait`, `beat` or `prepare`/`heartbeat`. A client that reconnects keeps its identifier.
@@ -176,7 +176,7 @@ Admin considers “local” what comes from the loopback (`/api/local/*`, `local
 
 What Admin does on top of the above, without changing any of it (`server/admin/src/relay.rs`, `share.rs`, `share_api.rs`):
 
-- **Settings**: `[relay]` in `kyber-admin.toml`, `server` absent = the public relay, empty = no relay; `PUT /api/relay` rereads the address (`share.kybernow.app` becomes `share.kybernow.app:8443`) and answers `400 {"error": <text>}` if it cannot be read. `/api/local/state` (the icon) also gives `relay`: `server`, `remote_access`, `state`, `reason`. `reason` is the tunnel agent's text, in French; a relay that refuses for good (banned, version): `unreachable` with « refusé par le relais ».
+- **Settings**: `[relay]` in `kyber-admin.toml`, `server` absent = the public relay, empty = no relay; `PUT /api/relay` rereads the address in its normal form, without a port for 443 (`https://share.kybernow.app/` and `share.kybernow.app:443` become `share.kybernow.app`) and answers `400 {"error": <text>}` if it cannot be read. `/api/local/state` (the icon) also gives `relay`: `server`, `remote_access`, `state`, `reason`. `reason` is the tunnel agent's text, in French; a relay that refuses for good (banned, version): `unreachable` with « refusé par le relais ».
 - **Share view**: `relay.state` is `joined` only once the share's code is reserved at the relay; “connecting” counts as `unreachable`. A reservation that fails is retried every 10 s; once the share stops, its code is given back to the relay (the agent stays connected if access is on).
 - **Joining**: through the relay, a device already accepted that joins again gets in at once (`200`, as on the network); a `beat` before the answer gives `202 {"pending":true}`; `wait` for an unknown request (wrong secret, left more than a minute ago): `404 {"error":"unknown_guest"}`. The 10-minute block after a refusal targets the device (`device`), or the address if it gives none. A request removed by the host (`DELETE …/guest/{id}`) counts as a refusal, without the block.
 - **Reduced `GET /api/session`**: `{"configured", "authenticated": false, "relay": true, "version"}`.
@@ -190,7 +190,7 @@ What Admin does on top of the above, without changing any of it (`server/admin/s
 ## Links
 
 - Apps: `kybernow://join?host=<address>&port=<Admin port>&fp=<Admin fingerprint>&code=<6 digits>&relay=<relay>&sid=<identifier>` (with `relay` and `sid` when the relay is reached; the relay keeps its possible `#sha256:…`, encoded). The app tries the network first (`host`, `port`), then the relay to `sid`, Admin pinned on `fp`.
-- Browser: `https://share.kybernow.app:8443/j/<code>`, which redirects to `https://<id>.share.kybernow.app:8443/link/?join=<code>`. No universal link on iPhone (it would need port 443): the page offers “Open in the app”.
+- Browser: `https://share.kybernow.app/j/<code>`, which redirects to `https://<id>.share.kybernow.app/link/?join=<code>`. No universal link on iPhone for now: the page offers “Open in the app”.
 - QR code: the apps' link.
 
 ## Joining with a code, away from home
@@ -235,7 +235,7 @@ What Admin does on top of the above, without changing any of it (`server/admin/s
 
 ## Installing a relay at home
 
-A Linux machine with Docker, a domain name whose DNS zone accepts an API token (Gandi by default, for the wildcard certificate), port 8443 open over TCP **and** UDP. The step by step is in [server/relay/README.en.md](../server/relay/README.en.md). In each Station's Admin: “Away from home › Relay” = `relay.example.org:8443`.
+A Linux machine with Docker, a domain name whose DNS zone accepts an API token (Gandi by default, for the wildcard certificate), one port open over TCP **and** UDP, 443 preferably. The relay listens on a port of the machine (`RELAY_LISTEN`, 8443 by default) and announces the public port the router forwards to it (`RELAY_PUBLIC_PORT`); the step by step is in [server/relay/README.en.md](../server/relay/README.en.md), “Ports and the router”. In each Station's Admin: “Away from home › Relay” = the address with its public port, `relay.example.org` for 443, `relay.example.org:9443` for another one.
 
 ## Later
 

@@ -11,7 +11,7 @@ Ce document est le contrat commun du relais, d'Admin, du cœur Rust, des apps Li
 
 ## En bref
 
-- Le relais public est `share.kybernow.app:8443`, chez l'auteur. **Un seul port, 8443, en TCP et en UDP.** Il est ouvert à toute Station, sans plafond de débit. Chacun peut installer le sien (image Docker, [server/relay/README.md](../server/relay/README.md)) ; la Station choisit son relais dans Admin.
+- Le relais public est `share.kybernow.app`, chez l'auteur. **Un seul port public, 443, en TCP et en UDP** (la box le renvoie vers le 8443 de la machine). Une adresse de relais sans port, c'est le 443, et les liens n'écrivent jamais `:443` ; un relais installé ailleurs peut porter son port (`relais.exemple.org:9443`). Il est ouvert à toute Station, sans plafond de débit. Chacun peut installer le sien (image Docker, [server/relay/README.md](../server/relay/README.md)) ; la Station choisit son relais dans Admin.
 - Le relais ne voit pas ce que les apps échangent avec la Station : elles parlent à Admin en TLS **de bout en bout** (certificat d'Admin épinglé), et à Kyber avec son empreinte. Il voit les adresses, les débits et les codes de partage. Le **navigateur** est l'exception : le relais présente un vrai certificat (`*.share.kybernow.app`) et déchiffre ce trafic pour le faire suivre.
 - Kyber n'est pas modifié. Les apps n'ont pas à changer kyclient : le cœur ouvre un tunnel et donne à kyclient une adresse sur la boucle locale de l'appareil (`127.0.0.1:L`, en TCP et en UDP sur le même numéro).
 - Coût : un aller-retour de plus par le relais (à peu près nul quand le relais est dans la même maison que l'ordinateur, 5 à 20 ms en France sinon), moins d'un demi-milliseconde de traitement, une trentaine d'octets par paquet.
@@ -29,7 +29,7 @@ Ce document est le contrat commun du relais, d'Admin, du cœur Rust, des apps Li
 
 ### Connexions
 
-Chaque bout (la Station, une app) ouvre vers le relais, sur le port 8443 :
+Chaque bout (la Station, une app) ouvre vers le relais, sur son port (443 pour le relais public) :
 
 | Connexion | Transport | ALPN | Contenu |
 |---|---|---|---|
@@ -37,7 +37,7 @@ Chaque bout (la Station, une app) ouvre vers le relais, sur le port 8443 :
 | Image | QUIC (UDP) | `kn-media/1` | Les paquets UDP relayés, en datagrammes QUIC |
 | Repli | TLS 1.3 sur TCP | `kn-tcp/1` | Tout à la fois, multiplexé par yamux, quand l'UDP ne passe pas |
 
-- Nom présenté (SNI) : le nom du relais (`share.kybernow.app`). Le relais présente son certificat ; les apps et la Station le vérifient par les autorités habituelles du web (`webpki-roots`), ou par son empreinte quand l'adresse du relais en porte une (relais installé chez soi, certificat signé par lui-même) : `relais.exemple.org:8443#sha256:ab:cd:…` (SHA-256 du certificat, même forme que l'empreinte d'Admin ; le nom n'est alors pas vérifié).
+- Nom présenté (SNI) : le nom du relais (`share.kybernow.app`). Le relais présente son certificat ; les apps et la Station le vérifient par les autorités habituelles du web (`webpki-roots`), ou par son empreinte quand l'adresse du relais en porte une (relais installé chez soi, certificat signé par lui-même) : `relais.exemple.org:9443#sha256:ab:cd:…` (SHA-256 du certificat, même forme que l'empreinte d'Admin ; le nom n'est alors pas vérifié).
 - QUIC : MTU de départ 1280 octets, recherche jusqu'à 1472. Signe de vie toutes les 10 s pour la Station, 5 s pour une app ; coupure après 30 s sans nouvelles.
 - `kn-ctl/1` garde le contrôle de congestion habituel (Cubic). `kn-media/1` a un contrôle **permissif** : fenêtre très grande, pas d'espacement, pertes ignorées ; la file d'envoi des datagrammes est bornée (les plus anciens sont jetés). Kyber a déjà son propre contrôle de débit à l'intérieur.
 - Ordre : `kn-ctl/1` d'abord ; `kn-media/1` après la réponse `welcome`. Si QUIC ne répond pas en 3 s, le bout passe au repli `kn-tcp/1`, et retente QUIC toutes les 5 minutes. Le repli se signale (« Par le relais (TCP) ») : bon pour regarder, moins bon pour jouer.
@@ -94,7 +94,7 @@ Le bout qui se connecte ouvre le premier flux bidirectionnel de `kn-ctl/1` (ou l
 
 ### Repli TCP (`kn-tcp/1`)
 
-TLS 1.3 sur TCP 8443, ALPN `kn-tcp/1`, certificat client pour la Station ; yamux par-dessus (le bout qui se connecte est le client yamux). Premier flux : les messages (comme `kn-ctl/1`). Deuxième flux, ouvert par le bout qui se connecte après `welcome` : les datagrammes, une trame `{"t":"media"…}` comme ci-dessus puis des enregistrements `[longueur de la suite, 2 octets gros-boutistes][numéro de flux][paquet UDP]`. Les autres flux : les connexions TCP relayées, comme sur QUIC. Une Station en repli et une app en QUIC (ou l'inverse) se parlent normalement.
+TLS 1.3 sur TCP (le même port), ALPN `kn-tcp/1`, certificat client pour la Station ; yamux par-dessus (le bout qui se connecte est le client yamux). Premier flux : les messages (comme `kn-ctl/1`). Deuxième flux, ouvert par le bout qui se connecte après `welcome` : les datagrammes, une trame `{"t":"media"…}` comme ci-dessus puis des enregistrements `[longueur de la suite, 2 octets gros-boutistes][numéro de flux][paquet UDP]`. Les autres flux : les connexions TCP relayées, comme sur QUIC. Une Station en repli et une app en QUIC (ou l'inverse) se parlent normalement.
 
 ### Reconnexion
 
@@ -104,7 +104,7 @@ TLS 1.3 sur TCP 8443, ALPN `kn-tcp/1`, certificat client pour la Station ; yamux
 
 ## Le relais sur le web
 
-Sur TCP 8443, le relais regarde le début de chaque connexion TLS :
+Sur TCP, le relais regarde le début de chaque connexion TLS :
 
 - ALPN `kn-tcp/1` : le repli du tunnel ;
 - nom `share.kybernow.app` : ses pages ;
@@ -114,14 +114,14 @@ Sur TCP 8443, le relais regarde le début de chaque connexion TLS :
 | Adresse | Réponse |
 |---|---|
 | `GET /` | Présentation de KyberNow Share et saisie du code (français ou anglais selon le navigateur, ou `?lang=fr` / `?lang=en`) ; le formulaire envoie `/j?code=…` |
-| `GET /j/{code}` | Redirige (302) vers `https://<id>.share.kybernow.app:8443/link/?join=<code>` ; code inconnu, ou Station absente : une page qui le dit |
+| `GET /j/{code}` | Redirige (302) vers `https://<id>.share.kybernow.app/link/?join=<code>` (avec `:<port>` quand le port public annoncé du relais n'est pas le 443) ; code inconnu, ou Station absente : une page qui le dit |
 | `GET /v1/codes/{code}` | `200 {"station":"<id>","station_key":"<SPKI base64>","admin_fp":"sha256:…","sig":"<base64>","online":true}` ; `online:false` : Station partie depuis moins de 120 s, les autres champs vides ; `404 {"error":"unknown_code"}` ; `400 {"error":"bad_request"}` ; `429 {"error":"too_many","retry_after":<s>}` avec `Retry-After` |
 | `GET /privacy` | Ce que le relais voit et garde (français ou anglais) |
 | `GET /assets/<fichier>?v=<version>` | Feuille de styles, polices, logo et favicon de la page, embarqués dans le binaire ; gardés un an (`immutable`, l'adresse porte la version) ; fichier inconnu : page « introuvable » |
 | `GET /v1/health` | `200 {"ok":true,"version":"…"}` ; les apps iPhone et iPad l'appellent avant d'ouvrir le tunnel (réveil de la radio cellulaire) |
-| `https://<id>.share…:8443/*` | Mandataire HTTP/1.1 vers Admin de la Station (WebSocket compris) ; Station absente : page « ordinateur injoignable » (503) |
+| `https://<id>.share…/*` | Mandataire HTTP/1.1 vers Admin de la Station (WebSocket compris) ; Station absente : page « ordinateur injoignable » (503) |
 
-Les pages du relais n'ont ni script, ni cookie, ni mesure d'audience, et ne chargent rien d'un autre site : politique de contenu `default-src 'none'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`. Elles n'écrivent jamais l'adresse du relais (chemins relatifs) : la même page sert sur le 8443 et, quand la box renvoie le 443 vers lui, sur `https://share.kybernow.app`. Détails : [server/relay/README.md](../server/relay/README.md#la-page-daccueil).
+Les pages du relais n'ont ni script, ni cookie, ni mesure d'audience, et ne chargent rien d'un autre site : politique de contenu `default-src 'none'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`. Elles n'écrivent jamais l'adresse du relais (chemins relatifs) : la même page sert sur le port d'écoute du relais et sur son port public (`https://share.kybernow.app`, sans port au 443). Détails : [server/relay/README.md](../server/relay/README.md#la-page-daccueil).
 
 Mandataire : `Host` passé tel quel, `X-Forwarded-For` et `Forwarded` retirés (l'adresse du navigateur voyage dans l'en-tête du flux), `Domain=` retiré de tout `Set-Cookie`. Une origine par Station : le code d'une Station ne lit jamais les cookies d'une autre.
 
@@ -133,24 +133,24 @@ Codes : le relais **réserve les codes**, uniques entre toutes les Stations qui 
 
 | Route | Contenu |
 |---|---|
-| `GET /api/relay` | `{"server":"share.kybernow.app:8443","remote_access":false,"id":"<identifiant>","state":"off"|"connecting"|"joined"|"unreachable","reason":null|"<texte>","transport":null|"quic"|"tcp","locked_until":null|<secondes Unix>,"sessions":[{"device":"<nom>","since":<secondes Unix>}]}` |
+| `GET /api/relay` | `{"server":"share.kybernow.app","remote_access":false,"id":"<identifiant>","state":"off"|"connecting"|"joined"|"unreachable","reason":null|"<texte>","transport":null|"quic"|"tcp","locked_until":null|<secondes Unix>,"sessions":[{"device":"<nom>","since":<secondes Unix>}]}` |
 | `PUT /api/relay` | `{"server":"…","remote_access":true}` (chaque champ facultatif) → même réponse |
 
-Session d'Admin seulement, jamais par le relais. `server` vide : pas de relais (ni partage hors de chez soi, ni accès). `state` : `off` (rien ne demande le relais : pas de partage ouvert et accès coupé), `connecting`, `joined`, `unreachable` avec `reason` (dans la langue d'Admin). Défaut : `share.kybernow.app:8443`, accès coupé. L'installateur garde le dossier `relay\` des données (même identifiant après une mise à jour ou une réinstallation qui garde les données).
+Session d'Admin seulement, jamais par le relais. `server` vide : pas de relais (ni partage hors de chez soi, ni accès). `state` : `off` (rien ne demande le relais : pas de partage ouvert et accès coupé), `connecting`, `joined`, `unreachable` avec `reason` (dans la langue d'Admin). Défaut : `share.kybernow.app` (port 443), accès coupé. L'installateur garde le dossier `relay\` des données (même identifiant après une mise à jour ou une réinstallation qui garde les données).
 
 ### `info`
 
-`GET /api/stream/info` ajoute `"relay":{"server":"share.kybernow.app:8443","id":"<identifiant>","remote_access":true}` quand un relais est réglé (absent sinon, et pour une Station antérieure). L'app le garde pour chaque ordinateur.
+`GET /api/stream/info` ajoute `"relay":{"server":"share.kybernow.app","id":"<identifiant>","remote_access":true}` quand un relais est réglé (absent sinon, et pour une Station antérieure). L'app le garde pour chaque ordinateur.
 
 ### Partage
 
 - **Vue du partage** (`open`, `GET /api/share`, `code`, signe de vie de l'hôte, routes locales) :
   - `relay` : `null` (pas de relais) ou `{"state":"joined"|"unreachable"}` ;
-  - relais joint : `link` porte en plus `&relay=<relais>&sid=<identifiant>`, et `web` devient `https://share.kybernow.app:8443/j/<code>` ; `web_local` garde toujours l'adresse sur le réseau (`https://<adresse>:<port>/link/?join=<code>`) ;
+  - relais joint : `link` porte en plus `&relay=<relais>&sid=<identifiant>`, et `web` devient `https://share.kybernow.app/j/<code>` (le relais garde son port quand ce n'est pas le 443 : `https://relais.exemple.org:9443/j/<code>`, `&relay=relais.exemple.org%3A9443`) ; `web_local` garde toujours l'adresse sur le réseau (`https://<adresse>:<port>/link/?join=<code>`) ;
   - `guests[]` gagne `pending` (vrai pour une demande pas encore acceptée) et `via` (`"lan"` ou `"relay"`). Une demande est spectatrice, `since` est l'heure de la demande ; elle ne prend pas de place tant qu'elle n'est pas acceptée.
 - **Codes** : relais joint, Admin ne tire plus le code lui-même : il demande `reserve` (« Nouveau code » : `reserve` puis `release` de l'ancien). Relais injoignable : code tiré par Admin, proposé au relais à la connexion (remplacé seulement s'il est pris). Le code vaut toujours sur le réseau, sans accord.
 - **Rejoindre par le relais** : `POST /api/share/join` (même corps) → `202 {"pending":true,"guest":"<id>","secret":"<secret>","expires":120}`. Pas encore de prénom de l'hôte : il n'est donné qu'après l'accord. Refus en plus de ceux du partage : `409 {"error":"pending_full"}` (trois demandes en attente au plus), `403 {"error":"refused"}` (appareil refusé il y a moins de 10 minutes).
-- **Attendre** : `POST /api/share/wait`, en-tête `x-kybernow-guest: <secret>`, `{"guest":"<id>"}`, réponse tenue 25 s au plus : `202 {"pending":true}` (toujours en attente, rappeler), `200` (la réponse de `join` sur le réseau, avec `"relay":true`), `403 {"error":"refused"}`, `410 {"error":"expired"}` (pas de réponse en 120 s), `404 {"error":"no_share"}` (partage arrêté). `POST /api/share/leave` annule une demande.
+- **Attendre** : `POST /api/share/wait`, en-tête `x-kybernow-guest: <secret>`, `{"guest":"<id>"}`, réponse tenue 25 s au plus : `202 {"pending":true}` (toujours en attente, rappeler), `200` (la réponse de `join` sur le réseau, avec `"relay":true`), `403 {"error":"refused"}`, `410 {"error":"expired"}` (pas de réponse en 120 s), `410 {"error":"stopped"}` (le partage s'est arrêté pendant l'attente : « Ce partage est arrêté. »). `POST /api/share/leave` annule une demande.
 - **Accepter, refuser** : `POST /api/share/guest/{id}/accept`, `POST /api/share/guest/{id}/refuse` (hôte), et `/api/local/share/guest/{id}/accept|refuse` (le PC) → la vue du partage. Les places se comptent à l'acceptation : `409 {"error":"full"}` si les quatre sont prises.
 - La réponse de `join` et de `wait` porte `"relay":true` par le relais, et `GET /api/session` aussi : le client web prend alors l'image en WebSocket (raison `relay`), jamais en WebTransport.
 - Cookie du navigateur par le relais : `__Host-kybernow_guest` (`Secure`, `Path=/`, `SameSite=Strict`, `HttpOnly`, sans `Domain`) ; Admin lit les deux noms.
@@ -166,8 +166,8 @@ Admin juge « local » ce qui vient de la boucle locale (`/api/local/*`, `local_
 - L'agent **sert lui-même** ce qui arrive par le relais, dans le processus d'Admin (`admin_tls` : TLS sur le certificat d'Admin, puis HTTP ; `admin_http` : HTTP), jamais en se reconnectant en TCP sur `127.0.0.1`. L'adresse du pair est celle que donne l'en-tête du flux, **forcée hors de la boucle locale et des adresses privées**, et la requête porte la voie (`Via::Relay {kind, client}`).
 - Un `Router` à part, `relay_guard`, n'ouvre que :
   - à un **invité**, quand un partage est ouvert : `/api/share/join|wait|beat|quality|leave`, `/link/*`, `/assets/*`, `GET /api/session` réduit, le mandataire d'Admin vers Kyber (`kyber_proxy`) avec le cookie d'un invité accepté (WebSocket seulement, jamais `/kymux/start_mux`) ;
-  - à un **appareil appairé** (compte Basic), seulement quand « Accès hors de chez vous » est actif : `/api/stream/*` et les routes de l'hôte `/api/share*` ; accès coupé : `403 {"error":…,"code":"remote_access_off"}` ;
-  - **jamais** par le relais : `/api/login`, `/api/setup`, `/api/password`, `/api/web/ticket`, `/api/pair*`, `/api/pairing`, `/api/local/*`, la configuration, les comptes, les journaux, le service, l'écran, le son, la mise à jour d'Admin, les appareils, les apps, `/api/events`, l'interface d'Admin. L'appairage se fait sur le réseau seulement.
+  - à un **appareil appairé** (compte Basic), seulement quand « Accès hors de chez vous » est actif : `/api/stream/*` (sauf `/api/stream/station/*`) et les routes de l'hôte `/api/share*` ; accès coupé : `403 {"error":…,"code":"remote_access_off"}` ;
+  - **jamais** par le relais : le redémarrage et la mise à jour de la Station (`/api/stream/station/restart`, `/api/stream/station/update` : une action lourde, qui se fait sur place ou dans Admin), `/api/login`, `/api/setup`, `/api/password`, `/api/web/ticket`, `/api/pair*`, `/api/pairing`, `/api/local/*`, la configuration, les comptes, les journaux, le service, l'écran, le son, la mise à jour d'Admin, les appareils, les apps, `/api/events`, l'interface d'Admin. L'appairage se fait sur le réseau seulement.
 - **Blocage** : 20 échecs du compte Basic par le relais en 10 minutes bloquent l'accès par le relais 10 minutes (`429 {"code":"locked"}`), avec une ligne dans le fil.
 - **Kyber** : l'agent ne joint Kyber que pour un client autorisé (un invité accepté, tant qu'il donne signe de vie ; un appareil appairé après `prepare`, pour 30 s renouvelées par le signe de vie), et toujours **depuis et vers l'adresse du réseau local** de l'ordinateur, jamais par la boucle locale (le correctif 0019 réserve `/kybernow/*` à la boucle locale). Kyber écoute sur toutes les adresses.
 - Admin autorise un **client du relais** (son identifiant) : celui qui a fait le `wait`, le `beat` ou le `prepare`/`heartbeat` réussi. Un client qui se reconnecte garde son identifiant.
@@ -176,7 +176,7 @@ Admin juge « local » ce qui vient de la boucle locale (`/api/local/*`, `local_
 
 Ce qu'Admin fait en plus de ce qui précède, sans rien y changer (`server/admin/src/relay.rs`, `share.rs`, `share_api.rs`) :
 
-- **Réglages** : `[relay]` de `kyber-admin.toml`, `server` absent = le relais public, vide = pas de relais ; `PUT /api/relay` relit l'adresse (`share.kybernow.app` devient `share.kybernow.app:8443`) et répond `400 {"error": <texte>}` si elle est illisible. `/api/local/state` (l'icône) donne aussi `relay` : `server`, `remote_access`, `state`, `reason`. `reason` est le texte de l'agent du tunnel, en français ; un relais qui refuse pour de bon (banni, version) : `unreachable` avec « refusé par le relais ».
+- **Réglages** : `[relay]` de `kyber-admin.toml`, `server` absent = le relais public, vide = pas de relais ; `PUT /api/relay` relit l'adresse sous sa forme normale, sans port pour le 443 (`https://share.kybernow.app/` et `share.kybernow.app:443` deviennent `share.kybernow.app`) et répond `400 {"error": <texte>}` si elle est illisible. `/api/local/state` (l'icône) donne aussi `relay` : `server`, `remote_access`, `state`, `reason`. `reason` est le texte de l'agent du tunnel, en français ; un relais qui refuse pour de bon (banni, version) : `unreachable` avec « refusé par le relais ».
 - **Vue du partage** : `relay.state` vaut `joined` seulement quand le code du partage est réservé chez le relais ; « en cours de connexion » compte comme `unreachable`. Une réservation qui échoue est retentée toutes les 10 s ; le partage arrêté, son code est rendu au relais (l'agent reste connecté si l'accès est actif).
 - **Rejoindre** : par le relais, un appareil déjà accepté qui rejoint de nouveau entre aussitôt (`200`, comme sur le réseau) ; un `beat` avant l'accord rend `202 {"pending":true}` ; `wait` d'une demande inconnue (mauvais secret, sortie depuis plus d'une minute) : `404 {"error":"unknown_guest"}`. Le blocage de 10 minutes après un refus vise l'appareil (`device`), ou l'adresse s'il n'en donne pas. Une demande retirée par l'hôte (`DELETE …/guest/{id}`) vaut un refus, sans blocage.
 - **`GET /api/session` réduit** : `{"configured", "authenticated": false, "relay": true, "version"}`.
@@ -190,7 +190,7 @@ Ce qu'Admin fait en plus de ce qui précède, sans rien y changer (`server/admin
 ## Liens
 
 - Apps : `kybernow://join?host=<adresse>&port=<port d'Admin>&fp=<empreinte d'Admin>&code=<6 chiffres>&relay=<relais>&sid=<identifiant>` (avec `relay` et `sid` quand le relais est joint ; le relais garde son `#sha256:…` éventuel, encodé). L'app essaie d'abord le réseau (`host`, `port`), puis le relais vers `sid`, Admin épinglé sur `fp`.
-- Navigateur : `https://share.kybernow.app:8443/j/<code>`, qui redirige vers `https://<id>.share.kybernow.app:8443/link/?join=<code>`. Pas de lien universel sur iPhone (il faudrait le port 443) : la page propose « Ouvrir dans l'app ».
+- Navigateur : `https://share.kybernow.app/j/<code>`, qui redirige vers `https://<id>.share.kybernow.app/link/?join=<code>`. Pas de lien universel sur iPhone pour l'instant : la page propose « Ouvrir dans l'app ».
 - QR code : le lien des apps.
 
 ## Rejoindre avec un code, hors de chez soi
@@ -235,7 +235,7 @@ Ce qu'Admin fait en plus de ce qui précède, sans rien y changer (`server/admin
 
 ## Installer un relais chez soi
 
-Une machine Linux avec Docker, un nom de domaine dont la zone DNS accepte un jeton d'API (Gandi par défaut, pour le certificat générique), le port 8443 ouvert en TCP **et** UDP. Le pas à pas est dans [server/relay/README.md](../server/relay/README.md). Dans Admin de chaque Station : « Hors de chez vous › Relais » = `relais.exemple.org:8443`.
+Une machine Linux avec Docker, un nom de domaine dont la zone DNS accepte un jeton d'API (Gandi par défaut, pour le certificat générique), un port ouvert en TCP **et** UDP, le 443 de préférence. Le relais écoute sur un port de la machine (`RELAY_LISTEN`, 8443 par défaut) et annonce le port public que la box renvoie vers lui (`RELAY_PUBLIC_PORT`) ; le pas à pas est dans [server/relay/README.md](../server/relay/README.md), « Les ports et la box ». Dans Admin de chaque Station : « Hors de chez vous › Relais » = l'adresse avec son port public, `relais.exemple.org` pour le 443, `relais.exemple.org:9443` pour un autre.
 
 ## Plus tard
 

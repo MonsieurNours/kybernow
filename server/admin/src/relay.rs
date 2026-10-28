@@ -70,8 +70,9 @@ const OUTSIDE: Ipv6Addr = Ipv6Addr::new(0x100, 0, 0, 0, 0, 0, 0, 1);
 /// « Hors de chez vous » (`[relay]` de kyber-admin.toml).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RelaySettings {
-    /// Adresse du relais (`hôte:port`, et `#sha256:…` pour un relais chez soi
-    /// signé par lui-même). Absent : le relais public ; vide : pas de relais.
+    /// Adresse du relais (`hôte`, `hôte:port` hors du 443, et `#sha256:…`
+    /// pour un relais chez soi signé par lui-même). Absent : le relais
+    /// public ; vide : pas de relais.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub server: Option<String>,
     /// « Accès hors de chez vous » : coupé au départ.
@@ -93,7 +94,8 @@ impl RelaySettings {
 }
 
 /// Relit une adresse de relais saisie dans Admin : vide (pas de relais), ou
-/// lisible, sous sa forme normale (`share.kybernow.app:8443`).
+/// lisible, sous sa forme normale : sans port pour le 443
+/// (`share.kybernow.app`), avec lui sinon (`relais.exemple.org:9443`).
 pub fn normalize_server(input: &str) -> Result<String, Msg> {
     let input = input.trim();
     if input.is_empty() {
@@ -711,6 +713,11 @@ fn class_of(method: &Method, path: &str) -> Class {
         "/api/share/join" | "/api/share/wait" | "/api/share/beat" | "/api/share/quality" | "/api/share/leave" => return Class::Guest,
         _ => {}
     }
+    // Ni redémarrage ni mise à jour de la Station hors de chez soi : une
+    // action lourde, qu'on fait sur place ou dans Admin.
+    if path.starts_with("/api/stream/station/") {
+        return Class::Never;
+    }
     if path == "/api/share" || path.starts_with("/api/share/") || path.starts_with("/api/stream/") {
         return Class::Device;
     }
@@ -905,7 +912,7 @@ mod tests {
         for p in ["/session/login", "/ws", "/kymux/start_mux", "/websocket/video"] {
             assert_eq!(class_of(&post, p), Class::Kyber, "{p}");
         }
-        for (m, p) in [(&get, "/api/stream/info"), (&post, "/api/stream/prepare"), (&post, "/api/stream/station/restart"), (&get, "/api/share"), (&post, "/api/share/open"), (&post, "/api/share/guest/ab12/accept"), (&Method::DELETE, "/api/share")] {
+        for (m, p) in [(&get, "/api/stream/info"), (&post, "/api/stream/prepare"), (&post, "/api/stream/heartbeat"), (&get, "/api/share"), (&post, "/api/share/open"), (&post, "/api/share/guest/ab12/accept"), (&Method::DELETE, "/api/share")] {
             assert_eq!(class_of(m, p), Class::Device, "{m} {p}");
         }
         for (m, p) in [
@@ -915,6 +922,7 @@ mod tests {
             (&post, "/api/update/install"), (&get, "/api/devices"), (&get, "/api/apps"), (&get, "/api/events"), (&get, "/api/relay"),
             (&Method::PUT, "/api/relay"), (&get, "/"), (&get, "/index.html"), (&post, "/link/"), (&get, "/ecran/kyclient_wasm.js"), (&post, "/api/session"),
             (&get, "/api/status"), (&get, "/api/shares"), (&get, "/kybernow/sessions"),
+            (&post, "/api/stream/station/restart"), (&post, "/api/stream/station/update"),
         ] {
             assert_eq!(class_of(m, p), Class::Never, "{m} {p}");
         }
@@ -970,7 +978,11 @@ mod tests {
 
     #[test]
     fn adresse_du_relais() {
-        assert_eq!(normalize_server(" share.kybernow.app ").unwrap(), "share.kybernow.app:8443");
+        assert_eq!(normalize_server(" share.kybernow.app ").unwrap(), "share.kybernow.app");
+        assert_eq!(normalize_server("share.kybernow.app:443").unwrap(), "share.kybernow.app");
+        assert_eq!(normalize_server("https://share.kybernow.app/").unwrap(), "share.kybernow.app");
+        assert_eq!(normalize_server("relais.exemple.org:9443").unwrap(), "relais.exemple.org:9443");
+        assert_eq!(DEFAULT_SERVER, "share.kybernow.app");
         assert_eq!(normalize_server("").unwrap(), "");
         assert!(normalize_server("relais.exemple.org:99999").is_err());
         let settings = RelaySettings::default();

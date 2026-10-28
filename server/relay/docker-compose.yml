@@ -15,8 +15,9 @@ services:
       network: host
     image: kybernow-relay:local
     restart: unless-stopped
-    # Le port 8443 en TCP et en UDP, sans traduction d'adresse par Docker
-    # (les adresses des clients restent les vraies).
+    # Le port d'écoute (8443 par défaut) en TCP et en UDP, sans traduction
+    # d'adresse par Docker (les adresses des clients restent les vraies). La
+    # box renvoie le port public vers lui (README.md, « Les ports et la box »).
     network_mode: host
     read_only: true
     cap_drop: [ALL]
@@ -24,6 +25,9 @@ services:
     environment:
       KN_RELAY_DOMAIN: ${RELAY_DOMAIN:?RELAY_DOMAIN manque dans .env}
       KN_RELAY_LISTEN: ${RELAY_LISTEN:-0.0.0.0:8443}
+      # Port public annoncé dans les liens et les adresses des Stations
+      # (vide : le port d'écoute ; 443 : sans port).
+      KN_RELAY_PUBLIC_PORT: ${RELAY_PUBLIC_PORT:-}
       KN_RELAY_METRICS: ${RELAY_METRICS:-127.0.0.1:9464}
       KN_RELAY_BANLIST: /config/banlist.txt
       RUST_LOG: ${RUST_LOG:-info}

@@ -1,4 +1,4 @@
-//! TCP 8443 : le relais lit le début de la négociation TLS. ALPN `kn-tcp/1` :
+//! TCP, sur le port du relais (8443 par défaut) : le relais lit le début de la négociation TLS. ALPN `kn-tcp/1` :
 //! le repli du tunnel (yamux) ; nom `share.<domaine>` : ses pages ; nom
 //! `<id>.share.<domaine>` : le navigateur vers la Station ; sinon, fermé.
 

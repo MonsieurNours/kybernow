@@ -1,4 +1,4 @@
-//! QUIC sur UDP 8443 : `kn-ctl/1` et `kn-media/1`. Les limites passent avant
+//! QUIC sur le port UDP du relais (8443 par défaut) : `kn-ctl/1` et `kn-media/1`. Les limites passent avant
 //! la négociation (bannissement, connexions par adresse, négociations par
 //! minute) ; sous charge, le relais demande une preuve d'adresse (Retry).
 

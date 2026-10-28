@@ -1006,6 +1006,7 @@
       "waiting": "En attente de l'accord de l'hôte…",
       "refused": "L'hôte a refusé.",
       "expired": "L'hôte n'a pas répondu.",
+      "stopped": "Ce partage est arrêté.",
       "relayDown": "Le relais ne répond pas.",
       "pendingFull": "Trop de demandes en attente : réessayez dans un instant."
     },

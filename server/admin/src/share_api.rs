@@ -130,13 +130,22 @@ fn links(s: &AppState, code: &str) -> Links {
         None => Value::Null,
         Some(r) => {
             if let (true, Some(id)) = (r.joined, r.id.as_deref()) {
-                link.push_str(&format!("&relay={}&sid={id}", urlencoding::encode(&r.addr.to_string())));
-                web = format!("https://{}/j/{code}", r.addr.authority());
+                let (param, relay_web) = relay_links(&r.addr, id, code);
+                link.push_str(&param);
+                web = relay_web;
             }
             json!({ "state": if r.joined { "joined" } else { "unreachable" } })
         }
     };
     Links { link, web, web_local, relay }
+}
+
+/// Par le relais : ce que le lien des apps porte en plus, et l'adresse du
+/// client web. Au 443, ni l'un ni l'autre n'écrit de port
+/// (`&relay=share.kybernow.app`, `https://share.kybernow.app/j/123456`).
+fn relay_links(addr: &kybernow_tunnel::RelayAddr, id: &str, code: &str) -> (String, String) {
+    let param = format!("&relay={}&sid={id}", urlencoding::encode(&addr.to_string()));
+    (param, format!("https://{}/j/{code}", addr.web_authority()))
 }
 
 fn host_name(snapshot: &Snapshot) -> String {
@@ -974,7 +983,8 @@ const WAIT_HOLD: Duration = Duration::from_secs(25);
 
 /// `POST /api/share/wait` : une demande attend l'accord de l'hôte (par le
 /// relais). Réponse tenue 25 s au plus : `202 pending`, `200` (la réponse de
-/// `join`), `403 refused`, `410 expired`, `404 no_share`.
+/// `join`), `403 refused`, `410 expired` (pas de réponse en 120 s), `410
+/// stopped` (le partage s'est arrêté pendant l'attente).
 pub async fn wait(State(s): State<AppState>, headers: HeaderMap, via: Option<axum::Extension<Via>>, Json(body): Json<GuestBody>) -> Response {
     wait_for(&s, &headers, via.map(|axum::Extension(v)| v), &body.guest, WAIT_HOLD).await
 }
@@ -992,7 +1002,7 @@ async fn wait_for(s: &AppState, headers: &HeaderMap, via: Option<Via>, guest: &s
             share::Wait::Admitted { guest, snapshot } => return joined_answer(s, &guest, &snapshot, via.as_ref()).await,
             share::Wait::Refused => return guest_error(StatusCode::FORBIDDEN, "refused"),
             share::Wait::Expired => return guest_error(StatusCode::GONE, "expired"),
-            share::Wait::NoShare => return guest_error(StatusCode::NOT_FOUND, "no_share"),
+            share::Wait::NoShare => return guest_error(StatusCode::GONE, "stopped"),
             share::Wait::Unknown => return guest_error(StatusCode::NOT_FOUND, "unknown_guest"),
         }
         if tokio::time::timeout_at(deadline, changed).await.is_err() {
@@ -1779,7 +1789,21 @@ mod tests {
         let secret = s.share.snapshot().unwrap().guests.iter().find(|g| g.id == ids[1]).unwrap().secret().to_string();
         close_share(s).await;
         let (status, v) = body(wait_for(s, &guest_headers(&secret), None, &ids[1], Duration::from_secs(1)).await).await;
-        assert_eq!((status, v["error"].clone()), (StatusCode::NOT_FOUND, json!("no_share")));
+        assert_eq!((status, v["error"].clone()), (StatusCode::GONE, json!("stopped")));
+    }
+
+    #[test]
+    fn les_liens_du_relais_n_ecrivent_pas_le_443() {
+        let public: kybernow_tunnel::RelayAddr = crate::relay::DEFAULT_SERVER.parse().unwrap();
+        assert_eq!(
+            relay_links(&public, "abc", "123456"),
+            ("&relay=share.kybernow.app&sid=abc".to_string(), "https://share.kybernow.app/j/123456".to_string())
+        );
+        let other: kybernow_tunnel::RelayAddr = "relais.exemple.org:9443".parse().unwrap();
+        assert_eq!(
+            relay_links(&other, "abc", "123456"),
+            ("&relay=relais.exemple.org%3A9443&sid=abc".to_string(), "https://relais.exemple.org:9443/j/123456".to_string())
+        );
     }
 
     #[tokio::test]

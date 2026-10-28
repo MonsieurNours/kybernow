@@ -14,7 +14,9 @@ pub struct Config {
     pub domain: String,
     /// Adresse d'écoute, en TCP et en UDP sur le même port.
     pub listen: SocketAddr,
-    /// Port écrit dans les liens (`/j/{code}`), si la box le change.
+    /// Port public annoncé, si la box en publie un autre que le port
+    /// d'écoute : liens (`/j/{code}`) et origines des Stations
+    /// (`https://<id>.<domaine>`, sans port au 443).
     pub public_port: Option<u16>,
     /// Certificat (chaîne complète, PEM) et clé de `<domain>` et `*.<domain>`.
     pub cert: PathBuf,
@@ -164,6 +166,7 @@ impl Config {
         let ok = !self.domain.is_empty()
             && self.domain.split('.').all(|l| !l.is_empty() && l.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'));
         anyhow::ensure!(ok, "domaine invalide : {}", self.domain);
+        anyhow::ensure!(self.public_port != Some(0), "port public invalide : 0");
         Ok(())
     }
 
@@ -208,5 +211,20 @@ mod tests {
         assert_eq!(cfg.cert, PathBuf::from("/certs/certificates/relais.exemple.org.crt"));
         assert!(cfg.check().is_ok());
         assert_eq!(cfg.link_port(8443), 8443);
+    }
+
+    /// Le 443 dehors renvoyé vers le 8443 de la machine (le relais public) :
+    /// les liens annoncent le 443 ; une variable vide (`RELAY_PUBLIC_PORT=`
+    /// du compose) laisse le port d'écoute.
+    #[test]
+    fn port_public_annonce() {
+        let mut cfg = Config::default();
+        cfg.apply_env(|k| (k == "KN_RELAY_PUBLIC_PORT").then(|| "443".to_string())).unwrap();
+        assert_eq!((cfg.listen.port(), cfg.link_port(cfg.listen.port())), (8443, 443));
+        let mut cfg = Config::default();
+        cfg.apply_env(|k| (k == "KN_RELAY_PUBLIC_PORT").then(String::new)).unwrap();
+        assert_eq!(cfg.link_port(8443), 8443);
+        let mut cfg = Config::default();
+        assert!(cfg.apply_env(|k| (k == "KN_RELAY_PUBLIC_PORT").then(|| "0".to_string())).and_then(|_| cfg.check()).is_err());
     }
 }

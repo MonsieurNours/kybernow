@@ -186,7 +186,8 @@ export interface AutoCaps {
 /**
  * Refus de `POST /api/share/join` ou de `POST /api/share/wait` : `kind` dit lequel (`message` n'est que
  * le texte d'Admin, pour `other`). Par le relais : `pending_full` (trois demandes en attente déjà),
- * `refused` (l'hôte a refusé), `expired` (pas de réponse en 120 s), `relay` (le relais ne répond pas).
+ * `refused` (l'hôte a refusé), `expired` (pas de réponse en 120 s), `stopped` (le partage s'est arrêté
+ * pendant l'attente), `relay` (le relais ne répond pas).
  */
 export class JoinRefusal extends Error {
   constructor(
@@ -200,6 +201,7 @@ export class JoinRefusal extends Error {
       | 'pending_full'
       | 'refused'
       | 'expired'
+      | 'stopped'
       | 'relay'
       | 'other',
     message = '',
@@ -292,7 +294,7 @@ export const backend = {
   /**
    * Attend l'accord de l'hôte pour une demande venue par le relais (réponse tenue 25 s au plus) : `null`
    * tant qu'elle attend (rappeler), la réponse de `join` une fois acceptée (Admin pose alors le cookie de
-   * l'invité). Refus : `refused`, `expired`, `no_share` (partage arrêté) ; `relay` quand le relais ne
+   * l'invité). Refus : `refused`, `expired`, `stopped` (partage arrêté pendant l'attente) ; `relay` quand le relais ne
    * répond pas. Une attente annulée (`signal`) rejette avec l'erreur du navigateur.
    */
   shareWait: async (pending: GuestPending, signal?: AbortSignal): Promise<GuestJoin | null> => {
@@ -311,7 +313,7 @@ export const backend = {
       case 403:
         throw new JoinRefusal('refused')
       case 410:
-        throw new JoinRefusal('expired')
+        throw new JoinRefusal(data?.error === 'stopped' ? 'stopped' : 'expired')
       case 404:
         throw new JoinRefusal('no_share')
       default:

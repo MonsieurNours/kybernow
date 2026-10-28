@@ -4,7 +4,7 @@
 
 Le relais fait passer KyberNow par internet quand votre appareil n'est pas sur le réseau de l'ordinateur : partager son écran avec quelqu'un qui est ailleurs, ou retrouver son ordinateur depuis l'hôtel ou le train. Le contrat (tunnel, routes d'Admin, liens, confiance) est dans [docs/relais.md](../../docs/relais.md).
 
-Le relais public, `share.kybernow.app:8443`, est ouvert à toutes les Stations. Vous pouvez aussi installer le vôtre : une machine Linux avec Docker, un nom de domaine, et un seul port ouvert, **8443 en TCP et en UDP**.
+Le relais public, `share.kybernow.app`, est ouvert à toutes les Stations. Vous pouvez aussi installer le vôtre : une machine Linux avec Docker, un nom de domaine, et un seul port ouvert, **en TCP et en UDP** (le 443 de préférence, voir « Les ports et la box »).
 
 | Fichier | Contenu |
 |---|---|
@@ -22,7 +22,7 @@ Le relais public, `share.kybernow.app:8443`, est ouvert à toutes les Stations. 
 
 - Une machine Linux toujours allumée, avec Docker et `docker compose`.
 - Un nom de domaine dont la zone DNS se règle par une API : Gandi par défaut (le certificat couvre `*.relais.exemple.org`, ce qui demande une preuve par le DNS). Un autre hébergeur DNS pris en charge par lego marche aussi : changez `--dns gandiv5` dans `lego.sh` et la variable du jeton dans `docker-compose.yml`.
-- Le port 8443 ouvert de l'extérieur vers cette machine, **en TCP et en UDP**. L'UDP porte l'image ; sans lui, le relais passe en TCP (bon pour regarder, moins bon pour jouer).
+- Un port ouvert de l'extérieur vers cette machine, **en TCP et en UDP** : le 443 de préférence, sinon celui de votre choix. L'UDP porte l'image ; sans lui, le relais passe en TCP (bon pour regarder, moins bon pour jouer).
 
 ### 2. Le DNS
 
@@ -33,11 +33,25 @@ Deux enregistrements vers votre adresse IPv4 publique :
 | `relais.exemple.org` | A | votre adresse publique |
 | `*.relais.exemple.org` | A | la même adresse |
 
-N'ajoutez un AAAA que si la machine est vraiment joignable en IPv6 sur le port 8443. Le nom générique sert au navigateur : chaque ordinateur a sa propre adresse, `https://<identifiant>.relais.exemple.org:8443`.
+N'ajoutez un AAAA que si la machine est vraiment joignable en IPv6 sur le port public. Le nom générique sert au navigateur : chaque ordinateur a sa propre adresse, `https://<identifiant>.relais.exemple.org` (avec `:<port>` si le port public n'est pas le 443).
 
-### 3. La box
+### 3. Les ports et la box
 
-Redirigez le port 8443 en TCP **et** en UDP vers la machine du relais. Si les appareils de la maison n'arrivent pas au relais par son nom (la box ne fait pas le « retour » vers le réseau local), faites donner l'adresse locale de la machine pour `relais.exemple.org` et `*.relais.exemple.org` par votre DNS local (Pi-hole, la box).
+Trois ports se suivent, en TCP **et** en UDP :
+
+- **le port d'écoute** du relais sur la machine : `RELAY_LISTEN` dans `.env`, `0.0.0.0:8443` par défaut. L'image tourne sans root : il reste au-dessus de 1024 ;
+- **le port public**, celui que les appareils joignent depuis internet : `RELAY_PUBLIC_PORT`, le port d'écoute par défaut. Le relais l'écrit dans ses liens (`/j/<code>` renvoie vers `https://<identifiant>.<nom>[:port]/link/…`) ; au 443, les adresses n'ont pas de port ;
+- **la box** fait le lien entre les deux : elle renvoie le port public vers le port d'écoute de la machine.
+
+| Box | `.env` | Adresse donnée à Admin | Liens |
+|---|---|---|---|
+| 443 dehors → 8443 sur la machine (le relais public) | `RELAY_PUBLIC_PORT=443` | `relais.exemple.org` | `https://relais.exemple.org/j/123456` |
+| 9443 dehors → 9443 sur la machine | `RELAY_LISTEN=0.0.0.0:9443` | `relais.exemple.org:9443` | `https://relais.exemple.org:9443/j/123456` |
+| 8443 dehors → 8443 sur la machine | rien | `relais.exemple.org:8443` | `https://relais.exemple.org:8443/j/123456` |
+
+Le 443 est le plus simple pour ceux qui partagent : rien à retenir, et les réseaux qui ne laissent sortir que le web le laissent passer. Une adresse de relais sans port vaut 443, dans Admin comme dans les apps.
+
+Si les appareils de la maison n'arrivent pas au relais par son nom (la box ne fait pas le « retour » vers le réseau local), faites donner l'adresse locale de la machine pour `relais.exemple.org` et `*.relais.exemple.org` par votre DNS local (Pi-hole, la box) ; ils joignent alors le port d'écoute directement, qui doit donc être le même que le port public, ou la box doit faire elle-même la traduction pour eux.
 
 ### 4. Le jeton Gandi
 
@@ -56,7 +70,7 @@ Copiez dans `~/kybernow-relay` le contenu de ce dossier (ou clonez le dépôt et
 
 ```sh
 cp .env.example .env
-nano .env                   # RELAY_DOMAIN, LEGO_EMAIL
+nano .env                   # RELAY_DOMAIN, LEGO_EMAIL, et les ports (« Les ports et la box »)
 ```
 
 Le relais reçoit beaucoup de paquets UDP : donnez-lui de grands tampons (une fois, en root) :
@@ -64,7 +78,7 @@ Le relais reçoit beaucoup de paquets UDP : donnez-lui de grands tampons (une fo
 ```sh
 printf 'net.core.rmem_max=8388608\nnet.core.wmem_max=8388608\n' | sudo tee /etc/sysctl.d/90-kybernow-relay.conf
 sudo sysctl --system
-ss -ltnup | grep 8443       # rien ne doit déjà écouter sur 8443
+ss -ltnup | grep 8443       # rien ne doit déjà écouter sur le port d'écoute (8443 par défaut)
 ```
 
 ### 6. Le certificat, d'abord en test
@@ -88,9 +102,9 @@ Le relais relit le certificat de lui-même (toutes les 30 secondes, s'il a chang
 
 ### 7. Dans Admin
 
-Sur chaque Station : Admin › Appareils Link › « Hors de chez vous » › « Relais » = `relais.exemple.org:8443`. Le panneau du partage dit alors « Sur le même réseau ou ailleurs… », et les liens portent l'adresse de votre relais. Un code tapé dans une app passe par le relais public et par les relais des ordinateurs que l'app connaît déjà ; pour un invité qui ne connaît pas votre relais, donnez le lien ou le QR code.
+Sur chaque Station : Admin › Appareils Link › « Hors de chez vous » › « Relais » = l'adresse du relais avec son port public : `relais.exemple.org` pour le 443, `relais.exemple.org:9443` pour un autre. Le panneau du partage dit alors « Sur le même réseau ou ailleurs… », et les liens portent l'adresse de votre relais. Un code tapé dans une app passe par le relais public et par les relais des ordinateurs que l'app connaît déjà ; pour un invité qui ne connaît pas votre relais, donnez le lien ou le QR code.
 
-Sans vrai certificat (relais signé par lui-même), les apps marchent si l'adresse porte l'empreinte du certificat (`relais.exemple.org:8443#sha256:ab:cd:…`) ; le navigateur, lui, demande un vrai certificat.
+Sans vrai certificat (relais signé par lui-même), les apps marchent si l'adresse porte l'empreinte du certificat (`relais.exemple.org:9443#sha256:ab:cd:…`) ; le navigateur, lui, demande un vrai certificat.
 
 ### Mettre à jour
 
@@ -108,8 +122,8 @@ Les variables d'environnement (`docker-compose.yml`) passent avant `config/relay
 | Variable | Défaut | Rôle |
 |---|---|---|
 | `KN_RELAY_DOMAIN` | `share.kybernow.app` | Le nom du relais ; les Stations sont servies sous `<id>.<nom>` |
-| `KN_RELAY_LISTEN` | `0.0.0.0:8443` | Adresse d'écoute, TCP et UDP |
-| `KN_RELAY_PUBLIC_PORT` | le port d'écoute | Port écrit dans les liens, si la box en publie un autre |
+| `KN_RELAY_LISTEN` (`RELAY_LISTEN` dans `.env`) | `0.0.0.0:8443` | Adresse d'écoute, TCP et UDP |
+| `KN_RELAY_PUBLIC_PORT` (`RELAY_PUBLIC_PORT`) | le port d'écoute | Port public annoncé, quand la box le traduit : celui des liens `/j/<code>` et des adresses `https://<id>.<nom>`, sans port quand c'est 443 |
 | `KN_RELAY_CERT`, `KN_RELAY_KEY` | `/certs/certificates/<nom>.crt` et `.key` | Le certificat de lego |
 | `KN_RELAY_BANLIST` | aucune | Liste de bannissement, relue à chaud |
 | `KN_RELAY_METRICS` | `127.0.0.1:9464` | Métriques et `/healthz` (`off` pour couper ; le contrôle de santé de l'image en a besoin) |
@@ -125,7 +139,7 @@ Les limites (`[limits]` de `relay.toml`) suivent [docs/relais.md](../../docs/rel
 - **Métriques** (Prometheus, `http://127.0.0.1:9464/metrics`) : `relay_stations_connected{transport}`, `relay_clients_connected{kind}`, `relay_sessions_active`, `relay_bytes_total{leg,dir}`, `relay_datagrams_total{result}`, `relay_code_lookups_total{result}`, `relay_codes_active`, `relay_handshakes_total{alpn,result}`, `relay_rtt_seconds{peer}`, `relay_limit_hits_total{limit}`, `relay_tls_cert_expiry_seconds`, `relay_egress_mbps`. Une alerte sur `relay_tls_cert_expiry_seconds < 1209600` (14 jours) prévient d'un jeton Gandi expiré.
 - **Bannir** : une adresse ou un réseau par ligne dans `config/banlist.txt` (`203.0.113.0/24`, `#` pour un commentaire) ; pris dans les 30 secondes.
 - **Santé** : `docker compose ps` montre l'état du contrôle de santé (`kybernow-relay --healthcheck`).
-- **Pages** : `https://<nom>:8443/` (saisie du code), `/j/<code>`, `/privacy`, `/assets/…`, `/v1/health`.
+- **Pages** : `https://<nom>/` (saisie du code ; `https://<nom>:<port>/` hors du 443), `/j/<code>`, `/privacy`, `/assets/…`, `/v1/health`.
 
 ## La page d'accueil
 
@@ -134,7 +148,7 @@ Les limites (`[limits]` de `relay.toml`) suivent [docs/relais.md](../../docs/rel
 - **Langue** : français si le navigateur est en français, anglais sinon (`Accept-Language`) ; `?lang=en` ou `?lang=fr` force la langue (le lien « EN » ou « FR » des autres pages), sans cookie, et le formulaire le garde jusqu'à `/j`.
 - **Fichiers** : tout vient du relais, rien d'un tiers. `/assets/share.css` (jetons et mise en page, une seule feuille), `/assets/archivo.woff2`, `/assets/martian-mono.woff2`, `/assets/kybernow-share-dark.svg` et `/assets/kybernow-favicon.svg` sont embarqués dans le binaire (`include_bytes!`, environ 95 Ko de plus) ; les icônes sont écrites en ligne dans la page. Chaque adresse porte la version des fichiers (`?v=`, huit chiffres d'un SHA-256 de leur contenu) : la réponse se garde un an (`immutable`), et un fichier changé change d'adresse. Une adresse inconnue donne la page « introuvable ».
 - **Politique de contenu** : `default-src 'none'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`. Pas de script, pas de cookie, pas de mesure d'audience, aucune requête vers un autre site. Les pages restent en `noindex`.
-- **Ports** : la page ne cite jamais l'adresse du relais (chemins relatifs) ; elle est la même sur le 8443 et, quand la box renvoie le 443 vers le relais, sur `https://<nom>` sans port.
+- **Ports** : la page ne cite jamais l'adresse du relais (chemins relatifs) ; elle est la même sur le port d'écoute et sur le port public (`https://<nom>` sans port au 443).
 - **Refaire les fichiers** : `share.css` s'écrit à la main. Les autres viennent de la charte : le logo et le favicon par `node brand/v2/tools/generate.mjs`, et le reste (`kybernow.css`, polices réduites au latin, icônes de `site/assets/icons.svg`, licences) par `scripts/relay-assets.py`, qui demande `fonttools` et `brotli` (`python3 -m venv /tmp/fonts && /tmp/fonts/bin/pip install fonttools brotli`). L'image Docker ne voit que ce dossier : les copies sont dans le dépôt.
 
 ## Développement
