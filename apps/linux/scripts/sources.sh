@@ -20,6 +20,9 @@ if [ "$DEPS" = 1 ]; then
     cp "$HERE/scripts/build.sh" "$DEST/apps/linux/scripts/"
 else
     "${R[@]}" "$ROOT/apps/core" "$ROOT/apps/linux" "$DEST/apps/"
+    # Le cœur dépend du tunnel du relais (KyberNow Share), par chemin.
+    mkdir -p "$DEST/server/relay"
+    "${R[@]}" "$ROOT/server/relay/tunnel" "$DEST/server/relay/"
 fi
 mkdir -p "$DEST/apps/macos" "$DEST/apps/webos"
 "${R[@]}" "$ROOT/apps/macos/kyber-patches" "$DEST/apps/macos/"
