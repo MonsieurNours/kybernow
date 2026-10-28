@@ -63,6 +63,21 @@
     "quality_auto": "Auto",
     "quality_host": "Same as host",
     "image_lag": "Picture lightened to keep up.",
-    "image_limit": "The computer can't make another picture: you get {quality}."
+    "image_limit": "The computer can't make another picture: you get {quality}.",
+    "refused": "The host declined.",
+    "expired": "The host did not answer.",
+    "pending_full": "Too many requests are waiting for the host: try again in a moment."
+  },
+  "relay": {
+    "unreachable": "The relay is not answering.",
+    "offline": "The computer cannot be reached: it is off or asleep.",
+    "offline_named": "{name} cannot be reached: the computer is off or asleep.",
+    "refused": "the relay refuses the connection ({reason})",
+    "bad": "unreadable relay address ({reason})",
+    "path_direct": "Direct",
+    "path_relay": "Via the relay",
+    "path_relay_tcp": "Via the relay (TCP)",
+    "no_fingerprint": "through the relay, the computer's fingerprint is needed: pair this device on the computer's network",
+    "fingerprint_mismatch": "the computer's fingerprint given by the relay is not the one this device knows"
   }
 }

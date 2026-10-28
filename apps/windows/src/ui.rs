@@ -2507,6 +2507,7 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
         clipboard: s.clipboard,
         recovery: Default::default(),
         role: SessionRole::Host,
+        route: kybernow_core::session::Route::Direct,
     };
     let mouse = match s.mouse.as_str() {
         "jeu" => Some(true),

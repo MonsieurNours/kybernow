@@ -206,7 +206,7 @@ Ce qu'Admin fait en plus de ce qui précède, sans rien y changer (`server/admin
 
 ## Cœur et apps
 
-- `apps/core/src/relay.rs` (runtime tokio à lui, deux fils) : `Tunnel::open(RelayRoute {server, station, admin_fp})`, `admin_addr()`, `kyber_addr(port)`, `stats()` ; un tunnel par (relais, Station), fermé après 30 s sans usage ; `lookup(code)`.
+- `apps/core/src/relay.rs` (runtime tokio à lui, deux fils) : `relay::Tunnel::open(&RelayRoute {server, station, admin_fp})`, `admin_addr()`, `kyber_addr(port)`, `stats()` ; un tunnel par (relais, Station), fermé après 30 s sans usage ; `lookup(&relais, code)`, `presence`. Partage : `share::join_anywhere`, `share::join_link`, `share::wait`, `share::cancel` ([apps/core/README.md](../apps/core/README.md), section « Relais »).
 - `SessionParams::route` : `Route::Direct`, `Route::Relay(RelayRoute)`, `Route::Auto(Option<RelayRoute>)` ; `Console::with_relay(Option<RelayRoute>)`.
 - Indicateur : `Platform::on_route(&RouteInfo {transport: direct|relay|relay_tcp, relay, rtt_client, rtt_station})` ; puce « Par le relais », ligne « Chemin » des statistiques, `route` dans « Dernière session ».
 - `KYBERNOW_RELAY=force` (toujours par le relais, pour essayer à la maison) ou `off`.

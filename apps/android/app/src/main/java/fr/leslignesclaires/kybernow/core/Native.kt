@@ -21,6 +21,14 @@ object Native {
 
     // Admin (hors session). Appels bloquants : jamais sur le fil principal.
     @JvmStatic external fun consoleNew(host: String, port: Int, user: String, password: String, pinned: String?): Long
+    /** Comme [consoleNew], par le relais quand `routeJson` est donné (`{server, station, admin_fp}`) ; erreurs : 30, 31. */
+    @JvmStatic external fun consoleNewRelay(host: String, port: Int, user: String, password: String, pinned: String?, routeJson: String?): Long
+    // Le relais (docs/relais.md) : la route d'un ordinateur d'après son `info` et l'empreinte connue, la présence chez le relais,
+    // `KYBERNOW_RELAY` (0 normal, 1 toujours, 2 jamais), la ligne « Chemin » (0 Direct, 1 Par le relais, 2 Par le relais (TCP)).
+    @JvmStatic external fun relayRouteFromInfo(infoJson: String, adminFp: String): String?
+    @JvmStatic external fun relayPresence(relay: String, stationsJson: String): String
+    @JvmStatic external fun relayMode(): Int
+    @JvmStatic external fun relayPathLabel(transport: Int): String?
     @JvmStatic external fun consoleFree(handle: Long)
     @JvmStatic external fun consoleFingerprintSeen(handle: Long): String?
     @JvmStatic external fun consoleInfo(handle: Long): String?
@@ -49,6 +57,18 @@ object Native {
      * lu, sinon un format lu, dans une image à part) ; `value` : `{target, joined}`, `joined.image` : l'image reçue.
      */
     @JvmStatic external fun shareJoin(targetsJson: String, requestJson: String, capabilitiesJson: String?): String
+    /**
+     * « Rejoindre » sur le réseau et hors de chez soi (docs/relais.md) : `relays` `["share.kybernow.app:8443", …]` (vide : le
+     * relais par défaut) ; `value` : `{"joined": {target, joined}}` ou `{"pending": {route, guest, secret, expires}}` ;
+     * refus en plus : 24 refusé, 25 sans réponse de l'hôte, 26 trop de demandes en attente, 30 relais muet, 31 ordinateur absent.
+     */
+    @JvmStatic external fun shareJoinAnywhere(targetsJson: String, relaysJson: String, requestJson: String, capabilitiesJson: String?): String
+    /** Un lien de partage ([shareParseLink]) : le réseau d'abord, puis le relais (`relay`, `sid`) ; même `value`. */
+    @JvmStatic external fun shareJoinLink(linkJson: String, requestJson: String, capabilitiesJson: String?): String
+    /** L'hôte a-t-il répondu ? Tenu 25 s : `value` `{target, joined}` (accepté), code 27 (en attente : rappeler), ou un refus. */
+    @JvmStatic external fun shareWait(pendingJson: String, capabilitiesJson: String?): String
+    /** « Annuler » une demande en attente. */
+    @JvmStatic external fun shareCancel(pendingJson: String): Int
     /** L'invité repart avant d'ouvrir sa session ; `foundJson` : la `value` de [shareJoin]. */
     @JvmStatic external fun shareLeave(foundJson: String): Int
     /** `{host, port, fingerprint, code}`, ou `null` si ce n'est pas un lien de partage. */
@@ -223,4 +243,6 @@ interface SessionListener {
      * bref à montrer ou `null` (« Image allégée pour suivre. », « L'ordinateur ne peut pas faire une image de plus… »).
      */
     fun onShareImage(imageJson: String, previousJson: String?, notice: String?) {}
+    /** Par où passe la session (`transport` : `direct`, `relay`, `relay_tcp` ; `relay`, `rtt_client`, `rtt_station` en ms) : au début, puis quand il change. */
+    fun onRoute(json: String) {}
 }

@@ -125,6 +125,16 @@ impl Platform for AndroidPlatform {
         });
     }
 
+    /// Par où passe la session : `SessionListener.onRoute(json)` (`transport`
+    /// `direct`, `relay`, `relay_tcp`, `relay`, `rtt_client`, `rtt_station` en ms).
+    fn on_route(&self, route: &kybernow_core::relay::RouteInfo) {
+        let json = serde_json::to_string(route).unwrap_or_default();
+        self.0.listener.with(|env, obj| {
+            let s = env.new_string(&json)?;
+            env.call_method(obj, "onRoute", "(Ljava/lang/String;)V", &[JValue::Object(&s)]).map(|_| ())
+        });
+    }
+
     fn on_share_end(&self, end: &ShareEnd, text: &str) {
         self.0.listener.with(|env, obj| {
             let s = env.new_string(text)?;

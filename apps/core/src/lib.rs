@@ -17,6 +17,7 @@ pub mod journal;
 pub mod latency;
 pub mod media;
 pub mod profile;
+pub mod relay;
 pub mod screens;
 pub mod share;
 pub mod session;

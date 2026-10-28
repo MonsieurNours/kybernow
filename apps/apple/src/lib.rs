@@ -35,6 +35,7 @@ use kybernow_core::{Display, WindowHandle};
 
 pub mod audio;
 pub mod input;
+pub mod relay;
 pub mod share;
 
 // MARK: - Chaînes
@@ -177,11 +178,18 @@ pub unsafe extern "C" fn kn_console_fingerprint_seen(c: *const KnConsole) -> *mu
 pub const KN_OK: i32 = 0;
 pub const KN_ERROR: i32 = 1;
 pub const KN_CERTIFICATE_CHANGED: i32 = 3;
+/// Par le relais (docs/relais.md) : le relais ne répond pas, ou l'ordinateur
+/// n'y est pas (éteint, en veille) ; `error` porte le texte à montrer.
+pub const KN_RELAY_UNREACHABLE: i32 = 30;
+pub const KN_RELAY_STATION_OFFLINE: i32 = 31;
 
 fn failure(e: ConsoleError, error: *mut *mut c_char) -> i32 {
+    use kybernow_core::relay::RelayError;
     let code = match &e {
         ConsoleError::Http { status, .. } => -(*status as i32),
         ConsoleError::CertificateChanged { .. } => KN_CERTIFICATE_CHANGED,
+        ConsoleError::Relay(RelayError::StationOffline) => KN_RELAY_STATION_OFFLINE,
+        ConsoleError::Relay(_) => KN_RELAY_UNREACHABLE,
         _ => KN_ERROR,
     };
     give_to(error, e.to_string());
@@ -745,6 +753,12 @@ pub struct KnPlatform {
     /// plus : vous recevez {qualité}. »), nul sinon. La barre montre
     /// `kn_share_image_label`.
     pub on_share_image: Option<unsafe extern "C" fn(userdata: *mut c_void, image_json: *const c_char, previous_json: *const c_char, notice: *const c_char)>,
+    /// Par où passe la session (docs/relais.md), en JSON : `transport`
+    /// (`direct`, `relay`, `relay_tcp`), `relay`, `rtt_client`, `rtt_station`
+    /// (allers-retours en ms, nuls s'ils ne sont pas sus) ; au début, puis quand il change (toutes les 5 s au
+    /// plus). Puce « Par le relais », ligne « Chemin » (`kn_relay_path_label`),
+    /// `route` de la « Dernière session ».
+    pub on_route: Option<unsafe extern "C" fn(userdata: *mut c_void, route_json: *const c_char)>,
 }
 
 struct ApplePlatform {
@@ -808,6 +822,12 @@ impl Platform for ApplePlatform {
         let Some(f) = self.cb.on_share_end else { return };
         let c = CString::new(text.replace('\0', " ")).unwrap_or_default();
         unsafe { f(self.cb.userdata, end.code(), c.as_ptr()) };
+    }
+
+    fn on_route(&self, route: &kybernow_core::relay::RouteInfo) {
+        let Some(f) = self.cb.on_route else { return };
+        let c = CString::new(serde_json::to_string(route).unwrap_or_default()).unwrap_or_default();
+        unsafe { f(self.cb.userdata, c.as_ptr()) };
     }
 
     fn on_share_image(&self, image: &ShareImage, previous: Option<&ShareImage>, notice: Option<&str>) {
@@ -1035,7 +1055,11 @@ pub struct KnSession {
 /// `console_port` et `console_fingerprint` de la Station trouvée (`target`
 /// de kn_share_join) ; `user`, `password` et `mode` sont alors facultatifs.
 /// La plateforme reçoit `on_share_role` et `on_share_end` ; une session
-/// d'hôte reçoit `on_guests`.
+/// d'hôte reçoit `on_guests`. Par le relais (docs/relais.md) : `route`
+/// (`direct`, `relay` : toujours par le relais, `auto` : d'abord en direct,
+/// 1,5 s) et `relay` (`{server, station, admin_fp}`, `kn_relay_route_from_info`) ;
+/// absent : en direct, ou `auto` si `relay` est donné. Un invité venu par le
+/// relais y reste (la route voyage dans `joined`). La plateforme reçoit `on_route`.
 /// Nul si les paramètres sont illisibles (`error`). La session commence tout
 /// de suite ; `on_status` suit.
 #[unsafe(no_mangle)]
