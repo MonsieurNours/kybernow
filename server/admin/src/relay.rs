@@ -62,6 +62,9 @@ const FAILED_TRY_DELAY: Duration = Duration::from_millis(800);
 const FAILED_TRY_DELAY: Duration = Duration::ZERO;
 /// Réserver le code chez le relais a échoué : on réessaie après ce temps.
 const RESERVE_RETRY: Duration = Duration::from_secs(10);
+/// L'agent reste connecté ce temps après le dernier partage : le suivant a
+/// son lien hors de chez soi tout de suite.
+const LINGER: Duration = Duration::from_secs(5 * 60);
 /// Délai pour la négociation TLS d'une app, et pour les en-têtes HTTP.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 /// L'adresse donnée à une requête du relais dont l'adresse publique est
@@ -257,6 +260,8 @@ pub struct Relay {
     lockout: Mutex<Lockout>,
     session: Mutex<Option<RemoteSession>>,
     reserve_failed: Mutex<Option<Instant>>,
+    /// La dernière fois qu'un partage était ouvert (voir `LINGER`).
+    share_seen: Mutex<Option<Instant>>,
     wake: Notify,
 }
 
@@ -275,6 +280,7 @@ impl Relay {
             lockout: Mutex::new(Lockout::default()),
             session: Mutex::new(None),
             reserve_failed: Mutex::new(None),
+            share_seen: Mutex::new(None),
             wake: Notify::new(),
         }
     }
@@ -551,13 +557,23 @@ impl Relay {
     }
 
     /// Ce que la vue du partage dit du relais : `None` sans relais réglé ;
-    /// sinon le relais (son adresse, l'identifiant de la Station) et s'il
-    /// est joint avec ce code.
+    /// sinon le relais (son adresse, l'identifiant de la Station) et où en
+    /// est le code : tenu chez le relais, en chemin (connexion, réservation),
+    /// ou pas joignable (connexion ou réservation en échec).
     pub fn for_share(&self, s: &AppState, code: &str) -> Option<ShareRelay> {
         let addr = s.settings.lock().unwrap().relay.addr()?;
-        let joined = self.holds(code);
-        let id = if joined { self.id() } else { None };
-        Some(ShareRelay { addr, id, joined })
+        let state = if self.holds(code) {
+            ShareRelayState::Joined
+        } else {
+            let failed = self.reserve_failed.lock().unwrap().is_some_and(|t| t.elapsed() < RESERVE_RETRY);
+            match self.agent().map(|a| a.state()) {
+                Some(AgentState::Unreachable { .. } | AgentState::Stopped) => ShareRelayState::Unreachable,
+                Some(AgentState::Joined { .. }) if failed => ShareRelayState::Unreachable,
+                _ => ShareRelayState::Connecting,
+            }
+        };
+        let id = if state == ShareRelayState::Joined { self.id() } else { None };
+        Some(ShareRelay { addr, id, state })
     }
 }
 
@@ -565,13 +581,31 @@ impl Relay {
 pub struct ShareRelay {
     pub addr: RelayAddr,
     pub id: Option<String>,
-    pub joined: bool,
+    pub state: ShareRelayState,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShareRelayState {
+    Connecting,
+    Joined,
+    Unreachable,
+}
+
+impl ShareRelayState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ShareRelayState::Connecting => "connecting",
+            ShareRelayState::Joined => "joined",
+            ShareRelayState::Unreachable => "unreachable",
+        }
+    }
 }
 
 // --- Veille : l'agent démarre, s'arrête et tient les codes ---------------------------
 
 /// Toutes les secondes (ou tout de suite après `wake`) : l'agent tourne si un
-/// relais est réglé et qu'un partage est ouvert ou l'accès actif ; le code du
+/// relais est réglé et qu’un partage est ouvert (ou l’était il y a moins de
+/// `LINGER`) ou l’accès actif ; le code du
 /// partage est tenu chez le relais ; les autorisations échues tombent.
 pub fn supervise(s: AppState, router: Router) {
     tokio::spawn(async move {
@@ -587,7 +621,15 @@ pub fn supervise(s: AppState, router: Router) {
 
 async fn supervise_tick(s: &AppState, router: &Router) {
     let settings = s.settings.lock().unwrap().relay.clone();
-    let wanted = settings.addr().filter(|_| settings.remote_access || s.share.is_open());
+    let open = s.share.is_open();
+    let lingering = {
+        let mut seen = s.relay.share_seen.lock().unwrap();
+        if open {
+            *seen = Some(Instant::now());
+        }
+        seen.is_some_and(|t| t.elapsed() < LINGER)
+    };
+    let wanted = settings.addr().filter(|_| settings.remote_access || open || lingering);
     let current = s.relay.running.lock().unwrap().as_ref().map(|r| r.relay.clone());
     if wanted != current {
         let old = s.relay.running.lock().unwrap().take();
@@ -628,16 +670,21 @@ fn start(s: &AppState, router: &Router, relay: RelayAddr) {
     });
     let agent = Arc::new(agent);
     tracing::info!("relais : connexion à {relay} (Station {})", agent.id());
-    tokio::spawn(log_states(agent.subscribe(), relay.to_string()));
+    tokio::spawn(log_states(s.clone(), agent.subscribe(), relay.to_string()));
     let serve = tokio::spawn(serve_incoming(s.clone(), router.clone(), incoming, acceptor));
     *s.relay.running.lock().unwrap() = Some(Running { relay, agent, serve });
 }
 
 /// Les passages de l'agent d'un état à l'autre, dans le journal.
-async fn log_states(mut states: tokio::sync::watch::Receiver<AgentState>, relay: String) {
+/// Une fois joint, la veille repasse aussitôt pour réserver le code du partage.
+async fn log_states(s: AppState, mut states: tokio::sync::watch::Receiver<AgentState>, relay: String) {
     while states.changed().await.is_ok() {
-        match states.borrow().clone() {
-            AgentState::Joined { transport } => tracing::info!("relais : {relay} joint ({})", transport.as_str()),
+        let state = states.borrow().clone();
+        match state {
+            AgentState::Joined { transport } => {
+                tracing::info!("relais : {relay} joint ({})", transport.as_str());
+                s.relay.wake();
+            }
             AgentState::Unreachable { reason } => tracing::info!("relais : {relay} injoignable ({reason})"),
             AgentState::Stopped => tracing::info!("relais : agent arrêté"),
             AgentState::Connecting => {}

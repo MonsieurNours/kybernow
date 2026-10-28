@@ -346,7 +346,17 @@ impl ShareState {
     pub fn relay_joined(&self) -> bool {
         self.relay.is_some_and(|r| r.state == ShareRelayState::Joined)
     }
+
+    /// Le lien du relais se prépare : l'app attend (10 s au plus, depuis
+    /// qu'elle le voit) avant de copier le lien du réseau.
+    pub fn relay_connecting(&self) -> bool {
+        self.relay.is_some_and(|r| r.state == ShareRelayState::Connecting)
+    }
 }
+
+/// Combien de temps une app attend le lien du relais (`connecting`) avant de
+/// donner celui du réseau et de dire « Pas encore joignable hors de chez vous. ».
+pub const RELAY_LINK_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// Le relais du partage (`relay` de la vue du partage, docs/relais.md).
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -356,11 +366,14 @@ pub struct ShareRelay {
 }
 
 /// `joined` : le relais tient le code, le partage vaut hors de chez soi ;
+/// `connecting` : le lien du relais se prépare (« Préparation du lien hors de
+/// chez vous… », copie et QR code retenus 10 s au plus, docs/link-ui.md) ;
 /// `unreachable` : « Pas encore joignable hors de chez vous. »
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ShareRelayState {
     Joined,
+    Connecting,
     #[default]
     Unreachable,
 }
@@ -369,6 +382,7 @@ impl ShareRelayState {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Joined => "joined",
+            Self::Connecting => "connecting",
             Self::Unreachable => "unreachable",
         }
     }
@@ -378,7 +392,11 @@ impl ShareRelayState {
 impl<'de> Deserialize<'de> for ShareRelayState {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         let s = Option::<String>::deserialize(d)?;
-        Ok(if s.as_deref() == Some("joined") { Self::Joined } else { Self::Unreachable })
+        Ok(match s.as_deref() {
+            Some("joined") => Self::Joined,
+            Some("connecting") => Self::Connecting,
+            _ => Self::Unreachable,
+        })
     }
 }
 
@@ -2115,7 +2133,11 @@ mod tests {
         assert_eq!(ShareVia::Relay.as_str(), "relay");
         // Relais injoignable, ou sans relais, ou d'une Station antérieure (aucun de ces champs).
         let down: ShareState = serde_json::from_str(r#"{"open":true,"relay":{"state":"unreachable"}}"#).unwrap();
-        assert!(!down.relay_joined() && down.relay.is_some());
+        assert!(!down.relay_joined() && !down.relay_connecting() && down.relay.is_some());
+        // Lien du relais en préparation.
+        let soon: ShareState = serde_json::from_str(r#"{"open":true,"relay":{"state":"connecting"}}"#).unwrap();
+        assert!(soon.relay_connecting() && !soon.relay_joined());
+        assert_eq!(serde_json::to_value(soon.relay.unwrap()).unwrap()["state"], "connecting");
         let none: ShareState = serde_json::from_str(r#"{"open":true,"relay":null,"guests":[{"id":"g1","name":"Léa"}]}"#).unwrap();
         assert!(none.relay.is_none() && !none.relay_joined());
         let old: ShareState = serde_json::from_str(r#"{"open":true,"guests":[{"id":"g1","name":"Léa","app":"ios"}]}"#).unwrap();

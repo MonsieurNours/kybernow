@@ -58,8 +58,29 @@
   /** Les invités entrés, et les demandes venues par le relais (au-dessus, elles ne comptent pas dans les invités). */
   const guests = $derived(joinedGuests(share))
   const requests = $derived(shareRequests(share))
-  /** Le relais du partage : joint (le lien et le code valent ailleurs), injoignable, ou pas de relais. */
-  const relay = $derived(share.relay?.state ?? null)
+  /**
+   * Le relais du partage : joint (le lien et le code valent ailleurs), injoignable, pas de relais, ou
+   * `waiting` : lien du relais en préparation depuis moins de 10 s (copie et QR code retenus) ; au-delà,
+   * il vaut `unreachable` et « Copier le lien » donne le lien du réseau (docs/link-ui.md).
+   */
+  const RELAY_WAIT_MS = 10000
+  let waitFor: { code: string; since: number } | null = null
+  let clock = $state(Date.now())
+  const relay = $derived.by(() => {
+    const st = share.relay?.state ?? null
+    if (st !== 'connecting') {
+      waitFor = null
+      return st
+    }
+    if (waitFor?.code !== share.code) waitFor = { code: share.code, since: Date.now() }
+    return clock - waitFor.since < RELAY_WAIT_MS ? 'waiting' : 'unreachable'
+  })
+
+  $effect(() => {
+    if (relay !== 'waiting') return
+    const timer = setInterval(() => (clock = Date.now()), 500)
+    return () => clearInterval(timer)
+  })
 
   /** Icône de l'app d'un invité (mêmes dessins que les appareils). */
   function appIcon(app: string): string {
@@ -125,7 +146,11 @@
 
 <div class="share">
   <div class="top">
-    <Qr text={share.link} size={152} label={t('share.qrLabel')} />
+    {#if relay === 'waiting'}
+      <div class="qr-wait" style="width: 152px; height: 152px" role="img" aria-label={t('share.relayPreparing')}><span class="spin big"></span></div>
+    {:else}
+      <Qr text={share.link} size={152} label={t('share.qrLabel')} />
+    {/if}
     <div class="intro">
       <div class="heading">
         <h2 class="disp">{title}</h2>
@@ -136,11 +161,13 @@
         <strong class="mono" aria-label={t('share.codeAria', { digits: share.code.split('').join(' ') })}>{code}</strong>
       </div>
       <div class="link-row">
-        <button type="button" class="ghost small" onclick={copy}><Icon name="copy" size={15} stroke={2} />{t('share.copy')}</button>
-        <span class="mono link">{share.web}</span>
+        <button type="button" class="ghost small" onclick={copy} disabled={relay === 'waiting'}><Icon name="copy" size={15} stroke={2} />{t('share.copy')}</button>
+        {#if relay !== 'waiting'}<span class="mono link">{share.web}</span>{/if}
       </div>
       <p class="help">{relay === 'joined' ? t('share.helpRelay') : t('share.help')}</p>
-      {#if relay === 'unreachable'}<p class="help">{t('share.relayUnreachable')}</p>{/if}
+      {#if relay === 'waiting'}
+        <p class="help" role="status"><span class="spin" aria-hidden="true"></span>{t('share.relayPreparing')}</p>
+      {:else if relay === 'unreachable'}<p class="help">{t('share.relayUnreachable')}</p>{/if}
     </div>
   </div>
 
@@ -278,6 +305,44 @@
     color: var(--faint);
     overflow-wrap: anywhere;
     user-select: all;
+  }
+
+  /* Lien du relais en préparation : un indicateur d'attente, à la place du QR code et devant le message. */
+  .qr-wait {
+    display: grid;
+    place-items: center;
+    flex: none;
+  }
+
+  .spin {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    margin-right: 8px;
+    vertical-align: -2px;
+    border-radius: 50%;
+    border: 2px solid color-mix(in srgb, currentColor 20%, transparent);
+    border-top-color: var(--signal, currentColor);
+    animation: spin 0.8s linear infinite;
+  }
+
+  .spin.big {
+    width: 32px;
+    height: 32px;
+    margin: 0;
+    border-width: 3px;
+  }
+
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .spin {
+      animation-duration: 2.4s;
+    }
   }
 
   .help {

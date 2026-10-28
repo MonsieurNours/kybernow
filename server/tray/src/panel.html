@@ -78,6 +78,12 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: -2px; }
 .share-code strong { font-family: 'Martian Mono', Consolas, monospace; font-size: 24px; font-weight: 500; letter-spacing: .08em; white-space: nowrap; color: #F4F1FF; text-shadow: 0 0 1px #F4F1FF, 0 0 8px #9A8CFF, 0 0 18px #6D5BFF; user-select: text; }
 .share-code button, .moves button, .share-foot button { height: 28px; padding: 0 10px; border: 0; border-radius: 7px; background: none; box-shadow: inset 0 0 0 1px rgba(255,255,255,.16); font-size: 12px; display: inline-flex; align-items: center; gap: 6px; }
 .share-code button { align-self: flex-start; margin-top: 6px; }
+.share-code button:disabled { opacity: .45; cursor: default; }
+/* Lien du relais en préparation : un indicateur d'attente, à la place du QR code et devant le message. */
+.spin { display: inline-block; width: 12px; height: 12px; border-radius: 50%; border: 2px solid rgba(255,255,255,.18); border-top-color: var(--signal-light); animation: spin .8s linear infinite; vertical-align: -2px; margin-right: 6px; }
+.qr .spin { width: 28px; height: 28px; margin: 42px; border-width: 3px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spin { animation-duration: 2.4s; } }
 .share-code button:hover, .moves button:hover:not(:disabled), .share-foot button:hover:not(:disabled) { background: rgba(255,255,255,.06); }
 .moves button:disabled, .share-foot button:disabled { opacity: .45; cursor: default; }
 /* Une demande venue par le relais : « Accepter » ressort, sans être un bouton principal (comme dans Admin). */
@@ -236,14 +242,18 @@ function sharePage(s, share) {
       <div class="moves"><button class="accept" data-cmd="shareAnswer" data-id="${esc(g.id)}" data-accept="1" ${busy}>${esc(t('share.accept'))}</button><button data-cmd="shareAnswer" data-id="${esc(g.id)}" ${busy}>${esc(t('share.refuse'))}</button></div>
     </div>`).join('')
   const requests = asks ? `<div class="people requests"><div class="people-head"><span class="lbl">${esc(t('share.requestsTitle'))}</span></div>${asks}</div>` : ''
-  // Relais joint : le lien du relais (`web`) et l'aide d'ailleurs ; injoignable : l'aide du réseau, et pourquoi pas plus loin.
-  const relay = share.relay && share.relay.state
+  // Relais joint : le lien du relais (`web`) et l'aide d'ailleurs ; en préparation (10 s au plus) : on attend,
+  // copie et QR code retenus ; injoignable (ou trop long) : l'aide du réseau, et pourquoi pas plus loin.
+  const relay = relayPhase(share)
+  const waiting = relay === 'waiting'
   const help = relay === 'joined' ? t('share.helpRelay') : t('share.help')
-  const away = relay === 'unreachable' ? `<p class="page-hint away">${esc(t('share.relayUnreachable'))}</p>` : ''
+  const away = waiting
+    ? `<p class="page-hint away" role="status"><span class="spin" aria-hidden="true"></span>${esc(t('share.relayPreparing'))}</p>`
+    : relay === 'unreachable' ? `<p class="page-hint away">${esc(t('share.relayUnreachable'))}</p>` : ''
   return `${pageHead(shareTitle(s, share), sub)}
     <div class="share-top">
-      <div class="qr" role="img" aria-label="${esc(t('share.qrLabel'))}">${share.qr || ''}</div>
-      <div class="share-code"><span class="lbl">${esc(t('share.codeLabel'))}</span><strong>${esc(`${share.code.slice(0, 3)} ${share.code.slice(3)}`)}</strong><button data-cmd="copyLink">${icon('copy')}${esc(t('share.copy'))}</button></div>
+      <div class="qr" role="img" aria-label="${esc(t('share.qrLabel'))}">${waiting ? '<span class="spin" aria-hidden="true"></span>' : share.qr || ''}</div>
+      <div class="share-code"><span class="lbl">${esc(t('share.codeLabel'))}</span><strong>${esc(`${share.code.slice(0, 3)} ${share.code.slice(3)}`)}</strong><button data-cmd="copyLink" ${waiting ? 'disabled' : ''}>${icon('copy')}${esc(t('share.copy'))}</button></div>
     </div>
     <p class="page-hint">${esc(help)}</p>${away}
     ${shareError(ui)}
@@ -252,6 +262,24 @@ function sharePage(s, share) {
       ${host}${guests || `<p class="nobody">${esc(t('share.nobody'))}</p>`}
     </div>
     <div class="share-foot"><button data-cmd="shareCode" ${busy}>${esc(t('share.newCode'))}</button><button class="stop" data-cmd="shareStop" ${busy}>${esc(t('share.stop'))}</button></div>`
+}
+
+// Où en est le lien du relais pour ce partage : `joined`, `unreachable`, `null` (pas de relais) ou
+// `waiting` (`connecting` depuis moins de 10 s ; au-delà, on le traite comme `unreachable`).
+const RELAY_WAIT_MS = 10000
+let relayWait = { code: null, since: 0, timer: null }
+function relayPhase(share) {
+  const st = share.relay && share.relay.state
+  if (st !== 'connecting') {
+    relayWait.code = null
+    return st || null
+  }
+  if (relayWait.code !== share.code) relayWait = { code: share.code, since: Date.now(), timer: relayWait.timer }
+  const left = RELAY_WAIT_MS - (Date.now() - relayWait.since)
+  if (left <= 0) return 'unreachable'
+  clearTimeout(relayWait.timer)
+  relayWait.timer = setTimeout(render, left + 50)
+  return 'waiting'
 }
 
 // L'entrée du partage sur l'accueil du panneau : « Partager un écran… », ou le partage ouvert.

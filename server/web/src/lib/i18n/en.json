@@ -939,6 +939,7 @@
     "qrLabel": "QR code for the share",
     "help": "On the same network: “Join with a code” in KyberNow Link, or this link in a browser.",
     "helpRelay": "On the same network or elsewhere: “Join with a code” in KyberNow Link, or this link in a browser. Away from home, you accept each guest.",
+    "relayPreparing": "Getting the away-from-home link ready…",
     "relayUnreachable": "Not reachable away from home yet.",
     "people": "Guests",
     "participants": "Participants",

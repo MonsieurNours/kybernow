@@ -129,12 +129,12 @@ fn links(s: &AppState, code: &str) -> Links {
     let relay = match s.relay.for_share(s, code) {
         None => Value::Null,
         Some(r) => {
-            if let (true, Some(id)) = (r.joined, r.id.as_deref()) {
+            if let (crate::relay::ShareRelayState::Joined, Some(id)) = (r.state, r.id.as_deref()) {
                 let (param, relay_web) = relay_links(&r.addr, id, code);
                 link.push_str(&param);
                 web = relay_web;
             }
-            json!({ "state": if r.joined { "joined" } else { "unreachable" } })
+            json!({ "state": r.state.as_str() })
         }
     };
     Links { link, web, web_local, relay }
@@ -1837,9 +1837,9 @@ mod tests {
         let st = station();
         let s = &st.s;
         let code = open_for_mac(s).await;
-        // Relais réglé (le public, par défaut) mais pas joint : `unreachable`, liens du réseau.
+        // Relais réglé (le public, par défaut), agent pas encore lancé : `connecting`, liens du réseau.
         let view = current_view(s);
-        assert_eq!(view["relay"]["state"], "unreachable");
+        assert_eq!(view["relay"]["state"], "connecting");
         assert_eq!(view["web"], view["web_local"]);
         assert!(view["web_local"].as_str().unwrap().ends_with(&format!("/link/?join={code}")));
         assert!(!view["link"].as_str().unwrap().contains("&relay="));

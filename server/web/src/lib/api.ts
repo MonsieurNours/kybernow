@@ -290,7 +290,7 @@ export interface ShareView {
   /** Adresse du client web sur le réseau, même quand `web` est le lien du relais. */
   web_local?: string
   /** Le relais du partage : `null` (pas de relais réglé), joint ou injoignable (absent avant le relais). */
-  relay?: { state: 'joined' | 'unreachable' } | null
+  relay?: { state: 'connecting' | 'joined' | 'unreachable' } | null
   display: { id: number; index: number; label: string; width: number; height: number; refresh: number }
   guests: ShareGuest[]
   max_guests: number
