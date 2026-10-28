@@ -18,11 +18,17 @@ server="${LEGO_SERVER:-https://acme-staging-v02.api.letsencrypt.org/directory}"
 set -- --accept-tos --email "$LEGO_EMAIL" --server "$server" --dns gandiv5 \
   --domains "$RELAY_DOMAIN" --domains "*.$RELAY_DOMAIN" --path /certs
 
+# Le serveur qui a donné le certificat en place : passer du serveur de test à
+# celui de production refait un certificat (un renouvellement garderait celui de
+# test, encore valable).
+marker=/certs/.lego-server
 while true; do
-  if [ -f "/certs/certificates/$RELAY_DOMAIN.crt" ]; then
+  if [ -f "/certs/certificates/$RELAY_DOMAIN.crt" ] && [ "$(cat "$marker" 2>/dev/null)" = "$server" ]; then
     /lego "$@" renew --days 30 || echo "lego : renouvellement manqué, nouvel essai dans 12 heures" >&2
+  elif /lego "$@" run; then
+    echo "$server" > "$marker"
   else
-    /lego "$@" run || echo "lego : certificat pas obtenu, nouvel essai dans 12 heures" >&2
+    echo "lego : certificat pas obtenu, nouvel essai dans 12 heures" >&2
   fi
   # Le relais tourne sans root (utilisateur 65532 de l'image distroless) :
   # il doit pouvoir lire la clé, personne d'autre.
