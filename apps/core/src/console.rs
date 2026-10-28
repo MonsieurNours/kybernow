@@ -875,23 +875,6 @@ impl Console {
         self.read_unit(r)
     }
 
-    /// « Accepter » la demande d'un invité venu par le relais (docs/relais.md) :
-    /// il entre dans le partage. Rend la vue du partage ; 409 `full` si les
-    /// quatre places sont prises.
-    pub fn share_accept(&self, guest: &str) -> Result<ShareState> {
-        let path = format!("api/share/guest/{}/accept", path_segment(guest));
-        let r = self.request("POST", &path, Duration::from_secs(6)).send_json(serde_json::json!({}));
-        self.read(r)
-    }
-
-    /// « Refuser » la demande d'un invité venu par le relais : il est refusé,
-    /// et son appareil l'est dix minutes. Rend la vue du partage.
-    pub fn share_refuse(&self, guest: &str) -> Result<ShareState> {
-        let path = format!("api/share/guest/{}/refuse", path_segment(guest));
-        let r = self.request("POST", &path, Duration::from_secs(6)).send_json(serde_json::json!({}));
-        self.read(r)
-    }
-
     /// « Retirer » un invité du partage.
     pub fn share_kick(&self, guest: &str) -> Result<()> {
         let path = format!("api/share/guest/{}", path_segment(guest));
