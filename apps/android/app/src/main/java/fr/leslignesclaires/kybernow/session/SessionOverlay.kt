@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
@@ -376,8 +377,10 @@ private fun Capsules(ui: SessionUi, modifier: Modifier) {
     val restore by ui.state.restoreOffer.collectAsState()
     Column(modifier.padding(top = s.dp(if (ui.barOpen && ui.padBar) 116f else if (ui.barOpen) 84f else 14f)), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(s.dp(8f))) {
         c?.let { capsule ->
+            // La demande d'un invité se choisit : elle ouvre le panneau du partage (docs/link-ui.md, « Partage »).
+            val open = if (capsule is Capsule.ShareRequest) Modifier.clip(RoundedCornerShape(999.dp)).clickable { ui.actions.share() } else Modifier
             Row(
-                Modifier.panel(999.dp).padding(horizontal = s.dp(16f), vertical = s.dp(9f)),
+                Modifier.panel(999.dp).then(open).padding(horizontal = s.dp(16f), vertical = s.dp(9f)),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (capsule is Capsule.Reconnecting) {
@@ -409,8 +412,8 @@ private fun capsuleText(c: Capsule): String = when (c) {
     is Capsule.ShareRights -> stringResource(c.text)
     // L'avis de la Station sur l'image de l'invité (« Image allégée pour suivre. ») : le texte du cœur, tel quel.
     is Capsule.ShareNotice -> c.text
-    // Hôte : une demande venue par le relais (le texte de la ligne du panneau).
-    is Capsule.ShareRequest -> stringResource(R.string.share_request_wants, c.name)
+    // Hôte : une demande venue par le relais, avis bref « {prénom} demande à rejoindre. » (le choisir ouvre le panneau).
+    is Capsule.ShareRequest -> stringResource(R.string.share_request_notice, c.name)
 }
 
 // MARK: - Téléphone et tablette
@@ -800,15 +803,17 @@ private fun TvTiles(ui: SessionUi, first: FocusRequester, audio: Pair<Int, Doubl
         screenChoice(ui)?.let { c -> Tile(KnIcons.screen, stringResource(R.string.session_computer_screen), "${c.index + 1} / ${c.count} · ${c.width} × ${c.height}") { ui.actions.pickDisplay(c.next) } }
         Tile(KnIcons.keyboard, stringResource(R.string.session_type_text), null) { ui.typing = true }
         Tile(KnIcons.keys, stringResource(R.string.session_keys), stringResource(R.string.keys_ctrl_alt_del_short)) { ui.keysOpen = true }
-        // Sous-titre de la tuile (link-ui) : « 2 invités » dès qu'il y en a un, sinon le code
-        // du partage ouvert, sinon « Code et QR code ». Impossible : estompée, mais sélectionnable
-        // (OK ouvre le panneau réduit à la raison). Une demande venue par le relais passe avant (« 1 demande ») :
-        // sans pastille dans un menu à tuiles, c'est ce qui la montre à l'hôte.
+        // Sous-titre de la tuile (link-ui) : les demandes d'abord, puis les invités (« 1 demande · 2 invités » ; sans
+        // pastille dans un menu à tuiles, c'est ce qui les montre à l'hôte) ; ni l'un ni l'autre : le code du partage
+        // ouvert, sinon « Code et QR code ». Impossible : estompée, mais sélectionnable (OK ouvre le panneau réduit à la raison).
         val open = share
         val shareDetail = when {
             open == null -> stringResource(R.string.share_tile_detail)
-            open.requests.isNotEmpty() -> requestsLabel(open.requests.size)
-            open.guests.isNotEmpty() -> guestsLabel(open.guests.size)
+            open.requests.isNotEmpty() || open.guests.isNotEmpty() ->
+                listOfNotNull(
+                    open.requests.takeIf { it.isNotEmpty() }?.let { requestsLabel(it.size) },
+                    open.guests.takeIf { it.isNotEmpty() }?.let { guestsLabel(it.size) },
+                ).joinToString(" · ")
             else -> open.codeText
         }
         Tile(KnIcons.share, stringResource(R.string.share_button), shareDetail, selected = share != null, dimmed = !ui.shareUsable) { ui.actions.share() }

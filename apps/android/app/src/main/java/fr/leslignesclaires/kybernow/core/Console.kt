@@ -44,7 +44,8 @@ data class HostInfo(
 }
 
 /**
- * Le relais d'un ordinateur (`relay` de `GET /api/stream/info`, docs/relais.md) : [server] (`share.kybernow.app:8443`),
+ * Le relais d'un ordinateur (`relay` de `GET /api/stream/info`, docs/relais.md) : [server] (`share.kybernow.app` ; sans
+ * port, c'est le 443),
  * [station] (son identifiant chez le relais) et [remoteAccess] (« Accès hors de chez vous » actif dans Admin).
  * L'app le garde avec l'ordinateur ; la route par le relais s'en tire avec l'empreinte d'Admin épinglée ([route]),
  * jamais sans elle : par le relais, pas de premier contact.
@@ -172,8 +173,9 @@ data class StationUpdate(
 
 /**
  * Réponse d'Admin : valeur, ou code d'erreur (1 injoignable, 3 certificat changé, −401 compte refusé,
- * −404 appel inconnu ; refus de la Station : 10 à 15, avec [Failed.device] et [Failed.seconds] ; par le relais :
- * 30 le relais ne répond pas, 31 l'ordinateur n'est pas au relais, −403 l'accès hors de chez soi est coupé dans Admin).
+ * −404 appel inconnu ; refus de la Station : 10 à 15, avec [Failed.device] et [Failed.seconds] ; par le relais
+ * ([RelayFailure]) : 30 le relais ne répond pas, 31 l'ordinateur n'est pas au relais, 32 l'accès hors de chez soi est
+ * coupé dans Admin).
  */
 sealed class Reply<out T> {
     data class Ok<T>(val value: T) : Reply<T>()
@@ -195,12 +197,14 @@ sealed class Reply<out T> {
         /** Station 0.4.9 ou plus ancienne : elle ne connaît pas l'appel. */
         val stationTooOld get() = code == 15
 
+        /** Par le relais : pourquoi il n'a pas mené à l'ordinateur ; nul pour toute autre réponse. */
+        val relayFailure get() = RelayFailure.of(code)
         /** Par le relais : « Le relais ne répond pas. » ([message], le texte du cœur). */
-        val relayUnreachable get() = code == 30
+        val relayUnreachable get() = relayFailure == RelayFailure.UNREACHABLE
         /** Par le relais : l'ordinateur n'est pas connecté au relais (éteint, en veille). */
-        val stationOffline get() = code == 31
-        /** Par le relais : « Accès hors de chez vous » est coupé dans Admin (403 ; hors du relais, Admin ne refuse pas ainsi un `info`). */
-        val remoteAccessOff get() = code == -403
+        val stationOffline get() = relayFailure == RelayFailure.STATION_OFFLINE
+        /** Par le relais : « Accès hors de chez vous » est coupé dans Admin (le cœur a lu le 403 `remote_access_off`). */
+        val remoteAccessOff get() = relayFailure == RelayFailure.ACCESS_OFF
     }
 
     fun valueOrNull(): T? = (this as? Ok<T>)?.value
@@ -216,7 +220,7 @@ data class PairStatus(val state: PairState, val username: String? = null, val pa
  * [fingerprintSeen] (premier contact par adresse). Appels sur `Dispatchers.IO`.
  *
  * [route] (`{server, station, admin_fp}`, [HostRelay.route]) : tous les appels passent alors par le relais, hors de
- * chez soi, Admin épinglé sur `admin_fp` (docs/relais.md) ; un tunnel qui ne s'ouvre pas rend les erreurs 30 et 31.
+ * chez soi, Admin épinglé sur `admin_fp` (docs/relais.md) ; un tunnel qui ne s'ouvre pas rend les erreurs 30 et 31, un accès coupé dans Admin la 32.
  */
 class ConsoleClient(host: String, port: Int, user: String = "", password: String = "", pinned: String? = null, route: String? = null) : AutoCloseable {
     private var handle = if (route == null) Native.consoleNew(host, port, user, password, pinned) else Native.consoleNewRelay(host, port, user, password, pinned, route)

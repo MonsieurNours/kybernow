@@ -56,6 +56,7 @@ import fr.leslignesclaires.kybernow.KyberNowApp
 import fr.leslignesclaires.kybernow.R
 import fr.leslignesclaires.kybernow.core.JoinReply
 import fr.leslignesclaires.kybernow.core.PendingJoin
+import fr.leslignesclaires.kybernow.core.Relays
 import fr.leslignesclaires.kybernow.core.Share
 import fr.leslignesclaires.kybernow.core.ShareFound
 import fr.leslignesclaires.kybernow.core.ShareLink
@@ -162,10 +163,10 @@ fun JoinScreen(link: ShareLink?, onBack: () -> Unit, onJoined: (ShareFound) -> U
 }
 
 /**
- * Les relais des ordinateurs de l'appareil (`info.relay.server`, gardés avec eux) : le code leur est demandé aussi, en plus
- * du relais de KyberNow ; sans aucun, le cœur prend le relais par défaut.
+ * Les relais des ordinateurs de l'appareil (`info.relay.server`, gardés avec eux, sous leur forme normale, sans doublon) :
+ * le code leur est demandé aussi. Le relais public (`share.kybernow.app`) n'y est pas : le cœur l'interroge toujours.
  */
-private fun relays(): List<String> = KyberNowApp.instance.hosts.hosts.value.mapNotNull { it.relay?.server }.distinct()
+private fun relays(): List<String> = KyberNowApp.instance.hosts.hosts.value.mapNotNull { it.relay?.server }.map(Relays::normalize).distinct()
 
 /**
  * L'écran sans l'app (les captures le rendent tel quel) : [name] est « Votre prénom » au départ, [quality] la

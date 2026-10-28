@@ -13,6 +13,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
 import fr.leslignesclaires.kybernow.core.FormFactor
+import fr.leslignesclaires.kybernow.core.HostInfo
 import fr.leslignesclaires.kybernow.core.RouteInfo
 import fr.leslignesclaires.kybernow.core.RouteTransport
 import fr.leslignesclaires.kybernow.core.ShareGuest
@@ -21,9 +22,16 @@ import fr.leslignesclaires.kybernow.core.ShareRelay
 import fr.leslignesclaires.kybernow.core.ShareRole
 import fr.leslignesclaires.kybernow.core.ShareState
 import fr.leslignesclaires.kybernow.core.ShareVia
+import fr.leslignesclaires.kybernow.core.StationInfo
+import fr.leslignesclaires.kybernow.core.StationUpdate
+import fr.leslignesclaires.kybernow.model.DecoderInfo
+import fr.leslignesclaires.kybernow.model.Decoders
 import fr.leslignesclaires.kybernow.model.Gamepads
+import fr.leslignesclaires.kybernow.model.Host
 import fr.leslignesclaires.kybernow.model.LastSession
 import fr.leslignesclaires.kybernow.model.Profile
+import fr.leslignesclaires.kybernow.model.Screen
+import fr.leslignesclaires.kybernow.model.ScreenMode
 import fr.leslignesclaires.kybernow.session.Phase
 import fr.leslignesclaires.kybernow.session.SessionActions
 import fr.leslignesclaires.kybernow.session.SessionOverlay
@@ -36,7 +44,11 @@ import fr.leslignesclaires.kybernow.ui.KnTheme
 import fr.leslignesclaires.kybernow.ui.RelayRefusal
 import fr.leslignesclaires.kybernow.ui.home.relayRefusalText
 import fr.leslignesclaires.kybernow.ui.home.statusLabel
+import fr.leslignesclaires.kybernow.ui.settings.HostSettingsActions
+import fr.leslignesclaires.kybernow.ui.settings.HostSettingsContent
+import fr.leslignesclaires.kybernow.ui.settings.HostSettingsState
 import fr.leslignesclaires.kybernow.ui.settings.LastSessionCard
+import fr.leslignesclaires.kybernow.ui.settings.Rubric
 import fr.leslignesclaires.kybernow.ui.share.JoinContent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -106,12 +118,12 @@ class RelayUiTest {
     private fun show(form: FormFactor, content: @Composable () -> Unit) = rule.setContent { KnTheme(form, motion = false) { content() } }
 
     private fun share(
-        guests: List<ShareGuest> = emptyList(), requests: List<ShareGuest> = emptyList(), relay: ShareRelay? = ShareRelay.JOINED, web: String = "https://share.kybernow.app:8443/j/428913",
-    ) = ShareState("428913", "428 913", "kybernow://join?host=192.168.1.20&port=41234&fp=sha256:ab&code=428913&relay=share.kybernow.app%3A8443&sid=abc", web, guests, relay, requests)
+        guests: List<ShareGuest> = emptyList(), requests: List<ShareGuest> = emptyList(), relay: ShareRelay? = ShareRelay.JOINED, web: String = "https://share.kybernow.app/j/428913",
+    ) = ShareState("428913", "428 913", "kybernow://join?host=192.168.1.20&port=41234&fp=sha256:ab&code=428913&relay=share.kybernow.app&sid=abc", web, guests, relay, requests)
 
     private fun request(id: String, name: String, app: String = "ios") = ShareGuest(id, name, app, ShareRole.SPECTATOR, since = 100, pending = true, via = ShareVia.RELAY)
 
-    private val relayRoute = RouteInfo(RouteTransport.RELAY, "share.kybernow.app:8443", 12.0, 3.5)
+    private val relayRoute = RouteInfo(RouteTransport.RELAY, "share.kybernow.app", 12.0, 3.5)
 
     // MARK: - Le panneau de l'hôte
 
@@ -236,21 +248,40 @@ class RelayUiTest {
     }
 
     @Test
-    fun theTelevisionTile_showsTheRequestsFirst() {
+    fun theTelevisionTile_showsTheRequestsFirst_thenTheGuests() {
         val ui = ui(tv = true) { menuOpen = true }
-        ui.state.share.value = share(guests = listOf(ShareGuest("g2", "Tom", "mac", ShareRole.SPECTATOR)), requests = listOf(request("p1", "Léa")))
+        ui.state.share.value = share(guests = listOf(ShareGuest("g2", "Tom", "mac", ShareRole.SPECTATOR), ShareGuest("g3", "Eva", "ios", ShareRole.SPECTATOR)), requests = listOf(request("p1", "Léa")))
         show(FormFactor.TV) { SessionOverlay(ui) }
-        // Sans pastille dans un menu à tuiles, la demande se lit sur la tuile « Partager ».
-        rule.onNodeWithText("1 demande").assertExists()
-        rule.onNodeWithText("1 invité").assertDoesNotExist()
+        // Sans pastille dans un menu à tuiles, les demandes se lisent sur la tuile « Partager », avant les invités.
+        rule.onNodeWithText("1 demande · 2 invités").assertExists()
     }
 
     @Test
-    fun aRequest_isAnnouncedInACapsule() {
+    fun theTelevisionTile_saysOnlyWhatThereIs() {
+        val onlyRequests = ui(tv = true) { menuOpen = true }
+        onlyRequests.state.share.value = share(requests = listOf(request("p1", "Léa"), request("p2", "Max")))
+        show(FormFactor.TV) { SessionOverlay(onlyRequests) }
+        rule.onNodeWithText("2 demandes").assertExists()
+        rule.onNodeWithText("invité", substring = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun theTelevisionTile_withoutRequests_isTheGuestsThenTheCode() {
+        val guests = ui(tv = true) { menuOpen = true }
+        guests.state.share.value = share(guests = listOf(ShareGuest("g2", "Tom", "mac", ShareRole.SPECTATOR)))
+        show(FormFactor.TV) { SessionOverlay(guests) }
+        rule.onNodeWithText("1 invité").assertExists()
+        rule.onNodeWithText("demande", substring = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun aRequest_isAnnouncedInACapsule_andChoosingItOpensThePanel() {
         val ui = ui()
         show(FormFactor.PHONE) { SessionOverlay(ui) }
         ui.state.capsule.value = fr.leslignesclaires.kybernow.session.Capsule.ShareRequest("Léa")
-        rule.onNodeWithText("Léa demande à rejoindre").assertExists()
+        // L'avis bref de link-ui : « {prénom} demande à rejoindre. » (avec son point, à la différence de la ligne du panneau).
+        rule.onNodeWithText("Léa demande à rejoindre.").assertHasClickAction().performClick()
+        assertEquals(1, actions.shares)
     }
 
     // MARK: - « Par le relais »
@@ -416,5 +447,30 @@ class RelayUiTest {
         rule.onNodeWithText("Atelier n'est pas joignable hors de chez vous (accès coupé dans Admin).").assertExists()
         rule.onNodeWithText("Le relais ne répond pas.").assertExists()
         rule.onNodeWithText("Admin ne répond pas à cette adresse.").assertExists()
+    }
+
+    // MARK: - Par le relais, pas d'action lourde
+
+    private fun station(status: HostStatus) = show(FormFactor.PHONE) {
+        val host = Host(id = "a", name = "Atelier", address = "192.168.1.20", port = 41234, fingerprint = "sha256:ab", user = "matthieu")
+        val screen = Screen(ScreenMode(1, 1080, 2400, 120), listOf(ScreenMode(1, 1080, 2400, 120)), false, true)
+        val decoders = Decoders(DecoderInfo("c2.qti.avc.decoder", 8192, 4320, true), null, null, false)
+        val actions = HostSettingsActions({}, { _, _ -> }, {}, {}, { _, _ -> }, {}, {}, {}, {})
+        HostSettingsContent(HostSettingsState(host, status, screen, decoders, "https://192.168.1.20:41234/"), actions, Rubric.STATION, only = Rubric.STATION)
+    }
+
+    @Test
+    fun byTheRelay_theStationCannotBeRestartedNorUpdated_andTheReasonIsSaid() {
+        station(HostStatus(online = true, away = true))
+        rule.onNodeWithText("Hors de chez vous, l'app ne peut ni redémarrer ni mettre à jour la Station.").assertExists()
+        rule.onNodeWithText("Redémarrer la Station").assertDoesNotExist()
+        rule.onNodeWithText("Mettre à jour la Station").assertDoesNotExist()
+    }
+
+    @Test
+    fun onTheNetwork_theStationCanBeRestarted_withoutTheRelayReason() {
+        station(HostStatus(online = true, info = HostInfo("ATELIER", "Windows 11 Pro", "RTX", false, "0.8.0", true, true, StationInfo("0.8.0", StationUpdate(), false))))
+        rule.onNodeWithText("Redémarrer la Station").assertExists()
+        rule.onNodeWithText("Hors de chez vous, l'app ne peut ni", substring = true).assertDoesNotExist()
     }
 }

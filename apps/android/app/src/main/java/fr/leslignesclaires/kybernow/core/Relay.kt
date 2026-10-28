@@ -30,8 +30,8 @@ enum class RouteTransport(val id: String) {
 }
 
 /**
- * Le chemin d'une session (`RouteInfo` du cœur) : [transport], le relais ([relay], `hôte:port`), et les
- * allers-retours en ms entre l'appareil et le relais ([rttClient]) et entre le relais et l'ordinateur ([rttStation]).
+ * Le chemin d'une session (`RouteInfo` du cœur) : [transport], le relais ([relay], `hôte`, ou `hôte:port` s'il n'est pas
+ * sur le 443), et les allers-retours en ms entre l'appareil et le relais ([rttClient]) et entre le relais et l'ordinateur ([rttStation]).
  */
 data class RouteInfo(val transport: RouteTransport, val relay: String? = null, val rttClient: Double? = null, val rttStation: Double? = null) {
     val viaRelay get() = transport.viaRelay
@@ -50,7 +50,33 @@ data class RouteInfo(val transport: RouteTransport, val relay: String? = null, v
     }
 }
 
+/**
+ * Pourquoi le relais n'a pas mené à l'ordinateur : le code que donne le cœur (`RelayError::code`, `Reply.Failed.code`,
+ * `SessionListener.onRelayError`). Jamais reconnu au texte du message d'Admin.
+ */
+enum class RelayFailure(val code: Int) {
+    /** 30 : le relais ne répond pas (et le reste : refus du relais, adresse illisible). */
+    UNREACHABLE(30),
+    /** 31 : l'ordinateur n'est pas connecté au relais (éteint, en veille). */
+    STATION_OFFLINE(31),
+    /** 32 : « Accès hors de chez vous » est coupé dans Admin (403 `remote_access_off` par le relais). */
+    ACCESS_OFF(32);
+
+    companion object {
+        /** Nul pour un autre code (réponse d'Admin, certificat, compte refusé…). */
+        fun of(code: Int) = entries.firstOrNull { it.code == code }
+    }
+}
+
 object Relays {
+    /**
+     * L'adresse d'un relais sous sa forme normale (le cœur : `share.kybernow.app` pour le 443, un autre port gardé :
+     * `relais.exemple.org:9443`) ; deux relais sont le même si leurs formes sont égales. Illisible, ou sans
+     * bibliothèque native (essais) : l'adresse sans espaces ni majuscules.
+     */
+    fun normalize(addr: String): String =
+        runCatching { Native.relayNormalize(addr) }.getOrNull() ?: addr.trim().lowercase()
+
     /** `KYBERNOW_RELAY=off` : jamais de relais (essais). `force` ne change rien ici : le cœur y passe `Auto` de lui-même. */
     val off: Boolean get() = Native.relayMode() == 2
 

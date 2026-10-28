@@ -729,8 +729,16 @@ private fun StationRubric(state: HostSettingsState, actions: HostSettingsActions
         ActionRow(stringResource(R.string.station_open_admin), stringResource(R.string.station_admin_help), onClick = actions.openAdmin)
     }
 
+    // Par le relais (« Hors de chez vous »), pas d'action lourde : Admin refuse le redémarrage et la mise à jour par le relais
+    // (docs/relais.md) ; les actions s'effacent, la raison reste.
+    if (st.away) {
+        Column(Modifier.panel().fillMaxWidth().padding(s.dp(16f))) {
+            Body(stringResource(R.string.station_via_relay), size = 14f, color = Kn.frost2)
+        }
+    }
+
     // Redémarrer, mettre à jour : tout appareil ajouté le peut, avec une Station qui le connaît.
-    if (station != null && st.online == true) {
+    if (station != null && st.online == true && !st.away) {
         ActionRow(stringResource(R.string.station_restart), stringResource(R.string.station_restart_help), enabled = !busy) { actions.station(StationAction.RESTART, false) }
         if (update?.available == true && update.version != null) {
             if (update.installable) {

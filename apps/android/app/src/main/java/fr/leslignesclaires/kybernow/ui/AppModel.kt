@@ -12,6 +12,7 @@ import fr.leslignesclaires.kybernow.core.ConsoleClient
 import fr.leslignesclaires.kybernow.core.HostInfo
 import fr.leslignesclaires.kybernow.core.HostRelay
 import fr.leslignesclaires.kybernow.core.Native
+import fr.leslignesclaires.kybernow.core.RelayFailure
 import fr.leslignesclaires.kybernow.core.Relays
 import fr.leslignesclaires.kybernow.core.Reply
 import fr.leslignesclaires.kybernow.core.WakeTarget
@@ -65,14 +66,27 @@ data class HostStatus(
     val checked get() = online != null
 }
 
-/** Pourquoi l'ordinateur n'a pas pu être ouvert hors de chez soi (textes de docs/link-ui.md, « Hors de chez vous »). */
+/**
+ * Pourquoi l'ordinateur n'a pas pu être ouvert hors de chez soi (textes de docs/link-ui.md, « Hors de chez vous »), choisi
+ * par le code du cœur ([RelayFailure]), jamais par le texte du message d'Admin.
+ */
 sealed interface RelayRefusal {
-    /** « {nom} n'est pas joignable : l'ordinateur est éteint ou en veille. » */
+    /** « {nom} n'est pas joignable : l'ordinateur est éteint ou en veille. » (31) */
     data object StationOffline : RelayRefusal
-    /** « {nom} n'est pas joignable hors de chez vous (accès coupé dans Admin). » */
+    /** « {nom} n'est pas joignable hors de chez vous (accès coupé dans Admin). » (32) */
     data object AccessOff : RelayRefusal
     /** Le texte du cœur ou d'Admin tel quel (« Le relais ne répond pas. », le blocage après trop d'essais). */
     data class Message(val text: String) : RelayRefusal
+
+    companion object {
+        /** Le refus d'un code du relais ; nul pour un autre ([RelayFailure.UNREACHABLE] garde le texte du cœur : [Message]). */
+        fun of(failure: RelayFailure?, message: String): RelayRefusal? = when (failure) {
+            RelayFailure.STATION_OFFLINE -> StationOffline
+            RelayFailure.ACCESS_OFF -> AccessOff
+            RelayFailure.UNREACHABLE -> Message(message)
+            null -> null
+        }
+    }
 }
 
 /** Le relais n'est pas interrogé plus d'une fois toutes les 30 s pour savoir qui est connecté. */
@@ -212,12 +226,13 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     private suspend fun reachableByRelay(h: Host): Boolean {
         val relay = h.relay ?: return false
         if (h.relayRoute == null || Relays.off) return false
-        val server = relay.server
+        // Deux relais sont le même si leurs formes normales sont égales (`share.kybernow.app` et `share.kybernow.app:443`).
+        val server = Relays.normalize(relay.server)
         return presenceLock.withLock {
             val now = SystemClock.elapsedRealtime()
             val known = presence[server]
             if (known == null || now - known.at >= PRESENCE_EVERY_MS) {
-                val ids = hosts.value.mapNotNull { it.relay }.filter { it.server == server }.map { it.station }.distinct()
+                val ids = hosts.value.mapNotNull { it.relay }.filter { Relays.normalize(it.server) == server }.map { it.station }.distinct()
                 val present = mutableMapOf<String, Boolean>()
                 for (chunk in ids.chunked(Relays.MAX_STATIONS)) {
                     val answer = Relays.presence(server, chunk) ?: break
@@ -248,8 +263,8 @@ class AppModel(app: Application) : AndroidViewModel(app) {
             when (reply) {
                 is Reply.Ok -> open(h)
                 is Reply.Failed -> when {
-                    reply.stationOffline -> refuse(id, RelayRefusal.StationOffline)
-                    reply.remoteAccessOff -> refuse(id, RelayRefusal.AccessOff)
+                    // Par le code du cœur (30, 31, 32), jamais par le texte du message.
+                    reply.relayFailure != null -> refuse(id, RelayRefusal.of(reply.relayFailure, reply.message)!!)
                     reply.unauthorized -> _status.value = _status.value + (id to HostStatus(online = true, accountRefused = true, away = true))
                     reply.certificateChanged -> _status.value = _status.value + (id to HostStatus(online = true, certificateChanged = true, away = true))
                     else -> refuse(id, RelayRefusal.Message(reply.message))
@@ -328,6 +343,8 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     fun station(id: String, action: StationAction, force: Boolean = false) {
         val h = hosts.value.firstOrNull { it.id == id } ?: return
         if (_station.value[id] is StationTask.Working) return
+        // Par le relais (« Hors de chez vous »), jamais de redémarrage ni de mise à jour : l'interface ne les propose pas.
+        if (_status.value[id]?.away == true) return
         val target = _status.value[id]?.info?.station?.update?.version
         setStation(id, StationTask.Working(action, target.takeIf { action == StationAction.UPDATE }))
         viewModelScope.launch {

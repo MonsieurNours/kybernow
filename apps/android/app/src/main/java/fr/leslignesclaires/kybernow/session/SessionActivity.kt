@@ -141,6 +141,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         }
 
         state = SessionState(this, app.gamepads)
+        // Les refus du relais disent l'ordinateur par son nom (pour un invité, l'ordinateur du partage).
+        state.computerName = host.name
         guest?.let {
             state.shareRole.value = it.role
             // La « Qualité de l'image » de « Rejoindre » (retenue) ; la Station dit l'image reçue (`onShareImage`).
