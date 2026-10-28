@@ -45,14 +45,17 @@ const emit = (name: string, payload: unknown) => listeners.get(name)?.forEach((c
 // deux de ses invités sont venus de loin), `?relais=tcp` (le repli TCP), `?relais=injoignable` (le relais ne répond pas :
 // « Pas encore joignable hors de chez vous. », rien à l'accueil), `?relais=coupe` (Atelier est hors de chez vous, mais
 // l'accès est coupé dans Admin : sa connexion est refusée avec le texte de link-ui), `?relais=eteint` (l'ordinateur a
-// quitté le relais pendant la connexion : « … est éteint ou en veille »). Les demandes de l'hôte (`/bar.html`,
+// quitté le relais pendant la connexion : « … est éteint ou en veille »), `?relais=session` (une session de Bureau-Salon,
+// qui répond sur le réseau, passe par le relais : ses réglages disent « Hors de chez vous, l'app ne peut ni redémarrer ni
+// mettre à jour la Station. » à la place des deux lignes). Les demandes de l'hôte (`/bar.html`,
 // `?partage=1&relais`) : `?demandes=2` (de 0 à 3 demandes qui attendent « Accepter » ou « Refuser », avec la pastille
 // « 2 demandes »). L'invité, « Rejoindre » (`?rejoindre`) hors de chez soi : 424242 est un partage par le relais que l'hôte
 // accepte au bout de 4 s (« En attente de l'accord de l'hôte… », « Annuler »), 515151 l'hôte refuse (« L'hôte a refusé. »),
-// 626262 l'hôte ne répond pas (« L'hôte n'a pas répondu. »), 737373 le relais ne répond pas, 848484 trois demandes
+// 626262 l'hôte ne répond pas (« L'hôte n'a pas répondu. »), 353535 le partage s'arrête pendant l'attente (« Ce partage est arrêté. »),
+// 737373 le relais ne répond pas, 848484 trois demandes
 // attendent déjà.
 const flags = new URLSearchParams(location.search)
-/** Le relais : `joint`, `tcp`, `injoignable`, `coupe`, `eteint` ; `null` sans `?relais`. */
+/** Le relais : `joint`, `tcp`, `injoignable`, `coupe`, `eteint`, `session` ; `null` sans `?relais`. */
 const relayFlag = flags.has('relais') ? flags.get('relais') || 'joint' : null
 /** Le relais tient le partage de l'hôte et les ordinateurs absents du réseau (tout sauf `injoignable`). */
 const relayJoined = relayFlag !== null && relayFlag !== 'injoignable'
@@ -242,15 +245,18 @@ let computers = [
 if (flags.has('vide')) computers = []
 // `?relais` : Atelier ne répond pas sur le réseau, mais le relais le tient (« Hors de chez vous ») ; les autres
 // ordinateurs sont chez soi, et la dernière session de Bureau-Salon est passée par le réseau (ligne « Chemin »).
-type Relayed = (typeof computers)[number] & { away?: boolean; relay?: Computer['relay'] }
+type Relayed = (typeof computers)[number] & { away?: boolean; via_relay?: boolean; relay?: Computer['relay'] }
 for (const c of computers as Relayed[]) {
   if (c.id === 'a1' && c.last) c.last = { ...c.last, route: { transport: 'direct' } }
   if (relayFlag === null) continue
-  c.relay = { server: 'share.kybernow.app:8443', id: `${c.id}abcdefghijklmnopqrstuvwx`.slice(0, 26), remote_access: relayFlag !== 'coupe' }
+  c.relay = { server: 'share.kybernow.app', id: `${c.id}abcdefghijklmnopqrstuvwx`.slice(0, 26), remote_access: relayFlag !== 'coupe' }
+  // Une session de cet ordinateur, joignable sur le réseau, passe par le relais : ni redémarrage ni mise à jour de la Station.
+  if (c.id === 'a1' && relayFlag === 'session') c.via_relay = true
   if (c.id === 'b2' && relayJoined) {
     c.online = true
     c.away = true
-    c.last = { median_ms: 23.4, p95_ms: 31.9, seconds: 1260, at: now - 7200, width: 1920, height: 1200, refresh: 60, mbps: 36, codec: 'HEVC', route: { transport: relayFlag === 'tcp' ? 'relay_tcp' : 'relay', relay: 'share.kybernow.app:8443', rtt_client: 14.5, rtt_station: 1 } }
+    c.via_relay = true
+    c.last = { median_ms: 23.4, p95_ms: 31.9, seconds: 1260, at: now - 7200, width: 1920, height: 1200, refresh: 60, mbps: 36, codec: 'HEVC', route: { transport: relayFlag === 'tcp' ? 'relay_tcp' : 'relay', relay: 'share.kybernow.app', rtt_client: 14.5, rtt_station: 1 } }
   }
 }
 // Plusieurs ordinateurs : un cinquième, pour voir la limite de quatre.
@@ -419,9 +425,9 @@ const shareView = (): Share => ({
   text: shareText(),
   open: shareOpen,
   code: shareOpen ? shareCode : '',
-  link: shareOpen ? `kybernow://join?host=192.168.1.100&port=9443&fp=sha256:aa&code=482913${relayJoined ? '&relay=share.kybernow.app%3A8443&sid=abcdefghijklmnopqrstuvwxyz' : ''}` : '',
+  link: shareOpen ? `kybernow://join?host=192.168.1.100&port=9443&fp=sha256:aa&code=482913${relayJoined ? '&relay=share.kybernow.app&sid=abcdefghijklmnopqrstuvwxyz' : ''}` : '',
   // Relais joint : le lien du client web est celui du relais.
-  web: shareOpen ? (relayJoined ? 'https://share.kybernow.app:8443/j/482913' : 'https://192.168.1.100:9443/link/?join=482913') : '',
+  web: shareOpen ? (relayJoined ? 'https://share.kybernow.app/j/482913' : 'https://192.168.1.100:9443/link/?join=482913') : '',
   display: shareOpen ? 'Écran 1' : null,
   guests: structuredClone(sharedGuests),
   requests: structuredClone(shareRequests),
@@ -449,7 +455,7 @@ let joinAction = flags.has('rejoindre')
 const waits = new Map<number, { code: string; at: number; cancelled: boolean }>()
 let waitSeq = 0
 /** Les codes qui passent par le relais (l'hôte est hors de chez soi) : accepté au bout de 4 s, refusé au bout de 3, sans réponse au bout de 6. */
-const relayCodes = ['424242', '515151', '626262']
+const relayCodes = ['424242', '515151', '626262', '353535']
 /** Ce que renvoie `share_join` quand l'invité entre. */
 const joinedAs = (): ShareJoined & { kind: 'joined' } => ({ kind: 'joined', id: `guest-${++guestSeq}`, title: t('mock.guest_on'), host: 'Léa', role: 'spectator', fingerprint: fp('atelier') })
 
@@ -499,6 +505,11 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
     if (w.code === '626262' && waited >= 6000) {
       waits.delete(Number(a.wait))
       throw t('mock.share_expired')
+    }
+    // L'hôte arrête son partage pendant l'attente : le cœur dit `stopped`.
+    if (w.code === '353535' && waited >= 3000) {
+      waits.delete(Number(a.wait))
+      throw t('mock.share_stopped_waiting')
     }
     return { kind: 'waiting' } satisfies ShareWaitOutcome
   },
@@ -897,6 +908,11 @@ export function mockTauri() {
             // `image` : « Image allégée pour suivre. » ; `limite` : plus d'image à part possible, la qualité reçue est celle du texte.
             const text = kind === 'image' ? t('mock.notice_image_lag') : kind === 'limite' ? t('mock.notice_image_limit', { quality: '720p · 30 Hz' }) : t(`mock.notice_${kind}`)
             setTimeout(() => cb({ payload: { ...shown, pinned: true, notice: text } }), 2500)
+          }
+          // `?arrivee` (hôte) : une demande à rejoindre arrive, l'avis « Inès demande à rejoindre. » se choisit pour ouvrir le panneau.
+          if (!guest && flags.has('arrivee')) {
+            const text = t('mock.notice_request', { name: 'Inès' })
+            setTimeout(() => cb({ payload: { ...shown, pinned: true, notice: text, notice_opens_share: true } }), 2500)
           }
           // `&droits` : l'hôte donne et reprend les droits à tour de rôle (manettes, clavier et souris, un à la fois).
           if (guest && flags.has('droits')) {

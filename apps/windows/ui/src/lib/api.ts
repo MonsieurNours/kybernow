@@ -98,7 +98,7 @@ export type Info = {
 }
 
 /**
- * Le relais d'un ordinateur (`info.relay`) : le relais (`share.kybernow.app:8443`), son identifiant chez lui, et
+ * Le relais d'un ordinateur (`info.relay`) : le relais (`share.kybernow.app`), son identifiant chez lui, et
  * « Accès hors de chez vous » actif dans Admin. L'app en fait la route pour l'ouvrir hors de chez soi
  * (docs/relais.md).
  */
@@ -168,6 +168,11 @@ export type Computer = {
    * connecter).
    */
   away?: boolean
+  /**
+   * Par le relais : `away`, ou une session de cet ordinateur y passe. Admin refuse alors le redémarrage et la mise à
+   * jour de la Station : la rubrique Station les désactive, avec la raison.
+   */
+  via_relay?: boolean
   info: Info | null
   preview: string | null
   /** last : dernière image de votre session ; preview : aperçu de son écran. */
@@ -429,6 +434,14 @@ export type ShareWaitOutcome = { kind: 'waiting' } | ({ kind: 'joined' } & Share
 export type ShareRoleEvent = { id: string; role: ShareRole }
 export type ShareImageEvent = { id: string; quality: ShareQuality; label: string | null }
 export type ShareStateEvent = { id: string; share: Share }
+
+/**
+ * Événements `share-request` (une demande à rejoindre arrive pendant que la barre est ouverte sur la session `id` :
+ * l'avis « {prénom} demande à rejoindre. », que la barre ne montre pas si son panneau de « Partager » est ouvert) et
+ * `share-open-panel` (le choix d'une notification de demande : le panneau de « Partager » de la session s'ouvre ;
+ * charge : l'identifiant de la session).
+ */
+export type ShareRequestEvent = { id: string; text: string }
 
 /** Une pseudo-fiche d'ordinateur pour le passage et la connexion d'une session d'invité (ni dans la liste, ni gardée). */
 export const guestComputer = (j: { title: string; fingerprint: string | null }) => ({ name: j.title, preview: null, fingerprint: j.fingerprint })

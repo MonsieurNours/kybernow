@@ -128,6 +128,7 @@
     "cancel": "Annuler",
     "too_soon": "La Station vient de redémarrer. Réessayez dans une minute.",
     "too_old": "Pour redémarrer ou mettre à jour la Station depuis cet appareil, mettez-la d'abord à jour depuis Admin.",
+    "via_relay": "Hors de chez vous, l'app ne peut ni redémarrer ni mettre à jour la Station.",
     "requires_setup": "La version {version} s'installe sur l'ordinateur, avec KyberNow-Station-Setup.exe.",
     "restarted": "La Station a redémarré.",
     "updated": "KyberNow Station {version} est en place.",
@@ -143,9 +144,7 @@
     "notice_pads_back": "Les manettes sont reprises.",
     "notice_kbm": "Vous avez le clavier et la souris.",
     "notice_kbm_back": "Le clavier et la souris sont repris.",
-    "notice_watch": "Vous regardez de nouveau."
-  },
-  "relay": {
-    "access_off": "{name} n'est pas joignable hors de chez vous (accès coupé dans Admin)."
+    "notice_watch": "Vous regardez de nouveau.",
+    "notice_request": "{name} demande à rejoindre."
   }
 }

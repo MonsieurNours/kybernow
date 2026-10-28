@@ -35,6 +35,11 @@
    * et la Station ne se redémarre ni ne se met à jour que depuis le réseau de l'ordinateur.
    */
   const away = $derived(computer.away === true)
+  /**
+   * Par le relais : l'ordinateur n'est joignable que par lui, ou une de ses sessions y passe. Admin refuse alors le
+   * redémarrage et la mise à jour de la Station : leurs deux lignes laissent la place à la raison.
+   */
+  const viaRelay = $derived(away || computer.via_relay === true)
   const update = $derived(station?.update.available && station.update.version ? station.update : null)
   const restarting = $derived(calling === 'restart' || pending === 'restart' || !!station?.restarting)
   const installing = $derived(calling === 'update' || pending === 'update' || !!station?.update.installing)
@@ -124,15 +129,18 @@
     <button class="ghost" disabled={away} onclick={openAdmin}><Icon name="globe" size={16} /> {t('station.open_admin')}</button>
   </div>
 
-  {#if station}
+  {#if station && viaRelay}
+    <!-- Par le relais, Admin refuse le redémarrage et la mise à jour : la raison prend la place des deux lignes. -->
+    <p class="note">{t('station.via_relay')}</p>
+  {:else if station}
     <div class="line">
       <p class="text">{t('station.restart_help')}</p>
-      <button class="ghost" disabled={busy || offline || away} onclick={() => run('restart')}><Icon name="restart" size={16} /> {t('station.restart')}</button>
+      <button class="ghost" disabled={busy || offline} onclick={() => run('restart')}><Icon name="restart" size={16} /> {t('station.restart')}</button>
     </div>
     {#if update?.installable}
       <div class="line">
         <p class="text">{t('station.update_help', { version: update.version ?? '' })}</p>
-        <button class="primary small" disabled={busy || offline || away} onclick={() => run('update')}><Icon name="download" size={16} /> {t('station.update')}</button>
+        <button class="primary small" disabled={busy || offline} onclick={() => run('update')}><Icon name="download" size={16} /> {t('station.update')}</button>
       </div>
     {:else if update?.requires_setup}
       <p class="note">{t('station.requires_setup', { version: update.version ?? '' })}</p>

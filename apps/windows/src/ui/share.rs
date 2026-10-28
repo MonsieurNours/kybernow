@@ -136,8 +136,8 @@ fn join_targets(state: &UiState) -> Vec<ShareTarget> {
     sharing::targets(discovered, saved, system::is_this_pc)
 }
 
-/// Les relais où chercher le code : le relais public, puis ceux des ordinateurs de
-/// l'app (`info.relay.server`, `relais::join_relays`).
+/// Les relais où chercher le code en plus du relais public (que le cœur interroge
+/// toujours) : ceux des ordinateurs de l'app (`info.relay.server`, `relais::join_relays`).
 fn join_relays(state: &UiState) -> Vec<kybernow_core::relay::RelayAddr> {
     let servers: Vec<String> = state.with_store(|s| s.computers.iter().filter_map(|c| c.relay.as_ref().map(|r| r.server.clone())).collect());
     relais::join_relays(servers.iter().map(String::as_str))
@@ -169,7 +169,8 @@ pub fn share_link_code(link: String) -> Result<String, String> {
 }
 
 /// « Rejoindre » : le code part aux Stations du réseau **et en même temps** au
-/// relais public et à ceux des ordinateurs de l'app (`share::join_anywhere`) ;
+/// relais public (`share.kybernow.app`, sans port : le 443) et à ceux des
+/// ordinateurs de l'app (`share::join_anywhere`) ;
 /// avec un lien, la Station du lien sur le réseau d'abord, puis le relais qu'il
 /// désigne (`share::join_link`). `KYBERNOW_RELAY=off` : le réseau seulement. La
 /// « Qualité de l'image » choisie (`auto`, `host`, `2160p60`, `1080p60`,
@@ -703,16 +704,58 @@ pub fn show_without_focus(bar: &tauri::WebviewWindow) {
 /// le fil de Tauri, comme `top_edge`, pour que le cœur n'attende ni la fenêtre
 /// de la barre (`is_visible` attend le fil de Tauri) ni les verrous de l'app.
 pub fn notice(app: &AppHandle, id: &str, title: &str, text: &str) {
+    notice_with(app, id, title, text, false);
+}
+
+/// L'avis d'une demande à rejoindre arrivée pendant la session d'hôte `id`
+/// (« {prénom} demande à rejoindre. ») : comme les autres avis, dans la barre quand
+/// l'app est devant, sinon dans une notification de Windows ; le choisir (un clic sur
+/// l'avis de la barre, sur la notification) ouvre le panneau de « Partager », où
+/// « Accepter » et « Refuser » attendent. `title` : le nom de l'ordinateur.
+pub fn request_notice(app: &AppHandle, id: &str, title: &str, name: &str) {
+    notice_with(app, id, title, &t("share.notice_request", &[("name", name)]), true);
+}
+
+/// `request` : l'avis est celui d'une demande, que l'on peut choisir pour ouvrir le panneau.
+/// La barre déjà ouverte sur cette session décide elle-même de le montrer (`share-request`) :
+/// son panneau de « Partager » ouvert montre déjà la demande, l'avis ne le referme pas.
+fn notice_with(app: &AppHandle, id: &str, title: &str, text: &str, request: bool) {
     let (a, id, title, text) = (app.clone(), id.to_string(), title.to_string(), text.to_string());
     let _ = app.run_on_main_thread(move || {
         let state = a.state::<UiState>();
         let bar_shown = a.get_webview_window("bar").and_then(|b| b.is_visible().ok()).unwrap_or(false);
-        let bar_elsewhere = bar_shown && state.bar_session.lock().unwrap().as_deref() != Some(id.as_str());
+        let bar_here = bar_shown && state.bar_session.lock().unwrap().as_deref() == Some(id.as_str());
+        let bar_elsewhere = bar_shown && !bar_here;
         if shell::app_in_front() && !bar_elsewhere {
+            if request && bar_here {
+                let _ = a.emit_to("bar", "share-request", ShareRequestEvent { id, text });
+                return;
+            }
             let hwnd = state.with_session(&id, |r| r.host.bar_window()).unwrap_or(0);
-            show_bar_with(&a, &id, hwnd, true, Some(text));
+            show_bar_notice(&a, &id, hwnd, true, Some(text), request);
         } else {
-            shell::notify_to("kybernow://open", &title, &text, None);
+            let launch = if request { format!("kybernow://share?id={id}") } else { "kybernow://open".to_string() };
+            shell::notify_to(&launch, &title, &text, None);
         }
     });
+}
+
+/// Le choix d'une notification de demande (`kybernow://share?id=…`) : la fenêtre de cette
+/// session passe devant et la barre s'ouvre sur le panneau de « Partager ». Faux quand
+/// cette session n'existe plus (la demande est restée dans le centre de notifications) :
+/// l'accueil revient alors, comme pour les autres liens.
+pub fn open_panel(app: &AppHandle, id: &str) -> bool {
+    if app.state::<UiState>().with_session(id, |_| ()).is_none() {
+        return false;
+    }
+    let (a, id) = (app.clone(), id.to_string());
+    let _ = app.run_on_main_thread(move || {
+        let state = a.state::<UiState>();
+        let Some(hwnd) = state.with_session(&id, |r| r.host.bar_window()) else { return };
+        // La session passe devant (sa fenêtre prend le premier plan), puis la barre se montre sur elle.
+        state.with_session(&id, |r| r.host.focus(hwnd));
+        show_bar(&a, &id, hwnd, true);
+        let _ = a.emit_to("bar", "share-open-panel", id);
+    });
+    true
 }

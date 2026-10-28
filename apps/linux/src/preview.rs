@@ -580,8 +580,8 @@ fn relay_view(relay: Option<ShareRelay>) -> ShareView {
     v.guests[1] = ShareGuest { id: "g2".into(), name: "Tom".into(), role: ShareRole::Spectator, app: "android".into(), since: Some(now - 3 * 60), quality: None, pending: false, via_relay: true };
     v.guests.push(ShareGuest { id: "g5".into(), name: "Eva".into(), role: ShareRole::Spectator, app: "ios".into(), since: Some(now - 20), quality: None, pending: true, via_relay: true });
     v.guests.push(ShareGuest { id: "g6".into(), name: "Hugo".into(), role: ShareRole::Spectator, app: "web".into(), since: Some(now - 5), quality: None, pending: true, via_relay: true });
-    v.link = "kybernow://join?host=192.168.1.42&port=24811&fp=sha256:7c:3a:91:e0:4b:2d:a8:1f&code=482917&relay=share.kybernow.app%3A8443&sid=ocean7xk3qdhvm2wpa5fzt4ylb".into();
-    v.web = "https://share.kybernow.app:8443/j/482917".into();
+    v.link = "kybernow://join?host=192.168.1.42&port=24811&fp=sha256:7c:3a:91:e0:4b:2d:a8:1f&code=482917&relay=share.kybernow.app&sid=ocean7xk3qdhvm2wpa5fzt4ylb".into();
+    v.web = "https://share.kybernow.app/j/482917".into();
     v.relay = relay;
     v
 }
@@ -642,6 +642,16 @@ fn relay_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, prefi
     }
     app.focus = Target::ShareNewCode;
     shot(app, cv, Some(video), dir, &name("21l-partage-relais-injoignable"));
+    // Les quatre places prises : « Accepter » est inactif (« Quatre invités au plus. »), « Refuser » reste, le focus y commence.
+    let mut complet = relay_view(Some(ShareRelay::Joined));
+    complet.guests.truncate(1);
+    complet.guests.extend((0..3).map(|i| ShareGuest { id: format!("f{i}"), name: ["Zoé", "Luc", "Nina"][i].into(), app: "mac".into(), ..Default::default() }));
+    complet.guests.push(ShareGuest { id: "g5".into(), name: "Eva".into(), app: "ios".into(), pending: true, via_relay: true, ..Default::default() });
+    app.focus = Target::ShareRefuse(complet.guests.len() - 1);
+    if let Some(s) = app.session_mut() {
+        s.share = Some(complet);
+    }
+    shot(app, cv, Some(video), dir, &name("21n-partage-relais-complet"));
     // La barre fermée sur le panneau : les deux pastilles, invités et demandes.
     if !console {
         if let Some(s) = app.session_mut() {
@@ -1492,7 +1502,7 @@ mod tests {
                 relay_shots(&mut app, &mut cv, &demo_image(3), &dir, prefix);
             }
         }
-        for n in ["01f-accueil-hors-de-chez-vous", "20g-rejoindre-attente", "21k-partage-relais", "23-session-relais", "23c-invite-relais"] {
+        for n in ["01f-accueil-hors-de-chez-vous", "20g-rejoindre-attente", "21k-partage-relais", "21n-partage-relais-complet", "23-session-relais", "23c-invite-relais"] {
             assert!(dir.join(format!("bureau-{n}.png")).exists() && dir.join(format!("salon-{n}.png")).exists(), "{n}");
         }
         crate::i18n::force_english(false);
@@ -1520,7 +1530,13 @@ mod tests {
             let mut need = vec![Target::ShareClose, Target::ShareCopy, Target::ShareNewCode, Target::ShareStop];
             for (i, g) in view.guests.iter().enumerate() {
                 if g.pending {
-                    need.extend([Target::ShareAccept(i), Target::ShareRefuse(i)]);
+                    need.push(Target::ShareRefuse(i));
+                    // Les quatre places prises : « Accepter » est dessiné inactif, il n'est pas inscrit (ni focus ni clic).
+                    if view.full() {
+                        assert!(!hits.iter().any(|(h, _)| *h == Target::ShareAccept(i)), "« Accepter » doit être inactif ({guests} invités, {requests} demandes)");
+                    } else {
+                        need.push(Target::ShareAccept(i));
+                    }
                 } else {
                     need.extend([Target::SharePads(i), Target::ShareKbm(i), Target::ShareKick(i)]);
                 }
@@ -1541,7 +1557,8 @@ mod tests {
     /// À la manette, le panneau de l'hôte (salon, Deck) avec ses demandes reste dans l'écran : ses boutons y sont entiers.
     #[test]
     fn share_panel_with_requests_fits_a_pad_screen() {
-        for (layout, w, h) in [(Layout::Handheld, 1280u32, 800u32), (Layout::Tv, 1920, 1080)] {
+        // Trois invités (« Accepter » actif) ou quatre (les quatre places sont prises : « Accepter » est dessiné inactif).
+        for (layout, w, h, extra) in [(Layout::Handheld, 1280u32, 800u32, 1usize), (Layout::Handheld, 1280, 800, 2), (Layout::Tv, 1920, 1080, 1), (Layout::Tv, 1920, 1080, 2)] {
             let mut app = demo(false, layout);
             let mut cv = Canvas::new();
             cv.resize(w, h, 1.0);
@@ -1549,14 +1566,18 @@ mod tests {
             s.menu = false;
             s.share_panel = true;
             let mut view = relay_view(Some(ShareRelay::Joined));
-            view.guests.insert(0, ShareGuest { id: "x".into(), name: "Zoé".into(), app: "mac".into(), ..Default::default() });
-            view.guests.insert(0, ShareGuest { id: "w".into(), name: "Nina".into(), app: "mac".into(), ..Default::default() });
+            for (id, name) in [("x", "Zoé"), ("w", "Nina")].into_iter().take(extra) {
+                view.guests.insert(0, ShareGuest { id: id.into(), name: name.into(), app: "mac".into(), ..Default::default() });
+            }
+            assert_eq!(view.full(), extra == 2);
             s.share = Some(view.clone());
             app.set_session(Some(s));
             app.screen = Screen::Session;
             let hits = ui::draw(&app, &mut cv);
             for (i, g) in view.guests.iter().enumerate().filter(|(_, g)| g.pending) {
-                for t in [Target::ShareAccept(i), Target::ShareRefuse(i)] {
+                // Les quatre places prises : « Accepter » n'est pas inscrit (ni focus ni clic), « Refuser » l'est.
+                assert_eq!(hits.iter().any(|(h, _)| *h == Target::ShareAccept(i)), !view.full(), "« Accepter » inactif quand les quatre places sont prises");
+                for t in [Target::ShareAccept(i), Target::ShareRefuse(i)].into_iter().filter(|t| !(view.full() && matches!(t, Target::ShareAccept(_)))) {
                     let r = hits.iter().find(|(h, _)| *h == t).unwrap_or_else(|| panic!("{t:?} absent")).1;
                     assert!(r.x >= 0.0 && r.y >= 0.0 && r.x + r.w <= w as f32 && r.y + r.h <= h as f32 - 56.0, "{t:?} hors de l'écran de {layout:?} : {r:?} ({})", g.name);
                 }

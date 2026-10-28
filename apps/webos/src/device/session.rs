@@ -211,6 +211,13 @@ impl Platform for WebOsPlatform {
     fn on_route(&self, route: &RouteInfo) {
         self.0.send(Event::Route(route_of(route)));
     }
+
+    /// Par le relais, la session finit parce que l'ordinateur n'est pas joignable hors de chez soi : l'erreur typée
+    /// (accès coupé dans Admin, éteint ou en veille, relais muet), juste avant `Status::Ended`. C'est elle qui choisit
+    /// le texte de la fin (`relay_failure_text`), jamais le texte d'Admin.
+    fn on_relay_error(&self, error: &kybernow_core::relay::RelayError, _text: &str) {
+        self.0.send(Event::RelayError(error.clone()));
+    }
 }
 
 /// Le chemin de l'interface d'après celui du cœur.
@@ -231,15 +238,16 @@ pub fn relay_route(host: &Host) -> Option<RelayRoute> {
     RelayInfo { server: r.server.clone(), id: r.id.clone(), remote_access: r.remote_access }.route(host.fingerprint.as_deref()?)
 }
 
-/// Les relais où chercher le code d'un partage : le relais public d'abord, puis ceux des ordinateurs du téléviseur
-/// (`info.relay.server`), sans doublon ; une adresse illisible est écartée. Le code d'un ami part ainsi au relais
-/// public même quand l'ordinateur de l'utilisateur en a un autre. `KYBERNOW_RELAY=off` : aucun relais.
+/// Les relais où chercher le code d'un partage en plus du relais public : ceux des ordinateurs du téléviseur
+/// (`info.relay.server`), sans doublon ; une adresse illisible est écartée. Le cœur (`share::join_anywhere`)
+/// interroge toujours le relais public lui-même : le code d'un ami y part même quand l'ordinateur de l'utilisateur
+/// en a un autre. `KYBERNOW_RELAY=off` : aucun relais, et `jobs::share_join` n'appelle alors que le réseau.
 pub fn join_relays<'a>(servers: impl IntoIterator<Item = &'a str>) -> Vec<kybernow_core::relay::RelayAddr> {
     use kybernow_core::relay::{RelayAddr, RelayMode};
     if RelayMode::current() == RelayMode::Off {
         return Vec::new();
     }
-    let mut out = vec![RelayAddr::public()];
+    let mut out = Vec::new();
     for server in servers {
         if let Ok(addr) = server.trim().parse::<RelayAddr>()
             && !out.contains(&addr)
@@ -250,29 +258,19 @@ pub fn join_relays<'a>(servers: impl IntoIterator<Item = &'a str>) -> Vec<kybern
     out
 }
 
-/// Le message qu'Admin donne quand « Accès hors de chez vous » est coupé (`code: remote_access_off`), dans la langue
-/// demandée par l'app (`relay.accessOff` du catalogue d'Admin).
-fn admin_access_off(lang: kybernow_core::i18n::Lang) -> &'static str {
-    match lang {
-        kybernow_core::i18n::Lang::Fr => "L'accès hors de chez vous est coupé dans Admin.",
-        kybernow_core::i18n::Lang::En => "Access away from home is turned off in Admin.",
+/// Le texte de link-ui (« Hors de chez vous ») d'un échec de session par le relais, avec le nom de l'ordinateur :
+/// « {nom} n'est pas joignable hors de chez vous (accès coupé dans Admin). » quand Admin refuse l'accès,
+/// « {nom} n'est pas joignable : l'ordinateur est éteint ou en veille. » quand le relais ne le connaît pas,
+/// « Le relais ne répond pas. » quand le relais est muet.
+///
+/// `relay` est l'erreur typée que le cœur a donnée en fin de session (`Platform::on_relay_error`) : c'est elle qui
+/// choisit le texte, jamais le texte d'Admin. `error` est la raison de la fin donnée par le cœur ; sans erreur du
+/// relais, elle reste telle quelle.
+pub fn relay_failure_text(relay: Option<&kybernow_core::relay::RelayError>, error: Option<String>, name: &str) -> Option<String> {
+    match (relay, error) {
+        (Some(e), Some(_)) => Some(e.text(kybernow_core::i18n::current(), Some(name))),
+        (_, error) => error,
     }
-}
-
-/// Le texte de link-ui (« Hors de chez vous ») d'un échec de session par le relais, avec le nom de l'ordinateur que le
-/// cœur ne connaît pas : « {nom} n'est pas joignable hors de chez vous (accès coupé dans Admin). » quand Admin refuse
-/// l'accès, « {nom} n'est pas joignable : l'ordinateur est éteint ou en veille. » quand le relais ne le connaît pas.
-/// `None` : l'échec est autre chose, son texte reste tel quel. `error` est le texte que le cœur a donné.
-pub fn relay_refusal(error: &str, name: &str) -> Option<String> {
-    use kybernow_core::console::ConsoleError;
-    use kybernow_core::i18n::Lang;
-    use kybernow_core::relay::RelayError;
-    let access_off = [Lang::Fr, Lang::En].into_iter().any(|l| error == ConsoleError::Http { status: 403, message: admin_access_off(l).to_string() }.text(l));
-    if access_off {
-        return Some(crate::i18n::tr("{} n'est pas joignable hors de chez vous (accès coupé dans Admin).", "{} cannot be reached away from home (access turned off in Admin).").replace("{}", name));
-    }
-    let offline = [Lang::Fr, Lang::En].into_iter().any(|l| error == RelayError::StationOffline.text(l, None));
-    offline.then(|| RelayError::StationOffline.text(kybernow_core::i18n::current(), Some(name)))
 }
 
 /// Le rôle de l'interface d'après celui du cœur.

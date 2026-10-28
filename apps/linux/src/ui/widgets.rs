@@ -202,6 +202,17 @@ pub fn ghost(cv: &mut Canvas, f: &mut Frame, t: Target, x: f32, y: f32, h: f32, 
     w
 }
 
+/// Bouton à contour inactif (« Accepter » quand les quatre places sont prises) : estompé, rien n'est inscrit au cadre,
+/// il ne prend ni le focus, ni le survol, ni le clic. Rend sa largeur (celle de `ghost`).
+pub fn ghost_inactive(cv: &mut Canvas, x: f32, y: f32, h: f32, size: f32, s: &str) -> f32 {
+    let style = Text::new(Font::Regular, size, DIM);
+    let w = cv.text_width(style, s) + size * 2.0;
+    cv.rrect(x, y, w, h, 8.0, Rgba(9, 13, 18, 80));
+    cv.rrect_stroke(x, y, w, h, 8.0, 1.0, LINE);
+    cv.text(x + size, y + h / 2.0 + size * 0.36, style, s);
+    w
+}
+
 /// Pastille d'information (écran virtuel) ; rend sa largeur.
 pub fn info_chip(cv: &mut Canvas, x: f32, y: f32, h: f32, size: f32, icon: Icon, parts: &[(&str, bool)]) -> f32 {
     let iw = size * 1.25;

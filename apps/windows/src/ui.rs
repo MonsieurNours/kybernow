@@ -83,6 +83,9 @@ pub struct ComputerView {
     online: Option<bool>,
     /// Joignable seulement par le relais (état « Hors de chez vous », docs/relais.md).
     away: bool,
+    /// Par le relais : `away`, ou une session de cet ordinateur y passe. Admin refuse alors le
+    /// redémarrage et la mise à jour de la Station : les réglages leur substituent la raison.
+    via_relay: bool,
     info: Option<Info>,
     preview: Option<String>,
     /// `last` : dernière image de votre session ; `preview` : aperçu de son écran.
@@ -389,6 +392,8 @@ impl UiState {
         let computers = self.with_store(|s| s.computers.clone());
         let waking: Vec<String> = self.waking.lock().unwrap().keys().cloned().collect();
         let pending: HashMap<String, Kind> = self.following.lock().unwrap().iter().map(|(id, (p, _))| (id.clone(), p.kind)).collect();
+        // Les ordinateurs dont une session passe par le relais (lu avant `live` : les deux verrous ne se tiennent jamais ensemble).
+        let relayed = self.sessions_via_relay();
         let mut live = self.live.lock().unwrap();
         computers
             .into_iter()
@@ -409,8 +414,20 @@ impl UiState {
                 };
                 let waking = waking.contains(&c.id);
                 let station_pending = pending.get(&c.id).map(|k| k.code());
-                ComputerView { computer: c, online: l.online, away: l.away, info: l.info, preview, preview_source, waking, station_pending }
+                let via_relay = l.away || relayed.contains(&c.id);
+                ComputerView { computer: c, online: l.online, away: l.away, via_relay, info: l.info, preview, preview_source, waking, station_pending }
             })
+            .collect()
+    }
+
+    /// Les ordinateurs dont une session passe par le relais (puce « Par le relais »).
+    fn sessions_via_relay(&self) -> Vec<String> {
+        self.sessions
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|r| r.route.lock().unwrap().as_ref().is_some_and(RouteInfo::via_relay))
+            .map(|r| r.id.clone())
             .collect()
     }
 
@@ -573,6 +590,14 @@ fn handle_args(app: &AppHandle, args: Vec<String>) {
                 tray_command(app, Cmd::Update(id));
             }
             return;
+        }
+        // Une notification de demande à rejoindre : le panneau de « Partager » de cette session.
+        Some(link) if crate::link::action(link).is_some_and(|(a, _)| a == "share") => {
+            if let Some((_, Some(id))) = crate::link::action(link)
+                && share::open_panel(app, &id)
+            {
+                return;
+            }
         }
         _ => {}
     }
@@ -1332,9 +1357,17 @@ fn pair_cancel(state: tauri::State<'_, UiState>) {
 fn console_of(app: &AppHandle, id: &str) -> Result<Console, String> {
     let state = app.state::<UiState>();
     let c = state.with_store(|s| s.get(id).cloned()).ok_or_else(|| t("errors.unknown_computer", &[]))?;
+    Ok(console_via(&c, computer_via_relay(app, id)))
+}
+
+/// Par le relais : l'ordinateur n'est joignable que par lui (« Hors de chez vous »), ou sa
+/// session y passe (puce « Par le relais »). Admin refuse alors le redémarrage et la mise à
+/// jour de la Station.
+fn computer_via_relay(app: &AppHandle, id: &str) -> bool {
+    let state = app.state::<UiState>();
     let session_via_relay = state.with_session(id, |r| r.route.lock().unwrap().as_ref().is_some_and(RouteInfo::via_relay)).unwrap_or(false);
     let away = state.live.lock().unwrap().get(id).is_some_and(|l| l.away);
-    Ok(console_via(&c, session_via_relay || away))
+    session_via_relay || away
 }
 
 /// Refus d'une commande de la Station, comme `StationError::to_json` : `kind`
@@ -1380,6 +1413,10 @@ impl Refusal {
 /// vienne des réglages ou du menu de l'icône (`from_menu` : une notification
 /// à la fin). Rend la version installée.
 fn station_call(app: &AppHandle, id: &str, kind: Kind, force: bool, from_menu: bool) -> Result<Option<String>, Refusal> {
+    // Par le relais, Admin refuse le redémarrage et la mise à jour : l'app ne les demande pas, et dit pourquoi.
+    if computer_via_relay(app, id) {
+        return Err(Refusal::Text(t("station.via_relay", &[])));
+    }
     let console = console_of(app, id).map_err(Refusal::Text)?;
     let device = system::device_info().id;
     let version = match kind {
@@ -1579,9 +1616,21 @@ struct BarShown {
     /// Un avis bref (changement de rôle d'un invité) que la barre montre
     /// quelques secondes, sans prendre le clavier à la session.
     notice: Option<String>,
+    /// L'avis est celui d'une demande à rejoindre : le choisir ouvre le panneau de
+    /// « Partager ».
+    notice_opens_share: bool,
     /// Par où passe la session (puce « Par le relais ») ; absent tant que le cœur
     /// ne l'a pas dit.
     route: Option<relais::RouteView>,
+}
+
+/// `share-request` : une demande à rejoindre arrive pendant que la barre est déjà
+/// ouverte sur la session `id` : l'avis `text`, que la barre ne montre pas si son
+/// panneau de « Partager » est ouvert (il montre la demande).
+#[derive(Clone, Serialize)]
+struct ShareRequestEvent {
+    id: String,
+    text: String,
 }
 
 /// L'invité que sert la barre : son rôle (`spectator`, `player`, `kbm`,
@@ -1819,9 +1868,20 @@ impl HostEvents for UiEvents {
 
     /// Le partage de l'hôte et ses invités (signe de vie d'Admin) : gardés
     /// pour la barre, qui les montre dans son panneau et sa pastille.
+    ///
+    /// Une demande venue par le relais qui arrive pendant la session : l'avis bref
+    /// « {prénom} demande à rejoindre. » (le choisir ouvre le panneau), pour la première
+    /// seulement quand plusieurs arrivent d'un coup (la pastille « 2 demandes » dit le reste).
     fn guests(&self, share: Option<&ShareState>) {
-        *self.share.lock().unwrap() = share.filter(|s| s.open).cloned();
+        let after = share.filter(|s| s.open).cloned();
+        let before = std::mem::replace(&mut *self.share.lock().unwrap(), after.clone());
         share::emit_state(&self.app, &self.id, &self.share);
+        if self.guest.is_none()
+            && let Some(name) = crate::sharing::new_requests(before.as_ref(), after.as_ref()).first()
+        {
+            log::info!("[{}] {name} demande à rejoindre (par le relais)", self.connexion.name);
+            share::request_notice(&self.app, &self.id, &self.connexion.name, name);
+        }
     }
 
     /// Le rôle de l'invité : au départ, puis chaque changement par l'hôte
@@ -1872,6 +1932,11 @@ impl HostEvents for UiEvents {
         }
         let view = relais::RouteView::new(route, i18n::lang());
         let _ = self.app.emit_to("bar", "session-route", RouteEvent { id: self.id.clone(), route: view });
+        // Par le relais ou non : les réglages de l'ordinateur et le menu de l'icône (redémarrage et mise à
+        // jour de la Station) en dépendent.
+        if before.as_ref().is_some_and(RouteInfo::via_relay) != route.via_relay() && self.guest.is_none() {
+            emit_computers(&self.app);
+        }
     }
 
     fn ended(&self, s: &Summary) {
@@ -2822,6 +2887,12 @@ fn show_bar(app: &AppHandle, id: &str, hwnd: isize, pinned: bool) {
 /// invité). La barre se montre alors sans prendre le clavier à la session (une
 /// manette ou une touche en cours ne s'interrompt pas) et repart d'elle-même.
 fn show_bar_with(app: &AppHandle, id: &str, hwnd: isize, pinned: bool, notice: Option<String>) {
+    show_bar_notice(app, id, hwnd, pinned, notice, false);
+}
+
+/// [`show_bar_with`] ; `opens_share` : l'avis est celui d'une demande à rejoindre,
+/// que la barre rend choisissable (il ouvre le panneau de « Partager »).
+fn show_bar_notice(app: &AppHandle, id: &str, hwnd: isize, pinned: bool, notice: Option<String>, opens_share: bool) {
     let state = app.state::<UiState>();
     let Some((label, multi, keep_sound, session, guest, share, route)) = state.with_session(id, |r| {
         (
@@ -2870,7 +2941,7 @@ fn show_bar_with(app: &AppHandle, id: &str, hwnd: isize, pinned: bool, notice: O
     window::set_bar_session(Some(session));
     let sessions = state.sessions.lock().unwrap().len();
     let route = route.map(|r| relais::RouteView::new(&r, i18n::lang()));
-    let shown = BarShown { id: id.to_string(), label, pinned, multi, keep_sound, sessions, guest, share, notice, route };
+    let shown = BarShown { id: id.to_string(), label, pinned, multi, keep_sound, sessions, guest, share, notice, notice_opens_share: opens_share, route };
     let _ = app.emit_to("bar", "bar-shown", shown);
     let _ = app.emit_to("bar", "bar-computers", bar_computer_list(app));
 }
@@ -2993,6 +3064,7 @@ pub fn tray_state(app: &AppHandle) -> menu::State {
         .collect();
     let active = state.active_id();
     let full = state.full();
+    let relayed = state.sessions_via_relay();
     let live = state.live.lock().unwrap();
     let computers = computers
         .iter()
@@ -3013,6 +3085,7 @@ pub fn tray_state(app: &AppHandle) -> menu::State {
                 name: c.name.clone(),
                 online: l.and_then(|l| l.online),
                 away: l.is_some_and(|l| l.away),
+                via_relay: l.is_some_and(|l| l.away) || relayed.contains(&c.id),
                 profile: c.settings.profile.clone(),
                 custom: is_custom(&c.settings, pc.as_ref()),
                 can_wake: !c.wake.is_empty(),

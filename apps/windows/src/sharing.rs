@@ -140,6 +140,17 @@ pub fn role_notice(role: ShareRole, previous: Option<ShareRole>) -> Option<&'sta
     }
 }
 
+/// Les demandes venues par le relais qui viennent d'arriver pendant la session
+/// (`after` en a que `before` ne connaissait pas) : le prénom de chacune, dans
+/// l'ordre d'arrivée. L'avis bref « {prénom} demande à rejoindre. » (clé
+/// `share.notice_request`) est dit pour chacune, une fois. Rien tant que
+/// `before` est inconnu : le partage qu'on découvre n'annonce pas ses demandes
+/// déjà là (le panneau les montre).
+pub fn new_requests(before: Option<&ShareState>, after: Option<&ShareState>) -> Vec<String> {
+    let (Some(before), Some(after)) = (before, after) else { return Vec::new() };
+    after.requests().filter(|r| !before.guests.iter().any(|g| g.id == r.id)).map(|r| r.name.clone()).collect()
+}
+
 /// L'étiquette d'un rôle dans la barre de l'invité : « Joueur » dès qu'il a un
 /// droit (manettes, ou clavier et souris), « Spectateur » sinon (la clé du
 /// catalogue de l'app).
@@ -500,8 +511,8 @@ mod tests {
         let state = ShareState {
             open: true,
             code: "123456".into(),
-            link: "kybernow://join?host=192.168.1.100&port=9443&fp=sha256:aa&code=123456&relay=share.kybernow.app%3A8443&sid=abc".into(),
-            web: "https://share.kybernow.app:8443/j/123456".into(),
+            link: "kybernow://join?host=192.168.1.100&port=9443&fp=sha256:aa&code=123456&relay=share.kybernow.app&sid=abc".into(),
+            web: "https://share.kybernow.app/j/123456".into(),
             web_local: "https://192.168.1.100:9443/link/?join=123456".into(),
             relay: Some(ShareRelay { state: ShareRelayState::Joined }),
             // Une demande en attente, un invité accepté venu par le relais, un invité du réseau.
@@ -514,7 +525,7 @@ mod tests {
         assert_eq!(v.guests.iter().map(|g| (g.name.as_str(), g.away)).collect::<Vec<_>>(), [("Noé", true), ("Zoé", false)]);
         assert_eq!(v.relay, Some("joined"));
         // « Copier le lien » copie le lien du relais (`web`), le QR code porte le lien des apps avec `relay` et `sid`.
-        assert_eq!(v.web, "https://share.kybernow.app:8443/j/123456");
+        assert_eq!(v.web, "https://share.kybernow.app/j/123456");
         assert!(v.link.contains("&relay=") && v.link.contains("&sid="));
         // Quatre invités acceptés : la limite ; les demandes n'y comptent pas.
         let mut four = state.clone();
@@ -527,6 +538,28 @@ mod tests {
         // Relais injoignable : le panneau le dit (le texte « Pas encore joignable hors de chez vous. »).
         let down = ShareState { relay: Some(ShareRelay { state: ShareRelayState::Unreachable }), ..state };
         assert_eq!(ShareView::new(Some(&down), None, Lang::Fr).relay, Some("unreachable"));
+    }
+
+    /// Une demande qui arrive pendant la session : son prénom, une seule fois ; une demande déjà là, un invité
+    /// accepté ou le partage qu'on découvre n'en font pas une.
+    #[test]
+    fn demandes_qui_arrivent() {
+        let open = |guests: Vec<ShareGuest>| ShareState { open: true, code: "123456".into(), guests, ..ShareState::default() };
+        let before = open(vec![from_relay("g1", "Léa", true), guest("g2", "Zoé", ShareRole::Spectator)]);
+        let after = open(vec![from_relay("g1", "Léa", true), guest("g2", "Zoé", ShareRole::Spectator), from_relay("g3", "Noé", true), from_relay("g4", "Inès", true)]);
+        assert_eq!(new_requests(Some(&before), Some(&after)), ["Noé", "Inès"], "dans l'ordre d'arrivée");
+        assert!(new_requests(Some(&after), Some(&after)).is_empty(), "le même signe de vie, pas de second avis");
+        // La demande de Léa acceptée : elle devient un invité, pas une nouvelle demande.
+        let accepted = open(vec![from_relay("g1", "Léa", false), guest("g2", "Zoé", ShareRole::Spectator)]);
+        assert!(new_requests(Some(&before), Some(&accepted)).is_empty());
+        // Un partage qu'on découvre (rien avant) ne dit pas ses demandes déjà là ; un partage fermé non plus.
+        assert!(new_requests(None, Some(&after)).is_empty());
+        assert!(new_requests(Some(&after), None).is_empty());
+        // L'avis est celui de link-ui, avec le prénom, dans les deux langues.
+        let fr: serde_json::Value = serde_json::from_str(include_str!("i18n/fr.json")).unwrap();
+        let en: serde_json::Value = serde_json::from_str(include_str!("i18n/en.json")).unwrap();
+        assert_eq!(fr["share"]["notice_request"], "{name} demande à rejoindre.");
+        assert_eq!(en["share"]["notice_request"], "{name} wants to join.");
     }
 
     fn mode(width: u32, height: u32, refresh: u32) -> Mode {
