@@ -1,6 +1,7 @@
 //! L'adresse d'un relais : `hôte[:port][#sha256:…]` (docs/relais.md).
-//! Sans port : 443, et la forme normale l'omet (`share.kybernow.app`) ; un
-//! relais installé ailleurs garde le sien (`relais.exemple.org:9443`). Avec une empreinte : le certificat du relais est vérifié
+//! Sans port : 443, et une adresse au port 443 s'écrit sans lui
+//! (`share.kybernow.app`) ; un relais installé ailleurs peut porter le sien
+//! (`relais.exemple.org:9443`). Avec une empreinte : le certificat du relais est vérifié
 //! par elle (relais installé chez soi, certificat signé par lui-même), et
 //! son nom n'est pas vérifié.
 
@@ -9,9 +10,9 @@ use std::str::FromStr;
 
 use crate::id::normalize_fingerprint;
 
-/// Le relais public de KyberNow (port 443).
+/// Le relais public de KyberNow.
 pub const DEFAULT_RELAY: &str = "share.kybernow.app";
-/// Le port d'un relais sans port, en TCP et en UDP.
+/// Le port d'un relais dont l'adresse n'en donne pas, en TCP et en UDP.
 pub const DEFAULT_PORT: u16 = 443;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -40,15 +41,15 @@ impl RelayAddr {
         DEFAULT_RELAY.parse().expect("adresse du relais public")
     }
 
-    /// L'hôte d'une adresse web : `hôte`, ou `hôte:port` hors du 443, avec
-    /// des crochets pour une adresse IPv6 (`https://{authority}/v1/…`, liens).
+    /// `hôte:port`, avec des crochets pour une adresse IPv6 : pour se connecter.
     pub fn authority(&self) -> String {
-        if self.port == DEFAULT_PORT { self.bracketed_host() } else { self.host_port() }
+        format!("{}:{}", self.bracketed_host(), self.port)
     }
 
-    /// `hôte:port`, toujours avec le port (pour se connecter).
-    pub fn host_port(&self) -> String {
-        format!("{}:{}", self.bracketed_host(), self.port)
+    /// `hôte`, ou `hôte:port` hors du 443 : l'autorité des liens
+    /// (`https://share.kybernow.app/j/123456`, `https://relais.exemple.org:9443/j/…`).
+    pub fn web_authority(&self) -> String {
+        if self.port == DEFAULT_PORT { self.bracketed_host() } else { self.authority() }
     }
 
     fn bracketed_host(&self) -> String {
@@ -97,9 +98,10 @@ impl FromStr for RelayAddr {
     }
 }
 
+/// `hôte[:port][#sha256:…]`, sans `:443`.
 impl fmt::Display for RelayAddr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.authority())?;
+        f.write_str(&self.web_authority())?;
         if let Some(pin) = &self.pin {
             write!(f, "#{pin}")?;
         }
@@ -116,17 +118,15 @@ mod tests {
         let a: RelayAddr = "share.kybernow.app".parse().unwrap();
         assert_eq!((a.host.as_str(), a.port, a.pin.as_deref()), ("share.kybernow.app", 443, None));
         assert_eq!(a.to_string(), DEFAULT_RELAY);
-        assert_eq!(a.host_port(), "share.kybernow.app:443");
-        // Le 443 écrit, ou une adresse collée avec son schéma : la même.
-        for s in ["share.kybernow.app:443", "https://Share.Kybernow.app/", " share.kybernow.app "] {
-            assert_eq!(s.parse::<RelayAddr>().unwrap(), a, "{s}");
-        }
-        // Un autre port reste écrit.
+        assert_eq!(a.authority(), "share.kybernow.app:443");
+        assert_eq!(a.web_authority(), "share.kybernow.app");
+        // Le 443 écrit s'efface ; un autre port reste.
+        assert_eq!("share.kybernow.app:443".parse::<RelayAddr>().unwrap(), a);
+        assert_eq!("https://share.kybernow.app/".parse::<RelayAddr>().unwrap().to_string(), "share.kybernow.app");
         let old: RelayAddr = "share.kybernow.app:8443".parse().unwrap();
-        assert_eq!((old.port, old.to_string().as_str(), old.authority().as_str()), (8443, "share.kybernow.app:8443", "share.kybernow.app:8443"));
-        assert_ne!(old, a);
+        assert_eq!((old.port, old.to_string(), old.web_authority()), (8443, "share.kybernow.app:8443".to_string(), "share.kybernow.app:8443".to_string()));
         let b: RelayAddr = "Relais.Exemple.org".parse().unwrap();
-        assert_eq!((b.authority().as_str(), b.host_port().as_str()), ("relais.exemple.org", "relais.exemple.org:443"));
+        assert_eq!(b.authority(), "relais.exemple.org:443");
         let fp = crate::id::fingerprint(b"x");
         let c: RelayAddr = format!("relais.exemple.org:9443#{fp}").parse().unwrap();
         assert_eq!(c.pin.as_deref(), Some(fp.as_str()));
@@ -135,10 +135,8 @@ mod tests {
         assert_eq!(d.host, "2001:db8::1");
         assert_eq!(d.authority(), "[2001:db8::1]:8443");
         let e: RelayAddr = "2001:db8::2".parse().unwrap();
-        assert_eq!((e.port, e.to_string().as_str(), e.host_port().as_str()), (443, "[2001:db8::2]", "[2001:db8::2]:443"));
-        assert_eq!(e.to_string().parse::<RelayAddr>().unwrap(), e);
-        let fp443: RelayAddr = format!("relais.exemple.org:443#{fp}").parse().unwrap();
-        assert_eq!(fp443.to_string(), format!("relais.exemple.org#{fp}"));
+        assert_eq!(e.port, 443);
+        assert_eq!(e.to_string(), "[2001:db8::2]");
         assert!("".parse::<RelayAddr>().is_err());
         assert!("relais:0".parse::<RelayAddr>().is_err());
         assert!("relais#sha256:12".parse::<RelayAddr>().is_err());

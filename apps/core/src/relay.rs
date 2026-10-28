@@ -498,7 +498,8 @@ pub(crate) fn lookup_with(relay: &RelayAddr, code: &str, roots: Option<Arc<rustl
     }
     let tls = kybernow_tunnel::tls::client_config(relay, roots, b"http/1.1", None).map_err(|e| RelayError::Bad(e.to_string()))?;
     let agent = ureq::AgentBuilder::new().tls_config(Arc::new(tls)).timeout_connect(Duration::from_secs(4)).timeout(Duration::from_secs(6)).build();
-    let url = format!("https://{}{}", relay.authority(), kybernow_tunnel::lookup::lookup_path(code));
+    // `https://share.kybernow.app/v1/codes/…` : sans « :443 ».
+    let url = format!("https://{}{}", relay.web_authority(), kybernow_tunnel::lookup::lookup_path(code));
     let r = agent.get(&url).set("Accept-Language", i18n::current().code()).call();
     match r {
         Ok(resp) => {
