@@ -86,7 +86,7 @@ Contract: [kybernow-share.en.md](kybernow-share.en.md), and [relais.en.md](relai
 | Help | « Sur le même réseau : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur. » | “On the same network: “Join with a code” in KyberNow Link, or this link in a browser.” |
 | Help, relay reached (`relay.state` `joined`) | « Sur le même réseau ou ailleurs : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur. Hors de chez vous, vous acceptez chaque invité. »; “Copy link” then copies the relay's link | “On the same network or elsewhere: “Join with a code” in KyberNow Link, or this link in a browser. Away from home, you accept each guest.” |
 | Relay unreachable (`relay.state` `unreachable`), under the same-network help | « Pas encore joignable hors de chez vous. » | “Not reachable away from home yet.” |
-| Requests (guests who came through the relay, `pending`), above the guests, only when there are some | title « Demandes »; « {prénom} demande à rejoindre », below « {app} · hors de chez vous »; buttons « Accepter » and « Refuser » | “Requests”; “{name} wants to join”, below “{app} · away from home”; “Accept” and “Decline” |
+| Requests (guests who came through the relay, `pending`), above the guests, only when there are some | title « Demandes »; « {prénom} demande à rejoindre », below « {app} · hors de chez vous »; buttons « Accepter » and « Refuser »; « Accepter » inactive when the four places are taken; a request arriving during the session: brief notice « {prénom} demande à rejoindre. » (choosing it opens the panel); subtitle of the “Share” tile in tile menus: « 1 demande · 2 invités » (requests first) | “Requests”; “{name} wants to join”, below “{app} · away from home”; “Accept” and “Decline”; notice “{name} wants to join.”; tile “1 request · 2 guests” |
 | List | title « Invités »; none: « Personne pour l'instant. » | “Guests”; “Nobody yet.” |
 | A guest | « {prénom} · Spectateur » (no right), « {prénom} · Joueur » (controllers), « {prénom} · Clavier et souris », « {prénom} · Joueur, clavier et souris »; below, their app, their picture quality when it is not the host's (“1080p · 60 Hz”) and « depuis {durée} » | “{name} · Spectator”, “{name} · Player”, “{name} · Keyboard and mouse”, “{name} · Player, keyboard and mouse”; “for {duration}” |
 | A guest who came through the relay (`via` `relay`) | « hors de chez vous » after their app: « iPhone ou iPad · hors de chez vous · depuis 3 min » | “away from home”: “iPhone or iPad · away from home · for 3 min” |
@@ -168,13 +168,16 @@ Contract: [relais.en.md](relais.en.md). Through the relay, a session looks like 
 | Home screen, reachable only through the relay | state « Hors de chez vous » (instead of « En ligne ») | “Away from home” |
 | Refusal, access off | « {nom} n'est pas joignable hors de chez vous (accès coupé dans Admin). » | “{name} cannot be reached away from home (access turned off in Admin).” |
 | Refusal, Station absent from the relay | « {nom} n'est pas joignable : l'ordinateur est éteint ou en veille. » | “{name} cannot be reached: the computer is off or asleep.” |
+| When to say these refusals | when the computer is opened away from home (instead of the connection), with its name; the home screen only says the state | |
+| Through the relay, no heavy action | no Station restart or update from the app away from home (Admin refuses them through the relay) | |
+| Waiting guest, share stopped | « Ce partage est arrêté. » | “This share has stopped.” |
 
 **Admin** (Link devices section):
 
 | Item | French | English |
 |---|---|---|
 | Section | « Hors de chez vous » | “Away from home” |
-| Field | « Relais » (default `share.kybernow.app:8443`), help « Le relais fait passer le partage et vos appareils par internet, hors de chez vous. Laissez vide pour ne pas en utiliser. », button « Enregistrer » (then « Enregistré. ») | “Relay”, help “The relay carries sharing and your devices over the internet, away from home. Leave it empty to use none.”, “Save” (then “Saved.”) |
+| Field | « Relais » (default `share.kybernow.app`; without a port, it is 443; a relay installed elsewhere can carry its port, `relais.exemple.org:9443`), help « Le relais fait passer le partage et vos appareils par internet, hors de chez vous. Laissez vide pour ne pas en utiliser. », button « Enregistrer » (then « Enregistré. ») | “Relay”, help “The relay carries sharing and your devices over the internet, away from home. Leave it empty to use none.”, “Save” (then “Saved.”) |
 | State | « Relais joint »; « Relais injoignable ({raison}) », or « Relais injoignable » without a reason; only when an address is set; also in the icon's menu, when a share or the access needs the relay | “Relay reached”; “Relay unreachable ({reason})”, “Relay unreachable” |
 | Switch | « Accès hors de chez vous », help « Vos appareils appairés ouvrent cet ordinateur par le relais quand ils ne sont pas sur votre réseau. » | “Access away from home”, help “Your paired devices open this computer through the relay when they are not on your network.” |
 | Feed | « {appareil} est en session hors de chez vous »; « Accès hors de chez vous activé », « Accès hors de chez vous coupé » | “{device} is in a session away from home”; “Access away from home turned on”, “Access away from home turned off” |
