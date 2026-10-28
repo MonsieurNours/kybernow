@@ -11,8 +11,8 @@ use kybernow_core::relay::{self, RelayAddr, RelayMode, RelayRoute, RouteTranspor
 use crate::exports::{envelope, give, optional, string, Env};
 
 /// Comme `consoleNew`, par le relais quand `route` est donné (`{server,
-/// station, admin_fp}`) ; erreurs du relais : codes 30 (relais muet) et 31
-/// (ordinateur absent du relais).
+/// station, admin_fp}`) ; erreurs du relais : codes 30 (relais muet), 31
+/// (ordinateur absent du relais) et 32 (accès coupé dans Admin).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_consoleNewRelay(
     mut env: Env,
@@ -67,4 +67,26 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_relayPathLa
         _ => return std::ptr::null_mut(),
     };
     give(&mut env, &t.label(i18n::current()))
+}
+
+/// Une adresse de relais sous sa forme normale (`share.kybernow.app` pour le
+/// 443, `relais.exemple.org:9443` sinon) ; `null` si elle ne se lit pas.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_relayNormalize(mut env: Env, _: JClass, addr: JString) -> jstring {
+    let addr = string(&mut env, &addr);
+    match relay::normalize(&addr) {
+        Some(a) => give(&mut env, &a),
+        None => std::ptr::null_mut(),
+    }
+}
+
+/// Le texte de link-ui d'une erreur du relais (30, 31, 32), avec le nom de
+/// l'ordinateur (`name` `null` ou vide : sans nom) ; `null` pour un autre code.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_relayErrorText(mut env: Env, _: JClass, code: jint, name: JString) -> jstring {
+    let name = optional(&mut env, &name).unwrap_or_default();
+    match relay::RelayError::from_code(code) {
+        Some(e) => give(&mut env, &e.text(i18n::current(), Some(&name))),
+        None => std::ptr::null_mut(),
+    }
 }

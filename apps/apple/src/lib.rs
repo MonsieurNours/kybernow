@@ -178,18 +178,20 @@ pub unsafe extern "C" fn kn_console_fingerprint_seen(c: *const KnConsole) -> *mu
 pub const KN_OK: i32 = 0;
 pub const KN_ERROR: i32 = 1;
 pub const KN_CERTIFICATE_CHANGED: i32 = 3;
-/// Par le relais (docs/relais.md) : le relais ne répond pas, ou l'ordinateur
-/// n'y est pas (éteint, en veille) ; `error` porte le texte à montrer.
+/// Par le relais (docs/relais.md) : le relais ne répond pas, l'ordinateur
+/// n'y est pas (éteint, en veille), « Accès hors de chez vous » est coupé
+/// dans Admin (403 `remote_access_off`) ; `error` porte le texte à montrer
+/// (sans le nom de l'ordinateur : `kn_relay_error_text` le donne avec).
 pub const KN_RELAY_UNREACHABLE: i32 = 30;
 pub const KN_RELAY_STATION_OFFLINE: i32 = 31;
+pub const KN_RELAY_ACCESS_OFF: i32 = 32;
 
 fn failure(e: ConsoleError, error: *mut *mut c_char) -> i32 {
-    use kybernow_core::relay::RelayError;
     let code = match &e {
         ConsoleError::Http { status, .. } => -(*status as i32),
         ConsoleError::CertificateChanged { .. } => KN_CERTIFICATE_CHANGED,
-        ConsoleError::Relay(RelayError::StationOffline) => KN_RELAY_STATION_OFFLINE,
-        ConsoleError::Relay(_) => KN_RELAY_UNREACHABLE,
+        // 30, 31, 32 (`RelayError::code`).
+        ConsoleError::Relay(r) => r.code(),
         _ => KN_ERROR,
     };
     give_to(error, e.to_string());
@@ -759,6 +761,16 @@ pub struct KnPlatform {
     /// plus). Puce « Par le relais », ligne « Chemin » (`kn_relay_path_label`),
     /// `route` de la « Dernière session ».
     pub on_route: Option<unsafe extern "C" fn(userdata: *mut c_void, route_json: *const c_char)>,
+    /// Par le relais : la session finit parce que l'ordinateur n'est pas
+    /// joignable hors de chez soi, juste avant l'état `KN_STATUS_ENDING` ;
+    /// `code` : `KN_RELAY_ACCESS_OFF` (accès coupé dans Admin),
+    /// `KN_RELAY_STATION_OFFLINE` (éteint ou en veille),
+    /// `KN_RELAY_UNREACHABLE` (relais muet) ; `text` : le texte de link-ui,
+    /// qui est aussi la raison de la fin, avec le nom de l'ordinateur donné
+    /// à `kn_focus_register` (sans nom sinon ; `kn_relay_error_text` le
+    /// refait avec un nom). Choisir l'état de l'accueil par `code`, jamais
+    /// par le texte.
+    pub on_relay_error: Option<unsafe extern "C" fn(userdata: *mut c_void, code: i32, text: *const c_char)>,
 }
 
 struct ApplePlatform {
@@ -828,6 +840,12 @@ impl Platform for ApplePlatform {
         let Some(f) = self.cb.on_route else { return };
         let c = CString::new(serde_json::to_string(route).unwrap_or_default()).unwrap_or_default();
         unsafe { f(self.cb.userdata, c.as_ptr()) };
+    }
+
+    fn on_relay_error(&self, error: &kybernow_core::relay::RelayError, text: &str) {
+        let Some(f) = self.cb.on_relay_error else { return };
+        let c = CString::new(text.replace('\0', " ")).unwrap_or_default();
+        unsafe { f(self.cb.userdata, error.code(), c.as_ptr()) };
     }
 
     fn on_share_image(&self, image: &ShareImage, previous: Option<&ShareImage>, notice: Option<&str>) {

@@ -35,8 +35,8 @@ pub const STATION_WAIT: Duration = Duration::from_secs(3);
 
 // MARK: - Où passer
 
-/// Une Station par le relais : `server` (le relais, `share.kybernow.app:8443`
-/// ou `hôte:port#sha256:…`), `station` (son identifiant chez le relais, 26
+/// Une Station par le relais : `server` (le relais, `share.kybernow.app`,
+/// `hôte:port` ou `hôte:port#sha256:…` ; sans port, le 443), `station` (son identifiant chez le relais, 26
 /// caractères), `admin_fp` (l'empreinte d'Admin, obligatoire : jamais de
 /// premier contact par le relais).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -64,7 +64,7 @@ impl RelayRoute {
 /// chaque ordinateur.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RelayInfo {
-    /// Le relais de la Station (`share.kybernow.app:8443`).
+    /// Le relais de la Station (`share.kybernow.app`, ou `hôte:port`).
     #[serde(default)]
     pub server: String,
     /// Son identifiant chez le relais.
@@ -79,10 +79,21 @@ impl RelayInfo {
     /// La route de cette Station par son relais, Admin épinglé sur
     /// `admin_fp` (celle que l'app garde pour l'ordinateur). `None` sans
     /// relais ni identifiant, ou sans empreinte.
+    /// Le relais sous sa forme normale ([`normalize`]).
     pub fn route(&self, admin_fp: &str) -> Option<RelayRoute> {
         let route = RelayRoute { server: self.server.clone(), station: self.id.clone(), admin_fp: admin_fp.trim().to_string() };
-        route.relay_addr().ok().map(|_| route)
+        let relay = route.relay_addr().ok()?;
+        Some(RelayRoute { server: relay.to_string(), ..route })
     }
+}
+
+/// Une adresse de relais sous sa forme normale : nom en minuscules, sans
+/// schéma, sans port quand c'est le 443 (`share.kybernow.app`), avec lui
+/// sinon (`relais.exemple.org:9443`), empreinte épinglée gardée. `None` si
+/// elle ne se lit pas. Deux relais sont le même si leurs formes normales
+/// sont égales.
+pub fn normalize(addr: &str) -> Option<String> {
+    addr.parse::<RelayAddr>().ok().map(|a| a.to_string())
 }
 
 /// `KYBERNOW_RELAY` : `force` (toujours par le relais, pour essayer à la
@@ -132,6 +143,9 @@ pub enum RelayError {
     TooMany { seconds: Option<u64> },
     /// Route ou adresse illisible.
     Bad(String),
+    /// Admin, joint par le relais, refuse : « Accès hors de chez vous » est
+    /// coupé (403 `remote_access_off`).
+    AccessOff,
 }
 
 impl RelayError {
@@ -145,21 +159,54 @@ impl RelayError {
             (Self::Refused(why), _) => tr(lang, "relay.refused", &[("reason", why)]),
             (Self::TooMany { .. }, _) => tr(lang, "share.too_many", &[]),
             (Self::Bad(why), _) => tr(lang, "relay.bad", &[("reason", why)]),
+            (Self::AccessOff, Some(n)) => tr(lang, "relay.access_off_named", &[("name", n)]),
+            (Self::AccessOff, None) => tr(lang, "relay.access_off", &[]),
         }
     }
 
     /// Nom stable pour les ponts : `unreachable`, `station_offline`,
-    /// `refused`, `too_many`, `bad`.
+    /// `access_off`, `refused`, `too_many`, `bad`.
     pub fn kind(&self) -> &'static str {
         match self {
             Self::Unreachable(_) => "unreachable",
             Self::StationOffline => "station_offline",
+            Self::AccessOff => "access_off",
             Self::Refused(_) => "refused",
             Self::TooMany { .. } => "too_many",
             Self::Bad(_) => "bad",
         }
     }
+
+    /// Le code des ponts (C, JNI) : 31 ordinateur absent du relais
+    /// ([`Self::StationOffline`]), 32 accès coupé dans Admin
+    /// ([`Self::AccessOff`]), 30 pour le reste (relais muet, refus du
+    /// relais, adresse illisible).
+    pub fn code(&self) -> i32 {
+        match self {
+            Self::StationOffline => CODE_STATION_OFFLINE,
+            Self::AccessOff => CODE_ACCESS_OFF,
+            _ => CODE_UNREACHABLE,
+        }
+    }
+
+    /// L'erreur d'un code des ponts (pour en avoir le texte, avec le nom de
+    /// l'ordinateur) ; `None` pour un autre code.
+    pub fn from_code(code: i32) -> Option<Self> {
+        match code {
+            CODE_UNREACHABLE => Some(Self::Unreachable(String::new())),
+            CODE_STATION_OFFLINE => Some(Self::StationOffline),
+            CODE_ACCESS_OFF => Some(Self::AccessOff),
+            _ => None,
+        }
+    }
 }
+
+/// Codes des ponts : relais muet (et le reste des erreurs du relais).
+pub const CODE_UNREACHABLE: i32 = 30;
+/// Codes des ponts : l'ordinateur n'est pas chez le relais (éteint, en veille).
+pub const CODE_STATION_OFFLINE: i32 = 31;
+/// Codes des ponts : « Accès hors de chez vous » coupé dans Admin.
+pub const CODE_ACCESS_OFF: i32 = 32;
 
 impl std::fmt::Display for RelayError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -222,7 +269,7 @@ impl RouteTransport {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct RouteInfo {
     pub transport: RouteTransport,
-    /// Le relais (`share.kybernow.app:8443`), par le relais.
+    /// Le relais (`share.kybernow.app`), par le relais.
     #[serde(default)]
     pub relay: Option<String>,
     /// Aller-retour appareil ↔ relais, en millisecondes.
@@ -397,6 +444,8 @@ pub fn open(route: &RelayRoute) -> Result<RelayTunnel, RelayError> {
 /// [`open`] avec d'autres autorités que celles du web (essais).
 pub(crate) fn open_with(route: &RelayRoute, roots: Option<Arc<rustls::RootCertStore>>) -> Result<RelayTunnel, RelayError> {
     let relay = route.relay_addr()?;
+    // La route gardée porte le relais sous sa forme normale (chemin, journaux).
+    let route = &RelayRoute { server: relay.to_string(), ..route.clone() };
     let key = (relay.to_string(), route.station.clone());
     let cached = cache().lock().unwrap().get(&key).map(|c| c.entry.clone());
     let entry = match cached {
@@ -449,7 +498,8 @@ pub(crate) fn lookup_with(relay: &RelayAddr, code: &str, roots: Option<Arc<rustl
     }
     let tls = kybernow_tunnel::tls::client_config(relay, roots, b"http/1.1", None).map_err(|e| RelayError::Bad(e.to_string()))?;
     let agent = ureq::AgentBuilder::new().tls_config(Arc::new(tls)).timeout_connect(Duration::from_secs(4)).timeout(Duration::from_secs(6)).build();
-    let url = format!("https://{}{}", relay.authority(), kybernow_tunnel::lookup::lookup_path(code));
+    // `https://share.kybernow.app/v1/codes/…` : sans « :443 ».
+    let url = format!("https://{}{}", relay.web_authority(), kybernow_tunnel::lookup::lookup_path(code));
     let r = agent.get(&url).set("Accept-Language", i18n::current().code()).call();
     match r {
         Ok(resp) => {
@@ -504,12 +554,29 @@ mod tests {
         assert!(RelayRoute { server: "a b".into(), ..r.clone() }.relay_addr().is_err());
         let pinned = RelayRoute { server: "relais.exemple.org:9443#sha256:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB".into(), ..r.clone() };
         assert_eq!(pinned.relay_addr().unwrap().pin.as_deref(), Some("sha256:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab"), "relais chez soi, épinglé");
-        // info.relay : gardé par l'app, route avec l'empreinte d'Admin connue.
-        let info: RelayInfo = serde_json::from_str(r#"{"server":"share.kybernow.app:8443","id":"abcdefghijklmnopqrstuvwxyz","remote_access":true}"#).unwrap();
+        // info.relay : gardé par l'app, route avec l'empreinte d'Admin connue,
+        // relais sous sa forme normale (le 443 sans port).
+        let info: RelayInfo = serde_json::from_str(r#"{"server":"Share.Kybernow.app:443","id":"abcdefghijklmnopqrstuvwxyz","remote_access":true}"#).unwrap();
         assert!(info.remote_access);
         assert_eq!(info.route("sha256:aa"), Some(r));
         assert_eq!(info.route(""), None);
-        assert_eq!(RelayInfo { id: String::new(), ..info }.route("sha256:aa"), None);
+        assert_eq!(RelayInfo { id: String::new(), ..info.clone() }.route("sha256:aa"), None);
+        let other = RelayInfo { server: "relais.exemple.org:9443".into(), ..info };
+        assert_eq!(other.route("sha256:aa").unwrap().server, "relais.exemple.org:9443");
+    }
+
+    #[test]
+    fn adresses_normales() {
+        assert_eq!(DEFAULT_RELAY, "share.kybernow.app");
+        assert_eq!(RelayAddr::public().port, 443);
+        for s in ["share.kybernow.app", "share.kybernow.app:443", "https://share.kybernow.app/", " SHARE.kybernow.app "] {
+            assert_eq!(normalize(s).as_deref(), Some("share.kybernow.app"), "{s}");
+        }
+        assert_eq!(normalize("share.kybernow.app:8443").as_deref(), Some("share.kybernow.app:8443"));
+        assert_eq!(normalize("relais.exemple.org:9443").as_deref(), Some("relais.exemple.org:9443"));
+        assert_eq!(normalize("[2001:db8::1]:443").as_deref(), Some("[2001:db8::1]"));
+        assert_eq!(normalize("a b"), None);
+        assert_eq!(normalize(""), None);
     }
 
     #[test]
@@ -525,7 +592,7 @@ mod tests {
         let i = RouteInfo { transport: RouteTransport::RelayTcp, relay: Some(DEFAULT_RELAY.into()), rtt_client: Some(12.26), rtt_station: None };
         assert_eq!(
             serde_json::to_value(&i).unwrap(),
-            serde_json::json!({ "transport": "relay_tcp", "relay": "share.kybernow.app:8443", "rtt_client": 12.26, "rtt_station": null })
+            serde_json::json!({ "transport": "relay_tcp", "relay": "share.kybernow.app", "rtt_client": 12.26, "rtt_station": null })
         );
         assert_eq!(i.rounded().rtt_client, Some(12.5));
         assert!(i.via_relay() && !RouteInfo::direct().via_relay());
@@ -546,6 +613,19 @@ mod tests {
         assert!(RelayError::StationOffline.text(Lang::Fr, None).contains("éteint ou en veille"));
         assert_eq!(RelayError::from(TunnelError::StationOffline), RelayError::StationOffline);
         assert!(matches!(RelayError::from(TunnelError::Timeout), RelayError::Unreachable(_)));
+        // Accès coupé dans Admin (docs/link-ui.md, « Hors de chez vous »).
+        assert_eq!(RelayError::AccessOff.text(Lang::Fr, Some("PC-ATELIER")), "PC-ATELIER n'est pas joignable hors de chez vous (accès coupé dans Admin).");
+        assert_eq!(RelayError::AccessOff.text(Lang::En, Some("PC-ATELIER")), "PC-ATELIER cannot be reached away from home (access turned off in Admin).");
+        assert_eq!(RelayError::AccessOff.text(Lang::Fr, None), "L'accès hors de chez vous est coupé dans Admin.");
+        assert_eq!(RelayError::AccessOff.text(Lang::En, Some(" ")), "Access away from home is turned off in Admin.");
+        // Codes des ponts, et retour au texte avec le nom.
+        let codes = [(RelayError::Unreachable("x".into()), 30, "unreachable"), (RelayError::StationOffline, 31, "station_offline"), (RelayError::AccessOff, 32, "access_off")];
+        for (e, code, kind) in codes {
+            assert_eq!((e.code(), e.kind()), (code, kind));
+            assert_eq!(RelayError::from_code(code).map(|r| r.text(Lang::Fr, Some("Atelier"))), Some(e.text(Lang::Fr, Some("Atelier"))));
+        }
+        assert_eq!((RelayError::Refused("banned".into()).code(), RelayError::TooMany { seconds: None }.code(), RelayError::Bad("x".into()).code()), (30, 30, 30));
+        assert_eq!(RelayError::from_code(0), None);
     }
 
     #[test]
@@ -754,7 +834,7 @@ pub(crate) mod essai {
     #[test]
     fn console_et_code_par_le_relais() {
         let bench = start(Arc::new(|method, path| match (method, path) {
-            ("GET", "/api/stream/info") => (200, r#"{"hostname":"PC-RELAIS","relay":{"server":"share.kybernow.app:8443","id":"x","remote_access":true}}"#.into()),
+            ("GET", "/api/stream/info") => (200, r#"{"hostname":"PC-RELAIS","relay":{"server":"share.kybernow.app","id":"x","remote_access":true}}"#.into()),
             _ => (404, r#"{"error":"inconnu"}"#.into()),
         }));
         let route = bench.route();

@@ -970,6 +970,9 @@ pub enum ShareError {
     Expired,
     /// Par le relais : trois demandes attendent déjà l'accord de l'hôte.
     PendingFull,
+    /// Par le relais : l'hôte a arrêté le partage pendant l'attente de son
+    /// accord (`wait` : `{"error":"stopped"}`) : « Ce partage est arrêté. »
+    Stopped,
     /// Le reste : Admin injoignable, certificat changé, réponse illisible,
     /// relais muet (`ConsoleError::Relay`).
     Other(ConsoleError),
@@ -985,12 +988,13 @@ impl ShareError {
             Self::Refused => tr(lang, "share.refused", &[]),
             Self::Expired => tr(lang, "share.expired", &[]),
             Self::PendingFull => tr(lang, "share.pending_full", &[]),
+            Self::Stopped => tr(lang, "share.share_stopped", &[]),
             Self::Other(e) => e.text(lang),
         }
     }
 
     /// Nom stable pour les ponts : `no_share`, `full`, `too_many`,
-    /// `unreadable`, `other`.
+    /// `unreadable`, `refused`, `expired`, `pending_full`, `stopped`, `other`.
     pub fn kind(&self) -> &'static str {
         match self {
             Self::NoShare => "no_share",
@@ -1000,6 +1004,7 @@ impl ShareError {
             Self::Refused => "refused",
             Self::Expired => "expired",
             Self::PendingFull => "pending_full",
+            Self::Stopped => "stopped",
             Self::Other(_) => "other",
         }
     }
@@ -1134,7 +1139,7 @@ pub fn parse_link(url: &str) -> Option<JoinLink> {
         if host.is_empty() {
             return None;
         }
-        let relay = get("relay").map(|r| r.trim().to_string()).filter(|r| r.parse::<RelayAddr>().is_ok());
+        let relay = get("relay").and_then(|r| crate::relay::normalize(&r));
         let sid = get("sid").map(|s| s.trim().to_ascii_lowercase()).filter(|s| kybernow_tunnel::id::is_station_id(s));
         return Some(JoinLink { host, port, fingerprint, code, relay, sid });
     }
@@ -1374,10 +1379,11 @@ pub fn cancel(pending: &PendingJoin) {
 
 use crate::console::JoinAnswer as JoinAnswerRef;
 
-/// Les relais à interroger, sans doublon (le relais par défaut si la liste est vide).
+/// Les relais à interroger, sans doublon : ceux donnés, et toujours le relais
+/// public (`share.kybernow.app`), celui de toute Station sans réglage.
 fn unique_relays(relays: &[RelayAddr]) -> Vec<RelayAddr> {
     let mut out: Vec<RelayAddr> = Vec::new();
-    for r in relays.iter().cloned().chain(relays.is_empty().then(RelayAddr::public)) {
+    for r in relays.iter().cloned().chain(std::iter::once(RelayAddr::public())) {
         if !out.iter().any(|o| o.host == r.host && o.port == r.port) {
             out.push(r);
         }
@@ -1890,15 +1896,20 @@ mod tests {
         let l = parse_link("https://192.168.1.20:24811/link/?join=123456").unwrap();
         assert_eq!(l, JoinLink { host: "192.168.1.20".into(), port: 24811, fingerprint: None, code: "123456".into(), relay: None, sid: None });
         // Hors de chez soi : `relay` (avec son empreinte éventuelle, encodée) et `sid`.
-        let l = parse_link("kybernow://join?host=192.168.1.20&port=24811&fp=sha256%3Aaa&code=123456&relay=share.kybernow.app%3A8443&sid=ABCDEFGHIJKLMNOPQRSTUVWXYZ").unwrap();
-        assert_eq!((l.relay.as_deref(), l.sid.as_deref()), (Some("share.kybernow.app:8443"), Some("abcdefghijklmnopqrstuvwxyz")));
+        let l = parse_link("kybernow://join?host=192.168.1.20&port=24811&fp=sha256%3Aaa&code=123456&relay=share.kybernow.app&sid=ABCDEFGHIJKLMNOPQRSTUVWXYZ").unwrap();
+        assert_eq!((l.relay.as_deref(), l.sid.as_deref()), (Some("share.kybernow.app"), Some("abcdefghijklmnopqrstuvwxyz")));
         assert_eq!(
             l.relay_route(),
-            Some(RelayRoute { server: "share.kybernow.app:8443".into(), station: "abcdefghijklmnopqrstuvwxyz".into(), admin_fp: "sha256:aa".into() }),
+            Some(RelayRoute { server: "share.kybernow.app".into(), station: "abcdefghijklmnopqrstuvwxyz".into(), admin_fp: "sha256:aa".into() }),
             "de bout en bout : Admin épinglé sur l'empreinte du lien"
         );
+        // Le relais sous sa forme normale : sans port, le 443 ; un autre port reste écrit.
+        for (relay, normal) in [("share.kybernow.app%3A443", "share.kybernow.app"), ("Share.Kybernow.App", "share.kybernow.app"), ("relais.exemple.org%3A9443", "relais.exemple.org:9443")] {
+            let l = parse_link(&format!("kybernow://join?host=h&port=1&fp=sha256%3Aaa&code=123456&relay={relay}&sid=abcdefghijklmnopqrstuvwxyz")).unwrap();
+            assert_eq!(l.relay.as_deref(), Some(normal), "{relay}");
+        }
         let l = parse_link("kybernow://join?host=h&port=1&code=123456&relay=relais.exemple.org%3A9443%23sha256%3AAB%3AAB%3AAB%3AAB%3AAB%3AAB%3AAB%3AAB%3AAB%3AAB%3AAB%3AAB%3AAB%3AAB%3AAB%3AAB%3AAB%3AAB%3AAB%3AAB%3AAB%3AAB%3AAB%3AAB%3AAB%3AAB%3AAB%3AAB%3AAB%3AAB%3AAB%3AAB&sid=abcdefghijklmnopqrstuvwxyz").unwrap();
-        assert_eq!(l.relay.as_deref(), Some("relais.exemple.org:9443#sha256:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB"), "relais chez soi, épinglé");
+        assert_eq!(l.relay.as_deref(), Some("relais.exemple.org:9443#sha256:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab:ab"), "relais chez soi, épinglé, sous sa forme normale");
         assert_eq!(l.relay_route(), None, "sans `fp`, pas par le relais : jamais de premier contact");
         let l = parse_link("kybernow://join?host=h&port=1&fp=sha256:aa&code=123456&relay=share.kybernow.app&sid=pas-un-id").unwrap();
         assert_eq!((l.sid.clone(), l.relay_route()), (None, None), "identifiant illisible : écarté");
@@ -1969,7 +1980,7 @@ mod tests {
         assert!(matches!(j, Joining::Pending(_)));
         assert_eq!(
             seen.into_inner().unwrap(),
-            Some(RelayRoute { server: "share.kybernow.app:8443".into(), station: "abcdefghijklmnopqrstuvwxyz".into(), admin_fp: "sha256:ad".into() }),
+            Some(RelayRoute { server: "share.kybernow.app".into(), station: "abcdefghijklmnopqrstuvwxyz".into(), admin_fp: "sha256:ad".into() }),
             "Admin épinglé sur l'empreinte attestée"
         );
         // Le réseau lent : 1,5 s puis le relais, sans attendre la fin du réseau.
@@ -1997,12 +2008,15 @@ mod tests {
         assert!(matches!(e, ShareError::TooManyTries { seconds: Some(60) }));
         // Relais par défaut quand l'app n'en connaît aucun ; pas de doublon.
         assert_eq!(unique_relays(&[]), vec![RelayAddr::public()]);
-        assert_eq!(unique_relays(&[RelayAddr::public(), "share.kybernow.app".parse().unwrap()]).len(), 1);
+        assert_eq!(unique_relays(&[RelayAddr::public(), "share.kybernow.app:443".parse().unwrap()]), vec![RelayAddr::public()]);
+        // Le relais public toujours, après ceux des ordinateurs connus.
+        let home: RelayAddr = "relais.exemple.org:9443".parse().unwrap();
+        assert_eq!(unique_relays(&[home.clone()]), vec![home, RelayAddr::public()]);
     }
 
     #[test]
     fn rejoindre_par_un_lien() {
-        let route = RelayRoute { server: "share.kybernow.app:8443".into(), station: "abcdefghijklmnopqrstuvwxyz".into(), admin_fp: "sha256:ad".into() };
+        let route = RelayRoute { server: "share.kybernow.app".into(), station: "abcdefghijklmnopqrstuvwxyz".into(), admin_fp: "sha256:ad".into() };
         // Sur le réseau d'abord.
         let j = join_link_with(|| Ok(found("pc")), Some(route.clone()), |_| panic!("pas par le relais"), FAST).unwrap();
         assert!(matches!(j, Joining::Joined(_)));
@@ -2022,7 +2036,7 @@ mod tests {
 
     #[test]
     fn demande_en_attente_en_json() {
-        let route = RelayRoute { server: "share.kybernow.app:8443".into(), station: "abcdefghijklmnopqrstuvwxyz".into(), admin_fp: "sha256:ad".into() };
+        let route = RelayRoute { server: "share.kybernow.app".into(), station: "abcdefghijklmnopqrstuvwxyz".into(), admin_fp: "sha256:ad".into() };
         let p = PendingJoin { route, guest: "g1".into(), secret: "s3cr3t".into(), expires: 120, auto: None };
         let v = serde_json::to_value(Joining::Pending(p.clone())).unwrap();
         assert_eq!(v["pending"]["guest"], "g1");
@@ -2085,7 +2099,7 @@ mod tests {
     fn demandes_de_l_hote_et_relais_du_partage() {
         // La vue du partage d'une Station avec relais : une demande et un invité venu du réseau.
         let state: ShareState = serde_json::from_str(
-            r#"{"open":true,"code":"123456","link":"kybernow://join?x","web":"https://share.kybernow.app:8443/j/123456",
+            r#"{"open":true,"code":"123456","link":"kybernow://join?x","web":"https://share.kybernow.app/j/123456",
                 "web_local":"https://192.168.1.100:9443/link/?join=123456","relay":{"state":"joined"},
                 "guests":[{"id":"g1","name":"Léa","app":"ios","role":"spectator","since":1,"pending":true,"via":"relay"},
                           {"id":"g2","name":"Noé","app":"mac","role":"player","since":2,"pending":false,"via":"lan"},
@@ -2120,7 +2134,7 @@ mod tests {
     fn ouverture_du_partage_avec_relais() {
         // La réponse de `open` porte l'état du relais dès le premier affichage du panneau.
         let opened: ShareOpened = serde_json::from_str(
-            r#"{"open":true,"code":"482915","link":"kybernow://join?x","web":"https://share.kybernow.app:8443/j/482915",
+            r#"{"open":true,"code":"482915","link":"kybernow://join?x","web":"https://share.kybernow.app/j/482915",
                 "web_local":"https://192.168.1.20:37462/link/?join=482915","relay":{"state":"joined"},"display":{"id":1,"label":"Écran 1"}}"#,
         )
         .unwrap();

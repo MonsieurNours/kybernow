@@ -62,6 +62,22 @@ impl std::error::Error for ConsoleError {}
 
 pub type Result<T> = std::result::Result<T, ConsoleError>;
 
+/// Une réponse d'erreur d'Admin : `{"error":"<texte>","code":"<code>"}`.
+/// Par le relais, l'accès coupé dans Admin (403 `remote_access_off`) devient
+/// [`crate::relay::RelayError::AccessOff`], pour que les apps ne le
+/// reconnaissent pas à son texte.
+fn http_error(status: u16, body: Option<serde_json::Value>) -> ConsoleError {
+    let code = body.as_ref().and_then(|v| v.get("code")).and_then(|c| c.as_str()).unwrap_or_default();
+    if status == 403 && code == "remote_access_off" {
+        return ConsoleError::Relay(crate::relay::RelayError::AccessOff);
+    }
+    let message = body
+        .as_ref()
+        .and_then(|v| v.get("error").and_then(|e| e.as_str()).map(str::to_owned))
+        .unwrap_or_else(|| tr(i18n::current(), "console.http_status", &[("status", &status.to_string())]));
+    ConsoleError::Http { status, message }
+}
+
 /// Empreinte d'un certificat au format des apps : `sha256:aa:bb:…`.
 pub fn fingerprint(der: &[u8]) -> String {
     let digest = Sha256::digest(der);
@@ -668,14 +684,7 @@ impl Console {
     fn read<T: for<'de> Deserialize<'de>>(&self, r: std::result::Result<ureq::Response, ureq::Error>) -> Result<T> {
         match r {
             Ok(resp) => resp.into_json().map_err(|e| ConsoleError::Invalid(e.to_string())),
-            Err(ureq::Error::Status(status, resp)) => {
-                let message = resp
-                    .into_json::<serde_json::Value>()
-                    .ok()
-                    .and_then(|v| v.get("error").and_then(|e| e.as_str()).map(str::to_owned))
-                    .unwrap_or_else(|| tr(i18n::current(), "console.http_status", &[("status", &status.to_string())]));
-                Err(ConsoleError::Http { status, message })
-            }
+            Err(ureq::Error::Status(status, resp)) => Err(http_error(status, resp.into_json::<serde_json::Value>().ok())),
             Err(ureq::Error::Transport(t)) => {
                 let text = t.to_string();
                 if let Some(e) = self.relay.as_ref().and_then(|l| l.error.lock().unwrap().take()) {
@@ -1059,6 +1068,8 @@ fn join_answer(status: u16, v: serde_json::Value) -> std::result::Result<JoinAns
 fn share_refusal(status: u16, body: &serde_json::Value, retry_after: Option<u64>) -> ShareError {
     let code = body.get("error").and_then(|e| e.as_str()).unwrap_or_default();
     match (status, code) {
+        // L'hôte arrête le partage pendant qu'un invité attend son accord.
+        (_, "stopped") => ShareError::Stopped,
         (404 | 405, _) => ShareError::NoShare,
         (409, "full") => ShareError::Full,
         (409, "pending_full") => ShareError::PendingFull,
@@ -1309,6 +1320,25 @@ mod tests {
         assert!(matches!(share_refusal(404, &serde_json::json!({ "error": "no_share" }), None), ShareError::NoShare));
         assert!(matches!(share_refusal(429, &serde_json::Value::Null, Some(4)), ShareError::TooManyTries { seconds: Some(4) }));
         assert!(matches!(share_refusal(500, &serde_json::Value::Null, None), ShareError::Other(ConsoleError::Http { status: 500, .. })));
+        // Partage arrêté pendant l'attente : « Ce partage est arrêté. », pas « Aucun partage avec ce code ».
+        assert!(matches!(share_refusal(410, &serde_json::json!({ "error": "stopped" }), None), ShareError::Stopped));
+        assert!(matches!(share_refusal(404, &serde_json::json!({ "error": "stopped" }), None), ShareError::Stopped));
+        assert!(matches!(share_refusal(410, &serde_json::Value::Null, None), ShareError::Expired));
+        assert_eq!(ShareError::Stopped.text(Lang::Fr), "Ce partage est arrêté.");
+        assert_eq!(ShareError::Stopped.text(Lang::En), "This share has stopped.");
+        assert_eq!(ShareError::Stopped.kind(), "stopped");
+    }
+
+    #[test]
+    fn acces_coupe_par_le_relais() {
+        use crate::relay::RelayError;
+        let off = serde_json::json!({ "error": "L'accès hors de chez vous est coupé dans Admin.", "code": "remote_access_off" });
+        assert!(matches!(http_error(403, Some(off)), ConsoleError::Relay(RelayError::AccessOff)));
+        let other = serde_json::json!({ "error": "Pas par le relais.", "code": "relay_forbidden" });
+        assert!(matches!(http_error(403, Some(other)), ConsoleError::Http { status: 403, ref message } if message == "Pas par le relais."));
+        assert!(matches!(http_error(401, Some(serde_json::json!({ "error": "compte" }))), ConsoleError::Http { status: 401, ref message } if message == "compte"));
+        assert!(matches!(http_error(502, None), ConsoleError::Http { status: 502, .. }));
+        assert_eq!(ConsoleError::Relay(RelayError::AccessOff).text(Lang::Fr), "L'accès hors de chez vous est coupé dans Admin.");
     }
 
     #[test]

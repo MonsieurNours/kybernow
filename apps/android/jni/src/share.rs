@@ -32,6 +32,7 @@ fn share_envelope(r: Result<Found, ShareError>) -> String {
         ShareError::Refused => 24,
         ShareError::Expired => 25,
         ShareError::PendingFull => 26,
+        ShareError::Stopped => 28,
         ShareError::Other(_) => 1,
     };
     serde_json::json!({ "code": code, "error": e.to_string(), "kind": e.kind() }).to_string()
@@ -72,7 +73,8 @@ fn joining_envelope(r: Result<share::Joining, ShareError>) -> String {
 }
 
 /// « Rejoindre » sur le réseau et hors de chez soi (comme
-/// `kn_share_join_anywhere`) : `relays` `["share.kybernow.app:8443", …]`.
+/// `kn_share_join_anywhere`) : `relays` `["relais.exemple.org:9443", …]` (le
+/// relais public est toujours interrogé en plus).
 /// `value` : `{"joined": {target, joined}}` ou `{"pending": {…}}` ; refus en
 /// plus : 24 refusé, 25 sans réponse, 26 trop de demandes ; 30, 31 relais.
 #[unsafe(no_mangle)]
@@ -110,7 +112,8 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_shareJoinLi
 
 /// L'hôte a-t-il répondu (`pending` : la demande en attente) ? Tenu 25 s au
 /// plus : `{"code": 0, "value": {target, joined}}` (accepté), `{"code": 27}`
-/// (toujours en attente : rappeler), ou un refus (24, 25, 20…). Bloquant.
+/// (toujours en attente : rappeler), ou un refus (24 refusé, 25 sans réponse,
+/// 28 partage arrêté par l'hôte, 20…). Bloquant.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_shareWait(mut env: Env, _: JClass, pending: JString, capabilities: JString) -> jstring {
     let (pending, caps) = (string(&mut env, &pending), optional(&mut env, &capabilities));

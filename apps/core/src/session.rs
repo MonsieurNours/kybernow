@@ -465,6 +465,15 @@ pub trait Platform: Send + Sync {
     /// la barre, ligne « Chemin » des statistiques, `route` de la « Dernière
     /// session ».
     fn on_route(&self, _route: &crate::relay::RouteInfo) {}
+    /// Par le relais : la session finit parce que l'ordinateur n'est pas
+    /// joignable hors de chez soi, juste avant [`Self::on_ending`] :
+    /// [`RelayError::AccessOff`](crate::relay::RelayError::AccessOff) (accès
+    /// coupé dans Admin), `StationOffline` (éteint ou en veille),
+    /// `Unreachable` (relais muet). `text` : le texte de link-ui avec le nom
+    /// de l'ordinateur ([`Session::set_name`], sans nom sinon), qui est aussi
+    /// la raison de la fin. L'app choisit ce qu'elle montre (état de
+    /// l'accueil, « Réessayer ») par l'erreur ou son code, jamais par le texte.
+    fn on_relay_error(&self, _error: &crate::relay::RelayError, _text: &str) {}
 }
 
 /// Ce qu'une session d'invité ne fait jamais : chaque appel à Admin ou à
@@ -598,15 +607,23 @@ enum Cause {
 struct Failure {
     text: String,
     cause: Option<Cause>,
+    /// Par le relais : l'erreur typée ([`Platform::on_relay_error`]).
+    relay: Option<crate::relay::RelayError>,
 }
 
 impl Failure {
     fn no_image(text: String) -> Self {
-        Self { text, cause: Some(Cause::NoImage) }
+        Self { text, cause: Some(Cause::NoImage), relay: None }
     }
 
     fn kyber(text: String) -> Self {
-        Self { text, cause: Some(Cause::Kyber) }
+        Self { text, cause: Some(Cause::Kyber), relay: None }
+    }
+
+    /// Le relais ne sert pas : le texte de link-ui avec le nom de l'ordinateur
+    /// (`name` vide : sans nom). Jamais de redémarrage de la Station.
+    fn relay(error: crate::relay::RelayError, name: &str) -> Self {
+        Self { text: error.text(i18n::current(), Some(name)), cause: None, relay: Some(error) }
     }
 }
 
@@ -614,7 +631,7 @@ impl Failure {
 /// de redémarrage de la Station.
 impl From<String> for Failure {
     fn from(text: String) -> Self {
-        Self { text, cause: None }
+        Self { text, cause: None, relay: None }
     }
 }
 
@@ -740,7 +757,7 @@ fn repair(
 /// redémarrage devait réparer, la raison dit qu'il n'a pas suffi.
 fn after_restart(f: Failure) -> Failure {
     match f.cause {
-        Some(_) => Failure { text: t("session.after_station_restart", &[("reason", &f.text)]), cause: f.cause },
+        Some(_) => Failure { text: t("session.after_station_restart", &[("reason", &f.text)]), cause: f.cause, relay: None },
         None => f,
     }
 }
@@ -1551,7 +1568,29 @@ impl Worker {
             other => other,
         };
         let failure = failure.map(|f| self.share_reason(f));
+        if let Some(Failure { text, relay: Some(e), .. }) = &failure {
+            self.platform.on_relay_error(e, text);
+        }
         self.finish(failure.map(|f| f.text));
+    }
+
+    /// Le relais ne sert pas : l'échec typé, avec le nom de l'ordinateur
+    /// (celui de la session, ou, pour un invité, celui que donne le partage).
+    fn relay_failure(&self, error: crate::relay::RelayError) -> Failure {
+        let mut name = self.focus.label().name();
+        if name.trim().is_empty() {
+            name = self.guest.as_ref().map(|g| g.joined.computer.clone()).unwrap_or_default();
+        }
+        Failure::relay(error, &name)
+    }
+
+    /// Une erreur d'Admin pendant la mise en route : par le relais, l'échec
+    /// typé (accès coupé, ordinateur absent, relais muet) ; sinon son texte.
+    fn console_failure(&self, error: ConsoleError) -> Failure {
+        match error {
+            ConsoleError::Relay(e) => self.relay_failure(e),
+            other => other.to_string().into(),
+        }
     }
 
     /// Session d'invité qui échoue sans que le partage l'ait dit (Kyber coupé
@@ -1763,13 +1802,13 @@ impl Worker {
         }
     }
 
-    fn prepare(&mut self) -> Result<(), String> {
+    fn prepare(&mut self) -> Result<(), Failure> {
         if !self.host_only(HostOnly::Prepare) {
             return Ok(());
         }
         let console = self.console.clone().expect("console");
         let req = self.prepare_request(self.requested, None);
-        let prepared = console.prepare(&req).map_err(|e| e.to_string())?;
+        let prepared = console.prepare(&req).map_err(|e| self.console_failure(e))?;
         info!(
             "console : écran {:?}, son {:?}, port {:?}",
             prepared.applied, prepared.audio_channels, prepared.kyber_port
@@ -2008,7 +2047,7 @@ impl Worker {
     /// plateforme, puis regardé toutes les 5 s. Sans relais : « Direct ».
     fn open_relay(&mut self, console: &Console) -> Result<(), Failure> {
         if let Some(r) = console.relay_tunnel() {
-            let tunnel = r.map_err(|e| Failure::from(e.text(i18n::current(), Some(&self.focus.label().name()))))?;
+            let tunnel = r.map_err(|e| self.relay_failure(e))?;
             info!("par le relais {} vers {}", tunnel.route().server, tunnel.route().station);
             self.relay_tunnel = Some(tunnel);
             self.route_check_at = Some(Instant::now() + ROUTE_CHECK);
@@ -2024,7 +2063,7 @@ impl Worker {
         match &self.relay_tunnel {
             None => Ok((console.host().to_string(), port)),
             Some(t) => {
-                let a = t.kyber_addr(port).map_err(|e| Failure::from(e.text(i18n::current(), Some(&self.focus.label().name()))))?;
+                let a = t.kyber_addr(port).map_err(|e| self.relay_failure(e))?;
                 Ok(("127.0.0.1".to_string(), a.port()))
             }
         }
@@ -2700,7 +2739,7 @@ impl Worker {
                     ConnectFailedReason::TlsVerificationFailed => t("session.tls", &[]),
                     other => t("session.connect_failed", &[("reason", &format!("{other:?}"))]),
                 };
-                return Some(Failure { text, cause: connect_failed_cause(reason) });
+                return Some(Failure { text, cause: connect_failed_cause(reason), relay: None });
             }
             Event::DataPlaneConnectFailed => return Some(Failure::kyber(t("session.stream_failed", &[]))),
             Event::StreamingStarted => {
@@ -2776,7 +2815,7 @@ impl Worker {
             Event::Stopped { reason } => {
                 if !self.ending {
                     let text = t("session.interrupted", &[("reason", &format!("{reason:?}"))]);
-                    return Some(Failure { text, cause: stopped_cause(reason) });
+                    return Some(Failure { text, cause: stopped_cause(reason), relay: None });
                 }
             }
             Event::InputServiceConnected => self.platform.on_input_connected(),
@@ -2818,7 +2857,7 @@ impl Worker {
     /// là), attend que Kyber l'annonce, puis relance l'image dessus.
     fn restore_screen(&mut self) -> Result<(), String> {
         self.status(Status::Connecting);
-        self.prepare()?;
+        self.prepare().map_err(|f| f.text)?;
         self.wait_until = Some(Instant::now() + Duration::from_secs(3));
         self.choose_display(false);
         Ok(())
@@ -3864,6 +3903,7 @@ mod tests {
         modes: Mutex<Vec<(Mode, bool)>>,
         images: Mutex<Vec<(ShareImage, Option<ShareImage>, Option<String>)>>,
         routes: Mutex<Vec<crate::relay::RouteInfo>>,
+        relay_errors: Mutex<Vec<(crate::relay::RelayError, String)>>,
     }
 
     impl Platform for Recorder {
@@ -3904,6 +3944,10 @@ mod tests {
         }
         fn on_route(&self, route: &crate::relay::RouteInfo) {
             self.routes.lock().unwrap().push(route.clone());
+        }
+        fn on_relay_error(&self, error: &crate::relay::RelayError, text: &str) {
+            self.relay_errors.lock().unwrap().push((error.clone(), text.to_string()));
+            self.events.lock().unwrap().push(format!("relais {}", error.kind()));
         }
         fn on_share_end(&self, end: &ShareEnd, text: &str) {
             self.events.lock().unwrap().push(format!("fin du partage {end:?} : {text}"));
@@ -4421,7 +4465,7 @@ mod tests {
     }
 
     fn relay_route() -> crate::relay::RelayRoute {
-        crate::relay::RelayRoute { server: "share.kybernow.app:8443".into(), station: "abcdefghijklmnopqrstuvwxyz".into(), admin_fp: "sha256:ad".into() }
+        crate::relay::RelayRoute { server: "share.kybernow.app".into(), station: "abcdefghijklmnopqrstuvwxyz".into(), admin_fp: "sha256:ad".into() }
     }
 
     #[test]
@@ -4466,6 +4510,41 @@ mod tests {
         assert!(w.route_check_at.is_none() && w.relay_tunnel.is_none());
         // Kyber sur l'ordinateur, à son port.
         assert_eq!(w.kyber_endpoint(&direct, 24812).map_err(|f| f.text), Ok(("192.0.2.1".to_string(), 24812)));
+    }
+
+    #[test]
+    fn acces_coupe_et_ordinateur_absent_par_le_relais() {
+        use crate::relay::RelayError;
+        // Admin, joint par le relais, refuse : « Accès hors de chez vous » coupé.
+        let bench = crate::relay::essai::start(Arc::new(|method, path| match (method, path) {
+            ("POST", "/api/stream/prepare") => (403, r#"{"error":"L'accès hors de chez vous est coupé dans Admin.","code":"remote_access_off"}"#.into()),
+            _ => (404, r#"{"error":"inconnu"}"#.into()),
+        }));
+        let (mut w, recorder) = worker(crate::profile::Profile::Jeu, two_screens(0));
+        w.focus.label().set("PC-ATELIER");
+        w.params.route = Route::Relay(bench.route());
+        w.params.console_fingerprint = Some(bench.admin_fp.clone());
+        w.run();
+        let text = RelayError::AccessOff.text(i18n::current(), Some("PC-ATELIER"));
+        assert_eq!(*recorder.relay_errors.lock().unwrap(), [(RelayError::AccessOff, text.clone())], "l'erreur typée, avec le nom");
+        let events = recorder.events.lock().unwrap().clone();
+        let at = events.iter().position(|e| e == "relais access_off").expect("dite à la plateforme");
+        assert_eq!(events[at + 1], format!("raison {:?}", Some(&text)), "avant la raison de la fin");
+        assert_eq!(events.last(), Some(&format!("terminée {:?}", Some(&text))));
+        // L'ordinateur n'est pas chez le relais : « éteint ou en veille ».
+        let (w, recorder) = worker(crate::profile::Profile::Jeu, two_screens(0));
+        w.focus.label().set("PC-ATELIER");
+        let f = w.relay_failure(RelayError::StationOffline);
+        assert_eq!((f.text.as_str(), f.cause, f.relay.as_ref()), (RelayError::StationOffline.text(i18n::current(), Some("PC-ATELIER")).as_str(), None, Some(&RelayError::StationOffline)));
+        // Une autre erreur d'Admin reste un texte, sans erreur du relais.
+        let f = w.console_failure(ConsoleError::Http { status: 500, message: "x".into() });
+        assert_eq!(f.relay, None);
+        assert!(recorder.relay_errors.lock().unwrap().is_empty());
+        // Invité sans nom de session : celui de l'ordinateur que donne le partage.
+        let (w, _) = guest(ShareRole::Spectator);
+        let computer = w.guest.as_ref().unwrap().joined.computer.clone();
+        assert!(!computer.is_empty());
+        assert_eq!(w.relay_failure(RelayError::StationOffline).text, RelayError::StationOffline.text(i18n::current(), Some(&computer)));
     }
 
     #[test]
