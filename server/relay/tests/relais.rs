@@ -252,11 +252,11 @@ async fn pages_du_relais() {
         let code = station.agent.reserve(Some("135790")).await.unwrap();
         let home = https(&relay, &pki.roots, DOMAIN, "GET", "/", &[("accept-language", "fr-FR,fr;q=0.9")]).await.unwrap();
         assert_eq!(home.status, 200);
-        assert!(home.body.contains("Montrez votre ordinateur"));
+        assert!(home.body.contains("Découvrir KyberNow"));
         assert!(home.body.contains("Rejoindre avec un code"));
         assert!(home.body.contains(r#"<form method="get" action="/j">"#));
         let home_en = https(&relay, &pki.roots, DOMAIN, "GET", "/", &[("accept-language", "en-GB")]).await.unwrap();
-        assert!(home_en.body.contains("Show your computer"));
+        assert!(home_en.body.contains("Discover KyberNow"));
         assert!(home_en.body.contains("Join with a code"));
         // Le choix du visiteur (?lang=) passe avant le navigateur ; les réponses disent qu'elles varient.
         let chosen = https(&relay, &pki.roots, DOMAIN, "GET", "/?lang=en", &[("accept-language", "fr-FR")]).await.unwrap();

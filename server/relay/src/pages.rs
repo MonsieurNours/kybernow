@@ -73,8 +73,6 @@ fn t(lang: Lang, fr_text: &str, en: &str) -> String {
 /// Les adresses du site de KyberNow, dans la langue de la page.
 struct Site {
     home: &'static str,
-    download: &'static str,
-    guide: &'static str,
     legal: &'static str,
 }
 
@@ -82,14 +80,10 @@ fn site(lang: Lang) -> Site {
     match lang {
         Lang::Fr => Site {
             home: "https://www.kybernow.app/",
-            download: "https://www.kybernow.app/#telecharger",
-            guide: "https://www.kybernow.app/guide/",
             legal: "https://www.kybernow.app/mentions-legales/",
         },
         Lang::En => Site {
             home: "https://www.kybernow.app/en/",
-            download: "https://www.kybernow.app/en/#telecharger",
-            guide: "https://www.kybernow.app/en/guide/",
             legal: "https://www.kybernow.app/en/legal/",
         },
     }
@@ -173,12 +167,8 @@ fn simple(lang: Lang, title: &str, here: &str, body: &str) -> String {
     layout(lang, &format!("{title} · KyberNow Share"), &description, here, false, &main)
 }
 
-/// Un bloc de la liste « Ce que fait KyberNow Share ».
-fn card(icon_name: &str, title: String, text: String) -> String {
-    format!("<article class=\"card\">{}<h3>{title}</h3><p>{text}</p></article>\n", icon(icon_name, "ic-lg"))
-}
-
-/// L'accueil : ce que fait KyberNow Share, et la saisie du code pour rejoindre un partage.
+/// L'accueil : le logo, la saisie du code pour rejoindre un partage, un lien vers le site et la
+/// confidentialité. Rien d'autre : le site présente KyberNow.
 pub fn home(lang: Lang, notice: Option<Notice>) -> String {
     let site = site(lang);
     let tr = |f: &str, e: &str| t(lang, f, e);
@@ -197,236 +187,53 @@ pub fn home(lang: Lang, notice: Option<Notice>) -> String {
     } else {
         (format!("<p class=\"notice\" role=\"alert\">{notice_text}</p>\n"), " autofocus")
     };
-
-    let hero = format!(
-        r##"<section class="wrap hero">
-<div class="hero-copy">
-<h1 class="display">{h1}</h1>
-<p class="lede">{lede}</p>
-<dl class="facts">
-<div><dt>{f1t}</dt><dd>{f1}</dd></div>
-<div><dt>{f2t}</dt><dd>{f2}</dd></div>
-<div><dt>{f3t}</dt><dd>{f3}</dd></div>
-</dl>
-</div>
-<div class="join" id="rejoindre">
-<h2>{join_title}</h2>
+    format!(
+        r##"<!doctype html>
+<html lang="{lang}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#05070A">
+<meta name="robots" content="noindex">
+<link rel="icon" type="image/svg+xml" href="{favicon}">
+<link rel="preload" href="{font}" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="{css}">
+<title>{doc_title}</title>
+</head>
+<body class="solo">
+<main class="solo-in">
+<img class="solo-logo" src="{logo}" alt="KyberNow Share" width="260" height="48">
+<div class="join">
+<h1>{join_title}</h1>
 <p class="help">{help}</p>
 {notice_html}<form method="get" action="/j">
-<input type="hidden" name="lang" value="{lang_code}">
+<input type="hidden" name="lang" value="{lang}">
 <label class="mono-label" for="code">{code}</label>
 <input id="code" name="code" inputmode="numeric" enterkeyhint="go" autocomplete="one-time-code" pattern="[0-9 ]*" maxlength="7" placeholder="123 456" required{autofocus}>
 <button class="btn kn-primary" type="submit">{join}</button>
 </form>
 <p class="hint">{app}</p>
 </div>
-</section>
+<nav class="solo-links"><a href="{site_home}" rel="noopener">{discover}</a><a href="/privacy">{privacy}</a></nav>
+</main>
+</body>
+</html>
 "##,
-        h1 = tr("Montrez votre ordinateur à <strong>vos amis, où qu'ils soient.</strong>", "Show your computer to <strong>your friends, wherever they are.</strong>"),
-        lede = tr(
-            "Avec KyberNow Share, vos invités voient et entendent votre écran. Si vous le décidez, ils jouent avec leurs propres manettes, ou se servent du clavier et de la souris. Ils entrent avec un code à six chiffres, depuis une app KyberNow Link ou un simple navigateur.",
-            "With KyberNow Share, your guests see and hear your screen. If you choose, they can play with their own controllers or use the keyboard and mouse. They get in with a six-digit code, from a KyberNow Link app or a plain browser.",
-        ),
-        f1t = tr("Invités", "Guests"),
-        f1 = tr("Quatre au plus", "Four at most"),
-        f2t = tr("Code", "Code"),
-        f2 = tr("Six chiffres", "Six digits"),
-        f3t = tr("Prix", "Price"),
-        f3 = tr("Gratuit", "Free"),
+        lang = lang.code(),
+        favicon = assets::url("kybernow-favicon.svg"),
+        font = assets::url("archivo.woff2"),
+        css = assets::url("share.css"),
+        logo = assets::url("kybernow-share-dark.svg"),
+        doc_title = tr("Rejoindre un partage · KyberNow Share", "Join a share · KyberNow Share"),
         join_title = tr("Rejoindre avec un code", "Join with a code"),
         help = tr("Le code s'affiche chez la personne qui partage.", "The code is shown by the person sharing."),
         code = tr("Code", "Code"),
         join = tr("Rejoindre", "Join"),
         app = tr("Vous avez KyberNow Link ? Touchez « Rejoindre avec un code » dans l'app.", "Have KyberNow Link? Use “Join with a code” in the app."),
-        lang_code = lang.code(),
-    );
-
-    let how = format!(
-        r##"<section class="wrap section" id="comment">
-<h2 class="title section-head">{title}</h2>
-<div class="how">
-<ol class="steps">
-<li><div><h3>{s1t}</h3><p>{s1}</p></div></li>
-<li><div><h3>{s2t}</h3><p>{s2}</p></div></li>
-<li><div><h3>{s3t}</h3><p>{s3}</p></div></li>
-</ol>
-<!-- Le panneau de l'hôte, recréé avec les textes de docs/link-ui.md -->
-<div class="panel" role="img" aria-label="{panel_alt}">
-<div class="panel-title">{p_title}</div>
-<div class="panel-code"><span class="mono-label">{p_code}</span><b>123 456</b></div>
-<span class="mono-label">{p_requests}</span>
-<div class="row"><div><b>{p_req}</b><small>{p_req_app}</small></div><div class="acts"><span class="pill pill-on">{p_accept}</span><span class="pill">{p_decline}</span></div></div>
-<span class="mono-label">{p_guests}</span>
-<div class="row"><div><b>{p_lea}</b><small>{p_lea_app}</small></div><div class="acts"><span class="pill">{p_give_pads}</span><span class="pill">{p_give_kbm}</span></div></div>
-<div class="row"><div><b>{p_max}</b><small>{p_max_app}</small></div><div class="acts"><span class="pill">{p_take_pads}</span><span class="pill">{p_give_kbm}</span></div></div>
-</div>
-<!-- /panel -->
-</div>
-</section>
-"##,
-        title = tr("Partager en <strong>trois étapes.</strong>", "Sharing in <strong>three steps.</strong>"),
-        s1t = tr("Vous ouvrez le partage", "You open the share"),
-        s1 = tr(
-            "Choisissez « Partager » dans la barre de la session de KyberNow Link, ou « Partager un écran… » dans le menu de KyberNow Station sur le PC, près de l'horloge. Un code à six chiffres s'affiche, avec un lien et un QR code.",
-            "Choose “Share” in the session bar of KyberNow Link, or “Share a screen…” in the KyberNow Station menu on the PC, next to the clock. A six-digit code appears, with a link and a QR code.",
-        ),
-        s2t = tr("Vos invités entrent", "Your guests get in"),
-        s2 = tr(
-            "Ils tapent le code sur cette page ou dans l'app KyberNow Link, ou ils ouvrent votre lien ou scannent le QR code. Un invité qui vient d'internet attend votre accord.",
-            "They type the code on this page or in the KyberNow Link app, or they open your link or scan the QR code. A guest coming from the internet waits for your approval.",
-        ),
-        s3t = tr("Vous choisissez ce qu'ils peuvent faire", "You choose what they can do"),
-        s3 = tr(
-            "Chacun arrive en spectateur. Vous pouvez lui donner ses manettes, le clavier et la souris, ou les deux, et les reprendre quand vous voulez.",
-            "Everyone arrives as a spectator. You can give them their controllers, the keyboard and mouse, or both, and take them back whenever you like.",
-        ),
-        panel_alt = tr(
-            "Le panneau de partage de KyberNow : le code, une demande à accepter et deux invités, chacun avec ses droits.",
-            "The KyberNow share panel: the code, a request to accept and two guests, each with their own rights.",
-        ),
-        p_title = tr("Partager Atelier", "Share Atelier"),
-        p_code = tr("Code", "Code"),
-        p_requests = tr("Demandes", "Requests"),
-        p_req = tr("Camille demande à rejoindre", "Camille wants to join"),
-        p_req_app = tr("iPhone ou iPad · hors de chez vous", "iPhone or iPad · away from home"),
-        p_accept = tr("Accepter", "Accept"),
-        p_decline = tr("Refuser", "Decline"),
-        p_guests = tr("Invités", "Guests"),
-        p_lea = tr("Léa · Spectateur", "Léa · Spectator"),
-        p_lea_app = tr("Navigateur · depuis 3\u{a0}min", "Browser · for 3\u{a0}min"),
-        p_max = tr("Max · Joueur", "Max · Player"),
-        p_max_app = tr("Mac · depuis 12\u{a0}min", "Mac · for 12\u{a0}min"),
-        p_give_pads = tr("Donner les manettes", "Give controllers"),
-        p_take_pads = tr("Reprendre les manettes", "Take back controllers"),
-        p_give_kbm = tr("Donner le clavier et la souris", "Give keyboard and mouse"),
-    );
-
-    let mut cards = String::new();
-    cards.push_str(&card(
-        "game-controller",
-        tr("Spectateur ou joueur", "Spectator or player"),
-        tr(
-            "Un invité arrive en spectateur : il voit et entend votre écran. Si vous le décidez, il devient joueur, et sa manette est vue par votre ordinateur comme une manette de plus.",
-            "A guest arrives as a spectator, seeing and hearing your screen. If you choose, they become a player, and their controller shows up on your computer as one more controller.",
-        ),
-    ));
-    cards.push_str(&card(
-        "cursor-click",
-        tr("Chaque droit se donne à part", "Each right is given separately"),
-        tr(
-            "Les manettes d'un côté, le clavier et la souris de l'autre : ce sont deux droits distincts. Vous donnez ou reprenez chacun à tout moment, invité par invité. Un invité n'a jamais que ce que vous lui donnez, et jamais votre presse-papiers.",
-            "Controllers and keyboard with mouse are two separate rights. You give or take back either one at any time, guest by guest. A guest only ever has what you give them, and never your clipboard.",
-        ),
-    ));
-    cards.push_str(&card(
-        "frame-corners",
-        tr("Une image à la mesure de chaque invité", "A picture sized for each guest"),
-        tr(
-            "Chaque invité reçoit une image adaptée à son écran et à sa connexion. La vôtre passe toujours en premier : rien de ce que fait un invité ne change votre écran ni votre image.",
-            "Each guest gets a picture suited to their screen and their connection. Yours always comes first: nothing a guest does changes your screen or your picture.",
-        ),
-    ));
-    cards.push_str(&card(
-        "globe",
-        tr("Sur le même réseau, ou de n'importe où", "On the same network, or from anywhere"),
-        tr(
-            "Sur le même réseau, le code suffit. Ailleurs, vos invités passent par le relais de KyberNow, avec le même code, le même lien et le même QR code.",
-            "On the same network, the code is enough. Elsewhere, your guests go through the KyberNow relay, with the same code, the same link and the same QR code.",
-        ),
-    ));
-    cards.push_str(&card(
-        "shield-check",
-        tr("Hors de chez vous, vous acceptez chaque invité", "Away from home, you accept each guest"),
-        tr(
-            "Quand un invité arrive d'internet, une demande s'affiche chez vous : vous l'acceptez ou vous la refusez. Sur votre réseau, il n'y a rien à accepter. Quatre invités au plus.",
-            "When a guest arrives from the internet, a request appears on your side and you accept or decline it. On your own network, there is nothing to accept. Four guests at most.",
-        ),
-    ));
-    cards.push_str(&card(
-        "browser",
-        tr("Une app ou un simple navigateur", "An app or a plain browser"),
-        tr(
-            "Dans une app KyberNow Link, choisissez « Rejoindre avec un code ». Sans app, ouvrez le lien ou tapez le code sur cette page : il n'y a rien à installer.",
-            "In a KyberNow Link app, choose “Join with a code”. Without an app, open the link or type the code on this page: there is nothing to install.",
-        ),
-    ));
-
-    let more = format!(
-        r##"<div class="cards cards-more">
-{away}<article class="card card-soon"><div class="head">{pc_icon}<span class="tag">{soon}</span></div><h3>{pc_title}</h3><p>{pc_text}</p></article>
-</div>
-"##,
-        away = card(
-            "desktop-tower",
-            tr("Votre ordinateur, même hors de chez vous", "Your computer, even away from home"),
-            tr(
-                "Le même relais ouvre aussi votre propre ordinateur depuis l'hôtel ou le train, sans VPN. Vos appareils déjà appairés le retrouvent quand ils ne sont pas sur votre réseau. Le réglage « Accès hors de chez vous » se trouve dans Admin, et il reste coupé tant que vous ne l'activez pas.",
-                "The same relay also opens your own computer from the hotel or the train, without a VPN. Your already paired devices find it when they are not on your network. The “Access away from home” setting is in Admin, and it stays off until you turn it on.",
-            ),
-        ),
-        pc_icon = icon("plugs", "ic-lg"),
-        soon = tr("Bientôt", "Coming soon"),
-        pc_title = tr("Prêter votre PC", "Lend your PC"),
-        pc_text = tr(
-            "Un ami utilise votre ordinateur avec un compte à part, dans les apps que vous choisissez, à tour de rôle avec vous. Ce n'est pas encore disponible.",
-            "A friend uses your computer with a separate account, in the apps you choose, taking turns with you. This is not available yet.",
-        ),
-    );
-
-    let features = format!(
-        r##"<section class="wrap section" id="fonctions">
-<h2 class="title section-head">{title}</h2>
-<div class="cards">
-{cards}</div>
-{more}<p class="footnote">{privacy_note} <a href="/privacy">{privacy_link}</a>.</p>
-</section>
-"##,
-        title = tr("Ce que fait <strong>KyberNow Share.</strong>", "What <strong>KyberNow Share</strong> does."),
-        privacy_note = tr(
-            "Dans les apps KyberNow Link, l'image, le son et ce que vous tapez restent chiffrés d'un bout à l'autre : le relais ne les voit pas. Dans un navigateur, il fait suivre la connexion sans rien en garder. Le détail est dans la page",
-            "In the KyberNow Link apps, the picture, the sound and what you type stay encrypted from end to end: the relay cannot see them. In a browser, it passes the connection on and keeps none of it. The details are on the",
-        ),
-        privacy_link = tr("Confidentialité", "Privacy page"),
-    );
-
-    let get = format!(
-        r##"<section class="wrap section" id="installer">
-<div class="get">
-<div>
-<h2>{title}</h2>
-<p>{text}</p>
-</div>
-<div class="acts">
-<a class="btn btn-ghost" href="{download}" rel="noopener">{dl_icon}{download_label}</a>
-<a class="btn btn-ghost" href="{guide}" rel="noopener">{guide_icon}{guide_label}</a>
-</div>
-</div>
-</section>
-"##,
-        title = tr("Ce qu'il vous faut pour partager", "What you need to share"),
-        text = tr(
-            "KyberNow Station, en version 0.8.0 ou plus récente, sur l'ordinateur que vous partagez. Vos invités n'ont rien à installer s'ils passent par un navigateur.",
-            "KyberNow Station, version 0.8.0 or later, on the computer you share. Your guests have nothing to install if they use a browser.",
-        ),
-        download = site.download,
-        guide = site.guide,
-        dl_icon = icon("download-simple", "ic"),
-        guide_icon = icon("book-open-text", "ic"),
-        download_label = tr("Télécharger KyberNow", "Download KyberNow"),
-        guide_label = tr("Lire le guide", "Read the guide"),
-    );
-
-    let main = format!("<main>\n{hero}{how}{features}{get}</main>");
-    layout(
-        lang,
-        &tr("KyberNow Share · Montrez votre ordinateur à vos amis", "KyberNow Share · Show your computer to your friends"),
-        &tr(
-            "Faites voir et entendre votre ordinateur à vos amis, où qu'ils soient, et laissez-les jouer avec leurs manettes si vous le voulez. Ils entrent avec un code à six chiffres, depuis une app KyberNow Link ou un navigateur.",
-            "Let your friends see and hear your computer, wherever they are, and let them play with their own controllers if you wish. They get in with a six-digit code, from a KyberNow Link app or a browser.",
-        ),
-        "/",
-        true,
-        &main,
+        site_home = site.home,
+        discover = tr("Découvrir KyberNow", "Discover KyberNow"),
+        privacy = tr("Confidentialité", "Privacy"),
     )
 }
 
@@ -564,58 +371,30 @@ mod tests {
     }
 
     #[test]
-    fn l_accueil_dit_ce_que_fait_share() {
+    fn l_accueil_garde_l_essentiel() {
         let fr = home(Lang::Fr, None);
         let en = home(Lang::En, None);
-        // Le titre, le champ du code et ce qui est annoncé.
+        // Le logo, le champ du code, « Découvrir KyberNow » et la confidentialité : rien d'autre.
         assert_eq!(fr.matches("<h1").count(), 1);
-        assert!(fr.contains("Montrez votre ordinateur à <strong>vos amis, où qu'ils soient.</strong>"));
-        assert!(en.contains("Show your computer to <strong>your friends, wherever they are.</strong>"));
+        assert!(fr.contains(r#"alt="KyberNow Share""#));
+        assert!(fr.contains("Rejoindre avec un code") && en.contains("Join with a code"));
         assert!(fr.contains(r#"<form method="get" action="/j">"#));
         assert!(fr.contains(r#"name="code""#) && fr.contains(r#"inputmode="numeric""#));
-        for needle in [
-            "Spectateur ou joueur",
-            "Chaque droit se donne à part",
-            "Une image à la mesure de chaque invité",
-            "Sur le même réseau, ou de n'importe où",
-            "Hors de chez vous, vous acceptez chaque invité",
-            "Une app ou un simple navigateur",
-            "Votre ordinateur, même hors de chez vous",
-            "Accès hors de chez vous",
-        ] {
-            assert!(fr.contains(needle), "FR : {needle}");
+        assert!(fr.contains(r#"href="/privacy""#) && fr.contains(">Confidentialité<") && en.contains(">Privacy<"));
+        for page in [&fr, &en] {
+            assert!(!page.contains("<header") && !page.contains("<footer") && !page.contains("<section"));
         }
-        for needle in [
-            "Spectator or player",
-            "Each right is given separately",
-            "A picture sized for each guest",
-            "On the same network, or from anywhere",
-            "Away from home, you accept each guest",
-            "An app or a plain browser",
-            "Your computer, even away from home",
-            "Access away from home",
-        ] {
-            assert!(en.contains(needle), "EN : {needle}");
-        }
-        // « Bientôt » : le prêt du PC est annoncé, pas offert.
-        assert!(fr.contains("Prêter votre PC") && fr.contains(">Bientôt<") && fr.contains("pas encore disponible"));
-        assert!(en.contains("Lend your PC") && en.contains(">Coming soon<") && en.contains("not available yet"));
     }
 
     #[test]
     fn liens_vers_le_site_dans_la_langue_de_la_page() {
         let fr = home(Lang::Fr, None);
         assert!(fr.contains(r#"href="https://www.kybernow.app/""#) && fr.contains("Découvrir KyberNow"));
-        assert!(fr.contains(r#"href="https://www.kybernow.app/#telecharger""#));
-        assert!(fr.contains(r#"href="https://www.kybernow.app/guide/""#));
-        assert!(fr.contains(r#"href="https://www.kybernow.app/mentions-legales/""#));
-        assert!(fr.contains(r#"href="/?lang=en""#));
         let en = home(Lang::En, None);
         assert!(en.contains(r#"href="https://www.kybernow.app/en/""#) && en.contains("Discover KyberNow"));
-        assert!(en.contains(r#"href="https://www.kybernow.app/en/guide/""#));
-        assert!(en.contains(r#"href="https://www.kybernow.app/en/legal/""#));
-        assert!(en.contains(r#"href="/?lang=fr""#));
-        // La page de confidentialité garde la langue choisie.
+        // Les autres pages gardent leurs liens vers le site et le changement de langue.
+        assert!(privacy(Lang::Fr).contains(r#"href="https://www.kybernow.app/mentions-legales/""#));
+        assert!(privacy(Lang::En).contains(r#"href="https://www.kybernow.app/en/legal/""#));
         assert!(privacy(Lang::Fr).contains(r#"href="/privacy?lang=en""#));
         // Le formulaire redonne la langue à /j.
         assert!(fr.contains(r#"name="lang" value="fr""#) && en.contains(r#"name="lang" value="en""#));
@@ -623,13 +402,9 @@ mod tests {
 
     #[test]
     fn pas_de_liste_de_plateformes_dans_le_texte() {
-        // Message agnostique : « votre ordinateur sur tous vos appareils ». Seul l'écran recréé
-        // de l'hôte (aria-hidden) nomme des apps, comme les vraies.
+        // Message agnostique : « votre ordinateur sur tous vos appareils ».
         for lang in [Lang::Fr, Lang::En] {
-            let page = home(lang, None);
-            let (before, rest) = page.split_once("<!-- Le panneau de l'hôte").unwrap();
-            let (_, after) = rest.split_once("<!-- /panel -->").unwrap();
-            let text = text_of(&format!("{before}{after}"));
+            let text = text_of(&home(lang, None));
             for platform in ["Windows", "macOS", "Android", "Linux", "iPhone", "iPad", "Apple TV", "webOS", "Raspberry", "Steam Deck", "tvOS"] {
                 assert!(!text.contains(platform), "{platform} dans le texte de présentation");
             }

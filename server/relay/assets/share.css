@@ -223,3 +223,13 @@ h3 { font-family: var(--kn-font-display); font-stretch: 112%; font-weight: 620; 
 @media (prefers-reduced-transparency: reduce) {
   .join, .card, .panel, .get, .btn-ghost { background: var(--kn-ink-2); }
 }
+
+/* Accueil du relais : le logo, la saisie du code, deux liens. */
+.solo { min-height: 100vh; min-height: 100dvh; display: flex; align-items: center; justify-content: center; }
+.solo-in { width: 100%; max-width: 460px; padding: 40px 16px; display: flex; flex-direction: column; align-items: center; gap: 28px; }
+.solo-logo { display: block; width: 260px; max-width: 72%; height: auto; }
+.solo .join { width: 100%; }
+.solo .join h1 { text-wrap: balance; font-family: var(--kn-font-display); font-stretch: 125%; font-weight: 640; font-size: clamp(24px, 2.6vw, 30px); line-height: 1.1; letter-spacing: -.025em; }
+.solo-links { display: flex; gap: 24px; font-size: 15px; }
+.solo-links a { color: var(--kn-frost-2); text-decoration: none; }
+.solo-links a:hover { color: var(--kn-frost); text-decoration: underline; }
