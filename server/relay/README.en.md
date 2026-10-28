@@ -8,7 +8,8 @@ The public relay, `share.kybernow.app:8443`, is open to every Station. You can a
 
 | File | Contents |
 |---|---|
-| `src/` | The relay server (`kybernow-relay`): QUIC and TCP connections, Stations and clients, codes, web page, browser proxy, metrics |
+| `src/` | The relay server (`kybernow-relay`): QUIC and TCP connections, Stations and clients, codes, web pages (`pages.rs`, `assets.rs`), browser proxy, metrics |
+| `assets/` | What the pages embed: stylesheet (`share.css`, written by hand, with the brand tokens `kybernow.css`), Archivo and Martian Mono fonts reduced to Latin, icons, the KyberNow Share logo and favicon |
 | `tunnel/` | The tunnel crate (`kybernow-tunnel`), shared with Admin and the apps' core |
 | `Dockerfile` | The image: built with Rust 1.89, then the binary alone on distroless, without root |
 | `docker-compose.yml` | The relay and lego, which obtains and renews the certificate |
@@ -124,7 +125,17 @@ The limits (`[limits]` in `relay.toml`) follow [docs/relais.en.md](../../docs/re
 - **Metrics** (Prometheus, `http://127.0.0.1:9464/metrics`): `relay_stations_connected{transport}`, `relay_clients_connected{kind}`, `relay_sessions_active`, `relay_bytes_total{leg,dir}`, `relay_datagrams_total{result}`, `relay_code_lookups_total{result}`, `relay_codes_active`, `relay_handshakes_total{alpn,result}`, `relay_rtt_seconds{peer}`, `relay_limit_hits_total{limit}`, `relay_tls_cert_expiry_seconds`, `relay_egress_mbps`. An alert on `relay_tls_cert_expiry_seconds < 1209600` (14 days) warns of an expired Gandi token.
 - **Banning**: one address or network per line in `config/banlist.txt` (`203.0.113.0/24`, `#` for a comment); taken into account within 30 seconds.
 - **Health**: `docker compose ps` shows the health check's state (`kybernow-relay --healthcheck`).
-- **Pages**: `https://<name>:8443/` (code entry), `/j/<code>`, `/privacy`, `/v1/health`.
+- **Pages**: `https://<name>:8443/` (KyberNow Share presentation and code entry), `/j/<code>`, `/privacy`, `/assets/…`, `/v1/health`.
+
+## The home page
+
+`https://<name>/` presents KyberNow Share (what sharing does, how to open it, how to join) and offers the “Join with a code” field: it sends `/j?code=…`, which redirects to the computer's page or says why not. The links to the KyberNow site (“Discover KyberNow”, the download, the guide, the legal notice) lead to `https://www.kybernow.app/`, in French or English depending on the page. The texts follow [docs/ton-du-site.en.md](../../docs/ton-du-site.en.md), with no list of platforms.
+
+- **Language**: French if the browser is set to French, English otherwise (`Accept-Language`); the “EN” or “FR” link in the bar adds `?lang=en` or `?lang=fr`, with no cookie, and the form keeps it through to `/j`.
+- **Files**: everything comes from the relay, nothing from a third party. `/assets/share.css` (tokens and layout, a single stylesheet), `/assets/archivo.woff2`, `/assets/martian-mono.woff2`, `/assets/kybernow-share-dark.svg` and `/assets/kybernow-favicon.svg` are embedded in the binary (`include_bytes!`, about 95 KB more); the icons are written inline in the page. Every address carries the files' version (`?v=`, eight digits of a SHA-256 of their content): the response is kept for a year (`immutable`), and a changed file changes address. An unknown address gives the “not found” page.
+- **Content policy**: `default-src 'none'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`. No script, no cookie, no audience measurement, no request to another site. The pages stay `noindex`.
+- **Ports**: the page never writes the relay's address (relative paths); it is the same on 8443 and, once the router forwards 443 to the relay, on `https://<name>` without a port.
+- **Rebuilding the files**: `share.css` is written by hand. The others come from the brand files: the logo and favicon by `node brand/v2/tools/generate.mjs`, and the rest (`kybernow.css`, fonts reduced to Latin, icons from `site/assets/icons.svg`, licences) by `scripts/relay-assets.py`, which needs `fonttools` and `brotli` (`python3 -m venv /tmp/fonts && /tmp/fonts/bin/pip install fonttools brotli`). The Docker image only sees this folder: the copies are in the repository.
 
 ## Development
 
@@ -133,6 +144,6 @@ cargo test --workspace --all-features
 cargo clippy --workspace --all-features --all-targets
 ```
 
-The tests run on the loopback, without network: a test authority, a relay, a fake Station (the tunnel agent, a fake Admin, TCP and UDP echoes) and a fake app (the tunnel and its local listening points). They cover QUIC, the TCP fallback (forced, and when UDP does not get through), a Station over TCP with an app over QUIC, Admin's refusals, the Station absent then connected, the Station and the relay restarting, codes and waiting with a fake Admin, the relay's page, the browser proxy (headers, cookies, WebSocket) and the limits.
+The tests run on the loopback, without network: a test authority, a relay, a fake Station (the tunnel agent, a fake Admin, TCP and UDP echoes) and a fake app (the tunnel and its local listening points). They cover QUIC, the TCP fallback (forced, and when UDP does not get through), a Station over TCP with an app over QUIC, Admin's refusals, the Station absent then connected, the Station and the relay restarting, codes and waiting with a fake Admin, the relay's home page and its files (languages, content policy, caching), the browser proxy (headers, cookies, WebSocket) and the limits.
 
 The `tunnel/` crate is taken by path: `features = ["station"]` for Admin, the default `client` feature for the apps' core, `server` for the relay. It builds for iOS and Android (rustls with ring, no OpenSSL).

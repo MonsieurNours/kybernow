@@ -1,0 +1,114 @@
+/* Jetons KyberNow (identité v2). Thème sombre par défaut, clair avec [data-theme="light"].
+   Signal : Spectre. */
+:root {
+  /* Neutres */
+  --kn-ink-0: #05070A;   /* fond */
+  --kn-ink-1: #090D12;   /* bande */
+  --kn-ink-2: #0E141A;   /* surface */
+  --kn-ink-3: #141B23;   /* relief */
+  --kn-line: #1E2832;
+  --kn-line-2: #2B3742;
+  --kn-frost: #E3EDF0;   /* texte */
+  --kn-frost-2: #B4C2C9; /* texte secondaire */
+  --kn-mist: #8A99A3;    /* discret */
+  --kn-faint: #65737E;   /* filigrane, 12 px et plus */
+
+  /* Signal : Spectre */
+  --kn-signal: #9A8CFF;
+  --kn-signal-strong: #6D5BFF;
+  --kn-on-signal: #FFFFFF;
+  --kn-signal-light: #5340E6; /* sur fond clair */
+  --kn-signal-soft: color-mix(in oklab, var(--kn-signal) 14%, transparent);
+  --kn-signal-line: color-mix(in oklab, var(--kn-signal) 45%, transparent);
+
+  /* Lumière : le néon (voir la section Lumière de la charte) */
+  --kn-neon-core: #F4F1FF;
+  /* 1 · veille : survol, focus */
+  --kn-glow-1: drop-shadow(0 0 2px rgb(154 140 255 / .8)) drop-shadow(0 0 8px rgb(109 91 255 / .45));
+  /* 2 · allumé : actif (connexion, flux, mesure en direct), respire sur 3,2 s */
+  --kn-glow-2: drop-shadow(0 0 1px #F4F1FF) drop-shadow(0 0 5px #9A8CFF) drop-shadow(0 0 16px rgb(109 91 255 / .8));
+  /* 3 · éclair : clic, retombe en 400 ms */
+  --kn-glow-3: drop-shadow(0 0 2px #FFFFFF) drop-shadow(0 0 9px #9A8CFF) drop-shadow(0 0 28px #6D5BFF);
+  --kn-t-ignite: 1s;
+  --kn-t-breathe: 3.2s;
+
+  /* États (jamais le signal) */
+  --kn-ok: #4CD68A;
+  --kn-warn: #F5B841;
+  --kn-bad: #FF6B6B;
+
+  /* Typographie */
+  --kn-font-display: "Archivo", "Helvetica Neue", Arial, sans-serif; /* avec font-stretch: 125% */
+  --kn-font-text: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --kn-font-mono: "Martian Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Espace (grille de 4) */
+  --kn-s-1: 4px; --kn-s-2: 8px; --kn-s-3: 12px; --kn-s-4: 16px;
+  --kn-s-6: 24px; --kn-s-8: 32px; --kn-s-12: 48px; --kn-s-16: 64px;
+
+  /* Formes */
+  --kn-r-control: 6px;
+  --kn-r-field: 10px;
+  --kn-r-card: 16px;
+  --kn-r-sheet: 22px;
+  --kn-chamfer: 10px;      /* coin de signal d'un bouton */
+  --kn-chamfer-card: 22px; /* coin de signal d'une carte vedette */
+  --kn-seam: 6px;          /* largeur de la couture */
+
+  /* Mouvement */
+  --kn-ease-out: cubic-bezier(.2, .9, .1, 1);
+  --kn-ease-sym: cubic-bezier(.6, 0, .2, 1);
+  --kn-t-state: 120ms;
+  --kn-t-hover: 200ms;
+  --kn-t-enter: 320ms;
+  --kn-t-join: 420ms;
+
+  color-scheme: dark;
+}
+
+[data-theme="light"] {
+  --kn-ink-0: #F2F5F6;
+  --kn-ink-1: #E8EDEF;
+  --kn-ink-2: #FFFFFF;
+  --kn-ink-3: #F6F8F9;
+  --kn-line: #D8E0E4;
+  --kn-line-2: #C3CED4;
+  --kn-frost: #0B1117;
+  --kn-frost-2: #2F3B45;
+  --kn-mist: #55636E;
+  --kn-faint: #74828D;
+  --kn-signal: var(--kn-signal-light);
+  --kn-signal-strong: var(--kn-signal-light);
+  --kn-on-signal: #FFFFFF;
+  --kn-ok: #138A4E;
+  --kn-warn: #A86A00;
+  --kn-bad: #C93A3A;
+  color-scheme: light;
+}
+
+/* Bouton principal : pan coupé à 45° dessiné en dégradé (pas de clip-path, pour que la lueur
+   suive sa forme) ; le pan devient un liseré de néon dès qu'il s'allume. Un seul par écran. */
+.kn-primary {
+  --kn-edge: var(--kn-signal-strong);
+  background: linear-gradient(315deg, transparent 7px, var(--kn-edge) 7px, var(--kn-edge) 8.6px, var(--kn-signal-strong) 8.6px);
+  border-radius: var(--kn-r-control) var(--kn-r-control) 0 var(--kn-r-control);
+  color: var(--kn-on-signal);
+  transition: filter var(--kn-t-hover) ease-out;
+}
+.kn-primary:hover, .kn-primary:focus-visible { --kn-edge: var(--kn-neon-core); filter: var(--kn-glow-1); }
+.kn-primary:active { filter: var(--kn-glow-3); transition-duration: 40ms; }
+.kn-primary.is-lit { --kn-edge: var(--kn-neon-core); filter: var(--kn-glow-2); animation: kn-breathe var(--kn-t-breathe) ease-in-out infinite; }
+.kn-ignite { animation: kn-ignite var(--kn-t-ignite) linear both; }
+
+@keyframes kn-ignite {
+  0% { filter: none; } 6% { filter: var(--kn-glow-3); } 10% { filter: none; } 16% { filter: var(--kn-glow-2); }
+  22% { filter: none; } 30% { filter: var(--kn-glow-3); } 34% { filter: var(--kn-glow-1); } 44%, 100% { filter: var(--kn-glow-2); }
+}
+@keyframes kn-breathe { 0%, 100% { filter: var(--kn-glow-2); } 50% { filter: var(--kn-glow-1); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .kn-primary.is-lit, .kn-ignite { animation: none; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .kn-primary, .kn-primary.is-lit, .kn-ignite { filter: none; animation: none; }
+}

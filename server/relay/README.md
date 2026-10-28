@@ -8,7 +8,8 @@ Le relais public, `share.kybernow.app:8443`, est ouvert à toutes les Stations. 
 
 | Fichier | Contenu |
 |---|---|
-| `src/` | Le serveur relais (`kybernow-relay`) : connexions QUIC et TCP, Stations et clients, codes, page web, mandataire du navigateur, métriques |
+| `src/` | Le serveur relais (`kybernow-relay`) : connexions QUIC et TCP, Stations et clients, codes, pages web (`pages.rs`, `assets.rs`), mandataire du navigateur, métriques |
+| `assets/` | Ce que les pages embarquent : feuille de styles (`share.css`, écrite à la main, avec les jetons de la charte `kybernow.css`), polices Archivo et Martian Mono réduites au latin, icônes, logo et favicon de KyberNow Share |
 | `tunnel/` | Le crate du tunnel (`kybernow-tunnel`), partagé avec Admin et le cœur des apps |
 | `Dockerfile` | L'image : compilée avec Rust 1.89, puis le binaire seul sur distroless, sans root |
 | `docker-compose.yml` | Le relais et lego, qui obtient et renouvelle le certificat |
@@ -124,7 +125,17 @@ Les limites (`[limits]` de `relay.toml`) suivent [docs/relais.md](../../docs/rel
 - **Métriques** (Prometheus, `http://127.0.0.1:9464/metrics`) : `relay_stations_connected{transport}`, `relay_clients_connected{kind}`, `relay_sessions_active`, `relay_bytes_total{leg,dir}`, `relay_datagrams_total{result}`, `relay_code_lookups_total{result}`, `relay_codes_active`, `relay_handshakes_total{alpn,result}`, `relay_rtt_seconds{peer}`, `relay_limit_hits_total{limit}`, `relay_tls_cert_expiry_seconds`, `relay_egress_mbps`. Une alerte sur `relay_tls_cert_expiry_seconds < 1209600` (14 jours) prévient d'un jeton Gandi expiré.
 - **Bannir** : une adresse ou un réseau par ligne dans `config/banlist.txt` (`203.0.113.0/24`, `#` pour un commentaire) ; pris dans les 30 secondes.
 - **Santé** : `docker compose ps` montre l'état du contrôle de santé (`kybernow-relay --healthcheck`).
-- **Pages** : `https://<nom>:8443/` (saisie du code), `/j/<code>`, `/privacy`, `/v1/health`.
+- **Pages** : `https://<nom>:8443/` (présentation de KyberNow Share et saisie du code), `/j/<code>`, `/privacy`, `/assets/…`, `/v1/health`.
+
+## La page d'accueil
+
+`https://<nom>/` présente KyberNow Share (ce que fait le partage, comment on l'ouvre, comment on le rejoint) et donne le champ « Rejoindre avec un code » : il envoie `/j?code=…`, qui renvoie vers la page de l'ordinateur ou dit pourquoi pas. Les liens vers le site de KyberNow (« Découvrir KyberNow », le téléchargement, le guide, les mentions légales) mènent à `https://www.kybernow.app/`, en français ou en anglais selon la page. Les textes suivent [docs/ton-du-site.md](../../docs/ton-du-site.md), sans liste de plateformes.
+
+- **Langue** : français si le navigateur est en français, anglais sinon (`Accept-Language`) ; le lien « EN » ou « FR » de la barre ajoute `?lang=en` ou `?lang=fr`, sans cookie, et le formulaire le garde jusqu'à `/j`.
+- **Fichiers** : tout vient du relais, rien d'un tiers. `/assets/share.css` (jetons et mise en page, une seule feuille), `/assets/archivo.woff2`, `/assets/martian-mono.woff2`, `/assets/kybernow-share-dark.svg` et `/assets/kybernow-favicon.svg` sont embarqués dans le binaire (`include_bytes!`, environ 95 Ko de plus) ; les icônes sont écrites en ligne dans la page. Chaque adresse porte la version des fichiers (`?v=`, huit chiffres d'un SHA-256 de leur contenu) : la réponse se garde un an (`immutable`), et un fichier changé change d'adresse. Une adresse inconnue donne la page « introuvable ».
+- **Politique de contenu** : `default-src 'none'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`. Pas de script, pas de cookie, pas de mesure d'audience, aucune requête vers un autre site. Les pages restent en `noindex`.
+- **Ports** : la page ne cite jamais l'adresse du relais (chemins relatifs) ; elle est la même sur le 8443 et, quand la box renvoie le 443 vers le relais, sur `https://<nom>` sans port.
+- **Refaire les fichiers** : `share.css` s'écrit à la main. Les autres viennent de la charte : le logo et le favicon par `node brand/v2/tools/generate.mjs`, et le reste (`kybernow.css`, polices réduites au latin, icônes de `site/assets/icons.svg`, licences) par `scripts/relay-assets.py`, qui demande `fonttools` et `brotli` (`python3 -m venv /tmp/fonts && /tmp/fonts/bin/pip install fonttools brotli`). L'image Docker ne voit que ce dossier : les copies sont dans le dépôt.
 
 ## Développement
 
@@ -133,6 +144,6 @@ cargo test --workspace --all-features
 cargo clippy --workspace --all-features --all-targets
 ```
 
-Les essais tournent sur la boucle locale, sans réseau : une autorité d'essai, un relais, une fausse Station (l'agent du tunnel, un faux Admin, des échos TCP et UDP) et une fausse app (le tunnel et ses points d'écoute locaux). Ils couvrent QUIC, le repli TCP (forcé, et quand l'UDP ne passe pas), une Station en TCP avec une app en QUIC, les refus d'Admin, la Station absente puis connectée, la Station et le relais qui redémarrent, les codes et l'attente avec un faux Admin, la page du relais, le mandataire du navigateur (en-têtes, cookies, WebSocket) et les limites.
+Les essais tournent sur la boucle locale, sans réseau : une autorité d'essai, un relais, une fausse Station (l'agent du tunnel, un faux Admin, des échos TCP et UDP) et une fausse app (le tunnel et ses points d'écoute locaux). Ils couvrent QUIC, le repli TCP (forcé, et quand l'UDP ne passe pas), une Station en TCP avec une app en QUIC, les refus d'Admin, la Station absente puis connectée, la Station et le relais qui redémarrent, les codes et l'attente avec un faux Admin, la page d'accueil du relais et ses fichiers (langues, politique de contenu, cache), le mandataire du navigateur (en-têtes, cookies, WebSocket) et les limites.
 
 Le crate `tunnel/` se prend par chemin : `features = ["station"]` pour Admin, la fonction par défaut `client` pour le cœur des apps, `server` pour le relais. Il compile pour iOS et Android (rustls avec ring, pas d'OpenSSL).

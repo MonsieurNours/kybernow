@@ -113,12 +113,15 @@ On TCP 8443, the relay looks at the start of each TLS connection:
 
 | Address | Answer |
 |---|---|
-| `GET /` | Home page and code entry (French or English depending on the browser) |
+| `GET /` | KyberNow Share presentation and code entry (French or English depending on the browser, or `?lang=fr` / `?lang=en`); the form sends `/j?code=…` |
 | `GET /j/{code}` | Redirects (302) to `https://<id>.share.kybernow.app:8443/link/?join=<code>`; unknown code, or Station absent: a page that says so |
 | `GET /v1/codes/{code}` | `200 {"station":"<id>","station_key":"<SPKI base64>","admin_fp":"sha256:…","sig":"<base64>","online":true}`; `online:false`: Station gone for less than 120 s, the other fields empty; `404 {"error":"unknown_code"}`; `400 {"error":"bad_request"}`; `429 {"error":"too_many","retry_after":<s>}` with `Retry-After` |
 | `GET /privacy` | What the relay sees and keeps (French or English) |
+| `GET /assets/<file>?v=<version>` | The page's stylesheet, fonts, logo and favicon, embedded in the binary; kept for a year (`immutable`, the address carries the version); unknown file: the “not found” page |
 | `GET /v1/health` | `200 {"ok":true,"version":"…"}`; the iPhone and iPad apps call it before opening the tunnel (wakes the cellular radio) |
 | `https://<id>.share…:8443/*` | HTTP/1.1 proxy to the Station's Admin (WebSocket included); Station absent: “computer unreachable” page (503) |
+
+The relay's pages have no script, no cookie and no audience measurement, and load nothing from another site: content policy `default-src 'none'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`. They never write the relay's address (relative paths): the same page serves on 8443 and, once the router forwards 443 to it, on `https://share.kybernow.app`. Details: [server/relay/README.en.md](../server/relay/README.en.md#the-home-page).
 
 Proxy: `Host` passed as is, `X-Forwarded-For` and `Forwarded` removed (the browser's address travels in the stream header), `Domain=` removed from every `Set-Cookie`. One origin per Station: one Station's code never reads another's cookies.
 
