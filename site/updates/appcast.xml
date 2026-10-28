@@ -3,6 +3,25 @@
     <channel>
         <title>KyberNow</title>
         <item>
+            <title>0.8.0</title>
+            <pubDate>Wed, 28 Oct 2026 13:21:13 +0100</pubDate>
+            <sparkle:version>202610281245</sparkle:version>
+            <sparkle:shortVersionString>0.8.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[
+- **KyberNow Share: share your computer with up to four guests.** From the session bar (“Share”), or from the PC itself (“Share a screen…” in the icon's menu next to the clock or on Admin's home page: you pick the screen to show and keep using it, with no virtual display). A panel gives a six-digit code, a link and a QR code. Your guests join with “Join with a code” in a KyberNow Link app, or with the link in a browser, without Admin's password. A guest arrives as a spectator: they see and hear, nothing more. You give them their controllers (they become Windows' next controller) and the keyboard and mouse separately, and take them back whenever you like. “Remove” makes a guest leave (they can come back with the same code, “New code” prevents it) and “Stop sharing” makes everyone leave. The Station enforces these rights: even if a guest's device sent something else, nothing reaches the computer. A Station and apps on 0.8.0 are needed.
+- **A picture that fits each guest**: everyone picks their “Picture quality” (Auto, Same as host, 4K · 60 Hz, 1080p · 60 Hz, 720p · 30 Hz), on the “Join” screen and in their bar. A guest never gets better than the host's picture, and nothing they do changes the host's picture or the computer's displays. Guests who follow the host's picture share it; the others get a picture encoded for them, two at most beside yours (one on an Intel card), then the closest open picture, with a notice. A guest who falls behind drops to a lighter picture on their own (“Picture lightened to keep up.”), the host sees nothing. A device that cannot play the host's format gets one it can play. In a share started from the PC, the first guest sets the format and bitrate of the shared picture.
+- Station: two Kyber patches (0019: rights and display enforced by each guest's token; 0020: a guest's own picture, with its frame rate and bitrate), Admin keeping the participants (roles, quality, heartbeat), and the web client, which can join as a guest and share. The texts and screens of sharing are the same in every Link app.
+- **Away from home, through the relay**: `share.kybernow.app`, KyberNow's public relay, open to everyone. Your guests join from anywhere with the same code, the same link or the same QR code; you accept each guest who comes from the internet (“Requests”, in the share panel). Nothing to open on your router: the Station opens the connection. In the apps, the picture and the controls stay encrypted end to end: the relay sees addresses, bitrates and share codes, keeps IP addresses in its logs for a few days and never the codes. In a browser, it decrypts the traffic to pass it on.
+- **Access away from home, without a VPN**: a new “Away from home” section in Admin › Link devices, with the “Access away from home” switch, off by default. Switched on, your devices that were already added open the computer through the relay when they are not on your network: the home screen says “Away from home”, the session carries the “Via the relay” chip. Through the relay, an app can neither restart nor update the Station, and adding a new device stays limited to your home network. A VPN still works.
+- **Install your own relay**: a Docker image published with every version (`ghcr.io/monsieurnours/kybernow-relay`), with Let's Encrypt through DNS, which updates itself every night (or by hand: `docker compose pull`, then `up -d`); the address is set in Admin › Link devices › Away from home › Relay. Step by step: `server/relay/README.en.md`.
+- Sharing away from home, access through the relay and the guests' own pictures on AMD and Intel cards have not been tried on every device yet: your feedback is welcome on the Discord.
+]]></description>
+            <sparkle:releaseNotesLink xml:lang="fr">https://www.kybernow.app/updates/notes/0.8.0/KyberNow-Link-macOS.fr.html</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/MonsieurNours/kybernow/releases/download/v0.8.0/KyberNow-Link-macOS.zip" length="48775066" type="application/octet-stream" sparkle:edSignature="B1e+U20PY2vJNJGRMq3SN2IPqS+PRhYpa1yJUZEWLtFGo/bfu1dRyIvkUkztykjlN923AHnEUdd1iamJ8GspDg=="/>
+        </item>
+        <item>
             <title>0.7.0</title>
             <pubDate>Tue, 27 Oct 2026 10:47:28 +0100</pubDate>
             <sparkle:version>202610271026</sparkle:version>
