@@ -7,6 +7,10 @@
   ordinateurs en session : « Se connecter » inactif, avec la raison), le
   profil et l'accès à ses réglages ; en bas les autres ordinateurs (nom et
   état), ceux annoncés sur le réseau et l'ajout.
+
+  Hors de chez vous (docs/relais.md) : un ordinateur qui ne répond pas sur le réseau mais que le
+  relais tient est « Hors de chez vous » à la place de « En ligne » (l'app le demande au relais) ;
+  « Se connecter » passe alors par le relais.
 -->
 <script lang="ts">
   import Icon from './lib/Icon.svelte'
@@ -69,7 +73,7 @@
       : searching || c.online == null
         ? t('common.searching')
         : c.online
-          ? t('home.online')
+          ? t(c.away ? 'home.away' : 'home.online')
           : t('home.offline')
 
   const waking = $derived(!!selected?.waking && !selected.online)
@@ -84,7 +88,7 @@
     if (!selected) return null
     if (waking) return { text: t('home.waking'), tone: 'wait' }
     if (retrying || selected.online == null) return { text: t('common.searching'), tone: 'wait' }
-    return selected.online ? { text: t('home.online'), tone: 'ok' } : { text: t('home.offline'), tone: 'off' }
+    return selected.online ? { text: t(selected.away ? 'home.away' : 'home.online'), tone: 'ok' } : { text: t('home.offline'), tone: 'off' }
   })
 
   // Les écrans que la session prendra : le calcul du cœur, le même que la session (réglage « Écrans »,

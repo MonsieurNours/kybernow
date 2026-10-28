@@ -1,8 +1,8 @@
 <!--
   Rubrique Statistiques des réglages d'un ordinateur : la dernière session
   (médiane en grand, règle de trame, 95e centile, durée, ce qui a été
-  transmis) et cet ordinateur (système, carte graphique, adresse d'Admin,
-  empreinte).
+  transmis, et le chemin : « Direct », « Par le relais », « Par le relais (TCP) ») et cet
+  ordinateur (système, carte graphique, adresse d'Admin, empreinte).
 -->
 <script lang="ts">
   import FrameRuler from './lib/FrameRuler.svelte'
@@ -35,6 +35,9 @@
     return last.label ? localLabel(last.label) : null
   })
 
+  /** « Direct », « Par le relais », « Par le relais (TCP) » : le chemin de la dernière session (docs/relais.md). */
+  const path = $derived(last?.route ? t(`relay.path_${last.route.transport}`) : null)
+
   const address = $derived(`${computer.host.includes(':') ? `[${computer.host}]` : computer.host}:${computer.port}`)
   const fingerprint = $derived(fingerprintGroups(computer.fingerprint).slice(0, 4).join(' '))
 </script>
@@ -50,6 +53,7 @@
     {#if last.p95_ms != null}<p class="p95">{t('stats.p95', { ms: ms(last.p95_ms) })}</p>{/if}
     <p class="when">{duration(last.seconds)} · {moment(last.at)}</p>
     {#if sent}<p class="mono sent">{sent}</p>{/if}
+    {#if path}<dl class="path"><div><dt>{t('stats.path')}</dt><dd>{path}</dd></div></dl>{/if}
     <p class="help">{t('stats.help')}</p>
   {:else}
     <p class="empty">{t('stats.none')}</p>

@@ -90,6 +90,7 @@
     "keep_sound": "Keep sound",
     "computer": "{name} — {state}",
     "online": "Online",
+    "away": "Away from home",
     "offline": "Offline",
     "searching": "Searching…",
     "connect": "Connect ({profile})",
@@ -143,5 +144,8 @@
     "notice_kbm": "You have the keyboard and mouse.",
     "notice_kbm_back": "The keyboard and mouse were taken back.",
     "notice_watch": "You are watching again."
+  },
+  "relay": {
+    "access_off": "{name} cannot be reached away from home (access turned off in Admin)."
   }
 }

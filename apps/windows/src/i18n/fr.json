@@ -90,6 +90,7 @@
     "keep_sound": "Garder le son",
     "computer": "{name} — {state}",
     "online": "En ligne",
+    "away": "Hors de chez vous",
     "offline": "Hors ligne",
     "searching": "Recherche…",
     "connect": "Se connecter ({profile})",
@@ -143,5 +144,8 @@
     "notice_kbm": "Vous avez le clavier et la souris.",
     "notice_kbm_back": "Le clavier et la souris sont repris.",
     "notice_watch": "Vous regardez de nouveau."
+  },
+  "relay": {
+    "access_off": "{name} n'est pas joignable hors de chez vous (accès coupé dans Admin)."
   }
 }

@@ -157,6 +157,10 @@ pub struct Computer {
     pub name: String,
     /// `None` : pas encore de réponse (« Recherche… »).
     pub online: Option<bool>,
+    /// Joignable seulement par le relais (« Hors de chez vous », docs/relais.md) :
+    /// `online` est alors vrai, on peut s'y connecter ; ni Admin dans le navigateur
+    /// (l'interface d'Admin ne passe jamais par le relais), ni redémarrage de la Station.
+    pub away: bool,
     /// `jeu`, `bureau`, `max`.
     pub profile: String,
     /// Les réglages s'écartent du profil : « Personnalisé ».
@@ -273,15 +277,18 @@ pub fn build(s: &State, tr: Tr) -> Vec<Item> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Seen {
     Online,
+    /// « Hors de chez vous » : l'ordinateur n'est joignable que par le relais.
+    Away,
     Offline,
     Searching,
 }
 
 impl Seen {
-    /// `online`, `offline`, `searching` : la clé du texte.
+    /// `online`, `away`, `offline`, `searching` : la clé du texte.
     pub fn code(self) -> &'static str {
         match self {
             Seen::Online => "online",
+            Seen::Away => "away",
             Seen::Offline => "offline",
             Seen::Searching => "searching",
         }
@@ -292,6 +299,7 @@ impl Seen {
 /// un réveil, un redémarrage ou une mise à jour de la Station.
 pub fn status(c: &Computer) -> (Seen, Dot) {
     match c.online {
+        Some(true) if c.away => (Seen::Away, Dot::Ok),
         Some(true) => (Seen::Online, Dot::Ok),
         Some(false) if c.waking || c.station.as_ref().is_some_and(|st| st.busy.is_some()) => (Seen::Offline, Dot::Warn),
         Some(false) => (Seen::Offline, Dot::Bad),
@@ -421,7 +429,8 @@ pub fn computer(s: &State, c: &Computer, tr: Tr) -> Vec<Item> {
     out.push(Item::Sub { text: tr("tray.profile", &[]), key: None, checked: false, dot: None, items: profiles });
     out.push(Item::line(tr("tray.settings", &[]), Some(Cmd::Settings(c.id.clone()))));
 
-    let online = c.online == Some(true);
+    // Hors de chez vous : ni Admin dans le navigateur, ni la Station à redémarrer.
+    let online = c.online == Some(true) && !c.away;
     let station = c.station.as_ref().filter(|_| online || busy.is_some());
     if online || station.is_some() {
         out.push(Item::Separator);
@@ -592,6 +601,26 @@ mod tests {
         // Pas encore de réponse : « Recherche… », et Se connecter comme sur l'accueil.
         let s = State { computers: vec![Computer { online: None, ..atelier() }], ..Default::default() };
         assert_eq!(lines(&s, Lang::Fr)[..2], ["{gris} Atelier — Recherche… >", "  Se connecter (Jeu)"]);
+    }
+
+    #[test]
+    fn hors_de_chez_vous() {
+        let away = Computer { away: true, ..atelier() };
+        assert_eq!(status(&away), (Seen::Away, Dot::Ok));
+        // On peut s'y connecter ; ni Admin dans le navigateur (son interface ne passe jamais par le relais),
+        // ni redémarrage ou mise à jour de la Station.
+        let s = State { computers: vec![away.clone()], ..Default::default() };
+        let l = lines(&s, Lang::Fr);
+        assert_eq!(l[..2], ["{vert} Atelier — Hors de chez vous >", "  Se connecter (Jeu)"]);
+        assert!(!l.iter().any(|x| x.contains("Ouvrir Admin") || x.contains("Redémarrer la Station") || x.contains("Mettre à jour la Station")), "{l:?}");
+        assert_eq!(lines(&s, Lang::En)[0], "{vert} Atelier — Away from home >");
+        assert_eq!(pick(&s, &away), Pick::Connect(true));
+        // Sur le réseau, ils y sont.
+        let home = State { computers: vec![atelier()], ..Default::default() };
+        let l = lines(&home, Lang::Fr);
+        assert!(l.iter().any(|x| x.contains("Ouvrir Admin")) && l.iter().any(|x| x.contains("Redémarrer la Station")), "{l:?}");
+        // Hors ligne et hors de chez vous n'ont pas le même état.
+        assert_eq!(status(&Computer { away: true, online: Some(false), ..atelier() }), (Seen::Offline, Dot::Bad));
     }
 
     fn session_atelier() -> Session {
