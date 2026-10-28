@@ -29,6 +29,9 @@ pub const KN_SHARE_REFUSED: i32 = 24;
 pub const KN_SHARE_EXPIRED: i32 = 25;
 pub const KN_SHARE_PENDING_FULL: i32 = 26;
 pub const KN_SHARE_WAITING: i32 = 27;
+/// `kn_share_wait` : l'hôte a arrêté le partage pendant l'attente
+/// (« Ce partage est arrêté. »).
+pub const KN_SHARE_STOPPED: i32 = 28;
 
 /// Rôle d'un invité (`on_share_role`, `kn_console_share_guest`) : deux
 /// droits indépendants, les manettes et le clavier et la souris. Aucun
@@ -62,6 +65,7 @@ fn share_failure(e: ShareError, error: *mut *mut c_char) -> i32 {
         ShareError::Refused => KN_SHARE_REFUSED,
         ShareError::Expired => KN_SHARE_EXPIRED,
         ShareError::PendingFull => KN_SHARE_PENDING_FULL,
+        ShareError::Stopped => KN_SHARE_STOPPED,
     };
     give_to(error, message);
     code
@@ -193,9 +197,9 @@ pub unsafe extern "C" fn kn_share_join(
 }
 
 /// « Rejoindre » sur le réseau **et hors de chez soi** (docs/relais.md) :
-/// comme `kn_share_join`, plus `relays_json` (`["share.kybernow.app:8443",
-/// …]` : le relais par défaut et ceux des ordinateurs connus, `info.relay.server` ;
-/// vide : le relais par défaut). Une Station du réseau qui répond en 1,5 s
+/// comme `kn_share_join`, plus `relays_json` (`["relais.exemple.org:9443",
+/// …]` : ceux des ordinateurs connus, `info.relay.server` ; le relais public,
+/// `share.kybernow.app`, est toujours interrogé en plus). Une Station du réseau qui répond en 1,5 s
 /// est prise, sinon celle que donne un relais, par le tunnel. `out` :
 /// `{"joined": {target, joined}}` (comme `kn_share_join`) ou `{"pending":
 /// {route, guest, secret, expires}}` : « En attente de l'accord de l'hôte… »,
@@ -261,7 +265,9 @@ pub unsafe extern "C" fn kn_share_join_link(
 /// `kn_share_join_anywhere`) ? Tenu 25 s au plus : `KN_OK` et `out` = `{target,
 /// joined}` (accepté : `joined` pour `guest.joined`, la session passera par le
 /// relais), `KN_SHARE_WAITING` (rappeler), `KN_SHARE_REFUSED`,
-/// `KN_SHARE_EXPIRED`, `KN_SHARE_NO_SHARE` (partage arrêté). Bloquant.
+/// `KN_SHARE_EXPIRED`, `KN_SHARE_STOPPED` (l'hôte a arrêté le partage :
+/// « Ce partage est arrêté. »), `KN_SHARE_NO_SHARE` (Station qui ne connaît
+/// plus la demande). Bloquant.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_share_wait(pending_json: *const c_char, capabilities_json: *const c_char, out: *mut *mut c_char, error: *mut *mut c_char) -> i32 {
     let Ok(pending) = serde_json::from_str::<share::PendingJoin>(&text(pending_json)) else { return KN_ERROR };

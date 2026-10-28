@@ -77,8 +77,40 @@ pub extern "C" fn kn_relay_path_label(transport: i32) -> *mut c_char {
     give(t.label(i18n::current()))
 }
 
-/// Le relais public, `share.kybernow.app:8443`.
+/// Le relais public, `share.kybernow.app` (port 443).
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_relay_default() -> *mut c_char {
     give(relay::DEFAULT_RELAY.to_string())
+}
+
+/// Une adresse de relais sous sa forme normale (sans port pour le 443 :
+/// `share.kybernow.app` ; `relais.exemple.org:9443` garde le sien) ; nul si
+/// elle ne se lit pas. Deux relais sont le même si leurs formes sont égales.
+///
+/// # Safety
+/// `addr` : chaîne C valable ou nul.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_relay_normalize(addr: *const c_char) -> *mut c_char {
+    match relay::normalize(&text(addr)) {
+        Some(a) => give(a),
+        None => std::ptr::null_mut(),
+    }
+}
+
+/// Le texte de link-ui d'une erreur du relais (`KN_RELAY_UNREACHABLE`,
+/// `KN_RELAY_STATION_OFFLINE`, `KN_RELAY_ACCESS_OFF`), avec le nom de
+/// l'ordinateur (`name` nul ou vide : sans nom), dans la langue de l'app :
+/// « {nom} n'est pas joignable hors de chez vous (accès coupé dans
+/// Admin). », « {nom} n'est pas joignable : l'ordinateur est éteint ou en
+/// veille. », « Le relais ne répond pas. » ; nul pour un autre code.
+///
+/// # Safety
+/// `name` : chaîne C valable ou nul.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_relay_error_text(code: i32, name: *const c_char) -> *mut c_char {
+    let name = text(name);
+    match relay::RelayError::from_code(code) {
+        Some(e) => give(e.text(i18n::current(), Some(&name))),
+        None => std::ptr::null_mut(),
+    }
 }

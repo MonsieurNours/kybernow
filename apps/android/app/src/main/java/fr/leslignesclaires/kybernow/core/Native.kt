@@ -21,7 +21,7 @@ object Native {
 
     // Admin (hors session). Appels bloquants : jamais sur le fil principal.
     @JvmStatic external fun consoleNew(host: String, port: Int, user: String, password: String, pinned: String?): Long
-    /** Comme [consoleNew], par le relais quand `routeJson` est donné (`{server, station, admin_fp}`) ; erreurs : 30, 31. */
+    /** Comme [consoleNew], par le relais quand `routeJson` est donné (`{server, station, admin_fp}`) ; erreurs : 30 relais muet, 31 ordinateur éteint ou en veille, 32 accès coupé dans Admin. */
     @JvmStatic external fun consoleNewRelay(host: String, port: Int, user: String, password: String, pinned: String?, routeJson: String?): Long
     // Le relais (docs/relais.md) : la route d'un ordinateur d'après son `info` et l'empreinte connue, la présence chez le relais,
     // `KYBERNOW_RELAY` (0 normal, 1 toujours, 2 jamais), la ligne « Chemin » (0 Direct, 1 Par le relais, 2 Par le relais (TCP)).
@@ -29,6 +29,10 @@ object Native {
     @JvmStatic external fun relayPresence(relay: String, stationsJson: String): String
     @JvmStatic external fun relayMode(): Int
     @JvmStatic external fun relayPathLabel(transport: Int): String?
+    /** Le relais sous sa forme normale (`share.kybernow.app` pour le 443, `relais.exemple.org:9443` sinon) ; `null` s'il ne se lit pas. */
+    @JvmStatic external fun relayNormalize(addr: String): String?
+    /** Le texte de link-ui d'une erreur du relais (30, 31, 32) avec le nom de l'ordinateur ; `null` pour un autre code. */
+    @JvmStatic external fun relayErrorText(code: Int, name: String?): String?
     @JvmStatic external fun consoleFree(handle: Long)
     @JvmStatic external fun consoleFingerprintSeen(handle: Long): String?
     @JvmStatic external fun consoleInfo(handle: Long): String?
@@ -58,14 +62,14 @@ object Native {
      */
     @JvmStatic external fun shareJoin(targetsJson: String, requestJson: String, capabilitiesJson: String?): String
     /**
-     * « Rejoindre » sur le réseau et hors de chez soi (docs/relais.md) : `relays` `["share.kybernow.app:8443", …]` (vide : le
-     * relais par défaut) ; `value` : `{"joined": {target, joined}}` ou `{"pending": {route, guest, secret, expires}}` ;
+     * « Rejoindre » sur le réseau et hors de chez soi (docs/relais.md) : `relays` `["relais.exemple.org:9443", …]`, les relais
+     * des ordinateurs connus (le relais public, `share.kybernow.app`, est toujours interrogé en plus) ; `value` : `{"joined": {target, joined}}` ou `{"pending": {route, guest, secret, expires}}` ;
      * refus en plus : 24 refusé, 25 sans réponse de l'hôte, 26 trop de demandes en attente, 30 relais muet, 31 ordinateur absent.
      */
     @JvmStatic external fun shareJoinAnywhere(targetsJson: String, relaysJson: String, requestJson: String, capabilitiesJson: String?): String
     /** Un lien de partage ([shareParseLink]) : le réseau d'abord, puis le relais (`relay`, `sid`) ; même `value`. */
     @JvmStatic external fun shareJoinLink(linkJson: String, requestJson: String, capabilitiesJson: String?): String
-    /** L'hôte a-t-il répondu ? Tenu 25 s : `value` `{target, joined}` (accepté), code 27 (en attente : rappeler), ou un refus. */
+    /** L'hôte a-t-il répondu ? Tenu 25 s : `value` `{target, joined}` (accepté), code 27 (en attente : rappeler), ou un refus (24, 25, 28 partage arrêté). */
     @JvmStatic external fun shareWait(pendingJson: String, capabilitiesJson: String?): String
     /** « Annuler » une demande en attente. */
     @JvmStatic external fun shareCancel(pendingJson: String): Int
@@ -249,4 +253,10 @@ interface SessionListener {
     fun onShareImage(imageJson: String, previousJson: String?, notice: String?) {}
     /** Par où passe la session (`transport` : `direct`, `relay`, `relay_tcp` ; `relay`, `rtt_client`, `rtt_station` en ms) : au début, puis quand il change. */
     fun onRoute(json: String) {}
+    /**
+     * Par le relais, la session finit faute de joindre l'ordinateur, juste avant la fin : `code` 32 accès coupé dans
+     * Admin, 31 éteint ou en veille, 30 relais muet ; `text` : la raison de la fin (link-ui). Choisir l'état de
+     * l'accueil par `code`, jamais par le texte.
+     */
+    fun onRelayError(code: Int, text: String) {}
 }

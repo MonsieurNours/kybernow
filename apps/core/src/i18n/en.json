@@ -66,12 +66,15 @@
     "image_limit": "The computer can't make another picture: you get {quality}.",
     "refused": "The host declined.",
     "expired": "The host did not answer.",
-    "pending_full": "Too many requests waiting: try again in a moment."
+    "pending_full": "Too many requests waiting: try again in a moment.",
+    "share_stopped": "This share has stopped."
   },
   "relay": {
     "unreachable": "The relay is not answering.",
     "offline": "The computer cannot be reached: it is off or asleep.",
     "offline_named": "{name} cannot be reached: the computer is off or asleep.",
+    "access_off": "Access away from home is turned off in Admin.",
+    "access_off_named": "{name} cannot be reached away from home (access turned off in Admin).",
     "refused": "the relay refuses the connection ({reason})",
     "bad": "unreadable relay address ({reason})",
     "path_direct": "Direct",

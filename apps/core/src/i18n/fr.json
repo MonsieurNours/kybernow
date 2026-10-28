@@ -66,12 +66,15 @@
     "image_limit": "L'ordinateur ne peut pas faire une image de plus : vous recevez {quality}.",
     "refused": "L'hôte a refusé.",
     "expired": "L'hôte n'a pas répondu.",
-    "pending_full": "Trop de demandes en attente : réessayez dans un instant."
+    "pending_full": "Trop de demandes en attente : réessayez dans un instant.",
+    "share_stopped": "Ce partage est arrêté."
   },
   "relay": {
     "unreachable": "Le relais ne répond pas.",
     "offline": "L'ordinateur n'est pas joignable : il est éteint ou en veille.",
     "offline_named": "{name} n'est pas joignable : l'ordinateur est éteint ou en veille.",
+    "access_off": "L'accès hors de chez vous est coupé dans Admin.",
+    "access_off_named": "{name} n'est pas joignable hors de chez vous (accès coupé dans Admin).",
     "refused": "le relais refuse la connexion ({reason})",
     "bad": "adresse du relais illisible ({reason})",
     "path_direct": "Direct",

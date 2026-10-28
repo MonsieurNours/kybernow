@@ -83,7 +83,7 @@ impl Session {
 }
 
 async fn resolve(relay: &RelayAddr) -> Result<Vec<SocketAddr>, DialError> {
-    let mut addrs: Vec<SocketAddr> = tokio::net::lookup_host(relay.authority()).await.map_err(unreachable)?.collect();
+    let mut addrs: Vec<SocketAddr> = tokio::net::lookup_host(relay.host_port()).await.map_err(unreachable)?.collect();
     // IPv4 d'abord : un IPv6 cassé chez l'utilisateur est plus courant que l'inverse.
     addrs.sort_by_key(|a| a.is_ipv6());
     if addrs.is_empty() {

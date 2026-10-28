@@ -135,6 +135,17 @@ impl Platform for AndroidPlatform {
         });
     }
 
+    /// Par le relais, la session finit faute de joindre l'ordinateur :
+    /// `SessionListener.onRelayError(code, text)` (32 accès coupé dans Admin,
+    /// 31 éteint ou en veille, 30 relais muet ; `text` : la raison de la fin).
+    fn on_relay_error(&self, error: &kybernow_core::relay::RelayError, text: &str) {
+        let code = error.code();
+        self.0.listener.with(|env, obj| {
+            let s = env.new_string(text)?;
+            env.call_method(obj, "onRelayError", "(ILjava/lang/String;)V", &[JValue::Int(code), JValue::Object(&s)]).map(|_| ())
+        });
+    }
+
     fn on_share_end(&self, end: &ShareEnd, text: &str) {
         self.0.listener.with(|env, obj| {
             let s = env.new_string(text)?;
