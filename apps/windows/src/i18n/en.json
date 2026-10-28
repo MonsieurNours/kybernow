@@ -128,6 +128,7 @@
     "cancel": "Cancel",
     "too_soon": "The Station has just restarted. Try again in a minute.",
     "too_old": "To restart or update the Station from this device, first update it from Admin.",
+    "via_relay": "Away from home, the app can neither restart nor update the Station.",
     "requires_setup": "Version {version} installs on the computer, with KyberNow-Station-Setup.exe.",
     "restarted": "The Station has restarted.",
     "updated": "KyberNow Station {version} is installed.",
@@ -143,9 +144,7 @@
     "notice_pads_back": "The controllers were taken back.",
     "notice_kbm": "You have the keyboard and mouse.",
     "notice_kbm_back": "The keyboard and mouse were taken back.",
-    "notice_watch": "You are watching again."
-  },
-  "relay": {
-    "access_off": "{name} cannot be reached away from home (access turned off in Admin)."
+    "notice_watch": "You are watching again.",
+    "notice_request": "{name} wants to join."
   }
 }

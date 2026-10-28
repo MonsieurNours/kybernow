@@ -45,7 +45,7 @@
   import { onMount, tick } from 'svelte'
   import Icon from './lib/Icon.svelte'
   import Mark from './lib/Mark.svelte'
-  import type { AppInfo, BarComputer, GuestBar, KeepSound, RouteEvent, RouteView, SessionStats, Share, ShareGuest, ShareImageEvent, ShareQuality, ShareRole, ShareRoleEvent, ShareStateEvent, Stats } from './lib/api'
+  import type { AppInfo, BarComputer, GuestBar, KeepSound, RouteEvent, RouteView, SessionStats, Share, ShareGuest, ShareImageEvent, ShareQuality, ShareRequestEvent, ShareRole, ShareRoleEvent, ShareStateEvent, Stats } from './lib/api'
   import { invoke, listen, localLabel, ms, roleKbm, roleOf, rolePads, rolePlays, shareQualities, sinceText } from './lib/api'
   import { setLang, t } from './lib/i18n/index.svelte'
 
@@ -80,6 +80,8 @@
   let copied = $state<'ok' | 'fail' | null>(null)
   /** Avis bref d'un changement de rôle, montré à la place des statistiques. */
   let notice = $state<string | null>(null)
+  /** L'avis est celui d'une demande à rejoindre : le choisir ouvre le panneau de « Partager ». */
+  let noticeOpensShare = $state(false)
   let noticeTimer: ReturnType<typeof setTimeout> | null = null
   /** L'heure, pour « depuis 3 min » dans la liste des invités (revue toutes les 30 s). */
   let now = $state(Date.now())
@@ -99,7 +101,8 @@
    * reste jusqu'au passage du pointeur ; sinon, ouverte par le pointeur, qui est sur elle.
    * `multi` : plusieurs écrans. `keep_sound` : « Garder le son ». `sessions` : sessions ouvertes.
    * `guest` : session d'invité (barre réduite). `share` : session d'hôte, « Partager » et son partage.
-   * `notice` : un avis bref à montrer (changement de rôle), la barre repart ensuite d'elle-même.
+   * `notice` : un avis bref à montrer (changement de rôle), la barre repart ensuite d'elle-même ;
+   * `notice_opens_share` : c'est celui d'une demande à rejoindre, que l'on choisit pour ouvrir le panneau.
    */
   type Shown = {
     id: string
@@ -112,6 +115,7 @@
     guest?: GuestBar | null
     share?: Share | null
     notice?: string | null
+    notice_opens_share?: boolean
     route?: RouteView | null
   }
   const profiles = $derived(
@@ -189,6 +193,18 @@
         reportWidth()
         if (menu === 'share') growForMenu()
       }),
+      // Une demande à rejoindre arrive pendant que la barre est ouverte : l'avis « {prénom} demande à rejoindre. », sauf
+      // panneau de « Partager » ouvert (il montre la demande, l'avis ne le ferme pas).
+      listen<ShareRequestEvent>('share-request', (e) => {
+        if (e.id !== id || guest || menu === 'share') return
+        showNotice(e.text, true)
+      }),
+      // Le choix d'une notification de demande : la barre est montrée sur cette session, le panneau de « Partager » s'ouvre.
+      listen<string>('share-open-panel', async (session) => {
+        if (session !== id || guest) return
+        clearNotice()
+        if (menu !== 'share') await toggleShare()
+      }),
       // Le rôle de l'invité change (par l'hôte) : l'étiquette, et le clavier et la souris.
       listen<ShareRoleEvent>('share-role', (e) => {
         if (e.id !== id || !guest) return
@@ -239,7 +255,7 @@
           // Un avis bref : la barre se montre sans prendre le clavier, et repart d'elle-même.
           held = false
           inside = false
-          showNotice(s.notice)
+          showNotice(s.notice, !!s.notice_opens_share)
         } else {
           clearNotice()
           // Ouverte par le pointeur, immobile contre le bord haut : il est sur
@@ -446,12 +462,14 @@
   }
 
   /** Un avis bref à la place des statistiques ; la barre repart ensuite d'elle-même (sauf pointeur dessus ou menu ouvert). */
-  function showNotice(text: string) {
+  function showNotice(text: string, opensShare = false) {
     clearNotice()
     notice = text
+    noticeOpensShare = opensShare
     noticeTimer = setTimeout(() => {
       noticeTimer = null
       notice = null
+      noticeOpensShare = false
       if (!inside && !menu) invoke('bar_hide', { id, focus: false })
     }, 4000)
   }
@@ -460,6 +478,15 @@
     if (noticeTimer) clearTimeout(noticeTimer)
     noticeTimer = null
     notice = null
+    noticeOpensShare = false
+  }
+
+  /** Choisir l'avis d'une demande à rejoindre : le panneau de « Partager » s'ouvre, où « Accepter » et « Refuser » attendent. */
+  async function openShareFromNotice() {
+    clearNotice()
+    // La barre reste le temps de répondre (le pointeur est dessus, ou le panneau ouvert la tient).
+    held = true
+    await toggleShare()
   }
 
   /** Le nom de l'ordinateur de la session (titre du panneau). */
@@ -532,8 +559,11 @@
 
   const setRole = (g: ShareGuest, role: ShareRole) => shareAction(() => invoke<Share>('share_guest', { id, guest: g.id, role }))
   const kick = (g: ShareGuest) => shareAction(() => invoke<Share>('share_kick', { id, guest: g.id }))
-  /** « Accepter » : la demande devient un invité spectateur ; « Refuser » : elle disparaît (son appareil ne redemande pas avant 10 minutes). */
-  const accept = (g: ShareGuest) => shareAction(() => invoke<Share>('share_accept', { id, guest: g.id }))
+  /**
+   * « Accepter » : la demande devient un invité spectateur (inactif quand les quatre places sont prises) ;
+   * « Refuser » : elle disparaît (son appareil ne redemande pas avant 10 minutes).
+   */
+  const accept = (g: ShareGuest) => (share?.full ? undefined : shareAction(() => invoke<Share>('share_accept', { id, guest: g.id })))
   const refuse = (g: ShareGuest) => shareAction(() => invoke<Share>('share_refuse', { id, guest: g.id }))
   const newCode = () => shareAction(() => invoke<Share>('share_code', { id }))
 
@@ -607,7 +637,12 @@
       <span class="sep"></span>
       <span class="mono info">{stats ? infoLine(stats) : '—'}</span>
     </div>
-    {#if notice}<div class="notice" role="status">{notice}</div>{/if}
+    {#if notice && noticeOpensShare}
+      <!-- Une demande à rejoindre : choisir l'avis ouvre le panneau de « Partager ». -->
+      <button class="notice choice" aria-live="polite" onclick={openShareFromNotice}>{notice}</button>
+    {:else if notice}
+      <div class="notice" role="status">{notice}</div>
+    {/if}
   </div>
   <!-- Par le relais (hors de chez vous) : toujours visible, dans la barre. -->
   {#if route?.via_relay}
@@ -752,7 +787,8 @@
                     <span class="gmeta">{requestMeta(g)}</span>
                   </div>
                   <div class="acts">
-                    <button class="accept" aria-disabled={acting} onclick={() => accept(g)}>{t('share.accept')}</button>
+                    <!-- Quatre invités ont leur place : « Accepter » est inactif (la raison est dessous : « Quatre invités au plus. »), « Refuser » reste. -->
+                    <button class="accept" aria-disabled={acting || share.full} onclick={() => accept(g)}>{t('share.accept')}</button>
                     <button class="danger" aria-disabled={acting} onclick={() => refuse(g)}>{t('share.decline')}</button>
                   </div>
                 </li>
@@ -1081,6 +1117,22 @@
     overflow: hidden;
     text-overflow: ellipsis;
     animation: drop 0.25s var(--ease-out);
+  }
+
+  /* L'avis d'une demande à rejoindre se choisit : il ouvre le panneau de « Partager ». */
+  .notice.choice {
+    border: 0;
+    background: none;
+    font: inherit;
+    font-size: 14px;
+    text-align: left;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+
+  .notice.choice:hover {
+    text-decoration: underline;
+    text-underline-offset: 3px;
   }
 
   /* « Qualité de l'image » de l'invité : le menu s'aligne sur sa puce, avec son titre. */

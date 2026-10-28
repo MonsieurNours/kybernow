@@ -24,7 +24,7 @@ use kybernow_core::audio::AudioStats;
 use kybernow_core::input::{Clock, InputPipeline, InputPlatform, MonotonicClock, MouseMode, Options, Pasteboard, PointerLayer};
 use kybernow_core::kynput_rs::Pipeline;
 use kybernow_core::media::PacketHandler;
-use kybernow_core::relay::RouteInfo;
+use kybernow_core::relay::{RelayError, RouteInfo};
 use kybernow_core::screens::session_plan_for;
 use kybernow_core::session::{Platform, Session, SessionParams, SessionRole, Status, StreamScreen};
 use kybernow_core::share::{ShareEnd, ShareImage, ShareQuality, ShareRole, ShareState};
@@ -342,6 +342,10 @@ struct WinPlatform {
     session: Mutex<Option<Arc<Session>>>,
     /// Presse-papiers partagé (réglage de l'ordinateur).
     clipboard: bool,
+    /// Par le relais : pourquoi la session a fini quand l'ordinateur n'est pas
+    /// joignable hors de chez soi (accès coupé dans Admin, éteint ou en veille,
+    /// relais muet), tel que le cœur le dit juste avant la fin.
+    relay_error: Mutex<Option<RelayError>>,
 }
 
 impl Platform for WinPlatform {
@@ -489,6 +493,13 @@ impl Platform for WinPlatform {
     fn on_route(&self, route: &RouteInfo) {
         self.events.route(route);
     }
+    /// Par le relais, la session finit parce que l'ordinateur n'est pas joignable
+    /// hors de chez soi : l'erreur typée, juste avant la fin. C'est elle qui choisit
+    /// le texte (docs/link-ui.md, « Hors de chez vous »), jamais le texte d'Admin.
+    fn on_relay_error(&self, error: &RelayError, _text: &str) {
+        log::info!("relais : {}", error.kind());
+        *self.relay_error.lock().unwrap() = Some(error.clone());
+    }
 }
 
 fn run(
@@ -514,9 +525,12 @@ fn run(
     let clock: Arc<dyn Clock> = Arc::new(MonotonicClock::new());
     let screens = opts.layout.screens();
     let layout = opts.layout.clone();
-    // Une session d'hôte qui peut passer par le relais : ses échecs disent le nom de
-    // l'ordinateur (docs/link-ui.md, « Hors de chez vous »), que le cœur ne connaît pas.
-    let may_relay = matches!(params.role, SessionRole::Host) && !matches!(params.route, kybernow_core::session::Route::Direct);
+    // L'ordinateur dont on dit l'échec par le relais (« {nom} n'est pas joignable… ») : celui du
+    // partage pour un invité (`host_name` est alors « Invité sur … »), sinon celui de l'app.
+    let computer = match &params.role {
+        SessionRole::Guest(g) => g.joined.computer.clone(),
+        _ => host_name.clone(),
+    };
     let app = App::new(
         id,
         host_name.clone(),
@@ -578,6 +592,7 @@ fn run(
         events: events.clone(),
         session: Mutex::new(None),
         clipboard: params.clipboard,
+        relay_error: Mutex::new(None),
     });
     let session = Session::start_with_screens(params, screens, platform.clone());
     // Plusieurs ordinateurs : inscrite au registre des sessions du cœur, elle
@@ -631,14 +646,9 @@ fn run(
     if let Some(m) = median_ms {
         log::info!("latence de la session : médiane {m:.1} ms, 95e centile {:.1} ms", p95_ms.unwrap_or(0.0));
     }
-    let error = app.error.lock().unwrap().clone();
-    let error = match error {
-        Some(e) if may_relay => {
-            let lang = crate::i18n::lang();
-            Some(crate::relais::refusal(&e, &host_name, lang, &|k, p| crate::i18n::tr(lang, k, p)).unwrap_or(e))
-        }
-        other => other,
-    };
+    // Par le relais, l'échec dit le nom de l'ordinateur (docs/link-ui.md, « Hors de
+    // chez vous ») : le texte vient de l'erreur typée du cœur, pas de celui d'Admin.
+    let error = crate::relais::failure_text(platform.relay_error.lock().unwrap().as_ref(), app.error.lock().unwrap().clone(), &computer, crate::i18n::lang());
     *platform.session.lock().unwrap() = None;
     let last_image = app.take_last_image();
     let (requested, shown, was_front) = (app.user_ended(), app.ever_shown(), app.was_front());

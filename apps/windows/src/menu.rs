@@ -161,6 +161,10 @@ pub struct Computer {
     /// `online` est alors vrai, on peut s'y connecter ; ni Admin dans le navigateur
     /// (l'interface d'Admin ne passe jamais par le relais), ni redémarrage de la Station.
     pub away: bool,
+    /// Par le relais : l'ordinateur n'est joignable que par lui (`away`), ou une session de
+    /// cet ordinateur y passe. Admin refuse alors le redémarrage et la mise à jour de la
+    /// Station : le menu ne les propose pas.
+    pub via_relay: bool,
     /// `jeu`, `bureau`, `max`.
     pub profile: String,
     /// Les réglages s'écartent du profil : « Personnalisé ».
@@ -429,9 +433,12 @@ pub fn computer(s: &State, c: &Computer, tr: Tr) -> Vec<Item> {
     out.push(Item::Sub { text: tr("tray.profile", &[]), key: None, checked: false, dot: None, items: profiles });
     out.push(Item::line(tr("tray.settings", &[]), Some(Cmd::Settings(c.id.clone()))));
 
-    // Hors de chez vous : ni Admin dans le navigateur, ni la Station à redémarrer.
+    // Hors de chez vous : ni Admin dans le navigateur, ni la Station à redémarrer. Par le relais (une
+    // session de cet ordinateur y passe, même s'il répond sur le réseau), ni redémarrage ni mise à jour :
+    // Admin les refuse. Les réglages de l'ordinateur en disent la raison à la place.
     let online = c.online == Some(true) && !c.away;
-    let station = c.station.as_ref().filter(|_| online || busy.is_some());
+    let heavy = online && !c.via_relay;
+    let station = c.station.as_ref().filter(|_| heavy || busy.is_some());
     if online || station.is_some() {
         out.push(Item::Separator);
     }
@@ -444,7 +451,7 @@ pub fn computer(s: &State, c: &Computer, tr: Tr) -> Vec<Item> {
             _ => Item::Line {
                 text: tr("tray.restart", &[]),
                 cmd: Some(Cmd::Restart(c.id.clone())),
-                enabled: busy.is_none() && online,
+                enabled: busy.is_none() && heavy,
                 mark: Mark::None,
                 default: false,
             },
@@ -455,7 +462,7 @@ pub fn computer(s: &State, c: &Computer, tr: Tr) -> Vec<Item> {
             out.push(Item::Line {
                 text: tr("tray.update", &[("version", v)]),
                 cmd: Some(Cmd::Update(c.id.clone())),
-                enabled: busy.is_none() && online,
+                enabled: busy.is_none() && heavy,
                 mark: Mark::None,
                 default: false,
             });
@@ -621,6 +628,21 @@ mod tests {
         assert!(l.iter().any(|x| x.contains("Ouvrir Admin")) && l.iter().any(|x| x.contains("Redémarrer la Station")), "{l:?}");
         // Hors ligne et hors de chez vous n'ont pas le même état.
         assert_eq!(status(&Computer { away: true, online: Some(false), ..atelier() }), (Seen::Offline, Dot::Bad));
+    }
+
+    /// Une session de cet ordinateur passe par le relais alors qu'il répond sur le réseau : Admin reste ouvrable
+    /// (il se joint directement), mais ni redémarrage ni mise à jour de la Station, qu'Admin refuse par le relais.
+    #[test]
+    fn par_le_relais_pas_d_action_lourde() {
+        let via = Computer { via_relay: true, ..atelier() };
+        let l = lines(&State { computers: vec![via], ..Default::default() }, Lang::Fr);
+        assert!(l.iter().any(|x| x.contains("Ouvrir Admin")), "{l:?}");
+        assert!(!l.iter().any(|x| x.contains("Redémarrer la Station") || x.contains("Mettre à jour la Station")), "{l:?}");
+        // Même chose en anglais, et sans relais ils sont là.
+        let en = lines(&State { computers: vec![Computer { via_relay: true, ..atelier() }], ..Default::default() }, Lang::En);
+        assert!(!en.iter().any(|x| x.contains("Restart the Station") || x.contains("Update the Station")), "{en:?}");
+        let l = lines(&State { computers: vec![atelier()], ..Default::default() }, Lang::Fr);
+        assert!(l.iter().any(|x| x.contains("Redémarrer la Station")) && l.iter().any(|x| x.contains("Mettre à jour la Station")), "{l:?}");
     }
 
     fn session_atelier() -> Session {

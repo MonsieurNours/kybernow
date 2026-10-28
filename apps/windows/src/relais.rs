@@ -3,19 +3,16 @@
 //! tester sur le Mac : la route d'un ordinateur par son relais, les relais à
 //! interroger pour un code tapé, la présence au relais (accueil, « Hors de chez
 //! vous ») et son rythme, le chemin d'une session tel que la barre et les
-//! statistiques le disent, et les textes des refus avec le nom de l'ordinateur.
+//! statistiques le disent, et les textes des refus avec le nom de l'ordinateur
+//! (choisis d'après l'erreur typée du cœur, jamais d'après son texte).
 //! Les appels, les fils et les fenêtres sont dans `ui.rs`, `ui/share.rs` et `host.rs`.
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use kybernow_core::console::ConsoleError;
 use kybernow_core::i18n::Lang;
 use kybernow_core::relay::{self, RelayAddr, RelayError, RelayInfo, RelayMode, RelayRoute, RouteInfo, RouteTransport};
 use serde::Serialize;
-
-/// Textes : clé du catalogue de l'app (`src/i18n/`) et paramètres.
-pub type Tr<'a> = &'a dyn Fn(&str, &[(&str, &str)]) -> String;
 
 /// La route d'un ordinateur par son relais (`info.relay` gardé avec lui, et
 /// l'empreinte d'Admin que l'app connaît) : `None` sans relais réglé chez lui,
@@ -24,12 +21,13 @@ pub fn route_of(relay: Option<&RelayInfo>, fingerprint: Option<&str>) -> Option<
     relay?.route(fingerprint?)
 }
 
-/// Les relais où chercher le code d'un partage : le relais public d'abord, puis
-/// ceux des ordinateurs que l'app connaît (`info.relay.server`), sans doublon ;
-/// une adresse illisible est écartée. Le code d'un ami part ainsi au relais
-/// public même quand l'ordinateur de l'utilisateur en utilise un autre.
+/// Les relais où chercher le code d'un partage en plus du relais public : ceux
+/// des ordinateurs que l'app connaît (`info.relay.server`), sans doublon ; une
+/// adresse illisible est écartée. Le cœur (`share::join_anywhere`) interroge
+/// toujours le relais public lui-même : le code d'un ami y part même quand
+/// l'ordinateur de l'utilisateur en utilise un autre.
 pub fn join_relays<'a>(servers: impl IntoIterator<Item = &'a str>) -> Vec<RelayAddr> {
-    let mut out = vec![RelayAddr::public()];
+    let mut out = Vec::new();
     for server in servers {
         if let Ok(addr) = server.trim().parse::<RelayAddr>()
             && !out.contains(&addr)
@@ -133,35 +131,24 @@ impl RouteView {
 
 // MARK: - Refus
 
-/// Le message qu'Admin donne quand « Accès hors de chez vous » est coupé
-/// (`code: remote_access_off`), dans la langue demandée par l'app.
-fn admin_access_off(lang: Lang) -> &'static str {
-    match lang {
-        Lang::Fr => "L'accès hors de chez vous est coupé dans Admin.",
-        Lang::En => "Access away from home is turned off in Admin.",
-    }
-}
-
 /// Le texte de link-ui (« Hors de chez vous ») d'un échec de session par le
-/// relais, avec le nom de l'ordinateur que le cœur ne connaît pas :
+/// relais, avec le nom de l'ordinateur :
 ///
 /// - l'accès est coupé dans Admin : « {nom} n'est pas joignable hors de chez vous
 ///   (accès coupé dans Admin). » ;
 /// - l'ordinateur n'est pas connecté au relais : « {nom} n'est pas joignable :
-///   l'ordinateur est éteint ou en veille. »
+///   l'ordinateur est éteint ou en veille. » ;
+/// - le relais ne répond pas : « Le relais ne répond pas. ».
 ///
-/// `None` : l'échec est autre chose, son texte reste tel quel. `error` est le
-/// texte que le cœur a donné (celui de la langue de l'app).
-pub fn refusal(error: &str, name: &str, lang: Lang, tr: Tr) -> Option<String> {
-    let access_off = [Lang::Fr, Lang::En].into_iter().any(|l| {
-        let known = ConsoleError::Http { status: 403, message: admin_access_off(l).to_string() };
-        error == known.text(l)
-    });
-    if access_off {
-        return Some(tr("relay.access_off", &[("name", name)]));
+/// `relay` est l'erreur typée que le cœur a donnée en fin de session
+/// (`Platform::on_relay_error`) ; `error`, la raison de la fin qu'il a donnée
+/// (le même texte, avec le nom qu'il connaît). Sans erreur du relais, la raison
+/// reste telle quelle : son texte ne se lit jamais pour la reconnaître.
+pub fn failure_text(relay: Option<&RelayError>, error: Option<String>, name: &str, lang: Lang) -> Option<String> {
+    match (relay, error) {
+        (Some(e), Some(_)) => Some(e.text(lang, Some(name))),
+        (_, error) => error,
     }
-    let offline = [Lang::Fr, Lang::En].into_iter().any(|l| error == RelayError::StationOffline.text(l, None));
-    offline.then(|| RelayError::StationOffline.text(lang, Some(name)))
 }
 
 #[cfg(test)]
@@ -186,15 +173,15 @@ mod tests {
 
     #[test]
     fn relais_d_un_code() {
-        // Le relais public d'abord, même sans ordinateur.
-        assert_eq!(join_relays([]), vec![RelayAddr::public()]);
-        // Puis ceux des ordinateurs, sans doublon (le port se complète), les adresses illisibles écartées.
-        let relays = join_relays(["share.kybernow.app", "relais.exemple.org:9443", "relais.exemple.org:9443", "a b", ""]);
+        // Aucun ordinateur : rien à ajouter, le cœur interroge seul le relais public.
+        assert_eq!(join_relays([]), Vec::<RelayAddr>::new());
+        // Ceux des ordinateurs, sans doublon (« share.kybernow.app » et « …:443 » sont le même relais, un autre
+        // port reste écrit), les adresses illisibles écartées.
+        let relays = join_relays(["share.kybernow.app", "relais.exemple.org:9443", "relais.exemple.org:9443", "share.kybernow.app:443", "a b", ""]);
         assert_eq!(relays.len(), 2);
         assert_eq!(relays[0], RelayAddr::public());
         assert_eq!((relays[1].host.as_str(), relays[1].port), ("relais.exemple.org", 9443));
-        // Le relais d'un ordinateur n'écarte pas le relais public.
-        assert_eq!(join_relays(["relais.exemple.org:9443"])[0], RelayAddr::public());
+        assert_eq!(relays.iter().map(ToString::to_string).collect::<Vec<_>>(), ["share.kybernow.app", "relais.exemple.org:9443"]);
     }
 
     #[test]
@@ -228,37 +215,31 @@ mod tests {
         assert_eq!(serde_json::to_value(&tcp).unwrap()["transport"], "relay_tcp");
     }
 
-    fn tr(key: &str, params: &[(&str, &str)]) -> String {
-        assert_eq!(key, "relay.access_off");
-        format!("{} n'est pas joignable hors de chez vous (accès coupé dans Admin).", params[0].1)
-    }
-
     #[test]
     fn refus_avec_le_nom_de_l_ordinateur() {
-        // Ce que le cœur donne d'un ordinateur absent du relais : le texte sans nom.
-        let offline = RelayError::StationOffline.text(Lang::Fr, None);
-        assert_eq!(
-            refusal(&offline, "Atelier", Lang::Fr, &tr).as_deref(),
-            Some("Atelier n'est pas joignable : l'ordinateur est éteint ou en veille.")
-        );
-        let en = RelayError::StationOffline.text(Lang::En, None);
-        assert_eq!(refusal(&en, "Atelier", Lang::En, &tr).as_deref(), Some("Atelier cannot be reached: the computer is off or asleep."));
-        // L'accès coupé dans Admin : `403` avec le message d'Admin, dit par le cœur « Admin : … (403) ».
-        let off = ConsoleError::Http { status: 403, message: admin_access_off(Lang::Fr).into() }.to_string();
-        assert!(refusal(&off, "Atelier", Lang::Fr, &tr).is_some_and(|t| t.starts_with("Atelier n'est pas joignable hors de chez vous")));
-        // Un autre échec garde son texte (relais muet, mot de passe refusé, empreinte changée…).
-        assert_eq!(refusal(&RelayError::Unreachable("x".into()).text(Lang::Fr, None), "Atelier", Lang::Fr, &tr), None);
-        assert_eq!(refusal(&ConsoleError::Http { status: 401, message: "compte".into() }.text(Lang::Fr), "Atelier", Lang::Fr, &tr), None);
-        assert_eq!(refusal("autre chose", "Atelier", Lang::Fr, &tr), None);
+        let text = |e: RelayError, lang| failure_text(Some(&e), Some("raison du cœur".into()), "Atelier", lang);
+        // L'accès coupé dans Admin et l'ordinateur absent du relais : choisis par l'erreur typée, avec le nom.
+        assert_eq!(text(RelayError::AccessOff, Lang::Fr).as_deref(), Some("Atelier n'est pas joignable hors de chez vous (accès coupé dans Admin)."));
+        assert_eq!(text(RelayError::AccessOff, Lang::En).as_deref(), Some("Atelier cannot be reached away from home (access turned off in Admin)."));
+        assert_eq!(text(RelayError::StationOffline, Lang::Fr).as_deref(), Some("Atelier n'est pas joignable : l'ordinateur est éteint ou en veille."));
+        assert_eq!(text(RelayError::StationOffline, Lang::En).as_deref(), Some("Atelier cannot be reached: the computer is off or asleep."));
+        // Le relais muet garde son texte.
+        assert_eq!(text(RelayError::Unreachable("x".into()), Lang::Fr).as_deref(), Some("Le relais ne répond pas."));
+        // Sans erreur du relais, la raison reste telle quelle, même si elle ressemble à un refus : le texte ne se lit pas.
+        let looks_like = RelayError::StationOffline.text(Lang::Fr, None);
+        assert_eq!(failure_text(None, Some(looks_like.clone()), "Atelier", Lang::Fr), Some(looks_like));
+        assert_eq!(failure_text(None, Some("Mot de passe refusé".into()), "Atelier", Lang::Fr).as_deref(), Some("Mot de passe refusé"));
+        // Une session qui n'a pas fini en erreur n'en a pas.
+        assert_eq!(failure_text(Some(&RelayError::AccessOff), None, "Atelier", Lang::Fr), None);
+        assert_eq!(failure_text(None, None, "Atelier", Lang::Fr), None);
     }
 
-    /// Le message d'Admin que l'app reconnaît est celui de son catalogue.
+    /// Les codes des ponts : 30 relais muet, 31 ordinateur absent du relais, 32 accès coupé dans Admin.
     #[test]
-    fn message_d_admin_pour_l_acces_coupe() {
-        for (lang, admin) in [(Lang::Fr, include_str!("../../../server/admin/src/i18n/fr.json")), (Lang::En, include_str!("../../../server/admin/src/i18n/en.json"))] {
-            let admin: serde_json::Value = serde_json::from_str(admin).unwrap();
-            assert_eq!(admin["relay"]["accessOff"].as_str(), Some(admin_access_off(lang)), "{lang:?}");
-        }
+    fn codes_du_relais() {
+        assert_eq!((RelayError::Unreachable("x".into()).code(), RelayError::StationOffline.code(), RelayError::AccessOff.code()), (30, 31, 32));
+        assert_eq!(RelayError::from_code(32), Some(RelayError::AccessOff));
+        assert_eq!(RelayError::AccessOff.kind(), "access_off");
     }
 
     /// Les trois libellés du chemin des catalogues de l'interface sont ceux du cœur.

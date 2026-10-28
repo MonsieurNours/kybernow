@@ -1,5 +1,6 @@
 //! Liens `kybernow://` des notifications : `kybernow://connect?id=…`,
-//! `kybernow://open[?id=…]`, `kybernow://station?id=…`,
+//! `kybernow://open[?id=…]`, `kybernow://share?id=…` (une demande à rejoindre : le
+//! panneau de « Partager » de cette session), `kybernow://station?id=…`,
 //! `kybernow://station-update?id=…`. Windows les rend parfois avec une barre
 //! avant le « ? » (`kybernow://connect/?id=…`). Le lien d'un partage
 //! (`kybernow://join?host=…&port=…&fp=…&code=…`, KyberNow Share, avec
@@ -12,7 +13,7 @@ pub fn action(link: &str) -> Option<(&str, Option<String>)> {
     let rest = link.strip_prefix("kybernow://")?;
     let (path, query) = rest.split_once('?').unwrap_or((rest, ""));
     let path = path.trim_end_matches('/');
-    if !["connect", "open", "station", "station-update"].contains(&path) {
+    if !["connect", "open", "share", "station", "station-update"].contains(&path) {
         return None;
     }
     let id = query
@@ -48,6 +49,10 @@ mod tests {
         // Comme Windows les rend aux boutons des notifications.
         assert_eq!(action("kybernow://station-update/?id=e55a1a7e11e40001"), Some(("station-update", Some("e55a1a7e11e40001".into()))));
         assert_eq!(action("kybernow://station/?id=x9"), Some(("station", Some("x9".into()))));
+        // Une demande à rejoindre : le panneau de « Partager » de cette session (pas le lien d'un partage).
+        assert_eq!(action("kybernow://share?id=e55a1a7e11e40001"), Some(("share", Some("e55a1a7e11e40001".into()))));
+        assert_eq!(action("kybernow://share/?id=x9"), Some(("share", Some("x9".into()))));
+        assert!(!is_join("kybernow://share?id=x9"));
         assert_eq!(action("kybernow://open"), Some(("open", None)));
         assert_eq!(action("kybernow://open/"), Some(("open", None)));
         assert_eq!(action("kybernow://open?id=../../x"), Some(("open", Some("x".into()))));
@@ -64,7 +69,7 @@ mod tests {
         assert!(is_join("kybernow://join/?host=192.168.1.100&port=9443&code=123456"));
         assert!(is_join("  KYBERNOW://Join?code=1  "));
         // Hors de chez soi : le relais et l'identifiant de la Station (le relais garde son `#sha256:…`, encodé).
-        assert!(is_join("kybernow://join?host=192.168.1.100&port=9443&fp=sha256%3Aaa&code=123456&relay=share.kybernow.app%3A8443&sid=abcdefghijklmnopqrstuvwxyz"));
+        assert!(is_join("kybernow://join?host=192.168.1.100&port=9443&fp=sha256%3Aaa&code=123456&relay=share.kybernow.app&sid=abcdefghijklmnopqrstuvwxyz"));
         // Illisible, mais bien un lien de partage : l'app le dit à l'ouverture.
         assert!(is_join("kybernow://join"));
         assert!(!is_join("kybernow://joint?x=1"));
