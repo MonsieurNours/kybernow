@@ -84,6 +84,8 @@ const PRODUCTS = {
   station: { state: "server",  name: "KyberNow Station" },
   admin:   { state: "console", name: "KyberNow Admin" },
   link:    { state: "now",     name: "KyberNow Link" },
+  // KyberNow Share (partage, relais) : une fonction de Link, même symbole.
+  share:   { state: "now",     name: "KyberNow Share" },
 };
 
 function markGroup(state, { ice, sig, dim, x = 0, y = 0, size = G }) {
@@ -183,7 +185,7 @@ for (const [t, col] of Object.entries(themes)) {
     markGroup("now", { ...col, size: smh, x: (sw - smh) / 2 }) + wordmark(col.word, 0, smh + sgap + CAP * 0.62, 0.62));
   // Nom seul.
   files[`logo/kybernow-wordmark-${t}.svg`] = svg(WM_W, CAP + DESC, wordmark(col.word, 0, CAP));
-  // Logos signés des produits : Station, Admin, Link.
+  // Logos signés des produits : Station, Admin, Link, Share.
   for (const p of Object.keys(PRODUCTS)) files[`logo/kybernow-${p}-${t}.svg`] = signedLogo(p, t, col);
 }
 
@@ -223,5 +225,10 @@ for (const [p, content] of Object.entries(files)) {
   mkdirSync(dirname(join(out, p)), { recursive: true });
   writeFileSync(join(out, p), content);
 }
+// Copies pour la page du relais (son image Docker ne voit que server/relay).
+const relayAssets = join(here, "..", "..", "..", "server", "relay", "assets");
+mkdirSync(relayAssets, { recursive: true });
+writeFileSync(join(relayAssets, "kybernow-share-dark.svg"), files["logo/kybernow-share-dark.svg"]);
+writeFileSync(join(relayAssets, "kybernow-favicon.svg"), files["favicon/kybernow-favicon.svg"]);
 writeFileSync(join(here, "geometry.json"), JSON.stringify({ grid: G, source: SOURCE, dest: DEST, beam: BEAM, wordmark: { kyber: WM.kyber.d, now: WM.now.d, nowOffset: WM.kyber.advance - 1.2, width: WM_W, cap: CAP }, signed: SIGNED }, null, 1));
 console.log(`piste ${piste} : ${Object.keys(files).length} fichiers`);

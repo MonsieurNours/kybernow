@@ -43,6 +43,7 @@
   },
   "home": {
     "online": "En ligne",
+    "away": "Hors de chez vous",
     "offline": "Hors ligne",
     "screens_as_is": "Les écrans de l'ordinateur, tels quels",
     "screen_match": "Écran de {width} × {height} à {refresh} Hz, à la taille de cet écran",
@@ -180,6 +181,7 @@
     "median": "médiane",
     "p95": "95 % des images sous {ms} ms",
     "screens": "{count} écrans",
+    "path": "Chemin",
     "help": "Le délai entre l'ordinateur et cet écran. Sous un repère, l'image arrive avant l'image suivante à cette fréquence.",
     "none": "Pas encore de session sur cet ordinateur.",
     "this_computer": "Cet ordinateur",
@@ -296,6 +298,16 @@
     "copy_failed": "Copie impossible : sélectionnez le lien à la main.",
     "qr": "QR code du partage",
     "help": "Sur le même réseau : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur.",
+    "help_relay": "Sur le même réseau ou ailleurs : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur. Hors de chez vous, vous acceptez chaque invité.",
+    "relay_down": "Pas encore joignable hors de chez vous.",
+    "requests": "Demandes",
+    "requests_one": "{count} demande",
+    "requests_other": "{count} demandes",
+    "wants_to_join": "{name} demande à rejoindre",
+    "away": "hors de chez vous",
+    "accept": "Accepter",
+    "decline": "Refuser",
+    "waiting": "En attente de l'accord de l'hôte…",
     "guests": "Invités",
     "guests_one": "{count} invité",
     "guests_other": "{count} invités",
@@ -337,10 +349,23 @@
     "quality_1080p60": "1080p · 60 Hz",
     "quality_720p30": "720p · 30 Hz"
   },
+  "relay": {
+    "via": "Par le relais",
+    "path_direct": "Direct",
+    "path_relay": "Par le relais",
+    "path_relay_tcp": "Par le relais (TCP)"
+  },
   "fond": {
     "not_created": "L'ordinateur n'a pas pu créer cet écran."
   },
   "mock": {
+    "unknown_guest": "Cet invité n'est plus dans le partage.",
+    "share_refused": "L'hôte a refusé.",
+    "share_expired": "L'hôte n'a pas répondu.",
+    "relay_mute": "Le relais ne répond pas.",
+    "pending_full": "Trop de demandes en attente : réessayez dans un instant.",
+    "access_off": "Atelier n'est pas joignable hors de chez vous (accès coupé dans Admin).",
+    "station_offline": "Atelier n'est pas joignable : l'ordinateur est éteint ou en veille.",
     "no_share": "Aucun partage avec ce code sur le réseau.",
     "share_full": "Ce partage est complet (quatre invités au plus).",
     "share_unsupported": "Le partage demande KyberNow Station 0.8.0 ou plus récente.",

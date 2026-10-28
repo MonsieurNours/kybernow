@@ -95,6 +95,11 @@ pub struct LastSession {
     pub codec: Option<String>,
     /// Débit demandé à l'ordinateur, en Mbit/s (multi-écrans : le total).
     pub mbps: Option<u32>,
+    /// Par où est passée la session (`on_route` du cœur, à sa fin) : la ligne
+    /// « Chemin » des statistiques (« Direct », « Par le relais »). Absent des
+    /// sessions d'avant le relais.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub route: Option<kybernow_core::relay::RouteInfo>,
     /// Profil et format en français (« Bureau · HEVC 4:4:4 ») : seulement
     /// dans les fichiers de la 0.4.x, montré tant qu'une session ne l'a pas
     /// remplacé.
@@ -131,6 +136,12 @@ pub struct Computer {
     /// fois par version et par ordinateur).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub station_notified: Option<String>,
+    /// Son relais (`info.relay` du dernier `info` : relais, identifiant chez lui,
+    /// « Accès hors de chez vous » actif) : l'app ouvre l'ordinateur par le
+    /// relais quand elle ne le trouve pas sur le réseau (docs/relais.md).
+    /// Absent d'une Station antérieure ou sans relais réglé.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relay: Option<kybernow_core::relay::RelayInfo>,
 }
 
 pub struct Store {
@@ -200,6 +211,11 @@ impl Store {
                 c.wake = std::mem::take(&mut old.wake);
             }
             c.station_notified = old.station_notified.take();
+            // Une Station qui ne dit pas son relais (ajout par une adresse que le
+            // relais ne connaît pas encore) garde celui qu'on connaît.
+            if c.relay.is_none() {
+                c.relay = old.relay.take();
+            }
             *old = c;
             old.id.clone()
         } else {

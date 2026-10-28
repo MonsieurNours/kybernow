@@ -252,9 +252,25 @@ async fn pages_du_relais() {
         let code = station.agent.reserve(Some("135790")).await.unwrap();
         let home = https(&relay, &pki.roots, DOMAIN, "GET", "/", &[("accept-language", "fr-FR,fr;q=0.9")]).await.unwrap();
         assert_eq!(home.status, 200);
-        assert!(home.body.contains("Rejoindre un partage"));
+        assert!(home.body.contains("Montrez votre ordinateur"));
+        assert!(home.body.contains("Rejoindre avec un code"));
+        assert!(home.body.contains(r#"<form method="get" action="/j">"#));
         let home_en = https(&relay, &pki.roots, DOMAIN, "GET", "/", &[("accept-language", "en-GB")]).await.unwrap();
-        assert!(home_en.body.contains("Join a share"));
+        assert!(home_en.body.contains("Show your computer"));
+        assert!(home_en.body.contains("Join with a code"));
+        // Le choix du visiteur (?lang=) passe avant le navigateur ; les réponses disent qu'elles varient.
+        let chosen = https(&relay, &pki.roots, DOMAIN, "GET", "/?lang=en", &[("accept-language", "fr-FR")]).await.unwrap();
+        assert!(chosen.body.contains("Join with a code") && chosen.body.contains(r#"<html lang="en">"#));
+        assert_eq!(home.headers.get("vary").unwrap(), "accept-language");
+        assert_eq!(home.headers.get("cache-control").unwrap(), "no-store");
+        // Pas de cookie, pas de script : la politique de contenu ne laisse venir que le relais.
+        assert!(home.headers.get("set-cookie").is_none());
+        let policy = home.headers.get("content-security-policy").unwrap().to_str().unwrap();
+        for part in ["default-src 'none'", "style-src 'self' 'unsafe-inline'", "font-src 'self'", "img-src 'self' data:", "form-action 'self'", "frame-ancestors 'none'"] {
+            assert!(policy.contains(part), "politique : {part}");
+        }
+        assert!(!policy.contains("script-src"), "aucun script : default-src 'none' les refuse");
+        assert!(!home.body.contains("<script"));
         let j = https(&relay, &pki.roots, DOMAIN, "GET", &format!("/j/{code}"), &[]).await.unwrap();
         assert_eq!(j.status, 302);
         let port = relay.addr.port();
@@ -281,6 +297,68 @@ async fn pages_du_relais() {
         assert!(metrics.contains("relay_code_lookups_total{result=\"found\"}"));
         let addr = relay.metrics_addr.unwrap();
         assert!(kybernow_relay::metrics::healthcheck(addr));
+    })
+    .await
+    .expect("délai");
+}
+
+/// Les fichiers que l'accueil cite (`/assets/…?v=…`) : servis par le relais, gardés un an.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fichiers_de_la_page_d_accueil() {
+    timeout(T * 2, async {
+        let pki = pki();
+        let relay = relay(&pki, |_| {}).await;
+        let home = https(&relay, &pki.roots, DOMAIN, "GET", "/", &[]).await.unwrap();
+        let mut urls: Vec<String> = home
+            .body
+            .split('"')
+            .filter(|s| s.starts_with("/assets/"))
+            .map(str::to_string)
+            .collect();
+        urls.sort();
+        urls.dedup();
+        assert_eq!(urls.len(), 4, "feuille de styles, police, logo et favicon : {urls:?}");
+        for url in &urls {
+            let name = url.trim_start_matches("/assets/").split('?').next().unwrap();
+            let r = https(&relay, &pki.roots, DOMAIN, "GET", url, &[]).await.unwrap();
+            assert_eq!(r.status, 200, "{url}");
+            let asset = kybernow_relay::assets::get(name).unwrap();
+            assert_eq!(r.headers.get("content-type").unwrap(), asset.mime, "{url}");
+            assert_eq!(r.headers.get("cache-control").unwrap(), "public, max-age=31536000, immutable", "{url}");
+            assert_eq!(r.headers.get("x-content-type-options").unwrap(), "nosniff");
+            assert_eq!(r.headers.get("content-length").unwrap().to_str().unwrap(), asset.body.len().to_string(), "{url}");
+            assert!(r.headers.get("set-cookie").is_none());
+        }
+        // La feuille de styles : les jetons de la charte, la mise en page, les polices du relais avec la version.
+        let css_url = urls.iter().find(|u| u.starts_with("/assets/share.css")).unwrap();
+        let css = https(&relay, &pki.roots, DOMAIN, "GET", css_url, &[]).await.unwrap();
+        assert!(css.body.contains("--kn-signal") && css.body.contains(".hero"));
+        assert!(css.body.contains(&format!("/assets/archivo.woff2?v={}", kybernow_relay::assets::version())));
+        assert!(css.headers.get("content-type").unwrap().to_str().unwrap().starts_with("text/css"));
+        // Les polices sont du woff2.
+        let font = https(&relay, &pki.roots, DOMAIN, "GET", "/assets/martian-mono.woff2", &[]).await.unwrap();
+        assert_eq!(font.headers.get("content-type").unwrap(), "font/woff2");
+        assert!(font.body.starts_with("wOF2"));
+        // Un fichier qui n'existe pas, ou un chemin qui sort du dossier : la page « introuvable », sans fichier.
+        for path in ["/assets/inconnu.css", "/assets/", "/assets/../src/web.rs", "/assets/share.css/x"] {
+            let r = https(&relay, &pki.roots, DOMAIN, "GET", path, &[("accept-language", "fr")]).await.unwrap();
+            assert_eq!(r.status, 404, "{path}");
+            assert!(r.body.contains("Page introuvable"), "{path}");
+        }
+        // Les fichiers se lisent aussi par HEAD, jamais par POST.
+        let head = https(&relay, &pki.roots, DOMAIN, "HEAD", css_url, &[]).await.unwrap();
+        assert_eq!(head.status, 200);
+        let post = https(&relay, &pki.roots, DOMAIN, "POST", css_url, &[]).await.unwrap();
+        assert_eq!(post.status, 405);
+        // Les autres pages ont la même politique et le même style.
+        for path in ["/privacy", "/j/000000", "/j?code=12", "/rien"] {
+            let r = https(&relay, &pki.roots, DOMAIN, "GET", path, &[]).await.unwrap();
+            assert!(r.body.contains("/assets/share.css?v="), "{path}");
+            assert_eq!(r.headers.get("content-security-policy").unwrap().to_str().unwrap(), kybernow_relay::web::PAGE_POLICY, "{path}");
+        }
+        // Ni les métriques ni la santé n'ont de politique de page : ce sont des réponses JSON.
+        let health = https(&relay, &pki.roots, DOMAIN, "GET", "/v1/health", &[]).await.unwrap();
+        assert!(health.headers.get("content-security-policy").is_none());
     })
     .await
     .expect("délai");

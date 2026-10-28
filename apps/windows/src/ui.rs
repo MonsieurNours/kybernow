@@ -34,6 +34,7 @@ use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow};
 
 use kybernow_core::console::{Console, Info, PairStatus, StationError};
+use kybernow_core::relay::RouteInfo;
 use kybernow_core::profile::{Codec, Profile};
 use kybernow_core::screens::{self, DisplaysSetting};
 use kybernow_core::session::{SessionParams, SessionRole, Status};
@@ -49,7 +50,7 @@ use crate::pc::{self, ThisPc};
 use crate::i18n::t;
 use crate::follow::{self, Kind};
 use crate::menu::{self, Cmd};
-use crate::{audio, focus, i18n, instance, login, shell, snapshot, system, tray, window};
+use crate::{audio, focus, i18n, instance, login, relais, shell, snapshot, system, tray, window};
 use kybernow_core::share::{ShareEnd, ShareImage, ShareQuality, ShareRole, ShareState};
 use kybernow_core::update::{self, Available, Channel};
 
@@ -66,6 +67,9 @@ struct Live {
     /// Dernière image de la dernière session (passe avant l'aperçu).
     last: Option<String>,
     last_loaded: bool,
+    /// L'ordinateur ne répond pas sur le réseau mais le relais le tient : « Hors
+    /// de chez vous » (`online` est alors vrai : on peut s'y connecter).
+    away: bool,
 }
 
 fn data_url(jpeg: &[u8]) -> String {
@@ -77,6 +81,8 @@ pub struct ComputerView {
     #[serde(flatten)]
     computer: Computer,
     online: Option<bool>,
+    /// Joignable seulement par le relais (état « Hors de chez vous », docs/relais.md).
+    away: bool,
     info: Option<Info>,
     preview: Option<String>,
     /// `last` : dernière image de votre session ; `preview` : aperçu de son écran.
@@ -119,6 +125,10 @@ struct Running {
     /// Session d'hôte : le partage ouvert et ses invités, tels qu'Admin les dit
     /// (signe de vie de la session, ou réponse à une action de la barre).
     share: Arc<Mutex<Option<ShareState>>>,
+    /// Par où passe la session (`on_route` du cœur) : la puce « Par le relais » de
+    /// la barre, et le chemin que prennent les appels à Admin (par le relais si la
+    /// session y est). `None` tant que le cœur ne l'a pas dit.
+    route: Arc<Mutex<Option<RouteInfo>>>,
 }
 
 /// La connexion d'une session ouverte pendant qu'une autre tourne (plusieurs
@@ -253,6 +263,11 @@ pub struct UiState {
     /// Un partage rejoint (`share_join`) dont la session s'ouvre
     /// (`share_connect`) : un seul à la fois.
     pending_guest: Mutex<Option<share::Pending>>,
+    /// Une demande par le relais qui attend l'accord de l'hôte (« En attente de
+    /// l'accord de l'hôte… ») : une seule à la fois.
+    join_wait: Mutex<Option<share::Wait>>,
+    /// La présence des ordinateurs au relais, redemandée toutes les 30 s au plus.
+    presence: Mutex<relais::Presence>,
 }
 
 /// Ce que l'ouverture demande à l'app.
@@ -394,7 +409,7 @@ impl UiState {
                 };
                 let waking = waking.contains(&c.id);
                 let station_pending = pending.get(&c.id).map(|k| k.code());
-                ComputerView { computer: c, online: l.online, info: l.info, preview, preview_source, waking, station_pending }
+                ComputerView { computer: c, online: l.online, away: l.away, info: l.info, preview, preview_source, waking, station_pending }
             })
             .collect()
     }
@@ -500,7 +515,7 @@ fn emit_sessions(app: &AppHandle) {
 struct BarComputer {
     id: String,
     name: String,
-    /// `online`, `offline`, `searching`.
+    /// `online`, `away`, `offline`, `searching`.
     state: &'static str,
     /// `ok`, `bad`, `warn`, `faint`.
     dot: &'static str,
@@ -777,6 +792,41 @@ fn console_for(c: &Computer) -> Console {
     Console::new(&c.host, c.port, &c.user, &password, c.fingerprint.clone())
 }
 
+/// [`console_for`], par le relais quand `via_relay` et que l'on connaît la route
+/// de cet ordinateur (son relais, son identifiant chez lui, l'empreinte d'Admin
+/// de l'app) : Admin par le tunnel, épinglé.
+fn console_via(c: &Computer, via_relay: bool) -> Console {
+    let console = console_for(c);
+    match relais::route_of(c.relay.as_ref(), c.fingerprint.as_deref()).filter(|_| via_relay) {
+        Some(route) => console.with_relay(Some(route)),
+        None => console,
+    }
+}
+
+/// L'ordinateur ne répond pas sur le réseau : le relais le tient-il (« Hors de
+/// chez vous ») ? Demandé au relais toutes les 30 s au plus par ordinateur
+/// (`relais::Presence`) ; un relais qui ne répond pas, ou aucun relais connu
+/// (ni `info.relay`, ni empreinte, ou `KYBERNOW_RELAY=off`) : non, l'ordinateur
+/// reste « Hors ligne ».
+fn away_by_relay(app: &AppHandle, c: &Computer) -> bool {
+    if relais::off() {
+        return false;
+    }
+    let Some(route) = relais::route_of(c.relay.as_ref(), c.fingerprint.as_deref()) else { return false };
+    let state = app.state::<UiState>();
+    let now = Instant::now();
+    let ask = state.presence.lock().unwrap().ask(&route.station, now);
+    let present = match ask {
+        relais::Ask::Known(present) => present,
+        relais::Ask::Due => {
+            let present = relais::present(&route);
+            state.presence.lock().unwrap().record(&route.station, now, present);
+            present
+        }
+    };
+    present == Some(true)
+}
+
 /// Interroge Admin d'un ordinateur : en ligne ou non, ce qu'il dit de lui
 /// (`info`, Station comprise) et un aperçu de son écran, une fois par minute
 /// au plus. Rend vrai si l'accueil doit le revoir.
@@ -784,7 +834,26 @@ fn refresh(app: &AppHandle, c: &Computer) -> bool {
     let state = app.state::<UiState>();
     let console = console_for(c);
     let info = console.info().ok();
-    let online = Some(info.is_some());
+    // Hors de chez soi : pas de réponse sur le réseau, mais le relais tient l'ordinateur.
+    let away = info.is_none() && away_by_relay(app, c);
+    let online = Some(info.is_some() || away);
+    // Son relais, gardé avec lui pour l'ouvrir hors de chez soi (une Station sans
+    // relais réglé, ou antérieure, l'efface).
+    let mut relay_changed = false;
+    if let Some(i) = info.as_ref().filter(|i| i.relay != c.relay) {
+        let relay = i.relay.clone();
+        relay_changed = state.with_store(|s| {
+            let found = s.get_mut(&c.id).map(|m| m.relay = relay).is_some();
+            if found {
+                s.save();
+            }
+            found
+        });
+        // L'ancien identifiant chez le relais ne dit plus rien.
+        if let (true, Some(old)) = (relay_changed, c.relay.as_ref()) {
+            state.presence.lock().unwrap().forget(&old.id);
+        }
+    }
     // Les cartes réseau pour le réveil, gardées avec l'ordinateur pour le
     // réveiller une fois éteint (le fichier n'est réécrit que si elles changent).
     let mut wake_changed = false;
@@ -819,8 +888,9 @@ fn refresh(app: &AppHandle, c: &Computer) -> bool {
     // La Station suivie après un redémarrage ou une mise à jour : son état
     // (version, installation, redémarrage) compte aussi.
     let station_changed = info.as_ref().is_some_and(|i| l.info.as_ref().map(|o| &o.station) != Some(&i.station));
-    let changed = l.online != online || preview.is_some() || station_changed || wake_changed;
+    let changed = l.online != online || l.away != away || preview.is_some() || station_changed || wake_changed || relay_changed;
     l.online = online;
+    l.away = away;
     if info.is_some() {
         l.info = info;
     }
@@ -1198,6 +1268,7 @@ fn add(app: &AppHandle, candidate: &Candidate, user: &str, password: &str, by_co
             by_code,
             wake: info.wake.clone(),
             station_notified: None,
+            relay: info.relay.clone(),
         })
     });
     if !store::set_password(&id, user, password) {
@@ -1254,9 +1325,16 @@ fn pair_cancel(state: tauri::State<'_, UiState>) {
 }
 
 /// Admin de l'ordinateur `id` (compte et empreinte retenus).
+///
+/// Par le relais quand la session de cet ordinateur y passe (« Partager », « Accepter »
+/// d'une session ouverte hors de chez soi), ou quand il n'est joignable que par lui
+/// (« Hors de chez vous ») ; sur le réseau sinon.
 fn console_of(app: &AppHandle, id: &str) -> Result<Console, String> {
-    let c = app.state::<UiState>().with_store(|s| s.get(id).cloned()).ok_or_else(|| t("errors.unknown_computer", &[]))?;
-    Ok(console_for(&c))
+    let state = app.state::<UiState>();
+    let c = state.with_store(|s| s.get(id).cloned()).ok_or_else(|| t("errors.unknown_computer", &[]))?;
+    let session_via_relay = state.with_session(id, |r| r.route.lock().unwrap().as_ref().is_some_and(RouteInfo::via_relay)).unwrap_or(false);
+    let away = state.live.lock().unwrap().get(id).is_some_and(|l| l.away);
+    Ok(console_via(&c, session_via_relay || away))
 }
 
 /// Refus d'une commande de la Station, comme `StationError::to_json` : `kind`
@@ -1465,6 +1543,16 @@ struct UiEvents {
     guest: Option<Arc<share::Guest>>,
     /// Le partage de cette session d'hôte (le même que celui de `Running`).
     share: Arc<Mutex<Option<ShareState>>>,
+    /// Le chemin de la session (le même que celui de `Running`).
+    route: Arc<Mutex<Option<RouteInfo>>>,
+}
+
+/// `session-route` : par où passe la session `id` (la puce « Par le relais » de la
+/// barre), à chaque changement du chemin.
+#[derive(Clone, Serialize)]
+struct RouteEvent {
+    id: String,
+    route: relais::RouteView,
 }
 
 /// `bar-shown` : la barre se montre pour la session `id` (une seule barre,
@@ -1491,6 +1579,9 @@ struct BarShown {
     /// Un avis bref (changement de rôle d'un invité) que la barre montre
     /// quelques secondes, sans prendre le clavier à la session.
     notice: Option<String>,
+    /// Par où passe la session (puce « Par le relais ») ; absent tant que le cœur
+    /// ne l'a pas dit.
+    route: Option<relais::RouteView>,
 }
 
 /// L'invité que sert la barre : son rôle (`spectator`, `player`, `kbm`,
@@ -1767,6 +1858,22 @@ impl HostEvents for UiEvents {
         log::info!("{} : fin du partage ({}) : {text}", self.connexion.name, end.kind());
     }
 
+    /// Par où passe la session (docs/relais.md) : au départ, puis à chaque
+    /// changement (repli TCP, allers-retours). La barre montre « Par le relais » ;
+    /// la fin de la session le garde pour la ligne « Chemin » des statistiques, et les
+    /// appels à Admin d'une session par le relais passent eux aussi par lui.
+    fn route(&self, route: &RouteInfo) {
+        let before = self.route.lock().unwrap().replace(route.clone());
+        if before.as_ref() == Some(route) {
+            return;
+        }
+        if before.as_ref().is_none_or(|b| b.transport != route.transport) {
+            log::info!("[{}] chemin : {}", self.connexion.name, route.transport.label(kybernow_core::i18n::Lang::Fr));
+        }
+        let view = relais::RouteView::new(route, i18n::lang());
+        let _ = self.app.emit_to("bar", "session-route", RouteEvent { id: self.id.clone(), route: view });
+    }
+
     fn ended(&self, s: &Summary) {
         let state = self.app.state::<UiState>();
         // Cette session-là, pas une autre du même ordinateur.
@@ -1802,6 +1909,7 @@ impl HostEvents for UiEvents {
                     screens: Some(sent.screens.max(1)),
                     codec: Some(sent.settings.codec.label().into()),
                     mbps: Some(sent.mbps()),
+                    route: self.route.lock().unwrap().clone(),
                     label: String::new(),
                 }
             };
@@ -2507,7 +2615,9 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
         clipboard: s.clipboard,
         recovery: Default::default(),
         role: SessionRole::Host,
-        route: kybernow_core::session::Route::Direct,
+        // Sur le réseau d'abord (`info` en 1,5 s), par le relais sinon quand l'ordinateur
+        // y est connu (docs/relais.md) ; une empreinte changée ne bascule jamais.
+        route: kybernow_core::session::Route::Auto(relais::route_of(c.relay.as_ref(), c.fingerprint.as_deref())),
     };
     let mouse = match s.mouse.as_str() {
         "jeu" => Some(true),
@@ -2557,6 +2667,7 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
     connexion.view.lock().unwrap().id = id.clone();
     connexion.view.lock().unwrap().phase = "preparing";
     let share_state = Arc::new(Mutex::new(None));
+    let route = Arc::new(Mutex::new(None));
     if let Some(f) = &follow {
         log::info!("session suivante : fenêtre de {}×{} sur {} (plusieurs ordinateurs)", f.client.0, f.client.1, f.monitor);
         open_connexion(&app, &connexion, f.at, (f.client.0 as u32, f.client.1 as u32), &c.name);
@@ -2593,10 +2704,11 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
             connexion: connexion.clone(),
             guest: None,
             share: share_state.clone(),
+            route: route.clone(),
         }),
     );
     let screens = plan.as_ref().map_or(1, |p| p.len());
-    running.push(Running { id: id.clone(), name: c.name.clone(), host, bar, sent, stats, guest: None, share: share_state });
+    running.push(Running { id: id.clone(), name: c.name.clone(), host, bar, sent, stats, guest: None, share: share_state, route });
     drop(running);
     drop(_launching);
     // « Quitter » pendant le lancement : elle s'arrête tout de suite (Admin
@@ -2711,7 +2823,7 @@ fn show_bar(app: &AppHandle, id: &str, hwnd: isize, pinned: bool) {
 /// manette ou une touche en cours ne s'interrompt pas) et repart d'elle-même.
 fn show_bar_with(app: &AppHandle, id: &str, hwnd: isize, pinned: bool, notice: Option<String>) {
     let state = app.state::<UiState>();
-    let Some((label, multi, keep_sound, session, guest, share)) = state.with_session(id, |r| {
+    let Some((label, multi, keep_sound, session, guest, share, route)) = state.with_session(id, |r| {
         (
             r.bar.lock().unwrap().clone(),
             r.host.stream_count() > 1,
@@ -2719,6 +2831,7 @@ fn show_bar_with(app: &AppHandle, id: &str, hwnd: isize, pinned: bool, notice: O
             r.host.id(),
             r.guest.clone(),
             r.share.lock().unwrap().clone(),
+            r.route.lock().unwrap().clone(),
         )
     }) else {
         return;
@@ -2756,7 +2869,8 @@ fn show_bar_with(app: &AppHandle, id: &str, hwnd: isize, pinned: bool, notice: O
     }
     window::set_bar_session(Some(session));
     let sessions = state.sessions.lock().unwrap().len();
-    let shown = BarShown { id: id.to_string(), label, pinned, multi, keep_sound, sessions, guest, share, notice };
+    let route = route.map(|r| relais::RouteView::new(&r, i18n::lang()));
+    let shown = BarShown { id: id.to_string(), label, pinned, multi, keep_sound, sessions, guest, share, notice, route };
     let _ = app.emit_to("bar", "bar-shown", shown);
     let _ = app.emit_to("bar", "bar-computers", bar_computer_list(app));
 }
@@ -2898,6 +3012,7 @@ pub fn tray_state(app: &AppHandle) -> menu::State {
                 id: c.id.clone(),
                 name: c.name.clone(),
                 online: l.and_then(|l| l.online),
+                away: l.is_some_and(|l| l.away),
                 profile: c.settings.profile.clone(),
                 custom: is_custom(&c.settings, pc.as_ref()),
                 can_wake: !c.wake.is_empty(),
@@ -2990,6 +3105,8 @@ pub fn quit(app: &AppHandle) {
     let state = app.state::<UiState>();
     // D'abord : une connexion qui se lance voit qu'il faut s'arrêter.
     state.quitting.store(true, Ordering::Relaxed);
+    // Une demande en attente de l'accord d'un hôte (par le relais) est retirée.
+    share::cancel_wait(&state, None);
     {
         let sessions = state.sessions.lock().unwrap();
         if !sessions.is_empty() {
@@ -3097,9 +3214,13 @@ pub fn run(args: Vec<String>) {
             share::share_defaults,
             share::share_link_code,
             share::share_join,
+            share::share_wait,
+            share::share_cancel,
             share::share_connect,
             share::share_open,
             share::share_code,
+            share::share_accept,
+            share::share_refuse,
             share::share_guest,
             share::share_quality,
             share::share_kick,

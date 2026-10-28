@@ -43,6 +43,7 @@
   },
   "home": {
     "online": "Online",
+    "away": "Away from home",
     "offline": "Offline",
     "screens_as_is": "The computer's own displays, as they are",
     "screen_match": "{width} × {height} display at {refresh} Hz, sized for this screen",
@@ -180,6 +181,7 @@
     "median": "median",
     "p95": "95% of frames under {ms} ms",
     "screens": "{count} displays",
+    "path": "Path",
     "help": "The delay between the computer and this screen. Below a mark, the picture arrives before the next frame at that refresh rate.",
     "none": "No session on this computer yet.",
     "this_computer": "This computer",
@@ -296,6 +298,16 @@
     "copy_failed": "Could not copy: select the link by hand.",
     "qr": "QR code for the share",
     "help": "On the same network: “Join with a code” in KyberNow Link, or this link in a browser.",
+    "help_relay": "On the same network or elsewhere: “Join with a code” in KyberNow Link, or this link in a browser. Away from home, you accept each guest.",
+    "relay_down": "Not reachable away from home yet.",
+    "requests": "Requests",
+    "requests_one": "{count} request",
+    "requests_other": "{count} requests",
+    "wants_to_join": "{name} wants to join",
+    "away": "away from home",
+    "accept": "Accept",
+    "decline": "Decline",
+    "waiting": "Waiting for the host to accept…",
     "guests": "Guests",
     "guests_one": "{count} guest",
     "guests_other": "{count} guests",
@@ -337,10 +349,23 @@
     "quality_1080p60": "1080p · 60 Hz",
     "quality_720p30": "720p · 30 Hz"
   },
+  "relay": {
+    "via": "Via the relay",
+    "path_direct": "Direct",
+    "path_relay": "Via the relay",
+    "path_relay_tcp": "Via the relay (TCP)"
+  },
   "fond": {
     "not_created": "The computer could not create this display."
   },
   "mock": {
+    "unknown_guest": "This guest is no longer in the share.",
+    "share_refused": "The host declined.",
+    "share_expired": "The host did not answer.",
+    "relay_mute": "The relay is not answering.",
+    "pending_full": "Too many requests waiting: try again in a moment.",
+    "access_off": "Atelier cannot be reached away from home (access turned off in Admin).",
+    "station_offline": "Atelier cannot be reached: the computer is off or asleep.",
     "no_share": "No share with this code on your network.",
     "share_full": "This share is full (four guests at most).",
     "share_unsupported": "Sharing needs KyberNow Station 0.8.0 or later.",

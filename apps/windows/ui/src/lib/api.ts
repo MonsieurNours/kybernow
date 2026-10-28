@@ -93,7 +93,31 @@ export type Info = {
   account?: { own_device: boolean }
   /** KyberNow Share (Station 0.8.0 et suivantes) ; `enabled` faux : partage coupé sur l'ordinateur. Absent : Station antérieure. */
   share?: { available: boolean; enabled: boolean }
+  /** Le relais de la Station (Station 0.8.0 et suivantes, relais réglé) : gardé pour chaque ordinateur (`Computer.relay`). */
+  relay?: RelayInfo | null
 }
+
+/**
+ * Le relais d'un ordinateur (`info.relay`) : le relais (`share.kybernow.app:8443`), son identifiant chez lui, et
+ * « Accès hors de chez vous » actif dans Admin. L'app en fait la route pour l'ouvrir hors de chez soi
+ * (docs/relais.md).
+ */
+export type RelayInfo = { server: string; id: string; remote_access: boolean }
+
+/** `transport` d'une session : sur le réseau, par le relais (QUIC), par le relais en repli TCP (l'UDP ne passe pas). */
+export type Transport = 'direct' | 'relay' | 'relay_tcp'
+
+/** Le chemin gardé avec la dernière session (`LastSession.route`) : ligne « Chemin » des statistiques. Allers-retours en ms. */
+export type RouteInfo = { transport: Transport; relay?: string | null; rtt_client?: number | null; rtt_station?: number | null }
+
+/**
+ * Par où passe une session (événement `session-route`, et dans `bar-shown`) : la puce « Par le relais » de la
+ * barre (`via_relay`), et `label` (« Direct », « Par le relais », « Par le relais (TCP) ») dans la langue de l'app.
+ */
+export type RouteView = { transport: Transport; label: string; via_relay: boolean; rtt_client: number | null; rtt_station: number | null }
+
+/** Événement `session-route` : le chemin de la session `id` a changé. */
+export type RouteEvent = { id: string; route: RouteView }
 
 /**
  * Dernière session d'au moins 3 s (rubrique Statistiques) : ce qui a été transmis
@@ -112,6 +136,8 @@ export type LastSession = {
   screens?: number | null
   codec?: string | null
   mbps?: number | null
+  /** Par où est passée la session : ligne « Chemin » (absent des sessions d'avant le relais). */
+  route?: RouteInfo | null
   /** « Bureau · HEVC 4:4:4 », en français (0.4.x). */
   label?: string
 }
@@ -134,7 +160,14 @@ export type Computer = {
    * dernier `info` qui en donnait ; vide sans Station 0.5.0 vue allumée.
    */
   wake: WakeTarget[]
+  /** Son relais, gardé du dernier `info` (absent d'une Station antérieure ou sans relais réglé). */
+  relay?: RelayInfo | null
   online: boolean | null
+  /**
+   * Joignable seulement par le relais : l'état est « Hors de chez vous » (`online` est alors vrai : on peut s'y
+   * connecter).
+   */
+  away?: boolean
   info: Info | null
   preview: string | null
   /** last : dernière image de votre session ; preview : aperçu de son écran. */
@@ -256,7 +289,7 @@ export type SessionStats = Stats & { id: string }
 export type BarComputer = {
   id: string
   name: string
-  state: 'online' | 'offline' | 'searching'
+  state: 'online' | 'away' | 'offline' | 'searching'
   dot: 'ok' | 'bad' | 'warn' | 'faint'
   pick: 'show' | 'connect' | 'full' | 'wake' | 'waking' | 'retry' | 'busy'
 }
@@ -336,7 +369,7 @@ export const shareQualities: ShareQuality[] = ['auto', 'host', '2160p60', '1080p
  * ou `web` ; `since` : son arrivée, en secondes Unix de la Station ; `image` : sa qualité d'image
  * (« 1080p · 60 Hz »), seulement quand ce n'est pas celle de l'hôte.
  */
-export type ShareGuest = { id: string; name: string; app: string; role: ShareRole; since: number | null; image: string | null }
+export type ShareGuest = { id: string; name: string; app: string; role: ShareRole; since: number | null; image: string | null; away: boolean }
 
 /** Un QR code : `size` modules de côté, `path` le tracé SVG de ses modules sombres (sans marge). */
 export type ShareQr = { size: number; path: string }
@@ -356,7 +389,12 @@ export type Share = {
   link: string
   web: string
   display: string | null
+  /** Les invités qui ont une place (une demande n'en prend pas). */
   guests: ShareGuest[]
+  /** Les demandes venues par le relais, qui attendent « Accepter » ou « Refuser ». */
+  requests: ShareGuest[]
+  /** Le relais du partage : `joined`, `unreachable` (« Pas encore joignable hors de chez vous. »), `null` sans relais. */
+  relay: 'joined' | 'unreachable' | null
   full: boolean
   qr: ShareQr | null
 }
@@ -368,8 +406,21 @@ export type Share = {
  */
 export type GuestBar = { role: ShareRole; host: string; quality: ShareQuality; image: string | null }
 
-/** Réponse de `share_join` : la session d'invité à ouvrir (`share_connect`), son titre (« Invité sur Atelier ») et la teinte du passage. */
+/** Réponse de `share_join` quand l'invité entre : la session d'invité à ouvrir (`share_connect`), son titre (« Invité sur Atelier ») et la teinte du passage. */
 export type ShareJoined = { id: string; title: string; host: string; role: ShareRole; fingerprint: string | null }
+
+/**
+ * Réponse de `share_join` : l'invité entre (`joined`), ou sa demande attend l'accord de l'hôte (`pending`, par le
+ * relais) : l'écran « Rejoindre » montre « En attente de l'accord de l'hôte… » et rappelle `share_wait` avec ce numéro.
+ */
+export type ShareJoinOutcome = ({ kind: 'joined' } & ShareJoined) | { kind: 'pending'; wait: number }
+
+/**
+ * Réponse de `share_wait` (un appel tenu 25 s au plus) : `waiting` (rappeler), `joined` (l'hôte a accepté : la session
+ * s'ouvre), `cancelled` (« Annuler » est passé). Le refus (« L'hôte a refusé. », « L'hôte n'a pas répondu. », « Le
+ * relais ne répond pas. ») est l'erreur de la commande.
+ */
+export type ShareWaitOutcome = { kind: 'waiting' } | ({ kind: 'joined' } & ShareJoined) | { kind: 'cancelled' }
 
 /**
  * Événements `share-role` (le rôle de l'invité de la session `id` a changé), `share-image` (l'image

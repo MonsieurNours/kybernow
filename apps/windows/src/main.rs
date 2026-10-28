@@ -55,6 +55,10 @@ mod pasteboard;
 mod pc;
 #[cfg(windows)]
 mod plan;
+// Le relais : route d'un ordinateur, relais d'un code, présence, chemin d'une
+// session, textes des refus (se teste sur le Mac).
+#[cfg_attr(not(windows), allow(dead_code))]
+mod relais;
 #[cfg(windows)]
 mod render;
 #[cfg(windows)]

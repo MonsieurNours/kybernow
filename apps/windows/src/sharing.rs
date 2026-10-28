@@ -9,7 +9,7 @@
 use kybernow_core::console::Mode;
 use kybernow_core::profile::Capabilities;
 use kybernow_core::screens::DeviceScreen;
-use kybernow_core::share::{self, DecoderCaps, ShareAuto, ShareAvailability, ShareGuest, ShareImage, ShareQuality, ShareRole, ShareState, ShareTarget};
+use kybernow_core::share::{self, DecoderCaps, ShareAuto, ShareAvailability, ShareGuest, ShareImage, ShareQuality, ShareRole, ShareState, ShareTarget, ShareVia};
 use serde::Serialize;
 
 /// Une Station vue sur le réseau ou déjà ajoutée à l'app : son adresse, le
@@ -166,6 +166,43 @@ pub fn availability_code(a: Option<ShareAvailability>) -> &'static str {
     }
 }
 
+/// Réponse de `share_join` : l'invité entre tout de suite (`joined`, sur le réseau
+/// ou quand l'hôte accepte d'emblée), ou sa demande attend l'accord de l'hôte
+/// (`pending`, hors de chez soi) : l'interface rappelle `share_wait` avec ce numéro.
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum JoinOutcome {
+    Joined(Joined),
+    Pending { wait: u64 },
+}
+
+/// Réponse de `share_wait` (appel tenu 25 s au plus) : l'hôte n'a pas encore
+/// répondu (`waiting` : rappeler), il a accepté (`joined`, la session s'ouvre
+/// comme sur le réseau), ou « Annuler » est passé avant sa réponse (`cancelled`).
+/// Le refus (« L'hôte a refusé. », « L'hôte n'a pas répondu. », « Le relais ne
+/// répond pas. ») est l'erreur de la commande, en toutes lettres.
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum WaitOutcome {
+    Waiting,
+    Joined(Joined),
+    Cancelled,
+}
+
+/// Réponse de `share_join` quand l'invité entre : de quoi montrer la connexion (le
+/// passage de l'accueil) avant d'ouvrir la session.
+#[derive(Serialize)]
+pub struct Joined {
+    /// `guest-N` : la session d'invité dans tous les événements.
+    pub id: String,
+    /// « Invité sur {nom} ».
+    pub title: String,
+    pub host: String,
+    pub role: &'static str,
+    /// Teinte du passage : l'empreinte d'Admin de l'ordinateur qui partage.
+    pub fingerprint: Option<String>,
+}
+
 /// Un QR code pour l'interface : `size` modules de côté et le tracé SVG de ses
 /// modules sombres (une rangée de modules voisins par segment), sans marge.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -212,11 +249,21 @@ pub struct GuestView {
     /// Sa qualité d'image (« 1080p · 60 Hz »), seulement quand ce n'est pas celle
     /// de l'hôte ([`guest_image`]) : lecture seule, sous son nom.
     pub image: Option<String>,
+    /// Venu par le relais : « hors de chez vous » après son app (docs/link-ui.md).
+    pub away: bool,
 }
 
 impl From<&ShareGuest> for GuestView {
     fn from(g: &ShareGuest) -> Self {
-        GuestView { id: g.id.clone(), name: g.name.clone(), app: g.app.clone(), role: g.role.as_str(), since: g.since, image: guest_image(g.image.as_ref()) }
+        GuestView {
+            id: g.id.clone(),
+            name: g.name.clone(),
+            app: g.app.clone(),
+            role: g.role.as_str(),
+            since: g.since,
+            image: guest_image(g.image.as_ref()),
+            away: g.via == ShareVia::Relay,
+        }
     }
 }
 
@@ -237,7 +284,15 @@ pub struct ShareView {
     pub web: String,
     /// L'écran partagé (« Écran 1 »).
     pub display: Option<String>,
+    /// Les invités qui ont une place : une demande n'en prend pas tant qu'elle n'est
+    /// pas acceptée.
     pub guests: Vec<GuestView>,
+    /// Les demandes venues par le relais, qui attendent « Accepter » ou « Refuser »
+    /// (liste « Demandes », pastille « 1 demande »).
+    pub requests: Vec<GuestView>,
+    /// Le relais du partage : `joined` (« Sur le même réseau ou ailleurs… »),
+    /// `unreachable` (« Pas encore joignable hors de chez vous. »), rien sans relais.
+    pub relay: Option<&'static str>,
     /// Quatre invités : « Quatre invités au plus. »
     pub full: bool,
     pub qr: Option<Qr>,
@@ -260,8 +315,10 @@ impl ShareView {
                 link: s.link.clone(),
                 web: s.web.clone(),
                 display: s.display.as_ref().map(|d| d.label.clone()).filter(|l| !l.is_empty()),
-                guests: s.guests.iter().map(GuestView::from).collect(),
-                full: s.guests.len() >= share::MAX_GUESTS,
+                guests: s.seated().map(GuestView::from).collect(),
+                requests: s.requests().map(GuestView::from).collect(),
+                relay: s.relay.map(|r| r.state.as_str()),
+                full: s.seated().count() >= share::MAX_GUESTS,
                 qr: qr(&s.link),
             },
             None => ShareView {
@@ -273,6 +330,8 @@ impl ShareView {
                 web: String::new(),
                 display: None,
                 guests: Vec::new(),
+                requests: Vec::new(),
+                relay: None,
                 full: false,
                 qr: None,
             },
@@ -284,7 +343,7 @@ impl ShareView {
 mod tests {
     use super::*;
     use kybernow_core::i18n::Lang;
-    use kybernow_core::share::{ShareImageReason, ShareScreen};
+    use kybernow_core::share::{ShareImageReason, ShareRelay, ShareRelayState, ShareScreen};
 
     fn known(host: &str, port: u16, fp: Option<&str>) -> Known {
         Known { host: host.into(), port, fingerprint: fp.map(str::to_string) }
@@ -385,6 +444,7 @@ mod tests {
             web: "https://192.168.1.100:9443/link/?join=123456".into(),
             display: Some(ShareScreen { id: 1, label: "Écran 1".into() }),
             guests: vec![guest("g1", "Léa", ShareRole::Spectator), guest("g2", "Noé", ShareRole::PlayerKbm), guest("g3", "Zoé", ShareRole::Kbm)],
+            ..ShareState::default()
         };
         let v = ShareView::new(Some(&state), Some(ShareAvailability::Available), Lang::Fr);
         assert_eq!((v.availability, v.open, v.code.as_str(), v.full), ("available", true, "123 456", false));
@@ -403,12 +463,70 @@ mod tests {
         let mut full = state.clone();
         full.guests = (0..4).map(|i| guest(&format!("g{i}"), "X", ShareRole::Spectator)).collect();
         assert!(ShareView::new(Some(&full), None, Lang::Fr).full);
+        // Sans relais : ni demande, ni invité venu de loin, pas de mention du relais.
+        assert!(v.requests.is_empty() && v.relay.is_none() && v.guests.iter().all(|g| !g.away));
         // Pas de partage : un panneau vide, « Partager » reste ce que l'ordinateur annonce.
         let none = ShareView::new(None, Some(ShareAvailability::Available), Lang::Fr);
         assert!(!none.open && none.code.is_empty() && none.guests.is_empty() && none.qr.is_none());
         // Un partage dit fermé n'est pas ouvert.
         let closed = ShareState { open: false, ..state };
         assert!(!ShareView::new(Some(&closed), None, Lang::Fr).open);
+    }
+
+    fn from_relay(id: &str, name: &str, pending: bool) -> ShareGuest {
+        ShareGuest { pending, via: ShareVia::Relay, ..guest(id, name, ShareRole::Spectator) }
+    }
+
+    /// Les réponses de `share_join` et de `share_wait` sont celles de `api.ts` (`ShareJoinOutcome`, `ShareWaitOutcome`).
+    #[test]
+    fn reponses_de_rejoindre() {
+        let joined = || Joined { id: "guest-7".into(), title: "Invité sur Atelier".into(), host: "Léa".into(), role: "spectator", fingerprint: Some("sha256:aa".into()) };
+        let v = serde_json::to_value(JoinOutcome::Joined(joined())).unwrap();
+        assert_eq!(v, serde_json::json!({ "kind": "joined", "id": "guest-7", "title": "Invité sur Atelier", "host": "Léa", "role": "spectator", "fingerprint": "sha256:aa" }));
+        // Par le relais : la demande attend l'accord de l'hôte, l'interface rappelle `share_wait` avec ce numéro.
+        assert_eq!(serde_json::to_value(JoinOutcome::Pending { wait: 3 }).unwrap(), serde_json::json!({ "kind": "pending", "wait": 3 }));
+        assert_eq!(serde_json::to_value(WaitOutcome::Waiting).unwrap(), serde_json::json!({ "kind": "waiting" }));
+        assert_eq!(serde_json::to_value(WaitOutcome::Cancelled).unwrap(), serde_json::json!({ "kind": "cancelled" }));
+        assert_eq!(serde_json::to_value(WaitOutcome::Joined(joined())).unwrap()["kind"], "joined");
+        // `api.ts` dit les mêmes noms.
+        let api = include_str!("../ui/src/lib/api.ts");
+        for name in ["kind: 'joined'", "kind: 'pending'", "kind: 'waiting'", "kind: 'cancelled'"] {
+            assert!(api.contains(name), "{name}");
+        }
+    }
+
+    #[test]
+    fn demandes_du_relais() {
+        let state = ShareState {
+            open: true,
+            code: "123456".into(),
+            link: "kybernow://join?host=192.168.1.100&port=9443&fp=sha256:aa&code=123456&relay=share.kybernow.app%3A8443&sid=abc".into(),
+            web: "https://share.kybernow.app:8443/j/123456".into(),
+            web_local: "https://192.168.1.100:9443/link/?join=123456".into(),
+            relay: Some(ShareRelay { state: ShareRelayState::Joined }),
+            // Une demande en attente, un invité accepté venu par le relais, un invité du réseau.
+            guests: vec![from_relay("g1", "Léa", true), from_relay("g2", "Noé", false), guest("g3", "Zoé", ShareRole::Spectator)],
+            ..ShareState::default()
+        };
+        let v = ShareView::new(Some(&state), Some(ShareAvailability::Available), Lang::Fr);
+        // La demande a sa liste, et ne compte pas parmi les invités.
+        assert_eq!(v.requests.iter().map(|g| (g.name.as_str(), g.away)).collect::<Vec<_>>(), [("Léa", true)]);
+        assert_eq!(v.guests.iter().map(|g| (g.name.as_str(), g.away)).collect::<Vec<_>>(), [("Noé", true), ("Zoé", false)]);
+        assert_eq!(v.relay, Some("joined"));
+        // « Copier le lien » copie le lien du relais (`web`), le QR code porte le lien des apps avec `relay` et `sid`.
+        assert_eq!(v.web, "https://share.kybernow.app:8443/j/123456");
+        assert!(v.link.contains("&relay=") && v.link.contains("&sid="));
+        // Quatre invités acceptés : la limite ; les demandes n'y comptent pas.
+        let mut four = state.clone();
+        four.guests = vec![from_relay("r", "Demande", true), guest("a", "A", ShareRole::Spectator), guest("b", "B", ShareRole::Spectator), guest("c", "C", ShareRole::Spectator)];
+        assert!(!ShareView::new(Some(&four), None, Lang::Fr).full, "trois invités et une demande");
+        four.guests.push(guest("d", "D", ShareRole::Spectator));
+        let v = ShareView::new(Some(&four), None, Lang::Fr);
+        assert!(v.full);
+        assert_eq!((v.guests.len(), v.requests.len()), (4, 1));
+        // Relais injoignable : le panneau le dit (le texte « Pas encore joignable hors de chez vous. »).
+        let down = ShareState { relay: Some(ShareRelay { state: ShareRelayState::Unreachable }), ..state };
+        assert_eq!(ShareView::new(Some(&down), None, Lang::Fr).relay, Some("unreachable"));
     }
 
     fn mode(width: u32, height: u32, refresh: u32) -> Mode {

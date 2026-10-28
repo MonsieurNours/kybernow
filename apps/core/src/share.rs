@@ -248,6 +248,44 @@ pub struct ShareGuest {
     /// sinon), que l'hôte voit sans la changer.
     #[serde(default, deserialize_with = "lenient_image")]
     pub image: Option<ShareImage>,
+    /// Une demande venue par le relais que l'hôte n'a pas encore acceptée
+    /// (docs/relais.md) : spectatrice, sans place tant qu'elle n'est pas
+    /// acceptée. L'app la montre sous « Demandes » ([`ShareState::requests`])
+    /// et non parmi les invités ([`ShareState::seated`]).
+    #[serde(default)]
+    pub pending: bool,
+    /// Par où il est venu : le réseau, ou le relais (« hors de chez vous »).
+    #[serde(default)]
+    pub via: ShareVia,
+}
+
+/// Par où un invité est venu (`guests[].via`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ShareVia {
+    /// Sur le même réseau : aucun accord à donner.
+    #[default]
+    Lan,
+    /// Par le relais : l'hôte accepte chaque invité.
+    Relay,
+}
+
+impl ShareVia {
+    /// `lan` ou `relay`, comme le dit Admin.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Lan => "lan",
+            Self::Relay => "relay",
+        }
+    }
+}
+
+/// Une voie inconnue (Station plus récente) compte comme le réseau.
+impl<'de> Deserialize<'de> for ShareVia {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = Option::<String>::deserialize(d)?;
+        Ok(if s.as_deref() == Some("relay") { Self::Relay } else { Self::Lan })
+    }
 }
 
 /// Une image illisible est ignorée, pas tout ce qui la porte.
@@ -270,9 +308,78 @@ pub struct ShareState {
     pub web: String,
     #[serde(default)]
     pub display: Option<ShareScreen>,
-    /// Quatre au plus, dans l'ordre d'arrivée.
+    /// Les invités dans l'ordre d'arrivée, et, à la suite, les demandes venues
+    /// par le relais (`pending`). Quatre invités acceptés au plus.
     #[serde(default, deserialize_with = "lenient_guests")]
     pub guests: Vec<ShareGuest>,
+    /// L'adresse du client web sur le réseau (`https://<adresse>:<port>/link/?join=…`),
+    /// toujours : `web` est celle du relais quand il tient le code
+    /// (docs/relais.md). Absente d'une Station antérieure au relais.
+    #[serde(default)]
+    pub web_local: String,
+    /// Le relais : `None` (pas de relais réglé, ou Station antérieure), joint ou
+    /// injoignable.
+    #[serde(default, deserialize_with = "lenient_relay")]
+    pub relay: Option<ShareRelay>,
+}
+
+impl ShareState {
+    /// Les invités qui ont une place (les demandes en attente n'en prennent
+    /// pas) : la liste « Invités », la pastille « 2 invités ».
+    pub fn seated(&self) -> impl Iterator<Item = &ShareGuest> {
+        self.guests.iter().filter(|g| !g.pending)
+    }
+
+    /// Les demandes en attente de l'accord de l'hôte : la liste « Demandes »,
+    /// la pastille « 1 demande ».
+    pub fn requests(&self) -> impl Iterator<Item = &ShareGuest> {
+        self.guests.iter().filter(|g| g.pending)
+    }
+
+    /// Le relais tient le code : « Hors de chez vous, vous acceptez chaque invité. »
+    pub fn relay_joined(&self) -> bool {
+        self.relay.is_some_and(|r| r.state == ShareRelayState::Joined)
+    }
+}
+
+/// Le relais du partage (`relay` de la vue du partage, docs/relais.md).
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+pub struct ShareRelay {
+    #[serde(default)]
+    pub state: ShareRelayState,
+}
+
+/// `joined` : le relais tient le code, le partage vaut hors de chez soi ;
+/// `unreachable` : « Pas encore joignable hors de chez vous. »
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ShareRelayState {
+    Joined,
+    #[default]
+    Unreachable,
+}
+
+impl ShareRelayState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Joined => "joined",
+            Self::Unreachable => "unreachable",
+        }
+    }
+}
+
+/// Un état inconnu compte comme injoignable : rien n'est promis hors de chez soi.
+impl<'de> Deserialize<'de> for ShareRelayState {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = Option::<String>::deserialize(d)?;
+        Ok(if s.as_deref() == Some("joined") { Self::Joined } else { Self::Unreachable })
+    }
+}
+
+/// `relay` : nul ou illisible, il est ignoré (pas de relais).
+fn lenient_relay<'de, D: Deserializer<'de>>(d: D) -> Result<Option<ShareRelay>, D::Error> {
+    let v = Option::<serde_json::Value>::deserialize(d)?;
+    Ok(v.filter(|v| v.is_object()).and_then(|v| serde_json::from_value(v).ok()))
 }
 
 /// Quatre invités au plus (la Station refuse le cinquième).
@@ -1966,6 +2073,65 @@ mod tests {
         cancel(&pending);
         leave(&found);
         assert_eq!(left.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn demandes_de_l_hote_et_relais_du_partage() {
+        // La vue du partage d'une Station avec relais : une demande et un invité venu du réseau.
+        let state: ShareState = serde_json::from_str(
+            r#"{"open":true,"code":"123456","link":"kybernow://join?x","web":"https://share.kybernow.app:8443/j/123456",
+                "web_local":"https://192.168.1.100:9443/link/?join=123456","relay":{"state":"joined"},
+                "guests":[{"id":"g1","name":"Léa","app":"ios","role":"spectator","since":1,"pending":true,"via":"relay"},
+                          {"id":"g2","name":"Noé","app":"mac","role":"player","since":2,"pending":false,"via":"lan"},
+                          {"id":"g3","name":"Zoé","app":"android","role":"spectator","since":3,"via":"relay"}]}"#,
+        )
+        .unwrap();
+        assert!(state.relay_joined());
+        assert_eq!(state.web_local, "https://192.168.1.100:9443/link/?join=123456");
+        assert_eq!(state.requests().map(|g| g.name.as_str()).collect::<Vec<_>>(), ["Léa"]);
+        // Une demande n'a pas de place : les invités sont les autres.
+        assert_eq!(state.seated().map(|g| g.name.as_str()).collect::<Vec<_>>(), ["Noé", "Zoé"]);
+        assert_eq!(state.guests.iter().map(|g| g.via).collect::<Vec<_>>(), [ShareVia::Relay, ShareVia::Lan, ShareVia::Relay]);
+        assert_eq!(ShareVia::Relay.as_str(), "relay");
+        // Relais injoignable, ou sans relais, ou d'une Station antérieure (aucun de ces champs).
+        let down: ShareState = serde_json::from_str(r#"{"open":true,"relay":{"state":"unreachable"}}"#).unwrap();
+        assert!(!down.relay_joined() && down.relay.is_some());
+        let none: ShareState = serde_json::from_str(r#"{"open":true,"relay":null,"guests":[{"id":"g1","name":"Léa"}]}"#).unwrap();
+        assert!(none.relay.is_none() && !none.relay_joined());
+        let old: ShareState = serde_json::from_str(r#"{"open":true,"guests":[{"id":"g1","name":"Léa","app":"ios"}]}"#).unwrap();
+        assert_eq!((old.web_local.as_str(), old.relay), ("", None));
+        assert_eq!((old.guests[0].pending, old.guests[0].via), (false, ShareVia::Lan), "ni demande ni relais");
+        assert_eq!((old.seated().count(), old.requests().count()), (1, 0));
+        // Une voie ou un état inconnus (Station plus récente) : le réseau, injoignable.
+        let odd: ShareState = serde_json::from_str(r#"{"relay":{"state":"autre"},"guests":[{"id":"g","via":"satellite"}]}"#).unwrap();
+        assert_eq!((odd.relay.unwrap().state, odd.guests[0].via), (ShareRelayState::Unreachable, ShareVia::Lan));
+        // Un champ `relay` illisible n'abîme pas le reste.
+        let bad: ShareState = serde_json::from_str(r#"{"open":true,"code":"1","relay":"oui"}"#).unwrap();
+        assert!(bad.open && bad.relay.is_none());
+    }
+
+    #[test]
+    fn accepter_ou_refuser_une_demande() {
+        use std::sync::Mutex;
+        let calls = Arc::new(Mutex::new(Vec::<String>::new()));
+        let c = calls.clone();
+        let bench = crate::relay::essai::start(Arc::new(move |method, path| {
+            c.lock().unwrap().push(format!("{method} {path}"));
+            match (method, path) {
+                ("POST", "/api/share/guest/g1/accept") => (200, r#"{"open":true,"code":"123456","guests":[{"id":"g1","name":"Léa","pending":false,"via":"relay"}]}"#.into()),
+                ("POST", "/api/share/guest/g2/refuse") => (200, r#"{"open":true,"code":"123456","guests":[]}"#.into()),
+                // Les quatre places sont prises.
+                ("POST", "/api/share/guest/g3/accept") => (409, r#"{"error":"Ce partage est complet (quatre invités au plus).","code":"full"}"#.into()),
+                _ => (404, r#"{"error":"Cette demande n'est plus là."}"#.into()),
+            }
+        }));
+        let console = Console::new("192.0.2.1", 9, "mac", "secret", None).with_relay(Some(bench.route()));
+        let accepted = console.share_accept("g1").unwrap();
+        assert_eq!((accepted.seated().count(), accepted.requests().count()), (1, 0), "elle prend sa place");
+        assert!(console.share_refuse("g2").unwrap().guests.is_empty());
+        assert!(matches!(console.share_accept("g3"), Err(ConsoleError::Http { status: 409, .. })));
+        assert!(matches!(console.share_refuse("g9"), Err(ConsoleError::Http { status: 404, .. })));
+        assert_eq!(calls.lock().unwrap().first().map(String::as_str), Some("POST /api/share/guest/g1/accept"));
     }
 
     #[test]

@@ -1,7 +1,8 @@
 //! Le relais sur le web (docs/relais.md, « Le relais sur le web ») :
 //!
-//! - `share.<domaine>` : l'accueil et la saisie du code (`/`), `/j/{code}`,
-//!   `/v1/codes/{code}`, `/v1/health`, `/privacy` ;
+//! - `share.<domaine>` : l'accueil de KyberNow Share et la saisie du code (`/`),
+//!   `/j/{code}`, `/assets/…` (styles, polices et logo embarqués), `/v1/codes/{code}`,
+//!   `/v1/health`, `/privacy` ;
 //! - `<id>.share.<domaine>` : mandataire HTTP/1.1 (WebSocket compris) vers
 //!   Admin de la Station `<id>`, par un flux `admin_http`.
 //!
@@ -25,6 +26,7 @@ use kybernow_tunnel::lookup::is_code;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::Mutex;
 
+use crate::assets;
 use crate::hub::{Hub, VERSION};
 use crate::pages::{self, Lang};
 
@@ -61,11 +63,26 @@ fn html(status: StatusCode, page: String) -> Response<Body> {
     h.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     h.insert("x-content-type-options", HeaderValue::from_static("nosniff"));
     h.insert("referrer-policy", HeaderValue::from_static("no-referrer"));
-    h.insert(
-        "content-security-policy",
-        HeaderValue::from_static("default-src 'none'; style-src 'unsafe-inline'; img-src data:; form-action 'self'; frame-ancestors 'none'"),
-    );
+    // La langue vient du navigateur (ou de ?lang=) : un cache ne doit pas la mélanger.
+    h.insert(header::VARY, HeaderValue::from_static("accept-language"));
+    h.insert("content-security-policy", HeaderValue::from_static(PAGE_POLICY));
     r
+}
+
+/// La politique de contenu des pages : tout vient du relais (styles, polices, logo, favicon) ;
+/// les images `data:` sont celles de la feuille de styles. Aucun script.
+pub const PAGE_POLICY: &str =
+    "default-src 'none'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
+
+/// Un fichier de `/assets/` : l'adresse porte la version des fichiers, la réponse se garde un an.
+fn asset(name: &str) -> Option<Response<Body>> {
+    let asset = assets::get(name)?;
+    let mut r = Response::new(full(Bytes::from_static(asset.body)));
+    let h = r.headers_mut();
+    h.insert(header::CONTENT_TYPE, HeaderValue::from_static(asset.mime));
+    h.insert(header::CACHE_CONTROL, HeaderValue::from_static("public, max-age=31536000, immutable"));
+    h.insert("x-content-type-options", HeaderValue::from_static("nosniff"));
+    Some(r)
 }
 
 fn json(status: StatusCode, value: serde_json::Value) -> Response<Body> {
@@ -129,7 +146,7 @@ where
 }
 
 fn relay_page(hub: &Hub, req: Request<Incoming>, ip: IpAddr) -> Response<Body> {
-    let lang = Lang::of(req.headers().get(header::ACCEPT_LANGUAGE).and_then(|v| v.to_str().ok()));
+    let lang = Lang::of_request(req.uri().query(), req.headers().get(header::ACCEPT_LANGUAGE).and_then(|v| v.to_str().ok()));
     if req.method() != hyper::Method::GET && req.method() != hyper::Method::HEAD {
         return html(StatusCode::METHOD_NOT_ALLOWED, pages::not_found(lang));
     }
@@ -151,6 +168,9 @@ fn relay_page(hub: &Hub, req: Request<Incoming>, ip: IpAddr) -> Response<Body> {
             if is_code(&code) { join(hub, &code, ip, lang) } else { html(StatusCode::BAD_REQUEST, pages::home(lang, Some(pages::Notice::BadCode))) }
         }
         _ => {
+            if let Some(name) = path.strip_prefix("/assets/") {
+                return asset(name).unwrap_or_else(|| html(StatusCode::NOT_FOUND, pages::not_found(lang)));
+            }
             if let Some(code) = path.strip_prefix("/j/") {
                 let code = code.trim_end_matches('/');
                 return if is_code(code) { join(hub, code, ip, lang) } else { html(StatusCode::BAD_REQUEST, pages::home(lang, Some(pages::Notice::BadCode))) };
