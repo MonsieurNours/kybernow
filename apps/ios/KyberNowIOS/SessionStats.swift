@@ -117,6 +117,11 @@ struct SessionStatsView: View {
         StatsTile(label: String(localized: "Aller-retour"), value: stats?.rttMs.map { StatsFormat.ms($0) } ?? "—", warn: false)
     }
 
+    /// « Chemin » : « Direct », « Par le relais » ou « Par le relais (TCP) » (le cœur le dit).
+    private var pathTile: StatsTile {
+        StatsTile(label: LinkText.path, value: session.path.label, warn: false)
+    }
+
     /// Écart entre le son et l'image : tampon et sortie du son, moins le
     /// trajet de l'image de la réception à l'écran.
     private var audioLag: Double? {
@@ -213,7 +218,7 @@ struct SessionStatsView: View {
     }
 
     private var sheetTiles: some View {
-        var tiles = [lossesTile, sessionTile, rttTile,
+        var tiles = [lossesTile, sessionTile, rttTile, pathTile,
                      StatsTile(label: String(localized: "Images / s"), value: stats.map { "\(Int($0.fps.rounded()))" } ?? "—", warn: false)]
         if audioOff {
             tiles.append(StatsTile(label: String(localized: "Son"), value: String(localized: "sur l'ordinateur"), warn: false))
@@ -300,7 +305,7 @@ struct SessionStatsView: View {
     private var panelTiles: [StatsTile] {
         let fps = stats.map { Int($0.fps.rounded()) } ?? 0
         let image = keyframes30 == 1 ? String(localized: "\(fps) i/s · 1 clé") : String(localized: "\(fps) i/s · \(keyframes30) clés")
-        var tiles = [lossesTile, sessionTile, rttTile,
+        var tiles = [lossesTile, sessionTile, rttTile, pathTile,
                      StatsTile(label: String(localized: "Image"), value: image, warn: keyframes30 > 0)]
         if audioOff {
             tiles.append(StatsTile(label: String(localized: "Son"), value: String(localized: "sur l'ordinateur"), warn: false))

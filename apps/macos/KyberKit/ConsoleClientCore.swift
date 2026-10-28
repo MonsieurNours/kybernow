@@ -35,10 +35,13 @@ public struct HostInfo: Sendable, Equatable {
     /// « Partager » (KyberNow Share) : disponible, ou la raison pour laquelle
     /// il ne l'est pas (Station trop ancienne, partage coupé sur l'ordinateur).
     public let share: ShareAvailability
+    /// Le relais de la Station (Station 0.8.0 et suivantes quand un relais est
+    /// réglé) : à garder pour l'ordinateur, pour y passer hors de chez soi.
+    public let relay: RelayInfo?
 
     public init(hostname: String? = nil, gpu: String? = nil, av1: Bool = false, virtualDisplay: Bool = true, speakers: Bool = true,
                 os: String? = nil, adminVersion: String? = nil, station: StationInfo? = nil, wake: [WakeTarget] = [], ownDevice: Bool = false, maxScreens: Int = 1,
-                share: ShareAvailability = .available) {
+                share: ShareAvailability = .available, relay: RelayInfo? = nil) {
         self.hostname = hostname
         self.gpu = gpu
         self.av1 = av1
@@ -51,6 +54,7 @@ public struct HostInfo: Sendable, Equatable {
         self.ownDevice = ownDevice
         self.maxScreens = max(1, maxScreens)
         self.share = share
+        self.relay = relay
     }
 
     /// Version de la Station : celle de `station`, sinon celle d'Admin.
@@ -193,12 +197,17 @@ public enum ConsoleError: LocalizedError {
     case certificateChanged
     /// Console injoignable ou réponse illisible (message du cœur).
     case network(String)
+    /// Par le relais : le relais ne répond pas (« Le relais ne répond pas. »,
+    /// texte du cœur).
+    case relay(String)
+    /// Par le relais : l'ordinateur n'y est pas, éteint ou en veille (texte du cœur).
+    case stationOffline(String)
 
     public var errorDescription: String? {
         switch self {
         case let .http(code, message): return message.isEmpty ? String(localized: "la Station a répondu \(code)", bundle: .kyberKit) : message
         case .certificateChanged: return String(localized: "le certificat de la Station a changé : ce n'est peut-être pas votre ordinateur", bundle: .kyberKit)
-        case let .network(message): return message
+        case let .network(message), let .relay(message), let .stationOffline(message): return message
         }
     }
 }
@@ -210,9 +219,16 @@ public final class ConsoleClient: @unchecked Sendable {
     private let queue = DispatchQueue(label: "fr.leslignesclaires.kybernow.console", qos: .userInitiated)
     private let pinned: String?
 
-    public init(host: String, port: UInt16, username: String, password: String, fingerprint: String?) {
+    /// `relay` : la route de l'ordinateur par son relais (`Relay.route`) ; tous
+    /// les appels passent alors par le tunnel, Admin épinglé sur l'empreinte
+    /// de la route (docs/relais.md). Sans elle, la console parle à `host` sur le réseau.
+    public init(host: String, port: UInt16, username: String, password: String, fingerprint: String?, relay: RelayRoute? = nil) {
         pinned = fingerprint
-        console = kn_console_new(host, port, username, password, fingerprint)
+        if let relay {
+            console = kn_console_new_relay(host, port, username, password, fingerprint, relay.json)
+        } else {
+            console = kn_console_new(host, port, username, password, fingerprint)
+        }
     }
 
     deinit {
@@ -241,6 +257,8 @@ public final class ConsoleClient: @unchecked Sendable {
         case KN_OK: return
         case KN_CERTIFICATE_CHANGED: throw ConsoleError.certificateChanged
         case KN_ERROR: throw ConsoleError.network(message)
+        case KN_RELAY_UNREACHABLE: throw ConsoleError.relay(message)
+        case KN_RELAY_STATION_OFFLINE: throw ConsoleError.stationOffline(message)
         default:
             if code < 0 { throw ConsoleError.http(Int(-code), message) }
             throw ConsoleError.network(message)
@@ -267,7 +285,8 @@ public final class ConsoleClient: @unchecked Sendable {
             wake: wakeTargets(json["wake"]),
             ownDevice: (json["account"] as? [String: Any])?["own_device"] as? Bool ?? false,
             maxScreens: vd?["max_screens"] as? Int ?? 1,
-            share: share
+            share: share,
+            relay: RelayInfo(json: json["relay"] as? [String: Any])
         )
     }
 

@@ -359,8 +359,10 @@ pub unsafe extern "C" fn kn_console_share_open(c: *const KnConsole, out: *mut *m
     console_result(c.0.share_open(), out, error)
 }
 
-/// Le partage en cours : `{"open", "code", "link", "web", "display",
-/// "guests": [{"id", "name", "app", "role", "since"}]}`.
+/// Le partage en cours : `{"open", "code", "link", "web", "web_local",
+/// "relay": {"state": "joined"|"unreachable"} (nul sans relais), "display",
+/// "guests": [{"id", "name", "app", "role", "since", "pending" (demande
+/// venue par le relais, pas encore acceptée), "via" ("lan" ou "relay")}]}`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_console_share_state(c: *const KnConsole, out: *mut *mut c_char, error: *mut *mut c_char) -> i32 {
     let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
@@ -386,6 +388,24 @@ pub unsafe extern "C" fn kn_console_share_guest(c: *const KnConsole, guest: *con
         Ok(()) => KN_OK,
         Err(e) => failure(e, error),
     }
+}
+
+/// « Accepter » la demande d'un invité venu par le relais (`pending` dans
+/// `guests` de `kn_console_share_state` et de `on_guests`) : il entre dans le
+/// partage. `out` : la vue du partage, comme `kn_console_share_state` ;
+/// −409 (`error` : le texte d'Admin) si les quatre places sont prises.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_console_share_accept(c: *const KnConsole, guest: *const c_char, out: *mut *mut c_char, error: *mut *mut c_char) -> i32 {
+    let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
+    console_result(c.0.share_accept(&text(guest)), out, error)
+}
+
+/// « Refuser » la demande d'un invité venu par le relais (son appareil est
+/// refusé dix minutes). `out` : la vue du partage.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_console_share_refuse(c: *const KnConsole, guest: *const c_char, out: *mut *mut c_char, error: *mut *mut c_char) -> i32 {
+    let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
+    console_result(c.0.share_refuse(&text(guest)), out, error)
 }
 
 /// « Retirer » un invité.

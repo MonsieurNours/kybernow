@@ -13,9 +13,14 @@ struct JoinSheet: View {
     @StateObject private var model: ShareJoinModel
     @FocusState private var codeFocused: Bool
 
-    init(initialLink: ShareJoinLink?) {
+    init(initialLink: ShareJoinLink?, demoWaiting: Bool = false) {
         // « Auto » : l'écran de la fenêtre, où s'ouvre la session d'invité.
-        _model = StateObject(wrappedValue: ShareJoinModel(link: initialLink) { DisplayInfo.shareScreen(NSApp.keyWindow?.screen) })
+        let model = ShareJoinModel(link: initialLink) { DisplayInfo.shareScreen(NSApp.keyWindow?.screen) }
+        #if DEBUG
+        // Démonstration : l'attente de l'accord de l'hôte (hors de chez lui), sans relais.
+        if demoWaiting { model.demoWaiting(code: "482 915") }
+        #endif
+        _model = StateObject(wrappedValue: model)
     }
 
     /// Les cinq qualités, « Auto » proposé ; le choix est retenu pour la fois suivante.
@@ -25,7 +30,7 @@ struct JoinSheet: View {
             Segmented(options: ShareQuality.allCases.map { ($0, $0.label) },
                       selection: Binding(get: { model.quality }, set: { model.quality = $0 ?? model.quality }),
                       height: 38, fill: true)
-                .disabled(model.looking)
+                .disabled(model.busy)
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(ShareText.imageQuality)
@@ -54,12 +59,12 @@ struct JoinSheet: View {
             status
             HStack {
                 Spacer()
-                if model.looking {
+                if model.busy {
                     Button(StationText.cancel) { model.cancel() }
                         .buttonStyle(GhostButton(height: 44))
                 }
                 Button(ShareText.joinButton, action: join)
-                    .buttonStyle(PrimaryButton(lit: model.looking))
+                    .buttonStyle(PrimaryButton(lit: model.busy))
                     .disabled(!model.canJoin || full)
                     .keyboardShortcut(.defaultAction)
             }
@@ -102,7 +107,7 @@ struct JoinSheet: View {
             .frame(height: 78)
             .background(Theme.bar, in: RoundedRectangle(cornerRadius: 14))
             .overlay(RoundedRectangle(cornerRadius: 14).stroke(codeFocused ? Theme.accentLine : Theme.line2))
-            .disabled(model.looking)
+            .disabled(model.busy)
             .accessibilityLabel(ShareText.code)
     }
 
@@ -118,6 +123,13 @@ struct JoinSheet: View {
                     ProgressView().controlSize(.small)
                     Text(ShareText.looking).font(Theme.sans(13)).foregroundStyle(Theme.muted)
                 }
+            case .waiting:
+                // Hors de chez l'hôte : sa réponse se fait attendre (« Annuler » retire la demande).
+                HStack(spacing: 10) {
+                    ProgressView().controlSize(.small)
+                    Text(ShareText.waiting).font(Theme.sans(13)).foregroundStyle(Theme.muted)
+                }
+                .accessibilityElement(children: .combine)
             case let .failed(text):
                 Notice(kind: .warn, text: text)
             }

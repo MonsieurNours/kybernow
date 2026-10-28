@@ -321,7 +321,7 @@ private struct SettingsPane: View {
         case .statistics:
             return SectionSummary.statistics(host)
         case .station:
-            return info == nil ? LinkText.status(store.status[host.id]?.online) : SectionSummary.station(info)
+            return info == nil ? LinkText.status(store.status[host.id]?.online, away: store.status[host.id]?.away == true) : SectionSummary.station(info)
         }
     }
 
@@ -906,7 +906,7 @@ private struct SettingsPane: View {
 
     /// « À jour », « Version 0.5.1 disponible », l'installateur, ou la Station trop ancienne.
     private var versionNote: (text: String, warn: Bool) {
-        guard let info else { return (LinkText.status(store.status[host.id]?.online), false) }
+        guard let info else { return (LinkText.status(store.status[host.id]?.online, away: store.status[host.id]?.away == true), false) }
         guard let station = info.station else { return (StationText.tooOld, true) }
         if station.updateAvailable, let v = station.updateVersion {
             return station.requiresSetup ? (StationText.requiresSetup(v), false) : (StationText.available(v), false)

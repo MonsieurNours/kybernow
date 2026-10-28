@@ -150,30 +150,41 @@ public struct ShareImage: Sendable, Equatable {
     }
 }
 
-/// Un invité, dans la liste de l'hôte.
+/// Un invité, dans la liste de l'hôte, ou une demande venue par le relais qui
+/// attend son accord (`pending`).
 public struct ShareGuest: Identifiable, Sendable, Equatable {
     public let id: String
     public let name: String
     /// `mac`, `windows`, `linux`, `ios`, `tvos`, `android`, `webos`, `web`.
     public let app: String
     public let role: ShareRole
-    /// Arrivée dans le partage (« depuis 3 min »), si la Station la donne.
+    /// Arrivée dans le partage (« depuis 3 min »), si la Station la donne ; pour
+    /// une demande, l'heure de la demande.
     public let since: Date?
     /// L'image qu'il reçoit, si la Station la dit.
     public let image: ShareImage?
+    /// Une demande venue par le relais, pas encore acceptée : « {prénom} demande
+    /// à rejoindre », « Accepter » et « Refuser ». Elle est spectatrice, ne compte
+    /// pas dans les invités et ne prend pas de place tant qu'elle n'est pas acceptée.
+    public let pending: Bool
+    /// Il est venu par le relais, hors de chez l'hôte : « hors de chez vous ».
+    public let viaRelay: Bool
 
-    public init(id: String, name: String, app: String, role: ShareRole, since: Date? = nil, image: ShareImage? = nil) {
+    public init(id: String, name: String, app: String, role: ShareRole, since: Date? = nil, image: ShareImage? = nil,
+                pending: Bool = false, viaRelay: Bool = false) {
         self.id = id
         self.name = name
         self.app = app
         self.role = role
         self.since = since
         self.image = image
+        self.pending = pending
+        self.viaRelay = viaRelay
     }
 
     /// Le même invité avec un autre rôle.
     public func with(role: ShareRole) -> ShareGuest {
-        ShareGuest(id: id, name: name, app: app, role: role, since: since, image: image)
+        ShareGuest(id: id, name: name, app: app, role: role, since: since, image: image, pending: pending, viaRelay: viaRelay)
     }
 
     /// Sa qualité sous son nom (« 1080p · 60 Hz ») : seulement si elle n'est
@@ -194,15 +205,37 @@ public struct ShareState: Sendable, Equatable {
     public var web: String
     /// L'écran partagé (« Écran 1 »).
     public var display: String?
+    /// L'adresse du client web sur le réseau, même quand `web` est celle du relais.
+    public var webLocal: String
+    /// Le relais du partage : nil sans relais réglé ; sinon il tient le code
+    /// (« Copier le lien » copie le lien du relais), ou n'est pas encore joignable.
+    public var relay: Relay?
+    /// Les invités acceptés et les demandes en attente, dans l'ordre d'arrivée.
     public var guests: [ShareGuest]
 
-    public init(code: String, link: String, web: String = "", display: String? = nil, guests: [ShareGuest] = []) {
+    /// L'état du relais pour ce partage (`relay.state` de la vue du partage).
+    public enum Relay: Sendable, Equatable {
+        /// Le relais tient le code : le lien et le client web passent par lui.
+        case joined
+        /// « Pas encore joignable hors de chez vous. »
+        case unreachable
+    }
+
+    public init(code: String, link: String, web: String = "", display: String? = nil, webLocal: String = "",
+                relay: Relay? = nil, guests: [ShareGuest] = []) {
         self.code = code
         self.link = link
         self.web = web
         self.display = display
+        self.webLocal = webLocal
+        self.relay = relay
         self.guests = guests
     }
+
+    /// Les demandes qui attendent l'accord de l'hôte (« Demandes », pastille « 1 demande »).
+    public var requests: [ShareGuest] { guests.filter(\.pending) }
+    /// Les invités acceptés (« Invités », pastille « 2 invités ») ; une demande n'y compte pas.
+    public var accepted: [ShareGuest] { guests.filter { !$0.pending } }
 
     /// Lu dans le JSON du cœur (`kn_console_share_*`, `on_guests`). Nil si le
     /// partage n'est pas ouvert ou le JSON illisible.
@@ -219,10 +252,14 @@ public struct ShareState: Sendable, Equatable {
             // `image` : ce que l'invité reçoit (absent, ou rien de su encore, pour une Station sans qualité d'image).
             let image = (g["image"] as? [String: Any]).flatMap { ShareImage(json: $0) }
             return ShareGuest(id: id, name: g["name"] as? String ?? "", app: g["app"] as? String ?? "",
-                              role: ShareRole(wire: g["role"] as? String) ?? .spectator, since: since, image: image)
+                              role: ShareRole(wire: g["role"] as? String) ?? .spectator, since: since, image: image,
+                              pending: g["pending"] as? Bool ?? false, viaRelay: g["via"] as? String == "relay")
         }
+        // `relay` : nul sans relais réglé, sinon `{"state": "joined"|"unreachable"}`.
+        let relay = (j["relay"] as? [String: Any]).map { ($0["state"] as? String) == "joined" ? Relay.joined : Relay.unreachable }
         self.init(code: code, link: j["link"] as? String ?? "", web: j["web"] as? String ?? "",
-                  display: (j["display"] as? [String: Any])?["label"] as? String, guests: guests)
+                  display: (j["display"] as? [String: Any])?["label"] as? String, webLocal: j["web_local"] as? String ?? "",
+                  relay: relay, guests: guests)
     }
 }
 
@@ -286,8 +323,17 @@ public struct ShareJoinLink: Sendable, Equatable {
     public let fingerprint: String?
     /// Six chiffres.
     public let code: String
+    /// Le relais de la Station et son identifiant chez lui, quand le lien a été
+    /// fait relais joint (`relay=`, `sid=`) : hors de chez l'hôte, le lien passe par lui.
+    public let relay: String?
+    public let sid: String?
+    /// Le JSON du cœur, repassé tel quel à `kn_share_join_link`.
+    let json: String
 
     public var target: ShareTarget { ShareTarget(host: host, port: port, fingerprint: fingerprint) }
+
+    /// Le lien porte le relais de la Station : il marche aussi hors de chez soi.
+    public var viaRelay: Bool { relay != nil && sid != nil }
 }
 
 /// La Station qui a accepté le code, et la réponse à garder telle quelle pour
@@ -309,6 +355,8 @@ public struct ShareFound: Sendable {
     /// La « Qualité de l'image » demandée à « Rejoindre » ; l'image reçue vient
     /// ensuite de `SessionEngine.onShareImage`.
     public internal(set) var quality: ShareQuality = .auto
+    /// Entré par le relais, hors de chez l'hôte : la session y reste (puce « Par le relais »).
+    public internal(set) var viaRelay = false
 
     init?(json text: String) {
         guard let data = text.data(using: .utf8), let j = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
@@ -323,14 +371,16 @@ public struct ShareFound: Sendable {
         self.host = name.isEmpty ? self.computer : name
         role = ShareRole(wire: joined["role"] as? String) ?? .spectator
         codec = (joined["codec"] as? String).flatMap(VideoCodec.init(rawValue:))
+        viaRelay = joined["route"] is [String: Any]
     }
 
     #if DEBUG
     /// Démonstration (Debug, sans Station) : un partage rejoint pour de faux,
     /// pour dessiner la session d'un invité.
-    public init(demoComputer: String, host: String, role: ShareRole, quality: ShareQuality = .auto) {
+    public init(demoComputer: String, host: String, role: ShareRole, quality: ShareQuality = .auto, viaRelay: Bool = false) {
         json = "{}"
         self.quality = quality
+        self.viaRelay = viaRelay
         target = ShareTarget(host: "192.0.2.1", port: 1)
         computer = demoComputer
         self.host = host
@@ -360,12 +410,22 @@ public enum ShareJoinError: LocalizedError, Sendable, Equatable {
     case unreadable(String)
     /// Le certificat de la Station a changé depuis le lien ou l'annonce.
     case certificateChanged
+    /// Par le relais : l'hôte a refusé (« L'hôte a refusé. »).
+    case refused(String)
+    /// Par le relais : l'hôte n'a pas répondu en 120 s (« L'hôte n'a pas répondu. »).
+    case expired(String)
+    /// Par le relais : trois demandes attendent déjà l'accord de l'hôte.
+    case pendingFull(String)
+    /// Par le relais : le relais ne répond pas (« Le relais ne répond pas. »), ou
+    /// l'ordinateur n'y est pas, éteint ou en veille (texte du cœur).
+    case relay(String)
     /// Le reste : Station injoignable, réponse illisible (message du cœur).
     case other(String)
 
     public var errorDescription: String? {
         switch self {
-        case let .noShare(m), let .full(m), let .tooManyTries(m), let .unreadable(m), let .other(m): return m
+        case let .noShare(m), let .full(m), let .tooManyTries(m), let .unreadable(m), let .other(m),
+             let .refused(m), let .expired(m), let .pendingFull(m), let .relay(m): return m
         case .certificateChanged: return String(localized: "le certificat de la Station a changé : ce n'est peut-être pas votre ordinateur", bundle: .kyberKit)
         }
     }
@@ -387,6 +447,24 @@ public struct ShareScreen: Sendable, Equatable {
         self.pixelHeight = valid ? short : 1080
         self.refresh = refresh > 0 ? refresh : 60
     }
+}
+
+/// Une demande par le relais qui attend l'accord de l'hôte (« En attente de
+/// l'accord de l'hôte… ») : à donner à `Share.wait` jusqu'à sa réponse, ou à
+/// `Share.cancel` (« Annuler »). L'hôte n'est connu qu'après son accord : ni son
+/// prénom ni le nom de l'ordinateur.
+public struct SharePending: Sendable {
+    /// `pending` du cœur (la route, l'identifiant de l'invité, son secret), repassé tel quel.
+    let json: String
+    /// Sans réponse de l'hôte en ce temps (secondes, 120), la demande expire.
+    public let expires: Int
+}
+
+/// L'issue de « Rejoindre » : l'invité entre (sur le réseau, ou accepté
+/// aussitôt), ou attend l'accord de l'hôte (venu par le relais).
+public enum ShareJoining: Sendable {
+    case joined(ShareFound)
+    case pending(SharePending)
 }
 
 public enum Share {
@@ -419,7 +497,8 @@ public enum Share {
               let j = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let host = j["host"] as? String, let code = j["code"] as? String,
               let port = (j["port"] as? NSNumber).flatMap({ UInt16(exactly: $0.intValue) }) else { return nil }
-        return ShareJoinLink(host: host, port: port, fingerprint: j["fingerprint"] as? String, code: code)
+        return ShareJoinLink(host: host, port: port, fingerprint: j["fingerprint"] as? String, code: code,
+                             relay: j["relay"] as? String, sid: j["sid"] as? String, json: text)
     }
 
     // MARK: Rejoindre
@@ -478,6 +557,128 @@ public enum Share {
         let decoderJSON = json(["hevc": capabilities.hevc, "hevc444": capabilities.hevc444, "av1": capabilities.av1])
         guard let text = Core.take(kn_share_auto_quality(screenJSON, decoderJSON, nil)), let data = text.data(using: .utf8) else { return nil }
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    }
+
+    // MARK: Rejoindre, hors de chez soi (docs/relais.md)
+
+    /// « Rejoindre » sur le réseau et hors de chez soi : le code part aux Stations
+    /// du réseau (`targets`) et, en même temps, aux relais (`relays` : celui des
+    /// ordinateurs que l'appareil connaît, et le relais public). Une Station du
+    /// réseau qui l'accepte en 1,5 s est prise ; sinon la Station que donne un
+    /// relais, de bout en bout par le tunnel : l'invité entre, ou attend l'accord
+    /// de l'hôte (`.pending`). Bloquant jusqu'à 8 s : hors du fil principal.
+    public static func joinAnywhere(targets: [ShareTarget], relays: [String], code: String, name: String,
+                                    quality: ShareQuality = .auto, screen: ShareScreen? = nil,
+                                    capabilities: DecoderCapabilities = .current) async throws -> ShareJoining {
+        let request = joinRequest(code: code, name: name, quality: quality, screen: screen, capabilities: capabilities)
+        let targetsJSON = json(targets.map(\.json)), relaysJSON = json(relays)
+        let caps = capabilitiesJSON(capabilities)
+        // Hors de chez soi sur iPhone ou iPad : la radio cellulaire d'abord.
+        await Relay.wakeRadio(server: relays.first)
+        return try await joining(quality: quality) { out, error in
+            kn_share_join_anywhere(targetsJSON, relaysJSON, request, caps, &out, &error)
+        }
+    }
+
+    /// Un lien ou un QR code de partage (`kybernow://join…`) : la Station du
+    /// réseau d'abord (1,5 s), puis, si le lien porte `relay` et `sid`, par le
+    /// relais de bout en bout (Admin épinglé sur l'empreinte du lien : le relais
+    /// ne peut pas s'interposer). Même issue que `joinAnywhere`.
+    public static func joinLink(_ link: ShareJoinLink, code: String, name: String,
+                                quality: ShareQuality = .auto, screen: ShareScreen? = nil,
+                                capabilities: DecoderCapabilities = .current) async throws -> ShareJoining {
+        let request = joinRequest(code: code, name: name, quality: quality, screen: screen, capabilities: capabilities)
+        let linkJSON = link.json, caps = capabilitiesJSON(capabilities)
+        if link.viaRelay { await Relay.wakeRadio(server: link.relay) }
+        return try await joining(quality: quality) { out, error in
+            kn_share_join_link(linkJSON, request, caps, &out, &error)
+        }
+    }
+
+    /// L'hôte a-t-il répondu à la demande ? Un appel tient 25 s au plus : nil,
+    /// toujours en attente (rappeler) ; sinon l'invité est accepté, et sa session
+    /// s'ouvrira par le relais. Refus et délai : « L'hôte a refusé. », « L'hôte
+    /// n'a pas répondu. » ; « partage arrêté » : `.noShare`. Hors du fil principal.
+    public static func wait(_ pending: SharePending, quality: ShareQuality = .auto,
+                            capabilities: DecoderCapabilities = .current) async throws -> ShareFound? {
+        let text = pending.json, caps = capabilitiesJSON(capabilities)
+        let result = await blocking { out, error in kn_share_wait(text, caps, &out, &error) }
+        switch result.status {
+        case KN_OK:
+            guard let out = result.out, var found = ShareFound(json: out) else {
+                throw ShareJoinError.other(String(localized: "réponse inattendue de la Station", bundle: .kyberKit))
+            }
+            found.quality = quality
+            return found
+        case KN_SHARE_WAITING: return nil
+        default: throw joinError(result.status, result.message)
+        }
+    }
+
+    /// « Annuler » la demande en attente : l'hôte ne la voit plus.
+    public static func cancel(_ pending: SharePending) {
+        let text = pending.json
+        DispatchQueue.global(qos: .utility).async { _ = kn_share_cancel(text) }
+    }
+
+    private static func joinRequest(code: String, name: String, quality: ShareQuality, screen: ShareScreen?, capabilities: DecoderCapabilities) -> String {
+        var fields: [String: Any] = ["code": code, "name": name, "device": ConsoleClient.thisDeviceID, "app": app, "quality": quality.wire]
+        // `auto` part quel que soit le choix (voir `join`).
+        if let screen, let auto = autoQuality(screen: screen, capabilities: capabilities) { fields["auto"] = auto }
+        return json(fields)
+    }
+
+    private static func capabilitiesJSON(_ capabilities: DecoderCapabilities) -> String {
+        json(["hevc": capabilities.hevc, "hevc444": capabilities.hevc444, "av1": capabilities.av1])
+    }
+
+    /// Un appel bloquant du cœur, sur une file à part : le code de retour, la
+    /// réponse et le message.
+    private static func blocking(_ call: @escaping @Sendable (inout UnsafeMutablePointer<CChar>?, inout UnsafeMutablePointer<CChar>?) -> Int32)
+        async -> (status: Int32, out: String?, message: String) {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                var out: UnsafeMutablePointer<CChar>?
+                var error: UnsafeMutablePointer<CChar>?
+                let status = call(&out, &error)
+                let message = Core.take(error) ?? ""
+                continuation.resume(returning: (status, Core.take(out), message))
+            }
+        }
+    }
+
+    /// `{"joined": {target, joined}}` ou `{"pending": {route, guest, secret, expires}}`.
+    private static func joining(quality: ShareQuality,
+                                _ call: @escaping @Sendable (inout UnsafeMutablePointer<CChar>?, inout UnsafeMutablePointer<CChar>?) -> Int32) async throws -> ShareJoining {
+        let result = await blocking(call)
+        guard result.status == KN_OK else { throw joinError(result.status, result.message) }
+        guard let out = result.out, let data = out.data(using: .utf8), let j = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            throw ShareJoinError.other(String(localized: "réponse inattendue de la Station", bundle: .kyberKit))
+        }
+        if let joined = j["joined"], var found = ShareFound(json: json(joined)) {
+            found.quality = quality
+            return .joined(found)
+        }
+        if let pending = j["pending"] as? [String: Any] {
+            return .pending(SharePending(json: json(pending), expires: (pending["expires"] as? NSNumber)?.intValue ?? 120))
+        }
+        throw ShareJoinError.other(String(localized: "réponse inattendue de la Station", bundle: .kyberKit))
+    }
+
+    /// Le refus du cœur (code de retour et texte, dans la langue de l'app).
+    private static func joinError(_ status: Int32, _ message: String) -> ShareJoinError {
+        switch status {
+        case KN_SHARE_NO_SHARE: return .noShare(message)
+        case KN_SHARE_FULL: return .full(message)
+        case KN_SHARE_TOO_MANY: return .tooManyTries(message)
+        case KN_SHARE_UNREADABLE: return .unreadable(message)
+        case KN_SHARE_REFUSED: return .refused(message)
+        case KN_SHARE_EXPIRED: return .expired(message)
+        case KN_SHARE_PENDING_FULL: return .pendingFull(message)
+        case KN_RELAY_UNREACHABLE, KN_RELAY_STATION_OFFLINE: return .relay(message)
+        case KN_CERTIFICATE_CHANGED: return .certificateChanged
+        default: return .other(message)
+        }
     }
 
     /// L'invité renonce avant d'avoir ouvert sa session (une session d'invité, elle, part seule).
@@ -562,6 +763,31 @@ extension ConsoleClient {
             var error: UnsafeMutablePointer<CChar>?
             try Self.check(kn_console_share_guest(console, guest, Int32(role.rawValue), &error), error)
         }
+    }
+
+    /// « Accepter » la demande d'un invité venu par le relais : il entre dans le
+    /// partage. Rend le partage à jour (quatre invités au plus : Admin refuse la
+    /// cinquième acceptation).
+    public func shareAccept(_ guest: String) async throws -> ShareState? {
+        let text = try await call { console -> String? in
+            var out: UnsafeMutablePointer<CChar>?
+            var error: UnsafeMutablePointer<CChar>?
+            try Self.check(kn_console_share_accept(console, guest, &out, &error), error)
+            return Core.take(out)
+        }
+        return ShareState(json: text)
+    }
+
+    /// « Refuser » la demande d'un invité venu par le relais (son appareil est
+    /// refusé 10 minutes). Rend le partage à jour.
+    public func shareRefuse(_ guest: String) async throws -> ShareState? {
+        let text = try await call { console -> String? in
+            var out: UnsafeMutablePointer<CChar>?
+            var error: UnsafeMutablePointer<CChar>?
+            try Self.check(kn_console_share_refuse(console, guest, &out, &error), error)
+            return Core.take(out)
+        }
+        return ShareState(json: text)
     }
 
     /// « Retirer » un invité.

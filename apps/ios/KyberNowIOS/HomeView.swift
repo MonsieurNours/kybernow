@@ -339,7 +339,7 @@ struct HomeScreen: View {
             VStack(alignment: .leading, spacing: gap) {
                 HomeChip(height: wide ? 32 : 30, fontSize: wide ? 14 : 13) {
                     HomeStatusDot(online: on, size: wide ? 8 : 7)
-                    Text(LinkText.status(on)).lineLimit(1)
+                    Text(LinkText.status(on, away: store.status[host.id]?.away == true)).lineLimit(1)
                 }
                 .homeRise(revealed, 0.1)
                 // Deux lignes au plus, interligne serré comme la maquette ; un nom long rétrécit.
@@ -364,7 +364,7 @@ struct HomeScreen: View {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Icon("warning", size: wide ? 17 : 15).foregroundStyle(Theme.warn)
                             .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 3 }
-                        Text(LinkText.problem(problem))
+                        Text(LinkText.problem(problem, name: host.name))
                             .font(Theme.sans(wide ? 15 : 13.5))
                             .foregroundStyle(Theme.warnText)
                             .fixedSize(horizontal: false, vertical: true)
@@ -567,7 +567,7 @@ struct HomeScreen: View {
         return Button {
             withAnimation(Theme.easeOut) { app.selected = h.id }
         } label: {
-            HomeHostCard(host: h, online: on, status: LinkText.status(on), selected: h.id == host?.id, m: m)
+            HomeHostCard(host: h, online: on, status: LinkText.status(on, away: store.status[h.id]?.away == true), selected: h.id == host?.id, m: m)
         }
         .buttonStyle(HomePressStyle())
         .hoverEffect(.lift)
@@ -578,7 +578,7 @@ struct HomeScreen: View {
             Button { app.sheet = .settings(h.id) } label: { Label { Text("Réglages") } icon: { Image(systemName: "slider.horizontal.3") } }
             Button(role: .destructive) { removing = h } label: { Label { Text("Retirer") } icon: { Image(systemName: "trash") } }
         }
-        .accessibilityLabel(Text(verbatim: "\(h.name), \(LinkText.status(on))"))
+        .accessibilityLabel(Text(verbatim: "\(h.name), \(LinkText.status(on, away: store.status[h.id]?.away == true))"))
         .accessibilityAddTraits(h.id == host?.id ? [.isSelected] : [])
         .accessibilityHint(Text("Met l'ordinateur en scène ; appui long : réglages, retirer"))
     }
@@ -612,7 +612,7 @@ struct HomeScreen: View {
     private func retry(_ host: Host) {
         retrying = host.id
         Task {
-            await store.refresh(host)
+            await store.retry(host)
             retrying = nil
             if !(store.status[host.id]?.online ?? false) {
                 app.show(String(localized: "\(host.name) ne répond pas encore"))

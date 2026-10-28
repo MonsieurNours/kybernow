@@ -40,6 +40,10 @@ final class SessionController: ObservableObject {
     @Published private(set) var stats: VideoStats?
     @Published private(set) var audioStats: AudioStats?
     @Published private(set) var route = AudioRoute.current
+    /// Par où passe la session (docs/relais.md) : direct sur le réseau, ou par le
+    /// relais hors de chez soi (puce « Par le relais » au menu, « Chemin » dans les
+    /// mesures). Donné par le cœur, au départ puis quand il change.
+    @Published private(set) var path = RouteInfo.direct
     @Published private(set) var modeLabel = ""
     @Published private(set) var remoteMouse = false
     /// La manette sert de souris et de clavier (actif d'office en profil Bureau).
@@ -190,6 +194,7 @@ final class SessionController: ObservableObject {
         engine.onShareRole = { [weak self] role, previous in self?.shareRoleChanged(role, previous: previous) }
         engine.onShareEnd = { [weak self] _, text in self?.shareEndText = text }
         engine.onShareImage = { [weak self] image, _, notice in self?.shareImageChanged(image, notice: notice) }
+        engine.onRoute = { [weak self] in self?.routeChanged($0) }
         self.engine = engine
         if !isGuest { share.setConsole(store.console(for: host)) }
 
@@ -206,6 +211,8 @@ final class SessionController: ObservableObject {
                 mode: SessionEngine.Mode(width: mode.width, height: mode.height, refresh: mode.refresh),
                 audioChannels: channels, virtualDisplay: settings.display != .physical, settings: engineSettings
             )
+            // Hors de chez soi : le réseau d'abord, puis le relais si l'accès est actif.
+            params.relay = host.sessionRelay
         }
         params.autoReconnect = settings.autoReconnect
         params.gamepadAsXbox360 = settings.gamepad == .xbox360
@@ -339,6 +346,20 @@ final class SessionController: ObservableObject {
         }
         shareImage = image
         if let notice, !notice.isEmpty { show(notice: notice, for: 4) }
+    }
+
+    /// Le chemin de la session a changé (au départ, puis toutes les 5 s au plus
+    /// s'il change) : la puce « Par le relais » suit. Par le relais, le partage de
+    /// l'hôte passe aussi par lui (Admin n'est plus joignable sur le réseau).
+    private func routeChanged(_ info: RouteInfo) {
+        switch phase {
+        case .ending, .ended, .failed: return
+        default: break
+        }
+        guard info != path else { return }
+        let wasRelay = path.viaRelay
+        path = info
+        if info.viaRelay != wasRelay, !isGuest { share.setConsole(store.console(for: host, route: info.viaRelay ? .relay : .direct)) }
     }
 
     /// Le format de l'image reçue : celui de son image (un invité), à défaut
@@ -477,6 +498,25 @@ final class SessionController: ObservableObject {
             // `-demoQuality YES` (invité, avec `-screen guest-menu`) : le choix de la qualité de l'image ouvert.
             if UserDefaults.standard.bool(forKey: "demoQuality") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1) { self.qualityPanel = true }
+            }
+            // `-demoRelay YES` : la session passe par le relais (puce « Par le relais », « Chemin » des mesures).
+            if UserDefaults.standard.bool(forKey: "demoRelay") {
+                self.path = RouteInfo(transport: .relay, relay: "share.kybernow.app:8443", rttClient: 24, rttStation: 11)
+            }
+            // `-demoRequests 1|2` : le partage de l'hôte, relais joint, avec ce nombre de demandes en attente
+            // (`-demoShareRelay unreachable` : relais réglé mais pas joint), le panneau ouvert.
+            let requests = UserDefaults.standard.integer(forKey: "demoRequests")
+            if requests > 0 || UserDefaults.standard.string(forKey: "demoShareRelay") != nil {
+                Task {
+                    await self.share.openIfNeeded()
+                    self.share.demoSetRelay(UserDefaults.standard.string(forKey: "demoShareRelay") == "unreachable" ? .unreachable : .joined)
+                    if requests > 0 { self.share.demoAddGuest(name: "Léa", app: "ios", pending: true, viaRelay: true) }
+                    if requests > 1 { self.share.demoAddGuest(name: "Hugo", app: "tvos", pending: true, viaRelay: true) }
+                    self.share.demoAddGuest(name: "Sam", app: "android", role: .player, viaRelay: true)
+                    self.share.demoAddGuest(name: "Zoé", app: "mac", role: .kbm)
+                    self.openMenu()
+                    self.sharePanel = true
+                }
             }
             // `-demoShare YES` : le partage ouvert, quatre invités, le panneau de l'hôte.
             if UserDefaults.standard.bool(forKey: "demoShare") {

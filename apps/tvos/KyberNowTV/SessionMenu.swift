@@ -32,11 +32,14 @@ struct SessionMenu: View {
             // En haut : où l'on est, et la santé du flux.
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 10) {
-                    // Un invité : son rôle au-dessus de « Invité sur {nom} ».
-                    if session.isGuest {
-                        Theme.eyebrow(ShareText.role(session.shareRole))
-                    } else {
-                        Theme.eyebrow(String(localized: "En session depuis \(minutesLabel)"))
+                    // Un invité : son rôle au-dessus de « Invité sur {nom} » ; « Par le relais » à côté quand la session passe par lui.
+                    HStack(spacing: 18) {
+                        if session.isGuest {
+                            Theme.eyebrow(ShareText.role(session.shareRole))
+                        } else {
+                            Theme.eyebrow(String(localized: "En session depuis \(minutesLabel)"))
+                        }
+                        if session.path.viaRelay { relayChip }
                     }
                     Text(session.title).font(Theme.display(60, 660)).tracking(-60 * 0.035).foregroundStyle(Theme.text)
                         .lineLimit(1).minimumScaleFactor(0.5)
@@ -162,6 +165,8 @@ struct SessionMenu: View {
             Text("\(Int((s?.fps ?? 0).rounded())) i/s")
             Text("\(Int((s?.mbps ?? 0).rounded())) Mbit/s")
             Text(verbatim: "\(codec) \(format)")
+            // « Chemin » : Direct, Par le relais, Par le relais (TCP).
+            Text(verbatim: session.path.label)
             HStack(spacing: 8) {
                 Circle().fill(lost == 0 ? Theme.ok : Theme.warn).frame(width: 9, height: 9)
                 lost == 0 ? Text("0 perte") : Text("\(lost) pertes")
@@ -172,6 +177,18 @@ struct SessionMenu: View {
         .padding(.horizontal, 30)
         .frame(height: 72)
         .glass(20, tint: 0.55)
+    }
+
+    /// « Par le relais » : la session passe par le relais, hors de chez soi.
+    private var relayChip: some View {
+        HStack(spacing: 10) {
+            Icon("globe-hemisphere-west", size: 22, bold: true).foregroundStyle(Theme.accentLight)
+            Text(LinkText.viaRelay).font(Theme.sans(20, .semibold)).foregroundStyle(Theme.text)
+        }
+        .padding(.horizontal, 18)
+        .frame(height: 40)
+        .glass(20, tint: 0.55)
+        .accessibilityElement(children: .combine)
     }
 
     private var audioWarning: some View {
@@ -259,7 +276,10 @@ struct SessionMenu: View {
     private var shareTile: some View {
         let availability = session.shareAvailability
         let count = share.guests.count
-        let detail = count > 0 ? ShareText.guestCount(count) : (share.isOpen ? Share.formatCode(share.state?.code ?? "") : ShareText.tileDetail)
+        let requests = share.requests.count
+        // « 2 invités », avec « 1 demande » quand l'hôte a une réponse à donner ; sinon le code, sinon « Code et QR code ».
+        let counts = [count > 0 ? ShareText.guestCount(count) : nil, requests > 0 ? ShareText.requestCount(requests) : nil].compactMap { $0 }
+        let detail = !counts.isEmpty ? counts.joined(separator: " · ") : (share.isOpen ? Share.formatCode(share.state?.code ?? "") : ShareText.tileDetail)
         return Button {
             session.sharePanel = true
             if availability.isAvailable { Task { await share.openIfNeeded() } }

@@ -94,7 +94,7 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 22) {
                 HStack(spacing: 12) {
                     statusDot(state)
-                    Text(LinkText.status(state)).font(Theme.sans(21))
+                    Text(LinkText.status(state, away: store.status[host.id]?.away == true)).font(Theme.sans(21))
                 }
                 .padding(.leading, 16).padding(.trailing, 18)
                 .frame(height: 44)
@@ -114,7 +114,7 @@ struct HomeView: View {
                 if let problem {
                     HStack(spacing: 12) {
                         Icon("warning", size: 26).foregroundStyle(Theme.warn)
-                        Text(LinkText.problem(problem)).font(Theme.sans(22)).foregroundStyle(Theme.warnText)
+                        Text(LinkText.problem(problem, name: host.name)).font(Theme.sans(22)).foregroundStyle(Theme.warnText)
                     }
                 }
                 HStack(spacing: 14) {
@@ -264,7 +264,7 @@ struct HomeView: View {
                         } else {
                             Circle().strokeBorder(Theme.faint, lineWidth: 1.5).frame(width: 9, height: 9)
                         }
-                        Text(LinkText.status(state)).font(Theme.sans(17)).foregroundStyle(Theme.muted).lineLimit(1)
+                        Text(LinkText.status(state, away: store.status[h.id]?.away == true)).font(Theme.sans(17)).foregroundStyle(Theme.muted).lineLimit(1)
                     }
                 }
                 .padding(.horizontal, 18).padding(.vertical, 14)
@@ -283,7 +283,7 @@ struct HomeView: View {
         }
         .buttonStyle(GlassButton(radius: 18))
         .focused($focus, equals: .host(h.id))
-        .accessibilityLabel("\(h.name), \(LinkText.status(state))")
+        .accessibilityLabel("\(h.name), \(LinkText.status(state, away: store.status[h.id]?.away == true))")
     }
 
     private func foundCard(_ found: Discovery.Found) -> some View {
@@ -359,7 +359,7 @@ struct HomeView: View {
     private func primaryAction(_ host: Host, state: Bool?) {
         guard state == false else { app.connect(host.id); return }
         guard !store.waking.contains(host.id) else { return }
-        if store.canWake(host) { store.wake(host) } else { Task { await store.refresh(host) } }
+        if store.canWake(host) { store.wake(host) } else { Task { await store.retry(host) } }
     }
 
     // MARK: Textes

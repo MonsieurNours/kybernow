@@ -337,7 +337,7 @@ extension AppModel {
             sessions.setKeepSound(!session.keepSound, for: session)
         case let .connect(id): if let host = store.host(id) { connectFromOutside(host) }
         case let .wake(id): if let host = store.host(id) { store.wake(host) }
-        case let .retry(id): if let host = store.host(id) { Task { await store.refresh(host) } }
+        case let .retry(id): if let host = store.host(id) { Task { await store.retry(host) } }
         case let .profile(id, profile): if let host = store.host(id) { apply(profile, to: host) }
         case let .settings(id): if let host = store.host(id) { openSettingsFromOutside(host) }
         case let .admin(id): if let host = store.host(id) { openAdmin(host) }
@@ -806,6 +806,11 @@ enum DemoRemote {
             let info = app.store.status[h.id]?.info
             switch parts[2] {
             case "online": app.store.setDemoStatus(HostStatus(online: true, info: info), for: h.id)
+            // Joignable seulement par le relais : « Hors de chez vous ».
+            case "away": app.store.setDemoStatus(HostStatus(online: true, info: info, away: true), for: h.id)
+            // Hors ligne après « Réessayer » : la raison (accès coupé dans Admin, ordinateur éteint ou en veille).
+            case "accessoff": app.store.setDemoStatus(HostStatus(online: false, info: info, problem: .remoteAccessOff), for: h.id)
+            case "asleep": app.store.setDemoStatus(HostStatus(online: false, info: info, problem: .asleep), for: h.id)
             case "offline": app.store.setDemoStatus(HostStatus(online: false, info: info), for: h.id)
             // Hors ligne et sans réponse possible : le réveil n'aboutira pas.
             case "unknown": app.store.setDemoStatus(HostStatus(online: false, info: nil), for: h.id)
@@ -859,9 +864,14 @@ enum DemoRemote {
                 SharePanelDemo.render(session: session, to: parts[2])
             }
         case "panel-render":
-            // panel-render:<avec|sans>:<fichier> : le panneau « Partager » d'une session d'hôte sans fenêtre, avec ou sans invités.
+            // panel-render:<avec|sans|relais|relais-muet|demande>:<fichier> : le panneau « Partager » d'une session d'hôte sans fenêtre, avec ou
+            // sans invités ; `relais` : relais joint et deux demandes, `relais-muet` : relais réglé mais pas joint, `demande` : une seule demande.
             guard parts.count > 2 else { return }
-            Task { await SharePanelDemo.renderPanel(app: app, guests: parts[1] == "avec", to: parts[2]) }
+            let kind = parts[1]
+            Task {
+                await SharePanelDemo.renderPanel(app: app, guests: kind == "avec", relay: kind == "relais" || kind == "demande" ? .joined : kind == "relais-muet" ? .unreachable : nil,
+                                                 requests: kind == "relais" ? 2 : kind == "demande" ? 1 : 0, to: parts[2])
+            }
         case "moment-render":
             // moment-render:<end|play|kbm|watch|unpads|unkbm>:<fichier> : une session d'invité sans fenêtre à ce moment (fin par le partage, avis de droits).
             guard parts.count > 2 else { return }
@@ -878,6 +888,10 @@ enum DemoRemote {
             // join-render:<fichier> : l'écran « Rejoindre » dessiné dans un PNG.
             guard parts.count > 1 else { return }
             SharePanelDemo.renderJoin(to: parts[1], app: app)
+        case "join-waiting-render":
+            // join-waiting-render:<fichier> : l'écran « Rejoindre » pendant « En attente de l'accord de l'hôte… ».
+            guard parts.count > 1 else { return }
+            SharePanelDemo.renderJoin(to: parts[1], app: app, waiting: true)
         case "delivered":
             UNUserNotificationCenter.current().getDeliveredNotifications { list in
                 let text = list.map { "\($0.request.identifier) | \($0.request.content.title) | \($0.request.content.body)" }

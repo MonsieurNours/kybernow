@@ -27,6 +27,9 @@ struct StatsPanel: View {
     /// Écrans de la session : avec plusieurs, leur nombre d'abord, puis
     /// l'écran principal (docs/link-ui.md).
     var screens = 1
+    /// Par où passe la session : la ligne « Chemin » (« Direct », « Par le relais »,
+    /// « Par le relais (TCP) »).
+    var route = RouteInfo.direct
 
     /// Durée d'une image au débit du moment (repère des graphiques).
     private var budget: Double { 1000 / max(30, stats?.fps ?? 60) }
@@ -182,6 +185,7 @@ struct StatsPanel: View {
 
     private func details(_ s: VideoStats) -> some View {
         return Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 7) {
+            row(LinkText.path, route.label)
             row(String(localized: "Réseau"), s.rttMs.map { String(localized: "aller-retour \(Moment.ms($0))") } ?? String(localized: "aller-retour —"))
             row(String(localized: "Image"), (screens > 1 ? String(localized: "\(screens) écrans") + " · " : "")
                 + String(localized: "\(s.width) × \(s.height) · \(s.format) · \(Int(s.fps.rounded())) i/s"))

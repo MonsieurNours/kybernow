@@ -202,6 +202,12 @@ public final class SessionEngine: @unchecked Sendable {
         /// lien), sans compte ni écran virtuel ; `host`, `consolePort` et
         /// `consoleFingerprint` sont ceux de la Station qui a accepté le code.
         public var guest: Guest?
+        /// Hors de chez soi (docs/relais.md) : la route de l'ordinateur par son
+        /// relais (`Relay.route`). La session passe d'abord par le réseau (Admin
+        /// répond-il en 1,5 s ?), sinon par le relais ; une empreinte changée ne
+        /// bascule jamais. Nil : toujours sur le réseau. Un invité venu par le
+        /// relais y reste de lui-même (la route voyage avec `guest`).
+        public var relay: RelayRoute?
 
         /// Session d'invité : la Station trouvée par `Share.join`, ce que
         /// l'appareil décode (le format de l'image est celui de l'hôte) et les
@@ -306,6 +312,10 @@ public final class SessionEngine: @unchecked Sendable {
     /// suivre. », « L'ordinateur ne peut pas faire une image de plus : vous
     /// recevez {qualité}. »), nil sinon.
     public var onShareImage: ((ShareImage, _ previous: ShareImage?, _ notice: String?) -> Void)?
+    /// Par où passe la session (docs/relais.md) : au départ, puis quand le chemin
+    /// change (cinq secondes au plus). Puce « Par le relais » de la barre, ligne
+    /// « Chemin » des statistiques.
+    public var onRoute: ((RouteInfo) -> Void)?
 
     public let view: StreamView
     private let lock = NSLock()
@@ -368,6 +378,11 @@ public final class SessionEngine: @unchecked Sendable {
             json["mode"] = ["width": p.mode.width, "height": p.mode.height, "refresh": p.mode.refresh]
         }
         if let fp = p.consoleFingerprint { json["console_fingerprint"] = fp }
+        // Hors de chez soi : le réseau d'abord, sinon le relais (`auto`).
+        if let relay = p.relay, p.guest == nil {
+            json["route"] = "auto"
+            json["relay"] = relay.dictionary
+        }
         if let screens = p.screens { json["screens"] = screens.json }
         var recovery: [String: Any] = ["watch_image": true]
         if let cap = p.fallbackBitrate { recovery["fallback_bitrate"] = Int(cap) }
@@ -459,6 +474,11 @@ public final class SessionEngine: @unchecked Sendable {
             let kind = ShareEnd(code: end)
             let reason = text.map { String(cString: $0) } ?? ""
             DispatchQueue.main.async { me.onShareEnd?(kind, reason) }
+        }
+        platform.on_route = { ud, route in
+            guard let info = RouteInfo(json: route.map { String(cString: $0) }) else { return }
+            let me = SessionEngine.from(ud)
+            DispatchQueue.main.async { me.onRoute?(info) }
         }
 
         var error: UnsafeMutablePointer<CChar>?

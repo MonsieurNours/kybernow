@@ -121,6 +121,11 @@ final class SessionController: ObservableObject {
     /// Le panneau de l'hôte (code, QR code, invités) est ouvert.
     @Published var shareSheet = false
 
+    /// Par où passe la session (docs/relais.md) : direct sur le réseau, ou par le
+    /// relais hors de chez soi (puce « Par le relais » dans la barre, ligne
+    /// « Chemin » des statistiques). Donné par le cœur, au départ puis quand il change.
+    @Published private(set) var path = RouteInfo.direct
+
     /// Le titre de la session : le nom de l'ordinateur, ou « Invité sur {nom} ».
     var title: String { guest.map { ShareText.guestOn($0.computer) } ?? host.name }
 
@@ -212,6 +217,7 @@ final class SessionController: ObservableObject {
         engine.onShareRole = { [weak self] role, previous in self?.shareRoleChanged(role, previous: previous) }
         engine.onShareEnd = { [weak self] _, text in self?.shareEndText = text }
         engine.onShareImage = { [weak self] image, _, notice in self?.shareImageChanged(image, notice: notice) }
+        engine.onRoute = { [weak self] in self?.routeChanged($0) }
         self.engine = engine
         if !isGuest { share.setConsole(store.console(for: host)) }
 
@@ -229,16 +235,48 @@ final class SessionController: ObservableObject {
                 audioChannels: channels, virtualDisplay: settings.display != .physical, settings: engineSettings
             )
             params.clipboard = settings.clipboard
+            // Hors de chez soi : le réseau d'abord, puis le relais si l'accès est actif.
+            params.relay = host.sessionRelay
         }
         params.autoReconnect = settings.autoReconnect
         params.gamepadAsXbox360 = settings.gamepad == .xbox360
         params.vsync = settings.vsync
         KyberLog.app.notice("session : \(mode.width)×\(mode.height) à \(mode.refresh) Hz, son \(channels) canaux, \(settings.consoleProfile, privacy: .public)")
+        // Joignable par le relais seulement (ou relais forcé pour essayer) : la radio
+        // cellulaire s'allume d'abord, par une requête de l'app vers le relais.
+        if let relay = params.relay, store.status[host.id]?.away == true || Relay.mode == .force {
+            Task { @MainActor [weak self] in
+                await Relay.wakeRadio(server: relay.server)
+                guard let self, self.phase == .preparing else { return }
+                self.launch(engine, params)
+            }
+        } else {
+            launch(engine, params)
+        }
+    }
+
+    private func launch(_ engine: SessionEngine, _ params: SessionEngine.Params) {
         do {
             try engine.start(params)
         } catch {
             fail(error.localizedDescription)
         }
+    }
+
+    // MARK: - Hors de chez soi
+
+    /// Le chemin de la session a changé (au départ, puis toutes les 5 s au plus
+    /// s'il change) : la puce « Par le relais » suit. Par le relais, le partage de
+    /// l'hôte passe aussi par lui (Admin n'est plus joignable sur le réseau).
+    private func routeChanged(_ info: RouteInfo) {
+        switch phase {
+        case .ending, .ended, .failed: return
+        default: break
+        }
+        guard info != path else { return }
+        let wasRelay = path.viaRelay
+        path = info
+        if info.viaRelay != wasRelay, !isGuest { share.setConsole(store.console(for: host, route: info.viaRelay ? .relay : .direct)) }
     }
 
     /// L'écran de l'appareil (celui de la fenêtre de l'app).
@@ -657,6 +695,24 @@ final class SessionController: ObservableObject {
                     self.share.demoAddGuest(name: "Sam", app: "web", role: .playerKbm, image: ShareImage.demo("720p30", 1280, 720, 30, follows: false))
                     self.share.demoAddGuest(name: "Zoé", app: "mac", role: .kbm, image: ShareImage.demo("auto"))
                     self.shareSheet = true
+                }
+            }
+            // `-demoRelay YES` : la session passe par le relais (puce « Par le relais », ligne « Chemin »).
+            if UserDefaults.standard.bool(forKey: "demoRelay") {
+                self.path = RouteInfo(transport: .relay, relay: "share.kybernow.app:8443", rttClient: 24, rttStation: 11)
+            }
+            // `-demoRequests 1|2` : le partage de l'hôte, relais joint, avec ce nombre de demandes en attente
+            // (`-demoShareRelay unreachable` : relais réglé mais pas joint), le panneau ouvert.
+            let requests = UserDefaults.standard.integer(forKey: "demoRequests")
+            if requests > 0 || UserDefaults.standard.string(forKey: "demoShareRelay") != nil {
+                Task {
+                    await self.share.openIfNeeded()
+                    self.share.demoSetRelay(UserDefaults.standard.string(forKey: "demoShareRelay") == "unreachable" ? .unreachable : .joined)
+                    if requests > 0 { self.share.demoAddGuest(name: "Léa", app: "ios", pending: true, viaRelay: true) }
+                    if requests > 1 { self.share.demoAddGuest(name: "Hugo", app: "tvos", pending: true, viaRelay: true) }
+                    self.share.demoAddGuest(name: "Sam", app: "android", role: .player, viaRelay: true)
+                    self.share.demoAddGuest(name: "Zoé", app: "mac", role: .kbm)
+                    if UserDefaults.standard.bool(forKey: "demoSheetClosed") == false { self.shareSheet = true }
                 }
             }
             // `-demoRole spectator|player|kbm|player_kbm` : séance d'invité (`-screen guest`), les droits d'abord ;

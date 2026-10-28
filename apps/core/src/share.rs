@@ -226,6 +226,12 @@ pub struct ShareOpened {
     pub web: String,
     #[serde(default)]
     pub display: Option<ShareScreen>,
+    /// Le client web sur le réseau, même quand `web` est celui du relais (comme [`ShareState::web_local`]).
+    #[serde(default)]
+    pub web_local: String,
+    /// Le relais du partage (comme [`ShareState::relay`]) : l'aide du panneau en dépend dès l'ouverture.
+    #[serde(default, deserialize_with = "lenient_relay")]
+    pub relay: Option<ShareRelay>,
 }
 
 /// Un invité, dans la liste de l'hôte.
@@ -2108,6 +2114,23 @@ mod tests {
         // Un champ `relay` illisible n'abîme pas le reste.
         let bad: ShareState = serde_json::from_str(r#"{"open":true,"code":"1","relay":"oui"}"#).unwrap();
         assert!(bad.open && bad.relay.is_none());
+    }
+
+    #[test]
+    fn ouverture_du_partage_avec_relais() {
+        // La réponse de `open` porte l'état du relais dès le premier affichage du panneau.
+        let opened: ShareOpened = serde_json::from_str(
+            r#"{"open":true,"code":"482915","link":"kybernow://join?x","web":"https://share.kybernow.app:8443/j/482915",
+                "web_local":"https://192.168.1.20:37462/link/?join=482915","relay":{"state":"joined"},"display":{"id":1,"label":"Écran 1"}}"#,
+        )
+        .unwrap();
+        assert_eq!(opened.relay.map(|r| r.state), Some(ShareRelayState::Joined));
+        assert_eq!(opened.web_local, "https://192.168.1.20:37462/link/?join=482915");
+        let json = serde_json::to_value(&opened).unwrap();
+        assert_eq!(json["relay"]["state"], "joined");
+        // Sans relais, ou d'une Station antérieure : rien.
+        let old: ShareOpened = serde_json::from_str(r#"{"code":"1","link":"l","web":"w"}"#).unwrap();
+        assert!(old.relay.is_none() && old.web_local.is_empty());
     }
 
     #[test]
