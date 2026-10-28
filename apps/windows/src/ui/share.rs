@@ -3,7 +3,11 @@
 //!
 //! - **Invité** : « Rejoindre avec un code » (écran du code et du prénom,
 //!   menu de l'icône, lien `kybernow://join`). `share_join` envoie le code aux
-//!   Stations du réseau (`kybernow_core::share::join_checked`) puis
+//!   Stations du réseau **et en même temps** au relais (`share::join_anywhere`, ou
+//!   `share::join_link` pour un lien : le réseau d'abord, puis le relais
+//!   que le lien désigne) ; hors de chez soi, l'hôte accepte chaque invité :
+//!   « En attente de l'accord de l'hôte… » (`share_wait`, un appel tenu 25 s que
+//!   l'interface rappelle, et `share_cancel` : « Annuler »). Puis
 //!   `share_connect` ouvre la session d'invité (`SessionParams::guest`) dans sa
 //!   fenêtre, titrée « Invité sur {nom} ». Une session d'invité est une session
 //!   comme les autres pour le registre du cœur et la table des sessions (elle
@@ -15,12 +19,14 @@
 //!   barre (`share_quality`, sans relancer la session) ; l'image reçue et son
 //!   avis arrivent par `HostEvents::share_image`.
 //! - **Hôte** : « Partager » dans la barre de la session. Les appels à Admin
-//!   (ouvrir, nouveau code, rôle d'un invité, retirer, arrêter) passent par le
-//!   compte de l'appareil (`console_of`), seulement pour une session d'hôte ;
+//!   (ouvrir, nouveau code, rôle d'un invité, retirer, arrêter, accepter ou refuser
+//!   une demande venue par le relais) passent par le
+//!   compte de l'appareil (`console_of`, par le relais quand la session y passe),
+//!   seulement pour une session d'hôte ;
 //!   le partage et ses invités arrivent aussi avec le signe de vie de la session
 //!   (`HostEvents::guests`).
 
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
@@ -32,10 +38,11 @@ use kybernow_core::console::{Console, ConsoleError, Mode};
 use kybernow_core::profile::{Profile, StreamSettings};
 use kybernow_core::screens::DisplaysSetting;
 use kybernow_core::session::SessionParams;
-use kybernow_core::share::{self, Found, JoinRequest, ShareAvailability, ShareGuest, ShareOpened, ShareQuality, ShareRole, ShareState, ShareTarget};
+use kybernow_core::share::{self, Found, JoinRequest, Joining, PendingJoin, ShareAvailability, ShareGuest, ShareOpened, ShareQuality, ShareRole, ShareState, ShareTarget};
 
 use super::*;
-use crate::sharing::{self, Known, ShareView};
+use crate::relais;
+use crate::sharing::{self, JoinOutcome, Joined, Known, ShareView, WaitOutcome};
 
 /// L'ordinateur qui partage, vu par une session d'invité.
 pub struct Guest {
@@ -61,19 +68,20 @@ pub struct Pending {
     guest: Arc<Guest>,
 }
 
-/// Réponse de `share_join` : de quoi montrer la connexion (le passage de
-/// l'accueil) avant d'ouvrir la session.
-#[derive(Serialize)]
-pub struct Joined {
-    /// `guest-N` : la session d'invité dans tous les événements.
-    id: String,
-    /// « Invité sur {nom} ».
-    title: String,
-    host: String,
-    role: &'static str,
-    /// Teinte du passage : l'empreinte d'Admin de l'ordinateur qui partage.
-    fingerprint: Option<String>,
+/// Une demande par le relais qui attend l'accord de l'hôte (« En attente de
+/// l'accord de l'hôte… ») : de quoi la suivre (`share_wait`), l'annuler
+/// (`share_cancel`) et ouvrir la session d'invité quand l'hôte accepte.
+pub struct Wait {
+    id: u64,
+    pending: PendingJoin,
+    quality: ShareQuality,
+    /// « Annuler » est passé : ce que `share_wait` apprend ensuite est jeté, et un
+    /// accord arrivé entre-temps est rendu (`share::leave`).
+    cancelled: Arc<AtomicBool>,
 }
+
+/// Le numéro des demandes en attente (`share_join` → `share_wait`).
+static WAITS: AtomicU64 = AtomicU64::new(1);
 
 /// `share-role` : le rôle de l'invité de la session `id` (au départ, puis
 /// chaque changement par l'hôte).
@@ -128,6 +136,13 @@ fn join_targets(state: &UiState) -> Vec<ShareTarget> {
     sharing::targets(discovered, saved, system::is_this_pc)
 }
 
+/// Les relais où chercher le code : le relais public, puis ceux des ordinateurs de
+/// l'app (`info.relay.server`, `relais::join_relays`).
+fn join_relays(state: &UiState) -> Vec<kybernow_core::relay::RelayAddr> {
+    let servers: Vec<String> = state.with_store(|s| s.computers.iter().filter_map(|c| c.relay.as_ref().map(|r| r.server.clone())).collect());
+    relais::join_relays(servers.iter().map(String::as_str))
+}
+
 /// Ce que propose « Rejoindre » : le prénom d'avant, sinon le nom de ce PC, et
 /// la « Qualité de l'image » d'avant, sinon « Auto ».
 #[derive(Serialize)]
@@ -153,17 +168,24 @@ pub fn share_link_code(link: String) -> Result<String, String> {
     share::parse_link(&link).map(|l| l.code).ok_or_else(|| t("errors.share_link", &[]))
 }
 
-/// « Rejoindre » : le code part aux Stations du réseau (ou à celle du lien) avec
-/// la « Qualité de l'image » choisie (`auto`, `host`, `2160p60`, `1080p60`, `720p30` ;
-/// « Auto » ajoute l'écran de ce PC et ce que sa carte décode), celle qui
-/// partage répond. Rend la session à ouvrir (`share_connect`), ou le texte du
-/// refus (celui du cœur : « Aucun partage avec ce code sur le réseau. », « Ce
-/// partage est complet… », « Trop d'essais… »). Le format de l'image de l'hôte
-/// n'en est plus un : un format que ce PC ne lit pas lui vaut une image à part
-/// (`join_checked` ne refuse que si aucun format n'est possible). Bloque 6 s
-/// au plus.
+/// « Rejoindre » : le code part aux Stations du réseau **et en même temps** au
+/// relais public et à ceux des ordinateurs de l'app (`share::join_anywhere`) ;
+/// avec un lien, la Station du lien sur le réseau d'abord, puis le relais qu'il
+/// désigne (`share::join_link`). `KYBERNOW_RELAY=off` : le réseau seulement. La
+/// « Qualité de l'image » choisie (`auto`, `host`, `2160p60`, `1080p60`,
+/// `720p30` ; « Auto » ajoute l'écran de ce PC et ce que sa carte décode) part
+/// avec le code.
+///
+/// Rend `joined` (la session à ouvrir, `share_connect`) quand une Station du
+/// réseau a répondu, `pending` quand une Station vue par le relais attend
+/// l'accord de l'hôte (`share_wait`), ou le texte du refus (celui du cœur :
+/// « Aucun partage avec ce code sur le réseau. », « Ce partage est complet… »,
+/// « Trop d'essais… », « Le relais ne répond pas. », « Trop de demandes en
+/// attente… »). Le format de l'image de l'hôte n'en est plus un : un format que
+/// ce PC ne lit pas lui vaut une image à part. Bloque 8 s au plus, sans compter
+/// l'attente de l'hôte.
 #[tauri::command(async)]
-pub fn share_join(app: AppHandle, code: String, name: String, quality: String, link: Option<String>) -> Result<Joined, String> {
+pub fn share_join(app: AppHandle, code: String, name: String, quality: String, link: Option<String>) -> Result<JoinOutcome, String> {
     let state = app.state::<UiState>();
     if state.quitting.load(Ordering::Relaxed) {
         return Err(t("errors.session_not_ready", &[]));
@@ -173,9 +195,9 @@ pub fn share_join(app: AppHandle, code: String, name: String, quality: String, l
         return Err(t("errors.four_at_most", &[]));
     }
     let code = share::normalize_code(&code).ok_or_else(|| t("errors.share_code", &[]))?;
-    let targets = match link.as_deref().map(str::trim).filter(|l| !l.is_empty()) {
-        Some(l) => vec![share::parse_link(l).ok_or_else(|| t("errors.share_link", &[]))?.target()],
-        None => join_targets(&state),
+    let link = match link.as_deref().map(str::trim).filter(|l| !l.is_empty()) {
+        Some(l) => Some(share::parse_link(l).ok_or_else(|| t("errors.share_link", &[]))?),
+        None => None,
     };
     let device = system::device_info();
     let name = match sharing::clean_name(&name) {
@@ -184,35 +206,74 @@ pub fn share_join(app: AppHandle, code: String, name: String, quality: String, l
     };
     let quality = ShareQuality::parse(&quality).ok_or_else(|| t("errors.unknown_quality", &[]))?;
     let pc = this_pc_of(&state);
+    let caps = capabilities(&pc);
     // « Auto » : l'écran de ce PC, tel qu'il est maintenant, et ce que sa carte décode.
-    let auto = sharing::join_auto(quality, system::screen_mode(), capabilities(&pc));
+    let auto = sharing::join_auto(quality, system::screen_mode(), caps);
     let request = JoinRequest { code, name: name.clone(), device: device.id.clone(), app: "windows".into(), quality, auto, ..JoinRequest::default() };
     log::info!(
-        "partage : code envoyé à {} Station(s), image {}{}",
-        targets.len(),
+        "partage : code envoyé{}, image {}{}",
+        if relais::off() { " au réseau seulement (KYBERNOW_RELAY=off)" } else { " au réseau et au relais" },
         quality.as_str(),
         request.auto.as_ref().map(|a| format!(" ({}×{} à {} Hz)", a.width, a.height, a.fps)).unwrap_or_default()
     );
-    let found = share::join_checked(&targets, &request, capabilities(&pc)).map_err(|e| {
+    let joining = if relais::off() {
+        // Le réseau seulement : la Station du lien, ou celles que l'app connaît.
+        let targets = match &link {
+            Some(l) => vec![l.target()],
+            None => join_targets(&state),
+        };
+        share::join_checked(&targets, &request, caps).map(Joining::Joined)
+    } else {
+        match &link {
+            Some(l) => share::join_link(l, &request, Some(caps)),
+            None => share::join_anywhere(&join_targets(&state), &join_relays(&state), &request, Some(caps)),
+        }
+    }
+    .map_err(|e| {
         log::info!("partage : refusé ({})", e.kind());
         e.text(i18n::lang())
     })?;
     // Le prénom et la qualité de l'image sont retenus pour la fois suivante.
     let prefs = {
         let mut p = state.prefs.lock().unwrap();
-        p.share_name = Some(name);
+        p.share_name = Some(name.clone());
         p.share_quality = Some(quality);
         p.clone()
     };
     save_prefs(&prefs);
 
+    match joining {
+        Joining::Joined(found) => Ok(JoinOutcome::Joined(open_found(&state, found, quality))),
+        Joining::Pending(pending) => {
+            // Hors de chez soi : l'hôte accepte chaque invité. Une demande déjà en
+            // attente (une autre ouverture de « Rejoindre ») est retirée.
+            let wait = WAITS.fetch_add(1, Ordering::Relaxed);
+            log::info!("partage : demande en attente de l'accord de l'hôte (n°{wait}, par le relais)");
+            let old = state.join_wait.lock().unwrap().replace(Wait { id: wait, pending, quality, cancelled: Arc::new(AtomicBool::new(false)) });
+            if let Some(old) = old {
+                old.cancelled.store(true, Ordering::Relaxed);
+                std::thread::spawn(move || share::cancel(&old.pending));
+            }
+            Ok(JoinOutcome::Pending { wait })
+        }
+    }
+}
+
+/// Le partage trouvé devient la session d'invité à ouvrir (`share_connect`) :
+/// le passage de l'accueil montre « Invité sur {nom} » dès maintenant. Un partage
+/// rejoint dont la session ne s'est jamais ouverte repart.
+fn open_found(state: &UiState, found: Found, quality: ShareQuality) -> Joined {
     let j = &found.joined;
     let host = j.host_name().to_string();
     let computer = if j.computer.trim().is_empty() { host.clone() } else { j.computer.clone() };
     let title = t("share.guest_on", &[("name", &computer)]);
     let session = window::new_app_id();
     let id = format!("guest-{session}");
-    log::info!("partage : rejoint, chez {computer} (partage de {host}), {:?}", j.role);
+    log::info!(
+        "partage : rejoint, chez {computer} (partage de {host}), {:?}{}",
+        j.role,
+        if j.route.is_some() { ", par le relais" } else { "" }
+    );
     let guest = Arc::new(Guest {
         computer,
         host: host.clone(),
@@ -222,12 +283,73 @@ pub fn share_join(app: AppHandle, code: String, name: String, quality: String, l
         image: Mutex::new(j.image.as_ref().and_then(|i| i.label())),
     });
     let joined = Joined { id: id.clone(), title, host, role: j.role.as_str(), fingerprint: found.target.fingerprint.clone() };
-    // Un partage rejoint dont la session ne s'est jamais ouverte repart.
     let old = state.pending_guest.lock().unwrap().replace(Pending { id, session, found, guest });
     if let Some(old) = old {
         std::thread::spawn(move || share::leave(&old.found));
     }
-    Ok(joined)
+    joined
+}
+
+/// « En attente de l'accord de l'hôte… » : un appel tenu 25 s au plus que
+/// l'interface rappelle (`waiting`) jusqu'à la réponse de l'hôte : accepté
+/// (`joined`, la session s'ouvre ensuite par `share_connect`, par le relais), ou
+/// le refus en toutes lettres : « L'hôte a refusé. », « L'hôte n'a pas répondu. »
+/// (120 s sans réponse), « Le relais ne répond pas. ».
+#[tauri::command(async)]
+pub fn share_wait(app: AppHandle, wait: u64) -> Result<WaitOutcome, String> {
+    let state = app.state::<UiState>();
+    let (pending, quality, cancelled) = match state.join_wait.lock().unwrap().as_ref() {
+        Some(w) if w.id == wait => (w.pending.clone(), w.quality, w.cancelled.clone()),
+        // « Annuler » est déjà passé.
+        _ => return Ok(WaitOutcome::Cancelled),
+    };
+    let pc = this_pc_of(&state);
+    let answer = share::wait(&pending, Some(capabilities(&pc)));
+    // « Annuler » est passé pendant l'attente : un accord arrivé entre-temps est rendu.
+    if cancelled.load(Ordering::Relaxed) {
+        if let Ok(Some(found)) = answer {
+            std::thread::spawn(move || share::leave(&found));
+        }
+        return Ok(WaitOutcome::Cancelled);
+    }
+    let finished = |state: &UiState| {
+        let mut w = state.join_wait.lock().unwrap();
+        if w.as_ref().is_some_and(|w| w.id == wait) {
+            w.take();
+        }
+    };
+    match answer {
+        Ok(None) => Ok(WaitOutcome::Waiting),
+        Ok(Some(found)) => {
+            finished(&state);
+            Ok(WaitOutcome::Joined(open_found(&state, found, quality)))
+        }
+        Err(e) => {
+            finished(&state);
+            log::info!("partage : demande finie ({})", e.kind());
+            Err(e.text(i18n::lang()))
+        }
+    }
+}
+
+/// « Annuler » : la demande en attente est retirée chez l'hôte (`share::cancel`).
+#[tauri::command(async)]
+pub fn share_cancel(app: AppHandle, wait: u64) {
+    cancel_wait(&app.state::<UiState>(), Some(wait));
+}
+
+/// Retire la demande en attente (celle-ci, ou n'importe laquelle sans numéro :
+/// l'app se ferme) ; bloque le temps de prévenir le relais (6 s au plus).
+pub fn cancel_wait(state: &UiState, only: Option<u64>) {
+    let taken = {
+        let mut w = state.join_wait.lock().unwrap();
+        if w.as_ref().is_some_and(|w| only.is_none_or(|id| w.id == id)) { w.take() } else { None }
+    };
+    if let Some(w) = taken {
+        log::info!("partage : demande annulée (n°{})", w.id);
+        w.cancelled.store(true, Ordering::Relaxed);
+        share::cancel(&w.pending);
+    }
 }
 
 /// La session d'invité d'un partage rejoint (`share_join`) : la première
@@ -305,6 +427,8 @@ pub fn share_connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> 
     let spot = Arc::new(Mutex::new(Spot::default()));
     // Un invité n'a pas de partage à lui (toujours vide), mais le même fil que les hôtes.
     let share = Arc::new(Mutex::new(None));
+    // Par où passe sa session (par le relais quand il est venu de loin).
+    let route = Arc::new(Mutex::new(None));
     let spec = layout.spec;
     let this_screen = layout.this_screen.clone();
     // Sa connexion : une fenêtre à sa place pendant une autre session, titrée comme elle.
@@ -353,9 +477,10 @@ pub fn share_connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> 
             connexion,
             guest: Some(guest.clone()),
             share: share.clone(),
+            route: route.clone(),
         }),
     );
-    running.push(Running { id: id.clone(), name: guest.title.clone(), host, bar, sent, stats, guest: Some(guest), share });
+    running.push(Running { id: id.clone(), name: guest.title.clone(), host, bar, sent, stats, guest: Some(guest), share, route });
     drop(running);
     drop(_launching);
     // « Quitter » pendant le lancement : elle s'arrête tout de suite, l'app part à sa fin.
@@ -446,7 +571,7 @@ fn lift<T>(r: Result<T, ConsoleError>) -> Result<T, String> {
 fn state_after(console: &Console, opened: Option<&ShareOpened>, guests: Vec<ShareGuest>) -> Result<ShareState, String> {
     match (lift(console.share_state()), opened) {
         (Ok(s), _) => Ok(s),
-        (Err(_), Some(o)) => Ok(ShareState { open: true, code: o.code.clone(), link: o.link.clone(), web: o.web.clone(), display: o.display.clone(), guests }),
+        (Err(_), Some(o)) => Ok(ShareState { open: true, code: o.code.clone(), link: o.link.clone(), web: o.web.clone(), display: o.display.clone(), guests, ..ShareState::default() }),
         (Err(e), None) => Err(e),
     }
 }
@@ -496,6 +621,27 @@ pub fn share_guest(app: AppHandle, id: String, guest: String, role: String) -> R
     lift(console.share_guest(&guest, role))?;
     log::info!("[{id}] invité {guest} : {role:?}");
     let state = state_after(&console, None, Vec::new())?;
+    Ok(publish(&app, &id, Some(state)))
+}
+
+/// « Accepter » la demande d'un invité venu par le relais : il devient spectateur
+/// (sa session s'ouvre chez lui), et le panneau le passe de « Demandes » à « Invités ».
+/// Admin refuse si les quatre places sont prises (« Ce partage est complet… »).
+#[tauri::command(async)]
+pub fn share_accept(app: AppHandle, id: String, guest: String) -> Result<ShareView, String> {
+    let console = host_console(&app, &id)?;
+    let state = lift(console.share_accept(&guest))?;
+    log::info!("[{id}] demande de {guest} acceptée");
+    Ok(publish(&app, &id, Some(state)))
+}
+
+/// « Refuser » la demande d'un invité venu par le relais : elle disparaît de
+/// « Demandes » ; son appareil ne redemande pas avant 10 minutes.
+#[tauri::command(async)]
+pub fn share_refuse(app: AppHandle, id: String, guest: String) -> Result<ShareView, String> {
+    let console = host_console(&app, &id)?;
+    let state = lift(console.share_refuse(&guest))?;
+    log::info!("[{id}] demande de {guest} refusée");
     Ok(publish(&app, &id, Some(state)))
 }
 

@@ -2,7 +2,8 @@
 //! `kybernow://open[?id=…]`, `kybernow://station?id=…`,
 //! `kybernow://station-update?id=…`. Windows les rend parfois avec une barre
 //! avant le « ? » (`kybernow://connect/?id=…`). Le lien d'un partage
-//! (`kybernow://join?host=…&port=…&fp=…&code=…`, KyberNow Share) est une
+//! (`kybernow://join?host=…&port=…&fp=…&code=…`, KyberNow Share, avec
+//! `&relay=…&sid=…` quand l'hôte est joignable hors de chez lui) est une
 //! demande à part ([`is_join`]). Les autres liens (`kybernow://adresse:port?…`,
 //! ceux d'Admin) ne sont pas des actions. Sans rien de Windows : testé sur le Mac.
 
@@ -24,7 +25,8 @@ pub fn action(link: &str) -> Option<(&str, Option<String>)> {
 
 /// Le lien d'un partage (`kybernow://join?…`) : « Rejoindre avec un code ».
 /// Windows le rend parfois avec une barre avant le « ? ». Ce que le lien dit
-/// (adresse, empreinte, code) est lu par `kybernow_core::share::parse_link`.
+/// (adresse, empreinte, code, et le relais avec l'identifiant de la Station
+/// hors de chez soi) est lu par `kybernow_core::share::parse_link`.
 pub fn is_join(link: &str) -> bool {
     const SCHEME: &str = "kybernow://";
     let link = link.trim();
@@ -61,6 +63,8 @@ mod tests {
         assert!(is_join("kybernow://join?host=192.168.1.100&port=9443&fp=sha256:aa&code=123456"));
         assert!(is_join("kybernow://join/?host=192.168.1.100&port=9443&code=123456"));
         assert!(is_join("  KYBERNOW://Join?code=1  "));
+        // Hors de chez soi : le relais et l'identifiant de la Station (le relais garde son `#sha256:…`, encodé).
+        assert!(is_join("kybernow://join?host=192.168.1.100&port=9443&fp=sha256%3Aaa&code=123456&relay=share.kybernow.app%3A8443&sid=abcdefghijklmnopqrstuvwxyz"));
         // Illisible, mais bien un lien de partage : l'app le dit à l'ouverture.
         assert!(is_join("kybernow://join"));
         assert!(!is_join("kybernow://joint?x=1"));

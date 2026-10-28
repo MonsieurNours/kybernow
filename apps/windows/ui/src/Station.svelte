@@ -30,6 +30,11 @@
 
   const station = $derived(computer.info?.station ?? null)
   const offline = $derived(computer.online === false)
+  /**
+   * Joignable seulement par le relais : l'interface d'Admin ne passe jamais par lui (« Ouvrir Admin » n'ouvrirait rien),
+   * et la Station ne se redémarre ni ne se met à jour que depuis le réseau de l'ordinateur.
+   */
+  const away = $derived(computer.away === true)
   const update = $derived(station?.update.available && station.update.version ? station.update : null)
   const restarting = $derived(calling === 'restart' || pending === 'restart' || !!station?.restarting)
   const installing = $derived(calling === 'update' || pending === 'update' || !!station?.update.installing)
@@ -116,18 +121,18 @@
 
   <div class="line">
     <p class="text">{t('station.admin_help')}</p>
-    <button class="ghost" onclick={openAdmin}><Icon name="globe" size={16} /> {t('station.open_admin')}</button>
+    <button class="ghost" disabled={away} onclick={openAdmin}><Icon name="globe" size={16} /> {t('station.open_admin')}</button>
   </div>
 
   {#if station}
     <div class="line">
       <p class="text">{t('station.restart_help')}</p>
-      <button class="ghost" disabled={busy || offline} onclick={() => run('restart')}><Icon name="restart" size={16} /> {t('station.restart')}</button>
+      <button class="ghost" disabled={busy || offline || away} onclick={() => run('restart')}><Icon name="restart" size={16} /> {t('station.restart')}</button>
     </div>
     {#if update?.installable}
       <div class="line">
         <p class="text">{t('station.update_help', { version: update.version ?? '' })}</p>
-        <button class="primary small" disabled={busy || offline} onclick={() => run('update')}><Icon name="download" size={16} /> {t('station.update')}</button>
+        <button class="primary small" disabled={busy || offline || away} onclick={() => run('update')}><Icon name="download" size={16} /> {t('station.update')}</button>
       </div>
     {:else if update?.requires_setup}
       <p class="note">{t('station.requires_setup', { version: update.version ?? '' })}</p>

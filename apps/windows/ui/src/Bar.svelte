@@ -24,6 +24,15 @@
   montre alors sans prendre le clavier à la session). Dans le panneau de l'hôte, la
   qualité d'un invité est sous son nom quand ce n'est pas celle de l'hôte (lecture seule).
 
+  Hors de chez vous (docs/relais.md) : une session qui passe par le relais montre la puce « Par le
+  relais », dans la partie toujours visible de la barre. Dans le panneau de l'hôte, les invités
+  venus par le relais sont acceptés un à un : la liste « Demandes » (« {prénom} demande à
+  rejoindre », « {app} · hors de chez vous », « Accepter », « Refuser ») est au-dessus des
+  invités, et une pastille « 1 demande » à côté de « 2 invités » rouvre le panneau ; un invité
+  venu par le relais le dit après son app (« hors de chez vous »). L'aide dit « Sur le même réseau ou
+  ailleurs » quand le relais tient le code, et « Pas encore joignable hors de chez vous. » quand il
+  ne répond pas.
+
   Plusieurs ordinateurs (docs/plusieurs-ordinateurs.md) : une seule barre, qui
   sert la session de la fenêtre où elle s'ouvre (`id`) ; ses commandes et ses
   mesures sont celles de cette session. Le menu « Ordinateurs », présenté comme
@@ -36,7 +45,7 @@
   import { onMount, tick } from 'svelte'
   import Icon from './lib/Icon.svelte'
   import Mark from './lib/Mark.svelte'
-  import type { AppInfo, BarComputer, GuestBar, KeepSound, SessionStats, Share, ShareGuest, ShareImageEvent, ShareQuality, ShareRole, ShareRoleEvent, ShareStateEvent, Stats } from './lib/api'
+  import type { AppInfo, BarComputer, GuestBar, KeepSound, RouteEvent, RouteView, SessionStats, Share, ShareGuest, ShareImageEvent, ShareQuality, ShareRole, ShareRoleEvent, ShareStateEvent, Stats } from './lib/api'
   import { invoke, listen, localLabel, ms, roleKbm, roleOf, rolePads, rolePlays, shareQualities, sinceText } from './lib/api'
   import { setLang, t } from './lib/i18n/index.svelte'
 
@@ -53,6 +62,10 @@
    * parti avant le changement porte encore l'ancienne et ne la remet pas dans le menu.
    */
   let asked: { id: string; quality: ShareQuality; until: number } | null = null
+  /** Par où passe la session servie : la puce « Par le relais » (nul tant que le cœur ne l'a pas dit). */
+  let route = $state<RouteView | null>(null)
+  /** Le chemin de chaque session, gardé même barre cachée. */
+  const routes = new Map<string, RouteView>()
   /** Session d'hôte : « Partager » et le partage ouvert, tels que l'app les dit. */
   let share = $state<Share | null>(null)
   /** Le partage de chaque session d'hôte, gardé même barre cachée (signe de vie de la session). */
@@ -99,6 +112,7 @@
     guest?: GuestBar | null
     share?: Share | null
     notice?: string | null
+    route?: RouteView | null
   }
   const profiles = $derived(
     ['jeu', 'bureau', 'max'].map((id) => ({ id, name: t(`profiles.${id}`), hint: t(`profiles.${id}_sub`) })),
@@ -157,6 +171,14 @@
         // Les mesures des sessions finies s'oublient.
         for (const k of [...seen.keys()]) if (!s.includes(k)) seen.delete(k)
         for (const k of [...shares.keys()]) if (!s.includes(k)) shares.delete(k)
+        for (const k of [...routes.keys()]) if (!s.includes(k)) routes.delete(k)
+        reportWidth()
+      }),
+      // Par où passe la session change (au départ, repli TCP) : la puce « Par le relais » suit.
+      listen<RouteEvent>('session-route', (e) => {
+        routes.set(e.id, e.route)
+        if (e.id !== id) return
+        route = e.route
         reportWidth()
       }),
       // Le partage de l'hôte change (arrivée, départ, rôle d'un invité, nouveau code, fin) : le panneau suit.
@@ -201,6 +223,9 @@
         keepSound = !!s.keep_sound
         sessionCount = s.sessions ?? 1
         refusal = null
+        // Par où passe cette session (puce « Par le relais »).
+        route = s.route ?? routes.get(s.id) ?? null
+        if (s.route) routes.set(s.id, s.route)
         // KyberNow Share : l'invité (barre réduite) ou, pour un hôte, son partage.
         guest = s.guest ?? null
         asked = null
@@ -346,7 +371,8 @@
 
   /** Les autres ordinateurs, dans l'ordre de l'accueil. */
   const others = $derived(computers.filter((c) => c.id !== id))
-  const stateText = (c: BarComputer) => (c.state === 'online' ? t('home.online') : c.state === 'offline' ? t('home.offline') : t('common.searching'))
+  const stateText = (c: BarComputer) =>
+    c.state === 'online' ? t('home.online') : c.state === 'away' ? t('home.away') : c.state === 'offline' ? t('home.offline') : t('common.searching')
   /** Ce que dit la ligne à droite : « Afficher », « Réveiller l'ordinateur »… */
   const hintOf = (c: BarComputer) =>
     ({ show: t('bar.show'), wake: t('home.wake'), waking: t('home.waking'), retry: t('home.retry') })[c.pick as string] ?? ''
@@ -443,6 +469,10 @@
   /** Le panneau, sans le texte déjà dit par un « Partager » inactif. */
   const shownError = $derived(shareError && shareError !== share?.text ? shareError : null)
   const guestCount = $derived(share?.open ? share.guests.length : 0)
+  /** Les demandes venues par le relais qui attendent l'hôte : elles ont leur pastille, et ne comptent pas parmi les invités. */
+  const requestCount = $derived(share?.open ? share.requests.length : 0)
+  /** « Par le relais » : le chemin en toutes lettres (« Par le relais (TCP) » pour le repli), dans l'infobulle de la puce. */
+  const routeTitle = $derived(route ? t(`relay.path_${route.transport}`) : '')
   /** « Joueur » dès qu'il a un droit (manettes, ou clavier et souris), « Spectateur » sinon. */
   const roleName = (r: ShareRole) => t(rolePlays(r) ? 'share.role_player' : 'share.role_spectator')
 
@@ -502,6 +532,9 @@
 
   const setRole = (g: ShareGuest, role: ShareRole) => shareAction(() => invoke<Share>('share_guest', { id, guest: g.id, role }))
   const kick = (g: ShareGuest) => shareAction(() => invoke<Share>('share_kick', { id, guest: g.id }))
+  /** « Accepter » : la demande devient un invité spectateur ; « Refuser » : elle disparaît (son appareil ne redemande pas avant 10 minutes). */
+  const accept = (g: ShareGuest) => shareAction(() => invoke<Share>('share_accept', { id, guest: g.id }))
+  const refuse = (g: ShareGuest) => shareAction(() => invoke<Share>('share_refuse', { id, guest: g.id }))
   const newCode = () => shareAction(() => invoke<Share>('share_code', { id }))
 
   async function stopSharing() {
@@ -534,15 +567,21 @@
   const selectAll = (e: Event) => (e.currentTarget as HTMLInputElement).select()
 
   const apps = ['mac', 'windows', 'linux', 'ios', 'tvos', 'android', 'webos', 'web']
-  /** « iPhone ou iPad · 720p · 30 Hz · depuis 3 min » : l'app de l'invité, sa qualité d'image si ce n'est pas celle de l'hôte, et son arrivée. */
+  /**
+   * « iPhone ou iPad · hors de chez vous · 720p · 30 Hz · depuis 3 min » : l'app de l'invité, « hors de chez vous » s'il
+   * est venu par le relais, sa qualité d'image si ce n'est pas celle de l'hôte, et son arrivée.
+   */
   const guestMeta = (g: ShareGuest) =>
     [
       apps.includes(g.app) ? t(`share.app_${g.app}`) : '',
+      g.away ? t('share.away') : '',
       g.image ?? '',
       g.since != null ? t('share.since', { duration: sinceText(g.since, now / 1000) }) : '',
     ]
       .filter(Boolean)
       .join(' · ')
+  /** « iPhone ou iPad · hors de chez vous » : sous « {prénom} demande à rejoindre ». */
+  const requestMeta = (g: ShareGuest) => [apps.includes(g.app) ? t(`share.app_${g.app}`) : '', t('share.away')].filter(Boolean).join(' · ')
 </script>
 
 <!-- Clic ailleurs (la session) : le menu se referme. -->
@@ -570,6 +609,10 @@
     </div>
     {#if notice}<div class="notice" role="status">{notice}</div>{/if}
   </div>
+  <!-- Par le relais (hors de chez vous) : toujours visible, dans la barre. -->
+  {#if route?.via_relay}
+    <span class="relay" class:tcp={route.transport === 'relay_tcp'} title={routeTitle}><Icon name="globe" size={14} stroke={1.6} />{t('relay.via')}</span>
+  {/if}
   <span class="sep"></span>
   {#if guest}
     <!-- Invité d'un partage : son rôle, à la place du profil (ni profil ni réglages). -->
@@ -650,7 +693,7 @@
   {#if !guest}
   <!-- KyberNow Share : « Partager », présenté comme les autres menus (icône seule, libellé accessible) ;
        inactif, il dit pourquoi dans son panneau ; une pastille d'invités rouvre le panneau. -->
-  <div class="anchor" class:withpill={guestCount > 0}>
+  <div class="anchor" class:withpill={guestCount > 0 || requestCount > 0}>
     <button
       class="icon"
       class:on={menu === 'share' || !!share?.open}
@@ -668,6 +711,10 @@
     </button>
     {#if guestCount > 0}
       <button class="pill" aria-haspopup="dialog" aria-expanded={menu === 'share'} onclick={() => toggle('share')}>{t(guestCount === 1 ? 'share.guests_one' : 'share.guests_other', { count: guestCount })}</button>
+    {/if}
+    {#if requestCount > 0}
+      <!-- « 1 demande » : à côté des invités, elle rouvre le panneau ; une demande n'est pas un invité. -->
+      <button class="pill ask" aria-haspopup="dialog" aria-expanded={menu === 'share'} onclick={() => toggle('share')}>{t(requestCount === 1 ? 'share.requests_one' : 'share.requests_other', { count: requestCount })}</button>
     {/if}
     {#if menu === 'share'}
       <div class="menu share" role="dialog" aria-label={t('share.title', { name: computerName })}>
@@ -692,7 +739,26 @@
             <p class="note refusal" role="alert">{t('share.copy_failed')}</p>
             <input class="field link mono" readonly value={share.web || share.link} onfocus={selectAll} onclick={selectAll} aria-label={t('share.copy_link')} />
           {/if}
-          <p class="help">{t('share.help')}</p>
+          <!-- Relais joint : le partage vaut aussi hors de chez vous, et l'hôte accepte chaque invité venu de loin. -->
+          <p class="help">{t(share.relay === 'joined' ? 'share.help_relay' : 'share.help')}</p>
+          {#if share.relay === 'unreachable'}<p class="help">{t('share.relay_down')}</p>{/if}
+          {#if share.requests.length > 0}
+            <div class="eyebrow list-title">{t('share.requests')}</div>
+            <ul class="guests requests">
+              {#each share.requests as g (g.id)}
+                <li>
+                  <div class="who">
+                    <span class="gname">{t('share.wants_to_join', { name: g.name })}</span>
+                    <span class="gmeta">{requestMeta(g)}</span>
+                  </div>
+                  <div class="acts">
+                    <button class="accept" aria-disabled={acting} onclick={() => accept(g)}>{t('share.accept')}</button>
+                    <button class="danger" aria-disabled={acting} onclick={() => refuse(g)}>{t('share.decline')}</button>
+                  </div>
+                </li>
+              {/each}
+            </ul>
+          {/if}
           <div class="eyebrow list-title">{t('share.guests')}</div>
           {#if share.guests.length === 0}
             <p class="nobody">{t('share.nobody')}</p>
@@ -782,6 +848,10 @@
     box-shadow: 0 16px 40px rgb(0 0 0 / 0.5);
     white-space: nowrap;
     animation: drop 0.25s var(--ease-out);
+    /* La fenêtre de la barre a une largeur fixe : trop de choses à la fois (puce du relais, pastilles
+       d'invités et de demandes) ne rognent jamais les boutons, c'est la ligne des mesures qui se raccourcit. */
+    min-width: 0;
+    max-width: 100%;
   }
 
   @keyframes drop {
@@ -795,10 +865,12 @@
     display: flex;
     align-items: center;
     gap: 6px;
+    min-width: 0;
   }
 
   .lat {
     display: flex;
+    flex: none;
     align-items: center;
     gap: 10px;
     padding: 0 4px;
@@ -815,6 +887,9 @@
     padding: 0 4px;
     font-size: 12px;
     color: var(--muted);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .icon {
@@ -986,7 +1061,9 @@
   /* Les statistiques et, à leur place pour quelques secondes, l'avis d'un changement de rôle. */
   .slot {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     align-items: center;
+    min-width: 0;
   }
 
   .slot > * {
@@ -1046,6 +1123,24 @@
     color: var(--ghost);
   }
 
+  /* « Par le relais » : la session passe par internet (hors de chez vous) ; le repli TCP s'ambre. */
+  .relay {
+    height: 26px;
+    padding: 0 10px 0 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid var(--line-2);
+    border-radius: 999px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .relay.tcp {
+    border-color: var(--warn);
+    color: var(--warn);
+  }
+
   /* Pastille d'invités (« 2 invités »), à droite de « Partager » : rouvre le panneau. */
   .anchor.withpill {
     display: flex;
@@ -1064,6 +1159,16 @@
   }
 
   .pill:hover {
+    background: var(--ink-3);
+  }
+
+  /* « 1 demande » : à attendre de l'hôte, d'un autre ton que les invités. */
+  .pill.ask {
+    border-color: var(--warn);
+    background: none;
+  }
+
+  .pill.ask:hover {
     background: var(--ink-3);
   }
 
@@ -1214,6 +1319,12 @@
 
   .menu.share .acts button:hover {
     border-color: var(--faint);
+  }
+
+  /* « Accepter » : l'action que l'on attend d'une demande. */
+  .menu.share .acts button.accept {
+    border-color: var(--signal);
+    background: var(--signal-soft);
   }
 
   /* Une action attend la réponse d'Admin : les autres patientent. */

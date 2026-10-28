@@ -24,6 +24,7 @@ use kybernow_core::audio::AudioStats;
 use kybernow_core::input::{Clock, InputPipeline, InputPlatform, MonotonicClock, MouseMode, Options, Pasteboard, PointerLayer};
 use kybernow_core::kynput_rs::Pipeline;
 use kybernow_core::media::PacketHandler;
+use kybernow_core::relay::RouteInfo;
 use kybernow_core::screens::session_plan_for;
 use kybernow_core::session::{Platform, Session, SessionParams, SessionRole, Status, StreamScreen};
 use kybernow_core::share::{ShareEnd, ShareImage, ShareQuality, ShareRole, ShareState};
@@ -148,6 +149,9 @@ pub trait HostEvents: Send + Sync {
     /// l'image » changée) ; `notice` : l'avis bref, dans la langue de l'app
     /// (« Image allégée pour suivre. »), quand il y en a un.
     fn share_image(&self, _image: &ShareImage, _previous: Option<&ShareImage>, _notice: Option<&str>) {}
+    /// Par où passe la session (docs/relais.md) : au départ, puis quand le chemin
+    /// change (par le relais : repli TCP, allers-retours, toutes les 5 s au plus).
+    fn route(&self, _route: &RouteInfo) {}
 }
 
 pub struct HostOptions {
@@ -482,6 +486,9 @@ impl Platform for WinPlatform {
     fn on_share_image(&self, image: &ShareImage, previous: Option<&ShareImage>, notice: Option<&str>) {
         self.events.share_image(image, previous, notice);
     }
+    fn on_route(&self, route: &RouteInfo) {
+        self.events.route(route);
+    }
 }
 
 fn run(
@@ -507,6 +514,9 @@ fn run(
     let clock: Arc<dyn Clock> = Arc::new(MonotonicClock::new());
     let screens = opts.layout.screens();
     let layout = opts.layout.clone();
+    // Une session d'hôte qui peut passer par le relais : ses échecs disent le nom de
+    // l'ordinateur (docs/link-ui.md, « Hors de chez vous »), que le cœur ne connaît pas.
+    let may_relay = matches!(params.role, SessionRole::Host) && !matches!(params.route, kybernow_core::session::Route::Direct);
     let app = App::new(
         id,
         host_name.clone(),
@@ -622,6 +632,13 @@ fn run(
         log::info!("latence de la session : médiane {m:.1} ms, 95e centile {:.1} ms", p95_ms.unwrap_or(0.0));
     }
     let error = app.error.lock().unwrap().clone();
+    let error = match error {
+        Some(e) if may_relay => {
+            let lang = crate::i18n::lang();
+            Some(crate::relais::refusal(&e, &host_name, lang, &|k, p| crate::i18n::tr(lang, k, p)).unwrap_or(e))
+        }
+        other => other,
+    };
     *platform.session.lock().unwrap() = None;
     let last_image = app.take_last_image();
     let (requested, shown, was_front) = (app.user_ended(), app.ever_shown(), app.was_front());

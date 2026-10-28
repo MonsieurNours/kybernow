@@ -66,7 +66,7 @@
     "image_limit": "The computer can't make another picture: you get {quality}.",
     "refused": "The host declined.",
     "expired": "The host did not answer.",
-    "pending_full": "Too many requests are waiting for the host: try again in a moment."
+    "pending_full": "Too many requests waiting: try again in a moment."
   },
   "relay": {
     "unreachable": "The relay is not answering.",

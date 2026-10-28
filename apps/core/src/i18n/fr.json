@@ -66,7 +66,7 @@
     "image_limit": "L'ordinateur ne peut pas faire une image de plus : vous recevez {quality}.",
     "refused": "L'hôte a refusé.",
     "expired": "L'hôte n'a pas répondu.",
-    "pending_full": "Trop de demandes attendent l'accord de l'hôte : réessayez dans un moment."
+    "pending_full": "Trop de demandes en attente : réessayez dans un instant."
   },
   "relay": {
     "unreachable": "Le relais ne répond pas.",
