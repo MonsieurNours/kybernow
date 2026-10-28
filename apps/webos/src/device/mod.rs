@@ -61,6 +61,9 @@ pub enum Event {
     Update(Result<Option<kybernow_core::update::Available>, String>),
     /// KyberNow Share, invité : la réponse de « Rejoindre » (numéro de la recherche), ou son refus.
     ShareJoined { attempt: u32, result: Result<share::Found, share::ShareError> },
+    /// KyberNow Share, invité : la demande est partie par le relais, l'hôte ne l'a pas encore acceptée
+    /// (« En attente de l'accord de l'hôte… »).
+    SharePending { attempt: u32 },
     /// KyberNow Share, hôte : le partage de la session après une demande à Admin (`None` : fermé), ou ce
     /// qu'Admin a refusé.
     ShareHost(Result<Option<crate::app::ShareView>, String>),
@@ -73,6 +76,8 @@ pub enum Event {
     ShareImage { label: Option<String>, notice: Option<String> },
     /// KyberNow Share, invité : le partage a fini la session (`kind` : stopped, removed, unreadable) avec ce texte.
     ShareEnd(String, String),
+    /// Par où passe la session : au départ, puis quand le chemin change (tuile « Par le relais », ligne « Chemin »).
+    Route(crate::app::RouteUi),
 }
 
 struct Video {
@@ -98,6 +103,8 @@ struct Live {
     /// Dernière position du pointeur de la Magic Remote (souris).
     remote: Option<(f32, f32)>,
     game_fullscreen: bool,
+    /// Par où passe la session (`Platform::on_route`) : gardé pour la dernière session.
+    path: crate::app::PathKind,
 }
 
 pub const UI_W: i32 = 1920;
@@ -687,6 +694,12 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
                     {
                         p.release_all();
                     }
+                    // Par le relais, l'échec dit le nom de l'ordinateur (docs/link-ui.md, « Hors de chez vous »).
+                    let may_relay = s.guest.is_none() && app.store.host(&s.host).is_some_and(|h| session::relay_route(h).is_some());
+                    let error = match error {
+                        Some(e) if may_relay => Some(session::relay_refusal(&e, &s.name).unwrap_or(e)),
+                        other => other,
+                    };
                     Phase::Ended { error }
                 }
             };
@@ -773,6 +786,7 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
         Event::ShareJoined { attempt, result } => match result {
             Ok(found) if app.join_current(attempt) => {
                 app.join.busy = false;
+                app.join.waiting = false;
                 connect_guest(app, live, tx, found);
             }
             Ok(found) => jobs::share_leave(found),
@@ -781,6 +795,15 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
                 app.join_failed(attempt, e.to_string());
             }
         },
+        // La demande attend l'hôte : « En attente de l'accord de l'hôte… ». Une recherche abandonnée entre-temps
+        // retire sa demande aussitôt.
+        Event::SharePending { attempt } => {
+            if app.join_current(attempt) {
+                app.join_pending(attempt);
+            } else {
+                jobs::share_cancel();
+            }
+        }
         Event::ShareHost(result) => app.share_reply(result),
         Event::Guests(view) => app.share_guests(view),
         Event::ShareRole { role, previous } => {
@@ -792,6 +815,15 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
         }
         Event::ShareImage { label, notice } => app.share_image(label, notice),
         Event::ShareEnd(kind, text) => log::info!("partage : {kind} ({text})"),
+        // Le chemin de la session : la tuile et la ligne « Chemin » le lisent ; la dernière session le garde.
+        Event::Route(route) => {
+            if let Some(l) = live.as_mut() {
+                l.path = route.kind;
+            }
+            if let Some(s) = app.session.as_mut() {
+                s.route = Some(route);
+            }
+        }
         Event::Update(r) => {
             app.update = match r {
                 Ok(Some(a)) => {
@@ -852,6 +884,7 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
                 mode,
                 remote: None,
                 game_fullscreen: false,
+                path: crate::app::PathKind::Direct,
             });
             log::info!("session : {} ({}, {} × {} à {} Hz, {codec})", h.name, profile.id(), mode.0, mode.1, mode.2);
         }
@@ -937,6 +970,7 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
         Action::Probe { address, port } => jobs::probe(address, port, tx.clone()),
         // KyberNow Share, invité : le code part aux Stations trouvées sur le réseau (celles de l'ajout), avec
         // l'empreinte qu'on leur connaît ; ce téléviseur se nomme comme pour Admin.
+        Action::JoinCancel => jobs::share_cancel(),
         Action::JoinShare { code, name, quality } => {
             let mut targets: Vec<ShareTarget> = app.found.iter().map(|f| ShareTarget { host: f.address.clone(), port: f.port, fingerprint: f.fingerprint.clone() }).collect();
             // Un ordinateur du téléviseur, en ligne, que le réseau n'annonce pas : il peut partager aussi.
@@ -950,7 +984,9 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
             // en cours de session (sans lui, « Auto » donnerait l'image de l'hôte).
             let auto = Some(session::auto_quality(&app.tv));
             let request = JoinRequest { code, name, device: app.store.device_id.clone(), app: "webos".into(), quality: session::core_quality(quality), auto, ..JoinRequest::default() };
-            jobs::share_join(targets, request, session::guest_capabilities(app.tv.av1), app.join.attempt, tx.clone());
+            // Hors de chez soi : le relais public, et ceux des ordinateurs du téléviseur (sans doublon, `KYBERNOW_RELAY=off` : aucun).
+            let relays = session::join_relays(app.store.hosts.iter().filter_map(|h| h.relay.as_ref().map(|r| r.server.as_str())));
+            jobs::share_join(targets, relays, request, session::guest_capabilities(app.tv.av1), app.join.attempt, tx.clone());
         }
         // KyberNow Share, invité : la « Qualité de l'image » changée en session ; la Station relance l'image de l'invité
         // seulement, la session n'a rien à relancer (l'image reçue revient par `Platform::on_share_image`).
@@ -1006,6 +1042,7 @@ fn guest_host(found: &share::Found, title: &str) -> crate::model::Host {
         av1: false,
         mac: None,
         wake: Vec::new(),
+        relay: None,
         settings: crate::model::HostSettings::default(),
         last: None,
     }
@@ -1042,7 +1079,7 @@ fn connect_guest(app: &mut App, live: &mut Option<Live>, tx: &Sender<Event>, fou
     app.session = Some(ui);
     app.screen = Screen::Session;
     app.focus = crate::app::Target::CancelConnect;
-    *live = Some(Live { handle, guest: true, pointer: None, pointer_hidden: true, started: Instant::now(), latencies: Vec::new(), mbps: Vec::new(), mode, remote: None, game_fullscreen: false });
+    *live = Some(Live { handle, guest: true, pointer: None, pointer_hidden: true, started: Instant::now(), latencies: Vec::new(), mbps: Vec::new(), mode, remote: None, game_fullscreen: false, path: crate::app::PathKind::Direct });
     log::info!("session d'invité : {title} ({} × {} à {} Hz)", mode.0, mode.1, mode.2);
 }
 
@@ -1088,6 +1125,7 @@ fn finish(app: &mut App, l: Live) {
                 height,
                 refresh,
                 codec,
+                route: l.path.as_str().into(),
             });
         }
         app.store.save();

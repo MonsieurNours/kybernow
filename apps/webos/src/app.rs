@@ -62,7 +62,60 @@ pub enum Online {
     #[default]
     Unknown,
     Online,
+    /// Absent du réseau, joignable par le relais (« Hors de chez vous », docs/relais.md).
+    Away,
     Offline,
+}
+
+/// Par où passe une session (`RouteTransport` du cœur) : « Direct », « Par le relais », « Par le relais (TCP) »
+/// (repli quand l'UDP ne passe pas : bon pour regarder, moins pour jouer).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum PathKind {
+    #[default]
+    Direct,
+    Relay,
+    RelayTcp,
+}
+
+impl PathKind {
+    /// La ligne « Chemin » des statistiques (docs/link-ui.md, « Hors de chez vous »).
+    pub fn label(self) -> &'static str {
+        match self {
+            PathKind::Direct => tr("Direct", "Direct"),
+            PathKind::Relay => tr("Par le relais", "Via the relay"),
+            PathKind::RelayTcp => tr("Par le relais (TCP)", "Via the relay (TCP)"),
+        }
+    }
+
+    /// Par le relais, quel que soit le transport : la tuile « Par le relais ».
+    pub fn via_relay(self) -> bool {
+        self != PathKind::Direct
+    }
+
+    /// Le nom gardé dans « Dernière session » : `direct`, `relay`, `relay_tcp`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PathKind::Direct => "direct",
+            PathKind::Relay => "relay",
+            PathKind::RelayTcp => "relay_tcp",
+        }
+    }
+}
+
+/// Le chemin d'une session tel que `Platform::on_route` le donne : le transport et les allers-retours (ms)
+/// téléviseur ↔ relais et relais ↔ Station, quand ils sont mesurés.
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+pub struct RouteUi {
+    pub kind: PathKind,
+    pub rtt_client: Option<f64>,
+    pub rtt_station: Option<f64>,
+}
+
+impl RouteUi {
+    /// L'aller-retour de bout en bout par le relais, en ms (téléviseur ↔ relais, puis relais ↔ Station).
+    pub fn total_ms(&self) -> Option<f64> {
+        Some(self.rtt_client? + self.rtt_station?)
+    }
 }
 
 /// Ce qu'on sait d'un ordinateur depuis le dernier sondage.
@@ -121,6 +174,11 @@ pub enum Problem {
 #[derive(Clone, Debug, Default)]
 pub struct Polled {
     pub online: bool,
+    /// Absent du réseau, mais le relais le dit connecté : « Hors de chez vous » (jamais avec `online`).
+    pub away: bool,
+    /// Le relais que la Station donne (`info.relay`), à garder pour l'ordinateur ; `None` : pas de relais réglé chez
+    /// lui (sans réponse, `online` faux : rien ne change).
+    pub relay: Option<crate::model::HostRelay>,
     pub os: Option<String>,
     pub gpu: Option<String>,
     pub av1: bool,
@@ -301,6 +359,8 @@ pub enum MenuItem {
     Share,
     /// KyberNow Share, invité : « Qualité de l'image » (la tuile montre la qualité reçue ; ouvre les cinq choix).
     Quality,
+    /// Par le relais : la tuile « Par le relais » (le chemin ; rien à choisir).
+    Route,
     Settings,
     Disconnect,
 }
@@ -496,9 +556,23 @@ pub struct ShareGuest {
     /// de l'hôte, et que Kyber en sait la taille : sinon `None` (une image encore inconnue compte comme celle de
     /// l'hôte). L'hôte la voit sans la changer.
     pub quality: Option<String>,
+    /// Venu par le relais, une demande pas encore acceptée (« Demandes ») : hors des quatre places.
+    pub pending: bool,
+    /// Venu par le relais (`via` `relay`) : « hors de chez vous » après son app.
+    pub via_relay: bool,
 }
 
 impl ShareGuest {
+    /// « {prénom} demande à rejoindre », dessous « {app} · hors de chez vous » : la ligne d'une demande.
+    pub fn request_line(&self) -> String {
+        format!("{} {}", self.name, tr("demande à rejoindre", "wants to join"))
+    }
+
+    /// « Android · hors de chez vous » : sous la ligne d'une demande.
+    pub fn request_meta(&self) -> String {
+        format!("{} · {}", app_label(&self.app), tr("hors de chez vous", "away from home"))
+    }
+
     /// « Léa · Spectateur », « Léa · Joueur », « Léa · Joueur, clavier et souris ».
     pub fn line(&self) -> String {
         format!("{} · {}", self.name, self.role.long_label())
@@ -510,6 +584,9 @@ impl ShareGuest {
     /// la durée.
     pub fn meta(&self, now: i64) -> String {
         let mut parts = vec![app_label(&self.app)];
+        if self.via_relay {
+            parts.push(tr("hors de chez vous", "away from home").into());
+        }
         parts.extend(self.quality.clone());
         if let Some(t) = self.since.filter(|t| *t > 0) {
             parts.push(format!("{} {}", tr("depuis", "for"), duration_label(now.saturating_sub(t).max(0) as u64)));
@@ -554,7 +631,58 @@ pub struct ShareView {
     pub code: String,
     pub link: String,
     pub web: String,
+    /// Le relais du partage (`None` : pas de relais réglé, ou une Station antérieure). Joint : `link` et `web`
+    /// sont ceux du relais (`relay` et `sid`), le partage se rejoint aussi hors de chez soi.
+    pub relay: Option<ShareRelay>,
+    /// Les invités acceptés, puis les demandes en attente (`ShareGuest::pending`) : les boutons visent un indice
+    /// de cette liste.
     pub guests: Vec<ShareGuest>,
+}
+
+/// L'état du relais d'un partage ouvert (`relay.state` d'Admin).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShareRelay {
+    /// Le code est réservé chez le relais.
+    Joined,
+    /// Le relais ne répond pas : « Pas encore joignable hors de chez vous. »
+    Unreachable,
+}
+
+impl ShareView {
+    /// Les demandes en attente (indice dans `guests`, invité), dans l'ordre d'arrivée.
+    pub fn requests(&self) -> Vec<(usize, &ShareGuest)> {
+        self.guests.iter().enumerate().filter(|(_, g)| g.pending).collect()
+    }
+
+    /// Les invités acceptés (indice dans `guests`, invité).
+    pub fn accepted(&self) -> Vec<(usize, &ShareGuest)> {
+        self.guests.iter().enumerate().filter(|(_, g)| !g.pending).collect()
+    }
+
+    /// Le relais est joint : le partage se rejoint aussi hors de chez soi.
+    pub fn relay_joined(&self) -> bool {
+        self.relay == Some(ShareRelay::Joined)
+    }
+
+    /// L'aide du panneau, selon le relais (docs/link-ui.md, « Partage »).
+    pub fn help(&self) -> &'static str {
+        if self.relay_joined() {
+            tr(
+                "Sur le même réseau ou ailleurs : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur. Hors de chez vous, vous acceptez chaque invité.",
+                "On the same network or elsewhere: “Join with a code” in KyberNow Link, or this link in a browser. Away from home, you accept each guest.",
+            )
+        } else {
+            tr(
+                "Sur le même réseau : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur.",
+                "On the same network: “Join with a code” in KyberNow Link, or this link in a browser.",
+            )
+        }
+    }
+
+    /// Sous l'aide du même réseau, quand le relais est réglé mais injoignable.
+    pub fn relay_down_text(&self) -> Option<&'static str> {
+        (self.relay == Some(ShareRelay::Unreachable)).then(|| tr("Pas encore joignable hors de chez vous.", "Not reachable away from home yet."))
+    }
 }
 
 /// Les invités qu'un partage reçoit au plus.
@@ -569,11 +697,26 @@ pub fn guests_label(n: usize) -> String {
     }
 }
 
+/// « 1 demande », « 2 demandes » ; “1 request”, “2 requests” : les demandes qui attendent l'accord de l'hôte.
+pub fn requests_label(n: usize) -> String {
+    if crate::i18n::english() {
+        format!("{n} {}", if n == 1 { "request" } else { "requests" })
+    } else {
+        format!("{n} {}", if n >= 2 { "demandes" } else { "demande" })
+    }
+}
+
 /// Le sous-titre de la tuile « Partager » du menu, et si la tuile est allumée (le partage est ouvert) : « 2 invités »
-/// dès qu'il y a un invité ; sinon, le partage ouvert, son code (« 123 456 ») ; sinon « Code et QR code ».
+/// dès qu'il y a un invité accepté (« 1 demande · 2 invités » quand des demandes attendent l'hôte, une demande
+/// n'étant pas un invité) ; sinon, le partage ouvert, son code (« 123 456 ») ; sinon « Code et QR code ».
 pub fn share_tile(share: Option<&ShareView>) -> (String, bool) {
     match share {
-        Some(v) if !v.guests.is_empty() => (guests_label(v.guests.len()), true),
+        Some(v) if !v.requests().is_empty() => {
+            let asking = requests_label(v.requests().len());
+            let sub = if v.accepted().is_empty() { asking } else { format!("{asking} · {}", guests_label(v.accepted().len())) };
+            (sub, true)
+        }
+        Some(v) if !v.accepted().is_empty() => (guests_label(v.accepted().len()), true),
         Some(v) => (format_code(&v.code), true),
         None => (tr("Code et QR code", "Code and QR code").to_string(), false),
     }
@@ -649,6 +792,10 @@ pub enum ShareOp {
     Role(String, ShareRole),
     /// « Retirer ».
     Kick(String),
+    /// « Accepter » une demande venue par le relais.
+    Accept(String),
+    /// « Refuser » une demande venue par le relais.
+    Refuse(String),
     /// « Arrêter le partage » : tout le monde sort.
     Close,
 }
@@ -694,8 +841,11 @@ pub struct JoinState {
     pub field: JoinField,
     /// Majuscule du pavé des lettres (manette), pour la touche suivante.
     pub shift: bool,
-    /// « Recherche du partage… » : le code est parti aux ordinateurs du réseau.
+    /// « Recherche du partage… » : le code est parti aux ordinateurs du réseau et au relais.
     pub busy: bool,
+    /// « En attente de l'accord de l'hôte… » : la demande est partie par le relais, l'hôte n'a pas répondu
+    /// (« Annuler » la retire). Toujours avec `busy`.
+    pub waiting: bool,
     /// Le refus du cœur (« Aucun partage avec ce code sur le réseau. »…).
     pub message: Option<String>,
     /// Numéro de la recherche : une réponse d'une recherche abandonnée n'ouvre rien.
@@ -705,7 +855,7 @@ pub struct JoinState {
 
 impl JoinState {
     pub fn new() -> Self {
-        Self { code: String::new(), name: String::new(), quality: ShareQuality::Auto, field: JoinField::Code, shift: false, busy: false, message: None, attempt: 0, started: Instant::now() }
+        Self { code: String::new(), name: String::new(), quality: ShareQuality::Auto, field: JoinField::Code, shift: false, busy: false, waiting: false, message: None, attempt: 0, started: Instant::now() }
     }
 
     /// Six chiffres et un prénom : « Rejoindre » peut partir.
@@ -759,6 +909,9 @@ pub struct SessionUi {
     pub share_closed: Option<Instant>,
     /// KyberNow Share, session d'invité : l'ordinateur qui partage et le rôle donné par l'hôte.
     pub guest: Option<GuestUi>,
+    /// Le chemin de la session (`Platform::on_route`, au départ puis quand il change) ; `None` tant que le cœur
+    /// n'a rien dit : direct.
+    pub route: Option<RouteUi>,
 }
 
 impl SessionUi {
@@ -787,7 +940,18 @@ impl SessionUi {
             share_opened: None,
             share_closed: None,
             guest: None,
+            route: None,
         }
+    }
+
+    /// Par où passe la session : « Direct » tant que le cœur n'a pas dit autre chose.
+    pub fn path(&self) -> PathKind {
+        self.route.map(|r| r.kind).unwrap_or_default()
+    }
+
+    /// La session passe par le relais : la tuile « Par le relais » du menu.
+    pub fn via_relay(&self) -> bool {
+        self.path().via_relay()
     }
 
     /// Une session d'invité d'un partage (« Invité sur Atelier ») : arrivé en spectateur, jamais dans la
@@ -940,6 +1104,8 @@ pub enum Target {
     JoinGo,
     /// KyberNow Share, invité : « Qualité de l'image », à « Rejoindre » (les cinq choix sous le prénom).
     JoinQuality(ShareQuality),
+    /// « Annuler » : retire la demande en attente de l'accord de l'hôte.
+    JoinCancel,
     /// Un des cinq choix du panneau « Qualité de l'image » d'une session d'invité.
     QualityPick(ShareQuality),
     /// KyberNow Share, hôte : le panneau du partage (les deux droits d'un invité : manettes, clavier et souris,
@@ -947,6 +1113,9 @@ pub enum Target {
     SharePads(usize),
     ShareKbm(usize),
     ShareKick(usize),
+    /// « Accepter » et « Refuser » une demande (indice dans `ShareView::guests`).
+    ShareAccept(usize),
+    ShareRefuse(usize),
     ShareNewCode,
     ShareStop,
     ShareClose,
@@ -982,9 +1151,11 @@ pub enum Action {
     /// Redémarrer ou mettre à jour la Station ; `force` : même si un appareil
     /// est en session.
     Station { host: String, op: StationOp, force: bool },
-    /// KyberNow Share, invité : le code part aux ordinateurs du réseau (`share::join_checked`), avec la
+    /// KyberNow Share, invité : le code part aux ordinateurs du réseau et aux relais (`share::join_anywhere`), avec la
     /// « Qualité de l'image » choisie (pour « Auto », la sortie du téléviseur et ce que son décodeur suit).
     JoinShare { code: String, name: String, quality: ShareQuality },
+    /// KyberNow Share, invité : « Annuler » (ou Retour) pendant l'attente de l'accord de l'hôte : la demande est retirée.
+    JoinCancel,
     /// KyberNow Share, invité : la « Qualité de l'image » changée en session (`Session::set_share_quality`, sans
     /// rien relancer de la session).
     ShareQuality(ShareQuality),
@@ -1279,10 +1450,12 @@ impl App {
             },
             // Une recherche en cours est abandonnée : sa réponse n'ouvrira rien (elle repart de la Station).
             Screen::Join => {
+                let waiting = self.join.waiting;
                 self.join.attempt += 1;
                 self.join.busy = false;
+                self.join.waiting = false;
                 self.go(Screen::Home);
-                Vec::new()
+                if waiting { vec![Action::JoinCancel] } else { Vec::new() }
             }
             Screen::Settings | Screen::Gamepads => {
                 if self.screen == Screen::Settings && self.dialog.is_some() {
@@ -1423,6 +1596,8 @@ impl App {
                 Vec::new()
             }
             Target::JoinGo => self.join_go(),
+            // « Annuler » : la demande en attente de l'hôte est retirée ; l'écran reste, prêt pour un autre essai.
+            Target::JoinCancel => self.join_cancel(),
             // « Qualité de l'image », sous le prénom : un des cinq choix (retenu au « Rejoindre »).
             Target::JoinQuality(q) => {
                 if !self.join.busy {
@@ -1434,6 +1609,8 @@ impl App {
             Target::QualityPick(q) => self.quality_pick(q),
             Target::SharePads(i) => self.share_guest_move(i, ShareMove::Pads),
             Target::ShareKbm(i) => self.share_guest_move(i, ShareMove::Kbm),
+            Target::ShareAccept(i) => self.share_answer(i, true),
+            Target::ShareRefuse(i) => self.share_answer(i, false),
             Target::ShareKick(i) => {
                 let Some(guest) = self.session.as_ref().and_then(|s| s.share.as_ref()).and_then(|v| v.guests.get(i)).map(|g| g.id.clone()) else { return Vec::new() };
                 self.share_op(ShareOp::Kick(guest))
@@ -1642,6 +1819,7 @@ impl App {
             return Vec::new();
         }
         self.join.busy = true;
+        self.join.waiting = false;
         self.join.message = None;
         self.join.started = Instant::now();
         let name = self.join.name.trim().to_string();
@@ -1657,7 +1835,33 @@ impl App {
             return;
         }
         self.join.busy = false;
+        self.join.waiting = false;
         self.join.message = Some(message);
+    }
+
+    /// Le code est parti par le relais et l'hôte n'a pas encore répondu : « En attente de l'accord de l'hôte… »,
+    /// avec « Annuler ». `Joined` suit si l'hôte accepte, sinon `join_failed` (« L'hôte a refusé. », « L'hôte n'a
+    /// pas répondu. »).
+    pub fn join_pending(&mut self, attempt: u32) {
+        if !self.join_current(attempt) {
+            return;
+        }
+        self.join.waiting = true;
+        self.join.started = Instant::now();
+        self.focus = Target::JoinCancel;
+    }
+
+    /// « Annuler » : la demande est retirée (`share::cancel`), l'écran redevient celui du départ.
+    fn join_cancel(&mut self) -> Vec<Action> {
+        if !self.join.waiting {
+            return Vec::new();
+        }
+        self.join.attempt += 1;
+        self.join.busy = false;
+        self.join.waiting = false;
+        self.join.message = None;
+        self.focus = Target::JoinGo;
+        vec![Action::JoinCancel]
     }
 
     /// La recherche `attempt` est toujours celle de l'écran : sa réponse ouvre la session.
@@ -1705,7 +1909,13 @@ impl App {
         s.share_panel = true;
         s.menu = false;
         let mut acts = vec![Action::ReleaseAll];
-        let focus = if open { Target::ShareNewCode } else { Target::ShareClose };
+        // Des demandes attendent l'hôte : le focus commence sur la première « Accepter ».
+        let first_request = s.share.as_ref().and_then(|v| v.requests().first().map(|(i, _)| *i));
+        let focus = match first_request {
+            Some(i) => Target::ShareAccept(i),
+            None if open => Target::ShareNewCode,
+            None => Target::ShareClose,
+        };
         if !open && !blocked {
             s.share_busy = true;
             if avail.is_some() {
@@ -1753,6 +1963,24 @@ impl App {
         self.share_op(ShareOp::Role(guest.id, m.toggled(guest.role)))
     }
 
+    /// « Accepter » ou « Refuser » la demande `i` (indice dans `ShareView::guests`) : une demande à Admin, la
+    /// réponse revient avec le partage tel qu'il est (`share_reply`).
+    fn share_answer(&mut self, i: usize, accept: bool) -> Vec<Action> {
+        let Some(guest) = self.session.as_ref().and_then(|s| s.share.as_ref()).and_then(|v| v.guests.get(i)).filter(|g| g.pending).map(|g| g.id.clone()) else { return Vec::new() };
+        self.share_op(if accept { ShareOp::Accept(guest) } else { ShareOp::Refuse(guest) })
+    }
+
+    /// Une demande qui arrive pendant la session : l'avis bref « {prénom} demande à rejoindre », sauf quand le
+    /// panneau est ouvert (il la montre).
+    fn notice_requests(&mut self, before: Option<&ShareView>) {
+        let Some(s) = self.session.as_mut() else { return };
+        let known = |gid: &str| before.is_some_and(|v| v.guests.iter().any(|g| g.id == gid));
+        let fresh = s.share.as_ref().and_then(|v| v.guests.iter().find(|g| g.pending && !known(&g.id)).map(ShareGuest::request_line));
+        if let Some(text) = fresh.filter(|_| !s.share_panel) {
+            s.notice = Some((text, Instant::now()));
+        }
+    }
+
     /// La réponse d'Admin à une demande de l'hôte : le partage tel qu'il est maintenant (`None` : fermé),
     /// ou ce qu'Admin a refusé.
     pub fn share_reply(&mut self, r: Result<Option<ShareView>, String>) {
@@ -1770,11 +1998,12 @@ impl App {
                     s.share_opened = Some(Instant::now());
                     s.share_closed = None;
                 }
-                s.share = view;
+                let before = std::mem::replace(&mut s.share, view);
                 s.share_error = None;
                 if first && shown {
                     self.focus = Target::ShareNewCode;
                 }
+                self.notice_requests(before.as_ref());
             }
             Err(e) => s.share_error = Some(e),
         }
@@ -1796,7 +2025,8 @@ impl App {
         } else if s.share.is_none() {
             s.share_opened = Some(Instant::now());
         }
-        s.share = view;
+        let before = std::mem::replace(&mut s.share, view);
+        self.notice_requests(before.as_ref());
     }
 
     /// Un choix de « Qualité de l'image » en session (panneau ouvert depuis le menu) : retenu pour la fois suivante,
@@ -1909,6 +2139,8 @@ impl App {
                 self.focus = Target::QualityPick(q);
                 vec![Action::ReleaseAll]
             }
+            // « Par le relais » : le chemin de la session, rien à choisir.
+            MenuItem::Route => Vec::new(),
             MenuItem::Disconnect => vec![Action::Disconnect],
         }
     }
@@ -2053,7 +2285,13 @@ impl App {
     /// Station après un redémarrage ou une mise à jour.
     pub fn polled(&mut self, id: &str, p: Polled) -> bool {
         let entry = self.live.entry(id.to_string()).or_default();
-        entry.online = if p.online { Online::Online } else { Online::Offline };
+        entry.online = if p.online {
+            Online::Online
+        } else if p.away {
+            Online::Away
+        } else {
+            Online::Offline
+        };
         entry.problem = p.problem;
         if p.online {
             entry.virtual_display = p.virtual_display;
@@ -2069,7 +2307,9 @@ impl App {
         if p.online
             && let Some(h) = self.store.host_mut(id)
         {
-            save = h.os != p.os || h.gpu != p.gpu || h.av1 != p.av1;
+            save = h.os != p.os || h.gpu != p.gpu || h.av1 != p.av1 || h.relay != p.relay;
+            // Le relais de l'ordinateur : celui que sa Station donne, gardé pour le joindre hors de chez soi.
+            h.relay = p.relay;
             h.os = p.os.or(h.os.take());
             h.gpu = p.gpu.or(h.gpu.take());
             h.av1 = p.av1;
@@ -2237,6 +2477,7 @@ mod tests {
             av1: true,
             mac: None,
             wake: Vec::new(),
+            relay: None,
             settings: Default::default(),
             last: None,
         }
@@ -2388,6 +2629,7 @@ mod tests {
             av1: true,
             mac: None,
             wake: Vec::new(),
+            relay: None,
             settings: Default::default(),
             last: None,
         };

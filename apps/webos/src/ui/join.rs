@@ -82,7 +82,13 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
         let (cx, cy) = (116.0, 940.0);
         cv.circle(cx, cy, 14.0, HALO.alpha(0.2 + 0.3 * (t * 4.0).sin().abs()));
         cv.circle(cx, cy, 6.0, SPECTRE);
-        cv.text(cx + 30.0, cy + 9.0, Text::new(Font::Regular, 25.0, FROST), tr("Recherche du partage…", "Looking for the share…"));
+        if j.waiting {
+            // Par le relais : la demande est chez l'hôte, qui l'accepte ou non ; « Annuler » la retire.
+            let tw = cv.text(cx + 30.0, cy + 9.0, Text::new(Font::Regular, 25.0, FROST), tr("En attente de l'accord de l'hôte…", "Waiting for the host to accept…"));
+            widgets::secondary(cv, f, Target::JoinCancel, cx + 30.0 + tw + 40.0, cy - 30.0, tr("Annuler", "Cancel"), 22.0);
+        } else {
+            cv.text(cx + 30.0, cy + 9.0, Text::new(Font::Regular, 25.0, FROST), tr("Recherche du partage…", "Looking for the share…"));
+        }
     } else if let Some(m) = &j.message {
         cv.paragraph(96.0, 926.0, Text::new(Font::Regular, 25.0, DANGER), m, 860.0, 36.0);
     }

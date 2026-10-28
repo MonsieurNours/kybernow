@@ -12,6 +12,7 @@ use kybernow_core::kynput_rs::Pipeline;
 use kybernow_core::latency::Second;
 use kybernow_core::media::PacketHandler;
 use kybernow_core::profile::{Capabilities, Codec, Profile as CoreProfile, StreamSettings};
+use kybernow_core::relay::{RelayInfo, RelayRoute, RouteInfo, RouteTransport};
 use kybernow_core::session::{Notice, Platform, Recovery, Session, SessionParams, SessionRole, Status};
 use kybernow_core::share::{self, ShareEnd, ShareState};
 use kybernow_core::{Display, WindowHandle};
@@ -19,7 +20,7 @@ use kybernow_core::{Display, WindowHandle};
 use super::ndl;
 use super::media::{AudioSink, VideoSink};
 use super::Event;
-use crate::app::{ShareGuest, ShareView};
+use crate::app::{PathKind, RouteUi, ShareGuest, ShareRelay, ShareView};
 use crate::model::{Host, Profile};
 
 /// Ce que partagent la session, ses flux et la boucle principale.
@@ -204,6 +205,74 @@ impl Platform for WebOsPlatform {
     fn on_share_image(&self, image: &share::ShareImage, _previous: Option<&share::ShareImage>, notice: Option<&str>) {
         self.0.send(Event::ShareImage { label: image.label(), notice: notice.map(str::to_string) });
     }
+
+    /// Par où passe la session, au départ puis quand le chemin change (par le relais : repli TCP, allers-retours).
+    /// Le menu en fait sa tuile « Par le relais », les statistiques leur ligne « Chemin ».
+    fn on_route(&self, route: &RouteInfo) {
+        self.0.send(Event::Route(route_of(route)));
+    }
+}
+
+/// Le chemin de l'interface d'après celui du cœur.
+pub fn route_of(r: &RouteInfo) -> RouteUi {
+    let kind = match r.transport {
+        RouteTransport::Direct => PathKind::Direct,
+        RouteTransport::Relay => PathKind::Relay,
+        RouteTransport::RelayTcp => PathKind::RelayTcp,
+    };
+    RouteUi { kind, rtt_client: r.rtt_client, rtt_station: r.rtt_station }
+}
+
+/// La route d'un ordinateur par son relais : celui que sa Station a donné (`info.relay`, gardé avec lui), Admin
+/// épinglé sur l'empreinte que l'app connaît ; `None` sans relais chez lui ou sans empreinte (jamais de premier
+/// contact par le relais). La session l'essaie quand le réseau ne répond pas (`Route::Auto`).
+pub fn relay_route(host: &Host) -> Option<RelayRoute> {
+    let r = host.relay.as_ref()?;
+    RelayInfo { server: r.server.clone(), id: r.id.clone(), remote_access: r.remote_access }.route(host.fingerprint.as_deref()?)
+}
+
+/// Les relais où chercher le code d'un partage : le relais public d'abord, puis ceux des ordinateurs du téléviseur
+/// (`info.relay.server`), sans doublon ; une adresse illisible est écartée. Le code d'un ami part ainsi au relais
+/// public même quand l'ordinateur de l'utilisateur en a un autre. `KYBERNOW_RELAY=off` : aucun relais.
+pub fn join_relays<'a>(servers: impl IntoIterator<Item = &'a str>) -> Vec<kybernow_core::relay::RelayAddr> {
+    use kybernow_core::relay::{RelayAddr, RelayMode};
+    if RelayMode::current() == RelayMode::Off {
+        return Vec::new();
+    }
+    let mut out = vec![RelayAddr::public()];
+    for server in servers {
+        if let Ok(addr) = server.trim().parse::<RelayAddr>()
+            && !out.contains(&addr)
+        {
+            out.push(addr);
+        }
+    }
+    out
+}
+
+/// Le message qu'Admin donne quand « Accès hors de chez vous » est coupé (`code: remote_access_off`), dans la langue
+/// demandée par l'app (`relay.accessOff` du catalogue d'Admin).
+fn admin_access_off(lang: kybernow_core::i18n::Lang) -> &'static str {
+    match lang {
+        kybernow_core::i18n::Lang::Fr => "L'accès hors de chez vous est coupé dans Admin.",
+        kybernow_core::i18n::Lang::En => "Access away from home is turned off in Admin.",
+    }
+}
+
+/// Le texte de link-ui (« Hors de chez vous ») d'un échec de session par le relais, avec le nom de l'ordinateur que le
+/// cœur ne connaît pas : « {nom} n'est pas joignable hors de chez vous (accès coupé dans Admin). » quand Admin refuse
+/// l'accès, « {nom} n'est pas joignable : l'ordinateur est éteint ou en veille. » quand le relais ne le connaît pas.
+/// `None` : l'échec est autre chose, son texte reste tel quel. `error` est le texte que le cœur a donné.
+pub fn relay_refusal(error: &str, name: &str) -> Option<String> {
+    use kybernow_core::console::ConsoleError;
+    use kybernow_core::i18n::Lang;
+    use kybernow_core::relay::RelayError;
+    let access_off = [Lang::Fr, Lang::En].into_iter().any(|l| error == ConsoleError::Http { status: 403, message: admin_access_off(l).to_string() }.text(l));
+    if access_off {
+        return Some(crate::i18n::tr("{} n'est pas joignable hors de chez vous (accès coupé dans Admin).", "{} cannot be reached away from home (access turned off in Admin).").replace("{}", name));
+    }
+    let offline = [Lang::Fr, Lang::En].into_iter().any(|l| error == RelayError::StationOffline.text(l, None));
+    offline.then(|| RelayError::StationOffline.text(kybernow_core::i18n::current(), Some(name)))
 }
 
 /// Le rôle de l'interface d'après celui du cœur.
@@ -249,7 +318,15 @@ pub fn share_view(st: &ShareState) -> Option<ShareView> {
         code: st.code.clone(),
         link: st.link.clone(),
         web: st.web.clone(),
-        guests: st.guests.iter().map(|g| ShareGuest { id: g.id.clone(), name: g.name.clone(), role: role_of(g.role), app: g.app.clone(), since: g.since, quality: guest_quality(g) }).collect(),
+        relay: st.relay.map(|r| match r.state {
+            share::ShareRelayState::Joined => ShareRelay::Joined,
+            share::ShareRelayState::Unreachable => ShareRelay::Unreachable,
+        }),
+        guests: st
+            .guests
+            .iter()
+            .map(|g| ShareGuest { id: g.id.clone(), name: g.name.clone(), role: role_of(g.role), app: g.app.clone(), since: g.since, quality: guest_quality(g), pending: g.pending, via_relay: g.via == share::ShareVia::Relay })
+            .collect(),
     })
 }
 
@@ -394,7 +471,8 @@ pub fn start(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32), 
             clipboard: false,
             recovery,
             role: SessionRole::Host,
-            route: kybernow_core::session::Route::Direct,
+            // Un relais connu pour cet ordinateur : l'image passe par le réseau, et par lui quand le réseau ne répond pas.
+            route: kybernow_core::session::Route::Auto(relay_route(host)),
         },
     };
     let session = Session::start(params, Arc::new(WebOsPlatform(shared.clone())));
