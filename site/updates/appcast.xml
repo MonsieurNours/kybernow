@@ -3,6 +3,20 @@
     <channel>
         <title>KyberNow</title>
         <item>
+            <title>0.8.1</title>
+            <pubDate>Wed, 28 Oct 2026 17:47:22 +0100</pubDate>
+            <sparkle:version>202610281726</sparkle:version>
+            <sparkle:shortVersionString>0.8.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[
+- **Sharing: the away-from-home link tells you when it's ready.** For the few seconds the Station takes to reach the relay, the share panel says “Getting the away-from-home link ready…”; “Copy link” and the QR code wait for the relay link, so you no longer hand out by mistake a link that only works at home. After 10 seconds without the relay, they give your network link and the panel says “Not reachable away from home yet.”. In every Link app, in Admin and in the tray menu.
+- The relay link arrives sooner: the Station reserves the code as soon as it reaches the relay, and stays connected for five minutes after a share, so the next one is ready at once.
+]]></description>
+            <sparkle:releaseNotesLink xml:lang="fr">https://www.kybernow.app/updates/notes/0.8.1/KyberNow-Link-macOS.fr.html</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/MonsieurNours/kybernow/releases/download/v0.8.1/KyberNow-Link-macOS.zip" length="48780699" type="application/octet-stream" sparkle:edSignature="gCw9GXAAM8q6gCZu8GOCnEqiZ1V8ipCyK/Mf7XSSj30qitIMEGEuXtp4DIHkvSzIuF25GYcQsA0oBRJ9tR1VCg=="/>
+        </item>
+        <item>
             <title>0.8.0</title>
             <pubDate>Wed, 28 Oct 2026 13:21:13 +0100</pubDate>
             <sparkle:version>202610281245</sparkle:version>
