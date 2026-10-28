@@ -151,6 +151,10 @@ pub struct LastSession {
     /// `HEVC`, `AV1`, `H.264`.
     #[serde(default)]
     pub codec: String,
+    /// Le chemin de la session : `direct`, `relay` (par le relais) ou `relay_tcp` (par le relais, repli TCP) ;
+    /// vide : direct, ou une session d'avant le relais.
+    #[serde(default)]
+    pub route: String,
 }
 
 /// Un ordinateur équipé de KyberNow Station.
@@ -181,10 +185,25 @@ pub struct Host {
     /// réussi qui en donne, pour le réveiller une fois éteint.
     #[serde(default)]
     pub wake: Vec<WakeTarget>,
+    /// Le relais de l'ordinateur (`relay` de `GET /api/stream/info`), gardé d'un `info` réussi à l'autre : de quoi
+    /// le joindre hors de chez soi (`Route::Auto`) et le dire « Hors de chez vous » sur l'accueil.
+    #[serde(default)]
+    pub relay: Option<HostRelay>,
     #[serde(default)]
     pub settings: HostSettings,
     #[serde(default)]
     pub last: Option<LastSession>,
+}
+
+/// Le relais d'un ordinateur, tel que la Station le donne (`RelayInfo` du cœur) : le relais (`hôte:port`, ou
+/// `hôte:port#sha256:…` pour un relais épinglé), l'identifiant de la Station chez lui, et « Accès hors de chez
+/// vous » (actif dans Admin ?). Sans lui, l'ordinateur ne se joint que sur le réseau.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(default)]
+pub struct HostRelay {
+    pub server: String,
+    pub id: String,
+    pub remote_access: bool,
 }
 
 impl Host {
@@ -326,7 +345,8 @@ impl Store {
             let settings = h.settings.clone();
             let last = h.last.clone();
             let wake = if host.wake.is_empty() { h.wake.clone() } else { host.wake.clone() };
-            *h = Host { id: id.clone(), settings, last, wake, ..host };
+            let relay = host.relay.clone().or_else(|| h.relay.clone());
+            *h = Host { id: id.clone(), settings, last, wake, relay, ..host };
             return id;
         }
         let id = host.id.clone();

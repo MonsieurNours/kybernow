@@ -399,7 +399,12 @@ fn station(app: &App, cv: &mut Canvas, f: &mut Frame, h: &Host, x: f32, mut y: f
             if let (Some(v), true, None) = (&st.update_version, st.update_available && st.requires_setup, &note) {
                 note = Some(app::setup_text(v));
             }
-            let value = if on == Online::Offline { tr("Hors ligne", "Offline").into() } else { state };
+            // Par le relais, la Station ne se redémarre ni ne se met à jour : seul son état se lit sur le réseau.
+            let value = match on {
+                Online::Offline => tr("Hors ligne", "Offline").into(),
+                Online::Away => tr("Hors de chez vous", "Away from home").into(),
+                _ => state,
+            };
             y += widgets::row(cv, f, None, x, y, w, &title, "", Value::Text(value)) + GAP;
             actions = on == Online::Online;
         }

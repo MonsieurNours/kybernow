@@ -131,7 +131,13 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
             })
             .collect();
         cv.polyline(&pts, 2.0 * u, SPECTRE);
-        cv.text(mx + 28.0 * u, mid + 5.0 * u, Text::new(Font::Regular, 15.0 * u, MUTED), tr("Recherche du partage…", "Looking for the share…"));
+        if j.waiting {
+            // Par le relais : la demande est chez l'hôte, qui l'accepte ou non ; « Annuler » la retire.
+            let tw = cv.text(mx + 28.0 * u, mid + 5.0 * u, Text::new(Font::Regular, 15.0 * u, MUTED), tr("En attente de l'accord de l'hôte…", "Waiting for the host to accept…"));
+            widgets::ghost(cv, f, Target::JoinCancel, mx + 28.0 * u + tw + 18.0 * u, mid - 20.0 * u, 40.0 * u, 14.0 * u, None, tr("Annuler", "Cancel"), MUTED);
+        } else {
+            cv.text(mx + 28.0 * u, mid + 5.0 * u, Text::new(Font::Regular, 15.0 * u, MUTED), tr("Recherche du partage…", "Looking for the share…"));
+        }
     } else if let Some(m) = &j.message {
         let style = Text::new(Font::Regular, 15.0 * u, WARN);
         let width = (x0 + left_w + 100.0 * u - mx).max(160.0 * u);

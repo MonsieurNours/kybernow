@@ -56,6 +56,8 @@ pub fn draw(app: &App, cv: &mut Canvas, assets: &Assets, f: &mut Frame) {
             let live = app.live.get(&h.id).cloned().unwrap_or_default();
             let (status, lit) = match live.online {
                 Online::Online => (tr("En ligne", "Online"), true),
+                // Joignable seulement par le relais (docs/relais.md).
+                Online::Away => (tr("Hors de chez vous", "Away from home"), true),
                 Online::Offline => (tr("Hors ligne", "Offline"), false),
                 Online::Unknown => (tr("Recherche…", "Searching…"), false),
             };
@@ -257,6 +259,7 @@ fn cards(app: &App, cv: &mut Canvas, f: &mut Frame) {
             cv.text_fit(r.x, y + 168.0 + 34.0, name, &h.name, 300.0);
             let state = match live {
                 Online::Online => tr("En ligne", "Online"),
+                Online::Away => tr("Hors de chez vous", "Away from home"),
                 Online::Offline => tr("Hors ligne", "Offline"),
                 Online::Unknown => "",
             };

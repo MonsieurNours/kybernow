@@ -136,6 +136,8 @@ pub fn station_state(app: &App, h: &Host) -> StationState {
     match live.map(|l| l.online).unwrap_or_default() {
         Online::Offline => return state(tr("Hors ligne", "Offline").into(), FAINT, false),
         Online::Unknown => return state(tr("Recherche…", "Searching…").into(), FAINT, false),
+        // Par le relais, la Station ne se redémarre ni ne se met à jour : seul son état se lit sur le réseau.
+        Online::Away => return state(tr("Hors de chez vous", "Away from home").into(), FAINT, false),
         Online::Online => {}
     }
     let Some(s) = st else { return state(tr("Recherche…", "Searching…").into(), FAINT, false) };

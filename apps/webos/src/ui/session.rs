@@ -157,7 +157,10 @@ fn stats_pill(cv: &mut Canvas, s: &SessionUi, y: f32) {
     };
     let lat = st.latency_ms.map(|v| format!("{} ms", decimal(v, 1))).unwrap_or_else(|| "— ms".into());
     let lost = if st.lost == 0 { tr("0 perte", "0 loss").to_string() } else { format!("{} {}", st.lost, tr("pertes", "losses")) };
-    let parts = [lat, format!("{} {}", st.fps.round(), tr("i/s", "fps")), format!("{} Mbit/s", st.mbps.round()), format!("{} · {}", st.mode, st.codec), lost];
+    // « Chemin » : Direct, Par le relais, Par le relais (TCP) ; par le relais, l'aller-retour mesuré s'y ajoute.
+    let ms = s.route.and_then(|r| r.total_ms()).filter(|_| s.via_relay()).map(|v| format!(" · {} ms", decimal(v, 0))).unwrap_or_default();
+    let path = format!("{}{} {}{ms}", tr("Chemin", "Path"), if english() { ":" } else { " :" }, s.path().label());
+    let parts = [lat, format!("{} {}", st.fps.round(), tr("i/s", "fps")), format!("{} Mbit/s", st.mbps.round()), format!("{} · {}", st.mode, st.codec), lost, path];
     let style = Text::new(Font::Mono, 19.0, FROST);
     let gap = 36.0;
     let widths: Vec<f32> = parts.iter().map(|p| cv.text_width(style, p)).collect();
@@ -170,6 +173,14 @@ fn stats_pill(cv: &mut Canvas, s: &SessionUi, y: f32) {
     for (i, p) in parts.iter().enumerate() {
         cv.text(xx, y + 38.0, if i >= 3 { style.color(FROST_2) } else { style }, p);
         xx += widths[i] + gap;
+    }
+}
+
+/// Le sous-titre de la tuile « Par le relais » : l'aller-retour mesuré, « 20 ms », sinon « Hors de chez vous ».
+fn route_sub(s: &SessionUi) -> String {
+    match s.route.and_then(|r| r.total_ms()) {
+        Some(ms) => format!("{} ms", decimal(ms, 0)),
+        None => tr("Hors de chez vous", "Away from home").into(),
     }
 }
 
@@ -217,12 +228,19 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     if let Some(g) = &s.guest {
         // « Qualité de l'image » : la tuile montre la qualité reçue (le choix tant que Kyber ne la donne pas) et ouvre les cinq choix.
         tiles.push((MenuItem::Quality, Icon::Monitor, tr("Qualité de l'image", "Picture quality").into(), Some(g.shown().into()), false, false));
+        // Par le relais : le chemin, en tuile (rien à choisir).
+        if s.via_relay() {
+            tiles.push((MenuItem::Route, Icon::Wifi, s.path().label().into(), Some(route_sub(s)), false, false));
+        }
         tiles.push((MenuItem::Disconnect, Icon::Logout, tr("Quitter le partage", "Leave").into(), Some(s.name.clone()), true, false));
     } else {
         // « Partager » : son sous-titre dit « 2 invités », le code ou « Code et QR code » (`share_tile`). Impossible,
         // elle est estompée mais se choisit : elle ouvre le panneau réduit à la raison.
         let (sub, on) = share_tile(s.share.as_ref());
         tiles.push((MenuItem::Share, Icon::Share, tr("Partager", "Share").into(), Some(sub), false, on));
+        if s.via_relay() {
+            tiles.push((MenuItem::Route, Icon::Wifi, s.path().label().into(), Some(route_sub(s)), false, false));
+        }
         tiles.push((MenuItem::Settings, Icon::Gear, tr("Réglages", "Settings").into(), Some(tr("prochaine session", "next session").into()), false, false));
         tiles.push((MenuItem::Disconnect, Icon::Logout, tr("Se déconnecter", "Disconnect").into(), None, true, false));
     }

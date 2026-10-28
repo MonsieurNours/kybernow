@@ -380,9 +380,13 @@ struct BarLayout {
     icons: Vec<BarIcon>,
     /// « 2 invités » : le partage est ouvert (il rouvre le panneau), et sa largeur.
     pill: Option<(String, f32)>,
+    /// « 1 demande », « 2 demandes » : des invités attendent l'accord de l'hôte (elle rouvre le panneau), et sa largeur.
+    requests: Option<(String, f32)>,
     /// La puce de « Qualité de l'image » d'un invité : la qualité reçue (le choix tant qu'on ne la connaît pas), et sa
     /// largeur.
     quality: Option<(String, f32)>,
+    /// « Par le relais » (« Par le relais (TCP) » en repli) : la session passe par le relais ; sa largeur.
+    route: Option<(String, f32)>,
     total: f32,
 }
 
@@ -422,11 +426,21 @@ impl BarLayout {
             let w = cv.text_width(Text::new(Font::Regular, 12.5, FROST), &t) + 22.0;
             (t, w)
         });
-        let others = 16.0 + 16.0 + 12.0 + lat_w + 8.0 + 64.0 + 12.0 + 1.0 + 12.0 + 12.0 + 1.0 + 12.0 + prof_w + 12.0 + quality.as_ref().map_or(0.0, |(_, qw)| qw + 8.0) + 34.0 * icons.len() as f32 + pill.as_ref().map_or(0.0, |(_, pw)| pw + 4.0) + 24.0 + 1.0 + 12.0 + quit_w + 10.0;
+        let requests = share::requests_pill_label(s).map(|t| {
+            let w = cv.text_width(Text::new(Font::Regular, 12.5, FROST), &t) + 22.0;
+            (t, w)
+        });
+        // Par le relais : la puce, dans la partie toujours visible de la barre (docs/link-ui.md, « Hors de chez vous »).
+        let route = s.via_relay().then(|| {
+            let t = s.path().label().to_string();
+            let w = cv.text_width(Text::new(Font::Regular, 12.5, FROST), &t) + 22.0;
+            (t, w)
+        });
+        let others = 16.0 + 16.0 + 12.0 + lat_w + 8.0 + 64.0 + 12.0 + 1.0 + 12.0 + 12.0 + 1.0 + 12.0 + prof_w + 12.0 + route.as_ref().map_or(0.0, |(_, rw)| rw + 8.0) + quality.as_ref().map_or(0.0, |(_, qw)| qw + 8.0) + 34.0 * icons.len() as f32 + pill.as_ref().map_or(0.0, |(_, pw)| pw + 4.0) + requests.as_ref().map_or(0.0, |(_, pw)| pw + 4.0) + 24.0 + 1.0 + 12.0 + quit_w + 10.0;
         // Une fenêtre étroite (960 points) avec « Ordinateurs », « Garder le son » et la pastille : les mesures se resserrent.
         info_w = info_w.min((w - 8.0 - others).max(60.0));
         let total = others + info_w;
-        Self { lat, info, profile, quit, mono14, mono12, lat_w, info_w, prof_w, quit_w, icons, pill, quality, total }
+        Self { lat, info, profile, quit, mono14, mono12, lat_w, info_w, prof_w, quit_w, icons, pill, requests, quality, route, total }
     }
 }
 
@@ -483,7 +497,7 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     let h = BAR_H;
     let st = s.stats.clone().unwrap_or_default();
     let width = cv.w;
-    let BarLayout { lat, info, profile, quit, mono14, mono12, lat_w, info_w, prof_w, quit_w, icons, pill, quality, total } = BarLayout::measure(cv, app, s, width);
+    let BarLayout { lat, info, profile, quit, mono14, mono12, lat_w, info_w, prof_w, quit_w, icons, pill, requests, quality, route, total } = BarLayout::measure(cv, app, s, width);
     let r = bar_frame(cv.w, total);
     let x0 = r.x;
     cv.rrect(r.x, r.y - 12.0, r.w, r.h + 12.0, 12.0, Rgba(9, 13, 18, 235));
@@ -528,6 +542,13 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     let profile_x = pr.x;
     x += prof_w + 12.0;
     let mut tip: Option<(Rect, String)> = None;
+    // Par le relais : une puce, sans menu (le chemin se lit, il ne se choisit pas).
+    if let Some((label, rw)) = &route {
+        let rr = Rect::new(x, cy - 12.0, *rw, 24.0);
+        cv.rrect(rr.x, rr.y, rr.w, rr.h, 12.0, FLAT.alpha(0.22));
+        cv.text(rr.x + rr.w / 2.0, cy + 4.5, Text::new(Font::Regular, 12.5, FROST).align(Align::Center), label);
+        x += rw + 8.0;
+    }
     // Un invité : « Qualité de l'image », une puce qui montre la qualité reçue (« 1080p · 60 Hz ») et ouvre les
     // cinq choix, comme le profil d'un hôte.
     let mut quality_x = x;
@@ -578,6 +599,17 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         let pr = Rect::new(x + 2.0, cy - 12.0, pw, 24.0);
         let (focused, hover) = f.state(Target::BarShare, pr);
         cv.rrect(pr.x, pr.y, pr.w, pr.h, 12.0, FLAT.alpha(if hover || s.bar_menu == Some(BarMenu::Share) { 0.34 } else { 0.22 }));
+        if focused {
+            widgets::ring(cv, pr, 12.0);
+        }
+        cv.text(pr.x + pr.w / 2.0, cy + 4.5, Text::new(Font::Regular, 12.5, FROST).align(Align::Center), &label);
+        x += pw + 4.0;
+    }
+    // « 1 demande » : un invité attend l'accord de l'hôte ; plus appuyée que les invités, elle rouvre aussi le panneau.
+    if let Some((label, pw)) = requests {
+        let pr = Rect::new(x + 2.0, cy - 12.0, pw, 24.0);
+        let (focused, hover) = f.state(Target::BarShare, pr);
+        cv.rrect(pr.x, pr.y, pr.w, pr.h, 12.0, FLAT.alpha(if hover || s.bar_menu == Some(BarMenu::Share) { 0.7 } else { 0.55 }));
         if focused {
             widgets::ring(cv, pr, 12.0);
         }
@@ -658,6 +690,7 @@ fn computer_rows(app: &App, s: &SessionUi) -> Vec<ComputerRow> {
             let online = app.live.get(&h.id).map(|l| l.online).unwrap_or_default();
             let (state, color) = match online {
                 Online::Online => (tr("En ligne", "Online"), OK),
+                Online::Away => (tr("Hors de chez vous", "Away from home"), OK),
                 Online::Offline => (tr("Hors ligne", "Offline"), BAD),
                 Online::Unknown => (tr("Recherche…", "Searching…"), FAINT),
             };
@@ -777,7 +810,7 @@ fn stats(app: &App, cv: &mut Canvas, s: &SessionUi) {
     let x = 24.0 * u;
     let y = if app.layout == Layout::Desktop { 24.0 } else { 24.0 * u };
     let w = 300.0 * u;
-    let h = 168.0 * u;
+    let h = 187.0 * u;
     cv.rrect(x, y, w, h, 12.0 * u, Rgba(9, 13, 18, 214));
     cv.rrect_stroke(x, y, w, h, 12.0 * u, 1.0, LINE);
     let ix = x + 16.0 * u;
@@ -800,6 +833,10 @@ fn stats(app: &App, cv: &mut Canvas, s: &SessionUi) {
     cv.text_fit(ix, yy, mono, &format!("{}{audio}", st.decoder), w - 32.0 * u);
     yy += 19.0 * u;
     cv.text_fit(ix, yy, mono, &format!("{} {} · 10 s", st.lost, tr("perdues", "lost")), w - 32.0 * u);
+    yy += 19.0 * u;
+    // « Chemin » : Direct, Par le relais, Par le relais (TCP) ; par le relais, l'aller-retour mesuré s'y ajoute.
+    let ms = s.route.and_then(|r| r.total_ms()).filter(|_| s.via_relay()).map(|v| format!(" · {} ms", decimal(v, 0))).unwrap_or_default();
+    cv.text_fit(ix, yy, mono, &format!("{}{} {}{ms}", tr("Chemin", "Path"), if crate::i18n::english() { ":" } else { " :" }, s.path().label()), w - 32.0 * u);
 }
 
 // MARK: - Menu à la manette
@@ -889,12 +926,19 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         tiles.push((MenuItem::Light, tr("Alléger", "Lighter").into(), tr("60 i/s, débit réduit", "60 fps, lower bitrate").into(), s.light, false));
     }
     if guest {
+        // Par le relais : le chemin, en tuile (rien à choisir).
+        if s.via_relay() {
+            tiles.push((MenuItem::Route, s.path().label().into(), route_sub(s), false, false));
+        }
         tiles.push((MenuItem::Disconnect, tr("Quitter le partage", "Leave").into(), s.name.clone(), false, true));
     } else {
         // « Partager » : son sous-titre dit « 2 invités », le code ou « Code et QR code » (`share_tile`). Impossible,
         // elle est estompée mais se choisit : elle ouvre le panneau réduit à la raison.
         let (sub, on) = share_tile(s.share.as_ref());
         tiles.push((MenuItem::Share, tr("Partager", "Share").into(), sub, on, false));
+        if s.via_relay() {
+            tiles.push((MenuItem::Route, s.path().label().into(), route_sub(s), false, false));
+        }
         tiles.push((MenuItem::Disconnect, tr("Se déconnecter", "Disconnect").into(), tr("Fin de la session", "Ends the session").into(), false, true));
     }
     let ty = head + 36.0 * u;
@@ -938,6 +982,14 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     let keys: &[&str] = if pads { &["L1", "R1", "☰", "⧉"] } else { &["☰", "⧉"] };
     let lw = widgets::legend_width(cv, g, keys, label);
     legend(cv, w - x0 - lw, gy, g, keys, label);
+}
+
+/// Le sous-titre de la tuile « Par le relais » : l'aller-retour mesuré, « 20 ms », sinon « Hors de chez vous ».
+fn route_sub(s: &SessionUi) -> String {
+    match s.route.and_then(|r| r.total_ms()) {
+        Some(ms) => format!("{} ms", decimal(ms, 0)),
+        None => tr("Hors de chez vous", "Away from home").into(),
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
