@@ -107,15 +107,19 @@ enum LinkText {
     /// créer, ou resté sans image.
     static var screenNotCreated: String { String(localized: "L'ordinateur n'a pas pu créer cet écran.") }
 
-    /// Erreur sous le nom de l'ordinateur (`name` : son nom, pour celles qui le disent).
-    static func problem(_ p: HostProblem, name: String = "") -> String {
+    /// Erreur sous le nom de l'ordinateur. Les refus du relais (accès coupé dans
+    /// Admin, éteint ou en veille) n'y sont pas : ils se disent à l'ouverture de
+    /// l'ordinateur, avec son nom, à la place de la connexion (`RelayFailure.text`).
+    static func problem(_ p: HostProblem) -> String {
         switch p {
         case .passwordRefused: return String(localized: "Mot de passe refusé : mettez-le à jour dans les réglages.")
         case .certificateChanged: return String(localized: "La Station a été réinstallée : vérifiez son empreinte dans les réglages.")
-        case .remoteAccessOff: return String(localized: "\(name) n'est pas joignable hors de chez vous (accès coupé dans Admin).")
-        case .asleep: return String(localized: "\(name) n'est pas joignable : l'ordinateur est éteint ou en veille.")
         }
     }
+
+    /// Statistiques, « Dernière session » : la ligne « Chemin : Par le relais »
+    /// (`label` : « Direct », « Par le relais », « Par le relais (TCP) », du cœur).
+    static func pathLine(_ label: String) -> String { String(localized: "Chemin : \(label)") }
 
     /// Bouton principal d'un ordinateur hors ligne dont l'app connaît une carte réseau.
     static var wake: String { String(localized: "Réveiller l'ordinateur") }
@@ -237,6 +241,8 @@ enum ShareText {
     // Demandes (invités venus par le relais, en attente de l'accord de l'hôte).
     static var requests: String { String(localized: "Demandes") }
     static func wantsToJoin(_ name: String) -> String { String(localized: "\(name) demande à rejoindre") }
+    /// L'avis bref d'une demande qui arrive pendant la session (le choisir ouvre le panneau).
+    static func requestNotice(_ name: String) -> String { String(localized: "\(name) demande à rejoindre.") }
     static var awayFromHome: String { String(localized: "hors de chez vous") }
     static var accept: String { String(localized: "Accepter") }
     static var decline: String { String(localized: "Refuser") }
@@ -277,6 +283,17 @@ enum ShareText {
 
     /// Sous-titre de la tuile « Partager » des menus quand rien n'est ouvert.
     static var tileDetail: String { String(localized: "Code et QR code") }
+
+    /// Sous-titre de la tuile « Partager » des menus à tuiles dès qu'une demande ou
+    /// un invité est là : les demandes d'abord, « 1 demande · 2 invités » ; nil
+    /// quand il n'y a ni l'une ni l'autre (le code, ou « Code et QR code »).
+    static func tileDetail(requests: Int, guests: Int) -> String? {
+        let parts = [requests > 0 ? requestCount(requests) : nil, guests > 0 ? guestCount(guests) : nil].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// Un invité qui attend l'accord de l'hôte, quand l'hôte arrête le partage.
+    static var stopped: String { String(localized: "Ce partage est arrêté.") }
 
     /// La pastille de la barre : « 1 invité », « 2 invités ».
     static func guestCount(_ n: Int) -> String {
@@ -428,6 +445,8 @@ struct LastSessionSummary {
     let mbps: Int?
     /// Nombre d'écrans (nil : un).
     let screens: Int?
+    /// Par où elle est passée (nil : une session d'avant le relais).
+    let route: RouteInfo.Transport?
 
     /// Nil : pas encore de session (ou d'avant les mesures).
     init?(_ host: Host) {
@@ -442,7 +461,12 @@ struct LastSessionSummary {
         codec = host.lastCodec
         mbps = host.lastMbps
         screens = host.lastScreens
+        route = host.lastRoute
     }
+
+    /// « Chemin : Direct », « Chemin : Par le relais », « Chemin : Par le relais
+    /// (TCP) » ; nil pour une session d'avant le relais.
+    var pathLine: String? { route.map { LinkText.pathLine(RouteInfo.label($0)) } }
 
     /// « 42 min · hier ».
     var when: String {
@@ -530,6 +554,8 @@ struct StationConfirm: Identifiable, Equatable {
 enum StationText {
     static var restart: String { String(localized: "Redémarrer la Station") }
     static var restartHelp: String { String(localized: "Environ 30 secondes. Une session en cours sera coupée.") }
+    /// Par le relais, la raison pour laquelle le redémarrage et la mise à jour manquent.
+    static var viaRelay: String { String(localized: "Hors de chez vous, l'app ne peut ni redémarrer ni mettre à jour la Station.") }
     static var update: String { String(localized: "Mettre à jour la Station") }
     static func updateHelp(_ v: String) -> String { String(localized: "Version \(v). Environ une minute. Une session en cours sera coupée.") }
     static var openAdmin: String { String(localized: "Ouvrir Admin") }
@@ -568,9 +594,23 @@ extension HostStore {
         status[host.id]?.info?.ownDevice == true || host.pairedByCode == true
     }
 
+    /// Par le relais, pas d'action lourde : ni redémarrage ni mise à jour de la
+    /// Station depuis l'app quand l'ordinateur n'est joignable que par le relais
+    /// (« Hors de chez vous ») ou que sa session y passe : Admin les refuse par le
+    /// relais (docs/relais.md). Les réglages en disent la raison (`StationText.viaRelay`).
+    func viaRelay(_ host: Host) -> Bool { viaRelay(host.id) }
+
+    func viaRelay(_ id: UUID) -> Bool { status[id]?.away == true || relaySessions.contains(id) }
+
+    /// La session de cet ordinateur passe par le relais (ou n'y passe plus, ou finit).
+    func setSessionViaRelay(_ host: Host, _ on: Bool) {
+        guard relaySessions.contains(host.id) != on else { return }
+        if on { relaySessions.insert(host.id) } else { relaySessions.remove(host.id) }
+    }
+
     /// « Redémarrer la Station » : `force` après « Redémarrer quand même ».
     func restartStation(_ host: Host, force: Bool = false) {
-        guard stationTasks[host.id]?.working != true else { return }
+        guard stationTasks[host.id]?.working != true, !viaRelay(host) else { return }
         #if DEBUG
         if demo {
             demoStation(host, task: .restarting(since: Date()), force: force)
@@ -591,7 +631,7 @@ extension HostStore {
 
     /// « Mettre à jour la Station » vers la version annoncée par Admin.
     func updateStation(_ host: Host, force: Bool = false) {
-        guard stationTasks[host.id]?.working != true else { return }
+        guard stationTasks[host.id]?.working != true, !viaRelay(host) else { return }
         let target = status[host.id]?.info?.station?.updateVersion
         #if DEBUG
         if demo {
@@ -757,15 +797,12 @@ extension HostStore {
         let problem: HostProblem? = switch args.string(forKey: "demoProblem") {
         case "password": .passwordRefused
         case "certificate": .certificateChanged
-        // Hors de chez soi, après « Réessayer » (avec `-demoState offline`) : accès coupé dans Admin, ordinateur éteint ou en veille.
-        case "accessoff": .remoteAccessOff
-        case "asleep": .asleep
         default: nil
         }
         func put(_ h: Host, online: Bool, _ info: HostInfo, problem: HostProblem? = nil) {
             switch state {
             case "searching": setDemoStatus(nil, for: h.id)
-            case "offline": setDemoStatus(HostStatus(online: false, info: info, problem: problem == .remoteAccessOff || problem == .asleep ? problem : nil), for: h.id)
+            case "offline": setDemoStatus(HostStatus(online: false, info: info), for: h.id)
             // `-demoState away` : joignables seulement par le relais, « Hors de chez vous ».
             case "away": setDemoStatus(HostStatus(online: online, info: info, away: online), for: h.id)
             default: setDemoStatus(HostStatus(online: online, info: info, problem: problem), for: h.id)

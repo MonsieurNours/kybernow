@@ -78,6 +78,15 @@ struct ShareBarButton: View {
         .onChange(of: availability) { _, now in
             if !now.isAvailable { open = false }
         }
+        // L'avis d'une demande (« Léa demande à rejoindre. ») choisi : la barre s'est ouverte, le panneau avec elle.
+        .onAppear { openForRequest() }
+        .onChange(of: session.sharePanelRequests) { _, _ in openForRequest() }
+    }
+
+    private func openForRequest() {
+        guard session.takeSharePanelRequest(), availability.isAvailable else { return }
+        open = true
+        Task { await share.openIfNeeded() }
     }
 
     private var unavailableText: String? {
@@ -364,7 +373,7 @@ enum SharePanelDemo {
                                         opening: .first(home: nil)) { _ in }
         }
         session.demoHeadless()
-        if relay { session.demoPath(RouteInfo(transport: .relay, relay: "share.kybernow.app:8443", rttClient: 24, rttStation: 11)) }
+        if relay { session.demoPath(RouteInfo(transport: .relay, relay: Relay.defaultServer, rttClient: 24, rttStation: 11)) }
         // Un invité : la qualité reçue dans la barre (« 1080p · 60 Hz »).
         if kind != "host" { session.demoShareImage(ShareImage.demo("1080p60", 1920, 1080, 60, follows: false)) }
         let view = ZStack(alignment: .top) {
@@ -411,8 +420,10 @@ private struct RequestRow: View {
                 Spacer(minLength: 0)
             }
             HStack(spacing: 8) {
+                // Quatre invités au plus : « Accepter » est inactif quand les quatre places sont prises.
                 Button(ShareText.accept) { Task { await share.answer(request, accept: true) } }
                     .buttonStyle(PrimaryButton(height: 32))
+                    .disabled(share.full)
                 Button(ShareText.decline) { Task { await share.answer(request, accept: false) } }
                     .buttonStyle(GhostButton(height: 32))
             }

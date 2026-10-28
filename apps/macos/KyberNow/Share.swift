@@ -255,11 +255,15 @@ final class ShareJoinModel: ObservableObject {
         }
     }
 
-    /// Les relais qui connaissent peut-être le code : le relais public et celui
-    /// de chaque ordinateur de l'appareil (`info.relay`), sans doublon.
+    /// Les relais de chaque ordinateur de l'appareil (`info.relay`), sous leur forme
+    /// normale, sans doublon : le code leur est demandé aussi. Le relais public
+    /// (`share.kybernow.app`) n'y est pas : le cœur l'interroge toujours.
     static func relays(hosts: [Host]) -> [String] {
-        var list = [Relay.defaultServer]
-        for server in hosts.compactMap({ $0.relay?.server }) where !server.isEmpty && !list.contains(server) { list.append(server) }
+        var list: [String] = []
+        for server in hosts.compactMap({ $0.relay?.server }) where !server.isEmpty {
+            let normal = Relay.normalize(server)
+            if !list.contains(normal) { list.append(normal) }
+        }
         return list
     }
 
@@ -289,6 +293,8 @@ final class ShareJoinModel: ObservableObject {
     static func text(_ error: Error) -> String {
         // Trois demandes attendent déjà : le texte de link-ui (celui du cœur le dit un peu autrement).
         if case .pendingFull? = error as? ShareJoinError { return ShareText.pendingFull }
+        // L'hôte a arrêté le partage pendant l'attente (code 28 du cœur, jamais le texte).
+        if case .stopped? = error as? ShareJoinError { return ShareText.stopped }
         let text = (error as? ShareJoinError)?.errorDescription ?? error.localizedDescription
         return text.isEmpty ? ShareText.noShare : ShareText.sentence(text)
     }
@@ -351,7 +357,12 @@ extension ShareRole {
 @MainActor
 final class ShareHostModel: ObservableObject {
     /// Le partage ouvert, nil sans partage.
-    @Published private(set) var state: ShareState?
+    @Published private(set) var state: ShareState? {
+        didSet { announceNewRequest(since: oldValue) }
+    }
+    /// Une demande vient d'arriver pendant la session : avis bref « {prénom} demande
+    /// à rejoindre. » (chaque app le montre à sa façon ; le choisir ouvre le panneau).
+    var onRequest: ((ShareGuest) -> Void)?
     /// Un appel à Admin est en cours.
     @Published private(set) var busy = false
     /// Le texte du dernier refus d'Admin, à montrer dans le panneau.
@@ -388,6 +399,13 @@ final class ShareHostModel: ObservableObject {
 
     func setConsole(_ console: ConsoleClient?) {
         self.console = console
+    }
+
+    /// La première demande que `previous` ne connaissait pas (une seule par
+    /// signe de vie) : l'hôte en est averti sans ouvrir le panneau.
+    private func announceNewRequest(since previous: ShareState?) {
+        let known = Set((previous?.requests ?? []).map(\.id))
+        if let request = (state?.requests ?? []).first(where: { !known.contains($0.id) }) { onRequest?(request) }
     }
 
     /// « Partager » : le partage s'ouvre s'il ne l'est pas déjà.

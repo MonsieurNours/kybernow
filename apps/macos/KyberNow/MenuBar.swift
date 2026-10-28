@@ -242,14 +242,19 @@ enum MenuContent {
         // Admin, redémarrer, mettre à jour.
         var admin: [MenuEntry] = []
         if online == true { admin.append(MenuEntry(title: StationText.openAdmin, action: .admin(host.id))) }
+        // Par le relais, pas d'action lourde : Admin refuse le redémarrage et la mise à jour (docs/relais.md) ;
+        // « Redémarrer la Station » reste, inactif, avec la raison ; plus de mise à jour.
+        let relayed = store.viaRelay(host)
         if restarting {
             admin.append(MenuEntry(title: StationText.restarting, enabled: false))
+        } else if relayed, online == true {
+            admin.append(MenuEntry(title: StationText.restart, enabled: false, help: StationText.viaRelay))
         } else if updating || (online == true && station != nil) {
             admin.append(MenuEntry(title: StationText.restart, enabled: !updating, action: .restart(host.id)))
         }
         if updating {
             admin.append(MenuEntry(title: StationText.updating, enabled: false))
-        } else if online == true, let station, station.updateAvailable, station.installable, let v = station.updateVersion {
+        } else if !relayed, online == true, let station, station.updateAvailable, station.installable, let v = station.updateVersion {
             admin.append(MenuEntry(title: String(localized: "Mettre à jour la Station (\(v))"), enabled: !restarting, action: .update(host.id)))
         }
         if !admin.isEmpty {

@@ -808,9 +808,6 @@ enum DemoRemote {
             case "online": app.store.setDemoStatus(HostStatus(online: true, info: info), for: h.id)
             // Joignable seulement par le relais : « Hors de chez vous ».
             case "away": app.store.setDemoStatus(HostStatus(online: true, info: info, away: true), for: h.id)
-            // Hors ligne après « Réessayer » : la raison (accès coupé dans Admin, ordinateur éteint ou en veille).
-            case "accessoff": app.store.setDemoStatus(HostStatus(online: false, info: info, problem: .remoteAccessOff), for: h.id)
-            case "asleep": app.store.setDemoStatus(HostStatus(online: false, info: info, problem: .asleep), for: h.id)
             case "offline": app.store.setDemoStatus(HostStatus(online: false, info: info), for: h.id)
             // Hors ligne et sans réponse possible : le réveil n'aboutira pas.
             case "unknown": app.store.setDemoStatus(HostStatus(online: false, info: nil), for: h.id)

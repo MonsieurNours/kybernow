@@ -174,18 +174,13 @@ private struct Hero: View {
                 if let problem = status?.problem {
                     let line = HStack(spacing: 8) {
                         Icon("warning", size: 15, bold: true).foregroundStyle(Theme.warn)
-                        Text(LinkText.problem(problem, name: host.name)).font(Theme.sans(14)).foregroundStyle(Theme.warnText)
+                        Text(LinkText.problem(problem)).font(Theme.sans(14)).foregroundStyle(Theme.warnText)
                     }
-                    if problem == .passwordRefused || problem == .certificateChanged {
-                        // Le réglage qui le règle : le mot de passe (Station), l'empreinte (Statistiques).
-                        Button { app.openSettings(host, section: problem == .passwordRefused ? .station : .statistics) } label: {
-                            line.contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                    } else {
-                        // Hors de chez soi, après « Réessayer » : rien à régler ici (c'est dans Admin, ou l'ordinateur est éteint).
-                        line
+                    // Le réglage qui le règle : le mot de passe (Station), l'empreinte (Statistiques).
+                    Button { app.openSettings(host, section: problem == .passwordRefused ? .station : .statistics) } label: {
+                        line.contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
                 }
             }
             .modifier(rise(1))

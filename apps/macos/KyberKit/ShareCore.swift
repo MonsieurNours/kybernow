@@ -416,8 +416,12 @@ public enum ShareJoinError: LocalizedError, Sendable, Equatable {
     case expired(String)
     /// Par le relais : trois demandes attendent déjà l'accord de l'hôte.
     case pendingFull(String)
-    /// Par le relais : le relais ne répond pas (« Le relais ne répond pas. »), ou
-    /// l'ordinateur n'y est pas, éteint ou en veille (texte du cœur).
+    /// Par le relais : l'hôte a arrêté le partage pendant l'attente (« Ce partage
+    /// est arrêté. », code 28 du cœur).
+    case stopped(String)
+    /// Par le relais : le relais ne répond pas (« Le relais ne répond pas. »),
+    /// l'ordinateur n'y est pas (éteint ou en veille), ou son accès hors de chez
+    /// soi est coupé dans Admin : le texte du cœur, choisi par son code.
     case relay(String)
     /// Le reste : Station injoignable, réponse illisible (message du cœur).
     case other(String)
@@ -425,7 +429,7 @@ public enum ShareJoinError: LocalizedError, Sendable, Equatable {
     public var errorDescription: String? {
         switch self {
         case let .noShare(m), let .full(m), let .tooManyTries(m), let .unreadable(m), let .other(m),
-             let .refused(m), let .expired(m), let .pendingFull(m), let .relay(m): return m
+             let .refused(m), let .expired(m), let .pendingFull(m), let .stopped(m), let .relay(m): return m
         case .certificateChanged: return String(localized: "le certificat de la Station a changé : ce n'est peut-être pas votre ordinateur", bundle: .kyberKit)
         }
     }
@@ -675,7 +679,8 @@ public enum Share {
         case KN_SHARE_REFUSED: return .refused(message)
         case KN_SHARE_EXPIRED: return .expired(message)
         case KN_SHARE_PENDING_FULL: return .pendingFull(message)
-        case KN_RELAY_UNREACHABLE, KN_RELAY_STATION_OFFLINE: return .relay(message)
+        case KN_SHARE_STOPPED: return .stopped(message)
+        case KN_RELAY_UNREACHABLE, KN_RELAY_STATION_OFFLINE, KN_RELAY_ACCESS_OFF: return .relay(message)
         case KN_CERTIFICATE_CHANGED: return .certificateChanged
         default: return .other(message)
         }

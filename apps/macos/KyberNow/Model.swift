@@ -380,6 +380,9 @@ struct Host: Codable, Identifiable, Hashable {
     var lastMbps: Int?
     /// Nombre d'écrans de la dernière session (absent : un).
     var lastScreens: Int?
+    /// Par où elle est passée : sur le réseau ou par le relais (ligne « Chemin » de
+    /// la « Dernière session » ; absent : une session d'avant le relais).
+    var lastRoute: RouteInfo.Transport?
     /// Ajouté par code à six chiffres : un compte propre à cet appareil,
     /// créé par Admin à l'accord.
     var pairedByCode: Bool?
@@ -399,10 +402,10 @@ struct Host: Codable, Identifiable, Hashable {
     }
 
     /// La route que prend la session quand le réseau de l'ordinateur ne répond
-    /// pas : seulement si l'accès hors de chez soi est actif (Admin).
-    var sessionRelay: RelayRoute? {
-        relay?.remoteAccess == true ? relayRoute : nil
-    }
+    /// pas. C'est le relais (et son Admin) qui dit si l'accès hors de chez soi est
+    /// coupé, par un refus typé (code 32 : « {nom} n'est pas joignable hors de chez
+    /// vous (accès coupé dans Admin). ») : jamais déduit ici de ce que `info` disait.
+    var sessionRelay: RelayRoute? { relayRoute }
 
     init(name: String, address: String, consolePort: UInt16, username: String) {
         self.name = name
@@ -413,7 +416,7 @@ struct Host: Codable, Identifiable, Hashable {
 
     /// Fin d'une session commencée à `start` (l'image arrivée) : une session
     /// de moins de 3 s ne remplace pas la précédente dans les Statistiques.
-    mutating func recordSession(start: Date, latency: (median: Double, p95: Double)?, width: Int, height: Int, refresh: Int, codec: VideoCodec, mbps: Int, screens: Int = 1) {
+    mutating func recordSession(start: Date, latency: (median: Double, p95: Double)?, width: Int, height: Int, refresh: Int, codec: VideoCodec, mbps: Int, screens: Int = 1, route: RouteInfo.Transport? = nil) {
         let duration = Date().timeIntervalSince(start)
         guard duration >= 3 else { return }
         lastSession = start
@@ -426,13 +429,14 @@ struct Host: Codable, Identifiable, Hashable {
         lastCodec = codec
         lastMbps = mbps > 0 ? mbps : nil
         lastScreens = screens > 1 ? screens : nil
+        lastRoute = route
     }
 
     // Lecture tolérante : les ordinateurs enregistrés par les versions
     // précédentes n'avaient qu'un profil, ni le détail de la dernière session.
     private enum CodingKeys: String, CodingKey {
         case id, name, address, consolePort, username, streamPort, consoleFingerprint, settings, lastSession, lastLatencyMs, lastLatencyP95Ms, lastDuration, profile
-        case lastWidth, lastHeight, lastRefresh, lastCodec, lastMbps, lastScreens, pairedByCode, wake, relay
+        case lastWidth, lastHeight, lastRefresh, lastCodec, lastMbps, lastScreens, lastRoute, pairedByCode, wake, relay
     }
 
     init(from decoder: Decoder) throws {
@@ -454,6 +458,7 @@ struct Host: Codable, Identifiable, Hashable {
         lastCodec = try? c.decodeIfPresent(VideoCodec.self, forKey: .lastCodec)
         lastMbps = try? c.decodeIfPresent(Int.self, forKey: .lastMbps)
         lastScreens = try? c.decodeIfPresent(Int.self, forKey: .lastScreens)
+        lastRoute = try? c.decodeIfPresent(RouteInfo.Transport.self, forKey: .lastRoute)
         pairedByCode = try? c.decodeIfPresent(Bool.self, forKey: .pairedByCode)
         wake = try? c.decodeIfPresent([WakeTarget].self, forKey: .wake)
         relay = try? c.decodeIfPresent(RelayInfo.self, forKey: .relay)
@@ -484,6 +489,7 @@ struct Host: Codable, Identifiable, Hashable {
         try c.encodeIfPresent(lastCodec, forKey: .lastCodec)
         try c.encodeIfPresent(lastMbps, forKey: .lastMbps)
         try c.encodeIfPresent(lastScreens, forKey: .lastScreens)
+        try c.encodeIfPresent(lastRoute, forKey: .lastRoute)
         try c.encodeIfPresent(pairedByCode, forKey: .pairedByCode)
         try c.encodeIfPresent(wake, forKey: .wake)
         try c.encodeIfPresent(relay, forKey: .relay)
@@ -496,12 +502,10 @@ enum HostProblem: Equatable {
     case passwordRefused
     /// Le certificat d'Admin n'est plus celui retenu (Station réinstallée).
     case certificateChanged
-    /// Hors de chez soi, après « Réessayer » : l'accès par le relais est coupé
-    /// dans Admin (« {nom} n'est pas joignable hors de chez vous (accès coupé dans Admin). »).
-    case remoteAccessOff
-    /// Hors de chez soi, après « Réessayer » : l'ordinateur n'est pas chez le
-    /// relais (« {nom} n'est pas joignable : l'ordinateur est éteint ou en veille. »).
-    case asleep
+    // Hors de chez soi, l'accueil ne dit que l'état (« Hors de chez vous », « Hors
+    // ligne ») : les refus du relais (accès coupé dans Admin, ordinateur éteint ou
+    // en veille) se disent à l'ouverture de l'ordinateur, à la place de la
+    // connexion, avec son nom (`SessionEngine.Params.computerName`).
 }
 
 /// État d'un ordinateur vu depuis cet appareil, rafraîchi en continu.
@@ -532,6 +536,10 @@ final class HostStore: ObservableObject {
     /// Redémarrage ou mise à jour de la Station en cours, par ordinateur
     /// (rubrique « Station », LinkUI.swift).
     @Published var stationTasks: [UUID: StationTask] = [:]
+    /// Ordinateurs dont la session passe par le relais (la session le dit avec son
+    /// chemin, `setSessionViaRelay`) : ni redémarrage ni mise à jour de la Station
+    /// depuis l'app, Admin les refuse par le relais (`viaRelay`).
+    @Published var relaySessions: Set<UUID> = []
     /// Un appareil est en session : « Redémarrer quand même » à confirmer.
     @Published var stationConfirm: StationConfirm?
     /// Réveil par le réseau en cours (« Réveil de l'ordinateur… »), par ordinateur.
@@ -681,8 +689,8 @@ final class HostStore: ObservableObject {
                              fingerprint: current.consoleFingerprint, relay: viaRelay ? current.relayRoute : nil)
     }
 
-    /// « Réessayer » : le sondage tout de suite, et, hors de chez soi, ce que
-    /// dit le relais (accès coupé dans Admin, ordinateur éteint ou en veille).
+    /// « Réessayer » : le sondage tout de suite, y compris chez le relais (le
+    /// cache de présence est passé).
     func retry(_ host: Host) async {
         await refresh(host, explicit: true)
     }
@@ -726,28 +734,30 @@ final class HostStore: ObservableObject {
 
     /// Le réseau ne répond pas : l'ordinateur est peut-être joignable par son
     /// relais. Présent chez lui : « Hors de chez vous » (on peut se connecter) ;
-    /// sinon « Hors ligne », et, après « Réessayer », la raison.
+    /// sinon « Hors ligne ». L'accueil ne dit que cet état : les refus du relais
+    /// (accès coupé dans Admin, éteint ou en veille) se disent à l'ouverture de
+    /// l'ordinateur, avec son nom, d'après le code du cœur (jamais le texte d'Admin).
+    /// `explicit` (« Réessayer ») passe le cache de présence.
     private func unreachableOnNetwork(_ host: Host, explicit: Bool) async -> HostStatus {
         let info = status[host.id]?.info
         let offline = HostStatus(online: false, info: info)
         guard !demo, Relay.mode != .off, let known = self.host(host.id), let relay = known.relay else { return offline }
-        // L'accès est coupé dans Admin : le relais ne mène nulle part.
-        guard relay.remoteAccess else { return HostStatus(online: false, info: info, problem: explicit ? .remoteAccessOff : nil) }
         // Jamais de premier contact par le relais : il faut l'empreinte d'Admin.
         guard known.relayRoute != nil, let present = await presence(of: relay, force: explicit) else { return offline }
-        return present ? HostStatus(online: true, info: info, away: true) : HostStatus(online: false, info: info, problem: explicit ? .asleep : nil)
+        return present ? HostStatus(online: true, info: info, away: true) : offline
     }
 
     /// L'ordinateur est-il chez son relais ? nil si le relais ne répond pas.
-    /// Tous les ordinateurs d'un même relais sont demandés d'un coup, une fois
-    /// toutes les 30 s (tout de suite avec `force`).
+    /// Tous les ordinateurs d'un même relais (le même si les formes normales de
+    /// leurs adresses sont égales) sont demandés d'un coup, une fois toutes les
+    /// 30 s (tout de suite avec `force`).
     private func presence(of relay: RelayInfo, force: Bool) async -> Bool? {
-        let server = relay.server
+        let server = Relay.normalize(relay.server)
         if !force, let r = presenceResults[server], Date().timeIntervalSince(r.at) < Self.presenceInterval, let known = r.present[relay.id] {
             return known
         }
         if let running = presenceTasks[server] { return await running.value?[relay.id] }
-        let ids = Array(Set(hosts.compactMap { $0.relay.flatMap { $0.server == server && $0.remoteAccess ? $0.id : nil } }).prefix(16))
+        let ids = Array(Set(hosts.compactMap { $0.relay.flatMap { Relay.normalize($0.server) == server ? $0.id : nil } }).prefix(16))
         let task = Task { () -> [String: Bool]? in
             guard let list = try? await Relay.presence(server: server, stations: ids), list.count == ids.count else { return nil }
             return Dictionary(uniqueKeysWithValues: zip(ids, list))

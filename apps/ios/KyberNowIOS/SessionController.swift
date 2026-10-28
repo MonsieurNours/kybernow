@@ -63,6 +63,8 @@ final class SessionController: ObservableObject {
     @Published private(set) var startedAt = Date()
     /// Capsule d'information en haut de l'image (mode changé, image relancée…).
     @Published private(set) var notice: String?
+    /// La capsule se choisit : elle ouvre le panneau du partage (la demande d'un invité, « Léa demande à rejoindre. »).
+    @Published private(set) var noticeOpensShare = false
     @Published private(set) var fallbackNote: String?
     /// Profil Bureau, écran de l'ordinateur passé à un autre mode : « Remettre 2622 × 1206 ».
     @Published private(set) var modeRestoreOffer: String?
@@ -214,6 +216,7 @@ final class SessionController: ObservableObject {
         }
         // KyberNow Share : la liste des invités (hôte), le rôle et la fin (invité).
         engine.onGuests = { [weak self] in self?.share.heartbeat($0) }
+        share.onRequest = { [weak self] in self?.requestArrived($0) }
         engine.onShareRole = { [weak self] role, previous in self?.shareRoleChanged(role, previous: previous) }
         engine.onShareEnd = { [weak self] _, text in self?.shareEndText = text }
         engine.onShareImage = { [weak self] image, _, notice in self?.shareImageChanged(image, notice: notice) }
@@ -238,6 +241,8 @@ final class SessionController: ObservableObject {
             // Hors de chez soi : le réseau d'abord, puis le relais si l'accès est actif.
             params.relay = host.sessionRelay
         }
+        // Par le relais, une fin faute de joindre l'ordinateur le dit avec son nom (l'ordinateur du partage pour un invité).
+        params.computerName = host.name
         params.autoReconnect = settings.autoReconnect
         params.gamepadAsXbox360 = settings.gamepad == .xbox360
         params.vsync = settings.vsync
@@ -276,7 +281,11 @@ final class SessionController: ObservableObject {
         guard info != path else { return }
         let wasRelay = path.viaRelay
         path = info
-        if info.viaRelay != wasRelay, !isGuest { share.setConsole(store.console(for: host, route: info.viaRelay ? .relay : .direct)) }
+        if info.viaRelay != wasRelay, !isGuest {
+            share.setConsole(store.console(for: host, route: info.viaRelay ? .relay : .direct))
+            // Par le relais, l'app ne redémarre ni ne met à jour la Station (réglages).
+            store.setSessionViaRelay(host, info.viaRelay)
+        }
     }
 
     /// L'écran de l'appareil (celui de la fenêtre de l'app).
@@ -517,13 +526,31 @@ final class SessionController: ObservableObject {
         }
     }
 
-    /// Capsule en haut de l'image pendant quelques secondes.
-    func show(notice text: String, for seconds: TimeInterval = 5) {
-        withAnimation(.easeOut(duration: 0.3)) { notice = text }
+    /// Capsule en haut de l'image pendant quelques secondes (`opensShare` : la choisir
+    /// ouvre le panneau du partage).
+    func show(notice text: String, for seconds: TimeInterval = 5, opensShare: Bool = false) {
+        withAnimation(.easeOut(duration: 0.3)) {
+            notice = text
+            noticeOpensShare = opensShare
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
             guard self?.notice == text else { return }
-            withAnimation(.easeIn(duration: 0.3)) { self?.notice = nil }
+            withAnimation(.easeIn(duration: 0.3)) {
+                self?.notice = nil
+                self?.noticeOpensShare = false
+            }
         }
+    }
+
+    /// Une demande vient d'arriver pendant la session : l'avis bref « {prénom} demande
+    /// à rejoindre. » (6 s), qui ouvre le panneau du partage quand on le choisit.
+    private func requestArrived(_ request: ShareGuest) {
+        switch phase {
+        case .ending, .ended, .failed: return
+        default: break
+        }
+        guard !shareSheet else { return }
+        show(notice: ShareText.requestNotice(request.name), for: 6, opensShare: true)
     }
 
     // MARK: - Barre
@@ -699,7 +726,7 @@ final class SessionController: ObservableObject {
             }
             // `-demoRelay YES` : la session passe par le relais (puce « Par le relais », ligne « Chemin »).
             if UserDefaults.standard.bool(forKey: "demoRelay") {
-                self.path = RouteInfo(transport: .relay, relay: "share.kybernow.app:8443", rttClient: 24, rttStation: 11)
+                self.path = RouteInfo(transport: .relay, relay: Relay.defaultServer, rttClient: 24, rttStation: 11)
             }
             // `-demoRequests 1|2` : le partage de l'hôte, relais joint, avec ce nombre de demandes en attente
             // (`-demoShareRelay unreachable` : relais réglé mais pas joint), le panneau ouvert.
@@ -784,7 +811,7 @@ final class SessionController: ObservableObject {
             let codec = engineSettings.codec
             let mbps = host.settings.bitrate(width: streamMode.width, height: streamMode.height, refresh: streamMode.refresh)
             host.recordSession(start: revealedAt, latency: engine?.sessionLatency, width: streamMode.width, height: streamMode.height,
-                               refresh: streamMode.refresh, codec: codec, mbps: mbps)
+                               refresh: streamMode.refresh, codec: codec, mbps: mbps, route: path.transport)
         }
         store.update(host)
         withAnimation(.easeInOut(duration: 0.4)) {
@@ -811,6 +838,7 @@ final class SessionController: ObservableObject {
     func finish() {
         guard phase != .ended else { return }
         phase = .ended
+        if !isGuest { store.setSessionViaRelay(host, false) }
         onFinish(self)
     }
 

@@ -202,12 +202,26 @@ public enum ConsoleError: LocalizedError {
     case relay(String)
     /// Par le relais : l'ordinateur n'y est pas, éteint ou en veille (texte du cœur).
     case stationOffline(String)
+    /// Par le relais : « Accès hors de chez vous » est coupé dans Admin (le cœur
+    /// a lu lui-même le 403 `remote_access_off` : code 32, jamais le texte).
+    case accessOff(String)
 
     public var errorDescription: String? {
         switch self {
         case let .http(code, message): return message.isEmpty ? String(localized: "la Station a répondu \(code)", bundle: .kyberKit) : message
         case .certificateChanged: return String(localized: "le certificat de la Station a changé : ce n'est peut-être pas votre ordinateur", bundle: .kyberKit)
-        case let .network(message), let .relay(message), let .stationOffline(message): return message
+        case let .network(message), let .relay(message), let .stationOffline(message), let .accessOff(message): return message
+        }
+    }
+
+    /// Le refus du relais de cette erreur (par son code, jamais par son texte) ;
+    /// nil pour une autre erreur.
+    public var relayFailure: RelayFailure? {
+        switch self {
+        case .relay: return .unreachable
+        case .stationOffline: return .stationOffline
+        case .accessOff: return .accessOff
+        default: return nil
         }
     }
 }
@@ -259,6 +273,7 @@ public final class ConsoleClient: @unchecked Sendable {
         case KN_ERROR: throw ConsoleError.network(message)
         case KN_RELAY_UNREACHABLE: throw ConsoleError.relay(message)
         case KN_RELAY_STATION_OFFLINE: throw ConsoleError.stationOffline(message)
+        case KN_RELAY_ACCESS_OFF: throw ConsoleError.accessOff(message)
         default:
             if code < 0 { throw ConsoleError.http(Int(-code), message) }
             throw ConsoleError.network(message)

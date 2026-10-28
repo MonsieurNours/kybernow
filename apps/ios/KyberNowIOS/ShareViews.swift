@@ -455,8 +455,10 @@ private struct RequestRow: View {
                 Spacer(minLength: 0)
             }
             HStack(spacing: 10) {
+                // Quatre invités au plus : « Accepter » est inactif quand les quatre places sont prises.
                 Button(ShareText.accept) { Task { await share.answer(request, accept: true) } }
                     .buttonStyle(PrimaryButton(height: 46, fontSize: 15))
+                    .disabled(share.full)
                 Button(ShareText.decline) { Task { await share.answer(request, accept: false) } }
                     .buttonStyle(GlassButton(height: 46, fontSize: 15))
             }
