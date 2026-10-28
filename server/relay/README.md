@@ -131,7 +131,7 @@ Les variables d'environnement (`docker-compose.yml`) passent avant `config/relay
 | `KN_RELAY_GLOBAL_CAP_MBPS` | `0` | Plafond global des paquets relayés (`0` : aucun) |
 | `KN_RELAY_CONFIG` | `/config/relay.toml` | Le fichier de réglages |
 
-Les limites (`[limits]` de `relay.toml`) suivent [docs/relais.md](../../docs/relais.md#limites-et-protections-du-relais) : recherches de code (10 par minute et 60 par heure par adresse, 30 par minute par /24 ou /48, 600 par minute en tout), connexions QUIC (16 par adresse, 60 négociations par minute, 4096 en tout, preuve d'adresse au-delà de 100 négociations par seconde), TCP (32 par adresse, TLS et en-têtes en 10 s, 16 Kio d'en-têtes), 4 Stations par adresse, 20 connexions de Station par minute et par adresse, 8 clients par Station, 4 flux UDP par client, 4 codes par Station. Pas de plafond de débit par défaut.
+Les limites (`[limits]` de `relay.toml`) suivent [docs/relais.md](../../docs/relais.md#limites-et-protections-du-relais) : recherches de code (10 par minute et 60 par heure par adresse, 30 par minute par /24 ou /48, 600 par minute en tout), connexions QUIC (16 par adresse, 60 négociations par minute, 4096 en tout, preuve d'adresse au-delà de 100 négociations par seconde), TCP (32 par adresse, TLS et en-têtes en 10 s, 16 Kio d'en-têtes), 4 Stations par adresse, 20 connexions de Station par minute et par adresse, 8 clients par Station dont 2 par adresse (`clients_per_station_per_ip`), un client renvoyé après 30 s sans flux ni connexion (`client_idle_secs`) et, Station pleine, le plus ancien client inactif qui cède sa place, 4 flux UDP par client, 4 codes par Station. Pas de plafond de débit par défaut.
 
 ## Exploitation
 

@@ -100,6 +100,17 @@ pub async fn start(cfg: Config) -> Result<Relay> {
             }
         }));
     }
+    {
+        // Les clients d'une Station sans flux ni connexion : renvoyés.
+        let hub = hub.clone();
+        tasks.push(tokio::spawn(async move {
+            let mut tick = tokio::time::interval(Duration::from_secs(5));
+            loop {
+                tick.tick().await;
+                hub.sweep_idle_clients();
+            }
+        }));
+    }
     tasks.push(tokio::spawn(egress_monitor(hub.clone())));
     let metrics_addr = match cfg.metrics.listen {
         Some(m) => {

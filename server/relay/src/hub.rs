@@ -73,6 +73,91 @@ pub struct ClientPeer {
     next_flow: AtomicU64,
     /// Flux du client → (Station, flux de la Station).
     flows: Mutex<HashMap<u64, (Weak<StationPeer>, u64)>>,
+    /// Connexions TCP relayées en cours vers sa Station.
+    streams: AtomicUsize,
+    /// La dernière fois qu'il avait un flux ou une connexion en cours (ou
+    /// son arrivée) : sa place se libère après `client_idle_secs` sans.
+    last_active: Mutex<Instant>,
+}
+
+impl ClientPeer {
+    /// Depuis quand il n'a ni flux ni connexion relayée ; `None` s'il en a.
+    fn idle_since(&self) -> Option<Instant> {
+        let busy = self.streams.load(Ordering::Relaxed) > 0 || !self.flows.lock().unwrap().is_empty();
+        if busy { None } else { Some(*self.last_active.lock().unwrap()) }
+    }
+
+    fn touch(&self) {
+        *self.last_active.lock().unwrap() = Instant::now();
+    }
+}
+
+/// Une connexion TCP relayée d'un client, comptée tant qu'elle vit.
+struct StreamBusy(Arc<ClientPeer>);
+
+impl StreamBusy {
+    fn new(peer: Arc<ClientPeer>) -> StreamBusy {
+        peer.streams.fetch_add(1, Ordering::Relaxed);
+        peer.touch();
+        StreamBusy(peer)
+    }
+}
+
+impl Drop for StreamBusy {
+    fn drop(&mut self) {
+        self.0.streams.fetch_sub(1, Ordering::Relaxed);
+        self.0.touch();
+    }
+}
+
+/// Un client déjà là, vu par l'admission d'un nouveau ([`admit`]).
+#[derive(Debug, Clone)]
+pub struct Seat {
+    pub id: String,
+    pub ip: IpAddr,
+    /// Inactif depuis (`None` : un flux ou une connexion en cours).
+    pub idle_since: Option<Instant>,
+}
+
+/// L'adresse comptée pour les limites par adresse : IPv4 telle quelle (y
+/// compris projetée en IPv6), IPv6 réduite à son /64 (un abonné en a tout un).
+pub fn ip_key(ip: IpAddr) -> IpAddr {
+    match ip.to_canonical() {
+        IpAddr::V6(v6) => {
+            let s = v6.segments();
+            IpAddr::V6(std::net::Ipv6Addr::new(s[0], s[1], s[2], s[3], 0, 0, 0, 0))
+        }
+        v4 => v4,
+    }
+}
+
+/// L'admission d'un nouveau client d'une Station, depuis `ip` (déjà passée
+/// par [`ip_key`]) : les clients qui doivent lui céder leur place (les plus
+/// anciens inactifs : d'abord de la même adresse, au-delà de `per_ip`, puis
+/// de toute la Station, au-delà de `per_station`), ou la limite qui le refuse
+/// quand personne d'inactif ne peut céder.
+pub fn admit(seats: &[Seat], ip: IpAddr, per_station: usize, per_ip: usize) -> Result<Vec<String>, &'static str> {
+    fn oldest_idle<'a>(seats: impl Iterator<Item = &'a Seat>, need: usize) -> Option<Vec<String>> {
+        let mut idle: Vec<&Seat> = seats.filter(|s| s.idle_since.is_some()).collect();
+        if idle.len() < need {
+            return None;
+        }
+        idle.sort_by_key(|s| s.idle_since);
+        Some(idle.into_iter().take(need).map(|s| s.id.clone()).collect())
+    }
+    let mut evict: Vec<String> = Vec::new();
+    let same_ip = seats.iter().filter(|s| s.ip == ip).count();
+    if same_ip >= per_ip {
+        let need = same_ip + 1 - per_ip.max(1);
+        evict = oldest_idle(seats.iter().filter(|s| s.ip == ip), need).ok_or("clients_per_station_ip")?;
+    }
+    let left = seats.len() - evict.len();
+    if left >= per_station {
+        let need = left + 1 - per_station.max(1);
+        let more = oldest_idle(seats.iter().filter(|s| !evict.contains(&s.id)), need).ok_or("clients_per_station")?;
+        evict.extend(more);
+    }
+    Ok(evict)
 }
 
 pub struct Hub {
@@ -352,6 +437,7 @@ impl Hub {
                 let Some(p) = pending else { return };
                 match p.client.upgrade() {
                     Some(client) if self.is_current_client(&client) => {
+                        client.touch();
                         client.flows.lock().unwrap().insert(p.cflow, (Arc::downgrade(peer), flow));
                         peer.flows.lock().unwrap().insert(flow, (Arc::downgrade(&client), p.cflow));
                         let _ = client.ctl.send(Msg::FlowReady { req: p.req, flow: p.cflow });
@@ -460,13 +546,6 @@ impl Hub {
             return refuse(&conn, tx, writer, ErrorCode::BadRequest, "identifiant de Station").await;
         }
         let id = id::client_id(&token);
-        if let Some(station) = &hello.station {
-            let others = self.clients.lock().unwrap().values().filter(|c| c.station.as_ref() == Some(station) && c.id != id).count();
-            if others >= self.cfg.limits.clients_per_station {
-                self.metrics.limit_hit("clients_per_station");
-                return refuse(&conn, tx, writer, ErrorCode::TooMany, "trop de clients pour cette Station").await;
-            }
-        }
         let peer = Arc::new(ClientPeer {
             id: id.clone(),
             conn: conn.clone(),
@@ -476,8 +555,41 @@ impl Hub {
             media: RwLock::new(None),
             next_flow: AtomicU64::new(1),
             flows: Mutex::new(HashMap::new()),
+            streams: AtomicUsize::new(0),
+            last_active: Mutex::new(Instant::now()),
         });
-        let old = self.clients.lock().unwrap().insert(id.clone(), peer.clone());
+        // Admis, et ceux qui lui cèdent leur place, sous le même verrou : deux
+        // arrivées en même temps ne dépassent pas les limites.
+        let admitted = {
+            let mut map = self.clients.lock().unwrap();
+            let evicted = match &hello.station {
+                Some(station) => {
+                    let seats: Vec<Seat> = map
+                        .values()
+                        .filter(|c| c.station.as_ref() == Some(station) && c.id != id)
+                        .map(|c| Seat { id: c.id.clone(), ip: ip_key(c.ip), idle_since: c.idle_since() })
+                        .collect();
+                    let limits = &self.cfg.limits;
+                    admit(&seats, ip_key(ip), limits.clients_per_station, limits.clients_per_station_per_ip)
+                        .map(|ids| ids.iter().filter_map(|i| map.remove(i)).collect::<Vec<_>>())
+                }
+                None => Ok(Vec::new()),
+            };
+            evicted.map(|evicted| (map.insert(id.clone(), peer.clone()), evicted))
+        };
+        let (old, evicted) = match admitted {
+            Ok(a) => a,
+            Err(limit) => {
+                self.metrics.limit_hit(limit);
+                let why = if limit == "clients_per_station_ip" { "trop de clients pour cette Station depuis cette adresse" } else { "trop de clients pour cette Station" };
+                return refuse(&conn, tx, writer, ErrorCode::TooMany, why).await;
+            }
+        };
+        for gone in evicted {
+            self.metrics.limit_hit("client_yielded");
+            tracing::debug!(client = %gone.id, "client inactif : place cédée");
+            self.let_go(&gone, "place cédée à un autre client");
+        }
         if let Some(old) = old {
             let _ = old.ctl.send(Msg::error(None, ErrorCode::Replaced, None));
             old.conn.close("remplacé");
@@ -580,6 +692,7 @@ impl Hub {
     async fn client_stream(self: Arc<Self>, peer: Arc<ClientPeer>, mut s: RelayStream) {
         match timeout(HELLO_TIMEOUT, read_msg(&mut s)).await {
             Ok(Ok(Some(Msg::Open { service }))) => {
+                let _busy = StreamBusy::new(peer.clone());
                 let station = peer.station.as_deref().and_then(|id| self.station(id));
                 let Some(station) = station else { return s.reset() };
                 let header = StreamHeader { v: 1, kind: service.kind(), client: peer.id.clone(), ip: peer.ip, host: None };
@@ -618,9 +731,55 @@ impl Hub {
             current
         };
         self.drop_client_flows(peer);
-        if current && let Some(station) = peer.station.as_deref().and_then(|s| self.station(s)) {
+        if current {
+            self.tell_station_gone(peer);
+        }
+    }
+
+    /// Sa Station oublie ce client : demandes de flux en attente, `client_gone`.
+    fn tell_station_gone(&self, peer: &Arc<ClientPeer>) {
+        if let Some(station) = peer.station.as_deref().and_then(|s| self.station(s)) {
             station.pending.lock().unwrap().retain(|_, p| p.client.upgrade().is_some_and(|c| !Arc::ptr_eq(&c, peer)));
             let _ = station.ctl.send(Msg::ClientGone { client: peer.id.clone() });
+        }
+    }
+
+    /// Renvoie un client déjà retiré de la liste (place cédée, inactif) : sa
+    /// connexion se ferme, ses flux et sa Station l'oublient. Il peut revenir.
+    fn let_go(&self, peer: &Arc<ClientPeer>, why: &str) {
+        let _ = peer.ctl.send(Msg::error(None, ErrorCode::TooMany, Some(why.to_string())));
+        peer.conn.close(why);
+        self.drop_client_flows(peer);
+        self.tell_station_gone(peer);
+    }
+
+    /// Toutes les quelques secondes : un client d'une Station sans flux ni
+    /// connexion relayée depuis `client_idle_secs` est renvoyé, sa place
+    /// libérée (un lien de Station connu de tous ne suffit pas à la bloquer).
+    pub fn sweep_idle_clients(&self) {
+        let idle_for = Duration::from_secs(self.cfg.limits.client_idle_secs);
+        let now = Instant::now();
+        let gone: Vec<Arc<ClientPeer>> = {
+            let mut map = self.clients.lock().unwrap();
+            let ids: Vec<String> = map
+                .values()
+                .filter(|c| c.station.is_some())
+                .filter(|c| match c.idle_since() {
+                    // Occupé : son activité est notée.
+                    None => {
+                        c.touch();
+                        false
+                    }
+                    Some(since) => now.saturating_duration_since(since) >= idle_for,
+                })
+                .map(|c| c.id.clone())
+                .collect();
+            ids.iter().filter_map(|i| map.remove(i)).collect()
+        };
+        for peer in gone {
+            self.metrics.limit_hit("client_idle");
+            tracing::debug!(client = %peer.id, "client inactif renvoyé");
+            self.let_go(&peer, "inactif");
         }
     }
 
@@ -785,4 +944,54 @@ async fn read_with_watchdog<R: AsyncRead + Unpin>(read: &mut R, transport: Trans
         },
     };
     r.ok().flatten()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn seat(id: &str, ip: &str, idle_ago: Option<u64>, now: Instant) -> Seat {
+        Seat { id: id.into(), ip: ip_key(ip.parse().unwrap()), idle_since: idle_ago.map(|s| now - Duration::from_secs(s)) }
+    }
+
+    fn ip(s: &str) -> IpAddr {
+        ip_key(s.parse().unwrap())
+    }
+
+    #[test]
+    fn deux_par_adresse_puis_le_plus_ancien_inactif() {
+        let now = Instant::now();
+        assert_eq!(admit(&[], ip("203.0.113.1"), 8, 2), Ok(vec![]));
+        let busy = [seat("a", "203.0.113.1", None, now), seat("b", "203.0.113.1", None, now)];
+        assert_eq!(admit(&busy, ip("203.0.113.1"), 8, 2), Err("clients_per_station_ip"));
+        // Une autre adresse entre.
+        assert_eq!(admit(&busy, ip("198.51.100.7"), 8, 2), Ok(vec![]));
+        let one_idle = [seat("a", "203.0.113.1", None, now), seat("b", "203.0.113.1", Some(5), now)];
+        assert_eq!(admit(&one_idle, ip("203.0.113.1"), 8, 2), Ok(vec!["b".to_string()]));
+        let both_idle = [seat("a", "203.0.113.1", Some(3), now), seat("b", "203.0.113.1", Some(9), now)];
+        assert_eq!(admit(&both_idle, ip("203.0.113.1"), 8, 2), Ok(vec!["b".to_string()]));
+    }
+
+    #[test]
+    fn station_pleine() {
+        let now = Instant::now();
+        let full: Vec<Seat> = (0..8).map(|i| seat(&format!("c{i}"), &format!("203.0.113.{i}"), None, now)).collect();
+        assert_eq!(admit(&full, ip("198.51.100.1"), 8, 2), Err("clients_per_station"));
+        let mut some_idle = full.clone();
+        some_idle[3].idle_since = Some(now - Duration::from_secs(2));
+        some_idle[6].idle_since = Some(now - Duration::from_secs(20));
+        assert_eq!(admit(&some_idle, ip("198.51.100.1"), 8, 2), Ok(vec!["c6".to_string()]));
+        // Le même départ compte pour les deux limites.
+        let mut same = some_idle.clone();
+        same[6].ip = ip("198.51.100.1");
+        same[5].ip = ip("198.51.100.1");
+        assert_eq!(admit(&same, ip("198.51.100.1"), 8, 2), Ok(vec!["c6".to_string()]));
+    }
+
+    #[test]
+    fn une_adresse_ipv6_compte_pour_son_slash_64() {
+        assert_eq!(ip("2001:db8:1:2:aaaa::1"), ip("2001:db8:1:2:bbbb::9"));
+        assert_ne!(ip("2001:db8:1:2::1"), ip("2001:db8:1:3::1"));
+        assert_eq!(ip("::ffff:203.0.113.4"), ip("203.0.113.4"));
+    }
 }

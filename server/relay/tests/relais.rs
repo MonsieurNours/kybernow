@@ -532,19 +532,110 @@ async fn recherches_de_code_limitees() {
     .expect("délai");
 }
 
+/// Un client occupé : une connexion vers Kyber relayée, gardée ouverte
+/// (l'écho a répondu : le relais la compte).
+async fn busy(tunnel: &Tunnel) -> (kybernow_tunnel::client::LocalListener, TcpStream) {
+    let kyber = tunnel.listen_kyber().await.unwrap();
+    let mut tcp = TcpStream::connect(kyber.addr()).await.unwrap();
+    tcp.write_all(b"x").await.unwrap();
+    let mut one = [0u8; 1];
+    timeout(T, tcp.read_exact(&mut one)).await.expect("écho").unwrap();
+    (kyber, tcp)
+}
+
+fn limit_hits(relay: &kybernow_relay::Relay, limit: &str) -> u64 {
+    let metrics = relay.hub.metrics.render(&relay.hub.gauges());
+    let key = format!("relay_limit_hits_total{{limit=\"{limit}\"}} ");
+    metrics.lines().find_map(|l| l.strip_prefix(&key)).and_then(|n| n.trim().parse().ok()).unwrap_or(0)
+}
+
+fn too_many(r: Result<Tunnel, TunnelError>) {
+    match r {
+        Err(TunnelError::Refused(code, _)) => assert_eq!(code, kybernow_tunnel::msg::ErrorCode::TooMany),
+        other => panic!("client accepté : {:?}", other.err()),
+    }
+}
+
+/// Station pleine : le plus ancien client inactif cède sa place ; si tous
+/// sont occupés, le nouveau est refusé (`too_many`).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn trop_de_clients_pour_une_station() {
+async fn station_pleine_le_plus_ancien_inactif_cede_sa_place() {
     timeout(T * 2, async {
         let pki = pki();
-        let relay = relay(&pki, |c| c.limits.clients_per_station = 2).await;
+        let relay = relay(&pki, |c| {
+            c.limits.clients_per_station = 2;
+            c.limits.clients_per_station_per_ip = 8;
+        })
+        .await;
         let station = fake_station(relay_addr(&relay), pki.roots.clone(), false, Policy::default());
         station.joined().await;
-        let _a = Tunnel::open(client_cfg(&relay, &pki, station.id(), false)).await.unwrap();
-        let _b = Tunnel::open(client_cfg(&relay, &pki, station.id(), false)).await.unwrap();
-        match Tunnel::open(client_cfg(&relay, &pki, station.id(), false)).await {
-            Err(TunnelError::Refused(code, _)) => assert_eq!(code, kybernow_tunnel::msg::ErrorCode::TooMany),
-            other => panic!("troisième client accepté : {:?}", other.err()),
-        }
+        let a = Tunnel::open(client_cfg(&relay, &pki, station.id(), false)).await.unwrap();
+        let _a_busy = busy(&a).await;
+        let b = Tunnel::open(client_cfg(&relay, &pki, station.id(), false)).await.unwrap();
+        // Un troisième : b, inactif, lui cède sa place ; a, occupé, la garde.
+        let c = Tunnel::open(client_cfg(&relay, &pki, station.id(), false)).await.unwrap();
+        assert_eq!(limit_hits(&relay, "client_yielded"), 1);
+        b.close();
+        let _c_busy = busy(&c).await;
+        assert!(a.stats().connected);
+        // Tous occupés : refusé.
+        too_many(Tunnel::open(client_cfg(&relay, &pki, station.id(), false)).await);
+        assert!(limit_hits(&relay, "clients_per_station") >= 1);
+    })
+    .await
+    .expect("délai");
+}
+
+/// Deux clients d'une même Station par adresse ; un troisième n'entre qu'à
+/// la place d'un inactif de la même adresse.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn deux_clients_par_station_et_par_adresse() {
+    timeout(T * 2, async {
+        let pki = pki();
+        let relay = relay(&pki, |_| {}).await;
+        assert_eq!(relay.hub.cfg.limits.clients_per_station_per_ip, 2);
+        let station = fake_station(relay_addr(&relay), pki.roots.clone(), false, Policy::default());
+        station.joined().await;
+        let a = Tunnel::open(client_cfg(&relay, &pki, station.id(), false)).await.unwrap();
+        let a_busy = busy(&a).await;
+        let b = Tunnel::open(client_cfg(&relay, &pki, station.id(), false)).await.unwrap();
+        let _b_busy = busy(&b).await;
+        too_many(Tunnel::open(client_cfg(&relay, &pki, station.id(), false)).await);
+        assert!(limit_hits(&relay, "clients_per_station_ip") >= 1);
+        // a n'a plus rien en cours : il cède sa place au suivant.
+        drop(a_busy);
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let _c = Tunnel::open(client_cfg(&relay, &pki, station.id(), false)).await.unwrap();
+        assert_eq!(limit_hits(&relay, "client_yielded"), 1);
+        a.close();
+    })
+    .await
+    .expect("délai");
+}
+
+/// Un client sans flux ni connexion pendant `client_idle_secs` est renvoyé ;
+/// un client occupé reste.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn un_client_inactif_est_renvoye() {
+    timeout(T * 2, async {
+        let pki = pki();
+        let relay = relay(&pki, |c| c.limits.client_idle_secs = 1).await;
+        let station = fake_station(relay_addr(&relay), pki.roots.clone(), false, Policy::default());
+        station.joined().await;
+        let idle = Tunnel::open(client_cfg(&relay, &pki, station.id(), false)).await.unwrap();
+        let working = Tunnel::open(client_cfg(&relay, &pki, station.id(), false)).await.unwrap();
+        let _working_busy = busy(&working).await;
+        assert_eq!(relay.hub.gauges().clients_app, 2);
+        tokio::time::sleep(Duration::from_millis(1300)).await;
+        relay.hub.sweep_idle_clients();
+        assert_eq!(limit_hits(&relay, "client_idle"), 1);
+        assert_eq!(relay.hub.gauges().clients_app, 1);
+        idle.close();
+        // L'occupé reste, même après le délai.
+        tokio::time::sleep(Duration::from_millis(1300)).await;
+        relay.hub.sweep_idle_clients();
+        assert_eq!(limit_hits(&relay, "client_idle"), 1);
+        assert!(working.stats().connected);
     })
     .await
     .expect("délai");
