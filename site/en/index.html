@@ -100,7 +100,9 @@
     "Stereo, 5.1 or 7.1 sound depending on the device",
     "Native KyberNow Link apps and their web version served by the Station, on all your devices",
     "Pairing through Bonjour, QR code or a code to accept, certificate fingerprint verified",
-    "Encoding on any NVIDIA, AMD or Intel graphics card, or on the processor"
+    "Encoding on any NVIDIA, AMD or Intel graphics card, or on the processor",
+    "KyberNow Share: share the PC's screen with up to four guests, with a six-digit code, a link or a QR code; controllers, keyboard and mouse handed over one by one; a picture that fits each guest",
+    "Access away from home through KyberNow's relay, without a VPN, end-to-end encrypted in the apps (an Admin setting, off by default); a relay you can install yourself"
    ],
    "isBasedOn": {
     "@type": "SoftwareApplication",
@@ -309,8 +311,8 @@
         <img class="scene-photo" src="/assets/img/scenes/hotel-960.webp" srcset="/assets/img/scenes/hotel-960.webp 960w, /assets/img/scenes/hotel.webp 1536w" sizes="(max-width: 760px) 100vw, (max-width: 1180px) 50vw, 600px" width="960" height="540" loading="lazy" decoding="async" alt="In a hotel room at night, a woman plays on a laptop the game running on her PC at home, a controller beside her.">
         <p class="mono-label">Away from home</p>
         <h3>At a hotel or at a friend's</h3>
-        <p>Left your PC at home? With a VPN such as Tailscale or WireGuard, you can reach it wherever you are, games and files alike. It just needs to stay switched on.</p>
-        <ul class="use-devices"><li class="tag">With a VPN</li></ul>
+        <p>Left your PC at home? Once access away from home is switched on in Admin, your devices reach it wherever you are, games and files alike, through KyberNow's relay. A VPN such as Tailscale or WireGuard works too. It just needs to stay switched on.</p>
+        <ul class="use-devices"><li class="tag">Through KyberNow's relay</li><li class="tag">With a VPN</li></ul>
       </article>
     </div>
 
@@ -347,7 +349,7 @@
       <article class="card need" data-reveal><svg class="ic-lg"><use href="/assets/icons.svg#desktop-tower"/></svg><h3>A PC running Windows 10 or 11</h3><p>The one that runs your games and software. Any NVIDIA, AMD or Intel graphics card will do, and without one the processor takes over. Install Steam on it so the sound follows you to your devices.</p></article>
       <article class="card need" data-reveal style="--d:.05s"><svg class="ic-lg"><use href="/assets/icons.svg#wifi-high"/></svg><h3>A home network</h3><p>The PC and your devices on the same network, over Wi-Fi or cable. An Ethernet cable on the PC gives the steadiest picture.</p></article>
       <article class="card need" data-reveal style="--d:.10s"><svg class="ic-lg"><use href="/assets/icons.svg#devices"/></svg><h3>Your devices</h3><p>A Mac, another Windows or Linux PC, an Apple TV, an iPhone, an iPad, an Android device, an LG TV, a Steam Deck, a Raspberry Pi, or simply a web browser.</p></article>
-      <article class="card need" data-reveal style="--d:.15s"><svg class="ic-lg"><use href="/assets/icons.svg#globe"/></svg><h3>A VPN, to go beyond your home</h3><p>Optional. To play or work away from home, a VPN such as Tailscale or WireGuard links your devices to your PC.</p></article>
+      <article class="card need" data-reveal style="--d:.15s"><svg class="ic-lg"><use href="/assets/icons.svg#globe"/></svg><h3>To go beyond your home</h3><p>Optional. To play or work far from home, switch on “Access away from home” in Admin: your devices open your PC through KyberNow's relay, with nothing to set up on your router. A VPN such as Tailscale or WireGuard works too.</p></article>
     </div>
     <p class="needs-foot" data-reveal>No online account to create and no subscription: you just choose a name and a password when you install.</p>
   </div>
@@ -467,6 +469,28 @@
   </div>
 </section>
 
+<!-- 5 bis · KyberNow Share: sharing your PC with guests -->
+<section class="section" id="partage" data-scene="edge-r">
+  <div class="wrap">
+    <img class="share-logo" src="/assets/img/kybernow-share-dark.svg" alt="KyberNow Share" width="219" height="40" data-reveal>
+    <h2 class="title" data-split>Share your PC with <strong>up to four guests.</strong></h2>
+    <p class="body-lg" data-reveal>KyberNow Share lets someone else onto your PC: a friend watching your game, a colleague following your screen, a second player picking up a controller. You keep using your PC, and you decide what each guest can do.</p>
+    <div class="proofs-2 share-cards">
+      <article class="card" data-reveal><svg class="ic-lg"><use href="/assets/icons.svg#qr-code"/></svg><h3>A code, a link or a QR code</h3><p>From the session bar, or from the PC itself by choosing the screen to show, you open a share. Your guests come in with the six-digit code in the KyberNow Link app, or with the link or the QR code in a browser, with no account.</p></article>
+      <article class="card" data-reveal style="--d:.05s"><svg class="ic-lg"><use href="/assets/icons.svg#shield-check"/></svg><h3>You stay in charge</h3><p>A guest arrives as a spectator: they see your screen and hear the sound, and send nothing to your PC. You give them their controllers and the keyboard and mouse separately, and take them back whenever you like. The Station only lets through what you gave.</p></article>
+      <article class="card" data-reveal style="--d:.10s"><svg class="ic-lg"><use href="/assets/icons.svg#frame-corners"/></svg><h3>A picture for each guest</h3><p>Each guest picks the quality of their picture: Auto, the same as yours, 4K at 60&nbsp;Hz, 1080p at 60&nbsp;Hz or 720p at 30&nbsp;Hz. It is never bigger than yours, and nothing a guest does changes your screen.</p></article>
+    </div>
+    <article class="card share-relay" data-reveal>
+      <div>
+        <h3>Even far from home</h3>
+        <p>Your guests can be anywhere: they go through KyberNow's relay, a server on the internet open to everyone, and you accept each guest who comes from afar. Nothing to open on your router. You can also install your own relay.</p>
+      </div>
+      <p class="notice-links"><a href="/en/guide/#partage">Sharing, step by step<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a><a href="/en/guide/#relais">Install your own relay<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a></p>
+    </article>
+    <p class="share-foot" data-reveal>New: sharing away from home has not been tried on every device yet. Your feedback will help.</p>
+  </div>
+</section>
+
 <!-- 6 · Ready out of the box: what KyberNow sorts out for you -->
 <section class="section" id="fonctions" data-scene="edge-r">
   <div class="wrap">
@@ -485,7 +509,7 @@
       <article class="card" data-reveal style="--d:.10s"><svg class="ic-lg"><use href="/assets/icons.svg#arrows-clockwise"/></svg><h3>It holds up when the Wi-Fi wobbles</h3><p>A picture damaged on the way is repaired on arrival or requested again straight away. If the connection drops for a few seconds, the app reconnects on its own and the game carries on.</p></article>
       <article class="card" data-reveal style="--d:.15s"><svg class="ic-lg"><use href="/assets/icons.svg#game-controller"/></svg><h3>Your controllers, recognised by the PC</h3><p>Your device's controller becomes an Xbox controller for the PC, and games recognise it without any setup. Up to four players at once.</p></article>
       <article class="card" data-reveal style="--d:.20s"><svg class="ic-lg"><use href="/assets/icons.svg#speaker-hifi"/></svg><h3>Sound on your speakers</h3><p>The PC's sound comes out of your device, in stereo, 5.1 or 7.1 depending on what it supports, all the way to your soundbar or amplifier. Steam just needs to be installed on the PC.</p></article>
-      <article class="card" data-reveal style="--d:.25s"><svg class="ic-lg"><use href="/assets/icons.svg#lock-simple"/></svg><h3>Encrypted, with no online account</h3><p>The picture and your keystrokes travel encrypted, even at home, straight from the PC to your device with no third-party server. A device can only connect once you have approved it in Admin.</p></article>
+      <article class="card" data-reveal style="--d:.25s"><svg class="ic-lg"><use href="/assets/icons.svg#lock-simple"/></svg><h3>Encrypted, with no online account</h3><p>The picture and your keystrokes travel encrypted, even at home, straight from the PC to your device. Away from home, if you switch it on, they go through KyberNow's relay, which cannot read them in the apps. A device can only connect once you have approved it in Admin.</p></article>
     </div>
 
     <div class="console">
@@ -547,8 +571,9 @@
         <details><summary>Is it really free?</summary><p>Yes. KyberNow is a community, non-commercial project under the open-source AGPL licence. No subscription, no ads, no online account.</p></details>
         <details><summary>Which devices can I use?</summary><p>A Mac, a Windows or Linux PC, an Apple TV, an iPhone, an iPad, an Android device (phone, tablet, Android TV), a recent LG TV, a Steam Deck or a Raspberry Pi, and anything else through a web browser. The PC you share must run Windows.</p></details>
         <details><summary>Do I need a fast internet connection?</summary><p>Not at home: the picture travels over your local network without going out to the internet. Recent Wi-Fi is enough, and an Ethernet cable on the PC gives the steadiest picture. Away from home, quality depends on both connections, the one at home and the one where you are.</p></details>
-        <details><summary>Is it safe?</summary><p>Everything between the PC and your devices is encrypted, even at home. A device can only connect once you have approved it in Admin, and nothing goes through a server of ours.</p></details>
-        <details><summary>Can I play away from home?</summary><p>Yes, with a VPN such as Tailscale or WireGuard, which links your devices to your PC as if they were at home. The PC needs to stay switched on.</p></details>
+        <details><summary>Is it safe?</summary><p>Everything between the PC and your devices is encrypted, even at home. A device can only connect once you have approved it in Admin. At home, nothing goes through a server of ours; away from home, if you switch on access or share with someone far away, the connection goes through KyberNow's relay, which cannot read the picture or your keystrokes in the apps.</p></details>
+        <details><summary>Can I play away from home?</summary><p>Yes. Add the device at home first, then switch on “Access away from home” in Admin: the device then opens your PC through KyberNow's relay, with nothing to open on your router. A VPN such as Tailscale or WireGuard works too. The PC needs to stay switched on.</p></details>
+        <details><summary>Can I share my PC with a friend?</summary><p>Yes, with KyberNow Share. You open a share, and your guest comes in with a six-digit code, a link or a QR code, in the KyberNow Link app or in a browser. They arrive as a spectator; you decide whether they can also play with a controller or use the keyboard and mouse. Four guests at most.</p></details>
         <details><summary>How is it different from Sunshine and Moonlight?</summary><p>Both let you play remotely. KyberNow installs in one go, creates a screen the right size on its own, always encrypts the picture and also works in a browser. The details are on <a href="/en/technology/#comparer">the Technology page</a>.</p></details>
     </div>
     <a class="tech-more" href="/en/guide/#faq" data-reveal>All the questions in the guide<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a>

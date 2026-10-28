@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Installer KyberNow&#8239;: guide et FAQ, jeu et bureau à distance</title>
-<meta name="description" content="Installez KyberNow Station sur votre PC Windows, puis l'app KyberNow Link sur vos appareils&#8239;: le guide pas à pas du jeu et du bureau à distance, chez vous ou par VPN, et les réponses aux questions fréquentes.">
+<meta name="description" content="Installez KyberNow Station sur votre PC Windows, puis l'app KyberNow Link sur vos appareils&#8239;: le guide pas à pas du jeu et du bureau à distance, du partage avec des invités et de l'accès hors de chez vous, et les réponses aux questions fréquentes.">
 <link rel="canonical" href="https://www.kybernow.app/guide/">
 <meta name="theme-color" content="#05070A">
 <meta property="og:type" content="website">
@@ -12,7 +12,7 @@
 <meta property="og:locale" content="fr_FR">
 <meta property="og:locale:alternate" content="en_GB">
 <meta property="og:title" content="Installer KyberNow, pas à pas">
-<meta property="og:description" content="Installez KyberNow Station sur votre PC Windows, puis l'app KyberNow Link sur vos appareils&#8239;: le guide pas à pas du jeu et du bureau à distance, chez vous ou par VPN, et les réponses aux questions fréquentes.">
+<meta property="og:description" content="Installez KyberNow Station sur votre PC Windows, puis l'app KyberNow Link sur vos appareils&#8239;: le guide pas à pas du jeu et du bureau à distance, du partage avec des invités et de l'accès hors de chez vous, et les réponses aux questions fréquentes.">
 <meta property="og:url" content="https://www.kybernow.app/guide/">
 <meta property="og:image" content="https://www.kybernow.app/assets/og/kybernow-fr.jpg">
 <meta property="og:image:type" content="image/jpeg">
@@ -21,7 +21,7 @@
 <meta property="og:image:alt" content="KyberNow&#8239;: votre PC sur tous vos écrans. Jouez et travaillez sur votre ordinateur depuis tous vos appareils, l'alternative libre et gratuite à Sunshine et Moonlight.">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Installer KyberNow, pas à pas">
-<meta name="twitter:description" content="Installez KyberNow Station sur votre PC Windows, puis l'app KyberNow Link sur vos appareils&#8239;: le guide pas à pas du jeu et du bureau à distance, chez vous ou par VPN, et les réponses aux questions fréquentes.">
+<meta name="twitter:description" content="Installez KyberNow Station sur votre PC Windows, puis l'app KyberNow Link sur vos appareils&#8239;: le guide pas à pas du jeu et du bureau à distance, du partage avec des invités et de l'accès hors de chez vous, et les réponses aux questions fréquentes.">
 <meta name="twitter:image" content="https://www.kybernow.app/assets/og/kybernow-fr.jpg">
 <meta name="twitter:image:alt" content="KyberNow&#8239;: votre PC sur tous vos écrans. Jouez et travaillez sur votre ordinateur depuis tous vos appareils, l'alternative libre et gratuite à Sunshine et Moonlight.">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -59,7 +59,7 @@
    "name": "Pourquoi KyberNow est-il en bêta ?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "KyberNow n'a pas encore atteint la version 1.0. Nous l'utilisons déjà tous les jours, mais il reste des défauts, et des réglages ou des fonctions peuvent encore changer d'une version à l'autre. Certaines apps n'ont pas encore tourné sur du vrai matériel : celles du Steam Deck et du Raspberry Pi, et l'app Linux, essayée seulement en machine virtuelle. Gardez la Station et vos apps à jour, et signalez les problèmes sur GitHub ou sur Discord."
+    "text": "KyberNow n'a pas encore atteint la version 1.0. Nous l'utilisons déjà tous les jours, mais il reste des défauts, et des réglages ou des fonctions peuvent encore changer d'une version à l'autre. Certaines apps n'ont pas encore tourné sur du vrai matériel : celles du Steam Deck et du Raspberry Pi, et l'app Linux, essayée seulement en machine virtuelle. Le partage et le relais, nouveaux, n'ont pas encore été essayés sur tous les appareils. Gardez la Station et vos apps à jour, et signalez les problèmes sur GitHub ou sur Discord."
    }
   },
   {
@@ -75,7 +75,7 @@
    "name": "KyberNow, est-ce du cloud gaming ?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "Non. Le cloud gaming vous loue un ordinateur dans un centre de données, avec un abonnement. KyberNow se sert du vôtre : vous retrouvez vos jeux et vos logiciels tels que vous les avez installés, sans abonnement ni file d'attente. L'image va directement de votre PC à votre appareil, sans passer par un serveur tiers."
+    "text": "Non. Le cloud gaming vous loue un ordinateur dans un centre de données, avec un abonnement. KyberNow se sert du vôtre : vous retrouvez vos jeux et vos logiciels tels que vous les avez installés, sans abonnement ni file d'attente. Chez vous, l'image va directement de votre PC à votre appareil, sans passer par un serveur ; hors de chez vous, elle peut passer par un relais, qui ne peut pas la lire dans les apps. Voir Hors de chez vous."
    }
   },
   {
@@ -83,7 +83,23 @@
    "name": "Puis-je utiliser KyberNow loin de chez moi ?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "Oui, avec un VPN, un réseau privé et chiffré entre vos appareils, comme Tailscale ou WireGuard. Sans VPN, KyberNow ne marche que sur votre réseau local : il ne passe par aucun serveur relais et ne sait pas traverser seul votre box. Installez le même VPN sur le PC et sur l'appareil, puis ajoutez le PC par son adresse dans le VPN. Voir Hors de chez vous."
+    "text": "Oui, de deux façons. Par le relais de KyberNow : ajoutez l'appareil chez vous, puis allumez « Accès hors de chez vous » dans Admin ; rien à ouvrir sur votre box. Autre solution, un VPN, un réseau privé et chiffré entre vos appareils, comme Tailscale ou WireGuard : installez le même VPN sur le PC et sur l'appareil, puis ajoutez le PC par son adresse dans le VPN. Le PC doit rester allumé. Voir Hors de chez vous."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Puis-je partager mon PC avec un ami ?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Oui, avec KyberNow Share : vous ouvrez un partage, et jusqu'à quatre invités entrent avec un code à six chiffres, un lien ou un QR code, dans l'app KyberNow Link ou dans un navigateur, chez vous comme à distance. Un invité arrive en spectateur ; vous lui donnez, ou non, les manettes et le clavier et la souris. Voir Partager avec quelqu'un."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Le relais de KyberNow peut-il voir mon écran ?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Pas dans les apps KyberNow Link : l'image, le son et vos frappes restent chiffrés de bout en bout, et le relais ne les lit pas. Il voit les adresses IP, les débits et les codes de partage. Dans un navigateur, le relais déchiffre le trafic pour le faire suivre : il pourrait le lire. Vous pouvez aussi installer votre propre relais. Voir Hors de chez vous et Installer votre propre relais."
    }
   },
   {
@@ -155,7 +171,7 @@
    "name": "Deux appareils peuvent-ils se connecter en même temps ?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "Non. Le second prend la main : le premier est déconnecté, et l'écran virtuel est recréé à la taille du nouvel appareil."
+    "text": "Non. Le second prend la main : le premier est déconnecté, et l'écran virtuel est recréé à la taille du nouvel appareil. Pour faire entrer quelqu'un d'autre sans couper votre session, ouvrez un partage : voir Partager avec quelqu'un."
    }
   },
   {
@@ -243,7 +259,7 @@
    "name": "Quelles données KyberNow collecte-t-il ?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "Aucune : pas de statistiques d'usage, rien n'est envoyé à un serveur à nous. L'image va directement de votre PC à vos appareils. Les seules connexions vers l'extérieur servent à chercher les mises à jour (sur GitHub, et sur kybernow.app pour l'app Mac) et, entre vos appareils Apple, à synchroniser par iCloud vos ordinateurs et vos mots de passe, ce que vous pouvez couper."
+    "text": "Pas de statistiques d'usage, et chez vous rien n'est envoyé à un serveur à nous : l'image va directement de votre PC à vos appareils. Si vous partagez avec quelqu'un de loin ou allumez « Accès hors de chez vous », la connexion passe par le relais de KyberNow, qui garde les adresses IP dans ses journaux quelques jours, jamais les codes de partage. Les autres connexions vers l'extérieur servent à chercher les mises à jour (sur GitHub, et sur kybernow.app pour l'app Mac) et, entre vos appareils Apple, à synchroniser par iCloud vos ordinateurs et vos mots de passe, ce que vous pouvez couper."
    }
   }
  ]
@@ -309,7 +325,9 @@
     <a href="#serveur">1 · KyberNow Station</a>
     <a href="#appareil">2 · Connecter un appareil</a>
     <a href="#session">3 · Pendant la session</a>
+    <a href="#partage">Partager avec quelqu'un</a>
     <a href="#distance">Hors de chez vous</a>
+    <a href="#relais">Installer votre propre relais</a>
     <a href="#mises-a-jour">Mettre à jour</a>
     <a href="#desinstaller">Désinstaller</a>
     <a href="#faq">Questions fréquentes</a>
@@ -343,7 +361,7 @@
             <li>Un PC sous Linux avec Flatpak (x86_64 ou ARM), un Steam Deck, ou une Steam Machine ou un PC sous SteamOS</li>
             <li>Un Raspberry Pi 3, 4 ou 5, avec une carte microSD de 8&nbsp;Go au moins pour KyberNow Link OS</li>
             <li>Sinon, un navigateur récent, sur n'importe quel appareil&#8239;: Chrome ou Edge de préférence, Safari ou Firefox aussi</li>
-            <li>L'appareil doit être sur le même réseau que le PC, ou relié à lui par un VPN</li>
+            <li>Pour l'ajouter, l'appareil doit être sur le même réseau que le PC, ou relié à lui par un VPN. Hors de chez vous, il peut ensuite passer par le relais de KyberNow</li>
           </ul>
         </div>
       </div>
@@ -662,15 +680,80 @@ ares-install --device tv KyberNow-Link-webOS.ipk</code></pre>
       <p class="muted">Hors session, à la manette&#8239;: <kbd>A</kbd> valide, <kbd>B</kbd> revient, <kbd>Y</kbd> ouvre les réglages de l'ordinateur, <kbd>X</kbd> ajoute un ordinateur, <kbd>L1</kbd> et <kbd>R1</kbd> changent de profil, <kbd>Start</kbd> ouvre les réglages de l'app. Jusqu'à quatre manettes, chacune un joueur sur le PC, avec leurs vibrations.</p>
     </section>
 
+    <section id="partage" class="doc-section">
+      <h2>Partager avec quelqu'un</h2>
+      <p>KyberNow Share fait entrer jusqu'à quatre invités sur votre PC&#8239;: ils voient l'écran et entendent le son, et vous décidez de ce qu'ils peuvent faire. Il faut KyberNow Station et l'app KyberNow Link en version 0.8.0 ou plus récente&#8239;; sinon l'app vous le dit.</p>
+      <h3 class="sub">Ouvrir un partage</h3>
+      <ol class="steps-doc">
+        <li><p><b>Depuis votre session</b>&#8239;: dans la barre de session, choisissez «&#8239;Partager&#8239;». Le partage montre l'écran principal de votre session, avec le son.</p></li>
+        <li><p><b>Depuis le PC lui-même</b>, sans session&#8239;: dans le menu de l'icône KyberNow Station, près de l'horloge, ou sur la page d'accueil d'Admin, choisissez «&#8239;Partager un écran…&#8239;», puis l'écran à montrer. Vous continuez de vous servir du PC&#8239;: aucun écran virtuel n'est créé et vos écrans restent allumés.</p></li>
+        <li><p>Un panneau affiche le code à six chiffres, un lien («&#8239;Copier le lien&#8239;»), un QR code et la liste des invités. Le code vaut tant que le partage est ouvert&#8239;; «&#8239;Nouveau code&#8239;» le change, et les invités déjà là restent. «&#8239;Arrêter le partage&#8239;» fait sortir tout le monde, et fermer votre session arrête aussi le partage.</p></li>
+      </ol>
+      <h3 class="sub">Rejoindre un partage</h3>
+      <ol class="steps-doc">
+        <li><p>Dans l'app KyberNow Link, sur l'accueil, à côté de «&#8239;Ajouter un ordinateur&#8239;», choisissez «&#8239;Rejoindre avec un code&#8239;» et tapez les six chiffres. Vous pouvez aussi ouvrir le lien, ou scanner le QR code avec l'appareil photo (iPhone, iPad, Android).</p></li>
+        <li><p>Dans un navigateur, ouvrez le lien&#8239;: il s'ouvre en invité, sans le mot de passe d'Admin.</p></li>
+        <li><p>Donnez votre prénom, choisissez la qualité de l'image, puis «&#8239;Rejoindre&#8239;». Un invité n'est pas ajouté à la liste des ordinateurs de l'appareil&#8239;: rien n'est gardé après le partage, sauf son prénom.</p></li>
+      </ol>
+      <h3 class="sub">Ce que peut faire un invité</h3>
+      <div class="table">
+        <div class="tr"><span class="th">Spectateur</span><span>Un invité arrive ainsi&#8239;: il voit l'écran et entend le son, sans rien envoyer à votre PC.</span></div>
+        <div class="tr"><span class="th">Donner les manettes</span><span>Ses manettes deviennent la manette suivante de Windows, une manette virtuelle à lui. «&#8239;Reprendre les manettes&#8239;» les lui retire.</span></div>
+        <div class="tr"><span class="th">Donner le clavier et la souris</span><span>Il peut taper et déplacer le pointeur. «&#8239;Reprendre le clavier et la souris&#8239;» les lui retire. Le presse-papiers n'est jamais partagé avec un invité.</span></div>
+        <div class="tr"><span class="th">Retirer</span><span>Il sort du partage. Il peut revenir avec le même code, tant que vous n'avez pas demandé «&#8239;Nouveau code&#8239;».</span></div>
+      </div>
+      <p>Les deux droits sont indépendants&#8239;: vous pouvez donner les manettes sans le clavier ni la souris, et l'inverse. La Station impose ces droits&#8239;: même si l'appareil d'un invité essayait d'envoyer autre chose, rien n'arrive au PC. Quatre invités au plus&#8239;: au-delà, le code est refusé.</p>
+      <h3 class="sub">L'image de chaque invité</h3>
+      <p>Chaque invité choisit la «&#8239;Qualité de l'image&#8239;» à l'écran «&#8239;Rejoindre&#8239;» et dans sa barre&#8239;: Auto (proposé, d'après l'écran de son appareil et ce que son décodeur sait lire), Comme l'hôte, 4K · 60&nbsp;Hz, 1080p · 60&nbsp;Hz ou 720p · 30&nbsp;Hz. L'hôte passe toujours en premier&#8239;: l'image d'un invité n'est jamais au-dessus de la vôtre, et rien de ce qu'il fait ne change votre écran ni votre image. Un invité qui suit votre image la partage&#8239;; les autres reçoivent une image préparée pour eux par le PC, deux au plus en plus de la vôtre (une seule avec une carte Intel). S'il n'y a plus de place, l'invité reçoit l'image ouverte la plus proche, plus légère, et un message le dit. Un invité en retard passe tout seul sur une image plus légère, sans que vous voyiez rien. Votre panneau montre la qualité de chaque invité.</p>
+      <p class="muted">Dans un partage lancé depuis le PC, le premier invité fixe le format et le débit de l'image partagée.</p>
+      <h3 class="sub">Quand l'invité est loin de chez vous</h3>
+      <p>Le même code, le même lien et le même QR code marchent de partout&#8239;: l'invité passe par le relais de KyberNow (voir <a href="#distance">Hors de chez vous</a>). Vous acceptez chaque invité venu d'Internet&#8239;: sa demande apparaît dans la section «&#8239;Demandes&#8239;» du panneau, avec «&#8239;Accepter&#8239;» et «&#8239;Refuser&#8239;». Sur le même réseau, il n'y a rien à accepter. Gardez le relais réglé dans Admin (Appareils Link › «&#8239;Hors de chez vous&#8239;» › «&#8239;Relais&#8239;», le relais public de KyberNow par défaut)&#8239;: quand il ne répond pas, le panneau dit «&#8239;Pas encore joignable hors de chez vous.&#8239;».</p>
+    </section>
+
     <section id="distance" class="doc-section">
       <h2>Hors de chez vous</h2>
-      <p>KyberNow ne passe par aucun serveur relais&#8239;: l'image va directement de votre PC à votre appareil. Pour vous connecter depuis l'extérieur, à l'hôtel ou chez des amis, reliez l'appareil au PC par un VPN, un réseau privé et chiffré entre vos appareils, comme Tailscale ou WireGuard. Le PC doit rester allumé.</p>
+      <p>Chez vous, l'image va directement de votre PC à votre appareil, sans passer par un serveur. Hors de chez vous, à l'hôtel ou chez des amis, vos appareils retrouvent le PC par le relais de KyberNow, ou par un VPN. Dans les deux cas, le PC doit rester allumé.</p>
+      <h3 class="sub">Par le relais de KyberNow</h3>
+      <p>Un relais est un serveur sur Internet qui fait passer la connexion entre votre appareil et votre PC. Le relais public de KyberNow, <code>share.kybernow.app</code>, est ouvert à tous&#8239;; vous pouvez aussi <a href="#relais">installer le vôtre</a>. Rien à ouvrir sur votre box&#8239;: c'est la Station qui ouvre la connexion vers le relais, et seulement quand un partage est ouvert ou que l'accès hors de chez vous est allumé.</p>
+      <ol class="steps-doc">
+        <li><p>Ajoutez d'abord l'appareil à votre PC, chez vous (étape 2)&#8239;: l'ajout d'un nouvel appareil ne se fait que sur le réseau de la maison.</p></li>
+        <li><p>Dans Admin, espace <b>Appareils Link</b>, section «&#8239;Hors de chez vous&#8239;», allumez «&#8239;Accès hors de chez vous&#8239;». Il est coupé au départ. «&#8239;Relais joint&#8239;» s'affiche quand la Station a joint le relais.</p></li>
+        <li><p>Hors de chez vous, ouvrez l'app KyberNow Link comme d'habitude&#8239;: votre PC est marqué «&#8239;Hors de chez vous&#8239;» à la place de «&#8239;En ligne&#8239;», et la session porte la mention «&#8239;Par le relais&#8239;».</p></li>
+      </ol>
+      <p>Par le relais, l'image fait un détour&#8239;: comptez un peu plus de latence qu'en direct, selon la distance au relais. Si le réseau où vous êtes ne laisse pas passer l'UDP (certains hôtels, des réseaux d'entreprise), la connexion passe en TCP et l'app affiche «&#8239;Par le relais (TCP)&#8239;»&#8239;: bon pour regarder, moins bon pour jouer. Hors de chez vous, une app ne peut ni redémarrer ni mettre à jour la Station&#8239;: cela se fait sur place ou dans Admin. Après trop d'essais ratés, l'accès par le relais est bloqué dix minutes. L'accès hors de chez vous sert aux apps KyberNow Link&#8239;; dans un navigateur, le relais ne sert qu'à rejoindre un partage.</p>
+      <h3 class="sub">Ce qui passe par le relais</h3>
+      <p>Dans les apps KyberNow Link, l'image, le son et vos frappes restent chiffrés de bout en bout&#8239;: ils traversent le relais sans qu'il puisse les lire, et l'app vérifie qu'elle parle bien à votre PC grâce à l'empreinte de son certificat. Le relais voit les adresses IP, les débits et les codes de partage. Celui de KyberNow, tenu par Les Lignes Claires, en France, garde les adresses IP dans ses journaux quelques jours, jamais les codes&#8239;; sa <a href="https://share.kybernow.app/privacy">page de confidentialité</a> le détaille.</p>
+      <p>Le navigateur fait exception&#8239;: le relais déchiffre ce qui passe pour le faire suivre, et pourrait donc le lire. Si cela compte pour vous, utilisez une app, ou votre propre relais.</p>
+      <h3 class="sub">Par un VPN</h3>
+      <p>Un VPN est un réseau privé et chiffré entre vos appareils, comme Tailscale ou WireGuard. Il marche sans relais, et l'image va alors directement de votre PC à votre appareil.</p>
       <ol class="steps-doc">
         <li><p>Installez le même VPN sur le PC et sur l'appareil, connectés au même compte ou au même réseau.</p></li>
         <li><p>Par VPN, le PC n'apparaît pas tout seul dans l'app. Ajoutez-le «&#8239;Par adresse&#8239;», avec son adresse dans le VPN (par exemple <code>100.x.y.z</code> avec Tailscale) et le port d'Admin, puis donnez-lui accès comme chez vous. Sur l'Apple TV, l'iPhone et l'iPad, le code à l'écran ne passe pas par le VPN&#8239;: entrez votre compte.</p></li>
-        <li><p>Choisissez le profil Jeu ou Bureau&#8239;: le débit du profil Max est prévu pour un réseau local. Si l'image saccade, baissez le débit dans les réglages de l'ordinateur, dans l'app&#8239;: il doit rester sous le débit montant de votre connexion, ce que votre box peut envoyer. Avec un forfait mobile, comptez environ 9&nbsp;Go par heure de session à 20&nbsp;Mbit/s.</p></li>
       </ol>
-      <p class="callout callout-warn"><svg class="ic"><use href="/assets/icons.svg#lock-simple"/></svg><span>N'ouvrez pas les ports de KyberNow sur Internet depuis votre box (une «&#8239;redirection de ports&#8239;»)&#8239;: avec le VPN, votre PC reste invisible pour le reste d'Internet.</span></p>
+      <p>Dans les deux cas, choisissez le profil Jeu ou Bureau&#8239;: le débit du profil Max est prévu pour un réseau local. Si l'image saccade, baissez le débit dans les réglages de l'ordinateur, dans l'app&#8239;: il doit rester sous le débit montant de votre connexion, ce que votre box peut envoyer. Avec un forfait mobile, comptez environ 9&nbsp;Go par heure de session à 20&nbsp;Mbit/s.</p>
+      <p class="callout callout-warn"><svg class="ic"><use href="/assets/icons.svg#lock-simple"/></svg><span>N'ouvrez pas les ports de KyberNow sur Internet depuis votre box (une «&#8239;redirection de ports&#8239;»)&#8239;: ni le relais ni un VPN n'en ont besoin, et votre PC reste invisible pour le reste d'Internet.</span></p>
+    </section>
+
+    <section id="relais" class="doc-section">
+      <h2>Installer votre propre relais</h2>
+      <p>Le relais public de KyberNow marche pour tout le monde, sans rien installer. Installez le vôtre si vous préférez que les partages et l'accès à vos PC ne passent par aucun serveur tenu par un autre, pour une équipe, une association ou par principe. Cette partie s'adresse à quelqu'un d'à l'aise avec un serveur Linux.</p>
+      <h3 class="sub">Ce qu'il vous faut</h3>
+      <ul class="ticks ticks-on">
+        <li>Une machine Linux toujours allumée, avec Docker et <code>docker compose</code></li>
+        <li>Un nom de domaine, par exemple <code>relais.exemple.org</code>, dont le DNS vise votre adresse publique avec deux enregistrements&#8239;: le nom lui-même et son nom générique <code>*.relais.exemple.org</code>, que le navigateur utilise pour chaque ordinateur</li>
+        <li>Un jeton d'accès chez l'hébergeur de ce DNS (Gandi par défaut), limité à votre domaine&#8239;: Let's Encrypt s'en sert pour vérifier que le domaine est à vous et délivrer le certificat du relais</li>
+        <li>Un port ouvert de l'extérieur vers la machine, en TCP <b>et</b> en UDP, le 443 de préférence. L'UDP porte l'image&#8239;; sans lui, le relais passe en TCP, bon pour regarder et moins bon pour jouer</li>
+      </ul>
+      <h3 class="sub">Les étapes, en bref</h3>
+      <ol class="steps-doc">
+        <li><p>Chez votre hébergeur DNS, créez les deux enregistrements vers votre adresse publique, et le jeton d'accès. Notez sa date d'expiration&#8239;: le certificat ne se renouvelle plus après.</p></li>
+        <li><p>Sur la machine, récupérez le dossier <code>server/relay</code> du dépôt KyberNow, écrivez le jeton dans un fichier (<code>secrets/gandi_pat</code>), puis recopiez <code>.env.example</code> en <code>.env</code> et remplissez-le&#8239;: votre nom de domaine, une adresse e-mail pour Let's Encrypt, les ports.</p></li>
+        <li><p>Sur votre box, renvoyez le port public (le 443, en TCP et en UDP) vers le port d'écoute de la machine, 8443 par défaut.</p></li>
+        <li><p>Lisez les conditions de Let's Encrypt et acceptez-les dans <code>.env</code>, puis lancez <code>docker compose up -d --build</code>. Le relais commence par un certificat d'essai&#8239;; quand il est obtenu, vous passez au certificat de production (le README donne les commandes). Le relais relit ensuite son certificat tout seul.</p></li>
+        <li><p>Sur chaque Station, dans Admin, espace <b>Appareils Link</b>, section «&#8239;Hors de chez vous&#8239;», champ «&#8239;Relais&#8239;»&#8239;: l'adresse de votre relais, avec son port si ce n'est pas le 443 (<code>relais.exemple.org</code>, ou <code>relais.exemple.org:9443</code>), puis «&#8239;Enregistrer&#8239;». «&#8239;Relais joint&#8239;» confirme que la Station l'a trouvé.</p></li>
+      </ol>
+      <p>Un code tapé dans une app passe par le relais public et par les relais des ordinateurs que l'app connaît déjà. Pour un invité qui ne connaît pas votre relais, donnez le lien ou le QR code du partage.</p>
+      <p class="callout"><svg class="ic"><use href="/assets/icons.svg#book-open-text"/></svg><span>Le pas à pas complet (les trois ports et la box, les réglages, la mise à jour, les journaux) est dans le <a href="https://github.com/MonsieurNours/kybernow/blob/main/server/relay/README.md">README du relais sur GitHub</a>.</span></p>
     </section>
 
     <section id="mises-a-jour" class="doc-section">
@@ -704,10 +787,12 @@ rm -rf ~/.var/app/fr.leslignesclaires.kybernow</code></pre>
       <h2>Questions fréquentes</h2>
       <div class="faq">
         <details><summary>KyberNow est-il vraiment gratuit&#8239;?</summary><p>Oui. KyberNow est un logiciel libre, sous licence AGPL-3.0, développé sans but commercial. Il n'y a ni abonnement ni publicité, et aucun compte en ligne à créer. Le code est sur <a href="https://github.com/MonsieurNours/kybernow">GitHub</a>.</p></details>
-        <details><summary>Pourquoi KyberNow est-il en bêta&#8239;?</summary><p>KyberNow n'a pas encore atteint la version&nbsp;1.0. Nous l'utilisons déjà tous les jours, mais il reste des défauts, et des réglages ou des fonctions peuvent encore changer d'une version à l'autre. Certaines apps n'ont pas encore tourné sur du vrai matériel&#8239;: celles du Steam Deck et du Raspberry Pi, et l'app Linux, essayée seulement en machine virtuelle. Gardez la Station et vos apps à jour, et signalez les problèmes sur <a href="https://github.com/MonsieurNours/kybernow/issues">GitHub</a> ou sur <a href="https://discord.gg/sVy2mu5WdT">Discord</a>.</p></details>
+        <details><summary>Pourquoi KyberNow est-il en bêta&#8239;?</summary><p>KyberNow n'a pas encore atteint la version&nbsp;1.0. Nous l'utilisons déjà tous les jours, mais il reste des défauts, et des réglages ou des fonctions peuvent encore changer d'une version à l'autre. Certaines apps n'ont pas encore tourné sur du vrai matériel&#8239;: celles du Steam Deck et du Raspberry Pi, et l'app Linux, essayée seulement en machine virtuelle. Le partage et le relais, nouveaux, n'ont pas encore été essayés sur tous les appareils. Gardez la Station et vos apps à jour, et signalez les problèmes sur <a href="https://github.com/MonsieurNours/kybernow/issues">GitHub</a> ou sur <a href="https://discord.gg/sVy2mu5WdT">Discord</a>.</p></details>
         <details><summary>KyberNow peut-il remplacer Sunshine et Moonlight&#8239;?</summary><p>Pour beaucoup d'usages, oui. Comme eux, KyberNow affiche votre PC sur vos autres appareils, pour jouer ou pour travailler, dans une app ou dans le navigateur. Il repose sur le moteur Kyber plutôt que sur le protocole GameStream. L'image est toujours chiffrée, l'écran virtuel à la taille de l'appareil est inclus, et la plupart des appareils se connectent quand vous acceptez leur code dans Admin, sans rien recopier. Il lui manque encore le HDR. Le détail est dans la <a href="/technologie/#comparer">comparaison</a>.</p></details>
-        <details><summary>KyberNow, est-ce du cloud gaming&#8239;?</summary><p>Non. Le cloud gaming vous loue un ordinateur dans un centre de données, avec un abonnement. KyberNow se sert du vôtre&#8239;: vous retrouvez vos jeux et vos logiciels tels que vous les avez installés, sans abonnement ni file d'attente. L'image va directement de votre PC à votre appareil, sans passer par un serveur tiers.</p></details>
-        <details><summary>Puis-je utiliser KyberNow loin de chez moi&#8239;?</summary><p>Oui, avec un VPN, un réseau privé et chiffré entre vos appareils, comme Tailscale ou WireGuard. Sans VPN, KyberNow ne marche que sur votre réseau local&#8239;: il ne passe par aucun serveur relais et ne sait pas traverser seul votre box. Installez le même VPN sur le PC et sur l'appareil, puis ajoutez le PC par son adresse dans le VPN. Voir <a href="#distance">Hors de chez vous</a>.</p></details>
+        <details><summary>KyberNow, est-ce du cloud gaming&#8239;?</summary><p>Non. Le cloud gaming vous loue un ordinateur dans un centre de données, avec un abonnement. KyberNow se sert du vôtre&#8239;: vous retrouvez vos jeux et vos logiciels tels que vous les avez installés, sans abonnement ni file d'attente. Chez vous, l'image va directement de votre PC à votre appareil, sans passer par un serveur&#8239;; hors de chez vous, elle peut passer par un relais, qui ne peut pas la lire dans les apps. Voir <a href="#distance">Hors de chez vous</a>.</p></details>
+        <details><summary>Puis-je utiliser KyberNow loin de chez moi&#8239;?</summary><p>Oui, de deux façons. Par le relais de KyberNow&#8239;: ajoutez l'appareil chez vous, puis allumez «&#8239;Accès hors de chez vous&#8239;» dans Admin&#8239;; rien à ouvrir sur votre box. Autre solution, un VPN, un réseau privé et chiffré entre vos appareils, comme Tailscale ou WireGuard&#8239;: installez le même VPN sur le PC et sur l'appareil, puis ajoutez le PC par son adresse dans le VPN. Le PC doit rester allumé. Voir <a href="#distance">Hors de chez vous</a>.</p></details>
+        <details><summary>Puis-je partager mon PC avec un ami&#8239;?</summary><p>Oui, avec KyberNow Share&#8239;: vous ouvrez un partage, et jusqu'à quatre invités entrent avec un code à six chiffres, un lien ou un QR code, dans l'app KyberNow Link ou dans un navigateur, chez vous comme à distance. Un invité arrive en spectateur&#8239;; vous lui donnez, ou non, les manettes et le clavier et la souris. Voir <a href="#partage">Partager avec quelqu'un</a>.</p></details>
+        <details><summary>Le relais de KyberNow peut-il voir mon écran&#8239;?</summary><p>Pas dans les apps KyberNow Link&#8239;: l'image, le son et vos frappes restent chiffrés de bout en bout, et le relais ne les lit pas. Il voit les adresses IP, les débits et les codes de partage. Dans un navigateur, le relais déchiffre le trafic pour le faire suivre&#8239;: il pourrait le lire. Vous pouvez aussi installer votre propre relais. Voir <a href="#distance">Hors de chez vous</a> et <a href="#relais">Installer votre propre relais</a>.</p></details>
         <details><summary>Puis-je jouer à mes jeux PC sur un Mac ou une Apple TV&#8239;?</summary><p>Oui. Le jeu tourne sur votre PC Windows, avec sa carte graphique, et son image s'affiche sur le Mac ou l'Apple TV. Vous jouez à la manette (Xbox ou PlayStation), ou au clavier et à la souris, avec n'importe quel jeu ou lanceur installé sur le PC. L'app Mac suit la fréquence de votre écran, 120&nbsp;Hz ou plus&#8239;; l'Apple TV va jusqu'à la 4K à 60&nbsp;Hz.</p></details>
         <details><summary>Faut-il une carte graphique particulière&#8239;?</summary><p>Non. Le PC compresse l'image avec n'importe quelle carte graphique NVIDIA, AMD ou Intel, même externe (eGPU). Sans carte graphique, le processeur s'en charge. Seul le format AV1 demande une carte NVIDIA RTX 40 ou 50. L'encodeur se change dans KyberNow Admin, Système › Avancé.</p></details>
         <details><summary>Quelles définitions et fréquences d'image sont possibles&#8239;?</summary><p>Celles de votre écran&#8239;: à chaque session, le PC crée un écran virtuel à la définition et à la fréquence de votre appareil. Le plus haut que nous ayons vérifié&#8239;: 3840&nbsp;×&nbsp;2160 (la 4K) à 160&nbsp;Hz. Certains appareils ont leur propre plafond&#8239;: 4K à 60&nbsp;Hz sur l'Apple TV, la NVIDIA Shield et le Raspberry Pi, 4K à 120&nbsp;Hz sur les téléviseurs LG. En H.264, l'image fait au plus 4096&nbsp;pixels de large. Si le réseau ou la carte graphique peinent, l'option «&#8239;Au plus 4K&#8239;» des apps Mac, Windows, iPhone et iPad allège le flux.</p></details>
@@ -716,7 +801,7 @@ rm -rf ~/.var/app/fr.leslignesclaires.kybernow</code></pre>
         <details><summary>Mes écrans s'éteignent pendant la session, c'est normal&#8239;?</summary><p>Oui. Pendant la session, le PC n'affiche que l'écran virtuel, à la taille de votre appareil, et éteint ses propres écrans. Ils se rallument à la fin. Si l'app se coupe sans prévenir, la Station attend 20&nbsp;secondes, puis retire l'écran virtuel et rallume vos écrans. Au besoin, Admin a un bouton «&#8239;Rallumer mes écrans&#8239;», dans Image et son.</p></details>
         <details><summary>Pourquoi le son sort-il encore des haut-parleurs du PC&#8239;?</summary><p>Pour envoyer le son vers vos appareils, la Station se sert des haut-parleurs virtuels de Steam. Installez Steam sur le PC, puis relancez l'installateur de KyberNow Station et choisissez «&#8239;Conserver mes réglages&#8239;»&#8239;: l'option «&#8239;Son à distance&#8239;» devient disponible, et vos appareils restent connectés.</p></details>
         <details><summary>Ma manette ne répond pas&#8239;: que faire&#8239;?</summary><p>Vérifiez d'abord qu'elle est bien reliée à votre appareil, en Bluetooth ou par câble&#8239;; les apps Apple TV, Android, LG et Linux ont un écran pour tester les manettes. Sur le PC, les manettes passent par le pilote ViGEmBus, installé avec la Station si l'option Manettes était cochée&#8239;; après la première installation, il faut parfois redémarrer le PC. Le PC accepte quatre manettes au plus&#8239;: une cinquième attend qu'une place se libère. Enfin, tant que le menu de session est ouvert, la manette pilote l'app et le jeu ne reçoit rien.</p></details>
-        <details><summary>Deux appareils peuvent-ils se connecter en même temps&#8239;?</summary><p>Non. Le second prend la main&#8239;: le premier est déconnecté, et l'écran virtuel est recréé à la taille du nouvel appareil.</p></details>
+        <details><summary>Deux appareils peuvent-ils se connecter en même temps&#8239;?</summary><p>Non. Le second prend la main&#8239;: le premier est déconnecté, et l'écran virtuel est recréé à la taille du nouvel appareil. Pour faire entrer quelqu'un d'autre sans couper votre session, ouvrez un partage&#8239;: voir <a href="#partage">Partager avec quelqu'un</a>.</p></details>
         <details><summary>L'image reste noire ou se fige&#8239;: que faire&#8239;?</summary><p>Mettez d'abord la Station et l'app à jour. Les apps redemandent d'elles-mêmes une image complète quand une partie se perd, et si rien n'arrive au démarrage, elles réessaient avec un flux plus léger. Si l'écran reste noir, essayez une définition plus basse ou un autre format (H.264 ou HEVC) dans les réglages de l'ordinateur, dans l'app. Branchez le PC en Ethernet si possible, et vérifiez qu'aucun autre logiciel de jeu à distance ne tourne sur le PC. Les journaux d'Admin (Système › Journaux) aident à trouver la cause.</p></details>
         <details><summary>J'ai oublié mon mot de passe&#8239;: que faire&#8239;?</summary><p>Sur le PC, ouvrez le menu de l'icône KyberNow Station, près de l'horloge, choisissez «&#8239;Réinitialiser le mot de passe d'Admin…&#8239;» et acceptez la demande de Windows. L'icône affiche un code&#8239;: Admin s'ouvre et vous demande ce code avec votre nouveau mot de passe. Vos appareils déjà connectés le restent. Un nouvel appareil peut se connecter avec son code à six chiffres&#8239;; sinon, changez le mot de passe du compte dans Admin, espace Utilisateurs, puis entrez-le de nouveau sur les appareils qui s'en servent.</p></details>
         <details><summary>L'app Mac fonctionne-t-elle sur un Mac Intel&#8239;?</summary><p>Non, elle demande un Mac à puce Apple (M1 ou plus récent). Sur un Mac Intel, utilisez KyberNow Link dans un navigateur, de préférence Chrome ou Edge.</p></details>
@@ -727,7 +812,7 @@ rm -rf ~/.var/app/fr.leslignesclaires.kybernow</code></pre>
         <details><summary>KyberNow fonctionne-t-il sur un Raspberry Pi&#8239;?</summary><p>Oui, avec un Pi 3, 4 ou 5, de deux façons. KyberNow Link OS est un système à copier sur la carte microSD&#8239;: le Pi démarre directement sur KyberNow Link, comme une console branchée au téléviseur. Vous pouvez aussi installer l'app seule sur Raspberry Pi OS 64&nbsp;bits. Sur Pi 4 et 5, l'image va jusqu'à la 4K à 60&nbsp;Hz. Ni l'un ni l'autre n'a encore tourné sur une vraie carte, seulement en machine virtuelle et en émulation. Voir <a href="#raspberry-pi">Sur un Raspberry Pi</a>.</p></details>
         <details><summary>Pourquoi l'app Apple TV n'est-elle pas sur l'App Store&#8239;?</summary><p>Pas encore&#8239;: pour l'instant, KyberNow est publié seulement sur GitHub, et TestFlight puis l'App Store sont prévus. Sur l'Apple TV, une app qui n'est pas sur l'App Store s'installe depuis un Mac avec Xcode, signée avec votre propre compte Apple&#8239;: voir <a href="#apple-tv">Sur l'Apple TV</a>. Il faut une Apple TV 4K de 2021 ou plus récente&#8239;; les modèles plus anciens ne peuvent pas faire tourner l'app.</p></details>
         <details><summary>Quel est le lien entre KyberNow et Kyber&#8239;?</summary><p>KyberNow utilise <a href="https://kyber.tech">Kyber</a>, le moteur libre qui transporte l'image, le son et les commandes, conçu par des développeurs de VLC. Il y ajoute KyberNow Station (l'installateur, les écrans et les haut-parleurs virtuels), KyberNow Admin et les apps KyberNow Link. KyberNow n'est ni édité ni approuvé par l'équipe de Kyber, et n'y est pas affilié. Nos correctifs du moteur sont publiés.</p></details>
-        <details><summary>Quelles données KyberNow collecte-t-il&#8239;?</summary><p>Aucune&#8239;: pas de statistiques d'usage, rien n'est envoyé à un serveur à nous. L'image va directement de votre PC à vos appareils. Les seules connexions vers l'extérieur servent à chercher les mises à jour (sur GitHub, et sur kybernow.app pour l'app Mac) et, entre vos appareils Apple, à synchroniser par iCloud vos ordinateurs et vos mots de passe, ce que vous pouvez couper.</p></details>
+        <details><summary>Quelles données KyberNow collecte-t-il&#8239;?</summary><p>Pas de statistiques d'usage, et chez vous rien n'est envoyé à un serveur à nous&#8239;: l'image va directement de votre PC à vos appareils. Si vous partagez avec quelqu'un de loin ou allumez «&#8239;Accès hors de chez vous&#8239;», la connexion passe par le relais de KyberNow, qui garde les adresses IP dans ses journaux quelques jours, jamais les codes de partage. Les autres connexions vers l'extérieur servent à chercher les mises à jour (sur GitHub, et sur kybernow.app pour l'app Mac) et, entre vos appareils Apple, à synchroniser par iCloud vos ordinateurs et vos mots de passe, ce que vous pouvez couper.</p></details>
       </div>
     </section>
 
