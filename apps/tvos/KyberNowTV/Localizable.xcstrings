@@ -65,6 +65,22 @@
         }
       }
     },
+    "%@ demande à rejoindre" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ wants to join"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ demande à rejoindre"
+          }
+        }
+      }
+    },
     "%@ en attente" : {
       "localizations" : {
         "en" : {
@@ -109,6 +125,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ est connecté"
+          }
+        }
+      }
+    },
+    "%@ n'est pas joignable : l'ordinateur est éteint ou en veille." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ cannot be reached: the computer is off or asleep."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ n'est pas joignable : l'ordinateur est éteint ou en veille."
+          }
+        }
+      }
+    },
+    "%@ n'est pas joignable hors de chez vous (accès coupé dans Admin)." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ cannot be reached away from home (access turned off in Admin)."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ n'est pas joignable hors de chez vous (accès coupé dans Admin)."
           }
         }
       }
@@ -305,6 +353,22 @@
         }
       }
     },
+    "%lld demandes" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld requests"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld demandes"
+          }
+        }
+      }
+    },
     "%lld h %@" : {
       "localizations" : {
         "en" : {
@@ -497,6 +561,22 @@
         }
       }
     },
+    "1 demande" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 request"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 demande"
+          }
+        }
+      }
+    },
     "1 invité" : {
       "localizations" : {
         "en" : {
@@ -605,6 +685,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "AV1 : cette Apple TV ne le décode pas en matériel"
+          }
+        }
+      }
+    },
+    "Accepter" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Accept"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Accepter"
           }
         }
       }
@@ -1505,6 +1601,22 @@
         }
       }
     },
+    "Chemin" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Path"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chemin"
+          }
+        }
+      }
+    },
     "Choisir" : {
       "localizations" : {
         "en" : {
@@ -1857,6 +1969,22 @@
         }
       }
     },
+    "Demandes" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Requests"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Demandes"
+          }
+        }
+      }
+    },
     "Depuis votre Mac" : {
       "localizations" : {
         "en" : {
@@ -2193,6 +2321,22 @@
         }
       }
     },
+    "En attente de l'accord de l'hôte…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Waiting for the host to accept…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En attente de l'accord de l'hôte…"
+          }
+        }
+      }
+    },
     "En ligne" : {
       "localizations" : {
         "en" : {
@@ -2479,6 +2623,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Gâchettes analogiques"
+          }
+        }
+      }
+    },
+    "Hors de chez vous" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Away from home"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hors de chez vous"
           }
         }
       }
@@ -3971,6 +4131,22 @@
         }
       }
     },
+    "Par le relais" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Via the relay"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Par le relais"
+          }
+        }
+      }
+    },
     "Partager" : {
       "localizations" : {
         "en" : {
@@ -4047,6 +4223,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Pas encore de session sur cet ordinateur."
+          }
+        }
+      }
+    },
+    "Pas encore joignable hors de chez vous." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not reachable away from home yet."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pas encore joignable hors de chez vous."
           }
         }
       }
@@ -4623,6 +4815,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Redémarrer quand même"
+          }
+        }
+      }
+    },
+    "Refuser" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Decline"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Refuser"
           }
         }
       }
@@ -5539,6 +5747,22 @@
         }
       }
     },
+    "Sur le même réseau ou ailleurs : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur. Hors de chez vous, vous acceptez chaque invité." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On the same network or elsewhere: “Join with a code” in KyberNow Link, or this link in a browser. Away from home, you accept each guest."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sur le même réseau ou ailleurs : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur. Hors de chez vous, vous acceptez chaque invité."
+          }
+        }
+      }
+    },
     "Sur le réseau" : {
       "localizations" : {
         "en" : {
@@ -5791,6 +6015,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Transport de l'image"
+          }
+        }
+      }
+    },
+    "Trop de demandes en attente : réessayez dans un instant." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Too many requests waiting: try again in a moment."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trop de demandes en attente : réessayez dans un instant."
           }
         }
       }
@@ -6384,6 +6624,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "hier"
+          }
+        }
+      }
+    },
+    "hors de chez vous" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "away from home"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "hors de chez vous"
           }
         }
       }

@@ -26,7 +26,12 @@ struct JoinView: View {
 
     init(link: ShareJoinLink?) {
         // « Auto » : l'écran de l'appareil (pixels réels, fréquence).
-        _model = StateObject(wrappedValue: ShareJoinModel(link: link) { DeviceDisplay.shareScreen() })
+        let model = ShareJoinModel(link: link) { DeviceDisplay.shareScreen() }
+        #if DEBUG && targetEnvironment(simulator)
+        // Démonstration : « En attente de l'accord de l'hôte… » (`-demoJoinWaiting YES`), sans relais.
+        if UserDefaults.standard.bool(forKey: "demoJoinWaiting") { model.demoWaiting(code: "482 915") }
+        #endif
+        _model = StateObject(wrappedValue: model)
     }
 
     var body: some View {
@@ -51,14 +56,14 @@ struct JoinView: View {
                 if source == .qr { scanner } else { codeField }
                 AddHostField(label: ShareText.yourName, text: $model.name, submit: .go) { join() }
                 // « Qualité de l'image » : « Auto » proposé, retenu pour la fois suivante.
-                QualityPicker(quality: $model.quality).disabled(model.looking)
+                QualityPicker(quality: $model.quality).disabled(model.busy)
                 status
                 Button(ShareText.joinButton) { join() }
                     .buttonStyle(PrimaryButton(height: 54, fontSize: 17))
                     .disabled(!model.canJoin)
                     .opacity(model.canJoin ? 1 : 0.45)
                     .saturation(model.canJoin ? 1 : 0.6)
-                if model.looking {
+                if model.busy {
                     Button(StationText.cancel) { model.cancel() }
                         .buttonStyle(GlassButton(height: 48, fontSize: 16))
                         .frame(maxWidth: .infinity)
@@ -111,7 +116,7 @@ struct JoinView: View {
             denied: "KyberNow Link n'a pas accès à la caméra. Autorisez-la dans les Réglages, ou tapez le code.",
             unavailable: "Pas de caméra disponible sur cet appareil. Tapez le code."
         )
-        .disabled(model.looking)
+        .disabled(model.busy)
     }
 
     /// Un QR code lu : le code et l'ordinateur sont remplis, comme avec un lien ;
@@ -141,7 +146,7 @@ struct JoinView: View {
             .frame(height: 76)
             .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Theme.surface))
             .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(codeFocused ? Theme.accent : Theme.line2))
-            .disabled(model.looking)
+            .disabled(model.busy)
             .accessibilityLabel(Text(ShareText.code))
     }
 
@@ -153,6 +158,13 @@ struct JoinView: View {
             HStack(spacing: 10) {
                 HomeSpinner(size: 13).foregroundStyle(Theme.accentLight).frame(width: 16, height: 16)
                 Text(ShareText.looking).font(Theme.sans(14)).foregroundStyle(Theme.muted)
+            }
+            .accessibilityElement(children: .combine)
+        case .waiting:
+            // Hors de chez l'hôte : sa réponse se fait attendre (« Annuler » retire la demande).
+            HStack(spacing: 10) {
+                HomeSpinner(size: 13).foregroundStyle(Theme.accentLight).frame(width: 16, height: 16)
+                Text(ShareText.waiting).font(Theme.sans(14)).foregroundStyle(Theme.muted)
             }
             .accessibilityElement(children: .combine)
         case let .failed(text):
@@ -318,14 +330,29 @@ struct SharePanelView: View {
                 codeAndCopy(state)
             }
         }
-        Text(ShareText.help).font(Theme.sans(13.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+        // L'aide suit l'état du relais : relais joint (« Sur le même réseau ou ailleurs… »),
+        // ou, relais réglé mais pas joint, le réseau seulement et « Pas encore joignable hors de chez vous. ».
+        VStack(alignment: .leading, spacing: 6) {
+            Text(ShareText.help(relay: state.relay)).font(Theme.sans(13.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+            if state.relay == .unreachable {
+                Text(ShareText.relayUnreachable).font(Theme.sans(13.5)).foregroundStyle(Theme.faint).fixedSize(horizontal: false, vertical: true)
+            }
+        }
         Rectangle().fill(Theme.line).frame(height: 1)
+        // Les demandes venues par le relais, au-dessus des invités, seulement s'il y en a.
+        if !state.requests.isEmpty {
+            VStack(alignment: .leading, spacing: 14) {
+                Theme.eyebrow(ShareText.requests, color: Theme.faint)
+                ForEach(state.requests) { request in RequestRow(share: share, request: request) }
+            }
+            Rectangle().fill(Theme.line).frame(height: 1)
+        }
         VStack(alignment: .leading, spacing: 12) {
             Theme.eyebrow(ShareText.guests, color: Theme.faint)
-            if state.guests.isEmpty {
+            if state.accepted.isEmpty {
                 Text(ShareText.nobody).font(Theme.sans(15)).foregroundStyle(Theme.muted)
             } else {
-                ForEach(state.guests) { guest in GuestRow(share: share, guest: guest) }
+                ForEach(state.accepted) { guest in GuestRow(share: share, guest: guest) }
             }
             if share.full {
                 Text(ShareText.fourGuests).font(Theme.sans(13)).foregroundStyle(Theme.faint)
@@ -404,6 +431,38 @@ struct SharePanelView: View {
             copyResult = nil
             copied = false
         }
+    }
+}
+
+/// Une demande venue par le relais (docs/link-ui.md, « Demandes ») : « {prénom}
+/// demande à rejoindre », son app et « hors de chez vous », « Accepter » et
+/// « Refuser ». Elle ne prend pas de place d'invité tant qu'elle n'est pas acceptée.
+private struct RequestRow: View {
+    @ObservedObject var share: ShareHostModel
+    let request: ShareGuest
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 12) {
+                Icon("globe-hemisphere-west", size: 20)
+                    .foregroundStyle(Theme.accent)
+                    .frame(width: 24)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(ShareText.wantsToJoin(request.name)).font(Theme.sans(15, .medium)).foregroundStyle(Theme.text)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(ShareText.requestDetail(request)).font(Theme.sans(12.5)).foregroundStyle(Theme.faint)
+                }
+                Spacer(minLength: 0)
+            }
+            HStack(spacing: 10) {
+                Button(ShareText.accept) { Task { await share.answer(request, accept: true) } }
+                    .buttonStyle(PrimaryButton(height: 46, fontSize: 15))
+                Button(ShareText.decline) { Task { await share.answer(request, accept: false) } }
+                    .buttonStyle(GlassButton(height: 46, fontSize: 15))
+            }
+            .disabled(share.busy)
+        }
+        .accessibilityElement(children: .contain)
     }
 }
 

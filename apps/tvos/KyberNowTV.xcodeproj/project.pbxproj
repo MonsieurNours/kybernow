@@ -19,6 +19,7 @@
 		19EC14DFC8515AF215310E98 /* CloudSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 717AA2D038A1CC613B959D31 /* CloudSync.swift */; };
 		1AB34439677EAC1A6C4EAB50 /* DecoderCapabilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0727561C05D7242B1942A3 /* DecoderCapabilities.swift */; };
 		1B8B6FC97C02CA2457863DCB /* GamepadBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41FC50A907BD6DAF12DD33D8 /* GamepadBridge.swift */; };
+		1BC9E26B0CBD77A3DD314E3F /* RelayCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51A419BE79B3C891332EF56E /* RelayCore.swift */; };
 		26FDEEAA5E22E4374847687C /* VideoRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3545217235A0986F4EC8F7D3 /* VideoRenderer.swift */; };
 		2E4327F1FDBDB0EF09529956 /* AddHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D4C7D00D61D4DFD1B56106D /* AddHostView.swift */; };
 		335F4328B4ABA7B8BA98500B /* KeyboardMouse.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF924BDB17D639C4D686F6D3 /* KeyboardMouse.swift */; };
@@ -137,6 +138,7 @@
 		4533B3F463014C650D6D7C3C /* Platform.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Platform.swift; sourceTree = "<group>"; };
 		4E07925F1A4DDD2868AC6E46 /* Language.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Language.swift; sourceTree = "<group>"; };
 		4E56869493711B171A05A7A2 /* VideoPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPipeline.swift; sourceTree = "<group>"; };
+		51A419BE79B3C891332EF56E /* RelayCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayCore.swift; sourceTree = "<group>"; };
 		5680458539B0010845C420CE /* KyberNowTopShelf.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = KyberNowTopShelf.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		5F22A9A1742A4CB4D03CD55A /* KyberTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KyberTypes.swift; sourceTree = "<group>"; };
 		609D971655FAFD446DC66236 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
@@ -331,6 +333,7 @@
 				4E07925F1A4DDD2868AC6E46 /* Language.swift */,
 				A19F4EA9662B59217966495B /* LatencyReporting.swift */,
 				F065E6E2F15BE6A4F620DA44 /* Localizable.xcstrings */,
+				51A419BE79B3C891332EF56E /* RelayCore.swift */,
 				26D28B4D290D3288CCF63CD9 /* SessionEngine.swift */,
 				98802BF2F33E3D7BC10FF259 /* ShareCore.swift */,
 				93E03D3845A43D3E44AA9AF8 /* VideoDecoder.swift */,
@@ -590,6 +593,7 @@
 				9C523DE6379DDBD45F586330 /* Language.swift in Sources */,
 				9704175EEB845367EC3549E0 /* LatencyReporting.swift in Sources */,
 				00722BFAA10040A920BCD6D1 /* MetalSurface.swift in Sources */,
+				1BC9E26B0CBD77A3DD314E3F /* RelayCore.swift in Sources */,
 				E500B3D5892A7F414E0B3893 /* SessionEngine.swift in Sources */,
 				F7AE3287A1E7E95408692797 /* ShareCore.swift in Sources */,
 				F1356014C5801F4CEC87CB2E /* StreamView.swift in Sources */,

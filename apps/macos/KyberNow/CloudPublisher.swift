@@ -29,6 +29,10 @@ struct CloudHost: Codable, Equatable {
     /// Cartes réseau pour le réveil par le réseau, apprises par le Mac
     /// (absentes d'une liste publiée par une version précédente).
     var wake: [WakeTarget]?
+    /// Le relais de l'ordinateur (`info.relay`, docs/relais.md), appris par le
+    /// Mac : l'iPhone et l'iPad s'en servent hors de chez soi sans l'avoir vu
+    /// sur ce réseau (absent d'une liste publiée par une version précédente).
+    var relay: RelayInfo?
     /// Appareil qui l'a publié (« Mac de Léa »).
     var from: String?
 
@@ -41,6 +45,7 @@ struct CloudHost: Codable, Equatable {
         streamPort = h.streamPort
         consoleFingerprint = h.consoleFingerprint
         wake = h.wake
+        relay = h.relay
         self.from = from
     }
 }

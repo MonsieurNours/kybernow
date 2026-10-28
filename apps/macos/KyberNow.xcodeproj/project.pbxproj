@@ -19,6 +19,7 @@
 		17726570ED6FCB0FD1534141 /* SessionScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = D005C450D358A2CD1ED7A01C /* SessionScreens.swift */; };
 		252AAE5DE844FA53BF18B2E0 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 8EB2368866E8C3CB15143EE9 /* Sparkle */; };
 		2DE9B29C2785364D29FD4B56 /* StreamView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DF4EB6B53960D68B69DE19D /* StreamView.swift */; };
+		30617C4D9DEA5D598CFD5D4A /* RelayCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F32CBB9EE8F90E5403F9B308 /* RelayCore.swift */; };
 		30928C6DAF79737906ED3BFA /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = D90BE156020D93559B9D19DD /* Localizable.xcstrings */; };
 		34087FBAE7FD774DDB4AC62B /* MetalSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FCD44F7C3241E02C2160B90 /* MetalSurface.swift */; };
 		356000E9C32767C3AED87652 /* ConsoleClientCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3ABCA23CDAEC61857280E88 /* ConsoleClientCore.swift */; };
@@ -141,6 +142,7 @@
 		E407651AF402DB27D895B5B2 /* Passage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Passage.swift; sourceTree = "<group>"; };
 		EE2ED0ACFFE0D513A3C9FB53 /* VideoDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoDecoder.swift; sourceTree = "<group>"; };
 		F085E5BE7C0D2D4AA3DFA3FF /* SessionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionController.swift; sourceTree = "<group>"; };
+		F32CBB9EE8F90E5403F9B308 /* RelayCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayCore.swift; sourceTree = "<group>"; };
 		F46D6860BE7B12712A7135A1 /* AddHostFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddHostFlow.swift; sourceTree = "<group>"; };
 		F7D0FAABB1D481B0A0B691B9 /* LatencyReporting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LatencyReporting.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -231,6 +233,7 @@
 				D90BE156020D93559B9D19DD /* Localizable.xcstrings */,
 				1FCD44F7C3241E02C2160B90 /* MetalSurface.swift */,
 				8B7887298D6D4935E0FF18B9 /* RelativeMouse.swift */,
+				F32CBB9EE8F90E5403F9B308 /* RelayCore.swift */,
 				9E65F421E347662BB777AEE6 /* SessionEngine.swift */,
 				BD9DA692CBE7C2DFC43EFA1D /* ShareCore.swift */,
 				5DF4EB6B53960D68B69DE19D /* StreamView.swift */,
@@ -434,6 +437,7 @@
 				8DDD546D33BAEA2180996AE9 /* LatencyReporting.swift in Sources */,
 				34087FBAE7FD774DDB4AC62B /* MetalSurface.swift in Sources */,
 				BCCAF3D8FF2DFA3D69052367 /* RelativeMouse.swift in Sources */,
+				30617C4D9DEA5D598CFD5D4A /* RelayCore.swift in Sources */,
 				126AE5ED1331AD168D8FDA6E /* SessionEngine.swift in Sources */,
 				1270F18D3267B9210642F9C7 /* ShareCore.swift in Sources */,
 				2DE9B29C2785364D29FD4B56 /* StreamView.swift in Sources */,

@@ -23,10 +23,15 @@ struct JoinView: View {
 
     init(link: ShareJoinLink?) {
         // « Auto » : la sortie du téléviseur (au plus 4K à 60 Hz).
-        _model = StateObject(wrappedValue: ShareJoinModel(link: link) {
+        let model = ShareJoinModel(link: link) {
             let tv = TVDisplay.native
             return ShareScreen(pixelWidth: tv.width, pixelHeight: tv.height, refresh: tv.refresh)
-        })
+        }
+        #if DEBUG
+        // Démonstration : « En attente de l'accord de l'hôte… » (`-demoJoinWaiting YES`), sans relais.
+        if UserDefaults.standard.bool(forKey: "demoJoinWaiting") { model.demoWaiting(code: "482 915") }
+        #endif
+        _model = StateObject(wrappedValue: model)
     }
 
     /// Les chiffres tapés, sans espace.
@@ -77,7 +82,7 @@ struct JoinView: View {
                         .buttonStyle(PrimaryButton(height: 80, fontSize: 28))
                         .disabled(!model.canJoin)
                         .focused($focus, equals: .join)
-                    if model.looking {
+                    if model.busy {
                         Button(StationText.cancel) { model.cancel() }
                             .buttonStyle(ChoiceButton(selected: false, height: 80, light: true))
                     }
@@ -164,12 +169,12 @@ struct JoinView: View {
     }
 
     private func type(_ n: Int) {
-        guard digits.count < 6, !model.looking else { return }
+        guard digits.count < 6, !model.busy else { return }
         model.code = digits + String(n)
     }
 
     private func eraseLast() {
-        guard !digits.isEmpty, !model.looking else { return }
+        guard !digits.isEmpty, !model.busy else { return }
         model.code = String(digits.dropLast())
     }
 
@@ -189,7 +194,7 @@ struct JoinView: View {
                 }
             }
         }
-        .disabled(model.looking)
+        .disabled(model.busy)
     }
 
     private func choice(_ quality: ShareQuality) -> some View {
@@ -208,6 +213,12 @@ struct JoinView: View {
             HStack(spacing: 14) {
                 ProgressView()
                 Text(ShareText.looking).font(Theme.sans(24)).foregroundStyle(Theme.muted)
+            }
+        case .waiting:
+            // Hors de chez l'hôte : sa réponse se fait attendre (« Annuler » retire la demande).
+            HStack(spacing: 14) {
+                ProgressView()
+                Text(ShareText.waiting).font(Theme.sans(24)).foregroundStyle(Theme.muted)
             }
         case let .failed(text):
             HStack(alignment: .top, spacing: 16) {
@@ -240,7 +251,7 @@ struct SharePanelTV: View {
     @FocusState private var focus: Target?
     @State private var qr: (link: String, image: CGImage)?
 
-    enum Target: Hashable { case newCode, stop, close, role(String, Int), kick(String) }
+    enum Target: Hashable { case newCode, stop, close, role(String, Int), kick(String), accept(String), decline(String) }
 
     var body: some View {
         ZStack {
@@ -291,15 +302,25 @@ struct SharePanelTV: View {
                     .lineLimit(1)
                     .fixedSize()
                     .accessibilityLabel(Text(verbatim: "\(ShareText.code) \(state.code.map(String.init).joined(separator: " "))"))
-                Text(ShareText.help).font(Theme.sans(20)).foregroundStyle(Theme.muted).lineSpacing(4)
+                // L'aide suit l'état du relais (docs/link-ui.md) : relais joint, ou réglé mais pas joint.
+                Text(ShareText.help(relay: state.relay)).font(Theme.sans(20)).foregroundStyle(Theme.muted).lineSpacing(4)
                     .frame(width: 440, alignment: .leading)
+                if state.relay == .unreachable {
+                    Text(ShareText.relayUnreachable).font(Theme.sans(20)).foregroundStyle(Theme.faint).lineSpacing(4)
+                        .frame(width: 440, alignment: .leading)
+                }
             }
             VStack(alignment: .leading, spacing: 18) {
+                // Les demandes venues par le relais, au-dessus des invités, seulement s'il y en a.
+                if !state.requests.isEmpty {
+                    Theme.eyebrow(ShareText.requests)
+                    ForEach(state.requests) { request in requestRow(request) }
+                }
                 Theme.eyebrow(ShareText.guests)
-                if state.guests.isEmpty {
+                if state.accepted.isEmpty {
                     Text(ShareText.nobody).font(Theme.sans(26)).foregroundStyle(Theme.muted)
                 } else {
-                    ForEach(state.guests) { guest in guestRow(guest) }
+                    ForEach(state.accepted) { guest in guestRow(guest) }
                 }
                 if share.full {
                     Text(ShareText.fourGuests).font(Theme.sans(20)).foregroundStyle(Theme.faint)
@@ -321,6 +342,28 @@ struct SharePanelTV: View {
             .buttonStyle(ChoiceButton(selected: false, height: 72))
             .focused($focus, equals: .stop)
             closeButton
+        }
+        .disabled(share.busy)
+    }
+
+    /// Une demande venue par le relais : « {prénom} demande à rejoindre », son app
+    /// et « hors de chez vous », « Accepter » et « Refuser » sur la même ligne.
+    private func requestRow(_ request: ShareGuest) -> some View {
+        HStack(spacing: 18) {
+            Icon("globe-hemisphere-west", size: 32)
+                .foregroundStyle(Theme.accent)
+                .frame(width: 40)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(ShareText.wantsToJoin(request.name)).font(Theme.sans(25, .semibold)).foregroundStyle(Theme.text).lineLimit(1)
+                Text(ShareText.requestDetail(request)).font(Theme.sans(18)).foregroundStyle(Theme.faint).lineLimit(1)
+            }
+            Spacer(minLength: 0)
+            Button { Task { await share.answer(request, accept: true) } } label: { Text(ShareText.accept).lineLimit(1).fixedSize() }
+                .buttonStyle(ChoiceButton(selected: true, height: 56, light: true))
+                .focused($focus, equals: .accept(request.id))
+            Button { Task { await share.answer(request, accept: false) } } label: { Text(ShareText.decline).lineLimit(1).fixedSize() }
+                .buttonStyle(ChoiceButton(selected: false, height: 56, light: true))
+                .focused($focus, equals: .decline(request.id))
         }
         .disabled(share.busy)
     }

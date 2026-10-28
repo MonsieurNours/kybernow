@@ -82,6 +82,8 @@ enum StatusDot: String, Equatable {
 struct ComputerState {
     let name: String
     let online: Bool?
+    /// Joignable seulement par le relais : « Hors de chez vous ».
+    let away: Bool
     let waking: Bool
     let restarting: Bool
     let updating: Bool
@@ -90,6 +92,7 @@ struct ComputerState {
         let status = store.status[host.id]
         name = host.name
         online = status?.online
+        away = status?.away == true
         waking = store.waking.contains(host.id)
         let station = status?.info?.station
         let task = store.stationTasks[host.id]
@@ -101,7 +104,7 @@ struct ComputerState {
         self.updating = updating
     }
 
-    var title: String { "\(name) — \(LinkText.status(online))" }
+    var title: String { "\(name) — \(LinkText.status(online, away: away))" }
 
     var dot: StatusDot { waking || restarting || updating ? .warn : online == true ? .ok : online == false ? .bad : .faint }
 }

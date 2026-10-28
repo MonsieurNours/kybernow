@@ -33,6 +33,22 @@
         }
       }
     },
+    "%@ demande à rejoindre" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ wants to join"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ demande à rejoindre"
+          }
+        }
+      }
+    },
     "%@ est connecté" : {
       "localizations" : {
         "en" : {
@@ -77,6 +93,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ est en ligne"
+          }
+        }
+      }
+    },
+    "%@ n'est pas joignable : l'ordinateur est éteint ou en veille." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ cannot be reached: the computer is off or asleep."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ n'est pas joignable : l'ordinateur est éteint ou en veille."
+          }
+        }
+      }
+    },
+    "%@ n'est pas joignable hors de chez vous (accès coupé dans Admin)." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ cannot be reached away from home (access turned off in Admin)."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ n'est pas joignable hors de chez vous (accès coupé dans Admin)."
           }
         }
       }
@@ -237,6 +285,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%lld Hz variable (%lld–%lld)"
+          }
+        }
+      }
+    },
+    "%lld demandes" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld requests"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld demandes"
           }
         }
       }
@@ -417,6 +481,22 @@
         }
       }
     },
+    "1 demande" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 request"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 demande"
+          }
+        }
+      }
+    },
     "1 image" : {
       "localizations" : {
         "en" : {
@@ -525,6 +605,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "AV1 demande une carte RTX 40 ou plus récente sur l'ordinateur."
+          }
+        }
+      }
+    },
+    "Accepter" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Accept"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Accepter"
           }
         }
       }
@@ -1441,6 +1537,22 @@
         }
       }
     },
+    "Chemin" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Path"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chemin"
+          }
+        }
+      }
+    },
     "Code" : {
       "localizations" : {
         "en" : {
@@ -1693,6 +1805,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "De la capture de l'image au début de son encodage"
+          }
+        }
+      }
+    },
+    "Demandes" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Requests"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Demandes"
           }
         }
       }
@@ -2013,6 +2141,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "En H.264, l'ordinateur encode au plus 4096 pixels de large."
+          }
+        }
+      }
+    },
+    "En attente de l'accord de l'hôte…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Waiting for the host to accept…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En attente de l'accord de l'hôte…"
           }
         }
       }
@@ -2351,6 +2495,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Gardé dans le Trousseau"
+          }
+        }
+      }
+    },
+    "Hors de chez vous" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Away from home"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hors de chez vous"
           }
         }
       }
@@ -4179,6 +4339,22 @@
         }
       }
     },
+    "Par le relais" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Via the relay"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Par le relais"
+          }
+        }
+      }
+    },
     "Partager" : {
       "localizations" : {
         "en" : {
@@ -4255,6 +4431,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Pas encore de session sur cet ordinateur."
+          }
+        }
+      }
+    },
+    "Pas encore joignable hors de chez vous." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not reachable away from home yet."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pas encore joignable hors de chez vous."
           }
         }
       }
@@ -5891,6 +6083,22 @@
         }
       }
     },
+    "Sur le même réseau ou ailleurs : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur. Hors de chez vous, vous acceptez chaque invité." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On the same network or elsewhere: “Join with a code” in KyberNow Link, or this link in a browser. Away from home, you accept each guest."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sur le même réseau ou ailleurs : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur. Hors de chez vous, vous acceptez chaque invité."
+          }
+        }
+      }
+    },
     "Sur le réseau" : {
       "localizations" : {
         "en" : {
@@ -6111,6 +6319,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Trois façons de faire, choisissez la plus simple pour vous."
+          }
+        }
+      }
+    },
+    "Trop de demandes en attente : réessayez dans un instant." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Too many requests waiting: try again in a moment."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trop de demandes en attente : réessayez dans un instant."
           }
         }
       }
@@ -6864,6 +7088,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "hier, %@"
+          }
+        }
+      }
+    },
+    "hors de chez vous" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "away from home"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "hors de chez vous"
           }
         }
       }

@@ -158,7 +158,7 @@ private struct Hero: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            StatusPill(online: online, text: LinkText.status(online))
+            StatusPill(online: online, text: LinkText.status(online, away: status?.away == true))
                 .modifier(rise(0))
             VStack(alignment: .leading, spacing: 10) {
                 Text(host.name)
@@ -172,15 +172,20 @@ private struct Hero: View {
                     Text(verbatim: os).font(Theme.sans(16)).foregroundStyle(Theme.muted).lineLimit(1)
                 }
                 if let problem = status?.problem {
-                    // Le réglage qui le règle : le mot de passe (Station), l'empreinte (Statistiques).
-                    Button { app.openSettings(host, section: problem == .passwordRefused ? .station : .statistics) } label: {
-                        HStack(spacing: 8) {
-                            Icon("warning", size: 15, bold: true).foregroundStyle(Theme.warn)
-                            Text(LinkText.problem(problem)).font(Theme.sans(14)).foregroundStyle(Theme.warnText)
-                        }
-                        .contentShape(Rectangle())
+                    let line = HStack(spacing: 8) {
+                        Icon("warning", size: 15, bold: true).foregroundStyle(Theme.warn)
+                        Text(LinkText.problem(problem, name: host.name)).font(Theme.sans(14)).foregroundStyle(Theme.warnText)
                     }
-                    .buttonStyle(.plain)
+                    if problem == .passwordRefused || problem == .certificateChanged {
+                        // Le réglage qui le règle : le mot de passe (Station), l'empreinte (Statistiques).
+                        Button { app.openSettings(host, section: problem == .passwordRefused ? .station : .statistics) } label: {
+                            line.contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        // Hors de chez soi, après « Réessayer » : rien à régler ici (c'est dans Admin, ou l'ordinateur est éteint).
+                        line
+                    }
                 }
             }
             .modifier(rise(1))
@@ -230,7 +235,7 @@ private struct Hero: View {
                 .keyboardShortcut(.defaultAction)
             } else if online == false {
                 Button {
-                    Task { await app.store.refresh(host) }
+                    Task { await app.store.retry(host) }
                 } label: {
                     HStack(spacing: 10) { Icon("arrows-clockwise", size: 18); Text("Réessayer") }
                 }
@@ -425,7 +430,7 @@ private struct HostCard: View {
                             .fill(status?.online == true ? Theme.ok : .clear)
                             .overlay(Circle().strokeBorder(status?.online == true ? .clear : Theme.faint))
                             .frame(width: 6, height: 6)
-                        Text(LinkText.status(status?.online)).font(Theme.sans(12)).foregroundStyle(Theme.muted).lineLimit(1)
+                        Text(LinkText.status(status?.online, away: status?.away == true)).font(Theme.sans(12)).foregroundStyle(Theme.muted).lineLimit(1)
                     }
                 }
                 .padding(.horizontal, 14).padding(.vertical, 11)

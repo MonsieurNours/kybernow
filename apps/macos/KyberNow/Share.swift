@@ -1,11 +1,13 @@
-// KyberNow Share côté app (docs/kybernow-share.md ; textes : docs/link-ui.md,
-// « Partage », dans LinkUI.swift) : ce que le Mac, l'Apple TV, l'iPhone et
-// l'iPad font de la même façon, une seule fois. L'invité : son prénom retenu,
-// « Rejoindre » (le code part vers les ordinateurs trouvés sur le réseau, ou
-// vers celui du lien). L'hôte : le partage de sa session (ouvrir, nouveau
-// code, rôles, retirer, arrêter) suivi avec la liste des invités que le cœur
-// rend à chaque signe de vie. Chaque app dessine ses écrans et ses panneaux ;
-// les appels et les règles sont ici.
+// KyberNow Share côté app (docs/kybernow-share.md, docs/relais.md ; textes :
+// docs/link-ui.md, « Partage », dans LinkUI.swift) : ce que le Mac, l'Apple TV,
+// l'iPhone et l'iPad font de la même façon, une seule fois. L'invité : son
+// prénom retenu, « Rejoindre » (le code part vers les ordinateurs trouvés sur
+// le réseau et vers les relais, ou vers celui du lien ; hors de chez l'hôte,
+// « En attente de l'accord de l'hôte… »). L'hôte : le partage de sa session
+// (ouvrir, nouveau code, accepter ou refuser une demande, rôles, retirer,
+// arrêter) suivi avec la liste des invités que le cœur rend à chaque signe de
+// vie. Chaque app dessine ses écrans et ses panneaux ; les appels et les
+// règles sont ici.
 
 import Combine
 import Foundation
@@ -91,15 +93,18 @@ enum LinkKind {
 
 // MARK: - Rejoindre
 
-/// « Rejoindre avec un code » : le code et le prénom, la recherche, les refus
-/// du cœur. À la fin, `onJoined` reçoit la Station qui a accepté ; l'app ouvre
-/// alors la session d'invité (rien n'est ajouté à ses ordinateurs).
+/// « Rejoindre avec un code » : le code et le prénom, la recherche, l'attente de
+/// l'accord de l'hôte (par le relais), les refus du cœur. À la fin, `onJoined`
+/// reçoit la Station qui a accepté ; l'app ouvre alors la session d'invité (rien
+/// n'est ajouté à ses ordinateurs).
 @MainActor
 final class ShareJoinModel: ObservableObject {
     enum State: Equatable {
         case idle
         /// « Recherche du partage… ».
         case looking
+        /// Hors de chez l'hôte : « En attente de l'accord de l'hôte… », avec « Annuler ».
+        case waiting
         /// Le texte du refus, à montrer tel quel.
         case failed(String)
     }
@@ -118,6 +123,8 @@ final class ShareJoinModel: ObservableObject {
     var onJoined: ((ShareFound) -> Void)?
     private var task: Task<Void, Never>?
     private var attempt = 0
+    /// La demande en attente de l'accord de l'hôte, à annuler si l'écran se ferme.
+    private var pending: SharePending?
     /// L'écran de l'appareil (celui de la fenêtre ; la sortie du téléviseur sur
     /// Apple TV), pour « Auto » : sa définition et sa fréquence.
     private let screen: @MainActor () -> ShareScreen
@@ -133,7 +140,11 @@ final class ShareJoinModel: ObservableObject {
     var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
     var normalizedCode: String? { Share.normalizeCode(code) }
     var looking: Bool { state == .looking }
-    var canJoin: Bool { normalizedCode != nil && !trimmedName.isEmpty && !looking }
+    /// Hors de chez l'hôte : la demande attend son accord.
+    var waiting: Bool { state == .waiting }
+    /// Une recherche ou une attente est en cours : les champs sont inactifs, « Annuler » est là.
+    var busy: Bool { looking || waiting }
+    var canJoin: Bool { normalizedCode != nil && !trimmedName.isEmpty && !busy }
 
     /// À l'ouverture de l'écran : l'annonce Bonjour démarre tout de suite.
     /// Avec un lien, la Station est connue : rien n'est cherché ni envoyé
@@ -178,21 +189,33 @@ final class ShareJoinModel: ObservableObject {
         let mine = attempt
         state = .looking
         task?.cancel()
+        let link = link
         task = Task { [weak self] in
             guard let self else { return }
             do {
-                let targets = await self.targets(hosts: hosts)
-                guard !targets.isEmpty else { throw ShareJoinError.noShare(ShareText.noShare) }
-                let found = try await Share.join(targets: targets, code: code, name: name, quality: quality, screen: screen)
-                // Annulé entre-temps, ou l'écran n'est plus là : l'invité repart tout de suite.
-                guard mine == self.attempt, let onJoined = self.onJoined else {
-                    Share.leave(found)
-                    return
+                // Un lien donne la Station (et son relais) ; un code part vers les
+                // ordinateurs du réseau et vers les relais, celui des ordinateurs
+                // de l'appareil et le relais public.
+                let joining: ShareJoining
+                if let link {
+                    joining = try await Share.joinLink(link, code: code, name: name, quality: quality, screen: screen)
+                } else {
+                    let targets = await self.targets(hosts: hosts)
+                    joining = try await Share.joinAnywhere(targets: targets, relays: Self.relays(hosts: hosts), code: code, name: name, quality: quality, screen: screen)
                 }
-                GuestName.remember(name)
-                GuestQuality.remember(quality)
-                self.state = .idle
-                onJoined(found)
+                switch joining {
+                case let .joined(found):
+                    self.finish(found, name: name, quality: quality, mine: mine)
+                case let .pending(pending):
+                    // Annulé entre-temps : la demande part tout de suite.
+                    guard mine == self.attempt else {
+                        Share.cancel(pending)
+                        return
+                    }
+                    self.pending = pending
+                    self.state = .waiting
+                    await self.waitForHost(pending, name: name, quality: quality, mine: mine)
+                }
             } catch {
                 guard mine == self.attempt else { return }
                 self.state = .failed(Self.text(error))
@@ -200,17 +223,72 @@ final class ShareJoinModel: ObservableObject {
         }
     }
 
-    /// « Annuler » pendant la recherche, ou l'écran qui se ferme.
+    /// L'invité entre : sa session s'ouvre (annulé entre-temps, ou l'écran n'est
+    /// plus là : il repart tout de suite).
+    private func finish(_ found: ShareFound, name: String, quality: ShareQuality, mine: Int) {
+        guard mine == attempt, let onJoined else {
+            Share.leave(found)
+            return
+        }
+        pending = nil
+        GuestName.remember(name)
+        GuestQuality.remember(quality)
+        state = .idle
+        onJoined(found)
+    }
+
+    /// « En attente de l'accord de l'hôte… » : un appel tenu 25 s, rappelé tant
+    /// que l'hôte ne répond pas, jusqu'à l'accord, au refus ou à l'expiration (120 s).
+    private func waitForHost(_ pending: SharePending, name: String, quality: ShareQuality, mine: Int) async {
+        while mine == attempt, !Task.isCancelled {
+            do {
+                if let found = try await Share.wait(pending, quality: quality) {
+                    finish(found, name: name, quality: quality, mine: mine)
+                    return
+                }
+            } catch {
+                guard mine == attempt else { return }
+                self.pending = nil
+                state = .failed(Self.text(error))
+                return
+            }
+        }
+    }
+
+    /// Les relais qui connaissent peut-être le code : le relais public et celui
+    /// de chaque ordinateur de l'appareil (`info.relay`), sans doublon.
+    static func relays(hosts: [Host]) -> [String] {
+        var list = [Relay.defaultServer]
+        for server in hosts.compactMap({ $0.relay?.server }) where !server.isEmpty && !list.contains(server) { list.append(server) }
+        return list
+    }
+
+    #if DEBUG
+    /// Démonstration : « En attente de l'accord de l'hôte… », sans relais.
+    func demoWaiting(code: String) {
+        self.code = code
+        state = .waiting
+    }
+    #endif
+
+    /// « Annuler » pendant la recherche ou l'attente, ou l'écran qui se ferme :
+    /// une demande en attente est retirée chez l'hôte.
     func cancel() {
         attempt += 1
         task?.cancel()
         task = nil
-        if looking { state = .idle }
+        if let pending {
+            Share.cancel(pending)
+            self.pending = nil
+        }
+        if busy { state = .idle }
     }
 
     /// Le texte d'un refus : celui du cœur, dans la langue de l'app, en phrase
     /// (les erreurs d'appel, comme un certificat changé, commencent par une minuscule).
     static func text(_ error: Error) -> String {
+        // Trois demandes attendent déjà : le texte de link-ui (celui du cœur le dit un peu autrement).
+        if case .pendingFull? = error as? ShareJoinError { return ShareText.pendingFull }
         let text = (error as? ShareJoinError)?.errorDescription ?? error.localizedDescription
         return text.isEmpty ? ShareText.noShare : ShareText.sentence(text)
     }
@@ -219,9 +297,10 @@ final class ShareJoinModel: ObservableObject {
 
     private func targets(hosts: [Host]) async -> [ShareTarget] {
         if let link { return [link.target] }
-        // Les annonces arrivent un instant après l'ouverture de l'écran.
+        // Les annonces arrivent un instant après l'ouverture de l'écran ; hors de
+        // chez soi, il n'y en a pas : le relais n'attend pas plus d'une seconde.
         var waited = 0
-        while discovery.found.isEmpty, waited < 30, !Task.isCancelled {
+        while discovery.found.isEmpty, waited < 10, !Task.isCancelled {
             try? await Task.sleep(for: .milliseconds(100))
             waited += 1
         }
@@ -299,7 +378,11 @@ final class ShareHostModel: ObservableObject {
         store.status[host]?.info?.share ?? .available
     }
     var isOpen: Bool { state != nil }
-    var guests: [ShareGuest] { state?.guests ?? [] }
+    /// Les invités acceptés (« Invités », pastille « 2 invités »).
+    var guests: [ShareGuest] { state?.accepted ?? [] }
+    /// Les demandes venues par le relais, qui attendent l'accord de l'hôte
+    /// (« Demandes », pastille « 1 demande ») ; elles ne comptent pas dans les invités.
+    var requests: [ShareGuest] { state?.requests ?? [] }
     /// Quatre invités au plus : le texte se montre quand la liste est pleine.
     var full: Bool { guests.count >= 4 }
 
@@ -342,6 +425,26 @@ final class ShareHostModel: ObservableObject {
         await run { console in
             try await console.shareSetRole(role, of: guest.id)
             return try await console.currentShare()
+        }
+    }
+
+    /// « Accepter » ou « Refuser » la demande d'un invité venu par le relais :
+    /// accepté, il entre ; refusé, son appareil l'est 10 minutes. Quatre invités
+    /// au plus : Admin refuse la cinquième acceptation (son texte s'affiche).
+    func answer(_ request: ShareGuest, accept: Bool) async {
+        #if DEBUG
+        if demo {
+            return demoUpdate { state in
+                if accept, state.accepted.count < 4 {
+                    state.guests = state.guests.map { $0.id == request.id ? ShareGuest(id: $0.id, name: $0.name, app: $0.app, role: .spectator, since: Date(), pending: false, viaRelay: $0.viaRelay) : $0 }
+                } else {
+                    state.guests.removeAll { $0.id == request.id }
+                }
+            }
+        }
+        #endif
+        await run { console in
+            accept ? try await console.shareAccept(request.id) : try await console.shareRefuse(request.id)
         }
     }
 
@@ -414,7 +517,8 @@ final class ShareHostModel: ObservableObject {
 
     private func demoOpen() {
         state = ShareState(code: "482915", link: "kybernow://join?host=192.168.1.20&port=37462&fp=sha256:c41be0f2&code=482915",
-                           web: "https://192.168.1.20:37462/link/?join=482915", display: "Écran 1", guests: [])
+                           web: "https://192.168.1.20:37462/link/?join=482915", display: "Écran 1", webLocal: "https://192.168.1.20:37462/link/?join=482915",
+                           relay: nil, guests: [])
         openedAt = Date()
     }
 
@@ -433,13 +537,21 @@ final class ShareHostModel: ObservableObject {
     }
 
     /// Un invité qui arrive (commande de démonstration).
-    func demoAddGuest(name: String, app: String, role: ShareRole = .spectator, image: ShareImage? = nil) {
+    func demoAddGuest(name: String, app: String, role: ShareRole = .spectator, image: ShareImage? = nil, pending: Bool = false, viaRelay: Bool = false) {
         if state == nil { demoOpen() }
         demoUpdate {
-            guard $0.guests.count < 4 else { return }
+            guard pending || $0.accepted.count < 4 else { return }
             $0.guests.append(ShareGuest(id: UUID().uuidString, name: name, app: app, role: role,
-                                        since: Date().addingTimeInterval(-Double.random(in: 30 ... 900)), image: image))
+                                        since: Date().addingTimeInterval(-Double.random(in: 30 ... 900)), image: image,
+                                        pending: pending, viaRelay: viaRelay))
         }
+    }
+
+    /// Démonstration : l'état du relais du partage (nil : pas de relais), pour
+    /// l'aide du panneau.
+    func demoSetRelay(_ relay: ShareState.Relay?) {
+        if state == nil { demoOpen() }
+        demoUpdate { $0.relay = relay }
     }
     #endif
 

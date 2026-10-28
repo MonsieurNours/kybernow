@@ -76,7 +76,8 @@ struct SessionChrome: View {
                 .padding(.bottom, 92)
             if streaming, session.statsPanel {
                 StatsPanel(stats: session.stats, history: session.statsHistory, audio: session.audioStats,
-                           sessionLosses: session.sessionLosses, close: session.toggleStatsPanel, screens: session.screenCount)
+                           sessionLosses: session.sessionLosses, close: session.toggleStatsPanel, screens: session.screenCount,
+                           route: session.path)
                     .padding(20)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                     .transition(.opacity.combined(with: .offset(x: 24)))
@@ -469,6 +470,7 @@ private struct SessionBar: View {
                 .padding(.leading, 6).padding(.trailing, 8)
             divider
             chip(icon: ShareText.icon(role), text: ShareText.role(role), tint: role.plays ? Theme.accent : Theme.text2, compact: compact)
+            relayChip(compact: compact)
             statsButton(compact: compact)
             divider
             keepSound(compact: compact)
@@ -535,6 +537,7 @@ private struct SessionBar: View {
                 .padding(.leading, 6).padding(.trailing, 8)
             ComputersMenu(session: session, store: AppModel.shared.store, sessions: AppModel.shared.sessions, compact: compact)
             ShareBarButton(session: session, share: session.share, compact: compact)
+            relayChip(compact: compact)
             divider
             statsButton(compact: compact)
             divider
@@ -646,6 +649,14 @@ private struct SessionBar: View {
 
     private var divider: some View { Rectangle().fill(Color.white.opacity(0.12)).frame(width: 1, height: 26) }
 
+    /// « Par le relais » (docs/relais.md) : la session passe par le relais, hors
+    /// de chez soi ; rien quand elle est directe.
+    @ViewBuilder private func relayChip(compact: Bool) -> some View {
+        if session.path.viaRelay {
+            chip(icon: "globe-hemisphere-west", text: LinkText.viaRelay, tint: Theme.accent, compact: compact)
+        }
+    }
+
     /// `compact` : l'icône seule (barre étroite), le texte reste pour VoiceOver.
     private func chip(icon: String, text: String, tint: Color = Theme.text2, caret: Bool = false, compact: Bool = false) -> some View {
         HStack(spacing: 7) {
@@ -720,7 +731,7 @@ struct ComputersMenu: View {
                 return .init(id: id, title: state.title, dot: state.dot, detail: LinkText.wake) { store.wake(host) }
             }
             return .init(id: id, title: state.title, dot: state.dot, detail: String(localized: "Réessayer")) {
-                Task { await store.refresh(host) }
+                Task { await store.retry(host) }
             }
         }
         // En ligne (et « Recherche… », comme l'accueil) : une session de plus, quatre au plus.

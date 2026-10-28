@@ -403,14 +403,42 @@ struct ConnectingCard: View {
 /// La languette : la toucher ouvre la barre (et ses statistiques). Aucun
 /// chiffre sur l'image tant qu'on ne les demande pas, sauf un partage ouvert :
 /// sa pastille « 2 invités » reste là, avec la languette (la partie toujours
-/// visible de la barre), et rouvre le panneau du partage.
+/// visible de la barre), et rouvre le panneau du partage ; les demandes venues
+/// par le relais ont la leur (« 1 demande »), et « Par le relais » dit que la
+/// session passe par lui.
 private struct Tab: View {
     @ObservedObject var session: SessionController
     @ObservedObject var share: ShareHostModel
 
     var body: some View {
         let count = session.isGuest ? 0 : share.guests.count
+        let requests = session.isGuest ? 0 : share.requests.count
+        let relay = session.path.viaRelay
         HStack(spacing: 0) {
+            if relay {
+                HStack(spacing: 5) {
+                    Icon("globe-hemisphere-west", size: 12, bold: true).foregroundStyle(Theme.accentLight)
+                    Text(LinkText.viaRelay).font(Theme.sans(11.5, .semibold)).foregroundStyle(Theme.text).lineLimit(1).fixedSize()
+                }
+                .padding(.horizontal, 8)
+                .frame(minHeight: 26)
+                .accessibilityElement(children: .combine)
+            }
+            if requests > 0 {
+                Button { session.shareSheet = true } label: {
+                    Text(ShareText.requestCount(requests))
+                        .font(Theme.sans(11.5, .semibold))
+                        .foregroundStyle(Theme.text)
+                        .lineLimit(1)
+                        .fixedSize()
+                        .padding(.horizontal, 8)
+                        .frame(height: 20)
+                        .background(Capsule().fill(Theme.accentFill))
+                        .frame(minWidth: 44, minHeight: 26)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel(Text(verbatim: ShareText.share + ", " + ShareText.requestCount(requests)))
+            }
             if count > 0 {
                 Button { session.shareSheet = true } label: {
                     Text(ShareText.guestCount(count))
@@ -434,7 +462,7 @@ private struct Tab: View {
             }
             .accessibilityLabel(Text("Afficher la barre de session"))
         }
-        .padding(.horizontal, count > 0 ? 6 : 0)
+        .padding(.horizontal, count > 0 || requests > 0 || relay ? 6 : 0)
         .background(UnevenRoundedRectangle(bottomLeadingRadius: 14, bottomTrailingRadius: 14).fill(.ultraThinMaterial))
         .background(UnevenRoundedRectangle(bottomLeadingRadius: 14, bottomTrailingRadius: 14).fill(Theme.background.opacity(0.5)))
         .environment(\.colorScheme, .dark)
@@ -476,6 +504,8 @@ struct SessionBar: View {
             // pastille « 2 invités » (hôte), masquer la barre, se déconnecter.
             HStack(spacing: 4) {
                 separator
+                // « Par le relais » : la session passe par lui, hors de chez soi.
+                if session.path.viaRelay { item("globe-hemisphere-west", LinkText.viaRelay) }
                 if !session.isGuest { ShareBarItem(session: session, share: session.share) }
                 hideAndExit
             }
@@ -667,7 +697,9 @@ private struct ShareBarItem: View {
     var body: some View {
         let availability = session.shareAvailability
         let count = share.guests.count
-        let label = count > 0 ? ShareText.share + ", " + ShareText.guestCount(count) : ShareText.share
+        let requests = share.requests.count
+        let label = [ShareText.share, count > 0 ? ShareText.guestCount(count) : nil, requests > 0 ? ShareText.requestCount(requests) : nil]
+            .compactMap { $0 }.joined(separator: ", ")
         Button {
             session.shareSheet = true
             if availability.isAvailable { Task { await share.openIfNeeded() } }
@@ -675,6 +707,7 @@ private struct ShareBarItem: View {
             HStack(spacing: 2) {
                 BarItemLabel(icon: "share-network", text: ShareText.share)
                 if count > 0 { badge(count) }
+                if requests > 0 { requestBadge(requests) }
             }
             .background { highlight }
         }
@@ -694,6 +727,18 @@ private struct ShareBarItem: View {
             .frame(height: 22)
             .background(Capsule().fill(Theme.accentFill.opacity(0.28)))
             .overlay(Capsule().strokeBorder(Theme.accent.opacity(0.6)))
+    }
+
+    /// La pastille « 1 demande » (venue par le relais, en attente de l'accord de l'hôte).
+    private func requestBadge(_ count: Int) -> some View {
+        Text(ShareText.requestCount(count))
+            .font(Theme.sans(11.5, .semibold))
+            .foregroundStyle(Theme.text)
+            .lineLimit(1)
+            .fixedSize()
+            .padding(.horizontal, 8)
+            .frame(height: 22)
+            .background(Capsule().fill(Theme.accentFill))
     }
 
     /// « Partager » allumé tant que le partage est ouvert.

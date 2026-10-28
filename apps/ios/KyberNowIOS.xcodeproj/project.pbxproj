@@ -67,6 +67,7 @@
 		F7F8816C831CE386C3848E6F /* TouchRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE9798DFB50233072B5736FF /* TouchRules.swift */; };
 		F948F3A6F51E9DAF681F542B /* Archivo-wdth-wght.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 2818F78F98BB9411EFA6DCC9 /* Archivo-wdth-wght.ttf */; };
 		FB877C0A30DB14192EF203A4 /* VideoRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D64DA3D036216DDE52A215AB /* VideoRenderer.swift */; };
+		FBD75728DEE3B6F7452B074C /* RelayCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33BFA98ADC8A49589A10B603 /* RelayCore.swift */; };
 		FBDB346D99F1EDA2A3F86258 /* ShareCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC436DE0AD11DE6B0C09E612 /* ShareCore.swift */; };
 /* End PBXBuildFile section */
 
@@ -105,6 +106,7 @@
 		2A6E1351863BB088A8938F59 /* Model.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Model.swift; sourceTree = "<group>"; };
 		2E3E0113565D7CF768FB0FE2 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		306546BE41AD345E7A328812 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
+		33BFA98ADC8A49589A10B603 /* RelayCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayCore.swift; sourceTree = "<group>"; };
 		3456E0200C841E3D3F7A55FB /* DecoderCapabilities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecoderCapabilities.swift; sourceTree = "<group>"; };
 		383556364DF843C9D46F9B81 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		410A9B3CA2E17E8B50C9D9E4 /* AddHostPanes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddHostPanes.swift; sourceTree = "<group>"; };
@@ -319,6 +321,7 @@
 				CFDC3C4579F50D443D946774 /* Language.swift */,
 				5E2993F29818468CCDB59BBB /* LatencyReporting.swift */,
 				C4F5C6D95599975901557ED5 /* Localizable.xcstrings */,
+				33BFA98ADC8A49589A10B603 /* RelayCore.swift */,
 				C061F9A3683E8F0952178D5A /* SessionEngine.swift */,
 				DC436DE0AD11DE6B0C09E612 /* ShareCore.swift */,
 				DDC3D5B8E4E8636948D8DA1D /* VideoDecoder.swift */,
@@ -488,6 +491,7 @@
 				6FE37D5BF61E9EC6F2E05395 /* Language.swift in Sources */,
 				1F6C9796230EE919A0E92F16 /* LatencyReporting.swift in Sources */,
 				19E6B33FA39328971210BB37 /* MetalSurface.swift in Sources */,
+				FBD75728DEE3B6F7452B074C /* RelayCore.swift in Sources */,
 				4A243449E9012A83F5B25EBA /* SessionEngine.swift in Sources */,
 				FBDB346D99F1EDA2A3F86258 /* ShareCore.swift in Sources */,
 				D260A6A7FC2F51F94B50C459 /* StreamView.swift in Sources */,

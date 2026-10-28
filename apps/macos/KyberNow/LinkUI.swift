@@ -69,14 +69,23 @@ enum LinkFormat {
 // MARK: - Accueil
 
 enum LinkText {
-    /// État d'un ordinateur : « Recherche… » tant qu'il n'a pas répondu une fois.
-    static func status(_ online: Bool?) -> String {
+    /// État d'un ordinateur : « Recherche… » tant qu'il n'a pas répondu une fois ;
+    /// « Hors de chez vous » quand il n'est joignable que par le relais
+    /// (`away`, docs/relais.md), à la place de « En ligne ».
+    static func status(_ online: Bool?, away: Bool = false) -> String {
         switch online {
         case nil: return String(localized: "Recherche…")
-        case true?: return String(localized: "En ligne")
+        case true?: return away ? String(localized: "Hors de chez vous") : String(localized: "En ligne")
         case false?: return String(localized: "Hors ligne")
         }
     }
+
+    /// Puce de la barre de session quand la session passe par le relais.
+    static var viaRelay: String { String(localized: "Par le relais") }
+
+    /// Ligne des statistiques : « Direct », « Par le relais » ou « Par le relais (TCP) »
+    /// (la valeur vient du cœur, `RouteInfo.label`).
+    static var path: String { String(localized: "Chemin") }
 
     /// L'écran que la session demandera : virtuel (à la taille de cet écran
     /// ou sur mesure), ou ceux de l'ordinateur, tels quels.
@@ -98,11 +107,13 @@ enum LinkText {
     /// créer, ou resté sans image.
     static var screenNotCreated: String { String(localized: "L'ordinateur n'a pas pu créer cet écran.") }
 
-    /// Erreur sous le nom de l'ordinateur.
-    static func problem(_ p: HostProblem) -> String {
+    /// Erreur sous le nom de l'ordinateur (`name` : son nom, pour celles qui le disent).
+    static func problem(_ p: HostProblem, name: String = "") -> String {
         switch p {
         case .passwordRefused: return String(localized: "Mot de passe refusé : mettez-le à jour dans les réglages.")
         case .certificateChanged: return String(localized: "La Station a été réinstallée : vérifiez son empreinte dans les réglages.")
+        case .remoteAccessOff: return String(localized: "\(name) n'est pas joignable hors de chez vous (accès coupé dans Admin).")
+        case .asleep: return String(localized: "\(name) n'est pas joignable : l'ordinateur est éteint ou en veille.")
         }
     }
 
@@ -208,11 +219,34 @@ enum ShareText {
     /// celle de l'hôte (« 1080p · 60 Hz »), puis « depuis 3 min »
     /// (docs/link-ui.md, « Un invité »).
     static func guestDetail(_ guest: ShareGuest) -> String {
-        [app(guest.app), guest.imageLabel, guest.since.map(since)].compactMap { $0 }.joined(separator: " · ")
+        [app(guest.app), guest.viaRelay ? awayFromHome : nil, guest.imageLabel, guest.since.map(since)].compactMap { $0 }.joined(separator: " · ")
     }
 
     static var help: String {
         String(localized: "Sur le même réseau : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur.")
+    }
+    /// L'aide quand le relais tient le code : l'invité peut venir de n'importe où, l'hôte accepte chacun.
+    static var helpRelay: String {
+        String(localized: "Sur le même réseau ou ailleurs : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur. Hors de chez vous, vous acceptez chaque invité.")
+    }
+    /// Sous l'aide du même réseau, quand le relais est réglé mais pas joint.
+    static var relayUnreachable: String { String(localized: "Pas encore joignable hors de chez vous.") }
+    /// L'aide selon l'état du relais du partage (docs/link-ui.md, « Aide »).
+    static func help(relay: ShareState.Relay?) -> String { relay == .joined ? helpRelay : help }
+
+    // Demandes (invités venus par le relais, en attente de l'accord de l'hôte).
+    static var requests: String { String(localized: "Demandes") }
+    static func wantsToJoin(_ name: String) -> String { String(localized: "\(name) demande à rejoindre") }
+    static var awayFromHome: String { String(localized: "hors de chez vous") }
+    static var accept: String { String(localized: "Accepter") }
+    static var decline: String { String(localized: "Refuser") }
+    /// La pastille des demandes, à côté de celle des invités : « 1 demande », « 2 demandes ».
+    static func requestCount(_ n: Int) -> String {
+        n == 1 ? String(localized: "1 demande") : String(localized: "\(n) demandes")
+    }
+    /// Sous une demande : « iPhone ou iPad · hors de chez vous ».
+    static func requestDetail(_ guest: ShareGuest) -> String {
+        [app(guest.app), awayFromHome].compactMap { $0 }.joined(separator: " · ")
     }
     static var nobody: String { String(localized: "Personne pour l'instant.") }
     static var newCode: String { String(localized: "Nouveau code") }
@@ -256,6 +290,10 @@ enum ShareText {
     static var yourName: String { String(localized: "Votre prénom") }
     static var joinButton: String { String(localized: "Rejoindre") }
     static var looking: String { String(localized: "Recherche du partage…") }
+    /// Hors de chez l'hôte : sa réponse se fait attendre (« Annuler » quitte la demande).
+    static var waiting: String { String(localized: "En attente de l'accord de l'hôte…") }
+    /// Trois demandes attendent déjà l'accord de l'hôte.
+    static var pendingFull: String { String(localized: "Trop de demandes en attente : réessayez dans un instant.") }
     static var noShare: String { String(localized: "Aucun partage avec ce code sur le réseau.") }
     static func guestOn(_ computer: String) -> String { String(localized: "Invité sur \(computer)") }
     static var spectator: String { String(localized: "Spectateur") }
@@ -719,12 +757,17 @@ extension HostStore {
         let problem: HostProblem? = switch args.string(forKey: "demoProblem") {
         case "password": .passwordRefused
         case "certificate": .certificateChanged
+        // Hors de chez soi, après « Réessayer » (avec `-demoState offline`) : accès coupé dans Admin, ordinateur éteint ou en veille.
+        case "accessoff": .remoteAccessOff
+        case "asleep": .asleep
         default: nil
         }
         func put(_ h: Host, online: Bool, _ info: HostInfo, problem: HostProblem? = nil) {
             switch state {
             case "searching": setDemoStatus(nil, for: h.id)
-            case "offline": setDemoStatus(HostStatus(online: false, info: info), for: h.id)
+            case "offline": setDemoStatus(HostStatus(online: false, info: info, problem: problem == .remoteAccessOff || problem == .asleep ? problem : nil), for: h.id)
+            // `-demoState away` : joignables seulement par le relais, « Hors de chez vous ».
+            case "away": setDemoStatus(HostStatus(online: online, info: info, away: online), for: h.id)
             default: setDemoStatus(HostStatus(online: online, info: info, problem: problem), for: h.id)
             }
         }

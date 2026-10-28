@@ -21,6 +21,14 @@ struct ShareBarButton: View {
 
     private var availability: ShareAvailability { session.shareAvailability }
     private var count: Int { share.guests.count }
+    /// Les demandes venues par le relais, qui attendent l'accord de l'hôte (« 1 demande »).
+    private var requests: Int { share.requests.count }
+
+    /// Les pastilles de la barre : « 2 invités », puis « 1 demande » (aucune à zéro).
+    private var spoken: String {
+        [ShareText.share, count > 0 ? ShareText.guestCount(count) : nil, requests > 0 ? ShareText.requestCount(requests) : nil]
+            .compactMap { $0 }.joined(separator: ", ")
+    }
 
     var body: some View {
         Button {
@@ -40,6 +48,12 @@ struct ShareBarButton: View {
                         .background(Theme.accentSoft, in: Capsule())
                         .overlay(Capsule().strokeBorder(Theme.accentLine))
                 }
+                if requests > 0 {
+                    Text(compact ? "\(requests)" : ShareText.requestCount(requests))
+                        .font(Theme.sans(11.5, .semibold)).foregroundStyle(Theme.text).lineLimit(1).fixedSize()
+                        .padding(.horizontal, 8).frame(height: 20)
+                        .background(Theme.accentFill, in: Capsule())
+                }
             }
             .padding(.horizontal, compact ? 8 : 10)
             .frame(height: 34)
@@ -48,7 +62,7 @@ struct ShareBarButton: View {
             .opacity(availability.isAvailable ? 1 : 0.45)
             .contentShape(Rectangle())
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(Text(count > 0 ? "\(ShareText.share), \(ShareText.guestCount(count))" : ShareText.share))
+            .accessibilityLabel(Text(spoken))
         }
         .buttonStyle(.plain)
         .disabled(!availability.isAvailable)
@@ -135,15 +149,31 @@ struct SharePanel: View {
                 }
             }
         }
-        Text(ShareText.help).font(Theme.sans(12.5)).foregroundStyle(Theme.muted)
-            .fixedSize(horizontal: false, vertical: true)
+        // L'aide suit l'état du relais : relais joint (« Sur le même réseau ou ailleurs… »),
+        // ou, relais réglé mais pas joint, le réseau seulement et « Pas encore joignable hors de chez vous. ».
+        VStack(alignment: .leading, spacing: 6) {
+            Text(ShareText.help(relay: state.relay)).font(Theme.sans(12.5)).foregroundStyle(Theme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+            if state.relay == .unreachable {
+                Text(ShareText.relayUnreachable).font(Theme.sans(12.5)).foregroundStyle(Theme.faint)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
         Rectangle().fill(Theme.line).frame(height: 1)
+        // Les demandes venues par le relais, au-dessus des invités, seulement s'il y en a.
+        if !state.requests.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Theme.eyebrow(ShareText.requests, color: Theme.faint)
+                ForEach(state.requests) { request in RequestRow(share: share, request: request) }
+            }
+            Rectangle().fill(Theme.line).frame(height: 1)
+        }
         VStack(alignment: .leading, spacing: 10) {
             Theme.eyebrow(ShareText.guests, color: Theme.faint)
-            if state.guests.isEmpty {
+            if state.accepted.isEmpty {
                 Text(ShareText.nobody).font(Theme.sans(13)).foregroundStyle(Theme.muted)
             } else {
-                ForEach(state.guests) { guest in GuestRow(share: share, guest: guest) }
+                ForEach(state.accepted) { guest in GuestRow(share: share, guest: guest) }
             }
             if share.full {
                 Text(ShareText.fourGuests).font(Theme.sans(12)).foregroundStyle(Theme.faint)
@@ -230,17 +260,26 @@ enum SharePanelDemo {
         return lines.joined(separator: "\n")
     }
 
-    static func renderJoin(to path: String, app: AppModel) {
-        write(JoinSheet(initialLink: nil).environmentObject(app), width: 640, to: path)
+    static func renderJoin(to path: String, app: AppModel, waiting: Bool = false) {
+        write(JoinSheet(initialLink: nil, demoWaiting: waiting).environmentObject(app), width: 640, to: path)
     }
 
     /// Le panneau « Partager » d'une session d'hôte sans fenêtre (le premier
     /// ordinateur de l'accueil), avec ou sans invités.
-    static func renderPanel(app: AppModel, guests: Bool, to path: String) async {
+    static func renderPanel(app: AppModel, guests: Bool, relay: ShareState.Relay? = nil, requests: Int = 0, to path: String) async {
         guard let host = app.store.ordered.first else { return }
         let session = SessionController(host: host, store: app.store, opening: .first(home: nil)) { _ in }
         session.share.demo = true
         await session.share.openIfNeeded()
+        session.share.demoSetRelay(relay)
+        if requests > 0 {
+            // Hors de chez soi : des demandes venues par le relais, sans place d'invité.
+            session.share.demoAddGuest(name: "Léa", app: "ios", pending: true, viaRelay: true)
+            if requests > 1 { session.share.demoAddGuest(name: "Hugo", app: "tvos", pending: true, viaRelay: true) }
+            // Un invité accepté venu par le relais, et un autre du réseau.
+            session.share.demoAddGuest(name: "Sam", app: "android", role: .player, viaRelay: true)
+            session.share.demoAddGuest(name: "Zoé", app: "mac", role: .kbm)
+        }
         if guests {
             // Léa et Sam reçoivent une image à part (leur qualité se voit), Hugo suit
             // l'hôte, Zoé n'a rien de su encore : seules les images à part se montrent.
@@ -299,13 +338,21 @@ enum SharePanelDemo {
     /// (`host`, deux invités), ou un invité (`spectator`, `player`, `kbm`, `player_kbm`).
     static func renderBar(kind: String, app: AppModel, to path: String) async {
         let session: SessionController
+        // `host-relay` et `player-relay` : la session passe par le relais (puce « Par le relais »),
+        // et l'hôte a deux demandes en attente (pastille « 2 demandes »).
+        let relay = kind.hasSuffix("-relay")
+        let kind = relay ? String(kind.dropLast("-relay".count)) : kind
         if kind == "host" {
             guard let host = app.store.ordered.first else { return }
             session = SessionController(host: host, store: app.store, opening: .first(home: nil)) { _ in }
             session.share.demo = true
             await session.share.openIfNeeded()
-            session.share.demoAddGuest(name: "Léa", app: "ios", role: .player)
+            session.share.demoAddGuest(name: "Léa", app: "ios", role: .player, viaRelay: relay)
             session.share.demoAddGuest(name: "Hugo", app: "tvos")
+            if relay {
+                session.share.demoAddGuest(name: "Sam", app: "android", pending: true, viaRelay: true)
+                session.share.demoAddGuest(name: "Zoé", app: "mac", pending: true, viaRelay: true)
+            }
         } else {
             let role: ShareRole = switch kind {
             case "player": .player
@@ -313,10 +360,11 @@ enum SharePanelDemo {
             case "player_kbm": .playerKbm
             default: .spectator
             }
-            session = SessionController(guest: ShareFound(demoComputer: "PC-DE-MATTHIEU", host: "Matthieu", role: role), store: app.store,
+            session = SessionController(guest: ShareFound(demoComputer: "PC-DE-MATTHIEU", host: "Matthieu", role: role, viaRelay: relay), store: app.store,
                                         opening: .first(home: nil)) { _ in }
         }
         session.demoHeadless()
+        if relay { session.demoPath(RouteInfo(transport: .relay, relay: "share.kybernow.app:8443", rttClient: 24, rttStation: 11)) }
         // Un invité : la qualité reçue dans la barre (« 1080p · 60 Hz »).
         if kind != "host" { session.demoShareImage(ShareImage.demo("1080p60", 1920, 1080, 60, follows: false)) }
         let view = ZStack(alignment: .top) {
@@ -341,6 +389,39 @@ enum SharePanelDemo {
     }
 }
 #endif
+
+/// Une demande venue par le relais (docs/link-ui.md, « Demandes ») : « {prénom}
+/// demande à rejoindre », son app et « hors de chez vous », « Accepter » et
+/// « Refuser ». Elle ne prend pas de place d'invité tant qu'elle n'est pas acceptée.
+private struct RequestRow: View {
+    @ObservedObject var share: ShareHostModel
+    let request: ShareGuest
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center, spacing: 10) {
+                Icon("globe-hemisphere-west", size: 16, bold: true)
+                    .foregroundStyle(Theme.accent)
+                    .frame(width: 20)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(ShareText.wantsToJoin(request.name)).font(Theme.sans(13.5, .medium)).foregroundStyle(Theme.text)
+                        .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                    Text(ShareText.requestDetail(request)).font(Theme.sans(12)).foregroundStyle(Theme.faint)
+                }
+                Spacer(minLength: 0)
+            }
+            HStack(spacing: 8) {
+                Button(ShareText.accept) { Task { await share.answer(request, accept: true) } }
+                    .buttonStyle(PrimaryButton(height: 32))
+                Button(ShareText.decline) { Task { await share.answer(request, accept: false) } }
+                    .buttonStyle(GhostButton(height: 32))
+            }
+            .padding(.leading, 30)
+            .disabled(share.busy)
+        }
+        .accessibilityElement(children: .contain)
+    }
+}
 
 /// Un invité : son prénom et son rôle, son app et depuis quand, et ce que
 /// l'hôte peut en faire (rôle, « Retirer »).

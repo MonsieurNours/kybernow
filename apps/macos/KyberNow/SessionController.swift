@@ -180,6 +180,11 @@ final class SessionController: NSObject, ObservableObject {
     /// propre à chaque session, comme la barre qui le montre.
     let share: ShareHostModel
 
+    /// Par où passe la session (docs/relais.md) : direct sur le réseau, ou par le
+    /// relais hors de chez soi (puce « Par le relais » dans la barre, ligne
+    /// « Chemin » des statistiques). Donné par le cœur, au départ puis quand il change.
+    @Published private(set) var path = RouteInfo.direct
+
     /// Le titre de la session : le nom de l'ordinateur, ou « Invité sur {nom} ».
     var title: String { guest.map { ShareText.guestOn($0.computer) } ?? host.name }
 
@@ -1121,6 +1126,7 @@ final class SessionController: NSObject, ObservableObject {
         engine.onShareRole = { [weak self] role, previous in self?.shareRoleChanged(role, previous: previous) }
         engine.onShareEnd = { [weak self] _, text in self?.shareEnded(text) }
         engine.onShareImage = { [weak self] image, _, notice in self?.shareImageChanged(image, notice: notice) }
+        engine.onRoute = { [weak self] in self?.routeChanged($0) }
         self.engine = engine
         syncEngineViews()
         if !isGuest { share.setConsole(store.console(for: host)) }
@@ -1145,6 +1151,8 @@ final class SessionController: NSObject, ObservableObject {
             )
             params.clipboard = settings.clipboard
             params.screens = request
+            // Hors de chez soi : le réseau d'abord, puis le relais si l'accès est actif.
+            params.relay = host.sessionRelay
         }
         params.autoReconnect = settings.autoReconnect
         params.gamepadAsXbox360 = settings.gamepad == .xbox360
@@ -1247,6 +1255,18 @@ final class SessionController: NSObject, ObservableObject {
             // jamais préparée), rien à dire des écrans ni du son sur l'accueil.
             if report != nil { onReport?(host, closing) }
         }
+    }
+
+    // MARK: - Hors de chez soi
+
+    /// Le chemin de la session a changé (au départ, puis toutes les 5 s au plus
+    /// s'il change) : la puce « Par le relais » suit. Par le relais, le partage de
+    /// l'hôte passe aussi par lui (Admin n'est plus joignable sur le réseau).
+    private func routeChanged(_ info: RouteInfo) {
+        guard isLive, phase != .ending, info != path else { return }
+        let wasRelay = path.viaRelay
+        path = info
+        if info.viaRelay != wasRelay, !isGuest { share.setConsole(store.console(for: host, route: info.viaRelay ? .relay : .direct)) }
     }
 
     // MARK: - KyberNow Share
@@ -1745,6 +1765,12 @@ final class SessionController: NSObject, ObservableObject {
     func demoShareImage(_ image: ShareImage?, notice: String? = nil) {
         guard isGuest else { return }
         if let image { shareImageChanged(image, notice: notice) } else { shareImage = nil }
+    }
+
+    /// Démonstration : la session passe par le relais (`RouteInfo`), pour dessiner
+    /// la puce « Par le relais » et la ligne « Chemin ».
+    func demoPath(_ info: RouteInfo) {
+        path = info
     }
 
     /// Démonstration : l'hôte change le rôle de l'invité.

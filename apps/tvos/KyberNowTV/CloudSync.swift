@@ -26,6 +26,9 @@ struct CloudHost: Codable, Identifiable, Equatable {
     /// Cartes réseau pour le réveil par le réseau, apprises par le Mac
     /// (absentes d'une liste publiée par une version précédente).
     var wake: [WakeTarget]?
+    /// Le relais de l'ordinateur (`info.relay`, docs/relais.md), appris par le
+    /// Mac (absent d'une liste publiée par une version précédente).
+    var relay: RelayInfo?
     /// Appareil qui l'a publié (« Mac de Léa »).
     var from: String?
 }
@@ -75,6 +78,7 @@ final class CloudSync: ObservableObject {
         h.streamPort = c.streamPort
         h.consoleFingerprint = c.consoleFingerprint
         h.wake = c.wake
+        h.relay = c.relay
         return h
     }
 }
