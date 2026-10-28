@@ -54,6 +54,11 @@ pub enum Event {
     HostInfo {
         id: String,
         online: bool,
+        /// Absent du réseau, mais le relais le dit connecté : « Hors de chez vous » (jamais avec `online`).
+        away: bool,
+        /// Le relais que la Station donne (`info.relay`), à garder pour l'ordinateur ; `None` : pas de relais réglé
+        /// chez lui (ou pas de réponse : `online` faux, rien ne change).
+        relay: Option<crate::model::HostRelay>,
         os: Option<String>,
         gpu: Option<String>,
         av1: bool,
@@ -83,6 +88,9 @@ pub enum Event {
     Update(Result<Option<kybernow_core::update::Available>, String>),
     /// KyberNow Share, invité : la réponse de « Rejoindre » (numéro de la recherche), ou son refus.
     ShareJoined { attempt: u32, result: Result<share::Found, share::ShareError> },
+    /// KyberNow Share, invité : la demande est partie par le relais, l'hôte ne l'a pas encore acceptée
+    /// (« En attente de l'accord de l'hôte… »).
+    SharePending { attempt: u32 },
     /// KyberNow Share, hôte : le partage de cette session après une demande à Admin (`None` : fermé), ou ce
     /// qu'Admin a refusé.
     ShareHost { session: SessionId, result: Result<Option<crate::app::ShareView>, String> },
@@ -124,6 +132,8 @@ pub enum SessionEvent {
     ShareImage { label: Option<String>, notice: Option<String> },
     /// KyberNow Share, invité : le partage a fini la session (`kind` : stopped, removed, unreadable) avec ce texte.
     ShareEnd(String, String),
+    /// Par où passe la session : au départ, puis quand le chemin change (puce « Par le relais », ligne « Chemin »).
+    Route(crate::app::RouteUi),
 }
 
 /// Règles de la souris Auto : le jeu doit aussi cacher son pointeur (comme Mac et Windows).
@@ -534,6 +544,8 @@ struct Live {
     hz: u32,
     codec: &'static str,
     game_fullscreen: bool,
+    /// Par où passe la session (`Platform::on_route`) : gardé pour la dernière session.
+    path: crate::app::PathKind,
     /// Souris choisie pour la session (barre, raccourci) ; sinon le réglage.
     mouse: MouseMode,
     /// Saisie de texte (clavier de Steam) : les caractères partent en Unicode.
@@ -2232,9 +2244,15 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
 #[allow(clippy::too_many_arguments)]
 fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, wins: &mut Wins, actions: &mut Vec<Action>, pairing: &mut Vec<Arc<AtomicBool>>, tx: &Sender<Event>) {
     match e {
-        Event::HostInfo { id, online, os, gpu, av1, virtual_display, max_screens, station, wake, own_device, share } => {
+        Event::HostInfo { id, online, away, relay, os, gpu, av1, virtual_display, max_screens, station, wake, own_device, share } => {
             let entry = app.live.entry(id.clone()).or_insert_with(HostLive::default);
-            entry.online = if online { Online::Online } else { Online::Offline };
+            entry.online = if online {
+                Online::Online
+            } else if away {
+                Online::Away
+            } else {
+                Online::Offline
+            };
             if online {
                 entry.virtual_display = virtual_display;
                 entry.max_screens = max_screens;
@@ -2259,6 +2277,11 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, lives: &mut Live
                 h.os = os.or(h.os.take());
                 h.gpu = gpu.or(h.gpu.take());
                 h.av1 = av1;
+                // Le relais de l'ordinateur : celui que sa Station donne, gardé pour le joindre hors de chez soi.
+                if h.relay != relay {
+                    h.relay = relay;
+                    changed = true;
+                }
                 if changed {
                     app.store.save();
                 }
@@ -2309,6 +2332,7 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, lives: &mut Live
         Event::ShareJoined { attempt, result } => match result {
             Ok(found) if app.join_current(attempt) => {
                 app.join.busy = false;
+                app.join.waiting = false;
                 connect_guest(app, lives, wins, tx, found);
             }
             Ok(found) => jobs::share_leave(found),
@@ -2317,6 +2341,15 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, lives: &mut Live
                 app.join_failed(attempt, e.to_string());
             }
         },
+        // La demande attend l'hôte : « En attente de l'accord de l'hôte… ». Une recherche abandonnée entre-temps
+        // retire sa demande aussitôt.
+        Event::SharePending { attempt } => {
+            if app.join_current(attempt) {
+                app.join_pending(attempt);
+            } else {
+                jobs::share_cancel();
+            }
+        }
         Event::ShareHost { session, result } => app.share_reply(session, result),
         Event::StationReply { host, kind, result } => app.station_reply(&host, kind, result),
         Event::Woken { id, result } => {
@@ -2449,6 +2482,12 @@ fn session_event(id: SessionId, e: SessionEvent, app: &mut App, pads: &mut pads:
                     }
                     // La session est finie : plus qu'une fenêtre ; une erreur se lit dans sa fenêtre principale.
                     wins.close_extras(id);
+                    // Par le relais, l'échec dit le nom de l'ordinateur (docs/link-ui.md, « Hors de chez vous »).
+                    let may_relay = s.guest.is_none() && lives.get(id).and_then(|l| app.store.host(&l.host)).is_some_and(|h| session::relay_route(h).is_some());
+                    let error = match error {
+                        Some(e) if may_relay => Some(session::relay_refusal(&e, &s.name).unwrap_or(e)),
+                        other => other,
+                    };
                     Phase::Ended { error }
                 }
             };
@@ -2593,6 +2632,15 @@ fn session_event(id: SessionId, e: SessionEvent, app: &mut App, pads: &mut pads:
         }
         SessionEvent::ShareImage { label, notice } => app.share_image(id, label, notice),
         SessionEvent::ShareEnd(kind, text) => log::info!("partage : {kind} ({text})"),
+        // Le chemin de la session : la puce et la ligne « Chemin » le lisent ; la dernière session le garde.
+        SessionEvent::Route(route) => {
+            if let Some(l) = lives.get_mut(id) {
+                l.path = route.kind;
+            }
+            if let Some(s) = app.session_by_mut(id) {
+                s.route = Some(route);
+            }
+        }
     }
 }
 
@@ -2907,6 +2955,7 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, w
         Action::Probe { address, port } => jobs::probe(address, port, tx.clone()),
         // KyberNow Share, invité : le code part aux Stations trouvées sur le réseau (celles de l'appairage), avec
         // l'empreinte qu'on leur connaît ; l'appareil se nomme comme pour Admin.
+        Action::JoinCancel => jobs::share_cancel(),
         Action::JoinShare { code, name, quality } => {
             let mut targets: Vec<ShareTarget> = app.found.iter().map(|f| ShareTarget { host: f.address.clone(), port: f.port, fingerprint: f.fingerprint.clone() }).collect();
             // Un ordinateur de l'appareil, en ligne, que le réseau n'annonce pas (Tailscale, WireGuard) : il peut partager aussi.
@@ -2920,7 +2969,9 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, w
             // en cours de session (sans lui, « Auto » donnerait l'image de l'hôte).
             let auto = Some(join_auto(app, wins));
             let request = JoinRequest { code, name, device: app.store.device_id.clone(), app: "linux".into(), quality: session::core_quality(quality), auto, ..JoinRequest::default() };
-            jobs::share_join(targets, request, session::guest_capabilities(&app.machine), app.join.attempt, tx.clone());
+            // Hors de chez soi : le relais public, et ceux des ordinateurs de l'appareil (sans doublon, `KYBERNOW_RELAY=off` : aucun).
+            let relays = session::join_relays(app.store.hosts.iter().filter_map(|h| h.relay.as_ref().map(|r| r.server.as_str())));
+            jobs::share_join(targets, relays, request, session::guest_capabilities(&app.machine), app.join.attempt, tx.clone());
         }
         // KyberNow Share, invité : la « Qualité de l'image » changée en session ; la Station relance l'image de l'invité
         // seulement, la session n'a rien à relancer (l'image reçue revient par `Platform::on_share_image`).
@@ -3008,6 +3059,7 @@ fn guest_host(found: &share::Found, title: &str) -> crate::model::Host {
         av1: false,
         mac: None,
         wake: Vec::new(),
+        relay: None,
         settings: crate::model::HostSettings::default(),
         last: None,
     }
@@ -3172,6 +3224,7 @@ fn open_session(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<E
         hz: primary_mode.2,
         codec: codec_label,
         game_fullscreen: false,
+        path: crate::app::PathKind::Direct,
         mouse: match h.settings.mouse.as_str() {
             "desktop" => MouseMode::Desktop,
             "game" => MouseMode::Game,
@@ -3405,7 +3458,7 @@ fn finish(app: &mut App, l: Live) {
     if seconds >= 3
         && let Some(h) = app.store.host_mut(&id)
     {
-        h.last = Some(LastSession { median, p95, seconds, mode: l.mode.clone(), hz: l.hz, codec: l.codec.into(), mbps, at: now_secs(), screens: l.screens as u32 });
+        h.last = Some(LastSession { median, p95, seconds, mode: l.mode.clone(), hz: l.hz, codec: l.codec.into(), mbps, at: now_secs(), screens: l.screens as u32, route: l.path.as_str().into() });
     }
     app.store.save();
     if app.store.app.keep_last_image
@@ -3577,6 +3630,7 @@ mod tests {
             av1: false,
             mac: None,
             wake: Vec::new(),
+            relay: None,
             settings: Default::default(),
             last: None,
         }

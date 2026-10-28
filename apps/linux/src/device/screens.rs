@@ -169,6 +169,7 @@ mod tests {
             av1: false,
             mac: None,
             wake: Vec::new(),
+            relay: None,
             settings: HostSettings { profile, ..HostSettings::default() },
             last: None,
         }

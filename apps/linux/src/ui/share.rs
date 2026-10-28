@@ -11,7 +11,7 @@ use super::icons::Icon;
 use super::theme::*;
 use super::widgets::{self, eyebrow, legend};
 use super::{unit, Frame};
-use crate::app::{guests_label, App, Layout, Rect, SessionUi, ShareMove, ShareView, Target, MAX_GUESTS};
+use crate::app::{App, Layout, Rect, SessionUi, ShareMove, ShareView, Target, MAX_GUESTS};
 use crate::i18n::tr;
 
 /// Ce que le panneau mesure, en points de l'interface (`u` : l'échelle de l'interface).
@@ -19,14 +19,9 @@ const HEADER: f32 = 46.0;
 const QR: f32 = 128.0;
 const PAD: f32 = 20.0;
 const ROW: f32 = 58.0;
+/// Une demande : « {prénom} demande à rejoindre » avec ses deux boutons, et dessous son app.
+const REQUEST: f32 = 54.0;
 const FOOT: f32 = 56.0;
-
-fn help() -> &'static str {
-    tr(
-        "Sur le même réseau : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur.",
-        "On the same network: “Join with a code” in KyberNow Link, or this link in a browser.",
-    )
-}
 
 /// Le nom de l'ordinateur qui partage.
 fn computer<'a>(app: &'a App, s: &'a SessionUi) -> &'a str {
@@ -49,10 +44,14 @@ fn height(cv: &mut Canvas, app: &App, s: &SessionUi, w: f32, u: f32) -> f32 {
         let msg = closed_text(app, s).map(|(e, _)| cv.line_count(Text::new(Font::Regular, 14.0 * u, WARN), &e, w - 2.0 * PAD * u) as f32 * 20.0 * u + 12.0 * u).unwrap_or(0.0);
         return (HEADER + 20.0) * u + msg.max(36.0 * u);
     };
-    let help_lines = cv.line_count(Text::new(Font::Regular, 12.5 * u, FAINT), help(), w - 2.0 * PAD * u) as f32;
-    let people = 26.0 * u + if v.guests.is_empty() { 36.0 * u } else { v.guests.len() as f32 * ROW * u };
+    let help_lines = cv.line_count(Text::new(Font::Regular, 12.5 * u, FAINT), v.help(), w - 2.0 * PAD * u) as f32;
+    // Relais réglé mais injoignable : une ligne sous l'aide.
+    let down = if v.relay_down_text().is_some() { 17.0 * u } else { 0.0 };
+    let (requests, guests) = (v.requests().len(), v.accepted().len());
+    let asking = if requests > 0 { 26.0 * u + requests as f32 * REQUEST * u + 8.0 * u } else { 0.0 };
+    let people = 26.0 * u + if guests == 0 { 36.0 * u } else { guests as f32 * ROW * u };
     let err = s.share_error.as_ref().map(|e| cv.line_count(Text::new(Font::Regular, 12.5 * u, WARN), e, w - 2.0 * PAD * u) as f32 * 17.0 * u + 8.0 * u).unwrap_or(0.0);
-    HEADER * u + QR * u + 14.0 * u + 18.0 * u + help_lines * 17.0 * u + 12.0 * u + people + err + FOOT * u
+    HEADER * u + QR * u + 14.0 * u + 18.0 * u + help_lines * 17.0 * u + down + 12.0 * u + asking + people + err + FOOT * u
 }
 
 /// Au bureau : le menu de la barre, sous le bouton « Partager » (centré sur `anchor`).
@@ -61,7 +60,7 @@ pub fn dropdown(cv: &mut Canvas, f: &mut Frame, app: &App, s: &SessionUi, anchor
     let x = (anchor - w / 2.0).clamp(8.0, (cv.w - w - 8.0).max(8.0));
     // Quatre invités dans la fenêtre la plus basse (600 points) : le panneau se resserre un peu plutôt que de sortir.
     let full = height(cv, app, s, w, 1.0);
-    let u = ((cv.h - y - 8.0) / full).clamp(0.8, 1.0);
+    let u = ((cv.h - y - 8.0) / full).clamp(0.66, 1.0);
     let h = height(cv, app, s, w, u);
     cv.rrect(x, y, w, h, 12.0, Rgba(9, 13, 18, 247));
     cv.rrect_stroke(x, y, w, h, 12.0, 1.0, LINE_2);
@@ -76,7 +75,16 @@ pub fn overlay(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     cv.rect(0.0, 0.0, cw, ch, Rgba(5, 7, 10, 184));
     let footer = 56.0 * unit(app.layout);
     let w = (600.0 * u).min(cw - 80.0);
-    let h = height(cv, app, s, w, u).min(ch - footer - 40.0);
+    // Des demandes en plus des invités : le panneau se resserre pour tenir dans l'écran, boutons compris.
+    let avail = ch - footer - 40.0;
+    let mut u = u;
+    for _ in 0..2 {
+        let full = height(cv, app, s, w, u);
+        if full > avail {
+            u = (u * avail / full).max(0.55);
+        }
+    }
+    let h = height(cv, app, s, w, u).min(avail);
     let (x, y) = ((cw - w) / 2.0, ((ch - footer - h) / 2.0).max(20.0));
     cv.rrect(x, y, w, h, 14.0 * u, Rgba(9, 13, 18, 247));
     cv.rrect_stroke(x, y, w, h, 14.0 * u, 1.0, LINE_2);
@@ -167,22 +175,53 @@ fn card(cv: &mut Canvas, f: &mut Frame, app: &App, s: &SessionUi, r: Rect, u: f3
     // L'adresse du client web, en clair : à taper dans un navigateur, ou à sélectionner si la copie a échoué.
     cv.text_fit(x, y + 4.0 * u, Text::new(Font::Mono, 11.0 * u, FAINT), &v.web, inner);
     y += 18.0 * u;
-    y += cv.paragraph(x, y + 4.0 * u, Text::new(Font::Regular, 12.5 * u, FAINT), help(), inner, 17.0 * u) + 12.0 * u;
+    y += cv.paragraph(x, y + 4.0 * u, Text::new(Font::Regular, 12.5 * u, FAINT), v.help(), inner, 17.0 * u);
+    // Le relais est réglé mais ne répond pas : sous l'aide du même réseau.
+    if let Some(t) = v.relay_down_text() {
+        cv.text_fit(x, y + 16.0 * u, Text::new(Font::Regular, 12.5 * u, WARN), t, inner);
+        y += 17.0 * u;
+    }
+    y += 12.0 * u;
 
-    // Les invités.
+    // Les demandes (invités venus par le relais), au-dessus des invités, seulement s'il y en a : « {prénom} demande à
+    // rejoindre », dessous « {app} · hors de chez vous », « Accepter » et « Refuser ».
+    let requests = v.requests();
+    if !requests.is_empty() {
+        cv.rect(x, y, inner, 1.0, LINE);
+        eyebrow(cv, x, y + 18.0 * u, 10.5 * u, FAINT, tr("Demandes", "Requests"));
+        y += 26.0 * u;
+        for (i, g) in requests {
+            let (decline, accept) = (tr("Refuser", "Decline"), tr("Accepter", "Accept"));
+            // Les deux boutons à droite de la ligne, « Accepter » en dernier (le plus proche du bord, celui du pouce).
+            let size = 12.0 * u;
+            let dw = cv.text_width(Text::new(Font::Regular, size, MUTED), decline) + 2.0 * size;
+            let aw = cv.text_width(Text::new(Font::Regular, size, FROST), accept) + 2.0 * size;
+            let accept_x = x + inner - aw;
+            let decline_x = accept_x - 8.0 * u - dw;
+            widgets::ghost(cv, f, Target::ShareRefuse(i), decline_x, y + 4.0 * u, 28.0 * u, size, None, decline, BAD_TEXT);
+            widgets::ghost(cv, f, Target::ShareAccept(i), accept_x, y + 4.0 * u, 28.0 * u, size, None, accept, OK);
+            cv.text_fit(x, y + 22.0 * u, Text::new(Font::Regular, 13.5 * u, FROST), &g.request_line(), (decline_x - x - 12.0 * u).max(60.0));
+            cv.text_fit(x, y + 40.0 * u, Text::new(Font::Regular, 11.5 * u, FAINT), &g.request_meta(), inner);
+            y += REQUEST * u;
+        }
+        y += 8.0 * u;
+    }
+
+    // Les invités (acceptés).
+    let accepted = v.accepted();
     cv.rect(x, y, inner, 1.0, LINE);
     eyebrow(cv, x, y + 18.0 * u, 10.5 * u, FAINT, tr("Invités", "Guests"));
     // La limite se dit quand la liste est pleine, comme dans les apps Apple.
-    if v.guests.len() >= MAX_GUESTS {
+    if accepted.len() >= MAX_GUESTS {
         cv.text(x + inner, y + 18.0 * u, Text::new(Font::Regular, 11.5 * u, FAINT).align(Align::Right), tr("Quatre invités au plus.", "Four guests at most."));
     }
     y += 26.0 * u;
-    if v.guests.is_empty() {
+    if accepted.is_empty() {
         cv.text(x, y + 20.0 * u, Text::new(Font::Regular, 13.5 * u, MUTED), tr("Personne pour l'instant.", "Nobody yet."));
         y += 36.0 * u;
     }
     let now = crate::model::now_secs() as i64;
-    for (i, g) in v.guests.iter().take(MAX_GUESTS).enumerate() {
+    for (i, g) in accepted.into_iter().take(MAX_GUESTS) {
         let meta = g.meta(now);
         let mw = cv.text_width(Text::new(Font::Regular, 11.5 * u, FAINT), &meta);
         cv.text_fit(x, y + 16.0 * u, Text::new(Font::Regular, 13.5 * u, FROST), &g.line(), (inner - mw - 16.0 * u).max(60.0));
@@ -210,8 +249,13 @@ fn card(cv: &mut Canvas, f: &mut Frame, app: &App, s: &SessionUi, r: Rect, u: f3
     y - r.y
 }
 
-/// La pastille de la barre : « 2 invités », à partir d'un invité (jamais « 0 invité » : le bouton « Partager » est
-/// allumé tant que le partage est ouvert, la pastille dit seulement qui est là).
+/// La pastille de la barre : « 2 invités », à partir d'un invité accepté (jamais « 0 invité » : le bouton « Partager »
+/// est allumé tant que le partage est ouvert, la pastille dit seulement qui est là). Une demande n'y compte pas.
 pub fn pill_label(s: &SessionUi) -> Option<String> {
-    s.share.as_ref().filter(|v: &&ShareView| !v.guests.is_empty()).map(|v| guests_label(v.guests.len()))
+    s.share.as_ref().and_then(ShareView::guests_pill)
+}
+
+/// La pastille des demandes en attente : « 1 demande », « 2 demandes », seulement quand il y en a.
+pub fn requests_pill_label(s: &SessionUi) -> Option<String> {
+    s.share.as_ref().and_then(ShareView::requests_pill)
 }

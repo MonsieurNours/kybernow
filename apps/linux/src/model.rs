@@ -136,6 +136,11 @@ pub struct LastSession {
     /// le total.
     #[serde(default)]
     pub screens: u32,
+    /// Le chemin de la session : `direct`, `relay` (par le relais) ou `relay_tcp`
+    /// (par le relais, repli TCP) ; vide : direct, ou une session d'avant le relais
+    /// (le `RouteInfo` du cœur, ramené à son transport).
+    #[serde(default)]
+    pub route: String,
 }
 
 impl LastSession {
@@ -191,10 +196,25 @@ pub struct Host {
     /// gardées d'un `info` réussi à l'autre (une liste vide ne les efface pas).
     #[serde(default)]
     pub wake: Vec<WakeCard>,
+    /// Le relais de l'ordinateur (`relay` de `GET /api/stream/info`), gardé d'un `info` réussi à l'autre : de quoi
+    /// le joindre hors de chez soi (`Route::Auto`) et le dire « Hors de chez vous » sur l'accueil.
+    #[serde(default)]
+    pub relay: Option<HostRelay>,
     #[serde(default)]
     pub settings: HostSettings,
     #[serde(default)]
     pub last: Option<LastSession>,
+}
+
+/// Le relais d'un ordinateur, tel que la Station le donne (`RelayInfo` du cœur) : le relais (`hôte:port`, ou
+/// `hôte:port#sha256:…` pour un relais épinglé), l'identifiant de la Station chez lui, et « Accès hors de chez
+/// vous » (actif dans Admin ?). Sans lui, l'ordinateur ne se joint que sur le réseau.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(default)]
+pub struct HostRelay {
+    pub server: String,
+    pub id: String,
+    pub remote_access: bool,
 }
 
 /// Une carte réseau de l'ordinateur à réveiller, au JSON de `WakeTarget` du
@@ -336,7 +356,8 @@ impl Store {
             // Ajouté à nouveau : ses réglages, sa dernière session et de quoi le réveiller restent.
             let wake = if host.wake.is_empty() { h.wake.clone() } else { host.wake.clone() };
             let mac = host.mac.clone().or_else(|| h.mac.clone());
-            *h = Host { id: id.clone(), settings, last, wake, mac, ..host };
+            let relay = host.relay.clone().or_else(|| h.relay.clone());
+            *h = Host { id: id.clone(), settings, last, wake, mac, relay, ..host };
             return id;
         }
         let id = host.id.clone();

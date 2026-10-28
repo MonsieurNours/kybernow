@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use tiny_skia::Pixmap;
 
-use crate::app::{AddStep, App, BarMenu, Confirm, Found, HostLive, JoinField, JoinState, Layout, MenuItem, NetKind, Online, PadInfo, Phase, Screen, ScreensPlan, Section, SessionUi, Setting, ShareAvail, ShareGuest, ShareQuality, ShareRole, ShareView, StationKind, StationLive, StationOp, StationStep, Stats, Target};
+use crate::app::{AddStep, App, BarMenu, Confirm, Found, HostLive, JoinField, JoinState, Layout, MenuItem, NetKind, Online, PadInfo, PathKind, Phase, RouteUi, Screen, ScreensPlan, Section, SessionUi, Setting, ShareAvail, ShareGuest, ShareQuality, ShareRelay, ShareRole, ShareView, StationKind, StationLive, StationOp, StationStep, Stats, Target};
 use crate::model::{Host, HostSettings, LastSession, Profile, Store, WakeCard};
 use crate::ui::{self, canvas::Canvas};
 
@@ -64,6 +64,7 @@ fn host(id: &str, name: &str, addr: &str) -> Host {
         av1: true,
         mac: None,
         wake: vec![WakeCard { mac: "3C:7C:3F:12:AB:CD".into(), ipv4: Some(addr.into()), kind: "ethernet".into(), armed: Some(true), ..Default::default() }],
+        relay: None,
         settings: HostSettings::default(),
         last: None,
     }
@@ -74,7 +75,7 @@ fn demo(english: bool, layout: Layout) -> App {
     let mut store = Store::default();
     let mut a = host("a", "Tour du salon", "192.168.1.42");
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-    a.last = Some(LastSession { median: 6.8, p95: 9.4, seconds: 4320, mode: "1920 × 1200".into(), hz: 120, codec: "HEVC".into(), mbps: 38.0, at: now - 86400, screens: 1 });
+    a.last = Some(LastSession { median: 6.8, p95: 9.4, seconds: 4320, mode: "1920 × 1200".into(), hz: 120, codec: "HEVC".into(), mbps: 38.0, at: now - 86400, screens: 1, route: String::new() });
     store.hosts.push(a);
     let mut b = host("b", "Portable pro", "100.84.12.9");
     b.os = Some("Windows 11 Pro".into());
@@ -226,7 +227,7 @@ fn multi_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, prefi
     // Les statistiques : leur nombre d'abord, puis l'écran principal et le débit total.
     let last = app.store.host_mut("a").and_then(|h| h.last.take());
     if let Some(h) = app.store.host_mut("a") {
-        h.last = Some(LastSession { median: 8.9, p95: 14.2, seconds: 2520, mode: "3840 × 2160".into(), hz: 160, codec: "HEVC".into(), mbps: 120.0, at: 0, screens: 3 });
+        h.last = Some(LastSession { median: 8.9, p95: 14.2, seconds: 2520, mode: "3840 × 2160".into(), hz: 160, codec: "HEVC".into(), mbps: 120.0, at: 0, screens: 3, route: String::new() });
     }
     app.open_host_section(Section::Statistics, Screen::Home);
     shot(app, cv, None, dir, &name("15e-reglages-statistiques-ecrans"));
@@ -358,11 +359,12 @@ fn shared_view() -> ShareView {
         code: "482917".into(),
         link: "kybernow://join?host=192.168.1.42&port=24811&fp=sha256:7c:3a:91:e0:4b:2d:a8:1f&code=482917".into(),
         web: "https://192.168.1.42:24811/link/?join=482917".into(),
+        relay: None,
         guests: vec![
-            ShareGuest { id: "g1".into(), name: "Léa".into(), role: ShareRole::Spectator, app: "ios".into(), since: Some(now - 4 * 60), quality: None },
-            ShareGuest { id: "g2".into(), name: "Tom".into(), role: ShareRole::Player, app: "webos".into(), since: Some(now - 35 * 60), quality: Some("1080p · 60 Hz".into()) },
-            ShareGuest { id: "g3".into(), name: "Hugo".into(), role: ShareRole::Kbm, app: "mac".into(), since: Some(now - 12 * 60), quality: None },
-            ShareGuest { id: "g4".into(), name: "Camille".into(), role: ShareRole::PlayerKbm, app: "windows".into(), since: Some(now - 3700), quality: Some("720p · 30 Hz".into()) },
+            ShareGuest { id: "g1".into(), name: "Léa".into(), role: ShareRole::Spectator, app: "ios".into(), since: Some(now - 4 * 60), quality: None, ..Default::default() },
+            ShareGuest { id: "g2".into(), name: "Tom".into(), role: ShareRole::Player, app: "webos".into(), since: Some(now - 35 * 60), quality: Some("1080p · 60 Hz".into()), ..Default::default() },
+            ShareGuest { id: "g3".into(), name: "Hugo".into(), role: ShareRole::Kbm, app: "mac".into(), since: Some(now - 12 * 60), quality: None, ..Default::default() },
+            ShareGuest { id: "g4".into(), name: "Camille".into(), role: ShareRole::PlayerKbm, app: "windows".into(), since: Some(now - 3700), quality: Some("720p · 30 Hz".into()), ..Default::default() },
         ],
     }
 }
@@ -565,6 +567,119 @@ fn share_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, prefi
     app.set_session(Some(g));
     app.focus = Target::Back;
     shot(app, cv, None, dir, &name("22e-invite-fin"));
+    app.set_session(None);
+    app.screen = Screen::Home;
+}
+
+/// Un partage ouvert par une Station dont le relais est joint : un invité sur le réseau, un autre venu par le relais, et
+/// deux demandes qui attendent l'accord de l'hôte.
+fn relay_view(relay: Option<ShareRelay>) -> ShareView {
+    let now = crate::model::now_secs() as i64;
+    let mut v = shared_view();
+    v.guests.truncate(2);
+    v.guests[1] = ShareGuest { id: "g2".into(), name: "Tom".into(), role: ShareRole::Spectator, app: "android".into(), since: Some(now - 3 * 60), quality: None, pending: false, via_relay: true };
+    v.guests.push(ShareGuest { id: "g5".into(), name: "Eva".into(), role: ShareRole::Spectator, app: "ios".into(), since: Some(now - 20), quality: None, pending: true, via_relay: true });
+    v.guests.push(ShareGuest { id: "g6".into(), name: "Hugo".into(), role: ShareRole::Spectator, app: "web".into(), since: Some(now - 5), quality: None, pending: true, via_relay: true });
+    v.link = "kybernow://join?host=192.168.1.42&port=24811&fp=sha256:7c:3a:91:e0:4b:2d:a8:1f&code=482917&relay=share.kybernow.app%3A8443&sid=ocean7xk3qdhvm2wpa5fzt4ylb".into();
+    v.web = "https://share.kybernow.app:8443/j/482917".into();
+    v.relay = relay;
+    v
+}
+
+/// Une session d'hôte par le relais (chemin, aller-retour mesuré).
+fn relayed(kind: PathKind) -> RouteUi {
+    RouteUi { kind, rtt_client: Some(18.0), rtt_station: Some(2.5) }
+}
+
+/// Le relais (docs/relais.md, textes de docs/link-ui.md, « Hors de chez vous » et « Partage ») : l'ordinateur joignable
+/// seulement par le relais sur l'accueil, « Rejoindre » avec l'attente de l'accord de l'hôte et ce qu'il répond, le
+/// panneau de l'hôte avec ses demandes, la session d'invité et d'hôte par le relais.
+fn relay_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, prefix: &str) {
+    let name = |n: &str| format!("{prefix}-{n}");
+    let console = app.layout.console();
+    app.set_session(None);
+    app.pointer = None;
+    app.store.selected = Some("a".into());
+
+    // L'accueil : « Hors de chez vous » à la place de « En ligne », le bouton reste « Se connecter ».
+    app.live.insert("a".into(), HostLive { online: Online::Away, ..app.live.get("a").cloned().unwrap_or_default() });
+    app.go(Screen::Home);
+    shot(app, cv, None, dir, &name("01f-accueil-hors-de-chez-vous"));
+    app.live.insert("a".into(), HostLive { online: Online::Online, ..app.live.get("a").cloned().unwrap_or_default() });
+
+    // Rejoindre par le relais : l'attente de l'accord de l'hôte (« Annuler »), puis ce que l'hôte répond.
+    app.join = JoinState { name: "Atelier de Léa".into(), code: "482917".into(), busy: true, waiting: true, ..JoinState::new() };
+    app.go(Screen::Join);
+    app.focus = Target::JoinCancel;
+    shot(app, cv, None, dir, &name("20g-rejoindre-attente"));
+    app.join.busy = false;
+    app.join.waiting = false;
+    app.focus = if console { Target::Key('1') } else { Target::JoinCode };
+    for (n, fr, en) in [("20h-rejoindre-refuse", "L'hôte a refusé.", "The host declined."), ("20i-rejoindre-sans-reponse", "L'hôte n'a pas répondu.", "The host did not answer."), ("20j-rejoindre-relais-muet", "Le relais ne répond pas.", "The relay is not answering.")] {
+        app.join.message = Some(crate::i18n::tr(fr, en).into());
+        shot(app, cv, None, dir, &name(n));
+    }
+    app.join = JoinState::new();
+
+    // Le panneau de l'hôte : le relais joint (lien et QR code du relais, aide, « hors de chez vous », demandes), puis injoignable.
+    let mut s = session(app);
+    s.menu = false;
+    s.relative = false;
+    s.share = Some(relay_view(Some(ShareRelay::Joined)));
+    if console {
+        s.share_panel = true;
+    } else {
+        s.bar = true;
+        s.bar_menu = Some(BarMenu::Share);
+        app.pointer = Some((700.0, 20.0));
+    }
+    app.set_session(Some(s));
+    app.screen = Screen::Session;
+    app.focus = Target::ShareAccept(2);
+    shot(app, cv, Some(video), dir, &name("21k-partage-relais"));
+    if let Some(s) = app.session_mut() {
+        s.share = Some(ShareView { guests: relay_view(None).guests.into_iter().take(2).collect(), ..relay_view(Some(ShareRelay::Unreachable)) });
+    }
+    app.focus = Target::ShareNewCode;
+    shot(app, cv, Some(video), dir, &name("21l-partage-relais-injoignable"));
+    // La barre fermée sur le panneau : les deux pastilles, invités et demandes.
+    if !console {
+        if let Some(s) = app.session_mut() {
+            s.bar_menu = None;
+            s.share = Some(relay_view(Some(ShareRelay::Joined)));
+        }
+        shot(app, cv, Some(video), dir, &name("21m-partage-relais-barre"));
+    }
+
+    // Une session par le relais : la puce (bureau) ou la tuile (menu), les statistiques avec leur ligne « Chemin », le repli TCP.
+    app.pointer = None;
+    for (kind, n) in [(PathKind::Relay, "23-session-relais"), (PathKind::RelayTcp, "23b-session-relais-tcp")] {
+        let mut s = session(app);
+        s.route = Some(relayed(kind));
+        s.show_stats = true;
+        if console {
+            s.menu = true;
+        } else {
+            s.menu = false;
+            s.bar = true;
+            app.pointer = Some((700.0, 20.0));
+        }
+        app.set_session(Some(s));
+        app.screen = Screen::Session;
+        app.focus = Target::Menu(MenuItem::Resume);
+        shot(app, cv, Some(video), dir, &name(n));
+    }
+    // Un invité venu par le relais.
+    let mut g = guest_session(ShareRole::Spectator);
+    g.route = Some(relayed(PathKind::Relay));
+    if console {
+        g.menu = true;
+    } else {
+        g.bar = true;
+    }
+    app.set_session(Some(g));
+    shot(app, cv, Some(video), dir, &name("23c-invite-relais"));
+    app.pointer = None;
     app.set_session(None);
     app.screen = Screen::Home;
 }
@@ -807,6 +922,8 @@ pub fn run(dir: &Path, lang: &str) {
         }
         // KyberNow Share : rejoindre, le panneau de l'hôte, la session d'invité.
         share_shots(&mut app, &mut cv, &video, dir, prefix);
+        // Hors de chez soi (docs/relais.md) : l'accueil, l'attente de l'hôte, ses demandes, une session par le relais.
+        relay_shots(&mut app, &mut cv, &video, dir, prefix);
     }
 
     // Raspberry Pi 5 sous Raspberry Pi OS (interface Bureau, écran 1080p) : les
@@ -870,7 +987,7 @@ fn os_shots(en: bool, dir: &Path) {
     app.machine.audio_name = "vc4hdmi0".into();
     if let Some(h) = app.store.host_mut("a") {
         h.settings.profile = Profile::Jeu;
-        h.last = Some(LastSession { median: 9.8, p95: 14.0, seconds: 6000, mode: "3840 × 2160".into(), hz: 60, codec: "HEVC".into(), mbps: 60.0, at: 0, screens: 1 });
+        h.last = Some(LastSession { median: 9.8, p95: 14.0, seconds: 6000, mode: "3840 × 2160".into(), hz: 60, codec: "HEVC".into(), mbps: 60.0, at: 0, screens: 1, route: String::new() });
     }
     let mut cv = Canvas::new();
     cv.resize(1920, 1080, 1.0);
@@ -973,7 +1090,7 @@ fn raspberry(app: &mut App) {
     app.net.band = None;
     if let Some(h) = app.store.host_mut("a") {
         h.settings.profile = Profile::Bureau;
-        h.last = Some(LastSession { median: 11.2, p95: 15.0, seconds: 6000, mode: "1920 × 1080".into(), hz: 60, codec: "HEVC".into(), mbps: 28.0, at: 0, screens: 1 });
+        h.last = Some(LastSession { median: 11.2, p95: 15.0, seconds: 6000, mode: "1920 × 1080".into(), hz: 60, codec: "HEVC".into(), mbps: 28.0, at: 0, screens: 1, route: String::new() });
     }
 }
 
@@ -1360,6 +1477,119 @@ mod tests {
         assert_eq!(app.selected().unwrap().settings.profile, Profile::Max);
     }
 
+    // MARK: - Le relais
+
+    /// Les captures du relais se produisent au bureau et au salon, dans les deux langues.
+    #[test]
+    fn relay_shots_are_produced() {
+        let dir = std::env::temp_dir().join(format!("kn-linux-relais-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        for (layout, prefix, size) in [(Layout::Desktop, "bureau", (1280, 800)), (Layout::Tv, "salon", (1280, 720))] {
+            for en in [false, true] {
+                let mut app = demo(en, layout);
+                let mut cv = Canvas::new();
+                cv.resize(size.0, size.1, 1.0);
+                relay_shots(&mut app, &mut cv, &demo_image(3), &dir, prefix);
+            }
+        }
+        for n in ["01f-accueil-hors-de-chez-vous", "20g-rejoindre-attente", "21k-partage-relais", "23-session-relais", "23c-invite-relais"] {
+            assert!(dir.join(format!("bureau-{n}.png")).exists() && dir.join(format!("salon-{n}.png")).exists(), "{n}");
+        }
+        crate::i18n::force_english(false);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Le panneau de l'hôte avec le relais joint, quatre « places » (deux invités et deux demandes) ou quatre invités et
+    /// trois demandes, tient dans la fenêtre la plus basse (960 × 600) : chaque bouton qu'il inscrit y est entier, les
+    /// demandes ont « Accepter » et « Refuser », rien ne se chevauche.
+    #[test]
+    fn share_panel_with_requests_fits_the_smallest_window() {
+        for (guests, requests) in [(2usize, 2usize), (4, 3)] {
+            let (mut app, mut cv) = hosting(0, (960, 600));
+            let mut view = relay_view(Some(ShareRelay::Joined));
+            view.guests.truncate(2);
+            while view.guests.iter().filter(|g| !g.pending).count() < guests {
+                view.guests.insert(0, ShareGuest { id: format!("x{}", view.guests.len()), name: "Zoé".into(), app: "mac".into(), ..Default::default() });
+            }
+            while view.guests.iter().filter(|g| g.pending).count() < requests {
+                view.guests.push(ShareGuest { id: format!("y{}", view.guests.len()), name: "Luc".into(), app: "web".into(), pending: true, via_relay: true, ..Default::default() });
+            }
+            app.session_mut().unwrap().share = Some(view.clone());
+            let hits = ui::draw(&app, &mut cv);
+            let rect = |t: Target| hits.iter().find(|(h, _)| *h == t).unwrap_or_else(|| panic!("{t:?} absent du panneau ({guests} invités, {requests} demandes)")).1;
+            let mut need = vec![Target::ShareClose, Target::ShareCopy, Target::ShareNewCode, Target::ShareStop];
+            for (i, g) in view.guests.iter().enumerate() {
+                if g.pending {
+                    need.extend([Target::ShareAccept(i), Target::ShareRefuse(i)]);
+                } else {
+                    need.extend([Target::SharePads(i), Target::ShareKbm(i), Target::ShareKick(i)]);
+                }
+            }
+            let rects: Vec<crate::app::Rect> = need.iter().map(|t| rect(*t)).collect();
+            for (t, r) in need.iter().zip(&rects) {
+                assert!(r.x >= 0.0 && r.y >= 0.0 && r.x + r.w <= 960.0 && r.y + r.h <= 600.0 - 8.0, "{t:?} dépasse la fenêtre ({guests} invités, {requests} demandes) : {r:?}");
+            }
+            for (i, a) in rects.iter().enumerate() {
+                for (j, b) in rects.iter().enumerate().skip(i + 1) {
+                    let overlap = a.x < b.x + b.w - 0.5 && b.x < a.x + a.w - 0.5 && a.y < b.y + b.h - 0.5 && b.y < a.y + a.h - 0.5;
+                    assert!(!overlap, "{:?} et {:?} se chevauchent ({guests} invités, {requests} demandes)", need[i], need[j]);
+                }
+            }
+        }
+    }
+
+    /// À la manette, le panneau de l'hôte (salon, Deck) avec ses demandes reste dans l'écran : ses boutons y sont entiers.
+    #[test]
+    fn share_panel_with_requests_fits_a_pad_screen() {
+        for (layout, w, h) in [(Layout::Handheld, 1280u32, 800u32), (Layout::Tv, 1920, 1080)] {
+            let mut app = demo(false, layout);
+            let mut cv = Canvas::new();
+            cv.resize(w, h, 1.0);
+            let mut s = session(&app);
+            s.menu = false;
+            s.share_panel = true;
+            let mut view = relay_view(Some(ShareRelay::Joined));
+            view.guests.insert(0, ShareGuest { id: "x".into(), name: "Zoé".into(), app: "mac".into(), ..Default::default() });
+            view.guests.insert(0, ShareGuest { id: "w".into(), name: "Nina".into(), app: "mac".into(), ..Default::default() });
+            s.share = Some(view.clone());
+            app.set_session(Some(s));
+            app.screen = Screen::Session;
+            let hits = ui::draw(&app, &mut cv);
+            for (i, g) in view.guests.iter().enumerate().filter(|(_, g)| g.pending) {
+                for t in [Target::ShareAccept(i), Target::ShareRefuse(i)] {
+                    let r = hits.iter().find(|(h, _)| *h == t).unwrap_or_else(|| panic!("{t:?} absent")).1;
+                    assert!(r.x >= 0.0 && r.y >= 0.0 && r.x + r.w <= w as f32 && r.y + r.h <= h as f32 - 56.0, "{t:?} hors de l'écran de {layout:?} : {r:?} ({})", g.name);
+                }
+            }
+        }
+    }
+
+    /// Une session par le relais montre sa puce « Par le relais » dans la barre, ses statistiques leur ligne « Chemin » ;
+    /// directe, rien de plus.
+    #[test]
+    fn a_session_through_the_relay_says_so() {
+        crate::i18n::force_english(false);
+        let mut app = demo(false, Layout::Desktop);
+        let mut cv = Canvas::new();
+        cv.resize(1280, 800, 1.0);
+        let lit = |app: &App, cv: &mut Canvas| {
+            cv.clear(crate::ui::theme::INK_BG);
+            ui::draw(app, cv);
+            cv.pix.data().chunks(4).filter(|p| p[3] > 0).count()
+        };
+        let mut s = session(&app);
+        s.menu = false;
+        s.bar = true;
+        s.show_stats = true;
+        app.set_session(Some(s));
+        app.screen = Screen::Session;
+        app.pointer = Some((700.0, 20.0));
+        let direct = lit(&app, &mut cv);
+        app.session_mut().unwrap().route = Some(relayed(PathKind::Relay));
+        let relay = lit(&app, &mut cv);
+        assert_ne!(direct, relay, "la puce et le chemin se dessinent");
+    }
+
     // MARK: - KyberNow Share
 
     /// Un hôte au bureau, partage ouvert, panneau déployé, `n` invités, dans une fenêtre de `(w, h)` points.
@@ -1371,7 +1601,7 @@ mod tests {
         let mut view = shared_view();
         view.guests.truncate(n);
         while view.guests.len() < n {
-            view.guests.push(ShareGuest { id: format!("x{}", view.guests.len()), name: "Zoé".into(), role: ShareRole::Spectator, app: "android".into(), since: None, quality: None });
+            view.guests.push(ShareGuest { id: format!("x{}", view.guests.len()), name: "Zoé".into(), role: ShareRole::Spectator, app: "android".into(), since: None, quality: None, ..Default::default() });
         }
         let mut s = session(&app);
         s.menu = false;

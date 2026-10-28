@@ -55,6 +55,8 @@ pub fn backdrop(app: &App, cv: &mut Canvas, host: Option<&Host>) {
 fn status(app: &App, h: &Host) -> (&'static str, Rgba, bool) {
     match app.live.get(&h.id).map(|l| l.online).unwrap_or_default() {
         Online::Online => (tr("En ligne", "Online"), OK, true),
+        // Joignable seulement par le relais (docs/relais.md).
+        Online::Away => (tr("Hors de chez vous", "Away from home"), OK, true),
         Online::Offline => (tr("Hors ligne", "Offline"), FAINT, false),
         Online::Unknown => (tr("Recherche…", "Searching…"), FAINT, false),
     }
@@ -230,6 +232,7 @@ fn cards(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y: f32, cw: f32, ch
         let live = app.live.get(&h.id).map(|l| l.online).unwrap_or_default();
         let (dot, line) = match live {
             Online::Online => (OK, tr("En ligne", "Online")),
+            Online::Away => (OK, tr("Hors de chez vous", "Away from home")),
             Online::Offline => (GHOST, tr("Hors ligne", "Offline")),
             Online::Unknown => (FAINT, tr("Recherche…", "Searching…")),
         };

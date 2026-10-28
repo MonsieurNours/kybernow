@@ -14,6 +14,7 @@ use kybernow_core::kynput_rs::Pipeline;
 use kybernow_core::latency::Second;
 use kybernow_core::media::PacketHandler;
 use kybernow_core::profile::{Capabilities, Codec, Profile as CoreProfile, StreamSettings};
+use kybernow_core::relay::{RelayInfo, RelayRoute, RouteInfo, RouteTransport};
 use kybernow_core::screens::Screens;
 use kybernow_core::session::{Notice, Platform, Recovery, Session, SessionParams, SessionRole, Status, StreamScreen};
 use kybernow_core::share::{self, DecoderCaps, ShareEnd, ShareState};
@@ -22,7 +23,7 @@ use kybernow_core::{Display, WindowHandle};
 use super::media::AudioSink;
 use super::video::{Latest, VideoSink};
 use super::{sdl, Event, SessionEvent};
-use crate::app::{Machine, SessionId, ShareGuest, ShareView};
+use crate::app::{Machine, PathKind, RouteUi, SessionId, ShareGuest, ShareRelay, ShareView};
 use crate::model::{Host, Profile};
 
 /// Le presse-papiers du système, vu depuis le fil des entrées : SDL ne se
@@ -416,6 +417,74 @@ impl Platform for LinuxPlatform {
     fn on_share_image(&self, image: &share::ShareImage, _previous: Option<&share::ShareImage>, notice: Option<&str>) {
         self.0.send(SessionEvent::ShareImage { label: image.label(), notice: notice.map(str::to_string) });
     }
+
+    /// Par où passe la session, au départ puis quand le chemin change (par le relais : repli TCP, allers-retours).
+    /// La barre en fait sa puce « Par le relais », les statistiques leur ligne « Chemin ».
+    fn on_route(&self, route: &RouteInfo) {
+        self.0.send(SessionEvent::Route(route_of(route)));
+    }
+}
+
+/// Le chemin de l'interface d'après celui du cœur.
+pub fn route_of(r: &RouteInfo) -> RouteUi {
+    let kind = match r.transport {
+        RouteTransport::Direct => PathKind::Direct,
+        RouteTransport::Relay => PathKind::Relay,
+        RouteTransport::RelayTcp => PathKind::RelayTcp,
+    };
+    RouteUi { kind, rtt_client: r.rtt_client, rtt_station: r.rtt_station }
+}
+
+/// La route d'un ordinateur par son relais : celui que sa Station a donné (`info.relay`, gardé avec lui), Admin
+/// épinglé sur l'empreinte que l'app connaît ; `None` sans relais chez lui ou sans empreinte (jamais de premier
+/// contact par le relais). La session l'essaie quand le réseau ne répond pas (`Route::Auto`).
+pub fn relay_route(host: &Host) -> Option<RelayRoute> {
+    let r = host.relay.as_ref()?;
+    RelayInfo { server: r.server.clone(), id: r.id.clone(), remote_access: r.remote_access }.route(host.fingerprint.as_deref()?)
+}
+
+/// Les relais où chercher le code d'un partage : le relais public d'abord, puis ceux des ordinateurs de l'appareil
+/// (`info.relay.server`), sans doublon ; une adresse illisible est écartée. Le code d'un ami part ainsi au relais
+/// public même quand l'ordinateur de l'utilisateur en a un autre. `KYBERNOW_RELAY=off` : aucun relais.
+pub fn join_relays<'a>(servers: impl IntoIterator<Item = &'a str>) -> Vec<kybernow_core::relay::RelayAddr> {
+    use kybernow_core::relay::{RelayAddr, RelayMode};
+    if RelayMode::current() == RelayMode::Off {
+        return Vec::new();
+    }
+    let mut out = vec![RelayAddr::public()];
+    for server in servers {
+        if let Ok(addr) = server.trim().parse::<RelayAddr>()
+            && !out.contains(&addr)
+        {
+            out.push(addr);
+        }
+    }
+    out
+}
+
+/// Le message qu'Admin donne quand « Accès hors de chez vous » est coupé (`code: remote_access_off`), dans la langue
+/// demandée par l'app (`relay.accessOff` du catalogue d'Admin).
+fn admin_access_off(lang: kybernow_core::i18n::Lang) -> &'static str {
+    match lang {
+        kybernow_core::i18n::Lang::Fr => "L'accès hors de chez vous est coupé dans Admin.",
+        kybernow_core::i18n::Lang::En => "Access away from home is turned off in Admin.",
+    }
+}
+
+/// Le texte de link-ui (« Hors de chez vous ») d'un échec de session par le relais, avec le nom de l'ordinateur que le
+/// cœur ne connaît pas : « {nom} n'est pas joignable hors de chez vous (accès coupé dans Admin). » quand Admin refuse
+/// l'accès, « {nom} n'est pas joignable : l'ordinateur est éteint ou en veille. » quand le relais ne le connaît pas.
+/// `None` : l'échec est autre chose, son texte reste tel quel. `error` est le texte que le cœur a donné.
+pub fn relay_refusal(error: &str, name: &str) -> Option<String> {
+    use kybernow_core::console::ConsoleError;
+    use kybernow_core::i18n::Lang;
+    use kybernow_core::relay::RelayError;
+    let access_off = [Lang::Fr, Lang::En].into_iter().any(|l| error == ConsoleError::Http { status: 403, message: admin_access_off(l).to_string() }.text(l));
+    if access_off {
+        return Some(crate::i18n::tr("{} n'est pas joignable hors de chez vous (accès coupé dans Admin).", "{} cannot be reached away from home (access turned off in Admin).").replace("{}", name));
+    }
+    let offline = [Lang::Fr, Lang::En].into_iter().any(|l| error == RelayError::StationOffline.text(l, None));
+    offline.then(|| RelayError::StationOffline.text(kybernow_core::i18n::current(), Some(name)))
 }
 
 /// Le rôle de l'interface d'après celui du cœur.
@@ -461,7 +530,15 @@ pub fn share_view(st: &ShareState) -> Option<ShareView> {
         code: st.code.clone(),
         link: st.link.clone(),
         web: st.web.clone(),
-        guests: st.guests.iter().map(|g| ShareGuest { id: g.id.clone(), name: g.name.clone(), role: role_of(g.role), app: g.app.clone(), since: g.since, quality: guest_quality(g) }).collect(),
+        relay: st.relay.map(|r| match r.state {
+            share::ShareRelayState::Joined => ShareRelay::Joined,
+            share::ShareRelayState::Unreachable => ShareRelay::Unreachable,
+        }),
+        guests: st
+            .guests
+            .iter()
+            .map(|g| ShareGuest { id: g.id.clone(), name: g.name.clone(), role: role_of(g.role), app: g.app.clone(), since: g.since, quality: guest_quality(g), pending: g.pending, via_relay: g.via == share::ShareVia::Relay })
+            .collect(),
     })
 }
 
@@ -641,7 +718,8 @@ pub fn start(id: SessionId, host: &Host, settings: StreamSettings, mode: (u32, u
             clipboard: host.settings.clipboard,
             recovery,
             role: SessionRole::Host,
-            route: kybernow_core::session::Route::Direct,
+            // Un relais connu pour cet ordinateur : l'image passe par le réseau, et par lui quand le réseau ne répond pas.
+            route: kybernow_core::session::Route::Auto(relay_route(host)),
         },
     };
     let platform = Arc::new(LinuxPlatform(shared.clone()));
@@ -673,6 +751,7 @@ mod tests {
             av1: false,
             mac: None,
             wake: Vec::new(),
+            relay: None,
             settings,
             last: None,
         }
@@ -890,12 +969,13 @@ mod tests {
         }
         // Hôte : la liste des invités, telle que l'interface la montre ; sans partage ouvert, rien.
         let guest = share::ShareGuest { id: "g1".into(), name: "Léa".into(), app: "ios".into(), role: share::ShareRole::Player, since: Some(1_761_500_000), ..share::ShareGuest::default() };
-        let state = ShareState { open: true, code: "482917".into(), link: "kybernow://join?x".into(), web: "https://h:1/link/?join=482917".into(), display: None, guests: vec![guest] };
+        let state = ShareState { open: true, code: "482917".into(), link: "kybernow://join?x".into(), web: "https://h:1/link/?join=482917".into(), display: None, guests: vec![guest], ..ShareState::default() };
         platform.on_guests(Some(&state));
         match rx.try_recv() {
             Ok(Event::Session(7, SessionEvent::Guests(Some(v)))) => {
                 assert_eq!((v.code.as_str(), v.link.as_str(), v.web.as_str()), ("482917", "kybernow://join?x", "https://h:1/link/?join=482917"));
-                assert_eq!(v.guests, vec![ShareGuest { id: "g1".into(), name: "Léa".into(), role: crate::app::ShareRole::Player, app: "ios".into(), since: Some(1_761_500_000), quality: None }]);
+                assert_eq!(v.guests, vec![ShareGuest { id: "g1".into(), name: "Léa".into(), role: crate::app::ShareRole::Player, app: "ios".into(), since: Some(1_761_500_000), ..ShareGuest::default() }]);
+                assert_eq!(v.relay, None, "pas de relais réglé");
             }
             _ => panic!("les invités arrivent avec leur session"),
         }
@@ -998,5 +1078,95 @@ mod tests {
         // L'AV1 par la carte : annoncé.
         let av1 = Machine { hw_av1: true, ..Machine::default() };
         assert!(share::auto_quality(&auto_screen((1920, 1080), 60), &decoder_caps(&av1), None).codecs.contains(&"av1".to_string()));
+    }
+
+    const STATION: &str = "abcdefghijklmnopqrstuvwxyz";
+
+    /// Les relais d'un code tapé : le relais public d'abord, puis ceux des ordinateurs de l'appareil, sans doublon.
+    #[test]
+    fn relays_of_a_typed_code() {
+        use kybernow_core::relay::{RelayAddr, RelayMode};
+        if RelayMode::current() == RelayMode::Off {
+            return;
+        }
+        assert_eq!(join_relays([]), vec![RelayAddr::public()]);
+        let relays = join_relays(["share.kybernow.app", "relais.exemple.org:9443", "relais.exemple.org:9443", "a b", ""]);
+        assert_eq!(relays.len(), 2, "le port se complète, les doublons et les adresses illisibles sont écartés");
+        assert_eq!((relays[1].host.as_str(), relays[1].port), ("relais.exemple.org", 9443));
+    }
+
+    /// Les refus par le relais disent le nom de l'ordinateur (link-ui) ; un autre échec garde son texte.
+    #[test]
+    fn refusals_say_the_name_of_the_computer() {
+        use kybernow_core::console::ConsoleError;
+        use kybernow_core::i18n::Lang;
+        use kybernow_core::relay::RelayError;
+        crate::i18n::force_english(false);
+        kybernow_core::i18n::set_current(Lang::Fr);
+        let offline = RelayError::StationOffline.text(Lang::Fr, None);
+        assert_eq!(relay_refusal(&offline, "Atelier").as_deref(), Some("Atelier n'est pas joignable : l'ordinateur est éteint ou en veille."));
+        let off = ConsoleError::Http { status: 403, message: admin_access_off(Lang::Fr).into() }.to_string();
+        assert_eq!(relay_refusal(&off, "Atelier").as_deref(), Some("Atelier n'est pas joignable hors de chez vous (accès coupé dans Admin)."));
+        assert_eq!(relay_refusal(&RelayError::Unreachable("x".into()).text(Lang::Fr, None), "Atelier"), None, "relais muet");
+        assert_eq!(relay_refusal(&ConsoleError::Http { status: 401, message: "compte".into() }.text(Lang::Fr), "Atelier"), None);
+        // Le message d'Admin reconnu est celui de son catalogue.
+        for (lang, admin) in [(Lang::Fr, include_str!("../../../../server/admin/src/i18n/fr.json")), (Lang::En, include_str!("../../../../server/admin/src/i18n/en.json"))] {
+            let admin: serde_json::Value = serde_json::from_str(admin).unwrap();
+            assert_eq!(admin["relay"]["accessOff"].as_str(), Some(admin_access_off(lang)), "{lang:?}");
+        }
+    }
+
+    /// La route d'un ordinateur par son relais : celui que sa Station a donné (`info.relay`), Admin épinglé sur
+    /// l'empreinte que l'app connaît ; sans relais chez lui, sans empreinte ou avec un identifiant illisible, il n'y en
+    /// a pas (jamais de premier contact par le relais).
+    #[test]
+    fn relay_route_of_a_computer() {
+        let mut h = host(HostSettings::default());
+        h.fingerprint = Some("sha256:aa".into());
+        assert_eq!(relay_route(&h), None, "pas de relais chez lui");
+        h.relay = Some(crate::model::HostRelay { server: "share.kybernow.app:8443".into(), id: STATION.into(), remote_access: true });
+        let r = relay_route(&h).expect("route");
+        assert_eq!((r.server.as_str(), r.station.as_str(), r.admin_fp.as_str()), ("share.kybernow.app:8443", STATION, "sha256:aa"));
+        h.fingerprint = None;
+        assert_eq!(relay_route(&h), None, "jamais sans l'empreinte d'Admin");
+        h.fingerprint = Some("sha256:aa".into());
+        h.relay.as_mut().unwrap().id = "court".into();
+        assert_eq!(relay_route(&h), None, "un identifiant illisible");
+    }
+
+    /// Le chemin d'une session : le transport du cœur et les allers-retours, pour la puce et la ligne « Chemin ».
+    #[test]
+    fn route_of_a_session() {
+        assert_eq!(route_of(&RouteInfo::direct()), RouteUi::default());
+        let r = route_of(&RouteInfo { transport: RouteTransport::RelayTcp, relay: Some("share.kybernow.app:8443".into()), rtt_client: Some(12.5), rtt_station: Some(1.0) });
+        assert_eq!((r.kind, r.total_ms()), (PathKind::RelayTcp, Some(13.5)));
+        assert!(r.kind.via_relay());
+        // Une session par le relais envoie son chemin à la boucle principale.
+        let (sh, rx) = shared(7);
+        LinuxPlatform(sh).on_route(&RouteInfo { transport: RouteTransport::Relay, ..RouteInfo::default() });
+        match rx.try_recv() {
+            Ok(Event::Session(7, SessionEvent::Route(r))) => assert_eq!(r.kind, PathKind::Relay),
+            _ => panic!("le chemin arrive avec sa session"),
+        }
+    }
+
+    /// Le partage de l'hôte, avec le relais et les demandes : le relais joint ou injoignable, une demande en attente
+    /// venue par le relais (`pending`, `via`).
+    #[test]
+    fn share_view_with_the_relay_and_requests() {
+        let state: ShareState = serde_json::from_str(
+            r#"{"open":true,"code":"482917","link":"kybernow://join?x&relay=r&sid=s","web":"https://share.kybernow.app:8443/j/482917","web_local":"https://h:1/link/?join=482917",
+            "relay":{"state":"joined"},
+            "guests":[{"id":"g1","name":"Léa","app":"ios","role":"spectator","since":1,"pending":false,"via":"lan"},
+                      {"id":"g2","name":"Tom","app":"android","role":"spectator","since":2,"pending":true,"via":"relay"}]}"#,
+        )
+        .unwrap();
+        let v = share_view(&state).expect("partage ouvert");
+        assert_eq!(v.relay, Some(ShareRelay::Joined));
+        assert_eq!(v.requests().iter().map(|(i, g)| (*i, g.name.as_str())).collect::<Vec<_>>(), vec![(1, "Tom")]);
+        assert_eq!(v.accepted().iter().map(|(i, g)| (*i, g.name.as_str())).collect::<Vec<_>>(), vec![(0, "Léa")]);
+        assert!(v.guests[1].via_relay && !v.guests[0].via_relay);
+        let down = share_view(&ShareState { relay: Some(share::ShareRelay { state: share::ShareRelayState::Unreachable }), ..state }).unwrap();
+        assert_eq!(down.relay, Some(ShareRelay::Unreachable));
     }
 }
