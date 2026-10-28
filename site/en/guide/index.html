@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Install KyberNow: guide and FAQ for remote gaming and remote desktop</title>
-<meta name="description" content="Install KyberNow Station on your Windows PC, then the KyberNow Link app on your devices: a step-by-step guide to remote gaming and remote desktop, at home or over a VPN, with answers to common questions.">
+<meta name="description" content="Install KyberNow Station on your Windows PC, then the KyberNow Link app on your devices: a step-by-step guide to remote gaming and remote desktop, to sharing with guests and to access away from home, with answers to common questions.">
 <link rel="canonical" href="https://www.kybernow.app/en/guide/">
 <meta name="theme-color" content="#05070A">
 <meta property="og:type" content="website">
@@ -12,7 +12,7 @@
 <meta property="og:locale" content="en_GB">
 <meta property="og:locale:alternate" content="fr_FR">
 <meta property="og:title" content="Install KyberNow, step by step">
-<meta property="og:description" content="Install KyberNow Station on your Windows PC, then the KyberNow Link app on your devices: a step-by-step guide to remote gaming and remote desktop, at home or over a VPN, with answers to common questions.">
+<meta property="og:description" content="Install KyberNow Station on your Windows PC, then the KyberNow Link app on your devices: a step-by-step guide to remote gaming and remote desktop, to sharing with guests and to access away from home, with answers to common questions.">
 <meta property="og:url" content="https://www.kybernow.app/en/guide/">
 <meta property="og:image" content="https://www.kybernow.app/assets/og/kybernow-en.jpg">
 <meta property="og:image:type" content="image/jpeg">
@@ -21,7 +21,7 @@
 <meta property="og:image:alt" content="KyberNow: your PC on every screen. Play and work on your computer from all your devices, the free and open-source alternative to Sunshine and Moonlight.">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Install KyberNow, step by step">
-<meta name="twitter:description" content="Install KyberNow Station on your Windows PC, then the KyberNow Link app on your devices: a step-by-step guide to remote gaming and remote desktop, at home or over a VPN, with answers to common questions.">
+<meta name="twitter:description" content="Install KyberNow Station on your Windows PC, then the KyberNow Link app on your devices: a step-by-step guide to remote gaming and remote desktop, to sharing with guests and to access away from home, with answers to common questions.">
 <meta name="twitter:image" content="https://www.kybernow.app/assets/og/kybernow-en.jpg">
 <meta name="twitter:image:alt" content="KyberNow: your PC on every screen. Play and work on your computer from all your devices, the free and open-source alternative to Sunshine and Moonlight.">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -59,7 +59,7 @@
    "name": "Why is KyberNow in beta?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "KyberNow has not reached version 1.0 yet. We already use it every day, but some bugs remain, and settings or features may still change from one version to the next. Some apps have not yet run on real hardware: the Steam Deck and Raspberry Pi ones, and the Linux app, tried only in a virtual machine. Keep the Station and your apps up to date, and report problems on GitHub or Discord."
+    "text": "KyberNow has not reached version 1.0 yet. We already use it every day, but some bugs remain, and settings or features may still change from one version to the next. Some apps have not yet run on real hardware: the Steam Deck and Raspberry Pi ones, and the Linux app, tried only in a virtual machine. Sharing and the relay, both new, have not been tried on every device yet. Keep the Station and your apps up to date, and report problems on GitHub or Discord."
    }
   },
   {
@@ -75,7 +75,7 @@
    "name": "Is KyberNow a cloud gaming service?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "No. Cloud gaming rents you a computer in a data centre, on a subscription. KyberNow uses your own: you get your games and software exactly as you installed them, with no subscription and no queue. The picture goes straight from your PC to your device, without passing through anyone else's server."
+    "text": "No. Cloud gaming rents you a computer in a data centre, on a subscription. KyberNow uses your own: you get your games and software exactly as you installed them, with no subscription and no queue. At home, the picture goes straight from your PC to your device, without passing through a server; away from home, it can pass through a relay, which cannot read it in the apps. See Away from home."
    }
   },
   {
@@ -83,7 +83,23 @@
    "name": "Can I use KyberNow away from home?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "Yes, with a VPN, a private, encrypted network between your devices, such as Tailscale or WireGuard. Without a VPN, KyberNow only works on your local network: it uses no relay server and cannot get through your router on its own. Install the same VPN on the PC and on the device, then add the PC by its VPN address. See Away from home."
+    "text": "Yes, in two ways. Through KyberNow's relay: add the device at home, then switch on “Access away from home” in Admin; nothing to open on your router. Another way is a VPN, a private, encrypted network between your devices, such as Tailscale or WireGuard: install the same VPN on the PC and on the device, then add the PC by its VPN address. The PC must stay switched on. See Away from home."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Can I share my PC with a friend?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Yes, with KyberNow Share: you open a share, and up to four guests come in with a six-digit code, a link or a QR code, in the KyberNow Link app or in a browser, at home or from afar. A guest arrives as a spectator; you give them, or not, the controllers and the keyboard and mouse. See Share with someone."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Can KyberNow's relay see my screen?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Not in the KyberNow Link apps: the picture, the sound and your keystrokes stay encrypted end to end, and the relay does not read them. It sees IP addresses, bitrates and share codes. In a browser, the relay decrypts the traffic to forward it: it could read it. You can also install your own relay. See Away from home and Install your own relay."
    }
   },
   {
@@ -155,7 +171,7 @@
    "name": "Can two devices connect at the same time?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "No. The second one takes over: the first is disconnected, and the virtual display is recreated at the new device's size."
+    "text": "No. The second one takes over: the first is disconnected, and the virtual display is recreated at the new device's size. To let someone else in without cutting your session, open a share: see Share with someone."
    }
   },
   {
@@ -243,7 +259,7 @@
    "name": "What data does KyberNow collect?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "None: no usage statistics, and nothing is sent to a server of ours. The picture goes straight from your PC to your devices. The only outside connections are for checking for updates (on GitHub, and on kybernow.app for the Mac app) and, between your Apple devices, for syncing your computers and passwords through iCloud, which you can turn off."
+    "text": "No usage statistics, and at home nothing is sent to a server of ours: the picture goes straight from your PC to your devices. If you share with someone far away or switch on “Access away from home”, the connection goes through KyberNow's relay, which keeps IP addresses in its logs for a few days, never the share codes. The other outside connections are for checking for updates (on GitHub, and on kybernow.app for the Mac app) and, between your Apple devices, for syncing your computers and passwords through iCloud, which you can turn off."
    }
   }
  ]
@@ -309,7 +325,9 @@
     <a href="#serveur">1 · KyberNow Station</a>
     <a href="#appareil">2 · Connect a device</a>
     <a href="#session">3 · During a session</a>
+    <a href="#partage">Share with someone</a>
     <a href="#distance">Away from home</a>
+    <a href="#relais">Install your own relay</a>
     <a href="#mises-a-jour">Updating</a>
     <a href="#desinstaller">Uninstalling</a>
     <a href="#faq">Frequently asked questions</a>
@@ -343,7 +361,7 @@
             <li>A Linux PC with Flatpak (x86_64 or ARM), a Steam Deck, or a Steam Machine or PC running SteamOS</li>
             <li>A Raspberry Pi 3, 4 or 5, with a microSD card of at least 8&nbsp;GB for KyberNow Link OS</li>
             <li>Otherwise, a recent browser on any device: Chrome or Edge ideally, Safari or Firefox also work</li>
-            <li>The device must be on the same network as the PC, or linked to it by a VPN</li>
+            <li>To add it, the device must be on the same network as the PC, or linked to it by a VPN. Away from home, it can then go through KyberNow's relay</li>
           </ul>
         </div>
       </div>
@@ -661,15 +679,80 @@ ares-install --device tv KyberNow-Link-webOS.ipk</code></pre>
       <p class="muted">Outside a session, with the controller: <kbd>A</kbd> confirms, <kbd>B</kbd> goes back, <kbd>Y</kbd> opens the computer settings, <kbd>X</kbd> adds a computer, <kbd>L1</kbd> and <kbd>R1</kbd> change profile, <kbd>Start</kbd> opens the app settings. Up to four controllers, each one a player on the PC, with rumble.</p>
     </section>
 
+    <section id="partage" class="doc-section">
+      <h2>Share with someone</h2>
+      <p>KyberNow Share lets up to four guests onto your PC: they see the screen and hear the sound, and you decide what they can do. It needs KyberNow Station and the KyberNow Link app on version 0.8.0 or later; otherwise the app tells you.</p>
+      <h3 class="sub">Open a share</h3>
+      <ol class="steps-doc">
+        <li><p><b>From your session</b>: in the session bar, choose “Share”. The share shows your session's main display, with the sound.</p></li>
+        <li><p><b>From the PC itself</b>, without a session: in the KyberNow Station icon's menu next to the clock, or on Admin's home page, choose “Share a screen…”, then the screen to show. You keep using the PC: no virtual display is created and your screens stay on.</p></li>
+        <li><p>A panel shows the six-digit code, a link (“Copy link”), a QR code and the list of guests. The code holds as long as the share is open; “New code” changes it, and guests already in stay. “Stop sharing” makes everyone leave, and closing your session also stops the share.</p></li>
+      </ol>
+      <h3 class="sub">Join a share</h3>
+      <ol class="steps-doc">
+        <li><p>In the KyberNow Link app, on the home screen, next to “Add a computer”, choose “Join with a code” and type the six digits. You can also open the link, or scan the QR code with the camera (iPhone, iPad, Android).</p></li>
+        <li><p>In a browser, open the link: it opens as a guest, without Admin's password.</p></li>
+        <li><p>Give your first name, choose the picture quality, then “Join”. A guest is not added to the device's list of computers: nothing is kept after the share, except their first name.</p></li>
+      </ol>
+      <h3 class="sub">What a guest can do</h3>
+      <div class="table">
+        <div class="tr"><span class="th">Spectator</span><span>A guest arrives as one: they see the screen and hear the sound, and send nothing to your PC.</span></div>
+        <div class="tr"><span class="th">Give controllers</span><span>Their controllers become Windows' next controller, a virtual controller of their own. “Take back controllers” removes them.</span></div>
+        <div class="tr"><span class="th">Give keyboard and mouse</span><span>They can type and move the pointer. “Take back keyboard and mouse” removes them. The clipboard is never shared with a guest.</span></div>
+        <div class="tr"><span class="th">Remove</span><span>They leave the share. They can come back with the same code, as long as you have not asked for a “New code”.</span></div>
+      </div>
+      <p>The two rights are independent: you can give the controllers without the keyboard or the mouse, and the other way round. The Station enforces these rights: even if a guest's device tried to send something else, nothing reaches the PC. Four guests at most: beyond that, the code is refused.</p>
+      <h3 class="sub">Each guest's picture</h3>
+      <p>Each guest picks the “Picture quality” on the “Join” screen and in their bar: Auto (suggested, from their device's display and what its decoder can play), Same as host, 4K · 60&nbsp;Hz, 1080p · 60&nbsp;Hz or 720p · 30&nbsp;Hz. The host always comes first: a guest's picture is never above yours, and nothing they do changes your screen or your picture. A guest who follows your picture shares it; the others get a picture prepared for them by the PC, two at most beside yours (only one with an Intel card). When there is no room left, the guest gets the closest open picture, a lighter one, and a message says so. A guest who falls behind drops to a lighter picture on their own, without you seeing anything. Your panel shows each guest's quality.</p>
+      <p class="muted">In a share started from the PC, the first guest sets the format and bitrate of the shared picture.</p>
+      <h3 class="sub">When the guest is away from your home</h3>
+      <p>The same code, the same link and the same QR code work from anywhere: the guest goes through KyberNow's relay (see <a href="#distance">Away from home</a>). You accept each guest who comes from the internet: their request shows in the panel's “Requests” section, with “Accept” and “Decline”. On the same network, there is nothing to accept. Keep the relay set in Admin (Link devices › “Away from home” › “Relay”, KyberNow's public relay by default): when it does not answer, the panel says “Not reachable away from home yet.”.</p>
+    </section>
+
     <section id="distance" class="doc-section">
       <h2>Away from home</h2>
-      <p>KyberNow goes through no relay server: the picture travels straight from your PC to your device. To connect from outside, at a hotel or a friend's, link the device to the PC with a VPN, a private, encrypted network between your devices, such as Tailscale or WireGuard. The PC must stay switched on.</p>
+      <p>At home, the picture travels straight from your PC to your device, without going through a server. Away from home, at a hotel or a friend's, your devices reach the PC through KyberNow's relay, or through a VPN. Either way, the PC must stay switched on.</p>
+      <h3 class="sub">Through KyberNow's relay</h3>
+      <p>A relay is a server on the internet that passes the connection between your device and your PC. KyberNow's public relay, <code>share.kybernow.app</code>, is open to everyone; you can also <a href="#relais">install your own</a>. Nothing to open on your router: the Station itself opens the connection to the relay, and only while a share is open or access away from home is switched on.</p>
+      <ol class="steps-doc">
+        <li><p>First add the device to your PC, at home (step 2): adding a new device only works on the home network.</p></li>
+        <li><p>In Admin, under <b>Link devices</b>, in the “Away from home” section, switch on “Access away from home”. It is off by default. “Relay reached” shows once the Station has reached the relay.</p></li>
+        <li><p>Away from home, open the KyberNow Link app as usual: your PC is marked “Away from home” instead of “Online”, and the session carries the “Via the relay” mention.</p></li>
+      </ol>
+      <p>Through the relay, the picture takes a detour: expect a little more latency than a direct connection, depending on your distance from the relay. If the network you are on does not let UDP through (some hotels, company networks), the connection falls back to TCP and the app shows “Via the relay (TCP)”: fine for watching, less good for playing. Away from home, an app can neither restart nor update the Station: that is done on site or in Admin. After too many failed attempts from one address, the relay blocks that address for ten minutes. Access away from home is for the KyberNow Link apps; in a browser, the relay only serves to join a share.</p>
+      <h3 class="sub">What goes through the relay</h3>
+      <p>In the KyberNow Link apps, the picture, the sound and your keystrokes stay encrypted end to end: they cross the relay without it being able to read them, and the app checks it is really talking to your PC thanks to the fingerprint of its certificate. The relay sees IP addresses, bitrates and share codes. KyberNow's, run by Les Lignes Claires in France, keeps IP addresses in its logs for a few days, never the codes; its <a href="https://share.kybernow.app/privacy">privacy page</a> gives the details.</p>
+      <p>The browser is the exception: the relay decrypts what passes to forward it, and could therefore read it. If that matters to you, use an app, or your own relay.</p>
+      <h3 class="sub">Through a VPN</h3>
+      <p>A VPN is a private, encrypted network between your devices, such as Tailscale or WireGuard. It works without a relay, and the picture then travels straight from your PC to your device.</p>
       <ol class="steps-doc">
         <li><p>Install the same VPN on the PC and on the device, signed in to the same account or joined to the same network.</p></li>
         <li><p>Over a VPN, the PC does not show up on its own in the app. Add it “By address”, using its VPN address (for example <code>100.x.y.z</code> with Tailscale) and the Admin port, then give it access as you would at home. On Apple TV, iPhone and iPad, the on-screen code does not travel over the VPN: enter your account instead.</p></li>
-        <li><p>Choose the Game or Desktop profile: the Max profile's bitrate is meant for a local network. If the picture stutters, lower the bitrate in the computer settings, in the app: it must stay below your connection's upload speed, which is what your router can send. On mobile data, allow about 9&nbsp;GB per hour of session at 20&nbsp;Mbit/s.</p></li>
       </ol>
-      <p class="callout callout-warn"><svg class="ic"><use href="/assets/icons.svg#lock-simple"/></svg><span>Do not open KyberNow's ports to the Internet on your router (“port forwarding”): with the VPN, your PC stays invisible to the rest of the Internet.</span></p>
+      <p>Either way, choose the Game or Desktop profile: the Max profile's bitrate is meant for a local network. If the picture stutters, lower the bitrate in the computer settings, in the app: it must stay below your connection's upload speed, which is what your router can send. On mobile data, allow about 9&nbsp;GB per hour of session at 20&nbsp;Mbit/s.</p>
+      <p class="callout callout-warn"><svg class="ic"><use href="/assets/icons.svg#lock-simple"/></svg><span>Do not open KyberNow's ports to the Internet on your router (“port forwarding”): neither the relay nor a VPN needs it, and your PC stays invisible to the rest of the Internet.</span></p>
+    </section>
+
+    <section id="relais" class="doc-section">
+      <h2>Install your own relay</h2>
+      <p>KyberNow's public relay works for everyone, with nothing to install. Install your own if you would rather have shares and access to your PCs go through no server run by someone else, for a team, a club or on principle. This part is for someone comfortable with a Linux server.</p>
+      <h3 class="sub">What you need</h3>
+      <ul class="ticks ticks-on">
+        <li>A Linux machine that is always on, with Docker and <code>docker compose</code></li>
+        <li>A domain name, for example <code>relay.example.org</code>, whose DNS points to your public address with two records: the name itself and its wildcard name <code>*.relay.example.org</code>, which the browser uses for each computer</li>
+        <li>An access token at the host of that DNS (Gandi by default), limited to your domain: Let's Encrypt uses it to check that the domain is yours and to issue the relay's certificate</li>
+        <li>A port open from outside to the machine, over TCP <b>and</b> UDP, 443 preferably. UDP carries the picture; without it, the relay falls back to TCP, fine for watching and less good for playing</li>
+      </ul>
+      <h3 class="sub">The steps, in short</h3>
+      <ol class="steps-doc">
+        <li><p>At your DNS host, create the two records pointing to your public address, and the access token. Note its expiry date: the certificate no longer renews after it.</p></li>
+        <li><p>On the machine, get the <code>server/relay</code> folder of the KyberNow repository, write the token in a file (<code>secrets/gandi_pat</code>), then copy <code>.env.example</code> to <code>.env</code> and fill it in: your domain name, an email address for Let's Encrypt, the ports.</p></li>
+        <li><p>On your router, forward the public port (443, over TCP and UDP) to the machine's listening port, 8443 by default.</p></li>
+        <li><p>Read Let's Encrypt's terms and accept them in <code>.env</code>, then run <code>docker compose up -d --build</code>. The relay starts with a test certificate; once it is obtained, you switch to the production certificate (the README gives the commands). The relay then reloads its certificate by itself.</p></li>
+        <li><p>On each Station, in Admin, under <b>Link devices</b>, in the “Away from home” section, the “Relay” field: your relay's address, with its port if it is not 443 (<code>relay.example.org</code>, or <code>relay.example.org:9443</code>), then “Save”. “Relay reached” confirms that the Station found it.</p></li>
+      </ol>
+      <p>A code typed in an app goes through the public relay and through the relays of the computers the app already knows. For a guest who does not know your relay, give them the share's link or QR code.</p>
+      <p class="callout"><svg class="ic"><use href="/assets/icons.svg#book-open-text"/></svg><span>The full step by step (the three ports and the router, the settings, updating, logs) is in the <a href="https://github.com/MonsieurNours/kybernow/blob/main/server/relay/README.en.md">relay's README on GitHub</a>.</span></p>
     </section>
 
     <section id="mises-a-jour" class="doc-section">
@@ -703,10 +786,12 @@ rm -rf ~/.var/app/fr.leslignesclaires.kybernow</code></pre>
       <h2>Frequently asked questions</h2>
       <div class="faq">
         <details><summary>Is KyberNow really free?</summary><p>Yes. KyberNow is free, open-source software under the AGPL-3.0 licence, developed with no commercial aim. There is no subscription and no advertising, and no online account to create. The code is on <a href="https://github.com/MonsieurNours/kybernow">GitHub</a>.</p></details>
-        <details><summary>Why is KyberNow in beta?</summary><p>KyberNow has not reached version&nbsp;1.0 yet. We already use it every day, but some bugs remain, and settings or features may still change from one version to the next. Some apps have not yet run on real hardware: the Steam Deck and Raspberry Pi ones, and the Linux app, tried only in a virtual machine. Keep the Station and your apps up to date, and report problems on <a href="https://github.com/MonsieurNours/kybernow/issues">GitHub</a> or <a href="https://discord.gg/sVy2mu5WdT">Discord</a>.</p></details>
+        <details><summary>Why is KyberNow in beta?</summary><p>KyberNow has not reached version&nbsp;1.0 yet. We already use it every day, but some bugs remain, and settings or features may still change from one version to the next. Some apps have not yet run on real hardware: the Steam Deck and Raspberry Pi ones, and the Linux app, tried only in a virtual machine. Sharing and the relay, both new, have not been tried on every device yet. Keep the Station and your apps up to date, and report problems on <a href="https://github.com/MonsieurNours/kybernow/issues">GitHub</a> or <a href="https://discord.gg/sVy2mu5WdT">Discord</a>.</p></details>
         <details><summary>Can KyberNow replace Sunshine and Moonlight?</summary><p>For many uses, yes. Like them, KyberNow puts your PC on your other devices, for gaming or for work, in an app or in a browser. It is built on the Kyber engine rather than the GameStream protocol. The picture is always encrypted, a virtual display at the device's size is included, and most devices connect once you accept their code in Admin, with nothing to copy out. It still lacks HDR. The details are in the <a href="/en/technology/#comparer">comparison</a>.</p></details>
-        <details><summary>Is KyberNow a cloud gaming service?</summary><p>No. Cloud gaming rents you a computer in a data centre, on a subscription. KyberNow uses your own: you get your games and software exactly as you installed them, with no subscription and no queue. The picture goes straight from your PC to your device, without passing through anyone else's server.</p></details>
-        <details><summary>Can I use KyberNow away from home?</summary><p>Yes, with a VPN, a private, encrypted network between your devices, such as Tailscale or WireGuard. Without a VPN, KyberNow only works on your local network: it uses no relay server and cannot get through your router on its own. Install the same VPN on the PC and on the device, then add the PC by its VPN address. See <a href="#distance">Away from home</a>.</p></details>
+        <details><summary>Is KyberNow a cloud gaming service?</summary><p>No. Cloud gaming rents you a computer in a data centre, on a subscription. KyberNow uses your own: you get your games and software exactly as you installed them, with no subscription and no queue. At home, the picture goes straight from your PC to your device, without passing through a server; away from home, it can pass through a relay, which cannot read it in the apps. See <a href="#distance">Away from home</a>.</p></details>
+        <details><summary>Can I use KyberNow away from home?</summary><p>Yes, in two ways. Through KyberNow's relay: add the device at home, then switch on “Access away from home” in Admin; nothing to open on your router. Another way is a VPN, a private, encrypted network between your devices, such as Tailscale or WireGuard: install the same VPN on the PC and on the device, then add the PC by its VPN address. The PC must stay switched on. See <a href="#distance">Away from home</a>.</p></details>
+        <details><summary>Can I share my PC with a friend?</summary><p>Yes, with KyberNow Share: you open a share, and up to four guests come in with a six-digit code, a link or a QR code, in the KyberNow Link app or in a browser, at home or from afar. A guest arrives as a spectator; you give them, or not, the controllers and the keyboard and mouse. See <a href="#partage">Share with someone</a>.</p></details>
+        <details><summary>Can KyberNow's relay see my screen?</summary><p>Not in the KyberNow Link apps: the picture, the sound and your keystrokes stay encrypted end to end, and the relay does not read them. It sees IP addresses, bitrates and share codes. In a browser, the relay decrypts the traffic to forward it: it could read it. You can also install your own relay. See <a href="#distance">Away from home</a> and <a href="#relais">Install your own relay</a>.</p></details>
         <details><summary>Can I play my PC games on a Mac or an Apple TV?</summary><p>Yes. The game runs on your Windows PC, on its graphics card, and its picture appears on the Mac or the Apple TV. You play with a controller (Xbox or PlayStation), or a keyboard and mouse, with any game or launcher installed on the PC. The Mac app follows your screen's refresh rate, 120&nbsp;Hz or more; the Apple TV goes up to 4K at 60&nbsp;Hz.</p></details>
         <details><summary>Do I need a particular graphics card?</summary><p>No. The PC compresses the picture with any NVIDIA, AMD or Intel graphics card, external ones (eGPU) included. Without a graphics card, the processor does the work. Only the AV1 format needs an NVIDIA RTX 40 or 50 series card. You can change the encoder in KyberNow Admin, under System › Advanced.</p></details>
         <details><summary>Which resolutions and refresh rates are supported?</summary><p>Your screen's: for each session, the PC creates a virtual display at your device's resolution and refresh rate. The highest we have verified is 3840&nbsp;×&nbsp;2160 (4K) at 160&nbsp;Hz. Some devices have their own ceiling: 4K at 60&nbsp;Hz on Apple TV, the NVIDIA Shield and the Raspberry Pi, 4K at 120&nbsp;Hz on LG TVs. In H.264, the picture is at most 4096&nbsp;pixels wide. If the network or the graphics card struggles, the “4K at most” option in the Mac, Windows, iPhone and iPad apps lightens the stream.</p></details>
@@ -715,7 +800,7 @@ rm -rf ~/.var/app/fr.leslignesclaires.kybernow</code></pre>
         <details><summary>My screens turn off during a session. Is that normal?</summary><p>Yes. During the session, the PC shows only the virtual display, at your device's size, and turns off its own screens. They come back on at the end. If the app drops out without warning, the Station waits 20&nbsp;seconds, then removes the virtual display and turns your screens back on. If needed, Admin has a “Turn my displays back on” button, under Picture and sound.</p></details>
         <details><summary>Why does the sound still come out of the PC's speakers?</summary><p>To send the sound to your devices, the Station uses Steam's virtual speakers. Install Steam on the PC, then run the KyberNow Station installer again and choose “Keep my settings”: the “Remote sound” option becomes available, and your devices stay connected.</p></details>
         <details><summary>My controller does not respond. What can I do?</summary><p>First check that it is connected to your device, over Bluetooth or by cable; the Apple TV, Android, LG and Linux apps have a screen for testing controllers. On the PC, controllers go through the ViGEmBus driver, installed with the Station if the Gamepads option was ticked; after the first installation, the PC sometimes needs a restart. The PC accepts four controllers at most: a fifth waits for a free slot. Finally, while the session menu is open, the controller drives the app and the game receives nothing.</p></details>
-        <details><summary>Can two devices connect at the same time?</summary><p>No. The second one takes over: the first is disconnected, and the virtual display is recreated at the new device's size.</p></details>
+        <details><summary>Can two devices connect at the same time?</summary><p>No. The second one takes over: the first is disconnected, and the virtual display is recreated at the new device's size. To let someone else in without cutting your session, open a share: see <a href="#partage">Share with someone</a>.</p></details>
         <details><summary>The picture stays black or freezes. What can I do?</summary><p>First update the Station and the app. The apps ask for a full frame again by themselves when part of one is lost, and if nothing arrives at the start, they retry with a lighter stream. If the screen stays black, try a lower resolution or another format (H.264 or HEVC) in the computer settings, in the app. Connect the PC by Ethernet if you can, and check that no other remote play software is running on the PC. Admin's logs (System › Logs) help find the cause.</p></details>
         <details><summary>I forgot my password. What can I do?</summary><p>On the PC, open the menu of the KyberNow Station icon next to the clock, choose “Reset the Admin password…” and accept the Windows prompt. The icon shows a code: Admin opens and asks for that code along with your new password. Devices already connected stay connected. A new device can connect with its six-digit code; otherwise, change the account's password in Admin, under Users, then enter it again on the devices that use it.</p></details>
         <details><summary>Does the Mac app work on an Intel Mac?</summary><p>No, it needs a Mac with Apple silicon (M1 or later). On an Intel Mac, use KyberNow Link in a browser, ideally Chrome or Edge.</p></details>
@@ -726,7 +811,7 @@ rm -rf ~/.var/app/fr.leslignesclaires.kybernow</code></pre>
         <details><summary>Does KyberNow work on a Raspberry Pi?</summary><p>Yes, a Pi 3, 4 or 5, in two ways. KyberNow Link OS is a system you copy onto the microSD card: the Pi starts straight into KyberNow Link, like a console plugged into the TV. You can also install the app alone on 64-bit Raspberry Pi OS. On a Pi 4 or 5, the picture goes up to 4K at 60&nbsp;Hz. Neither has run on a real board yet, only in a virtual machine and under emulation. See <a href="#raspberry-pi">On a Raspberry Pi</a>.</p></details>
         <details><summary>Why is the Apple TV app not on the App Store?</summary><p>Not yet: for now KyberNow is published only on GitHub, and TestFlight followed by the App Store are planned. On Apple TV, an app that is not on the App Store installs from a Mac with Xcode, signed with your own Apple account: see <a href="#apple-tv">On Apple TV</a>. You need an Apple TV 4K from 2021 or later; older models cannot run the app.</p></details>
         <details><summary>How is KyberNow related to Kyber?</summary><p>KyberNow uses <a href="https://kyber.tech">Kyber</a>, the open-source engine that carries the picture, sound and controls, built by VLC developers. It adds KyberNow Station (the installer, virtual displays and speakers), KyberNow Admin and the KyberNow Link apps. KyberNow is neither published nor endorsed by the Kyber team, and is not affiliated with it. Our fixes to the engine are published.</p></details>
-        <details><summary>What data does KyberNow collect?</summary><p>None: no usage statistics, and nothing is sent to a server of ours. The picture goes straight from your PC to your devices. The only outside connections are for checking for updates (on GitHub, and on kybernow.app for the Mac app) and, between your Apple devices, for syncing your computers and passwords through iCloud, which you can turn off.</p></details>
+        <details><summary>What data does KyberNow collect?</summary><p>No usage statistics, and at home nothing is sent to a server of ours: the picture goes straight from your PC to your devices. If you share with someone far away or switch on “Access away from home”, the connection goes through KyberNow's relay, which keeps IP addresses in its logs for a few days, never the share codes. The other outside connections are for checking for updates (on GitHub, and on kybernow.app for the Mac app) and, between your Apple devices, for syncing your computers and passwords through iCloud, which you can turn off.</p></details>
       </div>
     </section>
 

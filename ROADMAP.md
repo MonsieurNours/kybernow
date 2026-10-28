@@ -15,6 +15,7 @@ Ce qui est prévu ou à essayer, et seulement ici : les autres documents décriv
 - **Icône près de l'horloge** : sur Mac, les notifications du système (et leur demande d'autorisation), l'inscription à l'ouverture de session et un vrai lancement à l'ouverture de session, la fenêtre fermée en plein écran pendant une session ; sur un vrai PC Windows, le haut du menu en session et l'icône allumée, les échelles 100 % et 200 %, les bannières de notification, « ne répond toujours pas » après 2 min de réveil.
 - **Multi-écrans** : sur un PC Windows et sur un Linux à plusieurs écrans (validé sur Mac le 26/10/2026) ; une session à plusieurs écrans juste après l'installation ou le redémarrage de la Station.
 - **Plusieurs ordinateurs à la fois** : deux sessions qui tournent en même temps sur Windows et sur Linux (validé sur Mac le 27/10/2026) ; sous Windows, une fin de session qui en a coupé une autre une fois dans la VM (chaque chemin de fin est maintenant au journal).
+- **KyberNow Share et relais** : le partage hors de chez soi et l'accès à son ordinateur par `share.kybernow.app` depuis chaque famille d'apps (radio cellulaire d'un iPhone comprise) ; les images à part d'un invité sur les cartes AMD (AMF) et Intel (QSV) ; le reste des vérifications des correctifs 0019 et 0020 est dans [docs/kyber-changes.md](docs/kyber-changes.md). Les deux sessions à la fois sous Windows et Linux sont sur la ligne « Plusieurs ordinateurs à la fois ».
 - **Mesures de l'audit** décrites dans [docs/archives/mesures.md](docs/archives/mesures.md) : latence d'affichage de l'app Mac, droits Windows, Wi-Fi saturé, modes de l'écran virtuel SudoVDA.
 
 ## KyberNow Station et Admin
@@ -44,10 +45,12 @@ Ce qui est prévu ou à essayer, et seulement ici : les autres documents décriv
 
 Tout ce qui fait entrer quelqu'un d'autre sur votre ordinateur. Nom choisi le 26/10/2026 ; logo signé SHARE, comme STATION, ADMIN et LINK.
 
-- **Session partagée** (en cours : le partage en local, contrat dans [docs/kybernow-share.md](docs/kybernow-share.md), avec aussi le partage d'un écran depuis le PC lui-même) : un spectateur (image et son) ou un 2e joueur (ses manettes deviennent la manette suivante de Windows ; clavier et souris seulement si l'hôte les donne), invité par un code, dans l'app Link ou le navigateur. Kyber accepte déjà plusieurs appareils sur la même image (`multi_client`) ; Admin passe d'un seul appareil en session à des participants qui ont chacun un rôle.
-- **Droits imposés par la Station** : correctif Kyber pour refuser les entrées d'un spectateur et ne garder que les manettes d'un 2e joueur (aujourd'hui, seul l'appareil décide de ne rien envoyer).
-- **Encodage à part pour un invité à distance** : l'hôte garde sa qualité, l'invité reçoit une image à la mesure de sa connexion (correctif Kyber : un flux en propre à côté du flux partagé, pour que l'appareil le plus lent ne ralentisse plus les autres).
-- **Relais** : relais de niveau 4 (TCP et UDP) qui ne voit pas l'image (chiffrement de bout en bout, certificat de Kyber épinglé par son empreinte) ; c'est la Station qui ouvre la connexion, rien à ouvrir sur la box. Relais public tenu par Les Lignes Claires par défaut, remplaçable par le sien (image Docker). Ensuite, accès hors de chez soi sans VPN par le même relais, débit plafonné sur le relais public. Client web : WebTransport par le relais (pas dans Safari).
+- **Image du navigateur en WebTransport par le relais** (sauf Safari) : le relais lirait le nom dans le premier paquet QUIC et ferait suivre sans déchiffrer ; aujourd'hui, par le relais, le navigateur prend l'image en WebSocket.
+- **« Auto » qui suit la fenêtre** : la qualité « Auto » d'un invité est mesurée à son arrivée (écran de l'appareil, décodeur) ; la refaire quand sa fenêtre change d'écran.
+- **Partage lancé depuis le PC** : le premier invité fixe le format et le débit de l'image partagée.
+- **Invité retiré** : il peut revenir avec le même code tant que l'hôte n'a pas demandé « Nouveau code ».
+- **Public Suffix List** : inscrire `share.kybernow.app` à la liste, pour que les navigateurs traitent l'adresse de chaque Station (`<identifiant>.share.kybernow.app`) comme un site à part (cookies, stockage).
+- **Lien montant de la maison** : le partager équitablement entre plusieurs invités.
 - **Prêt de l'ordinateur**, à tour de rôle (Windows n'a qu'une session ouverte à l'écran) : compte Windows dédié, sans droits ni accès à vos fichiers ; bureau remplacé par un lanceur qui relance le programme quand il se ferme, sans Explorateur ; liste d'apps choisie par l'hôte, le service de la Station ferme le reste. L'ami joue avec son propre compte Steam (vos jeux : Familles Steam). Trois accès : accès d'ami activable (reprise avec préavis), code pour une séance, créneaux horaires. Point délicat : ouvrir la session du compte dédié sans taper son mot de passe.
 - **Piste** : prêter l'ordinateur pendant que vous l'utilisez, par une machine virtuelle qui partage la carte graphique (Hyper-V) ; demande Windows Pro et une 2e licence, se heurte aux anti-triche, encodeur à vérifier.
 
@@ -65,4 +68,4 @@ L'ordinateur voit une DualShock 4 (pilote ViGEmBus) : boutons, sticks, gâchette
 - **CI** : compiler l'app Mac (avec un `KyberSDK-macOS.zip`) et les binaires Windows.
 - **Kyber** : remonter le correctif de `strip` (cargo-c, éditeur de liens d'Xcode 27).
 - **Site** : retirer les marques « bêta » à la 1.0 ; revoir les cartes Apple TV, iPhone et iPad quand ces apps passeront par TestFlight ou l'App Store.
-- **Marque** : valider le nom KyberNow (et Station / Admin / Link / Share) avec l'équipe de Kyber ; dessiner le logo signé SHARE dans `brand/v2/` ; l'identifiant `fr.leslignesclaires.kybernow` ne change pas.
+- **Marque** : valider le nom KyberNow (et Station / Admin / Link / Share) avec l'équipe de Kyber ; l'identifiant `fr.leslignesclaires.kybernow` ne change pas.

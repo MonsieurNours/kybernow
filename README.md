@@ -10,6 +10,8 @@ KyberNow réunit trois produits :
 - **KyberNow Admin** : l'administration de la Station, dans le navigateur ;
 - **KyberNow Link** : les apps qui affichent l'image sur les appareils, le client web servi par Admin, et KyberNow Link OS, l'image système qui fait d'un Raspberry Pi un appareil Link.
 
+**KyberNow Share** fait entrer des invités (jusqu'à quatre) sur votre ordinateur, chez vous ou de partout par le relais de KyberNow (`share.kybernow.app`, ouvert à tous), et ouvre aussi votre ordinateur à vos propres appareils hors de chez vous, sans VPN. Pour installer votre propre relais : [server/relay/README.md](server/relay/README.md).
+
 | Dossier | Contenu |
 |---|---|
 | `PROJECT.md` | Cadrage et décisions en vigueur |
@@ -24,11 +26,12 @@ KyberNow réunit trois produits :
 | `server/` | KyberNow Station : tout ce qui tourne sur l'ordinateur qui diffuse son image, voir [son README](server/README.md) |
 | `server/admin/`, `server/web/` | KyberNow Admin (service Windows, Rust) et son interface (Svelte), qui sert aussi le client web `/link` |
 | `server/tray/` | Icône de la Station dans la zone de notification |
+| `server/relay/` | Le relais de KyberNow (KyberNow Share, accès hors de chez soi) : serveur, image Docker et tunnel commun ; pour installer le sien, voir [son README](server/relay/README.md) |
 | `server/installer/` | Installateur `KyberNow-Station-Setup.exe` (Rust + WebView2 + Svelte), voir [son README](server/installer/README.md) |
 | `server/kyber-patches/`, `apps/macos/kyber-patches/` | Correctifs de Kyber, décrits dans [docs/kyber-changes.md](docs/kyber-changes.md) |
 | `site/` | Site www.kybernow.app (statique, sans npm), voir [son README](site/README.md) |
 | `brand/v2/` | Identité visuelle : charte, symbole, logos, jetons, voir [son README](brand/v2/README.md) ; `brand/` garde le logo précédent, inutilisé |
-| `docs/` | [Changements de Kyber](docs/kyber-changes.md), [notes de compilation](docs/build-notes.md), [publication des versions](docs/releases.md), [cœur Rust des apps Apple](docs/coeur-apple.md), [langues et règles d'écriture](docs/i18n.md), [écrans et textes communs des apps Link](docs/link-ui.md), [multi-écrans](docs/multi-ecrans.md), [ton des textes](docs/ton-du-site.md) |
+| `docs/` | [Changements de Kyber](docs/kyber-changes.md), [notes de compilation](docs/build-notes.md), [publication des versions](docs/releases.md), [cœur Rust des apps Apple](docs/coeur-apple.md), [langues et règles d'écriture](docs/i18n.md), [écrans et textes communs des apps Link](docs/link-ui.md), [multi-écrans](docs/multi-ecrans.md), [KyberNow Share](docs/kybernow-share.md), [le relais](docs/relais.md), [ton des textes](docs/ton-du-site.md) |
 | `docs/archives/` | Relevés datés, qui ne décrivent pas l'état actuel : prototype de référence et ses résultats (19 octobre 2026), audit et mesures demandées (20 octobre 2026), propositions HDR, latence Apple TV et app au démarrage (22 octobre 2026) |
 | `tools/latency/` | Mesure de latence |
 

@@ -57,7 +57,7 @@ Dans cet ordre d'importance pour le grand public, toujours avec des faits vérif
 2. Réactif comme un écran branché : très faible latence grâce au moteur Kyber, image à la définition et à la fréquence de chaque écran.
 3. Ça tient le coup : si le réseau flanche, l'image se répare et l'app se reconnecte toute seule (dix essais de reconnexion, une seconde d'écart, sur toutes les apps).
 4. La manette en fait beaucoup, sans rien ajouter : l'app choisie par appareil s'ouvre au début de la session (Steam Big Picture, Playnite…), le PC voit la manette comme une manette Xbox, les apps de télé et du Steam Deck se parcourent entièrement à la manette (qui peut aussi servir de souris), l'écran à la bonne taille est créé tout seul. Ce sont des irritants connus du jeu à distance, réglés sans modules à installer. Ne pas écrire « tout à la manette dans toutes les apps » : l'app Windows et le navigateur n'ont pas de navigation à la manette, Mac et iPhone seulement le menu de session.
-5. Gratuit, libre, sans compte ni abonnement, rien ne passe par un serveur tiers, tout est chiffré.
+5. Gratuit, libre, sans compte ni abonnement, tout est chiffré. Chez soi, rien ne passe par un serveur ; hors de chez soi, le relais de KyberNow fait passer la connexion sans pouvoir lire l'image ni les frappes dans les apps (le navigateur est l'exception), et ce qu'il voit (adresses, débits, codes de partage) se dit sans détour.
 6. En bêta : on l'utilise déjà au quotidien, on le dit franchement.
 
 ## Conventions typographiques (FR)

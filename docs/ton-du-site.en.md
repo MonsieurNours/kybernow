@@ -57,7 +57,7 @@ In order of importance for the general public, always with facts checked in the 
 2. As responsive as a plugged-in screen: very low latency thanks to the Kyber engine, a picture at each screen's resolution and refresh rate.
 3. It holds up: if the network wobbles, the picture is repaired and the app reconnects on its own (ten reconnection attempts, a second apart, on every app).
 4. The controller handles a lot, with nothing to add: the app chosen per device opens at the start of the session (Steam Big Picture, Playnite…), the PC sees the controller as an Xbox pad, the TV and Steam Deck apps are fully driven by controller (which can also act as a mouse), the right-sized screen is created on its own. These are well-known remote play irritations, sorted without add-ons. Don't write "everything by controller in every app": the Windows app and the browser have no controller navigation, Mac and iPhone only the session menu.
-5. Free, open source, no account and no subscription, nothing goes through a third-party server, everything is encrypted.
+5. Free, open source, no account and no subscription, everything is encrypted. At home, nothing goes through a server; away from home, KyberNow's relay passes the connection without being able to read the picture or the keystrokes in the apps (the browser is the exception), and what it does see (addresses, bitrates, share codes) is said plainly.
 6. In beta: already used every day, and we say so openly.
 
 ## Typographic conventions (FR)

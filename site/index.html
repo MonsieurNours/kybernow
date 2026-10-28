@@ -100,7 +100,9 @@
     "Son stéréo, 5.1 ou 7.1 selon l'appareil",
     "Apps natives KyberNow Link et leur version web servie par la Station, sur tous vos appareils",
     "Appairage par Bonjour, QR code ou code à accepter, empreinte du certificat vérifiée",
-    "Encodage sur toute carte graphique NVIDIA, AMD, Intel, ou sur le processeur"
+    "Encodage sur toute carte graphique NVIDIA, AMD, Intel, ou sur le processeur",
+    "KyberNow Share : partage de l'écran du PC avec jusqu'à quatre invités, par un code à six chiffres, un lien ou un QR code ; manettes, clavier et souris donnés un à un ; image à la mesure de chaque invité",
+    "Accès hors de chez soi par le relais de KyberNow, sans VPN, chiffré de bout en bout dans les apps (réglage d'Admin, coupé au départ) ; relais installable chez soi"
    ],
    "isBasedOn": {
     "@type": "SoftwareApplication",
@@ -309,8 +311,8 @@
         <img class="scene-photo" src="/assets/img/scenes/hotel-960.webp" srcset="/assets/img/scenes/hotel-960.webp 960w, /assets/img/scenes/hotel.webp 1536w" sizes="(max-width: 760px) 100vw, (max-width: 1180px) 50vw, 600px" width="960" height="540" loading="lazy" decoding="async" alt="Le soir, dans une chambre d'hôtel, une femme joue sur un portable au jeu lancé sur son PC resté à la maison, une manette posée à côté.">
         <p class="mono-label">En déplacement</p>
         <h3>À l'hôtel ou chez des amis</h3>
-        <p>Votre PC est resté à la maison&#8239;? Avec un VPN comme Tailscale ou WireGuard, vous le retrouvez où que vous soyez, vos jeux comme vos dossiers. Il doit simplement rester allumé.</p>
-        <ul class="use-devices"><li class="tag">Avec un VPN</li></ul>
+        <p>Votre PC est resté à la maison&#8239;? Une fois l'accès hors de chez vous activé dans Admin, vos appareils le retrouvent où que vous soyez, vos jeux comme vos dossiers, par le relais de KyberNow. Un VPN comme Tailscale ou WireGuard marche aussi. Il doit simplement rester allumé.</p>
+        <ul class="use-devices"><li class="tag">Par le relais de KyberNow</li><li class="tag">Avec un VPN</li></ul>
       </article>
     </div>
 
@@ -347,7 +349,7 @@
       <article class="card need" data-reveal><svg class="ic-lg"><use href="/assets/icons.svg#desktop-tower"/></svg><h3>Un PC sous Windows 10 ou 11</h3><p>Celui qui fait tourner vos jeux et vos logiciels. Toute carte graphique NVIDIA, AMD ou Intel convient&#8239;; sans carte graphique, le processeur prend le relais. Installez Steam dessus pour que le son vous suive sur vos appareils.</p></article>
       <article class="card need" data-reveal style="--d:.05s"><svg class="ic-lg"><use href="/assets/icons.svg#wifi-high"/></svg><h3>Un réseau à la maison</h3><p>Le PC et vos appareils sur le même réseau, en Wi-Fi ou par câble. Un câble Ethernet sur le PC donne l'image la plus stable.</p></article>
       <article class="card need" data-reveal style="--d:.10s"><svg class="ic-lg"><use href="/assets/icons.svg#devices"/></svg><h3>Vos appareils</h3><p>Un Mac, un autre PC sous Windows ou Linux, une Apple TV, un iPhone, un iPad, un appareil Android, une télé LG, un Steam Deck, un Raspberry Pi, ou simplement un navigateur.</p></article>
-      <article class="card need" data-reveal style="--d:.15s"><svg class="ic-lg"><use href="/assets/icons.svg#globe"/></svg><h3>Un VPN, pour sortir de chez vous</h3><p>Facultatif. Pour jouer ou travailler hors de chez vous, un VPN comme Tailscale ou WireGuard relie vos appareils à votre PC.</p></article>
+      <article class="card need" data-reveal style="--d:.15s"><svg class="ic-lg"><use href="/assets/icons.svg#globe"/></svg><h3>Pour sortir de chez vous</h3><p>Facultatif. Pour jouer ou travailler loin de chez vous, allumez «&#8239;Accès hors de chez vous&#8239;» dans Admin&#8239;: vos appareils ouvrent votre PC par le relais de KyberNow, sans rien régler sur votre box. Un VPN comme Tailscale ou WireGuard marche aussi.</p></article>
     </div>
     <p class="needs-foot" data-reveal>Aucun compte en ligne à créer et aucun abonnement&#8239;: vous choisissez simplement un nom et un mot de passe à l'installation.</p>
   </div>
@@ -467,6 +469,28 @@
   </div>
 </section>
 
+<!-- 5 bis · KyberNow Share : partager son PC avec des invités -->
+<section class="section" id="partage" data-scene="edge-r">
+  <div class="wrap">
+    <img class="share-logo" src="/assets/img/kybernow-share-dark.svg" alt="KyberNow Share" width="219" height="40" data-reveal>
+    <h2 class="title" data-split>Partagez votre PC avec <strong>jusqu'à quatre invités.</strong></h2>
+    <p class="body-lg" data-reveal>KyberNow Share fait entrer quelqu'un d'autre sur votre PC&#8239;: un ami qui regarde votre partie, un collègue qui suit votre écran, un deuxième joueur qui prend une manette. Vous continuez de vous servir de votre PC, et vous décidez de ce que chaque invité peut faire.</p>
+    <div class="proofs-2 share-cards">
+      <article class="card" data-reveal><svg class="ic-lg"><use href="/assets/icons.svg#qr-code"/></svg><h3>Un code, un lien ou un QR code</h3><p>Depuis la barre de session, ou depuis le PC lui-même en choisissant l'écran à montrer, vous ouvrez un partage. Vos invités entrent avec le code à six chiffres dans l'app KyberNow Link, ou avec le lien ou le QR code dans un navigateur, sans compte.</p></article>
+      <article class="card" data-reveal style="--d:.05s"><svg class="ic-lg"><use href="/assets/icons.svg#shield-check"/></svg><h3>Vous gardez la main</h3><p>Un invité arrive en spectateur&#8239;: il voit votre écran et entend le son, sans rien envoyer à votre PC. Vous lui donnez séparément ses manettes et le clavier et la souris, et vous les reprenez quand vous voulez. La Station ne laisse passer que ce que vous avez donné.</p></article>
+      <article class="card" data-reveal style="--d:.10s"><svg class="ic-lg"><use href="/assets/icons.svg#frame-corners"/></svg><h3>Une image pour chacun</h3><p>Chaque invité choisit la qualité de son image&#8239;: Auto, la même que la vôtre, 4K à 60&nbsp;Hz, 1080p à 60&nbsp;Hz ou 720p à 30&nbsp;Hz. Elle n'est jamais plus grande que la vôtre, et rien de ce qu'il fait ne change votre écran.</p></article>
+    </div>
+    <article class="card share-relay" data-reveal>
+      <div>
+        <h3>Même loin de chez vous</h3>
+        <p>Vos invités peuvent être n'importe où&#8239;: ils passent par le relais de KyberNow, un serveur sur Internet ouvert à tous, et vous acceptez chaque invité venu de loin. Rien à ouvrir sur votre box. Vous pouvez aussi installer votre propre relais.</p>
+      </div>
+      <p class="notice-links"><a href="/guide/#partage">Partager avec quelqu'un, pas à pas<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a><a href="/guide/#relais">Installer votre propre relais<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a></p>
+    </article>
+    <p class="share-foot" data-reveal>Nouveau&#8239;: le partage hors de chez vous n'a pas encore été essayé sur tous les appareils. Vos retours nous aideront.</p>
+  </div>
+</section>
+
 <!-- 6 · Tout est prévu : ce que KyberNow règle d'avance -->
 <section class="section" id="fonctions" data-scene="edge-r">
   <div class="wrap">
@@ -485,7 +509,7 @@
       <article class="card" data-reveal style="--d:.10s"><svg class="ic-lg"><use href="/assets/icons.svg#arrows-clockwise"/></svg><h3>Il tient bon quand le Wi-Fi flanche</h3><p>Une image abîmée en route est réparée à l'arrivée ou aussitôt redemandée. Si la connexion coupe quelques secondes, l'app se reconnecte toute seule et la partie reprend.</p></article>
       <article class="card" data-reveal style="--d:.15s"><svg class="ic-lg"><use href="/assets/icons.svg#game-controller"/></svg><h3>Vos manettes, reconnues par le PC</h3><p>La manette de votre appareil devient une manette Xbox pour le PC, et les jeux la reconnaissent sans réglage. Jusqu'à quatre joueurs en même temps.</p></article>
       <article class="card" data-reveal style="--d:.20s"><svg class="ic-lg"><use href="/assets/icons.svg#speaker-hifi"/></svg><h3>Le son sur vos enceintes</h3><p>Le son du PC sort de votre appareil, en stéréo, en 5.1 ou en 7.1 selon ce qu'il sait faire, jusqu'à votre barre de son ou votre ampli. Il suffit que Steam soit installé sur le PC.</p></article>
-      <article class="card" data-reveal style="--d:.25s"><svg class="ic-lg"><use href="/assets/icons.svg#lock-simple"/></svg><h3>Chiffré, et sans compte en ligne</h3><p>L'image et vos frappes circulent chiffrées, même chez vous, directement du PC à l'appareil, sans serveur tiers. Un appareil ne se connecte qu'après votre accord dans Admin.</p></article>
+      <article class="card" data-reveal style="--d:.25s"><svg class="ic-lg"><use href="/assets/icons.svg#lock-simple"/></svg><h3>Chiffré, et sans compte en ligne</h3><p>L'image et vos frappes circulent chiffrées, même chez vous, directement du PC à l'appareil. Hors de chez vous, si vous l'activez, elles passent par le relais de KyberNow, qui ne peut pas les lire dans les apps. Un appareil ne se connecte qu'après votre accord dans Admin.</p></article>
     </div>
 
     <div class="console">
@@ -547,8 +571,9 @@
         <details><summary>C'est vraiment gratuit&#8239;?</summary><p>Oui. KyberNow est un projet communautaire et non commercial, sous licence libre AGPL. Pas d'abonnement, pas de publicité, pas de compte en ligne.</p></details>
         <details><summary>Sur quels appareils puis-je l'utiliser&#8239;?</summary><p>Sur un Mac, un PC Windows ou Linux, une Apple TV, un iPhone, un iPad, un appareil Android (téléphone, tablette, Android TV), une télé LG récente, un Steam Deck ou un Raspberry Pi, et sur tout le reste avec un navigateur. Le PC à partager, lui, doit être sous Windows.</p></details>
         <details><summary>Faut-il une bonne connexion Internet&#8239;?</summary><p>Chez vous, non&#8239;: l'image passe par votre réseau local, sans sortir sur Internet. Un Wi-Fi récent suffit, et un câble Ethernet sur le PC donne l'image la plus stable. Hors de chez vous, la qualité dépend des deux connexions, celle de la maison et celle du lieu où vous êtes.</p></details>
-        <details><summary>Est-ce que c'est sûr&#8239;?</summary><p>Tout ce qui circule entre le PC et vos appareils est chiffré, même chez vous. Un appareil ne peut se connecter qu'après votre accord dans Admin, et rien ne passe par un serveur à nous.</p></details>
-        <details><summary>Puis-je jouer hors de chez moi&#8239;?</summary><p>Oui, avec un VPN comme Tailscale ou WireGuard, qui relie vos appareils à votre PC comme s'ils étaient à la maison. Le PC doit rester allumé.</p></details>
+        <details><summary>Est-ce que c'est sûr&#8239;?</summary><p>Tout ce qui circule entre le PC et vos appareils est chiffré, même chez vous. Un appareil ne peut se connecter qu'après votre accord dans Admin. Chez vous, rien ne passe par un serveur à nous&#8239;; hors de chez vous, si vous activez l'accès ou partagez avec quelqu'un de loin, la connexion passe par le relais de KyberNow, qui ne peut pas lire l'image ni vos frappes dans les apps.</p></details>
+        <details><summary>Puis-je jouer hors de chez moi&#8239;?</summary><p>Oui. Ajoutez d'abord l'appareil chez vous, puis allumez «&#8239;Accès hors de chez vous&#8239;» dans Admin&#8239;: l'appareil ouvre alors votre PC par le relais de KyberNow, sans rien ouvrir sur votre box. Un VPN comme Tailscale ou WireGuard marche aussi. Le PC doit rester allumé.</p></details>
+        <details><summary>Puis-je partager mon PC avec un ami&#8239;?</summary><p>Oui, avec KyberNow Share. Vous ouvrez un partage, et votre invité entre avec un code à six chiffres, un lien ou un QR code, dans l'app KyberNow Link ou dans un navigateur. Il arrive en spectateur&#8239;; vous décidez s'il peut aussi jouer à la manette ou se servir du clavier et de la souris. Quatre invités au plus.</p></details>
         <details><summary>Quelle différence avec Sunshine et Moonlight&#8239;?</summary><p>Les deux permettent de jouer à distance. KyberNow s'installe en une seule fois, crée tout seul un écran à la bonne taille, chiffre toujours l'image et fonctionne aussi dans un navigateur. Le détail est sur <a href="/technologie/#comparer">la page Technologie</a>.</p></details>
     </div>
     <a class="tech-more" href="/guide/#faq" data-reveal>Toutes les questions dans le guide<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a>
