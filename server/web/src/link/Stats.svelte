@@ -13,7 +13,7 @@
   import { hasKeyboardLock, type Mode } from './device'
   import type { CodecSupport } from './engine'
   import FrameRuler from './FrameRuler.svelte'
-  import type { Plan } from './plan'
+  import { viaRelay, type Plan } from './plan'
   import { loadLastSession } from './prefs'
 
   let {
@@ -108,7 +108,7 @@
       <li class:off={!can444}><Icon name={can444 ? 'check' : 'info'} size={14} stroke={2.4} />{can444 ? t('web.browser.text444') : t('web.browser.text444Missing')}</li>
     {/if}
     {#if protocol === 'websocket'}
-      <li class="off"><Icon name="info" size={14} stroke={2.4} />{t('web.browser.websocket')}</li>
+      <li class="off"><Icon name="info" size={14} stroke={2.4} />{viaRelay() ? t('web.browser.relay') : t('web.browser.websocket')}</li>
     {/if}
     <li class:off={!hasKeyboardLock}><Icon name={hasKeyboardLock ? 'check' : 'info'} size={14} stroke={2.4} />{hasKeyboardLock ? t('web.browser.allKeys') : t('web.browser.keysMenu')}</li>
     <li class="neutral"><Icon name="image" size={14} stroke={2} />{t('web.browser.display', { width: mode.width, height: mode.height, refresh: mode.refresh })}</li>

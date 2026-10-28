@@ -34,6 +34,9 @@ pub struct Settings {
     /// Canal des mises à jour : `stable` (défaut) ou `beta` (aussi les préversions).
     #[serde(default)]
     pub update_channel: crate::update::Channel,
+    /// « Hors de chez vous » : adresse du relais, accès des appareils.
+    #[serde(default)]
+    pub relay: crate::relay::RelaySettings,
     /// Réglages inconnus de cette version (écrits par une console plus
     /// récente, avant un retour arrière) : gardés à la réécriture.
     #[serde(flatten)]

@@ -169,6 +169,21 @@ Admin considers “local” what comes from the loopback (`/api/local/*`, `local
 - **Kyber**: the agent reaches Kyber only for an authorised client (an accepted guest, while it keeps sending signs of life; a paired device after `prepare`, for 30 s renewed by the heartbeat), and always **from and to the computer's local network address**, never through the loopback (patch 0019 keeps `/kybernow/*` for the loopback). Kyber listens on all addresses.
 - Admin authorises a **relay client** (its identifier): the one that made the successful `wait`, `beat` or `prepare`/`heartbeat`. A client that reconnects keeps its identifier.
 
+### Station details
+
+What Admin does on top of the above, without changing any of it (`server/admin/src/relay.rs`, `share.rs`, `share_api.rs`):
+
+- **Settings**: `[relay]` in `kyber-admin.toml`, `server` absent = the public relay, empty = no relay; `PUT /api/relay` rereads the address (`share.kybernow.app` becomes `share.kybernow.app:8443`) and answers `400 {"error": <text>}` if it cannot be read. `/api/local/state` (the icon) also gives `relay`: `server`, `remote_access`, `state`, `reason`. `reason` is the tunnel agent's text, in French; a relay that refuses for good (banned, version): `unreachable` with « refusé par le relais ».
+- **Share view**: `relay.state` is `joined` only once the share's code is reserved at the relay; “connecting” counts as `unreachable`. A reservation that fails is retried every 10 s; once the share stops, its code is given back to the relay (the agent stays connected if access is on).
+- **Joining**: through the relay, a device already accepted that joins again gets in at once (`200`, as on the network); a `beat` before the answer gives `202 {"pending":true}`; `wait` for an unknown request (wrong secret, left more than a minute ago): `404 {"error":"unknown_guest"}`. The 10-minute block after a refusal targets the device (`device`), or the address if it gives none. A request removed by the host (`DELETE …/guest/{id}`) counts as a refusal, without the block.
+- **Reduced `GET /api/session`**: `{"configured", "authenticated": false, "relay": true, "version"}`.
+- **Guard**: with the share closed, `join`, the pages and the proxy to Kyber answer `404`; `beat`, `wait` and `leave` go through (“stopped” for a minute). Through the relay, the proxy to Kyber relays `/session/login`, `/ws`, `/websocket/*`… but refuses `/kymux/start_mux`: that is what keeps the browser's picture on WebSocket. A refused relay request carries `{"error": <text>, "code": "relay_forbidden"}`; Admin's session cookie is removed from every relay request before the guard.
+- **Forced address**: a local or private address given by the relay (a client behind the same router as the relay) becomes `100::1` (IPv6 “discard” block); per-address limits (`join`) count it as one.
+- **Blocking**: the counter of 20 failures in 10 minutes is shared by the whole relay (all its requests arrive through the same connection) and only covers the devices' routes (Basic account): a guest is not blocked by it.
+- **Kyber**: an authorization lasts 30 s, renewed by `wait`, `beat`, `prepare` and the host's heartbeat; it falls when the guest leaves, is removed, goes silent, when the share stops or the device's session ends, and then closes its UDP flows and TCP connections to Kyber.
+- **Feed**: also « {prénom} demande à rejoindre (hors de chez vous) », « {prénom} : demande refusée », « Accès hors de chez vous activé » and « … coupé ».
+- `KYBERNOW_RELAY_TCP=1` forces the agent's TCP fallback (testing).
+
 ## Links
 
 - Apps: `kybernow://join?host=<address>&port=<Admin port>&fp=<Admin fingerprint>&code=<6 digits>&relay=<relay>&sid=<identifier>` (with `relay` and `sid` when the relay is reached; the relay keeps its possible `#sha256:…`, encoded). The app tries the network first (`host`, `port`), then the relay to `sid`, Admin pinned on `fp`.

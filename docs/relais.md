@@ -169,6 +169,21 @@ Admin juge « local » ce qui vient de la boucle locale (`/api/local/*`, `local_
 - **Kyber** : l'agent ne joint Kyber que pour un client autorisé (un invité accepté, tant qu'il donne signe de vie ; un appareil appairé après `prepare`, pour 30 s renouvelées par le signe de vie), et toujours **depuis et vers l'adresse du réseau local** de l'ordinateur, jamais par la boucle locale (le correctif 0019 réserve `/kybernow/*` à la boucle locale). Kyber écoute sur toutes les adresses.
 - Admin autorise un **client du relais** (son identifiant) : celui qui a fait le `wait`, le `beat` ou le `prepare`/`heartbeat` réussi. Un client qui se reconnecte garde son identifiant.
 
+### Précisions de la Station
+
+Ce qu'Admin fait en plus de ce qui précède, sans rien y changer (`server/admin/src/relay.rs`, `share.rs`, `share_api.rs`) :
+
+- **Réglages** : `[relay]` de `kyber-admin.toml`, `server` absent = le relais public, vide = pas de relais ; `PUT /api/relay` relit l'adresse (`share.kybernow.app` devient `share.kybernow.app:8443`) et répond `400 {"error": <texte>}` si elle est illisible. `/api/local/state` (l'icône) donne aussi `relay` : `server`, `remote_access`, `state`, `reason`. `reason` est le texte de l'agent du tunnel, en français ; un relais qui refuse pour de bon (banni, version) : `unreachable` avec « refusé par le relais ».
+- **Vue du partage** : `relay.state` vaut `joined` seulement quand le code du partage est réservé chez le relais ; « en cours de connexion » compte comme `unreachable`. Une réservation qui échoue est retentée toutes les 10 s ; le partage arrêté, son code est rendu au relais (l'agent reste connecté si l'accès est actif).
+- **Rejoindre** : par le relais, un appareil déjà accepté qui rejoint de nouveau entre aussitôt (`200`, comme sur le réseau) ; un `beat` avant l'accord rend `202 {"pending":true}` ; `wait` d'une demande inconnue (mauvais secret, sortie depuis plus d'une minute) : `404 {"error":"unknown_guest"}`. Le blocage de 10 minutes après un refus vise l'appareil (`device`), ou l'adresse s'il n'en donne pas. Une demande retirée par l'hôte (`DELETE …/guest/{id}`) vaut un refus, sans blocage.
+- **`GET /api/session` réduit** : `{"configured", "authenticated": false, "relay": true, "version"}`.
+- **Garde** : partage fermé, `join`, les pages et le mandataire vers Kyber rendent `404` ; `beat`, `wait` et `leave` passent (« arrêté » pendant une minute). Par le relais, le mandataire vers Kyber relaie `/session/login`, `/ws`, `/websocket/*`… mais refuse `/kymux/start_mux` : c'est ce qui garde l'image du navigateur en WebSocket. Une requête du relais refusée porte `{"error": <texte>, "code": "relay_forbidden"}` ; le cookie de session d'Admin est retiré de toute requête du relais avant la garde.
+- **Adresse forcée** : une adresse locale ou privée donnée par le relais (un client derrière la même box que lui) devient `100::1` (bloc IPv6 « à jeter ») ; les limites par adresse (`join`) la comptent comme une seule.
+- **Blocage** : le compteur des 20 échecs en 10 minutes est commun à tout le relais (toutes ses requêtes arrivent par la même connexion) et ne vise que les routes des appareils (compte Basic) : un invité n'est pas bloqué par lui.
+- **Kyber** : une autorisation dure 30 s, renouvelée par `wait`, `beat`, `prepare` et le signe de vie de l'hôte ; elle tombe au départ de l'invité, à son retrait, à son silence, à l'arrêt du partage ou à la fin de session de l'appareil, et ferme alors ses flux UDP et ses connexions TCP vers Kyber.
+- **Fil** : en plus, « {prénom} demande à rejoindre (hors de chez vous) », « {prénom} : demande refusée », « Accès hors de chez vous activé » et « … coupé ».
+- `KYBERNOW_RELAY_TCP=1` force le repli TCP de l'agent (essais).
+
 ## Liens
 
 - Apps : `kybernow://join?host=<adresse>&port=<port d'Admin>&fp=<empreinte d'Admin>&code=<6 chiffres>&relay=<relais>&sid=<identifiant>` (avec `relay` et `sid` quand le relais est joint ; le relais garde son `#sha256:…` éventuel, encodé). L'app essaie d'abord le réseau (`host`, `port`), puis le relais vers `sid`, Admin épinglé sur `fp`.

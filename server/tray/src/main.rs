@@ -23,6 +23,8 @@ mod password;
 mod qr;
 #[cfg(windows)]
 mod services;
+#[cfg_attr(not(windows), allow(dead_code))]
+mod share;
 #[cfg(windows)]
 mod startup;
 

@@ -8,11 +8,25 @@ import { engineInputs } from './inputs'
 import type { Prefs } from './prefs'
 
 /** Pourquoi l'image passe par WebSocket dans ce navigateur. */
-export type WebSocketReason = 'touch' | 'webkit' | 'firefox' | 'unsupported'
+export type WebSocketReason = 'relay' | 'touch' | 'webkit' | 'firefox' | 'unsupported'
+
+/** La page est venue par le relais (`relay` de `/api/session`, de `join` ou de `wait`). */
+let relayed = false
+
+/** Retient que la page passe par le relais : l'image ira en WebSocket (raison `relay`). */
+export function setRelay(on: boolean) {
+  relayed = on
+}
+
+export function viaRelay(): boolean {
+  return relayed
+}
 
 /**
  * Transport de l'image. WebTransport (direct, vérifié par l'empreinte du
  * certificat) quand c'est possible ; WebSocket (relayé par la console) :
+ * - par le relais de KyberNow (docs/relais.md) : Admin n'y ouvre que le
+ *   WebSocket, jamais `/kymux/start_mux` ;
  * - en tactile avec le moteur d'origine, ou dans Safari et sur iPhone et
  *   iPad : c'est sur la connexion WebSocket des entrées que la page envoie le
  *   texte tapé (paquets Unicode) et la position du doigt quand le pointeur de
@@ -26,6 +40,7 @@ export type WebSocketReason = 'touch' | 'webkit' | 'firefox' | 'unsupported'
  * À lire une fois le moteur chargé (`supportedCodecs()`), qui dit s'il est corrigé.
  */
 export function websocketReason(): WebSocketReason | null {
+  if (relayed) return 'relay'
   if (isTouch && !engineInputs()) return 'touch'
   if (isWebKit) return 'webkit'
   if (isFirefox) return 'firefox'

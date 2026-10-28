@@ -19,6 +19,7 @@ mod logs;
 mod migrate;
 mod pairing;
 mod preview;
+mod relay;
 mod schema;
 mod service;
 mod settings;
@@ -444,6 +445,8 @@ pub struct Inner {
     pub pairing: pairing::Pairing,
     /// KyberNow Share : le partage ouvert et ses invités, en mémoire.
     pub share: share::Share,
+    /// Le relais de KyberNow (docs/relais.md) : agent, autorisations, blocage.
+    pub relay: relay::Relay,
     /// Jeton des routes locales (icône de la zone de notification).
     pub local_token: Arc<local_token::LocalToken>,
     /// Mises à jour depuis les versions publiées sur GitHub.
@@ -496,6 +499,7 @@ impl AppState {
             launcher: launch::Launcher::new(&data_dir),
             pairing: pairing::Pairing::new(),
             share: share::Share::new(),
+            relay: relay::Relay::new(&data_dir),
             local_token: local_token::LocalToken::new(&data_dir),
             updater: Arc::new(update::Updater::new(&data_dir)),
             // L'assistant n'est jamais lancé : un redémarrage accepté est seulement noté.
@@ -647,7 +651,7 @@ pub fn init_logging(file: Option<PathBuf>) {
 
 /// Tout ce qui n'est pas l'API : la console, le client web (`/link`) et les
 /// appels de son moteur, relayés à Kyber.
-async fn web(state: axum::extract::State<AppState>, req: axum::extract::Request) -> axum::response::Response {
+pub(crate) async fn web(state: axum::extract::State<AppState>, req: axum::extract::Request) -> axum::response::Response {
     let path = req.uri().path();
     if kyber_proxy::is_kyber_path(path) || kyber_proxy::engine_file(path).is_some() {
         return kyber_proxy::proxy(state, req).await;
@@ -770,6 +774,7 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
         launcher,
         pairing: pairing::Pairing::new(),
         share: share::Share::new(),
+        relay: relay::Relay::new(&data_dir),
         local_token,
         updater: updater.clone(),
         station: station::Restarter::new(&data_dir),
@@ -790,6 +795,9 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
     api::supervise_access(state.clone());
     // Partage : invités sans nouvelles, fin de la session de l'hôte.
     share_api::supervise(state.clone());
+    // Relais : connecté seulement pour un partage ouvert ou l'accès hors de
+    // chez soi ; ce qui en arrive est servi ici, sous sa garde.
+    relay::supervise(state.clone(), relay::router(state.clone()));
 
     let on_shutdown = state.clone();
     let app = Router::new()

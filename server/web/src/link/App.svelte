@@ -3,12 +3,15 @@
   la session dans le navigateur. Servi par Admin, avec sa session : un
   seul mot de passe, celui d'Admin. Le lien d'un partage (`?join=<code>`)
   ouvre « Rejoindre » sans ce mot de passe : un invité n'a ni accueil, ni
-  réglages, ni session d'Admin (KyberNow Share, docs/kybernow-share.md).
+  réglages, ni session d'Admin (KyberNow Share, docs/kybernow-share.md). Par
+  le relais (`relay` de `/api/session`, docs/relais.md), il n'y a que
+  « Rejoindre » : ni mot de passe, ni nom d'ordinateur avant l'accord de l'hôte.
 -->
 <script lang="ts">
   import { onMount } from 'svelte'
   import { backend, type Session as ConsoleSession } from './backend'
   import { loadPrefs, savePrefs, type Prefs } from './prefs'
+  import { setRelay } from './plan'
   import { takeNotice, takeResume } from './station.svelte'
   import { codeFromUrl, forgetCodeInUrl, type GuestStart } from './share'
   import Gate from './Gate.svelte'
@@ -39,6 +42,8 @@
   async function load() {
     try {
       session = await backend.session()
+      // Par le relais, l'image passera en WebSocket (Admin n'y ouvre pas WebTransport).
+      if (session.relay) setRelay(true)
       if (session.hostname) document.title = `${session.hostname} · KyberNow Link`
       if (session.authenticated && resume) {
         resume = false
@@ -64,15 +69,16 @@
   <div class="center"><p class="muted">{t('web.app.noConsole')}</p></div>
 {:else if guest}
   <Session hostname={guest.join.computer} bind:prefs {guest} onEnd={endGuest} />
-{:else if joining}
+{:else if joining || session?.relay}
+  <!-- Le nom de l'ordinateur une fois la Station répondue ; jamais par le relais (connu après l'accord). -->
   <Join
-    hostname={session?.hostname ?? null}
+    hostname={session && !session.relay ? (session.hostname ?? t('web.app.thisComputer')) : null}
     {code}
     onJoined={(start) => {
       guest = start
       document.title = `${t('share.guest.on', { name: start.join.computer })} · KyberNow Link`
     }}
-    onCancel={linkCode === null
+    onCancel={linkCode === null && !session?.relay
       ? () => {
           joining = false
           code = ''

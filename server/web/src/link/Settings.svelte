@@ -60,15 +60,17 @@
   const pathText = $derived.by(() => {
     void plan
     const reason = websocketReason()
-    return reason === 'touch'
-      ? t('web.settings.pathTouch')
-      : reason === 'webkit'
-        ? t('web.settings.pathWebkit')
-        : reason === 'firefox'
-          ? t('web.settings.pathFirefox')
-          : reason === 'unsupported'
-            ? t('web.settings.pathUnsupported')
-            : t('web.settings.pathDirect')
+    return reason === 'relay'
+      ? t('web.settings.pathRelay')
+      : reason === 'touch'
+        ? t('web.settings.pathTouch')
+        : reason === 'webkit'
+          ? t('web.settings.pathWebkit')
+          : reason === 'firefox'
+            ? t('web.settings.pathFirefox')
+            : reason === 'unsupported'
+              ? t('web.settings.pathUnsupported')
+              : t('web.settings.pathDirect')
   })
 
   let dialog: HTMLElement

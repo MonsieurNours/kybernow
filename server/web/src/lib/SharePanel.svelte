@@ -1,12 +1,13 @@
 <!--
   Panneau d'un partage ouvert (KyberNow Share) : le code, le lien et son QR
-  code, les participants, leurs droits et la qualité d'image d'un invité qui
-  ne reçoit pas celle de l'hôte, « Nouveau code », « Arrêter le partage ». Le même sur l'accueil et dans Appareils Link d'Admin, et dans la
-  barre de session du client web (routes de l'hôte) ; textes de
-  docs/link-ui.md (« Partage »).
+  code, les demandes venues par le relais (« Accepter », « Refuser »), les
+  participants, leurs droits et la qualité d'image d'un invité qui ne reçoit
+  pas celle de l'hôte, « Nouveau code », « Arrêter le partage ». Le même sur
+  l'accueil et dans Appareils Link d'Admin, et dans la barre de session du
+  client web (routes de l'hôte) ; textes de docs/link-ui.md (« Partage »).
 -->
 <script lang="ts">
-  import { localShare, type ShareGuest, type ShareOps, type ShareRole, type ShareView } from './api'
+  import { joinedGuests, localShare, shareRequests, type ShareGuest, type ShareOps, type ShareRole, type ShareView } from './api'
   import { errorText, notify as storeNotify, refreshStatus, setShare } from './store.svelte'
   import { deviceIcon, imageQuality, screenLine, sinceText } from './format'
   import Icon from './Icon.svelte'
@@ -54,6 +55,11 @@
   )
   const code = $derived(`${share.code.slice(0, 3)} ${share.code.slice(3)}`)
   const screen = $derived(screenLine(share.display))
+  /** Les invités entrés, et les demandes venues par le relais (au-dessus, elles ne comptent pas dans les invités). */
+  const guests = $derived(joinedGuests(share))
+  const requests = $derived(shareRequests(share))
+  /** Le relais du partage : joint (le lien et le code valent ailleurs), injoignable, ou pas de relais. */
+  const relay = $derived(share.relay?.state ?? null)
 
   /** Icône de l'app d'un invité (mêmes dessins que les appareils). */
   function appIcon(app: string): string {
@@ -133,15 +139,37 @@
         <button type="button" class="ghost small" onclick={copy}><Icon name="copy" size={15} stroke={2} />{t('share.copy')}</button>
         <span class="mono link">{share.web}</span>
       </div>
-      <p class="help">{t('share.help')}</p>
+      <p class="help">{relay === 'joined' ? t('share.helpRelay') : t('share.help')}</p>
+      {#if relay === 'unreachable'}<p class="help">{t('share.relayUnreachable')}</p>{/if}
     </div>
   </div>
+
+  {#if requests.length}
+    <div class="people requests">
+      <div class="people-head">
+        <h3>{t('share.requests')}</h3>
+      </div>
+      {#each requests as g (g.id)}
+        <div class="person" role="group" aria-labelledby="ask-{g.id}">
+          <span class="device-icon live"><Icon name={appIcon(g.app)} size={19} stroke={1.6} /></span>
+          <div class="who">
+            <span class="name" id="ask-{g.id}">{t('share.asks', { name: g.name })}</span>
+            <span class="meta">{appName(g.app)} · {t('share.away')}</span>
+          </div>
+          <div class="moves">
+            <button type="button" class="ghost small accept" disabled={busy !== null} onclick={() => run(g.id, () => ops.accept(g.id))}><Icon name="check" size={15} stroke={2} />{t('share.accept')}</button>
+            <button type="button" class="ghost small" disabled={busy !== null} onclick={() => run(g.id, () => ops.refuse(g.id))}>{t('share.refuse')}</button>
+          </div>
+        </div>
+      {/each}
+    </div>
+  {/if}
 
   <div class="people">
     <div class="people-head">
       <h3>{host ? t('share.participants') : t('share.people')}</h3>
-      {#if share.guests.length}<span class="pill signal">{tn('share.guests', share.guests.length)}</span>{/if}
-      {#if share.guests.length >= 4}<span class="limit">{t('share.limit')}</span>{/if}
+      {#if guests.length}<span class="pill signal">{tn('share.guests', guests.length)}</span>{/if}
+      {#if guests.length >= 4}<span class="limit">{t('share.limit')}</span>{/if}
     </div>
     {#if host}
       <div class="person">
@@ -152,12 +180,12 @@
         </div>
       </div>
     {/if}
-    {#each share.guests as g (g.id)}
+    {#each guests as g (g.id)}
       <div class="person">
         <span class="device-icon" class:live={g.role !== 'spectator'}><Icon name={appIcon(g.app)} size={19} stroke={1.6} /></span>
         <div class="who">
           <span class="name">{t(`share.role.${g.role}`, { name: g.name })}</span>
-          <span class="meta">{[appName(g.app), imageLine(g), t('share.since', { duration: sinceText(now - g.since) })].filter(Boolean).join(' · ')}</span>
+          <span class="meta">{[appName(g.app), g.via === 'relay' ? t('share.away') : '', imageLine(g), t('share.since', { duration: sinceText(now - g.since) })].filter(Boolean).join(' · ')}</span>
         </div>
         <div class="moves">
           {#each moves(g) as m (m.role)}
@@ -336,6 +364,22 @@
 
   .moves .remove:hover:not(:disabled) {
     color: var(--bad-text);
+  }
+
+  /* Une demande venue par le relais : « Accepter » ressort, sans prendre le seul bouton principal. */
+  .requests .person {
+    border-top-color: var(--signal-line);
+  }
+
+  .moves .accept {
+    background: var(--signal-soft);
+    box-shadow: inset 0 0 0 1px var(--signal-line);
+    color: var(--signal-light);
+  }
+
+  .moves .accept:hover:not(:disabled) {
+    background: rgb(109 91 255 / 0.22);
+    color: #fff;
   }
 
   .empty {

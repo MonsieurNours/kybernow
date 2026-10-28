@@ -24,6 +24,11 @@
       "wait": "Patientez…",
       "sharing": "Partage de l'écran {n}"
     },
+    "relay": {
+      "joined": "Relais joint",
+      "unreachable": "Relais injoignable ({reason})",
+      "unreachableBare": "Relais injoignable"
+    },
     "menu": {
       "openConsole": "Ouvrir Admin",
       "updates": "Mises à jour…",
@@ -92,6 +97,10 @@
     "guests": {
       "one": "{n} invité",
       "other": "{n} invités"
+    },
+    "requests": {
+      "one": "{n} demande",
+      "other": "{n} demandes"
     },
     "list": "{rest} et {last}"
   },
@@ -175,9 +184,16 @@
       "copy": "Copier le lien",
       "qrLabel": "QR code du partage",
       "help": "Sur le même réseau : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur.",
+      "helpRelay": "Sur le même réseau ou ailleurs : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur. Hors de chez vous, vous acceptez chaque invité.",
+      "relayUnreachable": "Pas encore joignable hors de chez vous.",
       "people": "Invités",
       "participants": "Participants",
       "nobody": "Personne pour l'instant.",
+      "requestsTitle": "Demandes",
+      "wantsToJoin": "{name} demande à rejoindre",
+      "away": "hors de chez vous",
+      "accept": "Accepter",
+      "refuse": "Refuser",
       "host": "{name} · Hôte",
       "role": {
         "spectator": "{name} · Spectateur",
@@ -201,6 +217,10 @@
       "guests": {
         "one": "{n} invité",
         "other": "{n} invités"
+      },
+      "requests": {
+        "one": "{n} demande",
+        "other": "{n} demandes"
       },
       "apps": {
         "mac": "Mac",

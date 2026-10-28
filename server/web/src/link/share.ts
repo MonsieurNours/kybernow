@@ -193,6 +193,14 @@ export function joinRefusalText(e: unknown): string {
       return t('web.app.noConsole')
     case 'bad_request':
       return t('share.join.badRequest')
+    case 'pending_full':
+      return t('share.join.pendingFull')
+    case 'refused':
+      return t('share.join.refused')
+    case 'expired':
+      return t('share.join.expired')
+    case 'relay':
+      return t('share.join.relayDown')
     default:
       return e.message || t('share.join.badRequest')
   }
@@ -246,8 +254,11 @@ export function redact(text: unknown, secrets: string[] = []): string {
   return out.replace(/eyJ[\w-]{5,}\.[\w-]{5,}(?:\.[\w-]*)?/g, '…')
 }
 
-/** Sort du partage : à la fermeture de la page comme sur « Quitter le partage » (`keepalive`). */
-export function leaveShare(join: GuestJoin): Promise<unknown> {
+/**
+ * Sort du partage : à la fermeture de la page comme sur « Quitter le partage » (`keepalive`). Annule
+ * aussi une demande qui attend l'accord de l'hôte (« Annuler »).
+ */
+export function leaveShare(join: Pick<GuestJoin, 'guest' | 'secret'>): Promise<unknown> {
   return fetch('/api/share/leave', {
     method: 'POST',
     keepalive: true,

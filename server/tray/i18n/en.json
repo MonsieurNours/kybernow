@@ -24,6 +24,11 @@
       "wait": "Please wait…",
       "sharing": "Sharing display {n}"
     },
+    "relay": {
+      "joined": "Relay reached",
+      "unreachable": "Relay unreachable ({reason})",
+      "unreachableBare": "Relay unreachable"
+    },
     "menu": {
       "openConsole": "Open Admin",
       "updates": "Updates…",
@@ -92,6 +97,10 @@
     "guests": {
       "one": "{n} guest",
       "other": "{n} guests"
+    },
+    "requests": {
+      "one": "{n} request",
+      "other": "{n} requests"
     },
     "list": "{rest} and {last}"
   },
@@ -175,9 +184,16 @@
       "copy": "Copy link",
       "qrLabel": "QR code for the share",
       "help": "On the same network: “Join with a code” in KyberNow Link, or this link in a browser.",
+      "helpRelay": "On the same network or elsewhere: “Join with a code” in KyberNow Link, or this link in a browser. Away from home, you accept each guest.",
+      "relayUnreachable": "Not reachable away from home yet.",
       "people": "Guests",
       "participants": "Participants",
       "nobody": "Nobody yet.",
+      "requestsTitle": "Requests",
+      "wantsToJoin": "{name} wants to join",
+      "away": "away from home",
+      "accept": "Accept",
+      "refuse": "Decline",
       "host": "{name} · Host",
       "role": {
         "spectator": "{name} · Spectator",
@@ -201,6 +217,10 @@
       "guests": {
         "one": "{n} guest",
         "other": "{n} guests"
+      },
+      "requests": {
+        "one": "{n} request",
+        "other": "{n} requests"
       },
       "apps": {
         "mac": "Mac",

@@ -4,7 +4,7 @@
   les appareils et ce qui s'est passé aujourd'hui.
 -->
 <script lang="ts">
-  import { api, type ActivityEvent, type AudioStatus, type Device, type DisplayStatus } from '../lib/api'
+  import { api, joinedGuests, type ActivityEvent, type AudioStatus, type Device, type DisplayStatus } from '../lib/api'
   import { app, errorText, notify, refreshStatus, setShare } from '../lib/store.svelte'
   import { ago, capital, deviceIcon, duration, hhmm, isToday, mode, ms, screenLine, when } from '../lib/format'
   import Icon from '../lib/Icon.svelte'
@@ -27,7 +27,7 @@
   const share = $derived(status?.share ?? null)
   // Partage lancé depuis le PC (icône ou cette page), sans appareil en session.
   const pcShare = $derived(!live && share?.origin === 'local' ? share : null)
-  const guests = $derived(share?.guests.length ?? 0)
+  const guests = $derived(joinedGuests(share).length)
   // Station qui connaît le partage (0.8.0 et après).
   const sharing = $derived(status?.share_enabled !== undefined)
   const hostname = $derived(status?.hostname ?? t('overview.thisComputer'))

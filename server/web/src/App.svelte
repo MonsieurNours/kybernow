@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte'
-  import { api, setUnauthorizedHandler } from './lib/api'
+  import { api, joinedGuests, setUnauthorizedHandler } from './lib/api'
   import { app, refreshStatus, notify, errorText, accessReason, kyber, loadKyber } from './lib/store.svelte'
   import { i18n, t, tn } from './lib/i18n/index.svelte'
   import LangChoice from './lib/LangChoice.svelte'
@@ -48,9 +48,10 @@
 
   const status = $derived(app.status)
   const live = $derived(status?.activity?.live ?? null)
-  // Partage ouvert (KyberNow Share) et ses invités : l'ordinateur est occupé dès qu'un invité est là.
+  // Partage ouvert (KyberNow Share) et ses invités : l'ordinateur est occupé dès qu'un invité est là
+  // (une demande venue par le relais n'en est pas un tant qu'elle n'est pas acceptée).
   const share = $derived(status?.share ?? null)
-  const guests = $derived(share?.guests.length ?? 0)
+  const guests = $derived(joinedGuests(share).length)
   const busy = $derived(!!live || guests > 0)
   const serviceState = $derived(status?.service.state)
   const hostLine = $derived(

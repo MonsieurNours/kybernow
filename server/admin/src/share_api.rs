@@ -7,7 +7,10 @@
 //!   l'accueil d'Admin avec sa session) : `GET /api/local/displays` et les
 //!   mêmes routes sous `/api/local/share…` ;
 //! - l'invité (sans compte) : `POST /api/share/join` (limité comme
-//!   l'appairage), `POST /api/share/beat`, `POST /api/share/leave`.
+//!   l'appairage), `POST /api/share/beat`, `POST /api/share/leave` ; par le
+//!   relais (docs/relais.md), `join` fait une demande que l'hôte accepte ou
+//!   refuse (`POST …/guest/{id}/accept|refuse`), et l'invité attend la
+//!   réponse (`POST /api/share/wait`).
 //!
 //! L'état vit dans `share.rs` ; ici, les droits, les jetons de Kyber des
 //! invités, les appels à Kyber (correctif 0019 : fermer la session d'un
@@ -28,7 +31,8 @@ use crate::activity::Live;
 use crate::api::{ApiError, blocking, stream_user};
 use crate::display::{PhysicalDisplay, kyber_display_id};
 use crate::i18n::{self, Msg};
-use crate::share::{self, Beat, Guest, JoinError, Origin, Role, ShareDisplay, Snapshot};
+use crate::relay::Via;
+use crate::share::{self, AcceptError, Beat, Guest, JoinError, Origin, Role, ShareDisplay, Snapshot};
 
 /// En-tête du secret d'un invité.
 const GUEST_HEADER: &str = "x-kybernow-guest";
@@ -100,8 +104,17 @@ fn label(index: u32) -> String {
     Msg::new("share.display").with("n", index).text()
 }
 
-/// Lien pour les apps et adresse du client web (docs/kybernow-share.md, « Lien »).
-fn links(s: &AppState, code: &str) -> (String, String) {
+/// Les liens d'un partage (docs/kybernow-share.md, « Lien » ; docs/relais.md,
+/// « Liens ») : le lien des apps, l'adresse du client web (celle du relais
+/// quand il tient le code), celle sur le réseau, et ce que le relais en dit.
+struct Links {
+    link: String,
+    web: String,
+    web_local: String,
+    relay: Value,
+}
+
+fn links(s: &AppState, code: &str) -> Links {
     let address = crate::tls::lan_ip().unwrap_or_else(|| "localhost".into());
     let port = s.listen_port;
     let mut link = format!("kybernow://join?host={address}&port={port}");
@@ -111,7 +124,19 @@ fn links(s: &AppState, code: &str) -> (String, String) {
     }
     link.push_str(&format!("&code={code}"));
     let scheme = if s.secure_cookies { "https" } else { "http" };
-    (link, format!("{scheme}://{address}:{port}/link/?join={code}"))
+    let web_local = format!("{scheme}://{address}:{port}/link/?join={code}");
+    let mut web = web_local.clone();
+    let relay = match s.relay.for_share(s, code) {
+        None => Value::Null,
+        Some(r) => {
+            if let (true, Some(id)) = (r.joined, r.id.as_deref()) {
+                link.push_str(&format!("&relay={}&sid={id}", urlencoding::encode(&r.addr.to_string())));
+                web = format!("https://{}/j/{code}", r.addr.authority());
+            }
+            json!({ "state": if r.joined { "joined" } else { "unreachable" } })
+        }
+    };
+    Links { link, web, web_local, relay }
 }
 
 fn host_name(snapshot: &Snapshot) -> String {
@@ -131,6 +156,9 @@ fn guest_json(g: &Guest) -> Value {
         "since": g.since,
         "last_beat": g.last_beat_secs,
         "image": image_json(g),
+        // Par le relais : une demande pas encore acceptée, et la voie.
+        "pending": g.pending,
+        "via": g.via(),
     })
 }
 
@@ -253,7 +281,7 @@ async fn kyber_quality(s: &AppState, guest: &Guest) -> bool {
 /// La vue d'un partage ouvert (`ShareView` des interfaces) ; elle contient
 /// ce que donne `open` dans le contrat (`code`, `link`, `web`, `display`).
 pub fn view(s: &AppState, snapshot: &Snapshot) -> Value {
-    let (link, web) = links(s, &snapshot.code);
+    let Links { link, web, web_local, relay } = links(s, &snapshot.code);
     let d = &snapshot.display;
     json!({
         "open": true,
@@ -262,6 +290,8 @@ pub fn view(s: &AppState, snapshot: &Snapshot) -> Value {
         "code": snapshot.code,
         "link": link,
         "web": web,
+        "web_local": web_local,
+        "relay": relay,
         "display": {
             "id": d.id,
             "index": d.index,
@@ -434,6 +464,8 @@ fn sync_sharing(s: &AppState) {
 
 fn opened(s: &AppState, snapshot: &Snapshot) {
     sync_sharing(s);
+    // Un relais réglé se connecte pour le partage (hors de chez soi).
+    s.relay.wake();
     s.activity.event("info", Msg::new("events.shareOpened").with("host", host_name(snapshot)).with("n", snapshot.display.index));
 }
 
@@ -442,9 +474,12 @@ fn opened(s: &AppState, snapshot: &Snapshot) {
 pub async fn close_share(s: &AppState) -> Option<Snapshot> {
     let snapshot = s.share.close()?;
     sync_sharing(s);
+    s.relay.wake();
     // Tous les invités à la fois : un Kyber lent ne fait attendre qu'une fois.
+    // Une demande pas encore acceptée n'a rien dans Kyber.
     let mut kicks = tokio::task::JoinSet::new();
-    for g in snapshot.guests.clone() {
+    for g in snapshot.guests.iter().filter(|g| !g.pending).cloned() {
+        s.relay.revoke_guest(&g.id);
         let s = s.clone();
         kicks.spawn(async move { kyber_close(&s, &g).await });
     }
@@ -456,6 +491,7 @@ pub async fn close_share(s: &AppState) -> Option<Snapshot> {
 
 /// Un invité sort (parti, retiré, sans nouvelles) : coupé de Kyber, et le fil le dit.
 async fn guest_gone(s: &AppState, guest: &Guest) {
+    s.relay.revoke_guest(&guest.id);
     kyber_close(s, guest).await;
     s.activity.event("info", Msg::new("events.shareLeft").with("name", guest.name.as_str()));
 }
@@ -493,12 +529,50 @@ async fn change_role(s: &AppState, id: &str, role: Role) -> ShareResult<Json<Val
 
 async fn remove_guest(s: &AppState, id: &str) -> ShareResult<Json<Value>> {
     let guest = s.share.remove(id).ok_or_else(unknown_guest)?;
-    tracing::info!("partage : {} retiré", guest.name);
-    guest_gone(s, &guest).await;
+    if guest.pending {
+        tracing::info!("partage : demande de {} retirée", guest.name);
+        s.activity.event("info", Msg::new("events.shareRefused").with("name", guest.name.as_str()));
+    } else {
+        tracing::info!("partage : {} retiré", guest.name);
+        guest_gone(s, &guest).await;
+    }
     Ok(Json(current_view(s)))
 }
 
+/// Accepter une demande venue par le relais : elle devient un invité
+/// spectateur ; sa réponse lui arrive par `wait`.
+async fn accept_guest(s: &AppState, id: &str) -> ShareResult<Json<Value>> {
+    let guest = s.share.accept(id).map_err(|e| match e {
+        AcceptError::Unknown => unknown_guest(),
+        AcceptError::Full => ShareError::new(StatusCode::CONFLICT, "full", Msg::new("share.full")),
+    })?;
+    tracing::info!("partage : demande de {} acceptée", guest.name);
+    s.activity.event("info", Msg::new("events.shareWatching").with("name", guest.name.as_str()));
+    Ok(Json(current_view(s)))
+}
+
+/// Refuser une demande : l'appareil ne redemande pas avant 10 minutes.
+async fn refuse_guest(s: &AppState, id: &str) -> ShareResult<Json<Value>> {
+    let guest = s.share.refuse(id).ok_or_else(unknown_guest)?;
+    tracing::info!("partage : demande de {} refusée", guest.name);
+    s.activity.event("info", Msg::new("events.shareRefused").with("name", guest.name.as_str()));
+    Ok(Json(current_view(s)))
+}
+
+/// « Nouveau code ». Relais joint : le relais en réserve un autre (unique
+/// entre toutes les Stations), l'ancien est rendu ; sinon Admin le tire.
 async fn new_code(s: &AppState) -> ShareResult<Json<Value>> {
+    let old = s.share.snapshot().ok_or_else(no_share)?.code;
+    if let Some((agent, code)) = s.relay.reserve_new().await
+        && code != old
+    {
+        if s.share.replace_code(&old, &code) {
+            agent.release(&old);
+        } else {
+            agent.release(&code);
+        }
+        return Ok(Json(current_view(s)));
+    }
     let snapshot = s.share.renew_code().ok_or_else(no_share)?;
     Ok(Json(view(s, &snapshot)))
 }
@@ -594,6 +668,26 @@ pub async fn host_guest_remove(State(s): State<AppState>, headers: HeaderMap, Pa
     let live = host_session(&s, &headers, q.device_id.as_deref())?;
     host_share(&s, &live)?;
     remove_guest(&s, &id).await
+}
+
+/// `POST /api/share/guest/{id}/accept|refuse` : répondre à une demande venue par le relais.
+pub async fn host_guest_answer(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Path((id, action)): Path<(String, String)>,
+    body: axum::body::Bytes,
+) -> ShareResult<Json<Value>> {
+    let live = host_session(&s, &headers, host_body(&body).device_id.as_deref())?;
+    host_share(&s, &live)?;
+    answer_request(&s, &id, &action).await
+}
+
+async fn answer_request(s: &AppState, id: &str, action: &str) -> ShareResult<Json<Value>> {
+    match action {
+        "accept" => accept_guest(s, id).await,
+        "refuse" => refuse_guest(s, id).await,
+        _ => Err(ShareError::new(StatusCode::NOT_FOUND, "bad_request", Msg::new("api.unknownRoute"))),
+    }
 }
 
 /// `DELETE /api/share` : arrêter le partage.
@@ -736,6 +830,17 @@ pub async fn local_guest_remove(
     remove_guest(&s, &id).await
 }
 
+/// `POST /api/local/share/guest/{id}/accept|refuse` : le PC (icône, accueil d'Admin) répond à une demande.
+pub async fn local_guest_answer(
+    State(s): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Path((id, action)): Path<(String, String)>,
+) -> ShareResult<Json<Value>> {
+    local_or_admin(&s, peer, &headers)?;
+    answer_request(&s, &id, &action).await
+}
+
 /// `DELETE /api/local/share` : arrêter le partage en cours (celui d'un hôte aussi).
 pub async fn local_close(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<SocketAddr>, headers: HeaderMap) -> ShareResult<Json<Value>> {
     local_or_admin(&s, peer, &headers)?;
@@ -762,14 +867,24 @@ pub struct JoinBody {
 }
 
 /// `POST /api/share/join` : rejoindre avec le code (sans compte ; 10 essais
-/// par minute et par adresse, comme l'appairage).
-pub async fn join(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<SocketAddr>, Json(body): Json<JoinBody>) -> Response {
+/// par minute et par adresse, comme l'appairage). Par le relais : une
+/// demande (`202 pending`) que l'hôte accepte ou refuse ; l'invité attend la
+/// réponse par `wait`. Un appareil déjà accepté reprend sa place tout de suite.
+pub async fn join(
+    State(s): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    via: Option<axum::Extension<Via>>,
+    Json(body): Json<JoinBody>,
+) -> Response {
+    let via = via.map(|axum::Extension(v)| v);
     let browser = body.app == "web";
-    let joined = match s.share.join(&body.code, &body.name, &body.device, &body.app, peer.ip(), browser) {
+    let joined = match s.share.join_from(&body.code, &body.name, &body.device, &body.app, peer.ip(), browser, via.is_some()) {
         Ok(joined) => joined,
         Err(JoinError::BadRequest) => return guest_error(StatusCode::BAD_REQUEST, "bad_request"),
         Err(JoinError::NoShare) => return guest_error(StatusCode::NOT_FOUND, "no_share"),
         Err(JoinError::Full) => return guest_error(StatusCode::CONFLICT, "full"),
+        Err(JoinError::PendingFull) => return guest_error(StatusCode::CONFLICT, "pending_full"),
+        Err(JoinError::Refused) => return guest_error(StatusCode::FORBIDDEN, "refused"),
         Err(JoinError::TooMany(wait)) => {
             tracing::warn!("partage : essais refusés depuis {} (trop d'essais)", peer.ip());
             let mut res = (StatusCode::TOO_MANY_REQUESTS, Json(json!({ "error": "too_many", "retry_after": wait }))).into_response();
@@ -778,15 +893,16 @@ pub async fn join(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<Sock
         }
     };
     let (guest, snapshot) = (joined.guest, joined.snapshot);
-    let display = &snapshot.display;
-    let preset = resolve_quality(body.quality, body.auto.as_ref(), display);
+    let preset = resolve_quality(body.quality, body.auto.as_ref(), &snapshot.display);
     let guest = s.share.set_quality(&guest.id, None, body.quality, preset).unwrap_or(guest);
-    let Some(token) = guest_token(&s, &guest, display.id) else {
-        // Sans clé de jetons, Kyber ne le laisserait pas entrer.
-        let _ = s.share.leave(&guest.id, guest.secret());
-        tracing::warn!("partage : pas de clé pour les jetons de Kyber, {} ne peut pas entrer", guest.name);
-        return guest_error(StatusCode::SERVICE_UNAVAILABLE, "unavailable");
-    };
+    if guest.pending {
+        if joined.new {
+            tracing::info!("partage : {} demande à rejoindre par le relais ({}, {})", guest.name, guest.app, peer.ip());
+            s.activity.event("info", Msg::new("events.shareRequest").with("name", guest.name.as_str()));
+        }
+        let answer = json!({ "pending": true, "guest": guest.id, "secret": guest.secret(), "expires": share::PENDING_TTL.as_secs() });
+        return (StatusCode::ACCEPTED, [(header::CACHE_CONTROL, "no-store")], Json(answer)).into_response();
+    }
     if joined.new {
         tracing::info!("partage : {} rejoint ({}, {})", guest.name, guest.app, peer.ip());
         s.activity.event("info", Msg::new("events.shareWatching").with("name", guest.name.as_str()));
@@ -796,16 +912,34 @@ pub async fn join(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<Sock
         // préférerait à celle de ce jeton ; il prend celle d'aujourd'hui.
         kyber_quality(&s, &guest).await;
     }
-    let stream = kyber_stream(&s, display.id).await;
-    let answer = json!({
+    joined_answer(&s, &guest, &snapshot, via.as_ref()).await
+}
+
+/// La réponse de `join` (sur le réseau, ou pour un invité accepté par
+/// `wait`) : jeton de Kyber, écran, format de l'image ; le cookie du
+/// navigateur ; par le relais, `"relay": true` et ce client autorisé à
+/// joindre Kyber.
+async fn joined_answer(s: &AppState, guest: &Guest, snapshot: &Snapshot, via: Option<&Via>) -> Response {
+    let display = &snapshot.display;
+    let Some(token) = guest_token(s, guest, display.id) else {
+        // Sans clé de jetons, Kyber ne le laisserait pas entrer.
+        let _ = s.share.leave(&guest.id, guest.secret());
+        tracing::warn!("partage : pas de clé pour les jetons de Kyber, {} ne peut pas entrer", guest.name);
+        return guest_error(StatusCode::SERVICE_UNAVAILABLE, "unavailable");
+    };
+    if let Some(via) = via {
+        s.relay.grant_guest(via, &guest.id);
+    }
+    let stream = kyber_stream(s, display.id).await;
+    let mut answer = json!({
         "guest": guest.id,
         "secret": guest.secret(),
         "role": guest.role,
-        "host": host_name(&snapshot),
+        "host": host_name(snapshot),
         "computer": hostname(),
         "kyber": {
             "port": s.kyber.port(),
-            "fingerprint": crate::kyber_proxy::kyber_fingerprint(&s),
+            "fingerprint": crate::kyber_proxy::kyber_fingerprint(s),
             "token": token,
             "expires": share::TOKEN_LIFETIME,
         },
@@ -814,9 +948,12 @@ pub async fn join(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<Sock
         "yuv444": stream.is_some_and(|(_, yuv444)| yuv444),
         "beat": share::BEAT_SECONDS,
     });
+    if via.is_some() {
+        answer["relay"] = json!(true);
+    }
     let mut res = ([(header::CACHE_CONTROL, "no-store")], Json(answer)).into_response();
     if let Some(cookie) = guest.cookie()
-        && let Ok(value) = HeaderValue::from_str(&share::set_cookie(cookie, s.secure_cookies))
+        && let Ok(value) = HeaderValue::from_str(&share::set_cookie(cookie, s.secure_cookies, via.is_some()))
     {
         res.headers_mut().insert(header::SET_COOKIE, value);
     }
@@ -832,23 +969,62 @@ fn guest_secret(headers: &HeaderMap) -> String {
     headers.get(GUEST_HEADER).and_then(|v| v.to_str().ok()).unwrap_or_default().trim().to_string()
 }
 
+/// Une attente de `wait` tenue au plus ce temps, puis `202` (l'invité rappelle).
+const WAIT_HOLD: Duration = Duration::from_secs(25);
+
+/// `POST /api/share/wait` : une demande attend l'accord de l'hôte (par le
+/// relais). Réponse tenue 25 s au plus : `202 pending`, `200` (la réponse de
+/// `join`), `403 refused`, `410 expired`, `404 no_share`.
+pub async fn wait(State(s): State<AppState>, headers: HeaderMap, via: Option<axum::Extension<Via>>, Json(body): Json<GuestBody>) -> Response {
+    wait_for(&s, &headers, via.map(|axum::Extension(v)| v), &body.guest, WAIT_HOLD).await
+}
+
+async fn wait_for(s: &AppState, headers: &HeaderMap, via: Option<Via>, guest: &str, hold: Duration) -> Response {
+    let secret = guest_secret(headers);
+    let deadline = tokio::time::Instant::now() + hold;
+    loop {
+        // Prise avant de relire l'état : aucun changement n'est manqué.
+        let changed = s.share.changed();
+        tokio::pin!(changed);
+        changed.as_mut().enable();
+        match s.share.wait(guest, &secret) {
+            share::Wait::Pending => {}
+            share::Wait::Admitted { guest, snapshot } => return joined_answer(s, &guest, &snapshot, via.as_ref()).await,
+            share::Wait::Refused => return guest_error(StatusCode::FORBIDDEN, "refused"),
+            share::Wait::Expired => return guest_error(StatusCode::GONE, "expired"),
+            share::Wait::NoShare => return guest_error(StatusCode::NOT_FOUND, "no_share"),
+            share::Wait::Unknown => return guest_error(StatusCode::NOT_FOUND, "unknown_guest"),
+        }
+        if tokio::time::timeout_at(deadline, changed).await.is_err() {
+            return (StatusCode::ACCEPTED, [(header::CACHE_CONTROL, "no-store")], Json(json!({ "pending": true }))).into_response();
+        }
+    }
+}
+
 /// `POST /api/share/beat` : signe de vie de l'invité, toutes les 5 s ; il
 /// rend un jeton de Kyber renouvelé et, s'il est sorti, pourquoi.
-pub async fn beat(State(s): State<AppState>, headers: HeaderMap, Json(body): Json<GuestBody>) -> Response {
+pub async fn beat(State(s): State<AppState>, headers: HeaderMap, via: Option<axum::Extension<Via>>, Json(body): Json<GuestBody>) -> Response {
     fresh_images(&s).await;
     let answer = match s.share.beat(&body.guest, &guest_secret(&headers)) {
         None => return guest_error(StatusCode::NOT_FOUND, "unknown_guest"),
+        Some(Beat::Pending) => return (StatusCode::ACCEPTED, Json(json!({ "pending": true }))).into_response(),
         // `display` en plus du contrat : l'écran du partage peut changer
         // (écran virtuel de l'hôte recréé) ; le jeton porte toujours le bon.
         Some(Beat::Live { guest, display }) => match guest_token(&s, &guest, display.id) {
-            Some(token) => json!({
+            Some(token) => {
+                // Par le relais : ce client reste autorisé à joindre Kyber.
+                if let Some(axum::Extension(via)) = &via {
+                    s.relay.grant_guest(via, &guest.id);
+                }
+                json!({
                 "role": guest.role,
                 "token": token,
                 "expires": share::TOKEN_LIFETIME,
                 "end": null,
                 "display": { "id": display.id, "width": display.width, "height": display.height, "refresh": display.refresh },
                 "image": image_json(&guest),
-            }),
+            })
+            }
             None => return guest_error(StatusCode::SERVICE_UNAVAILABLE, "unavailable"),
         },
         Some(Beat::Ended { end, role }) => json!({ "role": role, "token": null, "expires": 0, "end": end }),
@@ -907,18 +1083,23 @@ pub async fn quality(State(s): State<AppState>, headers: HeaderMap, Json(body): 
 /// `POST /api/share/leave` : l'invité quitte le partage. Un invité inconnu
 /// (comme pour `beat`) : 404 `unknown_guest` ; le cookie du navigateur est
 /// effacé dans tous les cas.
-pub async fn leave(State(s): State<AppState>, headers: HeaderMap, Json(body): Json<GuestBody>) -> Response {
+pub async fn leave(State(s): State<AppState>, headers: HeaderMap, via: Option<axum::Extension<Via>>, Json(body): Json<GuestBody>) -> Response {
     let mut res = match s.share.leave(&body.guest, &guest_secret(&headers)) {
         share::Leave::Left(guest) => {
             tracing::info!("partage : {} part", guest.name);
             guest_gone(&s, &guest).await;
             Json(json!({ "ok": true })).into_response()
         }
+        // Une demande annulée : rien dans Kyber, rien dans le fil.
+        share::Leave::Cancelled(guest) => {
+            tracing::info!("partage : {} annule sa demande", guest.name);
+            Json(json!({ "ok": true })).into_response()
+        }
         share::Leave::Ended => Json(json!({ "ok": true })).into_response(),
         share::Leave::Unknown => guest_error(StatusCode::NOT_FOUND, "unknown_guest"),
     };
     if share::guest_cookie(&headers).is_some()
-        && let Ok(value) = HeaderValue::from_str(&share::clear_cookie(s.secure_cookies))
+        && let Ok(value) = HeaderValue::from_str(&share::clear_cookie(s.secure_cookies, via.is_some()))
     {
         res.headers_mut().insert(header::SET_COOKIE, value);
     }
@@ -1120,7 +1301,7 @@ mod tests {
         // Le signe de vie de l'hôte porte le partage ; pas celui d'un autre appareil.
         assert!(for_host(s, Some("mac-1")).is_some() && for_host(s, Some("tv")).is_none());
 
-        let (status, joined) = body(join(State(s.clone()), peer(20), join_body(&code, "Léa", "ipad-1", "ios")).await).await;
+        let (status, joined) = body(join(State(s.clone()), peer(20), None, join_body(&code, "Léa", "ipad-1", "ios")).await).await;
         assert_eq!(status, StatusCode::OK, "{joined}");
         assert_eq!(joined["role"], "spectator");
         assert_eq!(joined["host"], "MacBook de Léa");
@@ -1144,21 +1325,21 @@ mod tests {
         assert_eq!(v["guests"][0]["role"], "player");
         assert_eq!(texts(s)[0], "Léa joue avec vous");
         let _ = host_guest_role(State(s.clone()), basic("mac", "mot-de-passe-mac"), Path(guest.clone()), role("player_kbm")).await.ok().unwrap();
-        let (_, beat_v) = body(beat(State(s.clone()), guest_headers(&secret), Json(GuestBody { guest: guest.clone() })).await).await;
+        let (_, beat_v) = body(beat(State(s.clone()), guest_headers(&secret), None, Json(GuestBody { guest: guest.clone() })).await).await;
         assert_eq!(beat_v["role"], "player_kbm");
         assert_eq!(beat_v["display"]["id"], opened["display"]["id"]);
         assert!(beat_v["end"].is_null());
         let renewed = claims(beat_v["token"].as_str().unwrap());
         assert_eq!((renewed["kn_role"].as_str(), renewed["kn_rev"].as_u64()), (Some("player_kbm"), Some(3)));
         // Un mauvais secret : inconnu.
-        let (status, _) = body(beat(State(s.clone()), guest_headers("faux"), Json(GuestBody { guest: guest.clone() })).await).await;
+        let (status, _) = body(beat(State(s.clone()), guest_headers("faux"), None, Json(GuestBody { guest: guest.clone() })).await).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
 
         // L'hôte se déconnecte : le partage s'arrête, l'invité l'apprend.
         assert!(s.activity.end("mac", Some("mac-1"), None));
         assert!(s.activity.live().is_none());
         close_share(s).await;
-        let (_, ended) = body(beat(State(s.clone()), guest_headers(&secret), Json(GuestBody { guest })).await).await;
+        let (_, ended) = body(beat(State(s.clone()), guest_headers(&secret), None, Json(GuestBody { guest })).await).await;
         assert_eq!(ended["end"], "stopped");
         assert!(ended["token"].is_null());
         assert_eq!(texts(s)[0], "Partage arrêté");
@@ -1170,11 +1351,11 @@ mod tests {
         let s = &st.s;
         let Json(opened) = local_open(State(s.clone()), peer(5), admin(s), Json(LocalOpenBody { display: kyber_display_id("\\\\.\\DISPLAY1") })).await.ok().unwrap();
         let code = opened["code"].as_str().unwrap();
-        let (_, joined) = body(join(State(s.clone()), peer(20), join_body(code, "Léa", "ipad", "ios")).await).await;
+        let (_, joined) = body(join(State(s.clone()), peer(20), None, join_body(code, "Léa", "ipad", "ios")).await).await;
         let (guest, secret) = (joined["guest"].as_str().unwrap().to_string(), joined["secret"].as_str().unwrap().to_string());
         let set = |r: &'static str| local_guest_role(State(s.clone()), peer(5), admin(s), Path(guest.clone()), Json(serde_json::from_value(json!({ "role": r })).unwrap()));
         let token_role = || async {
-            let (_, b) = body(beat(State(s.clone()), guest_headers(&secret), Json(GuestBody { guest: guest.clone() })).await).await;
+            let (_, b) = body(beat(State(s.clone()), guest_headers(&secret), None, Json(GuestBody { guest: guest.clone() })).await).await;
             (b["role"].as_str().unwrap().to_string(), claims(b["token"].as_str().unwrap())["kn_role"].as_str().unwrap().to_string())
         };
         // Le clavier et la souris d'abord, sans les manettes.
@@ -1233,11 +1414,11 @@ mod tests {
         let code = opened["code"].as_str().unwrap();
         // L'écran simulé est en 3840 × 2160 à 144 Hz ; un iPhone en « Auto ».
         let request = json!({ "code": code, "name": "Léa", "device": "iphone", "app": "web", "quality": "auto", "auto": { "width": 1170, "height": 2532, "fps": 60, "codecs": ["h264", "hevc"], "yuv444": false } });
-        let (status, joined) = body(join(State(s.clone()), peer(20), Json(serde_json::from_value(request).unwrap())).await).await;
+        let (status, joined) = body(join(State(s.clone()), peer(20), None, Json(serde_json::from_value(request).unwrap())).await).await;
         assert_eq!(status, StatusCode::OK, "{joined}");
         assert_eq!(claims(joined["kyber"]["token"].as_str().unwrap())["kn_quality"], "1080p60");
         let (guest, secret) = (joined["guest"].as_str().unwrap().to_string(), joined["secret"].as_str().unwrap().to_string());
-        let (_, beat_v) = body(beat(State(s.clone()), guest_headers(&secret), Json(GuestBody { guest: guest.clone() })).await).await;
+        let (_, beat_v) = body(beat(State(s.clone()), guest_headers(&secret), None, Json(GuestBody { guest: guest.clone() })).await).await;
         // Kyber absent : la qualité demandée, le reste encore inconnu.
         assert_eq!(beat_v["image"]["quality"], "auto");
         assert!(beat_v["image"]["width"].is_null() && beat_v["image"]["reason"].is_null());
@@ -1250,7 +1431,7 @@ mod tests {
         let quality = |q: &str, secret: &str| quality(State(s.clone()), guest_headers(secret), Json(serde_json::from_value(json!({ "guest": guest, "quality": q })).unwrap()));
         let (status, refused) = body(quality("720p30", &secret).await).await;
         assert_eq!((status, refused["error"].as_str()), (StatusCode::SERVICE_UNAVAILABLE, Some("unavailable")));
-        let (_, beat_v) = body(beat(State(s.clone()), guest_headers(&secret), Json(GuestBody { guest: guest.clone() })).await).await;
+        let (_, beat_v) = body(beat(State(s.clone()), guest_headers(&secret), None, Json(GuestBody { guest: guest.clone() })).await).await;
         assert_eq!(claims(beat_v["token"].as_str().unwrap())["kn_quality"], "1080p60");
         assert_eq!(beat_v["image"]["quality"], "auto");
         // Un changement par seconde au plus : 429 avec Retry-After.
@@ -1263,12 +1444,12 @@ mod tests {
         // Le même préréglage (rien à relancer chez Kyber) : pris tel quel.
         let (status, image) = body(quality("1080p60", &secret).await).await;
         assert_eq!((status, image["quality"].as_str()), (StatusCode::OK, Some("1080p60")));
-        let (_, beat_v) = body(beat(State(s.clone()), guest_headers(&secret), Json(GuestBody { guest: guest.clone() })).await).await;
+        let (_, beat_v) = body(beat(State(s.clone()), guest_headers(&secret), None, Json(GuestBody { guest: guest.clone() })).await).await;
         assert_eq!(claims(beat_v["token"].as_str().unwrap())["kn_quality"], "1080p60");
         let (status, _) = body(quality("host", "faux").await).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
         // Sans `quality` (app d'avant 0.8.0) : « Auto » sans rien savoir, l'image de l'hôte.
-        let (_, old) = body(join(State(s.clone()), peer(21), join_body(code, "Max", "tv", "tvos")).await).await;
+        let (_, old) = body(join(State(s.clone()), peer(21), None, join_body(code, "Max", "tv", "tvos")).await).await;
         assert_eq!(claims(old["kyber"]["token"].as_str().unwrap())["kn_quality"], "host");
     }
 
@@ -1276,29 +1457,29 @@ mod tests {
     async fn rejoindre_limite_complet_et_codes() {
         let st = station();
         let s = &st.s;
-        let (status, v) = body(join(State(s.clone()), peer(1), join_body("123456", "Léa", "ipad", "ios")).await).await;
+        let (status, v) = body(join(State(s.clone()), peer(1), None, join_body("123456", "Léa", "ipad", "ios")).await).await;
         assert_eq!((status, v["error"].as_str()), (StatusCode::NOT_FOUND, Some("no_share")));
         let Json(opened) = local_open(State(s.clone()), local_with_token(s), local_token_headers(s), Json(LocalOpenBody { display: kyber_display_id("\\\\.\\DISPLAY2") })).await.ok().unwrap();
         assert_eq!((opened["origin"].as_str(), opened["display"]["index"].as_u64()), (Some("local"), Some(2)));
         assert_eq!(opened["display"]["label"], "Écran 2");
         let code = opened["code"].as_str().unwrap().to_string();
         for i in 0..4 {
-            let (status, _) = body(join(State(s.clone()), peer(10 + i), join_body(&code, "Invité", &format!("d{i}"), "mac")).await).await;
+            let (status, _) = body(join(State(s.clone()), peer(10 + i), None, join_body(&code, "Invité", &format!("d{i}"), "mac")).await).await;
             assert_eq!(status, StatusCode::OK);
         }
-        let (status, v) = body(join(State(s.clone()), peer(30), join_body(&code, "Cinq", "d5", "mac")).await).await;
+        let (status, v) = body(join(State(s.clone()), peer(30), None, join_body(&code, "Cinq", "d5", "mac")).await).await;
         assert_eq!((status, v["error"].as_str()), (StatusCode::CONFLICT, Some("full")));
-        let (status, v) = body(join(State(s.clone()), peer(30), join_body("12", "Cinq", "d5", "mac")).await).await;
+        let (status, v) = body(join(State(s.clone()), peer(30), None, join_body("12", "Cinq", "d5", "mac")).await).await;
         assert_eq!((status, v["error"].as_str()), (StatusCode::BAD_REQUEST, Some("bad_request")));
         // Dix essais par minute et par adresse.
         for _ in 0..8 {
-            body(join(State(s.clone()), peer(31), join_body("000000", "x", "x", "mac")).await).await;
+            body(join(State(s.clone()), peer(31), None, join_body("000000", "x", "x", "mac")).await).await;
         }
         for _ in 0..2 {
-            assert_eq!(join(State(s.clone()), peer(31), join_body("000000", "x", "x", "mac")).await.status(), StatusCode::NOT_FOUND);
+            assert_eq!(join(State(s.clone()), peer(31), None, join_body("000000", "x", "x", "mac")).await.status(), StatusCode::NOT_FOUND);
         }
         // Le onzième essai, même avec le bon code : refusé.
-        let res = join(State(s.clone()), peer(31), join_body(&code, "x", "x", "mac")).await;
+        let res = join(State(s.clone()), peer(31), None, join_body(&code, "x", "x", "mac")).await;
         assert_eq!(res.status(), StatusCode::TOO_MANY_REQUESTS);
         assert!(res.headers().contains_key(header::RETRY_AFTER));
         // Nouveau code : l'ancien ne vaut plus, les invités restent.
@@ -1393,13 +1574,13 @@ mod tests {
         // (sa préparation a regardé avant l'ouverture) : la veille l'arrête.
         let Json(opened) = local_open(State(s.clone()), peer(5), admin(s), screen()).await.ok().unwrap();
         let code = opened["code"].as_str().unwrap();
-        let (_, joined) = body(join(State(s.clone()), peer(20), join_body(code, "Léa", "ipad", "ios")).await).await;
+        let (_, joined) = body(join(State(s.clone()), peer(20), None, join_body(code, "Léa", "ipad", "ios")).await).await;
         s.activity.begin(Some(mac()), "mac", None, None);
         supervise_tick(s).await;
         assert!(!s.share.is_open(), "le partage du PC ne survit pas à une session d'appareil");
         assert!(!s.display.sharing() && !s.audio.sharing());
         let secret = joined["secret"].as_str().unwrap();
-        let (_, ended) = body(beat(State(s.clone()), guest_headers(secret), Json(GuestBody { guest: joined["guest"].as_str().unwrap().into() })).await).await;
+        let (_, ended) = body(beat(State(s.clone()), guest_headers(secret), None, Json(GuestBody { guest: joined["guest"].as_str().unwrap().into() })).await).await;
         assert_eq!(ended["end"], "stopped");
     }
 
@@ -1428,7 +1609,7 @@ mod tests {
         let s = &st.s;
         let Json(opened) = local_open(State(s.clone()), peer(5), admin(s), Json(LocalOpenBody { display: kyber_display_id("\\\\.\\DISPLAY1") })).await.ok().unwrap();
         let code = opened["code"].as_str().unwrap();
-        let res = join(State(s.clone()), peer(20), join_body(code, "Max", "chrome", "web")).await;
+        let res = join(State(s.clone()), peer(20), None, join_body(code, "Max", "chrome", "web")).await;
         let cookie = res.headers()[header::SET_COOKIE].to_str().unwrap().to_string();
         assert!(cookie.starts_with("kybernow_guest=") && cookie.contains("HttpOnly") && cookie.contains("SameSite=Strict"));
         let (_, joined) = body(res).await;
@@ -1436,7 +1617,7 @@ mod tests {
         assert!(s.share.cookie_valid(&value));
         let mut h = guest_headers(joined["secret"].as_str().unwrap());
         h.insert(header::COOKIE, format!("kybernow_guest={value}").parse().unwrap());
-        let res = leave(State(s.clone()), h, Json(GuestBody { guest: joined["guest"].as_str().unwrap().into() })).await;
+        let res = leave(State(s.clone()), h, None, Json(GuestBody { guest: joined["guest"].as_str().unwrap().into() })).await;
         assert!(res.headers()[header::SET_COOKIE].to_str().unwrap().contains("Max-Age=0"));
         assert_eq!(res.status(), StatusCode::OK);
         assert!(!s.share.cookie_valid(&value));
@@ -1446,15 +1627,15 @@ mod tests {
         // `beat`) ; le cookie est quand même effacé.
         let mut h = guest_headers(joined["secret"].as_str().unwrap());
         h.insert(header::COOKIE, format!("kybernow_guest={value}").parse().unwrap());
-        let res = leave(State(s.clone()), h, Json(GuestBody { guest: joined["guest"].as_str().unwrap().into() })).await;
+        let res = leave(State(s.clone()), h, None, Json(GuestBody { guest: joined["guest"].as_str().unwrap().into() })).await;
         assert!(res.headers()[header::SET_COOKIE].to_str().unwrap().contains("Max-Age=0"));
         let (status, v) = body(res).await;
         assert_eq!((status, v["error"].as_str()), (StatusCode::NOT_FOUND, Some("unknown_guest")));
         // Retiré depuis moins d'une minute : connu, il part sans erreur.
-        let (_, lea) = body(join(State(s.clone()), peer(21), join_body(code, "Léa", "ipad", "ios")).await).await;
+        let (_, lea) = body(join(State(s.clone()), peer(21), None, join_body(code, "Léa", "ipad", "ios")).await).await;
         let id = lea["guest"].as_str().unwrap().to_string();
         let _ = local_guest_remove(State(s.clone()), peer(5), admin(s), Path(id.clone())).await.ok().unwrap();
-        let res = leave(State(s.clone()), guest_headers(lea["secret"].as_str().unwrap()), Json(GuestBody { guest: id })).await;
+        let res = leave(State(s.clone()), guest_headers(lea["secret"].as_str().unwrap()), None, Json(GuestBody { guest: id })).await;
         assert_eq!(res.status(), StatusCode::OK);
     }
 
@@ -1465,11 +1646,155 @@ mod tests {
         assert_eq!(occupant(s), None);
         let Json(opened) = local_open(State(s.clone()), peer(5), admin(s), Json(LocalOpenBody { display: kyber_display_id("\\\\.\\DISPLAY1") })).await.ok().unwrap();
         let code = opened["code"].as_str().unwrap();
-        body(join(State(s.clone()), peer(20), join_body(code, "Léa", "ipad", "ios")).await).await;
-        body(join(State(s.clone()), peer(21), join_body(code, "Max", "tv", "tvos")).await).await;
+        body(join(State(s.clone()), peer(20), None, join_body(code, "Léa", "ipad", "ios")).await).await;
+        body(join(State(s.clone()), peer(21), None, join_body(code, "Max", "tv", "tvos")).await).await;
         assert_eq!(occupant(s), Some(Occupant::Guests("Léa et Max".into())));
         // Les comptes en attente ne redémarrent pas Kyber sous les invités.
         assert!(crate::api::kyber_busy(s, None).await);
         assert_eq!(st.restarts.load(Ordering::SeqCst), 0);
+    }
+
+    // --- Par le relais (docs/relais.md) ---
+
+    fn relay_via(client: &str) -> Option<axum::Extension<Via>> {
+        Some(axum::Extension(Via { kind: kybernow_tunnel::StreamKind::AdminHttp, client: client.into() }))
+    }
+
+    fn outside_peer(n: u8) -> ConnectInfo<SocketAddr> {
+        ConnectInfo(SocketAddr::from(([82, 66, 39, n], 0)))
+    }
+
+    async fn open_for_mac(s: &AppState) -> String {
+        s.activity.begin(Some(mac()), "mac", None, None);
+        let Json(opened) = host_open(State(s.clone()), basic("mac", "mot-de-passe-mac"), Bytes::from(r#"{"device_id":"mac-1"}"#)).await.ok().unwrap();
+        opened["code"].as_str().unwrap().to_string()
+    }
+
+    async fn answer(s: &AppState, id: &str, action: &str) -> Result<Value, ShareError> {
+        host_guest_answer(State(s.clone()), basic("mac", "mot-de-passe-mac"), Path((id.to_string(), action.to_string())), Bytes::from(r#"{"device_id":"mac-1"}"#))
+            .await
+            .map(|Json(v)| v)
+    }
+
+    #[tokio::test]
+    async fn par_le_relais_l_invite_attend_l_accord_de_l_hote() {
+        let st = station();
+        let s = &st.s;
+        let code = open_for_mac(s).await;
+        // La demande : 202, pas de prénom de l'hôte, ni place prise.
+        let (status, asked) = body(join(State(s.clone()), outside_peer(1), relay_via("c1"), join_body(&code, "Léa", "chrome-lea", "web")).await).await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+        assert_eq!(asked["pending"], true);
+        assert_eq!(asked["expires"], 120);
+        assert!(asked.get("host").is_none() && asked.get("kyber").is_none(), "{asked}");
+        let (id, secret) = (asked["guest"].as_str().unwrap().to_string(), asked["secret"].as_str().unwrap().to_string());
+        assert_eq!(s.share.guest_count(), 0);
+        let view = current_view(s);
+        assert_eq!(view["guests"][0]["pending"], true);
+        assert_eq!(view["guests"][0]["via"], "relay");
+        assert_eq!(view["guests"][0]["role"], "spectator");
+        assert!(texts(s).iter().any(|t| t == "Léa demande à rejoindre (hors de chez vous)"));
+        // Pas encore de jeton, pas de Kyber.
+        let (status, b) = body(beat(State(s.clone()), guest_headers(&secret), relay_via("c1"), Json(GuestBody { guest: id.clone() })).await).await;
+        assert_eq!((status, b["pending"].clone()), (StatusCode::ACCEPTED, json!(true)));
+        assert!(!s.relay.authorized("c1"));
+        // L'attente tenue rend 202, puis l'accord la réveille aussitôt.
+        let (status, _) = body(wait_for(s, &guest_headers(&secret), relay_via("c1").map(|e| e.0), &id, Duration::from_millis(30)).await).await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+        let waiting = {
+            let (s, secret, id) = (s.clone(), secret.clone(), id.clone());
+            tokio::spawn(async move { wait_for(&s, &guest_headers(&secret), relay_via("c1").map(|e| e.0), &id, Duration::from_secs(10)).await })
+        };
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        let view = answer(s, &id, "accept").await.ok().unwrap();
+        assert_eq!(view["guests"][0]["pending"], false);
+        let res = tokio::time::timeout(Duration::from_secs(1), waiting).await.unwrap().unwrap();
+        let cookie = res.headers().get(header::SET_COOKIE).unwrap().to_str().unwrap().to_string();
+        assert!(cookie.starts_with("__Host-kybernow_guest=") && cookie.contains("; Secure") && !cookie.contains("Domain"), "{cookie}");
+        let (status, joined) = body(res).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(joined["relay"], true);
+        assert_eq!(joined["host"], "MacBook de Léa");
+        assert!(joined["kyber"]["token"].is_string());
+        assert_eq!(s.share.guest_count(), 1);
+        // Ce client du relais peut joindre Kyber, et le cookie ouvre le mandataire.
+        assert!(s.relay.authorized("c1"));
+        assert!(s.share.cookie_valid(cookie.split(';').next().unwrap().split_once('=').unwrap().1));
+        // Le même appareil qui revient par le relais reprend sa place sans attendre.
+        let (status, again) = body(join(State(s.clone()), outside_peer(1), relay_via("c2"), join_body(&code, "Léa", "chrome-lea", "web")).await).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(again["guest"], id.as_str());
+        assert!(s.relay.authorized("c2"));
+        // Il part : plus de Kyber par le relais.
+        let res = leave(State(s.clone()), guest_headers(again["secret"].as_str().unwrap()), relay_via("c2"), Json(GuestBody { guest: id.clone() })).await;
+        assert_eq!(res.status(), StatusCode::OK);
+        assert!(!s.relay.authorized("c1") && !s.relay.authorized("c2"));
+    }
+
+    #[tokio::test]
+    async fn par_le_relais_un_refus_bloque_l_appareil_dix_minutes() {
+        let st = station();
+        let s = &st.s;
+        let code = open_for_mac(s).await;
+        let (_, asked) = body(join(State(s.clone()), outside_peer(2), relay_via("c1"), join_body(&code, "Max", "tv-max", "tvos")).await).await;
+        let (id, secret) = (asked["guest"].as_str().unwrap().to_string(), asked["secret"].as_str().unwrap().to_string());
+        // Le PC (session d'Admin) refuse.
+        let Json(view) = local_guest_answer(State(s.clone()), local(), admin(s), Path((id.clone(), "refuse".into()))).await.ok().unwrap();
+        assert_eq!(view["guests"].as_array().unwrap().len(), 0);
+        assert!(texts(s).iter().any(|t| t == "Max : demande refusée"));
+        let (status, v) = body(wait_for(s, &guest_headers(&secret), None, &id, Duration::from_secs(1)).await).await;
+        assert_eq!((status, v["error"].clone()), (StatusCode::FORBIDDEN, json!("refused")));
+        let (status, v) = body(join(State(s.clone()), outside_peer(2), relay_via("c1"), join_body(&code, "Max", "tv-max", "tvos")).await).await;
+        assert_eq!((status, v["error"].clone()), (StatusCode::FORBIDDEN, json!("refused")));
+        // Sur le réseau, rien ne change : pas d'accord à donner.
+        let (status, _) = body(join(State(s.clone()), peer(30), None, join_body(&code, "Max", "tv-max", "tvos")).await).await;
+        assert_eq!(status, StatusCode::OK);
+        // Une réponse à ce qui n'est pas une demande : 404.
+        let err = answer(s, "inconnu", "accept").await.err().unwrap();
+        assert_eq!((err.status, err.code), (StatusCode::NOT_FOUND, "unknown_guest"));
+    }
+
+    #[tokio::test]
+    async fn par_le_relais_trois_demandes_et_quatre_places() {
+        let st = station();
+        let s = &st.s;
+        let code = open_for_mac(s).await;
+        let mut ids = Vec::new();
+        for i in 0..share::MAX_PENDING as u8 {
+            let (status, v) = body(join(State(s.clone()), outside_peer(10 + i), relay_via("c"), join_body(&code, "Invité", &format!("r{i}"), "ios")).await).await;
+            assert_eq!(status, StatusCode::ACCEPTED);
+            ids.push(v["guest"].as_str().unwrap().to_string());
+        }
+        let (status, v) = body(join(State(s.clone()), outside_peer(20), relay_via("c"), join_body(&code, "Trop", "r9", "ios")).await).await;
+        assert_eq!((status, v["error"].clone()), (StatusCode::CONFLICT, json!("pending_full")));
+        // Les demandes ne prennent pas de place : quatre invités entrent sur le réseau.
+        for i in 0..share::MAX_GUESTS as u8 {
+            let (status, _) = body(join(State(s.clone()), peer(40 + i), None, join_body(&code, "Local", &format!("l{i}"), "mac")).await).await;
+            assert_eq!(status, StatusCode::OK);
+        }
+        // Les places se comptent à l'acceptation.
+        let err = answer(s, &ids[0], "accept").await.err().unwrap();
+        assert_eq!((err.status, err.code), (StatusCode::CONFLICT, "full"));
+        // Le partage arrêté : l'attente le dit, et le cookie ne vaut plus rien.
+        let secret = s.share.snapshot().unwrap().guests.iter().find(|g| g.id == ids[1]).unwrap().secret().to_string();
+        close_share(s).await;
+        let (status, v) = body(wait_for(s, &guest_headers(&secret), None, &ids[1], Duration::from_secs(1)).await).await;
+        assert_eq!((status, v["error"].clone()), (StatusCode::NOT_FOUND, json!("no_share")));
+    }
+
+    #[tokio::test]
+    async fn la_vue_du_partage_dit_le_relais() {
+        let st = station();
+        let s = &st.s;
+        let code = open_for_mac(s).await;
+        // Relais réglé (le public, par défaut) mais pas joint : `unreachable`, liens du réseau.
+        let view = current_view(s);
+        assert_eq!(view["relay"]["state"], "unreachable");
+        assert_eq!(view["web"], view["web_local"]);
+        assert!(view["web_local"].as_str().unwrap().ends_with(&format!("/link/?join={code}")));
+        assert!(!view["link"].as_str().unwrap().contains("&relay="));
+        // Pas de relais : `null`.
+        s.settings.lock().unwrap().relay.server = Some(String::new());
+        assert!(current_view(s)["relay"].is_null());
     }
 }

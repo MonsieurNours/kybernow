@@ -60,7 +60,7 @@ To check on the computer: `icacls C:\ProgramData\KyberNow` must list `NT AUTHORI
 - stops and deletes the `kyber` and `kyber-admin` services, stops the icon and removes its Run value (account that uninstalls), removes the firewall rules and the Start menu's `KyberNow` folder (current and old shortcuts);
 - SudoVDA: device node, driver store package (`pnputil /delete-driver oemNN.inf /uninstall /force`, `oemNN.inf` found by its original name `sudovda.inf` in `pnputil /enum-drivers`), certificate from the Root and Trusted Publishers stores;
 - puts back the power mode used before KyberNow Station (and deletes the High performance mode if it had recreated it), and switches back to “Public” the network it had switched to “Private”, if it still has the same name. These previous settings are recorded in `kybernow.json` (`restore`) at the first installation, and kept by later ones and by updates;
-- keeps `C:\ProgramData\KyberNow` if asked to (with a copy of `kyber_config.toml` in `backups\kyber_config.toml.desinstallation`, since the devices' accounts are in it), otherwise deletes it;
+- keeps `C:\ProgramData\KyberNow` if asked to (with a copy of `kyber_config.toml` in `backups\kyber_config.toml.desinstallation`, since the devices' accounts are in it), otherwise deletes it; this folder also holds `relay\station.key`, the Station's identity at the relay (docs/relais.en.md): a reinstallation that keeps the data keeps the identifier, its links and the devices' access away from home (installing never touches this folder);
 - shows the final dialog, then, once it is closed, deletes `C:\Program Files\KyberNow` with a deferred command (the uninstaller runs from that folder).
 
 ViGEmBus stays installed: other software may use it.
