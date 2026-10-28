@@ -3,9 +3,11 @@
 //!
 //! - [`hub`] : Stations, clients, messages, flux TCP et UDP, codes ;
 //! - `quic` et `tcp` : les connexions entrantes et leurs limites ;
-//! - [`web`] et [`pages`] : la page du relais et le mandataire du navigateur ;
+//! - [`web`], [`pages`] et [`assets`] : les pages du relais (accueil, saisie du code), leurs
+//!   fichiers embarqués et le mandataire du navigateur ;
 //! - [`certs`] : le certificat relu à chaud ; [`metrics`] : Prometheus.
 
+pub mod assets;
 pub mod certs;
 pub mod codes;
 pub mod config;

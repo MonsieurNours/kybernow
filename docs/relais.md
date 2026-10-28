@@ -113,12 +113,15 @@ Sur TCP 8443, le relais regarde le début de chaque connexion TLS :
 
 | Adresse | Réponse |
 |---|---|
-| `GET /` | Accueil et saisie du code (français ou anglais selon le navigateur) |
+| `GET /` | Présentation de KyberNow Share et saisie du code (français ou anglais selon le navigateur, ou `?lang=fr` / `?lang=en`) ; le formulaire envoie `/j?code=…` |
 | `GET /j/{code}` | Redirige (302) vers `https://<id>.share.kybernow.app:8443/link/?join=<code>` ; code inconnu, ou Station absente : une page qui le dit |
 | `GET /v1/codes/{code}` | `200 {"station":"<id>","station_key":"<SPKI base64>","admin_fp":"sha256:…","sig":"<base64>","online":true}` ; `online:false` : Station partie depuis moins de 120 s, les autres champs vides ; `404 {"error":"unknown_code"}` ; `400 {"error":"bad_request"}` ; `429 {"error":"too_many","retry_after":<s>}` avec `Retry-After` |
 | `GET /privacy` | Ce que le relais voit et garde (français ou anglais) |
+| `GET /assets/<fichier>?v=<version>` | Feuille de styles, polices, logo et favicon de la page, embarqués dans le binaire ; gardés un an (`immutable`, l'adresse porte la version) ; fichier inconnu : page « introuvable » |
 | `GET /v1/health` | `200 {"ok":true,"version":"…"}` ; les apps iPhone et iPad l'appellent avant d'ouvrir le tunnel (réveil de la radio cellulaire) |
 | `https://<id>.share…:8443/*` | Mandataire HTTP/1.1 vers Admin de la Station (WebSocket compris) ; Station absente : page « ordinateur injoignable » (503) |
+
+Les pages du relais n'ont ni script, ni cookie, ni mesure d'audience, et ne chargent rien d'un autre site : politique de contenu `default-src 'none'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`. Elles n'écrivent jamais l'adresse du relais (chemins relatifs) : la même page sert sur le 8443 et, quand la box renvoie le 443 vers lui, sur `https://share.kybernow.app`. Détails : [server/relay/README.md](../server/relay/README.md#la-page-daccueil).
 
 Mandataire : `Host` passé tel quel, `X-Forwarded-For` et `Forwarded` retirés (l'adresse du navigateur voyage dans l'en-tête du flux), `Domain=` retiré de tout `Set-Cookie`. Une origine par Station : le code d'une Station ne lit jamais les cookies d'une autre.
 
