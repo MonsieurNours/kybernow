@@ -406,7 +406,13 @@ fn station(app: &App, cv: &mut Canvas, f: &mut Frame, h: &Host, x: f32, mut y: f
                 _ => state,
             };
             y += widgets::row(cv, f, None, x, y, w, &title, "", Value::Text(value)) + GAP;
-            actions = on == Online::Online;
+            // Par le relais (hors de chez soi, ou la session de l'ordinateur y passe) : ni redémarrage ni mise à jour,
+            // et la raison est dite à la place des deux lignes.
+            let via_relay = app.station_via_relay(&h.id);
+            actions = on == Online::Online && !via_relay;
+            if via_relay {
+                note = Some(app::station_via_relay_text().into());
+            }
         }
         (StationKnown::Old(v), _) => {
             let title = match v {

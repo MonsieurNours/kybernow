@@ -320,8 +320,8 @@ fn relay_view(relay: Option<ShareRelay>) -> ShareView {
     v.guests[1] = ShareGuest { id: "g2".into(), name: "Tom".into(), role: ShareRole::Spectator, app: "android".into(), since: Some(now - 3 * 60), quality: None, pending: false, via_relay: true };
     v.guests.push(ShareGuest { id: "g5".into(), name: "Eva".into(), role: ShareRole::Spectator, app: "ios".into(), since: Some(now - 20), quality: None, pending: true, via_relay: true });
     v.guests.push(ShareGuest { id: "g6".into(), name: "Hugo".into(), role: ShareRole::Spectator, app: "web".into(), since: Some(now - 5), quality: None, pending: true, via_relay: true });
-    v.link = "kybernow://join?host=192.168.1.20&port=24811&fp=sha256:9f:3a:c2:71:0b:44:de:aa&code=482917&relay=share.kybernow.app%3A8443&sid=ocean7xk3qdhvm2wpa5fzt4ylb".into();
-    v.web = "https://share.kybernow.app:8443/j/482917".into();
+    v.link = "kybernow://join?host=192.168.1.20&port=24811&fp=sha256:9f:3a:c2:71:0b:44:de:aa&code=482917&relay=share.kybernow.app&sid=ocean7xk3qdhvm2wpa5fzt4ylb".into();
+    v.web = "https://share.kybernow.app/j/482917".into();
     v.relay = relay;
     v
 }
@@ -373,6 +373,16 @@ fn relay_shots(app: &mut App, cv: &mut Canvas, assets: &Assets, video: &Pixmap, 
     }
     app.focus = Target::ShareNewCode;
     shot(app, cv, assets, Some(video), dir, "21l-partage-relais-injoignable");
+    // Les quatre places prises : « Accepter » est inactif (« Quatre invités au plus. »), « Refuser » reste, le focus y commence.
+    let mut complet = relay_view(Some(ShareRelay::Joined));
+    complet.guests.truncate(1);
+    complet.guests.extend((0..3).map(|i| ShareGuest { id: format!("f{i}"), name: ["Zoé", "Luc", "Nina"][i].into(), app: "mac".into(), ..Default::default() }));
+    complet.guests.push(ShareGuest { id: "g5".into(), name: "Eva".into(), app: "ios".into(), pending: true, via_relay: true, ..Default::default() });
+    app.focus = Target::ShareRefuse(complet.guests.len() - 1);
+    if let Some(s) = app.session.as_mut() {
+        s.share = Some(complet);
+    }
+    shot(app, cv, assets, Some(video), dir, "21n-partage-relais-complet");
     // Le menu : la tuile « Partager » dit « 2 demandes · 1 invité ».
     let mut s = session(app);
     s.share = Some(relay_view(Some(ShareRelay::Joined)));
@@ -679,7 +689,7 @@ mod tests {
             let mut cv = Canvas::new();
             relay_shots(&mut app, &mut cv, &assets, &demo_image(3), &dir);
         }
-        for n in ["1f-accueil-hors-de-chez-vous", "20g-rejoindre-attente", "21k-partage-relais", "23-session-relais", "23c-invite-relais"] {
+        for n in ["1f-accueil-hors-de-chez-vous", "20g-rejoindre-attente", "21k-partage-relais", "21n-partage-relais-complet", "23-session-relais", "23c-invite-relais"] {
             assert!(dir.join(format!("{n}.png")).exists(), "{n}");
         }
         crate::i18n::force_english(false);
@@ -714,7 +724,13 @@ mod tests {
             let mut need = vec![Target::ShareNewCode, Target::ShareStop];
             for (i, g) in view.guests.iter().enumerate() {
                 if g.pending {
-                    need.extend([Target::ShareAccept(i), Target::ShareRefuse(i)]);
+                    need.push(Target::ShareRefuse(i));
+                    // Les quatre places prises : « Accepter » est dessiné inactif, il n'est pas inscrit (ni focus ni clic).
+                    if view.full() {
+                        assert!(!hits.iter().any(|(h, _)| *h == Target::ShareAccept(i)), "« Accepter » doit être inactif ({guests} invités, {requests} demandes)");
+                    } else {
+                        need.push(Target::ShareAccept(i));
+                    }
                 } else {
                     need.extend([Target::SharePads(i), Target::ShareKbm(i), Target::ShareKick(i)]);
                 }
@@ -844,6 +860,8 @@ mod tests {
             assert_eq!((crate::app::requests_label(1), crate::app::requests_label(2)), (one.to_string(), two.to_string()));
             let tom = ShareGuest { id: "g".into(), name: "Tom".into(), app: "android".into(), pending: true, via_relay: true, ..Default::default() };
             assert_eq!((tom.request_line().as_str(), tom.request_meta().as_str()), (wants, from));
+            // L'avis bref de la demande qui arrive : la même phrase, avec son point.
+            assert_eq!(tom.request_notice(), format!("{wants}."));
             let view = |relay| ShareView { code: "482917".into(), relay, ..Default::default() };
             assert_eq!(view(None).help(), help_lan);
             assert_eq!(view(Some(ShareRelay::Unreachable)).help(), help_lan);
@@ -864,7 +882,7 @@ mod tests {
     #[test]
     fn a_computer_away_from_home() {
         let mut app = tv();
-        let relay = crate::model::HostRelay { server: "share.kybernow.app:8443".into(), id: "abcdefghijklmnopqrstuvwxyz".into(), remote_access: true };
+        let relay = crate::model::HostRelay { server: "share.kybernow.app".into(), id: "abcdefghijklmnopqrstuvwxyz".into(), remote_access: true };
         // Un sondage réussi donne le relais : il est gardé (et enregistré).
         assert!(app.polled("a", Polled { online: true, relay: Some(relay.clone()), ..Default::default() }));
         assert_eq!(app.store.host("a").unwrap().relay.as_ref(), Some(&relay));
@@ -913,7 +931,7 @@ mod tests {
         // Une demande arrive avec le signe de vie : l'avis bref, pas de panneau ouvert.
         app.share_guests(Some(view(vec![guest("g1", "Léa", false), guest("g2", "Tom", true)])));
         let s = app.session.as_ref().unwrap();
-        assert_eq!(s.notice.as_ref().map(|(t, _)| t.as_str()), Some("Tom demande à rejoindre"));
+        assert_eq!(s.notice.as_ref().map(|(t, _)| t.as_str()), Some("Tom demande à rejoindre."));
         let v = s.share.as_ref().unwrap();
         assert_eq!((v.requests().len(), v.accepted().len()), (1, 1));
         // Le même signe de vie plus tard : pas de second avis pour la même demande.
@@ -935,6 +953,76 @@ mod tests {
         // Un invité déjà accepté n'est pas une demande : rien ne part.
         app.share_reply(Ok(Some(view(vec![guest("g1", "Léa", false), guest("g2", "Tom", false)]))));
         assert!(app.activate(Target::ShareAccept(1)).is_empty() && app.activate(Target::ShareRefuse(0)).is_empty());
+    }
+
+    /// Les quatre places prises, « Accepter » est inactif (« Refuser » répond encore, le focus commence sur lui) ;
+    /// en dessous, « Accepter » répond.
+    #[test]
+    fn accept_is_inactive_when_the_four_places_are_taken() {
+        let mut app = tv();
+        let mut s = session(&app);
+        s.menu = false;
+        app.session = Some(s);
+        app.screen = Screen::Session;
+        let guest = |id: &str, pending: bool| ShareGuest { id: id.into(), name: id.to_uppercase(), app: "ios".into(), pending, via_relay: pending, ..Default::default() };
+        let view = |guests: Vec<ShareGuest>| ShareView { code: "482917".into(), link: "kybernow://join?x".into(), web: "https://share.kybernow.app/j/482917".into(), relay: Some(ShareRelay::Joined), guests };
+        // Trois invités et une demande : il reste une place.
+        app.share_reply(Ok(Some(view(vec![guest("g1", false), guest("g2", false), guest("g3", false), guest("r1", true)]))));
+        assert!(!app.session.as_ref().unwrap().share.as_ref().unwrap().full());
+        assert_eq!(app.activate(Target::ShareAccept(3)), vec![Action::Share(ShareOp::Accept("r1".into()))]);
+        // Quatre invités et une demande : « Accepter » ne part pas, « Refuser » oui ; le focus commence sur « Refuser ».
+        let full = || view(vec![guest("g1", false), guest("g2", false), guest("g3", false), guest("g4", false), guest("r1", true)]);
+        app.share_reply(Ok(Some(full())));
+        assert!(app.session.as_ref().unwrap().share.as_ref().unwrap().full());
+        assert!(app.activate(Target::ShareAccept(4)).is_empty(), "plus de place");
+        assert_eq!(app.activate(Target::ShareRefuse(4)), vec![Action::Share(ShareOp::Refuse("r1".into()))]);
+        app.share_reply(Ok(Some(full())));
+        assert_eq!(app.activate(Target::Menu(MenuItem::Share)), vec![Action::ReleaseAll]);
+        assert_eq!(app.focus, Target::ShareRefuse(4), "« Accepter » est inactif : le focus commence sur « Refuser »");
+    }
+
+    /// Par le relais (hors de chez soi, ou la session de l'ordinateur y passe), ni redémarrage ni mise à jour de la
+    /// Station : Admin les refuse. Les deux lignes disparaissent, la raison est dite à leur place ; rien ne part.
+    #[test]
+    fn no_station_restart_or_update_through_the_relay() {
+        let mut app = tv();
+        let mut cv = Canvas::new();
+        let assets = Assets::load();
+        let available = StationKnown::Info(StationLive { version: "0.5.0".into(), update_available: true, update_version: Some("0.5.1".into()), installable: true, ..Default::default() });
+        app.live.get_mut("a").unwrap().station = available;
+        let has_rows = |app: &mut App, cv: &mut Canvas, assets: &Assets| {
+            open(app, Section::Station, Target::Section(5));
+            let hits = ui::draw(app, cv, assets);
+            (hits.iter().any(|(t, _)| *t == Target::Setting(Setting::Restart)), hits.iter().any(|(t, _)| *t == Target::Setting(Setting::Update)))
+        };
+        // Sur le réseau : les deux lignes sont là, et redémarrer part.
+        assert!(!app.station_via_relay("a"));
+        assert_eq!(has_rows(&mut app, &mut cv, &assets), (true, true));
+        assert_eq!(app.activate(Target::Setting(Setting::Restart)), vec![Action::Station { host: "a".into(), op: StationOp::Restart, force: false }]);
+        app.station_answer("a", StationOp::Restart, Err(StationRefusal::TooSoon));
+        // La session de l'ordinateur passe par le relais (tuile « Par le relais ») : les lignes disparaissent, rien ne part.
+        let mut s = session(&app);
+        s.route = Some(relayed(PathKind::Relay));
+        app.session = Some(s);
+        assert!(app.station_via_relay("a"));
+        assert_eq!(has_rows(&mut app, &mut cv, &assets), (false, false));
+        assert!(app.activate(Target::Setting(Setting::Restart)).is_empty() && app.activate(Target::Setting(Setting::Update)).is_empty());
+        // Elle repasse par le réseau : de nouveau possibles.
+        app.session.as_mut().unwrap().route = Some(RouteUi::default());
+        assert!(!app.station_via_relay("a"));
+        assert_eq!(has_rows(&mut app, &mut cv, &assets), (true, true));
+        // Hors de chez soi : de même.
+        app.session = None;
+        app.live.get_mut("a").unwrap().online = Online::Away;
+        assert!(app.station_via_relay("a"));
+        assert_eq!(has_rows(&mut app, &mut cv, &assets), (false, false));
+        assert!(app.activate(Target::Setting(Setting::Restart)).is_empty());
+        // La raison, dans les deux langues.
+        crate::i18n::force_english(false);
+        assert_eq!(crate::app::station_via_relay_text(), "Hors de chez vous, l'app ne peut ni redémarrer ni mettre à jour la Station.");
+        crate::i18n::force_english(true);
+        assert_eq!(crate::app::station_via_relay_text(), "Away from home, the app can neither restart nor update the Station.");
+        crate::i18n::force_english(false);
     }
 
     // MARK: - KyberNow Share

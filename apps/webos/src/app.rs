@@ -568,6 +568,11 @@ impl ShareGuest {
         format!("{} {}", self.name, tr("demande à rejoindre", "wants to join"))
     }
 
+    /// « {prénom} demande à rejoindre. » : l'avis bref d'une demande qui arrive pendant la session.
+    pub fn request_notice(&self) -> String {
+        format!("{}.", self.request_line())
+    }
+
     /// « Android · hors de chez vous » : sous la ligne d'une demande.
     pub fn request_meta(&self) -> String {
         format!("{} · {}", app_label(&self.app), tr("hors de chez vous", "away from home"))
@@ -657,6 +662,12 @@ impl ShareView {
     /// Les invités acceptés (indice dans `guests`, invité).
     pub fn accepted(&self) -> Vec<(usize, &ShareGuest)> {
         self.guests.iter().enumerate().filter(|(_, g)| !g.pending).collect()
+    }
+
+    /// Les quatre places sont prises : « Accepter » est inactif (« Quatre invités au plus. »), « Refuser » reste.
+    /// Une demande n'a pas de place tant qu'elle n'est pas acceptée.
+    pub fn full(&self) -> bool {
+        self.accepted().len() >= MAX_GUESTS
     }
 
     /// Le relais est joint : le partage se rejoint aussi hors de chez soi.
@@ -1909,9 +1920,12 @@ impl App {
         s.share_panel = true;
         s.menu = false;
         let mut acts = vec![Action::ReleaseAll];
-        // Des demandes attendent l'hôte : le focus commence sur la première « Accepter ».
+        // Des demandes attendent l'hôte : le focus commence sur la première « Accepter » (« Refuser » quand les quatre
+        // places sont prises : « Accepter » est alors inactif).
         let first_request = s.share.as_ref().and_then(|v| v.requests().first().map(|(i, _)| *i));
+        let full = s.share.as_ref().is_some_and(ShareView::full);
         let focus = match first_request {
+            Some(i) if full => Target::ShareRefuse(i),
             Some(i) => Target::ShareAccept(i),
             None if open => Target::ShareNewCode,
             None => Target::ShareClose,
@@ -1967,15 +1981,19 @@ impl App {
     /// réponse revient avec le partage tel qu'il est (`share_reply`).
     fn share_answer(&mut self, i: usize, accept: bool) -> Vec<Action> {
         let Some(guest) = self.session.as_ref().and_then(|s| s.share.as_ref()).and_then(|v| v.guests.get(i)).filter(|g| g.pending).map(|g| g.id.clone()) else { return Vec::new() };
+        // Les quatre places sont prises : « Accepter » est inactif, seul « Refuser » répond à la demande.
+        if accept && self.session.as_ref().and_then(|s| s.share.as_ref()).is_some_and(ShareView::full) {
+            return Vec::new();
+        }
         self.share_op(if accept { ShareOp::Accept(guest) } else { ShareOp::Refuse(guest) })
     }
 
-    /// Une demande qui arrive pendant la session : l'avis bref « {prénom} demande à rejoindre », sauf quand le
+    /// Une demande qui arrive pendant la session : l'avis bref « {prénom} demande à rejoindre. », sauf quand le
     /// panneau est ouvert (il la montre).
     fn notice_requests(&mut self, before: Option<&ShareView>) {
         let Some(s) = self.session.as_mut() else { return };
         let known = |gid: &str| before.is_some_and(|v| v.guests.iter().any(|g| g.id == gid));
-        let fresh = s.share.as_ref().and_then(|v| v.guests.iter().find(|g| g.pending && !known(&g.id)).map(ShareGuest::request_line));
+        let fresh = s.share.as_ref().and_then(|v| v.guests.iter().find(|g| g.pending && !known(&g.id)).map(ShareGuest::request_notice));
         if let Some(text) = fresh.filter(|_| !s.share_panel) {
             s.notice = Some((text, Instant::now()));
         }
@@ -2228,9 +2246,16 @@ impl App {
         };
     }
 
+    /// Par le relais : l'ordinateur n'est joignable que par lui (« Hors de chez vous »), ou sa session y passe (tuile
+    /// « Par le relais »). Admin refuse alors le redémarrage et la mise à jour de la Station : l'app ne les propose pas,
+    /// et dit pourquoi (`station_via_relay_text`).
+    pub fn station_via_relay(&self, host: &str) -> bool {
+        self.live.get(host).is_some_and(|l| l.online == Online::Away) || self.session.as_ref().is_some_and(|s| s.host == host && s.guest.is_none() && s.via_relay())
+    }
+
     /// Demande un redémarrage ou une mise à jour de la Station.
     fn station_ask(&mut self, host: &str, op: StationOp, force: bool) -> Vec<Action> {
-        if self.station.as_ref().is_some_and(|s| s.host == host && s.phase != StationPhase::Idle) {
+        if self.station.as_ref().is_some_and(|s| s.host == host && s.phase != StationPhase::Idle) || self.station_via_relay(host) {
             return Vec::new();
         }
         self.station = Some(StationUi { host: host.into(), phase: StationPhase::Asking(op), message: None });
@@ -2389,6 +2414,15 @@ impl App {
             _ => "hevc",
         }
     }
+}
+
+/// Par le relais (hors de chez soi, ou la session de l'ordinateur y passe) : Admin refuse le redémarrage et la mise à
+/// jour de la Station, l'app ne les propose pas et dit pourquoi.
+pub fn station_via_relay_text() -> &'static str {
+    tr(
+        "Hors de chez vous, l'app ne peut ni redémarrer ni mettre à jour la Station.",
+        "Away from home, the app can neither restart nor update the Station.",
+    )
 }
 
 /// « Station trop ancienne » : docs/link-ui.md, Station.

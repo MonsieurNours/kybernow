@@ -78,6 +78,9 @@ pub enum Event {
     ShareEnd(String, String),
     /// Par où passe la session : au départ, puis quand le chemin change (tuile « Par le relais », ligne « Chemin »).
     Route(crate::app::RouteUi),
+    /// Par le relais : la session finit parce que l'ordinateur n'est pas joignable hors de chez soi (accès coupé dans
+    /// Admin, éteint ou en veille, relais muet), juste avant `Status::Ended`. Le texte se choisit par cette erreur.
+    RelayError(kybernow_core::relay::RelayError),
 }
 
 struct Video {
@@ -105,6 +108,9 @@ struct Live {
     game_fullscreen: bool,
     /// Par où passe la session (`Platform::on_route`) : gardé pour la dernière session.
     path: crate::app::PathKind,
+    /// Par le relais : pourquoi la session a fini quand l'ordinateur n'est pas joignable hors de chez soi
+    /// (`Platform::on_relay_error`, juste avant la fin) ; le texte de la fin s'en tire.
+    relay_error: Option<kybernow_core::relay::RelayError>,
 }
 
 pub const UI_W: i32 = 1920;
@@ -694,12 +700,10 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
                     {
                         p.release_all();
                     }
-                    // Par le relais, l'échec dit le nom de l'ordinateur (docs/link-ui.md, « Hors de chez vous »).
-                    let may_relay = s.guest.is_none() && app.store.host(&s.host).is_some_and(|h| session::relay_route(h).is_some());
-                    let error = match error {
-                        Some(e) if may_relay => Some(session::relay_refusal(&e, &s.name).unwrap_or(e)),
-                        other => other,
-                    };
+                    // Par le relais, l'échec dit le nom de l'ordinateur (docs/link-ui.md, « Hors de chez vous ») : le
+                    // texte vient de l'erreur typée du cœur (`Event::RelayError`), pas de celui d'Admin.
+                    let relay = live.as_mut().and_then(|l| l.relay_error.take());
+                    let error = session::relay_failure_text(relay.as_ref(), error, &s.name);
                     Phase::Ended { error }
                 }
             };
@@ -824,6 +828,13 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
                 s.route = Some(route);
             }
         }
+        // La session finit faute de joindre l'ordinateur par le relais : gardé pour le texte de la fin, qui suit.
+        Event::RelayError(e) => {
+            log::info!("relais : {}", e.kind());
+            if let Some(l) = live.as_mut() {
+                l.relay_error = Some(e);
+            }
+        }
         Event::Update(r) => {
             app.update = match r {
                 Ok(Some(a)) => {
@@ -885,6 +896,7 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
                 remote: None,
                 game_fullscreen: false,
                 path: crate::app::PathKind::Direct,
+                relay_error: None,
             });
             log::info!("session : {} ({}, {} × {} à {} Hz, {codec})", h.name, profile.id(), mode.0, mode.1, mode.2);
         }
@@ -1079,7 +1091,7 @@ fn connect_guest(app: &mut App, live: &mut Option<Live>, tx: &Sender<Event>, fou
     app.session = Some(ui);
     app.screen = Screen::Session;
     app.focus = crate::app::Target::CancelConnect;
-    *live = Some(Live { handle, guest: true, pointer: None, pointer_hidden: true, started: Instant::now(), latencies: Vec::new(), mbps: Vec::new(), mode, remote: None, game_fullscreen: false, path: crate::app::PathKind::Direct });
+    *live = Some(Live { handle, guest: true, pointer: None, pointer_hidden: true, started: Instant::now(), latencies: Vec::new(), mbps: Vec::new(), mode, remote: None, game_fullscreen: false, path: crate::app::PathKind::Direct, relay_error: None });
     log::info!("session d'invité : {title} ({} × {} à {} Hz)", mode.0, mode.1, mode.2);
 }
 

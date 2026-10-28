@@ -124,6 +124,18 @@ fn button(cv: &mut Canvas, f: &mut Frame, t: Target, x: f32, y: f32, label: &str
     w
 }
 
+/// Un bouton du panneau inactif (« Accepter » quand les quatre places sont prises) : estompé, rien n'est inscrit au
+/// cadre, il ne prend ni le focus ni le clic. Rend sa largeur (celle de `button`).
+fn button_inactive(cv: &mut Canvas, x: f32, y: f32, label: &str, size: f32) -> f32 {
+    let style = Text::new(Font::Semibold, size, FROST_4);
+    let w = cv.text_width(style, label) + size * 1.6;
+    let h = size * 2.2;
+    cv.rrect(x, y, w, h, 12.0, Rgba(227, 237, 240, 6));
+    cv.rrect_stroke(x, y, w, h, 12.0, 1.5, LINE);
+    cv.text(x + size * 0.8, y + h / 2.0 + size * 0.36, style, label);
+    w
+}
+
 /// Le contenu du panneau, dans `r`.
 fn card(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi, r: Rect, m: &Metrics) {
     let (x, mut y) = (r.x + PAD, r.y);
@@ -191,7 +203,12 @@ fn card(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi, r: Rect, m: &M
             let accept_x = x + inner - aw;
             let decline_x = accept_x - 14.0 - dw;
             button(cv, f, Target::ShareRefuse(i), decline_x, y + 6.0, decline, size, true);
-            button(cv, f, Target::ShareAccept(i), accept_x, y + 6.0, accept, size, false);
+            // Les quatre places sont prises : « Accepter » est inactif (« Quatre invités au plus. » dit pourquoi).
+            if v.full() {
+                button_inactive(cv, accept_x, y + 6.0, accept, size);
+            } else {
+                button(cv, f, Target::ShareAccept(i), accept_x, y + 6.0, accept, size, false);
+            }
             cv.text_fit(x, y + 34.0, Text::new(Font::Semibold, 27.0, FROST), &g.request_line(), (decline_x - x - 24.0).max(80.0));
             cv.text_fit(x, y + 66.0, Text::new(Font::Regular, 20.0, FROST_3), &g.request_meta(), inner);
             y += m.request;
