@@ -29,6 +29,7 @@
 # retry_above_per_second = 100
 # tcp_per_ip = 32
 # stations_per_ip = 4
+# stations_per_minute_per_ip = 20
 # clients_per_station = 8
 # flows_per_client = 4
 # codes_per_station = 4

@@ -88,7 +88,7 @@ Le bout qui se connecte ouvre le premier flux bidirectionnel de `kn-ctl/1` (ou l
 
 - Ouverture : l'app envoie `open_flow {req, key}` ; le relais passe `flow_open` à la Station ; Admin accepte (client autorisé, voir « Garde d'Admin ») ou refuse ; l'app reçoit `flow_ready {req, flow}` ou `flow_refused`. Chaque bout a ses propres numéros de flux ; le relais les traduit.
 - Datagramme sur `kn-media/1` : `[numéro de flux, entier variable de QUIC][paquet UDP]`.
-- **Règle de taille** : un paquet qui ne tient pas dans un datagramme (`max_datagram_size`) part, s'il fait 1200 octets au plus, dans un flux unidirectionnel de secours de `kn-media/1` (un paquet par flux, même forme) ; plus grand, il est jeté (la recherche de MTU de Kyber redescend d'elle-même).
+- **Règle de taille** : un paquet qui ne tient pas dans un datagramme (`max_datagram_size`) part, s'il fait 1200 octets au plus, dans un flux unidirectionnel de secours de `kn-media/1` (un paquet par flux, même forme) ; plus grand, il est jeté (la recherche de MTU de Kyber redescend d'elle-même). 64 paquets de secours au plus attendent de partir sur une connexion (2 s chacun) ; au-delà, le paquet est perdu, comme en UDP.
 - La connexion `kn-media/1` commence par un flux unidirectionnel ouvert par le bout qui se connecte, une trame `{"t":"media"}` (Station, reconnue à son certificat) ou `{"t":"media","token":"…"}` (app).
 - Côté Station, l'agent tient pour chaque flux un socket UDP vers Kyber, gardé 25 s après une coupure : un client qui revient avec le même identifiant et la même `key` retrouve le même socket, et Kyber ne voit pas de nouvelle connexion.
 
@@ -232,7 +232,8 @@ Ce qu'Admin fait en plus de ce qui précède, sans rien y changer (`server/admin
 - Recherche de code : 10 par minute et 60 par heure par adresse, 30 par minute par /24 (IPv4) ou /48 (IPv6), 600 par minute en tout. Admin garde ses 10 essais de `join` par minute et par adresse réelle.
 - QUIC : 16 connexions par adresse, 60 négociations par minute par adresse, 4096 en tout ; au-delà d'un seuil, le relais demande une preuve d'adresse (Retry).
 - TCP : 32 connexions par adresse ; TLS et en-têtes HTTP en 10 s, 16 Kio d'en-têtes au plus.
-- 4 Stations par adresse, une connexion par Station (la dernière gagne), 8 clients par Station, 4 flux UDP par client.
+- 4 Stations par adresse, 20 connexions de Station par minute et par adresse, une connexion par Station (la dernière gagne), 8 clients par Station, 4 flux UDP par client. Une Station ne garde jamais plus de 4 codes, reconnexion après reconnexion.
+- 1024 messages au plus en attente vers un bout : un bout qui ne lit pas ce que le relais lui envoie (`pong`, `presence`…) est coupé. Repli TCP : 64 Mio au plus en attente par connexion (fenêtre yamux).
 - Pas de plafond de débit. Le relais ne fait suivre que vers des Stations connectées, et Admin ne laisse passer que des clients autorisés. Liste de bannissement relue à chaud ; plafond global facultatif, coupé par défaut ; métriques Prometheus et alerte de débit.
 
 ## Installer un relais chez soi

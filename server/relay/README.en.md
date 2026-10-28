@@ -131,7 +131,7 @@ Environment variables (`docker-compose.yml`) take precedence over `config/relay.
 | `KN_RELAY_GLOBAL_CAP_MBPS` | `0` | Global cap on relayed packets (`0`: none) |
 | `KN_RELAY_CONFIG` | `/config/relay.toml` | The settings file |
 
-The limits (`[limits]` in `relay.toml`) follow [docs/relais.en.md](../../docs/relais.en.md#relay-limits-and-protections): code lookups (10 per minute and 60 per hour per address, 30 per minute per /24 or /48, 600 per minute overall), QUIC connections (16 per address, 60 handshakes per minute, 4096 overall, address validation above 100 handshakes per second), TCP (32 per address, TLS and headers within 10 s, 16 KiB of headers), 4 Stations per address, 8 clients per Station, 4 UDP flows per client, 4 codes per Station. No bitrate cap by default.
+The limits (`[limits]` in `relay.toml`) follow [docs/relais.en.md](../../docs/relais.en.md#relay-limits-and-protections): code lookups (10 per minute and 60 per hour per address, 30 per minute per /24 or /48, 600 per minute overall), QUIC connections (16 per address, 60 handshakes per minute, 4096 overall, address validation above 100 handshakes per second), TCP (32 per address, TLS and headers within 10 s, 16 KiB of headers), 4 Stations per address, 20 Station connections per minute per address, 8 clients per Station, 4 UDP flows per client, 4 codes per Station. No bitrate cap by default.
 
 ## Operations
 

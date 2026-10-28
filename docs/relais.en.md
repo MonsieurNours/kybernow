@@ -88,7 +88,7 @@ The connecting end opens the first bidirectional stream of `kn-ctl/1` (or the fi
 
 - Opening: the app sends `open_flow {req, key}`; the relay passes `flow_open` to the Station; Admin accepts (authorised client, see “Admin's guard”) or refuses; the app receives `flow_ready {req, flow}` or `flow_refused`. Each end has its own flow numbers; the relay translates them.
 - Datagram on `kn-media/1`: `[flow number, QUIC variable-length integer][UDP packet]`.
-- **Size rule**: a packet that does not fit in a datagram (`max_datagram_size`) goes, if it is 1200 bytes or less, into a backup unidirectional stream of `kn-media/1` (one packet per stream, same form); larger, it is dropped (Kyber's MTU discovery comes back down on its own).
+- **Size rule**: a packet that does not fit in a datagram (`max_datagram_size`) goes, if it is 1200 bytes or less, into a backup unidirectional stream of `kn-media/1` (one packet per stream, same form); larger, it is dropped (Kyber's MTU discovery comes back down on its own). At most 64 backup packets wait to leave on a connection (2 s each); beyond that, the packet is lost, as with UDP.
 - The `kn-media/1` connection starts with a unidirectional stream opened by the connecting end, a frame `{"t":"media"}` (Station, recognised by its certificate) or `{"t":"media","token":"…"}` (app).
 - On the Station side, the agent holds for each flow a UDP socket to Kyber, kept for 25 s after a cut: a client that comes back with the same identifier and the same `key` gets the same socket, and Kyber sees no new connection.
 
@@ -232,7 +232,8 @@ What Admin does on top of the above, without changing any of it (`server/admin/s
 - Code lookup: 10 per minute and 60 per hour per address, 30 per minute per /24 (IPv4) or /48 (IPv6), 600 per minute overall. Admin keeps its 10 `join` attempts per minute per real address.
 - QUIC: 16 connections per address, 60 handshakes per minute per address, 4096 overall; beyond a threshold, the relay asks for address validation (Retry).
 - TCP: 32 connections per address; TLS and HTTP headers within 10 s, 16 KiB of headers at most.
-- 4 Stations per address, one connection per Station (the last wins), 8 clients per Station, 4 UDP flows per client.
+- 4 Stations per address, 20 Station connections per minute per address, one connection per Station (the last wins), 8 clients per Station, 4 UDP flows per client. A Station never keeps more than 4 codes, reconnection after reconnection.
+- At most 1024 messages waiting for an end: an end that does not read what the relay sends it (`pong`, `presence`…) is disconnected. TCP fallback: at most 64 MiB waiting per connection (yamux window).
 - No bitrate cap. The relay only forwards to connected Stations, and Admin only lets authorised clients through. Ban list reloaded live; optional global cap, off by default; Prometheus metrics and a bitrate alert.
 
 ## Installing a relay at home

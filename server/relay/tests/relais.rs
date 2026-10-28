@@ -549,3 +549,82 @@ async fn trop_de_clients_pour_une_station() {
     .await
     .expect("délai");
 }
+
+/// Des Stations (des clés neuves, gratuites) en rafale depuis une même
+/// adresse : au-delà de `stations_per_minute_per_ip`, refusées (`too_many`),
+/// même si elles se succèdent sans jamais dépasser quatre à la fois ; sans
+/// quoi chacune garderait ses codes 120 s et une seule adresse finirait par
+/// tenir une bonne part des codes.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn stations_en_rafale_depuis_une_adresse() {
+    timeout(T * 2, async {
+        let pki = pki();
+        let relay = relay(&pki, |c| c.limits.stations_per_minute_per_ip = 2).await;
+        let a = fake_station(relay_addr(&relay), pki.roots.clone(), false, Policy::default());
+        a.joined().await;
+        drop(a);
+        let b = fake_station(relay_addr(&relay), pki.roots.clone(), false, Policy::default());
+        b.joined().await;
+        let c = fake_station(relay_addr(&relay), pki.roots.clone(), false, Policy::default());
+        let mut rx = c.agent.subscribe();
+        let state = timeout(T, rx.wait_for(|s| !matches!(s, kybernow_tunnel::AgentState::Connecting))).await.expect("réponse du relais").unwrap().clone();
+        assert_eq!(state, kybernow_tunnel::AgentState::Unreachable { reason: "too_many".into() });
+    })
+    .await
+    .expect("délai");
+}
+
+/// Un bout qui envoie des `ping` (ou des `status`) sans jamais lire les
+/// réponses : la file de ses messages ne grossit pas sans fin dans le
+/// relais, il est coupé. N'importe qui peut ouvrir une telle connexion
+/// (sans Station, sans compte).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn un_bout_qui_ne_lit_pas_ses_reponses_est_coupe() {
+    use kybernow_tunnel::frame::{encode, read_msg};
+    use kybernow_tunnel::msg::{Hello, Msg, Role};
+    use kybernow_tunnel::quic::ALPN_CTL;
+    timeout(T * 2, async {
+        let pki = pki();
+        let relay = relay(&pki, |_| {}).await;
+        // Une app « à la main » : une petite fenêtre de réception, jamais relue.
+        let tls = kybernow_tunnel::tls::client_config(&relay_addr(&relay), Some(pki.roots.clone()), ALPN_CTL, None).unwrap();
+        let mut cfg = quinn::ClientConfig::new(std::sync::Arc::new(quinn::crypto::rustls::QuicClientConfig::try_from(tls).unwrap()));
+        let mut transport = quinn::TransportConfig::default();
+        transport.stream_receive_window(quinn::VarInt::from_u32(2048));
+        transport.receive_window(quinn::VarInt::from_u32(4096));
+        cfg.transport_config(std::sync::Arc::new(transport));
+        let ep = quinn::Endpoint::client("127.0.0.1:0".parse().unwrap()).unwrap();
+        let conn = ep.connect_with(cfg, relay.addr, "localhost").unwrap().await.unwrap();
+        let (mut send, mut recv) = conn.open_bi().await.unwrap();
+        let hello = Hello {
+            v: 1,
+            role: Role::Client,
+            station: None,
+            token: Some(kybernow_tunnel::id::new_token()),
+            admin_fp: None,
+            sig: None,
+            codes: vec![],
+            version: None,
+        };
+        send.write_all(&encode(&Msg::Hello(hello))).await.unwrap();
+        assert!(matches!(read_msg(&mut recv).await.unwrap(), Some(Msg::Welcome(_))));
+        // Des `ping` par milliers, aucune réponse lue ; le flux reste ouvert.
+        let flood = tokio::spawn(async move {
+            for n in 0..50_000u64 {
+                if send.write_all(&encode(&Msg::Ping { n })).await.is_err() {
+                    return;
+                }
+            }
+            std::future::pending::<()>().await;
+            drop(send);
+        });
+        let closed = timeout(Duration::from_secs(10), conn.closed()).await;
+        assert!(
+            matches!(&closed, Ok(quinn::ConnectionError::ApplicationClosed(c)) if c.reason.as_ref() == b"messages non lus"),
+            "la connexion qui ne lit pas ses réponses reste ouverte : {closed:?}"
+        );
+        flood.abort();
+    })
+    .await
+    .expect("délai");
+}
