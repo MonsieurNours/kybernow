@@ -20,7 +20,6 @@ THIRD_PARTY="$(cd "$ROOT/third_party" 2>/dev/null && pwd -P)" || { echo "third_p
 KYSDK="$THIRD_PARTY/kyber-desktop/kysdk"
 LLVM_MINGW="$THIRD_PARTY/toolchains/llvm-mingw-$KYBER_LLVM_MINGW-ucrt-macos-universal"
 TRIPLE=aarch64-w64-mingw32
-TARGET=aarch64-pc-windows-gnullvm
 PREFIX="$THIRD_PARTY/rootfs-winarm64"
 WORK="$THIRD_PARTY/windows-client-arm64/work"
 OPUS_SRC="$KYSDK/kymedia/subprojects/opus-1.6.1"
