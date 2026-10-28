@@ -169,7 +169,7 @@ Contrat : [relais.md](relais.md). Par le relais, une session ressemble à une se
 | Refus, accès coupé | « {nom} n'est pas joignable hors de chez vous (accès coupé dans Admin). » | “{name} cannot be reached away from home (access turned off in Admin).” |
 | Refus, Station absente du relais | « {nom} n'est pas joignable : l'ordinateur est éteint ou en veille. » | “{name} cannot be reached: the computer is off or asleep.” |
 | Quand dire ces refus | quand on ouvre l'ordinateur hors de chez soi (au lieu de la connexion), avec son nom ; l'accueil dit seulement l'état | |
-| Par le relais, pas d'action lourde | ni redémarrage ni mise à jour de la Station depuis l'app hors de chez soi (Admin les refuse par le relais) | |
+| Par le relais, pas d'action lourde | ni redémarrage ni mise à jour de la Station depuis l'app hors de chez soi (Admin les refuse par le relais) ; à la place : « Hors de chez vous, l'app ne peut ni redémarrer ni mettre à jour la Station. » | “Away from home, the app can neither restart nor update the Station.” |
 | Invité en attente, partage arrêté | « Ce partage est arrêté. » | “This share has stopped.” |
 
 **Admin** (rubrique des appareils Link) :

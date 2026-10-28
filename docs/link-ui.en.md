@@ -169,7 +169,7 @@ Contract: [relais.en.md](relais.en.md). Through the relay, a session looks like 
 | Refusal, access off | « {nom} n'est pas joignable hors de chez vous (accès coupé dans Admin). » | “{name} cannot be reached away from home (access turned off in Admin).” |
 | Refusal, Station absent from the relay | « {nom} n'est pas joignable : l'ordinateur est éteint ou en veille. » | “{name} cannot be reached: the computer is off or asleep.” |
 | When to say these refusals | when the computer is opened away from home (instead of the connection), with its name; the home screen only says the state | |
-| Through the relay, no heavy action | no Station restart or update from the app away from home (Admin refuses them through the relay) | |
+| Through the relay, no heavy action | no Station restart or update from the app away from home (Admin refuses them through the relay); instead: « Hors de chez vous, l'app ne peut ni redémarrer ni mettre à jour la Station. » | “Away from home, the app can neither restart nor update the Station.” |
 | Waiting guest, share stopped | « Ce partage est arrêté. » | “This share has stopped.” |
 
 **Admin** (Link devices section):
