@@ -522,6 +522,9 @@ fn guest_quality(g: &share::ShareGuest) -> Option<String> {
     g.image.as_ref().filter(|i| i.own()).and_then(|i| i.label())
 }
 
+// L'attente du lien du relais de l'interface est celle du cœur.
+const _: () = assert!(crate::app::RELAY_LINK_WAIT.as_secs() == share::RELAY_LINK_WAIT.as_secs());
+
 /// Le partage ouvert d'une session d'hôte tel que l'interface le montre (`None` : fermé).
 pub fn share_view(st: &ShareState) -> Option<ShareView> {
     st.open.then(|| ShareView {
@@ -530,8 +533,11 @@ pub fn share_view(st: &ShareState) -> Option<ShareView> {
         web: st.web.clone(),
         relay: st.relay.map(|r| match r.state {
             share::ShareRelayState::Joined => ShareRelay::Joined,
+            share::ShareRelayState::Connecting => ShareRelay::Connecting,
             share::ShareRelayState::Unreachable => ShareRelay::Unreachable,
         }),
+        // Posé par l'app quand elle reçoit le partage (`ShareView::keep_relay_since`).
+        relay_since: None,
         guests: st
             .guests
             .iter()
@@ -1179,6 +1185,8 @@ mod tests {
         assert_eq!(v.requests().iter().map(|(i, g)| (*i, g.name.as_str())).collect::<Vec<_>>(), vec![(1, "Tom")]);
         assert_eq!(v.accepted().iter().map(|(i, g)| (*i, g.name.as_str())).collect::<Vec<_>>(), vec![(0, "Léa")]);
         assert!(v.guests[1].via_relay && !v.guests[0].via_relay);
+        let soon = share_view(&ShareState { relay: Some(share::ShareRelay { state: share::ShareRelayState::Connecting }), ..state.clone() }).unwrap();
+        assert_eq!((soon.relay, soon.relay_since), (Some(ShareRelay::Connecting), None));
         let down = share_view(&ShareState { relay: Some(share::ShareRelay { state: share::ShareRelayState::Unreachable }), ..state }).unwrap();
         assert_eq!(down.relay, Some(ShareRelay::Unreachable));
     }

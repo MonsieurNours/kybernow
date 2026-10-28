@@ -861,12 +861,13 @@ enum DemoRemote {
                 SharePanelDemo.render(session: session, to: parts[2])
             }
         case "panel-render":
-            // panel-render:<avec|sans|relais|relais-muet|demande>:<fichier> : le panneau « Partager » d'une session d'hôte sans fenêtre, avec ou
-            // sans invités ; `relais` : relais joint et deux demandes, `relais-muet` : relais réglé mais pas joint, `demande` : une seule demande.
+            // panel-render:<avec|sans|relais|relais-muet|relais-attente|demande>:<fichier> : le panneau « Partager » d'une session d'hôte sans fenêtre, avec ou
+            // sans invités ; `relais` : relais joint et deux demandes, `relais-muet` : relais réglé mais pas joint,
+            // `relais-attente` : lien du relais en préparation, `demande` : une seule demande.
             guard parts.count > 2 else { return }
             let kind = parts[1]
             Task {
-                await SharePanelDemo.renderPanel(app: app, guests: kind == "avec", relay: kind == "relais" || kind == "demande" ? .joined : kind == "relais-muet" ? .unreachable : nil,
+                await SharePanelDemo.renderPanel(app: app, guests: kind == "avec", relay: kind == "relais" || kind == "demande" ? .joined : kind == "relais-muet" ? .unreachable : kind == "relais-attente" ? .connecting : nil,
                                                  requests: kind == "relais" ? 2 : kind == "demande" ? 1 : 0, to: parts[2])
             }
         case "moment-render":

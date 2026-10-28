@@ -146,6 +146,7 @@ struct SharePanel: View {
                     .font(Theme.sans(13))
                 }
                 .buttonStyle(GhostButton(height: 32))
+                .disabled(share.waitingForRelayLink)
                 if let copyResult {
                     Text(copyResult).font(Theme.sans(12)).foregroundStyle(copied ? Theme.ok : Theme.warnText)
                         .fixedSize(horizontal: false, vertical: true)
@@ -159,11 +160,18 @@ struct SharePanel: View {
             }
         }
         // L'aide suit l'état du relais : relais joint (« Sur le même réseau ou ailleurs… »),
-        // ou, relais réglé mais pas joint, le réseau seulement et « Pas encore joignable hors de chez vous. ».
+        // ou, relais réglé mais pas joint, le réseau seulement et « Pas encore joignable hors de chez vous. »,
+        // ou, lien du relais en préparation (10 s au plus), « Préparation du lien hors de chez vous… ».
         VStack(alignment: .leading, spacing: 6) {
-            Text(ShareText.help(relay: state.relay)).font(Theme.sans(12.5)).foregroundStyle(Theme.muted)
+            Text(ShareText.help(relay: share.relay)).font(Theme.sans(12.5)).foregroundStyle(Theme.muted)
                 .fixedSize(horizontal: false, vertical: true)
-            if state.relay == .unreachable {
+            if share.waitingForRelayLink {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text(ShareText.relayConnecting).font(Theme.sans(12.5)).foregroundStyle(Theme.faint)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } else if share.relay == .unreachable {
                 Text(ShareText.relayUnreachable).font(Theme.sans(12.5)).foregroundStyle(Theme.faint)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -201,7 +209,8 @@ struct SharePanel: View {
 
     /// Le QR code du lien des apps (`kybernow://join…`), net, sur fond blanc.
     @ViewBuilder private func qrImage(for link: String) -> some View {
-        let image = qr?.link == link ? qr?.image : Share.qrImage(for: link)
+        // Le lien du relais se prépare : le QR code l'attend.
+        let image = share.waitingForRelayLink ? nil : qr?.link == link ? qr?.image : Share.qrImage(for: link)
         Group {
             if let image {
                 Image(decorative: image, scale: 1)
@@ -215,6 +224,7 @@ struct SharePanel: View {
                     .onAppear { if qr?.link != link { qr = (link, image) } }
             } else {
                 RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.well).frame(width: 128, height: 128)
+                    .overlay { if share.waitingForRelayLink { ProgressView().controlSize(.small) } }
             }
         }
     }

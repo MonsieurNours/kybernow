@@ -14,6 +14,8 @@ import fr.leslignesclaires.kybernow.core.RouteInfo
 import fr.leslignesclaires.kybernow.core.RouteTransport
 import fr.leslignesclaires.kybernow.core.Share
 import fr.leslignesclaires.kybernow.core.ShareLink
+import fr.leslignesclaires.kybernow.core.RelayPhase
+import fr.leslignesclaires.kybernow.core.RelayWait
 import fr.leslignesclaires.kybernow.core.ShareRelay
 import fr.leslignesclaires.kybernow.core.ShareState
 import fr.leslignesclaires.kybernow.core.ShareTarget
@@ -98,9 +100,34 @@ class RelayTest {
         fun relay(state: String) = ShareState.parse("""{"open":true,"code":"1","relay":$state}""", format, noLabel)!!.relay
         assertEquals(ShareRelay.JOINED, relay("""{"state":"joined"}"""))
         assertEquals(ShareRelay.UNREACHABLE, relay("""{"state":"unreachable"}"""))
+        assertEquals(ShareRelay.CONNECTING, relay("""{"state":"connecting"}"""))
         assertEquals(ShareRelay.UNREACHABLE, relay("""{"state":"autre"}"""))
         // Aucun relais réglé : rien à dire.
         assertNull(relay("null"))
+    }
+
+    @Test
+    fun theRelayLinkInPreparation_waitsTenSecondsAtMost_thenCountsAsUnreachable() {
+        assertEquals(RelayPhase.WAITING, RelayPhase.of(ShareRelay.CONNECTING, 0))
+        assertEquals(RelayPhase.WAITING, RelayPhase.of(ShareRelay.CONNECTING, 9_999))
+        assertEquals(RelayPhase.UNREACHABLE, RelayPhase.of(ShareRelay.CONNECTING, 10_000))
+        assertEquals(RelayPhase.JOINED, RelayPhase.of(ShareRelay.JOINED, 60_000))
+        assertEquals(RelayPhase.UNREACHABLE, RelayPhase.of(ShareRelay.UNREACHABLE, 0))
+        assertNull(RelayPhase.of(null, 0))
+    }
+
+    @Test
+    fun theWait_isCountedFromTheFirstConnectingSeen_forThatCode() {
+        fun share(code: String, relay: ShareRelay?) = ShareState(code, code, "", relay = relay)
+        val wait = RelayWait()
+        assertEquals(0, wait.waited(share("1", ShareRelay.CONNECTING), 1_000))
+        assertEquals(4_000, wait.waited(share("1", ShareRelay.CONNECTING), 5_000))
+        // Un nouveau code repart de zéro.
+        assertEquals(0, wait.waited(share("2", ShareRelay.CONNECTING), 6_000))
+        assertEquals(10_000, wait.waited(share("2", ShareRelay.CONNECTING), 16_000))
+        // Joint, puis de nouveau en préparation : l'attente recommence.
+        assertEquals(0, wait.waited(share("2", ShareRelay.JOINED), 17_000))
+        assertEquals(0, wait.waited(share("2", ShareRelay.CONNECTING), 18_000))
     }
 
     @Test

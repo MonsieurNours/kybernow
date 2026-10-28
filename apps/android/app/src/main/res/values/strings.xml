@@ -368,6 +368,7 @@
     <string name="share_copy_failed">Could not copy: select the link by hand.</string>
     <string name="share_help">On the same network: “Join with a code” in KyberNow Link, or this link in a browser.</string>
     <string name="share_help_relay">On the same network or elsewhere: “Join with a code” in KyberNow Link, or this link in a browser. Away from home, you accept each guest.</string>
+    <string name="share_relay_preparing">Getting the away-from-home link ready…</string>
     <string name="share_relay_unreachable">Not reachable away from home yet.</string>
     <string name="share_requests_title">Requests</string>
     <string name="share_request_wants" formatted="true">%1$s wants to join</string>

@@ -163,6 +163,7 @@ fn shared_view() -> ShareView {
         link: "kybernow://join?host=192.168.1.20&port=24811&fp=sha256:9f:3a:c2:71:0b:44:de:aa&code=482917".into(),
         web: "https://192.168.1.20:24811/link/?join=482917".into(),
         relay: None,
+        relay_since: None,
         guests: vec![
             ShareGuest { id: "g1".into(), name: "Léa".into(), role: ShareRole::Spectator, app: "ios".into(), since: Some(now - 4 * 60), quality: None, ..Default::default() },
             ShareGuest { id: "g2".into(), name: "Tom".into(), role: ShareRole::Player, app: "android".into(), since: Some(now - 35 * 60), quality: Some("1080p · 60 Hz".into()), ..Default::default() },
@@ -373,6 +374,14 @@ fn relay_shots(app: &mut App, cv: &mut Canvas, assets: &Assets, video: &Pixmap, 
     }
     app.focus = Target::ShareNewCode;
     shot(app, cv, assets, Some(video), dir, "21l-partage-relais-injoignable");
+    // Le lien du relais en préparation : le lien du réseau encore, le QR code et l'adresse attendent.
+    if let Some(s) = app.session.as_mut() {
+        let lan = shared_view();
+        let mut v = ShareView { link: lan.link, web: lan.web, relay_since: Some(Instant::now()), ..relay_view(Some(ShareRelay::Connecting)) };
+        v.guests.truncate(1);
+        s.share = Some(v);
+    }
+    shot(app, cv, assets, Some(video), dir, "21o-partage-relais-preparation");
     // Les quatre places prises : « Accepter » est inactif (« Quatre invités au plus. »), « Refuser » reste, le focus y commence.
     let mut complet = relay_view(Some(ShareRelay::Joined));
     complet.guests.truncate(1);
@@ -867,6 +876,13 @@ mod tests {
             assert_eq!(view(Some(ShareRelay::Unreachable)).help(), help_lan);
             assert_eq!(view(Some(ShareRelay::Joined)).help(), help_relay);
             assert_eq!((view(None).relay_down_text(), view(Some(ShareRelay::Joined)).relay_down_text(), view(Some(ShareRelay::Unreachable)).relay_down_text()), (None, None, Some(down)));
+            // Le lien du relais en préparation : l'aide du même réseau et la ligne d'attente, puis, l'attente passée,
+            // comme un relais injoignable.
+            let wait = if en { "Getting the away-from-home link ready…" } else { "Préparation du lien hors de chez vous…" };
+            let soon = ShareView { relay_since: Some(Instant::now()), ..view(Some(ShareRelay::Connecting)) };
+            assert_eq!((soon.help(), soon.relay_wait_text(), soon.relay_down_text(), soon.relay_preparing()), (help_lan, Some(wait), None, true));
+            let late = ShareView { relay_since: Instant::now().checked_sub(crate::app::RELAY_LINK_WAIT + Duration::from_secs(1)), ..soon.clone() };
+            assert_eq!((late.help(), late.relay_wait_text(), late.relay_down_text(), late.relay_preparing(), late.relay_wait_redraw()), (help_lan, None, Some(down), false, false));
             // La tuile « Partager » : les demandes d'abord, une demande n'est pas un invité.
             assert_eq!(share_tile(Some(&relay_view(Some(ShareRelay::Joined)))), (tile.to_string(), true));
         }
@@ -926,7 +942,7 @@ mod tests {
         app.session = Some(s);
         app.screen = Screen::Session;
         let guest = |id: &str, name: &str, pending: bool| ShareGuest { id: id.into(), name: name.into(), app: "ios".into(), pending, via_relay: pending, ..Default::default() };
-        let view = |guests: Vec<ShareGuest>| ShareView { code: "482917".into(), link: "kybernow://join?x".into(), web: "https://h:1/j/482917".into(), relay: Some(ShareRelay::Joined), guests };
+        let view = |guests: Vec<ShareGuest>| ShareView { code: "482917".into(), link: "kybernow://join?x".into(), web: "https://h:1/j/482917".into(), relay: Some(ShareRelay::Joined), relay_since: None, guests };
         app.share_reply(Ok(Some(view(Vec::new()))));
         // Une demande arrive avec le signe de vie : l'avis bref, pas de panneau ouvert.
         app.share_guests(Some(view(vec![guest("g1", "Léa", false), guest("g2", "Tom", true)])));
@@ -965,7 +981,7 @@ mod tests {
         app.session = Some(s);
         app.screen = Screen::Session;
         let guest = |id: &str, pending: bool| ShareGuest { id: id.into(), name: id.to_uppercase(), app: "ios".into(), pending, via_relay: pending, ..Default::default() };
-        let view = |guests: Vec<ShareGuest>| ShareView { code: "482917".into(), link: "kybernow://join?x".into(), web: "https://share.kybernow.app/j/482917".into(), relay: Some(ShareRelay::Joined), guests };
+        let view = |guests: Vec<ShareGuest>| ShareView { code: "482917".into(), link: "kybernow://join?x".into(), web: "https://share.kybernow.app/j/482917".into(), relay: Some(ShareRelay::Joined), relay_since: None, guests };
         // Trois invités et une demande : il reste une place.
         app.share_reply(Ok(Some(view(vec![guest("g1", false), guest("g2", false), guest("g3", false), guest("r1", true)]))));
         assert!(!app.session.as_ref().unwrap().share.as_ref().unwrap().full());
@@ -1143,7 +1159,7 @@ mod tests {
         app.share_guests(None);
         assert!(app.session.as_ref().unwrap().share_panel);
         let guest = |role| ShareGuest { id: "g1".into(), name: "Léa".into(), role, app: "ios".into(), since: Some(1), quality: None, ..Default::default() };
-        let view = |role| ShareView { code: "482917".into(), link: "kybernow://join?x".into(), web: "https://h:1/link/?join=482917".into(), relay: None, guests: vec![guest(role)] };
+        let view = |role| ShareView { code: "482917".into(), link: "kybernow://join?x".into(), web: "https://h:1/link/?join=482917".into(), relay: None, relay_since: None, guests: vec![guest(role)] };
         app.share_reply(Ok(Some(view(ShareRole::Spectator))));
         assert_eq!(app.focus, Target::ShareNewCode);
         let role = |r| vec![Action::Share(ShareOp::Role("g1".into(), r))];
@@ -1171,6 +1187,19 @@ mod tests {
         // Le signe de vie met la liste à jour ; B referme le panneau, l'image reprend (pas le menu).
         app.share_guests(Some(ShareView { guests: vec![guest(ShareRole::Spectator), guest(ShareRole::Player)], ..view(ShareRole::Spectator) }));
         assert_eq!(app.session.as_ref().unwrap().share.as_ref().map(|v| v.guests.len()), Some(2));
+        // Le lien du relais en préparation : l'app garde le moment où elle a vu ce code en préparation (les signes de
+        // vie suivants ne relancent pas l'attente), un nouveau code la relance.
+        let soon = |code: &str| ShareView { code: code.into(), relay: Some(ShareRelay::Connecting), ..view(ShareRole::Spectator) };
+        let since = |app: &App| app.session.as_ref().unwrap().share.as_ref().unwrap().relay_since;
+        app.share_guests(Some(soon("482917")));
+        let first = since(&app);
+        assert!(first.is_some() && app.session.as_ref().unwrap().share.as_ref().unwrap().relay_preparing());
+        app.share_guests(Some(soon("482917")));
+        assert_eq!(since(&app), first);
+        app.share_reply(Ok(Some(soon("111222"))));
+        assert!(since(&app).is_some());
+        app.share_guests(Some(view(ShareRole::Spectator)));
+        assert_eq!(since(&app), None);
         assert!(app.session_back().is_empty());
         let s = app.session.as_ref().unwrap();
         assert!(!s.share_panel && !s.menu);

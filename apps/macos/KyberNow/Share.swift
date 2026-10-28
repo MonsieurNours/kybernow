@@ -358,8 +358,19 @@ extension ShareRole {
 final class ShareHostModel: ObservableObject {
     /// Le partage ouvert, nil sans partage.
     @Published private(set) var state: ShareState? {
-        didSet { announceNewRequest(since: oldValue) }
+        didSet {
+            announceNewRequest(since: oldValue)
+            updateRelay()
+        }
     }
+    /// Le relais tel que le panneau le montre (docs/link-ui.md) : `connecting`
+    /// 10 s au plus depuis que l'app voit l'attente pour ce code, puis
+    /// `unreachable` ; sinon `state.relay`. Les vues lisent celui-ci.
+    @Published private(set) var relay: ShareState.Relay?
+    /// « Préparation du lien hors de chez vous… » : « Copier le lien » et le QR code attendent.
+    var waitingForRelayLink: Bool { relay == .connecting }
+    private var relayWait: (code: String, since: Date)?
+    private var relayWaitTask: Task<Void, Never>?
     /// Une demande vient d'arriver pendant la session : avis bref « {prénom} demande
     /// à rejoindre. » (chaque app le montre à sa façon ; le choisir ouvre le panneau).
     var onRequest: ((ShareGuest) -> Void)?
@@ -399,6 +410,29 @@ final class ShareHostModel: ObservableObject {
 
     func setConsole(_ console: ConsoleClient?) {
         self.console = console
+    }
+
+    /// Recalcule `relay` ; l'attente se compte par code, et une tâche relit
+    /// l'état à la fin des 10 s, sans attendre le signe de vie suivant.
+    private func updateRelay() {
+        guard let state, state.relay == .connecting else {
+            relayWait = nil
+            relayWaitTask?.cancel()
+            relayWaitTask = nil
+            if relay != state?.relay { relay = state?.relay }
+            return
+        }
+        if relayWait?.code != state.code {
+            relayWait = (state.code, Date())
+            relayWaitTask?.cancel()
+            relayWaitTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(ShareState.relayLinkWait + 0.05))
+                guard !Task.isCancelled else { return }
+                self?.updateRelay()
+            }
+        }
+        let next = ShareState.relayPhase(state.relay, waitingSince: relayWait?.since)
+        if relay != next { relay = next }
     }
 
     /// La première demande que `previous` ne connaissait pas (une seule par
@@ -588,8 +622,9 @@ final class ShareHostModel: ObservableObject {
 
     /// « Copier le lien » : l'adresse du client web (`web`), à défaut le lien
     /// des apps ; le QR code, lui, porte toujours le lien des apps (`link`).
+    /// Rien tant que le lien du relais se prépare (`waitingForRelayLink`).
     var linkToCopy: String? {
-        guard let state else { return nil }
+        guard let state, !waitingForRelayLink else { return nil }
         return state.web.isEmpty ? state.link : state.web
     }
 }

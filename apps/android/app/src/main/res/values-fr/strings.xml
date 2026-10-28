@@ -368,6 +368,7 @@
     <string name="share_copy_failed">Copie impossible : sélectionnez le lien à la main.</string>
     <string name="share_help">Sur le même réseau : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur.</string>
     <string name="share_help_relay">Sur le même réseau ou ailleurs : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur. Hors de chez vous, vous acceptez chaque invité.</string>
+    <string name="share_relay_preparing">Préparation du lien hors de chez vous…</string>
     <string name="share_relay_unreachable">Pas encore joignable hors de chez vous.</string>
     <string name="share_requests_title">Demandes</string>
     <string name="share_request_wants" formatted="true">%1$s demande à rejoindre</string>

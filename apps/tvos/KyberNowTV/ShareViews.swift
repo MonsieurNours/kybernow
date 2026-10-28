@@ -302,10 +302,17 @@ struct SharePanelTV: View {
                     .lineLimit(1)
                     .fixedSize()
                     .accessibilityLabel(Text(verbatim: "\(ShareText.code) \(state.code.map(String.init).joined(separator: " "))"))
-                // L'aide suit l'état du relais (docs/link-ui.md) : relais joint, ou réglé mais pas joint.
-                Text(ShareText.help(relay: state.relay)).font(Theme.sans(20)).foregroundStyle(Theme.muted).lineSpacing(4)
+                // L'aide suit l'état du relais (docs/link-ui.md) : relais joint, en préparation
+                // (10 s au plus), ou réglé mais pas joint.
+                Text(ShareText.help(relay: share.relay)).font(Theme.sans(20)).foregroundStyle(Theme.muted).lineSpacing(4)
                     .frame(width: 440, alignment: .leading)
-                if state.relay == .unreachable {
+                if share.waitingForRelayLink {
+                    HStack(spacing: 14) {
+                        ProgressView()
+                        Text(ShareText.relayConnecting).font(Theme.sans(20)).foregroundStyle(Theme.faint).lineSpacing(4)
+                    }
+                    .frame(width: 440, alignment: .leading)
+                } else if share.relay == .unreachable {
                     Text(ShareText.relayUnreachable).font(Theme.sans(20)).foregroundStyle(Theme.faint).lineSpacing(4)
                         .frame(width: 440, alignment: .leading)
                 }
@@ -405,7 +412,8 @@ struct SharePanelTV: View {
 
     /// Le QR code du lien des apps (`kybernow://join…`), net, sur fond blanc.
     @ViewBuilder private func qrImage(for link: String) -> some View {
-        let image = qr?.link == link ? qr?.image : Share.qrImage(for: link)
+        // Le lien du relais se prépare : le QR code l'attend.
+        let image = share.waitingForRelayLink ? nil : qr?.link == link ? qr?.image : Share.qrImage(for: link)
         Group {
             if let image {
                 Image(decorative: image, scale: 1)
@@ -419,6 +427,7 @@ struct SharePanelTV: View {
                     .onAppear { if qr?.link != link { qr = (link, image) } }
             } else {
                 RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white.opacity(0.08)).frame(width: 240, height: 240)
+                    .overlay { if share.waitingForRelayLink { ProgressView() } }
             }
         }
     }

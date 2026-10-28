@@ -174,16 +174,76 @@ enum class ShareVia(val id: String) {
 
 /**
  * Ce que le relais fait du partage (`relay.state` de la vue d'Admin, docs/relais.md) : [JOINED], le code est réservé
- * chez le relais et le lien vaut hors de chez soi ; [UNREACHABLE], pas encore. Un partage sans relais réglé n'a aucun
- * état (`ShareState.relay` nul).
+ * chez le relais et le lien vaut hors de chez soi ; [CONNECTING], la Station s'y connecte ou réserve le code (`web` et
+ * `link` sont encore ceux du réseau) ; [UNREACHABLE], pas encore. Un partage sans relais réglé n'a aucun état
+ * (`ShareState.relay` nul).
  */
 enum class ShareRelay {
     JOINED,
+    CONNECTING,
     UNREACHABLE;
 
     companion object {
-        /** Un état inconnu n'est pas « joint ». */
-        fun parse(o: JSONObject?): ShareRelay? = o?.let { if (it.optString("state") == "joined") JOINED else UNREACHABLE }
+        /** Un état inconnu n'est pas « joint » : il vaut « injoignable ». */
+        fun parse(o: JSONObject?): ShareRelay? = o?.let {
+            when (it.optString("state")) {
+                "joined" -> JOINED
+                "connecting" -> CONNECTING
+                else -> UNREACHABLE
+            }
+        }
+    }
+}
+
+/**
+ * Où en est le lien du relais, tel que le panneau de l'hôte le montre (docs/link-ui.md, « Lien du relais en
+ * préparation ») : [WAITING], `connecting` depuis moins de [WAIT_MS] (« Préparation du lien hors de chez vous… »,
+ * « Copier le lien » inactif, le QR code attend) ; au-delà, [UNREACHABLE], comme `unreachable` (« Copier le lien »
+ * donne le lien du réseau). Nul sans relais réglé.
+ */
+enum class RelayPhase {
+    JOINED,
+    WAITING,
+    UNREACHABLE;
+
+    companion object {
+        const val WAIT_MS = 10_000L
+
+        /** [waitedMs] : depuis combien de temps l'app voit `connecting` pour ce code ([RelayWait]). */
+        fun of(relay: ShareRelay?, waitedMs: Long): RelayPhase? = when (relay) {
+            null -> null
+            ShareRelay.JOINED -> JOINED
+            ShareRelay.UNREACHABLE -> UNREACHABLE
+            ShareRelay.CONNECTING -> if (waitedMs < WAIT_MS) WAITING else UNREACHABLE
+        }
+    }
+}
+
+/**
+ * Depuis quand l'app voit `connecting` pour un code de partage : compté de la première fois qu'elle le voit pour ce
+ * code, oublié dès que l'état change ou que le code change. [shared] dure autant que l'app : refermer et rouvrir le
+ * panneau ne relance pas les 10 s.
+ */
+class RelayWait {
+    private var code: String? = null
+    private var since = 0L
+
+    /** Le temps d'attente, en ms, à [now] (une horloge monotone) ; 0 hors de `connecting`. */
+    @Synchronized
+    fun waited(share: ShareState, now: Long): Long {
+        if (share.relay != ShareRelay.CONNECTING) {
+            code = null
+            return 0
+        }
+        if (code != share.code) {
+            code = share.code
+            since = now
+        }
+        return (now - since).coerceAtLeast(0)
+    }
+
+    companion object {
+        val shared = RelayWait()
     }
 }
 

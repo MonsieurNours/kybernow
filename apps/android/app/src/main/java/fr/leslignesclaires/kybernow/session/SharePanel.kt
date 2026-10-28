@@ -1,9 +1,11 @@
 package fr.leslignesclaires.kybernow.session
 
+import android.os.SystemClock
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -22,16 +24,22 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import fr.leslignesclaires.kybernow.R
+import fr.leslignesclaires.kybernow.core.RelayPhase
+import fr.leslignesclaires.kybernow.core.RelayWait
 import fr.leslignesclaires.kybernow.core.ShareGuest
 import fr.leslignesclaires.kybernow.core.ShareRelay
 import fr.leslignesclaires.kybernow.core.ShareRole
@@ -101,7 +109,9 @@ internal fun SharePanelContent(
     // Une demande attend l'hôte : le focus va à son « Accepter » (tout le monde, au téléviseur aussi).
     val firstRequest = remember { FocusRequester() }
     val requested = share?.requests?.isNotEmpty() == true
-    LaunchedEffect(share != null, unavailable != null, requested) {
+    val relay = share?.let { relayPhase(it) }
+    // « Copier le lien » inactif (lien du relais en préparation) ne prend pas le focus : il le reçoit quand il s'active.
+    LaunchedEffect(share != null, unavailable != null, requested, relay == RelayPhase.WAITING) {
         if (requested) runCatching { firstRequest.requestFocus() }
         else if (share != null || unavailable != null) runCatching { first.requestFocus() }
     }
@@ -120,17 +130,36 @@ internal fun SharePanelContent(
                 unavailable != null -> Body(unavailable, color = Kn.frost2, size = 15f)
                 share == null -> if (busy) androidx.compose.material3.CircularProgressIndicator(Modifier.size(s.dp(28f)), color = Kn.spectre, strokeWidth = s.dp(3f))
                 wide -> Row(horizontalArrangement = Arrangement.spacedBy(s.dp(28f))) {
-                    ShareCode(share, copy, tv, actions, copyFocus)
-                    ShareGuests(share, busy, actions, firstRequest, Modifier.weight(1f))
+                    ShareCode(share, relay, copy, tv, actions, copyFocus)
+                    ShareGuests(share, relay, busy, actions, firstRequest, Modifier.weight(1f))
                 }
                 else -> {
-                    ShareCode(share, copy, tv, actions, copyFocus)
-                    ShareGuests(share, busy, actions, firstRequest, Modifier.fillMaxWidth())
+                    ShareCode(share, relay, copy, tv, actions, copyFocus)
+                    ShareGuests(share, relay, busy, actions, firstRequest, Modifier.fillMaxWidth())
                 }
             }
             error?.let { Body(it, color = Kn.warn, size = 14f) }
         }
     }
+}
+
+/**
+ * Où en est le lien du relais de [share] ([RelayPhase]) : `connecting` vaut « en préparation » 10 s au plus, comptées
+ * de la première fois que l'app le voit pour ce code ([RelayWait.shared]), puis « injoignable ». Le panneau se
+ * recompose de lui-même à la fin des 10 s, sans attendre un autre état de la Station.
+ */
+@Composable
+private fun relayPhase(share: ShareState): RelayPhase? {
+    val connecting = share.relay == ShareRelay.CONNECTING
+    val waited = RelayWait.shared.waited(share, SystemClock.elapsedRealtime())
+    var expired by remember(share.code, connecting) { mutableStateOf(false) }
+    LaunchedEffect(share.code, connecting) {
+        if (!connecting) return@LaunchedEffect
+        val left = RelayPhase.WAIT_MS - RelayWait.shared.waited(share, SystemClock.elapsedRealtime())
+        if (left > 0) delay(left)
+        expired = true
+    }
+    return RelayPhase.of(share.relay, if (expired) RelayPhase.WAIT_MS else waited)
 }
 
 /**
@@ -147,13 +176,23 @@ internal fun Modifier.opaquePanel(): Modifier = this
  * web : le lien des apps ne s'ouvre pas dans un navigateur ; pas au téléviseur) et son résultat.
  */
 @Composable
-private fun ShareCode(share: ShareState, copy: ShareCopy?, tv: Boolean, actions: SessionActions, copyModifier: Modifier) {
+private fun ShareCode(share: ShareState, relay: RelayPhase?, copy: ShareCopy?, tv: Boolean, actions: SessionActions, copyModifier: Modifier) {
     val s = LocalScale.current
+    // Lien du relais en préparation : le QR code et « Copier le lien » l'attendent (le lien du réseau serait copié par erreur).
+    val waiting = relay == RelayPhase.WAITING
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(s.dp(10f))) {
         Eyebrow(stringResource(R.string.share_code_label))
         Mono(share.codeText, size = if (tv) 52f else 44f, color = Kn.frost, weight = 500)
-        QrCode(share.link, size = if (tv) 150f else 140f, description = stringResource(R.string.share_qr_label))
-        if (!tv) GlassButton(stringResource(R.string.share_copy_link), { actions.shareCopyLink() }, copyModifier, selected = copy == ShareCopy.COPIED)
+        val qrSize = if (tv) 150f else 140f
+        if (waiting) {
+            val preparing = stringResource(R.string.share_relay_preparing)
+            Box(Modifier.size(s.dp(qrSize)).semantics { contentDescription = preparing }, contentAlignment = Alignment.Center) {
+                androidx.compose.material3.CircularProgressIndicator(Modifier.size(s.dp(28f)), color = Kn.spectre, strokeWidth = s.dp(3f))
+            }
+        } else {
+            QrCode(share.link, size = qrSize, description = stringResource(R.string.share_qr_label))
+        }
+        if (!tv) GlassButton(stringResource(R.string.share_copy_link), { actions.shareCopyLink() }, copyModifier, enabled = !waiting, selected = copy == ShareCopy.COPIED)
         when (copy) {
             ShareCopy.COPIED -> Body(stringResource(R.string.share_link_copied), size = 13f, color = Kn.frost2)
             // Android refuse (presse-papiers indisponible) : l'adresse s'affiche, à sélectionner à la main.
@@ -169,7 +208,7 @@ private fun ShareCode(share: ShareState, copy: ShareCopy?, tv: Boolean, actions:
 /** L'aide, « Invités » et la liste, « Nouveau code », « Arrêter le partage ». */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ShareGuests(share: ShareState, busy: Boolean, actions: SessionActions, firstRequest: FocusRequester, modifier: Modifier) {
+private fun ShareGuests(share: ShareState, relay: RelayPhase?, busy: Boolean, actions: SessionActions, firstRequest: FocusRequester, modifier: Modifier) {
     val s = LocalScale.current
     // Les durées (« depuis 3 min ») avancent d'elles-mêmes ; sans animations (captures), une seule fois.
     val motion = LocalMotion.current
@@ -181,9 +220,17 @@ private fun ShareGuests(share: ShareState, busy: Boolean, actions: SessionAction
     }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(s.dp(12f))) {
         // L'aide dit où le lien vaut : sur le même réseau, ou ailleurs quand le relais est joint (et alors, chaque invité
-        // venu d'ailleurs s'accepte) ; le relais injoignable, le lien ne vaut pas encore hors de chez soi.
-        Body(stringResource(if (share.relay == ShareRelay.JOINED) R.string.share_help_relay else R.string.share_help), color = Kn.frost2, size = 14f)
-        if (share.relay == ShareRelay.UNREACHABLE) Body(stringResource(R.string.share_relay_unreachable), color = Kn.muted, size = 13f)
+        // venu d'ailleurs s'accepte) ; le lien du relais en préparation (10 s au plus), on le dit avec un indicateur ; le
+        // relais injoignable (ou trop long à joindre), le lien ne vaut pas encore hors de chez soi.
+        Body(stringResource(if (relay == RelayPhase.JOINED) R.string.share_help_relay else R.string.share_help), color = Kn.frost2, size = 14f)
+        when (relay) {
+            RelayPhase.WAITING -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(s.dp(8f))) {
+                androidx.compose.material3.CircularProgressIndicator(Modifier.size(s.dp(14f)), color = Kn.spectre, strokeWidth = s.dp(2f))
+                Body(stringResource(R.string.share_relay_preparing), color = Kn.muted, size = 13f)
+            }
+            RelayPhase.UNREACHABLE -> Body(stringResource(R.string.share_relay_unreachable), color = Kn.muted, size = 13f)
+            else -> {}
+        }
         // Les demandes venues par le relais, au-dessus des invités, seulement s'il y en a.
         if (share.requests.isNotEmpty()) {
             Eyebrow(stringResource(R.string.share_requests_title))

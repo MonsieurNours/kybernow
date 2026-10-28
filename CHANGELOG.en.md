@@ -4,6 +4,11 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## 0.8.1
+
+- **Sharing: the away-from-home link tells you when it's ready.** For the few seconds the Station takes to reach the relay, the share panel says “Getting the away-from-home link ready…”; “Copy link” and the QR code wait for the relay link, so you no longer hand out by mistake a link that only works at home. After 10 seconds without the relay, they give your network link and the panel says “Not reachable away from home yet.”. In every Link app, in Admin and in the tray menu.
+- The relay link arrives sooner: the Station reserves the code as soon as it reaches the relay, and stays connected for five minutes after a share, so the next one is ready at once.
+
 ## 0.8.0
 
 - **KyberNow Share: share your computer with up to four guests.** From the session bar (“Share”), or from the PC itself (“Share a screen…” in the icon's menu next to the clock or on Admin's home page: you pick the screen to show and keep using it, with no virtual display). A panel gives a six-digit code, a link and a QR code. Your guests join with “Join with a code” in a KyberNow Link app, or with the link in a browser, without Admin's password. A guest arrives as a spectator: they see and hear, nothing more. You give them their controllers (they become Windows' next controller) and the keyboard and mouse separately, and take them back whenever you like. “Remove” makes a guest leave (they can come back with the same code, “New code” prevents it) and “Stop sharing” makes everyone leave. The Station enforces these rights: even if a guest's device sent something else, nothing reaches the computer. A Station and apps on 0.8.0 are needed.

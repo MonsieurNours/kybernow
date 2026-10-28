@@ -63,8 +63,8 @@ fn height(cv: &mut Canvas, app: &App, s: &SessionUi, w: f32, m: &Metrics) -> f32
         return m.header + 24.0 + msg.max(60.0);
     };
     let help_h = if m.help {
-        // Relais réglé mais injoignable : une ligne sous l'aide.
-        let down = if v.relay_down_text().is_some() { 31.0 } else { 0.0 };
+        // Lien du relais en préparation, ou relais réglé mais injoignable : une ligne sous l'aide.
+        let down = if v.relay_wait_text().is_some() || v.relay_down_text().is_some() { 31.0 } else { 0.0 };
         lines(cv, Text::new(Font::Regular, 22.0, FROST_2), v.help(), inner) * 31.0 + down + 24.0 + 16.0
     } else {
         16.0
@@ -137,6 +137,14 @@ fn button_inactive(cv: &mut Canvas, x: f32, y: f32, label: &str, size: f32) -> f
 }
 
 /// Le contenu du panneau, dans `r`.
+/// L'indicateur d'attente du panneau (une demande à Admin, le lien du relais en préparation), centré sur (`cx`, `cy`) ;
+/// `k` : sa taille (1 : celui de l'en-tête).
+fn wait_dot(cv: &mut Canvas, s: &SessionUi, cx: f32, cy: f32, k: f32) {
+    let t = s.started.elapsed().as_secs_f32();
+    cv.circle(cx, cy, 16.0 * k, HALO.alpha(0.2 + 0.3 * (t * 4.0).sin().abs()));
+    cv.circle(cx, cy, 7.0 * k, SPECTRE);
+}
+
 fn card(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi, r: Rect, m: &Metrics) {
     let (x, mut y) = (r.x + PAD, r.y);
     let inner = r.w - 2.0 * PAD;
@@ -145,10 +153,7 @@ fn card(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi, r: Rect, m: &M
     let title = format!("{} {name}", tr("Partager", "Share"));
     let mut right = r.x + r.w - PAD;
     if s.share_busy {
-        let t = s.started.elapsed().as_secs_f32();
-        let (cx, cy) = (right - 14.0, y + m.header / 2.0 + 4.0);
-        cv.circle(cx, cy, 16.0, HALO.alpha(0.2 + 0.3 * (t * 4.0).sin().abs()));
-        cv.circle(cx, cy, 7.0, SPECTRE);
+        wait_dot(cv, s, right - 14.0, y + m.header / 2.0 + 4.0, 1.0);
         right -= 48.0;
     }
     cv.text_fit(x, y + m.header - 30.0, Text::new(Font::Title, 40.0, FROST), &title, (right - x).max(80.0));
@@ -172,12 +177,26 @@ fn card(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi, r: Rect, m: &M
         let lw = inner - m.qr - 40.0;
         // L'adresse sous le code, au bas du QR code (un peu plus bas quand le bloc est resserré).
         let ay = if m.qr >= 200.0 { m.qr - 32.0 } else { m.qr - 12.0 };
-        cv.text_fit(x, y + ay, Text::new(Font::Mono, 20.0, FROST_3), &v.web, lw);
-        widgets::qr(cv, &v.link, r.x + r.w - PAD - m.qr, y + 4.0, m.qr);
+        // Le lien du relais en préparation : l'adresse du réseau pas encore montrée, l'indicateur d'attente à la place
+        // du QR code (`RELAY_LINK_WAIT` au plus).
+        if v.relay_preparing() {
+            let (qx, qy) = (r.x + r.w - PAD - m.qr, y + 4.0);
+            cv.rrect_stroke(qx, qy, m.qr, m.qr, 12.0, 2.0, LINE);
+            wait_dot(cv, s, qx + m.qr / 2.0, qy + m.qr / 2.0, 1.4);
+        } else {
+            cv.text_fit(x, y + ay, Text::new(Font::Mono, 20.0, FROST_3), &v.web, lw);
+            widgets::qr(cv, &v.link, r.x + r.w - PAD - m.qr, y + 4.0, m.qr);
+        }
     }
     y += top_height(m);
     if m.help {
         y += cv.paragraph(x, y + 24.0, Text::new(Font::Regular, 22.0, FROST_2), v.help(), inner, 31.0);
+        // Le lien du relais se prépare : l'indicateur d'attente et la ligne, sous l'aide du même réseau.
+        if let Some(t) = v.relay_wait_text() {
+            wait_dot(cv, s, x + 10.0, y + 32.0, 0.6);
+            cv.text_fit(x + 32.0, y + 40.0, Text::new(Font::Regular, 22.0, FROST_2), t, inner - 32.0);
+            y += 31.0;
+        }
         // Le relais est réglé mais ne répond pas : sous l'aide du même réseau.
         if let Some(t) = v.relay_down_text() {
             cv.text_fit(x, y + 40.0, Text::new(Font::Regular, 22.0, DANGER), t, inner);

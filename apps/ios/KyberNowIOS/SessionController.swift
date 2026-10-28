@@ -734,7 +734,7 @@ final class SessionController: ObservableObject {
             if requests > 0 || UserDefaults.standard.string(forKey: "demoShareRelay") != nil {
                 Task {
                     await self.share.openIfNeeded()
-                    self.share.demoSetRelay(UserDefaults.standard.string(forKey: "demoShareRelay") == "unreachable" ? .unreachable : .joined)
+                    self.share.demoSetRelay(ShareState.Relay(wire: UserDefaults.standard.string(forKey: "demoShareRelay") ?? "joined"))
                     if requests > 0 { self.share.demoAddGuest(name: "Léa", app: "ios", pending: true, viaRelay: true) }
                     if requests > 1 { self.share.demoAddGuest(name: "Hugo", app: "tvos", pending: true, viaRelay: true) }
                     self.share.demoAddGuest(name: "Sam", app: "android", role: .player, viaRelay: true)

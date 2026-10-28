@@ -45,8 +45,8 @@ fn height(cv: &mut Canvas, app: &App, s: &SessionUi, w: f32, u: f32) -> f32 {
         return (HEADER + 20.0) * u + msg.max(36.0 * u);
     };
     let help_lines = cv.line_count(Text::new(Font::Regular, 12.5 * u, FAINT), v.help(), w - 2.0 * PAD * u) as f32;
-    // Relais réglé mais injoignable : une ligne sous l'aide.
-    let down = if v.relay_down_text().is_some() { 17.0 * u } else { 0.0 };
+    // Lien du relais en préparation, ou relais réglé mais injoignable : une ligne sous l'aide.
+    let down = if v.relay_wait_text().is_some() || v.relay_down_text().is_some() { 17.0 * u } else { 0.0 };
     let (requests, guests) = (v.requests().len(), v.accepted().len());
     let asking = if requests > 0 { 26.0 * u + requests as f32 * REQUEST * u + 8.0 * u } else { 0.0 };
     let people = 26.0 * u + if guests == 0 { 36.0 * u } else { guests as f32 * ROW * u };
@@ -102,6 +102,19 @@ pub fn overlay(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     legend(cv, lx, gy, g, &["B"], tr("Retour", "Back"));
 }
 
+/// Le cercle d'attente du panneau (une demande à Admin, le lien du relais en préparation), centré sur (`cx`, `cy`).
+fn wait_ring(cv: &mut Canvas, app: &App, cx: f32, cy: f32, radius: f32, stroke: f32) {
+    let t = app.screen_since.elapsed().as_secs_f32();
+    let a0 = if app.reduce_motion { 0.0 } else { t * 5.0 };
+    let pts: Vec<(f32, f32)> = (0..=14)
+        .map(|i| {
+            let a = a0 + i as f32 * 0.32;
+            (cx + radius * a.cos(), cy + radius * a.sin())
+        })
+        .collect();
+    cv.polyline(&pts, stroke, SPECTRE);
+}
+
 /// Le contenu du panneau, dans `r` ; rend la hauteur dessinée (celle de `height`).
 fn card(cv: &mut Canvas, f: &mut Frame, app: &App, s: &SessionUi, r: Rect, u: f32) -> f32 {
     let desktop = app.layout == Layout::Desktop;
@@ -124,16 +137,7 @@ fn card(cv: &mut Canvas, f: &mut Frame, app: &App, s: &SessionUi, r: Rect, u: f3
         right -= 36.0;
     }
     if s.share_busy {
-        let t = app.screen_since.elapsed().as_secs_f32();
-        let (cx, cy) = (right - 8.0 * u, y + HEADER * u / 2.0);
-        let a0 = if app.reduce_motion { 0.0 } else { t * 5.0 };
-        let pts: Vec<(f32, f32)> = (0..=14)
-            .map(|i| {
-                let a = a0 + i as f32 * 0.32;
-                (cx + 7.0 * u * a.cos(), cy + 7.0 * u * a.sin())
-            })
-            .collect();
-        cv.polyline(&pts, 1.8 * u, SPECTRE);
+        wait_ring(cv, app, right - 8.0 * u, y + HEADER * u / 2.0, 7.0 * u, 1.8 * u);
         right -= 24.0 * u;
     }
     cv.text_fit(x, y + 29.0 * u, Text::new(Font::Semibold, 17.0 * u, FROST), &title, (right - x).max(40.0));
@@ -153,7 +157,12 @@ fn card(cv: &mut Canvas, f: &mut Frame, app: &App, s: &SessionUi, r: Rect, u: f3
     let lw = inner - qr - 22.0 * u;
     eyebrow(cv, x, y + 12.0 * u, 10.5 * u, FAINT, tr("Code", "Code"));
     cv.text(x - 1.0, y + 50.0 * u, Text::new(Font::MonoMedium, 36.0 * u, CORE), &crate::app::format_code(&v.code));
-    if desktop {
+    // Le lien du relais en préparation : « Copier le lien » inactif, le cercle d'attente à la place du QR code, et
+    // l'adresse du réseau pas encore montrée (`RELAY_LINK_WAIT` au plus).
+    let preparing = v.relay_preparing();
+    if desktop && preparing {
+        widgets::ghost_inactive(cv, x, y + 62.0 * u, 28.0 * u, 12.5 * u, tr("Copier le lien", "Copy link"));
+    } else if desktop {
         let bw = widgets::ghost(cv, f, Target::ShareCopy, x, y + 62.0 * u, 28.0 * u, 12.5 * u, None, tr("Copier le lien", "Copy link"), MUTED);
         // Le lien copié, ou l'échec : l'adresse reste dessous, à sélectionner à la main.
         if let Some((at, ok)) = s.share_copied
@@ -170,12 +179,26 @@ fn card(cv: &mut Canvas, f: &mut Frame, app: &App, s: &SessionUi, r: Rect, u: f3
     {
         cv.text_fit(x, y + 112.0 * u, Text::new(Font::Regular, 11.5 * u, WARN), tr("Copie impossible : sélectionnez le lien à la main.", "Could not copy: select the link by hand."), lw);
     }
-    widgets::qr_card(cv, &v.link, r.x + r.w - pad - qr, y + 4.0 * u, qr - 8.0 * u);
+    if preparing {
+        let (qx, qy, side) = (r.x + r.w - pad - qr, y + 4.0 * u, qr - 8.0 * u);
+        cv.rrect_stroke(qx, qy, side, side, 8.0, 1.0, LINE_2);
+        wait_ring(cv, app, qx + side / 2.0, qy + side / 2.0, 12.0 * u, 2.2 * u);
+    } else {
+        widgets::qr_card(cv, &v.link, r.x + r.w - pad - qr, y + 4.0 * u, qr - 8.0 * u);
+    }
     y += qr + 14.0 * u;
     // L'adresse du client web, en clair : à taper dans un navigateur, ou à sélectionner si la copie a échoué.
-    cv.text_fit(x, y + 4.0 * u, Text::new(Font::Mono, 11.0 * u, FAINT), &v.web, inner);
+    if !preparing {
+        cv.text_fit(x, y + 4.0 * u, Text::new(Font::Mono, 11.0 * u, FAINT), &v.web, inner);
+    }
     y += 18.0 * u;
     y += cv.paragraph(x, y + 4.0 * u, Text::new(Font::Regular, 12.5 * u, FAINT), v.help(), inner, 17.0 * u);
+    // Le lien du relais se prépare : le cercle d'attente et la ligne, sous l'aide du même réseau.
+    if let Some(t) = v.relay_wait_text() {
+        wait_ring(cv, app, x + 6.0 * u, y + 11.5 * u, 5.0 * u, 1.6 * u);
+        cv.text_fit(x + 18.0 * u, y + 16.0 * u, Text::new(Font::Regular, 12.5 * u, MUTED), t, inner - 18.0 * u);
+        y += 17.0 * u;
+    }
     // Le relais est réglé mais ne répond pas : sous l'aide du même réseau.
     if let Some(t) = v.relay_down_text() {
         cv.text_fit(x, y + 16.0 * u, Text::new(Font::Regular, 12.5 * u, WARN), t, inner);

@@ -300,6 +300,7 @@
     "qr": "QR code for the share",
     "help": "On the same network: “Join with a code” in KyberNow Link, or this link in a browser.",
     "help_relay": "On the same network or elsewhere: “Join with a code” in KyberNow Link, or this link in a browser. Away from home, you accept each guest.",
+    "relay_preparing": "Getting the away-from-home link ready…",
     "relay_down": "Not reachable away from home yet.",
     "requests": "Requests",
     "requests_one": "{count} request",

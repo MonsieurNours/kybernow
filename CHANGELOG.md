@@ -5,6 +5,11 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## 0.8.1
+
+- **Partage : le lien hors de chez vous s'annonce.** Pendant les quelques secondes où la Station rejoint le relais, le panneau du partage dit « Préparation du lien hors de chez vous… » ; « Copier le lien » et le QR code attendent le lien du relais, pour ne plus donner par erreur un lien qui ne marche que chez vous. Au bout de 10 secondes sans relais, ils donnent le lien de votre réseau et le panneau dit « Pas encore joignable hors de chez vous. ». Dans toutes les apps Link, dans Admin et dans le menu de l'icône.
+- Le lien du relais arrive plus vite : la Station réserve le code dès qu'elle a rejoint le relais, et reste connectée cinq minutes après un partage, pour que le suivant soit prêt tout de suite.
+
 ## 0.8.0
 
 - **KyberNow Share : partagez votre ordinateur avec jusqu'à quatre invités.** Depuis la barre de session (« Partager »), ou depuis le PC lui-même (« Partager un écran… » dans le menu de l'icône près de l'horloge ou sur l'accueil d'Admin : vous choisissez l'écran à montrer et vous continuez de vous en servir, sans écran virtuel). Un panneau donne un code à six chiffres, un lien et un QR code. Vos invités rejoignent avec « Rejoindre avec un code » dans une app KyberNow Link, ou avec le lien dans un navigateur, sans mot de passe d'Admin. Un invité arrive en spectateur : il voit et entend, rien de plus. Vous lui donnez séparément ses manettes (elles deviennent la manette suivante de Windows) et le clavier et la souris, et vous les reprenez quand vous voulez. « Retirer » le fait sortir (il peut revenir avec le même code, « Nouveau code » l'en empêche) et « Arrêter le partage » fait sortir tout le monde. La Station impose ces droits : même si l'appareil d'un invité envoyait autre chose, rien n'arrive à l'ordinateur. Il faut une Station et des apps en 0.8.0.

@@ -235,6 +235,8 @@ enum ShareText {
     }
     /// Sous l'aide du même réseau, quand le relais est réglé mais pas joint.
     static var relayUnreachable: String { String(localized: "Pas encore joignable hors de chez vous.") }
+    /// Le relais se prépare (`relay.state` `connecting`, 10 s au plus).
+    static var relayConnecting: String { String(localized: "Préparation du lien hors de chez vous…") }
     /// L'aide selon l'état du relais du partage (docs/link-ui.md, « Aide »).
     static func help(relay: ShareState.Relay?) -> String { relay == .joined ? helpRelay : help }
 

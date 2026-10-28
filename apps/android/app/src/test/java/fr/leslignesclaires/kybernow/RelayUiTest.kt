@@ -9,6 +9,7 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
@@ -190,6 +191,32 @@ class RelayUiTest {
         rule.onNodeWithText("Sur le même réseau$nbsp:", substring = true).assertExists()
         rule.onNodeWithText("Sur le même réseau ou ailleurs", substring = true).assertDoesNotExist()
         rule.onNodeWithText("Pas encore joignable hors de chez vous.").assertExists()
+    }
+
+    @Test
+    fun whileTheRelayLinkIsPrepared_copyAndTheQrCodeWait() {
+        show(FormFactor.PHONE) { SharePanelContent("Atelier", share(relay = ShareRelay.CONNECTING, web = "https://192.168.1.20:41234/link/?join=428913"), false, null, null, false, actions, {}) }
+        rule.onNodeWithText("Sur le même réseau$nbsp:", substring = true).assertExists()
+        rule.onNodeWithText("Préparation du lien hors de chez vous…").assertExists()
+        rule.onNodeWithText("Pas encore joignable hors de chez vous.").assertDoesNotExist()
+        rule.onNodeWithText("Copier le lien").assertIsNotEnabled()
+        // Le QR code laisse la place à l'indicateur.
+        rule.onNodeWithContentDescription("QR code du partage").assertDoesNotExist()
+        rule.onNodeWithContentDescription("Préparation du lien hors de chez vous…").assertExists()
+    }
+
+    @Test
+    fun afterTenSeconds_theRelayLinkInPreparation_isUnreachable() {
+        rule.mainClock.autoAdvance = false
+        show(FormFactor.PHONE) { SharePanelContent("Atelier", share(relay = ShareRelay.CONNECTING, web = "https://192.168.1.20:41234/link/?join=428913").copy(code = "777001"), false, null, null, false, actions, {}) }
+        rule.mainClock.advanceTimeBy(1_000)
+        rule.onNodeWithText("Préparation du lien hors de chez vous…").assertExists()
+        // Sans nouvel état de la Station, le panneau change de lui-même au bout des 10 s.
+        rule.mainClock.advanceTimeBy(10_000)
+        rule.onNodeWithText("Préparation du lien hors de chez vous…").assertDoesNotExist()
+        rule.onNodeWithText("Pas encore joignable hors de chez vous.").assertExists()
+        rule.onNodeWithText("Copier le lien").assertIsEnabled()
+        rule.onNodeWithContentDescription("QR code du partage").assertExists()
     }
 
     @Test

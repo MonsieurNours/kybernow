@@ -208,7 +208,8 @@ public struct ShareState: Sendable, Equatable {
     /// L'adresse du client web sur le réseau, même quand `web` est celle du relais.
     public var webLocal: String
     /// Le relais du partage : nil sans relais réglé ; sinon il tient le code
-    /// (« Copier le lien » copie le lien du relais), ou n'est pas encore joignable.
+    /// (« Copier le lien » copie le lien du relais), s'y prépare, ou n'est pas
+    /// encore joignable.
     public var relay: Relay?
     /// Les invités acceptés et les demandes en attente, dans l'ordre d'arrivée.
     public var guests: [ShareGuest]
@@ -217,8 +218,34 @@ public struct ShareState: Sendable, Equatable {
     public enum Relay: Sendable, Equatable {
         /// Le relais tient le code : le lien et le client web passent par lui.
         case joined
+        /// La Station se connecte au relais ou y réserve le code : `web` et
+        /// `link` sont encore ceux du réseau. « Préparation du lien hors de
+        /// chez vous… », copie et QR code retenus, `relayLinkWait` au plus.
+        case connecting
         /// « Pas encore joignable hors de chez vous. »
         case unreachable
+
+        /// Lu dans `relay.state` ; un état inconnu vaut `unreachable`.
+        public init(wire: String?) {
+            switch wire {
+            case "joined": self = .joined
+            case "connecting": self = .connecting
+            default: self = .unreachable
+            }
+        }
+    }
+
+    /// Le temps que l'app attend le lien du relais (`connecting`), compté
+    /// depuis qu'elle voit l'attente pour ce code ; au-delà, c'est comme
+    /// `unreachable` (`RELAY_LINK_WAIT` du cœur, docs/link-ui.md).
+    public static let relayLinkWait: TimeInterval = 10
+
+    /// Ce que le panneau montre du relais, `connecting` vu depuis `waitingSince` :
+    /// `connecting` les 10 premières secondes, `unreachable` ensuite.
+    public static func relayPhase(_ relay: Relay?, waitingSince: Date?, now: Date = Date()) -> Relay? {
+        guard relay == .connecting else { return relay }
+        guard let waitingSince else { return .connecting }
+        return now.timeIntervalSince(waitingSince) < relayLinkWait ? .connecting : .unreachable
     }
 
     public init(code: String, link: String, web: String = "", display: String? = nil, webLocal: String = "",
@@ -255,8 +282,8 @@ public struct ShareState: Sendable, Equatable {
                               role: ShareRole(wire: g["role"] as? String) ?? .spectator, since: since, image: image,
                               pending: g["pending"] as? Bool ?? false, viaRelay: g["via"] as? String == "relay")
         }
-        // `relay` : nul sans relais réglé, sinon `{"state": "joined"|"unreachable"}`.
-        let relay = (j["relay"] as? [String: Any]).map { ($0["state"] as? String) == "joined" ? Relay.joined : Relay.unreachable }
+        // `relay` : nul sans relais réglé, sinon `{"state": "connecting"|"joined"|"unreachable"}`.
+        let relay = (j["relay"] as? [String: Any]).map { Relay(wire: $0["state"] as? String) }
         self.init(code: code, link: j["link"] as? String ?? "", web: j["web"] as? String ?? "",
                   display: (j["display"] as? [String: Any])?["label"] as? String, webLocal: j["web_local"] as? String ?? "",
                   relay: relay, guests: guests)

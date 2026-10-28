@@ -416,6 +416,7 @@ S = [
 ("share_copy_failed", "Copie impossible : sélectionnez le lien à la main.", "Could not copy: select the link by hand."),
 ("share_help", "Sur le même réseau : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur.", "On the same network: “Join with a code” in KyberNow Link, or this link in a browser."),
 ("share_help_relay", "Sur le même réseau ou ailleurs : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur. Hors de chez vous, vous acceptez chaque invité.", "On the same network or elsewhere: “Join with a code” in KyberNow Link, or this link in a browser. Away from home, you accept each guest."),
+("share_relay_preparing", "Préparation du lien hors de chez vous…", "Getting the away-from-home link ready…"),
 ("share_relay_unreachable", "Pas encore joignable hors de chez vous.", "Not reachable away from home yet."),
 ("share_requests_title", "Demandes", "Requests"),
 ("share_request_wants", "%1$s demande à rejoindre", "%1$s wants to join"),

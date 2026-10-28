@@ -43,7 +43,10 @@ const emit = (name: string, payload: unknown) => listeners.get(name)?.forEach((c
 // Atelier, qui ne répond pas sur le réseau ; sa session passe par le relais, la puce « Par le relais » dans
 // `/bar.html`, la ligne « Chemin » de ses statistiques ; le partage de l'hôte dit « Sur le même réseau ou ailleurs… » et
 // deux de ses invités sont venus de loin), `?relais=tcp` (le repli TCP), `?relais=injoignable` (le relais ne répond pas :
-// « Pas encore joignable hors de chez vous. », rien à l'accueil), `?relais=coupe` (Atelier est hors de chez vous, mais
+// « Pas encore joignable hors de chez vous. », rien à l'accueil), `?relais=preparation` (le lien du relais se prépare
+// 4 s à l'ouverture du partage : « Préparation du lien hors de chez vous… », copie et QR code retenus, puis le relais
+// joint), `?relais=lent` (il reste en préparation : au bout de 10 s, la barre dit « Pas encore joignable… » et copie le
+// lien du réseau), `?relais=coupe` (Atelier est hors de chez vous, mais
 // l'accès est coupé dans Admin : sa connexion est refusée avec le texte de link-ui), `?relais=eteint` (l'ordinateur a
 // quitté le relais pendant la connexion : « … est éteint ou en veille »), `?relais=session` (une session de Bureau-Salon,
 // qui répond sur le réseau, passe par le relais : ses réglages disent « Hors de chez vous, l'app ne peut ni redémarrer ni
@@ -55,10 +58,10 @@ const emit = (name: string, payload: unknown) => listeners.get(name)?.forEach((c
 // 737373 le relais ne répond pas, 848484 trois demandes
 // attendent déjà.
 const flags = new URLSearchParams(location.search)
-/** Le relais : `joint`, `tcp`, `injoignable`, `coupe`, `eteint`, `session` ; `null` sans `?relais`. */
+/** Le relais : `joint`, `tcp`, `injoignable`, `preparation`, `lent`, `coupe`, `eteint`, `session` ; `null` sans `?relais`. */
 const relayFlag = flags.has('relais') ? flags.get('relais') || 'joint' : null
 /** Le relais tient le partage de l'hôte et les ordinateurs absents du réseau (tout sauf `injoignable`). */
-const relayJoined = relayFlag !== null && relayFlag !== 'injoignable'
+const relayJoined = relayFlag !== null && relayFlag !== 'injoignable' && relayFlag !== 'preparation' && relayFlag !== 'lent'
 /** Écrans de ce PC imité. */
 const deviceScreens = Math.max(1, Number(flags.get('ecrans') ?? 1) || 1)
 /** Ordinateurs en session au départ (plusieurs ordinateurs). */
@@ -417,6 +420,23 @@ let shareRequests: ShareGuest[] = knownRequests.slice(0, Math.max(0, Math.min(3,
 let shareOpen = shareFlag !== null && /^\d+$/.test(shareFlag)
 let sharedGuests: ShareGuest[] = shareOpen ? knownGuests.slice(0, Math.min(4, Number(shareFlag))) : []
 let shareCode = '482 913'
+/** Le lien du relais en préparation (`?relais=preparation` 4 s, `?relais=lent` sans fin). */
+let sharePreparing = false
+let shareJoinedLater = false
+const prepareRelay = () => {
+  if (relayFlag !== 'preparation' && relayFlag !== 'lent') return
+  sharePreparing = true
+  shareJoinedLater = false
+  if (relayFlag === 'preparation')
+    setTimeout(() => {
+      sharePreparing = false
+      shareJoinedLater = true
+      emitShare()
+    }, 4000)
+}
+/** Le relais tient le code du partage (lien du relais dans `link` et `web`). */
+const shareRelayJoined = () => relayJoined || shareJoinedLater
+if (shareOpen) prepareRelay()
 const shareAvailability = (): Share['availability'] => (shareFlag === 'ancienne' ? 'unsupported' : shareFlag === 'coupe' ? 'disabled' : 'available')
 const shareText = () => (shareFlag === 'ancienne' ? t('mock.share_unsupported') : shareFlag === 'coupe' ? t('mock.share_disabled') : null)
 /** Le panneau de l'hôte, comme `ShareView` de l'app. */
@@ -425,15 +445,16 @@ const shareView = (): Share => ({
   text: shareText(),
   open: shareOpen,
   code: shareOpen ? shareCode : '',
-  link: shareOpen ? `kybernow://join?host=192.168.1.100&port=9443&fp=sha256:aa&code=482913${relayJoined ? '&relay=share.kybernow.app&sid=abcdefghijklmnopqrstuvwxyz' : ''}` : '',
+  link: shareOpen ? `kybernow://join?host=192.168.1.100&port=9443&fp=sha256:aa&code=482913${shareRelayJoined() ? '&relay=share.kybernow.app&sid=abcdefghijklmnopqrstuvwxyz' : ''}` : '',
   // Relais joint : le lien du client web est celui du relais.
-  web: shareOpen ? (relayJoined ? 'https://share.kybernow.app/j/482913' : 'https://192.168.1.100:9443/link/?join=482913') : '',
+  web: shareOpen ? (shareRelayJoined() ? 'https://share.kybernow.app/j/482913' : 'https://192.168.1.100:9443/link/?join=482913') : '',
   display: shareOpen ? 'Écran 1' : null,
   guests: structuredClone(sharedGuests),
   requests: structuredClone(shareRequests),
   // Relais joint : « Sur le même réseau ou ailleurs… » ; injoignable : « Pas encore joignable hors de chez vous. » ;
   // sans `?relais`, le relais n'est pas réglé.
-  relay: relayFlag === null ? null : relayFlag === 'injoignable' ? 'unreachable' : 'joined',
+  // En préparation : `connecting`, le lien du réseau dans `web` et `link`.
+  relay: relayFlag === null ? null : relayFlag === 'injoignable' ? 'unreachable' : sharePreparing ? 'connecting' : 'joined',
   full: sharedGuests.length >= 4,
   qr: shareOpen ? fakeQr() : null,
 })
@@ -577,6 +598,7 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
     if (shareAvailability() !== 'available') throw shareText()
     shareOpen = true
     shareCode = '482 913'
+    prepareRelay()
     emitShare()
     // Un invité arrive un peu plus tard (la pastille apparaît).
     if (sharedGuests.length === 0) {

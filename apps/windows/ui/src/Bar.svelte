@@ -498,6 +498,31 @@
   const guestCount = $derived(share?.open ? share.guests.length : 0)
   /** Les demandes venues par le relais qui attendent l'hôte : elles ont leur pastille, et ne comptent pas parmi les invités. */
   const requestCount = $derived(share?.open ? share.requests.length : 0)
+  /**
+   * Le relais du partage : joint (le lien et le code valent ailleurs), injoignable, pas de relais, ou
+   * `waiting` : lien du relais en préparation (`connecting`) depuis moins de 10 s, comptées dès que la barre
+   * le voit pour ce code ; copie et QR code retenus. Au-delà, il vaut `unreachable` et « Copier le lien »
+   * donne le lien du réseau (docs/link-ui.md, « Lien du relais en préparation »).
+   */
+  const RELAY_WAIT_MS = 10000
+  let relayWait: { key: string; since: number } | null = null
+  let relayClock = $state(Date.now())
+  const relay = $derived.by((): 'joined' | 'unreachable' | 'waiting' | null => {
+    const st = share?.open ? share.relay : null
+    if (st !== 'connecting') {
+      relayWait = null
+      return st ?? null
+    }
+    const key = `${id}:${share?.code}`
+    if (relayWait?.key !== key) relayWait = { key, since: Date.now() }
+    return relayClock - relayWait.since < RELAY_WAIT_MS ? 'waiting' : 'unreachable'
+  })
+  // L'horloge de l'attente : le panneau passe de lui-même à « Pas encore joignable… » au bout des 10 s.
+  $effect(() => {
+    if (relay !== 'waiting') return
+    const timer = setInterval(() => (relayClock = Date.now()), 500)
+    return () => clearInterval(timer)
+  })
   /** « Par le relais » : le chemin en toutes lettres (« Par le relais (TCP) » pour le repli), dans l'infobulle de la puce. */
   const routeTitle = $derived(route ? t(`relay.path_${route.transport}`) : '')
   /** « Joueur » dès qu'il a un droit (manettes, ou clavier et souris), « Spectateur » sinon. */
@@ -579,7 +604,7 @@
   /** « Copier le lien » : l'adresse du client web ; sinon l'adresse sélectionnable, à copier à la main. */
   async function copyLink() {
     const text = share?.web || share?.link || ''
-    if (!text) return
+    if (!text || relay === 'waiting') return
     copied = null
     let ok = true
     try {
@@ -759,10 +784,12 @@
             <div class="codebox">
               <span class="eyebrow">{t('share.code')}</span>
               <span class="digits mono" aria-label={t('share.code') + ' ' + share.code}>{share.code}</span>
-              <button class="ghost" onclick={copyLink}><Icon name="copy" size={16} stroke={1.6} />{t('share.copy_link')}</button>
+              <button class="ghost" onclick={copyLink} disabled={relay === 'waiting'}><Icon name="copy" size={16} stroke={1.6} />{t('share.copy_link')}</button>
               {#if copied === 'ok'}<span class="copied" role="status">{t('share.link_copied')}</span>{/if}
             </div>
-            {#if share.qr}
+            {#if relay === 'waiting'}
+              <div class="qr qr-wait" role="img" aria-label={t('share.relay_preparing')}><span class="spin big"></span></div>
+            {:else if share.qr}
               <svg class="qr" role="img" aria-label={t('share.qr')} viewBox="-4 -4 {share.qr.size + 8} {share.qr.size + 8}" shape-rendering="crispEdges">
                 <rect x="-4" y="-4" width={share.qr.size + 8} height={share.qr.size + 8} fill="#fff" />
                 <path d={share.qr.path} fill="#000" />
@@ -775,8 +802,10 @@
             <input class="field link mono" readonly value={share.web || share.link} onfocus={selectAll} onclick={selectAll} aria-label={t('share.copy_link')} />
           {/if}
           <!-- Relais joint : le partage vaut aussi hors de chez vous, et l'hôte accepte chaque invité venu de loin. -->
-          <p class="help">{t(share.relay === 'joined' ? 'share.help_relay' : 'share.help')}</p>
-          {#if share.relay === 'unreachable'}<p class="help">{t('share.relay_down')}</p>{/if}
+          <p class="help">{t(relay === 'joined' ? 'share.help_relay' : 'share.help')}</p>
+          {#if relay === 'waiting'}
+            <p class="help" role="status"><span class="spin" aria-hidden="true"></span>{t('share.relay_preparing')}</p>
+          {:else if relay === 'unreachable'}<p class="help">{t('share.relay_down')}</p>{/if}
           {#if share.requests.length > 0}
             <div class="eyebrow list-title">{t('share.requests')}</div>
             <ul class="guests requests">
@@ -1289,6 +1318,50 @@
     color: var(--text);
     border-color: var(--faint);
     background: none;
+  }
+
+  /* « Copier le lien » attend le lien du relais. */
+  .menu.share .ghost:disabled {
+    opacity: 0.5;
+    cursor: default;
+    pointer-events: none;
+  }
+
+  /* Lien du relais en préparation : un indicateur d'attente, à la place du QR code et devant le message. */
+  .menu.share .qr-wait {
+    display: grid;
+    place-items: center;
+  }
+
+  .spin {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    margin-right: 8px;
+    vertical-align: -2px;
+    border-radius: 50%;
+    border: 2px solid color-mix(in srgb, currentColor 20%, transparent);
+    border-top-color: var(--signal, currentColor);
+    animation: spin 0.8s linear infinite;
+  }
+
+  .spin.big {
+    width: 32px;
+    height: 32px;
+    margin: 0;
+    border-width: 3px;
+  }
+
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .spin {
+      animation-duration: 2.4s;
+    }
   }
 
   .menu.share .ghost.danger,

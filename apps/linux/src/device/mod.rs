@@ -843,6 +843,8 @@ pub fn run(args: &[String]) {
             || app.screen == Screen::Add
             || app.screen == Screen::Join
             || app.sessions.iter().any(|s| s.share_busy || s.share_copied.is_some_and(|(t, _)| t.elapsed().as_secs_f32() < 4.2))
+            // Le lien du relais en préparation : le cercle d'attente tourne, et la fenêtre se redessine à la fin de l'attente.
+            || app.sessions.iter().any(|s| s.share.as_ref().is_some_and(crate::app::ShareView::relay_wait_redraw))
             || pads.mouse_active();
         let timeout = if animating { 16 } else if streaming { 100 } else { 50 };
         let mut ev = sdl::SDL_Event::default();

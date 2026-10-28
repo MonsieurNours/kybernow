@@ -639,16 +639,28 @@ pub struct ShareView {
     /// Le relais du partage (`None` : pas de relais réglé, ou une Station antérieure). Joint : `link` et `web`
     /// sont ceux du relais (`relay` et `sid`), le partage se rejoint aussi hors de chez soi.
     pub relay: Option<ShareRelay>,
+    /// Quand l'app a vu ce code « en préparation » chez le relais pour la première fois (`ShareRelay::Connecting`,
+    /// `App::share_reply` et `App::share_guests` le gardent tant que le code reste le même) : l'attente du lien du
+    /// relais compte à partir de là, `RELAY_LINK_WAIT` au plus.
+    pub relay_since: Option<Instant>,
     /// Les invités acceptés, puis les demandes en attente (`ShareGuest::pending`) : les boutons visent un indice
     /// de cette liste.
     pub guests: Vec<ShareGuest>,
 }
+
+/// Ce que l'app attend au plus le lien du relais d'un partage en préparation, à partir du moment où elle le voit
+/// (miroir de `kybernow_core::share::RELAY_LINK_WAIT`, que l'interface seule ne connaît pas) : ensuite, elle fait
+/// comme si le relais était injoignable (le lien du réseau, « Pas encore joignable hors de chez vous. »).
+pub const RELAY_LINK_WAIT: Duration = Duration::from_secs(10);
 
 /// L'état du relais d'un partage ouvert (`relay.state` d'Admin).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ShareRelay {
     /// Le code est réservé chez le relais.
     Joined,
+    /// Connexion au relais, ou code pas encore réservé : « Préparation du lien hors de chez vous… », `link` et `web`
+    /// sont encore ceux du réseau (le QR code et l'adresse attendent, `RELAY_LINK_WAIT` au plus).
+    Connecting,
     /// Le relais ne répond pas : « Pas encore joignable hors de chez vous. »
     Unreachable,
 }
@@ -690,9 +702,38 @@ impl ShareView {
         }
     }
 
-    /// Sous l'aide du même réseau, quand le relais est réglé mais injoignable.
+    /// Le lien du relais se prépare et l'app l'attend encore (`RELAY_LINK_WAIT` au plus depuis qu'elle a vu ce
+    /// code en préparation) : le QR code et l'adresse attendent.
+    pub fn relay_preparing(&self) -> bool {
+        self.relay == Some(ShareRelay::Connecting) && self.relay_since.is_none_or(|t| t.elapsed() < RELAY_LINK_WAIT)
+    }
+
+    /// L'attente du lien du relais court encore, ou vient de finir : l'écran se redessine jusqu'à un peu après
+    /// `RELAY_LINK_WAIT` (l'indicateur d'attente bat, puis le lien du réseau et « Pas encore joignable… » s'affichent).
+    pub fn relay_wait_redraw(&self) -> bool {
+        self.relay == Some(ShareRelay::Connecting) && self.relay_since.is_none_or(|t| t.elapsed() < RELAY_LINK_WAIT + Duration::from_millis(250))
+    }
+
+    /// Sous l'aide du même réseau, pendant que le lien du relais se prépare (avec l'indicateur d'attente).
+    pub fn relay_wait_text(&self) -> Option<&'static str> {
+        self.relay_preparing().then(|| tr("Préparation du lien hors de chez vous…", "Getting the away-from-home link ready…"))
+    }
+
+    /// Sous l'aide du même réseau, quand le relais est réglé mais injoignable, ou que son lien s'est fait attendre
+    /// plus de `RELAY_LINK_WAIT`.
     pub fn relay_down_text(&self) -> Option<&'static str> {
-        (self.relay == Some(ShareRelay::Unreachable)).then(|| tr("Pas encore joignable hors de chez vous.", "Not reachable away from home yet."))
+        let down = match self.relay {
+            Some(ShareRelay::Unreachable) => true,
+            Some(ShareRelay::Connecting) => !self.relay_preparing(),
+            Some(ShareRelay::Joined) | None => false,
+        };
+        down.then(|| tr("Pas encore joignable hors de chez vous.", "Not reachable away from home yet."))
+    }
+
+    /// Garde le moment où l'app a vu ce code en préparation pour la première fois (`before` : le partage d'avant).
+    pub fn keep_relay_since(&mut self, before: Option<&ShareView>) {
+        let kept = before.filter(|b| b.code == self.code).and_then(|b| b.relay_since);
+        self.relay_since = kept.or(self.relay_since).or_else(|| (self.relay == Some(ShareRelay::Connecting)).then(Instant::now));
     }
 }
 
@@ -2016,6 +2057,10 @@ impl App {
                     s.share_opened = Some(Instant::now());
                     s.share_closed = None;
                 }
+                let mut view = view;
+                if let Some(v) = view.as_mut() {
+                    v.keep_relay_since(s.share.as_ref());
+                }
                 let before = std::mem::replace(&mut s.share, view);
                 s.share_error = None;
                 if first && shown {
@@ -2042,6 +2087,10 @@ impl App {
             s.share_opened = None;
         } else if s.share.is_none() {
             s.share_opened = Some(Instant::now());
+        }
+        let mut view = view;
+        if let Some(v) = view.as_mut() {
+            v.keep_relay_since(s.share.as_ref());
         }
         let before = std::mem::replace(&mut s.share, view);
         self.notice_requests(before.as_ref());

@@ -5814,6 +5814,22 @@
         }
       }
     },
+    "Préparation du lien hors de chez vous…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Getting the away-from-home link ready…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Préparation du lien hors de chez vous…"
+          }
+        }
+      }
+    },
     "Prévenir d'un son en retard" : {
       "localizations" : {
         "en" : {

@@ -818,16 +818,28 @@ pub struct ShareView {
     /// Le relais du partage (`None` : pas de relais réglé, ou une Station antérieure). Joint : `link` et `web`
     /// sont ceux du relais (`relay` et `sid`), le partage se rejoint aussi hors de chez soi.
     pub relay: Option<ShareRelay>,
+    /// Quand l'app a vu ce code « en préparation » chez le relais pour la première fois (`ShareRelay::Connecting`,
+    /// `App::share_reply` et `App::share_guests` le gardent tant que le code reste le même) : l'attente du lien du
+    /// relais compte à partir de là, `RELAY_LINK_WAIT` au plus.
+    pub relay_since: Option<Instant>,
     /// Les invités acceptés, puis les demandes en attente (`ShareGuest::pending`) : les boutons visent un indice
     /// de cette liste.
     pub guests: Vec<ShareGuest>,
 }
+
+/// Ce que l'app attend au plus le lien du relais d'un partage en préparation, à partir du moment où elle le voit
+/// (miroir de `kybernow_core::share::RELAY_LINK_WAIT`, que l'interface seule ne connaît pas) : ensuite, elle fait
+/// comme si le relais était injoignable (le lien du réseau, « Pas encore joignable hors de chez vous. »).
+pub const RELAY_LINK_WAIT: Duration = Duration::from_secs(10);
 
 /// L'état du relais d'un partage ouvert (`relay.state` d'Admin).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ShareRelay {
     /// Le code est réservé chez le relais.
     Joined,
+    /// Connexion au relais, ou code pas encore réservé : « Préparation du lien hors de chez vous… », `link` et `web`
+    /// sont encore ceux du réseau (« Copier le lien » et le QR code attendent, `RELAY_LINK_WAIT` au plus).
+    Connecting,
     /// Le relais ne répond pas : « Pas encore joignable hors de chez vous. »
     Unreachable,
 }
@@ -879,9 +891,38 @@ impl ShareView {
         }
     }
 
-    /// Sous l'aide du même réseau, quand le relais est réglé mais injoignable.
+    /// Le lien du relais se prépare et l'app l'attend encore (`RELAY_LINK_WAIT` au plus depuis qu'elle a vu ce
+    /// code en préparation) : « Copier le lien » est inactif et le QR code attend.
+    pub fn relay_preparing(&self) -> bool {
+        self.relay == Some(ShareRelay::Connecting) && self.relay_since.is_none_or(|t| t.elapsed() < RELAY_LINK_WAIT)
+    }
+
+    /// L'attente du lien du relais court encore, ou vient de finir : la fenêtre se redessine jusqu'à un peu après
+    /// `RELAY_LINK_WAIT` (le cercle d'attente tourne, puis le lien du réseau et « Pas encore joignable… » s'affichent).
+    pub fn relay_wait_redraw(&self) -> bool {
+        self.relay == Some(ShareRelay::Connecting) && self.relay_since.is_none_or(|t| t.elapsed() < RELAY_LINK_WAIT + Duration::from_millis(250))
+    }
+
+    /// Sous l'aide du même réseau, pendant que le lien du relais se prépare (avec le cercle d'attente).
+    pub fn relay_wait_text(&self) -> Option<&'static str> {
+        self.relay_preparing().then(|| tr("Préparation du lien hors de chez vous…", "Getting the away-from-home link ready…"))
+    }
+
+    /// Sous l'aide du même réseau, quand le relais est réglé mais injoignable, ou que son lien s'est fait attendre
+    /// plus de `RELAY_LINK_WAIT`.
     pub fn relay_down_text(&self) -> Option<&'static str> {
-        (self.relay == Some(ShareRelay::Unreachable)).then(|| tr("Pas encore joignable hors de chez vous.", "Not reachable away from home yet."))
+        let down = match self.relay {
+            Some(ShareRelay::Unreachable) => true,
+            Some(ShareRelay::Connecting) => !self.relay_preparing(),
+            Some(ShareRelay::Joined) | None => false,
+        };
+        down.then(|| tr("Pas encore joignable hors de chez vous.", "Not reachable away from home yet."))
+    }
+
+    /// Garde le moment où l'app a vu ce code en préparation pour la première fois (`before` : le partage d'avant).
+    pub fn keep_relay_since(&mut self, before: Option<&ShareView>) {
+        let kept = before.filter(|b| b.code == self.code).and_then(|b| b.relay_since);
+        self.relay_since = kept.or(self.relay_since).or_else(|| (self.relay == Some(ShareRelay::Connecting)).then(Instant::now));
     }
 }
 
@@ -2755,7 +2796,8 @@ impl App {
             }
             Target::BarShare => self.share_button(false),
             // « Copier le lien » copie l'adresse du client web (`web`) ; le QR code porte le lien des apps.
-            Target::ShareCopy => match self.session().and_then(|s| s.share.as_ref().map(|v| (s.id, v.web.clone()))) {
+            // Le lien du relais se prépare : rien à copier encore (le bouton est inactif).
+            Target::ShareCopy => match self.session().and_then(|s| s.share.as_ref().filter(|v| !v.relay_preparing()).map(|v| (s.id, v.web.clone()))) {
                 Some((id, web)) => {
                     if let Some(s) = self.session_by_mut(id) {
                         s.share_copied = Some((Instant::now(), true));
@@ -3329,6 +3371,10 @@ impl App {
                     s.share_opened = Some(Instant::now());
                     s.share_closed = None;
                 }
+                let mut view = view;
+                if let Some(v) = view.as_mut() {
+                    v.keep_relay_since(s.share.as_ref());
+                }
                 let before = std::mem::replace(&mut s.share, view);
                 s.share_error = None;
                 if first && focus_panel && console && active == Some(id) {
@@ -3358,6 +3404,10 @@ impl App {
             s.share_opened = None;
         } else if s.share.is_none() {
             s.share_opened = Some(Instant::now());
+        }
+        let mut view = view;
+        if let Some(v) = view.as_mut() {
+            v.keep_relay_since(s.share.as_ref());
         }
         let before = std::mem::replace(&mut s.share, view);
         self.notice_requests(id, before.as_ref());
@@ -4637,7 +4687,7 @@ mod tests {
         let mut app = desk();
         let a = open(&mut app, "a");
         let guest = |id: &str, pending: bool| ShareGuest { id: id.into(), name: id.to_uppercase(), app: "ios".into(), pending, via_relay: pending, ..Default::default() };
-        let view = |guests: Vec<ShareGuest>| ShareView { code: "482917".into(), link: "kybernow://join?x".into(), web: "https://share.kybernow.app/j/482917".into(), relay: Some(ShareRelay::Joined), guests };
+        let view = |guests: Vec<ShareGuest>| ShareView { code: "482917".into(), link: "kybernow://join?x".into(), web: "https://share.kybernow.app/j/482917".into(), relay: Some(ShareRelay::Joined), relay_since: None, guests };
         // Trois invités et une demande : il reste une place.
         app.share_reply(a, Ok(Some(view(vec![guest("g1", false), guest("g2", false), guest("g3", false), guest("r1", true)]))));
         assert!(!app.session().unwrap().share.as_ref().unwrap().full());
@@ -5307,7 +5357,7 @@ mod tests {
         assert!(s.share_busy && s.bar_menu == Some(BarMenu::Share));
         // Une demande à la fois.
         assert!(app.activate(Target::ShareNewCode).is_empty());
-        let view = ShareView { code: "482917".into(), link: "kybernow://join?x".into(), web: "https://h:1/link/?join=482917".into(), relay: None, guests: vec![ShareGuest { id: "g1".into(), name: "Léa".into(), role: ShareRole::Spectator, app: "ios".into(), since: Some(1), quality: None, ..Default::default() }] };
+        let view = ShareView { code: "482917".into(), link: "kybernow://join?x".into(), web: "https://h:1/link/?join=482917".into(), relay: None, relay_since: None, guests: vec![ShareGuest { id: "g1".into(), name: "Léa".into(), role: ShareRole::Spectator, app: "ios".into(), since: Some(1), quality: None, ..Default::default() }] };
         app.share_reply(a, Ok(Some(view.clone())));
         assert!(!app.session().unwrap().share_busy && app.session().unwrap().share.is_some());
         // Ses invités : deux droits indépendants, chacun donné ou repris sans toucher à l'autre, puis « Retirer ».
@@ -5335,6 +5385,16 @@ mod tests {
         app.share_reply(a, Ok(Some(ShareView { code: "111222".into(), ..view.clone() })));
         // « Copier le lien » : l'adresse du client web, jamais le lien des apps.
         assert_eq!(app.activate(Target::ShareCopy), vec![Action::CopyText("https://h:1/link/?join=482917".into())]);
+        // Le lien du relais en préparation : rien à copier ; l'app garde le moment où elle a vu ce code en préparation
+        // (les signes de vie suivants ne relancent pas l'attente), un nouveau code la relance.
+        app.share_guests(a, Some(ShareView { code: "111222".into(), relay: Some(ShareRelay::Connecting), ..view.clone() }));
+        let since = app.session().unwrap().share.as_ref().unwrap().relay_since;
+        assert!(since.is_some() && app.activate(Target::ShareCopy).is_empty());
+        app.share_guests(a, Some(ShareView { code: "111222".into(), relay: Some(ShareRelay::Connecting), ..view.clone() }));
+        assert_eq!(app.session().unwrap().share.as_ref().unwrap().relay_since, since);
+        app.share_reply(a, Ok(Some(ShareView { code: "333444".into(), relay: Some(ShareRelay::Connecting), ..view.clone() })));
+        assert!(app.session().unwrap().share.as_ref().unwrap().relay_since.is_some());
+        app.share_reply(a, Ok(Some(ShareView { code: "111222".into(), ..view.clone() })));
         // Le panneau se ferme et se rouvre sans redemander l'ouverture ; « Arrêter le partage » le ferme.
         assert!(app.activate(Target::BarShare).is_empty() && app.session().unwrap().bar_menu.is_none());
         assert!(app.activate(Target::BarShare).is_empty() && app.session().unwrap().bar_menu == Some(BarMenu::Share));
@@ -5637,6 +5697,13 @@ mod tests {
             assert_eq!(view(Some(ShareRelay::Unreachable)).help(), help_lan);
             assert_eq!(view(Some(ShareRelay::Joined)).help(), help_relay);
             assert_eq!((view(None).relay_down_text(), view(Some(ShareRelay::Joined)).relay_down_text(), view(Some(ShareRelay::Unreachable)).relay_down_text()), (None, None, Some(down)));
+            // Le lien du relais en préparation : l'aide du même réseau et la ligne d'attente, puis, l'attente passée,
+            // comme un relais injoignable.
+            let wait = if en { "Getting the away-from-home link ready…" } else { "Préparation du lien hors de chez vous…" };
+            let soon = ShareView { relay_since: Some(Instant::now()), ..view(Some(ShareRelay::Connecting)) };
+            assert_eq!((soon.help(), soon.relay_wait_text(), soon.relay_down_text(), soon.relay_preparing()), (help_lan, Some(wait), None, true));
+            let late = ShareView { relay_since: Instant::now().checked_sub(RELAY_LINK_WAIT + Duration::from_secs(1)), ..soon.clone() };
+            assert_eq!((late.help(), late.relay_wait_text(), late.relay_down_text(), late.relay_preparing(), late.relay_wait_redraw()), (help_lan, None, Some(down), false, false));
             let _ = away;
         }
         // « hors de chez vous » après l'app d'un invité venu par le relais, avec sa durée.
@@ -5693,7 +5760,7 @@ mod tests {
         let mut app = desk();
         let a = open(&mut app, "a");
         let guest = |id: &str, name: &str, pending: bool| ShareGuest { id: id.into(), name: name.into(), app: "ios".into(), pending, via_relay: pending, ..Default::default() };
-        let view = |guests: Vec<ShareGuest>| ShareView { code: "482917".into(), link: "kybernow://join?x".into(), web: "https://h:1/j/482917".into(), relay: Some(ShareRelay::Joined), guests };
+        let view = |guests: Vec<ShareGuest>| ShareView { code: "482917".into(), link: "kybernow://join?x".into(), web: "https://h:1/j/482917".into(), relay: Some(ShareRelay::Joined), relay_since: None, guests };
         app.share_reply(a, Ok(Some(view(Vec::new()))));
         // Une demande arrive avec le signe de vie : l'avis bref, pas de panneau ouvert.
         app.share_guests(a, Some(view(vec![guest("g1", "Léa", false), guest("g2", "Tom", true)])));

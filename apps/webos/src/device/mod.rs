@@ -208,6 +208,8 @@ pub fn run() {
             || (app.screen == Screen::Gamepads)
             || app.screen == Screen::Join
             || app.session.as_ref().is_some_and(|s| s.share_busy)
+            // Le lien du relais en préparation : l'indicateur d'attente bat, et l'écran se redessine à la fin de l'attente.
+            || app.session.as_ref().and_then(|s| s.share.as_ref()).is_some_and(crate::app::ShareView::relay_wait_redraw)
             || pads.mouse_active();
         let timeout = if animating { 16 } else { 50 };
         let mut ev = sdl::SDL_Event::default();

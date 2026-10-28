@@ -360,6 +360,7 @@ fn shared_view() -> ShareView {
         link: "kybernow://join?host=192.168.1.42&port=24811&fp=sha256:7c:3a:91:e0:4b:2d:a8:1f&code=482917".into(),
         web: "https://192.168.1.42:24811/link/?join=482917".into(),
         relay: None,
+        relay_since: None,
         guests: vec![
             ShareGuest { id: "g1".into(), name: "Léa".into(), role: ShareRole::Spectator, app: "ios".into(), since: Some(now - 4 * 60), quality: None, ..Default::default() },
             ShareGuest { id: "g2".into(), name: "Tom".into(), role: ShareRole::Player, app: "webos".into(), since: Some(now - 35 * 60), quality: Some("1080p · 60 Hz".into()), ..Default::default() },
@@ -642,6 +643,15 @@ fn relay_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, prefi
     }
     app.focus = Target::ShareNewCode;
     shot(app, cv, Some(video), dir, &name("21l-partage-relais-injoignable"));
+    // Le lien du relais en préparation : le lien du réseau encore, « Copier le lien » inactif, le QR code attend.
+    if let Some(s) = app.session_mut() {
+        let lan = shared_view();
+        s.share = Some(ShareView { link: lan.link, web: lan.web, relay_since: Some(Instant::now()), ..relay_view(Some(ShareRelay::Connecting)) });
+        if let Some(v) = s.share.as_mut() {
+            v.guests.truncate(1);
+        }
+    }
+    shot(app, cv, Some(video), dir, &name("21o-partage-relais-preparation"));
     // Les quatre places prises : « Accepter » est inactif (« Quatre invités au plus. »), « Refuser » reste, le focus y commence.
     let mut complet = relay_view(Some(ShareRelay::Joined));
     complet.guests.truncate(1);

@@ -398,8 +398,12 @@ export type Share = {
   guests: ShareGuest[]
   /** Les demandes venues par le relais, qui attendent « Accepter » ou « Refuser ». */
   requests: ShareGuest[]
-  /** Le relais du partage : `joined`, `unreachable` (« Pas encore joignable hors de chez vous. »), `null` sans relais. */
-  relay: 'joined' | 'unreachable' | null
+  /**
+   * Le relais du partage : `joined`, `connecting` (lien du relais en préparation : « Préparation du lien hors de
+   * chez vous… », copie et QR code retenus 10 s au plus), `unreachable` (« Pas encore joignable hors de chez vous. »),
+   * `null` sans relais.
+   */
+  relay: 'joined' | 'connecting' | 'unreachable' | null
   full: boolean
   qr: ShareQr | null
 }

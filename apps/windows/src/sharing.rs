@@ -302,7 +302,9 @@ pub struct ShareView {
     /// (liste « Demandes », pastille « 1 demande »).
     pub requests: Vec<GuestView>,
     /// Le relais du partage : `joined` (« Sur le même réseau ou ailleurs… »),
-    /// `unreachable` (« Pas encore joignable hors de chez vous. »), rien sans relais.
+    /// `connecting` (lien du relais en préparation : la barre retient la copie et
+    /// le QR code 10 s au plus, `share::RELAY_LINK_WAIT`), `unreachable` (« Pas
+    /// encore joignable hors de chez vous. »), rien sans relais.
     pub relay: Option<&'static str>,
     /// Quatre invités : « Quatre invités au plus. »
     pub full: bool,
@@ -538,6 +540,9 @@ mod tests {
         // Relais injoignable : le panneau le dit (le texte « Pas encore joignable hors de chez vous. »).
         let down = ShareState { relay: Some(ShareRelay { state: ShareRelayState::Unreachable }), ..state };
         assert_eq!(ShareView::new(Some(&down), None, Lang::Fr).relay, Some("unreachable"));
+        // Lien du relais en préparation : passé tel quel, la barre fait l'attente.
+        let soon = ShareState { relay: Some(ShareRelay { state: ShareRelayState::Connecting }), ..down };
+        assert_eq!(ShareView::new(Some(&soon), None, Lang::Fr).relay, Some("connecting"));
     }
 
     /// Une demande qui arrive pendant la session : son prénom, une seule fois ; une demande déjà là, un invité
