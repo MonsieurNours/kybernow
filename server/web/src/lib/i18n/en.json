@@ -1006,6 +1006,7 @@
       "waiting": "Waiting for the host to accept…",
       "refused": "The host declined.",
       "expired": "The host did not answer.",
+      "stopped": "This share has stopped.",
       "relayDown": "The relay is not answering.",
       "pendingFull": "Too many requests waiting: try again in a moment."
     },

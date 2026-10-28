@@ -83,7 +83,7 @@ mod tests {
 
     #[test]
     fn ligne_du_relais() {
-        let relay = |state: &str, reason: Value| json!({ "server": "share.kybernow.app:8443", "remote_access": false, "state": state, "reason": reason });
+        let relay = |state: &str, reason: Value| json!({ "server": "share.kybernow.app", "remote_access": false, "state": state, "reason": reason });
         assert_eq!(relay_line(Lang::Fr, &relay("joined", Value::Null)).as_deref(), Some("Relais joint"));
         assert_eq!(relay_line(Lang::En, &relay("joined", Value::Null)).as_deref(), Some("Relay reached"));
         assert_eq!(relay_line(Lang::Fr, &relay("unreachable", json!("délai dépassé"))).as_deref(), Some("Relais injoignable (délai dépassé)"));

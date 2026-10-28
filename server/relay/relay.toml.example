@@ -3,8 +3,9 @@
 
 # domain = "relais.exemple.org"
 # listen = "0.0.0.0:8443"
-# Port écrit dans les liens /j/{code} si la box en publie un autre :
-# public_port = 8443
+# Port public annoncé, si la box en publie un autre que le port d'écoute
+# (liens /j/{code}, adresses https://<id>.<domaine>, sans port au 443) :
+# public_port = 443
 # cert = "/certs/certificates/relais.exemple.org.crt"
 # key = "/certs/certificates/relais.exemple.org.key"
 # banlist = "/config/banlist.txt"
