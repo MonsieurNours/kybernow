@@ -57,20 +57,33 @@ fn t(lang: Lang, fr_text: &str, en: &str) -> String {
     }
 }
 
+/// Le logo signé de KyberNow Share, version sombre (copie de
+/// `brand/v2/logo/kybernow-share-dark.svg`, écrite par `brand/v2/tools/generate.mjs`).
+const LOGO: &str = include_str!("../assets/kybernow-share-dark.svg");
+
+/// Le favicon de la charte, en `data:` (la politique de contenu des pages
+/// n'autorise que les images `data:`).
+fn favicon() -> String {
+    use base64::Engine as _;
+    let svg = include_str!("../assets/kybernow-favicon.svg");
+    format!("data:image/svg+xml;base64,{}", base64::engine::general_purpose::STANDARD.encode(svg))
+}
+
 fn layout(lang: Lang, title: &str, body: &str) -> String {
     let footer_relay = t(lang, "Relais de KyberNow", "KyberNow relay");
     let footer_privacy = t(lang, "Confidentialité", "Privacy");
     format!(
-        r#"<!doctype html>
+        r##"<!doctype html>
 <html lang="{lang}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
-<title>{title} · KyberNow</title>
+<meta name="theme-color" content="#05070A">
+<link rel="icon" type="image/svg+xml" href="{favicon}">
+<title>{title} · KyberNow Share</title>
 <style>
-:root {{ color-scheme: dark light; --bg: #05070A; --surface: #0E141A; --line: #1E2832; --text: #E9EEF1; --muted: #9AA7B0; --signal: #9A8CFF; --bad: #FF6B6B; }}
-@media (prefers-color-scheme: light) {{ :root {{ --bg: #F2F5F6; --surface: #FFFFFF; --line: #D8E0E4; --text: #10161B; --muted: #55626B; --signal: #5340E6; --bad: #C93A3A; }} }}
+:root {{ color-scheme: dark; --bg: #05070A; --surface: #0E141A; --line: #1E2832; --text: #E3EDF0; --muted: #9AA7B0; --signal: #9A8CFF; --flat: #6D5BFF; --bad: #FF6B6B; }}
 * {{ box-sizing: border-box; }}
 body {{ margin: 0; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px 16px; background: var(--bg); color: var(--text); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }}
 main {{ width: 100%; max-width: 420px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 28px 24px; }}
@@ -79,7 +92,9 @@ p {{ margin: 0 0 16px; color: var(--muted); }}
 label {{ display: block; font-weight: 600; margin-bottom: 6px; }}
 input {{ width: 100%; font: 600 1.75rem/1.2 ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: 0.15em; text-align: center; padding: 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text); }}
 input:focus-visible, button:focus-visible, a:focus-visible {{ outline: 2px solid var(--signal); outline-offset: 2px; }}
-button {{ width: 100%; margin-top: 16px; padding: 12px; border: 0; border-radius: 10px; background: var(--signal); color: #fff; font: 600 1rem/1.2 inherit; cursor: pointer; }}
+button {{ width: 100%; margin-top: 16px; padding: 12px; border: 0; border-radius: 10px; background: var(--flat); color: #fff; font: 600 1rem/1.2 inherit; cursor: pointer; }}
+.brand {{ width: 100%; max-width: 420px; margin: 0 0 24px; }}
+.brand svg {{ display: block; width: 260px; max-width: 72%; height: auto; }}
 .notice {{ color: var(--bad); font-weight: 600; }}
 .hint {{ font-size: 0.9rem; margin: 16px 0 0; }}
 footer {{ margin-top: 20px; font-size: 0.85rem; color: var(--muted); }}
@@ -87,14 +102,17 @@ footer a, main a {{ color: var(--signal); }}
 </style>
 </head>
 <body>
+<header class="brand">{logo}</header>
 <main>
 {body}
 </main>
 <footer>{footer_relay} · <a href="/privacy">{footer_privacy}</a></footer>
 </body>
 </html>
-"#,
+"##,
         lang = lang.code(),
+        logo = LOGO,
+        favicon = favicon(),
     )
 }
 
