@@ -77,6 +77,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import fr.leslignesclaires.kybernow.R
+import fr.leslignesclaires.kybernow.core.RouteTransport
 import fr.leslignesclaires.kybernow.core.ShareAvailability
 import fr.leslignesclaires.kybernow.core.ShareGuest
 import fr.leslignesclaires.kybernow.core.ShareQuality
@@ -207,6 +208,10 @@ interface SessionActions {
     fun shareSetPads(guest: ShareGuest, on: Boolean)
     /** « Donner le clavier et la souris » (`on`) ou « Reprendre le clavier et la souris » : ses manettes ne changent pas. */
     fun shareSetKeyboardMouse(guest: ShareGuest, on: Boolean)
+    /** « Accepter » la demande d'un invité venu par le relais (`pending`) : il entre dans le partage, spectateur. */
+    fun shareAccept(guest: ShareGuest)
+    /** « Refuser » la demande d'un invité venu par le relais. */
+    fun shareRefuse(guest: ShareGuest)
     /** « Retirer » un invité. */
     fun shareRemove(guest: ShareGuest)
     /** « Arrêter le partage » : tout le monde sort. */
@@ -404,6 +409,8 @@ private fun capsuleText(c: Capsule): String = when (c) {
     is Capsule.ShareRights -> stringResource(c.text)
     // L'avis de la Station sur l'image de l'invité (« Image allégée pour suivre. ») : le texte du cœur, tel quel.
     is Capsule.ShareNotice -> c.text
+    // Hôte : une demande venue par le relais (le texte de la ligne du panneau).
+    is Capsule.ShareRequest -> stringResource(R.string.share_request_wants, c.name)
 }
 
 // MARK: - Téléphone et tablette
@@ -439,6 +446,8 @@ private fun PhoneBar(ui: SessionUi) {
                 ) {
                     if (ui.guest) GuestBarItems(ui, sec, role, first) else HostBarItems(ui, sec, first)
                 }
+                // Par le relais (hors de chez vous) : la puce, dans la partie fixe comme « Partager ».
+                RouteChip(ui)
                 // Un invité n'a rien à partager.
                 if (!ui.guest) ShareItems(ui, compact)
                 // Un invité quitte le partage : l'ordinateur, lui, ne change pas.
@@ -574,7 +583,34 @@ private fun ShareItems(ui: SessionUi, compact: Boolean) {
     }
     // La pastille, à partir d'un invité (jamais « 0 invité ») : elle rouvre le panneau.
     share?.takeIf { it.guests.isNotEmpty() }?.let { GlassButton(guestsLabel(it.guests.size), { ui.actions.share() }, selected = true) }
+    // Les demandes venues par le relais ont la leur, à côté (« 1 demande ») : elle rouvre aussi le panneau.
+    share?.takeIf { it.requests.isNotEmpty() }?.let { GlassButton(requestsLabel(it.requests.size), { ui.actions.share() }, selected = true) }
 }
+
+/**
+ * La puce « Par le relais » (docs/link-ui.md, « Hors de chez vous »), dans la partie toujours visible de la barre ;
+ * un toucher ouvre les statistiques, où la ligne « Chemin » dit lequel (« Par le relais (TCP) » compris). Rien sur le réseau.
+ */
+@Composable
+private fun RouteChip(ui: SessionUi) {
+    val s = LocalScale.current
+    val route by ui.state.route.collectAsState()
+    if (route?.viaRelay != true) return
+    GlassButton(
+        stringResource(R.string.route_relay), { ui.statsOpen = !ui.statsOpen }, selected = true,
+        leading = { KnIcon(KnIcons.network, size = 16f); Spacer(Modifier.width(s.dp(6f))) },
+    )
+}
+
+/** « Direct », « Par le relais », « Par le relais (TCP) » : la ligne « Chemin » des statistiques (textes de docs/link-ui.md). */
+@Composable
+fun routeLabel(transport: RouteTransport) = stringResource(
+    when (transport) {
+        RouteTransport.DIRECT -> R.string.route_direct
+        RouteTransport.RELAY -> R.string.route_relay
+        RouteTransport.RELAY_TCP -> R.string.route_relay_tcp
+    },
+)
 
 /** L'infobulle d'un élément inactif à la souris : [reason], au survol ; sans raison, l'élément seul. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -598,6 +634,10 @@ fun roleLabel(role: ShareRole) = stringResource(if (role.plays) R.string.share_r
 /** « 0 invité », « 1 invité », « 2 invités » (le pluriel suit la langue de l'app). */
 @Composable
 fun guestsLabel(count: Int) = pluralStringResource(R.plurals.share_guests, count, count)
+
+/** « 1 demande », « 2 demandes » (le pluriel suit la langue de l'app) : les invités venus par le relais qui attendent l'hôte. */
+@Composable
+fun requestsLabel(count: Int) = pluralStringResource(R.plurals.share_requests, count, count)
 
 /** L'écran de l'ordinateur à l'image : son rang, sa taille, et le suivant (un toucher passe à lui). */
 private class ScreenChoice(val index: Int, val count: Int, val width: Int, val height: Int, val next: Int)
@@ -722,8 +762,11 @@ private fun GuestTiles(ui: SessionUi, role: ShareRole, first: FocusRequester, au
     val s = LocalScale.current
     val image by ui.state.shareImage.collectAsState()
     val chosen by ui.state.shareQuality.collectAsState()
+    val route by ui.state.route.collectAsState()
     FlowRow(Modifier.widthIn(max = s.dp(900f)), horizontalArrangement = Arrangement.spacedBy(s.dp(14f), Alignment.CenterHorizontally), verticalArrangement = Arrangement.spacedBy(s.dp(14f)), maxItemsInEachRow = 5) {
         Tile(KnIcons.play, stringResource(R.string.session_resume), null, Modifier.focusRequester(first), primary = true) { ui.actions.resume() }
+        // Par le relais (hors de chez vous) : une tuile, comme la puce de la barre ; elle ouvre les statistiques (« Chemin »).
+        if (route?.viaRelay == true) Tile(KnIcons.network, stringResource(R.string.route_relay), null, selected = true) { ui.statsOpen = !ui.statsOpen }
         Tile(KnIcons.sound, stringResource(R.string.session_sound), audio?.let { (c, _) -> stringResource(R.string.session_sound_channels, c) }) { ui.statsOpen = !ui.statsOpen }
         Tile(KnIcons.pulse, stringResource(R.string.session_stats), null) { ui.statsOpen = !ui.statsOpen }
         // La qualité reçue (« 1080p · 60 Hz ») quand la Station la dit, sinon celle qu'on a choisie (« Auto »).
@@ -743,8 +786,10 @@ private fun GuestTiles(ui: SessionUi, role: ShareRole, first: FocusRequester, au
 private fun TvTiles(ui: SessionUi, first: FocusRequester, audio: Pair<Int, Double>?) {
     val s = LocalScale.current
     val share by ui.state.share.collectAsState()
+    val route by ui.state.route.collectAsState()
     FlowRow(Modifier.widthIn(max = s.dp(900f)), horizontalArrangement = Arrangement.spacedBy(s.dp(14f), Alignment.CenterHorizontally), verticalArrangement = Arrangement.spacedBy(s.dp(14f)), maxItemsInEachRow = 5) {
         Tile(KnIcons.play, stringResource(R.string.session_resume), null, Modifier.focusRequester(first), primary = true) { ui.actions.resume() }
+        if (route?.viaRelay == true) Tile(KnIcons.network, stringResource(R.string.route_relay), null, selected = true) { ui.statsOpen = !ui.statsOpen }
         Profile.entries.forEach { p ->
             if (p != ui.profile) Tile(KnIcons.screen, profileLabel(p), stringResource(R.string.session_switch_profile)) { ui.actions.setProfile(p) }
         }
@@ -757,10 +802,12 @@ private fun TvTiles(ui: SessionUi, first: FocusRequester, audio: Pair<Int, Doubl
         Tile(KnIcons.keys, stringResource(R.string.session_keys), stringResource(R.string.keys_ctrl_alt_del_short)) { ui.keysOpen = true }
         // Sous-titre de la tuile (link-ui) : « 2 invités » dès qu'il y en a un, sinon le code
         // du partage ouvert, sinon « Code et QR code ». Impossible : estompée, mais sélectionnable
-        // (OK ouvre le panneau réduit à la raison).
+        // (OK ouvre le panneau réduit à la raison). Une demande venue par le relais passe avant (« 1 demande ») :
+        // sans pastille dans un menu à tuiles, c'est ce qui la montre à l'hôte.
         val open = share
         val shareDetail = when {
             open == null -> stringResource(R.string.share_tile_detail)
+            open.requests.isNotEmpty() -> requestsLabel(open.requests.size)
             open.guests.isNotEmpty() -> guestsLabel(open.guests.size)
             else -> open.codeText
         }
@@ -842,6 +889,7 @@ private fun Stats(ui: SessionUi, modifier: Modifier) {
     val decoder by ui.state.decoder.collectAsState()
     val audio by ui.state.audioOutput.collectAsState()
     val video by ui.state.videoSize.collectAsState()
+    val route by ui.state.route.collectAsState()
     val locale = androidx.compose.ui.platform.LocalConfiguration.current.locales[0]
     fun f(v: Double?) = v?.let { String.format(locale, "%.1f", it) } ?: "—"
     Column(modifier.panel(18.dp).padding(s.dp(16f)).widthIn(max = s.dp(340f)), verticalArrangement = Arrangement.spacedBy(s.dp(5f))) {
@@ -852,6 +900,8 @@ private fun Stats(ui: SessionUi, modifier: Modifier) {
             names.forEachIndexed { i, n -> Mono("  ${stringResource(n)} ${f(c[i])} ms", size = 11f) }
         }
         Mono("${stringResource(R.string.stats_rtt)} ${f(sec?.rttMs)} ms", size = 11f)
+        // « Chemin : Direct », « Chemin : Par le relais », « Chemin : Par le relais (TCP) ».
+        route?.let { Mono(stringResource(R.string.stats_path, routeLabel(it.transport)), size = 11f) }
         Mono(stringResource(R.string.session_fps, sec?.fps ?: 0) + " · " + fmt("%.1f Mbit/s", sec?.mbps ?: 0.0), size = 11f)
         Mono(stringResource(R.string.stats_losses, sec?.lostFrames ?: 0, sec?.holes ?: 0, sec?.lostPackets ?: 0), size = 11f)
         video?.let { (w, h) -> Mono("$w × $h · ${decoder ?: ""}", size = 11f) }

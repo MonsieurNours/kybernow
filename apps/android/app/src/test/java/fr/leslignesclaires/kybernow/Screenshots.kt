@@ -22,10 +22,14 @@ import fr.leslignesclaires.kybernow.core.ShareAvailability
 import fr.leslignesclaires.kybernow.core.ShareGuest
 import fr.leslignesclaires.kybernow.core.ShareImage
 import fr.leslignesclaires.kybernow.core.ShareLink
+import fr.leslignesclaires.kybernow.core.RouteInfo
+import fr.leslignesclaires.kybernow.core.RouteTransport
 import fr.leslignesclaires.kybernow.core.ShareQuality
+import fr.leslignesclaires.kybernow.core.ShareRelay
 import fr.leslignesclaires.kybernow.core.ShareRole
 import fr.leslignesclaires.kybernow.core.ShareState
 import fr.leslignesclaires.kybernow.core.ShareTarget
+import fr.leslignesclaires.kybernow.core.ShareVia
 import fr.leslignesclaires.kybernow.core.StationInfo
 import fr.leslignesclaires.kybernow.core.StationUpdate
 import fr.leslignesclaires.kybernow.core.WakeTarget
@@ -53,6 +57,7 @@ import fr.leslignesclaires.kybernow.session.SessionUi
 import fr.leslignesclaires.kybernow.session.ShareCopy
 import fr.leslignesclaires.kybernow.session.Shortcut
 import fr.leslignesclaires.kybernow.ui.HostStatus
+import fr.leslignesclaires.kybernow.ui.RelayRefusal
 import fr.leslignesclaires.kybernow.ui.KnTheme
 import fr.leslignesclaires.kybernow.ui.StationAction
 import fr.leslignesclaires.kybernow.ui.StationFailure
@@ -198,6 +203,19 @@ class Screenshots {
         shot("accueil", "telephone", FormFactor.PHONE) { HomeContent(home(FormFactor.PHONE), noActions) }
         shot("accueil-hors-ligne", "telephone", FormFactor.PHONE) { HomeContent(home(FormFactor.PHONE, selected = "b").copy(update = "0.5.1"), noActions) }
         shot("accueil-reveil", "telephone", FormFactor.PHONE) { HomeContent(home(FormFactor.PHONE, selected = "b").copy(waking = setOf("b")), noActions) }
+        // Hors de chez vous : l'ordinateur n'est joignable que par le relais ; puis les refus (éteint, accès coupé), et la vérification.
+        shot("accueil-hors-de-chez-vous", "telephone", FormFactor.PHONE) {
+            HomeContent(home(FormFactor.PHONE, status = mapOf("a" to HostStatus(true, away = true), "b" to HostStatus(false), "c" to HostStatus())), noActions)
+        }
+        shot("accueil-refus-relais", "telephone", FormFactor.PHONE) {
+            HomeContent(home(FormFactor.PHONE, status = mapOf("a" to HostStatus(true, away = true))).copy(refusals = mapOf("a" to RelayRefusal.AccessOff)), noActions)
+        }
+        shot("accueil-refus-eteint", "telephone", FormFactor.PHONE, listOf("fr")) {
+            HomeContent(home(FormFactor.PHONE, status = mapOf("a" to HostStatus(true, away = true))).copy(refusals = mapOf("a" to RelayRefusal.StationOffline)), noActions)
+        }
+        shot("accueil-connexion-relais", "telephone", FormFactor.PHONE, listOf("fr")) {
+            HomeContent(home(FormFactor.PHONE, status = mapOf("a" to HostStatus(true, away = true))).copy(connecting = setOf("a")), noActions)
+        }
         shot("accueil-erreurs", "telephone", FormFactor.PHONE) {
             val custom = atelier.copy(settings = atelier.settings.copy(transport = "reliable"))
             HomeContent(home(FormFactor.PHONE, hosts = listOf(custom, portable), status = mapOf("a" to HostStatus(true, null, accountRefused = true))), noActions)
@@ -338,6 +356,8 @@ class Screenshots {
             override fun shareNewCode() {}
             override fun shareSetPads(guest: ShareGuest, on: Boolean) {}
             override fun shareSetKeyboardMouse(guest: ShareGuest, on: Boolean) {}
+            override fun shareAccept(guest: ShareGuest) {}
+            override fun shareRefuse(guest: ShareGuest) {}
             override fun shareRemove(guest: ShareGuest) {}
             override fun shareStop() {}
             override fun shareCopyLink() {}
@@ -482,8 +502,50 @@ class Screenshots {
     private fun SessionUi.sharing(guests: List<ShareGuest> = listOf(
         ShareGuest("g1", "Léa", "ios", ShareRole.SPECTATOR, since = now / 1000 - 42, image = image(ShareQuality.HOST, "1080p · 60 Hz", followsHost = true)),
         ShareGuest("g2", "Max", "web", ShareRole.PLAYER_KBM, since = now / 1000 - 12 * 60, image = image(ShareQuality.P720_30, "720p · 30 Hz", followsHost = false)),
-    )) {
-        state.share.value = ShareState("428913", "428 913", "kybernow://join?host=192.168.1.20&port=41234&fp=sha256:ab&code=428913", "https://192.168.1.20:41234/link/?join=428913", guests)
+    ), requests: List<ShareGuest> = emptyList(), relay: ShareRelay? = null) {
+        state.share.value = ShareState(
+            "428913", "428 913", "kybernow://join?host=192.168.1.20&port=41234&fp=sha256:ab&code=428913",
+            if (relay == ShareRelay.JOINED) "https://share.kybernow.app:8443/j/428913" else "https://192.168.1.20:41234/link/?join=428913",
+            guests, relay, requests,
+        )
+    }
+
+    /** Une demande venue par le relais : spectatrice, pas encore acceptée. */
+    private fun request(id: String, name: String, app: String) = ShareGuest(id, name, app, ShareRole.SPECTATOR, since = now / 1000 - 20, pending = true, via = ShareVia.RELAY)
+
+    /** Un invité venu par le relais. */
+    private val awayGuest get() = ShareGuest("g3", "Eva", "android", ShareRole.SPECTATOR, since = now / 1000 - 3 * 60, via = ShareVia.RELAY)
+
+    private val relayRoute = RouteInfo(RouteTransport.RELAY, "share.kybernow.app:8443", 14.0, 3.5)
+
+    /** Hors de chez soi : relais joint, une demande et un invité venu par le relais ; les deux premières lignes du panneau. */
+    @Test @Config(qualifiers = PHONE_LAND)
+    fun relayPhone() {
+        shot("session-partage-demandes", "telephone", FormFactor.PHONE) {
+            WithImage(session(false) { barOpen = true; shareOpen = true; sharing(listOf(awayGuest), listOf(request("p1", "Léa", "ios"), request("p2", "Max", "web")), ShareRelay.JOINED) })
+        }
+        shot("session-partage-barre-demandes", "telephone", FormFactor.PHONE) {
+            WithImage(session(false) { barOpen = true; sharing(listOf(awayGuest), listOf(request("p1", "Léa", "ios")), ShareRelay.JOINED); state.route.value = relayRoute })
+        }
+        shot("session-partage-relais-injoignable", "telephone", FormFactor.PHONE, listOf("fr")) {
+            WithImage(session(false) { barOpen = true; shareOpen = true; sharing(emptyList(), emptyList(), ShareRelay.UNREACHABLE) })
+        }
+        shot("session-relais-statistiques", "telephone", FormFactor.PHONE, listOf("fr")) {
+            WithImage(session(false) { barOpen = true; statsOpen = true; state.route.value = relayRoute })
+        }
+        shot("session-relais-barre-invite", "telephone", FormFactor.PHONE, listOf("fr")) {
+            WithImage(guest(false, ShareRole.SPECTATOR) { barOpen = true; state.route.value = relayRoute })
+        }
+    }
+
+    @Test @Config(qualifiers = TV)
+    fun relayTv() {
+        shot("session-partage-demandes", "tv", FormFactor.TV) {
+            WithImage(session(true) { menuOpen = true; shareOpen = true; sharing(listOf(awayGuest), listOf(request("p1", "Léa", "ios")), ShareRelay.JOINED) })
+        }
+        shot("session-relais-menu", "tv", FormFactor.TV) {
+            WithImage(session(true) { menuOpen = true; sharing(listOf(awayGuest), listOf(request("p1", "Léa", "ios")), ShareRelay.JOINED); state.route.value = relayRoute })
+        }
     }
 
     @Test @Config(qualifiers = PHONE_LAND)
@@ -635,12 +697,19 @@ class Screenshots {
             val fr = androidx.compose.ui.platform.LocalConfiguration.current.locales[0].language == "fr"
             JoinContent(shareLink, false, "Léa", ShareQuality.AUTO, false, if (fr) "Aucun partage avec ce code sur le réseau." else "No share with this code on your network.", {}, { _, _, _, _ -> })
         }
+        // Hors de chez soi : l'hôte doit accepter ; puis ses réponses (textes du cœur).
+        shot("rejoindre-attente", "telephone", FormFactor.PHONE) { JoinContent(null, true, "Léa", ShareQuality.AUTO, true, null, {}, { _, _, _, _ -> }, waiting = true) }
+        shot("rejoindre-refuse-par-l-hote", "telephone", FormFactor.PHONE) {
+            val fr = androidx.compose.ui.platform.LocalConfiguration.current.locales[0].language == "fr"
+            JoinContent(null, true, "Léa", ShareQuality.AUTO, false, if (fr) "L'hôte a refusé." else "The host declined.", {}, { _, _, _, _ -> })
+        }
     }
 
     @Test @Config(qualifiers = TV)
     fun joinTv() {
         shot("rejoindre", "tv", FormFactor.TV) { JoinContent(null, false, "SHIELD", ShareQuality.AUTO, false, null, {}, { _, _, _, _ -> }) }
         shot("rejoindre-lien", "tv", FormFactor.TV, listOf("fr")) { JoinContent(shareLink, false, "SHIELD", ShareQuality.P720_30, false, null, {}, { _, _, _, _ -> }) }
+        shot("rejoindre-attente", "tv", FormFactor.TV) { JoinContent(null, false, "SHIELD", ShareQuality.AUTO, true, null, {}, { _, _, _, _ -> }, waiting = true) }
     }
 
     @Test @Config(qualifiers = TABLET_TALL)

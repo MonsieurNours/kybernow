@@ -16,6 +16,14 @@
     <string name="home_searching">Searching…</string>
     <string name="home_online">Online</string>
     <string name="home_offline">Offline</string>
+    <string name="home_away">Away from home</string>
+    <string name="home_connecting">Connecting…</string>
+    <string name="relay_station_offline" formatted="true">%1$s cannot be reached: the computer is off or asleep.</string>
+    <string name="relay_access_off" formatted="true">%1$s cannot be reached away from home (access turned off in Admin).</string>
+    <string name="route_direct">Direct</string>
+    <string name="route_relay">Via the relay</string>
+    <string name="route_relay_tcp">Via the relay (TCP)</string>
+    <string name="stats_path" formatted="true">Path: %1$s</string>
     <string name="home_display_match" formatted="true">%1$d × %2$d display at %3$d Hz, sized for this screen</string>
     <string name="home_display_custom" formatted="true">%1$d × %2$d display at %3$d Hz</string>
     <string name="home_display_as_is">The computer\'s own displays, as they are</string>
@@ -333,6 +341,7 @@
     <string name="share_join_name">Your name</string>
     <string name="share_join_button">Join</string>
     <string name="share_join_searching">Looking for the share…</string>
+    <string name="share_join_waiting">Waiting for the host to accept…</string>
     <string name="share_guest_on" formatted="true">Guest on %1$s</string>
     <string name="share_role_spectator">Spectator</string>
     <string name="share_role_player">Player</string>
@@ -357,6 +366,13 @@
     <string name="share_link_copied">Link copied.</string>
     <string name="share_copy_failed">Could not copy: select the link by hand.</string>
     <string name="share_help">On the same network: “Join with a code” in KyberNow Link, or this link in a browser.</string>
+    <string name="share_help_relay">On the same network or elsewhere: “Join with a code” in KyberNow Link, or this link in a browser. Away from home, you accept each guest.</string>
+    <string name="share_relay_unreachable">Not reachable away from home yet.</string>
+    <string name="share_requests_title">Requests</string>
+    <string name="share_request_wants" formatted="true">%1$s wants to join</string>
+    <string name="share_accept">Accept</string>
+    <string name="share_refuse">Decline</string>
+    <string name="share_away">away from home</string>
     <string name="share_guests_title">Guests</string>
     <string name="share_nobody">Nobody yet.</string>
     <string name="share_guest_spectator" formatted="true">%1$s · Spectator</string>
@@ -384,5 +400,9 @@
     <plurals name="share_guests">
         <item quantity="one">%d guest</item>
         <item quantity="other">%d guests</item>
+    </plurals>
+    <plurals name="share_requests">
+        <item quantity="one">%d request</item>
+        <item quantity="other">%d requests</item>
     </plurals>
 </resources>

@@ -44,6 +44,16 @@ S = [
 ("home_searching", "Recherche…", "Searching…"),
 ("home_online", "En ligne", "Online"),
 ("home_offline", "Hors ligne", "Offline"),
+# Hors de chez vous (docs/link-ui.md, « Hors de chez vous » ; contrat : docs/relais.md). Les erreurs du relais
+# (« Le relais ne répond pas. ») sont écrites par le cœur, dans la langue de l'app.
+("home_away", "Hors de chez vous", "Away from home"),
+("home_connecting", "Connexion…", "Connecting…"),
+("relay_station_offline", "%1$s n'est pas joignable : l'ordinateur est éteint ou en veille.", "%1$s cannot be reached: the computer is off or asleep."),
+("relay_access_off", "%1$s n'est pas joignable hors de chez vous (accès coupé dans Admin).", "%1$s cannot be reached away from home (access turned off in Admin)."),
+("route_direct", "Direct", "Direct"),
+("route_relay", "Par le relais", "Via the relay"),
+("route_relay_tcp", "Par le relais (TCP)", "Via the relay (TCP)"),
+("stats_path", "Chemin : %1$s", "Path: %1$s"),
 ("home_display_match", "Écran de %1$d × %2$d à %3$d Hz, à la taille de cet écran", "%1$d × %2$d display at %3$d Hz, sized for this screen"),
 ("home_display_custom", "Écran de %1$d × %2$d à %3$d Hz", "%1$d × %2$d display at %3$d Hz"),
 ("home_display_as_is", "Les écrans de l'ordinateur, tels quels", "The computer's own displays, as they are"),
@@ -376,6 +386,7 @@ S = [
 ("share_join_name", "Votre prénom", "Your name"),
 ("share_join_button", "Rejoindre", "Join"),
 ("share_join_searching", "Recherche du partage…", "Looking for the share…"),
+("share_join_waiting", "En attente de l'accord de l'hôte…", "Waiting for the host to accept…"),
 ("share_guest_on", "Invité sur %1$s", "Guest on %1$s"),
 ("share_role_spectator", "Spectateur", "Spectator"),
 ("share_role_player", "Joueur", "Player"),
@@ -403,6 +414,13 @@ S = [
 ("share_link_copied", "Lien copié.", "Link copied."),
 ("share_copy_failed", "Copie impossible : sélectionnez le lien à la main.", "Could not copy: select the link by hand."),
 ("share_help", "Sur le même réseau : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur.", "On the same network: “Join with a code” in KyberNow Link, or this link in a browser."),
+("share_help_relay", "Sur le même réseau ou ailleurs : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur. Hors de chez vous, vous acceptez chaque invité.", "On the same network or elsewhere: “Join with a code” in KyberNow Link, or this link in a browser. Away from home, you accept each guest."),
+("share_relay_unreachable", "Pas encore joignable hors de chez vous.", "Not reachable away from home yet."),
+("share_requests_title", "Demandes", "Requests"),
+("share_request_wants", "%1$s demande à rejoindre", "%1$s wants to join"),
+("share_accept", "Accepter", "Accept"),
+("share_refuse", "Refuser", "Decline"),
+("share_away", "hors de chez vous", "away from home"),
 ("share_guests_title", "Invités", "Guests"),
 ("share_nobody", "Personne pour l'instant.", "Nobody yet."),
 ("share_guest_spectator", "%1$s · Spectateur", "%1$s · Spectator"),
@@ -436,6 +454,12 @@ PLURALS = [
     "one": ("%d invité", "%d guest"),
     "many": ("%d invités", "%d guests"),
     "other": ("%d invités", "%d guests"),
+}),
+# « 1 demande », « 2 demandes » : les invités venus par le relais qui attendent l'accord de l'hôte (en français, 0 et 1 au singulier).
+("share_requests", {
+    "one": ("%d demande", "%d request"),
+    "many": ("%d demandes", "%d requests"),
+    "other": ("%d demandes", "%d requests"),
 }),
 ]
 

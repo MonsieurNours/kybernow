@@ -33,6 +33,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import fr.leslignesclaires.kybernow.R
 import fr.leslignesclaires.kybernow.core.ShareGuest
+import fr.leslignesclaires.kybernow.core.ShareRelay
 import fr.leslignesclaires.kybernow.core.ShareRole
 import fr.leslignesclaires.kybernow.core.ShareState
 import fr.leslignesclaires.kybernow.ui.Body
@@ -97,7 +98,13 @@ internal fun SharePanelContent(
     // À la télécommande et à la manette, le focus arrive sur « Copier le lien » (au téléviseur, qui ne le
     // propose pas, ou quand il n'y a que la raison : sur « Fermer ») dès que le partage est ouvert.
     val first = remember { FocusRequester() }
-    LaunchedEffect(share != null, unavailable != null) { if (share != null || unavailable != null) runCatching { first.requestFocus() } }
+    // Une demande attend l'hôte : le focus va à son « Accepter » (tout le monde, au téléviseur aussi).
+    val firstRequest = remember { FocusRequester() }
+    val requested = share?.requests?.isNotEmpty() == true
+    LaunchedEffect(share != null, unavailable != null, requested) {
+        if (requested) runCatching { firstRequest.requestFocus() }
+        else if (share != null || unavailable != null) runCatching { first.requestFocus() }
+    }
     BoxWithConstraints(modifier.padding(s.dp(20f))) {
         val wide = maxWidth >= 600.dp
         val copyFocus = if (tv) Modifier else Modifier.focusRequester(first)
@@ -114,11 +121,11 @@ internal fun SharePanelContent(
                 share == null -> if (busy) androidx.compose.material3.CircularProgressIndicator(Modifier.size(s.dp(28f)), color = Kn.spectre, strokeWidth = s.dp(3f))
                 wide -> Row(horizontalArrangement = Arrangement.spacedBy(s.dp(28f))) {
                     ShareCode(share, copy, tv, actions, copyFocus)
-                    ShareGuests(share, busy, actions, Modifier.weight(1f))
+                    ShareGuests(share, busy, actions, firstRequest, Modifier.weight(1f))
                 }
                 else -> {
                     ShareCode(share, copy, tv, actions, copyFocus)
-                    ShareGuests(share, busy, actions, Modifier.fillMaxWidth())
+                    ShareGuests(share, busy, actions, firstRequest, Modifier.fillMaxWidth())
                 }
             }
             error?.let { Body(it, color = Kn.warn, size = 14f) }
@@ -162,7 +169,7 @@ private fun ShareCode(share: ShareState, copy: ShareCopy?, tv: Boolean, actions:
 /** L'aide, « Invités » et la liste, « Nouveau code », « Arrêter le partage ». */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ShareGuests(share: ShareState, busy: Boolean, actions: SessionActions, modifier: Modifier) {
+private fun ShareGuests(share: ShareState, busy: Boolean, actions: SessionActions, firstRequest: FocusRequester, modifier: Modifier) {
     val s = LocalScale.current
     // Les durées (« depuis 3 min ») avancent d'elles-mêmes ; sans animations (captures), une seule fois.
     val motion = LocalMotion.current
@@ -173,7 +180,15 @@ private fun ShareGuests(share: ShareState, busy: Boolean, actions: SessionAction
         }
     }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(s.dp(12f))) {
-        Body(stringResource(R.string.share_help), color = Kn.frost2, size = 14f)
+        // L'aide dit où le lien vaut : sur le même réseau, ou ailleurs quand le relais est joint (et alors, chaque invité
+        // venu d'ailleurs s'accepte) ; le relais injoignable, le lien ne vaut pas encore hors de chez soi.
+        Body(stringResource(if (share.relay == ShareRelay.JOINED) R.string.share_help_relay else R.string.share_help), color = Kn.frost2, size = 14f)
+        if (share.relay == ShareRelay.UNREACHABLE) Body(stringResource(R.string.share_relay_unreachable), color = Kn.muted, size = 13f)
+        // Les demandes venues par le relais, au-dessus des invités, seulement s'il y en a.
+        if (share.requests.isNotEmpty()) {
+            Eyebrow(stringResource(R.string.share_requests_title))
+            share.requests.forEachIndexed { i, r -> RequestRow(r, full = share.full, busy = busy, actions = actions, focus = if (i == 0) firstRequest else null) }
+        }
         Eyebrow(stringResource(R.string.share_guests_title))
         if (share.guests.isEmpty()) {
             Body(stringResource(R.string.share_nobody), color = Kn.muted, size = 15f)
@@ -184,6 +199,32 @@ private fun ShareGuests(share: ShareState, busy: Boolean, actions: SessionAction
         FlowRow(horizontalArrangement = Arrangement.spacedBy(s.dp(8f)), verticalArrangement = Arrangement.spacedBy(s.dp(8f))) {
             GlassButton(stringResource(R.string.share_new_code), { actions.shareNewCode() }, enabled = !busy)
             GlassButton(stringResource(R.string.share_stop), { actions.shareStop() }, enabled = !busy)
+        }
+    }
+}
+
+/**
+ * La demande d'un invité venu par le relais (docs/relais.md) : « Léa demande à rejoindre », dessous son app et
+ * « hors de chez vous », et « Accepter » / « Refuser ». Elle ne prend pas de place tant qu'elle n'est pas acceptée :
+ * « Accepter » est inactif quand les quatre places sont prises (« Quatre invités au plus. » est dit plus bas).
+ * [focus] : le focus du premier « Accepter » (télécommande, manette).
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun RequestRow(request: ShareGuest, full: Boolean, busy: Boolean, actions: SessionActions, focus: FocusRequester?) {
+    val s = LocalScale.current
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Kn.spectre.copy(alpha = 0.10f)).padding(s.dp(12f)),
+        verticalArrangement = Arrangement.spacedBy(s.dp(8f)),
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(s.dp(2f))) {
+            Body(stringResource(R.string.share_request_wants, request.name), size = 15f, weight = 600, color = Kn.frost)
+            // « {app} · hors de chez vous » (une demande ne vient que du relais).
+            Mono(listOfNotNull(appLabel(request.app), stringResource(R.string.share_away)).joinToString(" · "), size = 11f, color = Kn.muted)
+        }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(s.dp(8f)), verticalArrangement = Arrangement.spacedBy(s.dp(8f))) {
+            GlassButton(stringResource(R.string.share_accept), { actions.shareAccept(request) }, if (focus != null) Modifier.focusRequester(focus) else Modifier, enabled = !busy && !full, selected = true)
+            GlassButton(stringResource(R.string.share_refuse), { actions.shareRefuse(request) }, enabled = !busy)
         }
     }
 }
@@ -203,8 +244,10 @@ private fun GuestRow(guest: ShareGuest, now: Long, busy: Boolean, actions: Sessi
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(s.dp(2f))) {
             Body(guestLabel(guest), size = 15f, weight = 600, color = Kn.frost)
-            // Son app, sa qualité d'image si elle n'est pas celle de l'hôte, puis depuis quand (docs/link-ui.md, « Un invité »).
-            val detail = listOfNotNull(appLabel(guest.app), guest.ownImageLabel, sinceLabel(guest.since, now)).joinToString(" · ")
+            // Son app, « hors de chez vous » s'il est venu par le relais, sa qualité d'image si elle n'est pas celle de
+            // l'hôte, puis depuis quand (docs/link-ui.md, « Un invité »).
+            val away = if (guest.away) stringResource(R.string.share_away) else null
+            val detail = listOfNotNull(appLabel(guest.app), away, guest.ownImageLabel, sinceLabel(guest.since, now)).joinToString(" · ")
             if (detail.isNotEmpty()) Mono(detail, size = 11f, color = Kn.muted)
         }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(s.dp(8f)), verticalArrangement = Arrangement.spacedBy(s.dp(8f))) {

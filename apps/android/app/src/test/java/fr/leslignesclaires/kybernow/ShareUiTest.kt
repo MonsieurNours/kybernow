@@ -86,6 +86,9 @@ class ShareUiTest {
         val rights = mutableListOf<String>()
         override fun shareSetPads(guest: ShareGuest, on: Boolean) { rights += "${guest.name} manettes $on" }
         override fun shareSetKeyboardMouse(guest: ShareGuest, on: Boolean) { rights += "${guest.name} clavier et souris $on" }
+        val answers = mutableListOf<String>()
+        override fun shareAccept(guest: ShareGuest) { answers += "${guest.name} accepté" }
+        override fun shareRefuse(guest: ShareGuest) { answers += "${guest.name} refusé" }
         override fun shareRemove(guest: ShareGuest) {}
         override fun shareStop() {}
         override fun shareCopyLink() {}

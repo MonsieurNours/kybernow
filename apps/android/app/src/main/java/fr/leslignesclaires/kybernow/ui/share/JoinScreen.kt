@@ -15,22 +15,26 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,6 +55,7 @@ import androidx.core.content.ContextCompat
 import fr.leslignesclaires.kybernow.KyberNowApp
 import fr.leslignesclaires.kybernow.R
 import fr.leslignesclaires.kybernow.core.JoinReply
+import fr.leslignesclaires.kybernow.core.PendingJoin
 import fr.leslignesclaires.kybernow.core.Share
 import fr.leslignesclaires.kybernow.core.ShareFound
 import fr.leslignesclaires.kybernow.core.ShareLink
@@ -71,6 +76,7 @@ import fr.leslignesclaires.kybernow.ui.Title
 import fr.leslignesclaires.kybernow.ui.add.QrScanner
 import fr.leslignesclaires.kybernow.ui.panel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -86,6 +92,11 @@ private enum class Way { CODE, QR }
  * `kybernow://join` ou un QR code ([link]) fixe la Station et le code : l'écran s'ouvre rempli, et rien ne part
  * avant « Rejoindre » (le QR code lu avec « QR code » de cet écran en fait autant). Rien n'est ajouté aux
  * ordinateurs de l'appareil : [onJoined] ouvre la session d'invité.
+ *
+ * Hors de chez soi (docs/relais.md) : le code part au réseau et, en même temps, au relais (le relais de KyberNow et ceux des
+ * ordinateurs de l'appareil) ; un lien ou un QR code qui porte `relay` et `sid` ouvre le relais de la même façon, Admin
+ * épinglé. Un invité venu par le relais attend l'accord de l'hôte (« En attente de l'accord de l'hôte… », « Annuler ») ;
+ * s'il refuse, ne répond pas (120 s) ou que le relais se tait, l'écran le dit avec les textes du cœur.
  */
 @Composable
 fun JoinScreen(link: ShareLink?, onBack: () -> Unit, onJoined: (ShareFound) -> Unit) {
@@ -95,32 +106,54 @@ fun JoinScreen(link: ShareLink?, onBack: () -> Unit, onJoined: (ShareFound) -> U
     val hasCamera = remember { context.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    // La demande en attente de l'accord de l'hôte, et le travail qui l'attend.
+    var waiting by remember { mutableStateOf<PendingJoin?>(null) }
+    var work by remember { mutableStateOf<Job?>(null) }
     // Le cœur écrit les refus ; ce texte ne sert que s'il n'en donne aucun.
     val unreachable = stringResource(R.string.add_unreachable)
     // Avec un lien, la Station est donnée : on ne cherche rien sur le réseau (rien ne part avant « Rejoindre »).
     LaunchedEffect(link) { if (link == null) app.discovery.start() }
+    // L'écran se ferme (Retour, la session s'ouvre ailleurs) pendant l'attente : la demande quitte la liste de l'hôte.
+    val pending by rememberUpdatedState(waiting)
+    DisposableEffect(Unit) { onDispose { pending?.let(Share::cancel) } }
 
     JoinContent(
         link = link, hasCamera = hasCamera, name = app.guestName, quality = app.guestQuality, busy = busy, error = error, onBack = onBack,
-        // Le code part à `targets` (ceux du lien ou du QR code) ou, sans eux, aux ordinateurs trouvés sur le réseau.
-        onJoin = { digits, name, quality, targets ->
+        waiting = waiting != null,
+        // « Annuler » : la demande est retirée chez l'hôte, l'écran revient au code.
+        onCancel = {
+            waiting?.let(Share::cancel)
+            work?.cancel()
+            waiting = null
+            busy = false
+        },
+        // Le code part au lien ou au QR code ([shown]) ou, sans eux, aux ordinateurs trouvés sur le réseau et aux relais.
+        onJoin = { digits, name, quality, shown ->
             if (!busy) {
                 busy = true
                 error = null
                 val who = name.trim().ifEmpty { app.device.name }
-                scope.launch {
-                    val list = targets ?: stations()
+                work = scope.launch {
                     // « Auto » : l'écran de l'appareil et ce que son décodeur suit (la Station tranche d'après l'écran du partage).
                     val auto = withContext(Dispatchers.Default) { Share.autoQuality(Screen.of(context).current, app.decoders) }
-                    val reply = Share.join(list, digits, who, app.device, app.decoders, quality, auto)
+                    val reply = if (shown != null) Share.joinLink(shown, digits, who, app.device, app.decoders, quality, auto)
+                    else Share.join(stations(), digits, who, app.device, app.decoders, quality, auto, relays = relays())
+                    // Venu par le relais : l'hôte doit accepter (ou refuser, ou ne pas répondre).
+                    val answer = if (reply is JoinReply.Pending) {
+                        waiting = reply.pending
+                        Share.waitForHost(reply.pending, app.decoders)
+                    } else reply
+                    waiting = null
                     busy = false
-                    when (reply) {
+                    when (answer) {
                         is JoinReply.Joined -> {
                             app.guestName = who
                             app.guestQuality = quality
-                            onJoined(reply.found)
+                            onJoined(answer.found)
                         }
-                        is JoinReply.Refused -> error = reply.message.ifBlank { unreachable }
+                        is JoinReply.Refused -> error = answer.message.ifBlank { unreachable }
+                        // Jamais : `waitForHost` n'en rend pas.
+                        is JoinReply.Pending -> error = unreachable
                     }
                 }
             }
@@ -129,9 +162,16 @@ fun JoinScreen(link: ShareLink?, onBack: () -> Unit, onJoined: (ShareFound) -> U
 }
 
 /**
+ * Les relais des ordinateurs de l'appareil (`info.relay.server`, gardés avec eux) : le code leur est demandé aussi, en plus
+ * du relais de KyberNow ; sans aucun, le cœur prend le relais par défaut.
+ */
+private fun relays(): List<String> = KyberNowApp.instance.hosts.hosts.value.mapNotNull { it.relay?.server }.distinct()
+
+/**
  * L'écran sans l'app (les captures le rendent tel quel) : [name] est « Votre prénom » au départ, [quality] la
- * « Qualité de l'image » retenue ; [onJoin] reçoit le code, le prénom, la qualité et, pour un lien ou un QR code,
- * la Station à qui l'envoyer.
+ * « Qualité de l'image » retenue ; [onJoin] reçoit le code, le prénom, la qualité et, pour un lien ou un QR code, le
+ * lien à ouvrir. [waiting] : la demande attend l'accord de l'hôte (hors de chez soi) : le code, le prénom et la qualité
+ * laissent la place à « En attente de l'accord de l'hôte… » et « Annuler » ([onCancel]).
  */
 @Composable
 internal fun JoinContent(
@@ -142,7 +182,9 @@ internal fun JoinContent(
     busy: Boolean,
     error: String?,
     onBack: () -> Unit,
-    onJoin: (String, String, ShareQuality, List<ShareTarget>?) -> Unit,
+    onJoin: (String, String, ShareQuality, ShareLink?) -> Unit,
+    waiting: Boolean = false,
+    onCancel: () -> Unit = {},
 ) {
     val s = LocalScale.current
     var way by remember { mutableStateOf(Way.CODE) }
@@ -152,7 +194,6 @@ internal fun JoinContent(
     var code by remember(shown) { mutableStateOf(shown?.code ?: "") }
     var who by remember(name) { mutableStateOf(name) }
     var how by remember(quality) { mutableStateOf(quality) }
-    val fixed = shown?.let { listOf(it.target) }
 
     Box(Modifier.fillMaxSize().background(Kn.ink).statusBarsPadding().navigationBarsPadding()) {
         Column(
@@ -164,7 +205,12 @@ internal fun JoinContent(
                     Box(Modifier.background(Kn.frost.copy(alpha = 0.08f)).padding(s.dp(10f))) { KnIcon(KnIcons.back, size = 20f) }
                 }
                 Spacer(Modifier.width(s.dp(14f)))
+                // Le prénom de l'hôte et le nom de l'ordinateur ne sont connus qu'après l'accord : le titre ne change pas.
                 Title(stringResource(R.string.share_join_title), size = if (s.tv) 40f else 26f)
+            }
+            if (waiting) {
+                WaitingForHost(onCancel)
+                return@Column
             }
             Body(stringResource(R.string.share_join_help), color = Kn.frost2, size = 15f)
             // Le choix « Code » / « QR code », en haut, avec un appareil photo.
@@ -179,23 +225,44 @@ internal fun JoinContent(
             if (way == Way.QR && link == null) {
                 QrWay { l -> scanned = l; way = Way.CODE }
             } else if (s.tv) {
-                TvJoin(code, { code = it }, who, { who = it }, how, { how = it }, busy, error) { onJoin(code, who, how, fixed) }
+                TvJoin(code, { code = it }, who, { who = it }, how, { how = it }, busy, error) { onJoin(code, who, how, shown) }
             } else {
                 CodeField(code) { code = it }
                 NameField(who, { who = it })
                 QualityField(how, { how = it })
                 error?.let { Body(it, color = Kn.warn, size = 14f) }
-                JoinButton(busy, code.length == 6) { onJoin(code, who, how, fixed) }
+                JoinButton(busy, code.length == 6) { onJoin(code, who, how, shown) }
             }
         }
     }
 }
 
-/** Les ordinateurs trouvés sur le réseau (ceux de l'appairage) ; on les attend 4 s au plus s'il n'y en a pas encore. */
+/**
+ * « En attente de l'accord de l'hôte… » et « Annuler » (docs/link-ui.md, « Partage », hors de chez soi) : un invité venu par
+ * le relais attend que l'hôte l'accepte. « Annuler » quitte la demande. Au téléviseur, le focus y est tout de suite.
+ */
+@Composable
+private fun WaitingForHost(onCancel: () -> Unit) {
+    val s = LocalScale.current
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+    Column(Modifier.panel().fillMaxWidth().padding(s.dp(22f)), verticalArrangement = Arrangement.spacedBy(s.dp(16f))) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(s.dp(14f))) {
+            CircularProgressIndicator(Modifier.size(s.dp(26f)), color = Kn.spectre, strokeWidth = s.dp(3f))
+            Body(stringResource(R.string.share_join_waiting), size = 18f, weight = 600, color = Kn.frost)
+        }
+        GlassButton(stringResource(R.string.cancel), onCancel, Modifier.focusRequester(focus))
+    }
+}
+
+/**
+ * Les ordinateurs trouvés sur le réseau (ceux de l'appairage) ; on les attend 2 s au plus s'il n'y en a pas encore : le code
+ * part aussi aux relais, qui n'ont pas à attendre un réseau sur lequel on n'est peut-être pas.
+ */
 private suspend fun stations(): List<ShareTarget> {
     val discovery = KyberNowApp.instance.discovery
     var waited = 0
-    while (discovery.found.value.isEmpty() && waited < 4000) {
+    while (discovery.found.value.isEmpty() && waited < 2000) {
         delay(250)
         waited += 250
     }

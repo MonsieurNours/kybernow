@@ -83,6 +83,7 @@ import fr.leslignesclaires.kybernow.ui.FitTitle
 import fr.leslignesclaires.kybernow.ui.FocusCard
 import fr.leslignesclaires.kybernow.ui.GlassButton
 import fr.leslignesclaires.kybernow.ui.HostStatus
+import fr.leslignesclaires.kybernow.ui.RelayRefusal
 import fr.leslignesclaires.kybernow.ui.Kn
 import fr.leslignesclaires.kybernow.ui.KnFonts
 import fr.leslignesclaires.kybernow.ui.neon
@@ -129,6 +130,10 @@ data class HomeState(
     val update: String? = null,
     /** Ordinateurs qu'on réveille en ce moment. */
     val waking: Set<String> = emptySet(),
+    /** Ordinateurs « Hors de chez vous » qu'on vérifie par le relais avant d'ouvrir la session. */
+    val connecting: Set<String> = emptySet(),
+    /** Pourquoi un ordinateur n'a pas pu être ouvert hors de chez soi (docs/link-ui.md, « Hors de chez vous »). */
+    val refusals: Map<String, RelayRefusal> = emptyMap(),
 )
 
 @Composable
@@ -144,7 +149,9 @@ fun HomeScreen(model: AppModel, actions: HomeActions) {
     val screen = remember { Screen.of(context) }
     val update by app.updates.state.collectAsState()
     val waking by model.waking.collectAsState()
-    HomeContent(HomeState(hosts, selectedId, status, images, announced, screen, app.decoders, pads.count { !it.onScreen }, update.offered, waking), actions)
+    val connecting by model.connecting.collectAsState()
+    val refusals by model.refusals.collectAsState()
+    HomeContent(HomeState(hosts, selectedId, status, images, announced, screen, app.decoders, pads.count { !it.onScreen }, update.offered, waking, connecting, refusals), actions)
 }
 
 /**
@@ -247,6 +254,7 @@ private fun Hero(host: Host, st: HostStatus, state: HomeState, actions: HomeActi
         FitTitle(host.name, Modifier.fillMaxWidth(), size = nameSize, min = nameSize * 0.45f)
         if (st.accountRefused) Body(stringResource(R.string.home_account_refused), color = Kn.warn, size = 13f)
         if (st.certificateChanged) Body(stringResource(R.string.home_certificate_changed), color = Kn.warn, size = 13f)
+        state.refusals[host.id]?.let { Body(relayRefusalText(it, host.name), color = Kn.warn, size = 13f) }
         (st.info?.os ?: host.os)?.takeIf { it.isNotBlank() }?.let { Body(it, size = 16f, color = Kn.frost2, maxLines = 1) }
         Row(verticalAlignment = Alignment.CenterVertically) {
             KnIcon(KnIcons.screen, tint = Kn.muted, size = 16f)
@@ -302,6 +310,8 @@ private fun Hero(host: Host, st: HostStatus, state: HomeState, actions: HomeActi
 private fun MainButton(host: Host, st: HostStatus, state: HomeState, actions: HomeActions, modifier: Modifier) = when {
     // Sans effet, mais toujours focalisable : au téléviseur, le focus ne se perd pas pendant le réveil.
     host.id in state.waking && st.online != true -> PrimaryButton(stringResource(R.string.home_waking), {}, modifier)
+    // Hors de chez vous : l'ordinateur est vérifié par le relais avant d'ouvrir la session.
+    host.id in state.connecting -> PrimaryButton(stringResource(R.string.home_connecting), {}, modifier)
     st.online == false && host.wakeTargets.isNotEmpty() -> PrimaryButton(stringResource(R.string.home_wake), { actions.wake(host) }, modifier)
     st.online == false -> PrimaryButton(stringResource(R.string.home_retry), { actions.retry(host) }, modifier)
     else -> PrimaryButton(stringResource(R.string.home_connect), { actions.connect(host) }, modifier)
@@ -349,15 +359,28 @@ private fun padsLabel(n: Int) = when (n) {
     else -> stringResource(R.string.home_pads_many, n)
 }
 
-/** « En ligne », « Hors ligne », « Recherche… ». */
+/** « En ligne », « Hors ligne », « Recherche… » ; « Hors de chez vous » quand l'ordinateur n'est joignable que par le relais. */
 @Composable
 fun statusLabel(st: HostStatus?) = stringResource(
-    when (st?.online) {
-        null -> R.string.home_searching
-        true -> R.string.home_online
-        false -> R.string.home_offline
+    when {
+        st == null || st.online == null -> R.string.home_searching
+        st.away -> R.string.home_away
+        st.online -> R.string.home_online
+        else -> R.string.home_offline
     },
 )
+
+/**
+ * Pourquoi un ordinateur n'a pas pu être ouvert hors de chez soi : « {nom} n'est pas joignable : l'ordinateur est
+ * éteint ou en veille. », « {nom} n'est pas joignable hors de chez vous (accès coupé dans Admin). », ou le texte du
+ * cœur (« Le relais ne répond pas. »).
+ */
+@Composable
+fun relayRefusalText(why: RelayRefusal, name: String): String = when (why) {
+    RelayRefusal.StationOffline -> stringResource(R.string.relay_station_offline, name)
+    RelayRefusal.AccessOff -> stringResource(R.string.relay_access_off, name)
+    is RelayRefusal.Message -> why.text.ifBlank { stringResource(R.string.add_unreachable) }
+}
 
 @Composable
 private fun StatusLine(st: HostStatus) {

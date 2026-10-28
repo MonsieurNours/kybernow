@@ -20,7 +20,9 @@ data class HostInfo(
     val wake: List<WakeTarget> = emptyList(),
     /** Le compte de l'app a été créé pour cet appareil par un code (`account.own_device`, Station 0.5.0 et suivantes). */
     val ownDevice: Boolean = false,
-    /** La réponse d'Admin en JSON, telle que le cœur la rend : [Share.availability] la relit (`share`). */
+    /** Le relais de la Station (`relay`, Station 0.8.0 et suivantes avec un relais réglé) ; nul sinon. */
+    val relay: HostRelay? = null,
+    /** La réponse d'Admin en JSON, telle que le cœur la rend : [Share.availability] et [HostRelay.of] la relisent (`share`, `relay`). */
     val raw: String = "",
 ) {
     companion object {
@@ -35,8 +37,50 @@ data class HostInfo(
             station = o.optJSONObject("station")?.let(StationInfo::parse),
             wake = WakeTarget.parseList(o.optJSONArray("wake")),
             ownDevice = o.optJSONObject("account")?.optBoolean("own_device") ?: false,
+            relay = HostRelay.parse(o.optJSONObject("relay")),
             raw = o.toString(),
         )
+    }
+}
+
+/**
+ * Le relais d'un ordinateur (`relay` de `GET /api/stream/info`, docs/relais.md) : [server] (`share.kybernow.app:8443`),
+ * [station] (son identifiant chez le relais) et [remoteAccess] (« Accès hors de chez vous » actif dans Admin).
+ * L'app le garde avec l'ordinateur ; la route par le relais s'en tire avec l'empreinte d'Admin épinglée ([route]),
+ * jamais sans elle : par le relais, pas de premier contact.
+ */
+data class HostRelay(val server: String, val station: String, val remoteAccess: Boolean = false) {
+    fun json(): JSONObject = JSONObject().put("server", server).put("station", station).put("remote_access", remoteAccess)
+
+    /**
+     * La route par le relais, `{server, station, admin_fp}`, pour `consoleNewRelay` et `sessionStart` ; nulle sans
+     * empreinte d'Admin. C'est la forme que donne le cœur (`relayRouteFromInfo`).
+     */
+    fun route(adminFingerprint: String?): String? {
+        val fp = adminFingerprint?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        return JSONObject().put("server", server).put("station", station).put("admin_fp", fp).toString()
+    }
+
+    companion object {
+        fun parse(o: JSONObject?): HostRelay? {
+            if (o == null) return null
+            val server = o.optString("server").takeIf { it.isNotEmpty() }
+            val station = (if (o.has("station")) o.optString("station") else o.optString("id")).takeIf { it.isNotEmpty() }
+            if (server == null || station == null) return null
+            return HostRelay(server, station, o.optBoolean("remote_access"))
+        }
+
+        /**
+         * Le relais d'un ordinateur d'après son `info` ([HostInfo.raw]) et l'empreinte d'Admin que l'app connaît : ce
+         * que le cœur juge une route valable (identifiant de Station lisible, adresse du relais lisible, empreinte
+         * donnée) ; nul sinon.
+         */
+        fun of(info: HostInfo, adminFingerprint: String?): HostRelay? {
+            val relay = info.relay ?: return null
+            val fp = adminFingerprint?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+            Native.relayRouteFromInfo(info.raw, fp) ?: return null
+            return relay
+        }
     }
 }
 
@@ -128,7 +172,8 @@ data class StationUpdate(
 
 /**
  * Réponse d'Admin : valeur, ou code d'erreur (1 injoignable, 3 certificat changé, −401 compte refusé,
- * −404 appel inconnu ; refus de la Station : 10 à 15, avec [Failed.device] et [Failed.seconds]).
+ * −404 appel inconnu ; refus de la Station : 10 à 15, avec [Failed.device] et [Failed.seconds] ; par le relais :
+ * 30 le relais ne répond pas, 31 l'ordinateur n'est pas au relais, −403 l'accès hors de chez soi est coupé dans Admin).
  */
 sealed class Reply<out T> {
     data class Ok<T>(val value: T) : Reply<T>()
@@ -149,6 +194,13 @@ sealed class Reply<out T> {
         val busy get() = code == 14
         /** Station 0.4.9 ou plus ancienne : elle ne connaît pas l'appel. */
         val stationTooOld get() = code == 15
+
+        /** Par le relais : « Le relais ne répond pas. » ([message], le texte du cœur). */
+        val relayUnreachable get() = code == 30
+        /** Par le relais : l'ordinateur n'est pas connecté au relais (éteint, en veille). */
+        val stationOffline get() = code == 31
+        /** Par le relais : « Accès hors de chez vous » est coupé dans Admin (403 ; hors du relais, Admin ne refuse pas ainsi un `info`). */
+        val remoteAccessOff get() = code == -403
     }
 
     fun valueOrNull(): T? = (this as? Ok<T>)?.value
@@ -162,9 +214,12 @@ data class PairStatus(val state: PairState, val username: String? = null, val pa
  * Client d'Admin hors session (le cœur : certificat épinglé, `Accept-Language`).
  * `pinned` vide : le premier certificat vu est accepté et lisible par
  * [fingerprintSeen] (premier contact par adresse). Appels sur `Dispatchers.IO`.
+ *
+ * [route] (`{server, station, admin_fp}`, [HostRelay.route]) : tous les appels passent alors par le relais, hors de
+ * chez soi, Admin épinglé sur `admin_fp` (docs/relais.md) ; un tunnel qui ne s'ouvre pas rend les erreurs 30 et 31.
  */
-class ConsoleClient(host: String, port: Int, user: String = "", password: String = "", pinned: String? = null) : AutoCloseable {
-    private var handle = Native.consoleNew(host, port, user, password, pinned)
+class ConsoleClient(host: String, port: Int, user: String = "", password: String = "", pinned: String? = null, route: String? = null) : AutoCloseable {
+    private var handle = if (route == null) Native.consoleNew(host, port, user, password, pinned) else Native.consoleNewRelay(host, port, user, password, pinned, route)
 
     val fingerprintSeen: String? get() = if (handle != 0L) Native.consoleFingerprintSeen(handle) else null
 
@@ -246,6 +301,19 @@ class ConsoleClient(host: String, port: Int, user: String = "", password: String
     /** Le rôle d'un invité, ses deux droits (manettes, clavier et souris) : donner ou reprendre l'un, l'autre, ou les deux. */
     suspend fun shareGuest(guest: String, role: ShareRole): Reply<Unit> = withContext(Dispatchers.IO) {
         parse(Native.consoleShareGuest(handle, guest, role.code)) { }
+    }
+
+    /**
+     * « Accepter » la demande d'un invité venu par le relais (`pending`) : il entre dans le partage ; le partage à jour.
+     * Admin refuse (409) quand les quatre places sont prises.
+     */
+    suspend fun shareAccept(guest: String): Reply<ShareState?> = withContext(Dispatchers.IO) {
+        parse(Native.consoleShareAccept(handle, guest)) { ShareState.parse(it as? JSONObject) }
+    }
+
+    /** « Refuser » la demande d'un invité venu par le relais ; le partage à jour. */
+    suspend fun shareRefuse(guest: String): Reply<ShareState?> = withContext(Dispatchers.IO) {
+        parse(Native.consoleShareRefuse(handle, guest)) { ShareState.parse(it as? JSONObject) }
     }
 
     /** « Retirer » un invité. */

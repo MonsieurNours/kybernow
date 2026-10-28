@@ -4,6 +4,7 @@ import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import fr.leslignesclaires.kybernow.core.HostRelay
 import fr.leslignesclaires.kybernow.core.WakeTarget
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -159,9 +160,12 @@ data class LastSession(
     val refresh: Int = 0,
     val codec: String? = null,
     val mbps: Int = 0,
+    /** Le chemin de la session (`route` du cœur : `direct`, `relay`, `relay_tcp`) ; nul avant le relais (0.7.x). */
+    val route: String? = null,
 ) {
     fun json(): JSONObject = JSONObject().put("median", median).put("p95", p95).put("seconds", seconds).put("at", at)
         .put("width", width).put("height", height).put("refresh", refresh).put("codec", codec ?: JSONObject.NULL).put("mbps", mbps)
+        .put("route", route ?: JSONObject.NULL)
 
     companion object {
         fun parse(o: JSONObject) = LastSession(
@@ -169,6 +173,7 @@ data class LastSession(
             width = o.optInt("width"), height = o.optInt("height"), refresh = o.optInt("refresh"),
             codec = if (o.isNull("codec")) null else o.optString("codec").takeIf { it.isNotEmpty() },
             mbps = o.optInt("mbps"),
+            route = if (o.isNull("route")) null else o.optString("route").takeIf { it.isNotEmpty() },
         )
     }
 }
@@ -195,7 +200,15 @@ data class Host(
     val last: LastSession? = null,
     /** Ajouté par un code accepté dans Admin : un compte propre à cet appareil. */
     val paired: Boolean = false,
+    /** Le relais de l'ordinateur, appris d'Admin (`relay` de `info`) et gardé hors ligne : l'accès hors de chez soi. */
+    val relay: HostRelay? = null,
 ) {
+    /**
+     * La route par le relais (`{server, station, admin_fp}`) pour une session « Auto » ou une console hors de chez
+     * soi ; nulle sans relais connu ou sans empreinte d'Admin épinglée (par le relais, jamais de premier contact).
+     */
+    val relayRoute: String? get() = relay?.route(fingerprint)
+
     /**
      * Où envoyer le paquet de réveil : les cartes apprises d'Admin, et l'adresse MAC saisie à la
      * main si elle n'y est pas (vers la dernière adresse IPv4 connue d'Admin).
@@ -215,6 +228,7 @@ data class Host(
         .put("wake", JSONArray(WakeTarget.toJson(wake)))
         .put("settings", settings.json())
         .put("last", last?.json() ?: JSONObject.NULL).put("paired", paired)
+        .put("relay", relay?.json() ?: JSONObject.NULL)
 
     companion object {
         private fun JSONObject.str(key: String): String? = if (isNull(key)) null else optString(key).takeIf { it.isNotEmpty() }
@@ -235,6 +249,7 @@ data class Host(
             settings = HostSettings.parse(o.optJSONObject("settings")),
             last = o.optJSONObject("last")?.let(LastSession::parse),
             paired = o.optBoolean("paired"),
+            relay = HostRelay.parse(o.optJSONObject("relay")),
         )
     }
 }

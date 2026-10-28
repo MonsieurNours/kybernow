@@ -99,6 +99,10 @@ object Native {
     @JvmStatic external fun consoleShareState(handle: Long): String?
     @JvmStatic external fun consoleShareCode(handle: Long): String?
     @JvmStatic external fun consoleShareGuest(handle: Long, guest: String, role: Int): String?
+    /** « Accepter » la demande d'un invité venu par le relais (`guests[].pending`) ; `value` : le partage à jour. Refus 409 : quatre places prises. */
+    @JvmStatic external fun consoleShareAccept(handle: Long, guest: String): String?
+    /** « Refuser » la demande d'un invité venu par le relais ; `value` : le partage à jour. */
+    @JvmStatic external fun consoleShareRefuse(handle: Long, guest: String): String?
     @JvmStatic external fun consoleShareKick(handle: Long, guest: String): String?
     @JvmStatic external fun consoleShareClose(handle: Long): String?
 

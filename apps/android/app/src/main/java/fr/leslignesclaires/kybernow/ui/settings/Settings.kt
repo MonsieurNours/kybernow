@@ -656,6 +656,7 @@ private fun StationRubric(state: HostSettingsState, actions: HostSettingsActions
         Body(if (version != null) stringResource(R.string.station_version, version) else "KyberNow Station", size = 16f)
         val (line, color) = when {
             st.online == null -> stringResource(R.string.home_searching) to Kn.muted
+            st.away -> stringResource(R.string.home_away) to Kn.muted
             info == null -> stringResource(R.string.home_offline) to Kn.muted
             station == null -> stringResource(R.string.station_too_old) to Kn.muted
             update?.available == true && update.version != null -> stringResource(R.string.station_available, update.version) to Kn.spectre

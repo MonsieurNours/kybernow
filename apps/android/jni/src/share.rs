@@ -292,6 +292,25 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_consoleShar
     give(&mut env, &s)
 }
 
+/// « Accepter » la demande d'un invité venu par le relais (`guest` : son identifiant dans la liste) ; `value` :
+/// le partage à jour. Admin refuse (409) quand les quatre places sont prises.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_consoleShareAccept(mut env: Env, _: JClass, h: jlong, guest: JString) -> jstring {
+    let Some(c) = console(h) else { return std::ptr::null_mut() };
+    let guest = string(&mut env, &guest);
+    let s = envelope(c.share_accept(&guest));
+    give(&mut env, &s)
+}
+
+/// « Refuser » la demande d'un invité venu par le relais ; `value` : le partage à jour.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_consoleShareRefuse(mut env: Env, _: JClass, h: jlong, guest: JString) -> jstring {
+    let Some(c) = console(h) else { return std::ptr::null_mut() };
+    let guest = string(&mut env, &guest);
+    let s = envelope(c.share_refuse(&guest));
+    give(&mut env, &s)
+}
+
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_consoleShareKick(mut env: Env, _: JClass, h: jlong, guest: JString) -> jstring {
     let Some(c) = console(h) else { return std::ptr::null_mut() };
