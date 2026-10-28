@@ -157,7 +157,7 @@ Admin session only, never through the relay. Empty `server`: no relay (neither s
 
 ### Activity feed
 
-“{device} is in a session away from home” when a session through the relay starts; “Access away from home blocked for 10 min after too many attempts.” when blocking ([link-ui.en.md](link-ui.en.md)).
+“{device} is in a session away from home” when a session through the relay starts; “Access away from home blocked for 10 min for {address} after too many attempts.” when an address is blocked; “Access away from home blocked for 10 min after too many attempts.” when all access is blocked ([link-ui.en.md](link-ui.en.md)).
 
 ## Admin's guard by route
 
@@ -168,7 +168,7 @@ Admin considers “local” what comes from the loopback (`/api/local/*`, `local
   - to a **guest**, when a share is open: `/api/share/join|wait|beat|quality|leave`, `/link/*`, `/assets/*`, a reduced `GET /api/session`, Admin's proxy to Kyber (`kyber_proxy`) with an accepted guest's cookie (WebSocket only, never `/kymux/start_mux`);
   - to a **paired device** (Basic account), only when “Access away from home” is on: `/api/stream/*` (except `/api/stream/station/*`) and the host routes `/api/share*`; access off: `403 {"error":…,"code":"remote_access_off"}`;
   - **never** through the relay: restarting and updating the Station (`/api/stream/station/restart`, `/api/stream/station/update`: a heavy action, done on site or in Admin), `/api/login`, `/api/setup`, `/api/password`, `/api/web/ticket`, `/api/pair*`, `/api/pairing`, `/api/local/*`, configuration, accounts, logs, service, display, sound, Admin's update, devices, apps, `/api/events`, Admin's interface. Pairing happens on the network only.
-- **Blocking**: 20 Basic account failures through the relay within 10 minutes block access through the relay for 10 minutes (`429 {"code":"locked"}`), with a line in the feed.
+- **Blocking**: 10 Basic account failures through the relay from the same address (a /64 in IPv6) within 10 minutes block **that address** for 10 minutes (`429 {"code":"locked"}`); the owner, from elsewhere, still gets through. Safeguard: 100 failures within 10 minutes, all addresses together, block all of the devices' access through the relay for 10 minutes (`locked_until` of `GET /api/relay`). Each block puts a line in the feed.
 - **Kyber**: the agent reaches Kyber only for an authorised client (an accepted guest, while it keeps sending signs of life; a paired device after `prepare`, for 30 s renewed by the heartbeat), and always **from and to the computer's local network address**, never through the loopback (patch 0019 keeps `/kybernow/*` for the loopback). Kyber listens on all addresses.
 - Admin authorises a **relay client** (its identifier): the one that made the successful `wait`, `beat` or `prepare`/`heartbeat`. A client that reconnects keeps its identifier.
 
@@ -182,7 +182,7 @@ What Admin does on top of the above, without changing any of it (`server/admin/s
 - **Reduced `GET /api/session`**: `{"configured", "authenticated": false, "relay": true, "version"}`.
 - **Guard**: with the share closed, `join`, the pages and the proxy to Kyber answer `404`; `beat`, `wait` and `leave` go through (“stopped” for a minute). Through the relay, the proxy to Kyber relays `/session/login`, `/ws`, `/websocket/*`… but refuses `/kymux/start_mux`: that is what keeps the browser's picture on WebSocket. A refused relay request carries `{"error": <text>, "code": "relay_forbidden"}`; Admin's session cookie is removed from every relay request before the guard.
 - **Forced address**: a local or private address given by the relay (a client behind the same router as the relay) becomes `100::1` (IPv6 “discard” block); per-address limits (`join`) count it as one.
-- **Blocking**: the counter of 20 failures in 10 minutes is shared by the whole relay (all its requests arrive through the same connection) and only covers the devices' routes (Basic account): a guest is not blocked by it.
+- **Blocking**: it only covers the devices' routes (Basic account): a guest is not blocked by it. It counts by the address the relay gives (a local or private address becomes `100::1`, counted as one). An attempt in progress counts in advance: when failures plus attempts in progress would reach the limit, a new attempt waits (`429 locked`, `retry_after` 1); simultaneous requests therefore never go over it. A success does not clear the failures.
 - **Kyber**: an authorization lasts 30 s, renewed by `wait`, `beat`, `prepare` and the host's heartbeat; it falls when the guest leaves, is removed, goes silent, when the share stops, when the device's session ends or, for devices, as soon as “Access away from home” is turned off, and then closes its UDP flows and TCP connections to Kyber.
 - **Feed**: also « {prénom} demande à rejoindre (hors de chez vous) », « {prénom} : demande refusée », « Accès hors de chez vous activé » and « … coupé ».
 - `KYBERNOW_RELAY_TCP=1` forces the agent's TCP fallback (testing).
@@ -232,7 +232,7 @@ What Admin does on top of the above, without changing any of it (`server/admin/s
 - Code lookup: 10 per minute and 60 per hour per address, 30 per minute per /24 (IPv4) or /48 (IPv6), 600 per minute overall. Admin keeps its 10 `join` attempts per minute per real address.
 - QUIC: 16 connections per address, 60 handshakes per minute per address, 4096 overall; beyond a threshold, the relay asks for address validation (Retry).
 - TCP: 32 connections per address; TLS and HTTP headers within 10 s, 16 KiB of headers at most.
-- 4 Stations per address, 20 Station connections per minute per address, one connection per Station (the last wins), 8 clients per Station, 4 UDP flows per client. A Station never keeps more than 4 codes, reconnection after reconnection.
+- 4 Stations per address, 20 Station connections per minute per address, one connection per Station (the last wins), 8 clients per Station, at most 2 of them from the same address (a /64 in IPv6), 4 UDP flows per client. A Station's identifier is in all its links: so that it is not enough to block it, a client with no flow or relayed connection for 30 s is sent away (its seat is freed), and at a full Station the client idle for the longest gives its seat to the newcomer; if all are busy, the newcomer gets `error {code: "too_many"}`. A Station never keeps more than 4 codes, reconnection after reconnection.
 - At most 1024 messages waiting for an end: an end that does not read what the relay sends it (`pong`, `presence`…) is disconnected. TCP fallback: at most 64 MiB waiting per connection (yamux window).
 - No bitrate cap. The relay only forwards to connected Stations, and Admin only lets authorised clients through. Ban list reloaded live; optional global cap, off by default; Prometheus metrics and a bitrate alert.
 

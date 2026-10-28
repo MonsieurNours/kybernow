@@ -181,7 +181,7 @@ Contrat : [relais.md](relais.md). Par le relais, une session ressemble à une se
 | État | « Relais joint » ; « Relais injoignable ({raison}) », ou « Relais injoignable » sans raison ; seulement quand une adresse est réglée ; aussi dans le menu de l'icône, quand un partage ou l'accès demande le relais | “Relay reached”; “Relay unreachable ({reason})”, “Relay unreachable” |
 | Interrupteur | « Accès hors de chez vous », aide « Vos appareils appairés ouvrent cet ordinateur par le relais quand ils ne sont pas sur votre réseau. » | “Access away from home”, help “Your paired devices open this computer through the relay when they are not on your network.” |
 | Fil | « {appareil} est en session hors de chez vous » ; « Accès hors de chez vous activé », « Accès hors de chez vous coupé » | “{device} is in a session away from home”; “Access away from home turned on”, “Access away from home turned off” |
-| Blocage | « Accès hors de chez vous bloqué 10 min après trop d'essais. » | “Access away from home blocked for 10 min after too many attempts.” |
+| Blocage | une adresse (dix essais faux) : dans le fil, « Accès hors de chez vous bloqué 10 min pour {adresse} après trop d'essais. » ; tout l'accès (garde-fou, cent essais faux) : « Accès hors de chez vous bloqué 10 min après trop d'essais. », aussi dans la section | “Access away from home blocked for 10 min for {address} after too many attempts.”; “Access away from home blocked for 10 min after too many attempts.” |
 
 ## Réglages de l'ordinateur
 

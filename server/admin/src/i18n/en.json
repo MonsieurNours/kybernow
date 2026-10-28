@@ -175,6 +175,7 @@
     "shareRefused": "{name}: request declined",
     "relaySession": "{name} is in a session away from home",
     "relayLocked": "Access away from home blocked for 10 min after too many attempts.",
+    "relayLockedAddress": "Access away from home blocked for 10 min for {address} after too many attempts.",
     "relayAccessOn": "Access away from home turned on",
     "relayAccessOff": "Access away from home turned off"
   },

@@ -175,6 +175,7 @@
     "shareRefused": "{name} : demande refusée",
     "relaySession": "{name} est en session hors de chez vous",
     "relayLocked": "Accès hors de chez vous bloqué 10 min après trop d'essais.",
+    "relayLockedAddress": "Accès hors de chez vous bloqué 10 min pour {address} après trop d'essais.",
     "relayAccessOn": "Accès hors de chez vous activé",
     "relayAccessOff": "Accès hors de chez vous coupé"
   },

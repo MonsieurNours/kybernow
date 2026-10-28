@@ -64,6 +64,11 @@ pub struct Limits {
     /// en rafale garderaient des codes 120 s chacune).
     pub stations_per_minute_per_ip: u32,
     pub clients_per_station: usize,
+    /// Clients d'une même Station depuis une même adresse (un /64 en IPv6).
+    pub clients_per_station_per_ip: usize,
+    /// Un client d'une Station sans flux ni connexion relayée pendant ce
+    /// temps est renvoyé : sa place se libère.
+    pub client_idle_secs: u64,
     pub flows_per_client: usize,
     pub codes_per_station: usize,
     pub header_timeout_secs: u64,
@@ -85,6 +90,8 @@ impl Default for Limits {
             stations_per_ip: 4,
             stations_per_minute_per_ip: 20,
             clients_per_station: 8,
+            clients_per_station_per_ip: 2,
+            client_idle_secs: 30,
             flows_per_client: 4,
             codes_per_station: 4,
             header_timeout_secs: 10,

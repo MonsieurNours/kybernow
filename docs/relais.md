@@ -157,7 +157,7 @@ Session d'Admin seulement, jamais par le relais. `server` vide : pas de relais (
 
 ### Fil
 
-« {appareil} est en session hors de chez vous » au début d'une session par le relais ; « Accès hors de chez vous bloqué 10 min après trop d'essais. » au blocage ([link-ui.md](link-ui.md)).
+« {appareil} est en session hors de chez vous » au début d'une session par le relais ; « Accès hors de chez vous bloqué 10 min pour {adresse} après trop d'essais. » au blocage d'une adresse ; « Accès hors de chez vous bloqué 10 min après trop d'essais. » au blocage de tout l'accès ([link-ui.md](link-ui.md)).
 
 ## Garde d'Admin selon la voie
 
@@ -168,7 +168,7 @@ Admin juge « local » ce qui vient de la boucle locale (`/api/local/*`, `local_
   - à un **invité**, quand un partage est ouvert : `/api/share/join|wait|beat|quality|leave`, `/link/*`, `/assets/*`, `GET /api/session` réduit, le mandataire d'Admin vers Kyber (`kyber_proxy`) avec le cookie d'un invité accepté (WebSocket seulement, jamais `/kymux/start_mux`) ;
   - à un **appareil appairé** (compte Basic), seulement quand « Accès hors de chez vous » est actif : `/api/stream/*` (sauf `/api/stream/station/*`) et les routes de l'hôte `/api/share*` ; accès coupé : `403 {"error":…,"code":"remote_access_off"}` ;
   - **jamais** par le relais : le redémarrage et la mise à jour de la Station (`/api/stream/station/restart`, `/api/stream/station/update` : une action lourde, qui se fait sur place ou dans Admin), `/api/login`, `/api/setup`, `/api/password`, `/api/web/ticket`, `/api/pair*`, `/api/pairing`, `/api/local/*`, la configuration, les comptes, les journaux, le service, l'écran, le son, la mise à jour d'Admin, les appareils, les apps, `/api/events`, l'interface d'Admin. L'appairage se fait sur le réseau seulement.
-- **Blocage** : 20 échecs du compte Basic par le relais en 10 minutes bloquent l'accès par le relais 10 minutes (`429 {"code":"locked"}`), avec une ligne dans le fil.
+- **Blocage** : 10 échecs du compte Basic par le relais depuis une même adresse (un /64 en IPv6) en 10 minutes bloquent **cette adresse** 10 minutes (`429 {"code":"locked"}`) ; le propriétaire, d'ailleurs, passe toujours. Garde-fou : 100 échecs en 10 minutes, toutes adresses confondues, bloquent tout l'accès des appareils par le relais 10 minutes (`locked_until` de `GET /api/relay`). Chaque blocage met une ligne dans le fil.
 - **Kyber** : l'agent ne joint Kyber que pour un client autorisé (un invité accepté, tant qu'il donne signe de vie ; un appareil appairé après `prepare`, pour 30 s renouvelées par le signe de vie), et toujours **depuis et vers l'adresse du réseau local** de l'ordinateur, jamais par la boucle locale (le correctif 0019 réserve `/kybernow/*` à la boucle locale). Kyber écoute sur toutes les adresses.
 - Admin autorise un **client du relais** (son identifiant) : celui qui a fait le `wait`, le `beat` ou le `prepare`/`heartbeat` réussi. Un client qui se reconnecte garde son identifiant.
 
@@ -182,7 +182,7 @@ Ce qu'Admin fait en plus de ce qui précède, sans rien y changer (`server/admin
 - **`GET /api/session` réduit** : `{"configured", "authenticated": false, "relay": true, "version"}`.
 - **Garde** : partage fermé, `join`, les pages et le mandataire vers Kyber rendent `404` ; `beat`, `wait` et `leave` passent (« arrêté » pendant une minute). Par le relais, le mandataire vers Kyber relaie `/session/login`, `/ws`, `/websocket/*`… mais refuse `/kymux/start_mux` : c'est ce qui garde l'image du navigateur en WebSocket. Une requête du relais refusée porte `{"error": <texte>, "code": "relay_forbidden"}` ; le cookie de session d'Admin est retiré de toute requête du relais avant la garde.
 - **Adresse forcée** : une adresse locale ou privée donnée par le relais (un client derrière la même box que lui) devient `100::1` (bloc IPv6 « à jeter ») ; les limites par adresse (`join`) la comptent comme une seule.
-- **Blocage** : le compteur des 20 échecs en 10 minutes est commun à tout le relais (toutes ses requêtes arrivent par la même connexion) et ne vise que les routes des appareils (compte Basic) : un invité n'est pas bloqué par lui.
+- **Blocage** : il ne vise que les routes des appareils (compte Basic) : un invité n'est pas bloqué par lui. Il compte par l'adresse que donne le relais (une adresse locale ou privée devient `100::1`, comptée comme une seule). Un essai en cours compte d'avance : quand les échecs et les essais en cours atteindraient la limite, un nouvel essai attend (`429 locked`, `retry_after` 1) ; des requêtes simultanées ne la dépassent donc jamais. Un succès n'efface pas les échecs.
 - **Kyber** : une autorisation dure 30 s, renouvelée par `wait`, `beat`, `prepare` et le signe de vie de l'hôte ; elle tombe au départ de l'invité, à son retrait, à son silence, à l'arrêt du partage, à la fin de session de l'appareil ou, pour les appareils, dès que « Accès hors de chez vous » est coupé, et ferme alors ses flux UDP et ses connexions TCP vers Kyber.
 - **Fil** : en plus, « {prénom} demande à rejoindre (hors de chez vous) », « {prénom} : demande refusée », « Accès hors de chez vous activé » et « … coupé ».
 - `KYBERNOW_RELAY_TCP=1` force le repli TCP de l'agent (essais).
@@ -232,7 +232,7 @@ Ce qu'Admin fait en plus de ce qui précède, sans rien y changer (`server/admin
 - Recherche de code : 10 par minute et 60 par heure par adresse, 30 par minute par /24 (IPv4) ou /48 (IPv6), 600 par minute en tout. Admin garde ses 10 essais de `join` par minute et par adresse réelle.
 - QUIC : 16 connexions par adresse, 60 négociations par minute par adresse, 4096 en tout ; au-delà d'un seuil, le relais demande une preuve d'adresse (Retry).
 - TCP : 32 connexions par adresse ; TLS et en-têtes HTTP en 10 s, 16 Kio d'en-têtes au plus.
-- 4 Stations par adresse, 20 connexions de Station par minute et par adresse, une connexion par Station (la dernière gagne), 8 clients par Station, 4 flux UDP par client. Une Station ne garde jamais plus de 4 codes, reconnexion après reconnexion.
+- 4 Stations par adresse, 20 connexions de Station par minute et par adresse, une connexion par Station (la dernière gagne), 8 clients par Station, dont 2 au plus depuis une même adresse (un /64 en IPv6), 4 flux UDP par client. L'identifiant d'une Station est dans tous ses liens : pour qu'il ne suffise pas à la bloquer, un client sans flux ni connexion relayée pendant 30 s est renvoyé (sa place se libère), et à une Station pleine le client inactif depuis le plus longtemps cède sa place au nouveau ; si tous sont occupés, le nouveau reçoit `error {code: "too_many"}`. Une Station ne garde jamais plus de 4 codes, reconnexion après reconnexion.
 - 1024 messages au plus en attente vers un bout : un bout qui ne lit pas ce que le relais lui envoie (`pong`, `presence`…) est coupé. Repli TCP : 64 Mio au plus en attente par connexion (fenêtre yamux).
 - Pas de plafond de débit. Le relais ne fait suivre que vers des Stations connectées, et Admin ne laisse passer que des clients autorisés. Liste de bannissement relue à chaud ; plafond global facultatif, coupé par défaut ; métriques Prometheus et alerte de débit.
 
