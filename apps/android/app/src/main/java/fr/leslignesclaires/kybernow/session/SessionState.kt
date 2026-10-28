@@ -7,6 +7,7 @@ import android.graphics.Bitmap
 import android.os.Handler
 import android.os.Looper
 import fr.leslignesclaires.kybernow.R
+import fr.leslignesclaires.kybernow.core.RouteInfo
 import fr.leslignesclaires.kybernow.core.SessionListener
 import fr.leslignesclaires.kybernow.core.Share
 import fr.leslignesclaires.kybernow.core.ShareImage
@@ -72,6 +73,8 @@ sealed class Capsule {
     data class ShareRights(@androidx.annotation.StringRes val text: Int) : Capsule()
     /** Invité : la Station a ajusté son image (« Image allégée pour suivre. ») ; [text] : l'avis tel que le cœur l'écrit. */
     data class ShareNotice(val text: String) : Capsule()
+    /** Hôte : un invité demande à rejoindre par le relais (« Léa demande à rejoindre »), à accepter ou à refuser dans le panneau. */
+    data class ShareRequest(val name: String) : Capsule()
 }
 
 data class DisplayInfo(val id: Int, val width: Int, val height: Int)
@@ -122,6 +125,12 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
     /** Invité : ce que son rôle lui permet, tel que la Station le dit (au départ, puis à chaque changement). */
     val shareRole = MutableStateFlow(ShareRole.SPECTATOR)
     /**
+     * Par où passe la session (docs/relais.md) : au début, puis quand le chemin change ; nul avant la première annonce
+     * du cœur. [RouteInfo.viaRelay] : la puce « Par le relais » ; [RouteInfo.transport] : la ligne « Chemin » des
+     * statistiques et celle de la « Dernière session ».
+     */
+    val route = MutableStateFlow<RouteInfo?>(null)
+    /**
      * Invité : la « Qualité de l'image » qu'il a choisie (celle de « Rejoindre », puis celle de la barre). L'image
      * qu'il reçoit est [shareImage] : la Station tranche, « Auto » aussi.
      */
@@ -134,6 +143,8 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
     val shareImage = MutableStateFlow<ShareImage?>(null)
     /** Le libellé du cœur d'une image reçue ; les essais sans bibliothèque native en donnent un. */
     internal var imageLabel: (String) -> String? = Share::imageLabel
+    /** Le code du partage tel qu'on l'affiche (« 123 456 », le cœur) ; les essais sans bibliothèque native en donnent un. */
+    internal var codeFormat: (String) -> String = Share::formatCode
     /**
      * Invité : le texte de la fin du partage (« Léa a arrêté le partage. »), tel que le cœur l'écrit ; il est aussi
      * `Ended.error`, que l'écran de fin montre sans y toucher (le nom de l'hôte n'a pas à changer de casse).
@@ -254,7 +265,16 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
     // MARK: - KyberNow Share
 
     override fun onGuests(json: String?) {
-        share.value = ShareState.parse(json)
+        val now = ShareState.parse(json, codeFormat, imageLabel)
+        val known = share.value?.requests.orEmpty().map { it.id }
+        share.value = now
+        // Une nouvelle demande venue par le relais : son prénom dans une capsule (« Léa demande à rejoindre »), le temps de
+        // rouvrir la barre et d'y répondre ; le panneau et la pastille « 1 demande » la montrent ensuite.
+        now?.requests?.firstOrNull { it.id !in known }?.let { show(Capsule.ShareRequest(it.name), 6000) }
+    }
+
+    override fun onRoute(json: String) {
+        RouteInfo.parse(json)?.let { route.value = it }
     }
 
     override fun onShareRole(role: Int, previous: Int) {

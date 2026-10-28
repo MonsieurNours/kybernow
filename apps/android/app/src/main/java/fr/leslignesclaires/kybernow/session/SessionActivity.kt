@@ -33,6 +33,7 @@ import fr.leslignesclaires.kybernow.R
 import fr.leslignesclaires.kybernow.core.ConsoleClient
 import fr.leslignesclaires.kybernow.core.FormFactor
 import fr.leslignesclaires.kybernow.core.Native
+import fr.leslignesclaires.kybernow.core.Relays
 import fr.leslignesclaires.kybernow.core.Reply
 import fr.leslignesclaires.kybernow.core.Share
 import fr.leslignesclaires.kybernow.core.ShareFound
@@ -290,6 +291,9 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
             .put("clipboard", host.settings.clipboard && !tv)
             .put("combo", host.settings.combo)
             .put("recovery", JSONObject().put("watch_image", true).put("fallback_bitrate", 150_000_000))
+        // Hors de chez soi : « Auto », le réseau d'abord (Admin répond en 1,5 s), le relais de l'ordinateur sinon, Admin
+        // épinglé sur l'empreinte connue (docs/relais.md). Sans relais connu, ou avec `KYBERNOW_RELAY=off` : sur le réseau.
+        if (g == null && !Relays.off) host.relayRoute?.let { params.put("route", "auto").put("relay", JSONObject(it)) }
         handle = Native.sessionStart(params.toString(), null, state, refresh)
         if (handle == 0L) {
             // Un invité que la Station a déjà accepté repart tout de suite (sinon elle l'attend 20 s sans signe de vie).
@@ -490,7 +494,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         val (w, hh, r) = state.mode.value ?: sessionMode
         val settings = settingsJson(ui.profile)
         val mbps = SessionMode.bitrate(settings.optInt("mbps"), settings.has("profile"), w, hh, r)
-        val last = LastSession(lat[0], lat[1], seconds, System.currentTimeMillis(), w, hh, r, settings.optString("codec").ifEmpty { null }, mbps)
+        val last = LastSession(lat[0], lat[1], seconds, System.currentTimeMillis(), w, hh, r, settings.optString("codec").ifEmpty { null }, mbps, state.route.value?.transport?.id)
         app.hosts.update(host.id) { it.copy(last = last) }
     }
 
@@ -685,8 +689,15 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         if (h != 0L && !Native.sessionSetShareQuality(h, quality.code)) android.util.Log.w("KyberNow", "partage : qualité ${quality.id} refusée par le cœur")
     }
 
-    /** Un compte de l'appareil pour les appels de l'hôte au partage (jamais pour un invité). */
-    private fun console() = ConsoleClient(host.address, host.port, host.user, app.hosts.password(host.id) ?: "", host.fingerprint)
+    /**
+     * Un compte de l'appareil pour les appels de l'hôte au partage (jamais pour un invité). Une session venue par le
+     * relais y reste, et ces appels aussi (Admin laisse à l'appareil appairé les routes du partage quand « Accès hors de
+     * chez vous » est actif) : sans cela, ils iraient chercher l'ordinateur sur un réseau qui n'est pas le sien.
+     */
+    private fun console(): ConsoleClient {
+        val route = if (state.route.value?.viaRelay == true) host.relayRoute else null
+        return ConsoleClient(host.address, host.port, host.user, app.hosts.password(host.id) ?: "", host.fingerprint, route)
+    }
 
     /**
      * Hôte : ce que « Partager » peut faire avec cet ordinateur d'après son info (Station 0.8.0 ou plus,
@@ -773,6 +784,11 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         val now = (c.shareState() as? Reply.Ok)?.value?.guest(guest.id)?.role ?: state.share.value?.guest(guest.id)?.role ?: guest.role
         c.shareGuest(guest.id, change(now))
     }
+
+    /** « Accepter » / « Refuser » la demande d'un invité venu par le relais ; Admin refuse d'accepter quand les quatre places sont prises. */
+    override fun shareAccept(guest: ShareGuest) = shareCall { it.shareAccept(guest.id) }
+
+    override fun shareRefuse(guest: ShareGuest) = shareCall { it.shareRefuse(guest.id) }
 
     override fun shareRemove(guest: ShareGuest) = shareCall { it.shareKick(guest.id) }
 

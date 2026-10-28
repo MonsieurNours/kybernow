@@ -16,6 +16,14 @@
     <string name="home_searching">Recherche…</string>
     <string name="home_online">En ligne</string>
     <string name="home_offline">Hors ligne</string>
+    <string name="home_away">Hors de chez vous</string>
+    <string name="home_connecting">Connexion…</string>
+    <string name="relay_station_offline" formatted="true">%1$s n\'est pas joignable : l\'ordinateur est éteint ou en veille.</string>
+    <string name="relay_access_off" formatted="true">%1$s n\'est pas joignable hors de chez vous (accès coupé dans Admin).</string>
+    <string name="route_direct">Direct</string>
+    <string name="route_relay">Par le relais</string>
+    <string name="route_relay_tcp">Par le relais (TCP)</string>
+    <string name="stats_path" formatted="true">Chemin : %1$s</string>
     <string name="home_display_match" formatted="true">Écran de %1$d × %2$d à %3$d Hz, à la taille de cet écran</string>
     <string name="home_display_custom" formatted="true">Écran de %1$d × %2$d à %3$d Hz</string>
     <string name="home_display_as_is">Les écrans de l\'ordinateur, tels quels</string>
@@ -333,6 +341,7 @@
     <string name="share_join_name">Votre prénom</string>
     <string name="share_join_button">Rejoindre</string>
     <string name="share_join_searching">Recherche du partage…</string>
+    <string name="share_join_waiting">En attente de l\'accord de l\'hôte…</string>
     <string name="share_guest_on" formatted="true">Invité sur %1$s</string>
     <string name="share_role_spectator">Spectateur</string>
     <string name="share_role_player">Joueur</string>
@@ -357,6 +366,13 @@
     <string name="share_link_copied">Lien copié.</string>
     <string name="share_copy_failed">Copie impossible : sélectionnez le lien à la main.</string>
     <string name="share_help">Sur le même réseau : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur.</string>
+    <string name="share_help_relay">Sur le même réseau ou ailleurs : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur. Hors de chez vous, vous acceptez chaque invité.</string>
+    <string name="share_relay_unreachable">Pas encore joignable hors de chez vous.</string>
+    <string name="share_requests_title">Demandes</string>
+    <string name="share_request_wants" formatted="true">%1$s demande à rejoindre</string>
+    <string name="share_accept">Accepter</string>
+    <string name="share_refuse">Refuser</string>
+    <string name="share_away">hors de chez vous</string>
     <string name="share_guests_title">Invités</string>
     <string name="share_nobody">Personne pour l\'instant.</string>
     <string name="share_guest_spectator" formatted="true">%1$s · Spectateur</string>
@@ -385,5 +401,10 @@
         <item quantity="one">%d invité</item>
         <item quantity="many">%d invités</item>
         <item quantity="other">%d invités</item>
+    </plurals>
+    <plurals name="share_requests">
+        <item quantity="one">%d demande</item>
+        <item quantity="many">%d demandes</item>
+        <item quantity="other">%d demandes</item>
     </plurals>
 </resources>

@@ -143,8 +143,13 @@ class MainActivity : AppCompatActivity() {
         model.stopPolling()
     }
 
+    /**
+     * « Se connecter » : un ordinateur « Hors de chez vous » est vérifié par le relais d'abord (le refus s'écrit sur
+     * l'accueil : éteint, accès coupé, relais muet) ; les autres s'ouvrent aussitôt. La session part en « Auto » : le
+     * réseau d'abord, le relais sinon.
+     */
     private fun connect(h: Host) {
-        startActivity(Intent(this, SessionActivity::class.java).putExtra(SessionActivity.EXTRA_HOST, h.id))
+        model.connect(h.id) { open -> startActivity(Intent(this, SessionActivity::class.java).putExtra(SessionActivity.EXTRA_HOST, open.id)) }
     }
 
     private fun wake(h: Host) = model.wake(h.id)

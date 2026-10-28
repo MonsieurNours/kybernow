@@ -2,6 +2,7 @@ package fr.leslignesclaires.kybernow.ui
 
 import android.app.Application
 import android.graphics.BitmapFactory
+import android.os.SystemClock
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.lifecycle.AndroidViewModel
@@ -9,7 +10,9 @@ import androidx.lifecycle.viewModelScope
 import fr.leslignesclaires.kybernow.KyberNowApp
 import fr.leslignesclaires.kybernow.core.ConsoleClient
 import fr.leslignesclaires.kybernow.core.HostInfo
+import fr.leslignesclaires.kybernow.core.HostRelay
 import fr.leslignesclaires.kybernow.core.Native
+import fr.leslignesclaires.kybernow.core.Relays
 import fr.leslignesclaires.kybernow.core.Reply
 import fr.leslignesclaires.kybernow.core.WakeTarget
 import fr.leslignesclaires.kybernow.model.Announced
@@ -25,6 +28,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /** Ce qu'on demande à la Station depuis cet appareil (rubrique « Station »). */
@@ -44,16 +49,34 @@ sealed interface StationTask {
     data class Failed(val reason: StationFailure, val message: String = "", val version: String? = null) : StationTask
 }
 
-/** État d'un ordinateur, sondé toutes les 8 s (comme les autres apps). */
+/**
+ * État d'un ordinateur, sondé toutes les 8 s (comme les autres apps). [away] : « Hors de chez vous » : l'ordinateur ne
+ * répond pas sur le réseau mais il est connecté au relais (docs/relais.md) ; [online] vaut alors vrai (on peut s'y
+ * connecter), sans [info].
+ */
 data class HostStatus(
     val online: Boolean? = null,
     val info: HostInfo? = null,
     /** Compte refusé (401) ou certificat changé : à reprendre dans les réglages. */
     val accountRefused: Boolean = false,
     val certificateChanged: Boolean = false,
+    val away: Boolean = false,
 ) {
     val checked get() = online != null
 }
+
+/** Pourquoi l'ordinateur n'a pas pu être ouvert hors de chez soi (textes de docs/link-ui.md, « Hors de chez vous »). */
+sealed interface RelayRefusal {
+    /** « {nom} n'est pas joignable : l'ordinateur est éteint ou en veille. » */
+    data object StationOffline : RelayRefusal
+    /** « {nom} n'est pas joignable hors de chez vous (accès coupé dans Admin). » */
+    data object AccessOff : RelayRefusal
+    /** Le texte du cœur ou d'Admin tel quel (« Le relais ne répond pas. », le blocage après trop d'essais). */
+    data class Message(val text: String) : RelayRefusal
+}
+
+/** Le relais n'est pas interrogé plus d'une fois toutes les 30 s pour savoir qui est connecté. */
+private const val PRESENCE_EVERY_MS = 30_000L
 
 class AppModel(app: Application) : AndroidViewModel(app) {
     private val kn = app as KyberNowApp
@@ -73,6 +96,14 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     val announced: StateFlow<List<Announced>> = combine(kn.discovery.found, store.hosts) { found, hosts ->
         found.filter { a -> hosts.none { (it.address == a.address && it.port == a.port) || (a.fingerprint != null && it.fingerprint == a.fingerprint) } }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    private val _refusals = MutableStateFlow<Map<String, RelayRefusal>>(emptyMap())
+    /** Le refus d'ouvrir un ordinateur hors de chez soi, par ordinateur : jusqu'au prochain sondage ou au prochain essai. */
+    val refusals: StateFlow<Map<String, RelayRefusal>> = _refusals.asStateFlow()
+
+    private val _connecting = MutableStateFlow<Set<String>>(emptySet())
+    /** Ordinateurs qu'on vérifie par le relais avant d'ouvrir la session (« Connexion… »). */
+    val connecting: StateFlow<Set<String>> = _connecting.asStateFlow()
 
     private val _station = MutableStateFlow<Map<String, StationTask>>(emptyMap())
     /** Redémarrage ou mise à jour de la Station en cours, par ordinateur. */
@@ -138,25 +169,99 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         val reply = client(h).use { it.info() }
         val st = when (reply) {
             is Reply.Ok -> HostStatus(true, reply.value)
-            is Reply.Failed -> HostStatus(
-                online = reply.unauthorized || reply.certificateChanged,
-                accountRefused = reply.unauthorized,
-                certificateChanged = reply.certificateChanged,
-            )
+            is Reply.Failed -> {
+                val answered = reply.unauthorized || reply.certificateChanged
+                // Rien ne répond sur le réseau : peut-être hors de chez soi, l'ordinateur connecté au relais.
+                if (!answered && reachableByRelay(h)) HostStatus(online = true, away = true)
+                else HostStatus(online = answered, accountRefused = reply.unauthorized, certificateChanged = reply.certificateChanged)
+            }
         }
         _status.value = _status.value + (h.id to st)
+        // Un nouveau sondage efface le refus d'un essai précédent (l'état peut avoir changé).
+        if (_refusals.value.containsKey(h.id) && h.id !in _connecting.value) _refusals.value = _refusals.value - h.id
         if (reply is Reply.Ok) {
             val i = reply.value
             // Une liste vide (Station d'avant la 0.5.0, cartes illisibles) garde les cartes apprises.
             val wake = i.wake.ifEmpty { h.wake }
             val paired = h.paired || i.ownDevice
-            if (i.os != h.os || i.gpu != h.gpu || i.av1 != h.av1 || i.virtualDisplay != h.virtualDisplay || wake != h.wake || paired != h.paired) {
-                store.update(h.id) { it.copy(os = i.os, gpu = i.gpu, av1 = i.av1, virtualDisplay = i.virtualDisplay, wake = wake, paired = paired) }
+            // Le relais de l'ordinateur (hors de chez soi) : gardé avec lui, hors ligne ; retiré quand Admin n'en règle plus.
+            // Sans empreinte épinglée (premier contact pas fait), la route n'est pas valable : l'ancienne reste.
+            val relay = if (i.relay == null) null else HostRelay.of(i, h.fingerprint) ?: h.relay
+            if (i.os != h.os || i.gpu != h.gpu || i.av1 != h.av1 || i.virtualDisplay != h.virtualDisplay || wake != h.wake || paired != h.paired || relay != h.relay) {
+                store.update(h.id) { it.copy(os = i.os, gpu = i.gpu, av1 = i.av1, virtualDisplay = i.virtualDisplay, wake = wake, paired = paired, relay = relay) }
             }
             // Pas encore d'image : l'aperçu d'Admin (jamais pendant une session).
             if (!store.imageFile(h.id).exists()) fetchPreview(h, password)
         }
         return st
+    }
+
+    // MARK: - Hors de chez vous (relais)
+
+    /** Ce que le relais a dit de ses Stations, à quelle heure (ms, horloge de l'appareil). */
+    private class Presence(val at: Long, val present: Map<String, Boolean>)
+
+    private val presence = mutableMapOf<String, Presence>()
+    private val presenceLock = Mutex()
+
+    /**
+     * L'ordinateur est-il connecté à son relais ? Le relais est interrogé pour tous les ordinateurs qui s'y trouvent à
+     * la fois, au plus toutes les 30 s (une connexion brève à chaque fois). Faux sans relais connu ni empreinte d'Admin
+     * épinglée, et avec `KYBERNOW_RELAY=off`.
+     */
+    private suspend fun reachableByRelay(h: Host): Boolean {
+        val relay = h.relay ?: return false
+        if (h.relayRoute == null || Relays.off) return false
+        val server = relay.server
+        return presenceLock.withLock {
+            val now = SystemClock.elapsedRealtime()
+            val known = presence[server]
+            if (known == null || now - known.at >= PRESENCE_EVERY_MS) {
+                val ids = hosts.value.mapNotNull { it.relay }.filter { it.server == server }.map { it.station }.distinct()
+                val present = mutableMapOf<String, Boolean>()
+                for (chunk in ids.chunked(Relays.MAX_STATIONS)) {
+                    val answer = Relays.presence(server, chunk) ?: break
+                    chunk.forEachIndexed { i, id -> present[id] = answer.getOrElse(i) { false } }
+                }
+                presence[server] = Presence(now, present)
+            }
+            presence[server]?.present?.get(relay.station) == true
+        }
+    }
+
+    /**
+     * « Se connecter » à un ordinateur « Hors de chez vous » : l'ordinateur est vérifié par le relais d'abord (son
+     * `info`, par le tunnel, Admin épinglé), pour dire pourquoi si ce n'est pas possible : « {nom} n'est pas joignable
+     * : l'ordinateur est éteint ou en veille. », « … hors de chez vous (accès coupé dans Admin). », « Le relais ne
+     * répond pas. » ([refusals]). [open] ouvre la session quand tout va bien (ou quand l'ordinateur est sur le réseau).
+     */
+    fun connect(id: String, open: (Host) -> Unit) {
+        val h = hosts.value.firstOrNull { it.id == id } ?: return
+        val route = h.relayRoute
+        if (_status.value[id]?.away != true || route == null) return open(h)
+        if (id in _connecting.value) return
+        _connecting.value = _connecting.value + id
+        _refusals.value = _refusals.value - id
+        viewModelScope.launch {
+            val reply = ConsoleClient(h.address, h.port, h.user, store.password(h.id) ?: "", h.fingerprint, route).use { it.info() }
+            _connecting.value = _connecting.value - id
+            when (reply) {
+                is Reply.Ok -> open(h)
+                is Reply.Failed -> when {
+                    reply.stationOffline -> refuse(id, RelayRefusal.StationOffline)
+                    reply.remoteAccessOff -> refuse(id, RelayRefusal.AccessOff)
+                    reply.unauthorized -> _status.value = _status.value + (id to HostStatus(online = true, accountRefused = true, away = true))
+                    reply.certificateChanged -> _status.value = _status.value + (id to HostStatus(online = true, certificateChanged = true, away = true))
+                    else -> refuse(id, RelayRefusal.Message(reply.message))
+                }
+            }
+        }
+    }
+
+    private fun refuse(id: String, why: RelayRefusal) {
+        _refusals.value = _refusals.value + (id to why)
+        // L'ordinateur a pu couper son accès depuis le dernier sondage : le relais est redemandé au prochain.
+        presence.clear()
     }
 
     // MARK: - Réveil par le réseau
