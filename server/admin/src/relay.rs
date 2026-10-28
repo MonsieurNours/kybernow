@@ -290,6 +290,16 @@ impl Relay {
         self.grants.lock().unwrap().get(client).is_some_and(|g| g.until > Instant::now())
     }
 
+    /// L'invité dont ce client du relais tient l'autorisation en ce moment
+    /// (preuve qu'il revient, `share::Proof`).
+    pub fn granted_guest(&self, client: &str) -> Option<String> {
+        let grants = self.grants.lock().unwrap();
+        match grants.get(client) {
+            Some(Grant { holder: Holder::Guest(id), until }) if *until > Instant::now() => Some(id.clone()),
+            _ => None,
+        }
+    }
+
     /// Retire les autorisations qui répondent à `pred` : flux UDP fermés,
     /// connexions TCP vers Kyber coupées.
     fn revoke_where(&self, pred: impl Fn(&Grant) -> bool) {
@@ -325,6 +335,12 @@ impl Relay {
     /// La session d'un appareil finit.
     pub fn revoke_device(&self, device_id: &str) {
         self.revoke_where(|g| g.holder == Holder::Device(device_id.to_string()));
+    }
+
+    /// « Accès hors de chez vous » coupé : plus aucun appareil ne joint Kyber
+    /// par le relais, tout de suite (sans attendre la fin de son autorisation).
+    fn revoke_devices(&self) {
+        self.revoke_where(|g| matches!(g.holder, Holder::Device(_)));
     }
 
     fn revoke_all(&self) {
@@ -860,6 +876,9 @@ pub async fn put_relay(State(s): State<AppState>, Json(body): Json<RelayBody>) -
         tracing::info!("relais : accès hors de chez vous {}", if after.remote_access { "activé" } else { "coupé" });
         let key = if after.remote_access { "events.relayAccessOn" } else { "events.relayAccessOff" };
         s.activity.event("info", Msg::new(key));
+        if !after.remote_access {
+            s.relay.revoke_devices();
+        }
     }
     s.relay.wake();
     Json(s.relay.status(&s)).into_response()
@@ -1073,6 +1092,26 @@ mod tests {
         assert_eq!(res.status(), StatusCode::TOO_MANY_REQUESTS);
         assert!(res.headers().contains_key(header::RETRY_AFTER));
         assert!(s.relay.locked_for().is_some());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// « Accès hors de chez vous » coupé : un appareil en session par le
+    /// relais ne joint plus Kyber tout de suite (pas 30 s plus tard) ; un
+    /// invité du partage, si.
+    #[tokio::test]
+    async fn l_acces_coupe_retire_kyber_aux_appareils_tout_de_suite() {
+        let dir = std::env::temp_dir().join(format!("kyber-admin-relay-{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let s = AppState::for_tests(dir.clone(), Box::new(crate::service::Simulated::default()));
+        s.settings.lock().unwrap().relay.remote_access = true;
+        s.relay.grant_device(&Via { kind: StreamKind::AdminTls, client: "appareil".into() }, "mac-1");
+        s.relay.grant_guest(&Via { kind: StreamKind::AdminTls, client: "invite".into() }, "g1");
+        let res = put_relay(State(s.clone()), Json(RelayBody { server: None, remote_access: Some(false) })).await;
+        assert_eq!(res.status(), StatusCode::OK);
+        assert!(!s.relay.authorized("appareil"), "l'appareil joint encore Kyber par le relais");
+        assert!(s.relay.authorized("invite"));
+        assert_eq!(s.relay.granted_guest("invite").as_deref(), Some("g1"));
+        assert_eq!(s.relay.granted_guest("appareil"), None);
         let _ = std::fs::remove_dir_all(dir);
     }
 

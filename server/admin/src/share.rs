@@ -432,6 +432,28 @@ fn new_code() -> String {
     format!("{:06}", rand::rng().random_range(0..1_000_000u32))
 }
 
+/// Par le relais : ce qui prouve qu'une demande vient d'un invité déjà dans
+/// le partage, et le laisse reprendre sa place sans l'accord de l'hôte : son
+/// secret (`x-kybernow-guest`), le cookie de son navigateur
+/// (`__Host-kybernow_guest`), ou le client du relais qui tient son
+/// autorisation vers Kyber (la même app, le même tunnel). Le `device` seul,
+/// choisi par l'appareil, ne prouve rien.
+#[derive(Debug, Clone, Default)]
+pub struct Proof {
+    pub secret: Option<String>,
+    pub cookie: Option<String>,
+    /// L'invité dont ce client du relais tient l'autorisation.
+    pub granted: Option<String>,
+}
+
+impl Proof {
+    fn proves(&self, g: &Guest) -> bool {
+        self.secret.as_deref().is_some_and(|s| same(s, &g.secret))
+            || self.cookie.as_deref().zip(g.cookie.as_deref()).is_some_and(|(a, b)| same(a, b))
+            || self.granted.as_deref() == Some(g.id.as_str())
+    }
+}
+
 /// Comparaison à temps constant.
 fn same(a: &str, b: &str) -> bool {
     let (a, b) = (a.as_bytes(), b.as_bytes());
@@ -703,14 +725,16 @@ impl Share {
     /// Un invité rejoint avec le code, sur le réseau. Le même appareil déjà
     /// là reprend sa place (même identifiant, même rôle, nouveau secret).
     pub fn join(&self, code: &str, name: &str, device: &str, app: &str, peer: IpAddr, browser: bool) -> Result<Joined, JoinError> {
-        self.join_from(code, name, device, app, peer, browser, false)
+        self.join_from(code, name, device, app, peer, browser, None)
     }
 
-    /// Un invité rejoint avec le code, sur le réseau ou par le relais. Par le
-    /// relais, c'est une demande (`Joined::guest.pending`) que l'hôte accepte
-    /// ou refuse ; un appareil déjà accepté reprend sa place sans attendre.
+    /// Un invité rejoint avec le code, sur le réseau (`relay` : `None`) ou par
+    /// le relais. Par le relais, c'est une demande (`Joined::guest.pending`)
+    /// que l'hôte accepte ou refuse ; un invité déjà là reprend sa place sans
+    /// attendre s'il le prouve ([`Proof`]), sinon c'est une nouvelle demande.
     #[allow(clippy::too_many_arguments)]
-    pub fn join_from(&self, code: &str, name: &str, device: &str, app: &str, peer: IpAddr, browser: bool, relay: bool) -> Result<Joined, JoinError> {
+    pub fn join_from(&self, code: &str, name: &str, device: &str, app: &str, peer: IpAddr, browser: bool, proof: Option<&Proof>) -> Result<Joined, JoinError> {
+        let relay = proof.is_some();
         let now = Instant::now();
         let mut s = self.state.lock().unwrap();
         Self::count_try(&mut s, peer, now)?;
@@ -730,7 +754,13 @@ impl Share {
         };
         let secret = random_hex(32);
         let cookie = browser.then(|| random_hex(32));
-        let existing = (!device.is_empty()).then(|| open.guests.iter_mut().find(|g| g.device == device)).flatten();
+        // Sur le réseau, le même appareil reprend sa place ; par le relais,
+        // seulement s'il prouve être cet invité (sans quoi n'importe qui
+        // connaissant l'identifiant d'un appareil entrerait à sa place, sans
+        // l'accord de l'hôte).
+        let existing = (!device.is_empty())
+            .then(|| open.guests.iter_mut().find(|g| g.device == device && proof.is_none_or(|p| p.proves(g))))
+            .flatten();
         let (guest, new) = match existing {
             Some(g) => {
                 g.secret = secret;
@@ -898,16 +928,20 @@ impl Share {
     }
 }
 
-/// Le cookie d'invité d'une requête, s'il y en a un (sur le réseau ou par le
-/// relais : les deux noms).
-pub fn guest_cookie(headers: &axum::http::HeaderMap) -> Option<String> {
+/// Le cookie d'invité d'une requête, s'il y en a un : `kybernow_guest` sur le
+/// réseau, `__Host-kybernow_guest` seulement par le relais. Une autre
+/// Station, servie sur une origine sœur (`<id>.share.kybernow.app`), peut
+/// poser un `kybernow_guest` pour tout le domaine depuis sa page ; jamais un
+/// cookie `__Host-`, lié à son origine.
+pub fn guest_cookie(headers: &axum::http::HeaderMap, relay: bool) -> Option<String> {
+    let name = if relay { GUEST_COOKIE_RELAY } else { GUEST_COOKIE };
     headers
         .get_all(axum::http::header::COOKIE)
         .iter()
         .filter_map(|v| v.to_str().ok())
         .flat_map(|v| v.split(';'))
         .filter_map(|c| c.trim().split_once('='))
-        .find(|(k, _)| *k == GUEST_COOKIE || *k == GUEST_COOKIE_RELAY)
+        .find(|(k, _)| *k == name)
         .map(|(_, v)| v.to_string())
 }
 
@@ -1139,7 +1173,12 @@ mod tests {
         assert!(!share.cookie_valid(&cookie));
         let mut headers = axum::http::HeaderMap::new();
         headers.insert(axum::http::header::COOKIE, format!("a=1; {GUEST_COOKIE}=abc").parse().unwrap());
-        assert_eq!(guest_cookie(&headers).as_deref(), Some("abc"));
+        assert_eq!(guest_cookie(&headers, false).as_deref(), Some("abc"));
+        // Par le relais, seul le cookie `__Host-` compte : un `kybernow_guest`
+        // posé pour tout le domaine par la page d'une autre Station est ignoré.
+        assert_eq!(guest_cookie(&headers, true), None);
+        headers.insert(axum::http::header::COOKIE, format!("{GUEST_COOKIE}=pose-ailleurs; {GUEST_COOKIE_RELAY}=xyz").parse().unwrap());
+        assert_eq!(guest_cookie(&headers, true).as_deref(), Some("xyz"));
         assert!(set_cookie("abc", true, false).ends_with("; Secure"));
     }
 
@@ -1177,7 +1216,7 @@ mod tests {
     fn une_demande_sans_reponse_expire() {
         let share = Share::new();
         let (snap, _) = share.open(Origin::Local, display(1)).unwrap();
-        let asked = share.join_from(&snap.code, "Léa", "ipad", "ios", peer(1), false, true).unwrap();
+        let asked = share.join_from(&snap.code, "Léa", "ipad", "ios", peer(1), false, Some(&Proof::default())).unwrap();
         assert!(asked.guest.pending);
         assert!(matches!(share.wait(&asked.guest.id, asked.guest.secret()), Wait::Pending));
         // Un signe de vie manqué ne fait pas sortir une demande ; 120 s, si.
@@ -1188,10 +1227,10 @@ mod tests {
         assert!(matches!(share.wait(&asked.guest.id, asked.guest.secret()), Wait::Expired));
         assert!(matches!(share.wait(&asked.guest.id, "faux"), Wait::Unknown));
         // Annuler sa demande.
-        let again = share.join_from(&snap.code, "Léa", "ipad", "ios", peer(1), false, true).unwrap();
+        let again = share.join_from(&snap.code, "Léa", "ipad", "ios", peer(1), false, Some(&Proof::default())).unwrap();
         assert!(matches!(share.leave(&again.guest.id, again.guest.secret()), Leave::Cancelled(_)));
         // Le partage arrêté pendant une demande.
-        let third = share.join_from(&snap.code, "Max", "tv", "tvos", peer(2), false, true).unwrap();
+        let third = share.join_from(&snap.code, "Max", "tv", "tvos", peer(2), false, Some(&Proof::default())).unwrap();
         share.close();
         assert!(matches!(share.wait(&third.guest.id, third.guest.secret()), Wait::NoShare));
     }
