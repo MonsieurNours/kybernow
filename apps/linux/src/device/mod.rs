@@ -134,6 +134,9 @@ pub enum SessionEvent {
     ShareEnd(String, String),
     /// Par où passe la session : au départ, puis quand le chemin change (puce « Par le relais », ligne « Chemin »).
     Route(crate::app::RouteUi),
+    /// Par le relais : la session finit parce que l'ordinateur n'est pas joignable hors de chez soi (accès coupé dans
+    /// Admin, éteint ou en veille, relais muet), juste avant `Status::Ended`. Le texte se choisit par cette erreur.
+    RelayError(kybernow_core::relay::RelayError),
 }
 
 /// Règles de la souris Auto : le jeu doit aussi cacher son pointeur (comme Mac et Windows).
@@ -546,6 +549,9 @@ struct Live {
     game_fullscreen: bool,
     /// Par où passe la session (`Platform::on_route`) : gardé pour la dernière session.
     path: crate::app::PathKind,
+    /// Par le relais : pourquoi la session a fini quand l'ordinateur n'est pas joignable hors de chez soi
+    /// (`Platform::on_relay_error`, juste avant la fin) ; le texte de la fin s'en tire.
+    relay_error: Option<kybernow_core::relay::RelayError>,
     /// Souris choisie pour la session (barre, raccourci) ; sinon le réglage.
     mouse: MouseMode,
     /// Saisie de texte (clavier de Steam) : les caractères partent en Unicode.
@@ -2482,12 +2488,10 @@ fn session_event(id: SessionId, e: SessionEvent, app: &mut App, pads: &mut pads:
                     }
                     // La session est finie : plus qu'une fenêtre ; une erreur se lit dans sa fenêtre principale.
                     wins.close_extras(id);
-                    // Par le relais, l'échec dit le nom de l'ordinateur (docs/link-ui.md, « Hors de chez vous »).
-                    let may_relay = s.guest.is_none() && lives.get(id).and_then(|l| app.store.host(&l.host)).is_some_and(|h| session::relay_route(h).is_some());
-                    let error = match error {
-                        Some(e) if may_relay => Some(session::relay_refusal(&e, &s.name).unwrap_or(e)),
-                        other => other,
-                    };
+                    // Par le relais, l'échec dit le nom de l'ordinateur (docs/link-ui.md, « Hors de chez vous ») : le
+                    // texte vient de l'erreur typée du cœur (`SessionEvent::RelayError`), pas de celui d'Admin.
+                    let relay = lives.get_mut(id).and_then(|l| l.relay_error.take());
+                    let error = session::relay_failure_text(relay.as_ref(), error, &s.name);
                     Phase::Ended { error }
                 }
             };
@@ -2639,6 +2643,13 @@ fn session_event(id: SessionId, e: SessionEvent, app: &mut App, pads: &mut pads:
             }
             if let Some(s) = app.session_by_mut(id) {
                 s.route = Some(route);
+            }
+        }
+        // La session finit faute de joindre l'ordinateur par le relais : gardé pour le texte de la fin, qui suit.
+        SessionEvent::RelayError(e) => {
+            log::info!("relais : {}", e.kind());
+            if let Some(l) = lives.get_mut(id) {
+                l.relay_error = Some(e);
             }
         }
     }
@@ -3225,6 +3236,7 @@ fn open_session(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<E
         codec: codec_label,
         game_fullscreen: false,
         path: crate::app::PathKind::Direct,
+        relay_error: None,
         mouse: match h.settings.mouse.as_str() {
             "desktop" => MouseMode::Desktop,
             "game" => MouseMode::Game,

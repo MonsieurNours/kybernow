@@ -199,7 +199,12 @@ fn card(cv: &mut Canvas, f: &mut Frame, app: &App, s: &SessionUi, r: Rect, u: f3
             let accept_x = x + inner - aw;
             let decline_x = accept_x - 8.0 * u - dw;
             widgets::ghost(cv, f, Target::ShareRefuse(i), decline_x, y + 4.0 * u, 28.0 * u, size, None, decline, BAD_TEXT);
-            widgets::ghost(cv, f, Target::ShareAccept(i), accept_x, y + 4.0 * u, 28.0 * u, size, None, accept, OK);
+            // Les quatre places sont prises : « Accepter » est inactif (« Quatre invités au plus. » dit pourquoi).
+            if v.full() {
+                widgets::ghost_inactive(cv, accept_x, y + 4.0 * u, 28.0 * u, size, accept);
+            } else {
+                widgets::ghost(cv, f, Target::ShareAccept(i), accept_x, y + 4.0 * u, 28.0 * u, size, None, accept, OK);
+            }
             cv.text_fit(x, y + 22.0 * u, Text::new(Font::Regular, 13.5 * u, FROST), &g.request_line(), (decline_x - x - 12.0 * u).max(60.0));
             cv.text_fit(x, y + 40.0 * u, Text::new(Font::Regular, 11.5 * u, FAINT), &g.request_meta(), inner);
             y += REQUEST * u;

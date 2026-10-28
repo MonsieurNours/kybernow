@@ -752,6 +752,11 @@ impl ShareGuest {
         format!("{} {}", self.name, tr("demande à rejoindre", "wants to join"))
     }
 
+    /// « {prénom} demande à rejoindre. » : l'avis bref d'une demande qui arrive pendant la session.
+    pub fn request_notice(&self) -> String {
+        format!("{}.", self.request_line())
+    }
+
     /// « Android · hors de chez vous » : sous la ligne d'une demande.
     pub fn request_meta(&self) -> String {
         format!("{} · {}", app_label(&self.app), tr("hors de chez vous", "away from home"))
@@ -846,6 +851,12 @@ impl ShareView {
     /// « 1 demande », « 2 demandes », seulement quand il y en a : la pastille des demandes en attente.
     pub fn requests_pill(&self) -> Option<String> {
         Some(self.requests().len()).filter(|n| *n > 0).map(requests_label)
+    }
+
+    /// Les quatre places sont prises : « Accepter » est inactif (« Quatre invités au plus. »), « Refuser » reste.
+    /// Une demande n'a pas de place tant qu'elle n'est pas acceptée.
+    pub fn full(&self) -> bool {
+        self.accepted().len() >= MAX_GUESTS
     }
 
     /// Le relais est joint : le partage se rejoint aussi hors de chez soi.
@@ -3215,9 +3226,12 @@ impl App {
             s.bar_menu = Some(BarMenu::Share);
         }
         let mut acts = if overlay { vec![Action::ReleaseAll(id)] } else { Vec::new() };
-        // Des demandes attendent l'hôte : le focus commence sur la première « Accepter ».
+        // Des demandes attendent l'hôte : le focus commence sur la première « Accepter » (« Refuser » quand les quatre
+        // places sont prises : « Accepter » est alors inactif).
         let first_request = s.share.as_ref().and_then(|v| v.requests().first().map(|(i, _)| *i));
+        let full = s.share.as_ref().is_some_and(ShareView::full);
         let focus = match first_request {
+            Some(i) if full => Target::ShareRefuse(i),
             Some(i) => Target::ShareAccept(i),
             None if open => Target::ShareNewCode,
             None => Target::ShareClose,
@@ -3276,15 +3290,19 @@ impl App {
     /// réponse revient avec le partage tel qu'il est (`share_reply`).
     fn share_answer(&mut self, i: usize, accept: bool) -> Vec<Action> {
         let Some((id, guest)) = self.session().and_then(|s| s.share.as_ref().and_then(|v| v.guests.get(i)).filter(|g| g.pending).map(|g| (s.id, g.id.clone()))) else { return Vec::new() };
+        // Les quatre places sont prises : « Accepter » est inactif, seul « Refuser » répond à la demande.
+        if accept && self.session().and_then(|s| s.share.as_ref()).is_some_and(ShareView::full) {
+            return Vec::new();
+        }
         self.share_op(id, if accept { ShareOp::Accept(guest) } else { ShareOp::Refuse(guest) })
     }
 
-    /// Une demande qui arrive pendant la session : l'avis bref « {prénom} demande à rejoindre », sauf quand le
+    /// Une demande qui arrive pendant la session : l'avis bref « {prénom} demande à rejoindre. », sauf quand le
     /// panneau est ouvert (il la montre).
     fn notice_requests(&mut self, id: SessionId, before: Option<&ShareView>) {
         let Some(s) = self.session_by_mut(id) else { return };
         let known = |gid: &str| before.is_some_and(|v| v.guests.iter().any(|g| g.id == gid));
-        let fresh = s.share.as_ref().and_then(|v| v.guests.iter().find(|g| g.pending && !known(&g.id)).map(ShareGuest::request_line));
+        let fresh = s.share.as_ref().and_then(|v| v.guests.iter().find(|g| g.pending && !known(&g.id)).map(ShareGuest::request_notice));
         if let Some(text) = fresh.filter(|_| !s.share_overlay()) {
             s.notice = Some((text, Instant::now()));
         }
@@ -3440,12 +3458,19 @@ impl App {
         self.live.get(id).and_then(|l| l.station.as_ref())
     }
 
-    /// Redémarrer ou mettre à jour la Station se peut : elle répond, elle le
+    /// Par le relais : l'ordinateur n'est joignable que par lui (« Hors de chez vous »), ou une de ses sessions y
+    /// passe (puce « Par le relais »). Admin refuse alors le redémarrage et la mise à jour de la Station : l'app ne les
+    /// propose pas, et dit pourquoi (`STATION_VIA_RELAY`).
+    pub fn station_via_relay(&self, id: &str) -> bool {
+        self.live.get(id).is_some_and(|l| l.online == Online::Away) || self.sessions.iter().any(|s| s.host == id && s.guest.is_none() && s.via_relay())
+    }
+
+    /// Redémarrer ou mettre à jour la Station se peut : elle répond (sur le réseau, jamais par le relais), elle le
     /// connaît, rien n'est déjà en cours.
     pub fn station_ready(&self, id: &str) -> bool {
         let online = self.live.get(id).is_some_and(|l| l.online == Online::Online);
         let busy = self.station_op.as_ref().is_some_and(|o| o.busy());
-        online && !busy && self.station(id).is_some_and(|s| s.supported && !s.installing && !s.restarting)
+        online && !busy && !self.station_via_relay(id) && self.station(id).is_some_and(|s| s.supported && !s.installing && !s.restarting)
     }
 
     fn start_station(&mut self, host: String, kind: StationKind, force: bool) -> Vec<Action> {
@@ -3860,15 +3885,20 @@ impl App {
                         true,
                     ));
                 }
-                rows.push(button(Setting::StationRestart, tr("Redémarrer la Station", "Restart the Station"), tr("Environ 30 secondes. Une session en cours sera coupée.", "About 30 seconds. A session in progress will be cut off.").into(), ButtonStyle::Ghost, ready));
-                if let Some(v) = self.station(&h.id).and_then(|s| s.installable_version()) {
-                    rows.push(button(
-                        Setting::StationUpdate,
-                        tr("Mettre à jour la Station", "Update the Station"),
-                        format!("{} {v}. {}", tr("Version", "Version"), tr("Environ une minute. Une session en cours sera coupée.", "About a minute. A session in progress will be cut off.")),
-                        ButtonStyle::Primary,
-                        ready,
-                    ));
+                if self.station_via_relay(&h.id) {
+                    // Par le relais, Admin refuse le redémarrage et la mise à jour : à la place des deux lignes, la raison.
+                    rows.push(info(station_via_relay_text(), String::new(), String::new()));
+                } else {
+                    rows.push(button(Setting::StationRestart, tr("Redémarrer la Station", "Restart the Station"), tr("Environ 30 secondes. Une session en cours sera coupée.", "About 30 seconds. A session in progress will be cut off.").into(), ButtonStyle::Ghost, ready));
+                    if let Some(v) = self.station(&h.id).and_then(|s| s.installable_version()) {
+                        rows.push(button(
+                            Setting::StationUpdate,
+                            tr("Mettre à jour la Station", "Update the Station"),
+                            format!("{} {v}. {}", tr("Version", "Version"), tr("Environ une minute. Une session en cours sera coupée.", "About a minute. A session in progress will be cut off.")),
+                            ButtonStyle::Primary,
+                            ready,
+                        ));
+                    }
                 }
                 // L'ajout par code donne à cet appareil son propre compte ; Admin 0.5.0 le confirme (`own_device`).
                 let own = self.live.get(&h.id).and_then(|l| l.own_device).unwrap_or(true);
@@ -4273,6 +4303,15 @@ pub fn requires_setup_text(v: &str) -> String {
     format!("{} {v} {}", tr("La version", "Version"), tr("s'installe sur l'ordinateur, avec KyberNow-Station-Setup.exe.", "installs on the computer, with KyberNow-Station-Setup.exe."))
 }
 
+/// Par le relais (hors de chez soi, ou une session de l'ordinateur y passe) : Admin refuse le redémarrage et la mise
+/// à jour de la Station, l'app ne les propose pas et dit pourquoi.
+pub fn station_via_relay_text() -> &'static str {
+    tr(
+        "Hors de chez vous, l'app ne peut ni redémarrer ni mettre à jour la Station.",
+        "Away from home, the app can neither restart nor update the Station.",
+    )
+}
+
 /// Une Station 0.4.9 ou plus ancienne : ni redémarrage ni mise à jour depuis un appareil.
 pub fn too_old_text() -> &'static str {
     tr("Pour redémarrer ou mettre à jour la Station depuis cet appareil, mettez-la d'abord à jour depuis Admin.", "To restart or update the Station from this device, first update it from Admin.")
@@ -4550,6 +4589,67 @@ mod tests {
         app.activate(Target::Setting(Setting::StationRestart));
         app.station_reply("a", StationKind::Restart, Err(StationRefusal::TooSoon));
         assert!(matches!(app.station_op.as_ref().map(|o| &o.step), Some(StationStep::Failed(_))));
+    }
+
+    /// Par le relais (hors de chez soi, ou une session de l'ordinateur y passe), ni redémarrage ni mise à jour de la
+    /// Station : Admin les refuse. La raison prend la place des deux lignes ; rien ne part.
+    #[test]
+    fn no_station_restart_or_update_through_the_relay() {
+        crate::i18n::force_english(false);
+        let mut app = App::new(Store::default(), Layout::Desktop);
+        app.store.hosts.push(host());
+        let st = StationLive { version: "0.5.0".into(), supported: true, available: true, installable: true, update_version: Some("0.5.1".into()), ..Default::default() };
+        online(&mut app, "a", Some(st));
+        // Les lignes de la rubrique Station qui concernent le redémarrage et la mise à jour : les deux boutons, ou, à
+        // leur place, la raison (une ligne d'information).
+        let station_rows = |app: &App| {
+            app.rows(Section::Station).into_iter().filter(|r| matches!(r.setting, Setting::StationRestart | Setting::StationUpdate) || r.label == station_via_relay_text()).map(|r| (r.setting, r.enabled)).collect::<Vec<_>>()
+        };
+        // Sur le réseau, sans session par le relais : les deux boutons sont là.
+        assert!(app.station_ready("a") && !app.station_via_relay("a"));
+        assert_eq!(station_rows(&app), [(Setting::StationRestart, true), (Setting::StationUpdate, true)]);
+        // Une session de l'ordinateur passe par le relais (puce « Par le relais ») : la raison à la place des deux boutons.
+        let id = open(&mut app, "a");
+        app.session_by_mut(id).unwrap().route = Some(RouteUi { kind: PathKind::Relay, rtt_client: Some(18.0), rtt_station: Some(2.5) });
+        assert!(app.station_via_relay("a") && !app.station_ready("a"));
+        assert_eq!(station_rows(&app), [(Setting::Info, true)]);
+        assert!(app.activate(Target::Setting(Setting::StationRestart)).is_empty() && app.activate(Target::Setting(Setting::StationUpdate)).is_empty());
+        // La session repasse par le réseau : de nouveau possibles.
+        app.session_by_mut(id).unwrap().route = Some(RouteUi::default());
+        assert!(app.station_ready("a"));
+        assert_eq!(station_rows(&app).len(), 2);
+        // Hors de chez soi (l'ordinateur ne répond que par le relais) : de même.
+        app.live.get_mut("a").unwrap().online = Online::Away;
+        assert!(app.station_via_relay("a") && !app.station_ready("a"));
+        assert_eq!(station_rows(&app), [(Setting::Info, true)]);
+        assert!(app.activate(Target::Setting(Setting::StationRestart)).is_empty());
+        // La raison, dans les deux langues.
+        assert_eq!(station_via_relay_text(), "Hors de chez vous, l'app ne peut ni redémarrer ni mettre à jour la Station.");
+        crate::i18n::force_english(true);
+        assert_eq!(station_via_relay_text(), "Away from home, the app can neither restart nor update the Station.");
+        crate::i18n::force_english(false);
+    }
+
+    /// Les quatre places prises, « Accepter » est inactif (« Refuser » répond encore) ; en dessous, il répond.
+    #[test]
+    fn accept_is_inactive_when_the_four_places_are_taken() {
+        crate::i18n::force_english(false);
+        let mut app = desk();
+        let a = open(&mut app, "a");
+        let guest = |id: &str, pending: bool| ShareGuest { id: id.into(), name: id.to_uppercase(), app: "ios".into(), pending, via_relay: pending, ..Default::default() };
+        let view = |guests: Vec<ShareGuest>| ShareView { code: "482917".into(), link: "kybernow://join?x".into(), web: "https://share.kybernow.app/j/482917".into(), relay: Some(ShareRelay::Joined), guests };
+        // Trois invités et une demande : il reste une place.
+        app.share_reply(a, Ok(Some(view(vec![guest("g1", false), guest("g2", false), guest("g3", false), guest("r1", true)]))));
+        assert!(!app.session().unwrap().share.as_ref().unwrap().full());
+        assert_eq!(app.activate(Target::ShareAccept(3)), vec![Action::Share(a, ShareOp::Accept("r1".into()))]);
+        // Quatre invités et une demande : « Accepter » ne part pas, « Refuser » oui ; le focus commence sur « Refuser ».
+        app.share_reply(a, Ok(Some(view(vec![guest("g1", false), guest("g2", false), guest("g3", false), guest("g4", false), guest("r1", true)]))));
+        assert!(app.session().unwrap().share.as_ref().unwrap().full());
+        assert!(app.activate(Target::ShareAccept(4)).is_empty(), "plus de place");
+        assert_eq!(app.activate(Target::ShareRefuse(4)), vec![Action::Share(a, ShareOp::Refuse("r1".into()))]);
+        app.share_reply(a, Ok(Some(view(vec![guest("g1", false), guest("g2", false), guest("g3", false), guest("g4", false), guest("r1", true)]))));
+        assert!(app.activate(Target::BarShare).is_empty());
+        assert_eq!(app.focus, Target::ShareRefuse(4), "« Accepter » est inactif : le focus commence sur « Refuser »");
     }
 
     #[test]
@@ -5530,6 +5630,8 @@ mod tests {
             assert_eq!((requests_label(1), requests_label(2)), (one.to_string(), two.to_string()));
             let tom = ShareGuest { id: "g".into(), name: "Tom".into(), app: "android".into(), pending: true, via_relay: true, ..Default::default() };
             assert_eq!((tom.request_line().as_str(), tom.request_meta().as_str()), (wants, from));
+            // L'avis bref de la demande qui arrive : la même phrase, avec son point.
+            assert_eq!(tom.request_notice(), format!("{wants}."));
             let view = |relay| ShareView { code: "482917".into(), relay, ..Default::default() };
             assert_eq!(view(None).help(), help_lan);
             assert_eq!(view(Some(ShareRelay::Unreachable)).help(), help_lan);
@@ -5596,12 +5698,18 @@ mod tests {
         // Une demande arrive avec le signe de vie : l'avis bref, pas de panneau ouvert.
         app.share_guests(a, Some(view(vec![guest("g1", "Léa", false), guest("g2", "Tom", true)])));
         let s = app.session().unwrap();
-        assert_eq!(s.notice.as_ref().map(|(t, _)| t.as_str()), Some("Tom demande à rejoindre"));
+        assert_eq!(s.notice.as_ref().map(|(t, _)| t.as_str()), Some("Tom demande à rejoindre."));
         let v = s.share.as_ref().unwrap();
         assert_eq!((v.requests().len(), v.accepted().len()), (1, 1));
         assert_eq!(share_tile(s.share.as_ref()), ("1 demande · 1 invité".to_string(), true), "une demande n'est pas un invité");
         assert_eq!(share_tile(Some(&view(vec![guest("g2", "Tom", true)]))), ("1 demande".to_string(), true));
         assert_eq!(share_tile(Some(&view(vec![guest("g1", "Léa", false)]))), ("1 invité".to_string(), true));
+        // Les demandes d'abord : « 1 demande · 2 invités » (menus à tuiles : salon, Deck).
+        let mixed = view(vec![guest("g1", "Léa", false), guest("g3", "Eva", false), guest("g2", "Tom", true)]);
+        assert_eq!(share_tile(Some(&mixed)), ("1 demande · 2 invités".to_string(), true));
+        crate::i18n::force_english(true);
+        assert_eq!(share_tile(Some(&mixed)), ("1 request · 2 guests".to_string(), true));
+        crate::i18n::force_english(false);
         // Le même signe de vie un peu plus tard : pas de second avis pour la même demande.
         app.session_mut().unwrap().notice = None;
         app.share_guests(a, Some(view(vec![guest("g1", "Léa", false), guest("g2", "Tom", true)])));

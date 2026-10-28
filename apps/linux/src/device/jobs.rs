@@ -406,16 +406,17 @@ struct JoinWait {
 static JOIN_WAIT: std::sync::Mutex<Option<JoinWait>> = std::sync::Mutex::new(None);
 
 /// KyberNow Share, invité : le code part à tous ces ordinateurs à la fois (les Stations trouvées sur le réseau,
-/// comme pour l'appairage) **et** aux relais (le relais par défaut, et ceux des ordinateurs de l'appareil) ; une
-/// Station du réseau qui l'accepte en 1,5 s est prise, sinon celle que donne le relais (`share::join_anywhere`, 8 s
-/// au plus). Le format de son image est vérifié avec ce que cet appareil décode. Hors de chez soi l'hôte accepte
+/// comme pour l'appairage) **et** aux relais (le relais public, `share.kybernow.app`, que le cœur interroge
+/// toujours, et ceux des ordinateurs de l'appareil, `relays`) ; une Station du réseau qui l'accepte en 1,5 s est
+/// prise, sinon celle que donne le relais (`share::join_anywhere`, 8 s au plus). `KYBERNOW_RELAY=off` : le réseau
+/// seulement. Le format de son image est vérifié avec ce que cet appareil décode. Hors de chez soi l'hôte accepte
 /// chaque invité : `Event::SharePending` dit que la demande attend, puis la réponse (l'invité entre, « L'hôte a
 /// refusé. », « L'hôte n'a pas répondu. ») revient avec le numéro de la recherche. Une recherche abandonnée n'ouvre
 /// rien et retire sa demande.
 pub fn share_join(targets: Vec<ShareTarget>, relays: Vec<RelayAddr>, request: JoinRequest, caps: Capabilities, attempt: u32, tx: Sender<Event>) {
     std::thread::Builder::new()
         .name("share-join".into())
-        .spawn(move || match share::join_anywhere(&targets, &relays, &request, Some(caps)) {
+        .spawn(move || match join(&targets, &relays, &request, caps) {
             Ok(Joining::Joined(found)) => {
                 let _ = tx.send(Event::ShareJoined { attempt, result: Ok(found) });
             }
@@ -425,6 +426,15 @@ pub fn share_join(targets: Vec<ShareTarget>, relays: Vec<RelayAddr>, request: Jo
             }
         })
         .ok();
+}
+
+/// Le code d'un partage aux Stations du réseau et aux relais (`share::join_anywhere`, qui ajoute lui-même le relais
+/// public) ; `KYBERNOW_RELAY=off` : aux Stations du réseau seulement (`share::join_checked`), jamais à un relais.
+fn join(targets: &[ShareTarget], relays: &[RelayAddr], request: &JoinRequest, caps: Capabilities) -> Result<Joining, share::ShareError> {
+    if RelayMode::current() == RelayMode::Off {
+        return share::join_checked(targets, request, caps).map(Joining::Joined);
+    }
+    share::join_anywhere(targets, relays, request, Some(caps))
 }
 
 /// L'attente de l'accord de l'hôte : `share::wait` tient son appel 25 s, on le rappelle tant que l'hôte n'a pas répondu

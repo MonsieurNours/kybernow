@@ -423,6 +423,13 @@ impl Platform for LinuxPlatform {
     fn on_route(&self, route: &RouteInfo) {
         self.0.send(SessionEvent::Route(route_of(route)));
     }
+
+    /// Par le relais, la session finit parce que l'ordinateur n'est pas joignable hors de chez soi : l'erreur typée
+    /// (accès coupé dans Admin, éteint ou en veille, relais muet), juste avant `Status::Ended`. C'est elle qui choisit
+    /// le texte de la fin (`relay_failure_text`), jamais le texte d'Admin.
+    fn on_relay_error(&self, error: &kybernow_core::relay::RelayError, _text: &str) {
+        self.0.send(SessionEvent::RelayError(error.clone()));
+    }
 }
 
 /// Le chemin de l'interface d'après celui du cœur.
@@ -443,15 +450,16 @@ pub fn relay_route(host: &Host) -> Option<RelayRoute> {
     RelayInfo { server: r.server.clone(), id: r.id.clone(), remote_access: r.remote_access }.route(host.fingerprint.as_deref()?)
 }
 
-/// Les relais où chercher le code d'un partage : le relais public d'abord, puis ceux des ordinateurs de l'appareil
-/// (`info.relay.server`), sans doublon ; une adresse illisible est écartée. Le code d'un ami part ainsi au relais
-/// public même quand l'ordinateur de l'utilisateur en a un autre. `KYBERNOW_RELAY=off` : aucun relais.
+/// Les relais où chercher le code d'un partage en plus du relais public : ceux des ordinateurs de l'appareil
+/// (`info.relay.server`), sans doublon ; une adresse illisible est écartée. Le cœur (`share::join_anywhere`)
+/// interroge toujours le relais public lui-même : le code d'un ami y part même quand l'ordinateur de l'utilisateur
+/// en a un autre. `KYBERNOW_RELAY=off` : aucun relais, et `jobs::share_join` n'appelle alors que le réseau.
 pub fn join_relays<'a>(servers: impl IntoIterator<Item = &'a str>) -> Vec<kybernow_core::relay::RelayAddr> {
     use kybernow_core::relay::{RelayAddr, RelayMode};
     if RelayMode::current() == RelayMode::Off {
         return Vec::new();
     }
-    let mut out = vec![RelayAddr::public()];
+    let mut out = Vec::new();
     for server in servers {
         if let Ok(addr) = server.trim().parse::<RelayAddr>()
             && !out.contains(&addr)
@@ -462,29 +470,19 @@ pub fn join_relays<'a>(servers: impl IntoIterator<Item = &'a str>) -> Vec<kybern
     out
 }
 
-/// Le message qu'Admin donne quand « Accès hors de chez vous » est coupé (`code: remote_access_off`), dans la langue
-/// demandée par l'app (`relay.accessOff` du catalogue d'Admin).
-fn admin_access_off(lang: kybernow_core::i18n::Lang) -> &'static str {
-    match lang {
-        kybernow_core::i18n::Lang::Fr => "L'accès hors de chez vous est coupé dans Admin.",
-        kybernow_core::i18n::Lang::En => "Access away from home is turned off in Admin.",
+/// Le texte de link-ui (« Hors de chez vous ») d'un échec de session par le relais, avec le nom de l'ordinateur :
+/// « {nom} n'est pas joignable hors de chez vous (accès coupé dans Admin). » quand Admin refuse l'accès,
+/// « {nom} n'est pas joignable : l'ordinateur est éteint ou en veille. » quand le relais ne le connaît pas,
+/// « Le relais ne répond pas. » quand le relais est muet.
+///
+/// `relay` est l'erreur typée que le cœur a donnée en fin de session (`Platform::on_relay_error`) : c'est elle qui
+/// choisit le texte, jamais le texte d'Admin. `error` est la raison de la fin donnée par le cœur ; sans erreur du
+/// relais, elle reste telle quelle.
+pub fn relay_failure_text(relay: Option<&kybernow_core::relay::RelayError>, error: Option<String>, name: &str) -> Option<String> {
+    match (relay, error) {
+        (Some(e), Some(_)) => Some(e.text(kybernow_core::i18n::current(), Some(name))),
+        (_, error) => error,
     }
-}
-
-/// Le texte de link-ui (« Hors de chez vous ») d'un échec de session par le relais, avec le nom de l'ordinateur que le
-/// cœur ne connaît pas : « {nom} n'est pas joignable hors de chez vous (accès coupé dans Admin). » quand Admin refuse
-/// l'accès, « {nom} n'est pas joignable : l'ordinateur est éteint ou en veille. » quand le relais ne le connaît pas.
-/// `None` : l'échec est autre chose, son texte reste tel quel. `error` est le texte que le cœur a donné.
-pub fn relay_refusal(error: &str, name: &str) -> Option<String> {
-    use kybernow_core::console::ConsoleError;
-    use kybernow_core::i18n::Lang;
-    use kybernow_core::relay::RelayError;
-    let access_off = [Lang::Fr, Lang::En].into_iter().any(|l| error == ConsoleError::Http { status: 403, message: admin_access_off(l).to_string() }.text(l));
-    if access_off {
-        return Some(crate::i18n::tr("{} n'est pas joignable hors de chez vous (accès coupé dans Admin).", "{} cannot be reached away from home (access turned off in Admin).").replace("{}", name));
-    }
-    let offline = [Lang::Fr, Lang::En].into_iter().any(|l| error == RelayError::StationOffline.text(l, None));
-    offline.then(|| RelayError::StationOffline.text(kybernow_core::i18n::current(), Some(name)))
 }
 
 /// Le rôle de l'interface d'après celui du cœur.
@@ -1082,37 +1080,52 @@ mod tests {
 
     const STATION: &str = "abcdefghijklmnopqrstuvwxyz";
 
-    /// Les relais d'un code tapé : le relais public d'abord, puis ceux des ordinateurs de l'appareil, sans doublon.
+    /// Les relais d'un code tapé, en plus du relais public (que le cœur interroge toujours) : ceux des ordinateurs de
+    /// l'appareil, sans doublon, sans port quand c'est le 443.
     #[test]
     fn relays_of_a_typed_code() {
         use kybernow_core::relay::{RelayAddr, RelayMode};
         if RelayMode::current() == RelayMode::Off {
             return;
         }
-        assert_eq!(join_relays([]), vec![RelayAddr::public()]);
-        let relays = join_relays(["share.kybernow.app", "relais.exemple.org:9443", "relais.exemple.org:9443", "a b", ""]);
+        assert_eq!(join_relays([]), Vec::<RelayAddr>::new(), "rien à ajouter au relais public");
+        let relays = join_relays(["share.kybernow.app", "relais.exemple.org:9443", "relais.exemple.org:9443", "share.kybernow.app:443", "a b", ""]);
         assert_eq!(relays.len(), 2, "le port se complète, les doublons et les adresses illisibles sont écartés");
         assert_eq!((relays[1].host.as_str(), relays[1].port), ("relais.exemple.org", 9443));
+        assert_eq!(relays.iter().map(ToString::to_string).collect::<Vec<_>>(), ["share.kybernow.app", "relais.exemple.org:9443"]);
     }
 
-    /// Les refus par le relais disent le nom de l'ordinateur (link-ui) ; un autre échec garde son texte.
+    /// Les refus par le relais disent le nom de l'ordinateur (link-ui), choisis par l'erreur typée du cœur ; sans
+    /// erreur du relais, la raison de la fin reste telle quelle, même si elle ressemble à un refus.
     #[test]
     fn refusals_say_the_name_of_the_computer() {
-        use kybernow_core::console::ConsoleError;
         use kybernow_core::i18n::Lang;
         use kybernow_core::relay::RelayError;
         crate::i18n::force_english(false);
         kybernow_core::i18n::set_current(Lang::Fr);
-        let offline = RelayError::StationOffline.text(Lang::Fr, None);
-        assert_eq!(relay_refusal(&offline, "Atelier").as_deref(), Some("Atelier n'est pas joignable : l'ordinateur est éteint ou en veille."));
-        let off = ConsoleError::Http { status: 403, message: admin_access_off(Lang::Fr).into() }.to_string();
-        assert_eq!(relay_refusal(&off, "Atelier").as_deref(), Some("Atelier n'est pas joignable hors de chez vous (accès coupé dans Admin)."));
-        assert_eq!(relay_refusal(&RelayError::Unreachable("x".into()).text(Lang::Fr, None), "Atelier"), None, "relais muet");
-        assert_eq!(relay_refusal(&ConsoleError::Http { status: 401, message: "compte".into() }.text(Lang::Fr), "Atelier"), None);
-        // Le message d'Admin reconnu est celui de son catalogue.
-        for (lang, admin) in [(Lang::Fr, include_str!("../../../../server/admin/src/i18n/fr.json")), (Lang::En, include_str!("../../../../server/admin/src/i18n/en.json"))] {
-            let admin: serde_json::Value = serde_json::from_str(admin).unwrap();
-            assert_eq!(admin["relay"]["accessOff"].as_str(), Some(admin_access_off(lang)), "{lang:?}");
+        let text = |e: RelayError| relay_failure_text(Some(&e), Some("raison du cœur".into()), "Atelier");
+        assert_eq!(text(RelayError::AccessOff).as_deref(), Some("Atelier n'est pas joignable hors de chez vous (accès coupé dans Admin)."));
+        assert_eq!(text(RelayError::StationOffline).as_deref(), Some("Atelier n'est pas joignable : l'ordinateur est éteint ou en veille."));
+        assert_eq!(text(RelayError::Unreachable("x".into())).as_deref(), Some("Le relais ne répond pas."), "relais muet");
+        let looks_like = RelayError::StationOffline.text(Lang::Fr, None);
+        assert_eq!(relay_failure_text(None, Some(looks_like.clone()), "Atelier"), Some(looks_like), "le texte ne se lit pas");
+        assert_eq!(relay_failure_text(None, Some("Mot de passe refusé".into()), "Atelier").as_deref(), Some("Mot de passe refusé"));
+        assert_eq!(relay_failure_text(Some(&RelayError::AccessOff), None, "Atelier"), None, "une fin sans erreur n'en a pas");
+        // Les textes anglais sont ceux du cœur, avec le nom.
+        assert_eq!(RelayError::AccessOff.text(Lang::En, Some("Atelier")), "Atelier cannot be reached away from home (access turned off in Admin).");
+        assert_eq!(RelayError::StationOffline.text(Lang::En, Some("Atelier")), "Atelier cannot be reached: the computer is off or asleep.");
+    }
+
+    /// Le cœur dit le refus du relais avant la fin de la session : la plateforme le passe à la boucle principale,
+    /// avec son type (le code des ponts : 30 relais muet, 31 éteint ou en veille, 32 accès coupé dans Admin).
+    #[test]
+    fn the_relay_error_reaches_the_main_loop() {
+        use kybernow_core::relay::RelayError;
+        let (sh, rx) = shared(7);
+        LinuxPlatform(sh).on_relay_error(&RelayError::AccessOff, "texte du cœur");
+        match rx.try_recv() {
+            Ok(Event::Session(7, SessionEvent::RelayError(e))) => assert_eq!((e.clone(), e.code(), e.kind()), (RelayError::AccessOff, 32, "access_off")),
+            _ => panic!("l'erreur du relais arrive avec sa session"),
         }
     }
 
@@ -1124,9 +1137,9 @@ mod tests {
         let mut h = host(HostSettings::default());
         h.fingerprint = Some("sha256:aa".into());
         assert_eq!(relay_route(&h), None, "pas de relais chez lui");
-        h.relay = Some(crate::model::HostRelay { server: "share.kybernow.app:8443".into(), id: STATION.into(), remote_access: true });
+        h.relay = Some(crate::model::HostRelay { server: "share.kybernow.app".into(), id: STATION.into(), remote_access: true });
         let r = relay_route(&h).expect("route");
-        assert_eq!((r.server.as_str(), r.station.as_str(), r.admin_fp.as_str()), ("share.kybernow.app:8443", STATION, "sha256:aa"));
+        assert_eq!((r.server.as_str(), r.station.as_str(), r.admin_fp.as_str()), ("share.kybernow.app", STATION, "sha256:aa"));
         h.fingerprint = None;
         assert_eq!(relay_route(&h), None, "jamais sans l'empreinte d'Admin");
         h.fingerprint = Some("sha256:aa".into());
@@ -1138,7 +1151,7 @@ mod tests {
     #[test]
     fn route_of_a_session() {
         assert_eq!(route_of(&RouteInfo::direct()), RouteUi::default());
-        let r = route_of(&RouteInfo { transport: RouteTransport::RelayTcp, relay: Some("share.kybernow.app:8443".into()), rtt_client: Some(12.5), rtt_station: Some(1.0) });
+        let r = route_of(&RouteInfo { transport: RouteTransport::RelayTcp, relay: Some("share.kybernow.app".into()), rtt_client: Some(12.5), rtt_station: Some(1.0) });
         assert_eq!((r.kind, r.total_ms()), (PathKind::RelayTcp, Some(13.5)));
         assert!(r.kind.via_relay());
         // Une session par le relais envoie son chemin à la boucle principale.
@@ -1155,7 +1168,7 @@ mod tests {
     #[test]
     fn share_view_with_the_relay_and_requests() {
         let state: ShareState = serde_json::from_str(
-            r#"{"open":true,"code":"482917","link":"kybernow://join?x&relay=r&sid=s","web":"https://share.kybernow.app:8443/j/482917","web_local":"https://h:1/link/?join=482917",
+            r#"{"open":true,"code":"482917","link":"kybernow://join?x&relay=r&sid=s","web":"https://share.kybernow.app/j/482917","web_local":"https://h:1/link/?join=482917",
             "relay":{"state":"joined"},
             "guests":[{"id":"g1","name":"Léa","app":"ios","role":"spectator","since":1,"pending":false,"via":"lan"},
                       {"id":"g2","name":"Tom","app":"android","role":"spectator","since":2,"pending":true,"via":"relay"}]}"#,
