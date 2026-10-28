@@ -882,6 +882,24 @@ impl Console {
         self.read_unit(r)
     }
 
+    /// « Accepter » la demande d'un invité venu par le relais (docs/relais.md) :
+    /// il devient spectateur, et son attente (`share_wait`) aboutit. Rend le
+    /// partage à jour. Admin refuse (409 `full`) si les quatre places sont
+    /// prises, et (404) si la demande n'existe plus.
+    pub fn share_accept(&self, guest: &str) -> Result<ShareState> {
+        let path = format!("api/share/guest/{}/accept", path_segment(guest));
+        let r = self.request("POST", &path, Duration::from_secs(6)).send_json(serde_json::json!({}));
+        self.read(r)
+    }
+
+    /// « Refuser » la demande d'un invité venu par le relais : son appareil ne
+    /// redemande pas avant 10 minutes. Rend le partage à jour.
+    pub fn share_refuse(&self, guest: &str) -> Result<ShareState> {
+        let path = format!("api/share/guest/{}/refuse", path_segment(guest));
+        let r = self.request("POST", &path, Duration::from_secs(6)).send_json(serde_json::json!({}));
+        self.read(r)
+    }
+
     /// « Arrêter le partage » : tout le monde sort.
     pub fn share_close(&self) -> Result<()> {
         let r = self.request("DELETE", "api/share", Duration::from_secs(6)).call();
