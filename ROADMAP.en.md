@@ -15,6 +15,7 @@ What is planned or still to try, and only here: the other documents describe wha
 - **Icon next to the clock**: on the Mac, system notifications (and their permission request), registering to open at login and a real launch at login, closing the window in full screen during a session; on a real Windows PC, the top of the menu during a session and the lit icon, 100% and 200% scaling, notification banners, “still not responding” after 2 min of waking.
 - **Multiple displays**: on a Windows PC and a Linux machine with several displays (validated on Mac on 26/10/2026); a session on several displays right after the Station is installed or restarted.
 - **Several computers at once**: two sessions running at the same time on Windows and on Linux (checked on Mac on 27/10/2026); on Windows, a session end that once cut another session in the VM (every end path is now logged).
+- **KyberNow Share and relay**: sharing away from home and reaching your computer through `share.kybernow.app` from each family of apps (an iPhone's cellular radio included); a guest's own pictures on AMD (AMF) and Intel (QSV) cards; the rest of the checks of patches 0019 and 0020 is in [docs/kyber-changes.en.md](docs/kyber-changes.en.md). Two sessions at once on Windows and Linux are on the “Several computers at once” line.
 - **Audit measurements** described in [docs/archives/mesures.en.md](docs/archives/mesures.en.md): Mac app display latency, Windows permissions, saturated Wi-Fi, SudoVDA virtual display modes.
 
 ## KyberNow Station and Admin
@@ -44,10 +45,12 @@ What is planned or still to try, and only here: the other documents describe wha
 
 Everything that lets someone else onto your computer. Name chosen on 26/10/2026; logo signed SHARE, like STATION, ADMIN and LINK.
 
-- **Shared session** (in progress: local sharing, contract in [docs/kybernow-share.en.md](docs/kybernow-share.en.md), including sharing a display from the PC itself): a spectator (image and sound) or a second player (their controllers become Windows' next controller; keyboard and mouse only if the host hands them over), invited with a code, in the Link app or the browser. Kyber already accepts several devices on the same image (`multi_client`); Admin moves from a single device in session to participants who each have a role.
-- **Rights enforced by the Station**: a Kyber patch to refuse a spectator's inputs and keep only a second player's controllers (today only the device decides to send nothing).
-- **Separate encode for a remote guest**: the host keeps their quality, the guest gets an image that fits their connection (Kyber patch: a stream of its own beside the shared one, so the slowest device no longer slows the others down).
-- **Relay**: a layer-4 relay (TCP and UDP) that does not see the image (end-to-end encryption, Kyber's certificate pinned by its fingerprint); the Station opens the connection, nothing to open on the router. A public relay run by Les Lignes Claires by default, replaceable by your own (Docker image). Next, access from outside the home without a VPN through the same relay, with a capped bitrate on the public relay. Web client: WebTransport through the relay (not in Safari).
+- **Browser picture over WebTransport through the relay** (except Safari): the relay would read the name in the first QUIC packet and pass it on without decrypting; today, through the relay, the browser gets its picture over WebSocket.
+- **“Auto” that follows the window**: a guest's “Auto” quality is measured when they arrive (the device's display, the decoder); redo it when their window moves to another display.
+- **Share started from the PC**: the first guest sets the format and bitrate of the shared picture.
+- **Removed guest**: they can come back with the same code until the host asks for a “New code”.
+- **Public Suffix List**: add `share.kybernow.app` to the list, so browsers treat each Station's address (`<id>.share.kybernow.app`) as a separate site (cookies, storage).
+- **Fair use of the home's upload bandwidth**: split it fairly between several guests.
 - **Lending the computer**, in turns (Windows has only one session open on screen): a dedicated Windows account with no rights and no access to your files; the desktop replaced by a launcher that restarts the program when it closes, no File Explorer; a list of apps chosen by the host, the Station's service closes the rest. The friend plays with their own Steam account (your games: Steam Families). Three ways in: a friend access you switch on (taken back with notice), a code for one sitting, time slots. Tricky part: opening the dedicated account's session without typing its password.
 - **Lead**: lending the computer while you use it, through a virtual machine that shares the graphics card (Hyper-V); needs Windows Pro and a second licence, runs into anti-cheat, encoder to be checked.
 
@@ -65,4 +68,4 @@ The computer sees a DualShock 4 (ViGEmBus driver): buttons, sticks, triggers and
 - **CI**: build the Mac app (with a `KyberSDK-macOS.zip`) and the Windows binaries.
 - **Kyber**: send the `strip` fix upstream (cargo-c, Xcode 27's linker).
 - **Website**: remove the “beta” markers at 1.0; revisit the Apple TV, iPhone and iPad cards once those apps go through TestFlight or the App Store.
-- **Brand**: confirm the KyberNow name (and Station / Admin / Link / Share) with the Kyber team; draw the logo signed SHARE in `brand/v2/`; the `fr.leslignesclaires.kybernow` identifier does not change.
+- **Brand**: confirm the KyberNow name (and Station / Admin / Link / Share) with the Kyber team; the `fr.leslignesclaires.kybernow` identifier does not change.
