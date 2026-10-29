@@ -93,6 +93,8 @@ export type Info = {
   account?: { own_device: boolean }
   /** KyberNow Share (Station 0.8.0 et suivantes) ; `enabled` faux : partage coupé sur l'ordinateur. Absent : Station antérieure. */
   share?: { available: boolean; enabled: boolean }
+  /** Prêt de l'ordinateur (Station 0.9.0 et suivantes) ; `enabled` faux : prêt coupé dans Admin. Absent : Station antérieure. */
+  lend?: { available: boolean; enabled: boolean }
   /** Le relais de la Station (Station 0.8.0 et suivantes, relais réglé) : gardé pour chaque ordinateur (`Computer.relay`). */
   relay?: RelayInfo | null
 }
@@ -181,6 +183,8 @@ export type Computer = {
   waking?: boolean
   /** La Station redémarre ou s'installe : l'app attend son retour (`station-outcome` à la fin). */
   station_pending?: 'restart' | 'update' | null
+  /** Prêté à un ami : « Prêté à {prénom} », « Reprendre l'ordinateur » (absent : rien de prêté). */
+  lend?: HomeLend | null
 }
 
 export type Found = { id: string; name: string; host: string; port: number; fingerprint: string | null }
@@ -233,6 +237,8 @@ export type Action =
   | { kind: 'add' }
   /** « Rejoindre avec un code » (menu de l'icône) ; `link` : `kybernow://join?…` (lien ou QR code d'un partage). */
   | { kind: 'join'; link: string | null }
+  /** Le lien d'invitation d'un compte d'ami (`kybernow://borrow?…`) : « Ordinateur de {hôte} » à ajouter. */
+  | { kind: 'borrow'; link: string }
   | { kind: 'link'; link: string }
   | { kind: 'updated' }
   | { kind: 'open' }
@@ -422,7 +428,7 @@ export type ShareJoined = { id: string; title: string; host: string; role: Share
  * Réponse de `share_join` : l'invité entre (`joined`), ou sa demande attend l'accord de l'hôte (`pending`, par le
  * relais) : l'écran « Rejoindre » montre « En attente de l'accord de l'hôte… » et rappelle `share_wait` avec ce numéro.
  */
-export type ShareJoinOutcome = ({ kind: 'joined' } & ShareJoined) | { kind: 'pending'; wait: number }
+export type ShareJoinOutcome = ({ kind: 'joined' } & ShareJoined) | { kind: 'pending'; wait: number } | { kind: 'lend'; ticket: number }
 
 /**
  * Réponse de `share_wait` (un appel tenu 25 s au plus) : `waiting` (rappeler), `joined` (l'hôte a accepté : la session
@@ -445,7 +451,7 @@ export type ShareStateEvent = { id: string; share: Share }
  * `share-open-panel` (le choix d'une notification de demande : le panneau de « Partager » de la session s'ouvre ;
  * charge : l'identifiant de la session).
  */
-export type ShareRequestEvent = { id: string; text: string }
+export type ShareRequestEvent = { id: string; text: string; panel?: 'share' | 'lend' }
 
 /** Une pseudo-fiche d'ordinateur pour le passage et la connexion d'une session d'invité (ni dans la liste, ni gardée). */
 export const guestComputer = (j: { title: string; fingerprint: string | null }) => ({ name: j.title, preview: null, fingerprint: j.fingerprint })
@@ -560,3 +566,129 @@ export const hue = (fp: string | null, salt = 0) => {
   for (const c of fp ?? 'kybernow') h = Math.imul(h ^ c.charCodeAt(0), 16777619)
   return Math.abs(h) % 360
 }
+
+// Prêt de l'ordinateur (KyberNow Share, docs/pret.md, textes de docs/link-ui.md « Prêt de l'ordinateur »).
+
+/**
+ * L'état de l'ordinateur d'un ami : ceux du cœur (`free` « Disponible », `busy` « Occupé », `lent` « Prêté à quelqu'un
+ * d'autre », `locked` « Verrouillé », `off` « Prêt coupé »), `offline` (« Hors ligne »), `refused` (« Identifiant ou mot
+ * de passe refusé. »), `unsupported` (Station trop ancienne), `password` (mot de passe ni retenu ni donné : il est
+ * demandé à « Emprunter »), `unknown` (pas encore su).
+ */
+export type FriendState = 'free' | 'busy' | 'lent' | 'locked' | 'off' | 'offline' | 'refused' | 'unsupported' | 'password' | 'unknown'
+
+/** Le créneau d'un compte d'ami, en secondes Unix : en cours (`now`), et le prochain. */
+export type LendSlot = { now: boolean; next: { start: number; end: number } | null }
+
+/**
+ * Un ordinateur emprunté (`lend_friends`, événement `lend-friends`) : la carte « Ordinateur de {hôte} » de l'accueil,
+ * gardée à part des ordinateurs appairés. `owner` : le prénom de l'hôte (ou le nom de l'ordinateur, ou son adresse).
+ */
+export type Friend = { id: string; owner: string; computer: string; login: string; remember: boolean; state: FriendState; slot: LendSlot | null; relay: boolean }
+
+/** `lend_invite` : le lien d'invitation, pour l'écran d'ajout (`host` : le nom de l'ordinateur, le lien ne porte pas le prénom). */
+export type LendInvite = { login: string; host: string; relay: boolean }
+
+/** La session d'emprunt à ouvrir (`lend_connect`) : son titre « Ordinateur de {hôte} » et la teinte de son Admin. */
+export type LoanReady = { id: string; title: string; host: string; fingerprint: string | null }
+
+/** Réponse de `lend_borrow` et `lend_come_back` : le prêt démarre, ou « En attente de {hôte}… » (`lend_wait`). */
+export type BorrowOutcome = ({ kind: 'ready' } & LoanReady) | { kind: 'pending'; wait: number; host: string }
+
+/** Réponse de `lend_wait` (30 s au plus) ; le refus (« {hôte} a refusé. ») est l'erreur de la commande. */
+export type LendWaitOutcome = { kind: 'waiting' } | ({ kind: 'ready' } & LoanReady) | { kind: 'cancelled' }
+
+/** Un préavis de 2 minutes : sa raison, l'heure de la fin (secondes Unix) et son texte (celui du cœur). */
+export type LendNotice = { reason: 'taken_back' | 'time_up' | 'slot_end' | 'slot_start'; at: number; text: string }
+
+/** La barre de l'ami qui emprunte (`bar-shown`, événement `lend-borrow`) : « Prêté par {hôte} », la fin (`null` : « Jusqu'à ce que {hôte} reprenne »), le préavis. */
+export type BorrowBar = { host: string; until: number | null; notice: LendNotice | null }
+
+/** L'ami qui a l'ordinateur, chez l'hôte. */
+export type LendBorrower = { name: string; kind: 'code' | 'friend' | 'slot'; app: string; away: boolean; since: number; until: number | null; steam: 'friend' | 'host'; connected: boolean }
+
+/** Une demande d'emprunt : « {prénom} veut emprunter l'ordinateur. », « Accepter », « Refuser ». */
+export type LendRequest = { id: string; name: string; kind: 'code' | 'friend' | 'slot'; app: string; away: boolean; since: number }
+
+/** Le code de séance, comme le partage : « 123 456 », le lien des apps (QR code), l'adresse du client web (« Copier le lien »). */
+export type LendCode = { code: string; link: string; web: string; duration: number | null; steam: 'friend' | 'host'; expires: number; qr: ShareQr | null }
+
+/**
+ * Le panneau « Prêter l'ordinateur… » de l'hôte (`bar-shown`, événement `lend-state`, réponses des actions) :
+ * `availability` (`unsupported` Station trop ancienne, `disabled` prêt coupé dans Admin, `unknown` pas encore su), l'état
+ * du prêt, l'ami qui a l'ordinateur, le préavis, les demandes et le code de séance.
+ */
+export type LendPanel = {
+  availability: 'available' | 'unsupported' | 'disabled' | 'unknown'
+  state: 'free' | 'preparing' | 'lent' | 'ending'
+  borrower: LendBorrower | null
+  notice: LendNotice | null
+  requests: LendRequest[]
+  code: LendCode | null
+}
+
+/** Événements `lend-state` (le panneau de la session d'hôte `id`) et `lend-borrow` (la barre de la session d'emprunt `id`). */
+export type LendStateEvent = { id: string; lend: LendPanel }
+export type BorrowEvent = { id: string; borrow: BorrowBar }
+
+/** L'accueil de l'hôte pendant un prêt : « Prêté à {prénom} » (jusqu'à `until`), « Reprise dans 1:42 » jusqu'à `notice_at`. */
+export type HomeLend = { state: 'preparing' | 'lent' | 'ending'; name: string; until: number | null; notice_at: number | null; notice: LendNotice['reason'] | null }
+
+/** La carte de fin d'une session d'emprunt (dans `session-ended`) : le texte du prêt, ou `come_back` (« Revenir », 15 min). */
+export type LendEnd = { host: string; text: string | null; come_back: boolean }
+
+/** « Durée » : 1, 2 (proposée) ou 4 heures, ou `null` (« Jusqu'à ce que je reprenne »), en secondes. */
+export const lendDurations: (number | null)[] = [3600, 7200, 14400, null]
+
+/** « 18 h », « 18 h 30 » ; “6 PM”, “6:30 PM” : l'heure de ce PC. */
+export function clock(at: number) {
+  const d = new Date(at * 1000)
+  const h = d.getHours()
+  const m = d.getMinutes()
+  if (i18n.lang === 'fr') return m ? `${h}\u00a0h\u00a0${String(m).padStart(2, '0')}` : `${h}\u00a0h`
+  const h12 = h % 12 || 12
+  const suffix = h < 12 ? 'AM' : 'PM'
+  return m ? `${h12}:${String(m).padStart(2, '0')}\u00a0${suffix}` : `${h12}\u00a0${suffix}`
+}
+
+/** « 1:42 » : le compte à rebours d'un préavis (jamais négatif). */
+export function countdown(at: number, now = Date.now() / 1000) {
+  const s = Math.max(0, Math.ceil(at - now))
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+}
+
+/** « Encore 1 h 20 » / “1 h 20 left” : le temps restant d'un prêt. */
+export const leftText = (until: number, now = Date.now() / 1000) => t('lend.left', { duration: duration(Math.max(1, Math.ceil((until - now) / 60)) * 60) })
+
+/** « Votre créneau : mercredi, 14 h – 18 h » ou, pendant le créneau, « Votre créneau, jusqu'à 18 h ». */
+export function slotText(slot: LendSlot | null) {
+  if (!slot?.next) return null
+  if (slot.now) return t('lend.slot_until', { time: clock(slot.next.end) })
+  const day = new Date(slot.next.start * 1000).toLocaleDateString(i18n.lang === 'fr' ? 'fr-FR' : 'en-GB', { weekday: 'long' })
+  return t('lend.slot_range', { day, start: clock(slot.next.start), end: clock(slot.next.end) })
+}
+
+/** Le texte de l'état d'un ordinateur emprunté (carte de l'accueil) ; `password` : rien à dire. */
+export function friendStateText(s: FriendState) {
+  switch (s) {
+    case 'offline':
+      return t('home.offline')
+    case 'unknown':
+      return t('common.searching')
+    case 'refused':
+      return t('lend.refused_credentials')
+    case 'unsupported':
+      return t('lend.unsupported')
+    case 'password':
+      return ''
+    default:
+      return t(`lend.state_${s}`)
+  }
+}
+
+/** Les feuilles du prêt côté ami (LendSheet.svelte) : lien d'invitation, mot de passe à redonner, attente de l'hôte, carte de fin. */
+export type LendSheetKind =
+  | { kind: 'invite'; link: string; invite: LendInvite }
+  | { kind: 'password'; friend: Friend }
+  | { kind: 'waiting'; wait: number; host: string }
+  | { kind: 'end'; end: LendEnd }

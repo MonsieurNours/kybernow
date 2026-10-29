@@ -11,13 +11,20 @@
   Hors de chez vous (docs/relais.md) : un ordinateur qui ne répond pas sur le réseau mais que le
   relais tient est « Hors de chez vous » à la place de « En ligne » (l'app le demande au relais) ;
   « Se connecter » passe alors par le relais.
+
+  Prêt de l'ordinateur (docs/link-ui.md « Prêt de l'ordinateur ») : les ordinateurs empruntés à
+  des amis ont leur carte « Ordinateur de {hôte} » après vos ordinateurs (son état : « Disponible »,
+  « Occupé »…) ; choisie, elle montre son état, son créneau, « Emprunter » (occupé : « Demander à
+  {hôte} ») et « Retirer ». Un de vos ordinateurs prêté à un ami dit « Prêté à {prénom} » (jusqu'à
+  18 h) et propose « Reprendre l'ordinateur » ; pendant le préavis, « Reprise dans 1:42 » et
+  « Reprendre tout de suite ».
 -->
 <script lang="ts">
   import Icon from './lib/Icon.svelte'
   import Mark from './lib/Mark.svelte'
   import { onMount } from 'svelte'
-  import type { Battery, Computer, DisplaysInfo, Found, Settings, ThisPc } from './lib/api'
-  import { MAX_SESSIONS, hue, invoke, isCustom, listen, sessionPlan } from './lib/api'
+  import type { Battery, Computer, DisplaysInfo, Found, Friend, Settings, ThisPc } from './lib/api'
+  import { MAX_SESSIONS, clock, countdown, friendStateText, hue, invoke, isCustom, listen, sessionPlan, slotText } from './lib/api'
   import { t } from './lib/i18n/index.svelte'
 
   let {
@@ -26,6 +33,8 @@
     thisPc,
     battery,
     selected,
+    friends = [],
+    selectedFriend = null,
     sessions = [],
     busy,
     retrying,
@@ -39,12 +48,19 @@
     onprofile,
     onadd,
     onjoin,
+    onborrow,
+    onremovefriend,
+    ontakeback,
   }: {
     computers: Computer[]
     discovered: Found[]
     thisPc: ThisPc | null
     battery: Battery
     selected: Computer | null
+    /** Les ordinateurs empruntés à des amis (« Ordinateur de {hôte} »). */
+    friends?: Friend[]
+    /** L'ordinateur d'un ami choisi (à la place d'un de vos ordinateurs). */
+    selectedFriend?: Friend | null
     /** Les ordinateurs en session (plusieurs ordinateurs, quatre au plus). */
     sessions?: string[]
     /** La connexion de la première session se fait (passage). */
@@ -63,6 +79,12 @@
     onadd: (found?: Found) => void
     /** « Rejoindre avec un code » (KyberNow Share) : à côté de « Ajouter un ordinateur ». */
     onjoin: () => void
+    /** « Emprunter » ou « Demander à {hôte} » : l'ordinateur d'un ami. */
+    onborrow: (f: Friend) => void
+    /** « Retirer » l'ordinateur d'un ami de cet appareil. */
+    onremovefriend: (id: string) => void
+    /** « Reprendre l'ordinateur » (`now` faux : préavis de 2 min) ou « Reprendre tout de suite ». */
+    ontakeback: (id: string, now: boolean) => void
   } = $props()
 
   const fresh = $derived(discovered.filter((f) => !computers.some((c) => c.host === f.host && c.port === f.port)))
@@ -144,6 +166,25 @@
   ])
   const sentence = $derived(selected ? (custom ? t('profiles.custom_sub') : t(`profiles.${selected.settings.profile}_sub`)) : '')
 
+  // Prêt de l'ordinateur : l'heure, pour « Reprise dans 1:42 » (revue chaque seconde pendant un préavis).
+  let now = $state(Date.now() / 1000)
+  $effect(() => {
+    if (!selected?.lend?.notice_at) return
+    const timer = setInterval(() => (now = Date.now() / 1000), 1000)
+    return () => clearInterval(timer)
+  })
+  /** Votre ordinateur prêté à un ami : « Prêté à Léa », « Prêté à Léa jusqu'à 18 h ». */
+  const lentText = $derived(
+    selected?.lend ? (selected.lend.until ? t('lend.lent_to_until', { name: selected.lend.name, time: clock(selected.lend.until) }) : t('lend.lent_to', { name: selected.lend.name })) : '',
+  )
+  /** « Reprise dans 1:42 » : le préavis de la reprise en cours. */
+  const takingBack = $derived(selected?.lend?.notice_at && selected.lend.notice_at > now ? t('lend.taking_back', { time: countdown(selected.lend.notice_at, now) }) : null)
+  /** « Retirer » l'ordinateur d'un ami : confirmé d'un second clic. */
+  let confirmRemove = $state<string | null>(null)
+  /** Ce que l'ami peut faire de l'ordinateur : l'emprunter, le demander à l'hôte, ou rien (prêté, verrouillé, coupé, hors ligne). */
+  const canBorrow = (f: Friend) => ['free', 'busy', 'password', 'unknown', 'refused'].includes(f.state)
+  const friendTone = (f: Friend) => (f.state === 'free' ? 'ok' : f.state === 'unknown' ? 'wait' : f.state === 'busy' ? 'busy' : 'off')
+
   const signature = (fp: string | null) =>
     `radial-gradient(900px 600px at 78% 22%, hsl(${hue(fp)} 90% 62% / 0.38), transparent 70%), radial-gradient(700px 520px at 18% 78%, hsl(${hue(fp, 7)} 70% 55% / 0.16), transparent 70%), #070a0e`
 </script>
@@ -161,8 +202,35 @@
 
   <div class="layout">
   <section class="hero">
-    {#if selected}
-      <div class="eyebrow status {status?.tone}"><span class="dot"></span>{status?.text}</div>
+    {#if selectedFriend}
+      {@const f = selectedFriend}
+      {@const slot = slotText(f.slot)}
+      {#if friendStateText(f.state)}<div class="eyebrow status {friendTone(f)}"><span class="dot"></span>{friendStateText(f.state)}</div>{/if}
+      <h1>{t('lend.computer_of', { host: f.owner })}</h1>
+      {#if f.computer}<div class="system">{f.computer}</div>{/if}
+      {#if error}<div class="error" role="alert">{error}</div>{/if}
+      {#if slot}
+        <div class="chip"><Icon name="restart" size={20} /><span>{slot}</span></div>
+      {/if}
+      <div class="actions">
+        <button class="primary" disabled={busy || full || !canBorrow(f)} aria-describedby={full ? 'four-at-most' : undefined} onclick={() => onborrow(f)}>
+          <Icon name="play" size={18} />{f.state === 'busy' ? t('lend.ask', { host: f.owner }) : t('lend.borrow')}
+        </button>
+        {#if confirmRemove === f.id}
+          <button class="gear danger" onclick={() => ((confirmRemove = null), onremovefriend(f.id))}>{t('station.remove')}</button>
+          <button class="gear" onclick={() => (confirmRemove = null)}>{t('common.cancel')}</button>
+        {:else}
+          <button class="gear" onclick={() => (confirmRemove = f.id)}><Icon name="trash" size={18} stroke={1.6} />{t('station.remove')}</button>
+        {/if}
+      </div>
+      {#if confirmRemove === f.id}<p class="sentence">{t('station.remove_confirm', { name: t('lend.computer_of', { host: f.owner }) })}</p>{/if}
+      {#if full}<p class="sentence limit" id="four-at-most">{t('common.four_at_most')}</p>{/if}
+    {:else if selected}
+      {#if selected.lend && selected.online !== false}
+        <div class="eyebrow status lent"><span class="dot"></span>{lentText}</div>
+      {:else}
+        <div class="eyebrow status {status?.tone}"><span class="dot"></span>{status?.text}</div>
+      {/if}
       <h1>{selected.name}</h1>
       {#if selected.info?.os || selected.os}<div class="system">{selected.info?.os || selected.os}</div>{/if}
       {#if error}<div class="error" role="alert">{error}</div>{/if}
@@ -170,7 +238,15 @@
         <div class="chip"><Icon name="monitor" size={20} /><span>{screen}</span></div>
       {/if}
       <div class="actions">
-        {#if inSession}
+        {#if selected.lend && selected.online !== false}
+          <!-- Prêté à un ami : « Reprendre l'ordinateur » ; pendant le préavis, « Reprise dans 1:42 » et « Reprendre tout de suite ». -->
+          {#if takingBack}
+            <span class="chip countdown" role="timer">{takingBack}</span>
+            <button class="primary" onclick={() => ontakeback(selected!.id, true)}><Icon name="power" size={18} />{t('lend.take_back_now')}</button>
+          {:else}
+            <button class="primary" onclick={() => ontakeback(selected!.id, false)}><Icon name="power" size={18} />{t('lend.take_back')}</button>
+          {/if}
+        {:else if inSession}
           <button class="primary" onclick={() => onshow(selected!.id)}>
             <Icon name="monitor" size={18} />{t('home.show_session')}
           </button>
@@ -223,6 +299,15 @@
           <span class="label">
             <span class="name">{c.name}</span>
             <span class="state">{stateOf(c, retrying && c.id === selected?.id)}</span>
+          </span>
+        </button>
+      {/each}
+      {#each friends as f (f.id)}
+        <button class="card friend" class:current={f.id === selectedFriend?.id} class:offline={!canBorrow(f)} onclick={() => onselect(f.id)}>
+          <span class="sig" style:background={signature(f.id)}></span>
+          <span class="label">
+            <span class="name">{t('lend.computer_of', { host: f.owner })}</span>
+            <span class="state">{friendStateText(f.state) || f.computer}</span>
           </span>
         </button>
       {/each}
@@ -353,6 +438,23 @@
 
   .status.ok .dot {
     background: var(--ok);
+  }
+
+  /* Prêté à un ami, ou l'ordinateur d'un ami occupé : ni libre ni hors ligne. */
+  .status.lent .dot,
+  .status.busy .dot {
+    background: var(--warn);
+  }
+
+  .chip.countdown {
+    height: 52px;
+    padding: 0 18px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .gear.danger {
+    color: var(--bad, #ff6b6b);
+    border-color: currentColor;
   }
 
   .status.wait .dot {

@@ -108,7 +108,7 @@ struct ShareEvent {
 }
 
 /// Capacités de ce PC, sondées une fois (comme `connect`).
-fn this_pc_of(state: &UiState) -> ThisPc {
+pub(super) fn this_pc_of(state: &UiState) -> ThisPc {
     let cached = state.this_pc.lock().unwrap().clone();
     match cached {
         Some(pc) => pc,
@@ -179,7 +179,9 @@ pub fn share_link_code(link: String) -> Result<String, String> {
 ///
 /// Rend `joined` (la session à ouvrir, `share_connect`) quand une Station du
 /// réseau a répondu, `pending` quand une Station vue par le relais attend
-/// l'accord de l'hôte (`share_wait`), ou le texte du refus (celui du cœur :
+/// l'accord de l'hôte (`share_wait`), `lend` quand le code est un code de prêt
+/// (l'interface emprunte ensuite avec le ticket, `lend_borrow`), ou le texte du
+/// refus (celui du cœur :
 /// « Aucun partage avec ce code sur le réseau. », « Ce partage est complet… »,
 /// « Trop d'essais… », « Le relais ne répond pas. », « Trop de demandes en
 /// attente… »). Le format de l'image de l'hôte n'en est plus un : un format que
@@ -229,11 +231,18 @@ pub fn share_join(app: AppHandle, code: String, name: String, quality: String, l
             Some(l) => share::join_link(l, &request, Some(caps)),
             None => share::join_anywhere(&join_targets(&state), &join_relays(&state), &request, Some(caps)),
         }
-    }
-    .map_err(|e| {
-        log::info!("partage : refusé ({})", e.kind());
-        e.text(i18n::lang())
-    })?;
+    };
+    // Un code de prêt (prêt de l'ordinateur) : la Station et le chemin sont gardés,
+    // l'interface emprunte ensuite (`lend_borrow`, passage « Préparation de
+    // l'ordinateur »), avec l'écran de ce PC.
+    let joining = match joining {
+        Ok(j) => Ok(j),
+        Err(share::ShareError::Lend(code)) => Err(*code),
+        Err(e) => {
+            log::info!("partage : refusé ({})", e.kind());
+            return Err(e.text(i18n::lang()));
+        }
+    };
     // Le prénom et la qualité de l'image sont retenus pour la fois suivante.
     let prefs = {
         let mut p = state.prefs.lock().unwrap();
@@ -243,6 +252,10 @@ pub fn share_join(app: AppHandle, code: String, name: String, quality: String, l
     };
     save_prefs(&prefs);
 
+    let joining = match joining {
+        Ok(j) => j,
+        Err(code) => return Ok(JoinOutcome::Lend { ticket: super::lend::keep_ticket(&state, code, name) }),
+    };
     match joining {
         Joining::Joined(found) => Ok(JoinOutcome::Joined(open_found(&state, found, quality))),
         Joining::Pending(pending) => {
@@ -428,6 +441,7 @@ pub fn share_connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> 
     let spot = Arc::new(Mutex::new(Spot::default()));
     // Un invité n'a pas de partage à lui (toujours vide), mais le même fil que les hôtes.
     let share = Arc::new(Mutex::new(None));
+    let lend = Arc::new(Mutex::new(None));
     // Par où passe sa session (par le relais quand il est venu de loin).
     let route = Arc::new(Mutex::new(None));
     let spec = layout.spec;
@@ -477,11 +491,14 @@ pub fn share_connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> 
             first,
             connexion,
             guest: Some(guest.clone()),
+            borrow: None,
             share: share.clone(),
+            lend: lend.clone(),
+            lend_seen: AtomicBool::new(false),
             route: route.clone(),
         }),
     );
-    running.push(Running { id: id.clone(), name: guest.title.clone(), host, bar, sent, stats, guest: Some(guest), share, route });
+    running.push(Running { id: id.clone(), name: guest.title.clone(), host, bar, sent, stats, guest: Some(guest), borrow: None, share, lend, route });
     drop(running);
     drop(_launching);
     // « Quitter » pendant le lancement : elle s'arrête tout de suite, l'app part à sa fin.
@@ -556,7 +573,7 @@ fn publish(app: &AppHandle, id: &str, state: Option<ShareState>) -> ShareView {
 /// Admin de l'ordinateur d'une session d'hôte (compte de l'appareil) : jamais
 /// pour la session d'un invité, ni sans session.
 fn host_console(app: &AppHandle, id: &str) -> Result<Console, String> {
-    let is_host = app.state::<UiState>().with_session(id, |r| r.guest.is_none()).unwrap_or(false);
+    let is_host = app.state::<UiState>().with_session(id, |r| r.guest.is_none() && r.borrow.is_none()).unwrap_or(false);
     if !is_host {
         return Err(t("errors.no_session", &[]));
     }
@@ -704,7 +721,7 @@ pub fn show_without_focus(bar: &tauri::WebviewWindow) {
 /// le fil de Tauri, comme `top_edge`, pour que le cœur n'attende ni la fenêtre
 /// de la barre (`is_visible` attend le fil de Tauri) ni les verrous de l'app.
 pub fn notice(app: &AppHandle, id: &str, title: &str, text: &str) {
-    notice_with(app, id, title, text, false);
+    notice_with(app, id, title, text, None);
 }
 
 /// L'avis d'une demande à rejoindre arrivée pendant la session d'hôte `id`
@@ -713,13 +730,20 @@ pub fn notice(app: &AppHandle, id: &str, title: &str, text: &str) {
 /// l'avis de la barre, sur la notification) ouvre le panneau de « Partager », où
 /// « Accepter » et « Refuser » attendent. `title` : le nom de l'ordinateur.
 pub fn request_notice(app: &AppHandle, id: &str, title: &str, name: &str) {
-    notice_with(app, id, title, &t("share.notice_request", &[("name", name)]), true);
+    notice_with(app, id, title, &t("share.notice_request", &[("name", name)]), Some("share"));
 }
 
-/// `request` : l'avis est celui d'une demande, que l'on peut choisir pour ouvrir le panneau.
+/// L'avis d'une demande qui ouvre un panneau de la barre quand on le choisit :
+/// `share` (« Partager ») ou `lend` (« Prêter l'ordinateur… », « {prénom} veut
+/// emprunter l'ordinateur. »).
+pub fn panel_notice(app: &AppHandle, id: &str, title: &str, text: &str, panel: &'static str) {
+    notice_with(app, id, title, text, Some(panel));
+}
+
+/// `panel` : l'avis est celui d'une demande, que l'on peut choisir pour ouvrir ce panneau.
 /// La barre déjà ouverte sur cette session décide elle-même de le montrer (`share-request`) :
-/// son panneau de « Partager » ouvert montre déjà la demande, l'avis ne le referme pas.
-fn notice_with(app: &AppHandle, id: &str, title: &str, text: &str, request: bool) {
+/// son panneau ouvert montre déjà la demande, l'avis ne le referme pas.
+fn notice_with(app: &AppHandle, id: &str, title: &str, text: &str, panel: Option<&'static str>) {
     let (a, id, title, text) = (app.clone(), id.to_string(), title.to_string(), text.to_string());
     let _ = app.run_on_main_thread(move || {
         let state = a.state::<UiState>();
@@ -727,24 +751,28 @@ fn notice_with(app: &AppHandle, id: &str, title: &str, text: &str, request: bool
         let bar_here = bar_shown && state.bar_session.lock().unwrap().as_deref() == Some(id.as_str());
         let bar_elsewhere = bar_shown && !bar_here;
         if shell::app_in_front() && !bar_elsewhere {
-            if request && bar_here {
-                let _ = a.emit_to("bar", "share-request", ShareRequestEvent { id, text });
+            if let Some(panel) = panel.filter(|_| bar_here) {
+                let _ = a.emit_to("bar", "share-request", ShareRequestEvent { id, text, panel });
                 return;
             }
             let hwnd = state.with_session(&id, |r| r.host.bar_window()).unwrap_or(0);
-            show_bar_notice(&a, &id, hwnd, true, Some(text), request);
+            show_bar_notice(&a, &id, hwnd, true, Some(text), panel);
         } else {
-            let launch = if request { format!("kybernow://share?id={id}") } else { "kybernow://open".to_string() };
+            let launch = match panel {
+                Some(p) => format!("kybernow://{p}?id={id}"),
+                None => "kybernow://open".to_string(),
+            };
             shell::notify_to(&launch, &title, &text, None);
         }
     });
 }
 
-/// Le choix d'une notification de demande (`kybernow://share?id=…`) : la fenêtre de cette
-/// session passe devant et la barre s'ouvre sur le panneau de « Partager ». Faux quand
+/// Le choix d'une notification de demande (`kybernow://share?id=…`, `kybernow://lend?id=…`) :
+/// la fenêtre de cette session passe devant et la barre s'ouvre sur le panneau de
+/// « Partager » (`panel` : `share`) ou de « Prêter l'ordinateur… » (`lend`). Faux quand
 /// cette session n'existe plus (la demande est restée dans le centre de notifications) :
 /// l'accueil revient alors, comme pour les autres liens.
-pub fn open_panel(app: &AppHandle, id: &str) -> bool {
+pub fn open_panel(app: &AppHandle, id: &str, panel: &'static str) -> bool {
     if app.state::<UiState>().with_session(id, |_| ()).is_none() {
         return false;
     }
@@ -755,7 +783,7 @@ pub fn open_panel(app: &AppHandle, id: &str) -> bool {
         // La session passe devant (sa fenêtre prend le premier plan), puis la barre se montre sur elle.
         state.with_session(&id, |r| r.host.focus(hwnd));
         show_bar(&a, &id, hwnd, true);
-        let _ = a.emit_to("bar", "share-open-panel", id);
+        let _ = a.emit_to("bar", if panel == "lend" { "lend-open-panel" } else { "share-open-panel" }, id);
     });
     true
 }

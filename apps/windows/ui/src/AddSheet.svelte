@@ -2,10 +2,13 @@
   Ajouter un ordinateur : le trouver (réseau, lien d'Admin, adresse),
   puis y avoir accès (code à accepter dans Admin, ou compte et mot de passe).
   Pas de QR code à la caméra : sur un PC, le lien d'Admin suffit.
+  « Avec un compte d'ami » (prêt de l'ordinateur) : l'identifiant et le mot de passe que l'ami
+  vous a donnés dans son Admin ; l'ordinateur s'ajoute à part, « Ordinateur de {hôte} ».
 -->
 <script lang="ts">
   import { onDestroy, untrack } from 'svelte'
   import Icon from './lib/Icon.svelte'
+  import Switch from './lib/Switch.svelte'
   import type { Candidate, Computer, Found } from './lib/api'
   import { fingerprintGroups, invoke } from './lib/api'
   import { t } from './lib/i18n/index.svelte'
@@ -29,7 +32,7 @@
   type Way = 'reseau' | 'lien' | 'adresse'
   let way = $state<Way>('reseau')
   let candidate = $state<Candidate | null>(null)
-  let access = $state<'code' | 'compte'>('code')
+  let access = $state<'code' | 'compte' | 'ami'>('code')
   let error = $state<string | null>(null)
   let working = $state(false)
 
@@ -50,6 +53,8 @@
   // Compte.
   let user = $state('')
   let password = $state('')
+  // Compte d'ami (prêt de l'ordinateur) : « Retenir le mot de passe ».
+  let remember = $state(true)
 
   // Ouvert depuis une carte « Sur le réseau » : l'ordinateur est déjà choisi.
   const first = untrack(() => initial)
@@ -127,11 +132,17 @@
     if (id) onadded(id)
   }
 
-  function chooseAccess(a: 'code' | 'compte') {
+  /** « Avec un compte d'ami » : l'ordinateur d'un ami, à part de vos ordinateurs (son état vérifié par Admin). */
+  async function withFriend() {
+    const id = await run(() => invoke<string>('lend_add', { link: null, candidate, login: user, password, remember }))
+    if (id) onadded(id)
+  }
+
+  function chooseAccess(a: 'code' | 'compte' | 'ami') {
     if (a === access) return
     access = a
     error = null
-    if (a === 'compte') {
+    if (a !== 'code') {
       stopPolling()
       invoke('pair_cancel').catch(() => {})
     } else startCode()
@@ -224,6 +235,7 @@
         <div class="tabs" role="tablist">
           <button role="tab" aria-selected={access === 'code'} onclick={() => chooseAccess('code')}>{t('add.with_code')}</button>
           <button role="tab" aria-selected={access === 'compte'} onclick={() => chooseAccess('compte')}>{t('add.with_account')}</button>
+          <button role="tab" aria-selected={access === 'ami'} onclick={() => chooseAccess('ami')}>{t('lend.with_friend')}</button>
         </div>
 
         {#if access === 'code'}
@@ -247,6 +259,16 @@
           {:else if error}
             <div><button class="ghost" onclick={startCode}>{t('add.retry')}</button></div>
           {/if}
+        {:else if access === 'ami'}
+          <div class="grid">
+            <label class="col"><span class="eyebrow">{t('lend.username')}</span><input class="field" autocomplete="username" bind:value={user} /></label>
+            <label class="col"><span class="eyebrow">{t('lend.password')}</span><input class="field" type="password" autocomplete="current-password" bind:value={password} /></label>
+          </div>
+          <div class="remember">
+            <Switch checked={remember} label={t('lend.remember')} onchange={(v) => (remember = v)} />
+            <span>{t('lend.remember')}</span>
+          </div>
+          <div><button class="primary" disabled={working || !user.trim() || !password} onclick={withFriend}>{working ? t('add.checking') : t('lend.add')}</button></div>
         {:else}
           <div class="grid">
             <label class="col"><span class="eyebrow">{t('add.account')}</span><input class="field" autocomplete="username" bind:value={user} /></label>
@@ -575,5 +597,12 @@
     50% {
       box-shadow: 0 0 0 7px rgb(154 140 255 / 0.08), 0 0 6px var(--signal);
     }
+  }
+
+  .remember {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 14px;
   }
 </style>
