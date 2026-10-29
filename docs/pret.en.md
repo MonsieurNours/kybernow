@@ -73,7 +73,7 @@ All JSON, on Admin's port, certificate pinned as for sharing. The names below ar
 
 ## Station
 
-- **Console mode** (agent `display-agent console`, in the user's session, with their account; the icon next to the clock carries the launcher and the screen cover, as `wry` windows):
+- **Console mode** (agent `kybernow-tray.exe --console`, the icon's executable, started by Admin in the user's session, with their account; launcher and screen cover as `wry` windows; see “Station details”):
   1. virtual display sized to the friend's device (as for a device session), as the primary display; the PC's displays stay on and are covered (KyberNow Share logo, dark page);
   2. the user's windows minimised (restored in the same state at the end), taskbar hidden, cursor kept on the virtual display (`ClipCursor`, reapplied);
   3. low-level keyboard and mouse hooks: **physical** input (without `LLKHF_INJECTED`) is swallowed, except Enter and Esc for the cover; input injected by Kyber goes through, except Win, Alt+Tab, Alt+Esc, Ctrl+Esc, Ctrl+Shift+Esc;
@@ -88,6 +88,19 @@ All JSON, on Admin's port, certificate pinned as for sharing. The names below ar
 - **Admin's feed**: “Computer lent to Léa”, “Léa gave back the computer”, “You took back the computer”.
 - **Admin, “Lending” page**: the “Lend the computer” switch (off at first) and the warning “Your friend plays in your Windows session…”; “Allowed apps” (Steam, then “Add an app” from the catalogue); “Friend accounts” (first name, username, password, suggested Steam account, time slots, invitation link and QR code); the current loan and the one-session code.
 - **Icon next to the clock**: “Lend the computer…” (code panel), “Take back the computer” during a loan, the requests' notification (“Accept”, “Decline”).
+
+### Station details
+
+What the Station does on top of the above, or differently. None of it changes what the apps and the core follow; the extra fields can be ignored.
+
+- **Console agent**: the icon's executable, `kybernow-tray.exe --console`, started by Admin in the user's session with their account (even if the icon is closed), instead of `display-agent console`. It carries the launcher, the cover, the hooks, the windows, the taskbar, the cursor, Steam and the “Open” windows. **Process watching** (point 4) is done by Admin itself (SYSTEM), which can close an elevated Task Manager or command prompt; so is the final lock (`display-agent lock`). The agent talks to Admin through local routes (loopback and local token, like the icon): `GET /api/local/lend/console` (phase, friend, host, computer, end, notice, Steam, virtual display, allowed apps, language), `POST /api/local/lend/console/ready` (Admin waits for this signal, 30 s at most, before answering `200` to the friend), `…/beat` every 2 s (with no news for 10 s during a loan, Admin restarts the agent once, then stops the loan), `…/launch` `{"id"}` (Admin opens the allowed app), `…/give-back`, `…/take-back` `{"now"}` (Enter on the cover, then Enter during the notice), `…/ended` (restoration done: Admin closes what is left, removes the virtual display and locks), `GET /api/local/lend/icons/{file}`. With no answer from Admin for 60 s, the agent restores everything on its own and locks the session.
+- **Displays**: for a loan, the virtual display is added to the PC's displays (extended, to their right, primary display) instead of replacing them as for a device session; Admin does not re-isolate displays during a loan.
+- **System keys**: Kyber (patch 0021) refuses Ctrl+Alt+Del and Win+L to the friend as to every share guest; kynput itself turns them into a secure attention sequence and `LockWorkStation`, out of reach of the agent's hooks.
+- **Loan view**: in addition, `computer` (the computer's name), `host` (the host's first name: the full name of the session's Windows account, otherwise its account name) and `available: true`. `/api/status` (Admin) and `/api/local/state` (icon) carry it too, in `lend`.
+- **Host routes**: `GET /api/lend`, `POST`/`DELETE /api/lend/code`, `POST /api/lend/requests/{id}` and `POST /api/lend/take-back` for a paired device (Basic account, like `info`) or Admin's session; `/api/local/lend`, `/api/local/lend/code`, `/api/local/lend/requests/{id}` and `/api/local/lend/take-back` for the icon. Refusals as for sharing: `{"error":"<translated text>","code":"disabled|lent|no_lend|unknown_request|bad_request|forbidden"}`. Settings and friend accounts: Admin's session only, never through the relay; `GET /api/lend/settings` adds `steam_found`; username of 3 to 32 characters `a-z0-9._-`, unique; password of at least 6 characters; time slot: `end` after `start`, never across midnight; `days` from 1 (Monday) to 7 (Sunday).
+- **Friend**: `wait` with no answer from the host after 30 s returns `202 {"pending":true}` (call again); an unknown request or loan, `404 {"error":"unknown"}`. Through the relay, the `200` reply of `borrow` and `wait` carries `"relay": true` (picture over WebSocket, as for a guest). For the browser, that reply sets the `kybernow_lend` cookie (`__Host-kybernow_lend` through the relay), like `kybernow_guest` for a guest: Admin's proxy to Kyber accepts it while the loan lives; `leave` clears it.
+- **Relay**: the relay agent stays joined while there is a lending code, a loan, or lending on with a friend account; the friend's routes answer `503 off` when lending is off.
+- **Sleep**: `SetThreadExecutionState` is held while lending is on, not only during a loan.
 
 ## Rust core
 

@@ -107,14 +107,14 @@ fn label(index: u32) -> String {
 /// Les liens d'un partage (docs/kybernow-share.md, « Lien » ; docs/relais.md,
 /// « Liens ») : le lien des apps, l'adresse du client web (celle du relais
 /// quand il tient le code), celle sur le réseau, et ce que le relais en dit.
-struct Links {
-    link: String,
-    web: String,
-    web_local: String,
-    relay: Value,
+pub(crate) struct Links {
+    pub link: String,
+    pub web: String,
+    pub web_local: String,
+    pub relay: Value,
 }
 
-fn links(s: &AppState, code: &str) -> Links {
+pub(crate) fn links(s: &AppState, code: &str) -> Links {
     let address = crate::tls::lan_ip().unwrap_or_else(|| "localhost".into());
     let port = s.listen_port;
     let mut link = format!("kybernow://join?host={address}&port={port}");
@@ -338,18 +338,23 @@ pub enum Occupant {
     Host(String),
     /// Les invités d'un partage sans session (leurs prénoms, « Léa et Max »).
     Guests(String),
+    /// L'ami à qui l'ordinateur est prêté (docs/pret.md).
+    Borrower(String),
 }
 
 impl Occupant {
     pub fn name(&self) -> &str {
         match self {
-            Occupant::Host(name) | Occupant::Guests(name) => name,
+            Occupant::Host(name) | Occupant::Guests(name) | Occupant::Borrower(name) => name,
         }
     }
 }
 
 /// L'appareil en session, sinon les invités d'un partage.
 pub fn occupant(s: &AppState) -> Option<Occupant> {
+    if let Some(name) = s.lend.borrower() {
+        return Some(Occupant::Borrower(name));
+    }
     if let Some(live) = s.activity.live() {
         return Some(Occupant::Host(live.name));
     }
@@ -469,6 +474,14 @@ fn sync_sharing(s: &AppState) {
     let local = s.share.local_open();
     s.display.set_sharing(local);
     s.audio.set_sharing(local);
+}
+
+/// Le même espace de six chiffres que le prêt : jamais le code d'un prêt.
+fn avoid_lend_code(s: &AppState, snapshot: Snapshot) -> Snapshot {
+    if s.lend.is_lend_code(&snapshot.code) {
+        return s.share.renew_code().unwrap_or(snapshot);
+    }
+    snapshot
 }
 
 fn opened(s: &AppState, snapshot: &Snapshot) {
@@ -631,6 +644,7 @@ pub async fn host_open(State(s): State<AppState>, headers: HeaderMap, body: axum
     if !enabled(&s) {
         return Err(ShareError::new(StatusCode::CONFLICT, "disabled", Msg::new("share.disabled")));
     }
+    lent_guard(&s)?;
     let display = host_display(&s).await?;
     let origin = Origin::Host { device_id: live.device_id.clone(), user: live.user.clone(), name: live.name.clone() };
     let (snapshot, fresh) = match s.share.open(origin.clone(), display.clone()) {
@@ -642,6 +656,7 @@ pub async fn host_open(State(s): State<AppState>, headers: HeaderMap, body: axum
             s.share.open(origin, display).map_err(|_| ShareError::new(StatusCode::CONFLICT, "other_share", Msg::new("share.otherShare")))?
         }
     };
+    let snapshot = avoid_lend_code(&s, snapshot);
     if fresh {
         tracing::info!("partage ouvert par {} (écran {})", live.name, snapshot.display.id);
         opened(&s, &snapshot);
@@ -753,6 +768,14 @@ pub struct LocalOpenBody {
     display: u32,
 }
 
+/// Pendant un prêt (docs/pret.md), pas de partage : `409 lent`.
+fn lent_guard(s: &AppState) -> ShareResult<()> {
+    match s.lend.borrower() {
+        Some(name) => Err(ShareError::new(StatusCode::CONFLICT, "lent", Msg::new("lend.inUse").with("name", name))),
+        None => Ok(()),
+    }
+}
+
 /// Aucun appareil en session ni en train de se préparer (son écran virtuel
 /// éteindrait l'écran partagé) : sinon `session` (avec son nom) ou `busy`.
 fn device_free(s: &AppState) -> ShareResult<()> {
@@ -778,6 +801,7 @@ pub async fn local_open(
     if !enabled(&s) {
         return Err(ShareError::new(StatusCode::CONFLICT, "disabled", Msg::new("share.disabled")));
     }
+    lent_guard(&s)?;
     device_free(&s)?;
     let (d, a) = (s.display.clone(), s.audio.clone());
     let taken = blocking(move || Ok(!d.status()["session"].is_null() || !a.status()["session"].is_null())).await?;
@@ -800,6 +824,7 @@ pub async fn local_open(
         close_share(&s).await;
         return Err(refusal);
     }
+    let snapshot = avoid_lend_code(&s, snapshot);
     if fresh {
         tracing::info!("partage de l'écran {} ({}) ouvert depuis le PC", snapshot.display.index, snapshot.display.name);
         opened(&s, &snapshot);
@@ -897,6 +922,10 @@ pub async fn join(
     let joined = match s.share.join_from(&body.code, &body.name, &body.device, &body.app, peer.ip(), browser, proof.as_ref()) {
         Ok(joined) => joined,
         Err(JoinError::BadRequest) => return guest_error(StatusCode::BAD_REQUEST, "bad_request"),
+        // Un code de prêt (docs/pret.md, « Codes ») : l'app passe à `borrow`.
+        Err(JoinError::NoShare) if s.lend.is_lend_code(&body.code.chars().filter(|c| !c.is_whitespace()).collect::<String>()) => {
+            return (StatusCode::NOT_FOUND, Json(json!({ "error": "no_share", "lend": true }))).into_response();
+        }
         Err(JoinError::NoShare) => return guest_error(StatusCode::NOT_FOUND, "no_share"),
         Err(JoinError::Full) => return guest_error(StatusCode::CONFLICT, "full"),
         Err(JoinError::PendingFull) => return guest_error(StatusCode::CONFLICT, "pending_full"),

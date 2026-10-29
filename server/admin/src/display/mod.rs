@@ -642,6 +642,9 @@ struct Session {
     reisolations: Vec<Instant>,
     reisolate_failures: u32,
     reisolate_gave_up: bool,
+    /// Prêt de l'ordinateur : les écrans physiques restent allumés (couverts
+    /// par le cache de l'agent de console), jamais réisolés.
+    keep_others: bool,
 }
 
 impl Session {
@@ -723,6 +726,10 @@ trait Backend: Send + Sync {
     /// leur mode et à leur place. Avec plusieurs écrans, le résultat donne
     /// dans `screens` ce qui est en place pour chacun (null : pas activé).
     fn isolate(&self, screens: &[(Created, Screen)]) -> Result<Value>;
+    /// Prêt de l'ordinateur : comme `isolate`, en gardant les écrans physiques allumés.
+    fn isolate_keeping_others(&self, screens: &[(Created, Screen)]) -> Result<Value> {
+        self.isolate(screens)
+    }
     fn restore(&self) -> Result<()>;
     /// Début et fin de la veille des écrans créés (le principal en premier).
     fn watch(&self, created: &[Created]);
@@ -744,6 +751,8 @@ pub struct Manager {
     last_error: Mutex<Option<String>>,
     /// Un écran virtuel existe : le fil des signaux de vie doit pinguer le pilote.
     alive: AtomicBool,
+    /// La prochaine session garde les écrans physiques allumés (prêt).
+    keep_others: AtomicBool,
     /// Sérialise l'agrandissement et la remise du pointeur.
     pointer: Mutex<()>,
     /// Pointeur agrandi pour la session en cours : pas de remise au repos.
@@ -779,6 +788,7 @@ impl Manager {
             ops: Mutex::new(()),
             last_error: Mutex::new(None),
             alive: AtomicBool::new(false),
+            keep_others: AtomicBool::new(false),
             pointer: Mutex::new(()),
             pointer_in_use: AtomicBool::new(false),
             pointer_retry_after: Mutex::new(None),
@@ -1038,6 +1048,18 @@ impl Manager {
         self.start_locked(origin, vec![Screen::single(mode)], user, device, duration, policy).map(|s| s.applied)
     }
 
+    /// Prêt de l'ordinateur (docs/pret.md) : un écran virtuel principal à la
+    /// taille de l'appareil de l'ami, les écrans physiques gardés allumés à
+    /// sa droite (l'agent de console les couvre).
+    pub fn start_keeping_others(&self, mode: Mode, device: Option<String>) -> Result<Value> {
+        mode.validate()?;
+        let _op = self.ops.lock().unwrap();
+        self.keep_others.store(true, Ordering::SeqCst);
+        let started = self.start_locked(Origin::App, vec![Screen::single(mode)], None, device, None, None).map(|s| s.applied);
+        self.keep_others.store(false, Ordering::SeqCst);
+        started
+    }
+
     /// Comme `start`, avec un écran virtuel par entrée de `screens`
     /// (`prepare` d'une app multi-écrans), placés comme demandé. L'écran
     /// principal est toujours créé, sinon la session échoue ; un autre écran
@@ -1172,7 +1194,9 @@ impl Manager {
         let pending: Vec<(usize, [u8; 16], Created)> =
             created_slots.into_iter().map(|(_, index, guid, created)| (index, guid, created)).collect();
         let asked: Vec<(Created, Screen)> = pending.iter().map(|(index, _, created)| (*created, layout[*index])).collect();
-        let applied = match self.backend.isolate(&asked) {
+        let keep_others = self.keep_others.load(Ordering::SeqCst);
+        let isolated = if keep_others { self.backend.isolate_keeping_others(&asked) } else { self.backend.isolate(&asked) };
+        let applied = match isolated {
             Ok(v) => v,
             Err(e) => {
                 self.fail(&e);
@@ -1253,6 +1277,7 @@ impl Manager {
             reisolations: Vec::new(),
             reisolate_failures: 0,
             reisolate_gave_up: false,
+            keep_others,
         };
         let started = session.started();
         *self.session.lock().unwrap() = Some(session);
@@ -1424,7 +1449,7 @@ impl Manager {
             };
 
             // Écran physique rallumé pendant la session.
-            if o.others > 0 && !s.reisolate_gave_up {
+            if o.others > 0 && !s.reisolate_gave_up && !s.keep_others {
                 let since = *s.others_since.get_or_insert(now);
                 // 10 s entre deux isolements, doublés après chaque échec (20, puis 40 s).
                 let cooldown = REISOLATE_COOLDOWN * (1 << s.reisolate_failures.min(4));
@@ -2153,6 +2178,14 @@ mod windows {
                 return agent::run(&self.data_dir, &args);
             }
             let mut args = vec!["isolate-many".to_string()];
+            for (c, s) in screens {
+                args.push("--screen".into());
+                args.push(Placement { created: *c, mode: s.mode(), x: s.x, y: s.y }.to_arg());
+            }
+            agent::run(&self.data_dir, &args)
+        }
+        fn isolate_keeping_others(&self, screens: &[(Created, Screen)]) -> Result<Value> {
+            let mut args = vec!["isolate-many".to_string(), "--keep-others".to_string()];
             for (c, s) in screens {
                 args.push("--screen".into());
                 args.push(Placement { created: *c, mode: s.mode(), x: s.x, y: s.y }.to_arg());

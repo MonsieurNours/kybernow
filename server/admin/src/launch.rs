@@ -637,6 +637,11 @@ pub fn agent_apps(icons: &Path) -> Result<Value> {
 }
 
 /// `display-agent launch …` : ouvre l'app (ou la ramène au premier plan).
+/// Ouvre une app maintenant, dans la session de l'utilisateur (le lanceur du prêt).
+pub fn launch_now(launch: &Launch) -> Result<Value> {
+    platform::launch(launch)
+}
+
 pub fn agent_launch(kind: LaunchKind, target: &str, exe: Option<&str>) -> Result<Value> {
     platform::agent_launch(kind, target, exe)
 }

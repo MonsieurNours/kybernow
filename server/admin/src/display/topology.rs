@@ -372,7 +372,11 @@ fn source_size(path: &DISPLAYCONFIG_PATH_INFO, modes: &[DISPLAYCONFIG_MODE_INFO]
 /// pas dans les 8 s est laissé de côté (null dans `screens`) ; le principal,
 /// lui, est indispensable. Rend, comme `isolate`, le mode du principal, et
 /// dans `screens` ce qui est en place pour chacun (mode et position relus).
-pub fn isolate_many(screens: &[Placement]) -> Result<Value> {
+///
+/// `keep_others` (prêt de l'ordinateur, docs/pret.md) : les écrans physiques
+/// restent allumés, rangés à droite des écrans virtuels ; le principal (en
+/// (0, 0)) reste l'écran virtuel.
+pub fn isolate_many(screens: &[Placement], keep_others: bool) -> Result<Value> {
     let Some(primary) = screens.first() else { bail!("aucun écran virtuel à placer") };
     let is_ours = |path: &DISPLAYCONFIG_PATH_INFO| screens.iter().any(|p| is_placed(path, p));
 
@@ -449,6 +453,35 @@ pub fn isolate_many(screens: &[Placement]) -> Result<Value> {
         }
         new_paths.push(path);
     }
+    // Prêt : les écrans physiques gardés, à droite des virtuels, dans leur
+    // disposition d'avant (décalée d'un bloc).
+    if keep_others {
+        let right = ours.iter().map(|(i, path)| screens[*i].x + source_size(path, &modes).map_or(screens[*i].mode.width, |(w, _)| w) as i32).max().unwrap_or(0);
+        let kept: Vec<DISPLAYCONFIG_PATH_INFO> = paths.iter().filter(|q| !is_ours(q)).copied().collect();
+        let source_pos = |path: &DISPLAYCONFIG_PATH_INFO| unsafe {
+            let idx = path.sourceInfo.Anonymous.modeInfoIdx as usize;
+            modes.get(idx).filter(|m| m.infoType == DISPLAYCONFIG_MODE_INFO_TYPE_SOURCE).map(|m| (m.Anonymous.sourceMode.position.x, m.Anonymous.sourceMode.position.y))
+        };
+        let min_x = kept.iter().filter_map(source_pos).map(|(x, _)| x).min().unwrap_or(0);
+        let min_y = kept.iter().filter_map(source_pos).map(|(_, y)| y).min().unwrap_or(0);
+        for path in kept {
+            let mut path = path;
+            unsafe {
+                for idx in [&mut path.sourceInfo.Anonymous.modeInfoIdx, &mut path.targetInfo.Anonymous.modeInfoIdx] {
+                    if (*idx as usize) < modes.len() {
+                        let mut mode = modes[*idx as usize];
+                        if mode.infoType == DISPLAYCONFIG_MODE_INFO_TYPE_SOURCE {
+                            mode.Anonymous.sourceMode.position.x = right + (mode.Anonymous.sourceMode.position.x - min_x);
+                            mode.Anonymous.sourceMode.position.y -= min_y;
+                        }
+                        *idx = new_modes.len() as u32;
+                        new_modes.push(mode);
+                    }
+                }
+            }
+            new_paths.push(path);
+        }
+    }
     let err = unsafe {
         SetDisplayConfig(
             new_paths.len() as u32,
@@ -466,7 +499,8 @@ pub fn isolate_many(screens: &[Placement]) -> Result<Value> {
     let deadline = Instant::now() + Duration::from_secs(4);
     while Instant::now() < deadline {
         let (paths, _) = active_config()?;
-        if paths.len() == ours.len() && paths.iter().all(is_ours) {
+        let placed = paths.iter().filter(|q| is_ours(q)).count() == ours.len();
+        if placed && (keep_others || paths.len() == ours.len()) {
             break;
         }
         std::thread::sleep(Duration::from_millis(100));

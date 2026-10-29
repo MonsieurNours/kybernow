@@ -21,7 +21,7 @@ use crate::activity::{self, DeviceInfo, ModeInfo};
 use crate::i18n::{self, Msg};
 use crate::launch::Launch;
 use crate::pairing::{self, RequestError};
-use crate::{AppState, auth, gpu, logs, preview, schema, service, share_api, station};
+use crate::{AppState, auth, gpu, lend_api, logs, preview, schema, service, share_api, station};
 
 pub fn router(state: AppState) -> Router<AppState> {
     Router::new()
@@ -41,6 +41,20 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/local/share/code", post(share_api::local_code))
         .route("/api/local/share/guest/{id}", post(share_api::local_guest_role).delete(share_api::local_guest_remove))
         .route("/api/local/share/guest/{id}/{action}", post(share_api::local_guest_answer))
+        // Prêt de l'ordinateur depuis le PC (icône, ou Admin avec sa session).
+        .route("/api/local/lend", get(lend_api::local_get))
+        .route("/api/local/lend/code", post(lend_api::local_code).delete(lend_api::local_code_cancel))
+        .route("/api/local/lend/requests/{id}", post(lend_api::local_answer))
+        .route("/api/local/lend/take-back", post(lend_api::local_take_back))
+        // L'agent de console du prêt (`kybernow-tray.exe --console`).
+        .route("/api/local/lend/console", get(lend_api::console_get))
+        .route("/api/local/lend/console/ready", post(lend_api::console_ready))
+        .route("/api/local/lend/console/beat", post(lend_api::console_beat))
+        .route("/api/local/lend/console/launch", post(lend_api::console_launch))
+        .route("/api/local/lend/console/give-back", post(lend_api::console_give_back))
+        .route("/api/local/lend/console/take-back", post(lend_api::console_take_back))
+        .route("/api/local/lend/console/ended", post(lend_api::console_ended))
+        .route("/api/local/lend/icons/{name}", get(lend_api::console_icon))
         .route("/api/schema", get(schema_route))
         .route("/api/config", get(config).put(update_config))
         .route("/api/config/raw", get(raw_config).put(update_raw_config))
@@ -105,6 +119,21 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/share/guest/{id}/{action}", post(share_api::host_guest_answer))
         .route("/api/share/join", post(share_api::join))
         .route("/api/share/wait", post(share_api::wait))
+        // Prêt de l'ordinateur (docs/pret.md) : l'ami, l'hôte, les réglages.
+        .route("/api/lend/status", post(lend_api::status))
+        .route("/api/lend/borrow", post(lend_api::borrow))
+        .route("/api/lend/wait", post(lend_api::wait))
+        .route("/api/lend/beat", post(lend_api::beat))
+        .route("/api/lend/leave", post(lend_api::leave))
+        .route("/api/lend", get(lend_api::host_get))
+        .route("/api/lend/code", post(lend_api::host_code).delete(lend_api::host_code_cancel))
+        .route("/api/lend/requests/{id}", post(lend_api::host_answer))
+        .route("/api/lend/take-back", post(lend_api::host_take_back))
+        .route("/api/lend/settings", get(lend_api::get_settings).put(lend_api::put_settings))
+        .route("/api/lend/catalog", get(apps))
+        .route("/api/lend/friends", get(lend_api::friends).post(lend_api::friend_create))
+        .route("/api/lend/friends/{id}", put(lend_api::friend_update).delete(lend_api::friend_delete))
+        .route("/api/lend/friends/{id}/invite", get(lend_api::friend_invite))
         .route("/api/share/beat", post(share_api::beat))
         .route("/api/share/quality", post(share_api::quality))
         .route("/api/share/leave", post(share_api::leave))
@@ -347,6 +376,8 @@ async fn local_state(
         "pair_requests": requests,
         "share": share_api::status(&s),
         "share_enabled": share_api::enabled(&s),
+        // Prêt de l'ordinateur : la vue du prêt (icône).
+        "lend": lend_api::view(&s),
         // Hors de chez vous : adresse du relais, accès, état (icône).
         "relay": s.relay.brief(&s, &s.settings.lock().unwrap().relay.clone()),
     })))
@@ -422,6 +453,7 @@ fn session_guard(s: &AppState, body: &Bytes) -> ApiResult<()> {
     // L'appareil en session, ou les invités d'un partage.
     match share_api::occupant(s).filter(|_| !body.force) {
         Some(share_api::Occupant::Guests(names)) => Err(ApiError::msg(StatusCode::CONFLICT, Msg::new("update.sessionConflictShare").with("name", names))),
+        Some(share_api::Occupant::Borrower(name)) => Err(ApiError::msg(StatusCode::CONFLICT, Msg::new("update.sessionConflictLend").with("name", name))),
         Some(share_api::Occupant::Host(name)) => {
             let message = crate::update::session_conflict(&json!({ "name": name }), false).unwrap_or_else(|| Msg::new("update.sessionConflict"));
             Err(ApiError::msg(StatusCode::CONFLICT, message))
@@ -828,6 +860,8 @@ async fn stream_info(State(s): State<AppState>, headers: HeaderMap) -> ApiResult
         "wake": crate::wake::cards(),
         // Le relais réglé (docs/relais.md, « info ») : absent sans relais.
         "relay": s.relay.info(&s),
+        // Prêt de l'ordinateur (docs/pret.md).
+        "lend": lend_api::info(&s),
     })))
 }
 
@@ -992,7 +1026,11 @@ fn restart_station(s: &AppState, force: bool, event: Msg) -> Result<(), Refusal>
     station_busy(s, s.updater.installing())?;
     // L'appareil en session, ou les invités d'un partage (leurs prénoms).
     if !force && let Some(who) = share_api::occupant(s) {
-        let key = if matches!(who, share_api::Occupant::Guests(_)) { "station.restartConflictShare" } else { "station.restartConflict" };
+        let key = match who {
+            share_api::Occupant::Guests(_) => "station.restartConflictShare",
+            share_api::Occupant::Borrower(_) => "station.restartConflictLend",
+            share_api::Occupant::Host(_) => "station.restartConflict",
+        };
         let msg = Msg::new(key).with("name", who.name());
         return Err(Refusal::new(StatusCode::CONFLICT, "session", msg).device(who.name()));
     }
@@ -1073,7 +1111,11 @@ async fn stream_station_update(
         return Err(Refusal::new(StatusCode::CONFLICT, "not_installable", msg));
     }
     if !body.force && let Some(who) = share_api::occupant(&s) {
-        let key = if matches!(who, share_api::Occupant::Guests(_)) { "update.sessionConflictShare" } else { "update.sessionConflictNamed" };
+        let key = match who {
+            share_api::Occupant::Guests(_) => "update.sessionConflictShare",
+            share_api::Occupant::Borrower(_) => "update.sessionConflictLend",
+            share_api::Occupant::Host(_) => "update.sessionConflictNamed",
+        };
         let msg = Msg::new(key).with("name", who.name());
         return Err(Refusal::new(StatusCode::CONFLICT, "session", msg).device(who.name()));
     }
@@ -1093,6 +1135,10 @@ async fn stream_prepare(
     Json(body): Json<PrepareBody>,
 ) -> ApiResult<Json<Value>> {
     let user = stream_user(&s, &headers)?;
+    // Pendant un prêt, pas de session d'un autre appareil (docs/pret.md).
+    if let Some(name) = s.lend.borrower() {
+        return Err(ApiError::msg(StatusCode::CONFLICT, Msg::new("lend.inUse").with("name", name)));
+    }
     let trigger = s.display.settings.lock().unwrap().trigger;
     let virtual_display = trigger != Trigger::Off && body.virtual_display != Some(false);
     // Disposition refusée avant de toucher à quoi que ce soit (son, écrans,
@@ -1278,6 +1324,10 @@ async fn stream_heartbeat(
     // Le partage de cet appareil (KyberNow Share), absent sans partage.
     if let Some(share) = share_api::for_host(&s, device) {
         answer["share"] = share;
+    }
+    // Le prêt (code, demandes, prêt en cours), absent quand il n'y a rien à dire.
+    if let Some(lend) = lend_api::for_host(&s) {
+        answer["lend"] = lend;
     }
     Ok(Json(answer))
 }
@@ -1496,6 +1546,10 @@ const KYBER_UP_WAIT: Duration = Duration::from_secs(12);
 /// couperait cette connexion (les invités d'un partage comptent).
 pub(crate) async fn kyber_busy(s: &AppState, except: Option<&str>) -> bool {
     if s.activity.live().is_some_and(|l| Some(l.device_id.as_str()) != except) {
+        return true;
+    }
+    // Un prêt en cours : l'ami joue.
+    if s.lend.loan().is_some() {
         return true;
     }
     if s.share.guest_count() > 0 {
@@ -1766,6 +1820,11 @@ async fn events(State(s): State<AppState>, Query(q): Query<EventsQuery>) -> Json
 /// vie suivant et se déconnecte proprement ; un autre client (navigateur,
 /// ligne de commande) est coupé en redémarrant Kyber.
 async fn end_session(State(s): State<AppState>) -> ApiResult<Json<Value>> {
+    // Un prêt en cours : Admin reprend l'ordinateur tout de suite.
+    if let Some(loan) = s.lend.loan() {
+        lend_api::finish(&s, &loan.id, crate::lend::Reason::TakenBack).await;
+        return Ok(Json(json!({ "ok": true, "method": "lend" })));
+    }
     if s.activity.request_end() {
         // Le partage de l'hôte s'arrête avec sa session (`share_api::supervise`).
         return Ok(Json(json!({ "ok": true, "method": "app" })));

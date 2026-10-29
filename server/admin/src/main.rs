@@ -14,6 +14,9 @@ mod i18n;
 mod kyber_config;
 mod kyber_proxy;
 mod launch;
+mod lend;
+mod lend_api;
+mod lend_sys;
 mod local_token;
 mod logs;
 mod migrate;
@@ -150,6 +153,9 @@ enum AgentAction {
     IsolateMany {
         #[arg(long = "screen", allow_hyphen_values = true, required = true)]
         screens: Vec<String>,
+        /// Prêt : les écrans physiques restent allumés, à droite.
+        #[arg(long)]
+        keep_others: bool,
         #[arg(long)]
         out: PathBuf,
     },
@@ -293,6 +299,21 @@ enum AgentAction {
         #[arg(long)]
         out: PathBuf,
     },
+    /// Prêt : secondes depuis la dernière entrée sur l'ordinateur (`GetLastInputInfo`).
+    Idle {
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Prêt : verrouille la session à la fin (`LockWorkStation`).
+    Lock {
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Prêt : le nom complet du compte de la session (prénom de l'hôte).
+    Whoami {
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// Ferme une app ouverte par Admin.
     Close {
         #[arg(long, allow_hyphen_values = true)]
@@ -304,6 +325,46 @@ enum AgentAction {
         #[arg(long)]
         out: PathBuf,
     },
+}
+
+/// Le prêt, côté agent (compte de l'utilisateur, dans sa session).
+#[cfg(windows)]
+mod lend_agent {
+    use anyhow::{Result, bail};
+    use serde_json::{Value, json};
+
+    pub fn idle() -> Result<Value> {
+        use windows_sys::Win32::System::SystemInformation::GetTickCount;
+        use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};
+        let mut info = LASTINPUTINFO { cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32, dwTime: 0 };
+        if unsafe { GetLastInputInfo(&mut info) } == 0 {
+            bail!("GetLastInputInfo : {}", std::io::Error::last_os_error());
+        }
+        let idle = unsafe { GetTickCount() }.wrapping_sub(info.dwTime);
+        Ok(json!({ "idle_ms": idle }))
+    }
+
+    pub fn lock() -> Result<Value> {
+        use windows_sys::Win32::System::Shutdown::LockWorkStation;
+        if unsafe { LockWorkStation() } == 0 {
+            bail!("LockWorkStation : {}", std::io::Error::last_os_error());
+        }
+        Ok(json!({ "ok": true }))
+    }
+
+    pub fn whoami() -> Result<Value> {
+        use windows_sys::Win32::Security::Authentication::Identity::{GetUserNameExW, NameDisplay};
+        let mut buf = [0u16; 256];
+        let mut len = buf.len() as u32;
+        let name = if unsafe { GetUserNameExW(NameDisplay, buf.as_mut_ptr(), &mut len) } {
+            String::from_utf16_lossy(&buf[..len as usize])
+        } else {
+            std::env::var("USERNAME").unwrap_or_default()
+        };
+        // « Matthieu Dupont » : le prénom suffit.
+        let first = name.split_whitespace().next().unwrap_or("").to_string();
+        Ok(json!({ "name": first, "full": name }))
+    }
 }
 
 fn launch_kind(kind: &str) -> Result<launch::LaunchKind> {
@@ -359,13 +420,13 @@ fn display_agent(action: AgentAction) -> Result<()> {
                 .and_then(|a| Ok(serde_json::to_value(a)?));
             (out, r)
         }
-        AgentAction::IsolateMany { screens, out } => {
+        AgentAction::IsolateMany { screens, keep_others, out } => {
             display::pointer::begin(agent_dir(&out));
             let r = screens
                 .iter()
                 .map(|s| display::Placement::parse(s))
                 .collect::<Result<Vec<_>>>()
-                .and_then(|placed| display::topology::isolate_many(&placed));
+                .and_then(|placed| display::topology::isolate_many(&placed, keep_others));
             (out, r)
         }
         AgentAction::Restore { out } => {
@@ -397,6 +458,9 @@ fn display_agent(action: AgentAction) -> Result<()> {
             (out, launch_kind(&kind).and_then(|k| launch::agent_launch(k, &target, exe.as_deref())))
         }
         AgentAction::Close { uri, pid, exe, out } => (out, launch::agent_close(uri.as_deref(), pid, exe.as_deref())),
+        AgentAction::Idle { out } => (out, lend_agent::idle()),
+        AgentAction::Lock { out } => (out, lend_agent::lock()),
+        AgentAction::Whoami { out } => (out, lend_agent::whoami()),
         AgentAction::Foreground { .. } | AgentAction::Watch { .. } | AgentAction::WgcCapture { .. } => unreachable!(),
     };
     #[cfg(not(windows))]
@@ -411,7 +475,10 @@ fn display_agent(action: AgentAction) -> Result<()> {
         | AgentAction::Displays { out }
         | AgentAction::AudioRoute { out, .. }
         | AgentAction::AudioRestore { out, .. }
-        | AgentAction::LocalToken { out, .. } => (out, Err(anyhow::anyhow!("réservé à Windows"))),
+        | AgentAction::LocalToken { out, .. }
+        | AgentAction::Idle { out }
+        | AgentAction::Lock { out }
+        | AgentAction::Whoami { out } => (out, Err(anyhow::anyhow!("réservé à Windows"))),
         AgentAction::Preview { width, jpeg, out } => (out, preview::capture_to(&jpeg, width).map(|_| serde_json::json!({ "ok": true }))),
         AgentAction::Apps { icons, out } => (out, launch::agent_apps(&icons)),
         AgentAction::Launch { kind, target, exe, out } => {
@@ -447,6 +514,10 @@ pub struct Inner {
     pub share: share::Share,
     /// Le relais de KyberNow (docs/relais.md) : agent, autorisations, blocage.
     pub relay: relay::Relay,
+    /// Prêt de l'ordinateur (docs/pret.md) : code, demandes, prêt en cours.
+    pub lend: lend::Lending,
+    /// Les comptes d'amis du prêt (`lend-friends.json`).
+    pub friends: lend::Friends,
     /// Jeton des routes locales (icône de la zone de notification).
     pub local_token: Arc<local_token::LocalToken>,
     /// Mises à jour depuis les versions publiées sur GitHub.
@@ -500,6 +571,8 @@ impl AppState {
             pairing: pairing::Pairing::new(),
             share: share::Share::new(),
             relay: relay::Relay::new(&data_dir),
+            lend: lend::Lending::new(),
+            friends: lend::Friends::load(&data_dir),
             local_token: local_token::LocalToken::new(&data_dir),
             updater: Arc::new(update::Updater::new(&data_dir)),
             // L'assistant n'est jamais lancé : un redémarrage accepté est seulement noté.
@@ -775,6 +848,8 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
         pairing: pairing::Pairing::new(),
         share: share::Share::new(),
         relay: relay::Relay::new(&data_dir),
+        lend: lend::Lending::new(),
+        friends: lend::Friends::load(&data_dir),
         local_token,
         updater: updater.clone(),
         station: station::Restarter::new(&data_dir),
@@ -798,6 +873,8 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
     // Relais : connecté seulement pour un partage ouvert ou l'accès hors de
     // chez soi ; ce qui en arrive est servi ici, sous sa garde.
     relay::supervise(state.clone(), relay::router(state.clone()));
+    // Prêt : codes et demandes échus, préavis, fins, veille de Windows empêchée.
+    lend_api::supervise(state.clone());
 
     let on_shutdown = state.clone();
     let app = Router::new()
