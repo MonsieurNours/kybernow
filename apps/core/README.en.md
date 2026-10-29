@@ -229,9 +229,9 @@ Sharing and connecting to one's computer away from home, through a relay (the pu
 A friend borrows the host's PC, which the Station puts in console mode. Contract: [docs/pret.en.md](../../docs/pret.en.md); texts: [docs/link-ui.en.md](../../docs/link-ui.en.md), “Lending the computer”. Away from home, the same calls go through the relay (above).
 
 **The friend.**
-- `lend::status(&target, route, login, password)`: the “{host}'s computer” card (`LendStatus { state, host, computer, slot }`). `LendAvailability::label` gives “Available”, “In use”, “Lent to someone else”, “Locked”, “Lending off”.
-- `lend::borrow(&target, route, &BorrowRequest { credentials: LendCredentials::Code { code } | Account { login, password }, name, device, app, screen, codecs })` returns `Borrowing::Ready(Loan { target, borrowed })` or `Borrowing::Pending(PendingBorrow)` (“Waiting for {host}…”). The call blocks: 30 s at most, while console mode gets ready.
-- `lend::wait(&pending)`: held for 30 s; `Ok(None)` still waiting, `Ok(Some(loan))` accepted. `lend::cancel`: “Cancel”. `lend::leave(&loan)`: “Give back the computer” outside a session.
+- `lend::status(&target, route, login, password)`: the “{host}'s computer” card (`LendStatus { state, host, computer, slot, mine }`; `mine`: the current loan is theirs, they can come back to it). `LendAvailability::label` gives “Available”, “In use”, “Lent to someone else”, “Locked”, “Lending off”.
+- `lend::borrow(&target, route, &BorrowRequest { credentials: LendCredentials::Code { code } | Account { login, password }, name, device, app, screen, codecs })` returns `Borrowing::Ready(Loan { target, borrowed })` or `Borrowing::Pending(PendingBorrow)` (“Waiting for {host}…”). The call blocks: the Station prepares console mode within 40 s, the core waits 50 s (`lend::BORROW_WAIT`).
+- `lend::wait(&pending)`: held for 30 s, plus the preparation once the host agrees (80 s at most, `lend::WAIT_WAIT`); `Ok(None)` still waiting, `Ok(Some(loan))` accepted; a request the Station no longer knows (`404 unknown`): `Expired`. `lend::cancel`: “Cancel”. `lend::leave(&loan)`: “Give back the computer” outside a session.
 - The path: without a route, on the network; with a route (invitation link with `relay` and `sid`), on the network if Admin answers there within 1.5 s, otherwise through the relay. A Station reached through the relay (`port` 0) always goes through it.
 - Refusals (`LendError`, `text(lang, host)`, `kind()`, `code()` 40 to 48 for the bridges): `BadCredentials`, `NoCode`, `Lent`, `Locked`, `Off`, `TooMany`, `Refused`, `Expired`, `Unsupported` (Station before 0.9.0), `Other`.
 - `lend::parse_invite` reads `kybernow://borrow?host&port&fp&login[&relay&sid]` and `https://…/link/?borrow=<login>` (`Invite::target()`, `relay_route()`).
@@ -245,11 +245,16 @@ A friend borrows the host's PC, which the Station puts in console mode. Contract
 - Like a guest: no host heartbeat, no `foreground`, no display or profile change, no Station restart, no `end`.
 - Kyber reconnects through kyclient. A Station unreachable for 20 s ends the session (“the lent computer is not answering”); the friend comes back within 15 min through `borrow` (`lend::COME_BACK`).
 - Notice: `Platform::on_lend_notice(&LendNotice { reason, at }, text)`, once per notice.
-- End: `Platform::on_lend_end(LendEnd, text)` just before `on_ending`: `TakenBack`, `TimeUp`, `SlotEnd`, `Stopped` (also a Station that no longer knows the loan: 401, 403, 404, 410), and `Left` (given back elsewhere, a wanted end, no text).
+- End: `Platform::on_lend_end(LendEnd, text)` just before `on_ending`, with the end card's text:
+  - `TakenBack` “{host} took back the computer.”;
+  - `TimeUp` “The loan is over.”;
+  - `SlotEnd` “Your time slot is over.”;
+  - `Stopped` “The loan has stopped.” (console agent lost, or a Station that no longer knows the loan: 401, 403, 404, 410);
+  - `Left` “You gave back the computer.”: given back from the launcher, a wanted end, without error.
 - `Session::give_back()`: “Give back the computer” (`leave`, then an end without error). `Session::stop()` gives nothing back.
 
 **The host.**
-- `Console::lend_state`, `lend_code(duration, LendSteam)`, `lend_cancel_code`, `lend_answer(id, accept, steam)`, `lend_take_back(now)` return the loan view: `LendView { enabled, state, borrower, notice, requests, code }`.
+- `Console::lend_state`, `lend_code(duration, LendSteam)`, `lend_cancel_code`, `lend_answer(id, accept, steam)`, `lend_take_back(now)` return the loan view: `LendView { available, enabled, computer, host, state, borrower, notice, requests, code }`. Each request (`LendRequest`) also carries `steam` (the suggested account) and `slot` (a time-slot request: lent in 2 min without an answer).
 - The same view comes with the host's heartbeat: `HeartbeatReply::lend`, then `Platform::on_lend(Option<&LendView>)` when it changes.
 - `Info::lend`: `LendInfo { available, enabled }`, absent for an older Station.
 

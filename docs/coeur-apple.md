@@ -90,7 +90,7 @@ Règles de l'API :
   - Session d'emprunt : `kn_session_start` avec `borrower` (`{"borrowed": …}`) et `console_*` de `target`. `kn_session_give_back(s)` : « Rendre l'ordinateur » ; `kn_session_stop` ne le rend pas (retour possible pendant 15 min).
   - Rappels ajoutés à la fin de `KnPlatform` :
     - `on_lend_notice(userdata, notice_json, text)` : le préavis ; `kn_lend_notice_text(notice_json, name)` en refait le texte.
-    - `on_lend_end(userdata, end, text)` : `KN_LEND_END_TAKEN_BACK` 0, `TIME_UP` 1, `SLOT_END` 2, `LEFT` 3 (sans texte), `STOPPED` 4.
+    - `on_lend_end(userdata, end, text)` : `KN_LEND_END_TAKEN_BACK` 0, `TIME_UP` 1, `SLOT_END` 2, `LEFT` 3 (rendu depuis le lanceur, fin voulue : « Vous avez rendu l'ordinateur. » ; rien après `kn_session_give_back`), `STOPPED` 4 (« Le prêt s'est arrêté. »).
     - `on_lend(userdata, lend_json)` : chez l'hôte, la vue du prêt, ou nul.
   - L'hôte, sur sa `KnConsole` : `kn_console_lend_state`, `kn_console_lend_code(c, duration, steam, …)` (`duration` 0 : « Jusqu'à ce que je reprenne » ; `KN_LEND_STEAM_FRIEND` 0, `KN_LEND_STEAM_HOST` 1), `kn_console_lend_cancel_code`, `kn_console_lend_answer(c, request, accept, steam, …)`, `kn_console_lend_take_back(c, now, …)`. `out` : la vue du prêt.
 - **Journal** : le cœur écrit par la crate `log` ; `kn_set_log_callback` l'envoie à `KyberLog` (journal unifié, catégorie `core`).

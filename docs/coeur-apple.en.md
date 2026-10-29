@@ -90,7 +90,7 @@ API rules:
   - Borrowing session: `kn_session_start` with `borrower` (`{"borrowed": …}`) and `console_*` from `target`. `kn_session_give_back(s)`: “Give back the computer”; `kn_session_stop` does not give it back (coming back possible for 15 min).
   - Callbacks added at the end of `KnPlatform`:
     - `on_lend_notice(userdata, notice_json, text)`: the notice; `kn_lend_notice_text(notice_json, name)` rebuilds its text.
-    - `on_lend_end(userdata, end, text)`: `KN_LEND_END_TAKEN_BACK` 0, `TIME_UP` 1, `SLOT_END` 2, `LEFT` 3 (no text), `STOPPED` 4.
+    - `on_lend_end(userdata, end, text)`: `KN_LEND_END_TAKEN_BACK` 0, `TIME_UP` 1, `SLOT_END` 2, `LEFT` 3 (given back from the launcher, a wanted end: “You gave back the computer.”; nothing after `kn_session_give_back`), `STOPPED` 4 (“The loan has stopped.”).
     - `on_lend(userdata, lend_json)`: at the host, the loan view, or null.
   - The host, on its `KnConsole`: `kn_console_lend_state`, `kn_console_lend_code(c, duration, steam, …)` (`duration` 0: “Until I take it back”; `KN_LEND_STEAM_FRIEND` 0, `KN_LEND_STEAM_HOST` 1), `kn_console_lend_cancel_code`, `kn_console_lend_answer(c, request, accept, steam, …)`, `kn_console_lend_take_back(c, now, …)`. `out`: the loan view.
 - **Log**: the core writes through the `log` crate; `kn_set_log_callback` sends it to `KyberLog` (unified log, `core` category).

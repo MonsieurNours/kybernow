@@ -231,9 +231,9 @@ Partager et se connecter à son ordinateur hors de chez soi, par un relais (le r
 Un ami emprunte le PC de l'hôte, que la Station passe en mode console. Contrat : [docs/pret.md](../../docs/pret.md) ; textes : [docs/link-ui.md](../../docs/link-ui.md), « Prêt de l'ordinateur ». Hors de chez soi, les mêmes appels passent par le relais (ci-dessus).
 
 **L'ami.**
-- `lend::status(&cible, route, identifiant, mot_de_passe)` : la carte « Ordinateur de {hôte} » (`LendStatus { state, host, computer, slot }`). `LendAvailability::label` donne « Disponible », « Occupé », « Prêté à quelqu'un d'autre », « Verrouillé », « Prêt coupé ».
-- `lend::borrow(&cible, route, &BorrowRequest { credentials: LendCredentials::Code { code } | Account { login, password }, name, device, app, screen, codecs })` rend `Borrowing::Ready(Loan { target, borrowed })` ou `Borrowing::Pending(PendingBorrow)` (« En attente de {hôte}… »). L'appel est bloquant : 30 s au plus, le temps du mode console.
-- `lend::wait(&en_attente)` : appel tenu 30 s ; `Ok(None)` toujours en attente, `Ok(Some(prêt))` accepté. `lend::cancel` : « Annuler ». `lend::leave(&prêt)` : « Rendre l'ordinateur » hors d'une session.
+- `lend::status(&cible, route, identifiant, mot_de_passe)` : la carte « Ordinateur de {hôte} » (`LendStatus { state, host, computer, slot, mine }` ; `mine` : le prêt en cours est le sien, il peut y revenir). `LendAvailability::label` donne « Disponible », « Occupé », « Prêté à quelqu'un d'autre », « Verrouillé », « Prêt coupé ».
+- `lend::borrow(&cible, route, &BorrowRequest { credentials: LendCredentials::Code { code } | Account { login, password }, name, device, app, screen, codecs })` rend `Borrowing::Ready(Loan { target, borrowed })` ou `Borrowing::Pending(PendingBorrow)` (« En attente de {hôte}… »). L'appel est bloquant : la Station prépare le mode console en 40 s au plus, le cœur attend 50 s (`lend::BORROW_WAIT`).
+- `lend::wait(&en_attente)` : appel tenu 30 s, plus la préparation une fois l'hôte d'accord (80 s au plus, `lend::WAIT_WAIT`) ; `Ok(None)` toujours en attente, `Ok(Some(prêt))` accepté ; une demande que la Station ne connaît plus (`404 unknown`) : `Expired`. `lend::cancel` : « Annuler ». `lend::leave(&prêt)` : « Rendre l'ordinateur » hors d'une session.
 - Le chemin : sans route, sur le réseau ; avec une route (lien d'invitation avec `relay` et `sid`), sur le réseau si Admin y répond en 1,5 s, sinon par le relais. Une Station venue par le relais (`port` 0) passe toujours par lui.
 - Refus (`LendError`, `text(lang, hôte)`, `kind()`, `code()` 40 à 48 pour les ponts) : `BadCredentials`, `NoCode`, `Lent`, `Locked`, `Off`, `TooMany`, `Refused`, `Expired`, `Unsupported` (Station avant 0.9.0), `Other`.
 - `lend::parse_invite` lit `kybernow://borrow?host&port&fp&login[&relay&sid]` et `https://…/link/?borrow=<identifiant>` (`Invite::target()`, `relay_route()`).
@@ -247,11 +247,16 @@ Un ami emprunte le PC de l'hôte, que la Station passe en mode console. Contrat 
 - Comme un invité : ni signe de vie d'hôte, ni `foreground`, ni changement d'écran ou de profil, ni redémarrage de la Station, ni `end`.
 - Reconnexion de Kyber par kyclient. Une Station injoignable 20 s finit la session (« l'ordinateur prêté ne répond plus ») ; l'ami revient pendant 15 min par `borrow` (`lend::COME_BACK`).
 - Préavis : `Platform::on_lend_notice(&LendNotice { reason, at }, texte)`, une fois par préavis.
-- Fin : `Platform::on_lend_end(LendEnd, texte)` juste avant `on_ending` : `TakenBack`, `TimeUp`, `SlotEnd`, `Stopped` (aussi une Station qui ne connaît plus le prêt : 401, 403, 404, 410), et `Left` (rendu ailleurs, fin voulue, sans texte).
+- Fin : `Platform::on_lend_end(LendEnd, texte)` juste avant `on_ending`, avec le texte de la carte de fin :
+  - `TakenBack` « {hôte} a repris l'ordinateur. » ;
+  - `TimeUp` « Le prêt est terminé. » ;
+  - `SlotEnd` « Votre créneau est terminé. » ;
+  - `Stopped` « Le prêt s'est arrêté. » (agent de console perdu, ou Station qui ne connaît plus le prêt : 401, 403, 404, 410) ;
+  - `Left` « Vous avez rendu l'ordinateur. » : rendu depuis le lanceur, une fin voulue, sans erreur.
 - `Session::give_back()` : « Rendre l'ordinateur » (`leave`, puis fin sans erreur). `Session::stop()` ne rend rien.
 
 **L'hôte.**
-- `Console::lend_state`, `lend_code(durée, LendSteam)`, `lend_cancel_code`, `lend_answer(id, accepter, steam)`, `lend_take_back(tout_de_suite)` rendent la vue du prêt : `LendView { enabled, state, borrower, notice, requests, code }`.
+- `Console::lend_state`, `lend_code(durée, LendSteam)`, `lend_cancel_code`, `lend_answer(id, accepter, steam)`, `lend_take_back(tout_de_suite)` rendent la vue du prêt : `LendView { available, enabled, computer, host, state, borrower, notice, requests, code }`. Chaque demande (`LendRequest`) porte aussi `steam` (le compte proposé) et `slot` (demande d'un créneau : prêtée dans 2 min sans réponse).
 - La même vue arrive avec le signe de vie de l'hôte : `HeartbeatReply::lend`, puis `Platform::on_lend(Option<&LendView>)` quand elle change.
 - `Info::lend` : `LendInfo { available, enabled }`, absent pour une Station antérieure.
 

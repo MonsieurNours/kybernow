@@ -780,7 +780,9 @@ pub struct KnPlatform {
     pub on_lend_notice: Option<unsafe extern "C" fn(userdata: *mut c_void, notice_json: *const c_char, text: *const c_char)>,
     /// Session d'emprunt : le prêt finit la session, juste avant
     /// `KN_STATUS_ENDING` ; `end` : `KN_LEND_END_*` ; `text` : la raison de
-    /// link-ui (vide pour `KN_LEND_END_LEFT`, l'ordinateur rendu). Une fin
+    /// link-ui ; `KN_LEND_END_LEFT` (rendu depuis le lanceur) est une fin
+    /// voulue, sans erreur, avec « Vous avez rendu l'ordinateur. » ; rendu
+    /// par `kn_session_give_back`, ce rappel ne vient pas. Une autre fin
     /// d'emprunt sans ce rappel (fenêtre fermée, réseau perdu) laisse
     /// revenir pendant 15 min (`kn_lend_borrow` de nouveau).
     pub on_lend_end: Option<unsafe extern "C" fn(userdata: *mut c_void, end: i32, text: *const c_char)>,

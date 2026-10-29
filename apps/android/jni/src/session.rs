@@ -158,7 +158,7 @@ impl Platform for AndroidPlatform {
     }
 
     /// Emprunt : `SessionListener.onLendEnd(end, text)` (0 repris, 1 durée
-    /// passée, 2 fin du créneau, 3 rendu, sans texte, 4 arrêté).
+    /// passée, 2 fin du créneau, 3 rendu depuis le lanceur, fin voulue, 4 arrêté).
     fn on_lend_end(&self, end: kybernow_core::lend::LendEnd, text: &str) {
         self.0.listener.with(|env, obj| {
             let s = env.new_string(text)?;

@@ -22,6 +22,12 @@ pub const DIRECT_PROBE: Duration = Duration::from_millis(1500);
 /// Un emprunt revient (fenêtre fermée, réseau perdu) pendant ce temps par
 /// [`borrow`], avec la même demande (même appareil, compte ou code).
 pub const COME_BACK: Duration = Duration::from_secs(15 * 60);
+/// `borrow` attend sa réponse ce temps au plus : la Station prépare le mode
+/// console en 40 s au plus (Steam compris), plus le chemin (relais).
+pub const BORROW_WAIT: Duration = Duration::from_secs(50);
+/// `wait` : l'attente longue de la Station (30 s), puis, une fois l'hôte
+/// d'accord, la préparation du mode console (40 s au plus).
+pub const WAIT_WAIT: Duration = Duration::from_secs(80);
 
 // MARK: - L'ordinateur d'un ami
 
@@ -111,6 +117,10 @@ pub struct LendStatus {
     /// `None` : pas de créneau sur ce compte.
     #[serde(default)]
     pub slot: Option<LendSlot>,
+    /// Le prêt en cours est celui de cet ami (`state` `lent`) : il peut y
+    /// revenir (« Revenir ») au lieu de lire « Prêté à quelqu'un d'autre ».
+    #[serde(default)]
+    pub mine: bool,
 }
 
 // MARK: - Emprunter
@@ -405,6 +415,8 @@ pub(crate) fn lend_refusal(status: u16, body: &serde_json::Value, retry_after: O
     match (status, code) {
         (401, _) => LendError::BadCredentials,
         (404, "no_code") => LendError::NoCode,
+        // `wait` : une demande que la Station ne connaît plus.
+        (404, "unknown") => LendError::Expired,
         // Pas de route du prêt : une Station antérieure.
         (404 | 405, _) => LendError::Unsupported,
         (409, _) => LendError::Lent,
@@ -470,22 +482,24 @@ pub enum LendEnd {
     /// « Votre créneau est terminé. »
     SlotEnd,
     /// L'ami a rendu l'ordinateur (« Rendre l'ordinateur », ici ou dans le
-    /// lanceur) : une fin voulue, sans texte.
+    /// lanceur) : une fin voulue, « Vous avez rendu l'ordinateur. ».
     Left,
-    /// Le prêt s'est arrêté autrement (Station qui ne le connaît plus) :
-    /// « Le prêt est terminé. » ; aussi toute fin inconnue.
+    /// Le prêt s'est arrêté autrement (agent de console perdu, Station qui
+    /// ne le connaît plus) : « Le prêt s'est arrêté. » ; aussi toute fin
+    /// inconnue.
     #[serde(other)]
     Stopped,
 }
 
 impl LendEnd {
-    /// Le texte de link-ui ; vide pour [`Self::Left`].
+    /// Le texte de link-ui (la carte de fin).
     pub fn text(self, lang: Lang, host: &str) -> String {
         match self {
             Self::TakenBack => tr(lang, "lend.end_taken_back", &[("host", host)]),
-            Self::TimeUp | Self::Stopped => tr(lang, "lend.end_over", &[]),
+            Self::TimeUp => tr(lang, "lend.end_over", &[]),
             Self::SlotEnd => tr(lang, "lend.end_slot_end", &[]),
-            Self::Left => String::new(),
+            Self::Left => tr(lang, "lend.end_left", &[]),
+            Self::Stopped => tr(lang, "lend.end_stopped", &[]),
         }
     }
 
@@ -615,6 +629,13 @@ pub struct LendRequest {
     pub via: ShareVia,
     #[serde(default)]
     pub since: u64,
+    /// Le compte Steam proposé (celui du compte d'ami, ou du code).
+    #[serde(default)]
+    pub steam: LendSteam,
+    /// La demande vient d'un créneau de l'ami : l'ordinateur lui est prêté
+    /// dans 2 min sans réponse (« Créneau de {prénom} : … »).
+    #[serde(default)]
+    pub slot: bool,
 }
 
 /// Le code de séance en cours (« Prêter l'ordinateur… »).
@@ -647,9 +668,18 @@ impl LendCodeView {
 /// `Console::lend_*`, et le champ `lend` du signe de vie de l'hôte.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct LendView {
+    /// La Station sait prêter (toujours vrai quand la vue existe).
+    #[serde(default)]
+    pub available: bool,
     /// Le prêt est activé dans Admin (page « Prêt »).
     #[serde(default)]
     pub enabled: bool,
+    /// Le nom de l'ordinateur, et le prénom de l'hôte (le nom complet du
+    /// compte Windows de la session, sinon son nom de compte).
+    #[serde(default)]
+    pub computer: String,
+    #[serde(default)]
+    pub host: String,
     #[serde(default)]
     pub state: LendHostState,
     #[serde(default)]
@@ -806,7 +836,7 @@ impl Console {
     /// `POST /api/lend/borrow` : le prêt démarre (30 s au plus, le temps du
     /// mode console), ou attend l'accord de l'hôte (202).
     pub(crate) fn lend_borrow(&self, req: &BorrowRequest) -> Result<BorrowAnswer, LendError> {
-        let r = self.request("POST", "api/lend/borrow", Duration::from_secs(45)).send_json(req);
+        let r = self.request("POST", "api/lend/borrow", BORROW_WAIT).send_json(req);
         let (status, v) = lend_read(self, r)?;
         borrow_answer(status, v)
     }
@@ -814,7 +844,7 @@ impl Console {
     /// `POST /api/lend/wait` : attente longue (30 s), à répéter.
     pub(crate) fn lend_wait(&self, request: &str, secret: &str) -> Result<BorrowAnswer, LendError> {
         let r = self
-            .request("POST", "api/lend/wait", Duration::from_secs(75))
+            .request("POST", "api/lend/wait", WAIT_WAIT)
             .set("x-kybernow-lend", secret)
             .send_json(serde_json::json!({ "request": request }));
         let (status, v) = lend_read(self, r)?;
@@ -989,7 +1019,9 @@ mod tests {
     #[test]
     fn etats_et_statut() {
         let s: LendStatus = serde_json::from_str(r#"{"state":"busy","host":"Matthieu","computer":"PC-SALON","slot":{"now":false,"next":{"start":100,"end":200}}}"#).unwrap();
-        assert_eq!(s.state, LendAvailability::Busy);
+        assert_eq!((s.state, s.mine), (LendAvailability::Busy, false), "`mine` absent : faux");
+        let lent: LendStatus = serde_json::from_str(r#"{"state":"lent","mine":true,"host":"Matthieu","computer":"PC-SALON","slot":null}"#).unwrap();
+        assert!(lent.mine, "le prêt en cours est le sien");
         assert_eq!(s.slot.unwrap().next, Some(LendPeriod { start: 100, end: 200 }));
         let s: LendStatus = serde_json::from_str(r#"{"state":"plus-tard","host":"M","slot":null}"#).unwrap();
         assert_eq!((s.state, s.slot), (LendAvailability::Off, None), "un état inconnu : prêt coupé");
@@ -1036,6 +1068,7 @@ mod tests {
         assert_eq!(refusal(503, "off"), "off");
         assert_eq!(refusal(403, "refused"), "refused");
         assert_eq!(refusal(410, "expired"), "expired");
+        assert_eq!(refusal(404, "unknown"), "expired", "wait : une demande que la Station ne connaît plus");
         assert!(matches!(lend_refusal(429, &serde_json::json!({ "error": "too_many", "retry_after": 30 }), Some(5)), LendError::TooMany { seconds: Some(30) }));
         assert!(matches!(lend_refusal(500, &serde_json::Value::Null, None), LendError::Other(ConsoleError::Http { status: 500, .. })));
     }
@@ -1064,7 +1097,10 @@ mod tests {
         assert_eq!(LendEnd::TakenBack.text(Lang::Fr, "Matthieu"), "Matthieu a repris l'ordinateur.");
         assert_eq!(LendEnd::TimeUp.text(Lang::Fr, "M"), "Le prêt est terminé.");
         assert_eq!(LendEnd::SlotEnd.text(Lang::En, "M"), "Your time slot is over.");
-        assert_eq!(LendEnd::Left.text(Lang::Fr, "M"), "");
+        assert_eq!(LendEnd::Left.text(Lang::Fr, "M"), "Vous avez rendu l'ordinateur.");
+        assert_eq!(LendEnd::Left.text(Lang::En, "M"), "You gave back the computer.");
+        assert_eq!(LendEnd::Stopped.text(Lang::Fr, "M"), "Le prêt s'est arrêté.");
+        assert_eq!(LendEnd::Stopped.text(Lang::En, "M"), "The loan has stopped.");
         assert_eq!([LendEnd::TakenBack, LendEnd::TimeUp, LendEnd::SlotEnd, LendEnd::Left, LendEnd::Stopped].map(LendEnd::code), [0, 1, 2, 3, 4]);
         assert!(!LendEnd::Left.is_failure() && LendEnd::TakenBack.is_failure());
     }
@@ -1083,7 +1119,8 @@ mod tests {
     fn vue_de_l_hote() {
         let v: LendView = serde_json::from_str(
             r#"{"enabled":true,"state":"lent","borrower":{"name":"Léa","kind":"slot","app":"ios","via":"relay","since":10,"until":null,"steam":"friend","connected":true},
-               "notice":null,"requests":[{"id":"r1","name":"Tom","kind":"friend","app":"web","via":"lan","since":20},{"oups":1}],
+               "notice":null,"requests":[{"id":"r1","name":"Tom","kind":"friend","app":"web","via":"lan","since":20,"steam":"host","slot":true},{"oups":1}],
+               "available":true,"computer":"PC-SALON","host":"Matthieu",
                "code":{"code":"123456","link":"kybernow://join?x","web":"https://h/link/?join=123456","duration":7200,"steam":"host","expires":99}}"#,
         )
         .unwrap();
@@ -1091,6 +1128,9 @@ mod tests {
         let b = v.borrower.as_ref().unwrap();
         assert_eq!((b.kind, b.via, b.connected), (LendKind::Slot, ShareVia::Relay, true));
         assert_eq!(v.requests.len(), 2, "une demande illisible garde ses champs par défaut");
+        assert_eq!((v.requests[0].steam, v.requests[0].slot), (LendSteam::Host, true));
+        assert_eq!((v.requests[1].steam, v.requests[1].slot), (LendSteam::Friend, false));
+        assert_eq!((v.available, v.computer.as_str(), v.host.as_str()), (true, "PC-SALON", "Matthieu"));
         assert_eq!(v.code.as_ref().unwrap().display_code(), "123 456");
         let empty: LendView = serde_json::from_str("{}").unwrap();
         assert_eq!(empty, LendView::default());

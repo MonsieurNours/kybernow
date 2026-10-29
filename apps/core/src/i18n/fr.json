@@ -100,6 +100,8 @@
     "end_taken_back": "{host} a repris l'ordinateur.",
     "end_over": "Le prêt est terminé.",
     "end_slot_end": "Votre créneau est terminé.",
+    "end_left": "Vous avez rendu l'ordinateur.",
+    "end_stopped": "Le prêt s'est arrêté.",
     "lost": "l'ordinateur prêté ne répond plus",
     "unauthorized": "l'ordinateur refuse le jeton du prêt : empruntez-le de nouveau",
     "state_free": "Disponible",

@@ -30,7 +30,8 @@ pub const KN_LEND_UNSUPPORTED: i32 = 48;
 pub const KN_LEND_WAITING: i32 = 49;
 
 /// La fin d'un emprunt (`on_lend_end`) : repris par l'hôte, durée passée,
-/// fin du créneau, rendu (fin voulue, sans texte), arrêté.
+/// fin du créneau, rendu (fin voulue : « Vous avez rendu l'ordinateur. »),
+/// arrêté (« Le prêt s'est arrêté. »).
 pub const KN_LEND_END_TAKEN_BACK: i32 = 0;
 pub const KN_LEND_END_TIME_UP: i32 = 1;
 pub const KN_LEND_END_SLOT_END: i32 = 2;

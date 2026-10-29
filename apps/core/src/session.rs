@@ -535,9 +535,12 @@ pub trait Platform: Send + Sync {
     /// Session d'emprunt : le prêt finit la session, juste avant
     /// [`Self::on_ending`] ; `text` : la raison de link-ui (« {hôte} a repris
     /// l'ordinateur. », « Le prêt est terminé. », « Votre créneau est
-    /// terminé. »), vide pour [`crate::lend::LendEnd::Left`] (rendu : une fin
-    /// voulue). Une fin d'emprunt sans cet appel (fenêtre fermée, réseau
-    /// perdu) laisse revenir pendant 15 min ([`crate::lend::COME_BACK`]).
+    /// terminé. », « Le prêt s'est arrêté. »). [`crate::lend::LendEnd::Left`]
+    /// (rendu depuis le lanceur) est une fin voulue, sans erreur, avec « Vous
+    /// avez rendu l'ordinateur. » pour la carte de fin ; rendu par
+    /// [`Session::give_back`], la session finit sans cet appel. Une autre fin
+    /// d'emprunt sans cet appel (fenêtre fermée, réseau perdu) laisse revenir
+    /// pendant 15 min ([`crate::lend::COME_BACK`]).
     fn on_lend_end(&self, _end: crate::lend::LendEnd, _text: &str) {}
     /// Session d'hôte : la vue du prêt de l'ordinateur, telle que la dit le
     /// signe de vie (champ `lend`) ; `None` : rien à dire (ni code, ni
@@ -4613,13 +4616,13 @@ mod tests {
         let events = recorder.events.lock().unwrap().clone();
         let at = events.iter().position(|e| e.starts_with("prêt TakenBack")).expect("fin du prêt dite");
         assert_eq!(events[at + 1], format!("raison {:?}", Some(&f.text)));
-        // Rendu ailleurs (le lanceur) : une fin voulue, sans texte.
+        // Rendu ailleurs (le lanceur) : une fin voulue, avec son texte pour la carte de fin.
         let (mut w, _) = borrower();
         assert_eq!(w.on_lend_beat(beat(None, Some(LendEnd::Left))), Some(None));
-        assert_eq!(w.lend_end, Some((LendEnd::Left, String::new())));
+        assert_eq!(w.lend_end, Some((LendEnd::Left, t("lend.end_left", &[]))));
         // La Station ne connaît plus le prêt.
         assert!(lend_gone(404) && lend_gone(401) && !lend_gone(503) && !lend_gone(500));
-        assert_eq!(w.lend_ended(LendEnd::Stopped).map(|f| f.text), Some(t("lend.end_over", &[])));
+        assert_eq!(w.lend_ended(LendEnd::Stopped).map(|f| f.text), Some(t("lend.end_stopped", &[])));
     }
 
     #[test]

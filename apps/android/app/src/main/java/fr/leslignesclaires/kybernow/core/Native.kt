@@ -299,7 +299,8 @@ interface SessionListener {
     fun onLendNotice(json: String, text: String) {}
     /**
      * Emprunt : le prêt finit la session, juste avant la fin : `end` 0 repris par l'hôte, 1 durée passée, 2 fin du
-     * créneau, 3 rendu (sans texte), 4 arrêté ; `text` : la raison. Sans cet appel, une fin laisse revenir 15 min.
+     * créneau, 3 rendu depuis le lanceur (fin voulue, « Vous avez rendu l'ordinateur. »), 4 arrêté (« Le prêt s'est
+     * arrêté. ») ; `text` : la raison. Rendu par [Native.sessionGiveBack] : pas d'appel. Sans cet appel, une fin laisse revenir 15 min.
      */
     fun onLendEnd(end: Int, text: String) {}
     /** Hôte : la vue du prêt quand elle change (`null` : rien à dire). */

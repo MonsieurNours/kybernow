@@ -100,6 +100,8 @@
     "end_taken_back": "{host} took back the computer.",
     "end_over": "The loan is over.",
     "end_slot_end": "Your time slot is over.",
+    "end_left": "You gave back the computer.",
+    "end_stopped": "The loan has stopped.",
     "lost": "the lent computer is not answering",
     "unauthorized": "the computer refuses the loan's token: borrow it again",
     "state_free": "Available",
