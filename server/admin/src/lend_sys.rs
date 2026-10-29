@@ -86,6 +86,37 @@ impl Rules {
     }
 }
 
+#[cfg_attr(not(windows), allow(dead_code))]
+impl Rules {
+    /// À la fin du prêt, ce qui reste ouvert : Windows, KyberNow, Kyber et
+    /// Steam, mais pas ses jeux (`steamapps`).
+    pub fn kept_at_end(&self, path: &str) -> bool {
+        let path = path.to_ascii_lowercase().replace('/', "\\");
+        if path.contains("\\steamapps\\") {
+            return false;
+        }
+        (!self.system.is_empty() && path.starts_with(self.system.as_str())) || self.dirs.iter().any(|d| path.starts_with(d.as_str()))
+    }
+}
+
+/// Les processus nouveaux, chaque parent avant ses enfants.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn parents_first(mut fresh: Vec<(u32, u32)>) -> Vec<(u32, u32)> {
+    let mut ordered = Vec::with_capacity(fresh.len());
+    while !fresh.is_empty() {
+        let waiting: HashSet<u32> = fresh.iter().map(|(pid, _)| *pid).collect();
+        let (ready, rest): (Vec<_>, Vec<_>) = fresh.into_iter().partition(|(pid, ppid)| ppid == pid || !waiting.contains(ppid));
+        if ready.is_empty() {
+            // Une boucle (identifiants réutilisés) : le reste tel quel.
+            ordered.extend(rest);
+            break;
+        }
+        ordered.extend(ready);
+        fresh = rest;
+    }
+    ordered
+}
+
 fn dir_key(path: &Path) -> String {
     let mut s = path.display().to_string().to_ascii_lowercase().replace('/', "\\");
     if !s.ends_with('\\') {
@@ -142,7 +173,7 @@ mod platform {
 
     use anyhow::{Result, bail};
 
-    use super::{Rules, SessionState, Verdict, Watch};
+    use super::{Rules, SessionState, Verdict, Watch, parents_first};
     use crate::display::agent;
 
     fn console_session() -> Option<u32> {
@@ -324,11 +355,17 @@ mod platform {
             let mut seen = before;
             let mut allowed: HashSet<u32> = HashSet::new();
             while !stop2.load(Ordering::SeqCst) {
-                for (pid, ppid) in snapshot() {
-                    if !seen.insert(pid) || session_of(pid) != Some(session) {
+                let fresh: Vec<(u32, u32)> = snapshot().into_iter().filter(|(pid, _)| !seen.contains(pid)).collect();
+                // Les parents avant leurs enfants : les processus de WebView2
+                // du lanceur, nés dans le même passage que lui, sont permis.
+                for (pid, ppid) in parents_first(fresh) {
+                    if session_of(pid) != Some(session) {
+                        seen.insert(pid);
                         continue;
                     }
+                    // Un processus encore illisible est revu au passage suivant.
                     let Some(path) = image_path(pid) else { continue };
+                    seen.insert(pid);
                     match rules.judge(&path, allowed.contains(&ppid)) {
                         Verdict::Allow => {
                             allowed.insert(pid);
@@ -346,16 +383,14 @@ mod platform {
         Some(Watch { stop, started, thread: Some(thread) })
     }
 
-    /// Ferme ce qui a été ouvert pendant le prêt, hors KyberNow, Kyber et Windows.
+    /// Ferme ce qui a été ouvert pendant le prêt et reste après la remise
+    /// en état de l'agent, hors KyberNow, Kyber, Steam (remis par l'agent sur
+    /// le compte de l'hôte) et Windows.
     pub fn close_started(started: &[u32], rules: &Rules) -> usize {
-        let keep = |path: &str| {
-            let p = path.to_ascii_lowercase();
-            (!rules.system.is_empty() && p.starts_with(rules.system.as_str())) || rules.dirs.first().is_some_and(|d| p.starts_with(d.as_str())) || rules.dirs.get(1).is_some_and(|d| p.starts_with(d.as_str()))
-        };
         let mut closed = 0;
         for pid in started {
             if let Some(path) = image_path(*pid)
-                && !keep(&path)
+                && !rules.kept_at_end(&path)
                 && terminate(*pid)
             {
                 closed += 1;
@@ -448,5 +483,28 @@ mod tests {
         ] {
             assert_eq!(rules.judge(path, parent), verdict, "{path}");
         }
+    }
+
+    #[test]
+    fn a_la_fin_steam_reste_ses_jeux_non() {
+        let rules = r();
+        assert!(rules.kept_at_end("C:\\Program Files (x86)\\Steam\\steam.exe"));
+        assert!(rules.kept_at_end("C:\\Program Files (x86)\\Steam\\bin\\cef\\cef.win7x64\\steamwebhelper.exe"));
+        assert!(rules.kept_at_end("C:\\Program Files\\KyberNow\\tray\\kybernow-tray.exe"));
+        assert!(rules.kept_at_end("C:\\Windows\\System32\\conhost.exe"));
+        assert!(!rules.kept_at_end("C:\\Program Files (x86)\\Steam\\steamapps\\common\\Hades\\Hades.exe"));
+        assert!(!rules.kept_at_end("E:\\SteamLibrary\\steamapps\\common\\Hades\\Hades.exe"));
+        assert!(!rules.kept_at_end("D:\\Jeux\\Celeste\\Celeste.exe"));
+    }
+
+    #[test]
+    fn les_parents_avant_leurs_enfants() {
+        // Le lanceur (10) et sa WebView2 (11, 12), vus dans le désordre ; 5 existait déjà.
+        let order = parents_first(vec![(12, 11), (11, 10), (10, 5), (20, 20)]);
+        let at = |pid: u32| order.iter().position(|(p, _)| *p == pid).unwrap();
+        assert!(at(10) < at(11) && at(11) < at(12));
+        assert_eq!(order.len(), 4);
+        // Une boucle d'identifiants ne bloque pas.
+        assert_eq!(parents_first(vec![(1, 2), (2, 1)]).len(), 2);
     }
 }

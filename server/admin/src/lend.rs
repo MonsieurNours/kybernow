@@ -1101,6 +1101,7 @@ impl Lending {
                     "app": r.who.app,
                     "via": if r.who.via_relay { "relay" } else { "lan" },
                     "since": r.since,
+                    "steam": r.steam,
                     "slot": r.auto_at.is_some(),
                 })
             })

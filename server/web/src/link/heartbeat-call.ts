@@ -1,6 +1,7 @@
 // Un signal de vie vers la console : utilisé par le Worker et, à défaut, par la page.
-// Celui de l'hôte (`/api/stream/heartbeat`, avec la session d'Admin) ou celui
-// d'un invité du partage (`/api/share/beat`, avec le secret de l'invité).
+// Celui de l'hôte (`/api/stream/heartbeat`, avec la session d'Admin), celui
+// d'un invité du partage (`/api/share/beat`, avec le secret de l'invité), ou
+// celui d'un ami qui emprunte l'ordinateur (`/api/lend/beat`, secret du prêt).
 
 /** Où part le signal : la route et les en-têtes en plus (le secret d'un invité). */
 export interface HeartbeatTarget {
@@ -14,6 +15,11 @@ export const HOST_TARGET: HeartbeatTarget = { path: '/api/stream/heartbeat', hea
 /** Signal de vie d'un invité : son secret dans `x-kybernow-guest` (`body` : `{ guest }`). */
 export function guestTarget(secret: string): HeartbeatTarget {
   return { path: '/api/share/beat', headers: { 'x-kybernow-guest': secret } }
+}
+
+/** Signal de vie d'un ami qui emprunte l'ordinateur : le secret du prêt (`body` : `{ lend }`). */
+export function lendTarget(secret: string): HeartbeatTarget {
+  return { path: '/api/lend/beat', headers: { 'x-kybernow-lend': secret } }
 }
 
 export interface HeartbeatResult {

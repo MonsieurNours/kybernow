@@ -2,6 +2,7 @@
 //!
 //! Tourne dans la session de l'utilisateur, sans droits administrateur : accès à
 //! KyberNow Admin, état de la Station et de la session, démarrage et arrêt des services.
+//! Avec `--console`, le mode console d'un prêt de l'ordinateur (`lend::agent`).
 
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
@@ -15,6 +16,8 @@ mod http;
 mod i18n;
 #[cfg(windows)]
 mod icons;
+#[cfg_attr(not(windows), allow(dead_code))]
+mod lend;
 #[cfg(windows)]
 mod panel;
 #[cfg(windows)]
@@ -36,6 +39,11 @@ fn main() {
     }
     if args.first().map(String::as_str) == Some(password::ELEVATED_ARG) {
         std::process::exit(password::elevated_main());
+    }
+    // Mode console d'un prêt (docs/pret.md) : lancé par Admin dans la session
+    // de l'utilisateur ; ni icône, ni verrou de l'icône.
+    if args.first().map(String::as_str) == Some(lend::agent::ARG) {
+        std::process::exit(lend::agent::run());
     }
     if let Err(e) = app::run() {
         app::alert(&i18n::t("tray.startFailed", &[("error", &format!("{e:#}"))]));

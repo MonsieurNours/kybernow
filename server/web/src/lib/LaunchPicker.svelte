@@ -3,7 +3,8 @@
   suggestions détectées (Steam Big Picture, Playnite…), tout le menu Démarrer
   de l'ordinateur avec ses icônes, et un explorateur limité à quelques
   dossiers. Rien à taper : on clique. Les options (fermer à la fin, pas en
-  Bureau) sont sur la carte de l'appareil, pas ici.
+  Bureau) sont sur la carte de l'appareil, pas ici. Sans appareil (`pick`),
+  il ajoute une app à une liste : les apps permises d'un prêt (page « Prêt »).
 -->
 <script lang="ts">
   import { api, type AppEntry, type Browse, type Catalogue, type Device, type Launch, type Suggestion } from './api'
@@ -11,7 +12,18 @@
   import { t } from './i18n/index.svelte'
   import Icon from './Icon.svelte'
 
-  let { device, onclose, onsaved }: { device: Device; onclose: () => void; onsaved: (devices: Device[]) => void } = $props()
+  let {
+    device = null,
+    onclose,
+    onsaved = () => {},
+    pick = null,
+  }: {
+    device?: Device | null
+    onclose: () => void
+    onsaved?: (devices: Device[]) => void
+    /** Ajouter une app à une liste plutôt que la régler sur un appareil : `onpick` la reçoit. */
+    pick?: { onpick: (launch: Launch) => void } | null
+  } = $props()
 
   let catalogue = $state<Catalogue | null>(null)
   let loading = $state(true)
@@ -20,7 +32,7 @@
   let search = $state('')
   // Le réglage en cours de l'appareil, au moment où le sélecteur s'ouvre.
   // svelte-ignore state_referenced_locally
-  let draft = $state<Launch | null>(device.launch ? { ...device.launch } : null)
+  let draft = $state<Launch | null>(device?.launch ? { ...device.launch } : null)
   let view = $state<'pick' | 'browse'>('pick')
   let browse = $state<Browse | null>(null)
   let browsing = $state(false)
@@ -99,6 +111,12 @@
   }
 
   async function save(launch: Launch | null) {
+    if (pick) {
+      if (launch) pick.onpick({ ...launch, close_at_end: true, skip_desktop: false })
+      onclose()
+      return
+    }
+    if (!device) return
     saving = true
     try {
       const res = await api.setLaunch(device.id, launch)
@@ -123,9 +141,9 @@
   <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="launch-title">
     <header>
       <div>
-        <span class="lbl">{t('devices.launch.eyebrow')}</span>
-        <h2 id="launch-title" class="disp">{t('devices.launch.title', { name: device.name })}</h2>
-        <p>{t('devices.launch.intro')}</p>
+        <span class="lbl">{pick ? t('lend.apps.title') : t('devices.launch.eyebrow')}</span>
+        <h2 id="launch-title" class="disp">{pick ? t('lend.apps.add') : t('devices.launch.title', { name: device?.name ?? '' })}</h2>
+        <p>{pick ? t('lend.apps.pickIntro') : t('devices.launch.intro')}</p>
       </div>
       <button type="button" class="icon-button" aria-label={t('devices.launch.cancel')} onclick={onclose}><Icon name="x" size={16} /></button>
     </header>
@@ -209,20 +227,20 @@
           <div>
             <strong>{draft.name}</strong>
             <span class="mono dim">{draft.target}</span>
-            <span class="dim">{canClose ? t('devices.launch.closeHint') : t('devices.launch.noCloseHint')} {t('devices.launch.optionsHint')}</span>
+            {#if !pick}<span class="dim">{canClose ? t('devices.launch.closeHint') : t('devices.launch.noCloseHint')} {t('devices.launch.optionsHint')}</span>{/if}
           </div>
         {:else}
           <Icon name="other" size={20} />
-          <div><strong>{t('devices.launch.none')}</strong><span class="dim">{t('devices.launch.noneHint')}</span></div>
+          <div><strong>{t('devices.launch.none')}</strong>{#if !pick}<span class="dim">{t('devices.launch.noneHint')}</span>{/if}</div>
         {/if}
       </div>
       <div class="actions">
-        {#if device.launch}
+        {#if device?.launch && !pick}
           <button type="button" class="ghost danger" disabled={saving} onclick={() => save(null)}>{t('devices.launch.clear')}</button>
         {/if}
         <span class="spacer"></span>
         <button type="button" class="ghost" disabled={saving} onclick={onclose}>{t('devices.launch.cancel')}</button>
-        <button type="button" class="primary" disabled={saving || !draft} onclick={() => draft && save(draft)}><Icon name="check" size={15} stroke={2} />{t('devices.launch.save')}</button>
+        <button type="button" class="primary" disabled={saving || !draft} onclick={() => draft && save(draft)}><Icon name={pick ? 'plus' : 'check'} size={15} stroke={2} />{pick ? t('lend.apps.add') : t('devices.launch.save')}</button>
       </div>
     </footer>
   </div>

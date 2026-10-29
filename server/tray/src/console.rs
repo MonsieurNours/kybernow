@@ -1,7 +1,8 @@
 //! Console d'administration : son adresse, et l'état qu'elle donne à l'ordinateur
 //! local (`GET /api/local/state` : serveur, session en cours, demandes d'accès,
-//! partage), et le partage d'un écran du PC (`/api/local/displays`,
-//! `/api/local/share…`, voir `docs/kybernow-share.md`).
+//! partage, prêt), le partage d'un écran du PC (`/api/local/displays`,
+//! `/api/local/share…`, voir `docs/kybernow-share.md`) et le prêt de
+//! l'ordinateur (`/api/local/lend…`, voir `docs/pret.md`).
 //!
 //! Les routes `/api/local/*` exigent, en plus de l'adresse locale, le jeton
 //! que la console tire à son démarrage et à chaque ouverture de session, et
@@ -91,6 +92,9 @@ pub struct LocalState {
     /// Relais de KyberNow (`server`, `remote_access`, `state`, `reason`),
     /// `None` pour une console qui ne le connaît pas.
     pub relay: Option<Value>,
+    /// Vue du prêt de l'ordinateur (`docs/pret.md`), `None` pour une Station
+    /// d'avant la 0.9.0.
+    pub lend: Option<Value>,
 }
 
 impl LocalState {
@@ -179,22 +183,37 @@ impl Client {
             share: some(&body["share"]).filter(|s| s["open"].as_bool() != Some(false)),
             share_enabled: body["share_enabled"].as_bool().unwrap_or(false),
             relay: some(&body["relay"]),
+            lend: some(&body["lend"]),
         })
+    }
+
+    /// Une route locale avec le jeton local : la réponse telle quelle (code
+    /// et corps), pour l'agent de console du prêt.
+    pub fn local(&self, method: &str, port: u16, path: &str, body: Option<&Value>, timeout: Duration) -> anyhow::Result<http::Reply> {
+        let Some(http) = self.http.as_ref() else {
+            anyhow::bail!(t("tray.errors.certificateUnknown", &[]));
+        };
+        let token = local_token();
+        let body = body.map(Value::to_string);
+        http.send(method, port, path, &[("x-kyber-admin", "1"), (LOCAL_HEADER, &token)], body.as_deref().map(str::as_bytes), timeout)
     }
 
     /// Une route locale du partage, avec le jeton local ; la réponse en JSON.
     /// Un refus d'Admin (partage coupé, appareil en session…) donne son
     /// message, déjà dans la langue de l'icône.
     fn share_call(&self, method: &str, port: u16, path: &str, body: Option<Value>) -> anyhow::Result<Value> {
-        let failed = |error: &dyn std::fmt::Display| anyhow::anyhow!(t("tray.errors.shareFailed", &[("error", error)]));
-        let Some(http) = self.http.as_ref() else {
-            anyhow::bail!(t("tray.errors.certificateUnknown", &[]));
-        };
-        let token = local_token();
-        let body = body.map(|b| b.to_string());
-        let reply = http
-            .send(method, port, path, &[("x-kyber-admin", "1"), (LOCAL_HEADER, &token)], body.as_deref().map(str::as_bytes), Duration::from_secs(15))
-            .map_err(|e| failed(&format!("{e:#}")))?;
+        self.json_call(method, port, path, body, "tray.errors.shareFailed")
+    }
+
+    /// [`Client::share_call`] pour le prêt.
+    fn lend_call(&self, method: &str, port: u16, path: &str, body: Option<Value>) -> anyhow::Result<Value> {
+        self.json_call(method, port, path, body, "tray.errors.lendFailed")
+    }
+
+    /// Une route locale en JSON ; `failed` : la clé du message d'échec.
+    fn json_call(&self, method: &str, port: u16, path: &str, body: Option<Value>, failed: &str) -> anyhow::Result<Value> {
+        let failed = |error: &dyn std::fmt::Display| anyhow::anyhow!(t(failed, &[("error", error)]));
+        let reply = self.local(method, port, path, body.as_ref(), Duration::from_secs(15)).map_err(|e| failed(&format!("{e:#}")))?;
         let value = serde_json::from_slice::<Value>(&reply.body).unwrap_or(Value::Null);
         if reply.status >= 400 {
             return Err(match value["error"].as_str() {
@@ -242,6 +261,28 @@ impl Client {
     /// Arrête le partage : tout le monde sort.
     pub fn share_stop(&self, port: u16) -> anyhow::Result<()> {
         self.share_call("DELETE", port, "/api/local/share", None).map(|_| ())
+    }
+
+    /// Un code pour une séance : `duration` en secondes (`None` : jusqu'à ce
+    /// que l'hôte reprenne), `steam` : `friend` ou `host` ; la vue du prêt.
+    pub fn lend_code(&self, port: u16, duration: Option<u64>, steam: &str) -> anyhow::Result<Value> {
+        self.lend_call("POST", port, "/api/local/lend/code", Some(serde_json::json!({ "duration": duration, "steam": steam })))
+    }
+
+    /// « Annuler le code ».
+    pub fn lend_cancel_code(&self, port: u16) -> anyhow::Result<Value> {
+        self.lend_call("DELETE", port, "/api/local/lend/code", None)
+    }
+
+    /// Accepte ou refuse la demande d'un ami (avec le compte Steam choisi).
+    pub fn lend_answer(&self, port: u16, id: &str, accept: bool, steam: &str) -> anyhow::Result<Value> {
+        let path = format!("/api/local/lend/requests/{}", path_part(id));
+        self.lend_call("POST", port, &path, Some(serde_json::json!({ "accept": accept, "steam": steam })))
+    }
+
+    /// « Reprendre l'ordinateur » (préavis de 2 min), ou tout de suite.
+    pub fn lend_take_back(&self, port: u16, now: bool) -> anyhow::Result<Value> {
+        self.lend_call("POST", port, "/api/local/lend/take-back", Some(serde_json::json!({ "now": now })))
     }
 
     /// Met fin à la session en cours (route réservée à l'ordinateur lui-même).

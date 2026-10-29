@@ -37,10 +37,15 @@ use crate::relay::Via;
 const LEND_HEADER: &str = "x-kybernow-lend";
 /// Une attente de `wait` tenue au plus ce temps, puis `202`.
 const WAIT_HOLD: Duration = Duration::from_secs(30);
-/// Le mode console a ce temps pour se mettre en place.
-const READY_WAIT: Duration = Duration::from_secs(30);
-/// L'agent de console a ce temps pour se remettre en état à la fin.
-const ENDED_WAIT: Duration = Duration::from_secs(25);
+/// Le mode console a ce temps pour se mettre en place (basculer Steam sur
+/// le compte de l'ami prend jusqu'à 25 s)...
+const READY_WAIT: Duration = Duration::from_secs(35);
+/// ... sans que toute la préparation passe ce temps : le cœur attend la
+/// réponse de `borrow` 45 s.
+const PREPARE_WAIT: Duration = Duration::from_secs(40);
+/// L'agent de console a ce temps pour se remettre en état à la fin (fenêtres
+/// 10 s, Steam jusqu'à 25 s).
+const ENDED_WAIT: Duration = Duration::from_secs(45);
 /// Une entrée physique plus récente que ça : quelqu'un est devant l'ordinateur.
 const PRESENT: u64 = 5 * 60;
 /// Un invité coupé de Kyber ne revient pas avec un vieux jeton pendant ce temps.
@@ -239,6 +244,7 @@ async fn in_use(s: &AppState) -> bool {
 /// Rend vrai une fois le prêt commencé.
 async fn prepare(s: &AppState, loan: lend::Loan) -> bool {
     tracing::info!("prêt : préparation pour {} ({:?})", loan.who.name, loan.who.kind);
+    let begun = tokio::time::Instant::now();
     // La session de l'hôte : on lui demande de finir (7 s), puis on la ferme.
     if s.activity.live().is_some() {
         s.activity.request_end();
@@ -294,7 +300,7 @@ async fn prepare(s: &AppState, loan: lend::Loan) -> bool {
             tracing::warn!("prêt : agent de console impossible : {e:#}");
             return false;
         }
-        let deadline = tokio::time::Instant::now() + READY_WAIT;
+        let deadline = (tokio::time::Instant::now() + READY_WAIT).min(begun + PREPARE_WAIT);
         loop {
             let changed = s.lend.changed();
             tokio::pin!(changed);
@@ -305,7 +311,7 @@ async fn prepare(s: &AppState, loan: lend::Loan) -> bool {
                 _ => return false,
             }
             if tokio::time::timeout_at(deadline, changed).await.is_err() {
-                tracing::warn!("prêt : le mode console ne s'est pas mis en place en 30 s");
+                tracing::warn!("prêt : le mode console ne s'est pas mis en place à temps");
                 return false;
             }
         }
@@ -427,9 +433,11 @@ pub async fn status(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<So
         Err(res) => return res,
     };
     let session = tokio::task::spawn_blocking(lend_sys::session_state).await.unwrap_or(SessionState::None);
+    // `mine` : le prêt en cours est le sien (il peut y revenir).
+    let mine = s.lend.loan().is_some_and(|l| l.who.friend.as_deref() == Some(friend.id.as_str()));
     let state = if !enabled(&s) || session == SessionState::None {
         "off"
-    } else if s.lend.loan().is_some_and(|l| l.who.friend.as_deref() != Some(friend.id.as_str())) {
+    } else if s.lend.loan().is_some() {
         "lent"
     } else if session == SessionState::Locked {
         "locked"
@@ -445,7 +453,8 @@ pub async fn status(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<So
             "next": lend::next_slot(&friend.slots, at).map(|(start, end)| json!({ "start": start, "end": end })),
         })
     });
-    let answer = json!({ "state": state, "host": host_name(), "computer": hostname(), "slot": slot });
+    let host = tokio::task::spawn_blocking(host_name).await.unwrap_or_default();
+    let answer = json!({ "state": state, "mine": mine, "host": host, "computer": hostname(), "slot": slot });
     ([(header::CACHE_CONTROL, "no-store")], Json(answer)).into_response()
 }
 
@@ -833,7 +842,7 @@ pub struct SettingsBody {
 
 fn settings_json(s: &AppState) -> Value {
     let settings = settings(s);
-    json!({ "enabled": settings.enabled, "apps": settings.apps, "steam": settings.steam })
+    json!({ "enabled": settings.enabled, "apps": settings.apps, "steam": settings.steam, "steam_found": lend_sys::steam_dir().is_some() || cfg!(not(windows)) })
 }
 
 pub async fn get_settings(State(s): State<AppState>) -> Json<Value> {

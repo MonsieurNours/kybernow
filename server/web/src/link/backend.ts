@@ -117,6 +117,8 @@ export interface Info {
   station?: StationInfo
   /** KyberNow Share : absent pour une Station d'avant la 0.8.0 ; `enabled` est faux si `multi_client` est coupé. */
   share?: { available: boolean; enabled: boolean }
+  /** Prêt de l'ordinateur : absent avant la 0.9.0 ; `enabled` est faux si le prêt est coupé dans Admin. */
+  lend?: { available: boolean; enabled: boolean }
 }
 
 /** Écran que reçoit un invité (celui du partage). */
@@ -203,6 +205,7 @@ export class JoinRefusal extends Error {
       | 'expired'
       | 'stopped'
       | 'relay'
+      | 'lend'
       | 'other',
     message = '',
     /** Secondes à attendre (`too_many`). */
@@ -275,7 +278,8 @@ export const backend = {
     const wait = Number(data?.retry_after ?? res.headers.get('retry-after'))
     switch (res.status) {
       case 404:
-        throw new JoinRefusal('no_share')
+        // Un code de prêt (docs/pret.md, « Codes ») : l'ami emprunte l'ordinateur (`lendBorrow`).
+        throw new JoinRefusal(data?.lend === true ? 'lend' : 'no_share')
       case 403:
         throw new JoinRefusal(data?.error === 'refused' ? 'refused' : 'other', data?.error ?? t('common.error', { status: res.status }))
       case 409:
@@ -356,6 +360,145 @@ export const backend = {
     accept: (id: string) => call<ShareView>('POST', `/api/share/guest/${encodeURIComponent(id)}/accept`, { device_id: deviceId() }),
     refuse: (id: string) => call<ShareView>('POST', `/api/share/guest/${encodeURIComponent(id)}/refuse`, { device_id: deviceId() }),
   },
+}
+
+// Prêt de l'ordinateur, côté ami (docs/pret.md, « Échange avec Admin ») : sans compte, avec le code
+// ou l'identifiant et le mot de passe, puis le secret du prêt (en-tête `x-kybernow-lend`).
+
+/** Ce qui ouvre le prêt : un code pour une séance, ou un compte d'ami. */
+export type BorrowRequest = { code: string } | { login: string; password: string }
+
+/** `POST /api/lend/status` : la carte « Ordinateur de {hôte} ». */
+export interface LendStatus {
+  state: 'free' | 'busy' | 'lent' | 'locked' | 'off'
+  host: string
+  computer: string
+  /** Son créneau : en cours (`now`), ou le prochain. */
+  slot: { now: boolean; next: { start: number; end: number } | null } | null
+  /** Le prêt en cours est le sien (il peut revenir) ; absent : on ne le sait pas. */
+  mine?: boolean
+}
+
+/** Réponse `200` de `borrow` et de `wait` : le mode console est prêt. */
+export interface BorrowAnswer {
+  lend: string
+  secret: string
+  host: string
+  computer: string
+  kyber: { port: number; fingerprint: string; token: string; expires: number }
+  display: GuestDisplay
+  until: number | null
+  steam: 'friend' | 'host'
+  /** Secondes entre deux signes de vie. */
+  beat: number
+  /** Venu par le relais : l'image passe en WebSocket. */
+  relay?: boolean
+}
+
+/** Réponse `202` : il faut l'accord de l'hôte (`lendWait`). */
+export interface BorrowPending {
+  request: string
+  secret: string
+  /** Prénom de l'hôte (« En attente de {hôte}… »), même avec un code. */
+  host?: string
+  /** Nom de l'ordinateur. */
+  computer?: string
+}
+
+/** Réponse de `POST /api/lend/beat`. */
+export interface LendBeat {
+  token: string | null
+  expires: number
+  until: number | null
+  notice: null | { reason: 'taken_back' | 'time_up' | 'slot_end' | 'slot_start'; at: number }
+  end: null | 'taken_back' | 'time_up' | 'slot_end' | 'left' | 'stopped'
+}
+
+/** Refus d'une route de l'ami (`error` du contrat), `network` (Admin injoignable) ou `relay` (le relais ne répond pas). */
+export class LendRefusal extends Error {
+  constructor(
+    public kind:
+      | 'bad_credentials'
+      | 'no_code'
+      | 'lent'
+      | 'locked'
+      | 'off'
+      | 'too_many'
+      | 'refused'
+      | 'expired'
+      | 'unknown'
+      | 'bad_request'
+      | 'network'
+      | 'relay'
+      | 'other',
+    message = '',
+    /** Secondes à attendre (`too_many`). */
+    public retryAfter: number | null = null,
+  ) {
+    super(message)
+  }
+}
+
+const LEND_ERRORS = ['bad_credentials', 'no_code', 'lent', 'locked', 'off', 'too_many', 'refused', 'expired', 'unknown', 'bad_request'] as const
+
+function lendRefusal(res: Response, data: any, json: boolean): LendRefusal {
+  if (relaySilent(res, json)) return new LendRefusal(viaRelay() ? 'relay' : 'network')
+  const wait = Number(data?.retry_after ?? res.headers.get('retry-after'))
+  const retry = Number.isFinite(wait) && wait > 0 ? wait : null
+  const code = typeof data?.error === 'string' ? data.error : ''
+  if ((LEND_ERRORS as readonly string[]).includes(code)) return new LendRefusal(code as (typeof LEND_ERRORS)[number], '', retry)
+  const byStatus: Record<number, LendRefusal['kind']> = { 400: 'bad_request', 401: 'bad_credentials', 403: 'refused', 404: 'no_code', 409: 'lent', 410: 'expired', 423: 'locked', 429: 'too_many', 503: 'off' }
+  return new LendRefusal(byStatus[res.status] ?? 'other', code || t('common.error', { status: res.status }), retry)
+}
+
+async function lendCall(path: string, body: unknown, extra: { headers?: Record<string, string>; signal?: AbortSignal } = {}) {
+  try {
+    return await request('POST', path, body, extra)
+  } catch (e) {
+    if (extra.signal?.aborted) throw e
+    throw new LendRefusal(viaRelay() ? 'relay' : 'network')
+  }
+}
+
+export const lend = {
+  /** L'état de l'ordinateur pour ce compte d'ami. */
+  status: async (login: string, password: string): Promise<LendStatus> => {
+    const { res, data, json } = await lendCall('/api/lend/status', { login, password })
+    if (!res.ok) throw lendRefusal(res, data, json)
+    return data as LendStatus
+  },
+  /** Emprunte : la réponse une fois le mode console prêt (30 s au plus), ou l'attente de l'accord (`202`). */
+  borrow: async (
+    req: BorrowRequest,
+    body: { name: string; screen: Mode; codecs: string[] },
+    signal?: AbortSignal,
+  ): Promise<BorrowAnswer | BorrowPending> => {
+    const { res, data, json } = await lendCall('/api/lend/borrow', { ...req, name: body.name, device: deviceId(), app: 'web', screen: body.screen, codecs: body.codecs }, { signal })
+    if (res.status === 202 && data?.request) return data as BorrowPending
+    if (res.ok && data?.lend) return data as BorrowAnswer
+    throw lendRefusal(res, data, json)
+  },
+  /** Attend l'accord de l'hôte (tenu 30 s au plus) : `null` tant qu'il attend (rappeler). */
+  wait: async (p: BorrowPending, signal?: AbortSignal): Promise<BorrowAnswer | null> => {
+    const { res, data, json } = await lendCall('/api/lend/wait', { request: p.request }, { headers: { 'x-kybernow-lend': p.secret }, signal })
+    if (res.ok && data?.lend) return data as BorrowAnswer
+    if (res.status === 202 || res.status === 204 || res.status === 408) return null
+    throw lendRefusal(res, data, json)
+  },
+}
+
+/**
+ * « Rendre l'ordinateur » (`{ lend }`), ou une demande annulée (`{ request }`) : `keepalive`, la page peut
+ * se fermer derrière. Fermer la fenêtre, en revanche, ne rend pas l'ordinateur.
+ */
+export function leaveLend(secret: string, body: { lend: string } | { request: string }): Promise<unknown> {
+  return fetch('/api/lend/leave', {
+    method: 'POST',
+    keepalive: true,
+    credentials: 'same-origin',
+    headers: { 'x-kyber-admin': '1', 'content-type': 'application/json', 'x-kybernow-lend': secret },
+    body: JSON.stringify(body),
+  }).catch(() => {})
 }
 
 /** Champs en plus dans les corps du signal de vie et de la fin (par exemple

@@ -5,6 +5,8 @@
 //! Le partage d'un écran du PC (KyberNow Share) part de l'un ou de l'autre :
 //! le choix de l'écran et le partage ouvert vivent dans le panneau. Une demande
 //! pour le rejoindre (un invité venu par le relais) ouvre le panneau sur le partage.
+//! Le prêt de l'ordinateur (`docs/pret.md`) de même : « Prêter l'ordinateur… »
+//! (le code, dans le panneau), les demandes des amis, « Reprendre l'ordinateur ».
 //! Un fil surveille les services et la console toutes les deux secondes ; les
 //! actions longues (démarrage, arrêt, invite UAC) tournent dans leur propre fil.
 //! Le fil principal ne fait qu'afficher : il relit l'état deux fois par seconde.
@@ -37,6 +39,7 @@ use crate::i18n::{lang, list, t, tn};
 use crate::icons::{Icons, Look};
 use crate::panel::Panel;
 use crate::services::{self, ADMIN, KYBER, State};
+use crate::lend::host as lend;
 use crate::{password, qr, share, startup};
 
 /// Nom affiché : infobulle, boîtes de message, première ligne du menu.
@@ -102,6 +105,20 @@ struct ShareUi {
     error: Option<String>,
 }
 
+/// Le prêt vu du panneau, en plus de la vue d'Admin : une action en cours,
+/// le dernier refus d'Admin.
+#[derive(Debug, Clone, Default, PartialEq)]
+struct LendUi {
+    busy: bool,
+    error: Option<String>,
+}
+
+/// L'avertissement du prêt (« Votre ami joue dans votre session Windows… »)
+/// a été montré : noté dans le profil, il ne revient plus.
+fn lend_warned_path() -> Option<std::path::PathBuf> {
+    std::env::var_os("LOCALAPPDATA").map(|d| std::path::PathBuf::from(d).join(r"KyberNow\lend\warned"))
+}
+
 /// Ce que donne une action du partage.
 enum ShareChange {
     Displays(Vec<Value>),
@@ -127,6 +144,8 @@ struct Shared {
     /// Code d'initialisation après « Réinitialiser le mot de passe de la console ».
     setup_code: Option<String>,
     share_ui: ShareUi,
+    lend_ui: LendUi,
+    lend_warned: bool,
 }
 
 /// Le partage a changé (réponse d'une action) : montré sans attendre le prochain relevé.
@@ -134,6 +153,13 @@ fn set_share(s: &mut Shared, view: Option<Value>) {
     let view = view.filter(|v| v["open"].as_bool() != Some(false));
     if let Some(console) = s.snapshot.as_mut().and_then(|snap| snap.console.as_mut()) {
         console.share = view;
+    }
+}
+
+/// Le prêt a changé (réponse d'une action) : montré sans attendre le prochain relevé.
+fn set_lend(s: &mut Shared, view: Value) {
+    if let Some(console) = s.snapshot.as_mut().and_then(|snap| snap.console.as_mut()) {
+        console.lend = Some(view);
     }
 }
 
@@ -203,7 +229,16 @@ fn describe(s: &Snapshot, busy: Option<&str>) -> (String, String, Look) {
         Some(_) if s.kyber == State::Running && !counts.is_empty() => format!("{session} · {}", counts.join(" · ")),
         _ => session,
     };
-    let in_session = s.console.as_ref().is_some_and(|c| c.device_session() || c.guests() > 0);
+    // Ordinateur prêté : « Prêté à Léa jusqu'à 18 h », « Prêté à Léa · Reprise dans 1:42 ».
+    let lent = s.console.as_ref().and_then(|c| c.lend.as_ref()).filter(|l| lend::active(l));
+    let session = match lent {
+        Some(l) if s.kyber == State::Running => {
+            let until = l["borrower"]["until"].as_i64().and_then(|u| crate::lend::clock_at(lang(), u));
+            lend::status_line(lang(), l, until.as_deref(), crate::lend::unix_now()).unwrap_or(session)
+        }
+        _ => session,
+    };
+    let in_session = s.console.as_ref().is_some_and(|c| c.device_session() || c.guests() > 0) || lent.is_some();
     let look = match s.kyber {
         _ if busy.is_some() => Look::Busy,
         State::Starting | State::Stopping => Look::Busy,
@@ -232,8 +267,21 @@ fn share_for_panel(share: &Value) -> Value {
     share
 }
 
+/// Le prêt tel que le panneau l'affiche : le QR code du lien du code, et
+/// l'heure de fin déjà écrite (« 18 h »).
+fn lend_for_panel(view: &Value) -> Value {
+    let mut view = view.clone();
+    if let Some(link) = view["code"]["link"].as_str() {
+        view["code"]["qr"] = qr::svg(link).map_or(Value::Null, Value::from);
+    }
+    if view["borrower"].is_object() {
+        view["borrower"]["untilText"] = view["borrower"]["until"].as_i64().and_then(|u| crate::lend::clock_at(lang(), u)).map_or(Value::Null, Value::from);
+    }
+    view
+}
+
 /// L'état tel que le panneau l'affiche.
-fn panel_state(s: &Snapshot, busy: Option<&str>, setup_code: Option<&str>, share_ui: &ShareUi) -> Value {
+fn panel_state(s: &Snapshot, busy: Option<&str>, setup_code: Option<&str>, share_ui: &ShareUi, lend_ui: &LendUi, lend_warned: bool) -> Value {
     json!({
         "service": state_name(s.kyber),
         "adminMissing": s.admin == State::Missing,
@@ -254,14 +302,25 @@ fn panel_state(s: &Snapshot, busy: Option<&str>, setup_code: Option<&str>, share
             "last": c.last,
             "share": c.share.as_ref().map(share_for_panel),
             "shareEnabled": c.share_enabled,
+            "lend": c.lend.as_ref().map(lend_for_panel),
+            "relay": c.relay,
         })),
         "shareUi": {
             "displays": share_ui.displays,
             "busy": share_ui.busy,
             "error": share_ui.error,
         },
+        "lendUi": {
+            "busy": lend_ui.busy,
+            "error": lend_ui.error,
+            "warned": lend_warned,
+        },
     })
 }
+
+/// Ce que l'icône a affiché : l'état, l'action en cours, le code
+/// d'initialisation, le partage et le prêt vus du panneau, la ligne de la session.
+type Shown = (Snapshot, Option<&'static str>, Option<String>, ShareUi, LendUi, String);
 
 /// Événements de l'icône, du menu et du panneau, ramenés dans la boucle.
 pub enum UserEvent {
@@ -283,6 +342,9 @@ struct App {
     relay_shown: bool,
     /// « Partager un écran… », ou « Arrêter le partage » quand un partage est ouvert.
     share: MenuItem,
+    /// « Prêter l'ordinateur… », ou pendant un prêt « Reprendre l'ordinateur »
+    /// (« Reprendre tout de suite » pendant le préavis).
+    lend: MenuItem,
     open: MenuItem,
     updates: MenuItem,
     toggle: MenuItem,
@@ -292,12 +354,16 @@ struct App {
     quit: MenuItem,
     shared: SharedState,
     wake: Sender<()>,
-    shown: Option<(Snapshot, Option<&'static str>, Option<String>, ShareUi)>,
+    /// Ce qui est affiché ; la dernière chaîne : la ligne du prêt (son décompte
+    /// change chaque seconde sans que rien d'autre ne change).
+    shown: Option<Shown>,
     look: Option<Look>,
     /// Demandes d'accès déjà signalées (le panneau s'ouvre pour les nouvelles).
     seen_requests: HashSet<String>,
     /// Demandes pour rejoindre le partage déjà signalées (de même).
     seen_asks: HashSet<String>,
+    /// Demandes d'emprunt (et préavis d'un créneau) déjà signalés (de même).
+    seen_lend: HashSet<String>,
     done: bool,
 }
 
@@ -309,7 +375,13 @@ pub fn run() -> Result<()> {
         return open_console();
     }
 
-    let shared: SharedState = Default::default();
+    // Un prêt mal fini (agent tombé, PC redémarré en plein prêt) : remis en état.
+    std::thread::spawn(crate::lend::agent::repair_at_start);
+
+    let shared: SharedState = Arc::new(Mutex::new(Shared {
+        lend_warned: lend_warned_path().is_some_and(|p| p.exists()),
+        ..Default::default()
+    }));
     let (wake, wake_rx) = mpsc::channel();
     {
         let shared = shared.clone();
@@ -344,6 +416,7 @@ pub fn run() -> Result<()> {
     let session = MenuItem::new(t("tray.session.wait", &[]), false, None);
     let relay = MenuItem::new("", false, None);
     let share = MenuItem::new(t("tray.menu.share", &[]), false, None);
+    let lend = MenuItem::new(t("tray.menu.lend", &[]), false, None);
     let open = MenuItem::new(t("tray.menu.openConsole", &[]), true, None);
     let updates = MenuItem::new(t("tray.menu.updates", &[]), true, None);
     let toggle = MenuItem::new(t("tray.menu.stopServer", &[]), false, None);
@@ -357,6 +430,7 @@ pub fn run() -> Result<()> {
         &session,
         &PredefinedMenuItem::separator(),
         &share,
+        &lend,
         &PredefinedMenuItem::separator(),
         &open,
         &updates,
@@ -388,6 +462,7 @@ pub fn run() -> Result<()> {
         relay,
         relay_shown: false,
         share,
+        lend,
         open,
         updates,
         toggle,
@@ -401,6 +476,7 @@ pub fn run() -> Result<()> {
         look: None,
         seen_requests: Default::default(),
         seen_asks: Default::default(),
+        seen_lend: Default::default(),
         done: false,
     };
 
@@ -434,15 +510,21 @@ impl App {
         (s.snapshot.clone(), s.busy, s.setup_code.clone(), s.share_ui.clone())
     }
 
+    fn lend_ui(&self) -> (LendUi, bool) {
+        let s = self.shared.lock().unwrap();
+        (s.lend_ui.clone(), s.lend_warned)
+    }
+
     fn refresh(&mut self) {
         if let Some(p) = self.panel.as_mut() {
             p.tick();
         }
         let (Some(snap), busy, code, share_ui) = self.snapshot() else { return };
-        if self.shown.as_ref().is_some_and(|(s, b, c, u)| *s == snap && *b == busy && *c == code && *u == share_ui) {
+        let (lend_ui, lend_warned) = self.lend_ui();
+        let (status, session, look) = describe(&snap, busy);
+        if self.shown.as_ref().is_some_and(|(s, b, c, u, l, line)| *s == snap && *b == busy && *c == code && *u == share_ui && *l == lend_ui && *line == session) {
             return;
         }
-        let (status, session, look) = describe(&snap, busy);
         let idle = busy.is_none();
         self.status.set_text(&status);
         self.session.set_text(&session);
@@ -467,6 +549,20 @@ impl App {
         self.share.set_enabled(
             idle && !share_ui.busy && console.is_some_and(|c| c.share.is_some() || (c.share_enabled && !c.device_session())),
         );
+        // Prêter l'ordinateur : quand le prêt est activé dans Admin ; pendant un
+        // prêt, le reprendre d'ici (tout de suite pendant le préavis).
+        let lend_view = console.and_then(|c| c.lend.as_ref());
+        let lent = lend_view.is_some_and(lend::active);
+        let notice = lend_view.and_then(lend::notice_end).is_some();
+        self.lend.set_text(t(
+            match (lent, notice) {
+                (true, true) => "tray.menu.takeBackNow",
+                (true, false) => "tray.menu.takeBack",
+                _ => "tray.menu.lend",
+            },
+            &[],
+        ));
+        self.lend.set_enabled(idle && !lend_ui.busy && lend_view.is_some_and(|l| lent || l["enabled"] == true));
         // L'état du relais, sous la session, quand il compte : joint, ou injoignable.
         let relay = console.and_then(|c| c.relay.as_ref()).and_then(|r| share::relay_line(lang(), r));
         if let Some(text) = &relay {
@@ -494,21 +590,27 @@ impl App {
             .unwrap_or_default();
         let asks: HashSet<String> =
             console.and_then(|c| c.share.as_ref()).map(|s| share::local_request_ids(s).into_iter().collect()).unwrap_or_default();
+        // Un ami veut emprunter l'ordinateur, ou son créneau commence : la page du prêt.
+        let lend_asks: HashSet<String> = lend_view.map(|l| lend::request_ids(l).into_iter().chain(lend::slot_start(l)).collect()).unwrap_or_default();
         let fresh = requests.iter().any(|id| !self.seen_requests.contains(id));
         let fresh_ask = asks.iter().any(|id| !self.seen_asks.contains(id));
+        let fresh_lend = lend_asks.iter().any(|id| !self.seen_lend.contains(id));
         self.seen_requests = requests;
         self.seen_asks = asks;
-        if fresh || fresh_ask {
+        self.seen_lend = lend_asks;
+        if fresh || fresh_ask || fresh_lend {
             self.reveal_panel();
         }
         // Panneau ouvert (et à l'instant pour une demande) : l'état à jour, puis la page.
         if let Some(panel) = self.panel.as_mut() {
-            panel.push(&panel_state(&snap, busy, code.as_deref(), &share_ui).to_string());
-            if fresh_ask {
+            panel.push(&panel_state(&snap, busy, code.as_deref(), &share_ui, &lend_ui, lend_warned).to_string());
+            if fresh_lend {
+                panel.show_page("lend");
+            } else if fresh_ask {
                 panel.show_page("share");
             }
         }
-        self.shown = Some((snap, busy, code, share_ui));
+        self.shown = Some((snap, busy, code, share_ui, lend_ui, session));
     }
 
     /// Ouvre le panneau contre l'icône s'il est fermé.
@@ -579,24 +681,80 @@ impl App {
         self.refresh();
     }
 
+    /// Une action du prêt dans son propre fil, comme [`App::share_act`] ; la
+    /// vue du prêt qu'elle rend est montrée aussitôt. `warned` : l'action vaut
+    /// lecture de l'avertissement (un code créé, une demande acceptée).
+    fn lend_act(&mut self, warned: bool, job: impl FnOnce(&Client, u16) -> Result<Value> + Send + 'static) {
+        {
+            let mut s = self.shared.lock().unwrap();
+            if s.lend_ui.busy {
+                return;
+            }
+            s.lend_ui.busy = true;
+            s.lend_ui.error = None;
+        }
+        let inline = self.panel.as_ref().is_some_and(Panel::is_visible);
+        let (shared, wake) = (self.shared.clone(), self.wake.clone());
+        std::thread::spawn(move || {
+            let result = console::port()
+                .ok_or_else(|| anyhow::anyhow!(t("tray.consolePortMissingShort", &[])))
+                .and_then(|port| job(&Client::new(), port));
+            let mut failure = None;
+            {
+                let mut s = shared.lock().unwrap();
+                s.lend_ui.busy = false;
+                match result {
+                    Ok(view) => {
+                        set_lend(&mut s, view);
+                        if warned && !s.lend_warned {
+                            s.lend_warned = true;
+                            if let Some(path) = lend_warned_path() {
+                                let _ = path.parent().map(std::fs::create_dir_all);
+                                let _ = std::fs::write(path, b"");
+                            }
+                        }
+                    }
+                    Err(e) if inline => s.lend_ui.error = Some(format!("{e:#}")),
+                    Err(e) => failure = Some(format!("{e:#}")),
+                }
+            }
+            let _ = wake.send(());
+            if let Some(text) = failure {
+                alert(&text);
+            }
+        });
+        self.refresh();
+    }
+
     /// « Partager un écran… » du menu : le panneau s'ouvre sur le choix de
     /// l'écran (sans panneau, l'accueil d'Admin, qui a le même choix).
     fn open_share_choice(&mut self) {
+        self.open_page("choose", "ensemble");
+    }
+
+    /// Une page du panneau, ouvert s'il est fermé ; sans panneau, la page
+    /// d'Admin qui fait la même chose.
+    fn open_page(&mut self, page: &'static str, console_page: &str) {
         match (self.panel.as_mut(), self.tray.rect()) {
             (Some(panel), Some(rect)) => {
                 if !panel.is_visible() && panel.toggle(rect.position, (rect.size.width, rect.size.height)) {
                     self.shown = None;
                     let _ = self.wake.send(());
                 }
-                panel.show_page("choose");
+                panel.show_page(page);
                 self.refresh();
             }
             _ => {
-                if let Err(e) = open_console_at("ensemble") {
+                if let Err(e) = open_console_at(console_page) {
                     alert(&format!("{e:#}"));
                 }
             }
         }
+    }
+
+    fn lend_view(&self) -> Option<Value> {
+        let (snap, _, _, _) = self.snapshot();
+        snap.and_then(|s| s.console).and_then(|c| c.lend)
     }
 
     fn share_open(&self) -> bool {
@@ -639,6 +797,16 @@ impl App {
                 self.share_act(|c, port| c.share_stop(port).map(|()| ShareChange::Closed));
             } else {
                 self.open_share_choice();
+            }
+        } else if id == *self.lend.id() {
+            // Pendant un prêt : le reprendre (tout de suite pendant le préavis) ;
+            // sinon, le panneau du code.
+            match self.lend_view().filter(lend::active) {
+                Some(l) => {
+                    let now = lend::notice_end(&l).is_some();
+                    self.lend_act(false, move |c, port| c.lend_take_back(port, now));
+                }
+                None => self.open_page("lend", "pret"),
             }
         } else if id == *self.updates.id() {
             self.open_updates();
@@ -735,6 +903,28 @@ impl App {
             "shareStop" => self.share_act(|c, port| c.share_stop(port).map(|()| ShareChange::Closed)),
             "shareDismiss" => {
                 self.shared.lock().unwrap().share_ui.error = None;
+                self.refresh();
+            }
+            // Prêt de l'ordinateur : le code, les demandes, la reprise.
+            "lendCode" => {
+                if let Some(duration) = lend::duration(&message["duration"]) {
+                    let steam = lend::steam(&message["steam"]);
+                    self.lend_act(true, move |c, port| c.lend_code(port, duration, steam));
+                }
+            }
+            "lendCancel" => self.lend_act(false, |c, port| c.lend_cancel_code(port)),
+            "lendAnswer" => {
+                if let Some(id) = message["id"].as_str() {
+                    let (id, accept, steam) = (id.to_string(), message["accept"].as_bool() == Some(true), lend::steam(&message["steam"]));
+                    self.lend_act(accept, move |c, port| c.lend_answer(port, &id, accept, steam));
+                }
+            }
+            "lendTakeBack" => {
+                let now = message["now"].as_bool() == Some(true);
+                self.lend_act(false, move |c, port| c.lend_take_back(port, now));
+            }
+            "lendDismiss" => {
+                self.shared.lock().unwrap().lend_ui.error = None;
                 self.refresh();
             }
             "restart" => self.restart_server(),

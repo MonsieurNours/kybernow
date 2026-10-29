@@ -108,6 +108,22 @@ button:focus-visible { outline: 2px solid var(--signal); outline-offset: -2px; }
 .share-foot { display: flex; justify-content: space-between; gap: 8px; padding: 10px 16px 14px; margin-top: 4px; border-top: 1px solid rgba(255,255,255,.08); }
 .share-foot button.stop { background: rgba(255,107,107,.14); box-shadow: inset 0 0 0 1px rgba(255,107,107,.4); color: #FFC9C4; font-weight: 600; }
 .share-error { margin: 2px 16px 10px; padding: 10px 12px; border-radius: 10px; background: rgba(255,107,107,.12); box-shadow: inset 0 0 0 1px rgba(255,107,107,.4); color: #FFC9C4; font-size: 12px; line-height: 1.45; }
+/* Prêt de l'ordinateur : le choix (durée, compte Steam), l'avertissement, le prêt en cours. */
+.choice { margin: 2px 16px 10px; display: flex; flex-direction: column; gap: 6px; }
+.choice .lbl { color: var(--muted); }
+.seg { display: flex; flex-wrap: wrap; gap: 6px; }
+.seg button { height: 28px; padding: 0 10px; border: 0; border-radius: 7px; background: none; box-shadow: inset 0 0 0 1px rgba(255,255,255,.16); font-size: 12px; }
+.seg button:hover:not(:disabled) { background: rgba(255,255,255,.06); }
+.seg button.on { background: rgba(109,91,255,.18); box-shadow: inset 0 0 0 1px rgba(154,140,255,.6); color: #fff; }
+.warning { margin: 2px 16px 10px; padding: 10px 12px; border-radius: 10px; background: rgba(245,184,65,.1); box-shadow: inset 0 0 0 1px rgba(245,184,65,.4); color: var(--text-2); font-size: 12px; line-height: 1.45; }
+.lend-go { display: flex; justify-content: flex-end; padding: 4px 16px 14px; }
+.lend-go button { height: 32px; padding: 0 14px; border: 0; border-radius: 8px; background: var(--signal-strong); color: #fff; font-size: 12.5px; font-weight: 600; }
+.lend-go button:disabled { opacity: .45; cursor: default; }
+.lent { margin: 4px 16px 10px; padding: 12px; border-radius: 10px; background: rgba(109,91,255,.12); box-shadow: inset 0 0 0 1px rgba(154,140,255,.45); display: flex; flex-direction: column; gap: 3px; }
+.lent strong { font-size: 14px; font-weight: 600; }
+.lent small { font-size: 11.5px; color: var(--faint); }
+.lent .mono { font-size: 12px; color: #F8E2B0; }
+.page-hint.warn { color: #F8E2B0; }
 .foot { display: flex; justify-content: space-between; align-items: center; padding: 4px 12px 6px; font-size: 12px; color: var(--faint); }
 .foot .mono { font-size: 10.5px; }
 .foot button { border: 0; background: none; padding: 6px 0; color: var(--muted); font-size: 12px; }
@@ -139,6 +155,7 @@ const ICONS = {
   display: 'M4 4h16a1.5 1.5 0 0 1 1.5 1.5v10A1.5 1.5 0 0 1 20 17H4a1.5 1.5 0 0 1-1.5-1.5v-10A1.5 1.5 0 0 1 4 4zM9 21h6M12 17v4',
   back: 'M15 6l-6 6 6 6',
   copy: 'M10 8h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2zM16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3',
+  lend: 'M7.5 7h9a5 5 0 0 1 4.9 6l-.8 3.9a2.3 2.3 0 0 1-3.9 1.1L14.6 16H9.4l-2.1 2a2.3 2.3 0 0 1-3.9-1.1L2.6 13A5 5 0 0 1 7.5 7zM7 10.5v3M5.5 12h3M15.5 11h.01M17.5 13h.01',
 }
 // Langue de Windows et textes du panneau, posés par l'icône avant la page
 // (window.__knI18n, src/i18n.rs). Le français est la source et le repli.
@@ -175,7 +192,8 @@ function elapsed(seconds) {
 }
 
 let state = null
-// Page du panneau : l'accueil (« main »), le choix de l'écran à partager (« choose »), le partage ouvert (« share »).
+// Page du panneau : l'accueil (« main »), le choix de l'écran à partager (« choose »), le partage ouvert (« share »),
+// le prêt de l'ordinateur (« lend »).
 let page = 'main'
 
 // Partage (KyberNow Share) : mêmes textes et mêmes droits que dans Admin.
@@ -282,6 +300,105 @@ function relayPhase(share) {
   return 'waiting'
 }
 
+// Prêt de l'ordinateur (docs/pret.md) : mêmes textes que les apps Link et Admin (docs/link-ui.md).
+// Le choix du code (proposés : 2 heures, son compte Steam), et le compte Steam d'une demande acceptée.
+let lendForm = { duration: 7200, steam: 'friend' }
+let askSteam = null
+const DURATIONS = [3600, 7200, 14400, null]
+const durationLabel = (d) => t(`lend.durations.${d ? `d${d}` : 'none'}`)
+const steamLabel = (v) => t(v === 'host' ? 'lend.steamHost' : 'lend.steamFriend')
+const lendActive = (lend) => ['preparing', 'lent', 'ending'].includes(lend.state) && !!lend.borrower
+const lentLine = (lend) => (lend.borrower.untilText ? t('lend.lentToUntil', { name: lend.borrower.name, time: lend.borrower.untilText }) : t('lend.lentTo', { name: lend.borrower.name }))
+const countdown = (sec) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`
+// Secondes avant la reprise (préavis de 2 min), `null` sans préavis.
+function noticeLeft(lend) {
+  const n = lend.notice
+  if (!n || !['taken_back', 'time_up', 'slot_end'].includes(n.reason)) return null
+  return Math.max(0, Math.round(n.at - Date.now() / 1000))
+}
+const spaced = (code) => `${code.slice(0, 3)} ${code.slice(3)}`
+function choice(field, options, current, label, busy) {
+  return `<div class="choice"><span class="lbl">${esc(label)}</span><div class="seg" role="radiogroup" aria-label="${esc(label)}">${options.map((o) => `<button role="radio" aria-checked="${o.value === current}" class="${o.value === current ? 'on' : ''}" data-cmd="lendPick" data-field="${field}" data-value="${o.value === null ? '' : o.value}" ${busy}>${esc(o.label)}</button>`).join('')}</div></div>`
+}
+const steamChoice = (field, current, busy) => choice(field, ['friend', 'host'].map((v) => ({ value: v, label: steamLabel(v) })), current, t('lend.steam'), busy)
+const lendError = (ui) => (ui.error ? `<div class="share-error" role="alert">${esc(ui.error)}</div>` : '')
+
+function lendPage(s, lend) {
+  const ui = s.lendUi || {}
+  const busy = ui.busy ? 'disabled' : ''
+  const name = lend.computer || (s.console && s.console.hostname) || t('hero.thisComputer')
+  const warning = ui.warned ? '' : `<p class="warning">${esc(t('lend.warning'))}</p>`
+  const parts = [pageHead(t('lend.title', { name })), lendError(ui)]
+  if (lend.notice && lend.notice.reason === 'slot_start' && lend.borrower) parts.push(`<p class="page-hint warn" role="status">${esc(t('lend.slotStart', { name: lend.borrower.name }))}</p>`)
+  const active = lendActive(lend)
+  if (active) {
+    const left = noticeLeft(lend)
+    parts.push(`<div class="lent" role="status"><strong>${esc(lentLine(lend))}</strong><small>${esc(appLine(lend.borrower))}</small>${left !== null ? `<span class="mono">${esc(t('lend.takingBackIn', { left: countdown(left) }))}</span>` : ''}</div>`)
+    parts.push(`<div class="share-foot"><span></span>${left !== null
+      ? `<button class="stop" data-cmd="lendTakeBack" data-now="1" ${busy}>${esc(t('lend.takeBackNow'))}</button>`
+      : `<button class="stop" data-cmd="lendTakeBack" ${busy}>${esc(t('lend.takeBack'))}</button>`}</div>`)
+  }
+  // Les demandes : le compte Steam choisi vaut pour celle qu'on accepte.
+  const requests = lend.requests || []
+  const asking = requests.length > 0 && !active
+  if (asking) {
+    if (askSteam === null) askSteam = requests[0].steam === 'host' ? 'host' : 'friend'
+    const asks = requests.map((r) => `<div class="guest" role="group" aria-label="${esc(t('lend.wantsToBorrow', { name: r.name }))}">
+        <div class="who"><strong>${esc(t('lend.wantsToBorrow', { name: r.name }))}</strong><small>${esc(appLine(r))}</small></div>
+        <div class="moves"><button class="accept" data-cmd="lendAnswer" data-id="${esc(r.id)}" data-accept="1" ${busy}>${esc(t('lend.accept'))}</button><button data-cmd="lendAnswer" data-id="${esc(r.id)}" ${busy}>${esc(t('lend.decline'))}</button></div>
+      </div>`).join('')
+    parts.push(`${warning}<div class="people requests"><div class="people-head"><span class="lbl">${esc(t('share.requestsTitle'))}</span></div>${asks}</div>`)
+    parts.push(steamChoice('askSteam', askSteam, busy))
+    parts.push(`<p class="page-hint">${esc(t('lend.covered'))}</p>`)
+  } else if (!requests.length) {
+    askSteam = null
+  }
+  if (active) return parts.join('')
+  if (lend.code) {
+    // Le lien du relais en préparation, comme pour le partage.
+    const relay = relayPhase({ relay: s.console && s.console.relay, code: lend.code.code })
+    const waiting = relay === 'waiting'
+    parts.push(`<div class="share-top">
+        <div class="qr" role="img" aria-label="${esc(t('lend.qrLabel'))}">${waiting ? '<span class="spin" aria-hidden="true"></span>' : lend.code.qr || ''}</div>
+        <div class="share-code"><span class="lbl">${esc(t('share.codeLabel'))}</span><strong>${esc(spaced(lend.code.code))}</strong><button data-cmd="copyLendLink" ${waiting ? 'disabled' : ''}>${icon('copy')}${esc(t('share.copy'))}</button></div>
+      </div>
+      <p class="page-hint">${esc([durationLabel(lend.code.duration), steamLabel(lend.code.steam)].join(' · '))}. ${esc(t('lend.valid'))}</p>
+      <p class="page-hint">${esc(t('lend.help'))}</p>
+      ${waiting ? `<p class="page-hint away" role="status"><span class="spin" aria-hidden="true"></span>${esc(t('share.relayPreparing'))}</p>` : relay === 'unreachable' ? `<p class="page-hint away">${esc(t('share.relayUnreachable'))}</p>` : ''}
+      ${asking ? '' : `<p class="page-hint">${esc(t('lend.covered'))}</p>`}
+      <div class="share-foot"><span></span><button class="stop" data-cmd="lendCancel" ${busy}>${esc(t('lend.cancelCode'))}</button></div>`)
+    return parts.join('')
+  }
+  if (!lend.enabled) {
+    parts.push(`<p class="page-hint">${esc(t('lend.off'))}</p>`)
+    return parts.join('')
+  }
+  if (requests.length) return parts.join('')
+  parts.push(warning)
+  parts.push(choice('duration', DURATIONS.map((d) => ({ value: d, label: durationLabel(d) })), lendForm.duration, t('lend.duration'), busy))
+  parts.push(steamChoice('steam', lendForm.steam, busy))
+  parts.push(`<div class="lend-go"><button data-cmd="lendCode" ${busy}>${esc(t('lend.create'))}</button></div>`)
+  return parts.join('')
+}
+
+// L'entrée du prêt sur l'accueil : « Prêter l'ordinateur… », le code ou les demandes, ou l'ordinateur prêté.
+function lendItem(s, up, idle) {
+  const lend = up && s.console && s.console.lend
+  if (!lend) return ''
+  if (lendActive(lend)) {
+    const left = noticeLeft(lend)
+    const detail = left !== null ? t('lend.takingBackIn', { left: countdown(left) }) : appLine(lend.borrower)
+    return `<button class="item signal" data-page="lend">${icon('lend', '#D4CEFF')}<span class="two"><span>${esc(lentLine(lend))}</span><small>${esc(detail)}</small></span></button>`
+  }
+  const asks = (lend.requests || []).length
+  if (asks || lend.code) {
+    const detail = [lend.code ? `${t('share.codeLabel')} ${spaced(lend.code.code)}` : null, asks ? tn('share.requests', asks) : null].filter(Boolean).join(' · ')
+    return `<button class="item signal" data-page="lend">${icon('lend', '#D4CEFF')}<span class="two"><span>${esc(t('lend.start'))}</span><small>${esc(detail)}</small></span></button>`
+  }
+  const why = lend.enabled ? '' : t('lend.off')
+  return `<button class="item" data-page="lend" ${idle && lend.enabled ? '' : 'disabled'}>${icon('lend')}${esc(t('lend.start'))}</button>${why ? `<p class="why">${esc(why)}</p>` : ''}`
+}
+
 // L'entrée du partage sur l'accueil du panneau : « Partager un écran… », ou le partage ouvert.
 function shareItem(s, up, idle) {
   const c = s.console
@@ -375,14 +492,17 @@ function render() {
   if (page === 'choose' && share) page = 'share'
   if (page === 'share' && !share) page = 'main'
   if (page === 'choose' && !(up && s.console)) page = 'main'
+  const lend = up && s.console && s.console.lend
+  if (page === 'lend' && !lend) page = 'main'
   if (page !== 'main') {
-    root.innerHTML = page === 'share' ? sharePage(s, share) : choosePage(s)
+    root.innerHTML = page === 'share' ? sharePage(s, share) : page === 'lend' ? lendPage(s, lend) : choosePage(s)
     requestAnimationFrame(() => send('size', { height: Math.ceil(root.getBoundingClientRect().height) }))
     return
   }
   const items = []
   if (up && session) items.push(`<button class="item danger" data-cmd="endSession" ${idle ? '' : 'disabled'}>${icon('end', '#FF8A80')}${esc(t('endSession'))}</button>`)
   items.push(shareItem(s, up, idle))
+  items.push(lendItem(s, up, idle))
   items.push(`<button class="item" data-cmd="openConsole" ${s.adminMissing ? 'disabled' : ''}>${icon('console')}${esc(t('openConsole'))}</button>`)
   if (update) items.push(`<button class="item signal" data-cmd="openUpdates">${icon('update', '#D4CEFF')}<span class="two"><span>${esc(t('installUpdate', { version: update }))}</span><small>${esc(t('aboutAMinute'))}</small></span></button>`)
   items.push('<div class="sep"></div>')
@@ -418,6 +538,7 @@ function render() {
 function setPage(p) {
   // Le refus d'Admin vaut pour la page qu'on quitte.
   if (state && state.shareUi && state.shareUi.error) send('shareDismiss')
+  if (state && state.lendUi && state.lendUi.error) send('lendDismiss')
   page = p
   if (p === 'choose') send('shareChoose')
   render()
@@ -459,6 +580,33 @@ document.addEventListener('click', (e) => {
     send(cmd, { id: b.dataset.id, accept: b.dataset.accept === '1' })
     return
   }
+  // Prêt : le choix reste dans la page jusqu'à « Créer un code » (ou « Accepter »).
+  const lend = state && state.console && state.console.lend
+  if (cmd === 'lendPick') {
+    const v = b.dataset.value
+    if (b.dataset.field === 'duration') lendForm.duration = v ? Number(v) : null
+    else if (b.dataset.field === 'steam') lendForm.steam = v
+    else askSteam = v
+    render()
+    return
+  }
+  if (cmd === 'lendCode') {
+    send(cmd, { duration: lendForm.duration, steam: lendForm.steam })
+    return
+  }
+  if (cmd === 'lendAnswer') {
+    send(cmd, { id: b.dataset.id, accept: b.dataset.accept === '1', steam: askSteam || 'friend' })
+    return
+  }
+  if (cmd === 'lendTakeBack') {
+    send(cmd, { now: b.dataset.now === '1' })
+    return
+  }
+  if (cmd === 'copyLendLink' && lend && lend.code) {
+    navigator.clipboard && navigator.clipboard.writeText(lend.code.web)
+    b.textContent = t('copied')
+    return
+  }
   send(cmd)
 })
 // Échap : d'une page du partage à l'accueil, puis le panneau se ferme.
@@ -467,11 +615,13 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { if (page
 window.__knState = (s) => { state = s; render() }
 // À chaque ouverture : le choix d'un écran ne reste pas en plan (le partage ouvert, si).
 window.__knShown = () => { if (page === 'choose') page = 'main'; document.body.classList.remove('shown'); void document.body.offsetWidth; document.body.classList.add('shown'); render() }
-// L'icône ouvre une page (« Partager un écran… » de son menu ; le partage, pour une
-// demande) : déjà sur le partage, elle y reste telle quelle.
-window.__knPage = (p) => { if (!(p === 'share' && page === 'share')) setPage(p) }
-// Les durées (« depuis 12 min ») avancent même sans nouvel état.
+// L'icône ouvre une page (« Partager un écran… » ou « Prêter l'ordinateur… » de son menu ;
+// le partage ou le prêt, pour une demande) : déjà sur cette page, elle y reste telle quelle.
+window.__knPage = (p) => { if (!((p === 'share' || p === 'lend') && page === p)) setPage(p) }
+// Les durées (« depuis 12 min ») avancent même sans nouvel état ; le décompte
+// d'une reprise (« Reprise dans 1:42 »), chaque seconde.
 setInterval(render, 30000)
+setInterval(() => { const l = state && state.console && state.console.lend; if (l && noticeLeft(l) !== null) render() }, 1000)
 send('ready')
 </script>
 </body>
