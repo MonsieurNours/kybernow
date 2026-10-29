@@ -539,7 +539,9 @@ pub async fn borrow(
             s.activity.event("info", Msg::new("events.lendRequest").with("name", name.as_str()));
         }
         tracing::info!("prêt : {name} demande l'ordinateur");
-        let answer = json!({ "request": request.id, "secret": request.secret() });
+        // `host` : « En attente de {hôte}… », même venu par un code.
+        let host = tokio::task::spawn_blocking(host_name).await.unwrap_or_default();
+        let answer = json!({ "request": request.id, "secret": request.secret(), "host": host, "computer": hostname() });
         return (StatusCode::ACCEPTED, [(header::CACHE_CONTROL, "no-store")], Json(answer)).into_response();
     }
     let loan = s.lend.begin(who, until, steam, None);
@@ -1216,12 +1218,24 @@ mod tests {
         s.activity.begin(Some(crate::activity::DeviceInfo { id: "mac-1".into(), name: "MacBook".into(), kind: Some("mac".into()), os: None, app: None }), "mac", None, None);
         let (status, asked) = body(borrow(State(s.clone()), peer(30), None, login("secret-lea")).await).await;
         assert_eq!(status, StatusCode::ACCEPTED, "{asked}");
+        assert!(asked["host"].is_string() && asked["computer"].is_string(), "{asked}");
         let (request, secret) = (asked["request"].as_str().unwrap().to_string(), asked["secret"].as_str().unwrap().to_string());
         assert_eq!(view(&s)["requests"][0]["name"], "Léa");
         // L'hôte refuse.
         let Json(_) = local_answer(State(s.clone()), local(), admin(&s), Path(request.clone()), Json(AnswerBody { accept: false, steam: None })).await.ok().unwrap();
         let (status, v) = body(wait(State(s.clone()), secret_headers(&secret), None, Json(WaitBody { request: Some(request), lend: None })).await).await;
         assert_eq!((status, v["error"].clone()), (StatusCode::FORBIDDEN, json!("refused")));
+        // Une nouvelle demande, que l'ami annule (« Annuler ») : l'hôte ne la voit plus.
+        let (status, asked) = body(borrow(State(s.clone()), peer(30), None, login("secret-lea")).await).await;
+        assert_eq!(status, StatusCode::ACCEPTED, "{asked}");
+        let (request, secret) = (asked["request"].as_str().unwrap().to_string(), asked["secret"].as_str().unwrap().to_string());
+        let (status, _) = body(leave(State(s.clone()), secret_headers("faux"), None, Json(LendBody { lend: None, request: Some(request.clone()) })).await).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        let (status, _) = body(leave(State(s.clone()), secret_headers(&secret), None, Json(LendBody { lend: None, request: Some(request.clone()) })).await).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(view(&s)["requests"].as_array().map(Vec::len), Some(0));
+        let (status, _) = body(wait(State(s.clone()), secret_headers(&secret), None, Json(WaitBody { request: Some(request), lend: None })).await).await;
+        assert_ne!(status, StatusCode::OK);
         assert_eq!(friend.login, "lea");
         let _ = std::fs::remove_dir_all(dir);
     }
