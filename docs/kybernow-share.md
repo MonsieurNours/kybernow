@@ -115,5 +115,5 @@ Le relais de KyberNow fait rejoindre un partage depuis internet : même code, m�
 
 ## Hors de ce premier pas
 
-- Le prêt de l'ordinateur à tour de rôle (compte Windows dédié, lanceur) : plus tard.
+- Le prêt de l'ordinateur à tour de rôle : son propre contrat, [pret.md](pret.md) (mode console dans la session de l'hôte).
 - Plusieurs écrans partagés à la fois : le partage montre un écran.

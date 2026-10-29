@@ -115,5 +115,5 @@ The KyberNow relay lets a guest join a share from the internet: same code, same 
 
 ## Outside this first step
 
-- Lending the computer in turns (dedicated Windows account, launcher): later.
+- Lending the computer in turns: its own contract, [pret.en.md](pret.en.md) (console mode in the host's session).
 - Several displays shared at once: a share shows one display.

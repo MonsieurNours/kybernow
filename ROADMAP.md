@@ -51,7 +51,7 @@ Tout ce qui fait entrer quelqu'un d'autre sur votre ordinateur. Nom choisi le 26
 - **Invité retiré** : il peut revenir avec le même code tant que l'hôte n'a pas demandé « Nouveau code ».
 - **Public Suffix List** : inscrire `share.kybernow.app` à la liste, pour que les navigateurs traitent l'adresse de chaque Station (`<identifiant>.share.kybernow.app`) comme un site à part (cookies, stockage).
 - **Lien montant de la maison** : le partager équitablement entre plusieurs invités.
-- **Prêt de l'ordinateur**, à tour de rôle (Windows n'a qu'une session ouverte à l'écran) : compte Windows dédié, sans droits ni accès à vos fichiers ; bureau remplacé par un lanceur qui relance le programme quand il se ferme, sans Explorateur ; liste d'apps choisie par l'hôte, le service de la Station ferme le reste. L'ami joue avec son propre compte Steam (vos jeux : Familles Steam). Trois accès : accès d'ami activable (reprise avec préavis), code pour une séance, créneaux horaires. Point délicat : ouvrir la session du compte dédié sans taper son mot de passe.
+- **Prêt de l'ordinateur** (en cours, 0.9.0 ; contrat : [docs/pret.md](docs/pret.md)) : à tour de rôle, en **mode console** dans votre propre session Windows (lanceur plein écran aux couleurs de KyberNow Share, apps choisies, écran du PC couvert, reprise avec 2 min de préavis, session verrouillée à la fin) ; code pour une séance, comptes d'amis, créneaux ; compte Steam au choix à chaque prêt.
 - **Piste** : prêter l'ordinateur pendant que vous l'utilisez, par une machine virtuelle qui partage la carte graphique (Hyper-V) ; demande Windows Pro et une 2e licence, se heurte aux anti-triche, encodeur à vérifier.
 
 ## Manettes Sony en mode « Fidèle »

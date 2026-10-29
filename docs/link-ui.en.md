@@ -157,6 +157,59 @@ An open share shows in the bar (a « 2 invités » / “2 guests” chip, from o
 
 **Admin's feed**: « {hôte} partage l'écran {n} » / “{host} is sharing display {n}”; « {prénom} regarde votre écran » / “{name} is watching your screen” (on arrival, or no right left); « {prénom} joue avec vous » / “{name} is playing with you” (a right given); « {prénom} a quitté le partage » / “{name} left the share” (gone, removed, or timed out); « Partage arrêté » / “Sharing stopped”; through the relay: « {prénom} demande à rejoindre (hors de chez vous) » / “{name} wants to join (away from home)”, « {prénom} : demande refusée » / “{name}: request declined”.
 
+## Lending the computer (KyberNow Share)
+
+Contract: [pret.en.md](pret.en.md). Every Link app, the web client, Admin and the icon next to the clock, the same texts everywhere. The launcher and the PC's screen carry the KyberNow Share logo.
+
+**The host**: « Prêter l'ordinateur… » / “Lend the computer…” (session bar of the Link apps, the icon's menu, Admin's home and “Lending” page). It opens a panel:
+
+| Item | French | English |
+|---|---|---|
+| Title | « Prêter {nom} » (the computer) | “Lend {name}” |
+| Duration | « Durée » : « 1 heure », « 2 heures », « 4 heures », « Jusqu'à ce que je reprenne » (default: 2 hours) | “Duration”: “1 hour”, “2 hours”, “4 hours”, “Until I take it back” |
+| Steam account | « Compte Steam » : « Son compte Steam » (default), « Votre compte Steam » | “Steam account”: “Their Steam account”, “Your Steam account” |
+| Button | « Créer un code » | “Create a code” |
+| Code, link, QR code | as for sharing (« 123 456 », « Copier le lien », QR code, relay link being prepared); below « Pour une séance, valable 24 h. » | as for sharing; “For one session, valid for 24 h.” |
+| Help | « Votre ami entre ce code avec « Rejoindre avec un code » dans KyberNow Link, ou ouvre ce lien dans un navigateur. » | “Your friend enters this code with “Join with a code” in KyberNow Link, or opens this link in a browser.” |
+| Code created from the session | « Votre session se fermera quand votre ami arrivera. » | “Your session will close when your friend arrives.” |
+| Cancel | « Annuler le code » | “Cancel code” |
+| Warning (once, and in Admin) | « Votre ami joue dans votre session Windows. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance. » | “Your friend plays in your Windows session. They see neither your desktop nor your windows, but a game can read your files: lend to friends you trust.” |
+| Lending off in Admin | « Le prêt est coupé dans Admin (page « Prêt »). » | “Lending is off in Admin (“Lending” page).” |
+| Station too old | « Le prêt demande KyberNow Station 0.9.0 ou plus récente. » | “Lending needs KyberNow Station 0.9.0 or later.” |
+
+**Requests** (computer in use): notice « {prénom} veut emprunter l'ordinateur. » / “{name} wants to borrow the computer.” with « Accepter » / “Accept” and « Refuser » / “Decline” (the icon's notification, session bar, Admin); below, « {app} · hors de chez vous » when the friend comes through the relay. Accepting from one's session: « Votre session va se fermer. » / “Your session will close.” Time slot: « Créneau de {prénom} : l'ordinateur lui est prêté dans 2 min. » / “{name}'s time slot: the computer is lent to them in 2 min.”
+
+**During a loan, on the host's side**:
+
+| Item | French | English |
+|---|---|---|
+| Computer state (Link apps' home, icon, Admin) | « Prêté à {prénom} »; with an end: « Prêté à {prénom} jusqu'à 18 h » | “Lent to {name}”; “Lent to {name} until 6 PM” |
+| Main button | « Reprendre l'ordinateur » | “Take back the computer” |
+| Notice running | « Reprise dans 1:42 » and « Reprendre tout de suite » | “Taking back in 1:42”, “Take back now” |
+| PC's screen (cover) | KyberNow Share logo; « Ordinateur prêté à {prénom} » ; « Jusqu'à 18 h » when there is an end; « Pour reprendre l'ordinateur, appuyez sur Entrée. » | “Computer lent to {name}”; “Until 6 PM”; “To take back the computer, press Enter.” |
+| PC's screen, after Enter | « Reprendre l'ordinateur ? {prénom} a 2 minutes pour sauvegarder. » ; « Entrée : reprendre · Échap : annuler » | “Take back the computer? {name} has 2 minutes to save.”; “Enter: take back · Esc: cancel” |
+| PC's screen, notice | « Reprise dans 1:42 · Entrée : tout de suite » | “Taking back in 1:42 · Enter: right now” |
+
+**The friend**:
+
+| Item | French | English |
+|---|---|---|
+| Card on the home screen | « Ordinateur de {hôte} » ; état « Disponible », « Occupé », « Prêté à quelqu'un d'autre », « Verrouillé », « Prêt coupé », « Hors ligne »; with a time slot: « Votre créneau : mercredi, 14 h – 18 h » or « Votre créneau, jusqu'à 18 h » | “{host}'s computer”; “Available”, “In use”, “Lent to someone else”, “Locked”, “Lending off”, “Offline”; “Your time slot: Wednesday, 2 PM – 6 PM”, “Your time slot, until 6 PM” |
+| Main button | « Emprunter »; in use: « Demander à {hôte} » | “Borrow”; “Ask {host}” |
+| Add | « Ajouter un ordinateur » › « Avec un compte d'ami » : « Identifiant », « Mot de passe », « Retenir le mot de passe »; invitation link: « {hôte} vous prête son ordinateur. » and « Ajouter » | “Add a computer” › “With a friend account”: “Username”, “Password”, “Remember password”; “{host} is lending you their computer.”, “Add” |
+| Waiting for approval | « En attente de {hôte}… » and « Annuler » | “Waiting for {host}…”, “Cancel” |
+| Preparing | the connection steps, with « Préparation de l'ordinateur » as the first step | “Preparing the computer” |
+| Bar | « Prêté par {hôte} » ; « Encore 1 h 20 » or « Jusqu'à ce que {hôte} reprenne » ; « Rendre l'ordinateur » (confirmation: « Rendre l'ordinateur à {hôte} ? »); latency and statistics, sound, full screen, mouse and keys, controllers; no Station profile, no clipboard | “Lent by {host}”; “1 h 20 left”, “Until {host} takes it back”; “Give back the computer” (“Give the computer back to {host}?”) |
+| Launcher | KyberNow Share logo; one tile per app ; « Encore 1 h 20 » ; « Rendre l'ordinateur » | as in the bar |
+| Notice | « {hôte} reprend l'ordinateur dans 2 min : sauvegardez votre partie. » ; « Fin du prêt dans 2 min : sauvegardez votre partie. » ; « Votre créneau se termine dans 2 min : sauvegardez votre partie. » | “{host} is taking back the computer in 2 min: save your game.”; “The loan ends in 2 min: save your game.”; “Your time slot ends in 2 min: save your game.” |
+| End | « {hôte} a repris l'ordinateur. » ; « Le prêt est terminé. » ; « Votre créneau est terminé. »; end card with « Fermer » | “{host} took back the computer.”; “The loan is over.”; “Your time slot is over.” |
+| Refusals | « {hôte} a refusé. » ; « {hôte} n'a pas répondu. » ; « Identifiant ou mot de passe refusé. » ; « Ce code ne sert plus. » ; « L'ordinateur est déjà prêté. » ; « L'ordinateur est verrouillé. » ; « Le prêt est coupé sur cet ordinateur. » | “{host} declined.”; “{host} didn't answer.”; “Username or password refused.”; “This code is no longer valid.”; “The computer is already lent.”; “The computer is locked.”; “Lending is off on this computer.” |
+| Coming back | window closed or network lost: « Vous pouvez revenir pendant 15 min. » on the end card, with « Revenir » | “You can come back for 15 min.”, “Come back” |
+
+**Admin, « Prêt » / “Lending” page**: « Prêter l'ordinateur » (switch) ; « Apps permises » / “Allowed apps” (« Steam », « Ajouter une app ») ; « Comptes d'amis » / “Friend accounts” (« Ajouter un ami », « Prénom », « Identifiant », « Mot de passe », « Compte Steam proposé », « Créneaux », « Ajouter un créneau », « Lien d'invitation », « Supprimer ») ; « Prêt en cours » / “Current loan”.
+
+**Admin's feed**: « Ordinateur prêté à {prénom} » / “Computer lent to {name}” ; « {prénom} a rendu l'ordinateur » / “{name} gave back the computer” ; « Vous avez repris l'ordinateur » / “You took back the computer” ; « {prénom} veut emprunter l'ordinateur » / “{name} wants to borrow the computer” ; « {prénom} : demande refusée » / “{name}: request declined”.
+
 ## Away from home (relay)
 
 Contract: [relais.en.md](relais.en.md). Through the relay, a session looks like a session on the network; only these texts change.
