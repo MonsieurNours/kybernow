@@ -67,7 +67,8 @@
     "refused": "L'hôte a refusé.",
     "expired": "L'hôte n'a pas répondu.",
     "pending_full": "Trop de demandes en attente : réessayez dans un instant.",
-    "share_stopped": "Ce partage est arrêté."
+    "share_stopped": "Ce partage est arrêté.",
+    "lend_code": "Ce code sert à emprunter l'ordinateur."
   },
   "relay": {
     "unreachable": "Le relais ne répond pas.",
@@ -82,5 +83,29 @@
     "path_relay_tcp": "Par le relais (TCP)",
     "no_fingerprint": "par le relais, l'empreinte de l'ordinateur est nécessaire : appairez cet appareil sur le réseau de l'ordinateur",
     "fingerprint_mismatch": "l'empreinte de l'ordinateur donnée par le relais n'est pas celle que connaît cet appareil"
+  },
+  "lend": {
+    "bad_credentials": "Identifiant ou mot de passe refusé.",
+    "no_code": "Ce code ne sert plus.",
+    "lent": "L'ordinateur est déjà prêté.",
+    "locked": "L'ordinateur est verrouillé.",
+    "off": "Le prêt est coupé sur cet ordinateur.",
+    "refused": "{host} a refusé.",
+    "expired": "{host} n'a pas répondu.",
+    "unsupported": "Le prêt demande KyberNow Station 0.9.0 ou plus récente.",
+    "notice_taken_back": "{host} reprend l'ordinateur dans 2 min : sauvegardez votre partie.",
+    "notice_time_up": "Fin du prêt dans 2 min : sauvegardez votre partie.",
+    "notice_slot_end": "Votre créneau se termine dans 2 min : sauvegardez votre partie.",
+    "notice_slot_start": "Créneau de {name} : l'ordinateur lui est prêté dans 2 min.",
+    "end_taken_back": "{host} a repris l'ordinateur.",
+    "end_over": "Le prêt est terminé.",
+    "end_slot_end": "Votre créneau est terminé.",
+    "lost": "l'ordinateur prêté ne répond plus",
+    "unauthorized": "l'ordinateur refuse le jeton du prêt : empruntez-le de nouveau",
+    "state_free": "Disponible",
+    "state_busy": "Occupé",
+    "state_lent": "Prêté à quelqu'un d'autre",
+    "state_locked": "Verrouillé",
+    "state_off": "Prêt coupé"
   }
 }

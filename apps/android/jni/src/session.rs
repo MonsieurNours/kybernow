@@ -146,6 +146,35 @@ impl Platform for AndroidPlatform {
         });
     }
 
+    /// Prêt de l'ordinateur, emprunt : `SessionListener.onLendNotice(json, text)`
+    /// (`{reason, at}` et l'avis de link-ui).
+    fn on_lend_notice(&self, notice: &kybernow_core::lend::LendNotice, text: &str) {
+        let json = serde_json::to_string(notice).unwrap_or_default();
+        self.0.listener.with(|env, obj| {
+            let j = env.new_string(&json)?;
+            let t = env.new_string(text)?;
+            env.call_method(obj, "onLendNotice", "(Ljava/lang/String;Ljava/lang/String;)V", &[JValue::Object(&j), JValue::Object(&t)]).map(|_| ())
+        });
+    }
+
+    /// Emprunt : `SessionListener.onLendEnd(end, text)` (0 repris, 1 durée
+    /// passée, 2 fin du créneau, 3 rendu, sans texte, 4 arrêté).
+    fn on_lend_end(&self, end: kybernow_core::lend::LendEnd, text: &str) {
+        self.0.listener.with(|env, obj| {
+            let s = env.new_string(text)?;
+            env.call_method(obj, "onLendEnd", "(ILjava/lang/String;)V", &[JValue::Int(end.code()), JValue::Object(&s)]).map(|_| ())
+        });
+    }
+
+    /// Hôte : `SessionListener.onLend(json)` (la vue du prêt, `null` : rien à dire).
+    fn on_lend(&self, lend: Option<&kybernow_core::lend::LendView>) {
+        let json = lend.map(|l| serde_json::to_string(l).unwrap_or_default());
+        self.0.listener.with(|env, obj| {
+            let s = jstring_or_null(env, json.as_deref())?;
+            env.call_method(obj, "onLend", "(Ljava/lang/String;)V", &[JValue::Object(&s)]).map(|_| ())
+        });
+    }
+
     fn on_share_end(&self, end: &ShareEnd, text: &str) {
         self.0.listener.with(|env, obj| {
             let s = env.new_string(text)?;

@@ -35,6 +35,7 @@ use kybernow_core::{Display, WindowHandle};
 
 pub mod audio;
 pub mod input;
+pub mod lend;
 pub mod relay;
 pub mod share;
 
@@ -771,6 +772,22 @@ pub struct KnPlatform {
     /// refait avec un nom). Choisir l'état de l'accueil par `code`, jamais
     /// par le texte.
     pub on_relay_error: Option<unsafe extern "C" fn(userdata: *mut c_void, code: i32, text: *const c_char)>,
+    /// Session d'emprunt (docs/pret.md) : le préavis de 2 minutes, quand il
+    /// arrive ; `notice_json` `{reason, at}` (`reason` : `taken_back`,
+    /// `time_up`, `slot_end` ; `at` : l'heure de la fin, secondes Unix) ;
+    /// `text` : l'avis de link-ui (« {hôte} reprend l'ordinateur dans 2 min :
+    /// sauvegardez votre partie. »).
+    pub on_lend_notice: Option<unsafe extern "C" fn(userdata: *mut c_void, notice_json: *const c_char, text: *const c_char)>,
+    /// Session d'emprunt : le prêt finit la session, juste avant
+    /// `KN_STATUS_ENDING` ; `end` : `KN_LEND_END_*` ; `text` : la raison de
+    /// link-ui (vide pour `KN_LEND_END_LEFT`, l'ordinateur rendu). Une fin
+    /// d'emprunt sans ce rappel (fenêtre fermée, réseau perdu) laisse
+    /// revenir pendant 15 min (`kn_lend_borrow` de nouveau).
+    pub on_lend_end: Option<unsafe extern "C" fn(userdata: *mut c_void, end: i32, text: *const c_char)>,
+    /// Session d'hôte : la vue du prêt de l'ordinateur (comme
+    /// `kn_console_lend_state`), quand elle change ; nulle quand il n'y a
+    /// rien à dire (ni code, ni demande, ni prêt).
+    pub on_lend: Option<unsafe extern "C" fn(userdata: *mut c_void, lend_json: *const c_char)>,
 }
 
 struct ApplePlatform {
@@ -840,6 +857,25 @@ impl Platform for ApplePlatform {
         let Some(f) = self.cb.on_route else { return };
         let c = CString::new(serde_json::to_string(route).unwrap_or_default()).unwrap_or_default();
         unsafe { f(self.cb.userdata, c.as_ptr()) };
+    }
+
+    fn on_lend_notice(&self, notice: &kybernow_core::lend::LendNotice, text: &str) {
+        let Some(f) = self.cb.on_lend_notice else { return };
+        let json = CString::new(serde_json::to_string(notice).unwrap_or_default()).unwrap_or_default();
+        let c = CString::new(text.replace('\0', " ")).unwrap_or_default();
+        unsafe { f(self.cb.userdata, json.as_ptr(), c.as_ptr()) };
+    }
+
+    fn on_lend_end(&self, end: kybernow_core::lend::LendEnd, text: &str) {
+        let Some(f) = self.cb.on_lend_end else { return };
+        let c = CString::new(text.replace('\0', " ")).unwrap_or_default();
+        unsafe { f(self.cb.userdata, end.code(), c.as_ptr()) };
+    }
+
+    fn on_lend(&self, lend: Option<&kybernow_core::lend::LendView>) {
+        let Some(f) = self.cb.on_lend else { return };
+        let json = lend.map(|l| CString::new(serde_json::to_string(l).unwrap_or_default().replace('\0', " ")).unwrap_or_default());
+        unsafe { f(self.cb.userdata, json.as_ref().map_or(std::ptr::null(), |c| c.as_ptr())) };
     }
 
     fn on_relay_error(&self, error: &kybernow_core::relay::RelayError, text: &str) {
@@ -1078,6 +1114,11 @@ pub struct KnSession {
 /// 1,5 s) et `relay` (`{server, station, admin_fp}`, `kn_relay_route_from_info`) ;
 /// absent : en direct, ou `auto` si `relay` est donné. Un invité venu par le
 /// relais y reste (la route voyage dans `joined`). La plateforme reçoit `on_route`.
+/// Prêt de l'ordinateur (docs/pret.md), session d'emprunt : `borrower`
+/// (`{"borrowed": <borrowed de kn_lend_borrow>}`), `console_host`,
+/// `console_port` et `console_fingerprint` de `target` ; `user`, `password`
+/// et `mode` facultatifs (l'écran virtuel du prêt). Elle reçoit
+/// `on_lend_notice` et `on_lend_end` ; une session d'hôte reçoit `on_lend`.
 /// Nul si les paramètres sont illisibles (`error`). La session commence tout
 /// de suite ; `on_status` suit.
 #[unsafe(no_mangle)]
@@ -1107,9 +1148,18 @@ fn with<R>(s: *const KnSession, f: impl FnOnce(&Session) -> R) -> Option<R> {
 }
 
 /// Demande la fin de la session (sans attendre : `KN_STATUS_ENDED` suit).
+/// Une session d'emprunt fermée ainsi ne rend pas l'ordinateur (retour
+/// possible pendant 15 min).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_session_stop(s: *const KnSession) {
     with(s, |s| s.stop());
+}
+
+/// Session d'emprunt : « Rendre l'ordinateur » (après sa confirmation) : le
+/// prêt finit, puis la session, sans erreur. Sans effet hors d'un emprunt.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_session_give_back(s: *const KnSession) {
+    with(s, |s| s.give_back());
 }
 
 /// Attend la fin du fil de session (console prévenue). Jamais depuis un rappel.

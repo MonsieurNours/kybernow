@@ -991,6 +991,11 @@ pub enum ShareError {
     /// Par le relais : l'hôte a arrêté le partage pendant l'attente de son
     /// accord (`wait` : `{"error":"stopped"}`) : « Ce partage est arrêté. »
     Stopped,
+    /// Ce code est un code de prêt de l'ordinateur (`404 {"error":"no_share",
+    /// "lend":true}`, docs/pret.md) : la Station qui l'a, et le chemin pris.
+    /// L'app emprunte avec [`crate::lend::borrow`] (« Ce code sert à
+    /// emprunter l'ordinateur. » pour une app qui ne prête pas encore).
+    Lend(Box<crate::lend::LendCode>),
     /// Le reste : Admin injoignable, certificat changé, réponse illisible,
     /// relais muet (`ConsoleError::Relay`).
     Other(ConsoleError),
@@ -1007,12 +1012,14 @@ impl ShareError {
             Self::Expired => tr(lang, "share.expired", &[]),
             Self::PendingFull => tr(lang, "share.pending_full", &[]),
             Self::Stopped => tr(lang, "share.share_stopped", &[]),
+            Self::Lend(_) => tr(lang, "share.lend_code", &[]),
             Self::Other(e) => e.text(lang),
         }
     }
 
     /// Nom stable pour les ponts : `no_share`, `full`, `too_many`,
-    /// `unreadable`, `refused`, `expired`, `pending_full`, `stopped`, `other`.
+    /// `unreadable`, `refused`, `expired`, `pending_full`, `stopped`, `lend`,
+    /// `other`.
     pub fn kind(&self) -> &'static str {
         match self {
             Self::NoShare => "no_share",
@@ -1023,6 +1030,7 @@ impl ShareError {
             Self::Expired => "expired",
             Self::PendingFull => "pending_full",
             Self::Stopped => "stopped",
+            Self::Lend(_) => "lend",
             Self::Other(_) => "other",
         }
     }
@@ -1174,12 +1182,12 @@ pub fn parse_link(url: &str) -> Option<JoinLink> {
     Some(JoinLink { host, port, fingerprint: None, code, relay: None, sid: None })
 }
 
-fn strip_brackets(host: &str) -> &str {
+pub(crate) fn strip_brackets(host: &str) -> &str {
     host.strip_prefix('[').and_then(|h| h.strip_suffix(']')).unwrap_or(host)
 }
 
 /// `adresse:port`, une adresse IPv6 entre crochets.
-fn split_authority(authority: &str) -> Option<(String, u16)> {
+pub(crate) fn split_authority(authority: &str) -> Option<(String, u16)> {
     let (host, port) = if let Some(rest) = authority.strip_prefix('[') {
         let (h, after) = rest.split_once(']')?;
         (h, after.strip_prefix(':')?)
@@ -1190,7 +1198,7 @@ fn split_authority(authority: &str) -> Option<(String, u16)> {
     (!host.is_empty()).then(|| (host.to_string(), port))
 }
 
-fn query_pairs(query: &str) -> Vec<(String, String)> {
+pub(crate) fn query_pairs(query: &str) -> Vec<(String, String)> {
     query
         .split('&')
         .filter(|p| !p.is_empty())
@@ -1258,9 +1266,13 @@ const JOIN_TIMEOUT: Duration = Duration::from_secs(6);
 pub fn join(targets: &[ShareTarget], req: &JoinRequest) -> Result<Found, ShareError> {
     join_with(targets, req, |t, r| {
         let console = Console::guest(&t.host, t.port, t.fingerprint.clone());
-        let joined = console.share_join(r)?;
+        let joined = console.share_join(r);
         let fingerprint = t.fingerprint.clone().or_else(|| console.fingerprint_seen());
-        Ok(Found { target: ShareTarget { fingerprint, ..t.clone() }, joined })
+        let target = ShareTarget { fingerprint, ..t.clone() };
+        match joined {
+            Ok(joined) => Ok(Found { target, joined }),
+            Err(e) => Err(lend_code(e, &r.code, target, None)),
+        }
     })
 }
 
@@ -1410,20 +1422,32 @@ fn unique_relays(relays: &[RelayAddr]) -> Vec<RelayAddr> {
 }
 
 /// La console vers Admin d'une Station par le relais, sans compte.
-fn relay_console(route: &RelayRoute) -> Console {
+pub(crate) fn relay_console(route: &RelayRoute) -> Console {
     Console::guest(&route.station, 0, Some(route.admin_fp.clone())).with_relay(Some(route.clone()))
 }
 
 /// La « Station » d'une session venue par le relais : son identifiant, son
 /// empreinte (l'adresse ne sert pas : tout passe par le tunnel).
-fn relay_target(route: &RelayRoute) -> ShareTarget {
+pub(crate) fn relay_target(route: &RelayRoute) -> ShareTarget {
     ShareTarget { host: route.station.clone(), port: 0, fingerprint: Some(route.admin_fp.clone()) }
+}
+
+/// Un refus « code de prêt » : la Station qui a ce code, et le chemin pris.
+fn lend_code(e: ShareError, code: &str, target: ShareTarget, route: Option<RelayRoute>) -> ShareError {
+    match e {
+        ShareError::Lend(_) => {
+            log::info!("partage : ce code est un code de prêt ({})", if route.is_some() { "par le relais" } else { "sur le réseau" });
+            ShareError::Lend(Box::new(crate::lend::LendCode { code: code.to_string(), target, route }))
+        }
+        other => other,
+    }
 }
 
 /// `join` de bout en bout par le relais.
 fn relay_join(route: RelayRoute, req: &JoinRequest) -> Result<Joining, ShareError> {
     log::info!("partage : code envoyé par le relais {} à {}", route.server, route.station);
-    match relay_console(&route).share_join_answer(req)? {
+    let answer = relay_console(&route).share_join_answer(req).map_err(|e| lend_code(e, &req.code, relay_target(&route), Some(route.clone())))?;
+    match answer {
         JoinAnswerRef::Joined(mut joined) => {
             joined.auto = req.auto.clone();
             joined.route = Some(route.clone());
@@ -1489,6 +1513,8 @@ fn join_anywhere_with(
         let until = if remote.is_some() { started + local_first } else { overall };
         match rx.recv_timeout(until.saturating_duration_since(std::time::Instant::now())) {
             Ok(Heard::Local(Ok(found))) => return Ok(Joining::Joined(found)),
+            // Un code de prêt d'une Station du réseau : c'est sa réponse.
+            Ok(Heard::Local(Err(e @ ShareError::Lend(_)))) => return Err(e),
             Ok(Heard::Local(Err(e))) => {
                 local_done = true;
                 local_error = Some(e);
@@ -1542,8 +1568,9 @@ fn join_link_with(
     };
     match rx.recv_timeout(local_first) {
         Ok(Ok(found)) => Ok(Joining::Joined(found)),
-        // La Station du lien dit non sur le réseau (complet, trop d'essais) : c'est sa réponse.
-        Ok(Err(e @ (ShareError::Full | ShareError::TooManyTries { .. }))) => Err(e),
+        // La Station du lien dit non sur le réseau (complet, trop d'essais),
+        // ou c'est un code de prêt : c'est sa réponse.
+        Ok(Err(e @ (ShareError::Full | ShareError::TooManyTries { .. } | ShareError::Lend(_)))) => Err(e),
         _ => relay_join(route),
     }
 }
@@ -1595,6 +1622,10 @@ where
             Ok(Err(e)) => errors.push(e),
             Err(_) => break,
         }
+    }
+    // Un code de prêt : la Station qui l'a répondu.
+    if let Some(i) = errors.iter().position(|e| matches!(e, ShareError::Lend(_))) {
+        return Err(errors.swap_remove(i));
     }
     if let Some(i) = errors.iter().position(|e| matches!(e, ShareError::Full)) {
         return Err(errors.swap_remove(i));
@@ -2068,6 +2099,27 @@ mod tests {
         let again: ShareJoined = serde_json::from_value(serde_json::to_value(&j).unwrap()).unwrap();
         assert_eq!(again.route, Some(p.route));
         assert!(serde_json::to_value(ShareJoined::default()).unwrap().get("route").is_none());
+    }
+
+    #[test]
+    fn code_de_pret_sur_le_reseau() {
+        let t = |host: &str| ShareTarget { host: host.into(), port: 9443, fingerprint: Some("sha256:ad".into()) };
+        let req = JoinRequest { code: "123456".into(), ..JoinRequest::default() };
+        // Deux Stations : l'une n'a pas ce code, l'autre dit « prêt ».
+        let e = join_with(&[t("a"), t("b")], &req, |target, r| {
+            if target.host == "b" { Err(lend_code(ShareError::Lend(Box::default()), &r.code, target.clone(), None)) } else { Err(ShareError::NoShare) }
+        })
+        .unwrap_err();
+        let ShareError::Lend(code) = e else { panic!("{e:?}") };
+        assert_eq!((code.code.as_str(), code.target.host.as_str(), code.route.clone()), ("123456", "b", None));
+        assert_eq!(ShareError::Lend(code).text(Lang::Fr), "Ce code sert à emprunter l'ordinateur.");
+        // Un lien : la Station du réseau répond « prêt », pas de relais.
+        let lend = || Err(ShareError::Lend(Box::new(crate::lend::LendCode { code: "123456".into(), ..Default::default() })));
+        let r = join_link_with(lend, Some(RelayRoute { server: "share.kybernow.app".into(), station: "abcdefghijklmnopqrstuvwxyz".into(), admin_fp: "sha256:ad".into() }), |_| panic!("jamais le relais"), Duration::from_secs(2));
+        assert!(matches!(r, Err(ShareError::Lend(_))));
+        // La réponse d'Admin : 404 no_share avec `lend`.
+        assert!(matches!(crate::console::share_refusal_for_tests(404, &serde_json::json!({ "error": "no_share", "lend": true })), ShareError::Lend(_)));
+        assert!(matches!(crate::console::share_refusal_for_tests(404, &serde_json::json!({ "error": "no_share" })), ShareError::NoShare));
     }
 
     #[test]

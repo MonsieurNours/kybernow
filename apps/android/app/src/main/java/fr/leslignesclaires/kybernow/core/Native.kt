@@ -64,7 +64,8 @@ object Native {
     /**
      * « Rejoindre » sur le réseau et hors de chez soi (docs/relais.md) : `relays` `["relais.exemple.org:9443", …]`, les relais
      * des ordinateurs connus (le relais public, `share.kybernow.app`, est toujours interrogé en plus) ; `value` : `{"joined": {target, joined}}` ou `{"pending": {route, guest, secret, expires}}` ;
-     * refus en plus : 24 refusé, 25 sans réponse de l'hôte, 26 trop de demandes en attente, 30 relais muet, 31 ordinateur absent.
+     * refus en plus : 24 refusé, 25 sans réponse de l'hôte, 26 trop de demandes en attente, 30 relais muet, 31 ordinateur absent ;
+     * 29 : un code de prêt de l'ordinateur, `value` `{code, target, route}` à donner à [lendBorrow].
      */
     @JvmStatic external fun shareJoinAnywhere(targetsJson: String, relaysJson: String, requestJson: String, capabilitiesJson: String?): String
     /** Un lien de partage ([shareParseLink]) : le réseau d'abord, puis le relais (`relay`, `sid`) ; même `value`. */
@@ -110,6 +111,39 @@ object Native {
     @JvmStatic external fun consoleShareKick(handle: Long, guest: String): String?
     @JvmStatic external fun consoleShareClose(handle: Long): String?
 
+    // Prêt de l'ordinateur (docs/pret.md). L'ami : `target` `{host, port, fingerprint}`, `route` sa route par le relais
+    // ou `null` ; refus 40 identifiant ou mot de passe, 41 code qui ne sert plus, 42 déjà prêté, 43 verrouillé, 44 prêt
+    // coupé, 45 trop d'essais, 46 refusé, 47 sans réponse, 48 Station sans prêt. Bloquants.
+    /** La carte « Ordinateur de {hôte} » : `value` `{state, host, computer, slot}`. */
+    @JvmStatic external fun lendStatus(targetJson: String, routeJson: String?, login: String, password: String): String
+    /**
+     * « Emprunter » : `request` `{"code"}` ou `{"login","password"}`, `name`, `device`, `app`, `screen` `{width, height,
+     * refresh}`, `codecs` ; `value` `{"ready": {target, borrowed}}` (session : `borrower.borrowed`) ou `{"pending": {…}}`.
+     */
+    @JvmStatic external fun lendBorrow(targetJson: String, routeJson: String?, requestJson: String): String
+    /** L'hôte a-t-il répondu ? Tenu 30 s : `value` `{target, borrowed}`, code 49 (rappeler), 46, 47. */
+    @JvmStatic external fun lendWait(pendingJson: String): String
+    /** « Annuler » une demande en attente. */
+    @JvmStatic external fun lendCancel(pendingJson: String): Int
+    /** « Rendre l'ordinateur » hors d'une session (`loan` : `{target, borrowed}`) ; en session : [sessionGiveBack]. */
+    @JvmStatic external fun lendLeave(loanJson: String): String
+    /** Un lien d'invitation : `{host, port, fingerprint, login, relay, sid, route}` (sert de `target`), ou `null`. */
+    @JvmStatic external fun lendParseInvite(url: String): String?
+    /** L'état de la carte (`free`, `busy`, `lent`, `locked`, `off`) : « Disponible », « Occupé »… */
+    @JvmStatic external fun lendAvailabilityLabel(state: String): String?
+    /** Le texte d'un préavis `{reason, at}` ; `name` : l'hôte chez l'ami, l'ami pour `slot_start` chez l'hôte. */
+    @JvmStatic external fun lendNoticeText(noticeJson: String, name: String): String?
+    // L'hôte, sur la console de l'ordinateur : `value` = la vue du prêt (`enabled`, `state`, `borrower`, `notice`,
+    // `requests`, `code`), comme [SessionListener.onLend].
+    @JvmStatic external fun consoleLendState(handle: Long): String?
+    /** « Créer un code » : `duration` en secondes (0 : « Jusqu'à ce que je reprenne »), `steam` 0 son compte, 1 le vôtre. */
+    @JvmStatic external fun consoleLendCode(handle: Long, duration: Long, steam: Int): String?
+    @JvmStatic external fun consoleLendCancelCode(handle: Long): String?
+    /** « Accepter » (`accept`, avec `steam`) ou « Refuser » une demande (`requests[].id`). */
+    @JvmStatic external fun consoleLendAnswer(handle: Long, request: String, accept: Boolean, steam: Int): String?
+    /** « Reprendre l'ordinateur » (préavis de 2 min) ou, `now`, « Reprendre tout de suite ». */
+    @JvmStatic external fun consoleLendTakeBack(handle: Long, now: Boolean): String?
+
     // Mises à jour de l'app (réseau : jamais sur le fil principal).
     /** `{"available": {version, channel, notes, page, size}}`, `{"none": true}` ou `{"error": "…"}`. */
     @JvmStatic external fun updateCheck(current: String, beta: Boolean): String
@@ -127,6 +161,8 @@ object Native {
     // Session.
     @JvmStatic external fun sessionStart(params: String, surface: Surface?, listener: SessionListener, refresh: Int): Long
     @JvmStatic external fun sessionStop(handle: Long)
+    /** Session d'emprunt : « Rendre l'ordinateur » ([sessionStop] ne le rend pas : retour possible pendant 15 min). */
+    @JvmStatic external fun sessionGiveBack(handle: Long)
     /** Attend la fin du fil de session puis libère : hors du fil principal. */
     @JvmStatic external fun sessionFree(handle: Long)
     @JvmStatic external fun sessionSetSurface(handle: Long, surface: Surface?, refresh: Int)
@@ -259,4 +295,13 @@ interface SessionListener {
      * l'accueil par `code`, jamais par le texte.
      */
     fun onRelayError(code: Int, text: String) {}
+    /** Emprunt : le préavis de 2 min (`{reason, at}`, `reason` `taken_back`, `time_up`, `slot_end`) et son avis de link-ui. */
+    fun onLendNotice(json: String, text: String) {}
+    /**
+     * Emprunt : le prêt finit la session, juste avant la fin : `end` 0 repris par l'hôte, 1 durée passée, 2 fin du
+     * créneau, 3 rendu (sans texte), 4 arrêté ; `text` : la raison. Sans cet appel, une fin laisse revenir 15 min.
+     */
+    fun onLendEnd(end: Int, text: String) {}
+    /** Hôte : la vue du prêt quand elle change (`null` : rien à dire). */
+    fun onLend(json: String?) {}
 }
