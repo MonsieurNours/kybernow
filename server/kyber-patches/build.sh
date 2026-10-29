@@ -75,6 +75,9 @@
 #         attend une image clé (après une erreur, ou une image clé perdue) la
 #         demande (POST /force_idr, une par seconde au plus) ; la session ne
 #         s'arrête (decode_error) que sans image clé 3 s après une erreur
+#   0021  touches système (serveur d'entrées et kycontroller, deux fichiers) :
+#         droit system_keys (Ctrl+Alt+Del, Win+L) réservé à l'hôte ; refusé à
+#         tout invité du partage et à l'ami à qui l'ordinateur est prêté
 #
 # Prérequis (Homebrew) : mingw-w64 meson ninja nasm cmake bison lua@5.4
 # binaryen, wasm-bindgen-cli (cargo install), rustup target

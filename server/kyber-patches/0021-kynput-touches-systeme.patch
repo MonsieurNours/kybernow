@@ -1,0 +1,149 @@
+diff --git a/kynputservice-types/src/lib.rs b/kynputservice-types/src/lib.rs
+index 4d1362d..ec31aae 100644
+--- a/kynputservice-types/src/lib.rs
++++ b/kynputservice-types/src/lib.rs
+@@ -49,6 +49,11 @@ pub struct InputRights {
+     pub keyboard_mouse: bool,
+     pub gamepads: bool,
+     pub clipboard: bool,
++    /// KyberNow: Ctrl+Alt+Del and Win+L, which Windows takes before any
++    /// program (kynput turns them into a secure attention sequence and into
++    /// LockWorkStation): the host's alone. Absent: refused.
++    #[serde(default)]
++    pub system_keys: bool,
+ }
+ 
+ impl InputRights {
+@@ -57,6 +62,7 @@ impl InputRights {
+         keyboard_mouse: true,
+         gamepads: true,
+         clipboard: true,
++        system_keys: true,
+     };
+ 
+     /// KyberNow: a spectator's rights.
+@@ -64,6 +70,7 @@ impl InputRights {
+         keyboard_mouse: false,
+         gamepads: false,
+         clipboard: false,
++        system_keys: false,
+     };
+ }
+ 
+diff --git a/kynputservice/src/pipeline_state.rs b/kynputservice/src/pipeline_state.rs
+index 232a3d3..81ecd1a 100644
+--- a/kynputservice/src/pipeline_state.rs
++++ b/kynputservice/src/pipeline_state.rs
+@@ -30,6 +30,16 @@ use log::{debug, error, info, warn};
+ /// all of it plugged at once when given the gamepads.
+ const MAX_PLUGS: usize = 8;
+ 
++/// KyberNow: Windows scancodes (keycode's `win` column) of the shortcuts
++/// Windows takes before any program, which kynput handles itself on the
++/// computer: Ctrl+Alt+Del (a secure attention sequence, through kyservice)
++/// and Win+L (LockWorkStation). A program's keyboard hooks never see them.
++const DEL: u16 = 0xe053;
++const KEY_L: u16 = 0x0026;
++const CTRL: [u16; 2] = [0x001d, 0xe01d];
++const ALT: [u16; 2] = [0x0038, 0xe038];
++const WIN: [u16; 2] = [0xe05b, 0xe05c];
++
+ pub struct State {
+     keys: HashSet<u16>,
+     mouse_btns: HashSet<kynput_rs::MouseButtonType>,
+@@ -77,6 +87,15 @@ impl State {
+         }
+     }
+ 
++    /// KyberNow: whether this key press completes Ctrl+Alt+Del or Win+L
++    /// with the keys the client holds (the modifiers kynput checks).
++    fn is_system_shortcut(&self, key: &kynput_rs::KeyboardKey) -> bool {
++        let holds = |keys: &[u16]| keys.iter().any(|key| self.keys.contains(key));
++        key.pressed
++            && ((key.scancode == DEL && holds(&CTRL) && holds(&ALT))
++                || (key.scancode == KEY_L && holds(&WIN)))
++    }
++
+     /// KyberNow: keeps the client's Plug packets (forgotten on Unplug).
+     fn remember_plug(&mut self, pkt: &kynput_rs::Packet) {
+         match kynput_rs::GamepadControl::from_packet(pkt) {
+@@ -224,6 +243,18 @@ impl State {
+                     process_event: false,
+                 };
+             }
++            // KyberNow: without the right, the press that completes
++            // Ctrl+Alt+Del or Win+L goes no further (its release does).
++            if !self.rights.system_keys
++                && pkt.get_type() == kynput_rs::InputType::Keyboard
++                && kynput_rs::KeyboardKey::from_packet(pkt)
++                    .is_some_and(|key| self.is_system_shortcut(&key))
++            {
++                info!("System shortcut refused (no right)");
++                return kynput_rs::RouterHookPacketResult {
++                    process_event: false,
++                };
++            }
+         }
+ 
+         let ret: Result<(), ()> = match pkt.get_type() {
+@@ -622,8 +653,60 @@ mod tests {
+         keyboard_mouse: false,
+         gamepads: true,
+         clipboard: false,
++        system_keys: false,
++    };
++
++    const KEYBOARD: InputRights = InputRights {
++        keyboard_mouse: true,
++        gamepads: false,
++        clipboard: false,
++        system_keys: false,
+     };
+ 
++    fn key(scancode: u16, pressed: bool) -> Packet {
++        KeyboardKey { scancode, pressed }.to_packet(InputTarget::Host)
++    }
++
++    #[test]
++    fn system_shortcuts_are_the_hosts() {
++        let guest = ServerPipelineState::new(KEYBOARD);
++        // Ctrl+Alt+Del (either Ctrl, either Alt): the Del press stops, its
++        // release and the modifiers pass.
++        for (ctrl, alt) in [(0x001d, 0x0038), (0xe01d, 0xe038)] {
++            assert!(passes(&guest, &key(ctrl, true)));
++            assert!(passes(&guest, &key(alt, true)));
++            assert!(!passes(&guest, &key(DEL, true)));
++            assert!(passes(&guest, &key(DEL, false)));
++            assert!(passes(&guest, &key(alt, false)));
++            assert!(passes(&guest, &key(ctrl, false)));
++        }
++        // Win+L, either Win.
++        for win in WIN {
++            assert!(passes(&guest, &key(win, true)));
++            assert!(!passes(&guest, &key(KEY_L, true)));
++            assert!(passes(&guest, &key(KEY_L, false)));
++            assert!(passes(&guest, &key(win, false)));
++        }
++        // Del, Ctrl+Del, Alt+Del and L alone pass.
++        assert!(passes(&guest, &key(DEL, true)));
++        assert!(passes(&guest, &key(DEL, false)));
++        assert!(passes(&guest, &key(0x001d, true)));
++        assert!(passes(&guest, &key(DEL, true)));
++        assert!(passes(&guest, &key(DEL, false)));
++        assert!(passes(&guest, &key(0x001d, false)));
++        assert!(passes(&guest, &key(KEY_L, true)));
++        assert!(passes(&guest, &key(KEY_L, false)));
++
++        // The host keeps them.
++        let host = ServerPipelineState::new(InputRights::ALL);
++        assert!(passes(&host, &key(0x001d, true)));
++        assert!(passes(&host, &key(0x0038, true)));
++        assert!(passes(&host, &key(DEL, true)));
++        assert!(passes(&host, &key(0xe05b, true)));
++        assert!(passes(&host, &key(KEY_L, true)));
++    }
++
++
+     fn passes(state: &ServerPipelineState, pkt: &Packet) -> bool {
+         state.on_packet(pkt).eq(&RouterHookPacketResult {
+             process_event: true,
