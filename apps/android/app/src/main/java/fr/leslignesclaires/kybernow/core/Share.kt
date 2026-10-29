@@ -401,6 +401,12 @@ sealed class JoinReply {
      * pratique) ; [message] : le texte à montrer.
      */
     data class Refused(val kind: String, val message: String) : JoinReply()
+
+    /**
+     * Le code est un code de prêt de l'ordinateur (code 29 du cœur, docs/pret.md) : l'app emprunte avec ce code, cette
+     * Station et sa route ([Lend.borrow]), avec l'écran de l'appareil.
+     */
+    data class Lend(val code: LendCode) : JoinReply()
 }
 
 object Share {
@@ -485,6 +491,8 @@ object Share {
      */
     internal fun readJoin(text: String?): JoinReply {
         val o = runCatching { JSONObject(text ?: "") }.getOrNull() ?: return JoinReply.Refused("other", "")
+        // Un code de prêt : la Station qui l'a et sa route, pour emprunter (jamais reconnu au texte).
+        if (o.optInt("code", 1) == LEND) o.optJSONObject("value")?.let(LendCode::parse)?.let { return JoinReply.Lend(it) }
         if (o.optInt("code", 1) != 0) return refusal(o)
         val value = o.optJSONObject("value") ?: return JoinReply.Refused("other", "")
         value.optJSONObject("pending")?.let { return JoinReply.Pending(PendingJoin.parse(it)) }
@@ -513,7 +521,7 @@ object Share {
         when (reply) {
             is JoinReply.Joined -> leave(reply.found)
             is JoinReply.Pending -> cancel(reply.pending)
-            is JoinReply.Refused -> {}
+            is JoinReply.Refused, is JoinReply.Lend -> {}
         }
         throw CancellationException("rejoindre annulé")
     }
@@ -567,6 +575,8 @@ object Share {
     /** Codes du cœur : `shareWait` toujours en attente ; partage arrêté pendant l'attente (`ShareError::Stopped`). Ceux du relais : [RelayFailure]. */
     private const val WAITING = 27
     private const val STOPPED = 28
+    /** Un code de prêt (`ShareError::Lend`) : `value` `{code, target, route}`. */
+    private const val LEND = 29
 
     /** La capacité de « Partager » d'après l'info d'Admin (`HostInfo.raw`). */
     fun availability(infoJson: String): ShareAvailability = ShareAvailability.of(Native.shareAvailability(infoJson))

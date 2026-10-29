@@ -255,6 +255,52 @@ data class Host(
 }
 
 /**
+ * L'ordinateur qu'un ami prête à cet appareil par un compte d'ami (KyberNow Share, docs/pret.md) : la carte
+ * « Ordinateur de {hôte} » de l'accueil, à part des ordinateurs appairés. [host] : le prénom de l'hôte ; [computer] : le
+ * nom de l'ordinateur ; la Station (adresse et port d'Admin, empreinte), l'identifiant de l'ami et, hors de chez soi, le
+ * relais du lien d'invitation ([relay], [sid]). Le mot de passe, s'il est retenu, est chiffré comme ceux des ordinateurs.
+ */
+data class BorrowedComputer(
+    val id: String = "pret-" + UUID.randomUUID().toString(),
+    val host: String,
+    val computer: String,
+    val address: String,
+    val port: Int,
+    val fingerprint: String?,
+    val login: String,
+    val relay: String? = null,
+    val sid: String? = null,
+) {
+    /** La route par le relais (`{server, station, admin_fp}`), seulement avec l'empreinte d'Admin : jamais de premier contact. */
+    val route: String? get() {
+        val server = relay ?: return null
+        val station = sid ?: return null
+        return HostRelay(server, station).route(fingerprint)
+    }
+
+    fun json(): JSONObject = JSONObject()
+        .put("id", id).put("host", host).put("computer", computer).put("address", address).put("port", port)
+        .put("fingerprint", fingerprint ?: JSONObject.NULL).put("login", login)
+        .put("relay", relay ?: JSONObject.NULL).put("sid", sid ?: JSONObject.NULL)
+
+    companion object {
+        private fun JSONObject.str(key: String): String? = if (isNull(key)) null else optString(key).takeIf { it.isNotEmpty() }
+
+        fun parse(o: JSONObject) = BorrowedComputer(
+            id = o.getString("id"),
+            host = o.optString("host"),
+            computer = o.optString("computer"),
+            address = o.optString("address"),
+            port = o.optInt("port"),
+            fingerprint = o.str("fingerprint"),
+            login = o.optString("login"),
+            relay = o.str("relay"),
+            sid = o.str("sid"),
+        )
+    }
+}
+
+/**
  * Les ordinateurs de l'appareil (préférences privées de l'app), leurs mots de
  * passe chiffrés par une clé du Keystore d'Android qui ne quitte jamais
  * l'appareil, et leur dernière image (fichiers de l'app).
@@ -264,6 +310,9 @@ class HostStore(private val context: Context) {
     private val secrets = context.getSharedPreferences("secrets", Context.MODE_PRIVATE)
     private val _hosts = MutableStateFlow(load())
     val hosts: StateFlow<List<Host>> = _hosts.asStateFlow()
+    private val _borrowed = MutableStateFlow(loadBorrowed())
+    /** Les ordinateurs que des amis prêtent à cet appareil (« Ordinateur de {hôte} »), à part. */
+    val borrowed: StateFlow<List<BorrowedComputer>> = _borrowed.asStateFlow()
 
     /** L'ordinateur choisi sur l'accueil. */
     var selectedId: String?
@@ -283,6 +332,47 @@ class HostStore(private val context: Context) {
     }
 
     fun get(id: String): Host? = _hosts.value.firstOrNull { it.id == id }
+
+    // MARK: - Ordinateurs prêtés par des amis
+
+    private fun loadBorrowed(): List<BorrowedComputer> = runCatching {
+        val a = JSONArray(prefs.getString("borrowed", "[]"))
+        (0 until a.length()).map { BorrowedComputer.parse(a.getJSONObject(it)) }
+    }.getOrDefault(emptyList())
+
+    private fun saveBorrowed(list: List<BorrowedComputer>) {
+        val a = JSONArray()
+        list.forEach { a.put(it.json()) }
+        prefs.edit().putString("borrowed", a.toString()).apply()
+        _borrowed.value = list
+    }
+
+    fun borrowedComputer(id: String): BorrowedComputer? = _borrowed.value.firstOrNull { it.id == id }
+
+    /**
+     * Ajoute ou remplace (même Station et même identifiant : même carte) ; [password] retenu s'il est donné, oublié sinon
+     * (« Retenir le mot de passe » décoché). L'accueil le choisit.
+     */
+    fun putBorrowed(computer: BorrowedComputer, password: String?): BorrowedComputer {
+        val list = _borrowed.value.toMutableList()
+        val i = list.indexOfFirst { it.id == computer.id || (it.address == computer.address && it.port == computer.port && it.login == computer.login) }
+        val c = if (i >= 0) computer.copy(id = list[i].id) else computer
+        if (i >= 0) list[i] = c else list.add(c)
+        saveBorrowed(list)
+        if (password != null) setPassword(c.id, password) else secrets.edit().remove(c.id).apply()
+        selectedId = c.id
+        return c
+    }
+
+    fun updateBorrowed(id: String, f: (BorrowedComputer) -> BorrowedComputer) {
+        saveBorrowed(_borrowed.value.map { if (it.id == id) f(it) else it })
+    }
+
+    fun removeBorrowed(id: String) {
+        saveBorrowed(_borrowed.value.filterNot { it.id == id })
+        secrets.edit().remove(id).apply()
+        if (selectedId == id) selectedId = _hosts.value.firstOrNull()?.id ?: _borrowed.value.firstOrNull()?.id
+    }
 
     /** Ajoute ou remplace (même adresse et même port : même ordinateur). */
     fun put(host: Host, password: String? = null) {

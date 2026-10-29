@@ -78,6 +78,10 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import fr.leslignesclaires.kybernow.R
+import fr.leslignesclaires.kybernow.core.LendAvailable
+import fr.leslignesclaires.kybernow.core.LendDuration
+import fr.leslignesclaires.kybernow.core.LendRequest
+import fr.leslignesclaires.kybernow.core.LendSteam
 import fr.leslignesclaires.kybernow.core.RouteTransport
 import fr.leslignesclaires.kybernow.core.ShareAvailability
 import fr.leslignesclaires.kybernow.core.ShareGuest
@@ -119,6 +123,14 @@ class SessionUi(
     val guest: Boolean = false,
     /** Le nom de l'ordinateur tel quel, pour le panneau de partage de l'hôte (« Partager {nom} »). */
     val computerName: String = hostName,
+    /**
+     * Session d'emprunt (prêt de l'ordinateur, docs/pret.md) : [lender] est le prénom de l'hôte (« Prêté par {hôte} »),
+     * [lendUntil] la fin prévue (secondes Unix ; nulle : « Jusqu'à ce que {hôte} reprenne »). Ni profil, ni réglages de
+     * l'ordinateur, ni presse-papiers, ni partage.
+     */
+    val borrower: Boolean = false,
+    val lender: String = "",
+    val lendUntil: Long? = null,
 ) {
     var menuOpen by mutableStateOf(false)
     var barOpen by mutableStateOf(false)
@@ -164,6 +176,32 @@ class SessionUi(
     /** Le résultat de « Copier le lien » (« Lien copié. » ou « Copie impossible… »), montré un instant. */
     var shareCopy by mutableStateOf<ShareCopy?>(null)
 
+    // Prêt de l'ordinateur, côté ami.
+    /** « Rendre l'ordinateur » demande confirmation (« Rendre l'ordinateur à {hôte} ? »). */
+    var giveBackConfirm by mutableStateOf(false)
+    /** « Revenir » après une fin subie (réseau perdu) : où en est le nouvel emprunt ; nul avant. */
+    var comeBack by mutableStateOf<ComeBack?>(null)
+
+    // Prêt de l'ordinateur, côté hôte.
+    /** Le panneau « Prêter {nom} » (durée, compte Steam, code, demandes) est ouvert. */
+    var lendOpen by mutableStateOf(false)
+    /** Ce que « Prêter l'ordinateur… » peut faire, d'après l'info de l'ordinateur ; nul tant qu'on ne le sait pas. */
+    var lendAvailable by mutableStateOf<LendAvailable?>(null)
+    /** Un appel d'Admin du prêt est en cours. */
+    var lendBusy by mutableStateOf(false)
+    /** Le dernier refus d'Admin, dans le panneau du prêt. */
+    var lendError by mutableStateOf<String?>(null)
+    /** Le résultat de « Copier le lien » du code de prêt. */
+    var lendCopy by mutableStateOf<ShareCopy?>(null)
+    /** La durée et le compte Steam choisis pour le prochain code (proposés : 2 heures, son compte Steam). */
+    var lendDuration by mutableStateOf(LendDuration.DEFAULT)
+    var lendSteam by mutableStateOf(LendSteam.FRIEND)
+    /** L'avertissement (« Votre ami joue dans votre session Windows… ») : montré tant qu'aucun code n'a été créé sur cet appareil. */
+    var lendWarning by mutableStateOf(true)
+
+    /** « Prêter l'ordinateur… » est possible : l'ordinateur le permet, ou on ne sait pas encore. */
+    val lendUsable get() = lendAvailable.let { it == null || it == LendAvailable.ON }
+
     /** « Partager » est actif : l'ordinateur le permet, ou on ne sait pas encore (le toucher le vérifie). */
     val shareUsable get() = shareAvailability.let { it == null || it == ShareAvailability.AVAILABLE }
 
@@ -171,7 +209,7 @@ class SessionUi(
     fun keyboardMouseAllowed(role: ShareRole = state.shareRole.value) = !guest || role.keyboardMouse
 
     /** Un menu, une feuille, la barre, le clavier… par-dessus l'image (la manette à part). */
-    val covering get() = leaving || !passageDone || menuOpen || barOpen || keyboardOpen || statsOpen || typing || shareOpen || qualityOpen
+    val covering get() = leaving || !passageDone || menuOpen || barOpen || keyboardOpen || statsOpen || typing || shareOpen || qualityOpen || lendOpen || giveBackConfirm
 
     /** Quelque chose est à l'écran par-dessus l'image. */
     val anything get() = covering || padShown
@@ -219,6 +257,31 @@ interface SessionActions {
     fun shareStop()
     /** « Copier le lien ». */
     fun shareCopyLink()
+
+    // Prêt de l'ordinateur, côté ami (docs/link-ui.md, « Prêt de l'ordinateur ») : rien à faire hors d'un emprunt.
+    /** « Rendre l'ordinateur », après la confirmation : la session finit, l'ordinateur revient à l'hôte. */
+    fun giveBack() {}
+    /** « Revenir » (pendant 15 min après une fin subie) : la même demande d'emprunt, puis une nouvelle session. */
+    fun comeBack() {}
+    /** « Annuler » l'attente de l'hôte pendant « Revenir ». */
+    fun comeBackCancel() {}
+
+    // Prêt de l'ordinateur, côté hôte.
+    /** « Prêter l'ordinateur… » : ouvre le panneau (et relit la vue du prêt). */
+    fun lend() {}
+    /** « Créer un code » avec la durée et le compte Steam choisis. */
+    fun lendCreateCode() {}
+    /** « Annuler le code ». */
+    fun lendCancelCode() {}
+    /** « Accepter » ou « Refuser » une demande d'emprunt. */
+    fun lendAnswer(request: LendRequest, accept: Boolean) {}
+    /** « Copier le lien » du code de prêt. */
+    fun lendCopyLink() {}
+}
+
+/** « Revenir » : l'emprunt refait ([WORKING], « Préparation de l'ordinateur »), l'attente de l'hôte, ou un refus ([message]). */
+data class ComeBack(val step: Step, val message: String? = null) {
+    enum class Step { WORKING, WAITING, FAILED }
 }
 
 @Composable
@@ -243,8 +306,11 @@ fun SessionOverlay(ui: SessionUi) {
         if (ui.qualityOpen && ui.guest) QualitySheet(ui, Modifier.align(Alignment.Center))
         if (ui.typing) TypeText(ui, Modifier.align(Alignment.Center))
         if (ui.shareOpen) SharePanel(ui, Modifier.align(Alignment.Center))
+        if (ui.lendOpen && !ui.guest && !ui.borrower) LendPanel(ui, Modifier.align(Alignment.Center))
+        if (ui.giveBackConfirm && ui.borrower) GiveBackConfirm(ui, Modifier.align(Alignment.Center))
         ended?.takeIf { it.error != null }?.let { EndedCard(ui, it, Modifier.align(Alignment.Center)) }
-        AnimatedVisibility(ui.leaving, enter = fadeIn(tween(220)), exit = fadeOut(tween(160))) { Leaving(ui.guest) }
+        // Un invité et l'ami qui emprunte ne changent rien à l'ordinateur : pas de remise en place à attendre.
+        AnimatedVisibility(ui.leaving, enter = fadeIn(tween(220)), exit = fadeOut(tween(160))) { Leaving(ui.guest || ui.borrower) }
     }
 }
 
@@ -321,7 +387,8 @@ private fun Passage(ui: SessionUi) {
                 Spacer(Modifier.height(s.dp(2f)))
                 // La Station redémarre (dernier recours) : à la place des étapes, qui reprennent ensuite.
                 if (restarting) StepLine(stringResource(R.string.station_restarting), done = false, current = true)
-                else listOf(R.string.session_preparing, R.string.session_connecting, R.string.session_first_images).forEachIndexed { i, label ->
+                // L'emprunt : « Préparation de l'ordinateur » en première étape (le mode console de la Station).
+                else listOf(if (ui.borrower) R.string.lend_preparing else R.string.session_preparing, R.string.session_connecting, R.string.session_first_images).forEachIndexed { i, label ->
                     StepLine(stringResource(label), done = i < step, current = i == step)
                 }
                 hint(ui)?.let { Body(it, size = 13f, color = Kn.muted, modifier = Modifier.padding(top = s.dp(4f))) }
@@ -377,8 +444,13 @@ private fun Capsules(ui: SessionUi, modifier: Modifier) {
     val restore by ui.state.restoreOffer.collectAsState()
     Column(modifier.padding(top = s.dp(if (ui.barOpen && ui.padBar) 116f else if (ui.barOpen) 84f else 14f)), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(s.dp(8f))) {
         c?.let { capsule ->
-            // La demande d'un invité se choisit : elle ouvre le panneau du partage (docs/link-ui.md, « Partage »).
-            val open = if (capsule is Capsule.ShareRequest) Modifier.clip(RoundedCornerShape(999.dp)).clickable { ui.actions.share() } else Modifier
+            // La demande d'un invité se choisit : elle ouvre le panneau du partage (docs/link-ui.md, « Partage ») ; celle d'un
+            // ami qui veut emprunter l'ordinateur, le panneau du prêt.
+            val open = when (capsule) {
+                is Capsule.ShareRequest -> Modifier.clip(RoundedCornerShape(999.dp)).clickable { ui.actions.share() }
+                is Capsule.LendRequest -> Modifier.clip(RoundedCornerShape(999.dp)).clickable { ui.actions.lend() }
+                else -> Modifier
+            }
             Row(
                 Modifier.panel(999.dp).then(open).padding(horizontal = s.dp(16f), vertical = s.dp(9f)),
                 verticalAlignment = Alignment.CenterVertically,
@@ -414,6 +486,11 @@ private fun capsuleText(c: Capsule): String = when (c) {
     is Capsule.ShareNotice -> c.text
     // Hôte : une demande venue par le relais, avis bref « {prénom} demande à rejoindre. » (le choisir ouvre le panneau).
     is Capsule.ShareRequest -> stringResource(R.string.share_request_notice, c.name)
+    // Emprunt : le préavis de 2 min, tel que le cœur l'écrit.
+    is Capsule.LendNotice -> c.text
+    // Hôte : « Léa veut emprunter l'ordinateur. » (la choisir ouvre le panneau du prêt).
+    is Capsule.LendRequest -> stringResource(R.string.lend_request_wants, c.name)
+    is Capsule.LendHostNotice -> c.text
 }
 
 // MARK: - Téléphone et tablette
@@ -426,8 +503,8 @@ private fun PhoneBar(ui: SessionUi) {
     val first = remember { FocusRequester() }
     // Ouverte à la manette : le focus sur le premier élément, et de nouveau quand la feuille des
     // touches se ferme. Une image d'attente : la vue d'interface vient de passer de GONE à visible.
-    LaunchedEffect(ui.padBar, ui.keysOpen, ui.shareOpen, ui.qualityOpen) {
-        if (ui.padBar && !ui.keysOpen && !ui.shareOpen && !ui.qualityOpen) {
+    LaunchedEffect(ui.padBar, ui.keysOpen, ui.shareOpen, ui.qualityOpen, ui.lendOpen, ui.giveBackConfirm) {
+        if (ui.padBar && !ui.keysOpen && !ui.shareOpen && !ui.qualityOpen && !ui.lendOpen && !ui.giveBackConfirm) {
             withFrameNanos { }
             runCatching { first.requestFocus() }
         }
@@ -447,13 +524,22 @@ private fun PhoneBar(ui: SessionUi) {
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(s.dp(6f)),
                 ) {
-                    if (ui.guest) GuestBarItems(ui, sec, role, first) else HostBarItems(ui, sec, first)
+                    when {
+                        ui.guest -> GuestBarItems(ui, sec, role, first)
+                        ui.borrower -> BorrowerBarItems(ui, sec, first)
+                        else -> HostBarItems(ui, sec, first)
+                    }
                 }
                 // Par le relais (hors de chez vous) : la puce, dans la partie fixe comme « Partager ».
                 RouteChip(ui)
-                // Un invité n'a rien à partager.
-                if (!ui.guest) ShareItems(ui, compact)
-                // Un invité quitte le partage : l'ordinateur, lui, ne change pas.
+                // Un invité n'a rien à partager ; l'ami qui emprunte a « Prêté par {hôte} », le temps et « Rendre l'ordinateur ».
+                if (ui.borrower) LentItems(ui)
+                else if (!ui.guest) {
+                    ShareItems(ui, compact)
+                    LendItems(ui)
+                }
+                // Un invité quitte le partage : l'ordinateur, lui, ne change pas. L'ami qui emprunte se déconnecte sans rendre
+                // l'ordinateur (il peut revenir pendant 15 min).
                 GlassButton(stringResource(if (ui.guest) R.string.share_leave else R.string.session_disconnect), { ui.actions.quit() })
                 BarIcon(KnIcons.close, stringResource(R.string.session_close)) { ui.barOpen = false }
             }
@@ -467,7 +553,7 @@ private fun PhoneBar(ui: SessionUi) {
  * que l'appareil : un invité l'a aussi.
  */
 @Composable
-private fun StatsCard(ui: SessionUi, sec: Second?, modifier: Modifier) {
+internal fun StatsCard(ui: SessionUi, sec: Second?, modifier: Modifier) {
     val s = LocalScale.current
     val statsLabel = stringResource(R.string.session_stats)
     FocusCard({ ui.statsOpen = !ui.statsOpen }, modifier.semantics { contentDescription = statsLabel }) {
@@ -657,7 +743,7 @@ private fun screenChoice(ui: SessionUi): ScreenChoice? {
 }
 
 @Composable
-private fun BarIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+internal fun BarIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
     val s = LocalScale.current
     FocusCard(onClick, Modifier.semantics { contentDescription = label }, shape = RoundedCornerShape(12.dp)) {
         Box(Modifier.background(Kn.frost.copy(alpha = 0.07f)).padding(s.dp(10f))) { KnIcon(icon, size = 18f) }
@@ -748,8 +834,18 @@ private fun TvMenu(ui: SessionUi) {
                 mode?.let { (w, h, r) -> Mono("$w × $h · $r Hz", size = 15f, color = Kn.frost) }
                 Mono(stringResource(R.string.session_losses, (sec?.lostFrames ?: 0) + (sec?.holes ?: 0)), size = 15f)
             }
-            Eyebrow("${ui.hostName} · ${if (ui.guest) roleLabel(role) else profileLabel(ui.profile)}")
-            if (ui.guest) GuestTiles(ui, role, first, audio) else TvTiles(ui, first, audio)
+            Eyebrow(
+                when {
+                    ui.guest -> "${ui.hostName} · ${roleLabel(role)}"
+                    ui.borrower -> "${ui.hostName} · ${stringResource(R.string.lend_lent_by, ui.lender)}"
+                    else -> "${ui.hostName} · ${profileLabel(ui.profile)}"
+                },
+            )
+            when {
+                ui.guest -> GuestTiles(ui, role, first, audio)
+                ui.borrower -> BorrowerTiles(ui, first, audio)
+                else -> TvTiles(ui, first, audio)
+            }
         }
     }
 }
@@ -817,13 +913,14 @@ private fun TvTiles(ui: SessionUi, first: FocusRequester, audio: Pair<Int, Doubl
             else -> open.codeText
         }
         Tile(KnIcons.share, stringResource(R.string.share_button), shareDetail, selected = share != null, dimmed = !ui.shareUsable) { ui.actions.share() }
+        LendTile(ui)
         Tile(KnIcons.pulse, stringResource(R.string.session_stats), null) { ui.statsOpen = !ui.statsOpen }
         Tile(KnIcons.exit, stringResource(R.string.session_disconnect), null, danger = true) { ui.actions.quit() }
     }
 }
 
 @Composable
-private fun Tile(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, detail: String?, modifier: Modifier = Modifier, primary: Boolean = false, selected: Boolean = false, danger: Boolean = false, dimmed: Boolean = false, onClick: () -> Unit) {
+internal fun Tile(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, detail: String?, modifier: Modifier = Modifier, primary: Boolean = false, selected: Boolean = false, danger: Boolean = false, dimmed: Boolean = false, onClick: () -> Unit) {
     val s = LocalScale.current
     // Estompée, une tuile reste atteignable et sélectionnable à la télécommande.
     FocusCard(onClick, modifier.width(s.dp(160f)).height(s.dp(104f)), shape = RoundedCornerShape(16.dp)) { focused ->
@@ -917,6 +1014,10 @@ private fun Stats(ui: SessionUi, modifier: Modifier) {
 
 @Composable
 private fun EndedCard(ui: SessionUi, e: Ended, modifier: Modifier) {
+    if (ui.borrower) {
+        BorrowEndedCard(ui, e, modifier)
+        return
+    }
     val s = LocalScale.current
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
@@ -933,7 +1034,7 @@ private fun EndedCard(ui: SessionUi, e: Ended, modifier: Modifier) {
 }
 
 /** Un message du cœur (« l'ordinateur ne répond plus ») en phrase : majuscule, point final. */
-private fun sentence(m: String): String {
+internal fun sentence(m: String): String {
     val t = m.trim()
     if (t.isEmpty()) return t
     val first = t.replaceFirstChar { it.uppercase() }

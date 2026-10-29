@@ -400,6 +400,56 @@
     <string name="share_app_android">Android</string>
     <string name="share_app_webos">Téléviseur LG</string>
     <string name="share_app_web">Navigateur</string>
+    <string name="lend_button">Prêter l\'ordinateur…</string>
+    <string name="lend_title" formatted="true">Prêter %1$s</string>
+    <string name="lend_duration">Durée</string>
+    <string name="lend_duration_1h">1 heure</string>
+    <string name="lend_duration_2h">2 heures</string>
+    <string name="lend_duration_4h">4 heures</string>
+    <string name="lend_duration_open">Jusqu\'à ce que je reprenne</string>
+    <string name="lend_steam">Compte Steam</string>
+    <string name="lend_steam_friend">Son compte Steam</string>
+    <string name="lend_steam_host">Votre compte Steam</string>
+    <string name="lend_create">Créer un code</string>
+    <string name="lend_code_valid">Pour une séance, valable 24 h.</string>
+    <string name="lend_help">Votre ami entre ce code avec « Rejoindre avec un code » dans KyberNow Link, ou ouvre ce lien dans un navigateur.</string>
+    <string name="lend_session_closes">Votre session se fermera quand votre ami arrivera.</string>
+    <string name="lend_cancel_code">Annuler le code</string>
+    <string name="lend_qr_label">QR code du prêt</string>
+    <string name="lend_warning">Votre ami joue dans votre session Windows. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance.</string>
+    <string name="lend_off">Le prêt est coupé dans Admin (page « Prêt »).</string>
+    <string name="lend_too_old">Le prêt demande KyberNow Station 0.9.0 ou plus récente.</string>
+    <string name="lend_request_wants" formatted="true">%1$s veut emprunter l\'ordinateur.</string>
+    <string name="lend_accept_closes">Votre session va se fermer.</string>
+    <string name="lend_slot_start" formatted="true">Créneau de %1$s : l\'ordinateur lui est prêté dans 2 min.</string>
+    <string name="lend_lent_to" formatted="true">Prêté à %1$s</string>
+    <string name="lend_lent_to_until" formatted="true">Prêté à %1$s jusqu\'à %2$s</string>
+    <string name="lend_take_back">Reprendre l\'ordinateur</string>
+    <string name="lend_taking_back" formatted="true">Reprise dans %1$s</string>
+    <string name="lend_take_back_now">Reprendre tout de suite</string>
+    <string name="lend_card_title" formatted="true">Ordinateur de %1$s</string>
+    <string name="lend_state_free">Disponible</string>
+    <string name="lend_state_busy">Occupé</string>
+    <string name="lend_state_lent">Prêté à quelqu\'un d\'autre</string>
+    <string name="lend_state_locked">Verrouillé</string>
+    <string name="lend_state_off">Prêt coupé</string>
+    <string name="lend_slot_next" formatted="true">Votre créneau : %1$s, %2$s – %3$s</string>
+    <string name="lend_slot_now" formatted="true">Votre créneau, jusqu\'à %1$s</string>
+    <string name="lend_borrow">Emprunter</string>
+    <string name="lend_ask" formatted="true">Demander à %1$s</string>
+    <string name="lend_with_account">Avec un compte d\'ami</string>
+    <string name="lend_remember">Retenir le mot de passe</string>
+    <string name="lend_invited" formatted="true">%1$s vous prête son ordinateur.</string>
+    <string name="lend_add">Ajouter</string>
+    <string name="lend_waiting" formatted="true">En attente de %1$s…</string>
+    <string name="lend_preparing">Préparation de l\'ordinateur</string>
+    <string name="lend_lent_by" formatted="true">Prêté par %1$s</string>
+    <string name="lend_left" formatted="true">Encore %1$s</string>
+    <string name="lend_until_taken" formatted="true">Jusqu\'à ce que %1$s reprenne</string>
+    <string name="lend_give_back">Rendre l\'ordinateur</string>
+    <string name="lend_give_back_confirm" formatted="true">Rendre l\'ordinateur à %1$s ?</string>
+    <string name="lend_come_back_hint">Vous pouvez revenir pendant 15 min.</string>
+    <string name="lend_come_back">Revenir</string>
     <plurals name="share_guests">
         <item quantity="one">%d invité</item>
         <item quantity="many">%d invités</item>

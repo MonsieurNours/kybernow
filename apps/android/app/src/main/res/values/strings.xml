@@ -400,6 +400,56 @@
     <string name="share_app_android">Android</string>
     <string name="share_app_webos">LG TV</string>
     <string name="share_app_web">Browser</string>
+    <string name="lend_button">Lend the computer…</string>
+    <string name="lend_title" formatted="true">Lend %1$s</string>
+    <string name="lend_duration">Duration</string>
+    <string name="lend_duration_1h">1 hour</string>
+    <string name="lend_duration_2h">2 hours</string>
+    <string name="lend_duration_4h">4 hours</string>
+    <string name="lend_duration_open">Until I take it back</string>
+    <string name="lend_steam">Steam account</string>
+    <string name="lend_steam_friend">Their Steam account</string>
+    <string name="lend_steam_host">Your Steam account</string>
+    <string name="lend_create">Create a code</string>
+    <string name="lend_code_valid">For one session, valid for 24 h.</string>
+    <string name="lend_help">Your friend enters this code with “Join with a code” in KyberNow Link, or opens this link in a browser.</string>
+    <string name="lend_session_closes">Your session will close when your friend arrives.</string>
+    <string name="lend_cancel_code">Cancel code</string>
+    <string name="lend_qr_label">QR code for the loan</string>
+    <string name="lend_warning">Your friend plays in your Windows session. They see neither your desktop nor your windows, but a game can read your files: lend to friends you trust.</string>
+    <string name="lend_off">Lending is off in Admin (“Lending” page).</string>
+    <string name="lend_too_old">Lending needs KyberNow Station 0.9.0 or later.</string>
+    <string name="lend_request_wants" formatted="true">%1$s wants to borrow the computer.</string>
+    <string name="lend_accept_closes">Your session will close.</string>
+    <string name="lend_slot_start" formatted="true">%1$s\'s time slot: the computer is lent to them in 2 min.</string>
+    <string name="lend_lent_to" formatted="true">Lent to %1$s</string>
+    <string name="lend_lent_to_until" formatted="true">Lent to %1$s until %2$s</string>
+    <string name="lend_take_back">Take back the computer</string>
+    <string name="lend_taking_back" formatted="true">Taking back in %1$s</string>
+    <string name="lend_take_back_now">Take back now</string>
+    <string name="lend_card_title" formatted="true">%1$s\'s computer</string>
+    <string name="lend_state_free">Available</string>
+    <string name="lend_state_busy">In use</string>
+    <string name="lend_state_lent">Lent to someone else</string>
+    <string name="lend_state_locked">Locked</string>
+    <string name="lend_state_off">Lending off</string>
+    <string name="lend_slot_next" formatted="true">Your time slot: %1$s, %2$s – %3$s</string>
+    <string name="lend_slot_now" formatted="true">Your time slot, until %1$s</string>
+    <string name="lend_borrow">Borrow</string>
+    <string name="lend_ask" formatted="true">Ask %1$s</string>
+    <string name="lend_with_account">With a friend account</string>
+    <string name="lend_remember">Remember password</string>
+    <string name="lend_invited" formatted="true">%1$s is lending you their computer.</string>
+    <string name="lend_add">Add</string>
+    <string name="lend_waiting" formatted="true">Waiting for %1$s…</string>
+    <string name="lend_preparing">Preparing the computer</string>
+    <string name="lend_lent_by" formatted="true">Lent by %1$s</string>
+    <string name="lend_left" formatted="true">%1$s left</string>
+    <string name="lend_until_taken" formatted="true">Until %1$s takes it back</string>
+    <string name="lend_give_back">Give back the computer</string>
+    <string name="lend_give_back_confirm" formatted="true">Give the computer back to %1$s?</string>
+    <string name="lend_come_back_hint">You can come back for 15 min.</string>
+    <string name="lend_come_back">Come back</string>
     <plurals name="share_guests">
         <item quantity="one">%d guest</item>
         <item quantity="other">%d guests</item>

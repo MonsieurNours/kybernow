@@ -54,7 +54,12 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import fr.leslignesclaires.kybernow.KyberNowApp
 import fr.leslignesclaires.kybernow.R
+import fr.leslignesclaires.kybernow.core.BorrowAsk
+import fr.leslignesclaires.kybernow.core.BorrowReply
 import fr.leslignesclaires.kybernow.core.JoinReply
+import fr.leslignesclaires.kybernow.core.Lend
+import fr.leslignesclaires.kybernow.core.Loan
+import fr.leslignesclaires.kybernow.core.PendingBorrow
 import fr.leslignesclaires.kybernow.core.PendingJoin
 import fr.leslignesclaires.kybernow.core.Relays
 import fr.leslignesclaires.kybernow.core.Share
@@ -75,6 +80,7 @@ import fr.leslignesclaires.kybernow.ui.PrimaryButton
 import fr.leslignesclaires.kybernow.model.Screen
 import fr.leslignesclaires.kybernow.ui.Title
 import fr.leslignesclaires.kybernow.ui.add.QrScanner
+import fr.leslignesclaires.kybernow.ui.lend.Borrowing
 import fr.leslignesclaires.kybernow.ui.panel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -100,7 +106,7 @@ private enum class Way { CODE, QR }
  * s'il refuse, ne répond pas (120 s) ou que le relais se tait, l'écran le dit avec les textes du cœur.
  */
 @Composable
-fun JoinScreen(link: ShareLink?, onBack: () -> Unit, onJoined: (ShareFound) -> Unit) {
+fun JoinScreen(link: ShareLink?, onBack: () -> Unit, onJoined: (ShareFound) -> Unit, onBorrowed: (Loan, BorrowAsk) -> Unit = { _, _ -> }) {
     val app = KyberNowApp.instance
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -110,22 +116,31 @@ fun JoinScreen(link: ShareLink?, onBack: () -> Unit, onJoined: (ShareFound) -> U
     // La demande en attente de l'accord de l'hôte, et le travail qui l'attend.
     var waiting by remember { mutableStateOf<PendingJoin?>(null) }
     var work by remember { mutableStateOf<Job?>(null) }
+    // Un code de prêt (docs/pret.md) : l'emprunt en cours (« Préparation de l'ordinateur »), puis l'attente de l'hôte.
+    var preparing by remember { mutableStateOf(false) }
+    var borrowWaiting by remember { mutableStateOf<PendingBorrow?>(null) }
     // Le cœur écrit les refus ; ce texte ne sert que s'il n'en donne aucun.
     val unreachable = stringResource(R.string.add_unreachable)
     // Avec un lien, la Station est donnée : on ne cherche rien sur le réseau (rien ne part avant « Rejoindre »).
     LaunchedEffect(link) { if (link == null) app.discovery.start() }
     // L'écran se ferme (Retour, la session s'ouvre ailleurs) pendant l'attente : la demande quitte la liste de l'hôte.
     val pending by rememberUpdatedState(waiting)
-    DisposableEffect(Unit) { onDispose { pending?.let(Share::cancel) } }
+    val pendingBorrow by rememberUpdatedState(borrowWaiting)
+    DisposableEffect(Unit) { onDispose { pending?.let(Share::cancel); pendingBorrow?.let(Lend::cancel) } }
 
     JoinContent(
         link = link, hasCamera = hasCamera, name = app.guestName, quality = app.guestQuality, busy = busy, error = error, onBack = onBack,
-        waiting = waiting != null,
+        waiting = waiting != null || borrowWaiting != null,
+        waitingFor = borrowWaiting?.host?.ifBlank { null },
+        preparing = preparing,
         // « Annuler » : la demande est retirée chez l'hôte, l'écran revient au code.
         onCancel = {
             waiting?.let(Share::cancel)
+            borrowWaiting?.let(Lend::cancel)
             work?.cancel()
             waiting = null
+            borrowWaiting = null
+            preparing = false
             busy = false
         },
         // Le code part au lien ou au QR code ([shown]) ou, sans eux, aux ordinateurs trouvés sur le réseau et aux relais.
@@ -145,16 +160,39 @@ fun JoinScreen(link: ShareLink?, onBack: () -> Unit, onJoined: (ShareFound) -> U
                         Share.waitForHost(reply.pending, app.decoders)
                     } else reply
                     waiting = null
-                    busy = false
                     when (answer) {
                         is JoinReply.Joined -> {
+                            busy = false
                             app.guestName = who
                             app.guestQuality = quality
                             onJoined(answer.found)
                         }
-                        is JoinReply.Refused -> error = answer.message.ifBlank { unreachable }
+                        is JoinReply.Refused -> { busy = false; error = answer.message.ifBlank { unreachable } }
                         // Jamais : `waitForHost` n'en rend pas.
-                        is JoinReply.Pending -> error = unreachable
+                        is JoinReply.Pending -> { busy = false; error = unreachable }
+                        // Un code de prêt : emprunter l'ordinateur avec ce code, l'écran de l'appareil (« Préparation de
+                        // l'ordinateur »), puis, s'il est utilisé, attendre l'accord de l'hôte (« En attente de {hôte}… »).
+                        is JoinReply.Lend -> {
+                            val ask = Borrowing.ask(context, answer.code.target, answer.code.route, who, code = answer.code.code)
+                            preparing = true
+                            val first = Lend.borrow(ask)
+                            val reply = if (first is BorrowReply.Pending) {
+                                preparing = false
+                                borrowWaiting = first.pending
+                                Lend.waitForHost(first.pending)
+                            } else first
+                            borrowWaiting = null
+                            preparing = false
+                            busy = false
+                            when (reply) {
+                                is BorrowReply.Ready -> {
+                                    app.guestName = who
+                                    onBorrowed(reply.loan, ask)
+                                }
+                                is BorrowReply.Refused -> error = reply.message.ifBlank { unreachable }
+                                is BorrowReply.Pending -> error = unreachable
+                            }
+                        }
                     }
                 }
             }
@@ -186,6 +224,10 @@ internal fun JoinContent(
     onJoin: (String, String, ShareQuality, ShareLink?) -> Unit,
     waiting: Boolean = false,
     onCancel: () -> Unit = {},
+    /** Un code de prêt qui attend l'accord de l'hôte : son prénom (« En attente de {hôte}… ») ; nul pour un partage. */
+    waitingFor: String? = null,
+    /** Un code de prêt : la Station prépare l'ordinateur (« Préparation de l'ordinateur » sur le bouton). */
+    preparing: Boolean = false,
 ) {
     val s = LocalScale.current
     var way by remember { mutableStateOf(Way.CODE) }
@@ -210,7 +252,7 @@ internal fun JoinContent(
                 Title(stringResource(R.string.share_join_title), size = if (s.tv) 40f else 26f)
             }
             if (waiting) {
-                WaitingForHost(onCancel)
+                WaitingForHost(onCancel, waitingFor)
                 return@Column
             }
             Body(stringResource(R.string.share_join_help), color = Kn.frost2, size = 15f)
@@ -226,13 +268,13 @@ internal fun JoinContent(
             if (way == Way.QR && link == null) {
                 QrWay { l -> scanned = l; way = Way.CODE }
             } else if (s.tv) {
-                TvJoin(code, { code = it }, who, { who = it }, how, { how = it }, busy, error) { onJoin(code, who, how, shown) }
+                TvJoin(code, { code = it }, who, { who = it }, how, { how = it }, busy, error, preparing) { onJoin(code, who, how, shown) }
             } else {
                 CodeField(code) { code = it }
                 NameField(who, { who = it })
                 QualityField(how, { how = it })
                 error?.let { Body(it, color = Kn.warn, size = 14f) }
-                JoinButton(busy, code.length == 6) { onJoin(code, who, how, shown) }
+                JoinButton(busy, code.length == 6, preparing = preparing) { onJoin(code, who, how, shown) }
             }
         }
     }
@@ -243,14 +285,15 @@ internal fun JoinContent(
  * le relais attend que l'hôte l'accepte. « Annuler » quitte la demande. Au téléviseur, le focus y est tout de suite.
  */
 @Composable
-private fun WaitingForHost(onCancel: () -> Unit) {
+private fun WaitingForHost(onCancel: () -> Unit, host: String? = null) {
     val s = LocalScale.current
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
     Column(Modifier.panel().fillMaxWidth().padding(s.dp(22f)), verticalArrangement = Arrangement.spacedBy(s.dp(16f))) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(s.dp(14f))) {
             CircularProgressIndicator(Modifier.size(s.dp(26f)), color = Kn.spectre, strokeWidth = s.dp(3f))
-            Body(stringResource(R.string.share_join_waiting), size = 18f, weight = 600, color = Kn.frost)
+            // Un code de prêt : « En attente de {hôte}… » (le prénom vient de la Station, même par un code).
+            Body(if (host != null) stringResource(R.string.lend_waiting, host) else stringResource(R.string.share_join_waiting), size = 18f, weight = 600, color = Kn.frost)
         }
         GlassButton(stringResource(R.string.cancel), onCancel, Modifier.focusRequester(focus))
     }
@@ -271,8 +314,13 @@ private suspend fun stations(): List<ShareTarget> {
 }
 
 @Composable
-private fun JoinButton(busy: Boolean, ready: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    PrimaryButton(stringResource(if (busy) R.string.share_join_searching else R.string.share_join_button), onClick, modifier, enabled = ready && !busy)
+private fun JoinButton(busy: Boolean, ready: Boolean, modifier: Modifier = Modifier, preparing: Boolean = false, onClick: () -> Unit) {
+    val label = when {
+        preparing -> R.string.lend_preparing
+        busy -> R.string.share_join_searching
+        else -> R.string.share_join_button
+    }
+    PrimaryButton(stringResource(label), onClick, modifier, enabled = ready && !busy)
 }
 
 /** « 123 456 » : la espace après le troisième chiffre ne se tape pas ; le curseur la saute. */
@@ -342,7 +390,7 @@ private fun QrWay(onFound: (ShareLink) -> Unit) {
 
 /** Au téléviseur : le pavé à gauche, le code en grand, le prénom, la qualité de l'image et « Rejoindre » à droite. */
 @Composable
-private fun TvJoin(code: String, onCode: (String) -> Unit, name: String, onName: (String) -> Unit, quality: ShareQuality, onQuality: (ShareQuality) -> Unit, busy: Boolean, error: String?, onJoin: () -> Unit) {
+private fun TvJoin(code: String, onCode: (String) -> Unit, name: String, onName: (String) -> Unit, quality: ShareQuality, onQuality: (ShareQuality) -> Unit, busy: Boolean, error: String?, preparing: Boolean, onJoin: () -> Unit) {
     val s = LocalScale.current
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
@@ -355,7 +403,7 @@ private fun TvJoin(code: String, onCode: (String) -> Unit, name: String, onName:
             NameField(name, onName)
             QualityField(quality, onQuality)
             error?.let { Body(it, color = Kn.warn, size = 15f) }
-            JoinButton(busy, code.length == 6, onClick = onJoin)
+            JoinButton(busy, code.length == 6, preparing = preparing, onClick = onJoin)
         }
     }
 }

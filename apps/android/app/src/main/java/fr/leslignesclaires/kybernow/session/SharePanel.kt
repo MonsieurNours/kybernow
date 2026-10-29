@@ -323,7 +323,7 @@ private fun guestLabel(g: ShareGuest): String = stringResource(
 
 /** L'app de l'invité (`mac`, `windows`, `linux`, `ios`, `tvos`, `android`, `webos`, `web`) ; nul si la Station en annonce une autre. */
 @Composable
-private fun appLabel(app: String): String? = when (app) {
+internal fun appLabel(app: String): String? = when (app) {
     "mac" -> stringResource(R.string.share_app_mac)
     "windows" -> stringResource(R.string.share_app_windows)
     "linux" -> stringResource(R.string.share_app_linux)

@@ -25,6 +25,9 @@ data class HostInfo(
     /** La réponse d'Admin en JSON, telle que le cœur la rend : [Share.availability] et [HostRelay.of] la relisent (`share`, `relay`). */
     val raw: String = "",
 ) {
+    /** Ce que « Prêter l'ordinateur… » peut faire (`lend` : Station 0.9.0 et suivantes, prêt activé dans Admin). */
+    val lend: LendAvailable get() = LendAvailable.of(raw)
+
     companion object {
         fun parse(o: JSONObject) = HostInfo(
             hostname = o.optString("hostname"),
@@ -328,6 +331,34 @@ class ConsoleClient(host: String, port: Int, user: String = "", password: String
     /** « Arrêter le partage » : tout le monde sort. */
     suspend fun shareClose(): Reply<Unit> = withContext(Dispatchers.IO) {
         parse(Native.consoleShareClose(handle)) { }
+    }
+
+    // Prêt de l'ordinateur, côté hôte (docs/pret.md) : chaque appel rend la vue du prêt. Refus : le texte d'Admin ou du
+    // cœur (404 : Station antérieure à la 0.9.0).
+
+    /** La vue du prêt : activé dans Admin, l'ami qui a l'ordinateur, le préavis, les demandes, le code de séance. */
+    suspend fun lendState(): Reply<LendView?> = withContext(Dispatchers.IO) {
+        parse(Native.consoleLendState(handle)) { LendView.parse(it as? JSONObject) }
+    }
+
+    /** « Créer un code » pour une séance : [duration] (« Jusqu'à ce que je reprenne » : sans fin) et le compte Steam. */
+    suspend fun lendCode(duration: LendDuration, steam: LendSteam): Reply<LendView?> = withContext(Dispatchers.IO) {
+        parse(Native.consoleLendCode(handle, duration.seconds, steam.code)) { LendView.parse(it as? JSONObject) }
+    }
+
+    /** « Annuler le code ». */
+    suspend fun lendCancelCode(): Reply<LendView?> = withContext(Dispatchers.IO) {
+        parse(Native.consoleLendCancelCode(handle)) { LendView.parse(it as? JSONObject) }
+    }
+
+    /** « Accepter » (avec le compte Steam) ou « Refuser » une demande d'emprunt. */
+    suspend fun lendAnswer(request: String, accept: Boolean, steam: LendSteam): Reply<LendView?> = withContext(Dispatchers.IO) {
+        parse(Native.consoleLendAnswer(handle, request, accept, steam.code)) { LendView.parse(it as? JSONObject) }
+    }
+
+    /** « Reprendre l'ordinateur » (préavis de 2 min) ou, [now], « Reprendre tout de suite ». */
+    suspend fun lendTakeBack(now: Boolean): Reply<LendView?> = withContext(Dispatchers.IO) {
+        parse(Native.consoleLendTakeBack(handle, now)) { LendView.parse(it as? JSONObject) }
     }
 
     override fun close() {

@@ -6,6 +6,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -43,11 +44,16 @@ import androidx.core.content.ContextCompat
 import fr.leslignesclaires.kybernow.KyberNowApp
 import fr.leslignesclaires.kybernow.R
 import fr.leslignesclaires.kybernow.core.ConsoleClient
+import fr.leslignesclaires.kybernow.core.Lend
+import fr.leslignesclaires.kybernow.core.LendInvite
+import fr.leslignesclaires.kybernow.core.LendStatus
+import fr.leslignesclaires.kybernow.core.ShareTarget
 import fr.leslignesclaires.kybernow.core.PairState
 import fr.leslignesclaires.kybernow.core.Reply
 import fr.leslignesclaires.kybernow.core.Share
 import fr.leslignesclaires.kybernow.core.ShareLink
 import fr.leslignesclaires.kybernow.model.Announced
+import fr.leslignesclaires.kybernow.model.BorrowedComputer
 import fr.leslignesclaires.kybernow.model.Host
 import fr.leslignesclaires.kybernow.ui.Body
 import fr.leslignesclaires.kybernow.ui.Eyebrow
@@ -82,7 +88,7 @@ object PairingLink {
 /** Les quatre premiers groupes d'une empreinte, à comparer à ceux d'Admin. */
 fun shortFingerprint(fp: String): String = fp.removePrefix("sha256:").split(':').take(4).joinToString(":").uppercase()
 
-private enum class Tab { NETWORK, CODE, ADDRESS, QR }
+private enum class Tab { NETWORK, CODE, ADDRESS, QR, FRIEND }
 
 private sealed class Step {
     data object Choose : Step()
@@ -90,17 +96,41 @@ private sealed class Step {
     data class Verify(val target: Target, val seen: String) : Step()
     data class Account(val target: Target) : Step()
     data class Code(val targets: List<Target>) : Step()
+    /**
+     * « Avec un compte d'ami » (prêt de l'ordinateur, docs/pret.md) : la Station d'un ami, son identifiant (donné par le
+     * lien d'invitation), le relais du lien ; [name] : le nom annoncé sur le réseau, à défaut l'adresse.
+     */
+    data class Friend(val target: ShareTarget, val name: String, val login: String = "", val relay: String? = null, val sid: String? = null, val route: String? = null) : Step()
+    /** Le compte d'ami accepté : « {hôte} vous prête son ordinateur. » et « Ajouter ». */
+    data class FriendConfirm(val friend: Friend, val login: String, val password: String, val remember: Boolean, val status: LendStatus) : Step()
 }
 
 @Composable
-fun AddHostScreen(initial: Target?, onDone: (Host) -> Unit, onBack: () -> Unit, onShareLink: (ShareLink) -> Unit = {}) {
+fun AddHostScreen(
+    initial: Target?,
+    onDone: (Host) -> Unit,
+    onBack: () -> Unit,
+    onShareLink: (ShareLink) -> Unit = {},
+    /** Un lien d'invitation `kybernow://borrow` : l'écran s'ouvre sur le compte d'ami, l'identifiant rempli. */
+    invite: LendInvite? = null,
+    /** L'ordinateur prêté ajouté à l'accueil (« Ordinateur de {hôte} »). */
+    onFriendAdded: (BorrowedComputer) -> Unit = {},
+) {
     val s = LocalScale.current
     val app = KyberNowApp.instance
     val context = LocalContext.current
     val announced by app.discovery.found.collectAsState()
     val hasCamera = remember { context.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY) }
     var tab by remember { mutableStateOf(if (s.tv) Tab.CODE else Tab.NETWORK) }
-    var step by remember { mutableStateOf<Step>(if (initial != null) Step.Account(initial) else Step.Choose) }
+    var step by remember {
+        mutableStateOf(
+            when {
+                invite != null -> Step.Friend(invite.target, invite.target.host, invite.login, invite.relay, invite.sid, invite.route)
+                initial != null -> Step.Account(initial)
+                else -> Step.Choose
+            },
+        )
+    }
     LaunchedEffect(Unit) { app.discovery.start() }
 
     Box(Modifier.fillMaxSize().background(Kn.ink).statusBarsPadding().navigationBarsPadding()) {
@@ -117,11 +147,14 @@ fun AddHostScreen(initial: Target?, onDone: (Host) -> Unit, onBack: () -> Unit, 
             }
             when (val st = step) {
                 Step.Choose -> {
-                    Row(horizontalArrangement = Arrangement.spacedBy(s.dp(8f))) {
+                    // Cinq choix : sur un petit écran, la rangée défile.
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(s.dp(8f))) {
                         GlassButton(stringResource(R.string.add_tab_network), { tab = Tab.NETWORK }, selected = tab == Tab.NETWORK)
                         GlassButton(stringResource(R.string.add_tab_code), { tab = Tab.CODE }, selected = tab == Tab.CODE)
                         GlassButton(stringResource(R.string.add_tab_address), { tab = Tab.ADDRESS }, selected = tab == Tab.ADDRESS)
                         if (hasCamera && !s.tv) GlassButton(stringResource(R.string.add_tab_qr), { tab = Tab.QR }, selected = tab == Tab.QR)
+                        // Sur le réseau d'un ami : son ordinateur, avec le compte qu'il a créé dans Admin (page « Prêt »).
+                        GlassButton(stringResource(R.string.lend_with_account), { tab = Tab.FRIEND }, selected = tab == Tab.FRIEND)
                     }
                     when (tab) {
                         Tab.NETWORK -> NetworkPane(announced) { a -> step = Step.Account(Target(a.address, a.port, a.name, a.fingerprint)) }
@@ -130,11 +163,14 @@ fun AddHostScreen(initial: Target?, onDone: (Host) -> Unit, onBack: () -> Unit, 
                             onSeen = { t, fp -> step = Step.Verify(t, fp) },
                         )
                         Tab.QR -> QrPane(onShareLink) { t -> step = Step.Account(t) }
+                        Tab.FRIEND -> NetworkPane(announced) { a -> step = Step.Friend(ShareTarget(a.address, a.port, a.fingerprint), a.name) }
                     }
                 }
                 is Step.Verify -> VerifyPane(st.target, st.seen, onAccept = { step = Step.Account(st.target.copy(fingerprint = st.seen)) }, onCancel = { step = Step.Choose })
                 is Step.Account -> AccountPane(st.target, onDone, onCode = { step = Step.Code(listOf(st.target)) })
                 is Step.Code -> CodePane(st.targets, onDone)
+                is Step.Friend -> FriendPane(st) { login, password, remember, status -> step = Step.FriendConfirm(st, login, password, remember, status) }
+                is Step.FriendConfirm -> FriendConfirmPane(st, onFriendAdded)
             }
         }
     }
@@ -343,6 +379,70 @@ private fun CodePane(targets: List<Target>, onDone: (Host) -> Unit) {
     }
     Mono(targets.joinToString(" · ") { it.name }, size = 12f)
     message?.let { Body(stringResource(it), color = Kn.warn, size = 14f) }
+}
+
+/**
+ * « Avec un compte d'ami » : « Identifiant » (rempli par le lien d'invitation), « Mot de passe », « Retenir le mot de
+ * passe » ; « Continuer » demande à la Station l'état de l'ordinateur pour ce compte (le nom de l'hôte, celui de
+ * l'ordinateur) ; un refus s'écrit avec le texte du cœur (« Identifiant ou mot de passe refusé. »).
+ */
+@Composable
+private fun FriendPane(friend: Step.Friend, onAccepted: (String, String, Boolean, LendStatus) -> Unit) {
+    val s = LocalScale.current
+    val scope = rememberCoroutineScope()
+    var login by remember(friend) { mutableStateOf(friend.login) }
+    var password by remember { mutableStateOf("") }
+    var remember by remember { mutableStateOf(true) }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val unreachable = stringResource(R.string.add_unreachable)
+    Column(Modifier.panel().fillMaxWidth().padding(s.dp(18f))) {
+        Body(friend.name, size = 18f, weight = 600)
+        Mono("${friend.target.host}:${friend.target.port}" + (friend.target.fingerprint?.let { " · " + shortFingerprint(it) } ?: ""), size = 11f)
+    }
+    Eyebrow(stringResource(R.string.lend_with_account))
+    Field(stringResource(R.string.add_user), login, { login = it.trim() })
+    Field(stringResource(R.string.add_password), password, { password = it }, password = true)
+    GlassButton(
+        stringResource(R.string.lend_remember), { remember = !remember }, selected = remember,
+        leading = { if (remember) { KnIcon(KnIcons.check, size = 16f); Spacer(Modifier.width(s.dp(6f))) } },
+    )
+    error?.let { Body(it, color = Kn.warn, size = 14f) }
+    PrimaryButton(stringResource(if (busy) R.string.add_contacting else R.string.add_continue), {
+        busy = true
+        error = null
+        scope.launch {
+            val reply = Lend.status(friend.target, friend.route, login, password)
+            busy = false
+            when (reply) {
+                is Reply.Ok -> onAccepted(login, password, remember, reply.value)
+                is Reply.Failed -> error = reply.message.ifBlank { unreachable }
+            }
+        }
+    }, enabled = !busy && login.isNotBlank() && password.isNotEmpty())
+}
+
+/** « {hôte} vous prête son ordinateur. », le nom de l'ordinateur, « Ajouter » : la carte « Ordinateur de {hôte} » rejoint l'accueil. */
+@Composable
+private fun FriendConfirmPane(st: Step.FriendConfirm, onAdded: (BorrowedComputer) -> Unit) {
+    val s = LocalScale.current
+    val app = KyberNowApp.instance
+    val host = st.status.host.ifBlank { st.status.computer.ifBlank { st.friend.name } }
+    Column(Modifier.panel().fillMaxWidth().padding(s.dp(20f)), verticalArrangement = Arrangement.spacedBy(s.dp(8f))) {
+        Body(stringResource(R.string.lend_invited, host), size = 20f, weight = 600)
+        if (st.status.computer.isNotBlank()) Mono(st.status.computer, size = 12f)
+    }
+    PrimaryButton(stringResource(R.string.lend_add), {
+        val f = st.friend
+        val c = app.hosts.putBorrowed(
+            BorrowedComputer(
+                host = host, computer = st.status.computer, address = f.target.host, port = f.target.port, fingerprint = f.target.fingerprint,
+                login = st.login, relay = f.relay, sid = f.sid,
+            ),
+            if (st.remember) st.password else null,
+        )
+        onAdded(c)
+    })
 }
 
 /**
