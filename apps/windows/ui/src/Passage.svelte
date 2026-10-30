@@ -20,6 +20,8 @@
     restarting = false,
     many = false,
     guest = false,
+    borrow = false,
+    cancellable = true,
     oncancel,
   }: {
     /** L'ordinateur ; pour un invité (KyberNow Share), « Invité sur {nom} » et la teinte de l'ordinateur qui partage. */
@@ -33,6 +35,10 @@
     many?: boolean
     /** Session d'invité : pas de conseil sur le journal d'Admin (l'invité n'y a pas accès). */
     guest?: boolean
+    /** Session d'emprunt (prêt de l'ordinateur) : « Préparation de l'ordinateur » en première étape (le mode console). */
+    borrow?: boolean
+    /** Faux pendant l'emprunt lui-même (la Station prépare l'ordinateur) : rien à annuler encore. */
+    cancellable?: boolean
     oncancel: () => void
   } = $props()
 
@@ -48,7 +54,7 @@
   const order: Phase['phase'][] = ['preparing', 'connecting', 'first_images', 'streaming']
   const at = $derived(order.indexOf(phase))
   const steps = $derived([
-    { label: many ? t('passage.preparing_many') : t('passage.preparing'), from: 0 },
+    { label: borrow ? t('lend.preparing') : many ? t('passage.preparing_many') : t('passage.preparing'), from: 0 },
     { label: t('passage.connecting'), from: 1 },
     { label: t('passage.first_images'), from: 2 },
   ])
@@ -77,9 +83,9 @@
           </span>
         {/each}
       {/if}
-      <button onclick={oncancel}>{t('common.cancel')}</button>
+      {#if cancellable}<button onclick={oncancel}>{t('common.cancel')}</button>{/if}
     </div>
-    {#if slow && !guest}
+    {#if slow && !guest && !borrow}
       <p class="slow" role="status">
         {t('passage.slow', { name: computer.name })}
       </p>

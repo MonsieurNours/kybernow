@@ -4,7 +4,7 @@
 // réglage Langue de l'app (comme dans l'app, sans recharger).
 
 import { i18n, langFromTag, t } from './i18n/index.svelte'
-import type { BarComputer, Computer, ConnectInfo, ConnexionView, DisplaysInfo, FondState, GuestBar, Info, KeepSound, LastSession, RouteEvent, RouteView, ScreensEvent, Settings, Share, ShareGuest, ShareImageEvent, ShareJoinOutcome, ShareJoined, ShareQuality, ShareRole, ShareRoleEvent, ShareWaitOutcome, StationInfo, StationOutcome, StationRestarting, WakeTarget } from './api'
+import type { BarComputer, BorrowBar, BorrowOutcome, Friend, HomeLend, LendEnd, LendPanel, LendWaitOutcome, Computer, ConnectInfo, ConnexionView, DisplaysInfo, FondState, GuestBar, Info, KeepSound, LastSession, RouteEvent, RouteView, ScreensEvent, Settings, Share, ShareGuest, ShareImageEvent, ShareJoinOutcome, ShareJoined, ShareQuality, ShareRole, ShareRoleEvent, ShareWaitOutcome, StationInfo, StationOutcome, StationRestarting, WakeTarget } from './api'
 
 const listeners = new Map<string, ((e: { payload: unknown }) => void)[]>()
 const emit = (name: string, payload: unknown) => listeners.get(name)?.forEach((cb) => cb({ payload }))
@@ -57,6 +57,20 @@ const emit = (name: string, payload: unknown) => listeners.get(name)?.forEach((c
 // 626262 l'hôte ne répond pas (« L'hôte n'a pas répondu. »), 353535 le partage s'arrête pendant l'attente (« Ce partage est arrêté. »),
 // 737373 le relais ne répond pas, 848484 trois demandes
 // attendent déjà.
+// Prêt de l'ordinateur (docs/pret.md). L'ami, sur l'accueil : `?pret` (deux ordinateurs empruntés : celui de Matthieu,
+// disponible, avec un créneau mercredi ; celui d'Inès, occupé : « Demander à Inès », accepté au bout de 4 s), `?pret=mdp`
+// (le mot de passe de Matthieu n'est pas retenu : il est demandé à « Emprunter » ; « faux » est refusé), `?pret=fin` (la
+// session d'emprunt finit au bout de 5 s : « Matthieu a repris l'ordinateur. »), `?pret=retour` (elle finit sans que le prêt
+// le dise : « Vous pouvez revenir pendant 15 min. », « Revenir ») ; `?invitation` (le lien d'invitation d'un compte d'ami
+// ouvert : « PC-SALON vous prête son ordinateur. », « faux » est refusé) ; « Rejoindre » : 777777 est un code de prêt (le
+// passage « Préparation de l'ordinateur »), 787878 un code de prêt que l'hôte accepte au bout de 4 s (« En attente de
+// Matthieu… »), 797979 un code de prêt refusé (« Matthieu a refusé. »). L'hôte, sur l'accueil : `?pret=prete` (Bureau-Salon
+// est prêté à Léa jusqu'à dans 1 h 20 : « Reprendre l'ordinateur »), `?pret=reprise` (le préavis court : « Reprise dans
+// 1:42 », « Reprendre tout de suite »). La barre de l'hôte (`/bar.html`) : `?pret` (« Prêter l'ordinateur… » : durée,
+// compte Steam, « Créer un code »), `?pret=code` (le code est créé), `?pret=demandes` (deux demandes, la pastille
+// « 2 demandes ») avec `&arrivee=pret` (l'avis « Inès veut emprunter l'ordinateur. »), `?pret=ancienne` (Station trop
+// ancienne), `?pret=coupe` (prêt coupé dans Admin). La barre de l'ami : `/bar.html?emprunt` (« Prêté par Matthieu »,
+// « Encore 1 h 20 »), `&sansfin` (« Jusqu'à ce que Matthieu reprenne »), `&preavis` (le préavis de 2 minutes).
 const flags = new URLSearchParams(location.search)
 /** Le relais : `joint`, `tcp`, `injoignable`, `preparation`, `lent`, `coupe`, `eteint`, `session` ; `null` sans `?relais`. */
 const relayFlag = flags.has('relais') ? flags.get('relais') || 'joint' : null
@@ -480,7 +494,208 @@ const relayCodes = ['424242', '515151', '626262', '353535']
 /** Ce que renvoie `share_join` quand l'invité entre. */
 const joinedAs = (): ShareJoined & { kind: 'joined' } => ({ kind: 'joined', id: `guest-${++guestSeq}`, title: t('mock.guest_on'), host: 'Léa', role: 'spectator', fingerprint: fp('atelier') })
 
+// MARK: - Prêt de l'ordinateur
+
+const lendFlag = flags.has('pret') ? flags.get('pret') || 'oui' : null
+/** Mercredi prochain, de 14 h à 18 h (heure de ce PC). */
+const nextWednesday = (() => {
+  const d = new Date()
+  d.setDate(d.getDate() + ((3 - d.getDay() + 7) % 7 || 7))
+  d.setHours(14, 0, 0, 0)
+  return Math.floor(d.getTime() / 1000)
+})()
+let friends: Friend[] =
+  lendFlag !== null && !['prete', 'reprise', 'code', 'demandes', 'ancienne', 'coupe'].includes(lendFlag)
+    ? [
+        { id: 'f1', owner: 'Matthieu', computer: 'PC-SALON', login: 'lea', remember: lendFlag !== 'mdp', state: lendFlag === 'mdp' ? 'password' : 'free', slot: { now: false, next: { start: nextWednesday, end: nextWednesday + 4 * 3600 } }, relay: true },
+        { id: 'f2', owner: 'Inès', computer: 'TOUR-INES', login: 'lea', remember: true, state: 'busy', slot: null, relay: false },
+      ]
+    : []
+const emitFriends = () => emit('lend-friends', structuredClone(friends))
+// L'hôte : Bureau-Salon prêté à Léa (`?pret=prete`, `?pret=reprise`).
+if (lendFlag === 'prete' || lendFlag === 'reprise') {
+  const lent: HomeLend = { state: 'lent', name: 'Léa', until: now + 80 * 60, notice_at: lendFlag === 'reprise' ? now + 102 : null, notice: lendFlag === 'reprise' ? 'taken_back' : null }
+  ;(computers[0] as Computer).lend = lent
+}
+/** Le prêt de l'hôte dans la barre (`/bar.html?pret=…`). */
+let lendCodeOn = lendFlag === 'code'
+let lendRequests = lendFlag === 'demandes'
+  ? [
+      { id: 'q1', name: 'Inès', kind: 'friend' as const, app: 'ios', away: true, since: now - 30 },
+      { id: 'q2', name: 'Hugo', kind: 'code' as const, app: 'web', away: false, since: now - 5 },
+    ]
+  : []
+const lendView = (): LendPanel => ({
+  availability: lendFlag === 'ancienne' ? 'unsupported' : lendFlag === 'coupe' ? 'disabled' : 'available',
+  state: 'free',
+  borrower: null,
+  notice: null,
+  requests: structuredClone(lendRequests),
+  code: lendCodeOn
+    ? { code: '205 718', link: 'kybernow://join?host=192.168.1.100&port=9443&code=205718', web: 'https://192.168.1.100:9443/link/?join=205718', duration: 7200, steam: 'friend', expires: now + 86400, qr: fakeQr() }
+    : null,
+})
+const emitLend = () => emit('lend-state', { id: sessions[0] ?? 'a1', lend: lendView() })
+/** La barre de l'ami qui emprunte (`/bar.html?emprunt`). */
+const borrowFlag = flags.has('emprunt')
+const borrowBar = (): BorrowBar => ({
+  host: 'Matthieu',
+  until: flags.has('sansfin') ? null : now + 80 * 60,
+  notice: flags.has('preavis') ? { reason: 'taken_back', at: Math.floor(Date.now() / 1000) + 120, text: t('mock.lend_notice_taken_back') } : null,
+})
+/** Les demandes d'emprunt qui attendent l'hôte : accepté au bout de 4 s (787878, Inès), refusé au bout de 3 s (797979). */
+const lendWaits = new Map<number, { kind: 'accept' | 'refuse'; at: number; cancelled: boolean }>()
+let lendSeq = 0
+let lendTicket: { id: number; code: string } | null = null
+let invitation = flags.has('invitation')
+const loanReady = (): BorrowOutcome & { kind: 'ready' } => ({ kind: 'ready', id: `lend-${++lendSeq}`, title: t('mock.lend_computer_of'), host: 'Matthieu', fingerprint: fp('pc-salon') })
+
 const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
+  lend_friends: () => structuredClone(friends),
+  lend_invite: async () => {
+    await sleep(300)
+    return { login: 'lea', host: 'PC-SALON', relay: true }
+  },
+  lend_add: async (a) => {
+    await sleep(700)
+    if (a.password === 'faux') throw t('mock.lend_bad_credentials')
+    const id = `f${friends.length + 1}`
+    friends = [...friends, { id, owner: 'Matthieu', computer: 'PC-SALON', login: String(a.login), remember: Boolean(a.remember), state: 'free', slot: null, relay: !!a.link }]
+    emitFriends()
+    return id
+  },
+  lend_remove: (a) => {
+    friends = friends.filter((f) => f.id !== a.id)
+    emitFriends()
+    return null
+  },
+  lend_refresh: () => {
+    emitFriends()
+    return null
+  },
+  // « Emprunter » : la Station passe en mode console (l'imitation : 2,5 s), ou l'hôte doit accepter.
+  lend_borrow: async (a) => {
+    if (a.ticket != null) {
+      if (!lendTicket || lendTicket.id !== a.ticket) throw t('mock.no_session')
+      const code = lendTicket.code
+      lendTicket = null
+      if (code === '787878' || code === '797979') {
+        await sleep(500)
+        lendWaits.set(++lendSeq, { kind: code === '787878' ? 'accept' : 'refuse', at: Date.now(), cancelled: false })
+        return { kind: 'pending', wait: lendSeq, host: 'Matthieu' } satisfies BorrowOutcome
+      }
+      await sleep(2500)
+      return loanReady()
+    }
+    const f = friends.find((x) => x.id === a.friend)
+    if (!f) throw t('mock.no_session')
+    if (a.password === 'faux') {
+      await sleep(400)
+      throw t('mock.lend_bad_credentials')
+    }
+    if (a.password) {
+      f.state = 'free'
+      f.remember = Boolean(a.remember)
+      emitFriends()
+    }
+    if (f.state === 'busy') {
+      await sleep(500)
+      lendWaits.set(++lendSeq, { kind: 'accept', at: Date.now(), cancelled: false })
+      return { kind: 'pending', wait: lendSeq, host: f.owner } satisfies BorrowOutcome
+    }
+    await sleep(2500)
+    return loanReady()
+  },
+  lend_wait: async (a) => {
+    const w = lendWaits.get(Number(a.wait))
+    if (!w || w.cancelled) return { kind: 'cancelled' } satisfies LendWaitOutcome
+    await sleep(1500)
+    if (w.cancelled) return { kind: 'cancelled' } satisfies LendWaitOutcome
+    const waited = Date.now() - w.at
+    if (w.kind === 'accept' && waited >= 4000) {
+      lendWaits.delete(Number(a.wait))
+      return loanReady() satisfies LendWaitOutcome
+    }
+    if (w.kind === 'refuse' && waited >= 3000) {
+      lendWaits.delete(Number(a.wait))
+      throw t('mock.lend_refused')
+    }
+    return { kind: 'waiting' } satisfies LendWaitOutcome
+  },
+  lend_cancel: (a) => {
+    const w = lendWaits.get(Number(a.wait))
+    if (w) w.cancelled = true
+    lendWaits.delete(Number(a.wait))
+    console.info(`lend_cancel : la demande n°${a.wait} est retirée chez l'hôte`)
+    return null
+  },
+  lend_come_back: async () => {
+    await sleep(1500)
+    return loanReady()
+  },
+  // La session d'emprunt : comme celle d'un invité ; `?pret=fin` et `?pret=retour` la finissent au bout de 5 s.
+  lend_connect: (a) => {
+    const id = a.id as string
+    if (sessions.length >= 4) throw t('common.four_at_most')
+    if (sessions.length > 0) {
+      sessions = [...sessions, id]
+      emitSessions()
+      return { screens: 1, windowed: true } satisfies ConnectInfo
+    }
+    sessions = [id]
+    emitSessions()
+    void (async () => {
+      for (const phase of ['preparing', 'connecting', 'first_images']) {
+        emit('session-status', { id, phase, detail: null })
+        await sleep(900)
+      }
+      emit('session-status', { id, phase: 'streaming', detail: null })
+      await sleep(500)
+      emit('session-shown', id)
+      if (lendFlag !== 'fin' && lendFlag !== 'retour') return
+      await sleep(5000)
+      sessions = sessions.filter((s) => s !== id)
+      const lend: LendEnd = lendFlag === 'fin' ? { host: 'Matthieu', text: t('mock.lend_taken_back'), come_back: false } : { host: 'Matthieu', text: null, come_back: true }
+      emit('session-ended', { id, summary: { error: lendFlag === 'fin' ? t('mock.lend_taken_back') : null, median_ms: 9, p95_ms: 13, seconds: 5 }, lend })
+      emitSessions()
+    })()
+    return { screens: 1, windowed: false } satisfies ConnectInfo
+  },
+  lend_give_back: () => {
+    console.info("lend_give_back : l'ordinateur est rendu")
+    return null
+  },
+  lend_state: async () => {
+    await sleep(300)
+    return lendView()
+  },
+  lend_code: async (a) => {
+    await sleep(500)
+    console.info(`lend_code : ${a.duration ?? 'sans fin'} s, Steam ${a.steam}`)
+    lendCodeOn = true
+    emitLend()
+    return lendView()
+  },
+  lend_cancel_code: () => {
+    lendCodeOn = false
+    emitLend()
+    return lendView()
+  },
+  lend_answer: (a) => {
+    lendRequests = lendRequests.filter((r) => r.id !== a.request)
+    console.info(`lend_answer : ${a.request} ${a.accept ? 'acceptée' : 'refusée'}`)
+    emitLend()
+    return lendView()
+  },
+  // « Reprendre l'ordinateur » : le préavis de 2 min ; « Reprendre tout de suite » : le prêt finit.
+  lend_take_back: (a) => {
+    change(a.id, (c) => {
+      const l = (c as Computer).lend
+      if (!l) return
+      ;(c as Computer).lend = a.now ? null : { ...l, notice_at: Math.floor(Date.now() / 1000) + 120, notice: 'taken_back' }
+    })
+    return lendView()
+  },
   share_defaults: () => ({ name: thisPc.name, quality: rememberedQuality }),
   share_link_code: (a) => {
     const m = String(a.link).match(/code=(\d{6})/)
@@ -495,6 +710,11 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
     // 737373 : le relais ne répond pas ; 848484 : trois demandes attendent déjà l'hôte.
     if (code === '737373') throw t('mock.relay_mute')
     if (code === '848484') throw t('mock.pending_full')
+    // Un code de prêt : l'app emprunte ensuite avec le ticket.
+    if (code === '777777' || code === '787878' || code === '797979') {
+      lendTicket = { id: ++lendSeq, code }
+      return { kind: 'lend', ticket: lendSeq } satisfies ShareJoinOutcome
+    }
     // 111111 : l'hôte envoie un format que ce PC ne lit pas, on entre quand même (image à part).
     const relayed = relayCodes.includes(code)
     if (!relayed && code !== '123456' && code !== '482913' && code !== '111111') throw t('mock.no_share')
@@ -793,6 +1013,10 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
   bar_hide: () => null,
   // `?rejoindre` : « Rejoindre avec un code » demandé à l'ouverture (`=123456` : par un lien, code rempli).
   take_action: () => {
+    if (invitation) {
+      invitation = false
+      return { kind: 'borrow', link: 'kybernow://borrow?host=192.168.1.100&port=9443&fp=sha256:aa&login=lea&relay=share.kybernow.app&sid=abcdefghijklmnopqrstuvwxyz' }
+    }
     if (!joinAction) return null
     joinAction = false
     const code = flags.get('rejoindre')
@@ -916,13 +1140,15 @@ export function mockTauri() {
       listen: async (name: string, cb: (e: { payload: unknown }) => void) => {
         listeners.set(name, [...(listeners.get(name) ?? []), cb])
         // La barre sert la première session (`a1` sans `?ordinateurs`), ou celle d'un invité (`?invite=…`).
-        const served = guestFlag !== null ? 'guest-1' : (sessions[0] ?? 'a1')
+        const served = guestFlag !== null ? 'guest-1' : borrowFlag ? 'lend-1' : (sessions[0] ?? 'a1')
         // « Garder le son » à partir de deux sessions (`?ordinateurs=2`) ; sans session imitée, celle de la barre.
         if (name === 'bar-shown') {
           const guest: GuestBar | null = guestFlag !== null ? { role: guestRole, host: 'Léa', quality: guestQuality, image: imageOf(guestQuality) } : null
           // `?relais` : la session de la barre passe par le relais (puce « Par le relais »).
           const route = relayJoined ? routeView() : null
-          const shown = { id: served, label: 'Jeu · HEVC', profile: 'jeu', multi: deviceScreens > 1, keep_sound: keepSound.has(served), sessions: Math.max(1, sessions.length), guest, share: guest ? null : shareView(), route }
+          const borrow = borrowFlag ? borrowBar() : null
+          const host = !guest && !borrow
+          const shown = { id: served, label: 'Jeu · HEVC', profile: 'jeu', multi: deviceScreens > 1, keep_sound: keepSound.has(served), sessions: Math.max(1, sessions.length), guest, share: host ? shareView() : null, lend: host ? lendView() : null, borrow, route }
           setTimeout(() => cb({ payload: shown }), 300)
           // `&avis` : le changement de rôle d'un invité, montré à la place des statistiques.
           if (guest && flags.has('avis')) {
@@ -933,9 +1159,13 @@ export function mockTauri() {
           }
           // `?arrivee` (hôte) : une demande à rejoindre arrive, l'avis « Inès demande à rejoindre. » se choisit pour ouvrir le panneau.
           if (!guest && flags.has('arrivee')) {
-            const text = t('mock.notice_request', { name: 'Inès' })
-            setTimeout(() => cb({ payload: { ...shown, pinned: true, notice: text, notice_opens_share: true } }), 2500)
+            // `&arrivee=pret` : une demande d'emprunt, l'avis ouvre « Prêter l'ordinateur… ».
+            const lending = flags.get('arrivee') === 'pret'
+            const text = lending ? t('lend.wants_to_borrow', { name: 'Inès' }) : t('mock.notice_request', { name: 'Inès' })
+            setTimeout(() => cb({ payload: { ...shown, pinned: true, notice: text, notice_opens_share: !lending, notice_opens_lend: lending } }), 2500)
           }
+          // `&preavis` : le préavis de l'ami, montré comme un avis bref.
+          if (borrow?.notice) setTimeout(() => cb({ payload: { ...shown, pinned: true, notice: borrow.notice!.text } }), 2000)
           // `&droits` : l'hôte donne et reprend les droits à tour de rôle (manettes, clavier et souris, un à la fois).
           if (guest && flags.has('droits')) {
             const steps: ShareRole[] = ['player', 'player_kbm', 'kbm', 'spectator', 'kbm', 'player_kbm']

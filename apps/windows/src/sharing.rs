@@ -185,6 +185,9 @@ pub fn availability_code(a: Option<ShareAvailability>) -> &'static str {
 pub enum JoinOutcome {
     Joined(Joined),
     Pending { wait: u64 },
+    /// Le code est un code de prêt (prêt de l'ordinateur) : l'interface emprunte
+    /// avec ce ticket (`lend_borrow`).
+    Lend { ticket: u64 },
 }
 
 /// Réponse de `share_wait` (appel tenu 25 s au plus) : l'hôte n'a pas encore
@@ -498,6 +501,8 @@ mod tests {
         assert_eq!(v, serde_json::json!({ "kind": "joined", "id": "guest-7", "title": "Invité sur Atelier", "host": "Léa", "role": "spectator", "fingerprint": "sha256:aa" }));
         // Par le relais : la demande attend l'accord de l'hôte, l'interface rappelle `share_wait` avec ce numéro.
         assert_eq!(serde_json::to_value(JoinOutcome::Pending { wait: 3 }).unwrap(), serde_json::json!({ "kind": "pending", "wait": 3 }));
+        // Un code de prêt : l'interface emprunte avec ce ticket.
+        assert_eq!(serde_json::to_value(JoinOutcome::Lend { ticket: 5 }).unwrap(), serde_json::json!({ "kind": "lend", "ticket": 5 }));
         assert_eq!(serde_json::to_value(WaitOutcome::Waiting).unwrap(), serde_json::json!({ "kind": "waiting" }));
         assert_eq!(serde_json::to_value(WaitOutcome::Cancelled).unwrap(), serde_json::json!({ "kind": "cancelled" }));
         assert_eq!(serde_json::to_value(WaitOutcome::Joined(joined())).unwrap()["kind"], "joined");

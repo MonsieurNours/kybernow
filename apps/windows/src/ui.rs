@@ -57,6 +57,9 @@ use kybernow_core::update::{self, Available, Channel};
 // KyberNow Share : « Rejoindre avec un code » (session d'invité) et « Partager »
 // (panneau de l'hôte dans la barre).
 mod share;
+// Prêt de l'ordinateur (KyberNow Share) : l'ami (ordinateurs empruntés, session
+// d'emprunt) et l'hôte (« Prêter l'ordinateur… », « Reprendre l'ordinateur »).
+mod lend;
 
 #[derive(Debug, Clone, Default)]
 struct Live {
@@ -70,6 +73,9 @@ struct Live {
     /// L'ordinateur ne répond pas sur le réseau mais le relais le tient : « Hors
     /// de chez vous » (`online` est alors vrai : on peut s'y connecter).
     away: bool,
+    /// Le prêt de l'ordinateur, quand il y est activé (`GET /api/lend`) :
+    /// « Prêté à {prénom} » sur l'accueil.
+    lend: Option<kybernow_core::lend::LendView>,
 }
 
 fn data_url(jpeg: &[u8]) -> String {
@@ -95,6 +101,8 @@ pub struct ComputerView {
     /// `restart` ou `update` : la Station redémarre ou s'installe, l'app
     /// attend son retour (`station-outcome` à la fin).
     station_pending: Option<&'static str>,
+    /// Prêté à un ami : « Prêté à {prénom} », « Reprendre l'ordinateur ».
+    lend: Option<crate::lending::HomeLend>,
 }
 
 /// Un ordinateur à ajouter : adresse et port de sa console, empreinte
@@ -125,9 +133,14 @@ struct Running {
     stats: Arc<Mutex<Option<Stats>>>,
     /// Session d'invité (KyberNow Share) : l'ordinateur qui partage et le rôle.
     guest: Option<Arc<share::Guest>>,
+    /// Session d'emprunt (prêt de l'ordinateur, `lend-N`) : l'hôte, la fin prévue,
+    /// le préavis.
+    borrow: Option<Arc<lend::Borrow>>,
     /// Session d'hôte : le partage ouvert et ses invités, tels qu'Admin les dit
     /// (signe de vie de la session, ou réponse à une action de la barre).
     share: Arc<Mutex<Option<ShareState>>>,
+    /// Session d'hôte : le prêt de l'ordinateur (code, demandes), tel qu'Admin le dit.
+    lend: Arc<Mutex<Option<kybernow_core::lend::LendView>>>,
     /// Par où passe la session (`on_route` du cœur) : la puce « Par le relais » de
     /// la barre, et le chemin que prennent les appels à Admin (par le relais si la
     /// session y est). `None` tant que le cœur ne l'a pas dit.
@@ -271,6 +284,8 @@ pub struct UiState {
     join_wait: Mutex<Option<share::Wait>>,
     /// La présence des ordinateurs au relais, redemandée toutes les 30 s au plus.
     presence: Mutex<relais::Presence>,
+    /// Prêt de l'ordinateur : ordinateurs empruntés, demandes, prêt accordé.
+    lend: lend::LendState,
 }
 
 /// Ce que l'ouverture demande à l'app.
@@ -281,6 +296,8 @@ pub enum Action {
     Add,
     /// « Rejoindre avec un code » (menu de l'icône, `kybernow://join?…` : le lien).
     Join { link: Option<String> },
+    /// Le lien d'invitation d'un compte d'ami (`kybernow://borrow?…`) : « Ordinateur de {hôte} ».
+    Borrow { link: String },
     Link { link: String },
     Updated,
     Open,
@@ -297,6 +314,10 @@ fn parse_action(args: &[String]) -> Option<Action> {
     // Le lien (ou le QR code) d'un partage : « Rejoindre avec un code ».
     if crate::link::is_join(first) {
         return Some(Action::Join { link: Some(first.clone()) });
+    }
+    // Le lien d'invitation d'un compte d'ami (prêt de l'ordinateur).
+    if crate::link::is_borrow(first) {
+        return Some(Action::Borrow { link: first.clone() });
     }
     if first.starts_with("kybernow://") {
         // Actions des notifications (link.rs) : kybernow://connect?id=…,
@@ -415,7 +436,8 @@ impl UiState {
                 let waking = waking.contains(&c.id);
                 let station_pending = pending.get(&c.id).map(|k| k.code());
                 let via_relay = l.away || relayed.contains(&c.id);
-                ComputerView { computer: c, online: l.online, away: l.away, via_relay, info: l.info, preview, preview_source, waking, station_pending }
+                let lend = l.lend.as_ref().and_then(crate::lending::HomeLend::of);
+                ComputerView { computer: c, online: l.online, away: l.away, via_relay, info: l.info, preview, preview_source, waking, station_pending, lend }
             })
             .collect()
     }
@@ -591,10 +613,11 @@ fn handle_args(app: &AppHandle, args: Vec<String>) {
             }
             return;
         }
-        // Une notification de demande à rejoindre : le panneau de « Partager » de cette session.
-        Some(link) if crate::link::action(link).is_some_and(|(a, _)| a == "share") => {
-            if let Some((_, Some(id))) = crate::link::action(link)
-                && share::open_panel(app, &id)
+        // Une notification de demande à rejoindre ou à emprunter : le panneau de « Partager »
+        // ou de « Prêter l'ordinateur… » de cette session.
+        Some(link) if crate::link::action(link).is_some_and(|(a, _)| a == "share" || a == "lend") => {
+            if let Some((panel, Some(id))) = crate::link::action(link)
+                && share::open_panel(app, &id, if panel == "lend" { "lend" } else { "share" })
             {
                 return;
             }
@@ -895,6 +918,8 @@ fn refresh(app: &AppHandle, c: &Computer) -> bool {
     if let Some(i) = &info {
         station_news(app, c, i);
     }
+    // Prêté à un ami : « Prêté à {prénom} » sur l'accueil.
+    let lend_view = info.as_ref().and_then(|i| lend::home_view(&console, i));
     let mut preview = None;
     let wants_preview = {
         let live = state.live.lock().unwrap();
@@ -913,9 +938,11 @@ fn refresh(app: &AppHandle, c: &Computer) -> bool {
     // La Station suivie après un redémarrage ou une mise à jour : son état
     // (version, installation, redémarrage) compte aussi.
     let station_changed = info.as_ref().is_some_and(|i| l.info.as_ref().map(|o| &o.station) != Some(&i.station));
-    let changed = l.online != online || l.away != away || preview.is_some() || station_changed || wake_changed || relay_changed;
+    let lend_changed = l.lend != lend_view;
+    let changed = l.online != online || l.away != away || preview.is_some() || station_changed || wake_changed || relay_changed || lend_changed;
     l.online = online;
     l.away = away;
+    l.lend = lend_view;
     if info.is_some() {
         l.info = info;
     }
@@ -1578,8 +1605,14 @@ struct UiEvents {
     connexion: Arc<Connexion>,
     /// Session d'invité (KyberNow Share) : jamais l'ordinateur d'une liste de l'app.
     guest: Option<Arc<share::Guest>>,
+    /// Session d'emprunt (prêt de l'ordinateur) : jamais l'ordinateur d'une liste de l'app.
+    borrow: Option<Arc<lend::Borrow>>,
     /// Le partage de cette session d'hôte (le même que celui de `Running`).
     share: Arc<Mutex<Option<ShareState>>>,
+    /// Le prêt de cette session d'hôte (le même que celui de `Running`).
+    lend: Arc<Mutex<Option<kybernow_core::lend::LendView>>>,
+    /// La première vue du prêt est arrivée : ses demandes déjà là ne sont pas dites.
+    lend_seen: std::sync::atomic::AtomicBool,
     /// Le chemin de la session (le même que celui de `Running`).
     route: Arc<Mutex<Option<RouteInfo>>>,
 }
@@ -1613,12 +1646,20 @@ struct BarShown {
     guest: Option<GuestBar>,
     /// Session d'hôte : « Partager » et le panneau (partage ouvert, invités).
     share: Option<crate::sharing::ShareView>,
+    /// Session d'hôte : « Prêter l'ordinateur… » et son panneau (code, demandes).
+    lend: Option<crate::lending::LendPanel>,
+    /// Session d'emprunt : la barre est réduite (« Prêté par {hôte} », temps
+    /// restant, « Rendre l'ordinateur »).
+    borrow: Option<crate::lending::BorrowBar>,
     /// Un avis bref (changement de rôle d'un invité) que la barre montre
     /// quelques secondes, sans prendre le clavier à la session.
     notice: Option<String>,
     /// L'avis est celui d'une demande à rejoindre : le choisir ouvre le panneau de
     /// « Partager ».
     notice_opens_share: bool,
+    /// L'avis est celui d'une demande d'emprunt : le choisir ouvre le panneau de
+    /// « Prêter l'ordinateur… ».
+    notice_opens_lend: bool,
     /// Par où passe la session (puce « Par le relais ») ; absent tant que le cœur
     /// ne l'a pas dit.
     route: Option<relais::RouteView>,
@@ -1631,6 +1672,8 @@ struct BarShown {
 struct ShareRequestEvent {
     id: String,
     text: String,
+    /// Le panneau que l'avis ouvre : `share` (« Partager ») ou `lend` (« Prêter l'ordinateur… »).
+    panel: &'static str,
 }
 
 /// L'invité que sert la barre : son rôle (`spectator`, `player`, `kbm`,
@@ -1877,6 +1920,7 @@ impl HostEvents for UiEvents {
         let before = std::mem::replace(&mut *self.share.lock().unwrap(), after.clone());
         share::emit_state(&self.app, &self.id, &self.share);
         if self.guest.is_none()
+            && self.borrow.is_none()
             && let Some(name) = crate::sharing::new_requests(before.as_ref(), after.as_ref()).first()
         {
             log::info!("[{}] {name} demande à rejoindre (par le relais)", self.connexion.name);
@@ -1934,9 +1978,21 @@ impl HostEvents for UiEvents {
         let _ = self.app.emit_to("bar", "session-route", RouteEvent { id: self.id.clone(), route: view });
         // Par le relais ou non : les réglages de l'ordinateur et le menu de l'icône (redémarrage et mise à
         // jour de la Station) en dépendent.
-        if before.as_ref().is_some_and(RouteInfo::via_relay) != route.via_relay() && self.guest.is_none() {
+        if before.as_ref().is_some_and(RouteInfo::via_relay) != route.via_relay() && self.guest.is_none() && self.borrow.is_none() {
             emit_computers(&self.app);
         }
+    }
+
+    fn lend_notice(&self, notice: &kybernow_core::lend::LendNotice, text: &str) {
+        self.on_lend_notice(notice, text);
+    }
+
+    fn lend_end(&self, end: kybernow_core::lend::LendEnd, text: &str) {
+        self.on_lend_end(end, text);
+    }
+
+    fn lend(&self, view: Option<&kybernow_core::lend::LendView>) {
+        self.on_lend_view(view);
     }
 
     fn ended(&self, s: &Summary) {
@@ -2075,7 +2131,15 @@ impl HostEvents for UiEvents {
             started: self.first || s.shown,
             kept_in_window,
         });
-        if notify && let Some(g) = &self.guest {
+        // Session d'emprunt : la carte de fin de l'accueil (le texte du prêt, ou le
+        // retour possible pendant 15 min ; rien quand l'ordinateur est rendu).
+        let lend_end = self.borrow.as_ref().and_then(|b| crate::lending::end_view(&b.host, b.end.lock().unwrap().clone()));
+        if let Some(b) = &self.borrow {
+            if notify && let Some(e) = &lend_end {
+                let text = e.text.clone().or_else(|| s.error.clone()).unwrap_or_else(|| t("lend.come_back", &[]));
+                shell::notify_to("kybernow://open", &b.title, &text, None);
+            }
+        } else if notify && let Some(g) = &self.guest {
             // Un invité : la raison du partage (« Léa a arrêté le partage. »), sous
             // son titre ; jamais « Reprendre la main », et pas de bouton (il
             // n'y a pas d'ordinateur à reprendre).
@@ -2100,8 +2164,10 @@ impl HostEvents for UiEvents {
         struct Ended<'a> {
             id: &'a str,
             summary: &'a Summary,
+            /// Session d'emprunt : la carte de fin (absente : rendu, ou pas un emprunt).
+            lend: Option<crate::lending::EndView>,
         }
-        let _ = self.app.emit("session-ended", Ended { id: &self.id, summary: s });
+        let _ = self.app.emit("session-ended", Ended { id: &self.id, summary: s, lend: lend_end });
         emit_sessions(&self.app);
         emit_computers(&self.app);
         // L'app se fermait : la console est prévenue, on peut partir quand la
@@ -2732,6 +2798,7 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
     connexion.view.lock().unwrap().id = id.clone();
     connexion.view.lock().unwrap().phase = "preparing";
     let share_state = Arc::new(Mutex::new(None));
+    let lend_state = Arc::new(Mutex::new(None));
     let route = Arc::new(Mutex::new(None));
     if let Some(f) = &follow {
         log::info!("session suivante : fenêtre de {}×{} sur {} (plusieurs ordinateurs)", f.client.0, f.client.1, f.monitor);
@@ -2768,12 +2835,15 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
             first,
             connexion: connexion.clone(),
             guest: None,
+            borrow: None,
             share: share_state.clone(),
+            lend: lend_state.clone(),
+            lend_seen: std::sync::atomic::AtomicBool::new(false),
             route: route.clone(),
         }),
     );
     let screens = plan.as_ref().map_or(1, |p| p.len());
-    running.push(Running { id: id.clone(), name: c.name.clone(), host, bar, sent, stats, guest: None, share: share_state, route });
+    running.push(Running { id: id.clone(), name: c.name.clone(), host, bar, sent, stats, guest: None, borrow: None, share: share_state, lend: lend_state, route });
     drop(running);
     drop(_launching);
     // « Quitter » pendant le lancement : elle s'arrête tout de suite (Admin
@@ -2887,14 +2957,15 @@ fn show_bar(app: &AppHandle, id: &str, hwnd: isize, pinned: bool) {
 /// invité). La barre se montre alors sans prendre le clavier à la session (une
 /// manette ou une touche en cours ne s'interrompt pas) et repart d'elle-même.
 fn show_bar_with(app: &AppHandle, id: &str, hwnd: isize, pinned: bool, notice: Option<String>) {
-    show_bar_notice(app, id, hwnd, pinned, notice, false);
+    show_bar_notice(app, id, hwnd, pinned, notice, None);
 }
 
-/// [`show_bar_with`] ; `opens_share` : l'avis est celui d'une demande à rejoindre,
-/// que la barre rend choisissable (il ouvre le panneau de « Partager »).
-fn show_bar_notice(app: &AppHandle, id: &str, hwnd: isize, pinned: bool, notice: Option<String>, opens_share: bool) {
+/// [`show_bar_with`] ; `panel` : l'avis est celui d'une demande (à rejoindre :
+/// `share`, à emprunter : `lend`), que la barre rend choisissable (il ouvre le
+/// panneau de « Partager » ou de « Prêter l'ordinateur… »).
+fn show_bar_notice(app: &AppHandle, id: &str, hwnd: isize, pinned: bool, notice: Option<String>, panel: Option<&str>) {
     let state = app.state::<UiState>();
-    let Some((label, multi, keep_sound, session, guest, share, route)) = state.with_session(id, |r| {
+    let Some((label, multi, keep_sound, session, guest, share, route, borrow, lend_view)) = state.with_session(id, |r| {
         (
             r.bar.lock().unwrap().clone(),
             r.host.stream_count() > 1,
@@ -2903,6 +2974,8 @@ fn show_bar_notice(app: &AppHandle, id: &str, hwnd: isize, pinned: bool, notice:
             r.guest.clone(),
             r.share.lock().unwrap().clone(),
             r.route.lock().unwrap().clone(),
+            r.borrow.clone(),
+            r.lend.lock().unwrap().clone(),
         )
     }) else {
         return;
@@ -2914,7 +2987,11 @@ fn show_bar_notice(app: &AppHandle, id: &str, hwnd: isize, pinned: bool, notice:
         quality: g.quality.lock().unwrap().as_str(),
         image: g.image.lock().unwrap().clone(),
     });
-    let share = guest.is_none().then(|| share::view(app, id, share.as_ref()));
+    // Prêt de l'ordinateur : l'ami qui emprunte (barre réduite) ou, pour l'hôte, « Prêter l'ordinateur… ».
+    let host_session = guest.is_none() && borrow.is_none();
+    let share = host_session.then(|| share::view(app, id, share.as_ref()));
+    let lend = host_session.then(|| lend::panel(app, id, lend_view.as_ref()));
+    let borrow = borrow.map(|b| b.bar());
     *state.bar_session.lock().unwrap() = Some(id.to_string());
     let mut mi = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
     unsafe {
@@ -2941,7 +3018,22 @@ fn show_bar_notice(app: &AppHandle, id: &str, hwnd: isize, pinned: bool, notice:
     window::set_bar_session(Some(session));
     let sessions = state.sessions.lock().unwrap().len();
     let route = route.map(|r| relais::RouteView::new(&r, i18n::lang()));
-    let shown = BarShown { id: id.to_string(), label, pinned, multi, keep_sound, sessions, guest, share, notice, notice_opens_share: opens_share, route };
+    let shown = BarShown {
+        id: id.to_string(),
+        label,
+        pinned,
+        multi,
+        keep_sound,
+        sessions,
+        guest,
+        share,
+        lend,
+        borrow,
+        notice,
+        notice_opens_share: panel == Some("share"),
+        notice_opens_lend: panel == Some("lend"),
+        route,
+    };
     let _ = app.emit_to("bar", "bar-shown", shown);
     let _ = app.emit_to("bar", "bar-computers", bar_computer_list(app));
 }
@@ -3044,9 +3136,11 @@ pub fn tray_state(app: &AppHandle) -> menu::State {
             let guest = r.guest.as_ref().map(|g| (g.computer.clone(), *g.role.lock().unwrap()));
             menu::Session {
                 id: r.id.clone(),
-                name: match &guest {
-                    Some((computer, _)) => computer.clone(),
-                    None => computers.iter().find(|c| c.id == r.id).map(|c| c.name.clone()).unwrap_or_default(),
+                name: match (&guest, &r.borrow) {
+                    (Some((computer, _)), _) => computer.clone(),
+                    // L'ami qui emprunte : « Ordinateur de {hôte} ».
+                    (None, Some(b)) => b.title.clone(),
+                    (None, None) => computers.iter().find(|c| c.id == r.id).map(|c| c.name.clone()).unwrap_or_default(),
                 },
                 latency_ms: stats.as_ref().and_then(|s| s.latency_ms),
                 fps: stats.as_ref().map(|s| s.fps),
@@ -3180,6 +3274,7 @@ pub fn quit(app: &AppHandle) {
     state.quitting.store(true, Ordering::Relaxed);
     // Une demande en attente de l'accord d'un hôte (par le relais) est retirée.
     share::cancel_wait(&state, None);
+    lend::cancel_wait(&state, None);
     {
         let sessions = state.sessions.lock().unwrap();
         if !sessions.is_empty() {
@@ -3298,7 +3393,23 @@ pub fn run(args: Vec<String>) {
             share::share_quality,
             share::share_kick,
             share::share_close,
-            share::copy_text
+            share::copy_text,
+            lend::lend_friends,
+            lend::lend_invite,
+            lend::lend_add,
+            lend::lend_remove,
+            lend::lend_refresh,
+            lend::lend_borrow,
+            lend::lend_wait,
+            lend::lend_cancel,
+            lend::lend_come_back,
+            lend::lend_connect,
+            lend::lend_give_back,
+            lend::lend_state,
+            lend::lend_code,
+            lend::lend_cancel_code,
+            lend::lend_answer,
+            lend::lend_take_back
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -3373,6 +3484,9 @@ pub fn run(args: Vec<String>) {
             let _ = handle.state::<UiState>().discovery.set(d);
             let h = handle.clone();
             std::thread::spawn(move || poll(h));
+            // Les ordinateurs empruntés (« Ordinateur de {hôte} ») : leur état.
+            let h = handle.clone();
+            std::thread::spawn(move || lend::poll_friends(h));
             let h = handle.clone();
             std::thread::spawn(move || follow_loop(h));
             log::info!("app : prête");

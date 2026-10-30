@@ -40,13 +40,28 @@
   ordinateurs : un clic ouvre une session de plus (dans sa fenêtre), réveille
   un ordinateur hors ligne, ou montre la fenêtre d'un ordinateur déjà en
   session (coché, « Afficher »). « Garder le son » à partir de deux sessions.
+
+  Prêt de l'ordinateur (docs/link-ui.md « Prêt de l'ordinateur ») : pour une session d'hôte,
+  « Prêter l'ordinateur… » (icône de manette, comme les autres menus) ouvre son panneau : la durée
+  (« 1 heure », « 2 heures », « 4 heures », « Jusqu'à ce que je reprenne »), le compte Steam,
+  « Créer un code », puis le code, « Copier le lien » et le QR code comme le partage, « Pour une
+  séance, valable 24 h. », « Votre session se fermera quand votre ami arrivera. », « Annuler le
+  code » ; l'avertissement de confiance la première fois ; les demandes (« {prénom} veut emprunter
+  l'ordinateur. », « Accepter », « Refuser », « Votre session va se fermer. ») avec leur pastille
+  et leur avis bref. Station trop ancienne ou prêt coupé dans Admin : estompé, avec la raison.
+  Pour l'ami qui emprunte, la barre est réduite : « Prêté par {hôte} », le temps restant
+  (« Encore 1 h 20 », « Jusqu'à ce que {hôte} reprenne »), les statistiques, le son, le plein écran,
+  la souris et les touches, et « Rendre l'ordinateur » (confirmation : « Rendre l'ordinateur à
+  {hôte} ? ») ; ni profil de la Station, ni partage, ni « Ordinateurs ». Le préavis de 2 minutes
+  s'affiche comme un avis bref.
 -->
 <script lang="ts">
   import { onMount, tick } from 'svelte'
   import Icon from './lib/Icon.svelte'
   import Mark from './lib/Mark.svelte'
-  import type { AppInfo, BarComputer, GuestBar, KeepSound, RouteEvent, RouteView, SessionStats, Share, ShareGuest, ShareImageEvent, ShareQuality, ShareRequestEvent, ShareRole, ShareRoleEvent, ShareStateEvent, Stats } from './lib/api'
-  import { invoke, listen, localLabel, ms, roleKbm, roleOf, rolePads, rolePlays, shareQualities, sinceText } from './lib/api'
+  import Segmented from './lib/Segmented.svelte'
+  import type { AppInfo, BarComputer, BorrowBar, BorrowEvent, GuestBar, KeepSound, LendPanel, LendRequest, LendStateEvent, RouteEvent, RouteView, SessionStats, Share, ShareGuest, ShareImageEvent, ShareQuality, ShareRequestEvent, ShareRole, ShareRoleEvent, ShareStateEvent, Stats } from './lib/api'
+  import { invoke, leftText, lendDurations, listen, localLabel, ms, roleKbm, roleOf, rolePads, rolePlays, shareQualities, sinceText } from './lib/api'
   import { setLang, t } from './lib/i18n/index.svelte'
 
   /** L'ordinateur de la session que la barre sert (`guest-N` pour une session d'invité). */
@@ -54,7 +69,24 @@
   let stats = $state<Stats | null>(null)
   let label = $state('')
   let profile = $state('')
-  let menu = $state<'profile' | 'keys' | 'computers' | 'share' | 'quality' | null>(null)
+  let menu = $state<Menu | null>(null)
+  type Menu = 'profile' | 'keys' | 'computers' | 'share' | 'quality' | 'lend' | 'giveback'
+  /** Session d'emprunt (prêt de l'ordinateur) : l'hôte, la fin, le préavis ; la barre est réduite. */
+  let borrow = $state<BorrowBar | null>(null)
+  /** Session d'hôte : « Prêter l'ordinateur… » et le prêt, tels que l'app les dit. */
+  let lend = $state<LendPanel | null>(null)
+  /** Le prêt de chaque session d'hôte, gardé même barre cachée (signe de vie de la session). */
+  const lends = new Map<string, LendPanel>()
+  /** Une action du prêt attend la réponse d'Admin. */
+  let lendActing = $state(false)
+  let lendError = $state<string | null>(null)
+  /** « Durée » (en secondes, `none` : « Jusqu'à ce que je reprenne ») et « Compte Steam » du code à créer. */
+  let lendDuration = $state('7200')
+  let lendSteam = $state<'friend' | 'host'>('friend')
+  /** « Copier le lien » du code de prêt. */
+  let lendCopied = $state<'ok' | 'fail' | null>(null)
+  /** L'avertissement de confiance, montré la première fois que le panneau s'ouvre (et toujours dans Admin). */
+  let trustOnce = $state(false)
   /** Session d'invité (KyberNow Share) : rôle, hôte et image ; la barre est réduite. */
   let guest = $state<GuestBar | null>(null)
   /**
@@ -80,8 +112,8 @@
   let copied = $state<'ok' | 'fail' | null>(null)
   /** Avis bref d'un changement de rôle, montré à la place des statistiques. */
   let notice = $state<string | null>(null)
-  /** L'avis est celui d'une demande à rejoindre : le choisir ouvre le panneau de « Partager ». */
-  let noticeOpensShare = $state(false)
+  /** L'avis est celui d'une demande (à rejoindre, à emprunter) : le choisir ouvre ce panneau. */
+  let noticePanel = $state<'share' | 'lend' | null>(null)
   let noticeTimer: ReturnType<typeof setTimeout> | null = null
   /** L'heure, pour « depuis 3 min » dans la liste des invités (revue toutes les 30 s). */
   let now = $state(Date.now())
@@ -116,7 +148,10 @@
     share?: Share | null
     notice?: string | null
     notice_opens_share?: boolean
+    notice_opens_lend?: boolean
     route?: RouteView | null
+    lend?: LendPanel | null
+    borrow?: BorrowBar | null
   }
   const profiles = $derived(
     ['jeu', 'bureau', 'max'].map((id) => ({ id, name: t(`profiles.${id}`), hint: t(`profiles.${id}_sub`) })),
@@ -176,6 +211,7 @@
         for (const k of [...seen.keys()]) if (!s.includes(k)) seen.delete(k)
         for (const k of [...shares.keys()]) if (!s.includes(k)) shares.delete(k)
         for (const k of [...routes.keys()]) if (!s.includes(k)) routes.delete(k)
+        for (const k of [...lends.keys()]) if (!s.includes(k)) lends.delete(k)
         reportWidth()
       }),
       // Par où passe la session change (au départ, repli TCP) : la puce « Par le relais » suit.
@@ -196,12 +232,33 @@
       // Une demande à rejoindre arrive pendant que la barre est ouverte : l'avis « {prénom} demande à rejoindre. », sauf
       // panneau de « Partager » ouvert (il montre la demande, l'avis ne le ferme pas).
       listen<ShareRequestEvent>('share-request', (e) => {
-        if (e.id !== id || guest || menu === 'share') return
-        showNotice(e.text, true)
+        const panel = e.panel ?? 'share'
+        if (e.id !== id || guest || borrow || menu === panel) return
+        showNotice(e.text, panel)
+      }),
+      // Le prêt de l'hôte change (code, demande, prêt en cours) : le panneau suit.
+      listen<LendStateEvent>('lend-state', (e) => {
+        lends.set(e.id, e.lend)
+        if (e.id !== id || guest || borrow) return
+        lend = e.lend
+        reportWidth()
+        if (menu === 'lend') growForMenu()
+      }),
+      // L'ami qui emprunte : le préavis arrive (le temps restant suit).
+      listen<BorrowEvent>('lend-borrow', (e) => {
+        if (e.id !== id) return
+        borrow = e.borrow
+        reportWidth()
+      }),
+      // Le choix d'une notification de demande d'emprunt : le panneau « Prêter l'ordinateur… » s'ouvre.
+      listen<string>('lend-open-panel', async (session) => {
+        if (session !== id || guest || borrow) return
+        clearNotice()
+        if (menu !== 'lend') await toggleLend()
       }),
       // Le choix d'une notification de demande : la barre est montrée sur cette session, le panneau de « Partager » s'ouvre.
       listen<string>('share-open-panel', async (session) => {
-        if (session !== id || guest) return
+        if (session !== id || guest || borrow) return
         clearNotice()
         if (menu !== 'share') await toggleShare()
       }),
@@ -249,13 +306,19 @@
         if (s.share) shares.set(s.id, s.share)
         shareError = null
         copied = null
+        // Prêt de l'ordinateur : l'ami qui emprunte (barre réduite) ou, pour un hôte, « Prêter l'ordinateur… ».
+        borrow = s.borrow ?? null
+        lend = s.lend ?? lends.get(s.id) ?? null
+        if (s.lend) lends.set(s.id, s.lend)
+        lendError = null
+        lendCopied = null
         // Montrée de nouveau : aucun menu d'une fois précédente.
         menu = null
         if (s.notice) {
           // Un avis bref : la barre se montre sans prendre le clavier, et repart d'elle-même.
           held = false
           inside = false
-          showNotice(s.notice, !!s.notice_opens_share)
+          showNotice(s.notice, s.notice_opens_share ? 'share' : s.notice_opens_lend ? 'lend' : null)
         } else {
           clearNotice()
           // Ouverte par le pointeur, immobile contre le bord haut : il est sur
@@ -348,7 +411,7 @@
     if (!inside) scheduleHide()
   }
 
-  async function toggle(which: 'profile' | 'keys' | 'computers' | 'share' | 'quality') {
+  async function toggle(which: Menu) {
     const next = menu === which ? null : which
     refusal = null
     if (next === 'computers') computers = await invoke<BarComputer[]>('bar_computers')
@@ -462,14 +525,14 @@
   }
 
   /** Un avis bref à la place des statistiques ; la barre repart ensuite d'elle-même (sauf pointeur dessus ou menu ouvert). */
-  function showNotice(text: string, opensShare = false) {
+  function showNotice(text: string, panel: 'share' | 'lend' | null = null) {
     clearNotice()
     notice = text
-    noticeOpensShare = opensShare
+    noticePanel = panel
     noticeTimer = setTimeout(() => {
       noticeTimer = null
       notice = null
-      noticeOpensShare = false
+      noticePanel = null
       if (!inside && !menu) invoke('bar_hide', { id, focus: false })
     }, 4000)
   }
@@ -478,15 +541,17 @@
     if (noticeTimer) clearTimeout(noticeTimer)
     noticeTimer = null
     notice = null
-    noticeOpensShare = false
+    noticePanel = null
   }
 
   /** Choisir l'avis d'une demande à rejoindre : le panneau de « Partager » s'ouvre, où « Accepter » et « Refuser » attendent. */
   async function openShareFromNotice() {
+    const panel = noticePanel
     clearNotice()
     // La barre reste le temps de répondre (le pointeur est dessus, ou le panneau ouvert la tient).
     held = true
-    await toggleShare()
+    if (panel === 'lend') await toggleLend()
+    else await toggleShare()
   }
 
   /** Le nom de l'ordinateur de la session (titre du panneau). */
@@ -637,6 +702,114 @@
       .join(' · ')
   /** « iPhone ou iPad · hors de chez vous » : sous « {prénom} demande à rejoindre ». */
   const requestMeta = (g: ShareGuest) => [apps.includes(g.app) ? t(`share.app_${g.app}`) : '', t('share.away')].filter(Boolean).join(' · ')
+
+  // MARK: - Prêt de l'ordinateur
+
+  /** « Prêter l'ordinateur… » inactif : Station trop ancienne, ou prêt coupé dans Admin (avec la raison). */
+  const lendBlocked = $derived(lend?.availability === 'unsupported' || lend?.availability === 'disabled')
+  const lendText = $derived(lend?.availability === 'unsupported' ? t('lend.unsupported') : lend?.availability === 'disabled' ? t('lend.disabled') : null)
+  const lendRequests = $derived(lend?.requests.length ?? 0)
+  /** Le dernier appui sur « Prêter l'ordinateur… » est un doigt ou un stylet (comme « Partager »). */
+  let lendTouch = false
+
+  function trustSeen() {
+    try {
+      const seen = localStorage.getItem('kybernow.lend.trust') === '1'
+      localStorage.setItem('kybernow.lend.trust', '1')
+      return seen
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * « Prêter l'ordinateur… » : le panneau, avec le prêt tel qu'Admin le dit maintenant. Inactif : à la souris, rien
+   * (l'infobulle dit pourquoi) ; au toucher, le panneau réduit à la raison.
+   */
+  async function toggleLend() {
+    if (menu === 'lend') return toggle('lend')
+    const touched = lendTouch
+    lendTouch = false
+    if (lendBlocked && !touched) return
+    lendError = null
+    lendCopied = null
+    trustOnce = !trustSeen()
+    const mine = id
+    invoke<LendPanel>('lend_state', { id: mine })
+      .then((view) => {
+        lends.set(mine, view)
+        if (id === mine) {
+          lend = view
+          if (menu === 'lend') growForMenu()
+        }
+      })
+      .catch((e) => {
+        if (id === mine) {
+          lendError = String(e)
+          if (menu === 'lend') growForMenu()
+        }
+      })
+    await toggle('lend')
+  }
+
+  /** Une action du prêt : Admin répond avec le prêt à jour (celui de la session qui l'a demandée). */
+  async function lendAction(call: () => Promise<LendPanel>) {
+    if (lendActing) return
+    lendActing = true
+    lendError = null
+    const mine = id
+    try {
+      const view = await call()
+      lends.set(mine, view)
+      if (id === mine) lend = view
+    } catch (e) {
+      if (id === mine) lendError = String(e)
+    } finally {
+      lendActing = false
+    }
+    await growForMenu()
+  }
+
+  const createCode = () =>
+    lendAction(() => invoke<LendPanel>('lend_code', { id, duration: lendDuration === 'none' ? null : Number(lendDuration), steam: lendSteam }))
+  const cancelCode = () => lendAction(() => invoke<LendPanel>('lend_cancel_code', { id }))
+  /** « Accepter » (avec le compte Steam choisi) ou « Refuser » une demande d'emprunt. */
+  const answer = (r: LendRequest, accept: boolean) => lendAction(() => invoke<LendPanel>('lend_answer', { id, request: r.id, accept, steam: lendSteam }))
+  /** « iPhone ou iPad · hors de chez vous » : sous « {prénom} veut emprunter l'ordinateur. » */
+  const lendRequestMeta = (r: LendRequest) => [apps.includes(r.app) ? t(`share.app_${r.app}`) : '', r.away ? t('share.away') : ''].filter(Boolean).join(' · ')
+
+  /** « Copier le lien » du code de prêt : l'adresse du client web, comme le partage. */
+  async function copyLendLink() {
+    const text = lend?.code?.web || lend?.code?.link || ''
+    if (!text) return
+    lendCopied = null
+    let ok = true
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch {
+      ok = await invoke('copy_text', { text }).then(() => true, () => false)
+    }
+    lendCopied = ok ? 'ok' : 'fail'
+    if (ok) setTimeout(() => lendCopied === 'ok' && (lendCopied = null), 3000)
+    await growForMenu()
+  }
+
+  /** L'ami qui emprunte : « Encore 1 h 20 » (jusqu'à la fin du préavis s'il y en a un), ou « Jusqu'à ce que {hôte} reprenne ». */
+  const borrowLeft = $derived.by(() => {
+    if (!borrow) return ''
+    const end = borrow.notice?.at ?? borrow.until
+    return end ? leftText(end, now / 1000) : t('lend.until_taken', { host: borrow.host })
+  })
+
+  /** « Rendre l'ordinateur », confirmé : le prêt finit pour de bon, puis la session. */
+  async function giveBack() {
+    await closeMenu()
+    try {
+      await invoke('lend_give_back', { id })
+    } catch (e) {
+      showNotice(String(e))
+    }
+  }
 </script>
 
 <!-- Clic ailleurs (la session) : le menu se referme. -->
@@ -662,7 +835,7 @@
       <span class="sep"></span>
       <span class="mono info">{stats ? infoLine(stats) : '—'}</span>
     </div>
-    {#if notice && noticeOpensShare}
+    {#if notice && noticePanel}
       <!-- Une demande à rejoindre : choisir l'avis ouvre le panneau de « Partager ». -->
       <button class="notice choice" aria-live="polite" onclick={openShareFromNotice}>{notice}</button>
     {:else if notice}
@@ -674,7 +847,11 @@
     <span class="relay" class:tcp={route.transport === 'relay_tcp'} title={routeTitle}><Icon name="globe" size={14} stroke={1.6} />{t('relay.via')}</span>
   {/if}
   <span class="sep"></span>
-  {#if guest}
+  {#if borrow}
+    <!-- L'ami qui emprunte : « Prêté par {hôte} » et le temps restant, à la place du profil (rien n'est changé sur l'ordinateur). -->
+    <span class="role play">{t('lend.lent_by', { host: borrow.host })}</span>
+    <span class="left" class:soon={!!borrow.notice} role="timer">{borrowLeft}</span>
+  {:else if guest}
     <!-- Invité d'un partage : son rôle, à la place du profil (ni profil ni réglages). -->
     <span class="role" class:play={rolePlays(guest.role)}>{roleName(guest.role)}</span>
     <!-- « Qualité de l'image » : montre la qualité reçue, et permet d'en changer. -->
@@ -750,7 +927,7 @@
       <Icon name="speaker" size={20} stroke={1.6} />
     </button>
   {/if}
-  {#if !guest}
+  {#if !guest && !borrow}
   <!-- KyberNow Share : « Partager », présenté comme les autres menus (icône seule, libellé accessible) ;
        inactif, il dit pourquoi dans son panneau ; une pastille d'invités rouvre le panneau. -->
   <div class="anchor" class:withpill={guestCount > 0 || requestCount > 0}>
@@ -861,7 +1038,112 @@
     {/if}
   </div>
   {/if}
-  {#if !guest && others.length > 0}
+  {#if !guest && !borrow}
+  <!-- Prêt de l'ordinateur : « Prêter l'ordinateur… », présenté comme « Partager » ; une pastille rouvre le panneau des demandes. -->
+  <div class="anchor" class:withpill={lendRequests > 0}>
+    <button
+      class="icon"
+      class:on={menu === 'lend' || !!lend?.code}
+      class:inert={lendBlocked}
+      aria-haspopup="dialog"
+      aria-expanded={menu === 'lend'}
+      aria-disabled={lendBlocked}
+      aria-label={t('lend.lend')}
+      title={lendBlocked && lendText ? lendText : t('lend.lend')}
+      onpointerdown={(e) => (lendTouch = e.pointerType === 'touch' || e.pointerType === 'pen')}
+      onclick={toggleLend}
+    >
+      <Icon name="gamepad" size={20} stroke={1.6} />
+    </button>
+    {#if lendRequests > 0}
+      <button class="pill ask" aria-haspopup="dialog" aria-expanded={menu === 'lend'} onclick={toggleLend}>{t(lendRequests === 1 ? 'share.requests_one' : 'share.requests_other', { count: lendRequests })}</button>
+    {/if}
+    {#if menu === 'lend'}
+      <div class="menu share lend" role="dialog" aria-label={t('lend.panel_title', { name: computerName })}>
+        {#if lendText}
+          <p class="note" role="note">{lendText}</p>
+        {:else}
+          <h3>{t('lend.panel_title', { name: computerName })}</h3>
+          {#if lend?.notice?.reason === 'slot_start' && lend.notice.text}<p class="help" role="status">{lend.notice.text}</p>{/if}
+          {#if lend && lend.requests.length > 0}
+            <div class="eyebrow list-title">{t('share.requests')}</div>
+            <ul class="guests requests">
+              {#each lend.requests as r (r.id)}
+                <li>
+                  <div class="who">
+                    <span class="gname">{t('lend.wants_to_borrow', { name: r.name })}</span>
+                    {#if lendRequestMeta(r)}<span class="gmeta">{lendRequestMeta(r)}</span>{/if}
+                  </div>
+                  <div class="acts">
+                    <button class="accept" aria-disabled={lendActing} onclick={() => answer(r, true)}>{t('share.accept')}</button>
+                    <button class="danger" aria-disabled={lendActing} onclick={() => answer(r, false)}>{t('share.decline')}</button>
+                  </div>
+                </li>
+              {/each}
+            </ul>
+            <p class="help">{t('lend.accept_closes')}</p>
+          {/if}
+          {#if lend?.code}
+            <div class="top">
+              <div class="codebox">
+                <span class="eyebrow">{t('share.code')}</span>
+                <span class="digits mono" aria-label={t('share.code') + ' ' + lend.code.code}>{lend.code.code}</span>
+                <button class="ghost" onclick={copyLendLink}><Icon name="copy" size={16} stroke={1.6} />{t('share.copy_link')}</button>
+                {#if lendCopied === 'ok'}<span class="copied" role="status">{t('share.link_copied')}</span>{/if}
+              </div>
+              {#if lend.code.qr}
+                <svg class="qr" role="img" aria-label={t('share.qr')} viewBox="-4 -4 {lend.code.qr.size + 8} {lend.code.qr.size + 8}" shape-rendering="crispEdges">
+                  <rect x="-4" y="-4" width={lend.code.qr.size + 8} height={lend.code.qr.size + 8} fill="#fff" />
+                  <path d={lend.code.qr.path} fill="#000" />
+                </svg>
+              {/if}
+            </div>
+            {#if lendCopied === 'fail'}
+              <p class="note refusal" role="alert">{t('share.copy_failed')}</p>
+              <input class="field link mono" readonly value={lend.code.web || lend.code.link} onfocus={selectAll} onclick={selectAll} aria-label={t('share.copy_link')} />
+            {/if}
+            <p class="help">{t('lend.code_valid')}</p>
+            <p class="help">{t('lend.code_help')}</p>
+            <p class="help strong">{t('lend.session_closes')}</p>
+            <div class="foot">
+              <button class="ghost danger" aria-disabled={lendActing} onclick={cancelCode}>{t('lend.cancel_code')}</button>
+            </div>
+          {:else if !lend?.borrower}
+            <div class="col">
+              <span class="eyebrow">{t('lend.duration')}</span>
+              <Segmented
+                label={t('lend.duration')}
+                options={lendDurations.map((d) => ({ value: d === null ? 'none' : String(d), label: t(`lend.duration_${d ?? 'none'}`) }))}
+                value={lendDuration}
+                disabled={lendActing}
+                onchange={(v) => (lendDuration = v)}
+              />
+            </div>
+            <div class="col">
+              <span class="eyebrow">{t('lend.steam')}</span>
+              <Segmented
+                label={t('lend.steam')}
+                options={[
+                  { value: 'friend' as const, label: t('lend.steam_friend') },
+                  { value: 'host' as const, label: t('lend.steam_host') },
+                ]}
+                value={lendSteam}
+                disabled={lendActing}
+                onchange={(v) => (lendSteam = v)}
+              />
+            </div>
+            {#if trustOnce}<p class="note" role="note">{t('lend.trust')}</p>{/if}
+            <div class="foot">
+              <button class="primary" disabled={lendActing} onclick={createCode}>{t('lend.create_code')}</button>
+            </div>
+          {/if}
+        {/if}
+        {#if lendError && lendError !== lendText}<p class="note refusal" role="alert">{lendError}</p>{/if}
+      </div>
+    {/if}
+  </div>
+  {/if}
+  {#if !guest && !borrow && others.length > 0}
   <!-- Présenté comme le menu Touches (icône seule, libellé accessible) ; absent sans autre ordinateur. -->
   <div class="anchor">
     <button class="icon" class:on={menu === 'computers'} aria-haspopup="menu" aria-expanded={menu === 'computers'} aria-label={t('bar.computers')} title={t('bar.computers')} onclick={() => toggle('computers')}>
@@ -890,7 +1172,23 @@
   </div>
   {/if}
   <span class="sep"></span>
-  <button class="quit" title={(guest ? t('share.leave') : t('bar.disconnect')) + t('bar.disconnect_shortcut')} onclick={() => command('disconnect')}>{guest ? t('share.leave') : t('bar.disconnect')}</button>
+  {#if borrow}
+    <!-- « Rendre l'ordinateur », confirmé ; fermer la fenêtre ne le rend pas (l'ami peut revenir pendant 15 min). -->
+    <div class="anchor">
+      <button class="quit" aria-haspopup="dialog" aria-expanded={menu === 'giveback'} onclick={() => toggle('giveback')}>{t('lend.give_back')}</button>
+      {#if menu === 'giveback'}
+        <div class="menu giveback" role="alertdialog" aria-label={t('lend.give_back_confirm', { host: borrow.host })}>
+          <p class="confirm">{t('lend.give_back_confirm', { host: borrow.host })}</p>
+          <div class="foot">
+            <button class="danger-solid" onclick={giveBack}>{t('lend.give_back')}</button>
+            <button class="ghost" onclick={() => closeMenu().then(afterMenu)}>{t('common.cancel')}</button>
+          </div>
+        </div>
+      {/if}
+    </div>
+  {:else}
+    <button class="quit" title={(guest ? t('share.leave') : t('bar.disconnect')) + t('bar.disconnect_shortcut')} onclick={() => command('disconnect')}>{guest ? t('share.leave') : t('bar.disconnect')}</button>
+  {/if}
 </div>
 
 <style>
@@ -1482,5 +1780,75 @@
 
   .quit:hover {
     background: rgb(255 107 107 / 0.12);
+  }
+
+  /* Prêt de l'ordinateur : le temps restant de l'ami, et le panneau de l'hôte (les styles du partage, en plus). */
+  .left {
+    padding: 0 6px;
+    font-size: 13px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .left.soon {
+    color: var(--warn);
+  }
+
+  .menu.lend .col {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .menu.lend .help.strong {
+    color: var(--text);
+  }
+
+  .menu.lend .foot .primary {
+    height: 40px;
+    margin-top: 8px;
+    padding: 0 18px;
+    background: var(--signal-strong);
+    color: #fff;
+    font-weight: 600;
+  }
+
+  .menu.giveback {
+    right: 0;
+    left: auto;
+    transform: none;
+    width: 320px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .menu.giveback .confirm {
+    margin: 0;
+    font-size: 14px;
+    white-space: normal;
+  }
+
+  .menu.giveback .foot {
+    display: flex;
+    gap: 8px;
+  }
+
+  .menu.giveback button,
+  .menu.lend .foot .primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: auto;
+    height: 36px;
+    padding: 0 14px;
+    border-radius: 8px;
+  }
+
+  .menu.giveback .danger-solid {
+    background: var(--bad);
+    color: #fff;
+    font-weight: 600;
   }
 </style>

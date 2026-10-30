@@ -152,6 +152,16 @@ pub trait HostEvents: Send + Sync {
     /// Par où passe la session (docs/relais.md) : au départ, puis quand le chemin
     /// change (par le relais : repli TCP, allers-retours, toutes les 5 s au plus).
     fn route(&self, _route: &RouteInfo) {}
+    /// Prêt de l'ordinateur, session d'emprunt : le préavis de 2 minutes, une
+    /// fois (`text` : celui du cœur, « {hôte} reprend l'ordinateur dans 2 min :
+    /// sauvegardez votre partie. »).
+    fn lend_notice(&self, _notice: &kybernow_core::lend::LendNotice, _text: &str) {}
+    /// Session d'emprunt : le prêt finit la session, juste avant sa fin
+    /// (`text` vide quand l'ami a rendu l'ordinateur).
+    fn lend_end(&self, _end: kybernow_core::lend::LendEnd, _text: &str) {}
+    /// Session d'hôte : la vue du prêt de l'ordinateur (signe de vie), quand
+    /// elle change ; `None` : rien à dire.
+    fn lend(&self, _lend: Option<&kybernow_core::lend::LendView>) {}
 }
 
 pub struct HostOptions {
@@ -279,6 +289,19 @@ impl SessionHost {
         match self.app().and_then(|a| a.current_session()) {
             Some(s) => {
                 s.set_share_quality(quality);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Prêt de l'ordinateur, session d'emprunt : « Rendre l'ordinateur » (après
+    /// sa confirmation) ; le prêt finit pour de bon, puis la session. Faux quand
+    /// la session n'est pas encore là.
+    pub fn give_back(&self) -> bool {
+        match self.app().and_then(|a| a.current_session()) {
+            Some(s) => {
+                s.give_back();
                 true
             }
             None => false,
@@ -493,6 +516,16 @@ impl Platform for WinPlatform {
     fn on_route(&self, route: &RouteInfo) {
         self.events.route(route);
     }
+    // Prêt de l'ordinateur (docs/pret.md).
+    fn on_lend_notice(&self, notice: &kybernow_core::lend::LendNotice, text: &str) {
+        self.events.lend_notice(notice, text);
+    }
+    fn on_lend_end(&self, end: kybernow_core::lend::LendEnd, text: &str) {
+        self.events.lend_end(end, text);
+    }
+    fn on_lend(&self, lend: Option<&kybernow_core::lend::LendView>) {
+        self.events.lend(lend);
+    }
     /// Par le relais, la session finit parce que l'ordinateur n'est pas joignable
     /// hors de chez soi : l'erreur typée, juste avant la fin. C'est elle qui choisit
     /// le texte (docs/link-ui.md, « Hors de chez vous »), jamais le texte d'Admin.
@@ -526,9 +559,12 @@ fn run(
     let screens = opts.layout.screens();
     let layout = opts.layout.clone();
     // L'ordinateur dont on dit l'échec par le relais (« {nom} n'est pas joignable… ») : celui du
-    // partage pour un invité (`host_name` est alors « Invité sur … »), sinon celui de l'app.
+    // partage pour un invité (`host_name` est alors « Invité sur … »), celui du prêt pour l'ami qui
+    // l'emprunte, sinon celui de l'app.
     let computer = match &params.role {
         SessionRole::Guest(g) => g.joined.computer.clone(),
+        // L'ami qui emprunte : l'ordinateur prêté (`host_name` est « Ordinateur de {hôte} »).
+        SessionRole::Borrower(b) if !b.borrowed.computer.trim().is_empty() => b.borrowed.computer.clone(),
         _ => host_name.clone(),
     };
     let app = App::new(

@@ -17,6 +17,10 @@
   (`share_wait`, un appel de 25 s rappelé jusqu'à la réponse). La session s'ouvre si l'hôte
   accepte ; sinon le refus se lit sous le formulaire (« L'hôte a refusé. », « L'hôte n'a
   pas répondu. », « Le relais ne répond pas. », « Trop de demandes en attente… »).
+
+  Prêt de l'ordinateur (docs/pret.md) : le même écran accepte un code de prêt ; l'app le dit
+  (`lend` et un ticket) et emprunte ensuite (App.svelte : passage « Préparation de
+  l'ordinateur », ou « En attente de {hôte}… » quand l'hôte doit accepter).
 -->
 <script lang="ts">
   import { onDestroy, onMount, untrack } from 'svelte'
@@ -32,6 +36,7 @@
     full = false,
     onclose,
     onjoined,
+    onborrow,
   }: {
     /** Le code d'un lien, déjà rempli. */
     code?: string
@@ -42,6 +47,8 @@
     onclose: () => void
     /** Le partage est rejoint : la session s'ouvre. */
     onjoined: (joined: ShareJoined) => void
+    /** Le code est un code de prêt (prêt de l'ordinateur) : l'app emprunte avec ce ticket (« Préparation de l'ordinateur »). */
+    onborrow: (ticket: number) => void
   } = $props()
 
   /** « 123 456 » : les six chiffres, groupés par trois. */
@@ -95,6 +102,7 @@
     try {
       const r = await invoke<ShareJoinOutcome>('share_join', { code: digits, name, quality, link })
       if (r.kind === 'joined') onjoined(r)
+      else if (r.kind === 'lend') onborrow(r.ticket)
       else await follow(r.wait)
     } catch (err) {
       error = String(err)
