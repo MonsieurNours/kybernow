@@ -22,7 +22,7 @@ struct SessionMenu: View {
     @State private var text = ""
     @FocusState private var focus: Item?
 
-    enum Item: Hashable { case resume, pads, sound, quality, qualityChoice(ShareQuality), mouse, padMouse, type, share, lend, quit, restoreMode }
+    enum Item: Hashable { case resume, pads, sound, quality, qualityChoice(ShareQuality), mouse, padMouse, type, share, lend, disconnect, quit, restoreMode }
 
     init(session: SessionController) {
         self.session = session
@@ -86,7 +86,9 @@ struct SessionMenu: View {
                         tile(.type, icon: "keyboard", title: String(localized: "Taper du texte"), detail: String(localized: "Clavier tvOS ou iPhone")) { typing = true }
                     }
                     if session.isBorrower {
-                        // « Rendre l'ordinateur », après sa confirmation.
+                        // « Se déconnecter » ferme la session sans rendre l'ordinateur (« Revenir »
+                        // pendant 15 min) ; « Rendre l'ordinateur », après sa confirmation.
+                        tile(.disconnect, icon: "power", title: LendText.disconnect, detail: LendText.comeBackHint) { session.end() }
                         tile(.quit, icon: "key", iconColor: Theme.danger, title: LendText.giveBack, detail: LendText.lentBy(session.lendHost)) { session.giveBackAsked = true }
                     } else if session.isGuest {
                         tile(.quit, icon: "power", iconColor: Theme.danger, title: ShareText.leave, detail: ShareText.guestOn(session.guest?.computer ?? "")) { session.end() }
@@ -241,7 +243,7 @@ struct SessionMenu: View {
     /// Les tuiles se partagent la largeur : neuf avec « Partager » et « Prêter
     /// l'ordinateur… » ; moins pour un invité ; un ami : ni profil ni partage.
     private var tileCount: Int {
-        if session.isBorrower { return 7 }
+        if session.isBorrower { return 8 }
         if session.isGuest { return 4 + (session.shareRole.pads ? 1 : 0) + (session.shareRole.keyboardAndMouse ? 3 : 0) }
         return showsLend ? 9 : 8
     }

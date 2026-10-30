@@ -1,6 +1,7 @@
-// Ajouter un ordinateur (maquettes iOS, planche 2) : les quatre voies de
-// l'Apple TV (depuis le Mac par iCloud, sur le réseau, code à l'écran,
-// adresse), plus le QR code d'Admin lu à la caméra.
+// Ajouter un ordinateur (maquettes iOS, planche 2) : le QR code d'Admin lu
+// à la caméra, puis cinq voies : les quatre de l'Apple TV (depuis le Mac par
+// iCloud, sur le réseau, code à l'écran, adresse) et « Avec un compte d'ami »
+// (l'ordinateur qu'un ami prête).
 //
 // Sur iPhone, et sur iPad en Split View étroit, une fiche aux étapes
 // empilées : les voies, le volet de la voie, la vérification de l'empreinte,
@@ -53,7 +54,7 @@ final class AddHostFlow: ObservableObject {
             stage = .verify(link)
         }
         #if DEBUG
-        // Vérification au simulateur : `-addMethod 0…4`, `-addStage account`.
+        // Vérification au simulateur : `-addMethod 0…5`, `-addStage account`.
         if let raw = UserDefaults.standard.string(forKey: "addMethod"), let n = Int(raw) {
             method = AddHostMethod(rawValue: n)
         }
@@ -239,7 +240,7 @@ private struct AddHostStack: View {
         case .account: return String(localized: "Dernière étape")
         case .pane:
             switch flow.method {
-            case nil: return String(localized: "Quatre voies")
+            case nil: return String(localized: "Cinq voies")
             case .cloud?, .code?: return String(localized: "Étape 1 sur 1")
             case .network?, .qr?: return String(localized: "Étape 1 sur 2")
             case .address?: return String(localized: "Étape 1 sur 3")
@@ -270,7 +271,7 @@ private struct AddHostStack: View {
     }
 }
 
-/// Première étape de la fiche : la caméra, puis les quatre voies.
+/// Première étape de la fiche : la caméra, puis les cinq voies.
 private struct AddHostMenu: View {
     @EnvironmentObject private var flow: AddHostFlow
 

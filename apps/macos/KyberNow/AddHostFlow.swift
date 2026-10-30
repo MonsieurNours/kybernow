@@ -263,7 +263,9 @@ private struct LinkTab: View {
     @EnvironmentObject var app: AppModel
     @StateObject private var scanner = QRScanner()
     @State private var link = ""
-    @State private var invalid = false
+    /// Le lien collé ne sert pas : « Ce n'est pas un lien KyberNow. », ou une
+    /// invitation illisible (« Ce lien d'invitation est illisible. »).
+    @State private var invalid: String?
 
     var body: some View {
         HStack(alignment: .top, spacing: 26) {
@@ -291,8 +293,8 @@ private struct LinkTab: View {
                 }
                 LabeledField(label: String(localized: "Collez le lien copié depuis KyberNow Admin"), text: $link, prompt: "kybernow://192.168.1.100:37462?fp=sha256:…", mono: true)
                     .onSubmit(useLink)
-                if invalid {
-                    Text("Ce n'est pas un lien KyberNow.").font(Theme.sans(12)).foregroundStyle(Theme.warn)
+                if let invalid {
+                    Text(invalid).font(Theme.sans(12)).foregroundStyle(Theme.warn)
                 }
                 HStack(alignment: .top, spacing: 10) {
                     Icon("shield-check", size: 18).foregroundStyle(Theme.accent)
@@ -322,6 +324,8 @@ private struct LinkTab: View {
                     // Le QR code d'une invitation : l'ajout de l'ordinateur prêté prend le relais.
                     scanner.stop()
                     app.openInvite(fromAddSheet: invite)
+                case .badInvite?:
+                    invalid = LendText.badInvite
                 case nil:
                     break
                 }
@@ -340,7 +344,8 @@ private struct LinkTab: View {
         case let .computer(c)?: found(c)
         case let .join(share)?: app.join(fromAddSheet: share)
         case let .borrow(invite)?: app.openInvite(fromAddSheet: invite)
-        case nil: invalid = true
+        case .badInvite?: invalid = LendText.badInvite
+        case nil: invalid = String(localized: "Ce n'est pas un lien KyberNow.")
         }
     }
 }

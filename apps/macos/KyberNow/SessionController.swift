@@ -57,7 +57,11 @@ final class SessionController: NSObject, ObservableObject {
     /// Un invité n'a que la qualité de l'image, le plein écran (absent avec
     /// plusieurs écrans) et « Quitter le partage ».
     /// Un ami qui emprunte : la souris, le plein écran et « Rendre l'ordinateur ».
-    var padItems: Int { isVisitor ? (canToggleFullScreen ? 3 : 2) : (canToggleFullScreen ? 4 : 3) }
+    var padItems: Int {
+        // Un ami : souris, plein écran, « Se déconnecter », « Rendre l'ordinateur ».
+        if isBorrower { return canToggleFullScreen ? 4 : 3 }
+        return isVisitor ? (canToggleFullScreen ? 3 : 2) : (canToggleFullScreen ? 4 : 3)
+    }
     @Published private(set) var closing = Closing()
     @Published private(set) var host: Host
     @Published private(set) var modeLabel = ""
@@ -1039,12 +1043,14 @@ final class SessionController: NSObject, ObservableObject {
 
     private func activatePadFocus() {
         if isBorrower {
-            // Souris suivante, plein écran, « Rendre l'ordinateur ».
+            // Souris suivante, plein écran, « Se déconnecter », « Rendre l'ordinateur ».
             if padFocus == 0 {
                 let all = MouseChoice.allCases
                 setMouse(all[((all.firstIndex(of: host.settings.mouse) ?? 0) + 1) % all.count])
             } else if padFocus == 1, canToggleFullScreen {
                 toggleFullScreen()
+            } else if padFocus == padItems - 2 {
+                end()
             } else {
                 askGiveBack()
             }
@@ -1862,11 +1868,14 @@ final class SessionController: NSObject, ObservableObject {
         if !text.isEmpty { showHint(.notice(text), after: 0, for: 10) }
     }
 
-    /// La fin par le prêt, dite juste avant `.ending` : rendu, la fin est
-    /// voulue ; sinon son texte reste à l'écran.
+    /// La fin par le prêt, dite juste avant `.ending` : rendu ici (« Rendre
+    /// l'ordinateur »), la fin est voulue et le passage se referme ; rendu
+    /// depuis le lanceur, « Vous avez rendu l'ordinateur. » reste à l'écran,
+    /// comme les autres fins (« Le prêt s'est arrêté. »…).
     private func lendEnded(_ end: LendEnd, text: String) {
         guard isBorrower else { return }
         if end == .left {
+            if !givingBack { lendEndText = text.isEmpty ? nil : text }
             givingBack = true
         } else {
             lendEndText = text.isEmpty ? nil : text

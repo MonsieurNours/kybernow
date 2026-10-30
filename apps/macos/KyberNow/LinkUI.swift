@@ -385,6 +385,8 @@ enum LendText {
     }
     static var offInAdmin: String { String(localized: "Le prêt est coupé dans Admin (page « Prêt »).") }
     static var tooOld: String { String(localized: "Le prêt demande KyberNow Station 0.9.0 ou plus récente.") }
+    /// `info.lend.available` faux : la Station connaît le prêt, mais il ne marche pas sur cet ordinateur.
+    static var notPossible: String { String(localized: "Le prêt n'est pas possible sur cet ordinateur.") }
     /// Une demande, ordinateur utilisé (avis et ligne du panneau).
     static func wantsToBorrow(_ name: String) -> String { String(localized: "\(name) veut emprunter l'ordinateur.") }
     /// Sous une demande : son app, et « hors de chez vous » si elle vient par le relais.
@@ -427,7 +429,29 @@ enum LendText {
     static var password: String { String(localized: "Mot de passe") }
     static var rememberPassword: String { String(localized: "Retenir le mot de passe") }
     static func invitation(_ host: String) -> String { String(localized: "\(host) vous prête son ordinateur.") }
+    /// Le titre de l'ajout par un lien d'invitation : « {hôte} vous prête son
+    /// ordinateur. » quand on sait qui (le prénom du lien, `name`, ou celui
+    /// d'un ordinateur déjà ajouté) ; sinon (lien d'avant) « Avec un compte d'ami ».
+    static func invitationTitle(_ host: String?) -> String {
+        guard let host = host?.trimmingCharacters(in: .whitespacesAndNewlines), !host.isEmpty else { return withFriendAccount }
+        return invitation(host)
+    }
+    /// Un lien d'invitation que le cœur ne lit pas.
+    static var badInvite: String { String(localized: "Ce lien d'invitation est illisible.") }
+    /// Le mot de passe pas retenu, demandé à « Emprunter ».
+    static var enterPassword: String { String(localized: "Entrez votre mot de passe pour emprunter.") }
     static var add: String { String(localized: "Ajouter") }
+    /// Retirer l'ordinateur d'un ami de cet appareil : le bouton, puis la confirmation.
+    static var removeComputer: String { StationText.remove }
+    /// « Retirer l'ordinateur de Matthieu de cet appareil ? », « … d'Hugo … ».
+    static func removeQuestion(_ host: String) -> String {
+        French.elides(host) ? String(localized: "Retirer l'ordinateur d'\(host) de cet appareil ?")
+            : String(localized: "Retirer l'ordinateur de \(host) de cet appareil ?")
+    }
+    /// Barre de l'ami : ferme la session sans rendre l'ordinateur (on peut revenir pendant 15 min).
+    static var disconnect: String { String(localized: "Se déconnecter") }
+    /// Le surtitre de la carte de fin d'un emprunt (nom de marque, pas traduit).
+    static var endEyebrow: String { "KyberNow Share" }
     static func waiting(_ host: String) -> String { String(localized: "En attente de \(host)…") }
     /// La première étape de la connexion d'un emprunt.
     static var preparing: String { String(localized: "Préparation de l'ordinateur") }

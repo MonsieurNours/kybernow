@@ -86,10 +86,14 @@ enum LinkKind {
     case computer(Candidate)
     case join(ShareJoinLink)
     case borrow(LendInvite)
+    /// Un lien d'invitation que le cœur ne lit pas (champ manquant, port
+    /// faux…) : « Ce lien d'invitation est illisible. » (`LendText.badInvite`).
+    case badInvite
 
     static func parse(_ text: String) -> LinkKind? {
         if let link = Share.parseLink(text) { return .join(link) }
         if let invite = Lend.parseInvite(text) { return .borrow(invite) }
+        if LendInvite.looksLikeInvite(text) { return .badInvite }
         return PairingLink.parse(text).map(LinkKind.computer)
     }
 }
@@ -364,6 +368,38 @@ extension ShareRole {
     }
 }
 
+/// Le lien du relais en préparation (docs/link-ui.md), pour le panneau du
+/// partage comme pour le code de prêt : `connecting` se montre 10 s au plus
+/// (« Préparation du lien hors de chez vous… », copie et QR code retenus),
+/// comptées depuis que l'app voit l'attente pour ce code, puis comme
+/// `unreachable` ; les autres états passent tels quels.
+@MainActor
+final class RelayLinkWait {
+    private var wait: (code: String, since: Date)?
+    private var task: Task<Void, Never>?
+
+    /// Ce que le panneau montre du relais de `code`. `recheck` est rappelé une
+    /// fois à la fin des 10 s, sans attendre le signe de vie suivant.
+    func phase(code: String?, relay: ShareState.Relay?, recheck: @escaping @MainActor () -> Void) -> ShareState.Relay? {
+        guard let code, relay == .connecting else {
+            wait = nil
+            task?.cancel()
+            task = nil
+            return relay
+        }
+        if wait?.code != code {
+            wait = (code, Date())
+            task?.cancel()
+            task = Task {
+                try? await Task.sleep(for: .seconds(ShareState.relayLinkWait + 0.05))
+                guard !Task.isCancelled else { return }
+                recheck()
+            }
+        }
+        return ShareState.relayPhase(relay, waitingSince: wait?.since)
+    }
+}
+
 /// Le partage de la session d'hôte : « Partager » l'ouvre, le panneau le
 /// montre (code, lien, QR code, invités), ses actions passent par Admin. La
 /// liste des invités se met à jour avec le signe de vie du cœur
@@ -383,8 +419,7 @@ final class ShareHostModel: ObservableObject {
     @Published private(set) var relay: ShareState.Relay?
     /// « Préparation du lien hors de chez vous… » : « Copier le lien » et le QR code attendent.
     var waitingForRelayLink: Bool { relay == .connecting }
-    private var relayWait: (code: String, since: Date)?
-    private var relayWaitTask: Task<Void, Never>?
+    private let relayWait = RelayLinkWait()
     /// Une demande vient d'arriver pendant la session : avis bref « {prénom} demande
     /// à rejoindre. » (chaque app le montre à sa façon ; le choisir ouvre le panneau).
     var onRequest: ((ShareGuest) -> Void)?
@@ -426,26 +461,9 @@ final class ShareHostModel: ObservableObject {
         self.console = console
     }
 
-    /// Recalcule `relay` ; l'attente se compte par code, et une tâche relit
-    /// l'état à la fin des 10 s, sans attendre le signe de vie suivant.
+    /// Recalcule `relay` (`RelayLinkWait`, relu à la fin des 10 s).
     private func updateRelay() {
-        guard let state, state.relay == .connecting else {
-            relayWait = nil
-            relayWaitTask?.cancel()
-            relayWaitTask = nil
-            if relay != state?.relay { relay = state?.relay }
-            return
-        }
-        if relayWait?.code != state.code {
-            relayWait = (state.code, Date())
-            relayWaitTask?.cancel()
-            relayWaitTask = Task { [weak self] in
-                try? await Task.sleep(for: .seconds(ShareState.relayLinkWait + 0.05))
-                guard !Task.isCancelled else { return }
-                self?.updateRelay()
-            }
-        }
-        let next = ShareState.relayPhase(state.relay, waitingSince: relayWait?.since)
+        let next = relayWait.phase(code: state?.code, relay: state?.relay) { [weak self] in self?.updateRelay() }
         if relay != next { relay = next }
     }
 

@@ -93,7 +93,8 @@ struct HomeScreen: View {
             Button(StationText.removeConfirm, role: .destructive) { if let h = removing { remove(h) } }
             Button(StationText.cancel, role: .cancel) {}
         }
-        .confirmationDialog(StationText.removeQuestion(removingBorrowed?.title ?? ""), isPresented: Binding(get: { removingBorrowed != nil }, set: { if !$0 { removingBorrowed = nil } }), titleVisibility: .visible) {
+        // L'ordinateur d'un ami : « Retirer l'ordinateur de {hôte} de cet appareil ? ».
+        .confirmationDialog(LendText.removeQuestion(removingBorrowed?.hostName ?? ""), isPresented: Binding(get: { removingBorrowed != nil }, set: { if !$0 { removingBorrowed = nil } }), titleVisibility: .visible) {
             Button(StationText.removeConfirm, role: .destructive) { if let c = removingBorrowed { app.removeBorrowed(c) } }
             Button(StationText.cancel, role: .cancel) {}
         }
@@ -620,7 +621,7 @@ struct HomeScreen: View {
             if state.canBorrow {
                 Button { app.borrow(c) } label: { Label { Text(LendText.borrow) } icon: { Image(systemName: "play.fill") } }
             }
-            Button(role: .destructive) { removingBorrowed = c } label: { Label { Text(ShareText.remove) } icon: { Image(systemName: "trash") } }
+            Button(role: .destructive) { removingBorrowed = c } label: { Label { Text(LendText.removeComputer) } icon: { Image(systemName: "trash") } }
         }
         .accessibilityLabel(Text(verbatim: [c.title, state.label].compactMap { $0 }.joined(separator: ", ")))
         .accessibilityAddTraits(c.id == friend?.id ? [.isSelected] : [])

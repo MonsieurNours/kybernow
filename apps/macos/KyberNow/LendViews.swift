@@ -152,7 +152,7 @@ struct LendPanel: View {
 
     @ViewBuilder private func created(_ code: LendCodeView) -> some View {
         HStack(alignment: .top, spacing: 16) {
-            LendQR(link: code.link)
+            LinkQR(link: code.link, waiting: lend.waitingForRelayLink)
             VStack(alignment: .leading, spacing: 8) {
                 Theme.eyebrow(ShareText.code, color: Theme.faint)
                 Text(Share.formatCode(code.code))
@@ -169,6 +169,7 @@ struct LendPanel: View {
                     .font(Theme.sans(13))
                 }
                 .buttonStyle(GhostButton(height: 32))
+                .disabled(lend.waitingForRelayLink)
                 if let copyResult {
                     Text(copyResult).font(Theme.sans(12)).foregroundStyle(copied ? Theme.ok : Theme.warnText)
                         .fixedSize(horizontal: false, vertical: true)
@@ -180,9 +181,11 @@ struct LendPanel: View {
                 }
             }
         }
+        // Comme le partage : le lien du relais en préparation (10 s au plus), ou pas encore joignable.
         VStack(alignment: .leading, spacing: 6) {
             Text(LendText.help).font(Theme.sans(12.5)).foregroundStyle(Theme.muted)
                 .fixedSize(horizontal: false, vertical: true)
+            RelayLinkNote(relay: lend.relay)
             Text(LendText.sessionCloses).font(Theme.sans(12.5)).foregroundStyle(Theme.faint)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -211,30 +214,6 @@ struct LendPanel: View {
             guard copied else { return }
             copyResult = nil
             copied = false
-        }
-    }
-}
-
-/// Le QR code du lien du code de prêt (`kybernow://join…`), net, sur fond blanc.
-private struct LendQR: View {
-    let link: String
-    @State private var image: (link: String, image: CGImage)?
-
-    var body: some View {
-        Group {
-            if let image = image?.link == link ? image?.image : Share.qrImage(for: link) {
-                Image(decorative: image, scale: 1)
-                    .interpolation(.none)
-                    .resizable()
-                    .aspectRatio(1, contentMode: .fit)
-                    .frame(width: 128, height: 128)
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .accessibilityElement()
-                    .accessibilityLabel(ShareText.qrLabel)
-                    .onAppear { if self.image?.link != link { self.image = (link, image) } }
-            } else {
-                RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.well).frame(width: 128, height: 128)
-            }
         }
     }
 }
@@ -345,8 +324,9 @@ struct FriendAccountForm: View {
 
 
 /// Le lien d'invitation ouvert (`kybernow://borrow?…`) : « {hôte} vous prête
-/// son ordinateur. » quand on sait déjà qui, l'identifiant rempli, le mot de
-/// passe à taper, « Ajouter ».
+/// son ordinateur. » quand on sait qui (le prénom du lien, ou l'ordinateur
+/// déjà ajouté), sinon « Avec un compte d'ami » ; l'identifiant rempli, le mot
+/// de passe à taper, « Ajouter ».
 struct InviteSheet: View {
     @EnvironmentObject var app: AppModel
     @Environment(\.dismiss) private var dismiss
@@ -358,7 +338,7 @@ struct InviteSheet: View {
         VStack(alignment: .leading, spacing: 22) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(known.map { LendText.invitation($0.hostName) } ?? LendText.withFriendAccount)
+                    Text(LendText.invitationTitle(invite.name ?? known?.hostName))
                         .font(Theme.display(30)).foregroundStyle(Theme.text)
                         .fixedSize(horizontal: false, vertical: true)
                     Text(verbatim: invite.host).font(Theme.mono(13)).foregroundStyle(Theme.faint)
@@ -402,8 +382,12 @@ struct BorrowPasswordSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text(computer.title).font(Theme.display(26)).foregroundStyle(Theme.text)
-            Text(verbatim: computer.login).font(Theme.mono(13)).foregroundStyle(Theme.faint)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(computer.title).font(Theme.display(26)).foregroundStyle(Theme.text)
+                Text(verbatim: computer.login).font(Theme.mono(13)).foregroundStyle(Theme.faint)
+            }
+            Text(LendText.enterPassword).font(Theme.sans(14)).foregroundStyle(Theme.text2)
+                .fixedSize(horizontal: false, vertical: true)
             LabeledField(label: LendText.password, text: $password, secure: true)
                 .onSubmit(borrow)
             Toggle(isOn: $remember) { Text(LendText.rememberPassword).font(Theme.sans(14)).foregroundStyle(Theme.text2) }
@@ -511,7 +495,7 @@ struct BorrowedHero: View {
                 .help(app.sessions.isFull ? LinkText.computersLimit : "")
             }
             Button { app.removeBorrowed(computer) } label: {
-                HStack(spacing: 8) { Icon("trash", size: 16); Text(ShareText.remove) }
+                HStack(spacing: 8) { Icon("trash", size: 16); Text(LendText.removeComputer) }
             }
             .buttonStyle(GhostButton(height: 48))
         }
@@ -616,7 +600,7 @@ struct BorrowedCard: View {
         .onHover { h in withAnimation(Theme.easeOut) { hovering = h } }
         .contextMenu {
             Button(LendText.borrow) { app.borrow(computer) }.disabled(!state.canBorrow || app.sessions.isFull)
-            Button(ShareText.remove) { app.removeBorrowed(computer) }
+            Button(LendText.removeComputer) { app.removeBorrowed(computer) }
         }
     }
 }
@@ -636,11 +620,17 @@ enum LendDemo {
 
     static func render(_ kind: String, app: AppModel, to path: String) async {
         switch kind {
-        case "panel", "panel-code", "panel-off":
-            let lend = LendHostModel(console: nil) { kind == "panel-off" ? .unavailable(LendText.tooOld) : .available }
+        case "panel", "panel-code", "panel-off", "panel-impossible", "panel-relay-connecting", "panel-relay-joined", "panel-relay-unreachable":
+            let lend = LendHostModel(console: nil) {
+                kind == "panel-off" ? .unavailable(LendText.tooOld) : kind == "panel-impossible" ? .unavailable(LendText.notPossible) : .available
+            }
             lend.demo = true
             if kind == "panel-code" {
                 lend.demoSet(LendView(requests: [LendRequest(id: "1", name: "Léa", app: "ios", viaRelay: true, since: Date())]))
+                await lend.createCode()
+            } else if kind.hasPrefix("panel-relay-") {
+                // Le code et son relais : en préparation (indicateur, copie et QR code retenus), joint, ou pas encore joignable.
+                lend.demoRelay = ShareState.Relay(wire: String(kind.dropFirst("panel-relay-".count)))
                 await lend.createCode()
             }
             write(LendPanel(computer: "Tour du bureau", lend: lend).background(Theme.surface).environment(\.colorScheme, .dark), width: LendPanel.width, to: path)

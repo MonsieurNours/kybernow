@@ -335,8 +335,9 @@ final class AppModel: ObservableObject {
         guard session == nil, let kind = LinkKind.parse(url.absoluteString) else { return }
         guard case let .computer(candidate) = kind else {
             if case let .join(link) = kind { sheet = .join(link) }
-            // kybernow://borrow?… : un ami prête son ordinateur.
+            // kybernow://borrow?… : un ami prête son ordinateur ; illisible, on le dit.
             if case let .borrow(invite) = kind { sheet = .invite(invite) }
+            if case .badInvite = kind { show(LendText.badInvite) }
             return
         }
         if store.hosts.contains(where: { ($0.consoleFingerprint != nil && $0.consoleFingerprint == candidate.expected) || ($0.address == candidate.address && $0.consolePort == candidate.port) }) {

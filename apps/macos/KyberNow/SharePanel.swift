@@ -102,7 +102,6 @@ struct SharePanel: View {
     /// « Lien copié. » ou « Copie impossible… », quelques secondes.
     @State private var copyResult: String?
     @State private var copied = false
-    @State private var qr: (link: String, image: CGImage)?
 
     private static let width: CGFloat = 372
 
@@ -131,7 +130,7 @@ struct SharePanel: View {
 
     @ViewBuilder private func shared(_ state: ShareState) -> some View {
         HStack(alignment: .top, spacing: 16) {
-            qrImage(for: state.link)
+            LinkQR(link: state.link, waiting: share.waitingForRelayLink)
             VStack(alignment: .leading, spacing: 8) {
                 Theme.eyebrow(ShareText.code, color: Theme.faint)
                 Text(Share.formatCode(state.code))
@@ -165,16 +164,7 @@ struct SharePanel: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(ShareText.help(relay: share.relay)).font(Theme.sans(12.5)).foregroundStyle(Theme.muted)
                 .fixedSize(horizontal: false, vertical: true)
-            if share.waitingForRelayLink {
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text(ShareText.relayConnecting).font(Theme.sans(12.5)).foregroundStyle(Theme.faint)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            } else if share.relay == .unreachable {
-                Text(ShareText.relayUnreachable).font(Theme.sans(12.5)).foregroundStyle(Theme.faint)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            RelayLinkNote(relay: share.relay)
         }
         Rectangle().fill(Theme.line).frame(height: 1)
         // Les demandes venues par le relais, au-dessus des invités, seulement s'il y en a.
@@ -207,28 +197,6 @@ struct SharePanel: View {
         .disabled(share.busy)
     }
 
-    /// Le QR code du lien des apps (`kybernow://join…`), net, sur fond blanc.
-    @ViewBuilder private func qrImage(for link: String) -> some View {
-        // Le lien du relais se prépare : le QR code l'attend.
-        let image = share.waitingForRelayLink ? nil : qr?.link == link ? qr?.image : Share.qrImage(for: link)
-        Group {
-            if let image {
-                Image(decorative: image, scale: 1)
-                    .interpolation(.none)
-                    .resizable()
-                    .aspectRatio(1, contentMode: .fit)
-                    .frame(width: 128, height: 128)
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .accessibilityElement()
-                    .accessibilityLabel(ShareText.qrLabel)
-                    .onAppear { if qr?.link != link { qr = (link, image) } }
-            } else {
-                RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.well).frame(width: 128, height: 128)
-                    .overlay { if share.waitingForRelayLink { ProgressView().controlSize(.small) } }
-            }
-        }
-    }
-
     private func copyLink() {
         guard let text = share.linkToCopy else { return }
         let board = NSPasteboard.general
@@ -243,6 +211,56 @@ struct SharePanel: View {
             guard copied else { return }
             copyResult = nil
             copied = false
+        }
+    }
+}
+
+/// Sous l'aide du partage ou du code de prêt, l'état du relais
+/// (docs/link-ui.md) : « Préparation du lien hors de chez vous… » avec
+/// l'indicateur d'attente (10 s au plus), ou, relais réglé mais pas joint,
+/// « Pas encore joignable hors de chez vous. » ; rien sans relais ou relais joint.
+struct RelayLinkNote: View {
+    let relay: ShareState.Relay?
+
+    var body: some View {
+        if relay == .connecting {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text(ShareText.relayConnecting).font(Theme.sans(12.5)).foregroundStyle(Theme.faint)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        } else if relay == .unreachable {
+            Text(ShareText.relayUnreachable).font(Theme.sans(12.5)).foregroundStyle(Theme.faint)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+/// Le QR code du lien des apps (`kybernow://join…`) d'un partage ou d'un code
+/// de prêt, net, sur fond blanc ; `waiting` : le lien du relais se prépare, le
+/// QR code l'attend.
+struct LinkQR: View {
+    let link: String
+    var waiting = false
+    @State private var cache: (link: String, image: CGImage)?
+
+    var body: some View {
+        let image = waiting ? nil : cache?.link == link ? cache?.image : Share.qrImage(for: link)
+        Group {
+            if let image {
+                Image(decorative: image, scale: 1)
+                    .interpolation(.none)
+                    .resizable()
+                    .aspectRatio(1, contentMode: .fit)
+                    .frame(width: 128, height: 128)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .accessibilityElement()
+                    .accessibilityLabel(ShareText.qrLabel)
+                    .onAppear { if cache?.link != link { cache = (link, image) } }
+            } else {
+                RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.well).frame(width: 128, height: 128)
+                    .overlay { if waiting { ProgressView().controlSize(.small) } }
+            }
         }
     }
 }
