@@ -102,12 +102,15 @@ struct JoinView: View {
             // Le rappel ne retient que l'app : en capturant la vue, qui tient
             // `model` (StateObject), le modèle se retiendrait lui-même.
             model.onJoined = { [app] found in app.openGuestSession(found) }
+            // Un code de prêt : la session d'emprunt prend la suite.
+            model.onLend = { [app] source in app.openBorrowSession(source) }
             model.start()
         }
         .onDisappear {
             model.cancel()
             model.stop()
             model.onJoined = nil
+            model.onLend = nil
         }
         .onChange(of: model.code) { _, _ in
             model.codeChanged()

@@ -80,13 +80,16 @@ extension ShareImage {
 // MARK: - Liens
 
 /// Ce que lit un lien ou un QR code `kybernow://` : l'ajout d'un ordinateur
-/// (adresse, port, empreinte) ou un partage à rejoindre (`kybernow://join?…`).
+/// (adresse, port, empreinte), un partage à rejoindre (`kybernow://join?…`)
+/// ou l'invitation d'un ami qui prête son ordinateur (`kybernow://borrow?…`).
 enum LinkKind {
     case computer(Candidate)
     case join(ShareJoinLink)
+    case borrow(LendInvite)
 
     static func parse(_ text: String) -> LinkKind? {
         if let link = Share.parseLink(text) { return .join(link) }
+        if let invite = Lend.parseInvite(text) { return .borrow(invite) }
         return PairingLink.parse(text).map(LinkKind.computer)
     }
 }
@@ -121,6 +124,10 @@ final class ShareJoinModel: ObservableObject {
     private(set) var link: ShareJoinLink?
     /// Appelé une fois, avec la Station qui a accepté le code.
     var onJoined: ((ShareFound) -> Void)?
+    /// Le code est un code de prêt (docs/pret.md) : l'app emprunte
+    /// l'ordinateur avec lui (session d'emprunt, « Préparation de
+    /// l'ordinateur »). Sans lui : « Ce code sert à emprunter l'ordinateur. »
+    var onLend: ((BorrowSource) -> Void)?
     private var task: Task<Void, Never>?
     private var attempt = 0
     /// La demande en attente de l'accord de l'hôte, à annuler si l'écran se ferme.
@@ -218,6 +225,13 @@ final class ShareJoinModel: ObservableObject {
                 }
             } catch {
                 guard mine == self.attempt else { return }
+                // Un code de prêt : l'emprunt prend la suite, avec l'écran de l'appareil.
+                if case let .lend(found)? = error as? ShareJoinError, let onLend = self.onLend {
+                    GuestName.remember(name)
+                    self.state = .idle
+                    onLend(BorrowSource(target: found.target, credentials: .code(found.code), name: name))
+                    return
+                }
                 self.state = .failed(Self.text(error))
             }
         }

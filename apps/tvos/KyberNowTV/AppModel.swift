@@ -14,6 +14,10 @@ final class AppModel: ObservableObject {
         case addHost
         /// KyberNow Share : « Rejoindre avec un code » (le lien qui l'ouvre, s'il y en a un).
         case join(ShareJoinLink?)
+        /// Prêter l'ordinateur : le lien d'invitation d'un ami (`kybernow-tv://borrow?…`).
+        case invite(LendInvite)
+        /// Le mot de passe d'un ordinateur prêté, demandé à « Emprunter ».
+        case borrowPassword(UUID)
         case settings(UUID)
         case appSettings
         case gamepads
@@ -30,6 +34,8 @@ final class AppModel: ObservableObject {
     var settingsSection: ComputerSection = .picture
 
     let store: HostStore
+    /// Les ordinateurs que des amis prêtent à cette Apple TV (docs/pret.md), à part des siens.
+    let borrowed: BorrowedStore
     let discovery = Discovery()
     let cloud = CloudSync()
     let prefs = Preferences.shared
@@ -43,6 +49,7 @@ final class AppModel: ObservableObject {
         let demo = false
         #endif
         store = HostStore(demo: demo)
+        borrowed = BorrowedStore(demo: demo)
         discovery.start()
         selected = store.ordered.first?.id
         // Le Top Shelf suit les ordinateurs, leur état et leurs images.
@@ -60,6 +67,25 @@ final class AppModel: ObservableObject {
             let ordered = store.ordered
             let i = UserDefaults.standard.integer(forKey: "hostIndex")
             selected = ordered.indices.contains(i) ? ordered[i].id : ordered.first?.id
+            // `-demoBorrowed free|busy|lent|locked|off|offline|slot|slot-now|refused` : « Ordinateur de Matthieu »
+            // sur l'accueil, mis en avant ; `-demoLent YES` : la Tour est prêtée à Léa (`-demoLentNotice YES` : préavis).
+            if let state = UserDefaults.standard.string(forKey: "demoBorrowed") {
+                borrowed.loadDemo(state)
+                selected = borrowed.computers.first?.id
+            }
+            // `-demoLend code|request` (menu de session) ou `-demoLendInfo on|off` : la Station de la Tour sait prêter
+            // (prêt activé, ou coupé dans Admin) ; sans eux, une Station d'avant la 0.9.0 (pas de tuile du prêt).
+            let lendInfo = UserDefaults.standard.string(forKey: "demoLendInfo") ?? (UserDefaults.standard.string(forKey: "demoLend") != nil ? "on" : nil)
+            if let lendInfo, let first = ordered.first, let i = store.status[first.id]?.info {
+                let info = HostInfo(hostname: i.hostname, gpu: i.gpu, av1: i.av1, virtualDisplay: i.virtualDisplay, speakers: i.speakers, os: i.os,
+                                    adminVersion: i.adminVersion, station: i.station, wake: i.wake, ownDevice: i.ownDevice, maxScreens: i.maxScreens,
+                                    share: i.share, relay: i.relay, lend: LendInfo(available: true, enabled: lendInfo == "on"))
+                store.setDemoStatus(HostStatus(online: true, info: info), for: first.id)
+            }
+            if UserDefaults.standard.bool(forKey: "demoLent"), let first = ordered.first {
+                let notice = UserDefaults.standard.bool(forKey: "demoLentNotice") ? LendNotice(reason: .takenBack, at: Date().addingTimeInterval(102)) : nil
+                store.setDemoLend(LendView(state: .lent, borrower: LendBorrower(name: "Léa", until: Date().addingTimeInterval(3 * 3600)), notice: notice), for: first.id)
+            }
         }
         // Vérification des écrans sans télécommande :
         // `-screen add|app|gamepads|settings|menu|passage|connecting|restarting`,
@@ -75,6 +101,13 @@ final class AppModel: ObservableObject {
             // `-screen guest|guest-menu -demoRole spectator|player|kbm|player_kbm` : la session d'un invité, sans Station.
             let role: ShareRole = switch UserDefaults.standard.string(forKey: "demoRole") { case "player": .player; case "kbm": .kbm; case "player_kbm": .playerKbm; default: .spectator }
             openGuestSession(ShareFound(demoComputer: "PC-DE-MATTHIEU", host: "Matthieu", role: role))
+        case "borrow", "borrow-waiting", "borrow-menu":
+            // `-screen borrow|borrow-waiting|borrow-menu [-demoBorrowThen notice|taken_back|lost] [-demoBorrowOpen YES]` :
+            // la session d'emprunt, sans Station (« En attente de {hôte}… », en image, menu ouvert).
+            let target = LendTarget(host: "192.168.1.30", port: 37462, fingerprint: nil)
+            openBorrowSession(BorrowSource(target: target, credentials: .code("482915"), name: "Apple TV", hostHint: "Matthieu"))
+        case "invite":
+            if let invite = Lend.parseInvite("kybernow://borrow?host=192.168.1.30&port=37462&fp=sha256:ab12&login=camille") { screen = .invite(invite) }
         case "app": screen = .appSettings
         case "gamepads": screen = .gamepads
         case "settings": if let id = selected { screen = .settings(id) }
@@ -188,6 +221,57 @@ final class AppModel: ObservableObject {
         controller.start()
     }
 
+    // MARK: - Prêter l'ordinateur (l'ami)
+
+    /// « Emprunter » (« Demander à {hôte} », « Revenir ») : la session
+    /// d'emprunt, avec le compte d'ami ; sans mot de passe retenu, il est demandé.
+    func borrow(_ computer: BorrowedComputer) {
+        guard session == nil, let target = computer.target else { return }
+        selected = computer.id
+        guard let password = borrowed.password(for: computer) else {
+            screen = .borrowPassword(computer.id)
+            return
+        }
+        openBorrowSession(BorrowSource(target: target, credentials: .account(login: computer.login, password: password),
+                                       name: GuestName.proposed, hostHint: computer.hostName, computer: computer.id))
+    }
+
+    /// « Retirer » un ordinateur prêté de cette Apple TV.
+    func removeBorrowed(_ computer: BorrowedComputer) {
+        borrowed.remove(computer)
+        if selected == computer.id { selected = store.ordered.first?.id ?? borrowed.computers.first?.id }
+    }
+
+    /// La session d'un ami qui emprunte : elle emprunte d'abord
+    /// (« Préparation de l'ordinateur », « En attente de {hôte}… »), puis se
+    /// connecte ; « Revenir » en ouvre une nouvelle avec la même demande.
+    func openBorrowSession(_ source: BorrowSource) {
+        guard session == nil else { return }
+        let controller = SessionController(borrow: source, store: store) { [weak self] _ in
+            withAnimation(Theme.join) {
+                self?.session = nil
+                self?.screen = .home
+            }
+            // La carte de l'accueil dit de nouveau l'état de l'ordinateur.
+            if let self, let id = source.computer, let c = self.borrowed.computer(id) { Task { await self.borrowed.refresh(c) } }
+        }
+        controller.onComeBack = { [weak self] source in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self?.openBorrowSession(source) }
+        }
+        session = controller
+        screen = .session(controller.host.id)
+        #if DEBUG
+        if store.demo {
+            let args = UserDefaults.standard
+            controller.demoBorrow(waiting: args.string(forKey: "screen") == "borrow-waiting", menu: args.string(forKey: "screen") == "borrow-menu",
+                                  until: args.bool(forKey: "demoBorrowOpen") ? nil : Date().addingTimeInterval(80 * 60),
+                                  then: args.string(forKey: "demoBorrowThen"))
+            return
+        }
+        #endif
+        controller.start()
+    }
+
     /// Liens du Top Shelf : `kybernow-tv://connect/<id>` ou `show/<id>` ;
     /// `kybernow-tv://join?host=…&port=…&fp=…&code=…` : un partage à rejoindre
     /// (le lien `kybernow://join` de l'hôte, sous le schéma de l'Apple TV).
@@ -195,6 +279,12 @@ final class AppModel: ObservableObject {
         if url.scheme == "kybernow-tv", url.host == "join" {
             let text = url.absoluteString.replacingOccurrences(of: "kybernow-tv://", with: "kybernow://")
             if session == nil, let link = Share.parseLink(text) { screen = .join(link) }
+            return
+        }
+        // `kybernow-tv://borrow?…` : l'invitation d'un ami qui prête son ordinateur (le lien `kybernow://borrow`).
+        if url.scheme == "kybernow-tv", url.host == "borrow" {
+            let text = url.absoluteString.replacingOccurrences(of: "kybernow-tv://", with: "kybernow://")
+            if session == nil, let invite = Lend.parseInvite(text) { screen = .invite(invite) }
             return
         }
         guard url.scheme == "kybernow-tv", let id = UUID(uuidString: url.lastPathComponent), store.host(id) != nil else { return }

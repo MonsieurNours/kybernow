@@ -156,7 +156,11 @@ enum MenuContent {
         let id = session.host.id
         var out: [MenuEntry] = []
         // Un invité : « Invité sur {nom} », la barre réduite (rôle, mesures), « Quitter le partage ».
-        if session.isGuest {
+        if session.isBorrower {
+            // Un ami : « Prêté par {hôte} », le temps restant et les mesures.
+            out.append(MenuEntry(title: LendText.lentBy(session.lendHost), enabled: false))
+            out.append(MenuEntry(title: BorrowClock.label(until: session.loan?.until, notice: session.lendNotice, host: session.lendHost) + " · " + metrics(session), enabled: false))
+        } else if session.isGuest {
             out.append(MenuEntry(title: session.title, enabled: false))
             out.append(MenuEntry(title: ShareText.role(session.shareRole) + " · " + metrics(session), enabled: false))
         } else {
@@ -315,7 +319,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         let tip: String
         switch live.count {
         case 0: tip = "KyberNow Link"
-        case 1: tip = live[0].isGuest ? "KyberNow Link · \(live[0].title)" : String(localized: "KyberNow Link · en session sur \(live[0].host.name)")
+        case 1: tip = live[0].isVisitor ? "KyberNow Link · \(live[0].title)" : String(localized: "KyberNow Link · en session sur \(live[0].host.name)")
         default: tip = String(localized: "KyberNow Link · en session sur \(live.count) ordinateurs")
         }
         item.button?.toolTip = tip

@@ -452,11 +452,15 @@ public enum ShareJoinError: LocalizedError, Sendable, Equatable {
     case relay(String)
     /// Le reste : Station injoignable, réponse illisible (message du cœur).
     case other(String)
+    /// C'est un code de prêt de l'ordinateur (docs/pret.md) : la Station qui
+    /// l'a, et le chemin pris ; l'app emprunte avec ce code (`Lend.borrow`).
+    case lend(LendCodeFound)
 
     public var errorDescription: String? {
         switch self {
         case let .noShare(m), let .full(m), let .tooManyTries(m), let .unreadable(m), let .other(m),
              let .refused(m), let .expired(m), let .pendingFull(m), let .stopped(m), let .relay(m): return m
+        case .lend: return String(localized: "Ce code sert à emprunter l'ordinateur.", bundle: .kyberKit)
         case .certificateChanged: return String(localized: "le certificat de la Station a changé : ce n'est peut-être pas votre ordinateur", bundle: .kyberKit)
         }
     }
@@ -570,6 +574,7 @@ public enum Share {
                 case KN_SHARE_TOO_MANY: continuation.resume(throwing: ShareJoinError.tooManyTries(message))
                 case KN_SHARE_UNREADABLE: continuation.resume(throwing: ShareJoinError.unreadable(message))
                 case KN_CERTIFICATE_CHANGED: continuation.resume(throwing: ShareJoinError.certificateChanged)
+                case KN_SHARE_LEND: continuation.resume(throwing: joinError(status, message, out: result))
                 default: continuation.resume(throwing: ShareJoinError.other(message))
                 }
             }
@@ -642,7 +647,7 @@ public enum Share {
             found.quality = quality
             return found
         case KN_SHARE_WAITING: return nil
-        default: throw joinError(result.status, result.message)
+        default: throw joinError(result.status, result.message, out: result.out)
         }
     }
 
@@ -682,7 +687,7 @@ public enum Share {
     private static func joining(quality: ShareQuality,
                                 _ call: @escaping @Sendable (inout UnsafeMutablePointer<CChar>?, inout UnsafeMutablePointer<CChar>?) -> Int32) async throws -> ShareJoining {
         let result = await blocking(call)
-        guard result.status == KN_OK else { throw joinError(result.status, result.message) }
+        guard result.status == KN_OK else { throw joinError(result.status, result.message, out: result.out) }
         guard let out = result.out, let data = out.data(using: .utf8), let j = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
             throw ShareJoinError.other(String(localized: "réponse inattendue de la Station", bundle: .kyberKit))
         }
@@ -697,8 +702,12 @@ public enum Share {
     }
 
     /// Le refus du cœur (code de retour et texte, dans la langue de l'app).
-    private static func joinError(_ status: Int32, _ message: String) -> ShareJoinError {
+    private static func joinError(_ status: Int32, _ message: String, out: String? = nil) -> ShareJoinError {
         switch status {
+        case KN_SHARE_LEND:
+            // Un code de prêt : `out` dit à qui l'emprunter.
+            if let found = LendCodeFound(json: out) { return .lend(found) }
+            return .other(message)
         case KN_SHARE_NO_SHARE: return .noShare(message)
         case KN_SHARE_FULL: return .full(message)
         case KN_SHARE_TOO_MANY: return .tooManyTries(message)

@@ -544,6 +544,10 @@ final class HostStore: ObservableObject {
     @Published var stationConfirm: StationConfirm?
     /// Réveil par le réseau en cours (« Réveil de l'ordinateur… »), par ordinateur.
     @Published private(set) var waking: Set<UUID> = []
+    /// Prêter l'ordinateur : la vue du prêt de chaque ordinateur dont la
+    /// Station le connaît (« Prêté à {prénom} » sur l'accueil), relue avec le
+    /// sondage ; absente sans prêt possible.
+    @Published private(set) var lends: [UUID: LendView] = [:]
     /// Image de chaque ordinateur sur l'accueil.
     let imagery = HostImagery()
     private let key = "hosts"
@@ -613,6 +617,7 @@ final class HostStore: ObservableObject {
         hosts.removeAll { $0.id == host.id }
         status[host.id] = nil
         stationTasks[host.id] = nil
+        lends[host.id] = nil
         if demo { demoPasswords[host.id] = nil } else { Keychain.delete(host.id) }
         save()
     }
@@ -700,6 +705,12 @@ final class HostStore: ObservableObject {
         do {
             let info = try await console.info()
             status[host.id] = HostStatus(online: true, info: info)
+            // Le prêt de l'ordinateur (Station 0.9.0 et suivantes) : « Prêté à {prénom} » sur l'accueil.
+            if info.lend?.available == true {
+                if let view = try? await console.lendState() { setLend(view, for: host.id) }
+            } else {
+                setLend(nil, for: host.id)
+            }
             // Le relais de l'ordinateur, tel que sa Station le dit (absent : plus de relais).
             if var h = self.host(host.id), h.relay != info.relay {
                 h.relay = info.relay
@@ -801,10 +812,20 @@ final class HostStore: ObservableObject {
         }
     }
 
+    /// La vue du prêt de cet ordinateur (sondage, réponse d'Admin, signe de vie de sa session).
+    func setLend(_ view: LendView?, for id: UUID) {
+        if lends[id] != view { lends[id] = view }
+    }
+
     #if DEBUG
     /// Démonstration : l'état d'un ordinateur, posé par l'app.
     func setDemoStatus(_ s: HostStatus?, for id: UUID) {
         status[id] = s
+    }
+
+    /// Démonstration : la vue du prêt d'un ordinateur.
+    func setDemoLend(_ view: LendView?, for id: UUID) {
+        lends[id] = view
     }
     #endif
 }

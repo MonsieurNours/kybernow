@@ -12,14 +12,27 @@ import SwiftUI
 struct HomeView: View {
     @EnvironmentObject private var app: AppModel
     @EnvironmentObject private var store: HostStore
+    /// Les ordinateurs que des amis prêtent à cette Apple TV.
+    @EnvironmentObject private var borrowed: BorrowedStore
     @EnvironmentObject private var pads: GamepadBridge
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    enum Focus: Hashable { case connect, profile(Profile), settings, pads, host(UUID), found(String), add, join, appSettings }
+    enum Focus: Hashable { case connect, profile(Profile), settings, pads, host(UUID), borrowed(UUID), found(String), add, join, appSettings, takeBackNow, remove }
     @FocusState private var focus: Focus?
     @State private var pulse = false
+    /// « Retirer {nom} de cet appareil ? » pour un ordinateur prêté.
+    @State private var removing: BorrowedComputer?
+    /// Le refus de « Reprendre l'ordinateur », s'il y en a un.
+    @State private var takeBackError: String?
 
-    private var host: Host? { app.selected.flatMap(store.host) ?? store.ordered.first }
+    /// L'ordinateur d'un ami mis en avant (prêter l'ordinateur).
+    private var friend: BorrowedComputer? {
+        app.selected.flatMap(borrowed.computer) ?? (store.hosts.isEmpty ? borrowed.computers.first : nil)
+    }
+    private var host: Host? { friend != nil ? nil : app.selected.flatMap(store.host) ?? store.ordered.first }
+    /// Les cartes des ordinateurs : quatre au plus, les siens d'abord, au moins une place pour ceux des amis.
+    private var shownHosts: [Host] { Array(store.ordered.prefix(borrowed.computers.isEmpty ? 4 : 3)) }
+    private var shownBorrowed: [BorrowedComputer] { Array(borrowed.computers.prefix(4 - shownHosts.count)) }
     /// En ligne, hors ligne, ou nil tant qu'il n'a pas répondu (« Recherche… »).
     private func online(_ h: Host) -> Bool? { store.status[h.id]?.online }
 
@@ -31,11 +44,15 @@ struct HomeView: View {
                     HostBackdrop(host: host, online: online(host) != false)
                         .id(host.id)
                         .transition(.opacity.combined(with: .blurReplace))
+                } else if let friend {
+                    Signature(seed: friend.title)
+                        .id(friend.id)
+                        .transition(.opacity.combined(with: .blurReplace))
                 } else {
                     Signature(seed: "KyberNow")
                 }
             }
-            .animation(.timingCurve(0.2, 0.9, 0.1, 1, duration: 0.7), value: host?.id)
+            .animation(.timingCurve(0.2, 0.9, 0.1, 1, duration: 0.7), value: host?.id ?? friend?.id)
 
             topBar
                 .padding(.leading, 96).padding(.top, 56)
@@ -48,11 +65,22 @@ struct HomeView: View {
                 .padding(.leading, 96).padding(.top, 1080 - 56 - 216 - 20 - 30)
         }
         .frame(width: 1920, height: 1080, alignment: .topLeading)
-        .defaultFocus($focus, store.hosts.isEmpty ? .add : .connect)
+        .defaultFocus($focus, store.hosts.isEmpty && borrowed.computers.isEmpty ? .add : .connect)
         .onChange(of: focus) { _, new in
             if case let .host(id)? = new, app.selected != id {
                 app.selected = id
             }
+            if case let .borrowed(id)? = new, app.selected != id {
+                app.selected = id
+            }
+        }
+        .confirmationDialog(removing.map { StationText.removeQuestion($0.title) } ?? "", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
+                            titleVisibility: .visible) {
+            Button(ShareText.remove, role: .destructive) {
+                if let removing { app.removeBorrowed(removing) }
+                removing = nil
+            }
+            Button(StationText.cancel, role: .cancel) { removing = nil }
         }
         .onAppear {
             if app.selected == nil { app.selected = store.ordered.first?.id }
@@ -88,13 +116,17 @@ struct HomeView: View {
     // MARK: L'ordinateur choisi
 
     @ViewBuilder private var hero: some View {
-        if let host {
+        if let friend {
+            friendHero(friend)
+        } else if let host {
             let state = online(host)
             let problem = store.status[host.id]?.problem
+            // Prêté par cet appareil : « Prêté à Léa », « Reprendre l'ordinateur ».
+            let lent = LentHome.view(of: host.id, in: store)
             VStack(alignment: .leading, spacing: 22) {
                 HStack(spacing: 12) {
                     statusDot(state)
-                    Text(LinkText.status(state, away: store.status[host.id]?.away == true)).font(Theme.sans(21))
+                    Text(lent.map(LentHome.line) ?? LinkText.status(state, away: store.status[host.id]?.away == true)).font(Theme.sans(21))
                 }
                 .padding(.leading, 16).padding(.trailing, 18)
                 .frame(height: 44)
@@ -121,6 +153,10 @@ struct HomeView: View {
                     Icon("monitor", size: 28).foregroundStyle(Theme.accent)
                     Text(screenLine(host)).font(Theme.sans(24)).foregroundStyle(Theme.text2)
                 }
+                if let lent {
+                    lentActions(host, view: lent)
+                        .padding(.top, 26)
+                } else {
                 HStack(spacing: 24) {
                     Button { primaryAction(host, state: state) } label: {
                         HStack(spacing: 16) {
@@ -156,6 +192,7 @@ struct HomeView: View {
                 Text(Profile.hint(host.settings.profile))
                     .font(Theme.sans(22))
                     .foregroundStyle(Theme.muted)
+                }
             }
         } else {
             VStack(alignment: .leading, spacing: 22) {
@@ -173,6 +210,116 @@ struct HomeView: View {
                     .frame(width: 900, alignment: .leading)
             }
         }
+    }
+
+    // MARK: Prêter l'ordinateur
+
+    /// L'ordinateur d'un ami : son état, « Ordinateur de {hôte} », le créneau,
+    /// « Emprunter » (« Demander à {hôte} », « Revenir », « Réessayer »), « Retirer ».
+    private func friendHero(_ computer: BorrowedComputer) -> some View {
+        let state = borrowed.states[computer.id] ?? .checking
+        return VStack(alignment: .leading, spacing: 22) {
+            BorrowedHeroText(computer: computer, state: state)
+            HStack(spacing: 24) {
+                Button {
+                    if state == .offline { Task { await borrowed.refresh(computer) } } else { app.borrow(computer) }
+                } label: {
+                    HStack(spacing: 16) {
+                        Text(state.primaryLabel(host: computer.hostName))
+                        Icon(state == .offline ? "arrows-clockwise" : "arrow-right", size: 28, bold: true)
+                    }
+                }
+                .buttonStyle(PrimaryButton(height: 80, fontSize: 28))
+                .focused($focus, equals: .connect)
+                .disabled(!state.primaryEnabled)
+                Button { removing = computer } label: {
+                    HStack(spacing: 12) {
+                        Icon("trash", size: 26)
+                        Text(ShareText.remove).font(Theme.sans(22, .medium))
+                    }
+                    .padding(.leading, 20).padding(.trailing, 24)
+                    .frame(height: 64)
+                }
+                .buttonStyle(GlassButton(radius: 18))
+                .focused($focus, equals: .remove)
+            }
+            .padding(.top, 26)
+        }
+    }
+
+    /// Prêté par cet appareil : « Reprendre l'ordinateur » ; pendant le préavis,
+    /// « Reprise dans 1:42 » et « Reprendre tout de suite ».
+    private func lentActions(_ host: Host, view: LendView) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 24) {
+                if view.notice?.reason == .takenBack {
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        Text(LentHome.takingBack(view, now: context.date) ?? "")
+                            .font(Theme.sans(30, .semibold)).foregroundStyle(Theme.neonCore)
+                    }
+                    Button { takeBack(host, now: true) } label: {
+                        HStack(spacing: 16) { Icon("power", size: 28, bold: true); Text(LendText.takeBackNow) }
+                    }
+                    .buttonStyle(PrimaryButton(height: 80, fontSize: 28))
+                    .focused($focus, equals: .connect)
+                } else {
+                    Button { takeBack(host, now: false) } label: {
+                        HStack(spacing: 16) { Icon("key", size: 28, bold: true); Text(LendText.takeBack) }
+                    }
+                    .buttonStyle(PrimaryButton(height: 80, fontSize: 28))
+                    .focused($focus, equals: .connect)
+                }
+            }
+            if let takeBackError {
+                Text(takeBackError).font(Theme.sans(22)).foregroundStyle(Theme.warnText)
+            }
+        }
+    }
+
+    private func takeBack(_ host: Host, now: Bool) {
+        Task { takeBackError = await store.takeBack(host, now: now) }
+    }
+
+    /// L'ordinateur d'un ami, sur la rangée : son nom et son état.
+    private func borrowedCard(_ c: BorrowedComputer) -> some View {
+        let state = borrowed.states[c.id] ?? .checking
+        let label = state.label ?? LinkText.status(nil)
+        return Button { app.selected = c.id } label: {
+            VStack(alignment: .leading, spacing: 0) {
+                ZStack {
+                    Signature(seed: c.title)
+                    Icon("key", size: 40).foregroundStyle(Theme.accentLight.opacity(0.85))
+                }
+                .frame(width: Self.cardWidth, height: 124)
+                .clipped()
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(c.title).font(Theme.sans(23, .semibold)).foregroundStyle(state == .offline ? Theme.muted : Theme.text).lineLimit(1)
+                    HStack(spacing: 9) {
+                        if state.availability == .free {
+                            Circle().fill(Theme.ok).frame(width: 9, height: 9)
+                        } else {
+                            Circle().strokeBorder(Theme.faint, lineWidth: 1.5).frame(width: 9, height: 9)
+                        }
+                        Text(label).font(Theme.sans(17)).foregroundStyle(Theme.muted).lineLimit(1)
+                    }
+                }
+                .padding(.horizontal, 18).padding(.vertical, 14)
+                Spacer(minLength: 0)
+            }
+            .frame(width: Self.cardWidth, height: 216, alignment: .topLeading)
+            .overlay(alignment: .bottom) {
+                if c.id == friend?.id {
+                    UnevenRoundedRectangle(topLeadingRadius: 2, topTrailingRadius: 2)
+                        .fill(Theme.accent)
+                        .frame(height: 4)
+                        .padding(.horizontal, 18)
+                        .shadow(color: Theme.accentFill, radius: 6)
+                }
+            }
+        }
+        .buttonStyle(GlassButton(radius: 18))
+        .focused($focus, equals: .borrowed(c.id))
+        .accessibilityLabel("\(c.title), \(label)")
     }
 
     /// La ligne des manettes (apps de salon) : « 2 manettes » ; un clic ouvre leur test.
@@ -230,11 +377,14 @@ struct HomeView: View {
                 }
             }
             HStack(spacing: 24) {
-                ForEach(store.ordered.prefix(4)) { h in
+                ForEach(shownHosts) { h in
                     hostCard(h)
                 }
+                ForEach(shownBorrowed) { c in
+                    borrowedCard(c)
+                }
                 // La rangée tient six cartes : l'annonce du réseau laisse sa place à « Rejoindre avec un code ».
-                if let found = app.newOnNetwork.first, store.ordered.count < 4 {
+                if let found = app.newOnNetwork.first, shownHosts.count + shownBorrowed.count < 4 {
                     foundCard(found)
                 }
                 addCard

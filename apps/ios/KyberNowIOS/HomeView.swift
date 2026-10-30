@@ -27,7 +27,7 @@ struct HomeView: View {
         // iCloud, les images et les manettes, quels que soient les objets
         // d'environnement posés plus haut.
         HomeScreen(app: app, store: app.store, discovery: app.discovery, cloud: app.cloud,
-                   imagery: app.store.imagery, pads: GamepadBridge.shared)
+                   imagery: app.store.imagery, pads: GamepadBridge.shared, borrowed: app.borrowed)
             .environmentObject(app.store.imagery)
     }
 
@@ -42,6 +42,8 @@ struct HomeScreen: View {
     @ObservedObject var cloud: CloudSync
     @ObservedObject var imagery: HostImagery
     @ObservedObject var pads: GamepadBridge
+    /// Les ordinateurs que des amis prêtent à cet appareil.
+    @ObservedObject var borrowed: BorrowedStore
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -59,12 +61,15 @@ struct HomeScreen: View {
     @State private var hovering = false
     @State private var retrying: UUID?
     @State private var removing: Host?
+    @State private var removingBorrowed: BorrowedComputer?
     /// Adresses des ordinateurs annoncés sur le réseau, trouvées en arrière-plan.
     @State private var resolved: [String: Candidate] = [:]
 
     private static let space = "home"
 
     private var host: Host? { app.selectedHost }
+    /// L'ordinateur d'un ami en scène (prêter l'ordinateur).
+    private var friend: BorrowedComputer? { app.selectedBorrowed }
     private var isPad: Bool { DeviceDisplay.isPad }
     /// iPad en pleine largeur (ou presque) : la scène de l'Apple TV.
     private var wide: Bool { isPad && sizeClass == .regular }
@@ -86,6 +91,10 @@ struct HomeScreen: View {
         .background(shortcuts)
         .confirmationDialog(StationText.removeQuestion(removing?.name ?? ""), isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }), titleVisibility: .visible) {
             Button(StationText.removeConfirm, role: .destructive) { if let h = removing { remove(h) } }
+            Button(StationText.cancel, role: .cancel) {}
+        }
+        .confirmationDialog(StationText.removeQuestion(removingBorrowed?.title ?? ""), isPresented: Binding(get: { removingBorrowed != nil }, set: { if !$0 { removingBorrowed = nil } }), titleVisibility: .visible) {
+            Button(StationText.removeConfirm, role: .destructive) { if let c = removingBorrowed { app.removeBorrowed(c) } }
             Button(StationText.cancel, role: .cancel) {}
         }
         // En données mobiles, « Sessions en données mobiles » coupé : on
@@ -332,14 +341,18 @@ struct HomeScreen: View {
 
     @ViewBuilder private func hero(wide: Bool) -> some View {
         let gap: CGFloat = wide ? 16 : 11
-        if let host {
+        if let friend {
+            BorrowedHero(borrowed: borrowed, computer: friend, wide: wide)
+                .homeRise(revealed, 0.1)
+        } else if let host {
             let on = online(host)
             let info = store.status[host.id]?.info
             let problem = store.status[host.id]?.problem
             VStack(alignment: .leading, spacing: gap) {
                 HomeChip(height: wide ? 32 : 30, fontSize: wide ? 14 : 13) {
                     HomeStatusDot(online: on, size: wide ? 8 : 7)
-                    Text(LinkText.status(on, away: store.status[host.id]?.away == true)).lineLimit(1)
+                    // Prêté par cet appareil : « Prêté à Léa » (« … jusqu'à 18 h »).
+                    Text(LentHome.view(of: host.id, in: store).map(LentHome.line) ?? LinkText.status(on, away: store.status[host.id]?.away == true)).lineLimit(1)
                 }
                 .homeRise(revealed, 0.1)
                 // Deux lignes au plus, interligne serré comme la maquette ; un nom long rétrécit.
@@ -411,7 +424,14 @@ struct HomeScreen: View {
     // MARK: Se connecter, puis le profil
 
     @ViewBuilder private func actions(wide: Bool) -> some View {
-        if let host {
+        if let friend {
+            BorrowedActions(borrowed: borrowed, computer: friend, wide: wide) { removingBorrowed = friend }
+                .homeRise(revealed, 0.48)
+        } else if let host, let lent = LentHome.view(of: host.id, in: store) {
+            // Prêté par cet appareil : « Reprendre l'ordinateur » à la place de « Se connecter ».
+            LentActions(host: host, view: lent, wide: wide)
+                .homeRise(revealed, 0.48)
+        } else if let host {
             // « Recherche… » : Se connecter, comme en ligne. Hors ligne :
             // « Réveiller l'ordinateur » si l'app connaît une de ses cartes
             // réseau (le paquet part, puis l'ordinateur est sondé toutes les 2 s),
@@ -531,6 +551,10 @@ struct HomeScreen: View {
                         ForEach(store.ordered) { h in
                             card(h, m: m, wide: wide).id(h.id)
                         }
+                        // Les ordinateurs que des amis prêtent, à part des siens.
+                        ForEach(borrowed.computers) { c in
+                            borrowedCard(c, m: m).id(c.id)
+                        }
                         ForEach(app.newOnNetwork) { found in
                             Button { app.sheet = .addHost(resolved[found.id]) } label: {
                                 HomeFoundCard(name: found.name, m: m, wide: wide)
@@ -581,6 +605,25 @@ struct HomeScreen: View {
         .accessibilityLabel(Text(verbatim: "\(h.name), \(LinkText.status(on, away: store.status[h.id]?.away == true))"))
         .accessibilityAddTraits(h.id == host?.id ? [.isSelected] : [])
         .accessibilityHint(Text("Met l'ordinateur en scène ; appui long : réglages, retirer"))
+    }
+
+    private func borrowedCard(_ c: BorrowedComputer, m: HomeCardMetrics) -> some View {
+        let state = borrowed.states[c.id] ?? .checking
+        return Button {
+            withAnimation(Theme.easeOut) { app.selected = c.id }
+        } label: {
+            BorrowedCard(computer: c, state: state, selected: c.id == friend?.id, m: m)
+        }
+        .buttonStyle(HomePressStyle())
+        .hoverEffect(.lift)
+        .contextMenu {
+            if state.canBorrow {
+                Button { app.borrow(c) } label: { Label { Text(LendText.borrow) } icon: { Image(systemName: "play.fill") } }
+            }
+            Button(role: .destructive) { removingBorrowed = c } label: { Label { Text(ShareText.remove) } icon: { Image(systemName: "trash") } }
+        }
+        .accessibilityLabel(Text(verbatim: [c.title, state.label].compactMap { $0 }.joined(separator: ", ")))
+        .accessibilityAddTraits(c.id == friend?.id ? [.isSelected] : [])
     }
 
     // MARK: Clavier (iPad)

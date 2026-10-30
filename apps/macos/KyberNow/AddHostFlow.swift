@@ -85,7 +85,8 @@ struct AddHostSheet: View {
     var initialLink: Candidate?
     var initialTab: Tab = .network
 
-    enum Tab: Hashable { case network, address, link }
+    /// `friend` : « Avec un compte d'ami », l'ordinateur qu'un ami prête (docs/pret.md).
+    enum Tab: Hashable { case network, address, link, friend }
     enum Step { case find, trust, account }
 
     @State private var tab: Tab? = .network
@@ -142,12 +143,14 @@ private struct FindStep: View {
                     .buttonStyle(GhostButton(height: 34))
                     .keyboardShortcut(.cancelAction)
             }
-            Segmented(options: [(.network, String(localized: "Sur ce réseau")), (.address, String(localized: "Par adresse")), (.link, String(localized: "QR code ou lien"))], selection: $tab, height: 40, fill: true)
+            Segmented(options: [(.network, String(localized: "Sur ce réseau")), (.address, String(localized: "Par adresse")), (.link, String(localized: "QR code ou lien")),
+                                (.friend, LendText.withFriendAccount)], selection: $tab, height: 40, fill: true)
             Group {
                 switch tab ?? .address {
                 case .network: NetworkTab(found: found)
                 case .address: AddressTab(found: found)
                 case .link: LinkTab(found: found)
+                case .friend: FriendTab()
                 }
             }
             .frame(minHeight: 320, alignment: .top)
@@ -209,6 +212,19 @@ private struct NetworkTab: View {
         .task {
             try? await Task.sleep(for: .seconds(6))
             searched = true
+        }
+    }
+}
+
+/// « Avec un compte d'ami » : un ordinateur du réseau qu'un ami prête, son identifiant et son mot de passe.
+private struct FriendTab: View {
+    @EnvironmentObject var app: AppModel
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        FriendAccountForm(invite: nil) { computer in
+            dismiss()
+            app.selectedID = computer.id
         }
     }
 }
@@ -302,6 +318,10 @@ private struct LinkTab: View {
                     // Le QR code d'un partage (KyberNow Share) : l'écran « Rejoindre » prend le relais.
                     scanner.stop()
                     app.join(fromAddSheet: share)
+                case let .borrow(invite)?:
+                    // Le QR code d'une invitation : l'ajout de l'ordinateur prêté prend le relais.
+                    scanner.stop()
+                    app.openInvite(fromAddSheet: invite)
                 case nil:
                     break
                 }
@@ -319,6 +339,7 @@ private struct LinkTab: View {
         switch LinkKind.parse(link) {
         case let .computer(c)?: found(c)
         case let .join(share)?: app.join(fromAddSheet: share)
+        case let .borrow(invite)?: app.openInvite(fromAddSheet: invite)
         case nil: invalid = true
         }
     }

@@ -57,7 +57,15 @@ struct SessionChrome: View {
             if !session.barVisible {
                 VStack(spacing: 10) {
                     if let hint = session.hint {
-                        if case let .request(text) = hint {
+                        if case let .lendRequest(text) = hint {
+                            // Se choisit : il ouvre le panneau du prêt (la barre, puis « Prêter l'ordinateur… »).
+                            Button { session.openLendPanel() } label: { HintToast(hint: .lendRequest(text)) }
+                                .buttonStyle(.plain)
+                                .background(GeometryReader { g in
+                                    Color.clear.preference(key: HintRectKey.self, value: g.frame(in: Self.space))
+                                })
+                                .transition(.move(edge: .top).combined(with: .opacity))
+                        } else if case let .request(text) = hint {
                             // Se choisit : il ouvre le panneau du partage (la barre, puis « Partager »).
                             Button { session.openSharePanel() } label: { HintToast(hint: .request(text)) }
                                 .buttonStyle(.plain)
@@ -126,9 +134,12 @@ private struct PassageCapsule: View {
     /// Les autres sessions : le bouton de l'échec (« Fermer » ou « Revenir à l'accueil »).
     @ObservedObject var sessions: SessionManager
 
-    private enum Mode: Equatable { case waiting, reconnecting, failed, closing, hidden }
+    private enum Mode: Equatable { case waiting, asking, reconnecting, failed, closing, hidden }
+    /// L'emprunt, avant la session (« En attente de {hôte}… »).
+    private var borrowState: BorrowFlow.State? { session.borrowFlow?.state }
 
     private var mode: Mode {
+        if session.phase == .preparing, case .waiting? = borrowState { return .asking }
         switch session.phase {
         // La connexion reprise en session (écrans ou profil changés) montre ses étapes.
         case .preparing, .connecting, .starting: return session.revealedAt == nil || session.replanning ? .waiting : .hidden
@@ -159,6 +170,19 @@ private struct PassageCapsule: View {
         HStack(spacing: 18) {
             Mark(size: 34, level: mode == .failed || (mode == .closing && session.closing.done) ? .off : .lit)
             switch mode {
+            case .asking:
+                // Ordinateur utilisé : l'hôte doit accepter (« Annuler » retire la demande).
+                if case let .waiting(host)? = borrowState {
+                    HStack(spacing: 10) {
+                        ProgressView().controlSize(.small)
+                        Text(LendText.waiting(host)).font(Theme.sans(16, .semibold)).foregroundStyle(Theme.text)
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+                divider
+                Button("Annuler") { session.end() }
+                    .buttonStyle(GhostButton(height: 34))
+                    .keyboardShortcut(.cancelAction)
             case .waiting:
                 if session.stationRestarting {
                     // Dernier recours : la Station redémarre, puis les étapes reprennent.
@@ -169,12 +193,14 @@ private struct PassageCapsule: View {
                     .accessibilityElement(children: .combine)
                 } else {
                     VStack(alignment: .leading, spacing: 7) {
-                        // Un invité : les mêmes étapes, titrées « Invité sur {nom} ».
-                        if session.isGuest {
+                        // Un invité : les mêmes étapes, titrées « Invité sur {nom} » ; un ami : « Ordinateur de {hôte} ».
+                        if session.isVisitor {
                             Text(session.title).font(Theme.sans(16, .semibold)).foregroundStyle(Theme.text).lineLimit(1)
                                 .padding(.bottom, 3)
                         }
-                        step(0, session.expectedScreens > 1 ? String(localized: "Préparation des écrans") : String(localized: "Préparation de l'écran"))
+                        // Un emprunt : le mode console se met en place d'abord (« Préparation de l'ordinateur »).
+                        step(0, session.isBorrower ? LendText.preparing
+                            : session.expectedScreens > 1 ? String(localized: "Préparation des écrans") : String(localized: "Préparation de l'écran"))
                         step(1, String(localized: "Connexion"))
                         step(2, String(localized: "Premières images"))
                     }
@@ -189,16 +215,33 @@ private struct PassageCapsule: View {
                 }
             case .failed:
                 if case let .failed(message) = session.phase {
-                    if session.shareEndText != nil {
-                        // Fin par le partage : « {hôte} a arrêté le partage. », seule, sans « Reprendre la main ».
+                    if session.shareEndText != nil || session.lendEndText != nil {
+                        // Fin par le partage ou le prêt (« {hôte} a repris l'ordinateur. »), seule, sans « Reprendre la main ».
                         lines(title: message, sub: "")
+                    } else if session.canComeBack {
+                        // Réseau perdu pendant un emprunt : l'ami peut revenir pendant 15 min.
+                        VStack(alignment: .leading, spacing: 3) {
+                            lines(title: String(localized: "La connexion a échoué"), sub: message.prefix(1).uppercased() + message.dropFirst(), warn: true)
+                            Text(LendText.comeBackHint).font(Theme.sans(13)).foregroundStyle(Theme.text2)
+                        }
                     } else {
                         lines(title: String(localized: "La connexion a échoué"), sub: message.prefix(1).uppercased() + message.dropFirst(), warn: true)
                     }
                 }
+                if session.canComeBack {
+                    Button(LendText.comeBack) { session.comeBack() }
+                        .buttonStyle(PrimaryButton(height: 40))
+                }
                 // Une session suivante (ou une autre encore ouverte) : « Fermer »
                 // ferme sa fenêtre, les autres sessions continuent (docs/link-ui.md).
-                if session.isFirst, sessions.all.allSatisfy({ $0 === session }) {
+                // La fin d'un emprunt : « Fermer » (carte de fin).
+                if session.isBorrower, session.canComeBack {
+                    Button(LendText.close) { session.dismissFailure() }
+                        .buttonStyle(GhostButton(height: 40))
+                } else if session.isBorrower {
+                    Button(LendText.close) { session.dismissFailure() }
+                        .buttonStyle(PrimaryButton(height: 40))
+                } else if session.isFirst, sessions.all.allSatisfy({ $0 === session }) {
                     Button("Revenir à l'accueil") { session.dismissFailure() }
                         .buttonStyle(PrimaryButton(height: 40))
                 } else {
@@ -206,8 +249,8 @@ private struct PassageCapsule: View {
                         .buttonStyle(PrimaryButton(height: 40))
                 }
             case .closing:
-                // Un invité n'a rien changé chez l'hôte : rien à rendre à l'ordinateur.
-                if session.isGuest {
+                // Un invité ou un ami n'a rien changé chez l'hôte : rien à rendre à l'ordinateur.
+                if session.isVisitor {
                     lines(title: String(localized: "À bientôt"), sub: "")
                 } else {
                     lines(title: String(localized: "À bientôt"), sub: String(localized: "\(name) retrouve ses écrans et son son."))
@@ -359,6 +402,9 @@ private struct HintToast: View {
                 Text(text)
             case let .request(text):
                 Icon("share-network", size: 14, bold: true).foregroundStyle(Theme.accent)
+                Text(text)
+            case let .lendRequest(text):
+                Icon("key", size: 14, bold: true).foregroundStyle(Theme.accent)
                 Text(text)
             }
         }
@@ -554,8 +600,71 @@ private struct SessionBar: View {
         .fixedSize()
     }
 
+    /// Barre d'un ami qui emprunte (docs/link-ui.md, « Prêt de l'ordinateur ») :
+    /// « Prêté par {hôte} », le temps restant, les mesures, le son, la souris,
+    /// le plein écran et « Rendre l'ordinateur » ; ni profil de la Station ni
+    /// presse-papiers.
+    private func borrowerRow(compact: Bool) -> some View {
+        HStack(spacing: 6) {
+            Mark(size: 22, level: .lit)
+            Text(LendText.lentBy(session.lendHost)).font(Theme.sans(14, .semibold)).foregroundStyle(Theme.text).lineLimit(1)
+                .padding(.leading, 6).padding(.trailing, 4)
+            // « Encore 1 h 20 », ou « Jusqu'à ce que {hôte} reprenne » ; pendant un préavis, jusqu'à sa fin.
+            TimelineView(.periodic(from: .now, by: 15)) { context in
+                let left = BorrowClock.label(until: session.loan?.until, notice: session.lendNotice, host: session.lendHost, now: context.date)
+                Text(left).font(Theme.sans(13)).foregroundStyle(session.lendNotice != nil ? Theme.warnText : Theme.text2).lineLimit(1).fixedSize()
+                    .padding(.trailing, 8)
+                    .accessibilityLabel(Text(left))
+            }
+            divider
+            relayChip(compact: compact)
+            statsButton(compact: compact)
+            divider
+            keepSound(compact: compact)
+            GlassMenu(items: MouseChoice.allCases.map { choice in
+                .init(id: "\(choice)", title: choice.label, checked: choice == session.host.settings.mouse) { session.setMouse(choice) }
+            }) {
+                chip(icon: session.mouseCaptured ? "crosshair" : "cursor", text: mouseLabel, caret: true, compact: compact)
+            }
+            .help("Souris : Auto passe en souris des jeux quand un jeu est en plein écran sur l'ordinateur (⌃⌥⌘M bascule)")
+            .overlay(ring(0))
+            divider
+            if session.canToggleFullScreen {
+                Button { session.toggleFullScreen() } label: {
+                    Icon("corners-out", size: 16, bold: true)
+                        .foregroundStyle(Theme.text2)
+                        .frame(width: 38, height: 34)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Plein écran (⌃⌥⌘F)")
+                .accessibilityLabel("Plein écran")
+                .overlay(ring(1))
+            }
+            Button { session.askGiveBack() } label: {
+                HStack(spacing: 8) {
+                    Icon("key", size: 15, bold: true)
+                    Text(LendText.giveBack).lineLimit(1).fixedSize()
+                }
+                .font(Theme.sans(13, .semibold))
+                .foregroundStyle(Theme.dangerText)
+                .padding(.horizontal, 14)
+                .frame(height: 36)
+                .background(Theme.danger.opacity(0.14), in: RoundedRectangle(cornerRadius: 9))
+                .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Theme.danger.opacity(0.4)))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(LendText.giveBack)
+            .overlay(ring(session.padItems - 1))
+        }
+        .padding(.leading, 14)
+        .padding(.trailing, 8)
+        .fixedSize()
+    }
+
     @ViewBuilder private func row(compact: Bool) -> some View {
-        if session.isGuest { guestRow(compact: compact) } else { hostRow(compact: compact) }
+        if session.isBorrower { borrowerRow(compact: compact) } else if session.isGuest { guestRow(compact: compact) } else { hostRow(compact: compact) }
     }
 
     private func hostRow(compact: Bool) -> some View {
@@ -565,6 +674,7 @@ private struct SessionBar: View {
                 .padding(.leading, 6).padding(.trailing, 8)
             ComputersMenu(session: session, store: AppModel.shared.store, sessions: AppModel.shared.sessions, compact: compact)
             ShareBarButton(session: session, share: session.share, compact: compact)
+            LendBarButton(session: session, lend: session.lend, compact: compact)
             relayChip(compact: compact)
             divider
             statsButton(compact: compact)

@@ -202,6 +202,12 @@ public final class SessionEngine: @unchecked Sendable {
         /// lien), sans compte ni écran virtuel ; `host`, `consolePort` et
         /// `consoleFingerprint` sont ceux de la Station qui a accepté le code.
         public var guest: Guest?
+        /// Prêter l'ordinateur : session d'emprunt (docs/pret.md), sur l'écran
+        /// virtuel que la Station a fait pour l'appareil ; `host`,
+        /// `consolePort` et `consoleFingerprint` sont ceux de la Station du
+        /// prêt. Par le relais si l'emprunt y est passé (la route voyage avec
+        /// le prêt).
+        public var borrower: LendLoan?
         /// Hors de chez soi (docs/relais.md) : la route de l'ordinateur par son
         /// relais (`Relay.route`). La session passe d'abord par le réseau (Admin
         /// répond-il en 1,5 s ?), sinon par le relais ; une empreinte changée ne
@@ -224,6 +230,19 @@ public final class SessionEngine: @unchecked Sendable {
                       consoleFingerprint: found.target.fingerprint, mode: Mode(width: 0, height: 0, refresh: 0),
                       audioChannels: audioChannels, virtualDisplay: false, settings: settings)
             guest = Guest(found: found, capabilities: .current)
+            clipboard = false
+            autoReconnect = true
+        }
+
+        /// Session d'emprunt : le prêt rendu par `Lend.borrow` ou `Lend.wait`.
+        /// Clavier, souris et manettes, jamais le presse-papiers ; rien de
+        /// changé sur l'ordinateur (ni profil, ni écran).
+        public init(borrower loan: LendLoan, audioChannels: Int, settings: Settings) {
+            let mode = loan.display.map { Mode(width: $0.width, height: $0.height, refresh: $0.refresh) } ?? Mode(width: 0, height: 0, refresh: 0)
+            self.init(host: loan.target.host, consolePort: loan.target.port, username: "", password: "",
+                      consoleFingerprint: loan.target.fingerprint, mode: mode,
+                      audioChannels: audioChannels, virtualDisplay: true, settings: settings)
+            borrower = loan
             clipboard = false
             autoReconnect = true
         }
@@ -322,6 +341,16 @@ public final class SessionEngine: @unchecked Sendable {
     /// change (cinq secondes au plus). Puce « Par le relais » de la barre, ligne
     /// « Chemin » des statistiques.
     public var onRoute: ((RouteInfo) -> Void)?
+    /// Prêt de l'ordinateur, session d'emprunt : le préavis de 2 minutes, une
+    /// fois par préavis, avec le texte de link-ui (« {hôte} reprend
+    /// l'ordinateur dans 2 min : sauvegardez votre partie. »).
+    public var onLendNotice: ((LendNotice, String) -> Void)?
+    /// Session d'emprunt finie par le prêt, juste avant `.ending` : la fin et
+    /// son texte (vide pour `.left`, l'ordinateur rendu).
+    public var onLendEnd: ((LendEnd, String) -> Void)?
+    /// Session d'hôte : la vue du prêt de l'ordinateur, quand elle change (nil
+    /// quand il n'y a rien à dire).
+    public var onLend: ((LendView?) -> Void)?
 
     public let view: StreamView
     private let lock = NSLock()
@@ -377,7 +406,10 @@ public final class SessionEngine: @unchecked Sendable {
             "settings": p.settings.json,
             "auto_reconnect": p.autoReconnect, "gamepad_xbox360": p.gamepadAsXbox360, "clipboard": p.clipboard,
         ]
-        if let guest = p.guest {
+        if let loan = p.borrower {
+            // Un ami qui emprunte : la réponse de `Lend.borrow`, telle quelle (l'écran virtuel est déjà là).
+            json["borrower"] = ["borrowed": loan.borrowed]
+        } else if let guest = p.guest {
             // Un invité n'a ni compte ni mode : la réponse de `Share.join`, telle quelle.
             let caps = guest.capabilities
             json["guest"] = ["joined": guest.found.joined, "capabilities": ["hevc": caps.hevc, "hevc444": caps.hevc444, "av1": caps.av1]]
@@ -388,7 +420,7 @@ public final class SessionEngine: @unchecked Sendable {
         }
         if let fp = p.consoleFingerprint { json["console_fingerprint"] = fp }
         // Hors de chez soi : le réseau d'abord, sinon le relais (`auto`).
-        if let relay = p.relay, p.guest == nil {
+        if let relay = p.relay, p.guest == nil, p.borrower == nil {
             json["route"] = "auto"
             json["relay"] = relay.dictionary
         }
@@ -483,6 +515,23 @@ public final class SessionEngine: @unchecked Sendable {
             let kind = ShareEnd(code: end)
             let reason = text.map { String(cString: $0) } ?? ""
             DispatchQueue.main.async { me.onShareEnd?(kind, reason) }
+        }
+        platform.on_lend_notice = { ud, notice, text in
+            guard let notice = LendNotice(json: notice.map { String(cString: $0) }) else { return }
+            let me = SessionEngine.from(ud)
+            let message = text.map { String(cString: $0) } ?? ""
+            DispatchQueue.main.async { me.onLendNotice?(notice, message) }
+        }
+        platform.on_lend_end = { ud, end, text in
+            let me = SessionEngine.from(ud)
+            let kind = LendEnd(code: end)
+            let message = text.map { String(cString: $0) } ?? ""
+            DispatchQueue.main.async { me.onLendEnd?(kind, message) }
+        }
+        platform.on_lend = { ud, lend in
+            let me = SessionEngine.from(ud)
+            let view = LendView(json: lend.map { String(cString: $0) })
+            DispatchQueue.main.async { me.onLend?(view) }
         }
         platform.on_route = { ud, route in
             guard let info = RouteInfo(json: route.map { String(cString: $0) }) else { return }
@@ -620,6 +669,13 @@ public final class SessionEngine: @unchecked Sendable {
     public func stop() {
         unregisterFocus()
         if let s = live { kn_session_stop(s) }
+    }
+
+    /// Session d'emprunt : « Rendre l'ordinateur », après sa confirmation. Le
+    /// prêt finit, puis la session (`onLendEnd(.left)`, sans erreur). `stop`
+    /// ne rend pas l'ordinateur (l'ami peut revenir pendant 15 minutes).
+    public func giveBack() {
+        if let s = live { kn_session_give_back(s) }
     }
 
     /// Change de profil ou de réglages en cours de session : le débit change

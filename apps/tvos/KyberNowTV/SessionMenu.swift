@@ -12,6 +12,8 @@ struct SessionMenu: View {
     @ObservedObject var session: SessionController
     /// Le partage est observé à part : la liste des invités change avec le signe de vie, pas avec la session.
     @ObservedObject private var share: ShareHostModel
+    /// Le prêt de l'ordinateur, observé à part comme le partage (demandes, code).
+    @ObservedObject private var lend: LendHostModel
     @EnvironmentObject private var pads: GamepadBridge
     @ObservedObject private var prefs = Preferences.shared
     @State private var showPads = false
@@ -20,11 +22,12 @@ struct SessionMenu: View {
     @State private var text = ""
     @FocusState private var focus: Item?
 
-    enum Item: Hashable { case resume, pads, sound, quality, qualityChoice(ShareQuality), mouse, padMouse, type, share, quit, restoreMode }
+    enum Item: Hashable { case resume, pads, sound, quality, qualityChoice(ShareQuality), mouse, padMouse, type, share, lend, quit, restoreMode }
 
     init(session: SessionController) {
         self.session = session
         _share = ObservedObject(wrappedValue: session.share)
+        _lend = ObservedObject(wrappedValue: session.lend)
     }
 
     var body: some View {
@@ -34,7 +37,13 @@ struct SessionMenu: View {
                 VStack(alignment: .leading, spacing: 10) {
                     // Un invité : son rôle au-dessus de « Invité sur {nom} » ; « Par le relais » à côté quand la session passe par lui.
                     HStack(spacing: 18) {
-                        if session.isGuest {
+                        if session.isBorrower {
+                            // Un ami : « Prêté par {hôte} » et le temps restant (« Encore 1 h 20 »).
+                            TimelineView(.periodic(from: .now, by: 15)) { context in
+                                Theme.eyebrow(LendText.lentBy(session.lendHost) + " · "
+                                    + BorrowClock.label(until: session.loan?.until, notice: session.lendNotice, host: session.lendHost, now: context.date))
+                            }
+                        } else if session.isGuest {
                             Theme.eyebrow(ShareText.role(session.shareRole))
                         } else {
                             Theme.eyebrow(String(localized: "En session depuis \(minutesLabel)"))
@@ -61,7 +70,7 @@ struct SessionMenu: View {
 
             // Le menu.
             VStack(alignment: .leading, spacing: 22) {
-                HStack(spacing: 24) {
+                HStack(spacing: gap) {
                     resumeTile
                     // Un invité : ses manettes s'il joue, le clavier et la souris
                     // seulement si l'hôte les lui a donnés ; pas de profil ni de réglages.
@@ -76,10 +85,14 @@ struct SessionMenu: View {
                         padMouseTile
                         tile(.type, icon: "keyboard", title: String(localized: "Taper du texte"), detail: String(localized: "Clavier tvOS ou iPhone")) { typing = true }
                     }
-                    if session.isGuest {
+                    if session.isBorrower {
+                        // « Rendre l'ordinateur », après sa confirmation.
+                        tile(.quit, icon: "key", iconColor: Theme.danger, title: LendText.giveBack, detail: LendText.lentBy(session.lendHost)) { session.giveBackAsked = true }
+                    } else if session.isGuest {
                         tile(.quit, icon: "power", iconColor: Theme.danger, title: ShareText.leave, detail: ShareText.guestOn(session.guest?.computer ?? "")) { session.end() }
                     } else {
                         shareTile
+                        if showsLend { lendTile }
                         tile(.quit, icon: "power", iconColor: Theme.danger, title: String(localized: "Se déconnecter"), detail: String(localized: "L'ordinateur retrouve ses écrans")) { session.end() }
                     }
                 }
@@ -123,6 +136,12 @@ struct SessionMenu: View {
             }
             if session.sharePanel {
                 SharePanelTV(session: session, share: session.share) { session.sharePanel = false }
+            }
+            if session.lendPanel {
+                LendPanelTV(computer: session.host.name, lend: session.lend) { session.lendPanel = false }
+            }
+            if session.giveBackAsked {
+                GiveBackPanel(host: session.lendHost, confirm: { session.giveBack() }, cancel: { session.giveBackAsked = false })
             }
         }
         .frame(width: 1920, height: 1080, alignment: .topLeading)
@@ -219,13 +238,19 @@ struct SessionMenu: View {
 
     // MARK: Tuiles
 
-    /// Les tuiles se partagent la largeur : sept d'ordinaire, huit avec « Partager » ; moins pour un invité.
+    /// Les tuiles se partagent la largeur : neuf avec « Partager » et « Prêter
+    /// l'ordinateur… » ; moins pour un invité ; un ami : ni profil ni partage.
     private var tileCount: Int {
+        if session.isBorrower { return 7 }
         if session.isGuest { return 4 + (session.shareRole.pads ? 1 : 0) + (session.shareRole.keyboardAndMouse ? 3 : 0) }
-        return 8
+        return showsLend ? 9 : 8
     }
 
-    private var tileWidth: CGFloat { (1920 - 192 - CGFloat(tileCount - 1) * 24) / (CGFloat(tileCount) + 0.3) }
+    /// Neuf tuiles (« Partager » et « Prêter l'ordinateur… ») : plus serrées, des titres un peu plus petits.
+    private var compact: Bool { tileCount >= 9 }
+    private var gap: CGFloat { compact ? 16 : 24 }
+    private var resumeScale: CGFloat { compact ? 1.15 : 1.3 }
+    private var tileWidth: CGFloat { (1920 - 192 - CGFloat(tileCount - 1) * gap) / (CGFloat(tileCount) + resumeScale - 1) }
 
     private var resumeTile: some View {
         Button { session.closeMenu() } label: {
@@ -233,12 +258,12 @@ struct SessionMenu: View {
                 Icon("play", size: 44, bold: true)
                 Spacer()
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Reprendre").font(Theme.sans(32, .bold))
-                    Text("La manette repart vers le jeu").font(Theme.sans(19)).foregroundStyle(.white.opacity(0.8))
+                    Text("Reprendre").font(Theme.sans(compact ? 27 : 32, .bold)).lineLimit(1).minimumScaleFactor(0.8)
+                    Text("La manette repart vers le jeu").font(Theme.sans(compact ? 17 : 19)).foregroundStyle(.white.opacity(0.8))
                 }
             }
-            .padding(28)
-            .frame(width: tileWidth * 1.3, height: 230, alignment: .leading)
+            .padding(compact ? 20 : 28)
+            .frame(width: tileWidth * resumeScale, height: 230, alignment: .leading)
         }
         .buttonStyle(ResumeTileStyle())
         .focused($focus, equals: .resume)
@@ -261,11 +286,11 @@ struct SessionMenu: View {
             }
             Spacer()
             VStack(alignment: .leading, spacing: 6) {
-                Text(title).font(Theme.sans(26, .semibold)).foregroundStyle(Theme.text).lineLimit(2)
-                Text(detail).font(Theme.sans(18)).foregroundStyle(Theme.muted).lineLimit(2)
+                Text(title).font(Theme.sans(compact ? 22 : 26, .semibold)).foregroundStyle(Theme.text).lineLimit(2).minimumScaleFactor(0.85)
+                Text(detail).font(Theme.sans(compact ? 16 : 18)).foregroundStyle(Theme.muted).lineLimit(2)
             }
         }
-        .padding(26)
+        .padding(compact ? 18 : 26)
         .frame(width: tileWidth, height: 230, alignment: .leading)
     }
 
@@ -288,6 +313,26 @@ struct SessionMenu: View {
         }
         .buttonStyle(GlassButton(radius: 22, scale: 1.07))
         .focused($focus, equals: .share)
+        .opacity(availability.isAvailable ? 1 : 0.5)
+    }
+
+    /// La tuile du prêt : seulement avec une Station qui sait prêter (0.9.0 et
+    /// suivantes ; tant que son info n'est pas lue, elle est là). Prêt coupé
+    /// dans Admin : estompée, son panneau dit pourquoi.
+    private var showsLend: Bool { lend.availability != .unavailable(LendText.tooOld) }
+
+    /// « Prêter l'ordinateur… » : ouvre son panneau ; sous-titre : les demandes
+    /// (« 1 demande »), sinon le code créé, sinon « Code et QR code », comme
+    /// « Partager » ; estompée avec la raison quand la Station ne prête pas.
+    private var lendTile: some View {
+        let availability = lend.availability
+        let requests = lend.requests.filter { !$0.slot }.count
+        let detail = requests > 0 ? ShareText.requestCount(requests) : lend.code.map { Share.formatCode($0.code) } ?? ShareText.tileDetail
+        return Button { session.lendPanel = true } label: {
+            tileLabel(icon: "key", iconColor: lend.code != nil ? Theme.accentLight : Theme.accent, title: LendText.lend, detail: detail)
+        }
+        .buttonStyle(GlassButton(radius: 22, scale: 1.07))
+        .focused($focus, equals: .lend)
         .opacity(availability.isAvailable ? 1 : 0.5)
     }
 
