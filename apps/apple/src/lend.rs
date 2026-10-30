@@ -165,8 +165,9 @@ pub unsafe extern "C" fn kn_lend_leave(loan_json: *const c_char, error: *mut *mu
 }
 
 /// Lit un lien d'invitation (`kybernow://borrow?host&port&fp&login[&relay&sid]`,
-/// ou `https://…/link/?borrow=<identifiant>`) : `{host, port, fingerprint,
-/// login, relay, sid, route}` (`route` : la route par le relais, ou nulle) ;
+/// ou `https://…/link/?borrow=<identifiant>`, avec `&name=` facultatif) :
+/// `{host, port, fingerprint, login, relay, sid, name, route}` (`name` : le
+/// prénom de l'hôte ou nul ; `route` : la route par le relais, ou nulle) ;
 /// ce JSON sert aussi de `target_json`. Nul si ce n'en est pas un.
 ///
 /// # Safety

@@ -401,7 +401,7 @@ impl<'de> Deserialize<'de> for ShareRelayState {
 }
 
 /// `relay` : nul ou illisible, il est ignoré (pas de relais).
-fn lenient_relay<'de, D: Deserializer<'de>>(d: D) -> Result<Option<ShareRelay>, D::Error> {
+pub(crate) fn lenient_relay<'de, D: Deserializer<'de>>(d: D) -> Result<Option<ShareRelay>, D::Error> {
     let v = Option::<serde_json::Value>::deserialize(d)?;
     Ok(v.filter(|v| v.is_object()).and_then(|v| serde_json::from_value(v).ok()))
 }

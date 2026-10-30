@@ -100,8 +100,9 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_lendLeave(m
     give(&mut env, &s)
 }
 
-/// Un lien d'invitation : `{host, port, fingerprint, login, relay, sid,
-/// route}` (sert aussi de `target`), `null` si ce n'en est pas un.
+/// Un lien d'invitation : `{host, port, fingerprint, login, relay, sid, name,
+/// route}` (`name` : le prénom de l'hôte ou `null` ; sert aussi de
+/// `target`), `null` si ce n'en est pas un.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_lendParseInvite(mut env: Env, _: JClass, url: JString) -> jstring {
     let url = string(&mut env, &url);

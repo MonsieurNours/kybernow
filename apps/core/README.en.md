@@ -234,7 +234,7 @@ A friend borrows the host's PC, which the Station puts in console mode. Contract
 - `lend::wait(&pending)`: held for 30 s, plus the preparation once the host agrees (80 s at most, `lend::WAIT_WAIT`); `Ok(None)` still waiting, `Ok(Some(loan))` accepted; a request the Station no longer knows (`404 unknown`): `Expired`. `lend::cancel`: “Cancel”. `lend::leave(&loan)`: “Give back the computer” outside a session.
 - The path: without a route, on the network; with a route (invitation link with `relay` and `sid`), on the network if Admin answers there within 1.5 s, otherwise through the relay. A Station reached through the relay (`port` 0) always goes through it.
 - Refusals (`LendError`, `text(lang, host)`, `kind()`, `code()` 40 to 48 for the bridges): `BadCredentials`, `NoCode`, `Lent`, `Locked`, `Off`, `TooMany`, `Refused`, `Expired`, `Unsupported` (Station before 0.9.0), `Other`.
-- `lend::parse_invite` reads `kybernow://borrow?host&port&fp&login[&relay&sid]` and `https://…/link/?borrow=<login>` (`Invite::target()`, `relay_route()`).
+- `lend::parse_invite` reads `kybernow://borrow?host&port&fp&login[&relay&sid][&name]` and `https://…/link/?borrow=<login>[&name=…]` (`Invite::target()`, `relay_route()`; `Invite.name`: the host's first name, for “{host} is lending you their computer.” before the first status).
 
 **Join with a code.** `share::join`, `join_checked`, `join_anywhere` and `join_link` return `ShareError::Lend(LendCode { code, target, route })` when the Station answers `404 {"error":"no_share","lend":true}`. The app then borrows with `lend::borrow(&c.target, c.route.as_ref(), …Code { code })`. `share::Joining` does not change.
 
@@ -254,7 +254,7 @@ A friend borrows the host's PC, which the Station puts in console mode. Contract
 - `Session::give_back()`: “Give back the computer” (`leave`, then an end without error). `Session::stop()` gives nothing back.
 
 **The host.**
-- `Console::lend_state`, `lend_code(duration, LendSteam)`, `lend_cancel_code`, `lend_answer(id, accept, steam)`, `lend_take_back(now)` return the loan view: `LendView { available, enabled, computer, host, state, borrower, notice, requests, code }`. Each request (`LendRequest`) also carries `steam` (the suggested account) and `slot` (a time-slot request: lent in 2 min without an answer).
+- `Console::lend_state`, `lend_code(duration, LendSteam)`, `lend_cancel_code`, `lend_answer(id, accept, steam)`, `lend_take_back(now)` return the loan view: `LendView { available, enabled, computer, host, state, borrower, notice, requests, code }`. The session code (`LendCodeView`) carries `relay`, like the sharing view (`ShareRelay`: `connecting`, `joined`, `unreachable`), with `relay_joined()` and `relay_connecting()`. Each request (`LendRequest`) also carries `steam` (the suggested account) and `slot` (a time-slot request: lent in 2 min without an answer).
 - The same view comes with the host's heartbeat: `HeartbeatReply::lend`, then `Platform::on_lend(Option<&LendView>)` when it changes.
 - `Info::lend`: `LendInfo { available, enabled }`, absent for an older Station.
 

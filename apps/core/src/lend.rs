@@ -655,12 +655,28 @@ pub struct LendCodeView {
     /// Le code ne sert plus après cette heure (24 h).
     #[serde(default)]
     pub expires: u64,
+    /// Le relais du code, comme celui de la vue du partage (`connecting`,
+    /// `joined`, `unreachable`) ; `None` sans relais réglé, ou illisible.
+    #[serde(default, deserialize_with = "crate::share::lenient_relay")]
+    pub relay: Option<crate::share::ShareRelay>,
 }
 
 impl LendCodeView {
     /// « 123 456 », comme le partage.
     pub fn display_code(&self) -> String {
         crate::share::format_code(&self.code)
+    }
+
+    /// Le relais tient le code : il vaut aussi hors de chez soi (`link` et
+    /// `web` sont alors ceux du relais), comme [`crate::share::ShareState::relay_joined`].
+    pub fn relay_joined(&self) -> bool {
+        self.relay.is_some_and(|r| r.state == crate::share::ShareRelayState::Joined)
+    }
+
+    /// Le lien du relais se prépare : l'app attend (10 s au plus) avant de
+    /// donner celui du réseau, comme [`crate::share::ShareState::relay_connecting`].
+    pub fn relay_connecting(&self) -> bool {
+        self.relay.is_some_and(|r| r.state == crate::share::ShareRelayState::Connecting)
     }
 }
 
@@ -736,6 +752,10 @@ pub struct Invite {
     /// L'identifiant de la Station chez le relais.
     #[serde(default)]
     pub sid: Option<String>,
+    /// Le prénom de l'hôte (`name=`), pour « {hôte} vous prête son
+    /// ordinateur. » avant le premier statut ; `None` : pas dit par le lien.
+    #[serde(default)]
+    pub name: Option<String>,
 }
 
 impl Invite {
@@ -768,7 +788,7 @@ pub fn parse_invite(url: &str) -> Option<Invite> {
         let login = get("login")?;
         let relay = get("relay").and_then(|r| crate::relay::normalize(&r));
         let sid = get("sid").map(|s| s.to_ascii_lowercase()).filter(|s| kybernow_tunnel::id::is_station_id(s));
-        return Some(Invite { host, port, fingerprint: get("fp"), login, relay, sid });
+        return Some(Invite { host, port, fingerprint: get("fp"), login, relay, sid, name: get("name") });
     }
     // Lien du client web.
     let rest = lower.strip_prefix("https://").map(|_| &url["https://".len()..])?;
@@ -779,8 +799,9 @@ pub fn parse_invite(url: &str) -> Option<Invite> {
         return None;
     }
     let pairs = query_pairs(query.split('#').next().unwrap_or_default());
-    let login = pairs.iter().find(|(k, _)| k == "borrow").map(|(_, v)| v.trim().to_string()).filter(|v| !v.is_empty())?;
-    Some(Invite { host, port, fingerprint: None, login, relay: None, sid: None })
+    let get = |k: &str| pairs.iter().find(|(key, _)| key == k).map(|(_, v)| v.trim().to_string()).filter(|v| !v.is_empty());
+    let login = get("borrow")?;
+    Some(Invite { host, port, fingerprint: None, login, relay: None, sid: None, name: get("name") })
 }
 
 // MARK: - Appels à Admin
@@ -1134,6 +1155,14 @@ mod tests {
         assert_eq!(v.code.as_ref().unwrap().display_code(), "123 456");
         let empty: LendView = serde_json::from_str("{}").unwrap();
         assert_eq!(empty, LendView::default());
+        // Le relais du code de séance, comme celui du partage.
+        let code = |relay: &str| serde_json::from_str::<LendCodeView>(&format!(r#"{{"code":"123456","relay":{relay}}}"#)).unwrap();
+        assert!(code(r#"{"state":"joined"}"#).relay_joined() && !code(r#"{"state":"joined"}"#).relay_connecting());
+        assert!(code(r#"{"state":"connecting"}"#).relay_connecting());
+        let unreachable = code(r#"{"state":"unreachable"}"#);
+        assert!(!unreachable.relay_joined() && !unreachable.relay_connecting() && unreachable.relay.is_some());
+        assert_eq!(code(r#"{"state":"plus-tard"}"#).relay.map(|r| r.state), Some(crate::share::ShareRelayState::Unreachable), "inconnu : injoignable");
+        assert_eq!((code("null").relay, code(r#""oups""#).relay), (None, None), "sans relais, ou illisible");
     }
 
     #[test]
@@ -1148,6 +1177,15 @@ mod tests {
         let i = parse_invite("https://192.168.1.20:24811/link/?borrow=lea").unwrap();
         assert_eq!((i.host.as_str(), i.port, i.login.as_str(), i.fingerprint), ("192.168.1.20", 24811, "lea", None));
         assert_eq!(parse_invite("kybernow://borrow?host=h&port=1"), None, "sans identifiant");
+        // Le prénom de l'hôte, s'il est dit (encodé), dans les deux formes.
+        assert_eq!(parse_invite("kybernow://borrow?host=h&port=1&login=lea&name=Ma%C3%ABl%20Dupont").unwrap().name.as_deref(), Some("Maël Dupont"));
+        assert_eq!(parse_invite("https://h:1/link/?borrow=lea&name=Ma%C3%ABl").unwrap().name.as_deref(), Some("Maël"));
+        assert_eq!(parse_invite("kybernow://borrow?host=h&port=1&login=lea&name=").unwrap().name, None, "vide : pas de prénom");
+        assert_eq!(i.name, None);
+        let json = serde_json::to_value(parse_invite("kybernow://borrow?host=h&port=1&login=lea&name=Ma%C3%ABl").unwrap()).unwrap();
+        assert_eq!(json["name"], "Maël", "dans le JSON des ponts");
+        let old: Invite = serde_json::from_value(serde_json::json!({ "host": "h", "port": 1, "login": "lea" })).unwrap();
+        assert_eq!(old.name, None, "une invitation gardée avant le prénom se relit");
         assert_eq!(parse_invite("kybernow://join?host=h&port=1&code=123456"), None);
         assert_eq!(parse_invite("https://h:1/link/?join=123456"), None);
     }

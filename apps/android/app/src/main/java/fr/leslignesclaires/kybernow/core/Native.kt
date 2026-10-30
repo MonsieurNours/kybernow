@@ -127,7 +127,7 @@ object Native {
     @JvmStatic external fun lendCancel(pendingJson: String): Int
     /** « Rendre l'ordinateur » hors d'une session (`loan` : `{target, borrowed}`) ; en session : [sessionGiveBack]. */
     @JvmStatic external fun lendLeave(loanJson: String): String
-    /** Un lien d'invitation : `{host, port, fingerprint, login, relay, sid, route}` (sert de `target`), ou `null`. */
+    /** Un lien d'invitation : `{host, port, fingerprint, login, relay, sid, name, route}` (`name` : le prénom de l'hôte ou `null`) (sert de `target`), ou `null`. */
     @JvmStatic external fun lendParseInvite(url: String): String?
     /** L'état de la carte (`free`, `busy`, `lent`, `locked`, `off`) : « Disponible », « Occupé »… */
     @JvmStatic external fun lendAvailabilityLabel(state: String): String?

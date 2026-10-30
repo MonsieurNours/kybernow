@@ -84,7 +84,8 @@ API rules:
     - `kn_lend_borrow(target_json, route_json, request_json, out, error)`: `out` `{"ready": {target, borrowed}}` or `{"pending": …}`; `request_json` carries `{"code"}` or `{"login","password"}`, with `name`, `device`, `app`, `screen`, `codecs`.
     - `kn_lend_wait(pending_json, out, error)` (30 s): `KN_OK` and `{target, borrowed}`, `KN_LEND_WAITING` 49, `KN_LEND_REFUSED` 46, `KN_LEND_EXPIRED` 47.
     - `kn_lend_cancel(pending_json)`, `kn_lend_leave(loan_json, error)`.
-    - `kn_lend_parse_invite(url)`: `{host, port, fingerprint, login, relay, sid, route}`, which also serves as `target_json`.
+    - `kn_lend_parse_invite(url)`: `{host, port, fingerprint, login, relay, sid, name, route}` (`name`: the host's first name, or null), which also serves as `target_json`.
+    - At the host, the view's session code (`code`) carries `relay` (`{"state": "connecting"|"joined"|"unreachable"}`, null without a relay), like the sharing view.
     - Refusals: `KN_LEND_BAD_CREDENTIALS` 40, `NO_CODE` 41, `LENT` 42, `LOCKED` 43, `OFF` 44, `TOO_MANY` 45, `UNSUPPORTED` 48; `error` carries link-ui's text.
   - “Join with a code”: `KN_SHARE_LEND` 29 for a lending code, `out` `{code, target, route}` to give to `kn_lend_borrow`.
   - Borrowing session: `kn_session_start` with `borrower` (`{"borrowed": …}`) and `console_*` from `target`. `kn_session_give_back(s)`: “Give back the computer”; `kn_session_stop` does not give it back (coming back possible for 15 min).

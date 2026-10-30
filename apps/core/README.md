@@ -236,7 +236,7 @@ Un ami emprunte le PC de l'hôte, que la Station passe en mode console. Contrat 
 - `lend::wait(&en_attente)` : appel tenu 30 s, plus la préparation une fois l'hôte d'accord (80 s au plus, `lend::WAIT_WAIT`) ; `Ok(None)` toujours en attente, `Ok(Some(prêt))` accepté ; une demande que la Station ne connaît plus (`404 unknown`) : `Expired`. `lend::cancel` : « Annuler ». `lend::leave(&prêt)` : « Rendre l'ordinateur » hors d'une session.
 - Le chemin : sans route, sur le réseau ; avec une route (lien d'invitation avec `relay` et `sid`), sur le réseau si Admin y répond en 1,5 s, sinon par le relais. Une Station venue par le relais (`port` 0) passe toujours par lui.
 - Refus (`LendError`, `text(lang, hôte)`, `kind()`, `code()` 40 à 48 pour les ponts) : `BadCredentials`, `NoCode`, `Lent`, `Locked`, `Off`, `TooMany`, `Refused`, `Expired`, `Unsupported` (Station avant 0.9.0), `Other`.
-- `lend::parse_invite` lit `kybernow://borrow?host&port&fp&login[&relay&sid]` et `https://…/link/?borrow=<identifiant>` (`Invite::target()`, `relay_route()`).
+- `lend::parse_invite` lit `kybernow://borrow?host&port&fp&login[&relay&sid][&name]` et `https://…/link/?borrow=<identifiant>[&name=…]` (`Invite::target()`, `relay_route()` ; `Invite.name` : le prénom de l'hôte, pour « {hôte} vous prête son ordinateur. » avant le premier statut).
 
 **Rejoindre avec un code.** `share::join`, `join_checked`, `join_anywhere` et `join_link` rendent `ShareError::Lend(LendCode { code, target, route })` quand la Station répond `404 {"error":"no_share","lend":true}`. L'app emprunte alors avec `lend::borrow(&c.target, c.route.as_ref(), …Code { code })`. `share::Joining` ne change pas.
 
@@ -256,7 +256,7 @@ Un ami emprunte le PC de l'hôte, que la Station passe en mode console. Contrat 
 - `Session::give_back()` : « Rendre l'ordinateur » (`leave`, puis fin sans erreur). `Session::stop()` ne rend rien.
 
 **L'hôte.**
-- `Console::lend_state`, `lend_code(durée, LendSteam)`, `lend_cancel_code`, `lend_answer(id, accepter, steam)`, `lend_take_back(tout_de_suite)` rendent la vue du prêt : `LendView { available, enabled, computer, host, state, borrower, notice, requests, code }`. Chaque demande (`LendRequest`) porte aussi `steam` (le compte proposé) et `slot` (demande d'un créneau : prêtée dans 2 min sans réponse).
+- `Console::lend_state`, `lend_code(durée, LendSteam)`, `lend_cancel_code`, `lend_answer(id, accepter, steam)`, `lend_take_back(tout_de_suite)` rendent la vue du prêt : `LendView { available, enabled, computer, host, state, borrower, notice, requests, code }`. Le code de séance (`LendCodeView`) porte `relay`, comme la vue du partage (`ShareRelay` : `connecting`, `joined`, `unreachable`), avec `relay_joined()` et `relay_connecting()`. Chaque demande (`LendRequest`) porte aussi `steam` (le compte proposé) et `slot` (demande d'un créneau : prêtée dans 2 min sans réponse).
 - La même vue arrive avec le signe de vie de l'hôte : `HeartbeatReply::lend`, puis `Platform::on_lend(Option<&LendView>)` quand elle change.
 - `Info::lend` : `LendInfo { available, enabled }`, absent pour une Station antérieure.
 
