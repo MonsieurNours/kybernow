@@ -38,7 +38,7 @@ use wry::{WebContext, WebView, WebViewBuilder, WebViewBuilderExtWindows};
 
 use super::store::{self, Saved};
 use super::system::{self, Born, Hooks};
-use super::{App, Cover, CoverKey, Display, Machine, Notice, Pad, Phase, Reply, Step, View, base64, clock_at, cover_key, cover_text, left, notice_text, steam, stick};
+use super::{App, Cover, CoverKey, Display, Last, Machine, Notice, Pad, Phase, Reply, Step, View, base64, clock_at, cover_key, cover_text, left, notice_text, steam, stick};
 use crate::console::{self, Client};
 use crate::i18n::{self, Lang, tr};
 
@@ -109,6 +109,9 @@ struct Tile {
     id: String,
     name: String,
     icon: Option<String>,
+    /// « Dernière partie » : la grande tuile en tête, avec l'image du jeu.
+    last: bool,
+    image: Option<String>,
 }
 
 fn send(proxy: &EventLoopProxy<Ev>, ui: Ui) {
@@ -228,8 +231,13 @@ struct Pilot {
     /// L'écran de l'ami, une fois le lanceur dessus.
     display: Option<Display>,
     apps: Vec<App>,
+    last: Option<Last>,
     icons: HashMap<String, Option<String>>,
     steam_restored: bool,
+    /// Le jeu Steam vu au dernier relevé (`RunningAppID`) ; `None` avant le
+    /// premier : ce qui tournait déjà au début du prêt ne compte pas.
+    steam_seen: Option<Option<u32>>,
+    steam_checked: Option<Instant>,
 }
 
 impl Pilot {
@@ -246,8 +254,11 @@ impl Pilot {
             dialogs: HashSet::new(),
             display: None,
             apps: Vec::new(),
+            last: None,
             icons: HashMap::new(),
             steam_restored: true,
+            steam_seen: None,
+            steam_checked: None,
         }
     }
 
@@ -306,6 +317,7 @@ impl Pilot {
             }
             if machine.begun() {
                 self.keep_up();
+                self.watch_steam();
             }
             std::thread::sleep(Duration::from_millis(500));
         }
@@ -357,14 +369,15 @@ impl Pilot {
             && self.display.as_ref() != Some(d)
         {
             let (tx, _rx) = mpsc::channel();
-            let tiles = self.tiles(&v.apps);
+            let tiles = self.tiles(&v.apps, v.last.as_ref());
             send(&self.proxy, Ui::Launcher(d.clone(), tiles, tx));
             self.display = Some(d.clone());
         }
-        if v.apps != self.apps {
-            let tiles = self.tiles(&v.apps);
+        if v.apps != self.apps || v.last != self.last {
+            let tiles = self.tiles(&v.apps, v.last.as_ref());
             send(&self.proxy, Ui::Tiles(tiles));
             self.apps = v.apps.clone();
+            self.last = v.last.clone();
         }
     }
 
@@ -441,7 +454,7 @@ impl Pilot {
     /// Le lanceur sur l'écran de l'ami, le curseur dessus.
     fn show(&mut self, v: &View) -> bool {
         let Some(d) = v.display.clone() else { return false };
-        let tiles = self.tiles(&v.apps);
+        let tiles = self.tiles(&v.apps, v.last.as_ref());
         let (tx, rx) = mpsc::channel();
         send(&self.proxy, Ui::Launcher(d.clone(), tiles, tx));
         if !rx.recv_timeout(Duration::from_secs(15)).unwrap_or(false) {
@@ -452,29 +465,64 @@ impl Pilot {
         system::center_cursor(&d);
         self.display = Some(d);
         self.apps = v.apps.clone();
+        self.last = v.last.clone();
         true
     }
 
-    /// Les tuiles, avec les icônes lues chez Admin (une fois chacune).
-    fn tiles(&mut self, apps: &[App]) -> Vec<Tile> {
-        apps.iter()
-            .map(|a| {
-                let icon = a.icon.as_ref().and_then(|path| {
-                    if !self.icons.contains_key(path) {
-                        let fetched = self.icon(path);
-                        self.icons.insert(path.clone(), fetched);
-                    }
-                    self.icons[path].clone()
-                });
-                Tile { id: a.id.clone(), name: a.name.clone(), icon }
-            })
-            .collect()
+    /// Les tuiles, avec les icônes et images lues chez Admin (une fois
+    /// chacune) ; la dernière partie de l'ami en tête.
+    fn tiles(&mut self, apps: &[App], last: Option<&Last>) -> Vec<Tile> {
+        let mut tiles = Vec::with_capacity(apps.len() + 1);
+        if let Some(l) = last {
+            let (icon, image) = (self.cached(l.icon.as_deref()), self.cached(l.image.as_deref()));
+            tiles.push(Tile { id: l.id.clone(), name: l.name.clone(), icon, last: true, image });
+        }
+        for a in apps {
+            let icon = self.cached(a.icon.as_deref());
+            tiles.push(Tile { id: a.id.clone(), name: a.name.clone(), icon, last: false, image: None });
+        }
+        tiles
     }
 
+    fn cached(&mut self, path: Option<&str>) -> Option<String> {
+        let path = path?;
+        if !self.icons.contains_key(path) {
+            let fetched = self.icon(path);
+            self.icons.insert(path.to_string(), fetched);
+        }
+        self.icons[path].clone()
+    }
+
+    /// Une icône (PNG) ou l'image d'un jeu (JPEG), en `data:`.
     fn icon(&self, path: &str) -> Option<String> {
         let port = console::port()?;
         let reply = self.client.local("GET", port, path, None, Duration::from_secs(5)).ok().filter(|r| r.status == 200)?;
-        Some(format!("data:image/png;base64,{}", base64(&reply.body)))
+        let mime = if path.ends_with(".jpg") { "image/jpeg" } else { "image/png" };
+        Some(format!("data:{mime};base64,{}", base64(&reply.body)))
+    }
+
+    /// Toutes les 2 s pendant le prêt : un jeu Steam qui démarre devient la
+    /// dernière partie de l'ami (Admin vérifie qu'il est installé et Steam permis).
+    fn watch_steam(&mut self) {
+        if self.steam_checked.is_some_and(|t| t.elapsed() < Duration::from_secs(2)) {
+            return;
+        }
+        self.steam_checked = Some(Instant::now());
+        let running = steam::running_app();
+        let Some(seen) = self.steam_seen else {
+            self.steam_seen = Some(running);
+            return;
+        };
+        if running == seen {
+            return;
+        }
+        // Pas noté (Admin injoignable) : réessayé au relevé suivant.
+        if let Some(appid) = running
+            && !self.post("played", json!({ "steam": appid }))
+        {
+            return;
+        }
+        self.steam_seen = Some(running);
     }
 
     /// Toutes les 500 ms pendant le prêt.
@@ -755,7 +803,7 @@ impl Screens {
 
     fn push_tiles(&self) {
         if let Some(l) = &self.launcher {
-            let tiles: Vec<Value> = self.tiles.iter().map(|t| json!({ "id": t.id, "name": t.name, "icon": t.icon })).collect();
+            let tiles: Vec<Value> = self.tiles.iter().map(|t| json!({ "id": t.id, "name": t.name, "icon": t.icon, "last": t.last, "image": t.image })).collect();
             l.eval(&format!("window.__knTiles && window.__knTiles({})", Value::from(tiles)));
         }
     }
@@ -780,6 +828,9 @@ impl Screens {
                 "cancel": tr(lang, "lend.cancel", &[]),
                 "opening": self.opening.as_ref().map(|(name, _)| tr(lang, "lend.opening", &[("app", name)])),
                 "noApps": tr(lang, "lend.noApps", &[]),
+                "lastPlayed": tr(lang, "lend.lastPlayed", &[]),
+                // « Reprendre {game} » : le nom du jeu est mis par la page.
+                "continue": tr(lang, "lend.continue", &[("game", &"{game}")]),
             })
             .to_string();
             if l.ready && texts != self.pushed_launcher {

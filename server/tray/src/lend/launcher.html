@@ -35,6 +35,16 @@ main { flex: 1; overflow: hidden auto; padding: 2rem 3.2rem; display: grid; grid
 .tile span { max-width: 100%; text-align: center; font-size: 1rem; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .tile:focus { outline: none; transform: scale(1.045); background: rgba(109,91,255,.18); box-shadow: inset 0 0 0 2px var(--signal), 0 0 0 .3rem rgba(154,140,255,.22), 0 0 2rem rgba(109,91,255,.35); }
 .empty { grid-column: 1 / -1; color: var(--faint); font-size: 1.1rem; }
+/* « Dernière partie » : la grande tuile en tête (deux sur deux), l'image du jeu en fond. */
+.tile.last { grid-column: span 2; grid-row: span 2; position: relative; overflow: hidden; align-items: flex-start; justify-content: flex-end; gap: .5rem; padding: 1.6rem; text-align: left; background: rgba(109,91,255,.12); }
+.tile.last .art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center 30%; }
+.tile.last::before { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(5,7,10,0) 30%, rgba(5,7,10,.72) 60%, rgba(5,7,10,.94) 100%); }
+.tile.last > :not(.art) { position: relative; }
+.tile.last .big { position: absolute; top: 22%; left: 50%; transform: translateX(-50%); width: 34%; }
+.tile.last .lbl { color: var(--signal-light); }
+.tile.last .name { max-width: 100%; text-align: left; font-stretch: 112%; font-size: 1.7rem; font-weight: 650; line-height: 1.15; }
+.tile.last .go { margin-top: .4rem; padding: .55rem 1.1rem; border-radius: .7rem; background: var(--signal-strong); color: #fff; font-weight: 600; font-size: 1rem; -webkit-line-clamp: 1; }
+.tile.last:focus { transform: scale(1.025); }
 
 footer { display: flex; justify-content: space-between; align-items: center; gap: 2rem; padding: 1rem 3.2rem 2.2rem; }
 .status { color: var(--text-2); min-height: 1.4rem; }
@@ -71,7 +81,8 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
 </div>
 <script>
 // Lanceur du prêt (KyberNow Share) sur l'écran de l'ami. L'agent pousse les tuiles
-// (window.__knTiles), les textes (window.__knTexts) et les manettes (window.__knPad) ;
+// (window.__knTiles ; `last: true` pour la dernière partie, en tête, qui a le focus en premier),
+// les textes (window.__knTexts) et les manettes (window.__knPad) ;
 // la page envoie « launch » et « giveBack » par window.ipc.postMessage.
 const send = (cmd, extra) => window.ipc && window.ipc.postMessage(JSON.stringify({ cmd, ...extra }))
 const $ = (id) => document.getElementById(id)
@@ -81,11 +92,22 @@ let texts = {}
 let tiles = []
 const confirming = () => !$('confirm').hidden
 
+const glyph = (t) => (t.id === 'steam' || String(t.id).startsWith('steam:') ? PAD : esc((t.name || '?').trim().charAt(0).toUpperCase()))
+const picture = (t, cls = '') => (t.icon ? `<img class="${cls}" src="${esc(t.icon)}" alt="">` : `<span class="glyph ${cls}">${glyph(t)}</span>`)
+
+// « Dernière partie » : l'image du jeu (sinon son icône, ou le pictogramme), « Reprendre {jeu} ».
+function lastTile(t) {
+  const go = (texts.continue || '{game}').replace('{game}', t.name || '')
+  return `<button class="tile last" data-nav data-id="${esc(t.id)}" aria-label="${esc(go)}">`
+    + (t.image ? `<img class="art" src="${esc(t.image)}" alt="">` : picture(t, 'big'))
+    + `<span class="lbl">${esc(texts.lastPlayed || '')}</span><span class="name">${esc(t.name)}</span><span class="go">${esc(go)}</span></button>`
+}
+
 function renderTiles() {
   const keep = document.activeElement && document.activeElement.dataset.id
   const before = document.querySelectorAll('.tile').length
   $('tiles').innerHTML = tiles.length
-    ? tiles.map((t) => `<button class="tile" data-nav data-id="${esc(t.id)}">${t.icon ? `<img src="${esc(t.icon)}" alt="">` : `<span class="glyph">${t.id === 'steam' ? PAD : esc((t.name || '?').trim().charAt(0).toUpperCase())}</span>`}<span>${esc(t.name)}</span></button>`).join('')
+    ? tiles.map((t) => (t.last ? lastTile(t) : `<button class="tile" data-nav data-id="${esc(t.id)}">${picture(t)}<span>${esc(t.name)}</span></button>`)).join('')
     : `<p class="empty">${esc(texts.noApps || '')}</p>`
   // La tuile qui avait le focus le garde ; les premières tuiles arrivées, la première l'a.
   const again = keep && [...document.querySelectorAll('.tile')].find((b) => b.dataset.id === keep)
@@ -105,7 +127,8 @@ function renderTexts() {
   $('confirmText').textContent = texts.confirm || ''
   $('yes').textContent = texts.giveBack || ''
   $('no').textContent = texts.cancel || ''
-  if (!tiles.length) renderTiles()
+  // Textes de la grande tuile (« Dernière partie », « Reprendre {jeu} »).
+  if (!tiles.length || tiles.some((t) => t.last)) renderTiles()
 }
 
 const items = () => [...document.querySelectorAll(confirming() ? '#confirm [data-nav]' : 'main [data-nav], footer [data-nav]')]

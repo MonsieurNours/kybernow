@@ -78,6 +78,18 @@ pub struct App {
     pub icon: Option<String>,
 }
 
+/// La dernière partie de l'ami (« Dernière partie », grande tuile en tête du
+/// lanceur) : une app permise, ou un jeu Steam (`steam:<appid>`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Last {
+    pub id: String,
+    pub name: String,
+    /// Icône de l'app chez Admin (`.png`).
+    pub icon: Option<String>,
+    /// Image du jeu chez Admin (`/api/local/lend/icons/steam-<appid>.jpg`).
+    pub image: Option<String>,
+}
+
 /// Préavis de 2 minutes : sa raison et l'heure de la fin (secondes Unix).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Notice {
@@ -100,6 +112,8 @@ pub struct View {
     /// `None` tant que l'écran virtuel n'est pas là.
     pub display: Option<Display>,
     pub apps: Vec<App>,
+    /// La dernière partie de l'ami, si elle est encore permise (rien la première fois).
+    pub last: Option<Last>,
     pub steam_exe: Option<String>,
     pub lang: Lang,
 }
@@ -132,6 +146,15 @@ impl View {
                 })
             })
             .collect();
+        let path = |v: &Value| v.as_str().filter(|s| !s.is_empty()).map(str::to_owned);
+        let last = v["last"].as_object().and_then(|l| {
+            Some(Last {
+                id: l.get("id")?.as_str().filter(|s| !s.is_empty())?.to_string(),
+                name: l.get("name").map(text).unwrap_or_default(),
+                icon: l.get("icon").and_then(path),
+                image: l.get("image").and_then(path),
+            })
+        });
         let notice = v["notice"].as_object().and_then(|n| {
             Some(Notice { reason: n.get("reason").map(text).unwrap_or_default(), at: n.get("at")?.as_i64()? })
         });
@@ -146,6 +169,7 @@ impl View {
             steam_friend: v["steam"] == "friend",
             display,
             apps,
+            last,
             steam_exe: v["steam_exe"].as_str().filter(|s| !s.is_empty()).map(str::to_owned),
             lang: v["lang"].as_str().map_or(fallback, Lang::from_tag),
         })
@@ -596,6 +620,27 @@ mod tests {
         assert_eq!(Phase::parse("plus tard"), Phase::Idle);
         let Reply::View(v) = view("preparing", false) else { panic!() };
         assert!(v.display.is_none());
+        assert!(v.last.is_none(), "rien la première fois");
+    }
+
+    #[test]
+    fn derniere_partie_lue() {
+        let base = json!({ "phase": "lent", "lend": "l1", "apps": [] });
+        let with = |last: Value| {
+            let mut v = base.clone();
+            v["last"] = last;
+            View::parse(&v, Lang::Fr).unwrap().last
+        };
+        assert_eq!(
+            with(json!({"id": "steam:1145360", "kind": "steam", "name": "Hades", "icon": null, "image": "/api/local/lend/icons/steam-1145360.jpg"})),
+            Some(Last { id: "steam:1145360".into(), name: "Hades".into(), icon: None, image: Some("/api/local/lend/icons/steam-1145360.jpg".into()) })
+        );
+        assert_eq!(
+            with(json!({"id": "ab12", "kind": "app", "name": "Celeste", "icon": "/api/local/lend/icons/ab12.png", "image": null})).map(|l| (l.icon, l.image)),
+            Some((Some("/api/local/lend/icons/ab12.png".into()), None))
+        );
+        assert_eq!(with(Value::Null), None);
+        assert_eq!(with(json!({"name": "sans id"})), None);
     }
 
     #[test]

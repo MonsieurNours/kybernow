@@ -287,6 +287,8 @@
     "cancel": "Annuler",
     "opening": "Ouverture de {app}…",
     "noApps": "Aucune app pour l'instant.",
+    "lastPlayed": "Dernière partie",
+    "continue": "Reprendre {game}",
     "notice": {
       "takenBack": "{host} reprend l'ordinateur dans 2 min : sauvegardez votre partie.",
       "timeUp": "Fin du prêt dans 2 min : sauvegardez votre partie.",

@@ -287,6 +287,8 @@
     "cancel": "Cancel",
     "opening": "Opening {app}…",
     "noApps": "No apps yet.",
+    "lastPlayed": "Last played",
+    "continue": "Continue {game}",
     "notice": {
       "takenBack": "{host} is taking back the computer in 2 min: save your game.",
       "timeUp": "The loan ends in 2 min: save your game.",

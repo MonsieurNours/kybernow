@@ -30,6 +30,7 @@ use crate::api::{ApiError, blocking, stream_user};
 use crate::display::{Mode, Origin, now_secs};
 use crate::i18n::Msg;
 use crate::lend::{self, Beat, Kind, LocalTime, Reason, Screen, Steam, Wait, Who};
+use crate::lend_last;
 use crate::lend_sys::{self, SessionState};
 use crate::relay::Via;
 
@@ -917,7 +918,8 @@ pub async fn friend_update(State(s): State<AppState>, Path(id): Path<String>, Js
 
 pub async fn friend_delete(State(s): State<AppState>, Path(id): Path<String>) -> LendResult<Json<Value>> {
     let friend = s.friends.delete(&id)?.ok_or_else(|| LendError::new(StatusCode::NOT_FOUND, "unknown_friend", Msg::new("lend.unknownFriend")))?;
-    // Son prêt en cours s'arrête.
+    // Sa dernière partie est oubliée ; son prêt en cours s'arrête.
+    s.last_played.forget(&lend_last::friend_key(&friend.id));
     if let Some(loan) = s.lend.loan().filter(|l| l.who.friend.as_deref() == Some(friend.id.as_str())) {
         spawn_finish(&s, loan.id, Reason::Stopped);
     }
@@ -1000,9 +1002,53 @@ pub async fn console_get(State(s): State<AppState>, ConnectInfo(peer): ConnectIn
         "steam": loan.steam,
         "display": if loan.display.is_some() { display.unwrap_or(Value::Null) } else { Value::Null },
         "apps": console_apps(&s),
+        "last": last_tile(&s, &loan).await,
         "steam_exe": null,
         "lang": lang,
     })))
+}
+
+/// La grande tuile « Dernière partie » de cet ami, si elle est encore permise.
+async fn last_tile(s: &AppState, loan: &lend::Loan) -> Value {
+    let Some(played) = lend_last::key_of(&loan.who).and_then(|k| s.last_played.get(&k)) else { return Value::Null };
+    let (apps, steam) = (console_apps(s), settings(s).steam);
+    tokio::task::spawn_blocking(move || {
+        let root = lend_last::steam_root();
+        lend_last::tile(&played, &apps, steam, |appid| root.as_deref().and_then(|r| lend_last::steam_game(r, appid))).unwrap_or(Value::Null)
+    })
+    .await
+    .unwrap_or(Value::Null)
+}
+
+/// Note la dernière partie de l'ami du prêt en cours.
+fn remember(s: &AppState, played: lend_last::Played) {
+    if let Some(key) = s.lend.loan().and_then(|l| lend_last::key_of(&l.who)) {
+        s.last_played.set(&key, played);
+    }
+}
+
+/// Un jeu Steam installé, Steam permis.
+async fn allowed_steam_game(s: &AppState, appid: u32) -> Option<lend_last::SteamGame> {
+    if !settings(s).steam {
+        return None;
+    }
+    tokio::task::spawn_blocking(move || lend_last::steam_root().and_then(|r| lend_last::steam_game(&r, appid))).await.ok().flatten()
+}
+
+#[derive(Deserialize)]
+pub struct PlayedBody {
+    #[serde(default)]
+    steam: u32,
+}
+
+/// `POST /api/local/lend/console/played` `{"steam": <appid>}` : l'agent a vu
+/// l'ami jouer à ce jeu Steam (`RunningAppID`) ; il devient sa dernière partie.
+pub async fn console_played(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<SocketAddr>, headers: HeaderMap, Json(body): Json<PlayedBody>) -> LendResult<Json<Value>> {
+    console_only(&s, peer, &headers)?;
+    if body.steam > 0 && allowed_steam_game(&s, body.steam).await.is_some() {
+        remember(&s, lend_last::Played::Steam { appid: body.steam });
+    }
+    Ok(Json(json!({ "ok": true })))
 }
 
 pub async fn console_ready(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<SocketAddr>, headers: HeaderMap) -> LendResult<Json<Value>> {
@@ -1026,7 +1072,20 @@ pub struct LaunchBody {
 pub async fn console_launch(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<SocketAddr>, headers: HeaderMap, Json(body): Json<LaunchBody>) -> LendResult<Json<Value>> {
     console_only(&s, peer, &headers)?;
     let settings = settings(&s);
-    let launch = if body.id == "steam" && settings.steam {
+    let launch = if let Some(appid) = lend_last::steam_appid(&body.id) {
+        // « Reprendre {jeu} » : un jeu Steam installé, Steam permis.
+        let game = allowed_steam_game(&s, appid).await.ok_or_else(|| LendError::new(StatusCode::NOT_FOUND, "unknown_app", Msg::new("lend.unknownApp")))?;
+        crate::launch::Launch {
+            kind: crate::launch::LaunchKind::Uri,
+            target: format!("steam://rungameid/{appid}"),
+            name: game.name,
+            icon: None,
+            exe: None,
+            close: None,
+            close_at_end: true,
+            skip_desktop: false,
+        }
+    } else if body.id == "steam" && settings.steam {
         crate::launch::Launch {
             kind: crate::launch::LaunchKind::Uri,
             target: "steam://open/bigpicture".into(),
@@ -1045,6 +1104,12 @@ pub async fn console_launch(State(s): State<AppState>, ConnectInfo(peer): Connec
             .ok_or_else(|| LendError::new(StatusCode::NOT_FOUND, "unknown_app", Msg::new("lend.unknownApp")))?
     };
     blocking(move || crate::launch::launch_now(&launch)).await?;
+    // La dernière partie : l'app ou le jeu lancé (pas Steam lui-même).
+    if let Some(appid) = lend_last::steam_appid(&body.id) {
+        remember(&s, lend_last::Played::Steam { appid });
+    } else if body.id != "steam" {
+        remember(&s, lend_last::Played::App { id: body.id.clone() });
+    }
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -1073,6 +1138,12 @@ pub async fn console_ended(State(s): State<AppState>, ConnectInfo(peer): Connect
 pub async fn console_icon(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<SocketAddr>, headers: HeaderMap, Path(name): Path<String>) -> Response {
     if let Err(e) = console_only(&s, peer, &headers) {
         return e.into_response();
+    }
+    if let Some(appid) = lend_last::steam_image_appid(&name) {
+        return match allowed_steam_game(&s, appid).await.and_then(|g| g.image).and_then(|p| std::fs::read(p).ok()) {
+            Some(bytes) => ([(header::CONTENT_TYPE, "image/jpeg"), (header::CACHE_CONTROL, "max-age=3600")], bytes).into_response(),
+            None => StatusCode::NOT_FOUND.into_response(),
+        };
     }
     match s.launcher.icon_path(&name).and_then(|p| std::fs::read(p).ok()) {
         Some(bytes) => ([(header::CONTENT_TYPE, "image/png"), (header::CACHE_CONTROL, "max-age=3600")], bytes).into_response(),
@@ -1176,6 +1247,51 @@ mod tests {
         let mut h = HeaderMap::new();
         h.insert(LEND_HEADER, secret.parse().unwrap());
         h
+    }
+
+    #[tokio::test]
+    async fn la_derniere_partie_de_l_ami_au_lanceur() {
+        let (s, dir) = station();
+        s.settings.lock().unwrap().lend.apps = vec![crate::launch::Launch {
+            kind: crate::launch::LaunchKind::Path,
+            target: "D:\\Jeux\\Celeste\\Celeste.exe".into(),
+            name: "Celeste".into(),
+            icon: Some("a1b2c3d4e5f60718.png".into()),
+            exe: None,
+            close: None,
+            close_at_end: true,
+            skip_desktop: false,
+        }];
+        let lend_once = |device: &'static str| {
+            let s = s.clone();
+            async move {
+                let Json(view) = local_code(State(s.clone()), local(), admin(&s), Bytes::new()).await.ok().unwrap();
+                let code = view["code"]["code"].as_str().unwrap().to_string();
+                let (status, lent) = body(borrow(State(s.clone()), peer(40), None, borrow_code(&code, "Léa", device)).await).await;
+                assert_eq!(status, StatusCode::OK, "{lent}");
+                s.lend.loan().unwrap()
+            }
+        };
+        // La première fois : rien.
+        let loan = lend_once("ipad-lea").await;
+        assert!(last_tile(&s, &loan).await.is_null());
+        // L'app lancée devient sa dernière partie (pas la tuile Steam).
+        remember(&s, lend_last::Played::App { id: "a1b2c3d4e5f60718".into() });
+        let tile = last_tile(&s, &loan).await;
+        assert_eq!((tile["id"].as_str(), tile["name"].as_str()), (Some("a1b2c3d4e5f60718"), Some("Celeste")));
+        finish(&s, &loan.id, Reason::Left).await;
+        // Le même appareil revient avec un autre code : la grande tuile ; un autre appareil : rien.
+        let loan = lend_once("ipad-lea").await;
+        assert_eq!(last_tile(&s, &loan).await["name"], "Celeste");
+        finish(&s, &loan.id, Reason::Left).await;
+        let loan = lend_once("tv-max").await;
+        assert!(last_tile(&s, &loan).await.is_null());
+        finish(&s, &loan.id, Reason::Left).await;
+        // L'app retirée des apps permises : plus de grande tuile.
+        s.settings.lock().unwrap().lend.apps.clear();
+        let loan = lend_once("ipad-lea").await;
+        assert!(last_tile(&s, &loan).await.is_null());
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[tokio::test]

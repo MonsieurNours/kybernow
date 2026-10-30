@@ -51,6 +51,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/local/lend/console/ready", post(lend_api::console_ready))
         .route("/api/local/lend/console/beat", post(lend_api::console_beat))
         .route("/api/local/lend/console/launch", post(lend_api::console_launch))
+        .route("/api/local/lend/console/played", post(lend_api::console_played))
         .route("/api/local/lend/console/give-back", post(lend_api::console_give_back))
         .route("/api/local/lend/console/take-back", post(lend_api::console_take_back))
         .route("/api/local/lend/console/ended", post(lend_api::console_ended))
