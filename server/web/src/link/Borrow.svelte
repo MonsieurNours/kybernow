@@ -10,7 +10,7 @@
   import { onMount, untrack } from 'svelte'
   import { lend, LendRefusal, type LendStatus } from './backend'
   import { isIsolated } from './device'
-  import { isActive, lendRefusalText, loadAccount, saveAccount, type BorrowStart } from './lend'
+  import { hostFromUrl, isActive, lendRefusalText, loadAccount, saveAccount, type BorrowStart } from './lend'
   import { loadName } from './share'
   import GateFrame from './GateFrame.svelte'
   import { tName } from './names'
@@ -49,7 +49,9 @@
   let waiting = $state(false)
   let waitTimer: ReturnType<typeof setTimeout> | null = null
 
-  const host = $derived(status?.host ?? saved.host ?? null)
+  /** Le prénom du lien d'invitation, jusqu'à ce que la Station donne le sien. */
+  const invitedBy = hostFromUrl()
+  const host = $derived(status?.host ?? saved.host ?? invitedBy)
   const computer = $derived(status?.computer ?? saved.computer ?? hostname)
   /** Ce navigateur a le prêt en cours (fenêtre fermée, réseau perdu) : « Revenir ». */
   const mine = $derived(!!status && status.state === 'lent' && (status.mine === true || isActive({ login: login.trim() })))

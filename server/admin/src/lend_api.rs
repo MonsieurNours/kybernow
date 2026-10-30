@@ -933,14 +933,21 @@ pub async fn friend_invite(State(s): State<AppState>, Path(id): Path<String>) ->
     if let Some(fp) = &s.tls_fingerprint {
         link.push_str(&format!("&fp={}", urlencoding::encode(fp)));
     }
-    link.push_str(&format!("&login={}", urlencoding::encode(&friend.login)));
+    // Le prénom de l'hôte : « {hôte} vous prête son ordinateur. » avant tout essai du compte.
+    let host = tokio::task::spawn_blocking(host_name).await.unwrap_or_default();
+    let (login, name) = (urlencoding::encode(&friend.login), urlencoding::encode(&host));
+    link.push_str(&format!("&login={login}"));
     let scheme = if s.secure_cookies { "https" } else { "http" };
-    let mut web = format!("{scheme}://{address}:{port}/link/?borrow={}", urlencoding::encode(&friend.login));
+    let mut web = format!("{scheme}://{address}:{port}/link/?borrow={login}");
     if let Some(addr) = s.settings.lock().unwrap().relay.addr()
         && let Some(id) = s.relay.id()
     {
         link.push_str(&format!("&relay={}&sid={id}", urlencoding::encode(&addr.to_string())));
-        web = format!("https://{id}.{}/link/?borrow={}", addr.web_authority(), urlencoding::encode(&friend.login));
+        web = format!("https://{id}.{}/link/?borrow={login}", addr.web_authority());
+    }
+    if !host.is_empty() {
+        link.push_str(&format!("&name={name}"));
+        web.push_str(&format!("&name={name}"));
     }
     Ok(Json(json!({ "link": link, "web": web })))
 }
@@ -1246,6 +1253,29 @@ mod tests {
         let (status, _) = body(wait(State(s.clone()), secret_headers(&secret), None, Json(WaitBody { request: Some(request), lend: None })).await).await;
         assert_ne!(status, StatusCode::OK);
         assert_eq!(friend.login, "lea");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn le_code_de_pret_dit_le_relais_et_l_invitation_le_prenom() {
+        let (s, dir) = station();
+        let Json(v) = local_code(State(s.clone()), local(), admin(&s), Bytes::new()).await.ok().unwrap();
+        let code = v["code"]["code"].as_str().unwrap().to_string();
+        // Relais réglé (le public, par défaut), agent pas encore joint : `connecting`, liens du réseau.
+        assert_eq!(v["code"]["relay"]["state"], "connecting");
+        assert_eq!(v["code"]["web"], v["code"]["web_local"]);
+        assert!(v["code"]["web_local"].as_str().unwrap().ends_with(&format!("/link/?join={code}")));
+        assert!(!v["code"]["link"].as_str().unwrap().contains("&relay="));
+        // Pas de relais : `null`.
+        s.settings.lock().unwrap().relay.server = Some(String::new());
+        assert!(view(&s)["code"]["relay"].is_null());
+        // L'invitation d'un ami porte son identifiant et le prénom de l'hôte.
+        let friend = s.friends.create(&lend::FriendBody { name: Some("Léa".into()), login: Some("lea".into()), ..Default::default() }, lend::hash_friend_password("secret-lea").unwrap()).unwrap();
+        let Json(invite) = friend_invite(State(s.clone()), Path(friend.id.clone())).await.ok().unwrap();
+        let name = format!("&name={}", urlencoding::encode(&host_name()));
+        let (link, web) = (invite["link"].as_str().unwrap(), invite["web"].as_str().unwrap());
+        assert!(link.starts_with("kybernow://borrow?") && link.contains("&login=lea") && link.ends_with(&name), "{link}");
+        assert!(web.contains("/link/?borrow=lea&name=") && web.ends_with(&name), "{web}");
         let _ = std::fs::remove_dir_all(dir);
     }
 

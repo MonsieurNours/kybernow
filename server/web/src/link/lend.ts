@@ -23,6 +23,12 @@ export function loginFromUrl(): string | null {
   return raw === null ? null : raw.trim().toLowerCase()
 }
 
+/** Prénom de l'hôte porté par le lien d'invitation (`&name=Matthieu`) : « {hôte} vous prête son ordinateur. » avant le premier essai. */
+export function hostFromUrl(): string | null {
+  const raw = new URLSearchParams(location.search).get('name')?.trim().slice(0, 64)
+  return raw ? raw : null
+}
+
 const ACCOUNTS_KEY = 'kybernow.lend.accounts'
 const ACTIVE_KEY = 'kybernow.lend.active'
 /** Le prêt continue 15 minutes sans nouvelles de l'ami (docs/pret.md, « Pendant le prêt »). */

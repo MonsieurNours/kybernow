@@ -282,17 +282,19 @@ function sharePage(s, share) {
     <div class="share-foot"><button data-cmd="shareCode" ${busy}>${esc(t('share.newCode'))}</button><button class="stop" data-cmd="shareStop" ${busy}>${esc(t('share.stop'))}</button></div>`
 }
 
-// Où en est le lien du relais pour ce partage : `joined`, `unreachable`, `null` (pas de relais) ou
-// `waiting` (`connecting` depuis moins de 10 s ; au-delà, on le traite comme `unreachable`).
+// Où en est le lien du relais pour ce code (partage, ou prêt : `slot`) : `joined`, `unreachable`,
+// `null` (pas de relais) ou `waiting` (`connecting` depuis moins de 10 s ; au-delà, on le traite
+// comme `unreachable`).
 const RELAY_WAIT_MS = 10000
-let relayWait = { code: null, since: 0, timer: null }
-function relayPhase(share) {
+const relayWaits = {}
+function relayPhase(share, slot = 'share') {
+  const relayWait = relayWaits[slot] || (relayWaits[slot] = { code: null, since: 0, timer: null })
   const st = share.relay && share.relay.state
   if (st !== 'connecting') {
     relayWait.code = null
     return st || null
   }
-  if (relayWait.code !== share.code) relayWait = { code: share.code, since: Date.now(), timer: relayWait.timer }
+  if (relayWait.code !== share.code) Object.assign(relayWait, { code: share.code, since: Date.now() })
   const left = RELAY_WAIT_MS - (Date.now() - relayWait.since)
   if (left <= 0) return 'unreachable'
   clearTimeout(relayWait.timer)
@@ -356,7 +358,7 @@ function lendPage(s, lend) {
   if (active) return parts.join('')
   if (lend.code) {
     // Le lien du relais en préparation, comme pour le partage.
-    const relay = relayPhase({ relay: s.console && s.console.relay, code: lend.code.code })
+    const relay = relayPhase(lend.code, 'lend')
     const waiting = relay === 'waiting'
     parts.push(`<div class="share-top">
         <div class="qr" role="img" aria-label="${esc(t('lend.qrLabel'))}">${waiting ? '<span class="spin" aria-hidden="true"></span>' : lend.code.qr || ''}</div>
