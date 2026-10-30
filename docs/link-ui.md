@@ -227,6 +227,19 @@ Contrat : [pret.md](pret.md). Toutes les apps Link, le client web, Admin et l'ic
 | Prêt en cours, ami déconnecté | « déconnecté, peut revenir pendant 15 min » | “disconnected, can come back for 15 min” |
 | Ami, client web | titre avant de connaître l'hôte : « Emprunter l'ordinateur » ; fin : « Vous avez rendu l'ordinateur. », « Le prêt s'est arrêté. » ; « Trop d'essais : réessayez dans une minute. » | “Borrow the computer”; “You gave back the computer.”, “The loan has stopped.”; “Too many attempts: try again in a minute.” |
 
+**Textes des apps** (ajoutés à la réunion des apps) :
+
+| Élément | Français | English |
+|---|---|---|
+| Barre de l'ami | « Se déconnecter » ferme la session sans rendre l'ordinateur (on peut revenir pendant 15 min) ; « Rendre l'ordinateur » le rend | “Disconnect”; “Give back the computer” |
+| Ordinateur d'un ami, retirer | « Retirer cet ordinateur » ; confirmation « Retirer l'ordinateur de {hôte} de cet appareil ? » (élision : « d'Hugo ») | “Remove this computer”; “Remove {host}'s computer from this device?” |
+| Lien d'invitation | avec le prénom (`name`) : « {hôte} vous prête son ordinateur. » ; sans (lien d'avant) : titre « Avec un compte d'ami » ; lien illisible : « Ce lien d'invitation est illisible. » | “{host} is lending you their computer.”; “With a friend account”; “This invitation link can't be read.” |
+| Mot de passe pas retenu | sur la carte, à « Emprunter » : « Entrez votre mot de passe pour emprunter. » | “Enter your password to borrow.” |
+| Prêt impossible (`lend.available` faux) | « Le prêt n'est pas possible sur cet ordinateur. » | “Lending isn't possible on this computer.” |
+| Carte de fin | surtitre « KyberNow Share » | |
+| Demande pendant un créneau | le texte du créneau, sans « Refuser » | |
+| Code de prêt et relais | comme le partage : « Préparation du lien hors de chez vous… », « Copier le lien » et le QR code retenus 10 s au plus, puis « Pas encore joignable hors de chez vous. » (`code.relay`) | as for sharing |
+
 **Fil d'Admin** : « Ordinateur prêté à {prénom} » / “Computer lent to {name}” ; « {prénom} a rendu l'ordinateur » / “{name} gave back the computer” ; « Vous avez repris l'ordinateur » / “You took back the computer” ; « {prénom} veut emprunter l'ordinateur » / “{name} wants to borrow the computer” ; « {prénom} : demande refusée » / “{name}: request declined”.
 
 ## Hors de chez vous (relais)
