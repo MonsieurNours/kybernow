@@ -513,6 +513,12 @@ pub fn dialog(app: &App, cv: &mut Canvas, f: &mut Frame) {
                 StationOp::Update => tr("Mettre à jour quand même", "Update anyway"),
             },
         ),
+        // Prêt de l'ordinateur : « Rendre l'ordinateur à {hôte} ? », la question seule.
+        Dialog::GiveBack { host } => (
+            if english() { format!("Give the computer back to {host}?") } else { format!("Rendre l'ordinateur à {host} ?") },
+            String::new(),
+            tr("Rendre l'ordinateur", "Give back the computer"),
+        ),
     };
     let (w, h) = (1000.0, 340.0);
     let (x, y) = ((W - w) / 2.0, (H - h) / 2.0);

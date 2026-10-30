@@ -8,6 +8,7 @@ pub mod canvas;
 mod home;
 pub mod icons;
 mod join;
+mod lend;
 mod pads;
 mod pair;
 mod quality;
@@ -59,6 +60,8 @@ pub fn session_overlay_visible(app: &App) -> bool {
     s.menu
         || s.keys
         || s.share_panel
+        || s.lend_panel
+        || app.dialog.is_some()
         || s.show_stats
         || !matches!(s.phase, Streaming)
         || s.notice.as_ref().is_some_and(|(_, t)| t.elapsed().as_secs_f32() < 4.0)
@@ -80,6 +83,12 @@ pub fn draw(app: &App, cv: &mut Canvas, assets: &Assets) -> Vec<(Target, Rect)> 
         Screen::Settings => settings::draw(app, cv, &mut f),
         Screen::Gamepads => pads::draw(app, cv, &mut f),
         Screen::Session => session::draw(app, cv, &mut f),
+    }
+    // Une confirmation par-dessus l'accueil (retirer un ordinateur emprunté) ou la session (rendre l'ordinateur) :
+    // seuls ses boutons se choisissent.
+    if app.dialog.is_some() && matches!(app.screen, Screen::Home | Screen::Session) {
+        f.hits.clear();
+        settings::dialog(app, cv, &mut f);
     }
     if let Some((msg, at)) = &app.toast
         && at.elapsed().as_secs_f32() < 4.0

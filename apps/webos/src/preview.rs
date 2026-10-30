@@ -15,7 +15,8 @@ use crate::app::{
     AddStep, App, Found, HostLive, JoinField, JoinState, MenuItem, NetKind, Online, PadInfo, PathKind, Phase, Polled, Problem, RouteUi, Screen, Section, SessionUi, Setting, ShareAvail, ShareGuest, ShareQuality, ShareRelay, ShareRole, ShareView, StationKnown, StationLive, StationOp,
     StationPhase, StationRefusal, StationUi, Stats, Target, UpdateState, HOST_SECTIONS,
 };
-use crate::model::{Host, HostSettings, LastSession, Profile, Store, WakeTarget};
+use crate::app::{BorrowSessionUi, BorrowSource, BorrowUi, Dialog, FriendForm, LendCodeUi, LendHostState, LendHostView, LendLive, LendNoticeKind, LendRequestUi, LendSlotUi, LendState, LendSteam};
+use crate::model::{Borrowed, Host, HostSettings, LastSession, Profile, Store, WakeTarget};
 use crate::ui::{self, canvas::Canvas, Assets};
 
 fn demo_image(seed: u32) -> Pixmap {
@@ -99,7 +100,7 @@ fn demo(english: bool) -> App {
     app.tv.model = "OLED83G2".into();
     app.tv.webos = "25".into();
     app.net.kind = NetKind::Wifi;
-    app.live.insert("a".into(), HostLive { online: Online::Online, virtual_display: Some(true), station: station("0.5.0"), problem: None, own_device: Some(true), share: Some(ShareAvail::Available) });
+    app.live.insert("a".into(), HostLive { online: Online::Online, virtual_display: Some(true), station: station("0.5.0"), problem: None, own_device: Some(true), share: Some(ShareAvail::Available), lend: Some(crate::app::LendAvail::Available), lend_view: None });
     app.live.insert("b".into(), HostLive { online: Online::Offline, ..Default::default() });
     app.images.insert("a".into(), demo_image(1));
     app.found.push(Found { name: "Salon-PC".into(), address: "192.168.1.42".into(), port: 31250, fingerprint: None });
@@ -641,13 +642,136 @@ pub fn run(dir: &Path, lang: &str) {
     share_shots(&mut app, &mut cv, &assets, &video, dir, en);
     // Hors de chez soi (docs/relais.md) : l'accueil, l'attente de l'hôte, ses demandes, une session par le relais.
     relay_shots(&mut app, &mut cv, &assets, &video, dir);
+    // Le prêt de l'ordinateur (docs/pret.md) : l'ami (carte, attente, compte d'ami, session d'emprunt), l'hôte.
+    lend_shots(&mut app, &mut cv, &assets, &video, dir);
+}
+
+/// L'ordinateur de Matthieu, emprunté avec un compte d'ami (prêt de l'ordinateur).
+fn borrowed() -> Borrowed {
+    Borrowed { id: "lend:m".into(), host: "Matthieu".into(), computer: "PC-SALON".into(), address: "192.168.1.42".into(), port: 24811, fingerprint: Some("sha256:3e:91:0a:7c".into()), login: "lea".into(), password: "secret".into(), remember: true }
+}
+
+/// Un emprunt à l'image : l'ordinateur de Matthieu, jusqu'à dans 1 h 20.
+fn borrow_session() -> SessionUi {
+    let until = crate::model::now_secs() + 80 * 60 + 30;
+    let mut s = SessionUi::borrower("lend:m", BorrowSessionUi::new("Matthieu", "PC-SALON", Some(until), BorrowSource::Account { id: "lend:m".into(), attempt: 1 }));
+    s.phase = Phase::Streaming;
+    s.streamed = true;
+    s.stats = Some(Stats { latency_ms: Some(9.4), fps: 60.0, mbps: 40.0, lost: 0, mode: "3840 × 2160".into(), codec: "HEVC".into() });
+    s
+}
+
+/// La vue du prêt chez l'hôte : un code de séance, et une demande s'il en faut une.
+fn lend_view(code: bool, request: bool) -> LendHostView {
+    LendHostView {
+        enabled: true,
+        code: code.then(|| LendCodeUi { code: "731402".into(), link: "kybernow://join?host=192.168.1.42&port=24811&code=731402".into(), web: "https://192.168.1.42:24811/link/?join=731402".into(), duration: Some(7200), steam: LendSteam::Friend }),
+        requests: if request { vec![LendRequestUi { id: "r1".into(), name: "Léa".into(), app: "ios".into(), via_relay: true, ..Default::default() }] } else { Vec::new() },
+        ..Default::default()
+    }
+}
+
+/// Le prêt de l'ordinateur (docs/pret.md ; textes : docs/link-ui.md, « Prêt de l'ordinateur ») : chez l'ami, la carte
+/// « Ordinateur de {hôte} », l'attente, « Avec un compte d'ami », un code de prêt dans « Rejoindre », la session
+/// d'emprunt (menu, « Rendre l'ordinateur », fins) ; chez l'hôte, le panneau « Prêter l'ordinateur… » et l'accueil de
+/// l'ordinateur prêté.
+fn lend_shots(app: &mut App, cv: &mut Canvas, assets: &Assets, video: &Pixmap, dir: &Path) {
+    let now = crate::model::now_secs();
+    let hour = now - now % 3600;
+    app.session = None;
+    app.pointer = None;
+    app.store.borrowed = vec![borrowed()];
+    app.store.selected = Some("lend:m".into());
+    app.lend_live.insert("lend:m".into(), LendLive { state: Some(LendState::Free), slot: Some(LendSlotUi { now: true, start: hour - 3600, end: hour + 3 * 3600 }) });
+    app.go(Screen::Home);
+    shot(app, cv, assets, None, dir, "24-pret-accueil");
+    app.lend_live.insert("lend:m".into(), LendLive { state: Some(LendState::Busy), slot: None });
+    app.borrow = BorrowUi { id: "lend:m".into(), busy: true, waiting: true, ..BorrowUi::default() };
+    app.focus = Target::BorrowCancel;
+    shot(app, cv, assets, None, dir, "24b-pret-attente");
+    app.borrow = BorrowUi::default();
+    app.friend = FriendForm { login: "lea".into(), password: "secret".into(), ..FriendForm::default() };
+    app.add.step = AddStep::Friend;
+    app.go(Screen::Add);
+    shot(app, cv, assets, None, dir, "24c-pret-compte-ami");
+    app.add.step = AddStep::Code;
+    app.friend = FriendForm::default();
+    app.join = JoinState { name: "Léa".into(), code: "731402".into(), busy: true, waiting: true, lending: true, wait_host: Some("Matthieu".into()), ..JoinState::new() };
+    app.go(Screen::Join);
+    app.focus = Target::JoinCancel;
+    shot(app, cv, assets, None, dir, "24d-pret-code-attente");
+    app.join = JoinState::new();
+
+    // La session d'emprunt : le menu, « Rendre l'ordinateur », la fin dite par le prêt, la fin sans le prêt.
+    let mut s = borrow_session();
+    s.menu = true;
+    app.session = Some(s);
+    app.screen = Screen::Session;
+    app.focus = Target::Menu(MenuItem::Resume);
+    shot(app, cv, assets, Some(video), dir, "25-emprunt-menu");
+    app.dialog = Some(Dialog::GiveBack { host: "Matthieu".into() });
+    app.focus = Target::DialogCancel;
+    shot(app, cv, assets, Some(video), dir, "25b-emprunt-rendre");
+    app.dialog = None;
+    let mut s = borrow_session();
+    s.phase = Phase::Ended { error: Some(crate::i18n::tr("Matthieu a repris l'ordinateur.", "Matthieu took back the computer.").into()) };
+    if let Some(b) = s.borrow.as_mut() {
+        b.ended_by_lend = true;
+    }
+    app.session = Some(s);
+    app.focus = Target::Back;
+    shot(app, cv, assets, None, dir, "25c-emprunt-fin");
+    let mut s = borrow_session();
+    s.phase = Phase::Ended { error: Some(crate::i18n::tr("L'ordinateur prêté ne répond plus.", "The lent computer is not responding.").into()) };
+    app.session = Some(s);
+    app.focus = Target::ComeBack;
+    shot(app, cv, assets, None, dir, "25d-emprunt-revenir");
+    app.store.borrowed.clear();
+    app.store.selected = Some("a".into());
+
+    // L'hôte : la tuile du menu, le panneau sans code, avec un code, avec une demande ; l'accueil de l'ordinateur prêté.
+    let mut s = session(app);
+    s.lend = Some(lend_view(false, true));
+    app.session = Some(s);
+    app.screen = Screen::Session;
+    app.focus = Target::Menu(MenuItem::Lend);
+    shot(app, cv, assets, Some(video), dir, "26-pret-menu");
+    let mut s = session(app);
+    s.menu = false;
+    s.lend_panel = true;
+    app.session = Some(s);
+    app.focus = Target::LendCreate;
+    shot(app, cv, assets, Some(video), dir, "26b-pret-panneau");
+    app.store.app.lend_warned = true;
+    if let Some(s) = app.session.as_mut() {
+        s.lend = Some(lend_view(true, false));
+    }
+    app.focus = Target::LendCancelCode;
+    shot(app, cv, assets, Some(video), dir, "26c-pret-code");
+    if let Some(s) = app.session.as_mut() {
+        s.lend = Some(lend_view(false, true));
+    }
+    app.focus = Target::LendAccept(0);
+    shot(app, cv, assets, Some(video), dir, "26d-pret-demande");
+    app.store.app.lend_warned = false;
+    app.session = None;
+    let lent = |notice: Option<(LendNoticeKind, u64)>| LendHostView { enabled: true, state: LendHostState::Lent, borrower: Some(("Léa".into(), Some(hour + 3 * 3600))), notice, ..Default::default() };
+    app.live.insert("a".into(), HostLive { lend_view: Some(lent(None)), ..app.live.get("a").cloned().unwrap_or_default() });
+    app.go(Screen::Home);
+    app.focus = Target::TakeBack;
+    shot(app, cv, assets, None, dir, "26e-pret-accueil-prete");
+    app.live.insert("a".into(), HostLive { lend_view: Some(lent(Some((LendNoticeKind::TakenBack, now + 102)))), ..app.live.get("a").cloned().unwrap_or_default() });
+    app.focus = Target::TakeBackNow;
+    shot(app, cv, assets, None, dir, "26f-pret-accueil-reprise");
+    app.live.insert("a".into(), HostLive { lend_view: None, ..app.live.get("a").cloned().unwrap_or_default() });
+    app.go(Screen::Home);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::app::{
-        app_label, duration_label, format_code, guests_label, share_tile, Action, Nav, ShareMove, ShareOp, NAME_MAX,
+        app_label, duration_label, format_code, guests_label, share_tile, Action, LendOp, Nav, ShareMove, ShareOp, NAME_MAX,
     };
 
     /// Les réglages s'atteignent à la croix depuis « Se connecter », sans
@@ -1723,5 +1847,82 @@ mod tests {
         assert!(app.session.as_ref().unwrap().share_panel);
         let hits = ui::draw(&app, &mut cv, &assets);
         assert!(hits.iter().all(|(t, _)| !matches!(t, Target::ShareNewCode | Target::ShareStop | Target::ShareKick(_) | Target::SharePads(_) | Target::ShareKbm(_))));
+    }
+
+    // MARK: - Prêt de l'ordinateur
+
+    /// « Rejoindre avec un code » tombe sur un code de prêt : « En attente de {hôte}… », « Annuler » retire la demande
+    /// d'emprunt ; puis un refus du cœur.
+    #[test]
+    fn a_lend_code_from_join() {
+        let mut app = tv();
+        app.join = JoinState { code: "731402".into(), name: "Léa".into(), ..JoinState::new() };
+        app.go(Screen::Join);
+        app.activate(Target::JoinGo);
+        let attempt = app.join.attempt;
+        assert!(app.join_lending(attempt));
+        app.borrow_pending(&BorrowSource::Code { attempt }, "Matthieu");
+        assert_eq!((app.join.wait_host.as_deref(), app.focus), (Some("Matthieu"), Target::JoinCancel));
+        assert_eq!(app.activate(Target::JoinCancel), vec![Action::BorrowCancel]);
+        app.activate(Target::JoinGo);
+        let attempt = app.join.attempt;
+        app.join_lending(attempt);
+        app.borrow_failed(&BorrowSource::Code { attempt }, "Matthieu a refusé.".into());
+        assert_eq!(app.join.message.as_deref(), Some("Matthieu a refusé."));
+    }
+
+    /// La carte d'un ordinateur emprunté : « Emprunter » avec le mot de passe retenu ; « Rendre l'ordinateur » en session
+    /// demande sa confirmation ; la fin sans le prêt laisse « Revenir ».
+    #[test]
+    fn borrowing_and_giving_back() {
+        let mut app = tv();
+        app.store.borrowed.push(borrowed());
+        app.activate(Target::Borrowed(0));
+        assert!(app.selected().is_none());
+        app.go(Screen::Home);
+        assert_eq!(app.focus, Target::Borrow);
+        assert_eq!(app.activate(Target::Borrow), vec![Action::Borrow { id: "lend:m".into(), password: "secret".into() }]);
+        app.borrow_done(&app.borrow_source());
+        let mut s = borrow_session();
+        s.menu = true;
+        app.session = Some(s);
+        app.screen = Screen::Session;
+        app.activate(Target::Menu(MenuItem::GiveBack));
+        assert_eq!(app.dialog, Some(Dialog::GiveBack { host: "Matthieu".into() }));
+        assert!(app.nav(Nav::Back).is_empty() && app.dialog.is_none(), "Retour annule");
+        app.activate(Target::Menu(MenuItem::GiveBack));
+        assert_eq!(app.activate(Target::DialogOk), vec![Action::GiveBack]);
+        if let Some(s) = app.session.as_mut() {
+            s.phase = Phase::Ended { error: Some("L'ordinateur prêté ne répond plus.".into()) };
+        }
+        let acts = app.activate(Target::ComeBack);
+        assert!(matches!(&acts[..], [Action::ComeBack(BorrowSource::Account { id, .. })] if id == "lend:m"));
+        assert!(app.session.is_none() && app.borrow.busy);
+    }
+
+    /// L'hôte : la tuile « Prêter l'ordinateur… » ouvre le panneau ; « Créer un code » part avec la durée et le compte
+    /// Steam choisis ; Station trop ancienne : le panneau se réduit à la raison.
+    #[test]
+    fn lending_from_the_menu() {
+        let mut cv = Canvas::new();
+        let assets = Assets::load();
+        let mut app = tv();
+        let mut s = session(&app);
+        s.menu = true;
+        app.session = Some(s);
+        app.screen = Screen::Session;
+        app.activate(Target::Menu(MenuItem::Lend));
+        assert!(app.session.as_ref().unwrap().lend_panel);
+        assert_eq!(app.focus, Target::LendCreate);
+        app.activate(Target::LendDuration(0));
+        let acts = app.activate(Target::LendCreate);
+        assert_eq!(acts, vec![Action::Lend(LendOp::Code(Some(3600), LendSteam::Friend)), Action::Save]);
+        app.lend_reply(Ok(lend_view(true, false)));
+        assert_eq!(app.focus, Target::LendCancelCode);
+        let hits = ui::draw(&app, &mut cv, &assets);
+        assert!(hits.iter().any(|(t, _)| *t == Target::LendCancelCode));
+        app.live.get_mut("a").unwrap().lend = Some(crate::app::LendAvail::Unsupported);
+        let hits = ui::draw(&app, &mut cv, &assets);
+        assert!(hits.iter().all(|(t, _)| !matches!(t, Target::LendCreate | Target::LendCancelCode)));
     }
 }

@@ -84,8 +84,16 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
         cv.circle(cx, cy, 6.0, SPECTRE);
         if j.waiting {
             // Par le relais : la demande est chez l'hôte, qui l'accepte ou non ; « Annuler » la retire.
-            let tw = cv.text(cx + 30.0, cy + 9.0, Text::new(Font::Regular, 25.0, FROST), tr("En attente de l'accord de l'hôte…", "Waiting for the host to accept…"));
+            // Un emprunt (code de prêt) attend l'hôte dont la Station dit le prénom : « En attente de {hôte}… ».
+            let text = match &j.wait_host {
+                Some(h) => crate::app::waiting_for(h),
+                None => tr("En attente de l'accord de l'hôte…", "Waiting for the host to accept…").into(),
+            };
+            let tw = cv.text(cx + 30.0, cy + 9.0, Text::new(Font::Regular, 25.0, FROST), &text);
             widgets::secondary(cv, f, Target::JoinCancel, cx + 30.0 + tw + 40.0, cy - 30.0, tr("Annuler", "Cancel"), 22.0);
+        } else if j.lending {
+            // Le code est celui d'un prêt : la Station met l'ordinateur en mode console.
+            cv.text(cx + 30.0, cy + 9.0, Text::new(Font::Regular, 25.0, FROST), &format!("{}…", tr("Préparation de l'ordinateur", "Preparing the computer")));
         } else {
             cv.text(cx + 30.0, cy + 9.0, Text::new(Font::Regular, 25.0, FROST), tr("Recherche du partage…", "Looking for the share…"));
         }
@@ -96,7 +104,7 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
     // À droite : le pavé du champ.
     match j.field {
         JoinField::Code => digit_pad(cv, f),
-        JoinField::Name => letter_pad(app, cv, f),
+        JoinField::Name => letter_pad(app.join.shift, cv, f),
     }
 
     let y = H - 48.0;
@@ -119,10 +127,9 @@ fn digit_pad(cv: &mut Canvas, f: &mut Frame) {
 }
 
 /// Le pavé du prénom : chiffres, lettres, quelques accents, tiret, apostrophe, espace, majuscule, effacer.
-fn letter_pad(app: &App, cv: &mut Canvas, f: &mut Frame) {
+pub(super) fn letter_pad(shift: bool, cv: &mut Canvas, f: &mut Frame) {
     let (x, y, gap) = (1030.0, 300.0, 10.0);
     let (kw, kh) = (68.0, 92.0);
-    let shift = app.join.shift;
     let label = |c: char| if shift { c.to_uppercase().to_string() } else { c.to_string() };
     let mut ky = y;
     for (ri, row) in ["1234567890", "qwertyuiop", "asdfghjkl"].iter().enumerate() {

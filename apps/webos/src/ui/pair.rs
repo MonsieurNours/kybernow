@@ -18,6 +18,7 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
         AddStep::Code => code(app, cv, f),
         AddStep::Address => address(app, cv, f),
         AddStep::Verify { address, port, fingerprint } => verify(cv, f, address, *port, fingerprint),
+        AddStep::Friend => friend(app, cv, f),
     }
     let y = H - 48.0;
     let mut x = 96.0;
@@ -100,7 +101,72 @@ fn code(app: &App, cv: &mut Canvas, f: &mut Frame) {
     }
     yy += 20.0;
     widgets::label(cv, rx, yy + 20.0, tr("Ou bien", "Or"));
-    widgets::secondary(cv, f, Target::AddByAddress, rx, yy + 44.0, tr("Par adresse et port", "With address and port"), 24.0);
+    let bw = widgets::secondary(cv, f, Target::AddByAddress, rx, yy + 44.0, tr("Par adresse et port", "With address and port"), 24.0);
+    // Prêt de l'ordinateur : l'ordinateur d'un ami, avec le compte qu'il a créé pour vous (Admin, page « Prêt »).
+    widgets::secondary(cv, f, Target::AddFriend, rx + bw + 20.0, yy + 44.0, tr("Avec un compte d'ami", "With a friend account"), 24.0);
+}
+
+/// « Ajouter un ordinateur » › « Avec un compte d'ami » (prêt de l'ordinateur, docs/link-ui.md) : la Station du réseau,
+/// « Identifiant », « Mot de passe » (masqué), « Retenir le mot de passe », « Ajouter » ; le pavé des lettres à droite.
+/// Un mot de passe redemandé pour « Emprunter » : l'ordinateur est choisi, l'identifiant donné, le bouton dit
+/// « Emprunter ».
+fn friend(app: &App, cv: &mut Canvas, f: &mut Frame) {
+    use crate::app::FriendField;
+    let fr = &app.friend;
+    let editing = fr.editing.as_ref().and_then(|id| app.store.borrowed(id));
+    let title_text = editing.map(|b| b.title()).unwrap_or_else(|| tr("Avec un compte d'ami", "With a friend account").to_string());
+    cv.text_fit(90.0, 196.0, Text::new(Font::Title, 64.0, FROST).tracking(-1.5), &title_text, 880.0);
+    let (x, w) = (96.0, 860.0);
+    let mut y = 250.0;
+    if editing.is_none() {
+        if app.found.is_empty() {
+            cv.text_fit(x, y + 40.0, Text::new(Font::Regular, 22.0, FROST_2), tr("Aucune Station sur ce réseau pour l'instant.", "No Station on this network yet."), w);
+            y += 70.0;
+        } else {
+            let mut cx = x;
+            for (i, s) in app.found.iter().enumerate().take(3) {
+                cx += widgets::chip(cv, f, Target::FriendStation(i), cx, y, &s.name, fr.station == i) + 10.0;
+            }
+            y += 80.0;
+        }
+    }
+    let field = |cv: &mut Canvas, f: &mut Frame, t: Target, label: &str, value: &str, active: bool, y: f32| {
+        widgets::label(cv, x, y + 20.0, label);
+        let r = Rect::new(x, y + 34.0, w, 76.0);
+        let focused = f.hit(t, r);
+        cv.rrect(r.x, r.y, r.w, r.h, 16.0, PANEL);
+        cv.rrect_stroke(r.x, r.y, r.w, r.h, 16.0, if active || focused { 2.0 } else { 1.0 }, if active || focused { SPECTRE } else { BORDER });
+        cv.text_fit(r.x + 26.0, r.y + 50.0, Text::new(Font::Regular, 30.0, FROST), value, r.w - 52.0);
+        34.0 + 76.0 + 20.0
+    };
+    if editing.is_none() {
+        y += field(cv, f, Target::FriendLogin, tr("Identifiant", "Username"), &fr.login, fr.field == FriendField::Login, y);
+    } else {
+        widgets::label(cv, x, y + 20.0, tr("Identifiant", "Username"));
+        cv.text_fit(x, y + 66.0, Text::new(Font::Regular, 30.0, FROST_2), &fr.login, w);
+        y += 90.0;
+    }
+    let dots: String = "•".repeat(fr.password.chars().count());
+    y += field(cv, f, Target::FriendPassword, tr("Mot de passe", "Password"), &dots, fr.field == FriendField::Password, y);
+    // « Retenir le mot de passe » : un interrupteur.
+    let r = Rect::new(x, y, w, 60.0);
+    let focused = f.hit(Target::FriendRemember, r);
+    if focused {
+        cv.neon(r.x, r.y, r.w, r.h, 14.0, 0.6);
+    }
+    widgets::toggle(cv, x + 12.0, y + 14.0, fr.remember);
+    cv.text(x + 110.0, y + 40.0, Text::new(Font::Regular, 25.0, FROST), tr("Retenir le mot de passe", "Remember password"));
+    y += 90.0;
+    let label = if editing.is_some() { tr("Emprunter", "Borrow") } else { tr("Ajouter", "Add") };
+    let bw = widgets::primary_state(cv, f, Target::FriendGo, x, y, label, !fr.busy);
+    if fr.busy {
+        // La Station vérifie le compte.
+        cv.circle(x + bw + 50.0, y + 40.0, 14.0, HALO.alpha(0.35));
+        cv.circle(x + bw + 50.0, y + 40.0, 6.0, SPECTRE);
+    } else if let Some(m) = &fr.message {
+        cv.paragraph(x + bw + 36.0, y + 32.0, Text::new(Font::Regular, 23.0, DANGER), m, (w - bw - 36.0).max(300.0), 32.0);
+    }
+    super::join::letter_pad(fr.shift, cv, f);
 }
 
 const KEYS: [char; 12] = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0', ':'];

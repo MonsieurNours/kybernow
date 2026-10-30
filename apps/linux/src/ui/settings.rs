@@ -521,8 +521,9 @@ pub(super) fn row_console(cv: &mut Canvas, f: &mut Frame, r: &Row, x: f32, y: f3
 
 /// La confirmation par-dessus les réglages (docs/link-ui.md) : retirer
 /// l'ordinateur ; redémarrer ou mettre à jour quand un appareil est en
-/// session. Seuls ses deux boutons se choisissent.
-fn confirm(app: &App, cv: &mut Canvas, f: &mut Frame) {
+/// session ; et, ailleurs, retirer un ordinateur emprunté (accueil), rendre l'ordinateur (session d'emprunt). Seuls
+/// ses deux boutons se choisissent.
+pub(super) fn confirm(app: &App, cv: &mut Canvas, f: &mut Frame) {
     let Some(c) = &app.confirm else { return };
     let u = if app.layout == Layout::Desktop { 1.0 } else { unit(app.layout) };
     let (w, h) = (cv.w, cv.h);
@@ -541,13 +542,20 @@ fn confirm(app: &App, cv: &mut Canvas, f: &mut Frame) {
             if *kind == StationKind::Update { tr("Mettre à jour quand même", "Update anyway") } else { tr("Redémarrer quand même", "Restart anyway") },
             false,
         ),
+        // « Rendre l'ordinateur à {hôte} ? » : la question seule, sans autre texte (docs/link-ui.md).
+        Confirm::GiveBack { host, .. } => (
+            if crate::i18n::english() { format!("Give the computer back to {host}?") } else { format!("Rendre l'ordinateur à {host} ?") },
+            String::new(),
+            tr("Rendre l'ordinateur", "Give back the computer"),
+            true,
+        ),
     };
     let cw = (560.0 * u).min(w - 48.0);
     let pad = 32.0 * u;
     let title_style = Text::new(Font::Display, 26.0 * u, FROST).tracking(-0.3 * u);
     let text = Text::new(Font::Regular, 16.0 * u, MUTED);
     let title_lines = cv.line_count(title_style, &title, cw - 2.0 * pad) as f32;
-    let msg_lines = cv.line_count(text, &message, cw - 2.0 * pad) as f32;
+    let msg_lines = if message.is_empty() { 0.0 } else { cv.line_count(text, &message, cw - 2.0 * pad) as f32 };
     let bh = if app.layout == Layout::Desktop { 44.0 } else { 52.0 * u };
     let ch = pad + 60.0 * u + (title_lines - 1.0) * 34.0 * u + (msg_lines - 1.0) * 24.0 * u + 28.0 * u + bh + pad;
     let (x, y) = ((w - cw) / 2.0, (h - ch) / 2.0);
@@ -556,7 +564,11 @@ fn confirm(app: &App, cv: &mut Canvas, f: &mut Frame) {
     let ix = x + pad;
     let mut yy = y + pad + 26.0 * u;
     yy += cv.paragraph(ix, yy, title_style, &title, cw - 2.0 * pad, 34.0 * u) - 34.0 * u + 12.0 * u + 22.0 * u;
-    yy += cv.paragraph(ix, yy, text, &message, cw - 2.0 * pad, 24.0 * u) - 24.0 * u + 28.0 * u;
+    if message.is_empty() {
+        yy += 4.0 * u;
+    } else {
+        yy += cv.paragraph(ix, yy, text, &message, cw - 2.0 * pad, 24.0 * u) - 24.0 * u + 28.0 * u;
+    }
     let by = yy;
     let size = if app.layout == Layout::Desktop { 14.0 } else { 17.0 * u };
     // Les boutons à droite : Annuler, puis l'action.

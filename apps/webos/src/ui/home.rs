@@ -8,7 +8,7 @@ use super::icons::Icon;
 use super::theme::*;
 use super::widgets::{self, Key};
 use super::{Assets, Frame};
-use crate::app::{App, Online, Problem, Rect, Target};
+use crate::app::{ask_host, waiting_for, App, LendState, Online, Problem, Rect, Target};
 use crate::i18n::{english, tr};
 use crate::model::Profile;
 
@@ -51,15 +51,32 @@ pub fn draw(app: &App, cv: &mut Canvas, assets: &Assets, f: &mut Frame) {
     }
 
     let mut primary = tr("Se connecter", "Connect");
+    let mut borrow_hint = None;
     match host {
+        // L'ordinateur d'un ami (prêt de l'ordinateur) : sa carte à lui.
+        None if app.selected_borrowed().is_some() => {
+            borrow_hint = Some(borrowed_hero(app, cv, f));
+        }
         Some(h) => {
             let live = app.live.get(&h.id).cloned().unwrap_or_default();
             let (status, lit) = match live.online {
-                Online::Online => (tr("En ligne", "Online"), true),
+                Online::Online => (tr("En ligne", "Online").to_string(), true),
                 // Joignable seulement par le relais (docs/relais.md).
-                Online::Away => (tr("Hors de chez vous", "Away from home"), true),
-                Online::Offline => (tr("Hors ligne", "Offline"), false),
-                Online::Unknown => (tr("Recherche…", "Searching…"), false),
+                Online::Away => (tr("Hors de chez vous", "Away from home").to_string(), true),
+                Online::Offline => (tr("Hors ligne", "Offline").to_string(), false),
+                Online::Unknown => (tr("Recherche…", "Searching…").to_string(), false),
+            };
+            // Prêté (prêt de l'ordinateur) : « Prêté à Léa jusqu'à 18 h », et pendant la reprise « Reprise dans 1:42 ».
+            let lent = live.lend_view.as_ref().filter(|v| v.lent());
+            let status = match lent {
+                Some(v) => {
+                    let line = v.lent_line().unwrap_or_default();
+                    match v.taking_back(crate::model::now_secs()) {
+                        Some(t) => format!("{line} · {t}"),
+                        None => line,
+                    }
+                }
+                None => status,
             };
             // Une erreur prend une ligne de plus : le bloc remonte d'autant.
             let y0 = if live.problem.is_some() { 202.0 } else { 240.0 };
@@ -97,7 +114,14 @@ pub fn draw(app: &App, cv: &mut Canvas, assets: &Assets, f: &mut Frame) {
                     tr("Réessayer", "Try again")
                 };
             }
-            x += widgets::primary(cv, f, Target::Connect, x, by, primary) + 28.0;
+            // Prêté : « Reprendre l'ordinateur », puis, pendant la reprise, « Reprendre tout de suite ».
+            if let Some(v) = lent {
+                let (t, label) = if v.taking_back(crate::model::now_secs()).is_some() { (Target::TakeBackNow, tr("Reprendre tout de suite", "Take back now")) } else { (Target::TakeBack, tr("Reprendre l'ordinateur", "Take back the computer")) };
+                primary = label;
+                x += widgets::primary(cv, f, t, x, by, primary) + 28.0;
+            } else {
+                x += widgets::primary(cv, f, Target::Connect, x, by, primary) + 28.0;
+            }
             let custom = h.settings.is_custom();
             let chips_x = x;
             for p in Profile::ALL {
@@ -138,6 +162,8 @@ pub fn draw(app: &App, cv: &mut Canvas, assets: &Assets, f: &mut Frame) {
     if let Some(h) = host {
         x += widgets::hint(cv, x, y, Key::Ok, primary) + 40.0;
         x += widgets::hint(cv, x, y, Key::Dots, &settings_for(&h.name)) + 40.0;
+    } else if let Some(label) = &borrow_hint {
+        x += widgets::hint(cv, x, y, Key::Ok, label) + 40.0;
     }
     x += widgets::hint(cv, x, y, Key::Back, tr("Quitter", "Quit")) + 40.0;
     x += widgets::hint(cv, x, y, Key::Green, tr("Rejoindre avec un code", "Join with a code")) + 40.0;
@@ -213,7 +239,8 @@ const FOUND_MAX: usize = 3;
 /// tous les ordinateurs, puis « Ajouter » et « Rejoindre », restent atteignables à la croix, et la Magic Remote
 /// fait glisser la rangée en survolant la carte coupée au bord.
 pub fn row_offset(app: &App, focus: Target) -> f32 {
-    let hosts = app.store.hosts.len();
+    let paired = app.store.hosts.len();
+    let hosts = paired + app.store.borrowed.len();
     let found = app.new_found().len().min(FOUND_MAX);
     let x_add = 96.0 + (hosts + found) as f32 * PITCH;
     let end = x_add + ACTION_PITCH + 168.0;
@@ -224,6 +251,7 @@ pub fn row_offset(app: &App, focus: Target) -> f32 {
     let selected = app.selected().and_then(|h| app.store.hosts.iter().position(|x| x.id == h.id)).unwrap_or(0);
     let right = match focus {
         Target::Host(i) => 96.0 + i as f32 * PITCH + 300.0,
+        Target::Borrowed(i) => 96.0 + (paired + i) as f32 * PITCH + 300.0,
         Target::Found(i) => 96.0 + (hosts + i) as f32 * PITCH + 300.0,
         Target::AddCard => x_add + 168.0,
         Target::JoinCard => end,
@@ -236,7 +264,7 @@ pub fn row_offset(app: &App, focus: Target) -> f32 {
 /// large que l'écran elle glisse (`row_offset`).
 fn cards(app: &App, cv: &mut Canvas, f: &mut Frame) {
     let y = H - 120.0 - 168.0 - 44.0;
-    let selected = app.selected().map(|h| h.id.clone());
+    let selected = app.selected_borrowed().map(|b| b.id.clone()).or_else(|| app.selected().map(|h| h.id.clone()));
     let mut x = 96.0 - row_offset(app, f.focus);
     // Une carte entièrement hors de l'écran n'est pas dessinée, mais reste choisissable : le focus la ramène.
     let on_screen = |x: f32, w: f32| x + w > 0.0 && x < W;
@@ -263,7 +291,28 @@ fn cards(app: &App, cv: &mut Canvas, f: &mut Frame) {
                 Online::Offline => tr("Hors ligne", "Offline"),
                 Online::Unknown => "",
             };
-            cv.text(r.x, y + 168.0 + 62.0, Text::new(Font::Regular, 17.0, FROST_3), state);
+            // Prêté (vu de l'hôte) : « Prêté à Léa » à la place de son état.
+            let lent = app.live.get(&h.id).and_then(|l| l.lend_view.as_ref()).and_then(|v| v.lent_line());
+            cv.text(r.x, y + 168.0 + 62.0, Text::new(Font::Regular, 17.0, if lent.is_some() { WARN } else { FROST_3 }), lent.as_deref().unwrap_or(state));
+        }
+        x += PITCH;
+    }
+    // Les ordinateurs empruntés (prêt de l'ordinateur) : « Ordinateur de {hôte} » et son état.
+    for (i, b) in app.store.borrowed.iter().enumerate() {
+        let r = Rect::new(x, y, 300.0, 168.0);
+        let focused = f.hit(Target::Borrowed(i), r);
+        if on_screen(x, 300.0) {
+            let state = app.lend_live.get(&b.id).and_then(|l| l.state);
+            let dim = if state == Some(LendState::Offline) { 0.6 } else { 1.0 };
+            if focused {
+                cv.neon(r.x, r.y, r.w, r.h, 14.0, 1.0);
+            }
+            cv.rrect(r.x, r.y, r.w, r.h, 14.0, Rgba(26, 34, 50, (255.0 * dim) as u8));
+            cv.icon(&Icon::Lend, r.x + 120.0, r.y + 54.0, 60.0, 1.6, FROST_3);
+            let border = if focused { CORE } else if selected.as_deref() == Some(&b.id) { Rgba(227, 237, 240, 128) } else { BORDER };
+            cv.rrect_stroke(r.x, r.y, r.w, r.h, 14.0, if focused { 3.0 } else { 2.0 }, border);
+            cv.text_fit(r.x, y + 168.0 + 34.0, Text::new(Font::Semibold, 21.0, FROST.alpha(dim)), &b.title(), 300.0);
+            cv.text_fit(r.x, y + 168.0 + 62.0, Text::new(Font::Regular, 17.0, FROST_3), state.map(LendState::label).unwrap_or(""), 300.0);
         }
         x += PITCH;
     }
@@ -299,4 +348,65 @@ fn action_card(cv: &mut Canvas, f: &mut Frame, t: Target, r: Rect, icon: Icon, l
         cv.icon(&icon, r.x + 62.0, r.y + 62.0, 44.0, 1.5, FROST);
     }
     cv.paragraph(r.x, r.y + 168.0 + 34.0, Text::new(Font::Regular, 21.0, FROST), label, 184.0, 27.0);
+}
+
+/// L'ordinateur d'un ami (prêt de l'ordinateur) : son état (« Disponible », « Occupé »…), « Ordinateur de {hôte} », le
+/// nom de l'ordinateur, le créneau ; « Emprunter » (« Demander à {hôte} » s'il est utilisé, « Revenir » pour son prêt),
+/// ou pendant l'emprunt « Préparation de l'ordinateur… », « En attente de {hôte}… » et « Annuler » ; le refus ;
+/// « Retirer cet ordinateur ». Rend ce que fait OK, pour l'aide du bas.
+fn borrowed_hero(app: &App, cv: &mut Canvas, f: &mut Frame) -> String {
+    let Some(b) = app.selected_borrowed() else { return String::new() };
+    let live = app.lend_live.get(&b.id);
+    let state = live.and_then(|l| l.state);
+    let y0 = 240.0;
+    let (color, lit) = match state {
+        Some(LendState::Free) | Some(LendState::Mine) => (SPECTRE, true),
+        Some(LendState::Busy) => (WARN, true),
+        _ => (FROST_3, false),
+    };
+    if lit {
+        cv.circle(101.0, y0 - 6.0, 13.0, color.alpha(0.35));
+    }
+    cv.circle(101.0, y0 - 6.0, 5.0, color);
+    let status = state.map(LendState::label).unwrap_or(tr("Recherche…", "Searching…"));
+    cv.text(122.0, y0, Text::new(Font::Mono, 18.0, FROST_2).tracking(2.0), &status.to_uppercase());
+    // « Ordinateur de Matthieu » est plus long qu'un nom d'ordinateur : la taille se resserre pour tenir en entier.
+    let title = b.title();
+    let full = cv.text_width(Text::new(Font::Display, 150.0, FROST).tracking(-4.0), &title);
+    let size = (150.0 * (1700.0 / full.max(1.0))).clamp(84.0, 150.0);
+    cv.text_fit(90.0, y0 + 170.0, Text::new(Font::Display, size, FROST).tracking(-4.0 * size / 150.0), &title, 1730.0);
+    let line = Text::new(Font::Regular, 25.0, FROST_2);
+    let mut yy = y0 + 232.0;
+    cv.text_fit(96.0, yy, line, &b.computer, 1000.0);
+    yy += 38.0;
+    if let Some(slot) = live.and_then(|l| l.slot) {
+        cv.text_fit(96.0, yy, line, &slot.text(), 1000.0);
+        yy += 38.0;
+    }
+    let by = yy + 44.0;
+    let label = match state {
+        Some(LendState::Busy) => ask_host(&b.host),
+        Some(LendState::Mine) => tr("Revenir", "Come back").to_string(),
+        _ => tr("Emprunter", "Borrow").to_string(),
+    };
+    let busy = app.borrow.busy && app.borrow.id == b.id;
+    if busy {
+        let t = app.borrow.started.elapsed().as_secs_f32();
+        let (cx, cy) = (116.0, by + 40.0);
+        cv.circle(cx, cy, 14.0, HALO.alpha(0.2 + 0.3 * (t * 4.0).sin().abs()));
+        cv.circle(cx, cy, 6.0, SPECTRE);
+        let text = if app.borrow.waiting { waiting_for(&b.host) } else { format!("{}…", tr("Préparation de l'ordinateur", "Preparing the computer")) };
+        let tw = cv.text(cx + 30.0, cy + 9.0, Text::new(Font::Regular, 27.0, FROST), &text);
+        if app.borrow.waiting {
+            widgets::secondary(cv, f, Target::BorrowCancel, cx + 30.0 + tw + 40.0, cy - 30.0, tr("Annuler", "Cancel"), 22.0);
+        }
+        return tr("Annuler", "Cancel").to_string();
+    }
+    let enabled = state.is_none_or(LendState::borrowable);
+    let bw = widgets::primary_state(cv, f, Target::Borrow, 96.0, by, &label, enabled);
+    widgets::secondary(cv, f, Target::BorrowRemove, 96.0 + bw + 28.0, by + 10.0, tr("Retirer cet ordinateur", "Remove this computer"), 22.0);
+    if let Some(m) = app.borrow.message.as_ref().filter(|_| app.borrow.id == b.id) {
+        cv.text_fit(96.0, by + 130.0, Text::new(Font::Regular, 25.0, DANGER), m, 1400.0);
+    }
+    label
 }

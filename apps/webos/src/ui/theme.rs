@@ -28,3 +28,5 @@ pub const BORDER: Rgba = Rgba(227, 237, 240, 40);
 pub const DANGER_BG: Rgba = Rgba(60, 18, 20, 200);
 pub const DANGER: Rgba = Rgba::hex(0xFFD9D4);
 pub const DANGER_LINE: Rgba = Rgba(255, 138, 128, 102);
+/// Attention (prêt : l'avertissement de confiance, l'ordinateur occupé ou prêté), la teinte `--kn-warn` des autres apps.
+pub const WARN: Rgba = Rgba::hex(0xF5B841);

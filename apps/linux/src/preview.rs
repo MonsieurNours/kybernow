@@ -13,8 +13,8 @@ use std::time::{Duration, Instant};
 
 use tiny_skia::Pixmap;
 
-use crate::app::{AddStep, App, BarMenu, Confirm, Found, HostLive, JoinField, JoinState, Layout, MenuItem, NetKind, Online, PadInfo, PathKind, Phase, RouteUi, Screen, ScreensPlan, Section, SessionUi, Setting, ShareAvail, ShareGuest, ShareQuality, ShareRelay, ShareRole, ShareView, StationKind, StationLive, StationOp, StationStep, Stats, Target};
-use crate::model::{Host, HostSettings, LastSession, Profile, Store, WakeCard};
+use crate::app::{AddStep, App, BarMenu, BorrowSessionUi, BorrowSource, BorrowUi, Confirm, Found, FriendForm, HostLive, JoinField, JoinState, Layout, LendAvail, LendCodeUi, LendHostState, LendHostView, LendLive, LendNoticeKind, LendRequestUi, LendSlotUi, LendState, LendSteam, MenuItem, NetKind, Online, PadInfo, PathKind, Phase, RouteUi, Screen, ScreensPlan, Section, SessionUi, Setting, ShareAvail, ShareGuest, ShareQuality, ShareRelay, ShareRole, ShareView, StationKind, StationLive, StationOp, StationStep, Stats, Target};
+use crate::model::{Borrowed, Host, HostSettings, LastSession, Profile, Store, WakeCard};
 use crate::ui::{self, canvas::Canvas};
 
 fn demo_image(seed: u32) -> Pixmap {
@@ -125,9 +125,9 @@ fn demo(english: bool, layout: Layout) -> App {
     app.net.kind = if layout == Layout::Tv { NetKind::Ethernet } else { NetKind::Wifi };
     app.net.link_mbps = Some(2500);
     app.net.band = Some("5 GHz".into());
-    app.live.insert("a".into(), HostLive { online: Online::Online, virtual_display: Some(true), station: Some(station("0.5.0", None)), own_device: Some(true), max_screens: Some(4), share: Some(crate::app::ShareAvail::Available) });
+    app.live.insert("a".into(), HostLive { online: Online::Online, virtual_display: Some(true), station: Some(station("0.5.0", None)), own_device: Some(true), max_screens: Some(4), share: Some(crate::app::ShareAvail::Available), lend: Some(crate::app::LendAvail::Available), lend_view: None });
     app.live.insert("b".into(), HostLive { online: Online::Offline, ..Default::default() });
-    app.live.insert("c".into(), HostLive { online: Online::Online, virtual_display: Some(true), station: Some(station("0.5.0", None)), own_device: Some(true), max_screens: Some(4), share: Some(crate::app::ShareAvail::Available) });
+    app.live.insert("c".into(), HostLive { online: Online::Online, virtual_display: Some(true), station: Some(station("0.5.0", None)), own_device: Some(true), max_screens: Some(4), share: Some(crate::app::ShareAvail::Available), lend: Some(crate::app::LendAvail::Available), lend_view: None });
     app.images.insert("a".into(), demo_image(1));
     app.image_is_last.insert("a".into(), true);
     app.found.push(Found { name: "MINI-PC".into(), address: "192.168.1.57".into(), port: 31207, fingerprint: Some("sha256:7c:3a:91:e0:4b:2d:a8:1f".into()) });
@@ -704,6 +704,194 @@ fn relay_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, prefi
     app.screen = Screen::Home;
 }
 
+/// L'ordinateur de Matthieu, emprunté avec un compte d'ami (prêt de l'ordinateur).
+fn borrowed() -> Borrowed {
+    Borrowed { id: "lend:m".into(), host: "Matthieu".into(), computer: "PC-SALON".into(), address: "192.168.1.42".into(), port: 24811, fingerprint: Some("sha256:3e:91:0a:7c:55:d2:18:b4".into()), login: "lea".into(), password: "secret".into(), remember: true }
+}
+
+/// Un emprunt à l'image : l'ordinateur de Matthieu, jusqu'à dans 1 h 20.
+fn borrow_session(source: BorrowSource) -> SessionUi {
+    let until = crate::model::now_secs() + 80 * 60 + 30;
+    let mut s = SessionUi::borrower(1, "lend:m", BorrowSessionUi::new("Matthieu", "PC-SALON", Some(until), source));
+    s.phase = Phase::Streaming;
+    s.stats = Some(Stats { latency_ms: Some(9.2), fps: 60.0, mbps: 28.0, lost: 0, mode: "1920 × 1080".into(), decoder: "VA-API HEVC".into(), audio_ms: Some(13.0), history: vec![9.0, 9.4, 8.9, 10.1, 9.2, 9.0, 9.8, 9.1] });
+    s.started = Instant::now() - Duration::from_millis(2100);
+    s.opened_at = Some(Instant::now() - Duration::from_secs(30));
+    s
+}
+
+/// La vue du prêt chez l'hôte : un code de séance (2 heures, son compte Steam), et une demande s'il en faut une.
+fn lend_view(code: bool, request: bool) -> LendHostView {
+    LendHostView {
+        enabled: true,
+        code: code.then(|| LendCodeUi { code: "731402".into(), link: "kybernow://join?host=192.168.1.42&port=24811&fp=sha256:7c:3a:91:e0:4b:2d:a8:1f&code=731402".into(), web: "https://192.168.1.42:24811/link/?join=731402".into(), duration: Some(7200), steam: LendSteam::Friend }),
+        requests: if request { vec![LendRequestUi { id: "r1".into(), name: "Léa".into(), app: "ios".into(), via_relay: true, ..Default::default() }] } else { Vec::new() },
+        ..Default::default()
+    }
+}
+
+/// Le prêt de l'ordinateur (docs/pret.md ; textes : docs/link-ui.md, « Prêt de l'ordinateur ») : chez l'ami, la carte
+/// « Ordinateur de {hôte} » (libre, occupé avec un créneau), l'attente de l'accord, un refus, « Avec un compte d'ami »,
+/// un code de prêt dans « Rejoindre », la session d'emprunt (connexion, barre ou menu, préavis, « Rendre
+/// l'ordinateur », fins) ; chez l'hôte, le panneau « Prêter l'ordinateur… » (sans code, avec un code, une demande,
+/// Station trop ancienne), et l'accueil de l'ordinateur prêté.
+fn lend_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, prefix: &str) {
+    let name = |n: &str| format!("{prefix}-{n}");
+    let console = app.layout.console();
+    app.set_session(None);
+    app.pointer = None;
+    let now = crate::model::now_secs();
+    let hour = now - now % 3600;
+
+    // L'ami : la carte de l'ordinateur emprunté, libre pendant son créneau ; occupé, le prochain créneau ; l'attente ; un refus.
+    app.store.borrowed = vec![borrowed()];
+    app.store.selected = Some("lend:m".into());
+    app.lend_live.insert("lend:m".into(), LendLive { state: Some(LendState::Free), slot: Some(LendSlotUi { now: true, start: hour - 3600, end: hour + 3 * 3600 }) });
+    app.go(Screen::Home);
+    shot(app, cv, None, dir, &name("24-pret-accueil"));
+    app.lend_live.insert("lend:m".into(), LendLive { state: Some(LendState::Busy), slot: Some(LendSlotUi { now: false, start: hour + 2 * 86400, end: hour + 2 * 86400 + 4 * 3600 }) });
+    shot(app, cv, None, dir, &name("24b-pret-accueil-occupe"));
+    app.borrow = BorrowUi { id: "lend:m".into(), busy: true, waiting: true, ..BorrowUi::default() };
+    app.focus = Target::BorrowCancel;
+    shot(app, cv, None, dir, &name("24c-pret-attente"));
+    app.borrow = BorrowUi { id: "lend:m".into(), message: Some(crate::i18n::tr("Matthieu a refusé.", "Matthieu declined.").into()), ..BorrowUi::default() };
+    app.focus = Target::Borrow;
+    shot(app, cv, None, dir, &name("24d-pret-refus"));
+    app.borrow = BorrowUi::default();
+
+    // « Ajouter un ordinateur » › « Avec un compte d'ami ».
+    app.friend = FriendForm { login: "lea".into(), password: "secret".into(), ..FriendForm::default() };
+    app.add.step = AddStep::Friend;
+    app.go(Screen::Add);
+    shot(app, cv, None, dir, &name("24e-pret-compte-ami"));
+    app.add.step = AddStep::Code;
+    app.friend = FriendForm::default();
+
+    // « Rejoindre avec un code » tombe sur un code de prêt : la préparation de l'ordinateur, puis l'attente de l'hôte.
+    app.join = JoinState { name: "Léa".into(), code: "731402".into(), busy: true, lending: true, ..JoinState::new() };
+    app.go(Screen::Join);
+    shot(app, cv, None, dir, &name("24f-pret-code-preparation"));
+    app.join.waiting = true;
+    app.join.wait_host = Some("Matthieu".into());
+    app.focus = Target::JoinCancel;
+    shot(app, cv, None, dir, &name("24g-pret-code-attente"));
+    app.join = JoinState::new();
+
+    // La session d'emprunt : la connexion (« Préparation de l'ordinateur »), la barre ou le menu, le préavis, « Rendre
+    // l'ordinateur », la fin dite par le prêt, la fin sans le prêt (« Revenir »).
+    let source = BorrowSource::Account { id: "lend:m".into(), attempt: 1 };
+    let mut s = borrow_session(source.clone());
+    s.phase = Phase::Connecting;
+    s.opened_at = None;
+    app.set_session(Some(s));
+    app.screen = Screen::Session;
+    app.focus = Target::CancelConnect;
+    shot(app, cv, None, dir, &name("25-emprunt-connexion"));
+    let mut s = borrow_session(source.clone());
+    if console {
+        s.menu = true;
+    } else {
+        s.bar = true;
+        app.pointer = Some((700.0, 20.0));
+    }
+    app.set_session(Some(s));
+    app.focus = Target::Menu(MenuItem::Resume);
+    shot(app, cv, Some(video), dir, &name("25b-emprunt-barre"));
+    let mut s = borrow_session(source.clone());
+    if let Some(b) = s.borrow.as_mut() {
+        b.notice = Some(now + 110);
+    }
+    s.notice = Some((crate::i18n::tr("Matthieu reprend l'ordinateur dans 2 min : sauvegardez votre partie.", "Matthieu is taking back the computer in 2 min: save your game.").into(), Instant::now()));
+    if !console {
+        s.bar = true;
+    }
+    app.set_session(Some(s));
+    shot(app, cv, Some(video), dir, &name("25c-emprunt-preavis"));
+    app.pointer = None;
+    app.set_session(Some(borrow_session(source.clone())));
+    app.confirm = Some(Confirm::GiveBack { session: 1, host: "Matthieu".into() });
+    app.focus = Target::ConfirmNo;
+    shot(app, cv, Some(video), dir, &name("25d-emprunt-rendre"));
+    app.confirm = None;
+    let mut s = borrow_session(source.clone());
+    s.phase = Phase::Ended { error: Some(crate::i18n::tr("Matthieu a repris l'ordinateur.", "Matthieu took back the computer.").into()) };
+    if let Some(b) = s.borrow.as_mut() {
+        b.ended_by_lend = true;
+    }
+    app.set_session(Some(s));
+    app.focus = Target::Back;
+    shot(app, cv, None, dir, &name("25e-emprunt-fin"));
+    let mut s = borrow_session(source);
+    s.phase = Phase::Ended { error: Some(crate::i18n::tr("L'ordinateur prêté ne répond plus.", "The lent computer is not responding.").into()) };
+    app.set_session(Some(s));
+    app.focus = Target::ComeBack;
+    shot(app, cv, None, dir, &name("25f-emprunt-revenir"));
+    app.set_session(None);
+    app.store.borrowed.clear();
+    app.store.selected = Some("a".into());
+
+    // L'hôte : le panneau « Prêter l'ordinateur… » sans code (avertissement, durée, compte Steam), avec un code, avec une
+    // demande ; Station trop ancienne.
+    let mut s = session(app);
+    s.menu = false;
+    s.relative = false;
+    let open = |s: &mut SessionUi| {
+        if console {
+            s.lend_panel = true;
+        } else {
+            s.bar = true;
+            s.bar_menu = Some(BarMenu::Lend);
+        }
+    };
+    open(&mut s);
+    app.set_session(Some(s));
+    app.screen = Screen::Session;
+    app.pointer = if console { None } else { Some((700.0, 20.0)) };
+    app.focus = Target::LendCreate;
+    shot(app, cv, Some(video), dir, &name("26-pret-panneau"));
+    app.store.app.lend_warned = true;
+    if let Some(s) = app.session_mut() {
+        s.lend = Some(lend_view(true, false));
+    }
+    app.focus = Target::LendCancelCode;
+    shot(app, cv, Some(video), dir, &name("26b-pret-code"));
+    if let Some(s) = app.session_mut() {
+        s.lend = Some(lend_view(false, true));
+    }
+    app.focus = Target::LendAccept(0);
+    shot(app, cv, Some(video), dir, &name("26c-pret-demande"));
+    app.live.insert("a".into(), HostLive { lend: Some(LendAvail::Unsupported), ..app.live.get("a").cloned().unwrap_or_default() });
+    if let Some(s) = app.session_mut() {
+        s.lend = None;
+    }
+    app.focus = Target::LendClose;
+    shot(app, cv, Some(video), dir, &name("26d-pret-inactif"));
+    app.live.insert("a".into(), HostLive { lend: Some(LendAvail::Available), ..app.live.get("a").cloned().unwrap_or_default() });
+    // Le menu : la tuile « Prêter l'ordinateur… » (une demande attend).
+    if console {
+        let mut s = session(app);
+        s.lend = Some(lend_view(true, true));
+        app.set_session(Some(s));
+        app.focus = Target::Menu(MenuItem::Lend);
+        shot(app, cv, Some(video), dir, &name("26e-pret-menu"));
+    }
+    app.store.app.lend_warned = false;
+    app.pointer = None;
+    app.set_session(None);
+
+    // L'accueil de l'ordinateur prêté : « Prêté à Léa jusqu'à 18 h », « Reprendre l'ordinateur » ; pendant la reprise.
+    let lent = |notice: Option<(LendNoticeKind, u64)>| LendHostView { enabled: true, state: LendHostState::Lent, borrower: Some(("Léa".into(), Some(now + 2 * 3600))), notice, ..Default::default() };
+    app.live.insert("a".into(), HostLive { lend_view: Some(lent(None)), ..app.live.get("a").cloned().unwrap_or_default() });
+    app.go(Screen::Home);
+    app.focus = Target::TakeBack;
+    shot(app, cv, None, dir, &name("26f-pret-accueil-prete"));
+    app.live.insert("a".into(), HostLive { lend_view: Some(lent(Some((LendNoticeKind::TakenBack, now + 102)))), ..app.live.get("a").cloned().unwrap_or_default() });
+    app.focus = Target::TakeBackNow;
+    shot(app, cv, None, dir, &name("26g-pret-accueil-reprise"));
+    app.live.insert("a".into(), HostLive { lend_view: None, ..app.live.get("a").cloned().unwrap_or_default() });
+    app.screen = Screen::Home;
+}
+
 pub fn run(dir: &Path, lang: &str) {
     let _ = std::fs::create_dir_all(dir);
     let en = lang == "en";
@@ -944,6 +1132,8 @@ pub fn run(dir: &Path, lang: &str) {
         share_shots(&mut app, &mut cv, &video, dir, prefix);
         // Hors de chez soi (docs/relais.md) : l'accueil, l'attente de l'hôte, ses demandes, une session par le relais.
         relay_shots(&mut app, &mut cv, &video, dir, prefix);
+        // Le prêt de l'ordinateur (docs/pret.md) : l'ami (carte, attente, compte d'ami, session d'emprunt), l'hôte.
+        lend_shots(&mut app, &mut cv, &video, dir, prefix);
     }
 
     // Raspberry Pi 5 sous Raspberry Pi OS (interface Bureau, écran 1080p) : les

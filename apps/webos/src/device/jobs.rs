@@ -11,15 +11,16 @@ use std::sync::mpsc::Sender;
 use std::sync::Arc;
 use std::time::Duration;
 
-use kybernow_core::console::{Console, ConsoleError, DeviceInfo, Info, PairStatus, StationError};
+use kybernow_core::console::{Console, ConsoleError, DeviceInfo, Info, Mode, PairStatus, StationError};
+use kybernow_core::lend;
 use kybernow_core::profile::Capabilities;
-use kybernow_core::relay::{self, RelayAddr, RelayMode};
+use kybernow_core::relay::{self, RelayAddr, RelayMode, RelayRoute};
 use kybernow_core::share::{self, JoinRequest, Joining, PendingJoin, ShareAvailability, ShareTarget};
 use kybernow_core::wake::WakeTarget;
 
 use super::Event;
-use crate::app::{Found, Polled, Problem, ShareAvail, ShareOp, ShareView, StationKnown, StationLive, StationOp, StationRefusal};
-use crate::model::{new_id, Host, HostRelay, HostSettings};
+use crate::app::{BorrowSource, Found, LendAvail, LendHostView, LendLive, LendOp, LendSlotUi, LendState, LendSteam, Polled, Problem, ShareAvail, ShareOp, ShareView, StationKnown, StationLive, StationOp, StationRefusal};
+use crate::model::{new_id, Borrowed, Host, HostRelay, HostSettings};
 
 /// Sonde un ordinateur : en ligne ou non, son système, sa Station, et son
 /// aperçu s'il en manque un.
@@ -40,6 +41,13 @@ pub fn poll(host: Host, want_preview: bool, tx: Sender<Event>) {
                     }),
                     None => StationKnown::Old(info.admin_version.clone()),
                 };
+                // Prêt de l'ordinateur : ce que « Prêter l'ordinateur… » peut faire, et, le prêt activé, la vue du prêt.
+                let lend_avail = match info.lend {
+                    None => LendAvail::Unsupported,
+                    Some(l) if l.available && l.enabled => LendAvail::Available,
+                    Some(_) => LendAvail::Off,
+                };
+                let lend_view = if lend_avail == LendAvail::Available { c.lend_state().ok().map(|v| lend_view(&v)) } else { None };
                 let polled = Polled {
                     online: true,
                     away: false,
@@ -53,6 +61,8 @@ pub fn poll(host: Host, want_preview: bool, tx: Sender<Event>) {
                     wake: wake_targets(&info),
                     own_device: Some(info.account.own_device),
                     share: Some(share_avail(&info)),
+                    lend: Some(lend_avail),
+                    lend_view,
                 };
                 let _ = tx.send(Event::Polled { id: host.id.clone(), polled });
                 if want_preview
@@ -460,4 +470,239 @@ fn share_run(c: &Console, op: &ShareOp) -> Result<Option<ShareView>, String> {
         }
     }
     Ok(super::session::share_view(&c.share_state().map_err(text)?))
+}
+
+// MARK: - Prêt de l'ordinateur (docs/pret.md, cœur : `kybernow_core::lend`)
+
+/// L'emprunt en attente de l'accord de l'hôte : de quoi le retirer (« Annuler »).
+struct BorrowWait {
+    source: BorrowSource,
+    pending: lend::PendingBorrow,
+    cancel: Arc<AtomicBool>,
+}
+
+/// L'attente en cours (une seule : l'emprunt part d'un écran à la fois).
+static BORROW_WAIT: std::sync::Mutex<Option<BorrowWait>> = std::sync::Mutex::new(None);
+
+/// Le dernier emprunt demandé (la Station, le chemin, la demande) : « Revenir » le refait tel quel.
+type LastBorrow = (ShareTarget, Option<RelayRoute>, lend::BorrowRequest);
+static LAST_BORROW: std::sync::Mutex<Option<LastBorrow>> = std::sync::Mutex::new(None);
+
+/// La demande d'emprunt de cet appareil : le prénom, l'identifiant du téléviseur, `webos`, l'écran (la Station fait
+/// l'écran virtuel à sa taille) et les formats que l'appareil décode.
+pub fn borrow_request(credentials: lend::LendCredentials, name: String, device: String, screen: (u32, u32, u32), av1: bool) -> lend::BorrowRequest {
+    let mut codecs = vec!["hevc".to_string(), "h264".to_string()];
+    if av1 {
+        codecs.push("av1".into());
+    }
+    lend::BorrowRequest { credentials, name, device, app: "webos".into(), screen: Mode { width: screen.0, height: screen.1, refresh: screen.2 }, codecs }
+}
+
+/// Emprunter (`lend::borrow`, 30 s au plus) : le prêt démarre (`Event::Borrowed`), ou l'hôte doit accepter
+/// (`Event::BorrowPending` « En attente de {hôte}… », puis `lend::wait` rappelé tant qu'il n'a pas répondu). Le texte d'un
+/// refus est celui du cœur, avec le prénom de l'hôte quand on le connaît.
+pub fn borrow(source: BorrowSource, target: ShareTarget, route: Option<RelayRoute>, request: lend::BorrowRequest, tx: Sender<Event>) {
+    *LAST_BORROW.lock().unwrap() = Some((target.clone(), route.clone(), request.clone()));
+    std::thread::Builder::new()
+        .name("lend-borrow".into())
+        .spawn(move || {
+            let lang = kybernow_core::i18n::current();
+            match lend::borrow(&target, route.as_ref(), &request) {
+                Ok(lend::Borrowing::Ready(loan)) => {
+                    let _ = tx.send(Event::Borrowed { source, result: Ok(Box::new(loan)) });
+                }
+                Ok(lend::Borrowing::Pending(pending)) => borrow_wait(source, pending, &tx),
+                Err(e) => {
+                    log::info!("prêt : emprunt refusé ({})", e.kind());
+                    let _ = tx.send(Event::Borrowed { source, result: Err(e.text(lang, "")) });
+                }
+            }
+        })
+        .ok();
+}
+
+/// L'attente de l'accord de l'hôte : `lend::wait` tient son appel 30 s, rappelé tant que l'hôte n'a pas répondu et que
+/// la demande n'est pas annulée.
+fn borrow_wait(source: BorrowSource, pending: lend::PendingBorrow, tx: &Sender<Event>) {
+    let cancel = Arc::new(AtomicBool::new(false));
+    *BORROW_WAIT.lock().unwrap() = Some(BorrowWait { source: source.clone(), pending: pending.clone(), cancel: cancel.clone() });
+    let _ = tx.send(Event::BorrowPending { source: source.clone(), host: pending.host.clone() });
+    let lang = kybernow_core::i18n::current();
+    let result = loop {
+        if cancel.load(Ordering::Relaxed) {
+            return;
+        }
+        match lend::wait(&pending) {
+            Ok(None) => continue,
+            Ok(Some(loan)) => break Ok(Box::new(loan)),
+            Err(e) => break Err(e.text(lang, &pending.host)),
+        }
+    };
+    {
+        let mut wait = BORROW_WAIT.lock().unwrap();
+        if wait.as_ref().is_some_and(|w| w.source == source) {
+            *wait = None;
+        }
+    }
+    let _ = tx.send(Event::Borrowed { source, result });
+}
+
+/// « Annuler » (ou retour) pendant l'attente de l'accord de l'hôte : la demande est retirée, l'attente s'arrête.
+pub fn borrow_cancel() {
+    let Some(w) = BORROW_WAIT.lock().unwrap().take() else { return };
+    w.cancel.store(true, Ordering::Relaxed);
+    std::thread::Builder::new().name("lend-cancel".into()).spawn(move || lend::cancel(&w.pending)).ok();
+}
+
+/// « Revenir » : le dernier emprunt, refait (15 min après une fin sans le prêt, la Station le reconnaît).
+pub fn come_back(source: BorrowSource, tx: Sender<Event>) {
+    let last = LAST_BORROW.lock().unwrap().clone();
+    match last {
+        Some((target, route, request)) => borrow(source, target, route, request, tx),
+        None => {
+            let _ = tx.send(Event::Borrowed { source, result: Err(lend::LendError::NoCode.text(kybernow_core::i18n::current(), "")) });
+        }
+    }
+}
+
+/// Un emprunt accordé qui n'ouvre rien (l'écran a changé, plus de place pour une session de plus) : l'ordinateur est
+/// rendu tout de suite, l'hôte le retrouve.
+pub fn borrow_leave(loan: lend::Loan) {
+    std::thread::Builder::new()
+        .name("lend-leave".into())
+        .spawn(move || {
+            if let Err(e) = lend::leave(&loan) {
+                log::warn!("prêt : ordinateur pas rendu ({})", e.kind());
+            }
+        })
+        .ok();
+}
+
+/// L'état de l'ordinateur d'un ami, pour l'interface (`lend::status`).
+pub fn lend_live(s: &lend::LendStatus) -> LendLive {
+    let state = match s.state {
+        lend::LendAvailability::Free => LendState::Free,
+        lend::LendAvailability::Busy => LendState::Busy,
+        lend::LendAvailability::Lent if s.mine => LendState::Mine,
+        lend::LendAvailability::Lent => LendState::Lent,
+        lend::LendAvailability::Locked => LendState::Locked,
+        lend::LendAvailability::Off => LendState::Off,
+    };
+    let slot = s.slot.as_ref().and_then(|sl| sl.next.map(|p| LendSlotUi { now: sl.now, start: p.start, end: p.end }));
+    LendLive { state: Some(state), slot }
+}
+
+/// Sonde l'ordinateur d'un ami (la carte « Ordinateur de {hôte} ») : son état et son créneau ; « Hors ligne » quand sa
+/// Station ne répond pas. Un compte refusé (mot de passe changé) : l'état reste inconnu, « Emprunter » dira pourquoi.
+pub fn lend_poll(b: Borrowed, password: String, tx: Sender<Event>) {
+    std::thread::Builder::new()
+        .name("lend-status".into())
+        .spawn(move || {
+            let target = ShareTarget { host: b.address.clone(), port: b.port, fingerprint: b.fingerprint.clone() };
+            let live = match lend::status(&target, None, &b.login, &password) {
+                Ok(s) => lend_live(&s),
+                Err(lend::LendError::Other(ConsoleError::Network(_))) => LendLive { state: Some(LendState::Offline), slot: None },
+                Err(e) => {
+                    log::info!("prêt : état de {} inconnu ({})", b.computer, e.kind());
+                    LendLive::default()
+                }
+            };
+            let _ = tx.send(Event::LendStatus { id: b.id.clone(), live });
+        })
+        .ok();
+}
+
+/// « Avec un compte d'ami » : l'identifiant et le mot de passe présentés à la Station (`lend::status`), qui dit le prénom
+/// de l'hôte, le nom de l'ordinateur et son état ; l'ordinateur emprunté est alors prêt à garder.
+#[allow(clippy::too_many_arguments)]
+pub fn friend_add(address: String, port: u16, fingerprint: Option<String>, login: String, password: String, remember: bool, editing: Option<String>, tx: Sender<Event>) {
+    std::thread::Builder::new()
+        .name("lend-friend".into())
+        .spawn(move || {
+            let lang = kybernow_core::i18n::current();
+            let target = ShareTarget { host: address.clone(), port, fingerprint: fingerprint.clone() };
+            let result = lend::status(&target, None, &login, &password).map_err(|e| e.text(lang, "")).map(|s| {
+                let b = Borrowed {
+                    id: editing.clone().unwrap_or_else(|| format!("lend:{}", new_id())),
+                    host: s.host.clone(),
+                    computer: s.computer.clone(),
+                    address: address.clone(),
+                    port,
+                    fingerprint: fingerprint.clone(),
+                    login: login.clone(),
+                    password: if remember { password.clone() } else { String::new() },
+                    remember,
+                };
+                Box::new((b, lend_live(&s), password.clone()))
+            });
+            let _ = tx.send(Event::FriendAdded(result));
+        })
+        .ok();
+}
+
+/// La vue du prêt pour l'interface (`LendView` du cœur).
+pub fn lend_view(v: &lend::LendView) -> LendHostView {
+    use crate::app::{LendCodeUi, LendHostState, LendNoticeKind, LendRequestUi};
+    let steam = |s: lend::LendSteam| if s == lend::LendSteam::Host { LendSteam::Host } else { LendSteam::Friend };
+    LendHostView {
+        enabled: v.enabled,
+        state: match v.state {
+            lend::LendHostState::Free => LendHostState::Free,
+            lend::LendHostState::Preparing => LendHostState::Preparing,
+            lend::LendHostState::Lent => LendHostState::Lent,
+            lend::LendHostState::Ending => LendHostState::Ending,
+        },
+        borrower: v.borrower.as_ref().map(|b| (b.name.clone(), b.until)),
+        notice: v.notice.map(|n| {
+            let kind = match n.reason {
+                lend::LendNoticeReason::TakenBack => LendNoticeKind::TakenBack,
+                lend::LendNoticeReason::TimeUp => LendNoticeKind::TimeUp,
+                lend::LendNoticeReason::SlotEnd => LendNoticeKind::SlotEnd,
+                lend::LendNoticeReason::SlotStart => LendNoticeKind::SlotStart,
+            };
+            (kind, n.at)
+        }),
+        requests: v.requests.iter().map(|r| LendRequestUi { id: r.id.clone(), name: r.name.clone(), app: r.app.clone(), via_relay: r.via == share::ShareVia::Relay, steam: steam(r.steam), slot: r.slot }).collect(),
+        code: v.code.as_ref().map(|c| LendCodeUi { code: c.code.clone(), link: c.link.clone(), web: c.web.clone(), duration: c.duration, steam: steam(c.steam) }),
+    }
+}
+
+/// Le prêt de l'ordinateur, côté hôte : une demande à Admin avec le compte de l'appareil (« Créer un code », « Annuler
+/// le code », « Accepter », « Refuser », « Reprendre l'ordinateur »), puis la vue du prêt telle qu'elle est.
+fn lend_run(host: &Host, op: &LendOp) -> Result<LendHostView, String> {
+    let lang = kybernow_core::i18n::current();
+    let c = Console::new(&host.address, host.port, &host.user, &host.password, host.fingerprint.clone());
+    let core_steam = |s: LendSteam| if s == LendSteam::Host { lend::LendSteam::Host } else { lend::LendSteam::Friend };
+    let view = match op {
+        LendOp::Code(duration, steam) => c.lend_code(*duration, core_steam(*steam)),
+        LendOp::CancelCode => c.lend_cancel_code(),
+        LendOp::Answer(id, accept, steam) => c.lend_answer(id, *accept, core_steam(*steam)),
+        LendOp::TakeBack(now) => c.lend_take_back(*now),
+    };
+    view.map(|v| lend_view(&v)).map_err(|e| {
+        log::warn!("prêt : {}", e.text(kybernow_core::i18n::Lang::Fr));
+        e.text(lang)
+    })
+}
+
+/// En session : la demande du prêt, puis `Event::LendHost`.
+pub fn lend_host(host: Host, op: LendOp, tx: Sender<Event>) {
+    std::thread::Builder::new()
+        .name("lend-host".into())
+        .spawn(move || {
+            let result = lend_run(&host, &op);
+            let _ = tx.send(Event::LendHost(result));
+        })
+        .ok();
+}
+
+/// Sur l'accueil (« Reprendre l'ordinateur ») : la demande, puis `Event::LendHome`.
+pub fn lend_home(host: Host, op: LendOp, tx: Sender<Event>) {
+    std::thread::Builder::new()
+        .name("lend-home".into())
+        .spawn(move || {
+            let result = lend_run(&host, &op);
+            let _ = tx.send(Event::LendHome { host: host.id.clone(), result });
+        })
+        .ok();
 }

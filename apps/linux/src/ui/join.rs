@@ -132,9 +132,17 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
             .collect();
         cv.polyline(&pts, 2.0 * u, SPECTRE);
         if j.waiting {
-            // Par le relais : la demande est chez l'hôte, qui l'accepte ou non ; « Annuler » la retire.
-            let tw = cv.text(mx + 28.0 * u, mid + 5.0 * u, Text::new(Font::Regular, 15.0 * u, MUTED), tr("En attente de l'accord de l'hôte…", "Waiting for the host to accept…"));
+            // Par le relais : la demande est chez l'hôte, qui l'accepte ou non ; « Annuler » la retire. Un emprunt (code de
+            // prêt) attend l'hôte dont la Station dit le prénom : « En attente de {hôte}… ».
+            let text = match &j.wait_host {
+                Some(h) => crate::app::waiting_for(h),
+                None => tr("En attente de l'accord de l'hôte…", "Waiting for the host to accept…").into(),
+            };
+            let tw = cv.text(mx + 28.0 * u, mid + 5.0 * u, Text::new(Font::Regular, 15.0 * u, MUTED), &text);
             widgets::ghost(cv, f, Target::JoinCancel, mx + 28.0 * u + tw + 18.0 * u, mid - 20.0 * u, 40.0 * u, 14.0 * u, None, tr("Annuler", "Cancel"), MUTED);
+        } else if j.lending {
+            // Le code est celui d'un prêt : la Station met l'ordinateur en mode console (30 s au plus).
+            cv.text(mx + 28.0 * u, mid + 5.0 * u, Text::new(Font::Regular, 15.0 * u, MUTED), &format!("{}…", tr("Préparation de l'ordinateur", "Preparing the computer")));
         } else {
             cv.text(mx + 28.0 * u, mid + 5.0 * u, Text::new(Font::Regular, 15.0 * u, MUTED), tr("Recherche du partage…", "Looking for the share…"));
         }
@@ -151,7 +159,7 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
         let py = top + 28.0 * u + 80.0 * u;
         match j.field {
             JoinField::Code => digit_pad(cv, f, px, py, pw, u),
-            JoinField::Name => letter_pad(app, cv, f, px, py, pw, u),
+            JoinField::Name => letter_pad(app.join.shift, cv, f, px, py, pw, u),
         }
         cv.rect(0.0, h - footer, w, footer, Rgba(5, 7, 10, 178));
         cv.rect(0.0, h - footer, w, 1.0, LINE);
@@ -177,11 +185,10 @@ fn digit_pad(cv: &mut Canvas, f: &mut Frame, x: f32, y: f32, width: f32, u: f32)
 }
 
 /// Le pavé du prénom : chiffres, lettres, quelques accents, tiret, apostrophe, espace, majuscule, effacer.
-fn letter_pad(app: &App, cv: &mut Canvas, f: &mut Frame, x: f32, y: f32, width: f32, u: f32) {
+pub(super) fn letter_pad(shift: bool, cv: &mut Canvas, f: &mut Frame, x: f32, y: f32, width: f32, u: f32) {
     let gap = 8.0 * u;
     let kw = ((width - 9.0 * gap) / 10.0).min(64.0 * u);
     let kh = 52.0 * u;
-    let shift = app.join.shift;
     let label = |c: char| if shift { c.to_uppercase().to_string() } else { c.to_string() };
     let rows: [&str; 3] = ["1234567890", "qwertyuiop", "asdfghjkl"];
     let mut ky = y;

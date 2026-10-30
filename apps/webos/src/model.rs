@@ -254,12 +254,46 @@ pub struct AppSettings {
     /// KyberNow Share : la « Qualité de l'image » choisie en rejoignant un partage ou dans le menu de la session,
     /// retenue pour la fois suivante (`auto`, `host`, `2160p60`, `1080p60`, `720p30` ; vide ou inconnue : « Auto »).
     pub share_quality: String,
+    /// KyberNow Share, prêt : l'avertissement de confiance est dit dans le panneau « Prêter l'ordinateur… » jusqu'au
+    /// premier code créé, puis plus (« une fois », docs/link-ui.md).
+    pub lend_warned: bool,
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
-        Self { language: "auto".into(), beta: false, share_name: String::new(), share_quality: String::new() }
+        Self { language: "auto".into(), beta: false, share_name: String::new(), share_quality: String::new(), lend_warned: false }
     }
+}
+
+/// Un ordinateur emprunté (KyberNow Share, prêt de l'ordinateur, docs/pret.md) : la Station d'un ami qui a créé un
+/// compte d'ami pour ce téléviseur, gardée à part des ordinateurs appairés (`Store::borrowed`). Le mot de passe n'est
+/// écrit que si « Retenir le mot de passe » est coché ; sinon l'app le garde le temps de son lancement.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(default)]
+pub struct Borrowed {
+    /// `lend:<uuid>` : jamais celui d'un ordinateur appairé.
+    pub id: String,
+    /// Le prénom de l'hôte et le nom de son ordinateur, tels qu'Admin les donne.
+    pub host: String,
+    pub computer: String,
+    pub address: String,
+    pub port: u16,
+    pub fingerprint: Option<String>,
+    pub login: String,
+    pub password: String,
+    pub remember: bool,
+}
+
+impl Borrowed {
+    /// « Ordinateur de Matthieu », “Matthieu's computer”.
+    pub fn title(&self) -> String {
+        borrowed_title(&self.host)
+    }
+}
+
+/// « Ordinateur de {hôte} » (élidé : « Ordinateur d'Hugo »), “{host}'s computer”.
+pub fn borrowed_title(host: &str) -> String {
+    if crate::i18n::english() { format!("{host}'s computer") } else { format!("Ordinateur {}{host}", crate::i18n::de(host)) }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
@@ -268,7 +302,9 @@ pub struct Store {
     /// Identifiant de ce téléviseur auprès d'Admin, tiré une fois.
     pub device_id: String,
     pub hosts: Vec<Host>,
-    /// Dernier ordinateur choisi sur l'accueil.
+    /// KyberNow Share : les ordinateurs empruntés (comptes d'amis), à part des ordinateurs appairés.
+    pub borrowed: Vec<Borrowed>,
+    /// Dernier ordinateur choisi sur l'accueil (appairé, ou emprunté : `lend:…`).
     pub selected: Option<String>,
     pub app: AppSettings,
     #[serde(skip)]
@@ -354,8 +390,26 @@ impl Store {
         id
     }
 
+    /// Un ordinateur emprunté.
+    pub fn borrowed(&self, id: &str) -> Option<&Borrowed> {
+        self.borrowed.iter().find(|b| b.id == id)
+    }
+
+    /// Ajoute un ordinateur emprunté, ou met à jour celui du même compte sur la même Station.
+    pub fn put_borrowed(&mut self, b: Borrowed) -> String {
+        if let Some(old) = self.borrowed.iter_mut().find(|o| o.address == b.address && o.port == b.port && o.login == b.login) {
+            let id = old.id.clone();
+            *old = Borrowed { id: id.clone(), ..b };
+            return id;
+        }
+        let id = b.id.clone();
+        self.borrowed.push(b);
+        id
+    }
+
     pub fn remove(&mut self, id: &str) {
         self.hosts.retain(|h| h.id != id);
+        self.borrowed.retain(|b| b.id != id);
         if self.selected.as_deref() == Some(id) {
             self.selected = None;
         }

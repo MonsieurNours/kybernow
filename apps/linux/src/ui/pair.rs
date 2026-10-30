@@ -35,6 +35,7 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
         AddStep::Address => address(app, cv, f, x0, y0, u),
         AddStep::Mac => mac(app, cv, f, x0, y0, u),
         AddStep::Verify { address, port, fingerprint } => verify(app, cv, f, x0, y0, u, &address, port, &fingerprint),
+        AddStep::Friend => friend(app, cv, f, x0, y0, u),
     }
     if app.layout.console() {
         cv.rect(0.0, h - footer, w, footer, Rgba(5, 7, 10, 178));
@@ -48,7 +49,7 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
                 x += legend(cv, x, gy, g, &["B"], tr("Retour", "Back")) + 28.0 * u;
                 legend(cv, x, gy, g, &["Y"], tr("Entrer une adresse", "Enter an address"));
             }
-            AddStep::Address | AddStep::Mac => {
+            AddStep::Address | AddStep::Mac | AddStep::Friend => {
                 x += legend(cv, x, gy, g, &["A"], tr("Touche", "Key")) + 28.0 * u;
                 legend(cv, x, gy, g, &["B"], tr("Retour", "Back"));
                 let label = tr("Clavier", "Keyboard");
@@ -118,7 +119,9 @@ fn code(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f32, foo
     cv.polyline(&pts, 2.0, SPECTRE);
     cv.text(x0 + 28.0 * u, y + 15.0 * u, Text::new(Font::Regular, 14.0 * u, FAINT), tr("Recherche des Stations sur ce réseau…", "Looking for Stations on this network…"));
     y += 44.0 * u;
-    widgets::ghost(cv, f, Target::AddByAddress, x0, y, 44.0 * u, 15.0 * u, Some(Icon::Ethernet), tr("Avec une adresse", "With an address"), MUTED);
+    let bw = widgets::ghost(cv, f, Target::AddByAddress, x0, y, 44.0 * u, 15.0 * u, Some(Icon::Ethernet), tr("Avec une adresse", "With an address"), MUTED);
+    // Prêt de l'ordinateur : l'ordinateur d'un ami, avec le compte qu'il a créé pour vous (Admin, page « Prêt »).
+    widgets::ghost(cv, f, Target::AddFriend, x0 + bw + 12.0 * u, y, 44.0 * u, 15.0 * u, Some(Icon::Lend), tr("Avec un compte d'ami", "With a friend account"), MUTED);
 
     // Le code, à droite.
     let px = x0 + left_w + 40.0 * u;
@@ -270,6 +273,92 @@ fn mac(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f32) {
     }
     key(cv, f, Target::KeyErase, Rect::new(x0 + 5.0 * (kw + gap), y + 2.0 * (kh + gap), kw, kh), "⌫", u);
     primary(cv, f, Target::KeyOk, x0 + 6.0 * (kw + gap) + gap, y, kh, tr("Enregistrer", "Save"), false);
+}
+
+/// « Ajouter un ordinateur » › « Avec un compte d'ami » (prêt de l'ordinateur, docs/link-ui.md) : la Station du réseau,
+/// « Identifiant », « Mot de passe » (masqué), « Retenir le mot de passe », « Ajouter ». Au clavier ; à la manette, le
+/// pavé des lettres à droite. Un mot de passe redemandé pour « Emprunter » : l'ordinateur est déjà choisi, l'identifiant
+/// est donné, le bouton dit « Emprunter ».
+fn friend(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f32) {
+    let w = cv.w;
+    let console = app.layout.console();
+    let fr = &app.friend;
+    let editing = fr.editing.as_ref().and_then(|id| app.store.borrowed(id));
+    let mut y = y0;
+    if app.layout == Layout::Desktop {
+        back_button(cv, f, x0, y, u);
+        y += 56.0;
+    }
+    let left_w = if console { (w * 0.46).min(560.0 * u) } else { (w - 2.0 * x0).min(640.0) };
+    eyebrow(cv, x0, y + 12.0 * u, 12.0 * u, FAINT, tr("Ajouter un ordinateur", "Add a computer"));
+    let title = match editing {
+        Some(b) => b.title(),
+        None => tr("Avec un compte d'ami", "With a friend account").to_string(),
+    };
+    cv.text_shrink(x0 - 1.0, y + 58.0 * u, Text::new(Font::Display, 40.0 * u, FROST).tracking(-0.8 * u), &title, left_w + 80.0 * u);
+    y += 80.0 * u;
+    // La Station du réseau (celle de l'ami), quand il y a à choisir ; sinon son nom.
+    if editing.is_none() {
+        if app.found.is_empty() {
+            cv.text_fit(x0, y + 16.0 * u, Text::new(Font::Regular, 15.0 * u, FAINT), tr("Recherche des Stations sur ce réseau…", "Looking for Stations on this network…"), left_w);
+            y += 30.0 * u;
+        } else {
+            let items: Vec<(Target, String, bool, bool)> = app.found.iter().enumerate().take(4).map(|(i, s)| (Target::FriendStation(i), s.name.clone(), fr.station == i, false)).collect();
+            widgets::segments(cv, f, x0, y, 40.0 * u, 14.0 * u, &items);
+            y += 40.0 * u + 18.0 * u;
+        }
+    }
+    let blink = !app.reduce_motion && (app.screen_since.elapsed().as_millis() / 530) % 2 == 0;
+    let field = |cv: &mut Canvas, f: &mut Frame, t: Target, label: &str, value: &str, active: bool, y: f32, enabled: bool| {
+        eyebrow(cv, x0, y + 8.0 * u, 11.5 * u, FAINT, label);
+        let r = Rect::new(x0, y + 20.0 * u, left_w, 52.0 * u);
+        let (focused, hover) = if enabled { f.state(t, r) } else { (false, false) };
+        if focused {
+            widgets::ring(cv, r, 10.0 * u);
+        }
+        cv.rrect(r.x, r.y, r.w, r.h, 10.0 * u, if hover { INK_3 } else { INK_2 });
+        cv.rrect_stroke(r.x, r.y, r.w, r.h, 10.0 * u, if active { 1.5 } else { 1.0 }, if active { SPECTRE } else { LINE_2 });
+        let tw = cv.text_fit(r.x + 18.0 * u, r.y + r.h / 2.0 + 7.0 * u, Text::new(Font::Regular, 20.0 * u, if enabled { FROST } else { MUTED }), value, r.w - 40.0 * u);
+        if active && blink && !app.friend.busy {
+            cv.rect(r.x + 20.0 * u + tw, r.y + 13.0 * u, 2.0, r.h - 26.0 * u, SPECTRE);
+        }
+        20.0 * u + 52.0 * u + 16.0 * u
+    };
+    use crate::app::FriendField;
+    y += field(cv, f, Target::FriendLogin, tr("Identifiant", "Username"), &fr.login, fr.field == FriendField::Login && editing.is_none(), y, editing.is_none());
+    let dots: String = "•".repeat(fr.password.chars().count());
+    y += field(cv, f, Target::FriendPassword, tr("Mot de passe", "Password"), &dots, fr.field == FriendField::Password, y, true);
+    // « Retenir le mot de passe » : un interrupteur.
+    let rr = Rect::new(x0, y, left_w, 36.0 * u);
+    let (focused, _) = f.state(Target::FriendRemember, rr);
+    if focused {
+        widgets::ring(cv, rr, 8.0 * u);
+    }
+    widgets::toggle(cv, x0 + 6.0 * u, y + 7.0 * u, 22.0 * u, fr.remember, !fr.busy);
+    cv.text(x0 + 56.0 * u, y + 24.0 * u, Text::new(Font::Regular, 15.0 * u, FROST), tr("Retenir le mot de passe", "Remember password"));
+    y += 36.0 * u + 22.0 * u;
+    let label = if editing.is_some() { tr("Emprunter", "Borrow") } else { tr("Ajouter", "Add") };
+    let bw = widgets::primary_state(cv, f, Target::FriendGo, x0, y, 52.0 * u, label, false, !fr.busy);
+    let (mx, mid) = (x0 + bw + 24.0 * u, y + 26.0 * u);
+    if fr.busy {
+        let t = app.screen_since.elapsed().as_secs_f32();
+        let a0 = if app.reduce_motion { 0.0 } else { t * 4.0 };
+        let pts: Vec<(f32, f32)> = (0..=16)
+            .map(|i| {
+                let a = a0 + i as f32 * 0.28;
+                (mx + 9.0 * u + 8.0 * u * a.cos(), mid + 8.0 * u * a.sin())
+            })
+            .collect();
+        cv.polyline(&pts, 2.0 * u, SPECTRE);
+    } else if let Some(m) = &fr.message {
+        let style = Text::new(Font::Regular, 15.0 * u, WARN);
+        let width = (x0 + left_w + 100.0 * u - mx).max(160.0 * u);
+        cv.paragraph(mx, mid + 5.0 * u, style, m, width, 22.0 * u);
+    }
+    if console {
+        let px = x0 + left_w + 40.0 * u;
+        super::join::letter_pad(fr.shift, cv, f, px, y0 + 80.0 * u, w - px - x0, u);
+    }
 }
 
 pub(super) fn key(cv: &mut Canvas, f: &mut Frame, t: Target, r: Rect, label: &str, u: f32) {

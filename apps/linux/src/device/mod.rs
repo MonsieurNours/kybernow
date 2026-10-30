@@ -39,6 +39,7 @@ use kybernow_core::gamepads;
 use kybernow_core::input::{GamepadRumble, MouseMode, MouseModeRules};
 use kybernow_core::kynput_rs::MouseButtonType;
 use kybernow_core::latency;
+use kybernow_core::lend;
 use kybernow_core::profile::{Capabilities, StreamSettings};
 use kybernow_core::session::Status;
 use kybernow_core::share::{self, JoinRequest, ShareTarget};
@@ -71,7 +72,21 @@ pub enum Event {
         own_device: Option<bool>,
         /// Ce que « Partager » peut faire (KyberNow Share) ; `None` : pas de réponse d'Admin.
         share: Option<crate::app::ShareAvail>,
+        /// Ce que « Prêter l'ordinateur… » peut faire, et la vue du prêt quand il est activé ; `None` : pas de réponse.
+        lend: Option<crate::app::LendAvail>,
+        lend_view: Option<crate::app::LendHostView>,
     },
+    /// Prêt de l'ordinateur, ami : l'emprunt attend l'accord de l'hôte (son prénom).
+    BorrowPending { source: crate::app::BorrowSource, host: String },
+    /// Prêt de l'ordinateur, ami : le prêt accordé, ou le texte du refus.
+    Borrowed { source: crate::app::BorrowSource, result: Result<Box<lend::Loan>, String> },
+    /// Prêt de l'ordinateur, ami : l'état de l'ordinateur emprunté `id`.
+    LendStatus { id: String, live: crate::app::LendLive },
+    /// « Avec un compte d'ami » : l'ordinateur vérifié (à garder, son état, le mot de passe donné), ou le refus.
+    FriendAdded(Result<Box<(crate::model::Borrowed, crate::app::LendLive, String)>, String>),
+    /// Prêt de l'ordinateur, hôte : la vue du prêt après une demande à Admin (en session, sur l'accueil), ou le refus.
+    LendHost { session: SessionId, result: Result<crate::app::LendHostView, String> },
+    LendHome { host: String, result: Result<crate::app::LendHostView, String> },
     /// Le réveil est parti (au moins un paquet), ou pourquoi rien n'est parti.
     Woken { id: String, result: Result<(), String> },
     /// La réponse d'Admin à un redémarrage ou une mise à jour de la Station.
@@ -137,6 +152,12 @@ pub enum SessionEvent {
     /// Par le relais : la session finit parce que l'ordinateur n'est pas joignable hors de chez soi (accès coupé dans
     /// Admin, éteint ou en veille, relais muet), juste avant `Status::Ended`. Le texte se choisit par cette erreur.
     RelayError(kybernow_core::relay::RelayError),
+    /// Prêt de l'ordinateur, hôte : la vue du prêt du signe de vie, quand elle change (`None` : rien à dire).
+    Lend(Option<crate::app::LendHostView>),
+    /// Prêt de l'ordinateur, emprunt : le préavis de 2 minutes (son texte, l'heure de la fin).
+    LendNotice { text: String, at: u64 },
+    /// Prêt de l'ordinateur, emprunt : le prêt finit la session (son texte, vide pour l'ordinateur rendu).
+    LendEnd(String),
 }
 
 /// Règles de la souris Auto : le jeu doit aussi cacher son pointeur (comme Mac et Windows).
@@ -981,6 +1002,13 @@ pub fn run(args: &[String]) {
                     last_poll = Instant::now();
                     for h in &app.store.hosts {
                         jobs::poll(h.clone(), !app.images.contains_key(&h.id), tx.clone());
+                    }
+                    // Les ordinateurs empruntés : leur état (« Disponible », « Occupé »…), avec le mot de passe connu.
+                    for b in &app.store.borrowed {
+                        let password = if b.remember { b.password.clone() } else { app.lend_passwords.get(&b.id).cloned().unwrap_or_default() };
+                        if !password.is_empty() && !(app.borrow.busy && app.borrow.id == b.id) {
+                            jobs::lend_poll(b.clone(), password, tx.clone());
+                        }
                     }
                 }
             } else if app.multi_sessions() {
@@ -2252,7 +2280,7 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
 #[allow(clippy::too_many_arguments)]
 fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, wins: &mut Wins, actions: &mut Vec<Action>, pairing: &mut Vec<Arc<AtomicBool>>, tx: &Sender<Event>) {
     match e {
-        Event::HostInfo { id, online, away, relay, os, gpu, av1, virtual_display, max_screens, station, wake, own_device, share } => {
+        Event::HostInfo { id, online, away, relay, os, gpu, av1, virtual_display, max_screens, station, wake, own_device, share, lend, lend_view } => {
             let entry = app.live.entry(id.clone()).or_insert_with(HostLive::default);
             entry.online = if online {
                 Online::Online
@@ -2267,6 +2295,8 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, lives: &mut Live
                 entry.station = station;
                 entry.own_device = own_device;
                 entry.share = share;
+                entry.lend = lend;
+                entry.lend_view = lend_view;
                 // Le réveil a marché : l'ordinateur répond.
                 if app.waking.as_ref().is_some_and(|(w, _)| *w == id) {
                     app.waking = None;
@@ -2344,11 +2374,50 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, lives: &mut Live
                 connect_guest(app, lives, wins, tx, found);
             }
             Ok(found) => jobs::share_leave(found),
+            // Prêt de l'ordinateur : le code est celui d'un prêt. L'app emprunte avec l'écran de l'appareil et le prénom
+            // donné (« Préparation de l'ordinateur… »).
+            Err(share::ShareError::Lend(c)) => {
+                if app.join_lending(attempt) {
+                    let c = *c;
+                    let request = jobs::borrow_request(lend::LendCredentials::Code { code: c.code.clone() }, app.join.name.trim().to_string(), app.store.device_id.clone(), borrow_screen(app), app.machine.hw_av1);
+                    jobs::borrow(crate::app::BorrowSource::Code { attempt }, c.target, c.route, request, tx.clone());
+                }
+            }
             Err(e) => {
                 log::info!("partage : {e}");
                 app.join_failed(attempt, e.to_string());
             }
         },
+        // Prêt de l'ordinateur, ami : « En attente de {hôte}… » ; un emprunt abandonné entre-temps retire sa demande.
+        Event::BorrowPending { source, host } => {
+            if app.borrow_current(&source) {
+                app.borrow_pending(&source, &host);
+            } else {
+                jobs::borrow_cancel();
+            }
+        }
+        // Le prêt est accordé : la session d'emprunt s'ouvre si l'emprunt est toujours celui de l'écran ; sinon
+        // l'ordinateur est rendu tout de suite.
+        Event::Borrowed { source, result } => match result {
+            Ok(loan) if app.borrow_current(&source) => {
+                app.borrow_done(&source);
+                connect_borrower(app, lives, wins, tx, *loan, source);
+            }
+            Ok(loan) => jobs::borrow_leave(*loan),
+            Err(e) => app.borrow_failed(&source, e),
+        },
+        Event::LendStatus { id, live } => {
+            app.lend_live.insert(id, live);
+        }
+        Event::FriendAdded(result) => match result {
+            Ok(b) => {
+                let (b, live, password) = *b;
+                actions.extend(app.friend_added(b, live, password));
+            }
+            Err(e) => app.friend_failed(e),
+        },
+        Event::LendHost { session, result } => app.lend_reply(session, result),
+        Event::LendHome { host, result } => app.lend_home_reply(&host, result),
         // La demande attend l'hôte : « En attente de l'accord de l'hôte… ». Une recherche abandonnée entre-temps
         // retire sa demande aussitôt.
         Event::SharePending { attempt } => {
@@ -2529,14 +2598,21 @@ fn session_event(id: SessionId, e: SessionEvent, app: &mut App, pads: &mut pads:
                 }
             }
             if finished {
+                // Un emprunt rendu : « Vous avez rendu l'ordinateur. », en avis sur l'accueil qui revient.
+                let said = s.borrow.as_ref().and_then(|b| b.end_text.clone());
                 // Fin sans erreur : la session sort de la liste, sa fenêtre se ferme ; la dernière ramène l'accueil.
                 app.close_session(id);
                 if app.sessions.is_empty() {
                     app.go(Screen::Home);
                 }
+                if let Some(t) = said {
+                    app.toast(t);
+                }
             } else if failed && is_active {
                 app.screen = Screen::Session;
-                app.focus = Target::Back;
+                // Un emprunt fini sans le prêt (réseau perdu) : « Revenir » d'abord.
+                let come_back = app.session_by(id).and_then(|s| s.borrow.as_ref()).is_some_and(|b| !b.ended_by_lend);
+                app.focus = if come_back { Target::ComeBack } else { Target::Back };
             }
         }
         SessionEvent::Mode(m) => {
@@ -2646,6 +2722,13 @@ fn session_event(id: SessionId, e: SessionEvent, app: &mut App, pads: &mut pads:
             if let Some(s) = app.session_by_mut(id) {
                 s.route = Some(route);
             }
+        }
+        // Prêt de l'ordinateur : la vue du prêt de l'hôte ; le préavis et la fin d'un emprunt.
+        SessionEvent::Lend(view) => app.lend_changed(id, view),
+        SessionEvent::LendNotice { text, at } => app.lend_notice(id, text, at),
+        SessionEvent::LendEnd(text) => {
+            log::info!("prêt : fin de l'emprunt ({text})");
+            app.lend_ended(id, text);
         }
         // La session finit faute de joindre l'ordinateur par le relais : gardé pour le texte de la fin, qui suit.
         SessionEvent::RelayError(e) => {
@@ -3004,7 +3087,42 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, w
             if !sdl::set_clipboard(&text)
                 && let Some(s) = app.session_mut()
             {
-                s.share_copied = Some((Instant::now(), false));
+                if s.lend_overlay() {
+                    s.lend_copied = Some((Instant::now(), false));
+                } else {
+                    s.share_copied = Some((Instant::now(), false));
+                }
+            }
+        }
+        // Prêt de l'ordinateur, ami : emprunter l'ordinateur emprunté (compte d'ami), sur le réseau.
+        Action::Borrow { id, password } => {
+            let Some(b) = app.store.borrowed(&id).cloned() else { return };
+            let target = ShareTarget { host: b.address.clone(), port: b.port, fingerprint: b.fingerprint.clone() };
+            let name = if app.store.app.share_name.trim().is_empty() { app.device_name.clone() } else { app.store.app.share_name.trim().to_string() };
+            let request = jobs::borrow_request(lend::LendCredentials::Account { login: b.login.clone(), password }, name, app.store.device_id.clone(), borrow_screen(app), app.machine.hw_av1);
+            jobs::borrow(app.borrow_source(), target, None, request, tx.clone());
+        }
+        Action::BorrowCancel => jobs::borrow_cancel(),
+        Action::ComeBack(source) => jobs::come_back(source, tx.clone()),
+        Action::GiveBack(id) => {
+            if let Some(l) = lives.get(id) {
+                if let Some(p) = l.handle.shared.current_input() {
+                    p.release_all();
+                }
+                l.handle.session.give_back();
+            }
+        }
+        Action::FriendAdd { address, port, fingerprint, login, password, remember, editing } => jobs::friend_add(address, port, fingerprint, login, password, remember, editing, tx.clone()),
+        Action::Lend(id, op) => {
+            let host = lives.get(id).and_then(|l| app.store.host(&l.host)).cloned();
+            match host {
+                Some(h) => jobs::lend_host(id, h, op, tx.clone()),
+                None => app.lend_reply(id, Err(tr("L'ordinateur n'est plus dans la liste de cet appareil.", "The computer is no longer in this device's list.").into())),
+            }
+        }
+        Action::LendHome { host, op } => {
+            if let Some(h) = app.store.host(&host).cloned() {
+                jobs::lend_home(h, op, tx.clone());
             }
         }
         Action::TextInput => unsafe { sdl::SDL_StartTextInput() },
@@ -3036,13 +3154,58 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, w
 /// fenêtre sont ceux des deux aides du cœur (`screens_for_extra_session`, `extra_session_window`). Elle est
 /// inscrite au registre et devient la session active. Le même ordinateur deux fois : sa fenêtre passe devant.
 fn connect(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<Event>, host: &str, profile: crate::model::Profile) {
-    open_session(app, lives, wins, tx, host, profile, None);
+    open_session(app, lives, wins, tx, host, profile, None, None);
 }
 
 /// Ouvre la session d'invité d'un partage (KyberNow Share) : elle compte comme une session de plus (quatre au
 /// plus, une fenêtre chacune, le registre du cœur). Sans place pour elle, l'invité repart de la Station.
 fn connect_guest(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<Event>, found: share::Found) {
-    open_session(app, lives, wins, tx, "", crate::model::Profile::Jeu, Some(found));
+    open_session(app, lives, wins, tx, "", crate::model::Profile::Jeu, Some(found), None);
+}
+
+/// Ouvre la session d'emprunt d'un prêt accordé (prêt de l'ordinateur) : comme une session d'invité, une session de plus
+/// sur l'ordinateur d'un ami, sans réglages ni presse-papiers. Sans place pour elle, l'ordinateur est rendu.
+fn connect_borrower(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<Event>, loan: lend::Loan, source: crate::app::BorrowSource) {
+    open_session(app, lives, wins, tx, "", crate::model::Profile::Jeu, None, Some((loan, source)));
+}
+
+/// L'écran de cet appareil pour un emprunt : la Station fait l'écran virtuel à sa taille (définition et fréquence de
+/// l'écran de la fenêtre).
+fn borrow_screen(app: &App) -> (u32, u32, u32) {
+    (app.machine.display.0, app.machine.display.1, app.machine.refresh.max(30))
+}
+
+/// Une session qui ne s'ouvre pas (plus de place, pas de fenêtre) : l'invité repart du partage, l'emprunteur rend
+/// l'ordinateur.
+fn give_up(guest: Option<share::Found>, loan: Option<(lend::Loan, crate::app::BorrowSource)>) {
+    if let Some(found) = guest {
+        jobs::share_leave(found);
+    }
+    if let Some((l, _)) = loan {
+        jobs::borrow_leave(l);
+    }
+}
+
+/// Le « ordinateur » d'une session d'emprunt : une enveloppe (« Ordinateur de {hôte} », la Station de l'ami, réglages
+/// par défaut sans presse-papiers) que la session lit comme celle d'un ordinateur ; jamais dans le magasin.
+fn borrower_host(loan: &lend::Loan, key: &str) -> crate::model::Host {
+    crate::model::Host {
+        id: key.into(),
+        name: crate::model::borrowed_title(loan.borrowed.host_name()),
+        address: loan.target.host.clone(),
+        port: loan.target.port,
+        fingerprint: loan.target.fingerprint.clone(),
+        user: String::new(),
+        password: String::new(),
+        os: None,
+        gpu: None,
+        av1: false,
+        mac: None,
+        wake: Vec::new(),
+        relay: None,
+        settings: crate::model::HostSettings { clipboard: false, ..crate::model::HostSettings::default() },
+        last: None,
+    }
 }
 
 /// « Auto » (KyberNow Share, invité) : ce que l'appareil sait afficher et décoder, que la Station reçoit avec le code
@@ -3080,8 +3243,10 @@ fn guest_host(found: &share::Found, title: &str) -> crate::model::Host {
 
 /// Une session de plus : celle d'un ordinateur de l'appareil (`found` nul), ou celle d'un invité.
 #[allow(clippy::too_many_arguments)]
-fn open_session(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<Event>, host: &str, profile: crate::model::Profile, guest: Option<share::Found>) {
-    if guest.is_none()
+fn open_session(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<Event>, host: &str, profile: crate::model::Profile, guest: Option<share::Found>, loan: Option<(lend::Loan, crate::app::BorrowSource)>) {
+    // Une session sur l'ordinateur de quelqu'un d'autre (invité d'un partage, emprunt) : ni réglages, ni écrans de plus.
+    let visitor = guest.is_some() || loan.is_some();
+    if !visitor
         && let Some(id) = app.session_of_host(host).map(|s| s.id)
     {
         show_session(app, lives, wins, id);
@@ -3090,14 +3255,18 @@ fn open_session(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<E
     let first = app.sessions.is_empty();
     // Le Steam Deck, le salon et KyberNow Link OS gardent une session ; quatre ordinateurs au plus.
     if !first && (!app.multi_sessions() || app.sessions_full()) {
-        if let Some(found) = guest {
-            jobs::share_leave(found);
-        }
+        give_up(guest, loan);
         return;
     }
     let guest_title = guest.as_ref().map(|f| crate::app::guest_title(f.joined.computer.trim()));
-    let h = match (&guest, &guest_title) {
-        (Some(f), Some(title)) => guest_host(f, title),
+    // La clé d'une session d'emprunt : l'ordinateur emprunté (compte d'ami), sinon le prêt.
+    let borrow_key = loan.as_ref().map(|(l, src)| match src {
+        crate::app::BorrowSource::Account { id, .. } => id.clone(),
+        crate::app::BorrowSource::Code { .. } => format!("lend:{}", l.borrowed.lend),
+    });
+    let h = match (&guest, &guest_title, &loan, &borrow_key) {
+        (Some(f), Some(title), _, _) => guest_host(f, title),
+        (_, _, Some((l, _)), Some(key)) => borrower_host(l, key),
         _ => {
             let Some(h) = app.store.host(host).cloned() else { return };
             h
@@ -3116,14 +3285,14 @@ fn open_session(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<E
     let codec = app.codec_for(&h);
     let device = device_info(app);
     // Un invité n'a ni batterie à ménager, ni souris des jeux d'office, ni écran virtuel : l'écran est celui de l'hôte.
-    let light = guest.is_none() && h.settings.battery_light && app.machine.on_battery();
-    let relative = guest.is_none() && h.settings.mouse == "game";
-    let virtual_display = guest.is_none() && h.settings.virtual_display;
+    let light = !visitor && h.settings.battery_light && app.machine.on_battery();
+    let relative = !visitor && h.settings.mouse == "game";
+    let virtual_display = !visitor && h.settings.virtual_display;
     // Multi-écrans (interface de bureau) : le cœur reçoit les écrans de l'appareil et décide du nombre
     // d'écrans (son calcul, sur les réglages du flux) ; sans (Steam Deck, salon, KyberNow Link OS), une
     // session à un écran. Une session de plus : les mêmes écrans réduits à « Cet écran » par le cœur, et sa
     // fenêtre.
-    let all = (first && app.multi_screens() && guest.is_none() || !first).then(|| {
+    let all = (first && app.multi_screens() && !visitor || !first).then(|| {
         let capabilities = session::capabilities(&h, codec, &app.machine);
         screens::core_screens(&devices, window_screen, &h, station_screens(app, &h), capabilities, app.machine.on_battery())
     });
@@ -3134,9 +3303,7 @@ fn open_session(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<E
         None
     } else {
         let Some(w) = base.as_ref().and_then(|b| b.list.get(b.current).or_else(|| b.list.first())).map(kybernow_core::screens::extra_session_window) else {
-            if let Some(found) = guest {
-                jobs::share_leave(found);
-            }
+            give_up(guest, loan);
             return;
         };
         Some(w)
@@ -3144,6 +3311,8 @@ fn open_session(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<E
     // Le mode : celui de l'écran de la fenêtre, ou, pour une session de plus, la surface de sa fenêtre.
     let surface = extra_window.map(|w| ((w.mode.width, w.mode.height), w.mode.refresh));
     let first_mode = match (&guest, surface) {
+        // Un emprunt : l'écran virtuel que la Station a fait à la taille de cet appareil.
+        _ if loan.is_some() => loan.as_ref().map(|(l, _)| (l.borrowed.display.width, l.borrowed.display.height, l.borrowed.display.refresh)).unwrap_or_default(),
         // Un invité : l'écran du partage (celui de l'hôte), dans la fenêtre qu'il a.
         (Some(f), _) => (f.joined.display.width, f.joined.display.height, f.joined.display.refresh),
         (None, Some((display, refresh))) => app.mode_for(&h, display, refresh),
@@ -3152,7 +3321,7 @@ fn open_session(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<E
     // Les réglages du flux : ceux que reçoivent la Station et le calcul du nombre d'écrans.
     let settings = session::settings(&h, profile, codec, first_mode, &app.machine, light);
     // Un invité n'a jamais plusieurs écrans : l'écran du partage, un seul.
-    let plan = if guest.is_some() { None } else { base.as_ref().and_then(|b| screens::session_plan(b, &settings, virtual_display)) };
+    let plan = if visitor { None } else { base.as_ref().and_then(|b| screens::session_plan(b, &settings, virtual_display)) };
     // « Cet écran » est celui où se trouve la fenêtre pendant la session : avec plusieurs écrans,
     // elle passe en plein écran sur l'écran principal, et c'est là que le cœur la met (l'écran de
     // la session à un écran où le profil changé la ramènerait, et son mode), comme sur Mac, qui
@@ -3181,15 +3350,13 @@ fn open_session(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<E
                     Some(win)
                 }
                 None => {
-                    if let Some(found) = guest {
-                        jobs::share_leave(found);
-                    }
+                    give_up(guest, loan);
                     return;
                 }
             }
         }
     };
-    let handle = session::start(id, &h, settings.clone(), mode, &app.machine, relative, device, if guest.is_some() { None } else { base.clone() }, current, guest.as_ref(), tx.clone());
+    let handle = session::start(id, &h, settings.clone(), mode, &app.machine, relative, device, if visitor { None } else { base.clone() }, current, guest.as_ref(), loan.as_ref().map(|(l, _)| l), tx.clone());
     // Le registre du cœur : quatre au plus, et la session devient active. Refusée (il n'en reste pas de
     // place : l'interface l'aurait déjà grisé), elle s'arrête et sa fenêtre se ferme.
     let focus_id = match focus::register(&handle.session, &h.name) {
@@ -3218,6 +3385,12 @@ fn open_session(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<E
             }
             ui
         }
+        // Un emprunt : « Prêté par {hôte} », la fin prévue ; « Revenir » refera le même emprunt.
+        None if loan.is_some() => {
+            let (l, source) = loan.as_ref().expect("emprunt");
+            let b = crate::app::BorrowSessionUi::new(l.borrowed.host_name(), &l.borrowed.computer, l.borrowed.until, source.clone());
+            SessionUi::borrower(id, &h.id, b)
+        }
         None => SessionUi::new(id, &h.id, &h.name, profile, light, relative, plan.as_ref().map_or(1, Vec::len)),
     };
     ui.fullscreen = first && app.fullscreen;
@@ -3226,7 +3399,7 @@ fn open_session(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<E
         handle,
         focus: focus_id,
         host: h.id.clone(),
-        guest: guest.is_some(),
+        guest: visitor,
         surface,
         followed: current,
         pointers: HashMap::new(),
@@ -3255,9 +3428,9 @@ fn open_session(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<E
         shown: None,
         snapshot: None,
         snapshot_at: None,
-        multi: guest.is_none() && base.is_some(),
+        multi: !visitor && base.is_some(),
         devices,
-        screens_base: if guest.is_some() { None } else { base },
+        screens_base: if visitor { None } else { base },
         settings,
         virtual_display,
         screens: 1,
@@ -3292,7 +3465,7 @@ fn open_session(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<E
     }
     // Le clavier n'est saisi que pour une session qui l'envoie : un invité arrive en spectateur (rien à envoyer),
     // Alt+Tab et les raccourcis du système restent au système ; l'hôte lui donne le clavier plus tard (`ShareRole`).
-    if first && guest.is_none() && (app.fullscreen || app.layout.console()) {
+    if first && !visitor && (app.fullscreen || app.layout.console()) {
         unsafe { sdl::SDL_SetWindowKeyboardGrab(wins.app().window, 1) };
     }
     log::info!(
@@ -3311,7 +3484,7 @@ fn open_session(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<E
     // Le presse-papiers de l'appareil est déjà dans la nouvelle session : elle l'annoncera à son ordinateur.
     focus::sync_clipboards(lives);
     // « Partager » dans la barre sait ce que l'ordinateur permet : Admin est relu une fois la session partie.
-    if guest.is_none() {
+    if !visitor {
         jobs::poll(h, false, tx.clone());
     }
 }

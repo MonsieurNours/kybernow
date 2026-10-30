@@ -31,6 +31,8 @@ pub enum Icon {
     Close,
     /// Partager : trois points reliés (KyberNow Share).
     Share,
+    /// Prêter l'ordinateur : une clé (KyberNow Share, prêt).
+    Lend,
 }
 
 impl Icon {
@@ -65,6 +67,7 @@ impl Icon {
             Icon::Refresh => (&["M20 11 Q19 5 12.5 4.5 Q7 4.5 5 9", "M4 13 Q5 19 11.5 19.5 Q17 19.5 19 15", "M20 5 V11 H14", "M4 19 V13 H10"], &[], &[]),
             Icon::Close => (&["M6 6 L18 18", "M18 6 L6 18"], &[], &[]),
             Icon::Share => (&["M8.4 10.8 L15.6 6.4", "M8.4 13.2 L15.6 17.6"], &[(6.0, 12.0, 2.6), (18.0, 5.2, 2.6), (18.0, 18.8, 2.6)], &[]),
+            Icon::Lend => (&["M11.5 12 H21", "M18 12 V15.5", "M14.8 12 V14.5"], &[(7.5, 12.0, 4.0)], &[]),
         }
     }
 
