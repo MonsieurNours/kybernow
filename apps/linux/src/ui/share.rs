@@ -103,7 +103,8 @@ pub fn overlay(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
 }
 
 /// Le cercle d'attente du panneau (une demande à Admin, le lien du relais en préparation), centré sur (`cx`, `cy`).
-fn wait_ring(cv: &mut Canvas, app: &App, cx: f32, cy: f32, radius: f32, stroke: f32) {
+/// Celui du panneau du prêt aussi.
+pub(super) fn wait_ring(cv: &mut Canvas, app: &App, cx: f32, cy: f32, radius: f32, stroke: f32) {
     let t = app.screen_since.elapsed().as_secs_f32();
     let a0 = if app.reduce_motion { 0.0 } else { t * 5.0 };
     let pts: Vec<(f32, f32)> = (0..=14)
@@ -113,6 +114,35 @@ fn wait_ring(cv: &mut Canvas, app: &App, cx: f32, cy: f32, radius: f32, stroke: 
         })
         .collect();
     cv.polyline(&pts, stroke, SPECTRE);
+}
+
+/// Le QR code du lien des apps en (`x`, `y`), de côté `side` ; le lien du relais en préparation, le cercle d'attente à
+/// sa place (le partage et le code de prêt).
+#[allow(clippy::too_many_arguments)]
+pub(super) fn qr_or_wait(cv: &mut Canvas, app: &App, link: &str, preparing: bool, x: f32, y: f32, side: f32, u: f32) {
+    if preparing {
+        cv.rrect_stroke(x, y, side, side, 8.0, 1.0, LINE_2);
+        wait_ring(cv, app, x + side / 2.0, y + side / 2.0, 12.0 * u, 2.2 * u);
+    } else {
+        widgets::qr_card(cv, link, x, y, side);
+    }
+}
+
+/// Sous l'aide : « Préparation du lien hors de chez vous… » avec le cercle d'attente, ou « Pas encore joignable hors
+/// de chez vous. » (le partage et le code de prêt) ; rend la hauteur dessinée (17 points par ligne).
+#[allow(clippy::too_many_arguments)]
+pub(super) fn relay_lines(cv: &mut Canvas, app: &App, wait: Option<&str>, down: Option<&str>, x: f32, y: f32, inner: f32, u: f32) -> f32 {
+    let mut h = 0.0;
+    if let Some(t) = wait {
+        wait_ring(cv, app, x + 6.0 * u, y + 11.5 * u, 5.0 * u, 1.6 * u);
+        cv.text_fit(x + 18.0 * u, y + 16.0 * u, Text::new(Font::Regular, 12.5 * u, MUTED), t, inner - 18.0 * u);
+        h += 17.0 * u;
+    }
+    if let Some(t) = down {
+        cv.text_fit(x, y + h + 16.0 * u, Text::new(Font::Regular, 12.5 * u, WARN), t, inner);
+        h += 17.0 * u;
+    }
+    h
 }
 
 /// Le contenu du panneau, dans `r` ; rend la hauteur dessinée (celle de `height`).
@@ -179,13 +209,7 @@ fn card(cv: &mut Canvas, f: &mut Frame, app: &App, s: &SessionUi, r: Rect, u: f3
     {
         cv.text_fit(x, y + 112.0 * u, Text::new(Font::Regular, 11.5 * u, WARN), tr("Copie impossible : sélectionnez le lien à la main.", "Could not copy: select the link by hand."), lw);
     }
-    if preparing {
-        let (qx, qy, side) = (r.x + r.w - pad - qr, y + 4.0 * u, qr - 8.0 * u);
-        cv.rrect_stroke(qx, qy, side, side, 8.0, 1.0, LINE_2);
-        wait_ring(cv, app, qx + side / 2.0, qy + side / 2.0, 12.0 * u, 2.2 * u);
-    } else {
-        widgets::qr_card(cv, &v.link, r.x + r.w - pad - qr, y + 4.0 * u, qr - 8.0 * u);
-    }
+    qr_or_wait(cv, app, &v.link, preparing, r.x + r.w - pad - qr, y + 4.0 * u, qr - 8.0 * u, u);
     y += qr + 14.0 * u;
     // L'adresse du client web, en clair : à taper dans un navigateur, ou à sélectionner si la copie a échoué.
     if !preparing {
@@ -193,17 +217,9 @@ fn card(cv: &mut Canvas, f: &mut Frame, app: &App, s: &SessionUi, r: Rect, u: f3
     }
     y += 18.0 * u;
     y += cv.paragraph(x, y + 4.0 * u, Text::new(Font::Regular, 12.5 * u, FAINT), v.help(), inner, 17.0 * u);
-    // Le lien du relais se prépare : le cercle d'attente et la ligne, sous l'aide du même réseau.
-    if let Some(t) = v.relay_wait_text() {
-        wait_ring(cv, app, x + 6.0 * u, y + 11.5 * u, 5.0 * u, 1.6 * u);
-        cv.text_fit(x + 18.0 * u, y + 16.0 * u, Text::new(Font::Regular, 12.5 * u, MUTED), t, inner - 18.0 * u);
-        y += 17.0 * u;
-    }
-    // Le relais est réglé mais ne répond pas : sous l'aide du même réseau.
-    if let Some(t) = v.relay_down_text() {
-        cv.text_fit(x, y + 16.0 * u, Text::new(Font::Regular, 12.5 * u, WARN), t, inner);
-        y += 17.0 * u;
-    }
+    // Le lien du relais se prépare (le cercle d'attente et la ligne), ou le relais est réglé mais ne répond pas : sous
+    // l'aide du même réseau.
+    y += relay_lines(cv, app, v.relay_wait_text(), v.relay_down_text(), x, y, inner, u);
     y += 12.0 * u;
 
     // Les demandes (invités venus par le relais), au-dessus des invités, seulement s'il y en a : « {prénom} demande à

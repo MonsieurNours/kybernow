@@ -278,7 +278,8 @@ fn mac(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f32) {
 /// « Ajouter un ordinateur » › « Avec un compte d'ami » (prêt de l'ordinateur, docs/link-ui.md) : la Station du réseau,
 /// « Identifiant », « Mot de passe » (masqué), « Retenir le mot de passe », « Ajouter ». Au clavier ; à la manette, le
 /// pavé des lettres à droite. Un mot de passe redemandé pour « Emprunter » : l'ordinateur est déjà choisi, l'identifiant
-/// est donné, le bouton dit « Emprunter ».
+/// est donné, « Entrez votre mot de passe pour emprunter. », le bouton dit « Emprunter ». Un lien d'invitation : sa
+/// Station (son adresse, pas de choix), l'identifiant rempli, le titre « {hôte} vous prête son ordinateur. ».
 fn friend(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f32) {
     let w = cv.w;
     let console = app.layout.console();
@@ -291,14 +292,26 @@ fn friend(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f32) {
     }
     let left_w = if console { (w * 0.46).min(560.0 * u) } else { (w - 2.0 * x0).min(640.0) };
     eyebrow(cv, x0, y + 12.0 * u, 12.0 * u, FAINT, tr("Ajouter un ordinateur", "Add a computer"));
-    let title = match editing {
-        Some(b) => b.title(),
-        None => tr("Avec un compte d'ami", "With a friend account").to_string(),
+    let title = match (editing, &fr.invite) {
+        (Some(b), _) => b.title(),
+        (None, Some(inv)) => inv.title(),
+        (None, None) => tr("Avec un compte d'ami", "With a friend account").to_string(),
     };
-    cv.text_shrink(x0 - 1.0, y + 58.0 * u, Text::new(Font::Display, 40.0 * u, FROST).tracking(-0.8 * u), &title, left_w + 80.0 * u);
+    // Le titre a toute la largeur (« {hôte} vous prête son ordinateur. ») : à la manette, le pavé commence dessous.
+    let title_w = w - 2.0 * x0;
+    cv.text_shrink(x0 - 1.0, y + 58.0 * u, Text::new(Font::Display, 40.0 * u, FROST).tracking(-0.8 * u), &title, title_w);
     y += 80.0 * u;
+    if editing.is_some() {
+        // Le mot de passe n'est pas retenu : il est redemandé à « Emprunter ».
+        cv.text_fit(x0, y + 12.0 * u, Text::new(Font::Regular, 15.0 * u, MUTED), tr("Entrez votre mot de passe pour emprunter.", "Enter your password to borrow."), left_w);
+        y += 30.0 * u;
+    } else if let Some(inv) = &fr.invite {
+        // Le lien d'invitation donne la Station : son adresse, rien à choisir.
+        cv.text_fit(x0, y + 12.0 * u, Text::new(Font::Mono, 13.0 * u, FAINT), &format!("{}:{}", inv.address, inv.port), left_w);
+        y += 30.0 * u;
+    }
     // La Station du réseau (celle de l'ami), quand il y a à choisir ; sinon son nom.
-    if editing.is_none() {
+    if editing.is_none() && fr.invite.is_none() {
         if app.found.is_empty() {
             cv.text_fit(x0, y + 16.0 * u, Text::new(Font::Regular, 15.0 * u, FAINT), tr("Recherche des Stations sur ce réseau…", "Looking for Stations on this network…"), left_w);
             y += 30.0 * u;

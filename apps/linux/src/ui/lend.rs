@@ -6,12 +6,16 @@
 //! (« {prénom} veut emprunter l'ordinateur. », « Accepter », « Refuser », « Votre session va se fermer. ») ;
 //! l'avertissement de confiance jusqu'au premier code. Au bureau, un menu de la barre sous le bouton « Prêter
 //! l'ordinateur… » ; à la manette, un panneau par-dessus l'image (B le ferme). Le prêt impossible (Station trop
-//! ancienne, prêt coupé dans Admin) : le panneau se réduit à la raison.
+//! ancienne, prêt coupé dans Admin, prêt pas possible sur cet ordinateur) : le panneau se réduit à la raison. Le lien
+//! du relais du code se prépare comme celui du partage (« Préparation du lien hors de chez vous… », « Copier le lien »
+//! et le QR code retenus `RELAY_LINK_WAIT` au plus, puis « Pas encore joignable hors de chez vous. ») : mêmes dessins
+//! que le panneau du partage (`share::qr_or_wait`, `share::relay_lines`).
 
 use std::time::Duration;
 
 use super::canvas::{Canvas, Font, Rgba, Text};
 use super::icons::Icon;
+use super::share::{qr_or_wait, relay_lines, wait_ring};
 use super::theme::*;
 use super::widgets::{self, eyebrow, legend};
 use super::{unit, Frame};
@@ -72,9 +76,13 @@ fn height(cv: &mut Canvas, app: &App, s: &SessionUi, w: f32, u: f32) -> f32 {
             }
             h += 2.0 * (22.0 * u + 36.0 * u + 14.0 * u) + 48.0 * u + 12.0 * u;
         }
-        Some(_) => {
+        Some(c) => {
             h += QR * u + 14.0 * u + 18.0 * u + 18.0 * u;
             h += lines(cv, tr(HELP.0, HELP.1), 12.5 * u, inner) * 17.0 * u;
+            // Lien du relais en préparation, ou relais réglé mais injoignable : une ligne sous l'aide.
+            if c.relay_wait_text().is_some() || c.relay_down_text().is_some() {
+                h += 17.0 * u;
+            }
             h += lines(cv, tr(CLOSES.0, CLOSES.1), 12.5 * u, inner) * 17.0 * u + 12.0 * u;
             h += FOOT * u;
         }
@@ -133,18 +141,6 @@ pub fn overlay(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     legend(cv, lx, gy, g, &["B"], tr("Retour", "Back"));
 }
 
-/// Le cercle d'attente d'une demande à Admin.
-fn wait_ring(cv: &mut Canvas, app: &App, cx: f32, cy: f32, radius: f32, stroke: f32) {
-    let t = app.screen_since.elapsed().as_secs_f32();
-    let a0 = if app.reduce_motion { 0.0 } else { t * 5.0 };
-    let pts: Vec<(f32, f32)> = (0..=14)
-        .map(|i| {
-            let a = a0 + i as f32 * 0.32;
-            (cx + radius * a.cos(), cy + radius * a.sin())
-        })
-        .collect();
-    cv.polyline(&pts, stroke, SPECTRE);
-}
 
 /// Le contenu du panneau, dans `r`.
 fn card(cv: &mut Canvas, f: &mut Frame, app: &App, s: &SessionUi, r: Rect, u: f32) {
@@ -207,7 +203,12 @@ fn card(cv: &mut Canvas, f: &mut Frame, app: &App, s: &SessionUi, r: Rect, u: f3
             let lw = inner - qr - 22.0 * u;
             eyebrow(cv, x, y + 12.0 * u, 10.5 * u, FAINT, tr("Code", "Code"));
             cv.text(x - 1.0, y + 50.0 * u, Text::new(Font::MonoMedium, 36.0 * u, CORE), &format_code(&c.code));
-            if desktop {
+            // Le lien du relais en préparation : « Copier le lien » inactif, le cercle d'attente à la place du QR code,
+            // l'adresse du réseau pas encore montrée (`RELAY_LINK_WAIT` au plus), comme le partage.
+            let preparing = c.relay_preparing();
+            if desktop && preparing {
+                widgets::ghost_inactive(cv, x, y + 62.0 * u, 28.0 * u, 12.5 * u, tr("Copier le lien", "Copy link"));
+            } else if desktop {
                 let bw = widgets::ghost(cv, f, Target::LendCopy, x, y + 62.0 * u, 28.0 * u, 12.5 * u, None, tr("Copier le lien", "Copy link"), MUTED);
                 if let Some((at, ok)) = s.lend_copied
                     && at.elapsed() < Duration::from_secs(4)
@@ -223,18 +224,23 @@ fn card(cv: &mut Canvas, f: &mut Frame, app: &App, s: &SessionUi, r: Rect, u: f3
             // La durée et le compte Steam du code, sous le code.
             let meta = format!("{} · {}", lend_duration_label(c.duration), c.steam.label());
             cv.text_fit(x, y + if desktop { 112.0 } else { 80.0 } * u, Text::new(Font::Regular, 12.0 * u, FAINT), &meta, lw);
-            widgets::qr_card(cv, &c.link, r.x + r.w - pad - qr, y + 4.0 * u, qr - 8.0 * u);
+            qr_or_wait(cv, app, &c.link, preparing, r.x + r.w - pad - qr, y + 4.0 * u, qr - 8.0 * u, u);
             y += qr + 14.0 * u;
-            cv.text_fit(x, y + 4.0 * u, Text::new(Font::Mono, 11.0 * u, FAINT), &c.web, inner);
+            if !preparing {
+                cv.text_fit(x, y + 4.0 * u, Text::new(Font::Mono, 11.0 * u, FAINT), &c.web, inner);
+            }
             y += 18.0 * u;
             cv.text_fit(x, y + 4.0 * u, Text::new(Font::Regular, 12.5 * u, MUTED), tr(ONE_SESSION.0, ONE_SESSION.1), inner);
             y += 18.0 * u;
             y += cv.paragraph(x, y + 4.0 * u, Text::new(Font::Regular, 12.5 * u, FAINT), tr(HELP.0, HELP.1), inner, 17.0 * u);
+            // Les lignes du relais suivent l'aide comme une ligne de plus du paragraphe (même pas de 17 points).
+            y += relay_lines(cv, app, c.relay_wait_text(), c.relay_down_text(), x, y - 12.0 * u, inner, u);
             y += cv.paragraph(x, y + 4.0 * u, Text::new(Font::Regular, 12.5 * u, FROST), tr(CLOSES.0, CLOSES.1), inner, 17.0 * u) + 12.0 * u;
         }
     }
 
-    // Les demandes (ordinateur utilisé) : « {prénom} veut emprunter l'ordinateur. », son app, « Refuser », « Accepter ».
+    // Les demandes (ordinateur utilisé) : « {prénom} veut emprunter l'ordinateur. », son app, « Refuser », « Accepter » ;
+    // celle d'un créneau : le texte du créneau et « Accepter » seul.
     if let Some(v) = v.filter(|v| !v.requests.is_empty()) {
         cv.rect(x, y, inner, 1.0, LINE);
         eyebrow(cv, x, y + 18.0 * u, 10.5 * u, FAINT, tr("Demandes", "Requests"));
@@ -245,8 +251,11 @@ fn card(cv: &mut Canvas, f: &mut Frame, app: &App, s: &SessionUi, r: Rect, u: f3
             let dw = cv.text_width(Text::new(Font::Regular, size, MUTED), decline) + 2.0 * size;
             let aw = cv.text_width(Text::new(Font::Regular, size, FROST), accept) + 2.0 * size;
             let accept_x = x + inner - aw;
-            let decline_x = accept_x - 8.0 * u - dw;
-            widgets::ghost(cv, f, Target::LendRefuse(i), decline_x, y + 4.0 * u, 28.0 * u, size, None, decline, BAD_TEXT);
+            // La demande d'un créneau : « Accepter » seul (l'ordinateur lui est prêté dans 2 min de toute façon).
+            let decline_x = if rq.slot { accept_x } else { accept_x - 8.0 * u - dw };
+            if !rq.slot {
+                widgets::ghost(cv, f, Target::LendRefuse(i), decline_x, y + 4.0 * u, 28.0 * u, size, None, decline, BAD_TEXT);
+            }
             widgets::ghost(cv, f, Target::LendAccept(i), accept_x, y + 4.0 * u, 28.0 * u, size, None, accept, OK);
             cv.text_fit(x, y + 22.0 * u, Text::new(Font::Regular, 13.5 * u, FROST), &rq.line(), (decline_x - x - 12.0 * u).max(60.0));
             cv.text_fit(x, y + 40.0 * u, Text::new(Font::Regular, 11.5 * u, FAINT), &rq.meta(), inner);

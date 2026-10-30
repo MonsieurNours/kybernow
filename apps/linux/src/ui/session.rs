@@ -429,6 +429,9 @@ struct BarLayout {
     info_w: f32,
     prof_w: f32,
     quit_w: f32,
+    /// Un emprunt : « Se déconnecter » avant « Rendre l'ordinateur » (la session se ferme, l'ordinateur reste prêté
+    /// 15 min) ; sa largeur, 0 ailleurs.
+    disc_w: f32,
     icons: Vec<BarIcon>,
     /// « 2 invités » : le partage est ouvert (il rouvre le panneau), et sa largeur.
     pill: Option<(String, f32)>,
@@ -469,6 +472,7 @@ impl BarLayout {
             tr("Se déconnecter", "Disconnect")
         };
         let quit_w = cv.text_width(Text::new(Font::Semibold, 13.0, BAD_TEXT), quit) + 24.0;
+        let disc_w = if s.borrow.is_some() { cv.text_width(Text::new(Font::Regular, 13.0, MUTED), tr("Se déconnecter", "Disconnect")) + 24.0 } else { 0.0 };
         let left = s.borrow.as_ref().map(|b| {
             let t = b.time_left(crate::model::now_secs());
             let w = cv.text_width(Text::new(Font::Regular, 12.5, FROST), &t) + 22.0;
@@ -500,11 +504,11 @@ impl BarLayout {
             let w = cv.text_width(Text::new(Font::Regular, 12.5, FROST), &t) + 22.0;
             (t, w)
         });
-        let others = 16.0 + 16.0 + 12.0 + lat_w + 8.0 + 64.0 + 12.0 + 1.0 + 12.0 + 12.0 + 1.0 + 12.0 + prof_w + 12.0 + left.as_ref().map_or(0.0, |(_, lw)| lw + 8.0) + route.as_ref().map_or(0.0, |(_, rw)| rw + 8.0) + quality.as_ref().map_or(0.0, |(_, qw)| qw + 8.0) + 34.0 * icons.len() as f32 + pill.as_ref().map_or(0.0, |(_, pw)| pw + 4.0) + requests.as_ref().map_or(0.0, |(_, pw)| pw + 4.0) + 24.0 + 1.0 + 12.0 + quit_w + 10.0;
+        let others = 16.0 + 16.0 + 12.0 + lat_w + 8.0 + 64.0 + 12.0 + 1.0 + 12.0 + 12.0 + 1.0 + 12.0 + prof_w + 12.0 + left.as_ref().map_or(0.0, |(_, lw)| lw + 8.0) + route.as_ref().map_or(0.0, |(_, rw)| rw + 8.0) + quality.as_ref().map_or(0.0, |(_, qw)| qw + 8.0) + 34.0 * icons.len() as f32 + pill.as_ref().map_or(0.0, |(_, pw)| pw + 4.0) + requests.as_ref().map_or(0.0, |(_, pw)| pw + 4.0) + 24.0 + 1.0 + 12.0 + if disc_w > 0.0 { disc_w + 4.0 } else { 0.0 } + quit_w + 10.0;
         // Une fenêtre étroite (960 points) avec « Ordinateurs », « Garder le son » et la pastille : les mesures se resserrent.
         info_w = info_w.min((w - 8.0 - others).max(60.0));
         let total = others + info_w;
-        Self { lat, info, profile, quit, left, mono14, mono12, lat_w, info_w, prof_w, quit_w, icons, pill, requests, quality, route, total }
+        Self { lat, info, profile, quit, left, mono14, mono12, lat_w, info_w, prof_w, quit_w, disc_w, icons, pill, requests, quality, route, total }
     }
 }
 
@@ -561,7 +565,7 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     let h = BAR_H;
     let st = s.stats.clone().unwrap_or_default();
     let width = cv.w;
-    let BarLayout { lat, info, profile, quit, left, mono14, mono12, lat_w, info_w, prof_w, quit_w, icons, pill, requests, quality, route, total } = BarLayout::measure(cv, app, s, width);
+    let BarLayout { lat, info, profile, quit, left, mono14, mono12, lat_w, info_w, prof_w, quit_w, disc_w, icons, pill, requests, quality, route, total } = BarLayout::measure(cv, app, s, width);
     let r = bar_frame(cv.w, total);
     let x0 = r.x;
     cv.rrect(r.x, r.y - 12.0, r.w, r.h + 12.0, 12.0, Rgba(9, 13, 18, 235));
@@ -692,8 +696,21 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     x += 12.0;
     cv.rect(x.round(), cy - 11.0, 1.0, 22.0, LINE_2);
     x += 13.0;
+    // Un emprunt : « Se déconnecter » (la session se ferme, on peut revenir pendant 15 min), puis « Rendre l'ordinateur »
+    // (sa confirmation) à la place du « Se déconnecter » des autres sessions.
+    if disc_w > 0.0 {
+        let dr = Rect::new(x, cy - 15.0, disc_w, 30.0);
+        let (focused, hover) = f.state(Target::BarQuit, dr);
+        if hover {
+            cv.rrect(dr.x, dr.y, dr.w, dr.h, 7.0, Rgba(227, 237, 240, 16));
+        }
+        if focused {
+            widgets::ring(cv, dr, 7.0);
+        }
+        cv.text(dr.x + 12.0, cy + 5.0, Text::new(Font::Regular, 13.0, MUTED), tr("Se déconnecter", "Disconnect"));
+        x += disc_w + 4.0;
+    }
     let qr = Rect::new(x, cy - 15.0, quit_w, 30.0);
-    // Un emprunt : « Rendre l'ordinateur » (sa confirmation) à la place de « Se déconnecter ».
     let (focused, hover) = f.state(if s.borrow.is_some() { Target::BarGiveBack } else { Target::BarQuit }, qr);
     if hover {
         cv.rrect(qr.x, qr.y, qr.w, qr.h, 7.0, BAD.alpha(0.18));
@@ -1005,6 +1022,8 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         if s.via_relay() {
             tiles.push((MenuItem::Route, s.path().label().into(), route_sub(s), false, false));
         }
+        // « Se déconnecter » : la session se ferme sans rendre l'ordinateur, on peut revenir pendant 15 min.
+        tiles.push((MenuItem::Disconnect, tr("Se déconnecter", "Disconnect").into(), tr("Fin de la session", "Ends the session").into(), false, false));
         // « Rendre l'ordinateur » : sa confirmation (« Rendre l'ordinateur à {hôte} ? ») ; le sous-titre dit le temps qui reste.
         tiles.push((MenuItem::GiveBack, tr("Rendre l'ordinateur", "Give back the computer").into(), b.time_left(crate::model::now_secs()), false, true));
     } else if guest {
