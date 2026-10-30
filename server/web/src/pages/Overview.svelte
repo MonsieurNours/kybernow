@@ -4,12 +4,14 @@
   les appareils et ce qui s'est passé aujourd'hui.
 -->
 <script lang="ts">
-  import { api, joinedGuests, type ActivityEvent, type AudioStatus, type Device, type DisplayStatus } from '../lib/api'
-  import { app, errorText, notify, refreshStatus, setShare } from '../lib/store.svelte'
+  import { adminLend, api, joinedGuests, type ActivityEvent, type AudioStatus, type Device, type DisplayStatus } from '../lib/api'
+  import { app, errorText, notify, refreshStatus, setLend, setShare } from '../lib/store.svelte'
   import { ago, capital, deviceIcon, duration, hhmm, isToday, mode, ms, screenLine, when } from '../lib/format'
   import Icon from '../lib/Icon.svelte'
   import Mark from '../lib/Mark.svelte'
   import ShareCard from '../lib/ShareCard.svelte'
+  import LendCard from '../lib/LendCard.svelte'
+  import { countdown, isLent, lendAppName, lentLine, steamName, takingBack } from '../lib/lend'
   import { i18n, t, tn } from '../lib/i18n/index.svelte'
 
   let display = $state<DisplayStatus | null>(null)
@@ -34,6 +36,29 @@
   // Un autre client que les apps (navigateur, ligne de commande) : écran ou son virtuels actifs.
   const other = $derived(!live && !pcShare && (!!display?.session || !!audio?.session))
   const gpuName = $derived(status?.gpu?.devices[0]?.name ?? null)
+  // Ordinateur prêté (docs/pret.md) : le haut de l'accueil le dit, avec « Reprendre l'ordinateur ».
+  const lend = $derived(status?.lend ?? null)
+  const lent = $derived(!live && isLent(lend) ? lend : null)
+  const noticeAt = $derived(takingBack(lend))
+  let clock = $state(Date.now() / 1000)
+
+  $effect(() => {
+    if (noticeAt === null) return
+    const timer = setInterval(() => (clock = Date.now() / 1000), 1000)
+    return () => clearInterval(timer)
+  })
+
+  async function takeBack(now: boolean) {
+    ending = true
+    try {
+      setLend(await adminLend.takeBack(now))
+    } catch (e) {
+      notify('error', errorText(e))
+      refreshStatus()
+    } finally {
+      ending = false
+    }
+  }
 
   async function loadPreview() {
     try {
@@ -178,7 +203,7 @@
   </div>
 
   <div class="top">
-    {#if live || other || (pcShare && guests)}
+    {#if live || other || lent || (pcShare && guests)}
       <span class="lbl live"><span class="dot live"></span>{t('overview.live')}</span>
     {:else if preview}
       <span class="lbl">{t('overview.previewAgo', { ago: ago(preview.at) })}</span>
@@ -204,6 +229,19 @@
         <button type="button" class="danger" disabled={ending || live.end_requested} onclick={endSession}>
           {live.end_requested ? t('overview.endRequested') : t('overview.endSession')}
         </button>
+      </div>
+    {:else if lent?.borrower}
+      <div class="title">
+        <h1 class="disp">{lentLine(lent)}</h1>
+        <span>{[lendAppName(lent.borrower.app), lent.borrower.via === 'relay' ? t('share.away') : '', t('overview.since', { duration: duration(now - lent.borrower.since) }), steamName(lent.borrower.steam)].filter(Boolean).join(' · ')}</span>
+      </div>
+      <div class="actions">
+        {#if noticeAt !== null}
+          <span class="lit-number taking" role="timer">{t('lend.host.takingBack', { time: countdown(noticeAt - clock) })}</span>
+          <button type="button" class="danger" disabled={ending || lent.state === 'ending'} onclick={() => takeBack(true)}>{t('lend.host.takeBackNow')}</button>
+        {:else}
+          <button type="button" class="danger" disabled={ending || lent.state === 'ending'} onclick={() => takeBack(false)}>{t('lend.host.takeBack')}</button>
+        {/if}
       </div>
     {:else if pcShare}
       <div class="title">
@@ -238,6 +276,7 @@
 
 <div class="body rise">
   {#if sharing}<ShareCard />{/if}
+  <LendCard />
 
   <section class="health" aria-label={t('overview.healthLabel')}>
     <a href="#/systeme/serveur" class="tile">
@@ -455,6 +494,12 @@
 
   .latency .lit-number {
     font-size: 30px;
+  }
+
+  .taking {
+    align-self: center;
+    font-size: 18px;
+    white-space: nowrap;
   }
 
   .body {

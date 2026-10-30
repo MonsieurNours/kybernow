@@ -1,6 +1,6 @@
 // État partagé entre les pages.
 
-import { api, type Field, type FieldValue, type PendingAccess, type ShareView, type Status } from './api'
+import { api, type Field, type FieldValue, type LendView, type PendingAccess, type ShareView, type Status } from './api'
 import { list, t } from './i18n/index.svelte'
 
 export const app = $state({
@@ -29,6 +29,11 @@ export async function refreshStatus() {
 /** Le partage a changé (réponse d'une action) : affiché sans attendre le prochain relevé de l'état. */
 export function setShare(view: ShareView | null) {
   if (app.status) app.status.share = view
+}
+
+/** Le prêt a changé (réponse d'une action) : affiché sans attendre le prochain relevé de l'état. */
+export function setLend(view: LendView) {
+  if (app.status) app.status.lend = view
 }
 
 /** À appeler après une modification qui demande un redémarrage de Kyber. */

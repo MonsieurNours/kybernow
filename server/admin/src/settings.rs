@@ -37,6 +37,9 @@ pub struct Settings {
     /// « Hors de chez vous » : adresse du relais, accès des appareils.
     #[serde(default)]
     pub relay: crate::relay::RelaySettings,
+    /// Prêt de l'ordinateur : interrupteur, apps permises.
+    #[serde(default)]
+    pub lend: crate::lend::LendSettings,
     /// Réglages inconnus de cette version (écrits par une console plus
     /// récente, avant un retour arrière) : gardés à la réécriture.
     #[serde(flatten)]

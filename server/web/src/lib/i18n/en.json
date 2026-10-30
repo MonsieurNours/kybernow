@@ -319,6 +319,8 @@
       "imageSoundShort": "Picture & sound",
       "devices": "Link devices",
       "devicesShort": "Devices",
+      "lend": "Lending",
+      "lendShort": "Lending",
       "users": "Users",
       "usersShort": "Users",
       "system": "System",
@@ -340,8 +342,13 @@
       "one": "{n} access request",
       "other": "{n} access requests"
     },
+    "lendBadge": {
+      "one": "{n} borrow request",
+      "other": "{n} borrow requests"
+    },
     "updatePip": "Update available",
     "pairPip": "Access request",
+    "lendPip": "Borrow request",
     "admin": "Administrator",
     "signOut": "Sign out",
     "restartDone": "The server restarted with the new settings.",
@@ -1037,6 +1044,159 @@
       "decode": "This browser cannot decode {host}'s picture.",
       "lightened": "Picture lightened to keep up.",
       "noMoreImage": "The computer can't make another picture: you get {quality}."
+    }
+  },
+  "lend": {
+    "open": "Lend the computer…",
+    "title": "Lend {name}",
+    "startHelp": "Hand the computer to a friend while you're not using it: a code for one session, with its link and QR code.",
+    "duration": {
+      "label": "Duration",
+      "h1": "1 hour",
+      "h2": "2 hours",
+      "h4": "4 hours",
+      "untilBack": "Until I take it back"
+    },
+    "steam": {
+      "label": "Steam account",
+      "friend": "Their Steam account",
+      "host": "Your Steam account"
+    },
+    "create": "Create a code",
+    "once": "For one session, valid for 24 h.",
+    "help": "Your friend enters this code with “Join with a code” in KyberNow Link, or opens this link in a browser.",
+    "closesSession": "Your session will close when your friend arrives.",
+    "cancelCode": "Cancel code",
+    "warning": "Your friend plays in your Windows session. They see neither your desktop nor your windows, but a game can read your files: lend to friends you trust.",
+    "off": "Lending is off in Admin (“Lending” page).",
+    "qrLabel": "QR code for the loan",
+    "close": "Close",
+    "requests": {
+      "asks": "{name} wants to borrow the computer.",
+      "away": "{app} · away from home",
+      "accept": "Accept",
+      "refuse": "Decline",
+      "sessionCloses": "Your session will close.",
+      "slot": "{name}'s time slot: the computer is lent to them in 2 min."
+    },
+    "host": {
+      "lentTo": "Lent to {name}",
+      "lentUntil": "Lent to {name} until {time}",
+      "lentComputer": "Computer lent to {name}",
+      "takeBack": "Take back the computer",
+      "takingBack": "Taking back in {time}",
+      "takeBackNow": "Take back now",
+      "disconnected": "disconnected, can come back for 15 min"
+    },
+    "steps": {
+      "preparing": "Preparing the computer"
+    },
+    "page": {
+      "title": "Lending",
+      "intro": "Lend the computer to a friend while you're not using it: they play from their own device, with the apps you choose. Afterwards, everything goes back to how it was and the Windows session locks.",
+      "switch": "Lend the computer",
+      "switchHelp": "While lending is on, the Windows session must stay open: the Station keeps the computer from sleeping and locking on its own.",
+      "current": "Current loan"
+    },
+    "apps": {
+      "title": "Allowed apps",
+      "sub": "What your friend can open from the launcher. Everything else is blocked.",
+      "steam": "Steam",
+      "steamHelp": "In Big Picture, with the Steam account chosen for each loan.",
+      "steamMissing": "Steam isn't installed on this computer.",
+      "add": "Add an app",
+      "remove": "Remove {app}",
+      "none": "No other app yet.",
+      "pickIntro": "Your friend can open it from the launcher. Apps and their icons come from the computer's Start menu.",
+      "added": "{app} is allowed.",
+      "removed": "{app} is no longer allowed."
+    },
+    "friends": {
+      "title": "Friend accounts",
+      "sub": "One account per friend: they borrow with their username and password, no code needed.",
+      "add": "Add a friend",
+      "name": "First name",
+      "login": "Username",
+      "loginHint": "3 to 32 characters: lowercase letters, digits, dot, hyphen, underscore.",
+      "password": "Password",
+      "passwordKeep": "Leave empty to keep it",
+      "passwordHint": "At least 6 characters.",
+      "steam": "Suggested Steam account",
+      "slots": "Time slots",
+      "slotsHelp": "During their time slot, your friend borrows without asking you, and goes before you.",
+      "days": "Days",
+      "from": "Start",
+      "to": "End",
+      "addSlot": "Add a time slot",
+      "removeSlot": "Remove time slot",
+      "slotInvalid": "Each time slot has at least one day, and ends after it starts on the same day.",
+      "slotLine": "{days}, {start} – {end}",
+      "noSlots": "No time slot: they ask when the computer is in use",
+      "invite": "Invitation link",
+      "inviteHelp": "Your friend scans this QR code with KyberNow Link, or opens this link in a browser. They borrow with the username {login} and their password.",
+      "inviteQr": "QR code of {name}'s invitation",
+      "edit": "Edit",
+      "delete": "Delete",
+      "confirmDelete": "Delete {name}'s account? They will no longer be able to borrow the computer.",
+      "save": "Save",
+      "cancel": "Cancel",
+      "saved": "{name}'s account saved.",
+      "deleted": "{name}'s account deleted.",
+      "empty": "No friend accounts yet.",
+      "lastUsed": "last borrowed {ago}",
+      "never": "never borrowed"
+    },
+    "friend": {
+      "card": "{host}'s computer",
+      "titleUnknown": "Borrow the computer",
+      "invited": "{host} is lending you their computer.",
+      "state": {
+        "free": "Available",
+        "busy": "In use",
+        "lent": "Lent to someone else",
+        "locked": "Locked",
+        "off": "Lending off",
+        "offline": "Offline"
+      },
+      "slotNow": "Your time slot, until {end}",
+      "slotNext": "Your time slot: {day}, {start} – {end}",
+      "borrow": "Borrow",
+      "ask": "Ask {host}",
+      "comeBack": "Come back",
+      "comeBackHint": "You can come back for 15 min.",
+      "login": "Username",
+      "password": "Password",
+      "remember": "Remember password",
+      "waiting": "Waiting for {host}…"
+    },
+    "bar": {
+      "lentBy": "Lent by {host}",
+      "left": "{time} left",
+      "untilTaken": "Until {host} takes it back",
+      "giveBack": "Give back the computer",
+      "confirm": "Give the computer back to {host}?"
+    },
+    "notice": {
+      "takenBack": "{host} is taking back the computer in 2 min: save your game.",
+      "timeUp": "The loan ends in 2 min: save your game.",
+      "slotEnd": "Your time slot ends in 2 min: save your game."
+    },
+    "end": {
+      "takenBack": "{host} took back the computer.",
+      "timeUp": "The loan is over.",
+      "slotEnd": "Your time slot is over.",
+      "left": "You gave back the computer.",
+      "stopped": "The loan has stopped."
+    },
+    "refusal": {
+      "refused": "{host} declined.",
+      "expired": "{host} didn't answer.",
+      "badCredentials": "Username or password refused.",
+      "noCode": "This code is no longer valid.",
+      "lent": "The computer is already lent.",
+      "locked": "The computer is locked.",
+      "off": "Lending is off on this computer.",
+      "tooMany": "Too many attempts: try again in a minute."
     }
   }
 }

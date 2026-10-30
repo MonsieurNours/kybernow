@@ -22,7 +22,10 @@
       "cannotConnect": "Your devices cannot connect",
       "reinstall": "Reinstall KyberNow Station",
       "wait": "Please wait…",
-      "sharing": "Sharing display {n}"
+      "sharing": "Sharing display {n}",
+      "lentTo": "Lent to {name}",
+      "lentToUntil": "Lent to {name} until {time}",
+      "takingBackIn": "Taking back in {left}"
     },
     "relay": {
       "joined": "Relay reached",
@@ -40,7 +43,10 @@
       "resetPassword": "Reset the Admin password…",
       "quit": "Close the tray icon",
       "share": "Share a screen…",
-      "stopShare": "Stop sharing"
+      "stopShare": "Stop sharing",
+      "lend": "Lend the computer…",
+      "takeBack": "Take back the computer",
+      "takeBackNow": "Take back now"
     },
     "busy": {
       "startingConsole": "Starting Admin…",
@@ -92,7 +98,8 @@
       "resetFailed": "The password could not be reset ({error}).",
       "codeNotHandedOver": "Password cleared, but the setup code could not be passed to the tray icon: it is in C:\\ProgramData\\KyberNow\\setup-code.txt, readable by an administrator.",
       "resetCommandFailed": "kyber-admin reset-password failed ({status}).",
-      "noSetupCode": "Admin did not write a setup code (C:\\ProgramData\\KyberNow\\setup-code.txt)."
+      "noSetupCode": "Admin did not write a setup code (C:\\ProgramData\\KyberNow\\setup-code.txt).",
+      "lendFailed": "Admin could not change the loan ({error})."
     },
     "guests": {
       "one": "{n} guest",
@@ -233,6 +240,65 @@
         "webos": "LG TV",
         "web": "Browser"
       }
+    },
+    "lend": {
+      "start": "Lend the computer…",
+      "title": "Lend {name}",
+      "duration": "Duration",
+      "durations": {
+        "d3600": "1 hour",
+        "d7200": "2 hours",
+        "d14400": "4 hours",
+        "none": "Until I take it back"
+      },
+      "steam": "Steam account",
+      "steamFriend": "Their Steam account",
+      "steamHost": "Your Steam account",
+      "create": "Create a code",
+      "valid": "For one session, valid for 24 h.",
+      "help": "Your friend enters this code with “Join with a code” in KyberNow Link, or opens this link in a browser.",
+      "cancelCode": "Cancel code",
+      "warning": "Your friend plays in your Windows session. They see neither your desktop nor your windows, but a game can read your files: lend to friends you trust.",
+      "off": "Lending is off in Admin (“Lending” page).",
+      "covered": "When your friend arrives, this PC's screen is covered and your windows are minimized until the loan ends.",
+      "qrLabel": "QR code for the loan",
+      "wantsToBorrow": "{name} wants to borrow the computer.",
+      "accept": "Accept",
+      "decline": "Decline",
+      "lentTo": "Lent to {name}",
+      "lentToUntil": "Lent to {name} until {time}",
+      "takeBack": "Take back the computer",
+      "takingBackIn": "Taking back in {left}",
+      "takeBackNow": "Take back now",
+      "slotStart": "{name}'s time slot: the computer is lent to them in 2 min."
+    }
+  },
+  "lend": {
+    "left": {
+      "hours": "{h} h {mm} left",
+      "wholeHours": "{h} h left",
+      "minutes": "{m} min left",
+      "lessThanMinute": "Less than a minute left"
+    },
+    "untilTakeBack": "Until {host} takes it back",
+    "lentBy": "Lent by {host}",
+    "giveBack": "Give back the computer",
+    "giveBackConfirm": "Give the computer back to {host}?",
+    "cancel": "Cancel",
+    "opening": "Opening {app}…",
+    "noApps": "No apps yet.",
+    "notice": {
+      "takenBack": "{host} is taking back the computer in 2 min: save your game.",
+      "timeUp": "The loan ends in 2 min: save your game.",
+      "slotEnd": "Your time slot ends in 2 min: save your game."
+    },
+    "cover": {
+      "title": "Computer lent to {name}",
+      "until": "Until {time}",
+      "hint": "To take back the computer, press Enter.",
+      "ask": "Take back the computer? {name} has 2 minutes to save.",
+      "askKeys": "Enter: take back · Esc: cancel",
+      "notice": "Taking back in {left} · Enter: right now"
     }
   }
 }

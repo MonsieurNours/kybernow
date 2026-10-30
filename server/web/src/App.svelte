@@ -8,16 +8,19 @@
   import Overview from './pages/Overview.svelte'
   import ImageSound from './pages/ImageSound.svelte'
   import Devices from './pages/Devices.svelte'
+  import Lend from './pages/Lend.svelte'
   import Users from './pages/Users.svelte'
   import System from './pages/System.svelte'
   import Mark from './lib/Mark.svelte'
   import Icon from './lib/Icon.svelte'
+  import { isLent, lentLine } from './lib/lend'
 
-  // Cinq espaces, par intention.
+  // Six espaces, par intention.
   const spaces = $derived([
     { id: 'ensemble', label: t('app.spaces.overview'), short: t('app.spaces.overviewShort'), icon: 'overview', component: Overview },
     { id: 'image-son', label: t('app.spaces.imageSound'), short: t('app.spaces.imageSoundShort'), icon: 'image', component: ImageSound },
     { id: 'appareils', label: t('app.spaces.devices'), short: t('app.spaces.devicesShort'), icon: 'link', component: Devices },
+    { id: 'pret', label: t('app.spaces.lend'), short: t('app.spaces.lendShort'), icon: 'lend', component: Lend },
     { id: 'utilisateurs', label: t('app.spaces.users'), short: t('app.spaces.usersShort'), icon: 'user', component: Users },
     { id: 'systeme', label: t('app.spaces.system'), short: t('app.spaces.systemShort'), icon: 'gear', component: System },
   ])
@@ -52,13 +55,20 @@
   // (une demande venue par le relais n'en est pas un tant qu'elle n'est pas acceptée).
   const share = $derived(status?.share ?? null)
   const guests = $derived(joinedGuests(share).length)
-  const busy = $derived(!!live || guests > 0)
+  // Prêt de l'ordinateur (docs/pret.md) : l'ordinateur est occupé tant qu'il est prêté.
+  const lend = $derived(status?.lend ?? null)
+  const lent = $derived(isLent(lend))
+  /** Demandes des amis : signalées partout, comme celles des appareils. */
+  const lendRequests = $derived(lend?.requests ?? [])
+  const busy = $derived(!!live || guests > 0 || lent)
   const serviceState = $derived(status?.service.state)
   const hostLine = $derived(
     !status
       ? ''
       : serviceState === 'running'
-        ? guests
+        ? lent
+          ? lentLine(lend)
+          : guests
           ? t('app.host.sharing', { guests: tn('share.guests', guests) })
           : live
             ? t('app.host.inSessionWith', { name: live.name })
@@ -172,6 +182,7 @@
             {s.label}
             {#if s.id === 'systeme' && updateBadge}<span class="badge">{updateBadge}</span>{/if}
             {#if s.id === 'appareils' && pairRequests.length}<span class="badge" aria-label={tn('app.pairBadge', pairRequests.length)}>{pairRequests.length}</span>{/if}
+            {#if s.id === 'pret' && lendRequests.length}<span class="badge" aria-label={tn('app.lendBadge', lendRequests.length)}>{lendRequests.length}</span>{/if}
           </a>
         {/each}
       </nav>
@@ -189,7 +200,7 @@
     <header class="mobile-top">
       <Mark size={22} lit={busy} />
       <span class="name">{status?.hostname ?? ''}</span>
-      <span class="state"><span class="dot {hostDot}"></span>{serviceState === 'running' ? (guests || (share && !live) ? t('app.host.sharingAlone') : live ? t('app.host.inSession') : t('app.host.running')) : hostLine}</span>
+      <span class="state"><span class="dot {hostDot}"></span>{serviceState === 'running' ? (lent ? lentLine(lend) : guests || (share && !live) ? t('app.host.sharingAlone') : live ? t('app.host.inSession') : t('app.host.running')) : hostLine}</span>
     </header>
 
     <main>
@@ -226,6 +237,13 @@
           <a class="ghost small" href="#/appareils">{t('app.seeRequest')}</a>
         </div>
       {/if}
+      {#if lendRequests.length && current.id !== 'pret'}
+        <div class="restart notice pair" role="status">
+          <Icon name="lend" size={18} />
+          <span>{t(lendRequests[0].slot ? 'lend.requests.slot' : 'lend.requests.asks', { name: lendRequests[0].name })}{lendRequests.length > 1 ? ` ${tn('app.pairOthers', lendRequests.length - 1)}` : ''}</span>
+          <a class="ghost small" href="#/pret">{t('app.seeRequest')}</a>
+        </div>
+      {/if}
       {#key current.id}
         <current.component />
       {/key}
@@ -238,6 +256,7 @@
           {s.short}
           {#if s.id === 'systeme' && updateBadge}<span class="pip" aria-label={t('app.updatePip')}></span>{/if}
           {#if s.id === 'appareils' && pairRequests.length}<span class="pip" aria-label={t('app.pairPip')}></span>{/if}
+          {#if s.id === 'pret' && lendRequests.length}<span class="pip" aria-label={t('app.lendPip')}></span>{/if}
         </a>
       {/each}
     </nav>

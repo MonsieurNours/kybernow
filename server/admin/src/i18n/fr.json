@@ -82,7 +82,8 @@
     "noRelease": "aucune version publiée sur le canal {channel}",
     "noTag": "version sans numéro",
     "badGithubVersion": "numéro de version inattendu sur GitHub : {version}",
-    "sessionConflictShare": "Un partage est en cours avec {name} : l'installation l'arrêtera"
+    "sessionConflictShare": "Un partage est en cours avec {name} : l'installation l'arrêtera",
+    "sessionConflictLend": "L'ordinateur est prêté à {name} : la mise à jour arrêtera le prêt."
   },
   "station": {
     "windowsOnly": "redémarrer la Station n'est possible que sous Windows",
@@ -92,7 +93,8 @@
     "upToDate": "KyberNow Station {version} est à jour : rien à installer",
     "requiresSetup": "KyberNow Station {version} s'installe avec {setup}, sur l'ordinateur : téléchargez-le depuis Admin, page Système",
     "notInstallable": "KyberNow Station {version} ne s'installe pas depuis un appareil : {reason}",
-    "restartConflictShare": "Un partage est en cours avec {name} : le redémarrage l'arrêtera"
+    "restartConflictShare": "Un partage est en cours avec {name} : le redémarrage l'arrêtera",
+    "restartConflictLend": "L'ordinateur est prêté à {name} : le redémarrage arrêtera le prêt."
   },
   "manifest": {
     "otherKey": "manifeste signé par une autre clé que celle de KyberNow",
@@ -177,7 +179,17 @@
     "relayLocked": "Accès hors de chez vous bloqué 10 min après trop d'essais.",
     "relayLockedAddress": "Accès hors de chez vous bloqué 10 min pour {address} après trop d'essais.",
     "relayAccessOn": "Accès hors de chez vous activé",
-    "relayAccessOff": "Accès hors de chez vous coupé"
+    "relayAccessOff": "Accès hors de chez vous coupé",
+    "lendTookOver": "Session fermée : l'ordinateur est prêté",
+    "lendStarted": "Ordinateur prêté à {name}",
+    "lendGivenBack": "{name} a rendu l'ordinateur",
+    "lendTakenBack": "Vous avez repris l'ordinateur",
+    "lendRequest": "{name} veut emprunter l'ordinateur",
+    "lendSlotStart": "Créneau de {name} : l'ordinateur lui est prêté dans 2 min.",
+    "lendRefused": "{name} : demande refusée",
+    "lendOn": "Prêt de l'ordinateur activé",
+    "lendOff": "Prêt de l'ordinateur coupé",
+    "lendFriendAdded": "Compte d'ami ajouté : {name}"
   },
   "share": {
     "display": "Écran {n}",
@@ -197,5 +209,19 @@
     "forbidden": "Pas accessible hors de chez vous.",
     "accessOff": "L'accès hors de chez vous est coupé dans Admin.",
     "locked": "Accès hors de chez vous bloqué 10 min après trop d'essais."
+  },
+  "lend": {
+    "badSlot": "Créneau illisible : un ou plusieurs jours, et une heure de fin après celle du début (« 14:00 », « 18:00 »).",
+    "passwordLength": "Le mot de passe d'un ami fait 6 caractères au moins.",
+    "nameRequired": "Donnez un prénom à ce compte d'ami.",
+    "badLogin": "Identifiant : 3 à 32 caractères, lettres minuscules, chiffres, point, tiret ou trait bas.",
+    "loginTaken": "L'identifiant {login} est déjà pris.",
+    "disabled": "Le prêt est coupé dans Admin (page « Prêt »).",
+    "inUse": "L'ordinateur est prêté à {name}.",
+    "badDuration": "Durée inconnue : 1, 2 ou 4 heures, ou jusqu'à la reprise.",
+    "unknownRequest": "Cette demande n'est plus en attente.",
+    "noLend": "Aucun prêt en cours.",
+    "unknownFriend": "Ce compte d'ami n'existe plus.",
+    "unknownApp": "Cette app n'est plus permise."
   }
 }

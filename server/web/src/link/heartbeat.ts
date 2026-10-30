@@ -30,8 +30,11 @@ export class Heartbeat {
     return !!this.worker || !!this.timer
   }
 
-  start(body: unknown) {
+  /** `options` : une autre route ou un autre rythme (le secret et le `beat` d'un prêt, connus au départ). */
+  start(body: unknown, options: { target?: HeartbeatTarget; period?: number } = {}) {
     this.stop()
+    if (options.target) this.target = options.target
+    if (options.period) this.period = options.period
     this.body = body
     this.answered = false
     this.silent = 0

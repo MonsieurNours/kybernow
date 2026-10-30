@@ -2,7 +2,9 @@
   Accueil (docs/link-ui.md) : sur l'aperçu de l'écran de l'ordinateur, son
   état, son nom, son système, l'écran que la session demandera,
   « Se connecter », le profil et l'accès aux réglages. Rien d'autre : les
-  chiffres et ce que sait ce navigateur sont dans les réglages.
+  chiffres et ce que sait ce navigateur sont dans les réglages. Ordinateur
+  prêté à un ami (docs/pret.md) : « Prêté à Léa » et « Reprendre
+  l'ordinateur » à la place de « Se connecter ».
 -->
 <script lang="ts">
   import { onMount } from 'svelte'
@@ -16,6 +18,9 @@
   import Settings from './Settings.svelte'
   import { t } from '../lib/i18n/index.svelte'
   import { tName } from './names'
+  import { adminLend, type LendView } from '../lib/api'
+  import { errorText } from '../lib/store.svelte'
+  import { countdown, isLent, lentLine, takingBack } from '../lib/lend'
 
   let {
     hostname,
@@ -33,6 +38,13 @@
   let codecError = $state(false)
   let refresh = $state(60)
   let sheet = $state(false)
+  /** Le prêt de l'ordinateur (`GET /api/lend`), quand la Station le connaît. */
+  let lend = $state<LendView | null>(null)
+  let lendBusy = $state(false)
+  let lendError = $state('')
+  let now = $state(Date.now() / 1000)
+  const lent = $derived(isLent(lend) ? lend : null)
+  const noticeAt = $derived(takingBack(lend))
 
   const kind = deviceKind()
   const mode = $derived(screenMode(refresh))
@@ -69,7 +81,32 @@
     const [l, i] = await Promise.all([backend.live().catch(() => null), backend.info().catch(() => null)])
     live = l
     if (i) info = i
+    if (i?.lend?.available) lend = await adminLend.view().catch(() => lend)
   }
+
+  /** « Reprendre l'ordinateur » (préavis de 2 min pour l'ami), ou « Reprendre tout de suite ». */
+  async function takeBack(right: boolean) {
+    lendBusy = true
+    lendError = ''
+    try {
+      lend = await adminLend.takeBack(right)
+    } catch (e) {
+      lendError = errorText(e)
+    } finally {
+      lendBusy = false
+    }
+  }
+
+  // Le préavis compte à la seconde, et l'état est relu plus souvent pendant un prêt.
+  $effect(() => {
+    if (!lent) return
+    const tick = setInterval(() => (now = Date.now() / 1000), 1000)
+    const reread = setInterval(loadState, 3000)
+    return () => {
+      clearInterval(tick)
+      clearInterval(reread)
+    }
+  })
 
   function loadCodecs() {
     codecError = false
@@ -137,7 +174,9 @@
       </div>
     {/if}
     {#if notice}<p class="notice" role="status"><Icon name="check" size={15} stroke={2.4} />{notice}</p>{/if}
-    {#if live}
+    {#if lent}
+      <span class="pill busy"><span class="dot"></span>{lentLine(lent)}</span>
+    {:else if live}
       <span class="pill busy"><span class="dot"></span>{t('web.home.live', { name: live.name })}</span>
     {:else}
       <span class="pill {status}"><span class="dot"></span>{status === 'offline' ? t('web.home.offline') : status === 'searching' ? t('web.home.searching') : t('web.home.online')}</span>
@@ -154,7 +193,18 @@
       </p>
     {/if}
 
+    {#if lendError}<p class="blocked" role="alert">{lendError}</p>{/if}
+
     <div class="actions">
+      {#if lent}
+        <!-- Ordinateur prêté : le reprendre (préavis de 2 min), ou tout de suite pendant le préavis. -->
+        {#if noticeAt !== null}
+          <span class="taking mono" role="timer">{t('lend.host.takingBack', { time: countdown(noticeAt - now) })}</span>
+          <button type="button" class="primary cta" disabled={lendBusy || lent.state === 'ending'} onclick={() => takeBack(true)}>{t('lend.host.takeBackNow')}</button>
+        {:else}
+          <button type="button" class="primary cta" disabled={lendBusy || lent.state === 'ending'} onclick={() => takeBack(false)}>{t('lend.host.takeBack')}</button>
+        {/if}
+      {:else}
       <button type="button" class="primary cta" onclick={connect}>
         {#if blocked}
           <Icon name="restart" size={18} stroke={2.2} />
@@ -164,6 +214,7 @@
           {t('web.home.connect')}
         {/if}
       </button>
+      {/if}
       <div class="profiles">
         <div class="seg" class:four={custom} role="radiogroup" aria-label={t('web.settings.profile')}>
           {#each PROFILES as p (p)}
@@ -417,6 +468,11 @@
     to {
       opacity: 0.3;
     }
+  }
+
+  .taking {
+    font-size: 15px;
+    color: var(--warn-text);
   }
 
   .actions {

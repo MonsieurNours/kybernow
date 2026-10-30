@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>KyberNow Share</title>
+<style>
+@font-face { font-family: 'Archivo'; src: url('/fonts/archivo.woff2') format('woff2'); font-weight: 100 900; font-stretch: 62% 125%; }
+@font-face { font-family: 'Martian Mono'; src: url('/fonts/martian.woff2') format('woff2'); font-weight: 100 800; font-stretch: 75% 112.5%; }
+:root { --text: #E3EDF0; --text-2: #C9D3DC; --faint: #8A99A3; --signal-light: #D4CEFF; --warn: #F5B841; color-scheme: dark; }
+* { box-sizing: border-box; }
+html { font-size: clamp(14px, calc(0.8vw + 0.6vh), 34px); }
+html, body { margin: 0; height: 100%; }
+body { display: grid; place-items: center; overflow: hidden; background: radial-gradient(60% 70% at 50% 0%, rgba(109,91,255,.16), rgba(109,91,255,0) 70%), #05070A; color: var(--text); font: 1rem/1.4 'Archivo', 'Segoe UI', sans-serif; -webkit-font-smoothing: antialiased; user-select: none; cursor: none; }
+/* Le cache reste des heures : le contenu dérive lentement (écrans OLED). */
+main { display: flex; flex-direction: column; align-items: center; gap: 1.1rem; padding: 2rem; text-align: center; animation: drift 900s ease-in-out infinite alternate; }
+@keyframes drift { from { transform: translate(-2vw, -2vh); } to { transform: translate(2vw, 2vh); } }
+img { height: 3rem; margin-bottom: 1.6rem; }
+h1 { margin: 0; font-stretch: 125%; font-size: 2.6rem; font-weight: 650; letter-spacing: -.02em; line-height: 1.15; }
+#until { margin: 0; font-size: 1.35rem; color: var(--text-2); }
+#line { margin: 1.6rem 0 0; max-width: 34rem; font-size: 1.2rem; color: var(--text-2); }
+#keys { margin: 0; font-family: 'Martian Mono', Consolas, monospace; font-size: .8rem; letter-spacing: .06em; color: var(--faint); }
+body.asking #line { font-size: 1.5rem; font-weight: 600; color: var(--signal-light); }
+body.notice #line { font-family: 'Martian Mono', Consolas, monospace; font-variant-numeric: tabular-nums; color: #F8E2B0; }
+[hidden] { display: none; }
+@media (prefers-reduced-motion: reduce) { main { animation: none; } }
+</style>
+</head>
+<body>
+<main>
+  <img src="/logo.svg" alt="KyberNow Share">
+  <h1 id="title"></h1>
+  <p id="until" hidden></p>
+  <p id="line" role="status"></p>
+  <p id="keys" hidden></p>
+</main>
+<script>
+// Cache d'un écran du PC pendant un prêt. Le clavier du PC ne lui parle pas
+// directement : l'agent garde Entrée et Échap et pousse l'état (window.__knCover).
+const $ = (id) => document.getElementById(id)
+window.__knCover = (c) => {
+  $('title').textContent = c.title || ''
+  $('until').textContent = c.until || ''
+  $('until').hidden = !c.until
+  $('line').textContent = c.line || ''
+  $('keys').textContent = c.keys || ''
+  $('keys').hidden = !c.keys
+  document.body.classList.toggle('asking', !!c.asking)
+  document.body.classList.toggle('notice', !!c.notice)
+}
+document.addEventListener('contextmenu', (e) => e.preventDefault())
+window.ipc && window.ipc.postMessage(JSON.stringify({ cmd: 'ready' }))
+</script>
+</body>
+</html>

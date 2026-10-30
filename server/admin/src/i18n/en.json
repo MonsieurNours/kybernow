@@ -82,7 +82,8 @@
     "noRelease": "no version published on the {channel} channel",
     "noTag": "version without a number",
     "badGithubVersion": "unexpected version number on GitHub: {version}",
-    "sessionConflictShare": "A share is in progress with {name}: installing will stop it"
+    "sessionConflictShare": "A share is in progress with {name}: installing will stop it",
+    "sessionConflictLend": "The computer is lent to {name}: updating will stop the loan."
   },
   "station": {
     "windowsOnly": "restarting the Station only works on Windows",
@@ -92,7 +93,8 @@
     "upToDate": "KyberNow Station {version} is up to date: nothing to install",
     "requiresSetup": "KyberNow Station {version} installs with {setup}, on the computer: download it from Admin, System page",
     "notInstallable": "KyberNow Station {version} can’t be installed from a device: {reason}",
-    "restartConflictShare": "A share is in progress with {name}: restarting will stop it"
+    "restartConflictShare": "A share is in progress with {name}: restarting will stop it",
+    "restartConflictLend": "The computer is lent to {name}: restarting will stop the loan."
   },
   "manifest": {
     "otherKey": "manifest signed with a key other than KyberNow’s",
@@ -177,7 +179,17 @@
     "relayLocked": "Access away from home blocked for 10 min after too many attempts.",
     "relayLockedAddress": "Access away from home blocked for 10 min for {address} after too many attempts.",
     "relayAccessOn": "Access away from home turned on",
-    "relayAccessOff": "Access away from home turned off"
+    "relayAccessOff": "Access away from home turned off",
+    "lendTookOver": "Session closed: the computer is lent",
+    "lendStarted": "Computer lent to {name}",
+    "lendGivenBack": "{name} gave back the computer",
+    "lendTakenBack": "You took back the computer",
+    "lendRequest": "{name} wants to borrow the computer",
+    "lendSlotStart": "{name}'s time slot: the computer is lent to them in 2 min.",
+    "lendRefused": "{name}: request declined",
+    "lendOn": "Lending the computer turned on",
+    "lendOff": "Lending the computer turned off",
+    "lendFriendAdded": "Friend account added: {name}"
   },
   "share": {
     "display": "Display {n}",
@@ -197,5 +209,19 @@
     "forbidden": "Not available away from home.",
     "accessOff": "Access away from home is turned off in Admin.",
     "locked": "Access away from home blocked for 10 min after too many attempts."
+  },
+  "lend": {
+    "badSlot": "Unreadable time slot: one or more days, and an end time after the start time (“14:00”, “18:00”).",
+    "passwordLength": "A friend's password has at least 6 characters.",
+    "nameRequired": "Give this friend account a name.",
+    "badLogin": "Username: 3 to 32 characters, lowercase letters, digits, dot, hyphen or underscore.",
+    "loginTaken": "The username {login} is already taken.",
+    "disabled": "Lending is off in Admin (“Lending” page).",
+    "inUse": "The computer is lent to {name}.",
+    "badDuration": "Unknown duration: 1, 2 or 4 hours, or until taken back.",
+    "unknownRequest": "This request is no longer waiting.",
+    "noLend": "No loan in progress.",
+    "unknownFriend": "This friend account no longer exists.",
+    "unknownApp": "This app is no longer allowed."
   }
 }

@@ -1,0 +1,44 @@
+diff --git a/kycontroller/src/kybernow.rs b/kycontroller/src/kybernow.rs
+index 44d95c6..55e9ffc 100644
+--- a/kycontroller/src/kybernow.rs
++++ b/kycontroller/src/kybernow.rs
+@@ -161,12 +161,14 @@ impl ShareMemory {
+ }
+ 
+ /// The input rights of a role: gamepads and keyboard-and-mouse are two
+-/// independent rights; never the clipboard for a guest.
++/// independent rights; never the clipboard for a guest, nor Ctrl+Alt+Del and
++/// Win+L (a guest, or a friend the computer is lent to, never locks it).
+ pub(crate) fn role_rights(role: ShareRole) -> InputRights {
+     InputRights {
+         keyboard_mouse: matches!(role, ShareRole::Kbm | ShareRole::PlayerKbm),
+         gamepads: matches!(role, ShareRole::Player | ShareRole::PlayerKbm),
+         clipboard: false,
++        system_keys: false,
+     }
+ }
+ 
+@@ -1529,6 +1531,7 @@ mod tests {
+                 keyboard_mouse: false,
+                 gamepads: true,
+                 clipboard: false,
++                system_keys: false,
+             }
+         );
+         assert_eq!(
+@@ -1537,6 +1540,7 @@ mod tests {
+                 keyboard_mouse: true,
+                 gamepads: false,
+                 clipboard: false,
++                system_keys: false,
+             }
+         );
+         assert_eq!(
+@@ -1545,6 +1549,7 @@ mod tests {
+                 keyboard_mouse: true,
+                 gamepads: true,
+                 clipboard: false,
++                system_keys: false,
+             }
+         );
+         assert_eq!(input_rights(None), None);

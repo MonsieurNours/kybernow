@@ -5,7 +5,9 @@
   Station répond avec le jeton de l'invité ; avant d'entrer, on vérifie que ce
   navigateur sait lire un format de l'image. Par le relais, la demande attend
   d'abord l'accord de l'hôte (« En attente de l'accord de l'hôte… », « Annuler ») ;
-  l'écran reste titré « Rejoindre un partage », sans nom d'ordinateur.
+  l'écran reste titré « Rejoindre un partage », sans nom d'ordinateur. Un code
+  de prêt (docs/pret.md, « Codes ») : la Station le dit (`lend`), et l'ami
+  emprunte l'ordinateur (`onLend`, la session d'emprunt fait la suite).
 -->
 <script lang="ts">
   import { onMount, untrack } from 'svelte'
@@ -14,6 +16,7 @@
   import { isIsolated } from './device'
   import { setRelay } from './plan'
   import { autoCaps, digits, groupCode, joinRefusalText, leaveShare, loadName, loadQuality, QUALITIES, qualityName, saveName, saveQuality, unreadableFormat, type GuestStart } from './share'
+  import type { BorrowStart } from './lend'
   import GateFrame from './GateFrame.svelte'
   import Segmented from '../lib/Segmented.svelte'
   import type { ShareQuality } from '../lib/api'
@@ -22,14 +25,20 @@
   let {
     hostname,
     code = '',
+    error: initialError = '',
     onJoined,
+    onLend,
     onCancel,
   }: {
     /** Nom de l'ordinateur ; `null` par le relais (il n'est connu qu'après l'accord de l'hôte) : rien n'est montré. */
     hostname: string | null
     /** Code déjà connu (lien `?join=`). */
     code?: string
+    /** Refus laissé par une session d'emprunt qui n'a pas pu commencer. */
+    error?: string
     onJoined: (start: GuestStart) => void
+    /** Le code est celui d'un prêt : l'ami emprunte l'ordinateur. */
+    onLend: (start: BorrowStart) => void
     /** Retour à l'écran d'où l'on vient (mot de passe, accueil) ; absent quand on arrive par le lien. */
     onCancel?: () => void
   } = $props()
@@ -37,7 +46,7 @@
   let typed = $state(untrack(() => groupCode(code)))
   let name = $state(loadName())
   let quality = $state<ShareQuality>(loadQuality())
-  let error = $state('')
+  let error = $state(untrack(() => initialError))
   let busy = $state(false)
   /** Trop d'essais : le bouton attend la fin du délai donné par la Station. */
   let waiting = $state(false)
@@ -160,6 +169,12 @@
       saveQuality(quality)
       onJoined({ join, codecs, quality })
     } catch (e) {
+      if (e instanceof JoinRefusal && e.kind === 'lend') {
+        // Un code de prêt : le prénom est retenu, la session d'emprunt prépare l'ordinateur.
+        saveName(name)
+        onLend({ request: { code: digits(typed) }, name: name.trim(), host: null })
+        return
+      }
       error = joinRefusalText(e)
       if (e instanceof JoinRefusal && e.kind === 'too_many') {
         waiting = true

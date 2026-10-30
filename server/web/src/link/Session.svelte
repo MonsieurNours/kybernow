@@ -3,18 +3,21 @@
   dessine l'image dans une toile, la barre de session reste à portée (en haut
   au survol, ou sous la languette en tactile). L'écran de connexion montre
   ses trois étapes, puis l'image seule : rien ne s'affiche par-dessus quand
-  elle arrive (docs/link-ui.md).
+  elle arrive (docs/link-ui.md). Trois rôles : l'hôte (session d'Admin), un
+  invité du partage (`guest`), un ami qui emprunte l'ordinateur (`borrow`,
+  docs/pret.md : « Préparation de l'ordinateur », puis sa barre « Prêté par
+  {hôte} »).
 -->
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte'
-  import { backend, endBody, heartbeatBody, type AutoCaps, type GuestBeat, type GuestJoin, type Info } from './backend'
+  import { backend, endBody, heartbeatBody, lend as lendApi, leaveLend, LendRefusal, type AutoCaps, type BorrowAnswer, type BorrowPending, type GuestBeat, type GuestJoin, type Info, type LendBeat } from './backend'
   import { Heartbeat } from './heartbeat'
-  import { guestTarget, sendHeartbeat, type HeartbeatResult } from './heartbeat-call'
-  import { ApiError, joinedGuests, shareRequests, type GuestImage, type ShareQuality, type ShareRole, type ShareView } from '../lib/api'
+  import { guestTarget, lendTarget, sendHeartbeat, type HeartbeatResult } from './heartbeat-call'
+  import { ApiError, joinedGuests, lendOps, shareRequests, type GuestImage, type LendView, type ShareQuality, type ShareRole, type ShareView } from '../lib/api'
   import { Engine, allStopped, isFixedEngine, retire, supportedCodecs, type DisplayInfo, type Latency } from './engine'
-  import { choose, preferredProtocol, viaRelay, type Plan } from './plan'
+  import { choose, preferredProtocol, setRelay, viaRelay, type Plan } from './plan'
   import { deviceId, isCustom, MIN_SESSION_SECONDS, profileName, saveLastSession, type MouseMode, type Prefs, type TouchMode } from './prefs'
-  import { deviceKind, deviceName, hasKeyboardLock, hasTouchScreen, isTouch, measureRefresh, screenMode, type Mode } from './device'
+  import { deviceKind, deviceName, hasKeyboardLock, hasTouchScreen, isIsolated, isTouch, measureRefresh, screenMode, type Mode } from './device'
   import { installAbsoluteMouse, installPointerGate, isRemoteCursorHidden, releasePointer, removeAbsoluteMouse, removePointerGate, setPositionMapper, setRemoteCursorHidden } from './pointer'
   import { allowPackets, currentDisplayId, engineInputs, forgetInputSocket, injected, learnDisplayId, watchInputSocket } from './inputs'
   import { installInputGuard, releaseAll, removeInputGuard } from './guard'
@@ -30,17 +33,52 @@
   import { imageQuality } from '../lib/format'
   import { gamepadsChanged, installGamepadGate, removeGamepadGate } from './gamepads'
   import ShareBox from './ShareBox.svelte'
+  import LendBox from './LendBox.svelte'
+  import LendAsk from './LendAsk.svelte'
+  import { borrowCaps, clearActive, lendEndText, lendNoticeText, lendRefusalText, markActive, type BorrowStart } from './lend'
+  import { leftText } from '../lib/lend'
 
   /** `guest` : la session d'un invité du partage (KyberNow Share, docs/kybernow-share.md) : pas de
-   * préparation de l'écran ni de jeton d'Admin, une barre réduite, les droits de son rôle. */
-  let { hostname, prefs = $bindable(), guest = null, onEnd }: { hostname: string; prefs: Prefs; guest?: GuestStart | null; onEnd: () => void } = $props()
+   * préparation de l'écran ni de jeton d'Admin, une barre réduite, les droits de son rôle.
+   * `borrow` : la session d'un ami qui emprunte l'ordinateur (docs/pret.md) : son écran virtuel, le
+   * clavier, la souris et les manettes, ni presse-papiers ni réglages de la Station ; `onLendEnd` dit
+   * pourquoi elle n'a pas pu commencer, ou si le prêt est fini. */
+  let {
+    hostname: hostnameProp,
+    prefs = $bindable(),
+    guest = null,
+    borrow = null,
+    onEnd,
+    onLendEnd = () => {},
+  }: {
+    hostname: string
+    prefs: Prefs
+    guest?: GuestStart | null
+    borrow?: BorrowStart | null
+    onEnd: () => void
+    onLendEnd?: (error: string | null, over: boolean) => void
+  } = $props()
   /** La session d'un invité, fixée pour toute la durée de la page. */
   const g = untrack(() => guest)
-  /** Titre de la session : le nom de l'ordinateur, ou « Invité sur {nom} ». */
-  const title = $derived(g ? t('share.guest.on', { name: hostname }) : hostname)
+  /** La session d'un ami qui emprunte l'ordinateur, fixée elle aussi. */
+  const b = untrack(() => borrow)
+  /** Réponse de `borrow` (ou de `wait`) : le jeton, l'écran, l'hôte ; renouvelée par « Revenir ». */
+  let lendAnswer = $state<BorrowAnswer | null>(b?.answer ?? null)
+  /** L'hôte et l'ordinateur que dit la réponse `202` (l'attente de l'accord), même avec un code. */
+  let lendAsked = $state<{ host?: string; computer?: string } | null>(null)
+  /** Le nom de l'ordinateur (celui que donne Admin à l'ami, une fois le prêt ouvert ou demandé). */
+  const hostname = $derived(b ? (lendAnswer?.computer ?? lendAsked?.computer ?? hostnameProp) : hostnameProp)
+  /** Prénom de l'hôte qui prête l'ordinateur. */
+  const lendHost = $derived(lendAnswer?.host ?? lendAsked?.host ?? b?.host ?? '')
+  /** Titre de la session : le nom de l'ordinateur, « Invité sur {nom} », ou « Prêté par {hôte} ». */
+  const title = $derived(
+    g ? t('share.guest.on', { name: hostname }) : b ? (lendHost ? t('lend.bar.lentBy', { host: lendHost }) : t('lend.friend.titleUnknown')) : hostname,
+  )
+  /** Titre de l'écran de connexion d'un ami : « Ordinateur de {hôte} ». */
+  const startTitle = $derived(b ? (lendHost ? tName('lend.friend.card', 'host', lendHost) : t('lend.friend.titleUnknown')) : title)
 
-  /** `restarting` : dernier recours, la Station redémarre (station.svelte.ts). */
-  type Phase = 'preparing' | 'connecting' | 'restarting' | 'live' | 'ended'
+  /** `restarting` : dernier recours, la Station redémarre (station.svelte.ts). `waiting` : un ami attend l'accord de l'hôte. */
+  type Phase = 'preparing' | 'waiting' | 'connecting' | 'restarting' | 'live' | 'ended'
   let phase = $state<Phase>('preparing')
   let error = $state('')
   let reconnecting = $state('')
@@ -62,7 +100,7 @@
   let cursor = $state<{ x: number; y: number } | null>(null)
   let mods = $state(new Set<string>())
   // Un invité n'a pas le mode « auto » (il ne sait pas si un jeu est au premier plan) et ne change pas les réglages.
-  let mouseMode = $state<MouseMode>(untrack(() => (g && prefs.mouse === 'auto' ? 'bureau' : prefs.mouse)))
+  let mouseMode = $state<MouseMode>(untrack(() => ((g || b) && prefs.mouse === 'auto' ? 'bureau' : prefs.mouse)))
   /** Le navigateur attend un geste pour jouer le son. */
   let soundBlocked = $state(false)
   /** Information passagère (écran changé, image relancée). */
@@ -89,8 +127,40 @@
   const requestCount = $derived(shareRequests(share).length)
   /** « Partager », avec ses pastilles, pour les lecteurs d'écran. */
   const shareAria = $derived([t('share.bar.share'), guestCount ? tn('share.guests', guestCount) : '', requestCount ? tn('share.requestCount', requestCount) : ''].filter(Boolean).join(' · '))
-  /** La session passe par le relais (un invité venu d'internet) : puce « Par le relais ». */
-  const relayed = viaRelay()
+  /** La session passe par le relais (un invité ou un ami venu d'internet) : puce « Par le relais ». */
+  let relayed = $state(viaRelay())
+  /** Le prêt (côté hôte) : la vue du signe de vie, le panneau « Prêter l'ordinateur… », et ce que la
+   * Station en dit (`none` : elle ne le connaît pas, la puce n'est pas là ; `off` : coupé dans Admin). */
+  let lend = $state<LendView | null>(null)
+  let lendOpen = $state(false)
+  let lendSupport = $state<'ok' | 'off' | 'none'>('none')
+  const lendRequests = $derived(lend?.requests ?? [])
+  const lendAria = $derived([t('lend.open'), lendRequests.length ? tn('share.requestCount', lendRequests.length) : ''].filter(Boolean).join(' · '))
+  /** Les routes du prêt de l'hôte : le client web dit son appareil (un code ou un accord y ferme la session). */
+  const hostLend = lendOps(() => ({ device_id: deviceId() }))
+  /** Le dernier appui sur « Prêter l'ordinateur… » est un doigt ou un stylet. */
+  let lendTouch = false
+  /** L'hôte a accepté qu'un ami emprunte l'ordinateur : sa session va se fermer. */
+  let lendAccepted = $state<string | null>(null)
+  /** Côté ami : le prêt est fini (rendu, repris, terminé) ; « Revenir » n'a plus lieu d'être. */
+  let lendOver = $state(false)
+  /** Côté ami : la fin prévue, et celle du préavis en cours (secondes Unix). */
+  let lendUntil = $state<number | null>(b?.answer?.until ?? null)
+  let lendNoticeAt = $state<number | null>(null)
+  let lendNoticeKey = ''
+  /** Côté ami : la demande qui attend l'accord de l'hôte, et de quoi arrêter l'attente. */
+  let pendingLend: BorrowPending | null = null
+  let lendAbort: AbortController | null = null
+  /** Côté ami : le prêt s'est ouvert une fois dans cette page (un refus de « Revenir » se dit sur la carte de fin). */
+  let lendOpened = false
+  /** Côté ami : « Rendre l'ordinateur à {hôte} ? » ouvert. */
+  let giveBackOpen = $state(false)
+  let clockNow = $state(Date.now() / 1000)
+  /** « Encore 1 h 20 », ou « Jusqu'à ce que {hôte} reprenne ». */
+  const lendTimeText = $derived.by(() => {
+    const at = lendNoticeAt ?? lendUntil
+    return at ? leftText(at - clockNow) : t('lend.bar.untilTaken', { host: lendHost })
+  })
   /** Le dernier appui sur « Partager » est un doigt ou un stylet (pas une souris ni le clavier). */
   let shareTouch = false
   let diagText = $state('')
@@ -156,6 +226,8 @@
   let ticketToken = g?.join.kyber.token ?? ''
   /** Écran du partage que reçoit l'invité (il change si l'écran de l'hôte est recréé). */
   let guestDisplay = g?.join.display
+  /** Écran virtuel de l'ami qui emprunte l'ordinateur. */
+  let lendDisplay = b?.answer?.display
   /** L'invité est déjà sorti du partage (`share/leave` envoyé). */
   let left = false
   let codecList: import('./engine').CodecSupport[] = []
@@ -202,15 +274,118 @@
         onGuestBeat(r)
         return
       }
+      if (b) {
+        onLendBeat(r)
+        return
+      }
       if (r.status === 401) fail(expired())
-      // Fin demandée depuis la console, ou un autre appareil prend la main.
-      else if (r.end) fail(t('session.error.taken'))
-      // Le partage de cet appareil, absent sans partage.
-      else if (r.status === 200) share = r.data?.share?.open ? (r.data.share as ShareView) : null
+      // Fin demandée depuis la console, un autre appareil prend la main, ou l'ordinateur est prêté
+      // (demande acceptée, code créé depuis cette session, créneau d'un ami).
+      else if (r.end) {
+        const lentTo = lend?.borrower?.name ?? lendAccepted
+        fail(lentTo ? t('lend.host.lentComputer', { name: lentTo }) : t('session.error.taken'))
+      }
+      else if (r.status === 200) {
+        // Le partage de cet appareil, absent sans partage ; le prêt, absent quand il n'y a rien à dire.
+        share = r.data?.share?.open ? (r.data.share as ShareView) : null
+        lend = (r.data?.lend as LendView | undefined) ?? null
+      }
     },
     g ? g.join.beat * 1000 : 5000,
     g ? guestTarget(g.join.secret) : undefined,
   )
+
+  /**
+   * Signe de vie d'un ami (`POST /api/lend/beat`) : le jeton renouvelé, la fin prévue, le préavis de 2 min,
+   * ou la fin du prêt. Un prêt inconnu (secret refusé, prêt fini sans nouvelles) : il est terminé.
+   */
+  function onLendBeat(r: HeartbeatResult) {
+    if ([401, 403, 404, 410].includes(r.status)) return lendEnded('stopped')
+    if (r.status !== 200 || !r.data) return
+    const beat = r.data as LendBeat
+    if (beat.end) return lendEnded(beat.end)
+    if (b) markActive(b.request)
+    if (beat.token) {
+      ticketToken = beat.token
+      engine?.updateCredentials(beat.token)
+    }
+    lendUntil = beat.until ?? null
+    const n = beat.notice && beat.notice.reason !== 'slot_start' ? beat.notice : null
+    lendNoticeAt = n?.at ?? null
+    const key = n ? `${n.reason} ${n.at}` : ''
+    if (key && key !== lendNoticeKey && phase === 'live') showNotice(lendNoticeText(n!.reason, lendHost), 15000)
+    if (phase === 'live' || !key) lendNoticeKey = key
+  }
+
+  /** Le prêt est fini : la carte de fin le dit, avec « Fermer » seulement. */
+  function lendEnded(end: NonNullable<LendBeat['end']>) {
+    lendOver = true
+    clearActive()
+    fail(lendEndText(end, lendHost))
+  }
+
+  /**
+   * Emprunte l'ordinateur (`POST /api/lend/borrow`) : l'écran de cet appareil et ce que son décodeur lit.
+   * Ordinateur utilisé : la demande attend l'accord de l'hôte (« En attente de {hôte}… », `wait` rappelé
+   * tant qu'il attend). `null` : la session a changé ou l'attente est annulée. Refus : `LendRefusal`.
+   */
+  async function borrowNow(gen: number): Promise<BorrowAnswer | null> {
+    if (!b) return null
+    const caps = await borrowCaps()
+    if (stale(gen)) return null
+    const abort = new AbortController()
+    lendAbort = abort
+    try {
+      const out = await lendApi.borrow(b.request, { name: b.name, ...caps }, abort.signal)
+      if (stale(gen)) return null
+      if (!('request' in out)) return out
+      pendingLend = out
+      lendAsked = { host: out.host, computer: out.computer }
+      phase = 'waiting'
+      let failures = 0
+      while (!abort.signal.aborted && !stale(gen)) {
+        try {
+          const answer = await lendApi.wait(out, abort.signal)
+          if (answer) return answer
+          failures = 0
+        } catch (e) {
+          if (abort.signal.aborted) return null
+          // Le relais ou le réseau hoquette : trois essais, deux secondes d'écart, avant de le dire.
+          if (!(e instanceof LendRefusal && (e.kind === 'relay' || e.kind === 'network')) || ++failures >= 3) throw e
+          await new Promise((done) => setTimeout(done, 2000))
+        }
+      }
+      return null
+    } finally {
+      if (lendAbort === abort) lendAbort = null
+      pendingLend = null
+    }
+  }
+
+  /** « Annuler » pendant l'attente de l'accord : la demande est retirée chez l'hôte, et l'écran d'avant revient. */
+  function cancelBorrow() {
+    const p = pendingLend
+    lendAbort?.abort()
+    if (p) void leaveLend(p.secret, { request: p.request })
+    quit()
+  }
+
+  /** « Rendre l'ordinateur », confirmé : le prêt finit pour de bon (`leave`), la page revient à la carte. */
+  function giveBack() {
+    giveBackOpen = false
+    if (lendAnswer) void leaveLend(lendAnswer.secret, { lend: lendAnswer.lend })
+    lendOver = true
+    clearActive()
+    quit()
+  }
+
+  /** « Revenir » après une fenêtre fermée ou un réseau perdu : le même prêt, de nouveau par `borrow`. */
+  function comeBack() {
+    ended = false
+    wasLive = false
+    lendAnswer = null
+    restart()
+  }
 
   /** Signe de vie d'un invité : son rôle, le jeton renouvelé, l'écran du partage, ou la fin. */
   function onGuestBeat(r: HeartbeatResult) {
@@ -480,7 +655,7 @@
    * n'a pas de jeton d'Admin : son signe de vie renouvelle le sien. */
   let ticketAt = 0
   async function refreshTicket(resume = false) {
-    if (g) {
+    if (g || b) {
       heartbeat.now()
       if (resume) engine?.updateCredentials(ticketToken, true)
       return
@@ -542,8 +717,8 @@
 
   /** Garde la dernière session (rubrique Statistiques) à partir de 3 s d'image. */
   function keepLastSession() {
-    // Un invité n'a pas de statistiques à garder : ce n'est pas son ordinateur.
-    if (g || lastSaved || !firstImageAt || !mode || !plan) return
+    // Un invité ou un ami n'a pas de statistiques à garder : ce n'est pas son ordinateur.
+    if (g || b || lastSaved || !firstImageAt || !mode || !plan) return
     const stats = sessionStats()
     const duration = (Date.now() - firstImageAt) / 1000
     if (!stats || duration < MIN_SESSION_SECONDS) return
@@ -657,6 +832,10 @@
         await connect(preferredProtocol(), gen)
         return
       }
+      if (b) {
+        await startBorrow(gen)
+        return
+      }
       const [refresh, codecs, ticket] = await Promise.all([measureRefresh(), supportedCodecs(), backend.ticket()])
       if (stale(gen)) return
       mode = screenMode(refresh)
@@ -684,6 +863,68 @@
     }
   }
 
+  /**
+   * Ami : « Préparation de l'ordinateur » (Admin passe le PC en mode console et crée son écran, 30 s au
+   * plus), l'accord de l'hôte s'il le faut, puis la connexion à Kyber avec le jeton du prêt. Le cookie du
+   * prêt est posé par la réponse : le moteur de Kyber peut se charger. Un refus avant toute image ramène
+   * à l'écran d'avant, qui le dit (`onLendEnd`).
+   */
+  async function startBorrow(gen: number) {
+    if (!b) return
+    if (!isIsolated) {
+      ended = true
+      onLendEnd(t('web.home.blockedIsolation'), false)
+      return
+    }
+    let answer = lendAnswer
+    if (!answer) {
+      try {
+        answer = await borrowNow(gen)
+      } catch (e) {
+        if (stale(gen)) return
+        const text = lendRefusalText(e, lendHost || null)
+        if (!lendOpened) {
+          ended = true
+          clearActive()
+          onLendEnd(text, false)
+        } else {
+          // « Revenir » refusé (prêt fini, repris) : la carte de fin le dit.
+          lendOver = true
+          clearActive()
+          fail(text)
+        }
+        return
+      }
+      if (!answer || stale(gen)) return
+      lendAnswer = answer
+    }
+    lendOpened = true
+    phase = 'preparing'
+    lendUntil = answer.until
+    lendDisplay = answer.display
+    ticketToken = answer.kyber.token
+    if (answer.relay) {
+      setRelay(true)
+      relayed = true
+    }
+    markActive(b.request)
+    // Le signe de vie part tout de suite : sans nouvelles pendant 20 s, l'image de l'ami s'arrête.
+    heartbeat.start({ lend: answer.lend }, { target: lendTarget(answer.secret), period: Math.max(1, answer.beat) * 1000 })
+    let codecs
+    try {
+      codecs = await supportedCodecs()
+    } catch {
+      // Le moteur de Kyber ne se charge pas (Kyber arrêté) : « Revenir » le recharge.
+      if (!stale(gen)) fail(t('web.home.blockedEngine'))
+      return
+    }
+    if (stale(gen)) return
+    codecList = codecs
+    mode = { width: answer.display.width, height: answer.display.height, refresh: answer.display.refresh }
+    textInput?.toggleAttribute(TEXT_ATTRIBUTE, engineInputs())
+    await connect(preferredProtocol(), gen)
+  }
+
   function clearWatches() {
     if (imageWatch) clearTimeout(imageWatch)
     if (connectWatch) clearTimeout(connectWatch)
@@ -697,7 +938,8 @@
     phase = 'connecting'
     connectStep = 'kyber'
     clearWatches()
-    plan = choose(prefs, mode, codecList, protocol)
+    // Un ami : le profil Jeu de la Station (docs/pret.md), jamais de presse-papiers.
+    plan = b ? { ...choose({ ...prefs, profile: 'jeu' }, mode, codecList, protocol), clipboard: false } : choose(prefs, mode, codecList, protocol)
     if (g) plan = guestPlan(plan)
     // Jamais deux moteurs à la fois : chacun écoute souris et clavier sur la page.
     await allStopped()
@@ -708,7 +950,7 @@
     const e: Engine = new Engine('kn-canvas', (ev) => onEngine(ev, e, protocol))
     engine = e
     connectWatch = setTimeout(() => noControlPlane(e), 25000)
-    await e.connect(streamHost(), location.port || '443', ticketToken, plan, g ? guestDisplay?.id : undefined)
+    await e.connect(streamHost(), location.port || '443', ticketToken, plan, g ? guestDisplay?.id : b ? lendDisplay?.id : undefined)
   }
 
   /** L'invité demande le format de l'hôte s'il le lit (il partage alors son image), sinon un format qu'il
@@ -764,10 +1006,10 @@
     }
   }
 
-  function showNotice(text: string) {
+  function showNotice(text: string, duration = 5000) {
     notice = text
     if (noticeTimer) clearTimeout(noticeTimer)
-    noticeTimer = setTimeout(() => (notice = ''), 5000)
+    noticeTimer = setTimeout(() => (notice = ''), duration)
   }
 
   /** Relance de l'image sans recharger la page ni se déconnecter. */
@@ -813,7 +1055,11 @@
   }
 
   function connectError(message: string): string {
-    if (message === 'unauthorized') return g ? t('share.guest.unauthorized', { host: hostname }) : t('session.error.unauthorized', { host: hostname })
+    if (message === 'unauthorized') {
+      if (g) return t('share.guest.unauthorized', { host: hostname })
+      // Un ami : son signe de vie dit d'abord si le prêt est fini ; sinon, la connexion s'est interrompue.
+      return b ? t('session.error.interrupted', { host: hostname }) : t('session.error.unauthorized', { host: hostname })
+    }
     if (message === 'streaming_start_failed' || message.startsWith('start_streaming')) return t('session.error.startFailed', { host: hostname })
     return tName('session.error.noReply', 'host', hostname)
   }
@@ -903,8 +1149,8 @@
         console.warn('KyberNow : connexion impossible', redact(e.message, g ? [g.join.secret, ticketToken] : []))
         // Un jeton refusé ne se répare pas en redémarrant la Station.
         if (e.message === 'unauthorized') {
-          // Un invité retiré n'a plus de jeton : son signe de vie dit pourquoi.
-          if (g) guestClosed(connectError(e.message))
+          // Un invité retiré n'a plus de jeton : son signe de vie dit pourquoi (de même pour un prêt fini).
+          if (g || b) guestClosed(connectError(e.message))
           else fail(connectError(e.message))
         } else failOrRestart(connectError(e.message))
         break
@@ -919,14 +1165,14 @@
           else fail(g ? t('share.guest.decode', { host: hostname }) : t('session.error.decode'))
         } else if (e.reason === 'controlplane_closed') {
           const message = t('session.error.closed', { host: hostname })
-          if (g) guestClosed(message)
+          if (g || b) guestClosed(message)
           else fail(message)
         } else if (e.reason === 'requested') {
           // Arrêt demandé par ce client, sans que la page l'ait voulu.
           fail(t('session.error.stopped'))
         } else {
           const message = t('session.error.interrupted', { host: hostname })
-          if (g) guestClosed(message)
+          if (g || b) guestClosed(message)
           else fail(message)
         }
         break
@@ -943,6 +1189,8 @@
 
   function fail(message: string) {
     generation++
+    giveBackOpen = false
+    lendAbort?.abort()
     endSwitch()
     qualityOpen = false
     keepLastSession()
@@ -967,8 +1215,8 @@
    * puis la page reprend la connexion après le mot de passe. Pas pour une
    * image qui part mais n'arrive pas : c'est ce navigateur ou le réseau. */
   function failOrRestart(message: string) {
-    // Un invité ne redémarre jamais la Station.
-    if (g || wasLive || !lastResortAllowed()) fail(message)
+    // Un invité ou un ami ne redémarre jamais la Station.
+    if (g || b || wasLive || !lastResortAllowed()) fail(message)
     else void lastResort(message)
   }
 
@@ -995,6 +1243,8 @@
     if (ended) return
     ended = true
     generation++
+    giveBackOpen = false
+    lendAbort?.abort()
     clearWatches()
     keepLastSession()
     leaveGuest()
@@ -1007,13 +1257,15 @@
     heartbeat.stop()
     releasePointer()
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
-    onEnd()
+    // Un ami revient à l'écran d'où il vient : le prêt continue s'il n'est ni rendu ni fini (15 min).
+    if (b) onLendEnd(null, lendOver)
+    else onEnd()
     await retire(e, wasPrepared ? () => backend.end(median, extra()) : undefined)
   }
 
   function setMouseMode(m: MouseMode) {
     mouseMode = m
-    if (!g) prefs.mouse = m
+    if (!g && !b) prefs.mouse = m
     if (!pointerAllowed()) releasePointer()
   }
 
@@ -1023,7 +1275,7 @@
   }
 
   function cycleMouse() {
-    setMouseMode(mouseMode === 'auto' ? 'bureau' : mouseMode === 'bureau' ? 'jeu' : g ? 'bureau' : 'auto')
+    setMouseMode(mouseMode === 'auto' ? 'bureau' : mouseMode === 'bureau' ? 'jeu' : g || b ? 'bureau' : 'auto')
   }
 
   const mouseLabel = $derived(mouseMode === 'auto' ? t('session.mouse.auto') : mouseMode === 'jeu' ? t('session.mouse.game') : t('session.mouse.desktop'))
@@ -1049,7 +1301,7 @@
   function barInside(): boolean {
     if (!hoverPos) return false
     const { x, y } = hoverPos
-    if (document.elementFromPoint(x, y)?.closest('.bar, .metrics, .sharebox')) return true
+    if (document.elementFromPoint(x, y)?.closest('.bar, .metrics, .sharebox, .lendbox')) return true
     const r = sessionEl.getBoundingClientRect()
     // Dispositions sans transformation : la barre en cours d'apparition compte déjà.
     const bottom = r.top + (barEl ? barEl.offsetTop + barEl.offsetHeight : 0)
@@ -1082,10 +1334,10 @@
   /** Arme la fermeture : jamais pendant qu'un menu est ouvert. */
   function scheduleBarHide(delay: number) {
     clearBarTimer()
-    if (isTouch || metricsOpen || keysOpen || shareOpen || qualityOpen || phase !== 'live') return
+    if (isTouch || metricsOpen || keysOpen || shareOpen || lendOpen || giveBackOpen || qualityOpen || phase !== 'live') return
     barTimer = setTimeout(() => {
       barTimer = null
-      if (!metricsOpen && !keysOpen && !shareOpen && !qualityOpen) hideBar()
+      if (!metricsOpen && !keysOpen && !shareOpen && !lendOpen && !giveBackOpen && !qualityOpen) hideBar()
     }, delay)
   }
 
@@ -1099,7 +1351,7 @@
 
   // Un menu qui se ferme sous un pointeur parti ailleurs laisse la barre se refermer.
   $effect(() => {
-    if (barVisible && !metricsOpen && !keysOpen && !shareOpen && !qualityOpen) untrack(settleBar)
+    if (barVisible && !metricsOpen && !keysOpen && !shareOpen && !lendOpen && !giveBackOpen && !qualityOpen) untrack(settleBar)
   })
 
   // Un invité sans clavier ni souris n'envoie rien de la page, et ce qu'il tenait est relâché
@@ -1232,7 +1484,28 @@
     if (shareOpen) {
       metricsOpen = false
       keysOpen = false
+      lendOpen = false
     }
+  }
+
+  /** « Prêter l'ordinateur… » : comme « Partager » (prêt coupé : la raison, au toucher seulement). */
+  function toggleLend() {
+    const touched = lendTouch || isTouch
+    lendTouch = false
+    if (lendSupport !== 'ok' && !touched && !lendOpen) return
+    lendOpen = !lendOpen
+    if (lendOpen) {
+      metricsOpen = false
+      keysOpen = false
+      shareOpen = false
+    }
+  }
+
+  /** Demande acceptée depuis cette session : elle va se fermer (le signe de vie le dira). */
+  function lendAcceptedBy(name: string) {
+    lendAccepted = name
+    lendOpen = false
+    showNotice(t('lend.requests.sessionCloses'), 8000)
   }
 
   function toggleMute() {
@@ -1331,15 +1604,21 @@
     })
     start()
     // Un invité signale sa présence dès l'arrivée : sans nouvelles pendant 20 s, il sort du partage.
+    // Celui d'un ami part avec la réponse de `borrow` (son secret et son rythme).
     if (g) heartbeat.start({ guest: g.join.guest })
-    else {
-      // Ce que la Station sait du partage : une Station d'avant la 0.8.0 ne le connaît pas,
-      // et il est coupé quand `multi_client` l'est (docs/link-ui.md).
+    else if (!b) {
+      // Ce que la Station sait du partage et du prêt : une Station d'avant la 0.8.0 (0.9.0) ne les
+      // connaît pas ; le partage est coupé quand `multi_client` l'est, le prêt dans Admin (docs/link-ui.md).
       backend
         .info()
-        .then((i: Info) => (shareSupport = !i.share ? 'old' : i.share.enabled ? 'ok' : 'off'))
+        .then((i: Info) => {
+          shareSupport = !i.share ? 'old' : i.share.enabled ? 'ok' : 'off'
+          lendSupport = !i.lend ? 'none' : i.lend.enabled ? 'ok' : 'off'
+        })
         .catch(() => {})
     }
+    // Le temps qui reste au prêt d'un ami (« Encore 1 h 20 »).
+    const lendClock = b ? setInterval(() => (clockNow = Date.now() / 1000), 10_000) : null
     // Ctrl + Alt + Maj : la barre, et la souris rendue.
     const shortcut = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.altKey && e.shiftKey && ['Control', 'Alt', 'Shift'].includes(e.key)) {
@@ -1393,8 +1672,8 @@
         }, 1000)
       : null
     const foreground = setInterval(async () => {
-      // Un invité n'a pas de compte pour le demander : sa souris reste celle du bureau (ou des jeux, à la main).
-      if (g || phase !== 'live' || mouseMode !== 'auto') return
+      // Un invité ou un ami n'a pas de compte pour le demander : sa souris reste celle du bureau (ou des jeux, à la main).
+      if (g || b || phase !== 'live' || mouseMode !== 'auto') return
       const f = await backend.foreground().catch(() => null)
       const game = !!f?.game
       if (game !== gameInForeground) {
@@ -1408,8 +1687,9 @@
     window.visualViewport?.addEventListener('scroll', viewport)
     // Ctrl+W, ⌘W, ⌘Q en pleine session : le navigateur demande confirmation.
     const beforeUnload = (e: BeforeUnloadEvent) => {
-      // Un invité sort sans façon : il rejoint de nouveau avec le code.
-      if (g || phase !== 'live' || ended) return
+      // Un invité sort sans façon : il rejoint de nouveau avec le code. Un ami aussi : fermer la fenêtre
+      // ne rend pas l'ordinateur, il peut revenir pendant 15 min.
+      if (g || b || phase !== 'live' || ended) return
       e.preventDefault()
       e.returnValue = ''
     }
@@ -1420,8 +1700,9 @@
     }
     const leave = () => {
       keepLastSession()
-      // Un invité sort du partage à la fermeture de la page.
+      // Un invité sort du partage à la fermeture de la page ; un ami qui attend l'accord retire sa demande.
       leaveGuest()
+      if (pendingLend) void leaveLend(pendingLend.secret, { request: pendingLend.request })
       if (ended || !prepared) return
       fetch('/api/stream/end', { method: 'POST', keepalive: true, credentials: 'same-origin', headers: { 'x-kyber-admin': '1', 'content-type': 'application/json' }, body: JSON.stringify(endBody(null, extra())) })
     }
@@ -1452,12 +1733,12 @@
     }, 1000)
     // La latence du signal de vie (le Worker envoie la dernière connue).
     const sampler = setInterval(() => {
-      // Le signe de vie d'un invité porte seulement son identifiant.
-      if (g || !engine || phase !== 'live') return
+      // Le signe de vie d'un invité (d'un ami) porte seulement son identifiant (celui du prêt).
+      if (g || b || !engine || phase !== 'live') return
       const l = engine.sample()
       heartbeat.update(heartbeatBody(l?.total ?? null, profileLabel, extra()))
     }, 5000)
-    const ticketTimer = setInterval(() => phase === 'live' && !g && refreshTicket(), 3_600_000)
+    const ticketTimer = setInterval(() => phase === 'live' && !g && !b && refreshTicket(), 3_600_000)
 
     // Safari : pas de correction automatique (elle remplacerait un mot déjà parti).
     textInput.setAttribute('autocorrect', 'off')
@@ -1474,6 +1755,8 @@
       clearInterval(seconds)
       clearInterval(sampler)
       clearInterval(ticketTimer)
+      if (lendClock) clearInterval(lendClock)
+      lendAbort?.abort()
       heartbeat.stop()
       clearInterval(foreground)
       if (diagTimer) clearInterval(diagTimer)
@@ -1531,33 +1814,46 @@
       {#if phase === 'ended'}
         <div class="card">
           <Mark size={34} state="now" />
-          <h2 class="disp">{wasLive ? t('session.start.ended') : t('session.start.failed')}</h2>
+          <h2 class="disp">{wasLive || lendOver ? t('session.start.ended') : t('session.start.failed')}</h2>
           <p>{error}</p>
+          {#if b && !lendOver}<p class="comeback">{t('lend.friend.comeBackHint')}</p>{/if}
           <div class="row">
             {#if g}
               <!-- Un invité sorti du partage ne le reprend pas : il rejoint de nouveau avec un code. -->
               <button type="button" class="primary" onclick={quit}>{t('share.join.button')}</button>
+            {:else if b}
+              <!-- Un ami : « Revenir » au même prêt tant qu'il n'est pas fini (15 min), ou « Fermer ». -->
+              {#if !lendOver}<button type="button" class="primary" onclick={comeBack}>{t('lend.friend.comeBack')}</button>{/if}
+              <button type="button" class={lendOver ? 'primary' : 'ghost'} onclick={quit}>{t('lend.close')}</button>
             {:else}
               <button type="button" class="primary" onclick={() => { ended = false; wasLive = false; resetStats(); restart() }}>{t('session.start.reconnect')}</button>
               <button type="button" class="ghost" onclick={quit}>{t('session.start.home')}</button>
             {/if}
           </div>
         </div>
+      {:else if phase === 'waiting'}
+        <!-- Un ami attend l'accord de l'hôte (ordinateur utilisé). -->
+        <div class="card">
+          <Mark size={34} state="now" lit breathe />
+          <h2 class="disp">{startTitle}</h2>
+          <p class="waiting"><span class="wdot" aria-hidden="true"></span>{lendHost ? tName('lend.friend.waiting', 'host', lendHost) : t('share.join.waiting')}</p>
+          <button type="button" class="ghost" onclick={cancelBorrow}>{t('share.cancel')}</button>
+        </div>
       {:else}
         {@const current = phase === 'live' ? 2 : phase === 'preparing' ? 0 : connectStep === 'kyber' ? 1 : 2}
         <div class="card">
           <Mark size={34} state="now" lit breathe />
-          <h2 class="disp">{title}</h2>
+          <h2 class="disp">{startTitle}</h2>
           <ol class="steps">
             {#if phase === 'restarting'}
               <li class="current" aria-current="step"><span class="mark" aria-hidden="true"></span>{t('web.station.restarting')}</li>
             {:else}
-              {#each [t('session.start.preparing'), t('session.start.connecting'), t('session.start.firstImages')] as label, i (i)}
+              {#each [b ? t('lend.steps.preparing') : t('session.start.preparing'), t('session.start.connecting'), t('session.start.firstImages')] as label, i (i)}
                 <li class:done={i < current} class:current={i === current} aria-current={i === current ? 'step' : undefined}><span class="mark" aria-hidden="true"></span>{label}</li>
               {/each}
             {/if}
           </ol>
-          <button type="button" class="ghost" onclick={quit}>{t('session.start.cancel')}</button>
+          <button type="button" class="ghost" onclick={b ? cancelBorrow : quit}>{t('session.start.cancel')}</button>
         </div>
       {/if}
     </div>
@@ -1584,7 +1880,7 @@
       <Mark size={22} state="now" lit breathe />
       <span class="host">{title}</span>
       <span class="sep" aria-hidden="true"></span>
-      <button type="button" class="lat" aria-expanded={metricsOpen} aria-label={t('session.bar.metrics')} onclick={() => { metricsOpen = !metricsOpen; keysOpen = false; shareOpen = false; qualityOpen = false }}>
+      <button type="button" class="lat" aria-expanded={metricsOpen} aria-label={t('session.bar.metrics')} onclick={() => { metricsOpen = !metricsOpen; keysOpen = false; shareOpen = false; lendOpen = false; giveBackOpen = false; qualityOpen = false }}>
         <span class="mono value">{latencyText}</span>
         <svg width="64" height="22" viewBox="0 0 64 22" aria-hidden="true"><path d={sparkPath} fill="none" stroke="#9A8CFF" stroke-width="1.5" stroke-linejoin="round" /></svg>
         <span class="mono fmt">{formatText}</span>
@@ -1612,6 +1908,18 @@
             <span class="label">{receivedText}</span>
           </button>
         {/if}
+      {:else if b}
+        <!-- Ami : le temps qui reste au prêt (ou jusqu'à la reprise), ni profil ni réglages de l'ordinateur. -->
+        <span class="chip static time" class:soon={lendNoticeAt !== null} title={lendTimeText}>
+          <Icon name="clock" size={16} stroke={1.8} />
+          <span class="label">{lendTimeText}</span>
+        </span>
+        {#if relayed}
+          <span class="chip static relay">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9A8CFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z" /></svg>
+            <span class="label">{t('session.bar.relay')}</span>
+          </span>
+        {/if}
       {:else}
         <span class="chip static">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9A8CFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M8 20h8M12 16v4" /></svg>
@@ -1637,18 +1945,26 @@
         </button>
       {/if}
       {#if canKbm}
-        <button type="button" class="chip" aria-label={t('session.bar.keys')} aria-expanded={keysOpen} onclick={() => { keysOpen = !keysOpen; metricsOpen = false; shareOpen = false; qualityOpen = false }}>
+        <button type="button" class="chip" aria-label={t('session.bar.keys')} aria-expanded={keysOpen} onclick={() => { keysOpen = !keysOpen; metricsOpen = false; shareOpen = false; lendOpen = false; giveBackOpen = false; qualityOpen = false }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2" /><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8" /></svg>
           <span class="label">{t('session.bar.keys')}</span>
         </button>
       {/if}
-      {#if !g}
+      {#if !g && !b}
         <!-- « Partager » (KyberNow Share) : inactif si la Station ne le sait pas ou l'a coupé ; le panneau dit pourquoi. -->
         <button type="button" class="chip" class:inactive={shareSupport !== 'ok'} aria-expanded={shareOpen} aria-disabled={shareSupport !== 'ok'} aria-label={shareAria} title={shareHint} onpointerdown={(e) => (shareTouch = e.pointerType === 'touch' || e.pointerType === 'pen')} onclick={toggleShare}>
           <Icon name="share" size={16} stroke={1.7} />
           <span class="label">{t('share.bar.share')}</span>
           {#if guestCount}<span class="count" aria-hidden="true"><span class="full">{tn('share.guests', guestCount)}</span><span class="num">{guestCount}</span></span>{/if}
           {#if requestCount}<span class="count ask" aria-hidden="true"><span class="full">{tn('share.requestCount', requestCount)}</span><span class="num">{requestCount}</span></span>{/if}
+        </button>
+      {/if}
+      {#if !g && !b && lendSupport !== 'none'}
+        <!-- « Prêter l'ordinateur… » (docs/pret.md) : inactif si le prêt est coupé dans Admin ; ses demandes en pastille. -->
+        <button type="button" class="chip" class:inactive={lendSupport !== 'ok'} aria-expanded={lendOpen} aria-disabled={lendSupport !== 'ok'} aria-label={lendAria} title={lendSupport === 'off' ? t('lend.off') : ''} onpointerdown={(e) => (lendTouch = e.pointerType === 'touch' || e.pointerType === 'pen')} onclick={toggleLend}>
+          <Icon name="lend" size={16} stroke={1.7} />
+          <span class="label">{t('lend.open')}</span>
+          {#if lendRequests.length}<span class="count ask" aria-hidden="true"><span class="full">{tn('share.requestCount', lendRequests.length)}</span><span class="num">{lendRequests.length}</span></span>{/if}
         </button>
       {/if}
       <span class="sep" aria-hidden="true"></span>
@@ -1659,10 +1975,28 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></svg>
         {/if}
       </button>
-      <button type="button" class="quit" aria-label={g ? t('share.guest.leave') : t('session.bar.quit')} onclick={quit}>
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 3v9" /><path d="M6.3 6.3a8 8 0 1 0 11.4 0" /></svg>
-        <span class="label">{g ? t('share.guest.leave') : t('session.bar.quit')}</span>
-      </button>
+      {#if b}
+        <!-- « Rendre l'ordinateur » : après confirmation, le prêt finit ; fermer la fenêtre ne le rend pas. -->
+        <button type="button" class="quit" aria-expanded={giveBackOpen} aria-label={t('lend.bar.giveBack')} onclick={() => { giveBackOpen = !giveBackOpen; metricsOpen = false; keysOpen = false }}>
+          <Icon name="lend" size={15} stroke={2} />
+          <span class="label">{t('lend.bar.giveBack')}</span>
+        </button>
+      {:else}
+        <button type="button" class="quit" aria-label={g ? t('share.guest.leave') : t('session.bar.quit')} onclick={quit}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 3v9" /><path d="M6.3 6.3a8 8 0 1 0 11.4 0" /></svg>
+          <span class="label">{g ? t('share.guest.leave') : t('session.bar.quit')}</span>
+        </button>
+      {/if}
+
+      {#if giveBackOpen && b}
+        <div class="menu glass giveback" role="alertdialog" aria-labelledby="giveback-q">
+          <p id="giveback-q">{t('lend.bar.confirm', { host: lendHost })}</p>
+          <div class="gb-row">
+            <button type="button" class="gb-cancel" onclick={() => (giveBackOpen = false)}>{t('share.cancel')}</button>
+            <button type="button" class="gb-ok" onclick={giveBack}>{t('lend.bar.giveBack')}</button>
+          </div>
+        </div>
+      {/if}
 
       {#if qualityOpen && g}
         <div class="menu glass qmenu" role="menu" aria-label={t('share.quality.title')} style:left="{qualityLeft}px">
@@ -1718,6 +2052,7 @@
         <Mark size={20} state="now" lit />
         <span class="mono tlat">{latencyText}</span>
         {#if g}<span class="trole">{roleText}</span>{/if}
+        {#if b}<span class="trole ttime" class:soon={lendNoticeAt !== null}>{lendTimeText}</span>{/if}
         {#if relayed}
           <span class="trelay" role="img" title={t('session.bar.relay')} aria-label={t('session.bar.relay')}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#9A8CFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z" /></svg>
@@ -1749,20 +2084,35 @@
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" />{#if muted}<path d="M17 9l4 6M21 9l-4 6" />{:else}<path d="M17 9a4 4 0 0 1 0 6" />{/if}</svg>
           </button>
         {/if}
-        {#if !g}
+        {#if !g && !b}
           <button type="button" class="tb" class:inactive={shareSupport !== 'ok'} aria-expanded={shareOpen} aria-disabled={shareSupport !== 'ok'} aria-label={shareAria} onclick={toggleShare}>
             <Icon name="share" size={20} stroke={1.7} />
             {#if guestCount}<span class="tcount mono" aria-hidden="true">{guestCount}</span>{/if}
             {#if requestCount}<span class="tcount ask mono" aria-hidden="true">{requestCount}</span>{/if}
           </button>
+          {#if lendSupport !== 'none'}
+            <button type="button" class="tb" class:inactive={lendSupport !== 'ok'} aria-expanded={lendOpen} aria-disabled={lendSupport !== 'ok'} aria-label={lendAria} onclick={toggleLend}>
+              <Icon name="lend" size={20} stroke={1.7} />
+              {#if lendRequests.length}<span class="tcount ask mono" aria-hidden="true">{lendRequests.length}</span>{/if}
+            </button>
+          {/if}
         {/if}
         <span class="sep" aria-hidden="true"></span>
         <button type="button" class="tb" onclick={() => { touchBar = false; guide = false; qualityOpen = false }} aria-label={t('session.touch.hideBar')}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 15l6-6 6 6" /></svg>
         </button>
-        <button type="button" class="tb danger-tb" onclick={quit} aria-label={g ? t('share.guest.leave') : t('session.bar.quit')}>
+        <button type="button" class="tb danger-tb" onclick={b ? () => (giveBackOpen = !giveBackOpen) : quit} aria-label={b ? t('lend.bar.giveBack') : g ? t('share.guest.leave') : t('session.bar.quit')}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 3v9" /><path d="M6.3 6.3a8 8 0 1 0 11.4 0" /></svg>
         </button>
+        {#if giveBackOpen && b}
+          <div class="menu glass tmenu giveback" role="alertdialog" aria-labelledby="giveback-tq">
+            <p id="giveback-tq">{t('lend.bar.confirm', { host: lendHost })}</p>
+            <div class="gb-row">
+              <button type="button" class="gb-cancel" onclick={() => (giveBackOpen = false)}>{t('share.cancel')}</button>
+              <button type="button" class="gb-ok" onclick={giveBack}>{t('lend.bar.giveBack')}</button>
+            </div>
+          </div>
+        {/if}
         {#if qualityOpen && g}
           <div class="menu glass tmenu" role="menu" aria-label={t('share.quality.title')}>
             <span class="mhead-q">{t('share.quality.title')} · {receivedText}</span>
@@ -1805,8 +2155,15 @@
     {/if}
   {/if}
 
-  {#if shareOpen && !g && phase === 'live'}
+  {#if shareOpen && !g && !b && phase === 'live'}
     <ShareBox {share} support={shareSupport} computer={hostname} onshare={(view) => (share = view)} onclose={() => (shareOpen = false)} />
+  {/if}
+
+  {#if lendOpen && !g && !b && phase === 'live'}
+    <LendBox view={lend} support={lendSupport} computer={hostname} ops={hostLend} onlend={(view) => (lend = view)} onclose={() => (lendOpen = false)} />
+  {:else if lend && !g && !b && phase === 'live' && !lendAccepted}
+    <!-- Une demande (ou le créneau d'un ami) : visible même barre fermée. -->
+    <LendAsk view={lend} ops={hostLend} onlend={(view) => (lend = view)} onaccepted={lendAcceptedBy} />
   {/if}
 
   {#if diagEnabled && diagText}
@@ -1934,6 +2291,26 @@
 
   .overlay p {
     color: var(--muted);
+  }
+
+  .overlay .comeback {
+    color: var(--signal-light);
+  }
+
+  .overlay .waiting {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .wdot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex: none;
+    background: var(--signal);
+    box-shadow: 0 0 10px var(--signal);
+    animation: step 0.8s ease-in-out infinite alternate;
   }
 
   .overlay .row {
@@ -2227,6 +2604,54 @@
 
   .menu button[aria-checked='true'] :global(svg) {
     color: var(--signal-light);
+  }
+
+  /* Ami : le temps qui reste au prêt ; pendant le préavis, il passe à l'orange. */
+  .chip.time {
+    color: var(--signal-light);
+  }
+
+  .chip.time.soon,
+  .ttime.soon {
+    color: var(--warn-text);
+  }
+
+  /* « Rendre l'ordinateur à {hôte} ? » sous son bouton (barre de la souris), sous la barre tactile. */
+  .menu.giveback {
+    right: 8px;
+    width: 300px;
+    padding: 14px;
+    gap: 12px;
+    white-space: normal;
+  }
+
+  .menu.giveback p {
+    font-size: 14px;
+    line-height: 1.4;
+    color: var(--text);
+  }
+
+  .gb-row {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  .menu .gb-row button {
+    height: 38px;
+    padding: 0 14px;
+    justify-content: center;
+    font-weight: 600;
+  }
+
+  .menu .gb-row .gb-ok {
+    background: var(--bad-bg);
+    box-shadow: inset 0 0 0 1px var(--bad-line);
+    color: var(--bad-text);
+  }
+
+  .menu .gb-row .gb-cancel {
+    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.14);
   }
 
   .mhead-q {

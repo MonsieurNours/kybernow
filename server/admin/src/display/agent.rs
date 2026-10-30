@@ -211,6 +211,23 @@ pub fn launch_as_user(exe: &Path) -> Result<()> {
     }
 }
 
+/// Lance `exe args` dans la session de l'utilisateur connecté, avec son
+/// compte, sans l'attendre : l'agent de console du prêt (`kybernow-tray.exe --console`).
+pub fn launch_as_user_with(exe: &Path, args: &[String]) -> Result<()> {
+    use windows_sys::Win32::System::Environment::{CreateEnvironmentBlock, DestroyEnvironmentBlock};
+    let token = user_token()?;
+    unsafe {
+        let mut env: *mut std::ffi::c_void = null_mut();
+        CreateEnvironmentBlock(&mut env, token, 0);
+        let result = spawn_with_token(token, env, &command_line(exe, args), CREATE_UNICODE_ENVIRONMENT, None, "l'agent de console");
+        if !env.is_null() {
+            DestroyEnvironmentBlock(env);
+        }
+        CloseHandle(token);
+        result.map(|_| ())
+    }
+}
+
 /// Lance `display-agent args` **avec le compte de l'utilisateur** de la
 /// session console (pas SYSTEM : le menu Démarrer, les apps du Store et les
 /// jeux qu'on ouvre sont à lui), attend son résultat JSON au plus

@@ -629,7 +629,11 @@ async fn supervise_tick(s: &AppState, router: &Router) {
         }
         seen.is_some_and(|t| t.elapsed() < LINGER)
     };
-    let wanted = settings.addr().filter(|_| settings.remote_access || open || lingering);
+    // Prêt : un code de séance, un prêt en cours, ou des comptes d'amis qui peuvent venir de loin.
+    let lending = s.lend.code_value().is_some()
+        || s.lend.loan().is_some()
+        || (s.settings.lock().unwrap().lend.enabled && s.friends.any_enabled());
+    let wanted = settings.addr().filter(|_| settings.remote_access || open || lingering || lending);
     let current = s.relay.running.lock().unwrap().as_ref().map(|r| r.relay.clone());
     if wanted != current {
         let old = s.relay.running.lock().unwrap().take();
@@ -697,31 +701,33 @@ async fn log_states(s: AppState, mut states: tokio::sync::watch::Receiver<AgentS
 /// d'avant rendus.
 async fn sync_codes(s: &AppState) {
     let Some(agent) = s.relay.joined_agent() else { return };
-    let code = s.share.snapshot().map(|snap| snap.code);
+    // Le code du partage et celui du prêt (docs/pret.md, « Codes »).
+    let wanted: Vec<String> = s.share.snapshot().map(|snap| snap.code).into_iter().chain(s.lend.code_value()).collect();
     for held in agent.codes() {
-        if code.as_deref() != Some(held.as_str()) {
+        if !wanted.contains(&held) {
             agent.release(&held);
         }
     }
-    let Some(code) = code else { return };
-    if agent.codes().contains(&code) {
-        return;
-    }
-    if s.relay.reserve_failed.lock().unwrap().is_some_and(|t| t.elapsed() < RESERVE_RETRY) {
-        return;
-    }
-    match agent.reserve(Some(&code)).await {
-        Ok(got) if got != code => {
-            if s.share.replace_code(&code, &got) {
-                tracing::info!("relais : code du partage pris ailleurs, nouveau code réservé");
-            } else {
-                agent.release(&got);
-            }
+    for code in wanted {
+        if agent.codes().contains(&code) {
+            continue;
         }
-        Ok(_) => {}
-        Err(e) => {
-            tracing::warn!("relais : code du partage non réservé : {e}");
-            *s.relay.reserve_failed.lock().unwrap() = Some(Instant::now());
+        if s.relay.reserve_failed.lock().unwrap().is_some_and(|t| t.elapsed() < RESERVE_RETRY) {
+            return;
+        }
+        match agent.reserve(Some(&code)).await {
+            Ok(got) if got != code => {
+                if s.share.replace_code(&code, &got) || s.lend.replace_code(&code, &got) {
+                    tracing::info!("relais : code pris ailleurs, nouveau code réservé");
+                } else {
+                    agent.release(&got);
+                }
+            }
+            Ok(_) => {}
+            Err(e) => {
+                tracing::warn!("relais : code non réservé : {e}");
+                *s.relay.reserve_failed.lock().unwrap() = Some(Instant::now());
+            }
         }
     }
 }
@@ -868,6 +874,8 @@ enum Class {
     Kyber,
     /// Un appareil appairé (compte Basic), seulement avec « Accès hors de chez vous ».
     Device,
+    /// L'ami d'un prêt (code ou compte d'ami), quand le prêt est activé.
+    Lend,
     /// Jamais par le relais.
     Never,
 }
@@ -877,7 +885,13 @@ fn class_of(method: &Method, path: &str) -> Class {
     match path {
         "/api/session" if read => return Class::Guest,
         "/api/share/join" | "/api/share/wait" | "/api/share/beat" | "/api/share/quality" | "/api/share/leave" => return Class::Guest,
+        // L'ami d'un prêt (docs/pret.md) : code ou compte d'ami, puis son secret.
+        "/api/lend/status" | "/api/lend/borrow" | "/api/lend/wait" | "/api/lend/beat" | "/api/lend/leave" => return Class::Lend,
         _ => {}
+    }
+    // L'hôte d'un prêt : un appareil appairé, comme les routes de l'hôte du partage.
+    if path == "/api/lend" || path == "/api/lend/code" || path == "/api/lend/take-back" || path.starts_with("/api/lend/requests/") {
+        return Class::Device;
     }
     // Ni redémarrage ni mise à jour de la Station hors de chez soi : une
     // action lourde, qu'on fait sur place ou dans Admin.
@@ -944,12 +958,20 @@ pub async fn guard(State(s): State<AppState>, mut req: Request, next: Next) -> R
         Class::Guest => {
             // Partage fermé : ni code à essayer, ni page à servir. Le signe de
             // vie, l'attente et le départ passent (« arrêté », pendant une minute).
-            if !s.share.is_open() && (path == "/api/share/join" || !path.starts_with("/api/")) {
+            // Les pages servent aussi l'ami d'un prêt quand le prêt est activé.
+            let pages_open = s.share.is_open() || s.settings.lock().unwrap().lend.enabled;
+            if (path == "/api/share/join" && !s.share.is_open()) || (!path.starts_with("/api/") && !pages_open) {
                 return no_share(&path);
             }
         }
+        Class::Lend => {
+            if !s.settings.lock().unwrap().lend.enabled {
+                return (StatusCode::SERVICE_UNAVAILABLE, Json(json!({ "error": "off" }))).into_response();
+            }
+        }
         Class::Kyber => {
-            if !s.share.is_open() {
+            // Un invité du partage, ou l'ami d'un prêt (son cookie fait le reste).
+            if !s.share.is_open() && s.lend.loan().is_none() {
                 return no_share(&path);
             }
             // L'image du navigateur par le relais : en WebSocket seulement,
@@ -1088,6 +1110,15 @@ mod tests {
         let post = Method::POST;
         for (m, p) in [(&post, "/api/share/join"), (&post, "/api/share/wait"), (&post, "/api/share/beat"), (&post, "/api/share/quality"), (&post, "/api/share/leave"), (&get, "/api/session"), (&get, "/link/"), (&get, "/link/kyclient_wasm.js"), (&get, "/assets/link-1.js"), (&get, "/favicon.svg")] {
             assert_eq!(class_of(m, p), Class::Guest, "{m} {p}");
+        }
+        for p in ["/api/lend/status", "/api/lend/borrow", "/api/lend/wait", "/api/lend/beat", "/api/lend/leave"] {
+            assert_eq!(class_of(&post, p), Class::Lend, "{p}");
+        }
+        for (m, p) in [(&get, "/api/lend"), (&post, "/api/lend/code"), (&Method::DELETE, "/api/lend/code"), (&post, "/api/lend/requests/ab"), (&post, "/api/lend/take-back")] {
+            assert_eq!(class_of(m, p), Class::Device, "{m} {p}");
+        }
+        for (m, p) in [(&get, "/api/lend/settings"), (&get, "/api/lend/friends"), (&get, "/api/lend/friends/x/invite"), (&get, "/api/lend/catalog"), (&get, "/api/local/lend"), (&get, "/api/local/lend/console")] {
+            assert_eq!(class_of(m, p), Class::Never, "{m} {p}");
         }
         for p in ["/session/login", "/ws", "/kymux/start_mux", "/websocket/video"] {
             assert_eq!(class_of(&post, p), Class::Kyber, "{p}");

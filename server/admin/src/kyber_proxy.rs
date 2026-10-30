@@ -181,7 +181,14 @@ pub async fn proxy(State(s): State<AppState>, req: Request) -> Response {
     // du navigateur, tant qu'il est dans le partage.
     let console = crate::auth::session_token(req.headers()).is_some_and(|t| s.auth.session_valid(&t));
     let relay = req.extensions().get::<crate::relay::Via>().is_some();
-    let guest = (!console).then(|| crate::share::guest_cookie(req.headers(), relay)).flatten().filter(|c| s.share.cookie_valid(c));
+    let guest = (!console)
+        .then(|| {
+            crate::share::guest_cookie(req.headers(), relay)
+                .filter(|c| s.share.cookie_valid(c))
+                // Le navigateur de l'ami d'un prêt (docs/pret.md), tant que le prêt vit.
+                .or_else(|| crate::lend::cookie(req.headers(), relay).filter(|c| s.lend.cookie_valid(c)))
+        })
+        .flatten();
     if !console && guest.is_none() {
         return error(StatusCode::UNAUTHORIZED, "session de la console requise");
     }

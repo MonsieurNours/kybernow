@@ -29,8 +29,8 @@ use wry::{WebContext, WebView, WebViewBuilder};
 use crate::app::UserEvent;
 
 const HTML: &str = include_str!("panel.html");
-const ARCHIVO: &[u8] = include_bytes!("../../../brand/v2/fonts/web/Archivo-wdth-wght.woff2");
-const MARTIAN: &[u8] = include_bytes!("../../../brand/v2/fonts/web/MartianMono-wdth-wght.woff2");
+pub const ARCHIVO: &[u8] = include_bytes!("../../../brand/v2/fonts/web/Archivo-wdth-wght.woff2");
+pub const MARTIAN: &[u8] = include_bytes!("../../../brand/v2/fonts/web/MartianMono-wdth-wght.woff2");
 
 /// Largeur du panneau, en points ; la hauteur suit son contenu.
 const WIDTH: f64 = 340.0;

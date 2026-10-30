@@ -248,7 +248,18 @@ fn is_public(path: &str) -> bool {
         || path.starts_with("/api/local/")
         || path.starts_with("/api/stream/")
         || path.starts_with("/api/share/")
+        || is_lend_public(path)
         || is_pair_request(path)
+}
+
+/// Le prêt (docs/pret.md) : l'ami (code, compte d'ami, secret) et l'hôte
+/// (compte d'un appareil, ou session d'Admin) vérifient eux-mêmes ; les
+/// réglages et les comptes d'amis demandent la session d'Admin.
+fn is_lend_public(path: &str) -> bool {
+    matches!(
+        path,
+        "/api/lend" | "/api/lend/status" | "/api/lend/borrow" | "/api/lend/wait" | "/api/lend/beat" | "/api/lend/leave" | "/api/lend/code" | "/api/lend/take-back"
+    ) || path.strip_prefix("/api/lend/requests/").is_some_and(|id| !id.is_empty() && !id.contains('/'))
 }
 
 /// `/api/pair/request` et `/api/pair/request/{id}`, seulement.
@@ -276,7 +287,10 @@ mod tests {
         for path in ["/api/share", "/api/share/join", "/api/share/beat", "/api/share/leave", "/api/share/open", "/api/share/guest/abc", "/api/local/displays", "/api/local/share/open"] {
             assert!(is_public(path), "{path}");
         }
-        for path in ["/api/status", "/api/shares", "/api/sharex/join", "/api/devices", "/api/events"] {
+        for path in ["/api/lend/borrow", "/api/lend", "/api/lend/requests/ab12", "/api/lend/take-back"] {
+            assert!(is_public(path), "{path}");
+        }
+        for path in ["/api/status", "/api/shares", "/api/sharex/join", "/api/devices", "/api/events", "/api/lend/settings", "/api/lend/friends", "/api/lend/friends/x/invite", "/api/lend/requests/a/b"] {
             assert!(!is_public(path), "{path}");
         }
     }

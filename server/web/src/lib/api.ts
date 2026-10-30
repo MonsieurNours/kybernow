@@ -230,6 +230,134 @@ export interface Status {
   share?: ShareView | null
   /** Faux si le partage est coupé (`network.multi_client`) ; absent avant la 0.8.0. */
   share_enabled?: boolean
+  /** Prêt de l'ordinateur (docs/pret.md, « L'hôte ») : la vue du prêt ; absente avant la 0.9.0. */
+  lend?: LendView | null
+}
+
+/** Compte Steam d'un prêt : celui de l'ami (« Son compte Steam ») ou celui de l'hôte (« Votre compte Steam »). */
+export type LendSteam = 'friend' | 'host'
+
+/** Celui qui a l'ordinateur (docs/pret.md, « L'hôte »). */
+export interface LendBorrower {
+  name: string
+  /** Venu avec un code, son compte d'ami, ou son créneau. */
+  kind: 'code' | 'friend' | 'slot'
+  /** Son app : `mac`, `windows`, `linux`, `ios`, `tvos`, `android`, `webos` ou `web`. */
+  app: string
+  via: 'lan' | 'relay'
+  since: number
+  /** Fin prévue (durée du code, fin du créneau), en secondes Unix ; `null` : « Jusqu'à ce que je reprenne ». */
+  until: number | null
+  steam: LendSteam
+  /** Son image arrive (faux : fenêtre fermée ou réseau perdu, il a 15 min pour revenir). */
+  connected: boolean
+}
+
+/**
+ * Préavis en cours : reprise par l'hôte (`taken_back`), fin prévue (`time_up`), fin du créneau
+ * (`slot_end`), ou créneau d'un ami qui commence (`slot_start`, côté hôte). `at` : l'heure de la fin.
+ */
+export interface LendNotice {
+  reason: 'taken_back' | 'time_up' | 'slot_end' | 'slot_start'
+  at: number
+  /** Prénom de l'ami du créneau qui commence (`slot_start`), s'il n'est pas encore `borrower`. */
+  name?: string
+}
+
+/** Un ami attend l'accord de l'hôte (ordinateur utilisé). */
+export interface LendRequest {
+  id: string
+  name: string
+  kind: 'code' | 'friend'
+  app: string
+  via: 'lan' | 'relay'
+  since: number
+  /**
+   * Son créneau commence pendant que l'ordinateur est utilisé : il lui est prêté dans 2 min sans
+   * attendre de réponse (« Créneau de Léa : l'ordinateur lui est prêté dans 2 min. »).
+   */
+  slot?: boolean
+}
+
+/** Code pour une séance (docs/pret.md, « Trois façons de prêter »). */
+export interface LendCode {
+  code: string
+  /** `kybernow://join?…` : pour les apps (QR code). */
+  link: string
+  /** Le client web (`/link/?join=…`), lien du relais quand il est joint : « Copier le lien ». */
+  web: string
+  duration: LendDuration
+  steam: LendSteam
+  /** Le code ne sert plus après cette heure (24 h). */
+  expires: number
+  /** Le relais, comme pour le partage (lien du relais en préparation) ; absent : pas de relais. */
+  relay?: { state: 'connecting' | 'joined' | 'unreachable' } | null
+}
+
+/** La vue du prêt (`GET /api/lend`, signe de vie de l'hôte, `/api/status`). */
+export interface LendView {
+  enabled: boolean
+  state: 'free' | 'preparing' | 'lent' | 'ending'
+  borrower: LendBorrower | null
+  notice: LendNotice | null
+  requests: LendRequest[]
+  code: LendCode | null
+  /** Nom de l'ordinateur. */
+  computer?: string
+  /** Prénom de l'hôte (le nom du compte Windows de la session). */
+  host?: string
+  available?: boolean
+}
+
+/** Durées d'un code pour une séance, en secondes (`null` : « Jusqu'à ce que je reprenne »). */
+export type LendDuration = 3600 | 7200 | 14400 | null
+
+/** Ce que sait faire le panneau du prêt : mêmes routes pour Admin et le client web côté hôte. */
+export interface LendOps {
+  view(): Promise<LendView>
+  code(duration: LendDuration, steam: LendSteam): Promise<LendView>
+  cancelCode(): Promise<LendView>
+  answer(id: string, accept: boolean, steam: LendSteam): Promise<LendView>
+  takeBack(now: boolean): Promise<LendView>
+}
+
+/** Réglages du prêt (`GET`/`PUT /api/lend/settings`, Admin seulement). */
+export interface LendSettings {
+  enabled: boolean
+  /** Apps permises, choisies dans le catalogue (même forme que l'app au début d'une session). */
+  apps: Launch[]
+  /** Steam (en Big Picture) permis. */
+  steam: boolean
+  /** Steam est installé sur l'ordinateur. */
+  steam_found?: boolean
+}
+
+/** Un créneau : jours (1 = lundi … 7 = dimanche), heures locales du PC, `end` après `start`. */
+export interface LendSlot {
+  days: number[]
+  start: string
+  end: string
+}
+
+/** Un compte d'ami (jamais de mot de passe). */
+export interface LendFriend {
+  id: string
+  name: string
+  login: string
+  steam: LendSteam
+  slots: LendSlot[]
+  enabled: boolean
+  last_used: number | null
+}
+
+/** Ce qu'on envoie pour créer ou changer un compte d'ami (`password` absent : inchangé). */
+export interface LendFriendInput {
+  name: string
+  login: string
+  password?: string
+  steam: LendSteam
+  slots: LendSlot[]
+  enabled: boolean
 }
 
 /** Droits d'un invité : il regarde, il joue (ses manettes), ou il a aussi le clavier et la souris. */
@@ -607,7 +735,36 @@ export const api = {
   relay: () => request<RelayStatus>('GET', '/api/relay'),
   /** `server` vide : pas de relais ; adresse invalide : `400` avec le texte d'Admin. */
   setRelay: (changes: { server?: string; remote_access?: boolean }) => request<RelayStatus>('PUT', '/api/relay', changes),
+
+  // Prêt de l'ordinateur (docs/pret.md) : réglages et comptes d'amis, session d'Admin seulement.
+  lendSettings: () => request<LendSettings>('GET', '/api/lend/settings'),
+  /** Chaque champ est facultatif. */
+  setLendSettings: (changes: Partial<Omit<LendSettings, 'steam_found'>>) => request<LendSettings>('PUT', '/api/lend/settings', changes),
+  lendFriends: () => request<LendFriend[]>('GET', '/api/lend/friends'),
+  addLendFriend: (friend: LendFriendInput) => request<LendFriend>('POST', '/api/lend/friends', friend),
+  updateLendFriend: (id: string, changes: Partial<LendFriendInput>) =>
+    request<LendFriend>('PUT', `/api/lend/friends/${encodeURIComponent(id)}`, changes),
+  deleteLendFriend: (id: string) => request<unknown>('DELETE', `/api/lend/friends/${encodeURIComponent(id)}`),
+  lendInvite: (id: string) => request<{ link: string; web: string }>('GET', `/api/lend/friends/${encodeURIComponent(id)}/invite`),
 }
+
+/**
+ * Le prêt côté hôte (`/api/lend…`) : Admin, et le client web dans la session de l'hôte, avec la session
+ * d'Admin. `extra` : champs en plus dans les corps (`device_id` du client web : un code créé depuis la
+ * session vaut accord, docs/pret.md).
+ */
+export function lendOps(extra: () => Record<string, unknown> = () => ({})): LendOps {
+  return {
+    view: () => request<LendView>('GET', '/api/lend'),
+    code: (duration, steam) => request<LendView>('POST', '/api/lend/code', { duration, steam, ...extra() }),
+    cancelCode: () => request<LendView>('DELETE', '/api/lend/code'),
+    answer: (id, accept, steam) => request<LendView>('POST', `/api/lend/requests/${encodeURIComponent(id)}`, { accept, steam, ...extra() }),
+    takeBack: (now) => request<LendView>('POST', '/api/lend/take-back', { now, ...extra() }),
+  }
+}
+
+/** Le panneau du prêt d'Admin. */
+export const adminLend: LendOps = lendOps()
 
 /** Le panneau de partage d'Admin : routes du PC. */
 export const localShare: ShareOps = {
