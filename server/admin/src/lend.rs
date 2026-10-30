@@ -65,6 +65,11 @@ pub fn same(a: &str, b: &str) -> bool {
     !b.is_empty() && a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
+/// Un prénom ou un texte court saisi par l'hôte : sans caractères de contrôle, borné.
+pub fn clean_name(text: &str) -> String {
+    clean(text, 40)
+}
+
 fn clean(text: &str, max: usize) -> String {
     text.trim().chars().filter(|c| !c.is_control()).take(max).collect::<String>().trim().to_string()
 }
@@ -94,6 +99,11 @@ pub struct LendSettings {
     /// Les autres apps permises, du catalogue de `launch.rs`.
     #[serde(default)]
     pub apps: Vec<Launch>,
+    /// « Votre prénom » : ce que lisent les amis (« Matthieu vous prête son
+    /// ordinateur. ») et le `name` du lien d'invitation ; vide : le prénom du
+    /// compte Windows, sinon le nom de l'ordinateur.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub host_name: String,
 }
 
 fn yes() -> bool {
@@ -102,7 +112,58 @@ fn yes() -> bool {
 
 impl Default for LendSettings {
     fn default() -> Self {
-        LendSettings { enabled: false, steam: true, apps: Vec::new() }
+        LendSettings { enabled: false, steam: true, apps: Vec::new(), host_name: String::new() }
+    }
+}
+
+// --- Derniers prêts -------------------------------------------------------------------
+
+/// Les derniers prêts gardés (`lend-history.json`), pour la page « Prêt ».
+pub const HISTORY_FILE: &str = "lend-history.json";
+const HISTORY_MAX: usize = 20;
+
+/// Un prêt fini : qui, comment, quand, et comment il a fini.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Past {
+    pub name: String,
+    /// `code`, `friend` ou `slot`.
+    pub kind: String,
+    /// Le compte d'ami (absent pour un code).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub friend: Option<String>,
+    pub app: String,
+    pub since: u64,
+    pub end: u64,
+    /// `left`, `taken_back`, `time_up`, `slot_end`, `stopped`.
+    pub reason: String,
+}
+
+pub struct History {
+    path: PathBuf,
+    list: Mutex<Vec<Past>>,
+}
+
+impl History {
+    pub fn load(data_dir: &Path) -> History {
+        let path = data_dir.join(HISTORY_FILE);
+        let list = std::fs::read(&path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        History { path, list: Mutex::new(list) }
+    }
+
+    /// Le plus récent d'abord.
+    pub fn list(&self) -> Vec<Past> {
+        self.list.lock().unwrap().clone()
+    }
+
+    pub fn push(&self, past: Past) {
+        let mut list = self.list.lock().unwrap();
+        list.insert(0, past);
+        list.truncate(HISTORY_MAX);
+        let tmp = self.path.with_extension("json.tmp");
+        let written = serde_json::to_vec_pretty(&*list).map_err(std::io::Error::other).and_then(|b| std::fs::write(&tmp, b)).and_then(|_| std::fs::rename(&tmp, &self.path));
+        if let Err(e) = written {
+            tracing::warn!("prêt : historique non gardé : {e}");
+        }
     }
 }
 
@@ -1415,6 +1476,20 @@ mod tests {
         assert!(lending.resume(&max).is_none());
         lending.age_loan_beat(COMEBACK);
         assert_eq!(lending.tick(Instant::now(), now_secs()).end, Some((loan.id, Reason::Stopped)));
+    }
+
+    #[test]
+    fn les_derniers_prets_gardes() {
+        let dir = std::env::temp_dir().join(format!("kn-lend-history-{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let history = History::load(&dir);
+        for i in 0..25u64 {
+            history.push(Past { name: format!("Ami {i}"), kind: "code".into(), friend: None, app: "ios".into(), since: 1000 + i, end: 2000 + i, reason: "left".into() });
+        }
+        let list = History::load(&dir).list();
+        assert_eq!(list.len(), 20, "les 20 derniers");
+        assert_eq!(list[0].name, "Ami 24", "le plus récent d'abord");
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

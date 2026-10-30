@@ -125,9 +125,19 @@ fn hostname() -> String {
     hostname::get().ok().map(|h| h.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
-/// Le prénom de l'hôte (compte de la session, relu toutes les 10 minutes),
-/// sinon le nom de l'ordinateur.
-fn host_name() -> String {
+/// Le prénom de l'hôte : « Votre prénom » s'il est réglé, sinon le prénom du
+/// compte Windows de la session (relu toutes les 10 minutes), sinon le nom de
+/// l'ordinateur.
+fn host_name(s: &AppState) -> String {
+    let set = settings(s).host_name;
+    if !set.trim().is_empty() {
+        return set;
+    }
+    account_name()
+}
+
+/// Le prénom du compte Windows de la session, sinon le nom de l'ordinateur.
+fn account_name() -> String {
     static CACHE: Mutex<Option<(String, Instant)>> = Mutex::new(None);
     if let Some((name, at)) = CACHE.lock().unwrap().clone()
         && at.elapsed() < Duration::from_secs(600)
@@ -139,6 +149,12 @@ fn host_name() -> String {
     name
 }
 
+/// Le prénom de l'hôte, hors du fil d'async (le compte Windows se lit par un agent).
+async fn host_name_async(s: &AppState) -> String {
+    let s = s.clone();
+    tokio::task::spawn_blocking(move || host_name(&s)).await.unwrap_or_default()
+}
+
 /// `info.lend`.
 pub fn info(s: &AppState) -> Value {
     json!({ "available": true, "enabled": enabled(s) })
@@ -148,7 +164,7 @@ pub fn info(s: &AppState) -> Value {
 pub fn view(s: &AppState) -> Value {
     let mut v = s.lend.view(enabled(s));
     v["computer"] = json!(hostname());
-    v["host"] = json!(host_name());
+    v["host"] = json!(host_name(s));
     v["code"] = match s.lend.code() {
         Some(c) => {
             let links = crate::share_api::links(s, &c.code);
@@ -217,7 +233,7 @@ fn loan_answer(s: &AppState, loan: &lend::Loan, via: Option<&Via>) -> Response {
     let mut answer = json!({
         "lend": loan.id,
         "secret": loan.secret(),
-        "host": host_name(),
+        "host": host_name(s),
         "computer": hostname(),
         "kyber": {
             "port": s.kyber.port(),
@@ -488,6 +504,23 @@ pub async fn finish(s: &AppState, id: &str, reason: Reason) {
     .await;
     s.lend.ended(&loan.id, reason);
     let _ = std::fs::remove_file(s.data_dir.join(ACTIVE_FILE));
+    // Les derniers prêts : seulement un prêt qui a commencé.
+    if loan.console_ready {
+        let kind = match loan.who.kind {
+            Kind::Code => "code",
+            Kind::Friend => "friend",
+            Kind::Slot => "slot",
+        };
+        s.lend_history.push(lend::Past {
+            name: loan.who.name.clone(),
+            kind: kind.into(),
+            friend: loan.who.friend.clone(),
+            app: loan.who.app.clone(),
+            since: loan.since,
+            end: now_secs(),
+            reason: end_name(reason).into(),
+        });
+    }
     match reason {
         Reason::Left => s.activity.event("info", Msg::new("events.lendGivenBack").with("name", loan.who.name.as_str())),
         Reason::TakenBack => s.activity.event("info", Msg::new("events.lendTakenBack")),
@@ -570,7 +603,7 @@ pub async fn status(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<So
             "next": lend::next_slot(&friend.slots, at).map(|(start, end)| json!({ "start": start, "end": end })),
         })
     });
-    let host = tokio::task::spawn_blocking(host_name).await.unwrap_or_default();
+    let host = host_name_async(&s).await;
     let answer = json!({ "state": state, "mine": mine, "host": host, "computer": hostname(), "slot": slot });
     ([(header::CACHE_CONTROL, "no-store")], Json(answer)).into_response()
 }
@@ -645,6 +678,12 @@ pub async fn borrow(
     if !enabled(&s) {
         return friend_error(StatusCode::SERVICE_UNAVAILABLE, "off");
     }
+    // Sans clé pour le jeton de Kyber, l'ami ne pourrait jamais se connecter :
+    // pas de prêt du tout (plutôt qu'un prêt sans personne).
+    if s.kyber.jwt_secret().is_none() {
+        tracing::warn!("prêt : pas de clé pour les jetons de Kyber");
+        return friend_error(StatusCode::SERVICE_UNAVAILABLE, "off");
+    }
     if s.lend.loan().is_some() {
         return friend_error(StatusCode::CONFLICT, "lent");
     }
@@ -666,7 +705,7 @@ pub async fn borrow(
         }
         tracing::info!("prêt : {name} demande l'ordinateur");
         // `host` : « En attente de {hôte}… », même venu par un code.
-        let host = tokio::task::spawn_blocking(host_name).await.unwrap_or_default();
+        let host = host_name_async(&s).await;
         let answer = json!({ "request": request.id, "secret": request.secret(), "host": host, "computer": hostname() });
         return (StatusCode::ACCEPTED, [(header::CACHE_CONTROL, "no-store")], Json(answer)).into_response();
     }
@@ -979,15 +1018,37 @@ pub struct SettingsBody {
     steam: Option<bool>,
     #[serde(default)]
     apps: Option<Vec<crate::launch::Launch>>,
+    /// « Votre prénom » (vide : le prénom du compte Windows, sinon le nom de l'ordinateur).
+    #[serde(default)]
+    host_name: Option<String>,
 }
 
 fn settings_json(s: &AppState) -> Value {
     let settings = settings(s);
-    json!({ "enabled": settings.enabled, "apps": settings.apps, "steam": settings.steam, "steam_found": lend_sys::steam_dir().is_some() || cfg!(not(windows)) })
+    json!({
+        "enabled": settings.enabled,
+        "apps": settings.apps,
+        "steam": settings.steam,
+        "steam_found": lend_sys::steam_dir().is_some() || cfg!(not(windows)),
+        "host_name": settings.host_name,
+        // Ce que lisent les amis sans « Votre prénom » : le prénom du compte Windows, sinon le nom de l'ordinateur.
+        "host_default": account_name(),
+    })
 }
 
 pub async fn get_settings(State(s): State<AppState>) -> Json<Value> {
-    Json(settings_json(&s))
+    Json(settings_async(&s).await)
+}
+
+/// Les réglages, hors du fil d'async (Steam et le compte Windows se lisent sur le disque et par un agent).
+async fn settings_async(s: &AppState) -> Value {
+    let s = s.clone();
+    tokio::task::spawn_blocking(move || settings_json(&s)).await.unwrap_or(Value::Null)
+}
+
+/// `GET /api/lend/history` : les derniers prêts (20 au plus, le plus récent d'abord).
+pub async fn history(State(s): State<AppState>) -> Json<Value> {
+    Json(json!(s.lend_history.list()))
 }
 
 pub async fn put_settings(State(s): State<AppState>, Json(body): Json<SettingsBody>) -> LendResult<Json<Value>> {
@@ -1009,6 +1070,9 @@ pub async fn put_settings(State(s): State<AppState>, Json(body): Json<SettingsBo
         if let Some(apps) = apps {
             settings.lend.apps = apps;
         }
+        if let Some(name) = &body.host_name {
+            settings.lend.host_name = lend::clean_name(name);
+        }
     })?;
     let after = enabled(&s);
     if before != after {
@@ -1025,7 +1089,7 @@ pub async fn put_settings(State(s): State<AppState>, Json(body): Json<SettingsBo
         }
         s.relay.wake();
     }
-    Ok(Json(settings_json(&s)))
+    Ok(Json(settings_async(&s).await))
 }
 
 pub async fn friends(State(s): State<AppState>) -> Json<Value> {
@@ -1083,7 +1147,7 @@ pub async fn friend_invite(State(s): State<AppState>, Path(id): Path<String>) ->
         link.push_str(&format!("&fp={}", urlencoding::encode(fp)));
     }
     // Le prénom de l'hôte : « {hôte} vous prête son ordinateur. » avant tout essai du compte.
-    let host = tokio::task::spawn_blocking(host_name).await.unwrap_or_default();
+    let host = host_name_async(&s).await;
     let (login, name) = (urlencoding::encode(&friend.login), urlencoding::encode(&host));
     link.push_str(&format!("&login={login}"));
     let scheme = if s.secure_cookies { "https" } else { "http" };
@@ -1142,7 +1206,7 @@ pub async fn console_get(State(s): State<AppState>, ConnectInfo(peer): ConnectIn
         "phase": loan.phase,
         "lend": loan.id,
         "borrower": loan.who.name,
-        "host": host_name(),
+        "host": host_name(&s),
         "computer": hostname(),
         "since": loan.since,
         "until": loan.until,
@@ -1431,6 +1495,48 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    #[tokio::test]
+    async fn votre_prenom_et_les_derniers_prets() {
+        let (s, dir) = station();
+        // « Votre prénom » : dans la vue, l'invitation et les réglages.
+        let req = serde_json::from_value::<SettingsBody>(json!({ "host_name": "  Matthieu\u{7}  " })).unwrap();
+        let Json(v) = put_settings(State(s.clone()), Json(req)).await.ok().unwrap();
+        assert_eq!(v["host_name"], "Matthieu");
+        assert!(v["host_default"].is_string());
+        assert_eq!(view(&s)["host"], "Matthieu");
+        let friend = s.friends.create(&lend::FriendBody { name: Some("Léa".into()), login: Some("lea".into()), ..Default::default() }, lend::hash_friend_password("secret-lea").unwrap()).unwrap();
+        let Json(invite) = friend_invite(State(s.clone()), Path(friend.id.clone())).await.ok().unwrap();
+        assert!(invite["web"].as_str().unwrap().ends_with("&name=Matthieu"), "{invite}");
+        // Vide : le prénom du compte Windows, sinon le nom de l'ordinateur.
+        let req = serde_json::from_value::<SettingsBody>(json!({ "host_name": "" })).unwrap();
+        let Json(v) = put_settings(State(s.clone()), Json(req)).await.ok().unwrap();
+        assert_eq!(v["host_name"], "");
+        assert_eq!(view(&s)["host"], v["host_default"]);
+        // Un prêt par code, rendu : il entre dans les derniers prêts.
+        let Json(code) = local_code(State(s.clone()), local(), admin(&s), Bytes::new()).await.ok().unwrap();
+        let (status, lent) = body(borrow(State(s.clone()), peer(60), None, borrow_code(code["code"]["code"].as_str().unwrap(), "Sam", "tv")).await).await;
+        assert_eq!(status, StatusCode::OK, "{lent}");
+        finish(&s, lent["lend"].as_str().unwrap(), Reason::Left).await;
+        let Json(h) = history(State(s.clone())).await;
+        assert_eq!((h[0]["name"].as_str(), h[0]["kind"].as_str(), h[0]["reason"].as_str(), h[0]["app"].as_str()), (Some("Sam"), Some("code"), Some("left"), Some("ios")));
+        assert!(h[0]["end"].as_u64() >= h[0]["since"].as_u64());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn sans_cle_de_kyber_pas_de_pret() {
+        let dir = std::env::temp_dir().join(format!("kn-lend-api-{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let s = AppState::for_tests(dir.clone(), Box::new(crate::service::Simulated::default()));
+        std::fs::write(dir.join("kyber_config.toml"), "").unwrap();
+        s.settings.lock().unwrap().lend.enabled = true;
+        let Json(v) = local_code(State(s.clone()), local(), admin(&s), Bytes::new()).await.ok().unwrap();
+        let (status, answer) = body(borrow(State(s.clone()), peer(70), None, borrow_code(v["code"]["code"].as_str().unwrap(), "Sam", "tv")).await).await;
+        assert_eq!((status, answer["error"].as_str()), (StatusCode::SERVICE_UNAVAILABLE, Some("off")));
+        assert!(s.lend.loan().is_none(), "pas de prêt sans personne");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     #[test]
     fn quelqu_un_devant_le_pc() {
         // Aucune session à distance connue : l'entrée de moins de 5 min compte.
@@ -1581,7 +1687,7 @@ mod tests {
         // L'invitation d'un ami porte son identifiant et le prénom de l'hôte.
         let friend = s.friends.create(&lend::FriendBody { name: Some("Léa".into()), login: Some("lea".into()), ..Default::default() }, lend::hash_friend_password("secret-lea").unwrap()).unwrap();
         let Json(invite) = friend_invite(State(s.clone()), Path(friend.id.clone())).await.ok().unwrap();
-        let name = format!("&name={}", urlencoding::encode(&host_name()));
+        let name = format!("&name={}", urlencoding::encode(&host_name(&s)));
         let (link, web) = (invite["link"].as_str().unwrap(), invite["web"].as_str().unwrap());
         assert!(link.starts_with("kybernow://borrow?") && link.contains("&login=lea") && link.ends_with(&name), "{link}");
         assert!(web.contains("/link/?borrow=lea&name=") && web.ends_with(&name), "{web}");

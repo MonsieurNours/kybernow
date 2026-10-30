@@ -131,6 +131,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/lend/requests/{id}", post(lend_api::host_answer))
         .route("/api/lend/take-back", post(lend_api::host_take_back))
         .route("/api/lend/settings", get(lend_api::get_settings).put(lend_api::put_settings))
+        .route("/api/lend/history", get(lend_api::history))
         .route("/api/lend/catalog", get(apps))
         .route("/api/lend/friends", get(lend_api::friends).post(lend_api::friend_create))
         .route("/api/lend/friends/{id}", put(lend_api::friend_update).delete(lend_api::friend_delete))

@@ -290,7 +290,7 @@ mod tests {
         for path in ["/api/lend/borrow", "/api/lend", "/api/lend/requests/ab12", "/api/lend/take-back"] {
             assert!(is_public(path), "{path}");
         }
-        for path in ["/api/status", "/api/shares", "/api/sharex/join", "/api/devices", "/api/events", "/api/lend/settings", "/api/lend/friends", "/api/lend/friends/x/invite", "/api/lend/requests/a/b"] {
+        for path in ["/api/status", "/api/shares", "/api/sharex/join", "/api/devices", "/api/events", "/api/lend/settings", "/api/lend/history", "/api/lend/friends", "/api/lend/friends/x/invite", "/api/lend/requests/a/b"] {
             assert!(!is_public(path), "{path}");
         }
     }

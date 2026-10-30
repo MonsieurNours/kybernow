@@ -1120,7 +1120,7 @@ mod tests {
         for (m, p) in [(&get, "/api/lend"), (&post, "/api/lend/code"), (&Method::DELETE, "/api/lend/code"), (&post, "/api/lend/requests/ab"), (&post, "/api/lend/take-back")] {
             assert_eq!(class_of(m, p), Class::Device, "{m} {p}");
         }
-        for (m, p) in [(&get, "/api/lend/settings"), (&get, "/api/lend/friends"), (&get, "/api/lend/friends/x/invite"), (&get, "/api/lend/catalog"), (&get, "/api/local/lend"), (&get, "/api/local/lend/console")] {
+        for (m, p) in [(&get, "/api/lend/settings"), (&get, "/api/lend/history"), (&get, "/api/lend/friends"), (&get, "/api/lend/friends/x/invite"), (&get, "/api/lend/catalog"), (&get, "/api/local/lend"), (&get, "/api/local/lend/console")] {
             assert_eq!(class_of(m, p), Class::Never, "{m} {p}");
         }
         for p in ["/session/login", "/ws", "/kymux/start_mux", "/websocket/video"] {

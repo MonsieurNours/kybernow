@@ -1197,6 +1197,118 @@
       "locked": "L'ordinateur est verrouillé.",
       "off": "Le prêt est coupé sur cet ordinateur.",
       "tooMany": "Trop d'essais : réessayez dans une minute."
+    },
+    "admin": {
+      "intro": "Confiez l'ordinateur à un ami quand vous ne vous en servez pas.",
+      "tabs": {
+        "lend": "Prêter",
+        "friends": "Amis",
+        "settings": "Réglages"
+      },
+      "lendNow": "Prêter maintenant",
+      "state": {
+        "free": {
+          "status": "Ordinateur libre",
+          "title": "Personne n'emprunte l'ordinateur",
+          "sub": "Prêtez-le avec un code pour une séance, ou laissez vos amis emprunter avec leur compte.",
+          "nextSlot": "Prochain créneau : {name}, {day} à {time}",
+          "slotNow": "Créneau de {name} en cours, jusqu'à {time}"
+        },
+        "code": {
+          "status": "Code en attente",
+          "title": "Votre ami peut entrer ce code",
+          "valid": "Valable encore {time}"
+        },
+        "request": {
+          "status": "Demande d'emprunt",
+          "inUse": "L'ordinateur est utilisé : la session en cours se fermera si vous acceptez.",
+          "others1": "et 1 autre demande : {names}",
+          "othersN": "et {n} autres demandes : {names}"
+        },
+        "slot": {
+          "status": "Créneau"
+        },
+        "lent": {
+          "status": "Prêté",
+          "since": "Depuis {time}",
+          "connected": "Connecté"
+        },
+        "preparing": {
+          "status": "Préparation",
+          "title": "Préparation de l'ordinateur pour {name}"
+        },
+        "ending": {
+          "status": "Fin du prêt",
+          "title": "L'ordinateur revient"
+        },
+        "notice": {
+          "status": "Reprise en cours",
+          "endStatus": "Fin du prêt",
+          "endTitle": "Fin du prêt dans {time}",
+          "warned": "{name} a été prévenu : il sauvegarde sa partie."
+        }
+      },
+      "kind": {
+        "code": "Code",
+        "friend": "Compte d'ami",
+        "slot": "Créneau"
+      },
+      "week": {
+        "title": "Cette semaine",
+        "sub": "Les créneaux de vos amis. Pendant le sien, un ami emprunte sans vous demander.",
+        "manage": "Gérer les créneaux",
+        "empty": "Aucun créneau pour l'instant.",
+        "now": "Maintenant"
+      },
+      "history": {
+        "title": "Derniers prêts",
+        "empty": "Aucun prêt pour l'instant.",
+        "end": {
+          "left": "Rendu par {name}",
+          "taken_back": "Repris par vous",
+          "time_up": "Fin de la durée",
+          "slot_end": "Fin du créneau",
+          "stopped": "Arrêté"
+        }
+      },
+      "friends": {
+        "lastLoan": "Dernier prêt",
+        "newTitle": "Nouvel ami",
+        "generate": "Générer",
+        "passwordHelp": "Votre ami le tape une fois dans son app, qui peut le retenir.",
+        "steamHelp": "Vous pouvez le changer à chaque demande.",
+        "create": "Créer le compte"
+      },
+      "settings": {
+        "title": "Réglages",
+        "hostName": "Votre prénom",
+        "hostNameHelp": "Vos amis lisent « {name} vous prête son ordinateur. »",
+        "hostNameSaved": "Prénom enregistré.",
+        "steam": "Steam en Big Picture",
+        "steamHelp": "Une tuile Steam dans le lanceur, avec le compte choisi à chaque prêt.",
+        "session": "Votre session Windows",
+        "sessionHelp": "Elle doit rester ouverte : tant que le prêt est activé, la Station empêche la veille et le verrouillage automatique. Elle se verrouille à la fin de chaque prêt.",
+        "off": "Couper le prêt",
+        "offHelp": "Plus aucun code ni compte d'ami ne fonctionne. Vos réglages sont gardés."
+      },
+      "off": {
+        "title": "Prêtez votre PC à un ami, en toute simplicité",
+        "code": "Un code pour une séance",
+        "codeText": "Vous donnez un code, votre ami joue le temps choisi depuis son appareil.",
+        "friends": "Des comptes pour vos amis",
+        "friendsText": "Ils empruntent avec leur identifiant quand le PC est libre, sinon ils vous demandent.",
+        "slots": "Des créneaux",
+        "slotsText": "Le mercredi après-midi pour Léa : elle emprunte sans vous demander.",
+        "warning": "Votre ami joue dans votre session Windows, en mode console : il ne voit que les apps que vous choisissez. Un jeu peut tout de même lire vos fichiers : prêtez à des amis de confiance.",
+        "enable": "Activer le prêt"
+      },
+      "dialog": {
+        "codeTitle": "Code pour une séance",
+        "steamFriendHelp": "Il se connecte avec le sien ; vos comptes sont mis de côté.",
+        "steamHostHelp": "Il joue avec vos jeux et vos sauvegardes.",
+        "valid": "valable 24 h",
+        "done": "Terminé"
+      }
     }
   }
 }
