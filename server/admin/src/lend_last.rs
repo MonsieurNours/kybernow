@@ -176,12 +176,12 @@ pub fn steam_game(steam: &Path, appid: u32) -> Option<SteamGame> {
     Some(SteamGame { name, image: steam_image(steam, appid) })
 }
 
-/// L'image d'un jeu dans le cache de la bibliothèque de Steam : la jaquette
-/// (600 × 900, la plus proche d'une tuile carrée), sinon l'en-tête, sinon
-/// l'image large. Anciens noms (`<appid>_library_600x900.jpg`) et nouveaux
-/// (`<appid>/library_600x900.jpg`, parfois un dossier plus bas).
+/// L'image d'un jeu dans le cache de la bibliothèque de Steam : l'image large
+/// (fond du lanceur, tuile en 16:9), sinon l'en-tête, sinon la jaquette.
+/// Anciens noms (`<appid>_library_hero.jpg`) et nouveaux
+/// (`<appid>/library_hero.jpg`, parfois un dossier plus bas).
 fn steam_image(steam: &Path, appid: u32) -> Option<PathBuf> {
-    const NAMES: [&str; 3] = ["library_600x900.jpg", "header.jpg", "library_hero.jpg"];
+    const NAMES: [&str; 3] = ["library_hero.jpg", "header.jpg", "library_600x900.jpg"];
     let cache = steam.join("appcache").join("librarycache");
     let folder = cache.join(appid.to_string());
     let below: Vec<PathBuf> = std::fs::read_dir(&folder).map(|d| d.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect()).unwrap_or_default();
@@ -281,6 +281,10 @@ mod tests {
         std::fs::create_dir_all(cover.parent().unwrap()).unwrap();
         std::fs::write(&cover, b"jpg").unwrap();
         assert_eq!(steam_game(&steam, 1145360).unwrap().image, Some(cover));
+        // L'image large passe avant (ancien format, à plat).
+        let hero = steam.join("appcache/librarycache/1145360_library_hero.jpg");
+        std::fs::write(&hero, b"jpg").unwrap();
+        assert_eq!(steam_game(&steam, 1145360).unwrap().image, Some(hero));
         // Pas installé.
         assert_eq!(steam_game(&steam, 620), None);
         assert_eq!((steam_appid("steam:1145360"), steam_appid("steam:x"), steam_image_appid("steam-620.jpg"), steam_image_appid("../a.jpg")), (Some(1145360), None, Some(620), None));

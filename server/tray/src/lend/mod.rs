@@ -105,8 +105,14 @@ pub struct View {
     pub borrower: String,
     pub host: String,
     pub computer: String,
+    /// Début du prêt (secondes Unix) : l'anneau du temps restant part de là.
+    pub since: Option<i64>,
     pub until: Option<i64>,
     pub notice: Option<Notice>,
+    /// L'ami a donné signe de vie (« Bonne partie, {prénom} »).
+    pub connected: bool,
+    /// La fin, pendant la remise en état (`left`, `taken_back`…).
+    pub end: Option<String>,
     /// « Son compte Steam » : Steam passe sur le compte de l'ami.
     pub steam_friend: bool,
     /// `None` tant que l'écran virtuel n'est pas là.
@@ -164,8 +170,11 @@ impl View {
             borrower: text(&v["borrower"]),
             host: text(&v["host"]),
             computer: text(&v["computer"]),
+            since: v["since"].as_i64(),
             until: v["until"].as_i64(),
             notice,
+            connected: v["connected"] == true,
+            end: v["end"].as_str().filter(|s| !s.is_empty()).map(str::to_owned),
             steam_friend: v["steam"] == "friend",
             display,
             apps,
@@ -382,6 +391,46 @@ pub fn clock_at(lang: Lang, unix: i64) -> Option<String> {
 #[cfg(windows)]
 pub fn unix_now() -> i64 {
     system::unix_now()
+}
+
+/// L'horloge du lanceur et du cache : « 16:40 » ; « 4:40 PM ».
+pub fn wall_clock(lang: Lang, hour: u32, minute: u32) -> String {
+    match lang {
+        Lang::Fr => format!("{hour:02}:{minute:02}"),
+        Lang::En => {
+            let (h, half) = match hour % 24 {
+                0 => (12, "AM"),
+                h @ 1..=11 => (h, "AM"),
+                12 => (12, "PM"),
+                h => (h - 12, "PM"),
+            };
+            format!("{h}:{minute:02} {half}")
+        }
+    }
+}
+
+/// L'anneau du temps restant, de 1 (plein) à 0 : pendant un préavis, les
+/// 2 minutes qui restent ; sinon le temps restant sur la durée du prêt.
+/// `None` sans fin prévue (anneau plein).
+pub fn ring(now: i64, since: Option<i64>, until: Option<i64>, notice_at: Option<i64>) -> Option<f64> {
+    if let Some(at) = notice_at {
+        return Some(((at - now) as f64 / 120.0).clamp(0.0, 1.0));
+    }
+    let (since, until) = (since?, until?);
+    let total = (until - since).max(1) as f64;
+    Some(((until - now) as f64 / total).clamp(0.0, 1.0))
+}
+
+/// La fin telle que le lanceur la dit, avant « À bientôt, {prénom} ».
+pub fn end_text(lang: Lang, reason: &str, host: &str) -> String {
+    let key = match reason {
+        "left" => "lend.end.left",
+        "taken_back" => "lend.end.takenBack",
+        "time_up" => "lend.end.timeUp",
+        "slot_end" => "lend.end.slotEnd",
+        _ => "lend.end.stopped",
+    };
+    tr(lang, key, &[("host", &host)])
 }
 
 /// Le décompte du préavis : « 1:42 ».
@@ -621,6 +670,9 @@ mod tests {
         let Reply::View(v) = view("preparing", false) else { panic!() };
         assert!(v.display.is_none());
         assert!(v.last.is_none(), "rien la première fois");
+        assert!(!v.connected && v.end.is_none() && v.since.is_none());
+        let v = View::parse(&json!({ "phase": "ending", "since": 100, "connected": true, "end": "taken_back" }), Lang::Fr).unwrap();
+        assert_eq!((v.since, v.connected, v.end.as_deref()), (Some(100), true, Some("taken_back")));
     }
 
     #[test]
@@ -728,6 +780,18 @@ mod tests {
         assert_eq!(clock(Lang::En, 12, 0), "12 PM");
         assert_eq!(countdown(102), "1:42");
         assert_eq!(countdown(-3), "0:00");
+        assert_eq!(wall_clock(Lang::Fr, 9, 5), "09:05");
+        assert_eq!(wall_clock(Lang::En, 16, 40), "4:40 PM");
+        assert_eq!(wall_clock(Lang::En, 0, 0), "12:00 AM");
+        // L'anneau : la durée du prêt, ou les 2 minutes du préavis ; plein sans fin.
+        assert_eq!(ring(1_000, Some(0), Some(4_000), None), Some(0.75));
+        assert_eq!(ring(5_000, Some(0), Some(4_000), None), Some(0.0));
+        assert_eq!(ring(1_000, Some(0), Some(4_000), Some(1_060)), Some(0.5));
+        assert_eq!(ring(1_000, Some(0), None, None), None);
+        assert_eq!(end_text(Lang::Fr, "left", "Matthieu"), "Vous avez rendu l'ordinateur.");
+        assert_eq!(end_text(Lang::Fr, "taken_back", "Matthieu"), "Matthieu a repris l'ordinateur.");
+        assert_eq!(end_text(Lang::En, "slot_end", "Matthieu"), "Your time slot is over.");
+        assert_eq!(end_text(Lang::En, "slot_start", "Matthieu"), "The loan has stopped.");
         assert_eq!(notice_text(Lang::Fr, "taken_back", "Matthieu").unwrap(), "Matthieu reprend l'ordinateur dans 2 min : sauvegardez votre partie.");
         assert_eq!(notice_text(Lang::En, "time_up", "Matthieu").unwrap(), "The loan ends in 2 min: save your game.");
         assert_eq!(notice_text(Lang::Fr, "slot_start", "Matthieu"), None);

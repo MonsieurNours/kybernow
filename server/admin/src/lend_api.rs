@@ -44,6 +44,13 @@ const READY_WAIT: Duration = Duration::from_secs(35);
 /// ... sans que toute la préparation passe ce temps : le cœur attend la
 /// réponse de `borrow` 45 s.
 const PREPARE_WAIT: Duration = Duration::from_secs(40);
+/// La fin vue par l'ami : le lanceur la dit (« Vous avez rendu l'ordinateur. »,
+/// puis « À bientôt, {prénom} ») avant que son image s'arrête ; ses entrées
+/// sont déjà coupées.
+#[cfg(not(test))]
+const ENDING_SHOW: Duration = Duration::from_millis(5000);
+#[cfg(test)]
+const ENDING_SHOW: Duration = Duration::ZERO;
 /// L'agent de console a ce temps pour se remettre en état à la fin (fenêtres
 /// 10 s, Steam jusqu'à 25 s).
 const ENDED_WAIT: Duration = Duration::from_secs(45);
@@ -175,6 +182,15 @@ fn kyber_token(s: &AppState, loan: &lend::Loan) -> Option<String> {
     let display = loan.display.map(|(id, _)| id)?;
     let claims = json!({ "kn_role": "player_kbm", "kn_display": display, "kn_rev": 1 });
     Some(crate::kyber_proxy::jwt_with(&secret, &loan.kyber_user(), lend::TOKEN_LIFETIME, claims))
+}
+
+/// Plus d'entrées pour l'ami (rôle spectateur, révision 2 : un jeton renouvelé
+/// ne les rend pas), l'image continue.
+async fn kyber_spectator(s: &AppState, loan: &lend::Loan) {
+    let body = json!({ "user": loan.kyber_user(), "role": "spectator", "rev": 2 });
+    if let Err(e) = crate::kyber_proxy::kyber_call(s, Method::POST, "/kybernow/role", Some(body)).await {
+        tracing::warn!("prêt : entrées de {} non coupées : {e:#}", loan.who.name);
+    }
 }
 
 async fn kyber_close(s: &AppState, loan: &lend::Loan) {
@@ -342,8 +358,13 @@ fn spawn_prepare(s: &AppState, loan: lend::Loan) {
 /// Finit le prêt : préavis passé ou reprise immédiate. Une seule remise en
 /// état à la fois (les autres appels ne font rien).
 pub async fn finish(s: &AppState, id: &str, reason: Reason) {
-    let Some(loan) = s.lend.ending(Some(id)) else { return };
+    let Some(loan) = s.lend.ending(Some(id), reason) else { return };
     tracing::info!("prêt de {} : fin ({reason:?})", loan.who.name);
+    // L'ami connecté voit la fin dans le lanceur, sans plus rien envoyer.
+    if loan.console_ready && loan.connected && loan.display.is_some() {
+        kyber_spectator(s, &loan).await;
+        tokio::time::sleep(ENDING_SHOW).await;
+    }
     s.relay.revoke_guest(&loan.id);
     kyber_close(s, &loan).await;
     // L'agent de console se remet en état (apps fermées, Steam, fenêtres).
@@ -997,8 +1018,12 @@ pub async fn console_get(State(s): State<AppState>, ConnectInfo(peer): ConnectIn
         "borrower": loan.who.name,
         "host": host_name(),
         "computer": hostname(),
+        "since": loan.since,
         "until": loan.until,
         "notice": loan.notice,
+        // L'ami a donné signe de vie : son image arrive (« Bonne partie »).
+        "connected": loan.beaten && loan.connected,
+        "end": loan.end_reason.map(end_name),
         "steam": loan.steam,
         "display": if loan.display.is_some() { display.unwrap_or(Value::Null) } else { Value::Null },
         "apps": console_apps(&s),

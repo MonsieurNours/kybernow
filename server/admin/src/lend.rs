@@ -622,6 +622,11 @@ pub struct Loan {
     pub display: Option<(u32, Screen)>,
     last_beat: Instant,
     pub connected: bool,
+    /// L'ami a donné un premier signe de vie (son image arrive) : le lanceur
+    /// passe de « Préparation… » à « Bonne partie ».
+    pub beaten: bool,
+    /// La raison de la fin, dès que la remise en état commence (le lanceur la dit).
+    pub end_reason: Option<Reason>,
     /// Le mode console est en place (agent prêt).
     pub console_ready: bool,
     pub console_beat: Option<Instant>,
@@ -813,6 +818,8 @@ impl Lending {
             display: None,
             last_beat: Instant::now(),
             connected: true,
+            beaten: false,
+            end_reason: None,
             console_ready: false,
             console_beat: None,
             console_restarts: 0,
@@ -957,6 +964,7 @@ impl Lending {
         if let Some(loan) = s.loan.as_mut().filter(|l| l.id == id && same(secret, &l.secret)) {
             loan.last_beat = now;
             loan.connected = true;
+            loan.beaten = true;
             return Beat::Live(loan.clone());
         }
         match s.ended.get(id).filter(|e| same(secret, &e.secret) && !e.request) {
@@ -979,10 +987,11 @@ impl Lending {
     }
 
     /// La remise en état commence : `None` si rien à arrêter (ou déjà en cours).
-    pub fn ending(&self, id: Option<&str>) -> Option<Loan> {
+    pub fn ending(&self, id: Option<&str>, reason: Reason) -> Option<Loan> {
         let mut s = self.state.lock().unwrap();
         let loan = s.loan.as_mut().filter(|l| id.is_none_or(|i| l.id == i) && l.phase != Phase::Ending)?;
         loan.phase = Phase::Ending;
+        loan.end_reason = Some(reason);
         let loan = loan.clone();
         drop(s);
         self.notify();
@@ -1319,8 +1328,8 @@ mod tests {
         // La reprise par l'hôte : un préavis plus proche remplace l'autre.
         lending.notice(Reason::TakenBack, now + 120).unwrap();
         assert_eq!(lending.loan().unwrap().notice.unwrap().reason, Reason::TakenBack);
-        lending.ending(Some(&loan.id)).unwrap();
-        assert!(lending.ending(Some(&loan.id)).is_none(), "une seule remise en état");
+        assert_eq!(lending.ending(Some(&loan.id), Reason::TakenBack).unwrap().end_reason, Some(Reason::TakenBack));
+        assert!(lending.ending(Some(&loan.id), Reason::Left).is_none(), "une seule remise en état");
         lending.ended(&loan.id, Reason::TakenBack).unwrap();
         assert!(matches!(lending.beat(&loan.id, loan.secret()), Beat::Ended(Reason::TakenBack)));
         assert!(matches!(lending.beat(&loan.id, "faux"), Beat::Unknown));
@@ -1369,7 +1378,7 @@ mod tests {
         let cookie = loan.cookie().unwrap().to_string();
         assert!(lending.cookie_valid(&cookie));
         assert!(set_cookie(&cookie, true, true).starts_with("__Host-kybernow_lend="));
-        lending.ending(None);
+        lending.ending(None, Reason::Stopped);
         assert!(!lending.cookie_valid(&cookie));
     }
 }

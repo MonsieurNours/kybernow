@@ -38,7 +38,7 @@ use wry::{WebContext, WebView, WebViewBuilder, WebViewBuilderExtWindows};
 
 use super::store::{self, Saved};
 use super::system::{self, Born, Hooks};
-use super::{App, Cover, CoverKey, Display, Last, Machine, Notice, Pad, Phase, Reply, Step, View, base64, clock_at, cover_key, cover_text, left, notice_text, steam, stick};
+use super::{App, Cover, CoverKey, Display, Last, Machine, Notice, Pad, Phase, Reply, Step, View, base64, clock_at, countdown, cover_key, cover_text, end_text, left, notice_text, ring, steam, stick, wall_clock};
 use crate::console::{self, Client};
 use crate::i18n::{self, Lang, tr};
 
@@ -92,16 +92,45 @@ struct Status {
     lang: Lang,
     borrower: String,
     host: String,
+    since: Option<i64>,
     until: Option<i64>,
     notice: Option<Notice>,
     display: Option<Display>,
+    connected: bool,
+    end: Option<String>,
+    steam_friend: bool,
 }
 
 impl Status {
     fn of(v: &View) -> Status {
-        Status { lang: v.lang, borrower: v.borrower.clone(), host: v.host.clone(), until: v.until, notice: v.notice.clone(), display: v.display.clone() }
+        Status {
+            lang: v.lang,
+            borrower: v.borrower.clone(),
+            host: v.host.clone(),
+            since: v.since,
+            until: v.until,
+            notice: v.notice.clone(),
+            display: v.display.clone(),
+            connected: v.connected,
+            end: v.end.clone(),
+            steam_friend: v.steam_friend,
+        }
     }
 }
+
+/// Une app ouverte depuis le lanceur : « Ouverture de {app}… », puis « {app}
+/// est ouvert » jusqu'à ce que le lanceur revienne devant.
+struct Opening {
+    id: String,
+    name: String,
+    at: Instant,
+    /// L'app est passée devant le lanceur.
+    seen: bool,
+}
+
+/// Le temps que le lanceur dit la fin (« Vous avez rendu l'ordinateur. »,
+/// puis « À bientôt, {prénom} ») avant la remise en état.
+const GOODBYE: Duration = Duration::from_millis(4600);
 
 /// Une tuile du lanceur : l'app, et son icône en `data:` (la page n'a pas le jeton local).
 #[derive(Debug, Clone, PartialEq)]
@@ -300,7 +329,13 @@ impl Pilot {
                                 machine.retry(Step::Beat);
                             }
                         }
-                        (Step::TearDown, _) => self.tear_down(),
+                        (Step::TearDown, v) => {
+                            // Le lanceur dit la fin à l'ami (son image continue un instant).
+                            if self.display.is_some() && v.is_some_and(|v| v.end.is_some()) {
+                                std::thread::sleep(GOODBYE);
+                            }
+                            self.tear_down()
+                        }
                         (Step::Ended, _) => {
                             if !self.post("ended", json!({ "steam_restored": self.steam_restored })) {
                                 machine.retry(Step::Ended);
@@ -678,8 +713,10 @@ struct Screens {
     tiles: Vec<Tile>,
     cover: Cover,
     asked: Option<Instant>,
-    /// « Ouverture de Steam… » après une tuile, 10 s au plus.
-    opening: Option<(String, Instant)>,
+    /// L'app ouverte depuis le lanceur, jusqu'à son retour devant.
+    opening: Option<Opening>,
+    /// Le lanceur est devant (sinon, l'app : le fond et les particules s'arrêtent).
+    front: bool,
     pad: Pad,
     pushed_launcher: String,
     pushed_cover: String,
@@ -701,6 +738,7 @@ impl Screens {
             cover: Cover::Idle,
             asked: None,
             opening: None,
+            front: true,
             pad: Pad::default(),
             pushed_launcher: String::new(),
             pushed_cover: String::new(),
@@ -814,23 +852,55 @@ impl Screens {
         let now = system::unix_now();
         let lang = s.lang;
         let notice_left = s.notice.as_ref().map(|n| n.at - now);
+        let clock_now = system::local_clock(now).map(|(h, m)| wall_clock(lang, h, m));
         if let Some(l) = &self.launcher {
+            // Le préavis de l'ami (pas celui d'un créneau qui commence) : décompte en ambre.
+            let notice = s.notice.as_ref().and_then(|n| notice_text(lang, &n.reason, &s.host).map(|t| (t, n.at)));
+            let ring = ring(now, s.since, s.until, notice.as_ref().map(|(_, at)| *at)).map(|r| (r * 1000.0).round() / 1000.0);
             let texts = json!({
                 "lang": lang.code(),
                 "lentBy": tr(lang, "lend.lentBy", &[("host", &s.host)]),
-                "left": match s.until {
-                    Some(until) => left(lang, until - now),
-                    None => tr(lang, "lend.untilTakeBack", &[("host", &s.host)]),
+                "left": match (&notice, s.until) {
+                    (Some((_, at)), _) => countdown(at - now),
+                    (None, Some(until)) => left(lang, until - now),
+                    (None, None) => tr(lang, "lend.untilTakeBack", &[("host", &s.host)]),
                 },
-                "notice": s.notice.as_ref().and_then(|n| notice_text(lang, &n.reason, &s.host)),
+                "ring": ring,
+                "noticing": notice.is_some(),
+                "clock": clock_now,
+                "notice": notice.as_ref().map(|(t, _)| t),
                 "giveBack": tr(lang, "lend.giveBack", &[]),
                 "confirm": tr(lang, "lend.giveBackConfirm", &[("host", &s.host)]),
+                "confirmLine": tr(lang, "lend.giveBackLine", &[]),
                 "cancel": tr(lang, "lend.cancel", &[]),
-                "opening": self.opening.as_ref().map(|(name, _)| tr(lang, "lend.opening", &[("app", name)])),
                 "noApps": tr(lang, "lend.noApps", &[]),
                 "lastPlayed": tr(lang, "lend.lastPlayed", &[]),
                 // « Reprendre {game} » : le nom du jeu est mis par la page.
                 "continue": tr(lang, "lend.continue", &[("game", &"{game}")]),
+                "allowedApp": tr(lang, "lend.allowedApp", &[]),
+                "lines": {
+                    "last": tr(lang, "lend.line.last", &[]),
+                    "steam": if s.steam_friend { tr(lang, "lend.line.steamFriend", &[]) } else { tr(lang, "lend.line.steamHost", &[("host", &s.host)]) },
+                    "app": tr(lang, "lend.line.app", &[]),
+                },
+                "hints": { "open": tr(lang, "lend.hints.open", &[]), "back": tr(lang, "lend.hints.back", &[]), "move": tr(lang, "lend.hints.move", &[]) },
+                // Arrivée : « Préparation… » jusqu'au premier signe de vie de l'ami, puis « Bonne partie ».
+                "arrival": {
+                    "preparing": tr(lang, "lend.preparing", &[("host", &s.host)]),
+                    "hello": tr(lang, "lend.hello", &[("name", &s.borrower)]),
+                    "ready": s.connected,
+                },
+                "ending": s.end.as_ref().map(|reason| json!({
+                    "text": end_text(lang, reason, &s.host),
+                    "bye": tr(lang, "lend.bye", &[("name", &s.borrower)]),
+                })),
+                "launch": self.opening.as_ref().map(|o| json!({
+                    "id": o.id,
+                    "name": o.name,
+                    "opening": tr(lang, "lend.opening", &[("app", &o.name)]),
+                    "open": tr(lang, "lend.opened", &[("app", &o.name)]),
+                })),
+                "front": self.front,
             })
             .to_string();
             if l.ready && texts != self.pushed_launcher {
@@ -847,6 +917,7 @@ impl Screens {
             "keys": c.keys,
             "asking": self.cover == Cover::Asking && notice_left.is_none(),
             "notice": notice_left.is_some(),
+            "clock": clock_now,
         })
         .to_string();
         if texts != self.pushed_cover && self.covers.iter().all(|(_, c)| c.ready) {
@@ -880,7 +951,7 @@ impl Screens {
             (Page::Launcher, "launch") => {
                 let Some(id) = m["id"].as_str() else { return };
                 let Some(tile) = self.tiles.iter().find(|t| t.id == id) else { return };
-                self.opening = Some((tile.name.clone(), Instant::now()));
+                self.opening = Some(Opening { id: tile.id.clone(), name: tile.name.clone(), at: Instant::now(), seen: false });
                 // L'app ouverte par Admin pourra passer devant le lanceur.
                 system::allow_foreground();
                 post_later("launch", json!({ "id": id }));
@@ -933,7 +1004,8 @@ impl Screens {
                 self.asked = None;
                 self.cover = Cover::Idle;
             }
-            if self.opening.as_ref().is_some_and(|(_, t)| now.duration_since(*t) > Duration::from_secs(10)) {
+            // Une app qui ne vient jamais devant : l'ouverture se retire au bout de 20 s.
+            if self.opening.as_ref().is_some_and(|o| !o.seen && now.duration_since(o.at) > Duration::from_secs(20)) {
                 self.opening = None;
             }
             self.push();
@@ -943,17 +1015,32 @@ impl Screens {
     /// Le lanceur revient devant quand plus rien de l'ami ne l'est (une app
     /// fermée, une fenêtre partie sur un écran du PC, le bureau).
     fn guard_focus(&mut self) {
-        let (Some(l), Some(d)) = (&self.launcher, self.display()) else { return };
-        let fg = system::foreground();
-        if fg == l.hwnd() {
+        let (Some(l), Some(d)) = (&self.launcher, self.display().cloned()) else { return };
+        let (hwnd, fg) = (l.hwnd(), system::foreground());
+        if fg != hwnd && system::acceptable_foreground(fg, &d) {
+            // L'app est devant : le lanceur se met en pause.
+            if let Some(o) = self.opening.as_mut() {
+                o.seen = true;
+            }
+            self.set_front(false);
             return;
         }
-        if system::acceptable_foreground(fg, d) {
-            // L'app est devant : « Ouverture de… » n'a plus lieu d'être.
+        if fg != hwnd {
+            system::bring_to_front(hwnd);
+            let _ = l.webview.focus();
+        }
+        // Le lanceur est devant : l'app ouverte depuis lui est fermée.
+        if self.opening.as_ref().is_some_and(|o| o.seen) {
             self.opening = None;
-            return;
+            self.push();
         }
-        system::bring_to_front(l.hwnd());
-        let _ = l.webview.focus();
+        self.set_front(true);
+    }
+
+    fn set_front(&mut self, front: bool) {
+        if self.front != front {
+            self.front = front;
+            self.push();
+        }
     }
 }

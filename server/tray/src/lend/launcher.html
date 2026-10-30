@@ -4,198 +4,567 @@
 <meta charset="utf-8">
 <title>KyberNow Share</title>
 <style>
+/* Lanceur du prêt sur l'écran de l'ami, en plein cadre comme une console : l'art de
+   l'app choisie en fond, la tuile « Dernière partie » en tête, les apps permises dessous. */
 @font-face { font-family: 'Archivo'; src: url('/fonts/archivo.woff2') format('woff2'); font-weight: 100 900; font-stretch: 62% 125%; }
 @font-face { font-family: 'Martian Mono'; src: url('/fonts/martian.woff2') format('woff2'); font-weight: 100 800; font-stretch: 75% 112.5%; }
 :root {
-  --bg: #05070A; --text: #E3EDF0; --text-2: #C9D3DC; --faint: #8A99A3;
-  --signal: #9A8CFF; --signal-strong: #6D5BFF; --signal-light: #D4CEFF; --warn: #F5B841;
+  --ink: #05070A; --panel: #0C1016; --text: #E3EDF0; --text-2: #C9D3DC; --faint: #8A99A3;
+  --signal: #9A8CFF; --signal-strong: #6D5BFF; --signal-light: #D4CEFF;
+  --warn: #F5B841; --warn-ink: #F8E2B0; --give: #FFC9C4;
+  --display: 'Archivo', 'Segoe UI', system-ui, sans-serif;
+  --mono: 'Martian Mono', Consolas, ui-monospace, monospace;
+  --ease: cubic-bezier(.2,.8,.2,1);
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
 /* Du 720p au 4K : tout suit la taille de l'écran de l'ami. */
-html { font-size: clamp(14px, calc(0.9vw + 0.5vh), 34px); }
+html { font-size: clamp(13px, calc(0.62vw + 0.55vh), 30px); }
 html, body { margin: 0; height: 100%; }
-body { display: flex; flex-direction: column; overflow: hidden; background: radial-gradient(70% 90% at 88% -10%, rgba(109,91,255,.22), rgba(109,91,255,0) 60%), var(--bg); color: var(--text); font: 1rem/1.4 'Archivo', 'Segoe UI', sans-serif; -webkit-font-smoothing: antialiased; user-select: none; cursor: default; }
-button { font: inherit; color: inherit; cursor: pointer; }
-.lbl { font-family: 'Martian Mono', Consolas, monospace; font-size: .68rem; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); }
+body { background: var(--ink); color: var(--text); font: 400 1rem/1.4 var(--display); -webkit-font-smoothing: antialiased; overflow: hidden; user-select: none; cursor: default; }
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+.lbl { font-family: var(--mono); font-size: .66rem; font-weight: 500; letter-spacing: .14em; text-transform: uppercase; color: var(--faint); }
 
-header { display: flex; justify-content: space-between; align-items: center; gap: 2rem; padding: 2.4rem 3.2rem 1.2rem; }
-header img { height: 2.3rem; display: block; }
-.time { display: flex; flex-direction: column; align-items: flex-end; gap: .2rem; text-align: right; }
-.time strong { font-stretch: 125%; font-size: 1.55rem; font-weight: 650; letter-spacing: -.02em; }
+#stage { position: relative; height: 100%; overflow: hidden; isolation: isolate; }
 
-.notice { margin: 0 3.2rem; padding: .9rem 1.2rem; border-radius: .8rem; background: rgba(245,184,65,.12); box-shadow: inset 0 0 0 1px rgba(245,184,65,.45); color: #F8E2B0; font-size: 1.05rem; }
-.notice[hidden] { display: none; }
+/* Fond : deux calques d'art qui se croisent, un zoom lent, un voile, des particules. */
+.bg { position: absolute; inset: -4%; z-index: -3; }
+.bg canvas { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; transition: opacity 900ms var(--ease); animation: drift 38s ease-in-out infinite alternate; }
+.bg canvas.on { opacity: 1; }
+@keyframes drift { from { transform: scale(1.04) translate(-1%, -.6%); } to { transform: scale(1.12) translate(1.2%, .8%); } }
+.veil { position: absolute; inset: 0; z-index: -2; background:
+  linear-gradient(90deg, rgba(5,7,10,.92) 0%, rgba(5,7,10,.55) 42%, rgba(5,7,10,.25) 70%, rgba(5,7,10,.6) 100%),
+  linear-gradient(0deg, rgba(5,7,10,.96) 0%, rgba(5,7,10,.2) 45%, rgba(5,7,10,.55) 100%); }
+#motes { position: absolute; inset: 0; z-index: -1; width: 100%; height: 100%; pointer-events: none; }
+/* Une app devant (le jeu tourne à côté) : ni zoom, ni particules, ni reflet. */
+body.away .bg canvas { animation-play-state: paused; }
+body.away #motes { visibility: hidden; }
 
-main { flex: 1; overflow: hidden auto; padding: 2rem 3.2rem; display: grid; grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr)); gap: 1.4rem; align-content: start; }
-.tile { aspect-ratio: 1; border: 0; border-radius: 1.1rem; padding: 1rem; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .9rem; background: rgba(255,255,255,.045); box-shadow: inset 0 0 0 1px rgba(255,255,255,.08); transition: transform .12s, background-color .12s, box-shadow .12s; }
-.tile img, .tile .glyph { width: 46%; aspect-ratio: 1; object-fit: contain; display: grid; place-items: center; }
-.tile .glyph { border-radius: 22%; background: rgba(109,91,255,.16); color: var(--signal-light); font-stretch: 125%; font-weight: 650; font-size: 2.2rem; }
-.tile .glyph svg { width: 62%; height: 62%; }
-.tile span { max-width: 100%; text-align: center; font-size: 1rem; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-.tile:focus { outline: none; transform: scale(1.045); background: rgba(109,91,255,.18); box-shadow: inset 0 0 0 2px var(--signal), 0 0 0 .3rem rgba(154,140,255,.22), 0 0 2rem rgba(109,91,255,.35); }
-.empty { grid-column: 1 / -1; color: var(--faint); font-size: 1.1rem; }
-/* « Dernière partie » : la grande tuile en tête (deux sur deux), l'image du jeu en fond. */
-.tile.last { grid-column: span 2; grid-row: span 2; position: relative; overflow: hidden; align-items: flex-start; justify-content: flex-end; gap: .5rem; padding: 1.6rem; text-align: left; background: rgba(109,91,255,.12); }
-.tile.last .art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center 30%; }
-.tile.last::before { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(5,7,10,0) 30%, rgba(5,7,10,.72) 60%, rgba(5,7,10,.94) 100%); }
-.tile.last > :not(.art) { position: relative; }
-.tile.last .big { position: absolute; top: 22%; left: 50%; transform: translateX(-50%); width: 34%; }
-.tile.last .lbl { color: var(--signal-light); }
-.tile.last .name { max-width: 100%; text-align: left; font-stretch: 112%; font-size: 1.7rem; font-weight: 650; line-height: 1.15; }
-.tile.last .go { margin-top: .4rem; padding: .55rem 1.1rem; border-radius: .7rem; background: var(--signal-strong); color: #fff; font-weight: 600; font-size: 1rem; -webkit-line-clamp: 1; }
-.tile.last:focus { transform: scale(1.025); }
+.launcher { display: grid; grid-template-rows: auto 1fr auto; height: 100%; padding: 2.2rem 3.4rem 1.8rem; }
+header.top { display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; }
+header.top img { height: 2.2rem; display: block; }
+.who { display: flex; align-items: center; gap: 1.1rem; }
+.who .txt { display: flex; flex-direction: column; align-items: flex-end; gap: .15rem; text-align: right; }
+.who strong { font-stretch: 125%; font-weight: 650; font-size: 1.45rem; letter-spacing: -.02em; font-variant-numeric: tabular-nums; transition: color .4s; }
+.ring { width: 3.2rem; height: 3.2rem; flex: none; overflow: visible; filter: drop-shadow(0 0 6px rgba(154,140,255,.5)); transition: filter .4s; }
+.ring circle { fill: none; stroke-width: 3.2; }
+.ring .track { stroke: rgba(255,255,255,.1); }
+.ring .arc { stroke: var(--signal); stroke-linecap: round; transform: rotate(-90deg); transform-origin: 50% 50%; transition: stroke-dashoffset 1s linear, stroke .4s; }
+.clock { font-family: var(--mono); font-size: .8rem; color: var(--text-2); letter-spacing: .06em; min-height: 1.1em; }
 
-footer { display: flex; justify-content: space-between; align-items: center; gap: 2rem; padding: 1rem 3.2rem 2.2rem; }
-.status { color: var(--text-2); min-height: 1.4rem; }
-.giveback, .dialog button { height: 2.9rem; padding: 0 1.5rem; border: 0; border-radius: .8rem; font-weight: 600; }
-.giveback { background: rgba(255,107,107,.12); box-shadow: inset 0 0 0 1px rgba(255,107,107,.4); color: #FFC9C4; }
-.giveback:focus, .dialog button:focus { outline: .15rem solid var(--signal); outline-offset: .2rem; }
+.notice { justify-self: start; display: inline-flex; margin-top: 1.3rem; align-items: center; gap: .8rem; padding: .85rem 1.2rem; border-radius: .9rem; background: rgba(245,184,65,.12); box-shadow: inset 0 0 0 1px rgba(245,184,65,.45), 0 0 2.4rem rgba(245,184,65,.12); color: var(--warn-ink); font-size: 1.05rem; transform: translateY(-.6rem); opacity: 0; transition: transform .5s var(--ease), opacity .5s var(--ease); max-width: 100%; }
+.notice.on { transform: none; opacity: 1; }
+.notice .dot { width: .6rem; height: .6rem; border-radius: 50%; background: var(--warn); box-shadow: 0 0 0 0 rgba(245,184,65,.6); animation: ping 1.6s infinite; flex: none; }
+@keyframes ping { 70% { box-shadow: 0 0 0 .7rem rgba(245,184,65,0); } 100% { box-shadow: 0 0 0 0 rgba(245,184,65,0); } }
+body.noticing .who strong { color: var(--warn-ink); }
+body.noticing .ring { filter: drop-shadow(0 0 6px rgba(245,184,65,.55)); }
+body.noticing .ring .arc { stroke: var(--warn); }
 
-.overlay { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(5,7,10,.78); }
-.overlay[hidden] { display: none; }
-.dialog { width: min(32rem, 90vw); padding: 2rem; border-radius: 1.2rem; background: #0C1016; box-shadow: inset 0 0 0 1px rgba(255,255,255,.1), 0 1.5rem 4rem rgba(0,0,0,.6); display: flex; flex-direction: column; gap: 1.6rem; }
-.dialog p { margin: 0; font-stretch: 112%; font-size: 1.35rem; font-weight: 600; line-height: 1.3; }
-.dialog .row { display: flex; gap: .8rem; justify-content: flex-end; }
-.dialog .yes { background: rgba(255,107,107,.16); box-shadow: inset 0 0 0 1px rgba(255,107,107,.45); color: #FFC9C4; }
-.dialog .no { background: none; box-shadow: inset 0 0 0 1px rgba(255,255,255,.18); }
-@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+main.shelf { align-self: end; display: flex; flex-direction: column; gap: 1.6rem; min-width: 0; padding-bottom: 1rem; }
+.hero-info { max-width: 38rem; display: flex; flex-direction: column; gap: .7rem; min-width: 0; }
+.hero-info h1 { margin: 0; font-stretch: 125%; font-weight: 750; font-size: clamp(2rem, 4.6vw, 4.4rem); line-height: .98; letter-spacing: -.035em; text-wrap: balance; overflow-wrap: anywhere; transition: opacity .35s, transform .45s var(--ease); }
+.hero-info p { margin: 0; color: var(--text-2); font-size: 1.05rem; max-width: 34rem; min-height: 1.4em; transition: opacity .35s; }
+.hero-info.swap h1, .hero-info.swap p { opacity: 0; transform: translateY(.4rem); }
+.eyebrow { display: inline-flex; align-items: center; gap: .55rem; color: var(--signal-light); }
+.eyebrow::before { content: ""; width: 1.4rem; height: 2px; background: var(--signal); border-radius: 2px; }
+
+.row { display: flex; gap: 1.1rem; align-items: end; padding: .6rem .2rem; min-width: 0; flex-wrap: wrap; }
+.card { position: relative; flex: none; width: 11.5rem; aspect-ratio: 1; border-radius: 1.1rem; overflow: hidden; background: var(--panel); box-shadow: inset 0 0 0 1px rgba(255,255,255,.09), 0 .8rem 2rem rgba(0,0,0,.45); transition: transform .35s var(--ease), box-shadow .35s var(--ease); outline: none; text-align: left; }
+.card canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.card .name { position: absolute; left: .9rem; right: .9rem; bottom: .8rem; font-weight: 600; font-size: 1rem; line-height: 1.2; text-shadow: 0 1px 8px rgba(0,0,0,.6); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.card .glyph { position: absolute; left: 50%; top: 42%; transform: translate(-50%,-50%); width: 38%; aspect-ratio: 1; display: grid; place-items: center; border-radius: 24%; background: rgba(5,7,10,.35); backdrop-filter: blur(6px); box-shadow: inset 0 0 0 1px rgba(255,255,255,.14); color: #fff; font-stretch: 125%; font-weight: 700; font-size: 2.2rem; }
+.card .glyph svg { width: 58%; height: 58%; }
+.card.hero { width: 25rem; aspect-ratio: 16/9; }
+.card.hero .name { font-size: 1.25rem; bottom: 1rem; left: 1.2rem; -webkit-line-clamp: 1; }
+.card.hero .tag { position: absolute; top: 1rem; left: 1.2rem; padding: .35rem .65rem; border-radius: .5rem; background: rgba(5,7,10,.55); backdrop-filter: blur(6px); }
+.card.hero::before { content: ""; position: absolute; inset: 0; background: linear-gradient(0deg, rgba(5,7,10,.75), rgba(5,7,10,0) 55%); }
+.card::after { content: ""; position: absolute; inset: 0; background: linear-gradient(115deg, transparent 30%, rgba(255,255,255,.22) 48%, transparent 62%); transform: translateX(-120%); pointer-events: none; }
+.card:focus { transform: translateY(-.5rem) scale(1.06); box-shadow: inset 0 0 0 2px var(--signal-light), 0 0 0 .3rem rgba(154,140,255,.28), 0 1.4rem 3.4rem rgba(109,91,255,.42); z-index: 2; }
+.card:focus::after { animation: shine 1.1s var(--ease) .05s; }
+@keyframes shine { to { transform: translateX(120%); } }
+.card.enter { animation: rise .7s var(--ease) both; }
+@keyframes rise { from { opacity: 0; transform: translateY(2.2rem) scale(.96); } }
+.empty { margin: 0; color: var(--text-2); font-size: 1.1rem; }
+
+footer.bottom { display: flex; align-items: center; justify-content: space-between; gap: 1.2rem; }
+.hints { display: flex; gap: 1.4rem; flex-wrap: wrap; color: var(--faint); font-size: .85rem; }
+.hints > span { display: inline-flex; align-items: center; gap: .45rem; }
+.key { display: inline-grid; place-items: center; min-width: 1.6rem; height: 1.6rem; padding: 0 .4rem; border-radius: 50%; font-family: var(--mono); font-style: normal; font-size: .7rem; font-weight: 600; color: var(--ink); background: var(--text-2); }
+.key.b { background: #FF8A80; }
+.giveback { height: 2.9rem; padding: 0 1.5rem; border-radius: .9rem; font-weight: 600; background: rgba(255,107,107,.12); box-shadow: inset 0 0 0 1px rgba(255,107,107,.42); color: var(--give); transition: background .25s, box-shadow .25s; outline: none; }
+.giveback:focus { background: rgba(255,107,107,.22); box-shadow: inset 0 0 0 2px #FF8A80, 0 0 0 .3rem rgba(255,107,107,.2); }
+
+/* Ouverture d'une app : l'art en grand, puis « … est ouvert » jusqu'au retour du lanceur. */
+.launch { position: absolute; inset: 0; z-index: 20; display: grid; place-items: center; pointer-events: none; opacity: 0; transition: opacity .4s; background: var(--ink); }
+.launch.on { opacity: 1; pointer-events: auto; }
+.launch canvas { position: absolute; inset: 0; width: 100%; height: 100%; transform: scale(1.15); filter: saturate(1.15); transition: transform 2.6s var(--ease); }
+.launch.on canvas { transform: scale(1); }
+.launch .shade { position: absolute; inset: 0; background: radial-gradient(60% 60% at 50% 55%, rgba(5,7,10,.25), rgba(5,7,10,.9)); }
+.launch .box { position: relative; display: flex; flex-direction: column; align-items: center; gap: 1.1rem; text-align: center; padding: 0 2rem; max-width: 60rem; }
+.launch h2 { margin: 0; font-stretch: 125%; font-weight: 750; font-size: clamp(2rem, 5vw, 4rem); letter-spacing: -.03em; line-height: 1.05; text-wrap: balance; }
+.launch .bar { width: min(22rem, 70vw); height: 4px; border-radius: 4px; background: rgba(255,255,255,.14); overflow: hidden; }
+.launch .bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--signal-strong), var(--signal-light)); box-shadow: 0 0 12px var(--signal); }
+.launch.on .bar i { animation: load 2.4s var(--ease) forwards; }
+.launch.open .bar { visibility: hidden; }
+@keyframes load { to { width: 100%; } }
+#launchText { font-size: 1.15rem; color: var(--text-2); }
+
+/* Rendre l'ordinateur */
+.overlay { position: absolute; inset: 0; z-index: 30; display: grid; place-items: center; background: rgba(5,7,10,.72); backdrop-filter: blur(10px); opacity: 0; pointer-events: none; transition: opacity .3s; padding: 0 2rem; }
+.overlay.on { opacity: 1; pointer-events: auto; }
+.dialog { width: min(32rem, 100%); padding: 2rem; border-radius: 1.3rem; background: var(--panel); box-shadow: inset 0 0 0 1px rgba(255,255,255,.1), 0 2rem 5rem rgba(0,0,0,.6); display: flex; flex-direction: column; gap: 1.6rem; transform: translateY(1rem) scale(.98); transition: transform .4s var(--ease); }
+.overlay.on .dialog { transform: none; }
+.dialog p { margin: 0; font-stretch: 112%; font-size: 1.4rem; font-weight: 650; line-height: 1.25; text-wrap: balance; }
+.dialog small { margin-top: -.8rem; color: var(--text-2); font-size: .95rem; }
+.dialog .acts { display: flex; gap: .8rem; justify-content: flex-end; flex-wrap: wrap; }
+.dialog button { height: 2.9rem; padding: 0 1.4rem; border-radius: .8rem; font-weight: 600; outline: none; }
+.dialog .no { box-shadow: inset 0 0 0 1px rgba(255,255,255,.2); }
+.dialog .yes { background: rgba(255,107,107,.16); box-shadow: inset 0 0 0 1px rgba(255,107,107,.45); color: var(--give); }
+.dialog button:focus { box-shadow: inset 0 0 0 2px var(--signal-light), 0 0 0 .25rem rgba(154,140,255,.25); }
+
+/* Arrivée et départ : les deux moitiés du logo se rejoignent, puis le mot. */
+.splash { position: absolute; inset: 0; z-index: 40; display: grid; place-items: center; background: radial-gradient(55% 55% at 50% 48%, #0E0B24 0%, var(--ink) 70%); transition: opacity .9s var(--ease), transform 1.1s var(--ease); }
+.splash.out { opacity: 0; transform: scale(1.08); pointer-events: none; }
+.splash .inner { display: flex; flex-direction: column; align-items: center; gap: 2.2rem; text-align: center; padding: 0 2rem; }
+.mark { width: 7rem; height: 7rem; overflow: visible; }
+.mark .a { transform: translate(-40%, -40%); opacity: 0; animation: inA 1s var(--ease) .25s forwards; }
+.mark .b { transform: translate(40%, 40%); opacity: 0; animation: inA 1s var(--ease) .4s forwards; }
+@keyframes inA { to { transform: none; opacity: 1; } }
+.mark .glow { opacity: 0; animation: glow 2.4s ease-in-out 1.2s infinite; }
+@keyframes glow { 50% { opacity: .9; } }
+.word { height: 2.6rem; opacity: 0; animation: word 1s var(--ease) 1.1s forwards; }
+@keyframes word { to { opacity: 1; } }
+.word img { height: 100%; display: block; }
+.steps { display: flex; flex-direction: column; align-items: center; gap: .9rem; min-height: 4.6rem; }
+.status { font-size: 1.25rem; color: var(--text-2); opacity: 0; animation: word .7s var(--ease) 1.6s forwards; max-width: 40rem; text-wrap: balance; }
+.status.hello { font-stretch: 125%; font-weight: 700; font-size: 2rem; color: var(--text); letter-spacing: -.02em; opacity: 1; animation: hello .8s var(--ease) both; }
+@keyframes hello { from { opacity: 0; transform: translateY(.6rem); filter: blur(6px); } }
+.dots { display: flex; gap: .5rem; opacity: 0; animation: word .7s var(--ease) 1.8s forwards; }
+.dots[hidden] { display: none; }
+.dots i { width: .5rem; height: .5rem; border-radius: 50%; background: var(--signal); animation: bounce 1.2s ease-in-out infinite; }
+.dots i:nth-child(2) { animation-delay: .15s; } .dots i:nth-child(3) { animation-delay: .3s; }
+@keyframes bounce { 40% { transform: translateY(-.45rem); background: var(--signal-light); } }
+
+@media (max-width: 900px) {
+  .launcher { padding: 1.4rem 1.6rem 1.2rem; }
+  .card { width: 9.5rem; }
+  .card.hero { width: 19rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
 </style>
 </head>
 <body>
-<header>
-  <img src="/logo.svg" alt="KyberNow Share">
-  <div class="time"><span class="lbl" id="lentBy"></span><strong id="left"></strong></div>
-</header>
-<div class="notice" id="notice" role="status" hidden></div>
-<main id="tiles"></main>
-<footer>
-  <span class="status" id="status" role="status"></span>
-  <button class="giveback" id="giveback" data-nav></button>
-</footer>
-<div class="overlay" id="confirm" hidden>
-  <div class="dialog" role="alertdialog" aria-labelledby="confirmText">
-    <p id="confirmText"></p>
-    <div class="row"><button class="no" id="no" data-nav></button><button class="yes" id="yes" data-nav></button></div>
+<div id="stage">
+  <div class="bg" aria-hidden="true"><canvas id="bgA"></canvas><canvas id="bgB"></canvas></div>
+  <div class="veil" aria-hidden="true"></div>
+  <canvas id="motes" aria-hidden="true"></canvas>
+
+  <div class="launcher">
+    <div>
+      <header class="top">
+        <img src="/logo.svg" alt="KyberNow Share">
+        <div class="who">
+          <div class="txt"><span class="lbl" id="lentBy"></span><strong id="left"></strong><span class="clock" id="clock"></span></div>
+          <svg class="ring" viewBox="0 0 40 40" aria-hidden="true"><circle class="track" cx="20" cy="20" r="17"/><circle class="arc" id="arc" cx="20" cy="20" r="17"/></svg>
+        </div>
+      </header>
+      <div class="notice" id="notice" role="status"><span class="dot"></span><span id="noticeText"></span></div>
+    </div>
+
+    <main class="shelf">
+      <div class="hero-info" id="info"><span class="lbl eyebrow" id="infoEyebrow"></span><h1 id="infoTitle"></h1><p id="infoText"></p></div>
+      <div class="row" id="row" role="list"></div>
+    </main>
+
+    <footer class="bottom">
+      <div class="hints" aria-hidden="true">
+        <span><i class="key">A</i><span id="hintOpen"></span></span>
+        <span><i class="key b">B</i><span id="hintBack"></span></span>
+        <span><i class="key">✥</i><span id="hintMove"></span></span>
+      </div>
+      <button class="giveback" id="giveback" data-nav></button>
+    </footer>
+  </div>
+
+  <div class="launch" id="launch" aria-live="polite"><canvas id="launchArt"></canvas><div class="shade"></div>
+    <div class="box"><span class="lbl">KyberNow Share</span><h2 id="launchTitle"></h2><div class="bar"><i></i></div><span id="launchText"></span></div>
+  </div>
+
+  <div class="overlay" id="confirm">
+    <div class="dialog" role="alertdialog" aria-labelledby="confirmText">
+      <p id="confirmText"></p>
+      <small id="confirmLine"></small>
+      <div class="acts"><button class="no" id="no" data-nav></button><button class="yes" id="yes" data-nav></button></div>
+    </div>
+  </div>
+
+  <div class="splash" id="splash" aria-live="polite">
+    <div class="inner">
+      <svg class="mark" viewBox="0 0 48 48" aria-hidden="true">
+        <defs><filter id="blur"><feGaussianBlur stdDeviation="4"/></filter></defs>
+        <path class="glow" d="M48 5.725 L48 41 A7 7 0 0 1 41 48 L5.725 48 A1.2 1.2 0 0 1 4.877 45.951 L45.951 4.877 A1.2 1.2 0 0 1 48 5.725 Z" fill="#9A8CFF" filter="url(#blur)"/>
+        <path class="a" d="M7 0 L42.275 0 A1.2 1.2 0 0 1 43.123 2.049 L2.049 43.123 A1.2 1.2 0 0 1 0 42.275 L0 7 A7 7 0 0 1 7 0 Z" fill="#E3EDF0"/>
+        <path class="b" d="M48 5.725 L48 41 A7 7 0 0 1 41 48 L5.725 48 A1.2 1.2 0 0 1 4.877 45.951 L45.951 4.877 A1.2 1.2 0 0 1 48 5.725 Z" fill="#9A8CFF"/>
+      </svg>
+      <div class="word"><img src="/logo.svg" alt="KyberNow Share"></div>
+      <div class="steps">
+        <span class="status" id="splashStatus"></span>
+        <span class="dots" id="dots"><i></i><i></i><i></i></span>
+      </div>
+    </div>
   </div>
 </div>
 <script>
-// Lanceur du prêt (KyberNow Share) sur l'écran de l'ami. L'agent pousse les tuiles
-// (window.__knTiles ; `last: true` pour la dernière partie, en tête, qui a le focus en premier),
-// les textes (window.__knTexts) et les manettes (window.__knPad) ;
-// la page envoie « launch » et « giveBack » par window.ipc.postMessage.
+// Lanceur du prêt (KyberNow Share) sur l'écran de l'ami (docs/pret.md, textes de docs/link-ui.md).
+// L'agent pousse les tuiles (window.__knTiles ; `last: true` pour la dernière partie, en tête),
+// les textes et l'état (window.__knTexts : temps restant, préavis, arrivée, fin, app ouverte,
+// lanceur devant ou non) et les manettes (window.__knPad) ; la page envoie « launch » et
+// « giveBack » par window.ipc.postMessage.
 const send = (cmd, extra) => window.ipc && window.ipc.postMessage(JSON.stringify({ cmd, ...extra }))
 const $ = (id) => document.getElementById(id)
 const esc = (t) => String(t ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c])
+const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches
 const PAD = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.5 7h9a5 5 0 0 1 4.9 6l-.8 3.9a2.3 2.3 0 0 1-3.9 1.1L14.6 16H9.4l-2.1 2a2.3 2.3 0 0 1-3.9-1.1L2.6 13A5 5 0 0 1 7.5 7zM7 10.5v3M5.5 12h3M15.5 11h.01M17.5 13h.01"/></svg>'
 let texts = {}
 let tiles = []
-const confirming = () => !$('confirm').hidden
+const isSteam = (t) => t.id === 'steam' || String(t.id).startsWith('steam:')
+const action = (t) => (t.last ? (texts.continue || '{game}').replace('{game}', t.name || '') : t.name)
 
-const glyph = (t) => (t.id === 'steam' || String(t.id).startsWith('steam:') ? PAD : esc((t.name || '?').trim().charAt(0).toUpperCase()))
-const picture = (t, cls = '') => (t.icon ? `<img class="${cls}" src="${esc(t.icon)}" alt="">` : `<span class="glyph ${cls}">${glyph(t)}</span>`)
-
-// « Dernière partie » : l'image du jeu (sinon son icône, ou le pictogramme), « Reprendre {jeu} ».
-function lastTile(t) {
-  const go = (texts.continue || '{game}').replace('{game}', t.name || '')
-  return `<button class="tile last" data-nav data-id="${esc(t.id)}" aria-label="${esc(go)}">`
-    + (t.image ? `<img class="art" src="${esc(t.image)}" alt="">` : picture(t, 'big'))
-    + `<span class="lbl">${esc(texts.lastPlayed || '')}</span><span class="name">${esc(t.name)}</span><span class="go">${esc(go)}</span></button>`
+// ---- L'art de chaque tuile : l'image du jeu, sinon son icône en grand sur un dégradé de
+// ses couleurs, sinon un art génératif (graine et teintes tirées de son identifiant). ----
+function hash(s) { let h = 2166136261; for (const c of String(s)) h = Math.imul(h ^ c.charCodeAt(0), 16777619); return h >>> 0 }
+function rng(seed) { let s = (seed % 233280) * 9301 + 49297; return () => ((s = (s * 9301 + 49297) % 233280) / 233280) }
+function look(t) {
+  if (t.id === 'steam') return { seed: 3, hues: [212, 230], style: 'waves' }
+  const h = hash(t.id)
+  return { seed: h % 97 + 1, hues: [h % 360, (h % 360 + 30 + (h >> 9) % 60) % 360], style: ['ridge', 'waves', 'orbs', 'grid'][(h >> 4) % 4] }
 }
+function generative(c, w, h, it) {
+  const R = rng(it.seed), [h1, h2] = it.hues
+  const g = c.createLinearGradient(0, 0, w, h)
+  g.addColorStop(0, `hsl(${h1} 55% 16%)`); g.addColorStop(1, `hsl(${h2} 60% 9%)`)
+  c.fillStyle = g; c.fillRect(0, 0, w, h)
+  if (it.style === 'ridge') {
+    const sun = c.createRadialGradient(w * .7, h * .32, 0, w * .7, h * .32, h * .55)
+    sun.addColorStop(0, `hsla(${h2} 95% 68% / .9)`); sun.addColorStop(.25, `hsla(${h2} 90% 55% / .35)`); sun.addColorStop(1, 'transparent')
+    c.fillStyle = sun; c.fillRect(0, 0, w, h)
+    for (let l = 0; l < 5; l++) {
+      const y0 = h * (.45 + l * .11)
+      c.beginPath(); c.moveTo(0, h)
+      for (let x = 0; x <= w; x += w / 60) c.lineTo(x, y0 - Math.abs(Math.sin(x / w * (3 + l) + l * 1.7 + R())) * h * (.18 - l * .02) - R() * h * .015)
+      c.lineTo(w, h); c.closePath()
+      c.fillStyle = `hsl(${h1} ${45 - l * 6}% ${14 - l * 2.2}%)`; c.fill()
+    }
+  } else if (it.style === 'waves') {
+    for (let i = 0; i < 9; i++) {
+      c.beginPath()
+      for (let x = 0; x <= w; x += 6) c.lineTo(x, h * (.3 + i * .07) + Math.sin(x / w * 6 + i * .8) * h * .05)
+      c.strokeStyle = `hsla(${i % 2 ? h1 : h2} 80% 65% / ${.12 + i * .03})`; c.lineWidth = Math.max(1, h * .006); c.stroke()
+    }
+  } else if (it.style === 'orbs') {
+    for (let i = 0; i < 7; i++) {
+      const x = R() * w, y = R() * h, rad = (R() * .35 + .15) * Math.max(w, h)
+      const o = c.createRadialGradient(x, y, 0, x, y, rad)
+      o.addColorStop(0, `hsla(${i % 2 ? h1 : h2} 85% 60% / .45)`); o.addColorStop(1, 'transparent')
+      c.fillStyle = o; c.fillRect(0, 0, w, h)
+    }
+  } else {
+    c.strokeStyle = `hsla(${h1} 90% 65% / .3)`; c.lineWidth = Math.max(1, h * .004)
+    const hz = h * .5
+    for (let i = -12; i <= 12; i++) { c.beginPath(); c.moveTo(w / 2 + i * w * .02, hz); c.lineTo(w / 2 + i * w * .25, h); c.stroke() }
+    for (let j = 1; j < 12; j++) { const y = hz + (h - hz) * Math.pow(j / 12, 1.8); c.beginPath(); c.moveTo(0, y); c.lineTo(w, y); c.stroke() }
+    const sun = c.createLinearGradient(0, hz - h * .32, 0, hz)
+    sun.addColorStop(0, `hsl(${h2} 95% 65%)`); sun.addColorStop(1, `hsl(${h1} 90% 55%)`)
+    c.fillStyle = sun; c.beginPath(); c.arc(w / 2, hz, h * .22, Math.PI, 0); c.fill()
+  }
+  vignette(c, w, h)
+}
+function vignette(c, w, h) {
+  const v = c.createRadialGradient(w / 2, h / 2, h * .2, w / 2, h / 2, Math.max(w, h) * .75)
+  v.addColorStop(0, 'transparent'); v.addColorStop(1, 'rgba(0,0,0,.45)')
+  c.fillStyle = v; c.fillRect(0, 0, w, h)
+}
+// Les teintes d'une icône : la moyenne de ses pixels colorés (sinon le violet de KyberNow).
+function iconHues(img) {
+  const n = 24, cv = document.createElement('canvas'); cv.width = cv.height = n
+  const c = cv.getContext('2d', { willReadFrequently: true }); c.drawImage(img, 0, 0, n, n)
+  let r = 0, g = 0, b = 0, wsum = 0
+  const d = c.getImageData(0, 0, n, n).data
+  for (let i = 0; i < d.length; i += 4) {
+    const max = Math.max(d[i], d[i + 1], d[i + 2]), min = Math.min(d[i], d[i + 1], d[i + 2])
+    const wgt = (d[i + 3] / 255) * ((max - min) / 255 + .05)
+    r += d[i] * wgt; g += d[i + 1] * wgt; b += d[i + 2] * wgt; wsum += wgt
+  }
+  if (!wsum) return [250, 280]
+  r /= wsum; g /= wsum; b /= wsum
+  const max = Math.max(r, g, b), min = Math.min(r, g, b)
+  if (max - min < 8) return [250, 280]
+  let hue = max === r ? (g - b) / (max - min) : max === g ? 2 + (b - r) / (max - min) : 4 + (r - g) / (max - min)
+  hue = (hue * 60 + 360) % 360
+  return [Math.round(hue), Math.round((hue + 35) % 360)]
+}
+const images = new Map()
+function loadImage(src) {
+  if (!src) return Promise.resolve(null)
+  if (!images.has(src)) images.set(src, new Promise((res) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = src }))
+  return images.get(src)
+}
+const painters = new Map()
+async function painterOf(t) {
+  const art = await loadImage(t.image)
+  if (art) return (c, w, h) => {
+    const s = Math.max(w / art.naturalWidth, h / art.naturalHeight), dw = art.naturalWidth * s, dh = art.naturalHeight * s
+    c.drawImage(art, (w - dw) / 2, (h - dh) * .35, dw, dh); vignette(c, w, h)
+  }
+  const icon = await loadImage(t.icon)
+  if (icon) {
+    const hues = iconHues(icon)
+    return (c, w, h) => {
+      generative(c, w, h, { seed: hash(t.id) % 97 + 1, hues, style: 'orbs' })
+      const size = Math.min(w, h) * .42, x = (w - size) / 2, y = h * .42 - size / 2
+      c.save(); c.filter = `blur(${Math.round(size * .25)}px)`; c.globalAlpha = .55; c.drawImage(icon, x - size * .2, y - size * .2, size * 1.4, size * 1.4); c.restore()
+      c.save(); c.shadowColor = 'rgba(0,0,0,.45)'; c.shadowBlur = size * .12; c.shadowOffsetY = size * .04; c.drawImage(icon, x, y, size, size); c.restore()
+    }
+  }
+  const it = look(t)
+  return (c, w, h) => generative(c, w, h, it)
+}
+function paint(canvas, id, scale = 1) {
+  const p = painters.get(id); if (!p) return
+  const r = canvas.getBoundingClientRect()
+  const w = Math.max(2, Math.round((r.width || innerWidth) * scale)), h = Math.max(2, Math.round((r.height || innerHeight) * scale))
+  canvas.width = w; canvas.height = h
+  p(canvas.getContext('2d'), w, h)
+}
+const hasArt = (t) => !!(t.image || t.icon)
 
-function renderTiles() {
+// ---- Tuiles ----
+const cards = () => [...document.querySelectorAll('.card')]
+let revealed = false
+async function renderTiles() {
   const keep = document.activeElement && document.activeElement.dataset.id
-  const before = document.querySelectorAll('.tile').length
-  $('tiles').innerHTML = tiles.length
-    ? tiles.map((t) => (t.last ? lastTile(t) : `<button class="tile" data-nav data-id="${esc(t.id)}">${picture(t)}<span>${esc(t.name)}</span></button>`)).join('')
+  await Promise.all(tiles.map(async (t) => painters.set(t.id, await painterOf(t))))
+  const row = $('row')
+  row.innerHTML = tiles.length
+    ? tiles.map((t, i) => `<button class="card${t.last ? ' hero' : ''}" role="listitem" data-nav data-id="${esc(t.id)}" style="animation-delay:${i * 70}ms" aria-label="${esc(action(t))}"><canvas></canvas>${hasArt(t) ? '' : `<span class="glyph">${isSteam(t) ? PAD : esc((t.name || '?').trim().charAt(0).toUpperCase())}</span>`}${t.last ? `<span class="tag lbl">${esc(texts.lastPlayed || '')}</span>` : ''}<span class="name">${esc(action(t))}</span></button>`).join('')
     : `<p class="empty">${esc(texts.noApps || '')}</p>`
-  // La tuile qui avait le focus le garde ; les premières tuiles arrivées, la première l'a.
-  const again = keep && [...document.querySelectorAll('.tile')].find((b) => b.dataset.id === keep)
-  if (confirming()) return
-  if (again) again.focus()
-  else if (!before || !items().includes(document.activeElement)) first().focus()
+  cards().forEach((el) => {
+    paint(el.querySelector('canvas'), el.dataset.id, devicePixelRatio > 1 ? 1.5 : 1)
+    el.addEventListener('mouseenter', () => { if (navs().includes(el)) focusEl(el) })
+    el.addEventListener('focus', () => showBg(el.dataset.id))
+  })
+  if (current && !tiles.some((t) => t.id === current)) current = null
+  if (!current && tiles.length) showBg(tiles[0].id)
+  if (!revealed || overlayOn()) return
+  const again = keep && cards().find((b) => b.dataset.id === keep)
+  focusEl(again || first())
 }
 
-function renderTexts() {
-  document.documentElement.lang = texts.lang || 'fr'
-  $('lentBy').textContent = texts.lentBy || ''
-  $('left').textContent = texts.left || ''
-  $('notice').textContent = texts.notice || ''
-  $('notice').hidden = !texts.notice
-  $('status').textContent = texts.opening || ''
-  $('giveback').textContent = texts.giveBack || ''
-  $('confirmText').textContent = texts.confirm || ''
-  $('yes').textContent = texts.giveBack || ''
-  $('no').textContent = texts.cancel || ''
-  // Textes de la grande tuile (« Dernière partie », « Reprendre {jeu} »).
-  if (!tiles.length || tiles.some((t) => t.last)) renderTiles()
+// ---- Fond et titre qui suivent la sélection ----
+let bgFront = $('bgA'), bgBack = $('bgB'), current = null
+function showBg(id) {
+  const t = tiles.find((x) => x.id === id)
+  if (!t || id === current) return
+  current = id
+  paint(bgBack, id, .5)
+  bgBack.classList.add('on'); bgFront.classList.remove('on');
+  [bgFront, bgBack] = [bgBack, bgFront]
+  const info = $('info'); info.classList.add('swap')
+  setTimeout(() => { fillInfo(t); info.classList.remove('swap') }, reduce ? 0 : 220)
+}
+function fillInfo(t) {
+  const lines = texts.lines || {}
+  $('infoEyebrow').textContent = t.last ? (texts.lastPlayed || '') : (texts.allowedApp || '')
+  $('infoTitle').textContent = t.name || ''
+  $('infoText').textContent = (t.last ? lines.last : t.id === 'steam' ? lines.steam : lines.app) || ''
 }
 
-const items = () => [...document.querySelectorAll(confirming() ? '#confirm [data-nav]' : 'main [data-nav], footer [data-nav]')]
-const first = () => items()[0] || $('giveback')
+// ---- Particules (arrêtées quand une app est devant) ----
+const motes = $('motes'), mc = motes.getContext('2d')
+let dots = [], moving = false
+function sizeMotes() {
+  motes.width = motes.clientWidth; motes.height = motes.clientHeight
+  const scale = Math.max(1, motes.width / 1920)
+  dots = Array.from({ length: 46 }, () => ({ x: Math.random() * motes.width, y: Math.random() * motes.height, r: (Math.random() * 1.6 + .4) * scale, v: (Math.random() * .25 + .05) * scale, a: Math.random() * .5 + .15 }))
+}
+function tickMotes() {
+  if (!moving) return
+  mc.clearRect(0, 0, motes.width, motes.height)
+  for (const d of dots) {
+    d.y -= d.v; d.x += Math.sin(d.y / 60) * .15; if (d.y < -5) d.y = motes.height + 5
+    mc.beginPath(); mc.arc(d.x, d.y, d.r, 0, 7); mc.fillStyle = `rgba(212,206,255,${d.a})`; mc.fill()
+  }
+  requestAnimationFrame(tickMotes)
+}
+function animate() {
+  const away = texts.front === false || $('launch').classList.contains('on')
+  document.body.classList.toggle('away', away)
+  const want = !reduce && !away && revealed && stage !== 'ending'
+  if (want && !moving) { moving = true; requestAnimationFrame(tickMotes) }
+  if (!want) moving = false
+}
 
-// Navigation à la croix ou aux flèches : l'élément le plus proche dans la direction.
+// ---- Focus et navigation (croix, flèches, souris) : l'élément le plus proche entièrement
+// dans la direction (vers le bas depuis la grande tuile : « Rendre l'ordinateur », pas Steam). ----
+const overlayOn = () => $('confirm').classList.contains('on')
+const navs = () => (overlayOn() ? [$('no'), $('yes')] : [...cards(), $('giveback')])
+const first = () => navs()[0] || $('giveback')
+function focusEl(el) { if (!el) return; el.focus({ preventScroll: true }); if (el.dataset.id) showBg(el.dataset.id) }
 function move(dir) {
-  const list = items()
-  const cur = list.includes(document.activeElement) ? document.activeElement : null
-  if (!cur) { first().focus(); return }
-  const a = cur.getBoundingClientRect()
-  const ax = a.left + a.width / 2, ay = a.top + a.height / 2
+  const list = navs(), cur = list.includes(document.activeElement) ? document.activeElement : null
+  if (!cur) return focusEl(first())
+  const a = cur.getBoundingClientRect(), ax = a.left + a.width / 2, ay = a.top + a.height / 2
   const across = dir === 'left' || dir === 'right'
   let best = null, score = Infinity
   for (const el of list) {
     if (el === cur) continue
-    const b = el.getBoundingClientRect()
-    const dx = b.left + b.width / 2 - ax, dy = b.top + b.height / 2 - ay
-    const ok = dir === 'left' ? dx < -1 : dir === 'right' ? dx > 1 : dir === 'up' ? dy < -1 : dy > 1
+    const b = el.getBoundingClientRect(), dx = b.left + b.width / 2 - ax, dy = b.top + b.height / 2 - ay
+    const ok = dir === 'left' ? b.right <= a.left + 8 : dir === 'right' ? b.left >= a.right - 8 : dir === 'up' ? b.bottom <= a.top + 8 : b.top >= a.bottom - 8
     if (!ok) continue
-    const s = (across ? Math.abs(dx) : Math.abs(dy)) + 2 * (across ? Math.abs(dy) : Math.abs(dx))
+    const s = (across ? Math.abs(dx) : Math.abs(dy)) + 2.2 * (across ? Math.abs(dy) : Math.abs(dx))
     if (s < score) { best = el; score = s }
   }
-  if (best) { best.focus(); best.scrollIntoView({ block: 'nearest' }) }
+  if (best) focusEl(best)
 }
-
-function openConfirm() { $('confirm').hidden = false; $('no').focus() }
-function closeConfirm() { $('confirm').hidden = true; $('giveback').focus() }
-
 function activate(el) {
-  if (!el) return
+  if (!el || stage !== 'done') return
   if (el.dataset.id) send('launch', { id: el.dataset.id })
   else if (el.id === 'giveback') openConfirm()
-  else if (el.id === 'yes') { $('confirm').hidden = true; send('giveBack') }
+  else if (el.id === 'yes') { closeConfirm(); send('giveBack') }
   else if (el.id === 'no') closeConfirm()
 }
+function openConfirm() { $('confirm').classList.add('on'); setTimeout(() => $('no').focus(), 50) }
+function closeConfirm() { $('confirm').classList.remove('on'); focusEl($('giveback')) }
 
-document.addEventListener('click', (e) => {
-  const el = e.target.closest('[data-nav]')
-  if (el) activate(el)
-})
-document.addEventListener('mousemove', (e) => {
-  const el = e.target.closest('[data-nav]')
-  if (el && el !== document.activeElement && items().includes(el)) el.focus()
-})
+document.addEventListener('click', (e) => { const el = e.target.closest('[data-nav]'); if (el) activate(el) })
 document.addEventListener('keydown', (e) => {
+  if (stage !== 'done') { e.preventDefault(); return }
   const dirs = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' }
   if (dirs[e.key]) { e.preventDefault(); move(dirs[e.key]); return }
-  if (e.key === 'Enter' || e.key === ' ') {
-    e.preventDefault()
-    if (items().includes(document.activeElement)) activate(document.activeElement)
-    else first().focus()
-    return
-  }
-  if (e.key === 'Escape' && confirming()) { e.preventDefault(); closeConfirm() }
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate(navs().includes(document.activeElement) ? document.activeElement : first()); return }
+  if (e.key === 'Escape' && overlayOn()) { e.preventDefault(); closeConfirm() }
 })
 document.addEventListener('contextmenu', (e) => e.preventDefault())
-// Les clics ne laissent jamais le focus nulle part (la manette en a besoin).
-document.addEventListener('focusout', () => setTimeout(() => { if (!items().includes(document.activeElement)) first().focus() }, 0))
+// Le focus ne reste jamais nulle part (la manette en a besoin).
+document.addEventListener('focusout', () => setTimeout(() => { if (stage === 'done' && !navs().includes(document.activeElement)) focusEl(first()) }, 0))
 
+// ---- Temps restant, préavis, horloge ----
+const ARC = 2 * Math.PI * 17
+$('arc').style.strokeDasharray = ARC
+function renderTexts() {
+  document.documentElement.lang = texts.lang || 'fr'
+  $('lentBy').textContent = texts.lentBy || ''
+  $('left').textContent = texts.left || ''
+  $('clock').textContent = texts.clock || ''
+  $('arc').style.strokeDashoffset = ARC * (1 - (texts.ring ?? 1))
+  document.body.classList.toggle('noticing', !!texts.noticing)
+  if (texts.notice) $('noticeText').textContent = texts.notice
+  $('notice').classList.toggle('on', !!texts.notice)
+  $('giveback').textContent = texts.giveBack || ''
+  $('confirmText').textContent = texts.confirm || ''
+  $('confirmLine').textContent = texts.confirmLine || ''
+  $('yes').textContent = texts.giveBack || ''
+  $('no').textContent = texts.cancel || ''
+  const hints = texts.hints || {}
+  $('hintOpen').textContent = hints.open || ''; $('hintBack').textContent = hints.back || ''; $('hintMove').textContent = hints.move || ''
+  const t = tiles.find((x) => x.id === current)
+  if (t) fillInfo(t)
+  document.querySelectorAll('.card.hero .tag').forEach((n) => { n.textContent = texts.lastPlayed || '' })
+  document.querySelectorAll('.card.hero .name').forEach((n) => { const h = tiles.find((x) => x.last); if (h) n.textContent = action(h) })
+  renderLaunch()
+  if (texts.ending) ending()
+  animate()
+}
+
+// ---- Ouvrir une app : l'art en grand, « Ouverture de… », puis « … est ouvert » ----
+let launching = null, openTimer = 0
+function renderLaunch() {
+  const l = texts.launch
+  if (!l) {
+    if (launching) {
+      $('launch').classList.remove('on', 'open'); launching = null; clearTimeout(openTimer)
+      focusEl(cards().find((c) => c.dataset.id === current) || first())
+    }
+    return
+  }
+  if (launching === l.id) return
+  launching = l.id
+  const box = $('launch')
+  box.classList.remove('on', 'open'); void box.offsetWidth
+  paint($('launchArt'), l.id, .6)
+  $('launchTitle').textContent = l.name || ''
+  $('launchText').textContent = l.opening || ''
+  box.classList.add('on')
+  clearTimeout(openTimer)
+  openTimer = setTimeout(() => { if (launching === l.id) { $('launchText').textContent = (texts.launch && texts.launch.open) || ''; box.classList.add('open') } }, reduce ? 0 : 2500)
+}
+
+// ---- Arrivée : « Préparation de l'ordinateur de {hôte} » jusqu'à l'image de l'ami, puis
+// « Bonne partie, {prénom} » et les tuiles qui montent. Départ : la fin, puis « À bientôt ». ----
+let stage = 'arrive', readyAt = 0
+const started = performance.now()
+function setStatus(text, hello) {
+  const st = $('splashStatus')
+  if (st.textContent !== (text || '')) st.textContent = text || ''
+  const cls = hello ? 'status hello' : 'status'
+  if (st.className !== cls) st.className = cls
+  $('dots').hidden = !!hello || stage === 'ending'
+}
+function arrival() {
+  if (stage !== 'arrive' || !texts.arrival) return
+  setStatus(texts.arrival.preparing, false)
+  const now = performance.now()
+  if (texts.arrival.ready && !readyAt) readyAt = now
+  // L'image de l'ami arrive peu après son premier signe de vie ; jamais avant la fin du logo.
+  const ready = readyAt && now - readyAt >= (reduce ? 0 : 1500) && now - started >= (reduce ? 0 : 2600)
+  if (ready || now - started > 25000) {
+    stage = 'hello'
+    setStatus(texts.arrival.hello, true)
+    setTimeout(reveal, reduce ? 300 : 1500)
+  }
+}
+function reveal() {
+  if (stage === 'ending') return
+  stage = 'done'; revealed = true
+  $('splash').classList.add('out')
+  cards().forEach((c) => { c.classList.remove('enter'); void c.offsetWidth; c.classList.add('enter') })
+  focusEl(first())
+  animate()
+}
+function ending() {
+  if (stage === 'ending') return
+  stage = 'ending'
+  $('confirm').classList.remove('on'); $('launch').classList.remove('on', 'open'); launching = null
+  const sp = $('splash')
+  sp.classList.remove('out')
+  sp.querySelectorAll('.a, .b, .word').forEach((n) => { n.style.animation = 'none'; void n.getBoundingClientRect(); n.style.animation = '' })
+  // La fin se lit tout de suite (le logo se refait en même temps), « À bientôt » 2,6 s après.
+  setStatus(texts.ending.text, false)
+  const st = $('splashStatus')
+  st.style.animation = 'none'; void st.getBoundingClientRect(); st.style.animation = 'word .7s var(--ease) .3s both'
+  setTimeout(() => { st.style.animation = ''; setStatus(texts.ending.bye, true) }, reduce ? 0 : 2600)
+  animate()
+}
+setInterval(arrival, 250)
+
+// ---- Ce que pousse l'agent ----
 window.__knTiles = (list) => { tiles = list || []; renderTiles() }
-window.__knTexts = (t) => { texts = t || {}; renderTexts() }
+window.__knTexts = (t) => { texts = t || {}; renderTexts(); arrival() }
 window.__knPad = (action) => {
-  if (action === 'a') { activate(items().includes(document.activeElement) ? document.activeElement : first()) ; return }
-  if (action === 'b') { if (confirming()) closeConfirm(); return }
+  if (stage !== 'done') return
+  if (action === 'a') { activate(navs().includes(document.activeElement) ? document.activeElement : first()); return }
+  if (action === 'b') { if (overlayOn()) closeConfirm(); return }
   move(action)
 }
+function layout() {
+  cards().forEach((el) => paint(el.querySelector('canvas'), el.dataset.id, devicePixelRatio > 1 ? 1.5 : 1))
+  sizeMotes()
+  if (current) { const id = current; current = null; showBg(id) }
+}
+addEventListener('resize', () => { clearTimeout(layout.t); layout.t = setTimeout(layout, 150) })
+sizeMotes()
 send('ready')
 </script>
 </body>
