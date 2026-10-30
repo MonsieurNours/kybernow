@@ -7,6 +7,7 @@
 //! capsules et le pointeur de l'ordinateur.
 
 mod jobs;
+mod link;
 mod log_file;
 mod eac3;
 mod esplayer;
@@ -144,7 +145,7 @@ fn device_info(store: &Store, tv: &crate::app::TvInfo) -> DeviceInfo {
     }
 }
 
-pub fn run() {
+pub fn run(args: &[String]) {
     log_file::init();
     log::info!("KyberNow Link {} (webOS) démarre", env!("CARGO_PKG_VERSION"));
 
@@ -197,6 +198,11 @@ pub fn run() {
         }
     }
     app.go(Screen::Home);
+    // Un lien `kybernow://` dans les paramètres de lancement : il s'ouvre sur l'accueil.
+    if let Some(l) = link::from_args(args).as_deref().and_then(link::parse) {
+        log::info!("liens : lien reçu au lancement");
+        app.pending_link = Some(l);
+    }
 
     let (tx, rx) = channel::<Event>();
     jobs::discover(tx.clone());
@@ -228,6 +234,7 @@ pub fn run() {
             || app.session.as_ref().is_some_and(|s| s.share_busy)
             // Le lien du relais en préparation : l'indicateur d'attente bat, et l'écran se redessine à la fin de l'attente.
             || app.session.as_ref().and_then(|s| s.share.as_ref()).is_some_and(crate::app::ShareView::relay_wait_redraw)
+            || app.session.as_ref().and_then(|s| s.lend.as_ref()).is_some_and(crate::app::LendHostView::relay_wait_redraw)
             || pads.mouse_active();
         let timeout = if animating { 16 } else { 50 };
         let mut ev = sdl::SDL_Event::default();
@@ -263,6 +270,11 @@ pub fn run() {
             handle_event(e, &mut app, &mut pads, &mut live, &mut video, &mut actions, &mut pairing, &tx);
         }
 
+        // Le lien du lancement : il s'ouvre quand l'app est sur ses écrans, sans session.
+        if app.pending_link.is_some() {
+            actions.extend(app.poll_link());
+            dirty |= app.pending_link.is_none();
+        }
         for a in actions {
             perform(a, &mut app, &mut pads, &mut live, &tx, &mut pairing, &mut quit);
             dirty = true;
@@ -1077,7 +1089,16 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
             let request = JoinRequest { code, name, device: app.store.device_id.clone(), app: "webos".into(), quality: session::core_quality(quality), auto, ..JoinRequest::default() };
             // Hors de chez soi : le relais public, et ceux des ordinateurs du téléviseur (sans doublon, `KYBERNOW_RELAY=off` : aucun).
             let relays = session::join_relays(app.store.hosts.iter().filter_map(|h| h.relay.as_ref().map(|r| r.server.as_str())));
-            jobs::share_join(targets, relays, request, session::guest_capabilities(app.tv.av1), app.join.attempt, tx.clone());
+            // Ouvert par un lien de partage (et le code tapé est toujours le sien) : sa seule Station, et son relais.
+            let link = app.join.link.as_ref().filter(|l| l.code == request.code).map(|l| share::JoinLink {
+                host: l.address.clone(),
+                port: l.port,
+                fingerprint: l.fingerprint.clone(),
+                code: l.code.clone(),
+                relay: l.relay.clone(),
+                sid: l.sid.clone(),
+            });
+            jobs::share_join(targets, relays, link, request, session::guest_capabilities(app.tv.av1), app.join.attempt, tx.clone());
         }
         // KyberNow Share, invité : la « Qualité de l'image » changée en session ; la Station relance l'image de l'invité
         // seulement, la session n'a rien à relancer (l'image reçue revient par `Platform::on_share_image`).
@@ -1099,7 +1120,9 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
             let target = ShareTarget { host: b.address.clone(), port: b.port, fingerprint: b.fingerprint.clone() };
             let name = if app.store.app.share_name.trim().is_empty() { app.device_name() } else { app.store.app.share_name.trim().to_string() };
             let request = jobs::borrow_request(lend::LendCredentials::Account { login: b.login.clone(), password }, name, app.store.device_id.clone(), borrow_screen(app), app.tv.av1);
-            jobs::borrow(app.borrow_source(), target, None, request, tx.clone());
+            // Ajouté par un lien d'invitation avec relais : aussi hors de chez soi (le réseau d'abord).
+            let route = jobs::borrowed_route(b.relay.as_deref(), b.sid.as_deref(), b.fingerprint.as_deref());
+            jobs::borrow(app.borrow_source(), target, route, request, tx.clone());
         }
         Action::BorrowCancel => jobs::borrow_cancel(),
         Action::ComeBack(source) => jobs::come_back(source, tx.clone()),
@@ -1111,7 +1134,7 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
                 l.handle.session.give_back();
             }
         }
-        Action::FriendAdd { address, port, fingerprint, login, password, remember, editing } => jobs::friend_add(address, port, fingerprint, login, password, remember, editing, tx.clone()),
+        Action::FriendAdd { address, port, fingerprint, relay, sid, login, password, remember, editing } => jobs::friend_add(address, port, fingerprint, relay, sid, login, password, remember, editing, tx.clone()),
         Action::Lend(op) => {
             let host = live.as_ref().and_then(|_| app.session.as_ref()).and_then(|s| app.store.host(&s.host)).cloned();
             match host {

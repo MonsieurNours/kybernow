@@ -328,17 +328,22 @@ fn guest_quality(g: &share::ShareGuest) -> Option<String> {
 // L'attente du lien du relais de l'interface est celle du cœur.
 const _: () = assert!(crate::app::RELAY_LINK_WAIT.as_secs() == share::RELAY_LINK_WAIT.as_secs());
 
+/// Le relais d'un partage ou d'un code de prêt (`relay.state` d'Admin) tel que l'interface le montre.
+pub fn relay_of(r: Option<share::ShareRelay>) -> Option<ShareRelay> {
+    r.map(|r| match r.state {
+        share::ShareRelayState::Joined => ShareRelay::Joined,
+        share::ShareRelayState::Connecting => ShareRelay::Connecting,
+        share::ShareRelayState::Unreachable => ShareRelay::Unreachable,
+    })
+}
+
 /// Le partage ouvert d'une session d'hôte tel que l'interface le montre (`None` : fermé).
 pub fn share_view(st: &ShareState) -> Option<ShareView> {
     st.open.then(|| ShareView {
         code: st.code.clone(),
         link: st.link.clone(),
         web: st.web.clone(),
-        relay: st.relay.map(|r| match r.state {
-            share::ShareRelayState::Joined => ShareRelay::Joined,
-            share::ShareRelayState::Connecting => ShareRelay::Connecting,
-            share::ShareRelayState::Unreachable => ShareRelay::Unreachable,
-        }),
+        relay: relay_of(st.relay),
         // Posé par l'app quand elle reçoit le partage (`ShareView::keep_relay_since`).
         relay_since: None,
         guests: st

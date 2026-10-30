@@ -20,7 +20,7 @@ fn main() {
         return;
     }
     #[cfg(feature = "device")]
-    device::run();
+    device::run(&args);
 }
 
 /// Identifiant de l'app sur webOS (appinfo.json).

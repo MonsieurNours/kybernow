@@ -15,7 +15,7 @@ use crate::app::{
     AddStep, App, Found, HostLive, JoinField, JoinState, MenuItem, NetKind, Online, PadInfo, PathKind, Phase, Polled, Problem, RouteUi, Screen, Section, SessionUi, Setting, ShareAvail, ShareGuest, ShareQuality, ShareRelay, ShareRole, ShareView, StationKnown, StationLive, StationOp,
     StationPhase, StationRefusal, StationUi, Stats, Target, UpdateState, HOST_SECTIONS,
 };
-use crate::app::{BorrowSessionUi, BorrowSource, BorrowUi, Dialog, FriendForm, LendCodeUi, LendHostState, LendHostView, LendLive, LendNoticeKind, LendRequestUi, LendSlotUi, LendState, LendSteam};
+use crate::app::{BorrowSessionUi, BorrowSource, BorrowUi, Dialog, FriendForm, InviteUi, LendAvail, LendCodeUi, LendHostState, LendHostView, LendLive, LendNoticeKind, LendRequestUi, LendSlotUi, LendState, LendSteam, LinkUi};
 use crate::model::{Borrowed, Host, HostSettings, LastSession, Profile, Store, WakeTarget};
 use crate::ui::{self, canvas::Canvas, Assets};
 
@@ -648,7 +648,7 @@ pub fn run(dir: &Path, lang: &str) {
 
 /// L'ordinateur de Matthieu, emprunté avec un compte d'ami (prêt de l'ordinateur).
 fn borrowed() -> Borrowed {
-    Borrowed { id: "lend:m".into(), host: "Matthieu".into(), computer: "PC-SALON".into(), address: "192.168.1.42".into(), port: 24811, fingerprint: Some("sha256:3e:91:0a:7c".into()), login: "lea".into(), password: "secret".into(), remember: true }
+    Borrowed { id: "lend:m".into(), host: "Matthieu".into(), computer: "PC-SALON".into(), address: "192.168.1.42".into(), port: 24811, fingerprint: Some("sha256:3e:91:0a:7c".into()), relay: None, sid: None, login: "lea".into(), password: "secret".into(), remember: true }
 }
 
 /// Un emprunt à l'image : l'ordinateur de Matthieu, jusqu'à dans 1 h 20.
@@ -665,7 +665,7 @@ fn borrow_session() -> SessionUi {
 fn lend_view(code: bool, request: bool) -> LendHostView {
     LendHostView {
         enabled: true,
-        code: code.then(|| LendCodeUi { code: "731402".into(), link: "kybernow://join?host=192.168.1.42&port=24811&code=731402".into(), web: "https://192.168.1.42:24811/link/?join=731402".into(), duration: Some(7200), steam: LendSteam::Friend }),
+        code: code.then(|| LendCodeUi { code: "731402".into(), link: "kybernow://join?host=192.168.1.42&port=24811&code=731402".into(), web: "https://192.168.1.42:24811/link/?join=731402".into(), duration: Some(7200), steam: LendSteam::Friend, relay: None, relay_since: None }),
         requests: if request { vec![LendRequestUi { id: "r1".into(), name: "Léa".into(), app: "ios".into(), via_relay: true, ..Default::default() }] } else { Vec::new() },
         ..Default::default()
     }
@@ -696,6 +696,33 @@ fn lend_shots(app: &mut App, cv: &mut Canvas, assets: &Assets, video: &Pixmap, d
     shot(app, cv, assets, None, dir, "24c-pret-compte-ami");
     app.add.step = AddStep::Code;
     app.friend = FriendForm::default();
+    // Un lien d'invitation avec le prénom de l'hôte (paramètres de lancement) : sa Station, l'identifiant rempli.
+    app.go(Screen::Home);
+    app.open_link(LinkUi::Invite(InviteUi { address: "192.168.1.42".into(), port: 24811, fingerprint: Some("sha256:3e:91:0a:7c".into()), login: "lea".into(), name: Some("Matthieu".into()), ..InviteUi::default() }));
+    shot(app, cv, assets, None, dir, "24e-pret-invitation");
+    app.add.step = AddStep::Code;
+    app.friend = FriendForm::default();
+    // Un lien d'invitation illisible : l'avis sur l'accueil.
+    app.go(Screen::Home);
+    app.open_link(LinkUi::BadInvite);
+    shot(app, cv, assets, None, dir, "24f-pret-lien-illisible");
+    app.toast = None;
+    // Le mot de passe n'est pas retenu : « Emprunter » le redemande.
+    app.store.borrowed[0].remember = false;
+    app.store.borrowed[0].password.clear();
+    app.lend_live.insert("lend:m".into(), LendLive { state: Some(LendState::Free), slot: None });
+    app.go(Screen::Home);
+    app.activate(Target::Borrow);
+    shot(app, cv, assets, None, dir, "24g-pret-mot-de-passe");
+    app.store.borrowed = vec![borrowed()];
+    app.add.step = AddStep::Code;
+    app.friend = FriendForm::default();
+    // « Retirer cet ordinateur » : la confirmation.
+    app.go(Screen::Home);
+    app.dialog = Some(Dialog::Remove { host: "lend:m".into(), name: borrowed().title() });
+    app.focus = Target::DialogCancel;
+    shot(app, cv, assets, None, dir, "24h-pret-retirer");
+    app.dialog = None;
     app.join = JoinState { name: "Léa".into(), code: "731402".into(), busy: true, waiting: true, lending: true, wait_host: Some("Matthieu".into()), ..JoinState::new() };
     app.go(Screen::Join);
     app.focus = Target::JoinCancel;
@@ -748,11 +775,45 @@ fn lend_shots(app: &mut App, cv: &mut Canvas, assets: &Assets, video: &Pixmap, d
     }
     app.focus = Target::LendCancelCode;
     shot(app, cv, assets, Some(video), dir, "26c-pret-code");
+    // Le relais du code : le lien du relais en préparation (l'indicateur d'attente à la place du QR code), puis le
+    // relais pas joignable (le lien du réseau, « Pas encore joignable hors de chez vous. »).
+    let relay_code = |relay: ShareRelay, since: Option<Instant>| {
+        let mut v = lend_view(true, false);
+        if let Some(c) = v.code.as_mut() {
+            c.relay = Some(relay);
+            c.relay_since = since;
+        }
+        v
+    };
+    if let Some(s) = app.session.as_mut() {
+        s.lend = Some(relay_code(ShareRelay::Connecting, Some(Instant::now())));
+    }
+    shot(app, cv, assets, Some(video), dir, "26c2-pret-code-relais-preparation");
+    if let Some(s) = app.session.as_mut() {
+        s.lend = Some(relay_code(ShareRelay::Connecting, Instant::now().checked_sub(crate::app::RELAY_LINK_WAIT + Duration::from_secs(1))));
+    }
+    shot(app, cv, assets, Some(video), dir, "26c3-pret-code-relais-muet");
     if let Some(s) = app.session.as_mut() {
         s.lend = Some(lend_view(false, true));
     }
     app.focus = Target::LendAccept(0);
     shot(app, cv, assets, Some(video), dir, "26d-pret-demande");
+    // La demande d'un créneau : son texte, « Accepter » seul.
+    if let Some(s) = app.session.as_mut() {
+        let mut v = lend_view(false, true);
+        v.requests[0].slot = true;
+        v.requests[0].via_relay = false;
+        s.lend = Some(v);
+    }
+    shot(app, cv, assets, Some(video), dir, "26d2-pret-demande-creneau");
+    // Le prêt n'est pas possible sur cet ordinateur : le panneau réduit à la raison.
+    app.live.insert("a".into(), HostLive { lend: Some(LendAvail::Impossible), ..app.live.get("a").cloned().unwrap_or_default() });
+    if let Some(s) = app.session.as_mut() {
+        s.lend = None;
+    }
+    app.focus = Target::LendClose;
+    shot(app, cv, assets, Some(video), dir, "26d3-pret-impossible");
+    app.live.insert("a".into(), HostLive { lend: Some(LendAvail::Available), ..app.live.get("a").cloned().unwrap_or_default() });
     app.store.app.lend_warned = false;
     app.session = None;
     let lent = |notice: Option<(LendNoticeKind, u64)>| LendHostView { enabled: true, state: LendHostState::Lent, borrower: Some(("Léa".into(), Some(hour + 3 * 3600))), notice, ..Default::default() };
@@ -1924,5 +1985,88 @@ mod tests {
         app.live.get_mut("a").unwrap().lend = Some(crate::app::LendAvail::Unsupported);
         let hits = ui::draw(&app, &mut cv, &assets);
         assert!(hits.iter().all(|(t, _)| !matches!(t, Target::LendCreate | Target::LendCancelCode)));
+    }
+
+    /// Un lien d'invitation (paramètres de lancement) ouvre l'ajout « Avec un compte d'ami » : titre avec le prénom de
+    /// l'hôte, identifiant rempli, sa Station et son relais partent avec « Ajouter » ; Retour : l'accueil. Pendant une
+    /// session il attend ; un lien illisible le dit en avis.
+    #[test]
+    fn an_invitation_link() {
+        crate::i18n::force_english(false);
+        let mut app = tv();
+        let inv = InviteUi { address: "192.168.1.42".into(), port: 24811, fingerprint: Some("sha256:aa".into()), login: "lea".into(), relay: Some("share.kybernow.app".into()), sid: Some("abcdefghijklmnopqrstuvwxyz".into()), name: Some("Hugo".into()) };
+        assert_eq!(inv.title(), "Hugo vous prête son ordinateur.");
+        assert_eq!(InviteUi { name: None, ..inv.clone() }.title(), "Avec un compte d'ami");
+        let mut s = session(&app);
+        s.menu = true;
+        app.session = Some(s);
+        app.screen = Screen::Session;
+        assert!(app.open_link(LinkUi::Invite(inv)).is_empty());
+        assert!(app.pending_link.is_some() && app.screen == Screen::Session, "pendant une session, le lien attend");
+        app.session = None;
+        app.go(Screen::Home);
+        app.poll_link();
+        assert_eq!((app.screen, app.add.step.clone(), app.friend.login.as_str()), (Screen::Add, AddStep::Friend, "lea"));
+        for c in "secret".chars() {
+            app.nav(Nav::Char(c));
+        }
+        let acts = app.activate(Target::FriendGo);
+        assert!(matches!(&acts[..], [Action::FriendAdd { address, relay: Some(_), sid: Some(_), login, editing: None, .. }] if address == "192.168.1.42" && login == "lea"), "{acts:?}");
+        app.friend.busy = false;
+        app.nav(Nav::Back);
+        assert_eq!(app.screen, Screen::Home);
+        app.open_link(LinkUi::BadInvite);
+        assert_eq!(app.toast.as_ref().map(|(t, _)| t.as_str()), Some("Ce lien d'invitation est illisible."));
+    }
+
+    /// Les textes ajoutés à la réunion des apps (docs/link-ui.md, « Textes des apps ») ; « Se déconnecter » dans le menu
+    /// de l'ami ; la demande d'un créneau ne se refuse pas ; le code de prêt attend le lien du relais comme le partage.
+    #[test]
+    fn lend_app_words_and_relay() {
+        let mut cv = Canvas::new();
+        let assets = Assets::load();
+        crate::i18n::force_english(false);
+        assert_eq!(crate::app::remove_borrowed_question("Hugo"), "Retirer l'ordinateur d'Hugo de cet appareil ?");
+        assert_eq!(crate::app::remove_borrowed_question("Matthieu"), "Retirer l'ordinateur de Matthieu de cet appareil ?");
+        assert_eq!(LendAvail::Impossible.text(), Some("Le prêt n'est pas possible sur cet ordinateur."));
+        assert_eq!(crate::app::time_left_label(2 * 3600), "Encore 2 h");
+        assert_eq!(crate::app::time_left_label(80 * 60), "Encore 1 h 20");
+        assert_eq!(crate::app::time_left_label(20), "Encore moins d'une minute");
+        let slot = LendRequestUi { id: "r1".into(), name: "Hugo".into(), app: "ios".into(), slot: true, ..Default::default() };
+        assert_eq!(slot.line(), "Créneau d'Hugo : l'ordinateur lui est prêté dans 2 min.");
+        crate::i18n::force_english(true);
+        assert_eq!(crate::app::remove_borrowed_question("Hugo"), "Remove Hugo's computer from this device?");
+        assert_eq!(crate::app::time_left_label(20), "Less than a minute left");
+        crate::i18n::force_english(false);
+        // L'ami : « Se déconnecter » et « Rendre l'ordinateur » dans le menu.
+        let mut app = tv();
+        let mut s = borrow_session();
+        s.menu = true;
+        app.session = Some(s);
+        app.screen = Screen::Session;
+        let hits = ui::draw(&app, &mut cv, &assets);
+        assert!(hits.iter().any(|(t, _)| *t == Target::Menu(MenuItem::Disconnect)) && hits.iter().any(|(t, _)| *t == Target::Menu(MenuItem::GiveBack)));
+        assert_eq!(app.activate(Target::Menu(MenuItem::Disconnect)), vec![Action::Disconnect]);
+        // L'hôte : un créneau ne se refuse pas.
+        let mut app = tv();
+        let mut s = session(&app);
+        s.lend_panel = true;
+        app.session = Some(s);
+        app.screen = Screen::Session;
+        app.lend_reply(Ok(LendHostView { enabled: true, requests: vec![slot], ..Default::default() }));
+        let hits = ui::draw(&app, &mut cv, &assets);
+        assert!(hits.iter().all(|(t, _)| *t != Target::LendRefuse(0)), "pas de « Refuser » pour un créneau");
+        assert!(app.activate(Target::LendRefuse(0)).is_empty());
+        app.lend_reply(Err(String::new()));
+        // Le lien du relais en préparation, gardé tant que le code reste le même ; puis le lien du réseau.
+        let code = |relay| LendCodeUi { code: "731402".into(), web: "https://h:1/link/?join=731402".into(), relay, ..Default::default() };
+        app.lend_reply(Ok(LendHostView { enabled: true, code: Some(code(Some(ShareRelay::Connecting))), ..Default::default() }));
+        let c = app.session.as_ref().unwrap().lend.as_ref().unwrap().code.clone().unwrap();
+        assert!(c.relay_preparing() && c.relay_since.is_some());
+        assert_eq!(c.relay_wait_text(), Some("Préparation du lien hors de chez vous…"));
+        app.lend_changed(Some(LendHostView { enabled: true, code: Some(code(Some(ShareRelay::Connecting))), ..Default::default() }));
+        assert_eq!(app.session.as_ref().unwrap().lend.as_ref().unwrap().code.as_ref().unwrap().relay_since, c.relay_since);
+        let late = LendCodeUi { relay_since: Instant::now().checked_sub(crate::app::RELAY_LINK_WAIT + Duration::from_secs(1)), ..c };
+        assert_eq!((late.relay_preparing(), late.relay_wait_text(), late.relay_down_text()), (false, None, Some("Pas encore joignable hors de chez vous.")));
     }
 }

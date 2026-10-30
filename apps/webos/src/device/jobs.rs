@@ -45,6 +45,7 @@ pub fn poll(host: Host, want_preview: bool, tx: Sender<Event>) {
                 let lend_avail = match info.lend {
                     None => LendAvail::Unsupported,
                     Some(l) if l.available && l.enabled => LendAvail::Available,
+                    Some(l) if !l.available => LendAvail::Impossible,
                     Some(_) => LendAvail::Off,
                 };
                 let lend_view = if lend_avail == LendAvail::Available { c.lend_state().ok().map(|v| lend_view(&v)) } else { None };
@@ -367,10 +368,12 @@ static JOIN_WAIT: std::sync::Mutex<Option<JoinWait>> = std::sync::Mutex::new(Non
 /// chaque invité : `Event::SharePending` dit que la demande attend, puis la réponse (l'invité entre, « L'hôte a
 /// refusé. », « L'hôte n'a pas répondu. ») revient avec le numéro de la recherche. Une recherche abandonnée n'ouvre
 /// rien et retire sa demande.
-pub fn share_join(targets: Vec<ShareTarget>, relays: Vec<RelayAddr>, request: JoinRequest, caps: Capabilities, attempt: u32, tx: Sender<Event>) {
+///
+/// Un lien de partage (`link`) : le code part à sa seule Station, puis à son relais (`share::join_link`).
+pub fn share_join(targets: Vec<ShareTarget>, relays: Vec<RelayAddr>, link: Option<share::JoinLink>, request: JoinRequest, caps: Capabilities, attempt: u32, tx: Sender<Event>) {
     std::thread::Builder::new()
         .name("share-join".into())
-        .spawn(move || match join(&targets, &relays, &request, caps) {
+        .spawn(move || match join(&targets, &relays, link.as_ref(), &request, caps) {
             Ok(Joining::Joined(found)) => {
                 let _ = tx.send(Event::ShareJoined { attempt, result: Ok(found) });
             }
@@ -384,11 +387,15 @@ pub fn share_join(targets: Vec<ShareTarget>, relays: Vec<RelayAddr>, request: Jo
 
 /// Le code d'un partage aux Stations du réseau et aux relais (`share::join_anywhere`, qui ajoute lui-même le relais
 /// public) ; `KYBERNOW_RELAY=off` : aux Stations du réseau seulement (`share::join_checked`), jamais à un relais.
-fn join(targets: &[ShareTarget], relays: &[RelayAddr], request: &JoinRequest, caps: Capabilities) -> Result<Joining, share::ShareError> {
+fn join(targets: &[ShareTarget], relays: &[RelayAddr], link: Option<&share::JoinLink>, request: &JoinRequest, caps: Capabilities) -> Result<Joining, share::ShareError> {
     if RelayMode::current() == RelayMode::Off {
-        return share::join_checked(targets, request, caps).map(Joining::Joined);
+        let only = link.map(|l| vec![l.target()]);
+        return share::join_checked(only.as_deref().unwrap_or(targets), request, caps).map(Joining::Joined);
     }
-    share::join_anywhere(targets, relays, request, Some(caps))
+    match link {
+        Some(l) => share::join_link(l, request, Some(caps)),
+        None => share::join_anywhere(targets, relays, request, Some(caps)),
+    }
 }
 
 /// L'attente de l'accord de l'hôte : `share::wait` tient son appel 25 s, on le rappelle tant que l'hôte n'a pas répondu
@@ -592,6 +599,17 @@ pub fn lend_live(s: &lend::LendStatus) -> LendLive {
     LendLive { state: Some(state), slot }
 }
 
+/// Le chemin par le relais d'un ordinateur emprunté (son lien d'invitation) : le relais, l'identifiant de la Station
+/// et l'empreinte d'Admin épinglée ; `None` sans l'un d'eux, ou avec `KYBERNOW_RELAY=off`. Le cœur essaie le réseau
+/// d'abord (1,5 s), puis le relais.
+pub fn borrowed_route(relay: Option<&str>, sid: Option<&str>, fingerprint: Option<&str>) -> Option<RelayRoute> {
+    if RelayMode::current() == RelayMode::Off {
+        return None;
+    }
+    let route = RelayRoute { server: relay?.to_string(), station: sid?.to_string(), admin_fp: fingerprint?.to_string() };
+    route.relay_addr().ok().map(|_| route)
+}
+
 /// Sonde l'ordinateur d'un ami (la carte « Ordinateur de {hôte} ») : son état et son créneau ; « Hors ligne » quand sa
 /// Station ne répond pas. Un compte refusé (mot de passe changé) : l'état reste inconnu, « Emprunter » dira pourquoi.
 pub fn lend_poll(b: Borrowed, password: String, tx: Sender<Event>) {
@@ -599,7 +617,8 @@ pub fn lend_poll(b: Borrowed, password: String, tx: Sender<Event>) {
         .name("lend-status".into())
         .spawn(move || {
             let target = ShareTarget { host: b.address.clone(), port: b.port, fingerprint: b.fingerprint.clone() };
-            let live = match lend::status(&target, None, &b.login, &password) {
+            let route = borrowed_route(b.relay.as_deref(), b.sid.as_deref(), b.fingerprint.as_deref());
+            let live = match lend::status(&target, route.as_ref(), &b.login, &password) {
                 Ok(s) => lend_live(&s),
                 Err(lend::LendError::Other(ConsoleError::Network(_))) => LendLive { state: Some(LendState::Offline), slot: None },
                 Err(e) => {
@@ -613,15 +632,17 @@ pub fn lend_poll(b: Borrowed, password: String, tx: Sender<Event>) {
 }
 
 /// « Avec un compte d'ami » : l'identifiant et le mot de passe présentés à la Station (`lend::status`), qui dit le prénom
-/// de l'hôte, le nom de l'ordinateur et son état ; l'ordinateur emprunté est alors prêt à garder.
+/// de l'hôte, le nom de l'ordinateur et son état ; l'ordinateur emprunté est alors prêt à garder. Un lien d'invitation
+/// donne aussi le relais de la Station (`relay`, `sid`), gardé avec l'ordinateur.
 #[allow(clippy::too_many_arguments)]
-pub fn friend_add(address: String, port: u16, fingerprint: Option<String>, login: String, password: String, remember: bool, editing: Option<String>, tx: Sender<Event>) {
+pub fn friend_add(address: String, port: u16, fingerprint: Option<String>, relay: Option<String>, sid: Option<String>, login: String, password: String, remember: bool, editing: Option<String>, tx: Sender<Event>) {
     std::thread::Builder::new()
         .name("lend-friend".into())
         .spawn(move || {
             let lang = kybernow_core::i18n::current();
             let target = ShareTarget { host: address.clone(), port, fingerprint: fingerprint.clone() };
-            let result = lend::status(&target, None, &login, &password).map_err(|e| e.text(lang, "")).map(|s| {
+            let route = borrowed_route(relay.as_deref(), sid.as_deref(), fingerprint.as_deref());
+            let result = lend::status(&target, route.as_ref(), &login, &password).map_err(|e| e.text(lang, "")).map(|s| {
                 let b = Borrowed {
                     id: editing.clone().unwrap_or_else(|| format!("lend:{}", new_id())),
                     host: s.host.clone(),
@@ -629,6 +650,8 @@ pub fn friend_add(address: String, port: u16, fingerprint: Option<String>, login
                     address: address.clone(),
                     port,
                     fingerprint: fingerprint.clone(),
+                    relay: relay.clone(),
+                    sid: sid.clone(),
                     login: login.clone(),
                     password: if remember { password.clone() } else { String::new() },
                     remember,
@@ -663,7 +686,9 @@ pub fn lend_view(v: &lend::LendView) -> LendHostView {
             (kind, n.at)
         }),
         requests: v.requests.iter().map(|r| LendRequestUi { id: r.id.clone(), name: r.name.clone(), app: r.app.clone(), via_relay: r.via == share::ShareVia::Relay, steam: steam(r.steam), slot: r.slot }).collect(),
-        code: v.code.as_ref().map(|c| LendCodeUi { code: c.code.clone(), link: c.link.clone(), web: c.web.clone(), duration: c.duration, steam: steam(c.steam) }),
+        // Le relais du code comme celui du partage ; le moment de sa préparation est posé par l'app
+        // (`LendHostView::keep_relay_since`).
+        code: v.code.as_ref().map(|c| LendCodeUi { code: c.code.clone(), link: c.link.clone(), web: c.web.clone(), duration: c.duration, steam: steam(c.steam), relay: super::session::relay_of(c.relay), relay_since: None }),
     }
 }
 

@@ -258,6 +258,8 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         if s.via_relay() {
             tiles.push((MenuItem::Route, Icon::Wifi, s.path().label().into(), Some(route_sub(s)), false, false));
         }
+        // « Se déconnecter » : la session se ferme sans rendre l'ordinateur, on peut revenir pendant 15 min.
+        tiles.push((MenuItem::Disconnect, Icon::Logout, tr("Se déconnecter", "Disconnect").into(), None, false, false));
         // « Rendre l'ordinateur » : sa confirmation ; le sous-titre dit le temps qui reste.
         tiles.push((MenuItem::GiveBack, Icon::Logout, tr("Rendre l'ordinateur", "Give back the computer").into(), Some(b.time_left(crate::model::now_secs())), true, false));
     } else if let Some(g) = &s.guest {
