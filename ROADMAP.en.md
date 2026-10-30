@@ -51,7 +51,7 @@ Everything that lets someone else onto your computer. Name chosen on 26/10/2026;
 - **Removed guest**: they can come back with the same code until the host asks for a “New code”.
 - **Public Suffix List**: add `share.kybernow.app` to the list, so browsers treat each Station's address (`<id>.share.kybernow.app`) as a separate site (cookies, storage).
 - **Fair use of the home's upload bandwidth**: split it fairly between several guests.
-- **Lending the computer** (in progress, 0.9.0; contract: [docs/pret.en.md](docs/pret.en.md)): in turns, in **console mode** in your own Windows session (full-screen launcher in KyberNow Share colours, chosen apps, PC's screen covered, take-back with a 2-minute notice, session locked at the end); one-session code, friend accounts, time slots; Steam account chosen for each loan.
+- **Lending the computer** (released in 0.9.0, contract: [docs/pret.en.md](docs/pret.en.md)), next: waking a sleeping computer for a friend away from your home; controllers and touchscreen plugged into the PC blocked during a loan; windows of apps run as administrator; a chapter in the site's guide.
 - **Lead**: lending the computer while you use it, through a virtual machine that shares the graphics card (Hyper-V); needs Windows Pro and a second licence, runs into anti-cheat, encoder to be checked.
 
 ## Sony controllers in “Faithful” mode

@@ -5,6 +5,16 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## 0.9.0
+
+- **Prêtez votre ordinateur à un ami.** Nouvelle page « Prêt » dans Admin : quand vous ne vous servez pas du PC, un ami joue dessus depuis son app KyberNow Link ou son navigateur, chez vous ou de chez lui. Il ne voit ni votre bureau ni vos fenêtres : votre session Windows passe en mode console, avec un lanceur plein écran aux couleurs de KyberNow Share qui ne montre que les apps que vous avez choisies (Steam en Big Picture, et celles de votre menu Démarrer). Le jeu joué en dernier est mis en avant. L'écran du PC est couvert (« Ordinateur prêté à Léa ») ; Entrée sur son clavier vous rend la main.
+- **Trois façons de prêter** : un code pour une séance (1, 2 ou 4 heures, ou jusqu'à ce que vous repreniez), des comptes d'amis avec identifiant et mot de passe et un lien d'invitation, et des créneaux dans la semaine pendant lesquels votre ami emprunte sans vous demander. Si vous utilisez le PC, vous acceptez ou refusez sa demande ; pendant son créneau, il passe avant vous.
+- **Steam, au choix à chaque prêt** : votre ami se connecte avec son compte (vos comptes retenus sont mis de côté) ou joue avec le vôtre. À la fin, Steam revient sur votre compte.
+- **Reprendre** : depuis Admin, l'icône près de l'horloge, vos apps Link ou le clavier du PC. Votre ami a 2 minutes pour sauvegarder. À la fin du prêt, tout revient comme avant et la session Windows se verrouille.
+- Le prêt est coupé au départ, et votre session Windows doit rester ouverte pour prêter. Vos fichiers sont protégés au mieux, pas de façon étanche : un jeu peut lire votre disque. Prêtez à des amis de confiance.
+- Station : Ctrl+Alt+Suppr et Win+L ne passent plus pour un invité du partage ni pour un ami qui emprunte (correctif 0021 de Kyber). Hors de chez vous, le code de prêt passe par le relais, comme celui du partage.
+- Le prêt n'a pas encore été essayé sur tous les PC : vos retours sont les bienvenus sur le Discord.
+
 ## 0.8.1
 
 - **Partage : le lien hors de chez vous s'annonce.** Pendant les quelques secondes où la Station rejoint le relais, le panneau du partage dit « Préparation du lien hors de chez vous… » ; « Copier le lien » et le QR code attendent le lien du relais, pour ne plus donner par erreur un lien qui ne marche que chez vous. Au bout de 10 secondes sans relais, ils donnent le lien de votre réseau et le panneau dit « Pas encore joignable hors de chez vous. ». Dans toutes les apps Link, dans Admin et dans le menu de l'icône.

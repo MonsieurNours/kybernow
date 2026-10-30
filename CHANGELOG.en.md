@@ -4,6 +4,16 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## 0.9.0
+
+- **Lend your computer to a friend.** A new “Lending” page in Admin: while you're not using the PC, a friend plays on it from their KyberNow Link app or their browser, at your place or from home. They see neither your desktop nor your windows: your Windows session switches to console mode, with a full-screen launcher in KyberNow Share colours that only shows the apps you picked (Steam in Big Picture, and apps from your Start menu). The last game played comes first. The PC's screen is covered (“Computer lent to Léa”); Enter on its keyboard hands it back to you.
+- **Three ways to lend**: a code for one session (1, 2 or 4 hours, or until you take it back), friend accounts with a username, a password and an invitation link, and weekly time slots during which your friend borrows without asking. If you're using the PC, you accept or decline their request; during their slot, they go first.
+- **Steam, chosen for each loan**: your friend signs in with their account (your remembered accounts are set aside) or plays with yours. At the end, Steam goes back to your account.
+- **Taking back**: from Admin, the icon next to the clock, your Link apps or the PC's keyboard. Your friend has 2 minutes to save. When the loan ends, everything goes back as it was and the Windows session locks.
+- Lending is off at first, and your Windows session must stay open to lend. Your files are protected as well as possible, not sealed off: a game can read your disk. Lend to friends you trust.
+- Station: Ctrl+Alt+Del and Win+L no longer get through for a share guest or a borrowing friend (Kyber patch 0021). Away from home, the lending code goes through the relay, like the sharing code.
+- Lending hasn't been tried on every PC yet: your feedback is welcome on the Discord.
+
 ## 0.8.1
 
 - **Sharing: the away-from-home link tells you when it's ready.** For the few seconds the Station takes to reach the relay, the share panel says “Getting the away-from-home link ready…”; “Copy link” and the QR code wait for the relay link, so you no longer hand out by mistake a link that only works at home. After 10 seconds without the relay, they give your network link and the panel says “Not reachable away from home yet.”. In every Link app, in Admin and in the tray menu.
