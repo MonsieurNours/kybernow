@@ -32,6 +32,11 @@ pub const KN_SHARE_WAITING: i32 = 27;
 /// `kn_share_wait` : l'hôte a arrêté le partage pendant l'attente
 /// (« Ce partage est arrêté. »).
 pub const KN_SHARE_STOPPED: i32 = 28;
+/// « Rejoindre avec un code » : c'est un code de prêt de l'ordinateur
+/// (docs/pret.md). `out` : `{code, target, route}`, à donner à
+/// `kn_lend_borrow` (`target_json`, `route_json`, et `{"code"}` dans
+/// `request_json`).
+pub const KN_SHARE_LEND: i32 = 29;
 
 /// Rôle d'un invité (`on_share_role`, `kn_console_share_guest`) : deux
 /// droits indépendants, les manettes et le clavier et la souris. Aucun
@@ -54,10 +59,15 @@ pub const KN_SHARE_UNSUPPORTED: i32 = 0;
 pub const KN_SHARE_DISABLED: i32 = 1;
 pub const KN_SHARE_AVAILABLE: i32 = 2;
 
-fn share_failure(e: ShareError, error: *mut *mut c_char) -> i32 {
+fn share_failure(e: ShareError, out: *mut *mut c_char, error: *mut *mut c_char) -> i32 {
     let message = e.to_string();
     let code = match e {
         ShareError::Other(e) => return failure(e, error),
+        // Un code de prêt : `out` dit à qui l'emprunter (`kn_lend_borrow`).
+        ShareError::Lend(code) => {
+            give_to(out, serde_json::to_string(&code).unwrap_or_default());
+            KN_SHARE_LEND
+        }
         ShareError::NoShare => KN_SHARE_NO_SHARE,
         ShareError::Full => KN_SHARE_FULL,
         ShareError::TooManyTries { .. } => KN_SHARE_TOO_MANY,
@@ -192,7 +202,7 @@ pub unsafe extern "C" fn kn_share_join(
             give_to(out, serde_json::to_string(&found).unwrap_or_default());
             KN_OK
         }
-        Err(e) => share_failure(e, error),
+        Err(e) => share_failure(e, out, error),
     }
 }
 
@@ -232,7 +242,7 @@ pub unsafe extern "C" fn kn_share_join_anywhere(
             give_to(out, serde_json::to_string(&joining).unwrap_or_default());
             KN_OK
         }
-        Err(e) => share_failure(e, error),
+        Err(e) => share_failure(e, out, error),
     }
 }
 
@@ -257,7 +267,7 @@ pub unsafe extern "C" fn kn_share_join_link(
             give_to(out, serde_json::to_string(&joining).unwrap_or_default());
             KN_OK
         }
-        Err(e) => share_failure(e, error),
+        Err(e) => share_failure(e, out, error),
     }
 }
 
@@ -278,7 +288,7 @@ pub unsafe extern "C" fn kn_share_wait(pending_json: *const c_char, capabilities
             KN_OK
         }
         Ok(None) => KN_SHARE_WAITING,
-        Err(e) => share_failure(e, error),
+        Err(e) => share_failure(e, out, error),
     }
 }
 

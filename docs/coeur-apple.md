@@ -78,6 +78,22 @@ Règles de l'API :
   - Chemin : rappel `on_route(userdata, route_json)` ajouté à la fin de `KnPlatform` (`transport` `direct`, `relay`, `relay_tcp`, `relay`, `rtt_client`, `rtt_station` en ms) ; `kn_relay_path_label(transport)` (« Direct », « Par le relais », « Par le relais (TCP) »).
   - Partage hors de chez soi : `kn_share_join_anywhere(targets_json, relays_json, request_json, capabilities_json, out, error)` (`out` : `{"joined": …}` ou `{"pending": …}`) ; `kn_share_join_link(link_json, request_json, capabilities_json, out, error)` ; `kn_share_wait(pending_json, capabilities_json, out, error)` (25 s : `KN_OK` et `{target, joined}`, `KN_SHARE_WAITING` 27, `KN_SHARE_REFUSED` 24, `KN_SHARE_EXPIRED` 25, `KN_SHARE_STOPPED` 28 « Ce partage est arrêté. ») ; `kn_share_cancel(pending_json)` ; `KN_SHARE_PENDING_FULL` 26. `relays_json` : les relais des ordinateurs connus, le relais public `share.kybernow.app` étant toujours interrogé en plus. `kn_share_parse_link` rend aussi `relay` (forme normale) et `sid`. Un invité venu par le relais y reste : `joined` porte sa route.
   - iPhone, iPad : appeler `https://share.kybernow.app/v1/health` (ou `https://<relais>/v1/health`) en `URLSession` avant d'ouvrir le tunnel (réveil de la radio cellulaire) ; les points d'écoute sur la boucle locale ne demandent pas l'autorisation « Réseau local ».
+- **Prêt de l'ordinateur** (contrat : [pret.md](pret.md), textes : [link-ui.md](link-ui.md) « Prêt de l'ordinateur », API Rust : [apps/core/README.md](../apps/core/README.md#prêt-de-lordinateur-srclendrs-srcsessionrs-srcsharers-srcconsolers)), dans `apps/apple/src/lend.rs` :
+  - L'ami (bloquants) :
+    - `kn_lend_status(target_json, route_json, login, password, out, error)` : la carte « Ordinateur de {hôte} » ; `kn_lend_availability_label(state)` en donne l'état (« Disponible »…).
+    - `kn_lend_borrow(target_json, route_json, request_json, out, error)` : `out` `{"ready": {target, borrowed}}` ou `{"pending": …}` ; `request_json` porte `{"code"}` ou `{"login","password"}`, avec `name`, `device`, `app`, `screen`, `codecs`.
+    - `kn_lend_wait(pending_json, out, error)` (30 s) : `KN_OK` et `{target, borrowed}`, `KN_LEND_WAITING` 49, `KN_LEND_REFUSED` 46, `KN_LEND_EXPIRED` 47.
+    - `kn_lend_cancel(pending_json)`, `kn_lend_leave(loan_json, error)`.
+    - `kn_lend_parse_invite(url)` : `{host, port, fingerprint, login, relay, sid, name, route}` (`name` : le prénom de l'hôte, ou nul), qui sert aussi de `target_json`.
+    - Chez l'hôte, le code de séance de la vue (`code`) porte `relay` (`{"state": "connecting"|"joined"|"unreachable"}`, nul sans relais), comme la vue du partage.
+    - Refus : `KN_LEND_BAD_CREDENTIALS` 40, `NO_CODE` 41, `LENT` 42, `LOCKED` 43, `OFF` 44, `TOO_MANY` 45, `UNSUPPORTED` 48 ; `error` porte le texte de link-ui.
+  - « Rejoindre avec un code » : `KN_SHARE_LEND` 29 pour un code de prêt, `out` `{code, target, route}` à donner à `kn_lend_borrow`.
+  - Session d'emprunt : `kn_session_start` avec `borrower` (`{"borrowed": …}`) et `console_*` de `target`. `kn_session_give_back(s)` : « Rendre l'ordinateur » ; `kn_session_stop` ne le rend pas (retour possible pendant 15 min).
+  - Rappels ajoutés à la fin de `KnPlatform` :
+    - `on_lend_notice(userdata, notice_json, text)` : le préavis ; `kn_lend_notice_text(notice_json, name)` en refait le texte.
+    - `on_lend_end(userdata, end, text)` : `KN_LEND_END_TAKEN_BACK` 0, `TIME_UP` 1, `SLOT_END` 2, `LEFT` 3 (rendu depuis le lanceur, fin voulue : « Vous avez rendu l'ordinateur. » ; rien après `kn_session_give_back`), `STOPPED` 4 (« Le prêt s'est arrêté. »).
+    - `on_lend(userdata, lend_json)` : chez l'hôte, la vue du prêt, ou nul.
+  - L'hôte, sur sa `KnConsole` : `kn_console_lend_state`, `kn_console_lend_code(c, duration, steam, …)` (`duration` 0 : « Jusqu'à ce que je reprenne » ; `KN_LEND_STEAM_FRIEND` 0, `KN_LEND_STEAM_HOST` 1), `kn_console_lend_cancel_code`, `kn_console_lend_answer(c, request, accept, steam, …)`, `kn_console_lend_take_back(c, now, …)`. `out` : la vue du prêt.
 - **Journal** : le cœur écrit par la crate `log` ; `kn_set_log_callback` l'envoie à `KyberLog` (journal unifié, catégorie `core`).
 
 ## Compiler et livrer

@@ -22,6 +22,11 @@ fn share_envelope(r: Result<Found, ShareError>) -> String {
     let e = match r {
         Ok(found) => return serde_json::json!({ "code": 0, "value": found }).to_string(),
         Err(ShareError::Other(e)) => return envelope::<()>(Err(e)),
+        // Un code de prêt : `value` dit à qui l'emprunter (`lendBorrow`).
+        Err(ShareError::Lend(code)) => {
+            let text = ShareError::Lend(code.clone()).to_string();
+            return serde_json::json!({ "code": 29, "error": text, "kind": "lend", "value": code }).to_string();
+        }
         Err(e) => e,
     };
     let code = match &e {
@@ -33,6 +38,7 @@ fn share_envelope(r: Result<Found, ShareError>) -> String {
         ShareError::Expired => 25,
         ShareError::PendingFull => 26,
         ShareError::Stopped => 28,
+        ShareError::Lend(_) => 29,
         ShareError::Other(_) => 1,
     };
     serde_json::json!({ "code": code, "error": e.to_string(), "kind": e.kind() }).to_string()

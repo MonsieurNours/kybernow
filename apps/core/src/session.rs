@@ -94,6 +94,19 @@ pub enum SessionRole {
     Host,
     /// Un invité d'un partage : spectateur ou joueur, selon la Station.
     Guest(Box<GuestParams>),
+    /// L'ami qui emprunte l'ordinateur (docs/pret.md) : pas de `prepare`
+    /// (l'écran virtuel est déjà fait à la taille de l'appareil), Kyber avec
+    /// le jeton renouvelé par le signe de vie du prêt, clavier, souris et
+    /// manettes sans presse-papiers ; rien ne change sur l'ordinateur.
+    Borrower(Box<BorrowerParams>),
+}
+
+/// Ce qu'une session d'emprunt tient de [`crate::lend::borrow`] (ou de
+/// [`crate::lend::wait`]).
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct BorrowerParams {
+    /// La réponse de `borrow`, telle quelle ([`crate::lend::Loan::borrowed`]).
+    pub borrowed: crate::lend::Borrowed,
 }
 
 /// Ce qu'une session d'invité tient de « Rejoindre » ([`share::join`]).
@@ -195,6 +208,36 @@ impl SessionParams {
         matches!(self.role, SessionRole::Guest(_))
     }
 
+    /// Une session d'emprunt, pour le prêt `loan` ([`crate::lend::borrow`],
+    /// [`crate::lend::wait`]) : `settings` (le profil de l'app, Jeu par
+    /// défaut), `audio_channels` (0 : pas de son). Kyber passe par le relais
+    /// si l'emprunt y est passé (la route voyage avec `borrowed`).
+    pub fn borrower(loan: &crate::lend::Loan, device: DeviceInfo, settings: StreamSettings, audio_channels: u16) -> Self {
+        let d = loan.borrowed.display;
+        SessionParams {
+            console_host: loan.target.host.clone(),
+            console_port: loan.target.port,
+            user: String::new(),
+            password: String::new(),
+            console_fingerprint: loan.target.fingerprint.clone(),
+            device,
+            mode: Mode { width: d.width, height: d.height, refresh: d.refresh },
+            audio_channels,
+            virtual_display: false,
+            settings,
+            auto_reconnect: true,
+            gamepad_xbox360: true,
+            clipboard: false,
+            recovery: Recovery::default(),
+            role: SessionRole::Borrower(Box::new(BorrowerParams { borrowed: loan.borrowed.clone() })),
+            route: loan.borrowed.route.clone().map_or(Route::Direct, Route::Relay),
+        }
+    }
+
+    pub fn is_borrower(&self) -> bool {
+        matches!(self.role, SessionRole::Borrower(_))
+    }
+
     /// Les paramètres en JSON, comme les donnent les ponts des apps
     /// (`kn_session_start`, JNI) : `console_host`, `console_port`, `user`,
     /// `password`, `console_fingerprint`, `device`, `mode`, `audio_channels`,
@@ -202,18 +245,25 @@ impl SessionParams {
     /// `clipboard`, `recovery`, et `screens` (multi-écrans, rendu à part pour
     /// [`Session::start_with_screens`]) ; pour un invité, `guest` :
     /// `{"joined": <réponse de share_join>, "capabilities": {hevc, hevc444,
-    /// av1}}` (`user`, `password` et `mode` sont alors facultatifs).
+    /// av1}}` (`user`, `password` et `mode` sont alors facultatifs) ; pour
+    /// l'ami qui emprunte l'ordinateur, `borrower` : `{"borrowed": <réponse
+    /// de borrow>}` (de même).
     pub fn from_json(json: &str) -> Result<(SessionParams, Option<Screens>), String> {
         let wire: ParamsJson = serde_json::from_str(json).map_err(|e| e.to_string())?;
         let settings = wire.settings.settings()?;
-        let role = match wire.guest {
-            Some(g) => SessionRole::Guest(Box::new(g)),
-            None => SessionRole::Host,
+        let role = match (wire.guest, wire.borrower) {
+            (Some(g), _) => SessionRole::Guest(Box::new(g)),
+            (None, Some(b)) => SessionRole::Borrower(Box::new(b)),
+            (None, None) => SessionRole::Host,
         };
         let mode = match (wire.mode, &role) {
             (Some(m), _) => m,
             (None, SessionRole::Guest(g)) => {
                 let d = g.joined.display;
+                Mode { width: d.width, height: d.height, refresh: d.refresh }
+            }
+            (None, SessionRole::Borrower(b)) => {
+                let d = b.borrowed.display;
                 Mode { width: d.width, height: d.height, refresh: d.refresh }
             }
             (None, SessionRole::Host) => return Err("mode absent".into()),
@@ -298,6 +348,9 @@ struct ParamsJson {
     screens: Option<Screens>,
     #[serde(default)]
     guest: Option<GuestParams>,
+    /// Une session d'emprunt : `{"borrowed": <réponse de borrow>}`.
+    #[serde(default)]
+    borrower: Option<BorrowerParams>,
     /// `direct`, `relay`, `auto` (absent : `auto` avec `relay`, sinon direct).
     #[serde(default)]
     route: Option<String>,
@@ -474,6 +527,25 @@ pub trait Platform: Send + Sync {
     /// la raison de la fin. L'app choisit ce qu'elle montre (état de
     /// l'accueil, « Réessayer ») par l'erreur ou son code, jamais par le texte.
     fn on_relay_error(&self, _error: &crate::relay::RelayError, _text: &str) {}
+    /// Session d'emprunt (docs/pret.md) : le préavis de 2 minutes (l'hôte
+    /// reprend l'ordinateur, la durée ou le créneau finit), quand il arrive ;
+    /// `text` : l'avis de link-ui (« {hôte} reprend l'ordinateur dans 2 min :
+    /// sauvegardez votre partie. »), `notice.at` : l'heure de la fin.
+    fn on_lend_notice(&self, _notice: &crate::lend::LendNotice, _text: &str) {}
+    /// Session d'emprunt : le prêt finit la session, juste avant
+    /// [`Self::on_ending`] ; `text` : la raison de link-ui (« {hôte} a repris
+    /// l'ordinateur. », « Le prêt est terminé. », « Votre créneau est
+    /// terminé. », « Le prêt s'est arrêté. »). [`crate::lend::LendEnd::Left`]
+    /// (rendu depuis le lanceur) est une fin voulue, sans erreur, avec « Vous
+    /// avez rendu l'ordinateur. » pour la carte de fin ; rendu par
+    /// [`Session::give_back`], la session finit sans cet appel. Une autre fin
+    /// d'emprunt sans cet appel (fenêtre fermée, réseau perdu) laisse revenir
+    /// pendant 15 min ([`crate::lend::COME_BACK`]).
+    fn on_lend_end(&self, _end: crate::lend::LendEnd, _text: &str) {}
+    /// Session d'hôte : la vue du prêt de l'ordinateur, telle que la dit le
+    /// signe de vie (champ `lend`) ; `None` : rien à dire (ni code, ni
+    /// demande, ni prêt). Appelée quand elle change.
+    fn on_lend(&self, _lend: Option<&crate::lend::LendView>) {}
 }
 
 /// Ce qu'une session d'invité ne fait jamais : chaque appel à Admin ou à
@@ -554,6 +626,12 @@ enum Msg {
     ShareQuality(ShareQuality),
     /// L'image de l'invité, répondue par `POST /api/share/quality`.
     ShareImage(ShareImage),
+    /// Réponse du signe de vie d'un emprunt.
+    LendBeat(crate::lend::LendBeat),
+    /// La Station ne connaît plus le prêt.
+    LendGone(crate::lend::LendEnd),
+    /// « Rendre l'ordinateur ».
+    GiveBack,
     /// Autre profil pendant la session.
     Settings(StreamSettings),
     /// Plafond de débit (fenêtre occultée) ; `None` : plus de plafond.
@@ -768,6 +846,12 @@ fn after_restart(f: Failure) -> Failure {
 /// sans clé de jetons ; réseau) est passager : on réessaie.
 fn share_gone(status: u16) -> Option<ShareEnd> {
     (status == 404).then_some(ShareEnd::Stopped)
+}
+
+/// Le signe de vie d'un emprunt refusé : la Station ne connaît plus ce prêt
+/// (jeton refusé, prêt fini depuis plus de 15 min). Le reste est passager.
+fn lend_gone(status: u16) -> bool {
+    matches!(status, 401 | 403 | 404 | 410)
 }
 
 /// Sans signe de vie réussi pendant ce délai, la Station a fait sortir
@@ -1217,6 +1301,15 @@ impl Session {
         self.send(Msg::ShareQuality(quality));
     }
 
+    /// Session d'emprunt : « Rendre l'ordinateur » (après sa confirmation,
+    /// « Rendre l'ordinateur à {hôte} ? ») : le prêt finit pour de bon
+    /// (`POST /api/lend/leave`), puis la session, sans erreur. Fermer la
+    /// session ([`Self::stop`]) ne rend pas l'ordinateur : l'ami peut revenir
+    /// pendant 15 min. Sans effet hors d'une session d'emprunt.
+    pub fn give_back(&self) {
+        self.send(Msg::GiveBack);
+    }
+
     pub fn keyframe_lost(&self) {
         self.send(Msg::KeyframeLost);
     }
@@ -1438,6 +1531,15 @@ struct Worker {
     quality_asked: Arc<std::sync::atomic::AtomicU64>,
     /// Session d'hôte : le partage du dernier signe de vie.
     last_share: Option<ShareState>,
+    /// Session d'hôte : la vue du prêt du dernier signe de vie.
+    last_lend: Option<crate::lend::LendView>,
+    /// Session d'emprunt : la réponse de `borrow` (jeton de Kyber à jour).
+    borrow: Option<crate::lend::Borrowed>,
+    /// Le préavis en cours, la fin dite par le prêt (et son texte), et si
+    /// l'ami rend l'ordinateur.
+    lend_notice: Option<crate::lend::LendNotice>,
+    lend_end: Option<(crate::lend::LendEnd, String)>,
+    giving_back: bool,
 }
 
 /// Raison d'une fin de session, dans la langue de l'app (montrée à l'utilisateur).
@@ -1465,16 +1567,26 @@ impl Worker {
         let profile_label = Arc::new(Mutex::new((params.settings.label().to_string(), params.settings.mode_policy().to_string())));
         let guest = match &params.role {
             SessionRole::Guest(g) => Some((**g).clone()),
-            SessionRole::Host => None,
+            SessionRole::Host | SessionRole::Borrower(_) => None,
+        };
+        let borrow = match &params.role {
+            SessionRole::Borrower(b) => Some(b.borrowed.clone()),
+            _ => None,
         };
         let share_role = guest.as_ref().map(|g| g.joined.role).unwrap_or_default();
         if guest.is_some() {
             // Un invité n'a d'entrées que selon son rôle, jamais le presse-papiers.
             focus.set_rights(share_role.rights());
         }
-        // Un invité : l'écran du partage, jamais de plan.
-        let plan = match (&screens, &guest) {
-            (Some(s), None) => wanted_plan(s, &params, &[]),
+        if borrow.is_some() {
+            // L'ami qui emprunte : clavier, souris et manettes (rôle `player_kbm`
+            // de Kyber), jamais le presse-papiers.
+            focus.set_rights(ShareRole::PlayerKbm.rights());
+        }
+        // Un invité : l'écran du partage, jamais de plan ; un emprunt : l'écran
+        // virtuel fait pour lui.
+        let plan = match (&screens, &guest, &borrow) {
+            (Some(s), None, None) => wanted_plan(s, &params, &[]),
             _ => Vec::new(),
         };
         // Le mode de l'écran principal, d'après le plan.
@@ -1558,6 +1670,11 @@ impl Worker {
             share_image: None,
             quality_asked: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             last_share: None,
+            last_lend: None,
+            borrow,
+            lend_notice: None,
+            lend_end: None,
+            giving_back: false,
             guest,
         }
     }
@@ -1567,7 +1684,7 @@ impl Worker {
             Some(f) if self.restart_wanted(&f) => self.last_resort(f),
             other => other,
         };
-        let failure = failure.map(|f| self.share_reason(f));
+        let failure = failure.map(|f| self.share_reason(f)).map(|f| self.lend_reason(f));
         if let Some(Failure { text, relay: Some(e), .. }) = &failure {
             self.platform.on_relay_error(e, text);
         }
@@ -1579,7 +1696,7 @@ impl Worker {
     fn relay_failure(&self, error: crate::relay::RelayError) -> Failure {
         let mut name = self.focus.label().name();
         if name.trim().is_empty() {
-            name = self.guest.as_ref().map(|g| g.joined.computer.clone()).unwrap_or_default();
+            name = self.guest.as_ref().map(|g| g.joined.computer.clone()).or_else(|| self.borrow.as_ref().map(|b| b.computer.clone())).unwrap_or_default();
         }
         Failure::relay(error, &name)
     }
@@ -1628,13 +1745,19 @@ impl Worker {
     /// KyberNow Share : vrai pour une session d'hôte ; pour un invité,
     /// l'action est fermée (et notée) : il ne change jamais l'ordinateur.
     fn host_only(&self, action: HostOnly) -> bool {
-        if self.guest.is_none() {
+        if !self.visitor() {
             return true;
         }
         if self.refused.lock().unwrap().insert(action) {
-            info!("invité : {action:?} jamais demandé à l'ordinateur");
+            info!("{} : {action:?} jamais demandé à l'ordinateur", if self.borrow.is_some() { "emprunt" } else { "invité" });
         }
         false
+    }
+
+    /// Un invité du partage, ou l'ami qui emprunte : ni `prepare`, ni signe
+    /// de vie d'hôte, ni changement de l'ordinateur, ni redémarrage.
+    fn visitor(&self) -> bool {
+        self.guest.is_some() || self.borrow.is_some()
     }
 
     /// L'image demande une chaîne d'entrées : un hôte, ou un invité joueur
@@ -1645,7 +1768,7 @@ impl Worker {
 
     /// Le presse-papiers partagé, jamais pour un invité.
     fn input_clipboard(&self) -> bool {
-        self.params.clipboard && self.guest.is_none()
+        self.params.clipboard && !self.visitor()
     }
 
     /// {hôte} des textes du partage.
@@ -1665,7 +1788,7 @@ impl Worker {
         restart_wanted(
             f.cause,
             Attempt {
-                enabled: self.params.recovery.restart_station && self.guest.is_none(),
+                enabled: self.params.recovery.restart_station && !self.visitor(),
                 prepared: self.prepared_ok,
                 shown: self.shown(),
                 end_requested: self.end_requested,
@@ -1892,6 +2015,9 @@ impl Worker {
         if self.guest.is_some() {
             return self.open_guest();
         }
+        if self.borrow.is_some() {
+            return self.open_borrow();
+        }
         self.status(Status::Preparing);
         let p = self.params.clone();
         let direct = Arc::new(Console::new(&p.console_host, p.console_port, &p.user, &p.password, p.console_fingerprint.clone()));
@@ -2040,6 +2166,187 @@ impl Worker {
         client.connect().map_err(|e| format!("Kyber : {e}"))?;
         self.spawn_share_beat(j.beat.max(1));
         Ok(())
+    }
+
+    /// Session d'emprunt (docs/pret.md) : la Station a déjà fait l'écran
+    /// virtuel et passé la session en mode console ; rien à préparer. Admin
+    /// et Kyber sur le réseau, ou par le relais si l'emprunt y est passé.
+    fn open_borrow(&mut self) -> Result<(), Failure> {
+        let b = self.borrow.clone().expect("emprunt");
+        info!("emprunt de {} (prêté par {}), écran {} ({}×{} à {} Hz), fin {:?}", b.computer, b.host_name(), b.display.id, b.display.width, b.display.height, b.display.refresh, b.until);
+        self.status(Status::Preparing);
+        let p = self.params.clone();
+        let relay = match &p.route {
+            Route::Relay(r) => Some(r.clone()),
+            _ => b.route.clone(),
+        };
+        let console = match relay {
+            None => Arc::new(Console::guest(&p.console_host, p.console_port, p.console_fingerprint.clone())),
+            Some(r) => {
+                check_relay_fingerprint(p.console_fingerprint.as_deref(), &r)?;
+                Arc::new(Console::guest(&p.console_host, p.console_port, Some(r.admin_fp.clone())).with_relay(Some(r)))
+            }
+        };
+        self.console = Some(console.clone());
+        self.open_relay(&console)?;
+        // Jamais de premier contact avec Kyber.
+        let Some(fingerprint) = b.kyber.fingerprint.clone().filter(|f| !f.is_empty()) else {
+            return Err(t("share.no_kyber_fingerprint", &[]).into());
+        };
+        let d = b.display;
+        let mode = Mode { width: d.width, height: d.height, refresh: d.refresh.max(1) };
+        self.requested = mode;
+        self.single_mode = mode;
+        self.apply_prepared(Prepared {
+            virtual_display: false,
+            applied: (d.width > 0 && d.height > 0).then_some(mode),
+            audio_channels: None,
+            kyber_port: Some(b.kyber.port),
+            heartbeat_seconds: b.beat.max(1),
+            kyber_fingerprint: Some(fingerprint.clone()),
+            screens: None,
+        });
+
+        self.status(Status::Connecting);
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let (kyber_host, kyber_port) = self.kyber_endpoint(&console, b.kyber.port)?;
+        let mut config = ConnectConfig {
+            host: kyber_host,
+            port: kyber_port,
+            tls_host: None,
+            verify_mode: None,
+            credentials: AuthCredentials::Jwt { token: b.kyber.token.clone() },
+            auto_reconnection: p.auto_reconnect,
+        };
+        config.set_tls_fingerprint(&fingerprint).map_err(|e| e.to_string())?;
+        let client = Client::new(config, true).map_err(|e| format!("Kyber : {e}"))?;
+        let tracker = self.latency.clone();
+        client.set_metrics_callback(Some(Box::new(move |m| tracker.on_metric(&m))));
+        client.get_event_manager().add_event_sink(Box::new(Events {
+            tx: Mutex::new(self.tx.clone()),
+            alive: self.alive.clone(),
+        }));
+        let client = Arc::new(client);
+        self.client = Some(client.clone());
+        client.connect().map_err(|e| format!("Kyber : {e}"))?;
+        self.spawn_lend_beat(b.beat.max(1));
+        Ok(())
+    }
+
+    /// Signe de vie de l'emprunt, toutes les `seconds` : jeton de Kyber,
+    /// préavis, fin. Une Station qui ne connaît plus le prêt (401, 403, 404)
+    /// finit la session ; une Station injoignable est réessayée, 20 s au plus
+    /// (après, la Station arrête l'image : la session finit, et l'ami peut
+    /// revenir pendant 15 min par `borrow`).
+    fn spawn_lend_beat(&self, seconds: u64) {
+        let Some(b) = self.borrow.clone() else { return };
+        let console = self.console.clone().expect("console");
+        let tx = self.tx.clone();
+        let alive = self.alive.clone();
+        let label = journal::current();
+        std::thread::Builder::new()
+            .name("kybernow-pret".into())
+            .spawn(move || {
+                journal::resume(label);
+                let mut last_ok = Instant::now();
+                loop {
+                    std::thread::sleep(Duration::from_secs(seconds));
+                    if !alive.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    let reply = console.lend_beat(&b.lend, &b.secret);
+                    if !alive.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    match reply {
+                        Ok(beat) => {
+                            last_ok = Instant::now();
+                            let end = beat.end.is_some();
+                            let _ = tx.send(Msg::LendBeat(beat));
+                            if end {
+                                return;
+                            }
+                        }
+                        Err(ConsoleError::Http { status, .. }) if lend_gone(status) => {
+                            warn!("signe de vie de l'emprunt : la Station ne connaît plus le prêt ({status})");
+                            let _ = tx.send(Msg::LendGone(crate::lend::LendEnd::Stopped));
+                            return;
+                        }
+                        Err(e) if last_ok.elapsed() >= GUEST_BEAT_LIMIT => {
+                            warn!("signe de vie de l'emprunt : sans réponse depuis {} s ({})", GUEST_BEAT_LIMIT.as_secs(), e.text(Lang::Fr));
+                            let _ = tx.send(Msg::Fail(t("lend.lost", &[]).into()));
+                            return;
+                        }
+                        Err(e) => warn!("signe de vie de l'emprunt : {} (nouvel essai)", e.text(Lang::Fr)),
+                    }
+                }
+            })
+            .expect("fil du signe de vie de l'emprunt");
+    }
+
+    /// Réponse du signe de vie de l'emprunt : le jeton de Kyber renouvelé, le
+    /// préavis, la fin. `Some(None)` : fin voulue (rendu) ; `Some(Some(_))` :
+    /// la session finit par le prêt ; `None` : elle continue.
+    fn on_lend_beat(&mut self, b: crate::lend::LendBeat) -> Option<Option<Failure>> {
+        if let Some(end) = b.end {
+            return Some(self.lend_ended(end));
+        }
+        if let Some(token) = b.token.filter(|t| !t.is_empty()) {
+            if let Some(borrow) = self.borrow.as_mut() {
+                borrow.kyber.token = token.clone();
+            }
+            if let Some(c) = &self.client
+                && let Err(e) = c.update_credentials(AuthCredentials::Jwt { token })
+            {
+                warn!("jeton de Kyber pas renouvelé : {e}");
+            }
+        }
+        if let Some(borrow) = self.borrow.as_mut()
+            && borrow.until != b.until
+        {
+            info!("prêt : fin prévue {:?} → {:?}", borrow.until, b.until);
+            borrow.until = b.until;
+        }
+        if b.notice.is_some() && b.notice != self.lend_notice {
+            let notice = b.notice.expect("préavis");
+            let host = self.borrow.as_ref().map(|b| b.host_name().to_string()).unwrap_or_default();
+            info!("prêt : préavis {:?}, fin à {}", notice.reason, notice.at);
+            self.platform.on_lend_notice(&notice, &notice.text(i18n::current(), &host));
+        }
+        self.lend_notice = b.notice;
+        None
+    }
+
+    /// Le prêt finit la session : sa raison (texte de link-ui), ou rien pour
+    /// l'ordinateur rendu (fin voulue).
+    fn lend_ended(&mut self, end: crate::lend::LendEnd) -> Option<Failure> {
+        let host = self.borrow.as_ref().map(|b| b.host_name().to_string()).unwrap_or_default();
+        let text = end.text(i18n::current(), &host);
+        info!("prêt : fin {end:?}");
+        self.lend_end = Some((end, text.clone()));
+        end.is_failure().then(|| text.into())
+    }
+
+    /// Session d'emprunt qui échoue sans que le prêt l'ait dit (Kyber coupé
+    /// par la Station à la fin) : la Station est interrogée une fois, vite ;
+    /// si c'est le prêt qui a fini, sa raison remplace celle de Kyber.
+    fn lend_reason(&mut self, f: Failure) -> Failure {
+        if self.lend_end.is_some() {
+            return f;
+        }
+        let (Some(b), Some(console)) = (self.borrow.clone(), self.console.clone()) else { return f };
+        let end = match console.lend_beat_within(&b.lend, &b.secret, Duration::from_secs(3)) {
+            Ok(beat) => beat.end,
+            Err(ConsoleError::Http { status, .. }) if lend_gone(status) => Some(crate::lend::LendEnd::Stopped),
+            Err(_) => None,
+        };
+        match end {
+            Some(end) => {
+                info!("la session finit par le prêt ({})", f.text);
+                self.lend_ended(end).unwrap_or(f)
+            }
+            None => f,
+        }
     }
 
     /// Par le relais : le tunnel ouvert tout de suite (raison claire s'il ne
@@ -2510,6 +2817,18 @@ impl Worker {
                     }
                 }
                 Ok(Msg::ShareGone(end)) => return Some(self.share_ended(end)),
+                Ok(Msg::LendBeat(beat)) => {
+                    if let Some(end) = self.on_lend_beat(beat) {
+                        return end;
+                    }
+                }
+                Ok(Msg::LendGone(end)) => return self.lend_ended(end),
+                Ok(Msg::GiveBack) if self.borrow.is_some() => {
+                    info!("« Rendre l'ordinateur »");
+                    self.giving_back = true;
+                    return None;
+                }
+                Ok(Msg::GiveBack) => info!("« Rendre l'ordinateur » hors d'un emprunt : ignoré"),
                 Ok(Msg::ShareQuality(quality)) => self.ask_share_quality(quality),
                 Ok(Msg::ShareImage(image)) => self.share_image_changed(image),
                 Ok(Msg::NoImage) => {
@@ -2678,6 +2997,14 @@ impl Worker {
             }
             self.platform.on_guests(self.last_share.as_ref());
         }
+        // Le prêt de l'ordinateur : sa vue, quand elle change.
+        if r.lend != self.last_lend {
+            self.last_lend = r.lend.clone();
+            if let Some(l) = &self.last_lend {
+                info!("prêt : {:?}, {} demande(s){}", l.state, l.requests.len(), if l.code.is_some() { ", code en cours" } else { "" });
+            }
+            self.platform.on_lend(self.last_lend.as_ref());
+        }
         if r.end {
             info!("la console met fin à la session");
             self.end_requested = true;
@@ -2735,6 +3062,7 @@ impl Worker {
                     // pendant une session.
                     // Invité : le jeton de la Station refusé (expiré, invité retiré).
                     ConnectFailedReason::Unauthorized if self.guest.is_some() => t("share.unauthorized", &[]),
+                    ConnectFailedReason::Unauthorized if self.borrow.is_some() => t("lend.unauthorized", &[]),
                     ConnectFailedReason::Unauthorized => t("session.unauthorized", &[]),
                     ConnectFailedReason::TlsVerificationFailed => t("session.tls", &[]),
                     other => t("session.connect_failed", &[("reason", &format!("{other:?}"))]),
@@ -3236,7 +3564,7 @@ impl Worker {
         if self.adapting {
             return;
         }
-        if self.guest.is_some() {
+        if self.visitor() {
             return self.choose_share_display(deadline_passed);
         }
         let usable_count = self.displays.iter().filter(|d| usable(d)).count();
@@ -3284,10 +3612,11 @@ impl Worker {
         }
     }
 
-    /// Session d'invité : l'écran que la Station donne (Kyber ne laisse que
-    /// lui), attendu 6 s au plus ; à défaut le seul écran que Kyber annonce.
+    /// Session d'invité, ou d'emprunt : l'écran que la Station donne (Kyber ne
+    /// laisse que lui), attendu 6 s au plus ; à défaut le seul écran que Kyber
+    /// annonce.
     fn choose_share_display(&mut self, deadline_passed: bool) {
-        let Some(id) = self.guest.as_ref().map(|g| g.joined.display.id) else { return };
+        let Some(id) = self.guest.as_ref().map(|g| g.joined.display.id).or_else(|| self.borrow.as_ref().map(|b| b.display.id)) else { return };
         match share_display(id, &self.displays) {
             Some(d) => {
                 self.wait_until = None;
@@ -3527,6 +3856,10 @@ impl Worker {
         if let Some((end, text)) = &self.share_end {
             self.platform.on_share_end(end, text);
         }
+        // Session d'emprunt finie par le prêt : de même.
+        if let Some((end, text)) = &self.lend_end {
+            self.platform.on_lend_end(*end, text);
+        }
         // La raison d'un échec dès l'état « fin en cours » : Admin peut mettre
         // quelques secondes à répondre avant `Ended`.
         self.platform.on_ending(error.as_deref());
@@ -3565,6 +3898,18 @@ impl Worker {
                 match console.share_leave(&g.joined.guest, &g.joined.secret) {
                     Ok(()) => info!("partage quitté"),
                     Err(e) => warn!("départ du partage : {}", e.text(Lang::Fr)),
+                }
+            }
+            // Emprunt : l'ordinateur n'est rendu que par « Rendre
+            // l'ordinateur » ; fermer la session laisse revenir 15 min.
+            if let Some(b) = &self.borrow {
+                if self.giving_back {
+                    match console.lend_leave("lend", &b.lend, &b.secret) {
+                        Ok(()) => info!("ordinateur rendu"),
+                        Err(e) => warn!("ordinateur pas rendu : {}", e.text(Lang::Fr)),
+                    }
+                } else if self.lend_end.is_none() {
+                    info!("emprunt fermé sans rendre l'ordinateur : retour possible pendant 15 min");
                 }
             }
             return None;
@@ -3904,6 +4249,8 @@ mod tests {
         images: Mutex<Vec<(ShareImage, Option<ShareImage>, Option<String>)>>,
         routes: Mutex<Vec<crate::relay::RouteInfo>>,
         relay_errors: Mutex<Vec<(crate::relay::RelayError, String)>>,
+        lend_notices: Mutex<Vec<(crate::lend::LendNotice, String)>>,
+        lends: Mutex<Vec<Option<crate::lend::LendView>>>,
     }
 
     impl Platform for Recorder {
@@ -3944,6 +4291,15 @@ mod tests {
         }
         fn on_route(&self, route: &crate::relay::RouteInfo) {
             self.routes.lock().unwrap().push(route.clone());
+        }
+        fn on_lend_notice(&self, notice: &crate::lend::LendNotice, text: &str) {
+            self.lend_notices.lock().unwrap().push((*notice, text.to_string()));
+        }
+        fn on_lend_end(&self, end: crate::lend::LendEnd, text: &str) {
+            self.events.lock().unwrap().push(format!("prêt {end:?} {text:?}"));
+        }
+        fn on_lend(&self, lend: Option<&crate::lend::LendView>) {
+            self.lends.lock().unwrap().push(lend.cloned());
         }
         fn on_relay_error(&self, error: &crate::relay::RelayError, text: &str) {
             self.relay_errors.lock().unwrap().push((error.clone(), text.to_string()));
@@ -4163,6 +4519,174 @@ mod tests {
         // Une app multi-écrans : un invité n'a pourtant qu'un écran.
         let w = Worker::new(params, Some(two_screens(0)), recorder.clone(), tx, rx, Arc::new(LatencyTracker::new()), Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)), FocusState::new());
         (w, recorder)
+    }
+
+    fn borrowed() -> crate::lend::Borrowed {
+        serde_json::from_value(serde_json::json!({
+            "lend": "l1", "secret": "S", "host": "Matthieu", "computer": "PC-SALON",
+            "kyber": { "port": 24812, "fingerprint": "sha256:kk", "token": "jwt", "expires": 120 },
+            "display": { "id": 7, "width": 2560, "height": 1440, "refresh": 120 }, "until": null, "steam": "friend", "beat": 5
+        }))
+        .unwrap()
+    }
+
+    fn borrower() -> (Worker, Arc<Recorder>) {
+        let loan = crate::lend::Loan { target: share::ShareTarget { host: "127.0.0.1".into(), port: closed_port(), fingerprint: Some("sha256:ad".into()) }, borrowed: borrowed() };
+        let device = DeviceInfo { id: "mac".into(), name: "Mac".into(), kind: "mac".into(), os: "macOS".into(), app: "test".into() };
+        let settings = StreamSettings::for_profile(crate::profile::Profile::Jeu, crate::profile::Capabilities { hevc: true, hevc444: true, av1: false });
+        let mut params = SessionParams::borrower(&loan, device, settings, 2);
+        params.recovery = Recovery { watch_image: true, fallback_bitrate: Some(20_000_000), restart_station: true };
+        // Même demandé par l'app : jamais pour un emprunt.
+        params.clipboard = true;
+        let recorder = Arc::new(Recorder::default());
+        let (tx, rx) = mpsc::channel();
+        let w = Worker::new(params, Some(two_screens(0)), recorder.clone(), tx, rx, Arc::new(LatencyTracker::new()), Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)), FocusState::new());
+        (w, recorder)
+    }
+
+    #[test]
+    fn un_emprunt_ne_change_jamais_l_ordinateur() {
+        let (mut w, recorder) = borrower();
+        assert!(w.params.is_borrower() && !w.params.is_guest());
+        assert_eq!((w.params.mode, w.params.route.clone()), (Mode { width: 2560, height: 1440, refresh: 120 }, Route::Direct));
+        // Clavier, souris et manettes, jamais le presse-papiers.
+        assert_eq!(w.focus.rights(), ShareRole::PlayerKbm.rights());
+        assert!(w.wants_input() && !w.input_clipboard());
+        assert!(w.plan.is_empty(), "l'écran virtuel fait pour lui, jamais de plan");
+        let port = w.params.console_port;
+        w.console = Some(Arc::new(Console::guest("127.0.0.1", port, None)));
+        let mode = Mode { width: 3840, height: 2160, refresh: 120 };
+        assert!(w.prepare().is_ok());
+        w.spawn_heartbeat(1);
+        w.spawn_foreground();
+        w.adapt(mode);
+        w.replan(true);
+        w.start_restore_mode();
+        w.apply_bitrate();
+        assert!(!w.degrade());
+        assert!(!w.restart_wanted(&Failure::no_image("pas d'image".into())), "jamais de dernier recours");
+        assert!(w.last_resort(Failure::kyber("Kyber muet".into())).is_some());
+        for m in [
+            Msg::Settings(StreamSettings::for_profile(crate::profile::Profile::Max, crate::profile::Capabilities::default())),
+            Msg::PickDisplay(3),
+            Msg::SetMode(mode),
+            Msg::RestoreMode,
+            Msg::BitrateCap(Some(5_000_000)),
+            Msg::Stop,
+        ] {
+            w.tx.send(m).unwrap();
+        }
+        assert!(w.event_loop().is_none());
+        // Fermer la session ne rend pas l'ordinateur, et ne finit rien sur la Station.
+        assert!(w.release(false).is_none());
+        let refused = w.refused.lock().unwrap().clone();
+        for a in ALL_HOST_ONLY {
+            assert!(refused.contains(&a), "{a:?} doit être fermé pour un emprunt");
+        }
+        assert!(recorder.events.lock().unwrap().iter().all(|e| !e.contains("prêt")), "aucune fin du prêt");
+        // L'écran de Kyber : celui que la Station a fait pour l'ami, attendu
+        // s'il n'est pas encore annoncé.
+        let (mut w, _) = borrower();
+        w.displays = vec![display(3, 0, 0, 1920, 1080), display(4, 1920, 0, 1920, 1080)];
+        w.choose_display(false);
+        assert!(w.wait_until.is_some(), "écran du prêt attendu");
+        w.displays.push(display(7, 3840, 0, 2560, 1440));
+        w.choose_display(false);
+        assert!(w.wait_until.is_none(), "écran du prêt trouvé");
+    }
+
+    #[test]
+    fn signe_de_vie_d_un_emprunt() {
+        use crate::lend::{LendBeat, LendEnd, LendNotice, LendNoticeReason};
+        let (mut w, recorder) = borrower();
+        let beat = |notice: Option<LendNotice>, end: Option<LendEnd>| LendBeat { token: Some("jwt-2".into()), expires: 120, until: Some(5000), notice, end };
+        // Le jeton renouvelé, la fin prévue.
+        assert_eq!(w.on_lend_beat(beat(None, None)), None);
+        assert_eq!((w.borrow.as_ref().unwrap().kyber.token.as_str(), w.borrow.as_ref().unwrap().until), ("jwt-2", Some(5000)));
+        // Le préavis, dit une fois.
+        let notice = LendNotice { reason: LendNoticeReason::TakenBack, at: 6000 };
+        assert_eq!(w.on_lend_beat(beat(Some(notice), None)), None);
+        assert_eq!(w.on_lend_beat(beat(Some(notice), None)), None);
+        let text = notice.text(i18n::current(), "Matthieu");
+        assert_eq!(*recorder.lend_notices.lock().unwrap(), [(notice, text)]);
+        // La fin : la raison de link-ui, dite avant la raison de la fin.
+        let f = w.on_lend_beat(beat(None, Some(LendEnd::TakenBack))).expect("fin").expect("échec");
+        assert_eq!(f.text, LendEnd::TakenBack.text(i18n::current(), "Matthieu"));
+        w.finish(Some(f.text.clone()));
+        let events = recorder.events.lock().unwrap().clone();
+        let at = events.iter().position(|e| e.starts_with("prêt TakenBack")).expect("fin du prêt dite");
+        assert_eq!(events[at + 1], format!("raison {:?}", Some(&f.text)));
+        // Rendu ailleurs (le lanceur) : une fin voulue, avec son texte pour la carte de fin.
+        let (mut w, _) = borrower();
+        assert_eq!(w.on_lend_beat(beat(None, Some(LendEnd::Left))), Some(None));
+        assert_eq!(w.lend_end, Some((LendEnd::Left, t("lend.end_left", &[]))));
+        // La Station ne connaît plus le prêt.
+        assert!(lend_gone(404) && lend_gone(401) && !lend_gone(503) && !lend_gone(500));
+        assert_eq!(w.lend_ended(LendEnd::Stopped).map(|f| f.text), Some(t("lend.end_stopped", &[])));
+    }
+
+    #[test]
+    fn rendre_l_ordinateur() {
+        use std::sync::atomic::AtomicUsize;
+        let left = Arc::new(AtomicUsize::new(0));
+        let l = left.clone();
+        let bench = crate::relay::essai::start(Arc::new(move |method, path| match (method, path) {
+            ("POST", "/api/lend/leave") => {
+                l.fetch_add(1, Ordering::SeqCst);
+                (200, "{}".into())
+            }
+            _ => (404, r#"{"error":"inconnu"}"#.into()),
+        }));
+        let console = || Some(Arc::new(Console::guest(&bench.station, 0, Some(bench.admin_fp.clone())).with_relay(Some(bench.route()))));
+        // « Rendre l'ordinateur » : le prêt finit (`leave`), la session sans erreur.
+        let (mut w, _) = borrower();
+        w.console = console();
+        w.tx.send(Msg::GiveBack).unwrap();
+        assert!(w.event_loop().is_none(), "fin voulue");
+        assert!(w.giving_back);
+        assert!(w.release(false).is_none());
+        assert_eq!(left.load(Ordering::SeqCst), 1);
+        // Fermer la fenêtre : rien de rendu (retour possible pendant 15 min).
+        let (mut w, _) = borrower();
+        w.console = console();
+        w.tx.send(Msg::Stop).unwrap();
+        assert!(w.event_loop().is_none());
+        assert!(w.release(false).is_none());
+        assert_eq!(left.load(Ordering::SeqCst), 1);
+        // Hors d'un emprunt : ignoré.
+        let (mut host, _) = worker(crate::profile::Profile::Jeu, two_screens(0));
+        host.tx.send(Msg::GiveBack).unwrap();
+        host.tx.send(Msg::Stop).unwrap();
+        assert!(host.event_loop().is_none() && !host.giving_back);
+    }
+
+    #[test]
+    fn emprunt_en_json() {
+        let v = serde_json::json!({
+            "console_host": "192.168.1.20", "console_port": 9443, "console_fingerprint": "sha256:ad",
+            "device": { "id": "mac", "name": "Mac", "kind": "mac", "os": "macOS", "app": "test" },
+            "settings": { "codec": "hevc", "mbps": 60 },
+            "borrower": { "borrowed": serde_json::to_value(borrowed()).unwrap() }
+        });
+        let (p, _) = SessionParams::from_json(&v.to_string()).unwrap();
+        assert!(p.is_borrower());
+        assert_eq!(p.mode, Mode { width: 2560, height: 1440, refresh: 120 }, "le mode : l'écran virtuel du prêt");
+        let SessionRole::Borrower(b) = &p.role else { panic!() };
+        assert_eq!(b.borrowed.lend, "l1");
+    }
+
+    #[test]
+    fn pret_dit_a_l_hote() {
+        let (mut w, recorder) = worker(crate::profile::Profile::Jeu, two_screens(0));
+        let view: crate::lend::LendView = serde_json::from_str(r#"{"enabled":true,"state":"free","requests":[{"id":"r1","name":"Léa","kind":"code","app":"ios","via":"relay","since":1}]}"#).unwrap();
+        let with = |l: Option<crate::lend::LendView>| HeartbeatReply { lend: l, ..HeartbeatReply::default() };
+        assert!(w.on_beat(with(Some(view.clone()))).is_none());
+        assert!(w.on_beat(with(Some(view.clone()))).is_none());
+        assert!(w.on_beat(with(None)).is_none());
+        assert_eq!(*recorder.lends.lock().unwrap(), [Some(view), None], "dite quand elle change");
+        // Un champ illisible ne casse pas le signe de vie.
+        let r: HeartbeatReply = serde_json::from_str(r#"{"active":true,"lend":"oups"}"#).unwrap();
+        assert!(r.lend.is_none() && r.active == Some(true));
     }
 
     fn guest(role: ShareRole) -> (Worker, Arc<Recorder>) {

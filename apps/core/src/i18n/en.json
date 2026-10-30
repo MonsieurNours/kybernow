@@ -67,7 +67,8 @@
     "refused": "The host declined.",
     "expired": "The host did not answer.",
     "pending_full": "Too many requests waiting: try again in a moment.",
-    "share_stopped": "This share has stopped."
+    "share_stopped": "This share has stopped.",
+    "lend_code": "This code is for borrowing the computer."
   },
   "relay": {
     "unreachable": "The relay is not answering.",
@@ -82,5 +83,31 @@
     "path_relay_tcp": "Via the relay (TCP)",
     "no_fingerprint": "through the relay, the computer's fingerprint is needed: pair this device on the computer's network",
     "fingerprint_mismatch": "the computer's fingerprint given by the relay is not the one this device knows"
+  },
+  "lend": {
+    "bad_credentials": "Username or password refused.",
+    "no_code": "This code is no longer valid.",
+    "lent": "The computer is already lent.",
+    "locked": "The computer is locked.",
+    "off": "Lending is off on this computer.",
+    "refused": "{host} declined.",
+    "expired": "{host} didn't answer.",
+    "unsupported": "Lending needs KyberNow Station 0.9.0 or later.",
+    "notice_taken_back": "{host} is taking back the computer in 2 min: save your game.",
+    "notice_time_up": "The loan ends in 2 min: save your game.",
+    "notice_slot_end": "Your time slot ends in 2 min: save your game.",
+    "notice_slot_start": "{name}'s time slot: the computer is lent to them in 2 min.",
+    "end_taken_back": "{host} took back the computer.",
+    "end_over": "The loan is over.",
+    "end_slot_end": "Your time slot is over.",
+    "end_left": "You gave back the computer.",
+    "end_stopped": "The loan has stopped.",
+    "lost": "the lent computer is not answering",
+    "unauthorized": "the computer refuses the loan's token: borrow it again",
+    "state_free": "Available",
+    "state_busy": "In use",
+    "state_lent": "Lent to someone else",
+    "state_locked": "Locked",
+    "state_off": "Lending off"
   }
 }

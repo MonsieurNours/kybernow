@@ -317,6 +317,14 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionStop
     }
 }
 
+/// Session d'emprunt : « Rendre l'ordinateur » (le prêt finit, puis la session).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionGiveBack(_: Env, _: JClass, h: jlong) {
+    if let Some(h) = handle(h) {
+        h.session.give_back();
+    }
+}
+
 /// Libère la session une fois son fil terminé (attente faite ici, hors du
 /// fil principal de préférence).
 #[unsafe(no_mangle)]

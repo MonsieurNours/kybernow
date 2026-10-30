@@ -15,6 +15,7 @@ pub mod i18n;
 pub mod input;
 pub mod journal;
 pub mod latency;
+pub mod lend;
 pub mod media;
 pub mod profile;
 pub mod relay;

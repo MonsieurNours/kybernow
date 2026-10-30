@@ -175,6 +175,10 @@ pub struct Info {
     /// par lui hors de chez soi ([`crate::relay::RelayInfo::route`]).
     #[serde(default)]
     pub relay: Option<crate::relay::RelayInfo>,
+    /// Le prêt de l'ordinateur (Station 0.9.0 et suivantes ; `None` sinon) :
+    /// `available` (la Station sait prêter), `enabled` (activé dans Admin).
+    #[serde(default)]
+    pub lend: Option<crate::lend::LendInfo>,
     /// Les cartes réseau de l'ordinateur pour le réveiller par le réseau
     /// (Station 0.5.0 et suivantes ; vide avec une plus ancienne), Ethernet
     /// d'abord. Les apps les gardent pour chaque ordinateur : voir [`crate::wake`].
@@ -499,6 +503,10 @@ pub struct HeartbeatReply {
     /// Le partage ouvert par cet hôte (KyberNow Share) ; absent sans partage.
     #[serde(default, deserialize_with = "crate::share::lenient_state")]
     pub share: Option<ShareState>,
+    /// La vue du prêt de l'ordinateur (docs/pret.md) ; absente quand il n'y a
+    /// rien à dire (ni code, ni demande, ni prêt).
+    #[serde(default, deserialize_with = "crate::lend::lenient_view")]
+    pub lend: Option<crate::lend::LendView>,
 }
 
 /// Réponse de `GET /api/stream/foreground`.
@@ -667,7 +675,7 @@ impl Console {
         self.seen.lock().unwrap().clone()
     }
 
-    fn request(&self, method: &str, path: &str, timeout: Duration) -> ureq::Request {
+    pub(crate) fn request(&self, method: &str, path: &str, timeout: Duration) -> ureq::Request {
         let r = self
             .agent
             .request(method, &self.url(path))
@@ -681,7 +689,7 @@ impl Console {
         }
     }
 
-    fn read<T: for<'de> Deserialize<'de>>(&self, r: std::result::Result<ureq::Response, ureq::Error>) -> Result<T> {
+    pub(crate) fn read<T: for<'de> Deserialize<'de>>(&self, r: std::result::Result<ureq::Response, ureq::Error>) -> Result<T> {
         match r {
             Ok(resp) => resp.into_json().map_err(|e| ConsoleError::Invalid(e.to_string())),
             Err(ureq::Error::Status(status, resp)) => Err(http_error(status, resp.into_json::<serde_json::Value>().ok())),
@@ -701,7 +709,7 @@ impl Console {
     }
 
     /// Une réponse sans contenu utile (corps vide, `{}`, `{"ok":true}`).
-    fn read_unit(&self, r: std::result::Result<ureq::Response, ureq::Error>) -> Result<()> {
+    pub(crate) fn read_unit(&self, r: std::result::Result<ureq::Response, ureq::Error>) -> Result<()> {
         match r {
             Ok(_) => Ok(()),
             Err(e) => self.read::<serde_json::Value>(Err(e)).map(|_| ()),
@@ -1070,6 +1078,8 @@ fn share_refusal(status: u16, body: &serde_json::Value, retry_after: Option<u64>
     match (status, code) {
         // L'hôte arrête le partage pendant qu'un invité attend son accord.
         (_, "stopped") => ShareError::Stopped,
+        // Un code de prêt (docs/pret.md) : la Station et le chemin viennent de `share::join`.
+        (404, _) if body.get("lend").and_then(|l| l.as_bool()) == Some(true) => ShareError::Lend(Box::default()),
         (404 | 405, _) => ShareError::NoShare,
         (409, "full") => ShareError::Full,
         (409, "pending_full") => ShareError::PendingFull,
@@ -1081,6 +1091,11 @@ fn share_refusal(status: u16, body: &serde_json::Value, retry_after: Option<u64>
             ShareError::Other(ConsoleError::Http { status, message })
         }
     }
+}
+
+#[cfg(test)]
+pub(crate) fn share_refusal_for_tests(status: u16, body: &serde_json::Value) -> ShareError {
+    share_refusal(status, body, None)
 }
 
 /// Refus d'un changement de qualité d'image d'un invité.
@@ -1099,7 +1114,7 @@ pub(crate) fn quality_retry_delay(body: Option<u64>, header: Option<u64>) -> Dur
 
 /// Un identifiant d'invité dans un chemin : seulement ce qui ne demande pas
 /// d'encodage (les identifiants de la Station sont alphanumériques).
-fn path_segment(id: &str) -> String {
+pub(crate) fn path_segment(id: &str) -> String {
     id.chars().filter(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.')).collect()
 }
 

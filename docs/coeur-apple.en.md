@@ -78,6 +78,22 @@ API rules:
   - Path: `on_route(userdata, route_json)` callback added at the end of `KnPlatform` (`transport` `direct`, `relay`, `relay_tcp`, `relay`, `rtt_client`, `rtt_station` in ms); `kn_relay_path_label(transport)` (“Direct”, “Via the relay”, “Via the relay (TCP)”).
   - Sharing away from home: `kn_share_join_anywhere(targets_json, relays_json, request_json, capabilities_json, out, error)` (`out`: `{"joined": …}` or `{"pending": …}`); `kn_share_join_link(link_json, request_json, capabilities_json, out, error)`; `kn_share_wait(pending_json, capabilities_json, out, error)` (25 s: `KN_OK` and `{target, joined}`, `KN_SHARE_WAITING` 27, `KN_SHARE_REFUSED` 24, `KN_SHARE_EXPIRED` 25, `KN_SHARE_STOPPED` 28 “This share has stopped.”); `kn_share_cancel(pending_json)`; `KN_SHARE_PENDING_FULL` 26. `relays_json`: the relays of the known computers, the public relay `share.kybernow.app` always being asked as well. `kn_share_parse_link` also returns `relay` (normal form) and `sid`. A guest who came through the relay stays on it: `joined` carries its route.
   - iPhone, iPad: call `https://share.kybernow.app/v1/health` (or `https://<relay>/v1/health`) with `URLSession` before opening the tunnel (wakes the cellular radio); the listening points on the loopback need no “Local Network” permission.
+- **Lending the computer** (contract: [pret.en.md](pret.en.md), texts: [link-ui.en.md](link-ui.en.md) “Lending the computer”, Rust API: [apps/core/README.en.md](../apps/core/README.en.md#lending-the-computer-srclendrs-srcsessionrs-srcsharers-srcconsolers)), in `apps/apple/src/lend.rs`:
+  - The friend (blocking):
+    - `kn_lend_status(target_json, route_json, login, password, out, error)`: the “{host}'s computer” card; `kn_lend_availability_label(state)` gives its state (“Available”…).
+    - `kn_lend_borrow(target_json, route_json, request_json, out, error)`: `out` `{"ready": {target, borrowed}}` or `{"pending": …}`; `request_json` carries `{"code"}` or `{"login","password"}`, with `name`, `device`, `app`, `screen`, `codecs`.
+    - `kn_lend_wait(pending_json, out, error)` (30 s): `KN_OK` and `{target, borrowed}`, `KN_LEND_WAITING` 49, `KN_LEND_REFUSED` 46, `KN_LEND_EXPIRED` 47.
+    - `kn_lend_cancel(pending_json)`, `kn_lend_leave(loan_json, error)`.
+    - `kn_lend_parse_invite(url)`: `{host, port, fingerprint, login, relay, sid, name, route}` (`name`: the host's first name, or null), which also serves as `target_json`.
+    - At the host, the view's session code (`code`) carries `relay` (`{"state": "connecting"|"joined"|"unreachable"}`, null without a relay), like the sharing view.
+    - Refusals: `KN_LEND_BAD_CREDENTIALS` 40, `NO_CODE` 41, `LENT` 42, `LOCKED` 43, `OFF` 44, `TOO_MANY` 45, `UNSUPPORTED` 48; `error` carries link-ui's text.
+  - “Join with a code”: `KN_SHARE_LEND` 29 for a lending code, `out` `{code, target, route}` to give to `kn_lend_borrow`.
+  - Borrowing session: `kn_session_start` with `borrower` (`{"borrowed": …}`) and `console_*` from `target`. `kn_session_give_back(s)`: “Give back the computer”; `kn_session_stop` does not give it back (coming back possible for 15 min).
+  - Callbacks added at the end of `KnPlatform`:
+    - `on_lend_notice(userdata, notice_json, text)`: the notice; `kn_lend_notice_text(notice_json, name)` rebuilds its text.
+    - `on_lend_end(userdata, end, text)`: `KN_LEND_END_TAKEN_BACK` 0, `TIME_UP` 1, `SLOT_END` 2, `LEFT` 3 (given back from the launcher, a wanted end: “You gave back the computer.”; nothing after `kn_session_give_back`), `STOPPED` 4 (“The loan has stopped.”).
+    - `on_lend(userdata, lend_json)`: at the host, the loan view, or null.
+  - The host, on its `KnConsole`: `kn_console_lend_state`, `kn_console_lend_code(c, duration, steam, …)` (`duration` 0: “Until I take it back”; `KN_LEND_STEAM_FRIEND` 0, `KN_LEND_STEAM_HOST` 1), `kn_console_lend_cancel_code`, `kn_console_lend_answer(c, request, accept, steam, …)`, `kn_console_lend_take_back(c, now, …)`. `out`: the loan view.
 - **Log**: the core writes through the `log` crate; `kn_set_log_callback` sends it to `KyberLog` (unified log, `core` category).
 
 ## Building and shipping
