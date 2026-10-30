@@ -58,8 +58,9 @@ pub struct Friend {
 }
 
 impl Friend {
-    /// Un ordinateur emprunté d'après son lien d'invitation (prénom et nom de
-    /// l'ordinateur inconnus jusqu'au premier `status`).
+    /// Un ordinateur emprunté d'après son lien d'invitation : le prénom de
+    /// l'hôte s'il le porte (`name=`, « {hôte} vous prête son ordinateur. »),
+    /// le nom de l'ordinateur inconnu jusqu'au premier `status`.
     pub fn from_invite(id: String, invite: &Invite) -> Self {
         Friend {
             id,
@@ -69,7 +70,7 @@ impl Friend {
             login: invite.login.clone(),
             relay: invite.relay.clone(),
             sid: invite.sid.clone(),
-            owner: String::new(),
+            owner: invite_name(invite).unwrap_or_default(),
             computer: String::new(),
             remember: false,
         }
@@ -83,7 +84,7 @@ impl Friend {
             login: self.login.clone(),
             relay: self.relay.clone(),
             sid: self.sid.clone(),
-            name: None,
+            name: Some(self.owner.clone()).filter(|o| !o.trim().is_empty()),
         }
     }
 
@@ -121,6 +122,12 @@ impl Friend {
         }
         changed
     }
+}
+
+/// Le prénom de l'hôte porté par le lien d'invitation (`name=`), sans blancs
+/// autour ; `None` pour un lien d'avant, qui ne le porte pas.
+pub fn invite_name(invite: &Invite) -> Option<String> {
+    invite.name.as_deref().map(str::trim).filter(|n| !n.is_empty()).map(str::to_string)
 }
 
 /// `friends.json` : la liste, vide si le fichier manque ou se lit mal.
@@ -318,22 +325,24 @@ impl NoticeView {
 /// La fin d'une session d'emprunt, pour la carte de fin de l'accueil (dans
 /// `session-ended`) : le texte du prêt (« {hôte} a repris l'ordinateur. », « Le
 /// prêt est terminé. », « Votre créneau est terminé. ») avec « Fermer » ; ou,
-/// fenêtre fermée ou réseau perdu, `come_back` : « Vous pouvez revenir pendant
-/// 15 min. » avec « Revenir ». Rien quand l'ami a rendu l'ordinateur.
+/// fenêtre fermée, « Se déconnecter » ou réseau perdu, `come_back` : « Vous
+/// pouvez revenir pendant 15 min. » avec « Revenir ». L'ami a rendu
+/// l'ordinateur (`left`) : pas de carte, l'avis « Vous avez rendu
+/// l'ordinateur. » sur l'accueil (le texte du cœur).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct EndView {
     pub host: String,
     pub text: Option<String>,
     pub come_back: bool,
+    pub left: bool,
 }
 
-/// La carte de fin d'une session d'emprunt : `end` (le prêt l'a finie, avec
-/// son texte), sinon le retour possible. `None` : l'ordinateur est rendu.
-pub fn end_view(host: &str, end: Option<(LendEnd, String)>) -> Option<EndView> {
+/// La fin d'une session d'emprunt : `end` (le prêt l'a finie, avec son texte :
+/// la carte de fin, ou l'avis de l'ordinateur rendu), sinon le retour possible.
+pub fn end_view(host: &str, end: Option<(LendEnd, String)>) -> EndView {
     match end {
-        Some((LendEnd::Left, _)) => None,
-        Some((_, text)) => Some(EndView { host: host.to_string(), text: Some(text).filter(|t| !t.is_empty()), come_back: false }),
-        None => Some(EndView { host: host.to_string(), text: None, come_back: true }),
+        Some((end, text)) => EndView { host: host.to_string(), text: Some(text).filter(|t| !t.is_empty()), come_back: false, left: end == LendEnd::Left },
+        None => EndView { host: host.to_string(), text: None, come_back: true, left: false },
     }
 }
 
@@ -354,14 +363,16 @@ pub fn codecs(hevc: bool, av1: bool) -> Vec<String> {
 // MARK: - L'hôte
 
 /// Ce que « Prêter l'ordinateur… » peut faire, d'après `info.lend` :
-/// `available`, `unsupported` (« Le prêt demande KyberNow Station 0.9.0 ou plus
-/// récente. »), `disabled` (« Le prêt est coupé dans Admin (page « Prêt »). ») ;
-/// `unknown` : l'ordinateur n'a encore rien dit (`info` pas encore lu).
+/// `available`, `unsupported` (pas de `lend` : « Le prêt demande KyberNow
+/// Station 0.9.0 ou plus récente. »), `unavailable` (`lend.available` faux :
+/// « Le prêt n'est pas possible sur cet ordinateur. »), `disabled` (« Le prêt
+/// est coupé dans Admin (page « Prêt »). ») ; `unknown` : l'ordinateur n'a
+/// encore rien dit (`info` pas encore lu).
 pub fn availability(info_known: bool, lend: Option<LendInfo>) -> &'static str {
     match (info_known, lend) {
         (false, _) => "unknown",
         (true, None) => "unsupported",
-        (true, Some(l)) if !l.available => "unsupported",
+        (true, Some(l)) if !l.available => "unavailable",
         (true, Some(l)) if !l.enabled => "disabled",
         (true, Some(_)) => "available",
     }
@@ -456,7 +467,11 @@ impl From<&LendRequest> for RequestView {
 
 /// Le code de séance, comme le partage : « 123 456 », le lien des apps (celui
 /// du QR code), l'adresse du client web (« Copier le lien »), la durée et le
-/// compte Steam choisis, la fin de sa validité (24 h).
+/// compte Steam choisis, la fin de sa validité (24 h), et son relais comme
+/// celui du partage (`ShareView::relay`) : `joined`, `connecting` (lien du
+/// relais en préparation : la barre retient la copie et le QR code 10 s au
+/// plus), `unreachable` (« Pas encore joignable hors de chez vous. »), rien
+/// sans relais.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CodeView {
     pub code: String,
@@ -465,6 +480,7 @@ pub struct CodeView {
     pub duration: Option<u64>,
     pub steam: &'static str,
     pub expires: u64,
+    pub relay: Option<&'static str>,
     pub qr: Option<Qr>,
 }
 
@@ -477,6 +493,7 @@ impl From<&LendCodeView> for CodeView {
             duration: c.duration,
             steam: steam_code(c.steam),
             expires: c.expires,
+            relay: c.relay.map(|r| r.state.as_str()),
             qr: qr(if c.link.is_empty() { &c.web } else { &c.link }),
         }
     }
@@ -556,16 +573,17 @@ impl HomeLend {
     }
 }
 
-/// Les demandes d'emprunt arrivées depuis la vue d'avant : le prénom de chacune,
-/// dans l'ordre d'arrivée ; l'avis « {prénom} veut emprunter l'ordinateur. » est
-/// dit pour chacune, une fois. Rien tant que `before` est inconnu (le panneau
-/// montre les demandes déjà là).
-pub fn new_requests(before: Option<&LendView>, after: Option<&LendView>, known: bool) -> Vec<String> {
+/// Les demandes d'emprunt arrivées depuis la vue d'avant, dans l'ordre
+/// d'arrivée : l'avis « {prénom} veut emprunter l'ordinateur. » est dit pour
+/// chacune, une fois ; pendant un créneau (`LendKind::Slot`), le texte du
+/// créneau (« Créneau de {prénom} : l'ordinateur lui est prêté dans 2 min. »).
+/// Rien tant que `before` est inconnu (le panneau montre les demandes déjà là).
+pub fn new_requests<'a>(before: Option<&LendView>, after: Option<&'a LendView>, known: bool) -> Vec<&'a LendRequest> {
     let Some(after) = after else { return Vec::new() };
     if !known {
         return Vec::new();
     }
-    after.requests.iter().filter(|r| before.is_none_or(|b| !b.requests.iter().any(|o| o.id == r.id))).map(|r| r.name.clone()).collect()
+    after.requests.iter().filter(|r| before.is_none_or(|b| !b.requests.iter().any(|o| o.id == r.id))).collect()
 }
 
 /// Le préavis de créneau qui vient d'arriver chez l'hôte (« Créneau de
@@ -615,6 +633,14 @@ mod tests {
         assert!(!g.learn(&s), "rien de nouveau");
         assert_eq!(g.owner_name(), "Matthieu");
         assert_eq!(Friend { owner: String::new(), ..g }.owner_name(), "PC-SALON");
+        // Le lien porte le prénom de l'hôte (`name=`) : « Matthieu vous prête son ordinateur. » dès l'ajout.
+        let named = parse_invite("kybernow://borrow?host=192.168.1.100&port=9443&fp=sha256:aa&login=lea&name=Matthieu").unwrap();
+        assert_eq!(invite_name(&named).as_deref(), Some("Matthieu"));
+        let f = Friend::from_invite("f2".into(), &named);
+        assert_eq!(f.owner_name(), "Matthieu");
+        // Lien d'avant, sans prénom (ou vide) : rien, l'écran dit « Avec un compte d'ami ».
+        assert_eq!(invite_name(&invite()), None);
+        assert_eq!(invite_name(&Invite { name: Some("  ".into()), ..invite() }), None);
     }
 
     #[test]
@@ -677,7 +703,7 @@ mod tests {
     fn disponibilite_du_pret() {
         assert_eq!(availability(false, None), "unknown");
         assert_eq!(availability(true, None), "unsupported");
-        assert_eq!(availability(true, Some(LendInfo { available: false, enabled: true })), "unsupported");
+        assert_eq!(availability(true, Some(LendInfo { available: false, enabled: true })), "unavailable");
         assert_eq!(availability(true, Some(LendInfo { available: true, enabled: false })), "disabled");
         assert_eq!(availability(true, Some(LendInfo { available: true, enabled: true })), "available");
     }
@@ -706,6 +732,13 @@ mod tests {
         // Comme le partage : « 123 456 », le QR code porte le lien des apps.
         assert_eq!((c.code.as_str(), c.duration, c.steam), ("123 456", Some(7200), "host"));
         assert!(c.qr.as_ref().is_some_and(|q| q.size >= 21));
+        // Sans relais réglé : rien ; sinon son état, comme le partage.
+        assert_eq!(c.relay, None);
+        for state in ["connecting", "joined", "unreachable"] {
+            let mut v = view();
+            v.code.as_mut().unwrap().relay = serde_json::from_value(serde_json::json!({ "state": state })).unwrap();
+            assert_eq!(LendPanel::new(Some(&v), "available", |_| String::new()).code.unwrap().relay, Some(state));
+        }
         // Admin dit le prêt coupé : le panneau aussi, même si `info` disait autre chose.
         let off = LendView { enabled: false, ..LendView::default() };
         assert_eq!(LendPanel::new(Some(&off), "available", |_| String::new()).availability, "disabled");
@@ -734,12 +767,18 @@ mod tests {
         let before = view();
         let mut after = before.clone();
         after.requests.push(LendRequest { id: "r2".into(), name: "Inès".into(), ..LendRequest::default() });
-        assert_eq!(new_requests(Some(&before), Some(&after), true), ["Inès"]);
+        let names = |v: Vec<&LendRequest>| v.into_iter().map(|r| r.name.clone()).collect::<Vec<_>>();
+        assert_eq!(names(new_requests(Some(&before), Some(&after), true)), ["Inès"]);
         assert!(new_requests(Some(&after), Some(&after), true).is_empty(), "une fois");
         // La première vue de la session ne dit pas ses demandes déjà là.
         assert!(new_requests(None, Some(&after), false).is_empty());
         // Vue d'avant connue mais vide (rien à dire) : chaque demande est nouvelle.
-        assert_eq!(new_requests(None, Some(&after), true), ["Noé", "Inès"]);
+        assert_eq!(names(new_requests(None, Some(&after), true)), ["Noé", "Inès"]);
+        // Pendant un créneau : la demande garde son genre (le texte du créneau, sans « Refuser »).
+        let mut slotted = before.clone();
+        slotted.requests.push(LendRequest { id: "r3".into(), name: "Léa".into(), kind: LendKind::Slot, ..LendRequest::default() });
+        assert_eq!(new_requests(Some(&before), Some(&slotted), true).iter().map(|r| r.kind).collect::<Vec<_>>(), [LendKind::Slot]);
+        assert_eq!(LendPanel::new(Some(&slotted), "available", |_| String::new()).requests.last().map(|r| r.kind), Some("slot"));
         // Le préavis d'un créneau chez l'hôte : une fois.
         let slot = LendView { notice: Some(LendNotice { reason: LendNoticeReason::SlotStart, at: 9 }), ..before.clone() };
         assert!(new_slot_notice(Some(&before), Some(&slot)).is_some());
@@ -750,14 +789,18 @@ mod tests {
 
     #[test]
     fn fin_de_l_emprunt() {
-        // Rendu : pas de carte.
-        assert_eq!(end_view("Matthieu", Some((LendEnd::Left, String::new()))), None);
+        // Rendu : pas de carte, l'avis « Vous avez rendu l'ordinateur. » (texte du cœur).
+        let e = end_view("Matthieu", Some((LendEnd::Left, LendEnd::Left.text(Lang::Fr, "Matthieu"))));
+        assert_eq!((e.text.as_deref(), e.come_back, e.left), (Some("Vous avez rendu l'ordinateur."), false, true));
         // Repris, fini : le texte du cœur, sans retour.
-        let e = end_view("Matthieu", Some((LendEnd::TakenBack, LendEnd::TakenBack.text(Lang::Fr, "Matthieu")))).unwrap();
-        assert_eq!((e.text.as_deref(), e.come_back), (Some("Matthieu a repris l'ordinateur."), false));
-        // Fenêtre fermée, réseau perdu : « Vous pouvez revenir pendant 15 min. »
-        let e = end_view("Matthieu", None).unwrap();
-        assert_eq!((e.text, e.come_back), (None, true));
+        let e = end_view("Matthieu", Some((LendEnd::TakenBack, LendEnd::TakenBack.text(Lang::Fr, "Matthieu"))));
+        assert_eq!((e.text.as_deref(), e.come_back, e.left), (Some("Matthieu a repris l'ordinateur."), false, false));
+        // Arrêté autrement : « Le prêt s'est arrêté. »
+        let e = end_view("Matthieu", Some((LendEnd::Stopped, LendEnd::Stopped.text(Lang::Fr, "Matthieu"))));
+        assert_eq!((e.text.as_deref(), e.left), (Some("Le prêt s'est arrêté."), false));
+        // Fenêtre fermée, « Se déconnecter », réseau perdu : « Vous pouvez revenir pendant 15 min. »
+        let e = end_view("Matthieu", None);
+        assert_eq!((e.text, e.come_back, e.left), (None, true, false));
     }
 
     #[test]

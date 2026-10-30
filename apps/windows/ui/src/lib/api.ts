@@ -322,6 +322,8 @@ export type ConnexionView = {
   title?: string | null
   fingerprint?: string | null
   guest?: boolean
+  /** Session d'emprunt (prêt de l'ordinateur) : « Préparation de l'ordinateur » en première étape. */
+  borrow?: boolean
 }
 
 /**
@@ -409,10 +411,13 @@ export type Share = {
    * chez vous… », copie et QR code retenus 10 s au plus), `unreachable` (« Pas encore joignable hors de chez vous. »),
    * `null` sans relais.
    */
-  relay: 'joined' | 'connecting' | 'unreachable' | null
+  relay: RelayState | null
   full: boolean
   qr: ShareQr | null
 }
+
+/** Le relais d'un code (partage, prêt) : tenu (`joined`), lien du relais en préparation (`connecting`), injoignable. */
+export type RelayState = 'joined' | 'connecting' | 'unreachable'
 
 /**
  * L'invité que la barre sert (barre réduite) : son rôle, l'hôte du partage, la « Qualité de l'image »
@@ -586,8 +591,11 @@ export type LendSlot = { now: boolean; next: { start: number; end: number } | nu
  */
 export type Friend = { id: string; owner: string; computer: string; login: string; remember: boolean; state: FriendState; slot: LendSlot | null; relay: boolean }
 
-/** `lend_invite` : le lien d'invitation, pour l'écran d'ajout (`host` : le nom de l'ordinateur, le lien ne porte pas le prénom). */
-export type LendInvite = { login: string; host: string; relay: boolean }
+/**
+ * `lend_invite` : le lien d'invitation, pour l'écran d'ajout. `host` : le prénom de l'hôte qu'il porte (« {hôte} vous
+ * prête son ordinateur. ») ; `null` pour un lien d'avant (titre « Avec un compte d'ami »).
+ */
+export type LendInvite = { login: string; host: string | null; relay: boolean }
 
 /** La session d'emprunt à ouvrir (`lend_connect`) : son titre « Ordinateur de {hôte} » et la teinte de son Admin. */
 export type LoanReady = { id: string; title: string; host: string; fingerprint: string | null }
@@ -607,19 +615,26 @@ export type BorrowBar = { host: string; until: number | null; notice: LendNotice
 /** L'ami qui a l'ordinateur, chez l'hôte. */
 export type LendBorrower = { name: string; kind: 'code' | 'friend' | 'slot'; app: string; away: boolean; since: number; until: number | null; steam: 'friend' | 'host'; connected: boolean }
 
-/** Une demande d'emprunt : « {prénom} veut emprunter l'ordinateur. », « Accepter », « Refuser ». */
+/**
+ * Une demande d'emprunt : « {prénom} veut emprunter l'ordinateur. », « Accepter », « Refuser » ; pendant un créneau
+ * (`slot`), le texte du créneau et « Accepter » seul (l'ami passe avant l'hôte).
+ */
 export type LendRequest = { id: string; name: string; kind: 'code' | 'friend' | 'slot'; app: string; away: boolean; since: number }
 
-/** Le code de séance, comme le partage : « 123 456 », le lien des apps (QR code), l'adresse du client web (« Copier le lien »). */
-export type LendCode = { code: string; link: string; web: string; duration: number | null; steam: 'friend' | 'host'; expires: number; qr: ShareQr | null }
+/**
+ * Le code de séance, comme le partage : « 123 456 », le lien des apps (QR code), l'adresse du client web (« Copier le
+ * lien »), et son relais (`relay`, comme `Share.relay`).
+ */
+export type LendCode = { code: string; link: string; web: string; duration: number | null; steam: 'friend' | 'host'; expires: number; relay: RelayState | null; qr: ShareQr | null }
 
 /**
  * Le panneau « Prêter l'ordinateur… » de l'hôte (`bar-shown`, événement `lend-state`, réponses des actions) :
- * `availability` (`unsupported` Station trop ancienne, `disabled` prêt coupé dans Admin, `unknown` pas encore su), l'état
+ * `availability` (`unsupported` Station trop ancienne, `unavailable` prêt impossible sur cet ordinateur, `disabled` prêt
+ * coupé dans Admin, `unknown` pas encore su), l'état
  * du prêt, l'ami qui a l'ordinateur, le préavis, les demandes et le code de séance.
  */
 export type LendPanel = {
-  availability: 'available' | 'unsupported' | 'disabled' | 'unknown'
+  availability: 'available' | 'unsupported' | 'unavailable' | 'disabled' | 'unknown'
   state: 'free' | 'preparing' | 'lent' | 'ending'
   borrower: LendBorrower | null
   notice: LendNotice | null
@@ -634,8 +649,11 @@ export type BorrowEvent = { id: string; borrow: BorrowBar }
 /** L'accueil de l'hôte pendant un prêt : « Prêté à {prénom} » (jusqu'à `until`), « Reprise dans 1:42 » jusqu'à `notice_at`. */
 export type HomeLend = { state: 'preparing' | 'lent' | 'ending'; name: string; until: number | null; notice_at: number | null; notice: LendNotice['reason'] | null }
 
-/** La carte de fin d'une session d'emprunt (dans `session-ended`) : le texte du prêt, ou `come_back` (« Revenir », 15 min). */
-export type LendEnd = { host: string; text: string | null; come_back: boolean }
+/**
+ * La fin d'une session d'emprunt (dans `session-ended`) : la carte de fin avec le texte du prêt, ou `come_back`
+ * (« Revenir », 15 min) ; `left` : l'ami a rendu l'ordinateur, pas de carte mais l'avis « Vous avez rendu l'ordinateur. ».
+ */
+export type LendEnd = { host: string; text: string | null; come_back: boolean; left: boolean }
 
 /** « Durée » : 1, 2 (proposée) ou 4 heures, ou `null` (« Jusqu'à ce que je reprenne »), en secondes. */
 export const lendDurations: (number | null)[] = [3600, 7200, 14400, null]
@@ -686,9 +704,13 @@ export function friendStateText(s: FriendState) {
   }
 }
 
-/** Les feuilles du prêt côté ami (LendSheet.svelte) : lien d'invitation, mot de passe à redonner, attente de l'hôte, carte de fin. */
+/**
+ * Les feuilles du prêt côté ami (LendSheet.svelte) : lien d'invitation, mot de passe à redonner, préparation de
+ * l'ordinateur pendant une autre session, attente de l'hôte, carte de fin.
+ */
 export type LendSheetKind =
   | { kind: 'invite'; link: string; invite: LendInvite }
   | { kind: 'password'; friend: Friend }
+  | { kind: 'preparing'; host: string }
   | { kind: 'waiting'; wait: number; host: string }
   | { kind: 'end'; end: LendEnd }

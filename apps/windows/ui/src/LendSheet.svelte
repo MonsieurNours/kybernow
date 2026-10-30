@@ -3,16 +3,21 @@
   pour chaque moment hors de la session.
 
   - `invite` : le lien d'invitation d'un compte d'ami (kybernow://borrow?…) : « {hôte} vous
-    prête son ordinateur. », l'identifiant (déjà rempli), le mot de passe, « Retenir le mot de
-    passe », « Ajouter ». Le lien ne porte pas le prénom de l'hôte : le nom de l'ordinateur.
-  - `password` : « Emprunter » sans mot de passe retenu : on le redonne (« Retenir le mot de
-    passe » proposé tel qu'il était), puis l'emprunt part.
+    prête son ordinateur. » avec le prénom que porte le lien (`name=`), sinon (lien d'avant)
+    « Avec un compte d'ami » ; l'identifiant (déjà rempli), le mot de passe, « Retenir le mot de
+    passe », « Ajouter ».
+  - `password` : « Emprunter » sans mot de passe retenu : « Entrez votre mot de passe pour
+    emprunter. » (« Retenir le mot de passe » proposé tel qu'il était), puis l'emprunt part.
+  - `preparing` : « Emprunter » pendant une autre session : la Station prépare l'ordinateur
+    (30 s au plus) avant que la session s'ouvre dans sa fenêtre ; les étapes de la connexion,
+    « Préparation de l'ordinateur » en cours, comme le passage. Rien à annuler encore.
   - `waiting` : l'ordinateur est utilisé, l'hôte doit accepter : « En attente de {hôte}… » et
     « Annuler » ; l'app tient la demande (`lend_wait`, 30 s par appel, rappelé). Accepté : la
     session s'ouvre ; refusé ou sans réponse : le texte du cœur, et « Fermer ».
-  - `end` : la carte de fin d'une session d'emprunt : le texte du prêt (« {hôte} a repris
-    l'ordinateur. »…) et « Fermer » ; ou, fenêtre fermée ou réseau perdu, « Vous pouvez revenir
-    pendant 15 min. » avec « Revenir ».
+  - `end` : la carte de fin d'une session d'emprunt, surtitrée « KyberNow Share » : le texte du
+    prêt (« {hôte} a repris l'ordinateur. », « Le prêt s'est arrêté. »…) et « Fermer » ; ou,
+    fenêtre fermée, « Se déconnecter » ou réseau perdu, « Vous pouvez revenir pendant 15 min. »
+    avec « Revenir ».
 
   Le mot de passe retenu va au gestionnaire d'identifiants de Windows, comme celui d'un ordinateur.
 -->
@@ -113,30 +118,41 @@
 
   function dismiss() {
     if (s.kind === 'waiting' && wait !== null) cancel()
-    else if (!working) onclose()
+    else if (!working && s.kind !== 'preparing') onclose()
   }
 
   const title = $derived(
     s.kind === 'invite'
-      ? t('lend.invite_title', { host: s.invite.host })
+      ? s.invite.host
+        ? t('lend.invite_title', { host: s.invite.host })
+        : t('lend.with_friend')
       : s.kind === 'password'
         ? t('lend.computer_of', { host: s.friend.owner })
-        : s.kind === 'waiting'
-          ? t('lend.computer_of', { host: s.host })
+        : s.kind === 'waiting' || s.kind === 'preparing'
+          ? s.host
+            ? t('lend.computer_of', { host: s.host })
+            : t('lend.brand')
           : t('lend.computer_of', { host: s.end.host }),
   )
+  /** Les étapes de la connexion, comme le passage : la première est en cours pendant l'emprunt. */
+  const steps = $derived([t('lend.preparing'), t('passage.connecting'), t('passage.first_images')])
 </script>
 
 <svelte:window onkeydown={(e) => e.key === 'Escape' && dismiss()} />
 
 <div class="veil" role="presentation" onclick={(e) => e.target === e.currentTarget && dismiss()}>
   <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="lend-title">
-    <button type="button" class="close" aria-label={t('common.close')} disabled={working} onclick={dismiss}><Icon name="x" size={14} /></button>
-    <h2 id="lend-title">{title}</h2>
+    {#if s.kind !== 'preparing'}<button type="button" class="close" aria-label={t('common.close')} disabled={working} onclick={dismiss}><Icon name="x" size={14} /></button>{/if}
+    {#if s.kind === 'end'}
+      <!-- La carte de fin porte le nom de KyberNow Share, comme le lanceur et l'écran du PC. -->
+      <div class="head"><span class="eyebrow">{t('lend.brand')}</span><h2 id="lend-title">{title}</h2></div>
+    {:else}
+      <h2 id="lend-title">{title}</h2>
+    {/if}
 
     {#if s.kind === 'invite' || s.kind === 'password'}
       <form onsubmit={s.kind === 'invite' ? add : give}>
-        {#if s.kind === 'invite'}<p class="hint">{t('lend.with_friend')}</p>{/if}
+        {#if s.kind === 'password'}<p class="hint">{t('lend.enter_password')}</p>{/if}
         <label class="col">
           <span class="eyebrow">{t('lend.username')}</span>
           <input class="field" autocomplete="username" bind:value={login} readonly={s.kind === 'password'} disabled={working} />
@@ -156,6 +172,12 @@
           </button>
         </div>
       </form>
+    {:else if s.kind === 'preparing'}
+      <ol class="steps" role="status">
+        {#each steps as label, i (i)}
+          <li class:now={i === 0}><span class="dot"></span>{label}</li>
+        {/each}
+      </ol>
     {:else if s.kind === 'waiting'}
       {#if error}
         <div class="error" role="alert">{error}</div>
@@ -249,6 +271,49 @@
 
   .close:hover:not(:disabled) {
     background: rgb(255 255 255 / 0.06);
+  }
+
+  .head {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .steps {
+    margin: 0;
+    padding: 14px 18px;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--ink-0);
+    font-size: 14px;
+    color: var(--faint);
+  }
+
+  .steps li {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .steps .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 4px;
+    background: var(--line-2);
+  }
+
+  .steps .now {
+    color: var(--text);
+  }
+
+  .steps .now .dot {
+    background: var(--signal);
+    box-shadow: 0 0 0 4px rgb(154 140 255 / 0.18), 0 0 14px var(--signal);
+    animation: breathe 1.6s ease-in-out infinite;
   }
 
   .hint {

@@ -397,7 +397,10 @@
     "lend_bad_credentials": "Identifiant ou mot de passe refusé.",
     "lend_taken_back": "Matthieu a repris l'ordinateur.",
     "lend_notice_taken_back": "Matthieu reprend l'ordinateur dans 2 min : sauvegardez votre partie.",
-    "lend_computer_of": "Ordinateur de Matthieu"
+    "lend_computer_of": "Ordinateur de Matthieu",
+    "lend_given_back": "Vous avez rendu l'ordinateur.",
+    "lend_stopped": "Le prêt s'est arrêté.",
+    "lend_link": "Ce lien d'invitation est illisible."
   },
   "lend": {
     "lend": "Prêter l'ordinateur…",
@@ -451,6 +454,11 @@
     "give_back": "Rendre l'ordinateur",
     "give_back_confirm": "Rendre l'ordinateur à {host} ?",
     "come_back_hint": "Vous pouvez revenir pendant 15 min.",
-    "come_back": "Revenir"
+    "come_back": "Revenir",
+    "unavailable": "Le prêt n'est pas possible sur cet ordinateur.",
+    "remove": "Retirer cet ordinateur",
+    "remove_confirm": "Retirer l'ordinateur de {host} de cet appareil ?",
+    "enter_password": "Entrez votre mot de passe pour emprunter.",
+    "brand": "KyberNow Share"
   }
 }

@@ -28,7 +28,7 @@
     "share_code": "The code has six digits.",
     "unknown_quality": "unknown picture quality",
     "lend_link": "This invitation link can't be read.",
-    "lend_password": "This friend account's password isn't remembered: enter it again."
+    "lend_password": "Enter your password to borrow."
   },
   "notify": {
     "update_title": "KyberNow Link {version} is ready",

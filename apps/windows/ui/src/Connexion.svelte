@@ -22,6 +22,8 @@
   let computer = $state<Pick<Computer, 'name' | 'preview' | 'fingerprint'> | null>(null)
   /** Session d'invité (KyberNow Share) : sa raison d'échec se lit telle quelle, pas d'ordinateur de l'app. */
   let guest = $state(false)
+  /** Session d'emprunt (prêt de l'ordinateur) : « Préparation de l'ordinateur » en première étape. */
+  let borrow = $state(false)
   let phase = $state<Phase['phase']>('preparing')
   let restarting = $state(false)
   let opening = $state(false)
@@ -63,6 +65,7 @@
         phase = step(v.phase)
         restarting = v.restarting
         error = v.error
+        borrow = v.borrow === true
         // Un invité : « Invité sur {nom} » à la place du nom d'un ordinateur de l'app.
         if (v.guest && v.title) {
           guest = true
@@ -90,7 +93,7 @@
 </script>
 
 {#if computer}
-  <Passage {computer} {phase} {opening} closing={error !== null} {restarting} {guest} oncancel={close} />
+  <Passage {computer} {phase} {opening} closing={error !== null} {restarting} {guest} {borrow} oncancel={close} />
 {/if}
 
 {#if error}

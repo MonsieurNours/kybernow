@@ -60,9 +60,10 @@
   import Icon from './lib/Icon.svelte'
   import Mark from './lib/Mark.svelte'
   import Segmented from './lib/Segmented.svelte'
-  import type { AppInfo, BarComputer, BorrowBar, BorrowEvent, GuestBar, KeepSound, LendPanel, LendRequest, LendStateEvent, RouteEvent, RouteView, SessionStats, Share, ShareGuest, ShareImageEvent, ShareQuality, ShareRequestEvent, ShareRole, ShareRoleEvent, ShareStateEvent, Stats } from './lib/api'
+  import type { AppInfo, BarComputer, BorrowBar, BorrowEvent, GuestBar, KeepSound, LendPanel, LendRequest, LendStateEvent, RouteEvent, RouteView, SessionStats, Share, ShareGuest, ShareImageEvent, ShareQr, ShareQuality, ShareRequestEvent, ShareRole, ShareRoleEvent, ShareStateEvent, Stats } from './lib/api'
   import { invoke, leftText, lendDurations, listen, localLabel, ms, roleKbm, roleOf, rolePads, rolePlays, shareQualities, sinceText } from './lib/api'
   import { setLang, t } from './lib/i18n/index.svelte'
+  import { relayPhase, type RelayPhase } from './lib/relay.svelte'
 
   /** L'ordinateur de la session que la barre sert (`guest-N` pour une session d'invité). */
   let id = $state('')
@@ -564,30 +565,12 @@
   /** Les demandes venues par le relais qui attendent l'hôte : elles ont leur pastille, et ne comptent pas parmi les invités. */
   const requestCount = $derived(share?.open ? share.requests.length : 0)
   /**
-   * Le relais du partage : joint (le lien et le code valent ailleurs), injoignable, pas de relais, ou
-   * `waiting` : lien du relais en préparation (`connecting`) depuis moins de 10 s, comptées dès que la barre
-   * le voit pour ce code ; copie et QR code retenus. Au-delà, il vaut `unreachable` et « Copier le lien »
-   * donne le lien du réseau (docs/link-ui.md, « Lien du relais en préparation »).
+   * Le relais du partage et celui du code de prêt (lib/relay.svelte.ts) : joint, injoignable, pas de relais, ou
+   * `waiting` (lien du relais en préparation, 10 s au plus : copie et QR code retenus).
    */
-  const RELAY_WAIT_MS = 10000
-  let relayWait: { key: string; since: number } | null = null
-  let relayClock = $state(Date.now())
-  const relay = $derived.by((): 'joined' | 'unreachable' | 'waiting' | null => {
-    const st = share?.open ? share.relay : null
-    if (st !== 'connecting') {
-      relayWait = null
-      return st ?? null
-    }
-    const key = `${id}:${share?.code}`
-    if (relayWait?.key !== key) relayWait = { key, since: Date.now() }
-    return relayClock - relayWait.since < RELAY_WAIT_MS ? 'waiting' : 'unreachable'
-  })
-  // L'horloge de l'attente : le panneau passe de lui-même à « Pas encore joignable… » au bout des 10 s.
-  $effect(() => {
-    if (relay !== 'waiting') return
-    const timer = setInterval(() => (relayClock = Date.now()), 500)
-    return () => clearInterval(timer)
-  })
+  const shareRelay = relayPhase(() => ({ state: share?.open ? share.relay : null, key: `${id}:${share?.code}` }))
+  const relay = $derived(shareRelay.value)
+  const lendRelay = relayPhase(() => ({ state: lend?.code?.relay, key: `${id}:${lend?.code?.code}` }))
   /** « Par le relais » : le chemin en toutes lettres (« Par le relais (TCP) » pour le repli), dans l'infobulle de la puce. */
   const routeTitle = $derived(route ? t(`relay.path_${route.transport}`) : '')
   /** « Joueur » dès qu'il a un droit (manettes, ou clavier et souris), « Spectateur » sinon. */
@@ -666,11 +649,13 @@
     }
   }
 
-  /** « Copier le lien » : l'adresse du client web ; sinon l'adresse sélectionnable, à copier à la main. */
-  async function copyLink() {
-    const text = share?.web || share?.link || ''
-    if (!text || relay === 'waiting') return
-    copied = null
+  /**
+   * « Copier le lien » (partage, code de prêt) : l'adresse du client web ; sinon l'adresse sélectionnable, à copier à
+   * la main. Rien tant que le lien du relais se prépare.
+   */
+  async function copyText(text: string, phase: RelayPhase, done: (r: 'ok' | 'fail' | null) => void, current: () => 'ok' | 'fail' | null) {
+    if (!text || phase === 'waiting') return
+    done(null)
     let ok = true
     try {
       await navigator.clipboard.writeText(text)
@@ -678,10 +663,13 @@
       // Le presse-papiers de Windows, par l'app.
       ok = await invoke('copy_text', { text }).then(() => true, () => false)
     }
-    copied = ok ? 'ok' : 'fail'
-    if (ok) setTimeout(() => copied === 'ok' && (copied = null), 3000)
+    done(ok ? 'ok' : 'fail')
+    if (ok) setTimeout(() => current() === 'ok' && done(null), 3000)
     await growForMenu()
   }
+
+  const copyLink = () =>
+    copyText(share?.web || share?.link || '', relay, (r) => (copied = r), () => copied)
 
   /** Le lien se sélectionne en entier au premier clic (copie à la main). */
   const selectAll = (e: Event) => (e.currentTarget as HTMLInputElement).select()
@@ -705,9 +693,19 @@
 
   // MARK: - Prêt de l'ordinateur
 
-  /** « Prêter l'ordinateur… » inactif : Station trop ancienne, ou prêt coupé dans Admin (avec la raison). */
-  const lendBlocked = $derived(lend?.availability === 'unsupported' || lend?.availability === 'disabled')
-  const lendText = $derived(lend?.availability === 'unsupported' ? t('lend.unsupported') : lend?.availability === 'disabled' ? t('lend.disabled') : null)
+  /** « Prêter l'ordinateur… » inactif : Station trop ancienne, prêt impossible sur cet ordinateur, ou coupé dans Admin (avec la raison). */
+  const lendBlocked = $derived(lend?.availability === 'unsupported' || lend?.availability === 'unavailable' || lend?.availability === 'disabled')
+  const lendText = $derived(
+    lend?.availability === 'unsupported'
+      ? t('lend.unsupported')
+      : lend?.availability === 'unavailable'
+        ? t('lend.unavailable')
+        : lend?.availability === 'disabled'
+          ? t('lend.disabled')
+          : null,
+  )
+  /** Une demande pendant un créneau : son texte dit déjà le préavis du créneau. */
+  const slotAsked = $derived(lend?.requests.some((r) => r.kind === 'slot') ?? false)
   const lendRequests = $derived(lend?.requests.length ?? 0)
   /** Le dernier appui sur « Prêter l'ordinateur… » est un doigt ou un stylet (comme « Partager »). */
   let lendTouch = false
@@ -778,21 +776,9 @@
   /** « iPhone ou iPad · hors de chez vous » : sous « {prénom} veut emprunter l'ordinateur. » */
   const lendRequestMeta = (r: LendRequest) => [apps.includes(r.app) ? t(`share.app_${r.app}`) : '', r.away ? t('share.away') : ''].filter(Boolean).join(' · ')
 
-  /** « Copier le lien » du code de prêt : l'adresse du client web, comme le partage. */
-  async function copyLendLink() {
-    const text = lend?.code?.web || lend?.code?.link || ''
-    if (!text) return
-    lendCopied = null
-    let ok = true
-    try {
-      await navigator.clipboard.writeText(text)
-    } catch {
-      ok = await invoke('copy_text', { text }).then(() => true, () => false)
-    }
-    lendCopied = ok ? 'ok' : 'fail'
-    if (ok) setTimeout(() => lendCopied === 'ok' && (lendCopied = null), 3000)
-    await growForMenu()
-  }
+  /** « Copier le lien » du code de prêt : l'adresse du client web, comme le partage (et comme lui, après le lien du relais). */
+  const copyLendLink = () =>
+    copyText(lend?.code?.web || lend?.code?.link || '', lendRelay.value, (r) => (lendCopied = r), () => lendCopied)
 
   /** L'ami qui emprunte : « Encore 1 h 20 » (jusqu'à la fin du préavis s'il y en a un), ou « Jusqu'à ce que {hôte} reprenne ». */
   const borrowLeft = $derived.by(() => {
@@ -811,6 +797,41 @@
     }
   }
 </script>
+
+<!--
+  Le code et son lien, partagés par « Partager » et « Prêter l'ordinateur… » : « 123 456 », « Copier le lien », le QR code
+  (un indicateur d'attente tant que le lien du relais se prépare) et, copie impossible, l'adresse à copier à la main.
+-->
+{#snippet codeTop(code: string, qr: ShareQr | null, address: string, phase: RelayPhase, done: 'ok' | 'fail' | null, copy: () => void)}
+  <div class="top">
+    <div class="codebox">
+      <span class="eyebrow">{t('share.code')}</span>
+      <span class="digits mono" aria-label={t('share.code') + ' ' + code}>{code}</span>
+      <button class="ghost" onclick={copy} disabled={phase === 'waiting'}><Icon name="copy" size={16} stroke={1.6} />{t('share.copy_link')}</button>
+      {#if done === 'ok'}<span class="copied" role="status">{t('share.link_copied')}</span>{/if}
+    </div>
+    {#if phase === 'waiting'}
+      <div class="qr qr-wait" role="img" aria-label={t('share.relay_preparing')}><span class="spin big"></span></div>
+    {:else if qr}
+      <svg class="qr" role="img" aria-label={t('share.qr')} viewBox="-4 -4 {qr.size + 8} {qr.size + 8}" shape-rendering="crispEdges">
+        <rect x="-4" y="-4" width={qr.size + 8} height={qr.size + 8} fill="#fff" />
+        <path d={qr.path} fill="#000" />
+      </svg>
+    {/if}
+  </div>
+  {#if done === 'fail'}
+    <!-- Copie impossible : l'adresse reste là, sélectionnée d'un clic. -->
+    <p class="note refusal" role="alert">{t('share.copy_failed')}</p>
+    <input class="field link mono" readonly value={address} onfocus={selectAll} onclick={selectAll} aria-label={t('share.copy_link')} />
+  {/if}
+{/snippet}
+
+<!-- Sous l'aide du même réseau : « Préparation du lien hors de chez vous… », puis « Pas encore joignable hors de chez vous. ». -->
+{#snippet relayLine(phase: RelayPhase)}
+  {#if phase === 'waiting'}
+    <p class="help" role="status"><span class="spin" aria-hidden="true"></span>{t('share.relay_preparing')}</p>
+  {:else if phase === 'unreachable'}<p class="help">{t('share.relay_down')}</p>{/if}
+{/snippet}
 
 <!-- Clic ailleurs (la session) : le menu se referme. -->
 <svelte:window
@@ -957,32 +978,10 @@
       <div class="menu share" role="dialog" aria-label={t('share.title', { name: computerName })}>
         {#if share?.open}
           <h3>{t('share.title', { name: computerName })}</h3>
-          <div class="top">
-            <div class="codebox">
-              <span class="eyebrow">{t('share.code')}</span>
-              <span class="digits mono" aria-label={t('share.code') + ' ' + share.code}>{share.code}</span>
-              <button class="ghost" onclick={copyLink} disabled={relay === 'waiting'}><Icon name="copy" size={16} stroke={1.6} />{t('share.copy_link')}</button>
-              {#if copied === 'ok'}<span class="copied" role="status">{t('share.link_copied')}</span>{/if}
-            </div>
-            {#if relay === 'waiting'}
-              <div class="qr qr-wait" role="img" aria-label={t('share.relay_preparing')}><span class="spin big"></span></div>
-            {:else if share.qr}
-              <svg class="qr" role="img" aria-label={t('share.qr')} viewBox="-4 -4 {share.qr.size + 8} {share.qr.size + 8}" shape-rendering="crispEdges">
-                <rect x="-4" y="-4" width={share.qr.size + 8} height={share.qr.size + 8} fill="#fff" />
-                <path d={share.qr.path} fill="#000" />
-              </svg>
-            {/if}
-          </div>
-          {#if copied === 'fail'}
-            <!-- Copie impossible : l'adresse reste là, sélectionnée d'un clic. -->
-            <p class="note refusal" role="alert">{t('share.copy_failed')}</p>
-            <input class="field link mono" readonly value={share.web || share.link} onfocus={selectAll} onclick={selectAll} aria-label={t('share.copy_link')} />
-          {/if}
+          {@render codeTop(share.code, share.qr, share.web || share.link, relay, copied, copyLink)}
           <!-- Relais joint : le partage vaut aussi hors de chez vous, et l'hôte accepte chaque invité venu de loin. -->
           <p class="help">{t(relay === 'joined' ? 'share.help_relay' : 'share.help')}</p>
-          {#if relay === 'waiting'}
-            <p class="help" role="status"><span class="spin" aria-hidden="true"></span>{t('share.relay_preparing')}</p>
-          {:else if relay === 'unreachable'}<p class="help">{t('share.relay_down')}</p>{/if}
+          {@render relayLine(relay)}
           {#if share.requests.length > 0}
             <div class="eyebrow list-title">{t('share.requests')}</div>
             <ul class="guests requests">
@@ -1064,19 +1063,20 @@
           <p class="note" role="note">{lendText}</p>
         {:else}
           <h3>{t('lend.panel_title', { name: computerName })}</h3>
-          {#if lend?.notice?.reason === 'slot_start' && lend.notice.text}<p class="help" role="status">{lend.notice.text}</p>{/if}
+          {#if lend?.notice?.reason === 'slot_start' && lend.notice.text && !slotAsked}<p class="help" role="status">{lend.notice.text}</p>{/if}
           {#if lend && lend.requests.length > 0}
             <div class="eyebrow list-title">{t('share.requests')}</div>
             <ul class="guests requests">
               {#each lend.requests as r (r.id)}
                 <li>
                   <div class="who">
-                    <span class="gname">{t('lend.wants_to_borrow', { name: r.name })}</span>
+                    <!-- Pendant son créneau, l'ami passe avant : le texte du créneau, et « Accepter » seul (sans « Refuser »). -->
+                    <span class="gname">{r.kind === 'slot' ? t('lend.slot_notice', { name: r.name }) : t('lend.wants_to_borrow', { name: r.name })}</span>
                     {#if lendRequestMeta(r)}<span class="gmeta">{lendRequestMeta(r)}</span>{/if}
                   </div>
                   <div class="acts">
                     <button class="accept" aria-disabled={lendActing} onclick={() => answer(r, true)}>{t('share.accept')}</button>
-                    <button class="danger" aria-disabled={lendActing} onclick={() => answer(r, false)}>{t('share.decline')}</button>
+                    {#if r.kind !== 'slot'}<button class="danger" aria-disabled={lendActing} onclick={() => answer(r, false)}>{t('share.decline')}</button>{/if}
                   </div>
                 </li>
               {/each}
@@ -1084,26 +1084,10 @@
             <p class="help">{t('lend.accept_closes')}</p>
           {/if}
           {#if lend?.code}
-            <div class="top">
-              <div class="codebox">
-                <span class="eyebrow">{t('share.code')}</span>
-                <span class="digits mono" aria-label={t('share.code') + ' ' + lend.code.code}>{lend.code.code}</span>
-                <button class="ghost" onclick={copyLendLink}><Icon name="copy" size={16} stroke={1.6} />{t('share.copy_link')}</button>
-                {#if lendCopied === 'ok'}<span class="copied" role="status">{t('share.link_copied')}</span>{/if}
-              </div>
-              {#if lend.code.qr}
-                <svg class="qr" role="img" aria-label={t('share.qr')} viewBox="-4 -4 {lend.code.qr.size + 8} {lend.code.qr.size + 8}" shape-rendering="crispEdges">
-                  <rect x="-4" y="-4" width={lend.code.qr.size + 8} height={lend.code.qr.size + 8} fill="#fff" />
-                  <path d={lend.code.qr.path} fill="#000" />
-                </svg>
-              {/if}
-            </div>
-            {#if lendCopied === 'fail'}
-              <p class="note refusal" role="alert">{t('share.copy_failed')}</p>
-              <input class="field link mono" readonly value={lend.code.web || lend.code.link} onfocus={selectAll} onclick={selectAll} aria-label={t('share.copy_link')} />
-            {/if}
+            {@render codeTop(lend.code.code, lend.code.qr, lend.code.web || lend.code.link, lendRelay.value, lendCopied, copyLendLink)}
             <p class="help">{t('lend.code_valid')}</p>
             <p class="help">{t('lend.code_help')}</p>
+            {@render relayLine(lendRelay.value)}
             <p class="help strong">{t('lend.session_closes')}</p>
             <div class="foot">
               <button class="ghost danger" aria-disabled={lendActing} onclick={cancelCode}>{t('lend.cancel_code')}</button>
@@ -1173,7 +1157,9 @@
   {/if}
   <span class="sep"></span>
   {#if borrow}
-    <!-- « Rendre l'ordinateur », confirmé ; fermer la fenêtre ne le rend pas (l'ami peut revenir pendant 15 min). -->
+    <!-- « Se déconnecter » ferme la session sans rendre l'ordinateur (l'ami peut revenir pendant 15 min) ;
+         « Rendre l'ordinateur », confirmé, le rend. -->
+    <button class="quit soft" title={t('bar.disconnect') + t('bar.disconnect_shortcut')} onclick={() => command('disconnect')}>{t('bar.disconnect')}</button>
     <div class="anchor">
       <button class="quit" aria-haspopup="dialog" aria-expanded={menu === 'giveback'} onclick={() => toggle('giveback')}>{t('lend.give_back')}</button>
       {#if menu === 'giveback'}
@@ -1780,6 +1766,16 @@
 
   .quit:hover {
     background: rgb(255 107 107 / 0.12);
+  }
+
+  /* L'ami : « Se déconnecter » (on peut revenir) reste discret à côté de « Rendre l'ordinateur ». */
+  .quit.soft {
+    color: var(--muted);
+  }
+
+  .quit.soft:hover {
+    color: var(--text);
+    background: rgb(255 255 255 / 0.06);
   }
 
   /* Prêt de l'ordinateur : le temps restant de l'ami, et le panneau de l'hôte (les styles du partage, en plus). */

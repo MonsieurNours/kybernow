@@ -183,6 +183,9 @@ struct ConnexionView {
     title: Option<String>,
     fingerprint: Option<String>,
     guest: bool,
+    /// Session d'emprunt (prêt de l'ordinateur) : « Préparation de
+    /// l'ordinateur » en première étape, comme le passage de l'accueil.
+    borrow: bool,
 }
 
 /// Numéro des fenêtres de connexion (`connexion-N`).
@@ -2132,10 +2135,11 @@ impl HostEvents for UiEvents {
             kept_in_window,
         });
         // Session d'emprunt : la carte de fin de l'accueil (le texte du prêt, ou le
-        // retour possible pendant 15 min ; rien quand l'ordinateur est rendu).
-        let lend_end = self.borrow.as_ref().and_then(|b| crate::lending::end_view(&b.host, b.end.lock().unwrap().clone()));
+        // retour possible pendant 15 min) ; l'ordinateur rendu : l'avis « Vous avez
+        // rendu l'ordinateur. », sans notification (une fin voulue).
+        let lend_end = self.borrow.as_ref().map(|b| crate::lending::end_view(&b.host, b.end.lock().unwrap().clone()));
         if let Some(b) = &self.borrow {
-            if notify && let Some(e) = &lend_end {
+            if notify && let Some(e) = lend_end.as_ref().filter(|e| !e.left) {
                 let text = e.text.clone().or_else(|| s.error.clone()).unwrap_or_else(|| t("lend.come_back", &[]));
                 shell::notify_to("kybernow://open", &b.title, &text, None);
             }
@@ -2164,7 +2168,7 @@ impl HostEvents for UiEvents {
         struct Ended<'a> {
             id: &'a str,
             summary: &'a Summary,
-            /// Session d'emprunt : la carte de fin (absente : rendu, ou pas un emprunt).
+            /// Session d'emprunt : la carte de fin, ou l'avis de l'ordinateur rendu (absente : pas un emprunt).
             lend: Option<crate::lending::EndView>,
         }
         let _ = self.app.emit("session-ended", Ended { id: &self.id, summary: s, lend: lend_end });
