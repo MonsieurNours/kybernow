@@ -220,9 +220,9 @@ enum class RelayPhase {
 }
 
 /**
- * Depuis quand l'app voit `connecting` pour un code de partage : compté de la première fois qu'elle le voit pour ce
- * code, oublié dès que l'état change ou que le code change. [shared] dure autant que l'app : refermer et rouvrir le
- * panneau ne relance pas les 10 s.
+ * Depuis quand l'app voit `connecting` pour un code (de partage, ou de prêt : `code.relay`) : compté de la première
+ * fois qu'elle le voit pour ce code, oublié dès que l'état change ou que le code change. [shared] (le partage) et
+ * [lend] (le code de prêt) durent autant que l'app : refermer et rouvrir le panneau ne relance pas les 10 s.
  */
 class RelayWait {
     private var code: String? = null
@@ -230,20 +230,26 @@ class RelayWait {
 
     /** Le temps d'attente, en ms, à [now] (une horloge monotone) ; 0 hors de `connecting`. */
     @Synchronized
-    fun waited(share: ShareState, now: Long): Long {
-        if (share.relay != ShareRelay.CONNECTING) {
-            code = null
+    fun waited(code: String, relay: ShareRelay?, now: Long): Long {
+        if (relay != ShareRelay.CONNECTING) {
+            this.code = null
             return 0
         }
-        if (code != share.code) {
-            code = share.code
+        if (this.code != code) {
+            this.code = code
             since = now
         }
         return (now - since).coerceAtLeast(0)
     }
 
+    fun waited(share: ShareState, now: Long): Long = waited(share.code, share.relay, now)
+
     companion object {
+        /** Le partage. */
         val shared = RelayWait()
+
+        /** Le code de prêt (« Prêter l'ordinateur… »). */
+        val lend = RelayWait()
     }
 }
 

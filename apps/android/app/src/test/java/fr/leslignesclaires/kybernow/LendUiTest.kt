@@ -15,6 +15,7 @@ import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
 import fr.leslignesclaires.kybernow.core.FormFactor
 import fr.leslignesclaires.kybernow.core.LendAvailability
+import fr.leslignesclaires.kybernow.core.LendAvailable
 import fr.leslignesclaires.kybernow.core.LendBorrower
 import fr.leslignesclaires.kybernow.core.LendCodeView
 import fr.leslignesclaires.kybernow.core.LendDuration
@@ -31,6 +32,7 @@ import fr.leslignesclaires.kybernow.core.LendSteam
 import fr.leslignesclaires.kybernow.core.LendView
 import fr.leslignesclaires.kybernow.core.ShareGuest
 import fr.leslignesclaires.kybernow.core.ShareQuality
+import fr.leslignesclaires.kybernow.core.ShareRelay
 import fr.leslignesclaires.kybernow.core.ShareVia
 import fr.leslignesclaires.kybernow.model.BorrowedComputer
 import fr.leslignesclaires.kybernow.model.Gamepads
@@ -45,6 +47,7 @@ import fr.leslignesclaires.kybernow.session.SessionOverlay
 import fr.leslignesclaires.kybernow.session.SessionState
 import fr.leslignesclaires.kybernow.session.SessionUi
 import fr.leslignesclaires.kybernow.session.Shortcut
+import fr.leslignesclaires.kybernow.session.lendUnavailableText
 import fr.leslignesclaires.kybernow.ui.BorrowStep
 import fr.leslignesclaires.kybernow.ui.FriendStatus
 import fr.leslignesclaires.kybernow.ui.KnTheme
@@ -180,6 +183,48 @@ class LendUiTest {
         assertEquals(listOf("copier", "annuler le code"), actions.calls)
         // Plus d'avertissement une fois un code créé.
         rule.onNodeWithText("Votre ami joue dans votre session Windows", substring = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun whileTheRelayLinkOfTheCodeIsPrepared_copyAndTheQrCodeWait_likeTheShare() {
+        panel(LendView(true, LendHostState.FREE, code = code().copy(code = "555001", relay = ShareRelay.CONNECTING)))
+        rule.onNodeWithText("Préparation du lien hors de chez vous…").assertExists()
+        rule.onNodeWithText("Pas encore joignable hors de chez vous.").assertDoesNotExist()
+        rule.onNodeWithText("Copier le lien").assertIsNotEnabled()
+        // Le QR code laisse la place à l'indicateur.
+        rule.onNodeWithContentDescription("QR code du prêt").assertDoesNotExist()
+        rule.onNodeWithContentDescription("Préparation du lien hors de chez vous…").assertExists()
+    }
+
+    @Test
+    fun afterTenSeconds_theRelayLinkOfTheCode_isUnreachable_andTheNetworkLinkIsGiven() {
+        rule.mainClock.autoAdvance = false
+        panel(LendView(true, LendHostState.FREE, code = code().copy(code = "555002", relay = ShareRelay.CONNECTING)))
+        rule.mainClock.advanceTimeBy(1_000)
+        rule.onNodeWithText("Préparation du lien hors de chez vous…").assertExists()
+        // Sans nouvel état de la Station, le panneau change de lui-même au bout des 10 s.
+        rule.mainClock.advanceTimeBy(10_000)
+        rule.onNodeWithText("Préparation du lien hors de chez vous…").assertDoesNotExist()
+        rule.onNodeWithText("Pas encore joignable hors de chez vous.").assertExists()
+        rule.onNodeWithText("Copier le lien").assertIsEnabled()
+        rule.onNodeWithContentDescription("QR code du prêt").assertExists()
+    }
+
+    @Test
+    fun withTheRelayJoined_theCodeSaysNothingMore() {
+        panel(LendView(true, LendHostState.FREE, code = code().copy(relay = ShareRelay.JOINED)))
+        rule.onNodeWithText("Préparation du lien hors de chez vous…").assertDoesNotExist()
+        rule.onNodeWithText("Pas encore joignable hors de chez vous.").assertDoesNotExist()
+        rule.onNodeWithText("Copier le lien").assertIsEnabled()
+    }
+
+    @Test
+    fun whenLendingIsNotPossibleOnThisComputer_thePanelSaysSo() {
+        show(FormFactor.PHONE) {
+            LendPanelContent("Atelier", null, lendUnavailableText(LendAvailable.UNAVAILABLE), false, null, null, false, LendDuration.TWO_HOURS, LendSteam.FRIEND, false, actions, {}, {}, {})
+        }
+        rule.onNodeWithText("Le prêt n'est pas possible sur cet ordinateur.").assertExists()
+        rule.onNodeWithText("Créer un code").assertDoesNotExist()
     }
 
     @Test
@@ -324,6 +369,28 @@ class LendUiTest {
     }
 
     @Test
+    fun theEndCard_isSignedKyberNowShare() {
+        val ui = borrower()
+        ui.state.lendEnd = LendEnd.TIME_UP
+        ui.state.ended.value = Ended("Le prêt est terminé.", null, null, null)
+        show(FormFactor.PHONE) { SessionOverlay(ui) }
+        // Le surtitre s'écrit en capitales.
+        rule.onNodeWithText("KYBERNOW SHARE").assertExists()
+    }
+
+    @Test
+    fun givingBack_isSaidOnTheEndCard_withClose() {
+        val ui = borrower()
+        ui.state.lendEnd = LendEnd.LEFT
+        ui.state.ended.value = Ended("Vous avez rendu l'ordinateur.", null, null, null)
+        show(FormFactor.PHONE) { SessionOverlay(ui) }
+        rule.onNodeWithText("Vous avez rendu l'ordinateur.").assertExists()
+        rule.onNodeWithText("Vous pouvez revenir pendant 15${nbsp}min.").assertDoesNotExist()
+        rule.onNodeWithText("Fermer").performClick()
+        assertEquals(listOf("quitter"), actions.calls)
+    }
+
+    @Test
     fun aLostSession_canComeBackFor15Minutes() {
         val ui = borrower()
         ui.state.ended.value = Ended("l'ordinateur prêté ne répond plus", null, null, null)
@@ -407,6 +474,33 @@ class LendUiTest {
         rule.onNodeWithText("Mot de passe").performTextInput("secret")
         rule.onNodeWithText("Emprunter").assertIsEnabled().performClick()
         assertEquals(listOf<String?>("secret"), asked)
+    }
+
+    @Test
+    fun withoutAKnownPassword_theCardAsksForIt() {
+        hero(null, known = false)
+        rule.onNodeWithText("Entrez votre mot de passe pour emprunter.").assertExists()
+    }
+
+    @Test
+    fun withAKnownPassword_theCardDoesNotAskForIt() {
+        hero(FriendStatus(LendStatus(LendAvailability.FREE, "Matthieu", "PC-SALON")))
+        rule.onNodeWithText("Entrez votre mot de passe pour emprunter.").assertDoesNotExist()
+    }
+
+    @Test
+    fun removingAFriendsComputer_asksWithTheHostsName() {
+        hero(FriendStatus(LendStatus(LendAvailability.FREE, "Matthieu", "PC-SALON")))
+        rule.onNodeWithText("Retirer cet ordinateur").performClick()
+        rule.onNodeWithText("Retirer l'ordinateur de Matthieu de cet appareil$thin?").assertExists()
+        rule.onNodeWithText("Retirer").assertHasClickAction()
+    }
+
+    @Test
+    fun removingAFriendsComputer_elidesBeforeAVowel() {
+        hero(FriendStatus(LendStatus(LendAvailability.FREE, "Hugo", "PC-SALON")))
+        rule.onNodeWithText("Retirer cet ordinateur").performClick()
+        rule.onNodeWithText("Retirer l'ordinateur d'Hugo de cet appareil$thin?").assertExists()
     }
 
     @Test

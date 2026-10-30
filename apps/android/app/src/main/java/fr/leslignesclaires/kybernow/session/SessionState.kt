@@ -94,8 +94,11 @@ sealed class Capsule {
     data class ShareRequest(val name: String) : Capsule()
     /** Emprunt : le préavis de 2 min (« Fin du prêt dans 2 min : sauvegardez votre partie. ») ; [text] : celui du cœur. */
     data class LendNotice(val text: String) : Capsule()
-    /** Hôte : un ami veut emprunter l'ordinateur (« Léa veut emprunter l'ordinateur. »), à accepter ou à refuser dans le panneau du prêt. */
-    data class LendRequest(val name: String) : Capsule()
+    /**
+     * Hôte : un ami veut emprunter l'ordinateur (« Léa veut emprunter l'ordinateur. »), à accepter ou à refuser dans le
+     * panneau du prêt ; [slot] : la demande vient de son créneau (« Créneau de Léa : l'ordinateur lui est prêté dans 2 min. »).
+     */
+    data class LendRequest(val name: String, val slot: Boolean = false) : Capsule()
     /** Hôte : un avis du prêt écrit par le cœur (« Créneau de Léa : l'ordinateur lui est prêté dans 2 min. »). */
     data class LendHostNotice(val text: String) : Capsule()
 }
@@ -227,9 +230,15 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
             }
             // Fin par le relais (accès coupé dans Admin, ordinateur éteint ou en veille) : ce texte, avec le nom de l'ordinateur,
             // à la place de celui du cœur (qui n'a pas le nom d'une session de l'app).
-            // Fin d'un prêt : le texte du cœur (« {hôte} a repris l'ordinateur. ») ; l'ordinateur rendu : une fin voulue, sans erreur.
+            // Fin d'un prêt : le texte du cœur (« {hôte} a repris l'ordinateur. ») ; l'ordinateur rendu (depuis l'app ou le
+            // lanceur) : « Vous avez rendu l'ordinateur. » sur la carte de fin, sans l'erreur de la session.
             Phase.ENDED -> {
-                val text = if (lendEnd == LendEnd.LEFT) null else lendEndText?.takeIf { it.isNotBlank() } ?: relayEndText() ?: error
+                val core = lendEndText?.takeIf { it.isNotBlank() }
+                val text = when (lendEnd) {
+                    LendEnd.LEFT -> core ?: context.getString(R.string.lend_end_left)
+                    LendEnd.STOPPED -> core ?: relayEndText() ?: error ?: context.getString(R.string.lend_end_stopped)
+                    else -> core ?: relayEndText() ?: error
+                }
                 ended.value = Ended(text, if (hasReport) displayRestored else null, if (hasReport) audioRestored else null, reportError)
             }
             else -> {}
@@ -377,7 +386,7 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
         lend.value = now
         // Une nouvelle demande : son prénom dans une capsule (« Léa veut emprunter l'ordinateur. ») ; la choisir ouvre le panneau.
         val known = before?.requests.orEmpty().map { it.id }
-        now?.requests?.firstOrNull { it.id !in known }?.let { show(Capsule.LendRequest(it.name), 8000); return }
+        now?.requests?.firstOrNull { it.id !in known }?.let { show(Capsule.LendRequest(it.name, it.slot), 8000); return }
         // Le créneau d'un ami commence : l'avis du cœur, une fois.
         val notice = now?.notice
         if (notice != null && notice.reason == LendNoticeReason.SLOT_START && notice != before?.notice) {

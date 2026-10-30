@@ -471,6 +471,8 @@ S = [
 ("lend_warning", "Votre ami joue dans votre session Windows. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance.", "Your friend plays in your Windows session. They see neither your desktop nor your windows, but a game can read your files: lend to friends you trust."),
 ("lend_off", "Le prêt est coupé dans Admin (page « Prêt »).", "Lending is off in Admin (“Lending” page)."),
 ("lend_too_old", "Le prêt demande KyberNow Station 0.9.0 ou plus récente.", "Lending needs KyberNow Station 0.9.0 or later."),
+# `lend.available` faux dans l'info de la Station (« Textes des apps »).
+("lend_unavailable", "Le prêt n'est pas possible sur cet ordinateur.", "Lending isn't possible on this computer."),
 ("lend_request_wants", "%1$s veut emprunter l'ordinateur.", "%1$s wants to borrow the computer."),
 ("lend_accept_closes", "Votre session va se fermer.", "Your session will close."),
 ("lend_slot_start", "Créneau de %1$s : l'ordinateur lui est prêté dans 2 min.", "%1$s's time slot: the computer is lent to them in 2 min."),
@@ -504,6 +506,16 @@ S = [
 ("lend_give_back_confirm", "Rendre l'ordinateur à %1$s ?", "Give the computer back to %1$s?"),
 ("lend_come_back_hint", "Vous pouvez revenir pendant 15 min.", "You can come back for 15 min."),
 ("lend_come_back", "Revenir", "Come back"),
+# « Textes des apps » de docs/link-ui.md : retirer l'ordinateur d'un ami (élision : « d'Hugo »), le lien d'invitation
+# illisible, le mot de passe pas retenu, la carte de fin (surtitre ; l'ordinateur rendu, le prêt arrêté : les textes du
+# cœur d'abord, ceux-ci s'il n'en donne pas).
+("lend_remove_confirm", "Retirer l'ordinateur de %1$s de cet appareil ?", "Remove %1$s's computer from this device?"),
+("lend_remove_confirm_elided", "Retirer l'ordinateur d'%1$s de cet appareil ?", "Remove %1$s's computer from this device?"),
+("lend_invite_unreadable", "Ce lien d'invitation est illisible.", "This invitation link can't be read."),
+("lend_password_needed", "Entrez votre mot de passe pour emprunter.", "Enter your password to borrow."),
+("lend_end_eyebrow", "KyberNow Share", "KyberNow Share"),
+("lend_end_left", "Vous avez rendu l'ordinateur.", "You gave back the computer."),
+("lend_end_stopped", "Le prêt s'est arrêté.", "The loan has stopped."),
 ]
 
 # Pluriels : (clé, {quantité: (français, anglais)}). Android choisit la quantité selon la langue :

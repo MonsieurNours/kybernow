@@ -419,6 +419,7 @@
     <string name="lend_warning">Your friend plays in your Windows session. They see neither your desktop nor your windows, but a game can read your files: lend to friends you trust.</string>
     <string name="lend_off">Lending is off in Admin (“Lending” page).</string>
     <string name="lend_too_old">Lending needs KyberNow Station 0.9.0 or later.</string>
+    <string name="lend_unavailable">Lending isn\'t possible on this computer.</string>
     <string name="lend_request_wants" formatted="true">%1$s wants to borrow the computer.</string>
     <string name="lend_accept_closes">Your session will close.</string>
     <string name="lend_slot_start" formatted="true">%1$s\'s time slot: the computer is lent to them in 2 min.</string>
@@ -450,6 +451,13 @@
     <string name="lend_give_back_confirm" formatted="true">Give the computer back to %1$s?</string>
     <string name="lend_come_back_hint">You can come back for 15 min.</string>
     <string name="lend_come_back">Come back</string>
+    <string name="lend_remove_confirm" formatted="true">Remove %1$s\'s computer from this device?</string>
+    <string name="lend_remove_confirm_elided" formatted="true">Remove %1$s\'s computer from this device?</string>
+    <string name="lend_invite_unreadable">This invitation link can\'t be read.</string>
+    <string name="lend_password_needed">Enter your password to borrow.</string>
+    <string name="lend_end_eyebrow">KyberNow Share</string>
+    <string name="lend_end_left">You gave back the computer.</string>
+    <string name="lend_end_stopped">The loan has stopped.</string>
     <plurals name="share_guests">
         <item quantity="one">%d guest</item>
         <item quantity="other">%d guests</item>

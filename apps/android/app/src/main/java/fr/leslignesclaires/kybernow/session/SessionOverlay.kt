@@ -489,7 +489,7 @@ private fun capsuleText(c: Capsule): String = when (c) {
     // Emprunt : le préavis de 2 min, tel que le cœur l'écrit.
     is Capsule.LendNotice -> c.text
     // Hôte : « Léa veut emprunter l'ordinateur. » (la choisir ouvre le panneau du prêt).
-    is Capsule.LendRequest -> stringResource(R.string.lend_request_wants, c.name)
+    is Capsule.LendRequest -> stringResource(if (c.slot) R.string.lend_slot_start else R.string.lend_request_wants, c.name)
     is Capsule.LendHostNotice -> c.text
 }
 

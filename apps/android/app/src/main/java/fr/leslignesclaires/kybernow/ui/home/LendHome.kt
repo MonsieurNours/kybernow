@@ -158,6 +158,8 @@ fun FriendHero(
             // Sans effet, mais focalisable : au téléviseur, le focus ne se perd pas pendant la préparation.
             BorrowStep.Preparing -> PrimaryButton(stringResource(R.string.lend_preparing), {}, first.then(wide))
             null -> {
+                // Mot de passe pas retenu : on le dit avant le champ (un refus, lui, s'écrit plus haut).
+                if (!knownPassword && status?.refused == null && error == null) Body(stringResource(R.string.lend_password_needed), size = 14f, color = Kn.frost2)
                 if (!knownPassword || status?.refused != null) {
                     OutlinedTextField(
                         value = password,
@@ -180,7 +182,8 @@ fun FriendHero(
                     if (!confirmRemove) GlassButton(stringResource(R.string.station_remove), { confirmRemove = true })
                 }
                 if (confirmRemove) {
-                    Body(stringResource(R.string.station_remove_confirm, computer.computer.ifBlank { stringResource(R.string.lend_card_title, host) }), size = 14f, color = Kn.frost2)
+                    // « Retirer l'ordinateur de Léa de cet appareil ? », « … d'Hugo … ».
+                    Body(stringResource(if (elides(host)) R.string.lend_remove_confirm_elided else R.string.lend_remove_confirm, host), size = 14f, color = Kn.frost2)
                     Row(horizontalArrangement = Arrangement.spacedBy(s.dp(10f))) {
                         GlassButton(stringResource(R.string.station_remove_yes), onRemove)
                         GlassButton(stringResource(R.string.cancel), { confirmRemove = false })
