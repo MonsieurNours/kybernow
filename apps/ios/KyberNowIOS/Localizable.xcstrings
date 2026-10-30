@@ -1796,6 +1796,22 @@
         }
       }
     },
+    "Ce lien d'invitation est illisible." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This invitation link can't be read."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce lien d'invitation est illisible."
+          }
+        }
+      }
+    },
     "Ce n'est pas la même" : {
       "localizations" : {
         "en" : {
@@ -2128,6 +2144,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cherche l'ordinateur à nouveau"
+          }
+        }
+      }
+    },
+    "Cinq voies" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Five ways"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cinq voies"
           }
         }
       }
@@ -3328,6 +3360,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ensuite : l'empreinte à comparer, puis le compte."
+          }
+        }
+      }
+    },
+    "Entrez votre mot de passe pour emprunter." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enter your password to borrow."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Entrez votre mot de passe pour emprunter."
           }
         }
       }
@@ -4966,6 +5014,22 @@
         }
       }
     },
+    "Le prêt n'est pas possible sur cet ordinateur." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lending isn't possible on this computer."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le prêt n'est pas possible sur cet ordinateur."
+          }
+        }
+      }
+    },
     "Le son reste sur l'ordinateur : ses haut-parleurs ou son casque." : {
       "localizations" : {
         "en" : {
@@ -6438,22 +6502,6 @@
         }
       }
     },
-    "Quatre voies" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Four ways"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Quatre voies"
-          }
-        }
-      }
-    },
     "Quitter le partage" : {
       "localizations" : {
         "en" : {
@@ -6962,6 +7010,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Retirer cet ordinateur"
+          }
+        }
+      }
+    },
+    "Retirer l'ordinateur d'%@ de cet appareil ?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove %@'s computer from this device?"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retirer l'ordinateur d'%@ de cet appareil ?"
+          }
+        }
+      }
+    },
+    "Retirer l'ordinateur de %@ de cet appareil ?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove %@'s computer from this device?"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retirer l'ordinateur de %@ de cet appareil ?"
           }
         }
       }

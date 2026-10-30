@@ -135,6 +135,11 @@ struct JoinView: View {
             app.invite(fromAddSheet: invite)
             return
         }
+        // Une invitation illisible : on le dit, la caméra continue.
+        if case .badInvite? = LinkKind.parse(text) {
+            app.show(LendText.badInvite)
+            return
+        }
         guard case let .join(link)? = LinkKind.parse(text) else { return }
         camera.onCode = nil
         camera.stop()
@@ -297,7 +302,6 @@ struct SharePanelView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var copyResult: String?
     @State private var copied = false
-    @State private var qr: (link: String, image: CGImage)?
 
     var body: some View {
         ScrollView {
@@ -335,11 +339,11 @@ struct SharePanelView: View {
     @ViewBuilder private func shared(_ state: ShareState) -> some View {
         ViewThatFits(in: .horizontal) {
             HStack(alignment: .top, spacing: 20) {
-                qrImage(for: state.link)
+                LinkQR(link: state.link, waiting: share.waitingForRelayLink)
                 codeAndCopy(state)
             }
             VStack(alignment: .leading, spacing: 16) {
-                qrImage(for: state.link)
+                LinkQR(link: state.link, waiting: share.waitingForRelayLink)
                 codeAndCopy(state)
             }
         }
@@ -348,14 +352,7 @@ struct SharePanelView: View {
         // ou, lien du relais en préparation (10 s au plus), « Préparation du lien hors de chez vous… ».
         VStack(alignment: .leading, spacing: 6) {
             Text(ShareText.help(relay: share.relay)).font(Theme.sans(13.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
-            if share.waitingForRelayLink {
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small).tint(Theme.faint)
-                    Text(ShareText.relayConnecting).font(Theme.sans(13.5)).foregroundStyle(Theme.faint).fixedSize(horizontal: false, vertical: true)
-                }
-            } else if share.relay == .unreachable {
-                Text(ShareText.relayUnreachable).font(Theme.sans(13.5)).foregroundStyle(Theme.faint).fixedSize(horizontal: false, vertical: true)
-            }
+            RelayLinkNote(relay: share.relay)
         }
         Rectangle().fill(Theme.line).frame(height: 1)
         // Les demandes venues par le relais, au-dessus des invités, seulement s'il y en a.
@@ -413,28 +410,6 @@ struct SharePanelView: View {
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-            }
-        }
-    }
-
-    /// Le QR code du lien des apps (`kybernow://join…`), net, sur fond blanc.
-    @ViewBuilder private func qrImage(for link: String) -> some View {
-        // Le lien du relais se prépare : le QR code l'attend.
-        let image = share.waitingForRelayLink ? nil : qr?.link == link ? qr?.image : Share.qrImage(for: link)
-        Group {
-            if let image {
-                Image(decorative: image, scale: 1)
-                    .interpolation(.none)
-                    .resizable()
-                    .aspectRatio(1, contentMode: .fit)
-                    .frame(width: 150, height: 150)
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .accessibilityElement()
-                    .accessibilityLabel(ShareText.qrLabel)
-                    .onAppear { if qr?.link != link { qr = (link, image) } }
-            } else {
-                RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.surface).frame(width: 150, height: 150)
-                    .overlay { if share.waitingForRelayLink { ProgressView().tint(Theme.muted) } }
             }
         }
     }
@@ -527,4 +502,52 @@ private struct GuestRow: View {
     /// « iPhone ou iPad · 1080p · 60 Hz · depuis 3 min » : sa qualité d'image
     /// seulement si ce n'est pas celle de l'hôte.
     private var detail: String { ShareText.guestDetail(guest) }
+}
+
+/// Sous l'aide du partage ou du code de prêt, l'état du relais
+/// (docs/link-ui.md) : « Préparation du lien hors de chez vous… » avec
+/// l'indicateur d'attente (10 s au plus), ou, relais réglé mais pas joint,
+/// « Pas encore joignable hors de chez vous. » ; rien sans relais ou relais joint.
+struct RelayLinkNote: View {
+    let relay: ShareState.Relay?
+
+    var body: some View {
+        if relay == .connecting {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small).tint(Theme.faint)
+                Text(ShareText.relayConnecting).font(Theme.sans(13.5)).foregroundStyle(Theme.faint).fixedSize(horizontal: false, vertical: true)
+            }
+        } else if relay == .unreachable {
+            Text(ShareText.relayUnreachable).font(Theme.sans(13.5)).foregroundStyle(Theme.faint).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+/// Le QR code du lien des apps (`kybernow://join…`) d'un partage ou d'un code
+/// de prêt, net, sur fond blanc ; `waiting` : le lien du relais se prépare, le
+/// QR code l'attend.
+struct LinkQR: View {
+    let link: String
+    var waiting = false
+    @State private var cache: (link: String, image: CGImage)?
+
+    var body: some View {
+        let image = waiting ? nil : cache?.link == link ? cache?.image : Share.qrImage(for: link)
+        Group {
+            if let image {
+                Image(decorative: image, scale: 1)
+                    .interpolation(.none)
+                    .resizable()
+                    .aspectRatio(1, contentMode: .fit)
+                    .frame(width: 150, height: 150)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .accessibilityElement()
+                    .accessibilityLabel(ShareText.qrLabel)
+                    .onAppear { if cache?.link != link { cache = (link, image) } }
+            } else {
+                RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.surface).frame(width: 150, height: 150)
+                    .overlay { if waiting { ProgressView().tint(Theme.muted) } }
+            }
+        }
+    }
 }

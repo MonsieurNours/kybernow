@@ -32,9 +32,11 @@ struct BorrowedComputer: Codable, Identifiable, Equatable {
     var login: String { invite.login }
     var target: LendTarget? { invite.target }
 
-    /// {hôte} des textes : le prénom de l'hôte, sinon le nom de l'ordinateur, sinon son adresse.
+    /// {hôte} des textes : le prénom de l'hôte (celui du dernier statut, sinon
+    /// celui du lien d'invitation), sinon le nom de l'ordinateur, sinon son adresse.
     var hostName: String {
         if !host.isEmpty { return host }
+        if let name = invite.name { return name }
         return computer.isEmpty ? invite.host : computer
     }
 
@@ -456,10 +458,12 @@ enum LendHostAvailability: Equatable {
     }
 
     /// D'après ce que la Station dit d'elle-même (`info.lend`). Tant qu'on ne
-    /// l'a pas lue, possible ; absente : Station trop ancienne.
+    /// l'a pas lue, possible ; absente : Station trop ancienne ; `available`
+    /// faux : « Le prêt n'est pas possible sur cet ordinateur. ».
     static func of(_ info: HostInfo?) -> LendHostAvailability {
         guard let info else { return .available }
-        guard let lend = info.lend, lend.available else { return .unavailable(LendText.tooOld) }
+        guard let lend = info.lend else { return .unavailable(LendText.tooOld) }
+        guard lend.available else { return .unavailable(LendText.notPossible) }
         return lend.enabled ? .available : .unavailable(LendText.offInAdmin)
     }
 }
@@ -503,8 +507,18 @@ extension LendSteam {
 @MainActor
 final class LendHostModel: ObservableObject {
     @Published private(set) var view: LendView? {
-        didSet { announceNewRequest(since: oldValue) }
+        didSet {
+            announceNewRequest(since: oldValue)
+            updateRelay()
+        }
     }
+    /// Le relais du code tel que le panneau le montre, comme celui du partage
+    /// (`ShareHostModel.relay`, docs/link-ui.md) : `connecting` 10 s au plus
+    /// depuis que l'app voit l'attente pour ce code, puis `unreachable`.
+    @Published private(set) var relay: ShareState.Relay?
+    /// « Préparation du lien hors de chez vous… » : « Copier le lien » et le QR code attendent.
+    var waitingForRelayLink: Bool { relay == .connecting }
+    private let relayWait = RelayLinkWait()
     @Published var duration: LendDuration = .twoHours
     @Published var steam: LendSteam = .friend
     @Published private(set) var busy = false
@@ -527,8 +541,9 @@ final class LendHostModel: ObservableObject {
     var code: LendCodeView? { view?.code }
     var requests: [LendRequest] { view?.requests ?? [] }
     /// « Copier le lien » : l'adresse du client web, à défaut le lien des apps.
+    /// Rien tant que le lien du relais se prépare (`waitingForRelayLink`).
     var linkToCopy: String? {
-        guard let code else { return nil }
+        guard let code, !waitingForRelayLink else { return nil }
         return code.web.isEmpty ? code.link : code.web
     }
 
@@ -581,6 +596,12 @@ final class LendHostModel: ObservableObject {
         if self.view != view { self.view = view }
     }
 
+    /// Recalcule `relay` (`RelayLinkWait`, comme le partage).
+    private func updateRelay() {
+        let next = relayWait.phase(code: code?.code, relay: code?.relay) { [weak self] in self?.updateRelay() }
+        if relay != next { relay = next }
+    }
+
     private func announceNewRequest(since previous: LendView?) {
         let known = Set((previous?.requests ?? []).map(\.id))
         if let request = requests.first(where: { !known.contains($0.id) }) { onRequest?(request) }
@@ -603,13 +624,18 @@ final class LendHostModel: ObservableObject {
 
     /// Démonstration (`-demo YES`, Debug) : sans Station, le prêt se joue ici.
     var demo = false
+    /// Démonstration : le relais des codes créés (nil : pas de relais réglé).
+    var demoRelay: ShareState.Relay?
 
     private func demoCode() {
         let code = String(format: "%06d", Int.random(in: 100_000 ... 999_999))
+        let joined = demoRelay == .joined
         demoUpdate {
-            $0.code = LendCodeView(code: code, link: "kybernow://join?host=192.168.1.20&port=37462&fp=sha256:c41be0f2&code=\(code)",
-                                   web: "https://192.168.1.20:37462/link/?join=\(code)", duration: self.duration.seconds, steam: self.steam,
-                                   expires: Date().addingTimeInterval(86400))
+            $0.code = LendCodeView(code: code, link: "kybernow://join?host=192.168.1.20&port=37462&fp=sha256:c41be0f2&code=\(code)"
+                                       + (joined ? "&relay=share.kybernow.app&sid=k7f3q9" : ""),
+                                   web: joined ? "https://share.kybernow.app/s/k7f3q9/link/?join=\(code)" : "https://192.168.1.20:37462/link/?join=\(code)",
+                                   duration: self.duration.seconds, steam: self.steam,
+                                   expires: Date().addingTimeInterval(86400), relay: self.demoRelay)
         }
     }
 

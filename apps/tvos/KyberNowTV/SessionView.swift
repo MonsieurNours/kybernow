@@ -450,6 +450,8 @@ struct SessionFailure: View {
         ZStack {
             HostBackdrop(host: host, online: false)
             VStack(alignment: .leading, spacing: 26) {
+                // La carte de fin d'un emprunt : surtitre « KyberNow Share ».
+                if borrower { Theme.eyebrow(LendText.endEyebrow, color: Theme.faint).font(Theme.mono(18)) }
                 if !shareEnd {
                     HStack(spacing: 14) {
                         Icon("warning", size: 28).foregroundStyle(Theme.warn)

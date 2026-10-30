@@ -28,6 +28,8 @@ final class AppModel: ObservableObject {
     /// Ordinateur mis en avant sur l'accueil.
     @Published var selected: UUID?
     @Published private(set) var session: SessionController?
+    /// Un avis bref sur l'accueil (« Ce lien d'invitation est illisible. »), effacé après 6 s.
+    @Published private(set) var notice: String?
     /// Écran où revient le test des manettes (accueil ou réglages de l'app).
     var gamepadsReturn: Screen = .home
     /// Rubrique ouverte à l'arrivée dans les réglages d'un ordinateur.
@@ -142,6 +144,14 @@ final class AppModel: ObservableObject {
     }
 
     /// Le test des manettes, depuis l'accueil ou les réglages de l'app.
+    /// Un avis bref, par-dessus l'écran du moment.
+    func show(notice text: String) {
+        notice = text
+        DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in
+            if self?.notice == text { self?.notice = nil }
+        }
+    }
+
     func showGamepads(from: Screen) {
         gamepadsReturn = from
         screen = .gamepads
@@ -284,7 +294,13 @@ final class AppModel: ObservableObject {
         // `kybernow-tv://borrow?…` : l'invitation d'un ami qui prête son ordinateur (le lien `kybernow://borrow`).
         if url.scheme == "kybernow-tv", url.host == "borrow" {
             let text = url.absoluteString.replacingOccurrences(of: "kybernow-tv://", with: "kybernow://")
-            if session == nil, let invite = Lend.parseInvite(text) { screen = .invite(invite) }
+            guard session == nil else { return }
+            if let invite = Lend.parseInvite(text) {
+                screen = .invite(invite)
+            } else {
+                // Un lien d'invitation que le cœur ne lit pas : on le dit.
+                show(notice: LendText.badInvite)
+            }
             return
         }
         guard url.scheme == "kybernow-tv", let id = UUID(uuidString: url.lastPathComponent), store.host(id) != nil else { return }

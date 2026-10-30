@@ -129,7 +129,7 @@ struct LendPanelTV: View {
     /// l'aide, et « Votre session se fermera quand votre ami arrivera. ».
     @ViewBuilder private func created(_ code: LendCodeView) -> some View {
         HStack(alignment: .top, spacing: 64) {
-            LendQRTV(link: code.link)
+            LinkQRTV(link: code.link, waiting: lend.waitingForRelayLink, size: 280)
             VStack(alignment: .leading, spacing: 20) {
                 Theme.eyebrow(ShareText.code)
                 Text(verbatim: Share.formatCode(code.code))
@@ -144,6 +144,8 @@ struct LendPanelTV: View {
                     .font(Theme.sans(21)).foregroundStyle(Theme.text2)
                 Text(LendText.help).font(Theme.sans(20)).foregroundStyle(Theme.muted).lineSpacing(4)
                     .frame(width: 760, alignment: .leading)
+                // Comme le partage : le lien du relais en préparation (10 s au plus), ou pas encore joignable.
+                RelayLinkNoteTV(relay: lend.relay, width: 760)
                 Text(LendText.sessionCloses).font(Theme.sans(20)).foregroundStyle(Theme.faint).lineSpacing(4)
                     .frame(width: 760, alignment: .leading)
             }
@@ -154,26 +156,6 @@ struct LendPanelTV: View {
                 .focused($focus, equals: .cancelCode)
                 .disabled(lend.busy)
             closeButton
-        }
-    }
-}
-
-/// Le QR code du lien du code de prêt (`kybernow://join…`), net, sur fond blanc.
-private struct LendQRTV: View {
-    let link: String
-
-    var body: some View {
-        if let image = Share.qrImage(for: link) {
-            Image(decorative: image, scale: 1)
-                .interpolation(.none)
-                .resizable()
-                .aspectRatio(1, contentMode: .fit)
-                .frame(width: 280, height: 280)
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .accessibilityElement()
-                .accessibilityLabel(ShareText.qrLabel)
-        } else {
-            RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white.opacity(0.08)).frame(width: 280, height: 280)
         }
     }
 }
@@ -237,6 +219,10 @@ struct FriendAccountForm: View {
             if let address = invite?.host ?? computer?.invite.host {
                 Text(verbatim: address).font(Theme.mono(19)).foregroundStyle(Theme.muted)
             }
+            // Le mot de passe pas retenu, demandé à « Emprunter ».
+            if computer != nil {
+                Text(LendText.enterPassword).font(Theme.sans(23)).foregroundStyle(Theme.text2)
+            }
             if computer == nil {
                 field(LendText.username) {
                     TextField(LendText.username, text: $login)
@@ -276,11 +262,12 @@ struct FriendAccountForm: View {
         }
     }
 
-    /// « {hôte} vous prête son ordinateur. » quand on sait déjà qui ; sinon « Avec un compte d'ami ».
+    /// « {hôte} vous prête son ordinateur. » quand on sait qui (le prénom du
+    /// lien, ou l'ordinateur déjà ajouté) ; sinon « Avec un compte d'ami ».
     private var title: String {
         if let computer { return computer.title }
-        if let invite, let known = app.borrowed.existing(for: invite) { return LendText.invitation(known.hostName) }
-        return LendText.withFriendAccount
+        guard let invite else { return LendText.withFriendAccount }
+        return LendText.invitationTitle(invite.name ?? app.borrowed.existing(for: invite)?.hostName)
     }
 
     private func field<F: View>(_ label: String, @ViewBuilder _ content: () -> F) -> some View {

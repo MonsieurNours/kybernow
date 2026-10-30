@@ -17,6 +17,22 @@
         }
       }
     },
+    "%@ a repris l'ordinateur." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ took back the computer."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ a repris l'ordinateur."
+          }
+        }
+      }
+    },
     "%@ a retrouvé ses écrans et son son" : {
       "localizations" : {
         "en" : {
@@ -161,6 +177,22 @@
         }
       }
     },
+    "%@ veut emprunter l'ordinateur." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ wants to borrow the computer."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ veut emprunter l'ordinateur."
+          }
+        }
+      }
+    },
     "%@ vous a retiré du partage." : {
       "localizations" : {
         "en" : {
@@ -173,6 +205,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ vous a retiré du partage."
+          }
+        }
+      }
+    },
+    "%@ vous prête son ordinateur." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ is lending you their computer."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ vous prête son ordinateur."
           }
         }
       }
@@ -481,6 +529,22 @@
         }
       }
     },
+    "1 heure" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 hour"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 heure"
+          }
+        }
+      }
+    },
     "1 image" : {
       "localizations" : {
         "en" : {
@@ -557,6 +621,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "1 ordinateur publié."
+          }
+        }
+      }
+    },
+    "2 heures" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "2 hours"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "2 heures"
+          }
+        }
+      }
+    },
+    "4 heures" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "4 hours"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "4 heures"
           }
         }
       }
@@ -945,6 +1041,22 @@
         }
       }
     },
+    "Annuler le code" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cancel code"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Annuler le code"
+          }
+        }
+      }
+    },
     "Appareils" : {
       "localizations" : {
         "en" : {
@@ -1217,6 +1329,22 @@
         }
       }
     },
+    "Avec un compte d'ami" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "With a friend account"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avec un compte d'ami"
+          }
+        }
+      }
+    },
     "Avec une définition sur mesure, la session prend un seul écran." : {
       "localizations" : {
         "en" : {
@@ -1389,6 +1517,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ce choix prime sur l'option « Toutes les manettes en Xbox 360 » d'Admin, qui reste le choix des autres appareils."
+          }
+        }
+      }
+    },
+    "Ce lien d'invitation est illisible." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This invitation link can't be read."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce lien d'invitation est illisible."
           }
         }
       }
@@ -1697,6 +1841,22 @@
         }
       }
     },
+    "Compte Steam" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Steam account"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Compte Steam"
+          }
+        }
+      }
+    },
     "Connexion" : {
       "localizations" : {
         "en" : {
@@ -1793,6 +1953,22 @@
         }
       }
     },
+    "Créer un code" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Create a code"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Créer un code"
+          }
+        }
+      }
+    },
     "Dans KyberNow Admin, ouvrez " : {
       "localizations" : {
         "en" : {
@@ -1821,6 +1997,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "De la capture de l'image au début de son encodage"
+          }
+        }
+      }
+    },
+    "Demander à %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ask %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Demander à %@"
           }
         }
       }
@@ -1917,6 +2109,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Du départ de l'ordinateur à l'image complète reçue ici"
+          }
+        }
+      }
+    },
+    "Durée" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Duration"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Durée"
           }
         }
       }
@@ -2145,6 +2353,22 @@
         }
       }
     },
+    "Emprunter" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Borrow"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Emprunter"
+          }
+        }
+      }
+    },
     "En H.264, l'ordinateur encode au plus 4096 pixels de large." : {
       "localizations" : {
         "en" : {
@@ -2157,6 +2381,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "En H.264, l'ordinateur encode au plus 4096 pixels de large."
+          }
+        }
+      }
+    },
+    "En attente de %@…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Waiting for %@…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En attente de %@…"
           }
         }
       }
@@ -2225,6 +2465,22 @@
         }
       }
     },
+    "Encore %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ left"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Encore %@"
+          }
+        }
+      }
+    },
     "Enregistrer" : {
       "localizations" : {
         "en" : {
@@ -2237,6 +2493,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Enregistrer"
+          }
+        }
+      }
+    },
+    "Entrez votre mot de passe pour emprunter." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enter your password to borrow."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Entrez votre mot de passe pour emprunter."
           }
         }
       }
@@ -2783,6 +3055,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Joueur"
+          }
+        }
+      }
+    },
+    "Jusqu'à ce que %@ reprenne" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Until %@ takes it back"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jusqu'à ce que %@ reprenne"
+          }
+        }
+      }
+    },
+    "Jusqu'à ce que je reprenne" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Until I take it back"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jusqu'à ce que je reprenne"
           }
         }
       }
@@ -3651,6 +3955,70 @@
         }
       }
     },
+    "Le prêt demande KyberNow Station 0.9.0 ou plus récente." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lending needs KyberNow Station 0.9.0 or later."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le prêt demande KyberNow Station 0.9.0 ou plus récente."
+          }
+        }
+      }
+    },
+    "Le prêt est coupé dans Admin (page « Prêt »)." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lending is off in Admin (“Lending” page)."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le prêt est coupé dans Admin (page « Prêt »)."
+          }
+        }
+      }
+    },
+    "Le prêt est terminé." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The loan is over."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le prêt est terminé."
+          }
+        }
+      }
+    },
+    "Le prêt n'est pas possible sur cet ordinateur." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lending isn't possible on this computer."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le prêt n'est pas possible sur cet ordinateur."
+          }
+        }
+      }
+    },
     "Le son d'%@ n'est pas encore rétabli : il reviendra au prochain démarrage de KyberNow Station" : {
       "localizations" : {
         "en" : {
@@ -4227,6 +4595,38 @@
         }
       }
     },
+    "Ordinateur d'%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@'s computer"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ordinateur d'%@"
+          }
+        }
+      }
+    },
+    "Ordinateur de %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@'s computer"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ordinateur de %@"
+          }
+        }
+      }
+    },
     "Ordinateur suivant" : {
       "localizations" : {
         "en" : {
@@ -4659,6 +5059,22 @@
         }
       }
     },
+    "Pour une séance, valable 24 h." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "For one session, valid for 24 h."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pour une séance, valable 24 h."
+          }
+        }
+      }
+    },
     "Premières images" : {
       "localizations" : {
         "en" : {
@@ -4771,6 +5187,22 @@
         }
       }
     },
+    "Préparation de l'ordinateur" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Preparing the computer"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Préparation de l'ordinateur"
+          }
+        }
+      }
+    },
     "Préparation de l'écran" : {
       "localizations" : {
         "en" : {
@@ -4831,6 +5263,86 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Prêt"
+          }
+        }
+      }
+    },
+    "Prêter %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lend %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prêter %@"
+          }
+        }
+      }
+    },
+    "Prêter l'ordinateur…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lend the computer…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prêter l'ordinateur…"
+          }
+        }
+      }
+    },
+    "Prêté par %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lent by %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prêté par %@"
+          }
+        }
+      }
+    },
+    "Prêté à %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lent to %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prêté à %@"
+          }
+        }
+      }
+    },
+    "Prêté à %@ jusqu'à %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lent to %1$@ until %2$@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prêté à %@ jusqu'à %@"
           }
         }
       }
@@ -5283,6 +5795,38 @@
         }
       }
     },
+    "Rendre l'ordinateur" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Give back the computer"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rendre l'ordinateur"
+          }
+        }
+      }
+    },
+    "Rendre l'ordinateur à %@ ?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Give the computer back to %@?"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rendre l'ordinateur à %@ ?"
+          }
+        }
+      }
+    },
     "Rendu et attente du prochain rafraîchissement de l'écran" : {
       "localizations" : {
         "en" : {
@@ -5311,6 +5855,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Reprendre"
+          }
+        }
+      }
+    },
+    "Reprendre l'ordinateur" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Take back the computer"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reprendre l'ordinateur"
           }
         }
       }
@@ -5363,6 +5923,54 @@
         }
       }
     },
+    "Reprendre tout de suite" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Take back now"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reprendre tout de suite"
+          }
+        }
+      }
+    },
+    "Reprise dans %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Taking back in %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reprise dans %@"
+          }
+        }
+      }
+    },
+    "Retenir le mot de passe" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remember password"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retenir le mot de passe"
+          }
+        }
+      }
+    },
     "Retirer" : {
       "localizations" : {
         "en" : {
@@ -5411,6 +6019,38 @@
         }
       }
     },
+    "Retirer l'ordinateur d'%@ de cet appareil ?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove %@'s computer from this device?"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retirer l'ordinateur d'%@ de cet appareil ?"
+          }
+        }
+      }
+    },
+    "Retirer l'ordinateur de %@ de cet appareil ?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove %@'s computer from this device?"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retirer l'ordinateur de %@ de cet appareil ?"
+          }
+        }
+      }
+    },
     "Retour" : {
       "localizations" : {
         "en" : {
@@ -5423,6 +6063,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Retour"
+          }
+        }
+      }
+    },
+    "Revenir" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Come back"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Revenir"
           }
         }
       }
@@ -5823,6 +6479,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Son certificat, une seule fois"
+          }
+        }
+      }
+    },
+    "Son compte Steam" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Their Steam account"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Son compte Steam"
           }
         }
       }
@@ -6643,6 +7315,38 @@
         }
       }
     },
+    "Votre ami entre ce code avec « Rejoindre avec un code » dans KyberNow Link, ou ouvre ce lien dans un navigateur." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your friend enters this code with “Join with a code” in KyberNow Link, or opens this link in a browser."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Votre ami entre ce code avec « Rejoindre avec un code » dans KyberNow Link, ou ouvre ce lien dans un navigateur."
+          }
+        }
+      }
+    },
+    "Votre ami joue dans votre session Windows. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your friend plays in your Windows session. They see neither your desktop nor your windows, but a game can read your files: lend to friends you trust."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Votre ami joue dans votre session Windows. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance."
+          }
+        }
+      }
+    },
     "Votre compte" : {
       "localizations" : {
         "en" : {
@@ -6675,6 +7379,70 @@
         }
       }
     },
+    "Votre compte Steam" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your Steam account"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Votre compte Steam"
+          }
+        }
+      }
+    },
+    "Votre créneau : %@, %@ – %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your time slot: %1$@, %2$@ – %3$@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Votre créneau : %@, %@ – %@"
+          }
+        }
+      }
+    },
+    "Votre créneau est terminé." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your time slot is over."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Votre créneau est terminé."
+          }
+        }
+      }
+    },
+    "Votre créneau, jusqu'à %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your time slot, until %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Votre créneau, jusqu'à %@"
+          }
+        }
+      }
+    },
     "Votre ordinateur prouve son identité avec un certificat que KyberNow Station a créé pendant l'installation. Comparez son empreinte avec celle qu'affiche KyberNow Admin, dans **Appareils**." : {
       "localizations" : {
         "en" : {
@@ -6703,6 +7471,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Votre prénom"
+          }
+        }
+      }
+    },
+    "Votre session se fermera quand votre ami arrivera." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your session will close when your friend arrives."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Votre session se fermera quand votre ami arrivera."
+          }
+        }
+      }
+    },
+    "Votre session va se fermer." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your session will close."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Votre session va se fermer."
           }
         }
       }
@@ -6768,6 +7568,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Vous pouvez jouer."
+          }
+        }
+      }
+    },
+    "Vous pouvez revenir pendant 15 min." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You can come back for 15 min."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vous pouvez revenir pendant 15 min."
           }
         }
       }
@@ -7184,6 +8000,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "il y a %lld jours"
+          }
+        }
+      }
+    },
+    "l'ordinateur prêté ne répond plus" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "the lent computer is not responding"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "l'ordinateur prêté ne répond plus"
           }
         }
       }
@@ -7648,758 +8480,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "⌘C, ⌘V et les autres raccourcis du Mac font Ctrl+C, Ctrl+V sur l'ordinateur."
-          }
-        }
-      }
-    },
-    "%@ a repris l'ordinateur." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ took back the computer."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ a repris l'ordinateur."
-          }
-        }
-      }
-    },
-    "%@ veut emprunter l'ordinateur." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ wants to borrow the computer."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ veut emprunter l'ordinateur."
-          }
-        }
-      }
-    },
-    "%@ vous prête son ordinateur." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ is lending you their computer."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ vous prête son ordinateur."
-          }
-        }
-      }
-    },
-    "1 heure" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "1 hour"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "1 heure"
-          }
-        }
-      }
-    },
-    "2 heures" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "2 hours"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "2 heures"
-          }
-        }
-      }
-    },
-    "4 heures" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "4 hours"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "4 heures"
-          }
-        }
-      }
-    },
-    "Annuler le code" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cancel code"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Annuler le code"
-          }
-        }
-      }
-    },
-    "Avec un compte d'ami" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "With a friend account"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Avec un compte d'ami"
-          }
-        }
-      }
-    },
-    "Compte Steam" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Steam account"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Compte Steam"
-          }
-        }
-      }
-    },
-    "Créer un code" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Create a code"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Créer un code"
-          }
-        }
-      }
-    },
-    "Demander à %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ask %@"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Demander à %@"
-          }
-        }
-      }
-    },
-    "Durée" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Duration"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Durée"
-          }
-        }
-      }
-    },
-    "Emprunter" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Borrow"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Emprunter"
-          }
-        }
-      }
-    },
-    "En attente de %@…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Waiting for %@…"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "En attente de %@…"
-          }
-        }
-      }
-    },
-    "Encore %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ left"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Encore %@"
-          }
-        }
-      }
-    },
-    "Jusqu'à ce que %@ reprenne" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Until %@ takes it back"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Jusqu'à ce que %@ reprenne"
-          }
-        }
-      }
-    },
-    "Jusqu'à ce que je reprenne" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Until I take it back"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Jusqu'à ce que je reprenne"
-          }
-        }
-      }
-    },
-    "Le prêt demande KyberNow Station 0.9.0 ou plus récente." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Lending needs KyberNow Station 0.9.0 or later."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Le prêt demande KyberNow Station 0.9.0 ou plus récente."
-          }
-        }
-      }
-    },
-    "Le prêt est coupé dans Admin (page « Prêt »)." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Lending is off in Admin (“Lending” page)."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Le prêt est coupé dans Admin (page « Prêt »)."
-          }
-        }
-      }
-    },
-    "Le prêt est terminé." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The loan is over."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Le prêt est terminé."
-          }
-        }
-      }
-    },
-    "Ordinateur d'%@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@'s computer"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ordinateur d'%@"
-          }
-        }
-      }
-    },
-    "Ordinateur de %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@'s computer"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ordinateur de %@"
-          }
-        }
-      }
-    },
-    "Pour une séance, valable 24 h." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "For one session, valid for 24 h."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pour une séance, valable 24 h."
-          }
-        }
-      }
-    },
-    "Préparation de l'ordinateur" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Preparing the computer"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Préparation de l'ordinateur"
-          }
-        }
-      }
-    },
-    "Prêter %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Lend %@"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Prêter %@"
-          }
-        }
-      }
-    },
-    "Prêter l'ordinateur…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Lend the computer…"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Prêter l'ordinateur…"
-          }
-        }
-      }
-    },
-    "Prêté par %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Lent by %@"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Prêté par %@"
-          }
-        }
-      }
-    },
-    "Prêté à %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Lent to %@"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Prêté à %@"
-          }
-        }
-      }
-    },
-    "Prêté à %@ jusqu'à %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Lent to %1$@ until %2$@"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Prêté à %@ jusqu'à %@"
-          }
-        }
-      }
-    },
-    "Rendre l'ordinateur" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Give back the computer"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Rendre l'ordinateur"
-          }
-        }
-      }
-    },
-    "Rendre l'ordinateur à %@ ?" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Give the computer back to %@?"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Rendre l'ordinateur à %@ ?"
-          }
-        }
-      }
-    },
-    "Reprendre l'ordinateur" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Take back the computer"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Reprendre l'ordinateur"
-          }
-        }
-      }
-    },
-    "Reprendre tout de suite" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Take back now"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Reprendre tout de suite"
-          }
-        }
-      }
-    },
-    "Reprise dans %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Taking back in %@"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Reprise dans %@"
-          }
-        }
-      }
-    },
-    "Retenir le mot de passe" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Remember password"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Retenir le mot de passe"
-          }
-        }
-      }
-    },
-    "Revenir" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Come back"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Revenir"
-          }
-        }
-      }
-    },
-    "Son compte Steam" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Their Steam account"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Son compte Steam"
-          }
-        }
-      }
-    },
-    "Votre ami entre ce code avec « Rejoindre avec un code » dans KyberNow Link, ou ouvre ce lien dans un navigateur." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Your friend enters this code with “Join with a code” in KyberNow Link, or opens this link in a browser."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Votre ami entre ce code avec « Rejoindre avec un code » dans KyberNow Link, ou ouvre ce lien dans un navigateur."
-          }
-        }
-      }
-    },
-    "Votre ami joue dans votre session Windows. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Your friend plays in your Windows session. They see neither your desktop nor your windows, but a game can read your files: lend to friends you trust."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Votre ami joue dans votre session Windows. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance."
-          }
-        }
-      }
-    },
-    "Votre compte Steam" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Your Steam account"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Votre compte Steam"
-          }
-        }
-      }
-    },
-    "Votre créneau : %@, %@ – %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Your time slot: %1$@, %2$@ – %3$@"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Votre créneau : %@, %@ – %@"
-          }
-        }
-      }
-    },
-    "Votre créneau est terminé." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Your time slot is over."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Votre créneau est terminé."
-          }
-        }
-      }
-    },
-    "Votre créneau, jusqu'à %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Your time slot, until %@"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Votre créneau, jusqu'à %@"
-          }
-        }
-      }
-    },
-    "Votre session se fermera quand votre ami arrivera." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Your session will close when your friend arrives."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Votre session se fermera quand votre ami arrivera."
-          }
-        }
-      }
-    },
-    "Votre session va se fermer." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Your session will close."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Votre session va se fermer."
-          }
-        }
-      }
-    },
-    "Vous pouvez revenir pendant 15 min." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "You can come back for 15 min."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Vous pouvez revenir pendant 15 min."
-          }
-        }
-      }
-    },
-    "l'ordinateur prêté ne répond plus" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "the lent computer is not responding"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "l'ordinateur prêté ne répond plus"
           }
         }
       }

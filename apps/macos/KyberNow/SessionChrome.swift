@@ -215,17 +215,21 @@ private struct PassageCapsule: View {
                 }
             case .failed:
                 if case let .failed(message) = session.phase {
-                    if session.shareEndText != nil || session.lendEndText != nil {
-                        // Fin par le partage ou le prêt (« {hôte} a repris l'ordinateur. »), seule, sans « Reprendre la main ».
-                        lines(title: message, sub: "")
-                    } else if session.canComeBack {
-                        // Réseau perdu pendant un emprunt : l'ami peut revenir pendant 15 min.
-                        VStack(alignment: .leading, spacing: 3) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        // La carte de fin d'un emprunt : surtitre « KyberNow Share ».
+                        if session.isBorrower { Theme.eyebrow(LendText.endEyebrow) }
+                        if session.shareEndText != nil || session.lendEndText != nil {
+                            // Fin par le partage ou le prêt (« {hôte} a repris l'ordinateur. »), seule, sans « Reprendre la main ».
+                            lines(title: message, sub: "")
+                        } else if session.canComeBack {
+                            // Réseau perdu pendant un emprunt : l'ami peut revenir pendant 15 min.
+                            VStack(alignment: .leading, spacing: 3) {
+                                lines(title: String(localized: "La connexion a échoué"), sub: message.prefix(1).uppercased() + message.dropFirst(), warn: true)
+                                Text(LendText.comeBackHint).font(Theme.sans(13)).foregroundStyle(Theme.text2)
+                            }
+                        } else {
                             lines(title: String(localized: "La connexion a échoué"), sub: message.prefix(1).uppercased() + message.dropFirst(), warn: true)
-                            Text(LendText.comeBackHint).font(Theme.sans(13)).foregroundStyle(Theme.text2)
                         }
-                    } else {
-                        lines(title: String(localized: "La connexion a échoué"), sub: message.prefix(1).uppercased() + message.dropFirst(), warn: true)
                     }
                 }
                 if session.canComeBack {
@@ -602,7 +606,8 @@ private struct SessionBar: View {
 
     /// Barre d'un ami qui emprunte (docs/link-ui.md, « Prêt de l'ordinateur ») :
     /// « Prêté par {hôte} », le temps restant, les mesures, le son, la souris,
-    /// le plein écran et « Rendre l'ordinateur » ; ni profil de la Station ni
+    /// le plein écran, « Se déconnecter » (sans rendre : il peut revenir
+    /// pendant 15 min) et « Rendre l'ordinateur » ; ni profil de la Station ni
     /// presse-papiers.
     private func borrowerRow(compact: Bool) -> some View {
         HStack(spacing: 6) {
@@ -641,6 +646,23 @@ private struct SessionBar: View {
                 .accessibilityLabel("Plein écran")
                 .overlay(ring(1))
             }
+            // Ferme la session sans rendre l'ordinateur : « Revenir » le reprend pendant 15 min.
+            Button { session.end() } label: {
+                HStack(spacing: 8) {
+                    Icon("power", size: 15, bold: true)
+                    Text(LendText.disconnect).lineLimit(1).fixedSize()
+                }
+                .font(Theme.sans(13, .semibold))
+                .foregroundStyle(Theme.text2)
+                .padding(.horizontal, 14)
+                .frame(height: 36)
+                .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 9))
+                .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Theme.line2))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(LendText.disconnect + " (⌃⌥⌘D)")
+            .overlay(ring(session.padItems - 2))
             Button { session.askGiveBack() } label: {
                 HStack(spacing: 8) {
                     Icon("key", size: 15, bold: true)

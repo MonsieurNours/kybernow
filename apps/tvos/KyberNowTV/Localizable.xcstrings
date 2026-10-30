@@ -1569,6 +1569,38 @@
         }
       }
     },
+    "Ce lien d'invitation est illisible." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This invitation link can't be read."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce lien d'invitation est illisible."
+          }
+        }
+      }
+    },
+    "Ce n'est pas un lien KyberNow." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This isn't a KyberNow link."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce n'est pas un lien KyberNow."
+          }
+        }
+      }
+    },
     "Ce partage est arrêté." : {
       "localizations" : {
         "en" : {
@@ -2653,6 +2685,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ensuite : le compte de l'ordinateur."
+          }
+        }
+      }
+    },
+    "Entrez votre mot de passe pour emprunter." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enter your password to borrow."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Entrez votre mot de passe pour emprunter."
           }
         }
       }
@@ -3887,6 +3935,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Le prêt est terminé."
+          }
+        }
+      }
+    },
+    "Le prêt n'est pas possible sur cet ordinateur." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lending isn't possible on this computer."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le prêt n'est pas possible sur cet ordinateur."
           }
         }
       }
@@ -5663,6 +5727,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Retirer cet ordinateur"
+          }
+        }
+      }
+    },
+    "Retirer l'ordinateur d'%@ de cet appareil ?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove %@'s computer from this device?"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retirer l'ordinateur d'%@ de cet appareil ?"
+          }
+        }
+      }
+    },
+    "Retirer l'ordinateur de %@ de cet appareil ?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove %@'s computer from this device?"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retirer l'ordinateur de %@ de cet appareil ?"
           }
         }
       }

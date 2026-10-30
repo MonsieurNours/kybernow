@@ -73,7 +73,20 @@ struct RootView: View {
                 }
             }
         }
+        .overlay(alignment: .top) {
+            if let notice = app.notice {
+                HStack(spacing: 14) {
+                    Icon("warning", size: 28).foregroundStyle(Theme.warn)
+                    Text(notice).font(Theme.sans(24)).foregroundStyle(Theme.text)
+                }
+                .padding(.horizontal, 30).frame(height: 76)
+                .glass(38)
+                .padding(.top, 60)
+                .transition(.opacity.combined(with: .offset(y: -14)))
+            }
+        }
         .ignoresSafeArea()
         .animation(Theme.join, value: app.screen)
+        .animation(Theme.join, value: app.notice)
     }
 }

@@ -100,16 +100,18 @@ struct LendPanelView: View {
     @ViewBuilder private func created(_ code: LendCodeView) -> some View {
         ViewThatFits(in: .horizontal) {
             HStack(alignment: .top, spacing: 20) {
-                LendQR(link: code.link)
+                LinkQR(link: code.link, waiting: lend.waitingForRelayLink)
                 codeAndCopy(code)
             }
             VStack(alignment: .leading, spacing: 16) {
-                LendQR(link: code.link)
+                LinkQR(link: code.link, waiting: lend.waitingForRelayLink)
                 codeAndCopy(code)
             }
         }
         VStack(alignment: .leading, spacing: 6) {
             Text(LendText.help).font(Theme.sans(13.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+            // Comme le partage : le lien du relais en préparation (10 s au plus), ou pas encore joignable.
+            RelayLinkNote(relay: lend.relay)
             Text(LendText.sessionCloses).font(Theme.sans(13.5)).foregroundStyle(Theme.faint).fixedSize(horizontal: false, vertical: true)
         }
         Text(verbatim: [code.duration.flatMap { LendDuration(rawValue: $0)?.label } ?? LendDuration.untilTakenBack.label, code.steam.label].joined(separator: " · "))
@@ -136,6 +138,7 @@ struct LendPanelView: View {
                 }
             }
             .buttonStyle(GlassButton(height: 44, fontSize: 15))
+            .disabled(lend.waitingForRelayLink)
             if let copyResult {
                 Text(copyResult).font(Theme.sans(13)).foregroundStyle(copied ? Theme.ok : Theme.warnText)
                     .fixedSize(horizontal: false, vertical: true)
@@ -203,25 +206,6 @@ private struct LendChoice<Value: Hashable>: View {
 }
 
 /// Le QR code du lien du code de prêt (`kybernow://join…`), net, sur fond blanc.
-private struct LendQR: View {
-    let link: String
-
-    var body: some View {
-        if let image = Share.qrImage(for: link) {
-            Image(decorative: image, scale: 1)
-                .interpolation(.none)
-                .resizable()
-                .aspectRatio(1, contentMode: .fit)
-                .frame(width: 150, height: 150)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .accessibilityElement()
-                .accessibilityLabel(ShareText.qrLabel)
-        } else {
-            RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.surface).frame(width: 150, height: 150)
-        }
-    }
-}
-
 // MARK: - Ami : ajouter un ordinateur prêté
 
 /// « Avec un compte d'ami » : l'ordinateur (celui du lien d'invitation, ou un
@@ -337,8 +321,9 @@ struct AddHostFriendPane: View {
 }
 
 /// Le lien d'invitation ouvert (`kybernow://borrow?…`) : « {hôte} vous prête
-/// son ordinateur. » quand on sait déjà qui, l'identifiant rempli, le mot de
-/// passe à taper, « Ajouter ».
+/// son ordinateur. » quand on sait qui (le prénom du lien, ou l'ordinateur
+/// déjà ajouté), sinon « Avec un compte d'ami » ; l'identifiant rempli, le mot
+/// de passe à taper, « Ajouter ».
 struct InviteView: View {
     @EnvironmentObject private var app: AppModel
     @Environment(\.dismiss) private var dismiss
@@ -350,7 +335,7 @@ struct InviteView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 HStack(alignment: .top) {
-                    Text(known.map { LendText.invitation($0.hostName) } ?? LendText.withFriendAccount)
+                    Text(LendText.invitationTitle(invite.name ?? known?.hostName))
                         .font(Theme.display(34, 660)).tracking(-34 * 0.03)
                         .foregroundStyle(Theme.text)
                         .fixedSize(horizontal: false, vertical: true)
@@ -405,6 +390,8 @@ struct BorrowPasswordView: View {
                     .accessibilityLabel(Text(StationText.cancel))
                 }
                 Text(verbatim: computer.login).font(Theme.mono(13)).foregroundStyle(Theme.faint)
+                Text(LendText.enterPassword).font(Theme.sans(15)).foregroundStyle(Theme.text2)
+                    .fixedSize(horizontal: false, vertical: true)
                 AddHostField(label: LendText.password, text: $password, secure: true, content: .password, submit: .go) { borrow() }
                 Toggle(isOn: $remember) { Text(LendText.rememberPassword).font(Theme.sans(15)).foregroundStyle(Theme.text2) }
                     .tint(Theme.accent)
@@ -517,7 +504,7 @@ struct BorrowedActions: View {
         let removeButton = Button(role: .destructive, action: remove) {
             HStack(spacing: 9) {
                 Icon("trash", size: 20)
-                if wide { Text(ShareText.remove) }
+                if wide { Text(LendText.removeComputer) }
             }
             .font(Theme.sans(15, .medium))
             .foregroundStyle(Theme.text)
@@ -527,7 +514,7 @@ struct BorrowedActions: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(HomePressStyle())
-        .accessibilityLabel(Text(ShareText.remove))
+        .accessibilityLabel(Text(LendText.removeComputer))
         HStack(spacing: wide ? 16 : 8) {
             cta
             removeButton

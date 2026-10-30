@@ -62,6 +62,7 @@ struct SessionView: View {
                     // « Vous pouvez revenir pendant 15 min. » et « Revenir ».
                     SessionFailure(host: session.host, title: session.title, message: message, connecting: !revealed,
                                    shareEnd: session.shareEndText != nil || session.lendEndText != nil,
+                                   eyebrow: session.isBorrower ? LendText.endEyebrow : nil,
                                    doneTitle: session.isBorrower ? LendText.close : nil,
                                    comeBack: session.canComeBack ? { session.comeBack() } : nil) { session.dismissFailure() }
                         .transition(.opacity)
@@ -732,7 +733,21 @@ struct SessionBar: View {
         }
         .accessibilityLabel(Text("Masquer la barre"))
         if session.isBorrower {
-            // Un ami rend l'ordinateur (confirmation) ; fermer l'app ne le rend pas.
+            // « Se déconnecter » ferme la session sans rendre l'ordinateur (« Revenir »
+            // pendant 15 min) ; « Rendre l'ordinateur » le rend (confirmation).
+            Button { session.end() } label: {
+                HStack(spacing: 8) {
+                    Icon("power", size: 18)
+                    // Sur iPhone, l'icône seule (comme pour sa propre session) : la barre reste étroite.
+                    if DeviceDisplay.isPad { Text(LendText.disconnect).font(Theme.sans(13, .semibold)).lineLimit(1).fixedSize() }
+                }
+                .foregroundStyle(Theme.text2)
+                .padding(.horizontal, DeviceDisplay.isPad ? 12 : 0)
+                .frame(minWidth: 44, minHeight: 44)
+                .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.06)))
+                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.white.opacity(0.14)))
+            }
+            .accessibilityLabel(Text(LendText.disconnect))
             Button { session.askGiveBack() } label: {
                 HStack(spacing: 8) {
                     Icon("key", size: 18)
@@ -1143,6 +1158,8 @@ struct SessionFailure: View {
     var connecting = true
     /// Fin d'une session d'invité par le partage : la raison seule, sans titre d'échec.
     var shareEnd = false
+    /// Le surtitre de la carte (« KyberNow Share » pour la fin d'un emprunt).
+    var eyebrow: String?
     /// Le bouton de fin (« Fermer » pour un emprunt), sinon « Retour ».
     var doneTitle: String?
     /// Un emprunt coupé (réseau perdu) : « Vous pouvez revenir pendant 15 min. » et « Revenir ».
@@ -1158,6 +1175,7 @@ struct SessionFailure: View {
         ZStack(alignment: .topLeading) {
             HostBackdrop(host: host, online: false)
             VStack(alignment: .leading, spacing: 16) {
+                if let eyebrow { Theme.eyebrow(eyebrow, color: Theme.faint) }
                 if !shareEnd {
                     HStack(spacing: 10) {
                         Icon("warning", size: 20).foregroundStyle(Theme.warn)

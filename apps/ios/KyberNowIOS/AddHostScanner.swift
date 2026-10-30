@@ -239,6 +239,11 @@ struct AddHostQRPane: View {
             app.invite(fromAddSheet: invite)
             return
         }
+        // Une invitation illisible : on le dit (la caméra continue).
+        if case .badInvite? = LinkKind.parse(text) {
+            notice = LendText.badInvite
+            return
+        }
         guard let c = PairingLink.parse(text) else {
             // La caméra peut croiser d'autres QR codes : seul un lien collé est signalé.
             if pasted { notice = String(localized: "Ce n'est pas un lien KyberNow.") }

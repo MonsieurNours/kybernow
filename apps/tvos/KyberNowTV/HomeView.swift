@@ -74,9 +74,9 @@ struct HomeView: View {
                 app.selected = id
             }
         }
-        .confirmationDialog(removing.map { StationText.removeQuestion($0.title) } ?? "", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
+        .confirmationDialog(removing.map { LendText.removeQuestion($0.hostName) } ?? "", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
                             titleVisibility: .visible) {
-            Button(ShareText.remove, role: .destructive) {
+            Button(StationText.removeConfirm, role: .destructive) {
                 if let removing { app.removeBorrowed(removing) }
                 removing = nil
             }
@@ -235,7 +235,7 @@ struct HomeView: View {
                 Button { removing = computer } label: {
                     HStack(spacing: 12) {
                         Icon("trash", size: 26)
-                        Text(ShareText.remove).font(Theme.sans(22, .medium))
+                        Text(LendText.removeComputer).font(Theme.sans(22, .medium))
                     }
                     .padding(.leading, 20).padding(.trailing, 24)
                     .frame(height: 64)

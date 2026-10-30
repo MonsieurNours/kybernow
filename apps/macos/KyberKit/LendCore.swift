@@ -127,7 +127,11 @@ public struct LendInvite: Sendable, Equatable, Codable, Identifiable {
     public let login: String
     public let relay: String?
     public let sid: String?
-    /// Le JSON du cœur (`{host, port, fingerprint, login, relay, sid, route}`),
+    /// Le prénom de l'hôte (`name=` du lien) : « {hôte} vous prête son
+    /// ordinateur. » avant le premier statut ; nil pour un lien qui ne le dit
+    /// pas (lien d'avant, ou compte d'ami tapé à la main).
+    public let name: String?
+    /// Le JSON du cœur (`{host, port, fingerprint, login, relay, sid, name, route}`),
     /// gardé tel quel : il donne la Station et la route.
     public let json: String
 
@@ -142,7 +146,20 @@ public struct LendInvite: Sendable, Equatable, Codable, Identifiable {
         fingerprint = j["fingerprint"] as? String
         relay = j["relay"] as? String
         sid = j["sid"] as? String
+        let name = (j["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.name = name.isEmpty ? nil : name
         json = text
+    }
+
+    /// Le texte ressemble à un lien d'invitation (`kybernow://borrow…`, ou une
+    /// page `/link/` du client web avec `borrow=`), lisible ou non : un lien
+    /// illisible se dit (« Ce lien d'invitation est illisible. ») au lieu
+    /// d'être ignoré.
+    public static func looksLikeInvite(_ text: String) -> Bool {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if t.hasPrefix("kybernow://borrow") { return true }
+        guard t.hasPrefix("https://"), let query = t.split(separator: "?", maxSplits: 1).last, t.contains("/link") else { return false }
+        return query.split(separator: "&").contains { $0.hasPrefix("borrow=") }
     }
 
     /// Un compte d'ami sur une Station du réseau, sans lien d'invitation.
@@ -542,14 +559,20 @@ public struct LendCodeView: Sendable, Equatable {
     public let steam: LendSteam
     /// Le code ne sert plus après cette heure (24 h).
     public let expires: Date?
+    /// Le relais du code, comme celui du partage (`relay.state`) : nil sans
+    /// relais réglé ; sinon il tient le code (`link` et `web` passent par
+    /// lui), s'y prépare, ou n'est pas encore joignable.
+    public let relay: ShareState.Relay?
 
-    public init(code: String, link: String, web: String, duration: Int?, steam: LendSteam, expires: Date? = nil) {
+    public init(code: String, link: String, web: String, duration: Int?, steam: LendSteam, expires: Date? = nil,
+                relay: ShareState.Relay? = nil) {
         self.code = code
         self.link = link
         self.web = web
         self.duration = duration
         self.steam = steam
         self.expires = expires
+        self.relay = relay
     }
 }
 
@@ -598,7 +621,9 @@ public struct LendView: Sendable, Equatable {
             guard let code = c["code"] as? String, !code.isEmpty else { return nil }
             return LendCodeView(code: code, link: c["link"] as? String ?? "", web: c["web"] as? String ?? "",
                                 duration: (c["duration"] as? NSNumber)?.intValue, steam: LendSteam(wire: c["steam"] as? String),
-                                expires: date(c["expires"]))
+                                expires: date(c["expires"]),
+                                // Comme la vue du partage : nul sans relais réglé, sinon `{"state": …}`.
+                                relay: (c["relay"] as? [String: Any]).map { ShareState.Relay(wire: $0["state"] as? String) })
         }
         self.init(enabled: j["enabled"] as? Bool ?? false, state: LendHostState(rawValue: j["state"] as? String ?? "") ?? .free,
                   borrower: borrower, notice: LendNotice(json: j["notice"]), requests: requests, code: code)

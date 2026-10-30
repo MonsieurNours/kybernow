@@ -696,6 +696,9 @@ final class SessionController: ObservableObject {
     private func lendEnded(_ end: LendEnd, text: String) {
         guard isBorrower else { return }
         if end == .left {
+            // Rendu ici : fin voulue. Rendu depuis le lanceur, sur l'ordinateur :
+            // « Vous avez rendu l'ordinateur. » reste à l'écran, comme les autres fins.
+            if !givingBack { lendEndText = text.isEmpty ? nil : text }
             givingBack = true
         } else {
             lendEndText = text.isEmpty ? nil : text

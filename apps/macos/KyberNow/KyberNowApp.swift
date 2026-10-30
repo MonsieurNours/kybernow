@@ -127,8 +127,12 @@ final class AppModel: ObservableObject {
                 joining = false
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { self.join(link: link) }
             }
-            // kybernow://borrow?… : un ami prête son ordinateur.
+            // kybernow://borrow?… : un ami prête son ordinateur ; illisible, on le dit.
             if case let .borrow(invite) = kind { openInvite(invite) }
+            if case .badInvite = kind {
+                showWindow()
+                show(LendText.badInvite, warning: true)
+            }
             return
         }
         // Fenêtre cachée (l'app vivait dans la barre des menus) : elle revient pour l'ajout.
@@ -180,11 +184,12 @@ final class AppModel: ObservableObject {
                                        name: GuestName.proposed, hostHint: computer.hostName, computer: computer.id))
     }
 
-    /// « Retirer » un ordinateur prêté de cet appareil.
+    /// « Retirer cet ordinateur » : l'ordinateur d'un ami, retiré de cet appareil
+    /// après confirmation (« Retirer l'ordinateur de {hôte} de cet appareil ? »).
     func removeBorrowed(_ computer: BorrowedComputer) {
         let alert = NSAlert()
-        alert.messageText = StationText.removeQuestion(computer.title)
-        alert.addButton(withTitle: ShareText.remove)
+        alert.messageText = LendText.removeQuestion(computer.hostName)
+        alert.addButton(withTitle: StationText.removeConfirm)
         alert.addButton(withTitle: StationText.cancel)
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         borrowed.remove(computer)
