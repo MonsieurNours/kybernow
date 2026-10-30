@@ -3,6 +3,25 @@
     <channel>
         <title>KyberNow</title>
         <item>
+            <title>0.9.0</title>
+            <pubDate>Fri, 30 Oct 2026 13:48:31 +0100</pubDate>
+            <sparkle:version>202610301300</sparkle:version>
+            <sparkle:shortVersionString>0.9.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[
+- **Lend your computer to a friend.** A new “Lending” page in Admin: while you're not using the PC, a friend plays on it from their KyberNow Link app or their browser, at your place or from home. They see neither your desktop nor your windows: your Windows session switches to console mode, with a full-screen launcher in KyberNow Share colours that only shows the apps you picked (Steam in Big Picture, and apps from your Start menu). The last game played comes first. The PC's screen is covered (“Computer lent to Léa”); Enter on its keyboard hands it back to you.
+- **Three ways to lend**: a code for one session (1, 2 or 4 hours, or until you take it back), friend accounts with a username, a password and an invitation link, and weekly time slots during which your friend borrows without asking. If you're using the PC, you accept or decline their request; during their slot, they go first.
+- **Steam, chosen for each loan**: your friend signs in with their account (your remembered accounts are set aside) or plays with yours. At the end, Steam goes back to your account.
+- **Taking back**: from Admin, the icon next to the clock, your Link apps or the PC's keyboard. Your friend has 2 minutes to save. When the loan ends, everything goes back as it was and the Windows session locks.
+- Lending is off at first, and your Windows session must stay open to lend. Your files are protected as well as possible, not sealed off: a game can read your disk. Lend to friends you trust.
+- Station: Ctrl+Alt+Del and Win+L no longer get through for a share guest or a borrowing friend (Kyber patch 0021). Away from home, the lending code goes through the relay, like the sharing code.
+- Lending hasn't been tried on every PC yet: your feedback is welcome on the Discord.
+]]></description>
+            <sparkle:releaseNotesLink xml:lang="fr">https://www.kybernow.app/updates/notes/0.9.0/KyberNow-Link-macOS.fr.html</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/MonsieurNours/kybernow/releases/download/v0.9.0/KyberNow-Link-macOS.zip" length="49403398" type="application/octet-stream" sparkle:edSignature="3GPy+Xcch6pZa3F8wdEZ3LFJXcCoXlC7eRAllIgiTZwQ62UsEKYnhDSv63sr+qfaa424Oy62Yw+7m12uIAXdAw=="/>
+        </item>
+        <item>
             <title>0.8.1</title>
             <pubDate>Wed, 28 Oct 2026 17:47:22 +0100</pubDate>
             <sparkle:version>202610281726</sparkle:version>
