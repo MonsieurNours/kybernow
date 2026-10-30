@@ -148,7 +148,7 @@ enum class LendEnd(val code: Int) {
     TAKEN_BACK(0),
     TIME_UP(1),
     SLOT_END(2),
-    /** L'ami a rendu l'ordinateur : une fin voulue, sans texte. */
+    /** L'ami a rendu l'ordinateur (depuis l'app ou le lanceur) : une fin voulue, « Vous avez rendu l'ordinateur. ». */
     LEFT(3),
     STOPPED(4);
 
@@ -202,7 +202,10 @@ data class LendRequest(
     }
 }
 
-/** Le code d'une séance : le code ([codeText] tel qu'on l'affiche, « 123 456 »), le lien du QR code, l'adresse web. */
+/**
+ * Le code d'une séance : le code ([codeText] tel qu'on l'affiche, « 123 456 »), le lien du QR code, l'adresse web ;
+ * [relay] : ce que le relais fait du code (`code.relay`, comme `relay` du partage : [RelayPhase] et [RelayWait.lend]).
+ */
 data class LendCodeView(
     val code: String,
     val codeText: String,
@@ -211,11 +214,15 @@ data class LendCodeView(
     val duration: LendDuration,
     val steam: LendSteam,
     val expires: Long?,
+    val relay: ShareRelay? = null,
 ) {
     companion object {
         fun parse(o: JSONObject, format: (String) -> String): LendCodeView? {
             val code = o.optString("code").takeIf { it.isNotEmpty() } ?: return null
-            return LendCodeView(code, format(code), o.optString("link"), o.optString("web"), LendDuration.of(o.seconds("duration")), LendSteam.parse(o.optString("steam")), o.seconds("expires"))
+            return LendCodeView(
+                code, format(code), o.optString("link"), o.optString("web"), LendDuration.of(o.seconds("duration")), LendSteam.parse(o.optString("steam")), o.seconds("expires"),
+                ShareRelay.parse(o.optJSONObject("relay")),
+            )
         }
     }
 }
@@ -259,32 +266,42 @@ data class LendView(
 
 /**
  * Ce que « Prêter l'ordinateur… » peut faire avec l'ordinateur, d'après son `info` (`lend` : absent avant la Station
- * 0.9.0 ; `enabled` faux : le prêt est coupé dans Admin).
+ * 0.9.0 ; `available` faux : la Station ne peut pas prêter sur cet ordinateur ; `enabled` faux : le prêt est coupé dans
+ * Admin).
  */
 enum class LendAvailable {
     TOO_OLD,
+    UNAVAILABLE,
     OFF,
     ON;
 
     companion object {
         fun of(infoJson: String?): LendAvailable {
             val lend = runCatching { JSONObject(infoJson ?: "").optJSONObject("lend") }.getOrNull() ?: return TOO_OLD
-            return if (lend.optBoolean("available", true) && lend.optBoolean("enabled")) ON else OFF
+            return when {
+                !lend.optBoolean("available", true) -> UNAVAILABLE
+                lend.optBoolean("enabled") -> ON
+                else -> OFF
+            }
         }
     }
 }
 
 /**
- * Un lien d'invitation (`kybernow://borrow?host=…&port=…&fp=…&login=…[&relay=…&sid=…]`, lu par le cœur) : la Station,
- * l'identifiant de l'ami et, hors de chez soi, la route par le relais ([route], `{server, station, admin_fp}`).
+ * Un lien d'invitation (`kybernow://borrow?host=…&port=…&fp=…&login=…[&relay=…&sid=…&name=…]`, lu par le cœur) : la
+ * Station, l'identifiant de l'ami, le prénom de l'hôte ([name] : « {hôte} vous prête son ordinateur. » dès l'ouverture ;
+ * nul pour un lien d'avant) et, hors de chez soi, la route par le relais ([route], `{server, station, admin_fp}`).
  */
-data class LendInvite(val target: ShareTarget, val login: String, val relay: String? = null, val sid: String? = null, val route: String? = null) {
+data class LendInvite(val target: ShareTarget, val login: String, val relay: String? = null, val sid: String? = null, val route: String? = null, val name: String? = null) {
     companion object {
         fun parse(o: JSONObject): LendInvite? {
             val host = o.text("host") ?: return null
             val port = o.optInt("port").takeIf { it > 0 } ?: return null
             val login = o.text("login") ?: return null
-            return LendInvite(ShareTarget(host, port, o.text("fingerprint")), login, o.text("relay"), o.text("sid"), o.optJSONObject("route")?.toString())
+            return LendInvite(
+                ShareTarget(host, port, o.text("fingerprint")), login, o.text("relay"), o.text("sid"), o.optJSONObject("route")?.toString(),
+                o.text("name")?.trim()?.takeIf { it.isNotEmpty() },
+            )
         }
     }
 }
@@ -400,8 +417,14 @@ object Lend {
             .put("codecs", codecs)
     }
 
-    /** Un lien d'invitation, ou `null` si ce n'en est pas un. */
+    /** Un lien d'invitation, ou `null` si ce n'en est pas un (ou s'il est illisible). */
     fun parseInvite(url: String): LendInvite? = runCatching { Native.lendParseInvite(url)?.let { LendInvite.parse(JSONObject(it)) } }.getOrNull()
+
+    /**
+     * Le lien se veut un lien d'invitation (`kybernow://borrow…`), lisible ou non : illisible ([parseInvite] nul), l'app
+     * dit « Ce lien d'invitation est illisible. » au lieu de l'ignorer.
+     */
+    fun isInviteLink(url: String): Boolean = url.trim().startsWith("kybernow://borrow", ignoreCase = true)
 
     /** La carte « Ordinateur de {hôte} » : l'état pour ce compte, ou un refus (`Reply.Failed`, 40 : identifiant ou mot de passe). */
     suspend fun status(target: ShareTarget, route: String?, login: String, password: String): Reply<LendStatus> = withContext(Dispatchers.IO) {

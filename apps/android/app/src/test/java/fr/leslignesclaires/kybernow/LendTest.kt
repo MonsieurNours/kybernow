@@ -18,7 +18,10 @@ import fr.leslignesclaires.kybernow.core.LendNoticeReason
 import fr.leslignesclaires.kybernow.core.LendStatus
 import fr.leslignesclaires.kybernow.core.LendSteam
 import fr.leslignesclaires.kybernow.core.LendView
+import fr.leslignesclaires.kybernow.core.RelayPhase
+import fr.leslignesclaires.kybernow.core.RelayWait
 import fr.leslignesclaires.kybernow.core.Share
+import fr.leslignesclaires.kybernow.core.ShareRelay
 import fr.leslignesclaires.kybernow.core.ShareTarget
 import fr.leslignesclaires.kybernow.core.ShareVia
 import fr.leslignesclaires.kybernow.model.BorrowedComputer
@@ -243,6 +246,45 @@ class LendTest {
         assertEquals(LendAvailable.OFF, LendAvailable.of("""{"lend":{"available":true,"enabled":false}}"""))
         assertEquals(LendAvailable.ON, LendAvailable.of("""{"lend":{"available":true,"enabled":true}}"""))
         assertEquals(LendAvailable.TOO_OLD, LendAvailable.of(null))
+        // La Station ne peut pas prêter sur cet ordinateur : « Le prêt n'est pas possible sur cet ordinateur. », même activé.
+        assertEquals(LendAvailable.UNAVAILABLE, LendAvailable.of("""{"lend":{"available":false,"enabled":true}}"""))
+        assertEquals(LendAvailable.UNAVAILABLE, LendAvailable.of("""{"lend":{"available":false,"enabled":false}}"""))
+        // `available` absent (Station qui ne le dit pas) : comme vrai.
+        assertEquals(LendAvailable.ON, LendAvailable.of("""{"lend":{"enabled":true}}"""))
+    }
+
+    // MARK: - Code de prêt et relais
+
+    @Test
+    fun theLendCode_carriesItsRelay_likeTheShare() {
+        fun code(relay: String) = LendView.parse("""{"enabled":true,"state":"free","code":{"code":"123456","link":"l","web":"w","relay":$relay}}""", format)!!.code!!.relay
+        assertEquals(ShareRelay.JOINED, code("""{"state":"joined"}"""))
+        assertEquals(ShareRelay.CONNECTING, code("""{"state":"connecting"}"""))
+        assertEquals(ShareRelay.UNREACHABLE, code("""{"state":"unreachable"}"""))
+        // Un état inconnu n'est pas « joint ».
+        assertEquals(ShareRelay.UNREACHABLE, code("""{"state":"plus-tard"}"""))
+        // Sans relais réglé (ou Station d'avant) : rien à dire.
+        assertNull(code("null"))
+        assertNull(LendView.parse("""{"enabled":true,"state":"free","code":{"code":"123456","link":"l"}}""", format)!!.code!!.relay)
+    }
+
+    @Test
+    fun theLendCodeRelay_waitsTenSecondsAtMost_apartFromTheShare() {
+        val share = RelayWait()
+        val lend = RelayWait()
+        // En préparation : « Préparation du lien hors de chez vous… », le QR code et « Copier le lien » retenus.
+        assertEquals(0, lend.waited("111222", ShareRelay.CONNECTING, 1_000))
+        assertEquals(RelayPhase.WAITING, RelayPhase.of(ShareRelay.CONNECTING, lend.waited("111222", ShareRelay.CONNECTING, 10_999)))
+        // Le partage compte de son côté : il ne relance pas l'attente du code de prêt.
+        assertEquals(0, share.waited("999888", ShareRelay.CONNECTING, 5_000))
+        // Au-delà de 10 s : le lien du réseau, « Pas encore joignable hors de chez vous. ».
+        assertEquals(RelayPhase.UNREACHABLE, RelayPhase.of(ShareRelay.CONNECTING, lend.waited("111222", ShareRelay.CONNECTING, 11_000)))
+        // Un nouveau code de prêt repart de zéro ; joint, l'attente est oubliée.
+        assertEquals(0, lend.waited("333444", ShareRelay.CONNECTING, 12_000))
+        assertEquals(0, lend.waited("333444", ShareRelay.JOINED, 13_000))
+        assertEquals(RelayPhase.JOINED, RelayPhase.of(ShareRelay.JOINED, 0))
+        // Les deux attentes de l'app sont distinctes.
+        assertTrue(RelayWait.shared !== RelayWait.lend)
     }
 
     // MARK: - Invitation et ordinateur prêté gardé
@@ -255,7 +297,30 @@ class LendTest {
         assertEquals("lea", i.login)
         assertEquals(ShareTarget("192.168.1.20", 41234, "sha256:ab"), i.target)
         assertNotNull(i.route)
+        // Un lien d'avant : sans le prénom de l'hôte.
+        assertNull(i.name)
         assertNull(LendInvite.parse(JSONObject().put("host", "x").put("port", 1)))
+    }
+
+    @Test
+    fun theInvite_givesTheHostsFirstName_whenTheLinkHasIt() {
+        fun invite(name: Any?) = LendInvite.parse(JSONObject().put("host", "192.168.1.20").put("port", 41234).put("login", "lea").put("name", name ?: JSONObject.NULL))!!
+        assertEquals("Matthieu", invite("Matthieu").name)
+        assertEquals("Matthieu", invite("  Matthieu ").name)
+        assertNull(invite("").name)
+        assertNull(invite("   ").name)
+        assertNull(invite(null).name)
+    }
+
+    @Test
+    fun anInvitationLink_isRecognisedEvenWhenUnreadable() {
+        assertTrue(Lend.isInviteLink("kybernow://borrow?host=192.168.1.20&port=41234&login=lea"))
+        assertTrue(Lend.isInviteLink("  KyberNow://Borrow?host="))
+        // Coupé dans un message : toujours un lien d'invitation (« Ce lien d'invitation est illisible. »).
+        assertTrue(Lend.isInviteLink("kybernow://borrow"))
+        assertFalse(Lend.isInviteLink("kybernow://join?host=x&port=1&code=123456"))
+        assertFalse(Lend.isInviteLink("kybernow://192.168.1.20:41234?name=PC"))
+        assertFalse(Lend.isInviteLink("https://192.168.1.20:41234/link/?borrow=lea"))
     }
 
     @Test
@@ -333,17 +398,27 @@ class LendTest {
     }
 
     @Test
-    fun theEndOfTheLoan_isTheCoreText_andGivingBackIsNoError() {
+    fun theEndOfTheLoan_isTheCoreText_andGivingBackIsSaid() {
         val taken = state()
         taken.onLendEnd(LendEnd.TAKEN_BACK.code, "Matthieu a repris l'ordinateur.")
         taken.onStatus(6, 0, 0, "erreur du cœur", false, false, false, null)
         assertEquals("Matthieu a repris l'ordinateur.", taken.ended.value!!.error)
         assertEquals(LendEnd.TAKEN_BACK, taken.lendEnd)
-        // Rendu depuis le lanceur : une fin voulue.
+        // Rendu (depuis l'app ou le lanceur) : « Vous avez rendu l'ordinateur. » sur la carte de fin, jamais l'erreur de la session.
         val left = state()
         left.onLendEnd(LendEnd.LEFT.code, "Vous avez rendu l'ordinateur.")
-        left.onStatus(6, 0, 0, null, false, false, false, null)
-        assertNull(left.ended.value!!.error)
+        left.onStatus(6, 0, 0, "session arrêtée", false, false, false, null)
+        assertEquals("Vous avez rendu l'ordinateur.", left.ended.value!!.error)
+        // Sans le texte du cœur : celui de l'app.
+        val leftQuiet = state()
+        leftQuiet.onLendEnd(LendEnd.LEFT.code, "")
+        leftQuiet.onStatus(6, 0, 0, null, false, false, false, null)
+        assertEquals("You gave back the computer.", leftQuiet.ended.value!!.error)
+        // Arrêté sans texte ni erreur : « Le prêt s'est arrêté. ».
+        val stopped = state()
+        stopped.onLendEnd(LendEnd.STOPPED.code, "")
+        stopped.onStatus(6, 0, 0, null, false, false, false, null)
+        assertEquals("The loan has stopped.", stopped.ended.value!!.error)
         // Le réseau perdu : pas de fin du prêt, l'erreur du cœur (l'ami peut revenir).
         val lost = state()
         lost.onStatus(6, 0, 0, "l'ordinateur prêté ne répond plus", false, false, false, null)
@@ -369,5 +444,14 @@ class LendTest {
         assertEquals(Capsule.LendHostNotice("Créneau de Tom : slot_start"), s.capsule.value)
         s.onLend(null)
         assertNull(s.lend.value)
+    }
+
+    @Test
+    fun aSlotRequest_isAnnouncedWithItsSlot() {
+        val s = state()
+        s.onLend("""{"enabled":true,"state":"free","requests":[{"id":"r1","name":"Léa","kind":"slot","app":"ios","via":"lan","since":1,"slot":true}]}""")
+        shadowOf(Looper.getMainLooper()).idle()
+        // « Créneau de Léa : l'ordinateur lui est prêté dans 2 min. » (rien à refuser).
+        assertEquals(Capsule.LendRequest("Léa", slot = true), s.capsule.value)
     }
 }

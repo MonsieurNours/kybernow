@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import fr.leslignesclaires.kybernow.R
 import fr.leslignesclaires.kybernow.core.Lend
 import fr.leslignesclaires.kybernow.ui.Body
+import fr.leslignesclaires.kybernow.ui.Eyebrow
 import fr.leslignesclaires.kybernow.ui.GlassButton
 import fr.leslignesclaires.kybernow.ui.Kn
 import fr.leslignesclaires.kybernow.ui.KnIcons
@@ -146,6 +147,8 @@ internal fun BorrowEndedCard(ui: SessionUi, e: Ended, modifier: Modifier) {
     LaunchedEffect(back?.step) { runCatching { focus.requestFocus() } }
     Column(modifier.padding(s.dp(20f)).panel(22.dp).padding(s.dp(24f)).widthIn(max = s.dp(620f)), verticalArrangement = Arrangement.spacedBy(s.dp(12f))) {
         val failed = ui.state.firstImageAt.get() == 0L
+        // Le prêt est une part de KyberNow Share : son nom en surtitre, comme le lanceur et l'écran du PC.
+        Eyebrow(stringResource(R.string.lend_end_eyebrow), color = Kn.spectre)
         Title(stringResource(if (failed && !over) R.string.session_failed else R.string.session_ended_title), size = 24f)
         // La fin du prêt est une phrase du cœur, avec le prénom de l'hôte : telle quelle.
         val text = e.error ?: ""

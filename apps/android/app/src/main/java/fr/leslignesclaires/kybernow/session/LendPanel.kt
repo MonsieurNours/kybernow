@@ -35,6 +35,8 @@ import fr.leslignesclaires.kybernow.core.LendDuration
 import fr.leslignesclaires.kybernow.core.LendRequest
 import fr.leslignesclaires.kybernow.core.LendSteam
 import fr.leslignesclaires.kybernow.core.LendView
+import fr.leslignesclaires.kybernow.core.RelayPhase
+import fr.leslignesclaires.kybernow.core.RelayWait
 import fr.leslignesclaires.kybernow.ui.Body
 import fr.leslignesclaires.kybernow.ui.Eyebrow
 import fr.leslignesclaires.kybernow.ui.GlassButton
@@ -43,7 +45,6 @@ import fr.leslignesclaires.kybernow.ui.KnIcons
 import fr.leslignesclaires.kybernow.ui.LocalScale
 import fr.leslignesclaires.kybernow.ui.Mono
 import fr.leslignesclaires.kybernow.ui.PrimaryButton
-import fr.leslignesclaires.kybernow.ui.QrCode
 import fr.leslignesclaires.kybernow.ui.Title
 
 /*
@@ -57,6 +58,7 @@ import fr.leslignesclaires.kybernow.ui.Title
 @Composable
 internal fun lendUnavailableText(a: LendAvailable?): String? = when (a) {
     LendAvailable.TOO_OLD -> stringResource(R.string.lend_too_old)
+    LendAvailable.UNAVAILABLE -> stringResource(R.string.lend_unavailable)
     LendAvailable.OFF -> stringResource(R.string.lend_off)
     LendAvailable.ON, null -> null
 }
@@ -138,7 +140,10 @@ internal fun LendPanelContent(
     // À la télécommande : une demande d'abord (son « Accepter »), sinon « Créer un code » ou « Copier le lien » (au
     // téléviseur, qui ne copie pas : « Annuler le code »), ou « Fermer » quand il n'y a que la raison.
     val first = remember { FocusRequester() }
-    LaunchedEffect(unavailable != null, code?.code, requests.firstOrNull()?.id) { runCatching { first.requestFocus() } }
+    // Le lien du relais du code, comme le partage : en préparation, le QR code et « Copier le lien » l'attendent 10 s au plus.
+    val relay = code?.let { relayPhase(it.code, it.relay, RelayWait.lend) }
+    // « Copier le lien » inactif (lien du relais en préparation) ne prend pas le focus : il le reçoit quand il s'active.
+    LaunchedEffect(unavailable != null, code?.code, requests.firstOrNull()?.id, relay == RelayPhase.WAITING) { runCatching { first.requestFocus() } }
     BoxWithConstraints(modifier.padding(s.dp(20f))) {
         val wide = maxWidth >= 600.dp
         Column(
@@ -159,12 +164,12 @@ internal fun LendPanelContent(
                 LendChoices(duration, steam, busy, actions, onDuration, onSteam, focusMain)
             } else if (wide) {
                 Row(horizontalArrangement = Arrangement.spacedBy(s.dp(28f))) {
-                    LendCode(code, copy, tv, actions, focusMain)
-                    LendCodeHelp(busy, actions, Modifier.weight(1f), if (tv) focusMain else null)
+                    LendCode(code, relay, copy, tv, actions, focusMain)
+                    LendCodeHelp(relay, busy, actions, Modifier.weight(1f), if (tv) focusMain else null)
                 }
             } else {
-                LendCode(code, copy, tv, actions, focusMain)
-                LendCodeHelp(busy, actions, Modifier.fillMaxWidth(), if (tv) focusMain else null)
+                LendCode(code, relay, copy, tv, actions, focusMain)
+                LendCodeHelp(relay, busy, actions, Modifier.fillMaxWidth(), if (tv) focusMain else null)
             }
             if (warning) Body(stringResource(R.string.lend_warning), color = Kn.warn, size = 13f)
             error?.let { Body(it, color = Kn.warn, size = 14f) }
@@ -207,15 +212,19 @@ internal fun durationLabel(d: LendDuration) = stringResource(
 @Composable
 internal fun steamLabel(st: LendSteam) = stringResource(if (st == LendSteam.FRIEND) R.string.lend_steam_friend else R.string.lend_steam_host)
 
-/** « Code » et le code en grand, le QR code du lien, « Copier le lien » (pas au téléviseur) et son résultat, comme le partage. */
+/**
+ * « Code » et le code en grand, le QR code du lien, « Copier le lien » (pas au téléviseur) et son résultat, comme le
+ * partage : le lien du relais en préparation, un indicateur à la place du QR code et « Copier le lien » inactif.
+ */
 @Composable
-private fun LendCode(code: LendCodeView, copy: ShareCopy?, tv: Boolean, actions: SessionActions, focus: FocusRequester?) {
+private fun LendCode(code: LendCodeView, relay: RelayPhase?, copy: ShareCopy?, tv: Boolean, actions: SessionActions, focus: FocusRequester?) {
     val s = LocalScale.current
+    val waiting = relay == RelayPhase.WAITING
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(s.dp(10f))) {
         Eyebrow(stringResource(R.string.share_code_label))
         Mono(code.codeText, size = if (tv) 52f else 44f, color = Kn.frost, weight = 500)
-        QrCode(code.link, size = if (tv) 150f else 140f, description = stringResource(R.string.lend_qr_label))
-        if (!tv) GlassButton(stringResource(R.string.share_copy_link), { actions.lendCopyLink() }, if (focus != null) Modifier.focusRequester(focus) else Modifier, selected = copy == ShareCopy.COPIED)
+        RelayQrCode(code.link, waiting, if (tv) 150f else 140f, stringResource(R.string.lend_qr_label))
+        if (!tv) GlassButton(stringResource(R.string.share_copy_link), { actions.lendCopyLink() }, if (focus != null) Modifier.focusRequester(focus) else Modifier, enabled = !waiting, selected = copy == ShareCopy.COPIED)
         when (copy) {
             ShareCopy.COPIED -> Body(stringResource(R.string.share_link_copied), size = 13f, color = Kn.frost2)
             ShareCopy.FAILED -> Column(Modifier.widthIn(max = s.dp(260f)), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(s.dp(6f))) {
@@ -228,12 +237,16 @@ private fun LendCode(code: LendCodeView, copy: ShareCopy?, tv: Boolean, actions:
     }
 }
 
-/** L'aide, « Votre session se fermera quand votre ami arrivera. » (le code créé depuis la session vaut accord), « Annuler le code ». */
+/**
+ * L'aide, où en est le lien du relais (comme le partage), « Votre session se fermera quand votre ami arrivera. » (le
+ * code créé depuis la session vaut accord), « Annuler le code ».
+ */
 @Composable
-private fun LendCodeHelp(busy: Boolean, actions: SessionActions, modifier: Modifier, focus: FocusRequester?) {
+private fun LendCodeHelp(relay: RelayPhase?, busy: Boolean, actions: SessionActions, modifier: Modifier, focus: FocusRequester?) {
     val s = LocalScale.current
     Column(modifier, verticalArrangement = Arrangement.spacedBy(s.dp(12f))) {
         Body(stringResource(R.string.lend_help), color = Kn.frost2, size = 14f)
+        RelayStatusLine(relay)
         Body(stringResource(R.string.lend_session_closes), color = Kn.frost, size = 14f, weight = 600)
         GlassButton(stringResource(R.string.lend_cancel_code), { actions.lendCancelCode() }, if (focus != null) Modifier.focusRequester(focus) else Modifier, enabled = !busy)
     }
@@ -261,6 +274,7 @@ private fun LendRequestRow(request: LendRequest, busy: Boolean, actions: Session
         }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(s.dp(8f)), verticalArrangement = Arrangement.spacedBy(s.dp(8f))) {
             GlassButton(stringResource(R.string.share_accept), { actions.lendAnswer(request, true) }, if (focus != null) Modifier.focusRequester(focus) else Modifier, enabled = !busy, selected = true)
+            // Pendant un créneau, l'ami passe avant l'hôte : rien à refuser (docs/link-ui.md).
             if (!request.slot) GlassButton(stringResource(R.string.share_refuse), { actions.lendAnswer(request, false) }, enabled = !busy)
         }
     }

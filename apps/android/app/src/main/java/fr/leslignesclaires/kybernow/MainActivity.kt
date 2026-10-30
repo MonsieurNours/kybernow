@@ -40,8 +40,11 @@ import fr.leslignesclaires.kybernow.ui.settings.HostSettingsScreen
 /** Les écrans hors session. */
 sealed class Route {
     data object Home : Route()
-    /** « Ajouter un ordinateur » ; [invite] : un lien d'invitation `kybernow://borrow` (prêt de l'ordinateur, compte d'ami). */
-    data class Add(val target: Target? = null, val invite: LendInvite? = null) : Route()
+    /**
+     * « Ajouter un ordinateur » ; [invite] : un lien d'invitation `kybernow://borrow` (prêt de l'ordinateur, compte d'ami) ;
+     * [inviteUnreadable] : un lien `kybernow://borrow` illisible.
+     */
+    data class Add(val target: Target? = null, val invite: LendInvite? = null, val inviteUnreadable: Boolean = false) : Route()
     data class HostSettings(val id: String) : Route()
     data object AppSettings : Route()
     data object Gamepads : Route()
@@ -86,6 +89,7 @@ class MainActivity : AppCompatActivity() {
                         r.target, onDone = { h -> model.select(h.id); route = Route.Home }, onBack = { route = Route.Home },
                         onShareLink = { link -> route = Route.Join(link) },
                         invite = r.invite,
+                        inviteUnreadable = r.inviteUnreadable,
                         onFriendAdded = { c -> model.select(c.id); route = Route.Home },
                     )
                     is Route.Join -> JoinScreen(r.link, onBack = { route = Route.Home }, onJoined = ::joined, onBorrowed = ::borrowed)
@@ -123,6 +127,8 @@ class MainActivity : AppCompatActivity() {
         Share.parseLink(data.toString())?.let { route = Route.Join(it); return }
         // `kybernow://borrow?host=…&port=…&fp=…&login=…` : le lien d'invitation d'un compte d'ami (prêt de l'ordinateur).
         Lend.parseInvite(data.toString())?.let { route = Route.Add(invite = it); return }
+        // Un lien d'invitation abîmé (coupé dans un message, recopié à la main) : « Ce lien d'invitation est illisible. »
+        if (Lend.isInviteLink(data.toString())) { route = Route.Add(inviteUnreadable = true); return }
         PairingLink.parse(data.toString())?.let { route = Route.Add(it) }
     }
 

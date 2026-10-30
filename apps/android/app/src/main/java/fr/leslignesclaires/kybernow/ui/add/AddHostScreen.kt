@@ -98,9 +98,22 @@ private sealed class Step {
     data class Code(val targets: List<Target>) : Step()
     /**
      * « Avec un compte d'ami » (prêt de l'ordinateur, docs/pret.md) : la Station d'un ami, son identifiant (donné par le
-     * lien d'invitation), le relais du lien ; [name] : le nom annoncé sur le réseau, à défaut l'adresse.
+     * lien d'invitation), le relais du lien ; [name] : le nom annoncé sur le réseau, à défaut l'adresse ; [invitedBy] : le
+     * prénom de l'hôte donné par le lien (« {hôte} vous prête son ordinateur. » avant « Continuer »).
      */
-    data class Friend(val target: ShareTarget, val name: String, val login: String = "", val relay: String? = null, val sid: String? = null, val route: String? = null) : Step()
+    data class Friend(
+        val target: ShareTarget,
+        val name: String,
+        val login: String = "",
+        val relay: String? = null,
+        val sid: String? = null,
+        val route: String? = null,
+        val invitedBy: String? = null,
+    ) : Step() {
+        companion object {
+            fun of(invite: LendInvite) = Friend(invite.target, invite.target.host, invite.login, invite.relay, invite.sid, invite.route, invite.name)
+        }
+    }
     /** Le compte d'ami accepté : « {hôte} vous prête son ordinateur. » et « Ajouter ». */
     data class FriendConfirm(val friend: Friend, val login: String, val password: String, val remember: Boolean, val status: LendStatus) : Step()
 }
@@ -113,6 +126,8 @@ fun AddHostScreen(
     onShareLink: (ShareLink) -> Unit = {},
     /** Un lien d'invitation `kybernow://borrow` : l'écran s'ouvre sur le compte d'ami, l'identifiant rempli. */
     invite: LendInvite? = null,
+    /** Un lien `kybernow://borrow` illisible : « Ce lien d'invitation est illisible. », sur « Avec un compte d'ami ». */
+    inviteUnreadable: Boolean = false,
     /** L'ordinateur prêté ajouté à l'accueil (« Ordinateur de {hôte} »). */
     onFriendAdded: (BorrowedComputer) -> Unit = {},
 ) {
@@ -121,11 +136,11 @@ fun AddHostScreen(
     val context = LocalContext.current
     val announced by app.discovery.found.collectAsState()
     val hasCamera = remember { context.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY) }
-    var tab by remember { mutableStateOf(if (s.tv) Tab.CODE else Tab.NETWORK) }
+    var tab by remember { mutableStateOf(if (inviteUnreadable) Tab.FRIEND else if (s.tv) Tab.CODE else Tab.NETWORK) }
     var step by remember {
         mutableStateOf(
             when {
-                invite != null -> Step.Friend(invite.target, invite.target.host, invite.login, invite.relay, invite.sid, invite.route)
+                invite != null -> Step.Friend.of(invite)
                 initial != null -> Step.Account(initial)
                 else -> Step.Choose
             },
@@ -156,13 +171,15 @@ fun AddHostScreen(
                         // Sur le réseau d'un ami : son ordinateur, avec le compte qu'il a créé dans Admin (page « Prêt »).
                         GlassButton(stringResource(R.string.lend_with_account), { tab = Tab.FRIEND }, selected = tab == Tab.FRIEND)
                     }
+                    // Le lien d'invitation ouvert n'a pas pu être lu : on le dit, et l'ordinateur de l'ami se choisit sur le réseau.
+                    if (inviteUnreadable && tab == Tab.FRIEND) Body(stringResource(R.string.lend_invite_unreadable), color = Kn.warn, size = 14f)
                     when (tab) {
                         Tab.NETWORK -> NetworkPane(announced) { a -> step = Step.Account(Target(a.address, a.port, a.name, a.fingerprint)) }
                         Tab.CODE -> CodeIntro(announced) { targets -> step = Step.Code(targets) }
                         Tab.ADDRESS -> AddressPane(
                             onSeen = { t, fp -> step = Step.Verify(t, fp) },
                         )
-                        Tab.QR -> QrPane(onShareLink) { t -> step = Step.Account(t) }
+                        Tab.QR -> QrPane(onShareLink, onInvite = { i -> step = Step.Friend.of(i) }) { t -> step = Step.Account(t) }
                         Tab.FRIEND -> NetworkPane(announced) { a -> step = Step.Friend(ShareTarget(a.address, a.port, a.fingerprint), a.name) }
                     }
                 }
@@ -400,7 +417,10 @@ private fun FriendPane(friend: Step.Friend, onAccepted: (String, String, Boolean
         Body(friend.name, size = 18f, weight = 600)
         Mono("${friend.target.host}:${friend.target.port}" + (friend.target.fingerprint?.let { " · " + shortFingerprint(it) } ?: ""), size = 11f)
     }
-    Eyebrow(stringResource(R.string.lend_with_account))
+    // Le lien d'invitation donne le prénom de l'hôte : « Matthieu vous prête son ordinateur. » dès l'ouverture ; sans (lien
+    // d'avant, ou l'ordinateur choisi sur le réseau) : « Avec un compte d'ami ».
+    friend.invitedBy?.let { Body(stringResource(R.string.lend_invited, it), size = 20f, weight = 600) }
+        ?: Eyebrow(stringResource(R.string.lend_with_account))
     Field(stringResource(R.string.add_user), login, { login = it.trim() })
     Field(stringResource(R.string.add_password), password, { password = it }, password = true)
     GlassButton(
@@ -427,7 +447,7 @@ private fun FriendPane(friend: Step.Friend, onAccepted: (String, String, Boolean
 private fun FriendConfirmPane(st: Step.FriendConfirm, onAdded: (BorrowedComputer) -> Unit) {
     val s = LocalScale.current
     val app = KyberNowApp.instance
-    val host = st.status.host.ifBlank { st.status.computer.ifBlank { st.friend.name } }
+    val host = st.status.host.ifBlank { st.friend.invitedBy ?: st.status.computer.ifBlank { st.friend.name } }
     Column(Modifier.panel().fillMaxWidth().padding(s.dp(20f)), verticalArrangement = Arrangement.spacedBy(s.dp(8f))) {
         Body(stringResource(R.string.lend_invited, host), size = 20f, weight = 600)
         if (st.status.computer.isNotBlank()) Mono(st.status.computer, size = 12f)
@@ -447,10 +467,11 @@ private fun FriendConfirmPane(st: Step.FriendConfirm, onAdded: (BorrowedComputer
 
 /**
  * QR code d'Admin à la caméra (téléphone, tablette). Le QR code d'un partage (`kybernow://join`, KyberNow
- * Share) ne s'ajoute pas comme ordinateur : il mène à « Rejoindre avec un code » ([onShareLink]).
+ * Share) ne s'ajoute pas comme ordinateur : il mène à « Rejoindre avec un code » ([onShareLink]) ; celui de
+ * l'invitation d'un ami (`kybernow://borrow`) mène au compte d'ami ([onInvite]).
  */
 @Composable
-private fun QrPane(onShareLink: (ShareLink) -> Unit, onFound: (Target) -> Unit) {
+private fun QrPane(onShareLink: (ShareLink) -> Unit, onInvite: (LendInvite) -> Unit, onFound: (Target) -> Unit) {
     val context = LocalContext.current
     var granted by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) }
     val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted = it }
@@ -458,7 +479,7 @@ private fun QrPane(onShareLink: (ShareLink) -> Unit, onFound: (Target) -> Unit) 
     Body(stringResource(R.string.add_qr_help), color = Kn.frost2, size = 15f)
     if (granted) {
         QrScanner(Modifier.fillMaxWidth().height(LocalScale.current.dp(320f))) { text ->
-            PairingLink.parse(text)?.let(onFound) ?: Share.parseLink(text)?.let(onShareLink)
+            PairingLink.parse(text)?.let(onFound) ?: Share.parseLink(text)?.let(onShareLink) ?: Lend.parseInvite(text)?.let(onInvite)
         }
     } else {
         Body(stringResource(R.string.add_qr_permission), color = Kn.warn, size = 14f)

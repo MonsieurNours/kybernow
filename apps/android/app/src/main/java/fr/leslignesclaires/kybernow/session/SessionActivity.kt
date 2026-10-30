@@ -36,6 +36,7 @@ import fr.leslignesclaires.kybernow.core.BorrowReply
 import fr.leslignesclaires.kybernow.core.ConsoleClient
 import fr.leslignesclaires.kybernow.core.Lend
 import fr.leslignesclaires.kybernow.core.LendAvailable
+import fr.leslignesclaires.kybernow.core.LendEnd
 import fr.leslignesclaires.kybernow.core.LendRequest
 import fr.leslignesclaires.kybernow.core.LendView
 import fr.leslignesclaires.kybernow.core.Loan
@@ -365,6 +366,12 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
                     state.ended.collect { e ->
                         if (e == null) return@collect
                         saveLast()
+                        // L'ordinateur rendu (« Rendre l'ordinateur », ou depuis le lanceur) : « Vous avez rendu
+                        // l'ordinateur. » et « Fermer » sur la carte de fin, plutôt qu'une fermeture sans un mot.
+                        if (gaveBack()) {
+                            ui.leaving = false
+                            return@collect
+                        }
                         if (e.error == null || quitting) finishSession()
                     }
                 }
@@ -487,7 +494,11 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
     // MARK: - Fin
 
     override fun quit() {
-        if (quitting) return
+        // « Fermer » sur la carte de l'ordinateur rendu (la session a déjà fini).
+        if (quitting) {
+            if (state.ended.value != null) finishSession()
+            return
+        }
         quitting = true
         ui.menuOpen = false
         ui.barOpen = false
@@ -971,9 +982,13 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
             return
         }
         ui.leaving = true
-        main.postDelayed({ finishSession() }, 6000)
+        // Au-delà de 6 s sans la carte « Vous avez rendu l'ordinateur. », on part quand même.
+        main.postDelayed({ if (!gaveBack()) finishSession() }, 6000)
         Native.sessionGiveBack(h)
     }
+
+    /** Un emprunt fini parce que l'ami a rendu l'ordinateur : la carte de fin le dit (« Vous avez rendu l'ordinateur. »). */
+    private fun gaveBack() = loan != null && state.lendEnd == LendEnd.LEFT && state.ended.value?.error != null
 
     /**
      * « Revenir » (la session a fini sans que le prêt finisse : réseau perdu, Kyber coupé) : la même demande d'emprunt,

@@ -109,7 +109,7 @@ internal fun SharePanelContent(
     // Une demande attend l'hôte : le focus va à son « Accepter » (tout le monde, au téléviseur aussi).
     val firstRequest = remember { FocusRequester() }
     val requested = share?.requests?.isNotEmpty() == true
-    val relay = share?.let { relayPhase(it) }
+    val relay = share?.let { relayPhase(it.code, it.relay, RelayWait.shared) }
     // « Copier le lien » inactif (lien du relais en préparation) ne prend pas le focus : il le reçoit quand il s'active.
     LaunchedEffect(share != null, unavailable != null, requested, relay == RelayPhase.WAITING) {
         if (requested) runCatching { firstRequest.requestFocus() }
@@ -144,22 +144,57 @@ internal fun SharePanelContent(
 }
 
 /**
- * Où en est le lien du relais de [share] ([RelayPhase]) : `connecting` vaut « en préparation » 10 s au plus, comptées
- * de la première fois que l'app le voit pour ce code ([RelayWait.shared]), puis « injoignable ». Le panneau se
- * recompose de lui-même à la fin des 10 s, sans attendre un autre état de la Station.
+ * Où en est le lien du relais d'un code ([RelayPhase]) : `connecting` vaut « en préparation » 10 s au plus, comptées
+ * de la première fois que l'app le voit pour ce code ([wait] : [RelayWait.shared] pour le partage, [RelayWait.lend]
+ * pour le code de prêt), puis « injoignable ». Le panneau se recompose de lui-même à la fin des 10 s, sans attendre un
+ * autre état de la Station.
  */
 @Composable
-private fun relayPhase(share: ShareState): RelayPhase? {
-    val connecting = share.relay == ShareRelay.CONNECTING
-    val waited = RelayWait.shared.waited(share, SystemClock.elapsedRealtime())
-    var expired by remember(share.code, connecting) { mutableStateOf(false) }
-    LaunchedEffect(share.code, connecting) {
+internal fun relayPhase(code: String, relay: ShareRelay?, wait: RelayWait): RelayPhase? {
+    val connecting = relay == ShareRelay.CONNECTING
+    val waited = wait.waited(code, relay, SystemClock.elapsedRealtime())
+    var expired by remember(code, connecting) { mutableStateOf(false) }
+    LaunchedEffect(code, connecting) {
         if (!connecting) return@LaunchedEffect
-        val left = RelayPhase.WAIT_MS - RelayWait.shared.waited(share, SystemClock.elapsedRealtime())
+        val left = RelayPhase.WAIT_MS - wait.waited(code, relay, SystemClock.elapsedRealtime())
         if (left > 0) delay(left)
         expired = true
     }
-    return RelayPhase.of(share.relay, if (expired) RelayPhase.WAIT_MS else waited)
+    return RelayPhase.of(relay, if (expired) RelayPhase.WAIT_MS else waited)
+}
+
+/**
+ * Le QR code d'un lien (partage, code de prêt) ; le lien du relais en préparation ([waiting]), un indicateur à sa
+ * place : le QR code du lien du réseau serait scanné par erreur.
+ */
+@Composable
+internal fun RelayQrCode(link: String, waiting: Boolean, size: Float, description: String) {
+    val s = LocalScale.current
+    if (waiting) {
+        val preparing = stringResource(R.string.share_relay_preparing)
+        Box(Modifier.size(s.dp(size)).semantics { contentDescription = preparing }, contentAlignment = Alignment.Center) {
+            androidx.compose.material3.CircularProgressIndicator(Modifier.size(s.dp(28f)), color = Kn.spectre, strokeWidth = s.dp(3f))
+        }
+    } else {
+        QrCode(link, size = size, description = description)
+    }
+}
+
+/**
+ * Sous l'aide : le lien du relais en préparation (10 s au plus), avec un indicateur ; le relais injoignable (ou trop
+ * long à joindre), le lien ne vaut pas encore hors de chez soi. Rien quand le relais est joint ou sans relais.
+ */
+@Composable
+internal fun RelayStatusLine(relay: RelayPhase?) {
+    val s = LocalScale.current
+    when (relay) {
+        RelayPhase.WAITING -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(s.dp(8f))) {
+            androidx.compose.material3.CircularProgressIndicator(Modifier.size(s.dp(14f)), color = Kn.spectre, strokeWidth = s.dp(2f))
+            Body(stringResource(R.string.share_relay_preparing), color = Kn.muted, size = 13f)
+        }
+        RelayPhase.UNREACHABLE -> Body(stringResource(R.string.share_relay_unreachable), color = Kn.muted, size = 13f)
+        else -> {}
+    }
 }
 
 /**
@@ -183,15 +218,7 @@ private fun ShareCode(share: ShareState, relay: RelayPhase?, copy: ShareCopy?, t
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(s.dp(10f))) {
         Eyebrow(stringResource(R.string.share_code_label))
         Mono(share.codeText, size = if (tv) 52f else 44f, color = Kn.frost, weight = 500)
-        val qrSize = if (tv) 150f else 140f
-        if (waiting) {
-            val preparing = stringResource(R.string.share_relay_preparing)
-            Box(Modifier.size(s.dp(qrSize)).semantics { contentDescription = preparing }, contentAlignment = Alignment.Center) {
-                androidx.compose.material3.CircularProgressIndicator(Modifier.size(s.dp(28f)), color = Kn.spectre, strokeWidth = s.dp(3f))
-            }
-        } else {
-            QrCode(share.link, size = qrSize, description = stringResource(R.string.share_qr_label))
-        }
+        RelayQrCode(share.link, waiting, if (tv) 150f else 140f, stringResource(R.string.share_qr_label))
         if (!tv) GlassButton(stringResource(R.string.share_copy_link), { actions.shareCopyLink() }, copyModifier, enabled = !waiting, selected = copy == ShareCopy.COPIED)
         when (copy) {
             ShareCopy.COPIED -> Body(stringResource(R.string.share_link_copied), size = 13f, color = Kn.frost2)
@@ -223,14 +250,7 @@ private fun ShareGuests(share: ShareState, relay: RelayPhase?, busy: Boolean, ac
         // venu d'ailleurs s'accepte) ; le lien du relais en préparation (10 s au plus), on le dit avec un indicateur ; le
         // relais injoignable (ou trop long à joindre), le lien ne vaut pas encore hors de chez soi.
         Body(stringResource(if (relay == RelayPhase.JOINED) R.string.share_help_relay else R.string.share_help), color = Kn.frost2, size = 14f)
-        when (relay) {
-            RelayPhase.WAITING -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(s.dp(8f))) {
-                androidx.compose.material3.CircularProgressIndicator(Modifier.size(s.dp(14f)), color = Kn.spectre, strokeWidth = s.dp(2f))
-                Body(stringResource(R.string.share_relay_preparing), color = Kn.muted, size = 13f)
-            }
-            RelayPhase.UNREACHABLE -> Body(stringResource(R.string.share_relay_unreachable), color = Kn.muted, size = 13f)
-            else -> {}
-        }
+        RelayStatusLine(relay)
         // Les demandes venues par le relais, au-dessus des invités, seulement s'il y en a.
         if (share.requests.isNotEmpty()) {
             Eyebrow(stringResource(R.string.share_requests_title))
