@@ -39,7 +39,7 @@ struct SessionView: View {
 
                 if session.phase != .ended {
                     Passage(host: session.host, open: revealed, title: session.title,
-                            button: session.isGuest ? ShareText.joinButton : String(localized: "Se connecter"))
+                            button: session.isBorrower ? LendText.borrow : session.isGuest ? ShareText.joinButton : String(localized: "Se connecter"))
                         .allowsHitTesting(false)
                         .ignoresSafeArea()
                 }
@@ -58,8 +58,12 @@ struct SessionView: View {
                 }
 
                 if case let .failed(message) = session.phase {
+                    // La fin d'un emprunt : sa raison seule et « Fermer » ; réseau perdu :
+                    // « Vous pouvez revenir pendant 15 min. » et « Revenir ».
                     SessionFailure(host: session.host, title: session.title, message: message, connecting: !revealed,
-                                   shareEnd: session.shareEndText != nil) { session.dismissFailure() }
+                                   shareEnd: session.shareEndText != nil || session.lendEndText != nil,
+                                   doneTitle: session.isBorrower ? LendText.close : nil,
+                                   comeBack: session.canComeBack ? { session.comeBack() } : nil) { session.dismissFailure() }
                         .transition(.opacity)
                 }
             }
@@ -72,6 +76,17 @@ struct SessionView: View {
             KeysMenu(session: session)
                 .presentationDetents([.medium])
                 .presentationBackground(.ultraThinMaterial)
+        }
+        // Prêter l'ordinateur, hôte : le panneau (durée, compte Steam, code, demandes).
+        .sheet(isPresented: $session.lendSheet) {
+            LendPanelView(computer: session.host.name, lend: session.lend)
+                .presentationDetents([.medium, .large])
+                .presentationBackground(Theme.bar)
+        }
+        // Un ami : « Rendre l'ordinateur à {hôte} ? ».
+        .confirmationDialog(LendText.giveBackQuestion(session.lendHost), isPresented: $session.giveBackAsked, titleVisibility: .visible) {
+            Button(LendText.giveBack, role: .destructive) { session.giveBack() }
+            Button(StationText.cancel, role: .cancel) {}
         }
         // KyberNow Share, hôte : le panneau (code, QR code, invités).
         .sheet(isPresented: $session.shareSheet) {
@@ -136,6 +151,10 @@ struct SessionView: View {
                         // La demande d'un invité se choisit : elle ouvre le panneau du partage.
                         Button { session.shareSheet = true } label: { capsule }
                             .buttonStyle(.plain)
+                    } else if session.noticeOpensLend {
+                        // Une demande d'emprunt se choisit : elle ouvre le panneau du prêt.
+                        Button { session.lendSheet = true } label: { capsule }
+                            .buttonStyle(.plain)
                     } else {
                         capsule
                     }
@@ -157,7 +176,7 @@ struct SessionView: View {
                     .padding(.horizontal, 16)
                     .transition(.move(edge: .top).combined(with: .opacity))
             } else if streaming {
-                Tab(session: session, share: session.share)
+                Tab(session: session, share: session.share, lend: session.lend)
                     .frame(maxHeight: .infinity, alignment: .top)
                     .transition(.opacity)
             }
@@ -335,6 +354,12 @@ struct HalfShape: Shape {
 struct ConnectingCard: View {
     @ObservedObject var session: SessionController
 
+    /// L'emprunt qui attend l'accord de l'hôte (« En attente de {hôte}… »).
+    private var waitingFor: BorrowFlow.State? {
+        guard let state = session.borrowFlow?.state, state.isWaiting else { return nil }
+        return state
+    }
+
     /// Étape en cours : 0, 1 ou 2.
     private var current: Int {
         switch session.phase {
@@ -358,13 +383,25 @@ struct ConnectingCard: View {
                     }
                     .accessibilityElement(children: .combine)
                     .transition(.opacity)
+                } else if case let .waiting(host)? = waitingFor {
+                    // Ordinateur utilisé : l'hôte doit accepter (« Annuler » retire la demande).
+                    HStack(spacing: 10) {
+                        HomeSpinner(size: 13).foregroundStyle(Theme.accentLight).frame(width: 16, height: 16)
+                        Text(LendText.waiting(host))
+                            .font(Theme.sans(15, .semibold))
+                            .foregroundStyle(Theme.text)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .accessibilityElement(children: .combine)
+                    .transition(.opacity)
                 } else {
                     VStack(alignment: .leading, spacing: 9) {
-                        // Un invité : les mêmes étapes, titrées « Invité sur {nom} ».
-                        if session.isGuest {
+                        // Un invité : les mêmes étapes, titrées « Invité sur {nom} » ; un ami : « Ordinateur de {hôte} ».
+                        if session.isVisitor {
                             Text(session.title).font(Theme.sans(16, .semibold)).foregroundStyle(Theme.text).lineLimit(1)
                         }
-                        step(0, String(localized: "Préparation de l'écran"))
+                        // Un emprunt : le mode console se met en place d'abord.
+                        step(0, session.isBorrower ? LendText.preparing : String(localized: "Préparation de l'écran"))
                         step(1, String(localized: "Connexion"))
                         step(2, String(localized: "Premières images"))
                     }
@@ -416,10 +453,13 @@ struct ConnectingCard: View {
 private struct Tab: View {
     @ObservedObject var session: SessionController
     @ObservedObject var share: ShareHostModel
+    @ObservedObject var lend: LendHostModel
 
     var body: some View {
-        let count = session.isGuest ? 0 : share.guests.count
-        let requests = session.isGuest ? 0 : share.requests.count
+        let count = session.isVisitor ? 0 : share.guests.count
+        let requests = session.isVisitor ? 0 : share.requests.count
+        // Les demandes d'emprunt (ordinateur utilisé) : leur pastille rouvre le panneau du prêt.
+        let lendRequests = session.isVisitor ? 0 : lend.requests.filter { !$0.slot }.count
         let relay = session.path.viaRelay
         HStack(spacing: 0) {
             if relay {
@@ -446,6 +486,24 @@ private struct Tab: View {
                 }
                 .accessibilityLabel(Text(verbatim: ShareText.share + ", " + ShareText.requestCount(requests)))
             }
+            if lendRequests > 0 {
+                Button { session.lendSheet = true } label: {
+                    HStack(spacing: 4) {
+                        Icon("key", size: 11, bold: true)
+                        Text(ShareText.requestCount(lendRequests))
+                    }
+                    .font(Theme.sans(11.5, .semibold))
+                    .foregroundStyle(Theme.text)
+                    .lineLimit(1)
+                    .fixedSize()
+                    .padding(.horizontal, 8)
+                    .frame(height: 20)
+                    .background(Capsule().fill(Theme.accentFill))
+                    .frame(minWidth: 44, minHeight: 26)
+                    .contentShape(Rectangle())
+                }
+                .accessibilityLabel(Text(verbatim: LendText.lend + ", " + ShareText.requestCount(lendRequests)))
+            }
             if count > 0 {
                 Button { session.shareSheet = true } label: {
                     Text(ShareText.guestCount(count))
@@ -469,7 +527,7 @@ private struct Tab: View {
             }
             .accessibilityLabel(Text("Afficher la barre de session"))
         }
-        .padding(.horizontal, count > 0 || requests > 0 || relay ? 6 : 0)
+        .padding(.horizontal, count > 0 || requests > 0 || lendRequests > 0 || relay ? 6 : 0)
         .background(UnevenRoundedRectangle(bottomLeadingRadius: 14, bottomTrailingRadius: 14).fill(.ultraThinMaterial))
         .background(UnevenRoundedRectangle(bottomLeadingRadius: 14, bottomTrailingRadius: 14).fill(Theme.background.opacity(0.5)))
         .environment(\.colorScheme, .dark)
@@ -489,9 +547,15 @@ struct SessionBar: View {
                         Text(session.title).font(Theme.sans(14, .semibold)).foregroundStyle(Theme.text).padding(.horizontal, 6)
                         separator
                     }
+                    if session.isBorrower {
+                        borrowerLine
+                        separator
+                    }
                     statsButton
                     separator
-                    if session.isGuest {
+                    if session.isBorrower {
+                        // Un ami : ni profil de la Station, ni presse-papiers.
+                    } else if session.isGuest {
                         guestRole
                         qualityMenu
                     } else {
@@ -513,7 +577,10 @@ struct SessionBar: View {
                 separator
                 // « Par le relais » : la session passe par lui, hors de chez soi.
                 if session.path.viaRelay { item("globe-hemisphere-west", LinkText.viaRelay) }
-                if !session.isGuest { ShareBarItem(session: session, share: session.share) }
+                if !session.isVisitor {
+                    LendBarItem(session: session, lend: session.lend)
+                    ShareBarItem(session: session, share: session.share)
+                }
                 hideAndExit
             }
             .padding(.horizontal, 6)
@@ -544,6 +611,21 @@ struct SessionBar: View {
             .frame(height: 44)
         }
         .accessibilityLabel(Text("Statistiques"))
+    }
+
+    /// Un ami qui emprunte : « Prêté par {hôte} » et le temps restant (« Encore
+    /// 1 h 20 », « Jusqu'à ce que {hôte} reprenne » ; pendant le préavis, jusqu'à sa fin).
+    private var borrowerLine: some View {
+        TimelineView(.periodic(from: .now, by: 15)) { context in
+            let left = BorrowClock.label(until: session.loan?.until, notice: session.lendNotice, host: session.lendHost, now: context.date)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(LendText.lentBy(session.lendHost)).font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text).lineLimit(1)
+                Text(left).font(Theme.sans(10.5)).foregroundStyle(session.lendNotice != nil ? Theme.warnText : Theme.text2).lineLimit(1)
+            }
+            .padding(.horizontal, 8)
+            .frame(minHeight: 44)
+            .accessibilityElement(children: .combine)
+        }
     }
 
     /// Barre réduite d'un invité : son rôle ; ni profil ni réglages.
@@ -606,7 +688,7 @@ struct SessionBar: View {
     }
 
     @ViewBuilder private var screenAndOffer: some View {
-        if session.canPickScreen, !session.isGuest {
+        if session.canPickScreen, !session.isVisitor {
             Menu {
                 ForEach(session.screens, id: \.id) { d in
                     Button("\(d.width) × \(d.height)") { session.showScreen(d.id) }
@@ -616,7 +698,7 @@ struct SessionBar: View {
             }
         }
         // Un invité ne change jamais l'écran de l'ordinateur : rien à remettre.
-        if let offer = session.modeRestoreOffer, !session.isGuest {
+        if let offer = session.modeRestoreOffer, !session.isVisitor {
             Button { session.restoreMode() } label: { item("arrows-clockwise", offer) }
         }
     }
@@ -649,19 +731,35 @@ struct SessionBar: View {
             Image(systemName: "chevron.up").font(.system(size: 15, weight: .bold)).foregroundStyle(Theme.text2).frame(width: 40, height: 44)
         }
         .accessibilityLabel(Text("Masquer la barre"))
-        Button { session.end() } label: {
-            HStack(spacing: 8) {
-                Icon("power", size: 18)
-                // Un invité quitte le partage ; il n'éteint rien chez l'hôte.
-                if session.isGuest { Text(ShareText.leave).font(Theme.sans(13, .semibold)).lineLimit(1).fixedSize() }
+        if session.isBorrower {
+            // Un ami rend l'ordinateur (confirmation) ; fermer l'app ne le rend pas.
+            Button { session.askGiveBack() } label: {
+                HStack(spacing: 8) {
+                    Icon("key", size: 18)
+                    Text(LendText.giveBack).font(Theme.sans(13, .semibold)).lineLimit(1).fixedSize()
+                }
+                .foregroundStyle(Theme.dangerText)
+                .padding(.horizontal, 12)
+                .frame(minWidth: 44, minHeight: 44)
+                .background(RoundedRectangle(cornerRadius: 10).fill(Theme.danger.opacity(0.14)))
+                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.danger.opacity(0.4)))
             }
-            .foregroundStyle(Theme.dangerText)
-            .padding(.horizontal, session.isGuest ? 12 : 0)
-            .frame(minWidth: 44, minHeight: 44)
-            .background(RoundedRectangle(cornerRadius: 10).fill(Theme.danger.opacity(0.14)))
-            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.danger.opacity(0.4)))
+            .accessibilityLabel(Text(LendText.giveBack))
+        } else {
+            Button { session.end() } label: {
+                HStack(spacing: 8) {
+                    Icon("power", size: 18)
+                    // Un invité quitte le partage ; il n'éteint rien chez l'hôte.
+                    if session.isGuest { Text(ShareText.leave).font(Theme.sans(13, .semibold)).lineLimit(1).fixedSize() }
+                }
+                .foregroundStyle(Theme.dangerText)
+                .padding(.horizontal, session.isGuest ? 12 : 0)
+                .frame(minWidth: 44, minHeight: 44)
+                .background(RoundedRectangle(cornerRadius: 10).fill(Theme.danger.opacity(0.14)))
+                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.danger.opacity(0.4)))
+            }
+            .accessibilityLabel(Text(session.isGuest ? ShareText.leave : String(localized: "Se déconnecter")))
         }
-        .accessibilityLabel(Text(session.isGuest ? ShareText.leave : String(localized: "Se déconnecter")))
     }
 
     private var separator: some View {
@@ -689,6 +787,45 @@ private struct BarItemLabel: View {
         }
         .frame(minWidth: 48, minHeight: 44)
         .padding(.horizontal, 4)
+    }
+}
+
+/// « Prêter l'ordinateur… », dans la partie de la barre qui ne défile pas :
+/// ouvre son panneau ; estompé quand l'ordinateur ne le permet pas (Station
+/// trop ancienne, prêt coupé dans Admin), le panneau dit alors pourquoi.
+private struct LendBarItem: View {
+    @ObservedObject var session: SessionController
+    @ObservedObject var lend: LendHostModel
+
+    var body: some View {
+        let available = lend.availability.isAvailable
+        let requests = lend.requests.filter { !$0.slot }.count
+        Button { session.lendSheet = true } label: {
+            HStack(spacing: 2) {
+                BarItemLabel(icon: "key", text: LendText.lend)
+                if requests > 0 {
+                    Text(ShareText.requestCount(requests))
+                        .font(Theme.sans(11.5, .semibold))
+                        .foregroundStyle(Theme.text)
+                        .lineLimit(1)
+                        .fixedSize()
+                        .padding(.horizontal, 8)
+                        .frame(height: 22)
+                        .background(Capsule().fill(Theme.accentFill))
+                }
+            }
+            .background {
+                if lend.code != nil {
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .fill(Color.white.opacity(0.12))
+                        .overlay(alignment: .bottom) { Rectangle().fill(Theme.accent).frame(height: 2) }
+                        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                }
+            }
+        }
+        .opacity(available ? 1 : 0.45)
+        .accessibilityLabel(Text(verbatim: [LendText.lend, requests > 0 ? ShareText.requestCount(requests) : nil].compactMap { $0 }.joined(separator: ", ")))
+        .accessibilityHint(Text(verbatim: lend.availability.reason ?? ""))
     }
 }
 
@@ -1006,6 +1143,10 @@ struct SessionFailure: View {
     var connecting = true
     /// Fin d'une session d'invité par le partage : la raison seule, sans titre d'échec.
     var shareEnd = false
+    /// Le bouton de fin (« Fermer » pour un emprunt), sinon « Retour ».
+    var doneTitle: String?
+    /// Un emprunt coupé (réseau perdu) : « Vous pouvez revenir pendant 15 min. » et « Revenir ».
+    var comeBack: (() -> Void)?
     let done: () -> Void
 
     private var reason: String {
@@ -1026,10 +1167,26 @@ struct SessionFailure: View {
                 Text(title ?? host.name).font(Theme.display(40, 680)).tracking(-40 * 0.04).foregroundStyle(Theme.text)
                 Text(reason)
                     .font(Theme.sans(16)).foregroundStyle(Theme.text2)
-                Button("Retour", action: done)
-                    .buttonStyle(PrimaryButton())
-                    .frame(maxWidth: 320)
-                    .padding(.top, 8)
+                if let comeBack {
+                    Text(LendText.comeBackHint).font(Theme.sans(15)).foregroundStyle(Theme.text)
+                    Button(LendText.comeBack, action: comeBack)
+                        .buttonStyle(PrimaryButton())
+                        .frame(maxWidth: 320)
+                        .padding(.top, 8)
+                    Button(doneTitle ?? String(localized: "Retour"), action: done)
+                        .buttonStyle(GlassButton(height: 48, fontSize: 16))
+                        .frame(maxWidth: 320)
+                } else if let doneTitle {
+                    Button(doneTitle, action: done)
+                        .buttonStyle(PrimaryButton())
+                        .frame(maxWidth: 320)
+                        .padding(.top, 8)
+                } else {
+                    Button("Retour", action: done)
+                        .buttonStyle(PrimaryButton())
+                        .frame(maxWidth: 320)
+                        .padding(.top, 8)
+                }
             }
             .frame(maxWidth: 520, alignment: .leading)
             .padding(32)

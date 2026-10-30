@@ -299,10 +299,11 @@ extension AppModel {
             var shownInWindow = false
             if case .failed = session.phase { shownInWindow = true }
             let others = !shownInWindow && sessions.live.contains { $0 !== session }
-            if session.isGuest {
+            if session.isVisitor {
                 // Un invité : la raison du partage (« {hôte} a arrêté le partage. »), sans bouton :
                 // jamais « Reprendre la main ». Quand elle reste dans la fenêtre, app au second plan seulement.
-                if let text = session.shareEndText ?? session.endError.map(Notifier.sentence) {
+                // Un ami : la fin du prêt (« {hôte} a repris l'ordinateur. »), de même.
+                if let text = session.shareEndText ?? session.lendEndText ?? session.endError.map(Notifier.sentence) {
                     notifier.shareEnded(text, session: session.host.id, evenInForeground: others)
                 }
             } else {
@@ -874,6 +875,11 @@ enum DemoRemote {
             // moment-render:<end|play|kbm|watch|unpads|unkbm>:<fichier> : une session d'invité sans fenêtre à ce moment (fin par le partage, avis de droits).
             guard parts.count > 2 else { return }
             Task { await SharePanelDemo.renderGuestMoment(parts[1], app: app, to: parts[2]) }
+        case "lend-render":
+            // lend-render:<panel|panel-code|panel-off|bar|waiting|notice|end|lost|home|lent|lent-notice>:<fichier> : le prêt de
+            // l'ordinateur dessiné sans fenêtre (panneau de l'hôte, barre et moments de l'ami, accueil).
+            guard parts.count > 2 else { return }
+            Task { await LendDemo.render(parts[1], app: app, to: parts[2]) }
         case "bar-render":
             // bar-render:<host|spectator|player|kbm|player_kbm>:<fichier> : la barre de session ouverte, sans fenêtre.
             guard parts.count > 2 else { return }

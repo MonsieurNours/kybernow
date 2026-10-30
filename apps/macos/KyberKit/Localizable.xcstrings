@@ -592,6 +592,22 @@
           }
         }
       }
+    },
+    "Ce code sert à emprunter l'ordinateur." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This code is for borrowing the computer."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce code sert à emprunter l'ordinateur."
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

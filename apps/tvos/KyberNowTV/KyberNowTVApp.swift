@@ -22,6 +22,7 @@ struct KyberNowTVApp: App {
             RootView()
                 .environmentObject(app)
                 .environmentObject(app.store)
+                .environmentObject(app.borrowed)
                 .environmentObject(app.store.imagery)
                 .environmentObject(app.cloud)
                 .environmentObject(app.discovery)
@@ -48,6 +49,14 @@ struct RootView: View {
             case let .join(link):
                 JoinView(link: link)
                     .transition(.opacity.combined(with: .scale(scale: 1.02)))
+            case let .invite(invite):
+                FriendAccountView(invite: invite)
+                    .transition(.opacity.combined(with: .scale(scale: 1.02)))
+            case let .borrowPassword(id):
+                if let computer = app.borrowed.computer(id) {
+                    FriendAccountView(computer: computer)
+                        .transition(.opacity.combined(with: .scale(scale: 1.02)))
+                }
             case let .settings(id):
                 SettingsView(hostID: id)
                     .transition(.opacity.combined(with: .scale(scale: 1.02)))

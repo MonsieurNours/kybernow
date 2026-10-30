@@ -72,6 +72,7 @@ targets:
       - path: ../macos/KyberNow/Discovery.swift
       - path: ../macos/KyberNow/LinkUI.swift
       - path: ../macos/KyberNow/Share.swift
+      - path: ../macos/KyberNow/Lend.swift
       - path: ../macos/KyberNow/Fonts
         buildPhase: resources
     dependencies:

@@ -231,6 +231,14 @@ struct AddHostQRPane: View {
             app.join(fromAddSheet: link)
             return
         }
+        // Le QR code d'une invitation (prêter l'ordinateur) : l'ajout de l'ordinateur prêté prend le relais.
+        if case let .borrow(invite)? = LinkKind.parse(text) {
+            camera.onCode = nil
+            camera.stop()
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            app.invite(fromAddSheet: invite)
+            return
+        }
         guard let c = PairingLink.parse(text) else {
             // La caméra peut croiser d'autres QR codes : seul un lien collé est signalé.
             if pasted { notice = String(localized: "Ce n'est pas un lien KyberNow.") }

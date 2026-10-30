@@ -13,6 +13,9 @@ struct HomeView: View {
         HomeContent(imagery: app.store.imagery, discovery: app.discovery)
             .sheet(isPresented: $app.adding) { AddHostSheet(initialLink: app.pendingLink, initialTab: app.addTab) }
             .sheet(isPresented: $app.joining) { JoinSheet(initialLink: app.pendingJoin) }
+            // Prêter l'ordinateur : le lien d'invitation d'un ami, le mot de passe d'un ordinateur prêté.
+            .sheet(item: $app.inviting) { InviteSheet(invite: $0) }
+            .sheet(item: $app.borrowPassword) { BorrowPasswordSheet(computer: $0) }
             .preferredColorScheme(.dark)
             .frame(minWidth: 1100, minHeight: 760)
     }
@@ -23,14 +26,21 @@ private struct HomeContent: View {
     @ObservedObject var imagery: HostImagery
     @ObservedObject var discovery: Discovery
     @ObservedObject var updates = UpdateChannels.shared
+    @ObservedObject var borrowed = AppModel.shared.borrowed
     @Environment(\.openSettings) private var openSettings
     /// Arrivée de l'écran : cascade et allumage du symbole, une fois.
     @State private var arrived = false
     @State private var ignite = 0
 
     private var hosts: [Host] { app.store.ordered }
-    private var featured: Host? { hosts.first { $0.id == app.selectedID } ?? hosts.first }
+    /// L'ordinateur d'un ami mis en avant (prêter l'ordinateur).
+    private var featuredBorrowed: BorrowedComputer? {
+        borrowed.computers.first { $0.id == app.selectedID } ?? (hosts.isEmpty ? borrowed.computers.first : nil)
+    }
+    private var featured: Host? { featuredBorrowed != nil ? nil : hosts.first { $0.id == app.selectedID } ?? hosts.first }
     private var others: [Host] { hosts.filter { $0.id != featured?.id } }
+    private var otherBorrowed: [BorrowedComputer] { borrowed.computers.filter { $0.id != featuredBorrowed?.id } }
+    private var featuredID: UUID? { featuredBorrowed?.id ?? featured?.id }
 
     var body: some View {
         GeometryReader { geo in
@@ -38,7 +48,13 @@ private struct HomeContent: View {
                 Theme.background
                 backdrop
                 legibility
-                if let host = featured {
+                if let computer = featuredBorrowed {
+                    BorrowedHero(computer: computer, arrived: arrived, size: geo.size)
+                        .id(computer.id)
+                        .transition(.opacity)
+                        .padding(.leading, 72)
+                        .padding(.top, max(96, geo.size.height * 0.15))
+                } else if let host = featured {
                     Hero(host: host, arrived: arrived, size: geo.size)
                         .id(host.id)
                         .transition(.opacity)
@@ -49,7 +65,7 @@ private struct HomeContent: View {
                         .padding(.leading, 72)
                         .padding(.top, max(150, geo.size.height * 0.24))
                 }
-                Shelf(featured: featured, others: others, discovery: discovery, imagery: imagery, arrived: arrived)
+                Shelf(featured: featuredID, others: others, borrowed: otherBorrowed, discovery: discovery, imagery: imagery, arrived: arrived)
                     .padding(.horizontal, 72)
                     .padding(.bottom, 34)
                     .frame(maxHeight: .infinity, alignment: .bottom)
@@ -63,7 +79,7 @@ private struct HomeContent: View {
             }
         }
         .ignoresSafeArea()
-        .animation(.easeInOut(duration: 0.45), value: featured?.id)
+        .animation(.easeInOut(duration: 0.45), value: featuredID)
         .onAppear {
             discovery.start()
             arrived = true
@@ -78,7 +94,11 @@ private struct HomeContent: View {
     }
 
     @ViewBuilder private var backdrop: some View {
-        if let host = featured {
+        if let computer = featuredBorrowed {
+            Signature(seed: computer.title)
+                .id(computer.id)
+                .transition(.opacity)
+        } else if let host = featured {
             HostBackdrop(host: host, picture: imagery.pictures[host.id], online: app.store.status[host.id]?.online)
                 .id(host.id)
                 .transition(.opacity)
@@ -153,12 +173,14 @@ private struct Hero: View {
     }
 
     private var screenLine: String { HomeScreen.line(for: host, info: status?.info) }
+    /// Prêté par cet appareil (« Prêté à Léa ») : l'état et « Reprendre l'ordinateur ».
+    private var lent: LendView? { LentHome.view(of: host.id, in: app.store) }
 
     private func rise(_ i: Int) -> some ViewModifier { Rise(arrived: arrived, delay: 0.15 + Double(i) * 0.1) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            StatusPill(online: online, text: LinkText.status(online, away: status?.away == true))
+            StatusPill(online: online, text: lent.map(LentHome.line) ?? LinkText.status(online, away: status?.away == true))
                 .modifier(rise(0))
             VStack(alignment: .leading, spacing: 10) {
                 Text(host.name)
@@ -202,7 +224,9 @@ private struct Hero: View {
 
     @ViewBuilder private var actions: some View {
         HStack(spacing: 14) {
-            if let session = app.sessions.session(for: host.id) {
+            if let lent {
+                LentActions(host: host, view: lent)
+            } else if let session = app.sessions.session(for: host.id) {
                 // Déjà en session (plusieurs ordinateurs) : sa fenêtre passe devant.
                 Button { session.bringToFront() } label: {
                     HStack(spacing: 12) {
@@ -343,8 +367,10 @@ private struct Welcome: View {
 
 private struct Shelf: View {
     @EnvironmentObject var app: AppModel
-    let featured: Host?
+    let featured: UUID?
     let others: [Host]
+    /// Les ordinateurs que des amis prêtent à ce Mac, à part des siens.
+    let borrowed: [BorrowedComputer]
     @ObservedObject var discovery: Discovery
     @ObservedObject var imagery: HostImagery
     let arrived: Bool
@@ -374,6 +400,10 @@ private struct Shelf: View {
                             app.selectedID = host.id
                         }
                         .modifier(Rise(arrived: arrived, delay: 0.8 + Double(i) * 0.08))
+                    }
+                    ForEach(borrowed) { computer in
+                        BorrowedCard(computer: computer) { app.selectedID = computer.id }
+                            .modifier(Rise(arrived: arrived, delay: 0.9))
                     }
                     ForEach(newcomers, id: \.found.id) { item in
                         FoundCard(found: item.found, candidate: item.candidate)

@@ -38,10 +38,13 @@ public struct HostInfo: Sendable, Equatable {
     /// Le relais de la Station (Station 0.8.0 et suivantes quand un relais est
     /// réglé) : à garder pour l'ordinateur, pour y passer hors de chez soi.
     public let relay: RelayInfo?
+    /// Prêter l'ordinateur (Station 0.9.0 et suivantes) : le prêt existe, et
+    /// s'il est activé dans Admin ; nil avec une Station plus ancienne.
+    public let lend: LendInfo?
 
     public init(hostname: String? = nil, gpu: String? = nil, av1: Bool = false, virtualDisplay: Bool = true, speakers: Bool = true,
                 os: String? = nil, adminVersion: String? = nil, station: StationInfo? = nil, wake: [WakeTarget] = [], ownDevice: Bool = false, maxScreens: Int = 1,
-                share: ShareAvailability = .available, relay: RelayInfo? = nil) {
+                share: ShareAvailability = .available, relay: RelayInfo? = nil, lend: LendInfo? = nil) {
         self.hostname = hostname
         self.gpu = gpu
         self.av1 = av1
@@ -55,6 +58,7 @@ public struct HostInfo: Sendable, Equatable {
         self.maxScreens = max(1, maxScreens)
         self.share = share
         self.relay = relay
+        self.lend = lend
     }
 
     /// Version de la Station : celle de `station`, sinon celle d'Admin.
@@ -301,7 +305,8 @@ public final class ConsoleClient: @unchecked Sendable {
             ownDevice: (json["account"] as? [String: Any])?["own_device"] as? Bool ?? false,
             maxScreens: vd?["max_screens"] as? Int ?? 1,
             share: share,
-            relay: RelayInfo(json: json["relay"] as? [String: Any])
+            relay: RelayInfo(json: json["relay"] as? [String: Any]),
+            lend: LendInfo(json: json["lend"])
         )
     }
 

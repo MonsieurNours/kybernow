@@ -17,6 +17,8 @@ final class AppModel: ObservableObject {
     static let shared = AppModel()
 
     let store: HostStore
+    /// Les ordinateurs que des amis prêtent à ce Mac (docs/pret.md), à part des siens.
+    let borrowed: BorrowedStore
     @Published var route: Route = .home
     /// Ordinateur mis en avant sur l'accueil (le plus récent par défaut).
     @Published var selectedID: UUID?
@@ -64,9 +66,11 @@ final class AppModel: ObservableObject {
         // Le cœur Rust : son journal dans le journal unifié, la langue de l'app.
         Core.install()
         store = HostStore(demo: Self.demo)
+        borrowed = BorrowedStore(demo: Self.demo)
         defaults = Self.demo ? (UserDefaults(suiteName: "fr.leslignesclaires.kybernow.demo") ?? .standard) : .standard
         // Les sessions (ouvertes, fermées, active) redessinent l'accueil et les menus.
         sessions.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &watchers)
+        borrowed.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &watchers)
         #if DEBUG
         if Self.demo {
             // Rien vers iCloud : les ordinateurs de démonstration restent sur ce Mac.
@@ -123,6 +127,8 @@ final class AppModel: ObservableObject {
                 joining = false
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { self.join(link: link) }
             }
+            // kybernow://borrow?… : un ami prête son ordinateur.
+            if case let .borrow(invite) = kind { openInvite(invite) }
             return
         }
         // Fenêtre cachée (l'app vivait dans la barre des menus) : elle revient pour l'ajout.
@@ -133,6 +139,91 @@ final class AppModel: ObservableObject {
         }
         adding = false
         DispatchQueue.main.async { self.add(link: candidate) }
+    }
+
+    // MARK: Prêter l'ordinateur (l'ami)
+
+    /// Le lien d'invitation d'un ami qui prête son ordinateur, à son compte d'ami.
+    @Published var inviting: LendInvite?
+    /// Le mot de passe d'un ordinateur prêté, demandé à « Emprunter ».
+    @Published var borrowPassword: BorrowedComputer?
+
+    /// « {hôte} vous prête son ordinateur. » : l'ajout, identifiant rempli.
+    func openInvite(_ invite: LendInvite) {
+        showWindow()
+        route = .home
+        adding = false
+        joining = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { self.inviting = invite }
+    }
+
+    /// Un QR code ou un lien d'invitation lu dans la feuille d'ajout : elle se
+    /// ferme, l'ajout de l'ordinateur prêté s'ouvre à sa place.
+    func openInvite(fromAddSheet invite: LendInvite) {
+        adding = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.inviting = invite }
+    }
+
+    /// « Emprunter » (« Demander à {hôte} », « Revenir ») : la session
+    /// d'emprunt, avec le compte d'ami ; sans mot de passe retenu, il est demandé.
+    func borrow(_ computer: BorrowedComputer) {
+        if let session = sessions.all.first(where: { $0.borrowSource?.computer == computer.id }) {
+            session.bringToFront()
+            return
+        }
+        guard let target = computer.target else { return }
+        guard let password = borrowed.password(for: computer) else {
+            borrowPassword = computer
+            return
+        }
+        openBorrowSession(BorrowSource(target: target, credentials: .account(login: computer.login, password: password),
+                                       name: GuestName.proposed, hostHint: computer.hostName, computer: computer.id))
+    }
+
+    /// « Retirer » un ordinateur prêté de cet appareil.
+    func removeBorrowed(_ computer: BorrowedComputer) {
+        let alert = NSAlert()
+        alert.messageText = StationText.removeQuestion(computer.title)
+        alert.addButton(withTitle: ShareText.remove)
+        alert.addButton(withTitle: StationText.cancel)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        borrowed.remove(computer)
+        if selectedID == computer.id { selectedID = nil }
+    }
+
+    /// La session d'un ami qui emprunte, dans sa fenêtre comme toute session
+    /// (comptée parmi les quatre) : elle emprunte d'abord (« Préparation de
+    /// l'ordinateur », « En attente de {hôte}… »), puis se connecte.
+    func openBorrowSession(_ source: BorrowSource) {
+        joining = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [self] in
+            guard !sessions.isFull else { return }
+            let first = sessions.isEmpty
+            let opening: SessionController.Opening = first ? .first(home: homeWindow) : .next(anchor: sessions.anchorWindow)
+            let session = SessionController(borrow: source, store: store, opening: opening) { [weak self] in self?.sessionFinished($0) }
+            session.onWindowClosed = { [weak self] in self?.sessionWindowClosed($0) }
+            session.onEnded = { [weak self] in
+                self?.sessionEnded($0)
+                // La carte de l'accueil dit de nouveau l'état de l'ordinateur.
+                if let id = source.computer, let c = self?.borrowed.computer(id) { Task { await self?.borrowed.refresh(c) } }
+            }
+            if !first { Dock.comeForward() }
+            #if DEBUG
+            if Self.demo, !UserDefaults.standard.bool(forKey: "demoCore") {
+                let args = UserDefaults.standard
+                session.demoBorrow(waiting: args.bool(forKey: "demoBorrowWaiting"),
+                                   until: args.bool(forKey: "demoBorrowOpen") ? nil : Date().addingTimeInterval(80 * 60))
+                sessions.add(session)
+                sessions.refresh()
+                hideHomeForFirstSession(first)
+                return
+            }
+            #endif
+            session.start()
+            sessions.add(session)
+            sessions.refresh()
+            hideHomeForFirstSession(first)
+        }
     }
 
     private func known(_ c: Candidate) -> Bool {
@@ -260,6 +351,16 @@ final class AppModel: ObservableObject {
         let ordered = store.ordered
         let index = args.integer(forKey: "hostIndex")
         if ordered.indices.contains(index) { selectedID = ordered[index].id }
+        // Prêter l'ordinateur : `-demoBorrowed free|busy|lent|mine|locked|off|offline|refused|slot|slot-now`
+        // (« Ordinateur de Matthieu » sur l'accueil, mis en avant avec `-demoBorrowedSelected YES`) ;
+        // `-demoLent YES|notice` : la Tour prêtée à Léa (« Prêté à Léa », « Reprendre l'ordinateur »).
+        if let state = args.string(forKey: "demoBorrowed") {
+            borrowed.loadDemo(state)
+            if args.bool(forKey: "demoBorrowedSelected") { selectedID = borrowed.computers.first?.id }
+        }
+        if let lent = args.string(forKey: "demoLent"), let tour = ordered.first {
+            store.setDemoLend(LendDemo.lentView(notice: lent == "notice"), for: tour.id)
+        }
         if let raw = args.string(forKey: "section"), let s = ComputerSection(rawValue: raw) { section = s }
         if args.string(forKey: "screen") == "settings", let id = selectedID ?? ordered.first?.id { route = .settings(id) }
         if let v = args.string(forKey: "demoUpdate") { UpdateChannels.shared.available = v }

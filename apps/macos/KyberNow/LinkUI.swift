@@ -41,6 +41,27 @@ enum LinkFormat {
         return String(localized: "le \(day)")
     }
 
+    /// Une heure de la journée : « 18 h », « 18 h 30 » ; en anglais « 6 PM », « 6:30 PM ».
+    static func clock(_ date: Date) -> String {
+        let cal = Calendar.current
+        let hour = cal.component(.hour, from: date), minute = cal.component(.minute, from: date)
+        if french { return minute == 0 ? "\(hour) h" : "\(hour) h \(String(format: "%02d", minute))" }
+        let h12 = hour % 12 == 0 ? 12 : hour % 12
+        let suffix = hour < 12 ? "AM" : "PM"
+        return minute == 0 ? "\(h12) \(suffix)" : "\(h12):\(String(format: "%02d", minute)) \(suffix)"
+    }
+
+    /// Le jour de la semaine : « mercredi », “Wednesday”.
+    static func weekday(_ date: Date) -> String {
+        date.formatted(.dateTime.weekday(.wide).locale(Locale(identifier: french ? "fr_FR" : "en_US")))
+    }
+
+    /// Un compte à rebours : « 1:42 ».
+    static func countdown(_ seconds: TimeInterval) -> String {
+        let s = Int(seconds.rounded(.up))
+        return "\(s / 60):\(String(format: "%02d", s % 60))"
+    }
+
     /// « 2560 × 1440 », sans séparateur de milliers.
     static func dims(_ width: Int, _ height: Int) -> String {
         "\(String(width)) × \(String(height))"
@@ -338,6 +359,88 @@ enum ShareText {
         if !role.keyboardAndMouse, previous.keyboardAndMouse { return String(localized: "Le clavier et la souris sont repris.") }
         return nil
     }
+}
+
+// MARK: - Prêt de l'ordinateur
+
+/// Les textes du prêt de l'ordinateur (docs/link-ui.md, « Prêt de
+/// l'ordinateur ») ; les refus et les fins viennent du cœur. Ceux qu'il
+/// partage avec le partage (« Accepter », « Copier le lien », le code…) sont
+/// dans `ShareText`.
+enum LendText {
+    // L'hôte.
+    static var lend: String { String(localized: "Prêter l'ordinateur…") }
+    static func title(_ computer: String) -> String { String(localized: "Prêter \(computer)") }
+    static var duration: String { String(localized: "Durée") }
+    static var steamAccount: String { String(localized: "Compte Steam") }
+    static var createCode: String { String(localized: "Créer un code") }
+    static var oneSession: String { String(localized: "Pour une séance, valable 24 h.") }
+    static var help: String {
+        String(localized: "Votre ami entre ce code avec « Rejoindre avec un code » dans KyberNow Link, ou ouvre ce lien dans un navigateur.")
+    }
+    static var sessionCloses: String { String(localized: "Votre session se fermera quand votre ami arrivera.") }
+    static var cancelCode: String { String(localized: "Annuler le code") }
+    static var warning: String {
+        String(localized: "Votre ami joue dans votre session Windows. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance.")
+    }
+    static var offInAdmin: String { String(localized: "Le prêt est coupé dans Admin (page « Prêt »).") }
+    static var tooOld: String { String(localized: "Le prêt demande KyberNow Station 0.9.0 ou plus récente.") }
+    /// Une demande, ordinateur utilisé (avis et ligne du panneau).
+    static func wantsToBorrow(_ name: String) -> String { String(localized: "\(name) veut emprunter l'ordinateur.") }
+    /// Sous une demande : son app, et « hors de chez vous » si elle vient par le relais.
+    static func requestDetail(_ request: LendRequest) -> String? {
+        guard request.viaRelay else { return ShareText.app(request.app) }
+        return [ShareText.app(request.app), ShareText.awayFromHome].compactMap { $0 }.joined(separator: " · ")
+    }
+    /// Accepter depuis sa session la ferme.
+    static var acceptCloses: String { String(localized: "Votre session va se fermer.") }
+    /// Le créneau d'un ami commence : « Créneau de {prénom} : l'ordinateur lui est prêté dans 2 min. » (texte du cœur).
+    static func slotStarts(_ name: String) -> String { LendNotice(reason: .slotStart, at: Date()).text(name: name) }
+
+    // L'hôte, pendant un prêt.
+    static func lentTo(_ name: String) -> String { String(localized: "Prêté à \(name)") }
+    static func lentTo(_ name: String, until: Date) -> String {
+        String(localized: "Prêté à \(name) jusqu'à \(LinkFormat.clock(until))")
+    }
+    static var takeBack: String { String(localized: "Reprendre l'ordinateur") }
+    /// « Reprise dans 1:42 ».
+    static func takingBackIn(_ seconds: TimeInterval) -> String {
+        String(localized: "Reprise dans \(LinkFormat.countdown(seconds))")
+    }
+    static var takeBackNow: String { String(localized: "Reprendre tout de suite") }
+
+    // L'ami.
+    /// « Ordinateur de Matthieu », « Ordinateur d'Hugo ».
+    static func computerOf(_ host: String) -> String {
+        French.elides(host) ? String(localized: "Ordinateur d'\(host)") : String(localized: "Ordinateur de \(host)")
+    }
+    static var borrow: String { String(localized: "Emprunter") }
+    static func ask(_ host: String) -> String { String(localized: "Demander à \(host)") }
+    /// « Votre créneau : mercredi, 14 h – 18 h » (le prochain), « Votre créneau, jusqu'à 18 h » (en cours).
+    static func slot(_ slot: LendSlot) -> String? {
+        guard let next = slot.next else { return nil }
+        if slot.now { return String(localized: "Votre créneau, jusqu'à \(LinkFormat.clock(next.end))") }
+        return String(localized: "Votre créneau : \(LinkFormat.weekday(next.start)), \(LinkFormat.clock(next.start)) – \(LinkFormat.clock(next.end))")
+    }
+    static var withFriendAccount: String { String(localized: "Avec un compte d'ami") }
+    static var username: String { String(localized: "Identifiant") }
+    static var password: String { String(localized: "Mot de passe") }
+    static var rememberPassword: String { String(localized: "Retenir le mot de passe") }
+    static func invitation(_ host: String) -> String { String(localized: "\(host) vous prête son ordinateur.") }
+    static var add: String { String(localized: "Ajouter") }
+    static func waiting(_ host: String) -> String { String(localized: "En attente de \(host)…") }
+    /// La première étape de la connexion d'un emprunt.
+    static var preparing: String { String(localized: "Préparation de l'ordinateur") }
+    static func lentBy(_ host: String) -> String { String(localized: "Prêté par \(host)") }
+    /// « Encore 1 h 20 ».
+    static func timeLeft(_ seconds: TimeInterval) -> String { String(localized: "Encore \(LinkFormat.duration(seconds))") }
+    static func untilTakesBack(_ host: String) -> String { String(localized: "Jusqu'à ce que \(host) reprenne") }
+    static var giveBack: String { String(localized: "Rendre l'ordinateur") }
+    static func giveBackQuestion(_ host: String) -> String { String(localized: "Rendre l'ordinateur à \(host) ?") }
+    /// Fenêtre fermée ou réseau perdu : sur la carte de fin, avec « Revenir ».
+    static var comeBackHint: String { String(localized: "Vous pouvez revenir pendant 15 min.") }
+    static var comeBack: String { String(localized: "Revenir") }
+    static var close: String { String(localized: "Fermer") }
 }
 
 // MARK: - Réglages de l'ordinateur

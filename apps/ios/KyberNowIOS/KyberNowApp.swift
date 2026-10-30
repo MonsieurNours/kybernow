@@ -104,6 +104,9 @@ struct RootView: View {
             case let .join(link): JoinView(link: link)
             case let .settings(id): SettingsView(hostID: id)
             case .appSettings: AppSettingsView()
+            case let .invite(invite): InviteView(invite: invite)
+            case let .borrowPassword(id):
+                if let computer = app.borrowed.computer(id) { BorrowPasswordView(computer: computer) }
             }
         }
         .onChange(of: app.session != nil, initial: true) { _, inSession in

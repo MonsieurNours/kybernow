@@ -13,6 +13,7 @@
 		06785FC2BC19C1A9C896BAFC /* KyberTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B5D7314C1E329CB9A046BCD /* KyberTypes.swift */; };
 		0B20F98F515386F14517B926 /* ScreenPadLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6252F747ADD2695330E7860 /* ScreenPadLogic.swift */; };
 		0E7898AA1D72BAD6801ED2FF /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 1E301E824B7C8F017CF646A4 /* Localizable.xcstrings */; };
+		107AEFB5CC68D0181C5D3412 /* Lend.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12873856FE243A1B653ADFD4 /* Lend.swift */; };
 		19E6B33FA39328971210BB37 /* MetalSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90C6C805EDA4B6095D33A5AD /* MetalSurface.swift */; };
 		1AEF18F956012111B3CEACC4 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DF18C6379CA4387A4D910236 /* Security.framework */; };
 		1B9D29A442EE30FB0C81B6CE /* CoreBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A311A16A82D70847AAB768D2 /* CoreBridge.swift */; };
@@ -46,7 +47,9 @@
 		86BFD5BA8C1E2F5D7EB45061 /* ConsoleClientCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D768A88B9A4537A90254938 /* ConsoleClientCore.swift */; };
 		8AC74F5174920E95A6B94BC0 /* Model.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A6E1351863BB088A8938F59 /* Model.swift */; };
 		8EE5514C9D6756205285D44F /* LinkUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = B15AA9F9EFA3E6C151832988 /* LinkUI.swift */; };
+		9E498A340104E6646FAC8CE6 /* LendViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74C7A88CB55772D75805439E /* LendViews.swift */; };
 		9ECBAC17D48DC6E5EFD0F599 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = BAA93A815BCDC3DCEF4B2B8B /* Assets.xcassets */; };
+		A45FF4CDC0895C8FD97A9715 /* LendCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBA048343AC7B500A33C2331 /* LendCore.swift */; };
 		A7EB72E7360A2589DCCAA24E /* AppSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C5BC11DCB9BAF29FE7F1722 /* AppSettingsView.swift */; };
 		AA646ACFCCEDA7CA1C36A75C /* KeyboardMouse.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62BC5E83B7193B1F27746462 /* KeyboardMouse.swift */; };
 		B18CE821A6BF0895849FDB99 /* AddHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7769E5B65C16814E172611B0 /* AddHostView.swift */; };
@@ -99,6 +102,7 @@
 		0226C33E74431675895CF43B /* SystemConfiguration.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SystemConfiguration.framework; path = System/Library/Frameworks/SystemConfiguration.framework; sourceTree = SDKROOT; };
 		10273F938926D2DE6E4A186F /* ShareViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViews.swift; sourceTree = "<group>"; };
 		11E7F53DBCDC4AAFE88274F2 /* ScreenPad.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenPad.swift; sourceTree = "<group>"; };
+		12873856FE243A1B653ADFD4 /* Lend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Lend.swift; sourceTree = "<group>"; };
 		14EDFA8B001CCA8A8F0BE2E1 /* KyberNow.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = KyberNow.xcframework; path = Vendor/KyberNow.xcframework; sourceTree = "<group>"; };
 		1E301E824B7C8F017CF646A4 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		25D44B7B7CC32E4F400A995C /* Backdrops.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Backdrops.swift; sourceTree = "<group>"; };
@@ -119,6 +123,7 @@
 		62BC5E83B7193B1F27746462 /* KeyboardMouse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardMouse.swift; sourceTree = "<group>"; };
 		66675E7942D7F082D80B96EB /* SettingsControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsControls.swift; sourceTree = "<group>"; };
 		6E0F15160A4C2DD171D75AF1 /* LaunchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchView.swift; sourceTree = "<group>"; };
+		74C7A88CB55772D75805439E /* LendViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LendViews.swift; sourceTree = "<group>"; };
 		7769E5B65C16814E172611B0 /* AddHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddHostView.swift; sourceTree = "<group>"; };
 		7850FA5612B72BECD1D05CFE /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
 		7A1FF214827149C582C43E77 /* KyberNowApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KyberNowApp.swift; sourceTree = "<group>"; };
@@ -140,6 +145,7 @@
 		B3F54BF416D5315CDBC05036 /* SessionStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStats.swift; sourceTree = "<group>"; };
 		B5B21EE1EB8228AF8F50DED6 /* SettingsStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsStats.swift; sourceTree = "<group>"; };
 		BAA93A815BCDC3DCEF4B2B8B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		BBA048343AC7B500A33C2331 /* LendCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LendCore.swift; sourceTree = "<group>"; };
 		BDC7B1FA8B923B97CFD23EE6 /* Share.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Share.swift; sourceTree = "<group>"; };
 		C061F9A3683E8F0952178D5A /* SessionEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionEngine.swift; sourceTree = "<group>"; };
 		C4F5C6D95599975901557ED5 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
@@ -230,6 +236,7 @@
 				7A1FF214827149C582C43E77 /* KyberNowApp.swift */,
 				5C29930A44A76B2FE97E93EF /* KyberNowIOS.entitlements */,
 				6E0F15160A4C2DD171D75AF1 /* LaunchView.swift */,
+				74C7A88CB55772D75805439E /* LendViews.swift */,
 				1E301E824B7C8F017CF646A4 /* Localizable.xcstrings */,
 				F5209938CBDB61B7A681C9DB /* Platform.swift */,
 				11E7F53DBCDC4AAFE88274F2 /* ScreenPad.swift */,
@@ -288,6 +295,7 @@
 			children = (
 				9DA666EFDB697E3073C49AC0 /* AppIcon.icon */,
 				A2B1FC1C1CB40956666D1104 /* Discovery.swift */,
+				12873856FE243A1B653ADFD4 /* Lend.swift */,
 				B15AA9F9EFA3E6C151832988 /* LinkUI.swift */,
 				2A6E1351863BB088A8938F59 /* Model.swift */,
 				BDC7B1FA8B923B97CFD23EE6 /* Share.swift */,
@@ -320,6 +328,7 @@
 				5B5D7314C1E329CB9A046BCD /* KyberTypes.swift */,
 				CFDC3C4579F50D443D946774 /* Language.swift */,
 				5E2993F29818468CCDB59BBB /* LatencyReporting.swift */,
+				BBA048343AC7B500A33C2331 /* LendCore.swift */,
 				C4F5C6D95599975901557ED5 /* Localizable.xcstrings */,
 				33BFA98ADC8A49589A10B603 /* RelayCore.swift */,
 				C061F9A3683E8F0952178D5A /* SessionEngine.swift */,
@@ -457,6 +466,8 @@
 				D72A5578EFCFB0F409F02FF0 /* HomeView.swift in Sources */,
 				2047075896E2379979E6B37D /* KyberNowApp.swift in Sources */,
 				1DD21AA9FE7A5C7271CEAB42 /* LaunchView.swift in Sources */,
+				107AEFB5CC68D0181C5D3412 /* Lend.swift in Sources */,
+				9E498A340104E6646FAC8CE6 /* LendViews.swift in Sources */,
 				8EE5514C9D6756205285D44F /* LinkUI.swift in Sources */,
 				8AC74F5174920E95A6B94BC0 /* Model.swift in Sources */,
 				B215E1C9CFE4119FBA31D9A2 /* Platform.swift in Sources */,
@@ -490,6 +501,7 @@
 				06785FC2BC19C1A9C896BAFC /* KyberTypes.swift in Sources */,
 				6FE37D5BF61E9EC6F2E05395 /* Language.swift in Sources */,
 				1F6C9796230EE919A0E92F16 /* LatencyReporting.swift in Sources */,
+				A45FF4CDC0895C8FD97A9715 /* LendCore.swift in Sources */,
 				19E6B33FA39328971210BB37 /* MetalSurface.swift in Sources */,
 				FBD75728DEE3B6F7452B074C /* RelayCore.swift in Sources */,
 				4A243449E9012A83F5B25EBA /* SessionEngine.swift in Sources */,

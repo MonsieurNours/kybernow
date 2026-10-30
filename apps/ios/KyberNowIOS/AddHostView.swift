@@ -17,7 +17,8 @@ import SwiftUI
 
 /// Les voies d'ajout, dans l'ordre des maquettes.
 enum AddHostMethod: Int, CaseIterable, Identifiable {
-    case cloud, network, code, address, qr
+    /// `friend` : « Avec un compte d'ami », l'ordinateur qu'un ami prête (docs/pret.md).
+    case cloud, network, code, address, qr, friend
 
     var id: Int { rawValue }
 }
@@ -242,6 +243,7 @@ private struct AddHostStack: View {
             case .cloud?, .code?: return String(localized: "Étape 1 sur 1")
             case .network?, .qr?: return String(localized: "Étape 1 sur 2")
             case .address?: return String(localized: "Étape 1 sur 3")
+            case .friend?: return String(localized: "Étape 1 sur 1")
             }
         }
     }
@@ -262,6 +264,7 @@ private struct AddHostStack: View {
             case .code?: AddHostCodePane()
             case .address?: AddHostAddressPane()
             case .qr?: AddHostQRPane()
+            case .friend?: AddHostFriendPane()
             }
         }
     }
@@ -285,7 +288,7 @@ private struct AddHostMenu: View {
                 Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1)
             }
             VStack(spacing: 10) {
-                ForEach([AddHostMethod.cloud, .network, .code, .address]) { m in
+                ForEach([AddHostMethod.cloud, .network, .code, .address, .friend]) { m in
                     Button { flow.pick(m) } label: {
                         AddHostMethodLabel(method: m, selected: false, compact: true)
                     }
@@ -407,6 +410,7 @@ private struct AddHostSplit: View {
                     case .code: AddHostCodePane()
                     case .address: AddHostAddressPane()
                     case .qr: AddHostQRPane()
+                    case .friend: AddHostFriendPane()
                     }
                 }
             }
@@ -487,6 +491,7 @@ private struct AddHostMethodLabel: View {
         case .code: Icon("number-square-one", size: 22)
         case .address: Icon("globe-hemisphere-west", size: 22)
         case .qr: AddHostQRGlyph().stroke(style: StrokeStyle(lineWidth: 1.7, lineCap: .round, lineJoin: .round)).frame(width: 22, height: 22)
+        case .friend: Icon("key", size: 22)
         }
     }
 
@@ -497,6 +502,7 @@ private struct AddHostMethodLabel: View {
         case .code: return String(localized: "Code à l'écran")
         case .address: return String(localized: "Adresse")
         case .qr: return String(localized: "QR code d'appairage")
+        case .friend: return LendText.withFriendAccount
         }
     }
 
@@ -511,6 +517,7 @@ private struct AddHostMethodLabel: View {
         case .code: return String(localized: "À accepter dans KyberNow Admin")
         case .address: return String(localized: "VPN ou réseau sans découverte")
         case .qr: return DeviceDisplay.isPad ? String(localized: "Avec la caméra de l'iPad") : String(localized: "Avec la caméra de l'iPhone")
+        case .friend: return LendText.username + " · " + LendText.password
         }
     }
 }

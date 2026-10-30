@@ -53,7 +53,7 @@ struct SessionView: View {
             // puis disparaît de la hiérarchie une fois ouvert (même raison).
             if session.phase != .ended, session.passageShown {
                 Passage(host: session.host, open: revealed, title: session.title,
-                        button: session.isGuest ? ShareText.joinButton : String(localized: "Se connecter"))
+                        button: session.isBorrower ? LendText.borrow : session.isGuest ? ShareText.joinButton : String(localized: "Se connecter"))
                     .allowsHitTesting(false)
             }
 
@@ -107,7 +107,8 @@ struct SessionView: View {
 
             if case let .failed(message) = session.phase {
                 SessionFailure(host: session.host, title: session.title, message: message, afterImage: revealed,
-                               shareEnd: session.shareEndText != nil) { session.finish() }
+                               shareEnd: session.shareEndText != nil || session.lendEndText != nil,
+                               borrower: session.isBorrower, comeBack: session.canComeBack ? { session.comeBack() } : nil) { session.finish() }
                     .transition(.opacity)
             }
         }
@@ -328,6 +329,12 @@ struct ConnectingPanel: View {
         }
     }
 
+    /// Ordinateur utilisé : l'hôte doit accepter l'emprunt (« En attente de {hôte}… »).
+    private var waitingHost: String? {
+        guard session.phase == .preparing, case let .waiting(host)? = session.borrowFlow?.state else { return nil }
+        return host
+    }
+
     var body: some View {
         HStack(spacing: 34) {
             Mark(size: 48, level: .lit)
@@ -335,12 +342,23 @@ struct ConnectingPanel: View {
                 if session.stationRestarting {
                     // Dernier recours : la Station redémarre, puis les étapes reprennent.
                     restartLine
+                } else if let host = waitingHost {
+                    // « Annuler » retire la demande chez l'hôte.
+                    Text(session.title).font(Theme.sans(28, .semibold)).foregroundStyle(Theme.text).lineLimit(1)
+                    HStack(spacing: 16) {
+                        Circle().fill(Theme.accent).frame(width: 12, height: 12)
+                            .shadow(color: Theme.accentFill, radius: 8)
+                            .opacity(pulse ? 0.4 : 1)
+                            .frame(width: 24, height: 24)
+                        Text(LendText.waiting(host)).font(Theme.sans(24, .semibold)).foregroundStyle(Theme.text)
+                    }
                 } else {
-                    // Un invité : les mêmes étapes, titrées « Invité sur {nom} ».
-                    if session.isGuest {
+                    // Un invité : les mêmes étapes, titrées « Invité sur {nom} » ; un ami : « Ordinateur de {hôte} ».
+                    if session.isVisitor {
                         Text(session.title).font(Theme.sans(28, .semibold)).foregroundStyle(Theme.text).lineLimit(1)
                     }
-                    step(0, String(localized: "Préparation de l'écran"))
+                    // Un emprunt : le mode console se met en place d'abord.
+                    step(0, session.isBorrower ? LendText.preparing : String(localized: "Préparation de l'écran"))
                     step(1, String(localized: "Connexion"))
                     step(2, String(localized: "Premières images"))
                 }
@@ -418,9 +436,15 @@ struct SessionFailure: View {
     let message: String
     /// L'image était arrivée : la session s'est arrêtée en route.
     var afterImage = false
-    /// Fin d'une session d'invité par le partage : la raison seule, sans titre d'échec.
+    /// Fin d'une session d'invité par le partage, ou d'un emprunt par le prêt :
+    /// la raison seule, sans titre d'échec.
     var shareEnd = false
+    /// Un ami qui emprunte : la carte de fin a « Fermer ».
+    var borrower = false
+    /// Réseau perdu pendant un emprunt : « Vous pouvez revenir pendant 15 min. » et « Revenir ».
+    var comeBack: (() -> Void)?
     let done: () -> Void
+    @FocusState private var focus: Int?
 
     var body: some View {
         ZStack {
@@ -436,9 +460,26 @@ struct SessionFailure: View {
                 // La raison du cœur n'a pas de point final, sauf celle du partage (« {hôte} a arrêté le partage. »).
                 Text(message.prefix(1).uppercased() + message.dropFirst() + (message.hasSuffix(".") ? "" : "."))
                     .font(Theme.sans(28)).foregroundStyle(Theme.text2)
-                Button("Retour à l'accueil", action: done)
-                    .buttonStyle(PrimaryButton(height: 80, fontSize: 28))
+                if let comeBack {
+                    Text(LendText.comeBackHint).font(Theme.sans(26)).foregroundStyle(Theme.text)
+                    HStack(spacing: 24) {
+                        Button(LendText.comeBack, action: comeBack)
+                            .buttonStyle(PrimaryButton(height: 80, fontSize: 28))
+                            .focused($focus, equals: 0)
+                        Button(LendText.close, action: done)
+                            .buttonStyle(ChoiceButton(selected: false, height: 80))
+                    }
                     .padding(.top, 30)
+                    .onAppear { focus = 0 }
+                } else if borrower {
+                    Button(LendText.close, action: done)
+                        .buttonStyle(PrimaryButton(height: 80, fontSize: 28))
+                        .padding(.top, 30)
+                } else {
+                    Button("Retour à l'accueil", action: done)
+                        .buttonStyle(PrimaryButton(height: 80, fontSize: 28))
+                        .padding(.top, 30)
+                }
             }
             .frame(width: 1300, alignment: .leading)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

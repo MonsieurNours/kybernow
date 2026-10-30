@@ -96,8 +96,47 @@ final class SessionController: ObservableObject {
     /// Le panneau de l'hôte (code, QR code, invités) est ouvert, dans le menu.
     @Published var sharePanel = false
 
-    /// Le titre de la session : le nom de l'ordinateur, ou « Invité sur {nom} ».
-    var title: String { guest.map { ShareText.guestOn($0.computer) } ?? host.name }
+    // MARK: Prêt de l'ordinateur
+
+    /// Session d'emprunt (docs/pret.md) : d'où vient l'emprunt (la Station, le
+    /// code ou le compte, le prénom), gardé pour « Revenir ». Comme un invité,
+    /// un ami ne change rien sur l'ordinateur et ne garde rien sur cet appareil ;
+    /// il a le clavier, la souris et les manettes, sans presse-papiers.
+    let borrowSource: BorrowSource?
+    var isBorrower: Bool { borrowSource != nil }
+    /// Un invité ou un ami qui emprunte : ni profil, ni réglages, ni dernière image.
+    var isVisitor: Bool { isGuest || isBorrower }
+    /// L'emprunt avant la session : « Préparation de l'ordinateur », « En attente de {hôte}… ».
+    let borrowFlow: BorrowFlow?
+    /// Le prêt obtenu : la fin prévue (« Encore 1 h 20 ») et {hôte}.
+    @Published private(set) var loan: LendLoan?
+    /// Le préavis de 2 minutes en cours (le temps restant le suit).
+    @Published private(set) var lendNotice: LendNotice?
+    /// La fin par le prêt (« {hôte} a repris l'ordinateur. ») ou un refus de
+    /// l'emprunt : elle reste à l'écran, avec « Fermer ».
+    @Published private(set) var lendEndText: String?
+    /// « Rendre l'ordinateur à {hôte} ? » est ouvert, dans le menu.
+    @Published var giveBackAsked = false
+    /// L'ami a demandé « Rendre l'ordinateur » : la fin est voulue.
+    private var givingBack = false
+    /// {hôte} des textes du prêt.
+    var lendHost: String { loan?.host ?? borrowFlow?.host.nonEmpty ?? borrowSource?.hostHint.nonEmpty ?? host.name }
+    /// La session d'emprunt s'est coupée sans fin du prêt (réseau perdu) : l'ami
+    /// peut revenir pendant 15 minutes (« Revenir »).
+    var canComeBack: Bool { isBorrower && loan != nil && lendEndText == nil && !givingBack }
+    /// « Revenir » : l'app ouvre une nouvelle session d'emprunt avec la même demande.
+    var onComeBack: ((BorrowSource) -> Void)?
+    /// Le prêt de cet ordinateur, depuis la session de l'hôte (tuile « Prêter l'ordinateur… »).
+    let lend: LendHostModel
+    /// Le panneau du prêt (durée, compte Steam, code, demandes) est ouvert, dans le menu.
+    @Published var lendPanel = false
+
+    /// Le titre de la session : le nom de l'ordinateur, « Invité sur {nom} »,
+    /// ou « Ordinateur de {hôte} ».
+    var title: String {
+        if isBorrower { return LendText.computerOf(lendHost) }
+        return guest.map { ShareText.guestOn($0.computer) } ?? host.name
+    }
 
     /// « Partager » avec cet ordinateur : disponible, ou inactif avec la raison.
     var shareAvailability: ShareAvailability { share.availability }
@@ -107,7 +146,10 @@ final class SessionController: ObservableObject {
         self.store = store
         self.onFinish = onFinish
         guest = nil
+        borrowSource = nil
+        borrowFlow = nil
         share = ShareHostModel(console: nil) { [store, id = host.id] in ShareHostModel.availability(of: id, in: store) }
+        lend = LendHostModel(console: nil) { [store, id = host.id] in store.lendAvailability(of: id) }
         remoteMouse = host.settings.profile == .bureau || host.settings.mouse == .desktop
         padMouse = host.settings.profile == .bureau
     }
@@ -126,10 +168,36 @@ final class SessionController: ObservableObject {
         self.store = store
         self.onFinish = onFinish
         guest = found
+        borrowSource = nil
+        borrowFlow = nil
         shareRole = found.role
         shareQuality = found.quality
         share = ShareHostModel(console: nil) { .available }
+        lend = LendHostModel(console: nil) { .available }
         // Le pavé et la manette ne font souris que si l'hôte donne la souris : ensuite, « Pavé en souris ».
+        remoteMouse = false
+        padMouse = false
+    }
+
+    /// Une session d'emprunt : l'ordinateur d'un ami, par un code de prêt ou un
+    /// compte d'ami. L'emprunt se fait au départ de la session (`start`).
+    init(borrow source: BorrowSource, store: HostStore, onFinish: @escaping (SessionController) -> Void) {
+        let name = LendText.computerOf(source.hostHint.isEmpty ? source.target.host : source.hostHint)
+        var host = Host(name: name, address: source.target.host, consolePort: source.target.port, username: "")
+        // L'écran virtuel que la Station fait à la taille du téléviseur, profil
+        // Jeu, sans presse-papiers ; rien n'est gardé ensuite.
+        host.settings.apply(.jeu)
+        host.settings.display = .match
+        host.settings.clipboard = false
+        host.settings.keepLastImage = false
+        self.host = host
+        self.store = store
+        self.onFinish = onFinish
+        guest = nil
+        borrowSource = source
+        borrowFlow = BorrowFlow(source: source)
+        share = ShareHostModel(console: nil) { .available }
+        lend = LendHostModel(console: nil) { .available }
         remoteMouse = false
         padMouse = false
     }
@@ -152,8 +220,8 @@ final class SessionController: ObservableObject {
     // MARK: - Déroulé
 
     func start() {
-        // Un invité n'a pas de compte : le code a suffi.
-        let password = isGuest ? "" : store.password(for: host)
+        // Un invité n'a pas de compte : le code a suffi (un ami : le prêt).
+        let password = isVisitor ? "" : store.password(for: host)
         guard let password else {
             fail(String(localized: "mot de passe introuvable dans le Trousseau"))
             return
@@ -176,6 +244,41 @@ final class SessionController: ObservableObject {
             Task { @MainActor in self?.route = AudioRoute.current }
         }
 
+        // Prêt de l'ordinateur : l'emprunt d'abord (« Préparation de
+        // l'ordinateur », ou « En attente de {hôte}… »), avec la sortie du
+        // téléviseur ; la session se connecte une fois le prêt obtenu.
+        if let flow = borrowFlow, loan == nil {
+            phase = .preparing
+            flow.onReady = { [weak self] loan in
+                guard let self, self.isLive else {
+                    Lend.leave(loan)
+                    return
+                }
+                self.loan = loan
+                self.host.name = LendText.computerOf(loan.host)
+                self.launch(settings: settings, password: password, mode: mode)
+            }
+            flow.onFailed = { [weak self] text in
+                guard let self, self.isLive else { return }
+                self.lendEndText = text
+                self.fail(text)
+            }
+            flow.start(screen: LendScreen(width: mode.width, height: mode.height, refresh: mode.refresh))
+            return
+        }
+        launch(settings: settings, password: password, mode: mode)
+    }
+
+    /// La session tient encore (ni finie, ni en échec, ni qui se ferme).
+    var isLive: Bool {
+        switch phase {
+        case .ending, .ended, .failed: return false
+        default: return true
+        }
+    }
+
+    /// La session du cœur : celle de l'ordinateur, d'un invité ou d'un ami qui emprunte.
+    private func launch(settings: ConnectionSettings, password: String, mode: (width: Int, height: Int, refresh: Int)) {
         let engine = SessionEngine(view: streamView)
         engine.onPhase = { [weak self] in self?.phaseChanged($0) }
         engine.onNotice = { [weak self] in self?.notice($0) }
@@ -195,14 +298,29 @@ final class SessionController: ObservableObject {
         engine.onShareRole = { [weak self] role, previous in self?.shareRoleChanged(role, previous: previous) }
         engine.onShareEnd = { [weak self] _, text in self?.shareEndText = text }
         engine.onShareImage = { [weak self] image, _, notice in self?.shareImageChanged(image, notice: notice) }
+        // Prêt de l'ordinateur : la vue du prêt (hôte), le préavis et la fin (ami).
+        engine.onLend = { [weak self] view in
+            guard let self else { return }
+            self.lend.heartbeat(view)
+            self.store.setLend(view, for: self.host.id)
+        }
+        lend.onRequest = { [weak self] in self?.lendRequestArrived($0) }
+        engine.onLendNotice = { [weak self] notice, text in self?.lendNoticed(notice, text: text) }
+        engine.onLendEnd = { [weak self] end, text in self?.lendEnded(end, text: text) }
         engine.onRoute = { [weak self] in self?.routeChanged($0) }
         self.engine = engine
-        if !isGuest { share.setConsole(store.console(for: host)) }
+        if !isVisitor {
+            share.setConsole(store.console(for: host))
+            lend.setConsole(store.console(for: host))
+        }
 
         // Son : celui de la sortie (ampli 5.1 ou 7.1, sinon stéréo), ou resté sur l'ordinateur.
         let channels = settings.audio == .off ? 0 : settings.audio.channels
         var params: SessionEngine.Params
-        if let guest {
+        if let loan {
+            // Un ami : la Station du prêt, sur l'écran virtuel qu'elle a fait pour le téléviseur.
+            params = SessionEngine.Params(borrower: loan, audioChannels: channels, settings: engineSettings)
+        } else if let guest {
             // Un invité : la Station qui a accepté le code, sans compte ni écran virtuel.
             params = SessionEngine.Params(guest: guest, audioChannels: channels, settings: engineSettings)
         } else {
@@ -286,6 +404,12 @@ final class SessionController: ObservableObject {
                 fail(reason)
                 return
             }
+            // Un ami : la fin du prêt (« {hôte} a repris l'ordinateur. ») reste à
+            // l'écran, avec « Fermer » ; rendu, la session se ferme.
+            if isBorrower, let reason = lendEndText, phase != .ending, phase != .ended {
+                fail(reason)
+                return
+            }
             // Fin demandée par Admin : comme une fin voulue.
             if phase != .ending, phase != .ended { end() }
         case let .ended(error, _):
@@ -362,8 +486,9 @@ final class SessionController: ObservableObject {
         guard info != path else { return }
         let wasRelay = path.viaRelay
         path = info
-        if info.viaRelay != wasRelay, !isGuest {
+        if info.viaRelay != wasRelay, !isVisitor {
             share.setConsole(store.console(for: host, route: info.viaRelay ? .relay : .direct))
+            lend.setConsole(store.console(for: host, route: info.viaRelay ? .relay : .direct))
             // Par le relais, l'app ne redémarre ni ne met à jour la Station (réglages).
             store.setSessionViaRelay(host, info.viaRelay)
         }
@@ -378,6 +503,58 @@ final class SessionController: ObservableObject {
         default: break
         }
         show(notice: ShareText.requestNotice(request.name), for: 6)
+    }
+
+    // MARK: - Prêt de l'ordinateur
+
+    /// Une demande d'emprunt pendant la session : « {prénom} veut emprunter
+    /// l'ordinateur. » (8 s ; à la télécommande, la tuile « Prêter
+    /// l'ordinateur… » du menu dit « 1 demande » et ouvre le panneau) ; un
+    /// créneau qui commence : « Créneau de {prénom} : l'ordinateur lui est prêté dans 2 min. »
+    private func lendRequestArrived(_ request: LendRequest) {
+        guard isLive else { return }
+        show(notice: request.slot ? LendText.slotStarts(request.name) : LendText.wantsToBorrow(request.name), for: 8)
+    }
+
+    /// Le préavis de 2 minutes, chez l'ami : l'avis reste 10 s, le temps
+    /// restant du menu suit la fin du préavis.
+    private func lendNoticed(_ notice: LendNotice, text: String) {
+        guard isBorrower, isLive else { return }
+        lendNotice = notice
+        if !text.isEmpty { show(notice: text, for: 10) }
+    }
+
+    /// La fin par le prêt, dite juste avant `.ending` : rendu, la fin est
+    /// voulue ; sinon son texte reste à l'écran.
+    private func lendEnded(_ end: LendEnd, text: String) {
+        guard isBorrower else { return }
+        if end == .left {
+            givingBack = true
+        } else {
+            lendEndText = text.isEmpty ? nil : text
+        }
+    }
+
+    /// « Rendre l'ordinateur », confirmé : le prêt finit, puis la session.
+    func giveBack() {
+        guard isBorrower, isLive else { return }
+        giveBackAsked = false
+        givingBack = true
+        #if DEBUG
+        if engine == nil, store.demo {
+            end()
+            return
+        }
+        #endif
+        engine?.giveBack()
+    }
+
+    /// « Revenir » (carte de fin) : le même emprunt, dans une nouvelle session.
+    func comeBack() {
+        guard let borrowSource else { return }
+        let reopen = onComeBack
+        finish()
+        reopen?(borrowSource)
     }
 
     /// Le format de l'image reçue : celui de son image (un invité), à défaut
@@ -469,8 +646,8 @@ final class SessionController: ObservableObject {
     /// Profil changé dans le menu : le cœur change le débit en direct, ou
     /// relance l'image pour le 4:4:4, le format ou le transport.
     func select(_ profile: Profile) {
-        // Un invité ne change rien chez l'hôte : ni profil, ni réglages.
-        guard !isGuest, profile != host.settings.profile else { return }
+        // Un invité ou un ami ne change rien chez l'hôte : ni profil, ni réglages.
+        guard !isVisitor, profile != host.settings.profile else { return }
         host.settings.apply(profile)
         store.update(host)
         engine?.setSettings(engineSettings)
@@ -485,8 +662,9 @@ final class SessionController: ObservableObject {
     /// connexion (arrêtées sur « Connexion »), l'image seule, ou le menu.
     func demo(_ kind: Demo) {
         phase = .preparing
-        // KyberNow Share : le partage se joue ici, sans Station.
+        // KyberNow Share : le partage et le prêt se jouent ici, sans Station.
         share.demo = true
+        lend.demo = true
         streamView.startTestPattern()
         if kind == .connecting || kind == .restarting {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
@@ -536,6 +714,15 @@ final class SessionController: ObservableObject {
                     self.sharePanel = true
                 }
             }
+            // `-demoLend code|request` : le panneau du prêt ouvert, avec un code créé, ou une demande.
+            if let kind = UserDefaults.standard.string(forKey: "demoLend"), !self.isVisitor {
+                Task {
+                    if kind == "code" { await self.lend.createCode() }
+                    if kind == "request" { self.demoLendRequest(name: "Léa") }
+                    self.openMenu()
+                    self.lendPanel = true
+                }
+            }
             // `-demoShare YES` : le partage ouvert, quatre invités, le panneau de l'hôte.
             if UserDefaults.standard.bool(forKey: "demoShare") {
                 Task {
@@ -576,6 +763,55 @@ final class SessionController: ObservableObject {
         demo(menu ? .menu : .passage)
     }
 
+    /// Démonstration : la session d'emprunt (sans Station) : `waiting`
+    /// (« En attente de {hôte}… »), sinon en image (`menu` : le menu ouvert),
+    /// le prêt jusqu'à `until` ; `then` : `notice`, `taken_back`, `lost` 6 s plus tard.
+    func demoBorrow(waiting: Bool, menu: Bool, until: Date?, then: String?) {
+        let host = borrowSource?.hostHint.nonEmpty ?? "Matthieu"
+        if waiting {
+            phase = .preparing
+            lend.demo = true
+            streamView.startTestPattern()
+            borrowFlow?.demo(nil, waiting: host)
+            return
+        }
+        loan = LendLoan(demoComputer: "PC-SALON", host: host, until: until)
+        demo(menu ? .menu : .passage)
+        // `-demoGiveBack YES` : « Rendre l'ordinateur à {hôte} ? » ouvert dans le menu.
+        if menu, UserDefaults.standard.bool(forKey: "demoGiveBack") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in self?.giveBackAsked = true }
+        }
+        guard let then else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in self?.demoLend(then) }
+    }
+
+    /// Démonstration : le préavis, ou la fin du prêt (`taken_back`, `time_up`,
+    /// `slot_end`, `lost` : réseau perdu, « Revenir »).
+    func demoLend(_ moment: String) {
+        guard isBorrower, isLive else { return }
+        let host = lendHost
+        switch moment {
+        case "notice":
+            lendNoticed(LendNotice(reason: .takenBack, at: Date().addingTimeInterval(120)),
+                        text: LendNotice(reason: .takenBack, at: Date()).text(name: host))
+        case "lost":
+            fail(String(localized: "l'ordinateur prêté ne répond plus"))
+        default:
+            let text = moment == "time_up" ? String(localized: "Le prêt est terminé.")
+                : moment == "slot_end" ? String(localized: "Votre créneau est terminé.") : String(localized: "\(host) a repris l'ordinateur.")
+            lendEndText = text
+            fail(text)
+        }
+    }
+
+    /// Démonstration : une demande d'emprunt arrive dans la session de l'hôte.
+    func demoLendRequest(name: String, slot: Bool = false) {
+        lend.demo = true
+        var view = lend.view ?? LendView()
+        view.requests.append(LendRequest(id: UUID().uuidString, name: name, app: "ios", viaRelay: true, since: Date(), slot: slot))
+        lend.demoSet(view)
+    }
+
     /// Démonstration : l'avis du cœur sur l'image (`-demoRoleThen lag|limit`).
     func demoImageNotice(limit: Bool) {
         guard isGuest else { return }
@@ -609,17 +845,19 @@ final class SessionController: ObservableObject {
     /// Une session d'au moins 3 s devient la « Dernière session » des Statistiques.
     func end() {
         guard phase != .ending && phase != .ended else { return }
+        // « Annuler » pendant la préparation ou l'attente de l'hôte : la demande est retirée.
+        if loan == nil { borrowFlow?.cancel() }
         GamepadBridge.shared.onMenuRequest = nil
         streamView.padMouse = false
-        // Un invité ne laisse rien sur cet appareil : ni dernière image, ni statistiques.
-        if let last = engine?.snapshot(maxWidth: 1920), !isGuest { store.imagery.saveLast(last, for: host) }
-        if let revealedAt, !isGuest {
+        // Un invité ou un ami ne laisse rien sur cet appareil : ni dernière image, ni statistiques.
+        if let last = engine?.snapshot(maxWidth: 1920), !isVisitor { store.imagery.saveLast(last, for: host) }
+        if let revealedAt, !isVisitor {
             let m = streamMode
             host.recordSession(start: revealedAt, latency: engine?.sessionLatency, width: m.width, height: m.height, refresh: m.refresh,
                                codec: engineSettings.codec, mbps: host.settings.bitrate(width: m.width, height: m.height, refresh: m.refresh),
                                route: path.transport)
         }
-        store.update(host)
+        if !isVisitor { store.update(host) }
         withAnimation(.easeInOut(duration: 0.4)) {
             phase = .ending
             menuOpen = false
@@ -634,7 +872,9 @@ final class SessionController: ObservableObject {
     func finish() {
         guard phase != .ended else { return }
         phase = .ended
-        if !isGuest { store.setSessionViaRelay(host, false) }
+        if !isVisitor { store.setSessionViaRelay(host, false) }
+        // L'emprunt pas encore abouti : la demande est retirée chez l'hôte.
+        borrowFlow?.cancel()
         onFinish(self)
     }
 

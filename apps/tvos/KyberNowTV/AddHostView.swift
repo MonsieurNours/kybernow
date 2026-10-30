@@ -31,6 +31,8 @@ struct AddHostView: View {
         ("wifi-high", String(localized: "Sur le réseau"), String(localized: "Compte à saisir, au clavier de l'iPhone"), nil),
         ("number-square-one", String(localized: "Code à l'écran"), String(localized: "À accepter dans KyberNow Admin"), nil),
         ("globe-hemisphere-west", String(localized: "Adresse"), String(localized: "VPN ou réseau sans découverte"), nil),
+        // Prêter l'ordinateur (docs/pret.md) : l'ordinateur qu'un ami prête, sur ce réseau.
+        ("key", LendText.withFriendAccount, String(localized: "L'ordinateur qu'un ami vous prête"), nil),
     ]
 
     var body: some View {
@@ -48,10 +50,10 @@ struct AddHostView: View {
             .focused($focus, equals: .back)
             .padding(.leading, 96).padding(.top, 56)
 
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 14) {
                 Text("Ajouter un ordinateur").font(Theme.display(64, 660)).tracking(-64 * 0.035).padding(.bottom, 4)
                 Text("Sans rien taper à la télécommande, de préférence.")
-                    .font(Theme.sans(23)).foregroundStyle(Theme.muted).padding(.bottom, 22)
+                    .font(Theme.sans(23)).foregroundStyle(Theme.muted).padding(.bottom, 12)
                 ForEach(Array(methods.enumerated()), id: \.offset) { i, m in
                     methodButton(i, m)
                 }
@@ -65,7 +67,8 @@ struct AddHostView: View {
                 case 0: CloudPane()
                 case 1: NetworkPane()
                 case 2: CodePane()
-                default: AddressPane()
+                case 3: AddressPane()
+                default: FriendPane()
                 }
             }
             .id(method)
@@ -107,7 +110,7 @@ struct AddHostView: View {
                 }
             }
             .padding(.horizontal, 28)
-            .frame(width: 640, height: 112)
+            .frame(width: 640, height: 100)
         }
         .buttonStyle(GlassButton(radius: 22, selected: on, scale: 1.04, fill: on ? Color.white.opacity(0.1) : Color.clear))
         .focused($focus, equals: .method(i))
@@ -507,6 +510,61 @@ private struct CodePane: View {
                     break
                 }
             }
+        }
+    }
+}
+
+// MARK: - Avec un compte d'ami
+
+/// Un ordinateur du réseau qu'un ami prête : on le choisit, puis son
+/// identifiant et son mot de passe (clavier tvOS ou de l'iPhone).
+private struct FriendPane: View {
+    @EnvironmentObject private var discovery: Discovery
+    @State private var invite: LendInvite?
+    @State private var resolving: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 28) {
+            if let invite {
+                FriendAccountForm(invite: invite) { self.invite = nil }
+            } else {
+                HStack(spacing: 14) {
+                    Theme.eyebrow(LendText.withFriendAccount)
+                    WaitingDots()
+                }
+                Text("Trouvé autour de vous").font(Theme.display(48, 640)).tracking(-48 * 0.03)
+                if discovery.found.isEmpty {
+                    Text("Rien de nouveau pour l'instant.").font(Theme.sans(23)).foregroundStyle(Theme.muted)
+                }
+                ForEach(discovery.found) { found in
+                    Button { pick(found) } label: {
+                        HStack(spacing: 24) {
+                            Icon("monitor", size: 36).foregroundStyle(Theme.accent)
+                                .frame(width: 72, height: 72)
+                                .background(RoundedRectangle(cornerRadius: 16).fill(Theme.surface))
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(found.name).font(Theme.display(34, 640)).tracking(-0.7)
+                                Text(resolving == found.id ? "Recherche de son adresse…" : "Annoncé par KyberNow Station")
+                                    .font(Theme.mono(17)).foregroundStyle(Theme.muted)
+                            }
+                            Spacer()
+                        }
+                        .padding(.horizontal, 32)
+                        .frame(height: 120)
+                    }
+                    .buttonStyle(GlassButton(radius: 22, scale: 1.04, fill: Theme.accentFill.opacity(0.14)))
+                }
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    private func pick(_ found: Discovery.Found) {
+        resolving = found.id
+        Task {
+            let c = await Discovery.resolve(found)
+            resolving = nil
+            if let c { invite = LendInvite(host: c.address, port: c.port, fingerprint: c.expected, login: "") }
         }
     }
 }

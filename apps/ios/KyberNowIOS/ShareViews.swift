@@ -85,6 +85,11 @@ struct JoinView: View {
                 // La feuille se ferme, puis la session s'ouvre à sa place.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { app.openGuestSession(found) }
             }
+            // Un code de prêt : la session d'emprunt prend la suite.
+            model.onLend = { [app, dismiss] source in
+                dismiss()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { app.openBorrowSession(source) }
+            }
             model.start()
             codeFocused = source == .code
         }
@@ -92,6 +97,7 @@ struct JoinView: View {
             model.cancel()
             model.stop()
             model.onJoined = nil
+            model.onLend = nil
             camera.stop()
             camera.onCode = nil
         }
@@ -122,6 +128,13 @@ struct JoinView: View {
     /// Un QR code lu : le code et l'ordinateur sont remplis, comme avec un lien ;
     /// rien ne part avant « Rejoindre ». Les autres QR codes croisés sont ignorés.
     private func scanned(_ text: String) {
+        // Le QR code d'une invitation : l'ajout de l'ordinateur prêté prend la place de cet écran.
+        if case let .borrow(invite)? = LinkKind.parse(text) {
+            camera.onCode = nil
+            camera.stop()
+            app.invite(fromAddSheet: invite)
+            return
+        }
         guard case let .join(link)? = LinkKind.parse(text) else { return }
         camera.onCode = nil
         camera.stop()
