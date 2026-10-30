@@ -139,6 +139,36 @@ fn button_inactive(cv: &mut Canvas, x: f32, y: f32, label: &str, size: f32) -> f
 /// Le contenu du panneau, dans `r`.
 /// L'indicateur d'attente du panneau (une demande à Admin, le lien du relais en préparation), centré sur (`cx`, `cy`) ;
 /// `k` : sa taille (1 : celui de l'en-tête).
+/// Le QR code du lien des apps en (`x`, `y`), de côté `side`, et l'adresse du client web en clair (`web_at` : sa ligne,
+/// `web_w` sa largeur) ; le lien du relais en préparation : l'indicateur d'attente à la place du QR code, l'adresse pas
+/// encore montrée (le partage et le code de prêt).
+#[allow(clippy::too_many_arguments)]
+pub(super) fn qr_or_wait(cv: &mut Canvas, s: &SessionUi, link: &str, web: &str, preparing: bool, x: f32, y: f32, side: f32, web_at: (f32, f32), web_w: f32) {
+    if preparing {
+        cv.rrect_stroke(x, y, side, side, 12.0, 2.0, LINE);
+        wait_dot(cv, s, x + side / 2.0, y + side / 2.0, 1.4);
+    } else {
+        cv.text_fit(web_at.0, web_at.1, Text::new(Font::Mono, 20.0, FROST_3), web, web_w);
+        widgets::qr(cv, link, x, y, side);
+    }
+}
+
+/// Sous l'aide : « Préparation du lien hors de chez vous… » avec l'indicateur d'attente, ou « Pas encore joignable
+/// hors de chez vous. » (le partage et le code de prêt) ; rend la hauteur dessinée (31 points par ligne).
+pub(super) fn relay_lines(cv: &mut Canvas, s: &SessionUi, wait: Option<&str>, down: Option<&str>, x: f32, y: f32, inner: f32) -> f32 {
+    let mut h = 0.0;
+    if let Some(t) = wait {
+        wait_dot(cv, s, x + 10.0, y + 32.0, 0.6);
+        cv.text_fit(x + 32.0, y + 40.0, Text::new(Font::Regular, 22.0, FROST_2), t, inner - 32.0);
+        h += 31.0;
+    }
+    if let Some(t) = down {
+        cv.text_fit(x, y + h + 40.0, Text::new(Font::Regular, 22.0, DANGER), t, inner);
+        h += 31.0;
+    }
+    h
+}
+
 pub(super) fn wait_dot(cv: &mut Canvas, s: &SessionUi, cx: f32, cy: f32, k: f32) {
     let t = s.started.elapsed().as_secs_f32();
     cv.circle(cx, cy, 16.0 * k, HALO.alpha(0.2 + 0.3 * (t * 4.0).sin().abs()));
@@ -179,29 +209,14 @@ fn card(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi, r: Rect, m: &M
         let ay = if m.qr >= 200.0 { m.qr - 32.0 } else { m.qr - 12.0 };
         // Le lien du relais en préparation : l'adresse du réseau pas encore montrée, l'indicateur d'attente à la place
         // du QR code (`RELAY_LINK_WAIT` au plus).
-        if v.relay_preparing() {
-            let (qx, qy) = (r.x + r.w - PAD - m.qr, y + 4.0);
-            cv.rrect_stroke(qx, qy, m.qr, m.qr, 12.0, 2.0, LINE);
-            wait_dot(cv, s, qx + m.qr / 2.0, qy + m.qr / 2.0, 1.4);
-        } else {
-            cv.text_fit(x, y + ay, Text::new(Font::Mono, 20.0, FROST_3), &v.web, lw);
-            widgets::qr(cv, &v.link, r.x + r.w - PAD - m.qr, y + 4.0, m.qr);
-        }
+        qr_or_wait(cv, s, &v.link, &v.web, v.relay_preparing(), r.x + r.w - PAD - m.qr, y + 4.0, m.qr, (x, y + ay), lw);
     }
     y += top_height(m);
     if m.help {
         y += cv.paragraph(x, y + 24.0, Text::new(Font::Regular, 22.0, FROST_2), v.help(), inner, 31.0);
-        // Le lien du relais se prépare : l'indicateur d'attente et la ligne, sous l'aide du même réseau.
-        if let Some(t) = v.relay_wait_text() {
-            wait_dot(cv, s, x + 10.0, y + 32.0, 0.6);
-            cv.text_fit(x + 32.0, y + 40.0, Text::new(Font::Regular, 22.0, FROST_2), t, inner - 32.0);
-            y += 31.0;
-        }
-        // Le relais est réglé mais ne répond pas : sous l'aide du même réseau.
-        if let Some(t) = v.relay_down_text() {
-            cv.text_fit(x, y + 40.0, Text::new(Font::Regular, 22.0, DANGER), t, inner);
-            y += 31.0;
-        }
+        // Le lien du relais se prépare (l'indicateur d'attente et la ligne), ou le relais est réglé mais ne répond
+        // pas : sous l'aide du même réseau.
+        y += relay_lines(cv, s, v.relay_wait_text(), v.relay_down_text(), x, y, inner);
         y += 16.0;
     } else {
         y += 16.0;

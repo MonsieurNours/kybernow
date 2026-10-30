@@ -301,6 +301,10 @@ pub struct Borrowed {
     pub address: String,
     pub port: u16,
     pub fingerprint: Option<String>,
+    /// Le relais de la Station et son identifiant chez lui (lien d'invitation) : l'ordinateur s'emprunte aussi hors de
+    /// chez soi. `None` : ajouté sur le réseau, ou lien sans relais.
+    pub relay: Option<String>,
+    pub sid: Option<String>,
     /// Le compte d'ami (« Identifiant »), et son mot de passe s'il est retenu.
     pub login: String,
     pub password: String,

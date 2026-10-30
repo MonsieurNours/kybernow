@@ -907,35 +907,69 @@ impl ShareView {
     /// Le lien du relais se prépare et l'app l'attend encore (`RELAY_LINK_WAIT` au plus depuis qu'elle a vu ce
     /// code en préparation) : « Copier le lien » est inactif et le QR code attend.
     pub fn relay_preparing(&self) -> bool {
-        self.relay == Some(ShareRelay::Connecting) && self.relay_since.is_none_or(|t| t.elapsed() < RELAY_LINK_WAIT)
+        relay_wait::preparing(self.relay, self.relay_since)
     }
 
     /// L'attente du lien du relais court encore, ou vient de finir : la fenêtre se redessine jusqu'à un peu après
     /// `RELAY_LINK_WAIT` (le cercle d'attente tourne, puis le lien du réseau et « Pas encore joignable… » s'affichent).
     pub fn relay_wait_redraw(&self) -> bool {
-        self.relay == Some(ShareRelay::Connecting) && self.relay_since.is_none_or(|t| t.elapsed() < RELAY_LINK_WAIT + Duration::from_millis(250))
+        relay_wait::redraw(self.relay, self.relay_since)
     }
 
     /// Sous l'aide du même réseau, pendant que le lien du relais se prépare (avec le cercle d'attente).
     pub fn relay_wait_text(&self) -> Option<&'static str> {
-        self.relay_preparing().then(|| tr("Préparation du lien hors de chez vous…", "Getting the away-from-home link ready…"))
+        relay_wait::wait_text(self.relay, self.relay_since)
     }
 
     /// Sous l'aide du même réseau, quand le relais est réglé mais injoignable, ou que son lien s'est fait attendre
     /// plus de `RELAY_LINK_WAIT`.
     pub fn relay_down_text(&self) -> Option<&'static str> {
-        let down = match self.relay {
+        relay_wait::down_text(self.relay, self.relay_since)
+    }
+
+    /// Garde le moment où l'app a vu ce code en préparation pour la première fois (`before` : le partage d'avant).
+    pub fn keep_relay_since(&mut self, before: Option<&ShareView>) {
+        self.relay_since = relay_wait::keep_since(self.relay, self.relay_since, before.filter(|b| b.code == self.code).and_then(|b| b.relay_since));
+    }
+}
+
+/// L'attente du lien du relais, commune au partage (`ShareView`) et au code de prêt (`LendCodeUi`) : « Préparation du
+/// lien hors de chez vous… », « Copier le lien » et le QR code retenus `RELAY_LINK_WAIT` au plus, puis le lien du
+/// réseau et « Pas encore joignable hors de chez vous. » (docs/link-ui.md, « Hors de chez vous » et « Prêt »).
+pub mod relay_wait {
+    use super::{tr, ShareRelay, RELAY_LINK_WAIT};
+    use std::time::{Duration, Instant};
+
+    /// Le lien du relais se prépare et l'app l'attend encore (`since` : quand elle l'a vu en préparation).
+    pub fn preparing(relay: Option<ShareRelay>, since: Option<Instant>) -> bool {
+        relay == Some(ShareRelay::Connecting) && since.is_none_or(|t| t.elapsed() < RELAY_LINK_WAIT)
+    }
+
+    /// L'attente court encore, ou vient de finir : la fenêtre se redessine jusqu'à un peu après `RELAY_LINK_WAIT`.
+    pub fn redraw(relay: Option<ShareRelay>, since: Option<Instant>) -> bool {
+        relay == Some(ShareRelay::Connecting) && since.is_none_or(|t| t.elapsed() < RELAY_LINK_WAIT + Duration::from_millis(250))
+    }
+
+    /// « Préparation du lien hors de chez vous… », pendant l'attente.
+    pub fn wait_text(relay: Option<ShareRelay>, since: Option<Instant>) -> Option<&'static str> {
+        preparing(relay, since).then(|| tr("Préparation du lien hors de chez vous…", "Getting the away-from-home link ready…"))
+    }
+
+    /// « Pas encore joignable hors de chez vous. » : le relais est réglé mais injoignable, ou son lien s'est fait
+    /// attendre plus de `RELAY_LINK_WAIT`.
+    pub fn down_text(relay: Option<ShareRelay>, since: Option<Instant>) -> Option<&'static str> {
+        let down = match relay {
             Some(ShareRelay::Unreachable) => true,
-            Some(ShareRelay::Connecting) => !self.relay_preparing(),
+            Some(ShareRelay::Connecting) => !preparing(relay, since),
             Some(ShareRelay::Joined) | None => false,
         };
         down.then(|| tr("Pas encore joignable hors de chez vous.", "Not reachable away from home yet."))
     }
 
-    /// Garde le moment où l'app a vu ce code en préparation pour la première fois (`before` : le partage d'avant).
-    pub fn keep_relay_since(&mut self, before: Option<&ShareView>) {
-        let kept = before.filter(|b| b.code == self.code).and_then(|b| b.relay_since);
-        self.relay_since = kept.or(self.relay_since).or_else(|| (self.relay == Some(ShareRelay::Connecting)).then(Instant::now));
+    /// Le moment où l'app a vu ce code en préparation pour la première fois : celui de la vue d'avant (`kept`, même
+    /// code), sinon le sien, sinon maintenant s'il se prépare.
+    pub fn keep_since(relay: Option<ShareRelay>, since: Option<Instant>, kept: Option<Instant>) -> Option<Instant> {
+        kept.or(since).or_else(|| (relay == Some(ShareRelay::Connecting)).then(Instant::now))
     }
 }
 
@@ -1061,8 +1095,10 @@ pub enum ShareOp {
 pub enum LendAvail {
     /// Une Station antérieure à la 0.9.0 (`info.lend` absent).
     Unsupported,
-    /// Le prêt est coupé dans Admin (page « Prêt »), ou la Station ne sait pas prêter cet ordinateur.
+    /// Le prêt est coupé dans Admin (page « Prêt ») : `info.lend.enabled` faux.
     Off,
+    /// La Station ne sait pas prêter cet ordinateur : `info.lend.available` faux.
+    Impossible,
     Available,
 }
 
@@ -1072,6 +1108,7 @@ impl LendAvail {
         match self {
             LendAvail::Unsupported => Some(tr("Le prêt demande KyberNow Station 0.9.0 ou plus récente.", "Lending needs KyberNow Station 0.9.0 or later.")),
             LendAvail::Off => Some(tr("Le prêt est coupé dans Admin (page « Prêt »).", "Lending is off in Admin (“Lending” page).")),
+            LendAvail::Impossible => Some(tr("Le prêt n'est pas possible sur cet ordinateur.", "Lending isn't possible on this computer.")),
             LendAvail::Available => None,
         }
     }
@@ -1166,6 +1203,12 @@ impl Default for BorrowUi {
     }
 }
 
+/// « Retirer l'ordinateur de {hôte} de cet appareil ? » (élidé : « d'Hugo »), “Remove {host}'s computer from this device?” :
+/// la confirmation de « Retirer cet ordinateur ».
+pub fn remove_borrowed_question(host: &str) -> String {
+    if crate::i18n::english() { format!("Remove {host}'s computer from this device?") } else { format!("Retirer l'ordinateur {} de cet appareil ?", crate::i18n::de(host)) }
+}
+
 /// « En attente de {hôte}… », “Waiting for {host}…”.
 pub fn waiting_for(host: &str) -> String {
     format!("{} {host}…", tr("En attente de", "Waiting for"))
@@ -1176,23 +1219,22 @@ pub fn ask_host(host: &str) -> String {
     format!("{} {host}", tr("Demander à", "Ask"))
 }
 
-/// Le temps qui reste d'un prêt : « Encore 1 h 20 », « Encore 42 min », « Encore moins d'une minute ».
+/// Le temps qui reste d'un prêt, comme la Station (docs/link-ui.md, « Textes de la Station ») : « Encore 1 h 20 »,
+/// « Encore 2 h », « Encore 42 min », « Encore moins d'une minute » ; les minutes sont arrondies au-dessus.
 pub fn time_left_label(seconds: u64) -> String {
-    let m = seconds / 60;
-    if crate::i18n::english() {
-        if m < 1 {
-            "Under a minute left".into()
-        } else if m < 60 {
-            format!("{m} min left")
-        } else {
-            format!("{} h {:02} left", m / 60, m % 60)
-        }
-    } else if m < 1 {
-        "Encore moins d'une minute".into()
-    } else if m < 60 {
-        format!("Encore {m} min")
-    } else {
-        format!("Encore {} h {:02}", m / 60, m % 60)
+    let en = crate::i18n::english();
+    if seconds < 60 {
+        return if en { "Less than a minute left" } else { "Encore moins d'une minute" }.into();
+    }
+    let m = seconds.div_ceil(60);
+    let (h, mm) = (m / 60, m % 60);
+    match (en, h, mm) {
+        (true, 0, _) => format!("{m} min left"),
+        (true, _, 0) => format!("{h} h left"),
+        (true, _, _) => format!("{h} h {mm:02} left"),
+        (false, 0, _) => format!("Encore {m} min"),
+        (false, _, 0) => format!("Encore {h} h"),
+        (false, _, _) => format!("Encore {h} h {mm:02}"),
     }
 }
 
@@ -1306,7 +1348,12 @@ pub struct LendRequestUi {
 
 impl LendRequestUi {
     /// « Léa veut emprunter l'ordinateur. »
+    /// La demande d'un créneau (`slot`) dit le créneau, sans « Refuser » (docs/link-ui.md, « Textes des apps ») :
+    /// « Créneau de Léa : l'ordinateur lui est prêté dans 2 min. »
     pub fn line(&self) -> String {
+        if self.slot {
+            return if crate::i18n::english() { format!("{}'s time slot: the computer is lent to them in 2 min.", self.name) } else { format!("Créneau {} : l'ordinateur lui est prêté dans 2 min.", crate::i18n::de(&self.name)) };
+        }
         format!("{} {}", self.name, tr("veut emprunter l'ordinateur.", "wants to borrow the computer."))
     }
 
@@ -1320,11 +1367,37 @@ impl LendRequestUi {
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct LendCodeUi {
     pub code: String,
-    /// Le lien des apps (le QR code) et l'adresse du client web (« Copier le lien »).
+    /// Le lien des apps (le QR code) et l'adresse du client web (« Copier le lien ») : ceux du relais quand il tient
+    /// le code (`ShareRelay::Joined`), sinon ceux du réseau.
     pub link: String,
     pub web: String,
     pub duration: Option<u64>,
     pub steam: LendSteam,
+    /// Le relais du code, comme celui du partage (`None` : pas de relais réglé, ou une Station qui ne le dit pas).
+    pub relay: Option<ShareRelay>,
+    /// Quand l'app a vu ce code « en préparation » chez le relais pour la première fois (`LendHostView::keep_relay_since`).
+    pub relay_since: Option<Instant>,
+}
+
+impl LendCodeUi {
+    /// Le lien du relais se prépare : « Copier le lien » inactif, le QR code attend (`RELAY_LINK_WAIT` au plus).
+    pub fn relay_preparing(&self) -> bool {
+        relay_wait::preparing(self.relay, self.relay_since)
+    }
+
+    pub fn relay_wait_redraw(&self) -> bool {
+        relay_wait::redraw(self.relay, self.relay_since)
+    }
+
+    /// « Préparation du lien hors de chez vous… », sous l'aide.
+    pub fn relay_wait_text(&self) -> Option<&'static str> {
+        relay_wait::wait_text(self.relay, self.relay_since)
+    }
+
+    /// « Pas encore joignable hors de chez vous. », sous l'aide.
+    pub fn relay_down_text(&self) -> Option<&'static str> {
+        relay_wait::down_text(self.relay, self.relay_since)
+    }
 }
 
 /// La vue du prêt chez l'hôte (`LendView` du cœur) : ce qui est prêté, à qui, le préavis, les demandes, le code.
@@ -1340,6 +1413,18 @@ pub struct LendHostView {
 }
 
 impl LendHostView {
+    /// Garde le moment où l'app a vu le code en préparation chez le relais (`before` : la vue d'avant, même code).
+    pub fn keep_relay_since(&mut self, before: Option<&LendHostView>) {
+        let Some(c) = self.code.as_mut() else { return };
+        let kept = before.and_then(|b| b.code.as_ref()).filter(|b| b.code == c.code).and_then(|b| b.relay_since);
+        c.relay_since = relay_wait::keep_since(c.relay, c.relay_since, kept);
+    }
+
+    /// L'attente du lien du relais du code court encore : la fenêtre se redessine.
+    pub fn relay_wait_redraw(&self) -> bool {
+        self.code.as_ref().is_some_and(LendCodeUi::relay_wait_redraw)
+    }
+
     /// L'ordinateur est prêté (ou le prêt se prépare, ou finit) : l'accueil dit « Prêté à {prénom} ».
     pub fn lent(&self) -> bool {
         self.state != LendHostState::Free && self.borrower.is_some()
@@ -1403,12 +1488,64 @@ pub struct FriendForm {
     pub busy: bool,
     pub message: Option<String>,
     pub editing: Option<String>,
+    /// Ouvert par un lien d'invitation : sa Station (pas de choix parmi celles du réseau), l'identifiant donné, le
+    /// prénom de l'hôte pour le titre.
+    pub invite: Option<InviteUi>,
 }
 
 impl Default for FriendForm {
     fn default() -> Self {
-        Self { station: 0, login: String::new(), password: String::new(), remember: true, field: FriendField::Login, shift: false, busy: false, message: None, editing: None }
+        Self { station: 0, login: String::new(), password: String::new(), remember: true, field: FriendField::Login, shift: false, busy: false, message: None, editing: None, invite: None }
     }
+}
+
+/// Un lien d'invitation (`kybernow://borrow?…`, `lend::Invite` du cœur) : la Station de l'ami (adresse, port,
+/// empreinte), son relais (`relay`, `sid`) pour emprunter aussi hors de chez soi, le compte d'ami (« Identifiant ») et
+/// le prénom de l'hôte quand le lien le dit (`name`).
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct InviteUi {
+    pub address: String,
+    pub port: u16,
+    pub fingerprint: Option<String>,
+    pub login: String,
+    pub relay: Option<String>,
+    pub sid: Option<String>,
+    pub name: Option<String>,
+}
+
+impl InviteUi {
+    /// Le titre de l'ajout : « Matthieu vous prête son ordinateur. » ; sans prénom (lien d'avant la 0.9.0), « Avec un
+    /// compte d'ami » (docs/link-ui.md, « Textes des apps »).
+    pub fn title(&self) -> String {
+        match self.name.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
+            Some(n) if crate::i18n::english() => format!("{n} is lending you their computer."),
+            Some(n) => format!("{n} vous prête son ordinateur."),
+            None => tr("Avec un compte d'ami", "With a friend account").into(),
+        }
+    }
+}
+
+/// Le lien d'un partage (`kybernow://join?…`, `share::JoinLink` du cœur) : « Rejoindre un partage », code rempli, vers
+/// la seule Station du lien (et son relais).
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct JoinLinkUi {
+    pub address: String,
+    pub port: u16,
+    pub fingerprint: Option<String>,
+    pub code: String,
+    pub relay: Option<String>,
+    pub sid: Option<String>,
+}
+
+/// Un lien `kybernow://` ouvert avec l'app (passé à son lancement, ou transmis à l'app déjà ouverte).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LinkUi {
+    /// Un lien d'invitation : l'ajout « Avec un compte d'ami », identifiant rempli.
+    Invite(InviteUi),
+    /// Un lien de partage : « Rejoindre un partage », code rempli.
+    Join(JoinLinkUi),
+    /// Un lien d'invitation illisible : « Ce lien d'invitation est illisible. »
+    BadInvite,
 }
 
 /// Le champ que la saisie du compte d'ami remplit.
@@ -1473,6 +1610,9 @@ pub struct JoinState {
     pub wait_host: Option<String>,
     /// Le refus du cœur (« Aucun partage avec ce code sur le réseau. »…).
     pub message: Option<String>,
+    /// Ouvert par un lien de partage : le code part à sa seule Station (et à son relais), tant que le code tapé est le
+    /// sien.
+    pub link: Option<JoinLinkUi>,
     /// Numéro de la recherche : une réponse d'une recherche abandonnée n'ouvre rien.
     pub attempt: u32,
     pub started: Instant,
@@ -1480,7 +1620,7 @@ pub struct JoinState {
 
 impl JoinState {
     pub fn new() -> Self {
-        Self { code: String::new(), name: String::new(), quality: ShareQuality::Auto, field: JoinField::Code, shift: false, busy: false, waiting: false, lending: false, wait_host: None, message: None, attempt: 0, started: Instant::now() }
+        Self { code: String::new(), name: String::new(), quality: ShareQuality::Auto, field: JoinField::Code, shift: false, busy: false, waiting: false, lending: false, wait_host: None, message: None, link: None, attempt: 0, started: Instant::now() }
     }
 
     /// Six chiffres et un prénom : « Rejoindre » peut partir.
@@ -2214,7 +2354,8 @@ pub enum Action {
     GiveBack(SessionId),
     /// « Avec un compte d'ami » : la carte de l'ordinateur d'après `lend::status` (identifiant et mot de passe
     /// vérifiés), puis gardée ; `editing` : un ordinateur déjà emprunté dont le mot de passe est redemandé.
-    FriendAdd { address: String, port: u16, fingerprint: Option<String>, login: String, password: String, remember: bool, editing: Option<String> },
+    /// `relay` et `sid` : le relais de la Station (lien d'invitation), gardés avec l'ordinateur emprunté.
+    FriendAdd { address: String, port: u16, fingerprint: Option<String>, relay: Option<String>, sid: Option<String>, login: String, password: String, remember: bool, editing: Option<String> },
     /// Prêt de l'ordinateur, hôte, en session : une demande à Admin (code, demandes).
     Lend(SessionId, LendOp),
     /// Prêt de l'ordinateur, hôte, sur l'accueil : « Reprendre l'ordinateur » de cet ordinateur.
@@ -2350,6 +2491,9 @@ pub struct App {
     pub borrow: BorrowUi,
     pub lend_passwords: HashMap<String, String>,
     pub friend: FriendForm,
+    /// Un lien `kybernow://` reçu pendant une session (ou le lancement, le premier démarrage) : il s'ouvre quand
+    /// l'app revient à ses écrans (`App::poll_link`).
+    pub pending_link: Option<LinkUi>,
 }
 
 impl App {
@@ -2549,6 +2693,52 @@ impl App {
             borrow: BorrowUi::default(),
             lend_passwords: HashMap::new(),
             friend: FriendForm::default(),
+            pending_link: None,
+        }
+    }
+
+    /// Un lien `kybernow://` ouvert avec l'app (son lancement, ou l'app déjà ouverte qui le reçoit) : un lien
+    /// d'invitation ouvre l'ajout « Avec un compte d'ami » (identifiant rempli, titre « {hôte} vous prête son
+    /// ordinateur. ») ; un lien de partage, « Rejoindre un partage » (code rempli) ; un lien d'invitation illisible le
+    /// dit en avis. Pendant une session (ou le lancement), il attend que l'app revienne à ses écrans.
+    pub fn open_link(&mut self, link: LinkUi) -> Vec<Action> {
+        self.pending_link = Some(link);
+        self.poll_link()
+    }
+
+    /// Le lien en attente s'ouvre si l'app est sur ses écrans, sans session ni premier démarrage.
+    pub fn poll_link(&mut self) -> Vec<Action> {
+        let ready = self.sessions.is_empty() && !self.setup.active && self.confirm.is_none() && matches!(self.screen, Screen::Home | Screen::Add | Screen::Join | Screen::Settings | Screen::Gamepads);
+        if !ready {
+            return Vec::new();
+        }
+        let Some(link) = self.pending_link.take() else { return Vec::new() };
+        match link {
+            LinkUi::BadInvite => {
+                self.toast(tr("Ce lien d'invitation est illisible.", "This invitation link can't be read."));
+                Vec::new()
+            }
+            LinkUi::Invite(inv) => {
+                let field = if inv.login.is_empty() { FriendField::Login } else { FriendField::Password };
+                self.friend = FriendForm { login: inv.login.clone(), field, invite: Some(inv), ..FriendForm::default() };
+                self.add.step = AddStep::Friend;
+                self.add.message = None;
+                self.go(Screen::Add);
+                vec![Action::TextInput]
+            }
+            LinkUi::Join(link) => {
+                // Une recherche en cours (ou une attente de l'hôte) est abandonnée, comme au retour de l'écran.
+                let acts: Vec<Action> = if self.screen == Screen::Join && self.join.waiting { vec![if self.join.lending { Action::BorrowCancel } else { Action::JoinCancel }] } else { Vec::new() };
+                let mut acts = acts;
+                acts.extend(self.start_join());
+                self.join.code = link.code.clone();
+                self.join.link = Some(link);
+                if self.join.ready() {
+                    self.focus = if self.layout.console() { Target::JoinGo } else { Target::JoinName };
+                    self.join.field = JoinField::Name;
+                }
+                acts
+            }
         }
     }
 
@@ -3097,7 +3287,7 @@ impl App {
                     Vec::new()
                 }
                 // Le compte d'ami : retour à l'ajout par code ; un mot de passe redemandé pour « Emprunter » : l'accueil.
-                AddStep::Friend if self.friend.editing.is_some() || self.setup.active => {
+                AddStep::Friend if self.friend.editing.is_some() || self.friend.invite.is_some() || self.setup.active => {
                     self.friend = FriendForm::default();
                     self.add.step = AddStep::Code;
                     if self.setup.active {
@@ -3382,11 +3572,12 @@ impl App {
             },
             Target::LendAccept(i) | Target::LendRefuse(i) => {
                 let accept = matches!(t, Target::LendAccept(_));
-                let Some((id, request, steam)) = self.session().and_then(|s| s.lend.as_ref().and_then(|v| v.requests.get(i)).map(|r| (s.id, r.id.clone(), r.steam))) else { return Vec::new() };
+                let Some((id, request, steam)) = self.session().and_then(|s| s.lend.as_ref().and_then(|v| v.requests.get(i)).filter(|r| accept || !r.slot).map(|r| (s.id, r.id.clone(), r.steam))) else { return Vec::new() };
                 self.lend_op(id, LendOp::Answer(request, accept, steam))
             }
-            // « Copier le lien » copie l'adresse du client web du code ; le QR code porte le lien des apps.
-            Target::LendCopy => match self.session().and_then(|s| s.lend.as_ref().and_then(|v| v.code.as_ref()).map(|c| (s.id, c.web.clone()))) {
+            // « Copier le lien » copie l'adresse du client web du code ; le QR code porte le lien des apps. Retenu tant
+            // que le lien du relais se prépare.
+            Target::LendCopy => match self.session().and_then(|s| s.lend.as_ref().and_then(|v| v.code.as_ref()).filter(|c| !c.relay_preparing()).map(|c| (s.id, c.web.clone()))) {
                 Some((id, web)) => {
                     if let Some(s) = self.session_by_mut(id) {
                         s.lend_copied = Some((Instant::now(), true));
@@ -4546,11 +4737,12 @@ impl App {
             return Vec::new();
         }
         let f = self.friend.clone();
-        let target = match &f.editing {
-            Some(id) => self.store.borrowed(id).map(|b| (b.address.clone(), b.port, b.fingerprint.clone())),
-            None => self.found.get(f.station).map(|s| (s.address.clone(), s.port, s.fingerprint.clone())),
+        let target = match (&f.editing, &f.invite) {
+            (Some(id), _) => self.store.borrowed(id).map(|b| (b.address.clone(), b.port, b.fingerprint.clone(), b.relay.clone(), b.sid.clone())),
+            (None, Some(inv)) => Some((inv.address.clone(), inv.port, inv.fingerprint.clone(), inv.relay.clone(), inv.sid.clone())),
+            (None, None) => self.found.get(f.station).map(|s| (s.address.clone(), s.port, s.fingerprint.clone(), None, None)),
         };
-        let Some((address, port, fingerprint)) = target else {
+        let Some((address, port, fingerprint, relay, sid)) = target else {
             self.friend.message = Some(tr("Aucune Station trouvée sur ce réseau pour l'instant.", "No Station found on this network yet.").into());
             return Vec::new();
         };
@@ -4566,7 +4758,7 @@ impl App {
         }
         self.friend.busy = true;
         self.friend.message = None;
-        vec![Action::FriendAdd { address, port, fingerprint, login: f.login.trim().to_string(), password: f.password.clone(), remember: f.remember, editing: f.editing.clone() }]
+        vec![Action::FriendAdd { address, port, fingerprint, relay, sid, login: f.login.trim().to_string(), password: f.password.clone(), remember: f.remember, editing: f.editing.clone() }]
     }
 
     /// La Station a reconnu le compte d'ami : l'ordinateur est gardé (son mot de passe s'il est retenu, sinon le temps
@@ -4728,7 +4920,8 @@ impl App {
         let Some(s) = self.session_by_mut(id) else { return };
         s.lend_busy = false;
         match r {
-            Ok(v) => {
+            Ok(mut v) => {
+                v.keep_relay_since(s.lend.as_ref());
                 let before = s.lend.replace(v);
                 s.lend_error = None;
                 // Un code créé : le focus va à « Annuler le code » (à la manette, dans le panneau ouvert).
@@ -4747,6 +4940,10 @@ impl App {
         let Some(s) = self.session_by_mut(id) else { return };
         if s.lend_busy {
             return;
+        }
+        let mut view = view;
+        if let Some(v) = view.as_mut() {
+            v.keep_relay_since(s.lend.as_ref());
         }
         let before = std::mem::replace(&mut s.lend, view);
         self.notice_lend(id, before.as_ref());
@@ -6890,8 +7087,11 @@ mod tests {
         crate::i18n::force_english(false);
         assert_eq!(crate::model::borrowed_title("Matthieu"), "Ordinateur de Matthieu");
         assert_eq!(crate::model::borrowed_title("Hugo"), "Ordinateur d'Hugo");
-        assert_eq!(time_left_label(80 * 60 + 5), "Encore 1 h 20");
+        assert_eq!(time_left_label(80 * 60), "Encore 1 h 20");
+        assert_eq!(time_left_label(65 * 60 - 30), "Encore 1 h 05");
+        assert_eq!(time_left_label(2 * 3600), "Encore 2 h");
         assert_eq!(time_left_label(42 * 60), "Encore 42 min");
+        assert_eq!(time_left_label(20), "Encore moins d'une minute");
         assert_eq!(waiting_for("Matthieu"), "En attente de Matthieu…");
         assert_eq!(ask_host("Matthieu"), "Demander à Matthieu");
         assert_eq!(lend_duration_label(Some(7200)), "2 heures");
@@ -6907,6 +7107,8 @@ mod tests {
         crate::i18n::force_english(true);
         assert_eq!(crate::model::borrowed_title("Matthieu"), "Matthieu's computer");
         assert_eq!(time_left_label(80 * 60), "1 h 20 left");
+        assert_eq!(time_left_label(59 * 60 + 30), "1 h left");
+        assert_eq!(time_left_label(20), "Less than a minute left");
         assert_eq!(LendState::Lent.label(), "Lent to someone else");
         crate::i18n::force_english(false);
     }
@@ -7020,5 +7222,92 @@ mod tests {
         app.live.entry("a".into()).or_default().lend_view = Some(LendHostView { state: LendHostState::Lent, borrower: Some(("Léa".into(), None)), ..Default::default() });
         assert_eq!(app.activate(Target::Connect), vec![Action::LendHome { host: "a".into(), op: LendOp::TakeBack(false) }]);
         assert_eq!(app.activate(Target::TakeBackNow), vec![Action::LendHome { host: "a".into(), op: LendOp::TakeBack(true) }]);
+    }
+
+    /// Un lien d'invitation ouvre l'ajout « Avec un compte d'ami » : titre avec le prénom de l'hôte, identifiant rempli,
+    /// sa Station et son relais partent avec « Ajouter » ; retour : l'accueil. Pendant une session, il attend la fin ;
+    /// un lien illisible le dit en avis.
+    #[test]
+    fn an_invitation_link() {
+        crate::i18n::force_english(false);
+        let mut app = App::new(Store::default(), Layout::Desktop);
+        app.go(Screen::Home);
+        let inv = InviteUi { address: "192.168.1.42".into(), port: 24811, fingerprint: Some("sha256:aa".into()), login: "lea".into(), relay: Some("share.kybernow.app".into()), sid: Some("abcdefghijklmnopqrstuvwxyz".into()), name: Some("Hugo".into()) };
+        assert_eq!(inv.title(), "Hugo vous prête son ordinateur.");
+        assert_eq!(InviteUi { name: None, ..inv.clone() }.title(), "Avec un compte d'ami");
+        assert_eq!(app.open_link(LinkUi::Invite(inv.clone())), vec![Action::TextInput]);
+        assert_eq!((app.screen, app.add.step.clone(), app.friend.login.as_str(), app.friend.field), (Screen::Add, AddStep::Friend, "lea", FriendField::Password));
+        for c in "secret".chars() {
+            app.nav(Nav::Char(c));
+        }
+        let acts = app.activate(Target::FriendGo);
+        assert!(matches!(&acts[..], [Action::FriendAdd { address, relay: Some(_), sid: Some(_), login, editing: None, .. }] if address == "192.168.1.42" && login == "lea"), "{acts:?}");
+        app.friend.busy = false;
+        app.back();
+        assert_eq!(app.screen, Screen::Home);
+        // Pendant une session : le lien attend.
+        let id = app.new_session_id();
+        let mut s = SessionUi::borrower(id, "lend:m", BorrowSessionUi::new("Matthieu", "PC-SALON", None, BorrowSource::Code { attempt: 1 }));
+        s.phase = Phase::Streaming;
+        app.open_session(s);
+        assert!(app.open_link(LinkUi::Invite(inv)).is_empty());
+        assert!(app.pending_link.is_some() && app.screen == Screen::Session);
+        app.close_session(id);
+        app.go(Screen::Home);
+        assert_eq!(app.poll_link(), vec![Action::TextInput]);
+        assert!(app.pending_link.is_none() && app.friend.invite.is_some());
+        // Illisible.
+        app.go(Screen::Home);
+        app.open_link(LinkUi::BadInvite);
+        assert_eq!(app.toast.as_ref().map(|(t, _)| t.as_str()), Some("Ce lien d'invitation est illisible."));
+    }
+
+    /// Un lien de partage : « Rejoindre un partage », code rempli ; il garde sa Station tant que le code est le sien.
+    #[test]
+    fn a_share_link() {
+        let mut app = App::new(Store::default(), Layout::Desktop);
+        app.device_name = "fedora-bureau".into();
+        app.go(Screen::Home);
+        let link = JoinLinkUi { address: "192.168.1.42".into(), port: 24811, code: "482917".into(), ..JoinLinkUi::default() };
+        app.open_link(LinkUi::Join(link.clone()));
+        assert_eq!((app.screen, app.join.code.as_str(), app.join.link.as_ref()), (Screen::Join, "482917", Some(&link)));
+        assert!(app.activate(Target::JoinGo).iter().any(|a| matches!(a, Action::JoinShare { code, .. } if code == "482917")));
+    }
+
+    /// Les textes ajoutés à la réunion des apps (docs/link-ui.md, « Textes des apps ») ; la demande d'un créneau ne se
+    /// refuse pas ; le code de prêt attend le lien du relais comme le partage.
+    #[test]
+    fn lend_app_words_and_relay() {
+        crate::i18n::force_english(false);
+        assert_eq!(remove_borrowed_question("Hugo"), "Retirer l'ordinateur d'Hugo de cet appareil ?");
+        assert_eq!(remove_borrowed_question("Matthieu"), "Retirer l'ordinateur de Matthieu de cet appareil ?");
+        assert_eq!(LendAvail::Impossible.text(), Some("Le prêt n'est pas possible sur cet ordinateur."));
+        assert_eq!(LendAvail::Off.text(), Some("Le prêt est coupé dans Admin (page « Prêt »)."));
+        let slot = LendRequestUi { id: "r1".into(), name: "Hugo".into(), app: "ios".into(), slot: true, ..Default::default() };
+        assert_eq!(slot.line(), "Créneau d'Hugo : l'ordinateur lui est prêté dans 2 min.");
+        crate::i18n::force_english(true);
+        assert_eq!(remove_borrowed_question("Hugo"), "Remove Hugo's computer from this device?");
+        assert_eq!(LendAvail::Impossible.text(), Some("Lending isn't possible on this computer."));
+        crate::i18n::force_english(false);
+        let mut app = desk();
+        let id = open(&mut app, "a");
+        app.live.entry("a".into()).or_default().lend = Some(LendAvail::Available);
+        app.lend_reply(id, Ok(LendHostView { enabled: true, requests: vec![slot], ..Default::default() }));
+        assert!(app.activate(Target::LendRefuse(0)).is_empty(), "un créneau ne se refuse pas");
+        assert!(!app.activate(Target::LendAccept(0)).is_empty());
+        app.lend_reply(id, Err(String::new()));
+        // Le lien du relais en préparation : la copie attend, puis le lien du réseau ; le moment est gardé tant que le code reste le même.
+        let code = |relay| LendCodeUi { code: "731402".into(), web: "https://h:1/link/?join=731402".into(), relay, ..Default::default() };
+        app.lend_reply(id, Ok(LendHostView { enabled: true, code: Some(code(Some(ShareRelay::Connecting))), ..Default::default() }));
+        let c = app.session().unwrap().lend.as_ref().unwrap().code.clone().unwrap();
+        assert!(c.relay_preparing() && c.relay_since.is_some());
+        assert_eq!(c.relay_wait_text(), Some("Préparation du lien hors de chez vous…"));
+        assert!(app.activate(Target::LendCopy).is_empty(), "« Copier le lien » attend le lien du relais");
+        app.lend_changed(id, Some(LendHostView { enabled: true, code: Some(code(Some(ShareRelay::Connecting))), ..Default::default() }));
+        assert_eq!(app.session().unwrap().lend.as_ref().unwrap().code.as_ref().unwrap().relay_since, c.relay_since);
+        let late = LendCodeUi { relay_since: Instant::now().checked_sub(RELAY_LINK_WAIT + Duration::from_secs(1)), ..c };
+        assert_eq!((late.relay_preparing(), late.relay_wait_text(), late.relay_down_text()), (false, None, Some("Pas encore joignable hors de chez vous.")));
+        app.lend_changed(id, Some(LendHostView { enabled: true, code: Some(code(Some(ShareRelay::Joined))), ..Default::default() }));
+        assert_eq!(app.activate(Target::LendCopy), vec![Action::CopyText("https://h:1/link/?join=731402".into())]);
     }
 }

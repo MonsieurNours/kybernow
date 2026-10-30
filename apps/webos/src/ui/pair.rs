@@ -108,17 +108,32 @@ fn code(app: &App, cv: &mut Canvas, f: &mut Frame) {
 
 /// « Ajouter un ordinateur » › « Avec un compte d'ami » (prêt de l'ordinateur, docs/link-ui.md) : la Station du réseau,
 /// « Identifiant », « Mot de passe » (masqué), « Retenir le mot de passe », « Ajouter » ; le pavé des lettres à droite.
-/// Un mot de passe redemandé pour « Emprunter » : l'ordinateur est choisi, l'identifiant donné, le bouton dit
-/// « Emprunter ».
+/// Un mot de passe redemandé pour « Emprunter » : l'ordinateur est choisi, l'identifiant donné, « Entrez votre mot de
+/// passe pour emprunter. », le bouton dit « Emprunter ». Un lien d'invitation : sa Station (son adresse, pas de choix),
+/// l'identifiant rempli, le titre « {hôte} vous prête son ordinateur. ».
 fn friend(app: &App, cv: &mut Canvas, f: &mut Frame) {
     use crate::app::FriendField;
     let fr = &app.friend;
     let editing = fr.editing.as_ref().and_then(|id| app.store.borrowed(id));
-    let title_text = editing.map(|b| b.title()).unwrap_or_else(|| tr("Avec un compte d'ami", "With a friend account").to_string());
-    cv.text_fit(90.0, 196.0, Text::new(Font::Title, 64.0, FROST).tracking(-1.5), &title_text, 880.0);
+    let title_text = match (editing, &fr.invite) {
+        (Some(b), _) => b.title(),
+        (None, Some(inv)) => inv.title(),
+        (None, None) => tr("Avec un compte d'ami", "With a friend account").to_string(),
+    };
+    // Le titre a toute la largeur (« {hôte} vous prête son ordinateur. ») : le pavé des lettres commence dessous.
+    cv.text_fit(90.0, 196.0, Text::new(Font::Title, 64.0, FROST).tracking(-1.5), &title_text, W - 180.0);
     let (x, w) = (96.0, 860.0);
     let mut y = 250.0;
-    if editing.is_none() {
+    if editing.is_some() {
+        // Le mot de passe n'est pas retenu : il est redemandé à « Emprunter ».
+        cv.text_fit(x, y + 30.0, Text::new(Font::Regular, 24.0, FROST_2), tr("Entrez votre mot de passe pour emprunter.", "Enter your password to borrow."), w);
+        y += 56.0;
+    } else if let Some(inv) = &fr.invite {
+        // Le lien d'invitation donne la Station : son adresse, rien à choisir.
+        cv.text_fit(x, y + 30.0, Text::new(Font::Mono, 22.0, FROST_3), &format!("{}:{}", inv.address, inv.port), w);
+        y += 56.0;
+    }
+    if editing.is_none() && fr.invite.is_none() {
         if app.found.is_empty() {
             cv.text_fit(x, y + 40.0, Text::new(Font::Regular, 22.0, FROST_2), tr("Aucune Station sur ce réseau pour l'instant.", "No Station on this network yet."), w);
             y += 70.0;

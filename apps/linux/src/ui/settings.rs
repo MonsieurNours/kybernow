@@ -530,6 +530,13 @@ pub(super) fn confirm(app: &App, cv: &mut Canvas, f: &mut Frame) {
     f.hits.clear();
     cv.rect(0.0, 0.0, w, h, Rgba(5, 7, 10, 190));
     let (title, message, yes, danger) = match c {
+        // Un ordinateur emprunté : « Retirer l'ordinateur de {hôte} de cet appareil ? », la question seule.
+        Confirm::Remove { host, .. } if app.store.borrowed(host).is_some() => (
+            crate::app::remove_borrowed_question(&app.store.borrowed(host).map(|b| b.host.clone()).unwrap_or_default()),
+            String::new(),
+            tr("Retirer", "Remove"),
+            true,
+        ),
         Confirm::Remove { name, .. } => (
             format!("{} {name} {}", tr("Retirer", "Remove"), tr("de cet appareil ?", "from this device?")),
             tr("Vous pourrez l'ajouter à nouveau.", "You can add it again later.").to_string(),

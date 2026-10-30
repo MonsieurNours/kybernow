@@ -3,11 +3,14 @@
 //! Steam (« Son compte Steam » proposé), « Créer un code » ; puis le code, le QR code (à scanner au téléphone),
 //! l'adresse du client web en clair, « Pour une séance, valable 24 h. », l'aide, « Votre session se fermera quand votre
 //! ami arrivera. », « Annuler le code » ; les demandes (« {prénom} veut emprunter l'ordinateur. », « Accepter »,
-//! « Refuser », « Votre session va se fermer. »). Il s'ouvre depuis la tuile « Prêter l'ordinateur… » du menu ;
-//! Retour le referme. Pas de « Copier le lien » : un téléviseur n'a pas de presse-papiers utile.
+//! « Refuser », « Votre session va se fermer. » ; celle d'un créneau : son texte et « Accepter » seul). Il s'ouvre
+//! depuis la tuile « Prêter l'ordinateur… » du menu ; Retour le referme. Pas de « Copier le lien » : un téléviseur n'a
+//! pas de presse-papiers utile. Le lien du relais du code se prépare comme celui du partage (« Préparation du lien hors
+//! de chez vous… », le QR code et l'adresse retenus `RELAY_LINK_WAIT` au plus, puis « Pas encore joignable hors de chez
+//! vous. ») : mêmes dessins que le panneau du partage (`share::qr_or_wait`, `share::relay_lines`).
 
 use super::canvas::{Canvas, Font, Rgba, Text, H, W};
-use super::share::{button, wait_dot};
+use super::share::{button, qr_or_wait, relay_lines, wait_dot};
 use super::theme::*;
 use super::widgets::{self, Key};
 use super::Frame;
@@ -25,7 +28,7 @@ const HELP: (&str, &str) = (
     "Your friend enters this code with “Join with a code” in KyberNow Link, or opens this link in a browser.",
 );
 
-/// Pourquoi le prêt est impossible (Station trop ancienne, prêt coupé dans Admin).
+/// Pourquoi le prêt est impossible (Station trop ancienne, prêt coupé dans Admin, prêt pas possible sur cet ordinateur).
 fn closed_text(app: &App, s: &SessionUi) -> Option<&'static str> {
     app.lend_avail().and_then(|a| a.text()).or_else(|| s.lend.as_ref().filter(|v| !v.enabled).and_then(|_| LendAvail::Off.text()))
 }
@@ -48,8 +51,12 @@ fn height(cv: &mut Canvas, app: &App, s: &SessionUi, w: f32) -> f32 {
             }
             h += 2.0 * (40.0 + 56.0 + 20.0) + 100.0;
         }
-        Some(_) => {
+        Some(c) => {
             h += 224.0 + 36.0 + lines(cv, 22.0, tr(HELP.0, HELP.1), inner) * 31.0 + 40.0 + 20.0 + 96.0;
+            // Lien du relais en préparation, ou relais réglé mais injoignable : une ligne sous l'aide.
+            if c.relay_wait_text().is_some() || c.relay_down_text().is_some() {
+                h += 31.0;
+            }
         }
     }
     let requests = v.map_or(0, |v| v.requests.len());
@@ -124,17 +131,20 @@ fn card(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi, r: Rect) {
             widgets::label(cv, x, y + 22.0, tr("Code", "Code"));
             cv.text(x - 2.0, y + 114.0, Text::new(Font::MonoMedium, 96.0, FROST).tracking(6.0), &format_code(&c.code));
             cv.text_fit(x, y + 160.0, Text::new(Font::Regular, 22.0, FROST_3), &format!("{} · {}", lend_duration_label(c.duration), c.steam.label()), inner - qr - 40.0);
-            cv.text_fit(x, y + qr - 12.0, Text::new(Font::Mono, 20.0, FROST_3), &c.web, inner - qr - 40.0);
-            widgets::qr(cv, &c.link, r.x + r.w - PAD - qr, y + 4.0, qr);
+            // Le lien du relais en préparation : l'indicateur d'attente à la place du QR code, l'adresse du réseau pas
+            // encore montrée (`RELAY_LINK_WAIT` au plus), comme le partage.
+            qr_or_wait(cv, s, &c.link, &c.web, c.relay_preparing(), r.x + r.w - PAD - qr, y + 4.0, qr, (x, y + qr - 12.0), inner - qr - 40.0);
             y += 224.0;
             cv.text_fit(x, y + 26.0, Text::new(Font::Regular, 22.0, FROST), tr("Pour une séance, valable 24 h.", "For one session, valid for 24 h."), inner);
             y += 36.0;
             y += cv.paragraph(x, y + 24.0, Text::new(Font::Regular, 22.0, FROST_2), tr(HELP.0, HELP.1), inner, 31.0);
+            y += relay_lines(cv, s, c.relay_wait_text(), c.relay_down_text(), x, y, inner);
             cv.text_fit(x, y + 34.0, Text::new(Font::Regular, 22.0, FROST), tr("Votre session se fermera quand votre ami arrivera.", "Your session will close when your friend arrives."), inner);
             y += 40.0 + 20.0;
         }
     }
-    // Les demandes : « Léa veut emprunter l'ordinateur. », son app, « Refuser », « Accepter ».
+    // Les demandes : « Léa veut emprunter l'ordinateur. », son app, « Refuser », « Accepter » ; celle d'un créneau :
+    // le texte du créneau et « Accepter » seul.
     if let Some(v) = v.filter(|v| !v.requests.is_empty()) {
         cv.rect(x, y, inner, 1.0, LINE);
         widgets::label(cv, x, y + 34.0, tr("Demandes", "Requests"));
@@ -145,8 +155,11 @@ fn card(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi, r: Rect) {
             let dw = cv.text_width(Text::new(Font::Semibold, size, DANGER), decline) + size * 1.6;
             let aw = cv.text_width(Text::new(Font::Semibold, size, FROST), accept) + size * 1.6;
             let accept_x = x + inner - aw;
-            let decline_x = accept_x - 14.0 - dw;
-            button(cv, f, Target::LendRefuse(i), decline_x, y + 6.0, decline, size, true);
+            // La demande d'un créneau : « Accepter » seul (l'ordinateur lui est prêté dans 2 min de toute façon).
+            let decline_x = if rq.slot { accept_x } else { accept_x - 14.0 - dw };
+            if !rq.slot {
+                button(cv, f, Target::LendRefuse(i), decline_x, y + 6.0, decline, size, true);
+            }
             button(cv, f, Target::LendAccept(i), accept_x, y + 6.0, accept, size, false);
             cv.text_fit(x, y + 34.0, Text::new(Font::Semibold, 27.0, FROST), &rq.line(), (decline_x - x - 24.0).max(80.0));
             cv.text_fit(x, y + 66.0, Text::new(Font::Regular, 20.0, FROST_3), &rq.meta(), inner);

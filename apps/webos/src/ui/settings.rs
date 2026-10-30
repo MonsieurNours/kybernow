@@ -496,6 +496,12 @@ pub fn dialog(app: &App, cv: &mut Canvas, f: &mut Frame) {
     let Some(d) = &app.dialog else { return };
     cv.rect(0.0, 0.0, W, H, Rgba(2, 3, 4, 200));
     let (title, message, ok): (String, String, &str) = match d {
+        // Un ordinateur emprunté : « Retirer l'ordinateur de {hôte} de cet appareil ? », la question seule.
+        Dialog::Remove { host, .. } if app.store.borrowed(host).is_some() => (
+            crate::app::remove_borrowed_question(&app.store.borrowed(host).map(|b| b.host.clone()).unwrap_or_default()),
+            String::new(),
+            tr("Retirer", "Remove"),
+        ),
         Dialog::Remove { name, .. } => (
             if english() { format!("Remove {name} from this device?") } else { format!("Retirer {name} de cet appareil ?") },
             tr("Vous pourrez l'ajouter à nouveau.", "You can add it again later.").into(),
