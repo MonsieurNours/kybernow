@@ -83,6 +83,7 @@ impl Friend {
             login: self.login.clone(),
             relay: self.relay.clone(),
             sid: self.sid.clone(),
+            name: None,
         }
     }
 
@@ -609,7 +610,7 @@ mod tests {
         // {hôte} : le prénom, sinon le nom de l'ordinateur, sinon l'adresse.
         assert_eq!(f.owner_name(), "192.168.1.100");
         let mut g = f.clone();
-        let s = LendStatus { state: LendAvailability::Free, host: "Matthieu".into(), computer: "PC-SALON".into(), slot: None };
+        let s = LendStatus { state: LendAvailability::Free, host: "Matthieu".into(), computer: "PC-SALON".into(), slot: None, mine: false };
         assert!(g.learn(&s));
         assert!(!g.learn(&s), "rien de nouveau");
         assert_eq!(g.owner_name(), "Matthieu");
@@ -645,7 +646,7 @@ mod tests {
         let mut f = Friend::from_invite("f1".into(), &invite());
         f.owner = "Matthieu".into();
         let slot = LendSlot { now: false, next: Some(LendPeriod { start: 100, end: 200 }) };
-        let s = LendStatus { state: LendAvailability::Busy, host: "Matthieu".into(), computer: "PC-SALON".into(), slot: Some(slot) };
+        let s = LendStatus { state: LendAvailability::Busy, host: "Matthieu".into(), computer: "PC-SALON".into(), slot: Some(slot), mine: false };
         let v = FriendView::new(&f, &Seen::Status(s));
         assert_eq!((v.owner.as_str(), v.state, v.relay), ("Matthieu", "busy", true));
         assert_eq!(v.slot, Some(slot));
