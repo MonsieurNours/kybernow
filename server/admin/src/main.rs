@@ -16,6 +16,7 @@ mod kyber_proxy;
 mod launch;
 mod lend;
 mod lend_api;
+mod lend_last;
 mod lend_sys;
 mod local_token;
 mod logs;
@@ -518,6 +519,10 @@ pub struct Inner {
     pub lend: lend::Lending,
     /// Les comptes d'amis du prêt (`lend-friends.json`).
     pub friends: lend::Friends,
+    /// La dernière partie de chaque ami (`lend-last.json`).
+    pub last_played: lend_last::LastPlayed,
+    /// Les derniers prêts (`lend-history.json`).
+    pub lend_history: lend::History,
     /// Jeton des routes locales (icône de la zone de notification).
     pub local_token: Arc<local_token::LocalToken>,
     /// Mises à jour depuis les versions publiées sur GitHub.
@@ -573,6 +578,8 @@ impl AppState {
             relay: relay::Relay::new(&data_dir),
             lend: lend::Lending::new(),
             friends: lend::Friends::load(&data_dir),
+            last_played: lend_last::LastPlayed::load(&data_dir),
+            lend_history: lend::History::load(&data_dir),
             local_token: local_token::LocalToken::new(&data_dir),
             updater: Arc::new(update::Updater::new(&data_dir)),
             // L'assistant n'est jamais lancé : un redémarrage accepté est seulement noté.
@@ -850,6 +857,8 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
         relay: relay::Relay::new(&data_dir),
         lend: lend::Lending::new(),
         friends: lend::Friends::load(&data_dir),
+        last_played: lend_last::LastPlayed::load(&data_dir),
+        lend_history: lend::History::load(&data_dir),
         local_token,
         updater: updater.clone(),
         station: station::Restarter::new(&data_dir),

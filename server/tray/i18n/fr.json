@@ -287,6 +287,8 @@
     "cancel": "Annuler",
     "opening": "Ouverture de {app}…",
     "noApps": "Aucune app pour l'instant.",
+    "lastPlayed": "Dernière partie",
+    "continue": "Reprendre {game}",
     "notice": {
       "takenBack": "{host} reprend l'ordinateur dans 2 min : sauvegardez votre partie.",
       "timeUp": "Fin du prêt dans 2 min : sauvegardez votre partie.",
@@ -299,6 +301,30 @@
       "ask": "Reprendre l'ordinateur ? {name} a 2 minutes pour sauvegarder.",
       "askKeys": "Entrée : reprendre · Échap : annuler",
       "notice": "Reprise dans {left} · Entrée : tout de suite"
+    },
+    "preparing": "Préparation de l'ordinateur de {host}",
+    "hello": "Bonne partie, {name}",
+    "bye": "À bientôt, {name}",
+    "end": {
+      "left": "Vous avez rendu l'ordinateur.",
+      "takenBack": "{host} a repris l'ordinateur.",
+      "timeUp": "Le prêt est terminé.",
+      "slotEnd": "Votre créneau est terminé.",
+      "stopped": "Le prêt s'est arrêté."
+    },
+    "opened": "{app} est ouvert. Fermez-le pour revenir au lanceur.",
+    "giveBackLine": "Vos jeux se ferment. Vous pourrez de nouveau l'emprunter plus tard.",
+    "allowedApp": "App permise",
+    "line": {
+      "last": "Reprenez là où vous vous étiez arrêté.",
+      "steamFriend": "En Big Picture, avec votre compte Steam.",
+      "steamHost": "En Big Picture, avec le compte Steam de {host}.",
+      "app": "Fermez-la pour revenir au lanceur."
+    },
+    "hints": {
+      "open": "Ouvrir",
+      "back": "Retour",
+      "move": "Se déplacer"
     }
   }
 }

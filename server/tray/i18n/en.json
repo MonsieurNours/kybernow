@@ -287,6 +287,8 @@
     "cancel": "Cancel",
     "opening": "Opening {app}…",
     "noApps": "No apps yet.",
+    "lastPlayed": "Last played",
+    "continue": "Continue {game}",
     "notice": {
       "takenBack": "{host} is taking back the computer in 2 min: save your game.",
       "timeUp": "The loan ends in 2 min: save your game.",
@@ -299,6 +301,30 @@
       "ask": "Take back the computer? {name} has 2 minutes to save.",
       "askKeys": "Enter: take back · Esc: cancel",
       "notice": "Taking back in {left} · Enter: right now"
+    },
+    "preparing": "Getting {host}'s computer ready",
+    "hello": "Have a good game, {name}",
+    "bye": "See you soon, {name}",
+    "end": {
+      "left": "You gave back the computer.",
+      "takenBack": "{host} took back the computer.",
+      "timeUp": "The loan is over.",
+      "slotEnd": "Your time slot is over.",
+      "stopped": "The loan has stopped."
+    },
+    "opened": "{app} is open. Close it to come back to the launcher.",
+    "giveBackLine": "Your games will close. You can borrow it again later.",
+    "allowedApp": "Allowed app",
+    "line": {
+      "last": "Pick up where you left off.",
+      "steamFriend": "In Big Picture, with your Steam account.",
+      "steamHost": "In Big Picture, with {host}'s Steam account.",
+      "app": "Close it to come back to the launcher."
+    },
+    "hints": {
+      "open": "Open",
+      "back": "Back",
+      "move": "Move"
     }
   }
 }

@@ -38,7 +38,7 @@ use wry::{WebContext, WebView, WebViewBuilder, WebViewBuilderExtWindows};
 
 use super::store::{self, Saved};
 use super::system::{self, Born, Hooks};
-use super::{App, Cover, CoverKey, Display, Machine, Notice, Pad, Phase, Reply, Step, View, base64, clock_at, cover_key, cover_text, left, notice_text, steam, stick};
+use super::{App, Cover, CoverKey, Display, Last, Machine, Notice, Pad, Phase, Reply, Step, View, base64, clock_at, countdown, cover_key, cover_text, end_text, left, notice_text, ring, steam, stick, wall_clock};
 use crate::console::{self, Client};
 use crate::i18n::{self, Lang, tr};
 
@@ -92,16 +92,45 @@ struct Status {
     lang: Lang,
     borrower: String,
     host: String,
+    since: Option<i64>,
     until: Option<i64>,
     notice: Option<Notice>,
     display: Option<Display>,
+    connected: bool,
+    end: Option<String>,
+    steam_friend: bool,
 }
 
 impl Status {
     fn of(v: &View) -> Status {
-        Status { lang: v.lang, borrower: v.borrower.clone(), host: v.host.clone(), until: v.until, notice: v.notice.clone(), display: v.display.clone() }
+        Status {
+            lang: v.lang,
+            borrower: v.borrower.clone(),
+            host: v.host.clone(),
+            since: v.since,
+            until: v.until,
+            notice: v.notice.clone(),
+            display: v.display.clone(),
+            connected: v.connected,
+            end: v.end.clone(),
+            steam_friend: v.steam_friend,
+        }
     }
 }
+
+/// Une app ouverte depuis le lanceur : « Ouverture de {app}… », puis « {app}
+/// est ouvert » jusqu'à ce que le lanceur revienne devant.
+struct Opening {
+    id: String,
+    name: String,
+    at: Instant,
+    /// L'app est passée devant le lanceur.
+    seen: bool,
+}
+
+/// Le temps que le lanceur dit la fin (« Vous avez rendu l'ordinateur. »,
+/// puis « À bientôt, {prénom} ») avant la remise en état.
+const GOODBYE: Duration = Duration::from_millis(4600);
 
 /// Une tuile du lanceur : l'app, et son icône en `data:` (la page n'a pas le jeton local).
 #[derive(Debug, Clone, PartialEq)]
@@ -109,6 +138,9 @@ struct Tile {
     id: String,
     name: String,
     icon: Option<String>,
+    /// « Dernière partie » : la grande tuile en tête, avec l'image du jeu.
+    last: bool,
+    image: Option<String>,
 }
 
 fn send(proxy: &EventLoopProxy<Ev>, ui: Ui) {
@@ -141,8 +173,8 @@ pub fn run() -> i32 {
     {
         let proxy = proxy.clone();
         std::thread::spawn(move || {
-            Pilot::new(proxy.clone()).run();
-            send(&proxy, Ui::Exit);
+            let _guard = PilotGuard(proxy.clone());
+            Pilot::new(proxy).run();
         });
     }
     let data = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join(r"KyberNow\lend-webview");
@@ -163,6 +195,27 @@ pub fn run() -> i32 {
         Event::WindowEvent { event: WindowEvent::CloseRequested, .. } => {}
         _ => {}
     })
+}
+
+/// La fin du pilote, normale ou non : les fenêtres de l'agent se ferment. Un
+/// pilote tombé (panique) en plein prêt verrouille d'abord la session (l'ami
+/// ne voit rien de l'hôte), puis remet en état ce qui est noté sur le disque ;
+/// Admin, voyant la session verrouillée, arrête le prêt. Les crochets partent
+/// avec le pilote.
+struct PilotGuard(EventLoopProxy<Ev>);
+
+impl Drop for PilotGuard {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            system::log("pilote tombé : session verrouillée, remise en état");
+            let path = state_path();
+            if let Some(saved) = path.as_deref().and_then(store::load) {
+                system::lock_workstation();
+                finish(path.as_deref(), saved);
+            }
+        }
+        send(&self.0, Ui::Exit);
+    }
 }
 
 /// Au démarrage de l'icône : un état de prêt laissé sur le disque, sans
@@ -228,8 +281,13 @@ struct Pilot {
     /// L'écran de l'ami, une fois le lanceur dessus.
     display: Option<Display>,
     apps: Vec<App>,
+    last: Option<Last>,
     icons: HashMap<String, Option<String>>,
     steam_restored: bool,
+    /// Le jeu Steam vu au dernier relevé (`RunningAppID`) ; `None` avant le
+    /// premier : ce qui tournait déjà au début du prêt ne compte pas.
+    steam_seen: Option<Option<u32>>,
+    steam_checked: Option<Instant>,
 }
 
 impl Pilot {
@@ -246,8 +304,11 @@ impl Pilot {
             dialogs: HashSet::new(),
             display: None,
             apps: Vec::new(),
+            last: None,
             icons: HashMap::new(),
             steam_restored: true,
+            steam_seen: None,
+            steam_checked: None,
         }
     }
 
@@ -279,6 +340,8 @@ impl Pilot {
                                 machine.retry(Step::Show);
                             }
                         }
+                        // Revérifié ici : une mise en place ratée juste avant n'envoie jamais `ready`.
+                        (Step::Ready, _) if machine.broken() => {}
                         (Step::Ready, _) => {
                             if !self.post("ready", json!({})) {
                                 machine.retry(Step::Ready);
@@ -289,7 +352,13 @@ impl Pilot {
                                 machine.retry(Step::Beat);
                             }
                         }
-                        (Step::TearDown, _) => self.tear_down(),
+                        (Step::TearDown, v) => {
+                            // Le lanceur dit la fin à l'ami (son image continue un instant).
+                            if self.display.is_some() && v.is_some_and(|v| v.end.is_some()) {
+                                std::thread::sleep(GOODBYE);
+                            }
+                            self.tear_down()
+                        }
                         (Step::Ended, _) => {
                             if !self.post("ended", json!({ "steam_restored": self.steam_restored })) {
                                 machine.retry(Step::Ended);
@@ -306,6 +375,7 @@ impl Pilot {
             }
             if machine.begun() {
                 self.keep_up();
+                self.watch_steam();
             }
             std::thread::sleep(Duration::from_millis(500));
         }
@@ -357,14 +427,15 @@ impl Pilot {
             && self.display.as_ref() != Some(d)
         {
             let (tx, _rx) = mpsc::channel();
-            let tiles = self.tiles(&v.apps);
+            let tiles = self.tiles(&v.apps, v.last.as_ref());
             send(&self.proxy, Ui::Launcher(d.clone(), tiles, tx));
             self.display = Some(d.clone());
         }
-        if v.apps != self.apps {
-            let tiles = self.tiles(&v.apps);
+        if v.apps != self.apps || v.last != self.last {
+            let tiles = self.tiles(&v.apps, v.last.as_ref());
             send(&self.proxy, Ui::Tiles(tiles));
             self.apps = v.apps.clone();
+            self.last = v.last.clone();
         }
     }
 
@@ -381,7 +452,13 @@ impl Pilot {
     fn begin(&mut self, v: &View) -> Result<()> {
         if let Some(old) = self.saved.take_if(|s| s.lend != v.lend) {
             system::log("état d'un autre prêt : remise en état d'abord");
-            finish(self.path.as_deref(), old);
+            if !finish(self.path.as_deref(), old) {
+                // Steam du prêt d'avant pas remis : ses fichiers sont encore de
+                // côté, son état reste sur le disque ; pas de nouveau prêt
+                // (jamais de `ready`), la remise en état sera retentée.
+                self.saved = self.path.as_deref().and_then(store::load);
+                anyhow::bail!("Steam d'un prêt d'avant pas remis : pas de nouveau prêt");
+            }
         }
         let resume = self.saved.is_some();
         system::log(&format!("mise en place du prêt {}{}", v.lend, if resume { " (reprise)" } else { "" }));
@@ -441,7 +518,7 @@ impl Pilot {
     /// Le lanceur sur l'écran de l'ami, le curseur dessus.
     fn show(&mut self, v: &View) -> bool {
         let Some(d) = v.display.clone() else { return false };
-        let tiles = self.tiles(&v.apps);
+        let tiles = self.tiles(&v.apps, v.last.as_ref());
         let (tx, rx) = mpsc::channel();
         send(&self.proxy, Ui::Launcher(d.clone(), tiles, tx));
         if !rx.recv_timeout(Duration::from_secs(15)).unwrap_or(false) {
@@ -452,29 +529,64 @@ impl Pilot {
         system::center_cursor(&d);
         self.display = Some(d);
         self.apps = v.apps.clone();
+        self.last = v.last.clone();
         true
     }
 
-    /// Les tuiles, avec les icônes lues chez Admin (une fois chacune).
-    fn tiles(&mut self, apps: &[App]) -> Vec<Tile> {
-        apps.iter()
-            .map(|a| {
-                let icon = a.icon.as_ref().and_then(|path| {
-                    if !self.icons.contains_key(path) {
-                        let fetched = self.icon(path);
-                        self.icons.insert(path.clone(), fetched);
-                    }
-                    self.icons[path].clone()
-                });
-                Tile { id: a.id.clone(), name: a.name.clone(), icon }
-            })
-            .collect()
+    /// Les tuiles, avec les icônes et images lues chez Admin (une fois
+    /// chacune) ; la dernière partie de l'ami en tête.
+    fn tiles(&mut self, apps: &[App], last: Option<&Last>) -> Vec<Tile> {
+        let mut tiles = Vec::with_capacity(apps.len() + 1);
+        if let Some(l) = last {
+            let (icon, image) = (self.cached(l.icon.as_deref()), self.cached(l.image.as_deref()));
+            tiles.push(Tile { id: l.id.clone(), name: l.name.clone(), icon, last: true, image });
+        }
+        for a in apps {
+            let icon = self.cached(a.icon.as_deref());
+            tiles.push(Tile { id: a.id.clone(), name: a.name.clone(), icon, last: false, image: None });
+        }
+        tiles
     }
 
+    fn cached(&mut self, path: Option<&str>) -> Option<String> {
+        let path = path?;
+        if !self.icons.contains_key(path) {
+            let fetched = self.icon(path);
+            self.icons.insert(path.to_string(), fetched);
+        }
+        self.icons[path].clone()
+    }
+
+    /// Une icône (PNG) ou l'image d'un jeu (JPEG), en `data:`.
     fn icon(&self, path: &str) -> Option<String> {
         let port = console::port()?;
         let reply = self.client.local("GET", port, path, None, Duration::from_secs(5)).ok().filter(|r| r.status == 200)?;
-        Some(format!("data:image/png;base64,{}", base64(&reply.body)))
+        let mime = if path.ends_with(".jpg") { "image/jpeg" } else { "image/png" };
+        Some(format!("data:{mime};base64,{}", base64(&reply.body)))
+    }
+
+    /// Toutes les 2 s pendant le prêt : un jeu Steam qui démarre devient la
+    /// dernière partie de l'ami (Admin vérifie qu'il est installé et Steam permis).
+    fn watch_steam(&mut self) {
+        if self.steam_checked.is_some_and(|t| t.elapsed() < Duration::from_secs(2)) {
+            return;
+        }
+        self.steam_checked = Some(Instant::now());
+        let running = steam::running_app();
+        let Some(seen) = self.steam_seen else {
+            self.steam_seen = Some(running);
+            return;
+        };
+        if running == seen {
+            return;
+        }
+        // Pas noté (Admin injoignable) : réessayé au relevé suivant.
+        if let Some(appid) = running
+            && !self.post("played", json!({ "steam": appid }))
+        {
+            return;
+        }
+        self.steam_seen = Some(running);
     }
 
     /// Toutes les 500 ms pendant le prêt.
@@ -493,6 +605,11 @@ impl Pilot {
             if let Some(born) = self.born.as_mut() {
                 system::keep_on(d, born);
             }
+        }
+        // Une fenêtre de l'hôte qui revient (rappel, notification, « Parcourir
+        // les fichiers locaux ») : réduite de nouveau.
+        if let Some(saved) = &self.saved {
+            system::minimize_again(&saved.windows);
         }
         system::close_file_dialogs(&self.dialogs);
     }
@@ -630,8 +747,10 @@ struct Screens {
     tiles: Vec<Tile>,
     cover: Cover,
     asked: Option<Instant>,
-    /// « Ouverture de Steam… » après une tuile, 10 s au plus.
-    opening: Option<(String, Instant)>,
+    /// L'app ouverte depuis le lanceur, jusqu'à son retour devant.
+    opening: Option<Opening>,
+    /// Le lanceur est devant (sinon, l'app : le fond et les particules s'arrêtent).
+    front: bool,
     pad: Pad,
     pushed_launcher: String,
     pushed_cover: String,
@@ -653,6 +772,7 @@ impl Screens {
             cover: Cover::Idle,
             asked: None,
             opening: None,
+            front: true,
             pad: Pad::default(),
             pushed_launcher: String::new(),
             pushed_cover: String::new(),
@@ -755,7 +875,7 @@ impl Screens {
 
     fn push_tiles(&self) {
         if let Some(l) = &self.launcher {
-            let tiles: Vec<Value> = self.tiles.iter().map(|t| json!({ "id": t.id, "name": t.name, "icon": t.icon })).collect();
+            let tiles: Vec<Value> = self.tiles.iter().map(|t| json!({ "id": t.id, "name": t.name, "icon": t.icon, "last": t.last, "image": t.image })).collect();
             l.eval(&format!("window.__knTiles && window.__knTiles({})", Value::from(tiles)));
         }
     }
@@ -766,20 +886,55 @@ impl Screens {
         let now = system::unix_now();
         let lang = s.lang;
         let notice_left = s.notice.as_ref().map(|n| n.at - now);
+        let clock_now = system::local_clock(now).map(|(h, m)| wall_clock(lang, h, m));
         if let Some(l) = &self.launcher {
+            // Le préavis de l'ami (pas celui d'un créneau qui commence) : décompte en ambre.
+            let notice = s.notice.as_ref().and_then(|n| notice_text(lang, &n.reason, &s.host).map(|t| (t, n.at)));
+            let ring = ring(now, s.since, s.until, notice.as_ref().map(|(_, at)| *at)).map(|r| (r * 1000.0).round() / 1000.0);
             let texts = json!({
                 "lang": lang.code(),
                 "lentBy": tr(lang, "lend.lentBy", &[("host", &s.host)]),
-                "left": match s.until {
-                    Some(until) => left(lang, until - now),
-                    None => tr(lang, "lend.untilTakeBack", &[("host", &s.host)]),
+                "left": match (&notice, s.until) {
+                    (Some((_, at)), _) => countdown(at - now),
+                    (None, Some(until)) => left(lang, until - now),
+                    (None, None) => tr(lang, "lend.untilTakeBack", &[("host", &s.host)]),
                 },
-                "notice": s.notice.as_ref().and_then(|n| notice_text(lang, &n.reason, &s.host)),
+                "ring": ring,
+                "noticing": notice.is_some(),
+                "clock": clock_now,
+                "notice": notice.as_ref().map(|(t, _)| t),
                 "giveBack": tr(lang, "lend.giveBack", &[]),
                 "confirm": tr(lang, "lend.giveBackConfirm", &[("host", &s.host)]),
+                "confirmLine": tr(lang, "lend.giveBackLine", &[]),
                 "cancel": tr(lang, "lend.cancel", &[]),
-                "opening": self.opening.as_ref().map(|(name, _)| tr(lang, "lend.opening", &[("app", name)])),
                 "noApps": tr(lang, "lend.noApps", &[]),
+                "lastPlayed": tr(lang, "lend.lastPlayed", &[]),
+                // « Reprendre {game} » : le nom du jeu est mis par la page.
+                "continue": tr(lang, "lend.continue", &[("game", &"{game}")]),
+                "allowedApp": tr(lang, "lend.allowedApp", &[]),
+                "lines": {
+                    "last": tr(lang, "lend.line.last", &[]),
+                    "steam": if s.steam_friend { tr(lang, "lend.line.steamFriend", &[]) } else { tr(lang, "lend.line.steamHost", &[("host", &s.host)]) },
+                    "app": tr(lang, "lend.line.app", &[]),
+                },
+                "hints": { "open": tr(lang, "lend.hints.open", &[]), "back": tr(lang, "lend.hints.back", &[]), "move": tr(lang, "lend.hints.move", &[]) },
+                // Arrivée : « Préparation… » jusqu'au premier signe de vie de l'ami, puis « Bonne partie ».
+                "arrival": {
+                    "preparing": tr(lang, "lend.preparing", &[("host", &s.host)]),
+                    "hello": tr(lang, "lend.hello", &[("name", &s.borrower)]),
+                    "ready": s.connected,
+                },
+                "ending": s.end.as_ref().map(|reason| json!({
+                    "text": end_text(lang, reason, &s.host),
+                    "bye": tr(lang, "lend.bye", &[("name", &s.borrower)]),
+                })),
+                "launch": self.opening.as_ref().map(|o| json!({
+                    "id": o.id,
+                    "name": o.name,
+                    "opening": tr(lang, "lend.opening", &[("app", &o.name)]),
+                    "open": tr(lang, "lend.opened", &[("app", &o.name)]),
+                })),
+                "front": self.front,
             })
             .to_string();
             if l.ready && texts != self.pushed_launcher {
@@ -796,6 +951,7 @@ impl Screens {
             "keys": c.keys,
             "asking": self.cover == Cover::Asking && notice_left.is_none(),
             "notice": notice_left.is_some(),
+            "clock": clock_now,
         })
         .to_string();
         if texts != self.pushed_cover && self.covers.iter().all(|(_, c)| c.ready) {
@@ -829,7 +985,7 @@ impl Screens {
             (Page::Launcher, "launch") => {
                 let Some(id) = m["id"].as_str() else { return };
                 let Some(tile) = self.tiles.iter().find(|t| t.id == id) else { return };
-                self.opening = Some((tile.name.clone(), Instant::now()));
+                self.opening = Some(Opening { id: tile.id.clone(), name: tile.name.clone(), at: Instant::now(), seen: false });
                 // L'app ouverte par Admin pourra passer devant le lanceur.
                 system::allow_foreground();
                 post_later("launch", json!({ "id": id }));
@@ -882,7 +1038,8 @@ impl Screens {
                 self.asked = None;
                 self.cover = Cover::Idle;
             }
-            if self.opening.as_ref().is_some_and(|(_, t)| now.duration_since(*t) > Duration::from_secs(10)) {
+            // Une app qui ne vient jamais devant : l'ouverture se retire au bout de 20 s.
+            if self.opening.as_ref().is_some_and(|o| !o.seen && now.duration_since(o.at) > Duration::from_secs(20)) {
                 self.opening = None;
             }
             self.push();
@@ -892,17 +1049,32 @@ impl Screens {
     /// Le lanceur revient devant quand plus rien de l'ami ne l'est (une app
     /// fermée, une fenêtre partie sur un écran du PC, le bureau).
     fn guard_focus(&mut self) {
-        let (Some(l), Some(d)) = (&self.launcher, self.display()) else { return };
-        let fg = system::foreground();
-        if fg == l.hwnd() {
+        let (Some(l), Some(d)) = (&self.launcher, self.display().cloned()) else { return };
+        let (hwnd, fg) = (l.hwnd(), system::foreground());
+        if fg != hwnd && system::acceptable_foreground(fg, &d) {
+            // L'app est devant : le lanceur se met en pause.
+            if let Some(o) = self.opening.as_mut() {
+                o.seen = true;
+            }
+            self.set_front(false);
             return;
         }
-        if system::acceptable_foreground(fg, d) {
-            // L'app est devant : « Ouverture de… » n'a plus lieu d'être.
+        if fg != hwnd {
+            system::bring_to_front(hwnd);
+            let _ = l.webview.focus();
+        }
+        // Le lanceur est devant : l'app ouverte depuis lui est fermée.
+        if self.opening.as_ref().is_some_and(|o| o.seen) {
             self.opening = None;
-            return;
+            self.push();
         }
-        system::bring_to_front(l.hwnd());
-        let _ = l.webview.focus();
+        self.set_front(true);
+    }
+
+    fn set_front(&mut self, front: bool) {
+        if self.front != front {
+            self.front = front;
+            self.push();
+        }
     }
 }

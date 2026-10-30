@@ -30,6 +30,7 @@ use crate::api::{ApiError, blocking, stream_user};
 use crate::display::{Mode, Origin, now_secs};
 use crate::i18n::Msg;
 use crate::lend::{self, Beat, Kind, LocalTime, Reason, Screen, Steam, Wait, Who};
+use crate::lend_last;
 use crate::lend_sys::{self, SessionState};
 use crate::relay::Via;
 
@@ -43,6 +44,13 @@ const READY_WAIT: Duration = Duration::from_secs(35);
 /// ... sans que toute la préparation passe ce temps : le cœur attend la
 /// réponse de `borrow` 45 s.
 const PREPARE_WAIT: Duration = Duration::from_secs(40);
+/// La fin vue par l'ami : le lanceur la dit (« Vous avez rendu l'ordinateur. »,
+/// puis « À bientôt, {prénom} ») avant que son image s'arrête ; ses entrées
+/// sont déjà coupées.
+#[cfg(not(test))]
+const ENDING_SHOW: Duration = Duration::from_millis(5000);
+#[cfg(test)]
+const ENDING_SHOW: Duration = Duration::ZERO;
 /// L'agent de console a ce temps pour se remettre en état à la fin (fenêtres
 /// 10 s, Steam jusqu'à 25 s).
 const ENDED_WAIT: Duration = Duration::from_secs(45);
@@ -117,9 +125,19 @@ fn hostname() -> String {
     hostname::get().ok().map(|h| h.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
-/// Le prénom de l'hôte (compte de la session, relu toutes les 10 minutes),
-/// sinon le nom de l'ordinateur.
-fn host_name() -> String {
+/// Le prénom de l'hôte : « Votre prénom » s'il est réglé, sinon le prénom du
+/// compte Windows de la session (relu toutes les 10 minutes), sinon le nom de
+/// l'ordinateur.
+fn host_name(s: &AppState) -> String {
+    let set = settings(s).host_name;
+    if !set.trim().is_empty() {
+        return set;
+    }
+    account_name()
+}
+
+/// Le prénom du compte Windows de la session, sinon le nom de l'ordinateur.
+fn account_name() -> String {
     static CACHE: Mutex<Option<(String, Instant)>> = Mutex::new(None);
     if let Some((name, at)) = CACHE.lock().unwrap().clone()
         && at.elapsed() < Duration::from_secs(600)
@@ -131,6 +149,12 @@ fn host_name() -> String {
     name
 }
 
+/// Le prénom de l'hôte, hors du fil d'async (le compte Windows se lit par un agent).
+async fn host_name_async(s: &AppState) -> String {
+    let s = s.clone();
+    tokio::task::spawn_blocking(move || host_name(&s)).await.unwrap_or_default()
+}
+
 /// `info.lend`.
 pub fn info(s: &AppState) -> Value {
     json!({ "available": true, "enabled": enabled(s) })
@@ -140,7 +164,7 @@ pub fn info(s: &AppState) -> Value {
 pub fn view(s: &AppState) -> Value {
     let mut v = s.lend.view(enabled(s));
     v["computer"] = json!(hostname());
-    v["host"] = json!(host_name());
+    v["host"] = json!(host_name(s));
     v["code"] = match s.lend.code() {
         Some(c) => {
             let links = crate::share_api::links(s, &c.code);
@@ -176,6 +200,15 @@ fn kyber_token(s: &AppState, loan: &lend::Loan) -> Option<String> {
     Some(crate::kyber_proxy::jwt_with(&secret, &loan.kyber_user(), lend::TOKEN_LIFETIME, claims))
 }
 
+/// Plus d'entrées pour l'ami (rôle spectateur, révision 2 : un jeton renouvelé
+/// ne les rend pas), l'image continue.
+async fn kyber_spectator(s: &AppState, loan: &lend::Loan) {
+    let body = json!({ "user": loan.kyber_user(), "role": "spectator", "rev": 2 });
+    if let Err(e) = crate::kyber_proxy::kyber_call(s, Method::POST, "/kybernow/role", Some(body)).await {
+        tracing::warn!("prêt : entrées de {} non coupées : {e:#}", loan.who.name);
+    }
+}
+
 async fn kyber_close(s: &AppState, loan: &lend::Loan) {
     let body = json!({ "user": loan.kyber_user(), "ban_seconds": KYBER_BAN_SECONDS });
     match crate::kyber_proxy::kyber_call(s, Method::POST, "/kybernow/close", Some(body)).await {
@@ -200,7 +233,7 @@ fn loan_answer(s: &AppState, loan: &lend::Loan, via: Option<&Via>) -> Response {
     let mut answer = json!({
         "lend": loan.id,
         "secret": loan.secret(),
-        "host": host_name(),
+        "host": host_name(s),
         "computer": hostname(),
         "kyber": {
             "port": s.kyber.port(),
@@ -230,13 +263,80 @@ fn loan_answer(s: &AppState, loan: &lend::Loan, via: Option<&Via>) -> Response {
 /// La surveillance des processus du prêt en cours, et ses règles.
 static WATCH: Mutex<Option<(lend_sys::Watch, lend_sys::Rules)>> = Mutex::new(None);
 
+/// Le prêt existe encore et ne finit pas (repris, rendu, prêt coupé pendant
+/// sa préparation : elle s'arrête là).
+fn alive(s: &AppState, id: &str) -> bool {
+    s.lend.loan().is_some_and(|l| l.id == id && l.phase != lend::Phase::Ending)
+}
+
+/// Repère d'un prêt en cours, dans le dossier de données : un Admin arrêté
+/// en plein prêt le retrouve à son démarrage ([`recover`]).
+const ACTIVE_FILE: &str = "lend-active";
+#[cfg(not(test))]
+const RECOVER_TRIES: u32 = 30;
+#[cfg(test)]
+const RECOVER_TRIES: u32 = 1;
+
+/// Un prêt arrêté pendant sa préparation, et déjà remis en état : son repère part.
+fn abandoned(s: &AppState, id: &str) -> bool {
+    if s.lend.loan().is_none_or(|l| l.id != id) {
+        let _ = std::fs::remove_file(s.data_dir.join(ACTIVE_FILE));
+    }
+    false
+}
+
+/// Au démarrage d'Admin, un prêt laissé en plein milieu (Admin arrêté ou
+/// tombé) : la session se verrouille et l'ami est coupé de Kyber ; l'agent de
+/// console, lui, se remet en état en trouvant Admin sans prêt.
+pub async fn recover(s: &AppState) {
+    let path = s.data_dir.join(ACTIVE_FILE);
+    if !path.exists() {
+        return;
+    }
+    tracing::warn!("prêt : Admin redémarré en plein prêt : session verrouillée, ami coupé de Kyber");
+    if let Err(e) = tokio::task::spawn_blocking(lend_sys::lock_session).await.unwrap_or_else(|e| Err(anyhow::anyhow!("{e}"))) {
+        tracing::warn!("prêt : session non verrouillée : {e:#}");
+    }
+    // Kyber démarre peut-être encore : jusqu'à une minute.
+    for attempt in 0..RECOVER_TRIES {
+        if let Ok((status, v)) = crate::kyber_proxy::kyber_call(s, Method::GET, "/kybernow/sessions", None).await
+            && status.is_success()
+        {
+            let mut users: Vec<String> = v["sessions"].as_array().into_iter().flatten().filter_map(|x| x["user"].as_str()).filter(|u| u.starts_with("kn-lend-")).map(str::to_owned).collect();
+            users.dedup();
+            for user in users {
+                let body = json!({ "user": user, "ban_seconds": KYBER_BAN_SECONDS });
+                let _ = crate::kyber_proxy::kyber_call(s, Method::POST, "/kybernow/close", Some(body)).await;
+            }
+            break;
+        }
+        if attempt + 1 < RECOVER_TRIES {
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        }
+    }
+    let _ = std::fs::remove_file(&path);
+}
+
+/// La dernière fois qu'une entrée venait de loin (session d'un appareil,
+/// partage, prêt) : relevé chaque seconde par la surveillance du prêt.
+static REMOTE_SEEN: Mutex<Option<Instant>> = Mutex::new(None);
+
 /// L'ordinateur est-il utilisé (session d'un appareil, partage, quelqu'un
-/// devant depuis moins de 5 minutes) ?
+/// devant depuis moins de 5 minutes) ? `GetLastInputInfo` compte aussi
+/// l'entrée injectée par Kyber : une entrée d'avant la fin de la dernière
+/// session à distance n'est pas quelqu'un devant le PC.
 async fn in_use(s: &AppState) -> bool {
     if s.activity.live().is_some() || s.share.is_open() {
         return true;
     }
-    tokio::task::spawn_blocking(lend_sys::idle_secs).await.ok().flatten().is_some_and(|idle| idle < PRESENT)
+    let remote_ago = REMOTE_SEEN.lock().unwrap().map(|t| t.elapsed().as_secs());
+    tokio::task::spawn_blocking(lend_sys::idle_secs).await.ok().flatten().is_some_and(|idle| present(idle, remote_ago))
+}
+
+/// Quelqu'un devant le PC : une entrée de moins de 5 minutes, plus récente
+/// (de 2 s au moins) que la fin de la dernière session à distance.
+fn present(idle: u64, remote_ago: Option<u64>) -> bool {
+    idle < PRESENT && remote_ago.is_none_or(|ago| idle + 2 < ago)
 }
 
 /// Prépare le prêt : la session de l'hôte se ferme, un partage s'arrête,
@@ -245,6 +345,10 @@ async fn in_use(s: &AppState) -> bool {
 async fn prepare(s: &AppState, loan: lend::Loan) -> bool {
     tracing::info!("prêt : préparation pour {} ({:?})", loan.who.name, loan.who.kind);
     let begun = tokio::time::Instant::now();
+    if !alive(s, &loan.id) {
+        return false;
+    }
+    let _ = std::fs::write(s.data_dir.join(ACTIVE_FILE), &loan.id);
     // La session de l'hôte : on lui demande de finir (7 s), puis on la ferme.
     if s.activity.live().is_some() {
         s.activity.request_end();
@@ -282,6 +386,18 @@ async fn prepare(s: &AppState, loan: lend::Loan) -> bool {
             return false;
         }
     };
+    // Arrêté pendant que l'écran se créait : la remise en état est peut-être
+    // déjà passée, l'écran et le son se retirent ici.
+    if !alive(s, &loan.id) {
+        let (d, a) = (s.display.clone(), s.audio.clone());
+        let _ = blocking(move || {
+            d.stop("prêt arrêté pendant sa préparation");
+            a.stop("prêt arrêté pendant sa préparation");
+            Ok(())
+        })
+        .await;
+        return abandoned(s, &loan.id);
+    }
     s.lend.set_display(&loan.id, display.0, display.1);
     // Le mode console : l'agent dans la session de l'utilisateur, la surveillance par Admin.
     let settings = settings(s);
@@ -294,8 +410,19 @@ async fn prepare(s: &AppState, loan: lend::Loan) -> bool {
     .await
     .ok()
     .flatten();
-    *WATCH.lock().unwrap() = watch;
+    {
+        // Vérifié sous le verrou de WATCH : la remise en état le prend après
+        // avoir fait finir le prêt, une surveillance ne lui échappe jamais.
+        let mut slot = WATCH.lock().unwrap();
+        if !alive(s, &loan.id) {
+            return abandoned(s, &loan.id); // `watch` lâché : sa surveillance s'arrête.
+        }
+        *slot = watch;
+    }
     if cfg!(windows) {
+        if !alive(s, &loan.id) {
+            return abandoned(s, &loan.id);
+        }
         if let Err(e) = tokio::task::spawn_blocking(lend_sys::spawn_console).await.unwrap_or_else(|e| Err(anyhow::anyhow!("{e}"))) {
             tracing::warn!("prêt : agent de console impossible : {e:#}");
             return false;
@@ -341,8 +468,13 @@ fn spawn_prepare(s: &AppState, loan: lend::Loan) {
 /// Finit le prêt : préavis passé ou reprise immédiate. Une seule remise en
 /// état à la fois (les autres appels ne font rien).
 pub async fn finish(s: &AppState, id: &str, reason: Reason) {
-    let Some(loan) = s.lend.ending(Some(id)) else { return };
+    let Some(loan) = s.lend.ending(Some(id), reason) else { return };
     tracing::info!("prêt de {} : fin ({reason:?})", loan.who.name);
+    // L'ami connecté voit la fin dans le lanceur, sans plus rien envoyer.
+    if loan.console_ready && loan.connected && loan.display.is_some() {
+        kyber_spectator(s, &loan).await;
+        tokio::time::sleep(ENDING_SHOW).await;
+    }
     s.relay.revoke_guest(&loan.id);
     kyber_close(s, &loan).await;
     // L'agent de console se remet en état (apps fermées, Steam, fenêtres).
@@ -371,6 +503,24 @@ pub async fn finish(s: &AppState, id: &str, reason: Reason) {
     })
     .await;
     s.lend.ended(&loan.id, reason);
+    let _ = std::fs::remove_file(s.data_dir.join(ACTIVE_FILE));
+    // Les derniers prêts : seulement un prêt qui a commencé.
+    if loan.console_ready {
+        let kind = match loan.who.kind {
+            Kind::Code => "code",
+            Kind::Friend => "friend",
+            Kind::Slot => "slot",
+        };
+        s.lend_history.push(lend::Past {
+            name: loan.who.name.clone(),
+            kind: kind.into(),
+            friend: loan.who.friend.clone(),
+            app: loan.who.app.clone(),
+            since: loan.since,
+            end: now_secs(),
+            reason: end_name(reason).into(),
+        });
+    }
     match reason {
         Reason::Left => s.activity.event("info", Msg::new("events.lendGivenBack").with("name", loan.who.name.as_str())),
         Reason::TakenBack => s.activity.event("info", Msg::new("events.lendTakenBack")),
@@ -453,7 +603,7 @@ pub async fn status(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<So
             "next": lend::next_slot(&friend.slots, at).map(|(start, end)| json!({ "start": start, "end": end })),
         })
     });
-    let host = tokio::task::spawn_blocking(host_name).await.unwrap_or_default();
+    let host = host_name_async(&s).await;
     let answer = json!({ "state": state, "mine": mine, "host": host, "computer": hostname(), "slot": slot });
     ([(header::CACHE_CONTROL, "no-store")], Json(answer)).into_response()
 }
@@ -492,9 +642,9 @@ pub async fn borrow(
     let mut slot = false;
     if let Some(code) = body.code.as_deref().map(|c| c.chars().filter(|c| !c.is_whitespace()).collect::<String>()) {
         who.code = Some(code.clone());
-        // Le même ami qui revient pendant le prêt (15 min).
-        if let Some(loan) = s.lend.resume(&who) {
-            return loan_answer(&s, &loan, via.as_ref());
+        // Le même ami qui revient pendant le prêt (15 min), avec son code.
+        if let Some(res) = come_back(&s, &who, via.as_ref()).await {
+            return res;
         }
         let Some(c) = s.lend.take_code(&code) else { return friend_error(StatusCode::NOT_FOUND, "no_code") };
         until = c.duration.map(|d| now_secs() + d);
@@ -508,8 +658,8 @@ pub async fn borrow(
         who.kind = Kind::Friend;
         who.friend = Some(friend.id.clone());
         who.name = friend.name.clone();
-        if let Some(loan) = s.lend.resume(&who) {
-            return loan_answer(&s, &loan, via.as_ref());
+        if let Some(res) = come_back(&s, &who, via.as_ref()).await {
+            return res;
         }
         match lend::slot_now(&friend.slots, LocalTime::now()) {
             Some(end) => {
@@ -526,6 +676,12 @@ pub async fn borrow(
         return friend_error(StatusCode::BAD_REQUEST, "bad_request");
     }
     if !enabled(&s) {
+        return friend_error(StatusCode::SERVICE_UNAVAILABLE, "off");
+    }
+    // Sans clé pour le jeton de Kyber, l'ami ne pourrait jamais se connecter :
+    // pas de prêt du tout (plutôt qu'un prêt sans personne).
+    if s.kyber.jwt_secret().is_none() {
+        tracing::warn!("prêt : pas de clé pour les jetons de Kyber");
         return friend_error(StatusCode::SERVICE_UNAVAILABLE, "off");
     }
     if s.lend.loan().is_some() {
@@ -549,11 +705,12 @@ pub async fn borrow(
         }
         tracing::info!("prêt : {name} demande l'ordinateur");
         // `host` : « En attente de {hôte}… », même venu par un code.
-        let host = tokio::task::spawn_blocking(host_name).await.unwrap_or_default();
+        let host = host_name_async(&s).await;
         let answer = json!({ "request": request.id, "secret": request.secret(), "host": host, "computer": hostname() });
         return (StatusCode::ACCEPTED, [(header::CACHE_CONTROL, "no-store")], Json(answer)).into_response();
     }
-    let loan = s.lend.begin(who, until, steam, None);
+    // Deux emprunts en même temps : un seul prêt.
+    let Some(loan) = s.lend.begin(who, until, steam, None) else { return friend_error(StatusCode::CONFLICT, "lent") };
     if prepare(&s, loan.clone()).await {
         match s.lend.loan().filter(|l| l.id == loan.id) {
             Some(l) => loan_answer(&s, &l, via.as_ref()),
@@ -563,6 +720,29 @@ pub async fn borrow(
         finish(&s, &loan.id, Reason::Stopped).await;
         friend_error(StatusCode::SERVICE_UNAVAILABLE, "off")
     }
+}
+
+/// Le même ami qui revient (15 min) : son prêt, s'il a la même preuve (le
+/// code, ou son compte vérifié) et le même appareil, ou s'il n'était plus
+/// connecté. Encore en préparation : il attend qu'elle finisse.
+async fn come_back(s: &AppState, who: &Who, via: Option<&Via>) -> Option<Response> {
+    if let Some(id) = s.lend.preparing_for(who) {
+        let deadline = tokio::time::Instant::now() + PREPARE_WAIT;
+        loop {
+            let changed = s.lend.changed();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            match s.lend.loan() {
+                Some(l) if l.id == id && l.phase == lend::Phase::Preparing => {}
+                _ => break,
+            }
+            if tokio::time::timeout_at(deadline, changed).await.is_err() {
+                return Some(friend_error(StatusCode::SERVICE_UNAVAILABLE, "off"));
+            }
+        }
+    }
+    let loan = s.lend.resume(who)?;
+    Some(loan_answer(s, &loan, via))
 }
 
 #[derive(Deserialize)]
@@ -649,7 +829,7 @@ pub async fn leave(State(s): State<AppState>, headers: HeaderMap, via: Option<ax
         Json(json!({ "ok": true })).into_response()
     } else {
         let id = body.lend.unwrap_or_default();
-        match s.lend.loan().filter(|l| l.id == id && l.secret() == secret) {
+        match s.lend.loan().filter(|l| l.id == id && lend::same(&secret, l.secret())) {
             Some(loan) => {
                 spawn_finish(&s, loan.id.clone(), Reason::Left);
                 Json(json!({ "ok": true })).into_response()
@@ -838,15 +1018,37 @@ pub struct SettingsBody {
     steam: Option<bool>,
     #[serde(default)]
     apps: Option<Vec<crate::launch::Launch>>,
+    /// « Votre prénom » (vide : le prénom du compte Windows, sinon le nom de l'ordinateur).
+    #[serde(default)]
+    host_name: Option<String>,
 }
 
 fn settings_json(s: &AppState) -> Value {
     let settings = settings(s);
-    json!({ "enabled": settings.enabled, "apps": settings.apps, "steam": settings.steam, "steam_found": lend_sys::steam_dir().is_some() || cfg!(not(windows)) })
+    json!({
+        "enabled": settings.enabled,
+        "apps": settings.apps,
+        "steam": settings.steam,
+        "steam_found": lend_sys::steam_dir().is_some() || cfg!(not(windows)),
+        "host_name": settings.host_name,
+        // Ce que lisent les amis sans « Votre prénom » : le prénom du compte Windows, sinon le nom de l'ordinateur.
+        "host_default": account_name(),
+    })
 }
 
 pub async fn get_settings(State(s): State<AppState>) -> Json<Value> {
-    Json(settings_json(&s))
+    Json(settings_async(&s).await)
+}
+
+/// Les réglages, hors du fil d'async (Steam et le compte Windows se lisent sur le disque et par un agent).
+async fn settings_async(s: &AppState) -> Value {
+    let s = s.clone();
+    tokio::task::spawn_blocking(move || settings_json(&s)).await.unwrap_or(Value::Null)
+}
+
+/// `GET /api/lend/history` : les derniers prêts (20 au plus, le plus récent d'abord).
+pub async fn history(State(s): State<AppState>) -> Json<Value> {
+    Json(json!(s.lend_history.list()))
 }
 
 pub async fn put_settings(State(s): State<AppState>, Json(body): Json<SettingsBody>) -> LendResult<Json<Value>> {
@@ -868,6 +1070,9 @@ pub async fn put_settings(State(s): State<AppState>, Json(body): Json<SettingsBo
         if let Some(apps) = apps {
             settings.lend.apps = apps;
         }
+        if let Some(name) = &body.host_name {
+            settings.lend.host_name = lend::clean_name(name);
+        }
     })?;
     let after = enabled(&s);
     if before != after {
@@ -884,7 +1089,7 @@ pub async fn put_settings(State(s): State<AppState>, Json(body): Json<SettingsBo
         }
         s.relay.wake();
     }
-    Ok(Json(settings_json(&s)))
+    Ok(Json(settings_async(&s).await))
 }
 
 pub async fn friends(State(s): State<AppState>) -> Json<Value> {
@@ -912,12 +1117,20 @@ pub async fn friend_update(State(s): State<AppState>, Path(id): Path<String>, Js
         None => None,
     };
     let friend = s.friends.update(&id, &body, hash)?.ok_or_else(|| LendError::new(StatusCode::NOT_FOUND, "unknown_friend", Msg::new("lend.unknownFriend")))?;
+    // Compte coupé : son prêt en cours s'arrête, sa demande part.
+    if !friend.enabled {
+        if let Some(loan) = s.lend.loan().filter(|l| l.who.friend.as_deref() == Some(friend.id.as_str())) {
+            spawn_finish(&s, loan.id, Reason::Stopped);
+        }
+        s.lend.drop_requests_of(&friend.id);
+    }
     Ok(Json(friend.json()))
 }
 
 pub async fn friend_delete(State(s): State<AppState>, Path(id): Path<String>) -> LendResult<Json<Value>> {
     let friend = s.friends.delete(&id)?.ok_or_else(|| LendError::new(StatusCode::NOT_FOUND, "unknown_friend", Msg::new("lend.unknownFriend")))?;
-    // Son prêt en cours s'arrête.
+    // Sa dernière partie est oubliée ; son prêt en cours s'arrête.
+    s.last_played.forget(&lend_last::friend_key(&friend.id));
     if let Some(loan) = s.lend.loan().filter(|l| l.who.friend.as_deref() == Some(friend.id.as_str())) {
         spawn_finish(&s, loan.id, Reason::Stopped);
     }
@@ -934,7 +1147,7 @@ pub async fn friend_invite(State(s): State<AppState>, Path(id): Path<String>) ->
         link.push_str(&format!("&fp={}", urlencoding::encode(fp)));
     }
     // Le prénom de l'hôte : « {hôte} vous prête son ordinateur. » avant tout essai du compte.
-    let host = tokio::task::spawn_blocking(host_name).await.unwrap_or_default();
+    let host = host_name_async(&s).await;
     let (login, name) = (urlencoding::encode(&friend.login), urlencoding::encode(&host));
     link.push_str(&format!("&login={login}"));
     let scheme = if s.secure_cookies { "https" } else { "http" };
@@ -993,16 +1206,64 @@ pub async fn console_get(State(s): State<AppState>, ConnectInfo(peer): ConnectIn
         "phase": loan.phase,
         "lend": loan.id,
         "borrower": loan.who.name,
-        "host": host_name(),
+        "host": host_name(&s),
         "computer": hostname(),
+        "since": loan.since,
         "until": loan.until,
         "notice": loan.notice,
+        // L'ami a donné signe de vie : son image arrive (« Bonne partie »).
+        "connected": loan.beaten && loan.connected,
+        "end": loan.end_reason.map(end_name),
         "steam": loan.steam,
         "display": if loan.display.is_some() { display.unwrap_or(Value::Null) } else { Value::Null },
         "apps": console_apps(&s),
+        "last": last_tile(&s, &loan).await,
         "steam_exe": null,
         "lang": lang,
     })))
+}
+
+/// La grande tuile « Dernière partie » de cet ami, si elle est encore permise.
+async fn last_tile(s: &AppState, loan: &lend::Loan) -> Value {
+    let Some(played) = lend_last::key_of(&loan.who).and_then(|k| s.last_played.get(&k)) else { return Value::Null };
+    let (apps, steam) = (console_apps(s), settings(s).steam);
+    tokio::task::spawn_blocking(move || {
+        let root = lend_last::steam_root();
+        lend_last::tile(&played, &apps, steam, |appid| root.as_deref().and_then(|r| lend_last::steam_game(r, appid))).unwrap_or(Value::Null)
+    })
+    .await
+    .unwrap_or(Value::Null)
+}
+
+/// Note la dernière partie de l'ami du prêt en cours.
+fn remember(s: &AppState, played: lend_last::Played) {
+    if let Some(key) = s.lend.loan().and_then(|l| lend_last::key_of(&l.who)) {
+        s.last_played.set(&key, played);
+    }
+}
+
+/// Un jeu Steam installé, Steam permis.
+async fn allowed_steam_game(s: &AppState, appid: u32) -> Option<lend_last::SteamGame> {
+    if !settings(s).steam {
+        return None;
+    }
+    tokio::task::spawn_blocking(move || lend_last::steam_root().and_then(|r| lend_last::steam_game(&r, appid))).await.ok().flatten()
+}
+
+#[derive(Deserialize)]
+pub struct PlayedBody {
+    #[serde(default)]
+    steam: u32,
+}
+
+/// `POST /api/local/lend/console/played` `{"steam": <appid>}` : l'agent a vu
+/// l'ami jouer à ce jeu Steam (`RunningAppID`) ; il devient sa dernière partie.
+pub async fn console_played(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<SocketAddr>, headers: HeaderMap, Json(body): Json<PlayedBody>) -> LendResult<Json<Value>> {
+    console_only(&s, peer, &headers)?;
+    if body.steam > 0 && allowed_steam_game(&s, body.steam).await.is_some() {
+        remember(&s, lend_last::Played::Steam { appid: body.steam });
+    }
+    Ok(Json(json!({ "ok": true })))
 }
 
 pub async fn console_ready(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<SocketAddr>, headers: HeaderMap) -> LendResult<Json<Value>> {
@@ -1026,7 +1287,20 @@ pub struct LaunchBody {
 pub async fn console_launch(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<SocketAddr>, headers: HeaderMap, Json(body): Json<LaunchBody>) -> LendResult<Json<Value>> {
     console_only(&s, peer, &headers)?;
     let settings = settings(&s);
-    let launch = if body.id == "steam" && settings.steam {
+    let launch = if let Some(appid) = lend_last::steam_appid(&body.id) {
+        // « Reprendre {jeu} » : un jeu Steam installé, Steam permis.
+        let game = allowed_steam_game(&s, appid).await.ok_or_else(|| LendError::new(StatusCode::NOT_FOUND, "unknown_app", Msg::new("lend.unknownApp")))?;
+        crate::launch::Launch {
+            kind: crate::launch::LaunchKind::Uri,
+            target: format!("steam://rungameid/{appid}"),
+            name: game.name,
+            icon: None,
+            exe: None,
+            close: None,
+            close_at_end: true,
+            skip_desktop: false,
+        }
+    } else if body.id == "steam" && settings.steam {
         crate::launch::Launch {
             kind: crate::launch::LaunchKind::Uri,
             target: "steam://open/bigpicture".into(),
@@ -1045,6 +1319,12 @@ pub async fn console_launch(State(s): State<AppState>, ConnectInfo(peer): Connec
             .ok_or_else(|| LendError::new(StatusCode::NOT_FOUND, "unknown_app", Msg::new("lend.unknownApp")))?
     };
     blocking(move || crate::launch::launch_now(&launch)).await?;
+    // La dernière partie : l'app ou le jeu lancé (pas Steam lui-même).
+    if let Some(appid) = lend_last::steam_appid(&body.id) {
+        remember(&s, lend_last::Played::Steam { appid });
+    } else if body.id != "steam" {
+        remember(&s, lend_last::Played::App { id: body.id.clone() });
+    }
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -1074,6 +1354,12 @@ pub async fn console_icon(State(s): State<AppState>, ConnectInfo(peer): ConnectI
     if let Err(e) = console_only(&s, peer, &headers) {
         return e.into_response();
     }
+    if let Some(appid) = lend_last::steam_image_appid(&name) {
+        return match allowed_steam_game(&s, appid).await.and_then(|g| g.image).and_then(|p| std::fs::read(p).ok()) {
+            Some(bytes) => ([(header::CONTENT_TYPE, "image/jpeg"), (header::CACHE_CONTROL, "max-age=3600")], bytes).into_response(),
+            None => StatusCode::NOT_FOUND.into_response(),
+        };
+    }
     match s.launcher.icon_path(&name).and_then(|p| std::fs::read(p).ok()) {
         Some(bytes) => ([(header::CONTENT_TYPE, "image/png"), (header::CACHE_CONTROL, "max-age=3600")], bytes).into_response(),
         None => StatusCode::NOT_FOUND.into_response(),
@@ -1086,6 +1372,8 @@ pub async fn console_icon(State(s): State<AppState>, ConnectInfo(peer): ConnectI
 /// fins, écran virtuel gardé en vie, agent de console surveillé, veille de
 /// Windows empêchée tant que le prêt est activé.
 pub fn supervise(s: AppState) {
+    let r = s.clone();
+    tokio::spawn(async move { recover(&r).await });
     tokio::spawn(async move {
         let mut tick = tokio::time::interval(Duration::from_secs(1));
         loop {
@@ -1097,6 +1385,9 @@ pub fn supervise(s: AppState) {
 
 async fn supervise_tick(s: &AppState) {
     lend_sys::keep_awake(enabled(s));
+    if s.activity.live().is_some() || s.share.is_open() || s.lend.loan().is_some() {
+        *REMOTE_SEEN.lock().unwrap() = Some(Instant::now());
+    }
     let tick = s.lend.tick(Instant::now(), now_secs());
     for name in &tick.expired {
         tracing::info!("prêt : demande de {name} sans réponse");
@@ -1124,6 +1415,14 @@ async fn supervise_tick(s: &AppState) {
             tracing::warn!("prêt : l'agent de console ne répond plus, prêt arrêté");
             spawn_finish(s, loan.id, Reason::Stopped);
         }
+    }
+    // La session Windows verrouillée en plein prêt (Ctrl+Alt+Suppr au clavier
+    // du PC, agent tombé) : le prêt s'arrête.
+    if let Some(loan) = s.lend.loan().filter(|l| l.phase == lend::Phase::Lent)
+        && tokio::task::spawn_blocking(lend_sys::session_state).await.is_ok_and(|st| st == SessionState::Locked)
+    {
+        tracing::warn!("prêt : session Windows verrouillée, prêt arrêté");
+        spawn_finish(s, loan.id, Reason::Stopped);
     }
     let ending = tick.end.is_some();
     if let Some((id, reason)) = tick.end {
@@ -1176,6 +1475,122 @@ mod tests {
         let mut h = HeaderMap::new();
         h.insert(LEND_HEADER, secret.parse().unwrap());
         h
+    }
+
+    #[tokio::test]
+    async fn un_pret_laisse_par_un_admin_arrete() {
+        let (s, dir) = station();
+        let Json(view) = local_code(State(s.clone()), local(), admin(&s), Bytes::new()).await.ok().unwrap();
+        let code = view["code"]["code"].as_str().unwrap().to_string();
+        let (status, lent) = body(borrow(State(s.clone()), peer(50), None, borrow_code(&code, "Léa", "ipad")).await).await;
+        assert_eq!(status, StatusCode::OK, "{lent}");
+        // Pendant le prêt, le repère est là ; à la fin, il part.
+        assert!(dir.join(ACTIVE_FILE).exists());
+        finish(&s, lent["lend"].as_str().unwrap(), Reason::Left).await;
+        assert!(!dir.join(ACTIVE_FILE).exists());
+        // Admin arrêté en plein prêt : au démarrage, session verrouillée, ami coupé, repère parti.
+        std::fs::write(dir.join(ACTIVE_FILE), "l1").unwrap();
+        recover(&s).await;
+        assert!(!dir.join(ACTIVE_FILE).exists());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn votre_prenom_et_les_derniers_prets() {
+        let (s, dir) = station();
+        // « Votre prénom » : dans la vue, l'invitation et les réglages.
+        let req = serde_json::from_value::<SettingsBody>(json!({ "host_name": "  Matthieu\u{7}  " })).unwrap();
+        let Json(v) = put_settings(State(s.clone()), Json(req)).await.ok().unwrap();
+        assert_eq!(v["host_name"], "Matthieu");
+        assert!(v["host_default"].is_string());
+        assert_eq!(view(&s)["host"], "Matthieu");
+        let friend = s.friends.create(&lend::FriendBody { name: Some("Léa".into()), login: Some("lea".into()), ..Default::default() }, lend::hash_friend_password("secret-lea").unwrap()).unwrap();
+        let Json(invite) = friend_invite(State(s.clone()), Path(friend.id.clone())).await.ok().unwrap();
+        assert!(invite["web"].as_str().unwrap().ends_with("&name=Matthieu"), "{invite}");
+        // Vide : le prénom du compte Windows, sinon le nom de l'ordinateur.
+        let req = serde_json::from_value::<SettingsBody>(json!({ "host_name": "" })).unwrap();
+        let Json(v) = put_settings(State(s.clone()), Json(req)).await.ok().unwrap();
+        assert_eq!(v["host_name"], "");
+        assert_eq!(view(&s)["host"], v["host_default"]);
+        // Un prêt par code, rendu : il entre dans les derniers prêts.
+        let Json(code) = local_code(State(s.clone()), local(), admin(&s), Bytes::new()).await.ok().unwrap();
+        let (status, lent) = body(borrow(State(s.clone()), peer(60), None, borrow_code(code["code"]["code"].as_str().unwrap(), "Sam", "tv")).await).await;
+        assert_eq!(status, StatusCode::OK, "{lent}");
+        finish(&s, lent["lend"].as_str().unwrap(), Reason::Left).await;
+        let Json(h) = history(State(s.clone())).await;
+        assert_eq!((h[0]["name"].as_str(), h[0]["kind"].as_str(), h[0]["reason"].as_str(), h[0]["app"].as_str()), (Some("Sam"), Some("code"), Some("left"), Some("ios")));
+        assert!(h[0]["end"].as_u64() >= h[0]["since"].as_u64());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn sans_cle_de_kyber_pas_de_pret() {
+        let dir = std::env::temp_dir().join(format!("kn-lend-api-{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let s = AppState::for_tests(dir.clone(), Box::new(crate::service::Simulated::default()));
+        std::fs::write(dir.join("kyber_config.toml"), "").unwrap();
+        s.settings.lock().unwrap().lend.enabled = true;
+        let Json(v) = local_code(State(s.clone()), local(), admin(&s), Bytes::new()).await.ok().unwrap();
+        let (status, answer) = body(borrow(State(s.clone()), peer(70), None, borrow_code(v["code"]["code"].as_str().unwrap(), "Sam", "tv")).await).await;
+        assert_eq!((status, answer["error"].as_str()), (StatusCode::SERVICE_UNAVAILABLE, Some("off")));
+        assert!(s.lend.loan().is_none(), "pas de prêt sans personne");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn quelqu_un_devant_le_pc() {
+        // Aucune session à distance connue : l'entrée de moins de 5 min compte.
+        assert!(present(10, None));
+        assert!(!present(PRESENT, None));
+        // La session de l'hôte finie il y a 60 s, dernière entrée il y a 70 s : la sienne, à distance.
+        assert!(!present(70, Some(60)));
+        // Une entrée après la fin de la session : quelqu'un devant le PC.
+        assert!(present(20, Some(60)));
+    }
+
+    #[tokio::test]
+    async fn la_derniere_partie_de_l_ami_au_lanceur() {
+        let (s, dir) = station();
+        s.settings.lock().unwrap().lend.apps = vec![crate::launch::Launch {
+            kind: crate::launch::LaunchKind::Path,
+            target: "D:\\Jeux\\Celeste\\Celeste.exe".into(),
+            name: "Celeste".into(),
+            icon: Some("a1b2c3d4e5f60718.png".into()),
+            exe: None,
+            close: None,
+            close_at_end: true,
+            skip_desktop: false,
+        }];
+        let lend_once = |device: &'static str| {
+            let s = s.clone();
+            async move {
+                let Json(view) = local_code(State(s.clone()), local(), admin(&s), Bytes::new()).await.ok().unwrap();
+                let code = view["code"]["code"].as_str().unwrap().to_string();
+                let (status, lent) = body(borrow(State(s.clone()), peer(40), None, borrow_code(&code, "Léa", device)).await).await;
+                assert_eq!(status, StatusCode::OK, "{lent}");
+                s.lend.loan().unwrap()
+            }
+        };
+        // La première fois : rien.
+        let loan = lend_once("ipad-lea").await;
+        assert!(last_tile(&s, &loan).await.is_null());
+        // L'app lancée devient sa dernière partie (pas la tuile Steam).
+        remember(&s, lend_last::Played::App { id: "a1b2c3d4e5f60718".into() });
+        let tile = last_tile(&s, &loan).await;
+        assert_eq!((tile["id"].as_str(), tile["name"].as_str()), (Some("a1b2c3d4e5f60718"), Some("Celeste")));
+        finish(&s, &loan.id, Reason::Left).await;
+        // Le même appareil revient avec un autre code : la grande tuile ; un autre appareil : rien.
+        let loan = lend_once("ipad-lea").await;
+        assert_eq!(last_tile(&s, &loan).await["name"], "Celeste");
+        finish(&s, &loan.id, Reason::Left).await;
+        let loan = lend_once("tv-max").await;
+        assert!(last_tile(&s, &loan).await.is_null());
+        finish(&s, &loan.id, Reason::Left).await;
+        // L'app retirée des apps permises : plus de grande tuile.
+        s.settings.lock().unwrap().lend.apps.clear();
+        let loan = lend_once("ipad-lea").await;
+        assert!(last_tile(&s, &loan).await.is_null());
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[tokio::test]
@@ -1272,7 +1687,7 @@ mod tests {
         // L'invitation d'un ami porte son identifiant et le prénom de l'hôte.
         let friend = s.friends.create(&lend::FriendBody { name: Some("Léa".into()), login: Some("lea".into()), ..Default::default() }, lend::hash_friend_password("secret-lea").unwrap()).unwrap();
         let Json(invite) = friend_invite(State(s.clone()), Path(friend.id.clone())).await.ok().unwrap();
-        let name = format!("&name={}", urlencoding::encode(&host_name()));
+        let name = format!("&name={}", urlencoding::encode(&host_name(&s)));
         let (link, web) = (invite["link"].as_str().unwrap(), invite["web"].as_str().unwrap());
         assert!(link.starts_with("kybernow://borrow?") && link.contains("&login=lea") && link.ends_with(&name), "{link}");
         assert!(web.contains("/link/?borrow=lea&name=") && web.ends_with(&name), "{web}");

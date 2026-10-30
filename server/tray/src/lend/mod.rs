@@ -78,6 +78,18 @@ pub struct App {
     pub icon: Option<String>,
 }
 
+/// La dernière partie de l'ami (« Dernière partie », grande tuile en tête du
+/// lanceur) : une app permise, ou un jeu Steam (`steam:<appid>`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Last {
+    pub id: String,
+    pub name: String,
+    /// Icône de l'app chez Admin (`.png`).
+    pub icon: Option<String>,
+    /// Image du jeu chez Admin (`/api/local/lend/icons/steam-<appid>.jpg`).
+    pub image: Option<String>,
+}
+
 /// Préavis de 2 minutes : sa raison et l'heure de la fin (secondes Unix).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Notice {
@@ -93,13 +105,21 @@ pub struct View {
     pub borrower: String,
     pub host: String,
     pub computer: String,
+    /// Début du prêt (secondes Unix) : l'anneau du temps restant part de là.
+    pub since: Option<i64>,
     pub until: Option<i64>,
     pub notice: Option<Notice>,
+    /// L'ami a donné signe de vie (« Bonne partie, {prénom} »).
+    pub connected: bool,
+    /// La fin, pendant la remise en état (`left`, `taken_back`…).
+    pub end: Option<String>,
     /// « Son compte Steam » : Steam passe sur le compte de l'ami.
     pub steam_friend: bool,
     /// `None` tant que l'écran virtuel n'est pas là.
     pub display: Option<Display>,
     pub apps: Vec<App>,
+    /// La dernière partie de l'ami, si elle est encore permise (rien la première fois).
+    pub last: Option<Last>,
     pub steam_exe: Option<String>,
     pub lang: Lang,
 }
@@ -132,6 +152,15 @@ impl View {
                 })
             })
             .collect();
+        let path = |v: &Value| v.as_str().filter(|s| !s.is_empty()).map(str::to_owned);
+        let last = v["last"].as_object().and_then(|l| {
+            Some(Last {
+                id: l.get("id")?.as_str().filter(|s| !s.is_empty())?.to_string(),
+                name: l.get("name").map(text).unwrap_or_default(),
+                icon: l.get("icon").and_then(path),
+                image: l.get("image").and_then(path),
+            })
+        });
         let notice = v["notice"].as_object().and_then(|n| {
             Some(Notice { reason: n.get("reason").map(text).unwrap_or_default(), at: n.get("at")?.as_i64()? })
         });
@@ -141,11 +170,15 @@ impl View {
             borrower: text(&v["borrower"]),
             host: text(&v["host"]),
             computer: text(&v["computer"]),
+            since: v["since"].as_i64(),
             until: v["until"].as_i64(),
             notice,
+            connected: v["connected"] == true,
+            end: v["end"].as_str().filter(|s| !s.is_empty()).map(str::to_owned),
             steam_friend: v["steam"] == "friend",
             display,
             apps,
+            last,
             steam_exe: v["steam_exe"].as_str().filter(|s| !s.is_empty()).map(str::to_owned),
             lang: v["lang"].as_str().map_or(fallback, Lang::from_tag),
         })
@@ -221,6 +254,12 @@ impl Machine {
         self.begun && !self.torn_down
     }
 
+    /// La mise en place a échoué : jamais de `ready` (l'agent le revérifie
+    /// juste avant de l'envoyer).
+    pub fn broken(&self) -> bool {
+        self.broken
+    }
+
     /// Un envoi ou une étape a échoué : à refaire au prochain relevé.
     pub fn retry(&mut self, step: Step) {
         match step {
@@ -258,9 +297,14 @@ impl Machine {
         };
         self.silent_since = None;
         let Some(view) = view else {
+            // Plus de prêt (fini, ou Admin redémarré en plein prêt) : remise en
+            // état, puis la session se verrouille si l'agent était en place.
             if self.dirty && !self.torn_down {
                 steps.push(Step::TearDown);
                 self.torn_down = true;
+            }
+            if self.dirty {
+                steps.push(Step::Lock);
             }
             steps.push(Step::Exit);
             return steps;
@@ -280,7 +324,10 @@ impl Machine {
                     // à refaire, Admin conclura.
                     return steps;
                 }
-                if !self.begun {
+                // `ready` jamais dans le même relevé que la mise en place : elle
+                // peut échouer (Steam), et `ready` ne part qu'une fois qu'elle a réussi.
+                let begins = !self.begun;
+                if begins {
                     steps.push(Step::Begin);
                     self.begun = true;
                     self.dirty = true;
@@ -290,7 +337,7 @@ impl Machine {
                     steps.push(Step::Show);
                     self.shown = true;
                 }
-                if view.phase == Phase::Preparing && self.shown && !self.ready_sent && !self.broken {
+                if view.phase == Phase::Preparing && self.shown && !self.ready_sent && !self.broken && !begins {
                     steps.push(Step::Ready);
                     self.ready_sent = true;
                 }
@@ -358,6 +405,46 @@ pub fn clock_at(lang: Lang, unix: i64) -> Option<String> {
 #[cfg(windows)]
 pub fn unix_now() -> i64 {
     system::unix_now()
+}
+
+/// L'horloge du lanceur et du cache : « 16:40 » ; « 4:40 PM ».
+pub fn wall_clock(lang: Lang, hour: u32, minute: u32) -> String {
+    match lang {
+        Lang::Fr => format!("{hour:02}:{minute:02}"),
+        Lang::En => {
+            let (h, half) = match hour % 24 {
+                0 => (12, "AM"),
+                h @ 1..=11 => (h, "AM"),
+                12 => (12, "PM"),
+                h => (h - 12, "PM"),
+            };
+            format!("{h}:{minute:02} {half}")
+        }
+    }
+}
+
+/// L'anneau du temps restant, de 1 (plein) à 0 : pendant un préavis, les
+/// 2 minutes qui restent ; sinon le temps restant sur la durée du prêt.
+/// `None` sans fin prévue (anneau plein).
+pub fn ring(now: i64, since: Option<i64>, until: Option<i64>, notice_at: Option<i64>) -> Option<f64> {
+    if let Some(at) = notice_at {
+        return Some(((at - now) as f64 / 120.0).clamp(0.0, 1.0));
+    }
+    let (since, until) = (since?, until?);
+    let total = (until - since).max(1) as f64;
+    Some(((until - now) as f64 / total).clamp(0.0, 1.0))
+}
+
+/// La fin telle que le lanceur la dit, avant « À bientôt, {prénom} ».
+pub fn end_text(lang: Lang, reason: &str, host: &str) -> String {
+    let key = match reason {
+        "left" => "lend.end.left",
+        "taken_back" => "lend.end.takenBack",
+        "time_up" => "lend.end.timeUp",
+        "slot_end" => "lend.end.slotEnd",
+        _ => "lend.end.stopped",
+    };
+    tr(lang, key, &[("host", &host)])
 }
 
 /// Le décompte du préavis : « 1:42 ».
@@ -439,16 +526,24 @@ const VK_RETURN: u32 = 0x0D;
 const VK_ESCAPE: u32 = 0x1B;
 const VK_LWIN: u32 = 0x5B;
 const VK_RWIN: u32 = 0x5C;
+const VK_SLEEP: u32 = 0x5F;
+/// Les touches du navigateur, du son, des médias, du courrier et « Lancer
+/// l'app 1 et 2 » (VK_BROWSER_BACK à VK_LAUNCH_APP2) : Windows les sert
+/// lui-même (Explorateur, navigateur, courrier), hors des apps permises.
+const VK_SHELL_KEYS: std::ops::RangeInclusive<u32> = 0xA6..=0xB7;
 
 /// Le crochet clavier laisse-t-il passer cette touche ? L'entrée physique
 /// (clavier du PC) jamais ; l'entrée injectée (Kyber, l'ami) oui, sauf les
-/// touches Windows, Alt+Tab, Alt+Échap, Ctrl+Échap et Ctrl+Maj+Échap.
+/// touches Windows, Alt+Tab, Alt+Échap, Ctrl+Échap et Ctrl+Maj+Échap, la
+/// mise en veille, et les touches du navigateur, des médias, du courrier et
+/// des apps (« Lancer l'app 1 » ouvre « Ce PC » dans l'Explorateur déjà là).
 pub fn keep(injected: bool, vk: u32, mods: Mods) -> bool {
     if !injected {
         return false;
     }
     match vk {
-        VK_LWIN | VK_RWIN => false,
+        VK_LWIN | VK_RWIN | VK_SLEEP => false,
+        vk if VK_SHELL_KEYS.contains(&vk) => false,
         VK_TAB => !mods.alt,
         VK_ESCAPE => !(mods.alt || mods.ctrl),
         _ => true,
@@ -596,6 +691,30 @@ mod tests {
         assert_eq!(Phase::parse("plus tard"), Phase::Idle);
         let Reply::View(v) = view("preparing", false) else { panic!() };
         assert!(v.display.is_none());
+        assert!(v.last.is_none(), "rien la première fois");
+        assert!(!v.connected && v.end.is_none() && v.since.is_none());
+        let v = View::parse(&json!({ "phase": "ending", "since": 100, "connected": true, "end": "taken_back" }), Lang::Fr).unwrap();
+        assert_eq!((v.since, v.connected, v.end.as_deref()), (Some(100), true, Some("taken_back")));
+    }
+
+    #[test]
+    fn derniere_partie_lue() {
+        let base = json!({ "phase": "lent", "lend": "l1", "apps": [] });
+        let with = |last: Value| {
+            let mut v = base.clone();
+            v["last"] = last;
+            View::parse(&v, Lang::Fr).unwrap().last
+        };
+        assert_eq!(
+            with(json!({"id": "steam:1145360", "kind": "steam", "name": "Hades", "icon": null, "image": "/api/local/lend/icons/steam-1145360.jpg"})),
+            Some(Last { id: "steam:1145360".into(), name: "Hades".into(), icon: None, image: Some("/api/local/lend/icons/steam-1145360.jpg".into()) })
+        );
+        assert_eq!(
+            with(json!({"id": "ab12", "kind": "app", "name": "Celeste", "icon": "/api/local/lend/icons/ab12.png", "image": null})).map(|l| (l.icon, l.image)),
+            Some((Some("/api/local/lend/icons/ab12.png".into()), None))
+        );
+        assert_eq!(with(Value::Null), None);
+        assert_eq!(with(json!({"name": "sans id"})), None);
     }
 
     #[test]
@@ -619,7 +738,36 @@ mod tests {
         assert_eq!(m.next(&view("ending", true), at(8)), [Step::TearDown, Step::Ended]);
         m.retry(Step::Ended);
         assert_eq!(m.next(&view("ending", true), at(9)), [Step::Ended]);
-        assert_eq!(m.next(&view("idle", false), at(10)), [Step::Exit]);
+        // Admin a conclu : la session se verrouille (déjà fait par Admin, sans effet de plus).
+        assert_eq!(m.next(&view("idle", false), at(10)), [Step::Lock, Step::Exit]);
+    }
+
+    #[test]
+    fn jamais_pret_dans_le_releve_de_la_mise_en_place() {
+        let t0 = Instant::now();
+        // L'écran déjà là au premier relevé : mise en place et lanceur, `ready` au suivant.
+        let mut m = Machine::new(false);
+        assert_eq!(m.next(&view("preparing", true), t0), [Step::Begin, Step::Show]);
+        assert_eq!(m.next(&view("preparing", true), t0), [Step::Ready]);
+        // La mise en place échoue (Steam) : jamais de `ready`.
+        let mut m = Machine::new(false);
+        assert_eq!(m.next(&view("preparing", true), t0), [Step::Begin, Step::Show]);
+        m.retry(Step::Begin);
+        assert!(m.broken());
+        assert_eq!(m.next(&view("preparing", true), t0), []);
+        assert_eq!(m.next(&view("preparing", true), t0), []);
+    }
+
+    #[test]
+    fn admin_redemarre_en_plein_pret() {
+        let t0 = Instant::now();
+        let mut m = Machine::new(false);
+        m.next(&view("lent", true), t0);
+        // Admin redémarré ne connaît plus le prêt : remise en état et verrouillage.
+        assert_eq!(m.next(&view("idle", false), t0), [Step::TearDown, Step::Lock, Step::Exit]);
+        let mut m = Machine::new(false);
+        m.next(&view("lent", true), t0);
+        assert_eq!(m.next(&Reply::Gone, t0), [Step::TearDown, Step::Lock, Step::Exit]);
     }
 
     #[test]
@@ -637,10 +785,13 @@ mod tests {
         assert_eq!(m.next(&Reply::Silent, at(60)), [Step::Exit]);
         // Un état laissé par un agent tombé, et plus de prêt : remise en état, sortie.
         let mut m = Machine::new(true);
-        assert_eq!(m.next(&Reply::Gone, at(0)), [Step::TearDown, Step::Exit]);
+        assert_eq!(m.next(&Reply::Gone, at(0)), [Step::TearDown, Step::Lock, Step::Exit]);
         // Agent relancé en plein prêt : il se remet en place, sans « prêt ».
         let mut m = Machine::new(true);
         assert_eq!(m.next(&view("lent", true), at(0)), [Step::Begin, Step::Show, Step::Beat]);
+        // Pas d'écran au premier relevé : rien d'autre que la mise en place.
+        let mut m = Machine::new(false);
+        assert_eq!(m.next(&view("preparing", false), at(0)), [Step::Begin]);
         // Fin sans mise en place : la remise en état (de l'état laissé), puis « fini ».
         let mut m = Machine::new(true);
         assert_eq!(m.next(&view("ending", false), at(0)), [Step::TearDown, Step::Ended]);
@@ -663,7 +814,8 @@ mod tests {
         m.next(&view("lent", true), t0);
         let Reply::View(mut other) = view("preparing", true) else { panic!() };
         other.lend = "l2".into();
-        assert_eq!(m.next(&Reply::View(other), t0), [Step::TearDown, Step::Begin, Step::Show, Step::Ready]);
+        assert_eq!(m.next(&Reply::View(other.clone()), t0), [Step::TearDown, Step::Begin, Step::Show]);
+        assert_eq!(m.next(&Reply::View(other), t0), [Step::Ready]);
     }
 
     #[test]
@@ -683,6 +835,18 @@ mod tests {
         assert_eq!(clock(Lang::En, 12, 0), "12 PM");
         assert_eq!(countdown(102), "1:42");
         assert_eq!(countdown(-3), "0:00");
+        assert_eq!(wall_clock(Lang::Fr, 9, 5), "09:05");
+        assert_eq!(wall_clock(Lang::En, 16, 40), "4:40 PM");
+        assert_eq!(wall_clock(Lang::En, 0, 0), "12:00 AM");
+        // L'anneau : la durée du prêt, ou les 2 minutes du préavis ; plein sans fin.
+        assert_eq!(ring(1_000, Some(0), Some(4_000), None), Some(0.75));
+        assert_eq!(ring(5_000, Some(0), Some(4_000), None), Some(0.0));
+        assert_eq!(ring(1_000, Some(0), Some(4_000), Some(1_060)), Some(0.5));
+        assert_eq!(ring(1_000, Some(0), None, None), None);
+        assert_eq!(end_text(Lang::Fr, "left", "Matthieu"), "Vous avez rendu l'ordinateur.");
+        assert_eq!(end_text(Lang::Fr, "taken_back", "Matthieu"), "Matthieu a repris l'ordinateur.");
+        assert_eq!(end_text(Lang::En, "slot_end", "Matthieu"), "Your time slot is over.");
+        assert_eq!(end_text(Lang::En, "slot_start", "Matthieu"), "The loan has stopped.");
         assert_eq!(notice_text(Lang::Fr, "taken_back", "Matthieu").unwrap(), "Matthieu reprend l'ordinateur dans 2 min : sauvegardez votre partie.");
         assert_eq!(notice_text(Lang::En, "time_up", "Matthieu").unwrap(), "The loan ends in 2 min: save your game.");
         assert_eq!(notice_text(Lang::Fr, "slot_start", "Matthieu"), None);
@@ -730,6 +894,11 @@ mod tests {
         assert!(!keep(true, VK_TAB, alt));
         assert!(!keep(true, VK_ESCAPE, alt));
         assert!(!keep(true, VK_ESCAPE, ctrl));
+        // Navigateur (0xA6), muet (0xAD), courrier (0xB4), « Lancer l'app 1 » (0xB6), veille.
+        for vk in [0xA6, 0xAD, 0xB4, 0xB6, 0xB7, VK_SLEEP] {
+            assert!(!keep(true, vk, none), "{vk:#x}");
+        }
+        assert!(keep(true, 0xA5 /* Alt droit */, none) && keep(true, 0xBA /* ; */, none));
         assert!(!keep(true, VK_ESCAPE, ctrl_shift));
         assert_eq!(cover_key_of(false, VK_RETURN), Some(CoverKey::Enter));
         assert_eq!(cover_key_of(false, VK_ESCAPE), Some(CoverKey::Escape));

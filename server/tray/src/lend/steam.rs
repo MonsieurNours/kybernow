@@ -14,7 +14,7 @@ use std::ptr::{null, null_mut};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
-use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, REG_SZ, RRF_RT_REG_SZ, RegDeleteKeyValueW, RegGetValueW, RegSetKeyValueW};
+use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, REG_SZ, RRF_RT_REG_DWORD, RRF_RT_REG_SZ, RegDeleteKeyValueW, RegGetValueW, RegSetKeyValueW};
 use windows_sys::Win32::UI::Shell::ShellExecuteW;
 use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
@@ -37,6 +37,15 @@ fn get(value: &str) -> Option<String> {
         let len = buf.iter().position(|c| *c == 0).unwrap_or(buf.len());
         Some(String::from_utf16_lossy(&buf[..len]))
     }
+}
+
+/// Le jeu Steam en cours (`RunningAppID`, 0 sans jeu), pour la dernière partie de l'ami.
+pub fn running_app() -> Option<u32> {
+    let (key, name) = (wide(KEY), wide("RunningAppID"));
+    let mut value = 0u32;
+    let mut size = 4u32;
+    let code = unsafe { RegGetValueW(HKEY_CURRENT_USER, key.as_ptr(), name.as_ptr(), RRF_RT_REG_DWORD, null_mut(), (&mut value as *mut u32).cast(), &mut size) };
+    (code == 0 && value > 0).then_some(value)
 }
 
 /// `Some` : écrit la valeur ; `None` : l'efface (elle n'existait pas avant le prêt).

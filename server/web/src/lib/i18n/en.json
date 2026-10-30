@@ -1197,6 +1197,118 @@
       "locked": "The computer is locked.",
       "off": "Lending is off on this computer.",
       "tooMany": "Too many attempts: try again in a minute."
+    },
+    "admin": {
+      "intro": "Hand the computer to a friend while you're not using it.",
+      "tabs": {
+        "lend": "Lend",
+        "friends": "Friends",
+        "settings": "Settings"
+      },
+      "lendNow": "Lend now",
+      "state": {
+        "free": {
+          "status": "Computer free",
+          "title": "Nobody is borrowing the computer",
+          "sub": "Lend it with a code for one session, or let your friends borrow with their account.",
+          "nextSlot": "Next time slot: {name}, {day} at {time}",
+          "slotNow": "{name}'s time slot is on, until {time}"
+        },
+        "code": {
+          "status": "Code waiting",
+          "title": "Your friend can enter this code",
+          "valid": "Valid for {time} more"
+        },
+        "request": {
+          "status": "Borrow request",
+          "inUse": "The computer is in use: the current session will close if you accept.",
+          "others1": "and 1 more request: {names}",
+          "othersN": "and {n} more requests: {names}"
+        },
+        "slot": {
+          "status": "Time slot"
+        },
+        "lent": {
+          "status": "Lent",
+          "since": "Since {time}",
+          "connected": "Connected"
+        },
+        "preparing": {
+          "status": "Preparing",
+          "title": "Getting the computer ready for {name}"
+        },
+        "ending": {
+          "status": "Loan ending",
+          "title": "The computer is coming back"
+        },
+        "notice": {
+          "status": "Taking back",
+          "endStatus": "Loan ending",
+          "endTitle": "The loan ends in {time}",
+          "warned": "{name} has been warned to save their game."
+        }
+      },
+      "kind": {
+        "code": "Code",
+        "friend": "Friend account",
+        "slot": "Time slot"
+      },
+      "week": {
+        "title": "This week",
+        "sub": "Your friends' time slots. During theirs, a friend borrows without asking you.",
+        "manage": "Manage time slots",
+        "empty": "No time slots yet.",
+        "now": "Now"
+      },
+      "history": {
+        "title": "Recent loans",
+        "empty": "No loans yet.",
+        "end": {
+          "left": "Given back by {name}",
+          "taken_back": "Taken back by you",
+          "time_up": "Time was up",
+          "slot_end": "End of the time slot",
+          "stopped": "Stopped"
+        }
+      },
+      "friends": {
+        "lastLoan": "Last loan",
+        "newTitle": "New friend",
+        "generate": "Generate",
+        "passwordHelp": "Your friend types it once in their app, which can remember it.",
+        "steamHelp": "You can change it for each request.",
+        "create": "Create account"
+      },
+      "settings": {
+        "title": "Settings",
+        "hostName": "Your first name",
+        "hostNameHelp": "Your friends read “{name} is lending you their computer.”",
+        "hostNameSaved": "First name saved.",
+        "steam": "Steam in Big Picture",
+        "steamHelp": "A Steam tile in the launcher, with the account chosen for each loan.",
+        "session": "Your Windows session",
+        "sessionHelp": "It must stay open: while lending is on, the Station keeps the computer from sleeping and locking on its own. It locks at the end of each loan.",
+        "off": "Turn lending off",
+        "offHelp": "No code or friend account works any more. Your settings are kept."
+      },
+      "off": {
+        "title": "Lend your PC to a friend, simply",
+        "code": "A code for one session",
+        "codeText": "You give a code, your friend plays for the time you chose, from their own device.",
+        "friends": "Accounts for your friends",
+        "friendsText": "They borrow with their username when the PC is free, otherwise they ask you.",
+        "slots": "Time slots",
+        "slotsText": "Wednesday afternoon for Léa: she borrows without asking you.",
+        "warning": "Your friend plays in your Windows session, in console mode: they only see the apps you choose. A game can still read your files: lend to friends you trust.",
+        "enable": "Turn lending on"
+      },
+      "dialog": {
+        "codeTitle": "Code for one session",
+        "steamFriendHelp": "They sign in with theirs; your accounts are set aside.",
+        "steamHostHelp": "They play with your games and saves.",
+        "valid": "valid 24 h",
+        "done": "Done"
+      }
     }
   }
 }

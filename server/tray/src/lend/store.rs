@@ -144,10 +144,13 @@ pub fn existing(files: &[PathBuf]) -> Vec<(PathBuf, bool)> {
 }
 
 /// Met de côté les fichiers de l'utilisateur (déplacés, pas copiés : l'ami
-/// ne doit pas voir les comptes retenus). Une copie de côté plus ancienne
-/// (prêt mal fini) est remplacée : l'état sur le disque, écrit avant, dit
-/// déjà ce qu'il faudra remettre.
+/// ne doit pas voir les comptes retenus). Jamais par-dessus une copie de côté
+/// déjà là (un prêt d'avant pas remis en état : ce sont peut-être les seuls
+/// fichiers de l'utilisateur) : rien ne bouge, erreur.
 pub fn put_aside(files: &[(PathBuf, bool)]) -> io::Result<()> {
+    if let Some((path, _)) = files.iter().find(|(path, _)| aside(path).exists()) {
+        return Err(io::Error::new(io::ErrorKind::AlreadyExists, format!("{} existe déjà", aside(path).display())));
+    }
     for (path, existed) in files {
         if *existed && path.is_file() {
             std::fs::rename(path, aside(path))?;
@@ -248,6 +251,12 @@ mod tests {
         // Agent tombé après avoir noté l'état, avant de déplacer : le fichier reste.
         put_back(&existing(&files)).unwrap();
         assert_eq!(std::fs::read_to_string(&files[0]).unwrap(), "comptes de l'utilisateur");
+        // Une copie de côté déjà là (prêt d'avant pas remis) : rien ne bouge.
+        std::fs::write(aside(&files[0]), "seule copie de l'utilisateur").unwrap();
+        std::fs::write(&files[0], "comptes de l'ami d'avant").unwrap();
+        assert_eq!(put_aside(&existing(&files)).unwrap_err().kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(std::fs::read_to_string(aside(&files[0])).unwrap(), "seule copie de l'utilisateur");
+        assert_eq!(std::fs::read_to_string(&files[0]).unwrap(), "comptes de l'ami d'avant");
         let _ = std::fs::remove_dir_all(dir);
     }
 }

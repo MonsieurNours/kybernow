@@ -272,6 +272,8 @@ export interface LendRequest {
   app: string
   via: 'lan' | 'relay'
   since: number
+  /** Le compte Steam proposé (celui du code, ou du compte d'ami). */
+  steam?: LendSteam
   /**
    * Son créneau commence pendant que l'ordinateur est utilisé : il lui est prêté dans 2 min sans
    * attendre de réponse (« Créneau de Léa : l'ordinateur lui est prêté dans 2 min. »).
@@ -330,6 +332,22 @@ export interface LendSettings {
   steam: boolean
   /** Steam est installé sur l'ordinateur. */
   steam_found?: boolean
+  /** « Votre prénom » (vide : `host_default`). */
+  host_name?: string
+  /** Ce que lisent les amis sans « Votre prénom » : le prénom du compte Windows, sinon le nom de l'ordinateur. */
+  host_default?: string
+}
+
+/** Un prêt fini (`GET /api/lend/history`, le plus récent d'abord, 20 au plus). */
+export interface LendPast {
+  name: string
+  kind: 'code' | 'friend' | 'slot'
+  /** Le compte d'ami (absent pour un code). */
+  friend?: string
+  app: string
+  since: number
+  end: number
+  reason: 'left' | 'taken_back' | 'time_up' | 'slot_end' | 'stopped'
 }
 
 /** Un créneau : jours (1 = lundi … 7 = dimanche), heures locales du PC, `end` après `start`. */
@@ -739,7 +757,8 @@ export const api = {
   // Prêt de l'ordinateur (docs/pret.md) : réglages et comptes d'amis, session d'Admin seulement.
   lendSettings: () => request<LendSettings>('GET', '/api/lend/settings'),
   /** Chaque champ est facultatif. */
-  setLendSettings: (changes: Partial<Omit<LendSettings, 'steam_found'>>) => request<LendSettings>('PUT', '/api/lend/settings', changes),
+  setLendSettings: (changes: Partial<Omit<LendSettings, 'steam_found' | 'host_default'>>) => request<LendSettings>('PUT', '/api/lend/settings', changes),
+  lendHistory: () => request<LendPast[]>('GET', '/api/lend/history'),
   lendFriends: () => request<LendFriend[]>('GET', '/api/lend/friends'),
   addLendFriend: (friend: LendFriendInput) => request<LendFriend>('POST', '/api/lend/friends', friend),
   updateLendFriend: (id: string, changes: Partial<LendFriendInput>) =>

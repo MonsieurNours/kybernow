@@ -89,3 +89,69 @@ export function slotStarting(view: LendView | null | undefined): string | null {
 export function askingRequests(view: LendView | null | undefined) {
   return view?.requests.filter((r) => !r.slot) ?? []
 }
+
+/** La couleur d'un ami (son avatar, ses créneaux dans la semaine) : la même à chaque fois. */
+const AVATARS = ['#D4CEFF', '#9FE6C0', '#F8E2B0', '#FFC9C4', '#BDE3FF', '#F0C4FF', '#C9F2DA']
+export function avatarColor(key: string): string {
+  let h = 0
+  for (const c of key) h = (h * 31 + c.charCodeAt(0)) >>> 0
+  return AVATARS[h % AVATARS.length]
+}
+
+/** L'initiale d'un prénom. */
+export function initial(name: string): string {
+  return (name.trim().charAt(0) || '?').toUpperCase()
+}
+
+/** Le jour de la semaine d'une date, 1 = lundi … 7 = dimanche. */
+export function weekday(d: Date): number {
+  return d.getDay() === 0 ? 7 : d.getDay()
+}
+
+/** « 14:00 » → minutes depuis minuit. */
+export function slotMinutes(text: string): number {
+  const [h, m] = text.split(':').map(Number)
+  return (h || 0) * 60 + (m || 0)
+}
+
+/**
+ * Le créneau d'ami le plus proche (en cours, ou le prochain dans les 7 jours), à l'heure de ce
+ * navigateur : son prénom, son début et sa fin (secondes Unix), et s'il est en cours.
+ */
+export function nextSlot(
+  friends: { name: string; enabled: boolean; slots: { days: number[]; start: string; end: string }[] }[],
+  now = new Date(),
+): { name: string; start: number; end: number; now: boolean } | null {
+  let best: { name: string; start: number; end: number; now: boolean } | null = null
+  for (const f of friends) {
+    if (!f.enabled) continue
+    for (const s of f.slots) {
+      for (let ahead = 0; ahead <= 7; ahead++) {
+        const day = new Date(now.getFullYear(), now.getMonth(), now.getDate() + ahead)
+        if (!s.days.includes(weekday(day))) continue
+        const start = day.getTime() / 1000 + slotMinutes(s.start) * 60
+        const end = day.getTime() / 1000 + slotMinutes(s.end) * 60
+        if (end <= now.getTime() / 1000) continue
+        const cand = { name: f.name, start, end, now: start <= now.getTime() / 1000 }
+        if (!best || cand.start < best.start) best = cand
+        break
+      }
+    }
+  }
+  return best
+}
+
+/** « mar. 28 oct. » : le jour d'un prêt (secondes Unix). */
+export function dayDate(seconds: number): string {
+  return new Date(seconds * 1000).toLocaleDateString(locale(), { weekday: 'short', day: 'numeric', month: 'short' })
+}
+
+/** Écrit un texte dans le presse-papiers ; vrai s'il y est. */
+export async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch {
+    return false
+  }
+}

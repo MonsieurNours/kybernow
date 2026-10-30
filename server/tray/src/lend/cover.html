@@ -10,10 +10,16 @@
 * { box-sizing: border-box; }
 html { font-size: clamp(14px, calc(0.8vw + 0.6vh), 34px); }
 html, body { margin: 0; height: 100%; }
-body { display: grid; place-items: center; overflow: hidden; background: radial-gradient(60% 70% at 50% 0%, rgba(109,91,255,.16), rgba(109,91,255,0) 70%), #05070A; color: var(--text); font: 1rem/1.4 'Archivo', 'Segoe UI', sans-serif; -webkit-font-smoothing: antialiased; user-select: none; cursor: none; }
-/* Le cache reste des heures : le contenu dérive lentement (écrans OLED). */
-main { display: flex; flex-direction: column; align-items: center; gap: 1.1rem; padding: 2rem; text-align: center; animation: drift 900s ease-in-out infinite alternate; }
+body { display: grid; place-items: center; overflow: hidden; background: #05070A; color: var(--text); font: 1rem/1.4 'Archivo', 'Segoe UI', sans-serif; -webkit-font-smoothing: antialiased; user-select: none; cursor: none; }
+/* Une aurore lente derrière (rien de vif : le cache reste des heures). */
+body::before { content: ""; position: fixed; inset: -20%; background:
+  radial-gradient(40% 35% at 30% 30%, rgba(109,91,255,.22), transparent 70%),
+  radial-gradient(35% 30% at 72% 68%, rgba(154,140,255,.14), transparent 70%); animation: aurora 26s ease-in-out infinite alternate; }
+@keyframes aurora { to { transform: translate(6%, -4%) rotate(8deg); } }
+/* Le contenu dérive lentement (écrans OLED). */
+main { position: relative; display: flex; flex-direction: column; align-items: center; gap: 1.1rem; padding: 2rem; text-align: center; animation: drift 120s ease-in-out infinite alternate; }
 @keyframes drift { from { transform: translate(-2vw, -2vh); } to { transform: translate(2vw, 2vh); } }
+#clock { position: fixed; right: 3rem; bottom: 2.4rem; margin: 0; font-family: 'Martian Mono', Consolas, monospace; font-size: 1rem; letter-spacing: .1em; color: var(--faint); }
 img { height: 3rem; margin-bottom: 1.6rem; }
 h1 { margin: 0; font-stretch: 125%; font-size: 2.6rem; font-weight: 650; letter-spacing: -.02em; line-height: 1.15; }
 #until { margin: 0; font-size: 1.35rem; color: var(--text-2); }
@@ -22,7 +28,7 @@ h1 { margin: 0; font-stretch: 125%; font-size: 2.6rem; font-weight: 650; letter-
 body.asking #line { font-size: 1.5rem; font-weight: 600; color: var(--signal-light); }
 body.notice #line { font-family: 'Martian Mono', Consolas, monospace; font-variant-numeric: tabular-nums; color: #F8E2B0; }
 [hidden] { display: none; }
-@media (prefers-reduced-motion: reduce) { main { animation: none; } }
+@media (prefers-reduced-motion: reduce) { main, body::before { animation: none; } }
 </style>
 </head>
 <body>
@@ -33,6 +39,7 @@ body.notice #line { font-family: 'Martian Mono', Consolas, monospace; font-varia
   <p id="line" role="status"></p>
   <p id="keys" hidden></p>
 </main>
+<p id="clock"></p>
 <script>
 // Cache d'un écran du PC pendant un prêt. Le clavier du PC ne lui parle pas
 // directement : l'agent garde Entrée et Échap et pousse l'état (window.__knCover).
@@ -44,6 +51,7 @@ window.__knCover = (c) => {
   $('line').textContent = c.line || ''
   $('keys').textContent = c.keys || ''
   $('keys').hidden = !c.keys
+  $('clock').textContent = c.clock || ''
   document.body.classList.toggle('asking', !!c.asking)
   document.body.classList.toggle('notice', !!c.notice)
 }

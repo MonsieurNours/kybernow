@@ -24,7 +24,6 @@ pub enum SessionState {
 const DENIED: &[&str] = &[
     "explorer.exe",
     "taskmgr.exe",
-    "cmd.exe",
     "powershell.exe",
     "powershell_ise.exe",
     "pwsh.exe",
@@ -39,12 +38,26 @@ const DENIED: &[&str] = &[
     "msconfig.exe",
     "resmon.exe",
     "perfmon.exe",
-    "msiexec.exe",
-    "rundll32.exe",
     "mshta.exe",
-    "wscript.exe",
-    "cscript.exe",
 ];
+
+/// Permis seulement lancés (même de loin) par une app permise ou un jeu :
+/// installateurs des bibliothèques d'un jeu, lanceurs en script. Refusés
+/// autrement (depuis un programme de Windows, ou seuls).
+#[cfg_attr(not(windows), allow(dead_code))]
+const HELPERS: &[&str] = &["cmd.exe", "msiexec.exe", "rundll32.exe", "wscript.exe", "cscript.exe"];
+
+/// Le parent d'un processus nouveau, tel que la surveillance l'a jugé.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(not(windows), allow(dead_code))]
+pub enum Parent {
+    /// Pas permis pendant le prêt (ou d'avant le prêt).
+    Other,
+    /// Permis, hors des apps : un programme de Windows, KyberNow, Kyber.
+    Allowed,
+    /// Une app permise, Steam ou un jeu, ou un de leurs descendants.
+    App,
+}
 
 /// Ce qui est permis pendant un prêt, à part les programmes de Windows.
 #[derive(Debug, Clone, Default)]
@@ -56,6 +69,8 @@ pub struct Rules {
     pub dirs: Vec<String>,
     /// Dossier de Windows (`c:\windows\`).
     pub system: String,
+    /// Dossier de Steam (vide s'il n'est pas connu) : ses programmes et ses jeux sont des apps.
+    pub steam: String,
 }
 
 /// Le verdict sur un processus nouveau de la session.
@@ -70,19 +85,27 @@ pub enum Verdict {
 impl Rules {
     /// Les règles de docs/pret.md (« Station », point 4) : refusés d'abord ;
     /// puis les apps permises et leurs enfants, Steam et ses jeux, KyberNow,
-    /// et les programmes de Windows ; le reste est fermé.
-    pub fn judge(&self, path: &str, parent_allowed: bool) -> Verdict {
+    /// et les programmes de Windows ; le reste est fermé. `cmd`, `msiexec`,
+    /// `rundll32` et les scripts : seulement sous une app ou un jeu. Rend aussi
+    /// si le processus est de la lignée d'une app (pour ses propres enfants).
+    pub fn judge(&self, path: &str, parent: Parent) -> (Verdict, bool) {
         let path = path.to_ascii_lowercase().replace('/', "\\");
         let name = path.rsplit('\\').next().unwrap_or(&path);
         if DENIED.contains(&name) {
-            return Verdict::Deny;
+            return (Verdict::Deny, false);
         }
-        let allowed = parent_allowed
+        let app = parent == Parent::App
             || self.apps.contains(&path)
+            || (!self.steam.is_empty() && path.starts_with(self.steam.as_str()))
+            || path.contains("\\steamapps\\");
+        if HELPERS.contains(&name) {
+            return if parent == Parent::App { (Verdict::Allow, true) } else { (Verdict::Deny, false) };
+        }
+        let allowed = app
+            || parent == Parent::Allowed
             || self.dirs.iter().any(|d| path.starts_with(d.as_str()))
-            || path.contains("\\steamapps\\")
             || (!self.system.is_empty() && path.starts_with(self.system.as_str()));
-        if allowed { Verdict::Allow } else { Verdict::Deny }
+        if allowed { (Verdict::Allow, app) } else { (Verdict::Deny, false) }
     }
 }
 
@@ -132,11 +155,12 @@ pub fn rules(apps: &[String], steam: Option<PathBuf>, kyber_dir: &Path) -> Rules
         dirs.push(dir_key(&install));
     }
     dirs.push(dir_key(kyber_dir));
-    if let Some(steam) = steam {
-        dirs.push(dir_key(&steam));
+    let steam = steam.map(|s| dir_key(&s)).unwrap_or_default();
+    if !steam.is_empty() {
+        dirs.push(steam.clone());
     }
     let system = std::env::var_os("SystemRoot").map(|r| dir_key(Path::new(&r))).unwrap_or_else(|| "c:\\windows\\".into());
-    Rules { apps: apps.iter().map(|a| a.to_ascii_lowercase().replace('/', "\\")).collect(), dirs, system }
+    Rules { apps: apps.iter().map(|a| a.to_ascii_lowercase().replace('/', "\\")).collect(), dirs, system, steam }
 }
 
 /// La surveillance en cours ; l'arrêter ferme ce qu'elle a laissé ouvrir.
@@ -161,6 +185,14 @@ impl Watch {
     }
 }
 
+/// Une surveillance lâchée sans `stop_and_close` (prêt arrêté pendant sa
+/// préparation) s'arrête quand même.
+impl Drop for Watch {
+    fn drop(&mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
 pub use platform::{host_name, idle_secs, keep_awake, lock_session, session_state, spawn_console, steam_dir, watch};
 
 #[cfg(windows)]
@@ -173,7 +205,7 @@ mod platform {
 
     use anyhow::{Result, bail};
 
-    use super::{Rules, SessionState, Verdict, Watch, parents_first};
+    use super::{Parent, Rules, SessionState, Verdict, Watch, parents_first};
     use crate::display::agent;
 
     fn console_session() -> Option<u32> {
@@ -353,7 +385,8 @@ mod platform {
         let (stop2, started2) = (stop.clone(), started.clone());
         let thread = std::thread::spawn(move || {
             let mut seen = before;
-            let mut allowed: HashSet<u32> = HashSet::new();
+            // Les processus permis pendant le prêt, et s'ils sont de la lignée d'une app.
+            let mut allowed: std::collections::HashMap<u32, bool> = std::collections::HashMap::new();
             while !stop2.load(Ordering::SeqCst) {
                 let fresh: Vec<(u32, u32)> = snapshot().into_iter().filter(|(pid, _)| !seen.contains(pid)).collect();
                 // Les parents avant leurs enfants : les processus de WebView2
@@ -366,12 +399,17 @@ mod platform {
                     // Un processus encore illisible est revu au passage suivant.
                     let Some(path) = image_path(pid) else { continue };
                     seen.insert(pid);
-                    match rules.judge(&path, allowed.contains(&ppid)) {
-                        Verdict::Allow => {
-                            allowed.insert(pid);
+                    let parent = match allowed.get(&ppid) {
+                        None => Parent::Other,
+                        Some(false) => Parent::Allowed,
+                        Some(true) => Parent::App,
+                    };
+                    match rules.judge(&path, parent) {
+                        (Verdict::Allow, app) => {
+                            allowed.insert(pid, app);
                             started2.lock().unwrap().insert(pid);
                         }
-                        Verdict::Deny => {
+                        (Verdict::Deny, _) => {
                             let done = terminate(pid);
                             tracing::info!("prêt : {path} fermé ({})", if done { "fait" } else { "refusé par Windows" });
                         }
@@ -453,36 +491,49 @@ mod tests {
             apps: vec!["d:\\jeux\\celeste\\celeste.exe".into()],
             dirs: vec!["c:\\program files\\kybernow\\".into(), "c:\\program files (x86)\\steam\\".into()],
             system: "c:\\windows\\".into(),
+            steam: "c:\\program files (x86)\\steam\\".into(),
         }
     }
 
     #[test]
     fn ce_qui_est_permis_pendant_un_pret() {
+        use Parent::{Allowed, App, Other};
         let rules = r();
         for (path, parent, verdict) in [
-            ("D:\\Jeux\\Celeste\\Celeste.exe", false, Verdict::Allow),
-            ("D:\\Jeux\\Celeste\\crash.exe", true, Verdict::Allow),
-            ("C:\\Program Files (x86)\\Steam\\steam.exe", false, Verdict::Allow),
-            ("E:\\SteamLibrary\\steamapps\\common\\Hades\\Hades.exe", false, Verdict::Allow),
-            ("C:\\Program Files\\KyberNow\\tray\\kybernow-tray.exe", false, Verdict::Allow),
-            ("C:\\Windows\\System32\\conhost.exe", true, Verdict::Allow),
-            ("C:\\Windows\\System32\\dllhost.exe", false, Verdict::Allow),
+            ("D:\\Jeux\\Celeste\\Celeste.exe", Other, Verdict::Allow),
+            ("D:\\Jeux\\Celeste\\crash.exe", App, Verdict::Allow),
+            ("C:\\Program Files (x86)\\Steam\\steam.exe", Other, Verdict::Allow),
+            ("E:\\SteamLibrary\\steamapps\\common\\Hades\\Hades.exe", Other, Verdict::Allow),
+            ("C:\\Program Files\\KyberNow\\tray\\kybernow-tray.exe", Other, Verdict::Allow),
+            ("C:\\Windows\\System32\\conhost.exe", App, Verdict::Allow),
+            ("C:\\Windows\\System32\\dllhost.exe", Other, Verdict::Allow),
             // Refusés, même enfants d'une app permise.
-            ("C:\\Windows\\explorer.exe", true, Verdict::Deny),
-            ("C:\\Windows\\System32\\Taskmgr.exe", false, Verdict::Deny),
-            ("C:\\Windows\\System32\\cmd.exe", true, Verdict::Deny),
-            ("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", false, Verdict::Deny),
-            ("C:\\Program Files\\PowerShell\\7\\pwsh.exe", false, Verdict::Deny),
-            ("C:\\Program Files\\WindowsApps\\Microsoft.WindowsTerminal\\WindowsTerminal.exe", false, Verdict::Deny),
-            ("C:\\Windows\\regedit.exe", false, Verdict::Deny),
-            ("C:\\Windows\\System32\\mmc.exe", false, Verdict::Deny),
-            ("C:\\Windows\\ImmersiveControlPanel\\SystemSettings.exe", false, Verdict::Deny),
+            ("C:\\Windows\\explorer.exe", App, Verdict::Deny),
+            ("C:\\Windows\\System32\\Taskmgr.exe", Other, Verdict::Deny),
+            ("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", App, Verdict::Deny),
+            ("C:\\Program Files\\PowerShell\\7\\pwsh.exe", Other, Verdict::Deny),
+            ("C:\\Program Files\\WindowsApps\\Microsoft.WindowsTerminal\\WindowsTerminal.exe", Other, Verdict::Deny),
+            ("C:\\Windows\\regedit.exe", Other, Verdict::Deny),
+            ("C:\\Windows\\System32\\mmc.exe", Other, Verdict::Deny),
+            ("C:\\Windows\\ImmersiveControlPanel\\SystemSettings.exe", Other, Verdict::Deny),
+            // cmd, msiexec, rundll32 : sous un jeu (installateurs) oui, sinon non.
+            ("C:\\Windows\\System32\\cmd.exe", App, Verdict::Allow),
+            ("C:\\Windows\\System32\\msiexec.exe", App, Verdict::Allow),
+            ("C:\\Windows\\System32\\rundll32.exe", App, Verdict::Allow),
+            ("C:\\Windows\\System32\\cmd.exe", Allowed, Verdict::Deny),
+            ("C:\\Windows\\System32\\cmd.exe", Other, Verdict::Deny),
+            ("C:\\Windows\\System32\\rundll32.exe", Allowed, Verdict::Deny),
             // Une app hors liste.
-            ("C:\\Program Files\\Mozilla Firefox\\firefox.exe", false, Verdict::Deny),
-            ("C:\\Users\\matthieu\\Downloads\\outil.exe", false, Verdict::Deny),
+            ("C:\\Program Files\\Mozilla Firefox\\firefox.exe", Other, Verdict::Deny),
+            ("C:\\Users\\matthieu\\Downloads\\outil.exe", Other, Verdict::Deny),
         ] {
-            assert_eq!(rules.judge(path, parent), verdict, "{path}");
+            assert_eq!(rules.judge(path, parent).0, verdict, "{path} ({parent:?})");
         }
+        // La lignée : un jeu et ses enfants en sont, un programme de Windows lancé seul non.
+        assert!(rules.judge("E:\\SteamLibrary\\steamapps\\common\\Hades\\Hades.exe", Other).1);
+        assert!(rules.judge("C:\\Windows\\System32\\conhost.exe", App).1);
+        assert!(!rules.judge("C:\\Windows\\System32\\dllhost.exe", Other).1);
+        assert!(!rules.judge("C:\\Windows\\System32\\dllhost.exe", Allowed).1);
     }
 
     #[test]

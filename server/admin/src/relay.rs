@@ -958,9 +958,12 @@ pub async fn guard(State(s): State<AppState>, mut req: Request, next: Next) -> R
         Class::Guest => {
             // Partage fermé : ni code à essayer, ni page à servir. Le signe de
             // vie, l'attente et le départ passent (« arrêté », pendant une minute).
-            // Les pages servent aussi l'ami d'un prêt quand le prêt est activé.
-            let pages_open = s.share.is_open() || s.settings.lock().unwrap().lend.enabled;
-            if (path == "/api/share/join" && !s.share.is_open()) || (!path.starts_with("/api/") && !pages_open) {
+            // Les pages servent aussi l'ami d'un prêt quand le prêt est activé,
+            // et « Rejoindre » essaie un code de prêt (`"lend": true`, puis `borrow`).
+            let lending = s.settings.lock().unwrap().lend.enabled;
+            let pages_open = s.share.is_open() || lending;
+            let join_open = s.share.is_open() || (lending && s.lend.code().is_some());
+            if (path == "/api/share/join" && !join_open) || (!path.starts_with("/api/") && !pages_open) {
                 return no_share(&path);
             }
         }
@@ -1117,7 +1120,7 @@ mod tests {
         for (m, p) in [(&get, "/api/lend"), (&post, "/api/lend/code"), (&Method::DELETE, "/api/lend/code"), (&post, "/api/lend/requests/ab"), (&post, "/api/lend/take-back")] {
             assert_eq!(class_of(m, p), Class::Device, "{m} {p}");
         }
-        for (m, p) in [(&get, "/api/lend/settings"), (&get, "/api/lend/friends"), (&get, "/api/lend/friends/x/invite"), (&get, "/api/lend/catalog"), (&get, "/api/local/lend"), (&get, "/api/local/lend/console")] {
+        for (m, p) in [(&get, "/api/lend/settings"), (&get, "/api/lend/history"), (&get, "/api/lend/friends"), (&get, "/api/lend/friends/x/invite"), (&get, "/api/lend/catalog"), (&get, "/api/local/lend"), (&get, "/api/local/lend/console")] {
             assert_eq!(class_of(m, p), Class::Never, "{m} {p}");
         }
         for p in ["/session/login", "/ws", "/kymux/start_mux", "/websocket/video"] {
@@ -1305,6 +1308,18 @@ mod tests {
         // Sans partage ouvert : rien pour un invité.
         let res = call(Method::POST, "/api/share/join").await.unwrap();
         assert_eq!(res.status(), StatusCode::NOT_FOUND);
+        // Un code de prêt (prêt activé) : « Rejoindre » le reconnaît et renvoie à `borrow`.
+        s.settings.lock().unwrap().lend.enabled = true;
+        s.lend.create_code(None, crate::lend::Steam::Friend, false, |_| false);
+        let code = s.lend.code().unwrap().code;
+        let mut req = axum::http::Request::builder().method(Method::POST).uri("/api/share/join").header("x-kyber-admin", "1").header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(json!({ "code": code, "name": "Léa", "device": "ipad-1", "app": "ios" }).to_string())).unwrap();
+        req.extensions_mut().insert(ConnectInfo(SocketAddr::new(IpAddr::V6(OUTSIDE), 0)));
+        req.extensions_mut().insert(Via { kind: StreamKind::AdminTls, client: "c".into() });
+        let res = tower::ServiceExt::oneshot(router.clone(), req).await.unwrap();
+        assert_eq!(res.status(), StatusCode::NOT_FOUND);
+        let body: Value = serde_json::from_slice(&axum::body::to_bytes(res.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!((body["error"].as_str(), body["lend"].as_bool()), (Some("no_share"), Some(true)), "{body}");
         // `GET /api/session` réduit.
         let res = call(Method::GET, "/api/session").await.unwrap();
         assert_eq!(res.status(), StatusCode::OK);
