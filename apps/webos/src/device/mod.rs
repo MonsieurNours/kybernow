@@ -27,6 +27,7 @@ use std::time::{Duration, Instant};
 use kybernow_core::console::{DeviceInfo, Mode};
 use kybernow_core::input::GamepadRumble;
 use kybernow_core::kynput_rs::MouseButtonType;
+use kybernow_core::lend;
 use kybernow_core::session::Status;
 use kybernow_core::share::{self, JoinRequest, ShareTarget};
 
@@ -81,6 +82,23 @@ pub enum Event {
     /// Par le relais : la session finit parce que l'ordinateur n'est pas joignable hors de chez soi (accès coupé dans
     /// Admin, éteint ou en veille, relais muet), juste avant `Status::Ended`. Le texte se choisit par cette erreur.
     RelayError(kybernow_core::relay::RelayError),
+    /// Prêt de l'ordinateur, ami : l'emprunt attend l'accord de l'hôte (son prénom).
+    BorrowPending { source: crate::app::BorrowSource, host: String },
+    /// Prêt de l'ordinateur, ami : le prêt accordé, ou le texte du refus.
+    Borrowed { source: crate::app::BorrowSource, result: Result<Box<lend::Loan>, String> },
+    /// Prêt de l'ordinateur, ami : l'état de l'ordinateur emprunté `id`.
+    LendStatus { id: String, live: crate::app::LendLive },
+    /// « Avec un compte d'ami » : l'ordinateur vérifié (à garder, son état, le mot de passe donné), ou le refus.
+    FriendAdded(Result<Box<(crate::model::Borrowed, crate::app::LendLive, String)>, String>),
+    /// Prêt de l'ordinateur, hôte : la vue du prêt après une demande à Admin (en session, sur l'accueil), ou le refus.
+    LendHost(Result<crate::app::LendHostView, String>),
+    LendHome { host: String, result: Result<crate::app::LendHostView, String> },
+    /// Prêt de l'ordinateur, hôte : la vue du prêt du signe de vie, quand elle change.
+    Lend(Option<crate::app::LendHostView>),
+    /// Prêt de l'ordinateur, emprunt : le préavis de 2 minutes (son texte, l'heure de la fin).
+    LendNotice { text: String, at: u64 },
+    /// Prêt de l'ordinateur, emprunt : le prêt finit la session (son texte).
+    LendEnd(String),
 }
 
 struct Video {
@@ -263,6 +281,13 @@ pub fn run() {
             last_poll = Instant::now();
             for h in &app.store.hosts {
                 jobs::poll(h.clone(), !app.images.contains_key(&h.id), tx.clone());
+            }
+            // Les ordinateurs empruntés : leur état (« Disponible », « Occupé »…), avec le mot de passe connu.
+            for b in &app.store.borrowed {
+                let password = if b.remember { b.password.clone() } else { app.lend_passwords.get(&b.id).cloned().unwrap_or_default() };
+                if !password.is_empty() && !(app.borrow.busy && app.borrow.id == b.id) {
+                    jobs::lend_poll(b.clone(), password, tx.clone());
+                }
             }
         }
         // La Station redémarre ou se met à jour, ou l'ordinateur se réveille :
@@ -710,12 +735,19 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
                 }
             };
             if let Phase::Ended { error: None } = s.phase {
+                // Un emprunt rendu : « Vous avez rendu l'ordinateur. », en avis sur l'accueil qui revient.
+                let said = s.borrow.as_ref().and_then(|b| b.end_text.clone());
                 // Fin voulue : retour direct à l'accueil.
                 app.session = None;
                 app.go(Screen::Home);
+                if let Some(t) = said {
+                    app.toast(t);
+                }
             } else if let Phase::Ended { .. } = s.phase {
+                // Un emprunt fini sans le prêt (réseau perdu) : « Revenir » d'abord.
+                let come_back = s.borrow.as_ref().is_some_and(|b| !b.ended_by_lend);
                 app.screen = Screen::Session;
-                app.focus = crate::app::Target::Back;
+                app.focus = if come_back { crate::app::Target::ComeBack } else { crate::app::Target::Back };
             }
         }
         Event::Mode(m) => {
@@ -796,11 +828,56 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
                 connect_guest(app, live, tx, found);
             }
             Ok(found) => jobs::share_leave(found),
+            // Prêt de l'ordinateur : le code est celui d'un prêt. L'app emprunte avec la sortie du téléviseur et le prénom
+            // donné (« Préparation de l'ordinateur… »).
+            Err(share::ShareError::Lend(c)) => {
+                if app.join_lending(attempt) {
+                    let c = *c;
+                    let request = jobs::borrow_request(lend::LendCredentials::Code { code: c.code.clone() }, app.join.name.trim().to_string(), app.store.device_id.clone(), borrow_screen(app), app.tv.av1);
+                    jobs::borrow(crate::app::BorrowSource::Code { attempt }, c.target, c.route, request, tx.clone());
+                }
+            }
             Err(e) => {
                 log::info!("partage : {e}");
                 app.join_failed(attempt, e.to_string());
             }
         },
+        // Prêt de l'ordinateur, ami : « En attente de {hôte}… » ; un emprunt abandonné entre-temps retire sa demande.
+        Event::BorrowPending { source, host } => {
+            if app.borrow_current(&source) {
+                app.borrow_pending(&source, &host);
+            } else {
+                jobs::borrow_cancel();
+            }
+        }
+        // Le prêt est accordé : la session d'emprunt s'ouvre si l'emprunt est toujours celui de l'écran ; sinon
+        // l'ordinateur est rendu tout de suite.
+        Event::Borrowed { source, result } => match result {
+            Ok(loan) if app.borrow_current(&source) => {
+                app.borrow_done(&source);
+                connect_borrower(app, live, tx, *loan, source);
+            }
+            Ok(loan) => jobs::borrow_leave(*loan),
+            Err(e) => app.borrow_failed(&source, e),
+        },
+        Event::LendStatus { id, live: l } => {
+            app.lend_live.insert(id, l);
+        }
+        Event::FriendAdded(result) => match result {
+            Ok(b) => {
+                let (b, l, password) = *b;
+                actions.extend(app.friend_added(b, l, password));
+            }
+            Err(e) => app.friend_failed(e),
+        },
+        Event::LendHost(result) => app.lend_reply(result),
+        Event::LendHome { host, result } => app.lend_home_reply(&host, result),
+        Event::Lend(view) => app.lend_changed(view),
+        Event::LendNotice { text, at } => app.lend_notice(text, at),
+        Event::LendEnd(text) => {
+            log::info!("prêt : fin de l'emprunt ({text})");
+            app.lend_ended(text);
+        }
         // La demande attend l'hôte : « En attente de l'accord de l'hôte… ». Une recherche abandonnée entre-temps
         // retire sa demande aussitôt.
         Event::SharePending { attempt } => {
@@ -880,7 +957,7 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
             let mode = app.session_mode(&h);
             let codec = app.codec_for(&h);
             let device = device_info(&app.store, &app.tv);
-            let handle = session::start(&h, profile, codec, mode, app.tv.refresh, app.net.cap_mbps(), device, None, tx.clone());
+            let handle = session::start(&h, profile, codec, mode, app.tv.refresh, app.net.cap_mbps(), device, None, None, tx.clone());
             app.session = Some(SessionUi::new(&h.id, &h.name, profile, h.settings.game_mode_hint));
             app.screen = Screen::Session;
             app.focus = crate::app::Target::CancelConnect;
@@ -1016,6 +1093,37 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
                 None => app.share_reply(Err(tr("L'ordinateur n'est plus dans la liste de ce téléviseur.", "The computer is no longer in this TV's list.").into())),
             }
         }
+        // Prêt de l'ordinateur, ami : emprunter l'ordinateur emprunté (compte d'ami), sur le réseau.
+        Action::Borrow { id, password } => {
+            let Some(b) = app.store.borrowed(&id).cloned() else { return };
+            let target = ShareTarget { host: b.address.clone(), port: b.port, fingerprint: b.fingerprint.clone() };
+            let name = if app.store.app.share_name.trim().is_empty() { app.device_name() } else { app.store.app.share_name.trim().to_string() };
+            let request = jobs::borrow_request(lend::LendCredentials::Account { login: b.login.clone(), password }, name, app.store.device_id.clone(), borrow_screen(app), app.tv.av1);
+            jobs::borrow(app.borrow_source(), target, None, request, tx.clone());
+        }
+        Action::BorrowCancel => jobs::borrow_cancel(),
+        Action::ComeBack(source) => jobs::come_back(source, tx.clone()),
+        Action::GiveBack => {
+            if let Some(l) = live.as_ref() {
+                if let Some(p) = l.handle.shared.current_input() {
+                    p.release_all();
+                }
+                l.handle.session.give_back();
+            }
+        }
+        Action::FriendAdd { address, port, fingerprint, login, password, remember, editing } => jobs::friend_add(address, port, fingerprint, login, password, remember, editing, tx.clone()),
+        Action::Lend(op) => {
+            let host = live.as_ref().and_then(|_| app.session.as_ref()).and_then(|s| app.store.host(&s.host)).cloned();
+            match host {
+                Some(h) => jobs::lend_host(h, op, tx.clone()),
+                None => app.lend_reply(Err(tr("L'ordinateur n'est plus dans la liste de ce téléviseur.", "The computer is no longer in this TV's list.").into())),
+            }
+        }
+        Action::LendHome { host, op } => {
+            if let Some(h) = app.store.host(&host).cloned() {
+                jobs::lend_home(h, op, tx.clone());
+            }
+        }
         Action::Poll(id) => {
             if let Some(h) = app.store.host(&id) {
                 jobs::poll(h.clone(), !app.images.contains_key(&id), tx.clone());
@@ -1083,7 +1191,7 @@ fn connect_guest(app: &mut App, live: &mut Option<Live>, tx: &Sender<Event>, fou
     let codec = app.codec_for(&h);
     let device = device_info(&app.store, &app.tv);
     let caps = session::guest_capabilities(app.tv.av1);
-    let handle = session::start(&h, crate::model::Profile::Jeu, codec, mode, app.tv.refresh, app.net.cap_mbps(), device, Some((&found, caps)), tx.clone());
+    let handle = session::start(&h, crate::model::Profile::Jeu, codec, mode, app.tv.refresh, app.net.cap_mbps(), device, Some((&found, caps)), None, tx.clone());
     let mut ui = SessionUi::guest(&h.id, &computer, session::role_of(found.joined.role));
     // La « Qualité de l'image » demandée à « Rejoindre », et l'image que la Station dit déjà (`on_share_image` la suit).
     if let Some(g) = ui.guest.as_mut() {
@@ -1095,6 +1203,58 @@ fn connect_guest(app: &mut App, live: &mut Option<Live>, tx: &Sender<Event>, fou
     app.focus = crate::app::Target::CancelConnect;
     *live = Some(Live { handle, guest: true, pointer: None, pointer_hidden: true, started: Instant::now(), latencies: Vec::new(), mbps: Vec::new(), mode, remote: None, game_fullscreen: false, path: crate::app::PathKind::Direct, relay_error: None });
     log::info!("session d'invité : {title} ({} × {} à {} Hz)", mode.0, mode.1, mode.2);
+}
+
+/// La sortie du téléviseur pour un emprunt : la Station fait l'écran virtuel à sa taille (le plus grand mode que le
+/// décodeur suit : la dalle, 60 Hz au plus).
+fn borrow_screen(app: &App) -> (u32, u32, u32) {
+    (app.tv.panel.0, app.tv.panel.1, app.tv.refresh.min(60))
+}
+
+/// Ouvre la session d'emprunt d'un prêt accordé (prêt de l'ordinateur) : l'écran virtuel que la Station a fait à la
+/// taille du téléviseur, sans réglages ni presse-papiers, comme un invité. Sans décodeur, ou une session déjà là,
+/// l'ordinateur est rendu.
+fn connect_borrower(app: &mut App, live: &mut Option<Live>, tx: &Sender<Event>, loan: lend::Loan, source: crate::app::BorrowSource) {
+    if live.is_some() || !app.tv.decoder {
+        if !app.tv.decoder {
+            app.toast(tr("Décodeur du téléviseur introuvable : webOS 5 (2020) au moins", "TV decoder not found: webOS 5 (2020) or later required"));
+        }
+        jobs::borrow_leave(loan);
+        return;
+    }
+    let key = match &source {
+        crate::app::BorrowSource::Account { id, .. } => id.clone(),
+        crate::app::BorrowSource::Code { .. } => format!("lend:{}", loan.borrowed.lend),
+    };
+    let title = crate::model::borrowed_title(loan.borrowed.host_name());
+    let h = crate::model::Host {
+        id: key.clone(),
+        name: title.clone(),
+        address: loan.target.host.clone(),
+        port: loan.target.port,
+        fingerprint: loan.target.fingerprint.clone(),
+        user: String::new(),
+        password: String::new(),
+        os: None,
+        gpu: None,
+        av1: false,
+        mac: None,
+        wake: Vec::new(),
+        relay: None,
+        settings: crate::model::HostSettings::default(),
+        last: None,
+    };
+    let d = loan.borrowed.display;
+    let mode = (d.width, d.height, d.refresh);
+    let codec = app.codec_for(&h);
+    let device = device_info(&app.store, &app.tv);
+    let handle = session::start(&h, crate::model::Profile::Jeu, codec, mode, app.tv.refresh, app.net.cap_mbps(), device, None, Some(&loan), tx.clone());
+    let b = crate::app::BorrowSessionUi::new(loan.borrowed.host_name(), &loan.borrowed.computer, loan.borrowed.until, source);
+    app.session = Some(SessionUi::borrower(&key, b));
+    app.screen = Screen::Session;
+    app.focus = crate::app::Target::CancelConnect;
+    *live = Some(Live { handle, guest: true, pointer: None, pointer_hidden: true, started: Instant::now(), latencies: Vec::new(), mbps: Vec::new(), mode, remote: None, game_fullscreen: false, path: crate::app::PathKind::Direct, relay_error: None });
+    log::info!("session d'emprunt : {title} ({} × {} à {} Hz)", mode.0, mode.1, mode.2);
 }
 
 /// Fin de session : la dernière session (au moins 3 s), pour Statistiques.

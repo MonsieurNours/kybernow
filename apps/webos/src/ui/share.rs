@@ -107,7 +107,7 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
 
 /// Un bouton du panneau (contour) : son nom, sa cible ; `danger` : en rouge. Rend sa largeur.
 #[allow(clippy::too_many_arguments)]
-fn button(cv: &mut Canvas, f: &mut Frame, t: Target, x: f32, y: f32, label: &str, size: f32, danger: bool) -> f32 {
+pub(super) fn button(cv: &mut Canvas, f: &mut Frame, t: Target, x: f32, y: f32, label: &str, size: f32, danger: bool) -> f32 {
     let style = Text::new(Font::Semibold, size, if danger { DANGER } else { FROST });
     let w = cv.text_width(style, label) + size * 1.6;
     let h = size * 2.2;
@@ -139,7 +139,7 @@ fn button_inactive(cv: &mut Canvas, x: f32, y: f32, label: &str, size: f32) -> f
 /// Le contenu du panneau, dans `r`.
 /// L'indicateur d'attente du panneau (une demande à Admin, le lien du relais en préparation), centré sur (`cx`, `cy`) ;
 /// `k` : sa taille (1 : celui de l'en-tête).
-fn wait_dot(cv: &mut Canvas, s: &SessionUi, cx: f32, cy: f32, k: f32) {
+pub(super) fn wait_dot(cv: &mut Canvas, s: &SessionUi, cx: f32, cy: f32, k: f32) {
     let t = s.started.elapsed().as_secs_f32();
     cv.circle(cx, cy, 16.0 * k, HALO.alpha(0.2 + 0.3 * (t * 4.0).sin().abs()));
     cv.circle(cx, cy, 7.0 * k, SPECTRE);

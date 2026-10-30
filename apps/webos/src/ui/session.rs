@@ -17,7 +17,7 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
     let Some(s) = &app.session else { return };
     match &s.phase {
         Phase::Preparing | Phase::Connecting | Phase::StationRestarting | Phase::FirstImages => arrival(app, cv, f, s),
-        Phase::Ended { error } => ended(cv, f, s, error.as_deref()),
+        Phase::Ended { error } => ended(app, cv, f, s, error.as_deref()),
         Phase::Ending => {
             cv.rect(0.0, 0.0, W, H, Rgba(5, 7, 10, 200));
             capsule(cv, H / 2.0 - 32.0, tr("Déconnexion…", "Disconnecting…"), true);
@@ -25,6 +25,8 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
         Phase::Streaming | Phase::Reconnecting { .. } => {
             if s.menu {
                 menu(app, cv, f, s);
+            } else if s.lend_panel {
+                super::lend::draw(app, cv, f, s);
             } else if s.share_panel {
                 // Un invité n'a pas de panneau d'hôte : le sien est la « Qualité de l'image ».
                 if s.guest.is_some() {
@@ -87,7 +89,8 @@ fn arrival(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         _ => 2,
     };
     let steps = [
-        tr("Préparation de l'écran", "Preparing the display"),
+        // Un emprunt : la Station a déjà mis l'ordinateur en mode console.
+        if s.borrow.is_some() { tr("Préparation de l'ordinateur", "Preparing the computer") } else { tr("Préparation de l'écran", "Preparing the display") },
         tr("Connexion", "Connecting"),
         tr("Premières images", "First frames"),
     ];
@@ -130,8 +133,31 @@ fn arrival(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     cv.text(r.x + r.w / 2.0, r.y + 37.0, Text::new(Font::Semibold, 22.0, if focused { INK } else { FROST }).align(Align::Center), tr("Annuler", "Cancel"));
 }
 
-fn ended(cv: &mut Canvas, f: &mut Frame, s: &SessionUi, error: Option<&str>) {
+fn ended(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi, error: Option<&str>) {
     cv.clear(INK);
+    // Une session d'emprunt : la fin dite par le prêt et « Fermer » ; sans le prêt (réseau perdu), « Vous pouvez
+    // revenir pendant 15 min. », « Revenir » et « Fermer ».
+    if let Some(b) = &s.borrow {
+        let _ = app;
+        let (w, h) = (1000.0, if b.ended_by_lend { 300.0 } else { 340.0 });
+        let (x, y) = ((W - w) / 2.0, (H - h) / 2.0);
+        cv.rrect(x, y, w, h, 28.0, PANEL_SOLID);
+        cv.rrect_stroke(x, y, w, h, 28.0, 1.0, if b.ended_by_lend { BORDER } else { DANGER_LINE });
+        cv.text(x + 60.0, y + 80.0, Text::new(Font::Mono, 16.0, FROST_3).tracking(3.0), "KYBERNOW SHARE");
+        cv.text_fit(x + 60.0, y + 140.0, Text::new(Font::Title, 40.0, FROST), &s.name, w - 120.0);
+        let mut yy = y + 188.0;
+        if let Some(e) = error.filter(|e| !e.is_empty()) {
+            yy += cv.paragraph(x + 60.0, yy, Text::new(Font::Regular, 21.0, FROST_2), e, w - 120.0, 30.0);
+        }
+        if b.ended_by_lend {
+            widgets::secondary(cv, f, Target::Back, x + w - 220.0, y + h - 96.0, tr("Fermer", "Close"), 22.0);
+        } else {
+            cv.text_fit(x + 60.0, yy + 6.0, Text::new(Font::Regular, 21.0, FROST), tr("Vous pouvez revenir pendant 15 min.", "You can come back for 15 min."), w - 120.0);
+            let bw = widgets::primary(cv, f, Target::ComeBack, x + 60.0, y + h - 110.0, tr("Revenir", "Come back"));
+            widgets::secondary(cv, f, Target::Back, x + 60.0 + bw + 28.0, y + h - 100.0, tr("Fermer", "Close"), 22.0);
+        }
+        return;
+    }
     let (w, h) = (1000.0, 300.0);
     let (x, y) = ((W - w) / 2.0, (H - h) / 2.0);
     cv.rrect(x, y, w, h, 28.0, PANEL_SOLID);
@@ -188,9 +214,11 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     cv.rect(0.0, 0.0, W, H, Rgba(2, 3, 4, 175));
     stats_pill(cv, s, 70.0);
     // Sous les mesures : l'ordinateur et son profil ; pour un invité, son rôle (il n'a pas de profil).
-    let head = match &s.guest {
-        Some(g) => format!("{} · {}", s.name.to_uppercase(), g.role.label().to_uppercase()),
-        None => format!("{} · {} {}", s.name.to_uppercase(), tr("PROFIL", "PROFILE"), super::home::profile_label(s.profile).to_uppercase()),
+    let head = match (&s.guest, &s.borrow) {
+        (Some(g), _) => format!("{} · {}", s.name.to_uppercase(), g.role.label().to_uppercase()),
+        // Un emprunt : « Prêté par {hôte} · Encore 1 h 20 ».
+        (None, Some(b)) => format!("{} · {}", b.lent_by().to_uppercase(), b.time_left(crate::model::now_secs()).to_uppercase()),
+        (None, None) => format!("{} · {} {}", s.name.to_uppercase(), tr("PROFIL", "PROFILE"), super::home::profile_label(s.profile).to_uppercase()),
     };
     cv.text(W / 2.0, 200.0, Text::new(Font::Mono, 16.0, FROST_3).tracking(3.0).align(Align::Center), &head);
 
@@ -202,7 +230,8 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     // Les tuiles de l'hôte ; un invité n'a ni profil, ni réglages de l'ordinateur, ni « Partager », et la
     // Magic Remote en souris, les touches et la manette en souris seulement avec le clavier et la souris
     // donnés, la tuile des manettes seulement avec les manettes (KyberNow Share).
-    let guest = s.guest.is_some();
+    // Un emprunt est un visiteur aussi : ni profil, ni réglages, ni « Partager », ni « Prêter l'ordinateur… ».
+    let guest = s.visitor();
     let kbm = s.keyboard_mouse();
     let pads = s.role().is_none_or(|r| r.pads());
     let mut tiles: Vec<(MenuItem, Icon, String, Option<String>, bool, bool)> = vec![(MenuItem::Resume, Icon::Play, tr("Reprendre", "Resume").into(), None, false, false)];
@@ -225,7 +254,13 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     if pads {
         tiles.push((MenuItem::Gamepads, Icon::Gamepad, tr("Manettes", "Controllers").into(), Some(format!("{} {}", app.pads.len(), tr("branchée(s)", "connected"))), false, false));
     }
-    if let Some(g) = &s.guest {
+    if let Some(b) = &s.borrow {
+        if s.via_relay() {
+            tiles.push((MenuItem::Route, Icon::Wifi, s.path().label().into(), Some(route_sub(s)), false, false));
+        }
+        // « Rendre l'ordinateur » : sa confirmation ; le sous-titre dit le temps qui reste.
+        tiles.push((MenuItem::GiveBack, Icon::Logout, tr("Rendre l'ordinateur", "Give back the computer").into(), Some(b.time_left(crate::model::now_secs())), true, false));
+    } else if let Some(g) = &s.guest {
         // « Qualité de l'image » : la tuile montre la qualité reçue (le choix tant que Kyber ne la donne pas) et ouvre les cinq choix.
         tiles.push((MenuItem::Quality, Icon::Monitor, tr("Qualité de l'image", "Picture quality").into(), Some(g.shown().into()), false, false));
         // Par le relais : le chemin, en tuile (rien à choisir).
@@ -238,6 +273,9 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         // elle est estompée mais se choisit : elle ouvre le panneau réduit à la raison.
         let (sub, on) = share_tile(s.share.as_ref());
         tiles.push((MenuItem::Share, Icon::Share, tr("Partager", "Share").into(), Some(sub), false, on));
+        // « Prêter l'ordinateur… » : le code en cours, une demande, sinon « Code et QR code ».
+        let (sub, on) = super::lend::tile(s);
+        tiles.push((MenuItem::Lend, Icon::Lend, tr("Prêter l'ordinateur…", "Lend the computer…").into(), Some(sub), false, on));
         if s.via_relay() {
             tiles.push((MenuItem::Route, Icon::Wifi, s.path().label().into(), Some(route_sub(s)), false, false));
         }
@@ -250,10 +288,12 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     let tw = (W - 2.0 * x0 - gap * (cols as f32 - 1.0)) / cols as f32;
     let th = if rows > 2 { 168.0 } else { 190.0 };
     let share_blocked = !guest && s.share.is_none() && app.share_avail().is_some_and(|a| a != ShareAvail::Available);
+    let lend_blocked = !guest && app.lend_avail().is_some_and(|a| a != crate::app::LendAvail::Available);
     for (i, (item, icon, title, sub, danger, on)) in tiles.iter().enumerate() {
         let (c, r) = (i % cols, i / cols);
         let rect = Rect::new(x0 + c as f32 * (tw + gap), y0 + r as f32 * (th + gap), tw, th);
-        widgets::tile(cv, f, Target::Menu(*item), rect, *icon, title, sub.as_deref(), *danger, *on, *item == MenuItem::Share && share_blocked);
+        let dim = (*item == MenuItem::Share && share_blocked) || (*item == MenuItem::Lend && lend_blocked);
+        widgets::tile(cv, f, Target::Menu(*item), rect, *icon, title, sub.as_deref(), *danger, *on, dim);
     }
 
     if s.game_hint {
