@@ -60,7 +60,7 @@ fn random_hex(bytes: usize) -> String {
 }
 
 /// Comparaison à temps constant.
-fn same(a: &str, b: &str) -> bool {
+pub fn same(a: &str, b: &str) -> bool {
     let (a, b) = (a.as_bytes(), b.as_bytes());
     !b.is_empty() && a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
@@ -452,6 +452,9 @@ impl Limits {
     /// Un mot de passe refusé pour ce compte.
     pub fn account_failed(&self, login: &str, now: Instant) {
         let mut accounts = self.accounts.lock().unwrap();
+        // Les comptes sans refus récent ni blocage en cours sont oubliés (la
+        // table ne grossit pas avec des identifiants inventés).
+        accounts.retain(|_, s| s.until.is_some_and(|u| u > now) || s.failures.back().is_some_and(|t| now.saturating_duration_since(*t) < FRIEND_LOCK_WINDOW));
         let s = accounts.entry(login.to_string()).or_default();
         while s.failures.front().is_some_and(|t| now.saturating_duration_since(*t) >= FRIEND_LOCK_WINDOW) {
             s.failures.pop_front();
@@ -565,11 +568,24 @@ impl Who {
         }
     }
 
-    /// Le même ami qui revient : même appareil, même compte, ou même code.
+    /// Le même ami qui redemande : même appareil, même compte, ou même code.
     fn same_as(&self, other: &Who) -> bool {
         (!self.device.is_empty() && self.device == other.device)
             || (self.friend.is_some() && self.friend == other.friend)
             || (self.code.is_some() && self.code == other.code)
+    }
+
+    /// Peut reprendre ce prêt : la même preuve (le code d'un prêt par code, le
+    /// compte, vérifié, d'un prêt d'ami), et le même appareil ou un ami qui
+    /// n'est plus connecté (le même appareil relancé, ou un retour).
+    fn may_resume(&self, other: &Who, connected: bool) -> bool {
+        let proof = match (&self.friend, &self.code) {
+            (Some(friend), _) => other.friend.as_ref() == Some(friend),
+            (None, Some(code)) => other.code.as_deref().is_some_and(|c| same(c, code)),
+            (None, None) => false,
+        };
+        let device = !self.device.is_empty() && self.device == other.device;
+        proof && (device || !connected)
     }
 }
 
@@ -785,7 +801,8 @@ impl Lending {
     /// nouveau secret (et cookie). `None` : pas lui.
     pub fn resume(&self, who: &Who) -> Option<Loan> {
         let mut s = self.state.lock().unwrap();
-        let loan = s.loan.as_mut().filter(|l| l.phase != Phase::Ending && l.who.same_as(who))?;
+        // Seulement un prêt commencé : pendant sa préparation, ni jeton ni secret.
+        let loan = s.loan.as_mut().filter(|l| l.phase == Phase::Lent && l.who.may_resume(who, l.connected))?;
         loan.secret = random_hex(32);
         loan.cookie = who.browser.then(|| random_hex(32));
         loan.who.via_relay = who.via_relay;
@@ -796,10 +813,21 @@ impl Lending {
         Some(loan.clone())
     }
 
+    /// Le prêt de cet ami encore en préparation (il redemande avant la fin de
+    /// la préparation) : son identifiant, à attendre avant de le reprendre.
+    pub fn preparing_for(&self, who: &Who) -> Option<String> {
+        let s = self.state.lock().unwrap();
+        s.loan.as_ref().filter(|l| l.phase == Phase::Preparing && l.who.may_resume(who, false)).map(|l| l.id.clone())
+    }
+
     /// Un prêt (ou une reprise de la demande) qui démarre pour `who`. Un code
-    /// est consommé ici (une séance).
-    pub fn begin(&self, who: Who, until: Option<u64>, steam: Steam, request: Option<(String, String)>) -> Loan {
+    /// est consommé ici (une séance). `None` : un prêt est déjà là (deux
+    /// emprunts en même temps, un créneau) ; vérifié sous le même verrou.
+    pub fn begin(&self, who: Who, until: Option<u64>, steam: Steam, request: Option<(String, String)>) -> Option<Loan> {
         let mut s = self.state.lock().unwrap();
+        if s.loan.is_some() {
+            return None;
+        }
         if let Some(code) = &who.code
             && s.code.as_ref().is_some_and(|c| &c.code == code)
         {
@@ -831,7 +859,7 @@ impl Lending {
         }
         drop(s);
         self.notify();
-        loan
+        Some(loan)
     }
 
     /// Une demande en attente de l'hôte (ou d'un créneau, accordée à `auto_at`).
@@ -905,7 +933,19 @@ impl Lending {
             s.requests.iter().find(|r| r.id == id && r.accepted).cloned()
         }?;
         let until = until.or(request.until).or(request.duration.map(|d| now_secs() + d));
-        Some(self.begin(request.who.clone(), until, request.steam, Some((request.id.clone(), request.secret.clone()))))
+        self.begin(request.who.clone(), until, request.steam, Some((request.id.clone(), request.secret.clone())))
+    }
+
+    /// Les demandes d'un compte d'ami coupé.
+    pub fn drop_requests_of(&self, friend: &str) {
+        let mut s = self.state.lock().unwrap();
+        let before = s.requests.len();
+        s.requests.retain(|r| r.who.friend.as_deref() != Some(friend));
+        let gone = s.requests.len() != before;
+        drop(s);
+        if gone {
+            self.notify();
+        }
     }
 
     /// L'ami annule sa demande (`leave` avec le secret de la demande).
@@ -1261,15 +1301,33 @@ mod tests {
         let found = lending.take_code(&code.code).unwrap();
         let mut w = who("Léa", "ipad");
         w.code = Some(found.code.clone());
-        let loan = lending.begin(w, Some(now_secs() + 7200), found.steam, None);
+        let loan = lending.begin(w, Some(now_secs() + 7200), found.steam, None).unwrap();
         assert!(lending.code().is_none(), "consommé");
         assert!(lending.take_code(&code.code).is_none());
-        // Le même code ramène au même prêt pendant 15 min.
-        let mut back = who("Léa", "autre-appareil");
-        back.code = Some(code.code.clone());
-        let resumed = lending.resume(&back).unwrap();
+        // Un autre emprunt pendant ce temps (deux en même temps, un créneau) : refusé.
+        assert!(lending.begin(who("Max", "tv"), None, Steam::Friend, None).is_none());
+        // Pendant la préparation : ni reprise, ni jeton ; l'ami attend.
+        let mut same = who("Léa", "ipad");
+        same.code = Some(code.code.clone());
+        assert!(lending.resume(&same).is_none());
+        assert_eq!(lending.preparing_for(&same), Some(loan.id.clone()));
+        lending.console_ready(Some(&loan.id)).unwrap();
+        // Le même appareil, avec le code : son prêt, avec un nouveau secret.
+        let resumed = lending.resume(&same).unwrap();
         assert_eq!(resumed.id, loan.id);
         assert_ne!(resumed.secret(), loan.secret());
+        // Le bon appareil sans le code, ou le code depuis un autre appareil pendant qu'il joue : non.
+        assert!(lending.resume(&who("Léa", "ipad")).is_none());
+        let mut other = who("Léa", "autre-appareil");
+        other.code = Some(code.code.clone());
+        assert!(lending.resume(&other).is_none());
+        let mut wrong = who("Léa", "ipad");
+        wrong.code = Some("000000".into());
+        assert!(lending.resume(&wrong).is_none());
+        // L'ami parti (plus de signe de vie) : le code le ramène, d'un autre appareil aussi.
+        lending.age_loan_beat(Duration::from_secs(60));
+        lending.tick(Instant::now(), now_secs());
+        assert_eq!(lending.resume(&other).unwrap().id, loan.id);
         assert!(lending.is_lend_code(&code.code));
     }
 
@@ -1316,7 +1374,7 @@ mod tests {
     fn preavis_puis_fin() {
         let lending = Lending::new();
         let now = now_secs();
-        let loan = lending.begin(who("Léa", "ipad"), Some(now + 600), Steam::Friend, None);
+        let loan = lending.begin(who("Léa", "ipad"), Some(now + 600), Steam::Friend, None).unwrap();
         lending.console_ready(Some(&loan.id));
         assert!(lending.tick(Instant::now(), now).end.is_none());
         // Deux minutes avant la fin : le préavis.
@@ -1339,15 +1397,36 @@ mod tests {
     #[test]
     fn l_ami_peut_revenir_quinze_minutes() {
         let lending = Lending::new();
-        let loan = lending.begin(who("Léa", "ipad"), None, Steam::Friend, None);
+        let mut lea = who("Léa", "ipad");
+        lea.kind = Kind::Friend;
+        lea.friend = Some("f1".into());
+        let loan = lending.begin(lea.clone(), None, Steam::Friend, None).unwrap();
         lending.console_ready(Some(&loan.id));
         lending.age_loan_beat(Duration::from_secs(60));
         let tick = lending.tick(Instant::now(), now_secs());
         assert!(tick.end.is_none());
         assert!(!lending.loan().unwrap().connected, "son image s'arrête");
-        assert!(lending.resume(&who("Léa", "ipad")).is_some());
+        // Son compte (vérifié par l'appelant), même d'un autre appareil ; un autre compte, non.
+        let mut tv = lea.clone();
+        tv.device = "tv".into();
+        assert!(lending.resume(&tv).is_some());
+        let mut max = tv.clone();
+        max.friend = Some("f2".into());
+        assert!(lending.resume(&max).is_none());
         lending.age_loan_beat(COMEBACK);
         assert_eq!(lending.tick(Instant::now(), now_secs()).end, Some((loan.id, Reason::Stopped)));
+    }
+
+    #[test]
+    fn les_refus_anciens_sont_oublies() {
+        let limits = Limits::default();
+        let t0 = Instant::now();
+        for i in 0..50 {
+            limits.account_failed(&format!("invente{i}"), t0);
+        }
+        assert_eq!(limits.accounts.lock().unwrap().len(), 50);
+        limits.account_failed("lea", t0 + FRIEND_LOCK_WINDOW + Duration::from_secs(1));
+        assert_eq!(limits.accounts.lock().unwrap().len(), 1);
     }
 
     #[test]
@@ -1374,7 +1453,7 @@ mod tests {
         let mut w = who("Léa", "chrome");
         w.app = "web".into();
         w.browser = true;
-        let loan = lending.begin(w, None, Steam::Friend, None);
+        let loan = lending.begin(w, None, Steam::Friend, None).unwrap();
         let cookie = loan.cookie().unwrap().to_string();
         assert!(lending.cookie_valid(&cookie));
         assert!(set_cookie(&cookie, true, true).starts_with("__Host-kybernow_lend="));

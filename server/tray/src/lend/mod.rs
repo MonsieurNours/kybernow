@@ -254,6 +254,12 @@ impl Machine {
         self.begun && !self.torn_down
     }
 
+    /// La mise en place a échoué : jamais de `ready` (l'agent le revérifie
+    /// juste avant de l'envoyer).
+    pub fn broken(&self) -> bool {
+        self.broken
+    }
+
     /// Un envoi ou une étape a échoué : à refaire au prochain relevé.
     pub fn retry(&mut self, step: Step) {
         match step {
@@ -291,9 +297,14 @@ impl Machine {
         };
         self.silent_since = None;
         let Some(view) = view else {
+            // Plus de prêt (fini, ou Admin redémarré en plein prêt) : remise en
+            // état, puis la session se verrouille si l'agent était en place.
             if self.dirty && !self.torn_down {
                 steps.push(Step::TearDown);
                 self.torn_down = true;
+            }
+            if self.dirty {
+                steps.push(Step::Lock);
             }
             steps.push(Step::Exit);
             return steps;
@@ -313,7 +324,10 @@ impl Machine {
                     // à refaire, Admin conclura.
                     return steps;
                 }
-                if !self.begun {
+                // `ready` jamais dans le même relevé que la mise en place : elle
+                // peut échouer (Steam), et `ready` ne part qu'une fois qu'elle a réussi.
+                let begins = !self.begun;
+                if begins {
                     steps.push(Step::Begin);
                     self.begun = true;
                     self.dirty = true;
@@ -323,7 +337,7 @@ impl Machine {
                     steps.push(Step::Show);
                     self.shown = true;
                 }
-                if view.phase == Phase::Preparing && self.shown && !self.ready_sent && !self.broken {
+                if view.phase == Phase::Preparing && self.shown && !self.ready_sent && !self.broken && !begins {
                     steps.push(Step::Ready);
                     self.ready_sent = true;
                 }
@@ -512,16 +526,24 @@ const VK_RETURN: u32 = 0x0D;
 const VK_ESCAPE: u32 = 0x1B;
 const VK_LWIN: u32 = 0x5B;
 const VK_RWIN: u32 = 0x5C;
+const VK_SLEEP: u32 = 0x5F;
+/// Les touches du navigateur, du son, des médias, du courrier et « Lancer
+/// l'app 1 et 2 » (VK_BROWSER_BACK à VK_LAUNCH_APP2) : Windows les sert
+/// lui-même (Explorateur, navigateur, courrier), hors des apps permises.
+const VK_SHELL_KEYS: std::ops::RangeInclusive<u32> = 0xA6..=0xB7;
 
 /// Le crochet clavier laisse-t-il passer cette touche ? L'entrée physique
 /// (clavier du PC) jamais ; l'entrée injectée (Kyber, l'ami) oui, sauf les
-/// touches Windows, Alt+Tab, Alt+Échap, Ctrl+Échap et Ctrl+Maj+Échap.
+/// touches Windows, Alt+Tab, Alt+Échap, Ctrl+Échap et Ctrl+Maj+Échap, la
+/// mise en veille, et les touches du navigateur, des médias, du courrier et
+/// des apps (« Lancer l'app 1 » ouvre « Ce PC » dans l'Explorateur déjà là).
 pub fn keep(injected: bool, vk: u32, mods: Mods) -> bool {
     if !injected {
         return false;
     }
     match vk {
-        VK_LWIN | VK_RWIN => false,
+        VK_LWIN | VK_RWIN | VK_SLEEP => false,
+        vk if VK_SHELL_KEYS.contains(&vk) => false,
         VK_TAB => !mods.alt,
         VK_ESCAPE => !(mods.alt || mods.ctrl),
         _ => true,
@@ -716,7 +738,36 @@ mod tests {
         assert_eq!(m.next(&view("ending", true), at(8)), [Step::TearDown, Step::Ended]);
         m.retry(Step::Ended);
         assert_eq!(m.next(&view("ending", true), at(9)), [Step::Ended]);
-        assert_eq!(m.next(&view("idle", false), at(10)), [Step::Exit]);
+        // Admin a conclu : la session se verrouille (déjà fait par Admin, sans effet de plus).
+        assert_eq!(m.next(&view("idle", false), at(10)), [Step::Lock, Step::Exit]);
+    }
+
+    #[test]
+    fn jamais_pret_dans_le_releve_de_la_mise_en_place() {
+        let t0 = Instant::now();
+        // L'écran déjà là au premier relevé : mise en place et lanceur, `ready` au suivant.
+        let mut m = Machine::new(false);
+        assert_eq!(m.next(&view("preparing", true), t0), [Step::Begin, Step::Show]);
+        assert_eq!(m.next(&view("preparing", true), t0), [Step::Ready]);
+        // La mise en place échoue (Steam) : jamais de `ready`.
+        let mut m = Machine::new(false);
+        assert_eq!(m.next(&view("preparing", true), t0), [Step::Begin, Step::Show]);
+        m.retry(Step::Begin);
+        assert!(m.broken());
+        assert_eq!(m.next(&view("preparing", true), t0), []);
+        assert_eq!(m.next(&view("preparing", true), t0), []);
+    }
+
+    #[test]
+    fn admin_redemarre_en_plein_pret() {
+        let t0 = Instant::now();
+        let mut m = Machine::new(false);
+        m.next(&view("lent", true), t0);
+        // Admin redémarré ne connaît plus le prêt : remise en état et verrouillage.
+        assert_eq!(m.next(&view("idle", false), t0), [Step::TearDown, Step::Lock, Step::Exit]);
+        let mut m = Machine::new(false);
+        m.next(&view("lent", true), t0);
+        assert_eq!(m.next(&Reply::Gone, t0), [Step::TearDown, Step::Lock, Step::Exit]);
     }
 
     #[test]
@@ -734,10 +785,13 @@ mod tests {
         assert_eq!(m.next(&Reply::Silent, at(60)), [Step::Exit]);
         // Un état laissé par un agent tombé, et plus de prêt : remise en état, sortie.
         let mut m = Machine::new(true);
-        assert_eq!(m.next(&Reply::Gone, at(0)), [Step::TearDown, Step::Exit]);
+        assert_eq!(m.next(&Reply::Gone, at(0)), [Step::TearDown, Step::Lock, Step::Exit]);
         // Agent relancé en plein prêt : il se remet en place, sans « prêt ».
         let mut m = Machine::new(true);
         assert_eq!(m.next(&view("lent", true), at(0)), [Step::Begin, Step::Show, Step::Beat]);
+        // Pas d'écran au premier relevé : rien d'autre que la mise en place.
+        let mut m = Machine::new(false);
+        assert_eq!(m.next(&view("preparing", false), at(0)), [Step::Begin]);
         // Fin sans mise en place : la remise en état (de l'état laissé), puis « fini ».
         let mut m = Machine::new(true);
         assert_eq!(m.next(&view("ending", false), at(0)), [Step::TearDown, Step::Ended]);
@@ -760,7 +814,8 @@ mod tests {
         m.next(&view("lent", true), t0);
         let Reply::View(mut other) = view("preparing", true) else { panic!() };
         other.lend = "l2".into();
-        assert_eq!(m.next(&Reply::View(other), t0), [Step::TearDown, Step::Begin, Step::Show, Step::Ready]);
+        assert_eq!(m.next(&Reply::View(other.clone()), t0), [Step::TearDown, Step::Begin, Step::Show]);
+        assert_eq!(m.next(&Reply::View(other), t0), [Step::Ready]);
     }
 
     #[test]
@@ -839,6 +894,11 @@ mod tests {
         assert!(!keep(true, VK_TAB, alt));
         assert!(!keep(true, VK_ESCAPE, alt));
         assert!(!keep(true, VK_ESCAPE, ctrl));
+        // Navigateur (0xA6), muet (0xAD), courrier (0xB4), « Lancer l'app 1 » (0xB6), veille.
+        for vk in [0xA6, 0xAD, 0xB4, 0xB6, 0xB7, VK_SLEEP] {
+            assert!(!keep(true, vk, none), "{vk:#x}");
+        }
+        assert!(keep(true, 0xA5 /* Alt droit */, none) && keep(true, 0xBA /* ; */, none));
         assert!(!keep(true, VK_ESCAPE, ctrl_shift));
         assert_eq!(cover_key_of(false, VK_RETURN), Some(CoverKey::Enter));
         assert_eq!(cover_key_of(false, VK_ESCAPE), Some(CoverKey::Escape));

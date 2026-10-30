@@ -247,13 +247,80 @@ fn loan_answer(s: &AppState, loan: &lend::Loan, via: Option<&Via>) -> Response {
 /// La surveillance des processus du prêt en cours, et ses règles.
 static WATCH: Mutex<Option<(lend_sys::Watch, lend_sys::Rules)>> = Mutex::new(None);
 
+/// Le prêt existe encore et ne finit pas (repris, rendu, prêt coupé pendant
+/// sa préparation : elle s'arrête là).
+fn alive(s: &AppState, id: &str) -> bool {
+    s.lend.loan().is_some_and(|l| l.id == id && l.phase != lend::Phase::Ending)
+}
+
+/// Repère d'un prêt en cours, dans le dossier de données : un Admin arrêté
+/// en plein prêt le retrouve à son démarrage ([`recover`]).
+const ACTIVE_FILE: &str = "lend-active";
+#[cfg(not(test))]
+const RECOVER_TRIES: u32 = 30;
+#[cfg(test)]
+const RECOVER_TRIES: u32 = 1;
+
+/// Un prêt arrêté pendant sa préparation, et déjà remis en état : son repère part.
+fn abandoned(s: &AppState, id: &str) -> bool {
+    if s.lend.loan().is_none_or(|l| l.id != id) {
+        let _ = std::fs::remove_file(s.data_dir.join(ACTIVE_FILE));
+    }
+    false
+}
+
+/// Au démarrage d'Admin, un prêt laissé en plein milieu (Admin arrêté ou
+/// tombé) : la session se verrouille et l'ami est coupé de Kyber ; l'agent de
+/// console, lui, se remet en état en trouvant Admin sans prêt.
+pub async fn recover(s: &AppState) {
+    let path = s.data_dir.join(ACTIVE_FILE);
+    if !path.exists() {
+        return;
+    }
+    tracing::warn!("prêt : Admin redémarré en plein prêt : session verrouillée, ami coupé de Kyber");
+    if let Err(e) = tokio::task::spawn_blocking(lend_sys::lock_session).await.unwrap_or_else(|e| Err(anyhow::anyhow!("{e}"))) {
+        tracing::warn!("prêt : session non verrouillée : {e:#}");
+    }
+    // Kyber démarre peut-être encore : jusqu'à une minute.
+    for attempt in 0..RECOVER_TRIES {
+        if let Ok((status, v)) = crate::kyber_proxy::kyber_call(s, Method::GET, "/kybernow/sessions", None).await
+            && status.is_success()
+        {
+            let mut users: Vec<String> = v["sessions"].as_array().into_iter().flatten().filter_map(|x| x["user"].as_str()).filter(|u| u.starts_with("kn-lend-")).map(str::to_owned).collect();
+            users.dedup();
+            for user in users {
+                let body = json!({ "user": user, "ban_seconds": KYBER_BAN_SECONDS });
+                let _ = crate::kyber_proxy::kyber_call(s, Method::POST, "/kybernow/close", Some(body)).await;
+            }
+            break;
+        }
+        if attempt + 1 < RECOVER_TRIES {
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        }
+    }
+    let _ = std::fs::remove_file(&path);
+}
+
+/// La dernière fois qu'une entrée venait de loin (session d'un appareil,
+/// partage, prêt) : relevé chaque seconde par la surveillance du prêt.
+static REMOTE_SEEN: Mutex<Option<Instant>> = Mutex::new(None);
+
 /// L'ordinateur est-il utilisé (session d'un appareil, partage, quelqu'un
-/// devant depuis moins de 5 minutes) ?
+/// devant depuis moins de 5 minutes) ? `GetLastInputInfo` compte aussi
+/// l'entrée injectée par Kyber : une entrée d'avant la fin de la dernière
+/// session à distance n'est pas quelqu'un devant le PC.
 async fn in_use(s: &AppState) -> bool {
     if s.activity.live().is_some() || s.share.is_open() {
         return true;
     }
-    tokio::task::spawn_blocking(lend_sys::idle_secs).await.ok().flatten().is_some_and(|idle| idle < PRESENT)
+    let remote_ago = REMOTE_SEEN.lock().unwrap().map(|t| t.elapsed().as_secs());
+    tokio::task::spawn_blocking(lend_sys::idle_secs).await.ok().flatten().is_some_and(|idle| present(idle, remote_ago))
+}
+
+/// Quelqu'un devant le PC : une entrée de moins de 5 minutes, plus récente
+/// (de 2 s au moins) que la fin de la dernière session à distance.
+fn present(idle: u64, remote_ago: Option<u64>) -> bool {
+    idle < PRESENT && remote_ago.is_none_or(|ago| idle + 2 < ago)
 }
 
 /// Prépare le prêt : la session de l'hôte se ferme, un partage s'arrête,
@@ -262,6 +329,10 @@ async fn in_use(s: &AppState) -> bool {
 async fn prepare(s: &AppState, loan: lend::Loan) -> bool {
     tracing::info!("prêt : préparation pour {} ({:?})", loan.who.name, loan.who.kind);
     let begun = tokio::time::Instant::now();
+    if !alive(s, &loan.id) {
+        return false;
+    }
+    let _ = std::fs::write(s.data_dir.join(ACTIVE_FILE), &loan.id);
     // La session de l'hôte : on lui demande de finir (7 s), puis on la ferme.
     if s.activity.live().is_some() {
         s.activity.request_end();
@@ -299,6 +370,18 @@ async fn prepare(s: &AppState, loan: lend::Loan) -> bool {
             return false;
         }
     };
+    // Arrêté pendant que l'écran se créait : la remise en état est peut-être
+    // déjà passée, l'écran et le son se retirent ici.
+    if !alive(s, &loan.id) {
+        let (d, a) = (s.display.clone(), s.audio.clone());
+        let _ = blocking(move || {
+            d.stop("prêt arrêté pendant sa préparation");
+            a.stop("prêt arrêté pendant sa préparation");
+            Ok(())
+        })
+        .await;
+        return abandoned(s, &loan.id);
+    }
     s.lend.set_display(&loan.id, display.0, display.1);
     // Le mode console : l'agent dans la session de l'utilisateur, la surveillance par Admin.
     let settings = settings(s);
@@ -311,8 +394,19 @@ async fn prepare(s: &AppState, loan: lend::Loan) -> bool {
     .await
     .ok()
     .flatten();
-    *WATCH.lock().unwrap() = watch;
+    {
+        // Vérifié sous le verrou de WATCH : la remise en état le prend après
+        // avoir fait finir le prêt, une surveillance ne lui échappe jamais.
+        let mut slot = WATCH.lock().unwrap();
+        if !alive(s, &loan.id) {
+            return abandoned(s, &loan.id); // `watch` lâché : sa surveillance s'arrête.
+        }
+        *slot = watch;
+    }
     if cfg!(windows) {
+        if !alive(s, &loan.id) {
+            return abandoned(s, &loan.id);
+        }
         if let Err(e) = tokio::task::spawn_blocking(lend_sys::spawn_console).await.unwrap_or_else(|e| Err(anyhow::anyhow!("{e}"))) {
             tracing::warn!("prêt : agent de console impossible : {e:#}");
             return false;
@@ -393,6 +487,7 @@ pub async fn finish(s: &AppState, id: &str, reason: Reason) {
     })
     .await;
     s.lend.ended(&loan.id, reason);
+    let _ = std::fs::remove_file(s.data_dir.join(ACTIVE_FILE));
     match reason {
         Reason::Left => s.activity.event("info", Msg::new("events.lendGivenBack").with("name", loan.who.name.as_str())),
         Reason::TakenBack => s.activity.event("info", Msg::new("events.lendTakenBack")),
@@ -514,9 +609,9 @@ pub async fn borrow(
     let mut slot = false;
     if let Some(code) = body.code.as_deref().map(|c| c.chars().filter(|c| !c.is_whitespace()).collect::<String>()) {
         who.code = Some(code.clone());
-        // Le même ami qui revient pendant le prêt (15 min).
-        if let Some(loan) = s.lend.resume(&who) {
-            return loan_answer(&s, &loan, via.as_ref());
+        // Le même ami qui revient pendant le prêt (15 min), avec son code.
+        if let Some(res) = come_back(&s, &who, via.as_ref()).await {
+            return res;
         }
         let Some(c) = s.lend.take_code(&code) else { return friend_error(StatusCode::NOT_FOUND, "no_code") };
         until = c.duration.map(|d| now_secs() + d);
@@ -530,8 +625,8 @@ pub async fn borrow(
         who.kind = Kind::Friend;
         who.friend = Some(friend.id.clone());
         who.name = friend.name.clone();
-        if let Some(loan) = s.lend.resume(&who) {
-            return loan_answer(&s, &loan, via.as_ref());
+        if let Some(res) = come_back(&s, &who, via.as_ref()).await {
+            return res;
         }
         match lend::slot_now(&friend.slots, LocalTime::now()) {
             Some(end) => {
@@ -575,7 +670,8 @@ pub async fn borrow(
         let answer = json!({ "request": request.id, "secret": request.secret(), "host": host, "computer": hostname() });
         return (StatusCode::ACCEPTED, [(header::CACHE_CONTROL, "no-store")], Json(answer)).into_response();
     }
-    let loan = s.lend.begin(who, until, steam, None);
+    // Deux emprunts en même temps : un seul prêt.
+    let Some(loan) = s.lend.begin(who, until, steam, None) else { return friend_error(StatusCode::CONFLICT, "lent") };
     if prepare(&s, loan.clone()).await {
         match s.lend.loan().filter(|l| l.id == loan.id) {
             Some(l) => loan_answer(&s, &l, via.as_ref()),
@@ -585,6 +681,29 @@ pub async fn borrow(
         finish(&s, &loan.id, Reason::Stopped).await;
         friend_error(StatusCode::SERVICE_UNAVAILABLE, "off")
     }
+}
+
+/// Le même ami qui revient (15 min) : son prêt, s'il a la même preuve (le
+/// code, ou son compte vérifié) et le même appareil, ou s'il n'était plus
+/// connecté. Encore en préparation : il attend qu'elle finisse.
+async fn come_back(s: &AppState, who: &Who, via: Option<&Via>) -> Option<Response> {
+    if let Some(id) = s.lend.preparing_for(who) {
+        let deadline = tokio::time::Instant::now() + PREPARE_WAIT;
+        loop {
+            let changed = s.lend.changed();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            match s.lend.loan() {
+                Some(l) if l.id == id && l.phase == lend::Phase::Preparing => {}
+                _ => break,
+            }
+            if tokio::time::timeout_at(deadline, changed).await.is_err() {
+                return Some(friend_error(StatusCode::SERVICE_UNAVAILABLE, "off"));
+            }
+        }
+    }
+    let loan = s.lend.resume(who)?;
+    Some(loan_answer(s, &loan, via))
 }
 
 #[derive(Deserialize)]
@@ -671,7 +790,7 @@ pub async fn leave(State(s): State<AppState>, headers: HeaderMap, via: Option<ax
         Json(json!({ "ok": true })).into_response()
     } else {
         let id = body.lend.unwrap_or_default();
-        match s.lend.loan().filter(|l| l.id == id && l.secret() == secret) {
+        match s.lend.loan().filter(|l| l.id == id && lend::same(&secret, l.secret())) {
             Some(loan) => {
                 spawn_finish(&s, loan.id.clone(), Reason::Left);
                 Json(json!({ "ok": true })).into_response()
@@ -934,6 +1053,13 @@ pub async fn friend_update(State(s): State<AppState>, Path(id): Path<String>, Js
         None => None,
     };
     let friend = s.friends.update(&id, &body, hash)?.ok_or_else(|| LendError::new(StatusCode::NOT_FOUND, "unknown_friend", Msg::new("lend.unknownFriend")))?;
+    // Compte coupé : son prêt en cours s'arrête, sa demande part.
+    if !friend.enabled {
+        if let Some(loan) = s.lend.loan().filter(|l| l.who.friend.as_deref() == Some(friend.id.as_str())) {
+            spawn_finish(&s, loan.id, Reason::Stopped);
+        }
+        s.lend.drop_requests_of(&friend.id);
+    }
     Ok(Json(friend.json()))
 }
 
@@ -1182,6 +1308,8 @@ pub async fn console_icon(State(s): State<AppState>, ConnectInfo(peer): ConnectI
 /// fins, écran virtuel gardé en vie, agent de console surveillé, veille de
 /// Windows empêchée tant que le prêt est activé.
 pub fn supervise(s: AppState) {
+    let r = s.clone();
+    tokio::spawn(async move { recover(&r).await });
     tokio::spawn(async move {
         let mut tick = tokio::time::interval(Duration::from_secs(1));
         loop {
@@ -1193,6 +1321,9 @@ pub fn supervise(s: AppState) {
 
 async fn supervise_tick(s: &AppState) {
     lend_sys::keep_awake(enabled(s));
+    if s.activity.live().is_some() || s.share.is_open() || s.lend.loan().is_some() {
+        *REMOTE_SEEN.lock().unwrap() = Some(Instant::now());
+    }
     let tick = s.lend.tick(Instant::now(), now_secs());
     for name in &tick.expired {
         tracing::info!("prêt : demande de {name} sans réponse");
@@ -1220,6 +1351,14 @@ async fn supervise_tick(s: &AppState) {
             tracing::warn!("prêt : l'agent de console ne répond plus, prêt arrêté");
             spawn_finish(s, loan.id, Reason::Stopped);
         }
+    }
+    // La session Windows verrouillée en plein prêt (Ctrl+Alt+Suppr au clavier
+    // du PC, agent tombé) : le prêt s'arrête.
+    if let Some(loan) = s.lend.loan().filter(|l| l.phase == lend::Phase::Lent)
+        && tokio::task::spawn_blocking(lend_sys::session_state).await.is_ok_and(|st| st == SessionState::Locked)
+    {
+        tracing::warn!("prêt : session Windows verrouillée, prêt arrêté");
+        spawn_finish(s, loan.id, Reason::Stopped);
     }
     let ending = tick.end.is_some();
     if let Some((id, reason)) = tick.end {
@@ -1272,6 +1411,35 @@ mod tests {
         let mut h = HeaderMap::new();
         h.insert(LEND_HEADER, secret.parse().unwrap());
         h
+    }
+
+    #[tokio::test]
+    async fn un_pret_laisse_par_un_admin_arrete() {
+        let (s, dir) = station();
+        let Json(view) = local_code(State(s.clone()), local(), admin(&s), Bytes::new()).await.ok().unwrap();
+        let code = view["code"]["code"].as_str().unwrap().to_string();
+        let (status, lent) = body(borrow(State(s.clone()), peer(50), None, borrow_code(&code, "Léa", "ipad")).await).await;
+        assert_eq!(status, StatusCode::OK, "{lent}");
+        // Pendant le prêt, le repère est là ; à la fin, il part.
+        assert!(dir.join(ACTIVE_FILE).exists());
+        finish(&s, lent["lend"].as_str().unwrap(), Reason::Left).await;
+        assert!(!dir.join(ACTIVE_FILE).exists());
+        // Admin arrêté en plein prêt : au démarrage, session verrouillée, ami coupé, repère parti.
+        std::fs::write(dir.join(ACTIVE_FILE), "l1").unwrap();
+        recover(&s).await;
+        assert!(!dir.join(ACTIVE_FILE).exists());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn quelqu_un_devant_le_pc() {
+        // Aucune session à distance connue : l'entrée de moins de 5 min compte.
+        assert!(present(10, None));
+        assert!(!present(PRESENT, None));
+        // La session de l'hôte finie il y a 60 s, dernière entrée il y a 70 s : la sienne, à distance.
+        assert!(!present(70, Some(60)));
+        // Une entrée après la fin de la session : quelqu'un devant le PC.
+        assert!(present(20, Some(60)));
     }
 
     #[tokio::test]

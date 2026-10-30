@@ -164,7 +164,10 @@ unsafe extern "system" fn mouse(code: i32, wparam: WPARAM, lparam: LPARAM) -> LR
 }
 
 /// Les crochets bas niveau, sur leur propre fil (avec sa boucle de messages :
-/// Windows retire un crochet qui tarde à répondre).
+/// Windows retire sans rien dire un crochet qui tarde à répondre, au-delà de
+/// `LowLevelHooksTimeout`). Le fil passe en priorité « temps critique », et
+/// les crochets sont reposés toutes les 3 s (les nouveaux d'abord, puis les
+/// anciens retirés : jamais de trou).
 pub struct Hooks {
     thread: u32,
     join: Option<JoinHandle<()>>,
@@ -176,23 +179,42 @@ impl Hooks {
         let _ = KEY_SINK.set(Box::new(sink));
         let (tx, rx) = mpsc::channel();
         let join = std::thread::spawn(move || unsafe {
+            use windows_sys::Win32::System::Threading::{GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_TIME_CRITICAL};
+            use windows_sys::Win32::UI::WindowsAndMessaging::{KillTimer, SetTimer, WM_TIMER};
+            SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
             let mut msg: MSG = std::mem::zeroed();
             // File de messages créée avant d'annoncer le fil (PostThreadMessage).
             PeekMessageW(&mut msg, null_mut(), 0, 0, PM_NOREMOVE);
             let module = GetModuleHandleW(null());
-            let kb: HHOOK = SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard), module, 0);
-            let ms: HHOOK = SetWindowsHookExW(WH_MOUSE_LL, Some(mouse), module, 0);
-            let _ = tx.send((GetCurrentThreadId(), !kb.is_null() && !ms.is_null()));
+            let set = || (SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard), module, 0), SetWindowsHookExW(WH_MOUSE_LL, Some(mouse), module, 0));
+            let unset = |(kb, ms): (HHOOK, HHOOK)| {
+                if !kb.is_null() {
+                    UnhookWindowsHookEx(kb);
+                }
+                if !ms.is_null() {
+                    UnhookWindowsHookEx(ms);
+                }
+            };
+            let mut hooks: (HHOOK, HHOOK) = set();
+            let _ = tx.send((GetCurrentThreadId(), !hooks.0.is_null() && !hooks.1.is_null()));
+            let timer = SetTimer(null_mut(), 0, 3000, None);
             while GetMessageW(&mut msg, null_mut(), 0, 0) > 0 {
+                if msg.message == WM_TIMER && msg.hwnd.is_null() {
+                    // Reposés : un crochet retiré par Windows revient ; les
+                    // nouveaux d'abord, les anciens ensuite (pas de trou).
+                    let fresh = set();
+                    if !fresh.0.is_null() && !fresh.1.is_null() {
+                        unset(std::mem::replace(&mut hooks, fresh));
+                    } else {
+                        unset(fresh);
+                    }
+                    continue;
+                }
                 TranslateMessage(&msg);
                 DispatchMessageW(&msg);
             }
-            if !kb.is_null() {
-                UnhookWindowsHookEx(kb);
-            }
-            if !ms.is_null() {
-                UnhookWindowsHookEx(ms);
-            }
+            KillTimer(null_mut(), timer);
+            unset(hooks);
         });
         let (thread, ok) = rx.recv()?;
         let hooks = Hooks { thread, join: Some(join) };

@@ -173,8 +173,8 @@ pub fn run() -> i32 {
     {
         let proxy = proxy.clone();
         std::thread::spawn(move || {
-            Pilot::new(proxy.clone()).run();
-            send(&proxy, Ui::Exit);
+            let _guard = PilotGuard(proxy.clone());
+            Pilot::new(proxy).run();
         });
     }
     let data = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join(r"KyberNow\lend-webview");
@@ -195,6 +195,27 @@ pub fn run() -> i32 {
         Event::WindowEvent { event: WindowEvent::CloseRequested, .. } => {}
         _ => {}
     })
+}
+
+/// La fin du pilote, normale ou non : les fenêtres de l'agent se ferment. Un
+/// pilote tombé (panique) en plein prêt verrouille d'abord la session (l'ami
+/// ne voit rien de l'hôte), puis remet en état ce qui est noté sur le disque ;
+/// Admin, voyant la session verrouillée, arrête le prêt. Les crochets partent
+/// avec le pilote.
+struct PilotGuard(EventLoopProxy<Ev>);
+
+impl Drop for PilotGuard {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            system::log("pilote tombé : session verrouillée, remise en état");
+            let path = state_path();
+            if let Some(saved) = path.as_deref().and_then(store::load) {
+                system::lock_workstation();
+                finish(path.as_deref(), saved);
+            }
+        }
+        send(&self.0, Ui::Exit);
+    }
 }
 
 /// Au démarrage de l'icône : un état de prêt laissé sur le disque, sans
@@ -319,6 +340,8 @@ impl Pilot {
                                 machine.retry(Step::Show);
                             }
                         }
+                        // Revérifié ici : une mise en place ratée juste avant n'envoie jamais `ready`.
+                        (Step::Ready, _) if machine.broken() => {}
                         (Step::Ready, _) => {
                             if !self.post("ready", json!({})) {
                                 machine.retry(Step::Ready);
@@ -429,7 +452,13 @@ impl Pilot {
     fn begin(&mut self, v: &View) -> Result<()> {
         if let Some(old) = self.saved.take_if(|s| s.lend != v.lend) {
             system::log("état d'un autre prêt : remise en état d'abord");
-            finish(self.path.as_deref(), old);
+            if !finish(self.path.as_deref(), old) {
+                // Steam du prêt d'avant pas remis : ses fichiers sont encore de
+                // côté, son état reste sur le disque ; pas de nouveau prêt
+                // (jamais de `ready`), la remise en état sera retentée.
+                self.saved = self.path.as_deref().and_then(store::load);
+                anyhow::bail!("Steam d'un prêt d'avant pas remis : pas de nouveau prêt");
+            }
         }
         let resume = self.saved.is_some();
         system::log(&format!("mise en place du prêt {}{}", v.lend, if resume { " (reprise)" } else { "" }));
@@ -576,6 +605,11 @@ impl Pilot {
             if let Some(born) = self.born.as_mut() {
                 system::keep_on(d, born);
             }
+        }
+        // Une fenêtre de l'hôte qui revient (rappel, notification, « Parcourir
+        // les fichiers locaux ») : réduite de nouveau.
+        if let Some(saved) = &self.saved {
+            system::minimize_again(&saved.windows);
         }
         system::close_file_dialogs(&self.dialogs);
     }
