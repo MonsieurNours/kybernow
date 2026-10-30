@@ -1,5 +1,6 @@
 package fr.leslignesclaires.kybernow.session
 
+import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.graphics.Bitmap
 import android.os.Build
@@ -30,7 +31,14 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import fr.leslignesclaires.kybernow.KyberNowApp
 import fr.leslignesclaires.kybernow.R
+import fr.leslignesclaires.kybernow.core.BorrowAsk
+import fr.leslignesclaires.kybernow.core.BorrowReply
 import fr.leslignesclaires.kybernow.core.ConsoleClient
+import fr.leslignesclaires.kybernow.core.Lend
+import fr.leslignesclaires.kybernow.core.LendAvailable
+import fr.leslignesclaires.kybernow.core.LendRequest
+import fr.leslignesclaires.kybernow.core.LendView
+import fr.leslignesclaires.kybernow.core.Loan
 import fr.leslignesclaires.kybernow.core.FormFactor
 import fr.leslignesclaires.kybernow.core.Native
 import fr.leslignesclaires.kybernow.core.Relays
@@ -49,6 +57,7 @@ import fr.leslignesclaires.kybernow.model.Screen
 import fr.leslignesclaires.kybernow.model.ScreenMode
 import fr.leslignesclaires.kybernow.model.SessionMode
 import fr.leslignesclaires.kybernow.ui.KnTheme
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
@@ -69,12 +78,21 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         const val EXTRA_HOST = "host"
         /** Session d'invité (KyberNow Share) : la Station et ses jetons sont remis en mémoire par `KyberNowApp.handOverGuest`. */
         const val EXTRA_GUEST = "guest"
+        /** Session d'emprunt (prêt de l'ordinateur) : le prêt et sa demande sont remis en mémoire par `KyberNowApp.handOverLoan`. */
+        const val EXTRA_BORROW = "borrow"
     }
 
     private val app get() = KyberNowApp.instance
     private lateinit var host: Host
     /** KyberNow Share : la Station qui a accepté cet invité ; nul pour la session d'un ordinateur de l'appareil. */
     private var guest: ShareFound? = null
+    /** Prêt de l'ordinateur : le prêt accordé à cet ami, et la demande qui l'a obtenu (« Revenir ») ; nuls hors d'un emprunt. */
+    private var loan: Loan? = null
+    private var borrowAsk: BorrowAsk? = null
+    /** « Revenir » en cours (l'emprunt refait, l'attente de l'hôte). */
+    private var comeBackJob: Job? = null
+    /** La session de l'appareil sur un de ses ordinateurs : ni invité, ni emprunt. Elle seule partage et prête. */
+    private val hostSession get() = guest == null && loan == null
     private lateinit var state: SessionState
     private lateinit var ui: SessionUi
     private lateinit var surfaceView: SurfaceView
@@ -128,6 +146,16 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
                 id = "invite", name = found.computer, address = found.target.host, port = found.target.port,
                 fingerprint = found.target.fingerprint, user = "", virtualDisplay = false,
             )
+        } else if (intent.getBooleanExtra(EXTRA_BORROW, false)) {
+            // Un emprunt, comme un invité : rien n'est ajouté aux ordinateurs de l'appareil ni écrit ; réglages par défaut
+            // (profil Jeu). Remise perdue : pas de session (le prêt reste 15 min à la Station, l'ami peut y revenir).
+            val (l, ask) = app.takeLoan() ?: run { finish(); return }
+            loan = l
+            borrowAsk = ask
+            host = Host(
+                id = "pret", name = l.computer.ifBlank { l.host }, address = l.target.host, port = l.target.port,
+                fingerprint = l.target.fingerprint, user = "", virtualDisplay = false,
+            )
         } else {
             host = intent.getStringExtra(EXTRA_HOST)?.let { app.hosts.get(it) } ?: run { finish(); return }
         }
@@ -150,9 +178,13 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         }
         pads = PadRouter({ handle }, app.gamepads).apply { guide = host.settings.guide }
         remote = RemoteRouter { handle }
-        // Un invité : « Invité sur {nom} » (la connexion, le menu), la barre réduite.
-        val title = guest?.let { getString(R.string.share_guest_on, it.computer) } ?: host.name
-        ui = SessionUi(title, tv, state, this, OnScreenPad(onScreenOut), guest = guest != null, computerName = host.name).apply {
+        // Un invité : « Invité sur {nom} » (la connexion, le menu), la barre réduite. Un emprunt : « Ordinateur de {hôte} ».
+        val title = guest?.let { getString(R.string.share_guest_on, it.computer) } ?: loan?.let { getString(R.string.lend_card_title, it.host) } ?: host.name
+        ui = SessionUi(
+            title, tv, state, this, OnScreenPad(onScreenOut), guest = guest != null, computerName = host.name,
+            borrower = loan != null, lender = loan?.host ?: "", lendUntil = loan?.until,
+        ).apply {
+            lendWarning = !app.lendWarned
             profile = host.settings.profile
             mouseMode = host.settings.mouse
             directTouch = host.settings.directTouch
@@ -253,7 +285,10 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         val settings = settingsJson(ui.profile)
         val g = guest
         // Le même calcul que l'accueil (« Écran de … »). Un invité reçoit l'écran du partage, tel que la Station le donne.
+        val l = loan
         sessionMode = if (g != null && g.width > 0 && g.height > 0) Triple(g.width, g.height, if (g.refresh > 0) g.refresh.coerceIn(24, 240) else 60)
+        // Un emprunt reçoit l'écran virtuel que la Station a fait à la taille de l'appareil.
+        else if (l != null && l.width > 0 && l.height > 0) Triple(l.width, l.height, if (l.refresh > 0) l.refresh.coerceIn(24, 240) else 60)
         else SessionMode.pick(screen, host.settings, settings.optString("codec"), app.decoders)
         applyDisplay()
         val (w, h, r) = sessionMode
@@ -277,6 +312,24 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
                 .put("combo", host.settings.combo)
                 .put("recovery", JSONObject().put("watch_image", true))
                 .put("guest", JSONObject().put("joined", g.joined).put("capabilities", JSONObject().put("hevc", d.hevc != null).put("hevc444", d.hevc444).put("av1", d.av1 != null)))
+        } else if (l != null) {
+            // Pas de compte, pas de mode ni d'écran virtuel à demander : le cœur ouvre la session avec la réponse de
+            // « Emprunter » (jeton de Kyber renouvelé par le signe de vie du prêt, écran, route par le relais s'il y est
+            // passé). Jamais le presse-papiers, jamais de redémarrage de la Station.
+            JSONObject()
+                .put("console_host", l.target.host)
+                .put("console_port", l.target.port)
+                .put("console_fingerprint", l.target.fingerprint ?: JSONObject.NULL)
+                .put("device", device)
+                .put("audio_channels", audioChannels())
+                .put("virtual_display", false)
+                .put("settings", settings)
+                .put("auto_reconnect", host.settings.reconnect)
+                .put("gamepad_xbox360", host.settings.xbox360)
+                .put("clipboard", false)
+                .put("combo", host.settings.combo)
+                .put("recovery", JSONObject().put("watch_image", true).put("restart_station", false))
+                .put("borrower", JSONObject().put("borrowed", l.borrowed))
         } else JSONObject()
             .put("console_host", host.address)
             .put("console_port", host.port)
@@ -295,7 +348,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
             .put("recovery", JSONObject().put("watch_image", true).put("fallback_bitrate", 150_000_000))
         // Hors de chez soi : « Auto », le réseau d'abord (Admin répond en 1,5 s), le relais de l'ordinateur sinon, Admin
         // épinglé sur l'empreinte connue (docs/relais.md). Sans relais connu, ou avec `KYBERNOW_RELAY=off` : sur le réseau.
-        if (g == null && !Relays.off) host.relayRoute?.let { params.put("route", "auto").put("relay", JSONObject(it)) }
+        if (hostSession && !Relays.off) host.relayRoute?.let { params.put("route", "auto").put("relay", JSONObject(it)) }
         handle = Native.sessionStart(params.toString(), null, state, refresh)
         if (handle == 0L) {
             // Un invité que la Station a déjà accepté repart tout de suite (sinon elle l'attend 20 s sans signe de vie).
@@ -344,8 +397,9 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
                     state.shareRole.collect { role -> if (guest != null) applyShareRole(role) }
                 }
                 launch {
-                    // Hôte : ce que « Partager » peut faire avec cet ordinateur, relu à chaque ouverture de la barre ou du menu.
-                    snapshotFlow { ui.barOpen || ui.menuOpen }.collect { open -> if (open && guest == null) refreshShareAvailability() }
+                    // Hôte : ce que « Partager » et « Prêter l'ordinateur… » peuvent faire avec cet ordinateur, relu à chaque
+                    // ouverture de la barre ou du menu.
+                    snapshotFlow { ui.barOpen || ui.menuOpen }.collect { open -> if (open && hostSession) refreshShareAvailability() }
                 }
                 launch {
                     // La barre se ferme, quelle que soit la façon (B, la croix, le clavier de l'écran) :
@@ -439,6 +493,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         ui.barOpen = false
         ui.keysOpen = false
         ui.shareOpen = false
+        ui.lendOpen = false
+        ui.giveBackConfirm = false
         ui.qualityOpen = false
         ui.typing = false
         ui.statsOpen = false
@@ -453,8 +509,9 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         // L'ordinateur remet son écran et son son avant de répondre ; au-delà de 6 s, on part
         // quand même (la session finit en arrière-plan, voir onDestroy).
         main.postDelayed({ finishSession() }, 6000)
-        // Un invité ne garde pas d'image : elle n'appartient à aucun ordinateur de l'appareil.
-        if (guest != null) Native.sessionStop(h) else captureLastImage { Native.sessionStop(h) }
+        // Un invité (ou un emprunt) ne garde pas d'image : elle n'appartient à aucun ordinateur de l'appareil. Fermer un
+        // emprunt ne rend pas l'ordinateur : l'ami peut y revenir pendant 15 min.
+        if (!hostSession) Native.sessionStop(h) else captureLastImage { Native.sessionStop(h) }
     }
 
     /** La dernière image de la session, pour l'accueil et la rangée d'Android TV. */
@@ -484,8 +541,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
      * médiane et 95e centile, durée, quand, et ce qui a été transmis (mode, format, débit).
      */
     private fun saveLast() {
-        // Un invité n'écrit rien dans les ordinateurs de l'appareil.
-        if (guest != null) return
+        // Un invité (ou un emprunt) n'écrit rien dans les ordinateurs de l'appareil.
+        if (!hostSession) return
         val h = handle
         if (h == 0L) return
         val started = state.firstImageAt.get()
@@ -539,6 +596,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         ui.keysOpen -> { ui.keysOpen = false; true }
         ui.qualityOpen -> { ui.qualityOpen = false; true }
         ui.shareOpen -> { ui.shareOpen = false; true }
+        ui.lendOpen -> { ui.lendOpen = false; true }
+        ui.giveBackConfirm -> { ui.giveBackConfirm = false; true }
         ui.statsOpen && !ui.menuOpen -> { ui.statsOpen = false; true }
         ui.keyboardOpen -> { openKeyboard(false); true }
         ui.menuOpen -> { resume(); true }
@@ -550,6 +609,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         ui.menuOpen = false
         ui.keysOpen = false
         ui.shareOpen = false
+        ui.lendOpen = false
+        ui.giveBackConfirm = false
         ui.qualityOpen = false
         ui.typing = false
         padDowns.clear()
@@ -712,6 +773,9 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
             val a = Share.availability(info.raw)
             ui.shareAvailability = a
             ui.shareUnavailable = Share.availabilityText(a)
+            ui.lendAvailable = info.lend
+            // Le prêt possible : sa vue (les demandes, le code), que le signe de vie tient ensuite à jour.
+            if (info.lend == LendAvailable.ON && state.lend.value == null) refreshLend()
         }
     }
 
@@ -721,7 +785,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
      * ancienne) s'affiche dans le panneau avec son texte.
      */
     override fun share() {
-        if (guest != null) return
+        if (!hostSession) return
         if (!ui.shareUsable) {
             // « Partager » impossible (Station trop ancienne, partage coupé) : à la souris il est inactif, son infobulle
             // donne la raison ; au toucher et à la télécommande il reste sélectionnable et ouvre le panneau réduit à la raison.
@@ -761,7 +825,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
 
     /** Un appel au partage : les boutons attendent sa fin, un refus d'Admin s'affiche, le partage est relu. */
     private fun shareCall(call: suspend (ConsoleClient) -> Reply<*>) {
-        if (guest != null || ui.shareBusy) return
+        if (!hostSession || ui.shareBusy) return
         ui.shareBusy = true
         ui.shareError = null
         lifecycleScope.launch {
@@ -796,7 +860,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
 
     /** « Arrêter le partage » : tout le monde sort ; le panneau se ferme. */
     override fun shareStop() {
-        if (guest != null || ui.shareBusy) return
+        if (!hostSession || ui.shareBusy) return
         ui.shareBusy = true
         ui.shareError = null
         lifecycleScope.launch {
@@ -824,11 +888,136 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         main.postDelayed({ if (ui.shareCopy == shown) ui.shareCopy = null }, if (ok) 2500 else 8000)
     }
 
+    // MARK: - Prêt de l'ordinateur, côté hôte
+
+    /**
+     * « Prêter l'ordinateur… » : le panneau s'ouvre ; la vue du prêt est relue (le code de séance, les demandes).
+     * Impossible (Station trop ancienne, prêt coupé dans Admin) : le panneau se réduit à la raison.
+     */
+    override fun lend() {
+        if (!hostSession) return
+        ui.lendOpen = true
+        ui.lendError = null
+        ui.lendCopy = null
+        if (ui.lendUsable) refreshLend()
+    }
+
+    /** Relit la vue du prêt (elle arrive aussi avec le signe de vie de la session). */
+    private fun refreshLend() {
+        lifecycleScope.launch {
+            when (val r = console().use { it.lendState() }) {
+                is Reply.Ok -> state.lend.value = r.value
+                // Station antérieure à la 0.9.0 : l'appel n'existe pas.
+                is Reply.Failed -> if (r.unknownCall) ui.lendAvailable = LendAvailable.TOO_OLD
+            }
+        }
+    }
+
+    /** Un appel au prêt : les boutons attendent sa fin, un refus d'Admin s'affiche, la vue rendue remplace l'ancienne. */
+    private fun lendCall(call: suspend (ConsoleClient) -> Reply<LendView?>) {
+        if (!hostSession || ui.lendBusy) return
+        ui.lendBusy = true
+        ui.lendError = null
+        lifecycleScope.launch {
+            when (val reply = console().use { call(it) }) {
+                is Reply.Ok -> state.lend.value = reply.value
+                is Reply.Failed -> ui.lendError = reply.message.ifBlank { getString(R.string.add_unreachable) }
+            }
+            ui.lendBusy = false
+        }
+    }
+
+    /** « Créer un code » : l'avertissement, montré jusque-là, ne revient plus. */
+    override fun lendCreateCode() {
+        if (!hostSession || ui.lendBusy) return
+        app.lendWarned = true
+        ui.lendWarning = false
+        lendCall { it.lendCode(ui.lendDuration, ui.lendSteam) }
+    }
+
+    override fun lendCancelCode() = lendCall { it.lendCancelCode() }
+
+    /** « Accepter » avec le compte Steam proposé par la demande, ou « Refuser ». Accepter ferme la session. */
+    override fun lendAnswer(request: LendRequest, accept: Boolean) = lendCall { it.lendAnswer(request.id, accept, request.steam) }
+
+    /** « Copier le lien » du code de prêt : l'adresse du client web (`web`), sinon le lien des apps. */
+    override fun lendCopyLink() {
+        val code = state.lend.value?.code ?: return
+        val ok = state.copyText(code.web.ifBlank { code.link })
+        ui.lendCopy = if (ok) ShareCopy.COPIED else ShareCopy.FAILED
+        val shown = ui.lendCopy
+        main.postDelayed({ if (ui.lendCopy == shown) ui.lendCopy = null }, if (ok) 2500 else 8000)
+    }
+
+    // MARK: - Prêt de l'ordinateur, côté ami
+
+    /**
+     * « Rendre l'ordinateur », confirmé : le cœur le rend à la Station (`leave`) puis finit la session sans erreur. Au-delà
+     * de 6 s, on part quand même.
+     */
+    override fun giveBack() {
+        ui.giveBackConfirm = false
+        val l = loan ?: return
+        if (quitting) return
+        quitting = true
+        ui.menuOpen = false
+        ui.barOpen = false
+        ui.pad.releaseAll()
+        pads.capture()
+        val h = handle
+        if (h == 0L || state.ended.value != null) {
+            Lend.leave(l)
+            finishSession()
+            return
+        }
+        ui.leaving = true
+        main.postDelayed({ finishSession() }, 6000)
+        Native.sessionGiveBack(h)
+    }
+
+    /**
+     * « Revenir » (la session a fini sans que le prêt finisse : réseau perdu, Kyber coupé) : la même demande d'emprunt,
+     * puis une nouvelle session. L'hôte peut avoir à accepter (« En attente de {hôte}… ») ; un refus s'écrit dans la carte.
+     */
+    override fun comeBack() {
+        val ask = borrowAsk ?: return
+        if (comeBackJob?.isActive == true) return
+        ui.comeBack = ComeBack(ComeBack.Step.WORKING)
+        comeBackJob = lifecycleScope.launch {
+            val first = Lend.borrow(ask)
+            val reply = if (first is BorrowReply.Pending) {
+                ui.comeBack = ComeBack(ComeBack.Step.WAITING)
+                Lend.waitForHost(first.pending)
+            } else first
+            when (reply) {
+                is BorrowReply.Ready -> {
+                    // Partie en arrière-plan : Android n'ouvrirait pas la session ; le prêt reste 15 min à la Station.
+                    if (!lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                        ui.comeBack = null
+                        return@launch
+                    }
+                    app.handOverLoan(reply.loan, ask)
+                    startActivity(Intent(this@SessionActivity, SessionActivity::class.java).putExtra(EXTRA_BORROW, true))
+                    finishSession()
+                }
+                is BorrowReply.Refused -> ui.comeBack = ComeBack(ComeBack.Step.FAILED, reply.message.ifBlank { getString(R.string.add_unreachable) })
+                is BorrowReply.Pending -> ui.comeBack = ComeBack(ComeBack.Step.FAILED, getString(R.string.add_unreachable))
+            }
+        }
+    }
+
+    /** « Annuler » l'attente de l'hôte pendant « Revenir » : la demande est retirée chez l'hôte. */
+    override fun comeBackCancel() {
+        comeBackJob?.cancel()
+        comeBackJob = null
+        ui.comeBack = null
+    }
+
     /** Un réglage de l'ordinateur changé depuis la session, retenu pour la suivante. */
     private fun saveSettings(f: (fr.leslignesclaires.kybernow.model.HostSettings) -> fr.leslignesclaires.kybernow.model.HostSettings) {
         host = host.copy(settings = f(host.settings))
         // Un invité n'écrit rien dans les ordinateurs de l'appareil : ses choix valent pour cette session.
-        if (guest == null) app.hosts.update(host.id) { it.copy(settings = f(it.settings)) }
+        if (hostSession) app.hosts.update(host.id) { it.copy(settings = f(it.settings)) }
     }
 
     /** Lettres A à Z et chiffres : code Linux, pour le scancode de kynput. */
@@ -989,7 +1178,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
     private fun padsRouted() = padsAllowed() || pads.asMouse
 
     /** Ce qui prend les touches. La barre pilotée à la manette passe par `pads.captured`. */
-    private fun SessionUi.anythingModal() = menuOpen || keysOpen || typing || shareOpen || qualityOpen
+    private fun SessionUi.anythingModal() = menuOpen || keysOpen || typing || shareOpen || qualityOpen || lendOpen || giveBackConfirm
 
     private fun isKeyboard(e: KeyEvent): Boolean {
         val d = e.device ?: return false

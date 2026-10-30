@@ -8,7 +8,15 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import fr.leslignesclaires.kybernow.KyberNowApp
+import fr.leslignesclaires.kybernow.core.BorrowAsk
+import fr.leslignesclaires.kybernow.core.BorrowReply
 import fr.leslignesclaires.kybernow.core.ConsoleClient
+import fr.leslignesclaires.kybernow.core.Lend
+import fr.leslignesclaires.kybernow.core.LendAvailable
+import fr.leslignesclaires.kybernow.core.LendStatus
+import fr.leslignesclaires.kybernow.core.LendView
+import fr.leslignesclaires.kybernow.core.Loan
+import fr.leslignesclaires.kybernow.core.ShareTarget
 import fr.leslignesclaires.kybernow.core.HostInfo
 import fr.leslignesclaires.kybernow.core.HostRelay
 import fr.leslignesclaires.kybernow.core.Native
@@ -17,6 +25,8 @@ import fr.leslignesclaires.kybernow.core.Relays
 import fr.leslignesclaires.kybernow.core.Reply
 import fr.leslignesclaires.kybernow.core.WakeTarget
 import fr.leslignesclaires.kybernow.model.Announced
+import fr.leslignesclaires.kybernow.model.BorrowedComputer
+import fr.leslignesclaires.kybernow.ui.lend.Borrowing
 import fr.leslignesclaires.kybernow.model.Host
 import fr.leslignesclaires.kybernow.model.Profile
 import kotlinx.coroutines.Dispatchers
@@ -89,6 +99,19 @@ sealed interface RelayRefusal {
     }
 }
 
+/**
+ * La carte « Ordinateur de {hôte} » d'un ordinateur prêté par un ami (docs/pret.md) : ce que la Station dit pour son compte
+ * ([status] ; nul tant qu'on ne sait pas, ou sans mot de passe retenu), [offline] (« Hors ligne » : la Station ne répond
+ * pas), [refused] : le compte refusé (« Identifiant ou mot de passe refusé. », le texte du cœur).
+ */
+data class FriendStatus(val status: LendStatus? = null, val offline: Boolean = false, val refused: String? = null)
+
+/** « Emprunter » en cours depuis l'accueil : la Station prépare l'ordinateur, ou l'hôte doit accepter (« En attente de {hôte}… »). */
+sealed interface BorrowStep {
+    data object Preparing : BorrowStep
+    data class Waiting(val host: String) : BorrowStep
+}
+
 /** Le relais n'est pas interrogé plus d'une fois toutes les 30 s pour savoir qui est connecté. */
 private const val PRESENCE_EVERY_MS = 30_000L
 
@@ -125,12 +148,41 @@ class AppModel(app: Application) : AndroidViewModel(app) {
 
     private var polling: Job? = null
 
+    // Prêt de l'ordinateur (docs/pret.md).
+    /** Les ordinateurs que des amis prêtent à cet appareil (« Ordinateur de {hôte} »). */
+    val borrowed: StateFlow<List<BorrowedComputer>> = store.borrowed
+
+    private val _friends = MutableStateFlow<Map<String, FriendStatus>>(emptyMap())
+    val friends: StateFlow<Map<String, FriendStatus>> = _friends.asStateFlow()
+
+    private val _borrowing = MutableStateFlow<Map<String, BorrowStep>>(emptyMap())
+    /** « Emprunter » en cours, par ordinateur prêté. */
+    val borrowing: StateFlow<Map<String, BorrowStep>> = _borrowing.asStateFlow()
+
+    private val _borrowErrors = MutableStateFlow<Map<String, String>>(emptyMap())
+    /** Le refus du dernier « Emprunter » (« {hôte} a refusé. », « L'ordinateur est verrouillé. »…), jusqu'au prochain essai. */
+    val borrowErrors: StateFlow<Map<String, String>> = _borrowErrors.asStateFlow()
+
+    private val borrowJobs = mutableMapOf<String, Job>()
+
+    /** Le mot de passe d'un compte d'ami tapé sur l'accueil sans être retenu : gardé en mémoire le temps de l'app. */
+    private val typed = mutableMapOf<String, String>()
+
+    private val _lend = MutableStateFlow<Map<String, LendView>>(emptyMap())
+    /** Chez l'hôte : la vue du prêt de chacun de ses ordinateurs (« Prêté à Léa », « Reprendre l'ordinateur »). */
+    val lend: StateFlow<Map<String, LendView>> = _lend.asStateFlow()
+
+    private val _lendErrors = MutableStateFlow<Map<String, String>>(emptyMap())
+    /** Le refus du dernier « Reprendre l'ordinateur ». */
+    val lendErrors: StateFlow<Map<String, String>> = _lendErrors.asStateFlow()
+
     fun current(): Host? = hosts.value.firstOrNull { it.id == _selected.value } ?: hosts.value.firstOrNull()
 
     fun select(id: String) {
         _selected.value = id
         store.selectedId = id
         hosts.value.firstOrNull { it.id == id }?.let { poll(it) }
+        borrowed.value.firstOrNull { it.id == id }?.let { viewModelScope.launch { checkFriend(it) } }
     }
 
     /** Choisir un profil remet le format, le débit et le transport aux siens (« Personnalisé » s'efface). */
@@ -158,6 +210,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
             while (true) {
                 hosts.value.forEach { loadImage(it.id) }
                 hosts.value.forEach { poll(it) }
+                borrowed.value.forEach { b -> launch { checkFriend(b) } }
                 delay(8000)
             }
         }
@@ -206,8 +259,108 @@ class AppModel(app: Application) : AndroidViewModel(app) {
             }
             // Pas encore d'image : l'aperçu d'Admin (jamais pendant une session).
             if (!store.imageFile(h.id).exists()) fetchPreview(h, password)
+            // Le prêt activé dans Admin : sa vue, pour « Prêté à {prénom} » et « Reprendre l'ordinateur ».
+            if (i.lend == LendAvailable.ON) {
+                (client(h).use { it.lendState() } as? Reply.Ok)?.value.let { v -> _lend.value = if (v == null) _lend.value - h.id else _lend.value + (h.id to v) }
+            } else if (_lend.value.containsKey(h.id)) {
+                _lend.value = _lend.value - h.id
+            }
         }
         return st
+    }
+
+    // MARK: - Prêt de l'ordinateur : l'hôte
+
+    /**
+     * « Reprendre l'ordinateur » (l'ami a 2 min pour sauvegarder) ou, [now], « Reprendre tout de suite » : la vue rendue
+     * remplace l'ancienne ; un refus s'écrit sous l'état.
+     */
+    fun takeBack(id: String, now: Boolean) {
+        val h = hosts.value.firstOrNull { it.id == id } ?: return
+        _lendErrors.value = _lendErrors.value - id
+        viewModelScope.launch {
+            when (val r = client(h).use { it.lendTakeBack(now) }) {
+                is Reply.Ok -> _lend.value = r.value?.let { _lend.value + (id to it) } ?: (_lend.value - id)
+                is Reply.Failed -> _lendErrors.value = _lendErrors.value + (id to r.message)
+            }
+        }
+    }
+
+    // MARK: - Prêt de l'ordinateur : l'ami
+
+    /** Le mot de passe d'un compte d'ami : retenu (Keystore), sinon tapé pendant cette session de l'app. */
+    fun friendPassword(id: String): String? = store.password(id) ?: typed[id]
+
+    /** L'état de la carte « Ordinateur de {hôte} » (sans mot de passe connu : rien à demander). */
+    private suspend fun checkFriend(b: BorrowedComputer) {
+        val password = friendPassword(b.id) ?: return
+        val target = ShareTarget(b.address, b.port, b.fingerprint)
+        val st = when (val r = Lend.status(target, b.route, b.login, password)) {
+            is Reply.Ok -> {
+                // Le prénom de l'hôte ou le nom de l'ordinateur ont changé : la carte suit.
+                if (r.value.host.isNotBlank() && (r.value.host != b.host || r.value.computer != b.computer)) {
+                    store.updateBorrowed(b.id) { it.copy(host = r.value.host, computer = r.value.computer.ifBlank { it.computer }) }
+                }
+                FriendStatus(r.value)
+            }
+            is Reply.Failed -> if (r.code == Lend.BAD_CREDENTIALS) FriendStatus(refused = r.message) else FriendStatus(offline = true)
+        }
+        _friends.value = _friends.value + (b.id to st)
+    }
+
+    /**
+     * « Emprunter » (ou « Demander à {hôte} ») : la demande avec le compte d'ami ; la Station prépare l'ordinateur
+     * (« Préparation de l'ordinateur », 30 s au plus), ou l'hôte doit accepter (« En attente de {hôte}… »). [password] :
+     * tapé sur l'accueil (le mot de passe n'est pas retenu), sinon celui que l'app connaît. [open] ouvre la session.
+     */
+    fun borrow(id: String, password: String?, open: (Loan, BorrowAsk) -> Unit) {
+        val b = borrowed.value.firstOrNull { it.id == id } ?: return
+        if (id in _borrowing.value) return
+        val pw = password?.takeIf { it.isNotEmpty() } ?: friendPassword(id) ?: return
+        // Un mot de passe retapé (l'ancien refusé) remplace celui qui était retenu ; sinon, il reste en mémoire seulement.
+        if (password != null) {
+            if (store.password(id) != null) store.setPassword(id, pw) else typed[id] = pw
+        }
+        _borrowErrors.value = _borrowErrors.value - id
+        _borrowing.value = _borrowing.value + (id to BorrowStep.Preparing)
+        val ask = Borrowing.ask(getApplication(), ShareTarget(b.address, b.port, b.fingerprint), b.route, kn.guestName, login = b.login, password = pw)
+        borrowJobs[id] = viewModelScope.launch {
+            try {
+                val first = Lend.borrow(ask)
+                val reply = if (first is BorrowReply.Pending) {
+                    _borrowing.value = _borrowing.value + (id to BorrowStep.Waiting(first.pending.host.ifBlank { b.host }))
+                    Lend.waitForHost(first.pending)
+                } else first
+                when (reply) {
+                    is BorrowReply.Ready -> open(reply.loan, ask)
+                    is BorrowReply.Refused -> {
+                        _borrowErrors.value = _borrowErrors.value + (id to reply.message)
+                        // Un mot de passe refusé n'est plus gardé en mémoire : il faudra le retaper.
+                        if (reply.badCredentials) typed.remove(id)
+                    }
+                    is BorrowReply.Pending -> {}
+                }
+            } finally {
+                _borrowing.value = _borrowing.value - id
+                borrowJobs.remove(id)
+                checkFriend(b)
+            }
+        }
+    }
+
+    /** « Annuler » l'attente de l'hôte (ou la préparation) : la demande est retirée chez l'hôte. */
+    fun cancelBorrow(id: String) {
+        borrowJobs.remove(id)?.cancel()
+        _borrowing.value = _borrowing.value - id
+    }
+
+    /** « Retirer cet ordinateur » : la carte et son mot de passe quittent l'appareil. */
+    fun removeBorrowed(id: String) {
+        cancelBorrow(id)
+        typed.remove(id)
+        store.removeBorrowed(id)
+        _friends.value = _friends.value - id
+        _selected.value = store.selectedId
     }
 
     // MARK: - Hors de chez vous (relais)

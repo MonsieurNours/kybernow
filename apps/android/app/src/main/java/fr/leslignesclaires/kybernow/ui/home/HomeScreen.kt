@@ -69,7 +69,9 @@ import androidx.compose.ui.unit.dp
 import fr.leslignesclaires.kybernow.KyberNowApp
 import fr.leslignesclaires.kybernow.R
 import fr.leslignesclaires.kybernow.core.FormFactor
+import fr.leslignesclaires.kybernow.core.LendView
 import fr.leslignesclaires.kybernow.model.Announced
+import fr.leslignesclaires.kybernow.model.BorrowedComputer
 import fr.leslignesclaires.kybernow.model.Decoders
 import fr.leslignesclaires.kybernow.model.Host
 import fr.leslignesclaires.kybernow.model.HostSettings
@@ -78,6 +80,8 @@ import fr.leslignesclaires.kybernow.model.Screen
 import fr.leslignesclaires.kybernow.model.SessionMode
 import fr.leslignesclaires.kybernow.ui.AppModel
 import fr.leslignesclaires.kybernow.ui.Body
+import fr.leslignesclaires.kybernow.ui.BorrowStep
+import fr.leslignesclaires.kybernow.ui.FriendStatus
 import fr.leslignesclaires.kybernow.ui.Eyebrow
 import fr.leslignesclaires.kybernow.ui.FitTitle
 import fr.leslignesclaires.kybernow.ui.FocusCard
@@ -112,6 +116,15 @@ class HomeActions(
     val wake: (Host) -> Unit,
     /** « Rejoindre avec un code » : KyberNow Share, comme invité (rien n'est ajouté aux ordinateurs). */
     val join: () -> Unit = {},
+    // Prêt de l'ordinateur (docs/pret.md).
+    /** « Emprunter » / « Demander à {hôte} » : le mot de passe tapé sur l'accueil quand l'app ne le connaît pas. */
+    val borrow: (BorrowedComputer, String?) -> Unit = { _, _ -> },
+    /** « Annuler » l'attente de l'hôte. */
+    val cancelBorrow: (BorrowedComputer) -> Unit = {},
+    /** « Retirer cet ordinateur » (un ordinateur prêté), confirmé. */
+    val removeBorrowed: (BorrowedComputer) -> Unit = {},
+    /** Chez l'hôte : « Reprendre l'ordinateur » (`false` : préavis de 2 min) ou « Reprendre tout de suite » (`true`). */
+    val takeBack: (Host, Boolean) -> Unit = { _, _ -> },
 )
 
 /** Tout ce que l'accueil montre. */
@@ -134,6 +147,17 @@ data class HomeState(
     val connecting: Set<String> = emptySet(),
     /** Pourquoi un ordinateur n'a pas pu être ouvert hors de chez soi (docs/link-ui.md, « Hors de chez vous »). */
     val refusals: Map<String, RelayRefusal> = emptyMap(),
+    // Prêt de l'ordinateur (docs/pret.md).
+    /** Les ordinateurs que des amis prêtent à cet appareil (« Ordinateur de {hôte} »), après les siens. */
+    val borrowed: List<BorrowedComputer> = emptyList(),
+    val friends: Map<String, FriendStatus> = emptyMap(),
+    val borrowing: Map<String, BorrowStep> = emptyMap(),
+    val borrowErrors: Map<String, String> = emptyMap(),
+    /** Les ordinateurs prêtés dont l'app connaît le mot de passe (retenu, ou tapé pendant cette session de l'app). */
+    val knownPasswords: Set<String> = emptySet(),
+    /** Chez l'hôte : la vue du prêt de ses ordinateurs, et le refus du dernier « Reprendre l'ordinateur ». */
+    val lend: Map<String, LendView> = emptyMap(),
+    val lendErrors: Map<String, String> = emptyMap(),
 )
 
 @Composable
@@ -151,7 +175,20 @@ fun HomeScreen(model: AppModel, actions: HomeActions) {
     val waking by model.waking.collectAsState()
     val connecting by model.connecting.collectAsState()
     val refusals by model.refusals.collectAsState()
-    HomeContent(HomeState(hosts, selectedId, status, images, announced, screen, app.decoders, pads.count { !it.onScreen }, update.offered, waking, connecting, refusals), actions)
+    val borrowed by model.borrowed.collectAsState()
+    val friends by model.friends.collectAsState()
+    val borrowing by model.borrowing.collectAsState()
+    val borrowErrors by model.borrowErrors.collectAsState()
+    val lend by model.lend.collectAsState()
+    val lendErrors by model.lendErrors.collectAsState()
+    val known = remember(borrowed, friends, borrowing) { borrowed.filter { model.friendPassword(it.id) != null }.map { it.id }.toSet() }
+    HomeContent(
+        HomeState(
+            hosts, selectedId, status, images, announced, screen, app.decoders, pads.count { !it.onScreen }, update.offered, waking, connecting, refusals,
+            borrowed, friends, borrowing, borrowErrors, known, lend, lendErrors,
+        ),
+        actions,
+    )
 }
 
 /**
@@ -162,17 +199,31 @@ fun HomeScreen(model: AppModel, actions: HomeActions) {
 @Composable
 fun HomeContent(state: HomeState, actions: HomeActions) {
     val (hosts, selectedId, status, images, announced) = state
-    val host = hosts.firstOrNull { it.id == selectedId } ?: hosts.firstOrNull()
+    // Un ordinateur prêté par un ami peut être choisi ; sans ordinateur à soi, le premier prêté s'affiche.
+    val friend = state.borrowed.firstOrNull { it.id == selectedId } ?: if (hosts.isEmpty()) state.borrowed.firstOrNull() else null
+    val host = if (friend != null) null else hosts.firstOrNull { it.id == selectedId } ?: hosts.firstOrNull()
 
-    if (host == null) {
+    if (host == null && friend == null) {
         Welcome(announced, state.update, actions)
         return
     }
-    val st = status[host.id] ?: HostStatus()
     BoxWithConstraints(Modifier.fillMaxSize().background(Kn.ink)) {
         val wide = maxWidth > maxHeight && maxWidth >= 720.dp
-        Backdrop(images[host.id], st.online == false, wide)
-        if (wide) WideHome(host, st, state, actions) else TallHome(host, st, state, actions)
+        if (host != null) {
+            val st = status[host.id] ?: HostStatus()
+            Backdrop(images[host.id], st.online == false, wide)
+            val hero: @Composable (Float, FocusRequester?, Boolean) -> Unit = { size, focus, stacked -> Hero(host, st, state, actions, size, focus, stacked) }
+            if (wide) WideHome(host.id, state, actions, hero) else TallHome(state, actions, hero)
+        } else if (friend != null) {
+            Backdrop(null, false, wide)
+            val hero: @Composable (Float, FocusRequester?, Boolean) -> Unit = { size, focus, stacked ->
+                FriendHero(
+                    friend, state.friends[friend.id], friend.id in state.knownPasswords, state.borrowing[friend.id], state.borrowErrors[friend.id], size, focus,
+                    onBorrow = { pw -> actions.borrow(friend, pw) }, onCancel = { actions.cancelBorrow(friend) }, onRemove = { actions.removeBorrowed(friend) }, stacked = stacked,
+                )
+            }
+            if (wide) WideHome(friend.id, state, actions, hero) else TallHome(state, actions, hero)
+        }
     }
 }
 
@@ -255,6 +306,10 @@ private fun Hero(host: Host, st: HostStatus, state: HomeState, actions: HomeActi
         if (st.accountRefused) Body(stringResource(R.string.home_account_refused), color = Kn.warn, size = 13f)
         if (st.certificateChanged) Body(stringResource(R.string.home_certificate_changed), color = Kn.warn, size = 13f)
         state.refusals[host.id]?.let { Body(relayRefusalText(it, host.name), color = Kn.warn, size = 13f) }
+        // Prêté à un ami : « Prêté à Léa (jusqu'à 18 h) », le compte à rebours du préavis.
+        val lent = state.lend[host.id]?.takeIf { it.lent }
+        lent?.let { LentLine(it) }
+        state.lendErrors[host.id]?.takeIf { it.isNotBlank() }?.let { Body(it, color = Kn.warn, size = 13f) }
         (st.info?.os ?: host.os)?.takeIf { it.isNotBlank() }?.let { Body(it, size = 16f, color = Kn.frost2, maxLines = 1) }
         Row(verticalAlignment = Alignment.CenterVertically) {
             KnIcon(KnIcons.screen, tint = Kn.muted, size = 16f)
@@ -268,7 +323,8 @@ private fun Hero(host: Host, st: HostStatus, state: HomeState, actions: HomeActi
             // Téléphone et tablette en portrait (comme le client web au téléphone) : le bouton sur
             // toute la largeur, puis les profils sur une ligne et l'engrenage au bout.
             // Sur la largeur du téléphone ; à la tablette en portrait, pas plus de 560 dp.
-            MainButton(host, st, state, actions, first.widthIn(max = s.dp(560f)).fillMaxWidth())
+            if (lent != null) TakeBackButton(lent, { now -> actions.takeBack(host, now) }, first.widthIn(max = s.dp(560f)).fillMaxWidth())
+            else MainButton(host, st, state, actions, first.widthIn(max = s.dp(560f)).fillMaxWidth())
             Row(Modifier.widthIn(max = s.dp(560f)), verticalAlignment = Alignment.CenterVertically) {
                 ProfileSegments(set, { p -> actions.setProfile(host.id, p) }, { actions.hostSettings(host) }, Modifier.weight(1f))
                 Spacer(Modifier.width(s.dp(10f)))
@@ -277,7 +333,8 @@ private fun Hero(host: Host, st: HostStatus, state: HomeState, actions: HomeActi
         } else {
             // Une seule rangée qui passe à la ligne si la place manque : rien n'est écrasé.
             FlowRow(horizontalArrangement = Arrangement.spacedBy(s.dp(10f)), verticalArrangement = Arrangement.spacedBy(s.dp(10f)), itemVerticalAlignment = Alignment.CenterVertically) {
-                MainButton(host, st, state, actions, first)
+                // Prêté : « Reprendre l'ordinateur » à la place de « Se connecter » (pendant un prêt, pas de session d'un appareil).
+                if (lent != null) TakeBackButton(lent, { now -> actions.takeBack(host, now) }, first) else MainButton(host, st, state, actions, first)
                 Profile.entries.forEach { p ->
                     GlassButton(profileLabel(p), { actions.setProfile(host.id, p) }, selected = !set.custom && set.profile == p)
                 }
@@ -465,6 +522,9 @@ private fun HostRow(state: HomeState, actions: HomeActions, card: Float) {
                 }
             }
         }
+        items(state.borrowed, key = { it.id }) { b ->
+            FriendCard(b, state.friends[b.id], b.id in state.knownPasswords, b.id == selected, card) { actions.select(b.id) }
+        }
         items(announced, key = { "a:" + it.serviceName }) { a ->
             Column(Modifier.width(s.dp(card)), verticalArrangement = Arrangement.spacedBy(s.dp(6f))) {
                 FocusCard({ actions.addAnnounced(a) }) {
@@ -503,19 +563,19 @@ private fun HostRow(state: HomeState, actions: HomeActions, card: Float) {
     }
 }
 
-/** Téléviseur, tablette en paysage, téléphone en paysage. */
+/** Téléviseur, tablette en paysage, téléphone en paysage. [hero] : l'ordinateur choisi (taille du nom, focus, empilé). */
 @Composable
-private fun WideHome(host: Host, st: HostStatus, state: HomeState, actions: HomeActions) {
+private fun WideHome(key: String, state: HomeState, actions: HomeActions, hero: @Composable (Float, FocusRequester?, Boolean) -> Unit) {
     val s = LocalScale.current
     val focus = remember { FocusRequester() }
-    LaunchedEffect(host.id) { if (s.tv) runCatching { focus.requestFocus() } }
+    LaunchedEffect(key) { if (s.tv) runCatching { focus.requestFocus() } }
     val pad = if (s.tv) 56f else 28f
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = s.dp(pad), vertical = s.dp(if (s.tv) 32f else 18f))) {
         TopBar(actions, state.update)
         // Centré dans la place qui reste ; s'il ne tient pas (alertes, « Personnalisé »), il défile.
         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
             Box(Modifier.fillMaxWidth(if (s.tv) 0.8f else 0.66f).widthIn(max = s.dp(720f)).verticalScroll(rememberScrollState())) {
-                Hero(host, st, state, actions, if (s.tv) 46f else 52f, focus)
+                hero(if (s.tv) 46f else 52f, focus, false)
             }
         }
         HostRow(state, actions, card = if (s.tv) 150f else 170f)
@@ -524,7 +584,7 @@ private fun WideHome(host: Host, st: HostStatus, state: HomeState, actions: Home
 
 /** Téléphone et tablette en portrait. */
 @Composable
-private fun TallHome(host: Host, st: HostStatus, state: HomeState, actions: HomeActions) {
+private fun TallHome(state: HomeState, actions: HomeActions, hero: @Composable (Float, FocusRequester?, Boolean) -> Unit) {
     val s = LocalScale.current
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).statusBarsPadding().navigationBarsPadding().padding(s.dp(20f)),
@@ -532,7 +592,7 @@ private fun TallHome(host: Host, st: HostStatus, state: HomeState, actions: Home
     ) {
         TopBar(actions, state.update)
         Spacer(Modifier.height(s.dp(150f)))
-        Hero(host, st, state, actions, 54f, null, stacked = true)
+        hero(54f, null, true)
         Spacer(Modifier.height(s.dp(6f)))
         Eyebrow(stringResource(R.string.home_your_computers))
         HostRow(state, actions, card = 160f)

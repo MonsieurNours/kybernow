@@ -2,7 +2,9 @@ package fr.leslignesclaires.kybernow
 
 import android.app.Application
 import androidx.appcompat.app.AppCompatDelegate
+import fr.leslignesclaires.kybernow.core.BorrowAsk
 import fr.leslignesclaires.kybernow.core.DeviceIdentity
+import fr.leslignesclaires.kybernow.core.Loan
 import fr.leslignesclaires.kybernow.core.FormFactor
 import fr.leslignesclaires.kybernow.core.Native
 import fr.leslignesclaires.kybernow.core.ShareFound
@@ -45,6 +47,24 @@ class KyberNowApp : Application() {
 
     /** Prend l'invité remis par [handOverGuest] (une seule fois). */
     fun takeGuest(): ShareFound? = pendingGuest.also { pendingGuest = null }
+
+    /**
+     * Prêt de l'ordinateur : le prêt accordé (secret et jeton compris) et la demande qui l'a obtenu (pour « Revenir »
+     * pendant 15 min), remis à `SessionActivity` qui ouvre la session d'emprunt. Seulement en mémoire, comme un invité.
+     */
+    @Volatile private var pendingLoan: Pair<Loan, BorrowAsk>? = null
+
+    fun handOverLoan(loan: Loan, ask: BorrowAsk) {
+        pendingLoan = loan to ask
+    }
+
+    /** Prend le prêt remis par [handOverLoan] (une seule fois). */
+    fun takeLoan(): Pair<Loan, BorrowAsk>? = pendingLoan.also { pendingLoan = null }
+
+    /** L'avertissement du prêt (« Votre ami joue dans votre session Windows… ») a été montré une fois dans le panneau. */
+    var lendWarned: Boolean
+        get() = getSharedPreferences("share", MODE_PRIVATE).getBoolean("lend_warned", false)
+        set(v) = getSharedPreferences("share", MODE_PRIVATE).edit().putBoolean("lend_warned", v).apply()
 
     /** Le prénom d'invité retenu pour la fois suivante ; au début, le nom de l'appareil. */
     var guestName: String

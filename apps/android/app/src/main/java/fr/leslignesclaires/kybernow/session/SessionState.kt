@@ -7,6 +7,11 @@ import android.graphics.Bitmap
 import android.os.Handler
 import android.os.Looper
 import fr.leslignesclaires.kybernow.R
+import fr.leslignesclaires.kybernow.core.LendEnd
+import fr.leslignesclaires.kybernow.core.LendNotice
+import fr.leslignesclaires.kybernow.core.LendNoticeReason
+import fr.leslignesclaires.kybernow.core.LendView
+import fr.leslignesclaires.kybernow.core.Native
 import fr.leslignesclaires.kybernow.core.RelayFailure
 import fr.leslignesclaires.kybernow.core.RouteInfo
 import fr.leslignesclaires.kybernow.core.SessionListener
@@ -87,6 +92,12 @@ sealed class Capsule {
     data class ShareNotice(val text: String) : Capsule()
     /** Hôte : un invité demande à rejoindre par le relais (« Léa demande à rejoindre »), à accepter ou à refuser dans le panneau. */
     data class ShareRequest(val name: String) : Capsule()
+    /** Emprunt : le préavis de 2 min (« Fin du prêt dans 2 min : sauvegardez votre partie. ») ; [text] : celui du cœur. */
+    data class LendNotice(val text: String) : Capsule()
+    /** Hôte : un ami veut emprunter l'ordinateur (« Léa veut emprunter l'ordinateur. »), à accepter ou à refuser dans le panneau du prêt. */
+    data class LendRequest(val name: String) : Capsule()
+    /** Hôte : un avis du prêt écrit par le cœur (« Créneau de Léa : l'ordinateur lui est prêté dans 2 min. »). */
+    data class LendHostNotice(val text: String) : Capsule()
 }
 
 data class DisplayInfo(val id: Int, val width: Int, val height: Int)
@@ -174,6 +185,20 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
      */
     @Volatile private var relayEnd: Pair<RelayFailure, String>? = null
 
+    // Prêt de l'ordinateur (docs/pret.md).
+    /** Hôte : la vue du prêt (le signe de vie de la session la tient à jour) ; nulle tant qu'il n'y a rien à dire. */
+    val lend = MutableStateFlow<LendView?>(null)
+    /** Emprunt : le préavis de 2 min en cours (« Encore 2 min » dans la barre) ; nul sans préavis. */
+    val lendNotice = MutableStateFlow<LendNotice?>(null)
+    /**
+     * Emprunt : la fin du prêt (`onLendEnd`, juste avant la fin) ; nulle si la session a fini autrement (réseau perdu,
+     * Kyber coupé) : l'ami peut alors revenir pendant 15 min (« Revenir »).
+     */
+    @Volatile var lendEnd: LendEnd? = null
+    @Volatile private var lendEndText: String? = null
+    /** Le texte d'un préavis chez l'hôte (le cœur) ; les essais sans bibliothèque native en donnent un. */
+    internal var lendNoticeText: (LendNotice, String) -> String? = { n, name -> Native.lendNoticeText(n.json().toString(), name) }
+
     /** Le texte de la fin par le relais (avec le nom de l'ordinateur) ; nul si la session n'a pas fini ainsi. */
     internal fun relayEndText(): String? = relayEnd?.let { (failure, text) -> relayText(context, failure, computerName) ?: text }
 
@@ -202,7 +227,11 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
             }
             // Fin par le relais (accès coupé dans Admin, ordinateur éteint ou en veille) : ce texte, avec le nom de l'ordinateur,
             // à la place de celui du cœur (qui n'a pas le nom d'une session de l'app).
-            Phase.ENDED -> ended.value = Ended(relayEndText() ?: error, if (hasReport) displayRestored else null, if (hasReport) audioRestored else null, reportError)
+            // Fin d'un prêt : le texte du cœur (« {hôte} a repris l'ordinateur. ») ; l'ordinateur rendu : une fin voulue, sans erreur.
+            Phase.ENDED -> {
+                val text = if (lendEnd == LendEnd.LEFT) null else lendEndText?.takeIf { it.isNotBlank() } ?: relayEndText() ?: error
+                ended.value = Ended(text, if (hasReport) displayRestored else null, if (hasReport) audioRestored else null, reportError)
+            }
             else -> {}
         }
     }
@@ -326,6 +355,34 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
         // Le texte arrive aussi avec la fin de la session (`Ended.error`) : gardé pour que l'écran de fin le montre tel quel.
         shareEndText = text
         android.util.Log.i("KyberNow", "partage : fin ${listOf("arrêté", "retiré", "format illisible").getOrElse(end) { end.toString() }}")
+    }
+
+    // MARK: - Prêt de l'ordinateur
+
+    override fun onLendNotice(json: String, text: String) {
+        LendNotice.parse(json)?.let { lendNotice.value = it }
+        // Le préavis reste un moment à l'écran ; la barre dit ensuite le temps qui reste.
+        if (text.isNotBlank()) show(Capsule.LendNotice(text), 12_000)
+    }
+
+    override fun onLendEnd(end: Int, text: String) {
+        lendEnd = LendEnd.of(end)
+        lendEndText = text
+        android.util.Log.i("KyberNow", "prêt : fin ${lendEnd}")
+    }
+
+    override fun onLend(json: String?) {
+        val now = LendView.parse(json, codeFormat)
+        val before = lend.value
+        lend.value = now
+        // Une nouvelle demande : son prénom dans une capsule (« Léa veut emprunter l'ordinateur. ») ; la choisir ouvre le panneau.
+        val known = before?.requests.orEmpty().map { it.id }
+        now?.requests?.firstOrNull { it.id !in known }?.let { show(Capsule.LendRequest(it.name), 8000); return }
+        // Le créneau d'un ami commence : l'avis du cœur, une fois.
+        val notice = now?.notice
+        if (notice != null && notice.reason == LendNoticeReason.SLOT_START && notice != before?.notice) {
+            lendNoticeText(notice, now.borrower?.name ?: "")?.takeIf { it.isNotBlank() }?.let { show(Capsule.LendHostNotice(it), 8000) }
+        }
     }
 
     override fun onPointer(hasPosition: Boolean, x: Double, y: Double, remoteHidden: Boolean, width: Int, height: Int, hotX: Int, hotY: Int, pixels: IntArray?) {
