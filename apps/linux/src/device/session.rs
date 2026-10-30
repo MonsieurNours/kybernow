@@ -430,6 +430,22 @@ impl Platform for LinuxPlatform {
     fn on_relay_error(&self, error: &kybernow_core::relay::RelayError, _text: &str) {
         self.0.send(SessionEvent::RelayError(error.clone()));
     }
+
+    /// Prêt de l'ordinateur, hôte : la vue du prêt du signe de vie, quand elle change (le panneau « Prêter
+    /// l'ordinateur… », les demandes et leur avis).
+    fn on_lend(&self, lend: Option<&kybernow_core::lend::LendView>) {
+        self.0.send(SessionEvent::Lend(lend.map(super::jobs::lend_view)));
+    }
+
+    /// Emprunt : le préavis de 2 minutes (« {hôte} reprend l'ordinateur dans 2 min : sauvegardez votre partie. »).
+    fn on_lend_notice(&self, notice: &kybernow_core::lend::LendNotice, text: &str) {
+        self.0.send(SessionEvent::LendNotice { text: text.to_string(), at: notice.at });
+    }
+
+    /// Emprunt : le prêt finit la session, juste avant sa fin (le texte est aussi la raison de `Status::Ended`).
+    fn on_lend_end(&self, _end: kybernow_core::lend::LendEnd, text: &str) {
+        self.0.send(SessionEvent::LendEnd(text.to_string()));
+    }
 }
 
 /// Le chemin de l'interface d'après celui du cœur.
@@ -667,7 +683,7 @@ pub fn audio_channels(host: &Host, m: &Machine) -> u16 {
 /// partage (KyberNow Share) : l'écran et l'image sont ceux de l'hôte, jamais de presse-papiers, aucun écran
 /// de plus ; `host` n'est alors qu'une enveloppe (nom, adresse, réglages par défaut), absente du magasin.
 #[allow(clippy::too_many_arguments)]
-pub fn start(id: SessionId, host: &Host, settings: StreamSettings, mode: (u32, u32, u32), m: &Machine, relative: bool, device: DeviceInfo, screens: Option<Screens>, current: usize, guest: Option<&share::Found>, tx: Sender<Event>) -> Handle {
+pub fn start(id: SessionId, host: &Host, settings: StreamSettings, mode: (u32, u32, u32), m: &Machine, relative: bool, device: DeviceInfo, screens: Option<Screens>, current: usize, guest: Option<&share::Found>, loan: Option<&kybernow_core::lend::Loan>, tx: Sender<Event>) -> Handle {
     let (w, h, fps) = mode;
     let clock = Arc::new(MonotonicClock::new());
     let pointer = Arc::new(PointerLayer::new(clock.clone(), true));
@@ -691,7 +707,8 @@ pub fn start(id: SessionId, host: &Host, settings: StreamSettings, mode: (u32, u
         primary: AtomicUsize::new(current),
         hw: [m.hw_h264 && (m.vaapi || m.pi.is_some()), m.hw_hevc && (m.vaapi || m.pi.is_some()), m.hw_av1 && m.vaapi],
         hw_backend: if m.pi.is_some() && !m.vaapi { 2 } else { 1 },
-        clipboard: (host.settings.clipboard && guest.is_none()).then(|| Arc::new(Clipboard::new())),
+        // Ni l'invité d'un partage ni l'emprunteur n'ont de presse-papiers.
+        clipboard: (host.settings.clipboard && guest.is_none() && loan.is_none()).then(|| Arc::new(Clipboard::new())),
         audio: Mutex::new(None),
         silenced: Arc::new(AtomicBool::new(false)),
     });
@@ -703,10 +720,13 @@ pub fn start(id: SessionId, host: &Host, settings: StreamSettings, mode: (u32, u
         sh.send(SessionEvent::Pointer { screen: sh.primary(), position: state.position(), hidden: state.remote_hidden, shape });
     });
     let recovery = Recovery { watch_image: true, fallback_bitrate: Some(20_000_000), ..Recovery::default() };
-    let params = match guest {
+    let params = match (guest, loan) {
         // Un invité : la Station qui partage, le jeton de son partage, l'écran de l'hôte (`SessionParams::guest`).
-        Some(found) => SessionParams { auto_reconnect: host.settings.reconnect, gamepad_xbox360: host.settings.xbox360, recovery, ..SessionParams::guest(found, device, settings, guest_capabilities(m), audio_channels) },
-        None => SessionParams {
+        (Some(found), _) => SessionParams { auto_reconnect: host.settings.reconnect, gamepad_xbox360: host.settings.xbox360, recovery, ..SessionParams::guest(found, device, settings, guest_capabilities(m), audio_channels) },
+        // Un emprunt : la Station de l'ami, le jeton du prêt renouvelé par son signe de vie, l'écran virtuel fait à la
+        // taille de cet appareil (`SessionParams::borrower`) ; clavier, souris et manettes, jamais le presse-papiers.
+        (None, Some(loan)) => SessionParams { gamepad_xbox360: host.settings.xbox360, recovery, ..SessionParams::borrower(loan, device, settings, audio_channels) },
+        (None, None) => SessionParams {
             console_host: host.address.clone(),
             console_port: host.port,
             user: host.user.clone(),

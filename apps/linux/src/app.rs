@@ -110,6 +110,11 @@ pub struct HostLive {
     /// KyberNow Share : ce que « Partager » peut faire avec cet ordinateur
     /// (`Info::share`) ; `None` : pas encore su.
     pub share: Option<ShareAvail>,
+    /// Prêt de l'ordinateur : ce que « Prêter l'ordinateur… » peut faire (`Info::lend`) ; `None` : pas encore su.
+    pub lend: Option<LendAvail>,
+    /// Prêt de l'ordinateur, hors session : la vue du prêt (`Console::lend_state`), sondée quand le prêt est activé :
+    /// l'accueil dit « Prêté à {prénom} » et propose « Reprendre l'ordinateur ».
+    pub lend_view: Option<LendHostView>,
 }
 
 /// Multi-écrans (docs/multi-ecrans.md) : ce que la session prendra pour
@@ -262,6 +267,8 @@ pub enum Confirm {
     Remove { host: String, name: String },
     /// Un appareil est en session : recommencer avec `force` coupe sa session.
     Force { host: String, kind: StationKind, device: String },
+    /// Prêt de l'ordinateur : « Rendre l'ordinateur à {hôte} ? » (la session d'emprunt `session`).
+    GiveBack { session: SessionId, host: String },
 }
 
 /// Une Station trouvée sur le réseau (mDNS `_kybernow._tcp`), pas encore ajoutée.
@@ -528,6 +535,10 @@ pub enum MenuItem {
     Quality,
     /// Par le relais : la tuile « Par le relais » (le chemin ; rien à choisir).
     Route,
+    /// Prêt de l'ordinateur, hôte : « Prêter l'ordinateur… ».
+    Lend,
+    /// Prêt de l'ordinateur, session d'emprunt : « Rendre l'ordinateur » (après sa confirmation).
+    GiveBack,
     Disconnect,
 }
 
@@ -556,6 +567,8 @@ pub enum BarMenu {
     Share,
     /// KyberNow Share, invité : « Qualité de l'image » (les cinq choix).
     Quality,
+    /// Prêt de l'ordinateur : le panneau « Prêter l'ordinateur… » (durée, compte Steam, code, demandes).
+    Lend,
 }
 
 // MARK: - KyberNow Share (docs/kybernow-share.md, textes : docs/link-ui.md, « Partage »)
@@ -1041,6 +1054,370 @@ pub enum ShareOp {
     Close,
 }
 
+// MARK: - Prêt de l'ordinateur (docs/pret.md ; textes : docs/link-ui.md, « Prêt de l'ordinateur »)
+
+/// Ce que « Prêter l'ordinateur… » peut faire avec un ordinateur (`Info::lend` du cœur).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LendAvail {
+    /// Une Station antérieure à la 0.9.0 (`info.lend` absent).
+    Unsupported,
+    /// Le prêt est coupé dans Admin (page « Prêt »), ou la Station ne sait pas prêter cet ordinateur.
+    Off,
+    Available,
+}
+
+impl LendAvail {
+    /// Pourquoi « Prêter l'ordinateur… » ne peut rien ; rien quand le prêt est possible.
+    pub fn text(self) -> Option<&'static str> {
+        match self {
+            LendAvail::Unsupported => Some(tr("Le prêt demande KyberNow Station 0.9.0 ou plus récente.", "Lending needs KyberNow Station 0.9.0 or later.")),
+            LendAvail::Off => Some(tr("Le prêt est coupé dans Admin (page « Prêt »).", "Lending is off in Admin (“Lending” page).")),
+            LendAvail::Available => None,
+        }
+    }
+}
+
+/// L'état de l'ordinateur d'un ami (`LendAvailability` du cœur), ou « Hors ligne » quand sa Station ne répond pas.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LendState {
+    Free,
+    Busy,
+    Lent,
+    Locked,
+    Off,
+    Offline,
+    /// Le prêt en cours est le sien (`LendStatus::mine`) : fenêtre fermée ou réseau perdu, il peut revenir.
+    Mine,
+}
+
+impl LendState {
+    /// L'état de la carte « Ordinateur de {hôte} ».
+    pub fn label(self) -> &'static str {
+        match self {
+            LendState::Free => tr("Disponible", "Available"),
+            LendState::Busy => tr("Occupé", "In use"),
+            LendState::Lent => tr("Prêté à quelqu'un d'autre", "Lent to someone else"),
+            LendState::Locked => tr("Verrouillé", "Locked"),
+            LendState::Off => tr("Prêt coupé", "Lending off"),
+            LendState::Offline => tr("Hors ligne", "Offline"),
+            LendState::Mine => tr("Vous pouvez revenir pendant 15 min.", "You can come back for 15 min."),
+        }
+    }
+
+    /// « Emprunter » (libre), « Demander à {hôte} » (occupé) ou « Revenir » (son prêt) se peut ; ailleurs, le bouton est
+    /// inactif.
+    pub fn borrowable(self) -> bool {
+        matches!(self, LendState::Free | LendState::Busy | LendState::Mine)
+    }
+}
+
+/// Le créneau d'un compte d'ami (`LendSlot` du cœur) : en cours (jusqu'à `end`), ou le prochain.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LendSlotUi {
+    pub now: bool,
+    pub start: u64,
+    pub end: u64,
+}
+
+impl LendSlotUi {
+    /// « Votre créneau, jusqu'à 18 h » (en cours) ; « Votre créneau : mercredi, 14 h – 18 h » (le prochain).
+    pub fn text(&self) -> String {
+        let end = crate::app_time::hour_label(self.end);
+        if self.now {
+            format!("{} {end}", tr("Votre créneau, jusqu'à", "Your time slot, until"))
+        } else {
+            format!("{} {}, {} – {end}", tr("Votre créneau :", "Your time slot:"), crate::app_time::weekday_label(self.start), crate::app_time::hour_label(self.start))
+        }
+    }
+}
+
+/// Ce que l'app sait de l'ordinateur d'un ami, d'après `lend::status` (sondé avec l'accueil).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LendLive {
+    /// `None` : pas encore su (ou pas de mot de passe à présenter).
+    pub state: Option<LendState>,
+    pub slot: Option<LendSlotUi>,
+}
+
+/// D'où vient un emprunt : « Rejoindre avec un code » (un code de prêt, la recherche `attempt` de l'écran), ou la carte
+/// d'un ordinateur emprunté (`Store::borrowed`, l'essai `attempt` de l'accueil). « Revenir » refait le même.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BorrowSource {
+    Code { attempt: u32 },
+    Account { id: String, attempt: u32 },
+}
+
+/// L'emprunt lancé depuis l'accueil (la carte « Ordinateur de {hôte} ») : l'ordinateur, l'appel à la Station
+/// (« Préparation de l'ordinateur… », 30 s au plus, le temps du mode console), l'attente de l'accord de l'hôte
+/// (« En attente de {hôte}… », « Annuler »), ou ce que la Station a répondu.
+#[derive(Clone, Debug)]
+pub struct BorrowUi {
+    pub id: String,
+    pub busy: bool,
+    pub waiting: bool,
+    pub message: Option<String>,
+    pub attempt: u32,
+    pub started: Instant,
+}
+
+impl Default for BorrowUi {
+    fn default() -> Self {
+        Self { id: String::new(), busy: false, waiting: false, message: None, attempt: 0, started: Instant::now() }
+    }
+}
+
+/// « En attente de {hôte}… », “Waiting for {host}…”.
+pub fn waiting_for(host: &str) -> String {
+    format!("{} {host}…", tr("En attente de", "Waiting for"))
+}
+
+/// « Demander à {hôte} », “Ask {host}”.
+pub fn ask_host(host: &str) -> String {
+    format!("{} {host}", tr("Demander à", "Ask"))
+}
+
+/// Le temps qui reste d'un prêt : « Encore 1 h 20 », « Encore 42 min », « Encore moins d'une minute ».
+pub fn time_left_label(seconds: u64) -> String {
+    let m = seconds / 60;
+    if crate::i18n::english() {
+        if m < 1 {
+            "Under a minute left".into()
+        } else if m < 60 {
+            format!("{m} min left")
+        } else {
+            format!("{} h {:02} left", m / 60, m % 60)
+        }
+    } else if m < 1 {
+        "Encore moins d'une minute".into()
+    } else if m < 60 {
+        format!("Encore {m} min")
+    } else {
+        format!("Encore {} h {:02}", m / 60, m % 60)
+    }
+}
+
+/// Une session d'emprunt : l'ordinateur d'un ami (« Prêté par {hôte} »), la fin prévue, le préavis en cours, et ce qui
+/// l'a finie. Ni profil ni réglages de la Station, ni presse-papiers.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BorrowSessionUi {
+    /// Le prénom de l'hôte et le nom de son ordinateur.
+    pub host: String,
+    pub computer: String,
+    /// La fin prévue (secondes Unix) ; `None` : « Jusqu'à ce que {hôte} reprenne ».
+    pub until: Option<u64>,
+    /// Le préavis de 2 minutes : l'heure de la fin.
+    pub notice: Option<u64>,
+    /// Le prêt a fini la session (`Platform::on_lend_end`) : sans cela, une fin sur erreur laisse revenir 15 min.
+    pub ended_by_lend: bool,
+    /// Le texte de la fin dite par le prêt ; « Vous avez rendu l'ordinateur. » (fin voulue, sans carte) se dit en avis
+    /// sur l'accueil qui revient.
+    pub end_text: Option<String>,
+    /// L'emprunt d'où vient la session, que « Revenir » refait.
+    pub source: BorrowSource,
+}
+
+impl BorrowSessionUi {
+    /// Un emprunt qui commence : rien de fini, pas de préavis.
+    pub fn new(host: &str, computer: &str, until: Option<u64>, source: BorrowSource) -> Self {
+        Self { host: host.into(), computer: computer.into(), until, notice: None, ended_by_lend: false, end_text: None, source }
+    }
+}
+
+impl BorrowSessionUi {
+    /// « Prêté par {hôte} », “Lent by {host}”.
+    pub fn lent_by(&self) -> String {
+        format!("{} {}", tr("Prêté par", "Lent by"), self.host)
+    }
+
+    /// « Encore 1 h 20 » (la fin prévue, ou celle du préavis), sinon « Jusqu'à ce que {hôte} reprenne ».
+    pub fn time_left(&self, now: u64) -> String {
+        match self.notice.or(self.until) {
+            Some(end) => time_left_label(end.saturating_sub(now)),
+            None => format!("{} {} {}", tr("Jusqu'à ce que", "Until"), self.host, tr("reprenne", "takes it back")),
+        }
+    }
+}
+
+/// « Son compte Steam », « Votre compte Steam » : le compte Steam du prêt (`LendSteam` du cœur).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum LendSteam {
+    /// Proposé.
+    #[default]
+    Friend,
+    Host,
+}
+
+impl LendSteam {
+    pub const ALL: [LendSteam; 2] = [LendSteam::Friend, LendSteam::Host];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            LendSteam::Friend => tr("Son compte Steam", "Their Steam account"),
+            LendSteam::Host => tr("Votre compte Steam", "Your Steam account"),
+        }
+    }
+}
+
+/// Les durées d'un code de prêt, dans l'ordre du choix : 1 h, 2 h (proposée), 4 h, « Jusqu'à ce que je reprenne ».
+pub const LEND_DURATIONS: [Option<u64>; 4] = [Some(3600), Some(7200), Some(14400), None];
+/// La durée proposée : 2 heures.
+pub const LEND_DURATION_DEFAULT: usize = 1;
+
+/// « 1 heure », « 2 heures », « 4 heures », « Jusqu'à ce que je reprenne ».
+pub fn lend_duration_label(d: Option<u64>) -> String {
+    match d {
+        None => tr("Jusqu'à ce que je reprenne", "Until I take it back").into(),
+        Some(s) if s <= 3600 => tr("1 heure", "1 hour").into(),
+        Some(s) => format!("{} {}", s / 3600, tr("heures", "hours")),
+    }
+}
+
+/// L'état du prêt chez l'hôte (`LendHostState` du cœur).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum LendHostState {
+    #[default]
+    Free,
+    Preparing,
+    Lent,
+    Ending,
+}
+
+/// Pourquoi le préavis de 2 minutes (`LendNoticeReason` du cœur).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LendNoticeKind {
+    TakenBack,
+    TimeUp,
+    SlotEnd,
+    SlotStart,
+}
+
+/// Une demande d'emprunt, ordinateur utilisé (`LendRequest` du cœur).
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct LendRequestUi {
+    pub id: String,
+    pub name: String,
+    pub app: String,
+    pub via_relay: bool,
+    /// Le compte Steam proposé (celui du compte d'ami, ou du code) : « Accepter » le garde.
+    pub steam: LendSteam,
+    /// La demande vient d'un créneau de l'ami (l'ordinateur lui est prêté dans 2 min sans réponse).
+    pub slot: bool,
+}
+
+impl LendRequestUi {
+    /// « Léa veut emprunter l'ordinateur. »
+    pub fn line(&self) -> String {
+        format!("{} {}", self.name, tr("veut emprunter l'ordinateur.", "wants to borrow the computer."))
+    }
+
+    /// Sous la demande : « Android · hors de chez vous » par le relais, sinon son app.
+    pub fn meta(&self) -> String {
+        if self.via_relay { format!("{} · {}", app_label(&self.app), tr("hors de chez vous", "away from home")) } else { app_label(&self.app) }
+    }
+}
+
+/// Le code de séance en cours (`LendCodeView` du cœur).
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct LendCodeUi {
+    pub code: String,
+    /// Le lien des apps (le QR code) et l'adresse du client web (« Copier le lien »).
+    pub link: String,
+    pub web: String,
+    pub duration: Option<u64>,
+    pub steam: LendSteam,
+}
+
+/// La vue du prêt chez l'hôte (`LendView` du cœur) : ce qui est prêté, à qui, le préavis, les demandes, le code.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct LendHostView {
+    pub enabled: bool,
+    pub state: LendHostState,
+    /// Le prénom de l'ami qui a l'ordinateur, et la fin prévue.
+    pub borrower: Option<(String, Option<u64>)>,
+    pub notice: Option<(LendNoticeKind, u64)>,
+    pub requests: Vec<LendRequestUi>,
+    pub code: Option<LendCodeUi>,
+}
+
+impl LendHostView {
+    /// L'ordinateur est prêté (ou le prêt se prépare, ou finit) : l'accueil dit « Prêté à {prénom} ».
+    pub fn lent(&self) -> bool {
+        self.state != LendHostState::Free && self.borrower.is_some()
+    }
+
+    /// « Prêté à Léa », « Prêté à Léa jusqu'à 18 h ».
+    pub fn lent_line(&self) -> Option<String> {
+        let (name, until) = self.borrower.as_ref().filter(|_| self.lent())?;
+        let base = format!("{} {name}", tr("Prêté à", "Lent to"));
+        Some(match until {
+            Some(t) => format!("{base} {} {}", tr("jusqu'à", "until"), crate::app_time::hour_label(*t)),
+            None => base,
+        })
+    }
+
+    /// Pendant la reprise (préavis de l'hôte) : « Reprise dans 1:42 ».
+    pub fn taking_back(&self, now: u64) -> Option<String> {
+        let (kind, at) = self.notice.filter(|_| self.lent())?;
+        (kind == LendNoticeKind::TakenBack).then(|| {
+            let left = at.saturating_sub(now);
+            format!("{} {}:{:02}", tr("Reprise dans", "Taking back in"), left / 60, left % 60)
+        })
+    }
+
+    /// L'avis d'un créneau qui commence : « Créneau de Léa : l'ordinateur lui est prêté dans 2 min. »
+    pub fn slot_notice(&self) -> Option<String> {
+        let (kind, _) = self.notice?;
+        (kind == LendNoticeKind::SlotStart).then(|| {
+            let slot = self.requests.iter().find(|r| r.slot).or(self.requests.first());
+            let name = slot.map(|r| r.name.as_str()).or(self.borrower.as_ref().map(|(n, _)| n.as_str())).unwrap_or_default();
+            if crate::i18n::english() { format!("{name}'s time slot: the computer is lent to them in 2 min.") } else { format!("Créneau {} : l'ordinateur lui est prêté dans 2 min.", crate::i18n::de(name)) }
+        })
+    }
+}
+
+/// Ce que fait l'hôte avec le prêt (une demande à Admin, avec le compte de l'appareil).
+#[derive(Clone, Debug, PartialEq)]
+pub enum LendOp {
+    /// « Créer un code » : durée (`None` : jusqu'à ce que je reprenne) et compte Steam.
+    Code(Option<u64>, LendSteam),
+    /// « Annuler le code ».
+    CancelCode,
+    /// « Accepter » (avec le compte Steam choisi) ou « Refuser » une demande.
+    Answer(String, bool, LendSteam),
+    /// « Reprendre l'ordinateur » (préavis de 2 min), ou « Reprendre tout de suite ».
+    TakeBack(bool),
+}
+
+/// Le formulaire « Ajouter un ordinateur » › « Avec un compte d'ami » : la Station du réseau, l'identifiant, le mot de
+/// passe, « Retenir le mot de passe ». `editing` : un ordinateur emprunté dont le mot de passe n'est pas retenu (il est
+/// redemandé pour « Emprunter »).
+#[derive(Clone, Debug)]
+pub struct FriendForm {
+    /// La Station choisie (indice dans `App::found`).
+    pub station: usize,
+    pub login: String,
+    pub password: String,
+    pub remember: bool,
+    pub field: FriendField,
+    pub shift: bool,
+    pub busy: bool,
+    pub message: Option<String>,
+    pub editing: Option<String>,
+}
+
+impl Default for FriendForm {
+    fn default() -> Self {
+        Self { station: 0, login: String::new(), password: String::new(), remember: true, field: FriendField::Login, shift: false, busy: false, message: None, editing: None }
+    }
+}
+
+/// Le champ que la saisie du compte d'ami remplit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FriendField {
+    Login,
+    Password,
+}
+
 /// Ce que l'invité tient de sa session (une session d'invité n'a pas d'ordinateur dans la liste de l'appareil).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GuestUi {
@@ -1088,6 +1465,12 @@ pub struct JoinState {
     /// « En attente de l'accord de l'hôte… » : la demande est partie par le relais, l'hôte n'a pas répondu
     /// (« Annuler » la retire). Toujours avec `busy`.
     pub waiting: bool,
+    /// Prêt de l'ordinateur : le code est celui d'un prêt, l'app emprunte (« Préparation de l'ordinateur… »).
+    /// Toujours avec `busy`.
+    pub lending: bool,
+    /// Prêt de l'ordinateur : l'emprunt attend l'accord de l'hôte, dont c'est le prénom (« En attente de {hôte}… »,
+    /// avec `waiting`).
+    pub wait_host: Option<String>,
     /// Le refus du cœur (« Aucun partage avec ce code sur le réseau. »…).
     pub message: Option<String>,
     /// Numéro de la recherche : une réponse d'une recherche abandonnée n'ouvre rien.
@@ -1097,7 +1480,7 @@ pub struct JoinState {
 
 impl JoinState {
     pub fn new() -> Self {
-        Self { code: String::new(), name: String::new(), quality: ShareQuality::Auto, field: JoinField::Code, shift: false, busy: false, waiting: false, message: None, attempt: 0, started: Instant::now() }
+        Self { code: String::new(), name: String::new(), quality: ShareQuality::Auto, field: JoinField::Code, shift: false, busy: false, waiting: false, lending: false, wait_host: None, message: None, attempt: 0, started: Instant::now() }
     }
 
     /// Six chiffres et un prénom : « Rejoindre » peut partir.
@@ -1187,6 +1570,19 @@ pub struct SessionUi {
     /// Le chemin de la session (`Platform::on_route`, au départ puis quand il change) ; `None` tant que le cœur
     /// n'a rien dit : direct.
     pub route: Option<RouteUi>,
+    /// Prêt de l'ordinateur, session d'hôte : la vue du prêt (`Platform::on_lend`, et les réponses d'Admin : code,
+    /// demandes), le panneau « Prêter l'ordinateur… » montré (à la manette ; au bureau, le menu `BarMenu::Lend`), une
+    /// demande à Admin en cours, ce qu'Admin a refusé, la durée (indice dans `LEND_DURATIONS`) et le compte Steam
+    /// choisis, et le lien copié.
+    pub lend: Option<LendHostView>,
+    pub lend_panel: bool,
+    pub lend_busy: bool,
+    pub lend_error: Option<String>,
+    pub lend_duration: usize,
+    pub lend_steam: LendSteam,
+    pub lend_copied: Option<(Instant, bool)>,
+    /// Prêt de l'ordinateur, session d'emprunt : l'ordinateur d'un ami (« Prêté par {hôte} »).
+    pub borrow: Option<BorrowSessionUi>,
 }
 
 impl SessionUi {
@@ -1226,7 +1622,34 @@ impl SessionUi {
             share_closed: None,
             guest: None,
             route: None,
+            lend: None,
+            lend_panel: false,
+            lend_busy: false,
+            lend_error: None,
+            lend_duration: LEND_DURATION_DEFAULT,
+            lend_steam: LendSteam::Friend,
+            lend_copied: None,
+            borrow: None,
         }
+    }
+
+    /// Une session d'emprunt, sur l'ordinateur d'un ami (« Ordinateur de {hôte} ») : jamais dans la liste des
+    /// ordinateurs (`key` : l'ordinateur emprunté, ou une clé propre à la session pour un code).
+    pub fn borrower(id: SessionId, key: &str, b: BorrowSessionUi) -> Self {
+        let mut s = Self::new(id, key, &crate::model::borrowed_title(&b.host), Profile::Jeu, false, false, 1);
+        s.borrow = Some(b);
+        s
+    }
+
+    /// Une session sur l'ordinateur de quelqu'un d'autre (invité d'un partage, ou emprunt) : ni profil, ni réglages,
+    /// ni « Partager », ni « Prêter l'ordinateur… ».
+    pub fn visitor(&self) -> bool {
+        self.guest.is_some() || self.borrow.is_some()
+    }
+
+    /// Un panneau du prêt est montré par-dessus l'image.
+    pub fn lend_overlay(&self) -> bool {
+        self.lend_panel || self.bar_menu == Some(BarMenu::Lend)
     }
 
     /// Par où passe la session : « Direct » tant que le cœur n'a pas dit autre chose.
@@ -1281,6 +1704,8 @@ impl SessionUi {
 pub enum AddStep {
     /// Le code à six chiffres, présenté à chaque Station trouvée.
     Code,
+    /// Prêt de l'ordinateur : « Avec un compte d'ami » (une Station du réseau, l'identifiant, le mot de passe).
+    Friend,
     /// Adresse et port d'Admin, au clavier ou au pavé.
     Address,
     /// Empreinte du certificat à comparer avec celle d'Admin.
@@ -1700,6 +2125,38 @@ pub enum Target {
     ShareNewCode,
     ShareStop,
     ShareClose,
+    /// Prêt de l'ordinateur, ami : la carte d'un ordinateur emprunté (indice dans `Store::borrowed`), « Emprunter »
+    /// (ou « Demander à {hôte} »), « Annuler » pendant l'attente, « Retirer cet ordinateur ».
+    Borrowed(usize),
+    Borrow,
+    BorrowCancel,
+    BorrowRemove,
+    /// « Ajouter un ordinateur » › « Avec un compte d'ami » : le bouton, la Station (indice dans les Stations
+    /// trouvées), les deux champs, « Retenir le mot de passe », « Ajouter ».
+    AddFriend,
+    FriendStation(usize),
+    FriendLogin,
+    FriendPassword,
+    FriendRemember,
+    FriendGo,
+    /// La fin d'une session d'emprunt sans le prêt (fenêtre fermée, réseau perdu) : « Revenir ».
+    ComeBack,
+    /// « Rendre l'ordinateur » dans la barre d'une session d'emprunt.
+    BarGiveBack,
+    /// Prêt de l'ordinateur, hôte : « Prêter l'ordinateur… » dans la barre ; le panneau (durée, compte Steam,
+    /// « Créer un code », copier le lien, « Annuler le code », accepter ou refuser une demande, fermer).
+    BarLend,
+    LendDuration(usize),
+    LendSteamPick(LendSteam),
+    LendCreate,
+    LendCopy,
+    LendCancelCode,
+    LendAccept(usize),
+    LendRefuse(usize),
+    LendClose,
+    /// Sur l'accueil de l'ordinateur prêté : « Reprendre l'ordinateur », puis « Reprendre tout de suite ».
+    TakeBack,
+    TakeBackNow,
     /// Une mise à jour est publiée : sa page.
     UpdateNotice,
     /// KyberNow Link OS : premier démarrage.
@@ -1747,6 +2204,21 @@ pub enum Action {
     ShareQuality(SessionId, ShareQuality),
     /// KyberNow Share, hôte : une demande à Admin pour le partage de cette session.
     Share(SessionId, ShareOp),
+    /// Prêt de l'ordinateur, ami : emprunter l'ordinateur emprunté `id` avec ce mot de passe (`lend::borrow`).
+    Borrow { id: String, password: String },
+    /// « Annuler » pendant l'attente de l'accord de l'hôte (`lend::cancel`).
+    BorrowCancel,
+    /// « Revenir » : le même emprunt, refait (`lend::borrow`, 15 min après une fin sans le prêt), suivi sous cette source.
+    ComeBack(BorrowSource),
+    /// « Rendre l'ordinateur » (après sa confirmation) : `Session::give_back`.
+    GiveBack(SessionId),
+    /// « Avec un compte d'ami » : la carte de l'ordinateur d'après `lend::status` (identifiant et mot de passe
+    /// vérifiés), puis gardée ; `editing` : un ordinateur déjà emprunté dont le mot de passe est redemandé.
+    FriendAdd { address: String, port: u16, fingerprint: Option<String>, login: String, password: String, remember: bool, editing: Option<String> },
+    /// Prêt de l'ordinateur, hôte, en session : une demande à Admin (code, demandes).
+    Lend(SessionId, LendOp),
+    /// Prêt de l'ordinateur, hôte, sur l'accueil : « Reprendre l'ordinateur » de cet ordinateur.
+    LendHome { host: String, op: LendOp },
     /// Copier ce texte (le lien du partage) dans le presse-papiers du système.
     CopyText(String),
     /// La saisie de texte de SDL, sans le clavier de Steam (« Rejoindre un partage »).
@@ -1872,6 +2344,12 @@ pub struct App {
     pub screens_plan: ScreensPlan,
     /// KyberNow Share : l'écran « Rejoindre un partage ».
     pub join: JoinState,
+    /// Prêt de l'ordinateur, ami : l'état de chaque ordinateur emprunté (`lend::status`), l'emprunt lancé depuis
+    /// l'accueil, les mots de passe non retenus (le temps du lancement), le formulaire du compte d'ami.
+    pub lend_live: HashMap<String, LendLive>,
+    pub borrow: BorrowUi,
+    pub lend_passwords: HashMap<String, String>,
+    pub friend: FriendForm,
 }
 
 impl App {
@@ -2067,6 +2545,10 @@ impl App {
             waking: None,
             screens_plan: ScreensPlan::default(),
             join: JoinState::new(),
+            lend_live: HashMap::new(),
+            borrow: BorrowUi::default(),
+            lend_passwords: HashMap::new(),
+            friend: FriendForm::default(),
         }
     }
 
@@ -2106,6 +2588,10 @@ impl App {
     /// L'ordinateur choisi sur l'accueil.
     pub fn selected(&self) -> Option<&Host> {
         let id = self.store.selected.as_deref();
+        // Un ordinateur emprunté choisi : pas d'ordinateur appairé (l'accueil montre sa carte à lui).
+        if self.selected_borrowed().is_some() {
+            return None;
+        }
         id.and_then(|id| self.store.host(id)).or_else(|| self.store.hosts.first())
     }
 
@@ -2168,6 +2654,7 @@ impl App {
         self.screen = screen;
         self.screen_since = Instant::now();
         self.focus = match screen {
+            Screen::Launch | Screen::Home if self.selected_borrowed().is_some() => Target::Borrow,
             Screen::Launch | Screen::Home => {
                 if self.store.hosts.is_empty() {
                     if self.new_found().is_empty() { Target::AddCard } else { Target::Found(0) }
@@ -2181,6 +2668,11 @@ impl App {
                 }
                 AddStep::Address | AddStep::Mac => Target::KeyOk,
                 AddStep::Verify { .. } => Target::VerifyOk,
+                AddStep::Friend => match (self.layout.console(), self.friend.field) {
+                    (false, FriendField::Login) => Target::FriendLogin,
+                    (false, FriendField::Password) => Target::FriendPassword,
+                    (true, _) => Target::Key('q'),
+                },
             },
             Screen::Join => match (self.layout.console(), self.join.field) {
                 (false, JoinField::Code) => Target::JoinCode,
@@ -2271,6 +2763,21 @@ impl App {
     /// « Rejoindre un partage » : le code ou le prénom est en cours de saisie.
     pub fn typing_join(&self) -> bool {
         self.screen == Screen::Join
+    }
+
+    /// « Avec un compte d'ami » : l'identifiant ou le mot de passe est en cours de saisie.
+    pub fn typing_friend(&self) -> bool {
+        self.screen == Screen::Add && self.add.step == AddStep::Friend
+    }
+
+    /// L'ordinateur emprunté choisi sur l'accueil (`Store::selected` désigne un ordinateur appairé, ou emprunté).
+    pub fn selected_borrowed(&self) -> Option<&crate::model::Borrowed> {
+        self.store.selected.as_deref().and_then(|id| self.store.borrowed(id))
+    }
+
+    /// Les ordinateurs de l'accueil, dans l'ordre de la rangée : appairés, puis empruntés.
+    fn home_ids(&self) -> Vec<String> {
+        self.store.hosts.iter().map(|h| h.id.clone()).chain(self.store.borrowed.iter().map(|b| b.id.clone())).collect()
     }
 
     /// L'étape suivante du premier démarrage (ou la fin de l'étape seule).
@@ -2409,6 +2916,15 @@ impl App {
                 self.focus = focus;
                 Vec::new()
             }
+            // « Avec un compte d'ami » : Entrée dans l'identifiant passe au mot de passe, dans le mot de passe ajoute.
+            Nav::Ok if self.typing_friend() && matches!(self.focus, Target::FriendLogin | Target::FriendPassword) => {
+                if self.focus == Target::FriendLogin && self.friend.editing.is_none() {
+                    self.friend.field = FriendField::Password;
+                    self.focus = Target::FriendPassword;
+                    return Vec::new();
+                }
+                self.activate(Target::FriendGo)
+            }
             Nav::Ok => {
                 let t = self.focus;
                 self.activate(t)
@@ -2474,13 +2990,13 @@ impl App {
                 }
             }
             Nav::Char(c) => {
-                if self.screen == Screen::Add && matches!(self.add.step, AddStep::Address | AddStep::Mac) || self.typing_password() || self.typing_join() {
+                if self.screen == Screen::Add && matches!(self.add.step, AddStep::Address | AddStep::Mac) || self.typing_password() || self.typing_join() || self.typing_friend() {
                     return self.activate(Target::Key(c));
                 }
                 Vec::new()
             }
             Nav::Erase => {
-                if self.screen == Screen::Add && matches!(self.add.step, AddStep::Address | AddStep::Mac) || self.typing_password() || self.typing_join() {
+                if self.screen == Screen::Add && matches!(self.add.step, AddStep::Address | AddStep::Mac) || self.typing_password() || self.typing_join() || self.typing_friend() {
                     return self.activate(Target::KeyErase);
                 }
                 Vec::new()
@@ -2490,11 +3006,14 @@ impl App {
                 let Target::Setting(s) = self.focus else { return Vec::new() };
                 self.adjust(s, if n == Nav::Right { 1 } else { -1 })
             }
-            Nav::Left | Nav::Right if self.screen == Screen::Home && matches!(self.focus, Target::Connect | Target::Wake | Target::Retry) && self.layout.console() && self.store.hosts.len() > 1 => {
-                // Accueil à la manette : ‹ › changent d'ordinateur.
-                let i = self.selected_index().unwrap_or(0);
-                let j = cycle(i, self.store.hosts.len(), if n == Nav::Right { 1 } else { -1 });
-                self.store.selected = Some(self.store.hosts[j].id.clone());
+            Nav::Left | Nav::Right if self.screen == Screen::Home && matches!(self.focus, Target::Connect | Target::Wake | Target::Retry | Target::Borrow | Target::TakeBack) && self.layout.console() && self.home_ids().len() > 1 => {
+                // Accueil à la manette : ‹ › changent d'ordinateur (les ordinateurs empruntés à la suite).
+                let ids = self.home_ids();
+                let current = self.selected_borrowed().map(|b| b.id.clone()).or_else(|| self.selected().map(|h| h.id.clone()));
+                let i = current.and_then(|c| ids.iter().position(|id| *id == c)).unwrap_or(0);
+                let j = cycle(i, ids.len(), if n == Nav::Right { 1 } else { -1 });
+                self.store.selected = Some(ids[j].clone());
+                self.focus = if self.selected_borrowed().is_some() { Target::Borrow } else { Target::Connect };
                 vec![Action::Save]
             }
             _ => {
@@ -2577,6 +3096,17 @@ impl App {
                     self.leave_mac();
                     Vec::new()
                 }
+                // Le compte d'ami : retour à l'ajout par code ; un mot de passe redemandé pour « Emprunter » : l'accueil.
+                AddStep::Friend if self.friend.editing.is_some() || self.setup.active => {
+                    self.friend = FriendForm::default();
+                    self.add.step = AddStep::Code;
+                    if self.setup.active {
+                        self.go(Screen::Add);
+                        return Vec::new();
+                    }
+                    self.go(Screen::Home);
+                    vec![Action::StopPairing]
+                }
                 _ => {
                     self.add.step = AddStep::Code;
                     self.add.message = None;
@@ -2586,12 +3116,18 @@ impl App {
             },
             // Une recherche en cours est abandonnée : sa réponse n'ouvrira rien (elle repart de la Station).
             Screen::Join => {
-                let waiting = self.join.waiting;
+                let (waiting, lending) = (self.join.waiting, self.join.lending);
                 self.join.attempt += 1;
                 self.join.busy = false;
                 self.join.waiting = false;
+                self.join.lending = false;
+                self.join.wait_host = None;
                 self.go(Screen::Home);
-                if waiting { vec![Action::JoinCancel] } else { Vec::new() }
+                match (waiting, lending) {
+                    (true, true) => vec![Action::BorrowCancel],
+                    (true, false) => vec![Action::JoinCancel],
+                    _ => Vec::new(),
+                }
             }
             Screen::Standby => {
                 self.standby = false;
@@ -2683,6 +3219,14 @@ impl App {
                     self.focus = Target::Menu(MenuItem::Keys);
                     return Vec::new();
                 }
+                // Le panneau du prêt se referme sur l'image, comme celui du partage.
+                if s.lend_overlay() {
+                    s.lend_panel = false;
+                    if s.bar_menu == Some(BarMenu::Lend) {
+                        s.bar_menu = None;
+                    }
+                    return Vec::new();
+                }
                 // Le panneau du partage se referme sur l'image (il s'ouvre depuis le menu, ou la barre).
                 if s.share_overlay() {
                     // Le panneau de la qualité de l'image d'un invité (à la manette) revient au menu d'où il s'ouvre.
@@ -2713,6 +3257,7 @@ impl App {
         if let Some(s) = Self::active_in(&mut self.sessions, self.active)
             && !s.menu
             && !s.share_panel
+            && !s.lend_panel
             && matches!(s.phase, Phase::Streaming | Phase::Reconnecting { .. })
         {
             let id = s.id;
@@ -2731,8 +3276,139 @@ impl App {
         match t {
             Target::Connect => {
                 let Some(h) = self.selected() else { return Vec::new() };
+                // L'ordinateur est prêté : le bouton principal est « Reprendre l'ordinateur ».
+                if self.host_lent(&h.id) {
+                    return self.activate(Target::TakeBack);
+                }
                 let profile = h.settings.profile;
                 vec![Action::Connect { host: h.id.clone(), profile }]
+            }
+            Target::Borrowed(i) => {
+                let Some(id) = self.store.borrowed.get(i).map(|b| b.id.clone()) else { return Vec::new() };
+                if self.store.selected.as_deref() == Some(&id) {
+                    self.focus = Target::Borrow;
+                    return Vec::new();
+                }
+                self.store.selected = Some(id);
+                vec![Action::Save]
+            }
+            Target::Borrow => self.borrow_go(),
+            Target::BorrowCancel => self.borrow_cancel(),
+            Target::BorrowRemove => {
+                let Some(b) = self.selected_borrowed() else { return Vec::new() };
+                let c = Confirm::Remove { host: b.id.clone(), name: b.title() };
+                self.open_confirm(c);
+                Vec::new()
+            }
+            Target::AddFriend => {
+                self.friend = FriendForm::default();
+                self.add.step = AddStep::Friend;
+                self.add.message = None;
+                self.go(Screen::Add);
+                vec![Action::TextInput]
+            }
+            Target::FriendStation(i) => {
+                if !self.friend.busy {
+                    self.friend.station = i;
+                    self.friend.message = None;
+                }
+                Vec::new()
+            }
+            Target::FriendLogin => {
+                if self.friend.editing.is_none() {
+                    self.friend.field = FriendField::Login;
+                }
+                Vec::new()
+            }
+            Target::FriendPassword => {
+                self.friend.field = FriendField::Password;
+                Vec::new()
+            }
+            Target::FriendRemember => {
+                if !self.friend.busy {
+                    self.friend.remember = !self.friend.remember;
+                }
+                Vec::new()
+            }
+            Target::FriendGo => self.friend_go(),
+            Target::Key(c) if self.typing_friend() => {
+                self.friend_type(c);
+                Vec::new()
+            }
+            Target::KeyErase if self.typing_friend() => {
+                if !self.friend.busy {
+                    match self.friend.field {
+                        FriendField::Login => self.friend.login.pop(),
+                        FriendField::Password => self.friend.password.pop(),
+                    };
+                    self.friend.message = None;
+                }
+                Vec::new()
+            }
+            Target::KeyShift if self.typing_friend() => {
+                self.friend.shift = !self.friend.shift;
+                Vec::new()
+            }
+            Target::ComeBack => self.come_back(),
+            Target::BarGiveBack => self.give_back_ask(),
+            Target::BarLend => self.lend_button(false),
+            Target::LendDuration(i) => {
+                if let Some(s) = self.session_mut() {
+                    s.lend_duration = i.min(LEND_DURATIONS.len() - 1);
+                }
+                Vec::new()
+            }
+            Target::LendSteamPick(st) => {
+                if let Some(s) = self.session_mut() {
+                    s.lend_steam = st;
+                }
+                Vec::new()
+            }
+            Target::LendCreate => {
+                let Some(s) = self.session() else { return Vec::new() };
+                let (id, op) = (s.id, LendOp::Code(LEND_DURATIONS[s.lend_duration.min(LEND_DURATIONS.len() - 1)], s.lend_steam));
+                // L'avertissement de confiance est dit jusqu'au premier code créé.
+                if !self.store.app.lend_warned {
+                    self.store.app.lend_warned = true;
+                    let mut acts = self.lend_op(id, op);
+                    acts.push(Action::Save);
+                    return acts;
+                }
+                self.lend_op(id, op)
+            }
+            Target::LendCancelCode => match self.active_id() {
+                Some(id) => self.lend_op(id, LendOp::CancelCode),
+                None => Vec::new(),
+            },
+            Target::LendAccept(i) | Target::LendRefuse(i) => {
+                let accept = matches!(t, Target::LendAccept(_));
+                let Some((id, request, steam)) = self.session().and_then(|s| s.lend.as_ref().and_then(|v| v.requests.get(i)).map(|r| (s.id, r.id.clone(), r.steam))) else { return Vec::new() };
+                self.lend_op(id, LendOp::Answer(request, accept, steam))
+            }
+            // « Copier le lien » copie l'adresse du client web du code ; le QR code porte le lien des apps.
+            Target::LendCopy => match self.session().and_then(|s| s.lend.as_ref().and_then(|v| v.code.as_ref()).map(|c| (s.id, c.web.clone()))) {
+                Some((id, web)) => {
+                    if let Some(s) = self.session_by_mut(id) {
+                        s.lend_copied = Some((Instant::now(), true));
+                    }
+                    vec![Action::CopyText(web)]
+                }
+                None => Vec::new(),
+            },
+            Target::LendClose => {
+                if let Some(s) = self.session_mut() {
+                    s.lend_panel = false;
+                    if s.bar_menu == Some(BarMenu::Lend) {
+                        s.bar_menu = None;
+                    }
+                }
+                Vec::new()
+            }
+            Target::TakeBack | Target::TakeBackNow => {
+                let Some(h) = self.selected() else { return Vec::new() };
+                let id = h.id.clone();
+                let now = t == Target::TakeBackNow;
+                vec![Action::LendHome { host: id, op: LendOp::TakeBack(now) }]
             }
             Target::Chip(p) => {
                 let Some(id) = self.selected().map(|h| h.id.clone()) else { return Vec::new() };
@@ -3180,6 +3856,8 @@ impl App {
         }
         self.join.busy = true;
         self.join.waiting = false;
+        self.join.lending = false;
+        self.join.wait_host = None;
         self.join.message = None;
         self.join.started = Instant::now();
         let name = self.join.name.trim().to_string();
@@ -3196,6 +3874,8 @@ impl App {
         }
         self.join.busy = false;
         self.join.waiting = false;
+        self.join.lending = false;
+        self.join.wait_host = None;
         self.join.message = Some(message);
     }
 
@@ -3216,12 +3896,15 @@ impl App {
         if !self.join.waiting {
             return Vec::new();
         }
+        let lending = self.join.lending;
         self.join.attempt += 1;
         self.join.busy = false;
         self.join.waiting = false;
+        self.join.lending = false;
+        self.join.wait_host = None;
         self.join.message = None;
         self.focus = Target::JoinGo;
-        vec![Action::JoinCancel]
+        vec![if lending { Action::BorrowCancel } else { Action::JoinCancel }]
     }
 
     /// La recherche `attempt` est toujours celle de l'écran : sa réponse ouvre la session.
@@ -3473,6 +4156,15 @@ impl App {
     /// Ferme la confirmation ; le focus revient sur ce qui l'a ouverte.
     fn close_confirm(&mut self) {
         let back = match self.confirm.take() {
+            // Retirer un ordinateur emprunté (accueil), rendre l'ordinateur (session) : le focus revient à leur bouton.
+            Some(Confirm::Remove { host, .. }) if self.store.borrowed(&host).is_some() => {
+                self.focus = Target::BorrowRemove;
+                return;
+            }
+            Some(Confirm::GiveBack { .. }) => {
+                self.focus = if self.layout.console() { Target::Menu(MenuItem::Resume) } else { Target::BarGiveBack };
+                return;
+            }
             Some(Confirm::Remove { .. }) => Setting::Remove,
             Some(Confirm::Force { kind: StationKind::Update, .. }) => Setting::StationUpdate,
             _ => Setting::StationRestart,
@@ -3488,9 +4180,15 @@ impl App {
 
     fn confirmed(&mut self) -> Vec<Action> {
         match self.confirm.take() {
+            Some(Confirm::GiveBack { session, .. }) => {
+                self.focus = Target::Menu(MenuItem::Resume);
+                vec![Action::GiveBack(session)]
+            }
             Some(Confirm::Remove { host, name }) => {
                 self.store.remove(&host);
                 self.live.remove(&host);
+                self.lend_live.remove(&host);
+                self.lend_passwords.remove(&host);
                 self.toast(format!("{name} {}", tr("est retiré de cet appareil", "is removed from this device")));
                 self.go(Screen::Home);
                 vec![Action::Save]
@@ -3685,7 +4383,380 @@ impl App {
             }
             // « Par le relais » : le chemin de la session, rien à choisir.
             MenuItem::Route => Vec::new(),
+            // « Prêter l'ordinateur… » : le menu se ferme, le panneau du prêt s'ouvre sur l'image.
+            MenuItem::Lend => {
+                s.menu = false;
+                self.lend_button(true)
+            }
+            MenuItem::GiveBack => self.give_back_ask(),
             MenuItem::Disconnect => vec![Action::Disconnect(id)],
+        }
+    }
+
+    // MARK: - Prêt de l'ordinateur
+
+    /// L'ordinateur appairé `id` est prêté (vu sur l'accueil, hors session) : « Reprendre l'ordinateur ».
+    pub fn host_lent(&self, id: &str) -> bool {
+        self.live.get(id).and_then(|l| l.lend_view.as_ref()).is_some_and(LendHostView::lent)
+    }
+
+    /// Ce que « Prêter l'ordinateur… » peut faire avec l'ordinateur de cette session (`None` : pas encore su).
+    pub fn lend_avail(&self, s: &SessionUi) -> Option<LendAvail> {
+        self.live.get(&s.host).and_then(|l| l.lend)
+    }
+
+    /// « Emprunter » (ou « Demander à {hôte} ») sur la carte de l'ordinateur emprunté choisi. Sans mot de passe retenu
+    /// ni donné depuis le lancement, le formulaire du compte d'ami le redemande.
+    fn borrow_go(&mut self) -> Vec<Action> {
+        let Some(b) = self.selected_borrowed().cloned() else { return Vec::new() };
+        if self.borrow.busy && self.borrow.id == b.id {
+            return Vec::new();
+        }
+        let state = self.lend_live.get(&b.id).and_then(|l| l.state);
+        if state.is_some_and(|s| !s.borrowable()) {
+            return Vec::new();
+        }
+        let password = if b.remember { b.password.clone() } else { self.lend_passwords.get(&b.id).cloned().unwrap_or_default() };
+        if password.is_empty() {
+            self.friend = FriendForm { login: b.login.clone(), remember: b.remember, field: FriendField::Password, editing: Some(b.id.clone()), ..FriendForm::default() };
+            self.add.step = AddStep::Friend;
+            self.go(Screen::Add);
+            return vec![Action::TextInput];
+        }
+        let attempt = self.borrow.attempt + 1;
+        self.borrow = BorrowUi { id: b.id.clone(), busy: true, attempt, ..BorrowUi::default() };
+        vec![Action::Borrow { id: b.id, password }]
+    }
+
+    /// « Annuler » pendant l'attente de l'accord de l'hôte (accueil) : la demande est retirée.
+    fn borrow_cancel(&mut self) -> Vec<Action> {
+        if !self.borrow.waiting {
+            return Vec::new();
+        }
+        self.borrow.attempt += 1;
+        self.borrow.busy = false;
+        self.borrow.waiting = false;
+        self.focus = Target::Borrow;
+        vec![Action::BorrowCancel]
+    }
+
+    /// L'emprunt `source` est toujours celui de l'écran : sa réponse ouvre la session.
+    pub fn borrow_current(&self, source: &BorrowSource) -> bool {
+        match source {
+            BorrowSource::Code { attempt } => self.join_current(*attempt) && self.join.lending,
+            BorrowSource::Account { id, attempt } => self.borrow.busy && self.borrow.id == *id && self.borrow.attempt == *attempt,
+        }
+    }
+
+    /// La source de l'emprunt en cours depuis l'accueil.
+    pub fn borrow_source(&self) -> BorrowSource {
+        BorrowSource::Account { id: self.borrow.id.clone(), attempt: self.borrow.attempt }
+    }
+
+    /// L'emprunt attend l'accord de l'hôte : « En attente de {hôte}… » et « Annuler ».
+    pub fn borrow_pending(&mut self, source: &BorrowSource, host: &str) {
+        if !self.borrow_current(source) {
+            return;
+        }
+        match source {
+            BorrowSource::Code { .. } => {
+                self.join.waiting = true;
+                self.join.wait_host = Some(host.to_string());
+                self.join.started = Instant::now();
+                self.focus = Target::JoinCancel;
+            }
+            BorrowSource::Account { .. } => {
+                self.borrow.waiting = true;
+                self.borrow.started = Instant::now();
+                if self.screen == Screen::Home {
+                    self.focus = Target::BorrowCancel;
+                }
+            }
+        }
+    }
+
+    /// L'emprunt est refusé (ou la Station ne répond pas) : le texte du cœur, sous « Rejoindre » ou sur la carte.
+    pub fn borrow_failed(&mut self, source: &BorrowSource, message: String) {
+        if !self.borrow_current(source) {
+            return;
+        }
+        match source {
+            BorrowSource::Code { attempt } => self.join_failed(*attempt, message),
+            BorrowSource::Account { .. } => {
+                self.borrow.busy = false;
+                self.borrow.waiting = false;
+                self.borrow.message = Some(message);
+                if self.screen == Screen::Home {
+                    self.focus = Target::Borrow;
+                }
+            }
+        }
+    }
+
+    /// L'emprunt est accordé : la session va s'ouvrir, l'attente s'efface.
+    pub fn borrow_done(&mut self, source: &BorrowSource) {
+        match source {
+            BorrowSource::Code { .. } => {
+                self.join.busy = false;
+                self.join.waiting = false;
+                self.join.lending = false;
+                self.join.wait_host = None;
+            }
+            BorrowSource::Account { .. } => {
+                self.borrow.busy = false;
+                self.borrow.waiting = false;
+                self.borrow.message = None;
+            }
+        }
+    }
+
+    /// « Rejoindre avec un code » est tombé sur un code de prêt (`ShareError::Lend`) : l'app emprunte
+    /// (« Préparation de l'ordinateur… »). Rend vrai si la recherche est toujours celle de l'écran.
+    pub fn join_lending(&mut self, attempt: u32) -> bool {
+        if !self.join_current(attempt) {
+            return false;
+        }
+        self.join.lending = true;
+        self.join.started = Instant::now();
+        true
+    }
+
+    /// Une lettre pour le champ du compte d'ami (identifiant, mot de passe), 64 au plus.
+    fn friend_type(&mut self, c: char) {
+        if self.friend.busy || c.is_control() {
+            return;
+        }
+        let c = if self.friend.shift { c.to_uppercase().next().unwrap_or(c) } else { c };
+        let field = match self.friend.field {
+            FriendField::Login if self.friend.editing.is_none() => &mut self.friend.login,
+            FriendField::Login => return,
+            FriendField::Password => &mut self.friend.password,
+        };
+        if field.chars().count() < 64 {
+            field.push(c);
+            self.friend.shift = false;
+            self.friend.message = None;
+        }
+    }
+
+    /// « Ajouter » (ou « Emprunter », mot de passe redemandé) : l'identifiant et le mot de passe partent à la Station
+    /// choisie (`lend::status`), qui les vérifie et dit le prénom de l'hôte et l'état de l'ordinateur.
+    fn friend_go(&mut self) -> Vec<Action> {
+        if self.friend.busy {
+            return Vec::new();
+        }
+        let f = self.friend.clone();
+        let target = match &f.editing {
+            Some(id) => self.store.borrowed(id).map(|b| (b.address.clone(), b.port, b.fingerprint.clone())),
+            None => self.found.get(f.station).map(|s| (s.address.clone(), s.port, s.fingerprint.clone())),
+        };
+        let Some((address, port, fingerprint)) = target else {
+            self.friend.message = Some(tr("Aucune Station trouvée sur ce réseau pour l'instant.", "No Station found on this network yet.").into());
+            return Vec::new();
+        };
+        if f.login.trim().is_empty() || f.password.is_empty() {
+            let field = if f.login.trim().is_empty() { FriendField::Login } else { FriendField::Password };
+            self.friend.field = field;
+            self.focus = match (self.layout.console(), field) {
+                (false, FriendField::Login) => Target::FriendLogin,
+                (false, FriendField::Password) => Target::FriendPassword,
+                (true, _) => Target::Key('q'),
+            };
+            return Vec::new();
+        }
+        self.friend.busy = true;
+        self.friend.message = None;
+        vec![Action::FriendAdd { address, port, fingerprint, login: f.login.trim().to_string(), password: f.password.clone(), remember: f.remember, editing: f.editing.clone() }]
+    }
+
+    /// La Station a reconnu le compte d'ami : l'ordinateur est gardé (son mot de passe s'il est retenu, sinon le temps
+    /// du lancement) et choisi sur l'accueil ; un mot de passe redemandé lance « Emprunter » aussitôt.
+    pub fn friend_added(&mut self, b: crate::model::Borrowed, live: LendLive, password: String) -> Vec<Action> {
+        self.friend.busy = false;
+        let editing = self.friend.editing.is_some();
+        let name = b.title();
+        let id = self.store.put_borrowed(b);
+        self.lend_passwords.insert(id.clone(), password);
+        self.lend_live.insert(id.clone(), live);
+        self.store.selected = Some(id);
+        self.friend = FriendForm::default();
+        self.add.step = AddStep::Code;
+        self.go(Screen::Home);
+        let mut acts = vec![Action::Save, Action::StopPairing];
+        if editing {
+            acts.extend(self.borrow_go());
+        } else {
+            self.toast(format!("{name} {}", tr("est ajouté", "added")));
+        }
+        acts
+    }
+
+    /// La Station a refusé le compte d'ami (ou ne répond pas) : le texte, sous les champs.
+    pub fn friend_failed(&mut self, message: String) {
+        self.friend.busy = false;
+        self.friend.message = Some(message);
+    }
+
+    /// « Rendre l'ordinateur » : la confirmation « Rendre l'ordinateur à {hôte} ? ».
+    fn give_back_ask(&mut self) -> Vec<Action> {
+        let Some(s) = self.session_mut() else { return Vec::new() };
+        let Some(b) = &s.borrow else { return Vec::new() };
+        let c = Confirm::GiveBack { session: s.id, host: b.host.clone() };
+        s.menu = false;
+        s.bar_menu = None;
+        let id = s.id;
+        self.open_confirm(c);
+        vec![Action::ReleaseAll(id)]
+    }
+
+    /// « Revenir » sur la carte de fin d'une session d'emprunt : la session se ferme, le même emprunt repart
+    /// (« Préparation de l'ordinateur… » sur l'écran d'où il venait).
+    fn come_back(&mut self) -> Vec<Action> {
+        let Some(s) = self.session() else { return Vec::new() };
+        let Some(b) = s.borrow.clone() else { return Vec::new() };
+        let id = s.id;
+        self.close_session(id);
+        match &b.source {
+            BorrowSource::Code { .. } => {
+                self.join.attempt += 1;
+                self.join.busy = true;
+                self.join.lending = true;
+                self.join.waiting = false;
+                self.join.wait_host = None;
+                self.join.message = None;
+                self.join.started = Instant::now();
+                self.go(Screen::Join);
+                self.focus = Target::JoinGo;
+            }
+            BorrowSource::Account { id: bid, .. } => {
+                self.store.selected = Some(bid.clone());
+                self.borrow = BorrowUi { id: bid.clone(), busy: true, attempt: self.borrow.attempt + 1, ..BorrowUi::default() };
+                self.go(Screen::Home);
+            }
+        }
+        if !self.sessions.is_empty() {
+            // D'autres sessions continuent : l'écran revient à elles, l'emprunt se suit sur l'accueil (rien ne s'y perd).
+            self.screen = Screen::Session;
+        }
+        let source = match &b.source {
+            BorrowSource::Code { .. } => BorrowSource::Code { attempt: self.join.attempt },
+            BorrowSource::Account { id, .. } => BorrowSource::Account { id: id.clone(), attempt: self.borrow.attempt },
+        };
+        vec![Action::ComeBack(source)]
+    }
+
+    /// Le préavis de 2 minutes d'une session d'emprunt : l'avis, et le temps restant de la barre suit l'heure de la fin.
+    pub fn lend_notice(&mut self, id: SessionId, text: String, at: u64) {
+        let Some(s) = self.session_by_mut(id) else { return };
+        if let Some(b) = s.borrow.as_mut() {
+            b.notice = Some(at);
+        }
+        s.notice = Some((text, Instant::now()));
+    }
+
+    /// Le prêt a fini la session d'emprunt (« {hôte} a repris l'ordinateur. »…) : la carte de fin n'offre pas de revenir.
+    pub fn lend_ended(&mut self, id: SessionId, text: String) {
+        if let Some(b) = self.session_by_mut(id).and_then(|s| s.borrow.as_mut()) {
+            b.ended_by_lend = true;
+            b.end_text = Some(text).filter(|t| !t.is_empty());
+        }
+    }
+
+    /// « Prêter l'ordinateur… » : le bouton de la barre (`menu` faux, à la souris) ou la tuile du menu. Il ouvre le
+    /// panneau du prêt ; le prêt impossible (Station trop ancienne, prêt coupé), le panneau se réduit à la raison.
+    fn lend_button(&mut self, menu: bool) -> Vec<Action> {
+        let Some(s) = self.session() else { return Vec::new() };
+        if s.visitor() {
+            return Vec::new();
+        }
+        let (id, shown) = (s.id, s.lend_overlay());
+        let overlay = menu || self.layout.console();
+        let first_request = s.lend.as_ref().is_some_and(|v| !v.requests.is_empty());
+        let has_code = s.lend.as_ref().is_some_and(|v| v.code.is_some());
+        let blocked = self.lend_avail(s).is_some_and(|a| a != LendAvail::Available);
+        let Some(s) = self.session_mut() else { return Vec::new() };
+        if shown {
+            s.lend_panel = false;
+            s.bar_menu = None;
+            return Vec::new();
+        }
+        s.lend_error = None;
+        s.bar_menu = None;
+        if overlay {
+            s.lend_panel = true;
+        } else {
+            s.bar_menu = Some(BarMenu::Lend);
+        }
+        self.focus = if blocked {
+            Target::LendClose
+        } else if first_request {
+            Target::LendAccept(0)
+        } else if has_code {
+            Target::LendCancelCode
+        } else {
+            Target::LendCreate
+        };
+        if overlay { vec![Action::ReleaseAll(id)] } else { Vec::new() }
+    }
+
+    /// Une demande de l'hôte à Admin pour le prêt (une à la fois, jusqu'à la réponse).
+    fn lend_op(&mut self, id: SessionId, op: LendOp) -> Vec<Action> {
+        let Some(s) = self.session_by_mut(id) else { return Vec::new() };
+        if s.lend_busy {
+            return Vec::new();
+        }
+        s.lend_busy = true;
+        s.lend_error = None;
+        vec![Action::Lend(id, op)]
+    }
+
+    /// Les demandes nouvelles et le créneau qui commence : l'avis bref (« Léa veut emprunter l'ordinateur. »), sauf
+    /// quand le panneau du prêt est ouvert (il les montre).
+    fn notice_lend(&mut self, id: SessionId, before: Option<&LendHostView>) {
+        let Some(s) = self.session_by_mut(id) else { return };
+        let Some(v) = &s.lend else { return };
+        let known = |rid: &str| before.is_some_and(|b| b.requests.iter().any(|r| r.id == rid));
+        let fresh = v.requests.iter().find(|r| !known(&r.id)).map(LendRequestUi::line);
+        let slot = v.slot_notice().filter(|_| before.is_none_or(|b| b.notice != v.notice));
+        if let Some(text) = fresh.filter(|_| !s.lend_overlay()).or(slot) {
+            s.notice = Some((text, Instant::now()));
+        }
+    }
+
+    /// La réponse d'Admin à une demande du prêt (la vue telle qu'elle est maintenant), ou ce qu'Admin a refusé.
+    pub fn lend_reply(&mut self, id: SessionId, r: Result<LendHostView, String>) {
+        let Some(s) = self.session_by_mut(id) else { return };
+        s.lend_busy = false;
+        match r {
+            Ok(v) => {
+                let before = s.lend.replace(v);
+                s.lend_error = None;
+                // Un code créé : le focus va à « Annuler le code » (à la manette, dans le panneau ouvert).
+                let created = before.as_ref().is_none_or(|b| b.code.is_none()) && s.lend.as_ref().is_some_and(|v| v.code.is_some());
+                if created && s.lend_overlay() && self.active == Some(id) {
+                    self.focus = Target::LendCancelCode;
+                }
+                self.notice_lend(id, before.as_ref());
+            }
+            Err(e) => s.lend_error = Some(e),
+        }
+    }
+
+    /// La vue du prêt du signe de vie de l'hôte (`Platform::on_lend`), quand elle change ; `None` : rien à dire.
+    pub fn lend_changed(&mut self, id: SessionId, view: Option<LendHostView>) {
+        let Some(s) = self.session_by_mut(id) else { return };
+        if s.lend_busy {
+            return;
+        }
+        let before = std::mem::replace(&mut s.lend, view);
+        self.notice_lend(id, before.as_ref());
+    }
+
+    /// La réponse d'Admin à « Reprendre l'ordinateur » depuis l'accueil : la vue du prêt de l'ordinateur, ou le refus.
+    pub fn lend_home_reply(&mut self, host: &str, r: Result<LendHostView, String>) {
+        match r {
+            Ok(v) => self.live.entry(host.to_string()).or_default().lend_view = Some(v),
+            Err(e) => self.toast(e),
         }
     }
 
@@ -5805,5 +6876,149 @@ mod tests {
         assert_eq!(pills(vec![guest("g1", "Léa", false)]), (Some("1 invité".to_string()), None));
         assert_eq!(pills(vec![guest("g2", "Tom", true)]), (None, Some("1 demande".to_string())));
         assert_eq!(pills(Vec::new()), (None, None));
+    }
+
+    // MARK: - Prêt de l'ordinateur
+
+    fn lent_by_matthieu(remember: bool) -> crate::model::Borrowed {
+        crate::model::Borrowed { id: "lend:m".into(), host: "Matthieu".into(), computer: "PC-SALON".into(), address: "192.168.1.42".into(), port: 24811, login: "lea".into(), password: if remember { "secret".into() } else { String::new() }, remember, ..Default::default() }
+    }
+
+    /// Les textes du prêt (docs/link-ui.md, « Prêt de l'ordinateur »), en français et en anglais.
+    #[test]
+    fn lend_words() {
+        crate::i18n::force_english(false);
+        assert_eq!(crate::model::borrowed_title("Matthieu"), "Ordinateur de Matthieu");
+        assert_eq!(crate::model::borrowed_title("Hugo"), "Ordinateur d'Hugo");
+        assert_eq!(time_left_label(80 * 60 + 5), "Encore 1 h 20");
+        assert_eq!(time_left_label(42 * 60), "Encore 42 min");
+        assert_eq!(waiting_for("Matthieu"), "En attente de Matthieu…");
+        assert_eq!(ask_host("Matthieu"), "Demander à Matthieu");
+        assert_eq!(lend_duration_label(Some(7200)), "2 heures");
+        assert_eq!(lend_duration_label(Some(3600)), "1 heure");
+        assert_eq!(lend_duration_label(None), "Jusqu'à ce que je reprenne");
+        let b = BorrowSessionUi::new("Matthieu", "PC-SALON", None, BorrowSource::Code { attempt: 1 });
+        assert_eq!((b.lent_by(), b.time_left(0)), ("Prêté par Matthieu".to_string(), "Jusqu'à ce que Matthieu reprenne".to_string()));
+        let r = LendRequestUi { id: "r".into(), name: "Léa".into(), app: "android".into(), via_relay: true, ..Default::default() };
+        assert_eq!((r.line(), r.meta()), ("Léa veut emprunter l'ordinateur.".to_string(), "Android · hors de chez vous".to_string()));
+        let v = LendHostView { state: LendHostState::Lent, borrower: Some(("Léa".into(), None)), notice: Some((LendNoticeKind::TakenBack, 1102)), ..Default::default() };
+        assert_eq!(v.lent_line().as_deref(), Some("Prêté à Léa"));
+        assert_eq!(v.taking_back(1000).as_deref(), Some("Reprise dans 1:42"));
+        crate::i18n::force_english(true);
+        assert_eq!(crate::model::borrowed_title("Matthieu"), "Matthieu's computer");
+        assert_eq!(time_left_label(80 * 60), "1 h 20 left");
+        assert_eq!(LendState::Lent.label(), "Lent to someone else");
+        crate::i18n::force_english(false);
+    }
+
+    /// « Rejoindre avec un code » tombe sur un code de prêt : « Préparation de l'ordinateur… », puis « En attente de
+    /// {hôte}… » avec « Annuler » (qui retire la demande d'emprunt, pas celle d'un partage), puis le refus du cœur.
+    #[test]
+    fn a_lend_code_from_join() {
+        let mut app = App::new(Store::default(), Layout::Desktop);
+        app.join = JoinState { code: "731402".into(), name: "Léa".into(), ..JoinState::new() };
+        app.go(Screen::Join);
+        let acts = app.activate(Target::JoinGo);
+        assert!(acts.iter().any(|a| matches!(a, Action::JoinShare { .. })));
+        let attempt = app.join.attempt;
+        assert!(app.join_lending(attempt));
+        let source = BorrowSource::Code { attempt };
+        assert!(app.borrow_current(&source));
+        app.borrow_pending(&source, "Matthieu");
+        assert_eq!((app.join.waiting, app.join.wait_host.as_deref(), app.focus), (true, Some("Matthieu"), Target::JoinCancel));
+        assert_eq!(app.activate(Target::JoinCancel), vec![Action::BorrowCancel]);
+        assert!(!app.borrow_current(&source), "une demande annulée n'ouvre plus rien");
+        // Un autre essai, refusé.
+        app.activate(Target::JoinGo);
+        let attempt = app.join.attempt;
+        app.join_lending(attempt);
+        app.borrow_failed(&BorrowSource::Code { attempt }, "Matthieu a refusé.".into());
+        assert_eq!((app.join.busy, app.join.lending, app.join.message.as_deref()), (false, false, Some("Matthieu a refusé.")));
+    }
+
+    /// La carte d'un ordinateur emprunté : « Emprunter » part avec le mot de passe retenu ; sans lui, le formulaire du
+    /// compte d'ami le redemande ; un ordinateur prêté à quelqu'un d'autre ne s'emprunte pas.
+    #[test]
+    fn borrowing_a_friend_computer() {
+        let mut app = App::new(Store::default(), Layout::Desktop);
+        app.store.borrowed.push(lent_by_matthieu(true));
+        assert_eq!(app.activate(Target::Borrowed(0)), vec![Action::Save]);
+        assert!(app.selected().is_none(), "un ordinateur emprunté n'est pas un ordinateur appairé");
+        app.go(Screen::Home);
+        assert_eq!(app.focus, Target::Borrow);
+        app.lend_live.insert("lend:m".into(), LendLive { state: Some(LendState::Lent), slot: None });
+        assert!(app.activate(Target::Borrow).is_empty());
+        app.lend_live.insert("lend:m".into(), LendLive { state: Some(LendState::Busy), slot: None });
+        assert_eq!(app.activate(Target::Borrow), vec![Action::Borrow { id: "lend:m".into(), password: "secret".into() }]);
+        let source = app.borrow_source();
+        app.borrow_pending(&source, "Matthieu");
+        assert_eq!((app.borrow.waiting, app.focus), (true, Target::BorrowCancel));
+        assert_eq!(app.activate(Target::BorrowCancel), vec![Action::BorrowCancel]);
+        // Sans mot de passe retenu : il est redemandé, puis « Emprunter » part.
+        app.store.borrowed[0] = lent_by_matthieu(false);
+        app.activate(Target::Borrow);
+        assert_eq!((app.screen, app.add.step.clone(), app.friend.editing.as_deref()), (Screen::Add, AddStep::Friend, Some("lend:m")));
+        for c in "secret".chars() {
+            app.nav(Nav::Char(c));
+        }
+        let acts = app.activate(Target::FriendGo);
+        assert!(matches!(&acts[..], [Action::FriendAdd { login, password, remember: false, editing: Some(_), .. }] if login == "lea" && password == "secret"));
+        let acts = app.friend_added(lent_by_matthieu(false), LendLive { state: Some(LendState::Free), slot: None }, "secret".into());
+        assert!(acts.contains(&Action::Borrow { id: "lend:m".into(), password: "secret".into() }));
+        assert!(app.store.borrowed[0].password.is_empty(), "un mot de passe non retenu n'est pas écrit");
+    }
+
+    /// Une session d'emprunt : « Rendre l'ordinateur » demande sa confirmation, puis rend ; la fin sans le prêt laisse
+    /// « Revenir », qui refait le même emprunt.
+    #[test]
+    fn giving_back_and_coming_back() {
+        let mut app = App::new(Store::default(), Layout::Desktop);
+        app.store.borrowed.push(lent_by_matthieu(true));
+        let id = app.new_session_id();
+        let mut s = SessionUi::borrower(id, "lend:m", BorrowSessionUi::new("Matthieu", "PC-SALON", None, BorrowSource::Account { id: "lend:m".into(), attempt: 1 }));
+        s.phase = Phase::Streaming;
+        app.open_session(s);
+        assert!(app.session().unwrap().visitor());
+        app.activate(Target::BarGiveBack);
+        assert_eq!(app.confirm, Some(Confirm::GiveBack { session: id, host: "Matthieu".into() }));
+        assert_eq!(app.focus, Target::ConfirmNo);
+        assert_eq!(app.activate(Target::ConfirmYes), vec![Action::GiveBack(id)]);
+        // La fin sans le prêt (réseau perdu) : « Revenir ».
+        if let Some(s) = app.session_mut() {
+            s.phase = Phase::Ended { error: Some("L'ordinateur prêté ne répond plus.".into()) };
+        }
+        let acts = app.activate(Target::ComeBack);
+        assert!(matches!(&acts[..], [Action::ComeBack(BorrowSource::Account { id, .. })] if id == "lend:m"));
+        assert!(app.sessions.is_empty() && app.screen == Screen::Home && app.borrow.busy);
+    }
+
+    /// L'hôte : « Prêter l'ordinateur… » ouvre le panneau (réduit à la raison avec une Station trop ancienne), « Créer un
+    /// code » part avec la durée et le compte Steam choisis (l'avertissement n'est plus dit ensuite), « Accepter » une
+    /// demande garde le compte Steam qu'elle propose ; l'accueil de l'ordinateur prêté reprend l'ordinateur.
+    #[test]
+    fn lending_from_the_session() {
+        let mut app = desk();
+        let id = open(&mut app, "a");
+        app.live.entry("a".into()).or_default().lend = Some(LendAvail::Available);
+        app.activate(Target::BarLend);
+        assert_eq!((app.session().unwrap().bar_menu, app.focus), (Some(BarMenu::Lend), Target::LendCreate));
+        app.activate(Target::LendDuration(3));
+        app.activate(Target::LendSteamPick(LendSteam::Host));
+        let acts = app.activate(Target::LendCreate);
+        assert_eq!(acts, vec![Action::Lend(id, LendOp::Code(None, LendSteam::Host)), Action::Save]);
+        assert!(app.store.app.lend_warned);
+        assert!(app.activate(Target::LendCreate).is_empty(), "une demande à la fois");
+        let view = LendHostView { enabled: true, requests: vec![LendRequestUi { id: "r1".into(), name: "Léa".into(), app: "ios".into(), steam: LendSteam::Friend, ..Default::default() }], ..Default::default() };
+        app.lend_reply(id, Ok(view));
+        assert_eq!(app.activate(Target::LendAccept(0)), vec![Action::Lend(id, LendOp::Answer("r1".into(), true, LendSteam::Friend))]);
+        // Station trop ancienne.
+        app.live.entry("a".into()).or_default().lend = Some(LendAvail::Unsupported);
+        assert_eq!(LendAvail::Unsupported.text(), Some("Le prêt demande KyberNow Station 0.9.0 ou plus récente."));
+        // L'accueil de l'ordinateur prêté : « Reprendre l'ordinateur ».
+        app.close_session(id);
+        app.store.selected = Some("a".into());
+        app.live.entry("a".into()).or_default().lend_view = Some(LendHostView { state: LendHostState::Lent, borrower: Some(("Léa".into(), None)), ..Default::default() });
+        assert_eq!(app.activate(Target::Connect), vec![Action::LendHome { host: "a".into(), op: LendOp::TakeBack(false) }]);
+        assert_eq!(app.activate(Target::TakeBackNow), vec![Action::LendHome { host: "a".into(), op: LendOp::TakeBack(true) }]);
     }
 }

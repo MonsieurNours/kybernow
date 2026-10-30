@@ -10,6 +10,7 @@ use super::canvas::{Align, Canvas, Font, Rgba, Text};
 use super::home;
 use super::icons::Icon;
 use super::theme::*;
+use super::lend;
 use super::quality;
 use super::share;
 use super::widgets::{self, eyebrow, legend};
@@ -43,6 +44,8 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame, view: super::View) {
                 keys(app, cv, f);
             } else if s.menu {
                 menu(app, cv, f, s);
+            } else if s.lend_panel {
+                lend::overlay(app, cv, f, s);
             } else if s.share_panel {
                 // Un invité n'a pas de panneau d'hôte : le sien est la « Qualité de l'image ».
                 if s.guest.is_some() {
@@ -193,7 +196,14 @@ fn capsule_steps(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi, t: f3
     // Le dernier recours : la Station redémarre à la place de l'étape « Connexion », puis les étapes reprennent.
     let restarting = s.phase == Phase::StationRestarting;
     let steps = [
-        if s.expected_screens >= 2 { tr("Préparation des écrans", "Preparing the displays") } else { tr("Préparation de l'écran", "Preparing the display") },
+        // Un emprunt : la Station a déjà mis l'ordinateur en mode console (« Préparation de l'ordinateur »).
+        if s.borrow.is_some() {
+            tr("Préparation de l'ordinateur", "Preparing the computer")
+        } else if s.expected_screens >= 2 {
+            tr("Préparation des écrans", "Preparing the displays")
+        } else {
+            tr("Préparation de l'écran", "Preparing the display")
+        },
         if restarting { tr("La Station redémarre", "The Station is restarting") } else { tr("Connexion", "Connecting") },
         tr("Premières images", "First frames"),
     ];
@@ -291,6 +301,11 @@ fn ended(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi, error: Option
     let mut under = Frame { hits: Vec::new(), focus: Target::Back, show_focus: false, pointer: None };
     home::draw_body(app, cv, &mut under, true);
     cv.rect(0.0, 0.0, w, h, Rgba(5, 7, 10, 200));
+    // Une session d'emprunt : la fin dite par le prêt (« {hôte} a repris l'ordinateur. ») et « Fermer » ; sans le
+    // prêt (fenêtre fermée, réseau perdu), « Vous pouvez revenir pendant 15 min. » et « Revenir ».
+    if let Some(b) = &s.borrow {
+        return borrow_ended(app, cv, f, s, b.ended_by_lend, error);
+    }
     let cw = 620.0 * u;
     let ch = 260.0 * u;
     let (x, y) = ((w - cw) / 2.0, (h - ch) / 2.0);
@@ -305,6 +320,34 @@ fn ended(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi, error: Option
     // Avec d'autres sessions qui continuent, le bouton ne ramène pas à l'accueil : il ferme cette fenêtre (docs/link-ui.md).
     let back = if app.sessions.len() > 1 { tr("Fermer", "Close") } else { tr("Retour à l'accueil", "Back to home") };
     widgets::primary(cv, f, Target::Back, ix, y + ch - 82.0 * u, 52.0 * u, back, false);
+}
+
+/// La carte de fin d'une session d'emprunt (docs/link-ui.md, « Prêt de l'ordinateur ») : la fin dite par le prêt et
+/// « Fermer » ; ou, la session finie sans le prêt, sa raison, « Vous pouvez revenir pendant 15 min. », « Revenir » et
+/// « Fermer ».
+fn borrow_ended(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi, by_lend: bool, error: Option<&str>) {
+    let u = unit(app.layout);
+    let (w, h) = (cv.w, cv.h);
+    let cw = 620.0 * u;
+    let ch = if by_lend { 250.0 } else { 290.0 } * u;
+    let (x, y) = ((w - cw) / 2.0, (h - ch) / 2.0);
+    cv.rrect(x, y, cw, ch, 16.0 * u, Rgba(9, 13, 18, 240));
+    cv.rrect_stroke(x, y, cw, ch, 16.0 * u, 1.0, if by_lend { LINE_2 } else { BAD_LINE });
+    let ix = x + 32.0 * u;
+    eyebrow(cv, ix, y + 40.0 * u, 12.0 * u, if by_lend { FAINT } else { BAD_TEXT }, "KyberNow Share");
+    cv.text_shrink(ix - 1.0, y + 86.0 * u, Text::new(Font::Display, 34.0 * u, FROST).tracking(-0.6 * u), &s.name, cw - 64.0 * u);
+    let mut yy = y + 122.0 * u;
+    if let Some(e) = error.filter(|e| !e.is_empty()) {
+        yy += cv.paragraph(ix, yy, Text::new(Font::Regular, 15.0 * u, MUTED), e, cw - 64.0 * u, 22.0 * u);
+    }
+    let by = y + ch - 82.0 * u;
+    if by_lend {
+        widgets::primary(cv, f, Target::Back, ix, by, 52.0 * u, tr("Fermer", "Close"), false);
+        return;
+    }
+    cv.text_fit(ix, yy + 4.0 * u, Text::new(Font::Regular, 15.0 * u, FROST), tr("Vous pouvez revenir pendant 15 min.", "You can come back for 15 min."), cw - 64.0 * u);
+    let bw = widgets::primary(cv, f, Target::ComeBack, ix, by, 52.0 * u, tr("Revenir", "Come back"), false);
+    widgets::ghost(cv, f, Target::Back, ix + bw + 16.0 * u, by + 4.0 * u, 44.0 * u, 15.0 * u, None, tr("Fermer", "Close"), MUTED);
 }
 
 // MARK: - Barre du bureau
@@ -351,13 +394,19 @@ fn bar_icons(app: &App, s: &SessionUi, computers: bool, sound: bool) -> Vec<BarI
     if !s.multi() {
         v.push(icon(Target::BarFullscreen, Icon::Fullscreen, s.fullscreen, tr("Plein écran", "Full screen")));
     }
-    if s.guest.is_none() {
+    if !s.visitor() {
         // Partage impossible (Station trop ancienne, partage coupé) : le bouton est estompé et inactif à la
         // souris, sa raison est son infobulle. Tant qu'Admin n'a pas répondu, il reste comme les autres : le
         // panneau attend la réponse (`App::share_known`).
         let blocked = app.share_avail(s).filter(|a| *a != ShareAvail::Available);
         let name = blocked.and_then(|a| a.text()).unwrap_or(tr("Partager", "Share"));
         v.push(BarIcon { target: Target::BarShare, icon: Icon::Share, on: s.share.is_some() || s.bar_menu == Some(BarMenu::Share), name: name.into(), dim: blocked.is_some() });
+        // « Prêter l'ordinateur… » : estompé quand le prêt est impossible (la raison est son infobulle, et le panneau
+        // qu'il ouvre la dit) ; allumé quand un code est en cours ou qu'une demande attend.
+        let blocked = app.lend_avail(s).filter(|a| *a != crate::app::LendAvail::Available).is_some();
+        let on = s.bar_menu == Some(BarMenu::Lend) || s.lend.as_ref().is_some_and(|v| v.code.is_some() || !v.requests.is_empty());
+        let name = app.lend_avail(s).and_then(|a| a.text()).unwrap_or(tr("Prêter l'ordinateur…", "Lend the computer…"));
+        v.push(BarIcon { target: Target::BarLend, icon: Icon::Lend, on, name: name.into(), dim: blocked });
     }
     v
 }
@@ -368,9 +417,12 @@ fn bar_icons(app: &App, s: &SessionUi, computers: bool, sound: bool) -> Vec<BarI
 struct BarLayout {
     lat: String,
     info: String,
-    /// Le profil (menu) d'une session d'hôte ; le rôle d'un invité (« Spectateur », « Joueur »), sans menu.
-    profile: &'static str,
+    /// Le profil (menu) d'une session d'hôte ; le rôle d'un invité (« Spectateur », « Joueur »), « Prêté par {hôte} »
+    /// d'un emprunt, sans menu.
+    profile: String,
     quit: &'static str,
+    /// Un emprunt : le temps qui reste (« Encore 1 h 20 », « Jusqu'à ce que {hôte} reprenne »), et sa largeur.
+    left: Option<(String, f32)>,
     mono14: Text,
     mono12: Text,
     lat_w: f32,
@@ -403,17 +455,29 @@ impl BarLayout {
         let mono12 = Text::new(Font::Mono, 12.0, MUTED);
         let lat_w = cv.text_width(mono14, &lat);
         let mut info_w = cv.text_width(mono12, &info);
-        let profile = match &s.guest {
-            Some(g) => g.role.label(),
-            None => home::profile_label(s.profile),
+        let profile = match (&s.guest, &s.borrow) {
+            (Some(g), _) => g.role.label().to_string(),
+            (None, Some(b)) => b.lent_by(),
+            (None, None) => home::profile_label(s.profile).to_string(),
         };
-        let prof_w = cv.text_width(Text::new(Font::Regular, 13.0, FROST), profile) + if s.guest.is_some() { 24.0 } else { 34.0 };
-        let quit = if s.guest.is_some() { tr("Quitter le partage", "Leave") } else { tr("Se déconnecter", "Disconnect") };
+        let prof_w = cv.text_width(Text::new(Font::Regular, 13.0, FROST), &profile) + if s.visitor() { 24.0 } else { 34.0 };
+        let quit = if s.guest.is_some() {
+            tr("Quitter le partage", "Leave")
+        } else if s.borrow.is_some() {
+            tr("Rendre l'ordinateur", "Give back the computer")
+        } else {
+            tr("Se déconnecter", "Disconnect")
+        };
         let quit_w = cv.text_width(Text::new(Font::Semibold, 13.0, BAD_TEXT), quit) + 24.0;
+        let left = s.borrow.as_ref().map(|b| {
+            let t = b.time_left(crate::model::now_secs());
+            let w = cv.text_width(Text::new(Font::Regular, 12.5, FROST), &t) + 22.0;
+            (t, w)
+        });
         // Plusieurs ordinateurs (bureau, hors KyberNow Link OS) : le menu « Ordinateurs » s'il y a un autre
         // ordinateur, le haut-parleur « Garder le son » avec au moins deux sessions. Un invité n'a pas le premier.
         let multi = app.multi_sessions();
-        let computers = multi && s.guest.is_none() && app.store.hosts.iter().any(|h| h.id != s.host);
+        let computers = multi && !s.visitor() && app.store.hosts.iter().any(|h| h.id != s.host);
         let sound = multi && app.running_sessions() >= 2;
         let icons = bar_icons(app, s, computers, sound);
         // Un invité : la qualité de l'image qu'il reçoit, en menu (il n'a pas de profil).
@@ -436,11 +500,11 @@ impl BarLayout {
             let w = cv.text_width(Text::new(Font::Regular, 12.5, FROST), &t) + 22.0;
             (t, w)
         });
-        let others = 16.0 + 16.0 + 12.0 + lat_w + 8.0 + 64.0 + 12.0 + 1.0 + 12.0 + 12.0 + 1.0 + 12.0 + prof_w + 12.0 + route.as_ref().map_or(0.0, |(_, rw)| rw + 8.0) + quality.as_ref().map_or(0.0, |(_, qw)| qw + 8.0) + 34.0 * icons.len() as f32 + pill.as_ref().map_or(0.0, |(_, pw)| pw + 4.0) + requests.as_ref().map_or(0.0, |(_, pw)| pw + 4.0) + 24.0 + 1.0 + 12.0 + quit_w + 10.0;
+        let others = 16.0 + 16.0 + 12.0 + lat_w + 8.0 + 64.0 + 12.0 + 1.0 + 12.0 + 12.0 + 1.0 + 12.0 + prof_w + 12.0 + left.as_ref().map_or(0.0, |(_, lw)| lw + 8.0) + route.as_ref().map_or(0.0, |(_, rw)| rw + 8.0) + quality.as_ref().map_or(0.0, |(_, qw)| qw + 8.0) + 34.0 * icons.len() as f32 + pill.as_ref().map_or(0.0, |(_, pw)| pw + 4.0) + requests.as_ref().map_or(0.0, |(_, pw)| pw + 4.0) + 24.0 + 1.0 + 12.0 + quit_w + 10.0;
         // Une fenêtre étroite (960 points) avec « Ordinateurs », « Garder le son » et la pastille : les mesures se resserrent.
         info_w = info_w.min((w - 8.0 - others).max(60.0));
         let total = others + info_w;
-        Self { lat, info, profile, quit, mono14, mono12, lat_w, info_w, prof_w, quit_w, icons, pill, requests, quality, route, total }
+        Self { lat, info, profile, quit, left, mono14, mono12, lat_w, info_w, prof_w, quit_w, icons, pill, requests, quality, route, total }
     }
 }
 
@@ -497,7 +561,7 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     let h = BAR_H;
     let st = s.stats.clone().unwrap_or_default();
     let width = cv.w;
-    let BarLayout { lat, info, profile, quit, mono14, mono12, lat_w, info_w, prof_w, quit_w, icons, pill, requests, quality, route, total } = BarLayout::measure(cv, app, s, width);
+    let BarLayout { lat, info, profile, quit, left, mono14, mono12, lat_w, info_w, prof_w, quit_w, icons, pill, requests, quality, route, total } = BarLayout::measure(cv, app, s, width);
     let r = bar_frame(cv.w, total);
     let x0 = r.x;
     cv.rrect(r.x, r.y - 12.0, r.w, r.h + 12.0, 12.0, Rgba(9, 13, 18, 235));
@@ -526,9 +590,9 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     x += 13.0;
     // Profil (menu) ; un invité n'a pas de profil : son rôle, que l'hôte change, sans menu.
     let pr = Rect::new(x, cy - 15.0, prof_w, 30.0);
-    if s.guest.is_some() {
+    if s.visitor() {
         cv.rrect_stroke(pr.x, pr.y, pr.w, pr.h, 7.0, 1.0, LINE_2);
-        cv.text(pr.x + 12.0, cy + 5.0, Text::new(Font::Regular, 13.0, FROST), profile);
+        cv.text(pr.x + 12.0, cy + 5.0, Text::new(Font::Regular, 13.0, FROST), &profile);
     } else {
         let (focused, hover) = f.state(Target::BarProfile, pr);
         cv.rrect(pr.x, pr.y, pr.w, pr.h, 7.0, if hover || s.bar_menu == Some(BarMenu::Profile) { INK_3 } else { Rgba(20, 27, 35, 255) });
@@ -536,11 +600,19 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         if focused {
             widgets::ring(cv, pr, 7.0);
         }
-        cv.text(pr.x + 12.0, cy + 5.0, Text::new(Font::Regular, 13.0, FROST), profile);
+        cv.text(pr.x + 12.0, cy + 5.0, Text::new(Font::Regular, 13.0, FROST), &profile);
         cv.text(pr.x + pr.w - 12.0, cy + 4.0, Text::new(Font::Regular, 11.0, FAINT).align(Align::Right), "▾");
     }
     let profile_x = pr.x;
     x += prof_w + 12.0;
+    // Un emprunt : le temps qui reste, en puce (ambrée pendant le préavis de 2 minutes).
+    if let Some((label, lw)) = &left {
+        let lr = Rect::new(x, cy - 12.0, *lw, 24.0);
+        let notice = s.borrow.as_ref().is_some_and(|b| b.notice.is_some());
+        cv.rrect(lr.x, lr.y, lr.w, lr.h, 12.0, if notice { WARN.alpha(0.24) } else { Rgba(227, 237, 240, 14) });
+        cv.text(lr.x + lr.w / 2.0, cy + 4.5, Text::new(Font::Regular, 12.5, FROST).align(Align::Center), label);
+        x += lw + 8.0;
+    }
     let mut tip: Option<(Rect, String)> = None;
     // Par le relais : une puce, sans menu (le chemin se lit, il ne se choisit pas).
     if let Some((label, rw)) = &route {
@@ -570,7 +642,7 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     }
     // Ordinateurs et touches (deux menus du même dessin), souris, haut-parleur (« Garder le son »), plein
     // écran, « Partager » ; chacun nomme son bouton au survol.
-    let (mut keys_x, mut computers_x, mut share_x) = (x, x, x);
+    let (mut keys_x, mut computers_x, mut share_x, mut lend_x) = (x, x, x, x);
     for BarIcon { target: t, icon, on, name, dim } in icons {
         let ir = Rect::new(x, cy - 17.0, 34.0, 34.0);
         let (focused, hover) = f.state(t, ir);
@@ -589,6 +661,7 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
             Target::BarComputers => computers_x = ir.x,
             Target::BarKeys => keys_x = ir.x,
             Target::BarShare => share_x = ir.x,
+            Target::BarLend => lend_x = ir.x,
             _ => {}
         }
         cv.icon(&icon, x + 8.0, cy - 9.0, 18.0, 1.8, if on { FROST } else if dim { GHOST } else { MUTED });
@@ -620,7 +693,8 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     cv.rect(x.round(), cy - 11.0, 1.0, 22.0, LINE_2);
     x += 13.0;
     let qr = Rect::new(x, cy - 15.0, quit_w, 30.0);
-    let (focused, hover) = f.state(Target::BarQuit, qr);
+    // Un emprunt : « Rendre l'ordinateur » (sa confirmation) à la place de « Se déconnecter ».
+    let (focused, hover) = f.state(if s.borrow.is_some() { Target::BarGiveBack } else { Target::BarQuit }, qr);
     if hover {
         cv.rrect(qr.x, qr.y, qr.w, qr.h, 7.0, BAD.alpha(0.18));
     }
@@ -644,6 +718,7 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         }
         Some(BarMenu::Computers) => computers_menu(cv, f, app, s, computers_x, h + 6.0),
         Some(BarMenu::Share) => share::dropdown(cv, f, app, s, share_x + 17.0, h + 6.0),
+        Some(BarMenu::Lend) => lend::dropdown(cv, f, app, s, lend_x + 17.0, h + 6.0),
         Some(BarMenu::Quality) => dropdown_titled(cv, f, quality_x, h + 6.0, 300.0, Some(tr("Qualité de l'image", "Picture quality")), &quality::items(s)),
         None => {
             // Le nom du bouton survolé, sous la barre (jamais par-dessus un menu).
@@ -866,7 +941,7 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         (format!("{}", st.lost), tr("Perdues · 10 s", "Lost · 10 s"), lost_color),
     ];
     // Un invité n'a pas de profil : la cellule n'y est pas.
-    let cells: Vec<_> = cells.into_iter().filter(|c| s.guest.is_none() || c.1 != tr("Profil", "Profile")).collect();
+    let cells: Vec<_> = cells.into_iter().filter(|c| !s.visitor() || c.1 != tr("Profil", "Profile")).collect();
     for (v, k, c) in &cells {
         let vw = cv.text(x, head / 2.0 + 2.0 * u, Text::new(Font::MonoMedium, 20.0 * u, *c), v);
         let kw = eyebrow(cv, x, head / 2.0 + 22.0 * u, 11.0 * u, FAINT, k);
@@ -878,7 +953,7 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     let mode = if st.mode.is_empty() { "—".to_string() } else { st.mode.clone() };
     let vw = cv.text(w - x0, head / 2.0 + 2.0 * u, Text::new(Font::MonoMedium, 20.0 * u, FROST).align(Align::Right), &mode);
     let _ = vw;
-    if s.guest.is_none() {
+    if !s.visitor() {
         let k = tr("Écran virtuel", "Virtual display");
         let kw = cv.text_width(Text::new(Font::Mono, 11.0 * u, FAINT).tracking(0.88 * u), &k.to_uppercase());
         eyebrow(cv, w - x0 - kw, head / 2.0 + 22.0 * u, 11.0 * u, FAINT, k);
@@ -897,7 +972,8 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     let row2_keyboard = if app.layout == Layout::Tv { tr("Taper du texte", "Type text") } else { tr("Clavier", "Keyboard") };
     // Les tuiles de l'hôte ; un invité n'a ni profil, ni « Alléger », ni « Partager », et le clavier, la souris
     // et la manette en souris seulement quand ils lui sont donnés (KyberNow Share).
-    let guest = s.guest.is_some();
+    // Un emprunt est un visiteur aussi : ni profil, ni « Alléger », ni « Partager », ni « Prêter l'ordinateur… ».
+    let guest = s.visitor();
     let kbm = s.keyboard_mouse();
     let mut tiles: Vec<(MenuItem, String, String, bool, bool)> = vec![(MenuItem::Resume, tr("Reprendre", "Resume").into(), tr("Retour au jeu", "Back to the game").into(), false, false)];
     if !guest {
@@ -925,7 +1001,13 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     } else {
         tiles.push((MenuItem::Light, tr("Alléger", "Lighter").into(), tr("60 i/s, débit réduit", "60 fps, lower bitrate").into(), s.light, false));
     }
-    if guest {
+    if let Some(b) = &s.borrow {
+        if s.via_relay() {
+            tiles.push((MenuItem::Route, s.path().label().into(), route_sub(s), false, false));
+        }
+        // « Rendre l'ordinateur » : sa confirmation (« Rendre l'ordinateur à {hôte} ? ») ; le sous-titre dit le temps qui reste.
+        tiles.push((MenuItem::GiveBack, tr("Rendre l'ordinateur", "Give back the computer").into(), b.time_left(crate::model::now_secs()), false, true));
+    } else if guest {
         // Par le relais : le chemin, en tuile (rien à choisir).
         if s.via_relay() {
             tiles.push((MenuItem::Route, s.path().label().into(), route_sub(s), false, false));
@@ -936,6 +1018,10 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         // elle est estompée mais se choisit : elle ouvre le panneau réduit à la raison.
         let (sub, on) = share_tile(s.share.as_ref());
         tiles.push((MenuItem::Share, tr("Partager", "Share").into(), sub, on, false));
+        // « Prêter l'ordinateur… » : le code en cours, une demande, sinon « Code et QR code » ; estompée quand le prêt
+        // est impossible (le panneau qu'elle ouvre dit pourquoi).
+        let (sub, on) = lend::tile(s);
+        tiles.push((MenuItem::Lend, tr("Prêter l'ordinateur…", "Lend the computer…").into(), sub, on, false));
         if s.via_relay() {
             tiles.push((MenuItem::Route, s.path().label().into(), route_sub(s), false, false));
         }
@@ -943,10 +1029,12 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     }
     let ty = head + 36.0 * u;
     let share_blocked = !guest && s.share.is_none() && app.share_avail(s).is_some_and(|a| a != ShareAvail::Available);
+    let lend_blocked = !guest && app.lend_avail(s).is_some_and(|a| a != crate::app::LendAvail::Available);
     for (i, (item, title, sub, on, danger)) in tiles.iter().enumerate() {
         let (col, row) = (i % 5, i / 5);
         let r = Rect::new(x0 + col as f32 * (tw + gap), ty + row as f32 * (th + gap), tw, th);
-        tile(cv, f, Target::Menu(*item), r, u, title, sub, i == 0, *on, *danger, *item == MenuItem::Share && share_blocked);
+        let dim = (*item == MenuItem::Share && share_blocked) || (*item == MenuItem::Lend && lend_blocked);
+        tile(cv, f, Target::Menu(*item), r, u, title, sub, i == 0, *on, *danger, dim);
     }
     // État, au-dessus de la légende.
     let footer = 56.0 * u;
@@ -955,6 +1043,10 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     let mut line = s.name.clone();
     if let Some(g) = &s.guest {
         line.push_str(&format!(" · {}", g.role.label()));
+    }
+    // Un emprunt : « Prêté par {hôte} · Encore 1 h 20 ».
+    if let Some(b) = &s.borrow {
+        line.push_str(&format!(" · {} · {}", b.lent_by(), b.time_left(crate::model::now_secs())));
     }
     if s.relative {
         line.push_str(&format!(" · {}", tr("souris des jeux", "game mouse")));

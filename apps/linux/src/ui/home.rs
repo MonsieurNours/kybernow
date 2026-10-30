@@ -11,7 +11,7 @@ use super::icons::Icon;
 use super::theme::*;
 use super::widgets::{self, card, eyebrow, legend, legend_width, primary, segments};
 use super::{launch, shade, signature, title_bar, unit, Frame};
-use crate::app::{profile_phrase, App, Layout, NetKind, Online, Rect, Target};
+use crate::app::{ask_host, profile_phrase, waiting_for, App, Layout, LendState, NetKind, Online, Rect, Target};
 use crate::i18n::{decimal, english, tr};
 use crate::model::{Host, Profile};
 
@@ -22,7 +22,14 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
 /// L'accueil ; `logo` : dessiner le logo de l'en-tête (le lancement le pose lui-même).
 pub fn draw_body(app: &App, cv: &mut Canvas, f: &mut Frame, logo: bool) {
     let host = app.selected();
-    backdrop(app, cv, host);
+    match app.selected_borrowed() {
+        // L'ordinateur d'un ami : sa signature, d'après l'empreinte de son Admin.
+        Some(b) => {
+            signature(cv, b.fingerprint.as_deref(), app.lend_live.get(&b.id).and_then(|l| l.state) == Some(LendState::Offline));
+            shade(cv);
+        }
+        None => backdrop(app, cv, host),
+    }
     match app.layout {
         Layout::Desktop => desktop(app, cv, f, host),
         Layout::Handheld | Layout::Tv => console(app, cv, f, host, logo),
@@ -51,15 +58,24 @@ pub fn backdrop(app: &App, cv: &mut Canvas, host: Option<&Host>) {
     shade(cv);
 }
 
-/// État de l'ordinateur : texte, couleur, lueur.
-fn status(app: &App, h: &Host) -> (&'static str, Rgba, bool) {
-    match app.live.get(&h.id).map(|l| l.online).unwrap_or_default() {
+/// État de l'ordinateur : texte, couleur, lueur. Prêté (prêt de l'ordinateur) : « Prêté à Léa jusqu'à 18 h », et
+/// pendant la reprise « Reprise dans 1:42 ».
+fn status(app: &App, h: &Host) -> (String, Rgba, bool) {
+    if let Some(v) = app.live.get(&h.id).and_then(|l| l.lend_view.as_ref()).filter(|v| v.lent()) {
+        let line = v.lent_line().unwrap_or_default();
+        return match v.taking_back(crate::model::now_secs()) {
+            Some(t) => (format!("{line} · {t}"), WARN, true),
+            None => (line, WARN, true),
+        };
+    }
+    let t = match app.live.get(&h.id).map(|l| l.online).unwrap_or_default() {
         Online::Online => (tr("En ligne", "Online"), OK, true),
         // Joignable seulement par le relais (docs/relais.md).
         Online::Away => (tr("Hors de chez vous", "Away from home"), OK, true),
         Online::Offline => (tr("Hors ligne", "Offline"), FAINT, false),
         Online::Unknown => (tr("Recherche…", "Searching…"), FAINT, false),
-    }
+    };
+    (t.0.to_string(), t.1, t.2)
 }
 
 /// L'écran que la session demandera (même calcul qu'elle) : l'écran virtuel
@@ -119,6 +135,14 @@ fn main_button(app: &App, cv: &mut Canvas, f: &mut Frame, h: &Host, x: f32, y: f
 
 /// Ce que fait le bouton principal (et A sur l'accueil) : cible, libellé, symbole ▶.
 pub(super) fn main_action(app: &App, h: &Host) -> (Target, &'static str, bool) {
+    // Prêté : « Reprendre l'ordinateur » ; pendant la reprise (préavis de 2 min), « Reprendre tout de suite ».
+    if let Some(v) = app.live.get(&h.id).and_then(|l| l.lend_view.as_ref()).filter(|v| v.lent()) {
+        return if v.taking_back(crate::model::now_secs()).is_some() {
+            (Target::TakeBackNow, tr("Reprendre tout de suite", "Take back now"), false)
+        } else {
+            (Target::TakeBack, tr("Reprendre l'ordinateur", "Take back the computer"), false)
+        };
+    }
     let offline = app.live.get(&h.id).is_some_and(|l| l.online == Online::Offline);
     match (offline, h.can_wake()) {
         (true, true) if app.is_waking(&h.id) => (Target::Wake, tr("Réveil de l'ordinateur…", "Waking the computer…"), false),
@@ -161,11 +185,14 @@ fn desktop(app: &App, cv: &mut Canvas, f: &mut Frame, host: Option<&Host>) {
     let x0 = 48.0;
     let hero_max = (w - 2.0 * x0).min(940.0);
     let mut y = top + 44.0;
-    match host {
+    if let Some(b) = app.selected_borrowed() {
+        borrowed_hero(app, cv, f, b, x0, y, 1.0, hero_max);
+    }
+    match host.filter(|_| app.selected_borrowed().is_none()) {
         Some(hst) => {
             let (st, color, glow) = status(app, hst);
             widgets::dot(cv, x0 + 4.0, y + 7.0, 4.0, color, glow);
-            eyebrow(cv, x0 + 16.0, y + 11.0, 11.0, color, st);
+            eyebrow(cv, x0 + 16.0, y + 11.0, 11.0, color, &st);
             y += 26.0;
             cv.text_shrink(x0 - 2.0, y + 46.0, Text::new(Font::Display, 60.0, FROST).tracking(-1.2), &hst.name, hero_max);
             y += 68.0;
@@ -182,6 +209,7 @@ fn desktop(app: &App, cv: &mut Canvas, f: &mut Frame, host: Option<&Host>) {
             y += 52.0 + 30.0;
             cv.text_fit(x0, y, Text::new(Font::Regular, 14.0, FAINT), phrase(hst), hero_max);
         }
+        None if app.selected_borrowed().is_some() => {}
         None => welcome(cv, f, x0, y, 1.0, hero_max),
     }
     // Les ordinateurs.
@@ -218,15 +246,17 @@ fn welcome(cv: &mut Canvas, f: &mut Frame, x0: f32, y: f32, u: f32, max: f32) {
 #[allow(clippy::too_many_arguments)]
 fn cards(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y: f32, cw: f32, ch: f32, gap: f32, width: f32, u: f32, add_card: bool) {
     let fit = (((width + gap) / (cw + gap)).floor() as usize).max(1);
-    let selected = app.selected().map(|h| h.id.clone());
+    let selected = app.selected_borrowed().map(|b| b.id.clone()).or_else(|| app.selected().map(|h| h.id.clone()));
     let mut slots = fit;
     let found = app.new_found();
     if add_card {
         slots = slots.saturating_sub(1);
     }
     let mut x = x0;
+    // Les ordinateurs empruntés gardent leur place dans la rangée (une au moins reste aux ordinateurs appairés).
+    let reserved = app.store.borrowed.len().min(slots.saturating_sub(1));
     for (i, h) in app.store.hosts.iter().enumerate() {
-        if slots == 0 {
+        if slots <= reserved {
             break;
         }
         let live = app.live.get(&h.id).map(|l| l.online).unwrap_or_default();
@@ -236,7 +266,25 @@ fn cards(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y: f32, cw: f32, ch
             Online::Offline => (GHOST, tr("Hors ligne", "Offline")),
             Online::Unknown => (FAINT, tr("Recherche…", "Searching…")),
         };
+        // Prêté (vu de l'hôte) : « Prêté à Léa » à la place de son état.
+        let lent = app.live.get(&h.id).and_then(|l| l.lend_view.as_ref()).and_then(|v| v.lent_line());
+        let (dot, line) = match &lent {
+            Some(l) => (WARN, l.as_str()),
+            None => (dot, line),
+        };
         card(cv, f, Target::Host(i), Rect::new(x, y, cw, ch), u, &h.name, Some(dot), None, &[line], selected.as_deref() == Some(&h.id), false, live == Online::Offline);
+        x += cw + gap;
+        slots -= 1;
+    }
+    // Les ordinateurs empruntés (prêt de l'ordinateur) : « Ordinateur de {hôte} » et son état.
+    for (i, b) in app.store.borrowed.iter().enumerate() {
+        if slots == 0 {
+            break;
+        }
+        let state = app.lend_live.get(&b.id).and_then(|l| l.state);
+        let (dot, _) = lend_color(state);
+        let line = state.map(LendState::label).unwrap_or(tr("Recherche…", "Searching…"));
+        card(cv, f, Target::Borrowed(i), Rect::new(x, y, cw, ch), u, &b.title(), Some(dot), None, &[line], selected.as_deref() == Some(&b.id), false, state == Some(LendState::Offline));
         x += cw + gap;
         slots -= 1;
     }
@@ -255,6 +303,80 @@ fn cards(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y: f32, cw: f32, ch
         let hh = (ch - gap) / 2.0;
         action_card(cv, f, Target::AddCard, Rect::new(x, y, cw, hh), u, Icon::Plus, tr("Ajouter un ordinateur", "Add a computer"));
         action_card(cv, f, Target::JoinCard, Rect::new(x, y + hh + gap, cw, hh), u, Icon::Share, tr("Rejoindre avec un code", "Join with a code"));
+    }
+}
+
+/// « Emprunter », ou « Demander à {hôte} » quand l'ordinateur est utilisé.
+fn borrow_label(app: &App, b: &crate::model::Borrowed) -> String {
+    match app.lend_live.get(&b.id).and_then(|l| l.state) {
+        Some(LendState::Busy) => ask_host(&b.host),
+        Some(LendState::Mine) => tr("Revenir", "Come back").into(),
+        _ => tr("Emprunter", "Borrow").into(),
+    }
+}
+
+/// La couleur de l'état de l'ordinateur d'un ami : vert libre, ambre occupé, éteint ailleurs.
+fn lend_color(state: Option<LendState>) -> (Rgba, bool) {
+    match state {
+        Some(LendState::Free) => (OK, true),
+        Some(LendState::Busy) => (WARN, true),
+        Some(LendState::Offline) => (GHOST, false),
+        _ => (FAINT, false),
+    }
+}
+
+/// L'ordinateur d'un ami (prêt de l'ordinateur) : son état (« Disponible », « Occupé »…), « Ordinateur de {hôte} », le
+/// nom de l'ordinateur, le créneau ; « Emprunter » (« Demander à {hôte} » s'il est utilisé), ou pendant l'emprunt
+/// « Préparation de l'ordinateur… », « En attente de {hôte}… » et « Annuler » ; ce que la Station a refusé ;
+/// « Retirer cet ordinateur ».
+#[allow(clippy::too_many_arguments)]
+fn borrowed_hero(app: &App, cv: &mut Canvas, f: &mut Frame, b: &crate::model::Borrowed, x0: f32, y0: f32, u: f32, hero_max: f32) {
+    let desktop = app.layout == Layout::Desktop;
+    let live = app.lend_live.get(&b.id);
+    let state = live.and_then(|l| l.state);
+    let (color, glow) = lend_color(state);
+    let mut y = y0;
+    widgets::dot(cv, x0 + 4.0 * u, y + 7.0 * u, 4.0 * u, color, glow);
+    eyebrow(cv, x0 + 16.0 * u, y + 11.0 * u, if desktop { 11.0 } else { 12.0 * u }, color, state.map(LendState::label).unwrap_or(tr("Recherche…", "Searching…")));
+    y += 26.0 * u;
+    let size = if desktop { 60.0 } else { 64.0 * u };
+    cv.text_shrink(x0 - 2.0, y + 46.0 * u, Text::new(Font::Display, size, FROST).tracking(-1.2 * u), &b.title(), hero_max);
+    y += 68.0 * u;
+    cv.text_fit(x0, y + 12.0 * u, Text::new(Font::Mono, 13.0 * u, MUTED), &b.computer, hero_max);
+    y += 28.0 * u;
+    if let Some(slot) = live.and_then(|l| l.slot) {
+        widgets::info_chip(cv, x0, y, 36.0 * u, 14.0 * u, Icon::Lend, &[(&slot.text(), false)]);
+        y += 36.0 * u + 24.0 * u;
+    } else {
+        y += 12.0 * u;
+    }
+    let bh = if desktop { 52.0 } else { 60.0 * u };
+    let busy = app.borrow.busy && app.borrow.id == b.id;
+    if busy {
+        // L'emprunt en cours : le cercle d'attente, l'étape, et « Annuler » pendant l'attente de l'accord de l'hôte.
+        let t = app.borrow.started.elapsed().as_secs_f32();
+        let (cx, cy) = (x0 + 12.0 * u, y + bh / 2.0);
+        let a0 = if app.reduce_motion { 0.0 } else { t * 4.0 };
+        let pts: Vec<(f32, f32)> = (0..=16)
+            .map(|i| {
+                let a = a0 + i as f32 * 0.28;
+                (cx + 10.0 * u * a.cos(), cy + 10.0 * u * a.sin())
+            })
+            .collect();
+        cv.polyline(&pts, 2.2 * u, SPECTRE);
+        let text = if app.borrow.waiting { waiting_for(&b.host) } else { format!("{}…", tr("Préparation de l'ordinateur", "Preparing the computer")) };
+        let tw = cv.text(x0 + 34.0 * u, cy + 6.0 * u, Text::new(Font::Regular, 17.0 * u, FROST), &text);
+        if app.borrow.waiting {
+            widgets::ghost(cv, f, Target::BorrowCancel, x0 + 34.0 * u + tw + 20.0 * u, cy - 22.0 * u, 44.0 * u, 15.0 * u, None, tr("Annuler", "Cancel"), MUTED);
+        }
+    } else {
+        let enabled = state.is_none_or(LendState::borrowable);
+        let bw = widgets::primary_state(cv, f, Target::Borrow, x0, y, bh, &borrow_label(app, b), true, enabled);
+        widgets::ghost(cv, f, Target::BorrowRemove, x0 + bw + 18.0 * u, y + 3.0 * u, bh - 6.0 * u, 14.0 * u, None, tr("Retirer cet ordinateur", "Remove this computer"), MUTED);
+    }
+    y += bh + 26.0 * u;
+    if let Some(m) = app.borrow.message.as_ref().filter(|_| app.borrow.id == b.id && !busy) {
+        cv.text_fit(x0, y, Text::new(Font::Regular, 15.0 * u, WARN), m, hero_max);
     }
 }
 
@@ -291,11 +413,14 @@ fn console(app: &App, cv: &mut Canvas, f: &mut Frame, host: Option<&Host>, logo:
     status_line(app, cv, w - x0, header / 2.0 + 5.0 * u, u);
     let hero_max = (w - 2.0 * x0).min(if tv { 1300.0 } else { 900.0 });
     let mut y = header + 36.0 * u;
-    match host {
+    if let Some(b) = app.selected_borrowed() {
+        borrowed_hero(app, cv, f, b, x0, y, u, hero_max);
+    }
+    match host.filter(|_| app.selected_borrowed().is_none()) {
         Some(hst) => {
             let (st, color, glow) = status(app, hst);
             widgets::dot(cv, x0 + 4.0 * u, y + 8.0 * u, 4.0 * u, color, glow);
-            eyebrow(cv, x0 + 16.0 * u, y + 12.0 * u, 12.0 * u, color, st);
+            eyebrow(cv, x0 + 16.0 * u, y + 12.0 * u, 12.0 * u, color, &st);
             y += 28.0 * u;
             // ‹ nom › : la croix change d'ordinateur quand le bouton principal a le focus.
             let many = app.store.hosts.len() > 1;
@@ -330,6 +455,7 @@ fn console(app: &App, cv: &mut Canvas, f: &mut Frame, host: Option<&Host>, logo:
             y += 60.0 * u + 30.0 * u;
             cv.text_fit(x0, y, Text::new(Font::Regular, 15.0 * u, FAINT), phrase(hst), hero_max);
         }
+        None if app.selected_borrowed().is_some() => {}
         None => welcome(cv, f, x0, y, u, hero_max),
     }
 
@@ -349,6 +475,8 @@ fn console(app: &App, cv: &mut Canvas, f: &mut Frame, host: Option<&Host>, logo:
     if let Some(hst) = host {
         x += legend(cv, x, gy, g, &["A"], main_label(app, hst)) + 28.0 * u;
         x += legend(cv, x, gy, g, &["Y"], tr("Réglages", "Settings")) + 28.0 * u;
+    } else if let Some(b) = app.selected_borrowed() {
+        x += legend(cv, x, gy, g, &["A"], &borrow_label(app, b)) + 28.0 * u;
     }
     x += legend(cv, x, gy, g, &["X"], tr("Ajouter un ordinateur", "Add a computer")) + 28.0 * u;
     x += legend(cv, x, gy, g, &["⧉"], tr("Rejoindre avec un code", "Join with a code")) + 28.0 * u;

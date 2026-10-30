@@ -10,6 +10,7 @@ mod home;
 pub mod icons;
 mod join;
 mod launch;
+mod lend;
 mod pads;
 mod pair;
 mod quality;
@@ -116,6 +117,11 @@ pub fn draw_view(app: &App, cv: &mut Canvas, view: View) -> Vec<(Target, Rect)> 
         Screen::Device => device::draw(app, cv, &mut f),
         Screen::Standby => cv.clear(INK),
     }
+    // Une confirmation par-dessus l'accueil (retirer un ordinateur emprunté) ou la session (rendre l'ordinateur) ;
+    // les réglages dessinent la leur.
+    if view.main && !background && app.confirm.is_some() && matches!(app.screen, Screen::Home | Screen::Session) {
+        settings::confirm(app, cv, &mut f);
+    }
     if view.main
         && !background
         && let Some((msg, at)) = &app.toast
@@ -167,7 +173,7 @@ fn session_overlay_busy(app: &App, view: View) -> bool {
     }
     let toast = !background_session(app, view) && app.toast.as_ref().is_some_and(|(_, t)| t.elapsed().as_secs_f32() < 4.2);
     let capsule = view.main && (s.notice.as_ref().is_some_and(|(_, t)| t.elapsed().as_secs_f32() < 4.2) || toast);
-    s.menu || s.keys || s.share_panel || (view.main && s.show_stats) || (s.bar && view.bar) || capsule
+    s.menu || s.keys || s.share_panel || s.lend_panel || (view.main && app.confirm.is_some()) || (view.main && s.show_stats) || (s.bar && view.bar) || capsule
 }
 
 /// L'échelle des éléments d'une interface par rapport aux maquettes du Deck
