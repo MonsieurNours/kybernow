@@ -28,7 +28,7 @@
     "share_code": "Le code a six chiffres.",
     "unknown_quality": "qualité d'image inconnue",
     "lend_link": "Ce lien d'invitation est illisible.",
-    "lend_password": "Le mot de passe de ce compte d'ami n'est pas retenu : donnez-le de nouveau."
+    "lend_password": "Entrez votre mot de passe pour emprunter."
   },
   "notify": {
     "update_title": "KyberNow Link {version} est prête",

@@ -131,8 +131,10 @@
         if (passage && passage.id === id) passage.opening = true
       }),
       listen<{ id: string; summary: Summary; lend?: LendEnd | null }>('session-ended', ({ id, summary, lend }) => {
-        // Une session d'emprunt : sa carte de fin (texte du prêt, ou « Revenir » pendant 15 min).
-        if (lend) lendSheet = { kind: 'end', end: lend }
+        // Une session d'emprunt : sa carte de fin (texte du prêt, ou « Revenir » pendant 15 min) ;
+        // l'ordinateur rendu : l'avis « Vous avez rendu l'ordinateur. », sans carte.
+        if (lend?.left) notice = lend.text
+        else if (lend) lendSheet = { kind: 'end', end: lend }
         // Seulement la session du passage : une session suivante montre son échec dans
         // sa propre fenêtre de connexion, ou par une notification.
         if (!passage || passage.id !== id) return
@@ -266,7 +268,8 @@
   /**
    * « Emprunter » (l'ordinateur d'un ami) ou la suite de « Rejoindre avec un code » (un code de prêt) : le passage
    * s'ouvre sur « Préparation de l'ordinateur » pendant que la Station passe en mode console (30 s au plus), sauf
-   * ordinateur occupé (l'hôte doit accepter : « En attente de {hôte}… »). Sans mot de passe retenu, il est demandé.
+   * ordinateur occupé (l'hôte doit accepter : « En attente de {hôte}… »). Pendant une autre session, la feuille
+   * `preparing` montre les mêmes étapes jusqu'à la fenêtre de connexion. Sans mot de passe retenu, il est demandé.
    */
   async function borrow(source: { friend?: string; ticket?: number; password?: string; remember?: boolean }, host: string, busy = false) {
     error = null
@@ -280,6 +283,8 @@
     const pendingId = 'lend-preparing'
     if (!following && !busy)
       passage = { id: pendingId, phase: 'preparing', opening: false, closing: false, restarting: false, many: false, borrow: { title: host ? t('lend.computer_of', { host }) : '', fingerprint: null }, borrowing: true }
+    else if (!busy) lendSheet = { kind: 'preparing', host }
+    const preparing = lendSheet
     try {
       const r = await invoke<BorrowOutcome>('lend_borrow', { friend: source.friend ?? null, ticket: source.ticket ?? null, password: source.password ?? null, remember: source.remember ?? null })
       if (r.kind === 'ready') return loanReady(r)
@@ -287,6 +292,7 @@
       lendSheet = { kind: 'waiting', wait: r.wait, host: r.host }
     } catch (e) {
       if (passage?.id === pendingId) passage = null
+      if (preparing && lendSheet === preparing) lendSheet = null
       error = String(e)
     }
   }
@@ -440,13 +446,14 @@
 
 {#if (update || notice) && !settingsFor && !passage}
   <div class="banner" role="status">
-    {#if update}
+    <!-- Un avis bref (« Vous avez rendu l'ordinateur. ») passe avant la mise à jour, qui revient après « OK ». -->
+    {#if notice}
+      <span>{notice}</span>
+      <button class="more" onclick={() => (notice = null)}>{t('common.ok')}</button>
+    {:else if update}
       <span>{t('app.update_ready', { version: update.version })}</span>
       {#if progress !== null}<span class="mono">{progress} %</span>{:else}<button onclick={installUpdate}>{t('app.install_relaunch')}</button>{/if}
       <button class="more" onclick={() => ((appCheck = false), (appSheet = true))}>{t('app.whats_new')}</button>
-    {:else}
-      <span>{notice}</span>
-      <button class="more" onclick={() => (notice = null)}>{t('common.ok')}</button>
     {/if}
   </div>
 {/if}

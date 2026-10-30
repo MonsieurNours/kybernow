@@ -216,14 +216,15 @@
         <button class="primary" disabled={busy || full || !canBorrow(f)} aria-describedby={full ? 'four-at-most' : undefined} onclick={() => onborrow(f)}>
           <Icon name="play" size={18} />{f.state === 'busy' ? t('lend.ask', { host: f.owner }) : t('lend.borrow')}
         </button>
+        <!-- « Retirer cet ordinateur », confirmé : « Retirer l'ordinateur de {hôte} de cet appareil ? » -->
         {#if confirmRemove === f.id}
           <button class="gear danger" onclick={() => ((confirmRemove = null), onremovefriend(f.id))}>{t('station.remove')}</button>
           <button class="gear" onclick={() => (confirmRemove = null)}>{t('common.cancel')}</button>
         {:else}
-          <button class="gear" onclick={() => (confirmRemove = f.id)}><Icon name="trash" size={18} stroke={1.6} />{t('station.remove')}</button>
+          <button class="gear" onclick={() => (confirmRemove = f.id)}><Icon name="trash" size={18} stroke={1.6} />{t('lend.remove')}</button>
         {/if}
       </div>
-      {#if confirmRemove === f.id}<p class="sentence">{t('station.remove_confirm', { name: t('lend.computer_of', { host: f.owner }) })}</p>{/if}
+      {#if confirmRemove === f.id}<p class="sentence">{t('lend.remove_confirm', { host: f.owner })}</p>{/if}
       {#if full}<p class="sentence limit" id="four-at-most">{t('common.four_at_most')}</p>{/if}
     {:else if selected}
       {#if selected.lend && selected.online !== false}

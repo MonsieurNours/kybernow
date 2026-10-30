@@ -397,7 +397,10 @@
     "lend_bad_credentials": "Username or password refused.",
     "lend_taken_back": "Matthieu took back the computer.",
     "lend_notice_taken_back": "Matthieu is taking back the computer in 2 min: save your game.",
-    "lend_computer_of": "Matthieu's computer"
+    "lend_computer_of": "Matthieu's computer",
+    "lend_given_back": "You gave back the computer.",
+    "lend_stopped": "The loan has stopped.",
+    "lend_link": "This invitation link can't be read."
   },
   "lend": {
     "lend": "Lend the computer…",
@@ -451,6 +454,11 @@
     "give_back": "Give back the computer",
     "give_back_confirm": "Give the computer back to {host}?",
     "come_back_hint": "You can come back for 15 min.",
-    "come_back": "Come back"
+    "come_back": "Come back",
+    "unavailable": "Lending isn't possible on this computer.",
+    "remove": "Remove this computer",
+    "remove_confirm": "Remove {host}'s computer from this device?",
+    "enter_password": "Enter your password to borrow.",
+    "brand": "KyberNow Share"
   }
 }

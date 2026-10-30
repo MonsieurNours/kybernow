@@ -231,27 +231,21 @@ fn ask_soon(state: &UiState) {
     state.lend.asked.store(true, Ordering::Relaxed);
 }
 
-/// Le lien d'invitation, pour l'écran d'ajout : l'identifiant du compte et le nom
-/// à montrer dans « {hôte} vous prête son ordinateur. » (le lien ne porte pas le
-/// prénom de l'hôte : le nom de l'ordinateur, s'il répond sur le réseau, sinon son
-/// adresse).
+/// Le lien d'invitation, pour l'écran d'ajout : l'identifiant du compte et le
+/// prénom de l'hôte qu'il porte (`name=` : « {hôte} vous prête son
+/// ordinateur. ») ; sans lui (lien d'avant), l'écran s'intitule « Avec un compte
+/// d'ami ». Illisible : « Ce lien d'invitation est illisible. »
 #[derive(Serialize)]
 pub struct InviteView {
     login: String,
-    host: String,
+    host: Option<String>,
     relay: bool,
 }
 
 #[tauri::command(async)]
 pub fn lend_invite(link: String) -> Result<InviteView, String> {
     let invite = lend::parse_invite(&link).ok_or_else(|| t("errors.lend_link", &[]))?;
-    let name = Console::guest(&invite.host, invite.port, invite.fingerprint.clone())
-        .info_within(Duration::from_millis(1500))
-        .ok()
-        .map(|i| i.hostname)
-        .filter(|h| !h.trim().is_empty())
-        .unwrap_or_else(|| invite.host.clone());
-    Ok(InviteView { login: invite.login.clone(), host: name, relay: invite.relay_route().is_some() })
+    Ok(InviteView { login: invite.login.clone(), host: lending::invite_name(&invite), relay: invite.relay_route().is_some() })
 }
 
 /// « Ajouter » : l'ordinateur d'un ami, par son lien d'invitation (`link`) ou
@@ -597,6 +591,7 @@ pub fn lend_connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
         view.fingerprint = loan.target.fingerprint.clone();
         // La raison d'un échec se lit telle quelle, comme pour un invité.
         view.guest = true;
+        view.borrow = true;
     }
     if let Some(f) = &follow {
         open_connexion(&app, &connexion, f.at, (f.client.0 as u32, f.client.1 as u32), &title);
@@ -817,11 +812,19 @@ impl UiEvents {
         let before = std::mem::replace(&mut *self.lend.lock().unwrap(), after.clone());
         let known = self.lend_seen.swap(true, Ordering::Relaxed);
         publish(&self.app, &self.id, after.clone());
-        for name in lending::new_requests(before.as_ref(), after.as_ref(), known).into_iter().take(1) {
-            log::info!("[{}] {name} veut emprunter l'ordinateur", self.connexion.name);
-            super::share::panel_notice(&self.app, &self.id, &self.connexion.name, &t("lend.notice_request", &[("name", &name)]), "lend");
+        let arrived = lending::new_requests(before.as_ref(), after.as_ref(), known);
+        // Pendant un créneau, la demande dit le texte du créneau (et le préavis ne le redit pas).
+        let slot_said = arrived.first().is_some_and(|r| r.kind == kybernow_core::lend::LendKind::Slot);
+        if let Some(r) = arrived.first() {
+            log::info!("[{}] {} veut emprunter l'ordinateur{}", self.connexion.name, r.name, if slot_said { " (créneau)" } else { "" });
+            let text = if slot_said {
+                kybernow_core::lend::LendNotice { reason: kybernow_core::lend::LendNoticeReason::SlotStart, at: 0 }.text(lang(), &r.name)
+            } else {
+                t("lend.notice_request", &[("name", &r.name)])
+            };
+            super::share::panel_notice(&self.app, &self.id, &self.connexion.name, &text, "lend");
         }
-        if let (Some(n), Some(v)) = (lending::new_slot_notice(before.as_ref(), after.as_ref()), after.as_ref()) {
+        if let (Some(n), Some(v), false) = (lending::new_slot_notice(before.as_ref(), after.as_ref()), after.as_ref(), slot_said) {
             super::share::notice(&self.app, &self.id, &self.connexion.name, &n.text(lang(), &lending::slot_name(v)));
         }
     }
