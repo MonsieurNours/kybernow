@@ -78,7 +78,18 @@
 #   0021  touches système (serveur d'entrées et kycontroller, deux fichiers) :
 #         droit system_keys (Ctrl+Alt+Del, Win+L) réservé à l'hôte ; refusé à
 #         tout invité du partage et à l'ami à qui l'ordinateur est prêté
-#   0022  HDR (docs/hdr.md). 0022-kyclient-hdr : côté client (kyclient, son API
+#   0022  HDR (cinq fichiers, docs/hdr.md). Serveur : txproto et libavgrab capturent
+#         en 16 bits flottants (DuplicateOutput1, et l'anneau WGC d'Admin en
+#         R16G16B16A16) et convertissent sur la carte (shaders HLSL compilés
+#         par d3dcompiler_47.dll, communs aux deux moteurs) : HDR10 en P010
+#         (PQ, BT.2020, plage limitée) ou SDR (courbe douce, BGRA) ; HEVC
+#         Main 10 et AV1 10 bits sur NVENC, AMF et QSV, métadonnées HDR10
+#         d'après IDXGIOutput6::GetDesc1 (insérées après l'encodage pour
+#         NVENC, SDK 12.1) ; kyavservice : hdr et hdr_capture dans
+#         KymuxStartVideo, HDR refusé avec H.264, x264 ou 4:4:4 (SDR) ;
+#         kycontroller : hdr de chaque écran lu dans la requête de démarrage,
+#         image à part en SDR pour un invité sans HDR face à un hôte en HDR
+#         0022-kyclient-hdr : côté client (kyclient, son API
 #         C, kyclient-rs) et champ hdr de la requête de démarrage
 #         (kyctl-common, lu par kycontroller : posé ici avant
 #         0022-kycontroller-hdr) ; les apps le posent aussi, après leurs
