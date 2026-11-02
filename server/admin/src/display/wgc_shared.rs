@@ -14,23 +14,29 @@
 //! - `KyberNowWGC_T_DISPLAY6` : mémoire partagée, un en-tête [`Header`] ;
 //! - `KyberNowWGC_T_DISPLAY6_frame` : événement signalé à chaque image ;
 //! - `KyberNowWGC_T_DISPLAY6_<génération>_<n>` : les [`SLOTS`] textures D3D11
-//!   partagées (BGRA 8 bits, verrou `IDXGIKeyedMutex`, clé 0), sur la carte
-//!   de l'écran. La génération change quand la taille change.
+//!   partagées (verrou `IDXGIKeyedMutex`, clé 0), sur la carte de l'écran,
+//!   au format `format` de l'en-tête : BGRA 8 bits ([`FORMAT_BGRA8`]), ou
+//!   16 bits flottants ([`FORMAT_RGBA16F`], scRGB) quand l'écran est en HDR
+//!   pour Windows. La génération change quand la taille ou le format change.
 //!
 //! Ces objets sont dans l'espace de noms de la session de l'écran, ouverts
 //! à SYSTEM et au seul compte de l'utilisateur.
 //!
 //! La même disposition est écrite en C dans le correctif Kyber 0018
 //! (`txproto/src/iosys_dxgi.c`) : toute modification va des deux côtés, et
-//! `VERSION` change.
+//! `VERSION` change. Version 3 (correctif 0022, HDR) : `format` peut valoir
+//! [`FORMAT_RGBA16F`] ; un txproto d'avant ne lit pas ces textures.
 
 /// « KNWG ».
 pub const MAGIC: u32 = 0x4757_4E4B;
-pub const VERSION: u32 = 2;
+pub const VERSION: u32 = 3;
 /// Textures de l'anneau : la capture en écrit une pendant que Kyber lit la dernière.
 pub const SLOTS: u32 = 3;
 /// `DXGI_FORMAT_B8G8R8A8_UNORM`.
 pub const FORMAT_BGRA8: u32 = 87;
+/// `DXGI_FORMAT_R16G16B16A16_FLOAT` : l'écran en HDR pour Windows (scRGB,
+/// 1,0 = 80 cd/m²). txproto le convertit sur la carte (correctif 0022).
+pub const FORMAT_RGBA16F: u32 = 10;
 
 pub const STATE_STARTING: u32 = 0;
 pub const STATE_RUNNING: u32 = 1;
@@ -90,7 +96,7 @@ pub fn ring_id(token: &str, screen_id: &str) -> String {
 /// En-tête de la mémoire partagée. Les temps sont en unités de 100 ns sur
 /// l'horloge de `QueryPerformanceCounter` (celle de `SystemRelativeTime`).
 /// `frame_counter` est écrit en dernier (ordre « release ») : quand il
-/// change, `latest_slot`, `generation` et les temps sont à jour.
+/// change, `latest_slot`, `generation`, `format` et les temps sont à jour.
 #[repr(C)]
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Header {
@@ -151,8 +157,13 @@ mod tests {
         assert_eq!(offset_of!(Header, publish_time), 64);
         assert_eq!(offset_of!(Header, heartbeat_time), 72);
         assert_eq!(offset_of!(Header, producer_pid), 80);
+        assert_eq!(offset_of!(Header, format), 24);
         assert_eq!(HEADER_SIZE, 88);
         assert_eq!(&MAGIC.to_le_bytes(), b"KNWG");
+        // Mêmes valeurs que `KN_WGC_VERSION` et `KN_WGC_FORMAT_*` (0022).
+        assert_eq!(VERSION, 3);
+        assert_eq!(FORMAT_BGRA8, 87);
+        assert_eq!(FORMAT_RGBA16F, 10);
     }
 
     #[test]

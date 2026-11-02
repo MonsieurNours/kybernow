@@ -1,0 +1,1184 @@
+diff --git a/subprojects/txproto/src/encode.c b/subprojects/txproto/src/encode.c
+index d52336d..f9e1fae 100644
+--- a/subprojects/txproto/src/encode.c
++++ b/subprojects/txproto/src/encode.c
+@@ -28,6 +28,8 @@
+ #include <assert.h>
+ 
+ #include "encoding_utils.h"
++#define KN_HDR_META_FFMPEG
++#include "kn_hdr_meta.h"
+ #include "os_compat.h"
+ #include <libtxproto/utils.h>
+ #include "utils.h"
+@@ -108,6 +110,20 @@ static int init_avctx(EncodingContext *ctx, AVFrame *conf)
+ 
+         ctx->avctx->sample_aspect_ratio = conf->sample_aspect_ratio;
+ 
++        /* KyberNow (0022): the HDR10 static metadata of the capture, for
++         * the encoders that read it there and for kn_hdr_add_to_packet(). */
++        for (int i = 0; i < conf->nb_side_data; i++) {
++            const AVFrameSideData *sd = conf->side_data[i];
++            if (sd->type != AV_FRAME_DATA_MASTERING_DISPLAY_METADATA &&
++                sd->type != AV_FRAME_DATA_CONTENT_LIGHT_LEVEL)
++                continue;
++            int err = av_frame_side_data_clone(&ctx->avctx->decoded_side_data,
++                                               &ctx->avctx->nb_decoded_side_data, sd,
++                                               AV_FRAME_SIDE_DATA_FLAG_UNIQUE);
++            if (err < 0)
++                return err;
++        }
++
+         if (ctx->width && ctx->height) {
+             ctx->avctx->width  = ctx->width;
+             ctx->avctx->height = ctx->height;
+@@ -766,6 +782,13 @@ static void *encoding_thread(void *arg)
+                 ctx->attach_sidedata = 0;
+             }
+ 
++            /* KyberNow (0022): HDR10 metadata in NVENC keyframes. */
++            ret = kn_hdr_add_to_packet(ctx->avctx, out_pkt);
++            if (ret < 0) {
++                pthread_mutex_unlock(&ctx->lock);
++                goto fail;
++            }
++
+             out_pkt->opaque = (void *)(intptr_t)sp_class_get_id(ctx);
+             out_pkt->time_base = ctx->avctx->time_base;
+ 
+diff --git a/subprojects/txproto/src/iosys_dxgi.c b/subprojects/txproto/src/iosys_dxgi.c
+index db5cea7..2861115 100644
+--- a/subprojects/txproto/src/iosys_dxgi.c
++++ b/subprojects/txproto/src/iosys_dxgi.c
+@@ -34,6 +34,7 @@
+ #include <libavutil/time.h>
+ 
+ #include "dxgi_cursor.h"
++#include "kn_hdr_capture.h"
+ #include "iosys_common.h"
+ #include "metrics.h"
+ #include "os_compat.h"
+@@ -127,6 +128,12 @@ typedef struct DxgiCapture {
+     DxgiCursorHandler *cursor_sink;
+     int cursor_move_rate; /* KyberNow: "cursor_move_rate" option */
+     int max_framerate; /* KyberNow (0020): "max_framerate" option, 0 = none */
++    /* KyberNow (0022): "hdr" option (KN_HDR_OFF, KN_HDR_PQ, KN_HDR_SDR), the
++     * converter on the graphics card, and what Windows says of the display. */
++    int hdr;
++    KnHdrConv kn_conv;
++    KnHdrInfo kn_info;
++    int kn_conv_errors;
+ 
+     int64_t epoch;
+ 
+@@ -137,6 +144,8 @@ typedef struct DxgiCapture {
+     struct KnWgc *wgc;
+ } DxgiCapture;
+ 
++static void kn_hdr_log(void *log_ctx, const KnHdrInfo *info, DXGI_FORMAT format);
++
+ static uint32_t gen_identifier(const char *s)
+ {
+     const AVCRC *table = av_crc_get_table(AV_CRC_32_IEEE);
+@@ -786,9 +795,10 @@ static int allocate_texture_pool(DxgiCtx *ctx, DxgiCapture *priv,
+ 
+     AVHWFramesContext *hw_frames_ctx_cfg = (AVHWFramesContext *)priv->hw_frames_ctx->data;
+     hw_frames_ctx_cfg->format = AV_PIX_FMT_D3D11;
+-    hw_frames_ctx_cfg->sw_format = AV_PIX_FMT_BGRA;
+-    hw_frames_ctx_cfg->width = width;
+-    hw_frames_ctx_cfg->height = height;
++    /* KyberNow (0022): HDR10 frames are P010, even-sized. */
++    hw_frames_ctx_cfg->sw_format = priv->hdr == KN_HDR_PQ ? AV_PIX_FMT_P010 : AV_PIX_FMT_BGRA;
++    hw_frames_ctx_cfg->width = priv->hdr == KN_HDR_PQ ? FFALIGN(width, 2) : width;
++    hw_frames_ctx_cfg->height = priv->hdr == KN_HDR_PQ ? FFALIGN(height, 2) : height;
+     hw_frames_ctx_cfg->initial_pool_size = 6;
+ 
+     /* Required for AMF */
+@@ -845,10 +855,21 @@ static int start_capture(DxgiCapture *priv, DxgiCtx *ctx, IDXGIOutput1 *dxgi_out
+     }
+ 
+     /* DuplicateOutput() can be rejected if the current user isn't allowed
+-     * to grab Secure Desktop. */
+-    hr = IDXGIOutput1_DuplicateOutput(dxgi_output,
+-                                      ctx->d3d11_device_base,
+-                                      &priv->output_duplication);
++     * to grab Secure Desktop. KyberNow (0022): for an HDR stream (or the
++     * SDR image of a display captured in HDR), 16-bit float when Windows
++     * composes the display in HDR. */
++    hr = E_FAIL;
++    if (priv->hdr != KN_HDR_OFF) {
++        kn_hdr_output_info((IUnknown *)dxgi_output, &priv->kn_info);
++        hr = kn_hdr_duplicate((IUnknown *)dxgi_output, ctx->d3d11_device_base,
++                              &priv->output_duplication);
++        if (FAILED(hr))
++            sp_log(priv, SP_LOG_WARN, "HDR: DuplicateOutput1() failed: %lX, 8-bit capture\n", hr);
++    }
++    if (!priv->output_duplication)
++        hr = IDXGIOutput1_DuplicateOutput(dxgi_output,
++                                          ctx->d3d11_device_base,
++                                          &priv->output_duplication);
+     if (FAILED(hr)) {
+         sp_log(priv, SP_LOG_WARN, "DuplicateOutput() failed: %lX\n", hr);
+         goto fail;
+@@ -865,6 +886,8 @@ static int start_capture(DxgiCapture *priv, DxgiCtx *ctx, IDXGIOutput1 *dxgi_out
+ 
+     sp_log(priv, SP_LOG_INFO, "Duplication started. Resolution: %dx%d\n",
+            desc.ModeDesc.Width, desc.ModeDesc.Height);
++    if (priv->hdr != KN_HDR_OFF)
++        kn_hdr_log(priv, &priv->kn_info, desc.ModeDesc.Format);
+ 
+     priv->got_first_frame = 0;
+ 
+@@ -876,6 +899,66 @@ fail:
+     return AVERROR_EXTERNAL;
+ }
+ 
++/* KyberNow (0022): one line on what Windows says of the display. */
++static void kn_hdr_log(void *log_ctx, const KnHdrInfo *info, DXGI_FORMAT format)
++{
++    sp_log(log_ctx, SP_LOG_INFO, "HDR: display in %s for Windows, luminance %.4f-%.0f cd/m2 "
++           "(full frame %.0f), SDR white %.0f cd/m2 (%s), capture format %s\n",
++           info->hdr ? "HDR" : "SDR", info->min_luminance, info->max_luminance,
++           info->max_full_frame_luminance, info->sdr_white,
++           info->sdr_white_known ? "Windows" : "default",
++           format == DXGI_FORMAT_R16G16B16A16_FLOAT ? "16-bit float" :
++           format == DXGI_FORMAT_B8G8R8A8_UNORM ? "8-bit BGRA" : "other");
++}
++
++/* KyberNow (0022): copies the captured texture `src` into `frame`, through
++ * the converter when the stream is HDR10 (P010) or when `src` is 16-bit
++ * float for an SDR stream (WGC on an HDR display, the SDR image of a
++ * display captured in HDR). */
++static int kn_copy_frame(IOSysEntry *entry, DxgiCapture *priv, DxgiCtx *ctx,
++                         ID3D11Resource *src, AVFrame *frame)
++{
++    ID3D11Texture2D *dst = (ID3D11Texture2D *)frame->data[0];
++    const UINT slice = (UINT)(intptr_t)frame->data[1];
++    ID3D11Texture2D *src2d = NULL;
++    D3D11_TEXTURE2D_DESC desc = { 0 };
++    char err[512];
++    int mode;
++    HRESULT hr;
++
++    if (SUCCEEDED(ID3D11Resource_QueryInterface(src, &IID_ID3D11Texture2D, (void **)&src2d))) {
++        ID3D11Texture2D_GetDesc(src2d, &desc);
++        ID3D11Texture2D_Release(src2d);
++    }
++    mode = priv->hdr == KN_HDR_PQ ? KN_HDR_PQ :
++           desc.Format == DXGI_FORMAT_R16G16B16A16_FLOAT ? KN_HDR_SDR : KN_HDR_OFF;
++    if (mode == KN_HDR_OFF) {
++        ID3D11DeviceContext_CopySubresourceRegion(ctx->d3d11_device_ctx, (ID3D11Resource *)dst,
++                                                  slice, 0, 0, 0, src, 0, NULL);
++        return 0;
++    }
++
++    if (priv->kn_conv.mode != mode) {
++        kn_hdr_conv_free(&priv->kn_conv);
++        if (kn_hdr_conv_init(&priv->kn_conv, ctx->d3d11_device, mode, err, sizeof(err)) < 0) {
++            sp_log(entry, SP_LOG_ERROR, "HDR: no conversion on the graphics card: %s\n", err);
++            return AVERROR_EXTERNAL;
++        }
++        sp_log(entry, SP_LOG_INFO, "HDR: conversion to %s on the graphics card\n",
++               mode == KN_HDR_PQ ? "HDR10 (PQ, BT.2020, P010)" : "SDR (BT.709, 8 bits)");
++    }
++    hr = kn_hdr_conv_run(&priv->kn_conv, ctx->d3d11_device_ctx, src, dst, slice,
++                         frame->width, frame->height, &priv->kn_info);
++    if (FAILED(hr)) {
++        if (!priv->kn_conv_errors++)
++            sp_log(entry, SP_LOG_ERROR, "HDR: conversion failed: 0x%lX\n", hr);
++        return AVERROR_EXTERNAL;
++    }
++    if (priv->hdr == KN_HDR_PQ)
++        return kn_hdr_tag_frame(frame, &priv->kn_info);
++    return 0;
++}
++
+ static int check_resolution_change(DxgiCapture *priv,
+                                    DxgiCtx *ctx,
+                                    ID3D11Resource *tex)
+@@ -945,7 +1028,9 @@ static int check_resolution_change(DxgiCapture *priv,
+  *   KyberNowWGC_T_DISPLAY6               file mapping, KnWgcHeader
+  *   KyberNowWGC_T_DISPLAY6_frame         auto-reset event, set on each frame
+  *   KyberNowWGC_T_DISPLAY6_<gen>_<slot>  shared texture (NT handle, keyed
+- *                                         mutex, key 0), BGRA 8 bits
++ *                                         mutex, key 0), BGRA 8 bits, or
++ *                                         16-bit float on a display in HDR
++ *                                         (KyberNow 0022, `format`)
+  * Same layout as server/admin/src/display/wgc_shared.rs.
+  *
+  * The pointer is left out of the WGC picture; it is read with
+@@ -978,7 +1063,11 @@ _Static_assert(offsetof(KnWgcHeader, frame_counter) == 48, "KnWgcHeader layout")
+ _Static_assert(sizeof(KnWgcHeader) == 88, "KnWgcHeader size");
+ 
+ #define KN_WGC_MAGIC 0x47574E4Bu /* "KNWG" */
+-#define KN_WGC_VERSION 2
++/* KyberNow (0022): version 3, `format` is B8G8R8A8_UNORM (87) or, on a
++ * display in HDR for Windows, R16G16B16A16_FLOAT (10). */
++#define KN_WGC_VERSION 3
++#define KN_WGC_FORMAT_BGRA8 87
++#define KN_WGC_FORMAT_RGBA16F 10
+ #define KN_WGC_SLOTS 3
+ #define KN_WGC_STATE_RUNNING 1
+ /* Session marker published by KyberNow Admin (global namespace, SYSTEM
+@@ -1269,9 +1358,11 @@ static int kn_wgc_open(IOSysEntry *entry, DxgiCapture *priv, DxgiCtx *ctx)
+     }
+ 
+     sp_log(entry, SP_LOG_INFO, "WGC: capture through Windows Graphics Capture (agent %lu found after %d ms, "
+-           "%ux%u, frames published so far %llu, yellow border %s)\n",
++           "%ux%u, %s, frames published so far %llu, yellow border %s)\n",
+            (unsigned long)w->header->producer_pid, (int)((av_gettime_relative() - looked_at) / 1000),
+-           w->header->width, w->header->height, (unsigned long long)w->header->frame_counter,
++           w->header->width, w->header->height,
++           w->header->format == KN_WGC_FORMAT_RGBA16F ? "16-bit float" : "8-bit BGRA",
++           (unsigned long long)w->header->frame_counter,
+            w->header->border_required ? "required by Windows" : "off");
+     return 0;
+ 
+@@ -1537,8 +1628,9 @@ static int kn_wgc_loop(IOSysEntry *entry, DxgiCapture *priv, DxgiCtx *ctx, int *
+         if (generation != w->generation) {
+             if (kn_wgc_open_textures(entry, w, ctx, generation) < 0)
+                 continue;
+-            sp_log(entry, SP_LOG_INFO, "WGC: shared textures opened (generation %u, %ux%u)\n",
+-                   generation, w->header->width, w->header->height);
++            sp_log(entry, SP_LOG_INFO, "WGC: shared textures opened (generation %u, %ux%u, %s)\n",
++                   generation, w->header->width, w->header->height,
++                   w->header->format == KN_WGC_FORMAT_RGBA16F ? "16-bit float" : "8-bit BGRA");
+         }
+ 
+         if (IDXGIKeyedMutex_AcquireSync(w->mutexes[slot], 0, 10) != S_OK) {
+@@ -1568,12 +1660,14 @@ static int kn_wgc_loop(IOSysEntry *entry, DxgiCapture *priv, DxgiCtx *ctx, int *
+             continue;
+         }
+ 
+-        ID3D11Texture2D *target_tex = (ID3D11Texture2D *)frame->data[0];
+-        intptr_t target_tex_idx = (intptr_t)frame->data[1];
+-        ID3D11DeviceContext_CopySubresourceRegion(ctx->d3d11_device_ctx,
+-                                                  (ID3D11Resource *)target_tex, target_tex_idx,
+-                                                  0, 0, 0, source, 0, NULL);
++        /* KyberNow (0022): converted when HDR10 or 16-bit float. */
++        err = kn_copy_frame(entry, priv, ctx, source, frame);
+         IDXGIKeyedMutex_ReleaseSync(w->mutexes[slot], 0);
++        if (err < 0) {
++            av_frame_free(&frame);
++            *fatal = err;
++            return 0;
++        }
+ 
+         w->last_counter = counter;
+         copied++;
+@@ -1687,6 +1781,9 @@ static void *dxgi_capture_thread(void *s)
+         goto fail;
+     }
+ 
++    /* KyberNow (0022): SDR white and luminance (WGC on an HDR display too). */
++    kn_hdr_output_info((IUnknown *)dxgi_output, &priv->kn_info);
++
+     err = sp_dxgi_cursor_handler_init(&priv->cursor_sink, entry->identifier,
+                                       priv->cursor_move_rate);
+     if (err < 0) {
+@@ -1835,32 +1932,18 @@ static void *dxgi_capture_thread(void *s)
+             continue;
+         }
+ 
+-        ID3D11Texture2D *target_tex = (ID3D11Texture2D *)frame->data[0];
+-        intptr_t target_tex_idx = (intptr_t)frame->data[1];
+-
+         /* Copy and release texture */
+         sp_log(entry, SP_LOG_TRACE, "Grab image\n");
+ 
+-        ID3D11Resource *target_ressource;
+-        hr = ID3D11Texture2D_QueryInterface(target_tex,
+-                                            &IID_ID3D11Resource,
+-                                            (void **)&target_ressource);
+-        if (FAILED(hr)) {
+-            sp_log(ctx, SP_LOG_ERROR, "Failed to get ID3D11Resource from ID3D11Texture2D: 0x%lX\n", hr);
+-            err = AVERROR_EXTERNAL;
+-            goto fail;
+-        }
+-
+-        ID3D11DeviceContext_CopySubresourceRegion(ctx->d3d11_device_ctx,
+-                                                  target_ressource, target_tex_idx,
+-                                                  0, 0, 0,
+-                                                  acquired_tex, 0,
+-                                                  NULL);
+-
+-        ID3D11Resource_Release(target_ressource);
++        /* KyberNow (0022): converted on the graphics card for HDR. */
++        err = kn_copy_frame(entry, priv, ctx, acquired_tex, frame);
+ 
+         IDXGIResource_Release(acquired_tex);
+         acquired_tex = NULL;
++        if (err < 0) {
++            IDXGIOutputDuplication_ReleaseFrame(priv->output_duplication);
++            goto fail;
++        }
+ 
+         hr = IDXGIOutputDuplication_ReleaseFrame(priv->output_duplication);
+         if (hr == DXGI_ERROR_ACCESS_LOST) {
+@@ -1918,6 +2001,7 @@ fail:
+     av_frame_free(&kn_held); /* KyberNow (0020) */
+ 
+     stop_capture(priv);
++    kn_hdr_conv_free(&priv->kn_conv); /* KyberNow (0022) */
+     release_texture_pool(priv);
+ 
+     if (dxgi_output)
+@@ -1992,6 +2076,16 @@ static int dxgi_init_io(AVBufferRef *ctx_ref, AVBufferRef *entry,
+     if (max_rate)
+         cap_priv->max_framerate = av_clip(strtol(max_rate->value, NULL, 10), 0, 1000);
+ 
++    /* KyberNow (0022): 0 = 8-bit SDR as before, 1 = HDR10 (P010), 2 = SDR
++     * image of a display captured in HDR (16-bit float brought to SDR). */
++    AVDictionaryEntry *hdr = av_dict_get(opts, "hdr", NULL, 0);
++    if (hdr)
++        cap_priv->hdr = av_clip(strtol(hdr->value, NULL, 10), KN_HDR_OFF, KN_HDR_SDR);
++    if (cap_priv->hdr != KN_HDR_OFF)
++        sp_log(iosys_entry, SP_LOG_INFO, "HDR: %s\n", cap_priv->hdr == KN_HDR_PQ ?
++               "HDR10 image (16-bit float capture, PQ, P010)" :
++               "SDR image of a display captured in HDR (16-bit float capture)");
++
+     iosys_entry->ctrl = dxgi_ioctx_ctrl;
+     iosys_entry->events = sp_bufferlist_new();
+ 
+diff --git a/subprojects/txproto/src/kn_hdr_capture.h b/subprojects/txproto/src/kn_hdr_capture.h
+new file mode 100644
+index 0000000..0c608bd
+--- /dev/null
++++ b/subprojects/txproto/src/kn_hdr_capture.h
+@@ -0,0 +1,590 @@
++/*
++ * KyberNow (0022): HDR desktop capture on Windows, shared by both capture
++ * engines. The same file is in txproto (src/kn_hdr_capture.h) and in
++ * libavgrab (libavgrab/kn_hdr_capture.h).
++ *
++ * IDXGIOutput1::DuplicateOutput() gives an HDR desktop brought down to 8-bit
++ * SDR by Windows. For an HDR stream, the desktop is duplicated in 16-bit
++ * float (IDXGIOutput5::DuplicateOutput1(), scRGB: linear BT.709 primaries,
++ * 1.0 = 80 cd/m2) and converted on the graphics card, right after the
++ * capture:
++ *
++ *  - KN_HDR_PQ (an HDR10 image): scRGB x 80 cd/m2, BT.2020 primaries, PQ
++ *    (SMPTE ST 2084), Y'CbCr BT.2020 non-constant luminance, limited range,
++ *    10 bits, P010 with chroma averaged over 2 x 2 pixels. No curve on the
++ *    HDR image: above 10 000 cd/m2 the value is clipped. An SDR desktop
++ *    (8-bit BGRA, the display not in HDR) is placed at Windows' SDR white.
++ *
++ *  - KN_HDR_SDR (the SDR image of a display captured in HDR, a share
++ *    guest's own image): SDR white at Windows' "SDR content brightness",
++ *    soft curve above it (knee at 75 % of white, compressed up to 4 times
++ *    white), BT.709 primaries, sRGB gamma, 8-bit BGRA: the format of the SDR
++ *    capture, so that what follows (scaling, NV12, encoders) is unchanged.
++ *
++ * The shaders are HLSL compiled at run time by d3dcompiler_47.dll (in
++ * System32 on every Windows 10 and 11). They draw one full-screen triangle
++ * into render target views of the frame pool's textures: for P010, an
++ * R16_UNORM view of the luma plane and an R16G16_UNORM view of the chroma
++ * plane (D3D11 picks the plane from the view format), the 10-bit code in
++ * the high bits.
++ *
++ * The output's HDR state and luminance come from IDXGIOutput6::GetDesc1(),
++ * the SDR white from the display configuration (DISPLAYCONFIG_SDR_WHITE_LEVEL).
++ */
++
++#ifndef KN_HDR_CAPTURE_H
++#define KN_HDR_CAPTURE_H
++
++#ifndef COBJMACROS
++#define COBJMACROS
++#endif
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <d3d11.h>
++#include <d3dcompiler.h>
++#include <dxgi1_6.h>
++#include <windows.h>
++#include <wchar.h>
++
++#include <libavutil/frame.h>
++#include <libavutil/mastering_display_metadata.h>
++#include <libavutil/pixfmt.h>
++
++enum {
++    KN_HDR_OFF = 0, /* today's capture, 8-bit BGRA */
++    KN_HDR_PQ  = 1, /* HDR10, P010 */
++    KN_HDR_SDR = 2, /* 16-bit float capture brought to SDR, 8-bit BGRA */
++};
++
++/* {80a07424-ab52-42eb-833c-0c42fd282d98} */
++static const GUID kn_iid_dxgi_output5 = {
++    0x80a07424, 0xab52, 0x42eb, { 0x83, 0x3c, 0x0c, 0x42, 0xfd, 0x28, 0x2d, 0x98 }
++};
++/* {068346e8-aaec-4b84-add7-137f513f77a1} */
++static const GUID kn_iid_dxgi_output6 = {
++    0x068346e8, 0xaaec, 0x4b84, { 0xad, 0xd7, 0x13, 0x7f, 0x51, 0x3f, 0x77, 0xa1 }
++};
++/* {9b7e4e00-342c-4106-a19f-4f2704f689f0} */
++static const GUID kn_iid_d3d10_multithread = {
++    0x9b7e4e00, 0x342c, 0x4106, { 0xa1, 0x9f, 0x4f, 0x27, 0x04, 0xf6, 0x89, 0xf0 }
++};
++
++/* What Windows says of the captured display. */
++typedef struct KnHdrInfo {
++    int hdr;                 /* the display is in HDR (G2084, BT.2020) */
++    float min_luminance;     /* cd/m2, from GetDesc1() */
++    float max_luminance;
++    float max_full_frame_luminance;
++    float primaries[3][2];   /* red, green, blue */
++    float white[2];
++    float sdr_white;         /* cd/m2 of SDR white, 80 if unknown */
++    int sdr_white_known;
++} KnHdrInfo;
++
++/* Nits of SDR white for the display `gdi_name` (Windows' "SDR content
++ * brightness"); 0 if Windows does not say. */
++static inline float kn_hdr_sdr_white(const WCHAR *gdi_name)
++{
++    UINT32 nb_paths = 0, nb_modes = 0;
++    DISPLAYCONFIG_PATH_INFO *paths = NULL;
++    DISPLAYCONFIG_MODE_INFO *modes = NULL;
++    float nits = 0;
++
++    if (GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &nb_paths, &nb_modes) != ERROR_SUCCESS)
++        return 0;
++    paths = calloc(nb_paths ? nb_paths : 1, sizeof(*paths));
++    modes = calloc(nb_modes ? nb_modes : 1, sizeof(*modes));
++    if (paths && modes &&
++        QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, &nb_paths, paths, &nb_modes, modes, NULL) == ERROR_SUCCESS) {
++        for (UINT32 i = 0; i < nb_paths; i++) {
++            DISPLAYCONFIG_SOURCE_DEVICE_NAME source = { 0 };
++            DISPLAYCONFIG_SDR_WHITE_LEVEL white = { 0 };
++            source.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME;
++            source.header.size = sizeof(source);
++            source.header.adapterId = paths[i].sourceInfo.adapterId;
++            source.header.id = paths[i].sourceInfo.id;
++            if (DisplayConfigGetDeviceInfo(&source.header) != ERROR_SUCCESS ||
++                wcscmp(source.viewGdiDeviceName, gdi_name))
++                continue;
++            white.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_SDR_WHITE_LEVEL;
++            white.header.size = sizeof(white);
++            white.header.adapterId = paths[i].targetInfo.adapterId;
++            white.header.id = paths[i].targetInfo.id;
++            if (DisplayConfigGetDeviceInfo(&white.header) == ERROR_SUCCESS && white.SDRWhiteLevel)
++                nits = (float)white.SDRWhiteLevel / 1000.0f * 80.0f; /* 1000 = 80 cd/m2 */
++            break;
++        }
++    }
++    free(paths);
++    free(modes);
++    return nits;
++}
++
++/* Fills `info` for `output` (any IDXGIOutput version). Without
++ * IDXGIOutput6 (before Windows 10 1803), the display is taken as SDR. */
++static inline void kn_hdr_output_info(IUnknown *output, KnHdrInfo *info)
++{
++    IDXGIOutput6 *output6 = NULL;
++    DXGI_OUTPUT_DESC1 desc;
++
++    memset(info, 0, sizeof(*info));
++    info->sdr_white = 80.0f;
++    if (FAILED(IUnknown_QueryInterface(output, &kn_iid_dxgi_output6, (void **)&output6)))
++        return;
++    if (SUCCEEDED(IDXGIOutput6_GetDesc1(output6, &desc))) {
++        float white;
++        info->hdr = desc.ColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020;
++        info->min_luminance = desc.MinLuminance;
++        info->max_luminance = desc.MaxLuminance;
++        info->max_full_frame_luminance = desc.MaxFullFrameLuminance;
++        memcpy(info->primaries[0], desc.RedPrimary, sizeof(desc.RedPrimary));
++        memcpy(info->primaries[1], desc.GreenPrimary, sizeof(desc.GreenPrimary));
++        memcpy(info->primaries[2], desc.BluePrimary, sizeof(desc.BluePrimary));
++        memcpy(info->white, desc.WhitePoint, sizeof(desc.WhitePoint));
++        white = kn_hdr_sdr_white(desc.DeviceName);
++        if (white > 0) {
++            info->sdr_white = white;
++            info->sdr_white_known = 1;
++        }
++    }
++    IDXGIOutput6_Release(output6);
++}
++
++/* The HDR10 static metadata of the frames: Windows' values for the
++ * display; BT.2020 primaries and D65 when it gives none, 1000 cd/m2 when
++ * it gives no peak (a virtual display may have no EDID values). */
++static inline void kn_hdr_static_metadata(const KnHdrInfo *info, AVMasteringDisplayMetadata *mdm,
++                                   AVContentLightMetadata *cll)
++{
++    static const float bt2020[3][2] = { { 0.708f, 0.292f }, { 0.170f, 0.797f }, { 0.131f, 0.046f } };
++    static const float d65[2] = { 0.3127f, 0.3290f };
++    int primaries = 1;
++    float peak = info->max_luminance >= 100.0f ? info->max_luminance : 1000.0f;
++    float full = info->max_full_frame_luminance >= 50.0f ? info->max_full_frame_luminance : peak;
++
++    for (int i = 0; i < 3; i++)
++        if (info->primaries[i][0] <= 0 || info->primaries[i][1] <= 0)
++            primaries = 0;
++    for (int i = 0; i < 3; i++) {
++        const float *p = primaries ? info->primaries[i] : bt2020[i];
++        mdm->display_primaries[i][0] = av_make_q((int)(p[0] * 50000 + 0.5f), 50000);
++        mdm->display_primaries[i][1] = av_make_q((int)(p[1] * 50000 + 0.5f), 50000);
++    }
++    {
++        const float *w = primaries && info->white[0] > 0 ? info->white : d65;
++        mdm->white_point[0] = av_make_q((int)(w[0] * 50000 + 0.5f), 50000);
++        mdm->white_point[1] = av_make_q((int)(w[1] * 50000 + 0.5f), 50000);
++    }
++    mdm->max_luminance = av_make_q((int)(peak * 10000 + 0.5f), 10000);
++    mdm->min_luminance = av_make_q((int)(info->min_luminance * 10000 + 0.5f), 10000);
++    mdm->has_primaries = 1;
++    mdm->has_luminance = 1;
++    cll->MaxCLL = (unsigned)(peak + 0.5f);
++    cll->MaxFALL = (unsigned)((full < peak ? full : peak) + 0.5f);
++}
++
++/* Labels an HDR10 frame and attaches the static metadata. */
++static inline int kn_hdr_tag_frame(AVFrame *frame, const KnHdrInfo *info)
++{
++    AVMasteringDisplayMetadata *mdm;
++    AVContentLightMetadata *cll;
++
++    frame->color_primaries = AVCOL_PRI_BT2020;
++    frame->color_trc       = AVCOL_TRC_SMPTE2084;
++    frame->colorspace      = AVCOL_SPC_BT2020_NCL;
++    frame->color_range     = AVCOL_RANGE_MPEG;
++    frame->chroma_location = AVCHROMA_LOC_CENTER; /* chroma averaged over 2 x 2 */
++
++    mdm = av_mastering_display_metadata_create_side_data(frame);
++    cll = av_content_light_metadata_create_side_data(frame);
++    if (!mdm || !cll)
++        return AVERROR(ENOMEM);
++    kn_hdr_static_metadata(info, mdm, cll);
++    return 0;
++}
++
++/* IDXGIOutput5::DuplicateOutput1() with 16-bit float first: Windows picks
++ * it for an HDR (advanced color) desktop, BGRA otherwise. */
++static inline HRESULT kn_hdr_duplicate(IUnknown *output, IUnknown *device, IDXGIOutputDuplication **dup)
++{
++    static const DXGI_FORMAT formats[] = { DXGI_FORMAT_R16G16B16A16_FLOAT, DXGI_FORMAT_B8G8R8A8_UNORM };
++    IDXGIOutput5 *output5 = NULL;
++    HRESULT hr = IUnknown_QueryInterface(output, &kn_iid_dxgi_output5, (void **)&output5);
++    if (FAILED(hr))
++        return hr;
++    hr = IDXGIOutput5_DuplicateOutput1(output5, device, 0, 2, formats, dup);
++    IDXGIOutput5_Release(output5);
++    return hr;
++}
++
++static const char kn_hdr_hlsl[] =
++"Texture2D<float4> src : register(t0);\n"
++"cbuffer Params : register(b0) {\n"
++"    float in_scale;  /* input value 1.0 in cd/m2: 80 for scRGB, SDR white for sRGB */\n"
++"    float sdr_white; /* cd/m2 of SDR white (SDR output) */\n"
++"    uint in_srgb;    /* 8-bit sRGB input (an SDR desktop) */\n"
++"    uint pad;\n"
++"};\n"
++"struct VSOut { float4 pos : SV_Position; };\n"
++"VSOut vs_main(uint id : SV_VertexID) {\n"
++"    VSOut o;\n"
++"    float2 uv = float2((id << 1) & 2, id & 2);\n"
++"    o.pos = float4(uv * float2(2, -2) + float2(-1, 1), 0, 1);\n"
++"    return o;\n"
++"}\n"
++"float3 nits709(int2 p) {\n"
++"    uint w, h;\n"
++"    src.GetDimensions(w, h);\n"
++"    p = min(p, int2((int)w - 1, (int)h - 1));\n"
++"    float3 c = src.Load(int3(p, 0)).rgb;\n"
++"    if (in_srgb) {\n"
++"        c = saturate(c);\n"
++"        c = c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4);\n"
++"    }\n"
++"    return c * in_scale;\n"
++"}\n"
++"static const float3x3 BT709_TO_2020 = {\n"
++"    0.627404, 0.329283, 0.043313,\n"
++"    0.069097, 0.919540, 0.011362,\n"
++"    0.016391, 0.088013, 0.895595 };\n"
++"float3 pq(float3 nits) {\n"
++"    float3 l = pow(saturate(nits / 10000.0), 0.1593017578125);\n"
++"    return pow((0.8359375 + 18.8515625 * l) / (1.0 + 18.6875 * l), 78.84375);\n"
++"}\n"
++"float3 pq_rgb(int2 p) { return pq(max(mul(BT709_TO_2020, nits709(p)), 0.0)); }\n"
++"static const float3 KY = float3(0.2627, 0.6780, 0.0593);\n"
++"/* A 10-bit code in the high bits of a 16-bit UNORM (P010). */\n"
++"float code10(float v) { return round(clamp(v, 0.0, 1023.0)) * 64.0 / 65535.0; }\n"
++"float ps_luma(VSOut i) : SV_Target {\n"
++"    return code10(64.0 + 876.0 * dot(KY, pq_rgb(int2(i.pos.xy))));\n"
++"}\n"
++"float2 ps_chroma(VSOut i) : SV_Target {\n"
++"    int2 p = int2(i.pos.xy) * 2;\n"
++"    float3 e = (pq_rgb(p) + pq_rgb(p + int2(1, 0)) + pq_rgb(p + int2(0, 1)) + pq_rgb(p + int2(1, 1))) * 0.25;\n"
++"    float y = dot(KY, e);\n"
++"    return float2(code10(512.0 + 896.0 * (e.b - y) / 1.8814), code10(512.0 + 896.0 * (e.r - y) / 1.4746));\n"
++"}\n"
++"/* SDR: 1.0 = SDR white; knee at 0.75, 4.0 brought to 1.0 (slope 1 at the knee). */\n"
++"float4 ps_sdr(VSOut i) : SV_Target {\n"
++"    float3 c = max(nits709(int2(i.pos.xy)) / sdr_white, 0.0);\n"
++"    float m = max(c.r, max(c.g, c.b));\n"
++"    if (m > 0.75) {\n"
++"        float x = m - 0.75;\n"
++"        c *= (0.75 + x / (1.0 + 3.6923077 * x)) / m;\n"
++"    }\n"
++"    c = saturate(c);\n"
++"    c = c <= 0.0031308 ? c * 12.92 : 1.055 * pow(c, 1.0 / 2.4) - 0.055;\n"
++"    return float4(c, 1.0);\n"
++"}\n";
++
++typedef HRESULT (WINAPI *kn_d3dcompile_fn)(LPCVOID data, SIZE_T size, LPCSTR name,
++                                           const D3D_SHADER_MACRO *defines, ID3DInclude *include,
++                                           LPCSTR entry, LPCSTR target, UINT flags1, UINT flags2,
++                                           ID3DBlob **code, ID3DBlob **errors);
++
++#define KN_HDR_VIEWS 16
++
++typedef struct KnHdrConv {
++    int mode;
++    ID3D11Device *device;
++    ID3D11VertexShader *vs;
++    ID3D11PixelShader *ps_luma, *ps_chroma, *ps_sdr;
++    ID3D11Buffer *params;
++    ID3D11RasterizerState *raster;
++
++    /* Copy of the captured texture, read by the shaders */
++    ID3D11Texture2D *in_tex;
++    ID3D11ShaderResourceView *in_srv;
++    UINT in_width, in_height;
++    DXGI_FORMAT in_format;
++
++    /* Render target views of the frame pool (one array texture) */
++    struct {
++        ID3D11Texture2D *tex;
++        UINT slice;
++        ID3D11RenderTargetView *rtv[2];
++    } views[KN_HDR_VIEWS];
++    int nb_views;
++} KnHdrConv;
++
++static inline void kn_hdr_conv_drop_views(KnHdrConv *c)
++{
++    for (int i = 0; i < c->nb_views; i++)
++        for (int j = 0; j < 2; j++)
++            if (c->views[i].rtv[j])
++                ID3D11RenderTargetView_Release(c->views[i].rtv[j]);
++    memset(c->views, 0, sizeof(c->views));
++    c->nb_views = 0;
++}
++
++static inline void kn_hdr_conv_drop_input(KnHdrConv *c)
++{
++    if (c->in_srv)
++        ID3D11ShaderResourceView_Release(c->in_srv);
++    if (c->in_tex)
++        ID3D11Texture2D_Release(c->in_tex);
++    c->in_srv = NULL;
++    c->in_tex = NULL;
++    c->in_width = c->in_height = 0;
++}
++
++static inline void kn_hdr_conv_free(KnHdrConv *c)
++{
++    kn_hdr_conv_drop_views(c);
++    kn_hdr_conv_drop_input(c);
++#define KN_REL(x, type) if (c->x) { type##_Release(c->x); c->x = NULL; }
++    KN_REL(vs, ID3D11VertexShader)
++    KN_REL(ps_luma, ID3D11PixelShader)
++    KN_REL(ps_chroma, ID3D11PixelShader)
++    KN_REL(ps_sdr, ID3D11PixelShader)
++    KN_REL(params, ID3D11Buffer)
++    KN_REL(raster, ID3D11RasterizerState)
++    KN_REL(device, ID3D11Device)
++#undef KN_REL
++    c->mode = KN_HDR_OFF;
++}
++
++static inline HRESULT kn_hdr_compile(kn_d3dcompile_fn compile, const char *entry, const char *target,
++                              ID3DBlob **code, char *err, size_t err_size)
++{
++    ID3DBlob *errors = NULL;
++    HRESULT hr = compile(kn_hdr_hlsl, sizeof(kn_hdr_hlsl) - 1, "kn_hdr.hlsl", NULL, NULL,
++                         entry, target, D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, code, &errors);
++    if (FAILED(hr))
++        snprintf(err, err_size, "HLSL %s: 0x%lX %s", entry, hr,
++                 errors ? (const char *)ID3D10Blob_GetBufferPointer(errors) : "");
++    if (errors)
++        ID3D10Blob_Release(errors);
++    return hr;
++}
++
++/* Compiles the shaders for `mode` on `device`. `err` says why it failed. */
++static inline int kn_hdr_conv_init(KnHdrConv *c, ID3D11Device *device, int mode, char *err, size_t err_size)
++{
++    static HMODULE compiler;
++    kn_d3dcompile_fn compile;
++    ID3DBlob *code = NULL;
++    HRESULT hr;
++
++    memset(c, 0, sizeof(*c));
++    if (!compiler)
++        compiler = LoadLibraryExW(L"d3dcompiler_47.dll", NULL, LOAD_LIBRARY_SEARCH_SYSTEM32);
++    if (!compiler) {
++        snprintf(err, err_size, "d3dcompiler_47.dll not found (%lu)", GetLastError());
++        return -1;
++    }
++    compile = (kn_d3dcompile_fn)(void *)GetProcAddress(compiler, "D3DCompile");
++    if (!compile) {
++        snprintf(err, err_size, "D3DCompile not found in d3dcompiler_47.dll");
++        return -1;
++    }
++
++    ID3D11Device_AddRef(device);
++    c->device = device;
++    c->mode = mode;
++
++    if (FAILED(hr = kn_hdr_compile(compile, "vs_main", "vs_5_0", &code, err, err_size)))
++        goto fail;
++    hr = ID3D11Device_CreateVertexShader(device, ID3D10Blob_GetBufferPointer(code),
++                                         ID3D10Blob_GetBufferSize(code), NULL, &c->vs);
++    ID3D10Blob_Release(code);
++    if (FAILED(hr))
++        goto fail_create;
++
++#define KN_PS(entry, field)                                                              \
++    if (FAILED(hr = kn_hdr_compile(compile, entry, "ps_5_0", &code, err, err_size)))     \
++        goto fail;                                                                       \
++    hr = ID3D11Device_CreatePixelShader(device, ID3D10Blob_GetBufferPointer(code),       \
++                                        ID3D10Blob_GetBufferSize(code), NULL, &c->field); \
++    ID3D10Blob_Release(code);                                                            \
++    if (FAILED(hr))                                                                      \
++        goto fail_create;
++    if (mode == KN_HDR_PQ) {
++        KN_PS("ps_luma", ps_luma)
++        KN_PS("ps_chroma", ps_chroma)
++    } else {
++        KN_PS("ps_sdr", ps_sdr)
++    }
++#undef KN_PS
++
++    {
++        D3D11_BUFFER_DESC desc = { 0 };
++        desc.ByteWidth = 16;
++        desc.Usage = D3D11_USAGE_DYNAMIC;
++        desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
++        desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
++        if (FAILED(hr = ID3D11Device_CreateBuffer(device, &desc, NULL, &c->params)))
++            goto fail_create;
++    }
++    {
++        D3D11_RASTERIZER_DESC desc = { 0 };
++        desc.FillMode = D3D11_FILL_SOLID;
++        desc.CullMode = D3D11_CULL_NONE;
++        desc.DepthClipEnable = TRUE;
++        if (FAILED(hr = ID3D11Device_CreateRasterizerState(device, &desc, &c->raster)))
++            goto fail_create;
++    }
++    return 0;
++
++fail_create:
++    snprintf(err, err_size, "shader resources: 0x%lX", hr);
++fail:
++    kn_hdr_conv_free(c);
++    return -1;
++}
++
++/* Copy of `src` the shaders read: recreated when its size or format changes. */
++static inline HRESULT kn_hdr_conv_input(KnHdrConv *c, ID3D11DeviceContext *ctx, ID3D11Resource *src)
++{
++    ID3D11Texture2D *tex = NULL;
++    D3D11_TEXTURE2D_DESC desc;
++    HRESULT hr = ID3D11Resource_QueryInterface(src, &IID_ID3D11Texture2D, (void **)&tex);
++    if (FAILED(hr))
++        return hr;
++    ID3D11Texture2D_GetDesc(tex, &desc);
++    ID3D11Texture2D_Release(tex);
++
++    if (!c->in_tex || desc.Width != c->in_width || desc.Height != c->in_height ||
++        desc.Format != c->in_format) {
++        D3D11_TEXTURE2D_DESC copy = { 0 };
++        kn_hdr_conv_drop_input(c);
++        copy.Width = desc.Width;
++        copy.Height = desc.Height;
++        copy.MipLevels = 1;
++        copy.ArraySize = 1;
++        copy.Format = desc.Format;
++        copy.SampleDesc.Count = 1;
++        copy.Usage = D3D11_USAGE_DEFAULT;
++        copy.BindFlags = D3D11_BIND_SHADER_RESOURCE;
++        if (FAILED(hr = ID3D11Device_CreateTexture2D(c->device, &copy, NULL, &c->in_tex)))
++            return hr;
++        if (FAILED(hr = ID3D11Device_CreateShaderResourceView(c->device, (ID3D11Resource *)c->in_tex,
++                                                              NULL, &c->in_srv))) {
++            kn_hdr_conv_drop_input(c);
++            return hr;
++        }
++        c->in_width = desc.Width;
++        c->in_height = desc.Height;
++        c->in_format = desc.Format;
++    }
++    ID3D11DeviceContext_CopyResource(ctx, (ID3D11Resource *)c->in_tex, src);
++    return S_OK;
++}
++
++/* Render target views of slice `slice` of the pool texture `dst`. */
++static inline HRESULT kn_hdr_conv_views(KnHdrConv *c, ID3D11Texture2D *dst, UINT slice,
++                                 ID3D11RenderTargetView ***rtv)
++{
++    HRESULT hr;
++    int i;
++
++    for (i = 0; i < c->nb_views; i++) {
++        if (c->views[i].tex == dst && c->views[i].slice == slice) {
++            *rtv = c->views[i].rtv;
++            return S_OK;
++        }
++    }
++    /* Another pool (new size): the views of the old one go. */
++    if (c->nb_views && c->views[0].tex != dst)
++        kn_hdr_conv_drop_views(c);
++    if (c->nb_views == KN_HDR_VIEWS)
++        kn_hdr_conv_drop_views(c);
++
++    i = c->nb_views;
++    for (int plane = 0; plane < (c->mode == KN_HDR_PQ ? 2 : 1); plane++) {
++        D3D11_RENDER_TARGET_VIEW_DESC desc = { 0 };
++        desc.Format = c->mode == KN_HDR_PQ ? (plane ? DXGI_FORMAT_R16G16_UNORM : DXGI_FORMAT_R16_UNORM)
++                                           : DXGI_FORMAT_B8G8R8A8_UNORM;
++        desc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2DARRAY;
++        desc.Texture2DArray.MipSlice = 0;
++        desc.Texture2DArray.FirstArraySlice = slice;
++        desc.Texture2DArray.ArraySize = 1;
++        hr = ID3D11Device_CreateRenderTargetView(c->device, (ID3D11Resource *)dst, &desc,
++                                                 &c->views[i].rtv[plane]);
++        if (FAILED(hr)) {
++            if (plane)
++                ID3D11RenderTargetView_Release(c->views[i].rtv[0]);
++            c->views[i].rtv[0] = NULL;
++            return hr;
++        }
++    }
++    c->views[i].tex = dst;
++    c->views[i].slice = slice;
++    c->nb_views++;
++    *rtv = c->views[i].rtv;
++    return S_OK;
++}
++
++static inline void kn_hdr_conv_draw(ID3D11DeviceContext *ctx, ID3D11RenderTargetView *rtv,
++                             ID3D11PixelShader *ps, UINT width, UINT height)
++{
++    D3D11_VIEWPORT vp = { 0, 0, (FLOAT)width, (FLOAT)height, 0, 1 };
++    ID3D11DeviceContext_OMSetRenderTargets(ctx, 1, &rtv, NULL);
++    ID3D11DeviceContext_RSSetViewports(ctx, 1, &vp);
++    ID3D11DeviceContext_PSSetShader(ctx, ps, NULL, 0);
++    ID3D11DeviceContext_Draw(ctx, 3, 0);
++}
++
++/* Converts the captured texture `src` (16-bit float scRGB, or 8-bit BGRA)
++ * into slice `slice` of `dst` (P010 for KN_HDR_PQ, BGRA for KN_HDR_SDR),
++ * `width` x `height`. */
++static inline HRESULT kn_hdr_conv_run(KnHdrConv *c, ID3D11DeviceContext *ctx, ID3D11Resource *src,
++                               ID3D11Texture2D *dst, UINT slice, UINT width, UINT height,
++                               const KnHdrInfo *info)
++{
++    ID3D10Multithread *mt = NULL;
++    ID3D11RenderTargetView **rtv;
++    D3D11_MAPPED_SUBRESOURCE map;
++    ID3D11ShaderResourceView *no_srv = NULL;
++    HRESULT hr;
++
++    /* Same device as the encoders and filters: the whole draw at once. */
++    if (SUCCEEDED(ID3D11DeviceContext_QueryInterface(ctx, &kn_iid_d3d10_multithread, (void **)&mt)))
++        ID3D10Multithread_Enter(mt);
++
++    if (FAILED(hr = kn_hdr_conv_input(c, ctx, src)))
++        goto end;
++    if (FAILED(hr = kn_hdr_conv_views(c, dst, slice, &rtv)))
++        goto end;
++    if (FAILED(hr = ID3D11DeviceContext_Map(ctx, (ID3D11Resource *)c->params, 0,
++                                            D3D11_MAP_WRITE_DISCARD, 0, &map)))
++        goto end;
++    {
++        const int srgb = c->in_format == DXGI_FORMAT_B8G8R8A8_UNORM;
++        float *p = map.pData;
++        p[0] = srgb ? info->sdr_white : 80.0f;
++        p[1] = info->sdr_white;
++        ((UINT *)p)[2] = srgb;
++        ((UINT *)p)[3] = 0;
++    }
++    ID3D11DeviceContext_Unmap(ctx, (ID3D11Resource *)c->params, 0);
++
++    ID3D11DeviceContext_IASetInputLayout(ctx, NULL);
++    ID3D11DeviceContext_IASetPrimitiveTopology(ctx, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
++    ID3D11DeviceContext_VSSetShader(ctx, c->vs, NULL, 0);
++    ID3D11DeviceContext_RSSetState(ctx, c->raster);
++    ID3D11DeviceContext_OMSetBlendState(ctx, NULL, NULL, 0xFFFFFFFF);
++    ID3D11DeviceContext_OMSetDepthStencilState(ctx, NULL, 0);
++    ID3D11DeviceContext_PSSetShaderResources(ctx, 0, 1, &c->in_srv);
++    ID3D11DeviceContext_PSSetConstantBuffers(ctx, 0, 1, &c->params);
++    if (c->mode == KN_HDR_PQ) {
++        kn_hdr_conv_draw(ctx, rtv[0], c->ps_luma, width, height);
++        kn_hdr_conv_draw(ctx, rtv[1], c->ps_chroma, width / 2, height / 2);
++    } else {
++        kn_hdr_conv_draw(ctx, rtv[0], c->ps_sdr, width, height);
++    }
++    /* Unbound, so that the encoder may read the texture. */
++    ID3D11DeviceContext_OMSetRenderTargets(ctx, 0, NULL, NULL);
++    ID3D11DeviceContext_PSSetShaderResources(ctx, 0, 1, &no_srv);
++    hr = S_OK;
++
++end:
++    if (mt) {
++        ID3D10Multithread_Leave(mt);
++        ID3D10Multithread_Release(mt);
++    }
++    return hr;
++}
++
++#endif /* KN_HDR_CAPTURE_H */
+diff --git a/subprojects/txproto/src/kn_hdr_meta.h b/subprojects/txproto/src/kn_hdr_meta.h
+new file mode 100644
+index 0000000..0858667
+--- /dev/null
++++ b/subprojects/txproto/src/kn_hdr_meta.h
+@@ -0,0 +1,240 @@
++/*
++ * KyberNow (0022): HDR10 static metadata written into the coded stream.
++ *
++ * The same file is in txproto (src/kn_hdr_meta.h) and in libavconv
++ * (libavconv/kn_hdr_meta.h).
++ *
++ * AMF and Quick Sync write the mastering display and content light level
++ * metadata from the frames' side data. NVENC only does it with the Video
++ * Codec SDK 13 headers, and Kyber builds against SDK 12.1 (older drivers):
++ * for NVENC, the metadata is added to each keyframe after encoding, as a
++ * prefix SEI NAL unit (HEVC, payloads 137 and 144) or as two metadata OBUs
++ * (AV1, HDR_MDCV and HDR_CLL), so that TVs which expect them get them.
++ *
++ * The bitstream writers below use plain C only (tested on any machine);
++ * kn_hdr_add_to_packet() is the FFmpeg glue.
++ */
++
++#ifndef KN_HDR_META_H
++#define KN_HDR_META_H
++
++#include <stddef.h>
++#include <stdint.h>
++#include <string.h>
++
++typedef struct KnHdrMeta {
++    /* CIE 1931 xy, red, green, blue, then white */
++    double primaries[3][2];
++    double white[2];
++    /* cd/m2 */
++    double max_luminance;
++    double min_luminance;
++    unsigned max_cll;
++    unsigned max_fall;
++} KnHdrMeta;
++
++static inline unsigned kn_hdr_fixed(double v, double scale, unsigned max)
++{
++    double f = v * scale + 0.5;
++    if (f < 0)
++        return 0;
++    if (f > (double)max)
++        return max;
++    return (unsigned)f;
++}
++
++static inline size_t kn_hdr_put16(uint8_t *p, unsigned v)
++{
++    p[0] = (uint8_t)(v >> 8);
++    p[1] = (uint8_t)v;
++    return 2;
++}
++
++static inline size_t kn_hdr_put32(uint8_t *p, uint32_t v)
++{
++    p[0] = (uint8_t)(v >> 24);
++    p[1] = (uint8_t)(v >> 16);
++    p[2] = (uint8_t)(v >> 8);
++    p[3] = (uint8_t)v;
++    return 4;
++}
++
++/* HEVC: a prefix SEI NAL unit (start code included) with the mastering
++ * display colour volume (137) and content light level (144) messages.
++ * Returns its size, 0 if `size` is too small (64 bytes are always enough). */
++static inline size_t kn_hdr_hevc_sei(const KnHdrMeta *m, uint8_t *out, size_t size)
++{
++    /* G, B, R order (H.265 D.3.28); chromaticity in 0.00002 units,
++     * luminance in 0.0001 cd/m2. */
++    static const int order[3] = { 1, 2, 0 };
++    uint8_t rbsp[40];
++    size_t n = 0, o = 0;
++    int zeros = 0;
++
++    rbsp[n++] = 137;
++    rbsp[n++] = 24;
++    for (int i = 0; i < 3; i++) {
++        n += kn_hdr_put16(rbsp + n, kn_hdr_fixed(m->primaries[order[i]][0], 50000, 50000));
++        n += kn_hdr_put16(rbsp + n, kn_hdr_fixed(m->primaries[order[i]][1], 50000, 50000));
++    }
++    n += kn_hdr_put16(rbsp + n, kn_hdr_fixed(m->white[0], 50000, 50000));
++    n += kn_hdr_put16(rbsp + n, kn_hdr_fixed(m->white[1], 50000, 50000));
++    n += kn_hdr_put32(rbsp + n, kn_hdr_fixed(m->max_luminance, 10000, 0xFFFFFFFFu));
++    n += kn_hdr_put32(rbsp + n, kn_hdr_fixed(m->min_luminance, 10000, 0xFFFFFFFFu));
++    rbsp[n++] = 144;
++    rbsp[n++] = 4;
++    n += kn_hdr_put16(rbsp + n, m->max_cll > 65535 ? 65535 : m->max_cll);
++    n += kn_hdr_put16(rbsp + n, m->max_fall > 65535 ? 65535 : m->max_fall);
++    rbsp[n++] = 0x80; /* rbsp_trailing_bits */
++
++    if (size < 6 + n * 3 / 2 + 1)
++        return 0;
++    out[o++] = 0; out[o++] = 0; out[o++] = 0; out[o++] = 1;
++    out[o++] = 39 << 1; /* PREFIX_SEI_NUT, nuh_layer_id 0 */
++    out[o++] = 1;       /* nuh_temporal_id_plus1 */
++    for (size_t i = 0; i < n; i++) {
++        if (zeros >= 2 && rbsp[i] <= 3) {
++            out[o++] = 3; /* emulation_prevention_three_byte */
++            zeros = 0;
++        }
++        out[o++] = rbsp[i];
++        zeros = rbsp[i] ? 0 : zeros + 1;
++    }
++    return o;
++}
++
++/* AV1: two metadata OBUs, HDR_MDCV then HDR_CLL. Returns their size, 0 if
++ * `size` is too small (64 bytes are always enough). */
++static inline size_t kn_hdr_av1_obus(const KnHdrMeta *m, uint8_t *out, size_t size)
++{
++    size_t o = 0;
++
++    if (size < 48)
++        return 0;
++    /* HDR_MDCV: R, G, B, then white in 0.16 fixed point, luminance max in
++     * 24.8 and min in 18.14. */
++    out[o++] = (5 << 3) | 2; /* OBU_METADATA, obu_has_size_field */
++    out[o++] = 1 + 24 + 1;   /* obu_size (one leb128 byte) */
++    out[o++] = 2;            /* METADATA_TYPE_HDR_MDCV */
++    for (int i = 0; i < 3; i++) {
++        o += kn_hdr_put16(out + o, kn_hdr_fixed(m->primaries[i][0], 65536, 65535));
++        o += kn_hdr_put16(out + o, kn_hdr_fixed(m->primaries[i][1], 65536, 65535));
++    }
++    o += kn_hdr_put16(out + o, kn_hdr_fixed(m->white[0], 65536, 65535));
++    o += kn_hdr_put16(out + o, kn_hdr_fixed(m->white[1], 65536, 65535));
++    o += kn_hdr_put32(out + o, kn_hdr_fixed(m->max_luminance, 256, 0xFFFFFFFFu));
++    o += kn_hdr_put32(out + o, kn_hdr_fixed(m->min_luminance, 16384, 0xFFFFFFFFu));
++    out[o++] = 0x80; /* trailing_bits */
++    /* HDR_CLL */
++    out[o++] = (5 << 3) | 2;
++    out[o++] = 1 + 4 + 1;
++    out[o++] = 1; /* METADATA_TYPE_HDR_CLL */
++    o += kn_hdr_put16(out + o, m->max_cll > 65535 ? 65535 : m->max_cll);
++    o += kn_hdr_put16(out + o, m->max_fall > 65535 ? 65535 : m->max_fall);
++    out[o++] = 0x80;
++    return o;
++}
++
++/* Where the metadata goes in a coded picture: after an access unit
++ * delimiter (HEVC) or a temporal delimiter (AV1) that starts it, at the
++ * start otherwise. -1: not a layout this code knows (left alone). */
++static inline long kn_hdr_insert_at(const uint8_t *data, size_t size, int av1)
++{
++    size_t sc;
++
++    if (av1) {
++        /* Temporal delimiter with a size field: 0x12 0x00. */
++        if (size >= 2 && data[0] == 0x12 && data[1] == 0x00)
++            return 2;
++        if (size >= 1 && ((data[0] >> 3) & 15) != 0 && (data[0] & 2))
++            return 0;
++        return -1;
++    }
++    /* Annex B only (start codes), as NVENC writes it. */
++    if (size >= 4 && !data[0] && !data[1] && !data[2] && data[3] == 1)
++        sc = 4;
++    else if (size >= 3 && !data[0] && !data[1] && data[2] == 1)
++        sc = 3;
++    else
++        return -1;
++    if (size > sc && ((data[sc] >> 1) & 63) == 35) { /* AUD_NUT */
++        for (size_t i = sc + 1; i + 3 <= size; i++)
++            if (!data[i] && !data[i + 1] && data[i + 2] == 1)
++                return (long)((i > 0 && !data[i - 1]) ? i - 1 : i);
++        return (long)size;
++    }
++    return 0;
++}
++
++#ifdef KN_HDR_META_FFMPEG
++#include <libavcodec/avcodec.h>
++#include <libavutil/mastering_display_metadata.h>
++
++/* Whether the metadata must be added by hand to this encoder's keyframes:
++ * NVENC, HEVC or AV1, PQ, with the display's metadata known. */
++static inline int kn_hdr_meta_from_ctx(const AVCodecContext *avctx, KnHdrMeta *m)
++{
++    const AVFrameSideData *sd;
++    const AVMasteringDisplayMetadata *mdm;
++    const char *name = avctx->codec ? avctx->codec->name : NULL;
++    size_t len = name ? strlen(name) : 0;
++
++    if (len < 6 || strcmp(name + len - 6, "_nvenc"))
++        return 0;
++    if (avctx->codec_id != AV_CODEC_ID_HEVC && avctx->codec_id != AV_CODEC_ID_AV1)
++        return 0;
++    if (avctx->color_trc != AVCOL_TRC_SMPTE2084)
++        return 0;
++    sd = av_frame_side_data_get(avctx->decoded_side_data, avctx->nb_decoded_side_data,
++                                AV_FRAME_DATA_MASTERING_DISPLAY_METADATA);
++    if (!sd)
++        return 0;
++    mdm = (const AVMasteringDisplayMetadata *)sd->data;
++    if (!mdm->has_primaries || !mdm->has_luminance)
++        return 0;
++    for (int i = 0; i < 3; i++) {
++        m->primaries[i][0] = av_q2d(mdm->display_primaries[i][0]);
++        m->primaries[i][1] = av_q2d(mdm->display_primaries[i][1]);
++    }
++    m->white[0] = av_q2d(mdm->white_point[0]);
++    m->white[1] = av_q2d(mdm->white_point[1]);
++    m->max_luminance = av_q2d(mdm->max_luminance);
++    m->min_luminance = av_q2d(mdm->min_luminance);
++    m->max_cll = m->max_fall = 0;
++    sd = av_frame_side_data_get(avctx->decoded_side_data, avctx->nb_decoded_side_data,
++                                AV_FRAME_DATA_CONTENT_LIGHT_LEVEL);
++    if (sd) {
++        const AVContentLightMetadata *cll = (const AVContentLightMetadata *)sd->data;
++        m->max_cll = cll->MaxCLL;
++        m->max_fall = cll->MaxFALL;
++    }
++    return 1;
++}
++
++/* Adds the HDR10 metadata to a keyframe of an NVENC encoder (see the top of
++ * this file); any other packet is left as is. */
++static inline int kn_hdr_add_to_packet(const AVCodecContext *avctx, AVPacket *pkt)
++{
++    KnHdrMeta m;
++    uint8_t meta[64];
++    size_t n;
++    long at;
++    int av1, ret;
++
++    if (!(pkt->flags & AV_PKT_FLAG_KEY) || pkt->size <= 0 || !kn_hdr_meta_from_ctx(avctx, &m))
++        return 0;
++    av1 = avctx->codec_id == AV_CODEC_ID_AV1;
++    n = av1 ? kn_hdr_av1_obus(&m, meta, sizeof(meta)) : kn_hdr_hevc_sei(&m, meta, sizeof(meta));
++    at = kn_hdr_insert_at(pkt->data, pkt->size, av1);
++    if (!n || at < 0)
++        return 0;
++    ret = av_grow_packet(pkt, (int)n);
++    if (ret < 0)
++        return ret;
++    memmove(pkt->data + at + n, pkt->data + at, pkt->size - n - at);
++    memcpy(pkt->data + at, meta, n);
++    return 0;
++}
++#endif /* KN_HDR_META_FFMPEG */
++
++#endif /* KN_HDR_META_H */

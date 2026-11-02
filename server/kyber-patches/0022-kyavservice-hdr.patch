@@ -1,0 +1,678 @@
+diff --git a/kyavservice-types/src/lib.rs b/kyavservice-types/src/lib.rs
+index b5b28f5..66942a6 100644
+--- a/kyavservice-types/src/lib.rs
++++ b/kyavservice-types/src/lib.rs
+@@ -75,6 +75,16 @@ pub enum Command {
+         /// the display's own rate.
+         #[serde(default)]
+         max_fps: Option<u32>,
++        /// KyberNow (0022): an HDR10 image (16-bit float capture, PQ,
++        /// BT.2020, 10 bits). Refused with H.264, x264 or `yuv444`: the
++        /// display then goes SDR.
++        #[serde(default)]
++        hdr: bool,
++        /// KyberNow (0022): the display is captured in HDR for its host;
++        /// an image with `hdr` false (a share guest without HDR) is brought
++        /// to SDR from that capture.
++        #[serde(default)]
++        hdr_capture: bool,
+     },
+     KymuxStartAudio {
+         uri: String,
+diff --git a/kyavservice/src/avconv/mod.rs b/kyavservice/src/avconv/mod.rs
+index f7700b4..2f3ae19 100644
+--- a/kyavservice/src/avconv/mod.rs
++++ b/kyavservice/src/avconv/mod.rs
+@@ -235,6 +235,7 @@ fn video_config(
+         clock_type: config.clock_type(),
+         cursor_move_rate: config.cursor_move_rate(),
+         scale,
++        hdr: crate::hdr::HdrMode::Off,
+         #[cfg(feature = "watermark")]
+         watermark: None,
+         #[cfg(target_os = "linux")]
+@@ -385,9 +386,24 @@ async fn handle_command(
+             metrics_uri,
+             scale,
+             max_fps,
++            hdr,
++            hdr_capture,
+         } => {
++            // KyberNow (0022): HDR10, or SDR from the display's HDR
++            // capture; HDR refused here (H.264, x264, 4:4:4) goes SDR.
++            let (hdr_mode, refused) = crate::hdr::mode(
++                hdr,
++                hdr_capture,
++                config.encoder(),
++                &codec,
++                yuv444 && scale.is_none(),
++                cfg!(target_os = "windows"),
++            );
++            if let Some(reason) = refused {
++                warn!("{reason}");
++            }
+             info!(
+-                "Start Kymux Video: URI {uri:?}, bitrate: {bitrate}, codec: {codec:?}, yuv444: {yuv444}, intra_refresh: {intra_refresh:?}, scale: {scale:?}, max_fps: {max_fps:?}"
++                "Start Kymux Video: URI {uri:?}, bitrate: {bitrate}, codec: {codec:?}, yuv444: {yuv444}, intra_refresh: {intra_refresh:?}, scale: {scale:?}, max_fps: {max_fps:?}, hdr: {hdr_mode:?}"
+             );
+ 
+             // KyberNow (0020): this engine scales a share guest's own image
+@@ -397,7 +413,6 @@ async fn handle_command(
+             kybernow::check(scale, max_fps, scaling, false)
+                 .map_err(|reason| Error::ConfigInvalid { reason })?;
+ 
+-            #[cfg_attr(not(feature = "watermark"), allow(unused_mut))]
+             let mut video_config = video_config(
+                 config,
+                 display_id,
+@@ -411,6 +426,7 @@ async fn handle_command(
+             {
+                 video_config.watermark = config.watermark.clone();
+             }
++            video_config.hdr = hdr_mode;
+ 
+             let ret =
+                 kymux::start_video(video_config, &uri, metrics_uri.as_deref(), sender.clone());
+diff --git a/kyavservice/src/avconv/video.rs b/kyavservice/src/avconv/video.rs
+index 6f7ac5f..cefe178 100644
+--- a/kyavservice/src/avconv/video.rs
++++ b/kyavservice/src/avconv/video.rs
+@@ -41,6 +41,7 @@ use crate::config;
+ use crate::config::VideoEncoder;
+ #[cfg(feature = "watermark")]
+ use crate::config::WatermarkConfig;
++use crate::hdr::{self, HdrMode};
+ use crate::kybernow;
+ 
+ pub(crate) struct VideoConfig {
+@@ -63,6 +64,9 @@ pub(crate) struct VideoConfig {
+     /// KyberNow (0020): a share guest's own image, scaled down to this size
+     /// before the encoder (4:2:0, `yuv444` is false).
+     pub(crate) scale: Option<VideoScale>,
++    /// KyberNow (0022): HDR10, or SDR from the display's HDR capture
++    /// (Windows capture, `hdr`).
++    pub(crate) hdr: HdrMode,
+     #[cfg(feature = "watermark")]
+     pub(crate) watermark: Option<config::WatermarkConfig>,
+     #[cfg(target_os = "linux")]
+@@ -262,6 +266,10 @@ fn create_grab_source(
+ 
+     let mut capture = GrabCaptureBuilder::with_streams(src, &stream_indices)?;
+     clock::configure_capture_clock(&mut capture, &video_config.clock_type);
++    // KyberNow (0022): 16-bit float capture, HDR10 or brought to SDR.
++    if video_config.hdr != HdrMode::Off {
++        capture.set_option("hdr", &video_config.hdr.capture_option().to_string())?;
++    }
+ 
+     let video_hook = video_hook_closure(metrics.cloned());
+     // Encoded Linux sources feed the muxer directly, with no capture-side hook.
+@@ -409,9 +417,13 @@ fn add_output_scale(config: &VideoConfig, filter: String) -> String {
+ /// NVENC and AMF take the D3D11 capture as is. KyberNow (0020): a guest's own
+ /// image is scaled down on the graphics card first.
+ fn d3d11_filter(config: &VideoConfig) -> String {
+-    config
+-        .scale
+-        .map_or_else(|| "null".to_string(), kybernow::d3d11_scale)
++    // KyberNow (0022): an HDR10 image stays P010.
++    let scale = if config.hdr.is_pq() {
++        hdr::d3d11_scale
++    } else {
++        kybernow::d3d11_scale
++    };
++    config.scale.map_or_else(|| "null".to_string(), scale)
+ }
+ 
+ fn encoder_names(config: &VideoConfig) -> (&'static str, String) {
+@@ -460,9 +472,11 @@ fn encoder_names(config: &VideoConfig) -> (&'static str, String) {
+                 }
+                 (Some(map), true) => format!("{map},hwmap=derive_device=qsv,format=qsv"),
+                 // KyberNow (0020): scale_qsv also scales a guest's own image down.
++                // KyberNow (0022): an HDR10 image stays P010.
+                 (None, false) => format!(
+-                    "hwmap,format=qsv,scale_qsv={}format=nv12",
+-                    kybernow::qsv_size(config.scale)
++                    "hwmap,format=qsv,scale_qsv={}format={}",
++                    kybernow::qsv_size(config.scale),
++                    hdr::qsv_format(config.hdr)
+                 ),
+                 (None, true) => "hwmap,format=qsv".to_string(),
+             };
+@@ -612,6 +626,10 @@ fn configure_nvenc(config: &VideoConfig) -> Vec<(&'static str, String)> {
+             }
+         }
+     }
++    // KyberNow (0022): P010 frames, HEVC Main 10 (AV1: 10 bits from P010).
++    if let Some(profile) = hdr::hevc_profile(config.hdr, &config.codec) {
++        options.push(("profile", profile.to_string()));
++    }
+ 
+     options
+ }
+@@ -636,6 +654,10 @@ fn configure_amf(config: &VideoConfig) -> Vec<(&'static str, String)> {
+             options.push(("usage", "lowlatency".to_string()));
+         }
+     }
++    // KyberNow (0022): P010 frames, HEVC Main 10.
++    if let Some(profile) = hdr::hevc_profile(config.hdr, &config.codec) {
++        options.push(("profile", profile.to_string()));
++    }
+ 
+     options
+ }
+@@ -665,6 +687,10 @@ fn configure_qsv(config: &VideoConfig) -> Vec<(&'static str, String)> {
+         }
+         VideoCodec::AV1 => {}
+     }
++    // KyberNow (0022): P010 frames, HEVC Main 10.
++    if let Some(profile) = hdr::hevc_profile(config.hdr, &config.codec) {
++        options.push(("profile", profile.to_string()));
++    }
+ 
+     options
+ }
+@@ -895,6 +921,7 @@ mod tests {
+             clock_type: config::ClockType::ZeroedOrigin,
+             cursor_move_rate: config::DEFAULT_CURSOR_MOVE_RATE,
+             scale: None,
++            hdr: HdrMode::Off,
+             #[cfg(feature = "watermark")]
+             watermark: None,
+             #[cfg(target_os = "linux")]
+diff --git a/kyavservice/src/hdr.rs b/kyavservice/src/hdr.rs
+new file mode 100644
+index 0000000..d9a2a5d
+--- /dev/null
++++ b/kyavservice/src/hdr.rs
+@@ -0,0 +1,194 @@
++// KyberNow (0022): HDR. kycontroller asks kyavserver for an HDR10 image
++// (`hdr`) or for the SDR image of a display captured in HDR for its host
++// (`hdr_capture`, a share guest without HDR). Windows desktop capture only:
++// the capture duplicates the desktop in 16-bit float and converts it on the
++// graphics card (txproto and libavgrab, `kn_hdr_capture.h`), the encoders
++// get P010 (HEVC Main 10, AV1 10 bits). What both engines share is here.
++
++use kyavservice_types::{VideoCodec, VideoScale};
++
++use crate::config::VideoEncoder;
++
++/// What the capture makes of the display (its `hdr` option).
++#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
++pub(crate) enum HdrMode {
++    /// 8-bit BGRA, as without HDR.
++    #[default]
++    Off,
++    /// HDR10: PQ, BT.2020, P010.
++    Pq,
++    /// The SDR image of a display in HDR: 16-bit float brought to 8-bit
++    /// BGRA, then the SDR path as it is.
++    SdrFromHdr,
++}
++
++impl HdrMode {
++    /// The capture's `hdr` option (txproto and libavgrab).
++    pub(crate) fn capture_option(self) -> i64 {
++        match self {
++            Self::Off => 0,
++            Self::Pq => 1,
++            Self::SdrFromHdr => 2,
++        }
++    }
++
++    pub(crate) fn is_pq(self) -> bool {
++        self == Self::Pq
++    }
++}
++
++/// The mode of an image, and why `hdr` was turned down (the display then
++/// goes SDR, from its 16-bit float capture). HDR10 needs Windows, HEVC or
++/// AV1, 4:2:0, and NVENC, AMF or Quick Sync (10-bit encoders on D3D11
++/// frames).
++pub(crate) fn mode(
++    hdr: bool,
++    hdr_capture: bool,
++    encoder: VideoEncoder,
++    codec: &VideoCodec,
++    yuv444: bool,
++    windows: bool,
++) -> (HdrMode, Option<String>) {
++    if !hdr && !hdr_capture {
++        return (HdrMode::Off, None);
++    }
++    if !windows {
++        return (
++            HdrMode::Off,
++            hdr.then(|| "HDR refused: Windows desktop capture only".to_string()),
++        );
++    }
++    if !hdr {
++        return (HdrMode::SdrFromHdr, None);
++    }
++    let refused = if *codec == VideoCodec::H264 {
++        Some("HDR refused with H.264 (HEVC or AV1 only): SDR image".to_string())
++    } else if yuv444 {
++        Some("HDR refused with 4:4:4 (4:2:0 only): SDR image".to_string())
++    } else if !matches!(
++        encoder,
++        VideoEncoder::NVENC | VideoEncoder::AMF | VideoEncoder::QSV
++    ) {
++        Some(format!(
++            "HDR refused with the {encoder:?} encoder (NVENC, AMF or Quick Sync only): SDR image"
++        ))
++    } else {
++        None
++    };
++    match refused {
++        Some(reason) => (HdrMode::SdrFromHdr, Some(reason)),
++        None => (HdrMode::Pq, None),
++    }
++}
++
++/// NVENC and AMF, an HDR10 guest image: the D3D11 video processor scales
++/// the P010 capture down, P010 out (the frame's BT.2020/PQ labels and HDR
++/// metadata are kept).
++pub(crate) fn d3d11_scale(scale: VideoScale) -> String {
++    format!(
++        "scale_d3d11=width={}:height={}:format=p010",
++        scale.width, scale.height
++    )
++}
++
++/// The pixel format given to Quick Sync's scaler.
++pub(crate) fn qsv_format(mode: HdrMode) -> &'static str {
++    if mode.is_pq() { "p010" } else { "nv12" }
++}
++
++/// The HEVC profile of an HDR10 image (NVENC, AMF, Quick Sync); none for
++/// AV1 (10 bits from the P010 frames) or without HDR.
++pub(crate) fn hevc_profile(mode: HdrMode, codec: &VideoCodec) -> Option<&'static str> {
++    (mode.is_pq() && *codec == VideoCodec::HEVC).then_some("main10")
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn no_hdr_is_the_capture_as_before() {
++        for encoder in [VideoEncoder::NVENC, VideoEncoder::X264] {
++            assert_eq!(
++                mode(false, false, encoder, &VideoCodec::H264, true, true),
++                (HdrMode::Off, None)
++            );
++        }
++    }
++
++    #[test]
++    fn hdr10_with_hevc_or_av1_on_hardware_encoders() {
++        for encoder in [VideoEncoder::NVENC, VideoEncoder::AMF, VideoEncoder::QSV] {
++            for codec in [VideoCodec::HEVC, VideoCodec::AV1] {
++                assert_eq!(
++                    mode(true, true, encoder, &codec, false, true),
++                    (HdrMode::Pq, None)
++                );
++                assert_eq!(
++                    mode(true, false, encoder, &codec, false, true),
++                    (HdrMode::Pq, None)
++                );
++            }
++        }
++    }
++
++    #[test]
++    fn hdr_refused_goes_sdr_from_the_float_capture() {
++        let refused = [
++            (VideoEncoder::NVENC, VideoCodec::H264, false),
++            (VideoEncoder::NVENC, VideoCodec::HEVC, true),
++            (VideoEncoder::X264, VideoCodec::HEVC, false),
++            (VideoEncoder::VAAPI, VideoCodec::AV1, false),
++        ];
++        for (encoder, codec, yuv444) in refused {
++            let (m, reason) = mode(true, false, encoder, &codec, yuv444, true);
++            assert_eq!(m, HdrMode::SdrFromHdr, "{encoder:?} {codec:?} {yuv444}");
++            assert!(reason.is_some_and(|r| r.starts_with("HDR refused")));
++        }
++    }
++
++    #[test]
++    fn sdr_guest_of_an_hdr_display() {
++        for encoder in [VideoEncoder::NVENC, VideoEncoder::QSV, VideoEncoder::X264] {
++            assert_eq!(
++                mode(false, true, encoder, &VideoCodec::H264, false, true),
++                (HdrMode::SdrFromHdr, None)
++            );
++        }
++    }
++
++    #[test]
++    fn hdr_is_windows_only() {
++        let (m, reason) = mode(true, true, VideoEncoder::VAAPI, &VideoCodec::HEVC, false, false);
++        assert_eq!(m, HdrMode::Off);
++        assert!(reason.is_some());
++        assert_eq!(
++            mode(false, true, VideoEncoder::VAAPI, &VideoCodec::HEVC, false, false),
++            (HdrMode::Off, None)
++        );
++    }
++
++    #[test]
++    fn capture_options() {
++        assert_eq!(HdrMode::Off.capture_option(), 0);
++        assert_eq!(HdrMode::Pq.capture_option(), 1);
++        assert_eq!(HdrMode::SdrFromHdr.capture_option(), 2);
++    }
++
++    #[test]
++    fn hdr10_filters_and_profile() {
++        assert_eq!(
++            d3d11_scale(VideoScale {
++                width: 1920,
++                height: 1080
++            }),
++            "scale_d3d11=width=1920:height=1080:format=p010"
++        );
++        assert_eq!(qsv_format(HdrMode::Pq), "p010");
++        assert_eq!(qsv_format(HdrMode::SdrFromHdr), "nv12");
++        assert_eq!(qsv_format(HdrMode::Off), "nv12");
++        assert_eq!(hevc_profile(HdrMode::Pq, &VideoCodec::HEVC), Some("main10"));
++        assert_eq!(hevc_profile(HdrMode::Pq, &VideoCodec::AV1), None);
++        assert_eq!(hevc_profile(HdrMode::SdrFromHdr, &VideoCodec::HEVC), None);
++    }
++}
+diff --git a/kyavservice/src/lib.rs b/kyavservice/src/lib.rs
+index 319f0ec..7d3ec51 100644
+--- a/kyavservice/src/lib.rs
++++ b/kyavservice/src/lib.rs
+@@ -20,6 +20,7 @@
+ 
+ mod avconv;
+ mod config;
++mod hdr;
+ mod kybernow;
+ mod txproto;
+ 
+diff --git a/kyavservice/src/txproto/rtp.rs b/kyavservice/src/txproto/rtp.rs
+index 300fbde..45b0d23 100644
+--- a/kyavservice/src/txproto/rtp.rs
++++ b/kyavservice/src/txproto/rtp.rs
+@@ -99,6 +99,7 @@ pub(crate) async fn generate_sdp(
+         cursor_move_rate: config::DEFAULT_CURSOR_MOVE_RATE,
+         scale: None,
+         max_fps: None,
++        hdr: crate::hdr::HdrMode::Off,
+         #[cfg(feature = "watermark")]
+         watermark: None,
+         #[cfg(target_os = "linux")]
+diff --git a/kyavservice/src/txproto/run.rs b/kyavservice/src/txproto/run.rs
+index 3dc2884..f2d33e7 100644
+--- a/kyavservice/src/txproto/run.rs
++++ b/kyavservice/src/txproto/run.rs
+@@ -32,6 +32,7 @@ use super::{Error, Result};
+ use super::{displays, kymux, rtp};
+ use crate::TargetLogLevel;
+ use crate::config::Config;
++use crate::hdr::{self, HdrMode};
+ use crate::kybernow;
+ 
+ #[allow(unused)]
+@@ -189,6 +190,7 @@ async fn handle_command(
+                 cursor_move_rate: config.cursor_move_rate(),
+                 scale: None,
+                 max_fps: None,
++                hdr: HdrMode::Off,
+                 #[cfg(feature = "watermark")]
+                 watermark: None,
+                 #[cfg(target_os = "linux")]
+@@ -221,6 +223,8 @@ async fn handle_command(
+             metrics_uri,
+             scale,
+             max_fps,
++            hdr,
++            hdr_capture,
+         } => {
+             // KyberNow (0020): a share guest's own image this encoder can't
+             // make is refused here, so that kycontroller's start fails.
+@@ -232,9 +236,23 @@ async fn handle_command(
+                 return Ok(());
+             }
+ 
++            // KyberNow (0022): HDR10, or SDR from the display's HDR
++            // capture; HDR refused here (H.264, x264, 4:4:4) goes SDR.
++            let (hdr_mode, refused) = hdr::mode(
++                hdr,
++                hdr_capture,
++                config.encoder(),
++                &codec,
++                yuv444 && scale.is_none(),
++                cfg!(target_os = "windows"),
++            );
++            if let Some(reason) = refused {
++                warn!("{reason}");
++            }
++
+             response.send(Ok(Response::None))?;
+             info!(
+-                "Start Kymux Video: URI {uri:?}, bitrate: {bitrate}, codec: {codec:?}, yuv444: {yuv444}, intra_refresh: {intra_refresh:?}, scale: {scale:?}, max_fps: {max_fps:?}"
++                "Start Kymux Video: URI {uri:?}, bitrate: {bitrate}, codec: {codec:?}, yuv444: {yuv444}, intra_refresh: {intra_refresh:?}, scale: {scale:?}, max_fps: {max_fps:?}, hdr: {hdr_mode:?}"
+             );
+ 
+             let video_config = VideoConfig {
+@@ -254,6 +272,7 @@ async fn handle_command(
+                 cursor_move_rate: config.cursor_move_rate(),
+                 scale,
+                 max_fps,
++                hdr: hdr_mode,
+                 #[cfg(feature = "watermark")]
+                 watermark: config.watermark.clone(),
+                 #[cfg(target_os = "linux")]
+diff --git a/kyavservice/src/txproto/video.rs b/kyavservice/src/txproto/video.rs
+index c13e300..5356592 100644
+--- a/kyavservice/src/txproto/video.rs
++++ b/kyavservice/src/txproto/video.rs
+@@ -28,6 +28,7 @@ use txproto_rs::{Dictionary, DictionaryEntry, DictionaryValue, Txproto};
+ 
+ use crate::config;
+ use crate::config::VideoEncoder;
++use crate::hdr::{self, HdrMode};
+ use crate::kybernow;
+ use crate::txproto::{Event, Result};
+ 
+@@ -48,6 +49,9 @@ pub(crate) struct VideoConfig {
+     /// KyberNow (0020): at most this many images per second (Windows
+     /// capture, `max_framerate`).
+     pub(crate) max_fps: Option<u32>,
++    /// KyberNow (0022): HDR10, or SDR from the display's HDR capture
++    /// (Windows capture, `hdr`).
++    pub(crate) hdr: HdrMode,
+     #[cfg(feature = "watermark")]
+     pub(crate) watermark: Option<config::WatermarkConfig>,
+     #[cfg(target_os = "linux")]
+@@ -191,6 +195,10 @@ fn create_nvenc(
+             }
+         }
+     }
++    // KyberNow (0022): P010 frames, HEVC Main 10 (AV1: 10 bits from P010).
++    if let Some(profile) = hdr::hevc_profile(config.hdr, &config.codec) {
++        options.push(("profile", profile).into());
++    }
+ 
+     if let Some(encoder_config) = &config.encoder_config {
+         options.extend(encoder_config_to_dict(encoder_config));
+@@ -208,7 +216,7 @@ fn create_nvenc(
+         VideoCodec::AV1 => "av1_nvenc",
+     };
+ 
+-    let scale = config.scale;
++    let (scale, hdr) = (config.scale, config.hdr);
+     let config = txproto_rs::EncoderConfig {
+         enc_name,
+         options: Some(options),
+@@ -218,7 +226,7 @@ fn create_nvenc(
+ 
+     info!("Create encoder {enc_name}");
+     let encoder = ctx.create_encoder(config)?;
+-    link_d3d11(ctx, scale, video_source, &encoder)?;
++    link_d3d11(ctx, scale, hdr, video_source, &encoder)?;
+ 
+     Ok(encoder)
+ }
+@@ -228,6 +236,7 @@ fn create_nvenc(
+ fn link_d3d11(
+     ctx: &Txproto,
+     scale: Option<VideoScale>,
++    hdr: HdrMode,
+     video_source: &txproto_rs::Handle,
+     encoder: &txproto_rs::Handle,
+ ) -> Result<()> {
+@@ -239,7 +248,12 @@ fn link_d3d11(
+     // No device for txproto to attach: it would open a new D3D11 device,
+     // while scale_d3d11 works on the device of its input frames (the
+     // capture's), the one NVENC and AMF encode on.
+-    let graph = kybernow::d3d11_scale(scale);
++    // KyberNow (0022): an HDR10 image stays P010.
++    let graph = if hdr.is_pq() {
++        hdr::d3d11_scale(scale)
++    } else {
++        kybernow::d3d11_scale(scale)
++    };
+     info!("Scale the image down: {graph}");
+     let options = Dictionary::from_entries(&[("dump_graph", false).into()])?;
+     let filter = ctx.create_filtergraph(&graph, txproto_rs::HWDeviceType::NONE, Some(options))?;
+@@ -322,21 +336,27 @@ fn create_vaapi(
+ 
+ /// KyberNow (0020): with `scale` (a guest's own image), scale_qsv also
+ /// scales the image down.
+-fn qsv_nv12_graph(scale: Option<VideoScale>) -> String {
++/// KyberNow (0022): an HDR10 image stays P010.
++fn qsv_graph(scale: Option<VideoScale>, hdr: HdrMode) -> String {
+     format!(
+-        "hwmap=derive_device=qsv,format=qsv,scale_qsv={}format=nv12",
+-        kybernow::qsv_size(scale)
++        "hwmap=derive_device=qsv,format=qsv,scale_qsv={}format={}",
++        kybernow::qsv_size(scale),
++        hdr::qsv_format(hdr)
+     )
+ }
+ 
+-fn create_qsv_nv12_filter(ctx: &Txproto, scale: Option<VideoScale>) -> Result<txproto_rs::Handle> {
++fn create_qsv_nv12_filter(
++    ctx: &Txproto,
++    scale: Option<VideoScale>,
++    hdr: HdrMode,
++) -> Result<txproto_rs::Handle> {
+     let options = Dictionary::from_entries(&[("dump_graph", false).into()])?;
+ 
+     // Derive the QSV device from the capture frames' device: QSV can only
+     // process textures owned by the D3D11 device its session runs on, and
+     // txproto may attach an unrelated device to the filters.
+     let filter = ctx.create_filtergraph(
+-        &qsv_nv12_graph(scale),
++        &qsv_graph(scale, hdr),
+         txproto_rs::HWDeviceType::QSV,
+         Some(options),
+     )?;
+@@ -383,6 +403,10 @@ fn create_qsv(
+         }
+         VideoCodec::AV1 => {}
+     }
++    // KyberNow (0022): P010 frames, HEVC Main 10.
++    if let Some(profile) = hdr::hevc_profile(config.hdr, &config.codec) {
++        options.push(("profile", profile).into());
++    }
+ 
+     if let Some(encoder_config) = &config.encoder_config {
+         options.extend(encoder_config_to_dict(encoder_config));
+@@ -394,7 +418,7 @@ fn create_qsv(
+     // Encoder
+     let (enc_name, filter) = match config.codec {
+         VideoCodec::H264 => {
+-            let filter = create_qsv_nv12_filter(ctx, config.scale)?;
++            let filter = create_qsv_nv12_filter(ctx, config.scale, config.hdr)?;
+ 
+             ("h264_qsv", Some(filter))
+         }
+@@ -402,13 +426,13 @@ fn create_qsv(
+             let filter = if config.yuv444 {
+                 None
+             } else {
+-                Some(create_qsv_nv12_filter(ctx, config.scale)?)
++                Some(create_qsv_nv12_filter(ctx, config.scale, config.hdr)?)
+             };
+ 
+             ("hevc_qsv", filter)
+         }
+         VideoCodec::AV1 => {
+-            let filter = create_qsv_nv12_filter(ctx, config.scale)?;
++            let filter = create_qsv_nv12_filter(ctx, config.scale, config.hdr)?;
+ 
+             ("av1_qsv", Some(filter))
+         }
+@@ -461,6 +485,10 @@ fn create_amf(
+             options.push(("usage", "lowlatency").into());
+         }
+     };
++    // KyberNow (0022): P010 frames, HEVC Main 10.
++    if let Some(profile) = hdr::hevc_profile(config.hdr, &config.codec) {
++        options.push(("profile", profile).into());
++    }
+ 
+     if let Some(encoder_config) = &config.encoder_config {
+         options.extend(encoder_config_to_dict(encoder_config));
+@@ -478,7 +506,7 @@ fn create_amf(
+ 
+     let init_opts = Dictionary::from_entries(&[("fifo_size", 1).into()])?;
+ 
+-    let scale = config.scale;
++    let (scale, hdr) = (config.scale, config.hdr);
+     let config = txproto_rs::EncoderConfig {
+         enc_name,
+         options: Some(options),
+@@ -489,7 +517,7 @@ fn create_amf(
+     info!("Creating encoder {enc_name}");
+     let encoder = ctx.create_encoder(config)?;
+ 
+-    link_d3d11(ctx, scale, video_source, &encoder)?;
++    link_d3d11(ctx, scale, hdr, video_source, &encoder)?;
+ 
+     Ok(encoder)
+ }
+@@ -669,6 +697,10 @@ pub(crate) fn configure(
+         if let Some(max_fps) = video_config.max_fps {
+             options.push(("max_framerate", i64::from(max_fps)).into());
+         }
++        // KyberNow (0022): 16-bit float capture, HDR10 or brought to SDR.
++        if video_config.hdr != HdrMode::Off {
++            options.push(("hdr", video_config.hdr.capture_option()).into());
++        }
+         Some(Dictionary::from_entries(&options)?)
+     };
+ 
+@@ -748,14 +780,27 @@ mod tests {
+         height: 720,
+     };
+ 
++    #[test]
++    fn qsv_graph_keeps_hdr10_in_p010() {
++        assert_eq!(
++            qsv_graph(None, HdrMode::Pq),
++            "hwmap=derive_device=qsv,format=qsv,scale_qsv=format=p010"
++        );
++        assert_eq!(
++            qsv_graph(Some(P720), HdrMode::Pq),
++            "hwmap=derive_device=qsv,format=qsv,scale_qsv=w=1280:h=720:format=p010"
++        );
++        assert_eq!(qsv_graph(None, HdrMode::SdrFromHdr), qsv_graph(None, HdrMode::Off));
++    }
++
+     #[test]
+     fn qsv_graph_scales_only_a_guest_image() {
+         assert_eq!(
+-            qsv_nv12_graph(None),
++            qsv_graph(None, HdrMode::Off),
+             "hwmap=derive_device=qsv,format=qsv,scale_qsv=format=nv12"
+         );
+         assert_eq!(
+-            qsv_nv12_graph(Some(P720)),
++            qsv_graph(Some(P720), HdrMode::Off),
+             "hwmap=derive_device=qsv,format=qsv,scale_qsv=w=1280:h=720:format=nv12"
+         );
+     }
