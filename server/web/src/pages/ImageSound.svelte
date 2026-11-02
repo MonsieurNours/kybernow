@@ -4,7 +4,7 @@
   choix s'applique tout de suite.
 -->
 <script lang="ts">
-  import { api, type AudioChannels, type AudioStatus, type DisplayStatus, type HdrSetting, type ModePolicy, type Trigger } from '../lib/api'
+  import { api, type AudioChannels, type AudioStatus, type DesktopGamma, type DisplayStatus, type HdrSetting, type ModePolicy, type Trigger } from '../lib/api'
   import { app, errorText, field, kyber, loadKyber, notify, setValues, value } from '../lib/store.svelte'
   import { mode } from '../lib/format'
   import Icon from '../lib/Icon.svelte'
@@ -42,11 +42,18 @@
     { value: 'never', label: t('imageSound.hdr.never') },
   ])
 
+  // Le bureau SDR en HDR : gamma 2.2, ou la courbe sRGB de Windows.
+  const GAMMAS: { value: DesktopGamma; label: string }[] = $derived([
+    { value: '2.2', label: t('imageSound.hdrGamma.gamma22') },
+    { value: 'srgb', label: t('imageSound.hdrGamma.srgb') },
+  ])
+
   // Pourquoi l'ordinateur ne peut pas faire de HDR (mêmes textes que les apps).
   const hdrReason = $derived.by(() => {
     const reason = display?.hdr?.reason
     if (reason === 'windows') return t('imageSound.display.hdrWindows')
     if (reason === 'encoder') return t('imageSound.display.hdrEncoder')
+    if (reason === 'display') return t('imageSound.display.hdrDisplay')
     return null
   })
 
@@ -239,6 +246,10 @@
           {#if hdrReason && display.settings.hdr !== 'never'}<p>{hdrReason}</p>{/if}
         </div>
         <Segmented label={t('imageSound.display.hdr')} options={HDR_CHOICES} value={display.settings.hdr ?? 'auto'} disabled={busy} onchange={(v) => setDisplay({ hdr: v }, t('imageSound.toast.saved'))} />
+      </div>
+      <div class="set">
+        <div><h3>{t('imageSound.display.hdrGamma')}</h3><p>{t('imageSound.display.hdrGammaHelp')}</p></div>
+        <Segmented label={t('imageSound.display.hdrGamma')} options={GAMMAS} value={display.settings.hdr_desktop_gamma ?? '2.2'} disabled={busy || display.settings.hdr === 'never'} onchange={(v) => setDisplay({ hdr_desktop_gamma: v }, t('imageSound.toast.saved'))} />
       </div>
       <div class="set">
         <div>

@@ -169,11 +169,12 @@ enum AgentAction {
         #[arg(long)]
         out: PathBuf,
     },
-    /// HDR des écrans virtuels (`luid_low,luid_high,target,0|1`) : chacun
-    /// passé à l'état voulu, confirmé par Windows en 2 s au plus.
+    /// HDR des écrans virtuels (demande JSON, `display::hdr::HdrRequest`) :
+    /// chacun passé à l'état voulu, confirmé par Windows en 2 s au plus, avec
+    /// son profil de couleur et son blanc du bureau posés ou remis.
     Hdr {
-        #[arg(long = "screen", allow_hyphen_values = true, required = true)]
-        screens: Vec<String>,
+        #[arg(long)]
+        request: PathBuf,
         #[arg(long)]
         out: PathBuf,
     },
@@ -452,12 +453,11 @@ fn display_agent(action: AgentAction) -> Result<()> {
             (out, Ok(serde_json::json!({ "width": w, "height": h, "refresh": hz })))
         }
         AgentAction::Displays { out } => (out, display::topology::physical_displays().map(|d| serde_json::json!({ "displays": d }))),
-        AgentAction::Hdr { screens, out } => {
-            let r = screens
-                .iter()
-                .map(|s| display::hdr::parse_screen_arg(s))
-                .collect::<Result<Vec<_>>>()
-                .and_then(|list| display::hdr::agent_set(&list));
+        AgentAction::Hdr { request, out } => {
+            let r = std::fs::read(&request)
+                .map_err(anyhow::Error::from)
+                .and_then(|b| Ok(serde_json::from_slice::<display::hdr::HdrRequest>(&b)?))
+                .and_then(|req| display::hdr::agent_set(&req.screens));
             (out, r)
         }
         AgentAction::HdrPrimary { out } => (out, display::hdr::agent_primary()),

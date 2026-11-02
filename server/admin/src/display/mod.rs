@@ -30,6 +30,7 @@ pub mod agent;
 #[cfg(windows)]
 pub mod cursor;
 pub mod hdr;
+pub mod icc;
 #[cfg(windows)]
 pub mod pointer;
 #[cfg(windows)]
@@ -109,6 +110,17 @@ pub enum HdrSetting {
     Never,
 }
 
+/// Le bureau SDR en HDR (réglage « Bureau en HDR ») : gamma 2.2, ou la
+/// courbe sRGB par morceaux de Windows (qui remonte les noirs).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum DesktopGamma {
+    #[default]
+    #[serde(rename = "2.2")]
+    Gamma22,
+    #[serde(rename = "srgb")]
+    Srgb,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VdSettings {
     #[serde(default)]
@@ -125,6 +137,9 @@ pub struct VdSettings {
     /// HDR : `auto` (par défaut) ou `never`.
     #[serde(default)]
     pub hdr: HdrSetting,
+    /// « Bureau en HDR » : `2.2` (par défaut) ou `srgb`.
+    #[serde(default)]
+    pub hdr_desktop_gamma: DesktopGamma,
 }
 
 fn default_width() -> u32 {
@@ -146,6 +161,7 @@ impl Default for VdSettings {
             refresh: default_refresh(),
             on_mode_change: ModePolicy::default(),
             hdr: HdrSetting::default(),
+            hdr_desktop_gamma: DesktopGamma::default(),
         }
     }
 }
@@ -464,6 +480,8 @@ pub struct Started {
     pub hdr: Vec<bool>,
 }
 
+/// HDR de l'écran du PC gardé ce temps (`Manager::display_hdr_cached`).
+const DISPLAY_HDR_CACHE: Duration = Duration::from_secs(30);
 /// Un écran physique rallumé n'est éteint qu'après ce délai de stabilité.
 const PHYSICAL_DEBOUNCE: Duration = Duration::from_secs(2);
 /// Au plus un nouvel isolement dans cet intervalle (Windows qui insiste).
@@ -631,6 +649,10 @@ struct Slot {
     /// HDR de l'écran avant que la session y touche (à remettre à la fin) ;
     /// `None` : jamais touché.
     hdr_original: Option<bool>,
+    /// Valeurs de l'écran de l'appareil posées (profil et blanc), en HDR.
+    luminance: Option<hdr::ScreenLuminance>,
+    /// Notre profil posé, et le profil et le blanc d'avant, à remettre.
+    color: Option<hdr::ColorOriginal>,
 }
 
 impl Slot {
@@ -735,6 +757,9 @@ struct HdrRecord {
     /// Où le retrouver, s'il existe encore.
     #[serde(flatten)]
     created: Created,
+    /// Profil de couleur et blanc d'avant, et notre profil à retirer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    color: Option<hdr::ColorOriginal>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -752,6 +777,10 @@ struct HdrTarget {
     name: Option<String>,
     original: Option<bool>,
     want: bool,
+    /// Valeurs de l'écran de l'appareil à poser (HDR voulu).
+    luminance: Option<hdr::ScreenLuminance>,
+    /// Couleur posée par une session, connue d'avance.
+    color: Option<hdr::ColorOriginal>,
 }
 
 /// Ce qu'une bascule a donné pour un écran.
@@ -759,17 +788,32 @@ struct HdrDone {
     slot: usize,
     active: bool,
     original: bool,
+    luminance: Option<hdr::ScreenLuminance>,
+    color: Option<hdr::ColorOriginal>,
 }
 
+/// HDR voulu pour chaque écran d'une demande : les valeurs de l'écran de
+/// l'appareil pour un écran en HDR, `None` pour un écran en SDR.
+pub type HdrWish = Option<hdr::ScreenLuminance>;
+
 /// Les écrans de `slots` à passer au HDR de `hdr` (rang de la demande) ;
-/// avec `changes_only`, seulement ceux dont le HDR diffère.
-fn hdr_targets(slots: &[Slot], hdr: &[bool], changes_only: bool) -> Vec<HdrTarget> {
+/// avec `changes_only`, seulement ceux dont le HDR ou les valeurs changent.
+fn hdr_targets(slots: &[Slot], hdr: &[HdrWish], changes_only: bool) -> Vec<HdrTarget> {
     slots
         .iter()
         .enumerate()
-        .map(|(i, s)| (i, s, hdr.get(s.index).copied().unwrap_or(false)))
-        .filter(|(_, s, want)| !changes_only || *want != s.hdr)
-        .map(|(i, s, want)| HdrTarget { slot: i, guid: s.guid, created: s.created, name: s.gdi_name.clone(), original: s.hdr_original, want })
+        .map(|(i, s)| (i, s, hdr.get(s.index).copied().flatten().map(hdr::ScreenLuminance::bounded)))
+        .filter(|(_, s, wish)| !changes_only || wish.is_some() != s.hdr || (wish.is_some() && *wish != s.luminance))
+        .map(|(i, s, wish)| HdrTarget {
+            slot: i,
+            guid: s.guid,
+            created: s.created,
+            name: s.gdi_name.clone(),
+            original: s.hdr_original,
+            want: wish.is_some(),
+            luminance: wish,
+            color: s.color.clone(),
+        })
         .collect()
 }
 
@@ -824,7 +868,7 @@ trait Backend: Send + Sync {
     /// Passe chaque écran virtuel au HDR voulu et attend que Windows le
     /// confirme (2 s au plus) ; rend, pour chacun, ce qui est en place
     /// (`hdr.rs`). Un écran sans HDR possible ou refusé le dit dans `error`.
-    fn set_hdr(&self, screens: &[(Created, bool)]) -> Result<Vec<hdr::HdrSeen>>;
+    fn set_hdr(&self, asks: &[hdr::HdrAsk]) -> Result<Vec<hdr::HdrSeen>>;
     /// HDR de l'écran principal du PC, lu sans rien changer (session sans écran virtuel).
     fn display_hdr(&self) -> Result<hdr::HdrSeen>;
 }
@@ -852,6 +896,8 @@ pub struct Manager {
     /// d'écran virtuel automatique (« Pour toute connexion »), les écrans de
     /// l'utilisateur restent allumés.
     sharing: AtomicBool,
+    /// HDR de l'écran principal du PC, lu il y a moins de 30 s (`info`).
+    display_hdr_seen: Mutex<Option<(Instant, bool)>>,
 }
 
 pub fn now_secs() -> u64 {
@@ -882,6 +928,7 @@ impl Manager {
             settings: Mutex::new(settings),
             events: Mutex::new(None),
             sharing: AtomicBool::new(false),
+            display_hdr_seen: Mutex::new(None),
         })
     }
 
@@ -966,19 +1013,49 @@ impl Manager {
     }
 
     /// Passe les écrans `targets` au HDR voulu (un seul appel à l'agent, qui
-    /// attend la confirmation de Windows), note l'état d'origine de chacun
-    /// avant d'y toucher et le retire une fois l'écran revenu à cet état.
+    /// attend la confirmation de Windows), avec, pour un écran en HDR, le
+    /// profil de couleur généré pour l'écran de l'appareil et le blanc du
+    /// bureau (`icc.rs`). Note l'état d'origine de chacun (HDR, profil par
+    /// défaut, blanc) avant d'y toucher, et le retire une fois tout remis.
     /// `restoring` : remise de l'état d'origine (fin de session, reprise).
-    /// Écrit une ligne par écran au journal. Un échec de l'agent laisse les
-    /// écrans comme ils sont (et les états d'origine notés).
+    /// Écrit au journal une ligne par écran, et une pour la couleur posée.
+    /// Un échec de l'agent laisse les écrans comme ils sont (et les états
+    /// d'origine notés).
     fn apply_hdr(&self, targets: &[HdrTarget], restoring: bool) -> Vec<HdrDone> {
         if targets.is_empty() {
             return Vec::new();
         }
         let mut records = self.read_hdr_records();
-        let pending = |records: &[HdrRecord], guid: &[u8; 16]| records.iter().find(|r| r.guid == hex::encode(guid)).map(|r| r.original);
-        let asked: Vec<(Created, bool)> = targets.iter().map(|t| (t.created, t.want)).collect();
-        let seen = match self.backend.set_hdr(&asked) {
+        let noted = |records: &[HdrRecord], guid: &[u8; 16]| records.iter().find(|r| r.guid == hex::encode(guid)).cloned();
+        let gamma22 = self.settings.lock().unwrap().hdr_desktop_gamma == DesktopGamma::Gamma22;
+        let dir = self.data_dir.join("display");
+        let mut asks = Vec::new();
+        for t in targets {
+            let color = t.color.clone().or_else(|| noted(&records, &t.guid).and_then(|r| r.color));
+            let apply = match t.luminance.filter(|_| t.want && !restoring) {
+                Some(lum) => {
+                    let bytes = icc::profile(&lum, gamma22);
+                    let path = dir.join(icc::file_name(t.created.target, &bytes));
+                    match std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&path, &bytes)) {
+                        Ok(()) => Some(hdr::ColorApply {
+                            profile: path,
+                            sdr_white: lum.sdr_white,
+                            max: lum.max,
+                            replace: color.as_ref().map(|c| c.installed.clone()),
+                        }),
+                        Err(e) => {
+                            tracing::warn!("profil de couleur HDR non écrit ({}) : {e}", path.display());
+                            None
+                        }
+                    }
+                }
+                None => None,
+            };
+            // Couleur remise quand l'écran repasse en SDR, ou à la remise.
+            let restore = color.filter(|_| restoring || !t.want);
+            asks.push(hdr::HdrAsk { created: t.created, on: t.want, apply, restore });
+        }
+        let seen = match self.backend.set_hdr(&asks) {
             Ok(seen) => seen,
             Err(e) => {
                 for t in targets {
@@ -989,17 +1066,37 @@ impl Manager {
             }
         };
         let mut done = Vec::new();
-        for (t, seen) in targets.iter().zip(seen) {
+        for ((t, ask), seen) in targets.iter().zip(&asks).zip(seen) {
             let name = t.name.clone().or_else(|| seen.gdi_name.clone()).unwrap_or_else(|| format!("virtuel {}", t.slot + 1));
             // Écran introuvable (déjà retiré) : son état d'origine reste noté.
             if !seen.read {
                 tracing::warn!("écran {name} : HDR illisible, rien de changé ({})", seen.error.as_deref().unwrap_or("écran introuvable"));
                 continue;
             }
-            let original = t.original.or_else(|| pending(&records, &t.guid)).unwrap_or(seen.before);
+            let record = noted(&records, &t.guid);
+            let original = t.original.or_else(|| record.as_ref().map(|r| r.original)).unwrap_or(seen.before);
+            let known = ask.restore.clone().or_else(|| t.color.clone()).or_else(|| record.and_then(|r| r.color));
+            let color_seen = seen.color.clone().unwrap_or_default();
+            // La couleur qui reste à remettre après ce passage.
+            let color = match (&ask.apply, &ask.restore) {
+                (Some(_), _) => match color_seen.installed.clone() {
+                    // Notre profil posé : l'état d'avant est celui noté, sinon celui que l'agent a lu.
+                    Some(installed) => Some(hdr::ColorOriginal {
+                        installed,
+                        profile: known.as_ref().map_or_else(
+                            || color_seen.original_profile.clone().filter(|p| !p.starts_with("KyberNow-HDR-")),
+                            |k| k.profile.clone(),
+                        ),
+                        sdr_white: known.as_ref().map_or(color_seen.original_white, |k| k.sdr_white),
+                    }),
+                    None => known,
+                },
+                (None, Some(_)) if color_seen.restored => None,
+                _ => known,
+            };
             records.retain(|r| r.guid != hex::encode(t.guid));
-            if seen.active != original {
-                records.push(HdrRecord { guid: hex::encode(t.guid), original, created: t.created });
+            if seen.active != original || color.is_some() {
+                records.push(HdrRecord { guid: hex::encode(t.guid), original, created: t.created, color: color.clone() });
             }
             if restoring {
                 if seen.active == t.want {
@@ -1012,7 +1109,30 @@ impl Manager {
             } else {
                 tracing::warn!("{}", hdr::log_line(&name, t.want, &seen));
             }
-            done.push(HdrDone { slot: t.slot, active: seen.active, original });
+            match (&ask.restore, &seen.color) {
+                (Some(r), Some(c)) if c.restored => {
+                    tracing::info!("écran {name} : profil {} retiré, profil et blanc du bureau d'avant remis", r.installed)
+                }
+                (Some(r), Some(c)) => tracing::warn!(
+                    "écran {name} : profil {} pas encore retiré ({})",
+                    r.installed,
+                    c.error.as_deref().unwrap_or("raison inconnue")
+                ),
+                _ => {}
+            }
+            let luminance = match (&ask.apply, t.luminance) {
+                (Some(_), Some(lum)) if seen.active => {
+                    let line = hdr::color_line(&name, &lum, gamma22, &seen);
+                    if color_seen.installed.is_some() && color_seen.error.is_none() {
+                        tracing::info!("{line}");
+                    } else {
+                        tracing::warn!("{line}");
+                    }
+                    Some(lum)
+                }
+                _ => None,
+            };
+            done.push(HdrDone { slot: t.slot, active: seen.active, original, luminance, color });
         }
         self.write_hdr_records(records);
         done
@@ -1028,14 +1148,17 @@ impl Manager {
             secondary |= d.slot > 0 && slot.hdr != d.active;
             slot.hdr = d.active;
             slot.hdr_original = Some(d.original);
+            slot.luminance = d.luminance;
+            slot.color = d.color.clone();
         }
         secondary
     }
 
     /// `POST /api/stream/hdr` : passe les écrans de la session de `device` au
-    /// HDR de `hdr` (dans l'ordre de `screens` de `prepare`) ; rend le HDR
-    /// obtenu pour chacun, `None` si l'écran virtuel n'est pas le sien.
-    pub fn set_session_hdr(&self, device: &str, hdr: &[bool]) -> Option<Vec<bool>> {
+    /// HDR de `hdr` (dans l'ordre de `screens` de `prepare`, avec les valeurs
+    /// de l'écran de l'appareil) ; rend le HDR obtenu pour chacun, `None` si
+    /// l'écran virtuel n'est pas le sien.
+    pub fn set_session_hdr(&self, device: &str, hdr: &[HdrWish]) -> Option<Vec<bool>> {
         let _op = self.ops.lock().unwrap();
         let targets = {
             let session = self.session.lock().unwrap();
@@ -1057,7 +1180,7 @@ impl Manager {
     /// HDR de l'écran principal du PC (session sans écran virtuel) : rien
     /// n'est changé, faux s'il est illisible.
     pub fn display_hdr(&self) -> bool {
-        match self.backend.display_hdr() {
+        let on = match self.backend.display_hdr() {
             Ok(seen) => {
                 tracing::info!("{}", hdr::log_line(seen.gdi_name.as_deref().unwrap_or("principal"), true, &seen));
                 seen.active
@@ -1066,7 +1189,20 @@ impl Manager {
                 tracing::warn!("HDR de l'écran de l'ordinateur illisible : {e:#}");
                 false
             }
+        };
+        *self.display_hdr_seen.lock().unwrap() = Some((Instant::now(), on));
+        on
+    }
+
+    /// Comme `display_hdr`, lu au plus une fois toutes les 30 s (`reason`
+    /// `display` de `GET /api/stream/info`, que les apps demandent toutes les 8 s).
+    pub fn display_hdr_cached(&self) -> bool {
+        if let Some((at, on)) = *self.display_hdr_seen.lock().unwrap()
+            && at.elapsed() < DISPLAY_HDR_CACHE
+        {
+            return on;
         }
+        self.display_hdr()
     }
 
     fn pointer_path(&self) -> PathBuf {
@@ -1235,7 +1371,16 @@ impl Manager {
                 .enumerate()
                 .filter_map(|(i, r)| {
                     let guid = <[u8; 16]>::try_from(hex::decode(&r.guid).ok()?.as_slice()).ok()?;
-                    Some(HdrTarget { slot: i, guid, created: r.created, name: None, original: Some(r.original), want: r.original })
+                    Some(HdrTarget {
+                        slot: i,
+                        guid,
+                        created: r.created,
+                        name: None,
+                        original: Some(r.original),
+                        want: r.original,
+                        luminance: None,
+                        color: r.color.clone(),
+                    })
                 })
                 .collect();
             self.apply_hdr(&targets, true);
@@ -1277,12 +1422,13 @@ impl Manager {
 
     /// Prêt de l'ordinateur (docs/pret.md) : un écran virtuel principal à la
     /// taille de l'appareil de l'ami, les écrans physiques gardés allumés à
-    /// sa droite (l'agent de console les couvre).
-    pub fn start_keeping_others(&self, mode: Mode, device: Option<String>) -> Result<Value> {
+    /// sa droite (l'agent de console les couvre), en HDR comme pour un hôte
+    /// quand l'ami le demande (`hdr`, docs/hdr.md).
+    pub fn start_keeping_others(&self, mode: Mode, device: Option<String>, hdr: HdrWish) -> Result<Started> {
         mode.validate()?;
         let _op = self.ops.lock().unwrap();
         self.keep_others.store(true, Ordering::SeqCst);
-        let started = self.start_locked(Origin::App, vec![Screen::single(mode)], &[], None, device, None, None).map(|s| s.applied);
+        let started = self.start_locked(Origin::App, vec![Screen::single(mode)], &[hdr], None, device, None, None);
         self.keep_others.store(false, Ordering::SeqCst);
         started
     }
@@ -1309,7 +1455,7 @@ impl Manager {
         &self,
         origin: Origin,
         screens: Vec<Screen>,
-        hdr: &[bool],
+        hdr: &[HdrWish],
         user: Option<String>,
         device: Option<String>,
         policy: Option<PolicyChoice>,
@@ -1324,7 +1470,7 @@ impl Manager {
         &self,
         origin: Origin,
         layout: Vec<Screen>,
-        hdr: &[bool],
+        hdr: &[HdrWish],
         user: Option<String>,
         device: Option<String>,
         duration: Option<Duration>,
@@ -1491,7 +1637,7 @@ impl Manager {
         for (i, ((index, guid, created), placed)) in pending.into_iter().zip(placed).enumerate() {
             let gdi_name = gdi_names.get(i).cloned().flatten();
             match placed {
-                Some(placed) => slots.push(Slot { guid, created, index, placed, gdi_name, announced: None, hdr: false, hdr_original: None }),
+                Some(placed) => slots.push(Slot { guid, created, index, placed, gdi_name, announced: None, hdr: false, hdr_original: None, luminance: None, color: None }),
                 None => {
                     tracing::warn!("un écran virtuel n'a pas été activé par Windows : retiré");
                     let _ = self.backend.remove(guid);
@@ -1504,7 +1650,7 @@ impl Manager {
         // change, sauf un écran qu'une session interrompue a laissé en HDR.
         let pending = self.read_hdr_records();
         let touched = |s: &Slot| pending.iter().any(|r| r.guid == hex::encode(s.guid));
-        if hdr.iter().any(|on| *on) || slots.iter().any(touched) {
+        if hdr.iter().any(Option::is_some) || slots.iter().any(touched) {
             let targets: Vec<HdrTarget> =
                 hdr_targets(&slots, hdr, false).into_iter().filter(|t| t.want || touched(&slots[t.slot])).collect();
             let done = self.apply_hdr(&targets, false);
@@ -1627,14 +1773,23 @@ impl Manager {
         tracing::info!("fin de l'écran virtuel : {reason}");
         self.backend.unwatch();
         self.backend.stop_wgc();
-        // HDR d'avant la session, tant que les écrans existent.
+        // HDR, profil et blanc d'avant la session, tant que les écrans existent.
         let restore: Vec<HdrTarget> = session
             .slots
             .iter()
             .enumerate()
             .filter_map(|(i, s)| {
-                let original = s.hdr_original.filter(|o| *o != s.hdr)?;
-                Some(HdrTarget { slot: i, guid: s.guid, created: s.created, name: s.gdi_name.clone(), original: Some(original), want: original })
+                let original = s.hdr_original?;
+                (original != s.hdr || s.color.is_some()).then(|| HdrTarget {
+                    slot: i,
+                    guid: s.guid,
+                    created: s.created,
+                    name: s.gdi_name.clone(),
+                    original: Some(original),
+                    want: original,
+                    luminance: None,
+                    color: s.color.clone(),
+                })
             })
             .collect();
         self.apply_hdr(&restore, true);
@@ -1995,6 +2150,13 @@ struct SimScreen {
     physical_hdr: bool,
     /// Ordre des bascules HDR (`hdr`) et des lancements WGC (`wgc`).
     steps: Vec<&'static str>,
+    /// Profil par défaut et blanc du bureau de chaque écran (gardés par
+    /// Windows d'une fois sur l'autre ; blanc absent : 240 nits), profils
+    /// installés, et Windows qui refuse les profils.
+    profiles: [Option<String>; MAX_SCREENS],
+    whites: [Option<f32>; MAX_SCREENS],
+    installed: Vec<String>,
+    color_fails: bool,
 }
 
 #[cfg(not(windows))]
@@ -2171,7 +2333,7 @@ impl Backend for Simulated {
         };
         Ok(vec![d(2, -1920, 1920, 1080, 60), d(1, 0, 3840, 2160, 144)])
     }
-    fn set_hdr(&self, screens: &[(Created, bool)]) -> Result<Vec<hdr::HdrSeen>> {
+    fn set_hdr(&self, asks: &[hdr::HdrAsk]) -> Result<Vec<hdr::HdrSeen>> {
         let mut screen = self.screen.lock().unwrap();
         screen.steps.push("hdr");
         if screen.hdr_fails {
@@ -2179,13 +2341,24 @@ impl Backend for Simulated {
         }
         let mut changed = Vec::new();
         let mut seen = Vec::new();
-        for (c, want) in screens {
+        for ask in asks {
+            let (c, want) = (&ask.created, &ask.on);
             let slot = c.target as usize;
             let mut s = hdr::HdrSeen { gdi_name: Some(sim_gdi_name(c.target)), ..hdr::HdrSeen::default() };
             if screen.slot_mut(slot).is_none() {
                 s.error = Some("(simulé) écran introuvable".into());
+                if ask.restore.is_some() {
+                    s.color = Some(hdr::ColorSeen { error: Some("écran introuvable".into()), ..hdr::ColorSeen::default() });
+                }
                 seen.push(s);
                 continue;
+            }
+            // Couleur d'avant remise d'abord.
+            if let Some(r) = &ask.restore {
+                screen.profiles[slot] = r.profile.clone();
+                screen.whites[slot] = r.sdr_white;
+                screen.installed.retain(|p| *p != r.installed);
+                s.color = Some(hdr::ColorSeen { restored: true, white: Some(screen.whites[slot].unwrap_or(240.0)), ..hdr::ColorSeen::default() });
             }
             s.read = true;
             s.supported = !screen.hdr_unsupported.contains(&slot);
@@ -2206,14 +2379,40 @@ impl Backend for Simulated {
             }
             s.active = screen.hdr[slot];
             s.luminance = Some(hdr::Luminance { min: 0.01, max: 1000.0, max_full_frame: 600.0 });
-            s.sdr_white = Some(240.0);
+            s.sdr_white = Some(screen.whites[slot].unwrap_or(240.0));
+            if let Some(apply) = ask.apply.as_ref().filter(|_| s.active) {
+                let mut color = hdr::ColorSeen {
+                    original_profile: screen.profiles[slot].clone(),
+                    original_white: Some(screen.whites[slot].unwrap_or(240.0)),
+                    ..hdr::ColorSeen::default()
+                };
+                if let Some(old) = &apply.replace {
+                    screen.installed.retain(|p| p != old);
+                }
+                if screen.color_fails {
+                    color.error = Some("(simulé) Windows refuse le profil".into());
+                } else {
+                    assert!(apply.profile.exists(), "profil généré avant l'appel à l'agent");
+                    let name = apply.profile.file_name().unwrap().to_string_lossy().into_owned();
+                    screen.installed.push(name.clone());
+                    screen.profiles[slot] = Some(name.clone());
+                    screen.whites[slot] = Some(apply.sdr_white);
+                    color.installed = Some(name);
+                    // Windows lit le profil : GetDesc1 rend ses luminosités.
+                    s.luminance = Some(hdr::Luminance { min: 0.0, max: apply.max, max_full_frame: apply.max });
+                }
+                color.white = Some(screen.whites[slot].unwrap_or(240.0));
+                s.sdr_white = color.white;
+                s.color = Some(color);
+            }
             seen.push(s);
         }
         screen.hdr_calls.push(changed);
         Ok(seen)
     }
     fn display_hdr(&self) -> Result<hdr::HdrSeen> {
-        let screen = self.screen.lock().unwrap();
+        let mut screen = self.screen.lock().unwrap();
+        screen.steps.push("pc");
         Ok(hdr::HdrSeen { read: true, supported: true, before: screen.physical_hdr, active: screen.physical_hdr, gdi_name: Some("\\\\.\\DISPLAY1".into()), ..hdr::HdrSeen::default() })
     }
 }
@@ -2571,17 +2770,19 @@ mod windows {
             let v = agent::run_with_timeout(&self.data_dir, &["displays".to_string()], 10_000)?;
             Ok(serde_json::from_value(v["displays"].clone())?)
         }
-        fn set_hdr(&self, screens: &[(Created, bool)]) -> Result<Vec<hdr::HdrSeen>> {
-            let mut args = vec!["hdr".to_string()];
-            for (c, on) in screens {
-                args.push("--screen".into());
-                args.push(hdr::screen_arg(c, *on));
-            }
-            // L'agent attend Windows 2 s au plus ; son lancement en plus.
-            let v = agent::run_with_timeout(&self.data_dir, &args, 10_000)?;
-            let seen: Vec<hdr::HdrSeen> = serde_json::from_value(v["screens"].clone())?;
-            if seen.len() != screens.len() {
-                bail!("l'agent HDR a répondu pour {} écran(s) sur {}", seen.len(), screens.len());
+        fn set_hdr(&self, asks: &[hdr::HdrAsk]) -> Result<Vec<hdr::HdrSeen>> {
+            // La demande passe par un fichier du dossier des données (SYSTEM et administrateurs).
+            let dir = self.data_dir.join("display");
+            std::fs::create_dir_all(&dir)?;
+            let request = dir.join(format!("hdr-request-{}.json", rand::random::<u32>()));
+            std::fs::write(&request, serde_json::to_vec(&hdr::HdrRequest { screens: asks.to_vec() })?)?;
+            let args = ["hdr".to_string(), "--request".into(), request.display().to_string()];
+            // L'agent attend Windows 2 s au plus, DXGI 1 s ; son lancement en plus.
+            let v = agent::run_with_timeout(&self.data_dir, &args, 15_000);
+            let _ = std::fs::remove_file(&request);
+            let seen: Vec<hdr::HdrSeen> = serde_json::from_value(v?["screens"].clone())?;
+            if seen.len() != asks.len() {
+                bail!("l'agent HDR a répondu pour {} écran(s) sur {}", seen.len(), asks.len());
             }
             Ok(seen)
         }
@@ -3374,6 +3575,11 @@ mod tests {
 
     // --- HDR (docs/hdr.md) ---------------------------------------------------
 
+    /// HDR voulu pour chaque écran, aux valeurs par défaut.
+    fn on(list: &[bool]) -> Vec<HdrWish> {
+        list.iter().map(|on| on.then(hdr::ScreenLuminance::default)).collect()
+    }
+
     fn hdr_file(m: &Manager) -> Option<HdrRecords> {
         std::fs::read(m.hdr_path()).ok().map(|b| serde_json::from_slice(&b).unwrap())
     }
@@ -3381,7 +3587,7 @@ mod tests {
     #[test]
     fn hdr_allume_avant_les_captures_wgc_et_remis_a_la_fin() {
         let (m, sim, _) = simulated(VdSettings::default());
-        let started = m.start_screens_hdr(Origin::App, trois_ecrans(), &[true, false, true], None, Some("mac".into()), None).unwrap();
+        let started = m.start_screens_hdr(Origin::App, trois_ecrans(), &on(&[true, false, true]), None, Some("mac".into()), None).unwrap();
         assert_eq!(started.hdr, vec![true, false, true]);
         {
             let screen = sim.screen.lock().unwrap();
@@ -3420,20 +3626,20 @@ mod tests {
         // Écran sans HDR possible.
         let (m, sim, _) = simulated(VdSettings::default());
         sim.screen.lock().unwrap().hdr_unsupported = vec![0];
-        let started = m.start_screens_hdr(Origin::App, vec![Screen::single(TV)], &[true], None, Some("tv".into()), None).unwrap();
+        let started = m.start_screens_hdr(Origin::App, vec![Screen::single(TV)], &on(&[true]), None, Some("tv".into()), None).unwrap();
         assert_eq!(started.hdr, vec![false]);
         assert!(!m.hdr_path().exists());
         m.stop("fin du test");
         // Windows ne confirme pas en 2 s.
         sim.screen.lock().unwrap().hdr_unsupported.clear();
         sim.screen.lock().unwrap().hdr_unconfirmed = true;
-        let started = m.start_screens_hdr(Origin::App, vec![Screen::single(TV)], &[true], None, Some("tv".into()), None).unwrap();
+        let started = m.start_screens_hdr(Origin::App, vec![Screen::single(TV)], &on(&[true]), None, Some("tv".into()), None).unwrap();
         assert_eq!(started.hdr, vec![false]);
         m.stop("fin du test");
         // L'agent ne répond pas : la session démarre quand même.
         sim.screen.lock().unwrap().hdr_unconfirmed = false;
         sim.screen.lock().unwrap().hdr_fails = true;
-        let started = m.start_screens_hdr(Origin::App, trois_ecrans(), &[true, true, true], None, Some("mac".into()), None).unwrap();
+        let started = m.start_screens_hdr(Origin::App, trois_ecrans(), &on(&[true, true, true]), None, Some("mac".into()), None).unwrap();
         assert_eq!(started.hdr, vec![false, false, false]);
         assert_eq!(sim.screen.lock().unwrap().exists(), 3);
     }
@@ -3441,25 +3647,25 @@ mod tests {
     #[test]
     fn hdr_bascule_en_session() {
         let (m, sim, _) = simulated(VdSettings::default());
-        m.start_screens_hdr(Origin::App, trois_ecrans(), &[false, false, false], None, Some("mac".into()), None).unwrap();
+        m.start_screens_hdr(Origin::App, trois_ecrans(), &on(&[false, false, false]), None, Some("mac".into()), None).unwrap();
         let wgc_starts = |sim: &Simulated| sim.screen.lock().unwrap().steps.iter().filter(|s| **s == "wgc").count();
         assert_eq!(wgc_starts(&sim), 1);
         // Seul l'appareil de la session.
-        assert_eq!(m.set_session_hdr("tv", &[true, true, true]), None);
+        assert_eq!(m.set_session_hdr("tv", &on(&[true, true, true])), None);
         // L'écran principal : la capture WGC des secondaires ne bouge pas.
-        assert_eq!(m.set_session_hdr("mac", &[true, false, false]), Some(vec![true, false, false]));
+        assert_eq!(m.set_session_hdr("mac", &on(&[true, false, false])), Some(vec![true, false, false]));
         assert_eq!(wgc_starts(&sim), 1);
         assert_eq!(hdr_file(&m).unwrap().screens.len(), 1);
         // Un écran secondaire : sa capture WGC est relancée, après la bascule.
-        assert_eq!(m.set_session_hdr("mac", &[true, true, false]), Some(vec![true, true, false]));
+        assert_eq!(m.set_session_hdr("mac", &on(&[true, true, false])), Some(vec![true, true, false]));
         assert_eq!(wgc_starts(&sim), 2);
         assert_eq!(sim.screen.lock().unwrap().steps.last(), Some(&"wgc"));
         // Rien à changer : pas d'appel à l'agent.
         let calls = sim.screen.lock().unwrap().hdr_calls.len();
-        assert_eq!(m.set_session_hdr("mac", &[true, true, false]), Some(vec![true, true, false]));
+        assert_eq!(m.set_session_hdr("mac", &on(&[true, true, false])), Some(vec![true, true, false]));
         assert_eq!(sim.screen.lock().unwrap().hdr_calls.len(), calls);
         // Retour en SDR : plus rien à remettre à la fin.
-        assert_eq!(m.set_session_hdr("mac", &[false, false, false]), Some(vec![false, false, false]));
+        assert_eq!(m.set_session_hdr("mac", &on(&[false, false, false])), Some(vec![false, false, false]));
         assert!(!m.hdr_path().exists());
         let calls = sim.screen.lock().unwrap().hdr_calls.len();
         m.stop("fin du test");
@@ -3469,9 +3675,9 @@ mod tests {
     #[test]
     fn hdr_des_memes_ecrans_redemandes() {
         let (m, sim, _) = simulated(VdSettings::default());
-        m.start_screens_hdr(Origin::App, vec![Screen::single(TV)], &[false], None, Some("tv".into()), None).unwrap();
+        m.start_screens_hdr(Origin::App, vec![Screen::single(TV)], &on(&[false]), None, Some("tv".into()), None).unwrap();
         // L'app se reconnecte, cette fois en HDR : même écran, HDR changé.
-        let started = m.start_screens_hdr(Origin::App, vec![Screen::single(TV)], &[true], None, Some("tv".into()), None).unwrap();
+        let started = m.start_screens_hdr(Origin::App, vec![Screen::single(TV)], &on(&[true]), None, Some("tv".into()), None).unwrap();
         assert_eq!(started.hdr, vec![true]);
         assert_eq!(sim.screen.lock().unwrap().created.len(), 1, "écran gardé");
         // Le déclenchement automatique ne touche pas au HDR d'une app.
@@ -3483,7 +3689,7 @@ mod tests {
     #[test]
     fn hdr_remis_apres_un_plantage() {
         let (m, sim, _) = simulated(VdSettings::default());
-        m.start_screens_hdr(Origin::App, trois_ecrans(), &[true, true, false], None, Some("mac".into()), None).unwrap();
+        m.start_screens_hdr(Origin::App, trois_ecrans(), &on(&[true, true, false]), None, Some("mac".into()), None).unwrap();
         // Le service redémarre sans avoir fini la session : les écrans existent encore.
         let again = Manager::with_backend(m.data_dir.clone(), VdSettings::default(), Box::new(sim.clone()));
         again.recover();
@@ -3496,7 +3702,7 @@ mod tests {
     #[test]
     fn hdr_remis_a_la_creation_suivante_si_l_ecran_a_disparu() {
         let (m, sim, _) = simulated(VdSettings::default());
-        m.start_screens_hdr(Origin::App, vec![Screen::single(TV)], &[true], None, Some("tv".into()), None).unwrap();
+        m.start_screens_hdr(Origin::App, vec![Screen::single(TV)], &on(&[true]), None, Some("tv".into()), None).unwrap();
         // Plantage, puis le chien de garde du pilote retire l'écran.
         let _ = sim.remove(slot_guid(0));
         let again = Manager::with_backend(m.data_dir.clone(), VdSettings::default(), Box::new(sim.clone()));
@@ -3516,9 +3722,9 @@ mod tests {
         // Un écran que Windows a gardé en HDR (session interrompue) : la
         // session suivante en HDR n'y change rien, et la fin le remet en SDR.
         let (m, sim, _) = simulated(VdSettings::default());
-        m.write_hdr_records(vec![HdrRecord { guid: hex::encode(slot_guid(0)), original: false, created: Created { luid_low: 0, luid_high: 0, target: 0 } }]);
+        m.write_hdr_records(vec![HdrRecord { guid: hex::encode(slot_guid(0)), original: false, created: Created { luid_low: 0, luid_high: 0, target: 0 }, color: None }]);
         sim.screen.lock().unwrap().hdr_memory[0] = true;
-        let started = m.start_screens_hdr(Origin::App, vec![Screen::single(TV)], &[true], None, Some("tv".into()), None).unwrap();
+        let started = m.start_screens_hdr(Origin::App, vec![Screen::single(TV)], &on(&[true]), None, Some("tv".into()), None).unwrap();
         assert_eq!(started.hdr, vec![true]);
         assert_eq!(hdr_file(&m).unwrap().screens.len(), 1);
         m.stop("fin du test");
@@ -3542,11 +3748,28 @@ mod tests {
         assert_eq!(old.hdr, HdrSetting::Auto);
         let never: VdSettings = toml::from_str("hdr = \"never\"").unwrap();
         assert_eq!(never.hdr, HdrSetting::Never);
+        assert_eq!(VdSettings::default().hdr_desktop_gamma, DesktopGamma::Gamma22);
+        let srgb: VdSettings = toml::from_str("hdr_desktop_gamma = \"srgb\"").unwrap();
+        assert_eq!(srgb.hdr_desktop_gamma, DesktopGamma::Srgb);
+        assert!(toml::to_string(&VdSettings::default()).unwrap().contains("hdr_desktop_gamma = \"2.2\""));
+        // Demande à l'agent : aller-retour par le fichier.
         let c = Created { luid_low: 4242, luid_high: -1, target: 3 };
-        assert_eq!(hdr::screen_arg(&c, true), "4242,-1,3,1");
-        assert_eq!(hdr::parse_screen_arg("4242,-1,3,1").unwrap(), (c, true));
-        assert_eq!(hdr::parse_screen_arg("4242,-1,3,0").unwrap(), (c, false));
-        assert!(hdr::parse_screen_arg("4242,-1,3").is_err());
+        let req = hdr::HdrRequest {
+            screens: vec![hdr::HdrAsk {
+                created: c,
+                on: true,
+                apply: Some(hdr::ColorApply { profile: "C:\\x.icm".into(), sdr_white: 203.0, max: 1000.0, replace: None }),
+                restore: None,
+            }],
+        };
+        assert_eq!(serde_json::from_slice::<hdr::HdrRequest>(&serde_json::to_vec(&req).unwrap()).unwrap(), req);
+        // Valeurs de l'écran : absentes, par défaut ; bornées comme dans le cœur.
+        let lum: hdr::ScreenLuminance = serde_json::from_str("{}").unwrap();
+        assert_eq!(lum, hdr::ScreenLuminance { max: 1000.0, full_frame: 1000.0, min: 0.0, sdr_white: 203.0 });
+        let wild = hdr::ScreenLuminance { max: 50_000.0, full_frame: 20_000.0, min: -1.0, sdr_white: f32::NAN }.bounded();
+        assert_eq!(wild, hdr::ScreenLuminance { max: 10_000.0, full_frame: 10_000.0, min: 0.0, sdr_white: 203.0 });
+        let dim = hdr::ScreenLuminance { max: 40.0, full_frame: 600.0, min: 3.0, sdr_white: 900.0 }.bounded();
+        assert_eq!(dim, hdr::ScreenLuminance { max: 100.0, full_frame: 100.0, min: 1.0, sdr_white: 480.0 });
         let seen = hdr::HdrSeen {
             read: true,
             supported: true,
@@ -3561,5 +3784,147 @@ mod tests {
             hdr::log_line("\\\\.\\DISPLAY9", true, &seen),
             "écran \\\\.\\DISPLAY9 : HDR demandé oui, obtenu oui, luminance donnée par Windows 0.010–1000 nits (pleine image 600 nits), blanc SDR 240 nits, capture en R16G16B16A16 flottant ; bascule par DISPLAYCONFIG_SET_HDR_STATE, confirmée en 180 ms"
         );
+    }
+
+    // --- Couleur des écrans en HDR (docs/hdr.md, « Réglage du HDR ») -------
+
+    const XDR: hdr::ScreenLuminance = hdr::ScreenLuminance { max: 1600.0, full_frame: 1000.0, min: 0.005, sdr_white: 240.0 };
+
+    fn ours(name: &Option<String>) -> bool {
+        name.as_deref().is_some_and(|n| n.starts_with("KyberNow-HDR-0-"))
+    }
+
+    #[test]
+    fn profil_et_blanc_poses_avec_le_hdr_puis_remis() {
+        let (m, sim, _) = simulated(VdSettings::default());
+        {
+            let mut screen = sim.screen.lock().unwrap();
+            screen.profiles[0] = Some("Mon écran.icm".into());
+            screen.whites[0] = Some(300.0);
+        }
+        let started = m.start_screens_hdr(Origin::App, vec![Screen::single(TV)], &[Some(XDR)], None, Some("tv".into()), None).unwrap();
+        assert_eq!(started.hdr, vec![true]);
+        let installed = {
+            let screen = sim.screen.lock().unwrap();
+            assert!(ours(&screen.profiles[0]), "notre profil, par défaut pour l'écran");
+            assert_eq!(screen.whites[0], Some(240.0), "blanc du bureau de l'appareil");
+            assert_eq!(screen.installed.len(), 1);
+            screen.installed[0].clone()
+        };
+        // Le profil est écrit avant l'appel à l'agent, avec les valeurs de l'appareil.
+        let bytes = std::fs::read(m.data_dir.join("display").join(&installed)).unwrap();
+        assert_eq!(installed, icc::file_name(0, &bytes));
+        assert_eq!(bytes, icc::profile(&XDR, true));
+        // L'état d'avant est noté, pour une remise même après un plantage.
+        let noted = hdr_file(&m).unwrap();
+        let color = noted.screens[0].color.clone().unwrap();
+        assert_eq!(color, hdr::ColorOriginal { installed: installed.clone(), profile: Some("Mon écran.icm".into()), sdr_white: Some(300.0) });
+        // Fin : profil retiré, profil et blanc d'avant remis, HDR remis.
+        m.stop("fin du test");
+        let screen = sim.screen.lock().unwrap();
+        assert_eq!(screen.profiles[0].as_deref(), Some("Mon écran.icm"));
+        assert_eq!(screen.whites[0], Some(300.0));
+        assert!(screen.installed.is_empty());
+        assert!(!screen.hdr_memory[0]);
+        assert!(!m.hdr_path().exists());
+    }
+
+    #[test]
+    fn valeurs_changees_en_session_et_gamma_srgb() {
+        let (m, sim, _) = simulated(VdSettings { hdr_desktop_gamma: DesktopGamma::Srgb, ..VdSettings::default() });
+        m.start_screens_hdr(Origin::App, vec![Screen::single(TV)], &on(&[true]), None, Some("tv".into()), None).unwrap();
+        let first = sim.screen.lock().unwrap().profiles[0].clone().unwrap();
+        // « sRGB de Windows » : le profil garde les luminosités, sa table ne change rien.
+        let bytes = std::fs::read(m.data_dir.join("display").join(&first)).unwrap();
+        assert_eq!(bytes, icc::profile(&hdr::ScreenLuminance::default(), false));
+        // L'app donne les valeurs d'un autre écran : nouveau profil, l'ancien retiré, sans rebasculer le HDR.
+        assert_eq!(m.set_session_hdr("tv", &[Some(XDR)]), Some(vec![true]));
+        {
+            let screen = sim.screen.lock().unwrap();
+            assert_eq!(screen.installed.len(), 1);
+            assert_ne!(screen.installed[0], first);
+            assert!(screen.hdr_calls.last().unwrap().is_empty(), "HDR déjà en place");
+        }
+        // Mêmes valeurs : rien à faire.
+        let calls = sim.screen.lock().unwrap().hdr_calls.len();
+        assert_eq!(m.set_session_hdr("tv", &[Some(XDR)]), Some(vec![true]));
+        assert_eq!(sim.screen.lock().unwrap().hdr_calls.len(), calls);
+        // Retour en SDR : la couleur d'avant revient tout de suite.
+        assert_eq!(m.set_session_hdr("tv", &[None]), Some(vec![false]));
+        let screen = sim.screen.lock().unwrap();
+        assert_eq!(screen.profiles[0], None);
+        assert!(screen.installed.is_empty());
+        assert!(!m.hdr_path().exists());
+    }
+
+    #[test]
+    fn couleur_remise_apres_un_plantage() {
+        let (m, sim, _) = simulated(VdSettings::default());
+        m.start_screens_hdr(Origin::App, trois_ecrans(), &[Some(XDR), None, Some(XDR)], None, Some("mac".into()), None).unwrap();
+        assert_eq!(sim.screen.lock().unwrap().installed.len(), 2);
+        let again = Manager::with_backend(m.data_dir.clone(), VdSettings::default(), Box::new(sim.clone()));
+        again.recover();
+        let screen = sim.screen.lock().unwrap();
+        assert!(screen.installed.is_empty());
+        assert_eq!(screen.profiles, [None, None, None, None]);
+        assert!(!again.hdr_path().exists());
+    }
+
+    #[test]
+    fn couleur_remise_a_la_creation_suivante_si_l_ecran_a_disparu() {
+        let (m, sim, _) = simulated(VdSettings::default());
+        m.start_screens_hdr(Origin::App, vec![Screen::single(TV)], &[Some(XDR)], None, Some("tv".into()), None).unwrap();
+        let _ = sim.remove(slot_guid(0));
+        let again = Manager::with_backend(m.data_dir.clone(), VdSettings::default(), Box::new(sim.clone()));
+        again.recover();
+        assert!(hdr_file(&again).unwrap().screens[0].color.is_some(), "rien à remettre tant que l'écran n'existe pas");
+        assert!(ours(&sim.screen.lock().unwrap().profiles[0]), "Windows garde le profil de l'écran");
+        // Session suivante en HDR : le profil d'avant reste celui d'avant notre premier passage.
+        again.start_screens_hdr(Origin::App, vec![Screen::single(TV)], &on(&[true]), None, Some("tv".into()), None).unwrap();
+        assert_eq!(hdr_file(&again).unwrap().screens[0].color.as_ref().unwrap().profile, None);
+        assert_eq!(sim.screen.lock().unwrap().installed.len(), 1, "l'ancien profil remplacé");
+        again.stop("fin du test");
+        let screen = sim.screen.lock().unwrap();
+        assert_eq!(screen.profiles[0], None);
+        assert!(screen.installed.is_empty());
+        assert!(!again.hdr_path().exists());
+    }
+
+    #[test]
+    fn profil_refuse_le_hdr_reste() {
+        let (m, sim, _) = simulated(VdSettings::default());
+        sim.screen.lock().unwrap().color_fails = true;
+        let started = m.start_screens_hdr(Origin::App, vec![Screen::single(TV)], &[Some(XDR)], None, Some("tv".into()), None).unwrap();
+        assert_eq!(started.hdr, vec![true]);
+        assert!(sim.screen.lock().unwrap().installed.is_empty());
+        assert!(hdr_file(&m).unwrap().screens[0].color.is_none());
+        m.stop("fin du test");
+        assert!(!m.hdr_path().exists());
+    }
+
+    #[test]
+    fn ecran_du_pret_en_hdr() {
+        let (m, sim, _) = simulated(VdSettings::default());
+        let started = m.start_keeping_others(TV, Some("pret-1".into()), Some(XDR)).unwrap();
+        assert_eq!(started.hdr, vec![true]);
+        assert!(ours(&sim.screen.lock().unwrap().profiles[0]));
+        m.stop("fin du prêt");
+        assert!(sim.screen.lock().unwrap().installed.is_empty());
+        // Sans HDR demandé : comme avant.
+        let started = m.start_keeping_others(TV, Some("pret-2".into()), None).unwrap();
+        assert_eq!(started.hdr, vec![false]);
+    }
+
+    #[test]
+    fn hdr_de_l_ecran_du_pc_garde_30_s() {
+        let (m, sim, _) = simulated(VdSettings::default());
+        assert!(!m.display_hdr_cached());
+        sim.screen.lock().unwrap().physical_hdr = true;
+        assert!(!m.display_hdr_cached(), "lu il y a moins de 30 s");
+        let reads = |sim: &Simulated| sim.screen.lock().unwrap().steps.iter().filter(|s| **s == "pc").count();
+        assert_eq!(reads(&sim), 1);
+        *m.display_hdr_seen.lock().unwrap() = Some((Instant::now() - DISPLAY_HDR_CACHE, false));
+        assert!(m.display_hdr_cached());
+        assert_eq!(reads(&sim), 2);
     }
 }

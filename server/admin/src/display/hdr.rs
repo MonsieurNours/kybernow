@@ -8,11 +8,132 @@
 //! quand l'écran est retiré : Windows garde le HDR d'un écran d'une fois sur
 //! l'autre (les écrans virtuels ont des identifiants fixes).
 //!
+//! Avec le HDR, Admin pose aussi sur l'écran virtuel un profil de couleur
+//! généré pour l'écran de l'appareil (`icc.rs` : luminosités, et bureau SDR
+//! ramené au gamma 2.2 selon le réglage), associé par les API de couleur de
+//! Windows (WCS), et règle le blanc du bureau (niveau de blanc SDR) ; l'état
+//! d'avant (profil par défaut, blanc) est noté et remis comme le HDR.
+//!
 //! Comme la disposition des écrans, la lecture et la bascule se font dans la
-//! session de l'écran, par l'agent d'affichage (`display-agent hdr`, voir
-//! `agent.rs`).
+//! session de l'écran, par l'agent d'affichage (`display-agent hdr --request
+//! <fichier>`, voir `agent.rs`).
+
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
+
+use super::Created;
+
+/// Les valeurs de l'écran de l'appareil, en nits (`luminance` de `prepare`,
+/// de `POST /api/stream/hdr` et de l'emprunt) : luminosité maximale (petite
+/// zone), sur tout l'écran, noir, blanc du bureau. Absentes : 1000, 1000, 0, 203.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ScreenLuminance {
+    #[serde(default = "default_max")]
+    pub max: f32,
+    #[serde(default = "default_max")]
+    pub full_frame: f32,
+    #[serde(default)]
+    pub min: f32,
+    #[serde(default = "default_white")]
+    pub sdr_white: f32,
+}
+
+fn default_max() -> f32 {
+    1000.0
+}
+fn default_white() -> f32 {
+    203.0
+}
+
+impl Default for ScreenLuminance {
+    fn default() -> Self {
+        ScreenLuminance { max: default_max(), full_frame: default_max(), min: 0.0, sdr_white: default_white() }
+    }
+}
+
+// Valeurs bornées (`bounded`) : jamais NaN.
+impl Eq for ScreenLuminance {}
+
+impl ScreenLuminance {
+    /// Bornes du contrat (comme le cœur) : maximum 100 à 10 000, plein écran
+    /// au plus le maximum, noir 0 à 1, blanc 80 à 480 ; une valeur illisible
+    /// prend sa valeur par défaut.
+    pub fn bounded(self) -> Self {
+        let d = Self::default();
+        let ok = |v: f32, fallback: f32| if v.is_finite() { v } else { fallback };
+        let max = ok(self.max, d.max).clamp(100.0, 10_000.0);
+        ScreenLuminance {
+            max,
+            full_frame: ok(self.full_frame, max).clamp(1.0, max),
+            min: ok(self.min, d.min).clamp(0.0, 1.0),
+            sdr_white: ok(self.sdr_white, d.sdr_white).clamp(80.0, 480.0),
+        }
+    }
+}
+
+/// Profil et blanc à poser sur un écran passé en HDR.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ColorApply {
+    /// Le profil généré (`icc.rs`), installé sous son nom de fichier.
+    pub profile: PathBuf,
+    /// Blanc du bureau, en nits.
+    pub sdr_white: f32,
+    /// Luminosité maximale du profil : DXGI est attendu jusqu'à la rendre.
+    pub max: f32,
+    /// Profil de KyberNow posé avant sur cet écran, à retirer.
+    #[serde(default)]
+    pub replace: Option<String>,
+}
+
+/// Ce qu'il faut remettre : notre profil à retirer, et le profil par défaut
+/// et le blanc d'avant la session.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ColorOriginal {
+    pub installed: String,
+    #[serde(default)]
+    pub profile: Option<String>,
+    #[serde(default)]
+    pub sdr_white: Option<f32>,
+}
+
+/// Un écran pour l'agent : son HDR voulu, la couleur à poser ou à remettre.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HdrAsk {
+    pub created: Created,
+    pub on: bool,
+    #[serde(default)]
+    pub apply: Option<ColorApply>,
+    #[serde(default)]
+    pub restore: Option<ColorOriginal>,
+}
+
+/// La demande que lit l'agent (`--request`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HdrRequest {
+    pub screens: Vec<HdrAsk>,
+}
+
+/// Ce que l'agent a fait de la couleur d'un écran.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ColorSeen {
+    /// Notre profil, associé et par défaut pour l'écran.
+    #[serde(default)]
+    pub installed: Option<String>,
+    /// Profil par défaut et blanc avant notre passage.
+    #[serde(default)]
+    pub original_profile: Option<String>,
+    #[serde(default)]
+    pub original_white: Option<f32>,
+    /// Blanc relu après la pose (ou la remise).
+    #[serde(default)]
+    pub white: Option<f32>,
+    /// Remise faite (`restore`).
+    #[serde(default)]
+    pub restored: bool,
+    #[serde(default)]
+    pub error: Option<String>,
+}
 
 /// Luminance que Windows donne pour un écran (`IDXGIOutput6::GetDesc1`), en nits.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
@@ -52,23 +173,46 @@ pub struct HdrSeen {
     pub waited_ms: Option<u64>,
     #[serde(default)]
     pub error: Option<String>,
+    /// Profil et blanc (pose ou remise).
+    #[serde(default)]
+    pub color: Option<ColorSeen>,
 }
 
-/// `luid_low,luid_high,target,0|1` : un écran et le HDR voulu (`display-agent hdr --screen`).
-#[cfg_attr(not(windows), allow(dead_code))]
-pub fn screen_arg(created: &super::Created, on: bool) -> String {
-    format!("{},{}", created.to_arg(), u8::from(on))
-}
-
-#[cfg_attr(not(windows), allow(dead_code))]
-pub fn parse_screen_arg(arg: &str) -> anyhow::Result<(super::Created, bool)> {
-    let [low, high, target, on] = super::numbers::<4>(arg)?;
-    let created = super::Created {
-        luid_low: super::narrow(low, arg)?,
-        luid_high: super::narrow(high, arg)?,
-        target: super::narrow(target, arg)?,
-    };
-    Ok((created, on != 0))
+/// Ligne de journal de la couleur posée sur un écran : valeurs, profil
+/// associé, blanc relu, et luminosité que `GetDesc1` rend ensuite (ce que
+/// les jeux liront).
+pub fn color_line(name: &str, lum: &ScreenLuminance, gamma22: bool, seen: &HdrSeen) -> String {
+    let mut line = format!(
+        "écran {name} : valeurs de l'écran de l'appareil posées : {:.0} nits (plein écran {:.0}), noir {:.3}, blanc du bureau {:.0} nits, bureau en {}",
+        lum.max,
+        lum.full_frame,
+        lum.min,
+        lum.sdr_white,
+        if gamma22 { "gamma 2.2" } else { "sRGB" }
+    );
+    match seen.color.as_ref() {
+        Some(c) => {
+            match &c.installed {
+                Some(p) => line.push_str(&format!(" ; profil {p} associé")),
+                None => line.push_str(" ; profil non associé"),
+            }
+            if let Some(w) = c.white {
+                line.push_str(&format!(", blanc relu {w:.0} nits"));
+            }
+            if let Some(e) = &c.error {
+                line.push_str(&format!(" ({e})"));
+            }
+        }
+        None => line.push_str(" ; profil non associé"),
+    }
+    match seen.luminance {
+        Some(l) => line.push_str(&format!(
+            " ; GetDesc1 rend ensuite {:.3}–{:.0} nits (pleine image {:.0} nits)",
+            l.min, l.max, l.max_full_frame
+        )),
+        None => line.push_str(" ; GetDesc1 illisible"),
+    }
+    line
 }
 
 /// Une ligne de journal par écran : HDR demandé, obtenu, luminance donnée
@@ -116,7 +260,7 @@ mod win {
     };
     use windows_sys::Win32::Foundation::LUID;
 
-    use super::{HdrSeen, Luminance};
+    use super::{ColorApply, ColorOriginal, ColorSeen, HdrAsk, HdrSeen, Luminance};
     use crate::display::Created;
     use crate::display::topology;
 
@@ -127,6 +271,169 @@ mod win {
     const COLOR_MODE_HDR: i32 = 2;
     /// Attente de la confirmation de Windows.
     const CONFIRM: Duration = Duration::from_secs(2);
+    /// Non documenté (le curseur « Luminosité du contenu SDR » de Windows) :
+    /// `SDRWhiteLevel` en millièmes de 80 nits, puis `finalValue` à 1.
+    const SET_SDR_WHITE_LEVEL: i32 = 0xFFFF_FFEEu32 as i32;
+
+    #[repr(C)]
+    struct SetSdrWhiteLevel {
+        header: DISPLAYCONFIG_DEVICE_INFO_HEADER,
+        level: u32,
+        final_value: u8,
+    }
+
+    fn set_sdr_white(c: &Created, nits: f32) -> Result<()> {
+        let s = SetSdrWhiteLevel {
+            header: header(SET_SDR_WHITE_LEVEL, size_of::<SetSdrWhiteLevel>(), c),
+            level: (nits * 1000.0 / 80.0).round() as u32,
+            final_value: 1,
+        };
+        let err = unsafe { DisplayConfigSetDeviceInfo(&s.header) };
+        if err != 0 {
+            bail!("blanc du bureau refusé par Windows (code {err})");
+        }
+        Ok(())
+    }
+
+    /// Profils de couleur de l'écran (WCS, portée de tout l'ordinateur :
+    /// l'agent tourne en SYSTEM).
+    mod wcs {
+        use std::path::Path;
+
+        use anyhow::{Result, bail};
+        use windows_sys::Win32::Foundation::{LUID, LocalFree};
+        use windows_sys::Win32::UI::ColorSystem::{
+            CPST_EXTENDED_DISPLAY_COLOR_MODE, CPT_ICC, ColorProfileAddDisplayAssociation, ColorProfileGetDisplayDefault,
+            ColorProfileRemoveDisplayAssociation, ColorProfileSetDisplayDefaultAssociation, GetColorDirectoryW,
+            InstallColorProfileW, UninstallColorProfileW, WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE as SCOPE,
+        };
+
+        fn wide(s: &str) -> Vec<u16> {
+            s.encode_utf16().chain(std::iter::once(0)).collect()
+        }
+
+        fn check(hr: i32, what: &str) -> Result<()> {
+            if hr < 0 {
+                bail!("{what} : HRESULT {hr:#010x}");
+            }
+            Ok(())
+        }
+
+        /// Profil par défaut de l'écran en mode couleurs avancées (HDR).
+        pub fn default_profile(luid: LUID, source: u32) -> Option<String> {
+            let mut name: *mut u16 = std::ptr::null_mut();
+            let hr = unsafe { ColorProfileGetDisplayDefault(SCOPE, luid, source, CPT_ICC, CPST_EXTENDED_DISPLAY_COLOR_MODE, &mut name) };
+            if hr < 0 || name.is_null() {
+                return None;
+            }
+            let text = unsafe {
+                let len = (0..).take_while(|&i| *name.add(i) != 0).count();
+                String::from_utf16_lossy(std::slice::from_raw_parts(name, len))
+            };
+            unsafe { LocalFree(name as *mut _) };
+            (!text.is_empty()).then_some(text)
+        }
+
+        /// Installe le profil (copié dans le dossier des profils de Windows) ; rend son nom.
+        pub fn install(path: &Path) -> Result<String> {
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_string();
+            let _ = uninstall(&name);
+            if unsafe { InstallColorProfileW(std::ptr::null(), wide(&path.display().to_string()).as_ptr()) } == 0 {
+                bail!("installation du profil {name} : {}", std::io::Error::last_os_error());
+            }
+            Ok(name)
+        }
+
+        pub fn uninstall(name: &str) -> Result<()> {
+            let mut buf = [0u16; 512];
+            let mut size = (buf.len() * 2) as u32;
+            if unsafe { GetColorDirectoryW(std::ptr::null(), buf.as_mut_ptr(), &mut size) } == 0 {
+                bail!("dossier des profils : {}", std::io::Error::last_os_error());
+            }
+            let len = buf.iter().position(|c| *c == 0).unwrap_or(buf.len());
+            let path = format!("{}\\{name}", String::from_utf16_lossy(&buf[..len]));
+            if unsafe { UninstallColorProfileW(std::ptr::null(), wide(&path).as_ptr(), 1) } == 0 {
+                bail!("retrait du profil {name} : {}", std::io::Error::last_os_error());
+            }
+            Ok(())
+        }
+
+        /// Associe le profil à l'écran, par défaut, en mode couleurs avancées.
+        pub fn associate(name: &str, luid: LUID, source: u32) -> Result<()> {
+            check(unsafe { ColorProfileAddDisplayAssociation(SCOPE, wide(name).as_ptr(), luid, source, 1, 1) }, "association du profil")
+        }
+
+        pub fn dissociate(name: &str, luid: LUID, source: u32) -> Result<()> {
+            check(unsafe { ColorProfileRemoveDisplayAssociation(SCOPE, wide(name).as_ptr(), luid, source, 1) }, "retrait de l'association")
+        }
+
+        pub fn set_default(name: &str, luid: LUID, source: u32) -> Result<()> {
+            check(
+                unsafe { ColorProfileSetDisplayDefaultAssociation(SCOPE, wide(name).as_ptr(), CPT_ICC, CPST_EXTENDED_DISPLAY_COLOR_MODE, luid, source) },
+                "profil par défaut",
+            )
+        }
+    }
+
+    /// Adaptateur et source de l'écran (les API de couleur les demandent).
+    fn source_of(c: &Created) -> Option<(LUID, u32)> {
+        let (paths, _) = topology::active_config().ok()?;
+        let path = paths.iter().find(|p| topology::is_target(p, c.luid_low, c.luid_high, c.target))?;
+        Some((path.targetInfo.adapterId, path.sourceInfo.id))
+    }
+
+    /// Pose notre profil et le blanc du bureau, en notant ce qu'il y avait.
+    fn apply_color(c: &Created, apply: &ColorApply) -> ColorSeen {
+        let mut seen = ColorSeen { original_white: sdr_white(c), ..ColorSeen::default() };
+        let Some((luid, source)) = source_of(c) else {
+            seen.error = Some("écran introuvable".into());
+            return seen;
+        };
+        seen.original_profile = wcs::default_profile(luid, source);
+        let mut errors = Vec::new();
+        if let Some(old) = &apply.replace {
+            let _ = wcs::dissociate(old, luid, source);
+            let _ = wcs::uninstall(old);
+        }
+        match wcs::install(&apply.profile).and_then(|name| wcs::associate(&name, luid, source).map(|_| name)) {
+            Ok(name) => seen.installed = Some(name),
+            Err(e) => errors.push(format!("{e:#}")),
+        }
+        if let Err(e) = set_sdr_white(c, apply.sdr_white) {
+            errors.push(format!("{e:#}"));
+        }
+        seen.white = sdr_white(c);
+        seen.error = (!errors.is_empty()).then(|| errors.join(" ; "));
+        seen
+    }
+
+    /// Retire notre profil, remet le profil par défaut et le blanc d'avant.
+    fn restore_color(c: &Created, original: &ColorOriginal) -> ColorSeen {
+        let mut seen = ColorSeen::default();
+        let Some((luid, source)) = source_of(c) else {
+            seen.error = Some("écran introuvable".into());
+            return seen;
+        };
+        let mut errors = Vec::new();
+        if let Err(e) = wcs::dissociate(&original.installed, luid, source) {
+            errors.push(format!("{e:#}"));
+        }
+        if let Some(profile) = &original.profile
+            && let Err(e) = wcs::set_default(profile, luid, source)
+        {
+            errors.push(format!("{e:#}"));
+        }
+        if let Some(white) = original.sdr_white
+            && let Err(e) = set_sdr_white(c, white)
+        {
+            errors.push(format!("{e:#}"));
+        }
+        let _ = wcs::uninstall(&original.installed);
+        seen.white = sdr_white(c);
+        seen.restored = errors.is_empty();
+        seen.error = (!errors.is_empty()).then(|| errors.join(" ; "));
+        seen
+    }
 
     /// `DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO_2` (wingdi.h, 24H2).
     #[repr(C)]
@@ -257,10 +564,13 @@ mod win {
     /// `display-agent hdr` : passe chaque écran au HDR voulu et attend que
     /// Windows le confirme (2 s au plus, pour tous ensemble) ; la capture
     /// suit DXGI, attendu lui aussi quand il connaît l'écran.
-    pub fn agent_set(screens: &[(Created, bool)]) -> Result<Value> {
+    pub fn agent_set(asks: &[HdrAsk]) -> Result<Value> {
+        // Couleurs d'avant remises d'abord (fin de session, reprise).
+        let restored: Vec<Option<ColorSeen>> = asks.iter().map(|a| a.restore.as_ref().map(|r| restore_color(&a.created, r))).collect();
+        let screens: Vec<(Created, bool)> = asks.iter().map(|a| (a.created, a.on)).collect();
         let begun = Instant::now();
         let mut seen: Vec<HdrSeen> = Vec::with_capacity(screens.len());
-        for (c, want) in screens {
+        for (c, want) in &screens {
             let mut s = HdrSeen { gdi_name: gdi_of(c), ..HdrSeen::default() };
             match read_state(c) {
                 Ok(state) => {
@@ -318,6 +628,36 @@ mod win {
             }
             s.luminance = s.gdi_name.as_deref().and_then(dxgi).map(|(l, _)| l);
             s.sdr_white = sdr_white(c);
+        }
+        // Profil et blanc sur les écrans en HDR, puis la luminosité que
+        // DXGI rend ensuite (attendue 1 s au plus : ce que liront les jeux).
+        let mut expected: Vec<Option<f32>> = vec![None; asks.len()];
+        for (i, (ask, restored)) in asks.iter().zip(restored).enumerate() {
+            let s = &mut seen[i];
+            s.color = restored;
+            if let Some(apply) = ask.apply.as_ref().filter(|_| ask.on && s.active) {
+                let color = apply_color(&ask.created, apply);
+                if color.installed.is_some() {
+                    expected[i] = Some(apply.max);
+                }
+                s.sdr_white = color.white.or(s.sdr_white);
+                s.color = Some(color);
+            }
+        }
+        if expected.iter().any(Option::is_some) {
+            let deadline = Instant::now() + Duration::from_secs(1);
+            loop {
+                let mut waiting = false;
+                for (s, max) in seen.iter_mut().zip(&expected) {
+                    let Some(max) = max else { continue };
+                    s.luminance = s.gdi_name.as_deref().and_then(dxgi).map(|(l, _)| l);
+                    waiting |= s.luminance.is_none_or(|l| (l.max - max).abs() > 1.0);
+                }
+                if !waiting || Instant::now() >= deadline {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
         }
         Ok(json!({ "screens": seen }))
     }
