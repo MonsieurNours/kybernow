@@ -525,12 +525,20 @@ export type Trigger = 'off' | 'apps' | 'all'
 /** Si le mode de l'écran virtuel change en session : laisser faire ou le remettre. */
 export type ModePolicy = 'follow' | 'restore'
 
+/** HDR proposé aux apps (docs/hdr.md) : « Si l'appareil le demande » ou « Jamais ». */
+export type HdrSetting = 'auto' | 'never'
+export type DesktopGamma = '2.2' | 'srgb'
+
 export interface VdSettings {
   trigger: Trigger
   width: number
   height: number
   refresh: number
   on_mode_change: ModePolicy
+  /** Absent d'une Station d'avant le HDR. */
+  hdr?: HdrSetting
+  /** « Bureau en HDR » : gamma 2.2 (conseillé) ou la courbe sRGB de Windows. */
+  hdr_desktop_gamma?: DesktopGamma
 }
 
 export interface DisplayStatus {
@@ -548,7 +556,11 @@ export interface DisplayStatus {
     seconds_left: number | null
     applied: { gdi_name?: string; width?: number; height?: number; refresh?: number; disabled_others?: number }
     mode_policy: ModePolicy
+    /** HDR en place pour chaque écran, dans l'ordre de la demande. */
+    hdr?: boolean[]
   }
+  /** HDR proposé par cette Station ; sinon pourquoi (`off` : réglé sur « Jamais » ; `windows` : avant Windows 11 24H2 ; `encoder` : x264 ou carte sans 10 bits ; `display` : sans écran virtuel, écran du PC en SDR). */
+  hdr?: { available: boolean; reason?: 'off' | 'windows' | 'encoder' | 'display' }
   /** Mode courant de l'écran virtuel et écrans actifs, relus chaque seconde en session. */
   mode: { width: number; height: number; refresh: number } | null
   displays: number | null

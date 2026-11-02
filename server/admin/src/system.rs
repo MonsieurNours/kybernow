@@ -10,6 +10,21 @@ pub fn os_name() -> Option<String> {
     NAME.get_or_init(read).clone()
 }
 
+/// Numéro de build de Windows (26100 : Windows 11 24H2) ; `None` ailleurs.
+pub fn windows_build() -> Option<u32> {
+    #[cfg(windows)]
+    {
+        static BUILD: OnceLock<Option<u32>> = OnceLock::new();
+        *BUILD.get_or_init(|| reg_string("CurrentBuildNumber").and_then(|b| b.trim().parse().ok()))
+    }
+    #[cfg(not(windows))]
+    None
+}
+
+/// Windows 11 24H2, le premier qui passe un écran en HDR par
+/// `DISPLAYCONFIG_SET_HDR_STATE` (docs/hdr.md).
+pub const HDR_BUILD: u32 = 26100;
+
 #[cfg(windows)]
 fn read() -> Option<String> {
     let product = reg_string("ProductName")?;

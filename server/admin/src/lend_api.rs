@@ -241,7 +241,8 @@ fn loan_answer(s: &AppState, loan: &lend::Loan, via: Option<&Via>) -> Response {
             "token": token,
             "expires": lend::TOKEN_LIFETIME,
         },
-        "display": { "id": id, "width": screen.width, "height": screen.height, "refresh": screen.refresh },
+        // `hdr` : l'écran virtuel de l'ami est en HDR (docs/hdr.md).
+        "display": { "id": id, "width": screen.width, "height": screen.height, "refresh": screen.refresh, "hdr": loan.display_hdr },
         "until": loan.until,
         "steam": loan.steam,
         "beat": lend::BEAT_SECONDS,
@@ -365,18 +366,23 @@ async fn prepare(s: &AppState, loan: lend::Loan) -> bool {
     }
     // L'écran virtuel à la taille de l'ami, et le son.
     let screen = loan.who.screen;
+    // HDR de l'ami, comme pour un hôte (docs/hdr.md), s'il est proposé.
+    let hdr = crate::api::hdr_granted(s, vec![loan.who.hdr]).await.first().copied().flatten();
     let (d, a, id) = (s.display.clone(), s.audio.clone(), loan.id.clone());
     let started = blocking(move || {
         d.stop("prêt de l'ordinateur");
         let mode = Mode { width: screen.width, height: screen.height, refresh: screen.refresh };
-        d.start_keeping_others(mode, Some(id))?;
+        let started = d.start_keeping_others(mode, Some(id), hdr)?;
         a.start(Origin::App, Some(2));
-        Ok(d.primary_screen())
+        Ok(d.primary_screen().map(|p| (p, started.hdr.first().copied().unwrap_or(false))))
     })
     .await;
     let display = match started {
-        Ok(Some((name, mode))) if !name.is_empty() => (crate::display::kyber_display_id(&name), Screen { width: mode.width, height: mode.height, refresh: mode.refresh }),
-        Ok(_) if cfg!(not(windows)) => (1, screen),
+        Ok(Some(((name, mode), hdr))) if !name.is_empty() => {
+            (crate::display::kyber_display_id(&name), Screen { width: mode.width, height: mode.height, refresh: mode.refresh }, hdr)
+        }
+        Ok(Some((_, hdr))) if cfg!(not(windows)) => (1, screen, hdr),
+        Ok(None) if cfg!(not(windows)) => (1, screen, false),
         Ok(_) => {
             tracing::warn!("prêt : écran virtuel sans nom");
             return false;
@@ -398,7 +404,7 @@ async fn prepare(s: &AppState, loan: lend::Loan) -> bool {
         .await;
         return abandoned(s, &loan.id);
     }
-    s.lend.set_display(&loan.id, display.0, display.1);
+    s.lend.set_display(&loan.id, display.0, display.1, display.2);
     // Le mode console : l'agent dans la session de l'utilisateur, la surveillance par Admin.
     let settings = settings(s);
     let exes: Vec<String> = settings.apps.iter().filter_map(|a| a.exe.clone()).collect();
@@ -623,7 +629,23 @@ pub struct BorrowBody {
     #[serde(default)]
     app: String,
     #[serde(default)]
-    screen: Option<Screen>,
+    screen: Option<BorrowScreen>,
+}
+
+/// HDR voulu par l'ami : les valeurs de son écran (par défaut si absentes), ou `None`.
+fn borrow_hdr(screen: Option<BorrowScreen>) -> crate::display::HdrWish {
+    screen.and_then(|b| b.hdr.then(|| b.luminance.unwrap_or_default().bounded()))
+}
+
+/// L'écran de l'ami : sa taille, et son HDR avec ses valeurs (docs/hdr.md).
+#[derive(Deserialize, Clone, Copy)]
+pub struct BorrowScreen {
+    #[serde(flatten)]
+    screen: Screen,
+    #[serde(default)]
+    hdr: bool,
+    #[serde(default)]
+    luminance: Option<crate::display::hdr::ScreenLuminance>,
 }
 
 /// `POST /api/lend/borrow` : emprunter, avec un code ou un compte d'ami.
@@ -637,7 +659,8 @@ pub async fn borrow(
     if let Err(wait) = s.lend.limits.count_try(peer.ip(), Instant::now()) {
         return too_many(wait);
     }
-    let mut who = Who::new(&body.name, &body.device, &body.app, via.is_some(), Kind::Code, body.screen);
+    let mut who = Who::new(&body.name, &body.device, &body.app, via.is_some(), Kind::Code, body.screen.map(|b| b.screen));
+    who.hdr = borrow_hdr(body.screen);
     let (until, steam, from_session);
     let mut slot = false;
     if let Some(code) = body.code.as_deref().map(|c| c.chars().filter(|c| !c.is_whitespace()).collect::<String>()) {
@@ -1436,6 +1459,20 @@ async fn supervise_tick(s: &AppState) {
 #[cfg(all(test, not(windows)))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn borrow_carries_the_friend_hdr() {
+        let body: BorrowBody = serde_json::from_value(json!({ "code": "123456", "name": "Léa",
+            "screen": { "width": 2560, "height": 1440, "refresh": 120, "hdr": true, "luminance": { "max": 800, "sdr_white": 250 } } })).unwrap();
+        let screen = body.screen.unwrap();
+        assert_eq!(screen.screen, Screen { width: 2560, height: 1440, refresh: 120 });
+        let lum = borrow_hdr(Some(screen)).unwrap();
+        assert_eq!((lum.max, lum.full_frame, lum.min, lum.sdr_white), (800.0, 800.0, 0.0, 250.0));
+        // Sans `hdr`, ou d'une app d'avant : SDR, comme avant.
+        let body: BorrowBody = serde_json::from_value(json!({ "code": "123456", "screen": { "width": 1920, "height": 1080 } })).unwrap();
+        assert_eq!(borrow_hdr(body.screen), None);
+        assert_eq!(borrow_hdr(None), None);
+    }
 
     fn station() -> (AppState, std::path::PathBuf) {
         let dir = std::env::temp_dir().join(format!("kn-lend-api-{}", rand::random::<u64>()));

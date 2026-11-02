@@ -50,7 +50,7 @@ pub struct Applied {
     pub disabled_others: usize,
 }
 
-fn active_config() -> Result<(Vec<DISPLAYCONFIG_PATH_INFO>, Vec<DISPLAYCONFIG_MODE_INFO>)> {
+pub(super) fn active_config() -> Result<(Vec<DISPLAYCONFIG_PATH_INFO>, Vec<DISPLAYCONFIG_MODE_INFO>)> {
     query(QDC_ONLY_ACTIVE_PATHS)
 }
 
@@ -84,12 +84,12 @@ fn query(flags: QUERY_DISPLAY_CONFIG_FLAGS) -> Result<(Vec<DISPLAYCONFIG_PATH_IN
     bail!("la configuration d'affichage change sans arrêt")
 }
 
-fn is_target(path: &DISPLAYCONFIG_PATH_INFO, luid_low: u32, luid_high: i32, target: u32) -> bool {
+pub(super) fn is_target(path: &DISPLAYCONFIG_PATH_INFO, luid_low: u32, luid_high: i32, target: u32) -> bool {
     let t = &path.targetInfo;
     t.adapterId.LowPart == luid_low && t.adapterId.HighPart == luid_high && t.id == target
 }
 
-fn gdi_name(path: &DISPLAYCONFIG_PATH_INFO) -> Option<String> {
+pub(super) fn gdi_name(path: &DISPLAYCONFIG_PATH_INFO) -> Option<String> {
     let mut name = DISPLAYCONFIG_SOURCE_DEVICE_NAME::default();
     name.header.r#type = DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME;
     name.header.size = size_of::<DISPLAYCONFIG_SOURCE_DEVICE_NAME>() as u32;
@@ -713,7 +713,7 @@ fn stage_position(name: &str, (x, y): (i32, i32)) -> i32 {
 }
 
 /// Position actuelle de l'écran `name` (nom GDI) sur le bureau.
-fn current_position(name: &str) -> (i32, i32) {
+pub(super) fn current_position(name: &str) -> (i32, i32) {
     let wname: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
     unsafe {
         let mut current: DEVMODEW = std::mem::zeroed();
