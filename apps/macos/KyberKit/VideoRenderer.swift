@@ -188,6 +188,20 @@ final class VideoRenderer {
     }
     private var hdrScreen = false
 
+    /// Marge EDR du moment de l'écran (couche `linear` : la courbe du shader
+    /// s'y cale ; la surface la relit), et nits du blanc du bureau de
+    /// l'écran (réglage du HDR), qui vaut 1,0.
+    var edrHeadroom: Double {
+        get { lock.lock(); defer { lock.unlock() }; return headroomNow }
+        set { lock.lock(); headroomNow = newValue; lock.unlock() }
+    }
+    var sdrWhite: Double {
+        get { lock.lock(); defer { lock.unlock() }; return sdrWhiteNits }
+        set { lock.lock(); sdrWhiteNits = newValue; lock.unlock() }
+    }
+    private var headroomNow = 1.0
+    private var sdrWhiteNits = 203.0
+
     /// Le cœur dit ce flux en HDR (`on_hdr`) : une image 10 bits sans
     /// étiquette de transfert est lue comme du PQ BT.2020.
     var streamHDR: Bool {
@@ -314,7 +328,35 @@ final class VideoRenderer {
 
     /// Format de la couche dans chaque chaîne.
     static let sdrPixelFormat = MTLPixelFormat.bgra8Unorm
-    static let hdrPixelFormat = MTLPixelFormat.rgba16Float
+    static let hdrPixelFormat: MTLPixelFormat = hdrLayer == .pq10 ? .bgr10a2Unorm : .rgba16Float
+
+    /// Couche de la chaîne HDR (Mac, iPhone, iPad), choisie une fois par
+    /// processus : `KN_HDR_LAYER=edr|pq10|linear` pour comparer.
+    /// - `edr` : FP16 en `itur_2100_PQ`, `edrMetadata` HDR10 (le compositeur
+    ///   fait la courbe).
+    /// - `pq10` : `bgr10a2Unorm` en `itur_2100_PQ`, sans `edrMetadata`.
+    /// - `linear` : FP16 en `extendedLinearDisplayP3`, sans `edrMetadata` ; la
+    ///   courbe est faite dans le shader d'après la marge EDR du moment
+    ///   (`edrHeadroom`), le blanc du bureau à 1,0.
+    enum HDRLayer: String {
+        case edr, pq10, linear
+
+        var label: String {
+            switch self {
+            case .edr: return "FP16, PQ, EDR, métadonnées HDR10"
+            case .pq10: return "10 bits, PQ, EDR, sans métadonnées"
+            case .linear: return "FP16, linéaire Display P3 étendu, courbe du shader"
+            }
+        }
+    }
+    static let hdrLayer: HDRLayer = {
+        #if os(tvOS)
+        return .edr
+        #else
+        return ProcessInfo.processInfo.environment["KN_HDR_LAYER"].flatMap(HDRLayer.init(rawValue:)) ?? defaultHDRLayer
+        #endif
+    }()
+    static let defaultHDRLayer = HDRLayer.edr
 
     private static let core: Core? = {
         guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else { return nil }
@@ -420,9 +462,14 @@ final class VideoRenderer {
             #endif
         case .hdr:
             layer.pixelFormat = Self.hdrPixelFormat
-            layer.colorspace = CGColorSpace(name: CGColorSpace.itur_2100_PQ)
+            layer.colorspace = CGColorSpace(name: Self.hdrLayer == .linear ? CGColorSpace.extendedLinearDisplayP3 : CGColorSpace.itur_2100_PQ)
             #if !os(tvOS)
             layer.wantsExtendedDynamicRangeContent = true
+            guard Self.hdrLayer == .edr else {
+                // Sans métadonnées : pas de courbe du compositeur.
+                layer.edrMetadata = nil
+                return
+            }
             // Valeurs PQ absolues : 100 nits de la scène valent 1,0 de l'écran (référence SDR).
             if let edr, edr.display != nil || edr.content != nil {
                 layer.edrMetadata = CAEDRMetadata.hdr10(displayInfo: edr.display, contentInfo: edr.content, opticalOutputScale: 100)
@@ -449,7 +496,7 @@ final class VideoRenderer {
                 DispatchQueue.main.async { [weak self] in self?.onVideoLayer?(on) }
             }
             #else
-            let hdrLabel = "HDR (FP16, PQ, EDR)"
+            let hdrLabel = "HDR (\(Self.hdrLayer.label))"
             #endif
             KyberLog.video.notice("chaîne \(wanted == .hdr ? hdrLabel : "SDR", privacy: .public)\(self.label.isEmpty ? "" : " (\(self.label))", privacy: .public)")
             onChain?(wanted == .hdr)
@@ -465,7 +512,7 @@ final class VideoRenderer {
         guard color.mode != ColorConversion.sdr else { return (.sdr, color) }
         var c = color
         let hdr = hdrDisplay
-        c.mode = hdr ? ColorConversion.pq : ColorConversion.pqToSDR
+        c.mode = hdr ? Self.hdrMode : ColorConversion.pqToSDR
         return (hdr ? .hdr : .sdr, c)
     }
 
@@ -742,7 +789,15 @@ final class VideoRenderer {
         if colorCache?.format != format || colorCache?.width != width || colorCache?.height != height || (colorCache?.value.mode == ColorConversion.sdr) != (value.mode == ColorConversion.sdr) {
             KyberLog.video.notice("images \(Self.fourcc(format), privacy: .public) \(width)×\(height), \(layout.label, privacy: .public)\(value.mode == ColorConversion.sdr ? "" : ", PQ BT.2020", privacy: .public)\(CVPixelBufferGetIOSurface(buffer) == nil ? ", sans IOSurface" : "", privacy: .public)")
         }
-        colorCache = (format, width, height, now, value, value.mode == ColorConversion.sdr ? EDRInfo() : EDRInfo(buffer))
+        // Métadonnées HDR10 : le flux ne les porte qu'avec les images clés ;
+        // une image qui n'en a pas garde les dernières lues (sinon la couche
+        // retomberait sur 1 000 nits par défaut à chaque relecture).
+        var edr = EDRInfo()
+        if value.mode != ColorConversion.sdr {
+            edr = EDRInfo(buffer)
+            if edr.isEmpty, let last = colorCache?.edr, !last.isEmpty { edr = last }
+        }
+        colorCache = (format, width, height, now, value, edr)
         return value
     }
 
@@ -751,7 +806,13 @@ final class VideoRenderer {
     private func routed(_ color: ColorConversion, for target: MTLTexture) -> ColorConversion {
         guard color.mode != ColorConversion.sdr else { return color }
         var c = color
-        c.mode = target.pixelFormat == Self.hdrPixelFormat ? ColorConversion.pq : ColorConversion.pqToSDR
+        c.mode = target.pixelFormat == Self.hdrPixelFormat ? Self.hdrMode : ColorConversion.pqToSDR
+        if c.mode == ColorConversion.pqToEDR {
+            lock.lock()
+            c.headroom = Float(max(headroomNow, 1))
+            c.white = Float(sdrWhiteNits)
+            lock.unlock()
+        }
         return c
     }
 
@@ -793,7 +854,7 @@ final class VideoRenderer {
             let x = ((targetW - markerW) / 2).rounded()
             // Blanc du trait : 1 en SDR ; en PQ, le blanc de référence (203 nits).
             var uniforms = MarkerUniforms(rect: SIMD4(Float(x), 0, Float(x + markerW), Float(markerH)),
-                                          target: SIMD2(Float(targetW), Float(targetH)), opacity: 0.35, white: hdrTarget ? 0.58 : 1)
+                                          target: SIMD2(Float(targetW), Float(targetH)), opacity: 0.35, white: hdrTarget && Self.hdrLayer != .linear ? 0.58 : 1)
             encoder.setViewport(MTLViewport(originX: 0, originY: 0, width: targetW, height: targetH, znear: 0, zfar: 1))
             encoder.setRenderPipelineState(markerPipeline)
             encoder.setVertexBytes(&uniforms, length: MemoryLayout<MarkerUniforms>.stride, index: 0)
@@ -1010,10 +1071,19 @@ final class VideoRenderer {
         /// FP16, espace PQ) ; `pqToSDR` : image PQ ramenée en SDR BT.709.
         var mode: Int32 = 0
 
+        /// Marge EDR de l'écran (`pqToEDR`) et nits du blanc du bureau, posé à 1,0.
+        var headroom: Float = 1
+        var white: Float = 203
+
         static let sdr: Int32 = 0
         static let pq: Int32 = 1
         static let pqToSDR: Int32 = 2
+        /// Image PQ en lumière linéaire Display P3 étendue (couche `linear`).
+        static let pqToEDR: Int32 = 3
     }
+
+    /// Mode du shader dans la chaîne HDR, selon la couche.
+    static var hdrMode: Int32 { hdrLayer == .linear ? ColorConversion.pqToEDR : ColorConversion.pq }
 
     /// Métadonnées HDR10 du flux (SEI mastering display et MaxCLL), telles
     /// que VideoToolbox les attache à l'image.
@@ -1027,6 +1097,8 @@ final class VideoRenderer {
             display = CVBufferCopyAttachment(buffer, kCVImageBufferMasteringDisplayColorVolumeKey, nil) as? Data
             content = CVBufferCopyAttachment(buffer, kCVImageBufferContentLightLevelInfoKey, nil) as? Data
         }
+
+        var isEmpty: Bool { display == nil && content == nil }
     }
 
     /// L'image est en PQ (SMPTE ST 2084) : étiquetée ainsi par le flux.
@@ -1120,7 +1192,7 @@ final class VideoRenderer {
     using namespace metal;
 
     struct VOut { float4 position [[position]]; float2 uv; };
-    struct Conversion { float3x3 matrix; float3 offset; int mode; };
+    struct Conversion { float3x3 matrix; float3 offset; int mode; float headroom; float white; };
 
     // PQ (SMPTE ST 2084) → lumière linéaire, 1 = 10 000 nits.
     float3 kn_pq_eotf(float3 e) {
@@ -1150,6 +1222,28 @@ final class VideoRenderer {
         return select(1.055 * pow(c, 1.0 / 2.4) - 0.055, 12.92 * c, c <= 0.0031308);
     }
 
+    // Image PQ BT.2020 en lumière linéaire Display P3 étendue (couche
+    // `linear`) : le blanc du bureau vaut 1,0 ; au-dessus de 80 % de la marge
+    // EDR du moment, compression douce jusqu'à la marge (10 000 nits au bout).
+    float3 kn_pq_to_edr(float3 pq, float white, float headroom) {
+        float3 l = kn_pq_eotf(pq) * (10000.0 / white);
+        float3 c = float3(dot(float3( 1.3436, -0.2822, -0.0614), l),
+                          dot(float3(-0.0653,  1.0758, -0.0105), l),
+                          dot(float3( 0.0028, -0.0196,  1.0168), l));
+        c = max(c, 0.0);
+        float h = max(headroom, 1.0);
+        float k = h > 1.01 ? 0.8 * h : 0.75;
+        float top = 10000.0 / white;
+        float m = max(max(c.r, c.g), c.b);
+        if (m > k && top > h) {
+            float a = (m - k) / (h - k);
+            float b = (top - k) / (h - k);
+            float y = k + (h - k) * a * (1.0 + a / (b * b)) / (1.0 + a);
+            c *= y / m;
+        }
+        return c;
+    }
+
     // Un triangle qui couvre la zone d'affichage.
     vertex VOut kn_vertex(uint id [[vertex_id]]) {
         float2 p = float2((id << 1) & 2, id & 2);
@@ -1167,6 +1261,7 @@ final class VideoRenderer {
         float3 ycbcr = float3(luma.sample(s, in.uv).r, chroma.sample(s, in.uv).rg);
         float3 rgb = saturate(c.matrix * (ycbcr - c.offset));
         if (c.mode == 2) { rgb = kn_pq_to_sdr(rgb); }
+        else if (c.mode == 3) { rgb = kn_pq_to_edr(rgb, c.white, c.headroom); }
         return float4(rgb, 1.0);
     }
     """

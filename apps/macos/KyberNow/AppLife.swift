@@ -579,6 +579,11 @@ enum HDRDemoWindow {
         let first = UserDefaults.standard.integer(forKey: "demoHDRScreen")
         if screens.indices.contains(first) { place(w, on: screens[first]) }
         w.makeKeyAndOrderFront(nil)
+        // `-demoHDRFullScreen YES` : plein écran (présentation directe ou composée, MTL_HUD_ENABLED=1).
+        if UserDefaults.standard.bool(forKey: "demoHDRFullScreen") {
+            w.collectionBehavior.insert(.fullScreenPrimary)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { w.toggleFullScreen(nil) }
+        }
         window = w
         Self.demo = demo
         let every = UserDefaults.standard.double(forKey: "demoHDRMove")

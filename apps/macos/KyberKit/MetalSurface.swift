@@ -25,6 +25,8 @@ final class MetalSurface: NSView {
     private(set) var screenHDR = false
     /// L'écran de la fenêtre gagne ou perd le HDR (fil principal).
     var onScreenHDR: ((Bool) -> Void)?
+    /// Relève la marge EDR du moment (couche HDR `linear` : la courbe du shader s'y cale).
+    private var headroomTimer: Timer?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -74,10 +76,31 @@ final class MetalSurface: NSView {
     func updateScreenHDR() {
         let hdr = HDRDisplay.isHDR(window?.screen)
         renderer?.hdrDisplay = hdr
+        followHeadroom(hdr)
         guard hdr != screenHDR else { return }
         screenHDR = hdr
         KyberLog.video.notice("écran de la fenêtre \(hdr ? "HDR" : "SDR", privacy: .public) (marge EDR \(String(format: "%.1f", HDRDisplay.headroom(self.window?.screen)), privacy: .public))")
         onScreenHDR?(hdr)
+    }
+
+    /// Couche `linear` sur un écran HDR : la marge EDR du moment, deux fois
+    /// par seconde (elle suit la luminosité de l'écran).
+    private func followHeadroom(_ hdr: Bool) {
+        guard VideoRenderer.hdrLayer == .linear, hdr, window != nil else {
+            headroomTimer?.invalidate()
+            headroomTimer = nil
+            return
+        }
+        readHeadroom()
+        guard headroomTimer == nil else { return }
+        headroomTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.readHeadroom() }
+        }
+    }
+
+    private func readHeadroom() {
+        guard let screen = window?.screen else { return }
+        renderer?.edrHeadroom = Double(screen.maximumExtendedDynamicRangeColorComponentValue)
     }
 
     override func viewDidChangeBackingProperties() {

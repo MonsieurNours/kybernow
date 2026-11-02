@@ -194,6 +194,7 @@ enum AV1 {
         let atoms: [CFString: Any] = ["av1C" as CFString: av1C(h, sequenceHeaderOBU: sequenceHeaderOBU)]
         var extensions: [CFString: Any] = [kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms: atoms]
         if h.fullRange { extensions[kCMFormatDescriptionExtension_FullRangeVideo] = true }
+        extensions[kCMFormatDescriptionExtension_BitsPerComponent] = h.highBitdepth ? (h.twelveBit ? 12 : 10) : 8
         var format: CMVideoFormatDescription?
         let status = CMVideoFormatDescriptionCreate(
             allocator: kCFAllocatorDefault, codecType: kCMVideoCodecType_AV1,
