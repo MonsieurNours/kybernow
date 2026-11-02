@@ -40,16 +40,22 @@ public final class SessionEngine: @unchecked Sendable {
         /// Débit de base en Mbit/s (calé sur la 4K à 60 Hz pour un profil).
         public var mbps: Int
         public var reliable: Bool
-        public init(profile: String?, codec: VideoCodec, yuv444: Bool, mbps: Int, reliable: Bool) {
+        /// Le choix « HDR » de cet ordinateur (`StreamSettings.hdr` du cœur) :
+        /// le cœur ne demande le HDR que si l'écran de l'appareil l'est, que la
+        /// Station le propose et que le décodeur suit ; il impose alors 4:2:0
+        /// et HEVC ou AV1.
+        public var hdr: Bool
+        public init(profile: String?, codec: VideoCodec, yuv444: Bool, mbps: Int, reliable: Bool, hdr: Bool = false) {
             self.profile = profile
             self.codec = codec
             self.yuv444 = yuv444
             self.mbps = mbps
             self.reliable = reliable
+            self.hdr = hdr
         }
 
         var json: [String: Any] {
-            var j: [String: Any] = ["codec": codec.rawValue, "yuv444": yuv444, "mbps": mbps, "reliable": reliable]
+            var j: [String: Any] = ["codec": codec.rawValue, "yuv444": yuv444, "mbps": mbps, "reliable": reliable, "hdr": hdr]
             if let profile { j["profile"] = profile }
             return j
         }
@@ -70,9 +76,12 @@ public final class SessionEngine: @unchecked Sendable {
             public var pixelHeight: Int
             public var refresh: Int
             public var primary: Bool
-            public init(x: Double, y: Double, width: Double, height: Double, pixelWidth: Int, pixelHeight: Int, refresh: Int, primary: Bool) {
+            /// L'écran est HDR (`DeviceScreen.hdr` du cœur) : l'écran de la
+            /// session qu'il reçoit passe en HDR (docs/hdr.md).
+            public var hdr: Bool
+            public init(x: Double, y: Double, width: Double, height: Double, pixelWidth: Int, pixelHeight: Int, refresh: Int, primary: Bool, hdr: Bool = false) {
                 (self.x, self.y, self.width, self.height) = (x, y, width, height)
-                (self.pixelWidth, self.pixelHeight, self.refresh, self.primary) = (pixelWidth, pixelHeight, refresh, primary)
+                (self.pixelWidth, self.pixelHeight, self.refresh, self.primary, self.hdr) = (pixelWidth, pixelHeight, refresh, primary, hdr)
             }
         }
 
@@ -103,7 +112,7 @@ public final class SessionEngine: @unchecked Sendable {
             [
                 "list": list.map { s in
                     ["x": s.x, "y": s.y, "width": s.width, "height": s.height, "pixel_width": s.pixelWidth,
-                     "pixel_height": s.pixelHeight, "refresh": s.refresh, "primary": s.primary] as [String: Any]
+                     "pixel_height": s.pixelHeight, "refresh": s.refresh, "primary": s.primary, "hdr": s.hdr] as [String: Any]
                 },
                 "current": current, "limit_4k": limit4K, "custom_resolution": customResolution,
                 "setting": setting, "max_screens": maxScreens, "virtual_display_available": virtualDisplayAvailable,
@@ -122,7 +131,7 @@ public final class SessionEngine: @unchecked Sendable {
             self.list = list.map { s in
                 Screen(x: number(s["x"]), y: number(s["y"]), width: number(s["width"]), height: number(s["height"]),
                        pixelWidth: Int(number(s["pixel_width"])), pixelHeight: Int(number(s["pixel_height"])),
-                       refresh: Int(number(s["refresh"])), primary: s["primary"] as? Bool ?? false)
+                       refresh: Int(number(s["refresh"])), primary: s["primary"] as? Bool ?? false, hdr: s["hdr"] as? Bool ?? false)
             }
             current = Int(number(j["current"]))
             limit4K = j["limit_4k"] as? Bool ?? false
@@ -190,6 +199,11 @@ public final class SessionEngine: @unchecked Sendable {
         public var fallbackBitrate: UInt32? = 250_000_000
         /// Synchro verticale du rendu.
         public var vsync = true
+        /// Session à un écran : l'écran de l'appareil est HDR
+        /// (`SessionParams.screen_hdr` du cœur). Multi-écrans : `screens.list[i].hdr`.
+        public var screenHDR = false
+        /// Ce que la Station dit du HDR (`hdr` de son info), pour la règle du cœur.
+        public var hdrOffer: HDROffer?
         /// Multi-écrans : les écrans de cet appareil (Mac) ; nil : une session
         /// à un écran, comme avant.
         public var screens: DeviceScreens?
@@ -341,6 +355,10 @@ public final class SessionEngine: @unchecked Sendable {
     /// change (cinq secondes au plus). Puce « Par le relais » de la barre, ligne
     /// « Chemin » des statistiques.
     public var onRoute: ((RouteInfo) -> Void)?
+    /// HDR : à chaque démarrage de l'image, les écrans de la session en HDR,
+    /// dans l'ordre des écrans pris (un seul élément pour un écran). Le rendu
+    /// de chaque écran en est déjà prévenu (`Platform::on_hdr` du cœur).
+    public var onHDR: (([Bool]) -> Void)?
     /// Prêt de l'ordinateur, session d'emprunt : le préavis de 2 minutes, une
     /// fois par préavis, avec le texte de link-ui (« {hôte} reprend
     /// l'ordinateur dans 2 min : sauvegardez votre partie. »).
@@ -405,6 +423,8 @@ public final class SessionEngine: @unchecked Sendable {
             "audio_channels": p.audioChannels, "virtual_display": p.virtualDisplay,
             "settings": p.settings.json,
             "auto_reconnect": p.autoReconnect, "gamepad_xbox360": p.gamepadAsXbox360, "clipboard": p.clipboard,
+            "screen_hdr": p.screenHDR,
+            "capabilities": Self.capabilitiesJSON(.current),
         ]
         if let loan = p.borrower {
             // Un ami qui emprunte : la réponse de `Lend.borrow`, telle quelle (l'écran virtuel est déjà là).
@@ -412,7 +432,7 @@ public final class SessionEngine: @unchecked Sendable {
         } else if let guest = p.guest {
             // Un invité n'a ni compte ni mode : la réponse de `Share.join`, telle quelle.
             let caps = guest.capabilities
-            json["guest"] = ["joined": guest.found.joined, "capabilities": ["hevc": caps.hevc, "hevc444": caps.hevc444, "av1": caps.av1]]
+            json["guest"] = ["joined": guest.found.joined, "capabilities": Self.capabilitiesJSON(caps)]
         } else {
             json["user"] = p.username
             json["password"] = p.password
@@ -571,6 +591,11 @@ public final class SessionEngine: @unchecked Sendable {
         }
     }
 
+    /// Ce que l'appareil décode (`Capabilities` du cœur).
+    static func capabilitiesJSON(_ caps: DecoderCapabilities) -> [String: Any] {
+        ["hevc": caps.hevc, "hevc444": caps.hevc444, "av1": caps.av1, "hdr": caps.hdr]
+    }
+
     /// La session du cœur a démarré (`kn_session_start`) : `onPhase` ira
     /// jusqu'à `.ended`. Faux si le départ a été refusé avant.
     public private(set) var hasSession = false
@@ -684,6 +709,45 @@ public final class SessionEngine: @unchecked Sendable {
         guard let s = live, let data = try? JSONSerialization.data(withJSONObject: settings.json),
               let text = String(data: data, encoding: .utf8) else { return }
         kn_session_set_settings(s, text)
+    }
+
+    /// « HDR » de la barre ou du menu de l'icône : le cœur le demande à la
+    /// Station pour tous les écrans de la session qui sont HDR, puis relance
+    /// l'image (étape « Premières images »). Le choix reste à l'app
+    /// (réglages de l'ordinateur).
+    public func setHDR(_ on: Bool) {
+        lock.lock()
+        params?.settings.hdr = on
+        let settings = params?.settings
+        lock.unlock()
+        KyberLog.app.notice("HDR \(on ? "allumé" : "éteint", privacy: .public) en session")
+        // Adaptateur : `kn_session_set_hdr` quand le pont le donnera ; d'ici
+        // là, le réglage voyage avec les autres.
+        if let settings { setSettings(settings) }
+    }
+
+    /// L'écran `screen` de cet appareil gagne ou perd le HDR (fenêtre glissée
+    /// sur un autre écran, téléviseur qui coupe le HDR) : le cœur fait
+    /// repasser son image en SDR ou en HDR, sans message. Session à un écran : `screen` 0.
+    public func screenHDRChanged(_ screen: Int, hdr: Bool) {
+        // Le rendu de cet écran suit déjà (surface) : une image PQ y est
+        // ramenée en SDR jusqu'à ce que le cœur la relance.
+        KyberLog.app.notice("écran \(screen) de l'appareil : \(hdr ? "HDR" : "SDR", privacy: .public)")
+        // Adaptateur : `kn_session_screen_hdr_changed` quand le pont le donnera.
+    }
+
+    /// Les écrans de la session en HDR, au démarrage de l'image (rappel
+    /// `on_hdr` du cœur) : chaque rendu le sait, puis l'app.
+    func hdrStarted(_ screens: [Bool]) {
+        lock.lock()
+        let streams = videos.map { ($0.value.renderer, streamScreens[$0.key]) }
+        let taken = takenScreens
+        lock.unlock()
+        for (renderer, screen) in streams {
+            let i = screen.flatMap { s in taken.firstIndex(where: { $0.index == s }) } ?? 0
+            renderer.streamHDR = i < screens.count ? screens[i] : false
+        }
+        DispatchQueue.main.async { [self] in onHDR?(screens) }
     }
 
     /// KyberNow Share, session d'invité : change sa « Qualité de l'image » en

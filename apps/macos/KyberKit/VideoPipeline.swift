@@ -30,12 +30,33 @@ final class VideoPipeline {
         }
         renderer.onUnsupportedFormat = { [weak decoder] format in
             // Format exotique : on redemande du 4:2:0 ou du 4:4:4 8 bits, toujours lisibles.
+            // Une image 10 bits (HEVC Main 10, AV1 10 bits : le HDR, dont le
+            // décodeur des puces Apple sort un format compressé « &xv0 ») garde
+            // ses 10 bits : 4:2:0 10 bits en deux plans, que le rendu lit.
             let wide = [kCVPixelFormatType_444YpCbCr8BiPlanarVideoRange, kCVPixelFormatType_444YpCbCr10BiPlanarVideoRange].contains(format)
-            decoder?.forcePixelFormat(wide ? kCVPixelFormatType_444YpCbCr8BiPlanarVideoRange : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange)
+            let forced: OSType
+            if Self.bitsPerComponent(format) > 8 {
+                forced = wide ? kCVPixelFormatType_444YpCbCr10BiPlanarVideoRange : kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
+            } else {
+                forced = wide ? kCVPixelFormatType_444YpCbCr8BiPlanarVideoRange : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+            }
+            decoder?.forcePixelFormat(forced)
         }
     }
 
     func stop() {
         decoder.invalidate()
+    }
+
+    /// Bits par composante d'un format de CoreVideo (8 si inconnu).
+    static func bitsPerComponent(_ format: OSType) -> Int {
+        // `kCVPixelFormatBitsPerComponent` (macOS 15, iOS 18), écrite en toutes lettres pour macOS 14.
+        let key = "BitsPerComponent"
+        guard let desc = CVPixelFormatDescriptionCreateWithPixelFormatType(kCFAllocatorDefault, format) as? [String: Any] else { return 8 }
+        if let bits = desc[key] as? Int { return bits }
+        // Formats à plusieurs plans : la profondeur est donnée plan par plan.
+        if let planes = desc[kCVPixelFormatPlanes as String] as? [[String: Any]],
+           let bits = planes.compactMap({ $0[key] as? Int }).max() { return bits }
+        return 8
     }
 }

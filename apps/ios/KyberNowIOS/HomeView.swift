@@ -60,6 +60,8 @@ struct HomeScreen: View {
     @State private var ctaGlow: NeonLevel = .off
     @State private var hovering = false
     @State private var retrying: UUID?
+    /// La puce « HDR » inactive a été touchée : sa raison remplace la phrase du profil un moment.
+    @State private var hdrReason: String?
     @State private var removing: Host?
     @State private var removingBorrowed: BorrowedComputer?
     /// Adresses des ordinateurs annoncés sur le réseau, trouvées en arrière-plan.
@@ -471,12 +473,22 @@ struct HomeScreen: View {
                 h.settings.apply(p)
                 store.update(h)
             }
-            let hint = Text(Profile.hint(host.settings.profile))
+            // HDR : seulement sur un écran HDR ; choix gardé pour l'ordinateur, à part du profil.
+            let hdrState = host.settings.hdrState(store.status[host.id]?.info, screenHDR: HDRDisplay.isHDR(nil))
+            let hdrChip = HomeHDRChip(state: hdrState, on: host.settings.hdr, height: 44, fontSize: wide ? 15 : 14) {
+                var h = host
+                h.settings.hdr.toggle()
+                store.update(h)
+            } showReason: {
+                hdrReason = hdrState.reason
+                DispatchQueue.main.asyncAfter(deadline: .now() + 4) { if hdrReason == hdrState.reason { hdrReason = nil } }
+            }
+            let hint = Text(hdrReason ?? Profile.hint(host.settings.profile))
                 .font(Theme.sans(wide ? 14 : 12.5))
                 .foregroundStyle(Theme.muted)
                 .lineSpacing(2)
                 .fixedSize(horizontal: false, vertical: true)
-                .id(host.settings.profile)
+                .id(hdrReason ?? host.settings.profile?.rawValue ?? "")
                 .transition(.opacity)
 
             if wide {
@@ -484,6 +496,7 @@ struct HomeScreen: View {
                     HStack(spacing: 16) {
                         cta
                         picker
+                        if hdrState.shown { hdrChip }
                         settingsButton(host, wide: true)
                     }
                     hint
@@ -495,6 +508,7 @@ struct HomeScreen: View {
                     cta
                     HStack(spacing: 8) {
                         picker
+                        if hdrState.shown { hdrChip }
                         settingsButton(host, wide: false)
                     }
                     hint
@@ -697,7 +711,8 @@ struct HomeScreen: View {
         let m = DeviceDisplay.mode(for: h.settings)
         let virtual = h.settings.display != .physical && (store.status[h.id]?.info?.virtualDisplay ?? true)
         return LinkText.screen(width: m.width, height: m.height, refresh: m.refresh, virtual: virtual,
-                               sizedForThisScreen: h.settings.display != .custom)
+                               sizedForThisScreen: h.settings.display != .custom,
+                               hdr: h.settings.hdrOn(store.status[h.id]?.info, screenHDR: HDRDisplay.isHDR(nil)))
     }
 }
 

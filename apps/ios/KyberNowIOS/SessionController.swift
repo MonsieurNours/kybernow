@@ -85,6 +85,10 @@ final class SessionController: ObservableObject {
     @Published private(set) var virtualDisplay = true
     /// L'image est sur l'écran externe : l'appareil est le pupitre.
     @Published private(set) var external = false
+    /// HDR (docs/hdr.md) : l'écran qui montre l'image est HDR ; un écran au
+    /// moins de la session est en HDR (`onHDR` du cœur, statistiques).
+    @Published private(set) var screenHDR = false
+    @Published private(set) var sessionHDR = false
 
     let streamView = StreamView(frame: CGRect(x: 0, y: 0, width: 874, height: 402))
     private let store: HostStore
@@ -240,8 +244,53 @@ final class SessionController: ObservableObject {
             codec: codec,
             yuv444: s.yuv444 && ConnectionSettings.decodes444(codec),
             mbps: s.bitrateMbps,
-            reliable: s.transport == .reliable
+            reliable: s.transport == .reliable,
+            hdr: s.hdr
         )
+    }
+
+    // MARK: - HDR
+
+    /// L'écran qui montre l'image : l'écran externe s'il la porte, sinon celui de l'appareil.
+    private var imageScreen: UIScreen {
+        external ? ExternalDisplay.shared.screen ?? deviceScreen : deviceScreen
+    }
+
+    /// « HDR » de la barre : comme la puce de l'accueil. Un invité du partage
+    /// n'en a pas (c'est automatique) ; l'ami qui emprunte l'a, comme un hôte :
+    /// sans info de la Station du prêt ici, la règle complète est celle du cœur.
+    var hdrState: HDRState {
+        if isGuest { return .hidden }
+        if isBorrower {
+            return HDRSupport.state(offer: HDROffer(available: true), codec: engineSettings.codec, screenHDR: screenHDR)
+        }
+        return host.settings.hdrState(store.status[host.id]?.info, screenHDR: screenHDR)
+    }
+
+    /// « HDR » coché dans la barre.
+    var hdrOn: Bool { hdrState.on(host.settings.hdr) }
+
+    /// « HDR » de la barre : gardé pour l'ordinateur (pas le profil), puis le
+    /// cœur relance l'image (étape « Premières images »).
+    func setHDR(_ on: Bool) {
+        guard !isGuest, hdrState.available, on != host.settings.hdr else { return }
+        host.settings.hdr = on
+        if !isBorrower { store.update(host) }
+        engine?.setHDR(on)
+    }
+
+    /// « HDR » inactif touché dans la barre : sa raison, en avis.
+    func explainHDR() {
+        if let reason = hdrState.reason { show(notice: reason, for: 4) }
+    }
+
+    /// L'écran de l'image gagne ou perd le HDR (écran externe, réglages) :
+    /// le cœur fait repasser l'image en SDR ou en HDR, sans message.
+    private func updateScreenHDR() {
+        let hdr = HDRDisplay.isHDR(imageScreen)
+        guard hdr != screenHDR else { return }
+        screenHDR = hdr
+        engine?.screenHDRChanged(0, hdr: hdr)
     }
 
     // MARK: - Déroulé
@@ -326,6 +375,7 @@ final class SessionController: ObservableObject {
         engine.onLendNotice = { [weak self] notice, text in self?.lendNoticed(notice, text: text) }
         engine.onLendEnd = { [weak self] end, text in self?.lendEnded(end, text: text) }
         engine.onRoute = { [weak self] in self?.routeChanged($0) }
+        engine.onHDR = { [weak self] screens in self?.sessionHDR = screens.contains(true) }
         self.engine = engine
         if !isVisitor {
             share.setConsole(store.console(for: host))
@@ -357,6 +407,9 @@ final class SessionController: ObservableObject {
         params.autoReconnect = settings.autoReconnect
         params.gamepadAsXbox360 = settings.gamepad == .xbox360
         params.vsync = settings.vsync
+        screenHDR = HDRDisplay.isHDR(imageScreen)
+        params.screenHDR = screenHDR
+        params.hdrOffer = isVisitor ? nil : store.status[host.id]?.info?.hdr
         KyberLog.app.notice("session : \(mode.width)×\(mode.height) à \(mode.refresh) Hz, son \(channels) canaux, \(settings.consoleProfile, privacy: .public)")
         // Joignable par le relais seulement (ou relais forcé pour essayer) : la radio
         // cellulaire s'allume d'abord, par une requête de l'app vers le relais.
@@ -418,6 +471,7 @@ final class SessionController: ObservableObject {
         guard on != external, phase != .ending, phase != .ended else { return }
         let display = ExternalDisplay.shared
         external = on
+        updateScreenHDR()
         streamView.showImage(in: on ? display.imageHost : nil)
         display.showingImage(on)
         if on {
@@ -460,6 +514,9 @@ final class SessionController: ObservableObject {
     private func observeApp() {
         let center = NotificationCenter.default
         observers = [
+        ] + HDRDisplay.observe { [weak self] in
+            MainActor.assumeIsolated { self?.updateScreenHDR() }
+        } + [
             center.addObserver(forName: UIScene.willDeactivateNotification, object: nil, queue: .main) { [weak self] note in
                 MainActor.assumeIsolated {
                     guard let self, self.isSessionScene(note.object), self.phase == .streaming else { return }
@@ -869,6 +926,9 @@ final class SessionController: ObservableObject {
         lend.demo = true
         configureView()
         streamView.startTestPattern()
+        // HDR : l'écran de démonstration (`-hdrScreen YES` au simulateur), et un écran en HDR dès l'image.
+        screenHDR = HDRDisplay.isHDR(imageScreen)
+        sessionHDR = hdrOn
         guard what != .connecting, what != .restarting else {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
                 self?.phase = .connecting
@@ -1058,7 +1118,7 @@ final class SessionController: ObservableObject {
             let codec = engineSettings.codec
             let mbps = host.settings.bitrate(width: streamMode.width, height: streamMode.height, refresh: streamMode.refresh)
             host.recordSession(start: revealedAt, latency: engine?.sessionLatency, width: streamMode.width, height: streamMode.height,
-                               refresh: streamMode.refresh, codec: codec, mbps: mbps, route: path.transport)
+                               refresh: streamMode.refresh, codec: codec, mbps: mbps, route: path.transport, hdr: sessionHDR)
         }
         store.update(host)
         withAnimation(.easeInOut(duration: 0.4)) {

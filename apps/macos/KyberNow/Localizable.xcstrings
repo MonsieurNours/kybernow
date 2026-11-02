@@ -465,6 +465,22 @@
         }
       }
     },
+    "%lld × %lld · %@ · HDR · %lld i/s" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld × %lld · %@ · HDR · %lld fps"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld × %lld · %@ · HDR · %lld i/s"
+          }
+        }
+      }
+    },
     "%lld écrans" : {
       "localizations" : {
         "en" : {
@@ -493,6 +509,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%lld écrans, à la taille de ceux de cet appareil"
+          }
+        }
+      }
+    },
+    "%lld écrans, à la taille de ceux de cet appareil, en HDR" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld displays, sized for this device's screens, in HDR"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld écrans, à la taille de ceux de cet appareil, en HDR"
           }
         }
       }
@@ -1953,6 +1985,38 @@
         }
       }
     },
+    "Couleurs plus riches et lumières plus vives, sur cet écran HDR." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Richer colours and brighter highlights, on this HDR screen."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couleurs plus riches et lumières plus vives, sur cet écran HDR."
+          }
+        }
+      }
+    },
+    "Couleurs plus riches et lumières plus vives, sur cet écran HDR. Le texte net (4:4:4) n'existe pas en HDR." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Richer colours and brighter highlights, on this HDR screen. Sharp text (4:4:4) doesn't exist in HDR."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couleurs plus riches et lumières plus vives, sur cet écran HDR. Le texte net (4:4:4) n'existe pas en HDR."
+          }
+        }
+      }
+    },
     "Créer un code" : {
       "localizations" : {
         "en" : {
@@ -2787,6 +2851,38 @@
         }
       }
     },
+    "HDR, allumé" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HDR, on"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HDR, allumé"
+          }
+        }
+      }
+    },
+    "HDR, éteint" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HDR, off"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HDR, éteint"
+          }
+        }
+      }
+    },
     "Hors de chez vous" : {
       "localizations" : {
         "en" : {
@@ -3315,6 +3411,22 @@
         }
       }
     },
+    "L'ordinateur n'a pas pu passer en HDR : image en SDR." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The computer couldn't switch to HDR: picture in SDR."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L'ordinateur n'a pas pu passer en HDR : image en SDR."
+          }
+        }
+      }
+    },
     "L'ordinateur n'envoie pas encore le détail de ses étapes." : {
       "localizations" : {
         "en" : {
@@ -3775,6 +3887,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Le 4:4:4 demande le HEVC."
+          }
+        }
+      }
+    },
+    "Le HDR n'existe pas en 4:4:4." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HDR doesn't exist in 4:4:4."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le HDR n'existe pas en 4:4:4."
           }
         }
       }
@@ -8388,6 +8516,22 @@
         }
       }
     },
+    "Écran de %@ à %lld Hz, en HDR" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ display at %2$lld Hz, in HDR"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Écran de %@ à %lld Hz, en HDR"
+          }
+        }
+      }
+    },
     "Écran de %@ à %lld Hz, à la taille de cet écran" : {
       "localizations" : {
         "en" : {
@@ -8404,6 +8548,22 @@
         }
       }
     },
+    "Écran de %@ à %lld Hz, à la taille de cet écran, en HDR" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ display at %2$lld Hz, sized for this screen, in HDR"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Écran de %@ à %lld Hz, à la taille de cet écran, en HDR"
+          }
+        }
+      }
+    },
     "Écran de %@ à %lld Hz, à la taille de cette fenêtre" : {
       "localizations" : {
         "en" : {
@@ -8416,6 +8576,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Écran de %@ à %lld Hz, à la taille de cette fenêtre"
+          }
+        }
+      }
+    },
+    "Écran de %@ à %lld Hz, à la taille de cette fenêtre, en HDR" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ display at %2$lld Hz, sized for this window, in HDR"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Écran de %@ à %lld Hz, à la taille de cette fenêtre, en HDR"
           }
         }
       }

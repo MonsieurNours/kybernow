@@ -85,6 +85,12 @@ struct RootView: View {
                 .transition(.opacity.combined(with: .offset(y: -14)))
             }
         }
+        .overlay {
+            // `-demoHDR YES` : la mire PQ par le vrai rendu, par-dessus tout.
+            if let demo = app.hdrDemo {
+                HDRDemoView(demo: demo).ignoresSafeArea()
+            }
+        }
         .ignoresSafeArea()
         .animation(Theme.join, value: app.screen)
         .animation(Theme.join, value: app.notice)

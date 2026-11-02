@@ -226,6 +226,11 @@ struct ConnectionSettings: Codable, Hashable {
     var screenPadSize: ScreenPadSize = .medium
     var screenPadOpacity = 0.6
     var screenPadHaptics: ScreenPadHaptics = .medium
+    /// HDR (docs/hdr.md) : le choix de cet ordinateur, allumé la première
+    /// fois (le HDR est automatique), gardé ensuite. À part du profil : le
+    /// changer ne fait pas passer en « Personnalisé ». Le cœur ne le demande
+    /// que sur un écran HDR, à une Station qui le propose (`hdrState`).
+    var hdr = true
 
     static let minBitrate = 5
     /// Le plus que Kyber accepte (débit en bits/s sur 32 bits).
@@ -290,6 +295,18 @@ struct ConnectionSettings: Codable, Hashable {
 
     var profileLabel: String { Profile.label(profile) }
 
+    /// La puce « HDR » de cet ordinateur sur un écran HDR ou non : cachée,
+    /// active, ou inactive avec sa raison (le format choisi compte : H.264 n'a pas de HDR).
+    func hdrState(_ info: HostInfo?, screenHDR: Bool) -> HDRState {
+        HDRSupport.state(offer: info?.hdr, codec: codec, screenHDR: screenHDR)
+    }
+
+    /// Le HDR sera demandé : « Texte net (4:4:4) » inactif, le profil Bureau
+    /// en 4:2:0 (le HDR n'existe qu'en 4:2:0 ; le cœur l'impose aussi).
+    func hdrOn(_ info: HostInfo?, screenHDR: Bool) -> Bool {
+        hdrState(info, screenHDR: screenHDR).on(hdr)
+    }
+
     /// Profil dit à la console (activité, fil des événements) : toujours le
     /// libellé français, quelle que soit la langue de l'interface.
     var consoleProfile: String {
@@ -321,7 +338,7 @@ extension ConnectionSettings {
     private enum Keys: String, CodingKey {
         case profile, display, customWidth, customHeight, customRefresh, codec, yuv444, bitrateMbps, transport
         case autoReconnect, commandAsControl, audio, vsync, limit4K, screens, mouse, clipboard, keepLastImage, gamepad
-        case screenPad, screenPadLayout, screenPadSize, screenPadOpacity, screenPadHaptics
+        case screenPad, screenPadLayout, screenPadSize, screenPadOpacity, screenPadHaptics, hdr
     }
 
     init(from decoder: Decoder) throws {
@@ -351,6 +368,7 @@ extension ConnectionSettings {
         screenPadSize = (try? c.decodeIfPresent(ScreenPadSize.self, forKey: .screenPadSize)) ?? screenPadSize
         screenPadOpacity = (try? c.decodeIfPresent(Double.self, forKey: .screenPadOpacity)).map { min(1, max(0.2, $0)) } ?? screenPadOpacity
         screenPadHaptics = (try? c.decodeIfPresent(ScreenPadHaptics.self, forKey: .screenPadHaptics)) ?? screenPadHaptics
+        hdr = (try? c.decodeIfPresent(Bool.self, forKey: .hdr)) ?? hdr
     }
 }
 
@@ -380,6 +398,8 @@ struct Host: Codable, Identifiable, Hashable {
     var lastMbps: Int?
     /// Nombre d'écrans de la dernière session (absent : un).
     var lastScreens: Int?
+    /// Un écran au moins de la dernière session était en HDR (absent : non).
+    var lastHDR: Bool?
     /// Par où elle est passée : sur le réseau ou par le relais (ligne « Chemin » de
     /// la « Dernière session » ; absent : une session d'avant le relais).
     var lastRoute: RouteInfo.Transport?
@@ -416,7 +436,7 @@ struct Host: Codable, Identifiable, Hashable {
 
     /// Fin d'une session commencée à `start` (l'image arrivée) : une session
     /// de moins de 3 s ne remplace pas la précédente dans les Statistiques.
-    mutating func recordSession(start: Date, latency: (median: Double, p95: Double)?, width: Int, height: Int, refresh: Int, codec: VideoCodec, mbps: Int, screens: Int = 1, route: RouteInfo.Transport? = nil) {
+    mutating func recordSession(start: Date, latency: (median: Double, p95: Double)?, width: Int, height: Int, refresh: Int, codec: VideoCodec, mbps: Int, screens: Int = 1, route: RouteInfo.Transport? = nil, hdr: Bool = false) {
         let duration = Date().timeIntervalSince(start)
         guard duration >= 3 else { return }
         lastSession = start
@@ -430,13 +450,14 @@ struct Host: Codable, Identifiable, Hashable {
         lastMbps = mbps > 0 ? mbps : nil
         lastScreens = screens > 1 ? screens : nil
         lastRoute = route
+        lastHDR = hdr ? true : nil
     }
 
     // Lecture tolérante : les ordinateurs enregistrés par les versions
     // précédentes n'avaient qu'un profil, ni le détail de la dernière session.
     private enum CodingKeys: String, CodingKey {
         case id, name, address, consolePort, username, streamPort, consoleFingerprint, settings, lastSession, lastLatencyMs, lastLatencyP95Ms, lastDuration, profile
-        case lastWidth, lastHeight, lastRefresh, lastCodec, lastMbps, lastScreens, lastRoute, pairedByCode, wake, relay
+        case lastWidth, lastHeight, lastRefresh, lastCodec, lastMbps, lastScreens, lastRoute, lastHDR, pairedByCode, wake, relay
     }
 
     init(from decoder: Decoder) throws {
@@ -459,6 +480,7 @@ struct Host: Codable, Identifiable, Hashable {
         lastMbps = try? c.decodeIfPresent(Int.self, forKey: .lastMbps)
         lastScreens = try? c.decodeIfPresent(Int.self, forKey: .lastScreens)
         lastRoute = try? c.decodeIfPresent(RouteInfo.Transport.self, forKey: .lastRoute)
+        lastHDR = try? c.decodeIfPresent(Bool.self, forKey: .lastHDR)
         pairedByCode = try? c.decodeIfPresent(Bool.self, forKey: .pairedByCode)
         wake = try? c.decodeIfPresent([WakeTarget].self, forKey: .wake)
         relay = try? c.decodeIfPresent(RelayInfo.self, forKey: .relay)
@@ -490,6 +512,7 @@ struct Host: Codable, Identifiable, Hashable {
         try c.encodeIfPresent(lastMbps, forKey: .lastMbps)
         try c.encodeIfPresent(lastScreens, forKey: .lastScreens)
         try c.encodeIfPresent(lastRoute, forKey: .lastRoute)
+        try c.encodeIfPresent(lastHDR, forKey: .lastHDR)
         try c.encodeIfPresent(pairedByCode, forKey: .pairedByCode)
         try c.encodeIfPresent(wake, forKey: .wake)
         try c.encodeIfPresent(relay, forKey: .relay)

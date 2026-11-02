@@ -267,7 +267,7 @@ struct Passage: View {
                 }
                 HStack(spacing: 14) {
                     Icon("monitor", size: 28).foregroundStyle(Theme.accent)
-                    Text(HomeView.screenLine(host, info: store.status[host.id]?.info)).font(Theme.sans(24)).foregroundStyle(Theme.text2)
+                    Text(HomeView.screenLine(host, info: store.status[host.id]?.info, screenHDR: HDRDisplay.isHDR())).font(Theme.sans(24)).foregroundStyle(Theme.text2)
                 }
                 Text(button)
                     .font(Theme.sans(28, .semibold))

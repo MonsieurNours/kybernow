@@ -21,7 +21,7 @@ import SwiftUI
 /// commandes d'une session portent l'identifiant de son ordinateur.
 enum MenuAction: Equatable {
     case disconnect(UUID), fullScreen(UUID), statistics(UUID), show(UUID), keepSound(UUID)
-    case mouse(UUID, MouseChoice)
+    case mouse(UUID, MouseChoice), hdr(UUID)
     case connect(UUID), wake(UUID), retry(UUID), profile(UUID, Profile), settings(UUID), admin(UUID), restart(UUID), update(UUID)
     case open, add, join, appSettings, checkForUpdates, quit
 }
@@ -176,6 +176,12 @@ enum MenuContent {
         if !session.isGuest || session.shareRole.keyboardAndMouse {
             let mice = MouseChoice.allCases.map { MenuEntry(title: $0.label, checked: $0 == session.host.settings.mouse, action: .mouse(id, $0)) }
             out.append(MenuEntry(title: String(localized: "Souris"), children: mice))
+        }
+        // « HDR », cochable, comme dans la barre : sur un écran HDR, jamais pour un invité.
+        let hdr = session.hdrState
+        if hdr.shown {
+            out.append(MenuEntry(title: HDRText.label, enabled: hdr.available, checked: hdr.on(session.host.settings.hdr),
+                                 action: .hdr(id), help: hdr.reason))
         }
         out.append(MenuEntry(title: String(localized: "Statistiques"), action: .statistics(id)))
         out.append(MenuEntry(title: session.isGuest ? ShareText.leave : String(localized: "Se déconnecter"), action: .disconnect(id)))

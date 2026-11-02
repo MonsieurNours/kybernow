@@ -555,13 +555,15 @@ struct SessionBar: View {
                     statsButton
                     separator
                     if session.isBorrower {
-                        // Un ami : ni profil de la Station, ni presse-papiers.
+                        // Un ami : ni profil de la Station, ni presse-papiers ; le HDR, comme un hôte.
                     } else if session.isGuest {
                         guestRole
                         qualityMenu
                     } else {
                         profileMenu
                     }
+                    // « HDR », cochable, près du profil : seulement sur un écran HDR, jamais pour un invité.
+                    if session.hdrState.shown { hdrToggle }
                     item("speaker-high", session.host.settings.audio == .off ? String(localized: "Ordinateur") : session.route.name)
                     // Le clavier et la souris : pas pour un invité à qui l'hôte ne les a pas donnés.
                     if keyboardAndMouse { touchAndMouse }
@@ -662,6 +664,30 @@ struct SessionBar: View {
         } label: {
             item("sliders-horizontal", session.host.settings.profileLabel)
         }
+    }
+
+    /// « HDR » cochable : le changer relance l'image ; inactif, il dit sa raison.
+    private var hdrToggle: some View {
+        let state = session.hdrState
+        let on = session.hdrOn
+        return Button {
+            if state.available { session.setHDR(!on) } else { session.explainHDR() }
+        } label: {
+            VStack(spacing: 2) {
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .strokeBorder(on ? Theme.accentLight : Theme.text2, lineWidth: 1.5)
+                    .background(RoundedRectangle(cornerRadius: 4, style: .continuous).fill(on ? Theme.accentLight.opacity(0.25) : .clear))
+                    .overlay { if on { Icon("check", size: 12, bold: true).foregroundStyle(Theme.accentLight) } }
+                    .frame(width: 18, height: 18)
+                Text(HDRText.label).font(Theme.sans(9.5)).foregroundStyle(Theme.text2).lineLimit(1)
+            }
+            .frame(minWidth: 48, minHeight: 44)
+            .padding(.horizontal, 4)
+            .opacity(state.available ? 1 : 0.45)
+        }
+        .accessibilityLabel(Text(HDRText.accessibility(on)))
+        .accessibilityHint(Text(HDRText.help(state)))
+        .accessibilityAddTraits(.isToggle)
     }
 
     @ViewBuilder private var touchAndMouse: some View {

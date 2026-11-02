@@ -108,7 +108,7 @@ final class AppModel: ObservableObject {
             let i = store.status[host.id]?.info
             store.setDemoStatus(HostStatus(online: true, info: HostInfo(hostname: i?.hostname ?? host.name, gpu: i?.gpu, av1: i?.av1 ?? false, os: i?.os,
                                                                         adminVersion: "0.9.0", station: i?.station, maxScreens: i?.maxScreens ?? 1,
-                                                                        lend: LendInfo(available: true, enabled: true))), for: host.id)
+                                                                        lend: LendInfo(available: true, enabled: true), hdr: i?.hdr ?? .none)), for: host.id)
         }
         if let lent = UserDefaults.standard.string(forKey: "demoLent"), let host = selectedHost {
             store.setDemoLend(LendView(state: .lent, borrower: LendBorrower(name: "Léa", until: Date().addingTimeInterval(2 * 3600)),

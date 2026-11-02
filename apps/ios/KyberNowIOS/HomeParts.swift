@@ -232,6 +232,55 @@ struct HomeProfilePicker: View {
     }
 }
 
+// MARK: - HDR
+
+/// Puce « HDR » à côté du profil (docs/link-ui.md, section HDR) : seulement
+/// sur un écran HDR. Allumée, soulignée de Spectre comme le profil retenu ;
+/// inactive (la Station, le format ou le décodeur ne le permettent pas),
+/// estompée : la toucher montre sa raison (`showReason`), qui est aussi son
+/// indice d'accessibilité.
+struct HomeHDRChip: View {
+    let state: HDRState
+    let on: Bool
+    var height: CGFloat = 44
+    var fontSize: CGFloat = 14
+    let toggle: () -> Void
+    /// La puce inactive est touchée : la raison s'affiche sous le profil.
+    var showReason: () -> Void = {}
+
+    var body: some View {
+        let lit = on && state.available
+        Button { state.available ? toggle() : showReason() } label: {
+            Text(HDRText.label)
+                .font(Theme.sans(fontSize, .semibold))
+                .foregroundStyle(lit ? Theme.text : Theme.muted)
+                .padding(.horizontal, 16)
+                .frame(minHeight: height)
+                .background {
+                    if lit {
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .fill(Color.white.opacity(0.12))
+                            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Color.white.opacity(0.1)))
+                            .overlay(alignment: .bottom) {
+                                Capsule().fill(Theme.accent).frame(height: 2).padding(.horizontal, 12).padding(.bottom, 4)
+                            }
+                            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    }
+                }
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(HomePressStyle())
+        .opacity(state.available ? 1 : 0.45)
+        .padding(4)
+        .glass(12)
+        .animation(.easeOut(duration: 0.2), value: lit)
+        .help(HDRText.help(state))
+        .accessibilityLabel(Text(HDRText.accessibility(lit)))
+        .accessibilityHint(Text(HDRText.help(state)))
+        .accessibilityAddTraits(lit ? [.isSelected] : [])
+    }
+}
+
 // MARK: - Point d'état
 
 /// En ligne : point vert qui bat doucement ; hors ligne : anneau gris ;

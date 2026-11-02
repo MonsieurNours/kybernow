@@ -331,6 +331,58 @@ final class SessionController: NSObject, ObservableObject {
     /// Écran affiché en ce moment.
     @Published private(set) var shownDisplay: UInt32?
 
+    // MARK: HDR (docs/hdr.md)
+
+    /// Les écrans de la session en HDR, au dernier démarrage de l'image
+    /// (`onHDR` du cœur), dans l'ordre des écrans pris.
+    @Published private(set) var hdrScreens: [Bool] = []
+    /// Un écran au moins de la session est en HDR (« HDR » des statistiques).
+    var hdrStreaming: Bool { hdrScreens.contains(true) }
+    /// L'écran de ce Mac qui montre chaque écran de la session est HDR, par
+    /// index d'écran de l'appareil (session à un écran : 0, l'écran de la fenêtre).
+    @Published private var deviceHDR: [Int: Bool] = [:]
+
+    /// Un écran de la session est sur un écran HDR de ce Mac (avant le
+    /// départ : l'écran de la fenêtre).
+    var sessionScreenHDR: Bool {
+        deviceHDR.isEmpty ? HDRDisplay.isHDR(window?.screen ?? NSScreen.main) : deviceHDR.values.contains(true)
+    }
+
+    /// « HDR » de la barre et du menu de l'icône : l'hôte et l'ami qui
+    /// emprunte l'ont, jamais un invité du partage (c'est automatique pour lui).
+    var hdrState: HDRState {
+        guard !isGuest else { return .hidden }
+        return host.settings.hdrState(store.status[host.id]?.info, screenHDR: sessionScreenHDR)
+    }
+
+    /// « HDR » coché ou non dans la barre ou le menu : le choix est gardé pour
+    /// l'ordinateur (sans passer le profil en Personnalisé), le cœur relance
+    /// l'image (étape « Premières images »).
+    func setHDR(_ on: Bool) {
+        guard !isGuest, on != host.settings.hdr else { return }
+        commit { $0.settings.hdr = on }
+        engine?.setHDR(on)
+    }
+
+    /// L'écran de ce Mac sous chaque écran de la session a-t-il changé (HDR
+    /// ou non) ? Le cœur fait repasser l'image de cet écran en SDR ou en HDR,
+    /// sans message.
+    private func updateDeviceHDR() {
+        var now: [Int: Bool] = [:]
+        if extraSurfaces.isEmpty {
+            now[0] = HDRDisplay.isHDR(window?.screen)
+        } else {
+            for i in deviceScreens.indices where surface(forDevice: i) != nil { now[i] = HDRDisplay.isHDR(deviceScreens[i]) }
+        }
+        guard now != deviceHDR else { return }
+        if engine != nil {
+            for (i, hdr) in now.sorted(by: { $0.key < $1.key }) where deviceHDR[i] != nil && deviceHDR[i] != hdr {
+                engine?.screenHDRChanged(i, hdr: hdr)
+            }
+        }
+        deviceHDR = now
+    }
+
     /// Hauteur de la bande où vit la barre au survol.
     static let barBand: CGFloat = 96
     /// Le pointeur doit rester contre le bord haut de l'image ce temps-là pour
@@ -808,6 +860,8 @@ final class SessionController: NSObject, ObservableObject {
     /// écran), un écran que l'ordinateur n'a pas pu créer garde le fond avec
     /// sa ligne (docs/link-ui.md).
     private func screensTaken(_ streams: [SessionEngine.StreamScreen], _ notCreated: [Int]) {
+        // HDR : les écrans de ce Mac sous la session, une fois les fenêtres posées.
+        defer { updateDeviceHDR() }
         // Un seul flux, sans écran non créé : une session à un écran (ou le
         // principal seul accepté). Jamais de fenêtre de plus : l'image va dans
         // la fenêtre de la session, quel que soit l'écran que le cœur nomme.
@@ -1108,7 +1162,8 @@ final class SessionController: NSObject, ObservableObject {
             codec: s.codec,
             yuv444: s.yuv444 && ConnectionSettings.decodes444(s.codec),
             mbps: s.bitrateMbps,
-            reliable: s.transport == .reliable
+            reliable: s.transport == .reliable,
+            hdr: s.hdr
         )
     }
 
@@ -1259,6 +1314,11 @@ final class SessionController: NSObject, ObservableObject {
         engine.onLendNotice = { [weak self] notice, text in self?.lendNoticed(notice, text: text) }
         engine.onLendEnd = { [weak self] end, text in self?.lendEnded(end, text: text) }
         engine.onRoute = { [weak self] in self?.routeChanged($0) }
+        engine.onHDR = { [weak self] screens in
+            guard let self else { return }
+            KyberLog.app.notice("HDR des écrans de la session : \(screens.map { $0 ? "oui" : "non" }.joined(separator: ", "), privacy: .public)")
+            self.hdrScreens = screens
+        }
         self.engine = engine
         syncEngineViews()
         if !isVisitor {
@@ -1297,6 +1357,11 @@ final class SessionController: NSObject, ObservableObject {
         params.autoReconnect = settings.autoReconnect
         params.gamepadAsXbox360 = settings.gamepad == .xbox360
         params.vsync = settings.vsync
+        // HDR : l'écran de ce Mac qui reçoit la session (multi-écrans : `screens.list[i].hdr`),
+        // et ce que la Station en dit ; le cœur décide avec le choix de l'ordinateur.
+        updateDeviceHDR()
+        params.screenHDR = HDRDisplay.isHDR(window?.screen)
+        params.hdrOffer = store.status[host.id]?.info?.hdr
         // Inscrite au registre des sessions du cœur dès son départ (plusieurs ordinateurs).
         params.focusName = host.name
         KyberLog.app.notice("session : \(mode.width)×\(mode.height) à \(mode.refresh) Hz, son \(settings.audio.channels) canaux, \(settings.consoleProfile, privacy: .public)")
@@ -1505,6 +1570,8 @@ final class SessionController: NSObject, ObservableObject {
     /// Les écrans changent par rafales (branchement, réveil, plein écran qui
     /// se recale) : on attend qu'ils se posent.
     private func screensChanged() {
+        // HDR : tout de suite (fenêtre glissée sur un autre écran, écran branché).
+        if isLive { updateDeviceHDR() }
         screenCheck?.cancel()
         screenCheck = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(800))
@@ -1684,8 +1751,9 @@ final class SessionController: NSObject, ObservableObject {
         let latency = engine?.sessionLatency, codec = host.settings.codec, mbps = sessionMbps, screens = screenCount
         // Par où la session est passée (ligne « Chemin » de la « Dernière session »).
         let route = path.transport
+        let hdr = hdrStreaming
         commit { $0.recordSession(start: revealedAt, latency: latency, width: m.width, height: m.height, refresh: m.refresh,
-                                  codec: codec, mbps: mbps, screens: screens, route: route) }
+                                  codec: codec, mbps: mbps, screens: screens, route: route, hdr: hdr) }
     }
 
     /// Débit de la session en Mbit/s : avec plusieurs écrans, sur la somme

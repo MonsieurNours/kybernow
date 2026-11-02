@@ -471,9 +471,22 @@ private struct SettingsPane: View {
             if let c = VideoCodec(rawValue: v) { update(custom: true) { $0.codec = c } }
         }
 
-        let can444 = ConnectionSettings.decodes444(s.codec)
-        rows.toggle(String(localized: "Texte net (4:4:4)"), can444 ? SettingsText.sharpTextHelp : yuvNote, s.yuv444 && can444, enabled: can444) {
+        // HDR allumé (et possible) : pas de 4:4:4 (docs/hdr.md).
+        let hdrState = s.hdrState(info, screenHDR: HDRDisplay.isHDR(nil))
+        let hdrOn = hdrState.on(s.hdr)
+        let can444 = ConnectionSettings.decodes444(s.codec) && !hdrOn
+        rows.toggle(String(localized: "Texte net (4:4:4)"), hdrOn ? SettingsText.sharpTextHDR : can444 ? SettingsText.sharpTextHelp : yuvNote,
+                    s.yuv444 && can444, enabled: can444) {
             update(custom: true) { $0.yuv444 = !($0.yuv444 && can444) }
+        }
+        .id("hdr")
+
+        // Seulement sur un écran HDR ; à part du profil (pas de « Personnalisé »).
+        if hdrState.shown {
+            rows.toggle(HDRText.label, HDRText.help(hdrState, settings: true), hdrOn, enabled: hdrState.available) {
+                guard hdrState.available else { return }
+                update { $0.hdr.toggle() }
+            }
         }
 
         rateRow

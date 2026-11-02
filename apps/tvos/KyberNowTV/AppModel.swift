@@ -42,6 +42,13 @@ final class AppModel: ObservableObject {
     let cloud = CloudSync()
     let prefs = Preferences.shared
     private var bag: Set<AnyCancellable> = []
+    /// Le téléviseur accepte le HDR10 (docs/hdr.md) : la puce « HDR » de
+    /// l'accueil et l'interrupteur de Réglages › Image n'existent qu'alors.
+    /// Suivi quand le téléviseur gagne ou perd le HDR.
+    @Published private(set) var screenHDR = HDRDisplay.isHDR()
+    private var hdrObservers: [NSObjectProtocol] = []
+    /// Démonstration du rendu HDR (`-demoHDR YES`) : la mire PQ en plein écran.
+    private(set) var hdrDemo: HDRDemo?
 
     init() {
         #if DEBUG
@@ -52,6 +59,14 @@ final class AppModel: ObservableObject {
         #endif
         store = HostStore(demo: demo)
         borrowed = BorrowedStore(demo: demo)
+        hdrObservers = HDRDisplay.observe { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let hdr = HDRDisplay.isHDR()
+                if hdr != self.screenHDR { self.screenHDR = hdr }
+            }
+        }
+        if HDRDemo.requested { hdrDemo = HDRDemo() }
         discovery.start()
         selected = store.ordered.first?.id
         // Le Top Shelf suit les ordinateurs, leur état et leurs images.
@@ -81,7 +96,7 @@ final class AppModel: ObservableObject {
             if let lendInfo, let first = ordered.first, let i = store.status[first.id]?.info {
                 let info = HostInfo(hostname: i.hostname, gpu: i.gpu, av1: i.av1, virtualDisplay: i.virtualDisplay, speakers: i.speakers, os: i.os,
                                     adminVersion: i.adminVersion, station: i.station, wake: i.wake, ownDevice: i.ownDevice, maxScreens: i.maxScreens,
-                                    share: i.share, relay: i.relay, lend: LendInfo(available: true, enabled: lendInfo == "on"))
+                                    share: i.share, relay: i.relay, lend: LendInfo(available: true, enabled: lendInfo == "on"), hdr: i.hdr)
                 store.setDemoStatus(HostStatus(online: true, info: info), for: first.id)
             }
             if UserDefaults.standard.bool(forKey: "demoLent"), let first = ordered.first {
