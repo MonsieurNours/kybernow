@@ -14,6 +14,7 @@
     "localToken": "local token missing or expired",
     "unknownAction": "unknown action: {action}",
     "unreadableBody": "unreadable request: {error}",
+    "hdrNotInSession": "Only the device in a session can change this computer's HDR.",
     "lastUser": "at least one account must remain",
     "kyberCredentials": "Kyber credentials required",
     "noTokenKey": "Kyber has no key for Admin’s tokens. Reinstall KyberNow Station to create it.",

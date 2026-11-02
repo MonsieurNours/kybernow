@@ -15,7 +15,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::audio::AudioSettings;
-use crate::display::{Mode, Origin, PolicyChoice, Screen, Trigger, VdSettings};
+use crate::display::{HdrSetting, Mode, Origin, PolicyChoice, Screen, Trigger, VdSettings};
 use crate::access::PendingAccess;
 use crate::activity::{self, DeviceInfo, ModeInfo};
 use crate::i18n::{self, Msg};
@@ -105,6 +105,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/stream/info", get(stream_info))
         .route("/api/stream/prepare", post(stream_prepare))
         .route("/api/stream/heartbeat", post(stream_heartbeat))
+        .route("/api/stream/hdr", post(stream_hdr))
         .route("/api/stream/foreground", get(stream_foreground))
         .route("/api/stream/preview", get(stream_preview))
         .route("/api/stream/end", post(stream_end))
@@ -643,7 +644,14 @@ pub(crate) async fn blocking<T: Send + 'static>(f: impl FnOnce() -> anyhow::Resu
 
 async fn display_status(State(s): State<AppState>) -> ApiResult<Json<Value>> {
     let d = s.display.clone();
-    Ok(Json(blocking(move || Ok(d.status())).await?))
+    let mut status = blocking(move || Ok(d.status())).await?;
+    // HDR proposé ou non (page Image et son), comme `GET /api/stream/info`.
+    let gpu = tokio::task::spawn_blocking(gpu::status).await.ok().flatten();
+    status["hdr"] = match hdr_unavailable(&s, gpu.as_ref()) {
+        None => json!({ "available": true }),
+        Some(reason) => json!({ "available": false, "reason": reason }),
+    };
+    Ok(Json(status))
 }
 
 async fn display_settings(State(s): State<AppState>, Json(body): Json<VdSettings>) -> ApiResult<Json<Value>> {
@@ -798,7 +806,20 @@ struct PrepareBody {
     /// `height` et `refresh` décrivent alors l'écran principal. Sans effet
     /// sans écran virtuel.
     #[serde(default)]
-    screens: Option<Vec<Screen>>,
+    screens: Option<Vec<PrepareScreen>>,
+    /// HDR voulu pour une session à un écran (docs/hdr.md) ; avec `screens`,
+    /// celui de chaque écran.
+    #[serde(default)]
+    hdr: bool,
+}
+
+/// Un écran de `screens` de `prepare`, avec son HDR.
+#[derive(Deserialize, Clone, Copy)]
+struct PrepareScreen {
+    #[serde(flatten)]
+    screen: Screen,
+    #[serde(default)]
+    hdr: bool,
 }
 
 /// Lien d'appairage pour les apps (`kybernow://…`), que la console affiche en
@@ -836,6 +857,10 @@ async fn stream_info(State(s): State<AppState>, headers: HeaderMap) -> ApiResult
     let (display, audio) = blocking(move || Ok((d.status(), a.status()))).await?;
     let available = display["driver"]["available"].as_bool().unwrap_or(false);
     let trigger = s.display.settings.lock().unwrap().trigger;
+    let hdr = match hdr_unavailable(&s, gpu.as_ref()) {
+        None => json!({ "available": true }),
+        Some(reason) => json!({ "available": false, "reason": reason }),
+    };
     Ok(Json(json!({
         "hostname": hostname::get().ok().map(|h| h.to_string_lossy().into_owned()),
         "os": crate::system::os_name(),
@@ -864,7 +889,48 @@ async fn stream_info(State(s): State<AppState>, headers: HeaderMap) -> ApiResult
         "relay": s.relay.info(&s),
         // Prêt de l'ordinateur (docs/pret.md).
         "lend": lend_api::info(&s),
+        // HDR (docs/hdr.md) : `reason` dit pourquoi il n'est pas proposé.
+        "hdr": hdr,
     })))
+}
+
+/// Pourquoi la Station ne propose pas le HDR (docs/hdr.md, dans l'ordre du
+/// tableau) : `off` (réglé sur « Jamais »), `windows` (avant Windows 11
+/// 24H2), `encoder` (x264, ou carte sans HEVC 10 bits) ; `None` : proposé.
+fn hdr_unavailable(s: &AppState, gpu: Option<&gpu::GpuStatus>) -> Option<&'static str> {
+    if s.display.settings.lock().unwrap().hdr == HdrSetting::Never {
+        return Some("off");
+    }
+    if cfg!(windows) && crate::system::windows_build().unwrap_or(0) < crate::system::HDR_BUILD {
+        return Some("windows");
+    }
+    let encoder = s
+        .kyber
+        .values()
+        .ok()
+        .and_then(|v| v.into_iter().find(|f| f.id == "video.encoder"))
+        .and_then(|f| f.value.as_str().map(str::to_owned))
+        .unwrap_or_else(|| "nvenc".into());
+    if !gpu::hdr_encoder(&encoder, gpu.map_or(&[], |g| g.devices.as_slice())) {
+        return Some("encoder");
+    }
+    None
+}
+
+/// Le HDR que la Station accorde : ce que l'app demande pour chaque écran,
+/// rien quand il n'est pas proposé (raison au journal).
+async fn hdr_granted(s: &AppState, wanted: Vec<bool>) -> Vec<bool> {
+    if !wanted.iter().any(|on| *on) {
+        return wanted;
+    }
+    let gpu = tokio::task::spawn_blocking(gpu::status).await.ok().flatten();
+    match hdr_unavailable(s, gpu.as_ref()) {
+        None => wanted,
+        Some(reason) => {
+            tracing::info!("HDR demandé mais pas proposé par cette Station ({reason}) : image en SDR");
+            vec![false; wanted.len()]
+        }
+    }
 }
 
 /// Écrans qu'une session peut avoir : 1 sans écran virtuel utilisable
@@ -1143,11 +1209,18 @@ async fn stream_prepare(
     }
     let trigger = s.display.settings.lock().unwrap().trigger;
     let virtual_display = trigger != Trigger::Off && body.virtual_display != Some(false);
+    let screens: Option<Vec<Screen>> = body.screens.as_ref().map(|l| l.iter().map(|p| p.screen).collect());
     // Disposition refusée avant de toucher à quoi que ce soit (son, écrans,
     // session en cours d'un autre appareil).
-    if let Some(screens) = body.screens.as_deref().filter(|_| virtual_display) {
+    if let Some(screens) = screens.as_deref().filter(|_| virtual_display) {
         crate::display::validate_screens(screens)?;
     }
+    // HDR voulu pour chaque écran, dans l'ordre de `screens` (docs/hdr.md).
+    let hdr_wanted: Vec<bool> = match &body.screens {
+        Some(list) => list.iter().map(|p| p.hdr).collect(),
+        None => vec![body.hdr],
+    };
+    let hdr_wanted = hdr_granted(&s, hdr_wanted).await;
     let _preparing = Preparing::new(&s.preparing);
     let port = s.kyber.port();
     let (device_id, device_name) = activity::identity(body.device.as_ref(), &user);
@@ -1211,6 +1284,15 @@ async fn stream_prepare(
     let mode_info = ModeInfo { width: body.width, height: body.height, refresh: body.refresh };
     let launch_name = launch.as_ref().map(|l| l.name.clone());
     if !virtual_display {
+        // Sans écran virtuel, Admin ne touche pas aux écrans du PC : le HDR
+        // est celui que l'écran principal a déjà.
+        let hdr = match hdr_wanted.first() {
+            Some(true) => {
+                let d = s.display.clone();
+                vec![blocking(move || Ok(d.display_hdr())).await?]
+            }
+            _ => vec![false],
+        };
         s.activity.begin(body.device.clone(), &user, Some(mode_info), body.profile.clone());
         if let Some(l) = launch {
             s.launcher.session_started(device_id, device_name, l, body.profile.clone());
@@ -1220,19 +1302,23 @@ async fn stream_prepare(
             "virtual_display": false, "audio": audio, "kyber_port": port, "heartbeat_seconds": 5,
             "kyber_fingerprint": crate::kyber_proxy::kyber_fingerprint(&s),
             "launch": launch_name,
+            "hdr": hdr,
         })));
     }
     let d = s.display.clone();
     let (u, id, policy) = (user.clone(), device_id.clone(), body.mode_policy);
-    let (applied, screens) = match body.screens.clone() {
+    // Le HDR des écrans est en place avant la réponse (et avant les captures WGC).
+    let (applied, screens, hdr) = match screens {
         // Multi-écrans : la réponse donne les écrans en place, dans l'ordre de la demande.
         Some(screens) => {
-            let started = blocking(move || d.start_screens(Origin::App, screens, Some(u), Some(id), policy)).await?;
-            (started.applied, Some(started.screens))
+            let started = blocking(move || d.start_screens_hdr(Origin::App, screens, &hdr_wanted, Some(u), Some(id), policy)).await?;
+            (started.applied, Some(started.screens), started.hdr)
         }
         None => {
             let mode = Mode { width: body.width, height: body.height, refresh: body.refresh };
-            (blocking(move || d.start(Origin::App, mode, Some(u), Some(id), None, policy)).await?, None)
+            let started =
+                blocking(move || d.start_screens_hdr(Origin::App, vec![Screen::single(mode)], &hdr_wanted, Some(u), Some(id), policy)).await?;
+            (started.applied, None, started.hdr)
         }
     };
     // Modes des écrans pris, le principal en premier (fil d'événements).
@@ -1261,11 +1347,43 @@ async fn stream_prepare(
         "virtual_display": true, "applied": applied, "audio": audio, "kyber_port": port, "heartbeat_seconds": 5,
         "kyber_fingerprint": crate::kyber_proxy::kyber_fingerprint(&s),
         "launch": launch_name,
+        // HDR obtenu pour chaque écran, dans l'ordre de `screens`.
+        "hdr": hdr,
     });
     if let Some(screens) = screens {
         answer["screens"] = json!(screens);
     }
     Ok(Json(answer))
+}
+
+#[derive(Deserialize)]
+struct HdrBody {
+    device_id: String,
+    /// HDR voulu pour chaque écran, dans l'ordre de `screens` de `prepare`.
+    #[serde(default)]
+    hdr: Vec<bool>,
+}
+
+/// Bascule le HDR des écrans en cours de session (docs/hdr.md) : la puce de
+/// la barre, ou un écran de l'appareil qui perd ou retrouve le HDR. Pour
+/// l'appareil en session seulement (`409` sinon). Rend le HDR obtenu pour
+/// chaque écran ; l'app relance ensuite l'image des écrans touchés.
+async fn stream_hdr(State(s): State<AppState>, headers: HeaderMap, Json(body): Json<HdrBody>) -> ApiResult<Json<Value>> {
+    let user = stream_user(&s, &headers)?;
+    if !s.activity.live().is_some_and(|l| l.device_id == body.device_id && l.user == user) {
+        return Err(ApiError::msg(StatusCode::CONFLICT, Msg::new("api.hdrNotInSession")));
+    }
+    let wanted = hdr_granted(&s, body.hdr).await;
+    let (d, id) = (s.display.clone(), body.device_id);
+    let hdr = blocking(move || {
+        Ok(match d.set_session_hdr(&id, &wanted) {
+            Some(hdr) => hdr,
+            // Sans écran virtuel : rien ne change, le HDR est celui de l'écran du PC.
+            None => vec![wanted.first().copied().unwrap_or(false) && d.display_hdr()],
+        })
+    })
+    .await?;
+    Ok(Json(json!({ "hdr": hdr })))
 }
 
 /// Temps laissé à l'appareil en session pour rendre la main (signal de vie
@@ -2093,11 +2211,76 @@ mod tests {
         let body: PrepareBody = serde_json::from_value(json!({ "width": 3840, "height": 2160, "refresh": 160,
             "screens": [{ "width": 3840, "height": 2160, "refresh": 160, "x": 0, "y": 0, "primary": true },
                         { "width": 3456, "height": 2234, "refresh": 60, "x": -3456, "y": 400 }] })).unwrap();
-        let screens = body.screens.unwrap();
+        let screens: Vec<Screen> = body.screens.unwrap().iter().map(|p| p.screen).collect();
         assert!(screens[0].primary && !screens[1].primary);
         assert_eq!((screens[1].x, screens[1].y), (-3456, 400));
         // Réponse : le principal porte `primary`, les autres non.
         assert_eq!(json!(screens[1]), json!({ "width": 3456, "height": 2234, "refresh": 60, "x": -3456, "y": 400 }));
+        // HDR (docs/hdr.md) : absent, il vaut `false`.
+        assert!(!body.hdr);
+        let body: PrepareBody = serde_json::from_value(json!({ "width": 3840, "height": 2160, "refresh": 160, "hdr": true,
+            "screens": [{ "width": 3840, "height": 2160, "refresh": 160, "x": 0, "y": 0, "primary": true, "hdr": true },
+                        { "width": 3456, "height": 2234, "refresh": 60, "x": -3456, "y": 400 }] })).unwrap();
+        assert!(body.hdr);
+        assert_eq!(body.screens.unwrap().iter().map(|p| p.hdr).collect::<Vec<_>>(), vec![true, false]);
+    }
+
+    async fn info_hdr(c: &Console) -> Value {
+        let Json(info) = stream_info(State(c.s.clone()), basic("mac", "mot-de-passe-mac")).await.ok().unwrap();
+        info["hdr"].clone()
+    }
+
+    #[tokio::test]
+    async fn info_says_whether_the_station_offers_hdr() {
+        let c = console_with_account();
+        // Hors Windows (pilote simulé), sans carte connue : proposé.
+        assert_eq!(info_hdr(&c).await, json!({ "available": true }));
+        // Encodeur x264 : pas de HDR.
+        c.s.kyber.apply(&BTreeMap::from([("video.encoder".to_string(), Some(json!("x264")))])).unwrap();
+        assert_eq!(info_hdr(&c).await, json!({ "available": false, "reason": "encoder" }));
+        // Réglé sur « Jamais » : la première raison du tableau.
+        c.s.display.settings.lock().unwrap().hdr = HdrSetting::Never;
+        assert_eq!(info_hdr(&c).await, json!({ "available": false, "reason": "off" }));
+    }
+
+    fn hdr_body(device: &str, hdr: Vec<bool>) -> Json<HdrBody> {
+        Json(HdrBody { device_id: device.into(), hdr })
+    }
+
+    #[tokio::test]
+    async fn prepare_and_switch_hdr() {
+        let c = console_with_account();
+        let body = json!({ "width": 3840, "height": 2160, "refresh": 120, "hdr": true, "device": { "id": "tv-1", "name": "Apple TV" } });
+        let Json(answer) = stream_prepare(State(c.s.clone()), basic("mac", "mot-de-passe-mac"), None, Json(serde_json::from_value(body).unwrap())).await.ok().unwrap();
+        assert_eq!(answer["hdr"], json!([true]));
+        assert_eq!(c.s.display.status()["session"]["hdr"], json!([true]));
+        // Un autre appareil ne touche pas au HDR de la session.
+        let err = stream_hdr(State(c.s.clone()), basic("mac", "mot-de-passe-mac"), hdr_body("mac-1", vec![false])).await.unwrap_err();
+        assert_eq!(err.0, StatusCode::CONFLICT);
+        assert_eq!(err.1, "Seul l'appareil en session peut changer le HDR de cet ordinateur.");
+        // L'appareil en session, lui, le coupe et le rallume.
+        let Json(v) = stream_hdr(State(c.s.clone()), basic("mac", "mot-de-passe-mac"), hdr_body("tv-1", vec![false])).await.ok().unwrap();
+        assert_eq!(v, json!({ "hdr": [false] }));
+        // Réglé sur « Jamais » entre-temps : la demande reste en SDR.
+        c.s.display.settings.lock().unwrap().hdr = HdrSetting::Never;
+        let Json(v) = stream_hdr(State(c.s.clone()), basic("mac", "mot-de-passe-mac"), hdr_body("tv-1", vec![true])).await.ok().unwrap();
+        assert_eq!(v, json!({ "hdr": [false] }));
+        c.s.display.settings.lock().unwrap().hdr = HdrSetting::Auto;
+        let Json(v) = stream_hdr(State(c.s.clone()), basic("mac", "mot-de-passe-mac"), hdr_body("tv-1", vec![true])).await.ok().unwrap();
+        assert_eq!(v, json!({ "hdr": [true] }));
+        c.s.display.stop("fin du test");
+    }
+
+    #[tokio::test]
+    async fn prepare_without_virtual_display_keeps_the_pc_hdr() {
+        let c = console_with_account();
+        let body = json!({ "width": 3840, "height": 2160, "refresh": 120, "hdr": true, "virtual_display": false, "device": { "id": "tv-1", "name": "Apple TV" } });
+        let Json(answer) = stream_prepare(State(c.s.clone()), basic("mac", "mot-de-passe-mac"), None, Json(serde_json::from_value(body).unwrap())).await.ok().unwrap();
+        // L'écran simulé du PC est en SDR : rien n'est changé, la réponse le dit.
+        assert_eq!(answer["virtual_display"], false);
+        assert_eq!(answer["hdr"], json!([false]));
+        let Json(v) = stream_hdr(State(c.s.clone()), basic("mac", "mot-de-passe-mac"), hdr_body("tv-1", vec![true])).await.ok().unwrap();
+        assert_eq!(v, json!({ "hdr": [false] }));
     }
 
     #[tokio::test]

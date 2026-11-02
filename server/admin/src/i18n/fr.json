@@ -14,6 +14,7 @@
     "localToken": "jeton local absent ou périmé",
     "unknownAction": "action inconnue : {action}",
     "unreadableBody": "corps illisible : {error}",
+    "hdrNotInSession": "Seul l'appareil en session peut changer le HDR de cet ordinateur.",
     "lastUser": "il doit rester au moins un utilisateur",
     "kyberCredentials": "identifiants Kyber requis",
     "noTokenKey": "Kyber n'a pas de clé pour les jetons d'Admin. Réinstallez KyberNow Station pour la créer.",

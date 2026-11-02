@@ -4,7 +4,7 @@
   choix s'applique tout de suite.
 -->
 <script lang="ts">
-  import { api, type AudioChannels, type AudioStatus, type DisplayStatus, type ModePolicy, type Trigger } from '../lib/api'
+  import { api, type AudioChannels, type AudioStatus, type DisplayStatus, type HdrSetting, type ModePolicy, type Trigger } from '../lib/api'
   import { app, errorText, field, kyber, loadKyber, notify, setValues, value } from '../lib/store.svelte'
   import { mode } from '../lib/format'
   import Icon from '../lib/Icon.svelte'
@@ -35,6 +35,20 @@
     { value: 'follow', label: t('imageSound.modePolicy.follow') },
     { value: 'restore', label: t('imageSound.modePolicy.restore') },
   ])
+
+  // HDR des appareils à écran HDR (docs/hdr.md).
+  const HDR_CHOICES: { value: HdrSetting; label: string }[] = $derived([
+    { value: 'auto', label: t('imageSound.hdr.auto') },
+    { value: 'never', label: t('imageSound.hdr.never') },
+  ])
+
+  // Pourquoi l'ordinateur ne peut pas faire de HDR (mêmes textes que les apps).
+  const hdrReason = $derived.by(() => {
+    const reason = display?.hdr?.reason
+    if (reason === 'windows') return t('imageSound.display.hdrWindows')
+    if (reason === 'encoder') return t('imageSound.display.hdrEncoder')
+    return null
+  })
 
   const CHANNELS: { value: AudioChannels; label: string; hint: string }[] = $derived([
     { value: 'auto', label: t('imageSound.channels.auto'), hint: t('imageSound.channels.autoHint') },
@@ -217,6 +231,14 @@
           {/if}
         </div>
         <Segmented label={t('imageSound.display.modeChange')} options={MODE_POLICIES} value={display.settings.on_mode_change ?? 'follow'} disabled={busy} onchange={(p) => setDisplay({ on_mode_change: p }, t('imageSound.toast.saved'))} />
+      </div>
+      <div class="set">
+        <div>
+          <h3>{t('imageSound.display.hdr')}</h3>
+          <p>{t('imageSound.display.hdrHelp')}</p>
+          {#if hdrReason && display.settings.hdr !== 'never'}<p>{hdrReason}</p>{/if}
+        </div>
+        <Segmented label={t('imageSound.display.hdr')} options={HDR_CHOICES} value={display.settings.hdr ?? 'auto'} disabled={busy} onchange={(v) => setDisplay({ hdr: v }, t('imageSound.toast.saved'))} />
       </div>
       <div class="set">
         <div>

@@ -847,6 +847,10 @@
       "follow": "Laisser faire",
       "restore": "Remettre"
     },
+    "hdr": {
+      "auto": "Si l'appareil le demande",
+      "never": "Jamais"
+    },
     "channels": {
       "auto": "Auto",
       "autoHint": "Auto suit ce que la sortie de l’appareil accepte. Un appareil qui en a moins réduit lui-même.",
@@ -898,6 +902,10 @@
       "modeChange": "Si un jeu change la définition",
       "modeChangeHelp": "Laisser faire : l'image suit le jeu. Remettre : l'écran revient à la taille de l'appareil. Les apps choisissent selon leur profil (Jeu : laisser faire, Bureau : remettre) ; ce choix vaut pour les autres. Avec le moteur libavconv, un changement de définition peut couper l'image.",
       "modeNow": "En ce moment : {current} (demandé : {requested}).",
+      "hdr": "HDR",
+      "hdrHelp": "Couleurs plus riches et lumières plus vives, pour les appareils à écran HDR : l'écran virtuel passe en HDR pendant leur session, puis revient comme avant. Sans écran virtuel, l'image garde le HDR de l'écran de l'ordinateur.",
+      "hdrWindows": "Le HDR demande Windows 11 24H2 sur l'ordinateur.",
+      "hdrEncoder": "La carte graphique de l'ordinateur ne fait pas le HDR.",
       "failsafe": "Si quelque chose tourne mal",
       "failsafeHelp": "Le pilote retire l'écran virtuel tout seul s'il ne reçoit plus de signe de vie, et Windows rallume vos écrans. Vous pouvez aussi le faire tout de suite.",
       "failsafeHelpSeconds": "Le pilote retire l'écran virtuel tout seul s'il ne reçoit plus de signe de vie pendant {s} s, et Windows rallume vos écrans. Vous pouvez aussi le faire tout de suite.",

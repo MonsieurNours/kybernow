@@ -169,6 +169,19 @@ enum AgentAction {
         #[arg(long)]
         out: PathBuf,
     },
+    /// HDR des écrans virtuels (`luid_low,luid_high,target,0|1`) : chacun
+    /// passé à l'état voulu, confirmé par Windows en 2 s au plus.
+    Hdr {
+        #[arg(long = "screen", allow_hyphen_values = true, required = true)]
+        screens: Vec<String>,
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// HDR de l'écran principal du PC, lu sans rien changer (session sans écran virtuel).
+    HdrPrimary {
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// Remet un mode sur l'écran `gdi_name` (politique « restore »).
     SetMode {
         #[arg(long)]
@@ -439,6 +452,15 @@ fn display_agent(action: AgentAction) -> Result<()> {
             (out, Ok(serde_json::json!({ "width": w, "height": h, "refresh": hz })))
         }
         AgentAction::Displays { out } => (out, display::topology::physical_displays().map(|d| serde_json::json!({ "displays": d }))),
+        AgentAction::Hdr { screens, out } => {
+            let r = screens
+                .iter()
+                .map(|s| display::hdr::parse_screen_arg(s))
+                .collect::<Result<Vec<_>>>()
+                .and_then(|list| display::hdr::agent_set(&list));
+            (out, r)
+        }
+        AgentAction::HdrPrimary { out } => (out, display::hdr::agent_primary()),
         AgentAction::AudioRoute { channels, out } => {
             display::pointer::begin(agent_dir(&out));
             (out, audio::endpoint::route(channels).and_then(|r| Ok(serde_json::to_value(r)?)))
@@ -474,6 +496,8 @@ fn display_agent(action: AgentAction) -> Result<()> {
         | AgentAction::Restore { out }
         | AgentAction::SetMode { out, .. }
         | AgentAction::Displays { out }
+        | AgentAction::Hdr { out, .. }
+        | AgentAction::HdrPrimary { out }
         | AgentAction::AudioRoute { out, .. }
         | AgentAction::AudioRestore { out, .. }
         | AgentAction::LocalToken { out, .. }

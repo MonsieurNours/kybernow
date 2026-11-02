@@ -68,6 +68,9 @@ pub struct GpuStatus {
 pub struct GpuDevice {
     pub name: String,
     pub vendor: Vendor,
+    /// Identifiant PCI de la puce (HDR : génération de l'encodeur).
+    #[serde(skip)]
+    pub device_id: Option<u16>,
     pub driver: Option<String>,
     /// Un flux de Kyber est encodé par cette carte.
     pub encoding: bool,
@@ -92,6 +95,7 @@ impl GpuDevice {
         GpuDevice {
             name,
             vendor,
+            device_id: None,
             driver,
             encoding: false,
             gpu_utilization: None,
@@ -201,6 +205,7 @@ pub fn status() -> Option<GpuStatus> {
             .iter()
             .map(|a| {
                 let mut d = GpuDevice::new(a.vendor, a.name.clone(), a.driver.clone());
+                d.device_id = a.device_id;
                 if let Some(luid) = a.luid {
                     if let Some(u) = s.usage.get(&luid) {
                         d.gpu_utilization = Some(percent(u.gpu));
@@ -216,6 +221,67 @@ pub fn status() -> Option<GpuStatus> {
     add_nvml(&mut devices);
     let driver = devices.first()?.driver.clone();
     Some(GpuStatus { driver, devices })
+}
+
+/// L'encodeur réglé dans Kyber (`video.encoder`) fait-il le HEVC 10 bits
+/// (HDR, docs/hdr.md) ? Non pour x264 ; pour un encodeur matériel, d'après
+/// la première carte de sa marque. Une carte que la liste ne connaît pas
+/// passe : les cartes récentes le font toutes.
+pub fn hdr_encoder(encoder: &str, devices: &[GpuDevice]) -> bool {
+    let vendor = match encoder {
+        "x264" => return false,
+        "nvenc" => Vendor::Nvidia,
+        "amf" => Vendor::Amd,
+        "qsv" => Vendor::Intel,
+        _ => return true,
+    };
+    devices.iter().find(|d| d.vendor == vendor).is_none_or(|d| ten_bit_encoder(d.vendor, &d.name, d.device_id))
+}
+
+/// Premier nombre qui suit `token` dans `name` (lettres collées sautées :
+/// « HD Graphics P630 » donne 630).
+fn number_after(name: &str, token: &str) -> Option<u32> {
+    let rest = &name[name.find(token)? + token.len()..];
+    let digits: String = rest.trim_start().trim_start_matches(|c: char| c.is_ascii_alphabetic()).chars().take_while(char::is_ascii_digit).collect();
+    digits.parse().ok()
+}
+
+/// L'encodeur matériel de cette carte fait-il le HEVC Main 10 ?
+/// NVIDIA : à partir de Pascal (GTX 10). AMD : à partir de RDNA (RX 5000,
+/// Ryzen 4000). Intel : à partir de Kaby Lake (HD Graphics 6xx, UHD, Iris
+/// Xe, Arc).
+fn ten_bit_encoder(vendor: Vendor, name: &str, device_id: Option<u16>) -> bool {
+    // « Intel(R) Iris(R) Xe », « AMD Radeon(TM) » : marques retirées.
+    let n = name.to_ascii_uppercase().replace("(R)", "").replace("(TM)", "");
+    match vendor {
+        Vendor::Nvidia => match device_id {
+            // Pascal : GP100 (0x15Fx), puis GP102 (0x1B00) et toutes les suivantes.
+            Some(id) => id >= 0x1B00 || (0x15F0..=0x15FF).contains(&id),
+            None => !["GTX 6", "GTX 7", "GTX 9", "GT 6", "GT 7", "GTX TITAN", "QUADRO K", "QUADRO M", "TESLA K", "TESLA M"].iter().any(|m| n.contains(m)),
+        },
+        Vendor::Amd => {
+            if ["VEGA", "RADEON VII", "R9 ", "R7 ", "R5 ", "RADEON HD", "FIREPRO"].iter().any(|m| n.contains(m)) {
+                return false;
+            }
+            // RX 460 à RX 590 (Polaris), RX 640 : trois chiffres ; RX 5700 et suivantes : quatre.
+            match number_after(&n, "RX") {
+                Some(model) => model >= 1000,
+                None => true,
+            }
+        }
+        Vendor::Intel => {
+            if n.contains("UHD") || n.contains("IRIS XE") || n.contains("IRIS PLUS") || n.contains("ARC") {
+                return true;
+            }
+            if n.contains("IRIS") {
+                return false; // Iris Pro, Iris Graphics 540/550 : Broadwell, Skylake.
+            }
+            match number_after(&n, "HD GRAPHICS") {
+                Some(model) => (600..700).contains(&model),
+                None => !n.contains("HD GRAPHICS"),
+            }
+        }
+    }
 }
 
 fn percent(value: f64) -> u32 {
@@ -691,5 +757,48 @@ mod tests {
         // Seul le processus de Kyber (300) compte comme un flux.
         assert_eq!(encoding_adapters(&samples, &[300]), vec![0xAAAA]);
         assert!(encoding_adapters(&samples, &[999]).is_empty());
+    }
+
+    #[test]
+    fn encodeur_10_bits_pour_le_hdr() {
+        let card = |vendor, name: &str, id| {
+            let mut d = GpuDevice::new(vendor, name.into(), None);
+            d.device_id = id;
+            d
+        };
+        // NVIDIA : par l'identifiant de la puce, sinon par le nom.
+        assert!(ten_bit_encoder(Vendor::Nvidia, "NVIDIA GeForce RTX 4090", Some(0x2684)));
+        assert!(ten_bit_encoder(Vendor::Nvidia, "NVIDIA GeForce GTX 1080", Some(0x1B80)));
+        assert!(ten_bit_encoder(Vendor::Nvidia, "NVIDIA Tesla P100", Some(0x15F8)));
+        assert!(!ten_bit_encoder(Vendor::Nvidia, "NVIDIA GeForce GTX 980", Some(0x13C0)));
+        assert!(!ten_bit_encoder(Vendor::Nvidia, "NVIDIA GeForce GTX 970", None));
+        assert!(!ten_bit_encoder(Vendor::Nvidia, "NVIDIA GeForce GTX TITAN X", None));
+        assert!(ten_bit_encoder(Vendor::Nvidia, "NVIDIA TITAN Xp", None));
+        assert!(ten_bit_encoder(Vendor::Nvidia, "NVIDIA GeForce GTX 1650", None));
+        // AMD : RDNA et suivantes.
+        assert!(ten_bit_encoder(Vendor::Amd, "AMD Radeon RX 7900 XTX", None));
+        assert!(ten_bit_encoder(Vendor::Amd, "AMD Radeon RX 5700 XT", None));
+        assert!(ten_bit_encoder(Vendor::Amd, "AMD Radeon 780M Graphics", None));
+        assert!(ten_bit_encoder(Vendor::Amd, "AMD Radeon(TM) Graphics", None));
+        assert!(!ten_bit_encoder(Vendor::Amd, "Radeon RX 580 Series", None));
+        assert!(!ten_bit_encoder(Vendor::Amd, "AMD Radeon RX Vega 64", None));
+        assert!(!ten_bit_encoder(Vendor::Amd, "AMD Radeon(TM) Vega 8 Graphics", None));
+        // Intel : Kaby Lake et suivantes.
+        assert!(ten_bit_encoder(Vendor::Intel, "Intel(R) UHD Graphics 770", None));
+        assert!(ten_bit_encoder(Vendor::Intel, "Intel(R) Arc(TM) A770 Graphics", None));
+        assert!(ten_bit_encoder(Vendor::Intel, "Intel(R) Iris(R) Xe Graphics", None));
+        assert!(ten_bit_encoder(Vendor::Intel, "Intel(R) HD Graphics 630", None));
+        assert!(ten_bit_encoder(Vendor::Intel, "Intel(R) HD Graphics P630", None));
+        assert!(!ten_bit_encoder(Vendor::Intel, "Intel(R) HD Graphics 530", None));
+        assert!(!ten_bit_encoder(Vendor::Intel, "Intel(R) HD Graphics 4600", None));
+        assert!(!ten_bit_encoder(Vendor::Intel, "Intel(R) Iris(R) Pro Graphics 6200", None));
+        // L'encodeur réglé : x264 jamais ; un encodeur matériel d'après sa carte.
+        let pc = vec![card(Vendor::Intel, "Intel(R) HD Graphics 530", None), card(Vendor::Nvidia, "NVIDIA GeForce RTX 3080", Some(0x2206))];
+        assert!(!hdr_encoder("x264", &pc));
+        assert!(hdr_encoder("nvenc", &pc));
+        assert!(!hdr_encoder("qsv", &pc));
+        // Carte de cette marque introuvable : Kyber dira lui-même s'il ne peut pas.
+        assert!(hdr_encoder("amf", &pc));
+        assert!(hdr_encoder("nvenc", &[]));
     }
 }
