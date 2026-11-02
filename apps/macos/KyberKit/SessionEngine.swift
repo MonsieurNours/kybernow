@@ -310,6 +310,10 @@ public final class SessionEngine: @unchecked Sendable {
         /// redémarre (une fois) ; l'écran de connexion dit « La Station
         /// redémarre… » jusqu'à la phase suivante (préparation, ou fin).
         case stationRestarting
+        /// HDR : Windows a refusé le HDR d'un écran ; son image est en SDR.
+        /// Le texte à montrer, une fois par session (« L'ordinateur n'a pas pu
+        /// passer en HDR : image en SDR. »).
+        case hdrRefused(String)
     }
 
     // Rappels, tous sur le fil principal.
@@ -553,6 +557,10 @@ public final class SessionEngine: @unchecked Sendable {
             let view = LendView(json: lend.map { String(cString: $0) })
             DispatchQueue.main.async { me.onLend?(view) }
         }
+        platform.on_hdr = { ud, list, count in
+            let screens = (0..<Int(count)).map { list![$0] }
+            SessionEngine.from(ud).hdrStarted(screens)
+        }
         platform.on_route = { ud, route in
             guard let info = RouteInfo(json: route.map { String(cString: $0) }) else { return }
             let me = SessionEngine.from(ud)
@@ -718,12 +726,9 @@ public final class SessionEngine: @unchecked Sendable {
     public func setHDR(_ on: Bool) {
         lock.lock()
         params?.settings.hdr = on
-        let settings = params?.settings
         lock.unlock()
         KyberLog.app.notice("HDR \(on ? "allumé" : "éteint", privacy: .public) en session")
-        // Adaptateur : `kn_session_set_hdr` quand le pont le donnera ; d'ici
-        // là, le réglage voyage avec les autres.
-        if let settings { setSettings(settings) }
+        if let s = live { kn_session_set_hdr(s, on) }
     }
 
     /// L'écran `screen` de cet appareil gagne ou perd le HDR (fenêtre glissée
@@ -733,7 +738,13 @@ public final class SessionEngine: @unchecked Sendable {
         // Le rendu de cet écran suit déjà (surface) : une image PQ y est
         // ramenée en SDR jusqu'à ce que le cœur la relance.
         KyberLog.app.notice("écran \(screen) de l'appareil : \(hdr ? "HDR" : "SDR", privacy: .public)")
-        // Adaptateur : `kn_session_screen_hdr_changed` quand le pont le donnera.
+        if let s = live { kn_session_screen_hdr_changed(s, UInt32(max(0, screen)), hdr) }
+    }
+
+    /// Un écran au moins a été en HDR pendant la session (« HDR » de la dernière session).
+    public var hdrUsed: Bool {
+        guard let s = live else { return false }
+        return kn_session_hdr_used(s)
     }
 
     /// Les écrans de la session en HDR, au démarrage de l'image (rappel
@@ -1134,6 +1145,7 @@ public final class SessionEngine: @unchecked Sendable {
         case KN_NOTICE_ADAPT_FAILED: notice = .adaptFailed(n.error.map { String(cString: $0) } ?? "")
         case KN_NOTICE_RESTORE_OFFER: notice = .restoreOffer(n.has_mode ? Mode(width: Int(n.width), height: Int(n.height), refresh: 0) : nil)
         case KN_NOTICE_STATION_RESTARTING: notice = .stationRestarting
+        case KN_NOTICE_HDR_REFUSED: notice = .hdrRefused(n.error.map { String(cString: $0) } ?? "")
         default: return
         }
         DispatchQueue.main.async { [self] in onNotice?(notice) }

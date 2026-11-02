@@ -13,6 +13,7 @@
 
 import AVFoundation
 import Foundation
+@_implementationOnly import CKyberNow
 #if os(macOS)
 import AppKit
 #else
@@ -95,6 +96,8 @@ public struct HDROffer: Sendable, Equatable {
         case windows
         /// Encodeur sans 10 bits.
         case encoder
+        /// Sans écran virtuel, l'écran du PC n'est pas en HDR.
+        case display
     }
 
     public let available: Bool
@@ -147,35 +150,28 @@ public struct HDRState: Sendable, Equatable {
 }
 
 public enum HDRSupport {
-    /// La puce de l'accueil pour cet ordinateur. Règles du contrat, dans
-    /// l'ordre du tableau « Quand le HDR n'est pas possible ».
-    // Adaptateur : la règle est celle de `profile::hdr_state` du cœur
-    // (`kn_hdr_state`) ; elle sera lue là quand le pont la donnera.
-    public static func state(offer: HDROffer?, codec: VideoCodec, screenHDR: Bool,
+    /// La puce de l'accueil pour cet ordinateur : la règle du cœur
+    /// (`kn_hdr_state`, `profile::hdr_state`), raisons dans l'ordre du tableau
+    /// « Quand le HDR n'est pas possible » et dans la langue de l'app.
+    /// `profile` : `jeu`, `bureau`, `max`, nil pour Personnalisé (un format
+    /// H.264 choisi à la main bloque le HDR ; celui d'un profil passe à HEVC ou AV1).
+    public static func state(offer: HDROffer?, profile: String? = nil, codec: VideoCodec, screenHDR: Bool,
                              capabilities: DecoderCapabilities = .current) -> HDRState {
         guard screenHDR else { return .hidden }
-        let offer = offer ?? .none
-        let reason: String?
-        if !offer.available {
-            switch offer.reason ?? .off {
-            case .off: reason = String(localized: "L'ordinateur ne propose pas le HDR.", bundle: .kyberKit)
-            case .windows: reason = String(localized: "Le HDR demande Windows 11 24H2 sur l'ordinateur.", bundle: .kyberKit)
-            case .encoder: reason = String(localized: "La carte graphique de l'ordinateur ne fait pas le HDR.", bundle: .kyberKit)
-            }
-        } else if codec == .h264 {
-            reason = String(localized: "Le HDR demande le format HEVC ou AV1.", bundle: .kyberKit)
-        } else if !capabilities.hdr {
-            reason = String(localized: "Cet appareil ne décode pas le HDR.", bundle: .kyberKit)
-        } else {
-            reason = nil
-        }
-        return HDRState(shown: true, available: reason == nil, reason: reason)
+        var info: [String: Any] = [:]
+        if let offer { info["hdr"] = offer.json }
+        var settings: [String: Any] = ["codec": codec.rawValue, "mbps": 0]
+        if let profile { settings["profile"] = profile }
+        guard let infoText = text(info), let settingsText = text(settings), let capsText = text(SessionEngine.capabilitiesJSON(capabilities)),
+              let out = kn_hdr_state(infoText, settingsText, capsText, screenHDR), let json = Core.take(out),
+              let data = json.data(using: .utf8), let j = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        else { return .hidden }
+        return HDRState(shown: j["shown"] as? Bool ?? false, available: j["available"] as? Bool ?? false,
+                        reason: (j["reason"] as? String).flatMap { $0.isEmpty ? nil : $0 })
     }
 
-    /// Le cœur demande le HDR pour cet écran : réglage allumé, HDR possible,
-    /// écran de l'appareil HDR. Le format part alors en HEVC ou AV1, en 4:2:0.
-    public static func requested(setting: Bool, offer: HDROffer?, codec: VideoCodec, screenHDR: Bool) -> Bool {
-        state(offer: offer, codec: codec, screenHDR: screenHDR).on(setting)
+    private static func text(_ object: [String: Any]) -> String? {
+        (try? JSONSerialization.data(withJSONObject: object)).flatMap { String(data: $0, encoding: .utf8) }
     }
 }
 

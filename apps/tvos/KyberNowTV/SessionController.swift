@@ -237,7 +237,7 @@ final class SessionController: ObservableObject {
     /// et sur un téléviseur sans HDR ; l'ami qui emprunte l'a, comme un hôte.
     var hdrState: HDRState {
         guard !isGuest else { return .hidden }
-        return HDRSupport.state(offer: hdrOffer, codec: engineSettings.codec, screenHDR: screenHDR)
+        return HDRSupport.state(offer: hdrOffer, profile: engineSettings.profile, codec: engineSettings.codec, screenHDR: screenHDR)
     }
 
     /// Le HDR est demandé pour cette session.
@@ -643,6 +643,9 @@ final class SessionController: ObservableObject {
             DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in self?.fallbackNote = nil }
         case .stationRestarting:
             stationRestarting = true
+        case let .hdrRefused(text):
+            // Windows a refusé le HDR : une fois par session (le cœur s'en charge).
+            show(notice: text.isEmpty ? HDRText.refused : text, for: 6)
         case .adapting, .adapted, .adaptFailed:
             // Pas d'adaptation à l'écran sur l'Apple TV : le téléviseur ne change pas en session.
             break

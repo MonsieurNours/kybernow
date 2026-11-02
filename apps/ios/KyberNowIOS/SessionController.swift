@@ -262,7 +262,7 @@ final class SessionController: ObservableObject {
     var hdrState: HDRState {
         if isGuest { return .hidden }
         if isBorrower {
-            return HDRSupport.state(offer: HDROffer(available: true), codec: engineSettings.codec, screenHDR: screenHDR)
+            return HDRSupport.state(offer: HDROffer(available: true), profile: engineSettings.profile, codec: engineSettings.codec, screenHDR: screenHDR)
         }
         return host.settings.hdrState(store.status[host.id]?.info, screenHDR: screenHDR)
     }
@@ -698,6 +698,9 @@ final class SessionController: ObservableObject {
             modeRestoreOffer = mode.map { String(localized: "Remettre \($0.width) × \($0.height)") }
         case .stationRestarting:
             stationRestarting = true
+        case let .hdrRefused(text):
+            // Windows a refusé le HDR : une fois par session (le cœur s'en charge).
+            show(notice: text.isEmpty ? HDRText.refused : text, for: 6)
         }
     }
 

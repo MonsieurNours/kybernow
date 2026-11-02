@@ -298,7 +298,7 @@ struct ConnectionSettings: Codable, Hashable {
     /// La puce « HDR » de cet ordinateur sur un écran HDR ou non : cachée,
     /// active, ou inactive avec sa raison (le format choisi compte : H.264 n'a pas de HDR).
     func hdrState(_ info: HostInfo?, screenHDR: Bool) -> HDRState {
-        HDRSupport.state(offer: info?.hdr, codec: codec, screenHDR: screenHDR)
+        HDRSupport.state(offer: info?.hdr, profile: profile?.rawValue, codec: codec, screenHDR: screenHDR)
     }
 
     /// Le HDR sera demandé : « Texte net (4:4:4) » inactif, le profil Bureau
