@@ -96,12 +96,14 @@
 #         (kyctl-common, lu par kycontroller : posé ici avant
 #         0022-kycontroller-hdr) ; les apps le posent aussi, après leurs
 #         propres correctifs (apps/macos/scripts/build-kyclient.sh…)
-#   0023  chronométrage par étape (txproto, et libavgrab/libavconv) : la
-#         capture joint à chaque image ses heures (affichage par Windows,
-#         prise, soumission à la carte) et le temps de la carte pour la copie
-#         ou la conversion (requêtes d'horodatage D3D11 lues sans attendre) ;
-#         l'encodeur écrit toutes les 5 s « Timing in ms … » (moyennes et
-#         95e centile), en SDR comme en HDR
+#   0023  latence (txproto, et libavgrab/libavconv) : priorité GPU au
+#         démarrage de la capture (classe REALTIME du processus sans
+#         ordonnancement GPU matériel, HIGH sinon ; SetGPUThreadPriority(7)) ;
+#         chronométrage par étape : la capture joint à chaque image ses heures
+#         (affichage par Windows, prise, soumission à la carte) et le temps de
+#         la carte pour la copie ou la conversion (requêtes d'horodatage D3D11
+#         lues sans attendre) ; l'encodeur écrit toutes les 5 s « Timing in
+#         ms … » (moyennes et 95e centile), en SDR comme en HDR
 #
 # Prérequis (Homebrew) : mingw-w64 meson ninja nasm cmake bison lua@5.4
 # binaryen, wasm-bindgen-cli (cargo install), rustup target

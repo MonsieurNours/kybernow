@@ -56,10 +56,10 @@ index 743f950..7b779d1 100644
          av_log(e, AV_LOG_DEBUG, "encoder -> "
 diff --git a/subprojects/libavconv/libavconv/kn_timing.h b/subprojects/libavconv/libavconv/kn_timing.h
 new file mode 100644
-index 0000000..fef45f6
+index 0000000..b37aafb
 --- /dev/null
 +++ b/subprojects/libavconv/libavconv/kn_timing.h
-@@ -0,0 +1,349 @@
+@@ -0,0 +1,478 @@
 +/*
 + * KyberNow (0023): time spent by each image at each step on the computer,
 + * in SDR and in HDR, for both capture engines. The same file is in txproto
@@ -272,6 +272,135 @@ index 0000000..fef45f6
 +        ID3D10Multithread_Release(mt);
 +    }
 +}
++
++/* GPU priority of the capture and encoding work: during a game that keeps
++ * the card busy, the copy, the conversion and the encoding would otherwise
++ * wait behind its frames (up to one game frame). Process class through
++ * D3DKMTSetProcessSchedulingPriorityClass (gdi32.dll, loaded at run time):
++ * REALTIME (SeIncreaseBasePriorityPrivilege, kyavserver runs as SYSTEM)
++ * only when hardware-accelerated GPU scheduling is known to be off, HIGH
++ * otherwise or if REALTIME is refused (with that scheduling on, REALTIME
++ * can freeze NVENC or the driver, as Sunshine found); then
++ * IDXGIDevice::SetGPUThreadPriority(7) on `device`. `buf` gets the log. */
++enum { KN_KMT_PRIORITY_HIGH = 4, KN_KMT_PRIORITY_REALTIME = 5 };
++#define KN_KMTQAITYPE_WDDM_2_7_CAPS 70
++
++typedef struct KnKmtOpenAdapterFromLuid { LUID luid; UINT adapter; } KnKmtOpenAdapterFromLuid;
++typedef struct KnKmtCloseAdapter { UINT adapter; } KnKmtCloseAdapter;
++typedef struct KnKmtQueryAdapterInfo {
++    UINT adapter;
++    UINT type;
++    void *data;
++    UINT size;
++} KnKmtQueryAdapterInfo;
++typedef LONG (APIENTRY *kn_kmt_set_priority_fn)(HANDLE process, int priority);
++typedef LONG (APIENTRY *kn_kmt_open_fn)(KnKmtOpenAdapterFromLuid *args);
++typedef LONG (APIENTRY *kn_kmt_close_fn)(const KnKmtCloseAdapter *args);
++typedef LONG (APIENTRY *kn_kmt_query_fn)(const KnKmtQueryAdapterInfo *args);
++
++/* Hardware-accelerated GPU scheduling on the adapter `luid`: 1 on, 0 off,
++ * -1 unknown (Windows before 10 2004, or the query refused). */
++static inline int kn_gpu_hags(HMODULE gdi, LUID luid)
++{
++    kn_kmt_open_fn open = (kn_kmt_open_fn)(void *)GetProcAddress(gdi, "D3DKMTOpenAdapterFromLuid");
++    kn_kmt_close_fn close = (kn_kmt_close_fn)(void *)GetProcAddress(gdi, "D3DKMTCloseAdapter");
++    kn_kmt_query_fn query = (kn_kmt_query_fn)(void *)GetProcAddress(gdi, "D3DKMTQueryAdapterInfo");
++    KnKmtOpenAdapterFromLuid o = { luid, 0 };
++    KnKmtCloseAdapter c;
++    KnKmtQueryAdapterInfo q;
++    UINT caps = 0; /* D3DKMT_WDDM_2_7_CAPS: bit 0 HwSchSupported, bit 1 HwSchEnabled */
++    LONG status;
++
++    if (!open || !close || !query || open(&o) < 0)
++        return -1;
++    q.adapter = o.adapter;
++    q.type = KN_KMTQAITYPE_WDDM_2_7_CAPS;
++    q.data = &caps;
++    q.size = sizeof(caps);
++    status = query(&q);
++    c.adapter = o.adapter;
++    close(&c);
++    return status < 0 ? -1 : !!(caps & 2);
++}
++
++/* SeIncreaseBasePriorityPrivilege on, if the process holds it. */
++static inline int kn_gpu_priority_privilege(void)
++{
++    HANDLE token;
++    TOKEN_PRIVILEGES tp = { 0 };
++    int ok;
++
++    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &token))
++        return 0;
++    tp.PrivilegeCount = 1;
++    tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
++    ok = LookupPrivilegeValueW(NULL, L"SeIncreaseBasePriorityPrivilege", &tp.Privileges[0].Luid) &&
++         AdjustTokenPrivileges(token, FALSE, &tp, 0, NULL, NULL) &&
++         GetLastError() == ERROR_SUCCESS;
++    CloseHandle(token);
++    return ok;
++}
++
++static inline void kn_gpu_priority(ID3D11Device *device, char *buf, size_t size)
++{
++    static const GUID iid_dxgi_device = { /* {54ec77fa-1377-44e6-8c32-88fd5f44c84c} */
++        0x54ec77fa, 0x1377, 0x44e6, { 0x8c, 0x32, 0x88, 0xfd, 0x5f, 0x44, 0xc8, 0x4c }
++    };
++    HMODULE gdi = GetModuleHandleW(L"gdi32.dll");
++    kn_kmt_set_priority_fn set = NULL;
++    IDXGIDevice *dxgi = NULL;
++    IDXGIAdapter *adapter = NULL;
++    DXGI_ADAPTER_DESC desc = { 0 };
++    const char *class_name = "unchanged";
++    char why[96] = "";
++    int hags = -1, privilege, thread = 0;
++    LONG status = 0;
++    HRESULT hr;
++
++    if (!gdi)
++        gdi = LoadLibraryExW(L"gdi32.dll", NULL, LOAD_LIBRARY_SEARCH_SYSTEM32);
++    if (gdi)
++        set = (kn_kmt_set_priority_fn)(void *)GetProcAddress(gdi, "D3DKMTSetProcessSchedulingPriorityClass");
++    if (FAILED(hr = ID3D11Device_QueryInterface(device, &iid_dxgi_device, (void **)&dxgi))) {
++        snprintf(buf, size, "GPU priority: no IDXGIDevice (0x%lX)", hr);
++        return;
++    }
++    if (SUCCEEDED(IDXGIDevice_GetAdapter(dxgi, &adapter))) {
++        IDXGIAdapter_GetDesc(adapter, &desc);
++        IDXGIAdapter_Release(adapter);
++        if (gdi)
++            hags = kn_gpu_hags(gdi, desc.AdapterLuid);
++    }
++
++    privilege = kn_gpu_priority_privilege();
++    if (!set) {
++        snprintf(why, sizeof(why), ", D3DKMTSetProcessSchedulingPriorityClass not found");
++    } else {
++        if (hags == 0 && privilege && (status = set(GetCurrentProcess(), KN_KMT_PRIORITY_REALTIME)) >= 0) {
++            class_name = "REALTIME";
++        } else {
++            if (hags != 0)
++                snprintf(why, sizeof(why), ", %s", hags == 1 ? "hardware-accelerated GPU scheduling on"
++                                                              : "GPU scheduling mode unknown");
++            else
++                snprintf(why, sizeof(why), ", REALTIME refused (%s 0x%lX)",
++                         privilege ? "status" : "no privilege,", (unsigned long)status);
++            status = set(GetCurrentProcess(), KN_KMT_PRIORITY_HIGH);
++            class_name = status >= 0 ? "HIGH" : "unchanged";
++            if (status < 0)
++                snprintf(why + strlen(why), sizeof(why) - strlen(why), ", HIGH refused (0x%lX)",
++                         (unsigned long)status);
++        }
++    }
++
++    hr = IDXGIDevice_SetGPUThreadPriority(dxgi, 7);
++    if (FAILED(hr) || FAILED(IDXGIDevice_GetGPUThreadPriority(dxgi, &thread)))
++        thread = 0;
++    IDXGIDevice_Release(dxgi);
++    snprintf(buf, size, "GPU priority: process class %s%s, GPU thread priority %d%s (vendor 0x%04X)",
++             class_name, why, thread, FAILED(hr) ? " (SetGPUThreadPriority refused)" : "",
++             desc.VendorId);
++}
 +#endif /* KN_TIMING_D3D11 */
 +
 +#ifdef KN_TIMING_ENCODER
@@ -410,7 +539,7 @@ index 0000000..fef45f6
 +
 +#endif /* KN_TIMING_H */
 diff --git a/subprojects/libavconv/libavgrab/dxgi.c b/subprojects/libavconv/libavgrab/dxgi.c
-index 50ad803..323cd60 100644
+index 50ad803..9e8f1eb 100644
 --- a/subprojects/libavconv/libavgrab/dxgi.c
 +++ b/subprojects/libavconv/libavgrab/dxgi.c
 @@ -80,6 +80,8 @@
@@ -579,12 +708,26 @@ index 50ad803..323cd60 100644
      if (hr == DXGI_ERROR_WAIT_TIMEOUT) {
          return AVERROR(EAGAIN);
      } else if (hr == DXGI_ERROR_ACCESS_LOST) {
+@@ -851,6 +861,13 @@ static int dxgi_capture_thread(GrabCapture *c)
+     if (ret < 0)
+         goto finish;
+ 
++    /* KyberNow (0023): copy, conversion and encoding before a game's frames. */
++    {
++        char kn_line[256];
++        kn_gpu_priority(hwctx_d3d->device, kn_line, sizeof(kn_line));
++        av_log(c, AV_LOG_INFO, "%s\n", kn_line);
++    }
++
+     while (!atomic_load(&c->quit) &&
+            (priv_c->main_out >= 0 || priv_c->cursor_out >= 0)) {
+         /* Capture may be restarted multiple time during a session in some cases:
 diff --git a/subprojects/libavconv/libavgrab/kn_timing.h b/subprojects/libavconv/libavgrab/kn_timing.h
 new file mode 100644
-index 0000000..fef45f6
+index 0000000..b37aafb
 --- /dev/null
 +++ b/subprojects/libavconv/libavgrab/kn_timing.h
-@@ -0,0 +1,349 @@
+@@ -0,0 +1,478 @@
 +/*
 + * KyberNow (0023): time spent by each image at each step on the computer,
 + * in SDR and in HDR, for both capture engines. The same file is in txproto
@@ -796,6 +939,135 @@ index 0000000..fef45f6
 +        ID3D10Multithread_Leave(mt);
 +        ID3D10Multithread_Release(mt);
 +    }
++}
++
++/* GPU priority of the capture and encoding work: during a game that keeps
++ * the card busy, the copy, the conversion and the encoding would otherwise
++ * wait behind its frames (up to one game frame). Process class through
++ * D3DKMTSetProcessSchedulingPriorityClass (gdi32.dll, loaded at run time):
++ * REALTIME (SeIncreaseBasePriorityPrivilege, kyavserver runs as SYSTEM)
++ * only when hardware-accelerated GPU scheduling is known to be off, HIGH
++ * otherwise or if REALTIME is refused (with that scheduling on, REALTIME
++ * can freeze NVENC or the driver, as Sunshine found); then
++ * IDXGIDevice::SetGPUThreadPriority(7) on `device`. `buf` gets the log. */
++enum { KN_KMT_PRIORITY_HIGH = 4, KN_KMT_PRIORITY_REALTIME = 5 };
++#define KN_KMTQAITYPE_WDDM_2_7_CAPS 70
++
++typedef struct KnKmtOpenAdapterFromLuid { LUID luid; UINT adapter; } KnKmtOpenAdapterFromLuid;
++typedef struct KnKmtCloseAdapter { UINT adapter; } KnKmtCloseAdapter;
++typedef struct KnKmtQueryAdapterInfo {
++    UINT adapter;
++    UINT type;
++    void *data;
++    UINT size;
++} KnKmtQueryAdapterInfo;
++typedef LONG (APIENTRY *kn_kmt_set_priority_fn)(HANDLE process, int priority);
++typedef LONG (APIENTRY *kn_kmt_open_fn)(KnKmtOpenAdapterFromLuid *args);
++typedef LONG (APIENTRY *kn_kmt_close_fn)(const KnKmtCloseAdapter *args);
++typedef LONG (APIENTRY *kn_kmt_query_fn)(const KnKmtQueryAdapterInfo *args);
++
++/* Hardware-accelerated GPU scheduling on the adapter `luid`: 1 on, 0 off,
++ * -1 unknown (Windows before 10 2004, or the query refused). */
++static inline int kn_gpu_hags(HMODULE gdi, LUID luid)
++{
++    kn_kmt_open_fn open = (kn_kmt_open_fn)(void *)GetProcAddress(gdi, "D3DKMTOpenAdapterFromLuid");
++    kn_kmt_close_fn close = (kn_kmt_close_fn)(void *)GetProcAddress(gdi, "D3DKMTCloseAdapter");
++    kn_kmt_query_fn query = (kn_kmt_query_fn)(void *)GetProcAddress(gdi, "D3DKMTQueryAdapterInfo");
++    KnKmtOpenAdapterFromLuid o = { luid, 0 };
++    KnKmtCloseAdapter c;
++    KnKmtQueryAdapterInfo q;
++    UINT caps = 0; /* D3DKMT_WDDM_2_7_CAPS: bit 0 HwSchSupported, bit 1 HwSchEnabled */
++    LONG status;
++
++    if (!open || !close || !query || open(&o) < 0)
++        return -1;
++    q.adapter = o.adapter;
++    q.type = KN_KMTQAITYPE_WDDM_2_7_CAPS;
++    q.data = &caps;
++    q.size = sizeof(caps);
++    status = query(&q);
++    c.adapter = o.adapter;
++    close(&c);
++    return status < 0 ? -1 : !!(caps & 2);
++}
++
++/* SeIncreaseBasePriorityPrivilege on, if the process holds it. */
++static inline int kn_gpu_priority_privilege(void)
++{
++    HANDLE token;
++    TOKEN_PRIVILEGES tp = { 0 };
++    int ok;
++
++    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &token))
++        return 0;
++    tp.PrivilegeCount = 1;
++    tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
++    ok = LookupPrivilegeValueW(NULL, L"SeIncreaseBasePriorityPrivilege", &tp.Privileges[0].Luid) &&
++         AdjustTokenPrivileges(token, FALSE, &tp, 0, NULL, NULL) &&
++         GetLastError() == ERROR_SUCCESS;
++    CloseHandle(token);
++    return ok;
++}
++
++static inline void kn_gpu_priority(ID3D11Device *device, char *buf, size_t size)
++{
++    static const GUID iid_dxgi_device = { /* {54ec77fa-1377-44e6-8c32-88fd5f44c84c} */
++        0x54ec77fa, 0x1377, 0x44e6, { 0x8c, 0x32, 0x88, 0xfd, 0x5f, 0x44, 0xc8, 0x4c }
++    };
++    HMODULE gdi = GetModuleHandleW(L"gdi32.dll");
++    kn_kmt_set_priority_fn set = NULL;
++    IDXGIDevice *dxgi = NULL;
++    IDXGIAdapter *adapter = NULL;
++    DXGI_ADAPTER_DESC desc = { 0 };
++    const char *class_name = "unchanged";
++    char why[96] = "";
++    int hags = -1, privilege, thread = 0;
++    LONG status = 0;
++    HRESULT hr;
++
++    if (!gdi)
++        gdi = LoadLibraryExW(L"gdi32.dll", NULL, LOAD_LIBRARY_SEARCH_SYSTEM32);
++    if (gdi)
++        set = (kn_kmt_set_priority_fn)(void *)GetProcAddress(gdi, "D3DKMTSetProcessSchedulingPriorityClass");
++    if (FAILED(hr = ID3D11Device_QueryInterface(device, &iid_dxgi_device, (void **)&dxgi))) {
++        snprintf(buf, size, "GPU priority: no IDXGIDevice (0x%lX)", hr);
++        return;
++    }
++    if (SUCCEEDED(IDXGIDevice_GetAdapter(dxgi, &adapter))) {
++        IDXGIAdapter_GetDesc(adapter, &desc);
++        IDXGIAdapter_Release(adapter);
++        if (gdi)
++            hags = kn_gpu_hags(gdi, desc.AdapterLuid);
++    }
++
++    privilege = kn_gpu_priority_privilege();
++    if (!set) {
++        snprintf(why, sizeof(why), ", D3DKMTSetProcessSchedulingPriorityClass not found");
++    } else {
++        if (hags == 0 && privilege && (status = set(GetCurrentProcess(), KN_KMT_PRIORITY_REALTIME)) >= 0) {
++            class_name = "REALTIME";
++        } else {
++            if (hags != 0)
++                snprintf(why, sizeof(why), ", %s", hags == 1 ? "hardware-accelerated GPU scheduling on"
++                                                              : "GPU scheduling mode unknown");
++            else
++                snprintf(why, sizeof(why), ", REALTIME refused (%s 0x%lX)",
++                         privilege ? "status" : "no privilege,", (unsigned long)status);
++            status = set(GetCurrentProcess(), KN_KMT_PRIORITY_HIGH);
++            class_name = status >= 0 ? "HIGH" : "unchanged";
++            if (status < 0)
++                snprintf(why + strlen(why), sizeof(why) - strlen(why), ", HIGH refused (0x%lX)",
++                         (unsigned long)status);
++        }
++    }
++
++    hr = IDXGIDevice_SetGPUThreadPriority(dxgi, 7);
++    if (FAILED(hr) || FAILED(IDXGIDevice_GetGPUThreadPriority(dxgi, &thread)))
++        thread = 0;
++    IDXGIDevice_Release(dxgi);
++    snprintf(buf, size, "GPU priority: process class %s%s, GPU thread priority %d%s (vendor 0x%04X)",
++             class_name, why, thread, FAILED(hr) ? " (SetGPUThreadPriority refused)" : "",
++             desc.VendorId);
 +}
 +#endif /* KN_TIMING_D3D11 */
 +
