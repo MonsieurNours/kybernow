@@ -3795,7 +3795,7 @@ mod tests {
         }
 
         // Plusieurs ordinateurs : la session suivante a sa fenêtre, décorée, à son nom, centrée aux deux tiers de l'écran.
-        let extra = kybernow_core::screens::extra_session_window(&kybernow_core::screens::DeviceScreen { x: 0.0, y: 0.0, width: 1920.0, height: 1080.0, pixel_width: 1920, pixel_height: 1080, refresh: 60, primary: true });
+        let extra = kybernow_core::screens::extra_session_window(&kybernow_core::screens::DeviceScreen { x: 0.0, y: 0.0, width: 1920.0, height: 1080.0, pixel_width: 1920, pixel_height: 1080, refresh: 60, primary: true, hdr: false, luminance: None });
         let frame = (extra.x.round() as i32, extra.y.round() as i32, extra.width.round() as i32, extra.height.round() as i32);
         assert_eq!(frame, (320, 180, 1280, 720));
         let mut b = create_session_window(&session_title("B"), frame, 0, premul).expect("la fenêtre d'une session de plus");

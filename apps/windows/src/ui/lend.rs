@@ -394,7 +394,7 @@ pub fn lend_borrow(app: AppHandle, friend: Option<String>, ticket: Option<u64>, 
         }
         (None, None) => return Err(t("errors.no_session", &[])),
     };
-    let request = BorrowRequest { credentials, name, device: device.id, app: "windows".into(), screen: system::screen_mode(), codecs: lending::codecs(caps.hevc, caps.av1) };
+    let request = BorrowRequest { credentials, name, device: device.id, app: "windows".into(), screen: system::screen_mode().into(), codecs: lending::codecs(caps.hevc, caps.av1) };
     let again = Again { target: target.clone(), route: route.clone(), request: request.clone() };
     let answer = lend::borrow(&target, route.as_ref(), &request).map_err(|e| {
         log::info!("prêt : refusé ({})", e.kind());
