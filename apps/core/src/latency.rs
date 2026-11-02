@@ -127,6 +127,9 @@ pub struct Second {
     pub rtt_ms: Option<f64>,
     /// Octets d'image reçus.
     pub bytes: u64,
+    /// Un écran au moins de l'image en cours est en HDR (docs/hdr.md),
+    /// posé par la session.
+    pub hdr: bool,
 }
 
 /// Étapes d'une image sur l'ordinateur (µs, son horloge).

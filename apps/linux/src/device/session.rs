@@ -390,6 +390,7 @@ impl Platform for LinuxPlatform {
             Notice::Adapted { width, height } => format!("{} {width} × {height}", tr("Écran virtuel :", "Virtual display:")),
             Notice::AdaptFailed { error } => error.clone(),
             Notice::RestoreOffer { .. } => return,
+            Notice::HdrRefused => kybernow_core::profile::hdr_refused_text(kybernow_core::i18n::current()),
         };
         self.0.send(SessionEvent::Notice(msg));
     }
@@ -571,7 +572,7 @@ pub fn share_view(st: &ShareState) -> Option<ShareView> {
 /// plus : il reçoit une image qu'il lit, `share::guest_format`) : le HEVC par la carte ou le processeur, le 4:4:4
 /// avec lui, l'AV1 par la carte.
 pub fn guest_capabilities(m: &Machine) -> Capabilities {
-    Capabilities { hevc: m.decodes("hevc"), hevc444: m.decodes("hevc"), av1: m.decodes("av1") }
+    Capabilities { hevc: m.decodes("hevc"), hevc444: m.decodes("hevc"), av1: m.decodes("av1"), hdr: false }
 }
 
 /// Ce que le décodeur de cet appareil suit, pour « Auto » (`auto_quality`) : ses formats et, quand on les connaît,
@@ -593,7 +594,7 @@ pub fn decoder_caps(m: &Machine) -> DecoderCaps {
 
 /// L'écran de la fenêtre, pour « Auto » : définition native (en paysage) et fréquence (`auto_quality`).
 pub fn auto_screen(pixel: (u32, u32), refresh: u32) -> kybernow_core::screens::DeviceScreen {
-    kybernow_core::screens::DeviceScreen { x: 0.0, y: 0.0, width: f64::from(pixel.0), height: f64::from(pixel.1), pixel_width: pixel.0, pixel_height: pixel.1, refresh, primary: true }
+    kybernow_core::screens::DeviceScreen { x: 0.0, y: 0.0, width: f64::from(pixel.0), height: f64::from(pixel.1), pixel_width: pixel.0, pixel_height: pixel.1, refresh, primary: true, hdr: false, luminance: None }
 }
 
 struct InputCallbacks(Arc<Shared>);
@@ -626,7 +627,7 @@ pub fn core_profile(p: Profile) -> CoreProfile {
 /// (`Screens::capabilities`, docs/multi-ecrans.md).
 pub fn capabilities(host: &Host, codec: &str, m: &Machine) -> Capabilities {
     let yuv444 = host.settings.yuv444 && codec == "hevc";
-    Capabilities { hevc: m.decodes("hevc"), hevc444: yuv444, av1: codec == "av1" }
+    Capabilities { hevc: m.decodes("hevc"), hevc444: yuv444, av1: codec == "av1", hdr: false }
 }
 
 /// Les réglages du flux : le profil ramené à ce que décode cette machine, le
@@ -749,6 +750,9 @@ pub fn start(id: SessionId, host: &Host, settings: StreamSettings, mode: (u32, u
             role: SessionRole::Host,
             // Un relais connu pour cet ordinateur : l'image passe par le réseau, et par lui quand le réseau ne répond pas.
             route: kybernow_core::session::Route::Auto(relay_route(host)),
+            screen_hdr: false,
+            screen_luminance: None,
+            capabilities: None,
         },
     };
     let platform = Arc::new(LinuxPlatform(shared.clone()));

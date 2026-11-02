@@ -1792,7 +1792,7 @@ mod tests {
     }
 
     fn screen(w: u32, h: u32, hz: u32) -> DeviceScreen {
-        DeviceScreen { x: 0.0, y: 0.0, width: f64::from(w) / 3.0, height: f64::from(h) / 3.0, pixel_width: w, pixel_height: h, refresh: hz, primary: true }
+        DeviceScreen { x: 0.0, y: 0.0, width: f64::from(w) / 3.0, height: f64::from(h) / 3.0, pixel_width: w, pixel_height: h, refresh: hz, primary: true, hdr: false, luminance: None }
     }
 
     #[test]
@@ -1808,7 +1808,7 @@ mod tests {
 
     #[test]
     fn qualite_auto() {
-        let hevc = Capabilities { hevc: true, hevc444: false, av1: false };
+        let hevc = Capabilities { hevc: true, hevc444: false, av1: false, hdr: false };
         // Un iPhone (écran en portrait, 120 Hz), décodeur qui suit la 4K à 60 Hz : en paysage.
         let iphone = screen(1179, 2556, 120);
         let decoder = DecoderCaps { capabilities: hevc, max_width: 3840, max_height: 2160, max_fps: 60 };
@@ -1823,7 +1823,7 @@ mod tests {
         let tv = screen(3840, 2160, 60);
         let a = auto_quality(&tv, &DecoderCaps { capabilities: Capabilities::default(), max_width: 1920, max_height: 1080, max_fps: 0 }, None);
         assert_eq!((a.width, a.height, a.fps, a.codecs.len()), (1920, 1080, 60, 1));
-        let a = auto_quality(&tv, &DecoderCaps::from(Capabilities { hevc: true, hevc444: true, av1: true }), None);
+        let a = auto_quality(&tv, &DecoderCaps::from(Capabilities { hevc: true, hevc444: true, av1: true, hdr: false }), None);
         assert_eq!((a.width, a.height, a.fps, a.yuv444), (3840, 2160, 60, true));
         assert_eq!(a.codecs, ["h264", "hevc", "av1"]);
         // Le décodeur en JSON, pour les ponts.
@@ -1892,9 +1892,9 @@ mod tests {
 
     #[test]
     fn format_demande_a_kyber() {
-        let hevc = Capabilities { hevc: true, hevc444: false, av1: false };
-        let hevc444 = Capabilities { hevc: true, hevc444: true, av1: false };
-        let all = Capabilities { hevc: true, hevc444: true, av1: true };
+        let hevc = Capabilities { hevc: true, hevc444: false, av1: false, hdr: false };
+        let hevc444 = Capabilities { hevc: true, hevc444: true, av1: false, hdr: false };
+        let all = Capabilities { hevc: true, hevc444: true, av1: true, hdr: false };
         let h264 = Capabilities::default();
         assert_eq!(guest_format(None, false, h264).unwrap(), None, "image de l'hôte pas encore démarrée");
         assert_eq!(guest_format(Some("hevc"), true, hevc444).unwrap(), Some((Codec::Hevc, true)));
@@ -1908,14 +1908,14 @@ mod tests {
 
     #[test]
     fn formats_lisibles() {
-        let all = Capabilities { hevc: true, hevc444: true, av1: true };
+        let all = Capabilities { hevc: true, hevc444: true, av1: true, hdr: false };
         let h264_only = Capabilities::default();
         assert_eq!(check_codec(None, false, h264_only).unwrap(), None, "image pas encore démarrée");
         assert_eq!(check_codec(Some("h264"), false, h264_only).unwrap(), Some(Codec::H264));
         assert_eq!(check_codec(Some("hevc"), true, all).unwrap(), Some(Codec::Hevc));
         let e = check_codec(Some("hevc"), false, h264_only).unwrap_err();
         assert!(matches!(&e, ShareError::Unreadable { format } if format == "HEVC"), "{e:?}");
-        let no444 = Capabilities { hevc: true, hevc444: false, av1: false };
+        let no444 = Capabilities { hevc: true, hevc444: false, av1: false, hdr: false };
         assert!(matches!(check_codec(Some("hevc"), true, no444), Err(ShareError::Unreadable { format }) if format == "HEVC 4:4:4"));
         assert!(matches!(check_codec(Some("av1"), false, no444), Err(ShareError::Unreadable { format }) if format == "AV1"));
         assert!(matches!(check_codec(Some("vp9"), false, all), Err(ShareError::Unreadable { format }) if format == "VP9"));

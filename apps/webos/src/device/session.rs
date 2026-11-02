@@ -178,6 +178,7 @@ impl Platform for WebOsPlatform {
             Notice::Adapted { width, height } => format!("{} {width} × {height}", tr("Écran virtuel :", "Virtual display:")),
             Notice::AdaptFailed { error } => error.clone(),
             Notice::RestoreOffer { .. } => return,
+            Notice::HdrRefused => kybernow_core::profile::hdr_refused_text(kybernow_core::i18n::current()),
         };
         self.0.send(Event::Notice(msg));
     }
@@ -358,7 +359,7 @@ pub fn share_view(st: &ShareState) -> Option<ShareView> {
 /// la sortie du téléviseur (sa dalle en paysage, sa fréquence) et ce que son décodeur suit (HEVC, AV1 s'il l'a,
 /// jamais de 4:4:4 ; aucune autre borne connue que la dalle). La Station tranche et borne par l'image de l'hôte.
 pub fn auto_quality(tv: &crate::app::TvInfo) -> share::ShareAuto {
-    let screen = kybernow_core::screens::DeviceScreen { x: 0.0, y: 0.0, width: f64::from(tv.panel.0), height: f64::from(tv.panel.1), pixel_width: tv.panel.0, pixel_height: tv.panel.1, refresh: tv.refresh, primary: true };
+    let screen = kybernow_core::screens::DeviceScreen { x: 0.0, y: 0.0, width: f64::from(tv.panel.0), height: f64::from(tv.panel.1), pixel_width: tv.panel.0, pixel_height: tv.panel.1, refresh: tv.refresh, primary: true, hdr: false, luminance: None };
     share::auto_quality(&screen, &share::DecoderCaps::from(guest_capabilities(tv.av1)), None)
 }
 
@@ -366,7 +367,7 @@ pub fn auto_quality(tv: &crate::app::TvInfo) -> share::ShareAuto {
 /// plus : il reçoit une image qu'il lit, `share::guest_format`) : le HEVC par le décodeur du téléviseur (jamais en
 /// 4:4:4), l'AV1 s'il l'a.
 pub fn guest_capabilities(av1: bool) -> Capabilities {
-    Capabilities { hevc: true, hevc444: false, av1 }
+    Capabilities { hevc: true, hevc444: false, av1, hdr: false }
 }
 
 struct InputCallbacks(Arc<Shared>);
@@ -404,7 +405,7 @@ pub fn core_profile(p: Profile) -> CoreProfile {
 /// (HEVC, pas de 4:4:4), le format et le transport choisis, le débit
 /// plafonné par le réseau.
 pub fn settings(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32), cap_mbps: u32) -> StreamSettings {
-    let caps = Capabilities { hevc: true, hevc444: false, av1: codec == "av1" };
+    let caps = Capabilities { hevc: true, hevc444: false, av1: codec == "av1", hdr: false };
     let mut s = StreamSettings::for_profile(core_profile(profile), caps);
     s.codec = match codec {
         "h264" => Codec::H264,
@@ -500,6 +501,9 @@ pub fn start(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32), 
             role: SessionRole::Host,
             // Un relais connu pour cet ordinateur : l'image passe par le réseau, et par lui quand le réseau ne répond pas.
             route: kybernow_core::session::Route::Auto(relay_route(host)),
+            screen_hdr: false,
+            screen_luminance: None,
+            capabilities: None,
         },
     };
     let session = Session::start(params, Arc::new(WebOsPlatform(shared.clone())));

@@ -90,7 +90,7 @@ kyber_toolchain_check rustc cargo-c
 
 # Correctifs client de KyberNow (paquets vers l'app, presse-papiers, tampon de
 # réception), les mêmes que pour les apps Apple.
-for patch in "$APPS"/macos/kyber-patches/*.patch; do
+for patch in "$APPS"/macos/kyber-patches/*.patch "$ROOT"/server/kyber-patches/*-kyclient-*.patch; do
     case "$(basename "$patch")" in
         *-kyclient-*) repo="$KYSDK/kyctl" ;;
         *-kynput-*) repo="$KYSDK/kynput" ;;

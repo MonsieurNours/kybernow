@@ -2365,7 +2365,7 @@ fn displays_spec(s: &Settings, info: Option<&Info>, lighten: bool, pc: &ThisPc) 
 
 /// Ce que ce PC décode (sonde de la carte graphique).
 fn capabilities(pc: &ThisPc) -> kybernow_core::profile::Capabilities {
-    kybernow_core::profile::Capabilities { hevc: pc.hevc, hevc444: pc.hevc444, av1: pc.av1 }
+    kybernow_core::profile::Capabilities { hevc: pc.hevc, hevc444: pc.hevc444, av1: pc.av1, hdr: false }
 }
 
 /// Réponse de `connect` : les écrans que la session prend (l'étape « Préparation
@@ -2753,6 +2753,9 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
         // Sur le réseau d'abord (`info` en 1,5 s), par le relais sinon quand l'ordinateur
         // y est connu (docs/relais.md) ; une empreinte changée ne bascule jamais.
         route: kybernow_core::session::Route::Auto(relais::route_of(c.relay.as_ref(), c.fingerprint.as_deref())),
+        screen_hdr: false,
+        screen_luminance: None,
+        capabilities: None,
     };
     let mouse = match s.mouse.as_str() {
         "jeu" => Some(true),

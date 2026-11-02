@@ -52,7 +52,7 @@ cargo_quiet() {
 
 # Mêmes correctifs que l'app Mac (image et son vers l'app, presse-papiers,
 # mémoire de réception UDP).
-for patch in "$ROOT"/apps/macos/kyber-patches/*.patch; do
+for patch in "$ROOT"/apps/macos/kyber-patches/*.patch "$ROOT"/server/kyber-patches/*-kyclient-*.patch; do
     case "$(basename "$patch")" in
         *-kyclient-*) repo="$KYSDK/kyctl" ;;
         *-kynput-*) repo="$KYSDK/kynput" ;;

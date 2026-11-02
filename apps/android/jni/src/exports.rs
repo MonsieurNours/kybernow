@@ -590,7 +590,7 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_profileSett
     use kybernow_core::profile::{Capabilities, Codec, Profile, StreamSettings};
     let p = string(&mut env, &profile);
     let profile = Profile::parse(&p).unwrap_or(Profile::Jeu);
-    let s = StreamSettings::for_profile(profile, Capabilities { hevc: hevc != 0, hevc444: hevc444 != 0, av1: av1 != 0 });
+    let s = StreamSettings::for_profile(profile, Capabilities { hevc: hevc != 0, hevc444: hevc444 != 0, av1: av1 != 0, hdr: false });
     let codec = match s.codec {
         Codec::H264 => "h264",
         Codec::Hevc => "hevc",
