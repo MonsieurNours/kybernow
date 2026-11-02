@@ -26,7 +26,7 @@ use kybernow_core::i18n::{self, Lang};
 use kybernow_core::kynput_rs::Pipeline;
 use kybernow_core::latency::{self, Second};
 use kybernow_core::media::{Packet, PacketHandler};
-use kybernow_core::profile::{self, Capabilities, Codec, Profile, StreamSettings};
+use kybernow_core::profile::{self, Capabilities, Codec, HdrLuminance, Profile, StreamSettings};
 use kybernow_core::screens::{self, DisplaysChoice, DisplaysSetting, Screens};
 use kybernow_core::session::{EndReport, Notice, Platform, Session, SessionParams, Status, StreamScreen};
 use kybernow_core::share::{ShareEnd, ShareImage, ShareQuality, ShareRole, ShareState};
@@ -1127,7 +1127,8 @@ pub struct KnSession {
 /// et pour le multi-écrans `screens` : `list`, les écrans de l'appareil
 /// (`x`, `y`, `width`, `height` : cadre dans le repère logique de l'appareil,
 /// y vers le bas ; `pixel_width`, `pixel_height` : définition native ;
-/// `refresh` ; `primary` ; `hdr` : l'écran est HDR), `current` (« Cet
+/// `refresh` ; `primary` ; `hdr` : l'écran est HDR ; `luminance` : ses
+/// valeurs HDR, `{max, full_frame, min, sdr_white}`), `current` (« Cet
 /// écran » : celui de la fenêtre),
 /// `limit_4k` (« Au plus 4K »), `custom_resolution`, `setting` (`auto`,
 /// `this`, `all`) et `max_screens` (`virtual_display.max_screens` de
@@ -1135,8 +1136,9 @@ pub struct KnSession {
 /// départ et quand le profil change (`kn_session_set_settings`). `mode` :
 /// le mode de « Cet écran », comme sans `screens`. La plateforme reçoit
 /// `on_screens` et les paquets de chaque écran (`KnPacket::screen`).
-/// HDR (docs/hdr.md) : `screen_hdr` (l'écran de l'appareil d'une session à
-/// un écran, sans `screens`, est HDR ; avec `screens`, leur `hdr`) et
+/// HDR (docs/hdr.md) : `screen_hdr` et `screen_luminance` (l'écran de
+/// l'appareil d'une session à un écran, sans `screens`, est HDR, et ses
+/// valeurs ; avec `screens`, leurs `hdr` et `luminance`) et
 /// `capabilities` (`{hevc, hevc444, av1, hdr}` : le décodeur ; absent, l'app
 /// répond du décodeur). La session envoie `hdr` à la Station et à Kyber
 /// quand le choix est allumé et possible (`kn_hdr_state`), impose alors
@@ -1318,13 +1320,58 @@ pub unsafe extern "C" fn kn_session_set_hdr(s: *const KnSession, hdr: bool) {
     with(s, |s| s.set_hdr(hdr));
 }
 
+/// HDR : les valeurs d'un écran de l'appareil, en nits (docs/hdr.md,
+/// « Réglage du HDR ») : luminosité maximale (petite zone), sur tout
+/// l'écran, noir, blanc du bureau. En JSON (`screens.list[i].luminance`,
+/// `screen_luminance`, `screen.luminance` de `kn_lend_borrow`) :
+/// `{max, full_frame, min, sdr_white}`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct KnHdrLuminance {
+    pub max: f64,
+    pub full_frame: f64,
+    pub min: f64,
+    pub sdr_white: f64,
+}
+
+impl From<HdrLuminance> for KnHdrLuminance {
+    fn from(l: HdrLuminance) -> Self {
+        Self { max: l.max, full_frame: l.full_frame, min: l.min, sdr_white: l.sdr_white }
+    }
+}
+
+impl From<KnHdrLuminance> for HdrLuminance {
+    fn from(l: KnHdrLuminance) -> Self {
+        Self { max: l.max, full_frame: l.full_frame, min: l.min, sdr_white: l.sdr_white }
+    }
+}
+
+/// Les valeurs HDR par défaut : 1 000 nits, 1 000 nits sur tout l'écran,
+/// 0 nit, blanc du bureau à 203 nits.
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_hdr_luminance_default() -> KnHdrLuminance {
+    HdrLuminance::default().into()
+}
+
+/// Les valeurs bornées comme le cœur les envoie (maximale de 100 à 10 000
+/// nits, tout l'écran au plus la maximale, noir de 0 à 1, blanc du bureau
+/// de 80 à 480) : pour l'écran « Réglage du HDR ».
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_hdr_luminance_clamp(luminance: KnHdrLuminance) -> KnHdrLuminance {
+    HdrLuminance::from(luminance).clamped().into()
+}
+
 /// HDR : l'écran de l'appareil `screen` (index dans `screens.list` ; 0 pour
 /// une session à un écran) gagne ou perd le HDR (fenêtre glissée sur un
-/// écran SDR, téléviseur qui coupe le HDR). L'image de cet écran repasse en
-/// SDR, puis en HDR quand il le redevient, sans message ; le choix reste.
+/// écran SDR, téléviseur qui coupe le HDR), ou ses valeurs changent.
+/// `luminance` : les valeurs de l'écran où l'image se trouve maintenant
+/// (nul : par défaut), données à la Station avec le HDR. L'image de cet
+/// écran repasse en SDR, puis en HDR quand il le redevient, sans message ;
+/// le choix reste.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn kn_session_screen_hdr_changed(s: *const KnSession, screen: u32, hdr: bool) {
-    with(s, |s| s.screen_hdr_changed(screen as usize, hdr));
+pub unsafe extern "C" fn kn_session_screen_hdr_changed(s: *const KnSession, screen: u32, hdr: bool, luminance: *const KnHdrLuminance) {
+    let luminance = unsafe { luminance.as_ref() }.map(|l| HdrLuminance::from(*l));
+    with(s, |s| s.screen_hdr_changed(screen as usize, hdr, luminance));
 }
 
 /// HDR : un écran au moins a été en HDR pendant la session (« HDR » de la

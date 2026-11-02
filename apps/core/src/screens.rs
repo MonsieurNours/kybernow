@@ -25,7 +25,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::console::{Mode, ScreenMode};
-use crate::profile::{Capabilities, Codec, Profile, StreamSettings};
+use crate::profile::{Capabilities, Codec, HdrLuminance, Profile, StreamSettings};
 
 /// Quatre écrans au plus par session.
 pub const MAX_SCREENS: usize = 4;
@@ -62,12 +62,18 @@ pub struct DeviceScreen {
     /// [`crate::session::Session::screen_hdr_changed`].
     #[serde(default)]
     pub hdr: bool,
+    /// Ses valeurs HDR (docs/hdr.md, « Réglage du HDR ») : données par le
+    /// système ou réglées à l'œil, gardées par l'app pour cet écran ;
+    /// absentes : [`HdrLuminance::default`]. Le cœur les borne.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub luminance: Option<HdrLuminance>,
 }
 
 impl DeviceScreen {
-    /// Même écran, même place, même mode : seul `hdr` peut différer.
+    /// Même écran, même place, même mode : seuls `hdr` et `luminance`
+    /// peuvent différer.
     pub fn same_place(&self, other: &DeviceScreen) -> bool {
-        DeviceScreen { hdr: other.hdr, ..*self } == *other
+        DeviceScreen { hdr: other.hdr, luminance: other.luminance, ..*self } == *other
     }
 }
 
@@ -361,6 +367,7 @@ impl PlannedScreen {
             y: self.y,
             primary: self.primary,
             hdr: false,
+            luminance: None,
         }
     }
 }
@@ -641,7 +648,7 @@ mod tests {
 
     #[allow(clippy::too_many_arguments)]
     fn screen(x: f64, y: f64, w: f64, h: f64, pw: u32, ph: u32, hz: u32, primary: bool) -> DeviceScreen {
-        DeviceScreen { x, y, width: w, height: h, pixel_width: pw, pixel_height: ph, refresh: hz, primary, hdr: false }
+        DeviceScreen { x, y, width: w, height: h, pixel_width: pw, pixel_height: ph, refresh: hz, primary, hdr: false, luminance: None }
     }
 
     /// Le Mac de l'auteur : XG32UQ 4K à 160 Hz au centre (principal, réglé

@@ -49,7 +49,7 @@ use crate::console::{
 use crate::i18n::{self, Lang};
 use crate::latency::{LatencyTracker, Second};
 use crate::media::{Packet, PacketHandler, packet_sink};
-use crate::profile::{Capabilities, Codec, SettingsJson, StreamSettings};
+use crate::profile::{Capabilities, Codec, HdrLuminance, SettingsJson, StreamSettings};
 use crate::screens::{self, PlannedScreen, Screens};
 use crate::share::{self, Found, ShareBeat, ShareDisplay, ShareEnd, ShareError, ShareImage, ShareJoined, ShareQuality, ShareRole, ShareState};
 #[cfg(test)]
@@ -157,6 +157,10 @@ pub struct SessionParams {
     /// invité reçoit le HDR seulement si son écran l'est ; en session, un
     /// changement passe par [`Session::screen_hdr_changed`].
     pub screen_hdr: bool,
+    /// Les valeurs HDR de cet écran (docs/hdr.md, « Réglage du HDR ») ; à
+    /// plusieurs écrans : [`crate::screens::DeviceScreen::luminance`].
+    /// Absentes : [`HdrLuminance::default`].
+    pub screen_luminance: Option<HdrLuminance>,
     /// Ce que l'appareil décode (le HDR demande `hdr`) ; absent : celles de
     /// `screens` (multi-écrans) ou de l'invité, sinon l'app répond du
     /// décodeur (elle ne demande le HDR que s'il le lit).
@@ -211,6 +215,7 @@ impl SessionParams {
             // Venu par le relais : il y reste (la route voyage avec `joined`).
             route: found.joined.route.clone().map_or(Route::Direct, Route::Relay),
             screen_hdr: false,
+            screen_luminance: None,
             capabilities: None,
         }
     }
@@ -243,6 +248,7 @@ impl SessionParams {
             role: SessionRole::Borrower(Box::new(BorrowerParams { borrowed: loan.borrowed.clone() })),
             route: loan.borrowed.route.clone().map_or(Route::Direct, Route::Relay),
             screen_hdr: false,
+            screen_luminance: None,
             capabilities: None,
         }
     }
@@ -256,7 +262,7 @@ impl SessionParams {
     /// `password`, `console_fingerprint`, `device`, `mode`, `audio_channels`,
     /// `virtual_display`, `settings`, `auto_reconnect`, `gamepad_xbox360`,
     /// `clipboard`, `recovery`, et `screens` (multi-écrans, rendu à part pour
-    /// [`Session::start_with_screens`]), `screen_hdr` et `capabilities`
+    /// [`Session::start_with_screens`]), `screen_hdr`, `screen_luminance` et `capabilities`
     /// (HDR, docs/hdr.md) ; pour un invité, `guest` :
     /// `{"joined": <réponse de share_join>, "capabilities": {hevc, hevc444,
     /// av1}}` (`user`, `password` et `mode` sont alors facultatifs) ; pour
@@ -312,6 +318,7 @@ impl SessionParams {
             role,
             route,
             screen_hdr: wire.screen_hdr,
+            screen_luminance: wire.screen_luminance,
             capabilities: wire.capabilities,
         };
         Ok((params, wire.screens))
@@ -375,6 +382,9 @@ struct ParamsJson {
     /// HDR : l'écran de l'appareil (session à un écran, invité) est HDR.
     #[serde(default)]
     screen_hdr: bool,
+    /// Ses valeurs HDR (`{max, full_frame, min, sdr_white}`, nits).
+    #[serde(default)]
+    screen_luminance: Option<HdrLuminance>,
     /// Ce que l'appareil décode (`{hevc, hevc444, av1, hdr}`).
     #[serde(default)]
     capabilities: Option<Capabilities>,
@@ -685,11 +695,20 @@ enum Msg {
     /// Le choix « HDR » changé en session (barre, menu).
     SetHdr(bool),
     /// Un écran de l'appareil (index dans [`Screens::list`], 0 pour une
-    /// session à un écran) gagne ou perd le HDR.
-    ScreenHdr(usize, bool),
-    /// Réponse de `POST /api/stream/hdr` : numéro de la demande, écrans de
-    /// l'appareil dans l'ordre de la demande, HDR voulu, HDR obtenu.
-    HdrApplied(u64, Vec<usize>, Vec<bool>, Result<Vec<bool>, String>),
+    /// session à un écran) gagne ou perd le HDR, ou change de valeurs.
+    ScreenHdr(usize, bool, Option<HdrLuminance>),
+    /// Réponse de `POST /api/stream/hdr` : numéro de la demande, la demande
+    /// (écrans de l'appareil, HDR voulu, valeurs), HDR obtenu.
+    HdrApplied(u64, HdrAsk, Result<Vec<bool>, String>),
+}
+
+/// Une demande `POST /api/stream/hdr` : écrans de l'appareil dans l'ordre de
+/// `prepare`, HDR voulu et valeurs envoyées pour chacun.
+#[derive(Debug, Clone, PartialEq)]
+struct HdrAsk {
+    order: Vec<usize>,
+    wanted: Vec<bool>,
+    luminance: Vec<Option<HdrLuminance>>,
 }
 
 /// Les événements d'un client Kyber, tant que sa tentative de connexion vit
@@ -1390,9 +1409,12 @@ impl Session {
     /// une session à un écran) gagne ou perd le HDR (fenêtre glissée sur un
     /// écran SDR, téléviseur qui coupe le HDR) : l'image de cet écran repasse
     /// en SDR, puis en HDR quand il le redevient, sans message ; le choix
-    /// « HDR » reste.
-    pub fn screen_hdr_changed(&self, screen: usize, hdr: bool) {
-        self.send(Msg::ScreenHdr(screen, hdr));
+    /// « HDR » reste. `luminance` : les valeurs HDR de l'écran où l'image se
+    /// trouve maintenant (`None` : par défaut), données à la Station avec le
+    /// HDR (la fenêtre a pu passer sur un autre écran HDR) ; des valeurs
+    /// changées seules les redonnent aussi à la Station.
+    pub fn screen_hdr_changed(&self, screen: usize, hdr: bool, luminance: Option<HdrLuminance>) {
+        self.send(Msg::ScreenHdr(screen, hdr, luminance));
     }
 
     /// Un écran au moins a été en HDR pendant la session (« HDR » de la
@@ -1613,8 +1635,10 @@ struct Worker {
     /// lu au début d'une session d'hôte quand un écran de l'appareil est HDR).
     station_hdr: Option<crate::console::HdrInfo>,
     /// HDR obtenu de la Station, par écran de l'appareil (index dans
-    /// [`Screens::list`], 0 pour une session à un écran).
+    /// [`Screens::list`], 0 pour une session à un écran), et les valeurs HDR
+    /// données avec lui.
     hdr_obtained: Vec<bool>,
+    hdr_luminance: Vec<Option<HdrLuminance>>,
     /// HDR de chaque écran du flux en cours (dans l'ordre de `streams`), et le
     /// format qui l'accompagne.
     stream_hdr: Vec<bool>,
@@ -1765,6 +1789,7 @@ impl Worker {
             guest,
             station_hdr: None,
             hdr_obtained: Vec::new(),
+            hdr_luminance: Vec::new(),
             stream_hdr: Vec::new(),
             stream_format: None,
             hdr_noticed: false,
@@ -2020,10 +2045,11 @@ impl Worker {
             mode_policy: Some(mode_policy.map_or(policy, str::to_string)),
             screens: (!plan.is_empty()).then(|| {
                 plan.iter()
-                    .map(|p| crate::console::ScreenMode { hdr: self.wants_hdr(p.device), ..p.request() })
+                    .map(|p| crate::console::ScreenMode { hdr: self.wants_hdr(p.device), luminance: self.luminance_for(p.device), ..p.request() })
                     .collect()
             }),
             hdr: self.wants_hdr(plan.first().map_or_else(|| self.primary_screen(), |p| p.device)),
+            luminance: self.luminance_for(plan.first().map_or_else(|| self.primary_screen(), |p| p.device)),
         }
     }
 
@@ -2091,7 +2117,9 @@ impl Worker {
         let now = self.session_screens();
         let order: Vec<usize> = if now.len() < order.len() { now } else { order.to_vec() };
         for (i, &d) in order.iter().enumerate() {
-            self.set_obtained(d, got.get(i).copied().unwrap_or(false));
+            let g = got.get(i).copied().unwrap_or(false);
+            let lum = if g { self.luminance_for(d) } else { None };
+            self.set_obtained(d, g, lum);
         }
         if wanted.iter().any(|w| *w) {
             info!("HDR : demandé {wanted:?}, obtenu {:?} (Station : {:?})", prepared.hdr, got);
@@ -2125,6 +2153,22 @@ impl Worker {
         }
     }
 
+    /// Les valeurs HDR de l'écran de l'appareil `screen`, bornées
+    /// (absentes : par défaut).
+    fn device_luminance(&self, screen: usize) -> HdrLuminance {
+        let value = match &self.screens {
+            Some(s) => s.list.get(screen).and_then(|d| d.luminance),
+            None => self.params.screen_luminance,
+        };
+        HdrLuminance::of(value)
+    }
+
+    /// Les valeurs à envoyer à la Station pour cet écran : avec le HDR
+    /// demandé seulement.
+    fn luminance_for(&self, screen: usize) -> Option<HdrLuminance> {
+        self.wants_hdr(screen).then(|| self.device_luminance(screen))
+    }
+
     /// Le choix « HDR » est allumé et possible ([`crate::profile::hdr_block`]) :
     /// Station (lue au début d'une session d'hôte ; l'ami d'un prêt ne la lit
     /// pas : Kyber repasse en SDR ce qu'il ne peut pas faire), format, décodeur.
@@ -2147,11 +2191,26 @@ impl Worker {
         self.hdr_obtained.get(screen).copied().unwrap_or(false)
     }
 
-    fn set_obtained(&mut self, screen: usize, hdr: bool) {
+    /// Les valeurs données à la Station avec le HDR obtenu pour cet écran.
+    fn sent_luminance(&self, screen: usize) -> Option<HdrLuminance> {
+        self.hdr_luminance.get(screen).copied().flatten()
+    }
+
+    fn set_obtained(&mut self, screen: usize, hdr: bool, luminance: Option<HdrLuminance>) {
         if self.hdr_obtained.len() <= screen {
             self.hdr_obtained.resize(screen + 1, false);
+            self.hdr_luminance.resize(screen + 1, None);
         }
         self.hdr_obtained[screen] = hdr;
+        self.hdr_luminance[screen] = if hdr { luminance } else { None };
+    }
+
+    /// La demande à faire à la Station pour le HDR voulu maintenant.
+    fn hdr_ask(&self) -> HdrAsk {
+        let order = self.session_screens();
+        let wanted: Vec<bool> = order.iter().map(|&d| self.wants_hdr(d)).collect();
+        let luminance = order.iter().map(|&d| self.luminance_for(d)).collect();
+        HdrAsk { order, wanted, luminance }
     }
 
     /// Le format de l'image passe en HDR (4:2:0, HEVC ou AV1) : un écran au
@@ -2223,10 +2282,14 @@ impl Worker {
             self.hdr_pending = true;
             return;
         }
-        let order = self.session_screens();
-        let wanted: Vec<bool> = order.iter().map(|&d| self.wants_hdr(d)).collect();
-        let current: Vec<bool> = order.iter().map(|&d| self.obtained(d)).collect();
-        let Some(console) = self.console.clone().filter(|_| self.prepared_ok && wanted != current) else {
+        let ask = self.hdr_ask();
+        // Ce que la Station a déjà : même HDR, mêmes valeurs pour les écrans en HDR.
+        let current = HdrAsk {
+            order: ask.order.clone(),
+            wanted: ask.order.iter().map(|&d| self.obtained(d)).collect(),
+            luminance: ask.order.iter().map(|&d| self.sent_luminance(d)).collect(),
+        };
+        let Some(console) = self.console.clone().filter(|_| self.prepared_ok && ask != current) else {
             // Rien à demander à la Station (même HDR, ou pas encore préparée) ;
             // le format peut tout de même changer (choix éteint ou rallumé).
             self.restart_if_hdr_changed();
@@ -2234,14 +2297,14 @@ impl Worker {
         };
         self.hdr_asked += 1;
         let asked = self.hdr_asked;
-        info!("HDR : {wanted:?} demandé à la Station (écrans {order:?})");
+        info!("HDR : {:?} demandé à la Station (écrans {:?}, valeurs {:?})", ask.wanted, ask.order, ask.luminance);
         let device = self.device_id.clone();
         let tx = self.tx.clone();
         std::thread::Builder::new()
             .name("kybernow-hdr".into())
             .spawn(move || {
-                let r = console.stream_hdr(&device, &wanted).map_err(|e| e.to_string());
-                let _ = tx.send(Msg::HdrApplied(asked, order, wanted, r));
+                let r = console.stream_hdr(&device, &ask.wanted, &ask.luminance).map_err(|e| e.to_string());
+                let _ = tx.send(Msg::HdrApplied(asked, ask, r));
             })
             .expect("fil du HDR");
     }
@@ -2249,10 +2312,11 @@ impl Worker {
     /// Réponse de `POST /api/stream/hdr`. Refusée (Station d'avant le HDR,
     /// appareil plus en session) : un écran qui ne veut plus le HDR passe en
     /// SDR, les autres restent comme ils étaient.
-    fn hdr_applied(&mut self, asked: u64, order: Vec<usize>, wanted: Vec<bool>, result: Result<Vec<bool>, String>) {
+    fn hdr_applied(&mut self, asked: u64, ask: HdrAsk, result: Result<Vec<bool>, String>) {
         if asked != self.hdr_asked {
             return;
         }
+        let HdrAsk { order, wanted, luminance } = ask;
         match result {
             Ok(got) => {
                 info!("HDR : obtenu {got:?}");
@@ -2260,7 +2324,7 @@ impl Worker {
                 for (i, &d) in order.iter().enumerate() {
                     let g = wanted[i] && got.get(i).copied().unwrap_or(false);
                     refused |= wanted[i] && !g;
-                    self.set_obtained(d, g);
+                    self.set_obtained(d, g, luminance[i]);
                 }
                 if refused && self.virtual_display() {
                     self.hdr_refused();
@@ -2270,7 +2334,8 @@ impl Worker {
                 warn!("HDR : la Station refuse le changement ({e})");
                 for (i, &d) in order.iter().enumerate() {
                     let keep = self.obtained(d) && wanted[i];
-                    self.set_obtained(d, keep);
+                    let lum = self.sent_luminance(d);
+                    self.set_obtained(d, keep, lum);
                 }
             }
         }
@@ -3131,21 +3196,26 @@ impl Worker {
                         self.hdr_changed();
                     }
                 }
-                Ok(Msg::ScreenHdr(screen, hdr)) => {
-                    if self.device_hdr(screen) != hdr {
-                        info!("écran {screen} de l'appareil : {}", if hdr { "HDR" } else { "SDR" });
-                        match self.screens.as_mut() {
-                            Some(list) => {
-                                if let Some(d) = list.list.get_mut(screen) {
-                                    d.hdr = hdr;
-                                }
+                Ok(Msg::ScreenHdr(screen, hdr, luminance)) => {
+                    let before = (self.device_hdr(screen), self.device_luminance(screen));
+                    match self.screens.as_mut() {
+                        Some(list) => {
+                            if let Some(d) = list.list.get_mut(screen) {
+                                d.hdr = hdr;
+                                d.luminance = luminance;
                             }
-                            None => self.params.screen_hdr = hdr,
                         }
+                        None => {
+                            self.params.screen_hdr = hdr;
+                            self.params.screen_luminance = luminance;
+                        }
+                    }
+                    if before != (self.device_hdr(screen), self.device_luminance(screen)) {
+                        info!("écran {screen} de l'appareil : {} {:?}", if hdr { "HDR" } else { "SDR" }, luminance);
                         self.hdr_changed();
                     }
                 }
-                Ok(Msg::HdrApplied(asked, order, wanted, result)) => self.hdr_applied(asked, order, wanted, result),
+                Ok(Msg::HdrApplied(asked, ask, result)) => self.hdr_applied(asked, ask, result),
                 Ok(Msg::SetScreens(screens)) => self.change_screens(screens),
                 Ok(Msg::Adapted(mode, screens, result)) => self.adapted(mode, screens, result),
                 Ok(Msg::RestoreMode) => self.start_restore_mode(),
@@ -3590,7 +3660,7 @@ impl Worker {
         }
         let old = self.screens.replace(screens.clone()).unwrap_or_default();
         // Le HDR d'un écran seul a changé : pas d'autres écrans pour autant.
-        let hdr_moved = old.list.iter().map(|d| d.hdr).ne(screens.list.iter().map(|d| d.hdr));
+        let hdr_moved = old.list.iter().map(|d| (d.hdr, d.luminance)).ne(screens.list.iter().map(|d| (d.hdr, d.luminance)));
         if !screens::same_screens(&old.list, &screens.list) {
             // D'autres écrans : les index d'avant ne veulent plus rien dire.
             self.excluded.clear();
@@ -4693,7 +4763,7 @@ mod tests {
     }
 
     fn device_screen(x: f64, primary: bool) -> crate::screens::DeviceScreen {
-        crate::screens::DeviceScreen { x, y: 0.0, width: 1920.0, height: 1080.0, pixel_width: 1920, pixel_height: 1080, refresh: 60, primary, hdr: false }
+        crate::screens::DeviceScreen { x, y: 0.0, width: 1920.0, height: 1080.0, pixel_width: 1920, pixel_height: 1080, refresh: 60, primary, hdr: false, luminance: None }
     }
 
     /// Deux écrans côte à côte, « Cet écran » = `current`, Station à quatre écrans.
@@ -4721,6 +4791,7 @@ mod tests {
             role: SessionRole::Host,
             route: Route::Direct,
             screen_hdr: false,
+            screen_luminance: None,
             capabilities: None,
         };
         let recorder = Arc::new(Recorder::default());
@@ -4742,7 +4813,7 @@ mod tests {
     }
 
     fn prepared_hdr(hdr: Vec<bool>) -> Prepared {
-        let s = |x: i32, primary: bool| Some(ScreenMode { width: 1920, height: 1080, refresh: 60, x, y: 0, primary, hdr: false });
+        let s = |x: i32, primary: bool| Some(ScreenMode { width: 1920, height: 1080, refresh: 60, x, y: 0, primary, hdr: false, luminance: None });
         Prepared { hdr, ..prepared(Some(vec![s(0, true), s(1920, false)])) }
     }
 
@@ -4810,28 +4881,68 @@ mod tests {
         assert!(!w.prepare_request(w.requested, None).hdr);
     }
 
+    fn ask(wanted: [bool; 2], luminance: [Option<HdrLuminance>; 2]) -> HdrAsk {
+        HdrAsk { order: vec![0, 1], wanted: wanted.to_vec(), luminance: luminance.to_vec() }
+    }
+
     #[test]
     fn hdr_change_en_session() {
         let (mut w, rec) = hdr_worker();
         w.apply_prepared(prepared_hdr(vec![true, false]));
-        // Le second écran devient HDR : la Station répond, l'écran suit.
+        let d = Some(HdrLuminance::default());
+        assert_eq!(w.sent_luminance(0), d, "valeurs données avec le HDR obtenu");
+        // Le second écran devient HDR : la demande porte ses valeurs, la Station répond.
         w.screens.as_mut().unwrap().list[1].hdr = true;
+        assert_eq!(w.hdr_ask(), ask([true, true], [d, d]));
         w.hdr_asked = 3;
-        w.hdr_applied(3, vec![0, 1], vec![true, true], Ok(vec![true, true]));
+        w.hdr_applied(3, ask([true, true], [d, d]), Ok(vec![true, true]));
         assert!(w.obtained(1));
         // Réponse d'une demande dépassée : ignorée.
-        w.hdr_applied(2, vec![0, 1], vec![false, false], Ok(vec![false, false]));
+        w.hdr_applied(2, ask([false, false], [None, None]), Ok(vec![false, false]));
         assert!(w.obtained(0) && w.obtained(1));
         // Choix éteint, Station injoignable : les écrans passent quand même en SDR.
         w.params.settings.hdr = false;
-        w.hdr_applied(3, vec![0, 1], vec![false, false], Err("409".into()));
+        assert_eq!(w.hdr_ask(), ask([false, false], [None, None]), "SDR : valeurs à null");
+        w.hdr_applied(3, ask([false, false], [None, None]), Err("409".into()));
         assert!(!w.obtained(0) && !w.obtained(1));
+        assert_eq!(w.sent_luminance(0), None);
         assert!(w.effective().yuv444, "le 4:4:4 du profil revient");
         // Rallumé, refusé par Windows : l'avis.
         w.params.settings.hdr = true;
-        w.hdr_applied(3, vec![0, 1], vec![true, true], Ok(vec![false, true]));
+        w.hdr_applied(3, ask([true, true], [d, d]), Ok(vec![false, true]));
         assert_eq!((w.obtained(0), w.obtained(1)), (false, true));
         assert_eq!(*rec.notices.lock().unwrap(), vec![Notice::HdrRefused]);
+    }
+
+    #[test]
+    fn valeurs_hdr_de_chaque_ecran() {
+        let (mut w, _) = hdr_worker();
+        let xdr = HdrLuminance { max: 1600.0, full_frame: 1000.0, min: 0.05, sdr_white: 203.0 };
+        w.screens.as_mut().unwrap().list[0].luminance = Some(HdrLuminance { sdr_white: 900.0, ..xdr });
+        let req = w.prepare_request(w.requested, None);
+        let bounded = HdrLuminance { sdr_white: 480.0, ..xdr };
+        assert_eq!(req.luminance, Some(bounded), "valeurs bornées, celles du principal");
+        let screens = req.screens.expect("écrans");
+        assert_eq!((screens[0].luminance, screens[1].luminance), (Some(bounded), None), "pas de valeurs pour un écran en SDR");
+        let v = serde_json::to_value(&screens[0]).unwrap();
+        assert_eq!(v["luminance"], serde_json::json!({ "max": 1600.0, "full_frame": 1000.0, "min": 0.05, "sdr_white": 480.0 }));
+        // Écran HDR sans valeurs : celles par défaut.
+        w.screens.as_mut().unwrap().list[0].luminance = None;
+        assert_eq!(w.prepare_request(w.requested, None).luminance, Some(HdrLuminance::default()));
+        // Après prepare, des valeurs changées seules font une nouvelle demande.
+        w.apply_prepared(prepared_hdr(vec![true, false]));
+        let current = HdrAsk { order: vec![0, 1], wanted: vec![w.obtained(0), w.obtained(1)], luminance: vec![w.sent_luminance(0), w.sent_luminance(1)] };
+        assert_eq!(w.hdr_ask(), current, "rien de neuf");
+        w.screens.as_mut().unwrap().list[0].luminance = Some(xdr);
+        assert_ne!(w.hdr_ask(), current);
+        assert_eq!(w.hdr_ask().luminance[0], Some(xdr));
+        // Session à un écran sans `screens` : `screen_luminance`.
+        let (mut one, _) = hdr_worker();
+        one.screens = None;
+        one.plan.clear();
+        one.params.screen_hdr = true;
+        one.params.screen_luminance = Some(xdr);
+        assert_eq!(one.prepare_request(one.requested, None).luminance, Some(xdr));
     }
 
     #[test]
@@ -4871,15 +4982,17 @@ mod tests {
     fn hdr_en_json() {
         let json = r#"{"console_host":"192.0.2.1","console_port":9443,"device":{"id":"m","name":"M","kind":"mac","os":"macOS","app":"t"},
             "mode":{"width":3840,"height":2160,"refresh":120},"settings":{"profile":"jeu","codec":"hevc","mbps":60,"hdr":true},
-            "screen_hdr":true,"capabilities":{"hevc":true,"av1":true,"hdr":true}}"#;
+            "screen_hdr":true,"screen_luminance":{"max":1600,"full_frame":1000,"min":0.05,"sdr_white":203},"capabilities":{"hevc":true,"av1":true,"hdr":true}}"#;
         let (p, _) = SessionParams::from_json(json).unwrap();
         assert!(p.settings.hdr && p.screen_hdr);
+        assert_eq!(p.screen_luminance.map(|l| (l.max, l.min)), Some((1600.0, 0.05)));
         assert_eq!(p.capabilities.map(|c| (c.hdr, c.hevc444)), Some((true, false)));
         let old = json.replace(r#","hdr":true}"#, "}").replace(r#""screen_hdr":true,"#, "");
         let (p, _) = SessionParams::from_json(&old).unwrap();
         assert!(!p.settings.hdr && !p.screen_hdr, "absents : SDR");
         let screens: Screens = serde_json::from_str(r#"{"list":[{"x":0,"y":0,"width":1512,"height":982,"pixel_width":3024,"pixel_height":1964,"refresh":120,"hdr":true}]}"#).unwrap();
         assert!(screens.list[0].hdr);
+        assert_eq!(screens.list[0].luminance, None, "absentes : par défaut");
     }
 
     #[test]

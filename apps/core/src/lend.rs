@@ -142,8 +142,45 @@ impl std::fmt::Debug for LendCredentials {
     }
 }
 
+/// L'écran de l'appareil de l'ami, dans `POST /api/lend/borrow` : son mode
+/// (la Station fait l'écran virtuel à sa taille) et, pour le HDR
+/// (docs/hdr.md), s'il est HDR et ses valeurs : l'écran virtuel est alors
+/// préparé en HDR comme pour un hôte.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct BorrowScreen {
+    pub width: u32,
+    pub height: u32,
+    pub refresh: u32,
+    /// Le HDR est voulu sur cet écran : l'écran de l'appareil est HDR et le
+    /// choix « HDR » de l'app pour cet ordinateur est allumé (et possible).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hdr: bool,
+    /// Ses valeurs HDR, avec `hdr` (absentes : celles par défaut).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub luminance: Option<crate::profile::HdrLuminance>,
+}
+
+impl From<Mode> for BorrowScreen {
+    /// Un écran en SDR.
+    fn from(m: Mode) -> Self {
+        Self { width: m.width, height: m.height, refresh: m.refresh, hdr: false, luminance: None }
+    }
+}
+
+impl BorrowScreen {
+    /// Avec le HDR : `hdr` vrai, valeurs bornées (`None` : par défaut) ;
+    /// sans : les valeurs ne partent pas.
+    pub fn with_hdr(self, hdr: bool, luminance: Option<crate::profile::HdrLuminance>) -> Self {
+        Self { hdr, luminance: hdr.then(|| crate::profile::HdrLuminance::of(luminance)), ..self }
+    }
+
+    pub fn mode(&self) -> Mode {
+        Mode { width: self.width, height: self.height, refresh: self.refresh }
+    }
+}
+
 /// Corps de `POST /api/lend/borrow`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BorrowRequest {
     #[serde(flatten)]
     pub credentials: LendCredentials,
@@ -153,8 +190,9 @@ pub struct BorrowRequest {
     pub device: String,
     /// `mac`, `windows`, `linux`, `ios`, `tvos`, `android`, `webos`.
     pub app: String,
-    /// L'écran de l'appareil : la Station fait l'écran virtuel à sa taille.
-    pub screen: Mode,
+    /// L'écran de l'appareil : la Station fait l'écran virtuel à sa taille,
+    /// en HDR s'il le demande ([`BorrowScreen`]).
+    pub screen: BorrowScreen,
     /// Les formats que l'appareil décode (`hevc`, `h264`, `av1`).
     #[serde(default)]
     pub codecs: Vec<String>,
@@ -1055,7 +1093,7 @@ mod tests {
 
     #[test]
     fn demande_d_emprunt() {
-        let screen = Mode { width: 2560, height: 1440, refresh: 120 };
+        let screen = Mode { width: 2560, height: 1440, refresh: 120 }.into();
         let code = BorrowRequest { credentials: LendCredentials::Code { code: "123456".into() }, name: "Léa".into(), device: "d1".into(), app: "mac".into(), screen, codecs: vec!["hevc".into()] };
         assert_eq!(
             serde_json::to_value(&code).unwrap(),
@@ -1064,6 +1102,17 @@ mod tests {
         let account: BorrowRequest = serde_json::from_value(serde_json::json!({ "login": "lea", "password": "pw", "name": "Léa", "device": "d1", "app": "ios", "screen": { "width": 1, "height": 2, "refresh": 60 } })).unwrap();
         assert_eq!(account.credentials, LendCredentials::Account { login: "lea".into(), password: "pw".into() });
         assert!(!format!("{account:?}").contains("pw"), "mot de passe masqué");
+        assert!(!account.screen.hdr && account.screen.luminance.is_none(), "écran SDR par défaut");
+        // HDR : l'écran le dit, avec ses valeurs bornées.
+        let xdr = crate::profile::HdrLuminance { max: 1600.0, full_frame: 1000.0, min: 0.05, sdr_white: 20_000.0 };
+        let hdr = BorrowRequest { screen: code.screen.with_hdr(true, Some(xdr)), ..code.clone() };
+        assert_eq!(
+            serde_json::to_value(&hdr).unwrap()["screen"],
+            serde_json::json!({ "width": 2560, "height": 1440, "refresh": 120, "hdr": true, "luminance": { "max": 1600.0, "full_frame": 1000.0, "min": 0.05, "sdr_white": 480.0 } })
+        );
+        assert_eq!(code.screen.with_hdr(true, None).luminance, Some(crate::profile::HdrLuminance::default()));
+        assert_eq!(code.screen.with_hdr(false, Some(xdr)), code.screen, "SDR : pas de valeurs");
+        assert_eq!(hdr.screen.mode(), Mode { width: 2560, height: 1440, refresh: 120 });
     }
 
     #[test]
@@ -1238,7 +1287,7 @@ mod essais_par_le_relais {
             name: "Léa".into(),
             device: "mac".into(),
             app: "mac".into(),
-            screen: Mode { width: 2560, height: 1440, refresh: 120 },
+            screen: Mode { width: 2560, height: 1440, refresh: 120 }.into(),
             codecs: vec!["hevc".into()],
         };
         let Borrowing::Pending(pending) = borrow(&code.target, code.route.as_ref(), &breq).unwrap() else { panic!("en attente de l'hôte") };

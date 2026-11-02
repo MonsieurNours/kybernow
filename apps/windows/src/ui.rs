@@ -2754,6 +2754,7 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
         // y est connu (docs/relais.md) ; une empreinte changée ne bascule jamais.
         route: kybernow_core::session::Route::Auto(relais::route_of(c.relay.as_ref(), c.fingerprint.as_deref())),
         screen_hdr: false,
+        screen_luminance: None,
         capabilities: None,
     };
     let mouse = match s.mouse.as_str() {

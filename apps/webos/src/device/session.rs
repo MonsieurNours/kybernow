@@ -359,7 +359,7 @@ pub fn share_view(st: &ShareState) -> Option<ShareView> {
 /// la sortie du téléviseur (sa dalle en paysage, sa fréquence) et ce que son décodeur suit (HEVC, AV1 s'il l'a,
 /// jamais de 4:4:4 ; aucune autre borne connue que la dalle). La Station tranche et borne par l'image de l'hôte.
 pub fn auto_quality(tv: &crate::app::TvInfo) -> share::ShareAuto {
-    let screen = kybernow_core::screens::DeviceScreen { x: 0.0, y: 0.0, width: f64::from(tv.panel.0), height: f64::from(tv.panel.1), pixel_width: tv.panel.0, pixel_height: tv.panel.1, refresh: tv.refresh, primary: true, hdr: false };
+    let screen = kybernow_core::screens::DeviceScreen { x: 0.0, y: 0.0, width: f64::from(tv.panel.0), height: f64::from(tv.panel.1), pixel_width: tv.panel.0, pixel_height: tv.panel.1, refresh: tv.refresh, primary: true, hdr: false, luminance: None };
     share::auto_quality(&screen, &share::DecoderCaps::from(guest_capabilities(tv.av1)), None)
 }
 
@@ -502,6 +502,7 @@ pub fn start(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32), 
             // Un relais connu pour cet ordinateur : l'image passe par le réseau, et par lui quand le réseau ne répond pas.
             route: kybernow_core::session::Route::Auto(relay_route(host)),
             screen_hdr: false,
+            screen_luminance: None,
             capabilities: None,
         },
     };
