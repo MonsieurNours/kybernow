@@ -66,6 +66,9 @@ struct RootView: View {
             case .gamepads:
                 GamepadsView()
                     .transition(.opacity.combined(with: .scale(scale: 1.02)))
+            case .hdrCalibration:
+                HDRCalibrationView()
+                    .transition(.opacity)
             case .session:
                 if let session = app.session {
                     SessionView(session: session)

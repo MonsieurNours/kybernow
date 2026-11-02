@@ -74,7 +74,8 @@ enum DisplayInfo {
             return SessionEngine.DeviceScreens.Screen(
                 x: screen.frame.minX, y: top - screen.frame.maxY, width: screen.frame.width, height: screen.frame.height,
                 pixelWidth: native.width, pixelHeight: native.height, refresh: max(30, screen.maximumFramesPerSecond), primary: i == 0,
-                hdr: HDRDisplay.isHDR(screen))
+                hdr: HDRDisplay.isHDR(screen),
+                luminance: HDRCalibrationStore.session(.init(screen), hdr: HDRDisplay.isHDR(screen)))
         }
         let currentID = current.flatMap(displayID)
         let index = all.firstIndex { displayID($0) == currentID } ?? 0

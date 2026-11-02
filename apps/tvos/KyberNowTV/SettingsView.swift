@@ -301,6 +301,21 @@ struct SettingsView: View {
                 edit { st in st.hdr.toggle() }
             }
             .disabled(!hdr.available)
+            // Sous « HDR » : le réglage du téléviseur (valeurs de l'appareil, pas de l'ordinateur).
+            Button {
+                // Au retour : la rubrique Image.
+                app.settingsSection = .picture
+                app.showCalibration(from: .settings(hostID))
+            } label: {
+                HStack(spacing: 12) {
+                    Text(HDRText.calibrateLink).font(Theme.sans(20, .medium)).foregroundStyle(Theme.accentLight)
+                    Icon("arrow-right", size: 20, bold: true).foregroundStyle(Theme.accentLight)
+                }
+                .padding(.horizontal, 24)
+                .frame(height: 56)
+            }
+            .buttonStyle(GlassButton(radius: 16, scale: 1.03, fill: Color.white.opacity(0.02)))
+            .focused($focus, equals: .row("hdrCalibration"))
         }
         toggle("keep", String(localized: "Garder la dernière image"), String(localized: "Le fond de l'accueil, sur cette Apple TV seulement"), s.keepLastImage) {
             edit { st in st.keepLastImage.toggle() }

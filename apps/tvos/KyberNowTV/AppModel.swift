@@ -21,6 +21,8 @@ final class AppModel: ObservableObject {
         case settings(UUID)
         case appSettings
         case gamepads
+        /// « Réglage du HDR » du téléviseur (docs/hdr.md), depuis les Réglages de l'app ou Réglages › Image.
+        case hdrCalibration
         case session(UUID)
     }
 
@@ -32,6 +34,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var notice: String?
     /// Écran où revient le test des manettes (accueil ou réglages de l'app).
     var gamepadsReturn: Screen = .home
+    /// Écran où revient « Réglage du HDR » (Réglages de l'app ou d'un ordinateur).
+    var calibrationReturn: Screen = .appSettings
     /// Rubrique ouverte à l'arrivée dans les réglages d'un ordinateur.
     var settingsSection: ComputerSection = .picture
 
@@ -126,6 +130,8 @@ final class AppModel: ObservableObject {
         case "invite":
             if let invite = Lend.parseInvite("kybernow://borrow?host=192.168.1.30&port=37462&fp=sha256:ab12&login=camille") { screen = .invite(invite) }
         case "app": screen = .appSettings
+        // `-screen hdrCalibration -calibrationStep 0…3` (avec `-hdrScreen YES`) : le réglage du HDR, à cette étape.
+        case "hdrCalibration": screen = .hdrCalibration
         case "gamepads": screen = .gamepads
         case "settings": if let id = selected { screen = .settings(id) }
         case "menu", "passage", "connecting", "restarting":
@@ -165,6 +171,13 @@ final class AppModel: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in
             if self?.notice == text { self?.notice = nil }
         }
+    }
+
+    /// « Réglage du HDR », seulement sur un téléviseur HDR.
+    func showCalibration(from: Screen) {
+        guard screenHDR else { return }
+        calibrationReturn = from
+        screen = .hdrCalibration
     }
 
     func showGamepads(from: Screen) {

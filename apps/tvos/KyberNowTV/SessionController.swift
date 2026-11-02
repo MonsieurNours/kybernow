@@ -394,6 +394,8 @@ final class SessionController: ObservableObject {
         params.vsync = true
         params.fallbackBitrate = Self.fallbackBitrate
         params.screenHDR = screenHDR
+        // Les lumières du téléviseur (réglées à l'œil, sinon par défaut), gardées jusqu'à la fin.
+        params.screenLuminance = HDRCalibrationStore.session(.current(), hdr: screenHDR)
         params.hdrOffer = hdrOffer
         KyberLog.app.notice("session : \(mode.width)×\(mode.height) à \(mode.refresh) Hz, son \(channels) canaux, \(settings.consoleProfile, privacy: .public)")
         do {

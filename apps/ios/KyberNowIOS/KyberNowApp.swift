@@ -111,6 +111,7 @@ struct RootView: View {
                 .zIndex(3)
             }
         }
+        .hdrCalibrationCover(isPresented: $app.calibrating)
         .sheet(item: $app.sheet) { sheet in
             switch sheet {
             case let .addHost(candidate): AddHostView(link: candidate)

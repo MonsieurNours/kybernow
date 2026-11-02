@@ -79,9 +79,14 @@ public final class SessionEngine: @unchecked Sendable {
             /// L'écran est HDR (`DeviceScreen.hdr` du cœur) : l'écran de la
             /// session qu'il reçoit passe en HDR (docs/hdr.md).
             public var hdr: Bool
-            public init(x: Double, y: Double, width: Double, height: Double, pixelWidth: Int, pixelHeight: Int, refresh: Int, primary: Bool, hdr: Bool = false) {
+            /// Ses lumières (`DeviceScreen.luminance` : automatiques ou réglées
+            /// à l'œil, `HDRCalibrationStore`) ; nil : valeurs par défaut.
+            public var luminance: HDRLuminance?
+            public init(x: Double, y: Double, width: Double, height: Double, pixelWidth: Int, pixelHeight: Int, refresh: Int, primary: Bool,
+                        hdr: Bool = false, luminance: HDRLuminance? = nil) {
                 (self.x, self.y, self.width, self.height) = (x, y, width, height)
                 (self.pixelWidth, self.pixelHeight, self.refresh, self.primary, self.hdr) = (pixelWidth, pixelHeight, refresh, primary, hdr)
+                self.luminance = luminance
             }
         }
 
@@ -110,9 +115,11 @@ public final class SessionEngine: @unchecked Sendable {
 
         var json: [String: Any] {
             [
-                "list": list.map { s in
-                    ["x": s.x, "y": s.y, "width": s.width, "height": s.height, "pixel_width": s.pixelWidth,
-                     "pixel_height": s.pixelHeight, "refresh": s.refresh, "primary": s.primary, "hdr": s.hdr] as [String: Any]
+                "list": list.map { s -> [String: Any] in
+                    var j: [String: Any] = ["x": s.x, "y": s.y, "width": s.width, "height": s.height, "pixel_width": s.pixelWidth,
+                                            "pixel_height": s.pixelHeight, "refresh": s.refresh, "primary": s.primary, "hdr": s.hdr]
+                    if let l = s.luminance { j["luminance"] = l.json }
+                    return j
                 },
                 "current": current, "limit_4k": limit4K, "custom_resolution": customResolution,
                 "setting": setting, "max_screens": maxScreens, "virtual_display_available": virtualDisplayAvailable,
@@ -131,7 +138,10 @@ public final class SessionEngine: @unchecked Sendable {
             self.list = list.map { s in
                 Screen(x: number(s["x"]), y: number(s["y"]), width: number(s["width"]), height: number(s["height"]),
                        pixelWidth: Int(number(s["pixel_width"])), pixelHeight: Int(number(s["pixel_height"])),
-                       refresh: Int(number(s["refresh"])), primary: s["primary"] as? Bool ?? false, hdr: s["hdr"] as? Bool ?? false)
+                       refresh: Int(number(s["refresh"])), primary: s["primary"] as? Bool ?? false, hdr: s["hdr"] as? Bool ?? false,
+                       luminance: (s["luminance"] as? [String: Any]).map { l in
+                           HDRLuminance(max: number(l["max"]), fullFrame: number(l["full_frame"]), min: number(l["min"]), sdrWhite: number(l["sdr_white"]))
+                       })
             }
             current = Int(number(j["current"]))
             limit4K = j["limit_4k"] as? Bool ?? false
@@ -202,6 +212,9 @@ public final class SessionEngine: @unchecked Sendable {
         /// Session à un écran : l'écran de l'appareil est HDR
         /// (`SessionParams.screen_hdr` du cœur). Multi-écrans : `screens.list[i].hdr`.
         public var screenHDR = false
+        /// Session à un écran : ses lumières (`SessionParams.screen_luminance` du
+        /// cœur ; `HDRCalibrationStore`) ; nil : valeurs par défaut.
+        public var screenLuminance: HDRLuminance?
         /// Ce que la Station dit du HDR (`hdr` de son info), pour la règle du cœur.
         public var hdrOffer: HDROffer?
         /// Multi-écrans : les écrans de cet appareil (Mac) ; nil : une session
@@ -449,6 +462,7 @@ public final class SessionEngine: @unchecked Sendable {
             json["relay"] = relay.dictionary
         }
         if let screens = p.screens { json["screens"] = screens.json }
+        if let luminance = p.screenLuminance { json["screen_luminance"] = luminance.json }
         var recovery: [String: Any] = ["watch_image": true]
         if let cap = p.fallbackBitrate { recovery["fallback_bitrate"] = Int(cap) }
         json["recovery"] = recovery

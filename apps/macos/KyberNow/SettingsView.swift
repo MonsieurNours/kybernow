@@ -407,6 +407,12 @@ private struct SettingsContent: View {
                 toggleRow(HDRText.label, HDRText.help(hdrState, settings: true),
                           isOn: Binding(get: { hdrState.on(s.hdr) }, set: { v in app.setHDR(v, for: host) }))
                     .disabled(!hdrState.available)
+                // Le réglage du HDR de l'écran de cette fenêtre (valeurs de l'appareil, pas de l'ordinateur).
+                Button { HDRCalibrationWindow.open(on: NSApp.keyWindow?.screen) } label: {
+                    Text(HDRText.calibrateLink).font(Theme.sans(13, .semibold)).foregroundStyle(Theme.accent)
+                }
+                .buttonStyle(.plain)
+                .padding(.top, -2)
             }
             VStack(alignment: .leading, spacing: 8) {
                 Text("Affichage des images").font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text2)

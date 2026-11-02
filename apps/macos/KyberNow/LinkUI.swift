@@ -562,6 +562,55 @@ enum HDRText {
     }
     /// Windows n'a pas pu passer l'écran virtuel en HDR (une fois par session).
     static var refused: String { String(localized: "L'ordinateur n'a pas pu passer en HDR : image en SDR.") }
+
+    // MARK: Réglage du HDR (docs/hdr.md, « Réglage du HDR »)
+
+    /// Réglages de l'app : la ligne, et son état en dessous.
+    static var calibration: String { String(localized: "Réglage du HDR") }
+    static func calibrationState(_ calibrated: Bool) -> String {
+        calibrated ? String(localized: "Réglé à l'œil") : String(localized: "Automatique")
+    }
+    /// Réglages › Image, sous l'interrupteur « HDR ».
+    static var calibrateLink: String { String(localized: "Régler le HDR de cet écran…") }
+    static var calibrationIntro: String { String(localized: "Quatre étapes pour que les jeux connaissent les vraies lumières de cet écran.") }
+
+    /// Titre et consigne de chaque étape.
+    static func title(_ step: HDRCalibrationModel.Step) -> String {
+        switch step {
+        case .peak: return String(localized: "Luminosité maximale")
+        case .fullFrame: return String(localized: "Luminosité sur tout l'écran")
+        case .black: return String(localized: "Noir")
+        case .desktopWhite: return String(localized: "Blanc du bureau")
+        }
+    }
+
+    static func instruction(_ step: HDRCalibrationModel.Step) -> String {
+        switch step {
+        case .peak, .fullFrame: return String(localized: "Montez jusqu'à ce que le symbole du centre disparaisse à peine.")
+        case .black: return String(localized: "Baissez jusqu'à ce que le symbole disparaisse à peine.")
+        case .desktopWhite: return String(localized: "Choisissez la luminosité des fenêtres et du texte de l'ordinateur.")
+        }
+    }
+
+    /// « 1 000 nits », « 0,05 nit » (étape du noir : deux décimales) ; “1,000 nits”, “0.05 nits”.
+    static func nits(_ value: Double, black: Bool = false) -> String {
+        let f = NumberFormatter()
+        f.locale = Locale(identifier: LanguageChoice.effective == "fr" ? "fr_FR" : "en_GB")
+        f.numberStyle = .decimal
+        f.minimumFractionDigits = black ? 2 : 0
+        f.maximumFractionDigits = black ? 3 : 0
+        let number = f.string(from: NSNumber(value: black ? value : value.rounded())) ?? "\(value)"
+        // Français : « nit » au singulier sous 2.
+        return value < 2 ? String(localized: "\(number) nit") : String(localized: "\(number) nits")
+    }
+
+    static var next: String { String(localized: "Suivant") }
+    static var back: String { String(localized: "Retour") }
+    static var done: String { String(localized: "Terminer") }
+    static var cancel: String { String(localized: "Annuler") }
+    static var backToAutomatic: String { String(localized: "Revenir au réglage automatique") }
+    /// Après « Terminer », une session en cours garde ses valeurs.
+    static var nextSession: String { String(localized: "Le réglage vaudra à la prochaine session.") }
 }
 
 /// Sous-titres des rubriques (colonne des réglages d'un ordinateur) : un

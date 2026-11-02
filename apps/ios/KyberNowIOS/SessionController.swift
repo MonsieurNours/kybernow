@@ -409,6 +409,8 @@ final class SessionController: ObservableObject {
         params.vsync = settings.vsync
         screenHDR = HDRDisplay.isHDR(imageScreen)
         params.screenHDR = screenHDR
+        // Les lumières de l'écran (automatiques ou réglées à l'œil), gardées jusqu'à la fin.
+        params.screenLuminance = HDRCalibrationStore.session(.current(imageScreen), hdr: screenHDR)
         params.hdrOffer = isVisitor ? nil : store.status[host.id]?.info?.hdr
         KyberLog.app.notice("session : \(mode.width)×\(mode.height) à \(mode.refresh) Hz, son \(channels) canaux, \(settings.consoleProfile, privacy: .public)")
         // Joignable par le relais seulement (ou relais forcé pour essayer) : la radio

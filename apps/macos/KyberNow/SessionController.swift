@@ -1361,6 +1361,8 @@ final class SessionController: NSObject, ObservableObject {
         // et ce que la Station en dit ; le cœur décide avec le choix de l'ordinateur.
         updateDeviceHDR()
         params.screenHDR = HDRDisplay.isHDR(window?.screen)
+        // Ses lumières (automatiques ou réglées à l'œil) : la session les garde jusqu'à la fin.
+        params.screenLuminance = HDRCalibrationStore.session(.current(window?.screen), hdr: params.screenHDR)
         params.hdrOffer = store.status[host.id]?.info?.hdr
         // Inscrite au registre des sessions du cœur dès son départ (plusieurs ordinateurs).
         params.focusName = host.name

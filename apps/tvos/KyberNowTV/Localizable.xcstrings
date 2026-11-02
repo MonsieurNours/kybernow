@@ -161,6 +161,38 @@
         }
       }
     },
+    "%@ nit" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ nits"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ nit"
+          }
+        }
+      }
+    },
+    "%@ nits" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ nits"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ nits"
+          }
+        }
+      }
+    },
     "%@ veut emprunter l'ordinateur." : {
       "localizations" : {
         "en" : {
@@ -1409,6 +1441,22 @@
         }
       }
     },
+    "Automatique" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatic"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatique"
+          }
+        }
+      }
+    },
     "Avec un compte d'ami" : {
       "localizations" : {
         "en" : {
@@ -1457,6 +1505,22 @@
         }
       }
     },
+    "Baissez jusqu'à ce que le symbole disparaisse à peine." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lower it until the symbol just disappears."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Baissez jusqu'à ce que le symbole disparaisse à peine."
+          }
+        }
+      }
+    },
     "Barre lumineuse" : {
       "localizations" : {
         "en" : {
@@ -1485,6 +1549,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bienvenue"
+          }
+        }
+      }
+    },
+    "Blanc du bureau" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Desktop white"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Blanc du bureau"
           }
         }
       }
@@ -1821,6 +1901,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Choisir"
+          }
+        }
+      }
+    },
+    "Choisissez la luminosité des fenêtres et du texte de l'ordinateur." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pick how bright the computer's windows and text look."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choisissez la luminosité des fenêtres et du texte de l'ordinateur."
           }
         }
       }
@@ -4067,6 +4163,22 @@
         }
       }
     },
+    "Le réglage vaudra à la prochaine session." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The calibration will apply from the next session."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le réglage vaudra à la prochaine session."
+          }
+        }
+      }
+    },
     "Le son du jeu est spatialisé dans les AirPods, sans suivi de la tête. Pour jouer en rythme, préférez la sortie HDMI du téléviseur ou de l'ampli." : {
       "localizations" : {
         "en" : {
@@ -4255,6 +4367,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Linux"
+          }
+        }
+      }
+    },
+    "Luminosité maximale" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Maximum brightness"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Luminosité maximale"
+          }
+        }
+      }
+    },
+    "Luminosité sur tout l'écran" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Full-screen brightness"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Luminosité sur tout l'écran"
           }
         }
       }
@@ -4499,6 +4643,22 @@
         }
       }
     },
+    "Montez jusqu'à ce que le symbole du centre disparaisse à peine." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Raise it until the symbol in the middle just disappears."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Montez jusqu'à ce que le symbole du centre disparaisse à peine."
+          }
+        }
+      }
+    },
     "Mot de passe" : {
       "localizations" : {
         "en" : {
@@ -4559,6 +4719,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Navigateur"
+          }
+        }
+      }
+    },
+    "Noir" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Black"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Noir"
           }
         }
       }
@@ -5331,6 +5507,22 @@
         }
       }
     },
+    "Quatre étapes pour que les jeux connaissent les vraies lumières de cet écran." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Four steps so games know this screen's real brightness."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quatre étapes pour que les jeux connaissent les vraies lumières de cet écran."
+          }
+        }
+      }
+    },
     "Quitter le partage" : {
       "localizations" : {
         "en" : {
@@ -5955,6 +6147,22 @@
         }
       }
     },
+    "Revenir au réglage automatique" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Back to automatic"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Revenir au réglage automatique"
+          }
+        }
+      }
+    },
     "Rien de nouveau pour l'instant." : {
       "localizations" : {
         "en" : {
@@ -5983,6 +6191,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Réessayer"
+          }
+        }
+      }
+    },
+    "Réglage du HDR" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HDR calibration"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Réglage du HDR"
           }
         }
       }
@@ -6047,6 +6271,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Réglages de l'app"
+          }
+        }
+      }
+    },
+    "Régler le HDR de cet écran…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calibrate HDR for this screen…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Régler le HDR de cet écran…"
+          }
+        }
+      }
+    },
+    "Réglé à l'œil" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calibrated by eye"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Réglé à l'œil"
           }
         }
       }
@@ -6563,6 +6819,22 @@
         }
       }
     },
+    "Suivant" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Next"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Suivant"
+          }
+        }
+      }
+    },
     "Sur l'ordinateur" : {
       "localizations" : {
         "en" : {
@@ -6735,6 +7007,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Taper du texte sur %@"
+          }
+        }
+      }
+    },
+    "Terminer" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Done"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminer"
           }
         }
       }

@@ -74,6 +74,8 @@ private struct SettingsPane: View {
     @State private var newPassword = ""
     /// Station réinstallée : l'empreinte qu'Admin présente maintenant.
     @State private var presented: String?
+    /// L'écran « Réglage du HDR » ouvert (lien sous « HDR »).
+    @State private var calibrating = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.openURL) private var openURL
 
@@ -120,6 +122,7 @@ private struct SettingsPane: View {
             #endif
             presented = await store.presentedFingerprint(of: host)
         }
+        .hdrCalibrationCover(isPresented: $calibrating)
     }
 
     // MARK: - Mises en page
@@ -487,6 +490,17 @@ private struct SettingsPane: View {
                 guard hdrState.available else { return }
                 update { $0.hdr.toggle() }
             }
+            // Les lumières de cet écran (réglage de l'appareil, pas de l'ordinateur).
+            Button { calibrating = true } label: {
+                Text(HDRText.calibrateLink)
+                    .font(Theme.sans(14, .medium))
+                    .foregroundStyle(Theme.accentLight)
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    .padding(.horizontal, 14)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .id("hdrCalibrate")
         }
 
         rateRow

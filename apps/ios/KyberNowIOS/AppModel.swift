@@ -34,6 +34,9 @@ final class AppModel: ObservableObject {
 
     /// Fiche par-dessus l'accueil.
     @Published var sheet: Sheet?
+    /// L'écran « Réglage du HDR » ouvert depuis l'accueil (démonstration) ;
+    /// les réglages l'ouvrent eux-mêmes, par-dessus leur fiche.
+    @Published var calibrating = false
     /// Ordinateur mis en avant sur l'accueil.
     @Published var selected: UUID?
     @Published private(set) var session: SessionController?
@@ -132,6 +135,8 @@ final class AppModel: ObservableObject {
         case "invite":
             if let invite = Lend.parseInvite("kybernow://borrow?host=192.168.1.30&port=37462&fp=sha256:ab12&login=camille") { sheet = .invite(invite) }
         case "app": sheet = .appSettings
+        // `-screen hdrCalibration -calibrationStep 0…3` (avec `-hdrScreen YES`) : l'écran « Réglage du HDR ».
+        case "hdrCalibration": calibrating = true
         case "settings": if let id = selected { sheet = .settings(id) }
         case "connecting", "restarting", "session", "bar":
             if let host = selectedHost {

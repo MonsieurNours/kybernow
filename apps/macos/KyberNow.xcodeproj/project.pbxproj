@@ -10,6 +10,7 @@
 		0814A1462DCB51B0DE485086 /* DecoderCapabilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = D171932E28609169E868FDC5 /* DecoderCapabilities.swift */; };
 		08492ED020ED23978215AE43 /* KeymapMac.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660EA29E7D18D98FB3C21A9F /* KeymapMac.swift */; };
 		09EDBBBAF52A03E69634CFFF /* Passage.swift in Sources */ = {isa = PBXBuildFile; fileRef = E407651AF402DB27D895B5B2 /* Passage.swift */; };
+		0B283BC384A9C86C71D4265A /* HDRPatternView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4ED9823FE738E797E819ACE /* HDRPatternView.swift */; };
 		0D7DB35F67816B86E07B4330 /* JoinFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A261A80C419110D4817F09A /* JoinFlow.swift */; };
 		10B79E68B216819332FE0096 /* AV1.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CB6F1E3DF88493B2CF6D20F /* AV1.swift */; };
 		12034EA33F19153239227110 /* HDRDemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A16C5153CFA8B9A8EC07CEB /* HDRDemo.swift */; };
@@ -55,6 +56,7 @@
 		AA76CB48D0BD4DCE0A0EA724 /* HostImagery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1812D9E52662E7BEB0D9CDC5 /* HostImagery.swift */; };
 		B1DF8E0399B418A165156B1F /* KyberLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF454DEFA73A7E4436050ACE /* KyberLog.swift */; };
 		B6793F11C20A1C6F678627BC /* KyberKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C060A812A5011BB6AEC276EC /* KyberKit.framework */; };
+		B9A3A3996E03B51DA8C7C19D /* HDRCalibration.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4ED4A7AED04F3E6BFC4AD7D /* HDRCalibration.swift */; };
 		BCCAF3D8FF2DFA3D69052367 /* RelativeMouse.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B7887298D6D4935E0FF18B9 /* RelativeMouse.swift */; };
 		BEE11A3ED9A65F98B7828090 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E6C27264097C061402863DD /* SettingsView.swift */; };
 		C0ECE80FBFB9F20A2A8178CD /* HDR.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47A41505BA7061761C293ACB /* HDR.swift */; };
@@ -64,6 +66,7 @@
 		DA6906C0CE3D758F5B735BDE /* VideoRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 323EA304E0762094819E42DC /* VideoRenderer.swift */; };
 		E5E04EDDEE0F0409632DB0CC /* LendViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 158698A45499ED85877056C8 /* LendViews.swift */; };
 		E7E30A2139A8B73DF65145C7 /* AudioPlayerCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DA3801F739C720FA111C70C /* AudioPlayerCore.swift */; };
+		E918DDDF875BCF67DB6E4B84 /* HDRCalibrationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89E04E220C974B33C3998C25 /* HDRCalibrationView.swift */; };
 		EC7BE0F92DE4BE9C45C6E280 /* CloudPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99198F43007755A8AA639EA3 /* CloudPublisher.swift */; };
 		EF3A238235E625C782A326F0 /* InputCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 940774B27B5F893F6D351931 /* InputCore.swift */; };
 		FF944D9B7152051097FCA7BA /* AddHostFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = F46D6860BE7B12712A7135A1 /* AddHostFlow.swift */; };
@@ -128,6 +131,7 @@
 		8731611A950718FECBB1AEFD /* OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = OFL.txt; sourceTree = "<group>"; };
 		87D53565DD3FA5B79DF1D652 /* SessionStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStats.swift; sourceTree = "<group>"; };
 		886C131A95488837E1F01A0F /* Share.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Share.swift; sourceTree = "<group>"; };
+		89E04E220C974B33C3998C25 /* HDRCalibrationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HDRCalibrationView.swift; sourceTree = "<group>"; };
 		8B7887298D6D4935E0FF18B9 /* RelativeMouse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelativeMouse.swift; sourceTree = "<group>"; };
 		8C0DDB25384557B8B551045E /* Model.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Model.swift; sourceTree = "<group>"; };
 		940774B27B5F893F6D351931 /* InputCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputCore.swift; sourceTree = "<group>"; };
@@ -139,6 +143,8 @@
 		A9C3C8E33B10A3AF4E22E16F /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		B17A1FCFFE1D64692B3C08B6 /* KyberNow.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = KyberNow.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B26BF360224E6C12792A4710 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon.icon; sourceTree = "<group>"; };
+		B4ED4A7AED04F3E6BFC4AD7D /* HDRCalibration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HDRCalibration.swift; sourceTree = "<group>"; };
+		B4ED9823FE738E797E819ACE /* HDRPatternView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HDRPatternView.swift; sourceTree = "<group>"; };
 		B5B2EC8B704608F092769F7C /* DisplayInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayInfo.swift; sourceTree = "<group>"; };
 		BD9DA692CBE7C2DFC43EFA1D /* ShareCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareCore.swift; sourceTree = "<group>"; };
 		C060A812A5011BB6AEC276EC /* KyberKit.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = KyberKit.framework; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -199,6 +205,7 @@
 				99198F43007755A8AA639EA3 /* CloudPublisher.swift */,
 				1B18D524B92EC557D60FED25 /* Discovery.swift */,
 				B5B2EC8B704608F092769F7C /* DisplayInfo.swift */,
+				89E04E220C974B33C3998C25 /* HDRCalibrationView.swift */,
 				94C101B09449F09428C0AF60 /* HomeView.swift */,
 				1812D9E52662E7BEB0D9CDC5 /* HostImagery.swift */,
 				80362106CECC77FF3DAFF939 /* Info.plist */,
@@ -237,7 +244,9 @@
 				74255F1BC5BB27370AF84AD9 /* CoreBridge.swift */,
 				D171932E28609169E868FDC5 /* DecoderCapabilities.swift */,
 				47A41505BA7061761C293ACB /* HDR.swift */,
+				B4ED4A7AED04F3E6BFC4AD7D /* HDRCalibration.swift */,
 				6A16C5153CFA8B9A8EC07CEB /* HDRDemo.swift */,
+				B4ED9823FE738E797E819ACE /* HDRPatternView.swift */,
 				940774B27B5F893F6D351931 /* InputCore.swift */,
 				660EA29E7D18D98FB3C21A9F /* KeymapMac.swift */,
 				DF454DEFA73A7E4436050ACE /* KyberLog.swift */,
@@ -414,6 +423,7 @@
 				EC7BE0F92DE4BE9C45C6E280 /* CloudPublisher.swift in Sources */,
 				129D49D3A72F85061AFEF8C2 /* Discovery.swift in Sources */,
 				81CBCEAB79C853406E2A26B8 /* DisplayInfo.swift in Sources */,
+				E918DDDF875BCF67DB6E4B84 /* HDRCalibrationView.swift in Sources */,
 				4A8070EFF696AFFAD71A40DC /* HomeView.swift in Sources */,
 				AA76CB48D0BD4DCE0A0EA724 /* HostImagery.swift in Sources */,
 				0D7DB35F67816B86E07B4330 /* JoinFlow.swift in Sources */,
@@ -447,7 +457,9 @@
 				66D0265DCF4DC01F8E7FF6A3 /* CoreBridge.swift in Sources */,
 				0814A1462DCB51B0DE485086 /* DecoderCapabilities.swift in Sources */,
 				C0ECE80FBFB9F20A2A8178CD /* HDR.swift in Sources */,
+				B9A3A3996E03B51DA8C7C19D /* HDRCalibration.swift in Sources */,
 				12034EA33F19153239227110 /* HDRDemo.swift in Sources */,
+				0B283BC384A9C86C71D4265A /* HDRPatternView.swift in Sources */,
 				EF3A238235E625C782A326F0 /* InputCore.swift in Sources */,
 				08492ED020ED23978215AE43 /* KeymapMac.swift in Sources */,
 				B1DF8E0399B418A165156B1F /* KyberLog.swift in Sources */,
