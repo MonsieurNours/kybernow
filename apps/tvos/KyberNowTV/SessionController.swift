@@ -262,7 +262,7 @@ final class SessionController: ObservableObject {
         let hdr = HDRDisplay.isHDR()
         guard hdr != screenHDR else { return }
         screenHDR = hdr
-        engine?.screenHDRChanged(0, hdr: hdr)
+        engine?.screenHDRChanged(0, hdr: hdr, luminance: HDRCalibrationStore.session(.current(), hdr: hdr))
         if isLive, streamMode.refresh > 0 { matchDisplay(streamMode.refresh) }
     }
 
@@ -315,7 +315,9 @@ final class SessionController: ObservableObject {
                 self.lendEndText = text
                 self.fail(text)
             }
-            flow.start(screen: LendScreen(width: mode.width, height: mode.height, refresh: mode.refresh))
+            let hdr = HDRDisplay.isHDR() && host.settings.hdr
+            flow.start(screen: LendScreen(width: mode.width, height: mode.height, refresh: mode.refresh, hdr: hdr,
+                                          luminance: HDRCalibrationStore.session(.current(), hdr: hdr)))
             return
         }
         launch(settings: settings, password: password, mode: mode)

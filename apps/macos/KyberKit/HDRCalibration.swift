@@ -11,6 +11,7 @@
 
 import Combine
 import Foundation
+@_implementationOnly import CKyberNow
 #if os(macOS)
 import AppKit
 #else
@@ -35,15 +36,19 @@ public struct HDRLuminance: Codable, Equatable, Sendable {
         self.sdrWhite = sdrWhite
     }
 
-    /// Valeurs par défaut (BT.2408 pour le blanc).
-    public static let `default` = HDRLuminance(max: 1000, fullFrame: 1000, min: 0, sdrWhite: 203)
+    /// Valeurs par défaut, celles du cœur (`kn_hdr_luminance_default` : 1 000,
+    /// 1 000, 0, et 203 nits pour le blanc, BT.2408).
+    public static var `default`: HDRLuminance { HDRLuminance(kn_hdr_luminance_default()) }
 
-    /// Bornes du cœur : max 100 à 10 000, plein écran ≤ max, noir 0 à 1, blanc 80 à 480.
-    public var clamped: HDRLuminance {
-        let m = Swift.min(Swift.max(max, 100), 10000)
-        return HDRLuminance(max: m, fullFrame: Swift.min(Swift.max(fullFrame, 100), m),
-                            min: Swift.min(Swift.max(min, 0), 1), sdrWhite: Swift.min(Swift.max(sdrWhite, 80), 480))
+    /// Bornes du cœur (`kn_hdr_luminance_clamp` : max 100 à 10 000, plein
+    /// écran ≤ max, noir 0 à 1, blanc 80 à 480).
+    public var clamped: HDRLuminance { HDRLuminance(kn_hdr_luminance_clamp(kn)) }
+
+    init(_ l: KnHdrLuminance) {
+        self.init(max: l.max, fullFrame: l.full_frame, min: l.min, sdrWhite: l.sdr_white)
     }
+
+    var kn: KnHdrLuminance { KnHdrLuminance(max: max, full_frame: fullFrame, min: min, sdr_white: sdrWhite) }
 
     /// L'objet JSON du cœur et d'Admin.
     public var json: [String: Any] {

@@ -369,19 +369,31 @@ final class SessionController: NSObject, ObservableObject {
     /// sans message.
     private func updateDeviceHDR() {
         var now: [Int: Bool] = [:]
-        if extraSurfaces.isEmpty {
-            now[0] = HDRDisplay.isHDR(window?.screen)
-        } else {
-            for i in deviceScreens.indices where surface(forDevice: i) != nil { now[i] = HDRDisplay.isHDR(deviceScreens[i]) }
+        var values: [Int: HDRLuminance] = [:]
+        func note(_ i: Int, _ screen: NSScreen?) {
+            let hdr = HDRDisplay.isHDR(screen)
+            now[i] = hdr
+            if let l = HDRCalibrationStore.session(.current(screen), hdr: hdr) { values[i] = l }
         }
-        guard now != deviceHDR else { return }
+        if extraSurfaces.isEmpty {
+            note(0, window?.screen)
+        } else {
+            for i in deviceScreens.indices where surface(forDevice: i) != nil { note(i, deviceScreens[i]) }
+        }
+        guard now != deviceHDR || values != deviceLuminance else { return }
         if engine != nil {
-            for (i, hdr) in now.sorted(by: { $0.key < $1.key }) where deviceHDR[i] != nil && deviceHDR[i] != hdr {
-                engine?.screenHDRChanged(i, hdr: hdr)
+            // Un écran qui gagne ou perd le HDR, ou un autre écran HDR aux valeurs différentes.
+            for (i, hdr) in now.sorted(by: { $0.key < $1.key })
+            where deviceHDR[i] != nil && (deviceHDR[i] != hdr || deviceLuminance[i] != values[i]) {
+                engine?.screenHDRChanged(i, hdr: hdr, luminance: values[i])
             }
         }
         deviceHDR = now
+        deviceLuminance = values
     }
+
+    /// Les valeurs HDR de l'écran de ce Mac sous chaque écran de la session (écrans HDR seulement).
+    private var deviceLuminance: [Int: HDRLuminance] = [:]
 
     /// Hauteur de la bande où vit la barre au survol.
     static let barBand: CGFloat = 96
@@ -1253,7 +1265,9 @@ final class SessionController: NSObject, ObservableObject {
             #if DEBUG
             if AppModel.demo { return }
             #endif
-            flow.start(screen: LendScreen(width: mode.width, height: mode.height, refresh: mode.refresh))
+            let hdr = HDRDisplay.isHDR(window?.screen) && host.settings.hdr
+            flow.start(screen: LendScreen(width: mode.width, height: mode.height, refresh: mode.refresh, hdr: hdr,
+                                          luminance: HDRCalibrationStore.session(.current(window?.screen), hdr: hdr)))
             return
         }
         launch(settings: settings, password: password, mode: mode, request: request)

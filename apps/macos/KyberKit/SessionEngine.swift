@@ -463,6 +463,10 @@ public final class SessionEngine: @unchecked Sendable {
         }
         if let screens = p.screens { json["screens"] = screens.json }
         if let luminance = p.screenLuminance { json["screen_luminance"] = luminance.json }
+        // HDR au départ : ce que l'app dit au cœur (le cœur décide avec la Station).
+        let hdrScreens = p.screens.map { $0.list.map { s in s.hdr ? (s.luminance.map(Self.describe) ?? "HDR") : "SDR" } }
+            ?? [p.screenHDR ? (p.screenLuminance.map(Self.describe) ?? "HDR") : "SDR"]
+        KyberLog.app.notice("HDR au départ : choix \(p.settings.hdr ? "allumé" : "éteint", privacy: .public), écrans \(hdrScreens.joined(separator: ", "), privacy: .public), décodeur \(DecoderCapabilities.current.hdr ? "HDR" : "SDR", privacy: .public)")
         var recovery: [String: Any] = ["watch_image": true]
         if let cap = p.fallbackBitrate { recovery["fallback_bitrate"] = Int(cap) }
         json["recovery"] = recovery
@@ -613,6 +617,11 @@ public final class SessionEngine: @unchecked Sendable {
         }
     }
 
+    /// « HDR 600/600/0/203 nits » : un écran HDR et ses valeurs, pour le journal.
+    static func describe(_ l: HDRLuminance) -> String {
+        "HDR \(Int(l.max))/\(Int(l.fullFrame))/\(l.min)/\(Int(l.sdrWhite)) nits"
+    }
+
     /// Ce que l'appareil décode (`Capabilities` du cœur).
     static func capabilitiesJSON(_ caps: DecoderCapabilities) -> [String: Any] {
         ["hevc": caps.hevc, "hevc444": caps.hevc444, "av1": caps.av1, "hdr": caps.hdr]
@@ -746,13 +755,20 @@ public final class SessionEngine: @unchecked Sendable {
     }
 
     /// L'écran `screen` de cet appareil gagne ou perd le HDR (fenêtre glissée
-    /// sur un autre écran, téléviseur qui coupe le HDR) : le cœur fait
-    /// repasser son image en SDR ou en HDR, sans message. Session à un écran : `screen` 0.
-    public func screenHDRChanged(_ screen: Int, hdr: Bool) {
+    /// sur un autre écran, téléviseur qui coupe le HDR), ou ses valeurs
+    /// changent (`luminance` : celles de l'écran où est l'image maintenant ;
+    /// nil : par défaut) : le cœur fait repasser son image en SDR ou en HDR,
+    /// sans message, et donne les valeurs à la Station. Session à un écran : `screen` 0.
+    public func screenHDRChanged(_ screen: Int, hdr: Bool, luminance: HDRLuminance? = nil) {
         // Le rendu de cet écran suit déjà (surface) : une image PQ y est
         // ramenée en SDR jusqu'à ce que le cœur la relance.
         KyberLog.app.notice("écran \(screen) de l'appareil : \(hdr ? "HDR" : "SDR", privacy: .public)")
-        if let s = live { kn_session_screen_hdr_changed(s, UInt32(max(0, screen)), hdr) }
+        guard let s = live else { return }
+        if var l = luminance?.kn {
+            kn_session_screen_hdr_changed(s, UInt32(max(0, screen)), hdr, &l)
+        } else {
+            kn_session_screen_hdr_changed(s, UInt32(max(0, screen)), hdr, nil)
+        }
     }
 
     /// Un écran au moins a été en HDR pendant la session (« HDR » de la dernière session).

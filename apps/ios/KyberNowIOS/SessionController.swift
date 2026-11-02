@@ -88,6 +88,8 @@ final class SessionController: ObservableObject {
     /// HDR (docs/hdr.md) : l'écran qui montre l'image est HDR ; un écran au
     /// moins de la session est en HDR (`onHDR` du cœur, statistiques).
     @Published private(set) var screenHDR = false
+    /// Les valeurs HDR de cet écran, dites au cœur (automatiques ou réglées à l'œil).
+    private var screenLuminance: HDRLuminance?
     @Published private(set) var sessionHDR = false
 
     let streamView = StreamView(frame: CGRect(x: 0, y: 0, width: 874, height: 402))
@@ -288,9 +290,11 @@ final class SessionController: ObservableObject {
     /// le cœur fait repasser l'image en SDR ou en HDR, sans message.
     private func updateScreenHDR() {
         let hdr = HDRDisplay.isHDR(imageScreen)
-        guard hdr != screenHDR else { return }
+        let luminance = HDRCalibrationStore.session(.current(imageScreen), hdr: hdr)
+        guard hdr != screenHDR || luminance != screenLuminance else { return }
         screenHDR = hdr
-        engine?.screenHDRChanged(0, hdr: hdr)
+        screenLuminance = luminance
+        engine?.screenHDRChanged(0, hdr: hdr, luminance: luminance)
     }
 
     // MARK: - Déroulé
@@ -333,7 +337,9 @@ final class SessionController: ObservableObject {
                 self.lendEndText = text
                 self.fail(text)
             }
-            flow.start(screen: LendScreen(width: mode.width, height: mode.height, refresh: mode.refresh))
+            let hdr = HDRDisplay.isHDR(imageScreen) && host.settings.hdr
+            flow.start(screen: LendScreen(width: mode.width, height: mode.height, refresh: mode.refresh, hdr: hdr,
+                                          luminance: HDRCalibrationStore.session(.current(imageScreen), hdr: hdr)))
             return
         }
         startEngine(mode: mode, password: password)
@@ -411,6 +417,7 @@ final class SessionController: ObservableObject {
         params.screenHDR = screenHDR
         // Les lumières de l'écran (automatiques ou réglées à l'œil), gardées jusqu'à la fin.
         params.screenLuminance = HDRCalibrationStore.session(.current(imageScreen), hdr: screenHDR)
+        screenLuminance = params.screenLuminance
         params.hdrOffer = isVisitor ? nil : store.status[host.id]?.info?.hdr
         KyberLog.app.notice("session : \(mode.width)×\(mode.height) à \(mode.refresh) Hz, son \(channels) canaux, \(settings.consoleProfile, privacy: .public)")
         // Joignable par le relais seulement (ou relais forcé pour essayer) : la radio
