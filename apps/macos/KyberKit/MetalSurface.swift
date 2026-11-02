@@ -9,6 +9,10 @@
 // (`VideoRenderer.attach(to:)`) ; remplacer la couche d'une vue déjà gérée
 // par AppKit n'est pas fiable, la couche reste donc la même d'un flux à
 // l'autre.
+//
+// HDR : la surface dit à son rendu si l'écran de sa fenêtre est HDR
+// (`HDRDisplay.isHDR`), et le redit quand la fenêtre change d'écran ou que
+// les écrans changent ; le rendu change de chaîne (docs/hdr.md).
 
 import AppKit
 import QuartzCore
@@ -16,6 +20,11 @@ import QuartzCore
 final class MetalSurface: NSView {
     private let metal = CAMetalLayer()
     private var renderer: VideoRenderer?
+    private var screenObservers: [NSObjectProtocol] = []
+    /// L'écran de la fenêtre est HDR (dernière valeur dite au rendu).
+    private(set) var screenHDR = false
+    /// L'écran de la fenêtre gagne ou perd le HDR (fil principal).
+    var onScreenHDR: ((Bool) -> Void)?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -38,6 +47,7 @@ final class MetalSurface: NSView {
         isHidden = renderer == nil
         guard let renderer else { return }
         renderer.attach(to: metal)
+        renderer.hdrDisplay = screenHDR
         updateDrawableSize()
     }
 
@@ -49,6 +59,25 @@ final class MetalSurface: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         updateDrawableSize()
+        screenObservers.forEach(NotificationCenter.default.removeObserver)
+        screenObservers = []
+        if let window {
+            screenObservers.append(NotificationCenter.default.addObserver(forName: NSWindow.didChangeScreenNotification, object: window, queue: .main) { [weak self] _ in
+                self?.updateScreenHDR()
+            })
+            screenObservers += HDRDisplay.observe { [weak self] in self?.updateScreenHDR() }
+        }
+        updateScreenHDR()
+    }
+
+    /// L'écran de la fenêtre est-il HDR ? Dit au rendu, et à `onScreenHDR` s'il change.
+    func updateScreenHDR() {
+        let hdr = HDRDisplay.isHDR(window?.screen)
+        renderer?.hdrDisplay = hdr
+        guard hdr != screenHDR else { return }
+        screenHDR = hdr
+        KyberLog.video.notice("écran de la fenêtre \(hdr ? "HDR" : "SDR", privacy: .public) (marge EDR \(String(format: "%.1f", HDRDisplay.headroom(self.window?.screen)), privacy: .public))")
+        onScreenHDR?(hdr)
     }
 
     override func viewDidChangeBackingProperties() {

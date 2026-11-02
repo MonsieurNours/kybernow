@@ -422,6 +422,14 @@ final class AppModel: ObservableObject {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
                 self?.openSession(host, demo: screen)
             }
+        case "hdrCalibration":
+            // `-screen hdrCalibration -calibrationStep 0…3 [-calibrationScreen n]` : le réglage du HDR à cette étape.
+            let args = UserDefaults.standard
+            let screens = NSScreen.screens
+            let index = args.integer(forKey: "calibrationScreen")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                HDRCalibrationWindow.open(on: screens.indices.contains(index) ? screens[index] : nil, step: args.integer(forKey: "calibrationStep"))
+            }
         default: break
         }
     }

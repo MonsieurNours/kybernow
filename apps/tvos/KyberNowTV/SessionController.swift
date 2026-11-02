@@ -57,6 +57,13 @@ final class SessionController: ObservableObject {
     /// Profil Bureau, écran de l'ordinateur passé à un autre mode : « Remettre
     /// 3840 × 2160 » dans le menu (le cœur le propose et le retire).
     @Published private(set) var modeRestoreOffer: String?
+    /// HDR (docs/hdr.md) : le téléviseur accepte le HDR10, et les écrans de la
+    /// session en HDR au dernier démarrage de l'image (`onHDR` du cœur).
+    @Published private(set) var screenHDR = HDRDisplay.isHDR()
+    @Published private(set) var hdrScreens: [Bool] = []
+    private var hdrObservers: [NSObjectProtocol] = []
+    /// Des critères d'affichage ont été donnés au téléviseur (à retirer à la fin).
+    private var displayCriteriaSet = false
 
     let streamView = StreamView(frame: CGRect(x: 0, y: 0, width: 1920, height: 1080))
     private let store: HostStore
@@ -213,8 +220,50 @@ final class SessionController: ObservableObject {
             codec: codec,
             yuv444: s.yuv444 && ConnectionSettings.decodes444(codec),
             mbps: s.bitrateMbps,
-            reliable: s.transport == .reliable
+            reliable: s.transport == .reliable,
+            hdr: s.hdr
         )
+    }
+
+    // MARK: HDR
+
+    /// Ce que la Station dit du HDR. Un ami qui emprunte n'a pas l'info de la
+    /// Station : la puce reste active et le cœur décide au départ de l'image.
+    private var hdrOffer: HDROffer? {
+        isBorrower ? HDROffer(available: true) : store.status[host.id]?.info?.hdr
+    }
+
+    /// « HDR » du menu de session : caché pour un invité (c'est automatique pour lui)
+    /// et sur un téléviseur sans HDR ; l'ami qui emprunte l'a, comme un hôte.
+    var hdrState: HDRState {
+        guard !isGuest else { return .hidden }
+        return HDRSupport.state(offer: hdrOffer, profile: engineSettings.profile, codec: engineSettings.codec, screenHDR: screenHDR)
+    }
+
+    /// Le HDR est demandé pour cette session.
+    var hdrOn: Bool { hdrState.on(host.settings.hdr) }
+
+    /// Un écran de la session est en HDR : « HDR » dans les statistiques.
+    var streamHDR: Bool { hdrScreens.contains(true) }
+
+    /// « HDR » coché ou décoché dans le menu : gardé pour l'ordinateur (pas
+    /// pour un ami qui emprunte), le cœur relance l'image, le téléviseur suit.
+    func setHDR(_ on: Bool) {
+        guard !isGuest, hdrState.available, on != host.settings.hdr else { return }
+        host.settings.hdr = on
+        if !isBorrower { store.update(host) }
+        engine?.setHDR(on)
+        matchDisplay(streamMode.refresh)
+    }
+
+    /// Le téléviseur gagne ou perd le HDR (sortie changée, téléviseur éteint) :
+    /// le cœur fait repasser l'image en SDR ou en HDR, sans message ; le choix reste.
+    private func screenHDRChanged() {
+        let hdr = HDRDisplay.isHDR()
+        guard hdr != screenHDR else { return }
+        screenHDR = hdr
+        engine?.screenHDRChanged(0, hdr: hdr, luminance: HDRCalibrationStore.session(.current(), hdr: hdr))
+        if isLive, streamMode.refresh > 0 { matchDisplay(streamMode.refresh) }
     }
 
     // MARK: - Déroulé
@@ -230,7 +279,10 @@ final class SessionController: ObservableObject {
         let mode = TVDisplay.mode(for: settings)
         streamMode = mode
         modeLabel = String(localized: "\(mode.width) × \(mode.height) à \(mode.refresh) Hz")
-        matchFrameRate(mode.refresh)
+        matchDisplay(mode.refresh)
+        hdrObservers = HDRDisplay.observe { [weak self] in
+            MainActor.assumeIsolated { self?.screenHDRChanged() }
+        }
         let gamepads = GamepadBridge.shared
         gamepads.onMenuRequest = { [weak self] in self?.menuRequested() }
         gamepads.menuFromRemote = prefs.menuBack
@@ -263,7 +315,9 @@ final class SessionController: ObservableObject {
                 self.lendEndText = text
                 self.fail(text)
             }
-            flow.start(screen: LendScreen(width: mode.width, height: mode.height, refresh: mode.refresh))
+            let hdr = HDRDisplay.isHDR() && host.settings.hdr
+            flow.start(screen: LendScreen(width: mode.width, height: mode.height, refresh: mode.refresh, hdr: hdr,
+                                          luminance: HDRCalibrationStore.session(.current(), hdr: hdr)))
             return
         }
         launch(settings: settings, password: password, mode: mode)
@@ -288,6 +342,7 @@ final class SessionController: ObservableObject {
             self.modeLabel = String(localized: "\(mode.width) × \(mode.height) à \(mode.refresh) Hz")
         }
         engine.onVideoStats = { [weak self] in self?.stats = $0 }
+        engine.onHDR = { [weak self] screens in self?.hdrScreens = screens }
         engine.onAudioStats = { [weak self] in self?.audioStats = $0 }
         engine.onGameFullscreen = { game in
             KyberLog.app.notice("ordinateur : \(game ? "jeu en plein écran" : "pas de jeu en plein écran", privacy: .public)")
@@ -340,6 +395,10 @@ final class SessionController: ObservableObject {
         params.clipboard = false
         params.vsync = true
         params.fallbackBitrate = Self.fallbackBitrate
+        params.screenHDR = screenHDR
+        // Les lumières du téléviseur (réglées à l'œil, sinon par défaut), gardées jusqu'à la fin.
+        params.screenLuminance = HDRCalibrationStore.session(.current(), hdr: screenHDR)
+        params.hdrOffer = hdrOffer
         KyberLog.app.notice("session : \(mode.width)×\(mode.height) à \(mode.refresh) Hz, son \(channels) canaux, \(settings.consoleProfile, privacy: .public)")
         do {
             try engine.start(params)
@@ -349,22 +408,30 @@ final class SessionController: ObservableObject {
     }
 
     /// Le téléviseur passe à la fréquence de la session (réglage « Ajuster la
-    /// fréquence » de tvOS), puis revient à la fin.
-    private func matchFrameRate(_ hz: Int?) {
-        guard prefs.matchFrameRate,
-              let window = UIApplication.shared.connectedScenes.compactMap({ ($0 as? UIWindowScene)?.keyWindow }).first
-        else { return }
-        guard let hz else {
-            window.avDisplayManager.preferredDisplayCriteria = nil
+    /// fréquence » de tvOS) et en HDR10 quand le HDR est demandé (réglage
+    /// « Adapter la plage dynamique » ; sans lui, le HDR suit la sortie
+    /// choisie dans tvOS), puis revient à la fin (`hz` nil).
+    private func matchDisplay(_ hz: Int?) {
+        guard let window = UIApplication.shared.connectedScenes.compactMap({ ($0 as? UIWindowScene)?.keyWindow }).first else { return }
+        let hdr = hdrOn
+        guard let hz, prefs.matchFrameRate || hdr else {
+            if displayCriteriaSet {
+                window.avDisplayManager.preferredDisplayCriteria = nil
+                displayCriteriaSet = false
+            }
             return
         }
-        // Image SDR à la définition de la session : le téléviseur garde sa
-        // définition, seule la fréquence suit.
-        var format: CMVideoFormatDescription?
-        CMVideoFormatDescriptionCreate(allocator: nil, codecType: kCMVideoCodecType_HEVC, width: Int32(streamMode.width), height: Int32(streamMode.height), extensions: nil, formatDescriptionOut: &format)
-        if let format {
-            window.avDisplayManager.preferredDisplayCriteria = AVDisplayCriteria(refreshRate: Float(hz), formatDescription: format)
-        }
+        // « Caler le téléviseur sur la session » coupé, HDR demandé : la
+        // fréquence du téléviseur telle qu'elle est, pour ne demander que le
+        // HDR (un critère porte toujours une fréquence) ; l'utilisateur a
+        // choisi de ne pas la faire suivre la session.
+        let rate = prefs.matchFrameRate ? hz : TVDisplay.native.refresh
+        // Image à la définition de la session : le téléviseur garde sa
+        // définition ; la fréquence suit, et la plage dynamique pour le HDR.
+        guard let criteria = HDRDisplay.criteria(refresh: rate, width: streamMode.width, height: streamMode.height, hdr: hdr) else { return }
+        window.avDisplayManager.preferredDisplayCriteria = criteria
+        displayCriteriaSet = true
+        KyberLog.app.notice("téléviseur : \(rate) Hz\(hdr ? ", HDR10" : "", privacy: .public) demandés (adapter la plage dynamique : \(window.avDisplayManager.isDisplayCriteriaMatchingEnabled ? "oui" : "non", privacy: .public))")
     }
 
     /// Les états du cœur : l'image n'apparaît qu'après `revealDelay`, seule
@@ -580,6 +647,9 @@ final class SessionController: ObservableObject {
             DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in self?.fallbackNote = nil }
         case .stationRestarting:
             stationRestarting = true
+        case let .hdrRefused(text):
+            // Windows a refusé le HDR : une fois par session (le cœur s'en charge).
+            show(notice: text.isEmpty ? HDRText.refused : text, for: 6)
         case .adapting, .adapted, .adaptFailed:
             // Pas d'adaptation à l'écran sur l'Apple TV : le téléviseur ne change pas en session.
             break
@@ -689,8 +759,10 @@ final class SessionController: ObservableObject {
             stats.latencyMs = 9.1
             stats.fps = 60
             stats.mbps = 78
-            stats.format = "4:2:0 8 bits"
+            stats.format = self.hdrOn ? "4:2:0 10 bits" : "4:2:0 8 bits"
             self.stats = stats
+            // Le HDR demandé (`-hdrScreen YES`) : l'écran de la démonstration est « en HDR ».
+            self.hdrScreens = [self.hdrOn]
             if kind == .menu {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.openMenu() }
             }
@@ -858,7 +930,7 @@ final class SessionController: ObservableObject {
             let m = streamMode
             host.recordSession(start: revealedAt, latency: engine?.sessionLatency, width: m.width, height: m.height, refresh: m.refresh,
                                codec: engineSettings.codec, mbps: host.settings.bitrate(width: m.width, height: m.height, refresh: m.refresh),
-                               route: path.transport)
+                               route: path.transport, hdr: streamHDR)
         }
         if !isVisitor { store.update(host) }
         withAnimation(.easeInOut(duration: 0.4)) {
@@ -867,7 +939,9 @@ final class SessionController: ObservableObject {
         }
         streamView.detach()
         engine?.stop()
-        matchFrameRate(nil)
+        matchDisplay(nil)
+        hdrObservers.forEach(NotificationCenter.default.removeObserver)
+        hdrObservers = []
         if let routeObserver { NotificationCenter.default.removeObserver(routeObserver) }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in self?.finish() }
     }
@@ -886,7 +960,9 @@ final class SessionController: ObservableObject {
         GamepadBridge.shared.onMenuRequest = nil
         streamView.detach()
         engine?.stop()
-        matchFrameRate(nil)
+        matchDisplay(nil)
+        hdrObservers.forEach(NotificationCenter.default.removeObserver)
+        hdrObservers = []
         withAnimation(Theme.easeOut) {
             menuOpen = false
             phase = .failed(message)

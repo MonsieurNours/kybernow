@@ -278,6 +278,7 @@ private struct Hero: View {
             Segmented(options: Profile.allCases.map { ($0, $0.label) }, selection: profile,
                       icons: [.jeu: "game-controller", .bureau: "article", .max: "lightning"], height: 40)
                 .fixedSize()
+            HDRChip(host: host, info: status?.info)
             Button { app.openSettings(host) } label: {
                 HStack(spacing: 8) { Icon("gear-six", size: 17); Text("Réglages") }
             }
@@ -288,20 +289,104 @@ private struct Hero: View {
     }
 }
 
+/// La puce « HDR » de l'accueil, à côté du profil (docs/link-ui.md, section
+/// HDR) : seulement sur un écran HDR ; allumée ou éteinte (le choix de cet
+/// ordinateur, allumé la première fois) ; inactive avec la raison. À part du
+/// profil : la changer ne le fait pas passer en « Personnalisé ». En
+/// session, elle s'applique tout de suite, comme dans la barre.
+struct HDRChip: View {
+    @EnvironmentObject var app: AppModel
+    @StateObject private var screen = HDRScreenWatch()
+    let host: Host
+    let info: HostInfo?
+
+    var body: some View {
+        let state = host.settings.hdrState(info, screenHDR: screen.hdr)
+        if state.shown {
+            let on = state.on(host.settings.hdr)
+            Button { app.setHDR(!host.settings.hdr, for: host) } label: {
+                HStack(spacing: 8) {
+                    Icon("sparkle", size: 16, bold: true)
+                    Text(verbatim: HDRText.label)
+                }
+                .font(Theme.sans(14, .semibold))
+                .foregroundStyle(on ? Theme.accent : Theme.text2)
+                .padding(.horizontal, 16)
+                .frame(height: 40)
+                .background(on ? Theme.accentSoft : Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(on ? Theme.accentLine : Theme.line2))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(!state.available)
+            .opacity(state.available ? 1 : 0.45)
+            .help(HDRText.help(state))
+            .accessibilityLabel(HDRText.accessibility(on))
+            .accessibilityHint(HDRText.help(state))
+            .accessibilityAddTraits(on ? .isSelected : [])
+        }
+    }
+}
+
+/// L'écran de la fenêtre de l'accueil est-il HDR ? Suivi quand la fenêtre
+/// change d'écran ou que les écrans changent.
+@MainActor
+final class HDRScreenWatch: ObservableObject {
+    @Published private(set) var hdr = HomeScreen.screenHDR
+    private var observers: [NSObjectProtocol] = []
+
+    init() {
+        let update: () -> Void = { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let now = HomeScreen.screenHDR
+                if now != self.hdr { self.hdr = now }
+            }
+        }
+        observers = HDRDisplay.observe(update)
+        observers.append(NotificationCenter.default.addObserver(forName: NSWindow.didChangeScreenNotification, object: nil, queue: .main) { _ in update() })
+        observers.append(NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { _ in update() })
+    }
+
+    deinit { observers.forEach(NotificationCenter.default.removeObserver) }
+}
+
+extension AppModel {
+    /// La puce « HDR » de l'accueil ou l'interrupteur des réglages : gardé
+    /// pour l'ordinateur ; en session, appliqué tout de suite (comme le profil).
+    func setHDR(_ on: Bool, for host: Host) {
+        if let session = sessions.session(for: host.id), session.isLive {
+            session.setHDR(on)
+            return
+        }
+        guard var h = store.host(host.id) else { return }
+        h.settings.hdr = on
+        store.update(h)
+    }
+}
+
 /// L'écran que la session demandera, dit comme sur toutes les apps : même
 /// calcul que la session (`SessionController.start`).
 enum HomeScreen {
+    /// L'écran de la fenêtre de l'accueil (ou l'écran principal) est HDR.
+    static var screenHDR: Bool {
+        HDRDisplay.isHDR((NSApp.keyWindow ?? NSApp.mainWindow)?.screen ?? NSScreen.main)
+    }
+
     static func line(for host: Host, info: HostInfo?) -> String {
         let s = host.settings
         let screen = NSScreen.main ?? NSScreen.screens[0]
         let virtual = s.display != .physical && (info?.virtualDisplay ?? true)
+        // HDR allumé et possible : « …, en HDR » (plusieurs écrans : dès qu'un écran de ce Mac l'est).
+        let hdrScreen = NSScreen.screens.contains { HDRDisplay.isHDR($0) }
         // Plusieurs écrans : le nombre que prendra la session, calculé par le cœur.
         if let count = HomeScreen.screenCount(for: host, info: info) {
-            return LinkText.screens(count)
+            return LinkText.screens(count, hdr: s.hdrOn(info, screenHDR: hdrScreen))
         }
+        let hdr = s.hdrOn(info, screenHDR: screenHDR)
         switch s.display {
         case .custom:
-            return LinkText.screen(width: s.customWidth, height: s.customHeight, refresh: s.customRefresh, virtual: virtual, sizedForThisScreen: false)
+            return LinkText.screen(width: s.customWidth, height: s.customHeight, refresh: s.customRefresh, virtual: virtual, sizedForThisScreen: false, hdr: hdr)
         case .window:
             // Session fenêtrée : l'écran prendra la taille de la fenêtre, en pixels.
             let window = NSApp.keyWindow ?? NSApp.mainWindow
@@ -309,10 +394,11 @@ enum HomeScreen {
             let scale = CGFloat(DisplayInfo.nativePixels(screen).width) / screen.frame.width
             let w = Int(content.width * scale) / 2 * 2, h = Int(content.height * scale) / 2 * 2
             guard virtual else { return LinkText.screen(width: w, height: h, refresh: 0, virtual: false, sizedForThisScreen: false) }
-            return String(localized: "Écran de \(LinkFormat.dims(w, h)) à \(max(30, screen.maximumFramesPerSecond)) Hz, à la taille de cette fenêtre")
+            return hdr ? String(localized: "Écran de \(LinkFormat.dims(w, h)) à \(max(30, screen.maximumFramesPerSecond)) Hz, à la taille de cette fenêtre, en HDR")
+                : String(localized: "Écran de \(LinkFormat.dims(w, h)) à \(max(30, screen.maximumFramesPerSecond)) Hz, à la taille de cette fenêtre")
         case .match, .physical:
             let m = DisplayInfo.mode(for: screen, codec: s.codec, limit4K: s.limit4K)
-            return LinkText.screen(width: m.width, height: m.height, refresh: m.refresh, virtual: virtual, sizedForThisScreen: !s.limit4K || m.width == DisplayInfo.mode(for: screen, codec: s.codec).width)
+            return LinkText.screen(width: m.width, height: m.height, refresh: m.refresh, virtual: virtual, sizedForThisScreen: !s.limit4K || m.width == DisplayInfo.mode(for: screen, codec: s.codec).width, hdr: hdr)
         }
     }
 }

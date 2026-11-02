@@ -48,6 +48,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         #if DEBUG
         if AppModel.demo, let menuBar { DemoRemote.install(app: app, menuBar: menuBar) }
+        if HDRDemo.requested { HDRDemoWindow.open() }
         #endif
     }
 
@@ -317,6 +318,10 @@ extension AppModel {
 
     func perform(_ action: MenuAction) {
         switch action {
+        case let .hdr(id):
+            // « HDR » coché ou décoché dans le menu : la session de cet ordinateur.
+            guard let session = sessions.session(for: id) else { return }
+            session.setHDR(!session.host.settings.hdr)
         case let .disconnect(id):
             guard let session = sessions.session(for: id) else { return }
             if session.isLive { session.end() } else { session.dismissFailure() }
@@ -547,6 +552,53 @@ final class LoginItem: ObservableObject {
 
 #if DEBUG
 // MARK: - Démonstration
+
+/// `-demoHDR YES` : la mire PQ dans une fenêtre, par le vrai rendu (chaîne
+/// HDR sur l'écran XDR, ramenée en SDR sur un écran externe SDR) ; le
+/// journal `video` dit la chaîne et la marge EDR en cours chaque seconde.
+@MainActor
+enum HDRDemoWindow {
+    private static var window: NSWindow?
+    private static var demo: HDRDemo?
+
+    static func open() {
+        guard let demo = HDRDemo() else { return }
+        let size = UserDefaults.standard.string(forKey: "demoWindow").flatMap { s -> NSSize? in
+            let p = s.split(separator: "x").compactMap { Double($0) }
+            return p.count == 2 ? NSSize(width: p[0], height: p[1]) : nil
+        } ?? NSSize(width: 1280, height: 720)
+        let w = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .closable, .resizable, .miniaturizable],
+                         backing: .buffered, defer: false)
+        w.title = "HDR"
+        w.isReleasedWhenClosed = false
+        w.contentView = NSHostingView(rootView: HDRDemoView(demo: demo))
+        w.center()
+        // `-demoHDRScreen <n>` : sur cet écran ; `-demoHDRMove <s>` : passe à
+        // l'écran suivant toutes les s secondes (la chaîne suit l'écran).
+        let screens = NSScreen.screens
+        let first = UserDefaults.standard.integer(forKey: "demoHDRScreen")
+        if screens.indices.contains(first) { place(w, on: screens[first]) }
+        w.makeKeyAndOrderFront(nil)
+        window = w
+        Self.demo = demo
+        let every = UserDefaults.standard.double(forKey: "demoHDRMove")
+        if every > 0 {
+            var index = first
+            Timer.scheduledTimer(withTimeInterval: every, repeats: true) { _ in
+                MainActor.assumeIsolated {
+                    let all = NSScreen.screens
+                    index = (index + 1) % max(all.count, 1)
+                    if let window, all.indices.contains(index) { place(window, on: all[index]) }
+                }
+            }
+        }
+    }
+
+    private static func place(_ w: NSWindow, on screen: NSScreen) {
+        let f = screen.visibleFrame, s = w.frame.size
+        w.setFrameOrigin(NSPoint(x: f.midX - s.width / 2, y: f.midY - s.height / 2))
+    }
+}
 
 /// Démonstration : l'app se pilote de l'extérieur, pour vérifier le menu, la
 /// fenêtre, le Dock et les notifications sans souris. Commandes en
@@ -834,7 +886,7 @@ enum DemoRemote {
             }
             app.store.setDemoStatus(HostStatus(online: app.store.status[h.id]?.online ?? true,
                                                info: HostInfo(hostname: info.hostname, gpu: info.gpu, av1: info.av1, virtualDisplay: info.virtualDisplay,
-                                                              speakers: info.speakers, os: info.os, adminVersion: station.version, station: station, maxScreens: info.maxScreens)), for: h.id)
+                                                              speakers: info.speakers, os: info.os, adminVersion: station.version, station: station, maxScreens: info.maxScreens, hdr: info.hdr)), for: h.id)
         case "respond":
             // respond:<genre>:<ordinateur>:<bouton|default>
             let h = parts.count > 2 ? host(parts[2]) : nil

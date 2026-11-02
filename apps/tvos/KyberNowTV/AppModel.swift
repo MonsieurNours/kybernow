@@ -21,6 +21,8 @@ final class AppModel: ObservableObject {
         case settings(UUID)
         case appSettings
         case gamepads
+        /// « Réglage du HDR » du téléviseur (docs/hdr.md), depuis les Réglages de l'app ou Réglages › Image.
+        case hdrCalibration
         case session(UUID)
     }
 
@@ -32,6 +34,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var notice: String?
     /// Écran où revient le test des manettes (accueil ou réglages de l'app).
     var gamepadsReturn: Screen = .home
+    /// Écran où revient « Réglage du HDR » (Réglages de l'app ou d'un ordinateur).
+    var calibrationReturn: Screen = .appSettings
     /// Rubrique ouverte à l'arrivée dans les réglages d'un ordinateur.
     var settingsSection: ComputerSection = .picture
 
@@ -42,6 +46,13 @@ final class AppModel: ObservableObject {
     let cloud = CloudSync()
     let prefs = Preferences.shared
     private var bag: Set<AnyCancellable> = []
+    /// Le téléviseur accepte le HDR10 (docs/hdr.md) : la puce « HDR » de
+    /// l'accueil et l'interrupteur de Réglages › Image n'existent qu'alors.
+    /// Suivi quand le téléviseur gagne ou perd le HDR.
+    @Published private(set) var screenHDR = HDRDisplay.isHDR()
+    private var hdrObservers: [NSObjectProtocol] = []
+    /// Démonstration du rendu HDR (`-demoHDR YES`) : la mire PQ en plein écran.
+    private(set) var hdrDemo: HDRDemo?
 
     init() {
         #if DEBUG
@@ -52,6 +63,14 @@ final class AppModel: ObservableObject {
         #endif
         store = HostStore(demo: demo)
         borrowed = BorrowedStore(demo: demo)
+        hdrObservers = HDRDisplay.observe { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let hdr = HDRDisplay.isHDR()
+                if hdr != self.screenHDR { self.screenHDR = hdr }
+            }
+        }
+        if HDRDemo.requested { hdrDemo = HDRDemo() }
         discovery.start()
         selected = store.ordered.first?.id
         // Le Top Shelf suit les ordinateurs, leur état et leurs images.
@@ -81,7 +100,7 @@ final class AppModel: ObservableObject {
             if let lendInfo, let first = ordered.first, let i = store.status[first.id]?.info {
                 let info = HostInfo(hostname: i.hostname, gpu: i.gpu, av1: i.av1, virtualDisplay: i.virtualDisplay, speakers: i.speakers, os: i.os,
                                     adminVersion: i.adminVersion, station: i.station, wake: i.wake, ownDevice: i.ownDevice, maxScreens: i.maxScreens,
-                                    share: i.share, relay: i.relay, lend: LendInfo(available: true, enabled: lendInfo == "on"))
+                                    share: i.share, relay: i.relay, lend: LendInfo(available: true, enabled: lendInfo == "on"), hdr: i.hdr)
                 store.setDemoStatus(HostStatus(online: true, info: info), for: first.id)
             }
             if UserDefaults.standard.bool(forKey: "demoLent"), let first = ordered.first {
@@ -111,6 +130,8 @@ final class AppModel: ObservableObject {
         case "invite":
             if let invite = Lend.parseInvite("kybernow://borrow?host=192.168.1.30&port=37462&fp=sha256:ab12&login=camille") { screen = .invite(invite) }
         case "app": screen = .appSettings
+        // `-screen hdrCalibration -calibrationStep 0…3` (avec `-hdrScreen YES`) : le réglage du HDR, à cette étape.
+        case "hdrCalibration": screen = .hdrCalibration
         case "gamepads": screen = .gamepads
         case "settings": if let id = selected { screen = .settings(id) }
         case "menu", "passage", "connecting", "restarting":
@@ -150,6 +171,13 @@ final class AppModel: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in
             if self?.notice == text { self?.notice = nil }
         }
+    }
+
+    /// « Réglage du HDR », seulement sur un téléviseur HDR.
+    func showCalibration(from: Screen) {
+        guard screenHDR else { return }
+        calibrationReturn = from
+        screen = .hdrCalibration
     }
 
     func showGamepads(from: Screen) {

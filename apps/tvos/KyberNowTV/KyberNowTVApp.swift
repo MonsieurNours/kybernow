@@ -66,6 +66,9 @@ struct RootView: View {
             case .gamepads:
                 GamepadsView()
                     .transition(.opacity.combined(with: .scale(scale: 1.02)))
+            case .hdrCalibration:
+                HDRCalibrationView()
+                    .transition(.opacity)
             case .session:
                 if let session = app.session {
                     SessionView(session: session)
@@ -83,6 +86,12 @@ struct RootView: View {
                 .glass(38)
                 .padding(.top, 60)
                 .transition(.opacity.combined(with: .offset(y: -14)))
+            }
+        }
+        .overlay {
+            // `-demoHDR YES` : la mire PQ par le vrai rendu, par-dessus tout.
+            if let demo = app.hdrDemo {
+                HDRDemoView(demo: demo).ignoresSafeArea()
             }
         }
         .ignoresSafeArea()

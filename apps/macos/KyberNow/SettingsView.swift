@@ -396,10 +396,24 @@ private struct SettingsContent: View {
                 )
                 Text(codecHint).font(Theme.sans(12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
             }
+            // HDR allumé : pas de 4:4:4 (le HDR n'existe qu'en 4:2:0).
             toggleRow(String(localized: "Texte net (4:4:4)"),
-                      can444 ? SettingsText.sharpTextHelp : (s.codec == .h264 ? String(localized: "Le 4:4:4 demande le HEVC.") : String(localized: "Ce Mac ne décode pas le 4:4:4 en matériel : l'image reste en 4:2:0.")),
-                      isOn: Binding(get: { s.yuv444 && can444 }, set: { v in update(custom: true) { $0.yuv444 = v } }))
-                .disabled(!can444)
+                      hdrOn ? SettingsText.sharpTextHDR
+                          : can444 ? SettingsText.sharpTextHelp : (s.codec == .h264 ? String(localized: "Le 4:4:4 demande le HEVC.") : String(localized: "Ce Mac ne décode pas le 4:4:4 en matériel : l'image reste en 4:2:0.")),
+                      isOn: Binding(get: { s.yuv444 && can444 && !hdrOn }, set: { v in update(custom: true) { $0.yuv444 = v } }))
+                .disabled(!can444 || hdrOn)
+            // HDR : seulement sur un écran HDR ; à part du profil (jamais « Personnalisé »).
+            if hdrState.shown {
+                toggleRow(HDRText.label, HDRText.help(hdrState, settings: true),
+                          isOn: Binding(get: { hdrState.on(s.hdr) }, set: { v in app.setHDR(v, for: host) }))
+                    .disabled(!hdrState.available)
+                // Le réglage du HDR de l'écran de cette fenêtre (valeurs de l'appareil, pas de l'ordinateur).
+                Button { HDRCalibrationWindow.open(on: NSApp.keyWindow?.screen) } label: {
+                    Text(HDRText.calibrateLink).font(Theme.sans(13, .semibold)).foregroundStyle(Theme.accent)
+                }
+                .buttonStyle(.plain)
+                .padding(.top, -2)
+            }
             VStack(alignment: .leading, spacing: 8) {
                 Text("Affichage des images").font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text2)
                 Segmented(options: [(true, String(localized: "Synchronisé")), (false, String(localized: "Immédiat"))],
@@ -447,6 +461,11 @@ private struct SettingsContent: View {
     }
 
     private var can444: Bool { ConnectionSettings.decodes444(s.codec) }
+
+    /// La puce « HDR » de cet ordinateur sur l'écran de cette fenêtre.
+    private var hdrState: HDRState { s.hdrState(info, screenHDR: HomeScreen.screenHDR) }
+    /// Le HDR sera demandé : « Texte net (4:4:4) » inactif.
+    private var hdrOn: Bool { hdrState.on(s.hdr) }
 
     /// Mode probable de la session (l'ordinateur peut l'ajuster).
     private var sessionMode: (width: Int, height: Int, refresh: Int) {

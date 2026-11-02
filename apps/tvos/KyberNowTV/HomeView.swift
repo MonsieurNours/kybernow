@@ -17,7 +17,7 @@ struct HomeView: View {
     @EnvironmentObject private var pads: GamepadBridge
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    enum Focus: Hashable { case connect, profile(Profile), settings, pads, host(UUID), borrowed(UUID), found(String), add, join, appSettings, takeBackNow, remove }
+    enum Focus: Hashable { case connect, profile(Profile), hdr, settings, pads, host(UUID), borrowed(UUID), found(String), add, join, appSettings, takeBackNow, remove }
     @FocusState private var focus: Focus?
     @State private var pulse = false
     /// « Retirer {nom} de cet appareil ? » pour un ordinateur prêté.
@@ -176,6 +176,7 @@ struct HomeView: View {
                     .padding(6)
                     .glass(16)
                     .focusSection()
+                    hdrChip(host)
                     Button { app.showSettings(host.id) } label: {
                         HStack(spacing: 12) {
                             Icon("sliders-horizontal", size: 26)
@@ -189,9 +190,20 @@ struct HomeView: View {
                     .accessibilityLabel(LinkText.settingsTitle(host.name))
                 }
                 .padding(.top, 26)
-                Text(Profile.hint(host.settings.profile))
+                // La puce « HDR » focalisée : son aide ; inactive : sa raison, toujours lisible.
+                let hdr = hdrState(host)
+                if hdr.shown, let reason = hdr.reason {
+                    HStack(spacing: 10) {
+                        Icon("monitor", size: 22).foregroundStyle(Theme.faint)
+                        Text(verbatim: "\(HDRText.label) · \(reason)")
+                    }
                     .font(Theme.sans(22))
                     .foregroundStyle(Theme.muted)
+                } else {
+                    Text(focus == .hdr ? HDRText.help : Profile.hint(host.settings.profile))
+                        .font(Theme.sans(22))
+                        .foregroundStyle(Theme.muted)
+                }
                 }
             }
         } else {
@@ -521,17 +533,50 @@ struct HomeView: View {
     }
 
     private func screenLine(_ h: Host) -> String {
-        Self.screenLine(h, info: store.status[h.id]?.info)
+        Self.screenLine(h, info: store.status[h.id]?.info, screenHDR: app.screenHDR)
     }
 
-    /// L'écran que la session demandera (même calcul que la session).
-    static func screenLine(_ h: Host, info: HostInfo?) -> String {
+    /// L'écran que la session demandera (même calcul que la session) ;
+    /// « …, en HDR » quand le HDR sera demandé.
+    static func screenLine(_ h: Host, info: HostInfo?, screenHDR: Bool) -> String {
         let s = h.settings
         let m = TVDisplay.mode(for: s)
         let tv = TVDisplay.native
         let virtual = s.display != .physical && (info?.virtualDisplay ?? true)
         return LinkText.screen(width: m.width, height: m.height, refresh: m.refresh, virtual: virtual,
-                               sizedForThisScreen: m.width == tv.width && m.height == tv.height)
+                               sizedForThisScreen: m.width == tv.width && m.height == tv.height,
+                               hdr: s.hdrOn(info, screenHDR: screenHDR))
+    }
+
+    // MARK: HDR
+
+    /// La puce de cet ordinateur sur ce téléviseur (docs/hdr.md).
+    private func hdrState(_ h: Host) -> HDRState {
+        h.settings.hdrState(store.status[h.id]?.info, screenHDR: app.screenHDR)
+    }
+
+    /// « HDR » à côté du profil, seulement sur un téléviseur HDR : allumée ou
+    /// éteinte, gardée pour l'ordinateur ; inactive (pas de focus sur tvOS),
+    /// sa raison est dite sous les boutons. Ne touche pas au profil.
+    @ViewBuilder private func hdrChip(_ host: Host) -> some View {
+        let hdr = hdrState(host)
+        if hdr.shown {
+            let on = hdr.on(host.settings.hdr)
+            Button {
+                var h = host
+                h.settings.hdr.toggle()
+                store.update(h)
+            } label: {
+                Text(verbatim: HDRText.label)
+            }
+            .buttonStyle(ChoiceButton(selected: on, height: 64))
+            .disabled(!hdr.available)
+            .focused($focus, equals: .hdr)
+            .padding(6)
+            .glass(16)
+            .accessibilityLabel(HDRText.accessibility(on))
+            .accessibilityHint(HDRText.help(hdr))
+        }
     }
 
     static func short(_ name: String) -> String {

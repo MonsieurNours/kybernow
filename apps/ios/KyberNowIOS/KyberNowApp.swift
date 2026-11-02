@@ -20,7 +20,14 @@ struct KyberNowApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView()
+            Group {
+                // `-demoHDR YES` (Debug) : la mire PQ par le vrai rendu, à la place de l'app.
+                if let demo = HDRDemoHolder.demo {
+                    HDRDemoView(demo: demo).ignoresSafeArea().statusBarHidden()
+                } else {
+                    RootView()
+                }
+            }
                 .environmentObject(app)
                 .environmentObject(app.store)
                 .environmentObject(app.store.imagery)
@@ -31,6 +38,12 @@ struct KyberNowApp: App {
                 .onOpenURL { app.open($0) }
         }
     }
+}
+
+/// La mire HDR de démonstration, gardée en vie pour l'app (nil hors démonstration).
+@MainActor
+enum HDRDemoHolder {
+    static let demo: HDRDemo? = HDRDemo.requested ? HDRDemo() : nil
 }
 
 /// Orientation : la session est toujours en paysage sur iPhone ; ailleurs, libre.
@@ -98,6 +111,7 @@ struct RootView: View {
                 .zIndex(3)
             }
         }
+        .hdrCalibrationCover(isPresented: $app.calibrating)
         .sheet(item: $app.sheet) { sheet in
             switch sheet {
             case let .addHost(candidate): AddHostView(link: candidate)

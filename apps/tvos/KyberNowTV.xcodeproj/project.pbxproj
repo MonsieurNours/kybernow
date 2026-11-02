@@ -23,14 +23,17 @@
 		1BC9E26B0CBD77A3DD314E3F /* RelayCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51A419BE79B3C891332EF56E /* RelayCore.swift */; };
 		26FDEEAA5E22E4374847687C /* VideoRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3545217235A0986F4EC8F7D3 /* VideoRenderer.swift */; };
 		2E4327F1FDBDB0EF09529956 /* AddHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D4C7D00D61D4DFD1B56106D /* AddHostView.swift */; };
+		33229732CC1D3E9AD1C181CF /* HDR.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFA6AF6DE3DCB93B6E63BFBB /* HDR.swift */; };
 		335F4328B4ABA7B8BA98500B /* KeyboardMouse.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF924BDB17D639C4D686F6D3 /* KeyboardMouse.swift */; };
 		3AB9751C598BA8DCC23C14EF /* MartianMono-wdth-wght.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 36C379C44CA1F146A47FEBB2 /* MartianMono-wdth-wght.ttf */; };
 		3B32560D26298A0CA67CAFF0 /* KyberNow.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0339810BB789E02E13966DEA /* KyberNow.xcframework */; };
 		3CD791B99CD93807066C5E54 /* KyberTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F22A9A1742A4CB4D03CD55A /* KyberTypes.swift */; };
 		49222371EEE67F2DE41F4B4A /* Backdrops.swift in Sources */ = {isa = PBXBuildFile; fileRef = F939135052A5C51A4CDFEDB0 /* Backdrops.swift */; };
 		4B99531C369F2FD1A6D6C197 /* ShareViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6868865EAC1D2E55F4CB9836 /* ShareViews.swift */; };
+		5237507E6E33E328E7F126A2 /* HDRDemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6675C151312EAB3B4ED15048 /* HDRDemo.swift */; };
 		52771D6BEBD682855A334064 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = C01C02F7344D665AEF5528C9 /* InfoPlist.xcstrings */; };
 		55648362D3F43B7B69A955D2 /* VideoPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E56869493711B171A05A7A2 /* VideoPipeline.swift */; };
+		58413F62BBD794C1808CBF34 /* HDRCalibrationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42567BEAC24E7ACEFBB3CAEB /* HDRCalibrationView.swift */; };
 		587E08141723DEE88741D971 /* InputCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC0716FDE27E489961A197FD /* InputCore.swift */; };
 		5F6ED7451E5A10C9D362900F /* RemoteNavigationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F16667FD645BA9D805BA7E79 /* RemoteNavigationTests.swift */; };
 		62D55CC21A49D57DE1CBF8D3 /* LinkUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = C038544172704B17A5CAB374 /* LinkUI.swift */; };
@@ -59,9 +62,11 @@
 		A56EAA94638A85D6DD0CBFCA /* CoreBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5F933505AA41A6122515B30 /* CoreBridge.swift */; };
 		A6DE0CF31474618CD510D114 /* AV1.swift in Sources */ = {isa = PBXBuildFile; fileRef = 967E9CA93E220D6FB480C877 /* AV1.swift */; };
 		AAA56A471D38C873853CFD6E /* StatsCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7531C686A3D883AC1D448499 /* StatsCard.swift */; };
+		AAC484EFDD2EEB99880D90D8 /* HDRPatternView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7B4A9A85088DD118E664359 /* HDRPatternView.swift */; };
 		B96BE33574AF78B3735C1016 /* libiconv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 35E2162DA9EA9189EFA5F4A1 /* libiconv.tbd */; };
 		BF0E0AE61204CEF8EE57A897 /* KyberNowTopShelf.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 5680458539B0010845C420CE /* KyberNowTopShelf.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		C061C90F011E8A35C9773AD7 /* VideoDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93E03D3845A43D3E44AA9AF8 /* VideoDecoder.swift */; };
+		C39856C0DCC07469150B71DD /* HDRCalibration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FDFD6E30E1ED9E7739C22A4 /* HDRCalibration.swift */; };
 		C3E62956C630251A7B89D7B7 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA5781CC43CFB55F18BB4B91 /* SettingsView.swift */; };
 		D13262077E649595A39D82B3 /* Lend.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCB0A07752E4AD009B4519E9 /* Lend.swift */; };
 		E500B3D5892A7F414E0B3893 /* SessionEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26D28B4D290D3288CCF63CD9 /* SessionEngine.swift */; };
@@ -126,6 +131,7 @@
 		0339810BB789E02E13966DEA /* KyberNow.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = KyberNow.xcframework; path = Vendor/KyberNow.xcframework; sourceTree = "<group>"; };
 		068D8A600E0E74D6C09073FD /* ConsoleClientCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsoleClientCore.swift; sourceTree = "<group>"; };
 		0C5E2A6702CE5C7966E801CC /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
+		0FDFD6E30E1ED9E7739C22A4 /* HDRCalibration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HDRCalibration.swift; sourceTree = "<group>"; };
 		12EDC65E3A8F60627A1FDE7A /* KyberNowTVApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KyberNowTVApp.swift; sourceTree = "<group>"; };
 		1AB941B7E1DF4EECD5F6E82D /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		244CC1D072B43F4A58082CF6 /* StreamView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamView.swift; sourceTree = "<group>"; };
@@ -138,6 +144,7 @@
 		36C379C44CA1F146A47FEBB2 /* MartianMono-wdth-wght.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "MartianMono-wdth-wght.ttf"; sourceTree = "<group>"; };
 		3FEF93D2C6B0878C79E24A54 /* KyberNowTV.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = KyberNowTV.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		41FC50A907BD6DAF12DD33D8 /* GamepadBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadBridge.swift; sourceTree = "<group>"; };
+		42567BEAC24E7ACEFBB3CAEB /* HDRCalibrationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HDRCalibrationView.swift; sourceTree = "<group>"; };
 		4533B3F463014C650D6D7C3C /* Platform.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Platform.swift; sourceTree = "<group>"; };
 		49056D51BDE46EB2C657CA5E /* LendViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LendViews.swift; sourceTree = "<group>"; };
 		4E07925F1A4DDD2868AC6E46 /* Language.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Language.swift; sourceTree = "<group>"; };
@@ -147,6 +154,7 @@
 		5F22A9A1742A4CB4D03CD55A /* KyberTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KyberTypes.swift; sourceTree = "<group>"; };
 		609D971655FAFD446DC66236 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		62FE3E9D1E34B31C3A9DD531 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		6675C151312EAB3B4ED15048 /* HDRDemo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HDRDemo.swift; sourceTree = "<group>"; };
 		6868865EAC1D2E55F4CB9836 /* ShareViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViews.swift; sourceTree = "<group>"; };
 		68E5FAAE774C0DD788031289 /* KyberLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KyberLog.swift; sourceTree = "<group>"; };
 		6CEED8A4C56BC77F0552A37A /* LendCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LendCore.swift; sourceTree = "<group>"; };
@@ -184,6 +192,8 @@
 		E0E4AFD0C75F8B87AA9B1CE5 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		E0F2BA8BAEB89A64A30ECB9F /* SessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionView.swift; sourceTree = "<group>"; };
 		E21C4D60AA32188AAD952FAB /* Model.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Model.swift; sourceTree = "<group>"; };
+		E7B4A9A85088DD118E664359 /* HDRPatternView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HDRPatternView.swift; sourceTree = "<group>"; };
+		EFA6AF6DE3DCB93B6E63BFBB /* HDR.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HDR.swift; sourceTree = "<group>"; };
 		F065E6E2F15BE6A4F620DA44 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		F16667FD645BA9D805BA7E79 /* RemoteNavigationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteNavigationTests.swift; sourceTree = "<group>"; };
 		F20CEEF659C36D7A2E5D5307 /* KyberNowTVUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = KyberNowTVUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -334,6 +344,10 @@
 				068D8A600E0E74D6C09073FD /* ConsoleClientCore.swift */,
 				B5F933505AA41A6122515B30 /* CoreBridge.swift */,
 				BF0727561C05D7242B1942A3 /* DecoderCapabilities.swift */,
+				EFA6AF6DE3DCB93B6E63BFBB /* HDR.swift */,
+				0FDFD6E30E1ED9E7739C22A4 /* HDRCalibration.swift */,
+				6675C151312EAB3B4ED15048 /* HDRDemo.swift */,
+				E7B4A9A85088DD118E664359 /* HDRPatternView.swift */,
 				AC0716FDE27E489961A197FD /* InputCore.swift */,
 				68E5FAAE774C0DD788031289 /* KyberLog.swift */,
 				5F22A9A1742A4CB4D03CD55A /* KyberTypes.swift */,
@@ -362,6 +376,7 @@
 				F939135052A5C51A4CDFEDB0 /* Backdrops.swift */,
 				717AA2D038A1CC613B959D31 /* CloudSync.swift */,
 				82813EE36CC6DB67A977F840 /* GamepadsView.swift */,
+				42567BEAC24E7ACEFBB3CAEB /* HDRCalibrationView.swift */,
 				609D971655FAFD446DC66236 /* HomeView.swift */,
 				C9000517004D823B86FDA012 /* Info.plist */,
 				C01C02F7344D665AEF5528C9 /* InfoPlist.xcstrings */,
@@ -559,6 +574,7 @@
 				19EC14DFC8515AF215310E98 /* CloudSync.swift in Sources */,
 				E82B7C26247B96A00884AB17 /* Discovery.swift in Sources */,
 				6EB4D0D61C6AC05D90761C23 /* GamepadsView.swift in Sources */,
+				58413F62BBD794C1808CBF34 /* HDRCalibrationView.swift in Sources */,
 				18228ACA5C76D4BDB8617E8A /* HomeView.swift in Sources */,
 				73E7C2E5A5EC5FF6E2CE896C /* KyberNowTVApp.swift in Sources */,
 				D13262077E649595A39D82B3 /* Lend.swift in Sources */,
@@ -597,6 +613,10 @@
 				A56EAA94638A85D6DD0CBFCA /* CoreBridge.swift in Sources */,
 				1AB34439677EAC1A6C4EAB50 /* DecoderCapabilities.swift in Sources */,
 				1B8B6FC97C02CA2457863DCB /* GamepadBridge.swift in Sources */,
+				33229732CC1D3E9AD1C181CF /* HDR.swift in Sources */,
+				C39856C0DCC07469150B71DD /* HDRCalibration.swift in Sources */,
+				5237507E6E33E328E7F126A2 /* HDRDemo.swift in Sources */,
+				AAC484EFDD2EEB99880D90D8 /* HDRPatternView.swift in Sources */,
 				587E08141723DEE88741D971 /* InputCore.swift in Sources */,
 				335F4328B4ABA7B8BA98500B /* KeyboardMouse.swift in Sources */,
 				81A67CCB00E74282F95AAEE9 /* KyberLog.swift in Sources */,

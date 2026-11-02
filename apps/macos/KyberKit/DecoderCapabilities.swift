@@ -18,6 +18,19 @@ public struct DecoderCapabilities: Sendable {
     /// AV1 en matériel (puces M3 et suivantes). Sans lui, l'app ne propose
     /// pas l'AV1.
     public let av1: Bool
+    /// HEVC Main 10 décodé en matériel (HDR, docs/hdr.md).
+    public let hevc10: Bool
+
+    /// L'appareil décode le HDR : HEVC Main 10, ou AV1 (les décodeurs AV1
+    /// d'Apple lisent le profil Main, 10 bits compris) ; le rendu sait
+    /// l'afficher partout (`VideoRenderer`, chaîne HDR). `Capabilities.hdr` du cœur.
+    public var hdr: Bool {
+        #if DEBUG && targetEnvironment(simulator)
+        // Le simulateur n'a pas de décodeur matériel : `-hdrScreen YES` le compte comme HDR (captures).
+        if HDRDisplay.forced == true { return true }
+        #endif
+        return hevc10 || av1
+    }
 
     public static let current = DecoderCapabilities.probe()
 
@@ -36,6 +49,7 @@ public struct DecoderCapabilities: Sendable {
         if hevc { parts.append(hevc444 ? String(localized: "HEVC (4:4:4 compris)", bundle: .kyberKit) : "HEVC") }
         if h264 { parts.append("H.264") }
         if av1 { parts.append("AV1") }
+        if hdr { parts.append("HDR") }
         return parts.isEmpty ? String(localized: "aucun décodeur matériel", bundle: .kyberKit) : parts.joined(separator: ", ")
     }
 
@@ -43,8 +57,9 @@ public struct DecoderCapabilities: Sendable {
         let caps = DecoderCapabilities(
             h264: VTIsHardwareDecodeSupported(kCMVideoCodecType_H264),
             hevc: VTIsHardwareDecodeSupported(kCMVideoCodecType_HEVC),
-            hevc444: VTIsHardwareDecodeSupported(kCMVideoCodecType_HEVC) && decodes444(),
-            av1: VTIsHardwareDecodeSupported(kCMVideoCodecType_AV1)
+            hevc444: VTIsHardwareDecodeSupported(kCMVideoCodecType_HEVC) && decodes(sample444),
+            av1: VTIsHardwareDecodeSupported(kCMVideoCodecType_AV1),
+            hevc10: VTIsHardwareDecodeSupported(kCMVideoCodecType_HEVC) && decodes(sampleMain10)
         )
         KyberLog.video.notice("décodeurs matériels : \(caps.summary, privacy: .public)")
         return caps
@@ -53,8 +68,12 @@ public struct DecoderCapabilities: Sendable {
     /// Image grise HEVC Main 4:4:4 (Annex B : VPS, SPS, PPS, image IDR).
     private static let sample444 = Data(base64Encoded: "AAAAAUABDAH//wQIAAADAJ4oAAADAAAeugJAAAAAAUIBAQQIAAADAJ4oAAADAAAekAQQILLdSSZXgLQEAAADAAQAAAMABCAAAAABRAHBcoYMAiQAAAEoAa8FmP1cmYIz")!
 
-    private static func decodes444() -> Bool {
-        sample444.withUnsafeBytes { raw -> Bool in
+    /// Image grise HEVC Main 10, 64 × 64, étiquetée BT.2020 / PQ (VPS, SPS, PPS, SEI, image IDR).
+    private static let sampleMain10 = Data(base64Encoded: "AAAAAUABDAH//wIgAAADALAAAAMAAAMAHgvAkAAAAAFCAQECIAAAAwCwAAADAAADAB6gFCBBwY7YgL7kWRS/8ufxP6wFqBAQSAQAAAABRAHAcvBTJAAAAAFOAQUyR1ZK3FxMQz+U78URPNFDqAEAAAMAAQMAAAMAAQIAAIcACwAAAwAAAwAABZYMA5E/AQ3/////gAAAAAEoAa8QidDohj7/vF1EQwT8jSuHC0iQF7z6FHkWn9lT")!
+
+    /// Décode pour de bon une image HEVC, en exigeant le décodeur matériel.
+    private static func decodes(_ sample: Data) -> Bool {
+        sample.withUnsafeBytes { raw -> Bool in
             let all = raw.bindMemory(to: UInt8.self)
             let nals = VideoDecoder.nalUnits(all)
             let sets = nals.filter { (32...34).contains(($0[0] >> 1) & 0x3F) }.map { Data($0) }
