@@ -82,8 +82,17 @@ Contrat complet : [hdr.md](hdr.md). Le HDR n'est proposé que sur un appareil do
 | Ligne « Écran » de l'accueil, HDR allumé | « Écran de 3840 × 2160 à 120 Hz, à la taille de cet écran, en HDR » ; plusieurs écrans : « 2 écrans, à la taille de ceux de cet appareil, en HDR » (dès qu'un écran l'est) | “3840 × 2160 display at 120 Hz, sized for this screen, in HDR”; “2 displays, sized for this device's screens, in HDR” |
 | Barre et menu de l'icône, en session | « HDR », cochable, près du profil ; le changer relance l'image (étape « Premières images ») | “HDR”, checkbox |
 | Windows n'a pas pu passer en HDR | « L'ordinateur n'a pas pu passer en HDR : image en SDR. » (une fois par session, comme les autres avis de session) | “The computer couldn't switch to HDR: picture in SDR.” |
+| Réglage du HDR : accès | Réglages de l'app : « Réglage du HDR » / “HDR calibration”, avec l'état en dessous : « Automatique » ou « Réglé à l'œil » ; Réglages › Image, sous « HDR » : lien « Régler le HDR de cet écran… » | “HDR calibration”; “Automatic”, “Calibrated by eye”; “Calibrate HDR for this screen…” |
+| Réglage du HDR : introduction | « Quatre étapes pour que les jeux connaissent les vraies lumières de cet écran. » | “Four steps so games know this screen's real brightness.” |
+| Étape 1 | « Luminosité maximale » ; « Montez jusqu'à ce que le symbole du centre disparaisse à peine. » | “Maximum brightness”; “Raise it until the symbol in the middle just disappears.” |
+| Étape 2 | « Luminosité sur tout l'écran » ; même phrase | “Full-screen brightness”; same sentence |
+| Étape 3 | « Noir » ; « Baissez jusqu'à ce que le symbole disparaisse à peine. » | “Black”; “Lower it until the symbol just disappears.” |
+| Étape 4 | « Blanc du bureau » ; « Choisissez la luminosité des fenêtres et du texte de l'ordinateur. » | “Desktop white”; “Pick how bright the computer's windows and text look.” |
+| Valeur affichée | « 1 000 nits » (étapes 1, 2, 4), « 0,05 nit » (étape 3) | “1,000 nits”, “0.05 nits” |
+| Boutons | « Suivant », « Retour », « Terminer », « Annuler » ; « Revenir au réglage automatique » | “Next”, “Back”, “Done”, “Cancel”; “Back to automatic” |
+| Après « Terminer » en session | « Le réglage vaudra à la prochaine session. » | “The calibration will apply from the next session.” |
 
-Le HDR est **allumé** la première fois qu'un appareil à écran HDR voit un ordinateur qui le propose ; ensuite l'app garde le choix pour cet ordinateur. Il ne compte pas dans le profil : le changer ne fait pas passer en « Personnalisé ». HDR allumé : « Texte net (4:4:4) » inactif (aide ci-dessous), le profil Bureau envoie du 4:2:0, le format « Auto » prend HEVC ou AV1. Avec plusieurs écrans, chaque écran de la session est en HDR si l'écran de l'appareil qui le reçoit l'est ; un écran de l'appareil qui perd ou retrouve le HDR en session fait repasser son image en SDR ou en HDR, sans message. Invités du partage : pas de puce ; un invité à écran HDR reçoit le HDR quand l'hôte est en HDR, sinon une image à part en SDR. L'ami à qui l'ordinateur est prêté a la puce (écran « Emprunter ») et la ligne de la barre, comme un hôte. Le navigateur n'a pas de HDR.
+Le HDR est **allumé** la première fois qu'un appareil à écran HDR voit un ordinateur qui le propose ; ensuite l'app garde le choix pour cet ordinateur. Il ne compte pas dans le profil : le changer ne fait pas passer en « Personnalisé ». HDR allumé : « Texte net (4:4:4) » inactif (aide ci-dessous), le profil Bureau envoie du 4:2:0, le format « Auto » prend HEVC ou AV1. Avec plusieurs écrans, chaque écran de la session est en HDR si l'écran de l'appareil qui le reçoit l'est ; un écran de l'appareil qui perd ou retrouve le HDR en session fait repasser son image en SDR ou en HDR, sans message. Invités du partage : pas de puce ; un invité à écran HDR reçoit le HDR quand l'hôte est en HDR, sinon une image à part en SDR. L'ami à qui l'ordinateur est prêté a la puce (écran « Emprunter ») et la ligne de la barre, comme un hôte. Le navigateur n'a pas de HDR. L'écran « Réglage du HDR » ([hdr.md](hdr.md), « Réglage du HDR ») n'existe que sur un écran HDR ; ses mires sont dessinées en HDR par l'app, sans ordinateur ; toucher, flèches, molette ou manette (gauche, droite) font varier la valeur ; valeurs gardées pour cet écran de l'appareil.
 
 ## Partage (KyberNow Share)
 
@@ -322,7 +331,7 @@ Titre : « Réglages de {nom} » / “Settings for {name}”. En tête : « Prof
 | 5 | Statistiques | Statistics | dernière session, cet ordinateur |
 | 6 | Station | Station | Admin, redémarrer, mettre à jour, compte, retirer cet ordinateur |
 
-Ce qui vaut pour toute l'app (langue, iCloud, mises à jour de l'app, test des manettes, ce que l'appareil sait décoder) va dans les **Réglages de l'app**, pas ici.
+Ce qui vaut pour toute l'app (langue, iCloud, mises à jour de l'app, test des manettes, ce que l'appareil sait décoder, réglage du HDR) va dans les **Réglages de l'app**, pas ici.
 
 ### Libellés des réglages
 
