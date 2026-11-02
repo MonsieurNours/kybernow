@@ -44,6 +44,64 @@ fn demo_image(seed: u32) -> Pixmap {
     p
 }
 
+/// La mire d'une étape du « Réglage du HDR », approchée en SDR pour les captures (sur le téléviseur, c'est une
+/// image HDR du plan vidéo, `crate::mires`) : même dessin, luminances ramenées à l'écran SDR.
+fn mire_preview(step: crate::mires::Step, nits: f32) -> Pixmap {
+    use crate::mires::Step;
+    let (w, h) = (480usize, 270usize);
+    // 1 000 nits et plus : blanc ; une courbe douce en dessous ; le noir relevé pour que la croix se voie.
+    let tone = |l: f32| -> u8 {
+        let v = if step == Step::Black { (l / 1.0).clamp(0.0, 1.0).powf(0.35) * 0.35 } else { (l / 1000.0).clamp(0.0, 1.0).powf(1.0 / 2.2) };
+        (v * 255.0).round() as u8
+    };
+    let mut lum = vec![0f32; w * h];
+    let cross = |lum: &mut Vec<f32>, arm: usize, width: usize, v: f32| {
+        let (cx, cy) = (w / 2, h / 2);
+        for y in 0..h {
+            for x in 0..w {
+                if (y.abs_diff(cy) < width / 2 && x.abs_diff(cx) < arm) || (x.abs_diff(cx) < width / 2 && y.abs_diff(cy) < arm) {
+                    lum[y * w + x] = v;
+                }
+            }
+        }
+    };
+    match step {
+        Step::Peak => {
+            let side = 114;
+            for y in (h - side) / 2..(h + side) / 2 {
+                for x in (w - side) / 2..(w + side) / 2 {
+                    lum[y * w + x] = 10_000.0;
+                }
+            }
+            cross(&mut lum, 30, 9, nits);
+        }
+        Step::Full => {
+            lum.fill(10_000.0);
+            cross(&mut lum, 50, 15, nits);
+        }
+        Step::Black => cross(&mut lum, 50, 15, nits),
+        Step::White => {
+            // Le bureau : un fond, une fenêtre blanche, des lignes de texte.
+            lum.fill(nits * 0.25f32.powf(2.2));
+            for y in 47..222 {
+                for x in 90..390 {
+                    let title = y < 61;
+                    let text = (75..170).contains(&y) && (y - 75) % 15 < 6 && (105..340).contains(&x);
+                    let v: f32 = if title { 0.91 } else if text { 0.08 } else { 1.0 };
+                    lum[y * w + x] = nits * v.powf(2.2);
+                }
+            }
+        }
+    }
+    // Luminosités en tons de gris SDR, pour la capture.
+    let mut p = Pixmap::new(w as u32, h as u32).unwrap();
+    for (i, px) in p.data_mut().chunks_exact_mut(4).enumerate() {
+        let g = if step == Step::White { ((lum[i] / nits.max(1.0)).powf(1.0 / 2.2) * 255.0 * (nits / 480.0).powf(0.3).min(1.0)) as u8 } else { tone(lum[i]) };
+        px.copy_from_slice(&[g, g, g, 255]);
+    }
+    p
+}
+
 fn host(id: &str, name: &str, addr: &str) -> Host {
     Host {
         id: id.into(),
@@ -589,6 +647,28 @@ pub fn run(dir: &Path, lang: &str) {
         shot(&mut app, &mut cv, &assets, None, dir, name);
     }
     app.update = UpdateState::Unknown;
+
+    // « Réglage du HDR » (docs/hdr.md) : ouvert depuis les réglages de l'app, les quatre étapes sur leur mire.
+    app.open_settings(true, Screen::Home);
+    app.focus = Target::Setting(Setting::HdrCalibration);
+    let _ = app.activate(Target::Setting(Setting::HdrCalibration));
+    for (i, name) in ["18-reglage-hdr-maximale", "18b-reglage-hdr-plein-ecran", "18c-reglage-hdr-noir", "18d-reglage-hdr-blanc"].iter().enumerate() {
+        let c = app.calibration.as_mut().unwrap();
+        c.step = i;
+        // Des paliers où la croix se voit encore (sur l'aperçu SDR, tout ce qui passe 1 000 nits est blanc).
+        match i {
+            0 => c.idx[0] = 8,
+            1 => c.idx[1] = 4,
+            2 => c.idx[2] = 5,
+            _ => {}
+        }
+        let step = c.step();
+        let nits = crate::mires::values(step)[c.idx[i]];
+        app.focus = if i == 3 { Target::CalNext } else { Target::CalMore };
+        let mire = mire_preview(step, nits);
+        shot(&mut app, &mut cv, &assets, Some(&mire), dir, name);
+    }
+    let _ = app.activate(Target::CalCancel);
 
     app.pad_selected = 0;
     app.go(Screen::Gamepads);

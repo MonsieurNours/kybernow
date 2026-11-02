@@ -87,6 +87,16 @@ Shared contract: [docs/hdr.en.md](../../docs/hdr.en.md); wording: [docs/link-ui.
 - **Interface**, as on the other apps: the “HDR” chip next to the profile on the home screen (focus: its help, or the reason when it is inactive), also on the “Borrow” screen of a borrowed computer; “in HDR” at the end of the display line; “HDR” in Settings › Picture; the “HDR” tile, a checkbox, in the session menu next to the profiles; “HDR” after the format in the statistics and the last session. On by default, kept for each computer (`HostSettings::hdr`), without turning the profile into “Custom”. The TV never decodes 4:4:4: there is no “Sharp text (4:4:4)” row to disable.
 - **Wiring to the core** (`src/device/session.rs`, “HDR: wiring to the core”): `HdrAsk` (the choice, the screen, the decoder) gives `StreamSettings::hdr`, `Capabilities::hdr` and `SessionParams::screen_hdr`; `station_hdr` reads `Info::hdr` (the HDR the Station announces); the menu switch calls `Session::set_hdr` (Admin turns the virtual display's HDR on or off, the picture restarts); `Platform::on_hdr` says at each picture start whether the computer sent it in HDR; the notice “The computer couldn't switch to HDR: picture in SDR.” comes from the core. A panel never gains or loses HDR during a session: no `Session::screen_hdr_changed`. The chip's reason follows the core's `profile::hdr_block` (`App::hdr_ui`, a mirror for the interface alone, which builds without the core). Share guest: no chip, HDR when the screen and the decoder allow it.
 
+### HDR calibration
+
+Contract: [docs/hdr.en.md](../../docs/hdr.en.md), “HDR calibration”. Written, compiled for the TV and checked through its screenshots and tests; **not yet tried on the G2**.
+
+- **Screen values** (maximum brightness, full-screen brightness, black, desktop white, in nits): webOS does not give them to an app (nothing of the kind in its known settings); the app uses the contract's defaults, 1,000, 1,000, 0 and 203 nits, unless calibrated by eye. At launch, the TV's `tv.model.*` and `tv.hw.*` settings go to the log once (`téléviseur : réglages …`), to look for values worth using on the G2. Calibrated values are kept for this TV (`AppSettings::hdr_luminance` in `kybernow.json`) and apply from the next session; they will go to the core (`SessionParams::screen_luminance`) once it takes them.
+- **Access** (HDR screen only): App settings › “HDR calibration”, with its state below (“Automatic”, “Calibrated by eye”); Settings › Picture, under “HDR”: “Calibrate HDR for this screen…”.
+- **Screen** (`src/ui/calibration.rs`): four steps (maximum brightness, full-screen brightness, black, desktop white); left and right on the Magic Remote, a controller or a keyboard change the level, wherever the focus is; “Next”, “Back”, “Done”, “Cancel”, “Back to automatic”; the remote's Back button: the previous step, then “Cancel”. The interface stays at the edges, in SDR on the graphics plane, and reminds to set the TV to Game Optimizer with Dynamic Tone Mapping on HGIG: the TV must clip at its real brightness, without a curve of its own.
+- **HDR test patterns**: the TV's graphics plane is SDR, so the patterns go through its video chain, like a session's picture. They are HEVC Main 10 PQ still images (BT.2020, limited range, 1920 × 1080, HDR10 metadata: 10,000-nit mastering display, MaxCLL 10,000), one per level: 27 for maximum and full-screen brightness (100 to 10,000 nits), 15 for black (0 to 1 nit), 21 for desktop white (80 to 480 nits). `scripts/hdr-mires.py` makes them with ffmpeg and libx265 (neutral grey: the luma is the PQ value of the luminance) into `assets/hdr-mires.bin` (406 KB, committed like the fonts), which the app embeds. A single image comes out as true Main 10: with `keyint=1`, x265 signals “Main 10 Intra”, an RExt profile the decoder might refuse. Patterns: a 10 % window at 10,000 nits (clipped by the screen) with a cross at the level; the whole screen at 10,000 nits with the cross; black with the cross at the level; a desktop (window, text) whose white is at the level, gamma 2.2.
+- **Display** (`src/device/mires.rs`): the pattern goes to NDL with its metadata (`NDL_DirectVideoSetHDRInfo` once per load), fed again every 100 ms, changed with the level. The patterns take the decoder, even during a session: the session's picture thread waits without asking for keyframes; at the end, NDL is unloaded (the panel returns to SDR) and the session reloads it at the next keyframe. After “Done” during a session: “The calibration will apply from the next session.”
+
 ## Sound
 
 Opus decoded by the core's engine (`apps/core/src/audio`: adaptive buffer, loss concealment), pulled by SDL's callback (the TV's PulseAudio, 48 kHz, 512 frames per callback) in **stereo**: a game in 5.1 or 7.1 is mixed down by the engine. The app asks the computer for stereo (Auto and Stereo). Sound can stay on the computer.
@@ -123,6 +133,7 @@ apps/webos/
 │   ├── app.rs           interface state, spatial navigation, actions (no SDL nor core)
 │   ├── model.rs         computers, settings, the TV's identity (kybernow.json in Store::dir)
 │   ├── hdr.rs           HDR: the TV's screen (its settings), HDR10 metadata read in the stream
+│   ├── mires.rs         “HDR calibration” patterns (assets/hdr-mires.bin) and their levels
 │   ├── i18n.rs          French and English
 │   ├── ui/              drawing (tiny-skia, fontdue): home, adding, settings (Statistics,
 │   │                    Station and its QR code), controllers, session; join.rs (join a
@@ -136,7 +147,8 @@ apps/webos/
 ├── assets/              brand fonts (static instances), logo
 ├── webos/               appinfo.json, icons, splash screen
 └── scripts/             build.sh, package.sh and ipk.py (package), preview.sh (screenshots),
-                         fonts.py and images.py (fonts and images taken from the brand)
+                         fonts.py and images.py (fonts and images taken from the brand),
+                         hdr-mires.py (HDR calibration patterns, assets/hdr-mires.bin)
 ```
 
 - **Core**: `kybernow-core` as is; `src/device/session.rs` is the equivalent of Android's JNI bridge (the core's `Platform`: picture, sound, input chain, states, stats, pointer, rumble).

@@ -1732,6 +1732,10 @@ pub enum Setting {
     Codec,
     /// « HDR » (écran HDR seulement).
     Hdr,
+    /// « Régler le HDR de cet écran… », sous « HDR » (Réglages › Image).
+    HdrCalibrate,
+    /// Réglages de l'app : « Réglage du HDR » (écran HDR seulement).
+    HdrCalibration,
     Bitrate,
     GameHint,
     Audio,
@@ -1755,7 +1759,7 @@ pub enum Setting {
 impl Setting {
     /// Une ligne qui agit (OK) au lieu de changer de valeur (gauche, droite).
     pub fn is_action(self) -> bool {
-        matches!(self, Setting::Restart | Setting::Update | Setting::Remove | Setting::Pads)
+        matches!(self, Setting::Restart | Setting::Update | Setting::Remove | Setting::Pads | Setting::HdrCalibrate | Setting::HdrCalibration)
     }
 }
 
@@ -1806,6 +1810,8 @@ pub enum Screen {
     Settings,
     Gamepads,
     Session,
+    /// « Réglage du HDR » : les quatre mires.
+    HdrCalibration,
 }
 
 /// Ce qu'on peut choisir.
@@ -1881,6 +1887,14 @@ pub enum Target {
     TakeBackNow,
     VerifyOk,
     VerifyNo,
+    /// « Réglage du HDR » : moins, plus, « Retour », « Suivant » (« Terminer » à la dernière étape), « Annuler »,
+    /// « Revenir au réglage automatique ».
+    CalLess,
+    CalMore,
+    CalPrevious,
+    CalNext,
+    CalCancel,
+    CalAuto,
     Section(usize),
     Setting(Setting),
     Pad(usize),
@@ -1942,6 +1956,9 @@ pub enum Action {
     SetProfile(Profile),
     /// L'interrupteur « HDR » du menu de session.
     SetHdr(bool),
+    /// « Réglage du HDR » : la mire à montrer en HDR par le décodeur du téléviseur (étape, palier) ; `None` : plus
+    /// de mire.
+    Mire(Option<(crate::mires::Step, usize)>),
     RemoteMouse(bool),
     PadMouse(bool),
     ReleaseAll,
@@ -2008,6 +2025,33 @@ pub struct App {
     pub friend: FriendForm,
     /// Le lien donné au lancement : il s'ouvre quand l'app est sur ses écrans, sans session (`App::poll_link`).
     pub pending_link: Option<LinkUi>,
+    /// « Réglage du HDR » ouvert.
+    pub calibration: Option<CalibrationUi>,
+}
+
+/// L'écran « Réglage du HDR » (docs/hdr.md) : l'étape, le palier choisi à chaque étape, et où revenir.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CalibrationUi {
+    pub step: usize,
+    pub idx: [usize; 4],
+    /// Ouvert depuis les réglages de l'app (vrai) ou de l'ordinateur ; la ligne qui l'a ouvert.
+    pub global: bool,
+    pub from: Setting,
+}
+
+impl CalibrationUi {
+    pub fn step(&self) -> crate::mires::Step {
+        crate::mires::Step::ALL[self.step.min(3)]
+    }
+
+    pub fn mire(&self) -> Action {
+        Action::Mire(Some((self.step(), self.idx[self.step.min(3)])))
+    }
+}
+
+/// Réglages de l'app : l'état du « Réglage du HDR ».
+pub fn calibration_state(l: Option<&crate::model::Luminance>) -> &'static str {
+    if l.is_some() { tr("Réglé à l'œil", "Calibrated by eye") } else { tr("Automatique", "Automatic") }
 }
 
 impl App {
@@ -2042,6 +2086,7 @@ impl App {
             lend_passwords: HashMap::new(),
             friend: FriendForm::default(),
             pending_link: None,
+            calibration: None,
         }
     }
 
@@ -2162,6 +2207,7 @@ impl App {
             Screen::Settings => Target::Section(self.section),
             Screen::Gamepads => Target::Pad(self.pad_selected.min(self.pads.len().saturating_sub(1))),
             Screen::Session => Target::Menu(MenuItem::Resume),
+            Screen::HdrCalibration => Target::CalNext,
         };
     }
 
@@ -2228,6 +2274,8 @@ impl App {
                 }
                 Vec::new()
             }
+            // « Réglage du HDR » : gauche et droite font varier la valeur, où que soit le focus.
+            Nav::Left | Nav::Right if self.screen == Screen::HdrCalibration => self.calibration_change(if n == Nav::Right { 1 } else { -1 }),
             Nav::Left | Nav::Right if matches!(self.focus, Target::Setting(s) if !s.is_action()) => {
                 let Target::Setting(s) = self.focus else { return Vec::new() };
                 self.adjust(s, if n == Nav::Right { 1 } else { -1 })
@@ -2350,7 +2398,47 @@ impl App {
                 Vec::new()
             }
             Screen::Session => self.session_back(),
+            // Retour : l'étape d'avant ; à la première, comme « Annuler ».
+            Screen::HdrCalibration => {
+                if self.calibration.as_ref().is_some_and(|c| c.step > 0) { self.activate(Target::CalPrevious) } else { self.activate(Target::CalCancel) }
+            }
         }
+    }
+
+    /// Ouvre « Réglage du HDR » (Réglages de l'app, ou le lien de Réglages › Image) sur les valeurs gardées pour cet
+    /// écran, sinon les automatiques ; la première mire passe en HDR.
+    fn open_calibration(&mut self, from: Setting) -> Vec<Action> {
+        if !self.tv.hdr {
+            return Vec::new();
+        }
+        let l = self.store.app.hdr_luminance.unwrap_or_default();
+        let c = CalibrationUi { step: 0, idx: crate::mires::indices(&l), global: self.settings_global, from };
+        let mire = c.mire();
+        self.calibration = Some(c);
+        self.go(Screen::HdrCalibration);
+        vec![mire]
+    }
+
+    /// Gauche ou droite : le palier d'à côté.
+    fn calibration_change(&mut self, dir: i32) -> Vec<Action> {
+        let Some(c) = self.calibration.as_mut() else { return Vec::new() };
+        let n = crate::mires::values(c.step()).len();
+        let i = &mut c.idx[c.step];
+        let next = (*i as i32 + dir).clamp(0, n.saturating_sub(1) as i32) as usize;
+        if next == *i {
+            return Vec::new();
+        }
+        *i = next;
+        vec![c.mire()]
+    }
+
+    /// Ferme « Réglage du HDR » : retour à la ligne qui l'a ouvert, plus de mire.
+    fn close_calibration(&mut self) -> Vec<Action> {
+        let Some(c) = self.calibration.take() else { return Vec::new() };
+        self.settings_global = c.global;
+        self.screen = Screen::Settings;
+        self.focus = Target::Setting(c.from);
+        vec![Action::Mire(None)]
     }
 
     /// Retour en session : ouvre ou ferme le menu.
@@ -2443,6 +2531,40 @@ impl App {
                 vec![Action::Save]
             }
             Target::HdrChip => self.toggle_hdr(),
+            Target::CalLess => self.calibration_change(-1),
+            Target::CalMore => self.calibration_change(1),
+            Target::CalPrevious => {
+                let Some(c) = self.calibration.as_mut() else { return Vec::new() };
+                c.step = c.step.saturating_sub(1);
+                self.focus = Target::CalNext;
+                vec![c.mire()]
+            }
+            Target::CalNext => {
+                let Some(c) = self.calibration.as_mut() else { return Vec::new() };
+                if c.step < 3 {
+                    c.step += 1;
+                    if c.step == 1 {
+                        // Le plein écran part de la luminosité maximale choisie (il ne la dépasse pas).
+                        c.idx[1] = c.idx[1].min(c.idx[0]);
+                    }
+                    return vec![c.mire()];
+                }
+                // « Terminer » : les valeurs sont gardées pour cet écran et valent pour la session suivante.
+                self.store.app.hdr_luminance = Some(crate::mires::luminance(&c.idx));
+                let mut actions = self.close_calibration();
+                if self.session.is_some() {
+                    self.toast(tr("Le réglage vaudra à la prochaine session.", "The calibration will apply from the next session."));
+                }
+                actions.push(Action::Save);
+                actions
+            }
+            Target::CalCancel => self.close_calibration(),
+            Target::CalAuto => {
+                self.store.app.hdr_luminance = None;
+                let mut actions = self.close_calibration();
+                actions.push(Action::Save);
+                actions
+            }
             Target::Host(i) => {
                 let Some(h) = self.store.hosts.get(i) else { return Vec::new() };
                 let id = h.id.clone();
@@ -3522,6 +3644,9 @@ impl App {
 
     /// Change un réglage (gauche / droite, ou OK pour la valeur suivante).
     fn adjust(&mut self, s: Setting, dir: i32) -> Vec<Action> {
+        if matches!(s, Setting::HdrCalibrate | Setting::HdrCalibration) {
+            return self.open_calibration(s);
+        }
         if s == Setting::Pads {
             self.back_to = Screen::Settings;
             self.go(Screen::Gamepads);
@@ -3596,7 +3721,7 @@ impl App {
                 let t = if reliable == st.profile.reliable() { "" } else if reliable { "reliable" } else { "fast" };
                 st.set_transport(t);
             }
-            Setting::Remove | Setting::Restart | Setting::Update | Setting::Language | Setting::Pads | Setting::UpdateChannel => {}
+            Setting::Remove | Setting::Restart | Setting::Update | Setting::Language | Setting::Pads | Setting::UpdateChannel | Setting::HdrCalibrate | Setting::HdrCalibration => {}
         }
         vec![Action::Save]
     }
@@ -4009,6 +4134,41 @@ mod tests {
         assert_eq!(app.screen_line(&h), "Écran de 1920 × 1080 à 60 Hz");
         app.live.insert("a".into(), HostLive { online: Online::Online, virtual_display: Some(false), ..Default::default() });
         assert_eq!(app.screen_line(&h), "Les écrans de l'ordinateur, tels quels");
+    }
+
+    /// « Réglage du HDR » : ouvert depuis les réglages de l'app sur les valeurs automatiques, gauche et droite changent
+    /// la mire, « Terminer » garde les valeurs pour cet écran, « Revenir au réglage automatique » les retire.
+    #[test]
+    fn hdr_calibration() {
+        use crate::mires::Step;
+        crate::i18n::set_english(false);
+        let mut app = App::new(Store::default());
+        app.open_settings(true, Screen::Home);
+        assert_eq!(app.activate(Target::Setting(Setting::HdrCalibration)), vec![Action::Mire(Some((Step::Peak, 13)))]);
+        assert_eq!(app.screen, Screen::HdrCalibration);
+        assert_eq!(app.nav(Nav::Right), vec![Action::Mire(Some((Step::Peak, 14)))]);
+        app.activate(Target::CalNext);
+        // Le plein écran ne dépasse pas le maximum choisi.
+        assert_eq!(app.calibration.as_ref().unwrap().idx[1], 13);
+        app.activate(Target::CalNext);
+        app.nav(Nav::Right);
+        assert_eq!(app.activate(Target::CalNext), vec![Action::Mire(Some((Step::White, 6)))]);
+        let done = app.activate(Target::CalNext);
+        assert_eq!(done, vec![Action::Mire(None), Action::Save]);
+        assert_eq!((app.screen, app.focus), (Screen::Settings, Target::Setting(Setting::HdrCalibration)));
+        let l = app.store.app.hdr_luminance.unwrap();
+        assert_eq!((l.max, l.full_frame, l.min, l.sdr_white), (1100.0, 1000.0, 0.005, 200.0));
+        assert_eq!(calibration_state(app.store.app.hdr_luminance.as_ref()), "Réglé à l'œil");
+        // Rouvert sur les valeurs gardées ; Retour à la première étape : comme « Annuler ».
+        assert_eq!(app.activate(Target::Setting(Setting::HdrCalibration)), vec![Action::Mire(Some((Step::Peak, 14)))]);
+        assert_eq!(app.nav(Nav::Back), vec![Action::Mire(None)]);
+        assert!(app.store.app.hdr_luminance.is_some());
+        app.activate(Target::Setting(Setting::HdrCalibration));
+        assert_eq!(app.activate(Target::CalAuto), vec![Action::Mire(None), Action::Save]);
+        assert_eq!(app.store.app.hdr_luminance, None);
+        // Écran SDR : pas de réglage.
+        app.tv.hdr = false;
+        assert!(app.activate(Target::Setting(Setting::HdrCalibration)).is_empty());
     }
 
     /// La puce « HDR » : cachée sur un écran SDR, allumée par défaut, inactive avec la première raison qui s'applique

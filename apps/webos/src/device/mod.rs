@@ -13,6 +13,7 @@ mod luna;
 mod eac3;
 mod esplayer;
 mod media;
+mod mires;
 mod starfish;
 mod ndl;
 mod pads;
@@ -393,6 +394,7 @@ pub fn run(args: &[String]) {
         c.store(true, Ordering::Relaxed);
     }
     app.store.save();
+    mires::show(None);
     esplayer::quit();
     ndl::quit();
     unsafe { sdl::SDL_Quit() };
@@ -1020,10 +1022,11 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
                 l.handle.session.set_settings(session::settings(h, p, codec, mode, app.net.cap_mbps(), hdr));
             }
         }
+        Action::Mire(m) => mires::show(m),
         Action::SetHdr(on) => {
             if let Some(l) = live.as_ref() {
                 let screen = app.tv.hdr;
-                session::set_hdr(&l.handle, session::HdrAsk { want: on, screen, decoder: app.tv.hdr_decoder });
+                session::set_hdr(&l.handle, session::HdrAsk { want: on, screen, decoder: app.tv.hdr_decoder, luminance: app.store.app.hdr_luminance });
             }
         }
         Action::RemoteMouse(_) => {
@@ -1287,7 +1290,7 @@ fn connect_borrower(app: &mut App, live: &mut Option<Live>, tx: &Sender<Event>, 
     let mode = (d.width, d.height, d.refresh);
     let codec = app.codec_for(&h);
     let device = device_info(&app.store, &app.tv);
-    let hdr = session::HdrAsk { want: app.borrowed_hdr_on(&key), screen: app.tv.hdr, decoder: app.tv.hdr_decoder };
+    let hdr = session::HdrAsk { want: app.borrowed_hdr_on(&key), screen: app.tv.hdr, decoder: app.tv.hdr_decoder, luminance: app.store.app.hdr_luminance };
     let handle = session::start(&h, crate::model::Profile::Jeu, codec, mode, app.tv.refresh, app.net.cap_mbps(), device, None, Some(&loan), hdr, tx.clone());
     let b = crate::app::BorrowSessionUi::new(loan.borrowed.host_name(), &loan.borrowed.computer, loan.borrowed.until, source);
     let mut ui = SessionUi::borrower(&key, b);

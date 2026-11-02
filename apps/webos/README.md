@@ -87,6 +87,16 @@ Contrat commun : [docs/hdr.md](../../docs/hdr.md) ; textes : [docs/link-ui.md](.
 - **Interface**, comme les autres apps : la puce « HDR » à côté du profil sur l'accueil (focus : son aide, ou la raison quand elle est inactive), aussi sur l'écran « Emprunter » d'un ordinateur emprunté ; « en HDR » au bout de la ligne « Écran » ; « HDR » dans Réglages › Image ; la tuile « HDR » cochable dans le menu de session, près des profils ; « HDR » après le format dans les statistiques et la dernière session. Allumé par défaut, gardé pour chaque ordinateur (`HostSettings::hdr`), sans faire passer le profil en « Personnalisé ». Le téléviseur ne décode jamais le 4:4:4 : pas de ligne « Texte net (4:4:4) » à désactiver.
 - **Raccordement au cœur** (`src/device/session.rs`, « HDR : raccordement au cœur ») : `HdrAsk` (le choix, l'écran, le décodeur) donne `StreamSettings::hdr`, `Capabilities::hdr` et `SessionParams::screen_hdr` ; `station_hdr` lit `Info::hdr` (le HDR que la Station annonce) ; l'interrupteur du menu appelle `Session::set_hdr` (Admin allume ou éteint le HDR de l'écran virtuel, l'image se relance) ; `Platform::on_hdr` dit à chaque démarrage de l'image si l'ordinateur l'a envoyée en HDR ; l'avis « L'ordinateur n'a pas pu passer en HDR : image en SDR. » vient du cœur. Une dalle ne gagne ni ne perd le HDR en session : jamais de `Session::screen_hdr_changed`. La raison de la puce suit `profile::hdr_block` du cœur (`App::hdr_ui`, miroir pour l'interface seule, qui se compile sans le cœur). Invité d'un partage : pas de puce, le HDR quand l'écran et le décodeur le permettent.
 
+### Réglage du HDR
+
+Contrat : [docs/hdr.md](../../docs/hdr.md), « Réglage du HDR ». Écrit, compilé pour le téléviseur et vérifié par ses captures et ses tests ; **pas encore essayé sur la G2**.
+
+- **Valeurs de l'écran** (luminosité maximale, sur tout l'écran, noir, blanc du bureau, en nits) : webOS ne les donne pas à une app (rien de tel dans ses réglages connus) ; l'app prend celles par défaut du contrat, 1 000, 1 000, 0 et 203 nits, sauf réglage à l'œil. Au lancement, les réglages `tv.model.*` et `tv.hw.*` du téléviseur vont une fois au journal (`téléviseur : réglages …`), pour y chercher sur la G2 des valeurs à reprendre. Les valeurs réglées sont gardées pour ce téléviseur (`AppSettings::hdr_luminance` dans `kybernow.json`) et valent pour la session suivante ; elles iront au cœur (`SessionParams::screen_luminance`) quand il les prendra.
+- **Accès** (écran HDR seulement) : Réglages de l'app › « Réglage du HDR », avec son état dessous (« Automatique », « Réglé à l'œil ») ; Réglages › Image, sous « HDR » : « Régler le HDR de cet écran… ».
+- **Écran** (`src/ui/calibration.rs`) : quatre étapes (luminosité maximale, sur tout l'écran, noir, blanc du bureau) ; gauche et droite de la Magic Remote, de la manette ou du clavier changent le palier, où que soit le focus ; « Suivant », « Retour », « Terminer », « Annuler », « Revenir au réglage automatique » ; Retour de la télécommande : l'étape d'avant, puis « Annuler ». L'interface reste aux bords, en SDR sur le plan graphique, et rappelle de passer le téléviseur en Optimiseur de jeu avec le mappage dynamique des tons sur HGIG : le téléviseur doit écrêter à sa vraie luminosité, sans courbe à lui.
+- **Mires en HDR** : le plan graphique du téléviseur est en SDR ; les mires passent donc par sa chaîne vidéo, comme l'image d'une session. Ce sont des images fixes HEVC Main 10 PQ (BT.2020, plage limitée, 1920 × 1080, métadonnées HDR10 : écran de matriçage de 10 000 nits, MaxCLL 10 000), une par palier : 27 pour les luminosités maximale et plein écran (100 à 10 000 nits), 15 pour le noir (0 à 1 nit), 21 pour le blanc du bureau (80 à 480 nits). `scripts/hdr-mires.py` les fabrique avec ffmpeg et libx265 (gris neutre : la luma est la valeur PQ de la luminance) dans `assets/hdr-mires.bin` (406 Ko, commité comme les polices), que l'app embarque. Une image seule sort en vrai Main 10 : avec `keyint=1`, x265 signale « Main 10 Intra », un profil RExt que le décodeur pourrait refuser. Mires : une zone de 10 % de l'écran à 10 000 nits (écrêtée par l'écran) avec une croix au palier ; tout l'écran à 10 000 nits avec la croix ; du noir avec la croix au palier ; un bureau (fenêtre, texte) dont le blanc est au palier, gamma 2.2.
+- **Affichage** (`src/device/mires.rs`) : la mire est donnée à NDL avec ses métadonnées (`NDL_DirectVideoSetHDRInfo` une fois par chargement), redonnée toutes les 100 ms, changée avec le palier. Les mires prennent le décodeur, même en session : le fil de l'image de la session attend sans redemander d'image clé ; à la fin, NDL est déchargé (la dalle revient en SDR) et la session le recharge à l'image clé suivante. Après « Terminer » en session : « Le réglage vaudra à la prochaine session. »
+
 ## Son
 
 Opus décodé par le moteur du cœur (`apps/core/src/audio` : tampon adaptatif, masquage des pertes), tiré par le rappel de SDL (PulseAudio du téléviseur, 48 kHz, 512 images par rappel) en **stéréo** : un jeu en 5.1 ou 7.1 est mixé par le moteur. L'app demande la stéréo à l'ordinateur (Auto et Stéréo). Le son peut rester sur l'ordinateur.
@@ -124,6 +134,7 @@ apps/webos/
 │   ├── model.rs         ordinateurs, réglages, identité du téléviseur (kybernow.json dans Store::dir)
 │   ├── i18n.rs          français et anglais
 │   ├── hdr.rs           HDR : écran du téléviseur (ses réglages), métadonnées HDR10 lues dans le flux
+│   ├── mires.rs         mires du « Réglage du HDR » (assets/hdr-mires.bin) et leurs paliers
 │   ├── ui/              dessin (tiny-skia, fontdue) : accueil, ajout, réglages (Statistiques,
 │   │                    Station et son QR code), manettes, session ; join.rs (rejoindre un
 │   │                    partage), share.rs (panneau de l'hôte), quality.rs (qualité de l'image d'un invité)
@@ -136,7 +147,8 @@ apps/webos/
 ├── assets/              polices de la charte (instances fixes), logo
 ├── webos/               appinfo.json, icônes, écran de lancement
 └── scripts/             build.sh, package.sh et ipk.py (paquet), preview.sh (captures),
-                         fonts.py et images.py (polices et images tirées de la charte)
+                         fonts.py et images.py (polices et images tirées de la charte),
+                         hdr-mires.py (mires du réglage du HDR, assets/hdr-mires.bin)
 ```
 
 - **Cœur** : `kybernow-core` tel quel ; `src/device/session.rs` est l'équivalent du pont JNI d'Android (`Platform` du cœur : image, son, chaîne d'entrées, états, mesures, pointeur, vibrations).

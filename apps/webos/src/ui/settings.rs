@@ -110,6 +110,7 @@ fn host_section(app: &App, cv: &mut Canvas, f: &mut Frame, h: &Host) {
                     None => (crate::app::hdr_setting_help(), Value::Toggle(u.on)),
                 };
                 y += widgets::row(cv, f, s(Setting::Hdr), x, y, w, "HDR", help, value) + GAP;
+                y += widgets::row(cv, f, s(Setting::HdrCalibrate), x, y, w, tr("Régler le HDR de cet écran…", "Calibrate HDR for this screen…"), "", Value::Text("›".into())) + GAP;
             }
             let mbps = if st.mbps == 0 {
                 if english() { format!("Auto · up to {} Mbit/s", app.net.cap_mbps()) } else { format!("Auto · au plus {} Mbit/s", app.net.cap_mbps()) }
@@ -577,6 +578,11 @@ fn global(app: &App, cv: &mut Canvas, f: &mut Frame) {
             y += widgets::row(cv, f, None, x, y, w, tr("Téléviseur", "TV"), "webOS", Value::Text(format!("{} {}", app.tv.model, app.tv.webos))) + GAP;
             let (pw, ph) = app.tv.panel;
             y += widgets::row(cv, f, None, x, y, w, tr("Écran", "Screen"), tr("Définition et fréquence de la dalle ; pas de fréquence variable pour une app", "Panel resolution and refresh rate; no variable refresh rate for an app"), Value::Text(format!("{pw} × {ph} · {} Hz", app.tv.refresh))) + GAP;
+            // Écran HDR : « Réglage du HDR » et son état (les valeurs sont celles de ce téléviseur, pas d'un ordinateur).
+            if app.tv.hdr {
+                let state = crate::app::calibration_state(app.store.app.hdr_luminance.as_ref());
+                y += widgets::row(cv, f, s(Setting::HdrCalibration), x, y, w, tr("Réglage du HDR", "HDR calibration"), state, Value::Text("›".into())) + GAP;
+            }
             let dec = if !app.tv.decoder {
                 tr("introuvable", "not found")
             } else if app.tv.av1 {

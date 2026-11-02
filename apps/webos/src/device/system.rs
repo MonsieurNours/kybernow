@@ -55,6 +55,18 @@ pub fn tv(panel: (u32, u32), refresh: u32, decoder: bool, hdr_decoder: bool) -> 
 /// dalle). Illisible : non (l'app ne propose pas le HDR plutôt que de délaver
 /// l'image d'un écran SDR).
 fn screen_hdr() -> bool {
+    // webOS ne donne pas (à notre connaissance) la luminosité de la dalle : les réglages du modèle et du matériel
+    // vont une fois au journal, pour y chercher, sur un vrai téléviseur, des valeurs à reprendre.
+    std::thread::Builder::new()
+        .name("tv-configs".into())
+        .spawn(|| {
+            let payload = r#"{"configNames":["tv.model.*","tv.hw.*"]}"#;
+            match super::luna::call("luna://com.webos.service.config/getConfigs", payload, std::time::Duration::from_secs(3)) {
+                Some(r) => log::info!("téléviseur : réglages tv.model.* et tv.hw.* : {r}"),
+                None => log::info!("téléviseur : réglages tv.model.* et tv.hw.* illisibles"),
+            }
+        })
+        .ok();
     let payload = serde_json::json!({ "configNames": crate::hdr::CONFIGS }).to_string();
     let Some(reply) = super::luna::call("luna://com.webos.service.config/getConfigs", &payload, std::time::Duration::from_secs(2)) else {
         log::warn!("téléviseur : HDR illisible (getConfigs sans réponse) ; pas de HDR");

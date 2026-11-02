@@ -437,17 +437,20 @@ pub struct HdrAsk {
     pub want: bool,
     pub screen: bool,
     pub decoder: bool,
+    /// Les valeurs de l'écran réglées à l'œil (« Réglage du HDR ») ; `None` : automatiques (webOS ne les donne pas :
+    /// celles par défaut du cœur, 1 000, 1 000, 0, 203 nits).
+    pub luminance: Option<crate::model::Luminance>,
 }
 
 impl HdrAsk {
     pub fn of(app: &crate::app::App, host: Option<&Host>) -> Self {
-        Self { want: host.is_some_and(|h| app.hdr_on(h)), screen: app.tv.hdr, decoder: app.tv.hdr_decoder }
+        Self { want: host.is_some_and(|h| app.hdr_on(h)), screen: app.tv.hdr, decoder: app.tv.hdr_decoder, luminance: app.store.app.hdr_luminance }
     }
 
     /// Un invité du partage : pas de choix, le HDR quand l'écran et le décodeur le permettent (la Station envoie à
     /// l'invité sans HDR une image à part, en SDR).
     pub fn guest(app: &crate::app::App) -> Self {
-        Self { want: app.tv.hdr && app.tv.hdr_decoder, screen: app.tv.hdr, decoder: app.tv.hdr_decoder }
+        Self { want: app.tv.hdr && app.tv.hdr_decoder, screen: app.tv.hdr, decoder: app.tv.hdr_decoder, luminance: app.store.app.hdr_luminance }
     }
 
     fn on(self) -> bool {
@@ -485,8 +488,10 @@ fn hdr_capabilities(caps: Capabilities, ask: HdrAsk) -> Capabilities {
 }
 
 /// L'écran du téléviseur (`SessionParams::screen_hdr` du cœur). Une dalle ne perd ni ne gagne le HDR en session :
-/// jamais de `Session::screen_hdr_changed`.
+/// jamais de `Session::screen_hdr_changed`. Ses valeurs (`SessionParams::screen_luminance`, `HdrLuminance` du cœur)
+/// iront avec, quand le cœur les aura : en attendant, les valeurs par défaut de la Station.
 fn hdr_params(params: SessionParams, ask: HdrAsk) -> SessionParams {
+    let _ = ask.luminance;
     SessionParams { screen_hdr: ask.screen, ..params }
 }
 

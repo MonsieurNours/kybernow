@@ -8,6 +8,7 @@ mod hdr;
 #[cfg(feature = "device")]
 mod device;
 mod i18n;
+mod mires;
 mod model;
 mod preview;
 mod ui;

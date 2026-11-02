@@ -4,6 +4,7 @@
 //! manettes, session. Chaque fonction de dessin lit l'état (`App`)
 //! et inscrit les éléments choisissables dans un `Frame`.
 
+mod calibration;
 pub mod canvas;
 mod home;
 pub mod icons;
@@ -83,6 +84,7 @@ pub fn draw(app: &App, cv: &mut Canvas, assets: &Assets) -> Vec<(Target, Rect)> 
         Screen::Settings => settings::draw(app, cv, &mut f),
         Screen::Gamepads => pads::draw(app, cv, &mut f),
         Screen::Session => session::draw(app, cv, &mut f),
+        Screen::HdrCalibration => calibration::draw(app, cv, &mut f),
     }
     // Une confirmation par-dessus l'accueil (retirer un ordinateur emprunté) ou la session (rendre l'ordinateur) :
     // seuls ses boutons se choisissent.

@@ -182,6 +182,13 @@ impl Feeder {
     }
 
     fn frame(&mut self, key: bool, pts: u64, data: &[u8], received: i64) {
+        // Les mires du réglage du HDR tiennent le décodeur : les images de la session attendent, sans redemander
+        // d'image clé ; à leur fin, NDL se recharge à l'image clé suivante.
+        if ndl::mires_active() {
+            self.loaded_config = None;
+            self.waiting_key = true;
+            return;
+        }
         // Nouveau jeu de paramètres sur une image clé : `ndl::ensure` recharge
         // NDL si le format, la taille ou le plan de son ont changé, et les
         // paramètres repartent devant cette image clé.
@@ -194,6 +201,10 @@ impl Feeder {
             let (w, h) = self.shared.video_size();
             let hdr = self.hdr(data);
             if let Err(e) = ndl::ensure(self.kind, w, h, hdr) {
+                if e == ndl::BUSY {
+                    // Les mires du réglage du HDR tiennent le décodeur : l'image attend leur fin.
+                    return;
+                }
                 if !self.failed {
                     log::error!("image : {e}");
                     self.failed = true;
@@ -247,7 +258,13 @@ impl Feeder {
                 self.waiting_key = true;
                 self.request_keyframe();
             }
-            Err(e) if e == ndl::UNLOADED_BY_TV => {
+            Err(e) if e == ndl::BUSY => {
+                // Les mires tiennent le décodeur : à leur fin, il est déchargé ; rechargé à l'image clé suivante,
+                // redemandée par la première image qui arrive alors.
+                self.loaded_config = None;
+                self.waiting_key = true;
+            }
+            Err(e) if e == ndl::UNLOADED_BY_TV || e == ndl::NOT_LOADED => {
                 // Rechargé à l'image clé suivante, avec les paramètres.
                 log::warn!("image : {e} ; rechargement à l'image clé suivante");
                 self.loaded_config = None;

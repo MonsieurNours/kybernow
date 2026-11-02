@@ -24,7 +24,10 @@
 //!   appel, quelle que soit l'image (une image SDR y serait délavée) : appelée
 //!   seulement pour un flux HDR, une fois par chargement, après la première
 //!   image acceptée. Rien ne la défait : le retour au SDR
-//!   est un nouveau chargement (le HDR fait partie de ce qui est chargé).
+//!   est un nouveau chargement (le HDR fait partie de ce qui est chargé) ;
+//! - les mires du « Réglage du HDR » (`super::mires`) prennent le décodeur,
+//!   même en session : le fil de l'image de la session attend (`BUSY`), puis
+//!   recharge NDL à l'image clé suivante quand elles le rendent (`NOT_LOADED`).
 
 #![allow(non_snake_case)]
 
@@ -92,6 +95,8 @@ static LOAD_COMPLETED: AtomicBool = AtomicBool::new(false);
 static TV_UNLOADED: AtomicBool = AtomicBool::new(false);
 /// Numéro du chargement en cours (le fil qui nourrit le plan de son s'arrête quand il change).
 static GENERATION: AtomicU64 = AtomicU64::new(0);
+/// Les mires du « Réglage du HDR » tiennent le décodeur.
+static MIRES: AtomicBool = AtomicBool::new(false);
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -306,6 +311,40 @@ pub fn hdr_capable() -> bool {
 /// refait s'ils changent : un flux qui repasse en SDR recharge NDL, ce qui
 /// remet la dalle en SDR.
 pub fn ensure(kind: i32, width: u32, height: u32, hdr: Option<HdrMeta>) -> Result<(), String> {
+    if MIRES.load(Ordering::Acquire) {
+        return Err(BUSY.into());
+    }
+    ensure_any(kind, width, height, hdr)
+}
+
+/// Les mires du « Réglage du HDR » prennent le décodeur (la session attend).
+pub fn begin_mires() {
+    MIRES.store(true, Ordering::Release);
+}
+
+/// Les mires rendent le décodeur : déchargé (la dalle revient en SDR) ; la session le recharge à son image clé.
+pub fn end_mires() {
+    if MIRES.swap(false, Ordering::AcqRel) {
+        unload();
+    }
+}
+
+/// Les mires tiennent le décodeur.
+pub fn mires_active() -> bool {
+    MIRES.load(Ordering::Acquire)
+}
+
+/// Charge le décodeur pour une mire (voir `ensure`).
+pub fn ensure_mire(width: u32, height: u32, hdr: Option<HdrMeta>) -> Result<(), String> {
+    ensure_any(VIDEO_H265, width, height, hdr)
+}
+
+/// Montre une mire (voir `play`).
+pub fn play_mire(data: &[u8]) -> Result<Option<i32>, String> {
+    play_any(data)
+}
+
+fn ensure_any(kind: i32, width: u32, height: u32, hdr: Option<HdrMeta>) -> Result<(), String> {
     let mut g = NDL.lock().unwrap();
     let st = g.as_mut().ok_or("NDL absent")?;
     let plane = wanted_plane();
@@ -461,9 +500,16 @@ pub fn name(kind: i32) -> &'static str {
 /// Envoie une image (Annex B) au décodeur ; rend le nombre d'images en
 /// attente d'affichage, si NDL le dit.
 pub fn play(data: &[u8]) -> Result<Option<i32>, String> {
+    if MIRES.load(Ordering::Acquire) {
+        return Err(BUSY.into());
+    }
+    play_any(data)
+}
+
+fn play_any(data: &[u8]) -> Result<Option<i32>, String> {
     let mut g = NDL.lock().unwrap();
     let st = g.as_mut().ok_or("NDL absent")?;
-    let Some((_, at)) = st.loaded else { return Err("NDL non chargé".into()) };
+    let Some((_, at)) = st.loaded else { return Err(NOT_LOADED.into()) };
     if TV_UNLOADED.load(Ordering::Acquire) {
         return Err(UNLOADED_BY_TV.into());
     }
@@ -600,6 +646,12 @@ pub const UNLOADED_BY_TV: &str = "décodeur déchargé par le téléviseur";
 
 /// Erreur de `play` tant que NDL n'a pas confirmé le chargement.
 pub const NOT_READY: &str = "NDL pas encore prêt";
+
+/// Erreur de `play` quand rien n'est chargé (les mires ont rendu le décodeur, déchargé).
+pub const NOT_LOADED: &str = "NDL non chargé";
+
+/// Erreur de `ensure` et `play` pendant les mires du « Réglage du HDR ».
+pub const BUSY: &str = "décodeur pris par les mires du réglage du HDR";
 
 /// Décharge le décodeur (fin de l'image).
 pub fn unload() {
