@@ -137,7 +137,7 @@ cargo_quiet() {
 # Mêmes correctifs que les autres apps (image et son vers l'app, presse-papiers,
 # mémoire de réception UDP).
 # Puis ceux de webOS (apps/webos/kyber-patches : kynput en client seul).
-for patch in "$ROOT"/apps/macos/kyber-patches/*.patch "$HERE"/kyber-patches/*.patch; do
+for patch in "$ROOT"/apps/macos/kyber-patches/*.patch "$ROOT"/server/kyber-patches/*-kyclient-*.patch "$HERE"/kyber-patches/*.patch; do
     case "$(basename "$patch")" in
         *-kyclient-*) repo="$KYSDK/kyctl" ;;
         *-kynput-*) repo="$KYSDK/kynput" ;;

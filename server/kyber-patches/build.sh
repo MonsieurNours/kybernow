@@ -78,6 +78,11 @@
 #   0021  touches système (serveur d'entrées et kycontroller, deux fichiers) :
 #         droit system_keys (Ctrl+Alt+Del, Win+L) réservé à l'hôte ; refusé à
 #         tout invité du partage et à l'ami à qui l'ordinateur est prêté
+#   0022  HDR (docs/hdr.md). 0022-kyclient-hdr : côté client (kyclient, son API
+#         C, kyclient-rs) et champ hdr de la requête de démarrage
+#         (kyctl-common, lu par kycontroller : posé ici avant
+#         0022-kycontroller-hdr) ; les apps le posent aussi, après leurs
+#         propres correctifs (apps/macos/scripts/build-kyclient.sh…)
 #
 # Prérequis (Homebrew) : mingw-w64 meson ninja nasm cmake bison lua@5.4
 # binaryen, wasm-bindgen-cli (cargo install), rustup target
@@ -159,7 +164,7 @@ check_fresh() {
 echo "==> Correctifs"
 # Les correctifs se suivent et touchent parfois les mêmes fichiers : on part
 # toujours des sources d'origine, puis on les applique tous, dans l'ordre.
-# Ceux nommés *-kycontroller-* et *-kywebplayer-* visent kysdk/kyctl,
+# Ceux nommés *-kycontroller-*, *-kyclient-* et *-kywebplayer-* visent kysdk/kyctl,
 # *-kynet-* kysdk/kymux, *-kynput-* kysdk/kynput, *-kyberweb-* kyber-web, les
 # autres kysdk/kymedia. Seuls les fichiers des correctifs sont remis à
 # l'origine : kyctl et kymux portent aussi les correctifs des apps.
@@ -170,7 +175,7 @@ echo "==> Correctifs"
 repo_of() {
     case "$(basename "$1")" in
         *-kyctlweb-*) ;;
-        *-kycontroller-* | *-kywebplayer-*) echo "$KYCTL" ;;
+        *-kycontroller-* | *-kyclient-* | *-kywebplayer-*) echo "$KYCTL" ;;
         *-kyberweb-*) echo "$KYWEB" ;;
         *-kynet-*) echo "$KYMUX" ;;
         *-kynput-*) echo "$KYNPUT" ;;

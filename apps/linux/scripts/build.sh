@@ -61,7 +61,7 @@ cargo_quiet() {
 }
 
 # 1. Correctifs.
-for patch in "$APPS"/macos/kyber-patches/*.patch "$APPS"/webos/kyber-patches/*.patch; do
+for patch in "$APPS"/macos/kyber-patches/*.patch "$ROOT"/server/kyber-patches/*-kyclient-*.patch "$APPS"/webos/kyber-patches/*.patch; do
     case "$(basename "$patch")" in
         *-kyclient-*) repo="$KYSDK/kyctl" ;;
         *-kynput-*) repo="$KYSDK/kynput" ;;

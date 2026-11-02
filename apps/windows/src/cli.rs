@@ -327,6 +327,8 @@ pub fn main() -> i32 {
         recovery: kybernow_core::session::Recovery { restart_station: args.station_restart, ..Default::default() },
         role: kybernow_core::session::SessionRole::Host,
         route: kybernow_core::session::Route::Direct,
+        screen_hdr: false,
+        capabilities: None,
     };
     let (tx, rx) = mpsc::channel();
     let _host = SessionHost::start(

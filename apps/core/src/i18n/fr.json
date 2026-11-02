@@ -109,5 +109,14 @@
     "state_lent": "Prêté à quelqu'un d'autre",
     "state_locked": "Verrouillé",
     "state_off": "Prêt coupé"
+  },
+  "hdr": {
+    "off": "L'ordinateur ne propose pas le HDR.",
+    "windows": "Le HDR demande Windows 11 24H2 sur l'ordinateur.",
+    "encoder": "La carte graphique de l'ordinateur ne fait pas le HDR.",
+    "codec": "Le HDR demande le format HEVC ou AV1.",
+    "decoder": "Cet appareil ne décode pas le HDR.",
+    "display": "L'écran de l'ordinateur n'est pas en HDR.",
+    "refused": "L'ordinateur n'a pas pu passer en HDR : image en SDR."
   }
 }

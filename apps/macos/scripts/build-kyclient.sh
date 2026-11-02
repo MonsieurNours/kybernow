@@ -8,6 +8,10 @@
 # 0003-kynet    : grande mémoire de réception UDP (rafales d'une image 4K).
 # 0004-kynput   : client Windows sans le presse-papiers de kynput (cfg, sans
 #                 effet ici).
+# Puis ceux de server/kyber-patches nommés *-kyclient-* (côté client d'un
+# correctif de la Station, posés aussi par son build.sh, car kycontroller lit
+# le même kyctl-common) :
+# 0022-kyclient : HDR par écran (VideoSessionConfig.hdr, requête de démarrage).
 #
 # libkynput est construite sans son lecteur de manettes SDL : les manettes
 # sont lues une seule fois pour toutes les sessions de l'app par le cœur
@@ -38,7 +42,7 @@ OUT="$HERE/Vendor"
 # Empreinte de ce qui fait les bibliothèques client : correctifs, ce script,
 # versions des outils.
 stamp() {
-    cat "$HERE"/kyber-patches/*.patch "$HERE/scripts/build-kyclient.sh" "$ROOT/scripts/kyber-toolchain.sh" | shasum -a 256 | cut -d' ' -f1
+    cat "$HERE"/kyber-patches/*.patch "$ROOT"/server/kyber-patches/*-kyclient-*.patch "$HERE/scripts/build-kyclient.sh" "$ROOT/scripts/kyber-toolchain.sh" | shasum -a 256 | cut -d' ' -f1
 }
 if [ "${1:-}" = --stamp ]; then
     stamp
@@ -75,7 +79,7 @@ cargo_quiet() {
 }
 
 # Chaque correctif vise le dépôt nommé après son numéro.
-for patch in "$HERE"/kyber-patches/*.patch; do
+for patch in "$HERE"/kyber-patches/*.patch "$ROOT"/server/kyber-patches/*-kyclient-*.patch; do
     case "$(basename "$patch")" in
         *-kyclient-*) repo="$KYSDK/kyctl" ;;
         *-kynput-*) repo="$KYSDK/kynput" ;;
