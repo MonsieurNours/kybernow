@@ -47,7 +47,7 @@ index d52336d..f9e1fae 100644
              out_pkt->time_base = ctx->avctx->time_base;
  
 diff --git a/subprojects/txproto/src/iosys_dxgi.c b/subprojects/txproto/src/iosys_dxgi.c
-index db5cea7..2861115 100644
+index db5cea7..ac217a2 100644
 --- a/subprojects/txproto/src/iosys_dxgi.c
 +++ b/subprojects/txproto/src/iosys_dxgi.c
 @@ -34,6 +34,7 @@
@@ -94,7 +94,15 @@ index db5cea7..2861115 100644
      hw_frames_ctx_cfg->initial_pool_size = 6;
  
      /* Required for AMF */
-@@ -845,10 +855,21 @@ static int start_capture(DxgiCapture *priv, DxgiCtx *ctx, IDXGIOutput1 *dxgi_out
+@@ -812,6 +822,7 @@ fail:
+ 
+ static void stop_capture(DxgiCapture *priv)
+ {
++    kn_hdr_conv_forget_sources(&priv->kn_conv); /* KyberNow (0022) */
+     if (priv->output_duplication) {
+         IDXGIOutputDuplication_Release(priv->output_duplication);
+         priv->output_duplication = NULL;
+@@ -845,10 +856,21 @@ static int start_capture(DxgiCapture *priv, DxgiCtx *ctx, IDXGIOutput1 *dxgi_out
      }
  
      /* DuplicateOutput() can be rejected if the current user isn't allowed
@@ -120,7 +128,7 @@ index db5cea7..2861115 100644
      if (FAILED(hr)) {
          sp_log(priv, SP_LOG_WARN, "DuplicateOutput() failed: %lX\n", hr);
          goto fail;
-@@ -865,6 +886,8 @@ static int start_capture(DxgiCapture *priv, DxgiCtx *ctx, IDXGIOutput1 *dxgi_out
+@@ -865,6 +887,8 @@ static int start_capture(DxgiCapture *priv, DxgiCtx *ctx, IDXGIOutput1 *dxgi_out
  
      sp_log(priv, SP_LOG_INFO, "Duplication started. Resolution: %dx%d\n",
             desc.ModeDesc.Width, desc.ModeDesc.Height);
@@ -129,7 +137,7 @@ index db5cea7..2861115 100644
  
      priv->got_first_frame = 0;
  
-@@ -876,6 +899,66 @@ fail:
+@@ -876,6 +900,70 @@ fail:
      return AVERROR_EXTERNAL;
  }
  
@@ -188,6 +196,10 @@ index db5cea7..2861115 100644
 +            sp_log(entry, SP_LOG_ERROR, "HDR: conversion failed: 0x%lX\n", hr);
 +        return AVERROR_EXTERNAL;
 +    }
++    if (priv->kn_conv.path != priv->kn_conv.logged_path) {
++        sp_log(entry, SP_LOG_INFO, "HDR: conversion %s\n", kn_hdr_conv_describe(&priv->kn_conv, err, sizeof(err)));
++        priv->kn_conv.logged_path = priv->kn_conv.path;
++    }
 +    if (priv->hdr == KN_HDR_PQ)
 +        return kn_hdr_tag_frame(frame, &priv->kn_info);
 +    return 0;
@@ -196,7 +208,7 @@ index db5cea7..2861115 100644
  static int check_resolution_change(DxgiCapture *priv,
                                     DxgiCtx *ctx,
                                     ID3D11Resource *tex)
-@@ -945,7 +1028,9 @@ static int check_resolution_change(DxgiCapture *priv,
+@@ -945,7 +1033,9 @@ static int check_resolution_change(DxgiCapture *priv,
   *   KyberNowWGC_T_DISPLAY6               file mapping, KnWgcHeader
   *   KyberNowWGC_T_DISPLAY6_frame         auto-reset event, set on each frame
   *   KyberNowWGC_T_DISPLAY6_<gen>_<slot>  shared texture (NT handle, keyed
@@ -207,7 +219,7 @@ index db5cea7..2861115 100644
   * Same layout as server/admin/src/display/wgc_shared.rs.
   *
   * The pointer is left out of the WGC picture; it is read with
-@@ -978,7 +1063,11 @@ _Static_assert(offsetof(KnWgcHeader, frame_counter) == 48, "KnWgcHeader layout")
+@@ -978,7 +1068,11 @@ _Static_assert(offsetof(KnWgcHeader, frame_counter) == 48, "KnWgcHeader layout")
  _Static_assert(sizeof(KnWgcHeader) == 88, "KnWgcHeader size");
  
  #define KN_WGC_MAGIC 0x47574E4Bu /* "KNWG" */
@@ -220,7 +232,15 @@ index db5cea7..2861115 100644
  #define KN_WGC_SLOTS 3
  #define KN_WGC_STATE_RUNNING 1
  /* Session marker published by KyberNow Admin (global namespace, SYSTEM
-@@ -1269,9 +1358,11 @@ static int kn_wgc_open(IOSysEntry *entry, DxgiCapture *priv, DxgiCtx *ctx)
+@@ -1117,6 +1211,7 @@ static void kn_wgc_release_textures(KnWgc *w)
+ 
+ static void kn_wgc_close(DxgiCapture *priv)
+ {
++    kn_hdr_conv_forget_sources(&priv->kn_conv); /* KyberNow (0022) */
+     KnWgc *w = priv->wgc;
+     if (!w)
+         return;
+@@ -1269,9 +1364,11 @@ static int kn_wgc_open(IOSysEntry *entry, DxgiCapture *priv, DxgiCtx *ctx)
      }
  
      sp_log(entry, SP_LOG_INFO, "WGC: capture through Windows Graphics Capture (agent %lu found after %d ms, "
@@ -234,8 +254,11 @@ index db5cea7..2861115 100644
             w->header->border_required ? "required by Windows" : "off");
      return 0;
  
-@@ -1537,8 +1628,9 @@ static int kn_wgc_loop(IOSysEntry *entry, DxgiCapture *priv, DxgiCtx *ctx, int *
+@@ -1535,10 +1632,12 @@ static int kn_wgc_loop(IOSysEntry *entry, DxgiCapture *priv, DxgiCtx *ctx, int *
+         const int64_t frame_time = w->header->frame_time;
+ 
          if (generation != w->generation) {
++            kn_hdr_conv_forget_sources(&priv->kn_conv); /* KyberNow (0022) */
              if (kn_wgc_open_textures(entry, w, ctx, generation) < 0)
                  continue;
 -            sp_log(entry, SP_LOG_INFO, "WGC: shared textures opened (generation %u, %ux%u)\n",
@@ -246,7 +269,7 @@ index db5cea7..2861115 100644
          }
  
          if (IDXGIKeyedMutex_AcquireSync(w->mutexes[slot], 0, 10) != S_OK) {
-@@ -1568,12 +1660,14 @@ static int kn_wgc_loop(IOSysEntry *entry, DxgiCapture *priv, DxgiCtx *ctx, int *
+@@ -1568,12 +1667,14 @@ static int kn_wgc_loop(IOSysEntry *entry, DxgiCapture *priv, DxgiCtx *ctx, int *
              continue;
          }
  
@@ -266,7 +289,7 @@ index db5cea7..2861115 100644
  
          w->last_counter = counter;
          copied++;
-@@ -1687,6 +1781,9 @@ static void *dxgi_capture_thread(void *s)
+@@ -1687,6 +1788,9 @@ static void *dxgi_capture_thread(void *s)
          goto fail;
      }
  
@@ -276,7 +299,7 @@ index db5cea7..2861115 100644
      err = sp_dxgi_cursor_handler_init(&priv->cursor_sink, entry->identifier,
                                        priv->cursor_move_rate);
      if (err < 0) {
-@@ -1835,32 +1932,18 @@ static void *dxgi_capture_thread(void *s)
+@@ -1835,32 +1939,18 @@ static void *dxgi_capture_thread(void *s)
              continue;
          }
  
@@ -315,7 +338,7 @@ index db5cea7..2861115 100644
  
          hr = IDXGIOutputDuplication_ReleaseFrame(priv->output_duplication);
          if (hr == DXGI_ERROR_ACCESS_LOST) {
-@@ -1918,6 +2001,7 @@ fail:
+@@ -1918,6 +2008,7 @@ fail:
      av_frame_free(&kn_held); /* KyberNow (0020) */
  
      stop_capture(priv);
@@ -323,7 +346,7 @@ index db5cea7..2861115 100644
      release_texture_pool(priv);
  
      if (dxgi_output)
-@@ -1992,6 +2076,16 @@ static int dxgi_init_io(AVBufferRef *ctx_ref, AVBufferRef *entry,
+@@ -1992,6 +2083,16 @@ static int dxgi_init_io(AVBufferRef *ctx_ref, AVBufferRef *entry,
      if (max_rate)
          cap_priv->max_framerate = av_clip(strtol(max_rate->value, NULL, 10), 0, 1000);
  
@@ -342,10 +365,10 @@ index db5cea7..2861115 100644
  
 diff --git a/subprojects/txproto/src/kn_hdr_capture.h b/subprojects/txproto/src/kn_hdr_capture.h
 new file mode 100644
-index 0000000..0c608bd
+index 0000000..372fd19
 --- /dev/null
 +++ b/subprojects/txproto/src/kn_hdr_capture.h
-@@ -0,0 +1,590 @@
+@@ -0,0 +1,844 @@
 +/*
 + * KyberNow (0022): HDR desktop capture on Windows, shared by both capture
 + * engines. The same file is in txproto (src/kn_hdr_capture.h) and in
@@ -376,6 +399,13 @@ index 0000000..0c608bd
 + * plane (D3D11 picks the plane from the view format), the 10-bit code in
 + * the high bits.
 + *
++ * Kept short for latency: the captured texture is read as is (a shader
++ * resource view of it, a copy only if its bind flags refuse it), before the
++ * capture lets it go; HDR10 is one pass per 2 x 2 block (PQ once per pixel
++ * from a table, the chroma plane drawn, the four luma codes kept in a small
++ * texture), then a light pass that writes them into the luma plane. A card
++ * that refuses that texture gets two passes (luma, then chroma).
++ *
 + * The output's HDR state and luminance come from IDXGIOutput6::GetDesc1(),
 + * the SDR white from the display configuration (DISPLAYCONFIG_SDR_WHITE_LEVEL).
 + */
@@ -386,6 +416,7 @@ index 0000000..0c608bd
 +#ifndef COBJMACROS
 +#define COBJMACROS
 +#endif
++#include <math.h>
 +#include <stdio.h>
 +#include <stdlib.h>
 +#include <string.h>
@@ -566,8 +597,18 @@ index 0000000..0c608bd
 +    return hr;
 +}
 +
++
++/* PQ table: KN_HDR_PQ_LUT points, indexed by (L / 10 000 cd/m2)^(1/4), read
++ * with linear interpolation; each point holds the PQ value and the step to
++ * the next one. Largest error against the formula: 7e-6, under a hundredth
++ * of a 10-bit code (KyberNow's kn_hdr_lut_test.c). */
++#define KN_HDR_PQ_LUT 1024
++
 +static const char kn_hdr_hlsl[] =
 +"Texture2D<float4> src : register(t0);\n"
++"Texture1D<float2> pq_lut : register(t1);\n"
++"Texture2D<uint2> blocks_in : register(t2);\n"
++"RWTexture2D<uint2> blocks : register(u1);\n"
 +"cbuffer Params : register(b0) {\n"
 +"    float in_scale;  /* input value 1.0 in cd/m2: 80 for scRGB, SDR white for sRGB */\n"
 +"    float sdr_white; /* cd/m2 of SDR white (SDR output) */\n"
@@ -596,22 +637,47 @@ index 0000000..0c608bd
 +"    0.627404, 0.329283, 0.043313,\n"
 +"    0.069097, 0.919540, 0.011362,\n"
 +"    0.016391, 0.088013, 0.895595 };\n"
-+"float3 pq(float3 nits) {\n"
-+"    float3 l = pow(saturate(nits / 10000.0), 0.1593017578125);\n"
-+"    return pow((0.8359375 + 18.8515625 * l) / (1.0 + 18.6875 * l), 78.84375);\n"
++"float pq1(float nits) {\n"
++"    float u = sqrt(sqrt(saturate(nits / 10000.0))) * 1023.0;\n"
++"    float i = min(floor(u), 1022.0);\n"
++"    float2 e = pq_lut.Load(int2((int)i, 0));\n"
++"    return e.x + e.y * (u - i);\n"
 +"}\n"
-+"float3 pq_rgb(int2 p) { return pq(max(mul(BT709_TO_2020, nits709(p)), 0.0)); }\n"
++"float3 pq_rgb(int2 p) {\n"
++"    float3 n = max(mul(BT709_TO_2020, nits709(p)), 0.0);\n"
++"    return float3(pq1(n.r), pq1(n.g), pq1(n.b));\n"
++"}\n"
 +"static const float3 KY = float3(0.2627, 0.6780, 0.0593);\n"
 +"/* A 10-bit code in the high bits of a 16-bit UNORM (P010). */\n"
 +"float code10(float v) { return round(clamp(v, 0.0, 1023.0)) * 64.0 / 65535.0; }\n"
++"uint luma16(float3 e) { return (uint)round(clamp(64.0 + 876.0 * dot(KY, e), 0.0, 1023.0)) << 6; }\n"
++"float2 chroma(float3 e) {\n"
++"    float y = dot(KY, e);\n"
++"    return float2(code10(512.0 + 896.0 * (e.b - y) / 1.8814), code10(512.0 + 896.0 * (e.r - y) / 1.4746));\n"
++"}\n"
++"/* One pass per 2 x 2 block (half size): PQ once per pixel, the chroma\n"
++" * plane drawn, the four luma codes kept in `blocks` for ps_luma_blocks. */\n"
++"float2 ps_block(VSOut i) : SV_Target {\n"
++"    int2 b = int2(i.pos.xy);\n"
++"    int2 p = b * 2;\n"
++"    float3 e0 = pq_rgb(p), e1 = pq_rgb(p + int2(1, 0));\n"
++"    float3 e2 = pq_rgb(p + int2(0, 1)), e3 = pq_rgb(p + int2(1, 1));\n"
++"    blocks[b] = uint2(luma16(e0) | (luma16(e1) << 16), luma16(e2) | (luma16(e3) << 16));\n"
++"    return chroma((e0 + e1 + e2 + e3) * 0.25);\n"
++"}\n"
++"float ps_luma_blocks(VSOut i) : SV_Target {\n"
++"    int2 p = int2(i.pos.xy);\n"
++"    uint2 v = blocks_in.Load(int3(p >> 1, 0));\n"
++"    uint w = (p.y & 1) ? v.y : v.x;\n"
++"    return (float)((p.x & 1) ? (w >> 16) : (w & 0xFFFF)) / 65535.0;\n"
++"}\n"
++"/* Without `blocks` (a card that refuses it): luma and chroma apart. */\n"
 +"float ps_luma(VSOut i) : SV_Target {\n"
-+"    return code10(64.0 + 876.0 * dot(KY, pq_rgb(int2(i.pos.xy))));\n"
++"    return (float)luma16(pq_rgb(int2(i.pos.xy))) / 65535.0;\n"
 +"}\n"
 +"float2 ps_chroma(VSOut i) : SV_Target {\n"
 +"    int2 p = int2(i.pos.xy) * 2;\n"
-+"    float3 e = (pq_rgb(p) + pq_rgb(p + int2(1, 0)) + pq_rgb(p + int2(0, 1)) + pq_rgb(p + int2(1, 1))) * 0.25;\n"
-+"    float y = dot(KY, e);\n"
-+"    return float2(code10(512.0 + 896.0 * (e.b - y) / 1.8814), code10(512.0 + 896.0 * (e.r - y) / 1.4746));\n"
++"    return chroma((pq_rgb(p) + pq_rgb(p + int2(1, 0)) + pq_rgb(p + int2(0, 1)) + pq_rgb(p + int2(1, 1))) * 0.25);\n"
 +"}\n"
 +"/* SDR: 1.0 = SDR white; knee at 0.75, 4.0 brought to 1.0 (slope 1 at the knee). */\n"
 +"float4 ps_sdr(VSOut i) : SV_Target {\n"
@@ -626,26 +692,69 @@ index 0000000..0c608bd
 +"    return float4(c, 1.0);\n"
 +"}\n";
 +
++/* PQ (SMPTE ST 2084) of `nits`, as a 0-1 signal: the table's points. */
++static inline double kn_hdr_pq(double nits)
++{
++    double l = pow(nits <= 0 ? 0 : nits >= 10000.0 ? 1.0 : nits / 10000.0, 0.1593017578125);
++    return pow((0.8359375 + 18.8515625 * l) / (1.0 + 18.6875 * l), 78.84375);
++}
++
++/* The table of pq1(): value and step to the next point, KN_HDR_PQ_LUT pairs. */
++static inline void kn_hdr_pq_table(float *lut)
++{
++    for (int i = 0; i < KN_HDR_PQ_LUT; i++) {
++        const double u = (double)i / (KN_HDR_PQ_LUT - 1);
++        lut[2 * i] = (float)kn_hdr_pq(10000.0 * u * u * u * u);
++    }
++    for (int i = 0; i < KN_HDR_PQ_LUT; i++)
++        lut[2 * i + 1] = i + 1 < KN_HDR_PQ_LUT ? lut[2 * i + 2] - lut[2 * i] : 0.0f;
++}
++
 +typedef HRESULT (WINAPI *kn_d3dcompile_fn)(LPCVOID data, SIZE_T size, LPCSTR name,
 +                                           const D3D_SHADER_MACRO *defines, ID3DInclude *include,
 +                                           LPCSTR entry, LPCSTR target, UINT flags1, UINT flags2,
 +                                           ID3DBlob **code, ID3DBlob **errors);
 +
 +#define KN_HDR_VIEWS 16
++#define KN_HDR_SOURCES 4
++
++/* How the last image was converted (kn_hdr_conv_describe()). */
++enum {
++    KN_HDR_PATH_DIRECT = 1, /* the captured texture read as is, no copy */
++    KN_HDR_PATH_BLOCKS = 2, /* HDR10: one pass per 2 x 2 block */
++};
 +
 +typedef struct KnHdrConv {
 +    int mode;
 +    ID3D11Device *device;
 +    ID3D11VertexShader *vs;
-+    ID3D11PixelShader *ps_luma, *ps_chroma, *ps_sdr;
++    ID3D11PixelShader *ps_block, *ps_luma_blocks, *ps_luma, *ps_chroma, *ps_sdr;
 +    ID3D11Buffer *params;
 +    ID3D11RasterizerState *raster;
++    ID3D11ShaderResourceView *lut_srv;
 +
-+    /* Copy of the captured texture, read by the shaders */
++    /* Captured textures read directly (shader resource views), kept with a
++     * reference: the desktop duplication's, the WGC ring's slots. */
++    struct {
++        ID3D11Resource *res;
++        ID3D11ShaderResourceView *srv;
++    } sources[KN_HDR_SOURCES];
++    int nb_sources;
++    HRESULT direct_hr; /* why a texture could not be read directly, S_OK if it can */
++
++    /* Copy of the captured texture, when it cannot be read directly. */
 +    ID3D11Texture2D *in_tex;
 +    ID3D11ShaderResourceView *in_srv;
 +    UINT in_width, in_height;
-+    DXGI_FORMAT in_format;
++    DXGI_FORMAT in_copy_format;
++    DXGI_FORMAT in_format; /* of the texture the shaders read */
++
++    /* HDR10: the four luma codes of each 2 x 2 block (R32G32_UINT, half size). */
++    ID3D11Texture2D *blocks;
++    ID3D11UnorderedAccessView *blocks_uav;
++    ID3D11ShaderResourceView *blocks_srv;
++    UINT blocks_width, blocks_height;
++    HRESULT blocks_hr; /* why the one-pass conversion is off, S_OK if it is on */
 +
 +    /* Render target views of the frame pool (one array texture) */
 +    struct {
@@ -654,6 +763,9 @@ index 0000000..0c608bd
 +        ID3D11RenderTargetView *rtv[2];
 +    } views[KN_HDR_VIEWS];
 +    int nb_views;
++
++    int path;        /* KN_HDR_PATH_* of the last image */
++    int logged_path; /* the one last logged by the capture, -1 at first */
 +} KnHdrConv;
 +
 +static inline void kn_hdr_conv_drop_views(KnHdrConv *c)
@@ -664,6 +776,18 @@ index 0000000..0c608bd
 +                ID3D11RenderTargetView_Release(c->views[i].rtv[j]);
 +    memset(c->views, 0, sizeof(c->views));
 +    c->nb_views = 0;
++}
++
++/* Lets go of the captured textures read directly: the capture calls it when
++ * it closes them (duplication restarted, new WGC ring). */
++static inline void kn_hdr_conv_forget_sources(KnHdrConv *c)
++{
++    for (int i = 0; i < c->nb_sources; i++) {
++        ID3D11ShaderResourceView_Release(c->sources[i].srv);
++        ID3D11Resource_Release(c->sources[i].res);
++    }
++    memset(c->sources, 0, sizeof(c->sources));
++    c->nb_sources = 0;
 +}
 +
 +static inline void kn_hdr_conv_drop_input(KnHdrConv *c)
@@ -677,17 +801,36 @@ index 0000000..0c608bd
 +    c->in_width = c->in_height = 0;
 +}
 +
++static inline void kn_hdr_conv_drop_blocks(KnHdrConv *c)
++{
++    if (c->blocks_srv)
++        ID3D11ShaderResourceView_Release(c->blocks_srv);
++    if (c->blocks_uav)
++        ID3D11UnorderedAccessView_Release(c->blocks_uav);
++    if (c->blocks)
++        ID3D11Texture2D_Release(c->blocks);
++    c->blocks_srv = NULL;
++    c->blocks_uav = NULL;
++    c->blocks = NULL;
++    c->blocks_width = c->blocks_height = 0;
++}
++
 +static inline void kn_hdr_conv_free(KnHdrConv *c)
 +{
 +    kn_hdr_conv_drop_views(c);
++    kn_hdr_conv_forget_sources(c);
 +    kn_hdr_conv_drop_input(c);
++    kn_hdr_conv_drop_blocks(c);
 +#define KN_REL(x, type) if (c->x) { type##_Release(c->x); c->x = NULL; }
 +    KN_REL(vs, ID3D11VertexShader)
++    KN_REL(ps_block, ID3D11PixelShader)
++    KN_REL(ps_luma_blocks, ID3D11PixelShader)
 +    KN_REL(ps_luma, ID3D11PixelShader)
 +    KN_REL(ps_chroma, ID3D11PixelShader)
 +    KN_REL(ps_sdr, ID3D11PixelShader)
 +    KN_REL(params, ID3D11Buffer)
 +    KN_REL(raster, ID3D11RasterizerState)
++    KN_REL(lut_srv, ID3D11ShaderResourceView)
 +    KN_REL(device, ID3D11Device)
 +#undef KN_REL
 +    c->mode = KN_HDR_OFF;
@@ -707,6 +850,31 @@ index 0000000..0c608bd
 +    return hr;
 +}
 +
++/* The PQ table as a 1D texture (R32G32_FLOAT). */
++static inline HRESULT kn_hdr_lut_create(KnHdrConv *c)
++{
++    float lut[2 * KN_HDR_PQ_LUT];
++    D3D11_TEXTURE1D_DESC desc = { 0 };
++    D3D11_SUBRESOURCE_DATA data = { 0 };
++    ID3D11Texture1D *tex = NULL;
++    HRESULT hr;
++
++    kn_hdr_pq_table(lut);
++    desc.Width = KN_HDR_PQ_LUT;
++    desc.MipLevels = 1;
++    desc.ArraySize = 1;
++    desc.Format = DXGI_FORMAT_R32G32_FLOAT;
++    desc.Usage = D3D11_USAGE_IMMUTABLE;
++    desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
++    data.pSysMem = lut;
++    data.SysMemPitch = sizeof(lut);
++    if (FAILED(hr = ID3D11Device_CreateTexture1D(c->device, &desc, &data, &tex)))
++        return hr;
++    hr = ID3D11Device_CreateShaderResourceView(c->device, (ID3D11Resource *)tex, NULL, &c->lut_srv);
++    ID3D11Texture1D_Release(tex);
++    return hr;
++}
++
 +/* Compiles the shaders for `mode` on `device`. `err` says why it failed. */
 +static inline int kn_hdr_conv_init(KnHdrConv *c, ID3D11Device *device, int mode, char *err, size_t err_size)
 +{
@@ -716,6 +884,7 @@ index 0000000..0c608bd
 +    HRESULT hr;
 +
 +    memset(c, 0, sizeof(*c));
++    c->logged_path = -1;
 +    if (!compiler)
 +        compiler = LoadLibraryExW(L"d3dcompiler_47.dll", NULL, LOAD_LIBRARY_SEARCH_SYSTEM32);
 +    if (!compiler) {
@@ -749,8 +918,12 @@ index 0000000..0c608bd
 +    if (FAILED(hr))                                                                      \
 +        goto fail_create;
 +    if (mode == KN_HDR_PQ) {
++        KN_PS("ps_block", ps_block)
++        KN_PS("ps_luma_blocks", ps_luma_blocks)
 +        KN_PS("ps_luma", ps_luma)
 +        KN_PS("ps_chroma", ps_chroma)
++        if (FAILED(hr = kn_hdr_lut_create(c)))
++            goto fail_create;
 +    } else {
 +        KN_PS("ps_sdr", ps_sdr)
 +    }
@@ -782,8 +955,37 @@ index 0000000..0c608bd
 +    return -1;
 +}
 +
-+/* Copy of `src` the shaders read: recreated when its size or format changes. */
-+static inline HRESULT kn_hdr_conv_input(KnHdrConv *c, ID3D11DeviceContext *ctx, ID3D11Resource *src)
++/* A shader resource view of the captured texture `src` itself (no copy),
++ * when its bind flags allow it: desktop duplication and the WGC ring give
++ * the same few textures again and again, so the views are kept. */
++static inline ID3D11ShaderResourceView *kn_hdr_conv_direct(KnHdrConv *c, ID3D11Resource *src,
++                                                           const D3D11_TEXTURE2D_DESC *desc)
++{
++    ID3D11ShaderResourceView *srv = NULL;
++
++    if (FAILED(c->direct_hr))
++        return NULL;
++    for (int i = 0; i < c->nb_sources; i++)
++        if (c->sources[i].res == src)
++            return c->sources[i].srv;
++    if (!(desc->BindFlags & D3D11_BIND_SHADER_RESOURCE) || desc->SampleDesc.Count != 1)
++        return NULL; /* this texture is copied */
++    c->direct_hr = ID3D11Device_CreateShaderResourceView(c->device, src, NULL, &srv);
++    if (FAILED(c->direct_hr))
++        return NULL;
++    if (c->nb_sources == KN_HDR_SOURCES)
++        kn_hdr_conv_forget_sources(c);
++    ID3D11Resource_AddRef(src);
++    c->sources[c->nb_sources].res = src;
++    c->sources[c->nb_sources].srv = srv;
++    c->nb_sources++;
++    return srv;
++}
++
++/* What the shaders read: the captured texture itself, or else a copy of it
++ * (recreated when its size or format changes). */
++static inline HRESULT kn_hdr_conv_input(KnHdrConv *c, ID3D11DeviceContext *ctx, ID3D11Resource *src,
++                                        ID3D11ShaderResourceView **srv)
 +{
 +    ID3D11Texture2D *tex = NULL;
 +    D3D11_TEXTURE2D_DESC desc;
@@ -792,9 +994,15 @@ index 0000000..0c608bd
 +        return hr;
 +    ID3D11Texture2D_GetDesc(tex, &desc);
 +    ID3D11Texture2D_Release(tex);
++    c->in_format = desc.Format;
++
++    if ((*srv = kn_hdr_conv_direct(c, src, &desc))) {
++        c->path |= KN_HDR_PATH_DIRECT;
++        return S_OK;
++    }
 +
 +    if (!c->in_tex || desc.Width != c->in_width || desc.Height != c->in_height ||
-+        desc.Format != c->in_format) {
++        desc.Format != c->in_copy_format) {
 +        D3D11_TEXTURE2D_DESC copy = { 0 };
 +        kn_hdr_conv_drop_input(c);
 +        copy.Width = desc.Width;
@@ -814,10 +1022,48 @@ index 0000000..0c608bd
 +        }
 +        c->in_width = desc.Width;
 +        c->in_height = desc.Height;
-+        c->in_format = desc.Format;
++        c->in_copy_format = desc.Format;
 +    }
 +    ID3D11DeviceContext_CopyResource(ctx, (ID3D11Resource *)c->in_tex, src);
++    *srv = c->in_srv;
 +    return S_OK;
++}
++
++/* The luma codes of the 2 x 2 blocks, `width` x `height` blocks: false
++ * (and the two-pass conversion) if the card refuses this texture. */
++static inline int kn_hdr_conv_blocks(KnHdrConv *c, UINT width, UINT height)
++{
++    D3D11_TEXTURE2D_DESC desc = { 0 };
++    HRESULT hr;
++
++    if (FAILED(c->blocks_hr))
++        return 0;
++    if (c->blocks && c->blocks_width == width && c->blocks_height == height)
++        return 1;
++    kn_hdr_conv_drop_blocks(c);
++    desc.Width = width;
++    desc.Height = height;
++    desc.MipLevels = 1;
++    desc.ArraySize = 1;
++    desc.Format = DXGI_FORMAT_R32G32_UINT;
++    desc.SampleDesc.Count = 1;
++    desc.Usage = D3D11_USAGE_DEFAULT;
++    desc.BindFlags = D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE;
++    hr = ID3D11Device_CreateTexture2D(c->device, &desc, NULL, &c->blocks);
++    if (SUCCEEDED(hr))
++        hr = ID3D11Device_CreateUnorderedAccessView(c->device, (ID3D11Resource *)c->blocks, NULL,
++                                                    &c->blocks_uav);
++    if (SUCCEEDED(hr))
++        hr = ID3D11Device_CreateShaderResourceView(c->device, (ID3D11Resource *)c->blocks, NULL,
++                                                   &c->blocks_srv);
++    if (FAILED(hr)) {
++        kn_hdr_conv_drop_blocks(c);
++        c->blocks_hr = hr;
++        return 0;
++    }
++    c->blocks_width = width;
++    c->blocks_height = height;
++    return 1;
 +}
 +
 +/* Render target views of slice `slice` of the pool texture `dst`. */
@@ -864,11 +1110,17 @@ index 0000000..0c608bd
 +    return S_OK;
 +}
 +
++/* One full-screen triangle into `rtv`, with `uav` (or none) in u1 and, if
++ * given, `srv` in t2: bound after the UAV is let go, since a texture is
++ * never both at once. */
 +static inline void kn_hdr_conv_draw(ID3D11DeviceContext *ctx, ID3D11RenderTargetView *rtv,
++                             ID3D11UnorderedAccessView *uav, ID3D11ShaderResourceView *srv,
 +                             ID3D11PixelShader *ps, UINT width, UINT height)
 +{
 +    D3D11_VIEWPORT vp = { 0, 0, (FLOAT)width, (FLOAT)height, 0, 1 };
-+    ID3D11DeviceContext_OMSetRenderTargets(ctx, 1, &rtv, NULL);
++    ID3D11DeviceContext_OMSetRenderTargetsAndUnorderedAccessViews(ctx, 1, &rtv, NULL, 1, 1, &uav, NULL);
++    if (srv)
++        ID3D11DeviceContext_PSSetShaderResources(ctx, 2, 1, &srv);
 +    ID3D11DeviceContext_RSSetViewports(ctx, 1, &vp);
 +    ID3D11DeviceContext_PSSetShader(ctx, ps, NULL, 0);
 +    ID3D11DeviceContext_Draw(ctx, 3, 0);
@@ -876,7 +1128,8 @@ index 0000000..0c608bd
 +
 +/* Converts the captured texture `src` (16-bit float scRGB, or 8-bit BGRA)
 + * into slice `slice` of `dst` (P010 for KN_HDR_PQ, BGRA for KN_HDR_SDR),
-+ * `width` x `height`. */
++ * `width` x `height`. `src` is read before the capture lets it go
++ * (ReleaseFrame, ReleaseSync): the commands are queued in that order. */
 +static inline HRESULT kn_hdr_conv_run(KnHdrConv *c, ID3D11DeviceContext *ctx, ID3D11Resource *src,
 +                               ID3D11Texture2D *dst, UINT slice, UINT width, UINT height,
 +                               const KnHdrInfo *info)
@@ -884,14 +1137,16 @@ index 0000000..0c608bd
 +    ID3D10Multithread *mt = NULL;
 +    ID3D11RenderTargetView **rtv;
 +    D3D11_MAPPED_SUBRESOURCE map;
-+    ID3D11ShaderResourceView *no_srv = NULL;
++    ID3D11ShaderResourceView *srvs[3] = { NULL, NULL, NULL };
++    ID3D11ShaderResourceView *no_srvs[3] = { NULL, NULL, NULL };
 +    HRESULT hr;
 +
 +    /* Same device as the encoders and filters: the whole draw at once. */
 +    if (SUCCEEDED(ID3D11DeviceContext_QueryInterface(ctx, &kn_iid_d3d10_multithread, (void **)&mt)))
 +        ID3D10Multithread_Enter(mt);
 +
-+    if (FAILED(hr = kn_hdr_conv_input(c, ctx, src)))
++    c->path = 0;
++    if (FAILED(hr = kn_hdr_conv_input(c, ctx, src, &srvs[0])))
 +        goto end;
 +    if (FAILED(hr = kn_hdr_conv_views(c, dst, slice, &rtv)))
 +        goto end;
@@ -914,17 +1169,23 @@ index 0000000..0c608bd
 +    ID3D11DeviceContext_RSSetState(ctx, c->raster);
 +    ID3D11DeviceContext_OMSetBlendState(ctx, NULL, NULL, 0xFFFFFFFF);
 +    ID3D11DeviceContext_OMSetDepthStencilState(ctx, NULL, 0);
-+    ID3D11DeviceContext_PSSetShaderResources(ctx, 0, 1, &c->in_srv);
 +    ID3D11DeviceContext_PSSetConstantBuffers(ctx, 0, 1, &c->params);
-+    if (c->mode == KN_HDR_PQ) {
-+        kn_hdr_conv_draw(ctx, rtv[0], c->ps_luma, width, height);
-+        kn_hdr_conv_draw(ctx, rtv[1], c->ps_chroma, width / 2, height / 2);
++    srvs[1] = c->lut_srv;
++    ID3D11DeviceContext_PSSetShaderResources(ctx, 0, 2, srvs);
++    if (c->mode == KN_HDR_PQ && kn_hdr_conv_blocks(c, width / 2, height / 2)) {
++        /* Chroma and the blocks' luma codes, then the luma plane from them. */
++        kn_hdr_conv_draw(ctx, rtv[1], c->blocks_uav, NULL, c->ps_block, width / 2, height / 2);
++        kn_hdr_conv_draw(ctx, rtv[0], NULL, c->blocks_srv, c->ps_luma_blocks, width, height);
++        c->path |= KN_HDR_PATH_BLOCKS;
++    } else if (c->mode == KN_HDR_PQ) {
++        kn_hdr_conv_draw(ctx, rtv[0], NULL, NULL, c->ps_luma, width, height);
++        kn_hdr_conv_draw(ctx, rtv[1], NULL, NULL, c->ps_chroma, width / 2, height / 2);
 +    } else {
-+        kn_hdr_conv_draw(ctx, rtv[0], c->ps_sdr, width, height);
++        kn_hdr_conv_draw(ctx, rtv[0], NULL, NULL, c->ps_sdr, width, height);
 +    }
 +    /* Unbound, so that the encoder may read the texture. */
 +    ID3D11DeviceContext_OMSetRenderTargets(ctx, 0, NULL, NULL);
-+    ID3D11DeviceContext_PSSetShaderResources(ctx, 0, 1, &no_srv);
++    ID3D11DeviceContext_PSSetShaderResources(ctx, 0, 3, no_srvs);
 +    hr = S_OK;
 +
 +end:
@@ -933,6 +1194,22 @@ index 0000000..0c608bd
 +        ID3D10Multithread_Release(mt);
 +    }
 +    return hr;
++}
++
++/* The way the last image was converted, for the capture's log (written
++ * when c->path differs from c->logged_path). */
++static inline const char *kn_hdr_conv_describe(const KnHdrConv *c, char *buf, size_t size)
++{
++    char copy[64] = "", blocks[64] = "";
++    if (!(c->path & KN_HDR_PATH_DIRECT) && FAILED(c->direct_hr))
++        snprintf(copy, sizeof(copy), ", view refused: 0x%lX", c->direct_hr);
++    if (c->mode == KN_HDR_PQ && !(c->path & KN_HDR_PATH_BLOCKS) && FAILED(c->blocks_hr))
++        snprintf(blocks, sizeof(blocks), ", block texture refused: 0x%lX", c->blocks_hr);
++    snprintf(buf, size, "%s%s%s%s",
++             c->path & KN_HDR_PATH_DIRECT ? "captured texture read directly" : "through a copy", copy,
++             c->mode != KN_HDR_PQ ? "" :
++             c->path & KN_HDR_PATH_BLOCKS ? ", one pass per 2x2 block" : ", two passes", blocks);
++    return buf;
 +}
 +
 +#endif /* KN_HDR_CAPTURE_H */

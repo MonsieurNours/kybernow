@@ -1,0 +1,936 @@
+diff --git a/subprojects/libavconv/libavconv/enc.c b/subprojects/libavconv/libavconv/enc.c
+index 743f950..7b779d1 100644
+--- a/subprojects/libavconv/libavconv/enc.c
++++ b/subprojects/libavconv/libavconv/enc.c
+@@ -33,6 +33,8 @@
+ #include "internal.h"
+ #define KN_HDR_META_FFMPEG
+ #include "kn_hdr_meta.h"
++#define KN_TIMING_ENCODER
++#include "kn_timing.h"
+ 
+ typedef struct EncoderPriv {
+     AVConvEncoder       e;
+@@ -46,6 +48,9 @@ typedef struct EncoderPriv {
+     int opened;
+ 
+     AVConvContext  *cc;
++
++    /* KyberNow (0023): time of each step, logged every 5 s (kn_timing.h) */
++    struct KnTimingStats *kn_timing;
+ } EncoderPriv;
+ 
+ // data that is local to the decoder thread and not visible outside of it
+@@ -62,6 +67,7 @@ static void enc_free(AVRefStructOpaque opaque, void *obj)
+     if (ep->avctx)
+         av_freep(&ep->avctx->stats_in);
+     avcodec_free_context(&ep->avctx);
++    kn_timing_free(&ep->kn_timing); /* KyberNow (0023) */
+ 
+     if (ep->e.opaque_refstruct)
+         av_refstruct_unref(&ep->e.opaque);
+@@ -511,6 +517,10 @@ static int frame_encode_av(EncoderPriv *ep, AVFrame *frame,
+     const char *type_desc = av_get_media_type_string(enc->codec_type);
+     int ret = 0;
+ 
++    /* KyberNow (0023): when the image went in. */
++    if (frame && enc->codec_type == AVMEDIA_TYPE_VIDEO)
++        kn_timing_sent(&ep->kn_timing, frame);
++
+     ret = avcodec_send_frame(enc, frame);
+     if (ret < 0 && !(ret == AVERROR_EOF && !frame)) {
+         av_log(e, AV_LOG_ERROR, "Error submitting %s frame to the encoder\n",
+@@ -552,9 +562,13 @@ static int frame_encode_av(EncoderPriv *ep, AVFrame *frame,
+ 
+         /* KyberNow (0022): HDR10 metadata in NVENC keyframes. */
+         if (enc->codec_type == AVMEDIA_TYPE_VIDEO) {
++            char kn_line[512];
+             ret = kn_hdr_add_to_packet(enc, pkt);
+             if (ret < 0)
+                 return ret;
++            /* KyberNow (0023): the steps of the image, a line every 5 s. */
++            if (kn_timing_packet(ep->kn_timing, enc, pkt, kn_line, sizeof(kn_line)))
++                av_log(e, AV_LOG_INFO, "%s\n", kn_line);
+         }
+ 
+         av_log(e, AV_LOG_DEBUG, "encoder -> "
+diff --git a/subprojects/libavconv/libavconv/kn_timing.h b/subprojects/libavconv/libavconv/kn_timing.h
+new file mode 100644
+index 0000000..fef45f6
+--- /dev/null
++++ b/subprojects/libavconv/libavconv/kn_timing.h
+@@ -0,0 +1,349 @@
++/*
++ * KyberNow (0023): time spent by each image at each step on the computer,
++ * in SDR and in HDR, for both capture engines. The same file is in txproto
++ * (src/kn_timing.h), libavgrab (libavgrab/kn_timing.h) and libavconv
++ * (libavconv/kn_timing.h).
++ *
++ * The capture attaches a KnFrameTiming to each image: frame side data of a
++ * type of its own (like libavgrab's), carried through the filters with the
++ * image and ignored by the encoders. The encoder adds when the image went
++ * in and when its packet came out, and logs one line every 5 s:
++ *
++ *   Timing in ms (5 s, 300 images, HDR10 3840x2160, hevc_nvenc):
++ *   present->capture 1.20 (p95 2.10), submit 0.05 (p95 0.09), GPU conversion
++ *   0.80 (p95 1.00), queue 0.40 (p95 0.90), encode 4.10 (p95 5.00),
++ *   capture->packet 5.40 (p95 7.10)
++ *
++ *  - present->capture: Windows showed the image (DXGI's LastPresentTime,
++ *    WGC's SystemRelativeTime) until the capture took it;
++ *  - submit: from then until its copy or conversion was queued on the
++ *    graphics card (time on the processor);
++ *  - GPU copy / GPU conversion: the graphics card's own time for it, from
++ *    D3D11 timestamp queries read without waiting, one or more images later
++ *    (KnGpuTimer: the value of a recent image);
++ *  - queue: from then until the encoder got the image (filters, scaling,
++ *    queues, an image held back by max_framerate);
++ *  - encode: until its packet came out of the encoder;
++ *  - capture->packet: the capture taking it until the packet (the time on
++ *    the computer, network aside).
++ * Averages, and 95th percentiles in brackets.
++ *
++ * Clock: QueryPerformanceCounter, the one of LastPresentTime and of WGC.
++ */
++
++#ifndef KN_TIMING_H
++#define KN_TIMING_H
++
++#include <stdint.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#ifdef _WIN32
++#include <windows.h>
++#endif
++
++#include <libavutil/frame.h>
++#include <libavutil/mem.h>
++#include <libavutil/time.h>
++
++/* Frame side data: a KnFrameTiming ("KNTM", outside FFmpeg's types). */
++#define KN_FRAME_DATA_TIMING ((enum AVFrameSideDataType)(('K' << 24) | ('N' << 16) | ('T' << 8) | 'M'))
++
++typedef struct KnFrameTiming {
++    int64_t present;   /* Windows showed the image (kn_ticks()), 0 if unknown */
++    int64_t acquired;  /* the capture took it */
++    int64_t submitted; /* its copy or conversion was queued on the graphics card */
++    float gpu_ms;      /* graphics card time of the copy or conversion (a recent image), < 0 if unknown */
++    int mode;          /* 0 SDR, 1 HDR10, 2 SDR from an HDR capture (KN_HDR_*) */
++} KnFrameTiming;
++
++/* Ticks per second of kn_ticks(). */
++static inline int64_t kn_ticks_freq(void)
++{
++#ifdef _WIN32
++    static int64_t freq;
++    if (!freq) {
++        LARGE_INTEGER f;
++        QueryPerformanceFrequency(&f);
++        freq = f.QuadPart > 0 ? f.QuadPart : 1;
++    }
++    return freq;
++#else
++    return 1000000;
++#endif
++}
++
++static inline int64_t kn_ticks(void)
++{
++#ifdef _WIN32
++    LARGE_INTEGER t;
++    QueryPerformanceCounter(&t);
++    return t.QuadPart;
++#else
++    return av_gettime_relative();
++#endif
++}
++
++/* WGC's SystemRelativeTime (QueryPerformanceCounter in 100 ns units). */
++static inline int64_t kn_ticks_from_100ns(int64_t t)
++{
++    return (int64_t)((double)t * (double)kn_ticks_freq() / 10000000.0);
++}
++
++static inline double kn_ticks_ms(int64_t t)
++{
++    return (double)t * 1000.0 / (double)kn_ticks_freq();
++}
++
++/* Attaches `t` to `frame` (nothing if memory runs out: timing is optional). */
++static inline void kn_timing_attach(AVFrame *frame, const KnFrameTiming *t)
++{
++    AVFrameSideData *sd = av_frame_new_side_data(frame, KN_FRAME_DATA_TIMING, sizeof(*t));
++    if (sd)
++        memcpy(sd->data, t, sizeof(*t));
++}
++
++#ifdef KN_TIMING_D3D11
++/* The graphics card's time of the copy or conversion: D3D11 timestamp
++ * queries around it, read without waiting (D3D11_ASYNC_GETDATA_DONOTFLUSH)
++ * on the next images. Called under the device lock (ID3D10Multithread). */
++#include "kn_hdr_capture.h"
++
++#define KN_GPU_QUERIES 8
++
++typedef struct KnGpuTimer {
++    ID3D11Query *disjoint[KN_GPU_QUERIES], *begin[KN_GPU_QUERIES], *end[KN_GPU_QUERIES];
++    unsigned head, tail; /* queued, read */
++    float last_ms;       /* the latest measure, -1 before the first */
++    int ready, failed;
++} KnGpuTimer;
++
++static inline void kn_gpu_timer_free(KnGpuTimer *t)
++{
++    for (int i = 0; i < KN_GPU_QUERIES; i++) {
++        if (t->disjoint[i])
++            ID3D11Query_Release(t->disjoint[i]);
++        if (t->begin[i])
++            ID3D11Query_Release(t->begin[i]);
++        if (t->end[i])
++            ID3D11Query_Release(t->end[i]);
++    }
++    memset(t, 0, sizeof(*t));
++    t->last_ms = -1;
++}
++
++static inline int kn_gpu_timer_init(KnGpuTimer *t, ID3D11Device *device)
++{
++    D3D11_QUERY_DESC disjoint = { D3D11_QUERY_TIMESTAMP_DISJOINT, 0 };
++    D3D11_QUERY_DESC stamp = { D3D11_QUERY_TIMESTAMP, 0 };
++
++    kn_gpu_timer_free(t);
++    for (int i = 0; i < KN_GPU_QUERIES; i++) {
++        if (FAILED(ID3D11Device_CreateQuery(device, &disjoint, &t->disjoint[i])) ||
++            FAILED(ID3D11Device_CreateQuery(device, &stamp, &t->begin[i])) ||
++            FAILED(ID3D11Device_CreateQuery(device, &stamp, &t->end[i]))) {
++            kn_gpu_timer_free(t);
++            t->failed = 1;
++            return -1;
++        }
++    }
++    t->ready = 1;
++    return 0;
++}
++
++static inline void kn_gpu_timer_begin(KnGpuTimer *t, ID3D11Device *device, ID3D11DeviceContext *ctx)
++{
++    unsigned i;
++    if (!t->ready && (t->failed || kn_gpu_timer_init(t, device) < 0))
++        return;
++    if (t->head - t->tail == KN_GPU_QUERIES)
++        t->tail++; /* never read: the oldest is reused */
++    i = t->head % KN_GPU_QUERIES;
++    ID3D11DeviceContext_Begin(ctx, (ID3D11Asynchronous *)t->disjoint[i]);
++    ID3D11DeviceContext_End(ctx, (ID3D11Asynchronous *)t->begin[i]);
++}
++
++static inline void kn_gpu_timer_end(KnGpuTimer *t, ID3D11DeviceContext *ctx)
++{
++    unsigned i;
++    if (!t->ready)
++        return;
++    i = t->head % KN_GPU_QUERIES;
++    ID3D11DeviceContext_End(ctx, (ID3D11Asynchronous *)t->end[i]);
++    ID3D11DeviceContext_End(ctx, (ID3D11Asynchronous *)t->disjoint[i]);
++    t->head++;
++}
++
++/* Reads the queries the graphics card has finished, oldest first. */
++static inline void kn_gpu_timer_collect(KnGpuTimer *t, ID3D11DeviceContext *ctx)
++{
++    while (t->ready && t->tail != t->head) {
++        const unsigned i = t->tail % KN_GPU_QUERIES;
++        D3D11_QUERY_DATA_TIMESTAMP_DISJOINT dj;
++        UINT64 b, e;
++        if (ID3D11DeviceContext_GetData(ctx, (ID3D11Asynchronous *)t->disjoint[i], &dj, sizeof(dj),
++                                        D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK ||
++            ID3D11DeviceContext_GetData(ctx, (ID3D11Asynchronous *)t->begin[i], &b, sizeof(b),
++                                        D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK ||
++            ID3D11DeviceContext_GetData(ctx, (ID3D11Asynchronous *)t->end[i], &e, sizeof(e),
++                                        D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK)
++            break;
++        if (!dj.Disjoint && dj.Frequency && e >= b)
++            t->last_ms = (float)((double)(e - b) * 1000.0 / (double)dj.Frequency);
++        t->tail++;
++    }
++}
++
++/* The device lock of the encoders and filters (FFmpeg's D3D11 device). */
++static inline ID3D10Multithread *kn_timing_lock(ID3D11DeviceContext *ctx)
++{
++    ID3D10Multithread *mt = NULL;
++    if (SUCCEEDED(ID3D11DeviceContext_QueryInterface(ctx, &kn_iid_d3d10_multithread, (void **)&mt)))
++        ID3D10Multithread_Enter(mt);
++    return mt;
++}
++
++static inline void kn_timing_unlock(ID3D10Multithread *mt)
++{
++    if (mt) {
++        ID3D10Multithread_Leave(mt);
++        ID3D10Multithread_Release(mt);
++    }
++}
++#endif /* KN_TIMING_D3D11 */
++
++#ifdef KN_TIMING_ENCODER
++#include <libavcodec/avcodec.h>
++
++#define KN_TIMING_PERIOD_MS 5000
++#define KN_TIMING_PENDING 64
++#define KN_TIMING_SAMPLES 4096
++
++enum { KN_T_PRESENT, KN_T_SUBMIT, KN_T_GPU, KN_T_QUEUE, KN_T_ENCODE, KN_T_TOTAL, KN_T_NB };
++
++typedef struct KnTimingStats {
++    /* Images given to the encoder, waiting for their packet. */
++    struct {
++        int64_t pts, sent;
++        KnFrameTiming t;
++        int used;
++    } pending[KN_TIMING_PENDING];
++    unsigned next;
++
++    float samples[KN_T_NB][KN_TIMING_SAMPLES];
++    int count[KN_T_NB];
++    int images;
++    int64_t start;
++    int mode, width, height;
++} KnTimingStats;
++
++/* Before avcodec_send_frame(): when the image went in. Nothing for an image
++ * without KnFrameTiming (another capture). */
++static inline void kn_timing_sent(KnTimingStats **ps, const AVFrame *frame)
++{
++    const AVFrameSideData *sd = frame ? av_frame_get_side_data(frame, KN_FRAME_DATA_TIMING) : NULL;
++    KnTimingStats *s;
++    unsigned i;
++
++    if (!sd || sd->size < sizeof(KnFrameTiming))
++        return;
++    if (!*ps && !(*ps = av_mallocz(sizeof(**ps))))
++        return;
++    s = *ps;
++    i = s->next++ % KN_TIMING_PENDING;
++    s->pending[i].pts = frame->pts;
++    s->pending[i].sent = kn_ticks();
++    memcpy(&s->pending[i].t, sd->data, sizeof(KnFrameTiming));
++    s->pending[i].used = 1;
++    s->mode = s->pending[i].t.mode;
++    s->width = frame->width;
++    s->height = frame->height;
++}
++
++static inline void kn_timing_add(KnTimingStats *s, int step, double ms)
++{
++    if (ms >= 0 && ms < 10000 && s->count[step] < KN_TIMING_SAMPLES)
++        s->samples[step][s->count[step]++] = (float)ms;
++}
++
++static inline int kn_timing_cmp(const void *a, const void *b)
++{
++    const float x = *(const float *)a, y = *(const float *)b;
++    return (x > y) - (x < y);
++}
++
++/* "1.20 (p95 2.10)" for `step`, "n/a" without a measure. */
++static inline const char *kn_timing_step(KnTimingStats *s, int step, char *buf, size_t size)
++{
++    const int n = s->count[step];
++    double sum = 0;
++    if (!n)
++        return "n/a";
++    qsort(s->samples[step], n, sizeof(float), kn_timing_cmp);
++    for (int i = 0; i < n; i++)
++        sum += s->samples[step][i];
++    snprintf(buf, size, "%.2f (p95 %.2f)", sum / n,
++             s->samples[step][(n * 95 + 99) / 100 - 1]);
++    return buf;
++}
++
++/* After avcodec_receive_packet(): the image's steps. Every 5 s, writes the
++ * line to log into `line` and returns 1 (0 otherwise). */
++static inline int kn_timing_packet(KnTimingStats *s, const AVCodecContext *avctx, const AVPacket *pkt,
++                                   char *line, size_t size)
++{
++    char b[KN_T_NB][48];
++    int64_t now;
++
++    if (!s)
++        return 0;
++    now = kn_ticks();
++    for (int i = 0; i < KN_TIMING_PENDING; i++) {
++        const KnFrameTiming *t = &s->pending[i].t;
++        if (!s->pending[i].used || s->pending[i].pts != pkt->pts)
++            continue;
++        s->pending[i].used = 0;
++        if (t->present > 0 && t->acquired >= t->present)
++            kn_timing_add(s, KN_T_PRESENT, kn_ticks_ms(t->acquired - t->present));
++        kn_timing_add(s, KN_T_SUBMIT, kn_ticks_ms(t->submitted - t->acquired));
++        if (t->gpu_ms >= 0)
++            kn_timing_add(s, KN_T_GPU, t->gpu_ms);
++        kn_timing_add(s, KN_T_QUEUE, kn_ticks_ms(s->pending[i].sent - t->submitted));
++        kn_timing_add(s, KN_T_ENCODE, kn_ticks_ms(now - s->pending[i].sent));
++        kn_timing_add(s, KN_T_TOTAL, kn_ticks_ms(now - t->acquired));
++        s->images++;
++        break;
++    }
++    if (!s->start)
++        s->start = now;
++    if (kn_ticks_ms(now - s->start) < KN_TIMING_PERIOD_MS)
++        return 0;
++
++    if (s->images)
++        snprintf(line, size, "Timing in ms (%.0f s, %d images, %s %dx%d, %s): present->capture %s, submit %s, "
++                 "%s %s, queue %s, encode %s, capture->packet %s",
++                 kn_ticks_ms(now - s->start) / 1000.0, s->images,
++                 s->mode == 1 ? "HDR10" : s->mode == 2 ? "SDR from HDR" : "SDR", s->width, s->height,
++                 avctx->codec ? avctx->codec->name : "?",
++                 kn_timing_step(s, KN_T_PRESENT, b[KN_T_PRESENT], sizeof(b[0])),
++                 kn_timing_step(s, KN_T_SUBMIT, b[KN_T_SUBMIT], sizeof(b[0])),
++                 s->mode ? "GPU conversion" : "GPU copy",
++                 kn_timing_step(s, KN_T_GPU, b[KN_T_GPU], sizeof(b[0])),
++                 kn_timing_step(s, KN_T_QUEUE, b[KN_T_QUEUE], sizeof(b[0])),
++                 kn_timing_step(s, KN_T_ENCODE, b[KN_T_ENCODE], sizeof(b[0])),
++                 kn_timing_step(s, KN_T_TOTAL, b[KN_T_TOTAL], sizeof(b[0])));
++    memset(s->count, 0, sizeof(s->count));
++    s->start = now;
++    if (!s->images)
++        return 0;
++    s->images = 0;
++    return 1;
++}
++
++static inline void kn_timing_free(KnTimingStats **ps)
++{
++    av_freep(ps);
++}
++#endif /* KN_TIMING_ENCODER */
++
++#endif /* KN_TIMING_H */
+diff --git a/subprojects/libavconv/libavgrab/dxgi.c b/subprojects/libavconv/libavgrab/dxgi.c
+index 50ad803..323cd60 100644
+--- a/subprojects/libavconv/libavgrab/dxgi.c
++++ b/subprojects/libavconv/libavgrab/dxgi.c
+@@ -80,6 +80,8 @@
+ #include "internal.h"
+ #include "side_data.h"
+ #include "kn_hdr_capture.h"
++#define KN_TIMING_D3D11
++#include "kn_timing.h"
+ 
+ typedef struct DXGICapture {
+     AVBufferRef                *hw_frames_ref;
+@@ -108,6 +110,12 @@ typedef struct DXGICapture {
+     KnHdrConv                   kn_conv;
+     KnHdrInfo                   kn_info;
+     int                         kn_conv_errors;
++
++    /* KyberNow (0023): the image being copied (kn_ticks(), present 0 if
++     * unknown) and the graphics card's time of the copy or conversion. */
++    int64_t                     kn_present;
++    int64_t                     kn_acquired;
++    KnGpuTimer                  kn_gpu;
+ } DXGICapture;
+ 
+ typedef struct DXGISource {
+@@ -145,6 +153,7 @@ static void dxgi_capture_uninit(GrabCapture *c)
+ 
+     dxgi_capture_reset(priv_c);
+     kn_hdr_conv_free(&priv_c->kn_conv); /* KyberNow (0022) */
++    kn_gpu_timer_free(&priv_c->kn_gpu); /* KyberNow (0023) */
+ }
+ 
+ static int dxgi_cursor_convert_monochrome(AVFrame *frame, uint8_t **pdata, int size,
+@@ -443,7 +452,9 @@ static int dxgi_check_resolution_change(GrabCapture *c, ID3D11Resource *tex)
+ 
+ /* KyberNow (0022): copies the captured texture `src` into `frame`, through
+  * the converter for an HDR10 stream (P010), or for an SDR one when `src` is
+- * 16-bit float (the SDR image of a display captured in HDR). */
++ * 16-bit float (the SDR image of a display captured in HDR). KyberNow
++ * (0023): with the image's timing and the graphics card's time of the copy
++ * or conversion. */
+ static int kn_copy_frame(GrabCapture *c, ID3D11DeviceContext *device_ctx,
+                          ID3D11Resource *src, AVFrame *frame)
+ {
+@@ -453,8 +464,10 @@ static int kn_copy_frame(GrabCapture *c, ID3D11DeviceContext *device_ctx,
+     ID3D11Texture2D *src2d = NULL;
+     ID3D11Device *device = NULL;
+     D3D11_TEXTURE2D_DESC desc = { 0 };
++    ID3D10Multithread *mt;
++    KnFrameTiming timing = { 0 };
+     char err[512];
+-    int mode;
++    int mode, ret = 0;
+     HRESULT hr;
+ 
+     if (SUCCEEDED(ID3D11Resource_QueryInterface(src, &IID_ID3D11Texture2D, (void **)&src2d))) {
+@@ -463,27 +476,45 @@ static int kn_copy_frame(GrabCapture *c, ID3D11DeviceContext *device_ctx,
+     }
+     mode = c->params.hdr == KN_HDR_PQ ? KN_HDR_PQ :
+            desc.Format == DXGI_FORMAT_R16G16B16A16_FLOAT ? KN_HDR_SDR : KN_HDR_OFF;
+-    if (mode == KN_HDR_OFF) {
+-        ID3D11DeviceContext_CopySubresourceRegion(device_ctx, (ID3D11Resource *)dst, slice,
+-                                                  0, 0, 0, src, 0, NULL);
+-        return 0;
+-    }
+ 
+-    if (priv_c->kn_conv.mode != mode) {
+-        int ret;
++    ID3D11DeviceContext_GetDevice(device_ctx, &device);
++    if (mode != KN_HDR_OFF && priv_c->kn_conv.mode != mode) {
+         kn_hdr_conv_free(&priv_c->kn_conv);
+-        ID3D11DeviceContext_GetDevice(device_ctx, &device);
+         ret = kn_hdr_conv_init(&priv_c->kn_conv, device, mode, err, sizeof(err));
+-        ID3D11Device_Release(device);
+         if (ret < 0) {
+             av_log(c, AV_LOG_ERROR, "HDR: no conversion on the graphics card: %s\n", err);
++            ID3D11Device_Release(device);
+             return AVERROR_EXTERNAL;
+         }
+         av_log(c, AV_LOG_INFO, "HDR: conversion to %s on the graphics card\n",
+                mode == KN_HDR_PQ ? "HDR10 (PQ, BT.2020, P010)" : "SDR (BT.709, 8 bits)");
+     }
+-    hr = kn_hdr_conv_run(&priv_c->kn_conv, device_ctx, src, dst, slice,
+-                         frame->width, frame->height, &priv_c->kn_info);
++
++    /* KyberNow (0023): timestamp queries around the copy or conversion. */
++    mt = kn_timing_lock(device_ctx);
++    kn_gpu_timer_begin(&priv_c->kn_gpu, device, device_ctx);
++    if (mode == KN_HDR_OFF) {
++        ID3D11DeviceContext_CopySubresourceRegion(device_ctx, (ID3D11Resource *)dst, slice,
++                                                  0, 0, 0, src, 0, NULL);
++        hr = S_OK;
++    } else {
++        hr = kn_hdr_conv_run(&priv_c->kn_conv, device_ctx, src, dst, slice,
++                             frame->width, frame->height, &priv_c->kn_info);
++    }
++    kn_gpu_timer_end(&priv_c->kn_gpu, device_ctx);
++    kn_gpu_timer_collect(&priv_c->kn_gpu, device_ctx);
++    kn_timing_unlock(mt);
++    ID3D11Device_Release(device);
++
++    timing.present = priv_c->kn_present;
++    timing.acquired = priv_c->kn_acquired;
++    timing.submitted = kn_ticks();
++    timing.gpu_ms = priv_c->kn_gpu.last_ms;
++    timing.mode = mode;
++    kn_timing_attach(frame, &timing);
++    if (mode == KN_HDR_OFF)
++        return 0;
++
+     if (FAILED(hr)) {
+         if (!priv_c->kn_conv_errors++)
+             av_log(c, AV_LOG_ERROR, "HDR: conversion failed: 0x%lX\n", hr);
+@@ -503,9 +534,6 @@ static int dxgi_dup_resource(GrabCapture *c, ID3D11DeviceContext *device_ctx,
+ {
+     DXGICapture *priv_c = c->priv;
+     ID3D11Resource *acquired_tex;
+-    ID3D11Resource  *target_resource;
+-    ID3D11Texture2D *target_tex;
+-    intptr_t         target_tex_idx;
+ 
+     HRESULT hr;
+     int ret = 0;
+@@ -530,31 +558,10 @@ static int dxgi_dup_resource(GrabCapture *c, ID3D11DeviceContext *device_ctx,
+         goto finish;
+     }
+ 
+-    target_tex     = (ID3D11Texture2D*)frame->data[0];
+-    target_tex_idx = (intptr_t)        frame->data[1];
+-
+-    /* KyberNow (0022): converted on the graphics card for HDR. */
+-    if (c->params.hdr != KN_HDR_OFF) {
+-        ret = kn_copy_frame(c, device_ctx, acquired_tex, frame);
+-        goto finish;
+-    }
+-
+-    hr = ID3D11Texture2D_QueryInterface(target_tex,
+-                                        &IID_ID3D11Resource,
+-                                        (void **)&target_resource);
+-    if (FAILED(hr)) {
+-        av_log(c, AV_LOG_ERROR,
+-               "Failed to get ID3D11Resource from ID3D11Texture2D: 0x%lX\n", hr);
+-        ret = AVERROR_EXTERNAL;
+-        goto finish;
+-    }
+-
+-    ID3D11DeviceContext_CopySubresourceRegion(device_ctx,
+-                                              target_resource, target_tex_idx,
+-                                              0, 0, 0,
+-                                              acquired_tex, 0,
+-                                              NULL);
+-    ID3D11Resource_Release(target_resource);
++    /* KyberNow (0022): converted on the graphics card for HDR. KyberNow
++     * (0023): an SDR image too goes through kn_copy_frame() (a plain copy),
++     * timed. */
++    ret = kn_copy_frame(c, device_ctx, acquired_tex, frame);
+ 
+ finish:
+     IDXGIResource_Release(acquired_tex);
+@@ -776,6 +783,9 @@ static int dxgi_acquire_frame(GrabCapture *c, ID3D11DeviceContext *device_ctx)
+     hr = IDXGIOutputDuplication_AcquireNextFrame(priv_c->out_dup,
+                                                  100, /* 100 ms */
+                                                  &frame_info, &res);
++    /* KyberNow (0023): when Windows showed the image and when it was taken. */
++    priv_c->kn_acquired = kn_ticks();
++    priv_c->kn_present  = frame_info.LastPresentTime.QuadPart;
+     if (hr == DXGI_ERROR_WAIT_TIMEOUT) {
+         return AVERROR(EAGAIN);
+     } else if (hr == DXGI_ERROR_ACCESS_LOST) {
+diff --git a/subprojects/libavconv/libavgrab/kn_timing.h b/subprojects/libavconv/libavgrab/kn_timing.h
+new file mode 100644
+index 0000000..fef45f6
+--- /dev/null
++++ b/subprojects/libavconv/libavgrab/kn_timing.h
+@@ -0,0 +1,349 @@
++/*
++ * KyberNow (0023): time spent by each image at each step on the computer,
++ * in SDR and in HDR, for both capture engines. The same file is in txproto
++ * (src/kn_timing.h), libavgrab (libavgrab/kn_timing.h) and libavconv
++ * (libavconv/kn_timing.h).
++ *
++ * The capture attaches a KnFrameTiming to each image: frame side data of a
++ * type of its own (like libavgrab's), carried through the filters with the
++ * image and ignored by the encoders. The encoder adds when the image went
++ * in and when its packet came out, and logs one line every 5 s:
++ *
++ *   Timing in ms (5 s, 300 images, HDR10 3840x2160, hevc_nvenc):
++ *   present->capture 1.20 (p95 2.10), submit 0.05 (p95 0.09), GPU conversion
++ *   0.80 (p95 1.00), queue 0.40 (p95 0.90), encode 4.10 (p95 5.00),
++ *   capture->packet 5.40 (p95 7.10)
++ *
++ *  - present->capture: Windows showed the image (DXGI's LastPresentTime,
++ *    WGC's SystemRelativeTime) until the capture took it;
++ *  - submit: from then until its copy or conversion was queued on the
++ *    graphics card (time on the processor);
++ *  - GPU copy / GPU conversion: the graphics card's own time for it, from
++ *    D3D11 timestamp queries read without waiting, one or more images later
++ *    (KnGpuTimer: the value of a recent image);
++ *  - queue: from then until the encoder got the image (filters, scaling,
++ *    queues, an image held back by max_framerate);
++ *  - encode: until its packet came out of the encoder;
++ *  - capture->packet: the capture taking it until the packet (the time on
++ *    the computer, network aside).
++ * Averages, and 95th percentiles in brackets.
++ *
++ * Clock: QueryPerformanceCounter, the one of LastPresentTime and of WGC.
++ */
++
++#ifndef KN_TIMING_H
++#define KN_TIMING_H
++
++#include <stdint.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#ifdef _WIN32
++#include <windows.h>
++#endif
++
++#include <libavutil/frame.h>
++#include <libavutil/mem.h>
++#include <libavutil/time.h>
++
++/* Frame side data: a KnFrameTiming ("KNTM", outside FFmpeg's types). */
++#define KN_FRAME_DATA_TIMING ((enum AVFrameSideDataType)(('K' << 24) | ('N' << 16) | ('T' << 8) | 'M'))
++
++typedef struct KnFrameTiming {
++    int64_t present;   /* Windows showed the image (kn_ticks()), 0 if unknown */
++    int64_t acquired;  /* the capture took it */
++    int64_t submitted; /* its copy or conversion was queued on the graphics card */
++    float gpu_ms;      /* graphics card time of the copy or conversion (a recent image), < 0 if unknown */
++    int mode;          /* 0 SDR, 1 HDR10, 2 SDR from an HDR capture (KN_HDR_*) */
++} KnFrameTiming;
++
++/* Ticks per second of kn_ticks(). */
++static inline int64_t kn_ticks_freq(void)
++{
++#ifdef _WIN32
++    static int64_t freq;
++    if (!freq) {
++        LARGE_INTEGER f;
++        QueryPerformanceFrequency(&f);
++        freq = f.QuadPart > 0 ? f.QuadPart : 1;
++    }
++    return freq;
++#else
++    return 1000000;
++#endif
++}
++
++static inline int64_t kn_ticks(void)
++{
++#ifdef _WIN32
++    LARGE_INTEGER t;
++    QueryPerformanceCounter(&t);
++    return t.QuadPart;
++#else
++    return av_gettime_relative();
++#endif
++}
++
++/* WGC's SystemRelativeTime (QueryPerformanceCounter in 100 ns units). */
++static inline int64_t kn_ticks_from_100ns(int64_t t)
++{
++    return (int64_t)((double)t * (double)kn_ticks_freq() / 10000000.0);
++}
++
++static inline double kn_ticks_ms(int64_t t)
++{
++    return (double)t * 1000.0 / (double)kn_ticks_freq();
++}
++
++/* Attaches `t` to `frame` (nothing if memory runs out: timing is optional). */
++static inline void kn_timing_attach(AVFrame *frame, const KnFrameTiming *t)
++{
++    AVFrameSideData *sd = av_frame_new_side_data(frame, KN_FRAME_DATA_TIMING, sizeof(*t));
++    if (sd)
++        memcpy(sd->data, t, sizeof(*t));
++}
++
++#ifdef KN_TIMING_D3D11
++/* The graphics card's time of the copy or conversion: D3D11 timestamp
++ * queries around it, read without waiting (D3D11_ASYNC_GETDATA_DONOTFLUSH)
++ * on the next images. Called under the device lock (ID3D10Multithread). */
++#include "kn_hdr_capture.h"
++
++#define KN_GPU_QUERIES 8
++
++typedef struct KnGpuTimer {
++    ID3D11Query *disjoint[KN_GPU_QUERIES], *begin[KN_GPU_QUERIES], *end[KN_GPU_QUERIES];
++    unsigned head, tail; /* queued, read */
++    float last_ms;       /* the latest measure, -1 before the first */
++    int ready, failed;
++} KnGpuTimer;
++
++static inline void kn_gpu_timer_free(KnGpuTimer *t)
++{
++    for (int i = 0; i < KN_GPU_QUERIES; i++) {
++        if (t->disjoint[i])
++            ID3D11Query_Release(t->disjoint[i]);
++        if (t->begin[i])
++            ID3D11Query_Release(t->begin[i]);
++        if (t->end[i])
++            ID3D11Query_Release(t->end[i]);
++    }
++    memset(t, 0, sizeof(*t));
++    t->last_ms = -1;
++}
++
++static inline int kn_gpu_timer_init(KnGpuTimer *t, ID3D11Device *device)
++{
++    D3D11_QUERY_DESC disjoint = { D3D11_QUERY_TIMESTAMP_DISJOINT, 0 };
++    D3D11_QUERY_DESC stamp = { D3D11_QUERY_TIMESTAMP, 0 };
++
++    kn_gpu_timer_free(t);
++    for (int i = 0; i < KN_GPU_QUERIES; i++) {
++        if (FAILED(ID3D11Device_CreateQuery(device, &disjoint, &t->disjoint[i])) ||
++            FAILED(ID3D11Device_CreateQuery(device, &stamp, &t->begin[i])) ||
++            FAILED(ID3D11Device_CreateQuery(device, &stamp, &t->end[i]))) {
++            kn_gpu_timer_free(t);
++            t->failed = 1;
++            return -1;
++        }
++    }
++    t->ready = 1;
++    return 0;
++}
++
++static inline void kn_gpu_timer_begin(KnGpuTimer *t, ID3D11Device *device, ID3D11DeviceContext *ctx)
++{
++    unsigned i;
++    if (!t->ready && (t->failed || kn_gpu_timer_init(t, device) < 0))
++        return;
++    if (t->head - t->tail == KN_GPU_QUERIES)
++        t->tail++; /* never read: the oldest is reused */
++    i = t->head % KN_GPU_QUERIES;
++    ID3D11DeviceContext_Begin(ctx, (ID3D11Asynchronous *)t->disjoint[i]);
++    ID3D11DeviceContext_End(ctx, (ID3D11Asynchronous *)t->begin[i]);
++}
++
++static inline void kn_gpu_timer_end(KnGpuTimer *t, ID3D11DeviceContext *ctx)
++{
++    unsigned i;
++    if (!t->ready)
++        return;
++    i = t->head % KN_GPU_QUERIES;
++    ID3D11DeviceContext_End(ctx, (ID3D11Asynchronous *)t->end[i]);
++    ID3D11DeviceContext_End(ctx, (ID3D11Asynchronous *)t->disjoint[i]);
++    t->head++;
++}
++
++/* Reads the queries the graphics card has finished, oldest first. */
++static inline void kn_gpu_timer_collect(KnGpuTimer *t, ID3D11DeviceContext *ctx)
++{
++    while (t->ready && t->tail != t->head) {
++        const unsigned i = t->tail % KN_GPU_QUERIES;
++        D3D11_QUERY_DATA_TIMESTAMP_DISJOINT dj;
++        UINT64 b, e;
++        if (ID3D11DeviceContext_GetData(ctx, (ID3D11Asynchronous *)t->disjoint[i], &dj, sizeof(dj),
++                                        D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK ||
++            ID3D11DeviceContext_GetData(ctx, (ID3D11Asynchronous *)t->begin[i], &b, sizeof(b),
++                                        D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK ||
++            ID3D11DeviceContext_GetData(ctx, (ID3D11Asynchronous *)t->end[i], &e, sizeof(e),
++                                        D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK)
++            break;
++        if (!dj.Disjoint && dj.Frequency && e >= b)
++            t->last_ms = (float)((double)(e - b) * 1000.0 / (double)dj.Frequency);
++        t->tail++;
++    }
++}
++
++/* The device lock of the encoders and filters (FFmpeg's D3D11 device). */
++static inline ID3D10Multithread *kn_timing_lock(ID3D11DeviceContext *ctx)
++{
++    ID3D10Multithread *mt = NULL;
++    if (SUCCEEDED(ID3D11DeviceContext_QueryInterface(ctx, &kn_iid_d3d10_multithread, (void **)&mt)))
++        ID3D10Multithread_Enter(mt);
++    return mt;
++}
++
++static inline void kn_timing_unlock(ID3D10Multithread *mt)
++{
++    if (mt) {
++        ID3D10Multithread_Leave(mt);
++        ID3D10Multithread_Release(mt);
++    }
++}
++#endif /* KN_TIMING_D3D11 */
++
++#ifdef KN_TIMING_ENCODER
++#include <libavcodec/avcodec.h>
++
++#define KN_TIMING_PERIOD_MS 5000
++#define KN_TIMING_PENDING 64
++#define KN_TIMING_SAMPLES 4096
++
++enum { KN_T_PRESENT, KN_T_SUBMIT, KN_T_GPU, KN_T_QUEUE, KN_T_ENCODE, KN_T_TOTAL, KN_T_NB };
++
++typedef struct KnTimingStats {
++    /* Images given to the encoder, waiting for their packet. */
++    struct {
++        int64_t pts, sent;
++        KnFrameTiming t;
++        int used;
++    } pending[KN_TIMING_PENDING];
++    unsigned next;
++
++    float samples[KN_T_NB][KN_TIMING_SAMPLES];
++    int count[KN_T_NB];
++    int images;
++    int64_t start;
++    int mode, width, height;
++} KnTimingStats;
++
++/* Before avcodec_send_frame(): when the image went in. Nothing for an image
++ * without KnFrameTiming (another capture). */
++static inline void kn_timing_sent(KnTimingStats **ps, const AVFrame *frame)
++{
++    const AVFrameSideData *sd = frame ? av_frame_get_side_data(frame, KN_FRAME_DATA_TIMING) : NULL;
++    KnTimingStats *s;
++    unsigned i;
++
++    if (!sd || sd->size < sizeof(KnFrameTiming))
++        return;
++    if (!*ps && !(*ps = av_mallocz(sizeof(**ps))))
++        return;
++    s = *ps;
++    i = s->next++ % KN_TIMING_PENDING;
++    s->pending[i].pts = frame->pts;
++    s->pending[i].sent = kn_ticks();
++    memcpy(&s->pending[i].t, sd->data, sizeof(KnFrameTiming));
++    s->pending[i].used = 1;
++    s->mode = s->pending[i].t.mode;
++    s->width = frame->width;
++    s->height = frame->height;
++}
++
++static inline void kn_timing_add(KnTimingStats *s, int step, double ms)
++{
++    if (ms >= 0 && ms < 10000 && s->count[step] < KN_TIMING_SAMPLES)
++        s->samples[step][s->count[step]++] = (float)ms;
++}
++
++static inline int kn_timing_cmp(const void *a, const void *b)
++{
++    const float x = *(const float *)a, y = *(const float *)b;
++    return (x > y) - (x < y);
++}
++
++/* "1.20 (p95 2.10)" for `step`, "n/a" without a measure. */
++static inline const char *kn_timing_step(KnTimingStats *s, int step, char *buf, size_t size)
++{
++    const int n = s->count[step];
++    double sum = 0;
++    if (!n)
++        return "n/a";
++    qsort(s->samples[step], n, sizeof(float), kn_timing_cmp);
++    for (int i = 0; i < n; i++)
++        sum += s->samples[step][i];
++    snprintf(buf, size, "%.2f (p95 %.2f)", sum / n,
++             s->samples[step][(n * 95 + 99) / 100 - 1]);
++    return buf;
++}
++
++/* After avcodec_receive_packet(): the image's steps. Every 5 s, writes the
++ * line to log into `line` and returns 1 (0 otherwise). */
++static inline int kn_timing_packet(KnTimingStats *s, const AVCodecContext *avctx, const AVPacket *pkt,
++                                   char *line, size_t size)
++{
++    char b[KN_T_NB][48];
++    int64_t now;
++
++    if (!s)
++        return 0;
++    now = kn_ticks();
++    for (int i = 0; i < KN_TIMING_PENDING; i++) {
++        const KnFrameTiming *t = &s->pending[i].t;
++        if (!s->pending[i].used || s->pending[i].pts != pkt->pts)
++            continue;
++        s->pending[i].used = 0;
++        if (t->present > 0 && t->acquired >= t->present)
++            kn_timing_add(s, KN_T_PRESENT, kn_ticks_ms(t->acquired - t->present));
++        kn_timing_add(s, KN_T_SUBMIT, kn_ticks_ms(t->submitted - t->acquired));
++        if (t->gpu_ms >= 0)
++            kn_timing_add(s, KN_T_GPU, t->gpu_ms);
++        kn_timing_add(s, KN_T_QUEUE, kn_ticks_ms(s->pending[i].sent - t->submitted));
++        kn_timing_add(s, KN_T_ENCODE, kn_ticks_ms(now - s->pending[i].sent));
++        kn_timing_add(s, KN_T_TOTAL, kn_ticks_ms(now - t->acquired));
++        s->images++;
++        break;
++    }
++    if (!s->start)
++        s->start = now;
++    if (kn_ticks_ms(now - s->start) < KN_TIMING_PERIOD_MS)
++        return 0;
++
++    if (s->images)
++        snprintf(line, size, "Timing in ms (%.0f s, %d images, %s %dx%d, %s): present->capture %s, submit %s, "
++                 "%s %s, queue %s, encode %s, capture->packet %s",
++                 kn_ticks_ms(now - s->start) / 1000.0, s->images,
++                 s->mode == 1 ? "HDR10" : s->mode == 2 ? "SDR from HDR" : "SDR", s->width, s->height,
++                 avctx->codec ? avctx->codec->name : "?",
++                 kn_timing_step(s, KN_T_PRESENT, b[KN_T_PRESENT], sizeof(b[0])),
++                 kn_timing_step(s, KN_T_SUBMIT, b[KN_T_SUBMIT], sizeof(b[0])),
++                 s->mode ? "GPU conversion" : "GPU copy",
++                 kn_timing_step(s, KN_T_GPU, b[KN_T_GPU], sizeof(b[0])),
++                 kn_timing_step(s, KN_T_QUEUE, b[KN_T_QUEUE], sizeof(b[0])),
++                 kn_timing_step(s, KN_T_ENCODE, b[KN_T_ENCODE], sizeof(b[0])),
++                 kn_timing_step(s, KN_T_TOTAL, b[KN_T_TOTAL], sizeof(b[0])));
++    memset(s->count, 0, sizeof(s->count));
++    s->start = now;
++    if (!s->images)
++        return 0;
++    s->images = 0;
++    return 1;
++}
++
++static inline void kn_timing_free(KnTimingStats **ps)
++{
++    av_freep(ps);
++}
++#endif /* KN_TIMING_ENCODER */
++
++#endif /* KN_TIMING_H */

@@ -81,7 +81,9 @@
 #   0022  HDR (cinq fichiers, docs/hdr.md). Serveur : txproto et libavgrab capturent
 #         en 16 bits flottants (DuplicateOutput1, et l'anneau WGC d'Admin en
 #         R16G16B16A16) et convertissent sur la carte (shaders HLSL compilés
-#         par d3dcompiler_47.dll, communs aux deux moteurs) : HDR10 en P010
+#         par d3dcompiler_47.dll, communs aux deux moteurs ; texture capturée
+#         lue sans copie, HDR10 en une passe par bloc 2 × 2 et table PQ, puis
+#         une passe légère pour la luma) : HDR10 en P010
 #         (PQ, BT.2020, plage limitée) ou SDR (courbe douce, BGRA) ; HEVC
 #         Main 10 et AV1 10 bits sur NVENC, AMF et QSV, métadonnées HDR10
 #         d'après IDXGIOutput6::GetDesc1 (insérées après l'encodage pour
@@ -94,6 +96,12 @@
 #         (kyctl-common, lu par kycontroller : posé ici avant
 #         0022-kycontroller-hdr) ; les apps le posent aussi, après leurs
 #         propres correctifs (apps/macos/scripts/build-kyclient.sh…)
+#   0023  chronométrage par étape (txproto, et libavgrab/libavconv) : la
+#         capture joint à chaque image ses heures (affichage par Windows,
+#         prise, soumission à la carte) et le temps de la carte pour la copie
+#         ou la conversion (requêtes d'horodatage D3D11 lues sans attendre) ;
+#         l'encodeur écrit toutes les 5 s « Timing in ms … » (moyennes et
+#         95e centile), en SDR comme en HDR
 #
 # Prérequis (Homebrew) : mingw-w64 meson ninja nasm cmake bison lua@5.4
 # binaryen, wasm-bindgen-cli (cargo install), rustup target
