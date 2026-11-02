@@ -1792,7 +1792,7 @@ mod tests {
     }
 
     fn screen(w: u32, h: u32, hz: u32) -> DeviceScreen {
-        DeviceScreen { x: 0.0, y: 0.0, width: f64::from(w) / 3.0, height: f64::from(h) / 3.0, pixel_width: w, pixel_height: h, refresh: hz, primary: true, hdr: false }
+        DeviceScreen { x: 0.0, y: 0.0, width: f64::from(w) / 3.0, height: f64::from(h) / 3.0, pixel_width: w, pixel_height: h, refresh: hz, primary: true, hdr: false, luminance: None }
     }
 
     #[test]

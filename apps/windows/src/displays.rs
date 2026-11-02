@@ -131,6 +131,7 @@ pub fn screens(monitors: &[Monitor], spec: Spec) -> Screens {
                 refresh: if spec.lighten { m.refresh.min(30) } else { m.refresh },
                 primary: m.primary,
                 hdr: false,
+                luminance: None,
             })
             .collect(),
         current: current(monitors),

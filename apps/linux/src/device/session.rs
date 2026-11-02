@@ -594,7 +594,7 @@ pub fn decoder_caps(m: &Machine) -> DecoderCaps {
 
 /// L'écran de la fenêtre, pour « Auto » : définition native (en paysage) et fréquence (`auto_quality`).
 pub fn auto_screen(pixel: (u32, u32), refresh: u32) -> kybernow_core::screens::DeviceScreen {
-    kybernow_core::screens::DeviceScreen { x: 0.0, y: 0.0, width: f64::from(pixel.0), height: f64::from(pixel.1), pixel_width: pixel.0, pixel_height: pixel.1, refresh, primary: true, hdr: false }
+    kybernow_core::screens::DeviceScreen { x: 0.0, y: 0.0, width: f64::from(pixel.0), height: f64::from(pixel.1), pixel_width: pixel.0, pixel_height: pixel.1, refresh, primary: true, hdr: false, luminance: None }
 }
 
 struct InputCallbacks(Arc<Shared>);
@@ -751,6 +751,7 @@ pub fn start(id: SessionId, host: &Host, settings: StreamSettings, mode: (u32, u
             // Un relais connu pour cet ordinateur : l'image passe par le réseau, et par lui quand le réseau ne répond pas.
             route: kybernow_core::session::Route::Auto(relay_route(host)),
             screen_hdr: false,
+            screen_luminance: None,
             capabilities: None,
         },
     };

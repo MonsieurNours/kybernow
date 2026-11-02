@@ -383,7 +383,7 @@ pub fn share_view(st: &ShareState) -> Option<ShareView> {
 /// la sortie du téléviseur (sa dalle en paysage, sa fréquence) et ce que son décodeur suit (HEVC, AV1 s'il l'a,
 /// jamais de 4:4:4 ; aucune autre borne connue que la dalle). La Station tranche et borne par l'image de l'hôte.
 pub fn auto_quality(tv: &crate::app::TvInfo) -> share::ShareAuto {
-    let screen = kybernow_core::screens::DeviceScreen { x: 0.0, y: 0.0, width: f64::from(tv.panel.0), height: f64::from(tv.panel.1), pixel_width: tv.panel.0, pixel_height: tv.panel.1, refresh: tv.refresh, primary: true, hdr: tv.hdr };
+    let screen = kybernow_core::screens::DeviceScreen { x: 0.0, y: 0.0, width: f64::from(tv.panel.0), height: f64::from(tv.panel.1), pixel_width: tv.panel.0, pixel_height: tv.panel.1, refresh: tv.refresh, primary: true, hdr: tv.hdr, luminance: None };
     let caps = Capabilities { hdr: tv.hdr_decoder, ..guest_capabilities(tv.av1) };
     share::auto_quality(&screen, &share::DecoderCaps::from(caps), None)
 }
@@ -487,12 +487,17 @@ fn hdr_capabilities(caps: Capabilities, ask: HdrAsk) -> Capabilities {
     Capabilities { hdr: ask.decoder, ..caps }
 }
 
-/// L'écran du téléviseur (`SessionParams::screen_hdr` du cœur). Une dalle ne perd ni ne gagne le HDR en session :
-/// jamais de `Session::screen_hdr_changed`. Ses valeurs (`SessionParams::screen_luminance`, `HdrLuminance` du cœur)
-/// iront avec, quand le cœur les aura : en attendant, les valeurs par défaut de la Station.
+/// L'écran du téléviseur (`SessionParams::screen_hdr` du cœur) et ses valeurs (`SessionParams::screen_luminance`) :
+/// celles du « Réglage du HDR », sinon celles par défaut (webOS ne les donne pas). Une dalle ne perd ni ne gagne le
+/// HDR en session : jamais de `Session::screen_hdr_changed`.
 fn hdr_params(params: SessionParams, ask: HdrAsk) -> SessionParams {
-    let _ = ask.luminance;
-    SessionParams { screen_hdr: ask.screen, ..params }
+    SessionParams { screen_hdr: ask.screen, screen_luminance: Some(core_luminance(ask.luminance)), ..params }
+}
+
+/// Les valeurs de l'écran pour le cœur (`HdrLuminance`, bornées par lui) : réglées à l'œil, sinon par défaut.
+pub fn core_luminance(l: Option<crate::model::Luminance>) -> kybernow_core::profile::HdrLuminance {
+    let l = l.unwrap_or_default();
+    kybernow_core::profile::HdrLuminance { max: f64::from(l.max), full_frame: f64::from(l.full_frame), min: f64::from(l.min), sdr_white: f64::from(l.sdr_white) }.clamped()
 }
 
 /// L'interrupteur « HDR » du menu de session (`Session::set_hdr` du cœur : Admin allume ou éteint le HDR de l'écran
@@ -608,6 +613,7 @@ pub fn start(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32), 
             // Un relais connu pour cet ordinateur : l'image passe par le réseau, et par lui quand le réseau ne répond pas.
             route: kybernow_core::session::Route::Auto(relay_route(host)),
             screen_hdr: false,
+            screen_luminance: None,
             capabilities: None,
         },
     };

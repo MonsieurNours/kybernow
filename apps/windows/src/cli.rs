@@ -328,6 +328,7 @@ pub fn main() -> i32 {
         role: kybernow_core::session::SessionRole::Host,
         route: kybernow_core::session::Route::Direct,
         screen_hdr: false,
+        screen_luminance: None,
         capabilities: None,
     };
     let (tx, rx) = mpsc::channel();

@@ -852,7 +852,7 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
             Err(share::ShareError::Lend(c)) => {
                 if app.join_lending(attempt) {
                     let c = *c;
-                    let request = jobs::borrow_request(lend::LendCredentials::Code { code: c.code.clone() }, app.join.name.trim().to_string(), app.store.device_id.clone(), borrow_screen(app), app.tv.av1);
+                    let request = jobs::borrow_request(lend::LendCredentials::Code { code: c.code.clone() }, app.join.name.trim().to_string(), app.store.device_id.clone(), borrow_screen(app), (app.borrowed_hdr_on(""), app.store.app.hdr_luminance), app.tv.av1);
                     jobs::borrow(crate::app::BorrowSource::Code { attempt }, c.target, c.route, request, tx.clone());
                 }
             }
@@ -1138,7 +1138,7 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
             let Some(b) = app.store.borrowed(&id).cloned() else { return };
             let target = ShareTarget { host: b.address.clone(), port: b.port, fingerprint: b.fingerprint.clone() };
             let name = if app.store.app.share_name.trim().is_empty() { app.device_name() } else { app.store.app.share_name.trim().to_string() };
-            let request = jobs::borrow_request(lend::LendCredentials::Account { login: b.login.clone(), password }, name, app.store.device_id.clone(), borrow_screen(app), app.tv.av1);
+            let request = jobs::borrow_request(lend::LendCredentials::Account { login: b.login.clone(), password }, name, app.store.device_id.clone(), borrow_screen(app), (app.borrowed_hdr_on(&b.id), app.store.app.hdr_luminance), app.tv.av1);
             // Ajouté par un lien d'invitation avec relais : aussi hors de chez soi (le réseau d'abord).
             let route = jobs::borrowed_route(b.relay.as_deref(), b.sid.as_deref(), b.fingerprint.as_deref());
             jobs::borrow(app.borrow_source(), target, route, request, tx.clone());
