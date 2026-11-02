@@ -82,7 +82,7 @@ All JSON, on Admin's port, certificate pinned as for sharing. The names below ar
   5. “Open” and “Save as” windows of the allowed apps closed;
   6. Steam: “Their Steam account” → Steam closed (`steam -shutdown`), `config/loginusers.vdf` and auto-login (`AutoLoginUser`) set aside, Steam reopened in Big Picture at the sign-in screen; at the end, Steam closed, what the friend left erased, the user's files put back, Steam reopened if it was running.
 - **End**: allowed apps closed (`WM_CLOSE`, then killed after 10 s), Steam restored, windows restored, taskbar, virtual display removed, cursor freed, hooks removed, `LockWorkStation`.
-- **Locked session**: the loan does not start (`423 locked`). Lending on: `SetThreadExecutionState` prevents sleep and the display turning off, which would lock the session (to check on the computer with “Require sign-in”).
+- **Locked session**: the loan does not start (`423 locked`). Lending on: `SetThreadExecutionState` prevents sleep and the display turning off, which would lock the session (checked on the computer on 02/11/2026 with “Require sign-in”).
 - **Computer in use**: a device session, an open share, or physical input in the last 5 minutes (`GetLastInputInfo` also counts Kyber's injected input: input from before the end of the last remote session, device, share or loan, does not count).
 - **Time slots** in the PC's local time; 2-minute notice before the end; a slot that starts while the computer is in use does nothing until the friend arrives.
 - **Guards**: restart, update, end of session and pending accounts see the loan (“The computer is lent to Léa: restarting will stop the loan.”).
