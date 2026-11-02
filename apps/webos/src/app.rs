@@ -152,6 +152,8 @@ pub enum StationHdr {
     Windows,
     /// Encodeur sans 10 bits.
     Encoder,
+    /// Sans écran virtuel, l'écran du PC est en SDR (`reason: "display"`).
+    Display,
 }
 
 /// Pourquoi la puce « HDR » est inactive, la première raison qui s'applique (docs/hdr.md, « Quand le HDR n'est pas
@@ -3765,7 +3767,8 @@ impl App {
     }
 
     /// La puce « HDR » de cet ordinateur ; `None` sur un écran SDR (aucune trace du HDR). Miroir de
-    /// `profile::hdr_state` du cœur : la Station, puis le format choisi, puis le décodeur.
+    /// `profile::hdr_block` du cœur (l'interface seule n'a pas le cœur) : ce que la Station dit, puis le format
+    /// choisi, puis le décodeur.
     pub fn hdr_ui(&self, h: &Host) -> Option<HdrUi> {
         if !self.tv.hdr {
             return None;
@@ -3777,6 +3780,7 @@ impl App {
             Some(StationHdr::Off) => Some(HdrReason::Station),
             Some(StationHdr::Windows) => Some(HdrReason::Windows),
             Some(StationHdr::Encoder) => Some(HdrReason::Encoder),
+            Some(StationHdr::Display) => Some(HdrReason::PcDisplay),
         }
         .or((h.settings.codec == "h264").then_some(HdrReason::Format))
         .or((!self.tv.hdr_decoder).then_some(HdrReason::Decoder));

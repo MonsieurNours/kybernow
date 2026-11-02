@@ -26,7 +26,7 @@ use kybernow_core::i18n::{self, Lang};
 use kybernow_core::kynput_rs::Pipeline;
 use kybernow_core::latency::{self, Second};
 use kybernow_core::media::{Packet, PacketHandler};
-use kybernow_core::profile::{Codec, Profile, StreamSettings};
+use kybernow_core::profile::{self, Capabilities, Codec, Profile, StreamSettings};
 use kybernow_core::screens::{self, DisplaysChoice, DisplaysSetting, Screens};
 use kybernow_core::session::{EndReport, Notice, Platform, Session, SessionParams, Status, StreamScreen};
 use kybernow_core::share::{ShareEnd, ShareImage, ShareQuality, ShareRole, ShareState};
@@ -633,6 +633,9 @@ pub struct KnSecond {
     pub has_rtt: bool,
     pub rtt_ms: f64,
     pub bytes: u64,
+    /// Un écran au moins de l'image en cours est en HDR (statistiques :
+    /// « HDR » après le format).
+    pub hdr: bool,
 }
 
 impl From<&Second> for KnSecond {
@@ -652,6 +655,7 @@ impl From<&Second> for KnSecond {
             has_rtt: s.rtt_ms.is_some(),
             rtt_ms: s.rtt_ms.unwrap_or(0.0),
             bytes: s.bytes,
+            hdr: s.hdr,
         }
     }
 }
@@ -680,6 +684,11 @@ pub const KN_NOTICE_RESTORE_OFFER: u32 = 6;
 /// pas cet avis (pas de nouvel état : les apps prennent un état inconnu pour
 /// la fin de session).
 pub const KN_NOTICE_STATION_RESTARTING: u32 = 7;
+/// HDR (docs/hdr.md) : Windows a refusé le HDR d'un écran virtuel, l'image
+/// de cet écran est en SDR ; une fois par session. `error` : le texte à
+/// montrer, « L'ordinateur n'a pas pu passer en HDR : image en SDR. » (langue
+/// de l'app).
+pub const KN_NOTICE_HDR_REFUSED: u32 = 8;
 
 #[repr(C)]
 pub struct KnNotice {
@@ -790,6 +799,13 @@ pub struct KnPlatform {
     /// `kn_console_lend_state`), quand elle change ; nulle quand il n'y a
     /// rien à dire (ni code, ni demande, ni prêt).
     pub on_lend: Option<unsafe extern "C" fn(userdata: *mut c_void, lend_json: *const c_char)>,
+    /// HDR (docs/hdr.md) : à chaque démarrage de l'image (après `on_display`
+    /// et `on_screens`, avant `input_pipeline`), quels écrans sont en HDR,
+    /// `count` booléens dans l'ordre des écrans du flux (`on_screens`,
+    /// principal en premier ; un seul pour une session à un écran). Un écran
+    /// en HDR se rend en PQ / BT.2020 (`CAMetalLayer` en `rgba16Float`,
+    /// `itur_2100_PQ`), les autres en SDR.
+    pub on_hdr: Option<unsafe extern "C" fn(userdata: *mut c_void, hdr: *const bool, count: usize)>,
 }
 
 struct ApplePlatform {
@@ -1023,6 +1039,12 @@ impl Platform for ApplePlatform {
         }
     }
 
+    fn on_hdr(&self, hdr: &[bool]) {
+        if let Some(f) = self.cb.on_hdr {
+            unsafe { f(self.cb.userdata, hdr.as_ptr(), hdr.len()) };
+        }
+    }
+
     /// Gardée pour `KN_STATUS_ENDING`, qui suit tout de suite.
     fn on_ending(&self, error: Option<&str>) {
         *self.ending_error.lock().unwrap() = error.map(str::to_string);
@@ -1077,6 +1099,11 @@ impl Platform for ApplePlatform {
                     n.height = m.height;
                 }
             }
+            Notice::HdrRefused => {
+                n.kind = KN_NOTICE_HDR_REFUSED;
+                error_c = CString::new(profile::hdr_refused_text(i18n::current())).unwrap_or_default();
+                n.error = error_c.as_ptr();
+            }
         }
         unsafe { f(self.cb.userdata, &n) };
     }
@@ -1093,19 +1120,27 @@ pub struct KnSession {
 /// `user`, `password`, `console_fingerprint` (optionnel), `device` (`id`,
 /// `name`, `kind`, `os`, `app`), `mode` (`width`, `height`, `refresh`),
 /// `audio_channels` (0 : son laissé sur l'ordinateur), `virtual_display`,
-/// `settings` (`profile`, `codec`, `yuv444`, `mbps`, `reliable`),
+/// `settings` (`profile`, `codec`, `yuv444`, `mbps`, `reliable`, `hdr` : le
+/// choix « HDR » de l'app pour cet ordinateur ; absent : éteint),
 /// `auto_reconnect`, `gamepad_xbox360`, `clipboard`, `recovery`
 /// (`watch_image`, `fallback_bitrate`, `restart_station` : vrai si absent),
 /// et pour le multi-écrans `screens` : `list`, les écrans de l'appareil
 /// (`x`, `y`, `width`, `height` : cadre dans le repère logique de l'appareil,
 /// y vers le bas ; `pixel_width`, `pixel_height` : définition native ;
-/// `refresh` ; `primary`), `current` (« Cet écran » : celui de la fenêtre),
+/// `refresh` ; `primary` ; `hdr` : l'écran est HDR), `current` (« Cet
+/// écran » : celui de la fenêtre),
 /// `limit_4k` (« Au plus 4K »), `custom_resolution`, `setting` (`auto`,
 /// `this`, `all`) et `max_screens` (`virtual_display.max_screens` de
 /// `kn_console_info` ; absent : 1). Le cœur en tire le nombre d'écrans, au
 /// départ et quand le profil change (`kn_session_set_settings`). `mode` :
 /// le mode de « Cet écran », comme sans `screens`. La plateforme reçoit
 /// `on_screens` et les paquets de chaque écran (`KnPacket::screen`).
+/// HDR (docs/hdr.md) : `screen_hdr` (l'écran de l'appareil d'une session à
+/// un écran, sans `screens`, est HDR ; avec `screens`, leur `hdr`) et
+/// `capabilities` (`{hevc, hevc444, av1, hdr}` : le décodeur ; absent, l'app
+/// répond du décodeur). La session envoie `hdr` à la Station et à Kyber
+/// quand le choix est allumé et possible (`kn_hdr_state`), impose alors
+/// 4:2:0 et HEVC ou AV1, et dit les écrans en HDR par `on_hdr`.
 /// KyberNow Share, session d'invité : `guest` (`{"joined": <la réponse de
 /// kn_share_join>, "capabilities": {hevc, hevc444, av1}}`), `console_host`,
 /// `console_port` et `console_fingerprint` de la Station trouvée (`target`
@@ -1271,6 +1306,59 @@ pub unsafe extern "C" fn kn_session_set_screens(s: *const KnSession, screens_jso
     let Ok(screens) = serde_json::from_str::<Screens>(&text(screens_json)) else { return KN_ERROR };
     with(s, |s| s.set_screens(screens));
     KN_OK
+}
+
+/// HDR (docs/hdr.md) : le choix « HDR » changé en session (barre, menu de
+/// l'icône). La Station passe ses écrans virtuels en HDR ou en SDR, puis
+/// l'image des écrans touchés est relancée (étape « Premières images ») ;
+/// `on_hdr` suit. Sans effet pour un invité. Un profil changé par
+/// `kn_session_set_settings` garde ce choix.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_session_set_hdr(s: *const KnSession, hdr: bool) {
+    with(s, |s| s.set_hdr(hdr));
+}
+
+/// HDR : l'écran de l'appareil `screen` (index dans `screens.list` ; 0 pour
+/// une session à un écran) gagne ou perd le HDR (fenêtre glissée sur un
+/// écran SDR, téléviseur qui coupe le HDR). L'image de cet écran repasse en
+/// SDR, puis en HDR quand il le redevient, sans message ; le choix reste.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_session_screen_hdr_changed(s: *const KnSession, screen: u32, hdr: bool) {
+    with(s, |s| s.screen_hdr_changed(screen as usize, hdr));
+}
+
+/// HDR : un écran au moins a été en HDR pendant la session (« HDR » de la
+/// dernière session, après le format).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_session_hdr_used(s: *const KnSession) -> bool {
+    with(s, |s| s.hdr_used()).unwrap_or(false)
+}
+
+/// HDR : la puce de l'accueil, la ligne de Réglages › Image et celle de la
+/// barre (`profile::hdr_state`). `info_json` : la réponse de
+/// `kn_console_info` (`hdr` : `{available, reason}` ; absent : Station
+/// d'avant le HDR) ; `settings_json` : les réglages de la session (même JSON
+/// que `settings` de `kn_session_start` ; seul le format compte) ;
+/// `capabilities_json` : `{hevc, hevc444, av1, hdr}` ; `screen_hdr` : l'écran
+/// de l'appareil est HDR. Rend `{"shown", "available", "reason", "kind"}` :
+/// `shown` faux, aucune trace du HDR ; `available` faux, puce inactive avec
+/// `reason` (texte de link-ui dans la langue de l'app) et `kind` (`off`,
+/// `windows`, `encoder`, `codec`, `decoder`, `display`). Nul si un JSON est
+/// illisible. À libérer par `kn_string_free`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_hdr_state(
+    info_json: *const c_char,
+    settings_json: *const c_char,
+    capabilities_json: *const c_char,
+    screen_hdr: bool,
+) -> *mut c_char {
+    let Ok(info) = serde_json::from_str::<kybernow_core::console::Info>(&text(info_json)) else { return std::ptr::null_mut() };
+    let Ok(settings) = StreamSettings::from_json(&text(settings_json)) else { return std::ptr::null_mut() };
+    let Ok(caps) = serde_json::from_str::<Capabilities>(&text(capabilities_json)) else { return std::ptr::null_mut() };
+    match serde_json::to_string(&profile::hdr_state(&info, &settings, caps, screen_hdr)) {
+        Ok(json) => give(json),
+        Err(_) => std::ptr::null_mut(),
+    }
 }
 
 /// Réglage « Écrans » : faux avec une définition sur mesure ou sans écran

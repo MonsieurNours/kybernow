@@ -109,5 +109,14 @@
     "state_lent": "Lent to someone else",
     "state_locked": "Locked",
     "state_off": "Lending off"
+  },
+  "hdr": {
+    "off": "The computer doesn't offer HDR.",
+    "windows": "HDR needs Windows 11 24H2 on the computer.",
+    "encoder": "The computer's graphics card doesn't do HDR.",
+    "codec": "HDR needs the HEVC or AV1 format.",
+    "decoder": "This device can't decode HDR.",
+    "display": "The computer's display isn't in HDR.",
+    "refused": "The computer couldn't switch to HDR: picture in SDR."
   }
 }

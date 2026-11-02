@@ -376,6 +376,8 @@ impl Platform for AndroidPlatform {
                 let (w, h) = mode.map(|m| (m.width, m.height)).unwrap_or((0, 0));
                 (6, w, h, false, 0, 0, mode.is_some(), None)
             }
+            // HDR : au deuxième temps sur Android (docs/hdr.md) ; le texte voyage déjà.
+            Notice::HdrRefused => (8, 0, 0, false, 0, 0, false, Some(kybernow_core::profile::hdr_refused_text(kybernow_core::i18n::current()))),
         };
         self.0.listener.with(|env, obj| {
             let e = jstring_or_null(env, error.as_deref())?;

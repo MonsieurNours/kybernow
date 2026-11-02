@@ -266,6 +266,7 @@ pub fn probe(device: &ID3D11Device) -> Probe {
             hevc: probe_one(FOURCC_HEVC, PROBE_HEVC, device),
             hevc444: probe_one(FOURCC_HEVC, PROBE_HEVC444, device),
             av1: probe_one(FOURCC_AV1, PROBE_AV1, device),
+            hdr: false,
         },
     };
     unsafe { av_log_set_level(AV_LOG_ERROR as i32) };

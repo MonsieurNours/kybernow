@@ -79,6 +79,7 @@ pub fn join_auto(_quality: ShareQuality, screen: Mode, caps: Capabilities) -> Op
         pixel_height: screen.height,
         refresh: screen.refresh,
         primary: true,
+        hdr: false,
     };
     Some(share::auto_quality(&device, &DecoderCaps::from(caps), None))
 }
@@ -578,7 +579,7 @@ mod tests {
 
     #[test]
     fn auto_a_rejoindre() {
-        let all = Capabilities { hevc: true, hevc444: true, av1: true };
+        let all = Capabilities { hevc: true, hevc444: true, av1: true, hdr: false };
         // « Auto » envoie l'écran de ce PC (pixels, fréquence) et ce que la carte décode.
         let a = join_auto(ShareQuality::Auto, mode(3840, 2160, 144), all).unwrap();
         assert_eq!((a.width, a.height, a.fps, a.yuv444), (3840, 2160, 144, true));
@@ -586,7 +587,7 @@ mod tests {
         // H.264 toujours ; le HEVC 4:4:4 seulement avec le HEVC.
         let h264 = join_auto(ShareQuality::Auto, mode(1920, 1080, 60), Capabilities::default()).unwrap();
         assert_eq!((h264.codecs, h264.yuv444), (vec!["h264".to_string()], false));
-        let no_hevc = join_auto(ShareQuality::Auto, mode(1920, 1080, 60), Capabilities { hevc: false, hevc444: true, av1: true }).unwrap();
+        let no_hevc = join_auto(ShareQuality::Auto, mode(1920, 1080, 60), Capabilities { hevc: false, hevc444: true, av1: true, hdr: false }).unwrap();
         assert_eq!((no_hevc.codecs, no_hevc.yuv444), (vec!["h264".to_string(), "av1".to_string()], false));
         // En paysage, même pour un écran tourné.
         let portrait = join_auto(ShareQuality::Auto, mode(1080, 1920, 60), all).unwrap();

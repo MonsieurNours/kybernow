@@ -94,6 +94,11 @@ Règles de l'API :
     - `on_lend_end(userdata, end, text)` : `KN_LEND_END_TAKEN_BACK` 0, `TIME_UP` 1, `SLOT_END` 2, `LEFT` 3 (rendu depuis le lanceur, fin voulue : « Vous avez rendu l'ordinateur. » ; rien après `kn_session_give_back`), `STOPPED` 4 (« Le prêt s'est arrêté. »).
     - `on_lend(userdata, lend_json)` : chez l'hôte, la vue du prêt, ou nul.
   - L'hôte, sur sa `KnConsole` : `kn_console_lend_state`, `kn_console_lend_code(c, duration, steam, …)` (`duration` 0 : « Jusqu'à ce que je reprenne » ; `KN_LEND_STEAM_FRIEND` 0, `KN_LEND_STEAM_HOST` 1), `kn_console_lend_cancel_code`, `kn_console_lend_answer(c, request, accept, steam, …)`, `kn_console_lend_take_back(c, now, …)`. `out` : la vue du prêt.
+- **HDR** ([hdr.md](hdr.md), détail dans [apps/core/README.md](../apps/core/README.md#hdr-srcprofilers-srcsessionrs-srcconsolers-srcscreensrs)) :
+  - La puce : `kn_hdr_state(info_json, settings_json, capabilities_json, screen_hdr)` rend `{shown, available, reason, kind}` (`reason` : le texte de link-ui ; `kind` : `off`, `windows`, `encoder`, `codec`, `decoder`, `display`).
+  - `kn_session_start` : `settings.hdr` (le choix gardé pour cet ordinateur), `screen_hdr` (sans `screens`), `screens.list[i].hdr`, `capabilities` (`{hevc, hevc444, av1, hdr}`).
+  - En session : `kn_session_set_hdr(s, hdr)` (barre, menu), `kn_session_screen_hdr_changed(s, screen, hdr)` (écran de l'appareil qui gagne ou perd le HDR), `kn_session_hdr_used(s)` (« HDR » de la dernière session) ; `KnSecond::hdr`.
+  - Rappel ajouté à la fin de `KnPlatform` : `on_hdr(userdata, hdr, count)`, à chaque démarrage de l'image, les écrans en HDR dans l'ordre des écrans du flux. Avis `KN_NOTICE_HDR_REFUSED` (8), le texte dans `error`.
 - **Journal** : le cœur écrit par la crate `log` ; `kn_set_log_callback` l'envoie à `KyberLog` (journal unifié, catégorie `core`).
 
 ## Compiler et livrer

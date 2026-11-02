@@ -55,6 +55,25 @@ pub struct DeviceScreen {
     /// principal ; Linux : l'écran 0 de SDL). Aucun : le premier.
     #[serde(default)]
     pub primary: bool,
+    /// L'écran est HDR (docs/hdr.md : marge EDR possible au-dessus de 1 sur
+    /// Mac, téléviseur qui accepte le HDR10…). L'écran de la session qui le
+    /// reçoit passe en HDR si le choix « HDR » est allumé et possible ; en
+    /// session, un changement passe par
+    /// [`crate::session::Session::screen_hdr_changed`].
+    #[serde(default)]
+    pub hdr: bool,
+}
+
+impl DeviceScreen {
+    /// Même écran, même place, même mode : seul `hdr` peut différer.
+    pub fn same_place(&self, other: &DeviceScreen) -> bool {
+        DeviceScreen { hdr: other.hdr, ..*self } == *other
+    }
+}
+
+/// Mêmes écrans de l'appareil, à leur HDR près.
+pub fn same_screens(a: &[DeviceScreen], b: &[DeviceScreen]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.same_place(y))
 }
 
 /// Les écrans de l'appareil et ce qui décide de leur nombre, donnés à la
@@ -341,6 +360,7 @@ impl PlannedScreen {
             x: self.x,
             y: self.y,
             primary: self.primary,
+            hdr: false,
         }
     }
 }
@@ -621,7 +641,7 @@ mod tests {
 
     #[allow(clippy::too_many_arguments)]
     fn screen(x: f64, y: f64, w: f64, h: f64, pw: u32, ph: u32, hz: u32, primary: bool) -> DeviceScreen {
-        DeviceScreen { x, y, width: w, height: h, pixel_width: pw, pixel_height: ph, refresh: hz, primary }
+        DeviceScreen { x, y, width: w, height: h, pixel_width: pw, pixel_height: ph, refresh: hz, primary, hdr: false }
     }
 
     /// Le Mac de l'auteur : XG32UQ 4K à 160 Hz au centre (principal, réglé
@@ -759,7 +779,7 @@ mod tests {
     #[test]
     fn session_de_plus_en_fenetre_sur_cet_ecran() {
         use crate::profile::Capabilities;
-        let caps = Capabilities { hevc: true, hevc444: true, av1: false };
+        let caps = Capabilities { hevc: true, hevc444: true, av1: false, hdr: false };
         let bureau = StreamSettings::for_profile(Profile::Bureau, caps);
         // « Tous les écrans » pour la première ; une session de plus prend « Cet écran ».
         let first = Screens { setting: DisplaysSetting::All, current: 2, capabilities: Some(caps), ..auteur() };
@@ -806,7 +826,7 @@ mod tests {
     #[test]
     fn personnalise_pour_le_nombre_d_ecrans() {
         use crate::profile::{Capabilities, Codec as C};
-        let caps = Capabilities { hevc: true, hevc444: true, av1: false };
+        let caps = Capabilities { hevc: true, hevc444: true, av1: false, hdr: false };
         let bureau = StreamSettings::for_profile(Profile::Bureau, caps);
         // Les réglages du profil : le profil compte.
         assert_eq!(screens_profile(&bureau, Some(caps)), Some(Profile::Bureau));
