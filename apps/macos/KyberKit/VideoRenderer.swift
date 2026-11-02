@@ -21,9 +21,12 @@
 // HDR (docs/hdr.md) : une image PQ (BT.2020, SMPTE ST 2084, étiquetée par
 // le flux) sur un écran HDR (`hdrDisplay`) passe par la chaîne HDR : couche
 // en `rgba16Float`, espace `itur_2100_PQ`, contenu EDR et `edrMetadata`
-// HDR10 (Mac, iPhone, iPad ; l'Apple TV n'a ni l'un ni l'autre, le
-// téléviseur passe en HDR par `AVDisplayManager`). Le shader écrit les
-// valeurs PQ telles quelles. Sur un écran SDR (fenêtre glissée sur un autre
+// HDR10 (Mac, iPhone, iPad). Le shader écrit les valeurs PQ telles
+// quelles. L'Apple TV n'a ni contenu EDR ni `edrMetadata` sur une couche
+// Metal (des valeurs PQ y sont montrées comme du SDR, délavées) : l'image
+// PQ y part telle que décodée dans la couche vidéo du système
+// (`HDRVideoLayer`, posée par la surface), et le téléviseur passe en HDR
+// par `AVDisplayManager`. Sur un écran SDR (fenêtre glissée sur un autre
 // écran, le temps que l'image reparte en SDR), une image PQ est ramenée en
 // SDR dans le shader (blanc à 203 nits, genou à 75 %, BT.709) ; la
 // photographie de la dernière image aussi. Sinon : la chaîne SDR (BGRA 8 bits, sRGB).
@@ -205,6 +208,29 @@ final class VideoRenderer {
     /// La chaîne de la couche change (fil de rendu) : HDR ou non.
     var onChain: ((Bool) -> Void)?
 
+    #if os(tvOS)
+    /// Apple TV : la couche vidéo du système où part l'image en chaîne HDR
+    /// (nil : la couche Metal, comme ailleurs ; fil de rendu).
+    private var video: HDRVideoLayer?
+    /// La couche vidéo est montrée, la couche Metal cachée (fil principal) ;
+    /// la surface les échange.
+    var onVideoLayer: ((Bool) -> Void)?
+
+    /// Branche la couche vidéo de la surface (nil : tout passe par Metal).
+    func attachVideo(_ layer: HDRVideoLayer?) {
+        renderQueue.sync {
+            if video !== layer { video?.clear() }
+            video = layer
+            apply(chain, edr: appliedEDR, to: self.layer)
+            let on = chain == .hdr && layer != nil
+            DispatchQueue.main.async { [weak self] in self?.onVideoLayer?(on) }
+        }
+    }
+
+    /// L'image part dans la couche vidéo (chaîne HDR sur l'Apple TV).
+    private var throughVideo: Bool { chain == .hdr && video != nil }
+    #endif
+
     /// Chaîne de la couche : SDR (BGRA 8 bits, sRGB) ou HDR (FP16, PQ, EDR).
     enum Chain: Equatable {
         case sdr
@@ -380,6 +406,10 @@ final class VideoRenderer {
     /// Règle la couche pour une chaîne (fil de rendu). HDR : FP16, PQ BT.2100,
     /// contenu EDR et métadonnées HDR10 (celles du flux, sinon 1000 nits).
     private func apply(_ chain: Chain, edr: EDRInfo?, to layer: CAMetalLayer) {
+        #if os(tvOS)
+        // L'image HDR part dans la couche vidéo : la couche Metal reste en SDR.
+        let chain = video != nil ? Chain.sdr : chain
+        #endif
         switch chain {
         case .sdr:
             layer.pixelFormat = Self.sdrPixelFormat
@@ -411,7 +441,17 @@ final class VideoRenderer {
         appliedEDR = wanted == .hdr ? edr : nil
         apply(wanted, edr: edr, to: layer)
         if from != wanted {
-            KyberLog.video.notice("chaîne \(wanted == .hdr ? "HDR (FP16, PQ, EDR)" : "SDR", privacy: .public)\(self.label.isEmpty ? "" : " (\(self.label))", privacy: .public)")
+            #if os(tvOS)
+            let hdrLabel = video != nil ? "HDR (couche vidéo du système, image décodée telle quelle)" : "HDR (couche Metal FP16, PQ)"
+            if let video {
+                if wanted == .sdr { video.clear() }
+                let on = wanted == .hdr
+                DispatchQueue.main.async { [weak self] in self?.onVideoLayer?(on) }
+            }
+            #else
+            let hdrLabel = "HDR (FP16, PQ, EDR)"
+            #endif
+            KyberLog.video.notice("chaîne \(wanted == .hdr ? hdrLabel : "SDR", privacy: .public)\(self.label.isEmpty ? "" : " (\(self.label))", privacy: .public)")
             onChain?(wanted == .hdr)
         }
     }
@@ -539,6 +579,12 @@ final class VideoRenderer {
             let color = conversion(peek.buffer, layout: layout)
             select(route(color).0, edr: colorCache?.edr)
         }
+        #if os(tvOS)
+        if throughVideo, let video {
+            renderThroughVideo(video)
+            return
+        }
+        #endif
         // Le tampon ensuite (il peut faire attendre un balayage quand tous
         // sont pris) : l'image prise ensuite est la plus récente arrivée.
         let drawable = layer.nextDrawable()
@@ -615,6 +661,32 @@ final class VideoRenderer {
         account(frame, width: CVPixelBufferGetWidth(buffer), height: CVPixelBufferGetHeight(buffer), layout: layout)
     }
 
+    #if os(tvOS)
+    /// Chaîne HDR de l'Apple TV : l'image en attente part telle quelle dans
+    /// la couche vidéo du système (fil de rendu). tvOS ne dit pas quand elle
+    /// est montrée : l'instant est estimé (balayage suivant, à 60 Hz).
+    private func renderThroughVideo(_ video: HDRVideoLayer) {
+        lock.lock()
+        let frame = pending
+        pending = nil
+        scheduled = false
+        lock.unlock()
+        guard let frame else { return }
+        let buffer = frame.buffer
+        guard let layout = Self.layout(CVPixelBufferGetPixelFormatType(buffer)), video.show(buffer) else {
+            latency?.skipped(pts: frame.pts)
+            return
+        }
+        let committed = CACurrentMediaTime()
+        present.rendered += 1
+        lock.lock()
+        shown = (buffer, layout)
+        lock.unlock()
+        presented(at: committed + 1.0 / 60, committed: committed, received: frame.received, decoded: frame.decoded, pts: frame.pts, estimated: true)
+        account(frame, width: CVPixelBufferGetWidth(buffer), height: CVPixelBufferGetHeight(buffer), layout: layout)
+    }
+    #endif
+
     /// Échelle du trait de repère s'il doit être tracé, sinon nil.
     private func currentMarkerScale() -> Double? {
         lock.lock()
@@ -633,6 +705,12 @@ final class VideoRenderer {
         guard !paused, !waiting, let last, layer.drawableSize.width >= 1 else { return }
         // Écran changé (HDR ou non) : la chaîne suit, l'image est redessinée dedans.
         select(route(conversion(last.buffer, layout: last.layout)).0, edr: colorCache?.edr)
+        #if os(tvOS)
+        if throughVideo, let video {
+            video.show(last.buffer)
+            return
+        }
+        #endif
         guard let drawable = layer.nextDrawable(), let commands = queue.makeCommandBuffer(),
               draw(last.buffer, layout: last.layout, into: drawable.texture, commands: commands,
                    color: routed(conversion(last.buffer, layout: last.layout), for: drawable.texture), marker: currentMarkerScale())

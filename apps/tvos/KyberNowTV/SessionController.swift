@@ -431,7 +431,7 @@ final class SessionController: ObservableObject {
         guard let criteria = HDRDisplay.criteria(refresh: rate, width: streamMode.width, height: streamMode.height, hdr: hdr) else { return }
         window.avDisplayManager.preferredDisplayCriteria = criteria
         displayCriteriaSet = true
-        KyberLog.app.notice("téléviseur : \(rate) Hz\(hdr ? ", HDR10" : "", privacy: .public) demandés (adapter la plage dynamique : \(window.avDisplayManager.isDisplayCriteriaMatchingEnabled ? "oui" : "non", privacy: .public))")
+        KyberLog.app.notice("téléviseur : \(rate) Hz\(hdr ? ", HDR10" : "", privacy: .public) demandés ; \(HDRDisplay.describeTV(window), privacy: .public)")
     }
 
     /// Les états du cœur : l'image n'apparaît qu'après `revealDelay`, seule
