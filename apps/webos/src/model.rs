@@ -74,6 +74,10 @@ pub struct HostSettings {
     pub reliable: bool,
     /// Rappeler, dans le menu de session, de passer la télé en Optimiseur de jeu.
     pub game_mode_hint: bool,
+    /// Le HDR pour cet ordinateur (puce de l'accueil, Réglages › Image, menu de session) : allumé la première fois
+    /// (absent d'un fichier d'avant le HDR : allumé aussi). Il ne compte pas dans le profil. Sans effet sur un
+    /// écran SDR.
+    pub hdr: bool,
 }
 
 impl Default for HostSettings {
@@ -93,6 +97,7 @@ impl Default for HostSettings {
             transport: String::new(),
             reliable: false,
             game_mode_hint: true,
+            hdr: true,
         }
     }
 }
@@ -155,6 +160,9 @@ pub struct LastSession {
     /// vide : direct, ou une session d'avant le relais.
     #[serde(default)]
     pub route: String,
+    /// L'image était en HDR : « HDR » après le format.
+    #[serde(default)]
+    pub hdr: bool,
 }
 
 /// Un ordinateur équipé de KyberNow Station.
@@ -257,11 +265,31 @@ pub struct AppSettings {
     /// KyberNow Share, prêt : l'avertissement de confiance est dit dans le panneau « Prêter l'ordinateur… » jusqu'au
     /// premier code créé, puis plus (« une fois », docs/link-ui.md).
     pub lend_warned: bool,
+    /// HDR : les valeurs de l'écran du téléviseur réglées à l'œil (« Réglage du HDR ») ; `None` : automatiques
+    /// (webOS ne les donne pas : `Luminance::default()`).
+    pub hdr_luminance: Option<Luminance>,
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
-        Self { language: "auto".into(), beta: false, share_name: String::new(), share_quality: String::new(), lend_warned: false }
+        Self { language: "auto".into(), beta: false, share_name: String::new(), share_quality: String::new(), lend_warned: false, hdr_luminance: None }
+    }
+}
+
+/// Les valeurs HDR d'un écran (docs/hdr.md, « Réglage du HDR »), en nits : luminosité maximale (petite zone), sur
+/// tout l'écran, noir et blanc du bureau ; miroir de `HdrLuminance` du cœur.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+pub struct Luminance {
+    pub max: f32,
+    pub full_frame: f32,
+    pub min: f32,
+    pub sdr_white: f32,
+}
+
+impl Default for Luminance {
+    /// Par défaut : 1 000 nits, 1 000 sur tout l'écran, 0, blanc du bureau à 203 (référence BT.2408).
+    fn default() -> Self {
+        Self { max: 1000.0, full_frame: 1000.0, min: 0.0, sdr_white: 203.0 }
     }
 }
 
@@ -286,6 +314,13 @@ pub struct Borrowed {
     pub login: String,
     pub password: String,
     pub remember: bool,
+    /// Le HDR pour cet ordinateur emprunté (sa puce, « Emprunter ») : allumé d'office.
+    #[serde(default = "yes")]
+    pub hdr: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 impl Borrowed {
@@ -403,7 +438,8 @@ impl Store {
     pub fn put_borrowed(&mut self, b: Borrowed) -> String {
         if let Some(old) = self.borrowed.iter_mut().find(|o| o.address == b.address && o.port == b.port && o.login == b.login) {
             let id = old.id.clone();
-            *old = Borrowed { id: id.clone(), ..b };
+            // Le choix « HDR » de cet ordinateur reste.
+            *old = Borrowed { id: id.clone(), hdr: old.hdr, ..b };
             return id;
         }
         let id = b.id.clone();

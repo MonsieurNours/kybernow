@@ -64,6 +64,7 @@ pub fn poll(host: Host, want_preview: bool, tx: Sender<Event>) {
                     share: Some(share_avail(&info)),
                     lend: Some(lend_avail),
                     lend_view,
+                    hdr: Some(super::session::station_hdr(&info)),
                 };
                 let _ = tx.send(Event::Polled { id: host.id.clone(), polled });
                 if want_preview
@@ -496,13 +497,14 @@ type LastBorrow = (ShareTarget, Option<RelayRoute>, lend::BorrowRequest);
 static LAST_BORROW: std::sync::Mutex<Option<LastBorrow>> = std::sync::Mutex::new(None);
 
 /// La demande d'emprunt de cet appareil : le prénom, l'identifiant du téléviseur, `webos`, l'écran (la Station fait
-/// l'écran virtuel à sa taille) et les formats que l'appareil décode.
-pub fn borrow_request(credentials: lend::LendCredentials, name: String, device: String, screen: (u32, u32, u32), av1: bool) -> lend::BorrowRequest {
+/// l'écran virtuel à sa taille ; avec le HDR voulu et les valeurs de l'écran, l'ami d'un prêt a le HDR comme un hôte)
+/// et les formats que l'appareil décode.
+pub fn borrow_request(credentials: lend::LendCredentials, name: String, device: String, screen: (u32, u32, u32), hdr: (bool, Option<crate::model::Luminance>), av1: bool) -> lend::BorrowRequest {
     let mut codecs = vec!["hevc".to_string(), "h264".to_string()];
     if av1 {
         codecs.push("av1".into());
     }
-    lend::BorrowRequest { credentials, name, device, app: "webos".into(), screen: Mode { width: screen.0, height: screen.1, refresh: screen.2 }.into(), codecs }
+    lend::BorrowRequest { credentials, name, device, app: "webos".into(), screen: lend::BorrowScreen::from(Mode { width: screen.0, height: screen.1, refresh: screen.2 }).with_hdr(hdr.0, Some(super::session::core_luminance(hdr.1))), codecs }
 }
 
 /// Emprunter (`lend::borrow`, 30 s au plus) : le prêt démarre (`Event::Borrowed`), ou l'hôte doit accepter
@@ -655,6 +657,7 @@ pub fn friend_add(address: String, port: u16, fingerprint: Option<String>, relay
                     login: login.clone(),
                     password: if remember { password.clone() } else { String::new() },
                     remember,
+                    hdr: true,
                 };
                 Box::new((b, lend_live(&s), password.clone()))
             });

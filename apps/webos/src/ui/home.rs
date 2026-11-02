@@ -130,9 +130,20 @@ pub fn draw(app: &App, cv: &mut Canvas, assets: &Assets, f: &mut Frame) {
             if custom {
                 x += widgets::chip_static(cv, x, by + 14.0, tr("Personnalisé", "Custom")) + 10.0;
             }
+            // La puce « HDR », à côté du profil, seulement sur un écran HDR : allumée, éteinte, ou inactive avec sa
+            // raison (dite sous les pastilles quand elle a le focus).
+            let hdr = app.hdr_ui(h);
+            if let Some(u) = hdr {
+                x += 8.0;
+                x += widgets::chip_state(cv, f, Target::HdrChip, x, by + 14.0, "HDR", u.on, u.available()) + 10.0;
+            }
             x += 18.0;
             widgets::icon_chip(cv, f, Target::HostSettings, x, by + 14.0, Icon::Gear, tr("Réglages", "Settings"));
-            let phrase = if custom { tr("Vos propres réglages.", "Your own settings.") } else { profile_phrase(h.settings.profile) };
+            let phrase = match hdr {
+                Some(u) if f.focus == Target::HdrChip => u.help(),
+                _ if custom => tr("Vos propres réglages.", "Your own settings."),
+                _ => profile_phrase(h.settings.profile),
+            };
             cv.text_fit(chips_x + 4.0, by + 84.0 + 44.0, Text::new(Font::Regular, 22.0, FROST_3), phrase, W - chips_x - 200.0);
         }
         None => {
@@ -404,7 +415,15 @@ fn borrowed_hero(app: &App, cv: &mut Canvas, f: &mut Frame) -> String {
     }
     let enabled = state.is_none_or(LendState::borrowable);
     let bw = widgets::primary_state(cv, f, Target::Borrow, 96.0, by, &label, enabled);
-    widgets::secondary(cv, f, Target::BorrowRemove, 96.0 + bw + 28.0, by + 10.0, tr("Retirer cet ordinateur", "Remove this computer"), 22.0);
+    let mut x = 96.0 + bw + 28.0;
+    // La puce « HDR » de l'ami, comme celle d'un hôte (écran HDR seulement).
+    if let Some(u) = app.borrowed_hdr_ui(&b.id) {
+        x += widgets::chip_state(cv, f, Target::HdrChip, x, by + 14.0, "HDR", u.on, u.available()) + 28.0;
+        if f.focus == Target::HdrChip {
+            cv.text_fit(100.0, by + 84.0 + 44.0, Text::new(Font::Regular, 22.0, FROST_3), u.help(), W - 200.0);
+        }
+    }
+    widgets::secondary(cv, f, Target::BorrowRemove, x, by + 10.0, tr("Retirer cet ordinateur", "Remove this computer"), 22.0);
     if let Some(m) = app.borrow.message.as_ref().filter(|_| app.borrow.id == b.id) {
         cv.text_fit(96.0, by + 130.0, Text::new(Font::Regular, 25.0, DANGER), m, 1400.0);
     }

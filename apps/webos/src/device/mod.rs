@@ -9,9 +9,11 @@
 mod jobs;
 mod link;
 mod log_file;
+mod luna;
 mod eac3;
 mod esplayer;
 mod media;
+mod mires;
 mod starfish;
 mod ndl;
 mod pads;
@@ -52,7 +54,8 @@ pub enum Event {
     Status(Status),
     /// Mode de l'écran de la session (pour la dernière session).
     Mode(Mode),
-    Second { latency_ms: Option<f64>, fps: f64, mbps: f64, lost: u32, codec: String },
+    /// `hdr` : le décodeur a mis la dalle en HDR pour cette image.
+    Second { latency_ms: Option<f64>, fps: f64, mbps: f64, lost: u32, codec: String, hdr: bool },
     Notice(String),
     Pointer { position: Option<(f64, f64)>, hidden: bool, shape: Option<(u32, u32, u32, u32, Vec<u32>)> },
     Rumble(GamepadRumble),
@@ -130,6 +133,8 @@ struct Live {
     /// Par le relais : pourquoi la session a fini quand l'ordinateur n'est pas joignable hors de chez soi
     /// (`Platform::on_relay_error`, juste avant la fin) ; le texte de la fin s'en tire.
     relay_error: Option<kybernow_core::relay::RelayError>,
+    /// L'image a été en HDR (pour la dernière session).
+    hdr: bool,
 }
 
 pub const UI_W: i32 = 1920;
@@ -190,7 +195,7 @@ pub fn run(args: &[String]) {
     let mut app = App::new(store);
     let (panel, refresh) = sdl::panel();
     let decoder = ndl::available();
-    app.tv = system::tv(panel, refresh, decoder);
+    app.tv = system::tv(panel, refresh, decoder, ndl::hdr_capable());
     app.net = system::net();
     for h in app.store.hosts.clone() {
         if let Some(img) = std::fs::read(Store::image_path(&h.id)).ok().and_then(|b| ui::canvas::decode_jpeg(&b)) {
@@ -389,6 +394,7 @@ pub fn run(args: &[String]) {
         c.store(true, Ordering::Relaxed);
     }
     app.store.save();
+    mires::show(None);
     esplayer::quit();
     ndl::quit();
     unsafe { sdl::SDL_Quit() };
@@ -768,8 +774,9 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
                 l.mode = (m.width, m.height, refresh);
             }
         }
-        Event::Second { latency_ms, fps, mbps, lost, codec } => {
+        Event::Second { latency_ms, fps, mbps, lost, codec, hdr } => {
             if let Some(l) = live.as_mut() {
+                l.hdr |= hdr;
                 if let Some(v) = latency_ms {
                     l.latencies.push(v);
                 }
@@ -777,7 +784,7 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
                     l.mbps.push(mbps);
                 }
                 if let Some(s) = app.session.as_mut() {
-                    s.stats = Some(Stats { latency_ms, fps, mbps, lost, mode: format!("{} × {}", l.mode.0, l.mode.1), codec });
+                    s.stats = Some(Stats { latency_ms, fps, mbps, lost, mode: format!("{} × {}", l.mode.0, l.mode.1), codec, hdr });
                 }
             }
         }
@@ -845,7 +852,7 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
             Err(share::ShareError::Lend(c)) => {
                 if app.join_lending(attempt) {
                     let c = *c;
-                    let request = jobs::borrow_request(lend::LendCredentials::Code { code: c.code.clone() }, app.join.name.trim().to_string(), app.store.device_id.clone(), borrow_screen(app), app.tv.av1);
+                    let request = jobs::borrow_request(lend::LendCredentials::Code { code: c.code.clone() }, app.join.name.trim().to_string(), app.store.device_id.clone(), borrow_screen(app), (app.borrowed_hdr_on(""), app.store.app.hdr_luminance), app.tv.av1);
                     jobs::borrow(crate::app::BorrowSource::Code { attempt }, c.target, c.route, request, tx.clone());
                 }
             }
@@ -969,8 +976,11 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
             let mode = app.session_mode(&h);
             let codec = app.codec_for(&h);
             let device = device_info(&app.store, &app.tv);
-            let handle = session::start(&h, profile, codec, mode, app.tv.refresh, app.net.cap_mbps(), device, None, None, tx.clone());
-            app.session = Some(SessionUi::new(&h.id, &h.name, profile, h.settings.game_mode_hint));
+            let hdr = session::HdrAsk::of(app, Some(&h));
+            let handle = session::start(&h, profile, codec, mode, app.tv.refresh, app.net.cap_mbps(), device, None, None, hdr, tx.clone());
+            let mut ui = SessionUi::new(&h.id, &h.name, profile, h.settings.game_mode_hint);
+            ui.hdr = app.hdr_ui(&h);
+            app.session = Some(ui);
             app.screen = Screen::Session;
             app.focus = crate::app::Target::CancelConnect;
             // « Partager » dans le menu sait ce que l'ordinateur permet : Admin est relu une fois la session partie.
@@ -988,8 +998,9 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
                 game_fullscreen: false,
                 path: crate::app::PathKind::Direct,
                 relay_error: None,
+                hdr: false,
             });
-            log::info!("session : {} ({}, {} × {} à {} Hz, {codec})", h.name, profile.id(), mode.0, mode.1, mode.2);
+            log::info!("session : {} ({}, {} × {} à {} Hz, {codec}, HDR {})", h.name, profile.id(), mode.0, mode.1, mode.2, if hdr.want { "demandé" } else { "non" });
         }
         Action::CancelConnect | Action::Disconnect => {
             if let Some(l) = live.as_ref() {
@@ -1007,7 +1018,15 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
             if let (Some(l), Some(h)) = (live.as_ref(), app.session.as_ref().and_then(|s| app.store.host(&s.host))) {
                 let mode = app.session_mode(h);
                 let codec = app.codec_for(h);
-                l.handle.session.set_settings(session::settings(h, p, codec, mode, app.net.cap_mbps()));
+                let hdr = session::HdrAsk::of(app, Some(h));
+                l.handle.session.set_settings(session::settings(h, p, codec, mode, app.net.cap_mbps(), hdr));
+            }
+        }
+        Action::Mire(m) => mires::show(m),
+        Action::SetHdr(on) => {
+            if let Some(l) = live.as_ref() {
+                let screen = app.tv.hdr;
+                session::set_hdr(&l.handle, session::HdrAsk { want: on, screen, decoder: app.tv.hdr_decoder, luminance: app.store.app.hdr_luminance });
             }
         }
         Action::RemoteMouse(_) => {
@@ -1119,7 +1138,7 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
             let Some(b) = app.store.borrowed(&id).cloned() else { return };
             let target = ShareTarget { host: b.address.clone(), port: b.port, fingerprint: b.fingerprint.clone() };
             let name = if app.store.app.share_name.trim().is_empty() { app.device_name() } else { app.store.app.share_name.trim().to_string() };
-            let request = jobs::borrow_request(lend::LendCredentials::Account { login: b.login.clone(), password }, name, app.store.device_id.clone(), borrow_screen(app), app.tv.av1);
+            let request = jobs::borrow_request(lend::LendCredentials::Account { login: b.login.clone(), password }, name, app.store.device_id.clone(), borrow_screen(app), (app.borrowed_hdr_on(&b.id), app.store.app.hdr_luminance), app.tv.av1);
             // Ajouté par un lien d'invitation avec relais : aussi hors de chez soi (le réseau d'abord).
             let route = jobs::borrowed_route(b.relay.as_deref(), b.sid.as_deref(), b.fingerprint.as_deref());
             jobs::borrow(app.borrow_source(), target, route, request, tx.clone());
@@ -1214,7 +1233,7 @@ fn connect_guest(app: &mut App, live: &mut Option<Live>, tx: &Sender<Event>, fou
     let codec = app.codec_for(&h);
     let device = device_info(&app.store, &app.tv);
     let caps = session::guest_capabilities(app.tv.av1);
-    let handle = session::start(&h, crate::model::Profile::Jeu, codec, mode, app.tv.refresh, app.net.cap_mbps(), device, Some((&found, caps)), None, tx.clone());
+    let handle = session::start(&h, crate::model::Profile::Jeu, codec, mode, app.tv.refresh, app.net.cap_mbps(), device, Some((&found, caps)), None, session::HdrAsk::guest(app), tx.clone());
     let mut ui = SessionUi::guest(&h.id, &computer, session::role_of(found.joined.role));
     // La « Qualité de l'image » demandée à « Rejoindre », et l'image que la Station dit déjà (`on_share_image` la suit).
     if let Some(g) = ui.guest.as_mut() {
@@ -1224,7 +1243,7 @@ fn connect_guest(app: &mut App, live: &mut Option<Live>, tx: &Sender<Event>, fou
     app.session = Some(ui);
     app.screen = Screen::Session;
     app.focus = crate::app::Target::CancelConnect;
-    *live = Some(Live { handle, guest: true, pointer: None, pointer_hidden: true, started: Instant::now(), latencies: Vec::new(), mbps: Vec::new(), mode, remote: None, game_fullscreen: false, path: crate::app::PathKind::Direct, relay_error: None });
+    *live = Some(Live { handle, guest: true, pointer: None, pointer_hidden: true, started: Instant::now(), latencies: Vec::new(), mbps: Vec::new(), mode, remote: None, game_fullscreen: false, path: crate::app::PathKind::Direct, relay_error: None, hdr: false });
     log::info!("session d'invité : {title} ({} × {} à {} Hz)", mode.0, mode.1, mode.2);
 }
 
@@ -1271,12 +1290,15 @@ fn connect_borrower(app: &mut App, live: &mut Option<Live>, tx: &Sender<Event>, 
     let mode = (d.width, d.height, d.refresh);
     let codec = app.codec_for(&h);
     let device = device_info(&app.store, &app.tv);
-    let handle = session::start(&h, crate::model::Profile::Jeu, codec, mode, app.tv.refresh, app.net.cap_mbps(), device, None, Some(&loan), tx.clone());
+    let hdr = session::HdrAsk { want: app.borrowed_hdr_on(&key), screen: app.tv.hdr, decoder: app.tv.hdr_decoder, luminance: app.store.app.hdr_luminance };
+    let handle = session::start(&h, crate::model::Profile::Jeu, codec, mode, app.tv.refresh, app.net.cap_mbps(), device, None, Some(&loan), hdr, tx.clone());
     let b = crate::app::BorrowSessionUi::new(loan.borrowed.host_name(), &loan.borrowed.computer, loan.borrowed.until, source);
-    app.session = Some(SessionUi::borrower(&key, b));
+    let mut ui = SessionUi::borrower(&key, b);
+    ui.hdr = app.borrowed_hdr_ui(&key);
+    app.session = Some(ui);
     app.screen = Screen::Session;
     app.focus = crate::app::Target::CancelConnect;
-    *live = Some(Live { handle, guest: true, pointer: None, pointer_hidden: true, started: Instant::now(), latencies: Vec::new(), mbps: Vec::new(), mode, remote: None, game_fullscreen: false, path: crate::app::PathKind::Direct, relay_error: None });
+    *live = Some(Live { handle, guest: true, pointer: None, pointer_hidden: true, started: Instant::now(), latencies: Vec::new(), mbps: Vec::new(), mode, remote: None, game_fullscreen: false, path: crate::app::PathKind::Direct, relay_error: None, hdr: false });
     log::info!("session d'emprunt : {title} ({} × {} à {} Hz)", mode.0, mode.1, mode.2);
 }
 
@@ -1323,6 +1345,7 @@ fn finish(app: &mut App, l: Live) {
                 refresh,
                 codec,
                 route: l.path.as_str().into(),
+                hdr: l.hdr,
             });
         }
         app.store.save();

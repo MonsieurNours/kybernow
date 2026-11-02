@@ -137,6 +137,84 @@ pub struct HostLive {
     /// prêt quand il est activé (l'accueil dit « Prêté à {prénom} » et propose « Reprendre l'ordinateur »).
     pub lend: Option<LendAvail>,
     pub lend_view: Option<LendHostView>,
+    /// Le HDR que la Station propose (`info.hdr`) ; `None` : pas encore sondée.
+    pub hdr: Option<StationHdr>,
+}
+
+/// Le HDR que la Station annonce (`GET /api/stream/info` : `hdr: { available, reason }`), miroir de celui du cœur
+/// (l'interface seule n'a pas le cœur).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StationHdr {
+    Available,
+    /// Station d'avant le HDR, ou Admin réglé sur « Jamais » (`reason: "off"`).
+    Off,
+    /// Windows d'avant Windows 11 24H2.
+    Windows,
+    /// Encodeur sans 10 bits.
+    Encoder,
+    /// Sans écran virtuel, l'écran du PC est en SDR (`reason: "display"`).
+    Display,
+}
+
+/// Pourquoi la puce « HDR » est inactive, la première raison qui s'applique (docs/hdr.md, « Quand le HDR n'est pas
+/// possible » ; textes : docs/link-ui.md, « HDR »).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HdrReason {
+    Station,
+    Windows,
+    Encoder,
+    Format,
+    Decoder,
+    PcDisplay,
+}
+
+impl HdrReason {
+    pub fn text(self) -> &'static str {
+        match self {
+            HdrReason::Station => tr("L'ordinateur ne propose pas le HDR.", "The computer doesn't offer HDR."),
+            HdrReason::Windows => tr("Le HDR demande Windows 11 24H2 sur l'ordinateur.", "HDR needs Windows 11 24H2 on the computer."),
+            HdrReason::Encoder => tr("La carte graphique de l'ordinateur ne fait pas le HDR.", "The computer's graphics card doesn't do HDR."),
+            HdrReason::Format => tr("Le HDR demande le format HEVC ou AV1.", "HDR needs the HEVC or AV1 format."),
+            HdrReason::Decoder => tr("Cet appareil ne décode pas le HDR.", "This device can't decode HDR."),
+            HdrReason::PcDisplay => tr("L'écran de l'ordinateur n'est pas en HDR.", "The computer's display isn't in HDR."),
+        }
+    }
+}
+
+/// La puce « HDR » d'un ordinateur : son choix (`HostSettings::hdr`), et la raison quand elle est inactive.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HdrUi {
+    pub on: bool,
+    pub reason: Option<HdrReason>,
+}
+
+impl HdrUi {
+    pub fn available(&self) -> bool {
+        self.reason.is_none()
+    }
+
+    /// Ce que la session demandera : la puce active et allumée.
+    pub fn lit(&self) -> bool {
+        self.on && self.available()
+    }
+
+    /// L'aide : la raison quand elle est inactive.
+    pub fn help(&self) -> &'static str {
+        self.reason.map(HdrReason::text).unwrap_or_else(hdr_help)
+    }
+}
+
+/// « Couleurs plus riches et lumières plus vives, sur cet écran HDR. »
+pub fn hdr_help() -> &'static str {
+    tr("Couleurs plus riches et lumières plus vives, sur cet écran HDR.", "Richer colours and brighter highlights, on this HDR screen.")
+}
+
+/// La rubrique Image : l'aide du réglage « HDR ».
+pub fn hdr_setting_help() -> &'static str {
+    tr(
+        "Couleurs plus riches et lumières plus vives, sur cet écran HDR. Le texte net (4:4:4) n'existe pas en HDR.",
+        "Richer colours and brighter highlights, on this HDR screen. Sharp text (4:4:4) doesn't exist in HDR.",
+    )
 }
 
 /// La Station, pour la rubrique « Station » (`Info::station` du cœur).
@@ -195,6 +273,8 @@ pub struct Polled {
     pub share: Option<ShareAvail>,
     pub lend: Option<LendAvail>,
     pub lend_view: Option<LendHostView>,
+    /// Le HDR que la Station propose (`Off` pour une Station d'avant le HDR).
+    pub hdr: Option<StationHdr>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -302,11 +382,15 @@ pub struct TvInfo {
     /// Sortie multicanal de NDL : 0 inconnue, 1 impossible, 2 pas d'appareil
     /// multicanal branché, 3 Sortie son numérique pas en Pass-Through, 4 prête.
     pub multichannel: u8,
+    /// L'écran du téléviseur est HDR, d'après webOS (`crate::hdr::CONFIGS`) : sans lui, aucune trace du HDR.
+    pub hdr: bool,
+    /// Le décodeur passe la dalle en HDR (`NDL_DirectVideoSetHDRInfo`) et lit le HEVC Main 10.
+    pub hdr_decoder: bool,
 }
 
 impl Default for TvInfo {
     fn default() -> Self {
-        Self { model: "LG".into(), webos: String::new(), panel: (3840, 2160), refresh: 120, decoder: true, av1: true, multichannel: 0 }
+        Self { model: "LG".into(), webos: String::new(), panel: (3840, 2160), refresh: 120, decoder: true, av1: true, multichannel: 0, hdr: true, hdr_decoder: true }
     }
 }
 
@@ -352,12 +436,16 @@ pub struct Stats {
     pub lost: u32,
     pub mode: String,
     pub codec: String,
+    /// L'image est en HDR : « HDR » après le format.
+    pub hdr: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MenuItem {
     Resume,
     Profile(Profile),
+    /// « HDR », cochable, près du profil (écran HDR seulement ; hôte et emprunt).
+    Hdr,
     RemoteMouse,
     PadMouse,
     Keys,
@@ -1527,6 +1615,8 @@ pub struct SessionUi {
     pub lend_steam: LendSteam,
     /// Prêt de l'ordinateur, session d'emprunt : l'ordinateur d'un ami (« Prêté par {hôte} »).
     pub borrow: Option<BorrowSessionUi>,
+    /// « HDR » dans le menu (`None` : pas de HDR proposé, écran SDR ou invité) : la puce de l'ordinateur.
+    pub hdr: Option<HdrUi>,
 }
 
 impl SessionUi {
@@ -1563,6 +1653,7 @@ impl SessionUi {
             lend_duration: LEND_DURATION_DEFAULT,
             lend_steam: LendSteam::Friend,
             borrow: None,
+            hdr: None,
         }
     }
 
@@ -1639,6 +1730,12 @@ pub enum Setting {
     Resolution,
     Fps,
     Codec,
+    /// « HDR » (écran HDR seulement).
+    Hdr,
+    /// « Régler le HDR de cet écran… », sous « HDR » (Réglages › Image).
+    HdrCalibrate,
+    /// Réglages de l'app : « Réglage du HDR » (écran HDR seulement).
+    HdrCalibration,
     Bitrate,
     GameHint,
     Audio,
@@ -1662,7 +1759,7 @@ pub enum Setting {
 impl Setting {
     /// Une ligne qui agit (OK) au lieu de changer de valeur (gauche, droite).
     pub fn is_action(self) -> bool {
-        matches!(self, Setting::Restart | Setting::Update | Setting::Remove | Setting::Pads)
+        matches!(self, Setting::Restart | Setting::Update | Setting::Remove | Setting::Pads | Setting::HdrCalibrate | Setting::HdrCalibration)
     }
 }
 
@@ -1713,6 +1810,8 @@ pub enum Screen {
     Settings,
     Gamepads,
     Session,
+    /// « Réglage du HDR » : les quatre mires.
+    HdrCalibration,
 }
 
 /// Ce qu'on peut choisir.
@@ -1720,6 +1819,8 @@ pub enum Screen {
 pub enum Target {
     Connect,
     Chip(Profile),
+    /// La puce « HDR » de l'ordinateur choisi (à côté du profil), ou de l'ordinateur emprunté (« Emprunter »).
+    HdrChip,
     Host(usize),
     Found(usize),
     AddCard,
@@ -1786,6 +1887,14 @@ pub enum Target {
     TakeBackNow,
     VerifyOk,
     VerifyNo,
+    /// « Réglage du HDR » : moins, plus, « Retour », « Suivant » (« Terminer » à la dernière étape), « Annuler »,
+    /// « Revenir au réglage automatique ».
+    CalLess,
+    CalMore,
+    CalPrevious,
+    CalNext,
+    CalCancel,
+    CalAuto,
     Section(usize),
     Setting(Setting),
     Pad(usize),
@@ -1845,6 +1954,11 @@ pub enum Action {
     Rumble { pad: usize, low: u16, high: u16, triggers: bool },
     Shortcut(Vec<u16>),
     SetProfile(Profile),
+    /// L'interrupteur « HDR » du menu de session.
+    SetHdr(bool),
+    /// « Réglage du HDR » : la mire à montrer en HDR par le décodeur du téléviseur (étape, palier) ; `None` : plus
+    /// de mire.
+    Mire(Option<(crate::mires::Step, usize)>),
     RemoteMouse(bool),
     PadMouse(bool),
     ReleaseAll,
@@ -1911,6 +2025,33 @@ pub struct App {
     pub friend: FriendForm,
     /// Le lien donné au lancement : il s'ouvre quand l'app est sur ses écrans, sans session (`App::poll_link`).
     pub pending_link: Option<LinkUi>,
+    /// « Réglage du HDR » ouvert.
+    pub calibration: Option<CalibrationUi>,
+}
+
+/// L'écran « Réglage du HDR » (docs/hdr.md) : l'étape, le palier choisi à chaque étape, et où revenir.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CalibrationUi {
+    pub step: usize,
+    pub idx: [usize; 4],
+    /// Ouvert depuis les réglages de l'app (vrai) ou de l'ordinateur ; la ligne qui l'a ouvert.
+    pub global: bool,
+    pub from: Setting,
+}
+
+impl CalibrationUi {
+    pub fn step(&self) -> crate::mires::Step {
+        crate::mires::Step::ALL[self.step.min(3)]
+    }
+
+    pub fn mire(&self) -> Action {
+        Action::Mire(Some((self.step(), self.idx[self.step.min(3)])))
+    }
+}
+
+/// Réglages de l'app : l'état du « Réglage du HDR ».
+pub fn calibration_state(l: Option<&crate::model::Luminance>) -> &'static str {
+    if l.is_some() { tr("Réglé à l'œil", "Calibrated by eye") } else { tr("Automatique", "Automatic") }
 }
 
 impl App {
@@ -1945,6 +2086,7 @@ impl App {
             lend_passwords: HashMap::new(),
             friend: FriendForm::default(),
             pending_link: None,
+            calibration: None,
         }
     }
 
@@ -2065,6 +2207,7 @@ impl App {
             Screen::Settings => Target::Section(self.section),
             Screen::Gamepads => Target::Pad(self.pad_selected.min(self.pads.len().saturating_sub(1))),
             Screen::Session => Target::Menu(MenuItem::Resume),
+            Screen::HdrCalibration => Target::CalNext,
         };
     }
 
@@ -2131,6 +2274,8 @@ impl App {
                 }
                 Vec::new()
             }
+            // « Réglage du HDR » : gauche et droite font varier la valeur, où que soit le focus.
+            Nav::Left | Nav::Right if self.screen == Screen::HdrCalibration => self.calibration_change(if n == Nav::Right { 1 } else { -1 }),
             Nav::Left | Nav::Right if matches!(self.focus, Target::Setting(s) if !s.is_action()) => {
                 let Target::Setting(s) = self.focus else { return Vec::new() };
                 self.adjust(s, if n == Nav::Right { 1 } else { -1 })
@@ -2253,7 +2398,47 @@ impl App {
                 Vec::new()
             }
             Screen::Session => self.session_back(),
+            // Retour : l'étape d'avant ; à la première, comme « Annuler ».
+            Screen::HdrCalibration => {
+                if self.calibration.as_ref().is_some_and(|c| c.step > 0) { self.activate(Target::CalPrevious) } else { self.activate(Target::CalCancel) }
+            }
         }
+    }
+
+    /// Ouvre « Réglage du HDR » (Réglages de l'app, ou le lien de Réglages › Image) sur les valeurs gardées pour cet
+    /// écran, sinon les automatiques ; la première mire passe en HDR.
+    fn open_calibration(&mut self, from: Setting) -> Vec<Action> {
+        if !self.tv.hdr {
+            return Vec::new();
+        }
+        let l = self.store.app.hdr_luminance.unwrap_or_default();
+        let c = CalibrationUi { step: 0, idx: crate::mires::indices(&l), global: self.settings_global, from };
+        let mire = c.mire();
+        self.calibration = Some(c);
+        self.go(Screen::HdrCalibration);
+        vec![mire]
+    }
+
+    /// Gauche ou droite : le palier d'à côté.
+    fn calibration_change(&mut self, dir: i32) -> Vec<Action> {
+        let Some(c) = self.calibration.as_mut() else { return Vec::new() };
+        let n = crate::mires::values(c.step()).len();
+        let i = &mut c.idx[c.step];
+        let next = (*i as i32 + dir).clamp(0, n.saturating_sub(1) as i32) as usize;
+        if next == *i {
+            return Vec::new();
+        }
+        *i = next;
+        vec![c.mire()]
+    }
+
+    /// Ferme « Réglage du HDR » : retour à la ligne qui l'a ouvert, plus de mire.
+    fn close_calibration(&mut self) -> Vec<Action> {
+        let Some(c) = self.calibration.take() else { return Vec::new() };
+        self.settings_global = c.global;
+        self.screen = Screen::Settings;
+        self.focus = Target::Setting(c.from);
+        vec![Action::Mire(None)]
     }
 
     /// Retour en session : ouvre ou ferme le menu.
@@ -2344,6 +2529,41 @@ impl App {
                     h.settings.apply(p);
                 }
                 vec![Action::Save]
+            }
+            Target::HdrChip => self.toggle_hdr(),
+            Target::CalLess => self.calibration_change(-1),
+            Target::CalMore => self.calibration_change(1),
+            Target::CalPrevious => {
+                let Some(c) = self.calibration.as_mut() else { return Vec::new() };
+                c.step = c.step.saturating_sub(1);
+                self.focus = Target::CalNext;
+                vec![c.mire()]
+            }
+            Target::CalNext => {
+                let Some(c) = self.calibration.as_mut() else { return Vec::new() };
+                if c.step < 3 {
+                    c.step += 1;
+                    if c.step == 1 {
+                        // Le plein écran part de la luminosité maximale choisie (il ne la dépasse pas).
+                        c.idx[1] = c.idx[1].min(c.idx[0]);
+                    }
+                    return vec![c.mire()];
+                }
+                // « Terminer » : les valeurs sont gardées pour cet écran et valent pour la session suivante.
+                self.store.app.hdr_luminance = Some(crate::mires::luminance(&c.idx));
+                let mut actions = self.close_calibration();
+                if self.session.is_some() {
+                    self.toast(tr("Le réglage vaudra à la prochaine session.", "The calibration will apply from the next session."));
+                }
+                actions.push(Action::Save);
+                actions
+            }
+            Target::CalCancel => self.close_calibration(),
+            Target::CalAuto => {
+                self.store.app.hdr_luminance = None;
+                let mut actions = self.close_calibration();
+                actions.push(Action::Save);
+                actions
             }
             Target::Host(i) => {
                 let Some(h) = self.store.hosts.get(i) else { return Vec::new() };
@@ -3348,6 +3568,25 @@ impl App {
                 s.menu = false;
                 vec![Action::SetProfile(p)]
             }
+            MenuItem::Hdr => {
+                let Some(hdr) = s.hdr else { return Vec::new() };
+                // Inactive : la raison, en capsule ; le menu reste ouvert.
+                if let Some(r) = hdr.reason {
+                    s.notice = Some((r.text().into(), Instant::now()));
+                    return Vec::new();
+                }
+                let on = !hdr.on;
+                s.hdr = Some(HdrUi { on, reason: None });
+                s.menu = false;
+                // Le même choix que la puce et le réglage : gardé pour cet ordinateur.
+                let key = s.host.clone();
+                if let Some(h) = self.store.host_mut(&key) {
+                    h.settings.hdr = on;
+                } else if let Some(b) = self.store.borrowed.iter_mut().find(|b| b.id == key) {
+                    b.hdr = on;
+                }
+                vec![Action::SetHdr(on), Action::Save]
+            }
             MenuItem::RemoteMouse => {
                 s.remote_mouse = !s.remote_mouse;
                 s.menu = false;
@@ -3405,6 +3644,9 @@ impl App {
 
     /// Change un réglage (gauche / droite, ou OK pour la valeur suivante).
     fn adjust(&mut self, s: Setting, dir: i32) -> Vec<Action> {
+        if matches!(s, Setting::HdrCalibrate | Setting::HdrCalibration) {
+            return self.open_calibration(s);
+        }
         if s == Setting::Pads {
             self.back_to = Screen::Settings;
             self.go(Screen::Gamepads);
@@ -3432,6 +3674,7 @@ impl App {
             _ => {}
         }
         let panel_h = self.tv.panel.1;
+        let hdr_ok = self.selected().and_then(|h| self.hdr_ui(h)).is_some_and(|u| u.available());
         let Some(h) = self.store.host_mut(&id) else { return Vec::new() };
         let st = &mut h.settings;
         match s {
@@ -3462,6 +3705,12 @@ impl App {
                 st.audio = opts[cycle(i, opts.len(), dir)].into();
             }
             Setting::GameHint => st.game_mode_hint = !st.game_mode_hint,
+            Setting::Hdr => {
+                if !hdr_ok {
+                    return Vec::new();
+                }
+                st.hdr = !st.hdr;
+            }
             Setting::Gamepad => st.xbox360 = !st.xbox360,
             Setting::Combo => st.combo = !st.combo,
             Setting::BackMenu => st.back_opens_menu = !st.back_opens_menu,
@@ -3472,7 +3721,7 @@ impl App {
                 let t = if reliable == st.profile.reliable() { "" } else if reliable { "reliable" } else { "fast" };
                 st.set_transport(t);
             }
-            Setting::Remove | Setting::Restart | Setting::Update | Setting::Language | Setting::Pads | Setting::UpdateChannel => {}
+            Setting::Remove | Setting::Restart | Setting::Update | Setting::Language | Setting::Pads | Setting::UpdateChannel | Setting::HdrCalibrate | Setting::HdrCalibration => {}
         }
         vec![Action::Save]
     }
@@ -3568,6 +3817,7 @@ impl App {
             entry.share = p.share;
             entry.lend = p.lend;
             entry.lend_view = p.lend_view.clone();
+            entry.hdr = p.hdr;
             // Réveillé : le bouton redevient « Se connecter ».
             if self.waking.as_ref().is_some_and(|(w, _)| w == id) {
                 self.waking = None;
@@ -3632,12 +3882,80 @@ impl App {
         }
         let (w, hh, fps) = self.session_mode(h);
         let sized = h.settings.resolution == 0;
-        match (english(), sized) {
+        let line = match (english(), sized) {
             (false, true) => format!("Écran de {w} × {hh} à {fps} Hz, à la taille de cet écran"),
             (false, false) => format!("Écran de {w} × {hh} à {fps} Hz"),
             (true, true) => format!("{w} × {hh} display at {fps} Hz, sized for this screen"),
             (true, false) => format!("{w} × {hh} display at {fps} Hz"),
+        };
+        if self.hdr_on(h) { format!("{line}{}", tr(", en HDR", ", in HDR")) } else { line }
+    }
+
+    /// La puce « HDR » de cet ordinateur ; `None` sur un écran SDR (aucune trace du HDR). Miroir de
+    /// `profile::hdr_block` du cœur (l'interface seule n'a pas le cœur) : ce que la Station dit, puis le format
+    /// choisi, puis le décodeur.
+    pub fn hdr_ui(&self, h: &Host) -> Option<HdrUi> {
+        if !self.tv.hdr {
+            return None;
         }
+        let station = self.live.get(&h.id).and_then(|l| l.hdr);
+        let reason = match station {
+            // Pas encore sondée : le dernier choix, sans raison (la session tranche).
+            None | Some(StationHdr::Available) => None,
+            Some(StationHdr::Off) => Some(HdrReason::Station),
+            Some(StationHdr::Windows) => Some(HdrReason::Windows),
+            Some(StationHdr::Encoder) => Some(HdrReason::Encoder),
+            Some(StationHdr::Display) => Some(HdrReason::PcDisplay),
+        }
+        .or((h.settings.codec == "h264").then_some(HdrReason::Format))
+        .or((!self.tv.hdr_decoder).then_some(HdrReason::Decoder));
+        Some(HdrUi { on: h.settings.hdr, reason })
+    }
+
+    /// La session demandera le HDR à cet ordinateur.
+    pub fn hdr_on(&self, h: &Host) -> bool {
+        self.hdr_ui(h).is_some_and(|u| u.lit())
+    }
+
+    /// La puce « HDR » d'un ordinateur emprunté (prêt de l'ordinateur) : rien ne dit avant l'emprunt ce que la Station
+    /// de l'ami propose, la session tranche ; seul le décodeur peut l'éteindre d'avance.
+    pub fn borrowed_hdr_ui(&self, id: &str) -> Option<HdrUi> {
+        if !self.tv.hdr {
+            return None;
+        }
+        let on = self.store.borrowed(id).is_none_or(|b| b.hdr);
+        Some(HdrUi { on, reason: (!self.tv.hdr_decoder).then_some(HdrReason::Decoder) })
+    }
+
+    pub fn borrowed_hdr_on(&self, id: &str) -> bool {
+        self.borrowed_hdr_ui(id).is_some_and(|u| u.lit())
+    }
+
+    /// La puce « HDR » de l'accueil : allume ou éteint le HDR de l'ordinateur choisi (ou emprunté) ; inactive, sa
+    /// raison en capsule.
+    fn toggle_hdr(&mut self) -> Vec<Action> {
+        if let Some(id) = self.selected_borrowed().map(|b| b.id.clone()) {
+            let Some(ui) = self.borrowed_hdr_ui(&id) else { return Vec::new() };
+            if let Some(r) = ui.reason {
+                self.toast(r.text());
+                return Vec::new();
+            }
+            if let Some(b) = self.store.borrowed.iter_mut().find(|b| b.id == id) {
+                b.hdr = !b.hdr;
+            }
+            return vec![Action::Save];
+        }
+        let Some(h) = self.selected() else { return Vec::new() };
+        let Some(ui) = self.hdr_ui(h) else { return Vec::new() };
+        if let Some(r) = ui.reason {
+            self.toast(r.text());
+            return Vec::new();
+        }
+        let id = h.id.clone();
+        if let Some(h) = self.store.host_mut(&id) {
+            h.settings.hdr = !h.settings.hdr;
+        }
+        vec![Action::Save]
     }
 
     /// Le mode que la session demandera : définition et fréquence.
@@ -3803,12 +4121,89 @@ mod tests {
         app.tv.panel = (3840, 2160);
         app.tv.refresh = 120;
         let mut h = demo_host();
+        app.tv.hdr = false;
         assert_eq!(app.screen_line(&h), "Écran de 3840 × 2160 à 120 Hz, à la taille de cet écran");
+        // Écran HDR, HDR allumé et proposé : « en HDR ».
+        app.tv.hdr = true;
+        assert_eq!(app.screen_line(&h), "Écran de 3840 × 2160 à 120 Hz, à la taille de cet écran, en HDR");
+        h.settings.hdr = false;
+        assert_eq!(app.screen_line(&h), "Écran de 3840 × 2160 à 120 Hz, à la taille de cet écran");
+        app.tv.hdr = false;
         h.settings.resolution = 1080;
         h.settings.fps = 60;
         assert_eq!(app.screen_line(&h), "Écran de 1920 × 1080 à 60 Hz");
         app.live.insert("a".into(), HostLive { online: Online::Online, virtual_display: Some(false), ..Default::default() });
         assert_eq!(app.screen_line(&h), "Les écrans de l'ordinateur, tels quels");
+    }
+
+    /// « Réglage du HDR » : ouvert depuis les réglages de l'app sur les valeurs automatiques, gauche et droite changent
+    /// la mire, « Terminer » garde les valeurs pour cet écran, « Revenir au réglage automatique » les retire.
+    #[test]
+    fn hdr_calibration() {
+        use crate::mires::Step;
+        crate::i18n::set_english(false);
+        let mut app = App::new(Store::default());
+        app.open_settings(true, Screen::Home);
+        assert_eq!(app.activate(Target::Setting(Setting::HdrCalibration)), vec![Action::Mire(Some((Step::Peak, 13)))]);
+        assert_eq!(app.screen, Screen::HdrCalibration);
+        assert_eq!(app.nav(Nav::Right), vec![Action::Mire(Some((Step::Peak, 14)))]);
+        app.activate(Target::CalNext);
+        // Le plein écran ne dépasse pas le maximum choisi.
+        assert_eq!(app.calibration.as_ref().unwrap().idx[1], 13);
+        app.activate(Target::CalNext);
+        app.nav(Nav::Right);
+        assert_eq!(app.activate(Target::CalNext), vec![Action::Mire(Some((Step::White, 6)))]);
+        let done = app.activate(Target::CalNext);
+        assert_eq!(done, vec![Action::Mire(None), Action::Save]);
+        assert_eq!((app.screen, app.focus), (Screen::Settings, Target::Setting(Setting::HdrCalibration)));
+        let l = app.store.app.hdr_luminance.unwrap();
+        assert_eq!((l.max, l.full_frame, l.min, l.sdr_white), (1100.0, 1000.0, 0.005, 200.0));
+        assert_eq!(calibration_state(app.store.app.hdr_luminance.as_ref()), "Réglé à l'œil");
+        // Rouvert sur les valeurs gardées ; Retour à la première étape : comme « Annuler ».
+        assert_eq!(app.activate(Target::Setting(Setting::HdrCalibration)), vec![Action::Mire(Some((Step::Peak, 14)))]);
+        assert_eq!(app.nav(Nav::Back), vec![Action::Mire(None)]);
+        assert!(app.store.app.hdr_luminance.is_some());
+        app.activate(Target::Setting(Setting::HdrCalibration));
+        assert_eq!(app.activate(Target::CalAuto), vec![Action::Mire(None), Action::Save]);
+        assert_eq!(app.store.app.hdr_luminance, None);
+        // Écran SDR : pas de réglage.
+        app.tv.hdr = false;
+        assert!(app.activate(Target::Setting(Setting::HdrCalibration)).is_empty());
+    }
+
+    /// La puce « HDR » : cachée sur un écran SDR, allumée par défaut, inactive avec la première raison qui s'applique
+    /// (docs/hdr.md), gardée pour l'ordinateur, sans faire passer le profil en « Personnalisé ».
+    #[test]
+    fn hdr_chip() {
+        crate::i18n::set_english(false);
+        let mut store = Store::default();
+        store.hosts.push(demo_host());
+        store.selected = Some("a".into());
+        let mut app = App::new(store);
+        app.tv.hdr = false;
+        assert_eq!(app.hdr_ui(&app.store.hosts[0]), None);
+        app.tv.hdr = true;
+        let u = app.hdr_ui(&app.store.hosts[0]).unwrap();
+        assert!(u.on && u.lit() && u.available());
+        // Ordre des raisons : Station, puis format, puis décodeur.
+        app.tv.hdr_decoder = false;
+        app.store.hosts[0].settings.codec = "h264".into();
+        app.live.insert("a".into(), HostLive { online: Online::Online, hdr: Some(StationHdr::Windows), ..Default::default() });
+        assert_eq!(app.hdr_ui(&app.store.hosts[0]).unwrap().reason, Some(HdrReason::Windows));
+        app.live.get_mut("a").unwrap().hdr = Some(StationHdr::Available);
+        assert_eq!(app.hdr_ui(&app.store.hosts[0]).unwrap().help(), "Le HDR demande le format HEVC ou AV1.");
+        app.store.hosts[0].settings.codec = "auto".into();
+        assert_eq!(app.hdr_ui(&app.store.hosts[0]).unwrap().reason, Some(HdrReason::Decoder));
+        // Inactive : la puce ne change rien, elle dit sa raison.
+        assert!(app.activate(Target::HdrChip).is_empty());
+        assert!(app.store.hosts[0].settings.hdr);
+        app.tv.hdr_decoder = true;
+        assert_eq!(app.activate(Target::HdrChip), vec![Action::Save]);
+        assert!(!app.store.hosts[0].settings.hdr && !app.hdr_on(&app.store.hosts[0]));
+        assert!(!app.store.hosts[0].settings.is_custom());
+        // Un fichier d'avant le HDR : allumé.
+        let old: crate::model::HostSettings = serde_json::from_str("{}").unwrap();
+        assert!(old.hdr);
     }
 
     #[test]

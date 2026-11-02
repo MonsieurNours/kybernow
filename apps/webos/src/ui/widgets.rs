@@ -61,14 +61,25 @@ pub fn secondary(cv: &mut Canvas, f: &mut Frame, t: Target, x: f32, y: f32, s: &
 
 /// Pastille de profil (Jeu, Bureau, Max) ; rend sa largeur.
 pub fn chip(cv: &mut Canvas, f: &mut Frame, t: Target, x: f32, y: f32, s: &str, active: bool) -> f32 {
+    chip_state(cv, f, t, x, y, s, active, true)
+}
+
+/// Une pastille qui peut être inactive (la puce « HDR » quand l'ordinateur ne le propose pas) : estompée, en
+/// pointillés, elle reste choisissable et dit pourquoi.
+#[allow(clippy::too_many_arguments)]
+pub fn chip_state(cv: &mut Canvas, f: &mut Frame, t: Target, x: f32, y: f32, s: &str, active: bool, enabled: bool) -> f32 {
+    let active = active && enabled;
     let style = Text::new(if active { Font::Semibold } else { Font::Regular }, 22.0, if active { FROST } else { FROST_2 });
     let w = cv.text_width(style, s) + 56.0;
     let h = 56.0;
     let focused = f.hit(t, Rect::new(x, y, w, h));
     if focused {
         cv.neon(x, y, w, h, 28.0, 0.8);
-        cv.rrect(x, y, w, h, 28.0, CORE);
+        cv.rrect(x, y, w, h, 28.0, if enabled { CORE } else { FROST_2 });
         cv.text(x + 28.0, y + 36.0, style.color(INK), s);
+    } else if !enabled {
+        cv.rrect_dashed(x, y, w, h, 28.0, 1.5, BORDER);
+        cv.text(x + 28.0, y + 36.0, style.color(FROST_3), s);
     } else if active {
         cv.rrect(x, y, w, h, 28.0, SPECTRE.alpha(0.18));
         cv.rrect_stroke(x, y, w, h, 28.0, 1.5, SPECTRE);

@@ -22,7 +22,7 @@ fn marketing(release: &str) -> String {
     }
 }
 
-pub fn tv(panel: (u32, u32), refresh: u32, decoder: bool) -> TvInfo {
+pub fn tv(panel: (u32, u32), refresh: u32, decoder: bool, hdr_decoder: bool) -> TvInfo {
     let os = std::fs::read_to_string("/var/run/nyx/os_info.json").unwrap_or_default();
     let device = std::fs::read_to_string("/var/run/nyx/device_info.json").unwrap_or_default();
     let release = json_field(&os, "webos_release").unwrap_or_default();
@@ -45,7 +45,36 @@ pub fn tv(panel: (u32, u32), refresh: u32, decoder: bool) -> TvInfo {
         // NDL le prend en API 2.
         av1: decoder && major >= 5,
         multichannel: 0,
+        hdr: screen_hdr(),
+        hdr_decoder: decoder && hdr_decoder,
     }
+}
+
+/// L'écran du téléviseur est HDR, d'après webOS (`crate::hdr::CONFIGS`, par
+/// le service de configuration, celui que la SDL lit pour la fréquence de la
+/// dalle). Illisible : non (l'app ne propose pas le HDR plutôt que de délaver
+/// l'image d'un écran SDR).
+fn screen_hdr() -> bool {
+    // webOS ne donne pas (à notre connaissance) la luminosité de la dalle : les réglages du modèle et du matériel
+    // vont une fois au journal, pour y chercher, sur un vrai téléviseur, des valeurs à reprendre.
+    std::thread::Builder::new()
+        .name("tv-configs".into())
+        .spawn(|| {
+            let payload = r#"{"configNames":["tv.model.*","tv.hw.*"]}"#;
+            match super::luna::call("luna://com.webos.service.config/getConfigs", payload, std::time::Duration::from_secs(3)) {
+                Some(r) => log::info!("téléviseur : réglages tv.model.* et tv.hw.* : {r}"),
+                None => log::info!("téléviseur : réglages tv.model.* et tv.hw.* illisibles"),
+            }
+        })
+        .ok();
+    let payload = serde_json::json!({ "configNames": crate::hdr::CONFIGS }).to_string();
+    let Some(reply) = super::luna::call("luna://com.webos.service.config/getConfigs", &payload, std::time::Duration::from_secs(2)) else {
+        log::warn!("téléviseur : HDR illisible (getConfigs sans réponse) ; pas de HDR");
+        return false;
+    };
+    let hdr = crate::hdr::from_configs(&reply);
+    log::info!("téléviseur : écran {} ({reply})", if hdr == Some(true) { "HDR" } else { "SDR" });
+    hdr.unwrap_or(false)
 }
 
 /// Le lien réseau en service : Ethernet (et sa vitesse) ou Wi-Fi.

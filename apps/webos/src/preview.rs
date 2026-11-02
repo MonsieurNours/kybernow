@@ -44,6 +44,64 @@ fn demo_image(seed: u32) -> Pixmap {
     p
 }
 
+/// La mire d'une étape du « Réglage du HDR », approchée en SDR pour les captures (sur le téléviseur, c'est une
+/// image HDR du plan vidéo, `crate::mires`) : même dessin, luminances ramenées à l'écran SDR.
+fn mire_preview(step: crate::mires::Step, nits: f32) -> Pixmap {
+    use crate::mires::Step;
+    let (w, h) = (480usize, 270usize);
+    // 1 000 nits et plus : blanc ; une courbe douce en dessous ; le noir relevé pour que la croix se voie.
+    let tone = |l: f32| -> u8 {
+        let v = if step == Step::Black { (l / 1.0).clamp(0.0, 1.0).powf(0.35) * 0.35 } else { (l / 1000.0).clamp(0.0, 1.0).powf(1.0 / 2.2) };
+        (v * 255.0).round() as u8
+    };
+    let mut lum = vec![0f32; w * h];
+    let cross = |lum: &mut Vec<f32>, arm: usize, width: usize, v: f32| {
+        let (cx, cy) = (w / 2, h / 2);
+        for y in 0..h {
+            for x in 0..w {
+                if (y.abs_diff(cy) < width / 2 && x.abs_diff(cx) < arm) || (x.abs_diff(cx) < width / 2 && y.abs_diff(cy) < arm) {
+                    lum[y * w + x] = v;
+                }
+            }
+        }
+    };
+    match step {
+        Step::Peak => {
+            let side = 114;
+            for y in (h - side) / 2..(h + side) / 2 {
+                for x in (w - side) / 2..(w + side) / 2 {
+                    lum[y * w + x] = 10_000.0;
+                }
+            }
+            cross(&mut lum, 30, 9, nits);
+        }
+        Step::Full => {
+            lum.fill(10_000.0);
+            cross(&mut lum, 50, 15, nits);
+        }
+        Step::Black => cross(&mut lum, 50, 15, nits),
+        Step::White => {
+            // Le bureau : un fond, une fenêtre blanche, des lignes de texte.
+            lum.fill(nits * 0.25f32.powf(2.2));
+            for y in 47..222 {
+                for x in 90..390 {
+                    let title = y < 61;
+                    let text = (75..170).contains(&y) && (y - 75) % 15 < 6 && (105..340).contains(&x);
+                    let v: f32 = if title { 0.91 } else if text { 0.08 } else { 1.0 };
+                    lum[y * w + x] = nits * v.powf(2.2);
+                }
+            }
+        }
+    }
+    // Luminosités en tons de gris SDR, pour la capture.
+    let mut p = Pixmap::new(w as u32, h as u32).unwrap();
+    for (i, px) in p.data_mut().chunks_exact_mut(4).enumerate() {
+        let g = if step == Step::White { ((lum[i] / nits.max(1.0)).powf(1.0 / 2.2) * 255.0 * (nits / 480.0).powf(0.3).min(1.0)) as u8 } else { tone(lum[i]) };
+        px.copy_from_slice(&[g, g, g, 255]);
+    }
+    p
+}
+
 fn host(id: &str, name: &str, addr: &str) -> Host {
     Host {
         id: id.into(),
@@ -91,6 +149,7 @@ fn demo(english: bool) -> App {
         refresh: 120,
         codec: "HEVC".into(),
         route: String::new(),
+        hdr: true,
     });
     a.wake = vec![wake_target("3c:7c:3f:12:ab:cd", "192.168.1.20")];
     store.hosts.push(a);
@@ -100,7 +159,7 @@ fn demo(english: bool) -> App {
     app.tv.model = "OLED83G2".into();
     app.tv.webos = "25".into();
     app.net.kind = NetKind::Wifi;
-    app.live.insert("a".into(), HostLive { online: Online::Online, virtual_display: Some(true), station: station("0.5.0"), problem: None, own_device: Some(true), share: Some(ShareAvail::Available), lend: Some(crate::app::LendAvail::Available), lend_view: None });
+    app.live.insert("a".into(), HostLive { online: Online::Online, virtual_display: Some(true), station: station("0.5.0"), problem: None, own_device: Some(true), share: Some(ShareAvail::Available), lend: Some(crate::app::LendAvail::Available), lend_view: None, hdr: Some(crate::app::StationHdr::Available) });
     app.live.insert("b".into(), HostLive { online: Online::Offline, ..Default::default() });
     app.images.insert("a".into(), demo_image(1));
     app.found.push(Found { name: "Salon-PC".into(), address: "192.168.1.42".into(), port: 31250, fingerprint: None });
@@ -116,8 +175,9 @@ fn session(app: &App) -> SessionUi {
         phase: Phase::Streaming,
         streamed: true,
         menu: true,
-        stats: Some(Stats { latency_ms: Some(8.9), fps: 120.0, mbps: 80.0, lost: 0, mode: "2560 × 1440".into(), codec: "HEVC".into() }),
+        stats: Some(Stats { latency_ms: Some(8.9), fps: 120.0, mbps: 80.0, lost: 0, mode: "2560 × 1440".into(), codec: "HEVC".into(), hdr: true }),
         started: Instant::now() - Duration::from_millis(400),
+        hdr: app.selected().and_then(|h| app.hdr_ui(h)),
         ..SessionUi::new("a", "Atelier", Profile::Jeu, app.selected().is_some_and(|h| h.settings.game_mode_hint))
     }
 }
@@ -179,7 +239,7 @@ fn guest_session(role: ShareRole) -> SessionUi {
     let mut s = SessionUi::guest("share:g1", "Atelier", role);
     s.phase = Phase::Streaming;
     s.streamed = true;
-    s.stats = Some(Stats { latency_ms: Some(9.4), fps: 60.0, mbps: 38.0, lost: 0, mode: "1920 × 1080".into(), codec: "HEVC".into() });
+    s.stats = Some(Stats { latency_ms: Some(9.4), fps: 60.0, mbps: 38.0, lost: 0, mode: "1920 × 1080".into(), codec: "HEVC".into(), hdr: false });
     s.started = Instant::now() - Duration::from_millis(400);
     // « Auto » demandé, 1080p à 60 Hz reçu : la tuile du menu montre la qualité reçue.
     if let Some(g) = s.guest.as_mut() {
@@ -448,6 +508,17 @@ pub fn run(dir: &Path, lang: &str) {
     app.store.host_mut("b").unwrap().wake.clear();
     app.store.selected = Some("a".into());
 
+    // HDR (docs/hdr.md) : la puce à côté du profil (focus : son aide), puis inactive avec sa raison, à l'accueil et
+    // dans Réglages › Image.
+    app.go(Screen::Home);
+    app.focus = Target::HdrChip;
+    shot(&mut app, &mut cv, &assets, None, dir, "1h-accueil-hdr");
+    app.live.get_mut("a").unwrap().hdr = Some(crate::app::StationHdr::Off);
+    shot(&mut app, &mut cv, &assets, None, dir, "1i-accueil-hdr-inactif");
+    open(&mut app, Section::Picture, Target::Setting(Setting::Hdr));
+    shot(&mut app, &mut cv, &assets, None, dir, "6b-reglages-image-hdr-inactif");
+    app.live.get_mut("a").unwrap().hdr = Some(crate::app::StationHdr::Available);
+
     // Profil personnalisé, définition sur mesure, Station sans écran virtuel.
     let saved = app.store.host("a").unwrap().settings.clone();
     {
@@ -577,6 +648,28 @@ pub fn run(dir: &Path, lang: &str) {
     }
     app.update = UpdateState::Unknown;
 
+    // « Réglage du HDR » (docs/hdr.md) : ouvert depuis les réglages de l'app, les quatre étapes sur leur mire.
+    app.open_settings(true, Screen::Home);
+    app.focus = Target::Setting(Setting::HdrCalibration);
+    let _ = app.activate(Target::Setting(Setting::HdrCalibration));
+    for (i, name) in ["18-reglage-hdr-maximale", "18b-reglage-hdr-plein-ecran", "18c-reglage-hdr-noir", "18d-reglage-hdr-blanc"].iter().enumerate() {
+        let c = app.calibration.as_mut().unwrap();
+        c.step = i;
+        // Des paliers où la croix se voit encore (sur l'aperçu SDR, tout ce qui passe 1 000 nits est blanc).
+        match i {
+            0 => c.idx[0] = 8,
+            1 => c.idx[1] = 4,
+            2 => c.idx[2] = 5,
+            _ => {}
+        }
+        let step = c.step();
+        let nits = crate::mires::values(step)[c.idx[i]];
+        app.focus = if i == 3 { Target::CalNext } else { Target::CalMore };
+        let mire = mire_preview(step, nits);
+        shot(&mut app, &mut cv, &assets, Some(&mire), dir, name);
+    }
+    let _ = app.activate(Target::CalCancel);
+
     app.pad_selected = 0;
     app.go(Screen::Gamepads);
     shot(&mut app, &mut cv, &assets, None, dir, "13-manettes");
@@ -648,7 +741,7 @@ pub fn run(dir: &Path, lang: &str) {
 
 /// L'ordinateur de Matthieu, emprunté avec un compte d'ami (prêt de l'ordinateur).
 fn borrowed() -> Borrowed {
-    Borrowed { id: "lend:m".into(), host: "Matthieu".into(), computer: "PC-SALON".into(), address: "192.168.1.42".into(), port: 24811, fingerprint: Some("sha256:3e:91:0a:7c".into()), relay: None, sid: None, login: "lea".into(), password: "secret".into(), remember: true }
+    Borrowed { id: "lend:m".into(), host: "Matthieu".into(), computer: "PC-SALON".into(), address: "192.168.1.42".into(), port: 24811, fingerprint: Some("sha256:3e:91:0a:7c".into()), relay: None, sid: None, login: "lea".into(), password: "secret".into(), remember: true, hdr: true }
 }
 
 /// Un emprunt à l'image : l'ordinateur de Matthieu, jusqu'à dans 1 h 20.
@@ -657,7 +750,8 @@ fn borrow_session() -> SessionUi {
     let mut s = SessionUi::borrower("lend:m", BorrowSessionUi::new("Matthieu", "PC-SALON", Some(until), BorrowSource::Account { id: "lend:m".into(), attempt: 1 }));
     s.phase = Phase::Streaming;
     s.streamed = true;
-    s.stats = Some(Stats { latency_ms: Some(9.4), fps: 60.0, mbps: 40.0, lost: 0, mode: "3840 × 2160".into(), codec: "HEVC".into() });
+    s.stats = Some(Stats { latency_ms: Some(9.4), fps: 60.0, mbps: 40.0, lost: 0, mode: "3840 × 2160".into(), codec: "HEVC".into(), hdr: true });
+    s.hdr = Some(crate::app::HdrUi { on: true, reason: None });
     s
 }
 
@@ -845,7 +939,8 @@ mod tests {
         let mut redraw = |app: &mut App| app.hits = ui::draw(app, &mut cv, &assets);
         app.go(Screen::Home);
         redraw(&mut app);
-        for _ in 0..4 {
+        // Se connecter, Jeu, Bureau, Max, HDR, Réglages.
+        for _ in 0..5 {
             app.nav(Nav::Right);
             redraw(&mut app);
         }

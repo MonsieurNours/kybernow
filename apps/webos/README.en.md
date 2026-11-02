@@ -58,7 +58,7 @@ KyberNow Link on LG TVs: a **native** app (an ARM binary, not a web page), on th
 - **Bitrate**: the profile's bitrate (scaled to pixels per second, like the other apps), capped at 80 Mbit/s on Ethernet (LG's port stops at 100 Mbit/s, about 93 usable) and at 95 on Wi-Fi (the decoder limit on 2022 and later chips). The link is read from `/sys/class/net`.
 - **TV game mode**: no API lets an app switch the TV to Game Optimizer; the menu reminds you (Magic Remote Settings button › Picture › Mode › Game Optimizer), and the reminder can be turned off.
 - **VRR**: LG keeps it for HDMI inputs, for every internal app, native or web. The computer sends its frames at the panel's pace.
-- **HDR**: no HDR. The decoder can show it (`NDL_DirectVideoSetHDRInfo`, HEVC Main10), but Kyber 0.29 captures in 8 bits, as on the other apps; the app does not call that function.
+- **HDR**: HDR10 in HEVC Main 10 or 10-bit AV1, on a TV whose screen is HDR (see HDR below).
 
 ## Decoding (NDL DirectMedia)
 
@@ -73,6 +73,47 @@ KyberNow Link on LG TVs: a **native** app (an ARM binary, not a web page), on th
 - The parameter set (SPS/PPS, VPS, AV1 sequence header) goes before the keyframe that (re)starts the decoder, and again before the keyframe that follows a new set; another codec or size reloads NDL.
 - No NDL function is thread-safe: a single lock.
 - NDL does not say when a frame is shown: the display time (latency) is estimated from the frames waiting (`NDL_DirectVideoGetRenderBufferLength`) and the panel's refresh rate.
+
+## HDR
+
+Shared contract: [docs/hdr.en.md](../../docs/hdr.en.md); wording: [docs/link-ui.md](../../docs/link-ui.md), “HDR” section. Status (2 Nov 2026): written, wired to the core and compiled for the TV (`.ipk` package), checked through its screenshots and tests; **not yet tried on the G2** nor with a Station that does HDR (switch to HDR mode, colours, back to SDR).
+
+- **HDR screen**: from the TV's settings, through webOS's configuration service (`luna://com.webos.service.config/getConfigs`, the one SDL reads for the panel's refresh rate): `tv.model.supportHDR`, or `tv.config.supportDolbyHDRContents` (a Dolby Vision TV also takes HDR10). Unreadable: no HDR. The call goes through `HLunaServiceCall` in `libhelpers.so.2`, the TV library SDL already opens (`src/device/luna.rs`). On an SDR screen, no trace of HDR in the app.
+- **Decoder**: NDL reads HEVC Main 10 and 10-bit AV1; `NDL_DirectVideoSetHDRInfo` present in the TV's library (`ndl::hdr_capable`), otherwise “This device can't decode HDR.”.
+- **Switching to HDR mode**: `NDL_DirectVideoSetHDRInfo` gets the static HDR10 metadata, a 15-word structure passed by value: primaries (green, blue, red) and white point in 0.00002 units, mastering display luminances in 0.0001 cd/m², MaxCLL and MaxFALL in cd/m², then the VUI codes 16 (SMPTE ST 2084), 9 (BT.2020) and 9 (BT.2020 non-constant). The toolchain's header only declares 12 integers, as separate parameters: on ARM, the first 12 words go through the same registers and stack. 32 spare words follow, for an older revision of the library that reads past the structure.
+- **Only for an HDR stream**: the function switches the panel to HDR mode on every call, whatever the picture; an SDR picture would look washed out. The stream is read (`src/hdr.rs`) in the parameter set and the keyframe that load the decoder: “mastering display” and “content light level” SEI in HEVC, HDR_MDCV and HDR_CLL metadata OBUs in AV1 (converted to the SEI units), the SPS profile. HDR if it carries that metadata, or if it is HEVC Main 10 while the session asked for HDR (default values: BT.2020, D65, 1000 cd/m²); an 8-bit stream without metadata, never.
+- **When**: once per load, after the first frame NDL accepts; never on every frame (the panel would briefly lose its refresh rate).
+- **Back to SDR**: nothing undoes the call; HDR is part of what is loaded. A picture that goes back to SDR, or the end of the session, reloads or unloads NDL, and the panel returns to SDR.
+- **Interface**, as on the other apps: the “HDR” chip next to the profile on the home screen (focus: its help, or the reason when it is inactive), also on the “Borrow” screen of a borrowed computer; “in HDR” at the end of the display line; “HDR” in Settings › Picture; the “HDR” tile, a checkbox, in the session menu next to the profiles; “HDR” after the format in the statistics and the last session. On by default, kept for each computer (`HostSettings::hdr`), without turning the profile into “Custom”. The TV never decodes 4:4:4: there is no “Sharp text (4:4:4)” row to disable.
+- **Wiring to the core** (`src/device/session.rs`, “HDR: wiring to the core”): `HdrAsk` (the choice, the screen, the decoder) gives `StreamSettings::hdr`, `Capabilities::hdr` and `SessionParams::screen_hdr`; `station_hdr` reads `Info::hdr` (the HDR the Station announces); the menu switch calls `Session::set_hdr` (Admin turns the virtual display's HDR on or off, the picture restarts); `Platform::on_hdr` says at each picture start whether the computer sent it in HDR; the notice “The computer couldn't switch to HDR: picture in SDR.” comes from the core. A panel never gains or loses HDR during a session: no `Session::screen_hdr_changed`. The chip's reason follows the core's `profile::hdr_block` (`App::hdr_ui`, a mirror for the interface alone, which builds without the core). Share guest: no chip, HDR when the screen and the decoder allow it.
+
+### HDR calibration
+
+Contract: [docs/hdr.en.md](../../docs/hdr.en.md), “HDR calibration”. Written, compiled for the TV and checked through its screenshots and tests; **not yet tried on the G2**.
+
+- **Screen values** (maximum brightness, full-screen brightness, black, desktop white, in nits): webOS does not give them to an app (nothing of the kind in its known settings); the app uses the contract's defaults, 1,000, 1,000, 0 and 203 nits, unless calibrated by eye. At launch, the TV's `tv.model.*` and `tv.hw.*` settings go to the log once (`téléviseur : réglages …`), to look for values worth using on the G2. Calibrated values are kept for this TV (`AppSettings::hdr_luminance` in `kybernow.json`) and apply from the next session: they go to the core (`SessionParams::screen_luminance`, bounded by it), which gives them to Admin for the virtual display's colour profile, and, for the friend of a loan, in the borrow request (`BorrowScreen::with_hdr`).
+- **Access** (HDR screen only): App settings › “HDR calibration”, with its state below (“Automatic”, “Calibrated by eye”); Settings › Picture, under “HDR”: “Calibrate HDR for this screen…”.
+- **Screen** (`src/ui/calibration.rs`): four steps (maximum brightness, full-screen brightness, black, desktop white); left and right on the Magic Remote, a controller or a keyboard change the level, wherever the focus is; “Next”, “Back”, “Done”, “Cancel”, “Back to automatic”; the remote's Back button: the previous step, then “Cancel”. The interface stays at the edges, in SDR on the graphics plane, and reminds to set the TV to Game Optimizer with Dynamic Tone Mapping on HGIG: the TV must clip at its real brightness, without a curve of its own.
+- **HDR test patterns**: the TV's graphics plane is SDR, so the patterns go through its video chain, like a session's picture. They are HEVC Main 10 PQ still images (BT.2020, limited range, 1920 × 1080, HDR10 metadata: 10,000-nit mastering display, MaxCLL 10,000), one per level: 27 for maximum and full-screen brightness (100 to 10,000 nits), 15 for black (0 to 1 nit), 21 for desktop white (80 to 480 nits). `scripts/hdr-mires.py` makes them with ffmpeg and libx265 (neutral grey: the luma is the PQ value of the luminance) into `assets/hdr-mires.bin` (406 KB, committed like the fonts), which the app embeds. A single image comes out as true Main 10: with `keyint=1`, x265 signals “Main 10 Intra”, an RExt profile the decoder might refuse. Patterns: a 10 % window at 10,000 nits (clipped by the screen) with a cross at the level; the whole screen at 10,000 nits with the cross; black with the cross at the level; a desktop (window, text) whose white is at the level, gamma 2.2.
+- **Display** (`src/device/mires.rs`): the pattern goes to NDL with its metadata (`NDL_DirectVideoSetHDRInfo` once per load), fed again every 100 ms, changed with the level. The patterns take the decoder, even during a session: the session's picture thread waits without asking for keyframes; at the end, NDL is unloaded (the panel returns to SDR) and the session reloads it at the next keyframe. After “Done” during a session: “The calibration will apply from the next session.”
+
+### Trying HDR on the G2
+
+Package: `apps/webos/dist/fr.leslignesclaires.kybernow_<version>_arm.ipk` (`scripts/build.sh`), installed as usual ([INSTALLATION.en.md](INSTALLATION.en.md), “Installing the app”), then the log read at the end (same page, troubleshooting). Before: on the TV, Magic Remote Settings button › Picture › Mode: **Game Optimizer**, and in its advanced settings, **Dynamic Tone Mapping: HGIG**.
+
+1. **The TV switches to HDR, without a computer**: App settings › “HDR calibration”. Expected: the TV's “HDR” badge at the top right on opening, and the picture mode marked HDR in Settings › Picture; a very bright area in the middle, the cross visible at 500 nits and disappearing higher up (around 700 to 1,000 nits on a G2). Go through the four steps, “Done”. Back in the settings: the panel returns to SDR (interface colours as before).
+2. **HDR session**: PC with the HDR Station (Windows 11 24H2), the “HDR” chip on at home, the display line ends with “in HDR”. Connect. Expected: the TV's “HDR” badge; “HDR” in the statistics; the Windows desktop neither washed out nor too dark; an HDR game with bright highlights, colours neither dull nor oversaturated.
+3. **Back to SDR**: session menu › “HDR” unchecked. Expected: “First frames”, then the picture in SDR (no HDR badge, normal colours); check it again: HDR again. Disconnect: the home screen with its usual colours.
+4. **Calibration during a session**: menu › Settings › Picture › “Calibrate HDR for this screen…”, one step, “Cancel”: the session's picture comes back by itself within a few seconds.
+
+What proves HDR mode, in the log (`kybernow.log`):
+
+- `téléviseur : écran HDR ({… "tv.model.supportHDR": true …})` at launch, and the line `téléviseur : réglages tv.model.* et tv.hw.* : …` (keep it: it is where to look for the panel's brightness);
+- `image : flux HDR (Main 10 : true, métadonnées : true, demandé : true)` then `image : NDL chargé (HEVC, 3840 × 2160, …, HDR)`;
+- `image : NDL_DirectVideoSetHDRInfo → 0 (primaires …)`: 0 means accepted; −1 and a message: refused (the structure's shape or its units);
+- `lecteur : chargement {…}`: LG's player document, which may say what it got of the HDR.
+
+What gives a problem away: no HDR badge despite `→ 0` (the TV ignores the metadata), a washed-out picture (panel in HDR, stream in SDR), a picture too dark or too saturated (metadata units), the session's picture not coming back after the patterns.
 
 ## Sound
 
@@ -109,11 +150,13 @@ apps/webos/
 │   ├── preview.rs       screenshots of the screens with demo data
 │   ├── app.rs           interface state, spatial navigation, actions (no SDL nor core)
 │   ├── model.rs         computers, settings, the TV's identity (kybernow.json in Store::dir)
+│   ├── hdr.rs           HDR: the TV's screen (its settings), HDR10 metadata read in the stream
+│   ├── mires.rs         “HDR calibration” patterns (assets/hdr-mires.bin) and their levels
 │   ├── i18n.rs          French and English
 │   ├── ui/              drawing (tiny-skia, fontdue): home, adding, settings (Statistics,
 │   │                    Station and its QR code), controllers, session; join.rs (join a
 │   │                    share), share.rs (host panel), quality.rs (a guest's picture quality)
-│   ├── device/          the TV: SDL (window, events), NDL (picture), sound, Dolby chain
+│   ├── device/          the TV: SDL (window, events), NDL (picture, HDR), webOS services (luna), sound, Dolby chain
 │   │                    (esplayer, eac3), player hook (starfish), session (the core's Platform),
 │   │                    controllers, background jobs (Admin, Station, wake, mDNS, code, updates), log
 │   └── *.c              glibc shims, E-AC-3 encoder (libavcodec), hook on LG's player
@@ -122,7 +165,8 @@ apps/webos/
 ├── assets/              brand fonts (static instances), logo
 ├── webos/               appinfo.json, icons, splash screen
 └── scripts/             build.sh, package.sh and ipk.py (package), preview.sh (screenshots),
-                         fonts.py and images.py (fonts and images taken from the brand)
+                         fonts.py and images.py (fonts and images taken from the brand),
+                         hdr-mires.py (HDR calibration patterns, assets/hdr-mires.bin)
 ```
 
 - **Core**: `kybernow-core` as is; `src/device/session.rs` is the equivalent of Android's JNI bridge (the core's `Platform`: picture, sound, input chain, states, stats, pointer, rumble).
@@ -162,4 +206,4 @@ apps/webos/scripts/preview.sh                # → apps/target/webos-preview/*.p
 
 ## Log
 
-`/media/developer/temp/kybernow/kybernow.log` on the TV (the previous one as `.1`), next to `kybernow.json` (computers and settings). In developer mode, `HOME` is `/media/developer`, closed to the app's user, and its `/tmp` is emptied on reboot and invisible over ssh: `temp` is open to all, survives reboots and reinstalls, and can be read over ssh. The app takes the first folder it can write to among `$HOME/conf`, this one and `/tmp/kybernow` (`Store::dir`), and standard error: `image :` (NDL), `son :`, `manettes :`, `session :`, `lecteur :` (hook on LG's player) lines, with the core's messages (logs stay in French). See [INSTALLATION.en.md](INSTALLATION.en.md) to read it.
+`/media/developer/temp/kybernow/kybernow.log` on the TV (the previous one as `.1`), next to `kybernow.json` (computers and settings). In developer mode, `HOME` is `/media/developer`, closed to the app's user, and its `/tmp` is emptied on reboot and invisible over ssh: `temp` is open to all, survives reboots and reinstalls, and can be read over ssh. The app takes the first folder it can write to among `$HOME/conf`, this one and `/tmp/kybernow` (`Store::dir`), and standard error: `image :` (NDL, HDR or SDR stream, `NDL_DirectVideoSetHDRInfo` and its values), `téléviseur :` (HDR or SDR screen, webOS's answer), `son :`, `manettes :`, `session :`, `lecteur :` (hook on LG's player) lines, with the core's messages (logs stay in French). See [INSTALLATION.en.md](INSTALLATION.en.md) to read it.
