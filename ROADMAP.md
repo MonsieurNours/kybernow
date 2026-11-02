@@ -22,7 +22,7 @@ Ce qui est prévu ou à essayer, et seulement ici : les autres documents décriv
 
 Cadré le 02/11/2026, contrat : [docs/hdr.md](docs/hdr.md).
 
-- **Première version** : Station (correctifs Kyber 0022 : capture FP16 des deux moteurs et de WGC, conversion PQ/BT.2020 en P010, HEVC Main 10 et AV1 10 bits, image à part SDR des invités ; Admin : HDR de l'écran virtuel, réglage, annonce), cœur, apps Apple et téléviseurs LG ; essais sur l'écran XDR du Mac, l'Apple TV, la LG G2.
+- **Première version** : Station (correctifs Kyber 0022 : capture FP16 des deux moteurs et de WGC, conversion PQ/BT.2020 en P010, HEVC Main 10 et AV1 10 bits, image à part SDR des invités ; Admin : HDR de l'écran virtuel, profil de couleur et blanc du bureau pour l'écran de l'appareil, réglage, annonce), réglage du HDR à l'œil dans les apps, cœur, apps Apple et téléviseurs LG ; essais sur l'écran XDR du Mac, l'Apple TV, la LG G2.
 - **Version suivante** : Android, Windows, Linux (Raspberry Pi après).
 
 ## KyberNow Station et Admin
