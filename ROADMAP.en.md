@@ -22,7 +22,7 @@ What is planned or still to try, and only here: the other documents describe wha
 
 Scoped on 02/11/2026, contract: [docs/hdr.en.md](docs/hdr.en.md).
 
-- **First version**: Station (Kyber patches 0022: FP16 capture in both engines and WGC, PQ/BT.2020 conversion to P010, HEVC Main 10 and 10-bit AV1, separate SDR picture for guests; Admin: virtual display HDR, setting, announcement), core, Apple apps and LG TVs; tests on the Mac's XDR display, the Apple TV, the LG G2.
+- **First version**: Station (Kyber patches 0022: FP16 capture in both engines and WGC, PQ/BT.2020 conversion to P010, HEVC Main 10 and 10-bit AV1, separate SDR picture for guests; Admin: virtual display HDR, colour profile and desktop white for the device's screen, setting, announcement), HDR calibration by eye in the apps, core, Apple apps and LG TVs; tests on the Mac's XDR display, the Apple TV, the LG G2.
 - **Next version**: Android, Windows, Linux (Raspberry Pi after).
 
 ## KyberNow Station and Admin
