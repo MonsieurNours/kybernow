@@ -82,8 +82,17 @@ Full contract: [hdr.en.md](hdr.en.md). HDR is only offered on a device whose scr
 | Home “Display” line, HDR on | « Écran de 3840 × 2160 à 120 Hz, à la taille de cet écran, en HDR »; several displays: « 2 écrans, à la taille de ceux de cet appareil, en HDR » (as soon as one display is) | “3840 × 2160 display at 120 Hz, sized for this screen, in HDR”; “2 displays, sized for this device's screens, in HDR” |
 | Bar and icon menu, during a session | « HDR », checkbox, next to the profile; changing it restarts the picture (“First frames” step) | “HDR”, checkbox |
 | Windows couldn't switch to HDR | « L'ordinateur n'a pas pu passer en HDR : image en SDR. » (once per session, like the other session notices) | “The computer couldn't switch to HDR: picture in SDR.” |
+| HDR calibration: access | App settings: « Réglage du HDR » / “HDR calibration”, with the state below: « Automatique » ou « Réglé à l'œil » ; Settings › Picture, under « HDR »: link « Régler le HDR de cet écran… » | “HDR calibration”; “Automatic”, “Calibrated by eye”; “Calibrate HDR for this screen…” |
+| HDR calibration: introduction | « Quatre étapes pour que les jeux connaissent les vraies lumières de cet écran. » | “Four steps so games know this screen's real brightness.” |
+| Step 1 | « Luminosité maximale » ; « Montez jusqu'à ce que le symbole du centre disparaisse à peine. » | “Maximum brightness”; “Raise it until the symbol in the middle just disappears.” |
+| Step 2 | « Luminosité sur tout l'écran »; same sentence | “Full-screen brightness”; same sentence |
+| Step 3 | « Noir » ; « Baissez jusqu'à ce que le symbole disparaisse à peine. » | “Black”; “Lower it until the symbol just disappears.” |
+| Step 4 | « Blanc du bureau » ; « Choisissez la luminosité des fenêtres et du texte de l'ordinateur. » | “Desktop white”; “Pick how bright the computer's windows and text look.” |
+| Value shown | « 1 000 nits » (steps 1, 2, 4), « 0,05 nit » (step 3) | “1,000 nits”, “0.05 nits” |
+| Buttons | « Suivant », « Retour », « Terminer », « Annuler » ; « Revenir au réglage automatique » | “Next”, “Back”, “Done”, “Cancel”; “Back to automatic” |
+| After « Terminer » during a session | « Le réglage vaudra à la prochaine session. » | “The calibration will apply from the next session.” |
 
-HDR is **on** the first time a device with an HDR screen sees a computer that offers it; after that the app keeps the choice for that computer. It does not count in the profile: changing it does not turn the profile into “Custom”. With HDR on: “Sharp text (4:4:4)” inactive (help below), the Desktop profile sends 4:2:0, the “Auto” format picks HEVC or AV1. With several displays, each display of the session is HDR if the device screen that shows it is; a device screen that loses or regains HDR during a session switches its picture to SDR or HDR, without a message. Share guests: no chip; a guest with an HDR screen gets HDR when the host is in HDR, otherwise a separate SDR picture. The friend the computer is lent to has the chip (“Borrow” screen) and the bar item, like a host. The browser has no HDR.
+HDR is **on** the first time a device with an HDR screen sees a computer that offers it; after that the app keeps the choice for that computer. It does not count in the profile: changing it does not turn the profile into “Custom”. With HDR on: “Sharp text (4:4:4)” inactive (help below), the Desktop profile sends 4:2:0, the “Auto” format picks HEVC or AV1. With several displays, each display of the session is HDR if the device screen that shows it is; a device screen that loses or regains HDR during a session switches its picture to SDR or HDR, without a message. Share guests: no chip; a guest with an HDR screen gets HDR when the host is in HDR, otherwise a separate SDR picture. The friend the computer is lent to has the chip (“Borrow” screen) and the bar item, like a host. The browser has no HDR. The “HDR calibration” screen ([hdr.en.md](hdr.en.md), “HDR calibration”) only exists on an HDR screen; its patterns are drawn in HDR by the app, without a computer; touch, arrows, scroll wheel or controller (left, right) change the value; values kept for that screen of the device.
 
 ## Sharing (KyberNow Share)
 
@@ -322,7 +331,7 @@ Title: « Réglages de {nom} » / “Settings for {name}”. At the top: « Prof
 | 5 | Statistiques | Statistics | last session, this computer |
 | 6 | Station | Station | Admin, restart, update, account, remove this computer |
 
-What applies to the whole app (language, iCloud, the app's updates, controller test, what the device can decode) goes into the **App settings**, not here.
+What applies to the whole app (language, iCloud, the app's updates, controller test, what the device can decode, HDR calibration) goes into the **App settings**, not here.
 
 ### Setting labels
 
