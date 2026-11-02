@@ -96,8 +96,10 @@ pub unsafe extern "C" fn kn_lend_status(
 }
 
 /// « Emprunter » : `request_json` `{"code"}` ou `{"login","password"}`, avec
-/// `name`, `device`, `app`, `screen` `{width, height, refresh}` (l'écran de
-/// l'appareil), `codecs`. Un code de « Rejoindre » qui est un code de prêt
+/// `name`, `device`, `app`, `screen` `{width, height, refresh, hdr,
+/// luminance}` (l'écran de l'appareil ; `hdr` : le HDR voulu, écran HDR et
+/// choix « HDR » allumé ; `luminance` : ses valeurs HDR, absentes : par
+/// défaut), `codecs`. Un code de « Rejoindre » qui est un code de prêt
 /// (`KN_SHARE_LEND`) donne `target` et `route` dans son `out`. `out` :
 /// `{"ready": {target, borrowed}}` (à donner à `kn_session_start` :
 /// `console_*` de `target`, `borrower.borrowed`) ou `{"pending": {…}}`

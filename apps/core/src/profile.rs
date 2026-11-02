@@ -202,6 +202,54 @@ impl StreamSettings {
     }
 }
 
+/// Les valeurs HDR d'un écran de l'appareil, en nits (docs/hdr.md, « Réglage
+/// du HDR ») : luminosité maximale (petite zone), luminosité sur tout
+/// l'écran, noir, blanc du bureau. L'app les connaît pour chaque écran
+/// (données par le système, ou réglées à l'œil, gardées par elle) ; la
+/// Station en fait le profil de couleur de l'écran virtuel et le blanc du
+/// bureau de Windows. Absentes : [`HdrLuminance::default`].
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HdrLuminance {
+    pub max: f64,
+    pub full_frame: f64,
+    pub min: f64,
+    pub sdr_white: f64,
+}
+
+impl Default for HdrLuminance {
+    /// 1 000 nits, 1 000 nits sur tout l'écran, 0 nit, blanc du bureau à
+    /// 203 nits (référence BT.2408).
+    fn default() -> Self {
+        Self { max: 1000.0, full_frame: 1000.0, min: 0.0, sdr_white: 203.0 }
+    }
+}
+
+impl HdrLuminance {
+    pub const MAX_RANGE: (f64, f64) = (100.0, 10_000.0);
+    pub const MIN_RANGE: (f64, f64) = (0.0, 1.0);
+    pub const SDR_WHITE_RANGE: (f64, f64) = (80.0, 480.0);
+
+    /// Les valeurs bornées : maximale de 100 à 10 000 nits, tout l'écran
+    /// au plus la maximale, noir de 0 à 1 nit, blanc du bureau de 80 à
+    /// 480 nits. Une valeur illisible (NaN, infinie) prend celle par défaut.
+    pub fn clamped(self) -> Self {
+        let d = Self::default();
+        let ok = |v: f64, fallback: f64| if v.is_finite() { v } else { fallback };
+        let max = ok(self.max, d.max).clamp(Self::MAX_RANGE.0, Self::MAX_RANGE.1);
+        Self {
+            max,
+            full_frame: ok(self.full_frame, max).clamp(0.0, max),
+            min: ok(self.min, d.min).clamp(Self::MIN_RANGE.0, Self::MIN_RANGE.1),
+            sdr_white: ok(self.sdr_white, d.sdr_white).clamp(Self::SDR_WHITE_RANGE.0, Self::SDR_WHITE_RANGE.1),
+        }
+    }
+
+    /// Les valeurs d'un écran (`None` : par défaut), bornées.
+    pub fn of(value: Option<HdrLuminance>) -> Self {
+        value.unwrap_or_default().clamped()
+    }
+}
+
 /// Pourquoi le HDR n'est pas possible (docs/hdr.md, « Quand le HDR n'est pas
 /// possible »), dans l'ordre où les raisons se vérifient.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -369,6 +417,25 @@ mod tests {
         assert_eq!(HdrReason::Codec.text(Lang::En), "HDR needs the HEVC or AV1 format.");
         assert_eq!(hdr_refused_text(Lang::Fr), "L'ordinateur n'a pas pu passer en HDR : image en SDR.");
         assert_eq!(hdr_refused_text(Lang::En), "The computer couldn't switch to HDR: picture in SDR.");
+    }
+
+    #[test]
+    fn valeurs_hdr_bornees() {
+        let d = HdrLuminance::default();
+        assert_eq!(d, HdrLuminance { max: 1000.0, full_frame: 1000.0, min: 0.0, sdr_white: 203.0 });
+        assert_eq!(HdrLuminance::of(None), d);
+        let wild = HdrLuminance { max: 20_000.0, full_frame: 30_000.0, min: 3.0, sdr_white: 1000.0 }.clamped();
+        assert_eq!(wild, HdrLuminance { max: 10_000.0, full_frame: 10_000.0, min: 1.0, sdr_white: 480.0 });
+        let low = HdrLuminance { max: 50.0, full_frame: 400.0, min: -1.0, sdr_white: 10.0 }.clamped();
+        assert_eq!(low, HdrLuminance { max: 100.0, full_frame: 100.0, min: 0.0, sdr_white: 80.0 });
+        let xdr = HdrLuminance { max: 1600.0, full_frame: 1000.0, min: 0.05, sdr_white: 203.0 };
+        assert_eq!(xdr.clamped(), xdr, "valeurs d'un écran XDR gardées");
+        let nan = HdrLuminance { max: f64::NAN, full_frame: f64::INFINITY, min: f64::NAN, sdr_white: f64::NAN }.clamped();
+        assert_eq!(nan, d);
+        let json = serde_json::to_value(d).unwrap();
+        assert_eq!(json, serde_json::json!({ "max": 1000.0, "full_frame": 1000.0, "min": 0.0, "sdr_white": 203.0 }));
+        let read: HdrLuminance = serde_json::from_str(r#"{"max":1000,"full_frame":1000,"min":0.0,"sdr_white":203}"#).unwrap();
+        assert_eq!(read, d);
     }
 
     #[test]

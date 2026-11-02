@@ -418,6 +418,11 @@ pub struct PrepareRequest {
     /// sien (`screens[i].hdr`). Absent : SDR.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub hdr: bool,
+    /// Les valeurs HDR de l'écran de l'appareil (docs/hdr.md, « Réglage du
+    /// HDR »), avec `hdr` ; à plusieurs écrans, celles du principal, et
+    /// chaque écran a les siennes (`screens[i].luminance`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub luminance: Option<crate::profile::HdrLuminance>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -430,7 +435,7 @@ pub struct Mode {
 /// Un écran virtuel d'une session à plusieurs écrans : son mode et sa
 /// position en pixels sur le bureau de Windows (demandés, ou appliqués par
 /// la Station).
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq)]
 pub struct ScreenMode {
     pub width: u32,
     pub height: u32,
@@ -442,6 +447,10 @@ pub struct ScreenMode {
     /// HDR demandé pour cet écran (`prepare`) ; absent : SDR.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub hdr: bool,
+    /// Les valeurs HDR de l'écran de l'appareil qui le reçoit, avec `hdr`
+    /// (absentes : celles par défaut).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub luminance: Option<crate::profile::HdrLuminance>,
 }
 
 impl ScreenMode {
@@ -768,13 +777,15 @@ impl Console {
 
     /// `POST /api/stream/hdr` (docs/hdr.md) : le HDR voulu pour chaque écran
     /// de la session de cet appareil, dans l'ordre de `screens` de `prepare`
-    /// (un seul pour un écran) ; rend le HDR obtenu. `409` : l'appareil n'est
-    /// pas en session ; `404` : Station d'avant le HDR.
-    pub fn stream_hdr(&self, device_id: &str, hdr: &[bool]) -> Result<Vec<bool>> {
+    /// (un seul pour un écran), avec les valeurs HDR de chaque écran
+    /// (`None` : `null`, écran en SDR) ; rend le HDR obtenu. `409` :
+    /// l'appareil n'est pas en session ; `404` : Station d'avant le HDR.
+    pub fn stream_hdr(&self, device_id: &str, hdr: &[bool], luminance: &[Option<crate::profile::HdrLuminance>]) -> Result<Vec<bool>> {
         #[derive(Serialize)]
         struct Req<'a> {
             device_id: &'a str,
             hdr: &'a [bool],
+            luminance: &'a [Option<crate::profile::HdrLuminance>],
         }
         #[derive(Deserialize)]
         struct Resp {
@@ -783,7 +794,7 @@ impl Console {
         }
         let r = self
             .request("POST", "api/stream/hdr", Duration::from_secs(10))
-            .send_json(Req { device_id, hdr });
+            .send_json(Req { device_id, hdr, luminance });
         let w: Resp = self.read(r)?;
         Ok(w.hdr)
     }
@@ -1211,6 +1222,7 @@ mod tests {
             mode_policy: None,
             screens,
             hdr: false,
+            luminance: None,
         }
     }
 
@@ -1233,9 +1245,9 @@ mod tests {
     #[test]
     fn demande_multi_ecrans() {
         let screens = vec![
-            ScreenMode { width: 3840, height: 2160, refresh: 160, x: 0, y: 0, primary: true, hdr: false },
-            ScreenMode { width: 5120, height: 2880, refresh: 60, x: 3840, y: 0, primary: false, hdr: false },
-            ScreenMode { width: 3456, height: 2234, refresh: 60, x: -3456, y: 400, primary: false, hdr: false },
+            ScreenMode { width: 3840, height: 2160, refresh: 160, x: 0, y: 0, primary: true, hdr: false, luminance: None },
+            ScreenMode { width: 5120, height: 2880, refresh: 60, x: 3840, y: 0, primary: false, hdr: false, luminance: None },
+            ScreenMode { width: 3456, height: 2234, refresh: 60, x: -3456, y: 400, primary: false, hdr: false, luminance: None },
         ];
         let v = serde_json::to_value(request(Some(screens))).unwrap();
         assert_eq!(
@@ -1280,8 +1292,8 @@ mod tests {
         assert_eq!(old.hdr, None, "Station d'avant le HDR");
         // Demande : `hdr` seulement s'il est demandé, et par écran.
         let mut req = request(Some(vec![
-            ScreenMode { width: 3840, height: 2160, refresh: 120, x: 0, y: 0, primary: true, hdr: true },
-            ScreenMode { width: 2560, height: 1440, refresh: 60, x: 3840, y: 0, primary: false, hdr: false },
+            ScreenMode { width: 3840, height: 2160, refresh: 120, x: 0, y: 0, primary: true, hdr: true, luminance: None },
+            ScreenMode { width: 2560, height: 1440, refresh: 60, x: 3840, y: 0, primary: false, hdr: false, luminance: None },
         ]));
         req.hdr = true;
         let v = serde_json::to_value(&req).unwrap();

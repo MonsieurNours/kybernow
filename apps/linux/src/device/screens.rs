@@ -96,6 +96,7 @@ pub fn device_screens(d: &Detected, h: &Host, on_battery: bool) -> Vec<DeviceScr
             refresh: if i == 0 { primary_refresh(h, s.refresh, on_battery) } else { s.refresh },
             primary: i == 0,
             hdr: false,
+            luminance: None,
         })
         .collect()
 }

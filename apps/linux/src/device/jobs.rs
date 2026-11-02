@@ -559,7 +559,7 @@ pub fn borrow_request(credentials: lend::LendCredentials, name: String, device: 
     if av1 {
         codecs.push("av1".into());
     }
-    lend::BorrowRequest { credentials, name, device, app: "linux".into(), screen: Mode { width: screen.0, height: screen.1, refresh: screen.2 }, codecs }
+    lend::BorrowRequest { credentials, name, device, app: "linux".into(), screen: Mode { width: screen.0, height: screen.1, refresh: screen.2 }.into(), codecs }
 }
 
 /// Emprunter (`lend::borrow`, 30 s au plus) : le prêt démarre (`Event::Borrowed`), ou l'hôte doit accepter

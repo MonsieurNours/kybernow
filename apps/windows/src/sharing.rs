@@ -80,6 +80,7 @@ pub fn join_auto(_quality: ShareQuality, screen: Mode, caps: Capabilities) -> Op
         refresh: screen.refresh,
         primary: true,
         hdr: false,
+        luminance: None,
     };
     Some(share::auto_quality(&device, &DecoderCaps::from(caps), None))
 }
