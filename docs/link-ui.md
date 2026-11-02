@@ -71,6 +71,20 @@ Au toucher (iPhone, iPad, Android hors téléviseur) :
 - **Clavier** : il s'ouvre depuis la barre ; un toucher sur l'image le replie (ce toucher ne clique pas sur l'ordinateur).
 - **Manette à l'écran** / “On-screen controller” : bouton de la barre, retenu pour chaque ordinateur. Deux dispositions fixes, pour les deux pouces en paysage : « Complète » / “Full”, une manette Xbox entière (deux sticks qui s'enfoncent : L3, R3 ; la croix ; A, B, X, Y ; LB, RB, LT et RT progressives ; Affichage, Menu et Guide) ; « Simple » / “Simple”, le stick gauche, la croix, A, B, X, Y et Menu. Un petit bouton sur la manette passe de l'une à l'autre (libellé accessible « Manette simple » / « Manette complète », “Simple controller” / “Full controller”), choix retenu pour chaque ordinateur. L'ordinateur la voit comme une manette Xbox 360, à la première place de joueur libre. Tant qu'elle est affichée, le reste de l'écran ne sert pas de souris. Réglages dans Commandes : « Disposition » / “Layout” (Complète, Simple), « Taille » / “Size” (Petite, Moyenne, Grande / Small, Medium, Large), « Opacité » / “Opacity” et « Retour haptique » / “Haptic feedback” (Désactivé, Faible, Moyen, Fort / Off, Light, Medium, Strong ; Moyen par défaut). Chaque appui se sent et se voit : le bouton s'allume et s'enfonce ; un clic net à l'appui d'un bouton, de la croix ou d'un stick enfoncé ; pour les gâchettes, un clic léger au début de la course et un clic franc en bout de course ; pour les sticks, un tic quand le stick quitte le centre, un tic très léger à chaque changement de direction (huit directions) et un tic en butée, jamais de vibration continue. Pendant que la manette est affichée, les vibrations du jeu font vibrer l'appareil. Sans moteur haptique (iPad), seul le retour visuel reste.
 
+## HDR
+
+Contrat complet : [hdr.md](hdr.md). Le HDR n'est proposé que sur un appareil dont l'écran est HDR ; ailleurs, aucune trace (ni puce, ni réglage, ni ligne de barre).
+
+| Élément | Français | English |
+|---|---|---|
+| Puce de l'accueil, à côté du profil | « HDR », allumée ou éteinte ; libellé accessible « HDR, allumé » / « HDR, éteint » ; aide : « Couleurs plus riches et lumières plus vives, sur cet écran HDR. » | “HDR”; “HDR, on” / “HDR, off”; “Richer colours and brighter highlights, on this HDR screen.” |
+| Puce inactive (raison, la première qui s'applique) | « L'ordinateur ne propose pas le HDR. » ; « Le HDR demande Windows 11 24H2 sur l'ordinateur. » ; « La carte graphique de l'ordinateur ne fait pas le HDR. » ; « Le HDR demande le format HEVC ou AV1. » ; « Cet appareil ne décode pas le HDR. » ; « L'écran de l'ordinateur n'est pas en HDR. » | “The computer doesn't offer HDR.”; “HDR needs Windows 11 24H2 on the computer.”; “The computer's graphics card doesn't do HDR.”; “HDR needs the HEVC or AV1 format.”; “This device can't decode HDR.”; “The computer's display isn't in HDR.” |
+| Ligne « Écran » de l'accueil, HDR allumé | « Écran de 3840 × 2160 à 120 Hz, à la taille de cet écran, en HDR » ; plusieurs écrans : « 2 écrans, à la taille de ceux de cet appareil, en HDR » (dès qu'un écran l'est) | “3840 × 2160 display at 120 Hz, sized for this screen, in HDR”; “2 displays, sized for this device's screens, in HDR” |
+| Barre et menu de l'icône, en session | « HDR », cochable, près du profil ; le changer relance l'image (étape « Premières images ») | “HDR”, checkbox |
+| Windows n'a pas pu passer en HDR | « L'ordinateur n'a pas pu passer en HDR : image en SDR. » (une fois par session, comme les autres avis de session) | “The computer couldn't switch to HDR: picture in SDR.” |
+
+Le HDR est **allumé** la première fois qu'un appareil à écran HDR voit un ordinateur qui le propose ; ensuite l'app garde le choix pour cet ordinateur. Il ne compte pas dans le profil : le changer ne fait pas passer en « Personnalisé ». HDR allumé : « Texte net (4:4:4) » inactif (aide ci-dessous), le profil Bureau envoie du 4:2:0, le format « Auto » prend HEVC ou AV1. Avec plusieurs écrans, chaque écran de la session est en HDR si l'écran de l'appareil qui le reçoit l'est ; un écran de l'appareil qui perd ou retrouve le HDR en session fait repasser son image en SDR ou en HDR, sans message. Invités du partage : pas de puce ; un invité à écran HDR reçoit le HDR quand l'hôte est en HDR, sinon une image à part en SDR. L'ami à qui l'ordinateur est prêté a la puce (écran « Emprunter ») et la ligne de la barre, comme un hôte. Le navigateur n'a pas de HDR.
+
 ## Partage (KyberNow Share)
 
 Contrat : [kybernow-share.md](kybernow-share.md), et [relais.md](relais.md) hors de chez soi. Toutes les apps Link et le client web, mêmes textes partout.
@@ -301,7 +315,7 @@ Titre : « Réglages de {nom} » / “Settings for {name}”. En tête : « Prof
 
 | Rubrique | Français | English | Contenu |
 |---|---|---|---|
-| 1 | Image | Picture | définition, écrans, fréquence, écran virtuel, format vidéo, texte net (4:4:4), débit, affichage des images, garder la dernière image |
+| 1 | Image | Picture | définition, écrans, fréquence, écran virtuel, format vidéo, texte net (4:4:4), HDR, débit, affichage des images, garder la dernière image |
 | 2 | Son | Sound | voies, son sur l'ordinateur, et ce que la plateforme propose (audio spatial, 5.1 Dolby…) |
 | 3 | Commandes | Controls | manette vue par l'ordinateur, souris, clavier, toucher, télécommande, vibrations, presse-papiers partagé |
 | 4 | Réseau | Network | transport de l'image, reconnexion automatique, réveil par le réseau |
@@ -319,7 +333,8 @@ Ce qui vaut pour toute l'app (langue, iCloud, mises à jour de l'app, test des m
 | Fréquence | Refresh rate | « 120 Hz » |
 | Écran virtuel | Virtual display | aide : « L'ordinateur crée un écran à la taille de cet appareil pendant la session ; les siens s'éteignent, puis reviennent à la fin. » / “The computer creates a display sized for this device during the session; its own displays switch off, then come back at the end.” |
 | Format vidéo | Video format | Auto ; HEVC ; H.264 ; AV1 |
-| Texte net (4:4:4) | Sharp text (4:4:4) | aide : « Couleurs complètes : le texte reste net, au prix d'un débit plus élevé. » / “Full colour: text stays sharp, at the cost of a higher bitrate.” |
+| Texte net (4:4:4) | Sharp text (4:4:4) | aide : « Couleurs complètes : le texte reste net, au prix d'un débit plus élevé. » / “Full colour: text stays sharp, at the cost of a higher bitrate.” Inactif avec le HDR allumé, aide : « Le HDR n'existe pas en 4:4:4. » / “HDR doesn't exist in 4:4:4.” |
+| HDR | HDR | seulement sur un écran HDR ; aide : « Couleurs plus riches et lumières plus vives, sur cet écran HDR. Le texte net (4:4:4) n'existe pas en HDR. » / “Richer colours and brighter highlights, on this HDR screen. Sharp text (4:4:4) doesn't exist in HDR.” ; inactif avec les raisons de la section « HDR » |
 | Débit | Bitrate | Auto ; « 80 Mbit/s » |
 | Affichage des images | Frame display | Synchronisé / Synced ; Immédiat / Immediate |
 | Garder la dernière image | Keep the last image | |
@@ -340,7 +355,7 @@ Ce qui vaut pour toute l'app (langue, iCloud, mises à jour de l'app, test des m
 - une règle en millisecondes, de 0 à 20 ms (plus si la mesure dépasse), avec les repères « 160 Hz », « 120 Hz » et « 60 Hz » à la durée d'une image à ces fréquences (6,25 ; 8,33 ; 16,67 ms), et une bande de la médiane au 95e centile ;
 - « 95 % des images sous 14,2 ms » / “95% of frames under 14.2 ms” ;
 - la durée et le moment : « 42 min · hier » / “42 min · yesterday” ;
-- ce qui a été transmis : « 2560 × 1440 · 120 Hz · HEVC · 80 Mbit/s » ; avec plusieurs écrans, leur nombre d'abord, puis l'écran principal et le débit total : « 3 écrans · 3840 × 2160 · 160 Hz · HEVC · 120 Mbit/s » ; ce nombre est celui des écrans que l'ordinateur a pris (ceux qu'il n'a pas pu créer n'y sont pas), le même dans la barre de session, les statistiques de session et la dernière session ;
+- ce qui a été transmis : « 2560 × 1440 · 120 Hz · HEVC · 80 Mbit/s » ; avec plusieurs écrans, leur nombre d'abord, puis l'écran principal et le débit total : « 3 écrans · 3840 × 2160 · 160 Hz · HEVC · 120 Mbit/s » ; « HDR » après le format quand un écran au moins l'était (« 3840 × 2160 · 120 Hz · HEVC · HDR · 80 Mbit/s ») ; ce nombre est celui des écrans que l'ordinateur a pris (ceux qu'il n'a pas pu créer n'y sont pas), le même dans la barre de session, les statistiques de session et la dernière session ;
 - aide : « Le délai entre l'ordinateur et cet écran. Sous un repère, l'image arrive avant l'image suivante à cette fréquence. » / “The delay between the computer and this screen. Below a mark, the picture arrives before the next frame at that refresh rate.”
 - sans session : « Pas encore de session sur cet ordinateur. » / “No session on this computer yet.”
 

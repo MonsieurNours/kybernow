@@ -71,6 +71,20 @@ With touch (iPhone, iPad, Android outside the TV):
 - **Keyboard**: it opens from the bar; a touch on the picture folds it away (that touch does not click on the computer).
 - **On-screen controller** / « Manette à l'écran »: a bar button, remembered for each computer. Two fixed layouts, for both thumbs in landscape: “Full” / « Complète », a whole Xbox controller (two sticks which click: L3, R3; the D-pad; A, B, X, Y; LB, RB, LT and RT, progressive; View, Menu and Guide); “Simple” / « Simple », the left stick, the D-pad, A, B, X, Y and Menu. A small button on the controller switches between them (accessible label “Simple controller” / “Full controller”, « Manette simple » / « Manette complète »), the choice remembered for each computer. The computer sees it as an Xbox 360 controller, in the first free player slot. While it is shown, the rest of the screen does not act as a mouse. Settings in Controls: “Layout” (Full, Simple), “Size” (Small, Medium, Large), “Opacity” and “Haptic feedback” (Off, Light, Medium, Strong; Medium by default). Every press can be felt and seen: the button lights up and sinks slightly; a crisp click when pressing a button, the D-pad or a stick; for the triggers, a light click at the start of the travel and a firm click at the end; for the sticks, a tick when the stick leaves the centre, a very light tick at each change of direction (eight directions) and a tick at the edge, never a continuous vibration. While the controller is shown, the game's rumble vibrates the device. Without a haptic engine (iPad), only the visual feedback remains.
 
+## HDR
+
+Full contract: [hdr.en.md](hdr.en.md). HDR is only offered on a device whose screen is HDR; elsewhere, no trace of it (no chip, no setting, no bar item).
+
+| Element | Français | English |
+|---|---|---|
+| Home chip, next to the profile | « HDR », on or off; accessible label « HDR, allumé » / « HDR, éteint »; help: « Couleurs plus riches et lumières plus vives, sur cet écran HDR. » | “HDR”; “HDR, on” / “HDR, off”; “Richer colours and brighter highlights, on this HDR screen.” |
+| Inactive chip (reason, the first that applies) | « L'ordinateur ne propose pas le HDR. »; « Le HDR demande Windows 11 24H2 sur l'ordinateur. »; « La carte graphique de l'ordinateur ne fait pas le HDR. »; « Le HDR demande le format HEVC ou AV1. »; « Cet appareil ne décode pas le HDR. »; « L'écran de l'ordinateur n'est pas en HDR. » | “The computer doesn't offer HDR.”; “HDR needs Windows 11 24H2 on the computer.”; “The computer's graphics card doesn't do HDR.”; “HDR needs the HEVC or AV1 format.”; “This device can't decode HDR.”; “The computer's display isn't in HDR.” |
+| Home “Display” line, HDR on | « Écran de 3840 × 2160 à 120 Hz, à la taille de cet écran, en HDR »; several displays: « 2 écrans, à la taille de ceux de cet appareil, en HDR » (as soon as one display is) | “3840 × 2160 display at 120 Hz, sized for this screen, in HDR”; “2 displays, sized for this device's screens, in HDR” |
+| Bar and icon menu, during a session | « HDR », checkbox, next to the profile; changing it restarts the picture (“First frames” step) | “HDR”, checkbox |
+| Windows couldn't switch to HDR | « L'ordinateur n'a pas pu passer en HDR : image en SDR. » (once per session, like the other session notices) | “The computer couldn't switch to HDR: picture in SDR.” |
+
+HDR is **on** the first time a device with an HDR screen sees a computer that offers it; after that the app keeps the choice for that computer. It does not count in the profile: changing it does not turn the profile into “Custom”. With HDR on: “Sharp text (4:4:4)” inactive (help below), the Desktop profile sends 4:2:0, the “Auto” format picks HEVC or AV1. With several displays, each display of the session is HDR if the device screen that shows it is; a device screen that loses or regains HDR during a session switches its picture to SDR or HDR, without a message. Share guests: no chip; a guest with an HDR screen gets HDR when the host is in HDR, otherwise a separate SDR picture. The friend the computer is lent to has the chip (“Borrow” screen) and the bar item, like a host. The browser has no HDR.
+
 ## Sharing (KyberNow Share)
 
 Contract: [kybernow-share.en.md](kybernow-share.en.md), and [relais.en.md](relais.en.md) away from home. Every Link app and the web client, the same texts everywhere.
@@ -301,7 +315,7 @@ Title: « Réglages de {nom} » / “Settings for {name}”. At the top: « Prof
 
 | Section | Français | English | Contents |
 |---|---|---|---|
-| 1 | Image | Picture | resolution, displays, refresh rate, virtual display, video format, sharp text (4:4:4), bitrate, frame display, keep the last image |
+| 1 | Image | Picture | resolution, displays, refresh rate, virtual display, video format, sharp text (4:4:4), HDR, bitrate, frame display, keep the last image |
 | 2 | Son | Sound | channels, sound on the computer, and what the platform offers (spatial audio, 5.1 Dolby…) |
 | 3 | Commandes | Controls | controller seen by the computer, mouse, keyboard, touch, remote, rumble, shared clipboard |
 | 4 | Réseau | Network | picture transport, reconnect automatically, wake on LAN |
@@ -319,7 +333,8 @@ What applies to the whole app (language, iCloud, the app's updates, controller t
 | Fréquence | Refresh rate | “120 Hz” |
 | Écran virtuel | Virtual display | help: « L'ordinateur crée un écran à la taille de cet appareil pendant la session ; les siens s'éteignent, puis reviennent à la fin. » / “The computer creates a display sized for this device during the session; its own displays switch off, then come back at the end.” |
 | Format vidéo | Video format | Auto; HEVC; H.264; AV1 |
-| Texte net (4:4:4) | Sharp text (4:4:4) | help: « Couleurs complètes : le texte reste net, au prix d'un débit plus élevé. » / “Full colour: text stays sharp, at the cost of a higher bitrate.” |
+| Texte net (4:4:4) | Sharp text (4:4:4) | help: « Couleurs complètes : le texte reste net, au prix d'un débit plus élevé. » / “Full colour: text stays sharp, at the cost of a higher bitrate.” Inactive with HDR on, help: « Le HDR n'existe pas en 4:4:4. » / “HDR doesn't exist in 4:4:4.” |
+| HDR | HDR | only on an HDR screen; help: « Couleurs plus riches et lumières plus vives, sur cet écran HDR. Le texte net (4:4:4) n'existe pas en HDR. » / “Richer colours and brighter highlights, on this HDR screen. Sharp text (4:4:4) doesn't exist in HDR.”; inactive with the reasons of the “HDR” section |
 | Débit | Bitrate | Auto; “80 Mbit/s” |
 | Affichage des images | Frame display | Synchronisé / Synced; Immédiat / Immediate |
 | Garder la dernière image | Keep the last image | |
@@ -340,7 +355,7 @@ What applies to the whole app (language, iCloud, the app's updates, controller t
 - a ruler in milliseconds, from 0 to 20 ms (more if the measurement goes beyond), with the marks “160 Hz”, “120 Hz” and “60 Hz” at the duration of one frame at those rates (6.25; 8.33; 16.67 ms), and a band from the median to the 95th percentile;
 - “95% of frames under 14.2 ms”;
 - the duration and when: “42 min · yesterday”;
-- what was sent: “2560 × 1440 · 120 Hz · HEVC · 80 Mbit/s”; with several displays, their number first, then the main display and the total bitrate: “3 displays · 3840 × 2160 · 160 Hz · HEVC · 120 Mbit/s”; that number is the displays the computer took (those it could not create are not in it), the same in the session bar, the session statistics and the last session;
+- what was sent: “2560 × 1440 · 120 Hz · HEVC · 80 Mbit/s”; with several displays, their number first, then the main display and the total bitrate: “3 displays · 3840 × 2160 · 160 Hz · HEVC · 120 Mbit/s”; “HDR” after the format when at least one display was (“3840 × 2160 · 120 Hz · HEVC · HDR · 80 Mbit/s”); that number is the displays the computer took (those it could not create are not in it), the same in the session bar, the session statistics and the last session;
 - help: “The delay between the computer and this screen. Below a mark, the picture arrives before the next frame at that refresh rate.”
 - with no session: “No session on this computer yet.”
 

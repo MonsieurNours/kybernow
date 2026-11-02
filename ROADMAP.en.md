@@ -15,14 +15,20 @@ What is planned or still to try, and only here: the other documents describe wha
 - **Icon next to the clock**: on the Mac, system notifications (and their permission request), registering to open at login and a real launch at login, closing the window in full screen during a session; on a real Windows PC, the top of the menu during a session and the lit icon, 100% and 200% scaling, notification banners, “still not responding” after 2 min of waking.
 - **Multiple displays**: on a Windows PC and a Linux machine with several displays (validated on Mac on 26/10/2026); a session on several displays right after the Station is installed or restarted.
 - **Several computers at once**: two sessions running at the same time on Windows and on Linux (checked on Mac on 27/10/2026); on Windows, a session end that once cut another session in the VM (every end path is now logged).
-- **KyberNow Share and relay**: sharing away from home and reaching your computer through `share.kybernow.app` from each family of apps (an iPhone's cellular radio included); a guest's own pictures on AMD (AMF) and Intel (QSV) cards; the rest of the checks of patches 0019 and 0020 is in [docs/kyber-changes.en.md](docs/kyber-changes.en.md). Two sessions at once on Windows and Linux are on the “Several computers at once” line.
+- **KyberNow Share and relay**: a guest's own pictures on AMD (AMF) and Intel (QSV) cards; the rest of the checks of patches 0019 and 0020 is in [docs/kyber-changes.en.md](docs/kyber-changes.en.md). Two sessions at once on Windows and Linux are on the “Several computers at once” line.
 - **Audit measurements** described in [docs/archives/mesures.en.md](docs/archives/mesures.en.md): Mac app display latency, Windows permissions, saturated Wi-Fi, SudoVDA virtual display modes.
+
+## HDR
+
+Scoped on 02/11/2026, contract: [docs/hdr.en.md](docs/hdr.en.md).
+
+- **First version**: Station (Kyber patches 0022: FP16 capture in both engines and WGC, PQ/BT.2020 conversion to P010, HEVC Main 10 and 10-bit AV1, separate SDR picture for guests; Admin: virtual display HDR, setting, announcement), core, Apple apps and LG TVs; tests on the Mac's XDR display, the Apple TV, the LG G2.
+- **Next version**: Android, Windows, Linux (Raspberry Pi after).
 
 ## KyberNow Station and Admin
 
 - **H.264 silent on an Intel card**: PC-ATELIER (Intel UHD) does send HEVC but no picture in H.264 (“its encoder does not respond”), already in 0.5; to understand on the Station side (Kyber's encoder, QSV).
 - **Virtual display without workarounds**: a driver that truly handles several displays (SudoVDA fixed and rebuilt, or Kidd), to remove the pointer enlargement and the Windows Graphics Capture of secondary displays (see `server/README.en.md`).
-- **HDR**: FP16 capture and HDR10 conversion in Kyber (costed study, in French: [docs/archives/propositions-2026-10-22.md](docs/archives/propositions-2026-10-22.md)).
 - **Kidd virtual display** once Kyber ships it, behind the interface already in place.
 - **KyberNow-signed audio driver** (EV certificate + Partner Center), should Steam's speakers no longer be enough.
 - **Attested virtual display driver** (EV + Partner Center), so SudoVDA's certificate no longer has to be added to the root authorities.

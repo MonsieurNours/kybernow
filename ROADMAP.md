@@ -15,14 +15,20 @@ Ce qui est prévu ou à essayer, et seulement ici : les autres documents décriv
 - **Icône près de l'horloge** : sur Mac, les notifications du système (et leur demande d'autorisation), l'inscription à l'ouverture de session et un vrai lancement à l'ouverture de session, la fenêtre fermée en plein écran pendant une session ; sur un vrai PC Windows, le haut du menu en session et l'icône allumée, les échelles 100 % et 200 %, les bannières de notification, « ne répond toujours pas » après 2 min de réveil.
 - **Multi-écrans** : sur un PC Windows et sur un Linux à plusieurs écrans (validé sur Mac le 26/10/2026) ; une session à plusieurs écrans juste après l'installation ou le redémarrage de la Station.
 - **Plusieurs ordinateurs à la fois** : deux sessions qui tournent en même temps sur Windows et sur Linux (validé sur Mac le 27/10/2026) ; sous Windows, une fin de session qui en a coupé une autre une fois dans la VM (chaque chemin de fin est maintenant au journal).
-- **KyberNow Share et relais** : le partage hors de chez soi et l'accès à son ordinateur par `share.kybernow.app` depuis chaque famille d'apps (radio cellulaire d'un iPhone comprise) ; les images à part d'un invité sur les cartes AMD (AMF) et Intel (QSV) ; le reste des vérifications des correctifs 0019 et 0020 est dans [docs/kyber-changes.md](docs/kyber-changes.md). Les deux sessions à la fois sous Windows et Linux sont sur la ligne « Plusieurs ordinateurs à la fois ».
+- **KyberNow Share et relais** : les images à part d'un invité sur les cartes AMD (AMF) et Intel (QSV) ; le reste des vérifications des correctifs 0019 et 0020 est dans [docs/kyber-changes.md](docs/kyber-changes.md). Les deux sessions à la fois sous Windows et Linux sont sur la ligne « Plusieurs ordinateurs à la fois ».
 - **Mesures de l'audit** décrites dans [docs/archives/mesures.md](docs/archives/mesures.md) : latence d'affichage de l'app Mac, droits Windows, Wi-Fi saturé, modes de l'écran virtuel SudoVDA.
+
+## HDR
+
+Cadré le 02/11/2026, contrat : [docs/hdr.md](docs/hdr.md).
+
+- **Première version** : Station (correctifs Kyber 0022 : capture FP16 des deux moteurs et de WGC, conversion PQ/BT.2020 en P010, HEVC Main 10 et AV1 10 bits, image à part SDR des invités ; Admin : HDR de l'écran virtuel, réglage, annonce), cœur, apps Apple et téléviseurs LG ; essais sur l'écran XDR du Mac, l'Apple TV, la LG G2.
+- **Version suivante** : Android, Windows, Linux (Raspberry Pi après).
 
 ## KyberNow Station et Admin
 
 - **H.264 muet sur une carte Intel** : PC-ATELIER (Intel UHD) envoie bien du HEVC mais aucune image en H.264 (« son encodeur ne répond pas »), déjà en 0.5 ; à comprendre côté Station (encodeur de Kyber, QSV).
 - **Écran virtuel sans contournement** : un pilote qui gère vraiment plusieurs écrans (SudoVDA corrigé et recompilé, ou Kidd), pour retirer l'agrandissement du pointeur et la capture des écrans secondaires par Windows Graphics Capture (voir `server/README.md`).
-- **HDR** : capture en FP16 et conversion HDR10 dans Kyber (étude chiffrée : [docs/archives/propositions-2026-10-22.md](docs/archives/propositions-2026-10-22.md)).
 - **Écran virtuel Kidd** quand Kyber le publiera, derrière l'interface déjà en place.
 - **Pilote audio signé KyberNow** (certificat EV + Partner Center), si les haut-parleurs de Steam ne suffisent plus.
 - **Pilote d'écran virtuel attesté** (EV + Partner Center), pour ne plus ajouter le certificat de SudoVDA aux autorités racines.
