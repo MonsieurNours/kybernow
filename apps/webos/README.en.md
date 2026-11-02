@@ -56,7 +56,7 @@ KyberNow Link on LG TVs: a **native** app (an ARM binary, not a web page), on th
 - **30, 60 or 120 frames per second**: the panel does not change its refresh rate for an app (webOS offers no way to); at 30 or 60 fps each frame is shown 4 or 2 times, evenly. 144 Hz: the 2025 panels that have it (not the G2).
 - **Codec**: HEVC by default (4K at 120 fps on the decoder of 2022 OLEDs); AV1 only up to 60 fps (beyond, LG TVs show it at 60), and only when the webOS version can be read (5 and later); H.264 as an option, not advised above 60 fps.
 - **Bitrate**: the profile's bitrate (scaled to pixels per second, like the other apps), capped at 80 Mbit/s on Ethernet (LG's port stops at 100 Mbit/s, about 93 usable) and at 95 on Wi-Fi (the decoder limit on 2022 and later chips). The link is read from `/sys/class/net`.
-- **TV game mode**: no API lets an app switch the TV to Game Optimizer; the menu reminds you (Magic Remote Settings button › Picture › Mode › Game Optimizer), and the reminder can be turned off.
+- **TV game mode**: no API lets an app switch the TV to Game Optimizer; the menu reminds you (Magic Remote Settings button › Picture › Mode › Game Optimizer), and the reminder can be turned off. **The TV keeps a separate picture mode for HDR**: Game Optimizer chosen in SDR does not apply in HDR. On the first HDR session (the TV's “HDR” badge is on), set it again: Game Optimizer, and Dynamic Tone Mapping on HGIG. Otherwise the TV processes the picture its own way and adds latency.
 - **VRR**: LG keeps it for HDMI inputs, for every internal app, native or web. The computer sends its frames at the panel's pace.
 - **HDR**: HDR10 in HEVC Main 10 or 10-bit AV1, on a TV whose screen is HDR (see HDR below).
 
@@ -76,7 +76,7 @@ KyberNow Link on LG TVs: a **native** app (an ARM binary, not a web page), on th
 
 ## HDR
 
-Shared contract: [docs/hdr.en.md](../../docs/hdr.en.md); wording: [docs/link-ui.md](../../docs/link-ui.md), “HDR” section. Status (2 Nov 2026): written, wired to the core and compiled for the TV (`.ipk` package), checked through its screenshots and tests; **not yet tried on the G2** nor with a Station that does HDR (switch to HDR mode, colours, back to SDR).
+Shared contract: [docs/hdr.en.md](../../docs/hdr.en.md); wording: [docs/link-ui.md](../../docs/link-ui.md), “HDR” section. Status (2 Nov 2026): written, wired to the core and compiled for the TV (`.ipk` package), checked through its screenshots and tests. Tried on the G2 with the HDR Station on 2 Nov 2026: switch to HDR and colours right; about 10 ms more latency than in SDR, to be measured (see “Latency in HDR”).
 
 - **HDR screen**: from the TV's settings, through webOS's configuration service (`luna://com.webos.service.config/getConfigs`, the one SDL reads for the panel's refresh rate): `tv.model.supportHDR`, or `tv.config.supportDolbyHDRContents` (a Dolby Vision TV also takes HDR10). Unreadable: no HDR. The call goes through `HLunaServiceCall` in `libhelpers.so.2`, the TV library SDL already opens (`src/device/luna.rs`). On an SDR screen, no trace of HDR in the app.
 - **Decoder**: NDL reads HEVC Main 10 and 10-bit AV1; `NDL_DirectVideoSetHDRInfo` present in the TV's library (`ndl::hdr_capable`), otherwise “This device can't decode HDR.”.
@@ -99,7 +99,7 @@ Contract: [docs/hdr.en.md](../../docs/hdr.en.md), “HDR calibration”. Written
 
 ### Trying HDR on the G2
 
-Package: `apps/webos/dist/fr.leslignesclaires.kybernow_<version>_arm.ipk` (`scripts/build.sh`), installed as usual ([INSTALLATION.en.md](INSTALLATION.en.md), “Installing the app”), then the log read at the end (same page, troubleshooting). Before: on the TV, Magic Remote Settings button › Picture › Mode: **Game Optimizer**, and in its advanced settings, **Dynamic Tone Mapping: HGIG**.
+Package: `apps/webos/dist/fr.leslignesclaires.kybernow_<version>_arm.ipk` (`scripts/build.sh`), installed as usual ([INSTALLATION.en.md](INSTALLATION.en.md), “Installing the app”), then the log read at the end (same page, troubleshooting). Before: on the TV, Magic Remote Settings button › Picture › Mode: **Game Optimizer**, and in its advanced settings, **Dynamic Tone Mapping: HGIG**. The TV keeps this mode separately for HDR: set it again once the “HDR” badge is on (test 1).
 
 1. **The TV switches to HDR, without a computer**: App settings › “HDR calibration”. Expected: the TV's “HDR” badge at the top right on opening, and the picture mode marked HDR in Settings › Picture; a very bright area in the middle, the cross visible at 500 nits and disappearing higher up (around 700 to 1,000 nits on a G2). Go through the four steps, “Done”. Back in the settings: the panel returns to SDR (interface colours as before).
 2. **HDR session**: PC with the HDR Station (Windows 11 24H2), the “HDR” chip on at home, the display line ends with “in HDR”. Connect. Expected: the TV's “HDR” badge; “HDR” in the statistics; the Windows desktop neither washed out nor too dark; an HDR game with bright highlights, colours neither dull nor oversaturated.
@@ -112,6 +112,17 @@ What proves HDR mode, in the log (`kybernow.log`):
 - `image : flux HDR (Main 10 : true, métadonnées : true, demandé : true)` then `image : NDL chargé (HEVC, 3840 × 2160, …, HDR)`;
 - `image : NDL_DirectVideoSetHDRInfo → 0 (primaires …)`: 0 means accepted; −1 and a message: refused (the structure's shape or its units);
 - `lecteur : chargement {…}`: LG's player document, which may say what it got of the HDR.
+
+### Latency in HDR
+
+On the G2, the author sees about 10 ms more in HDR than in SDR. On the TV side, the HDR path differs from SDR by one call only: `NDL_DirectVideoSetHDRInfo`, once per load, on the first accepted frame (`hdr_applied`, reset only on load). Neither this call nor any other NDL call is added to the frame loop. NDL does not say when a frame is shown: the end of the measurement is estimated as the call that hands over the frame, plus one panel period for this frame and one for each frame waiting in the queue. One more frame held by the TV in HDR therefore counts 8.3 ms at 120 Hz.
+
+To find where the gap comes from, the app logs two summaries every 5 s, in SDR as in HDR (`src/journal.rs`):
+
+- `image : file NDL sur 5 s (HDR) : moyenne …, max … ; période 8333 µs (120 Hz) ; … images, appel moyen … ms, max … ms`: the decoder's queue (`NDL_DirectVideoGetRenderBufferLength`, read after each frame), the period used and how long the call that hands over the frame takes;
+- `latence sur 5 s (HDR) : … ms (capture …, encodage …, envoi …, réseau …, décodage …, affichage …)`: latency step by step (averages of each second's medians).
+
+A queue one frame longer in HDR points at the TV, in the “display” step. A gap in capture or encoding points at the computer. There is no safe way to shorten the queue: the library has `NDL_DirectVideoSetFrameDropThreshold`, whose effect is undocumented. It is not used; the log only says whether the TV has it (`image : NDL, longueur de la file …, seuil d'abandon d'images …`). The TV's own processing, outside Game Optimizer and HGIG, is not part of the measurement, but it shows to the eye: hence the setting to redo in HDR.
 
 What gives a problem away: no HDR badge despite `→ 0` (the TV ignores the metadata), a washed-out picture (panel in HDR, stream in SDR), a picture too dark or too saturated (metadata units), the session's picture not coming back after the patterns.
 
@@ -151,6 +162,7 @@ apps/webos/
 │   ├── app.rs           interface state, spatial navigation, actions (no SDL nor core)
 │   ├── model.rs         computers, settings, the TV's identity (kybernow.json in Store::dir)
 │   ├── hdr.rs           HDR: the TV's screen (its settings), HDR10 metadata read in the stream
+│   ├── journal.rs       picture summaries every 5 s: NDL queue, latency step by step
 │   ├── mires.rs         “HDR calibration” patterns (assets/hdr-mires.bin) and their levels
 │   ├── i18n.rs          French and English
 │   ├── ui/              drawing (tiny-skia, fontdue): home, adding, settings (Statistics,
@@ -206,4 +218,4 @@ apps/webos/scripts/preview.sh                # → apps/target/webos-preview/*.p
 
 ## Log
 
-`/media/developer/temp/kybernow/kybernow.log` on the TV (the previous one as `.1`), next to `kybernow.json` (computers and settings). In developer mode, `HOME` is `/media/developer`, closed to the app's user, and its `/tmp` is emptied on reboot and invisible over ssh: `temp` is open to all, survives reboots and reinstalls, and can be read over ssh. The app takes the first folder it can write to among `$HOME/conf`, this one and `/tmp/kybernow` (`Store::dir`), and standard error: `image :` (NDL, HDR or SDR stream, `NDL_DirectVideoSetHDRInfo` and its values), `téléviseur :` (HDR or SDR screen, webOS's answer), `son :`, `manettes :`, `session :`, `lecteur :` (hook on LG's player) lines, with the core's messages (logs stay in French). See [INSTALLATION.en.md](INSTALLATION.en.md) to read it.
+`/media/developer/temp/kybernow/kybernow.log` on the TV (the previous one as `.1`), next to `kybernow.json` (computers and settings). In developer mode, `HOME` is `/media/developer`, closed to the app's user, and its `/tmp` is emptied on reboot and invisible over ssh: `temp` is open to all, survives reboots and reinstalls, and can be read over ssh. The app takes the first folder it can write to among `$HOME/conf`, this one and `/tmp/kybernow` (`Store::dir`), and standard error: `image :` (NDL, HDR or SDR stream, `NDL_DirectVideoSetHDRInfo` and its values, queue summary every 5 s), `latence sur 5 s` (step by step), `téléviseur :` (HDR or SDR screen, webOS's answer), `son :`, `manettes :`, `session :`, `lecteur :` (hook on LG's player) lines, with the core's messages (logs stay in French). See [INSTALLATION.en.md](INSTALLATION.en.md) to read it.

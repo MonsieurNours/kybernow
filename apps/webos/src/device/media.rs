@@ -100,11 +100,14 @@ struct Feeder {
     lost_reported: bool,
     last_request: Option<Instant>,
     failed: bool,
+    /// Le chargement en cours est en HDR ; la file de NDL au journal, toutes les 5 s.
+    hdr_on: bool,
+    queue: crate::journal::Queue,
 }
 
 impl Feeder {
     fn new(shared: Arc<Shared>) -> Self {
-        Self { shared, kind: ndl::VIDEO_H265, config: Vec::new(), in_config: false, loaded_config: None, waiting_key: true, generation: 0, lost_reported: false, last_request: None, failed: false }
+        Self { shared, kind: ndl::VIDEO_H265, config: Vec::new(), in_config: false, loaded_config: None, waiting_key: true, generation: 0, lost_reported: false, last_request: None, failed: false, hdr_on: false, queue: crate::journal::Queue::new(Instant::now()) }
     }
 
     fn run(mut self, rx: Receiver<Msg>) {
@@ -161,6 +164,13 @@ impl Feeder {
         hdr
     }
 
+    /// Le bilan de la file de NDL (images en attente, période de la dalle, durée de l'appel).
+    fn log_queue(&mut self, now: Instant) {
+        if let Some(line) = self.queue.take(now, self.hdr_on, self.shared.frame_period_micros()) {
+            log::info!("{line}");
+        }
+    }
+
     fn request_keyframe(&mut self) {
         if self.last_request.is_some_and(|t| t.elapsed() < Duration::from_millis(300)) {
             return;
@@ -215,6 +225,11 @@ impl Feeder {
             self.loaded_config = Some(self.config.clone());
             self.waiting_key = true;
             self.generation = ndl::generation();
+            if self.hdr_on != hdr.is_some() {
+                // Un bilan est tout SDR ou tout HDR.
+                self.log_queue(Instant::now());
+                self.hdr_on = hdr.is_some();
+            }
         }
         if self.generation != ndl::generation() {
             self.generation = ndl::generation();
@@ -233,8 +248,14 @@ impl Feeder {
         } else {
             data
         };
+        let call = Instant::now();
         match ndl::play(bytes) {
             Ok(queued) => {
+                let now = Instant::now();
+                self.queue.add(queued, now - call);
+                if self.queue.due(now) {
+                    self.log_queue(now);
+                }
                 if key && first {
                     self.waiting_key = false;
                     if self.lost_reported {

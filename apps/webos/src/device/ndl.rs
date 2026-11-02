@@ -264,6 +264,13 @@ pub fn available() -> bool {
                 if api.set_hdr.is_none() {
                     log::info!("image : NDL sans NDL_DirectVideoSetHDRInfo, pas de HDR");
                 }
+                // Pour les bilans de la file (`crate::journal`) : la longueur de la file, et le seuil d'abandon
+                // d'images, pas employé (son effet n'est pas documenté).
+                log::info!(
+                    "image : NDL, longueur de la file {}, seuil d'abandon d'images {}",
+                    if api.render_length.is_some() { "lisible" } else { "absente" },
+                    if sym::<*const c_void>(lib, "NDL_DirectVideoSetFrameDropThreshold").is_some() { "présent" } else { "absent" }
+                );
                 *g = Some(State { api, initialized: false, loaded: None, hdr: None, hdr_applied: false, plane: AudioPlane::OpusClock, last_pts: 0, last_audio_pts: 0, feeding: false });
                 true
             }

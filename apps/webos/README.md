@@ -56,7 +56,7 @@ KyberNow Link sur les téléviseurs LG : une app **native** (un binaire ARM, pas
 - **30, 60 ou 120 images par seconde** : la dalle ne change pas de fréquence pour une app (webOS n'en donne pas le moyen) ; à 30 ou 60 i/s, chaque image y est montrée 4 ou 2 fois, à intervalles réguliers. 144 Hz : les dalles de 2025 qui l'ont (pas la G2).
 - **Format** : HEVC d'office (4K à 120 i/s sur le décodeur des OLED de 2022) ; AV1 seulement jusqu'à 60 i/s (au-delà, les LG le montrent à 60), et seulement si la version de webOS se lit (5 et après) ; H.264 au choix, déconseillé au-delà de 60 i/s.
 - **Débit** : le débit du profil (proportionné aux pixels par seconde, comme les autres apps), plafonné à 80 Mbit/s en Ethernet (la prise des LG s'arrête à 100 Mbit/s, environ 93 utiles) et à 95 en Wi-Fi (limite du décodeur sur les puces de 2022 et après). Le lien est lu dans `/sys/class/net`.
-- **Mode jeu de la télé** : aucune API ne permet à une app de passer la télé en Optimiseur de jeu ; le menu le rappelle (bouton Réglages de la Magic Remote › Image › Mode › Optimiseur de jeu), et le rappel se coupe.
+- **Mode jeu de la télé** : aucune API ne permet à une app de passer la télé en Optimiseur de jeu ; le menu le rappelle (bouton Réglages de la Magic Remote › Image › Mode › Optimiseur de jeu), et le rappel se coupe. **Le téléviseur garde un mode d'image à part pour le HDR** : l'Optimiseur de jeu choisi en SDR ne vaut pas en HDR. À la première session en HDR (l'indicateur « HDR » du téléviseur est allumé), refaire le réglage : Optimiseur de jeu, et Mappage dynamique des tons sur HGIG. Sinon, le téléviseur traite l'image à sa façon et ajoute de la latence.
 - **VRR** : LG le réserve aux entrées HDMI, pour toute app interne, native ou web. L'ordinateur envoie ses images au rythme de la dalle.
 - **HDR** : HDR10 en HEVC Main 10 ou en AV1 10 bits, sur un téléviseur dont l'écran est HDR (voir HDR ci-dessous).
 
@@ -76,7 +76,7 @@ KyberNow Link sur les téléviseurs LG : une app **native** (un binaire ARM, pas
 
 ## HDR
 
-Contrat commun : [docs/hdr.md](../../docs/hdr.md) ; textes : [docs/link-ui.md](../../docs/link-ui.md), section « HDR ». État (02/11/2026) : écrit, raccordé au cœur et compilé pour le téléviseur (paquet `.ipk`), vérifié par ses captures et ses tests ; **pas encore essayé sur la G2** ni avec une Station qui fait le HDR (passage en mode HDR, couleurs, retour en SDR).
+Contrat commun : [docs/hdr.md](../../docs/hdr.md) ; textes : [docs/link-ui.md](../../docs/link-ui.md), section « HDR ». État (02/11/2026) : écrit, raccordé au cœur et compilé pour le téléviseur (paquet `.ipk`), vérifié par ses captures et ses tests. Essayé sur la G2 avec la Station HDR le 02/11/2026 : passage en HDR et couleurs justes ; environ 10 ms de latence de plus qu'en SDR, à mesurer (voir « Latence en HDR »).
 
 - **Écran HDR** : d'après les réglages du téléviseur, par le service de configuration de webOS (`luna://com.webos.service.config/getConfigs`, celui que la SDL lit pour la fréquence de la dalle) : `tv.model.supportHDR`, ou `tv.config.supportDolbyHDRContents` (un téléviseur Dolby Vision prend aussi le HDR10). Illisible : pas de HDR. L'appel passe par `HLunaServiceCall` de `libhelpers.so.2`, la bibliothèque du téléviseur que la SDL ouvre déjà (`src/device/luna.rs`). Sur un écran SDR, aucune trace du HDR dans l'app.
 - **Décodeur** : NDL lit le HEVC Main 10 et l'AV1 10 bits ; `NDL_DirectVideoSetHDRInfo` présente dans la bibliothèque du téléviseur (`ndl::hdr_capable`), sinon « Cet appareil ne décode pas le HDR. ».
@@ -99,7 +99,7 @@ Contrat : [docs/hdr.md](../../docs/hdr.md), « Réglage du HDR ». Écrit, compi
 
 ### Essai du HDR sur la G2
 
-Paquet : `apps/webos/dist/fr.leslignesclaires.kybernow_<version>_arm.ipk` (`scripts/build.sh`), installé comme d'habitude ([INSTALLATION.md](INSTALLATION.md), « Installer l'app »), puis le journal lu à la fin (même page, « En cas de souci »). Avant : sur le téléviseur, bouton Réglages de la Magic Remote › Image › Mode : **Optimiseur de jeu**, et dans ses réglages avancés, **Mappage dynamique des tons : HGIG**.
+Paquet : `apps/webos/dist/fr.leslignesclaires.kybernow_<version>_arm.ipk` (`scripts/build.sh`), installé comme d'habitude ([INSTALLATION.md](INSTALLATION.md), « Installer l'app »), puis le journal lu à la fin (même page, « En cas de souci »). Avant : sur le téléviseur, bouton Réglages de la Magic Remote › Image › Mode : **Optimiseur de jeu**, et dans ses réglages avancés, **Mappage dynamique des tons : HGIG**. Le téléviseur garde ce mode à part pour le HDR : le refaire une fois l'indicateur « HDR » allumé (essai 1).
 
 1. **Le téléviseur passe en HDR, sans ordinateur** : Réglages de l'app › « Réglage du HDR ». Attendu : l'indicateur « HDR » du téléviseur en haut à droite à l'ouverture, et le mode d'image noté HDR dans Réglages › Image ; une zone très claire au centre, la croix visible à 500 nits et qui disparaît plus haut (vers 700 à 1 000 nits sur une G2). Faire les quatre étapes, « Terminer ». Retour aux réglages : la dalle revient en SDR (couleurs de l'interface comme avant).
 2. **Session en HDR** : PC avec la Station HDR (Windows 11 24H2), la puce « HDR » allumée sur l'accueil, la ligne « Écran » finit par « en HDR ». Se connecter. Attendu : l'indicateur « HDR » du téléviseur ; « HDR » dans les statistiques ; le bureau de Windows ni délavé ni trop sombre ; un jeu HDR aux lumières vives, aux couleurs ni ternes ni saturées.
@@ -112,6 +112,17 @@ Ce qui prouve le mode HDR, dans le journal (`kybernow.log`) :
 - `image : flux HDR (Main 10 : true, métadonnées : true, demandé : true)` puis `image : NDL chargé (HEVC, 3840 × 2160, …, HDR)` ;
 - `image : NDL_DirectVideoSetHDRInfo → 0 (primaires …)` : 0, c'est accepté ; −1 et un message : refusé (la forme de la structure ou ses unités) ;
 - `lecteur : chargement {…}` : le document du lecteur de LG, qui peut dire ce qu'il a reçu du HDR.
+
+### Latence en HDR
+
+Sur la G2, l'auteur voit environ 10 ms de plus en HDR qu'en SDR. Côté téléviseur, le chemin HDR ne diffère du SDR que par un appel : `NDL_DirectVideoSetHDRInfo`, une fois par chargement, à la première image acceptée (`hdr_applied`, remis à zéro au seul chargement). Ni cet appel ni un autre appel à NDL ne s'ajoute à la boucle des images. NDL ne dit pas quand une image est montrée : la fin de la mesure est estimée à l'appel qui donne l'image, plus une période de la dalle pour cette image et une pour chaque image en attente dans la file. Une image de plus gardée par le téléviseur en HDR compte donc 8,3 ms à 120 Hz.
+
+Pour savoir d'où vient l'écart, l'app met au journal deux bilans toutes les 5 s, en SDR comme en HDR (`src/journal.rs`) :
+
+- `image : file NDL sur 5 s (HDR) : moyenne …, max … ; période 8333 µs (120 Hz) ; … images, appel moyen … ms, max … ms` : la file du décodeur (`NDL_DirectVideoGetRenderBufferLength`, lue après chaque image), la période employée et la durée de l'appel qui donne l'image ;
+- `latence sur 5 s (HDR) : … ms (capture …, encodage …, envoi …, réseau …, décodage …, affichage …)` : la latence étape par étape (moyennes des médianes de chaque seconde).
+
+Une file plus longue d'une image en HDR désigne le téléviseur, à l'étape « affichage ». Un écart à la capture ou à l'encodage désigne l'ordinateur. Aucun moyen sûr de raccourcir la file : la bibliothèque a `NDL_DirectVideoSetFrameDropThreshold`, dont l'effet n'est pas documenté. Elle n'est pas employée ; le journal dit seulement si le téléviseur l'a (`image : NDL, longueur de la file …, seuil d'abandon d'images …`). Le traitement propre du téléviseur, hors Optimiseur de jeu et HGIG, n'entre pas dans la mesure, mais il se voit à l'œil : d'où le réglage à refaire en HDR.
 
 Ce qui trahit un souci : pas d'indicateur HDR malgré `→ 0` (le téléviseur ignore les métadonnées), une image délavée (dalle en HDR, flux en SDR), une image trop sombre ou trop saturée (unités des métadonnées), l'image de la session qui ne revient pas après les mires.
 
@@ -152,6 +163,7 @@ apps/webos/
 │   ├── model.rs         ordinateurs, réglages, identité du téléviseur (kybernow.json dans Store::dir)
 │   ├── i18n.rs          français et anglais
 │   ├── hdr.rs           HDR : écran du téléviseur (ses réglages), métadonnées HDR10 lues dans le flux
+│   ├── journal.rs       bilans de l'image toutes les 5 s : file de NDL, latence étape par étape
 │   ├── mires.rs         mires du « Réglage du HDR » (assets/hdr-mires.bin) et leurs paliers
 │   ├── ui/              dessin (tiny-skia, fontdue) : accueil, ajout, réglages (Statistiques,
 │   │                    Station et son QR code), manettes, session ; join.rs (rejoindre un
@@ -206,4 +218,4 @@ apps/webos/scripts/preview.sh                # → apps/target/webos-preview/*.p
 
 ## Journal
 
-`/media/developer/temp/kybernow/kybernow.log` sur le téléviseur (le précédent en `.1`), à côté de `kybernow.json` (ordinateurs et réglages). En mode développeur, `HOME` vaut `/media/developer`, fermé à l'utilisateur de l'app, et son `/tmp` est vidé au redémarrage et invisible en ssh : `temp` est ouvert à tous, survit au redémarrage et à la réinstallation, et se lit en ssh. L'app prend le premier dossier où elle peut écrire parmi `$HOME/conf`, celui-ci et `/tmp/kybernow` (`Store::dir`), et la sortie d'erreur : lignes `image :` (NDL, flux HDR ou SDR, `NDL_DirectVideoSetHDRInfo` et ses valeurs), `téléviseur :` (écran HDR ou SDR, réponse de webOS), `son :`, `manettes :`, `session :`, `lecteur :` (crochet du lecteur de LG), avec les messages du cœur. Voir [INSTALLATION.md](INSTALLATION.md) pour le lire.
+`/media/developer/temp/kybernow/kybernow.log` sur le téléviseur (le précédent en `.1`), à côté de `kybernow.json` (ordinateurs et réglages). En mode développeur, `HOME` vaut `/media/developer`, fermé à l'utilisateur de l'app, et son `/tmp` est vidé au redémarrage et invisible en ssh : `temp` est ouvert à tous, survit au redémarrage et à la réinstallation, et se lit en ssh. L'app prend le premier dossier où elle peut écrire parmi `$HOME/conf`, celui-ci et `/tmp/kybernow` (`Store::dir`), et la sortie d'erreur : lignes `image :` (NDL, flux HDR ou SDR, `NDL_DirectVideoSetHDRInfo` et ses valeurs, bilan de la file toutes les 5 s), `latence sur 5 s` (étape par étape), `téléviseur :` (écran HDR ou SDR, réponse de webOS), `son :`, `manettes :`, `session :`, `lecteur :` (crochet du lecteur de LG), avec les messages du cœur. Voir [INSTALLATION.md](INSTALLATION.md) pour le lire.
