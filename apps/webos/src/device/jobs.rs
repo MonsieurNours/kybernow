@@ -64,6 +64,7 @@ pub fn poll(host: Host, want_preview: bool, tx: Sender<Event>) {
                     share: Some(share_avail(&info)),
                     lend: Some(lend_avail),
                     lend_view,
+                    hdr: Some(super::session::station_hdr(&info)),
                 };
                 let _ = tx.send(Event::Polled { id: host.id.clone(), polled });
                 if want_preview
@@ -655,6 +656,7 @@ pub fn friend_add(address: String, port: u16, fingerprint: Option<String>, relay
                     login: login.clone(),
                     password: if remember { password.clone() } else { String::new() },
                     remember,
+                    hdr: true,
                 };
                 Box::new((b, lend_live(&s), password.clone()))
             });

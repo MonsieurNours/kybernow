@@ -40,6 +40,9 @@ pub struct Shared {
     dolby: bool,
     pub combo_enabled: AtomicBool,
     codec: Mutex<String>,
+    /// La session demande le HDR (réglage, écran du téléviseur, décodeur) ;
+    /// le cœur dit ensuite ce que l'ordinateur a obtenu (`Platform::on_hdr`).
+    hdr_expected: AtomicBool,
 }
 
 impl Shared {
@@ -75,6 +78,17 @@ impl Shared {
 
     pub fn codec(&self) -> String {
         self.codec.lock().unwrap().clone()
+    }
+
+    /// Un flux HEVC Main 10 sans métadonnées HDR10 est pris pour du HDR
+    /// seulement si la session l'attend (`crate::hdr::decide`).
+    pub fn hdr_expected(&self) -> bool {
+        self.hdr_expected.load(Ordering::Relaxed)
+    }
+
+    /// Ce que la session attend, à chaque démarrage de l'image (`Platform::on_hdr`) et quand l'interrupteur change.
+    pub fn set_hdr_expected(&self, on: bool) {
+        self.hdr_expected.store(on, Ordering::Relaxed);
     }
 
     pub fn decoder_failed(&self, e: &str) {
@@ -161,6 +175,8 @@ impl Platform for WebOsPlatform {
             mbps: s.bytes as f64 * 8.0 / 1e6,
             lost: s.lost_frames + s.holes,
             codec: self.0.codec(),
+            // Ce que le décodeur a vraiment chargé (le flux HDR, lu dans le flux).
+            hdr: super::ndl::loaded_hdr(),
         });
     }
 
@@ -400,11 +416,74 @@ pub fn core_profile(p: Profile) -> CoreProfile {
     CoreProfile::parse(p.id()).unwrap_or(CoreProfile::Jeu)
 }
 
+// MARK: - HDR : raccordement au cœur (docs/hdr.md, « Interfaces entre les morceaux »)
+
+/// Ce que la session demande pour le HDR : `want`, le choix de l'app pour cet
+/// ordinateur (puce, réglage, menu) quand la puce est active (`App::hdr_on`) ;
+/// `screen`, l'écran du téléviseur est HDR ; `decoder`, NDL sait passer la
+/// dalle en HDR.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct HdrAsk {
+    pub want: bool,
+    pub screen: bool,
+    pub decoder: bool,
+}
+
+impl HdrAsk {
+    pub fn of(app: &crate::app::App, host: Option<&Host>) -> Self {
+        Self { want: host.is_some_and(|h| app.hdr_on(h)), screen: app.tv.hdr, decoder: app.tv.hdr_decoder }
+    }
+
+    /// Un invité du partage : pas de choix, le HDR quand l'écran et le décodeur le permettent (la Station envoie à
+    /// l'invité sans HDR une image à part, en SDR).
+    pub fn guest(app: &crate::app::App) -> Self {
+        Self { want: app.tv.hdr && app.tv.hdr_decoder, screen: app.tv.hdr, decoder: app.tv.hdr_decoder }
+    }
+
+    fn on(self) -> bool {
+        self.want && self.screen && self.decoder
+    }
+}
+
+/// Le HDR que la Station annonce (`Info::hdr` du cœur, `GET /api/stream/info`). En attente de la branche du cœur :
+/// aucune Station ne l'annonce encore, « L'ordinateur ne propose pas le HDR. »
+pub fn station_hdr(info: &kybernow_core::console::Info) -> crate::app::StationHdr {
+    let _ = info;
+    crate::app::StationHdr::Off
+}
+
+/// Le HDR dans les réglages du flux (`StreamSettings::hdr` du cœur : il impose alors 4:2:0 et HEVC ou AV1).
+/// En attente de la branche du cœur : le téléviseur ne décode jamais le 4:4:4 et `App::codec_for` ne prend que HEVC
+/// ou AV1 hors du choix H.264, rien d'autre à faire ici.
+fn hdr_settings(s: &mut StreamSettings, ask: HdrAsk) {
+    let _ = (s, ask.on());
+}
+
+/// Ce que décode et affiche le téléviseur (`Capabilities::hdr` du cœur : HEVC Main 10 ou AV1 10 bits par NDL, et
+/// `NDL_DirectVideoSetHDRInfo` pour l'afficher). En attente de la branche du cœur.
+fn hdr_capabilities(caps: Capabilities, ask: HdrAsk) -> Capabilities {
+    let _ = ask.decoder;
+    caps
+}
+
+/// L'écran du téléviseur (`SessionParams::screen_hdr` du cœur). En attente de la branche du cœur.
+fn hdr_params(params: SessionParams, ask: HdrAsk) -> SessionParams {
+    let _ = ask.screen;
+    params
+}
+
+/// L'interrupteur « HDR » du menu de session (`Session::set_hdr` du cœur : Admin rallume ou éteint le HDR de l'écran
+/// virtuel, l'image se relance). En attente de la branche du cœur : la prochaine session le prendra.
+pub fn set_hdr(handle: &Handle, ask: HdrAsk) {
+    handle.shared.set_hdr_expected(ask.on());
+    log::info!("session : HDR {} demandé (pris à la prochaine session, en attendant le cœur)", if ask.on() { "allumé" } else { "éteint" });
+}
+
 /// Les réglages du flux : le profil ramené à ce que décode le téléviseur
 /// (HEVC, pas de 4:4:4), le format et le transport choisis, le débit
-/// plafonné par le réseau.
-pub fn settings(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32), cap_mbps: u32) -> StreamSettings {
-    let caps = Capabilities { hevc: true, hevc444: false, av1: codec == "av1" };
+/// plafonné par le réseau, le HDR.
+pub fn settings(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32), cap_mbps: u32, hdr: HdrAsk) -> StreamSettings {
+    let caps = hdr_capabilities(Capabilities { hevc: true, hevc444: false, av1: codec == "av1" }, hdr);
     let mut s = StreamSettings::for_profile(core_profile(profile), caps);
     s.codec = match codec {
         "h264" => Codec::H264,
@@ -428,6 +507,7 @@ pub fn settings(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32
         let scale = ratio.powf(0.75).clamp(0.4, 3.0);
         s.mbps = ((wanted as f64 / scale).floor() as u32).max(5);
     }
+    hdr_settings(&mut s, hdr);
     s
 }
 
@@ -435,7 +515,7 @@ pub fn settings(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32
 /// téléviseur : l'écran et l'image sont ceux de l'hôte, jamais de réglage de l'ordinateur ; `host` n'est alors
 /// qu'une enveloppe (nom, adresse, réglages par défaut), absente du magasin.
 #[allow(clippy::too_many_arguments)]
-pub fn start(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32), refresh: u32, cap_mbps: u32, device: DeviceInfo, guest: Option<(&share::Found, Capabilities)>, loan: Option<&kybernow_core::lend::Loan>, tx: Sender<Event>) -> Handle {
+pub fn start(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32), refresh: u32, cap_mbps: u32, device: DeviceInfo, guest: Option<(&share::Found, Capabilities)>, loan: Option<&kybernow_core::lend::Loan>, hdr: HdrAsk, tx: Sender<Event>) -> Handle {
     let (w, h, fps) = mode;
     let clock = Arc::new(MonotonicClock::new());
     let pointer = Arc::new(PointerLayer::new(clock.clone(), true));
@@ -466,6 +546,7 @@ pub fn start(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32), 
         dolby: surround && dolby,
         combo_enabled: AtomicBool::new(host.settings.combo),
         codec: Mutex::new(String::new()),
+        hdr_expected: AtomicBool::new(hdr.on()),
     });
     // Le pointeur de l'ordinateur, dessiné par l'app : position et forme.
     let weak = Arc::downgrade(&shared);
@@ -475,10 +556,13 @@ pub fn start(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32), 
         sh.send(Event::Pointer { position: state.position(), hidden: state.remote_hidden, shape });
     });
     let recovery = Recovery { watch_image: true, fallback_bitrate: Some((cap_mbps / 2).max(20) * 1_000_000), ..Recovery::default() };
-    let stream = settings(host, profile, codec, mode, cap_mbps);
+    let stream = settings(host, profile, codec, mode, cap_mbps, hdr);
     let params = match (guest, loan) {
         // Un invité : la Station qui partage, le jeton de son partage, l'écran de l'hôte (`SessionParams::guest`).
-        (Some((found, caps)), _) => SessionParams { auto_reconnect: host.settings.reconnect, gamepad_xbox360: host.settings.xbox360, recovery, ..SessionParams::guest(found, device, stream, caps, audio_channels) },
+        (Some((found, caps)), _) => {
+            let caps = hdr_capabilities(caps, hdr);
+            SessionParams { auto_reconnect: host.settings.reconnect, gamepad_xbox360: host.settings.xbox360, recovery, ..SessionParams::guest(found, device, stream, caps, audio_channels) }
+        }
         // Un emprunt : la Station de l'ami, le jeton du prêt renouvelé par son signe de vie, l'écran virtuel fait à la
         // taille du téléviseur (`SessionParams::borrower`) ; clavier, souris et manettes, jamais le presse-papiers.
         (None, Some(loan)) => SessionParams { gamepad_xbox360: host.settings.xbox360, recovery, ..SessionParams::borrower(loan, device, stream, audio_channels) },
@@ -502,6 +586,7 @@ pub fn start(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32), 
             route: kybernow_core::session::Route::Auto(relay_route(host)),
         },
     };
+    let params = hdr_params(params, hdr);
     let session = Session::start(params, Arc::new(WebOsPlatform(shared.clone())));
     let _ = shared.session.set(Arc::downgrade(&session));
     Handle { shared, session }

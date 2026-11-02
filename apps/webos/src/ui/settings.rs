@@ -103,6 +103,14 @@ fn host_section(app: &App, cv: &mut Canvas, f: &mut Frame, h: &Host) {
             let codec = codec_name(app.codec_for(h));
             let codec_v = if st.codec == "auto" { format!("Auto · {codec}") } else { codec.into() };
             y += widgets::row(cv, f, s(Setting::Codec), x, y, w, tr("Format vidéo", "Video format"), tr("HEVC jusqu'à 120 Hz ; AV1 jusqu'à 60 Hz sur les téléviseurs LG", "HEVC up to 120 Hz; AV1 up to 60 Hz on LG TVs"), Value::Text(codec_v)) + GAP;
+            // « HDR », seulement sur un écran HDR ; inactif avec sa raison.
+            if let Some(u) = app.hdr_ui(h) {
+                let (help, value) = match u.reason {
+                    Some(r) => (r.text(), Value::Unavailable(tr("indisponible", "unavailable"))),
+                    None => (crate::app::hdr_setting_help(), Value::Toggle(u.on)),
+                };
+                y += widgets::row(cv, f, s(Setting::Hdr), x, y, w, "HDR", help, value) + GAP;
+            }
             let mbps = if st.mbps == 0 {
                 if english() { format!("Auto · up to {} Mbit/s", app.net.cap_mbps()) } else { format!("Auto · au plus {} Mbit/s", app.net.cap_mbps()) }
             } else {
@@ -293,6 +301,9 @@ fn what(last: &LastSession) -> String {
         }
         if !last.codec.is_empty() {
             parts.push(last.codec.clone());
+        }
+        if last.hdr {
+            parts.push("HDR".into());
         }
     } else if !last.mode.is_empty() {
         // Session gardée par la 0.4.x : « 3840 × 2160 · HEVC ».
@@ -643,6 +654,11 @@ mod tests {
         crate::i18n::set_english(false);
         let mut last = LastSession { median: 9.0, p95: 14.0, seconds: 60, mbps: 79.6, at: 0, width: 2560, height: 1440, refresh: 120, codec: "HEVC".into(), ..Default::default() };
         assert_eq!(what(&last), "2560 × 1440 · 120 Hz · HEVC · 80 Mbit/s");
+        last.hdr = true;
+        last.width = 3840;
+        last.height = 2160;
+        assert_eq!(what(&last), "3840 × 2160 · 120 Hz · HEVC · HDR · 80 Mbit/s");
+        last.hdr = false;
         last.width = 0;
         last.mode = "3840 × 2160 · HEVC".into();
         assert_eq!(what(&last), "3840 × 2160 · HEVC · 80 Mbit/s");

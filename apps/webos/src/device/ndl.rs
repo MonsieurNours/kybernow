@@ -19,7 +19,12 @@
 //! - horodatages en millisecondes depuis le chargement, jamais en arrière ;
 //! - jamais de vidage (`Flush`) en cours de session : il coupe le plan de son
 //!   pour toujours ; après une perte, on attend l'image clé suivante ;
-//! - aucune fonction n'est sûre entre fils : un seul verrou.
+//! - aucune fonction n'est sûre entre fils : un seul verrou ;
+//! - HDR : `NDL_DirectVideoSetHDRInfo` passe la dalle en mode HDR à chaque
+//!   appel, quelle que soit l'image (une image SDR y serait délavée) : appelée
+//!   seulement pour un flux HDR, une fois par chargement, après la première
+//!   image acceptée. Rien ne la défait : le retour au SDR
+//!   est un nouveau chargement (le HDR fait partie de ce qui est chargé).
 
 #![allow(non_snake_case)]
 
@@ -27,6 +32,8 @@ use std::ffi::{c_char, c_int, c_void, CStr, CString};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
+
+use crate::hdr::HdrMeta;
 
 pub const VIDEO_H264: i32 = 1;
 pub const VIDEO_H265: i32 = 2;
@@ -134,6 +141,46 @@ struct DataInfo {
     audio: AudioInfo,
 }
 
+/// `NDL_DIRECTVIDEO_HDR_INFO_T`, passé par valeur : 15 mots (les 12 de la SEI,
+/// puis les codes VUI de transfert, de primaires et de matrice), d'après les
+/// en-têtes à jour de webOS ; l'en-tête de la chaîne de compilation n'en
+/// déclare que 12, en paramètres séparés (sur ARM, les mêmes registres et la
+/// même pile pour les 12 premiers). 32 mots de réserve à la suite : une
+/// ancienne révision de la bibliothèque lit une réserve derrière la structure.
+#[repr(C)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct HdrInfo {
+    primaries: [[u32; 2]; 3],
+    white: [u32; 2],
+    max_luminance: u32,
+    min_luminance: u32,
+    max_cll: u32,
+    max_fall: u32,
+    transfer: u32,
+    colour_primaries: u32,
+    matrix: u32,
+    reserved: [u32; 32],
+}
+
+impl HdrInfo {
+    fn of(m: &HdrMeta) -> Self {
+        let p = |(x, y): (u32, u32)| [x, y];
+        Self {
+            primaries: [p(m.primaries[0]), p(m.primaries[1]), p(m.primaries[2])],
+            white: p(m.white),
+            max_luminance: m.max_luminance,
+            min_luminance: m.min_luminance,
+            max_cll: m.max_cll,
+            max_fall: m.max_fall,
+            // HDR10 : SMPTE ST 2084, BT.2020, BT.2020 non constant.
+            transfer: 16,
+            colour_primaries: 9,
+            matrix: 9,
+            reserved: [0; 32],
+        }
+    }
+}
+
 type LoadCallback = extern "C" fn(c_int, i64, *const c_char);
 
 struct Api {
@@ -147,6 +194,8 @@ struct Api {
     render_length: Option<unsafe extern "C" fn(*mut c_int) -> c_int>,
     /// Écrit son verdict par le pointeur (la valeur rendue n'est pas le verdict).
     multichannel: Option<unsafe extern "C" fn(*mut c_int) -> c_int>,
+    /// Absente : pas de HDR (`hdr_capable`).
+    set_hdr: Option<unsafe extern "C" fn(HdrInfo) -> c_int>,
 }
 
 unsafe impl Send for Api {}
@@ -156,6 +205,10 @@ struct State {
     initialized: bool,
     /// Chargé : (format, largeur, hauteur), instant du chargement.
     loaded: Option<((i32, u32, u32), Instant)>,
+    /// Les métadonnées HDR du chargement (`None` : SDR), et si elles ont été
+    /// données au téléviseur (après la première image acceptée).
+    hdr: Option<HdrMeta>,
+    hdr_applied: bool,
     /// Plan de son du chargement en cours.
     plane: AudioPlane,
     last_pts: i64,
@@ -198,11 +251,15 @@ pub fn available() -> bool {
                 error: sym(lib, "NDL_DirectMediaGetError")?,
                 render_length: sym(lib, "NDL_DirectVideoGetRenderBufferLength"),
                 multichannel: sym(lib, "NDL_DirectAudioSupportMultiChannel"),
+                set_hdr: sym(lib, "NDL_DirectVideoSetHDRInfo"),
             })
         })();
         match api {
             Some(api) => {
-                *g = Some(State { api, initialized: false, loaded: None, plane: AudioPlane::OpusClock, last_pts: 0, last_audio_pts: 0, feeding: false });
+                if api.set_hdr.is_none() {
+                    log::info!("image : NDL sans NDL_DirectVideoSetHDRInfo, pas de HDR");
+                }
+                *g = Some(State { api, initialized: false, loaded: None, hdr: None, hdr_applied: false, plane: AudioPlane::OpusClock, last_pts: 0, last_audio_pts: 0, feeding: false });
                 true
             }
             None => {
@@ -240,8 +297,15 @@ extern "C" fn on_load(kind: c_int, value: i64, s: *const c_char) {
     }
 }
 
-/// Charge le décodeur pour un format et une taille (le refait s'ils changent).
-pub fn ensure(kind: i32, width: u32, height: u32) -> Result<(), String> {
+/// Le décodeur sait passer la dalle en HDR (`NDL_DirectVideoSetHDRInfo`).
+pub fn hdr_capable() -> bool {
+    available() && NDL.lock().unwrap().as_ref().is_some_and(|st| st.api.set_hdr.is_some())
+}
+
+/// Charge le décodeur pour un format, une taille et un HDR (`None` : SDR) ; le
+/// refait s'ils changent : un flux qui repasse en SDR recharge NDL, ce qui
+/// remet la dalle en SDR.
+pub fn ensure(kind: i32, width: u32, height: u32, hdr: Option<HdrMeta>) -> Result<(), String> {
     let mut g = NDL.lock().unwrap();
     let st = g.as_mut().ok_or("NDL absent")?;
     let plane = wanted_plane();
@@ -249,7 +313,14 @@ pub fn ensure(kind: i32, width: u32, height: u32) -> Result<(), String> {
         // Déjà déchargé par le téléviseur : rien à décharger, tout à recharger.
         GENERATION.fetch_add(1, Ordering::AcqRel);
     }
-    if st.loaded.as_ref().is_some_and(|(k, _)| *k == (kind, width, height)) && st.plane == plane {
+    let hdr = hdr.filter(|_| st.api.set_hdr.is_some());
+    if st.loaded.as_ref().is_some_and(|(k, _)| *k == (kind, width, height)) && st.plane == plane && st.hdr.is_some() == hdr.is_some() {
+        if hdr.is_some() && st.hdr != hdr {
+            // Mêmes métadonnées à un détail près : gardées pour le prochain
+            // chargement, sans repasser la dalle en HDR (elle y perdrait sa
+            // fréquence un moment).
+            st.hdr = hdr;
+        }
         return Ok(());
     }
     unsafe {
@@ -311,11 +382,13 @@ pub fn ensure(kind: i32, width: u32, height: u32) -> Result<(), String> {
             Err(e) => return Err(e),
         };
         st.loaded = Some(((kind, width, height), at));
+        st.hdr = hdr;
+        st.hdr_applied = false;
         st.plane = plane;
         st.last_pts = 0;
         st.last_audio_pts = 0;
         st.feeding = false;
-        log::info!("image : NDL chargé ({}, {width} × {height}, son {plane:?})", name(kind));
+        log::info!("image : NDL chargé ({}, {width} × {height}, son {plane:?}, {})", name(kind), if hdr.is_some() { "HDR" } else { "SDR" });
     }
     // Le plan de son, amorcé jusqu'à la confirmation du chargement : NDL cale
     // alors les images sur leur horodatage.
@@ -411,6 +484,22 @@ pub fn play(data: &[u8]) -> Result<Option<i32>, String> {
         if (st.api.video_play)(data.as_ptr() as *const c_void, data.len() as u32, pts) != 0 {
             return Err(format!("NDL_DirectVideoPlay : {}", last_error(&st.api)));
         }
+        if let (Some(m), false, Some(set)) = (st.hdr, st.hdr_applied, st.api.set_hdr) {
+            // La première image acceptée : le téléviseur passe en HDR.
+            st.hdr_applied = true;
+            let info = HdrInfo::of(&m);
+            let ret = set(info);
+            log::info!(
+                "image : NDL_DirectVideoSetHDRInfo → {ret} (primaires {:?}, blanc {:?}, écran {}–{} × 0,0001 cd/m², MaxCLL {}, MaxFALL {}, VUI 16/9/9){}",
+                m.primaries,
+                m.white,
+                m.min_luminance,
+                m.max_luminance,
+                m.max_cll,
+                m.max_fall,
+                if ret != 0 { format!(" : {}", last_error(&st.api)) } else { String::new() }
+            );
+        }
         let mut n: c_int = 0;
         Ok(st.api.render_length.and_then(|f| (f(&mut n) == 0).then_some(n)))
     }
@@ -420,6 +509,12 @@ pub fn play(data: &[u8]) -> Result<Option<i32>, String> {
 /// repart de zéro, il lui faut les paramètres et une image clé).
 pub fn generation() -> u64 {
     GENERATION.load(Ordering::Acquire)
+}
+
+/// Le chargement en cours est en HDR (la dalle y est passée, ou y passe à la
+/// première image).
+pub fn loaded_hdr() -> bool {
+    NDL.lock().unwrap().as_ref().is_some_and(|st| st.loaded.is_some() && st.hdr.is_some())
 }
 
 /// Le décodeur est chargé et confirmé.

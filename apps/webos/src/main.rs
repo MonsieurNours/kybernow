@@ -4,6 +4,7 @@
 #![cfg_attr(not(feature = "device"), allow(dead_code))]
 
 mod app;
+mod hdr;
 #[cfg(feature = "device")]
 mod device;
 mod i18n;

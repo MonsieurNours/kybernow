@@ -58,7 +58,7 @@ KyberNow Link on LG TVs: a **native** app (an ARM binary, not a web page), on th
 - **Bitrate**: the profile's bitrate (scaled to pixels per second, like the other apps), capped at 80 Mbit/s on Ethernet (LG's port stops at 100 Mbit/s, about 93 usable) and at 95 on Wi-Fi (the decoder limit on 2022 and later chips). The link is read from `/sys/class/net`.
 - **TV game mode**: no API lets an app switch the TV to Game Optimizer; the menu reminds you (Magic Remote Settings button › Picture › Mode › Game Optimizer), and the reminder can be turned off.
 - **VRR**: LG keeps it for HDMI inputs, for every internal app, native or web. The computer sends its frames at the panel's pace.
-- **HDR**: no HDR. The decoder can show it (`NDL_DirectVideoSetHDRInfo`, HEVC Main10), but Kyber 0.29 captures in 8 bits, as on the other apps; the app does not call that function.
+- **HDR**: HDR10 in HEVC Main 10 or 10-bit AV1, on a TV whose screen is HDR (see HDR below).
 
 ## Decoding (NDL DirectMedia)
 
@@ -73,6 +73,19 @@ KyberNow Link on LG TVs: a **native** app (an ARM binary, not a web page), on th
 - The parameter set (SPS/PPS, VPS, AV1 sequence header) goes before the keyframe that (re)starts the decoder, and again before the keyframe that follows a new set; another codec or size reloads NDL.
 - No NDL function is thread-safe: a single lock.
 - NDL does not say when a frame is shown: the display time (latency) is estimated from the frames waiting (`NDL_DirectVideoGetRenderBufferLength`) and the panel's refresh rate.
+
+## HDR
+
+Shared contract: [docs/hdr.en.md](../../docs/hdr.en.md); wording: [docs/link-ui.md](../../docs/link-ui.md), “HDR” section. Status (2 Nov 2026): written and compiled for the TV, checked through its screenshots and tests; wired to the core when its branch is merged; **not yet tried on the G2** (switch to HDR mode, colours, back to SDR).
+
+- **HDR screen**: from the TV's settings, through webOS's configuration service (`luna://com.webos.service.config/getConfigs`, the one SDL reads for the panel's refresh rate): `tv.model.supportHDR`, or `tv.config.supportDolbyHDRContents` (a Dolby Vision TV also takes HDR10). Unreadable: no HDR. The call goes through `HLunaServiceCall` in `libhelpers.so.2`, the TV library SDL already opens (`src/device/luna.rs`). On an SDR screen, no trace of HDR in the app.
+- **Decoder**: NDL reads HEVC Main 10 and 10-bit AV1; `NDL_DirectVideoSetHDRInfo` present in the TV's library (`ndl::hdr_capable`), otherwise “This device can't decode HDR.”.
+- **Switching to HDR mode**: `NDL_DirectVideoSetHDRInfo` gets the static HDR10 metadata, a 15-word structure passed by value: primaries (green, blue, red) and white point in 0.00002 units, mastering display luminances in 0.0001 cd/m², MaxCLL and MaxFALL in cd/m², then the VUI codes 16 (SMPTE ST 2084), 9 (BT.2020) and 9 (BT.2020 non-constant). The toolchain's header only declares 12 integers, as separate parameters: on ARM, the first 12 words go through the same registers and stack. 32 spare words follow, for an older revision of the library that reads past the structure.
+- **Only for an HDR stream**: the function switches the panel to HDR mode on every call, whatever the picture; an SDR picture would look washed out. The stream is read (`src/hdr.rs`) in the parameter set and the keyframe that load the decoder: “mastering display” and “content light level” SEI in HEVC, HDR_MDCV and HDR_CLL metadata OBUs in AV1 (converted to the SEI units), the SPS profile. HDR if it carries that metadata, or if it is HEVC Main 10 while the session asked for HDR (default values: BT.2020, D65, 1000 cd/m²); an 8-bit stream without metadata, never.
+- **When**: once per load, after the first frame NDL accepts; never on every frame (the panel would briefly lose its refresh rate).
+- **Back to SDR**: nothing undoes the call; HDR is part of what is loaded. A picture that goes back to SDR, or the end of the session, reloads or unloads NDL, and the panel returns to SDR.
+- **Interface**, as on the other apps: the “HDR” chip next to the profile on the home screen (focus: its help, or the reason when it is inactive), also on the “Borrow” screen of a borrowed computer; “in HDR” at the end of the display line; “HDR” in Settings › Picture; the “HDR” tile, a checkbox, in the session menu next to the profiles; “HDR” after the format in the statistics and the last session. On by default, kept for each computer (`HostSettings::hdr`), without turning the profile into “Custom”. The TV never decodes 4:4:4: there is no “Sharp text (4:4:4)” row to disable.
+- **Wiring to the core** (`src/device/session.rs`, “HDR: wiring to the core”): `HdrAsk` (the choice, the screen, the decoder) goes to the stream settings, the capabilities and the session parameters; the HDR the Station announces (`station_hdr`), the session switch (`set_hdr`). The chip's reason follows the order of the core's `profile::hdr_state` (`App::hdr_ui`, a mirror for the interface alone).
 
 ## Sound
 
@@ -109,11 +122,12 @@ apps/webos/
 │   ├── preview.rs       screenshots of the screens with demo data
 │   ├── app.rs           interface state, spatial navigation, actions (no SDL nor core)
 │   ├── model.rs         computers, settings, the TV's identity (kybernow.json in Store::dir)
+│   ├── hdr.rs           HDR: the TV's screen (its settings), HDR10 metadata read in the stream
 │   ├── i18n.rs          French and English
 │   ├── ui/              drawing (tiny-skia, fontdue): home, adding, settings (Statistics,
 │   │                    Station and its QR code), controllers, session; join.rs (join a
 │   │                    share), share.rs (host panel), quality.rs (a guest's picture quality)
-│   ├── device/          the TV: SDL (window, events), NDL (picture), sound, Dolby chain
+│   ├── device/          the TV: SDL (window, events), NDL (picture, HDR), webOS services (luna), sound, Dolby chain
 │   │                    (esplayer, eac3), player hook (starfish), session (the core's Platform),
 │   │                    controllers, background jobs (Admin, Station, wake, mDNS, code, updates), log
 │   └── *.c              glibc shims, E-AC-3 encoder (libavcodec), hook on LG's player
@@ -162,4 +176,4 @@ apps/webos/scripts/preview.sh                # → apps/target/webos-preview/*.p
 
 ## Log
 
-`/media/developer/temp/kybernow/kybernow.log` on the TV (the previous one as `.1`), next to `kybernow.json` (computers and settings). In developer mode, `HOME` is `/media/developer`, closed to the app's user, and its `/tmp` is emptied on reboot and invisible over ssh: `temp` is open to all, survives reboots and reinstalls, and can be read over ssh. The app takes the first folder it can write to among `$HOME/conf`, this one and `/tmp/kybernow` (`Store::dir`), and standard error: `image :` (NDL), `son :`, `manettes :`, `session :`, `lecteur :` (hook on LG's player) lines, with the core's messages (logs stay in French). See [INSTALLATION.en.md](INSTALLATION.en.md) to read it.
+`/media/developer/temp/kybernow/kybernow.log` on the TV (the previous one as `.1`), next to `kybernow.json` (computers and settings). In developer mode, `HOME` is `/media/developer`, closed to the app's user, and its `/tmp` is emptied on reboot and invisible over ssh: `temp` is open to all, survives reboots and reinstalls, and can be read over ssh. The app takes the first folder it can write to among `$HOME/conf`, this one and `/tmp/kybernow` (`Store::dir`), and standard error: `image :` (NDL, HDR or SDR stream, `NDL_DirectVideoSetHDRInfo` and its values), `téléviseur :` (HDR or SDR screen, webOS's answer), `son :`, `manettes :`, `session :`, `lecteur :` (hook on LG's player) lines, with the core's messages (logs stay in French). See [INSTALLATION.en.md](INSTALLATION.en.md) to read it.

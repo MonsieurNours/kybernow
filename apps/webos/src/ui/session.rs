@@ -186,7 +186,8 @@ fn stats_pill(cv: &mut Canvas, s: &SessionUi, y: f32) {
     // « Chemin » : Direct, Par le relais, Par le relais (TCP) ; par le relais, l'aller-retour mesuré s'y ajoute.
     let ms = s.route.and_then(|r| r.total_ms()).filter(|_| s.via_relay()).map(|v| format!(" · {} ms", decimal(v, 0))).unwrap_or_default();
     let path = format!("{}{} {}{ms}", tr("Chemin", "Path"), if english() { ":" } else { " :" }, s.path().label());
-    let parts = [lat, format!("{} {}", st.fps.round(), tr("i/s", "fps")), format!("{} Mbit/s", st.mbps.round()), format!("{} · {}", st.mode, st.codec), lost, path];
+    let format = if st.hdr { format!("{} · {} · HDR", st.mode, st.codec) } else { format!("{} · {}", st.mode, st.codec) };
+    let parts = [lat, format!("{} {}", st.fps.round(), tr("i/s", "fps")), format!("{} Mbit/s", st.mbps.round()), format, lost, path];
     let style = Text::new(Font::Mono, 19.0, FROST);
     let gap = 36.0;
     let widths: Vec<f32> = parts.iter().map(|p| cv.text_width(style, p)).collect();
@@ -245,6 +246,10 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
             tiles.push((MenuItem::Profile(p), Icon::Monitor, format!("{} {}", tr("Profil", "Profile"), super::home::profile_label(p)), Some(sub.into()), false, false));
         }
     }
+    // « HDR », cochable, près du profil (écran HDR ; hôte et emprunt) : la changer relance l'image.
+    if let Some(u) = s.hdr {
+        tiles.push((MenuItem::Hdr, Icon::Image, "HDR".into(), None, false, u.lit()));
+    }
     if kbm {
         tiles.push((MenuItem::RemoteMouse, Icon::Pointer, "Magic Remote".into(), Some(tr("en souris · OK = clic", "as mouse · OK = click").into()), false, s.remote_mouse));
         tiles.push((MenuItem::PadMouse, Icon::Gamepad, tr("Manette en souris", "Controller as mouse").into(), Some(tr("stick gauche", "left stick").into()), false, s.pad_mouse));
@@ -294,7 +299,8 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     for (i, (item, icon, title, sub, danger, on)) in tiles.iter().enumerate() {
         let (c, r) = (i % cols, i / cols);
         let rect = Rect::new(x0 + c as f32 * (tw + gap), y0 + r as f32 * (th + gap), tw, th);
-        let dim = (*item == MenuItem::Share && share_blocked) || (*item == MenuItem::Lend && lend_blocked);
+        let hdr_blocked = s.hdr.is_some_and(|u| !u.available());
+        let dim = (*item == MenuItem::Share && share_blocked) || (*item == MenuItem::Lend && lend_blocked) || (*item == MenuItem::Hdr && hdr_blocked);
         widgets::tile(cv, f, Target::Menu(*item), rect, *icon, title, sub.as_deref(), *danger, *on, dim);
     }
 

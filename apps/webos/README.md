@@ -58,7 +58,7 @@ KyberNow Link sur les téléviseurs LG : une app **native** (un binaire ARM, pas
 - **Débit** : le débit du profil (proportionné aux pixels par seconde, comme les autres apps), plafonné à 80 Mbit/s en Ethernet (la prise des LG s'arrête à 100 Mbit/s, environ 93 utiles) et à 95 en Wi-Fi (limite du décodeur sur les puces de 2022 et après). Le lien est lu dans `/sys/class/net`.
 - **Mode jeu de la télé** : aucune API ne permet à une app de passer la télé en Optimiseur de jeu ; le menu le rappelle (bouton Réglages de la Magic Remote › Image › Mode › Optimiseur de jeu), et le rappel se coupe.
 - **VRR** : LG le réserve aux entrées HDMI, pour toute app interne, native ou web. L'ordinateur envoie ses images au rythme de la dalle.
-- **HDR** : pas de HDR. Le décodeur sait l'afficher (`NDL_DirectVideoSetHDRInfo`, HEVC Main10), mais Kyber 0.29 capture en 8 bits, comme sur les autres apps ; l'app n'appelle pas cette fonction.
+- **HDR** : HDR10 en HEVC Main 10 ou en AV1 10 bits, sur un téléviseur dont l'écran est HDR (voir HDR ci-dessous).
 
 ## Décodage (NDL DirectMedia)
 
@@ -73,6 +73,19 @@ KyberNow Link sur les téléviseurs LG : une app **native** (un binaire ARM, pas
 - Le jeu de paramètres (SPS/PPS, VPS, en-tête AV1) est placé devant l'image clé qui (re)démarre le décodeur, et redonné devant l'image clé qui suit un nouveau jeu ; un autre format ou une autre taille rechargent NDL.
 - Aucune fonction de NDL n'est sûre entre fils : un seul verrou.
 - NDL ne dit pas quand une image est montrée : l'instant d'affichage (latence) est estimé d'après les images en attente (`NDL_DirectVideoGetRenderBufferLength`) et la fréquence de la dalle.
+
+## HDR
+
+Contrat commun : [docs/hdr.md](../../docs/hdr.md) ; textes : [docs/link-ui.md](../../docs/link-ui.md), section « HDR ». État (02/11/2026) : écrit et compilé pour le téléviseur, vérifié par ses captures et ses tests ; raccordé au cœur à la fusion de sa branche ; **pas encore essayé sur la G2** (passage en mode HDR, couleurs, retour en SDR).
+
+- **Écran HDR** : d'après les réglages du téléviseur, par le service de configuration de webOS (`luna://com.webos.service.config/getConfigs`, celui que la SDL lit pour la fréquence de la dalle) : `tv.model.supportHDR`, ou `tv.config.supportDolbyHDRContents` (un téléviseur Dolby Vision prend aussi le HDR10). Illisible : pas de HDR. L'appel passe par `HLunaServiceCall` de `libhelpers.so.2`, la bibliothèque du téléviseur que la SDL ouvre déjà (`src/device/luna.rs`). Sur un écran SDR, aucune trace du HDR dans l'app.
+- **Décodeur** : NDL lit le HEVC Main 10 et l'AV1 10 bits ; `NDL_DirectVideoSetHDRInfo` présente dans la bibliothèque du téléviseur (`ndl::hdr_capable`), sinon « Cet appareil ne décode pas le HDR. ».
+- **Passage en mode HDR** : `NDL_DirectVideoSetHDRInfo` reçoit les métadonnées HDR10 statiques, une structure de 15 mots passée par valeur : primaires (vert, bleu, rouge) et point blanc en 0,00002, luminances de l'écran de matriçage en 0,0001 cd/m², MaxCLL et MaxFALL en cd/m², puis les codes VUI 16 (SMPTE ST 2084), 9 (BT.2020) et 9 (BT.2020 non constant). L'en-tête de la chaîne de compilation n'en déclare que 12 entiers, en paramètres séparés : sur ARM, les 12 premiers mots passent par les mêmes registres et la même pile. 32 mots de réserve suivent, pour une ancienne révision de la bibliothèque qui en lit derrière la structure.
+- **Seulement pour un flux HDR** : la fonction passe la dalle en mode HDR à chaque appel, quelle que soit l'image ; une image SDR y serait délavée. Le flux est lu (`src/hdr.rs`) dans le jeu de paramètres et l'image clé qui chargent le décodeur : SEI « mastering display » et « content light level » en HEVC, OBU de métadonnées HDR_MDCV et HDR_CLL en AV1 (ramenées aux unités de la SEI), profil du SPS. HDR s'il porte ces métadonnées, ou s'il est en HEVC Main 10 quand la session a demandé le HDR (valeurs par défaut : BT.2020, D65, 1000 cd/m²) ; un flux 8 bits sans métadonnées, jamais.
+- **Quand** : une fois par chargement, après la première image acceptée par NDL ; jamais à chaque image (la dalle y perdrait sa fréquence un moment).
+- **Retour au SDR** : rien ne défait l'appel ; le HDR fait partie de ce qui est chargé. Une image qui repasse en SDR, ou la fin de la session, recharge ou décharge NDL, et la dalle revient en SDR.
+- **Interface**, comme les autres apps : la puce « HDR » à côté du profil sur l'accueil (focus : son aide, ou la raison quand elle est inactive), aussi sur l'écran « Emprunter » d'un ordinateur emprunté ; « en HDR » au bout de la ligne « Écran » ; « HDR » dans Réglages › Image ; la tuile « HDR » cochable dans le menu de session, près des profils ; « HDR » après le format dans les statistiques et la dernière session. Allumé par défaut, gardé pour chaque ordinateur (`HostSettings::hdr`), sans faire passer le profil en « Personnalisé ». Le téléviseur ne décode jamais le 4:4:4 : pas de ligne « Texte net (4:4:4) » à désactiver.
+- **Raccordement au cœur** (`src/device/session.rs`, « HDR : raccordement au cœur ») : `HdrAsk` (le choix, l'écran, le décodeur) va aux réglages du flux, aux capacités et aux paramètres de la session ; le HDR annoncé par la Station (`station_hdr`), l'interrupteur de la session (`set_hdr`). La raison de la puce suit l'ordre de `profile::hdr_state` du cœur (`App::hdr_ui`, miroir pour l'interface seule).
 
 ## Son
 
@@ -110,10 +123,11 @@ apps/webos/
 │   ├── app.rs           état de l'interface, navigation spatiale, actions (sans SDL ni cœur)
 │   ├── model.rs         ordinateurs, réglages, identité du téléviseur (kybernow.json dans Store::dir)
 │   ├── i18n.rs          français et anglais
+│   ├── hdr.rs           HDR : écran du téléviseur (ses réglages), métadonnées HDR10 lues dans le flux
 │   ├── ui/              dessin (tiny-skia, fontdue) : accueil, ajout, réglages (Statistiques,
 │   │                    Station et son QR code), manettes, session ; join.rs (rejoindre un
 │   │                    partage), share.rs (panneau de l'hôte), quality.rs (qualité de l'image d'un invité)
-│   ├── device/          le téléviseur : SDL (fenêtre, événements), NDL (image), son, chaîne Dolby
+│   ├── device/          le téléviseur : SDL (fenêtre, événements), NDL (image, HDR), services de webOS (luna), son, chaîne Dolby
 │   │                    (esplayer, eac3), crochet du lecteur (starfish), session (Platform du cœur),
 │   │                    manettes, tâches de fond (Admin, Station, réveil, mDNS, code, mises à jour), journal
 │   └── *.c              cales de glibc, encodeur E-AC-3 (libavcodec), crochet du lecteur de LG
@@ -162,4 +176,4 @@ apps/webos/scripts/preview.sh                # → apps/target/webos-preview/*.p
 
 ## Journal
 
-`/media/developer/temp/kybernow/kybernow.log` sur le téléviseur (le précédent en `.1`), à côté de `kybernow.json` (ordinateurs et réglages). En mode développeur, `HOME` vaut `/media/developer`, fermé à l'utilisateur de l'app, et son `/tmp` est vidé au redémarrage et invisible en ssh : `temp` est ouvert à tous, survit au redémarrage et à la réinstallation, et se lit en ssh. L'app prend le premier dossier où elle peut écrire parmi `$HOME/conf`, celui-ci et `/tmp/kybernow` (`Store::dir`), et la sortie d'erreur : lignes `image :` (NDL), `son :`, `manettes :`, `session :`, `lecteur :` (crochet du lecteur de LG), avec les messages du cœur. Voir [INSTALLATION.md](INSTALLATION.md) pour le lire.
+`/media/developer/temp/kybernow/kybernow.log` sur le téléviseur (le précédent en `.1`), à côté de `kybernow.json` (ordinateurs et réglages). En mode développeur, `HOME` vaut `/media/developer`, fermé à l'utilisateur de l'app, et son `/tmp` est vidé au redémarrage et invisible en ssh : `temp` est ouvert à tous, survit au redémarrage et à la réinstallation, et se lit en ssh. L'app prend le premier dossier où elle peut écrire parmi `$HOME/conf`, celui-ci et `/tmp/kybernow` (`Store::dir`), et la sortie d'erreur : lignes `image :` (NDL, flux HDR ou SDR, `NDL_DirectVideoSetHDRInfo` et ses valeurs), `téléviseur :` (écran HDR ou SDR, réponse de webOS), `son :`, `manettes :`, `session :`, `lecteur :` (crochet du lecteur de LG), avec les messages du cœur. Voir [INSTALLATION.md](INSTALLATION.md) pour le lire.

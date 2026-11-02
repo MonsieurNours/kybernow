@@ -74,6 +74,10 @@ pub struct HostSettings {
     pub reliable: bool,
     /// Rappeler, dans le menu de session, de passer la télé en Optimiseur de jeu.
     pub game_mode_hint: bool,
+    /// Le HDR pour cet ordinateur (puce de l'accueil, Réglages › Image, menu de session) : allumé la première fois
+    /// (absent d'un fichier d'avant le HDR : allumé aussi). Il ne compte pas dans le profil. Sans effet sur un
+    /// écran SDR.
+    pub hdr: bool,
 }
 
 impl Default for HostSettings {
@@ -93,6 +97,7 @@ impl Default for HostSettings {
             transport: String::new(),
             reliable: false,
             game_mode_hint: true,
+            hdr: true,
         }
     }
 }
@@ -155,6 +160,9 @@ pub struct LastSession {
     /// vide : direct, ou une session d'avant le relais.
     #[serde(default)]
     pub route: String,
+    /// L'image était en HDR : « HDR » après le format.
+    #[serde(default)]
+    pub hdr: bool,
 }
 
 /// Un ordinateur équipé de KyberNow Station.
@@ -286,6 +294,13 @@ pub struct Borrowed {
     pub login: String,
     pub password: String,
     pub remember: bool,
+    /// Le HDR pour cet ordinateur emprunté (sa puce, « Emprunter ») : allumé d'office.
+    #[serde(default = "yes")]
+    pub hdr: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 impl Borrowed {
@@ -403,7 +418,8 @@ impl Store {
     pub fn put_borrowed(&mut self, b: Borrowed) -> String {
         if let Some(old) = self.borrowed.iter_mut().find(|o| o.address == b.address && o.port == b.port && o.login == b.login) {
             let id = old.id.clone();
-            *old = Borrowed { id: id.clone(), ..b };
+            // Le choix « HDR » de cet ordinateur reste.
+            *old = Borrowed { id: id.clone(), hdr: old.hdr, ..b };
             return id;
         }
         let id = b.id.clone();

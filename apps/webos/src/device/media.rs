@@ -5,6 +5,9 @@
 //!   jamais). Le jeu de paramètres (SPS/PPS, VPS, en-tête AV1) est placé devant
 //!   chaque image clé qui (re)démarre le décodeur ; après une perte, rien
 //!   avant l'image clé suivante, redemandée par le cœur.
+//! - HDR : lu dans le jeu de paramètres et l'image clé qui chargent le
+//!   décodeur (`crate::hdr`) ; un flux HDR charge NDL avec ses métadonnées
+//!   HDR10, et le téléviseur passe en mode HDR ; un flux SDR, jamais.
 //! - Son : Opus décodé par le moteur du cœur (tampon adaptatif, masquage,
 //!   mixage en stéréo), tiré par le rappel de SDL (PulseAudio du téléviseur) ;
 //!   en 5.1, décodé par l'app et donné en PCM 6 voies au plan de son de NDL,
@@ -138,6 +141,26 @@ impl Feeder {
         ndl::unload();
     }
 
+    /// Le HDR de ce flux, lu dans son jeu de paramètres et cette image clé
+    /// (`None` : SDR) ; la session dit si elle l'a demandé (`Shared::hdr_expected`).
+    fn hdr(&self, key: &[u8]) -> Option<crate::hdr::HdrMeta> {
+        if self.kind == ndl::VIDEO_H264 {
+            return None;
+        }
+        let scan = |b: &[u8]| if self.kind == ndl::VIDEO_AV1 { crate::hdr::scan_av1(b) } else { crate::hdr::scan_hevc(b) };
+        let mut seen = scan(&self.config);
+        seen.merge(scan(key));
+        let expected = self.shared.hdr_expected();
+        let hdr = crate::hdr::decide(&seen, self.kind == ndl::VIDEO_H265, expected);
+        log::info!(
+            "image : flux {} (Main 10 : {}, métadonnées : {}, demandé : {expected})",
+            if hdr.is_some() { "HDR" } else { "SDR" },
+            seen.main10,
+            seen.has_metadata()
+        );
+        hdr
+    }
+
     fn request_keyframe(&mut self) {
         if self.last_request.is_some_and(|t| t.elapsed() < Duration::from_millis(300)) {
             return;
@@ -169,7 +192,8 @@ impl Feeder {
                 return;
             }
             let (w, h) = self.shared.video_size();
-            if let Err(e) = ndl::ensure(self.kind, w, h) {
+            let hdr = self.hdr(data);
+            if let Err(e) = ndl::ensure(self.kind, w, h, hdr) {
                 if !self.failed {
                     log::error!("image : {e}");
                     self.failed = true;
