@@ -130,6 +130,7 @@ pub fn screens(monitors: &[Monitor], spec: Spec) -> Screens {
                 pixel_height: m.height.max(0) as u32,
                 refresh: if spec.lighten { m.refresh.min(30) } else { m.refresh },
                 primary: m.primary,
+                hdr: false,
             })
             .collect(),
         current: current(monitors),
@@ -262,7 +263,7 @@ mod tests {
             max_screens: 4,
             lighten: false,
             virtual_display_available: true,
-            capabilities: Some(Capabilities { hevc: true, hevc444: true, av1: false }),
+            capabilities: Some(Capabilities { hevc: true, hevc444: true, av1: false, hdr: false }),
         }
     }
 

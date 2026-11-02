@@ -1,0 +1,85 @@
+diff --git a/kyctl-common/src/kymux.rs b/kyctl-common/src/kymux.rs
+--- a/kyctl-common/src/kymux.rs
++++ b/kyctl-common/src/kymux.rs
+@@ -85,6 +85,10 @@
+     pub display_id: u32,
+     pub codec: VideoCodec,
+     pub yuv444: bool,
++    /// KyberNow: HDR10 asked for this display (HEVC Main 10 or AV1 10-bit,
++    /// 4:2:0). Missing from an older client: SDR.
++    #[serde(default)]
++    pub hdr: bool,
+     #[serde(skip_serializing_if = "Option::is_none")]
+     pub intra_refresh: Option<bool>,
+ }
+diff --git a/kyclient/src/lib.rs b/kyclient/src/lib.rs
+--- a/kyclient/src/lib.rs
++++ b/kyclient/src/lib.rs
+@@ -865,6 +865,8 @@
+     pub display_id: u32,
+     pub codec: VideoCodec,
+     pub yuv444: bool,
++    /// KyberNow: HDR10 for this display (PQ, BT.2020, 10-bit 4:2:0).
++    pub hdr: bool,
+     pub intra_refresh: Option<bool>,
+     pub player: VideoPlayerConfig,
+ }
+@@ -933,6 +935,7 @@
+                 info!("\t\tdisplay_id: {}", config.display_id);
+                 info!("\t\tcodec: {:?}", config.codec);
+                 info!("\t\tyuv444: {}", config.yuv444);
++                info!("\t\thdr: {}", config.hdr);
+                 info!("\t\tintra_refresh: {:?}", config.intra_refresh);
+                 info!("\t\tvideo_buffer: {:}", config.player.video_buffer);
+             }
+diff --git a/kyclient/src/capi.rs b/kyclient/src/capi.rs
+--- a/kyclient/src/capi.rs
++++ b/kyclient/src/capi.rs
+@@ -832,6 +832,7 @@
+             display_id,
+             codec: VideoCodec::H264,
+             yuv444: false,
++            hdr: false,
+             intra_refresh: None,
+             player: (*player).config.clone(),
+         };
+@@ -899,7 +900,13 @@
+     config.config.yuv444 = yuv444;
+ }
+ 
++/// KyberNow: ask for HDR10 on this display (HEVC or AV1 codec, no 4:4:4).
+ #[unsafe(no_mangle)]
++pub extern "C" fn kyclient_video_session_config_set_hdr(config: &mut VideoSessionConfig, hdr: bool) {
++    config.config.hdr = hdr;
++}
++
++#[unsafe(no_mangle)]
+ pub extern "C" fn kyclient_video_session_config_set_codec(
+     config: &mut VideoSessionConfig,
+     codec: VideoCodec,
+diff --git a/kyclient/src/kymux_backend/host_service.rs b/kyclient/src/kymux_backend/host_service.rs
+--- a/kyclient/src/kymux_backend/host_service.rs
++++ b/kyclient/src/kymux_backend/host_service.rs
+@@ -73,6 +73,7 @@
+                     display_id: config.display_id,
+                     codec: config.codec.into(),
+                     yuv444: config.yuv444,
++                    hdr: config.hdr,
+                     intra_refresh: config.intra_refresh,
+                 })
+                 .collect(),
+diff --git a/kyclient-rs/src/lib.rs b/kyclient-rs/src/lib.rs
+--- a/kyclient-rs/src/lib.rs
++++ b/kyclient-rs/src/lib.rs
+@@ -684,6 +684,11 @@
+         unsafe { sys::kyclient_video_session_config_set_yuv444(self.ptr, yuv444) }
+     }
+ 
++    /// KyberNow: HDR10 for this display (HEVC or AV1, 4:2:0).
++    pub fn set_hdr(&self, hdr: bool) {
++        unsafe { sys::kyclient_video_session_config_set_hdr(self.ptr, hdr) }
++    }
++
+     pub fn set_intra_refresh(&self, intra_refresh: bool) {
+         unsafe { sys::kyclient_video_session_config_set_intra_refresh(self.ptr, intra_refresh) }
+     }

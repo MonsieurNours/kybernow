@@ -49,7 +49,7 @@ use crate::console::{
 use crate::i18n::{self, Lang};
 use crate::latency::{LatencyTracker, Second};
 use crate::media::{Packet, PacketHandler, packet_sink};
-use crate::profile::{Capabilities, SettingsJson, StreamSettings};
+use crate::profile::{Capabilities, Codec, SettingsJson, StreamSettings};
 use crate::screens::{self, PlannedScreen, Screens};
 use crate::share::{self, Found, ShareBeat, ShareDisplay, ShareEnd, ShareError, ShareImage, ShareJoined, ShareQuality, ShareRole, ShareState};
 #[cfg(test)]
@@ -152,6 +152,15 @@ pub struct SessionParams {
     /// Par où joindre l'ordinateur (docs/relais.md) : sur son réseau (par
     /// défaut), par le relais, ou d'abord en direct puis par le relais.
     pub route: Route,
+    /// HDR (docs/hdr.md) : l'écran de l'appareil d'une session à un écran est
+    /// HDR (à plusieurs écrans : [`crate::screens::DeviceScreen::hdr`]). Un
+    /// invité reçoit le HDR seulement si son écran l'est ; en session, un
+    /// changement passe par [`Session::screen_hdr_changed`].
+    pub screen_hdr: bool,
+    /// Ce que l'appareil décode (le HDR demande `hdr`) ; absent : celles de
+    /// `screens` (multi-écrans) ou de l'invité, sinon l'app répond du
+    /// décodeur (elle ne demande le HDR que s'il le lit).
+    pub capabilities: Option<Capabilities>,
 }
 
 /// Par où une session joint l'ordinateur (docs/relais.md). Par le relais,
@@ -201,6 +210,8 @@ impl SessionParams {
             role: SessionRole::Guest(Box::new(GuestParams { joined: found.joined.clone(), capabilities })),
             // Venu par le relais : il y reste (la route voyage avec `joined`).
             route: found.joined.route.clone().map_or(Route::Direct, Route::Relay),
+            screen_hdr: false,
+            capabilities: None,
         }
     }
 
@@ -231,6 +242,8 @@ impl SessionParams {
             recovery: Recovery::default(),
             role: SessionRole::Borrower(Box::new(BorrowerParams { borrowed: loan.borrowed.clone() })),
             route: loan.borrowed.route.clone().map_or(Route::Direct, Route::Relay),
+            screen_hdr: false,
+            capabilities: None,
         }
     }
 
@@ -243,7 +256,8 @@ impl SessionParams {
     /// `password`, `console_fingerprint`, `device`, `mode`, `audio_channels`,
     /// `virtual_display`, `settings`, `auto_reconnect`, `gamepad_xbox360`,
     /// `clipboard`, `recovery`, et `screens` (multi-écrans, rendu à part pour
-    /// [`Session::start_with_screens`]) ; pour un invité, `guest` :
+    /// [`Session::start_with_screens`]), `screen_hdr` et `capabilities`
+    /// (HDR, docs/hdr.md) ; pour un invité, `guest` :
     /// `{"joined": <réponse de share_join>, "capabilities": {hevc, hevc444,
     /// av1}}` (`user`, `password` et `mode` sont alors facultatifs) ; pour
     /// l'ami qui emprunte l'ordinateur, `borrower` : `{"borrowed": <réponse
@@ -297,6 +311,8 @@ impl SessionParams {
             },
             role,
             route,
+            screen_hdr: wire.screen_hdr,
+            capabilities: wire.capabilities,
         };
         Ok((params, wire.screens))
     }
@@ -356,6 +372,12 @@ struct ParamsJson {
     route: Option<String>,
     #[serde(default)]
     relay: Option<crate::relay::RelayRoute>,
+    /// HDR : l'écran de l'appareil (session à un écran, invité) est HDR.
+    #[serde(default)]
+    screen_hdr: bool,
+    /// Ce que l'appareil décode (`{hevc, hevc444, av1, hdr}`).
+    #[serde(default)]
+    capabilities: Option<Capabilities>,
 }
 
 fn yes() -> bool {
@@ -406,6 +428,10 @@ pub enum Notice {
     AdaptFailed { error: String },
     /// « Remettre W × H » à proposer dans la barre (`None` : plus rien à proposer).
     RestoreOffer { mode: Option<Mode> },
+    /// « L'ordinateur n'a pas pu passer en HDR : image en SDR. »
+    /// ([`crate::profile::hdr_refused_text`]) : Windows a refusé le HDR d'un
+    /// écran virtuel ; une fois par session.
+    HdrRefused,
 }
 
 /// Multi-écrans : un écran de l'ordinateur pris par la session, et l'écran
@@ -453,6 +479,12 @@ pub trait Platform: Send + Sync {
     /// Un jeu est en plein écran sur l'ordinateur (souris Auto).
     fn on_game_fullscreen(&self, _game: bool) {}
     fn on_notice(&self, _notice: &Notice) {}
+    /// HDR (docs/hdr.md) : à chaque démarrage de l'image (après `on_display`
+    /// et `on_screens`, avant `input_pipeline`), quels écrans sont en HDR,
+    /// dans l'ordre des écrans du flux (`on_screens`, le principal en
+    /// premier ; un seul élément pour une session à un écran) : le rendu de
+    /// ces écrans passe en PQ / BT.2020 (10 bits), les autres en SDR.
+    fn on_hdr(&self, _hdr: &[bool]) {}
     /// Juste avant [`Status::Ending`] : la raison de la fin quand elle
     /// n'était pas voulue (la même que celle de [`Status::Ended`], qui suit
     /// après la fin dite à Admin), `None` sinon. Une app y voit tout de suite
@@ -650,6 +682,14 @@ enum Msg {
     /// écrans de l'appareil et leur plan quand ce sont eux qui ont changé).
     Adapted(Mode, Option<(Screens, Vec<PlannedScreen>)>, Result<Prepared, String>),
     ModeRestored,
+    /// Le choix « HDR » changé en session (barre, menu).
+    SetHdr(bool),
+    /// Un écran de l'appareil (index dans [`Screens::list`], 0 pour une
+    /// session à un écran) gagne ou perd le HDR.
+    ScreenHdr(usize, bool),
+    /// Réponse de `POST /api/stream/hdr` : numéro de la demande, écrans de
+    /// l'appareil dans l'ordre de la demande, HDR voulu, HDR obtenu.
+    HdrApplied(u64, Vec<usize>, Vec<bool>, Result<Vec<bool>, String>),
 }
 
 /// Les événements d'un client Kyber, tant que sa tentative de connexion vit
@@ -1162,6 +1202,7 @@ pub struct Session {
     hidden: Arc<AtomicBool>,
     thread: Mutex<Option<JoinHandle<()>>>,
     focus: Arc<FocusState>,
+    hdr_used: Arc<AtomicBool>,
 }
 
 impl Session {
@@ -1191,6 +1232,7 @@ impl Session {
         let hidden = Arc::new(AtomicBool::new(false));
         let focus = FocusState::new();
         let worker = Worker::new(params, screens, platform, tx.clone(), rx, latency.clone(), has_image.clone(), hidden.clone(), focus.clone());
+        let hdr_used = worker.hdr_used.clone();
         let guard_platform = worker.platform.clone();
         let label = focus.label().clone();
         let thread = std::thread::Builder::new()
@@ -1215,6 +1257,7 @@ impl Session {
             hidden,
             thread: Mutex::new(Some(thread)),
             focus,
+            hdr_used,
         })
     }
 
@@ -1330,6 +1373,32 @@ impl Session {
     /// ou flux relancé si le format, le 4:4:4 ou le transport changent.
     pub fn set_settings(&self, settings: StreamSettings) {
         self.send(Msg::Settings(settings));
+    }
+
+    /// Le choix « HDR » changé en session (barre, menu de l'icône ;
+    /// docs/hdr.md) : la Station passe les écrans virtuels en HDR ou en SDR
+    /// (`POST /api/stream/hdr`), puis l'image des écrans touchés est relancée
+    /// (étape « Premières images ») ; rien ne change si aucun écran de
+    /// l'appareil n'est HDR, ou si le HDR n'est pas possible. Sans effet pour
+    /// un invité (son HDR suit son écran) ; l'ami d'un prêt a la barre d'un
+    /// hôte. Un changement de profil ([`Self::set_settings`]) garde ce choix.
+    pub fn set_hdr(&self, hdr: bool) {
+        self.send(Msg::SetHdr(hdr));
+    }
+
+    /// L'écran de l'appareil `screen` (index dans [`Screens::list`] ; 0 pour
+    /// une session à un écran) gagne ou perd le HDR (fenêtre glissée sur un
+    /// écran SDR, téléviseur qui coupe le HDR) : l'image de cet écran repasse
+    /// en SDR, puis en HDR quand il le redevient, sans message ; le choix
+    /// « HDR » reste.
+    pub fn screen_hdr_changed(&self, screen: usize, hdr: bool) {
+        self.send(Msg::ScreenHdr(screen, hdr));
+    }
+
+    /// Un écran au moins a été en HDR pendant la session (« HDR » de la
+    /// dernière session, docs/link-ui.md, Statistiques).
+    pub fn hdr_used(&self) -> bool {
+        self.hdr_used.load(Ordering::Relaxed)
     }
 
     /// Plafond de débit le temps que la fenêtre est occultée ; `None` le retire.
@@ -1540,6 +1609,24 @@ struct Worker {
     lend_notice: Option<crate::lend::LendNotice>,
     lend_end: Option<(crate::lend::LendEnd, String)>,
     giving_back: bool,
+    /// HDR (docs/hdr.md) : ce que la Station annonce (`GET /api/stream/info`,
+    /// lu au début d'une session d'hôte quand un écran de l'appareil est HDR).
+    station_hdr: Option<crate::console::HdrInfo>,
+    /// HDR obtenu de la Station, par écran de l'appareil (index dans
+    /// [`Screens::list`], 0 pour une session à un écran).
+    hdr_obtained: Vec<bool>,
+    /// HDR de chaque écran du flux en cours (dans l'ordre de `streams`), et le
+    /// format qui l'accompagne.
+    stream_hdr: Vec<bool>,
+    stream_format: Option<(Codec, bool)>,
+    /// Avis « L'ordinateur n'a pas pu passer en HDR » déjà donné.
+    hdr_noticed: bool,
+    /// Demandes `POST /api/stream/hdr` : la dernière seule compte.
+    hdr_asked: u64,
+    /// Un changement de HDR attend la fin d'une préparation en cours.
+    hdr_pending: bool,
+    /// Un écran au moins a été en HDR pendant la session.
+    hdr_used: Arc<AtomicBool>,
 }
 
 /// Raison d'une fin de session, dans la langue de l'app (montrée à l'utilisateur).
@@ -1676,6 +1763,14 @@ impl Worker {
             lend_end: None,
             giving_back: false,
             guest,
+            station_hdr: None,
+            hdr_obtained: Vec::new(),
+            stream_hdr: Vec::new(),
+            stream_format: None,
+            hdr_noticed: false,
+            hdr_asked: 0,
+            hdr_pending: false,
+            hdr_used: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -1888,6 +1983,8 @@ impl Worker {
         );
         next.bitrate_cap = self.bitrate_cap;
         next.station_restarted = true;
+        next.hdr_used = self.hdr_used.clone();
+        next.hdr_noticed = self.hdr_noticed;
         *self = next;
     }
 
@@ -1921,7 +2018,12 @@ impl Worker {
             device: p.device.clone(),
             profile: Some(label),
             mode_policy: Some(mode_policy.map_or(policy, str::to_string)),
-            screens: (!plan.is_empty()).then(|| plan.iter().map(PlannedScreen::request).collect()),
+            screens: (!plan.is_empty()).then(|| {
+                plan.iter()
+                    .map(|p| crate::console::ScreenMode { hdr: self.wants_hdr(p.device), ..p.request() })
+                    .collect()
+            }),
+            hdr: self.wants_hdr(plan.first().map_or_else(|| self.primary_screen(), |p| p.device)),
         }
     }
 
@@ -1942,6 +2044,9 @@ impl Worker {
     }
 
     fn apply_prepared(&mut self, prepared: Prepared) {
+        // HDR : les écrans dans l'ordre de la demande (avant qu'une Station à
+        // un écran ne ramène la session à « Cet écran »).
+        let hdr_order = self.session_screens();
         if let Some(m) = prepared.applied {
             self.stream_mode = m;
         } else {
@@ -1967,7 +2072,222 @@ impl Worker {
                 Some(list) => info!("écrans en place : {} sur {} ({:?})", self.targets.len(), list.len(), self.targets),
             }
         }
+        if !self.visitor() {
+            self.apply_prepared_hdr(&hdr_order, &prepared);
+        }
         self.prepared = Some(prepared);
+    }
+
+    /// Le HDR obtenu de `prepare` pour chaque écran de la demande (`order`,
+    /// écrans de l'appareil). Un écran refusé passe l'image en SDR ; avec un
+    /// écran virtuel, l'avis « L'ordinateur n'a pas pu passer en HDR » (une
+    /// fois) ; sans écran virtuel, la Station répond le HDR de l'écran du PC.
+    fn apply_prepared_hdr(&mut self, order: &[usize], prepared: &Prepared) {
+        let wanted: Vec<bool> = order.iter().map(|&d| self.wants_hdr(d)).collect();
+        let got: Vec<bool> = wanted.iter().enumerate().map(|(i, w)| *w && prepared.hdr.get(i).copied().unwrap_or(false)).collect();
+        self.hdr_obtained.clear();
+        // Station à un écran ou sans écran virtuel : la session est revenue
+        // à un seul écran, celui du premier de la demande.
+        let now = self.session_screens();
+        let order: Vec<usize> = if now.len() < order.len() { now } else { order.to_vec() };
+        for (i, &d) in order.iter().enumerate() {
+            self.set_obtained(d, got.get(i).copied().unwrap_or(false));
+        }
+        if wanted.iter().any(|w| *w) {
+            info!("HDR : demandé {wanted:?}, obtenu {:?} (Station : {:?})", prepared.hdr, got);
+        }
+        if prepared.virtual_display && wanted.iter().zip(&got).any(|(w, g)| *w && !*g) {
+            self.hdr_refused();
+        }
+    }
+
+    /// Les écrans de l'appareil de la session, dans l'ordre de `prepare` :
+    /// ceux du plan (le principal en premier), sinon l'écran de la session à
+    /// un écran.
+    fn session_screens(&self) -> Vec<usize> {
+        if self.plan.is_empty() { vec![self.primary_screen()] } else { self.plan.iter().map(|p| p.device).collect() }
+    }
+
+    /// Ce que l'appareil décode : celles de la session, de `screens`, de
+    /// l'invité ; `None` : l'app répond du décodeur.
+    fn capabilities(&self) -> Option<Capabilities> {
+        self.params
+            .capabilities
+            .or_else(|| self.screens.as_ref().and_then(|s| s.capabilities))
+            .or_else(|| self.guest.as_ref().map(|g| g.capabilities))
+    }
+
+    /// L'écran de l'appareil `screen` est HDR.
+    fn device_hdr(&self, screen: usize) -> bool {
+        match &self.screens {
+            Some(s) => s.list.get(screen).is_some_and(|d| d.hdr),
+            None => self.params.screen_hdr,
+        }
+    }
+
+    /// Le choix « HDR » est allumé et possible ([`crate::profile::hdr_block`]) :
+    /// Station (lue au début d'une session d'hôte ; l'ami d'un prêt ne la lit
+    /// pas : Kyber repasse en SDR ce qu'il ne peut pas faire), format, décodeur.
+    fn hdr_allowed(&self) -> bool {
+        if !self.params.settings.hdr || self.guest.is_some() {
+            return false;
+        }
+        let lent = crate::console::HdrInfo { available: true, reason: None };
+        let station = if self.borrow.is_some() { Some(&lent) } else { self.station_hdr.as_ref() };
+        let caps = self.capabilities().unwrap_or(Capabilities { hdr: true, ..Capabilities::default() });
+        crate::profile::hdr_block(station, &self.params.settings, caps).is_none()
+    }
+
+    /// Le HDR est à demander pour l'écran de l'appareil `screen`.
+    fn wants_hdr(&self, screen: usize) -> bool {
+        self.hdr_allowed() && self.device_hdr(screen)
+    }
+
+    fn obtained(&self, screen: usize) -> bool {
+        self.hdr_obtained.get(screen).copied().unwrap_or(false)
+    }
+
+    fn set_obtained(&mut self, screen: usize, hdr: bool) {
+        if self.hdr_obtained.len() <= screen {
+            self.hdr_obtained.resize(screen + 1, false);
+        }
+        self.hdr_obtained[screen] = hdr;
+    }
+
+    /// Le format de l'image passe en HDR (4:2:0, HEVC ou AV1) : un écran au
+    /// moins en HDR (obtenu de la Station ; pour l'ami d'un prêt, demandé).
+    fn hdr_format_on(&self) -> bool {
+        if self.guest.is_some() {
+            return false;
+        }
+        let screens = self.session_screens();
+        if self.borrow.is_some() {
+            return screens.iter().any(|&d| self.wants_hdr(d));
+        }
+        screens.iter().any(|&d| self.obtained(d))
+    }
+
+    /// L'image de l'écran de l'appareil `screen` part en HDR : hôte, ce que
+    /// la Station a obtenu ; ami d'un prêt, ce qu'il demande ; invité, son
+    /// écran et son décodeur, sur l'image de l'hôte en HEVC ou AV1 4:2:0 (Kyber
+    /// lui fait sinon une image à part en SDR). Jamais en H.264 ni en 4:4:4.
+    fn stream_hdr_for(&self, screen: usize, s: &StreamSettings) -> bool {
+        if s.codec == Codec::H264 || s.yuv444 {
+            return false;
+        }
+        if self.guest.is_some() {
+            return self.params.screen_hdr && self.capabilities().is_some_and(|c| c.hdr);
+        }
+        if self.borrow.is_some() {
+            return self.wants_hdr(screen);
+        }
+        self.obtained(screen)
+    }
+
+    /// « L'ordinateur n'a pas pu passer en HDR : image en SDR. », une fois.
+    fn hdr_refused(&mut self) {
+        if !std::mem::replace(&mut self.hdr_noticed, true) {
+            self.notice(Notice::HdrRefused);
+        }
+    }
+
+    /// Lit ce que la Station annonce du HDR, au début d'une session d'hôte
+    /// dont un écran de l'appareil est HDR (sinon rien à demander).
+    fn read_station_hdr(&mut self, console: &Console) {
+        let any_hdr = match &self.screens {
+            Some(s) => s.list.iter().any(|d| d.hdr),
+            None => self.params.screen_hdr,
+        };
+        if !any_hdr {
+            return;
+        }
+        match console.info() {
+            Ok(i) => {
+                info!("HDR de la Station : {:?}", i.hdr);
+                self.station_hdr = i.hdr;
+            }
+            Err(e) => warn!("HDR : annonce de la Station illisible ({e}) : SDR"),
+        }
+    }
+
+    /// Le choix « HDR » ou le HDR d'un écran de l'appareil a changé : la
+    /// Station passe ses écrans virtuels au HDR voulu (`POST /api/stream/hdr`,
+    /// sur un fil d'appel), puis l'image est relancée si elle change. L'ami
+    /// d'un prêt ne demande rien à la Station.
+    fn hdr_changed(&mut self) {
+        if self.guest.is_some() || self.borrow.is_some() {
+            self.restart_if_hdr_changed();
+            return;
+        }
+        if self.adapting {
+            self.hdr_pending = true;
+            return;
+        }
+        let order = self.session_screens();
+        let wanted: Vec<bool> = order.iter().map(|&d| self.wants_hdr(d)).collect();
+        let current: Vec<bool> = order.iter().map(|&d| self.obtained(d)).collect();
+        let Some(console) = self.console.clone().filter(|_| self.prepared_ok && wanted != current) else {
+            // Rien à demander à la Station (même HDR, ou pas encore préparée) ;
+            // le format peut tout de même changer (choix éteint ou rallumé).
+            self.restart_if_hdr_changed();
+            return;
+        };
+        self.hdr_asked += 1;
+        let asked = self.hdr_asked;
+        info!("HDR : {wanted:?} demandé à la Station (écrans {order:?})");
+        let device = self.device_id.clone();
+        let tx = self.tx.clone();
+        std::thread::Builder::new()
+            .name("kybernow-hdr".into())
+            .spawn(move || {
+                let r = console.stream_hdr(&device, &wanted).map_err(|e| e.to_string());
+                let _ = tx.send(Msg::HdrApplied(asked, order, wanted, r));
+            })
+            .expect("fil du HDR");
+    }
+
+    /// Réponse de `POST /api/stream/hdr`. Refusée (Station d'avant le HDR,
+    /// appareil plus en session) : un écran qui ne veut plus le HDR passe en
+    /// SDR, les autres restent comme ils étaient.
+    fn hdr_applied(&mut self, asked: u64, order: Vec<usize>, wanted: Vec<bool>, result: Result<Vec<bool>, String>) {
+        if asked != self.hdr_asked {
+            return;
+        }
+        match result {
+            Ok(got) => {
+                info!("HDR : obtenu {got:?}");
+                let mut refused = false;
+                for (i, &d) in order.iter().enumerate() {
+                    let g = wanted[i] && got.get(i).copied().unwrap_or(false);
+                    refused |= wanted[i] && !g;
+                    self.set_obtained(d, g);
+                }
+                if refused && self.virtual_display() {
+                    self.hdr_refused();
+                }
+            }
+            Err(e) => {
+                warn!("HDR : la Station refuse le changement ({e})");
+                for (i, &d) in order.iter().enumerate() {
+                    let keep = self.obtained(d) && wanted[i];
+                    self.set_obtained(d, keep);
+                }
+            }
+        }
+        self.restart_if_hdr_changed();
+    }
+
+    /// L'image en cours est relancée si son HDR ou son format changent.
+    fn restart_if_hdr_changed(&mut self) {
+        if self.streaming.is_none() {
+            return;
+        }
+        let s = self.effective();
+        let flags: Vec<bool> = self.streams.iter().map(|st| self.stream_hdr_for(st.screen, &s)).collect();
+        if flags != self.stream_hdr || self.stream_format != Some((s.codec, s.yuv444)) {
+            info!("HDR : image relancée ({:?} → {flags:?})", self.stream_hdr);
+            self.restart_streaming(Duration::from_millis(300));
+        }
     }
 
     /// Session ouverte par [`Session::start_with_screens`].
@@ -2032,6 +2352,7 @@ impl Worker {
         };
         self.console = Some(console.clone());
         self.open_relay(&console)?;
+        self.read_station_hdr(&console);
         self.prepare()?;
         let prepared = self.prepared.clone().expect("prepare");
 
@@ -2136,6 +2457,7 @@ impl Worker {
             heartbeat_seconds: j.beat.max(1),
             kyber_fingerprint: Some(fingerprint.clone()),
             screens: None,
+            hdr: Vec::new(),
         });
         self.platform.on_share_role(self.share_role, None);
         if let Some(image) = j.image.clone() {
@@ -2205,6 +2527,7 @@ impl Worker {
             heartbeat_seconds: b.beat.max(1),
             kyber_fingerprint: Some(fingerprint.clone()),
             screens: None,
+            hdr: Vec::new(),
         });
 
         self.status(Status::Connecting);
@@ -2686,6 +3009,9 @@ impl Worker {
         if self.fallback >= 2 {
             s.yuv444 = false;
         }
+        if self.hdr_format_on() {
+            s = crate::profile::hdr_format(&s, self.capabilities().unwrap_or(Capabilities { hevc: true, ..Capabilities::default() }));
+        }
         s
     }
 
@@ -2757,8 +3083,10 @@ impl Worker {
                 }
                 Ok(Msg::Settings(_)) if !self.host_only(HostOnly::Settings) => {}
                 Ok(Msg::PickDisplay(_)) if !self.host_only(HostOnly::PickDisplay) => {}
-                Ok(Msg::Settings(s)) => {
+                Ok(Msg::Settings(mut s)) => {
                     let before = self.effective();
+                    // Le HDR est un choix à part (`set_hdr`) : un profil le garde.
+                    s.hdr = self.params.settings.hdr;
                     self.params.settings = s.clone();
                     // Profil choisi à la main : le repli de la session repart de zéro.
                     self.fallback = 0;
@@ -2796,6 +3124,28 @@ impl Worker {
                     }
                 }
                 Ok(Msg::SetMode(mode)) => self.adapt(mode),
+                Ok(Msg::SetHdr(hdr)) => {
+                    if self.guest.is_none() && self.params.settings.hdr != hdr {
+                        info!("HDR {}", if hdr { "allumé" } else { "éteint" });
+                        self.params.settings.hdr = hdr;
+                        self.hdr_changed();
+                    }
+                }
+                Ok(Msg::ScreenHdr(screen, hdr)) => {
+                    if self.device_hdr(screen) != hdr {
+                        info!("écran {screen} de l'appareil : {}", if hdr { "HDR" } else { "SDR" });
+                        match self.screens.as_mut() {
+                            Some(list) => {
+                                if let Some(d) = list.list.get_mut(screen) {
+                                    d.hdr = hdr;
+                                }
+                            }
+                            None => self.params.screen_hdr = hdr,
+                        }
+                        self.hdr_changed();
+                    }
+                }
+                Ok(Msg::HdrApplied(asked, order, wanted, result)) => self.hdr_applied(asked, order, wanted, result),
                 Ok(Msg::SetScreens(screens)) => self.change_screens(screens),
                 Ok(Msg::Adapted(mode, screens, result)) => self.adapted(mode, screens, result),
                 Ok(Msg::RestoreMode) => self.start_restore_mode(),
@@ -2877,7 +3227,8 @@ impl Worker {
             }
             if now >= next_second {
                 next_second += Duration::from_secs(1);
-                let second = self.latency.drain();
+                let mut second = self.latency.drain();
+                second.hdr = self.streaming.is_some() && self.stream_hdr.iter().any(|h| *h);
                 *self.last_latency.lock().unwrap() = second.latency_ms;
                 self.platform.on_latency(second.latency_ms);
                 self.platform.on_second(&second);
@@ -3238,7 +3589,9 @@ impl Worker {
             return;
         }
         let old = self.screens.replace(screens.clone()).unwrap_or_default();
-        if old.list != screens.list {
+        // Le HDR d'un écran seul a changé : pas d'autres écrans pour autant.
+        let hdr_moved = old.list.iter().map(|d| d.hdr).ne(screens.list.iter().map(|d| d.hdr));
+        if !screens::same_screens(&old.list, &screens.list) {
             // D'autres écrans : les index d'avant ne veulent plus rien dire.
             self.excluded.clear();
             self.muted.clear();
@@ -3254,6 +3607,10 @@ impl Worker {
                 info!("l'image suit la fenêtre sur l'écran {} de l'appareil", screens.current());
                 self.streams[0].screen = screens.current();
                 self.announce_screens();
+                // Son HDR suit l'écran où elle est.
+                self.hdr_changed();
+            } else if hdr_moved {
+                self.hdr_changed();
             }
             return;
         }
@@ -3361,6 +3718,9 @@ impl Worker {
         self.choose_display(false);
         if let Some(next) = self.pending_screens.take() {
             self.change_screens(next);
+        }
+        if std::mem::take(&mut self.hdr_pending) {
+            self.hdr_changed();
         }
         if let Some(reconnect) = self.pending_replan.take()
             && (reconnect || self.wanted_plan(&self.screens.clone().unwrap_or_default()) != self.plan)
@@ -3703,13 +4063,15 @@ impl Worker {
                 .collect();
             info!("image sur {} écrans : principal {}, puis {}", self.streams.len(), display.id, others.join(", "));
         }
+        let hdr: Vec<bool> = self.streams.iter().map(|st| self.stream_hdr_for(st.screen, &s)).collect();
         info!(
-            "image : écran {} ({}×{}), {} {}, {} Mbit/s, {}{}",
+            "image : écran {} ({}×{}), {} {}{}, {} Mbit/s, {}{}",
             display.id,
             display.width,
             display.height,
             s.codec.label(),
             if s.yuv444 { "4:4:4" } else { "4:2:0" },
+            if hdr.iter().any(|h| *h) { format!(", HDR {hdr:?}") } else { String::new() },
             bitrate / 1_000_000,
             if s.reliable { "fiable" } else { "rapide" },
             if self.fallback > 0 { format!(" (repli {})", self.fallback) } else { String::new() }
@@ -3736,6 +4098,12 @@ impl Worker {
         if multi {
             self.announce_screens();
         }
+        if hdr.iter().any(|h| *h) {
+            self.hdr_used.store(true, Ordering::Relaxed);
+        }
+        self.platform.on_hdr(&hdr);
+        self.stream_hdr = hdr.clone();
+        self.stream_format = Some((s.codec, s.yuv444));
         // La plateforme crée sa chaîne d'entrées ici (sur ce fil) et n'en rend
         // que la chaîne kynput : le cœur la retrouve pour lui donner l'état de
         // la session (active ou non), ses droits (invité) et les manettes de
@@ -3763,7 +4131,8 @@ impl Worker {
             .streams
             .iter()
             .zip(&self.first_data)
-            .map(|(screen, first_data)| {
+            .zip(&hdr)
+            .map(|((screen, first_data), &hdr)| {
                 let handler: Arc<dyn PacketHandler> = if multi {
                     Arc::new(ScreenSink { inner: self.platform.screen_video_handler(screen.screen), first_data: first_data.clone() })
                 } else {
@@ -3773,6 +4142,7 @@ impl Worker {
                     display_id: screen.display.id,
                     codec: s.codec.kyber(),
                     yuv444: s.yuv444,
+                    hdr,
                     intra_refresh: None,
                     player: VideoPlayerConfig {
                         window_handle,
@@ -4124,6 +4494,7 @@ mod tests {
             heartbeat_seconds: 5,
             kyber_fingerprint: None,
             screens,
+            hdr: Vec::new(),
         }
     }
 
@@ -4251,6 +4622,7 @@ mod tests {
         relay_errors: Mutex<Vec<(crate::relay::RelayError, String)>>,
         lend_notices: Mutex<Vec<(crate::lend::LendNotice, String)>>,
         lends: Mutex<Vec<Option<crate::lend::LendView>>>,
+        notices: Mutex<Vec<Notice>>,
     }
 
     impl Platform for Recorder {
@@ -4312,13 +4684,16 @@ mod tests {
             self.guests.lock().unwrap().push(share.map(|s| s.guests.len()));
         }
         fn on_display(&self, _: &Display) {}
+        fn on_notice(&self, notice: &Notice) {
+            self.notices.lock().unwrap().push(notice.clone());
+        }
         fn on_screens(&self, screens: &[StreamScreen], not_created: &[usize]) {
             self.screens.lock().unwrap().push((screens.iter().map(|s| s.screen).collect(), not_created.to_vec()));
         }
     }
 
     fn device_screen(x: f64, primary: bool) -> crate::screens::DeviceScreen {
-        crate::screens::DeviceScreen { x, y: 0.0, width: 1920.0, height: 1080.0, pixel_width: 1920, pixel_height: 1080, refresh: 60, primary }
+        crate::screens::DeviceScreen { x, y: 0.0, width: 1920.0, height: 1080.0, pixel_width: 1920, pixel_height: 1080, refresh: 60, primary, hdr: false }
     }
 
     /// Deux écrans côte à côte, « Cet écran » = `current`, Station à quatre écrans.
@@ -4327,7 +4702,7 @@ mod tests {
     }
 
     fn worker(profile: crate::profile::Profile, screens: Screens) -> (Worker, Arc<Recorder>) {
-        let caps = crate::profile::Capabilities { hevc: true, hevc444: true, av1: false };
+        let caps = crate::profile::Capabilities { hevc: true, hevc444: true, av1: false, hdr: false };
         let params = SessionParams {
             console_host: "192.0.2.1".into(),
             console_port: 9443,
@@ -4345,11 +4720,166 @@ mod tests {
             recovery: Recovery::default(),
             role: SessionRole::Host,
             route: Route::Direct,
+            screen_hdr: false,
+            capabilities: None,
         };
         let recorder = Arc::new(Recorder::default());
         let (tx, rx) = mpsc::channel();
         let w = Worker::new(params, Some(screens), recorder.clone(), tx, rx, Arc::new(LatencyTracker::new()), Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)), FocusState::new());
         (w, recorder)
+    }
+
+    /// Session d'hôte en Bureau sur deux écrans, le principal HDR, l'autre
+    /// SDR ; décodeur HDR, Station qui le propose, choix allumé.
+    fn hdr_worker() -> (Worker, Arc<Recorder>) {
+        let mut screens = two_screens(0);
+        screens.list[0].hdr = true;
+        let (mut w, rec) = worker(crate::profile::Profile::Bureau, screens);
+        w.params.settings.hdr = true;
+        w.params.capabilities = Some(crate::profile::Capabilities { hevc: true, hevc444: true, av1: false, hdr: true });
+        w.station_hdr = Some(crate::console::HdrInfo { available: true, reason: None });
+        (w, rec)
+    }
+
+    fn prepared_hdr(hdr: Vec<bool>) -> Prepared {
+        let s = |x: i32, primary: bool| Some(ScreenMode { width: 1920, height: 1080, refresh: 60, x, y: 0, primary, hdr: false });
+        Prepared { hdr, ..prepared(Some(vec![s(0, true), s(1920, false)])) }
+    }
+
+    #[test]
+    fn hdr_demande_par_ecran_puis_obtenu() {
+        let (mut w, rec) = hdr_worker();
+        assert_eq!(w.plan.len(), 2, "Bureau : les deux écrans");
+        let req = w.prepare_request(w.requested, None);
+        assert!(req.hdr, "l'écran principal est HDR");
+        let screens = req.screens.expect("écrans");
+        assert_eq!((screens[0].hdr, screens[1].hdr), (true, false), "chaque écran suit l'écran de l'appareil");
+        // Avant la réponse : format du profil (4:4:4 en Bureau).
+        assert!(w.effective().yuv444);
+        w.apply_prepared(prepared_hdr(vec![true, false]));
+        assert!(w.obtained(0) && !w.obtained(1));
+        let s = w.effective();
+        assert_eq!((s.codec, s.yuv444), (Codec::Hevc, false), "HDR : HEVC en 4:2:0");
+        assert!(w.stream_hdr_for(0, &s) && !w.stream_hdr_for(1, &s));
+        assert!(rec.notices.lock().unwrap().is_empty());
+        // Le profil reste Bureau : le HDR ne le fait pas passer en Personnalisé.
+        assert_eq!(crate::screens::screens_profile(&w.params.settings, Some(crate::profile::Capabilities { hevc: true, hevc444: true, av1: false, hdr: true })), Some(crate::profile::Profile::Bureau));
+    }
+
+    #[test]
+    fn hdr_refuse_par_windows_une_fois() {
+        let (mut w, rec) = hdr_worker();
+        w.apply_prepared(prepared_hdr(vec![false, false]));
+        assert!(!w.obtained(0));
+        let s = w.effective();
+        assert!(s.yuv444, "aucun écran en HDR : le 4:4:4 du profil reste");
+        assert!(!w.stream_hdr_for(0, &s));
+        assert_eq!(*rec.notices.lock().unwrap(), vec![Notice::HdrRefused]);
+        // Station d'avant le HDR (pas de champ) : SDR, avis une fois par session.
+        w.apply_prepared(prepared_hdr(Vec::new()));
+        assert_eq!(rec.notices.lock().unwrap().len(), 1);
+        // Sans écran virtuel, la Station répond le HDR de l'écran du PC : pas d'avis.
+        let (mut w, rec) = hdr_worker();
+        w.apply_prepared(Prepared { virtual_display: false, ..prepared_hdr(vec![false]) });
+        assert!(rec.notices.lock().unwrap().is_empty());
+        assert!(w.plan.is_empty(), "sans écran virtuel, un seul écran");
+    }
+
+    #[test]
+    fn hdr_seulement_s_il_est_possible() {
+        type Change = fn(&mut Worker);
+        let cases: [(&str, Change); 5] = [
+            ("choix éteint", |w| w.params.settings.hdr = false),
+            ("Station sans HDR", |w| w.station_hdr = None),
+            ("Station réglée sur Jamais", |w| w.station_hdr = Some(crate::console::HdrInfo { available: false, reason: Some("off".into()) })),
+            ("décodeur sans 10 bits", |w| w.params.capabilities = Some(crate::profile::Capabilities { hevc: true, ..Default::default() })),
+            ("H.264 choisi à la main", |w| {
+                w.params.settings.profile = None;
+                w.params.settings.codec = Codec::H264;
+            }),
+        ];
+        for (why, change) in cases {
+            let (mut w, _) = hdr_worker();
+            change(&mut w);
+            let req = w.prepare_request(w.requested, None);
+            assert!(!req.hdr && req.screens.iter().flatten().all(|m| !m.hdr), "{why}");
+        }
+        // Écran de l'appareil SDR : rien.
+        let (mut w, _) = hdr_worker();
+        w.screens.as_mut().unwrap().list[0].hdr = false;
+        assert!(!w.prepare_request(w.requested, None).hdr);
+    }
+
+    #[test]
+    fn hdr_change_en_session() {
+        let (mut w, rec) = hdr_worker();
+        w.apply_prepared(prepared_hdr(vec![true, false]));
+        // Le second écran devient HDR : la Station répond, l'écran suit.
+        w.screens.as_mut().unwrap().list[1].hdr = true;
+        w.hdr_asked = 3;
+        w.hdr_applied(3, vec![0, 1], vec![true, true], Ok(vec![true, true]));
+        assert!(w.obtained(1));
+        // Réponse d'une demande dépassée : ignorée.
+        w.hdr_applied(2, vec![0, 1], vec![false, false], Ok(vec![false, false]));
+        assert!(w.obtained(0) && w.obtained(1));
+        // Choix éteint, Station injoignable : les écrans passent quand même en SDR.
+        w.params.settings.hdr = false;
+        w.hdr_applied(3, vec![0, 1], vec![false, false], Err("409".into()));
+        assert!(!w.obtained(0) && !w.obtained(1));
+        assert!(w.effective().yuv444, "le 4:4:4 du profil revient");
+        // Rallumé, refusé par Windows : l'avis.
+        w.params.settings.hdr = true;
+        w.hdr_applied(3, vec![0, 1], vec![true, true], Ok(vec![false, true]));
+        assert_eq!((w.obtained(0), w.obtained(1)), (false, true));
+        assert_eq!(*rec.notices.lock().unwrap(), vec![Notice::HdrRefused]);
+    }
+
+    #[test]
+    fn hdr_de_l_invite_suit_son_ecran() {
+        let caps = crate::profile::Capabilities { hevc: true, hevc444: false, av1: false, hdr: true };
+        let (mut w, _) = guest_with(joined(ShareRole::Spectator, Some("hevc"), Some("sha256:kk")), caps);
+        let hevc = StreamSettings { codec: Codec::Hevc, yuv444: false, ..w.params.settings.clone() };
+        assert!(!w.stream_hdr_for(0, &hevc), "écran SDR : image à part en SDR");
+        w.params.screen_hdr = true;
+        assert!(w.stream_hdr_for(0, &hevc));
+        assert!(!w.stream_hdr_for(0, &StreamSettings { codec: Codec::H264, ..hevc.clone() }), "jamais en H.264");
+        // Aucune demande à la Station, pas de choix pour un invité.
+        w.params.settings.hdr = true;
+        assert!(!w.hdr_allowed() && !w.hdr_format_on());
+        let (mut w, _) = guest_with(joined(ShareRole::Spectator, Some("hevc"), Some("sha256:kk")), crate::profile::Capabilities { hdr: false, ..caps });
+        w.params.screen_hdr = true;
+        assert!(!w.stream_hdr_for(0, &hevc), "décodeur sans HDR");
+    }
+
+    #[test]
+    fn hdr_de_l_ami_comme_un_hote() {
+        let (mut w, _) = borrower();
+        // Avec les écrans de l'appareil, c'est le sien qui compte (sinon `screen_hdr`).
+        w.params.screen_hdr = true;
+        assert!(!w.device_hdr(0));
+        w.screens.as_mut().unwrap().list[0].hdr = true;
+        w.params.settings.hdr = true;
+        w.params.capabilities = Some(crate::profile::Capabilities { hevc: true, hevc444: false, av1: false, hdr: true });
+        let s = w.effective();
+        assert_eq!((s.codec, s.yuv444), (Codec::Hevc, false));
+        assert!(w.stream_hdr_for(0, &s), "l'ami a le HDR de son écran, sans demander à la Station");
+        w.params.settings.hdr = false;
+        assert!(!w.stream_hdr_for(0, &w.effective()));
+    }
+
+    #[test]
+    fn hdr_en_json() {
+        let json = r#"{"console_host":"192.0.2.1","console_port":9443,"device":{"id":"m","name":"M","kind":"mac","os":"macOS","app":"t"},
+            "mode":{"width":3840,"height":2160,"refresh":120},"settings":{"profile":"jeu","codec":"hevc","mbps":60,"hdr":true},
+            "screen_hdr":true,"capabilities":{"hevc":true,"av1":true,"hdr":true}}"#;
+        let (p, _) = SessionParams::from_json(json).unwrap();
+        assert!(p.settings.hdr && p.screen_hdr);
+        assert_eq!(p.capabilities.map(|c| (c.hdr, c.hevc444)), Some((true, false)));
+        let old = json.replace(r#","hdr":true}"#, "}").replace(r#""screen_hdr":true,"#, "");
+        let (p, _) = SessionParams::from_json(&old).unwrap();
+        assert!(!p.settings.hdr && !p.screen_hdr, "absents : SDR");
+        let screens: Screens = serde_json::from_str(r#"{"list":[{"x":0,"y":0,"width":1512,"height":982,"pixel_width":3024,"pixel_height":1964,"refresh":120,"hdr":true}]}"#).unwrap();
+        assert!(screens.list[0].hdr);
     }
 
     #[test]
@@ -4533,7 +5063,7 @@ mod tests {
     fn borrower() -> (Worker, Arc<Recorder>) {
         let loan = crate::lend::Loan { target: share::ShareTarget { host: "127.0.0.1".into(), port: closed_port(), fingerprint: Some("sha256:ad".into()) }, borrowed: borrowed() };
         let device = DeviceInfo { id: "mac".into(), name: "Mac".into(), kind: "mac".into(), os: "macOS".into(), app: "test".into() };
-        let settings = StreamSettings::for_profile(crate::profile::Profile::Jeu, crate::profile::Capabilities { hevc: true, hevc444: true, av1: false });
+        let settings = StreamSettings::for_profile(crate::profile::Profile::Jeu, crate::profile::Capabilities { hevc: true, hevc444: true, av1: false, hdr: false });
         let mut params = SessionParams::borrower(&loan, device, settings, 2);
         params.recovery = Recovery { watch_image: true, fallback_bitrate: Some(20_000_000), restart_station: true };
         // Même demandé par l'app : jamais pour un emprunt.
@@ -4690,7 +5220,7 @@ mod tests {
     }
 
     fn guest(role: ShareRole) -> (Worker, Arc<Recorder>) {
-        guest_with(joined(role, Some("hevc"), Some("sha256:kk")), crate::profile::Capabilities { hevc: true, hevc444: true, av1: false })
+        guest_with(joined(role, Some("hevc"), Some("sha256:kk")), crate::profile::Capabilities { hevc: true, hevc444: true, av1: false, hdr: false })
     }
 
     fn beat(role: ShareRole) -> ShareBeat {
@@ -5133,8 +5663,8 @@ mod tests {
             (w.params.settings.codec, w.params.settings.yuv444)
         };
         use crate::profile::{Capabilities, Codec};
-        let hevc = Capabilities { hevc: true, hevc444: false, av1: false };
-        let hevc444 = Capabilities { hevc: true, hevc444: true, av1: false };
+        let hevc = Capabilities { hevc: true, hevc444: false, av1: false, hdr: false };
+        let hevc444 = Capabilities { hevc: true, hevc444: true, av1: false, hdr: false };
         let h264 = Capabilities::default();
         assert_eq!(pick("hevc", true, hevc444), (Codec::Hevc, true), "le format de l'hôte, tel quel");
         assert_eq!(pick("hevc", true, hevc), (Codec::Hevc, false), "sans son 4:4:4 : image à part en 4:2:0");

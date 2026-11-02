@@ -128,7 +128,7 @@ jobs:
         run: |
           tag=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)
           echo "Dernière release : $tag"
-          if ! git diff --quiet "$tag" HEAD -- apps/macos/kyber-patches apps/tvos/scripts/build-kyber-tvos.sh apps/core apps/apple; then
+          if ! git diff --quiet "$tag" HEAD -- apps/macos/kyber-patches 'server/kyber-patches/*-kyclient-*' apps/tvos/scripts/build-kyber-tvos.sh apps/core apps/apple; then
             echo "::warning title=App Apple TV non compilée::Correctifs client ou cœur Rust modifiés depuis $tag : le SDK publié ne correspond plus. Compilation vérifiée à la prochaine release."
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
