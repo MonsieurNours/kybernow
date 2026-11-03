@@ -1140,10 +1140,107 @@ mod platform {
     }
 }
 
+/// Station Mac : les apps du Mac, ouvertes et fermées par l'agent Swift
+/// (`kybernow-display apps|launch|close|locked`, server/macos/display-agent).
+/// `exe` d'une app : l'identifiant de son paquet (`com.valvesoftware.steam`).
+#[cfg(target_os = "macos")]
+mod mac {
+    use std::process::Command;
+
+    use super::*;
+
+    pub fn agent() -> Option<PathBuf> {
+        if crate::mac::is_station() { crate::display::mac_agent_path() } else { None }
+    }
+
+    fn run(agent: &Path, args: &[&str]) -> Result<Value> {
+        let out = Command::new(agent).args(args).output()?;
+        let text = String::from_utf8_lossy(&out.stdout);
+        let mut v: Value = serde_json::from_str(text.lines().last().unwrap_or_default())
+            .with_context(|| format!("réponse de l'agent illisible : {text}"))?;
+        if v["ok"] != json!(true) {
+            bail!("{}", v["error"].as_str().unwrap_or("agent en échec"));
+        }
+        v.as_object_mut().map(|o| o.remove("ok"));
+        Ok(v)
+    }
+
+    /// Les apps du Mac, leurs icônes renommées comme Admin les garde
+    /// (`icon_name` de l'identifiant), Steam Big Picture si Steam est là.
+    pub fn read_catalogue(agent: &Path) -> Result<AgentCatalogue> {
+        let dir = std::env::temp_dir().join("kybernow-apps-mac");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir)?;
+        let v = run(agent, &["apps", "--icons", &dir.display().to_string()])?;
+        let rename = |file: Option<&str>, id: &str| -> Option<String> {
+            let name = icon_name(id);
+            std::fs::copy(dir.join(file?), dir.join(&name)).ok()?;
+            Some(name)
+        };
+        let mut apps = Vec::new();
+        let mut steam_icon = None;
+        for a in v["apps"].as_array().cloned().unwrap_or_default() {
+            let (Some(id), Some(name)) = (a["id"].as_str(), a["name"].as_str()) else { continue };
+            let icon = rename(a["icon"].as_str(), id);
+            if id == "com.valvesoftware.steam" {
+                steam_icon = rename(a["icon"].as_str(), "steam-bigpicture");
+            }
+            apps.push(AppEntry { id: id.into(), name: name.into(), icon, exe: Some(id.into()) });
+        }
+        apps.sort_by_key(|a| a.name.to_lowercase());
+        let mut suggestions = Vec::new();
+        if v["steam"].is_string() {
+            suggestions.push(Suggestion {
+                id: "steam-bigpicture".into(),
+                name: "Steam Big Picture".into(),
+                kind: LaunchKind::Uri,
+                target: "steam://open/bigpicture".into(),
+                close: Some("steam://close/bigpicture".into()),
+                exe: Some("com.valvesoftware.steam".into()),
+                icon: steam_icon,
+            });
+        }
+        let home = std::env::var("HOME").unwrap_or_default();
+        let roots = vec![
+            Root { id: "programs".into(), path: "/Applications".into() },
+            Root { id: "userPrograms".into(), path: format!("{home}/Applications") },
+            Root { id: "desktop".into(), path: format!("{home}/Desktop") },
+        ];
+        Ok(AgentCatalogue { user: v["user"].as_str().map(str::to_string), apps, suggestions, roots, icons_dir: dir.display().to_string() })
+    }
+
+    pub fn launch(agent: &Path, launch: &Launch) -> Result<Value> {
+        let kind = match launch.kind {
+            LaunchKind::App => "app",
+            LaunchKind::Uri => "uri",
+            LaunchKind::Path => "path",
+        };
+        run(agent, &["launch", "--kind", kind, "--target", &launch.target])
+    }
+
+    pub fn close(agent: &Path, launch: &Launch, pid: Option<u32>) -> Result<Value> {
+        let pid = pid.map(|p| p.to_string());
+        let mut args = vec!["close"];
+        if let Some(uri) = &launch.close {
+            args.extend(["--uri", uri.as_str()]);
+        } else if let Some(pid) = &pid {
+            args.extend(["--pid", pid.as_str()]);
+        } else if let Some(exe) = &launch.exe {
+            args.extend(["--exe", exe.as_str()]);
+        }
+        run(agent, &args)
+    }
+
+    pub fn session_locked(agent: &Path) -> bool {
+        run(agent, &["locked"]).is_ok_and(|v| v["locked"] == json!(true))
+    }
+}
+
 #[cfg(not(windows))]
 mod platform {
-    //! Hors Windows (Mac de développement, tests) : un catalogue simulé, et
-    //! des lancements qui ne font que s'écrire au journal.
+    //! Hors Windows : sur une Station Mac, les apps du Mac (module `mac`) ;
+    //! sinon (Mac de développement, tests) un catalogue simulé, et des
+    //! lancements qui ne font que s'écrire au journal.
 
     use super::*;
 
@@ -1189,6 +1286,10 @@ mod platform {
     }
 
     pub fn read_catalogue() -> Result<AgentCatalogue> {
+        #[cfg(target_os = "macos")]
+        if let Some(agent) = super::mac::agent() {
+            return super::mac::read_catalogue(&agent);
+        }
         let dir = std::env::temp_dir().join("kybernow-apps-sim");
         let icons = dir.join("icons");
         let _ = std::fs::create_dir_all(&icons);
@@ -1242,16 +1343,28 @@ mod platform {
     }
 
     pub fn launch(launch: &Launch) -> Result<Value> {
+        #[cfg(target_os = "macos")]
+        if let Some(agent) = super::mac::agent() {
+            return super::mac::launch(&agent, launch);
+        }
         tracing::info!("(simulé) lancement de {} ({:?} {})", launch.name, launch.kind, launch.target);
         Ok(json!({ "front": false, "pid": null }))
     }
 
     pub fn close(launch: &Launch, _pid: Option<u32>) -> Result<Value> {
+        #[cfg(target_os = "macos")]
+        if let Some(agent) = super::mac::agent() {
+            return super::mac::close(&agent, launch, _pid);
+        }
         tracing::info!("(simulé) fermeture de {}", launch.name);
         Ok(json!({ "closed": 0 }))
     }
 
     pub fn session_locked() -> bool {
+        #[cfg(target_os = "macos")]
+        if let Some(agent) = super::mac::agent() {
+            return super::mac::session_locked(&agent);
+        }
         false
     }
 

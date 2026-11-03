@@ -15,7 +15,8 @@
 //   ping
 //
 // Le son de la session passe par les commandes ponctuelles `audio …`
-// (audio.swift).
+// (audio.swift), l'app du début de la session par `apps`, `launch`, `close`
+// et `locked` (apps.swift).
 //
 // Les écrans du Mac recopient l'écran virtuel principal pendant la session
 // (`CGConfigureDisplayMirrorOfDisplay`) : seul l'écran virtuel reste actif, il
@@ -288,10 +289,13 @@ func reply(_ body: [String: Any]) {
     FileHandle.standardOutput.write(Data("\n".utf8))
 }
 
-// Commandes ponctuelles du son (audio.swift) : une réponse, puis la fin.
-if CommandLine.arguments.count > 1, CommandLine.arguments[1] == "audio" {
+// Commandes ponctuelles du son (audio.swift) et des apps (apps.swift) : une
+// réponse, puis la fin.
+if CommandLine.arguments.count > 1, ["audio", "apps", "launch", "close", "locked"].contains(CommandLine.arguments[1]) {
+    let command = CommandLine.arguments[1]
+    let rest = Array(CommandLine.arguments.dropFirst(2))
     do {
-        var body = try audioCommand(Array(CommandLine.arguments.dropFirst(2)))
+        var body = try command == "audio" ? audioCommand(rest) : (appsCommand(command, rest) ?? [:])
         body["ok"] = true
         reply(body)
         exit(0)
