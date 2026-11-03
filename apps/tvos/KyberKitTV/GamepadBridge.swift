@@ -1399,10 +1399,22 @@ extension PadButton {
 /// Haptics reste démarré pendant la session ; la vibration ne s'arrête vraiment
 /// que sur (0, 0), au bout de la durée demandée, ou en fin de session.
 ///
-/// Replis, pour une manette dont les moteurs ne jouent pas (DualSense
-/// signalée muette sur Apple TV ; les en-têtes de GameController ne disent
-/// rien de propre à une manette, seulement que `.default` et `.all` existent
-/// toujours) : les moteurs gauche et droit, sinon un seul sur `.handles`,
+/// La DualSense refuse le lecteur avancé de Core Haptics : `makeAdvancedPlayer`
+/// échoue (NSCocoaErrorDomain 4097, connexion perdue avec
+/// `gamecontrollerd.haptics`) et laisse le moteur inutilisable, alors que le
+/// lecteur simple marche, intensité dynamique comprise (essais du 03/11/2026
+/// sur une DualSense en Bluetooth, macOS 27.2 ; même manette muette sur
+/// iPhone et Apple TV). Chaque moteur essaie donc le lecteur avancé (en
+/// boucle, celui de la manette Xbox) et, s'il est refusé, recrée son moteur
+/// et passe au lecteur simple. Sur la DualSense, un motif lancé va au bout
+/// quoi qu'on demande (arrêt du lecteur, du moteur, intensité à 0) : la
+/// vibration y est faite de motifs de 0,3 s enchaînés, chacun à l'intensité du
+/// moment, et s'arrête 0,3 s au plus après la demande.
+///
+/// Autres replis, pour une manette dont les moteurs ne jouent toujours pas
+/// (les en-têtes de GameController ne disent rien de propre à une manette,
+/// seulement que `.default` et `.all` existent toujours) : les moteurs
+/// gauche et droit, sinon un seul sur `.handles`,
 /// sinon un seul sur `.default` ; on descend d'un cran si un moteur ne peut
 /// pas être créé ou si son premier départ échoue. Un motif de 30 s (le plus
 /// long d'un événement continu) refusé est refait plus court ; une intensité
@@ -1461,7 +1473,7 @@ final class Motors {
         haptics = nil
         label = "l'appareil"
         layout = .single
-        large = Motor(engine, sharpness: 0.4, queue: queue, label: label)
+        large = Motor(engine, sharpness: 0.4, queue: queue, label: label) { try? CHHapticEngine() }
         if large == nil { return nil }
     }
     #endif
@@ -1516,7 +1528,9 @@ final class Motors {
 
     private func motor(_ haptics: GCDeviceHaptics, _ locality: GCHapticsLocality, sharpness: Float, layout: Layout, side: String) -> Motor? {
         let name = "\(label), \(side)"
-        let m = Motor(haptics.createEngine(withLocality: locality), sharpness: sharpness, queue: queue, label: name)
+        let m = Motor(haptics.createEngine(withLocality: locality), sharpness: sharpness, queue: queue, label: name) {
+            haptics.createEngine(withLocality: locality)
+        }
         KyberLog.app.notice("vibrations de \(name, privacy: .public) : moteur \(m == nil ? "impossible à créer" : "créé", privacy: .public)")
         m?.onFirstFailure = { [weak self] in self?.failed(layout) }
         return m
@@ -1591,12 +1605,21 @@ final class Motors {
     }
 
     private final class Motor {
-        private let engine: CHHapticEngine
+        private var engine: CHHapticEngine
+        /// Nouveau moteur, quand le premier ne vaut plus rien (lecteur avancé refusé).
+        private let remake: () -> CHHapticEngine?
         private let sharpness: Float
         private let queue: DispatchQueue
         /// « DualSense, gauche », pour le journal.
         private let label: String
-        private var player: CHHapticAdvancedPatternPlayer?
+        private var player: CHHapticPatternPlayer?
+        /// Lecteur avancé (motif en boucle) ; false : la manette le refuse
+        /// (DualSense), courts motifs simples enchaînés (`setChained`).
+        private var advanced = true
+        /// Numéro du motif court en cours : le suivant n'est lancé que par lui.
+        private var generation = 0
+        /// Durée d'un motif court : la vibration s'arrête au plus tard à sa fin.
+        private static let chunk: TimeInterval = 0.3
         private var running = false
         private var playing = false
         private var level: Float = 0
@@ -1612,12 +1635,18 @@ final class Motors {
         /// Premier départ manqué (Motors descend d'un cran).
         var onFirstFailure: (() -> Void)?
 
-        init?(_ engine: CHHapticEngine?, sharpness: Float, queue: DispatchQueue, label: String) {
+        init?(_ engine: CHHapticEngine?, sharpness: Float, queue: DispatchQueue, label: String,
+              remake: @escaping () -> CHHapticEngine?) {
             guard let engine else { return nil }
             self.engine = engine
+            self.remake = remake
             self.sharpness = sharpness
             self.queue = queue
             self.label = label
+            configure(engine)
+        }
+
+        private func configure(_ engine: CHHapticEngine) {
             engine.isAutoShutdownEnabled = false
             engine.playsHapticsOnly = true
             // Rappels de Core Haptics sur un fil à lui : on repasse sur la file.
@@ -1647,6 +1676,10 @@ final class Motors {
         func set(_ value: Float) {
             let v = min(1, max(0, value))
             level = v
+            guard advanced else {
+                setChained(v)
+                return
+            }
             guard v > 0.01 else {
                 if playing {
                     try? player?.stop(atTime: CHHapticTimeImmediate)
@@ -1704,6 +1737,19 @@ final class Motors {
                 }
             } catch {
                 KyberLog.app.error("vibrations de \(self.label, privacy: .public) : \(step, privacy: .public) impossible (\(error.localizedDescription, privacy: .public))")
+                // Lecteur avancé refusé (DualSense) : moteur recréé, lecteur simple.
+                if advanced, !played, let fresh = remake() {
+                    KyberLog.app.notice("vibrations de \(self.label, privacy: .public) : lecteur avancé refusé, lecteur simple sur un nouveau moteur")
+                    player = nil
+                    playing = false
+                    running = false
+                    engine.stop(completionHandler: nil)
+                    advanced = false
+                    engine = fresh
+                    configure(fresh)
+                    set(value)
+                    return
+                }
                 // Un lecteur qui tourne encore ne doit pas rester à pleine
                 // intensité sans personne pour l'arrêter.
                 try? player?.stop(atTime: CHHapticTimeImmediate)
@@ -1720,7 +1766,7 @@ final class Motors {
         /// Motif continu, en boucle ; l'intensité réelle vient du paramètre
         /// dynamique (ou du motif lui-même, sans lui). Un motif de 30 s refusé
         /// est refait sur 4 s.
-        private func makePlayer(intensity: Float) throws -> CHHapticAdvancedPatternPlayer {
+        private func makePlayer(intensity: Float) throws -> CHHapticPatternPlayer {
             do {
                 return try pattern(intensity: intensity)
             } catch where span > 4 {
@@ -1730,18 +1776,69 @@ final class Motors {
             }
         }
 
-        private func pattern(intensity: Float) throws -> CHHapticAdvancedPatternPlayer {
+        private func pattern(intensity: Float) throws -> CHHapticPatternPlayer {
             let event = CHHapticEvent(eventType: .hapticContinuous, parameters: [
                 CHHapticEventParameter(parameterID: .hapticIntensity, value: intensity),
                 CHHapticEventParameter(parameterID: .hapticSharpness, value: sharpness),
-            ], relativeTime: 0, duration: span)
-            let p = try engine.makeAdvancedPlayer(with: CHHapticPattern(events: [event], parameters: []))
+            ], relativeTime: 0, duration: advanced ? span : Self.chunk)
+            let pattern = try CHHapticPattern(events: [event], parameters: [])
+            guard advanced else { return try engine.makePlayer(with: pattern) }
+            let p = try engine.makeAdvancedPlayer(with: pattern)
             p.loopEnabled = true
             p.loopEnd = span
             return p
         }
 
+        /// Lecteur simple (DualSense) : une fois lancé, un motif va au bout,
+        /// quoi qu'on demande (arrêt du lecteur, du moteur, intensité à 0).
+        /// La vibration est donc faite de motifs de 0,3 s enchaînés, chacun à
+        /// l'intensité du moment ; elle s'arrête quand on n'en relance plus.
+        private func setChained(_ v: Float) {
+            guard v > 0.01, !playing else { return }
+            playChunk()
+        }
+
+        private func playChunk() {
+            var step = "démarrage du moteur"
+            do {
+                if !running {
+                    try engine.start()
+                    running = true
+                }
+                step = "création du motif"
+                let p = try pattern(intensity: level)
+                step = "départ du motif"
+                try p.start(atTime: CHHapticTimeImmediate)
+                player = p
+                playing = true
+                if !played {
+                    played = true
+                    KyberLog.app.notice("vibrations de \(self.label, privacy: .public) : premier départ (motifs courts)")
+                }
+                generation += 1
+                let mine = generation
+                // Le suivant part un peu avant la fin, sans trou.
+                queue.asyncAfter(deadline: .now() + Self.chunk - 0.04) { [weak self] in
+                    guard let self, self.generation == mine else { return }
+                    self.playing = false
+                    self.player = nil
+                    if self.level > 0.01 { self.playChunk() }
+                }
+            } catch {
+                KyberLog.app.error("vibrations de \(self.label, privacy: .public) : \(step, privacy: .public) impossible (\(error.localizedDescription, privacy: .public))")
+                player = nil
+                playing = false
+                running = false
+                if !played, let fail = onFirstFailure {
+                    onFirstFailure = nil
+                    fail()
+                }
+            }
+        }
+
         func shutdown() {
+            // Motifs courts : plus de relance, le dernier finit en 0,3 s au plus.
+            generation += 1
             if playing { try? player?.stop(atTime: CHHapticTimeImmediate) }
             player = nil
             playing = false
