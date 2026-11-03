@@ -373,6 +373,8 @@ impl Platform for LinuxPlatform {
             lost: s.lost_frames + s.holes,
             codec: self.0.codec(),
             audio_ms: self.0.audio_ms(),
+            chain: s.chain.map(|c| c.all()),
+            hdr: s.hdr,
         });
     }
 
