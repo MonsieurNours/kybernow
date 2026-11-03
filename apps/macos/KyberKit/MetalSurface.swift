@@ -60,14 +60,20 @@ final class MetalSurface: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        panelRatio = ScreenPixels.panelRatio(window?.screen)
         updateDrawableSize()
         screenObservers.forEach(NotificationCenter.default.removeObserver)
         screenObservers = []
         if let window {
             screenObservers.append(NotificationCenter.default.addObserver(forName: NSWindow.didChangeScreenNotification, object: window, queue: .main) { [weak self] _ in
                 self?.updateScreenHDR()
+                self?.updatePanelRatio()
             })
-            screenObservers += HDRDisplay.observe { [weak self] in self?.updateScreenHDR() }
+            // Écrans changés (dont le mode « plus d'espace » de l'écran de la fenêtre).
+            screenObservers += HDRDisplay.observe { [weak self] in
+                self?.updateScreenHDR()
+                self?.updatePanelRatio()
+            }
         }
         updateScreenHDR()
     }
@@ -105,16 +111,59 @@ final class MetalSurface: NSView {
 
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
+        panelRatio = ScreenPixels.panelRatio(window?.screen)
         updateDrawableSize()
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
+    /// Pixels de la dalle par pixel dessiné par macOS sur l'écran de la
+    /// fenêtre (`ScreenPixels.panelRatio`), relu quand l'écran ou son mode change.
+    private var panelRatio: CGFloat = 1
+
     private func updateDrawableSize() {
         guard let renderer else { return }
         let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
-        metal.contentsScale = scale
-        renderer.markerScale = scale
-        renderer.setDrawableSize(CGSize(width: bounds.width * scale, height: bounds.height * scale))
+        // Mode « plus d'espace » : macOS dessine plus grand que la dalle puis
+        // réduit. L'image est dessinée aux pixels de la dalle (un 4K réglé en
+        // 3008 × 1692 points : 3840 × 2160, pas 6016 × 3384) ; Core Animation
+        // l'étire au cadre de la vue. Moins de travail à chaque image, et pas
+        // de tampon 6K en FP16 à réduire par le compositeur (avec la barre ou
+        // les statistiques par-dessus, en HDR à 160 Hz, l'écran a gelé).
+        let pixels = scale * panelRatio
+        metal.contentsScale = pixels
+        renderer.markerScale = pixels
+        renderer.setDrawableSize(CGSize(width: (bounds.width * pixels).rounded(), height: (bounds.height * pixels).rounded()))
+    }
+
+    /// Relit le rapport dalle / dessin de l'écran de la fenêtre et redimensionne si besoin.
+    private func updatePanelRatio() {
+        let ratio = ScreenPixels.panelRatio(window?.screen)
+        guard ratio != panelRatio else { return }
+        panelRatio = ratio
+        KyberLog.video.notice("image aux pixels de la dalle : rapport \(String(format: "%.3f", ratio), privacy: .public)")
+        updateDrawableSize()
+    }
+}
+
+/// Pixels réels des écrans du Mac.
+public enum ScreenPixels {
+    /// Pixels de la dalle (mode natif de l'écran), nil s'ils sont inconnus.
+    public static func native(_ screen: NSScreen) -> (width: Int, height: Int)? {
+        guard let id = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID,
+              let modes = CGDisplayCopyAllDisplayModes(id, [kCGDisplayShowDuplicateLowResolutionModes: true] as CFDictionary) as? [CGDisplayMode],
+              let native = modes.first(where: { $0.ioFlags & UInt32(kDisplayModeNativeFlag) != 0 })
+        else { return nil }
+        return (native.pixelWidth, native.pixelHeight)
+    }
+
+    /// Pixels de la dalle par pixel dessiné par macOS : 1, sauf en mode
+    /// « plus d'espace » où macOS dessine plus grand puis réduit (un 4K réglé
+    /// en 3008 × 1692 points : 3840 / 6016 ≈ 0,64). Jamais plus de 1.
+    public static func panelRatio(_ screen: NSScreen?) -> CGFloat {
+        guard let screen, let native = native(screen) else { return 1 }
+        let drawn = screen.frame.width * screen.backingScaleFactor
+        guard drawn >= 1 else { return 1 }
+        return min(1, CGFloat(native.width) / drawn)
     }
 }

@@ -27,12 +27,7 @@ enum DisplayInfo {
     /// 6016 × 3384) : demander ces pixels-là à l'ordinateur ne servirait qu'à
     /// les jeter. Repli : points × échelle.
     static func nativePixels(_ screen: NSScreen) -> (width: Int, height: Int) {
-        let drawn = (Int(screen.frame.width * screen.backingScaleFactor), Int(screen.frame.height * screen.backingScaleFactor))
-        guard let id = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID,
-              let modes = CGDisplayCopyAllDisplayModes(id, [kCGDisplayShowDuplicateLowResolutionModes: true] as CFDictionary) as? [CGDisplayMode],
-              let native = modes.first(where: { $0.ioFlags & UInt32(kDisplayModeNativeFlag) != 0 })
-        else { return drawn }
-        return (native.pixelWidth, native.pixelHeight)
+        ScreenPixels.native(screen) ?? (Int(screen.frame.width * screen.backingScaleFactor), Int(screen.frame.height * screen.backingScaleFactor))
     }
 
     /// L'écran de l'invité pour « Auto » (KyberNow Share) : ses pixels réels et
