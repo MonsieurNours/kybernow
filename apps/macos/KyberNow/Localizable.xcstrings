@@ -1,6 +1,406 @@
 {
   "sourceLanguage" : "fr",
   "strings" : {
+    "PlayStation" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PlayStation"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PlayStation"
+          }
+        }
+      }
+    },
+    "Comptes PlayStation Network" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PlayStation Network accounts"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Comptes PlayStation Network"
+          }
+        }
+      }
+    },
+    "Aucun compte : ajoutez-en un pour associer une console." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No account: add one to pair a console."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucun compte : ajoutez-en un pour associer une console."
+          }
+        }
+      }
+    },
+    "Ajouter un compte" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add an account"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ajouter un compte"
+          }
+        }
+      }
+    },
+    "Ce compte est déjà là." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This account is already here."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce compte est déjà là."
+          }
+        }
+      }
+    },
+    "Renommer" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rename"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Renommer"
+          }
+        }
+      }
+    },
+    "Compte PlayStation" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PlayStation account"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Compte PlayStation"
+          }
+        }
+      }
+    },
+    "Aucune console" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No console"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucune console"
+          }
+        }
+      }
+    },
+    "1 console" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 console"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 console"
+          }
+        }
+      }
+    },
+    "%lld consoles" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld consoles"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld consoles"
+          }
+        }
+      }
+    },
+    "Retirer le compte %@ ?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove the account %@?"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retirer le compte %@ ?"
+          }
+        }
+      }
+    },
+    "Retirer le compte %@ et sa console ?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove the account %@ and its console?"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retirer le compte %@ et sa console ?"
+          }
+        }
+      }
+    },
+    "Retirer le compte %@ et ses %lld consoles ?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove the account %@ and its %lld consoles?"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retirer le compte %@ et ses %lld consoles ?"
+          }
+        }
+      }
+    },
+    "Ses associations sont effacées de cet appareil. Une console associée aussi avec un autre compte reste, avec cet autre compte." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Its pairings are erased from this device. A console also paired with another account stays, with that other account."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ses associations sont effacées de cet appareil. Une console associée aussi avec un autre compte reste, avec cet autre compte."
+          }
+        }
+      }
+    },
+    "Consoles sur ce réseau" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Consoles on this network"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Consoles sur ce réseau"
+          }
+        }
+      }
+    },
+    "Aucune console trouvée. Allumez-la ou mettez-la en veille, ou saisissez son adresse dans « Par adresse »." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No console found. Turn it on or put it in rest mode, or enter its address in “By address”."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucune console trouvée. Allumez-la ou mettez-la en veille, ou saisissez son adresse dans « Par adresse »."
+          }
+        }
+      }
+    },
+    "Associée : %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Paired: %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Associée : %@"
+          }
+        }
+      }
+    },
+    "Associer avec un autre compte" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pair with another account"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Associer avec un autre compte"
+          }
+        }
+      }
+    },
+    "L'adresse d'un ordinateur, ou d'une console PlayStation (par un VPN ou depuis un autre réseau)." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The address of a computer, or of a PlayStation console (through a VPN or from another network)."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L'adresse d'un ordinateur, ou d'une console PlayStation (par un VPN ou depuis un autre réseau)."
+          }
+        }
+      }
+    },
+    "Avec quel compte ?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Which account?"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avec quel compte ?"
+          }
+        }
+      }
+    },
+    "Connectez-vous au compte PlayStation Network à associer. KyberNow lit seulement l'identifiant et le pseudo du compte, une seule fois." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sign in to the PlayStation Network account to pair. KyberNow only reads the account's ID and online ID, once."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connectez-vous au compte PlayStation Network à associer. KyberNow lit seulement l'identifiant et le pseudo du compte, une seule fois."
+          }
+        }
+      }
+    },
+    "Nom" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Name"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nom"
+          }
+        }
+      }
+    },
+    "Pour le reconnaître dans la liste." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "To recognise it in the list."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pour le reconnaître dans la liste."
+          }
+        }
+      }
+    },
+    "Compte : %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Account: %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Compte : %@"
+          }
+        }
+      }
+    },
+    "Ajouter un ordinateur ou une console" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add a computer or a console"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ajouter un ordinateur ou une console"
+          }
+        }
+      }
+    },
     "%lld %%" : {
       "localizations" : {
         "en" : {

@@ -502,18 +502,43 @@ Pour la console choisie, dans cet ordre :
 
 Dans la rangée : le nom et l'état. Une console trouvée sur le réseau et pas encore associée : « Sur le réseau » / “On your network”.
 
-**Association**, deux étapes, une fois par console (la première étape une fois pour toutes) :
+**Comptes et ajout d'une console.** Plusieurs comptes PlayStation Network sur un même appareil, chacun avec ses consoles ; une même console peut être associée avec plusieurs comptes (un profil par personne sur la console). Tout se gère dans la fenêtre d'ajout : dans les apps qui ont les consoles, le bouton de l'accueil, le menu et le titre de la fenêtre deviennent « Ajouter un ordinateur ou une console » / “Add a computer or a console”, et un onglet « PlayStation » vient après « Avec un compte d'ami ».
+
+| Élément | Français | English |
+|---|---|---|
+| Onglet | « PlayStation » | “PlayStation” |
+| Comptes, titre | « Comptes PlayStation Network » | “PlayStation Network accounts” |
+| Une ligne par compte | le pseudo PSN (lu à la connexion Sony ; saisi à la main : le nom donné) ; dessous « {n} console(s) » ou « Aucune console » ; à droite « Renommer » et « Retirer » | the PSN online ID; “{n} console(s)” or “No console”; “Rename”, “Remove” |
+| Aucun compte | « Aucun compte : ajoutez-en un pour associer une console. » | “No account: add one to pair a console.” |
+| Ajouter | « Ajouter un compte » : l'étape Compte ci-dessous | “Add an account” |
+| Déjà là | même identifiant qu'un compte gardé : son pseudo est mis à jour, sans doublon ; avis « Ce compte est déjà là. » | “This account is already here.” |
+| Retirer | confirmation « Retirer le compte {nom} et ses {n} consoles ? » (une console : « … et sa console ? » ; aucune : « Retirer le compte {nom} ? »), texte « Ses associations sont effacées de cet appareil. Une console associée aussi avec un autre compte reste, avec cet autre compte. », boutons « Retirer » et « Annuler » | “Remove the account {name} and its {n} consoles?”, “Its pairings are erased from this device. A console also paired with another account stays, with that other account.”, “Remove”, “Cancel” |
+| Consoles, titre | « Consoles sur ce réseau » ; vide : « Aucune console trouvée. Allumez-la ou mettez-la en veille, ou saisissez son adresse dans « Par adresse ». » | “Consoles on this network”; “No console found. Turn it on or put it in rest mode, or enter its address in “By address”.” |
+| Une ligne par console trouvée | nom, modèle, état ; pas associée : « Associer » ; associée : « Associée : {pseudos} » et « Associer avec un autre compte » (seulement s'il reste un compte qui n'y est pas associé) | “Pair”; “Paired: {online IDs}”, “Pair with another account” |
+
+Les consoles trouvées apparaissent aussi dans « Sur ce réseau », avec les ordinateurs (ligne « {nom} · PS5 », même bouton « Associer »), et à l'accueil (« Sur le réseau »).
+
+**Par adresse** : le même champ que pour un ordinateur, aide « L'adresse d'un ordinateur, ou d'une console PlayStation (par un VPN ou depuis un autre réseau). » L'app cherche à la fois une Station et une console à cette adresse ; une console qui répond (allumée ou en veille) ouvre son association. Son adresse est retenue : la console est ensuite cherchée en direct à cette adresse, en plus du réseau local. La console est cherchée d'abord (1,5 s, une Station et une console ne répondent pas à la même adresse), puis la Station comme avant. Rien ne répond : le texte habituel de l'onglet ; une adresse seule, sans port d'Admin, qui ne répond pas : « Console injoignable. ».
+
+**Association** (depuis l'onglet, « Sur ce réseau », « Par adresse » ou la carte de l'accueil) :
 
 | Étape | Français | English |
 |---|---|---|
-| Compte | « Connectez-vous à votre compte PlayStation Network. KyberNow lit seulement l'identifiant de votre compte, une seule fois. » Bouton : « Se connecter à PlayStation Network » ; lien : « Saisir l'identifiant à la main » | “Sign in to your PlayStation Network account. KyberNow only reads your account ID, once.” Button: “Sign in to PlayStation Network”; link: “Enter the ID by hand” |
-| Code | « Sur la console : Réglages › Système › Lecture à distance › Associer un appareil. Saisissez le code affiché. » Champ : « Code à 8 chiffres » ; bouton : « Associer » | “On the console: Settings › System › Remote Play › Link Device. Enter the code shown.” Field: “8-digit code”; button: “Pair” |
+| Choix du compte (deux comptes ou plus pas encore associés à cette console) | « Avec quel compte ? », une ligne par compte, et « Ajouter un compte » ; un seul compte possible : étape sautée ; aucun compte : l'étape Compte | “Which account?”, “Add an account” |
+| Compte | « Connectez-vous au compte PlayStation Network à associer. KyberNow lit seulement l'identifiant et le pseudo du compte, une seule fois. » Bouton : « Se connecter à PlayStation Network » ; lien : « Saisir l'identifiant à la main » | “Sign in to the PlayStation Network account to pair. KyberNow only reads the account's ID and online ID, once.” Button: “Sign in to PlayStation Network”; link: “Enter the ID by hand” |
+| Saisie à la main | Champs : « Identifiant du compte » et « Nom » (« Pour le reconnaître dans la liste. ») ; bouton : « Continuer » | Fields: “Account ID”, “Name” (“To recognise it in the list.”); button: “Continue” |
+| Identifiant non lu | « Identifiant du compte non lu : réessayez, ou saisissez-le à la main. » | “Couldn't read the account ID: try again, or enter it by hand.” |
+| Code | dessus, « Compte : {pseudo} » ; « Sur la console : Réglages › Système › Lecture à distance › Associer un appareil. Saisissez le code affiché. » Champ : « Code à 8 chiffres » ; bouton : « Associer » | “Account: {online ID}”; “On the console: Settings › System › Remote Play › Link Device. Enter the code shown.” Field: “8-digit code”; button: “Pair” |
 | Pas de réponse | « La console ne répond pas : gardez l'écran « Associer un appareil » ouvert. » | “The console isn't answering: keep the “Link Device” screen open.” |
 | Code refusé | « Code refusé : il change toutes les 5 minutes. » | “Code refused: it changes every 5 minutes.” |
 | Compte refusé | « La console refuse ce compte. » | “The console refuses this account.” |
 | Injoignable | « Console injoignable. » | “Console unreachable.” |
-| Saisie à la main | Champ : « Identifiant du compte » ; bouton : « Continuer » | Field: “Account ID”; button: “Continue” |
-| Identifiant non lu | « Identifiant du compte non lu : réessayez, ou saisissez-le à la main. » | “Couldn't read the account ID: try again, or enter it by hand.” |
+
+Un compte lu pendant une association est gardé, même si l'association échoue ensuite.
+
+**À l'accueil**, une carte par console, quel que soit le nombre de comptes. Associée avec plusieurs comptes : une puce « {pseudo} » à côté du bouton principal ouvre le choix du compte (le profil avec lequel la console ouvre la partie) ; retenu par console ; associée avec un seul : pas de puce. Les réglages restent ceux de la console, pour tous ses comptes. La console ne reconnaît plus un compte : cette association est effacée, et « Associer » revient si c'était la dernière.
+
+Comptes gardés d'une version précédente (un seul compte, sans pseudo) : « Compte PlayStation », à renommer, ou mis à jour en se reconnectant.
 
 **Réglages de la console** (engrenage à côté du bouton principal, libellé accessible « Réglages de {nom} » / “Settings for {name}”, même présentation que les réglages d'un ordinateur) :
 

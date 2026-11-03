@@ -155,6 +155,10 @@ enum LinkText {
     /// Plusieurs ordinateurs : bouton principal d'un ordinateur déjà en
     /// session (sa fenêtre passe devant).
     static var showSession: String { String(localized: "Afficher la session") }
+
+    /// Le bouton de l'accueil, le menu et le titre de la fenêtre d'ajout
+    /// (l'app a les consoles PlayStation).
+    static var addTitle: String { String(localized: "Ajouter un ordinateur ou une console") }
     /// Plusieurs ordinateurs : l'aide de « Se connecter », inactif quand
     /// quatre ordinateurs sont déjà en session.
     static var computersLimit: String { String(localized: "Quatre ordinateurs au plus en même temps.") }

@@ -59,11 +59,17 @@ public enum PlayStation {
         kn_ps_is_redirect(url.absoluteString)
     }
 
-    /// Identifiant du compte (base64) d'après l'adresse de retour. Bloque.
-    public static func account(redirect: URL) -> Result<String, AccountError> {
+    /// Un compte lu chez Sony : identifiant (base64) et pseudo PSN, s'il est donné.
+    public struct Account: Sendable, Equatable {
+        public var id: String
+        public var onlineID: String?
+    }
+
+    /// Le compte d'après l'adresse de retour de Sony. Bloque.
+    public static func account(redirect: URL) -> Result<Account, AccountError> {
         guard let text = Core.take(kn_ps_account(redirect.absoluteString)),
               let o = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any] else { return .failure(AccountError(detail: "")) }
-        if let id = o["account"] as? String { return .success(id) }
+        if let id = o["account"] as? String { return .success(Account(id: id, onlineID: o["online_id"] as? String)) }
         return .failure(AccountError(detail: o["error"] as? String ?? ""))
     }
 

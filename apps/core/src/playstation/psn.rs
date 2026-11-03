@@ -9,7 +9,8 @@
 //!    adresse (ou, dans le terminal, on la colle) et en tire le code
 //!    ([`code_from_redirect`]).
 //! 3. [`account_id`] échange le code contre un jeton, puis lit le `user_id`
-//!    du compte : c'est l'identifiant ([`PsnId::from_user_id`]).
+//!    du compte : c'est l'identifiant ([`PsnId::from_user_id`]) ; la même
+//!    réponse donne le pseudo (`online_id`), pour nommer le compte.
 //!
 //! Les identifiants de client sont ceux de l'app de lecture à distance de
 //! Sony pour Windows, repris de chiaki-ng.
@@ -90,9 +91,21 @@ fn basic_auth() -> String {
     format!("Basic {}", base64::engine::general_purpose::STANDARD.encode(raw))
 }
 
+/// Un compte lu chez Sony : son identifiant et son pseudo (s'il est donné).
+#[derive(Debug, Clone)]
+pub struct Account {
+    pub id: PsnId,
+    pub online_id: Option<String>,
+}
+
 /// Échange le code contre un jeton, puis lit l'identifiant du compte.
 /// Deux requêtes HTTPS : à appeler hors du fil de l'interface.
 pub fn account_id(code: &str) -> Result<PsnId, PsnError> {
+    account(code).map(|a| a.id)
+}
+
+/// Comme [`account_id`], avec le pseudo du compte.
+pub fn account(code: &str) -> Result<Account, PsnError> {
     let body = format!("grant_type=authorization_code&code={code}&redirect_uri={REDIRECT_URL}&");
     let token: serde_json::Value = match ureq::post(TOKEN_URL)
         .set("Authorization", &basic_auth())
@@ -122,7 +135,8 @@ pub fn account_id(code: &str) -> Result<PsnId, PsnError> {
         _ => None,
     }
     .ok_or_else(|| PsnError::Refused("pas de user_id dans la réponse".into()))?;
-    Ok(PsnId::from_user_id(user_id))
+    let online_id = info["online_id"].as_str().map(str::trim).filter(|s| !s.is_empty()).map(String::from);
+    Ok(Account { id: PsnId::from_user_id(user_id), online_id })
 }
 
 #[cfg(test)]

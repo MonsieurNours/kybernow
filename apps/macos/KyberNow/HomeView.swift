@@ -470,7 +470,7 @@ private struct Welcome: View {
                 .modifier(Rise(arrived: arrived, delay: 0.35))
             HStack(spacing: 14) {
                 Button { app.add() } label: {
-                    HStack(spacing: 12) { Icon("plus", size: 18, bold: true); Text("Ajouter un ordinateur") }
+                    HStack(spacing: 12) { Icon("plus", size: 18, bold: true); Text(LinkText.addTitle) }
                 }
                 .buttonStyle(PrimaryButton(height: 56))
                 // KyberNow Share : rejoindre le partage de quelqu'un, sans ordinateur à soi.
@@ -663,7 +663,8 @@ private struct AddCard: View {
             VStack(alignment: .leading, spacing: 12) {
                 Icon("plus", size: 22, bold: true).foregroundStyle(Theme.accent)
                 Spacer()
-                Text("Ajouter un ordinateur").font(Theme.sans(15, .semibold)).foregroundStyle(Theme.text)
+                Text(LinkText.addTitle).font(Theme.sans(15, .semibold)).foregroundStyle(Theme.text)
+                    .multilineTextAlignment(.leading)
             }
             .padding(16)
             .frame(width: cardSize.width, height: cardSize.height, alignment: .topLeading)

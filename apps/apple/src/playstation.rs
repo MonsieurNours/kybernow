@@ -79,14 +79,15 @@ pub unsafe extern "C" fn kn_ps_is_redirect(url: *const c_char) -> bool {
 
 /// Identifiant du compte d'après l'adresse de retour de Sony (deux
 /// requêtes HTTPS : hors du fil de l'interface). JSON : `{"account":
-/// "<base64>"}` ou `{"error": "<raison, pour le journal>"}`.
+/// "<base64>", "online_id": "<pseudo>" | null}` ou `{"error": "<raison,
+/// pour le journal>"}`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_ps_account(redirect_url: *const c_char) -> *mut c_char {
     let url = text(redirect_url);
     let result = match psn::code_from_redirect(&url) {
         None => json!({ "error": psn::PsnError::NoCode.to_string() }),
-        Some(code) => match psn::account_id(&code) {
-            Ok(id) => json!({ "account": id.to_base64() }),
+        Some(code) => match psn::account(&code) {
+            Ok(a) => json!({ "account": a.id.to_base64(), "online_id": a.online_id }),
             Err(e) => {
                 log::warn!("PlayStation : identifiant du compte non lu : {e}");
                 json!({ "error": e.to_string() })

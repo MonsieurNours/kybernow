@@ -1,8 +1,9 @@
 // Consoles PlayStation (docs/playstation.md ; textes : docs/link-ui.md,
-// « Consoles PlayStation ») : les consoles associées, gardées comme les
-// ordinateurs (préférences ; l'association, qui porte les clés, et
-// l'identifiant du compte PSN au Trousseau), et leur recherche sur le
-// réseau tant que l'accueil est à l'écran.
+// « Consoles PlayStation ») : les comptes PlayStation Network et les
+// consoles associées, gardés comme les ordinateurs (préférences ; les
+// identifiants des comptes et les associations, qui portent les clés, au
+// Trousseau : une association par console et par compte), et leur
+// recherche sur le réseau tant que l'accueil est à l'écran.
 
 import KyberKit
 import SwiftUI
@@ -26,8 +27,19 @@ struct PlayStationConsole: Codable, Identifiable, Hashable {
     var settings: String?
     /// Disposition du clavier et de la souris (JSON du cœur, `PSLayout` ; nil : par défaut).
     var layout: String?
+    /// Le compte choisi à l'accueil (la puce « {pseudo} »), parmi ceux associés.
+    var account: UUID?
 
     var hasHDR: Bool { model == "PS5" }
+}
+
+/// Un compte PlayStation Network gardé sur ce Mac (son identifiant base64
+/// est au Trousseau).
+struct PSNAccount: Codable, Identifiable, Hashable {
+    var id = UUID()
+    /// Pseudo PSN lu chez Sony, ou nom donné à la main ; nil : compte d'une
+    /// version précédente (« Compte PlayStation »).
+    var name: String?
 }
 
 // MARK: - Réglages d'une console
@@ -358,11 +370,50 @@ enum PSText {
     static var clickToPlay: String { String(localized: "Cliquez dans l'image pour jouer au clavier et à la souris") }
     static var releaseMouse: String { String(localized: "⌃⌥⌘M pour rendre la souris") }
 
+    // Comptes et ajout d'une console
+    static var tab: String { String(localized: "PlayStation") }
+    static var accountsTitle: String { String(localized: "Comptes PlayStation Network") }
+    static var noAccount: String { String(localized: "Aucun compte : ajoutez-en un pour associer une console.") }
+    static var addAccount: String { String(localized: "Ajouter un compte") }
+    static var alreadyHere: String { String(localized: "Ce compte est déjà là.") }
+    static var rename: String { String(localized: "Renommer") }
+    static var remove: String { String(localized: "Retirer") }
+    static var cancel: String { String(localized: "Annuler") }
+    /// Compte gardé d'une version précédente, sans pseudo.
+    static var legacyAccount: String { String(localized: "Compte PlayStation") }
+    /// « 2 consoles », « 1 console », « Aucune console ».
+    static func consoleCount(_ n: Int) -> String {
+        switch n {
+        case 0: return String(localized: "Aucune console")
+        case 1: return String(localized: "1 console")
+        default: return String(localized: "\(n) consoles")
+        }
+    }
+    static func removeQuestion(_ name: String, consoles n: Int) -> String {
+        switch n {
+        case 0: return String(localized: "Retirer le compte \(name) ?")
+        case 1: return String(localized: "Retirer le compte \(name) et sa console ?")
+        default: return String(localized: "Retirer le compte \(name) et ses \(n) consoles ?")
+        }
+    }
+    static var removeHelp: String { String(localized: "Ses associations sont effacées de cet appareil. Une console associée aussi avec un autre compte reste, avec cet autre compte.") }
+    static var consolesTitle: String { String(localized: "Consoles sur ce réseau") }
+    static var noConsole: String { String(localized: "Aucune console trouvée. Allumez-la ou mettez-la en veille, ou saisissez son adresse dans « Par adresse ».") }
+    static func pairedWith(_ names: [String]) -> String {
+        String(localized: "Associée : \(names.joined(separator: ", "))")
+    }
+    static var pairAnother: String { String(localized: "Associer avec un autre compte") }
+    static var addressHelp: String { String(localized: "L'adresse d'un ordinateur, ou d'une console PlayStation (par un VPN ou depuis un autre réseau).") }
+
     // Association
-    static var signInHelp: String { String(localized: "Connectez-vous à votre compte PlayStation Network. KyberNow lit seulement l'identifiant de votre compte, une seule fois.") }
+    static var whichAccount: String { String(localized: "Avec quel compte ?") }
+    static var signInHelp: String { String(localized: "Connectez-vous au compte PlayStation Network à associer. KyberNow lit seulement l'identifiant et le pseudo du compte, une seule fois.") }
     static var signIn: String { String(localized: "Se connecter à PlayStation Network") }
     static var byHand: String { String(localized: "Saisir l'identifiant à la main") }
     static var accountField: String { String(localized: "Identifiant du compte") }
+    static var nameField: String { String(localized: "Nom") }
+    static var nameHelp: String { String(localized: "Pour le reconnaître dans la liste.") }
+    static func accountLine(_ name: String) -> String { String(localized: "Compte : \(name)") }
     static var accountUnread: String { String(localized: "Identifiant du compte non lu : réessayez, ou saisissez-le à la main.") }
     static var codeHelp: String { String(localized: "Sur la console : Réglages › Système › Lecture à distance › Associer un appareil. Saisissez le code affiché.") }
     static var codeField: String { String(localized: "Code à 8 chiffres") }
@@ -397,17 +448,22 @@ enum PSText {
     }
 }
 
-/// La console à associer (feuille de l'association).
+/// La console à associer (feuille de l'association) ; sans console : un
+/// compte à ajouter (« Ajouter un compte »).
 struct PairTarget: Identifiable {
-    var found: PlayStation.Found
-    var id: String { found.hostID }
+    var found: PlayStation.Found?
+    var id: String { found?.hostID ?? "" }
 
-    /// Une console gardée qu'il faut associer de nouveau.
+    /// Une console gardée qu'il faut associer (de nouveau, ou avec un autre compte).
     init(console c: PlayStationConsole, live: PlayStation.Found?) {
         found = live ?? PlayStation.Found(address: c.address, hostID: c.hostID, name: c.name, model: c.model, state: "unknown", target: c.target, runningApp: nil)
     }
 
     init(found: PlayStation.Found) { self.found = found }
+
+    /// « Ajouter un compte », sans console.
+    static var newAccount: PairTarget { PairTarget() }
+    private init() { found = nil }
 }
 
 @MainActor
@@ -435,8 +491,15 @@ final class PlayStationStore: ObservableObject {
     }
 
     @Published private(set) var consoles: [PlayStationConsole] = []
-    /// Consoles associées (association au Trousseau), lues une fois.
-    @Published private(set) var paired: Set<UUID> = []
+    /// Comptes PlayStation Network gardés sur ce Mac, dans l'ordre d'ajout.
+    @Published private(set) var accounts: [PSNAccount] = []
+    /// Associations gardées (au Trousseau) : les comptes de chaque console.
+    @Published private(set) var pairings: [UUID: Set<UUID>] = [:]
+    /// Consoles associées avec un compte au moins.
+    var paired: Set<UUID> { Set(pairings.compactMap { $0.value.isEmpty ? nil : $0.key }) }
+    /// Adresses saisies dans « Par adresse » où une console a répondu :
+    /// cherchées en direct, en plus du réseau local.
+    @Published private(set) var addresses: [String] = []
     /// Dernière réponse de chaque console, par identifiant.
     @Published private(set) var found: [String: (at: Date, console: PlayStation.Found)] = [:]
     /// Une recherche au moins a abouti.
@@ -451,9 +514,14 @@ final class PlayStationStore: ObservableObject {
     var keySession: PlayStationSession? { sessions.values.first { $0.isKey } }
 
     private let key = "playstationConsoles"
-    private static let accountKey = "playstation.psn-account"
+    private let accountsKey = "playstationAccounts"
+    private let addressesKey = "playstationAddresses"
+    /// Le compte unique d'une version précédente (repris par `migrate`).
+    private static let legacyAccountKey = "playstation.psn-account"
     private let defaults: UserDefaults
     private let demo: Bool
+    /// Identifiants des comptes (base64), lus au Trousseau une fois.
+    private var accountIDs: [UUID: String] = [:]
     private var searching: Task<Void, Never>?
     /// Sans réponse depuis ce délai : hors ligne.
     private static let offlineAfter: TimeInterval = 12
@@ -464,53 +532,188 @@ final class PlayStationStore: ObservableObject {
         if let data = defaults.data(forKey: key), let saved = try? JSONDecoder().decode([PlayStationConsole].self, from: data) {
             consoles = saved
         }
-        if !demo { paired = Set(consoles.filter { Keychain.get(account: Self.secretKey($0.id)) != nil }.map(\.id)) }
+        if let data = defaults.data(forKey: accountsKey), let saved = try? JSONDecoder().decode([PSNAccount].self, from: data) {
+            accounts = saved
+        }
+        addresses = defaults.stringArray(forKey: addressesKey) ?? []
+        guard !demo else { return }
+        for a in accounts { accountIDs[a.id] = Keychain.get(account: Self.accountSecret(a.id)) }
+        migrate()
+        for c in consoles {
+            let list = accounts.filter { Keychain.get(account: Self.pairSecret(c.id, $0.id)) != nil }.map(\.id)
+            if !list.isEmpty { pairings[c.id] = Set(list) }
+        }
     }
 
-    private static func secretKey(_ id: UUID) -> String { "playstation.\(id.uuidString)" }
+    private static func accountSecret(_ id: UUID) -> String { "playstation.account.\(id.uuidString)" }
+    private static func pairSecret(_ console: UUID, _ account: UUID) -> String { "playstation.\(console.uuidString).\(account.uuidString)" }
+    /// L'association unique d'une version précédente.
+    private static func legacySecret(_ console: UUID) -> String { "playstation.\(console.uuidString)" }
 
     private func save() {
         if let data = try? JSONEncoder().encode(consoles) { defaults.set(data, forKey: key) }
     }
 
-    // MARK: - Compte PSN et associations
+    private func saveAccounts() {
+        if let data = try? JSONEncoder().encode(accounts) { defaults.set(data, forKey: accountsKey) }
+    }
 
-    /// Identifiant du compte PSN (base64), lu une fois pour toutes.
-    var accountID: String? {
-        get { demo ? nil : Keychain.get(account: Self.accountKey) }
-        set {
-            guard !demo else { return }
-            if let newValue { Keychain.set(newValue, account: Self.accountKey) } else { Keychain.delete(account: Self.accountKey) }
+    /// Version précédente (un seul compte, une association par console) :
+    /// le compte devient « Compte PlayStation », sans pseudo, et chaque
+    /// association devient la sienne. Rien n'est effacé avant d'avoir été
+    /// relu à sa nouvelle place ; relancée, elle ne refait rien.
+    private func migrate() {
+        guard let legacy = Keychain.get(account: Self.legacyAccountKey) else { return }
+        let account: PSNAccount
+        if let kept = accounts.first(where: { accountIDs[$0.id] == legacy }) {
+            account = kept
+        } else {
+            let a = PSNAccount(name: nil)
+            Keychain.set(legacy, account: Self.accountSecret(a.id))
+            guard Keychain.get(account: Self.accountSecret(a.id)) == legacy else { return }
+            accounts.append(a)
+            accountIDs[a.id] = legacy
+            saveAccounts()
+            account = a
         }
+        var moved = true
+        for i in consoles.indices {
+            let c = consoles[i]
+            guard let registered = Keychain.get(account: Self.legacySecret(c.id)) else { continue }
+            let to = Self.pairSecret(c.id, account.id)
+            if Keychain.get(account: to) == nil { Keychain.set(registered, account: to) }
+            guard Keychain.get(account: to) != nil else { moved = false; continue }
+            Keychain.delete(account: Self.legacySecret(c.id))
+            if consoles[i].account == nil { consoles[i].account = account.id }
+        }
+        save()
+        if moved { Keychain.delete(account: Self.legacyAccountKey) }
+        KyberLog.app.notice("PlayStation : compte d'une version précédente repris")
     }
 
-    func registered(_ c: PlayStationConsole) -> String? {
-        demo ? nil : Keychain.get(account: Self.secretKey(c.id))
-    }
+    // MARK: - Comptes PSN
 
-    /// Une console vient d'être associée : gardée (ou mise à jour).
+    /// Le nom d'un compte dans les listes : son pseudo, ou « Compte PlayStation ».
+    func name(_ a: PSNAccount) -> String { a.name ?? PSText.legacyAccount }
+
+    func account(_ id: UUID?) -> PSNAccount? { accounts.first { $0.id == id } }
+
+    /// Identifiant du compte (base64), pour associer.
+    func accountID(_ a: PSNAccount) -> String? { accountIDs[a.id] }
+
+    /// Un compte lu chez Sony ou saisi à la main : gardé. Même identifiant
+    /// qu'un compte gardé : son pseudo est mis à jour, sans doublon (`existed`).
     @discardableResult
-    func paired(_ f: PlayStation.Found, registered: String) -> PlayStationConsole {
+    func keep(accountID id: String, name: String?) -> (account: PSNAccount, existed: Bool) {
+        let name = name.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 }
+        if let i = accounts.firstIndex(where: { accountIDs[$0.id] == id }) {
+            if let name, accounts[i].name != name {
+                accounts[i].name = name
+                saveAccounts()
+            }
+            return (accounts[i], true)
+        }
+        let a = PSNAccount(name: name)
+        if !demo { Keychain.set(id, account: Self.accountSecret(a.id)) }
+        accountIDs[a.id] = id
+        accounts.append(a)
+        saveAccounts()
+        return (a, false)
+    }
+
+    func rename(_ a: PSNAccount, to name: String) {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, let i = accounts.firstIndex(where: { $0.id == a.id }) else { return }
+        accounts[i].name = name
+        saveAccounts()
+    }
+
+    /// Consoles associées avec ce compte.
+    func consoles(of a: PSNAccount) -> [PlayStationConsole] {
+        consoles.filter { pairings[$0.id]?.contains(a.id) == true }
+    }
+
+    /// « Retirer » : ses associations sont effacées ; une console qui n'en a
+    /// plus d'autre est retirée, une console associée aussi avec un autre
+    /// compte reste, avec cet autre compte.
+    func removeAccount(_ a: PSNAccount) {
+        for c in consoles(of: a) {
+            unpair(c, account: a.id)
+            if pairings[c.id] == nil { remove(c) }
+        }
+        for i in consoles.indices where consoles[i].account == a.id { consoles[i].account = nil }
+        save()
+        if !demo { Keychain.delete(account: Self.accountSecret(a.id)) }
+        accountIDs[a.id] = nil
+        accounts.removeAll { $0.id == a.id }
+        saveAccounts()
+    }
+
+    /// Comptes associés à cette console, dans l'ordre des comptes.
+    func pairedAccounts(_ c: PlayStationConsole) -> [PSNAccount] {
+        guard let set = pairings[c.id] else { return [] }
+        return accounts.filter { set.contains($0.id) }
+    }
+
+    /// Comptes pas encore associés à la console `hostID` (et dont l'identifiant est connu).
+    func unpairedAccounts(hostID: String) -> [PSNAccount] {
+        let set = console(hostID: hostID).flatMap { pairings[$0.id] } ?? []
+        return accounts.filter { !set.contains($0.id) && accountIDs[$0.id] != nil }
+    }
+
+    /// Le compte avec lequel la console ouvre la partie : celui choisi à
+    /// l'accueil, sinon le premier associé.
+    func chosenAccount(_ c: PlayStationConsole) -> PSNAccount? {
+        let list = pairedAccounts(c)
+        let chosen = console(c.id)?.account ?? c.account
+        return list.first { $0.id == chosen } ?? list.first
+    }
+
+    /// La puce « {pseudo} » : retenu pour la console.
+    func choose(_ a: PSNAccount, for c: PlayStationConsole) {
+        guard var c = console(c.id) else { return }
+        c.account = a.id
+        update(c)
+    }
+
+    // MARK: - Associations
+
+    /// L'association du compte choisi.
+    func registered(_ c: PlayStationConsole) -> String? {
+        chosenAccount(c).flatMap { registered(c, account: $0.id) }
+    }
+
+    func registered(_ c: PlayStationConsole, account: UUID) -> String? {
+        demo ? nil : Keychain.get(account: Self.pairSecret(c.id, account))
+    }
+
+    /// Une console vient d'être associée avec ce compte : gardée (ou mise à
+    /// jour), et ce compte choisi pour elle.
+    @discardableResult
+    func paired(_ f: PlayStation.Found, registered: String, account: UUID) -> PlayStationConsole {
         let hostID = PlayStation.hostID(ofRegistered: registered) ?? f.hostID
         var c = consoles.first { $0.hostID == hostID } ?? PlayStationConsole(name: f.name, hostID: hostID, model: f.model, address: f.address, target: f.target)
         c.name = f.name
         c.address = f.address
         c.target = f.target
-        if !demo { Keychain.set(registered, account: Self.secretKey(c.id)) }
+        c.account = account
+        if !demo { Keychain.set(registered, account: Self.pairSecret(c.id, account)) }
         if let i = consoles.firstIndex(where: { $0.id == c.id }) { consoles[i] = c } else { consoles.append(c) }
-        paired.insert(c.id)
+        pairings[c.id, default: []].insert(account)
         save()
         return c
     }
 
-    /// La console ne reconnaît plus ce Mac : « Associer » revient.
-    func unpair(_ c: PlayStationConsole) {
-        if !demo { Keychain.delete(account: Self.secretKey(c.id)) }
-        paired.remove(c.id)
+    /// La console ne reconnaît plus ce compte : son association est
+    /// effacée ; « Associer » revient si c'était la dernière.
+    func unpair(_ c: PlayStationConsole, account: UUID) {
+        if !demo { Keychain.delete(account: Self.pairSecret(c.id, account)) }
+        pairings[c.id]?.remove(account)
+        if pairings[c.id]?.isEmpty == true { pairings[c.id] = nil }
     }
 
     func remove(_ c: PlayStationConsole) {
-        unpair(c)
+        for a in pairings[c.id] ?? [] { unpair(c, account: a) }
         consoles.removeAll { $0.id == c.id }
         save()
     }
@@ -520,6 +723,8 @@ final class PlayStationStore: ObservableObject {
         consoles[i] = c
         save()
     }
+
+    func console(hostID: String) -> PlayStationConsole? { consoles.first { $0.hostID == hostID } }
 
     func console(_ id: UUID) -> PlayStationConsole? { consoles.first { $0.id == id } }
 
@@ -533,6 +738,21 @@ final class PlayStationStore: ObservableObject {
     func status(_ c: PlayStationConsole) -> Status {
         if let f = live(c) { return f.ready ? .on : .standby }
         return searched ? .offline : .searching
+    }
+
+    /// Toutes les consoles qui répondent (onglet « PlayStation », « Sur ce réseau »).
+    var onNetwork: [PlayStation.Found] {
+        let now = Date()
+        return found.values.filter { now.timeIntervalSince($0.at) < Self.offlineAfter }.map(\.console).sorted { $0.name < $1.name }
+    }
+
+    /// « Par adresse » : une console a répondu à cette adresse, cherchée en
+    /// direct ensuite.
+    func remember(address: String, found f: PlayStation.Found) {
+        found[f.hostID] = (Date(), f)
+        guard !addresses.contains(address) else { return }
+        addresses.append(address)
+        defaults.set(addresses, forKey: addressesKey)
     }
 
     /// Consoles qui répondent sur le réseau et pas encore gardées.
@@ -566,7 +786,8 @@ final class PlayStationStore: ObservableObject {
     }
 
     func searchOnce(wait: UInt32 = 2000) async {
-        let direct = consoles.map(\.address)
+        var direct = consoles.map(\.address)
+        direct += addresses.filter { !direct.contains($0) }
         let list = await Task.detached(priority: .utility) { PlayStation.search(direct: direct, wait: wait) }.value
         let now = Date()
         for f in list {
@@ -618,13 +839,15 @@ final class PlayStationStore: ObservableObject {
         settings.hdr = c.hasHDR && c.hdr && HDRDisplay.isHDR((NSApp.keyWindow ?? NSApp.mainWindow)?.screen ?? NSScreen.main)
         let settingsJSON = (try? JSONEncoder().encode(settings)).flatMap { String(data: $0, encoding: .utf8) } ?? Self.defaultSettings
         let id = c.id
+        let account = chosenAccount(c)?.id
         let session = PlayStationSession(console: console, address: address, registered: registered, settings: settingsJSON,
                                          layout: layoutJSON(c), fullScreen: settings.fullscreen,
                                          onFullScreen: { [weak self] on in self?.rememberFullScreen(on, id: id) }) { [weak self] s, end in
             guard let self else { return }
             self.sessions[s.console.id] = nil
-            // La fin se dit dans la fenêtre ; « Associer » revient si la console ne reconnaît plus ce Mac.
-            if end == .notPaired, let c = self.console(s.console.id) { self.unpair(c) }
+            // La fin se dit dans la fenêtre ; la console ne reconnaît plus ce
+            // compte : son association est effacée (« Associer » revient si c'était la dernière).
+            if end == .notPaired, let account, let c = self.console(s.console.id) { self.unpair(c, account: account) }
         }
         sessions[c.id] = session
         session.open()
@@ -692,4 +915,24 @@ final class PlayStationStore: ObservableObject {
         c.hdr = on
         update(c)
     }
+
+    #if DEBUG
+    /// Démonstration (`-demoPlayStation YES`) : deux comptes, une console
+    /// associée avec les deux (puce du compte), une autre sur le réseau.
+    func loadDemo() {
+        guard demo else { return }
+        let a = PSNAccount(name: "Matthieu_PSN"), b = PSNAccount(name: "Camille-92"), old = PSNAccount(name: nil)
+        accounts = [a, b, old]
+        accountIDs = [a.id: "AAAAAAAAAAA=", b.id: "AQEBAQEBAQE=", old.id: "AgICAgICAgI="]
+        let salon = PlayStation.Found(address: "192.168.1.110", hostID: "DEMO-SALON", name: "PS5 du salon", model: "PS5", state: "ready", target: "PS5_1", runningApp: "Astro Bot")
+        let lea = PlayStation.Found(address: "192.168.1.111", hostID: "DEMO-LEA", name: "PS5 de Léa", model: "PS5", state: "standby", target: "PS5_1", runningApp: nil)
+        var console = PlayStationConsole(name: salon.name, hostID: salon.hostID, model: salon.model, address: salon.address, target: salon.target)
+        console.account = b.id
+        consoles = [console]
+        pairings = [console.id: [a.id, b.id]]
+        let now = Date().addingTimeInterval(3600)
+        found = [salon.hostID: (now, salon), lea.hostID: (now, lea)]
+        searched = true
+    }
+    #endif
 }

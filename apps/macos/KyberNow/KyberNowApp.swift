@@ -176,6 +176,14 @@ final class AppModel: ObservableObject {
 
     /// Un QR code ou un lien d'invitation lu dans la feuille d'ajout : elle se
     /// ferme, l'ajout de l'ordinateur prêté s'ouvre à sa place.
+    /// Une console à associer depuis la fenêtre d'ajout (onglets
+    /// « PlayStation », « Sur ce réseau », « Par adresse ») : elle se ferme,
+    /// puis l'association s'ouvre à sa place.
+    func pair(fromAddSheet target: PairTarget) {
+        adding = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.playstation.pairing = target }
+    }
+
     func openInvite(fromAddSheet invite: LendInvite) {
         adding = false
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.inviting = invite }
@@ -382,6 +390,22 @@ final class AppModel: ObservableObject {
         if let raw = args.string(forKey: "section"), let s = ComputerSection(rawValue: raw) { section = s }
         if args.string(forKey: "screen") == "settings", let id = selectedID ?? ordered.first?.id { route = .settings(id) }
         if let v = args.string(forKey: "demoUpdate") { UpdateChannels.shared.available = v }
+        // Consoles PlayStation : `-demoPlayStation YES` (comptes et consoles de démonstration),
+        // `-demoAdd playstation|network|address` (la fenêtre d'ajout à cet onglet),
+        // `-demoPair <identifiant>` (l'association de cette console : DEMO-LEA, DEMO-SALON).
+        if args.bool(forKey: "demoPlayStation") {
+            playstation.loadDemo()
+            if let console = playstation.consoles.first { selectedID = console.id }
+        }
+        if let tab = args.string(forKey: "demoAdd") {
+            let tabs: [String: AddHostSheet.Tab] = ["playstation": .playstation, "network": .network, "address": .address]
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { self.add(tab: tabs[tab] ?? .network) }
+        }
+        if let host = args.string(forKey: "demoPair"), let f = playstation.onNetwork.first(where: { $0.hostID == host }) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                self.playstation.pairing = self.playstation.console(hostID: host).map { PairTarget(console: $0, live: f) } ?? PairTarget(found: f)
+            }
+        }
         // `-demoWake YES` : le réveil de l'ordinateur choisi lancé d'emblée.
         if args.bool(forKey: "demoWake"), let host = store.ordered.first(where: { $0.id == selectedID }) ?? ordered.first {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [store] in store.wake(host) }

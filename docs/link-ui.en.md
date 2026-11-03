@@ -502,18 +502,43 @@ For the chosen console, in this order:
 
 In the row: name and state. A console found on the network and not yet paired: “On your network”.
 
-**Pairing**, two steps, once per console (the first step once for all):
+**Accounts and adding a console.** Several PlayStation Network accounts on one device, each with its consoles; one console can be paired with several accounts (one profile per person on the console). Everything is managed in the add window: in the apps that have consoles, the home screen button, the menu and the window title become « Ajouter un ordinateur ou une console » / “Add a computer or a console”, and a “PlayStation” tab comes after “With a friend account”.
+
+| Item | French | English |
+|---|---|---|
+| Tab | « PlayStation » | “PlayStation” |
+| Accounts, title | « Comptes PlayStation Network » | “PlayStation Network accounts” |
+| One row per account | le pseudo PSN ; « {n} console(s) » ou « Aucune console » ; « Renommer », « Retirer » | the PSN online ID (read at the Sony sign-in; typed by hand: the given name); below “{n} console(s)” or “No console”; on the right “Rename” and “Remove” |
+| No account | « Aucun compte : ajoutez-en un pour associer une console. » | “No account: add one to pair a console.” |
+| Add | « Ajouter un compte » | “Add an account”: the Account step below |
+| Already there | « Ce compte est déjà là. » | same ID as a kept account: its online ID is updated, no duplicate; notice “This account is already here.” |
+| Remove | « Retirer le compte {nom} et ses {n} consoles ? », « Ses associations sont effacées de cet appareil. Une console associée aussi avec un autre compte reste, avec cet autre compte. », « Retirer », « Annuler » | confirmation “Remove the account {name} and its {n} consoles?” (one console: “… and its console?”; none: “Remove the account {name}?”), text “Its pairings are erased from this device. A console also paired with another account stays, with that other account.”, buttons “Remove” and “Cancel” |
+| Consoles, title | « Consoles sur ce réseau » ; « Aucune console trouvée. Allumez-la ou mettez-la en veille, ou saisissez son adresse dans « Par adresse ». » | “Consoles on this network”; empty: “No console found. Turn it on or put it in rest mode, or enter its address in “By address”.” |
+| One row per found console | « Associer » ; « Associée : {pseudos} », « Associer avec un autre compte » | name, model, state; not paired: “Pair”; paired: “Paired: {online IDs}” and “Pair with another account” (only if an account not yet paired with it remains) |
+
+Found consoles also appear in “On this network”, with the computers (row “{name} · PS5”, same “Pair” button), and on the home screen (“On your network”).
+
+**By address**: the same field as for a computer, help « L'adresse d'un ordinateur, ou d'une console PlayStation (par un VPN ou depuis un autre réseau). » / “The address of a computer, or of a PlayStation console (through a VPN or from another network).” The app looks for both a Station and a console at that address; a console that answers (on or in rest mode) opens its pairing. Its address is kept: the console is then searched directly at that address, as well as on the local network. The console is looked for first (1.5 s; a Station and a console don't answer at the same address), then the Station as before. Nothing answers: the tab's usual text; an address alone, without an Admin port, that doesn't answer: “Console unreachable.”
+
+**Pairing** (from the tab, “On this network”, “By address” or the home screen card):
 
 | Step | French | English |
 |---|---|---|
-| Compte | « Connectez-vous à votre compte PlayStation Network. KyberNow lit seulement l'identifiant de votre compte, une seule fois. » Bouton : « Se connecter à PlayStation Network » ; lien : « Saisir l'identifiant à la main » | “Sign in to your PlayStation Network account. KyberNow only reads your account ID, once.” Button: “Sign in to PlayStation Network”; link: “Enter the ID by hand” |
-| Code | « Sur la console : Réglages › Système › Lecture à distance › Associer un appareil. Saisissez le code affiché. » Champ : « Code à 8 chiffres » ; bouton : « Associer » | “On the console: Settings › System › Remote Play › Link Device. Enter the code shown.” Field: “8-digit code”; button: “Pair” |
-| Pas de réponse | « La console ne répond pas : gardez l'écran « Associer un appareil » ouvert. » | “The console isn't answering: keep the “Link Device” screen open.” |
-| Code refusé | « Code refusé : il change toutes les 5 minutes. » | “Code refused: it changes every 5 minutes.” |
-| Compte refusé | « La console refuse ce compte. » | “The console refuses this account.” |
-| Injoignable | « Console injoignable. » | “Console unreachable.” |
-| Saisie à la main | Champ : « Identifiant du compte » ; bouton : « Continuer » | Field: “Account ID”; button: “Continue” |
-| Identifiant non lu | « Identifiant du compte non lu : réessayez, ou saisissez-le à la main. » | “Couldn't read the account ID: try again, or enter it by hand.” |
+| Account choice (two or more accounts not yet paired with this console) | « Avec quel compte ? », « Ajouter un compte » | “Which account?”, one row per account, and “Add an account”; a single possible account: step skipped; no account: the Account step |
+| Account | « Connectez-vous au compte PlayStation Network à associer. KyberNow lit seulement l'identifiant et le pseudo du compte, une seule fois. » Bouton : « Se connecter à PlayStation Network » ; lien : « Saisir l'identifiant à la main » | “Sign in to the PlayStation Network account to pair. KyberNow only reads the account's ID and online ID, once.” Button: “Sign in to PlayStation Network”; link: “Enter the ID by hand” |
+| By hand | Champs : « Identifiant du compte », « Nom » (« Pour le reconnaître dans la liste. ») ; « Continuer » | Fields: “Account ID” and “Name” (“To recognise it in the list.”); button: “Continue” |
+| ID not read | « Identifiant du compte non lu : réessayez, ou saisissez-le à la main. » | “Couldn't read the account ID: try again, or enter it by hand.” |
+| Code | « Compte : {pseudo} » ; « Sur la console : Réglages › Système › Lecture à distance › Associer un appareil. Saisissez le code affiché. » Champ : « Code à 8 chiffres » ; bouton : « Associer » | above it, “Account: {online ID}”; “On the console: Settings › System › Remote Play › Link Device. Enter the code shown.” Field: “8-digit code”; button: “Pair” |
+| No answer | « La console ne répond pas : gardez l'écran « Associer un appareil » ouvert. » | “The console isn't answering: keep the “Link Device” screen open.” |
+| Code refused | « Code refusé : il change toutes les 5 minutes. » | “Code refused: it changes every 5 minutes.” |
+| Account refused | « La console refuse ce compte. » | “The console refuses this account.” |
+| Unreachable | « Console injoignable. » | “Console unreachable.” |
+
+An account read during a pairing is kept, even if the pairing then fails.
+
+**On the home screen**, one card per console, whatever the number of accounts. Paired with several accounts: a “{online ID}” chip next to the main button opens the account choice (the profile the console opens the game with); kept per console; paired with only one: no chip. The settings stay the console's, for all its accounts. The console no longer recognises an account: that pairing is erased, and “Pair” comes back if it was the last one.
+
+Accounts kept from an earlier version (a single account, without an online ID): « Compte PlayStation » / “PlayStation account”, to rename, or updated by signing in again.
 
 **Console settings** (gear next to the main button, accessible label “Settings for {name}”, laid out like a computer's settings):
 

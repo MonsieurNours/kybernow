@@ -1,9 +1,11 @@
 // Consoles PlayStation à l'accueil et leur association (textes :
 // docs/link-ui.md, « Consoles PlayStation ») : la console choisie (état,
-// nom, modèle, jeu en cours, bouton principal, puce « HDR »), sa carte dans
-// la rangée des ordinateurs, la carte « Sur le réseau » d'une console pas
-// encore associée, et la feuille de l'association en deux étapes (compte
-// PSN dans une fenêtre web, une fois pour toutes ; puis le code à 8 chiffres).
+// nom, modèle, jeu en cours, bouton principal, puce du compte, puce
+// « HDR »), sa carte dans la rangée des ordinateurs, la carte « Sur le
+// réseau » d'une console pas encore associée, l'onglet « PlayStation » de
+// la fenêtre d'ajout (comptes PSN, consoles trouvées), et la feuille de
+// l'association (choix du compte ; compte PSN dans une fenêtre web, une
+// fois par compte ; puis le code à 8 chiffres).
 
 import KyberKit
 import SwiftUI
@@ -97,6 +99,11 @@ struct ConsoleHero: View {
                     .buttonStyle(PrimaryButton(height: 56))
                     .disabled(true)
             }
+            // Associée avec plusieurs comptes : la puce « {pseudo} » ouvre le choix
+            // du compte (le profil avec lequel la console ouvre la partie).
+            if paired, store.pairedAccounts(console).count > 1, let chosen = store.chosenAccount(console) {
+                AccountChip(console: console, chosen: chosen, store: store)
+            }
             // La puce « HDR » : mêmes règles que pour un ordinateur (écran HDR ; PS5).
             if paired, console.hasHDR, screen.hdr {
                 HDRChipButton(on: console.hdr, available: true, help: HDRText.help) {
@@ -126,6 +133,59 @@ struct ConsoleHero: View {
             .buttonStyle(GhostButton(height: 48))
             .help(LinkText.settingsTitle(console.name))
             .accessibilityLabel(LinkText.settingsTitle(console.name))
+        }
+    }
+}
+
+/// La puce du compte, à côté du bouton principal : le compte choisi, un
+/// clic ouvre la liste des comptes associés à la console (menu du Mac, sous
+/// le pointeur ; un `Menu` de SwiftUI perdrait l'apparence des puces).
+private struct AccountChip: View {
+    let console: PlayStationConsole
+    let chosen: PSNAccount
+    @ObservedObject var store: PlayStationStore
+
+    var body: some View {
+        Button(action: open) {
+            HStack(spacing: 8) {
+                Icon("user", size: 16, bold: true)
+                Text(verbatim: store.name(chosen)).lineLimit(1)
+                Icon("caret-down", size: 12, bold: true)
+            }
+            .font(Theme.sans(14, .semibold))
+            .foregroundStyle(Theme.text2)
+            .padding(.horizontal, 16)
+            .frame(height: 40)
+            .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.line2))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(store.name(chosen))
+    }
+
+    private func open() {
+        let picker = Picker(store: store, console: console)
+        let menu = NSMenu()
+        for a in store.pairedAccounts(console) {
+            let item = NSMenuItem(title: store.name(a), action: #selector(Picker.pick(_:)), keyEquivalent: "")
+            item.target = picker
+            item.representedObject = a
+            item.state = a.id == chosen.id ? .on : .off
+            menu.addItem(item)
+        }
+        // Le menu tient la main jusqu'au choix : `picker` vit jusque-là.
+        menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+        withExtendedLifetime(picker) {}
+    }
+
+    @MainActor
+    private final class Picker: NSObject {
+        let store: PlayStationStore
+        let console: PlayStationConsole
+        init(store: PlayStationStore, console: PlayStationConsole) { (self.store, self.console) = (store, console) }
+        @objc func pick(_ item: NSMenuItem) {
+            if let a = item.representedObject as? PSNAccount { store.choose(a, for: console) }
         }
     }
 }
@@ -210,12 +270,19 @@ struct PairConsoleSheet: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var store = AppModel.shared.playstation
     let target: PairTarget
+    /// « Ajouter un compte » (sans console) : le compte est gardé, `true` s'il était déjà là.
+    var accountAdded: ((Bool) -> Void)?
 
-    private enum Step { case account, code }
+    private enum Step { case choose, account, code }
     @State private var step: Step = .account
     @State private var web = false
     @State private var byHand = false
     @State private var manualID = ""
+    @State private var manualName = ""
+    /// Le compte avec lequel associer (étape du code).
+    @State private var account: PSNAccount?
+    /// Le compte lu était déjà gardé : « Ce compte est déjà là. »
+    @State private var already = false
     @State private var code = ""
     @State private var busy = false
     @State private var error: String?
@@ -226,13 +293,19 @@ struct PairConsoleSheet: View {
         Data(base64Encoded: manualID.trimmingCharacters(in: .whitespaces))?.count == 8
     }
     private var digits: String { code.filter(\.isNumber) }
+    /// Comptes qu'on peut encore associer à cette console.
+    private var free: [PSNAccount] { target.found.map { store.unpairedAccounts(hostID: $0.hostID) } ?? [] }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(verbatim: target.found.name).font(Theme.display(30)).foregroundStyle(Theme.text)
-                    Text(verbatim: target.found.model).font(Theme.sans(14)).foregroundStyle(Theme.muted)
+                    if let found = target.found {
+                        Text(verbatim: found.name).font(Theme.display(30)).foregroundStyle(Theme.text)
+                        Text(verbatim: found.model).font(Theme.sans(14)).foregroundStyle(Theme.muted)
+                    } else {
+                        Text(PSText.addAccount).font(Theme.display(30)).foregroundStyle(Theme.text)
+                    }
                 }
                 Spacer()
                 Button { dismiss() } label: { Icon("x", size: 15, bold: true) }
@@ -241,7 +314,8 @@ struct PairConsoleSheet: View {
                     .accessibilityLabel(StationText.cancel)
             }
             switch step {
-            case .account: account
+            case .choose: choose
+            case .account: accountStep
             case .code: codeStep
             }
             if let error { Notice(kind: .warn, text: error) }
@@ -256,13 +330,42 @@ struct PairConsoleSheet: View {
         }
         .preferredColorScheme(.dark)
         .onAppear {
-            // Le compte se lit une fois pour toutes.
-            step = store.accountID == nil ? .account : .code
+            // Deux comptes ou plus pas encore associés : le choix ; un seul : le code ; aucun : l'étape Compte.
+            switch target.found == nil ? 0 : free.count {
+            case 0: step = .account
+            case 1: account = free[0]; step = .code
+            default: step = .choose
+            }
             codeFocused = step == .code
         }
     }
 
-    @ViewBuilder private var account: some View {
+    // « Avec quel compte ? »
+    @ViewBuilder private var choose: some View {
+        Text(PSText.whichAccount).font(Theme.display(22)).foregroundStyle(Theme.text)
+        VStack(spacing: 8) {
+            ForEach(free) { a in
+                Button {
+                    account = a
+                    error = nil
+                    step = .code
+                    codeFocused = true
+                } label: {
+                    PSListRow(title: store.name(a), detail: PSText.consoleCount(store.consoles(of: a).count)) {
+                        Icon("arrow-right", size: 16, bold: true).foregroundStyle(Theme.text2)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        Button { error = nil; step = .account } label: {
+            HStack(spacing: 8) { Icon("plus", size: 15, bold: true); Text(PSText.addAccount) }
+        }
+        .buttonStyle(GhostButton(height: 40))
+    }
+
+    @ViewBuilder private var accountStep: some View {
         Text(PSText.signInHelp).font(Theme.sans(14)).foregroundStyle(Theme.text2)
             .fixedSize(horizontal: false, vertical: true)
         if web {
@@ -281,9 +384,17 @@ struct PairConsoleSheet: View {
             .font(Theme.sans(13))
             .foregroundStyle(Theme.accentLight)
         if byHand {
-            HStack(alignment: .bottom, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
                 LabeledField(label: PSText.accountField, text: $manualID, prompt: "AbCdEfGhIjk=", mono: true)
                     .onSubmit(useManualID)
+                VStack(alignment: .leading, spacing: 6) {
+                    LabeledField(label: PSText.nameField, text: $manualName)
+                        .onSubmit(useManualID)
+                    Text(PSText.nameHelp).font(Theme.sans(12)).foregroundStyle(Theme.faint)
+                }
+            }
+            HStack {
+                Spacer()
                 Button(String(localized: "Continuer"), action: useManualID)
                     .buttonStyle(PrimaryButton(height: 44))
                     .disabled(!manualValid)
@@ -292,6 +403,13 @@ struct PairConsoleSheet: View {
     }
 
     @ViewBuilder private var codeStep: some View {
+        if let account {
+            HStack(spacing: 8) {
+                Icon("user", size: 15, bold: true).foregroundStyle(Theme.accent)
+                Text(verbatim: PSText.accountLine(store.name(account))).font(Theme.sans(14, .semibold)).foregroundStyle(Theme.text)
+            }
+        }
+        if already { Notice(kind: .info, text: PSText.alreadyHere) }
         Text(PSText.codeHelp).font(Theme.sans(14)).foregroundStyle(Theme.text2)
             .fixedSize(horizontal: false, vertical: true)
         TextField(text: $code, prompt: Text(verbatim: "1234 5678").foregroundColor(Theme.ghost)) { EmptyView() }
@@ -325,13 +443,26 @@ struct PairConsoleSheet: View {
 
     private func useManualID() {
         guard manualValid else { return }
-        store.accountID = manualID.trimmingCharacters(in: .whitespaces)
+        kept(manualID.trimmingCharacters(in: .whitespaces), name: manualName)
+    }
+
+    /// Un compte lu ou saisi : gardé tout de suite (même si l'association
+    /// échoue ensuite), puis le code ; sans console, la feuille se ferme.
+    private func kept(_ id: String, name: String?) {
+        let (a, existed) = store.keep(accountID: id, name: name)
+        guard target.found != nil else {
+            accountAdded?(existed)
+            dismiss()
+            return
+        }
+        account = a
+        already = existed
         error = nil
         step = .code
         codeFocused = true
     }
 
-    /// Sony a rendu l'adresse de retour : l'identifiant en est tiré (deux requêtes).
+    /// Sony a rendu l'adresse de retour : l'identifiant et le pseudo en sont tirés (deux requêtes).
     private func signedIn(_ url: URL) {
         guard !busy else { return }
         busy = true
@@ -340,11 +471,8 @@ struct PairConsoleSheet: View {
             busy = false
             web = false
             switch result {
-            case let .success(id):
-                store.accountID = id
-                error = nil
-                step = .code
-                codeFocused = true
+            case let .success(read):
+                kept(read.id, name: read.onlineID)
             case let .failure(e):
                 KyberLog.app.notice("PlayStation : identifiant du compte non lu (\(e.detail, privacy: .public))")
                 error = PSText.accountUnread
@@ -354,21 +482,141 @@ struct PairConsoleSheet: View {
     }
 
     private func pair() {
-        guard digits.count == 8, !busy, let account = store.accountID, let pin = UInt32(digits) else { return }
+        guard digits.count == 8, !busy, let found = target.found, let account, let id = store.accountID(account), let pin = UInt32(digits) else { return }
         busy = true
         error = nil
-        let found = target.found
         Task {
-            let result = await Task.detached { PlayStation.regist(address: found.address, target: found.target, account: account, pin: pin) }.value
+            let result = await Task.detached { PlayStation.regist(address: found.address, target: found.target, account: id, pin: pin) }.value
             busy = false
             switch result {
             case let .success(registered):
-                let console = store.paired(found, registered: registered)
+                let console = store.paired(found, registered: registered, account: account.id)
                 app.selectedID = console.id
                 dismiss()
             case let .failure(e):
                 error = PSText.regist(e)
             }
+        }
+    }
+}
+
+/// Une ligne des listes de consoles et de comptes (même présentation que
+/// les ordinateurs de « Sur ce réseau »).
+struct PSListRow<Trailing: View>: View {
+    let title: String
+    var detail: String?
+    var lit = false
+    @ViewBuilder let trailing: () -> Trailing
+
+    var body: some View {
+        HStack(spacing: 16) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(verbatim: title).font(Theme.sans(16, .semibold)).foregroundStyle(Theme.text).lineLimit(1)
+                if let detail {
+                    Text(verbatim: detail).font(Theme.sans(13)).foregroundStyle(Theme.muted).lineLimit(2)
+                }
+            }
+            Spacer(minLength: 12)
+            trailing()
+        }
+        .padding(.horizontal, 18).padding(.vertical, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(lit ? Theme.accentSoft.opacity(0.35) : Theme.well, in: RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(lit ? Theme.accentLine : Theme.line))
+    }
+}
+
+/// Une console trouvée (onglets « PlayStation » et « Sur ce réseau ») :
+/// « {nom} · PS5 », son état ; pas associée : « Associer » ; associée :
+/// « Associée : {pseudos} » et, s'il reste un compte, « Associer avec un autre compte ».
+struct ConsoleFoundRow: View {
+    let found: PlayStation.Found
+    @ObservedObject var store: PlayStationStore
+    let pair: (PairTarget) -> Void
+
+    var body: some View {
+        let kept = store.console(hostID: found.hostID)
+        let accounts = kept.map { store.pairedAccounts($0) } ?? []
+        let state = found.ready ? PSText.on : PSText.standby
+        PSListRow(title: "\(found.name) · \(found.model)",
+                  detail: accounts.isEmpty ? "\(state) · \(found.address)" : "\(state) · \(PSText.pairedWith(accounts.map { store.name($0) }))",
+                  lit: accounts.isEmpty) {
+            if accounts.isEmpty {
+                Button(PSText.pair) { pair(target(kept)) }
+                    .buttonStyle(PrimaryButton(height: 38))
+            } else if !store.unpairedAccounts(hostID: found.hostID).isEmpty {
+                Button(PSText.pairAnother) { pair(target(kept)) }
+                    .buttonStyle(GhostButton(height: 38))
+            }
+        }
+    }
+
+    private func target(_ kept: PlayStationConsole?) -> PairTarget {
+        kept.map { PairTarget(console: $0, live: found) } ?? PairTarget(found: found)
+    }
+}
+
+/// Onglet « PlayStation » de la fenêtre d'ajout : les comptes PlayStation
+/// Network, puis les consoles sur ce réseau.
+struct PlayStationTab: View {
+    @EnvironmentObject var app: AppModel
+    @ObservedObject private var store = AppModel.shared.playstation
+    @State private var adding = false
+    @State private var already = false
+    @State private var renaming: PSNAccount?
+    @State private var newName = ""
+    @State private var removing: PSNAccount?
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(PSText.accountsTitle).font(Theme.display(17, .semibold)).foregroundStyle(Theme.text)
+                if store.accounts.isEmpty {
+                    Text(PSText.noAccount).font(Theme.sans(13)).foregroundStyle(Theme.faint)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                ForEach(store.accounts) { a in
+                    PSListRow(title: store.name(a), detail: PSText.consoleCount(store.consoles(of: a).count)) {
+                        Button(PSText.rename) { newName = store.name(a); renaming = a }
+                            .buttonStyle(GhostButton(height: 34))
+                        Button(PSText.remove) { removing = a }
+                            .buttonStyle(GhostButton(height: 34))
+                    }
+                }
+                if already { Notice(kind: .info, text: PSText.alreadyHere) }
+                Button { already = false; adding = true } label: {
+                    HStack(spacing: 8) { Icon("plus", size: 15, bold: true); Text(PSText.addAccount) }
+                }
+                .buttonStyle(GhostButton(height: 40))
+
+                Text(PSText.consolesTitle).font(Theme.display(17, .semibold)).foregroundStyle(Theme.text).padding(.top, 14)
+                let list = store.onNetwork
+                if list.isEmpty {
+                    Text(PSText.noConsole).font(Theme.sans(13)).foregroundStyle(Theme.faint)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                ForEach(list, id: \.hostID) { f in
+                    ConsoleFoundRow(found: f, store: store) { app.pair(fromAddSheet: $0) }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxHeight: 460)
+        .sheet(isPresented: $adding) {
+            PairConsoleSheet(target: .newAccount) { existed in already = existed }
+                .environmentObject(app)
+        }
+        .alert(PSText.rename, isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } }), presenting: renaming) { a in
+            TextField(PSText.nameField, text: $newName)
+            Button(PSText.rename) { store.rename(a, to: newName); renaming = nil }
+            Button(PSText.cancel, role: .cancel) { renaming = nil }
+        }
+        .alert(removing.map { PSText.removeQuestion(store.name($0), consoles: store.consoles(of: $0).count) } ?? "",
+               isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }), presenting: removing) { a in
+            Button(PSText.remove, role: .destructive) { store.removeAccount(a); removing = nil }
+            Button(PSText.cancel, role: .cancel) { removing = nil }
+        } message: { _ in
+            Text(PSText.removeHelp)
         }
     }
 }
