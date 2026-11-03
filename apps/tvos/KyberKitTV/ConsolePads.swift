@@ -8,7 +8,7 @@
 // `GCDualSenseAdaptiveTrigger`).
 //
 // Pont : `kn_ps_pad_*` (apps/apple/src/playstation.rs), crochet du cœur
-// `gamepads::set_console_feedback`.
+// `gamepads::set_app_feedback` (posé le temps de la partie seulement).
 
 @_implementationOnly import CKyber
 @_implementationOnly import CKyberNow

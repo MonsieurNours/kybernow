@@ -673,13 +673,13 @@ fn triggers(type_left: u8, left: &[u8; 10], type_right: u8, right: &[u8; 10], pc
     let (type_right, right) = dualsense::scale_trigger(type_right, right, pct);
     let report = trigger_report(type_left, &left, type_right, &right);
     for p in gamepads::global().pads().iter().filter(|p| is_dualsense(p)) {
-        gamepads::console_effect(p.id, report.clone());
+        gamepads::effect(p.id, report.clone());
     }
 }
 
 fn rumble16(large: u16, small: u16, ms: i32) {
     for p in gamepads::global().pads() {
-        gamepads::console_rumble(GamepadRumble { id: p.id, large_motor: large, small_motor: small, duration_ms: ms });
+        gamepads::rumble(GamepadRumble { id: p.id, large_motor: large, small_motor: small, duration_ms: ms });
     }
 }
 
@@ -725,7 +725,7 @@ impl Drop for ReleaseSdl {
 fn rumble(left: u8, right: u8, pct: u8) {
     let (large, small) = (dualsense::scale_rumble(left as u16 * 257, pct), dualsense::scale_rumble(right as u16 * 257, pct));
     for p in gamepads::global().pads() {
-        gamepads::console_rumble(GamepadRumble {
+        gamepads::rumble(GamepadRumble {
             id: p.id,
             large_motor: large,
             small_motor: small,
