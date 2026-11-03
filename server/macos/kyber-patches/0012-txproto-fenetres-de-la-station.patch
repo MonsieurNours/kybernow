@@ -1,0 +1,27 @@
+diff --git a/subprojects/txproto/src/iosys_screencapturekit.m b/subprojects/txproto/src/iosys_screencapturekit.m
+--- a/subprojects/txproto/src/iosys_screencapturekit.m
++++ b/subprojects/txproto/src/iosys_screencapturekit.m
+@@ -940,19 +940,12 @@
+         return nil;
+     }
+ 
+-    SCRunningApplication *selfApp = nil;
+-    NSString *bundleID = [[NSBundle mainBundle] bundleIdentifier];
+-    for (SCRunningApplication *app in contentSnap.applications) {
+-        if ([app.bundleIdentifier isEqualToString:bundleID]) {
+-            selfApp = app;
+-            break;
+-        }
+-    }
+-    NSArray *excluded = selfApp ? @[selfApp] : @[];
++    /* KyberNow : rien n'est retiré de l'image. kyavserver n'a pas de fenêtre,
++     * et son paquet est celui de KyberNow Station : en retirer l'app cachait
++     * le lanceur du prêt, le menu de l'icône et les fenêtres de la Station. */
+     return [[SCContentFilter alloc]
+             initWithDisplay:display
+-            excludingApplications:excluded
+-            exceptingWindows:@[]];
++            excludingWindows:@[]];
+ }
+ 
+ static int sck_run_start_completion(SCStream *stream, IOSysEntry *entry)
