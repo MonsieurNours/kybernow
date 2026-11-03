@@ -94,9 +94,15 @@ enum Command {
         /// Port d'écoute du serveur Kyber (TCP et UDP)
         #[arg(long)]
         kyber_port: u16,
-        /// Encodeur vidéo (nvenc, x264, amf, qsv)
+        /// Encodeur vidéo (nvenc, x264, amf, qsv, videotoolbox)
         #[arg(long)]
         encoder: Option<String>,
+        /// Écran virtuel : `off` si l'installation ne le veut pas (Mac : option décochée)
+        #[arg(long)]
+        virtual_display: Option<crate::display::Trigger>,
+        /// Son sur les appareils : `off` si l'installation ne le veut pas
+        #[arg(long)]
+        virtual_audio: Option<crate::display::Trigger>,
     },
     /// Amène kyber-admin.toml au format de cette version (fait aussi à chaque démarrage)
     Migrate {
@@ -651,7 +657,9 @@ fn main() -> Result<()> {
     let data_dir = cli.run.data_dir.clone().unwrap_or_else(settings::default_data_dir);
 
     match cli.command {
-        Some(Command::Init { user, kyber_port, encoder }) => init(&cli.run, &data_dir, &user, kyber_port, encoder),
+        Some(Command::Init { user, kyber_port, encoder, virtual_display, virtual_audio }) => {
+            init(&cli.run, &data_dir, &user, kyber_port, encoder, (virtual_display, virtual_audio))
+        }
         Some(Command::DisplayAgent { action }) => display_agent(action),
         Some(Command::Update { action }) => update::apply::run(action, &data_dir),
         Some(Command::RestartStation) => station::run(&data_dir),
@@ -677,7 +685,14 @@ fn main() -> Result<()> {
     }
 }
 
-fn init(args: &RunArgs, data_dir: &std::path::Path, user: &str, kyber_port: u16, encoder: Option<String>) -> Result<()> {
+fn init(
+    args: &RunArgs,
+    data_dir: &std::path::Path,
+    user: &str,
+    kyber_port: u16,
+    encoder: Option<String>,
+    (virtual_display, virtual_audio): (Option<display::Trigger>, Option<display::Trigger>),
+) -> Result<()> {
     let password = std::env::var("KYBERNOW_PASSWORD").context("variable KYBERNOW_PASSWORD absente")?;
     let kyber_dir = args
         .kyber_dir
@@ -708,6 +723,12 @@ fn init(args: &RunArgs, data_dir: &std::path::Path, user: &str, kyber_port: u16,
         tls::publish_fingerprint(&fp, &kyber_dir);
     }
     s.kyber_dir = Some(kyber_dir);
+    if let Some(trigger) = virtual_display {
+        s.virtual_display.trigger = trigger;
+    }
+    if let Some(trigger) = virtual_audio {
+        s.virtual_audio.trigger = trigger;
+    }
     if let Some(listen) = &args.listen {
         listen.parse::<SocketAddr>().context("adresse d'écoute invalide")?;
         s.listen = Some(listen.clone());

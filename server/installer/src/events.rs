@@ -9,6 +9,8 @@ pub enum CheckStatus {
     Ok,
     Warn,
     Error,
+    /// Renseignement sans rien à corriger (Mac : sortie son à ajouter, installation en place).
+    Info,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

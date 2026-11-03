@@ -36,6 +36,8 @@ pub enum Vendor {
     Nvidia,
     Amd,
     Intel,
+    /// Puce Apple (Station Mac) : GPU et encodeur VideoToolbox de la puce.
+    Apple,
 }
 
 impl Vendor {
@@ -53,6 +55,7 @@ impl Vendor {
             Self::Nvidia => "Carte NVIDIA",
             Self::Amd => "Carte AMD",
             Self::Intel => "Carte Intel",
+            Self::Apple => "Puce Apple",
         }
     }
 }
@@ -223,6 +226,17 @@ pub fn status() -> Option<GpuStatus> {
             .collect::<Vec<_>>()
     };
     add_nvml(&mut devices);
+    // Mac : la puce Apple (« Apple M4 Max »), son GPU et son encodeur.
+    if cfg!(target_os = "macos") && devices.is_empty() {
+        let name = std::process::Command::new("/usr/sbin/sysctl")
+            .args(["-n", "machdep.cpu.brand_string"])
+            .output()
+            .ok()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .filter(|n| n.starts_with("Apple"))
+            .unwrap_or_else(|| Vendor::Apple.fallback_name().to_string());
+        devices.push(GpuDevice::new(Vendor::Apple, name, None));
+    }
     let driver = devices.first()?.driver.clone();
     Some(GpuStatus { driver, devices })
 }
@@ -273,6 +287,8 @@ fn ten_bit_encoder(vendor: Vendor, name: &str, device_id: Option<u16>) -> bool {
                 None => true,
             }
         }
+        // Toutes les puces Apple encodent le HEVC Main 10.
+        Vendor::Apple => true,
         Vendor::Intel => {
             if n.contains("UHD") || n.contains("IRIS XE") || n.contains("IRIS PLUS") || n.contains("ARC") {
                 return true;

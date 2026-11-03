@@ -98,8 +98,19 @@ fn system() -> Option<String> {
     }
 }
 
-/// Hors Windows (essais sur Mac) : français, sauf `KYBERNOW_LANG`.
-#[cfg(not(windows))]
+/// Mac : première langue préférée de l'utilisateur (`AppleLanguages`, par
+/// exemple `"fr-FR"`), comme les apps de macOS.
+#[cfg(target_os = "macos")]
+fn system() -> Option<String> {
+    let out = std::process::Command::new("/usr/bin/defaults").args(["read", "-g", "AppleLanguages"]).output().ok()?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    text.split('"').nth(1).map(str::to_string).or_else(|| {
+        text.lines().map(|l| l.trim().trim_end_matches(',')).find(|l| !l.is_empty() && *l != "(" && *l != ")").map(str::to_string)
+    })
+}
+
+/// Ailleurs (essais) : français, sauf `KYBERNOW_LANG`.
+#[cfg(not(any(windows, target_os = "macos")))]
 fn system() -> Option<String> {
     None
 }

@@ -2,7 +2,7 @@
 //!
 //! Sur un Mac, Admin est soit une vraie Station (Kyber installé en
 //! LaunchAgent : `KYBERNOW_KYBER_PLIST`, sinon
-//! `/Library/LaunchAgents/fr.leslignesclaires.kybernow.station.kyber.plist`),
+//! `~/Library/LaunchAgents/fr.leslignesclaires.kybernow.station.kyber.plist`),
 //! soit le Mac de développement, où tout reste simulé (tests, interface).
 //! [`is_station`] le dit, une fois pour toutes au démarrage.
 //!
@@ -27,9 +27,17 @@ pub fn kyber_plist() -> Option<&'static Path> {
             if !cfg!(target_os = "macos") {
                 return None;
             }
+            // L'installateur Mac le pose dans les LaunchAgents de l'utilisateur
+            // et le redit à Admin par `KYBERNOW_KYBER_PLIST`.
+            // Les tests ne regardent pas la Station installée sur le Mac qui les lance.
+            let installed = (!cfg!(test))
+                .then(|| std::env::var_os("HOME"))
+                .flatten()
+                .map(|h| PathBuf::from(h).join(format!("Library/LaunchAgents/{KYBER_LABEL}.plist")));
             let path = std::env::var_os(PLIST_ENV)
                 .filter(|p| !p.is_empty())
                 .map(PathBuf::from)
+                .or(installed)
                 .unwrap_or_else(|| PathBuf::from(format!("/Library/LaunchAgents/{KYBER_LABEL}.plist")));
             path.is_file().then_some(path)
         })

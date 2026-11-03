@@ -24,7 +24,7 @@ path = "src/bin/ui.rs"
 required-features = ["ui"]
 
 [features]
-ui = ["dep:wry", "dep:tao", "dep:rust-embed", "dep:mime_guess"]
+ui = ["dep:wry", "dep:tao", "dep:rust-embed", "dep:mime_guess", "dep:muda", "dep:objc2-app-kit", "dep:objc2-foundation"]
 
 [dependencies]
 anyhow = "1.0.104"
@@ -40,6 +40,14 @@ mime_guess = { version = "2.0.5", optional = true }
 rust-embed = { version = "8.13.0", optional = true }
 tao = { version = "0.37.1", optional = true }
 wry = { version = "0.57.0", optional = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+# Menus de l'app (Édition : copier-coller dans les champs de la fenêtre).
+muda = { version = "0.17.2", optional = true }
+# Feux de la fenêtre posés sur la colonne de la maquette (NSWindow).
+objc2-app-kit = { version = "0.3", optional = true, default-features = false, features = ["std", "NSResponder", "NSView", "NSWindow", "NSControl", "NSButton"] }
+objc2-foundation = { version = "0.3", optional = true, default-features = false, features = ["std", "NSGeometry"] }
 
 [target."cfg(windows)".dependencies]
 windows-sys = { version = "0.61.2", features = [

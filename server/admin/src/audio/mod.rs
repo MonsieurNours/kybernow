@@ -84,9 +84,13 @@ struct Active {
 
 trait Backend: Send + Sync {
     fn status(&self) -> Result<Value>;
-    /// Ce système a une sortie son virtuelle (faux : Station Mac pour l'instant).
+    /// Ce système a une sortie son virtuelle (Station Mac : le pilote KyberNow est installé).
     fn supported(&self) -> bool {
         true
+    }
+    /// Sortie son simulée (développement hors Windows et hors Station Mac).
+    fn simulated(&self) -> bool {
+        false
     }
     /// Route le son vers les haut-parleurs virtuels ; renvoie de quoi revenir en arrière
     /// et le nombre de canaux obtenu.
@@ -247,7 +251,7 @@ impl Router {
             Err(e) => json!({ "error": format!("{e:#}") }),
         };
         json!({
-            "supported": cfg!(windows),
+            "supported": !self.backend.simulated() && self.backend.supported(),
             "settings": *self.settings.lock().unwrap(),
             "devices": devices,
             "session": active,
@@ -313,6 +317,9 @@ struct Simulated;
 
 #[cfg(not(windows))]
 impl Backend for Simulated {
+    fn simulated(&self) -> bool {
+        true
+    }
     fn status(&self) -> Result<Value> {
         Ok(json!({
             "speakers": { "id": "sim-speakers", "name": "Haut-parleurs (Steam Streaming Speakers)", "channels": 2 },

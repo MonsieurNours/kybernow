@@ -61,7 +61,7 @@ use serde_json::{Value, json};
 
 use crate::i18n::Msg;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, clap::ValueEnum)]
 #[serde(rename_all = "snake_case")]
 pub enum Trigger {
     /// Jamais d'écran virtuel.
@@ -863,6 +863,10 @@ trait Backend: Send + Sync {
     /// Ce système peut créer des écrans virtuels (faux : Station Mac sans agent).
     fn supported(&self) -> bool {
         true
+    }
+    /// Pilote simulé (développement hors Windows et hors Station Mac).
+    fn simulated(&self) -> bool {
+        false
     }
     /// Contournements propres à SudoVDA sous Windows, pour plusieurs écrans :
     /// pointeur agrandi et capture WGC des écrans secondaires (faux sur Mac).
@@ -1924,7 +1928,7 @@ impl Manager {
             Err(e) => json!({ "available": false, "error": format!("{e:#}") }),
         };
         json!({
-            "supported": cfg!(windows),
+            "supported": !self.backend.simulated() && self.backend.supported(),
             "settings": *self.settings.lock().unwrap(),
             "driver": driver,
             "session": session,
@@ -2337,6 +2341,9 @@ fn sim_gdi_name(slot: u32) -> String {
 
 #[cfg(not(windows))]
 impl Backend for Simulated {
+    fn simulated(&self) -> bool {
+        true
+    }
     fn driver(&self) -> Result<Value> {
         Ok(json!({ "version": "simulation", "watchdog_seconds": 3 }))
     }

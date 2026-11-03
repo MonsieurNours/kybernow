@@ -6,6 +6,8 @@ pub mod checks;
 pub mod events;
 pub mod i18n;
 pub mod install;
+#[cfg(target_os = "macos")]
+pub mod mac;
 pub mod payload;
 pub mod ports;
 pub mod sys;

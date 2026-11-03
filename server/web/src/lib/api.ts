@@ -47,7 +47,7 @@ export interface User {
 
 export type ServiceState = 'running' | 'stopped' | 'starting' | 'stopping' | 'not_installed' | 'unknown'
 
-export type GpuVendor = 'nvidia' | 'amd' | 'intel'
+export type GpuVendor = 'nvidia' | 'amd' | 'intel' | 'apple'
 
 export interface GpuDevice {
   name: string

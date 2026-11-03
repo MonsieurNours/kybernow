@@ -294,14 +294,33 @@ final class Agent {
 
     // MARK: écrans du Mac
 
+    /// Écrans du Mac pour le partage, à la définition de leur dalle : un écran
+    /// 4K en mode « agrandi » (bureau de 3008 × 1692 points) est dessiné par
+    /// macOS sur une image de 6016 × 3384, puis réduit ; on le présente comme
+    /// l'écran 4K qu'il est (mode natif). Place à la même échelle.
     private func physicalDisplays() -> [[String: Any]] {
         activeDisplays().filter { !isVirtual($0) }.map { id in
             let b = CGDisplayBounds(id)
             let m = CGDisplayCopyDisplayMode(id)
-            return ["id": id, "x": Int(b.origin.x), "y": Int(b.origin.y), "width": m?.pixelWidth ?? Int(b.width),
-                    "height": m?.pixelHeight ?? Int(b.height), "refresh": Int((m?.refreshRate ?? 60).rounded()),
+            let (w, h) = nativeSize(id) ?? (m?.pixelWidth ?? Int(b.width), m?.pixelHeight ?? Int(b.height))
+            let scale = b.width > 0 ? Double(w) / b.width : 1
+            return ["id": id, "x": Int((b.origin.x * scale).rounded()), "y": Int((b.origin.y * scale).rounded()), "width": w,
+                    "height": h, "refresh": Int((m?.refreshRate ?? 60).rounded()),
                     "primary": CGDisplayIsMain(id) != 0]
         }
+    }
+
+    /// Définition de la dalle : le mode que macOS marque natif
+    /// (`kDisplayModeNativeFlag`), sinon le plus grand mode en 1x.
+    private func nativeSize(_ id: CGDirectDisplayID) -> (Int, Int)? {
+        let options = [kCGDisplayShowDuplicateLowResolutionModes: true] as CFDictionary
+        guard let modes = CGDisplayCopyAllDisplayModes(id, options) as? [CGDisplayMode], !modes.isEmpty else { return nil }
+        let nativeFlag: UInt32 = 0x0200_0000
+        if let native = modes.first(where: { $0.ioFlags & nativeFlag != 0 }) {
+            return (native.pixelWidth, native.pixelHeight)
+        }
+        return modes.filter { $0.pixelWidth == $0.width }.max { $0.pixelWidth * $0.pixelHeight < $1.pixelWidth * $1.pixelHeight }
+            .map { ($0.pixelWidth, $0.pixelHeight) }
     }
 
     private func isVirtual(_ id: CGDirectDisplayID) -> Bool {

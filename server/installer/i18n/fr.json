@@ -94,5 +94,58 @@
     "serviceDescription": "Serveur de streaming Kyber, installé et géré par KyberNow Station.",
     "trayShortcut": "KyberNow Station dans la zone de notification",
     "consoleShortcut": "KyberNow Admin"
+  },
+  "mac": {
+    "window": {
+      "install": "Installer KyberNow Station",
+      "update": "Mise à jour de KyberNow Station",
+      "uninstall": "Désinstaller KyberNow Station",
+      "permissions": "Autorisations de KyberNow Station",
+      "edit": "Édition"
+    },
+    "checks": {
+      "chip": "Puce Apple",
+      "macos": "macOS",
+      "network": "Réseau local",
+      "ports": "Ports réseau",
+      "displays": "Écrans",
+      "audio": "Son sur vos appareils",
+      "existing": "Installation en place",
+      "chipOk": "{chip} · encodage matériel HEVC et H.264",
+      "chipIntel": "{chip} : la Station demande un Mac à puce Apple (M1 ou plus récent)",
+      "macosOk": "macOS {version} · écrans virtuels et HDR pris en charge",
+      "macosOld": "macOS {version} : la Station demande macOS 15 Sequoia ou plus récent",
+      "networkNone": "Aucun réseau : branchez ce Mac à votre box pour que vos appareils le trouvent",
+      "networkWifi": "Wi-Fi {ip} : l'Ethernet est conseillé pour jouer",
+      "networkPreferred": "{name} {ip}, préféré au Wi-Fi",
+      "networkOne": "{name} {ip}",
+      "portsDetail": "flux {stream} · Admin {console}",
+      "displaysNone": "Aucun écran branché : l'écran virtuel suffit",
+      "displaysOne": "1 écran : éteint pendant une session, rendu à la fin",
+      "displaysMany": "{count} écrans : éteints pendant une session, rendus à la fin",
+      "audioThere": "La sortie son KyberNow est déjà là",
+      "audioNew": "Une sortie son KyberNow sera ajoutée au Mac",
+      "existingDetail": "KyberNow Station {version} est déjà installée"
+    },
+    "install": {
+      "cancelled": "Installation annulée : macOS a besoin du mot de passe de votre Mac pour mettre l'app dans Applications et ajouter la sortie son.",
+      "payloadMissing": "L'app à installer est introuvable ({path}). Retéléchargez l'installateur.",
+      "passwordPrompt": "KyberNow Station va se copier dans Applications et ajouter sa sortie son.",
+      "copyFailed": "L'app n'a pas été copiée dans {path}.",
+      "certKept": "Certificat gardé, vos appareils le connaissent déjà.",
+      "audioLate": "Posée, mais macOS ne la montre pas encore. Elle apparaîtra au prochain démarrage du Mac.",
+      "startupOff": "Lancée maintenant, sans démarrer avec le Mac.",
+      "kyberSilent": "Kyber ne démarre pas (port {port}) : {error}. Le journal est dans ~/Library/Logs/KyberNow/kyber.log.",
+      "adminSilent": "KyberNow Admin ne répond pas sur le port {port}. Le journal est dans ~/Library/Logs/KyberNow/admin.log.",
+      "firewallOn": "Pare-feu de macOS allumé, la Station y est autorisée.",
+      "firewallOff": "Pare-feu de macOS éteint : rien à régler."
+    },
+    "uninstall": {
+      "passwordPrompt": "KyberNow Station va retirer son app et sa sortie son.",
+      "cancelled": "Désinstallation annulée : macOS a besoin du mot de passe de votre Mac pour retirer la sortie son."
+    },
+    "update": {
+      "notYet": "La mise à jour depuis l'icône arrive bientôt. En attendant, passez par la page Système de KyberNow Admin."
+    }
   }
 }

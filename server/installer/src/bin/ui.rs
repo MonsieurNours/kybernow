@@ -26,6 +26,7 @@ use wry::{WebContext, WebViewBuilder};
 #[allow_missing = true]
 struct Assets;
 
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 enum UserEvent {
     Js(String),
     Drag,
@@ -33,12 +34,12 @@ enum UserEvent {
     Close,
 }
 
-fn arg(name: &str) -> Option<PathBuf> {
+pub(crate) fn arg(name: &str) -> Option<PathBuf> {
     let args: Vec<String> = std::env::args().collect();
     args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).map(PathBuf::from)
 }
 
-fn serve(request: Request<Vec<u8>>) -> Response<Cow<'static, [u8]>> {
+pub(crate) fn serve(request: Request<Vec<u8>>) -> Response<Cow<'static, [u8]>> {
     let path = request.uri().path().trim_start_matches('/');
     let path = if path.is_empty() { "index.html" } else { path };
     match Assets::get(path).or_else(|| Assets::get("index.html")) {
@@ -53,7 +54,24 @@ fn serve(request: Request<Vec<u8>>) -> Response<Cow<'static, [u8]>> {
     }
 }
 
+#[cfg(target_os = "macos")]
+#[path = "mac_host/mod.rs"]
+mod mac_host;
+
 fn main() -> wry::Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        mac_host::main()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        windows_main()
+    }
+}
+
+/// Installateur Windows (et son déroulé simulé hors Windows et Mac).
+#[cfg_attr(target_os = "macos", allow(dead_code))]
+fn windows_main() -> wry::Result<()> {
     let payload = arg("--payload");
     let webview_data = arg("--webview-data").unwrap_or_else(|| std::env::temp_dir().join("KyberNow-WebView"));
 
@@ -121,6 +139,7 @@ fn main() -> wry::Result<()> {
 }
 
 /// Fil de travail : reçoit les commandes de l'interface et exécute les tâches.
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 fn spawn_backend(rx: mpsc::Receiver<String>, proxy: EventLoopProxy<UserEvent>, payload: Option<PathBuf>, installing: Arc<Mutex<bool>>) {
     let emit: Emit = {
         let proxy = Mutex::new(proxy.clone());

@@ -90,6 +90,18 @@ Le contrôle « Pilote graphique » affiche la version du pilote de cette carte 
 
 Compiler seule : `cd server/tray && cargo build --release --target x86_64-pc-windows-gnu` (avec l'éditeur de liens de `build.sh`).
 
+## Station pour Mac
+
+Même interface (Svelte, `ui/src/mac`, d'après la maquette validée par l'auteur) et même cœur Rust (`src/mac`) que sous Windows ; la fenêtre est une vue WKWebView (tao, wry), barre de titre transparente et feux de macOS posés sur la colonne (`src/bin/mac_host`). Quatre usages de `kybernow-ui`, choisis par `--mode` ou par la clé `KyberNowMode` du paquet : `install` (« Installer KyberNow Station », dans le .dmg), `uninstall` (« Désinstaller KyberNow Station », dans le .dmg et depuis l'icône), `update` et `permissions` (depuis l'icône). Construction : `server/macos/scripts/build-station-app.sh` (`--notarize` pour la notarisation), qui produit `server/macos/dist/KyberNow-Station-Mac.dmg`.
+
+- **Bienvenue** : puce Apple (pas de Mac Intel), macOS 15 ou plus récent, réseau (l'Ethernet avant le Wi-Fi), ports tirés au hasard comme sous Windows, écrans (éteints pendant une session), sortie son, installation en place.
+- **Installation**, dans l'ordre de l'écran : l'app dans Applications, certificat de Kyber, sortie son, démarrage avec le Mac (LaunchAgents `fr.leslignesclaires.kybernow.station.{kyber,admin,menubar}` dans `~/Library/LaunchAgents`, `RunAtLoad` suivant l'option), Admin (`kyber-admin init --encoder videotoolbox`, puis le service), pare-feu. Le mot de passe du Mac est demandé une fois, au début (`src/mac/root.rs`, AppleScript en administrateur) : copie de l'app (propriétaire : l'utilisateur, pour les mises à jour), `KyberNow.driver` dans `/Library/Audio/Plug-Ins/HAL` (Core Audio relancé seulement s'il change), pare-feu de l'application s'il est allumé, `pmset womp 1` pour « Garder le Mac joignable ». Kyber doit répondre sur son port avant la suite. Journal : `~/Library/Logs/KyberNow/install.log`.
+- **Certificat de Kyber** : par l'`openssl` de macOS (LibreSSL), clé faite par `ecparam` (courbe nommée) puis mise en PKCS#8, certificat X.509 v3. Avec `req -newkey ec` et sans extensions, rustls (dans Kyber) refusait la clé puis le certificat.
+- **Autorisations** : macOS les rattache au paquet de l'exécutable responsable. L'installateur lance donc `KyberNow Station --permissions check|request …` (l'exécutable de l'app installée) en se désignant non responsable (`posix_spawn` avec `responsibility_spawnattrs_setdisclaim`), toutes les 1,5 s pendant l'étape ; à la fin, Kyber et Admin sont relancés pour prendre les accords.
+- **Réinstaller** : comme sous Windows, « Garder mes réglages » (compte, ports, certificat, appareils) ou « Repartir de zéro ».
+- **Désinstaller** : services de la session arrêtés et retirés, écrans et sortie son d'origine rendus (`kybernow-display recover`, `audio restore`), puis en administrateur sortie son, règles du pare-feu et app ; autorisations oubliées (`tccutil reset`) ; `~/Library/Application Support/KyberNow/Station` effacé sauf si l'on garde ses réglages.
+- **Mise à jour** : la fenêtre existe ; l'applicateur Mac d'Admin et le paquet de mise à jour restent à faire (en attendant, elle renvoie à la page Système d'Admin).
+
 ## Langues
 
 Français et anglais, selon la règle de [docs/i18n.md](../../docs/i18n.md) : la première langue d'affichage de Windows (`GetUserPreferredUILanguages`, sinon `GetUserDefaultUILanguage`) commence par `fr`, français ; toute autre langue, anglais. Ni l'installateur ni l'icône n'ont de réglage de langue.

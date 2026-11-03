@@ -94,5 +94,58 @@
     "serviceDescription": "Kyber streaming server, installed and managed by KyberNow Station.",
     "trayShortcut": "KyberNow Station in the notification area",
     "consoleShortcut": "KyberNow Admin"
+  },
+  "mac": {
+    "window": {
+      "install": "Install KyberNow Station",
+      "update": "KyberNow Station update",
+      "uninstall": "Uninstall KyberNow Station",
+      "permissions": "KyberNow Station permissions",
+      "edit": "Edit"
+    },
+    "checks": {
+      "chip": "Apple chip",
+      "macos": "macOS",
+      "network": "Local network",
+      "ports": "Network ports",
+      "displays": "Displays",
+      "audio": "Sound on your devices",
+      "existing": "Current installation",
+      "chipOk": "{chip} · hardware HEVC and H.264 encoding",
+      "chipIntel": "{chip}: the Station needs a Mac with Apple silicon (M1 or later)",
+      "macosOk": "macOS {version} · virtual displays and HDR supported",
+      "macosOld": "macOS {version}: the Station needs macOS 15 Sequoia or later",
+      "networkNone": "No network: connect this Mac to your router so your devices find it",
+      "networkWifi": "Wi-Fi {ip}: Ethernet is recommended for gaming",
+      "networkPreferred": "{name} {ip}, preferred over Wi-Fi",
+      "networkOne": "{name} {ip}",
+      "portsDetail": "stream {stream} · Admin {console}",
+      "displaysNone": "No display connected: the virtual display is enough",
+      "displaysOne": "1 display: off during a session, back at the end",
+      "displaysMany": "{count} displays: off during a session, back at the end",
+      "audioThere": "The KyberNow sound output is already there",
+      "audioNew": "A KyberNow sound output will be added to the Mac",
+      "existingDetail": "KyberNow Station {version} is already installed"
+    },
+    "install": {
+      "cancelled": "Installation canceled: macOS needs your Mac's password to put the app in Applications and add the sound output.",
+      "payloadMissing": "The app to install can't be found ({path}). Download the installer again.",
+      "passwordPrompt": "KyberNow Station will copy itself to Applications and add its sound output.",
+      "copyFailed": "The app wasn't copied to {path}.",
+      "certKept": "Certificate kept, your devices already know it.",
+      "audioLate": "Added, but macOS doesn't show it yet. It will appear the next time the Mac starts.",
+      "startupOff": "Started now, without starting with the Mac.",
+      "kyberSilent": "Kyber doesn't start (port {port}): {error}. The log is in ~/Library/Logs/KyberNow/kyber.log.",
+      "adminSilent": "KyberNow Admin doesn't answer on port {port}. The log is in ~/Library/Logs/KyberNow/admin.log.",
+      "firewallOn": "macOS firewall on, the Station is allowed through.",
+      "firewallOff": "macOS firewall off: nothing to set."
+    },
+    "uninstall": {
+      "passwordPrompt": "KyberNow Station will remove its app and its sound output.",
+      "cancelled": "Uninstall canceled: macOS needs your Mac's password to remove the sound output."
+    },
+    "update": {
+      "notYet": "Updating from the icon is coming soon. Meanwhile, use the System page of KyberNow Admin."
+    }
   }
 }

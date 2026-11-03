@@ -35,3 +35,6 @@ apps/linux/dist/
 # Agent des écrans virtuels de la Station Mac
 server/macos/display-agent/build/
 server/macos/audio-driver/build/
+# Icône de la barre des menus, app, installateur et .dmg de la Station Mac
+server/macos/menubar/build/
+server/macos/dist/

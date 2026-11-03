@@ -2,6 +2,8 @@ import { mount } from 'svelte'
 import './app.css'
 import App from './App.svelte'
 import { isNative } from './lib/backend'
+import { isMac } from './mac/bridge'
+import MacApp from './mac/MacApp.svelte'
 import { i18n, t } from './lib/i18n/index.svelte'
 
 document.documentElement.lang = i18n.lang
@@ -13,4 +15,5 @@ if (isNative) {
   window.addEventListener('wheel', (e) => e.ctrlKey && e.preventDefault(), { passive: false })
 }
 
-export default mount(App, { target: document.getElementById('app')! })
+// Sur Mac (ou `?mac` dans un navigateur) : les fenêtres de la Station pour Mac.
+export default mount(isMac ? MacApp : App, { target: document.getElementById('app')! })

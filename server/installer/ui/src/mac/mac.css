@@ -1,0 +1,265 @@
+/*
+  Fenêtres de KyberNow Station pour Mac (installation, mise à jour,
+  désinstallation, autorisations), d'après la maquette validée par l'auteur
+  (canevas Claude Design « Installeur Mac », 03/11/2026). Mêmes jetons que
+  app.css ; mesures de la maquette.
+*/
+
+.mac {
+  --line-mac: #1e2832;
+  --line-mac-2: #2b3742;
+  --card-mac: #0e141a;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--ink-0);
+  color: var(--text);
+  font-family: var(--sans);
+}
+
+.mac .lbl-m {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--signal);
+}
+
+.mac .lbl-m.ok {
+  color: var(--ok);
+}
+
+.mac .lbl-m.quiet {
+  color: var(--faint);
+}
+
+.mac .lbl-s {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.mac h1.t {
+  margin: 12px 0 0;
+  font-family: var(--display);
+  font-size: 30px;
+  line-height: 1.12;
+  font-weight: 700;
+  font-stretch: 112%;
+  letter-spacing: -0.01em;
+}
+
+.mac h1.t.small {
+  margin-top: 16px;
+  font-size: 28px;
+  line-height: 1.15;
+}
+
+.mac p.lead-m {
+  margin: 10px 0 0;
+  font-size: 14.5px;
+  line-height: 1.55;
+  color: var(--muted);
+  max-width: 560px;
+}
+
+.mac .card-m {
+  background: var(--card-mac);
+  border: 1px solid var(--line-mac);
+  border-radius: 16px;
+}
+
+.mac .foot-m {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.mac .foot-m.end {
+  justify-content: flex-end;
+}
+
+.mac .foot-note {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--faint);
+  max-width: 380px;
+}
+
+.mac .buttons {
+  display: flex;
+  gap: 12px;
+  flex: none;
+}
+
+/* Boutons de la maquette : principal à coin coupé, secondaire au trait. */
+
+.mac .btn {
+  height: 40px;
+  padding: 0 20px;
+  border: 1px solid var(--line-mac-2);
+  border-radius: 6px;
+  background: none;
+  color: var(--text);
+  font-size: 14px;
+  white-space: nowrap;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.mac .btn:hover:not(:disabled) {
+  border-color: #3b4955;
+  background: rgb(255 255 255 / 0.03);
+}
+
+.mac .btn.primary-m {
+  --edge: var(--signal-strong);
+  padding: 0 26px;
+  border: 0;
+  border-radius: 6px 6px 0 6px;
+  background: linear-gradient(315deg, transparent 7px, var(--signal-strong) 7px);
+  color: #fff;
+  font-weight: 600;
+  transition: filter 0.2s ease-out;
+}
+
+.mac .btn.primary-m:hover:not(:disabled),
+.mac .btn.primary-m:focus-visible {
+  filter: var(--glow-1);
+  background: linear-gradient(315deg, transparent 7px, var(--signal-strong) 7px);
+}
+
+.mac .btn.primary-m:disabled {
+  opacity: 1;
+  background: linear-gradient(315deg, transparent 7px, #2b2654 7px);
+  color: #8a82c8;
+}
+
+.mac .btn.small {
+  height: 34px;
+  padding: 0 16px;
+  font-size: 13px;
+}
+
+.mac .btn.primary-m.small {
+  background: linear-gradient(315deg, transparent 6px, var(--signal-strong) 6px);
+}
+
+.mac .btn.danger {
+  border-color: var(--bad);
+  background: rgb(255 107 107 / 0.12);
+  color: #ff8a8a;
+  font-weight: 600;
+  padding: 0 22px;
+}
+
+.mac .btn.danger:hover:not(:disabled) {
+  border-color: #ff8a8a;
+  background: rgb(255 107 107 / 0.2);
+}
+
+.mac .link {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--signal);
+  font-size: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.mac .link:hover {
+  color: #c9c1ff;
+}
+
+.mac .mono-m {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Interrupteur des options (maquette : case de 44 × 26). */
+
+.mac .switch {
+  width: 44px;
+  height: 26px;
+  flex: none;
+  border: 0;
+  border-radius: 999px;
+  padding: 3px;
+  background: #1e2832;
+  display: inline-flex;
+  align-items: center;
+  transition: background-color 0.2s, box-shadow 0.2s;
+}
+
+.mac .switch span {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--faint);
+  transition: transform 0.25s var(--ease-out), background-color 0.2s;
+}
+
+.mac .switch.on {
+  background: var(--signal-strong);
+  box-shadow: 0 0 0 1px rgb(154 140 255 / 0.6), 0 0 12px rgb(109 91 255 / 0.45);
+}
+
+.mac .switch.on span {
+  background: #fff;
+  transform: translateX(18px);
+}
+
+/* Barre de progression néon. */
+
+.mac .bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--ink-3);
+  overflow: hidden;
+}
+
+.mac .bar > div {
+  height: 100%;
+  background: var(--signal);
+  box-shadow: 0 0 10px var(--signal-strong);
+  transition: width 0.4s var(--ease-out);
+}
+
+/* Fenêtre seule (mise à jour, désinstallation, autorisations) : feux en haut à gauche. */
+
+.mac .solo {
+  position: relative;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.mac .solo > main {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  padding: 26px 48px 28px;
+  display: flex;
+  flex-direction: column;
+}
+
+.mac .solo-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.mac .solo-mark {
+  position: absolute;
+  right: -120px;
+  top: -150px;
+  width: 380px;
+  height: 380px;
+  pointer-events: none;
+}

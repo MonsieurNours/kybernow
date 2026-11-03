@@ -218,14 +218,15 @@
   $effect(() => () => clearInterval(stationTimer))
 
   // La carte qui encode : celle de l'encodeur réglé, sinon la première
-  // (NVIDIA, puis AMD, puis Intel, comme à l'installation).
+  // (NVIDIA, puis AMD, puis Intel, comme à l'installation ; la puce sur Mac).
   const ENCODERS: Record<string, { vendor?: GpuVendor; name: string }> = {
     nvenc: { vendor: 'nvidia', name: 'NVENC' },
     amf: { vendor: 'amd', name: 'AMF' },
     qsv: { vendor: 'intel', name: 'Quick Sync' },
+    videotoolbox: { vendor: 'apple', name: 'VideoToolbox' },
     x264: { name: 'x264' },
   }
-  const VENDOR_ENCODER: Record<GpuVendor, string> = { nvidia: 'nvenc', amd: 'amf', intel: 'qsv' }
+  const VENDOR_ENCODER: Record<GpuVendor, string> = { nvidia: 'nvenc', amd: 'amf', intel: 'qsv', apple: 'videotoolbox' }
   const encoderValue = $derived(kyber.loaded ? value<string>('video.encoder') : null)
   const gpu = $derived.by(() => {
     const devices = status?.gpu?.devices ?? []
