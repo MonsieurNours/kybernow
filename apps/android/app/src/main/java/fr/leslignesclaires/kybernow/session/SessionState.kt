@@ -43,6 +43,8 @@ data class Second(
     val mbps: Double,
     /** Capture → encodage, encodage, envoi, réseau, décodage, affichage (ms). */
     val chain: DoubleArray?,
+    /** L'image de cette seconde est en HDR. */
+    val hdr: Boolean = false,
 )
 
 /**
@@ -101,6 +103,8 @@ sealed class Capsule {
     data class LendRequest(val name: String, val slot: Boolean = false) : Capsule()
     /** Hôte : un avis du prêt écrit par le cœur (« Créneau de Léa : l'ordinateur lui est prêté dans 2 min. »). */
     data class LendHostNotice(val text: String) : Capsule()
+    /** « L'ordinateur n'a pas pu passer en HDR : image en SDR. » ; [text] : celui du cœur (vide : celui de l'app). */
+    data class HdrRefused(val text: String) : Capsule()
 }
 
 data class DisplayInfo(val id: Int, val width: Int, val height: Int)
@@ -134,6 +138,8 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
     val decoder = MutableStateFlow<String?>(null)
     val audioOutput = MutableStateFlow<Pair<Int, Double>?>(null)
     val gameFullscreen = MutableStateFlow(false)
+    /** HDR : l'image en cours est en HDR (le cœur le dit à chaque démarrage de l'image). */
+    val hdr = MutableStateFlow(false)
     val pointer = MutableStateFlow(PointerState(false, 0.0, 0.0, false, 0))
     val pointerShape = MutableStateFlow<Pair<Bitmap, Pair<Int, Int>>?>(null)
     /** La combinaison s'est formée : ouvrir le menu. */
@@ -272,6 +278,7 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
             lostPackets = values[8].toInt(),
             mbps = values[9] * 8 / 1_000_000,
             chain = chain,
+            hdr = values.size > 17 && values[17] > 0.5,
         )
     }
 
@@ -285,11 +292,16 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
             4 -> main.post { if (capsule.value is Capsule.Adapting) capsule.value = null }
             5 -> show(Capsule.AdaptFailed(error ?: ""), 6000)
             6 -> restoreOffer.value = if (hasMode) width to height else null
+            SessionListener.NOTICE_HDR_REFUSED -> show(Capsule.HdrRefused(error ?: ""), 6000)
         }
     }
 
     override fun onGameFullscreen(game: Boolean) {
         gameFullscreen.value = game
+    }
+
+    override fun onHdr(hdr: Boolean) {
+        this.hdr.value = hdr
     }
 
     override fun onInputConnected() {

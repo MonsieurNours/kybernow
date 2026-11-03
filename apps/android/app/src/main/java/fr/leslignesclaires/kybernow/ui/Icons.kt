@@ -55,6 +55,8 @@ object KnIcons {
     val chevron = icon("chevron", "M9 5l7 7-7 7")
     val download = icon("download", "M12 4v11", "M7 10l5 5 5-5", "M5 20h14")
     /** Partager : trois points reliés. */
+    /** HDR : une étincelle (docs/link-ui.md, barre de session). */
+    val sparkle = icon("sparkle", "M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z", "M18.5 15.5l.6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4-1.4-.6 1.4-.6z")
     val share = icon("share", "M18 3a2.5 2.5 0 1 0 0 5a2.5 2.5 0 1 0 0-5z", "M6 9.5a2.5 2.5 0 1 0 0 5a2.5 2.5 0 1 0 0-5z", "M18 16a2.5 2.5 0 1 0 0 5a2.5 2.5 0 1 0 0-5z", "M8.2 13.2l7.6 3.6M15.8 7.2L8.2 10.8")
 }
 

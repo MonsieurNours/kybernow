@@ -29,6 +29,7 @@ import fr.leslignesclaires.kybernow.core.Lend
 import fr.leslignesclaires.kybernow.ui.Body
 import fr.leslignesclaires.kybernow.ui.Eyebrow
 import fr.leslignesclaires.kybernow.ui.GlassButton
+import fr.leslignesclaires.kybernow.ui.HdrChip
 import fr.leslignesclaires.kybernow.ui.Kn
 import fr.leslignesclaires.kybernow.ui.KnIcons
 import fr.leslignesclaires.kybernow.ui.LocalMotion
@@ -83,6 +84,8 @@ internal fun LentItems(ui: SessionUi) {
 @Composable
 internal fun BorrowerBarItems(ui: SessionUi, sec: Second?, first: FocusRequester) {
     StatsCard(ui, sec, Modifier.focusRequester(first))
+    // L'ami a « HDR » comme un hôte (écran HDR seulement).
+    HdrChip(ui.hdrState, ui.hdrChoice, { ui.actions.setHdr(!ui.hdrChoice) }, icon = true)
     GlassButton(stringResource(if (ui.directTouch) R.string.touch_direct else R.string.touch_trackpad), { ui.actions.setDirectTouch(!ui.directTouch) })
     GlassButton(stringResource(R.string.pad_on_screen), { ui.actions.setOnScreenPad(!ui.padShown) }, selected = ui.padShown)
     GlassButton(
@@ -107,6 +110,7 @@ internal fun BorrowerTiles(ui: SessionUi, first: FocusRequester, audio: Pair<Int
         Tile(KnIcons.play, stringResource(R.string.session_resume), null, Modifier.focusRequester(first), primary = true) { ui.actions.resume() }
         if (route?.viaRelay == true) Tile(KnIcons.network, stringResource(R.string.route_relay), null, selected = true) { ui.statsOpen = !ui.statsOpen }
         Tile(KnIcons.info, stringResource(R.string.lend_lent_by, ui.lender), lendTimeText(ui), selected = true) { ui.statsOpen = !ui.statsOpen }
+        HdrTile(ui)
         Tile(KnIcons.sound, stringResource(R.string.session_sound), audio?.let { (c, _) -> stringResource(R.string.session_sound_channels, c) }) { ui.statsOpen = !ui.statsOpen }
         Tile(KnIcons.pulse, stringResource(R.string.session_stats), null) { ui.statsOpen = !ui.statsOpen }
         Tile(KnIcons.remote, stringResource(R.string.session_remote_mouse), stringResource(if (ui.remoteMouse) R.string.session_on else R.string.session_off), selected = ui.remoteMouse) { ui.actions.setRemoteMouse(!ui.remoteMouse) }

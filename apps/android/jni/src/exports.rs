@@ -397,6 +397,65 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionRest
     }
 }
 
+// MARK: - HDR (docs/hdr.md)
+
+/// Le choix « HDR » changé en session (barre, menu du téléviseur) : la
+/// Station passe l'écran virtuel en HDR ou en SDR, puis l'image est relancée
+/// (« Premières images ») et `onHdr` suit. Sans effet pour un invité.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionSetHdr(_: Env, _: JClass, h: jlong, hdr: jboolean) {
+    if let Some(h) = handle(h) {
+        h.session.set_hdr(hdr != 0);
+    }
+}
+
+/// L'écran de l'appareil gagne ou perd le HDR (téléviseur qui coupe le HDR,
+/// sortie HDMI changée), ou ses valeurs changent. `luminance_json` :
+/// `{max, full_frame, min, sdr_white}` en nits (nul : par défaut). L'image
+/// repasse en SDR, puis en HDR quand l'écran le redevient, sans message.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionScreenHdrChanged(
+    mut env: Env,
+    _: JClass,
+    h: jlong,
+    hdr: jboolean,
+    luminance_json: JString,
+) {
+    let Some(h) = handle(h) else { return };
+    let json = optional(&mut env, &luminance_json);
+    let luminance = crate::hdr::luminance(json.as_deref());
+    h.shared.set_luminance(if hdr != 0 { luminance } else { None });
+    h.session.screen_hdr_changed(0, hdr != 0, luminance);
+}
+
+/// Un écran au moins a été en HDR pendant la session (« HDR » de la dernière session).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionHdrUsed(_: Env, _: JClass, h: jlong) -> jboolean {
+    jbool(handle(h).is_some_and(|h| h.session.hdr_used()))
+}
+
+/// La puce « HDR » de l'accueil, la ligne de Réglages › Image et celle de la
+/// barre (`profile::hdr_state`) : `{"shown", "available", "reason", "kind"}`
+/// (`reason` : le texte de link-ui dans la langue de l'app). `info_json` :
+/// l'info de l'ordinateur (vide : pas encore jointe) ; `settings_json` : les
+/// réglages de la session (seuls `codec` et `profile` comptent) ;
+/// `capabilities_json` : `{hevc, hevc444, av1, hdr}`. Nul si un JSON est illisible.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_hdrState(
+    mut env: Env,
+    _: JClass,
+    info_json: JString,
+    settings_json: JString,
+    capabilities_json: JString,
+    screen_hdr: jboolean,
+) -> jstring {
+    let (info, settings, caps) = (string(&mut env, &info_json), string(&mut env, &settings_json), string(&mut env, &capabilities_json));
+    match crate::hdr::state_json(&info, &settings, &caps, screen_hdr != 0) {
+        Some(json) => give(&mut env, &json),
+        None => std::ptr::null_mut(),
+    }
+}
+
 /// Latence de la session : [médiane, p95] en ms, ou nul sans mesure.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionLatency<'a>(env: Env<'a>, _: JClass, h: jlong) -> jni::objects::JDoubleArray<'a> {

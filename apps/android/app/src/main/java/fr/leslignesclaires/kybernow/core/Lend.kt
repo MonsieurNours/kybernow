@@ -407,13 +407,22 @@ object Lend {
 
     /**
      * La demande d'emprunt : `{code}` ou `{login, password}`, le prénom de l'ami, l'appareil, `app` `android`, l'écran de
-     * l'appareil (la taille de l'écran virtuel du prêt) et les formats qu'il décode.
+     * l'appareil (la taille de l'écran virtuel du prêt ; [hdr] : l'écran est HDR et le décodeur le lit, la Station le
+     * prépare alors en HDR avec [luminance], les valeurs de l'écran, nulles : par défaut) et les formats qu'il décode.
      */
-    fun request(code: String?, login: String?, password: String?, name: String, deviceId: String, width: Int, height: Int, refresh: Int, codecs: JSONArray): JSONObject {
+    fun request(
+        code: String?, login: String?, password: String?, name: String, deviceId: String, width: Int, height: Int, refresh: Int, codecs: JSONArray,
+        hdr: Boolean = false, luminance: JSONObject? = null,
+    ): JSONObject {
         val o = JSONObject()
         if (code != null) o.put("code", code) else o.put("login", login ?: "").put("password", password ?: "")
+        val screen = JSONObject().put("width", width).put("height", height).put("refresh", refresh)
+        if (hdr) {
+            screen.put("hdr", true)
+            luminance?.let { screen.put("luminance", it) }
+        }
         return o.put("name", name).put("device", deviceId).put("app", "android")
-            .put("screen", JSONObject().put("width", width).put("height", height).put("refresh", refresh))
+            .put("screen", screen)
             .put("codecs", codecs)
     }
 

@@ -174,6 +174,19 @@ object Native {
     /** [médiane, p95] en ms, ou nul sans mesure. */
     @JvmStatic external fun sessionLatency(handle: Long): DoubleArray?
 
+    // HDR (docs/hdr.md).
+    /** Le choix « HDR » changé en session (barre, menu) : l'image est relancée, [SessionListener.onHdr] suit. */
+    @JvmStatic external fun sessionSetHdr(handle: Long, hdr: Boolean)
+    /** L'écran de l'appareil gagne ou perd le HDR, ou ses valeurs changent (`luminanceJson` : `{max, full_frame, min, sdr_white}`, nul : par défaut). */
+    @JvmStatic external fun sessionScreenHdrChanged(handle: Long, hdr: Boolean, luminanceJson: String?)
+    /** Un écran au moins a été en HDR pendant la session (« HDR » de la dernière session). */
+    @JvmStatic external fun sessionHdrUsed(handle: Long): Boolean
+    /**
+     * La puce « HDR » (`profile::hdr_state` du cœur) : `{shown, available, reason, kind}`. `infoJson` : [HostInfo.raw]
+     * (vide : pas encore joint) ; `settingsJson` : `codec` et `profile` ; `capabilitiesJson` : `{hevc, hevc444, av1, hdr}`.
+     */
+    @JvmStatic external fun hdrState(infoJson: String, settingsJson: String, capabilitiesJson: String, screenHdr: Boolean): String?
+
     // Entrées.
     /** Scancode Windows d'un code de touche Linux (`KeyEvent.getScanCode()`) ; −1 : inconnu. */
     @JvmStatic external fun scancode(evdev: Int): Int
@@ -240,6 +253,8 @@ interface SessionListener {
          * toujours un `onStatus` à 1 (connexion), l'étape montrée tant que l'avis est ignoré.
          */
         const val NOTICE_STATION_RESTARTING = 7
+        /** Avis `onNotice` : l'ordinateur n'a pas pu passer en HDR, l'image est en SDR (`error` : le texte du cœur ; une fois par session). */
+        const val NOTICE_HDR_REFUSED = 8
     }
 
     /** 0 préparation, 1 connexion, 2 premières images, 3 image, 4 reconnexion, 5 fin, 6 terminée. */
@@ -251,15 +266,18 @@ interface SessionListener {
      * Mesures de la seconde : latence (ms, −1 sans), aller-retour (ms, −1),
      * montrées, mesurées, rejetées, images perdues, trous, demandes d'image
      * clé, paquets perdus, octets, chaîne présente (1/0), puis capture,
-     * encodage, envoi, réseau, décodage, affichage (ms).
+     * encodage, envoi, réseau, décodage, affichage (ms), puis l'image en HDR (1/0).
      */
     fun onSecond(values: DoubleArray)
     /**
      * 0 relancée, 1 mode changé, 2 repli, 3 adaptation, 4 adaptée, 5 adaptation refusée, 6 « Remettre »,
-     * 7 la Station redémarre ([NOTICE_STATION_RESTARTING]).
+     * 7 la Station redémarre ([NOTICE_STATION_RESTARTING]), 8 l'ordinateur n'a pas pu passer en HDR
+     * ([NOTICE_HDR_REFUSED]).
      */
     fun onNotice(kind: Int, width: Int, height: Int, back: Boolean, level: Int, mbps: Int, hasMode: Boolean, error: String?)
     fun onGameFullscreen(game: Boolean)
+    /** HDR : à chaque démarrage de l'image, l'image est en HDR (HDR10) ou non (docs/hdr.md). */
+    fun onHdr(hdr: Boolean) {}
     fun onInputConnected()
     fun onVideoSize(width: Int, height: Int)
     fun onDecoder(name: String)

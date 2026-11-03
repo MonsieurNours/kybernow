@@ -26,6 +26,8 @@
     <string name="stats_path" formatted="true">Chemin : %1$s</string>
     <string name="home_display_match" formatted="true">Écran de %1$d × %2$d à %3$d Hz, à la taille de cet écran</string>
     <string name="home_display_custom" formatted="true">Écran de %1$d × %2$d à %3$d Hz</string>
+    <string name="home_display_match_hdr" formatted="true">Écran de %1$d × %2$d à %3$d Hz, à la taille de cet écran, en HDR</string>
+    <string name="home_display_custom_hdr" formatted="true">Écran de %1$d × %2$d à %3$d Hz, en HDR</string>
     <string name="home_display_as_is">Les écrans de l\'ordinateur, tels quels</string>
     <string name="home_pads_none">Aucune manette</string>
     <string name="home_pads_one">1 manette</string>
@@ -110,6 +112,15 @@
     <string name="settings_444_help">Couleurs complètes : le texte reste net, au prix d\'un débit plus élevé.</string>
     <string name="settings_444_yes">Profils Bureau et Max</string>
     <string name="settings_444_no">Pas sur cet appareil</string>
+    <string name="settings_444_hdr">Le HDR n\'existe pas en 4:4:4.</string>
+    <string name="hdr">HDR</string>
+    <string name="hdr_on">HDR, allumé</string>
+    <string name="hdr_off">HDR, éteint</string>
+    <string name="hdr_help">Couleurs plus riches et lumières plus vives, sur cet écran HDR.</string>
+    <string name="hdr_help_settings">Couleurs plus riches et lumières plus vives, sur cet écran HDR. Le texte net (4:4:4) n\'existe pas en HDR.</string>
+    <string name="hdr_tile_on">allumé</string>
+    <string name="hdr_tile_off">éteint</string>
+    <string name="hdr_refused">L\'ordinateur n\'a pas pu passer en HDR : image en SDR.</string>
     <string name="settings_frame_display">Affichage des images</string>
     <string name="settings_frame_immediate">Immédiat</string>
     <string name="settings_frame_display_help">Chaque image s\'affiche dès qu\'elle est décodée ; la plus récente remplace les autres.</string>
