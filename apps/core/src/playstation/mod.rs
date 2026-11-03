@@ -4,13 +4,15 @@
 //!
 //! Écrit pour l'instant : [`discovery`] (trouver les consoles du réseau et
 //! les réveiller), [`psn`] (identifiant du compte, lu une fois),
-//! [`regist`] (association par le code) et [`rpcrypt`] (son chiffrement).
-//! Viennent ensuite la session, l'image et le son, puis la manette.
+//! [`regist`] (association par le code), [`rpcrypt`] (son chiffrement) et
+//! [`session`] (demande de session et canal de contrôle). Viennent ensuite
+//! le transport de l'image (Takion), l'image et le son, puis la manette.
 
 pub mod discovery;
 mod keys;
 pub mod psn;
 pub mod regist;
 pub mod rpcrypt;
+pub mod session;
 #[cfg(test)]
 mod test_vectors;

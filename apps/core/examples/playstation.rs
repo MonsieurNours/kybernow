@@ -7,6 +7,7 @@
 //! playstation account <base64>          (identifiant saisi à la main, en secours)
 //! playstation regist <adresse> <code>   (associe la console : écran « Associer un appareil » ouvert)
 //! playstation wake <adresse>            (réveille une console associée)
+//! playstation session <adresse> [h264|h265|hdr] (demande de session et canal de contrôle, 20 s)
 //! ```
 //!
 //! L'identifiant et les consoles associées sont gardés dans le fichier
@@ -19,6 +20,7 @@ use std::time::Duration;
 use kybernow_core::playstation::discovery::{self, Model};
 use kybernow_core::playstation::psn;
 use kybernow_core::playstation::regist::{self, PsnId, Registered};
+use kybernow_core::playstation::session::{self, Codec, Ctrl, CtrlEvent, Keys};
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Serialize, Deserialize)]
@@ -133,7 +135,48 @@ fn main() {
             discovery::wake(IpAddr::V4(addr), model, r.wake_credential().expect("clé de réveil")).expect("réveil");
             println!("Réveil envoyé à « {} ».", console.name);
         }
-        _ => eprintln!("usage : search [adresse…] | login [adresse de retour] | account <base64> | regist <adresse> <code> | wake <adresse>"),
+        Some("session") if args.len() >= 2 => {
+            let addr: Ipv4Addr = args[1].parse().expect("adresse IPv4");
+            let codec = match args.get(2).map(String::as_str) {
+                Some("h264") => Codec::H264,
+                Some("hdr") => Codec::H265Hdr,
+                _ => Codec::H265,
+            };
+            let console = find(addr);
+            let state = load();
+            let r = state.consoles.get(&console.host_id.to_ascii_uppercase()).expect("console pas encore associée");
+            let keys = Keys::from_registered(r).expect("association illisible");
+            let target = r.target.into();
+            let (target, nonce) = session::request_session(addr, target, &keys).unwrap_or_else(|e| {
+                eprintln!("Demande de session refusée : {e}");
+                std::process::exit(1)
+            });
+            println!("Session accordée ({target:?}), ouverture du canal de contrôle…");
+            let (mut ctrl, events) = Ctrl::connect(addr, target, &nonce, &keys, codec).unwrap_or_else(|e| {
+                eprintln!("Canal de contrôle refusé : {e}");
+                std::process::exit(1)
+            });
+            println!("Type de console : {:?}, affichage interdit : {}", ctrl.server_type, ctrl.prohibited);
+            let start = std::time::Instant::now();
+            let deadline = start + Duration::from_secs(20);
+            while let Some(left) = deadline.checked_duration_since(std::time::Instant::now()) {
+                match events.recv_timeout(left) {
+                    Ok(CtrlEvent::SessionId(id)) => {
+                        println!("Identifiant de session reçu ({} caractères).", id.len());
+                        ctrl.enable_features(true).expect("envoi");
+                    }
+                    Ok(CtrlEvent::Closed(why)) => {
+                        println!("Canal fermé après {:.1} s : {why}", start.elapsed().as_secs_f32());
+                        break;
+                    }
+                    Ok(e) => println!("{:.1} s : {e:?}", start.elapsed().as_secs_f32()),
+                    Err(_) => break,
+                }
+            }
+            ctrl.stop();
+            println!("Fin de l'essai après {:.1} s.", start.elapsed().as_secs_f32());
+        }
+        _ => eprintln!("usage : search [adresse…] | login [adresse de retour] | account <base64> | regist <adresse> <code> | wake <adresse> | session <adresse> [h264|h265|hdr]"),
     }
 }
 
