@@ -94,6 +94,12 @@ private struct PlayStationBar: View {
             statsButton(compact: compact)
                 .overlay(ring(.stats))
             BarDivider()
+            // « Par le relais » : hors de chez soi, la partie passe par une
+            // Station et le relais (comme une session d'ordinateur).
+            if session.path.viaRelay {
+                BarChip(icon: "globe-hemisphere-west", text: LinkText.viaRelay, tint: Theme.accent, compact: compact)
+                BarDivider()
+            }
             Button { session.toggleMute() } label: {
                 BarChip(icon: session.muted ? "speaker-slash" : "speaker-high", text: session.muted ? PSText.unmute : PSText.mute, compact: compact)
             }
@@ -200,6 +206,8 @@ private struct PlayStationStatsPanel: View {
                     line(PSText.statsAsked(s, fps: session.requestedFps))
                     line(PSText.statsReceived(s))
                     line(PSText.statsLosses(lost: session.lostTotal, repaired: session.repairedTotal))
+                    // « Chemin : Direct », « Chemin : Par le relais » (comme un ordinateur).
+                    line(LinkText.pathLine(session.path.label))
                 }
             } else {
                 Text("Les statistiques s'affichent dès que l'image arrive.")

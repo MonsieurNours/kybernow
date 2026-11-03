@@ -151,6 +151,8 @@ impl PlaySettings {
             hevc,
             hdr: hevc && self.hdr,
             dualsense: true,
+            // Sur le réseau ; par le relais, la partie la réduit (`Endpoint::mtu`).
+            mtu: super::endpoint::MTU_LAN,
         }
     }
 }

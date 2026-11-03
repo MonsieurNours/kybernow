@@ -65,7 +65,8 @@ Everything that lets someone else onto your computer. Name chosen on 26/10/2026;
 Framed on 2026-11-03, contract: [docs/playstation.en.md](docs/playstation.en.md).
 
 - **First version, Mac app**: PS5 and PS4 in the Rust core (discovery, wake, pairing by code, session, picture, sound, full DualSense), after chiaki-ng; trials on a PS5 Pro, the PS4 remains to be tried.
-- **Next**: the other Link apps, and a console session through the relay (a Station on the same network forwards the packets).
+- **Through the relay**: a Station on the same network forwards the packets; written (relay, Admin, core, Mac app) and tried over the loopback to the PS5 Pro on 2026-11-03; still to try with the real relay and a real Station.
+- **Next**: the other Link apps.
 
 ## Sony controllers in “Faithful” mode
 

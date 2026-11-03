@@ -6,6 +6,7 @@ mod api;
 mod assets;
 mod audio;
 mod auth;
+mod consoles;
 mod discovery;
 mod display;
 mod foreground;
@@ -539,6 +540,8 @@ pub struct Inner {
     pub share: share::Share,
     /// Le relais de KyberNow (docs/relais.md) : agent, autorisations, blocage.
     pub relay: relay::Relay,
+    /// Consoles PlayStation du réseau, annoncées aux appareils et jointes par le relais.
+    pub consoles: consoles::Consoles,
     /// Prêt de l'ordinateur (docs/pret.md) : code, demandes, prêt en cours.
     pub lend: lend::Lending,
     /// Les comptes d'amis du prêt (`lend-friends.json`).
@@ -600,6 +603,7 @@ impl AppState {
             pairing: pairing::Pairing::new(),
             share: share::Share::new(),
             relay: relay::Relay::new(&data_dir),
+            consoles: consoles::Consoles::default(),
             lend: lend::Lending::new(),
             friends: lend::Friends::load(&data_dir),
             last_played: lend_last::LastPlayed::load(&data_dir),
@@ -879,6 +883,7 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
         pairing: pairing::Pairing::new(),
         share: share::Share::new(),
         relay: relay::Relay::new(&data_dir),
+        consoles: consoles::Consoles::default(),
         lend: lend::Lending::new(),
         friends: lend::Friends::load(&data_dir),
         last_played: lend_last::LastPlayed::load(&data_dir),
@@ -908,6 +913,8 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
     relay::supervise(state.clone(), relay::router(state.clone()));
     // Prêt : codes et demandes échus, préavis, fins, veille de Windows empêchée.
     lend_api::supervise(state.clone());
+    // Consoles PlayStation du réseau : cherchées toutes les 30 s (docs/relais.md).
+    consoles::supervise(state.clone());
 
     let on_shutdown = state.clone();
     let app = Router::new()

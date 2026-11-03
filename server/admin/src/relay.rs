@@ -16,6 +16,11 @@
 //!   autorisé (un invité accepté qui donne signe de vie, un appareil après
 //!   `prepare`), et toujours **depuis et vers l'adresse du réseau local** :
 //!   le correctif 0019 réserve `/kybernow/*` à la boucle locale.
+//! - **Consoles PlayStation** (flux `console_tcp` et flux UDP `to: "console"`,
+//!   docs/relais.md) : seulement vers l'adresse qu'Admin a trouvée lui-même
+//!   pour l'identifiant demandé (`consoles.rs`), aux ports de la lecture à
+//!   distance, pour un client qui a donné signe de vie (`/api/consoles/beat`),
+//!   et toujours depuis l'adresse du réseau local.
 //! - **Codes** : relais joint, le code du partage est réservé chez lui (unique
 //!   entre toutes les Stations) ; « Nouveau code » en réserve un autre.
 //! - **Blocage** : 20 comptes refusés par le relais en 10 minutes ferment
@@ -32,7 +37,7 @@ use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use axum::{Json, Router};
-use kybernow_tunnel::{Agent, AgentConfig, AgentState, FlowRequest, Incoming, RelayAddr, StationIdentity, StreamHeader, StreamKind};
+use kybernow_tunnel::{Agent, AgentConfig, AgentState, ConsoleTarget, FlowRequest, Incoming, RelayAddr, StationIdentity, StreamHeader, StreamKind};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -257,6 +262,11 @@ pub struct Relay {
     grants: Mutex<HashMap<String, Grant>>,
     /// Connexions `kyber_tcp` en cours, par client (coupées quand son autorisation tombe).
     kyber_tcp: Mutex<HashMap<String, Vec<AbortHandle>>>,
+    /// Clients du relais autorisés à joindre les consoles PlayStation du réseau
+    /// (`/api/consoles/beat`), jusqu'à cet instant.
+    console_grants: Mutex<HashMap<String, Instant>>,
+    /// Connexions `console_tcp` en cours, par client.
+    console_tcp: Mutex<HashMap<String, Vec<AbortHandle>>>,
     lockout: Mutex<Lockout>,
     session: Mutex<Option<RemoteSession>>,
     reserve_failed: Mutex<Option<Instant>>,
@@ -277,6 +287,8 @@ impl Relay {
             running: Mutex::new(None),
             grants: Mutex::new(HashMap::new()),
             kyber_tcp: Mutex::new(HashMap::new()),
+            console_grants: Mutex::new(HashMap::new()),
+            console_tcp: Mutex::new(HashMap::new()),
             lockout: Mutex::new(Lockout::default()),
             session: Mutex::new(None),
             reserve_failed: Mutex::new(None),
@@ -391,7 +403,7 @@ impl Relay {
         let mut tcp = self.kyber_tcp.lock().unwrap();
         for client in clients {
             if let Some(agent) = &agent {
-                agent.close_client(&client);
+                agent.close_client_flows(&client, false);
             }
             for task in tcp.remove(&client).unwrap_or_default() {
                 task.abort();
@@ -411,18 +423,69 @@ impl Relay {
     }
 
     /// « Accès hors de chez vous » coupé : plus aucun appareil ne joint Kyber
-    /// par le relais, tout de suite (sans attendre la fin de son autorisation).
+    /// ni les consoles par le relais, tout de suite (sans attendre la fin de
+    /// son autorisation).
     fn revoke_devices(&self) {
         self.revoke_where(|g| matches!(g.holder, Holder::Device(_)));
+        self.revoke_consoles_where(|_| true);
     }
 
     fn revoke_all(&self) {
         self.revoke_where(|_| true);
+        self.revoke_consoles_where(|_| true);
     }
 
     fn expire_grants(&self) {
         let now = Instant::now();
         self.revoke_where(|g| g.until <= now);
+        self.revoke_consoles_where(|until| until <= now);
+    }
+
+    // --- Autorisations vers les consoles ---
+
+    /// Un appareil appairé (compte Basic, accès hors de chez soi) a donné
+    /// signe de vie : ce client joint les consoles du réseau 30 s de plus.
+    pub fn grant_console(&self, via: &Via) {
+        self.console_grants.lock().unwrap().insert(via.client.clone(), Instant::now() + GRANT);
+    }
+
+    pub fn console_authorized(&self, client: &str) -> bool {
+        self.console_grants.lock().unwrap().get(client).is_some_and(|until| *until > Instant::now())
+    }
+
+    /// Retire les autorisations vers les consoles qui répondent à `pred` (leur
+    /// échéance) : flux UDP vers les consoles fermés, connexions coupées ;
+    /// Kyber n'est pas touché.
+    fn revoke_consoles_where(&self, pred: impl Fn(Instant) -> bool) {
+        let clients: Vec<String> = {
+            let mut grants = self.console_grants.lock().unwrap();
+            let gone: Vec<String> = grants.iter().filter(|(_, u)| pred(**u)).map(|(c, _)| c.clone()).collect();
+            for c in &gone {
+                grants.remove(c);
+            }
+            gone
+        };
+        if clients.is_empty() {
+            return;
+        }
+        let agent = self.agent();
+        let mut tcp = self.console_tcp.lock().unwrap();
+        for client in clients {
+            if let Some(agent) = &agent {
+                agent.close_client_flows(&client, true);
+            }
+            for task in tcp.remove(&client).unwrap_or_default() {
+                task.abort();
+            }
+            tracing::debug!("relais : {client} n'est plus autorisé à joindre les consoles");
+        }
+    }
+
+    fn track_console_tcp(&self, client: &str, task: AbortHandle) {
+        let mut tcp = self.console_tcp.lock().unwrap();
+        let tasks = tcp.entry(client.to_string()).or_default();
+        tasks.retain(|t| !t.is_finished());
+        tasks.push(task);
     }
 
     fn track_tcp(&self, client: &str, task: AbortHandle) {
@@ -768,7 +831,9 @@ async fn serve_incoming(s: AppState, router: Router, mut incoming: mpsc::Receive
                     tokio::spawn(serve_http(stream, router.clone(), header));
                 }
                 StreamKind::KyberTcp => kyber_tcp(&s, &header, stream),
+                StreamKind::ConsoleTcp => console_tcp(&s, &header, stream),
             },
+            Incoming::Flow(req) if req.console.is_some() => console_flow(&s, req),
             Incoming::Flow(req) => kyber_flow(&s, req),
             Incoming::ClientGone { client } => tracing::debug!("relais : {client} n'a plus de connexion"),
         }
@@ -861,6 +926,98 @@ fn kyber_flow(s: &AppState, req: FlowRequest) {
     }
 }
 
+/// Pourquoi une console n'est pas jointe : les raisons du contrat.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ConsoleRefusal {
+    NotAuthorized,
+    Unknown,
+    PortForbidden,
+    /// Pas d'adresse sur le réseau local.
+    Lan,
+}
+
+impl ConsoleRefusal {
+    fn as_str(self) -> &'static str {
+        match self {
+            ConsoleRefusal::NotAuthorized => "not_authorized",
+            ConsoleRefusal::Unknown => "console_unknown",
+            ConsoleRefusal::PortForbidden => "port_forbidden",
+            ConsoleRefusal::Lan => "lan",
+        }
+    }
+}
+
+/// D'où et vers où joindre cette console : l'adresse du réseau local de la
+/// Station (port 0) et celle qu'Admin a trouvée pour cet identifiant, jamais
+/// une adresse donnée par l'app ; seulement les ports de la lecture à distance.
+fn console_route(s: &AppState, client: &str, target: &ConsoleTarget, tcp: bool) -> Result<(SocketAddr, SocketAddr), ConsoleRefusal> {
+    if !s.relay.console_authorized(client) || !s.settings.lock().unwrap().relay.remote_access {
+        return Err(ConsoleRefusal::NotAuthorized);
+    }
+    let Some(console) = s.consoles.addr_of(&target.host_id) else { return Err(ConsoleRefusal::Unknown) };
+    let allowed: &[u16] = if tcp { &crate::consoles::TCP_PORTS } else { &crate::consoles::UDP_PORTS };
+    if !allowed.contains(&target.port) {
+        return Err(ConsoleRefusal::PortForbidden);
+    }
+    let lan: IpAddr = crate::tls::lan_ip().and_then(|ip| ip.parse().ok()).ok_or(ConsoleRefusal::Lan)?;
+    if !lan.is_ipv4() || lan.is_loopback() || lan.is_unspecified() {
+        return Err(ConsoleRefusal::Lan);
+    }
+    Ok((SocketAddr::new(lan, 0), SocketAddr::new(IpAddr::V4(console), target.port)))
+}
+
+/// Un flux `console_tcp` (session, canal de contrôle, association) : relié à
+/// la console depuis l'adresse du réseau local, pour un client autorisé.
+fn console_tcp<I>(s: &AppState, header: &StreamHeader, mut stream: I)
+where
+    I: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    let Some(target) = header.console() else { return };
+    let (bind, to) = match console_route(s, &header.client, &target, true) {
+        Ok(r) => r,
+        Err(why) => {
+            tracing::debug!("relais : console refusée à {} ({})", header.client, why.as_str());
+            return;
+        }
+    };
+    let client = header.client.clone();
+    let task = tokio::spawn(async move {
+        let up = async {
+            let socket = tokio::net::TcpSocket::new_v4()?;
+            socket.bind(bind)?;
+            socket.connect(to).await
+        };
+        match tokio::time::timeout(HANDSHAKE_TIMEOUT, up).await {
+            Ok(Ok(mut console)) => {
+                let _ = console.set_nodelay(true);
+                let _ = tokio::io::copy_bidirectional(&mut stream, &mut console).await;
+            }
+            Ok(Err(e)) => tracing::info!("relais : console injoignable (port {}) : {e}", to.port()),
+            Err(_) => tracing::info!("relais : console muette (port {})", to.port()),
+        }
+    });
+    s.relay.track_console_tcp(&client, task.abort_handle());
+}
+
+/// Un flux UDP vers une console (Takion, état, réveil, recherche de
+/// l'association) : accepté pour un client autorisé, vers l'adresse trouvée
+/// par Admin. Le socket est gardé 25 s après une coupure, comme vers Kyber.
+fn console_flow(s: &AppState, req: FlowRequest) {
+    let Some(target) = req.console.clone() else { return req.refuse("bad_request") };
+    match console_route(s, &req.client, &target, false) {
+        Ok((bind, to)) => {
+            let client = req.client.clone();
+            if let Err(e) = req.accept(bind, to) {
+                tracing::warn!("relais : flux UDP de {client} vers la console impossible : {e}");
+            }
+        }
+        Err(why) => {
+            tracing::debug!("relais : flux vers la console refusé à {} ({})", req.client, why.as_str());
+            req.refuse(why.as_str());
+        }
+    }
+}
+
 // --- Garde : ce que le relais peut atteindre ------------------------------------------
 
 /// Les chemins, selon qui peut les atteindre par le relais.
@@ -899,6 +1056,10 @@ fn class_of(method: &Method, path: &str) -> Class {
         return Class::Never;
     }
     if path == "/api/share" || path.starts_with("/api/share/") || path.starts_with("/api/stream/") {
+        return Class::Device;
+    }
+    // Consoles PlayStation du réseau (docs/relais.md) : un appareil appairé.
+    if path == "/api/consoles" || path == "/api/consoles/beat" {
         return Class::Device;
     }
     if path == "/api" || path.starts_with("/api/") {
@@ -1126,7 +1287,7 @@ mod tests {
         for p in ["/session/login", "/ws", "/kymux/start_mux", "/websocket/video"] {
             assert_eq!(class_of(&post, p), Class::Kyber, "{p}");
         }
-        for (m, p) in [(&get, "/api/stream/info"), (&post, "/api/stream/prepare"), (&post, "/api/stream/heartbeat"), (&get, "/api/share"), (&post, "/api/share/open"), (&post, "/api/share/guest/ab12/accept"), (&Method::DELETE, "/api/share")] {
+        for (m, p) in [(&get, "/api/stream/info"), (&post, "/api/stream/prepare"), (&post, "/api/stream/heartbeat"), (&get, "/api/share"), (&post, "/api/share/open"), (&post, "/api/share/guest/ab12/accept"), (&Method::DELETE, "/api/share"), (&get, "/api/consoles"), (&post, "/api/consoles/beat")] {
             assert_eq!(class_of(m, p), Class::Device, "{m} {p}");
         }
         for (m, p) in [
@@ -1272,7 +1433,7 @@ mod tests {
             }),
         );
         let (mut client, server) = tokio::io::duplex(4096);
-        let header = StreamHeader { v: 1, kind: StreamKind::AdminHttp, client: "abc".into(), ip: "127.0.0.1".parse().unwrap(), host: None };
+        let header = StreamHeader::new(StreamKind::AdminHttp, "abc", "127.0.0.1".parse().unwrap(), None);
         tokio::spawn(serve_http(server, router, header));
         client.write_all(b"GET /echo HTTP/1.1\r\nHost: x.share.test\r\nConnection: close\r\n\r\n").await.unwrap();
         let mut out = String::new();
@@ -1381,6 +1542,124 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    fn console_state() -> (AppState, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("kyber-admin-relay-{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let s = AppState::for_tests(dir.clone(), Box::new(crate::service::Simulated::default()));
+        s.settings.lock().unwrap().relay.remote_access = true;
+        (s, dir)
+    }
+
+    fn ps5(addr: std::net::Ipv4Addr) -> crate::consoles::Found {
+        crate::consoles::Found { host_id: "C0151B2DAE08".into(), name: "PS5".into(), model: crate::consoles::Model::Ps5, ready: true, standby: false, addr }
+    }
+
+    /// Une console n'est jointe que pour un client qui a donné signe de vie,
+    /// « Accès hors de chez vous » allumé, à l'adresse qu'Admin a trouvée pour
+    /// cet identifiant, et seulement aux ports de la lecture à distance.
+    #[tokio::test]
+    async fn une_console_seulement_vue_par_la_station_et_ses_ports() {
+        let Some(IpAddr::V4(lan)) = crate::tls::lan_ip().and_then(|ip| ip.parse::<IpAddr>().ok()).filter(|ip| !ip.is_loopback()) else {
+            return; // Pas de réseau sur cette machine.
+        };
+        let (s, dir) = console_state();
+        s.consoles.note(vec![ps5(std::net::Ipv4Addr::new(192, 0, 2, 10))]);
+        let via = Via { kind: StreamKind::AdminTls, client: "app".into() };
+        let takion = ConsoleTarget::new("C0151B2DAE08", 9296);
+        assert_eq!(console_route(&s, "app", &takion, false), Err(ConsoleRefusal::NotAuthorized), "sans signe de vie");
+        s.relay.grant_console(&via);
+        assert!(!s.relay.authorized("app"), "les consoles n'ouvrent pas Kyber");
+        let (bind, to) = console_route(&s, "app", &takion, false).unwrap();
+        assert_eq!(bind, SocketAddr::new(IpAddr::V4(lan), 0), "depuis l'adresse du réseau local");
+        assert_eq!(to, "192.0.2.10:9296".parse().unwrap(), "l'adresse trouvée par Admin");
+        assert_eq!(console_route(&s, "app", &ConsoleTarget::new("c0151b2dae08", 9302), false).map(|r| r.1.port()), Ok(9302));
+        assert_eq!(console_route(&s, "app", &ConsoleTarget::new("AAAAAAAAAAAA", 9296), false), Err(ConsoleRefusal::Unknown));
+        assert_eq!(console_route(&s, "app", &ConsoleTarget::new("C0151B2DAE08", 22), true), Err(ConsoleRefusal::PortForbidden));
+        assert_eq!(console_route(&s, "app", &ConsoleTarget::new("C0151B2DAE08", 9296), true), Err(ConsoleRefusal::PortForbidden), "9296 : UDP seulement");
+        assert_eq!(console_route(&s, "app", &ConsoleTarget::new("C0151B2DAE08", 997), true).map(|r| r.1.port()), Ok(997));
+        assert_eq!(console_route(&s, "autre", &takion, false), Err(ConsoleRefusal::NotAuthorized), "un autre client du relais");
+        // « Accès hors de chez vous » coupé : l'autorisation tombe tout de suite.
+        let res = put_relay(State(s.clone()), Json(RelayBody { server: None, remote_access: Some(false) })).await;
+        assert_eq!(res.status(), StatusCode::OK);
+        assert!(!s.relay.console_authorized("app"));
+        s.settings.lock().unwrap().relay.remote_access = true;
+        assert_eq!(console_route(&s, "app", &takion, false), Err(ConsoleRefusal::NotAuthorized));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Le signe de vie par le relais autorise ce client ; sur le réseau, il n'autorise rien.
+    #[tokio::test]
+    async fn le_signe_de_vie_autorise_le_client_du_relais() {
+        let (s, dir) = console_state();
+        let user = "appareil";
+        std::fs::write(dir.join("kyber_config.toml"), "").unwrap();
+        s.kyber.upsert_user(user, "secret-de-l-essai").unwrap();
+        let mut headers = HeaderMap::new();
+        let basic = base64_basic(user, "secret-de-l-essai");
+        headers.insert(header::AUTHORIZATION, HeaderValue::from_str(&basic).unwrap());
+        assert!(crate::consoles::beat(State(s.clone()), headers.clone(), None).await.is_ok());
+        assert!(!s.relay.console_authorized("app"));
+        let via = Via { kind: StreamKind::AdminTls, client: "app".into() };
+        let Ok(Json(list)) = crate::consoles::beat(State(s.clone()), headers.clone(), Some(axum::Extension(via))).await else { panic!("signe de vie refusé") };
+        assert!(list["consoles"].is_array());
+        assert!(s.relay.console_authorized("app"));
+        // Sans compte (un invité de KyberNow Share) : refusé.
+        assert!(crate::consoles::beat(State(s.clone()), HeaderMap::new(), Some(axum::Extension(Via { kind: StreamKind::AdminTls, client: "invite".into() }))).await.is_err());
+        assert!(!s.relay.console_authorized("invite"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Une connexion vers la console part de l'adresse du réseau local vers
+    /// l'adresse trouvée par Admin (ici une « console » sur le port 9295 de ce Mac).
+    #[tokio::test]
+    async fn console_tcp_par_l_adresse_du_reseau_local() {
+        let Some(IpAddr::V4(lan)) = crate::tls::lan_ip().and_then(|ip| ip.parse::<IpAddr>().ok()).filter(|ip| !ip.is_loopback()) else {
+            return;
+        };
+        let Ok(console) = tokio::net::TcpListener::bind(SocketAddr::new(IpAddr::V4(lan), 9295)).await else {
+            return; // Port 9295 déjà pris ici.
+        };
+        let (s, dir) = console_state();
+        s.consoles.note(vec![ps5(lan)]);
+        let header = StreamHeader::console_tcp("app", "82.66.39.160".parse().unwrap(), &ConsoleTarget::new("C0151B2DAE08", 9295));
+        let (_c, server) = tokio::io::duplex(1024);
+        console_tcp(&s, &header, server);
+        assert!(tokio::time::timeout(Duration::from_millis(200), console.accept()).await.is_err(), "pas autorisé");
+        s.relay.grant_console(&Via { kind: StreamKind::AdminTls, client: "app".into() });
+        let (mut client, server) = tokio::io::duplex(1024);
+        console_tcp(&s, &header, server);
+        let (mut conn, from) = tokio::time::timeout(Duration::from_secs(2), console.accept()).await.unwrap().unwrap();
+        assert_eq!(from.ip(), IpAddr::V4(lan));
+        client.write_all(b"GET /sie/ps5/rp/sess/init").await.unwrap();
+        let mut buf = [0u8; 4];
+        conn.read_exact(&mut buf).await.unwrap();
+        assert_eq!(&buf, b"GET ");
+        // L'accès coupé coupe la connexion.
+        s.relay.revoke_devices();
+        let mut rest = Vec::new();
+        let n = tokio::time::timeout(Duration::from_secs(2), conn.read_to_end(&mut rest)).await.unwrap().unwrap_or(0);
+        assert!(n <= 22);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    fn base64_basic(user: &str, pass: &str) -> String {
+        const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let data = format!("{user}:{pass}").into_bytes();
+        let mut out = String::from("Basic ");
+        for chunk in data.chunks(3) {
+            let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+            let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
+            for i in 0..4 {
+                if i <= chunk.len() {
+                    out.push(T[((n >> (18 - 6 * i)) & 63) as usize] as char);
+                } else {
+                    out.push('=');
+                }
+            }
+        }
+        out
+    }
+
     /// Kyber est joint depuis et vers l'adresse du réseau local, jamais par la
     /// boucle locale, et seulement pour un client autorisé.
     #[tokio::test]
@@ -1394,7 +1673,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("kyber_config.toml"), format!("[kycontroller]\nport = {port}\n")).unwrap();
         let s = AppState::for_tests(dir.clone(), Box::new(crate::service::Simulated::default()));
-        let header = StreamHeader { v: 1, kind: StreamKind::KyberTcp, client: "c9".into(), ip: "82.66.39.160".parse().unwrap(), host: None };
+        let header = StreamHeader::new(StreamKind::KyberTcp, "c9", "82.66.39.160".parse().unwrap(), None);
         // Pas autorisé : rien n'arrive à Kyber.
         let (_client, server) = tokio::io::duplex(1024);
         kyber_tcp(&s, &header, server);

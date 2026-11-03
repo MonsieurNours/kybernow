@@ -30,6 +30,11 @@ final class PlayStationSession: NSObject, ObservableObject, NSWindowDelegate {
 
     let console: PlayStationConsole
     private let address: String
+    /// Hors de chez soi : la console jointe par une Station et le relais, tenue
+    /// le temps de la partie (signe de vie à Admin, tunnel ouvert).
+    private var remote: PlayStation.Remote?
+    /// Par où passe la partie : puce « Par le relais », ligne « Chemin ».
+    @Published private(set) var path = RouteInfo.direct
     private let registered: String
     /// Réglages de la console (JSON du cœur, HDR compris) et disposition du clavier et de la souris.
     private let settings: String
@@ -106,10 +111,11 @@ final class PlayStationSession: NSObject, ObservableObject, NSWindowDelegate {
         return barRect.maxY + (padMode ? 84 : 30)
     }
 
-    init(console: PlayStationConsole, address: String, registered: String, settings: String, layout: String, fullScreen: Bool,
+    init(console: PlayStationConsole, address: String, remote: PlayStation.Remote? = nil, registered: String, settings: String, layout: String, fullScreen: Bool,
          onFullScreen: @escaping (Bool) -> Void, onEnd: @escaping (PlayStationSession, PlayStationPlay.End?) -> Void) {
         self.console = console
         self.address = address
+        self.remote = remote
         self.registered = registered
         self.settings = settings
         self.layout = layout
@@ -117,6 +123,8 @@ final class PlayStationSession: NSObject, ObservableObject, NSWindowDelegate {
         self.onFullScreen = onFullScreen
         self.onEnd = onEnd
         requestedFps = (try? JSONDecoder().decode(PSSettings.self, from: Data(settings.utf8)))?.fps ?? 60
+        super.init()
+        path = remote?.route ?? .direct
     }
 
     func open() {
@@ -411,6 +419,10 @@ final class PlayStationSession: NSObject, ObservableObject, NSWindowDelegate {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
                 guard let self, !Task.isCancelled, let play = self.play else { return }
+                if let remote = self.remote {
+                    let route = remote.route
+                    if route != self.path { self.path = route }
+                }
                 guard let s = play.stats() else { continue }
                 self.lostTotal += s.lost
                 self.repairedTotal += s.recovered
@@ -470,7 +482,13 @@ final class PlayStationSession: NSObject, ObservableObject, NSWindowDelegate {
     private func stopPlay() {
         guard let play else { return }
         self.play = nil
-        DispatchQueue.global(qos: .userInitiated).async { play.stop() }
+        // Par le relais, la Station reste jointe jusqu'à la fin de l'arrêt (DISCONNECT).
+        let remote = self.remote
+        self.remote = nil
+        DispatchQueue.global(qos: .userInitiated).async {
+            play.stop()
+            withExtendedLifetime(remote) {}
+        }
     }
 
     private func captureChanged(_ captured: Bool) {

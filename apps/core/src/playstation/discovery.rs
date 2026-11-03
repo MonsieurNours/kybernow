@@ -15,10 +15,15 @@
 //!
 //! Chaque paquet se termine par un octet nul, comme chez chiaki-ng. Le port
 //! local est pris entre 9303 et 9319 (sinon au hasard), comme l'app de Sony.
+//!
+//! Par le relais, la recherche et le réveil vont aux ports du tunnel sur la
+//! boucle locale ([`search_at`], [`wake_at`], [`super::endpoint::Endpoint`]).
 
 use std::io;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4, UdpSocket};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::time::{Duration, Instant};
+
+use super::endpoint::Endpoint;
 
 /// Port de découverte d'une PS5.
 pub const PORT_PS5: u16 = 9302;
@@ -257,6 +262,14 @@ fn open_socket() -> io::Result<UdpSocket> {
 /// Une console n'apparaît qu'une fois (par `host-id`, à défaut par adresse),
 /// avec sa dernière réponse.
 pub fn search(wait: Duration, direct: &[Ipv4Addr]) -> io::Result<Vec<Console>> {
+    let targets: Vec<Endpoint> = direct.iter().copied().map(Endpoint::direct).collect();
+    search_at(wait, true, &targets)
+}
+
+/// [`search`] vers des consoles jointes par leurs ports (`targets`), et en
+/// diffusion si `broadcast`. Par le relais, l'adresse d'une réponse est
+/// celle de la boucle locale : c'est l'identifiant qui compte.
+pub fn search_at(wait: Duration, broadcast: bool, targets: &[Endpoint]) -> io::Result<Vec<Console>> {
     let socket = open_socket()?;
     let mut found: Vec<Console> = Vec::new();
     let deadline = Instant::now() + wait;
@@ -268,7 +281,7 @@ pub fn search(wait: Duration, direct: &[Ipv4Addr]) -> io::Result<Vec<Console>> {
             break;
         }
         if now >= next_send {
-            send_search(&socket, direct);
+            send_search(&socket, broadcast, targets);
             next_send = now + Duration::from_millis(500);
         }
         let timeout = deadline.min(next_send).saturating_duration_since(now).max(Duration::from_millis(1));
@@ -303,11 +316,11 @@ pub fn search(wait: Duration, direct: &[Ipv4Addr]) -> io::Result<Vec<Console>> {
     Ok(found)
 }
 
-fn send_search(socket: &UdpSocket, direct: &[Ipv4Addr]) {
-    let addrs = std::iter::once(Ipv4Addr::BROADCAST).chain(direct.iter().copied());
-    for addr in addrs {
+fn send_search(socket: &UdpSocket, broadcast: bool, targets: &[Endpoint]) {
+    let all = broadcast.then(|| Endpoint::direct(Ipv4Addr::BROADCAST));
+    for target in all.iter().chain(targets) {
         for model in [Model::Ps5, Model::Ps4] {
-            let to = SocketAddrV4::new(addr, model.port());
+            let to = target.search(model);
             if let Err(e) = socket.send_to(&search_packet(model), to) {
                 log::debug!("PlayStation : recherche vers {to} refusée : {e}");
             }
@@ -321,9 +334,15 @@ pub fn wake(addr: IpAddr, model: Model, credential: u64) -> io::Result<()> {
     let IpAddr::V4(addr) = addr else {
         return Err(io::Error::new(io::ErrorKind::Unsupported, "les consoles PlayStation ne parlent qu'en IPv4"));
     };
+    wake_at(&Endpoint::direct(addr), model, credential)
+}
+
+/// [`wake`] vers une console jointe par ses ports (par le relais : le port
+/// du tunnel pour le réveil).
+pub fn wake_at(target: &Endpoint, model: Model, credential: u64) -> io::Result<()> {
     let socket = open_socket()?;
-    socket.send_to(&wake_packet(model, credential), SocketAddrV4::new(addr, model.port()))?;
-    log::info!("PlayStation : réveil envoyé à {} ({addr})", model.name());
+    socket.send_to(&wake_packet(model, credential), target.search(model))?;
+    log::info!("PlayStation : réveil envoyé à {} ({}{})", model.name(), target.ip, if target.relayed { ", par le relais" } else { "" });
     Ok(())
 }
 
@@ -395,6 +414,42 @@ mod tests {
         assert_eq!(c.model(), Model::Ps4);
         assert_eq!(c.target(), Target::Ps4V10);
         assert_eq!(c.running_app.as_deref(), Some("Jeu: sous-titre"));
+    }
+
+    /// Une « console » sur la boucle locale, à un port choisi : la recherche et
+    /// le réveil vont aux ports de l'adresse donnée (par le relais).
+    #[test]
+    fn search_and_wake_at_given_ports() {
+        use super::super::endpoint::Ports;
+        let console = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let port = console.local_addr().unwrap().port();
+        let other = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let target = Endpoint { ip: Ipv4Addr::LOCALHOST, ports: Ports { ps5: port, ps4: other.local_addr().unwrap().port(), ..Ports::DIRECT }, relayed: true };
+        let t = std::thread::spawn(move || {
+            let mut buf = [0u8; 512];
+            console.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+            let (n, from) = console.recv_from(&mut buf).unwrap();
+            assert_eq!(&buf[..n], &search_packet(Model::Ps5)[..]);
+            let reply = b"HTTP/1.1 200 Ok\nhost-id:C0151B2DAE08\nhost-type:PS5\nhost-name:PS5\ndevice-discovery-protocol-version:00030010\n\0";
+            console.send_to(reply, from).unwrap();
+            // Puis le réveil, au même port.
+            loop {
+                let (n, _) = console.recv_from(&mut buf).unwrap();
+                if buf[..n].starts_with(b"WAKEUP") {
+                    return;
+                }
+            }
+        });
+        let found = search_at(Duration::from_millis(600), false, &[target]).unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].host_id, "C0151B2DAE08");
+        assert_eq!(found[0].state, State::Ready);
+        wake_at(&target, Model::Ps5, 1).unwrap();
+        t.join().unwrap();
+        let mut buf = [0u8; 512];
+        other.set_read_timeout(Some(Duration::from_millis(50))).unwrap();
+        let n = other.recv(&mut buf).unwrap();
+        assert_eq!(&buf[..n], &search_packet(Model::Ps4)[..], "PS4 au port de la PS4");
     }
 
     #[test]

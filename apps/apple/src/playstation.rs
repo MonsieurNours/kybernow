@@ -5,6 +5,12 @@
 //!
 //! Les consoles associées sont gardées par l'app telles que
 //! `kn_ps_regist` les rend (JSON stable de `Registered`).
+//!
+//! **Adresse d'une console** (`address` des fonctions ci-dessous) : une
+//! adresse IPv4 sur le réseau (ou par un VPN), ou, hors de chez soi, ce que
+//! rend `kn_ps_remote_address` (un JSON : la boucle locale et les ports du
+//! tunnel vers une Station qui voit la console ; docs/relais.md, « Consoles
+//! PlayStation »).
 
 use std::ffi::{c_char, c_void};
 use std::net::Ipv4Addr;
@@ -13,7 +19,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use kybernow_core::media::PacketHandler;
-use kybernow_core::playstation::discovery::{self, Model, State};
+use kybernow_core::playstation::discovery::{self, Console, Model, State};
+use kybernow_core::playstation::endpoint::Endpoint;
+use kybernow_core::playstation::remote::{Remote, RemoteError};
 use kybernow_core::playstation::keymouse::Layout;
 use kybernow_core::input::PadKey;
 use kybernow_core::playstation::play::{PadEvent, Play, PlayEnd, PlayOptions, PlayState};
@@ -22,13 +30,33 @@ use kybernow_core::playstation::regist::{self, PsnId, RegistError, Registered};
 use kybernow_core::playstation::settings::PlaySettings;
 use serde_json::json;
 
-use crate::{KnPacketCb, Sink, give, text};
+use crate::{KN_ERROR, KN_OK, KnConsole, KnPacketCb, Sink, console_result, failure, give, give_to, text};
 
 /// Numéros de flux des parties : loin de ceux des sessions Kyber.
 static STREAMS: AtomicU64 = AtomicU64::new(1 << 40);
 
-fn parse_addr(p: *const c_char) -> Option<Ipv4Addr> {
-    text(p).trim().parse().ok()
+/// Une adresse IPv4, ou l'adresse par le relais de `kn_ps_remote_address`.
+fn parse_addr(p: *const c_char) -> Option<Endpoint> {
+    Endpoint::parse(&text(p))
+}
+
+fn found_json(found: &[Console]) -> String {
+    let list: Vec<_> = found
+        .iter()
+        .map(|c| {
+            json!({
+                "address": c.addr.to_string(),
+                "host_id": c.host_id.to_ascii_uppercase(),
+                "name": c.name,
+                "model": c.model().name(),
+                "state": match c.state { State::Ready => "ready", State::Standby => "standby", State::Unknown => "unknown" },
+                "target": regist::TargetName::from_target(c.target()),
+                "system_version": c.system_version,
+                "running_app": c.running_app,
+            })
+        })
+        .collect();
+    serde_json::to_string(&list).unwrap_or_else(|_| "[]".into())
 }
 
 /// Cherche les consoles pendant `wait_ms` (2000 conseillé) : en diffusion,
@@ -45,22 +73,103 @@ pub unsafe extern "C" fn kn_ps_search(direct_json: *const c_char, wait_ms: u32) 
         .filter_map(|a| a.parse().ok())
         .collect();
     let found = discovery::search(Duration::from_millis(wait_ms.clamp(200, 10_000) as u64), &direct).unwrap_or_default();
-    let list: Vec<_> = found
-        .iter()
-        .map(|c| {
-            json!({
-                "address": c.addr.to_string(),
-                "host_id": c.host_id.to_ascii_uppercase(),
-                "name": c.name,
-                "model": c.model().name(),
-                "state": match c.state { State::Ready => "ready", State::Standby => "standby", State::Unknown => "unknown" },
-                "target": regist::TargetName::from_target(c.target()),
-                "system_version": c.system_version,
-                "running_app": c.running_app,
-            })
-        })
-        .collect();
-    give(serde_json::to_string(&list).unwrap_or_else(|_| "[]".into()))
+    give(found_json(&found))
+}
+
+/// Cherche une seule console à `address` (sans diffusion), pendant
+/// `wait_ms` : par le relais, l'état de la console à travers la Station (le
+/// JSON de `kn_ps_search` ; `address` y vaut alors `127.0.0.1`, à ne pas
+/// retenir). Bloque.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_ps_search_at(address: *const c_char, wait_ms: u32) -> *mut c_char {
+    let Some(at) = parse_addr(address) else { return give("[]".into()) };
+    let found = discovery::search_at(Duration::from_millis(wait_ms.clamp(200, 10_000) as u64), false, &[at]).unwrap_or_default();
+    give(found_json(&found))
+}
+
+// MARK: - Hors de chez soi (docs/relais.md, « Consoles PlayStation »)
+
+/// La Station ne voit pas (ou plus) cette console sur son réseau.
+pub const KN_PS_NOT_SEEN: i32 = 40;
+
+/// `GET /api/consoles` : les consoles que voit la Station de cette console
+/// d'Admin (sur le réseau, ou par le relais avec `kn_console_new_relay`), en
+/// JSON `[{host_id, name, model ("ps5"|"ps4"), state ("ready"|"standby"), seen}]`.
+/// L'app retient, par `host_id`, les Stations qui voient chaque console.
+/// `−404` : Station d'avant les consoles.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_console_consoles(c: *const KnConsole, out: *mut *mut c_char, error: *mut *mut c_char) -> i32 {
+    let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
+    console_result(c.0.consoles(), out, error)
+}
+
+/// Une console jointe par une Station et le relais (opaque pour Swift).
+pub struct KnPsRemote {
+    remote: Remote,
+}
+
+/// Joint la console `host_id` par la Station de `c` (une console d'Admin
+/// **par le relais**, `kn_console_new_relay`) : signe de vie à Admin, puis
+/// les ports du tunnel ; le signe de vie repart toutes les 10 s tant que
+/// `out` vit (à libérer par `kn_ps_remote_free`). Codes : `KN_OK`,
+/// `KN_RELAY_*` (relais muet, Station absente, accès coupé), `−401`,
+/// `−404` (Station d'avant les consoles), `KN_PS_NOT_SEEN`. Bloque.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_ps_remote_open(c: *const KnConsole, host_id: *const c_char, out: *mut *mut KnPsRemote, error: *mut *mut c_char) -> i32 {
+    let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
+    match Remote::open(&c.0, &text(host_id)) {
+        Ok(remote) => {
+            if !out.is_null() {
+                unsafe { *out = Box::into_raw(Box::new(KnPsRemote { remote })) };
+            }
+            KN_OK
+        }
+        Err(RemoteError::NotSeen) => {
+            give_to(error, RemoteError::NotSeen.to_string());
+            KN_PS_NOT_SEEN
+        }
+        Err(RemoteError::NotRelayed) => {
+            give_to(error, RemoteError::NotRelayed.to_string());
+            KN_ERROR
+        }
+        Err(RemoteError::Console(e)) => failure(e, error),
+    }
+}
+
+/// L'adresse de la console par le relais, à passer aux autres `kn_ps_*`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_ps_remote_address(r: *const KnPsRemote) -> *mut c_char {
+    match unsafe { r.as_ref() } {
+        Some(r) => give(r.remote.endpoint().to_text()),
+        None => std::ptr::null_mut(),
+    }
+}
+
+/// L'état de la console vu par la Station au dernier signe de vie : `ready`,
+/// `standby`, `unknown` ; nul si elle ne la voit plus.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_ps_remote_state(r: *const KnPsRemote) -> *mut c_char {
+    match unsafe { r.as_ref() }.and_then(|r| r.remote.seen()) {
+        Some(c) => give(c.state),
+        None => std::ptr::null_mut(),
+    }
+}
+
+/// Le chemin (JSON de `on_route` : `transport`, `relay`, `rtt_client`,
+/// `rtt_station`) : puce « Par le relais », ligne « Chemin » des statistiques.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_ps_remote_route(r: *const KnPsRemote) -> *mut c_char {
+    match unsafe { r.as_ref() } {
+        Some(r) => give(serde_json::to_string(&r.remote.route_info()).unwrap_or_default()),
+        None => std::ptr::null_mut(),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_ps_remote_free(r: *mut KnPsRemote) {
+    if !r.is_null() {
+        drop(unsafe { Box::from_raw(r) });
+    }
 }
 
 /// Page de connexion au compte Sony (à ouvrir dans une fenêtre web ; à
@@ -110,7 +219,7 @@ pub unsafe extern "C" fn kn_ps_regist(address: *const c_char, target: *const c_c
         return fail("other", "cible illisible".into());
     };
     let Some(id) = PsnId::from_base64(&text(account)) else { return fail("account", "identifiant illisible".into()) };
-    match regist::regist(addr, target.into(), &id, pin) {
+    match regist::regist_at(&addr, target.into(), &id, pin) {
         Ok(r) => give(json!({ "registered": r }).to_string()),
         Err(e) => {
             log::warn!("PlayStation : association refusée : {e}");
@@ -135,7 +244,7 @@ pub unsafe extern "C" fn kn_ps_wake(address: *const c_char, registered_json: *co
     };
     let model = if matches!(r.target, regist::TargetName::Ps5V1) { Model::Ps5 } else { Model::Ps4 };
     let Some(cred) = r.wake_credential() else { return false };
-    discovery::wake(std::net::IpAddr::V4(addr), model, cred).is_ok()
+    discovery::wake_at(&addr, model, cred).is_ok()
 }
 
 /// État d'une partie (`on_state`).

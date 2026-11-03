@@ -38,7 +38,7 @@ pub mod station;
 pub use addr::{DEFAULT_PORT, DEFAULT_RELAY, RelayAddr};
 pub use dial::{DialError, QUIC_DIAL_TIMEOUT, QUIC_RETRY_EVERY, backoff};
 pub use error::TunnelError;
-pub use msg::{Msg, Service, StreamHeader, StreamKind};
+pub use msg::{ConsoleTarget, Msg, Service, StreamHeader, StreamKind, To};
 pub use transport::{RelayStream, Transport};
 
 #[cfg(feature = "client")]

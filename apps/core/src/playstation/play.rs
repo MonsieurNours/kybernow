@@ -8,7 +8,6 @@
 //! `OpusHead` (`is_config`), puis les trames, et `Hole` pour une trame
 //! perdue.
 
-use std::net::Ipv4Addr;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -21,7 +20,8 @@ use crate::input::pipeline::GamepadRumble;
 use super::regist::Registered;
 use super::session::{self, Codec, Ctrl, CtrlEvent, Keys};
 use super::settings::PlaySettings;
-use super::stream::{Stream, StreamEvent};
+use super::endpoint::Endpoint;
+use super::stream::{Profile, Stream, StreamEvent};
 use crate::media::{FOURCC_H264, FOURCC_HEVC, FOURCC_OPUS, Packet, PacketHandler};
 
 /// Échantillons d'une trame de son (10 ms à 48 kHz).
@@ -153,7 +153,7 @@ impl Play {
     /// Lance la partie sur un fil `ps-play`. `on_state` est appelé sur ce
     /// fil.
     pub fn start(
-        addr: Ipv4Addr,
+        at: impl Into<Endpoint>,
         registered: &Registered,
         options: PlayOptions,
         video: Arc<dyn PacketHandler>,
@@ -161,6 +161,7 @@ impl Play {
         on_state: Box<dyn Fn(PlayState) + Send>,
         on_pad: Box<dyn Fn(PadEvent) + Send + Sync>,
     ) -> Self {
+        let at: Endpoint = at.into();
         let stop = Arc::new(AtomicBool::new(false));
         let want_key = Arc::new(AtomicBool::new(false));
         let keymouse = Arc::new(Mutex::new(KeyMouse::default()));
@@ -191,7 +192,7 @@ impl Play {
                     let mut retries = 0;
                     let end = loop {
                         let started = Instant::now();
-                        let end = run(addr, &registered, options.clone(), &video, audio.as_ref(), &on_state, &stop, &ctrl, &want_key, &keymouse, &captured, &counters, &on_pad);
+                        let end = run(&at, &registered, options.clone(), &video, audio.as_ref(), &on_state, &stop, &ctrl, &want_key, &keymouse, &captured, &counters, &on_pad);
                         if let Some(mut c) = ctrl.lock().unwrap().take() {
                             c.stop();
                         }
@@ -299,7 +300,7 @@ impl Drop for Play {
 
 #[allow(clippy::too_many_arguments)]
 fn run(
-    addr: Ipv4Addr,
+    at: &Endpoint,
     registered: &Registered,
     options: PlayOptions,
     video: &Arc<dyn PacketHandler>,
@@ -320,7 +321,7 @@ fn run(
     // l'ancienne session jusqu'à une minute).
     let started = Instant::now();
     let (target, nonce) = loop {
-        match session::request_session(addr, registered.target.into(), &keys) {
+        match session::request_session(at, registered.target.into(), &keys) {
             Ok(r) => break r,
             Err(session::SessionError::Rejected { reason: Some(super::regist::REASON_IN_USE), .. })
                 if started.elapsed() < Duration::from_secs(30) && !stop.load(Ordering::SeqCst) =>
@@ -334,7 +335,8 @@ fn run(
     };
     // La cible n'est sûre qu'après la demande de session : une PS4 ne
     // reçoit que du H.264, sans HDR.
-    let profile = options.settings.profile(options.hevc_decoder, super::rpcrypt::is_ps5(target));
+    // Par le relais, des paquets plus petits (un datagramme du tunnel).
+    let profile = Profile { mtu: at.mtu(), ..options.settings.profile(options.hevc_decoder, super::rpcrypt::is_ps5(target)) };
     log::info!(
         "PlayStation : {}×{} à {} i/s, {} kbit/s, {}{}",
         profile.width,
@@ -353,7 +355,7 @@ fn run(
     let (ctrl, events) = {
         let mut tries = 0;
         loop {
-            match Ctrl::connect(addr, target, &nonce, &keys, codec) {
+            match Ctrl::connect(at, target, &nonce, &keys, codec) {
                 Ok(c) => break c,
                 Err(_) if tries < 5 && !stop.load(Ordering::SeqCst) => {
                     tries += 1;
@@ -403,7 +405,7 @@ fn run(
         }
         if open { ControllerState::default() } else { s }
     });
-    let (mut stream, stream_events) = match Stream::start(addr, target, session_id, crypt, profile, Some(source), want_key.clone()) {
+    let (mut stream, stream_events) = match Stream::start(at, target, session_id, crypt, profile, Some(source), want_key.clone()) {
         Ok(s) => s,
         Err(e) => return PlayEnd::Unreachable(e.to_string()),
     };

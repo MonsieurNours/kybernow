@@ -24,6 +24,11 @@ pub enum Service {
     AdminTls,
     /// Kyber en TCP : contrôle HTTPS de kycontroller, WebSocket.
     KyberTcp,
+    /// Une console PlayStation du réseau de la Station, en TCP (session,
+    /// canal de contrôle, association) : `to`, `host_id` et `port` disent
+    /// laquelle et où (docs/relais.md, « Consoles PlayStation »). Un relais
+    /// d'avant les consoles ne connaît pas ce service et coupe le flux.
+    ConsoleTcp,
 }
 
 impl Service {
@@ -31,6 +36,50 @@ impl Service {
         match self {
             Service::AdminTls => StreamKind::AdminTls,
             Service::KyberTcp => StreamKind::KyberTcp,
+            Service::ConsoleTcp => StreamKind::ConsoleTcp,
+        }
+    }
+}
+
+/// Vers quoi va un flux UDP ou une connexion TCP relayée (`to`) : Kyber
+/// (ou absent, comme avant les consoles) ou une console.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum To {
+    Kyber,
+    Console,
+}
+
+/// Une console PlayStation vue par la Station : son identifiant (`host-id`)
+/// et le port voulu. La Station ne joint que l'adresse qu'elle a trouvée
+/// elle-même pour cet identifiant, jamais une adresse donnée par l'app.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ConsoleTarget {
+    pub host_id: String,
+    pub port: u16,
+}
+
+impl ConsoleTarget {
+    pub fn new(host_id: impl Into<String>, port: u16) -> Self {
+        ConsoleTarget { host_id: host_id.into(), port }
+    }
+
+    /// Les champs `to`, `host_id`, `port` d'un message.
+    pub fn fields(target: Option<&ConsoleTarget>) -> (Option<To>, Option<String>, Option<u16>) {
+        match target {
+            Some(t) => (Some(To::Console), Some(t.host_id.clone()), Some(t.port)),
+            None => (None, None, None),
+        }
+    }
+
+    /// La console d'un message (`to: "console"` avec `host_id` et `port`) ;
+    /// `Err` pour un `to: "console"` incomplet (à refuser, jamais à prendre pour Kyber).
+    #[allow(clippy::result_unit_err)]
+    pub fn from_fields(to: Option<To>, host_id: &Option<String>, port: Option<u16>) -> Result<Option<ConsoleTarget>, ()> {
+        match (to, host_id, port) {
+            (None | Some(To::Kyber), _, _) => Ok(None),
+            (Some(To::Console), Some(h), Some(p)) if !h.is_empty() && p != 0 => Ok(Some(ConsoleTarget { host_id: h.clone(), port: p })),
+            (Some(To::Console), _, _) => Err(()),
         }
     }
 }
@@ -45,6 +94,8 @@ pub enum StreamKind {
     AdminHttp,
     /// kyclient vers Kyber, en TCP.
     KyberTcp,
+    /// Une app vers une console PlayStation du réseau de la Station, en TCP.
+    ConsoleTcp,
 }
 
 impl StreamKind {
@@ -53,6 +104,7 @@ impl StreamKind {
             StreamKind::AdminTls => "admin_tls",
             StreamKind::AdminHttp => "admin_http",
             StreamKind::KyberTcp => "kyber_tcp",
+            StreamKind::ConsoleTcp => "console_tcp",
         }
     }
 }
@@ -154,6 +206,31 @@ pub struct StreamHeader {
     /// Navigateur : le nom demandé (`<id>.share.kybernow.app`).
     #[serde(default)]
     pub host: Option<String>,
+    /// `console_tcp` : `"console"`, la console (`host_id`) et son port.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to: Option<To>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port: Option<u16>,
+}
+
+impl StreamHeader {
+    /// L'en-tête d'un flux vers Admin ou Kyber (sans console).
+    pub fn new(kind: StreamKind, client: impl Into<String>, ip: IpAddr, host: Option<String>) -> Self {
+        StreamHeader { v: 1, kind, client: client.into(), ip, host, to: None, host_id: None, port: None }
+    }
+
+    /// L'en-tête d'un flux vers une console (`console_tcp`).
+    pub fn console_tcp(client: impl Into<String>, ip: IpAddr, target: &ConsoleTarget) -> Self {
+        let (to, host_id, port) = ConsoleTarget::fields(Some(target));
+        StreamHeader { to, host_id, port, ..StreamHeader::new(StreamKind::ConsoleTcp, client, ip, None) }
+    }
+
+    /// La console d'un flux `console_tcp` ; `None` sinon, ou incomplète.
+    pub fn console(&self) -> Option<ConsoleTarget> {
+        ConsoleTarget::from_fields(self.to, &self.host_id, self.port).ok().flatten()
+    }
 }
 
 /// Tous les messages, sur le flux des messages et en tête des autres flux.
@@ -178,12 +255,25 @@ pub enum Msg {
     OpenFlow {
         req: u32,
         key: u32,
+        /// Vers une console (`"console"`, avec `host_id` et `port`) ; absent : Kyber.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        to: Option<To>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        host_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        port: Option<u16>,
     },
     FlowOpen {
         flow: u64,
         client: String,
         key: u32,
         ip: IpAddr,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        to: Option<To>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        host_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        port: Option<u16>,
     },
     FlowAccept {
         flow: u64,
@@ -229,9 +319,16 @@ pub enum Msg {
     Pong {
         n: u64,
     },
-    /// En tête d'un flux ouvert par une app : le service voulu.
+    /// En tête d'un flux ouvert par une app : le service voulu ; pour
+    /// `console_tcp`, la console (`to`, `host_id`, `port`).
     Open {
         service: Service,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        to: Option<To>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        host_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        port: Option<u16>,
     },
     /// En tête d'un flux ouvert par le relais vers la Station.
     Stream(StreamHeader),
@@ -248,6 +345,23 @@ pub enum Msg {
 impl Msg {
     pub fn error(req: Option<u32>, code: ErrorCode, message: impl Into<Option<String>>) -> Msg {
         Msg::Error(ErrorMsg { req, code, message: message.into() })
+    }
+
+    /// `open` vers Admin ou Kyber.
+    pub fn open(service: Service) -> Msg {
+        Msg::Open { service, to: None, host_id: None, port: None }
+    }
+
+    /// `open` vers une console (`console_tcp`).
+    pub fn open_console(target: &ConsoleTarget) -> Msg {
+        let (to, host_id, port) = ConsoleTarget::fields(Some(target));
+        Msg::Open { service: Service::ConsoleTcp, to, host_id, port }
+    }
+
+    /// `open_flow` vers Kyber (`None`) ou une console.
+    pub fn open_flow(req: u32, key: u32, target: Option<&ConsoleTarget>) -> Msg {
+        let (to, host_id, port) = ConsoleTarget::fields(target);
+        Msg::OpenFlow { req, key, to, host_id, port }
     }
 
     /// Le type, pour les journaux.
@@ -287,23 +401,48 @@ mod tests {
 
     #[test]
     fn noms_du_contrat() {
-        let m = Msg::OpenFlow { req: 3, key: 1 };
+        let m = Msg::open_flow(3, 1, None);
         assert_eq!(serde_json::to_string(&m).unwrap(), r#"{"t":"open_flow","req":3,"key":1}"#);
-        let h = Msg::Stream(StreamHeader {
-            v: 1,
-            kind: StreamKind::AdminTls,
-            client: "abcdefghijklmnop".into(),
-            ip: "203.0.113.5".parse().unwrap(),
-            host: None,
-        });
+        let h = Msg::Stream(StreamHeader::new(StreamKind::AdminTls, "abcdefghijklmnop", "203.0.113.5".parse().unwrap(), None));
         assert_eq!(
             serde_json::to_string(&h).unwrap(),
             r#"{"t":"stream","v":1,"kind":"admin_tls","client":"abcdefghijklmnop","ip":"203.0.113.5","host":null}"#
         );
-        let o = Msg::Open { service: Service::KyberTcp };
+        let o = Msg::open(Service::KyberTcp);
         assert_eq!(serde_json::to_string(&o).unwrap(), r#"{"t":"open","service":"kyber_tcp"}"#);
         let e = Msg::error(Some(2), ErrorCode::TooMany, None);
         assert_eq!(serde_json::to_string(&e).unwrap(), r#"{"t":"error","req":2,"code":"too_many"}"#);
+    }
+
+    #[test]
+    fn flux_vers_une_console() {
+        let c = ConsoleTarget::new("C0151B2DAE08", 9296);
+        let m = Msg::open_flow(4, 2, Some(&c));
+        assert_eq!(
+            serde_json::to_string(&m).unwrap(),
+            r#"{"t":"open_flow","req":4,"key":2,"to":"console","host_id":"C0151B2DAE08","port":9296}"#
+        );
+        let o = Msg::open_console(&ConsoleTarget::new("C0151B2DAE08", 9295));
+        assert_eq!(
+            serde_json::to_string(&o).unwrap(),
+            r#"{"t":"open","service":"console_tcp","to":"console","host_id":"C0151B2DAE08","port":9295}"#
+        );
+        // `to: "console"` incomplet : refusé, jamais pris pour Kyber.
+        assert_eq!(ConsoleTarget::from_fields(Some(To::Console), &None, Some(9296)), Err(()));
+        assert_eq!(ConsoleTarget::from_fields(Some(To::Console), &Some("A".into()), Some(0)), Err(()));
+        assert_eq!(ConsoleTarget::from_fields(None, &Some("A".into()), Some(9296)), Ok(None));
+        assert_eq!(ConsoleTarget::from_fields(Some(To::Console), &Some("A".into()), Some(9296)), Ok(Some(ConsoleTarget::new("A", 9296))));
+        // Un en-tête de flux vers une console, lu par la Station.
+        let h: Msg = serde_json::from_str(
+            r#"{"t":"stream","v":1,"kind":"console_tcp","client":"c","ip":"203.0.113.5","host":null,"to":"console","host_id":"A","port":9295}"#,
+        )
+        .unwrap();
+        let Msg::Stream(h) = h else { panic!() };
+        assert_eq!(h.console(), Some(ConsoleTarget::new("A", 9295)));
+        assert_eq!(StreamHeader::console_tcp("c", "203.0.113.5".parse().unwrap(), &ConsoleTarget::new("A", 9295)), h);
+        // Une app d'avant les consoles ouvre Kyber, sans champ de plus.
+        let old: Msg = serde_json::from_str(r#"{"t":"open_flow","req":1,"key":1}"#).unwrap();
+        assert!(matches!(old, Msg::OpenFlow { to: None, host_id: None, port: None, .. }));
     }
 
     #[test]

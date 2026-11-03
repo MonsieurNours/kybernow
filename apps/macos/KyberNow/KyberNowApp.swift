@@ -75,6 +75,8 @@ final class AppModel: ObservableObject {
         borrowed = BorrowedStore(demo: Self.demo)
         playstation = PlayStationStore(demo: Self.demo)
         defaults = Self.demo ? (UserDefaults(suiteName: "fr.leslignesclaires.kybernow.demo") ?? .standard) : .standard
+        // Les consoles passent hors de chez soi par une Station qui les voit (docs/relais.md).
+        playstation.attach(hosts: store)
         // Les sessions (ouvertes, fermées, active) redessinent l'accueil et les menus.
         sessions.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &watchers)
         borrowed.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &watchers)

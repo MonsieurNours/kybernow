@@ -77,6 +77,21 @@ struct ConsoleHero: View {
                 }
                 .buttonStyle(GhostButton(height: 56))
                 .disabled(true)
+            } else if store.reaching.contains(console.id) {
+                // Hors de chez soi : la console est jointe par une Station.
+                Button {} label: {
+                    HStack(spacing: 10) { ProgressView().controlSize(.small); Text(PSText.connecting) }
+                }
+                .buttonStyle(GhostButton(height: 56))
+                .disabled(true)
+            } else if status == .away {
+                // « Hors de chez vous » : par une Station de son réseau et le relais
+                // (réveillée d'abord si elle est en mode repos).
+                Button { store.playAway(console, app: app) } label: {
+                    HStack(spacing: 12) { Icon("game-controller", size: 18, bold: true); Text(PSText.play) }
+                }
+                .buttonStyle(PrimaryButton(height: 56))
+                .keyboardShortcut(.defaultAction)
             } else if status == .on {
                 Button { store.play(console, app: app) } label: {
                     HStack(spacing: 12) { Icon("game-controller", size: 18, bold: true); Text(PSText.play) }

@@ -26,7 +26,7 @@ use crate::error::TunnelError;
 use crate::dial::{DialConfig, DialError, Pinger, QUIC_RETRY_EVERY, Session, backoff, dial, dial_quic_only};
 use crate::frame::read_msg;
 use crate::identity::StationIdentity;
-use crate::msg::{ErrorCode, ErrorMsg, Hello, Msg, Role, StreamHeader};
+use crate::msg::{ConsoleTarget, ErrorCode, ErrorMsg, Hello, Msg, Role, StreamHeader};
 use crate::quic::STATION_KEEP_ALIVE;
 use crate::transport::{AbortOnDrop, ActiveCounter, ActiveGuard, Conn, MediaReceiver, MediaSender, RelayStream, Transport};
 
@@ -80,9 +80,11 @@ impl AgentState {
 pub enum Incoming {
     /// Un flux, avec son en-tête écrit par le relais. `admin_tls` : TLS sur le
     /// certificat d'Admin, puis HTTP ; `admin_http` : HTTP ; `kyber_tcp` : à
-    /// relier à Kyber par l'adresse du réseau local, pour un client autorisé.
+    /// relier à Kyber par l'adresse du réseau local, pour un client autorisé ;
+    /// `console_tcp` : à relier à la console de l'en-tête (`header.console()`).
     Stream { header: StreamHeader, stream: RelayStream },
-    /// Un client demande un flux UDP vers Kyber.
+    /// Un client demande un flux UDP vers Kyber, ou vers une console
+    /// ([`FlowRequest::console`]).
     Flow(FlowRequest),
     /// Plus aucune connexion de ce client chez le relais.
     ClientGone { client: String },
@@ -111,6 +113,8 @@ type FlowKey = (String, u32);
 
 struct FlowSock {
     target: SocketAddr,
+    /// Vers une console (sinon Kyber) : fermé à part ([`Agent::close_client_flows`]).
+    console: bool,
     socket: Arc<UdpSocket>,
     /// Numéro de flux du relais en cours (0 : aucun).
     relay_flow: Arc<AtomicU64>,
@@ -181,6 +185,8 @@ pub struct FlowRequest {
     pub key: u32,
     /// L'adresse publique du client, vue par le relais.
     pub ip: IpAddr,
+    /// Vers une console (`to: "console"`) ; `None` : Kyber.
+    pub console: Option<ConsoleTarget>,
     shared: Arc<AgentShared>,
     live: Weak<Live>,
     answered: bool,
@@ -195,7 +201,8 @@ impl FlowRequest {
         let Some(live) = self.live.upgrade() else { return Err(io::Error::new(io::ErrorKind::NotConnected, "connexion au relais refaite")) };
         let key: FlowKey = (self.client.clone(), self.key);
         let mut flows = self.shared.flows.lock().unwrap();
-        let reuse = flows.by_key.get(&key).is_some_and(|s| s.target == target);
+        let console = self.console.is_some();
+        let reuse = flows.by_key.get(&key).is_some_and(|s| s.target == target && s.console == console);
         if reuse {
             let s = flows.by_key.get_mut(&key).expect("socket présent");
             let old = s.relay_flow.swap(self.flow, Ordering::Relaxed);
@@ -223,6 +230,7 @@ impl FlowRequest {
                 key.clone(),
                 FlowSock {
                     target,
+                    console,
                     socket,
                     relay_flow,
                     orphan_since: None,
@@ -380,9 +388,19 @@ impl Agent {
 
     /// Ferme les flux UDP de ce client (autorisation retirée).
     pub fn close_client(&self, client: &str) {
+        self.close_where(client, |_| true);
+    }
+
+    /// Ferme les flux UDP de ce client vers les consoles (`console`) ou vers
+    /// Kyber : les deux autorisations tombent chacune de son côté.
+    pub fn close_client_flows(&self, client: &str, console: bool) {
+        self.close_where(client, |s| s.console == console);
+    }
+
+    fn close_where(&self, client: &str, pred: impl Fn(&FlowSock) -> bool) {
         let live = self.shared.current();
         let mut flows = self.shared.flows.lock().unwrap();
-        let keys: Vec<FlowKey> = flows.by_key.keys().filter(|(c, _)| c == client).cloned().collect();
+        let keys: Vec<FlowKey> = flows.by_key.iter().filter(|((c, _), s)| c == client && pred(s)).map(|(k, _)| k.clone()).collect();
         for key in keys {
             if let Some(s) = flows.by_key.remove(&key) {
                 let flow = s.relay_flow.load(Ordering::Relaxed);
@@ -534,12 +552,17 @@ async fn serve(shared: &Arc<AgentShared>, session: Session) -> End {
         };
         let Ok(Some(msg)) = msg else { break End::Lost };
         match msg {
-            Msg::FlowOpen { flow, client, key, ip } => {
+            Msg::FlowOpen { flow, client, key, ip, to, host_id, port } => {
+                let Ok(console) = ConsoleTarget::from_fields(to, &host_id, port) else {
+                    let _ = ctl_tx.send(Msg::FlowRefuse { flow, reason: "bad_request".into() });
+                    continue;
+                };
                 let req = FlowRequest {
                     flow,
                     client,
                     key,
                     ip,
+                    console,
                     shared: shared.clone(),
                     live: Arc::downgrade(&live),
                     answered: false,

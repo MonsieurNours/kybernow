@@ -65,7 +65,8 @@ Tout ce qui fait entrer quelqu'un d'autre sur votre ordinateur. Nom choisi le 26
 Cadré le 03/11/2026, contrat : [docs/playstation.md](docs/playstation.md).
 
 - **Première version, app Mac** : PS5 et PS4 dans le cœur Rust (découverte, réveil, association par code, session, image, son, DualSense complète), d'après chiaki-ng ; essais sur une PS5 Pro, la PS4 reste à essayer.
-- **Ensuite** : les autres apps Link, et la session d'une console par le relais (une Station du même réseau fait suivre les paquets).
+- **Par le relais** : une Station du même réseau fait suivre les paquets ; écrit (relais, Admin, cœur, app Mac) et essayé sur la boucle locale vers la PS5 Pro le 03/11/2026 ; reste à essayer avec le vrai relais et une vraie Station.
+- **Ensuite** : les autres apps Link.
 
 ## Manettes Sony en mode « Fidèle »
 

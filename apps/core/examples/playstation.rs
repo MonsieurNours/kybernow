@@ -149,12 +149,12 @@ fn main() {
             let r = state.consoles.get(&console.host_id.to_ascii_uppercase()).expect("console pas encore associée");
             let keys = Keys::from_registered(r).expect("association illisible");
             let target = r.target.into();
-            let (target, nonce) = session::request_session(addr, target, &keys).unwrap_or_else(|e| {
+            let (target, nonce) = session::request_session(&addr.into(), target, &keys).unwrap_or_else(|e| {
                 eprintln!("Demande de session refusée : {e}");
                 std::process::exit(1)
             });
             println!("Session accordée ({target:?}), ouverture du canal de contrôle…");
-            let (mut ctrl, events) = Ctrl::connect(addr, target, &nonce, &keys, codec).unwrap_or_else(|e| {
+            let (mut ctrl, events) = Ctrl::connect(&addr.into(), target, &nonce, &keys, codec).unwrap_or_else(|e| {
                 eprintln!("Canal de contrôle refusé : {e}");
                 std::process::exit(1)
             });
@@ -190,7 +190,7 @@ fn main() {
             // de contrôle réessayé sur la même session (juste après un réveil).
             let asked = std::time::Instant::now();
             let (target, nonce) = loop {
-                match session::request_session(addr, r.target.into(), &keys) {
+                match session::request_session(&addr.into(), r.target.into(), &keys) {
                     Ok(t) => break t,
                     Err(e) if asked.elapsed() < Duration::from_secs(30) => {
                         eprintln!("Demande de session refusée ({e}), nouvel essai");
@@ -205,7 +205,7 @@ fn main() {
             let codec = if hdr { Codec::H265Hdr } else { Codec::H265 };
             let mut tries = 0;
             let (mut ctrl, events) = loop {
-                match Ctrl::connect(addr, target, &nonce, &keys, codec) {
+                match Ctrl::connect(&addr.into(), target, &nonce, &keys, codec) {
                     Ok(c) => break c,
                     Err(_) if tries < 5 => {
                         tries += 1;
@@ -240,7 +240,7 @@ fn main() {
             if let Some(k) = std::env::var("PS_KBPS").ok().and_then(|k| k.parse().ok()) {
                 profile.bitrate = k;
             }
-            let (mut stream, events) = Stream::start(addr, target, session_id, ctrl.crypt().clone(), profile, None, want_key.clone()).unwrap_or_else(|e| {
+            let (mut stream, events) = Stream::start(&addr.into(), target, session_id, ctrl.crypt().clone(), profile, None, want_key.clone()).unwrap_or_else(|e| {
                 eprintln!("Flux impossible : {e}");
                 std::process::exit(1)
             });

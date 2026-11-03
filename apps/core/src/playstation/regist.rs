@@ -16,13 +16,14 @@
 //! Le résultat, [`Registered`], est ce que l'app garde pour chaque console.
 
 use std::io::{self, Read, Write};
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream, UdpSocket};
+use std::net::{Ipv4Addr, SocketAddr, TcpStream, UdpSocket};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 
 use super::discovery::Target;
+use super::endpoint::Endpoint;
 use super::rpcrypt::{self, KEY_SIZE, RpCrypt};
 
 /// Port de l'association, en UDP (recherche) puis en TCP (demande).
@@ -290,6 +291,12 @@ pub fn request_payload(target: Target, ambassador: &[u8; KEY_SIZE], id: &PsnId, 
 /// Associe la console à `addr` avec le code `pin` affiché par elle.
 /// Bloque quelques secondes au plus : à appeler hors du fil de l'interface.
 pub fn regist(addr: Ipv4Addr, target: Target, id: &PsnId, pin: u32) -> Result<Registered, RegistError> {
+    regist_at(&Endpoint::direct(addr), target, id, pin)
+}
+
+/// [`regist`] vers une console jointe par ses ports (par le relais : le port
+/// du tunnel pour 9295, en UDP pour la recherche et en TCP pour la demande).
+pub fn regist_at(at: &Endpoint, target: Target, id: &PsnId, pin: u32) -> Result<Registered, RegistError> {
     let target: Target = TargetName::from_target(target).into();
     let mut ambassador = [0u8; KEY_SIZE];
     getrandom::getrandom(&mut ambassador).map_err(|e| io::Error::other(e.to_string()))?;
@@ -297,7 +304,7 @@ pub fn regist(addr: Ipv4Addr, target: Target, id: &PsnId, pin: u32) -> Result<Re
         .ok_or_else(|| RegistError::InvalidResponse("identifiant PSN ou cible inutilisable".into()))?;
     let header = request_header(target, payload.len());
 
-    let console = search(addr, rpcrypt::is_ps5(target))?;
+    let console = search(at, rpcrypt::is_ps5(target))?;
     std::thread::sleep(AFTER_SEARCH);
 
     let mut stream = TcpStream::connect_timeout(&console, RESPONSE_TIMEOUT)?;
@@ -316,10 +323,10 @@ pub fn regist(addr: Ipv4Addr, target: Target, id: &PsnId, pin: u32) -> Result<Re
 }
 
 /// La recherche `SRC3` / `SRC2` ; rend l'adresse qui a répondu (port 9295).
-fn search(addr: Ipv4Addr, ps5: bool) -> Result<SocketAddr, RegistError> {
+fn search(at: &Endpoint, ps5: bool) -> Result<SocketAddr, RegistError> {
     let (src, res): (&[u8], &[u8]) = if ps5 { (b"SRC3\0", b"RES3") } else { (b"SRC2\0", b"RES2") };
     let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0))?;
-    socket.connect(SocketAddrV4::new(addr, PORT))?;
+    socket.connect(at.rp())?;
     socket.send(src)?;
     let deadline = Instant::now() + SEARCH_TIMEOUT;
     let mut buf = [0u8; 256];
