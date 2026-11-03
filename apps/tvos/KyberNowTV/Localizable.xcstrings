@@ -6323,6 +6323,22 @@
         }
       }
     },
+    "Ordinateurs et consoles" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Computers and consoles"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ordinateurs et consoles"
+          }
+        }
+      }
+    },
     "Ordre des joueurs" : {
       "localizations" : {
         "en" : {

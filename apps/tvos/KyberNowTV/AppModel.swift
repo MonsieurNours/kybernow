@@ -192,10 +192,18 @@ final class AppModel: ObservableObject {
         case "invite":
             if let invite = Lend.parseInvite("kybernow://borrow?host=192.168.1.30&port=37462&fp=sha256:ab12&login=camille") { screen = .invite(invite) }
         case "app": screen = .appSettings
-        // Consoles (avec `-demoPlayStation YES`) : `-screen consoleSettings|consolePair|consoleAccount|consoleMenu`.
+        // Consoles (avec `-demoPlayStation YES`) : `-screen consoleSettings|consolePair|consoleAccount|consoleMenu|consoleConnecting|consoleFirstFrames|consoleFailed`.
         case "consoleSettings": if let c = playstation.consoles.first { screen = .consoleSettings(c.id) }
         case "consolePair": screen = .consolePair(PairRequest(hostID: playstation.consoles.first?.hostID))
         case "consoleAccount": screen = .consolePair(PairRequest(hostID: "DEMO-LEA"))
+        case "consoleConnecting", "consoleFirstFrames", "consoleFailed":
+            if let c = playstation.consoles.first {
+                let s = PlayStationSession(console: c, address: c.address, registered: "{}", settings: PlayStation.defaultSettings, layout: "{}", fullScreen: true,
+                                           onFullScreen: { _ in }) { _, _ in }
+                consoleSession = s
+                screen = .console(c.id)
+                s.demoConnecting(UserDefaults.standard.string(forKey: "screen") ?? "")
+            }
         case "consoleMenu":
             if let c = playstation.consoles.first {
                 let s = PlayStationSession(console: c, address: c.address, registered: "{}", settings: PlayStation.defaultSettings, layout: "{}", fullScreen: true,

@@ -42,6 +42,11 @@ final class PlayStationSession: ObservableObject {
     /// Par où passe la partie : puce « Par le relais », chemin des statistiques.
     @Published private(set) var path = RouteInfo.direct
     @Published private(set) var startedAt: Date?
+    /// L'image est montrée (0,9 s après le début du flux, comme pour un
+    /// ordinateur) : le passage s'ouvre ; nil pendant la connexion.
+    @Published private(set) var revealedAt: Date?
+    /// Le passage est dans la hiérarchie (il la quitte une fois ouvert).
+    @Published private(set) var passageShown = true
     /// Rappel « Retour ou Options + Create + L1 + R1 : menu », un instant après l'image.
     @Published private(set) var menuHint = false
 
@@ -65,6 +70,7 @@ final class PlayStationSession: ObservableObject {
     private var resting = false
     private var statsTask: Task<Void, Never>?
     private var displayCriteriaSet = false
+    private static let revealDelay: TimeInterval = 0.9
 
     /// Mêmes paramètres que sur Mac ; `fullScreen` et `onFullScreen` n'ont pas
     /// cours sur un téléviseur (la partie est toujours en plein écran).
@@ -82,6 +88,9 @@ final class PlayStationSession: ObservableObject {
         hdr = s?.hdr ?? false
         path = remote?.route ?? .direct
     }
+
+    /// Le téléviseur accepte le HDR10 (le magasin partagé le demande au lancement).
+    static var screenIsHDR: Bool { HDRDisplay.isHDR() }
 
     /// La partie à l'écran, puis la connexion.
     func open() {
@@ -134,7 +143,7 @@ final class PlayStationSession: ObservableObject {
     }
 
     func openMenu() {
-        guard phase == .streaming, !menuOpen else { return }
+        guard phase == .streaming, revealedAt != nil, !menuOpen else { return }
         menuHint = false
         play?.setCaptured(true)
         GamepadBridge.shared.setCaptured(true)
@@ -172,12 +181,18 @@ final class PlayStationSession: ObservableObject {
             phase = .connecting
         case let .streaming(w, h, hdr):
             KyberLog.app.notice("PlayStation : image \(w)x\(h) \(hdr ? "HDR" : "SDR", privacy: .public)")
-            if phase != .streaming {
-                startedAt = startedAt ?? Date()
-                showMenuHint()
-            }
             phase = .streaming
             startStats()
+            // Comme un ordinateur : l'image n'apparaît que 0,9 s après le
+            // début du flux, puis le passage s'ouvre et quitte la hiérarchie.
+            guard revealedAt == nil else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.revealDelay) { [weak self] in
+                guard let self, self.revealedAt == nil, self.phase == .streaming else { return }
+                withAnimation(.timingCurve(0.2, 0.9, 0.1, 1, duration: 1.5)) { self.revealedAt = Date() }
+                self.startedAt = Date()
+                self.showMenuHint()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.7) { [weak self] in self?.passageShown = false }
+            }
         case let .cantDisplay(on):
             cantDisplay = on
         case let .ended(e):
@@ -253,9 +268,21 @@ final class PlayStationSession: ObservableObject {
     }
 
     #if DEBUG
+    /// Démonstration (`-screen consoleConnecting|consoleFirstFrames|consoleFailed`) :
+    /// l'écran de connexion d'un ordinateur sur la scène de la console, sans console.
+    func demoConnecting(_ step: String) {
+        switch step {
+        case "consoleFirstFrames": phase = .streaming
+        case "consoleFailed": phase = .ended(PSText.end(.unreachable))
+        default: phase = .connecting
+        }
+    }
+
     /// Démonstration (`-screen consoleMenu`) : le menu ouvert, sans console.
     func demoMenu() {
         phase = .streaming
+        revealedAt = Date()
+        passageShown = false
         startedAt = Date().addingTimeInterval(-23 * 60)
         stats = PlayStationPlay.Stats(width: 1920, height: 1080, hevc: true, hdr: hdr, targetKbps: 15_000, fps: 59.6, mbps: 12.4, lost: 0, recovered: 0)
         lostTotal = 3
