@@ -145,6 +145,10 @@ struct Running {
     /// la barre, et le chemin que prennent les appels à Admin (par le relais si la
     /// session y est). `None` tant que le cœur ne l'a pas dit.
     route: Arc<Mutex<Option<RouteInfo>>>,
+    /// Ses nouvelles (celles que reçoit `SessionHost`) : l'app s'en sert pour
+    /// la tenir pour finie quand elle ne finit pas après une fin demandée
+    /// (`watch_end`).
+    events: Arc<UiEvents>,
 }
 
 /// La connexion d'une session ouverte pendant qu'une autre tourne (plusieurs
@@ -259,8 +263,12 @@ pub struct UiState {
     /// Les ordinateurs dont la connexion se lance (`connect`, jusqu'à
     /// l'inscription de leur session) : ils comptent dans les quatre.
     launching: Mutex<Vec<String>>,
-    /// Fermeture demandée pendant des sessions : quitter à la fin de la dernière.
+    /// Fermeture demandée pendant des sessions : quitter à la fin de la dernière
+    /// (`QUIT_WITHIN` au plus).
     quitting: std::sync::atomic::AtomicBool,
+    /// « Annuler » pendant le lancement d'une connexion (`connect` pas encore
+    /// revenu, session pas encore inscrite) : elle s'arrête dès son inscription.
+    cancelled_launch: Mutex<Vec<String>>,
     /// L'ordinateur de la session que sert la barre (une seule barre).
     bar_session: Mutex<Option<String>>,
     /// Les fenêtres de connexion ouvertes (libellé → connexion), y compris
@@ -490,36 +498,109 @@ impl UiState {
     }
 }
 
+/// Une session qui ne finit pas après une fin demandée (« Annuler »,
+/// « Se déconnecter ») : au bout de ce délai, l'app ferme ses fenêtres et la
+/// tient pour finie (accueil, fenêtre de connexion, menu de l'icône), quel que
+/// soit l'état du cœur, qui finit derrière.
+const END_WITHIN: Duration = Duration::from_secs(5);
+
+/// « Quitter » : les sessions ont ce délai pour finir (Admin de chaque
+/// ordinateur prévenue) ; ensuite l'app se ferme quand même.
+const QUIT_WITHIN: Duration = Duration::from_secs(5);
+
 /// Un ordre de fin à la session de cet ordinateur (barre, menu de l'icône,
 /// passage de l'accueil), et pourquoi (journal) : à elle seule, jamais à la
-/// session active ni à une autre ; rien s'il n'est plus en session.
-fn end_session(state: &UiState, id: &str, why: &str) -> bool {
-    let sent = state
-        .with_session(id, |r| {
-            log::info!("[{}] {why} : ordre de fin à sa session (n°{})", r.name, r.host.id());
-            r.host.command(Command::Disconnect);
-        })
-        .is_some();
-    if !sent {
-        log::info!("{why} pour {id} : plus en session, rien à arrêter");
+/// session active ni à une autre. Une connexion qui se lance encore (pas
+/// encore inscrite) s'arrête dès son inscription ; rien s'il n'est plus en
+/// session.
+fn end_session(app: &AppHandle, id: &str, why: &str) -> bool {
+    let state = app.state::<UiState>();
+    let sent = {
+        // Tenu pendant le contrôle : `connect` regarde les annulations sous ce verrou.
+        let sessions = state.sessions.lock().unwrap();
+        match sessions.iter().find(|r| r.id == id) {
+            Some(r) => {
+                log::info!("[{}] {why} : ordre de fin à sa session (n°{})", r.name, r.host.id());
+                r.host.command(Command::Disconnect);
+                Some(r.host.id())
+            }
+            None => {
+                if state.launching.lock().unwrap().iter().any(|x| x == id) {
+                    log::info!("{why} pour {id} : la connexion se lance, elle s'arrêtera dès son inscription");
+                    state.cancelled_launch.lock().unwrap().push(id.to_string());
+                    return true;
+                }
+                None
+            }
+        }
+    };
+    match sent {
+        Some(session) => {
+            watch_end(app, session);
+            true
+        }
+        None => {
+            log::info!("{why} pour {id} : plus en session, rien à arrêter");
+            false
+        }
     }
-    sent
 }
 
 /// Un ordre de fin à cette session-là (`SessionHost::id` : sa fenêtre de
 /// connexion, Quitter pendant son lancement), et pourquoi : rien si elle est
 /// finie, même si son ordinateur a une autre session depuis.
-fn end_instance(state: &UiState, session: u64, why: &str) -> bool {
+fn end_instance(app: &AppHandle, session: u64, why: &str) -> bool {
+    let state = app.state::<UiState>();
     let sent = state
         .with_instance(session, |r| {
             log::info!("[{}] {why} : ordre de fin à sa session (n°{session})", r.name);
             r.host.command(Command::Disconnect);
         })
         .is_some();
-    if !sent {
+    if sent {
+        watch_end(app, session);
+    } else {
         log::info!("{why} : la session n°{session} est finie, rien à arrêter");
     }
     sent
+}
+
+/// Après une fin demandée : si la session n'a pas fini dans `END_WITHIN`, ses
+/// fenêtres ferment et l'app la tient pour finie, comme une fin demandée
+/// (`UiEvents::ended`) ; sa vraie fin, plus tard, n'y change plus rien.
+fn watch_end(app: &AppHandle, session: u64) {
+    let app = app.clone();
+    let spawned = std::thread::Builder::new().name("kybernow-end-watch".into()).spawn(move || {
+        std::thread::sleep(END_WITHIN);
+        let state = app.state::<UiState>();
+        let Some((name, events)) = state.with_instance(session, |r| {
+            r.host.close_windows();
+            (r.name.clone(), r.events.clone())
+        }) else {
+            return;
+        };
+        log::warn!(
+            "[{name}] session n°{session} pas finie {} s après la demande de fin : fenêtres fermées, tenue pour finie (le cœur finit derrière)",
+            END_WITHIN.as_secs()
+        );
+        events.ended(&Summary { requested: true, ..Default::default() });
+    });
+    if let Err(e) = spawned {
+        log::error!("surveillance de la fin : fil refusé ({e})");
+    }
+}
+
+/// Une connexion annulée pendant son lancement (`end_session`) : vrai une
+/// fois, à son inscription (sous le verrou des sessions).
+fn take_cancelled_launch(state: &UiState, id: &str) -> bool {
+    let mut cancelled = state.cancelled_launch.lock().unwrap();
+    match cancelled.iter().position(|x| x == id) {
+        Some(i) => {
+            cancelled.remove(i);
+            true
+        }
+        None => false,
+    }
 }
 
 #[derive(Serialize)]
@@ -2001,11 +2082,17 @@ impl HostEvents for UiEvents {
     fn ended(&self, s: &Summary) {
         let state = self.app.state::<UiState>();
         // Cette session-là, pas une autre du même ordinateur.
-        let remaining = {
+        let (found, remaining) = {
             let mut sessions = state.sessions.lock().unwrap();
+            let before = sessions.len();
             sessions.retain(|r| r.host.id() != self.connexion.session);
-            sessions.len()
+            (sessions.len() < before, sessions.len())
         };
+        // Déjà tenue pour finie (`watch_end`) : sa vraie fin n'y change plus rien.
+        if !found {
+            log::info!("[{}] session n°{} finie après avoir été tenue pour finie", self.connexion.name, self.connexion.session);
+            return;
+        }
         // Dernière image : le fond de cet ordinateur sur l'accueil.
         let keep = state.with_store(|st| st.get(&self.id).map(|c| c.settings.keep_last_image)).unwrap_or(false);
         if let (true, Some(jpeg)) = (keep, &s.last_image) {
@@ -2484,7 +2571,12 @@ fn connexion_closed(app: &AppHandle, label: &str) {
     };
     *conn.closed_at.lock().unwrap() = Some(Instant::now());
     let failed = conn.view.lock().unwrap().error.is_some();
-    let cancelled = !failed && end_instance(&state, conn.session, &format!("fenêtre de connexion de {} fermée (« Annuler »)", conn.name));
+    let why = format!("fenêtre de connexion de {} fermée (« Annuler »)", conn.name);
+    // Sa session pas encore inscrite (la fenêtre s'ouvre juste avant) : elle
+    // s'arrêtera dès son inscription.
+    let id = conn.view.lock().unwrap().id.clone();
+    let launching = state.launching.lock().unwrap().contains(&id);
+    let cancelled = !failed && (end_instance(app, conn.session, &why) || (launching && end_session(app, &id, &why)));
     if !cancelled {
         log::info!(
             "fenêtre de connexion de {} fermée{} : aucune session à arrêter (n°{} finie)",
@@ -2633,6 +2725,9 @@ impl Drop for Launching<'_> {
                 launching.remove(i);
             }
         }
+        // Une annulation que la connexion n'a pas prise (refusée avant son
+        // inscription) ne vaut pas pour la suivante.
+        take_cancelled_launch(&state, &self.id);
         if state.quitting.load(Ordering::Relaxed) {
             exit_when_idle(self.app);
         }
@@ -2813,6 +2908,23 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
     }
     // Tenu jusqu'à l'inscription de la session : une fin très rapide (dans
     // `ended`) ne peut pas passer avant.
+    let events = Arc::new(UiEvents {
+        app: app.clone(),
+        id: id.clone(),
+        sent: sent.clone(),
+        stats: stats.clone(),
+        spec,
+        this_screen,
+        spot: spot.clone(),
+        first,
+        connexion: connexion.clone(),
+        guest: None,
+        borrow: None,
+        share: share_state.clone(),
+        lend: lend_state.clone(),
+        lend_seen: std::sync::atomic::AtomicBool::new(false),
+        route: route.clone(),
+    });
     let mut running = state.sessions.lock().unwrap();
     let host = SessionHost::start_as(
         session,
@@ -2831,43 +2943,27 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
             title_stats: false,
             layout,
         },
-        Arc::new(UiEvents {
-            app: app.clone(),
-            id: id.clone(),
-            sent: sent.clone(),
-            stats: stats.clone(),
-            spec,
-            this_screen,
-            spot: spot.clone(),
-            first,
-            connexion: connexion.clone(),
-            guest: None,
-            borrow: None,
-            share: share_state.clone(),
-            lend: lend_state.clone(),
-            lend_seen: std::sync::atomic::AtomicBool::new(false),
-            route: route.clone(),
-        }),
+        events.clone(),
     );
     let screens = plan.as_ref().map_or(1, |p| p.len());
-    running.push(Running { id: id.clone(), name: c.name.clone(), host, bar, sent, stats, guest: None, borrow: None, share: share_state, lend: lend_state, route });
+    running.push(Running { id: id.clone(), name: c.name.clone(), host, bar, sent, stats, guest: None, borrow: None, share: share_state, lend: lend_state, route, events });
+    let cancelled = take_cancelled_launch(&state, &id);
     drop(running);
     drop(_launching);
-    // « Quitter » pendant le lancement : elle s'arrête tout de suite (Admin
-    // prévenue), l'app part à sa fin.
-    if state.quitting.load(Ordering::Relaxed) {
-        end_instance(&state, session, "Quitter pendant le lancement");
-    }
+    // « Quitter » ou « Annuler » pendant le lancement : elle s'arrête tout de
+    // suite (Admin prévenue) ; avec « Quitter », l'app part à sa fin.
+    after_launch(&app, session, cancelled);
     emit_sessions(&app);
     Ok(ConnectInfo { screens, windowed: !first })
 }
 
 /// Un ordre de la barre (ou du passage, « Annuler ») à la session de cet ordinateur.
 #[tauri::command(async)]
-fn session_command(state: tauri::State<'_, UiState>, id: String, command: String) {
+fn session_command(app: AppHandle, id: String, command: String) {
+    let state = app.state::<UiState>();
     let c = match command.as_str() {
         "disconnect" => {
-            end_session(&state, &id, "« Se déconnecter » de la barre, ou « Annuler » du passage de l'accueil");
+            end_session(&app, &id, "« Se déconnecter » de la barre, ou « Annuler » du passage de l'accueil");
             return;
         }
         "fullscreen" => Command::Fullscreen,
@@ -3243,7 +3339,7 @@ pub fn tray_command(app: &AppHandle, cmd: Cmd) {
             }
             Cmd::Statistics(id) => toggle_stats(&app, &id),
             Cmd::Disconnect(id) => {
-                end_session(&state, &id, "« Se déconnecter » du menu de l'icône");
+                end_session(&app, &id, "« Se déconnecter » du menu de l'icône");
             }
             Cmd::Show(id) => {
                 show_session_of(&state, &id);
@@ -3277,8 +3373,11 @@ pub fn tray_command(app: &AppHandle, cmd: Cmd) {
 /// à la fin de la dernière.
 pub fn quit(app: &AppHandle) {
     let state = app.state::<UiState>();
-    // D'abord : une connexion qui se lance voit qu'il faut s'arrêter.
-    state.quitting.store(true, Ordering::Relaxed);
+    // D'abord : une connexion qui se lance voit qu'il faut s'arrêter. Et
+    // quitter finit toujours : `QUIT_WITHIN` au plus, avant tout verrou.
+    if !state.quitting.swap(true, Ordering::SeqCst) {
+        quit_deadline(app);
+    }
     // Une demande en attente de l'accord d'un hôte (par le relais) est retirée.
     share::cancel_wait(&state, None);
     lend::cancel_wait(&state, None);
@@ -3293,8 +3392,45 @@ pub fn quit(app: &AppHandle) {
         }
     }
     // Rien en cours : tout de suite. Sinon à la fin de la dernière session,
-    // ou de la connexion qui se lance (`ended`, `Launching`).
+    // ou de la connexion qui se lance (`ended`, `Launching`), `QUIT_WITHIN` au plus.
     exit_when_idle(app);
+}
+
+/// « Quitter » finit toujours : si les sessions n'ont pas fini dans
+/// `QUIT_WITHIN` (un ordinateur qui ne répond pas, une session bloquée),
+/// l'app se ferme quand même ; si elle n'y arrive pas non plus (fil principal
+/// pris), le processus s'arrête 2 s plus tard. Une Station sans nouvelles
+/// rend d'elle-même ses écrans, faute de signal de vie.
+fn quit_deadline(app: &AppHandle) {
+    let app = app.clone();
+    let spawned = std::thread::Builder::new().name("kybernow-quit".into()).spawn(move || {
+        std::thread::sleep(QUIT_WITHIN);
+        let state = app.state::<UiState>();
+        let left = state.sessions.try_lock().map(|s| s.len().to_string()).unwrap_or_else(|_| "?".into());
+        log::warn!("quitter : {left} session(s) pas finie(s) en {} s, l'app se ferme quand même", QUIT_WITHIN.as_secs());
+        tray::remove();
+        app.exit(0);
+        std::thread::sleep(Duration::from_secs(2));
+        log::warn!("quitter : l'app ne s'est pas fermée, arrêt du processus");
+        log::logger().flush();
+        std::process::exit(0);
+    });
+    if let Err(e) = spawned {
+        log::error!("quitter : fil du délai refusé ({e}), arrêt du processus");
+        std::process::exit(0);
+    }
+}
+
+/// Juste après l'inscription d'une session (`connect`, partage, prêt) :
+/// « Quitter » ou « Annuler » (`cancelled`) arrivé pendant son lancement
+/// l'arrête tout de suite.
+pub(crate) fn after_launch(app: &AppHandle, session: u64, cancelled: bool) {
+    let state = app.state::<UiState>();
+    if state.quitting.load(Ordering::SeqCst) {
+        end_instance(app, session, "Quitter pendant le lancement");
+    } else if cancelled {
+        end_instance(app, session, "« Annuler » pendant le lancement");
+    }
 }
 
 /// La première fermeture de l'accueil : une notification dit où l'app

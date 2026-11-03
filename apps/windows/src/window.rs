@@ -177,6 +177,11 @@ pub enum Command {
     WinKey = 11,
     AltTab = 12,
     PrintScreen = 13,
+    /// Les fenêtres de la session ferment tout de suite, sans attendre la fin
+    /// du cœur (qui reçoit sa fin et finit derrière, `host::run`) : une fin
+    /// demandée avant le départ du cœur, ou une session que l'app abandonne
+    /// parce qu'elle ne finit pas.
+    Close = 14,
 }
 
 /// Codes de touche (jeu 1, `0xE000` : touche étendue).
@@ -1586,10 +1591,12 @@ fn shortcut_held() -> bool {
 }
 
 /// Fin de session demandée par l'utilisateur (« Se déconnecter » de la barre
-/// ou du menu de l'icône, fermeture d'une fenêtre, Ctrl+Alt+Maj+D) : seule
-/// cette session s'arrête, sans notification de fin. `why` : d'où vient la
-/// demande (journal).
-fn user_close(app: &Arc<App>, why: &str) {
+/// ou du menu de l'icône, « Annuler » de la connexion, fermeture d'une
+/// fenêtre, Ctrl+Alt+Maj+D, « Quitter ») : seule cette session s'arrête, sans
+/// notification de fin. De n'importe quel fil : l'app l'appelle directement
+/// (`SessionHost::end`), sans attendre le fil des fenêtres, qui peut être
+/// occupé. `why` : d'où vient la demande (journal).
+pub fn user_close(app: &Arc<App>, why: &str) {
     log::info!("[{}] fin demandée : {why}", app.host_name);
     app.user_ended.store(true, Ordering::Relaxed);
     request_close(app);
@@ -1605,15 +1612,41 @@ fn next_computer(app: &Arc<App>) {
     }
 }
 
-/// Fin de session demandée (n'importe quelle fenêtre, la barre, l'icône).
+/// Fin de session demandée (n'importe quelle fenêtre, la barre, l'icône ; de
+/// n'importe quel fil) : le cœur la reçoit tout de suite (`Session::stop`, un
+/// message sur son canal, lu même pendant la mise en route) ; sa fin ferme
+/// les fenêtres. Avant le départ du cœur, le fil des fenêtres les ferme lui-même
+/// (`Command::Close`), et `App::session_ready` transmet la fin au cœur.
 fn request_close(app: &Arc<App>) {
-    if app.closing.swap(true, Ordering::Relaxed) {
+    if app.closing.swap(true, Ordering::SeqCst) {
         log::info!("[{}] fin déjà en cours", app.host_name);
         return;
     }
+    // Avec `session_ready` : l'un des deux voit toujours l'autre.
+    std::sync::atomic::fence(Ordering::SeqCst);
     match app.session.get() {
         Some(s) => s.stop(),
-        None => quit(app, "fin demandée avant le départ du cœur"),
+        None if !app.control().0.is_null() => app.post_command(Command::Close, 0),
+        None => log::info!("[{}] fin demandée avant ses fenêtres : transmise au départ du cœur", app.host_name),
+    }
+}
+
+impl App {
+    /// La session du cœur vient d'être donnée (`host::run`) : une fin demandée
+    /// avant lui est transmise maintenant ; `asked` : l'app l'avait demandée
+    /// avant que les fenêtres de la session existent (`SessionHost::end`).
+    pub fn session_ready(&self, asked: bool) {
+        if asked {
+            self.user_ended.store(true, Ordering::Relaxed);
+            self.closing.store(true, Ordering::SeqCst);
+        }
+        std::sync::atomic::fence(Ordering::SeqCst);
+        if self.closing.load(Ordering::SeqCst)
+            && let Some(s) = self.session.get()
+        {
+            log::info!("[{}] fin demandée pendant la mise en place : transmise au cœur", self.host_name);
+            s.stop();
+        }
     }
 }
 
@@ -2030,6 +2063,13 @@ fn command(app: &Arc<App>, c: usize, arg: isize) {
         // L'ordre a été posté à la fenêtre de contrôle de cette session, et à
         // elle seule (`SessionHost::post`) : l'app a dit pourquoi au journal.
         x if x == Command::Disconnect as usize => user_close(app, "ordre de l'app"),
+        x if x == Command::Close as usize => {
+            // Le cœur reçoit sa fin (sans effet s'il l'a déjà) et finit derrière.
+            if let Some(s) = app.session.get() {
+                s.stop();
+            }
+            quit(app, "fermeture demandée par l'app");
+        }
         x if x == Command::Fullscreen as usize => toggle_fullscreen(app),
         x if x == Command::MouseToggle as usize => toggle_mouse(app),
         x if x == Command::MouseAuto as usize => set_mouse(app, MouseMode::Auto),

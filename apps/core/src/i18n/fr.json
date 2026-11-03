@@ -28,7 +28,8 @@
     "no_display": "aucun écran utilisable sur l'ordinateur",
     "start_image": "démarrage de l'image : {error}",
     "after_station_restart": "{reason}, même après un redémarrage de la Station",
-    "station_not_back": "la Station tarde à revenir après son redémarrage : ouvrez Admin pour en savoir plus"
+    "station_not_back": "la Station tarde à revenir après son redémarrage : ouvrez Admin pour en savoir plus",
+    "admin_silent": "l'ordinateur ne répond pas (rien en {seconds} s) : vérifiez qu'il est allumé et que KyberNow Station tourne, puis réessayez"
   },
   "update": {
     "download_of": "téléchargement de {url} : {error}",

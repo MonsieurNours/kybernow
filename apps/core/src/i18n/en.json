@@ -28,7 +28,8 @@
     "no_display": "no usable display on the computer",
     "start_image": "starting the picture: {error}",
     "after_station_restart": "{reason}, even after restarting the Station",
-    "station_not_back": "the Station is taking a while to come back after restarting: open Admin to find out more"
+    "station_not_back": "the Station is taking a while to come back after restarting: open Admin to find out more",
+    "admin_silent": "the computer is not responding (nothing in {seconds} s): check that it is on and that KyberNow Station is running, then try again"
   },
   "update": {
     "download_of": "downloading {url}: {error}",
