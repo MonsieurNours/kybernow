@@ -14,6 +14,9 @@
 //   displays   → {"displays": [{"id", "x", "y", "width", "height", "refresh", "primary"}]}
 //   ping
 //
+// Le son de la session passe par les commandes ponctuelles `audio …`
+// (audio.swift).
+//
 // Les écrans du Mac recopient l'écran virtuel principal pendant la session
 // (`CGConfigureDisplayMirrorOfDisplay`) : seul l'écran virtuel reste actif, il
 // devient l'écran principal, et la bascule est immédiate. Les éteindre
@@ -283,6 +286,21 @@ func reply(_ body: [String: Any]) {
     let data = (try? JSONSerialization.data(withJSONObject: body)) ?? Data("{\"ok\":false}".utf8)
     FileHandle.standardOutput.write(data)
     FileHandle.standardOutput.write(Data("\n".utf8))
+}
+
+// Commandes ponctuelles du son (audio.swift) : une réponse, puis la fin.
+if CommandLine.arguments.count > 1, CommandLine.arguments[1] == "audio" {
+    do {
+        var body = try audioCommand(Array(CommandLine.arguments.dropFirst(2)))
+        body["ok"] = true
+        reply(body)
+        exit(0)
+    } catch let f as Failure {
+        reply(["ok": false, "error": f.message])
+    } catch {
+        reply(["ok": false, "error": "\(error)"])
+    }
+    exit(1)
 }
 
 let agent = Agent()

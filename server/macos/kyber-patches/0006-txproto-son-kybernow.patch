@@ -1,0 +1,239 @@
+--- a/subprojects/txproto/src/iosys_screencapturekit.m
++++ b/subprojects/txproto/src/iosys_screencapturekit.m
+@@ -22,6 +22,7 @@
+ #include <CoreVideo/CoreVideo.h>
+ #include <CoreMedia/CoreMedia.h>
+ #include <CoreAudio/CoreAudio.h>
++#include <mach/mach_time.h>
+ #import <Foundation/Foundation.h>
+ #import <AppKit/AppKit.h>
+ #import <ScreenCaptureKit/ScreenCaptureKit.h>
+@@ -107,6 +108,11 @@
+ 
+     AVBufferPool *audio_pool;
+     int audio_pool_entry_size;
++
++    /* KyberNow (0006): sound read from the KyberNow output's loopback input. */
++    AudioObjectID kn_device;
++    AudioDeviceIOProcID kn_proc;
++    int kn_channels;
+ } SCKCapture;
+ 
+ static inline int64_t sck_now() {
+@@ -116,6 +122,58 @@
+ 
+ static int sck_stopCapture(IOSysEntry *entry);
+ static void destroy_entry(void *opaque, uint8_t *data);
++
++/*
++ * KyberNow (server/macos/kyber-patches/0006): during a session, Admin sends
++ * the Mac's sound to the KyberNow output (server/macos/audio-driver), set to
++ * the device's channel count (2, 6 or 8). Its loopback input gives back what
++ * is played there, in WAV channel order: the audio entries then advertise
++ * that channel count and read that input through Core Audio instead of
++ * ScreenCaptureKit (whose capture stutters when the output is a virtual
++ * device, and stays stereo). Reading an input needs the microphone
++ * permission for the bundle that runs Kyber. Any other output: unchanged.
++ */
++#define KN_DEVICE_UID "fr.leslignesclaires.kybernow.audio.device"
++
++/* The KyberNow device if it is the default output, with its channel count. */
++static AudioObjectID kn_output_device(int *channels)
++{
++    AudioObjectPropertyAddress a = { kAudioHardwarePropertyTranslateUIDToDevice,
++                                     kAudioObjectPropertyScopeGlobal,
++                                     kAudioObjectPropertyElementMain };
++    CFStringRef uid = CFSTR(KN_DEVICE_UID);
++    AudioObjectID dev = kAudioObjectUnknown;
++    UInt32 size = sizeof(dev);
++    if (AudioObjectGetPropertyData(kAudioObjectSystemObject, &a, sizeof(uid), &uid,
++                                   &size, &dev) != noErr || dev == kAudioObjectUnknown)
++        return kAudioObjectUnknown;
++
++    AudioObjectID def = kAudioObjectUnknown;
++    size = sizeof(def);
++    a.mSelector = kAudioHardwarePropertyDefaultOutputDevice;
++    if (AudioObjectGetPropertyData(kAudioObjectSystemObject, &a, 0, NULL, &size, &def) != noErr ||
++        def != dev)
++        return kAudioObjectUnknown;
++
++    AudioStreamID stream = 0;
++    size = sizeof(stream);
++    a.mSelector = kAudioDevicePropertyStreams;
++    a.mScope = kAudioObjectPropertyScopeInput;
++    if (AudioObjectGetPropertyData(dev, &a, 0, NULL, &size, &stream) != noErr || !stream)
++        return kAudioObjectUnknown;
++
++    AudioStreamBasicDescription f = { 0 };
++    size = sizeof(f);
++    a.mSelector = kAudioStreamPropertyVirtualFormat;
++    a.mScope = kAudioObjectPropertyScopeGlobal;
++    if (AudioObjectGetPropertyData(stream, &a, 0, NULL, &size, &f) != noErr ||
++        f.mChannelsPerFrame < 1 || f.mChannelsPerFrame > 8)
++        return kAudioObjectUnknown;
++
++    if (channels)
++        *channels = f.mChannelsPerFrame;
++    return dev;
++}
+ 
+ static NSString *sck_display_name(CGDirectDisplayID displayID, NSString *uuid)
+ {
+@@ -605,6 +663,15 @@
+     if (!capture) return 0;
+ 
+     atomic_store(&capture->quit, 1);
++
++    /* KyberNow (0006): loopback input of the KyberNow output. */
++    if (capture->kn_proc) {
++        AudioDeviceStop(capture->kn_device, capture->kn_proc);
++        AudioDeviceDestroyIOProcID(capture->kn_device, capture->kn_proc);
++        capture->kn_proc = NULL;
++        capture->kn_device = kAudioObjectUnknown;
++        sp_log(entry, SP_LOG_INFO, "KyberNow audio capture stopped\n");
++    }
+ 
+     dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+     __block NSError *stopErr = nil;
+@@ -830,8 +897,101 @@
+ 
+     sp_log(entry, SP_LOG_FATAL, "Audio capture requires macOS 13.0 or later\n");
+     return -1;
++}
++
++/* KyberNow (0006): one frame per Core Audio cycle of the loopback input,
++ * interleaved floats, timed by the cycle's host time (same clock as SCK). */
++static void kn_push_input(IOSysEntry *entry, const AudioBufferList *in,
++                          const AudioTimeStamp *when)
++{
++    SCKCapture *capture = (SCKCapture *)entry->io_priv;
++    if (!in || in->mNumberBuffers < 1 || atomic_load(&capture->quit))
++        return;
++    int ch = capture->kn_channels;
++    const AudioBuffer *b = &in->mBuffers[0];
++    if (!b->mData || b->mNumberChannels != (UInt32)ch)
++        return;
++    int nb_samples = b->mDataByteSize / (4 * ch);
++    if (nb_samples <= 0)
++        return;
++
++    AVFrame *frame = av_frame_alloc();
++    if (!frame)
++        return;
++    frame->format = AV_SAMPLE_FMT_FLT;
++    frame->sample_rate = 48000;
++    frame->nb_samples = nb_samples;
++    av_channel_layout_default(&frame->ch_layout, ch);
++    if (av_frame_get_buffer(frame, 0) < 0) {
++        av_frame_free(&frame);
++        return;
++    }
++    memcpy(frame->data[0], b->mData, (size_t)nb_samples * ch * 4);
++
++    uint64_t host = (when && (when->mFlags & kAudioTimeStampHostTimeValid))
++                    ? when->mHostTime : mach_absolute_time();
++    frame->pts = (int64_t)(AudioConvertHostTimeToNanos(host) / 1000) - capture->epoch;
++    frame->duration = av_rescale_q(nb_samples, (AVRational){1, 48000}, AV_TIME_BASE_Q);
++
++    frame->opaque_ref = av_buffer_allocz(sizeof(FormatExtraData));
++    if (!frame->opaque_ref) {
++        av_frame_free(&frame);
++        return;
++    }
++    FormatExtraData *fe = (FormatExtraData *)frame->opaque_ref->data;
++    fe->time_base = AV_TIME_BASE_Q;
++    fe->bits_per_sample = 32;
++
++    int err = sp_frame_fifo_push(entry->frames, frame);
++    if (err == AVERROR(ENOBUFS)) {
++        capture->dropped_frames++;
++        sp_log(entry, SP_LOG_WARN, "Dropping audio (%d samples, %d dropped so far)\n",
++               nb_samples, capture->dropped_frames);
++    } else if (err) {
++        sp_log(entry, SP_LOG_ERROR, "Push audio frame failed: %s\n", av_err2str(err));
++    }
++    av_frame_free(&frame);
+ }
+ 
++static int kn_startAudioCapture(IOSysEntry *entry, AudioObjectID dev, int channels)
++{
++    SCKCapture *capture = (SCKCapture *)entry->io_priv;
++
++    sp_set_thread_name_self(sp_class_get_name(entry));
++    sp_eventlist_dispatch(entry, entry->events,
++                          SP_EVENT_ON_CONFIG | SP_EVENT_ON_INIT, NULL);
++
++    /* The 48 kHz the entry advertises. */
++    AudioObjectPropertyAddress a = { kAudioDevicePropertyNominalSampleRate,
++                                     kAudioObjectPropertyScopeGlobal,
++                                     kAudioObjectPropertyElementMain };
++    Float64 rate = 48000.0;
++    AudioObjectSetPropertyData(dev, &a, 0, NULL, sizeof(rate), &rate);
++
++    capture->kn_device = dev;
++    capture->kn_channels = channels;
++    OSStatus st = AudioDeviceCreateIOProcIDWithBlock(&capture->kn_proc, dev, NULL,
++        ^(const AudioTimeStamp *now, const AudioBufferList *in, const AudioTimeStamp *in_time,
++          AudioBufferList *out, const AudioTimeStamp *out_time) {
++            (void)now; (void)out; (void)out_time;
++            kn_push_input(entry, in, in_time);
++        });
++    if (st != noErr) {
++        sp_log(entry, SP_LOG_ERROR, "KyberNow audio: IOProc creation failed (%d)\n", (int)st);
++        capture->kn_proc = NULL;
++        return sck_startAudioCapture(entry);
++    }
++    st = AudioDeviceStart(dev, capture->kn_proc);
++    if (st != noErr) {
++        sp_log(entry, SP_LOG_ERROR, "KyberNow audio: start failed (%d)\n", (int)st);
++        AudioDeviceDestroyIOProcID(dev, capture->kn_proc);
++        capture->kn_proc = NULL;
++        return sck_startAudioCapture(entry);
++    }
++    sp_log(entry, SP_LOG_INFO, "KyberNow audio capture started (%d channels)\n", channels);
++    return 0;
++}
++
+ static int sck_ioctx_ctrl_cb(AVBufferRef *event_ref, void *callback_ctx,
+                               void *ctx, void *dep_ctx, void *data)
+ {
+@@ -844,8 +1004,13 @@
+         capture->epoch = sck_now();
+         if (entry->type == SP_IO_TYPE_VIDEO_DISPLAY)
+             return sck_startVideoCapture(entry);
+-        if (entry->type == SP_IO_TYPE_AUDIO_MONITOR)
++        if (entry->type == SP_IO_TYPE_AUDIO_MONITOR) {
++            int kn_ch = 0;
++            AudioObjectID kn = kn_output_device(&kn_ch);
++            if (kn != kAudioObjectUnknown)
++                return kn_startAudioCapture(entry, kn, kn_ch);
+             return sck_startAudioCapture(entry);
++        }
+         return AVERROR(EINVAL);
+     } else if (event->ctrl & SP_EVENT_CTRL_STOP) {
+         return sck_stopCapture(entry);
+@@ -1099,8 +1264,11 @@
+                 entry->api_priv = ctx;
+                 entry->sample_rate = 48000;
+                 entry->sample_fmt = AV_SAMPLE_FMT_FLTP;
+-                entry->channels = 2;
+-                av_channel_layout_default(&entry->ch_layout, 2);
++                /* KyberNow (0006): the channel count of the KyberNow output. */
++                int kn_ch = 2;
++                kn_output_device(&kn_ch);
++                entry->channels = kn_ch;
++                av_channel_layout_default(&entry->ch_layout, kn_ch);
+                 entry->is_default = CGDisplayIsMain(displayID);
+ 
+                 AVBufferRef *buf = av_buffer_create((uint8_t *)entry, sizeof(*entry),
+--- a/subprojects/txproto/src/meson.build
++++ b/subprojects/txproto/src/meson.build
+@@ -161,7 +161,7 @@
+ 
+ # ScreenCaptureKit
+ screencapturekit = dependency('appleframeworks',
+-    modules: ['ScreenCaptureKit', 'IOKit', 'AppKit'],
++    modules: ['ScreenCaptureKit', 'IOKit', 'AppKit', 'CoreAudio'],
+     required: get_option('screencapturekit'))
+ if screencapturekit.found()
+     dependencies += screencapturekit

@@ -33,6 +33,11 @@ pub mod hdr;
 pub mod icc;
 #[cfg(target_os = "macos")]
 mod mac;
+/// L'agent Swift de la Station Mac (écrans virtuels, et sortie son : `audio/mod.rs`).
+#[cfg(target_os = "macos")]
+pub fn mac_agent_path() -> Option<std::path::PathBuf> {
+    mac::agent_path()
+}
 #[cfg(windows)]
 pub mod pointer;
 #[cfg(windows)]

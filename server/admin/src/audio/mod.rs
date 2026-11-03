@@ -110,9 +110,16 @@ impl Router {
     pub fn new(data_dir: PathBuf, settings: AudioSettings) -> Arc<Self> {
         #[cfg(windows)]
         let backend: Box<dyn Backend> = Box::new(windows::WinBackend { data_dir: data_dir.clone() });
-        // Station Mac : pas encore de sortie son virtuelle (docs/station-macos.md, jalon 4).
-        #[cfg(not(windows))]
-        let backend: Box<dyn Backend> = if crate::mac::is_station() { Box::new(Absent) } else { Box::new(Simulated) };
+        // Station Mac : la sortie KyberNow (server/macos/audio-driver), par l'agent
+        // `kybernow-display audio …` (docs/station-macos.md, jalon 4).
+        #[cfg(target_os = "macos")]
+        let backend: Box<dyn Backend> = match (crate::mac::is_station(), crate::display::mac_agent_path()) {
+            (true, Some(agent)) => Box::new(mac::MacBackend { agent }),
+            (true, None) => Box::new(Absent),
+            (false, _) => Box::new(Simulated),
+        };
+        #[cfg(all(not(windows), not(target_os = "macos")))]
+        let backend: Box<dyn Backend> = Box::new(Simulated);
         Arc::new(Self {
             backend,
             data_dir,
@@ -319,6 +326,64 @@ impl Backend for Simulated {
     fn restore(&self, _: &Record) -> Result<()> {
         tracing::info!("(simulé) sortie audio d'origine rétablie");
         Ok(())
+    }
+}
+
+/// Station Mac : la sortie KyberNow (pilote Core Audio de server/macos/audio-driver),
+/// réglée et choisie par l'agent `kybernow-display audio …`. `previous_format`
+/// garde la sortie des alertes d'avant (Windows : le format d'origine).
+#[cfg(target_os = "macos")]
+mod mac {
+    use std::path::{Path, PathBuf};
+    use std::process::Command;
+
+    use super::*;
+
+    /// Le pilote installé (coreaudiod le charge au démarrage).
+    const DRIVER: &str = "/Library/Audio/Plug-Ins/HAL/KyberNow.driver";
+
+    pub struct MacBackend {
+        pub agent: PathBuf,
+    }
+
+    impl MacBackend {
+        fn run(&self, args: &[&str]) -> Result<Value> {
+            let out = Command::new(&self.agent).arg("audio").args(args).output()?;
+            let text = String::from_utf8_lossy(&out.stdout);
+            let mut v: Value = serde_json::from_str(text.lines().last().unwrap_or_default())
+                .map_err(|e| anyhow::anyhow!("réponse de l'agent du son illisible ({e}) : {text}"))?;
+            if v["ok"] != json!(true) {
+                anyhow::bail!("{}", v["error"].as_str().unwrap_or("agent du son en échec"));
+            }
+            v.as_object_mut().map(|o| o.remove("ok"));
+            Ok(v)
+        }
+    }
+
+    impl Backend for MacBackend {
+        fn status(&self) -> Result<Value> {
+            self.run(&["status"])
+        }
+        fn supported(&self) -> bool {
+            Path::new(DRIVER).exists()
+        }
+        fn route(&self, channels: u16) -> Result<(Record, u16)> {
+            let v = self.run(&["route", "--channels", &channels.to_string()])?;
+            let got = v.get("channels").and_then(Value::as_u64).unwrap_or(u64::from(channels)) as u16;
+            let text = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or_default().to_string();
+            let system = text("previous_system");
+            Ok((
+                Record { previous: text("previous"), previous_format: (!system.is_empty()).then_some(system), speakers: text("speakers") },
+                got,
+            ))
+        }
+        fn restore(&self, record: &Record) -> Result<()> {
+            let mut args = vec!["restore", "--previous", record.previous.as_str()];
+            if let Some(system) = &record.previous_format {
+                args.extend(["--previous-system", system.as_str()]);
+            }
+            self.run(&args).map(|_| ())
+        }
     }
 }
 

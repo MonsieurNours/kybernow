@@ -51,6 +51,9 @@ package() {
     plutil -replace CFBundleIdentifier -string "$BUNDLE_ID" "$APP/Contents/Info.plist"
     plutil -replace CFBundleName -string "KyberNow Station (Kyber)" "$APP/Contents/Info.plist"
     plutil -replace CFBundleVersion -string "0.29.0" "$APP/Contents/Info.plist"
+    # Le son de la session est lu sur l'entrée de retour de la sortie KyberNow
+    # (correctif Mac 0006) : macOS demande l'autorisation Micro une fois.
+    plutil -replace NSMicrophoneUsageDescription -string "KyberNow Station lit le son de la session sur la sortie KyberNow pour l'envoyer à vos appareils." "$APP/Contents/Info.plist"
     # Bibliothèques d'abord, puis les exécutables, puis le paquet.
     find "$APP/Contents/Frameworks" -type f -name '*.dylib' -exec codesign -f -s "$IDENTITY" {} \;
     for exe in kyavserver kynputserver; do
