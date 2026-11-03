@@ -1,0 +1,515 @@
+--- a/kynput/src/macos/mod.rs
++++ b/kynput/src/macos/mod.rs
+@@ -19,11 +19,13 @@
+ // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ 
+ mod client_keyboard_mouse;
++mod clipboard;
+ mod host_cursor;
+ mod host_keyboard_mouse;
+ mod pipeline_config;
+ 
+ pub use client_keyboard_mouse::ClientKeyboardMouseHandler;
++pub use clipboard::ClipboardHandler;
+ pub use host_cursor::HostCursorHandler;
+ pub use host_keyboard_mouse::HostKeyboardMouseHandler;
+ pub use pipeline_config::PipelineConfigBuilder;
+--- a/kynput/src/macos/pipeline_config.rs
++++ b/kynput/src/macos/pipeline_config.rs
+@@ -20,7 +20,7 @@
+ 
+ use std::sync::Arc;
+ 
+-use crate::macos::{ClientKeyboardMouseHandler, HostCursorHandler, HostKeyboardMouseHandler};
++use crate::macos::{ClientKeyboardMouseHandler, ClipboardHandler, HostCursorHandler, HostKeyboardMouseHandler};
+ #[cfg(feature = "sdl2")]
+ use crate::sdl2::ClientGamepadHandler;
+ use crate::{
+@@ -38,13 +38,22 @@
+         // KyberNow (0003) : le pointeur du Mac annoncé aux clients, au format
+         // qu'ils demandent (comme sous Windows).
+         let cursor_config = host_config.clone();
++        let mut builders: Vec<InputHandlerBuilder> = vec![
++            Box::new(move |router| Ok(Arc::new(HostCursorHandler::new(router, cursor_config)?))),
++            Box::new(move |_router| Ok(Arc::new(HostKeyboardMouseHandler::new(host_config)?))),
++        ];
++        // KyberNow (0004) : le presse-papiers, avec les droits du service
++        // (copier depuis le Mac, coller dessus), comme sous Windows.
++        let (allow_copy, allow_paste) = (service_config.clipboard_allow_copy, service_config.clipboard_allow_paste);
++        if allow_copy || allow_paste {
++            builders.push(Box::new(move |router| {
++                Ok(Arc::new(ClipboardHandler::new(InputTarget::Client, router, allow_copy, allow_paste)?))
++            }));
++        }
+         Some(InputPipelineConfig {
+             target: InputTarget::Host,
+             cursor_format: service_config.cursor_format,
+-            builders: vec![
+-                Box::new(move |router| Ok(Arc::new(HostCursorHandler::new(router, cursor_config)?))),
+-                Box::new(move |_router| Ok(Arc::new(HostKeyboardMouseHandler::new(host_config)?))),
+-            ],
++            builders,
+         })
+     }
+ 
+--- /dev/null
++++ b/kynput/src/macos/clipboard.rs
+@@ -0,0 +1,458 @@
++// Project Kyber: clipboard.rs (macOS)
++// SPDX-License-Identifier: AGPL-3.0-or-later
++//
++// KyberNow (server/macos/kyber-patches/0004) : le presse-papiers du Mac
++// partagé avec les clients, comme sous Windows (windows/clipboard.rs), même
++// protocole (`ClipboardEvent`) et mêmes droits (copier depuis le Mac :
++// `allow_read`, coller sur le Mac : `allow_write`).
++//
++// - Mac → appareil : un fil relit le compteur de changements de
++//   `NSPasteboard.generalPasteboard` 4 fois par seconde ; un changement qui
++//   ne vient pas de nous annonce les formats présents (texte, HTML) ; le
++//   contenu ne part qu'à la demande de l'appareil (`DataRequest`).
++// - Appareil → Mac : à l'annonce de l'appareil, le presse-papiers du Mac est
++//   vidé et le contenu demandé tout de suite (Windows, lui, attend qu'on
++//   colle : sur Mac, il faudrait une classe Objective-C fournisseuse) ; il
++//   est posé à son arrivée.
++
++use std::ffi::{CStr, CString, c_void};
++use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU8, Ordering};
++use std::sync::{Arc, Mutex, Weak};
++use std::thread;
++use std::time::Duration;
++
++use log::{debug, info, warn};
++
++use crate::utils::threaded_consumer::{ThreadedConsumer, ThreadedConsumerBackend};
++use crate::{
++    ClipboardEvent, Error, InputConsumer, InputConsumerHandle, InputHandler, InputPacket, InputTarget, InputType, Payload,
++    Result,
++    types::{ClipboardData, ClipboardFormat},
++};
++
++/// Relectures du compteur du presse-papiers par seconde.
++const POLLS_PER_SECOND: u64 = 4;
++
++type Id = *mut c_void;
++
++#[link(name = "AppKit", kind = "framework")]
++unsafe extern "C" {}
++
++#[link(name = "objc")]
++unsafe extern "C" {
++    fn objc_getClass(name: *const std::ffi::c_char) -> Id;
++    fn sel_registerName(name: *const std::ffi::c_char) -> Id;
++    fn objc_msgSend();
++    fn objc_autoreleasePoolPush() -> *mut c_void;
++    fn objc_autoreleasePoolPop(pool: *mut c_void);
++}
++
++fn sel(name: &CStr) -> Id {
++    unsafe { sel_registerName(name.as_ptr()) }
++}
++
++macro_rules! msg {
++    ($ret:ty, $recv:expr, $sel:expr $(, $arg:expr => $ty:ty)*) => {{
++        let f: unsafe extern "C" fn(Id, Id $(, $ty)*) -> $ret =
++            unsafe { std::mem::transmute(objc_msgSend as unsafe extern "C" fn()) };
++        unsafe { f($recv, sel($sel) $(, $arg)*) }
++    }};
++}
++
++/// Bloc entouré d'une réserve de libération automatique (fils sans boucle d'événements).
++fn with_pool<T>(f: impl FnOnce() -> T) -> T {
++    let pool = unsafe { objc_autoreleasePoolPush() };
++    let out = f();
++    unsafe { objc_autoreleasePoolPop(pool) };
++    out
++}
++
++/// NSString autoreleasée (les octets nuls, impossibles en C, sont retirés).
++fn ns_string(s: &str) -> Id {
++    let c = CString::new(s.replace('\0', "")).unwrap_or_default();
++    let class = unsafe { objc_getClass(c"NSString".as_ptr()) };
++    msg!(Id, class, c"stringWithUTF8String:", c.as_ptr() => *const std::ffi::c_char)
++}
++
++fn uti(format: ClipboardFormat) -> &'static str {
++    match format {
++        ClipboardFormat::Text => "public.utf8-plain-text",
++        ClipboardFormat::Html => "public.html",
++    }
++}
++
++fn data_of(format: ClipboardFormat, s: String) -> ClipboardData {
++    match format {
++        ClipboardFormat::Text => ClipboardData::Text(s),
++        ClipboardFormat::Html => ClipboardData::Html(s),
++    }
++}
++
++/// Le presse-papiers, tel que le gestionnaire s'en sert (remplacé dans les tests).
++trait Board: Send + Sync {
++    fn change_count(&self) -> isize;
++    fn formats(&self) -> Vec<ClipboardFormat>;
++    fn read(&self, format: ClipboardFormat) -> Option<String>;
++    /// Vide le presse-papiers ; rend le nouveau compteur.
++    fn clear(&self) -> isize;
++    /// Ajoute `text` sous `format` ; rend le nouveau compteur.
++    fn write(&self, format: ClipboardFormat, text: &str) -> isize;
++}
++
++struct Pasteboard;
++
++impl Pasteboard {
++    fn general() -> Id {
++        let class = unsafe { objc_getClass(c"NSPasteboard".as_ptr()) };
++        msg!(Id, class, c"generalPasteboard")
++    }
++}
++
++impl Board for Pasteboard {
++    fn change_count(&self) -> isize {
++        with_pool(|| msg!(isize, Self::general(), c"changeCount"))
++    }
++
++    fn formats(&self) -> Vec<ClipboardFormat> {
++        with_pool(|| {
++            let types = msg!(Id, Self::general(), c"types");
++            if types.is_null() {
++                return Vec::new();
++            }
++            [ClipboardFormat::Text, ClipboardFormat::Html]
++                .into_iter()
++                .filter(|f| msg!(bool, types, c"containsObject:", ns_string(uti(*f)) => Id))
++                .collect()
++        })
++    }
++
++    fn read(&self, format: ClipboardFormat) -> Option<String> {
++        with_pool(|| {
++            let s = msg!(Id, Self::general(), c"stringForType:", ns_string(uti(format)) => Id);
++            if s.is_null() {
++                return None;
++            }
++            let utf8 = msg!(*const std::ffi::c_char, s, c"UTF8String");
++            (!utf8.is_null()).then(|| unsafe { CStr::from_ptr(utf8) }.to_string_lossy().into_owned())
++        })
++    }
++
++    fn clear(&self) -> isize {
++        with_pool(|| msg!(isize, Self::general(), c"clearContents"))
++    }
++
++    fn write(&self, format: ClipboardFormat, text: &str) -> isize {
++        with_pool(|| {
++            let board = Self::general();
++            let ok = msg!(bool, board, c"setString:forType:", ns_string(text) => Id, ns_string(uti(format)) => Id);
++            if !ok {
++                warn!("Clipboard: {format:?} not written");
++            }
++            msg!(isize, board, c"changeCount")
++        })
++    }
++}
++
++struct ClipboardCaps(AtomicU8);
++
++impl ClipboardCaps {
++    fn new(read: bool, write: bool) -> Self {
++        Self(AtomicU8::new(read as u8 | ((write as u8) << 1)))
++    }
++
++    fn rw(&self) -> (bool, bool) {
++        let mode = self.0.load(Ordering::Relaxed);
++        (mode & 1 != 0, mode & 2 != 0)
++    }
++}
++
++struct Shared {
++    board: Arc<dyn Board>,
++    target: InputTarget,
++    remote: Weak<dyn InputConsumer>,
++    caps: ClipboardCaps,
++    /// Compteur du presse-papiers après notre dernière écriture : ce
++    /// changement-là n'est pas annoncé à l'appareil.
++    own: AtomicIsize,
++}
++
++impl Shared {
++    fn send(&self, event: ClipboardEvent) {
++        let Some(remote) = self.remote.upgrade() else { return };
++        if let Err(err) = remote.consume(InputPacket::new(self.target, Payload::Clipboard(event))) {
++            warn!("Clipboard event not sent: {err:?}");
++        }
++    }
++
++    /// Relecture du fil : annonce un changement venu du Mac. `last` : le
++    /// dernier compteur vu.
++    fn poll(&self, last: &mut isize) {
++        let count = self.board.change_count();
++        if count == *last {
++            return;
++        }
++        *last = count;
++        if count == self.own.load(Ordering::Relaxed) || !self.caps.rw().0 {
++            return;
++        }
++        let formats = self.board.formats();
++        if formats.is_empty() {
++            return;
++        }
++        debug!("Mac clipboard changed: {formats:?}");
++        self.send(ClipboardEvent::Change { formats });
++    }
++
++    fn on_event(&self, event: ClipboardEvent) {
++        let (can_read, can_write) = self.caps.rw();
++        match event {
++            ClipboardEvent::Change { formats } if can_write => {
++                self.own.store(self.board.clear(), Ordering::Relaxed);
++                for format in formats {
++                    self.send(ClipboardEvent::DataRequest { format });
++                }
++            }
++            ClipboardEvent::Data(data) if can_write => {
++                let (format, text) = match &data {
++                    ClipboardData::Text(s) => (ClipboardFormat::Text, s),
++                    ClipboardData::Html(s) => (ClipboardFormat::Html, s),
++                };
++                self.own.store(self.board.write(format, text), Ordering::Relaxed);
++            }
++            ClipboardEvent::DataRequest { format } if can_read => match self.board.read(format) {
++                Some(text) => {
++                    let mut item = data_of(format, text);
++                    if item.is_too_large() {
++                        warn!("Clipboard data too large ({} bytes), truncated", item.size());
++                        item.truncate();
++                    }
++                    self.send(ClipboardEvent::Data(item));
++                }
++                None => self.send(ClipboardEvent::DataUnavailable { format }),
++            },
++            other => debug!("Clipboard event ignored (read={can_read}, write={can_write}): {other:?}"),
++        }
++    }
++}
++
++struct Remote(Arc<Shared>);
++
++impl ThreadedConsumerBackend for Remote {
++    fn on_packet(&mut self, pkt: InputPacket) -> Result<()> {
++        let Payload::Clipboard(event) = pkt.payload else {
++            return Err(Error::InvalidType);
++        };
++        self.0.on_event(event);
++        Ok(())
++    }
++}
++
++pub struct ClipboardHandler {
++    shared: Arc<Shared>,
++    remote: ThreadedConsumer,
++    stop: Arc<AtomicBool>,
++    watcher: Mutex<Option<thread::JoinHandle<()>>>,
++}
++
++impl ClipboardHandler {
++    pub fn new(target: InputTarget, remote: Weak<dyn InputConsumer>, allow_read: bool, allow_write: bool) -> Result<Self> {
++        info!("ClipboardHandler (Mac): allow_read={allow_read} allow_write={allow_write}");
++        Ok(Self::with_board(Arc::new(Pasteboard), target, remote, allow_read, allow_write))
++    }
++
++    fn with_board(board: Arc<dyn Board>, target: InputTarget, remote: Weak<dyn InputConsumer>, allow_read: bool, allow_write: bool) -> Self {
++        let shared = Arc::new(Shared { board, target, remote, caps: ClipboardCaps::new(allow_read, allow_write), own: AtomicIsize::new(isize::MIN) });
++        let backend = shared.clone();
++        Self {
++            shared,
++            remote: ThreadedConsumer::new("MacClipboardRemote", Box::new(move || Ok(Box::new(Remote(backend))))),
++            stop: Arc::new(AtomicBool::new(false)),
++            watcher: Mutex::new(None),
++        }
++    }
++}
++
++impl InputConsumer for ClipboardHandler {
++    fn consume(&self, pkt: InputPacket) -> Result<()> {
++        self.remote.consume(pkt)
++    }
++}
++
++impl InputHandler for ClipboardHandler {
++    fn start(self: Arc<Self>) -> Result<()> {
++        let (shared, stop) = (self.shared.clone(), self.stop.clone());
++        stop.store(false, Ordering::Relaxed);
++        let handle = thread::Builder::new()
++            .name("kynput-clipboard".into())
++            .spawn(move || {
++                // Ce qui est déjà dans le presse-papiers n'est pas annoncé.
++                let mut last = shared.board.change_count();
++                while !stop.load(Ordering::Relaxed) {
++                    thread::sleep(Duration::from_millis(1000 / POLLS_PER_SECOND));
++                    shared.poll(&mut last);
++                }
++            })
++            .map_err(|_| Error::Rejected)?;
++        *self.watcher.lock()? = Some(handle);
++        Ok(())
++    }
++
++    fn stop(self: Arc<Self>) -> Result<()> {
++        self.stop.store(true, Ordering::Relaxed);
++        if let Some(handle) = self.watcher.lock()?.take() {
++            handle.join().map_err(|_| Error::ThreadPanicked)?;
++        }
++        self.remote.stop()
++    }
++
++    fn to_consumer(self: Arc<Self>) -> Option<InputConsumerHandle> {
++        Some(InputConsumerHandle { consumer: self, handled_types: vec![InputType::Clipboard] })
++    }
++
++    fn produced_types(self: Arc<Self>) -> Option<Vec<InputType>> {
++        Some(vec![InputType::Clipboard])
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[derive(Default)]
++    struct FakeBoard {
++        count: AtomicIsize,
++        items: Mutex<Vec<(ClipboardFormat, String)>>,
++    }
++
++    impl FakeBoard {
++        /// Une copie faite sur le Mac.
++        fn copy(&self, items: &[(ClipboardFormat, &str)]) {
++            *self.items.lock().unwrap() = items.iter().map(|(f, s)| (*f, s.to_string())).collect();
++            self.count.fetch_add(1, Ordering::Relaxed);
++        }
++    }
++
++    impl Board for FakeBoard {
++        fn change_count(&self) -> isize {
++            self.count.load(Ordering::Relaxed)
++        }
++        fn formats(&self) -> Vec<ClipboardFormat> {
++            self.items.lock().unwrap().iter().map(|(f, _)| *f).collect()
++        }
++        fn read(&self, format: ClipboardFormat) -> Option<String> {
++            self.items.lock().unwrap().iter().find(|(f, _)| *f == format).map(|(_, s)| s.clone())
++        }
++        fn clear(&self) -> isize {
++            self.items.lock().unwrap().clear();
++            self.count.fetch_add(1, Ordering::Relaxed) + 1
++        }
++        fn write(&self, format: ClipboardFormat, text: &str) -> isize {
++            self.items.lock().unwrap().push((format, text.to_string()));
++            self.count.fetch_add(1, Ordering::Relaxed) + 1
++        }
++    }
++
++    #[derive(Default)]
++    struct Sink(Mutex<Vec<ClipboardEvent>>);
++
++    impl InputConsumer for Sink {
++        fn consume(&self, pkt: InputPacket) -> Result<()> {
++            if let Payload::Clipboard(e) = pkt.payload {
++                self.0.lock().unwrap().push(e);
++            }
++            Ok(())
++        }
++    }
++
++    fn shared(board: &Arc<FakeBoard>, sink: &Arc<Sink>, read: bool, write: bool) -> Shared {
++        let remote: Arc<dyn InputConsumer> = sink.clone();
++        Shared {
++            board: board.clone(),
++            target: InputTarget::Client,
++            remote: Arc::downgrade(&remote),
++            caps: ClipboardCaps::new(read, write),
++            own: AtomicIsize::new(isize::MIN),
++        }
++    }
++
++    #[test]
++    fn mac_copy_is_announced_then_sent_on_request() {
++        let (board, sink) = (Arc::new(FakeBoard::default()), Arc::new(Sink::default()));
++        let s = shared(&board, &sink, true, true);
++        let mut last = board.change_count();
++        s.poll(&mut last);
++        assert!(sink.0.lock().unwrap().is_empty(), "rien de neuf");
++        board.copy(&[(ClipboardFormat::Text, "bonjour")]);
++        s.poll(&mut last);
++        s.poll(&mut last);
++        s.on_event(ClipboardEvent::DataRequest { format: ClipboardFormat::Text });
++        s.on_event(ClipboardEvent::DataRequest { format: ClipboardFormat::Html });
++        assert_eq!(
++            *sink.0.lock().unwrap(),
++            [
++                ClipboardEvent::Change { formats: vec![ClipboardFormat::Text] },
++                ClipboardEvent::Data(ClipboardData::Text("bonjour".into())),
++                ClipboardEvent::DataUnavailable { format: ClipboardFormat::Html },
++            ]
++        );
++    }
++
++    #[test]
++    fn device_copy_lands_on_the_mac_without_echo() {
++        let (board, sink) = (Arc::new(FakeBoard::default()), Arc::new(Sink::default()));
++        let s = shared(&board, &sink, true, true);
++        let mut last = board.change_count();
++        s.on_event(ClipboardEvent::Change { formats: vec![ClipboardFormat::Text, ClipboardFormat::Html] });
++        s.on_event(ClipboardEvent::Data(ClipboardData::Text("salut".into())));
++        s.on_event(ClipboardEvent::Data(ClipboardData::Html("<b>salut</b>".into())));
++        assert_eq!(board.read(ClipboardFormat::Text).as_deref(), Some("salut"));
++        assert_eq!(board.read(ClipboardFormat::Html).as_deref(), Some("<b>salut</b>"));
++        s.poll(&mut last);
++        assert_eq!(
++            *sink.0.lock().unwrap(),
++            [
++                ClipboardEvent::DataRequest { format: ClipboardFormat::Text },
++                ClipboardEvent::DataRequest { format: ClipboardFormat::Html },
++            ],
++            "demandes seulement, pas d'écho de notre écriture"
++        );
++    }
++
++    #[test]
++    fn rights_are_respected() {
++        let (board, sink) = (Arc::new(FakeBoard::default()), Arc::new(Sink::default()));
++        // Ni copier depuis le Mac, ni coller dessus (invité, prêt).
++        let s = shared(&board, &sink, false, false);
++        let mut last = board.change_count();
++        board.copy(&[(ClipboardFormat::Text, "secret")]);
++        s.poll(&mut last);
++        s.on_event(ClipboardEvent::DataRequest { format: ClipboardFormat::Text });
++        s.on_event(ClipboardEvent::Change { formats: vec![ClipboardFormat::Text] });
++        s.on_event(ClipboardEvent::Data(ClipboardData::Text("intrus".into())));
++        assert!(sink.0.lock().unwrap().is_empty());
++        assert_eq!(board.read(ClipboardFormat::Text).as_deref(), Some("secret"));
++    }
++
++    /// Le vrai presse-papiers depuis un fil, comme kynputserver (`-- --ignored`) :
++    /// écrit, relu, puis le contenu d'avant remis.
++    #[test]
++    #[ignore]
++    fn real_pasteboard_round_trip() {
++        thread::spawn(|| {
++            let board = Pasteboard;
++            let before = board.read(ClipboardFormat::Text);
++            let c0 = board.change_count();
++            let c1 = board.clear();
++            let c2 = board.write(ClipboardFormat::Text, "KyberNow é 🙂");
++            assert!(c1 > c0 && c2 >= c1);
++            assert_eq!(board.formats(), vec![ClipboardFormat::Text]);
++            assert_eq!(board.read(ClipboardFormat::Text).as_deref(), Some("KyberNow é 🙂"));
++            board.clear();
++            if let Some(text) = before {
++                board.write(ClipboardFormat::Text, &text);
++            }
++        })
++        .join()
++        .unwrap();
++    }
++}

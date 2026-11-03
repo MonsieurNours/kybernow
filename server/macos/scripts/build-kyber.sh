@@ -54,14 +54,19 @@ HERE_PATCHES="$ROOT/server/kyber-patches"
 
 # Correctifs propres au Mac : même nommage que les correctifs communs.
 MAC_PATCHES="$ROOT/server/macos/kyber-patches"
-shopt -s nullglob
-for p in "$MAC_PATCHES"/*.patch; do
-    case "$(basename "$p")" in
-        *-kycontroller-*) repo="$KYCTL" ;;
-        *-kynet-*) repo="$KYMUX" ;;
-        *-kynput-*) repo="$KYNPUT" ;;
-        *) repo="$KYMEDIA" ;;
+mac_repo() {
+    case "$(basename "$1")" in
+        *-kycontroller-*) echo "$KYCTL" ;;
+        *-kynet-*) echo "$KYMUX" ;;
+        *-kynput-*) echo "$KYNPUT" ;;
+        *) echo "$KYMEDIA" ;;
     esac
+}
+shopt -s nullglob
+# Fichiers remis à l'origine une fois pour toutes, avant le premier correctif :
+# deux correctifs Mac peuvent toucher le même fichier (0003 et 0004 : mod.rs).
+for p in "$MAC_PATCHES"/*.patch; do
+    repo="$(mac_repo "$p")"
     for f in $(grep -h '^+++ b/' "$p" | sed 's|^+++ b/||; s|[[:space:]].*||'); do
         orig="$f"
         case "$f" in
@@ -79,6 +84,9 @@ for p in "$MAC_PATCHES"/*.patch; do
             fi
         fi
     done
+done
+for p in "$MAC_PATCHES"/*.patch; do
+    repo="$(mac_repo "$p")"
     echo "    $(basename "$p") (Mac)"
     (cd "$repo" && patch -p1 --forward --no-backup-if-mismatch -r - < "$p" | sed 's/^/        /') || {
         echo "Correctif $(basename "$p") inapplicable (hunk en échec ci-dessus)" >&2
