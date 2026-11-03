@@ -187,6 +187,11 @@ const TAP_DISABLED_BY_USER: u32 = 0xFFFF_FFFF;
 /// `kCGKeyboardEventKeycode`, `kCGEventSourceUnixProcessID`.
 const FIELD_KEYCODE: u32 = 9;
 const FIELD_SOURCE_PID: u32 = 41;
+/// `kCGEventSourceUserData`, `kCGEventSourceStateID`.
+const FIELD_USER_DATA: u32 = 42;
+const FIELD_STATE_ID: u32 = 45;
+/// La marque que kynputserver pose sur ses évènements (`CGEventSourceSetUserData`, « KYBN »).
+const KYBER_MARK: i64 = 0x4B59_424E;
 const FLAG_CONTROL: u64 = 1 << 18;
 const FLAG_OPTION: u64 = 1 << 19;
 const FLAG_COMMAND: u64 = 1 << 20;
@@ -224,6 +229,30 @@ fn injected_key_allowed(keycode: i64, flags: u64) -> bool {
     }
 }
 
+/// Ce que voit le filtre, au journal toutes les 5 s (diagnostic du prêt) :
+/// évènements du Mac et de l'ami, et les premiers relevés.
+static SEEN: [std::sync::atomic::AtomicU64; 4] = [const { std::sync::atomic::AtomicU64::new(0) }; 4];
+static SAMPLES: Mutex<Vec<String>> = Mutex::new(Vec::new());
+static REPORTING: AtomicBool = AtomicBool::new(false);
+
+fn note(kind: u32, injected: bool, pid: i64, mark: i64, state: i64) {
+    let key = matches!(kind, KEY_DOWN | KEY_UP | FLAGS_CHANGED);
+    SEEN[usize::from(injected) * 2 + usize::from(key)].fetch_add(1, Ordering::Relaxed);
+    if let Ok(mut samples) = SAMPLES.try_lock()
+        && samples.len() < 12
+    {
+        samples.push(format!("{kind}:{}:pid={pid}:marque={mark:#x}:état={state}", if injected { "ami" } else { "mac" }));
+    }
+}
+
+fn report() {
+    let n: Vec<u64> = SEEN.iter().map(|c| c.swap(0, Ordering::Relaxed)).collect();
+    let samples = std::mem::take(&mut *SAMPLES.lock().unwrap());
+    if n.iter().any(|v| *v > 0) || !samples.is_empty() {
+        log(&format!("filtre : Mac {} souris, {} touches ; ami {} souris, {} touches ; {}", n[0], n[1], n[2], n[3], samples.join(" ")));
+    }
+}
+
 extern "C" fn tap_callback(_proxy: *mut c_void, kind: u32, event: *mut c_void, _user: *mut c_void) -> *mut c_void {
     if kind == TAP_DISABLED_BY_TIMEOUT || kind == TAP_DISABLED_BY_USER {
         let tap = TAP.load(Ordering::SeqCst);
@@ -233,7 +262,9 @@ extern "C" fn tap_callback(_proxy: *mut c_void, kind: u32, event: *mut c_void, _
         return event;
     }
     let source = unsafe { CGEventGetIntegerValueField(event, FIELD_SOURCE_PID) };
-    let injected = source != 0 && source != std::process::id() as i64;
+    let mark = unsafe { CGEventGetIntegerValueField(event, FIELD_USER_DATA) };
+    let injected = mark == KYBER_MARK || (source != 0 && source != std::process::id() as i64);
+    note(kind, injected, source, mark, unsafe { CGEventGetIntegerValueField(event, FIELD_STATE_ID) });
     match kind {
         KEY_DOWN | KEY_UP | FLAGS_CHANGED => {
             let keycode = unsafe { CGEventGetIntegerValueField(event, FIELD_KEYCODE) };
@@ -312,6 +343,14 @@ impl Hooks {
             CFRelease(source);
             CFRelease(tap);
         });
+        if !REPORTING.swap(true, Ordering::SeqCst) {
+            std::thread::spawn(|| {
+                while REPORTING.load(Ordering::SeqCst) {
+                    std::thread::sleep(std::time::Duration::from_secs(5));
+                    report();
+                }
+            });
+        }
         match rx.recv()? {
             Some(run_loop) => Ok(Hooks { run_loop, join: Some(join) }),
             None => {
@@ -328,6 +367,8 @@ impl Drop for Hooks {
         if let Some(join) = self.join.take() {
             let _ = join.join();
         }
+        REPORTING.store(false, Ordering::SeqCst);
+        report();
         ENTER_DOWN.store(false, Ordering::SeqCst);
         ESCAPE_DOWN.store(false, Ordering::SeqCst);
         *CLIP.lock().unwrap() = None;
@@ -532,7 +573,10 @@ pub fn topmost(hwnd: Hwnd) {
 /// part, animé) : un cache au-dessus de tout ; le lanceur au niveau des
 /// apps (un jeu passe devant), Dock et barre des menus cachés quand il est actif.
 pub fn fill(hwnd: Hwnd, screen: *mut c_void, cover: bool) {
-    let Some(mtm) = MainThreadMarker::new() else { return };
+    let Some(mtm) = MainThreadMarker::new() else {
+        log("fenêtre : pas sur le fil principal, pas posée");
+        return;
+    };
     if hwnd <= 0 {
         return;
     }
@@ -553,6 +597,18 @@ pub fn fill(hwnd: Hwnd, screen: *mut c_void, cover: bool) {
         NSApplication::sharedApplication(mtm).setPresentationOptions(NSApplicationPresentationOptions::HideDock | NSApplicationPresentationOptions::HideMenuBar);
     }
     window.orderFrontRegardless();
+    let f = window.frame();
+    log(&format!(
+        "{} : ({}, {}) {} × {}, écran {}, visible {}, occultation {:#x}",
+        if cover { "cache" } else { "lanceur" },
+        f.origin.x,
+        f.origin.y,
+        f.size.width,
+        f.size.height,
+        if screen.is_null() { "inconnu" } else { "trouvé" },
+        window.isVisible(),
+        window.occlusionState().0
+    ));
 }
 
 /// Les manettes du lanceur : pas encore de manettes sur la Station Mac.

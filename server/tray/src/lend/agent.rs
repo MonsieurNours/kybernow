@@ -832,6 +832,14 @@ impl Screens {
     }
 
     fn place_launcher(&mut self, display: &Display, target: &EventLoopWindowTarget<Ev>) -> bool {
+        #[cfg(target_os = "macos")]
+        system::log(&format!(
+            "écran de l'ami ({}, {}) « {} » ; écrans : {}",
+            display.x,
+            display.y,
+            display.gdi_name,
+            target.available_monitors().map(|m| screen_key(&m)).collect::<Vec<_>>().join(", ")
+        ));
         let Some(monitor) = target.available_monitors().find(|m| friend_screen(m, display)) else { return false };
         if let Some(launcher) = &self.launcher {
             #[cfg(windows)]
