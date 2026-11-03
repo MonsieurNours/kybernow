@@ -8,6 +8,16 @@ Le plan graphique du téléviseur est en SDR : les mires passent par sa chaîne
 vidéo (NDL), qui les affiche en HDR comme l'image d'une session. Toutes sont
 en gris neutre : la luma est la valeur PQ de la luminance, la chroma 512.
 
+Métadonnées HDR10 de chaque mire (docs/hdr.md, « Réglage du HDR ») : pour la
+luminosité maximale et le plein écran, celles du palier essayé X (écran de
+matriçage X nits, MaxCLL et MaxFALL X). Hors HGIG, un téléviseur règle sa
+courbe sur ces métadonnées : annoncer 10 000 nits lui ferait comprimer tout
+0–10 000 sur sa dalle, et la croix resterait visible presque jusqu'en haut.
+Avec X, rien n'est comprimé tant que X tient sur la dalle ; au-delà, le
+téléviseur ramène X à sa crête, la croix se confond avec le fond écrêté et
+disparaît au bon palier. Noir et blanc du bureau : 1 000 nits (MaxCLL 1000,
+MaxFALL 400), comme une session aux valeurs par défaut.
+
     brew install ffmpeg          (ffmpeg avec libx265)
     pip install numpy pillow
     python3 apps/webos/scripts/hdr-mires.py
@@ -112,8 +122,10 @@ def white(level, sdr):
     return level * np.power(sdr, 2.2)
 
 
-def encode(nits, workdir):
-    """Une image fixe HEVC Main 10 PQ, BT.2020, plage limitée, avec ses SEI HDR10."""
+def encode(nits, meta, workdir):
+    """Une image fixe HEVC Main 10 PQ, BT.2020, plage limitée, avec ses SEI HDR10 :
+    `meta` = (écran de matriçage en nits, MaxCLL, MaxFALL)."""
+    master, max_cll, max_fall = meta
     y = luma(nits)
     uv = np.full((H // 2, W // 2), 512, dtype=np.uint16)
     raw = workdir / "in.yuv"
@@ -124,8 +136,8 @@ def encode(nits, workdir):
     params = ":".join([
         "log-level=error", "crf=10", "repeat-headers=1", "aud=1", "info=0",
         "colorprim=bt2020", "transfer=smpte2084", "colormatrix=bt2020nc", "range=limited",
-        "master-display=G(8500,39850)B(6550,2300)R(35400,14600)WP(15635,16450)L(100000000,0)",
-        "max-cll=10000,10000", "hdr10=1",
+        f"master-display=G(8500,39850)B(6550,2300)R(35400,14600)WP(15635,16450)L({int(round(master * 10000))},50)",
+        f"max-cll={int(round(max_cll))},{int(round(max_fall))}", "hdr10=1",
     ])
     subprocess.run([
         "ffmpeg", "-v", "error", "-f", "rawvideo", "-pix_fmt", "yuv420p10le", "-s", f"{W}x{H}", "-r", "60",
@@ -137,13 +149,17 @@ def encode(nits, workdir):
 
 def main():
     sdr = desktop_sdr()
-    steps = [(0, PEAK, peak), (1, PEAK, full), (2, BLACK, black), (3, WHITE, lambda v: white(v, sdr))]
+    # Les métadonnées : le palier essayé (luminosité maximale, plein écran), 1 000 nits sinon.
+    trial = lambda v: (v, v, v)
+    session = lambda v: (1000, 1000, 400)
+    steps = [(0, PEAK, peak, trial), (1, PEAK, full, trial), (2, BLACK, black, session),
+             (3, WHITE, lambda v: white(v, sdr), session)]
     entries, blobs = [], []
     with tempfile.TemporaryDirectory() as tmp:
         work = Path(tmp)
-        for step, values, make in steps:
+        for step, values, make, meta in steps:
             for v in values:
-                blobs.append(encode(make(v), work))
+                blobs.append(encode(make(v), meta(v), work))
                 entries.append((step, int(round(v * 1000))))
     header = 12 + 16 * len(entries)
     out = bytearray(b"KNHM" + struct.pack("<II", 1, len(entries)))

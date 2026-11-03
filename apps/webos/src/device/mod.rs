@@ -55,7 +55,7 @@ pub enum Event {
     /// Mode de l'écran de la session (pour la dernière session).
     Mode(Mode),
     /// `hdr` : le décodeur a mis la dalle en HDR pour cette image.
-    Second { latency_ms: Option<f64>, fps: f64, mbps: f64, lost: u32, codec: String, hdr: bool },
+    Second { latency_ms: Option<f64>, fps: f64, mbps: f64, lost: u32, codec: String, hdr: bool, path: [Option<f64>; 6] },
     Notice(String),
     Pointer { position: Option<(f64, f64)>, hidden: bool, shape: Option<(u32, u32, u32, u32, Vec<u32>)> },
     Rumble(GamepadRumble),
@@ -774,7 +774,7 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
                 l.mode = (m.width, m.height, refresh);
             }
         }
-        Event::Second { latency_ms, fps, mbps, lost, codec, hdr } => {
+        Event::Second { latency_ms, fps, mbps, lost, codec, hdr, path } => {
             if let Some(l) = live.as_mut() {
                 l.hdr |= hdr;
                 if let Some(v) = latency_ms {
@@ -784,7 +784,7 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
                     l.mbps.push(mbps);
                 }
                 if let Some(s) = app.session.as_mut() {
-                    s.stats = Some(Stats { latency_ms, fps, mbps, lost, mode: format!("{} × {}", l.mode.0, l.mode.1), codec, hdr });
+                    s.stats = Some(Stats { latency_ms, fps, mbps, lost, mode: format!("{} × {}", l.mode.0, l.mode.1), codec, hdr, path });
                 }
             }
         }

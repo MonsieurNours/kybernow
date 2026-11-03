@@ -70,7 +70,8 @@ fn run() {
         if shown != wanted {
             log::info!("réglage du HDR : {step:?}, {}", crate::mires::values(step).get(i).map(|v| format!("{v} nits")).unwrap_or_default());
         }
-        // Toutes les mires portent leurs métadonnées HDR10 : le décodeur les donne au téléviseur une fois par chargement.
+        // Chaque mire porte ses métadonnées HDR10 (le palier essayé, ou 1 000 nits) : redonnées au téléviseur à chaque
+        // changement de mire (`ndl::ensure_mire`), sans recharger NDL.
         let meta = crate::hdr::decide(&crate::hdr::scan_hevc(image), true, true);
         if let Err(e) = ndl::ensure_mire(SIZE.0, SIZE.1, meta) {
             log::warn!("réglage du HDR : {e}");

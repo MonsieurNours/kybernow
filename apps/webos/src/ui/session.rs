@@ -36,6 +36,7 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
                 }
             } else if s.show_stats {
                 stats_pill(cv, s, 40.0);
+                path_row(cv, s, 116.0);
             }
             if let Phase::Reconnecting { attempt, max } = s.phase {
                 let msg = format!("{} ({attempt}/{max})", tr("Reconnexion", "Reconnecting"));
@@ -200,6 +201,44 @@ fn stats_pill(cv: &mut Canvas, s: &SessionUi, y: f32) {
     for (i, p) in parts.iter().enumerate() {
         cv.text(xx, y + 38.0, if i >= 3 { style.color(FROST_2) } else { style }, p);
         xx += widths[i] + gap;
+    }
+}
+
+/// Le trajet d'une image (docs/link-ui.md, « Statistiques ») : les six étapes en une rangée lisible de loin,
+/// regroupées par lieu, avec le total de chaque lieu ; « — » sans mesure.
+fn path_row(cv: &mut Canvas, s: &SessionUi, y: f32) {
+    let Some(st) = &s.stats else { return };
+    let p = st.path;
+    let value = |v: Option<f64>| v.map(|v| decimal(v, 1)).unwrap_or_else(|| "—".into());
+    // Le total d'un lieu : seulement si toutes ses étapes sont mesurées.
+    let total = |i: std::ops::Range<usize>| p[i].iter().copied().sum::<Option<f64>>().map(|v| format!("{} ms", decimal(v, 1))).unwrap_or_else(|| "—".into());
+    let step = |name: &str, i: usize| format!("{name} {}", value(p[i]));
+    let groups = [
+        (tr("Sur l'ordinateur", "On the computer").to_uppercase(), total(0..3), [step(tr("Capture", "Capture"), 0), step(tr("Encodage", "Encoding"), 1), step(tr("Envoi", "Sending"), 2)].join("  ·  ")),
+        (tr("Réseau", "Network").to_uppercase(), total(3..4), String::new()),
+        (tr("Sur ce téléviseur", "On this TV").to_uppercase(), total(4..6), [step(tr("Décodage", "Decoding"), 4), step(tr("Affichage", "Display"), 5)].join("  ·  ")),
+    ];
+    let label = Text::new(Font::Mono, 15.0, FROST_3).tracking(2.5);
+    let big = Text::new(Font::Semibold, 34.0, FROST);
+    let small = Text::new(Font::Regular, 21.0, FROST_2);
+    let pad = 44.0;
+    let widths: Vec<f32> = groups
+        .iter()
+        .map(|(l, t, st)| cv.text_width(label, l).max(cv.text_width(big, t)).max(cv.text_width(small, st)))
+        .collect();
+    let total_w = widths.iter().sum::<f32>() + pad * 2.0 * groups.len() as f32;
+    let (h, mut x) = (128.0, (W - total_w) / 2.0);
+    cv.rrect(x, y, total_w, h, 24.0, Rgba(14, 19, 28, 235));
+    cv.rrect_stroke(x, y, total_w, h, 24.0, 1.0, SPECTRE.alpha(0.5));
+    for (i, (l, t, st)) in groups.iter().enumerate() {
+        if i > 0 {
+            cv.line(x, y + 22.0, x, y + h - 22.0, 1.0, BORDER);
+        }
+        let tx = x + pad;
+        cv.text(tx, y + 34.0, label, l);
+        cv.text(tx, y + 78.0, big, t);
+        cv.text(tx, y + 110.0, small, st);
+        x += widths[i] + pad * 2.0;
     }
 }
 

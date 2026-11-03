@@ -175,7 +175,7 @@ fn session(app: &App) -> SessionUi {
         phase: Phase::Streaming,
         streamed: true,
         menu: true,
-        stats: Some(Stats { latency_ms: Some(8.9), fps: 120.0, mbps: 80.0, lost: 0, mode: "2560 × 1440".into(), codec: "HEVC".into(), hdr: true }),
+        stats: Some(Stats { latency_ms: Some(18.9), fps: 120.0, mbps: 80.0, lost: 0, mode: "2560 × 1440".into(), codec: "HEVC".into(), hdr: true, path: [Some(0.9), Some(3.2), Some(0.3), Some(1.6), Some(0.6), Some(12.3)] }),
         started: Instant::now() - Duration::from_millis(400),
         hdr: app.selected().and_then(|h| app.hdr_ui(h)),
         ..SessionUi::new("a", "Atelier", Profile::Jeu, app.selected().is_some_and(|h| h.settings.game_mode_hint))
@@ -239,7 +239,7 @@ fn guest_session(role: ShareRole) -> SessionUi {
     let mut s = SessionUi::guest("share:g1", "Atelier", role);
     s.phase = Phase::Streaming;
     s.streamed = true;
-    s.stats = Some(Stats { latency_ms: Some(9.4), fps: 60.0, mbps: 38.0, lost: 0, mode: "1920 × 1080".into(), codec: "HEVC".into(), hdr: false });
+    s.stats = Some(Stats { latency_ms: Some(9.4), fps: 60.0, mbps: 38.0, lost: 0, mode: "1920 × 1080".into(), codec: "HEVC".into(), hdr: false, ..Default::default() });
     s.started = Instant::now() - Duration::from_millis(400);
     // « Auto » demandé, 1080p à 60 Hz reçu : la tuile du menu montre la qualité reçue.
     if let Some(g) = s.guest.as_mut() {
@@ -719,6 +719,17 @@ pub fn run(dir: &Path, lang: &str) {
     app.session = Some(s);
     shot(&mut app, &mut cv, &assets, Some(&video), dir, "18-session-statistiques");
 
+    // Station sans mesures de l'image : seuls le décodage et l'affichage du téléviseur.
+    let mut s = session(&app);
+    s.menu = false;
+    s.show_stats = true;
+    if let Some(st) = s.stats.as_mut() {
+        st.latency_ms = None;
+        st.path = [None, None, None, None, Some(0.6), Some(12.3)];
+    }
+    app.session = Some(s);
+    shot(&mut app, &mut cv, &assets, Some(&video), dir, "18e-session-statistiques-sans-mesures");
+
     let mut s = session(&app);
     s.streamed = false;
     s.phase = Phase::Ended { error: Some(if en { "Admin did not answer: is the computer still on the network?" } else { "Admin ne répond plus : l'ordinateur est-il toujours sur le réseau ?" }.into()) };
@@ -750,7 +761,7 @@ fn borrow_session() -> SessionUi {
     let mut s = SessionUi::borrower("lend:m", BorrowSessionUi::new("Matthieu", "PC-SALON", Some(until), BorrowSource::Account { id: "lend:m".into(), attempt: 1 }));
     s.phase = Phase::Streaming;
     s.streamed = true;
-    s.stats = Some(Stats { latency_ms: Some(9.4), fps: 60.0, mbps: 40.0, lost: 0, mode: "3840 × 2160".into(), codec: "HEVC".into(), hdr: true });
+    s.stats = Some(Stats { latency_ms: Some(9.4), fps: 60.0, mbps: 40.0, lost: 0, mode: "3840 × 2160".into(), codec: "HEVC".into(), hdr: true, ..Default::default() });
     s.hdr = Some(crate::app::HdrUi { on: true, reason: None });
     s
 }

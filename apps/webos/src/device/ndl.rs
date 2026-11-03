@@ -28,6 +28,8 @@
 //! - les mires du « Réglage du HDR » (`super::mires`) prennent le décodeur,
 //!   même en session : le fil de l'image de la session attend (`BUSY`), puis
 //!   recharge NDL à l'image clé suivante quand elles le rendent (`NOT_LOADED`).
+//!   Chaque mire porte les métadonnées de son palier : pendant les mires,
+//!   `NDL_DirectVideoSetHDRInfo` est rappelée à chaque changement de mire.
 
 #![allow(non_snake_case)]
 
@@ -264,6 +266,13 @@ pub fn available() -> bool {
                 if api.set_hdr.is_none() {
                     log::info!("image : NDL sans NDL_DirectVideoSetHDRInfo, pas de HDR");
                 }
+                // Pour les bilans de la file (`crate::journal`) : la longueur de la file, et le seuil d'abandon
+                // d'images, pas employé (son effet n'est pas documenté).
+                log::info!(
+                    "image : NDL, longueur de la file {}, seuil d'abandon d'images {}",
+                    if api.render_length.is_some() { "lisible" } else { "absente" },
+                    if sym::<*const c_void>(lib, "NDL_DirectVideoSetFrameDropThreshold").is_some() { "présent" } else { "absent" }
+                );
                 *g = Some(State { api, initialized: false, loaded: None, hdr: None, hdr_applied: false, plane: AudioPlane::OpusClock, last_pts: 0, last_audio_pts: 0, feeding: false });
                 true
             }
@@ -355,10 +364,14 @@ fn ensure_any(kind: i32, width: u32, height: u32, hdr: Option<HdrMeta>) -> Resul
     let hdr = hdr.filter(|_| st.api.set_hdr.is_some());
     if st.loaded.as_ref().is_some_and(|(k, _)| *k == (kind, width, height)) && st.plane == plane && st.hdr.is_some() == hdr.is_some() {
         if hdr.is_some() && st.hdr != hdr {
-            // Mêmes métadonnées à un détail près : gardées pour le prochain
-            // chargement, sans repasser la dalle en HDR (elle y perdrait sa
-            // fréquence un moment).
             st.hdr = hdr;
+            if MIRES.load(Ordering::Acquire) {
+                // Chaque mire du réglage du HDR annonce son palier : ses métadonnées sont redonnées au téléviseur à
+                // l'image suivante, sans recharger NDL.
+                st.hdr_applied = false;
+            }
+            // En session : mêmes métadonnées à un détail près, gardées pour le prochain chargement, sans repasser
+            // la dalle en HDR (elle y perdrait sa fréquence un moment).
         }
         return Ok(());
     }

@@ -43,6 +43,10 @@ pub struct Shared {
     /// La session demande le HDR (réglage, écran du téléviseur, décodeur) ;
     /// le cœur dit ensuite ce que l'ordinateur a obtenu (`Platform::on_hdr`).
     hdr_expected: AtomicBool,
+    /// La latence étape par étape au journal, toutes les 5 s.
+    chain: Mutex<crate::journal::Chain>,
+    /// Décodage et affichage mesurés par l'app, image par image (le trajet d'une image sans mesures de l'ordinateur).
+    local: Mutex<crate::journal::Local>,
 }
 
 impl Shared {
@@ -62,6 +66,11 @@ impl Shared {
     pub fn host_size(&self) -> (u32, u32) {
         let d = self.display.lock().unwrap();
         if d.1 > 0 && d.2 > 0 { (d.1, d.2) } else { self.video_size() }
+    }
+
+    /// Une image donnée à NDL : décodage (reçue → acceptée) et affichage estimé, en µs.
+    pub fn frame_times(&self, decode_us: i64, display_us: i64) {
+        self.local.lock().unwrap().add(decode_us as f64 / 1000.0, display_us as f64 / 1000.0);
     }
 
     pub fn frame_period_micros(&self) -> i64 {
@@ -169,14 +178,21 @@ impl Platform for WebOsPlatform {
     }
 
     fn on_second(&self, s: &Second) {
+        // Ce que le décodeur a vraiment chargé (le flux HDR, lu dans le flux).
+        let hdr = super::ndl::loaded_hdr();
+        let chain = s.chain.map(|c| c.all());
+        if let Some(line) = self.0.chain.lock().unwrap().add(s.latency_ms, chain, hdr) {
+            log::info!("{line}");
+        }
+        let path = crate::journal::path(chain, self.0.local.lock().unwrap().take());
         self.0.send(Event::Second {
             latency_ms: s.latency_ms,
             fps: s.displayed as f64,
             mbps: s.bytes as f64 * 8.0 / 1e6,
             lost: s.lost_frames + s.holes,
             codec: self.0.codec(),
-            // Ce que le décodeur a vraiment chargé (le flux HDR, lu dans le flux).
-            hdr: super::ndl::loaded_hdr(),
+            hdr,
+            path,
         });
     }
 
@@ -575,6 +591,8 @@ pub fn start(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32), 
         combo_enabled: AtomicBool::new(host.settings.combo),
         codec: Mutex::new(String::new()),
         hdr_expected: AtomicBool::new(hdr.on()),
+        chain: Mutex::new(crate::journal::Chain::default()),
+        local: Mutex::new(crate::journal::Local::default()),
     });
     // Le pointeur de l'ordinateur, dessiné par l'app : position et forme.
     let weak = Arc::downgrade(&shared);

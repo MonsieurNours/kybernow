@@ -438,6 +438,8 @@ pub struct Stats {
     pub codec: String,
     /// L'image est en HDR : « HDR » après le format.
     pub hdr: bool,
+    /// Le trajet d'une image (ms) : capture, encodage, envoi, réseau, décodage, affichage ; `None` : « — ».
+    pub path: [Option<f64>; 6],
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
