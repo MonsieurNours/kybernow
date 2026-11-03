@@ -2,8 +2,9 @@
 // PlayStation », « Réglages de la console ») : présentés comme ceux d'un
 // ordinateur (en tête son nom, à gauche les rubriques Image et Commandes, à
 // droite leurs cartes en verre). Chaque changement est enregistré tout de
-// suite et vaut pour la partie suivante ; le clavier et la souris changent
-// aussi tout de suite pendant une partie.
+// suite et vaut pour la partie suivante ; le clavier et la souris,
+// l'agrandissement et les intensités de la manette changent aussi tout de
+// suite pendant une partie.
 
 import AppKit
 import KyberKit
@@ -333,6 +334,34 @@ private struct ConsoleSettingsContent: View {
         columns {
             keysCard
             mouseCard
+            controllerCard
+        }
+    }
+
+    /// Intensités de la DualSense : vibrations et gâchettes adaptatives, de
+    /// 0 à 100 % par pas de 10.
+    private var controllerCard: some View {
+        SettingsCard(icon: "game-controller", title: PSText.controller) {
+            intensityRow(PSText.rumble, value: s.rumble) { v in update { $0.rumble = v } }
+            intensityRow(PSText.adaptiveTriggers, value: s.triggers) { v in update { $0.triggers = v } }
+            help(PSText.controllerHelp)
+        }
+    }
+
+    private func intensityRow(_ title: String, value: Int, set: @escaping (Int) -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                label(title)
+                Spacer()
+                Text(PSText.percent(value)).font(Theme.mono(13)).foregroundStyle(Theme.text)
+            }
+            Slider(value: Binding(get: { Double(value) }, set: { v in
+                let n = min(max(Int((v / 10).rounded()) * 10, 0), 100)
+                if n != value { set(n) }
+            }), in: 0...100, step: 10)
+            .tint(Theme.accent)
+            .accessibilityLabel(title)
+            .accessibilityValue(PSText.percent(value))
         }
     }
 

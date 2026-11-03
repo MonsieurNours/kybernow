@@ -15,10 +15,14 @@
 //! - **Agrandissement** : l'image de la console (1080p au plus) agrandie
 //!   aux pixels de l'écran par MetalFX (côté app), allumé par défaut, avec
 //!   une netteté de 0 à 100 (40 par défaut, 0 la coupe).
+//! - **Manette** : intensité des vibrations et des gâchettes adaptatives de
+//!   la DualSense, de 0 (coupées, gâchettes libres) à 100 % (défaut), par
+//!   pas de 10 ; changées tout de suite pendant une partie
+//!   ([`super::dualsense`]).
 //!
 //! « Personnalisé » : définition, images par seconde, débit ou format qui
-//! s'écartent d'Auto. Le HDR (puce de l'accueil), le plein écran et
-//! l'agrandissement n'en font pas partie.
+//! s'écartent d'Auto. Le HDR (puce de l'accueil), le plein écran,
+//! l'agrandissement et les intensités de la manette n'en font pas partie.
 
 use serde::{Deserialize, Serialize};
 
@@ -99,6 +103,20 @@ pub struct PlaySettings {
     /// Côté app : netteté après l'agrandissement, de 0 (coupée) à 100.
     #[serde(default = "default_sharpness")]
     pub sharpness: u8,
+    /// Intensité des vibrations de la DualSense (HD et simples), de 0
+    /// (coupées) à 100 %.
+    #[serde(default = "full")]
+    pub rumble: u8,
+    /// Intensité des gâchettes adaptatives, de 0 (libres) à 100 %.
+    #[serde(default = "full")]
+    pub triggers: u8,
+}
+
+/// Intensités de la manette par défaut : entières.
+pub const FULL_INTENSITY: u8 = 100;
+
+fn full() -> u8 {
+    FULL_INTENSITY
 }
 
 /// Netteté par défaut : modérée.
@@ -117,7 +135,18 @@ fn yes() -> bool {
 
 impl Default for PlaySettings {
     fn default() -> Self {
-        PlaySettings { resolution: Resolution::Auto, fps: 60, bitrate_kbps: None, codec: CodecChoice::Auto, hdr: false, fullscreen: true, upscale: true, sharpness: DEFAULT_SHARPNESS }
+        PlaySettings {
+            resolution: Resolution::Auto,
+            fps: 60,
+            bitrate_kbps: None,
+            codec: CodecChoice::Auto,
+            hdr: false,
+            fullscreen: true,
+            upscale: true,
+            sharpness: DEFAULT_SHARPNESS,
+            rumble: FULL_INTENSITY,
+            triggers: FULL_INTENSITY,
+        }
     }
 }
 
@@ -125,6 +154,11 @@ impl PlaySettings {
     /// Définition, images par seconde, débit ou format s'écartent d'Auto.
     pub fn is_custom(&self) -> bool {
         self.resolution != Resolution::Auto || self.fps != 60 || self.bitrate_kbps.is_some() || self.codec != CodecChoice::Auto
+    }
+
+    /// Intensités de la manette (vibrations, gâchettes), bornées à 100 %.
+    pub fn intensities(&self) -> (u8, u8) {
+        (self.rumble.min(FULL_INTENSITY), self.triggers.min(FULL_INTENSITY))
     }
 
     /// Débit effectif, en kbit/s.
@@ -170,7 +204,7 @@ mod tests {
 
     #[test]
     fn custom_settings() {
-        let s = PlaySettings { resolution: Resolution::P720, fps: 30, bitrate_kbps: Some(250_000), codec: CodecChoice::H264, hdr: true, fullscreen: false, upscale: false, sharpness: 0 };
+        let s = PlaySettings { resolution: Resolution::P720, fps: 30, bitrate_kbps: Some(250_000), codec: CodecChoice::H264, hdr: true, fullscreen: false, upscale: false, sharpness: 0, rumble: 30, triggers: 0 };
         assert!(s.is_custom());
         let p = s.profile(true, true);
         assert_eq!((p.width, p.height, p.max_fps, p.bitrate), (1280, 720, 30, BITRATE_MAX));
@@ -178,6 +212,8 @@ mod tests {
         assert!(!p.hevc && !p.hdr);
         // HDR, plein écran et agrandissement ne rendent pas « Personnalisé ».
         assert!(!PlaySettings { hdr: true, fullscreen: false, upscale: false, sharpness: 90, ..Default::default() }.is_custom());
+        // Les intensités de la manette non plus.
+        assert!(!PlaySettings { rumble: 0, triggers: 50, ..Default::default() }.is_custom());
     }
 
     #[test]
@@ -197,5 +233,16 @@ mod tests {
         // Réglages d'avant l'agrandissement : allumé, netteté par défaut.
         let old: PlaySettings = serde_json::from_str("{\"resolution\":\"p720\",\"fullscreen\":false}").unwrap();
         assert!(old.upscale && old.sharpness == DEFAULT_SHARPNESS && !old.fullscreen);
+        // Réglages d'avant les intensités : entières.
+        assert_eq!(old.intensities(), (100, 100));
+        let s: PlaySettings = serde_json::from_str("{\"rumble\":40,\"triggers\":0}").unwrap();
+        assert_eq!(s.intensities(), (40, 0));
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(json.contains("\"rumble\":40") && json.contains("\"triggers\":0"));
+        // Au-delà de 100 : bornées.
+        let s: PlaySettings = serde_json::from_str("{\"rumble\":250}").unwrap();
+        assert_eq!(s.intensities(), (100, 100));
+        // Valeur illisible : le JSON entier est refusé, l'app retombe sur Auto.
+        assert!(serde_json::from_str::<PlaySettings>("{\"rumble\":-1}").is_err());
     }
 }

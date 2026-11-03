@@ -1,6 +1,70 @@
 {
   "sourceLanguage" : "fr",
   "strings" : {
+    "Vibrations" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rumble"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vibrations"
+          }
+        }
+      }
+    },
+    "Gâchettes adaptatives" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Adaptive triggers"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gâchettes adaptatives"
+          }
+        }
+      }
+    },
+    "Pour la DualSense. Les vibrations HD passent par la manette branchée en USB." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "For the DualSense. HD haptics go through the controller plugged in over USB."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pour la DualSense. Les vibrations HD passent par la manette branchée en USB."
+          }
+        }
+      }
+    },
+    "Tapez votre texte · Entrée pour valider · Échap pour annuler" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Type your text · Return to accept · Escape to cancel"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tapez votre texte · Entrée pour valider · Échap pour annuler"
+          }
+        }
+      }
+    },
     "PlayStation" : {
       "localizations" : {
         "en" : {

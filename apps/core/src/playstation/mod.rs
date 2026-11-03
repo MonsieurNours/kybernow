@@ -14,6 +14,7 @@
 pub mod audio;
 pub mod controller;
 pub mod discovery;
+pub mod dualsense;
 pub mod fec;
 pub mod frame;
 pub mod gkcrypt;

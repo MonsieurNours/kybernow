@@ -7,6 +7,12 @@
 //! (`is_key` sur les images de référence). Le son : un `Codec` Opus, un
 //! `OpusHead` (`is_config`), puis les trames, et `Hole` pour une trame
 //! perdue.
+//!
+//! La DualSense ([`super::dualsense`]) : vibrations HD vers la carte son de
+//! la manette branchée en USB (sinon vibrations simples), intensités des
+//! vibrations et des gâchettes ([`Play::set_intensities`]). Le clavier de la
+//! console ([`KeyboardEvent`], [`Play::keyboard_text`]) : quand elle ouvre
+//! son clavier à l'écran, l'app y écrit.
 
 use std::net::Ipv4Addr;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -15,6 +21,7 @@ use std::time::{Duration, Instant};
 
 use super::audio::{AudioOut, AudioReceiver, opus_head};
 use super::controller::ControllerState;
+use super::dualsense::{self, HapticsFrames, Intensities};
 use super::keymouse::{KeyMouse, Layout};
 use crate::gamepads;
 use crate::input::pipeline::GamepadRumble;
@@ -62,6 +69,36 @@ pub enum PadEvent {
     Menu,
     /// Manette prise par l'app (barre ouverte) : une touche de navigation.
     Navigate(crate::input::PadKey),
+}
+
+/// Le clavier à l'écran de la console (docs/playstation.md, « Clavier de la
+/// console »), annoncé à l'app sur le fil de la partie.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum KeyboardEvent {
+    /// La console ouvre son clavier, avec le texte déjà dans son champ.
+    Open(String),
+    /// Le texte du champ, renvoyé par la console : il remplace celui de l'app.
+    Text(String),
+    /// La console a fermé son clavier (ou la partie s'est interrompue).
+    Closed,
+}
+
+type KeyboardCb = Arc<dyn Fn(KeyboardEvent) + Send + Sync>;
+
+/// Ce que la partie partage avec l'app pour la DualSense et le clavier de
+/// la console.
+struct Feedback {
+    intensities: Intensities,
+    on_keyboard: Mutex<Option<KeyboardCb>>,
+}
+
+impl Feedback {
+    fn keyboard(&self, e: KeyboardEvent) {
+        let cb = self.on_keyboard.lock().unwrap().clone();
+        if let Some(cb) = cb {
+            cb(e);
+        }
+    }
 }
 
 /// Mesures de la partie, remises à zéro à chaque lecture ([`Play::stats`]).
@@ -119,6 +156,7 @@ pub struct Play {
     want_key: Arc<AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
     ctrl: Arc<Mutex<Option<Ctrl>>>,
+    feedback: Arc<Feedback>,
 }
 
 /// Une fin qui vaut une nouvelle tentative : réseau, ou flux coupé sans que
@@ -172,6 +210,8 @@ impl Play {
             PlayStats { width: p.width, height: p.height, hevc: p.hevc, hdr: p.hdr, target_kbps: p.bitrate, ..Default::default() }
         };
         let ctrl = Arc::new(Mutex::new(None));
+        let (rumble_pct, triggers_pct) = options.settings.intensities();
+        let feedback = Arc::new(Feedback { intensities: Intensities::new(rumble_pct, triggers_pct), on_keyboard: Mutex::new(None) });
         let registered = registered.clone();
         let thread = {
             let stop = stop.clone();
@@ -181,6 +221,7 @@ impl Play {
             let captured = captured.clone();
             let counters = counters.clone();
             let on_pad = on_pad.clone();
+            let feedback = feedback.clone();
             std::thread::Builder::new()
                 .name("ps-play".into())
                 .spawn(move || {
@@ -191,7 +232,7 @@ impl Play {
                     let mut retries = 0;
                     let end = loop {
                         let started = Instant::now();
-                        let end = run(addr, &registered, options.clone(), &video, audio.as_ref(), &on_state, &stop, &ctrl, &want_key, &keymouse, &captured, &counters, &on_pad);
+                        let end = run(addr, &registered, options.clone(), &video, audio.as_ref(), &on_state, &stop, &ctrl, &want_key, &keymouse, &captured, &counters, &on_pad, &feedback);
                         if let Some(mut c) = ctrl.lock().unwrap().take() {
                             c.stop();
                         }
@@ -213,7 +254,42 @@ impl Play {
                 })
                 .ok()
         };
-        Play { stop, keymouse, captured, counters, stats_at: Mutex::new((Instant::now(), initial)), want_key, thread, ctrl }
+        Play { stop, keymouse, captured, counters, stats_at: Mutex::new((Instant::now(), initial)), want_key, thread, ctrl, feedback }
+    }
+
+    /// Intensités de la DualSense, de 0 à 100 % (vibrations, gâchettes),
+    /// tout de suite : les derniers effets de la console sont reposés.
+    pub fn set_intensities(&self, rumble: u8, triggers: u8) {
+        self.feedback.intensities.set(rumble, triggers);
+        log::info!("PlayStation : intensités de la manette : vibrations {}, gâchettes {} %", rumble.min(100), triggers.min(100));
+    }
+
+    /// Ce que l'app reçoit du clavier de la console (fil de la partie).
+    pub fn set_on_keyboard(&self, f: Option<Box<dyn Fn(KeyboardEvent) + Send + Sync>>) {
+        *self.feedback.on_keyboard.lock().unwrap() = f.map(Arc::from);
+    }
+
+    fn with_ctrl(&self, f: impl FnOnce(&Ctrl) -> std::io::Result<()>) -> bool {
+        match self.ctrl.lock().unwrap().as_ref() {
+            Some(c) => f(c).map_err(|e| log::warn!("PlayStation : message du clavier pas envoyé : {e}")).is_ok(),
+            None => false,
+        }
+    }
+
+    /// Le texte entier du champ de la console, à chaque changement. Faux
+    /// sans canal de contrôle.
+    pub fn keyboard_text(&self, text: &str) -> bool {
+        self.with_ctrl(|c| c.keyboard_set_text(text))
+    }
+
+    /// Entrée : le texte est validé.
+    pub fn keyboard_accept(&self) -> bool {
+        self.with_ctrl(|c| c.keyboard_accept())
+    }
+
+    /// Échap : le texte est refusé.
+    pub fn keyboard_reject(&self) -> bool {
+        self.with_ctrl(|c| c.keyboard_reject())
     }
 
     /// La barre ou le menu de l'app s'ouvre (`true`) ou se ferme : la manette
@@ -312,6 +388,7 @@ fn run(
     captured: &Arc<AtomicBool>,
     counters: &Arc<Counters>,
     on_pad: &Arc<dyn Fn(PadEvent) + Send + Sync>,
+    feedback: &Arc<Feedback>,
 ) -> PlayEnd {
     on_state(PlayState::Connecting);
     let Some(keys) = Keys::from_registered(registered) else { return PlayEnd::NotPaired };
@@ -375,7 +452,7 @@ fn run(
             Err(_) => {}
         }
     };
-    let _ = ctrl.enable_features(profile.dualsense);
+    let _ = ctrl.enable_features(profile.dualsense, true);
     let crypt = ctrl.crypt().clone();
     *ctrl_slot.lock().unwrap() = Some(ctrl);
     // Les manettes du lecteur du cœur (fil SDL, Mac et Windows), réunies :
@@ -410,7 +487,19 @@ fn run(
     let hevc_out = profile.hevc || profile.hdr;
     video.packet(Packet::Codec { codec: if hevc_out { FOURCC_HEVC } else { FOURCC_H264 } });
     let mut receiver = AudioReceiver::new();
-    let mut haptics = HapticsToRumble::default();
+    let mut haptics = HapticsFrames::default();
+    let hd = dualsense::hd_haptics();
+    // Vibrations HD : le chemin pris (annoncé au journal quand il change),
+    // le dernier échantillon (raccord entre deux trames), le tampon.
+    let mut hd_path: Option<bool> = None;
+    let mut hd_last = [0.0f32; 2];
+    let mut hd_buf: Vec<f32> = Vec::with_capacity(2 * 16 * 30 * 4);
+    // Derniers effets de la console, reposés quand les intensités changent.
+    let intensities = &feedback.intensities;
+    let mut generation = intensities.generation();
+    let mut last_rumble = (0u8, 0u8);
+    let mut last_triggers: Option<(u8, [u8; 10], u8, [u8; 10])> = None;
+    let mut keyboard_open = false;
     let mut audio_configured = false;
     let clock = Instant::now();
     // Dernière image rendue : sans image depuis une seconde, une image clé
@@ -420,12 +509,32 @@ fn run(
         if stop.load(Ordering::SeqCst) {
             break PlayEnd::Stopped;
         }
-        // Le canal de contrôle : fin et contenu protégé.
+        // Le canal de contrôle : fin, contenu protégé, clavier de la console.
         while let Ok(e) = events.try_recv() {
             match e {
                 CtrlEvent::CantDisplay(c) => on_state(PlayState::CantDisplay(c)),
                 CtrlEvent::Closed(why) => log::info!("PlayStation : canal de contrôle fermé ({why})"),
+                CtrlEvent::KeyboardOpen(text) => {
+                    keyboard_open = true;
+                    feedback.keyboard(KeyboardEvent::Open(text));
+                }
+                CtrlEvent::KeyboardText(text) => feedback.keyboard(KeyboardEvent::Text(text)),
+                CtrlEvent::KeyboardClosed => {
+                    keyboard_open = false;
+                    feedback.keyboard(KeyboardEvent::Closed);
+                }
                 _ => {}
+            }
+        }
+        // Intensités changées pendant la partie : les derniers effets reposés.
+        let g = intensities.generation();
+        if g != generation {
+            generation = g;
+            if last_rumble != (0, 0) {
+                rumble(last_rumble.0, last_rumble.1, intensities.rumble());
+            }
+            if let Some((tl, l, tr, r)) = last_triggers {
+                triggers(tl, &l, tr, &r, intensities.triggers());
             }
         }
         if last_frame.is_some_and(|t| t.elapsed() > Duration::from_secs(1)) && !want_key.load(Ordering::Relaxed) {
@@ -475,13 +584,40 @@ fn run(
                     }
                 }
             }
-            StreamEvent::Pad(super::takion::data::RUMBLE, buf) if buf.len() >= 3 => rumble(buf[1], buf[2]),
+            StreamEvent::Pad(super::takion::data::RUMBLE, buf) if buf.len() >= 3 => {
+                last_rumble = (buf[1], buf[2]);
+                rumble(buf[1], buf[2], intensities.rumble());
+            }
             StreamEvent::Pad(super::takion::data::TRIGGER_EFFECTS, buf) if buf.len() >= 25 => {
-                triggers(buf[1], &buf[5..15], buf[2], &buf[15..25]);
+                let mut l = [0u8; 10];
+                let mut r = [0u8; 10];
+                l.copy_from_slice(&buf[5..15]);
+                r.copy_from_slice(&buf[15..25]);
+                last_triggers = Some((buf[1], l, buf[2], r));
+                triggers(buf[1], &l, buf[2], &r, intensities.triggers());
             }
             StreamEvent::Audio(p) if p.is_haptics => {
-                if let Some((left, right)) = haptics.push(&p) {
-                    rumble16(left, right, 60);
+                let frames = haptics.push(&p);
+                let to_hd = hd.has_output();
+                if hd_path != Some(to_hd) {
+                    log::info!(
+                        "PlayStation : vibrations HD {}",
+                        if to_hd { "jouées par la carte son de la DualSense (USB, voies 3 et 4, 48 kHz)" } else { "traduites en vibrations simples" }
+                    );
+                    hd_path = Some(to_hd);
+                    hd_last = [0.0; 2];
+                }
+                if to_hd {
+                    let gain = intensities.rumble() as f32 / 100.0;
+                    for f in &frames {
+                        dualsense::upsample(f, gain, &mut hd_last, &mut hd_buf);
+                    }
+                    hd.push(&hd_buf);
+                    hd_buf.clear();
+                } else if let Some(f) = frames.last() {
+                    let (left, right) = strength(f);
+                    let pct = intensities.rumble();
+                    rumble16(dualsense::scale_rumble(left, pct), dualsense::scale_rumble(right, pct), 60);
                 }
             }
             // Le décodeur de l'app attend alors une image clé au lieu de
@@ -499,9 +635,14 @@ fn run(
         }
     };
     stream.stop();
-    rumble(0, 0);
+    rumble(0, 0, 100);
     // Gâchettes rendues libres (SDL ne le fait pas tout seul).
-    triggers(0x05, &[0; 10], 0x05, &[0; 10]);
+    triggers(0x05, &[0; 10], 0x05, &[0; 10], 100);
+    // Partie interrompue clavier ouvert : l'app ferme son bandeau (une reprise
+    // repart sans clavier).
+    if keyboard_open {
+        feedback.keyboard(KeyboardEvent::Closed);
+    }
     end
 }
 
@@ -523,9 +664,12 @@ pub(crate) fn trigger_report(type_left: u8, left: &[u8], type_right: u8, right: 
     r
 }
 
-/// Gâchettes adaptatives sur les DualSense branchées.
-fn triggers(type_left: u8, left: &[u8], type_right: u8, right: &[u8]) {
-    let report = trigger_report(type_left, left, type_right, right);
+/// Gâchettes adaptatives sur les DualSense branchées, la force de chaque
+/// effet à `pct` pour cent.
+fn triggers(type_left: u8, left: &[u8; 10], type_right: u8, right: &[u8; 10], pct: u8) {
+    let (type_left, left) = dualsense::scale_trigger(type_left, left, pct);
+    let (type_right, right) = dualsense::scale_trigger(type_right, right, pct);
+    let report = trigger_report(type_left, &left, type_right, &right);
     for p in gamepads::global().pads().iter().filter(|p| is_dualsense(p)) {
         gamepads::effect(p.id, report.clone());
     }
@@ -539,39 +683,10 @@ fn rumble16(large: u16, small: u16, ms: i32) {
 
 /// Vibrations HD (son PCM 16 bits stéréo envoyé par la console à la place
 /// des vibrations simples quand la manette est une DualSense) traduites en
-/// vibrations ordinaires, comme chiaki-ng sans sortie de vibrations HD :
-/// l'amplitude moyenne de chaque voie, au-dessus d'un seuil, sur le gros
-/// moteur (gauche) et le petit (droite).
-#[derive(Default)]
-pub(crate) struct HapticsToRumble {
-    last: Option<u16>,
-}
-
-impl HapticsToRumble {
-    pub(crate) fn push(&mut self, p: &super::takion::AvPacket) -> Option<(u16, u16)> {
-        let source = (p.units_in_frame_fec & 0xf) as usize;
-        let unit = (p.units_in_frame_fec >> 8) as usize;
-        if unit == 0 || p.data.len() < unit * source {
-            return None;
-        }
-        let mut out = None;
-        for i in 0..source {
-            let index = p.frame_index.wrapping_add(i as u16);
-            // Seulement les trames plus récentes que la dernière jouée.
-            if let Some(last) = self.last {
-                let d = index.wrapping_sub(last);
-                if d == 0 || d >= 0x8000 {
-                    continue;
-                }
-            }
-            self.last = Some(index);
-            out = Some(strength(&p.data[unit * i..unit * (i + 1)]));
-        }
-        out
-    }
-}
-
-/// Force (gros moteur, petit moteur) d'une trame de vibrations HD.
+/// vibrations ordinaires quand aucune DualSense n'est branchée en USB, comme
+/// chiaki-ng sans sortie de vibrations HD : force (gros moteur, petit
+/// moteur) d'une trame, l'amplitude moyenne de chaque voie au-dessus d'un
+/// seuil.
 pub(crate) fn strength(pcm: &[u8]) -> (u16, u16) {
     let frames = pcm.len() / 4;
     if frames == 0 {
@@ -603,15 +718,16 @@ impl Drop for ReleaseSdl {
 }
 
 /// Vibrations de la console (gros moteur à gauche, petit à droite, 0 à
-/// 255) sur toutes les manettes ; tenues jusqu'au message suivant (la
-/// console envoie 0, 0 pour arrêter).
-fn rumble(left: u8, right: u8) {
+/// 255) sur toutes les manettes, à `pct` pour cent ; tenues jusqu'au message
+/// suivant (la console envoie 0, 0 pour arrêter).
+fn rumble(left: u8, right: u8, pct: u8) {
+    let (large, small) = (dualsense::scale_rumble(left as u16 * 257, pct), dualsense::scale_rumble(right as u16 * 257, pct));
     for p in gamepads::global().pads() {
         gamepads::rumble(GamepadRumble {
             id: p.id,
-            large_motor: left as u16 * 257,
-            small_motor: right as u16 * 257,
-            duration_ms: if left == 0 && right == 0 { 0 } else { 10_000 },
+            large_motor: large,
+            small_motor: small,
+            duration_ms: if large == 0 && small == 0 { 0 } else { 10_000 },
         });
     }
 }

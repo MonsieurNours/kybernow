@@ -59,6 +59,9 @@ struct PSSettings: Codable, Equatable {
     var upscale = true
     /// Netteté après l'agrandissement, de 0 (coupée) à 100.
     var sharpness = PSSettings.defaultSharpness
+    /// Intensités de la DualSense, de 0 (coupées, gâchettes libres) à 100 %.
+    var rumble = 100
+    var triggers = 100
 
     static let defaultSharpness = 40
 
@@ -66,7 +69,7 @@ struct PSSettings: Codable, Equatable {
     var upscaleSettings: UpscaleSettings? { upscale ? UpscaleSettings(sharpness: Float(sharpness) / 100) : nil }
 
     private enum CodingKeys: String, CodingKey {
-        case resolution, fps, codec, hdr, fullscreen, upscale, sharpness
+        case resolution, fps, codec, hdr, fullscreen, upscale, sharpness, rumble, triggers
         case bitrateKbps = "bitrate_kbps"
     }
 
@@ -82,6 +85,8 @@ struct PSSettings: Codable, Equatable {
         fullscreen = (try? c.decodeIfPresent(Bool.self, forKey: .fullscreen)) ?? true
         upscale = (try? c.decodeIfPresent(Bool.self, forKey: .upscale)) ?? true
         sharpness = min(100, max(0, (try? c.decodeIfPresent(Int.self, forKey: .sharpness)) ?? Self.defaultSharpness))
+        rumble = min(100, max(0, (try? c.decodeIfPresent(Int.self, forKey: .rumble)) ?? 100))
+        triggers = min(100, max(0, (try? c.decodeIfPresent(Int.self, forKey: .triggers)) ?? 100))
     }
 
     /// Définitions, dans l'ordre des réglages.
@@ -246,6 +251,11 @@ enum PSText {
     static var upscaleHelp: String { String(localized: "La console envoie du 1080p au plus : l'image est agrandie aux pixels de votre écran par la puce graphique du Mac. Coupé de lui-même si ce Mac est trop lent.") }
     static var sharpness: String { String(localized: "Netteté") }
     static func percent(_ n: Int) -> String { String(localized: "\(n) %") }
+    static var controller: String { String(localized: "Manette") }
+    static var rumble: String { String(localized: "Vibrations") }
+    static var adaptiveTriggers: String { String(localized: "Gâchettes adaptatives") }
+    static var controllerHelp: String { String(localized: "Pour la DualSense. Les vibrations HD passent par la manette branchée en USB.") }
+    static var consoleKeyboard: String { String(localized: "Tapez votre texte · Entrée pour valider · Échap pour annuler") }
 
     // Barre de la partie
     static var mute: String { String(localized: "Couper le son") }
@@ -867,8 +877,10 @@ final class PlayStationStore: ObservableObject {
         guard var c = console(c.id), let data = try? JSONEncoder().encode(s) else { return }
         c.settings = String(data: data, encoding: .utf8)
         update(c)
-        // L'agrandissement suit tout de suite dans une partie en cours.
+        // L'agrandissement et les intensités de la manette suivent tout de
+        // suite dans une partie en cours.
         sessions[c.id]?.setUpscale(s.upscaleSettings)
+        sessions[c.id]?.setIntensities(rumble: s.rumble, triggers: s.triggers)
     }
 
     /// « Personnalisé » à l'accueil (la règle du cœur).

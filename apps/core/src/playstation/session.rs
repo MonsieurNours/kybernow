@@ -59,6 +59,16 @@ pub mod msg {
     pub const DISPLAY_B: u16 = 0x16;
     pub const MIC_TOGGLE: u16 = 0x36;
     pub const DISPLAY_DEVICES: u16 = 0x910;
+    /// Clavier de la console (docs/playstation.md, « Clavier de la
+    /// console ») : activé au début de la session, puis ouvert et fermé par
+    /// la console, le texte allant dans les deux sens.
+    pub const KEYBOARD_ENABLE: u16 = 0xd;
+    pub const KEYBOARD_ENABLE_TOGGLE: u16 = 0x20;
+    pub const KEYBOARD_OPEN: u16 = 0x21;
+    pub const KEYBOARD_CLOSE_REMOTE: u16 = 0x22;
+    pub const KEYBOARD_TEXT_CHANGE_REQ: u16 = 0x23;
+    pub const KEYBOARD_TEXT_CHANGE_RES: u16 = 0x24;
+    pub const KEYBOARD_CLOSE_REQ: u16 = 0x25;
 }
 
 /// Format d'image demandé à une PS5 (`RP-StreamingType`). La PS4 ne connaît
@@ -324,6 +334,15 @@ pub enum CtrlEvent {
     /// La console ne peut pas afficher ce qu'elle montre (contenu protégé),
     /// ou de nouveau (`false`), d'après `0x1` et `0x16` comme chiaki-ng.
     CantDisplay(bool),
+    /// La console ouvre son clavier à l'écran (`0x21`), avec le texte déjà
+    /// dans son champ (souvent vide).
+    KeyboardOpen(String),
+    /// Le texte du champ de la console (`0x24`, réponse à
+    /// [`Ctrl::keyboard_set_text`] ou changé par la console) : il remplace
+    /// celui de l'app.
+    KeyboardText(String),
+    /// La console a refermé son clavier (`0x22`).
+    KeyboardClosed,
     /// Message d'un autre type, déchiffré.
     Other(u16, Vec<u8>),
     /// Canal fermé (par la console, le réseau ou [`Ctrl::stop`]).
@@ -346,6 +365,9 @@ pub struct Ctrl {
     /// `RP-Prohibit` : la console n'autorise pas l'affichage.
     pub prohibited: bool,
     thread: Option<std::thread::JoinHandle<()>>,
+    /// Compteur des textes envoyés au clavier de la console (croissant, le
+    /// premier vaut 1).
+    keyboard_counter: std::sync::atomic::AtomicU32,
 }
 
 impl Ctrl {
@@ -388,7 +410,7 @@ impl Ctrl {
                 .name("ps-ctrl".into())
                 .spawn(move || read_loop(reader, rest, remote_counter, crypt, writer, stop, tx))?
         };
-        Ok((Ctrl { writer, crypt, stop, server_type, prohibited, thread: Some(thread) }, rx))
+        Ok((Ctrl { writer, crypt, stop, server_type, prohibited, thread: Some(thread), keyboard_counter: Default::default() }, rx))
     }
 
     /// Les clés de session, dont le flux a besoin pour masquer sa « launch
@@ -403,14 +425,22 @@ impl Ctrl {
     }
 
     /// Ce que chiaki-ng envoie après l'identifiant de session : les fonctions
-    /// de la DualSense, l'état du micro (deux fois, `toggle_microphone(false)`),
-    /// aucun écran de plus.
-    pub fn enable_features(&self, dualsense: bool) -> io::Result<()> {
+    /// de la DualSense, le clavier de la console, l'état du micro (deux fois,
+    /// `toggle_microphone(false)`), aucun écran de plus.
+    ///
+    /// Le clavier : `0xd` (16 octets, la « signature » de chiaki-ng, qui ne
+    /// sait pas ce qu'elle porte) puis `0x20` (1). chiaki-ng l'écrit mais ne
+    /// l'allume pas ; pas encore essayé ici avec la console.
+    pub fn enable_features(&self, dualsense: bool, keyboard: bool) -> io::Result<()> {
         if dualsense {
             self.send(msg::ENABLE_DUALSENSE_FEATURES, &[0x00, 0x40, 0x00])?;
             let mut connect = [0u8; 16];
             connect[..13].copy_from_slice(&[0xa0, 0xab, 0x51, 0xbd, 0xd1, 0x7e, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff]);
             self.send(msg::DUALSENSE_CONNECT, &connect)?;
+        }
+        if keyboard {
+            self.send(msg::KEYBOARD_ENABLE, &KEYBOARD_SIGNATURE)?;
+            self.send(msg::KEYBOARD_ENABLE_TOGGLE, &[1])?;
         }
         self.send(msg::MIC_TOGGLE, &[0, 1, 1, 89])?;
         self.send(msg::MIC_TOGGLE, &[0, 1, 1, 89])?;
@@ -420,6 +450,23 @@ impl Ctrl {
     /// Met la console en mode repos.
     pub fn goto_bed(&self) -> io::Result<()> {
         self.send(msg::GOTO_BED, &[])
+    }
+
+    /// Le texte entier du champ de la console (à chaque changement), avec le
+    /// compteur suivant.
+    pub fn keyboard_set_text(&self, text: &str) -> io::Result<()> {
+        let counter = self.keyboard_counter.fetch_add(1, Ordering::SeqCst).wrapping_add(1);
+        self.send(msg::KEYBOARD_TEXT_CHANGE_REQ, &keyboard_text_request(counter, text))
+    }
+
+    /// Entrée : le texte est validé, la console ferme son clavier.
+    pub fn keyboard_accept(&self) -> io::Result<()> {
+        self.send(msg::KEYBOARD_CLOSE_REQ, &keyboard_close_request(true))
+    }
+
+    /// Échap : le texte est refusé, la console ferme son clavier.
+    pub fn keyboard_reject(&self) -> io::Result<()> {
+        self.send(msg::KEYBOARD_CLOSE_REQ, &keyboard_close_request(false))
     }
 
     /// Ferme le canal.
@@ -556,6 +603,23 @@ fn read_loop(
                 msg::LOGIN => {
                     let _ = tx.send(CtrlEvent::Login(payload.first() == Some(&0)));
                 }
+                msg::KEYBOARD_OPEN => match parse_keyboard_open(&payload) {
+                    Some(text) => {
+                        log::info!("PlayStation : la console ouvre son clavier ({} caractères déjà)", text.chars().count());
+                        let _ = tx.send(CtrlEvent::KeyboardOpen(text));
+                    }
+                    None => log::warn!("PlayStation : ouverture du clavier illisible ({} octets)", payload.len()),
+                },
+                msg::KEYBOARD_TEXT_CHANGE_RES => match parse_keyboard_text(&payload) {
+                    Some(text) => {
+                        let _ = tx.send(CtrlEvent::KeyboardText(text));
+                    }
+                    None => log::warn!("PlayStation : texte du clavier illisible ({} octets)", payload.len()),
+                },
+                msg::KEYBOARD_CLOSE_REMOTE => {
+                    log::info!("PlayStation : la console ferme son clavier");
+                    let _ = tx.send(CtrlEvent::KeyboardClosed);
+                }
                 msg::DISPLAY_A | msg::DISPLAY_B => {
                     if let Some(cant) = display.update(kind, &payload) {
                         let _ = tx.send(CtrlEvent::CantDisplay(cant));
@@ -616,6 +680,61 @@ impl DisplayState {
         }
         change
     }
+}
+
+/// « Signature » de l'activation du clavier (`ctrl_enable_features` de
+/// chiaki-ng, sens inconnu).
+const KEYBOARD_SIGNATURE: [u8; 16] = [0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x05, 0xae, 0, 0, 0, 0, 0, 0, 0, 0];
+
+/// En-tête de `KEYBOARD_OPEN` : 28 octets inconnus, puis la taille du texte
+/// (gros-boutiste), puis le texte (UTF-8, sans zéro final).
+const KEYBOARD_OPEN_HEAD: usize = 0x1c + 4;
+/// En-tête de `KEYBOARD_TEXT_CHANGE_REQ` : compteur, taille, 8 + 16 octets
+/// nuls, taille encore (tout en gros-boutiste), puis le texte.
+const KEYBOARD_TEXT_REQ_HEAD: usize = 4 + 4 + 8 + 16 + 4;
+/// En-tête de `KEYBOARD_TEXT_CHANGE_RES` : compteur, inconnu, taille,
+/// inconnu, 16 octets, inconnu, taille encore, puis le texte.
+const KEYBOARD_TEXT_RES_HEAD: usize = 4 + 4 + 4 + 4 + 16 + 4 + 4;
+
+/// Le texte qui suit un en-tête de `head` octets dont la taille du texte est
+/// à `len_at` ; un texte plus court que sa taille annoncée est refusé, un
+/// texte qui n'est pas de l'UTF-8 valide est lu au mieux.
+fn keyboard_payload_text(payload: &[u8], head: usize, len_at: usize) -> Option<String> {
+    if payload.len() < head {
+        return None;
+    }
+    let len = u32::from_be_bytes(payload[len_at..len_at + 4].try_into().ok()?) as usize;
+    let text = payload.get(head..head.checked_add(len)?)?;
+    // chiaki-ng lit une chaîne C : ce qui suit un zéro est ignoré.
+    let text = text.split(|&b| b == 0).next().unwrap_or_default();
+    Some(String::from_utf8_lossy(text).into_owned())
+}
+
+/// Le texte déjà dans le champ quand la console ouvre son clavier.
+pub(crate) fn parse_keyboard_open(payload: &[u8]) -> Option<String> {
+    keyboard_payload_text(payload, KEYBOARD_OPEN_HEAD, 0x1c)
+}
+
+/// Le texte du champ de la console (`KEYBOARD_TEXT_CHANGE_RES`).
+pub(crate) fn parse_keyboard_text(payload: &[u8]) -> Option<String> {
+    keyboard_payload_text(payload, KEYBOARD_TEXT_RES_HEAD, 8)
+}
+
+/// `KEYBOARD_TEXT_CHANGE_REQ` : le texte entier, avec son compteur.
+pub(crate) fn keyboard_text_request(counter: u32, text: &str) -> Vec<u8> {
+    let bytes = text.as_bytes();
+    let len = (bytes.len() as u32).to_be_bytes();
+    let mut p = vec![0u8; KEYBOARD_TEXT_REQ_HEAD];
+    p[0..4].copy_from_slice(&counter.to_be_bytes());
+    p[4..8].copy_from_slice(&len);
+    p[32..36].copy_from_slice(&len);
+    p.extend_from_slice(bytes);
+    p
+}
+
+/// `KEYBOARD_CLOSE_REQ` : `00 00 00 00` valide, `00 00 00 01` refuse.
+pub(crate) fn keyboard_close_request(accept: bool) -> [u8; 4] {
+    [0, 0, 0, if accept { 0 } else { 1 }]
 }
 
 /// L'identifiant de session (`ctrl_message_received_session_id`) : un
@@ -731,6 +850,56 @@ mod tests {
         assert_eq!(d.update(msg::DISPLAY_A, &[0]), None);
         assert_eq!(d.update(msg::DISPLAY_B, &[1, 0xff]), None);
         assert_eq!(d.update(msg::DISPLAY_A, &[0]), Some(false));
+    }
+
+    #[test]
+    fn keyboard_messages() {
+        // Ouverture : 28 octets inconnus, taille, texte.
+        let mut open = vec![0xaau8; 0x1c];
+        open.extend_from_slice(&5u32.to_be_bytes());
+        open.extend_from_slice("héé".as_bytes());
+        assert_eq!(parse_keyboard_open(&open).as_deref(), Some("héé"));
+        // Sans texte.
+        let mut empty = vec![0u8; 0x1c];
+        empty.extend_from_slice(&0u32.to_be_bytes());
+        assert_eq!(parse_keyboard_open(&empty).as_deref(), Some(""));
+        // Trop court, ou texte plus court que sa taille : refusé.
+        assert_eq!(parse_keyboard_open(&[0; 10]), None);
+        let mut short = vec![0u8; 0x1c];
+        short.extend_from_slice(&9u32.to_be_bytes());
+        short.extend_from_slice(b"abc");
+        assert_eq!(parse_keyboard_open(&short), None);
+        // Taille énorme : pas de dépassement.
+        let mut huge = vec![0u8; 0x1c];
+        huge.extend_from_slice(&u32::MAX.to_be_bytes());
+        assert_eq!(parse_keyboard_open(&huge), None);
+
+        // Demande de changement : compteur, taille, 24 octets nuls, taille, texte.
+        let req = keyboard_text_request(3, "Ça va");
+        assert_eq!(req.len(), 36 + 6);
+        assert_eq!(&req[0..4], &[0, 0, 0, 3]);
+        assert_eq!(&req[4..8], &[0, 0, 0, 6]);
+        assert!(req[8..32].iter().all(|&b| b == 0));
+        assert_eq!(&req[32..36], &[0, 0, 0, 6]);
+        assert_eq!(&req[36..], "Ça va".as_bytes());
+        assert_eq!(keyboard_text_request(1, "").len(), 36);
+
+        // Réponse de la console : taille à l'octet 8, texte après 40 octets.
+        let mut res = vec![0u8; 40];
+        res[0..4].copy_from_slice(&7u32.to_be_bytes());
+        res[8..12].copy_from_slice(&4u32.to_be_bytes());
+        res[36..40].copy_from_slice(&4u32.to_be_bytes());
+        res.extend_from_slice(b"kyb!");
+        assert_eq!(parse_keyboard_text(&res).as_deref(), Some("kyb!"));
+        assert_eq!(parse_keyboard_text(&res[..39]), None);
+        // Un zéro dans le texte le termine (chaîne C de chiaki-ng).
+        let mut nul = vec![0u8; 40];
+        nul[8..12].copy_from_slice(&3u32.to_be_bytes());
+        nul.extend_from_slice(b"a\0b");
+        assert_eq!(parse_keyboard_text(&nul).as_deref(), Some("a"));
+
+        assert_eq!(keyboard_close_request(true), [0, 0, 0, 0]);
+        assert_eq!(keyboard_close_request(false), [0, 0, 0, 1]);
     }
 
     #[test]

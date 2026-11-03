@@ -16,7 +16,8 @@ use kybernow_core::media::PacketHandler;
 use kybernow_core::playstation::discovery::{self, Model, State};
 use kybernow_core::playstation::keymouse::Layout;
 use kybernow_core::input::PadKey;
-use kybernow_core::playstation::play::{PadEvent, Play, PlayEnd, PlayOptions, PlayState};
+use kybernow_core::playstation::dualsense;
+use kybernow_core::playstation::play::{KeyboardEvent, PadEvent, Play, PlayEnd, PlayOptions, PlayState};
 use kybernow_core::playstation::psn;
 use kybernow_core::playstation::regist::{self, PsnId, RegistError, Registered};
 use kybernow_core::playstation::settings::PlaySettings;
@@ -151,6 +152,13 @@ pub const KN_PS_END_NOT_PAIRED: i32 = 12;
 pub const KN_PS_END_UNREACHABLE: i32 = 13;
 pub const KN_PS_END_REMOTE: i32 = 14;
 
+/// Clavier de la console (`on_keyboard`) : ouvert, avec le texte déjà dans
+/// son champ ; texte du champ renvoyé par la console (il remplace celui de
+/// l'app) ; fermé par la console (ou partie interrompue), texte vide.
+pub const KN_PS_KEYBOARD_OPEN: i32 = 0;
+pub const KN_PS_KEYBOARD_TEXT: i32 = 1;
+pub const KN_PS_KEYBOARD_CLOSED: i32 = 2;
+
 /// Rappels d'une partie, appelés sur les fils du cœur.
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -167,6 +175,10 @@ pub struct KnPsCallbacks {
     /// Barre ouverte (`kn_ps_set_captured`) : touche de navigation de la
     /// manette (`KN_PAD_KEY_*`, comme les sessions d'ordinateur).
     pub on_navigate: Option<unsafe extern "C" fn(userdata: *mut c_void, key: u32)>,
+    /// Clavier de la console (`KN_PS_KEYBOARD_*`) ; `text` en UTF-8, valable
+    /// pendant l'appel (fil de la partie). Ajouté en dernier : une app qui
+    /// remplit la structure à zéro sans le connaître n'en reçoit rien.
+    pub on_keyboard: Option<unsafe extern "C" fn(userdata: *mut c_void, event: i32, text: *const c_char)>,
 }
 
 unsafe impl Send for KnPsCallbacks {}
@@ -251,6 +263,19 @@ pub unsafe extern "C" fn kn_ps_start(
         }
     });
     let play = Play::start(addr, &r, PlayOptions { settings, hevc_decoder }, video, audio, on_state, on_pad);
+    if cb.on_keyboard.is_some() {
+        play.set_on_keyboard(Some(Box::new(move |e: KeyboardEvent| {
+            let cb: KnPsCallbacks = cb;
+            let Some(f) = cb.on_keyboard else { return };
+            let (code, t) = match e {
+                KeyboardEvent::Open(t) => (KN_PS_KEYBOARD_OPEN, t),
+                KeyboardEvent::Text(t) => (KN_PS_KEYBOARD_TEXT, t),
+                KeyboardEvent::Closed => (KN_PS_KEYBOARD_CLOSED, String::new()),
+            };
+            let c = std::ffi::CString::new(t.replace('\0', "")).unwrap_or_default();
+            unsafe { f(cb.userdata, code, c.as_ptr()) };
+        })));
+    }
     Box::into_raw(Box::new(KnPsPlay { play }))
 }
 
@@ -303,6 +328,58 @@ pub unsafe extern "C" fn kn_ps_release_all(play: *mut KnPsPlay) {
     if let Some(p) = unsafe { play.as_ref() } {
         p.play.release_all();
     }
+}
+
+/// Intensités de la DualSense, de 0 à 100 % (vibrations HD et simples,
+/// gâchettes adaptatives : 0 les rend libres), tout de suite pendant la
+/// partie.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_ps_set_intensities(play: *mut KnPsPlay, rumble: u8, triggers: u8) {
+    if let Some(p) = unsafe { play.as_ref() } {
+        p.play.set_intensities(rumble, triggers);
+    }
+}
+
+/// Clavier de la console ouvert : le texte entier de son champ (UTF-8), à
+/// chaque changement. Faux s'il n'est pas parti (pas de canal de contrôle).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_ps_keyboard_text(play: *mut KnPsPlay, utf8: *const c_char) -> bool {
+    let Some(p) = (unsafe { play.as_ref() }) else { return false };
+    p.play.keyboard_text(&text(utf8))
+}
+
+/// Entrée : le texte du clavier de la console est validé.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_ps_keyboard_accept(play: *mut KnPsPlay) -> bool {
+    unsafe { play.as_ref() }.is_some_and(|p| p.play.keyboard_accept())
+}
+
+/// Échap : le texte du clavier de la console est refusé.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_ps_keyboard_reject(play: *mut KnPsPlay) -> bool {
+    unsafe { play.as_ref() }.is_some_and(|p| p.play.keyboard_reject())
+}
+
+/// Vibrations HD : l'app a ouvert (`true`) ou fermé la carte son d'une
+/// DualSense branchée en USB. Ouverte, les vibrations HD de la partie y vont
+/// (`kn_ps_haptics_fill`) ; fermée, elles sont traduites en vibrations
+/// simples. Une seule sortie pour l'app.
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_ps_haptics_set_output(on: bool) {
+    dualsense::hd_haptics().set_output(on);
+}
+
+/// Fil temps réel de la carte son de la DualSense : `frames` images de
+/// `channels` voies (flottants entrelacés, 48 kHz) dans `out`, les
+/// vibrations (gauche, droite) sur les voies `first` et `first + 1` (2 et 3
+/// pour les voies 3 et 4 d'une DualSense), du silence ailleurs. Sans verrou.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_ps_haptics_fill(out: *mut f32, frames: usize, channels: usize, first: usize) {
+    if out.is_null() || frames == 0 || channels == 0 {
+        return;
+    }
+    let out = unsafe { std::slice::from_raw_parts_mut(out, frames * channels) };
+    dualsense::hd_haptics().fill(out, frames, channels, first);
 }
 
 /// Les réglages par défaut d'une console (JSON, à libérer) : Auto, 60 i/s,

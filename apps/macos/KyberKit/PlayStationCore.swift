@@ -152,7 +152,23 @@ public final class PlayStationPlay: @unchecked Sendable {
     /// Barre ouverte (`setCaptured`) : touche de navigation de la manette
     /// (fil principal).
     public var onNavigate: ((PadKey) -> Void)?
+
+    /// Le clavier à l'écran de la console (docs/playstation.md, « Clavier de
+    /// la console »).
+    public enum KeyboardEvent: Equatable, Sendable {
+        /// La console ouvre son clavier, avec le texte déjà dans son champ.
+        case open(String)
+        /// Le texte du champ renvoyé par la console : il remplace celui de l'app.
+        case text(String)
+        /// La console a fermé son clavier (ou la partie s'est interrompue).
+        case closed
+    }
+
+    /// Clavier de la console ouvert, texte changé, fermé (fil principal).
+    public var onKeyboard: ((KeyboardEvent) -> Void)?
     public let view: StreamView
+    /// Vibrations HD prises pour cette partie (`DualSenseHaptics`).
+    private var haptics = false
     private let lock = NSLock()
     private var play: OpaquePointer?
     private var videos: [UInt64: VideoPipeline] = [:]
@@ -217,6 +233,18 @@ public final class PlayStationPlay: @unchecked Sendable {
             }
             DispatchQueue.main.async { [weak me] in me?.onNavigate?(k) }
         }
+        cb.on_keyboard = { ud, event, text in
+            guard let ud else { return }
+            let me = Unmanaged<PlayStationPlay>.fromOpaque(ud).takeUnretainedValue()
+            let t = text.map { String(cString: $0) } ?? ""
+            let e: KeyboardEvent
+            switch Int32(event) {
+            case KN_PS_KEYBOARD_OPEN: e = .open(t)
+            case KN_PS_KEYBOARD_TEXT: e = .text(t)
+            default: e = .closed
+            }
+            DispatchQueue.main.async { [weak me] in me?.onKeyboard?(e) }
+        }
         KyberLog.app.notice("PlayStation : partie demandée (\(settings, privacy: .public), H.265 \(hevcDecoder ? "lu" : "pas lu", privacy: .public))")
         let p = withUnsafePointer(to: &cb) { kn_ps_start(address, registered, settings, hevcDecoder, $0) }
         // La disposition de la console avant toute entrée.
@@ -225,7 +253,13 @@ public final class PlayStationPlay: @unchecked Sendable {
         }
         lock.lock()
         play = p
+        let hd = p != nil && !stopped && !haptics
+        if hd { haptics = true }
         lock.unlock()
+        // Vibrations HD : la carte son d'une DualSense branchée en USB, suivie pendant la partie.
+        #if os(macOS)
+        if hd { DualSenseHaptics.shared.retain() }
+        #endif
         return p != nil
     }
 
@@ -243,6 +277,21 @@ public final class PlayStationPlay: @unchecked Sendable {
     func mouseButton(_ button: UInt8, pressed: Bool) { withPlay { kn_ps_mouse_button($0, button, pressed) } }
     func mouseMove(dx: Float, dy: Float) { withPlay { kn_ps_mouse_move($0, dx, dy) } }
     func releaseAll() { withPlay { kn_ps_release_all($0) } }
+
+    // MARK: Clavier de la console
+
+    /// Le texte entier du champ de la console, à chaque changement.
+    public func keyboardText(_ text: String) { withPlay { _ = kn_ps_keyboard_text($0, text) } }
+    /// Entrée : le texte est validé.
+    public func keyboardAccept() { withPlay { _ = kn_ps_keyboard_accept($0) } }
+    /// Échap : le texte est refusé.
+    public func keyboardReject() { withPlay { _ = kn_ps_keyboard_reject($0) } }
+
+    /// Intensités de la DualSense, de 0 à 100 % (vibrations, gâchettes
+    /// adaptatives), tout de suite.
+    public func setIntensities(rumble: Int, triggers: Int) {
+        withPlay { kn_ps_set_intensities($0, UInt8(clamping: min(100, max(0, rumble))), UInt8(clamping: min(100, max(0, triggers)))) }
+    }
 
     /// Disposition du clavier et de la souris de la console (JSON du cœur).
     @discardableResult
@@ -329,8 +378,13 @@ public final class PlayStationPlay: @unchecked Sendable {
         let videos = Array(self.videos.values), audios = Array(self.audios.values)
         self.videos = [:]
         self.audios = [:]
+        let hd = haptics
+        haptics = false
         lock.unlock()
         if let p { kn_ps_stop(p) }
+        #if os(macOS)
+        if hd { DualSenseHaptics.shared.release() }
+        #endif
         videos.forEach { $0.stop() }
         audios.forEach { $0.stop() }
     }

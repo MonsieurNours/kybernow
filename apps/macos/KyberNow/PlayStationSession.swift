@@ -43,6 +43,8 @@ final class PlayStationSession: NSObject, ObservableObject, NSWindowDelegate {
     /// Souris capturée : aide « ⌃⌥⌘M » montrée un instant, sinon l'invitation à cliquer.
     @Published private(set) var mouseCaptured = false
     @Published private(set) var showReleaseHint = false
+    /// La console a ouvert son clavier : les touches y écrivent (bandeau en bas).
+    @Published private(set) var consoleKeyboard = false
     private var hints: NSHostingView<PlayStationHints>?
     private var play: PlayStationPlay?
     private var window: NSWindow?
@@ -174,6 +176,8 @@ final class PlayStationSession: NSObject, ObservableObject, NSWindowDelegate {
         play.onState = { [weak self] in self?.stateChanged($0) }
         play.onMenu = { [weak self] in self?.padCombo() }
         play.onNavigate = { [weak self] in self?.padNavigate($0) }
+        play.onKeyboard = { [weak self] in self?.keyboardEvent($0) }
+        input.onConsoleKeyboardDone = { [weak self] in self?.consoleKeyboard = false }
         play.setUpscale((try? JSONDecoder().decode(PSSettings.self, from: Data(settings.utf8)))?.upscaleSettings)
         observe()
         self.play = play
@@ -192,6 +196,27 @@ final class PlayStationSession: NSObject, ObservableObject, NSWindowDelegate {
     /// Agrandissement changé dans les réglages : tout de suite dans la partie.
     func setUpscale(_ u: UpscaleSettings?) {
         play?.setUpscale(u)
+    }
+
+    /// Intensités de la manette changées dans les réglages : tout de suite.
+    func setIntensities(rumble: Int, triggers: Int) {
+        play?.setIntensities(rumble: rumble, triggers: triggers)
+    }
+
+    /// Le clavier de la console : ouvert, texte renvoyé par la console, fermé.
+    private func keyboardEvent(_ e: PlayStationPlay.KeyboardEvent) {
+        switch e {
+        case let .open(text):
+            KyberLog.app.notice("PlayStation : clavier de la console ouvert")
+            input.beginConsoleKeyboard(text: text)
+            consoleKeyboard = true
+        case let .text(text):
+            input.setConsoleText(text)
+        case .closed:
+            KyberLog.app.notice("PlayStation : clavier de la console fermé")
+            input.endConsoleKeyboard()
+            consoleKeyboard = false
+        }
     }
 
     func bringToFront() {
@@ -452,6 +477,8 @@ final class PlayStationSession: NSObject, ObservableObject, NSWindowDelegate {
             guard !finished else { return }
             end = e
             cantDisplay = false
+            input.endConsoleKeyboard()
+            consoleKeyboard = false
             setBar(false)
             statsPanel = false
             statsTask?.cancel()
@@ -573,6 +600,8 @@ struct PlayStationHints: View {
     }
 
     private var text: String? {
+        // Le clavier de la console l'emporte : il dit ce que font les touches.
+        if session.consoleKeyboard { return PSText.consoleKeyboard }
         if session.showReleaseHint { return PSText.releaseMouse }
         // Une manette branchée l'emporte sur le clavier et la souris.
         return session.mouseCaptured || session.padConnected ? nil : PSText.clickToPlay

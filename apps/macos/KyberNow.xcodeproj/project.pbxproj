@@ -57,6 +57,7 @@
 		A5C9DE552BAAC56F107ECA33 /* PlayStationCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AD538B60E8D4385065CFEE6 /* PlayStationCore.swift */; };
 		A9E789543B67C9BB2811D006 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 045A387A2C65D3FD43CDC953 /* InfoPlist.xcstrings */; };
 		AA76CB48D0BD4DCE0A0EA724 /* HostImagery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1812D9E52662E7BEB0D9CDC5 /* HostImagery.swift */; };
+		B0C38237982E01B447545730 /* DualSenseHaptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBC3429099ACF3B6B27C4EE3 /* DualSenseHaptics.swift */; };
 		B1DF8E0399B418A165156B1F /* KyberLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF454DEFA73A7E4436050ACE /* KyberLog.swift */; };
 		B6793F11C20A1C6F678627BC /* KyberKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C060A812A5011BB6AEC276EC /* KyberKit.framework */; };
 		B6AAD686C2F71AC2502601E5 /* PlayStationBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2CEC5C5F5B9CD1F113D86F9 /* PlayStationBar.swift */; };
@@ -173,6 +174,7 @@
 		DF454DEFA73A7E4436050ACE /* KyberLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KyberLog.swift; sourceTree = "<group>"; };
 		E1A59205F0259E507159059F /* PlayStationInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayStationInput.swift; sourceTree = "<group>"; };
 		E407651AF402DB27D895B5B2 /* Passage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Passage.swift; sourceTree = "<group>"; };
+		EBC3429099ACF3B6B27C4EE3 /* DualSenseHaptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DualSenseHaptics.swift; sourceTree = "<group>"; };
 		EE2ED0ACFFE0D513A3C9FB53 /* VideoDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoDecoder.swift; sourceTree = "<group>"; };
 		F085E5BE7C0D2D4AA3DFA3FF /* SessionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionController.swift; sourceTree = "<group>"; };
 		F32CBB9EE8F90E5403F9B308 /* RelayCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayCore.swift; sourceTree = "<group>"; };
@@ -266,6 +268,7 @@
 				D3ABCA23CDAEC61857280E88 /* ConsoleClientCore.swift */,
 				74255F1BC5BB27370AF84AD9 /* CoreBridge.swift */,
 				D171932E28609169E868FDC5 /* DecoderCapabilities.swift */,
+				EBC3429099ACF3B6B27C4EE3 /* DualSenseHaptics.swift */,
 				47A41505BA7061761C293ACB /* HDR.swift */,
 				B4ED4A7AED04F3E6BFC4AD7D /* HDRCalibration.swift */,
 				6A16C5153CFA8B9A8EC07CEB /* HDRDemo.swift */,
@@ -488,6 +491,7 @@
 				356000E9C32767C3AED87652 /* ConsoleClientCore.swift in Sources */,
 				66D0265DCF4DC01F8E7FF6A3 /* CoreBridge.swift in Sources */,
 				0814A1462DCB51B0DE485086 /* DecoderCapabilities.swift in Sources */,
+				B0C38237982E01B447545730 /* DualSenseHaptics.swift in Sources */,
 				C0ECE80FBFB9F20A2A8178CD /* HDR.swift in Sources */,
 				B9A3A3996E03B51DA8C7C19D /* HDRCalibration.swift in Sources */,
 				12034EA33F19153239227110 /* HDRDemo.swift in Sources */,
