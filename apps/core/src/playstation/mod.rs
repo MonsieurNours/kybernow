@@ -7,13 +7,17 @@
 //! [`regist`] (association par le code), [`rpcrypt`] (son chiffrement) et
 //! [`session`] (demande de session et canal de contrôle), [`takion`] (le
 //! transport), [`gkcrypt`] (son chiffrement), [`stream`] (l'ouverture du
-//! flux). Viennent ensuite l'image et le son, puis la manette.
+//! flux), [`frame`] et [`fec`] (les images), [`audio`] (le son) et [`play`]
+//! (une partie entière, vers les gestionnaires de paquets de l'app). Vient
+//! ensuite la manette.
 
+pub mod audio;
 pub mod discovery;
 pub mod fec;
 pub mod frame;
 pub mod gkcrypt;
 mod keys;
+pub mod play;
 pub mod proto;
 pub mod psn;
 pub mod regist;

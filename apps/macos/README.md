@@ -195,6 +195,21 @@ Confier son PC à un ami pendant qu'on ne s'en sert pas (KyberNow Share, 0.9.0 ;
 
 **Vérifié** (30/10/2026, Debug, rendus sans fenêtre) : le panneau de l'hôte (choix, code avec une demande, Station trop ancienne ; le 30/10 aussi : prêt impossible, code avec le lien du relais en préparation, relais joint, pas encore joignable), la barre de l'ami (avec « Se déconnecter »), « En attente de Matthieu… », le préavis, la fin par l'hôte (surtitre « KyberNow Share »), la carte « Revenir » après un réseau perdu, l'accueil de l'ordinateur d'un ami (occupé, avec un créneau) et celui d'un ordinateur prêté (pendant le préavis). **Pas vérifié** : une vraie Station 0.9.0 (emprunt, attente, signe de vie, préavis et fin réels, « Revenir », reprise, code créé), la confirmation « Rendre l'ordinateur à {hôte} ? » (NSAlert), l'ajout par le lien d'invitation et l'onglet « Avec un compte d'ami » dans une fenêtre, le Trousseau des comptes d'amis, le passage de « Préparation du lien hors de chez vous… » à « Pas encore joignable hors de chez vous. » au bout de 10 s (même `RelayLinkWait` que le partage), un lien d'invitation illisible ouvert, « Se déconnecter » puis « Revenir », la fin « Vous avez rendu l'ordinateur. » depuis le lanceur.
 
+## Consoles PlayStation
+
+Jouer à sa PS5 (ou PS4) sur ce Mac, sans Kyber ni Station (contrat : [docs/playstation.md](../../docs/playstation.md) ; textes : [docs/link-ui.md](../../docs/link-ui.md), « Consoles PlayStation »). Le protocole de Sony est dans le cœur (`apps/core/src/playstation`, pont `apps/apple/src/playstation.rs`) ; l'app ne fait que l'interface, et l'image et le son passent par le même chemin qu'une session d'ordinateur.
+
+- **KyberKit** (`PlayStationCore.swift`) : `PlayStation.search` (diffusion, et en direct vers les adresses connues), `loginURL`, `isRedirect`, `account` (l'identifiant du compte PSN d'après l'adresse de retour de Sony), `regist` (association, erreurs `RegistError`), `wake`, `hostID(ofRegistered:)` ; `PlayStationPlay` (`kn_ps_start`) : les `KnPacket` vidéo vont à un `VideoPipeline` (VideoToolbox, Metal ; HEVC Main 10 PQ BT.2020 en HDR : `streamHDR` du rendu, chaîne EDR sur un écran HDR), le son à un `AudioPlayer` (Opus par le moteur du cœur) ; `onState` (connexion, image, contenu protégé, fins) ; `gotoBed()` ; `stop()` (`kn_ps_stop`, hors du fil principal).
+- **Mac** : `PlayStation.swift` (`PlayStationConsole`, gardées dans les préférences, `playstationConsoles` ; l'association, qui porte les clés, et l'identifiant du compte PSN au Trousseau, `playstation.<id>` et `playstation.psn-account` ; `PlayStationStore` : recherche toutes les 3 s environ tant que l'accueil est visible, état « Allumée », « En veille », « Hors ligne » (sans réponse depuis 12 s), « Recherche… », réveil puis partie dès que la console se dit allumée, une minute au plus ; `PSText`), `PlayStationViews.swift` (la console choisie, sa carte, la carte « Sur le réseau », la feuille de l'association et la fenêtre web de Sony), `PlayStationSession.swift` (la fenêtre de la partie).
+
+**Accueil** : les consoles associées sont dans la rangée des ordinateurs (nom et état ; clic droit : « Retirer »). Choisie : l'état, le nom, le modèle, le jeu en cours quand la console en annonce un, puis « Jouer », « Réveiller et jouer » (« Réveil de la console… » pendant le réveil), « Associer » (une console qui ne reconnaît plus ce Mac) ou « Réessayer » (hors ligne : une recherche de plus), et la puce « HDR » (PS5, écran HDR, allumée la première fois ; le HDR est demandé quand elle est allumée et que l'écran de la fenêtre est HDR). Une console trouvée et pas encore associée : carte « Sur le réseau » et « Associer ».
+
+**Association** : étape 1, une fois pour toutes, la page de Sony dans une fenêtre web (WebKit, sans cookies gardés, agent de Safari de bureau) ; son adresse de retour n'est pas chargée, l'identifiant en est tiré par le cœur ; ou « Saisir l'identifiant à la main » (base64, 12 caractères). Étape 2 : le code à 8 chiffres affiché par la console, avec les refus de link-ui (« Console injoignable. » pour une erreur réseau ou autre).
+
+**Partie** : une fenêtre au nom de la console, aux deux tiers de l'écran, en 16:9 (plein écran de macOS) ; « Connexion à la console… », « La console ne peut pas diffuser ce qu'elle affiche. » sur l'image tant que dure le blocage ; « Mettre la console en veille » dans la barre de titre ; une fin qui ne vient pas de ce Mac reste dans la fenêtre avec son texte et « Fermer » (« associez-la de nouveau » : l'association est oubliée et « Associer » revient). Fermer la fenêtre arrête la partie. Les manettes ne sont pas encore transmises ; ni barre de session, ni statistiques, ni raccourcis d'une session d'ordinateur, et une partie ne compte pas parmi les quatre sessions.
+
+**Vérifié** (03/11/2026, Debug, PS5 Pro système 14.22, écran XG32UQ) : la PS5 trouvée à l'accueil (« Sur le réseau »), la page de Sony chargée dans WKWebView (agent de Safari de bureau) et la connexion faite par l'auteur, l'association par le code, l'accueil de la console associée (« Allumée », « Jouer », puce HDR), la partie en HDR : première image 2,6 s après « Jouer », décodeur HEVC matériel en 4:2:0 10 bits (x420), PQ BT.2020, chaîne HDR FP16 en EDR avec métadonnées HDR10 ; le son et l'image HDR confirmés par l'auteur. **Pas vérifié** : la partie en SDR depuis l'app, le réveil depuis l'app, la mise en veille, les fins et leurs textes, « Retirer ».
+
 ## Organisation du code
 
 ```
@@ -205,6 +220,7 @@ apps/macos/
 │   ├── ConsoleClientCore  # Admin hors session par le cœur (info, aperçu, empreinte, appairage)
 │   ├── ShareCore          # KyberNow Share : rôles, invités, rejoindre, lien, QR code, appels de l'hôte (partagé)
 │   ├── LendCore           # prêter l'ordinateur : statut, emprunt, attente, invitation, appels de l'hôte (partagé)
+│   ├── PlayStationCore    # consoles PlayStation : recherche, compte PSN, association, réveil, partie (image et son)
 │   ├── CoreBridge         # journal et langue du cœur (CKyberNow = Vendor/KyberNow/include)
 │   ├── KyberTypes         # écran de l'ordinateur, format, réglages d'un flux (partagé)
 │   ├── LatencyReporting   # ce que le rendu dit au suivi de latence du cœur
@@ -229,6 +245,7 @@ apps/macos/
 │   ├── Lend               # prêter l'ordinateur côté app : ordinateurs prêtés, emprunt, prêt de l'hôte (partagé avec l'Apple TV, l'iPhone et l'iPad)
 │   ├── LendViews          # « Prêter l'ordinateur… », ajout d'un ordinateur prêté, accueil de l'ami et de l'hôte
 │   ├── HomeView, HostImagery, AddHostFlow, SettingsView, AppSettingsView
+│   ├── PlayStation, PlayStationViews, PlayStationSession  # consoles PlayStation : consoles gardées, recherche, accueil, association, fenêtre de la partie
 │   ├── Sessions           # plusieurs ordinateurs : les sessions, leur fenêtre au registre du cœur (active, « Garder le son », suivante)
 │   ├── SessionController, SessionChrome, SessionStats, Passage
 │   ├── SessionScreens     # multi-écrans : une surface (vue, rendu, fond de la connexion) et une fenêtre par écran

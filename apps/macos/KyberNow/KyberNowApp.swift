@@ -19,6 +19,8 @@ final class AppModel: ObservableObject {
     let store: HostStore
     /// Les ordinateurs que des amis prêtent à ce Mac (docs/pret.md), à part des siens.
     let borrowed: BorrowedStore
+    /// Les consoles PlayStation associées à ce Mac (PlayStation.swift).
+    let playstation: PlayStationStore
     @Published var route: Route = .home
     /// Ordinateur mis en avant sur l'accueil (le plus récent par défaut).
     @Published var selectedID: UUID?
@@ -67,6 +69,7 @@ final class AppModel: ObservableObject {
         Core.install()
         store = HostStore(demo: Self.demo)
         borrowed = BorrowedStore(demo: Self.demo)
+        playstation = PlayStationStore(demo: Self.demo)
         defaults = Self.demo ? (UserDefaults(suiteName: "fr.leslignesclaires.kybernow.demo") ?? .standard) : .standard
         // Les sessions (ouvertes, fermées, active) redessinent l'accueil et les menus.
         sessions.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &watchers)

@@ -4,7 +4,7 @@ English · [Français](playstation.md)
 
 Link apps also show a PS5 or PS4 at home, like Sony's Remote Play: the console's picture and sound, driven by the device's controller. The console appears on the home screen next to the computers.
 
-This document is the contract for this work. The exact wording will go in [link-ui.en.md](link-ui.en.md), section “PlayStation consoles”, when the screens are written. Status: **framed on 2026-11-03; blocks 1 and 2 (discovery, wake, account ID, pairing) and block 3 (session request, control channel, Takion transport, stream start: H.265 picture and sound received and decrypted) written in the core and tried on the PS5 Pro on 2026-11-03; pictures assembled (error correction), in SDR and HDR10; next: decoding and showing them in the Mac app (block 4)** ([apps/core/README.en.md](../apps/core/README.en.md#playstation-consoles-srcplaystation)).
+This document is the contract for this work. The exact wording will go in [link-ui.en.md](link-ui.en.md), section “PlayStation consoles”, when the screens are written. Status: **framed on 2026-11-03; blocks 1 and 2 (discovery, wake, account ID, pairing) and block 3 (session request, control channel, Takion transport, stream start: H.265 picture and sound received and decrypted) written in the core and tried on the PS5 Pro on 2026-11-03; pictures assembled (error correction), in SDR and HDR10; block 4 in the Mac app (home screen, pairing with the Sony sign-in, play shown by VideoToolbox and Metal, HDR10 on EDR) tried on 2026-11-03; next: the controller (block 5) and the session bar** ([apps/core/README.en.md](../apps/core/README.en.md#playstation-consoles-srcplaystation)).
 
 ## Decisions
 

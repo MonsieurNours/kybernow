@@ -1073,6 +1073,22 @@
         }
       }
     },
+    "Allumée" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Allumée"
+          }
+        }
+      }
+    },
     "Android" : {
       "localizations" : {
         "en" : {
@@ -1181,6 +1197,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Arrêter le partage"
+          }
+        }
+      }
+    },
+    "Associer" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pair"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Associer"
           }
         }
       }
@@ -1873,6 +1905,38 @@
         }
       }
     },
+    "Code refusé : il change toutes les 5 minutes." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Code refused: it changes every 5 minutes."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Code refusé : il change toutes les 5 minutes."
+          }
+        }
+      }
+    },
+    "Code à 8 chiffres" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "8-digit code"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Code à 8 chiffres"
+          }
+        }
+      }
+    },
     "Collez le lien copié depuis KyberNow Admin" : {
       "localizations" : {
         "en" : {
@@ -1985,6 +2049,22 @@
         }
       }
     },
+    "Connectez-vous à votre compte PlayStation Network. KyberNow lit seulement l'identifiant de votre compte, une seule fois." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sign in to your PlayStation Network account. KyberNow only reads your account ID, once."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connectez-vous à votre compte PlayStation Network. KyberNow lit seulement l'identifiant de votre compte, une seule fois."
+          }
+        }
+      }
+    },
     "Connexion" : {
       "localizations" : {
         "en" : {
@@ -2013,6 +2093,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Connexion à la Station…"
+          }
+        }
+      }
+    },
+    "Connexion à la console…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connecting to the console…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connexion à la console…"
+          }
+        }
+      }
+    },
+    "Console injoignable." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Console unreachable."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Console injoignable."
           }
         }
       }
@@ -2609,6 +2721,22 @@
         }
       }
     },
+    "En veille" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In rest mode"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En veille"
+          }
+        }
+      }
+    },
     "Encodage" : {
       "localizations" : {
         "en" : {
@@ -3059,6 +3187,38 @@
         }
       }
     },
+    "Identifiant du compte" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Account ID"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Identifiant du compte"
+          }
+        }
+      }
+    },
+    "Identifiant du compte non lu : réessayez, ou saisissez-le à la main." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't read the account ID: try again, or enter it by hand."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Identifiant du compte non lu : réessayez, ou saisissez-le à la main."
+          }
+        }
+      }
+    },
     "Identifiant ou mot de passe refusé." : {
       "localizations" : {
         "en" : {
@@ -3231,6 +3391,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Jeu"
+          }
+        }
+      }
+    },
+    "Jouer" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Play"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jouer"
           }
         }
       }
@@ -3759,6 +3935,118 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La connexion a échoué"
+          }
+        }
+      }
+    },
+    "La console a terminé la partie." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The console ended the session."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console a terminé la partie."
+          }
+        }
+      }
+    },
+    "La console est déjà jouée à distance par un autre appareil." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The console is already being played remotely by another device."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console est déjà jouée à distance par un autre appareil."
+          }
+        }
+      }
+    },
+    "La console ne peut pas diffuser ce qu'elle affiche." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The console can't stream what it's showing."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console ne peut pas diffuser ce qu'elle affiche."
+          }
+        }
+      }
+    },
+    "La console ne reconnaît plus cet appareil : associez-la de nouveau." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The console no longer recognizes this device: pair it again."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console ne reconnaît plus cet appareil : associez-la de nouveau."
+          }
+        }
+      }
+    },
+    "La console ne répond pas : gardez l'écran « Associer un appareil » ouvert." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The console isn't answering: keep the “Link Device” screen open."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console ne répond pas : gardez l'écran « Associer un appareil » ouvert."
+          }
+        }
+      }
+    },
+    "La console ne répond pas." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The console isn't answering."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console ne répond pas."
+          }
+        }
+      }
+    },
+    "La console refuse ce compte." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The console refuses this account."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console refuse ce compte."
           }
         }
       }
@@ -4591,6 +4879,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Mesures"
+          }
+        }
+      }
+    },
+    "Mettre la console en veille" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Put the console in rest mode"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mettre la console en veille"
           }
         }
       }
@@ -6627,6 +6931,22 @@
         }
       }
     },
+    "Réveil de la console…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Waking the console…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Réveil de la console…"
+          }
+        }
+      }
+    },
     "Réveil par le réseau" : {
       "localizations" : {
         "en" : {
@@ -6643,6 +6963,22 @@
         }
       }
     },
+    "Réveiller et jouer" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wake and play"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Réveiller et jouer"
+          }
+        }
+      }
+    },
     "Réveiller l'ordinateur" : {
       "localizations" : {
         "en" : {
@@ -6655,6 +6991,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Réveiller l'ordinateur"
+          }
+        }
+      }
+    },
+    "Saisir l'identifiant à la main" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enter the ID by hand"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saisir l'identifiant à la main"
           }
         }
       }
@@ -6735,6 +7087,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Se connecter (%@)"
+          }
+        }
+      }
+    },
+    "Se connecter à PlayStation Network" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sign in to PlayStation Network"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se connecter à PlayStation Network"
           }
         }
       }
@@ -7183,6 +7551,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sur l'ordinateur"
+          }
+        }
+      }
+    },
+    "Sur la console : Réglages › Système › Lecture à distance › Associer un appareil. Saisissez le code affiché." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On the console: Settings › System › Remote Play › Link Device. Enter the code shown."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sur la console : Réglages › Système › Lecture à distance › Associer un appareil. Saisissez le code affiché."
           }
         }
       }

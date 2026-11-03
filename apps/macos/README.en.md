@@ -195,6 +195,21 @@ Handing your PC over to a friend while you're not using it (KyberNow Share, 0.9.
 
 **Checked** (30/10/2026, Debug, windowless renders): the host panel (choices, code with a request, Station too old; also on 30/10: lending not possible, code with the relay link in preparation, relay joined, not reachable yet), the friend's bar (with “Disconnect”), “Waiting for Matthieu…”, the notice, the end by the host (“KyberNow Share” eyebrow), the “Come back” card after a lost network, the home screen of a friend's computer (in use, with a time slot) and of a lent computer (during the notice). **Not checked**: a real 0.9.0 Station (borrowing, waiting, heartbeat, real notice and end, “Come back”, taking back, creating a code), the “Give the computer back to {host}?” confirmation (NSAlert), adding through the invitation link and the “With a friend account” tab in a window, the Keychain for friend accounts, the switch from “Getting the away-from-home link ready…” to “Not reachable away from home yet.” after 10 s (same `RelayLinkWait` as sharing), opening an unreadable invitation link, “Disconnect” then “Come back”, the “You gave back the computer.” end from the launcher.
 
+## PlayStation consoles
+
+Playing your PS5 (or PS4) on this Mac, without Kyber or a Station (contract: [docs/playstation.en.md](../../docs/playstation.en.md); texts: [docs/link-ui.en.md](../../docs/link-ui.en.md), “PlayStation consoles”). Sony's protocol is in the core (`apps/core/src/playstation`, bridge `apps/apple/src/playstation.rs`); the app only draws the screens, and picture and sound take the same path as a computer session.
+
+- **KyberKit** (`PlayStationCore.swift`): `PlayStation.search` (broadcast, and direct to known addresses), `loginURL`, `isRedirect`, `account` (the PSN account ID from Sony's redirect address), `regist` (pairing, `RegistError` errors), `wake`, `hostID(ofRegistered:)`; `PlayStationPlay` (`kn_ps_start`): video `KnPacket`s go to a `VideoPipeline` (VideoToolbox, Metal; HEVC Main 10 PQ BT.2020 for HDR: the renderer's `streamHDR`, EDR chain on an HDR screen), sound to an `AudioPlayer` (Opus through the core's engine); `onState` (connecting, picture, protected content, ends); `gotoBed()`; `stop()` (`kn_ps_stop`, off the main thread).
+- **Mac**: `PlayStation.swift` (`PlayStationConsole`, kept in the preferences, `playstationConsoles`; the pairing, which carries the keys, and the PSN account ID in the Keychain, `playstation.<id>` and `playstation.psn-account`; `PlayStationStore`: a search about every 3 s while the home screen is visible, state “On”, “In rest mode”, “Offline” (no answer for 12 s), “Searching…”, wake then play as soon as the console says it is on, one minute at most; `PSText`), `PlayStationViews.swift` (the featured console, its card, the “On your network” card, the pairing sheet and Sony's web view), `PlayStationSession.swift` (the play window).
+
+**Home screen**: paired consoles sit in the computers' row (name and state; right click: “Remove”). Featured: the state, the name, the model, the running game when the console announces one, then “Play”, “Wake and play” (“Waking the console…” while waking), “Pair” (a console that no longer recognizes this Mac) or “Try again” (offline: one more search), and the “HDR” chip (PS5, HDR screen, on the first time; HDR is requested when it is on and the window's screen is HDR). A console found and not paired yet: “On your network” card and “Pair”.
+
+**Pairing**: step 1, once and for all, Sony's page in a web view (WebKit, no cookies kept, desktop Safari user agent); its redirect address is not loaded, the core reads the ID from it; or “Enter the ID by hand” (base64, 12 characters). Step 2: the 8-digit code shown by the console, with link-ui's refusals (“Console unreachable.” for a network or other error).
+
+**Play**: a window named after the console, two thirds of the screen, 16:9 (macOS full screen); “Connecting to the console…”, “The console can't stream what it's showing.” over the picture while the block lasts; “Put the console in rest mode” in the title bar; an end that doesn't come from this Mac stays in the window with its text and “Close” (“pair it again”: the pairing is forgotten and “Pair” comes back). Closing the window stops play. Controllers are not sent yet; no session bar, statistics or shortcuts of a computer session, and play doesn't count among the four sessions.
+
+**Checked** (03/11/2026, Debug, PS5 Pro system 14.22, XG32UQ screen): the PS5 found on the home screen (“On your network”), Sony's page loaded in WKWebView (desktop Safari user agent) and the sign-in done by the author, pairing with the code, the paired console's home (“On”, “Play”, HDR chip), play in HDR: first picture 2.6 s after “Play”, hardware HEVC decoder in 4:2:0 10-bit (x420), PQ BT.2020, FP16 HDR chain on EDR with HDR10 metadata; sound and HDR picture confirmed by the author. **Not checked**: SDR play from the app, waking from the app, rest mode, the ends and their texts, “Remove”.
+
 ## Code layout
 
 ```
@@ -205,6 +220,7 @@ apps/macos/
 │   ├── ConsoleClientCore  # Admin outside a session, through the core (info, preview, fingerprint, pairing)
 │   ├── ShareCore          # KyberNow Share: roles, guests, joining, link, QR code, host calls (shared)
 │   ├── LendCore           # lending the computer: status, borrowing, waiting, invitation, host calls (shared)
+│   ├── PlayStationCore    # PlayStation consoles: search, PSN account, pairing, wake, play (picture and sound)
 │   ├── CoreBridge         # the core's log and language (CKyberNow = Vendor/KyberNow/include)
 │   ├── KyberTypes         # the computer's display, codec, a stream's options (shared)
 │   ├── LatencyReporting   # what the renderer tells the core's latency tracker
@@ -229,6 +245,7 @@ apps/macos/
 │   ├── Lend               # lending the computer app side: lent computers, borrowing, the host's loan (shared with Apple TV, iPhone and iPad)
 │   ├── LendViews          # “Lend the computer…”, adding a lent computer, friend and host home screens
 │   ├── HomeView, HostImagery, AddHostFlow, SettingsView, AppSettingsView
+│   ├── PlayStation, PlayStationViews, PlayStationSession  # PlayStation consoles: kept consoles, search, home, pairing, play window
 │   ├── Sessions           # several computers: the sessions, their window to the core's registry (active, “Keep sound”, next)
 │   ├── SessionController, SessionChrome, SessionStats, Passage
 │   ├── SessionScreens     # several displays: a surface (view, renderer, connection background) and a window per display

@@ -483,6 +483,50 @@ System notifications, only when the app is not in the foreground (for the end of
 
 A click on the notification opens the app on what it announces (the home screen on that computer, or its Station section).
 
+## PlayStation consoles
+
+Contract: [playstation.en.md](playstation.en.md). Consoles appear on the home screen with the computers, in the same row, with their own texts; the session keeps the bar, statistics and shortcuts of a computer session.
+
+For the chosen console, in this order:
+
+| Item | French | English |
+|---|---|---|
+| État | « Allumée », « En veille », « Hors ligne », « Recherche… » | “On”, “In rest mode”, “Offline”, “Searching…” |
+| Nom | le nom de la console | |
+| Modèle | « PS5 », « PS4 » | |
+| Jeu en cours | le nom du jeu, quand la console en annonce un | |
+| Bouton principal, allumée | « Jouer » | “Play” |
+| Bouton principal, en veille | « Réveiller et jouer » ; pendant le réveil : « Réveil de la console… » | “Wake and play”; while waking: “Waking the console…” |
+| Bouton principal, pas encore associée | « Associer » | “Pair” |
+| HDR | la puce « HDR » de la section HDR, mêmes règles | |
+
+In the row: name and state. A console found on the network and not yet paired: “On your network”.
+
+**Pairing**, two steps, once per console (the first step once for all):
+
+| Step | French | English |
+|---|---|---|
+| Compte | « Connectez-vous à votre compte PlayStation Network. KyberNow lit seulement l'identifiant de votre compte, une seule fois. » Bouton : « Se connecter à PlayStation Network » ; lien : « Saisir l'identifiant à la main » | “Sign in to your PlayStation Network account. KyberNow only reads your account ID, once.” Button: “Sign in to PlayStation Network”; link: “Enter the ID by hand” |
+| Code | « Sur la console : Réglages › Système › Lecture à distance › Associer un appareil. Saisissez le code affiché. » Champ : « Code à 8 chiffres » ; bouton : « Associer » | “On the console: Settings › System › Remote Play › Link Device. Enter the code shown.” Field: “8-digit code”; button: “Pair” |
+| Pas de réponse | « La console ne répond pas : gardez l'écran « Associer un appareil » ouvert. » | “The console isn't answering: keep the “Link Device” screen open.” |
+| Code refusé | « Code refusé : il change toutes les 5 minutes. » | “Code refused: it changes every 5 minutes.” |
+| Compte refusé | « La console refuse ce compte. » | “The console refuses this account.” |
+| Injoignable | « Console injoignable. » | “Console unreachable.” |
+| Saisie à la main | Champ : « Identifiant du compte » ; bouton : « Continuer » | Field: “Account ID”; button: “Continue” |
+| Identifiant non lu | « Identifiant du compte non lu : réessayez, ou saisissez-le à la main. » | “Couldn't read the account ID: try again, or enter it by hand.” |
+
+**Session**:
+
+| Moment | French | English |
+|---|---|---|
+| Connexion | « Connexion à la console… » | “Connecting to the console…” |
+| Contenu protégé | « La console ne peut pas diffuser ce qu'elle affiche. » (sur l'image, tant que dure le blocage) | “The console can't stream what it's showing.” |
+| Menu de la session | « Mettre la console en veille » | “Put the console in rest mode” |
+| Fin, déjà jouée ailleurs | « La console est déjà jouée à distance par un autre appareil. » | “The console is already being played remotely by another device.” |
+| Fin, plus associée | « La console ne reconnaît plus cet appareil : associez-la de nouveau. » | “The console no longer recognizes this device: pair it again.” |
+| Fin, injoignable | « La console ne répond pas. » | “The console isn't answering.” |
+| Fin, par la console | « La console a terminé la partie. » | “The console ended the session.” |
+
 ## Where the texts live
 
 Each app keeps its catalogues ([i18n.en.md](i18n.en.md), “Files”); the texts above are copied into them verbatim. A platform-specific text follows the same rules.
