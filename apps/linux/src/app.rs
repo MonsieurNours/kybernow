@@ -269,6 +269,8 @@ pub enum Confirm {
     Force { host: String, kind: StationKind, device: String },
     /// Prêt de l'ordinateur : « Rendre l'ordinateur à {hôte} ? » (la session d'emprunt `session`).
     GiveBack { session: SessionId, host: String },
+    /// Consoles PlayStation : « Retirer le compte {nom} et ses {n} consoles ? ».
+    RemovePsAccount { account: String, name: String, consoles: usize },
 }
 
 /// Une Station trouvée sur le réseau (mDNS `_kybernow._tcp`), pas encore ajoutée.
@@ -570,6 +572,9 @@ pub enum MenuItem {
     Lend,
     /// Prêt de l'ordinateur, session d'emprunt : « Rendre l'ordinateur » (après sa confirmation).
     GiveBack,
+    /// Partie sur une console PlayStation : « Réglages de {nom} », « Mettre la console en veille ».
+    PsSettings,
+    PsRest,
     Disconnect,
 }
 
@@ -1756,6 +1761,8 @@ pub struct SessionUi {
     pub lend_copied: Option<(Instant, bool)>,
     /// Prêt de l'ordinateur, session d'emprunt : l'ordinateur d'un ami (« Prêté par {hôte} »).
     pub borrow: Option<BorrowSessionUi>,
+    /// Une partie sur une console PlayStation (`crate::ps`) : la même session, avec ce qui a du sens pour une console.
+    pub console: Option<crate::ps::PsSessionUi>,
 }
 
 impl SessionUi {
@@ -1804,6 +1811,7 @@ impl SessionUi {
             lend_steam: LendSteam::Friend,
             lend_copied: None,
             borrow: None,
+            console: None,
         }
     }
 
@@ -1818,7 +1826,7 @@ impl SessionUi {
     /// Une session sur l'ordinateur de quelqu'un d'autre (invité d'un partage, ou emprunt) : ni profil, ni réglages,
     /// ni « Partager », ni « Prêter l'ordinateur… ».
     pub fn visitor(&self) -> bool {
-        self.guest.is_some() || self.borrow.is_some()
+        self.guest.is_some() || self.borrow.is_some() || self.console.is_some()
     }
 
     /// Un panneau du prêt est montré par-dessus l'image.
@@ -1888,6 +1896,8 @@ pub enum AddStep {
     /// (Réglages de l'ordinateur › Réseau) : même champ et même pavé, en
     /// hexadécimal.
     Mac,
+    /// L'onglet « PlayStation » et ses étapes (comptes, association, envoi entre appareils).
+    Ps(crate::ps::PsStep),
 }
 
 #[derive(Clone, Debug)]
@@ -1955,6 +1965,22 @@ pub enum Setting {
     OsRollback,
     OsStandby,
     OsInfo,
+    /// Réglages d'une console PlayStation : image, plein écran, disposition du clavier et de la souris (une ligne
+    /// par action de la manette, `crate::ps::ACTIONS`), intensités de la DualSense.
+    PsResolution,
+    PsFps,
+    PsBitrate,
+    PsCodec,
+    PsFullscreen,
+    PsBind(u8),
+    PsMouseStick,
+    PsSensitivity,
+    PsCurve,
+    PsDeadzone,
+    PsInvertY,
+    PsDefaultLayout,
+    PsRumble,
+    PsTriggers,
 }
 
 /// Une rubrique des réglages.
@@ -1982,6 +2008,9 @@ pub enum Section {
     OsUpdate,
     OsLanguage,
     OsAdvanced,
+    /// Réglages d'une console PlayStation.
+    PsPicture,
+    PsControls,
 }
 
 impl Section {
@@ -2004,6 +2033,8 @@ impl Section {
             Section::OsUpdate => tr("Mise à jour", "Update"),
             Section::OsLanguage => tr("Langue", "Language"),
             Section::OsAdvanced => tr("Avancé", "Advanced"),
+            Section::PsPicture => tr("Image", "Picture"),
+            Section::PsControls => tr("Commandes", "Controls"),
         }
     }
 }
@@ -2343,6 +2374,43 @@ pub enum Target {
     KeyShift,
     /// KyberNow Link OS : rubrique des réglages de l'appareil.
     DeviceSection(usize),
+    /// Consoles PlayStation (`crate::ps`) : la carte d'une console associée, d'une console du réseau pas encore
+    /// associée (accueil ; onglet PlayStation : `PsTabFound`, et « Associer avec un autre compte »).
+    Console(usize),
+    PsFound(usize),
+    PsTabFound(usize),
+    PsPairOther(usize),
+    /// Accueil : « Jouer » (ou « Réveiller et jouer »), « Associer », la puce du compte et ses choix, « Réglages »,
+    /// « Auto » / « Personnalisé ».
+    PsPlay,
+    PsRetry,
+    PsPair,
+    PsAccountChip,
+    PsAccountPick(usize),
+    PsSettings,
+    PsCustomChip,
+    /// L'onglet PlayStation de la fenêtre d'ajout et ses étapes : « Ajouter un compte », « Renommer », « Retirer »,
+    /// « Avec quel compte ? » (un compte, ou un nouveau), « Se connecter à PlayStation Network », « Saisir
+    /// l'identifiant à la main », « Recevoir d'un autre appareil », « Nouveau code », un appareil où envoyer, un
+    /// champ, le bouton de l'étape.
+    AddPs,
+    PsAddAccount,
+    PsAccountRename(usize),
+    PsAccountRemove(usize),
+    PsWhich(usize),
+    PsWhichNew,
+    PsSignIn,
+    PsByHand,
+    PsReceive,
+    PsNewCode,
+    PsSendTo(usize),
+    PsField(u8),
+    PsGo,
+    /// Barre de la partie : « Statistiques », « Couper le son », « Réglages de {nom} », « Mettre la console en veille ».
+    BarPsStats,
+    BarPsMute,
+    BarPsSettings,
+    BarPsRest,
 }
 
 /// Ce que l'app demande au pilote. Une action de session porte l'identifiant de sa session :
@@ -2426,6 +2494,8 @@ pub enum Action {
     Quit,
     /// KyberNow Link OS.
     Os(OsAction),
+    /// Consoles PlayStation.
+    Ps(crate::ps::PsAction),
 }
 
 /// Où en est la recherche de mise à jour.
@@ -2528,6 +2598,8 @@ pub struct App {
     /// Un lien `kybernow://` reçu pendant une session (ou le lancement, le premier démarrage) : il s'ouvre quand
     /// l'app revient à ses écrans (`App::poll_link`).
     pub pending_link: Option<LinkUi>,
+    /// Consoles PlayStation : trouvées, état, onglet de l'ajout, disposition en cours de saisie.
+    pub ps: crate::ps::PsUi,
 }
 
 impl App {
@@ -2728,6 +2800,7 @@ impl App {
             lend_passwords: HashMap::new(),
             friend: FriendForm::default(),
             pending_link: None,
+            ps: crate::ps::PsUi::default(),
         }
     }
 
@@ -2812,8 +2885,8 @@ impl App {
     /// L'ordinateur choisi sur l'accueil.
     pub fn selected(&self) -> Option<&Host> {
         let id = self.store.selected.as_deref();
-        // Un ordinateur emprunté choisi : pas d'ordinateur appairé (l'accueil montre sa carte à lui).
-        if self.selected_borrowed().is_some() {
+        // Un ordinateur emprunté ou une console choisis : pas d'ordinateur appairé (l'accueil montre leur carte).
+        if self.selected_borrowed().is_some() || self.selected_console().is_some() {
             return None;
         }
         id.and_then(|id| self.store.host(id)).or_else(|| self.store.hosts.first())
@@ -2831,6 +2904,9 @@ impl App {
 
     /// Les rubriques de l'écran des réglages ouvert.
     pub fn sections(&self) -> &'static [Section] {
+        if !self.settings_global && self.selected_console().is_some() {
+            return self.ps_sections();
+        }
         if self.settings_global { &APP_SECTIONS } else { &HOST_SECTIONS }
     }
 
@@ -2842,7 +2918,7 @@ impl App {
     /// La première rubrique de la colonne du bureau : le profil y est une
     /// rangée de boutons à part, les réglages commencent à Image.
     pub fn first_desktop_section(&self) -> usize {
-        if self.layout == Layout::Desktop && !self.settings_global { 1 } else { 0 }
+        if self.layout == Layout::Desktop && !self.settings_global && self.selected_console().is_none() { 1 } else { 0 }
     }
 
     pub fn open_settings(&mut self, global: bool, from: Screen) {
@@ -2879,6 +2955,7 @@ impl App {
         self.screen_since = Instant::now();
         self.focus = match screen {
             Screen::Launch | Screen::Home if self.selected_borrowed().is_some() => Target::Borrow,
+            Screen::Launch | Screen::Home if self.selected_console().is_some() => Target::PsPlay,
             Screen::Launch | Screen::Home => {
                 if self.store.hosts.is_empty() {
                     if self.new_found().is_empty() { Target::AddCard } else { Target::Found(0) }
@@ -2897,6 +2974,21 @@ impl App {
                     (false, FriendField::Password) => Target::FriendPassword,
                     (true, _) => Target::Key('q'),
                 },
+                AddStep::Ps(ref step) => {
+                    use crate::ps::PsStep;
+                    match step {
+                        PsStep::Tab => {
+                            if self.store.ps_accounts.is_empty() { Target::PsAddAccount } else if self.ps.found.is_empty() { Target::PsReceive } else { Target::PsTabFound(0) }
+                        }
+                        PsStep::WhichAccount { .. } => Target::PsWhich(0),
+                        PsStep::Account { .. } => {
+                            if self.layout == Layout::Desktop { Target::PsSignIn } else { Target::PsReceive }
+                        }
+                        PsStep::Receive => Target::Back,
+                        _ if self.layout.console() => Target::Key('1'),
+                        _ => Target::PsField(0),
+                    }
+                }
             },
             Screen::Join => match (self.layout.console(), self.join.field) {
                 (false, JoinField::Code) => Target::JoinCode,
@@ -3001,7 +3093,7 @@ impl App {
 
     /// Les ordinateurs de l'accueil, dans l'ordre de la rangée : appairés, puis empruntés.
     fn home_ids(&self) -> Vec<String> {
-        self.store.hosts.iter().map(|h| h.id.clone()).chain(self.store.borrowed.iter().map(|b| b.id.clone())).collect()
+        self.store.hosts.iter().map(|h| h.id.clone()).chain(self.store.borrowed.iter().map(|b| b.id.clone())).chain(self.store.ps_consoles.iter().map(|c| format!("{}{}", crate::ps::SELECTED, c.host_id))).collect()
     }
 
     /// L'étape suivante du premier démarrage (ou la fin de l'étape seule).
@@ -3129,6 +3221,9 @@ impl App {
             }
             return Vec::new();
         }
+        if let Some(acts) = self.ps_nav(n) {
+            return acts;
+        }
         match n {
             // « Rejoindre un partage » : Entrée dans un champ passe au suivant, ou rejoint quand tout est donné.
             Nav::Ok if self.screen == Screen::Join && matches!(self.focus, Target::JoinCode | Target::JoinName) => {
@@ -3230,14 +3325,21 @@ impl App {
                 let Target::Setting(s) = self.focus else { return Vec::new() };
                 self.adjust(s, if n == Nav::Right { 1 } else { -1 })
             }
-            Nav::Left | Nav::Right if self.screen == Screen::Home && matches!(self.focus, Target::Connect | Target::Wake | Target::Retry | Target::Borrow | Target::TakeBack) && self.layout.console() && self.home_ids().len() > 1 => {
+            Nav::Left | Nav::Right if self.screen == Screen::Home && matches!(self.focus, Target::Connect | Target::Wake | Target::Retry | Target::Borrow | Target::TakeBack | Target::PsPlay | Target::PsRetry | Target::PsPair) && self.layout.console() && self.home_ids().len() > 1 => {
                 // Accueil à la manette : ‹ › changent d'ordinateur (les ordinateurs empruntés à la suite).
                 let ids = self.home_ids();
                 let current = self.selected_borrowed().map(|b| b.id.clone()).or_else(|| self.selected().map(|h| h.id.clone()));
                 let i = current.and_then(|c| ids.iter().position(|id| *id == c)).unwrap_or(0);
                 let j = cycle(i, ids.len(), if n == Nav::Right { 1 } else { -1 });
                 self.store.selected = Some(ids[j].clone());
-                self.focus = if self.selected_borrowed().is_some() { Target::Borrow } else { Target::Connect };
+                self.ps.account_menu = false;
+                self.focus = if self.selected_borrowed().is_some() {
+                    Target::Borrow
+                } else if self.selected_console().is_some() {
+                    Target::PsPlay
+                } else {
+                    Target::Connect
+                };
                 vec![Action::Save]
             }
             _ => {
@@ -3310,6 +3412,7 @@ impl App {
                     Vec::new()
                 }
             }
+            Screen::Add if matches!(self.add.step, AddStep::Ps(_)) => self.ps_back().unwrap_or_default(),
             Screen::Add => match self.add.step {
                 AddStep::Code if self.setup.active => self.finish_setup(),
                 AddStep::Code => {
@@ -3497,6 +3600,9 @@ impl App {
     }
 
     pub fn activate(&mut self, t: Target) -> Vec<Action> {
+        if let Some(acts) = self.ps_activate(t) {
+            return acts;
+        }
         match t {
             Target::Connect => {
                 let Some(h) = self.selected() else { return Vec::new() };
@@ -3868,6 +3974,12 @@ impl App {
                         self.add.message = Some(tr("Connexion à Admin…", "Reaching Admin…").into());
                         vec![Action::Probe { address, port }]
                     }
+                    // Une adresse seule : une console PlayStation, peut-être (par un VPN, ou depuis un autre réseau).
+                    None if a.parse::<std::net::Ipv4Addr>().is_ok() => {
+                        self.add.busy = true;
+                        self.add.message = Some(tr("Recherche…", "Searching…").into());
+                        vec![Action::Probe { address: a, port: 0 }]
+                    }
                     None => {
                         self.add.message = Some(tr("Adresse et port d'Admin, par exemple 192.168.1.20:24811", "Admin address and port, for example 192.168.1.20:24811").into());
                         Vec::new()
@@ -3974,6 +4086,8 @@ impl App {
                 UpdateState::Available { page, .. } => vec![Action::OpenUrl(page.clone())],
                 _ => Vec::new(),
             },
+            // Les cibles des consoles qui ne visent plus rien (`ps_activate` les a vues).
+            _ => Vec::new(),
         }
     }
 
@@ -4390,6 +4504,10 @@ impl App {
                 self.focus = if self.layout.console() { Target::Menu(MenuItem::Resume) } else { Target::BarGiveBack };
                 return;
             }
+            Some(Confirm::RemovePsAccount { account, .. }) => {
+                self.focus = self.store.ps_accounts.iter().position(|a| a.id == account).map(Target::PsAccountRemove).unwrap_or(Target::PsAddAccount);
+                return;
+            }
             Some(Confirm::Remove { .. }) => Setting::Remove,
             Some(Confirm::Force { kind: StationKind::Update, .. }) => Setting::StationUpdate,
             _ => Setting::StationRestart,
@@ -4409,6 +4527,7 @@ impl App {
                 self.focus = Target::Menu(MenuItem::Resume);
                 vec![Action::GiveBack(session)]
             }
+            Some(Confirm::RemovePsAccount { account, .. }) => self.ps_remove_account(&account),
             Some(Confirm::Remove { host, name }) => {
                 self.store.remove(&host);
                 self.live.remove(&host);
@@ -4547,6 +4666,11 @@ impl App {
     }
 
     fn menu(&mut self, item: MenuItem) -> Vec<Action> {
+        match item {
+            MenuItem::PsSettings => return self.activate(Target::BarPsSettings),
+            MenuItem::PsRest => return self.activate(Target::BarPsRest),
+            _ => {}
+        }
         let Some(s) = Self::active_in(&mut self.sessions, self.active) else { return Vec::new() };
         let id = s.id;
         match item {
@@ -4615,6 +4739,7 @@ impl App {
                 self.lend_button(true)
             }
             MenuItem::GiveBack => self.give_back_ask(),
+            MenuItem::PsSettings | MenuItem::PsRest => Vec::new(),
             MenuItem::Disconnect => vec![Action::Disconnect(id)],
         }
     }
@@ -4996,6 +5121,9 @@ impl App {
 
     /// Les lignes d'une rubrique, pour les trois interfaces.
     pub fn rows(&self, section: Section) -> Vec<Row> {
+        if matches!(section, Section::PsPicture | Section::PsControls) {
+            return self.ps_rows(section);
+        }
         let m = &self.machine;
         let choice = |setting, label: &str, hint: String, options: Vec<String>, current: usize, disabled: Vec<bool>| Row {
             setting,
@@ -5405,6 +5533,9 @@ impl App {
 
     /// Choisit la valeur `i` d'un réglage (`usize::MAX` : basculer, ou l'action).
     fn choose(&mut self, s: Setting, i: usize) -> Vec<Action> {
+        if let Some(acts) = self.ps_choose(s, i) {
+            return acts;
+        }
         match s {
             Setting::Pads => {
                 self.back_to = Screen::Settings;

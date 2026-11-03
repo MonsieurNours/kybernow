@@ -323,6 +323,130 @@ pub fn borrowed_title(host: &str) -> String {
     if crate::i18n::english() { format!("{host}'s computer") } else { format!("Ordinateur {}", crate::i18n::de(host)) }
 }
 
+// MARK: - Consoles PlayStation (docs/playstation.md)
+
+/// Un compte PlayStation Network : son identifiant (base64, lu par la connexion Sony, reçu d'un autre appareil
+/// ou saisi à la main) et son nom (le pseudo PSN, ou celui donné). Dans ce fichier (droits 0600), comme les mots
+/// de passe des ordinateurs : en mode Jeu de SteamOS et sur KyberNow Link OS, aucun trousseau n'est déverrouillé.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(default)]
+pub struct PsAccount {
+    /// Un UUID, le même que celui de l'appareil qui l'a envoyé quand il est libre.
+    pub id: String,
+    /// `None` : un compte gardé sans nom (« Compte PlayStation »).
+    pub name: Option<String>,
+    /// L'identifiant du compte, en base64 (8 octets).
+    pub psn_id: String,
+}
+
+impl PsAccount {
+    /// Le nom affiché : le pseudo, sinon « Compte PlayStation ».
+    pub fn label(&self) -> String {
+        self.name.clone().filter(|n| !n.trim().is_empty()).unwrap_or_else(|| crate::i18n::tr("Compte PlayStation", "PlayStation account").into())
+    }
+}
+
+/// Une association : le compte et ce que la console a donné (le JSON `Registered` du cœur, gardé tel quel).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
+#[serde(default)]
+pub struct PsPairing {
+    pub account: String,
+    pub registered: serde_json::Value,
+}
+
+/// Les réglages d'une console : le JSON de `PlaySettings` du cœur (mêmes noms, mêmes valeurs), recopié ici pour
+/// l'interface seule (captures, sans le cœur). L'agrandissement (`upscale`, `sharpness`) est propre aux appareils
+/// Apple : gardé pour ne rien perdre, jamais montré.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct PsSettings {
+    /// `auto`, `p1080`, `p720`, `p540`, `p360`.
+    pub resolution: String,
+    /// 60 ou 30.
+    pub fps: u32,
+    /// kbit/s ; `None` : Auto (suit la définition).
+    pub bitrate_kbps: Option<u32>,
+    /// `auto`, `h264`, `h265`.
+    pub codec: String,
+    pub hdr: bool,
+    pub fullscreen: bool,
+    pub upscale: bool,
+    pub sharpness: u8,
+    /// Intensités de la DualSense, de 0 à 100 %.
+    pub rumble: u8,
+    pub triggers: u8,
+}
+
+impl Default for PsSettings {
+    fn default() -> Self {
+        Self { resolution: "auto".into(), fps: 60, bitrate_kbps: None, codec: "auto".into(), hdr: false, fullscreen: true, upscale: true, sharpness: 40, rumble: 100, triggers: 100 }
+    }
+}
+
+#[allow(dead_code)]
+impl PsSettings {
+    /// « Personnalisé » : définition, images par seconde, débit ou format s'écartent d'Auto (`PlaySettings::is_custom`).
+    pub fn custom(&self) -> bool {
+        self.resolution != "auto" || self.fps != 60 || self.bitrate_kbps.is_some() || self.codec != "auto"
+    }
+
+    /// La hauteur de la définition (Auto : 1080).
+    pub fn height(&self) -> u32 {
+        match self.resolution.as_str() {
+            "p720" => 720,
+            "p540" => 540,
+            "p360" => 360,
+            _ => 1080,
+        }
+    }
+
+    /// Le débit effectif, kbit/s (Auto : préréglages de chiaki-ng, `Resolution::auto_bitrate`).
+    pub fn bitrate(&self) -> u32 {
+        self.bitrate_kbps.map(|b| b.clamp(2_000, 100_000)).unwrap_or(match self.height() {
+            720 => 10_000,
+            540 => 6_000,
+            360 => 2_000,
+            _ => 15_000,
+        })
+    }
+}
+
+/// Une console PlayStation : trouvée sur le réseau (ou par son adresse, ou reçue d'un autre appareil), avec ses
+/// associations (une par compte), le compte choisi pour jouer, ses réglages et sa disposition du clavier et de la
+/// souris. Gardée tant qu'un compte au moins y est associé.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
+#[serde(default)]
+pub struct PsConsole {
+    /// `host-id` de la découverte (= `mac` de l'association), 12 chiffres hexadécimaux, en majuscules.
+    pub host_id: String,
+    pub name: String,
+    /// `PS5` ou `PS4`.
+    pub model: String,
+    /// La cible de l'association (`ps5_v1`, `ps4_v10`…), pour réassocier.
+    pub target: Option<String>,
+    /// Adresses retenues (« Par adresse », un VPN) : la console y est cherchée en direct, en plus du réseau.
+    pub addresses: Vec<String>,
+    /// Les ordinateurs (`Host::id`) dont la Station voit la console : hors de chez soi, la partie passe par l'un d'eux.
+    pub stations: Vec<String>,
+    pub pairings: Vec<PsPairing>,
+    /// Le compte choisi pour jouer (la puce de l'accueil), retenu par console.
+    pub account: Option<String>,
+    pub settings: PsSettings,
+    /// La disposition du clavier et de la souris (JSON de `keymouse::Layout`) ; `None` : celle par défaut.
+    pub layout: Option<serde_json::Value>,
+}
+
+impl PsConsole {
+    /// L'association du compte choisi (ou de la première).
+    pub fn pairing(&self) -> Option<&PsPairing> {
+        self.account.as_ref().and_then(|a| self.pairings.iter().find(|p| &p.account == a)).or_else(|| self.pairings.first())
+    }
+
+    pub fn ps4(&self) -> bool {
+        self.model.eq_ignore_ascii_case("PS4")
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct Store {
@@ -331,8 +455,12 @@ pub struct Store {
     pub hosts: Vec<Host>,
     /// KyberNow Share : les ordinateurs empruntés (comptes d'amis), à part des ordinateurs appairés.
     pub borrowed: Vec<Borrowed>,
-    /// Dernier ordinateur choisi sur l'accueil (un ordinateur appairé, ou emprunté : `lend:…`).
+    /// Dernier ordinateur choisi sur l'accueil (un ordinateur appairé, ou emprunté : `lend:…`, ou une console :
+    /// `ps:<host_id>`).
     pub selected: Option<String>,
+    /// Consoles PlayStation : les comptes PSN, et les consoles associées.
+    pub ps_accounts: Vec<PsAccount>,
+    pub ps_consoles: Vec<PsConsole>,
     pub app: AppSettings,
     #[serde(skip)]
     path: Option<PathBuf>,
@@ -424,6 +552,98 @@ impl Store {
         let id = b.id.clone();
         self.borrowed.push(b);
         id
+    }
+
+    pub fn console(&self, host_id: &str) -> Option<&PsConsole> {
+        self.ps_consoles.iter().find(|c| c.host_id.eq_ignore_ascii_case(host_id))
+    }
+
+    pub fn console_mut(&mut self, host_id: &str) -> Option<&mut PsConsole> {
+        self.ps_consoles.iter_mut().find(|c| c.host_id.eq_ignore_ascii_case(host_id))
+    }
+
+    pub fn ps_account(&self, id: &str) -> Option<&PsAccount> {
+        self.ps_accounts.iter().find(|a| a.id == id)
+    }
+
+    /// Les consoles associées avec ce compte.
+    pub fn consoles_of(&self, account: &str) -> usize {
+        self.ps_consoles.iter().filter(|c| c.pairings.iter().any(|p| p.account == account)).count()
+    }
+
+    /// Garde un compte : un compte de même identifiant prend le nouveau nom (s'il en a un), sans doublon. Rend son
+    /// identifiant et vrai s'il était déjà là.
+    pub fn put_ps_account(&mut self, psn_id: &str, name: Option<String>, id: Option<String>) -> (String, bool) {
+        if let Some(a) = self.ps_accounts.iter_mut().find(|a| a.psn_id == psn_id) {
+            if name.as_ref().is_some_and(|n| !n.trim().is_empty()) {
+                a.name = name;
+            }
+            return (a.id.clone(), true);
+        }
+        let id = id.filter(|i| !i.is_empty() && self.ps_account(i).is_none()).unwrap_or_else(new_id);
+        self.ps_accounts.push(PsAccount { id: id.clone(), name, psn_id: psn_id.into() });
+        (id, false)
+    }
+
+    /// Retire un compte et ses associations ; une console sans plus d'association part.
+    pub fn remove_ps_account(&mut self, id: &str) {
+        self.ps_accounts.retain(|a| a.id != id);
+        for c in &mut self.ps_consoles {
+            c.pairings.retain(|p| p.account != id);
+            if c.account.as_deref() == Some(id) {
+                c.account = c.pairings.first().map(|p| p.account.clone());
+            }
+        }
+        self.drop_unpaired();
+    }
+
+    /// Une association de plus (ou remplacée, pour ce compte), la console créée si besoin ; elle devient celle
+    /// du compte choisi quand la console n'en avait pas.
+    pub fn put_pairing(&mut self, console: PsConsole, account: &str, registered: serde_json::Value) {
+        let host_id = console.host_id.to_ascii_uppercase();
+        if self.console(&host_id).is_none() {
+            self.ps_consoles.push(PsConsole { host_id: host_id.clone(), pairings: Vec::new(), ..console.clone() });
+        }
+        let c = self.console_mut(&host_id).expect("console");
+        if !console.name.is_empty() {
+            c.name = console.name;
+        }
+        if !console.model.is_empty() {
+            c.model = console.model;
+        }
+        if console.target.is_some() {
+            c.target = console.target;
+        }
+        for a in console.addresses {
+            if !c.addresses.contains(&a) {
+                c.addresses.push(a);
+            }
+        }
+        c.pairings.retain(|p| p.account != account);
+        c.pairings.push(PsPairing { account: account.into(), registered });
+        if c.account.as_ref().is_none_or(|a| !c.pairings.iter().any(|p| &p.account == a)) {
+            c.account = Some(account.into());
+        }
+    }
+
+    /// La console ne reconnaît plus ce compte : son association est effacée (la console part si c'était la
+    /// dernière).
+    pub fn forget_pairing(&mut self, host_id: &str, account: &str) {
+        if let Some(c) = self.console_mut(host_id) {
+            c.pairings.retain(|p| p.account != account);
+            if c.account.as_deref() == Some(account) {
+                c.account = c.pairings.first().map(|p| p.account.clone());
+            }
+        }
+        self.drop_unpaired();
+    }
+
+    fn drop_unpaired(&mut self) {
+        let gone: Vec<String> = self.ps_consoles.iter().filter(|c| c.pairings.is_empty()).map(|c| format!("ps:{}", c.host_id)).collect();
+        self.ps_consoles.retain(|c| !c.pairings.is_empty());
+        if self.selected.as_ref().is_some_and(|s| gone.contains(s)) {
+            self.selected = None;
+        }
     }
 
     pub fn remove(&mut self, id: &str) {

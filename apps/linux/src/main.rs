@@ -11,6 +11,7 @@ mod displays;
 mod i18n;
 mod model;
 mod preview;
+mod ps;
 mod ui;
 
 fn main() {

@@ -324,27 +324,97 @@ pub fn pads() -> Vec<PadInfo> {
     global().pads()
 }
 
-/// Effet propre à la manette `id` (rapport d'effets de la DualSense :
-/// gâchettes adaptatives), joué par le fil SDL s'il tourne.
-pub(crate) fn effect(id: PadId, data: Vec<u8>) {
-    #[cfg(feature = "sdl")]
-    sdl::effect(id, data);
-    #[cfg(not(feature = "sdl"))]
-    let _ = (id, data);
+/// Ce qu'une partie sur une console PlayStation demande aux manettes, pour
+/// une app qui les lit elle-même et nourrit le lecteur ([`plug`],
+/// [`button`]… : Linux) : sans le fil SDL du cœur, c'est elle qui les joue
+/// ([`set_feedback`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Feedback {
+    /// Vibration (gros et petit moteur, durée ; 0 et 0 l'arrêtent).
+    Rumble(GamepadRumble),
+    /// Rapport d'effets de la DualSense (`DS5EffectsState_t` de SDL, 47
+    /// octets : gâchettes adaptatives), pour `SDL_GameControllerSendEffect`.
+    Effect { id: PadId, data: Vec<u8> },
 }
 
-/// Vibration demandée par l'ordinateur de la session active : jouée par le
-/// fil SDL s'il tourne (sinon c'est l'app qui la joue, `InputPlatform::rumble`).
+type FeedbackFn = Arc<dyn Fn(Feedback) + Send + Sync>;
+
+fn feedback_slot() -> &'static Mutex<Option<FeedbackFn>> {
+    static SLOT: OnceLock<Mutex<Option<FeedbackFn>>> = OnceLock::new();
+    SLOT.get_or_init(|| Mutex::new(None))
+}
+
+/// Pose (ou retire) ce qui joue vibrations et effets quand le fil SDL du
+/// cœur ne tourne pas : l'app qui nourrit le lecteur. Appelé sur le fil de
+/// la partie : l'app y fait suivre à son propre fil.
+pub fn set_feedback(f: Option<Box<dyn Fn(Feedback) + Send + Sync>>) {
+    *feedback_slot().lock().unwrap() = f.map(Arc::from);
+}
+
+fn feedback(f: Feedback) {
+    let cb = feedback_slot().lock().unwrap().clone();
+    if let Some(cb) = cb {
+        cb(f);
+    }
+}
+
+/// Le fil SDL du cœur joue lui-même vibrations et effets.
+fn sdl_plays() -> bool {
+    #[cfg(feature = "sdl")]
+    {
+        sdl::running()
+    }
+    #[cfg(not(feature = "sdl"))]
+    {
+        false
+    }
+}
+
+/// Effet propre à la manette `id` (rapport d'effets de la DualSense :
+/// gâchettes adaptatives), joué par le fil SDL s'il tourne, sinon par l'app
+/// ([`set_feedback`]).
+pub(crate) fn effect(id: PadId, data: Vec<u8>) {
+    if !sdl_plays() {
+        return feedback(Feedback::Effect { id, data });
+    }
+    #[cfg(feature = "sdl")]
+    sdl::effect(id, data);
+}
+
+/// Vibration demandée par une partie sur une console : jouée par le fil SDL
+/// s'il tourne, sinon par l'app ([`set_feedback`]). Les vibrations d'un
+/// ordinateur passent par `InputPlatform::rumble`, comme avant.
 pub(crate) fn rumble(r: GamepadRumble) {
+    if !sdl_plays() {
+        return feedback(Feedback::Rumble(r));
+    }
     #[cfg(feature = "sdl")]
     sdl::rumble(r);
-    #[cfg(not(feature = "sdl"))]
-    let _ = r;
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Sans le fil SDL du cœur, vibrations et effets d'une partie vont à l'app qui lit ses manettes (Linux).
+    #[test]
+    fn feedback_goes_to_the_app_without_sdl_thread() {
+        if sdl_plays() {
+            return;
+        }
+        let got: Arc<Mutex<Vec<Feedback>>> = Arc::default();
+        let sink = got.clone();
+        set_feedback(Some(Box::new(move |f| sink.lock().unwrap().push(f))));
+        let r = GamepadRumble { id: 2, large_motor: 100, small_motor: 7, duration_ms: 60 };
+        rumble(r);
+        effect(2, vec![0x0c; 47]);
+        set_feedback(None);
+        rumble(r);
+        let got = got.lock().unwrap();
+        assert_eq!(got.len(), 2, "rien après le retrait");
+        assert_eq!(got[0], Feedback::Rumble(r));
+        assert!(matches!(&got[1], Feedback::Effect { id: 2, data } if data.len() == 47));
+    }
     use crate::input::clock::ManualClock;
     use crate::input::packet_queue::tests::Host;
     use crate::input::pipeline::{InputPlatform, Options};

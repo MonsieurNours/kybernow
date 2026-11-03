@@ -111,6 +111,9 @@ pub struct Shared {
     /// coupe aux sessions qui ne sont ni actives ni gardées (`Session::set_muted`). Partagé avec les
     /// sorties de la session, que la reconnexion recrée.
     silenced: Arc<AtomicBool>,
+    /// Une partie sur une console PlayStation (pas de session Kyber) : le décodeur dit ici qu'il a perdu sa
+    /// référence (vrai) ou retrouvé une image clé (faux) ; la partie redemande l'image clé à la console.
+    pub key_hook: Mutex<Option<Arc<dyn Fn(bool) + Send + Sync>>>,
 }
 
 /// Multi-écrans : ce que la plateforme a reçu de `Platform::on_screens`.
@@ -123,6 +126,54 @@ pub struct ScreensState {
 }
 
 impl Shared {
+    /// Ce que partagent l'image et le son d'une partie sur une console (`device::ps`) : pas de session Kyber, un
+    /// écran, le décodeur de cette machine (VA-API, ou V4L2 sur le Pi), du son stéréo.
+    pub fn for_console(id: SessionId, tx: Sender<Event>, m: &Machine) -> Arc<Shared> {
+        let clock = Arc::new(MonotonicClock::new());
+        let pointer = Arc::new(PointerLayer::new(clock.clone(), true));
+        Arc::new(Shared {
+            id,
+            tx: Mutex::new(tx),
+            session: OnceLock::new(),
+            pointer,
+            clock,
+            input: Mutex::new(None),
+            display: Mutex::new((0, 1920, 1080)),
+            mode: Mutex::new(Mode { width: 1920, height: 1080, refresh: 60 }),
+            audio_channels: 2,
+            combo_enabled: AtomicBool::new(false),
+            relative: AtomicBool::new(false),
+            codec: Mutex::new(String::new()),
+            latests: Mutex::new(HashMap::new()),
+            screens: Mutex::new(ScreensState::default()),
+            layers: Mutex::new(HashMap::new()),
+            primary: AtomicUsize::new(0),
+            hw: [m.hw_h264 && (m.vaapi || m.pi.is_some()), m.hw_hevc && (m.vaapi || m.pi.is_some()), m.hw_av1 && m.vaapi],
+            hw_backend: if m.pi.is_some() && !m.vaapi { 2 } else { 1 },
+            clipboard: None,
+            audio: Mutex::new(None),
+            silenced: Arc::new(AtomicBool::new(false)),
+            key_hook: Mutex::new(None),
+        })
+    }
+
+    /// « Couper le son » d'une partie sur une console : la sortie de son de la partie.
+    pub fn silenced_flag(&self) -> Arc<AtomicBool> {
+        self.silenced.clone()
+    }
+
+    /// Image clé perdue (vrai) ou retrouvée : à la session Kyber, sinon à la partie sur une console.
+    pub fn keyframe(&self, lost: bool) {
+        if let Some(s) = self.session() {
+            if lost { s.keyframe_lost() } else { s.keyframe_recovered() }
+            return;
+        }
+        let hook = self.key_hook.lock().unwrap().clone();
+        if let Some(h) = hook {
+            h(lost);
+        }
+    }
+
     pub fn session(&self) -> Option<Arc<Session>> {
         self.session.get().and_then(Weak::upgrade)
     }
@@ -719,6 +770,7 @@ pub fn start(id: SessionId, host: &Host, settings: StreamSettings, mode: (u32, u
         clipboard: (host.settings.clipboard && guest.is_none() && loan.is_none()).then(|| Arc::new(Clipboard::new())),
         audio: Mutex::new(None),
         silenced: Arc::new(AtomicBool::new(false)),
+        key_hook: Mutex::new(None),
     });
     // Le pointeur de l'ordinateur : position et forme, pour la fenêtre.
     let weak = Arc::downgrade(&shared);
@@ -820,6 +872,7 @@ mod tests {
             clipboard: None,
             audio: Mutex::new(None),
             silenced: Arc::new(AtomicBool::new(false)),
+            key_hook: Mutex::new(None),
         });
         let weak = Arc::downgrade(&shared);
         pointer.set_on_changed(move |state, change| {
