@@ -271,6 +271,23 @@ class ConsoleClient(host: String, port: Int, user: String = "", password: String
     /** Adresse d'Admin à ouvrir dans le navigateur (`https://adresse:port/`). */
     val adminUrl: String? get() = if (handle != 0L) Native.consoleAdminUrl(handle) else null
 
+    // Consoles PlayStation (docs/relais.md, « Consoles PlayStation »).
+
+    /** `GET /api/consoles` : les consoles que voit la Station (`[{host_id, name, model, state, seen}]`) ; −404 : Station d'avant les consoles. */
+    suspend fun playStations(): Reply<org.json.JSONArray> = withContext(Dispatchers.IO) {
+        parse(PsNative.stationConsoles(handle)) { it as? org.json.JSONArray ?: org.json.JSONArray() }
+    }
+
+    /**
+     * Joint la console [hostId] par la Station (console d'Admin par le relais) : la poignée du cœur, à libérer par
+     * `PsNative.remoteFree` ; codes 30, 31, 32 (relais), −401, −404, 40 (`PsNative.NOT_SEEN`).
+     */
+    suspend fun playStationRemote(hostId: String): Reply<Long> = withContext(Dispatchers.IO) {
+        val o = JSONObject(PsNative.remoteOpen(handle, hostId))
+        val code = o.optInt("code", 1)
+        if (code == 0) Reply.Ok(o.optLong("handle")) else Reply.Failed(code, o.optString("error"))
+    }
+
     /**
      * Redémarre la Station entière (le serveur et Admin, environ une minute). [deviceId] : cet
      * appareil, nommé dans le fil d'Admin ; [force] : même si un appareil est en session (coupée).

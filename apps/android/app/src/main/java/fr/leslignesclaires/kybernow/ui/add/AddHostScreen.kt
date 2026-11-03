@@ -42,6 +42,10 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.core.content.ContextCompat
 import fr.leslignesclaires.kybernow.KyberNowApp
+import fr.leslignesclaires.kybernow.ui.playstation.PlayStationPane
+import fr.leslignesclaires.kybernow.ui.playstation.PsStep
+import fr.leslignesclaires.kybernow.ui.playstation.psStepBack
+import fr.leslignesclaires.kybernow.ui.playstation.startPairing
 import fr.leslignesclaires.kybernow.R
 import fr.leslignesclaires.kybernow.core.ConsoleClient
 import fr.leslignesclaires.kybernow.core.Lend
@@ -88,7 +92,7 @@ object PairingLink {
 /** Les quatre premiers groupes d'une empreinte, à comparer à ceux d'Admin. */
 fun shortFingerprint(fp: String): String = fp.removePrefix("sha256:").split(':').take(4).joinToString(":").uppercase()
 
-private enum class Tab { NETWORK, CODE, ADDRESS, QR, FRIEND }
+private enum class Tab { NETWORK, CODE, ADDRESS, QR, FRIEND, PLAYSTATION }
 
 private sealed class Step {
     data object Choose : Step()
@@ -130,13 +134,20 @@ fun AddHostScreen(
     inviteUnreadable: Boolean = false,
     /** L'ordinateur prêté ajouté à l'accueil (« Ordinateur de {hôte} »). */
     onFriendAdded: (BorrowedComputer) -> Unit = {},
+    /** Une console trouvée à associer (carte « Sur le réseau » de l'accueil) : l'onglet PlayStation s'ouvre sur son association. */
+    pairConsole: String? = null,
+    /** La console associée : l'accueil la choisit. */
+    onConsolePaired: (fr.leslignesclaires.kybernow.playstation.PsConsole) -> Unit = {},
 ) {
     val s = LocalScale.current
     val app = KyberNowApp.instance
     val context = LocalContext.current
     val announced by app.discovery.found.collectAsState()
     val hasCamera = remember { context.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY) }
-    var tab by remember { mutableStateOf(if (inviteUnreadable) Tab.FRIEND else if (s.tv) Tab.CODE else Tab.NETWORK) }
+    var tab by remember { mutableStateOf(if (pairConsole != null) Tab.PLAYSTATION else if (inviteUnreadable) Tab.FRIEND else if (s.tv) Tab.CODE else Tab.NETWORK) }
+    var psStep by remember {
+        mutableStateOf<PsStep>(pairConsole?.let { id -> app.ps.found.value[id]?.let { startPairing(app.ps, it) } } ?: PsStep.Tab)
+    }
     var step by remember {
         mutableStateOf(
             when {
@@ -154,7 +165,13 @@ fun AddHostScreen(
             verticalArrangement = Arrangement.spacedBy(s.dp(16f)),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                FocusCard(onClick = { if (step is Step.Choose) onBack() else step = Step.Choose }) {
+                FocusCard(onClick = {
+                    when {
+                        step !is Step.Choose -> step = Step.Choose
+                        tab == Tab.PLAYSTATION && psStepBack(psStep) { psStep = it } -> {}
+                        else -> onBack()
+                    }
+                }) {
                     Box(Modifier.background(Kn.frost.copy(alpha = 0.08f)).padding(s.dp(10f))) { KnIcon(KnIcons.back, size = 20f) }
                 }
                 Spacer(Modifier.width(s.dp(14f)))
@@ -170,6 +187,8 @@ fun AddHostScreen(
                         if (hasCamera && !s.tv) GlassButton(stringResource(R.string.add_tab_qr), { tab = Tab.QR }, selected = tab == Tab.QR)
                         // Sur le réseau d'un ami : son ordinateur, avec le compte qu'il a créé dans Admin (page « Prêt »).
                         GlassButton(stringResource(R.string.lend_with_account), { tab = Tab.FRIEND }, selected = tab == Tab.FRIEND)
+                        // Consoles PlayStation (docs/link-ui.md, « Consoles PlayStation ») : après le compte d'ami.
+                        GlassButton(stringResource(R.string.ps_tab), { tab = Tab.PLAYSTATION; psStep = PsStep.Tab }, selected = tab == Tab.PLAYSTATION)
                     }
                     // Le lien d'invitation ouvert n'a pas pu être lu : on le dit, et l'ordinateur de l'ami se choisit sur le réseau.
                     if (inviteUnreadable && tab == Tab.FRIEND) Body(stringResource(R.string.lend_invite_unreadable), color = Kn.warn, size = 14f)
@@ -178,9 +197,11 @@ fun AddHostScreen(
                         Tab.CODE -> CodeIntro(announced) { targets -> step = Step.Code(targets) }
                         Tab.ADDRESS -> AddressPane(
                             onSeen = { t, fp -> step = Step.Verify(t, fp) },
+                            onConsole = { f -> tab = Tab.PLAYSTATION; psStep = startPairing(app.ps, f) },
                         )
                         Tab.QR -> QrPane(onShareLink, onInvite = { i -> step = Step.Friend.of(i) }) { t -> step = Step.Account(t) }
                         Tab.FRIEND -> NetworkPane(announced) { a -> step = Step.Friend(ShareTarget(a.address, a.port, a.fingerprint), a.name) }
+                        Tab.PLAYSTATION -> PlayStationPane(psStep, { psStep = it }, onConsolePaired)
                     }
                 }
                 is Step.Verify -> VerifyPane(st.target, st.seen, onAccept = { step = Step.Account(st.target.copy(fingerprint = st.seen)) }, onCancel = { step = Step.Choose })
@@ -232,22 +253,39 @@ private fun Field(label: String, value: String, onChange: (String) -> Unit, pass
 }
 
 @Composable
-private fun AddressPane(onSeen: (Target, String) -> Unit) {
+private fun AddressPane(onSeen: (Target, String) -> Unit, onConsole: (fr.leslignesclaires.kybernow.playstation.PsFound) -> Unit) {
     val scope = rememberCoroutineScope()
     var address by remember { mutableStateOf("") }
     var port by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val unreachable = stringResource(R.string.add_unreachable)
+    val consoleUnreachable = stringResource(R.string.ps_console_unreachable)
+    val ps = KyberNowApp.instance.ps
     Body(stringResource(R.string.add_address_help), color = Kn.frost2, size = 15f)
     Field(stringResource(R.string.add_address), address, { address = it.trim() })
     Field(stringResource(R.string.add_port), port, { port = it.filter(Char::isDigit) }, number = true)
+    Body(stringResource(R.string.add_address_port_help), color = Kn.muted, size = 13f)
     error?.let { Body(it, color = Kn.warn, size = 14f) }
     PrimaryButton(stringResource(if (busy) R.string.add_contacting else R.string.add_continue), {
-        val p = port.toIntOrNull() ?: return@PrimaryButton
         busy = true
         error = null
         scope.launch {
+            // Une console d'abord (1,5 s ; une Station et une console ne répondent pas à la même adresse), puis la Station.
+            val ipv4 = address.split('.').let { parts -> parts.size == 4 && parts.all { it.toIntOrNull() in 0..255 } }
+            val console = if (ipv4) ps.searchAt(address) else null
+            if (console != null) {
+                ps.rememberAddress(address)
+                busy = false
+                onConsole(console)
+                return@launch
+            }
+            val p = port.toIntOrNull()
+            if (p == null) {
+                busy = false
+                error = consoleUnreachable
+                return@launch
+            }
             val t = Target(address, p, address, null)
             val seen = ConsoleClient(address, p).use { c ->
                 c.probe()
@@ -256,7 +294,7 @@ private fun AddressPane(onSeen: (Target, String) -> Unit) {
             busy = false
             if (seen == null) error = unreachable else onSeen(t, seen)
         }
-    }, enabled = !busy && address.isNotBlank() && port.isNotBlank())
+    }, enabled = !busy && address.isNotBlank())
 }
 
 @Composable

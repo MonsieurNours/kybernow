@@ -9,7 +9,7 @@
     <string name="home_waking">Waking the computer…</string>
     <string name="home_app_settings">App settings</string>
     <string name="home_host_settings">Settings</string>
-    <string name="home_add">Add a computer</string>
+    <string name="home_add">Add a computer or a console</string>
     <string name="home_join">Join with a code</string>
     <string name="home_on_network">On your network</string>
     <string name="home_your_computers">Your computers</string>
@@ -51,14 +51,15 @@
     <string name="audio_stereo">Stereo</string>
     <string name="audio_bluetooth_delay">Over Bluetooth, the sound often lags.</string>
     <string name="cancel">Cancel</string>
-    <string name="add_title">Add a computer</string>
+    <string name="add_title">Add a computer or a console</string>
     <string name="add_tab_network">Network</string>
     <string name="add_tab_code">Code</string>
     <string name="add_tab_address">Address</string>
     <string name="add_tab_qr">QR code</string>
     <string name="add_network_help">Computers running KyberNow Station announce themselves on your local network.</string>
     <string name="add_network_searching">Searching your network…</string>
-    <string name="add_address_help">KyberNow Admin\'s address and port (local network or VPN), shown in Admin.</string>
+    <string name="add_address_help">The address of a computer, or of a PlayStation console (over a VPN or from another network).</string>
+    <string name="add_address_port_help">For a computer: KyberNow Admin\'s port, shown in Admin. A console doesn\'t need one.</string>
     <string name="add_address">Address</string>
     <string name="add_port">Admin port</string>
     <string name="add_continue">Continue</string>
@@ -458,6 +459,163 @@
     <string name="lend_end_eyebrow">KyberNow Share</string>
     <string name="lend_end_left">You gave back the computer.</string>
     <string name="lend_end_stopped">The loan has stopped.</string>
+    <string name="ps_on">On</string>
+    <string name="ps_standby">In rest mode</string>
+    <string name="ps_play">Play</string>
+    <string name="ps_wake_play">Wake and play</string>
+    <string name="ps_waking">Waking the console…</string>
+    <string name="ps_pair">Pair</string>
+    <string name="ps_auto">Auto</string>
+    <string name="ps_custom">Custom</string>
+    <string name="ps_hdr">HDR</string>
+    <string name="ps_hdr_on">HDR, on</string>
+    <string name="ps_hdr_off">HDR, off</string>
+    <string name="ps_hdr_help">Richer colours and brighter highlights, on this HDR screen.</string>
+    <string name="ps_hdr_needs_hevc">HDR needs the HEVC or AV1 format.</string>
+    <string name="ps_hdr_no_decoder">This device can\'t decode HDR.</string>
+    <string name="ps_hdr_ps4">The PS4 only sends H.264.</string>
+    <string name="ps_model_line" formatted="true">%1$s · %2$s</string>
+    <string name="ps_tab">PlayStation</string>
+    <string name="ps_accounts_title">PlayStation Network accounts</string>
+    <string name="ps_no_account">No account: add one to pair a console.</string>
+    <string name="ps_no_console_of_account">No console</string>
+    <string name="ps_one_console">1 console</string>
+    <string name="ps_n_consoles" formatted="true">%1$d consoles</string>
+    <string name="ps_rename">Rename</string>
+    <string name="ps_remove">Remove</string>
+    <string name="ps_add_account">Add an account</string>
+    <string name="ps_account_exists">This account is already here.</string>
+    <string name="ps_remove_account_none" formatted="true">Remove the account %1$s?</string>
+    <string name="ps_remove_account_one" formatted="true">Remove the account %1$s and its console?</string>
+    <string name="ps_remove_account_many" formatted="true">Remove the account %1$s and its %2$d consoles?</string>
+    <string name="ps_remove_account_body">Its pairings are erased from this device. A console also paired with another account stays, with that other account.</string>
+    <string name="ps_legacy_account">PlayStation account</string>
+    <string name="ps_consoles_title">Consoles on this network</string>
+    <string name="ps_no_console_found">No console found. Turn it on or put it in rest mode, or enter its address in the “Address” tab.</string>
+    <string name="ps_paired_with" formatted="true">Paired: %1$s</string>
+    <string name="ps_pair_other">Pair with another account</string>
+    <string name="ps_console_unreachable">Console unreachable.</string>
+    <string name="ps_which_account">Which account?</string>
+    <string name="ps_account_intro">Sign in to the PlayStation Network account to pair. KyberNow only reads the account\'s ID and online ID, once.</string>
+    <string name="ps_sign_in">Sign in to PlayStation Network</string>
+    <string name="ps_by_hand">Enter the ID by hand</string>
+    <string name="ps_account_id">Account ID</string>
+    <string name="ps_account_name">Name</string>
+    <string name="ps_account_name_help">To recognise it in the list.</string>
+    <string name="ps_continue">Continue</string>
+    <string name="ps_id_not_read">Couldn\'t read the account ID: try again, or enter it by hand.</string>
+    <string name="ps_account_line" formatted="true">Account: %1$s</string>
+    <string name="ps_code_help">On the console: Settings › System › Remote Play › Link Device. Enter the code shown.</string>
+    <string name="ps_code_field">8-digit code</string>
+    <string name="ps_no_answer">The console isn\'t answering: keep the “Link Device” screen open.</string>
+    <string name="ps_wrong_code">Code refused: it changes every 5 minutes.</string>
+    <string name="ps_account_refused">The console refuses this account.</string>
+    <string name="ps_send_title">Send to a device</string>
+    <string name="ps_send_none">No device waiting. On the TV or the other device: Add a console › Receive from another device.</string>
+    <string name="ps_send_code_help" formatted="true">Enter the code shown on %1$s.</string>
+    <string name="ps_send_code_field">6-digit code</string>
+    <string name="ps_send">Send</string>
+    <string name="ps_sent" formatted="true">Accounts and consoles sent to %1$s.</string>
+    <string name="ps_send_refused" formatted="true">Code refused: check it on %1$s.</string>
+    <string name="ps_send_unreachable" formatted="true">%1$s isn\'t answering any more.</string>
+    <string name="ps_receive_title">Receive from another device</string>
+    <string name="ps_receive_help">On your Mac, PC or phone: Add a computer or a console › PlayStation › Send to a device, then enter this code.</string>
+    <string name="ps_received" formatted="true">%1$s and %2$s received.</string>
+    <string name="ps_received_accounts_one">1 account</string>
+    <string name="ps_received_accounts_many" formatted="true">%1$d accounts</string>
+    <string name="ps_received_consoles_one">1 console</string>
+    <string name="ps_received_consoles_many" formatted="true">%1$d consoles</string>
+    <string name="ps_code_expired">Code expired.</string>
+    <string name="ps_new_code">New code</string>
+    <string name="ps_settings_for" formatted="true">Settings for %1$s</string>
+    <string name="ps_settings_for_elided" formatted="true">Settings for %1$s</string>
+    <string name="ps_section_picture">Picture</string>
+    <string name="ps_resolution">Resolution</string>
+    <string name="ps_resolution_auto_help">The highest the console accepts: 1080p.</string>
+    <string name="ps_fps">Frame rate</string>
+    <string name="ps_fps_n" formatted="true">%1$d fps</string>
+    <string name="ps_bitrate">Bitrate</string>
+    <string name="ps_bitrate_auto_help">Follows the resolution.</string>
+    <string name="ps_mbps" formatted="true">%1$d Mbit/s</string>
+    <string name="ps_format">Format</string>
+    <string name="ps_format_auto_help">H.265 if this device can play it.</string>
+    <string name="ps_format_h264_help">No HDR.</string>
+    <string name="ps_section_controls">Controls</string>
+    <string name="ps_controls_help">The keyboard and mouse stand in for a controller. A connected controller replaces them.</string>
+    <string name="ps_rumble">Rumble</string>
+    <string name="ps_triggers">Adaptive triggers</string>
+    <string name="ps_intensity_help">For the DualSense. HD haptics go through the controller plugged in over USB.</string>
+    <string name="ps_android_triggers">Android doesn\'t give access to adaptive triggers or HD haptics: the DualSense gets simple rumble.</string>
+    <string name="ps_percent" formatted="true">%1$d%%</string>
+    <string name="ps_percent_off">Off</string>
+    <string name="ps_default_layout">Default layout</string>
+    <string name="ps_remove_console">Remove the console</string>
+    <string name="ps_remove_console_confirm" formatted="true">Remove %1$s from this device?</string>
+    <string name="ps_connecting">Connecting to the console…</string>
+    <string name="ps_step_wake">Waking the console</string>
+    <string name="ps_step_connect">Connecting to the console</string>
+    <string name="ps_cant_display">The console can\'t stream what it\'s showing.</string>
+    <string name="ps_rest_mode">Put the console in rest mode</string>
+    <string name="ps_end_in_use">The console is already being played remotely by another device.</string>
+    <string name="ps_end_not_paired">The console no longer recognizes this device: pair it again.</string>
+    <string name="ps_end_unreachable">The console isn\'t answering.</string>
+    <string name="ps_end_remote">The console ended the session.</string>
+    <string name="ps_mute">Mute</string>
+    <string name="ps_unmute">Unmute</string>
+    <string name="ps_stats_asked" formatted="true">%1$d × %2$d · %3$d fps · %4$s · %5$d Mbit/s requested</string>
+    <string name="ps_stats_asked_hdr" formatted="true">%1$d × %2$d · %3$d fps · %4$s · HDR · %5$d Mbit/s requested</string>
+    <string name="ps_stats_received" formatted="true">Received: %1$d fps · %2$s Mbit/s</string>
+    <string name="ps_stats_losses" formatted="true">Pictures lost: %1$d · repaired: %2$d</string>
+    <string name="ps_keyboard_banner">Type your text · Return to accept · Escape to cancel</string>
+    <string name="ps_keyboard_banner_touch">Type your text · ✓ to accept · ✕ to cancel</string>
+    <string name="ps_touchpad">Touchpad</string>
+    <string name="ps_hint_tv">The Back button opens the menu, as does Options + Create + L1 + R1.</string>
+    <string name="ps_pad_bar">The controller drives the bar and the console receives nothing; Circle closes it.</string>
+    <string name="ps_sign_in_title">PlayStation Network</string>
+    <string name="ps_action_left_stick_up">Left stick up</string>
+    <string name="ps_action_left_stick_down">Left stick down</string>
+    <string name="ps_action_left_stick_left">Left stick left</string>
+    <string name="ps_action_left_stick_right">Left stick right</string>
+    <string name="ps_action_cross">Cross</string>
+    <string name="ps_action_circle">Circle</string>
+    <string name="ps_action_square">Square</string>
+    <string name="ps_action_triangle">Triangle</string>
+    <string name="ps_action_l1">L1</string>
+    <string name="ps_action_r1">R1</string>
+    <string name="ps_action_l2">L2</string>
+    <string name="ps_action_r2">R2</string>
+    <string name="ps_action_l3">L3</string>
+    <string name="ps_action_r3">R3</string>
+    <string name="ps_action_dpad_up">D-pad up</string>
+    <string name="ps_action_dpad_down">D-pad down</string>
+    <string name="ps_action_dpad_left">D-pad left</string>
+    <string name="ps_action_dpad_right">D-pad right</string>
+    <string name="ps_action_options">Options</string>
+    <string name="ps_action_create">Create</string>
+    <string name="ps_action_ps">PS button</string>
+    <string name="ps_action_touchpad">Touchpad</string>
+    <string name="ps_action_right_stick_up">Right stick up</string>
+    <string name="ps_action_right_stick_down">Right stick down</string>
+    <string name="ps_action_right_stick_left">Right stick left</string>
+    <string name="ps_action_right_stick_right">Right stick right</string>
+    <string name="ps_input_left_click">Left click</string>
+    <string name="ps_input_right_click">Right click</string>
+    <string name="ps_input_middle_click">Middle click</string>
+    <string name="ps_input_button4">Button 4</string>
+    <string name="ps_input_button5">Button 5</string>
+    <string name="ps_input_space">Space</string>
+    <string name="ps_input_none">None</string>
+    <string name="ps_press_key">Press a key or click…</string>
+    <string name="ps_press_key_help">Escape cancels, Backspace removes the key.</string>
+    <string name="ps_mouse_stick">The mouse holds the right stick</string>
+    <string name="ps_sensitivity">Sensitivity</string>
+    <string name="ps_curve">Starting response</string>
+    <string name="ps_curve_soft">Soft</string>
+    <string name="ps_curve_normal">Normal</string>
+    <string name="ps_curve_brisk">Brisk</string>
+    <string name="ps_deadzone">Minimum tilt</string>
+    <string name="ps_deadzone_help">To get past games\' dead zone.</string>
+    <string name="ps_invert_y">Invert vertical axis</string>
     <plurals name="share_guests">
         <item quantity="one">%d guest</item>
         <item quantity="other">%d guests</item>

@@ -29,6 +29,9 @@ class KyberNowApp : Application() {
         private set
     lateinit var updates: fr.leslignesclaires.kybernow.update.Updates
         private set
+    /** Consoles PlayStation : comptes, associations, recherche (docs/playstation.md). */
+    lateinit var ps: fr.leslignesclaires.kybernow.playstation.PlayStations
+        private set
 
     /** Décodeurs matériels, vérifiés une fois au lancement. */
     val decoders: Decoders by lazy { Decoders.detect() }
@@ -61,6 +64,16 @@ class KyberNowApp : Application() {
     /** Prend le prêt remis par [handOverLoan] (une seule fois). */
     fun takeLoan(): Pair<Loan, BorrowAsk>? = pendingLoan.also { pendingLoan = null }
 
+    /** Hors de chez soi : la console jointe par une Station, remise à la partie (qui la ferme à la fin). En mémoire seulement. */
+    @Volatile private var pendingRemote: fr.leslignesclaires.kybernow.playstation.PsRemote? = null
+
+    fun handOverRemote(remote: fr.leslignesclaires.kybernow.playstation.PsRemote) {
+        pendingRemote?.close()
+        pendingRemote = remote
+    }
+
+    fun takeRemote(): fr.leslignesclaires.kybernow.playstation.PsRemote? = pendingRemote.also { pendingRemote = null }
+
     /** L'avertissement du prêt (« Votre ami joue dans votre session Windows… ») a été montré une fois dans le panneau. */
     var lendWarned: Boolean
         get() = getSharedPreferences("share", MODE_PRIVATE).getBoolean("lend_warned", false)
@@ -88,6 +101,7 @@ class KyberNowApp : Application() {
         device = DeviceIdentity.of(this)
         form = DeviceIdentity.formFactor(this)
         Native.init(language())
+        ps = fr.leslignesclaires.kybernow.playstation.PlayStations(this, fr.leslignesclaires.kybernow.playstation.PsStore(this), hosts)
         updates = fr.leslignesclaires.kybernow.update.Updates(this).also { it.start() }
     }
 

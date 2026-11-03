@@ -324,18 +324,61 @@ pub fn pads() -> Vec<PadInfo> {
     global().pads()
 }
 
+/// Le retour des manettes joué par l'app elle-même (webOS, Linux, Android… :
+/// les apps qui nourrissent le lecteur par [`plug`], [`button`], [`axis`]).
+/// Sans fil SDL dans le cœur, la partie sur une console PlayStation n'a pas
+/// d'`InputPlatform` à qui donner ses vibrations et les gâchettes adaptatives
+/// de la DualSense : elle les donne ici ([`set_app_feedback`]).
+pub trait AppFeedback: Send + Sync {
+    /// Vibration des deux moteurs (`duration_ms` 0 : arrêt).
+    fn rumble(&self, r: GamepadRumble);
+    /// Rapport d'effets de la DualSense (`DS5EffectsState_t` de SDL, 47
+    /// octets : gâchettes adaptatives), pour `SDL_GameControllerSendEffect`.
+    fn effect(&self, _id: PadId, _data: &[u8]) {}
+}
+
+fn app_feedback() -> &'static Mutex<Option<Arc<dyn AppFeedback>>> {
+    static FEEDBACK: OnceLock<Mutex<Option<Arc<dyn AppFeedback>>>> = OnceLock::new();
+    FEEDBACK.get_or_init(|| Mutex::new(None))
+}
+
+/// Pose (ou retire) ce qui joue le retour des manettes quand le fil SDL du
+/// cœur ne tourne pas. À poser le temps d'une partie sur une console
+/// seulement : pendant une session d'ordinateur, l'app joue déjà les
+/// vibrations par `InputPlatform::rumble`, et les recevrait deux fois.
+pub fn set_app_feedback(f: Option<Arc<dyn AppFeedback>>) {
+    *app_feedback().lock().unwrap() = f;
+}
+
+fn to_app() -> Option<Arc<dyn AppFeedback>> {
+    if sdl_running() {
+        return None;
+    }
+    app_feedback().lock().unwrap().clone()
+}
+
 /// Effet propre à la manette `id` (rapport d'effets de la DualSense :
-/// gâchettes adaptatives), joué par le fil SDL s'il tourne.
+/// gâchettes adaptatives), joué par le fil SDL s'il tourne, sinon par l'app
+/// ([`set_app_feedback`]).
 pub(crate) fn effect(id: PadId, data: Vec<u8>) {
+    if let Some(f) = to_app() {
+        f.effect(id, &data);
+        return;
+    }
     #[cfg(feature = "sdl")]
     sdl::effect(id, data);
     #[cfg(not(feature = "sdl"))]
     let _ = (id, data);
 }
 
-/// Vibration demandée par l'ordinateur de la session active : jouée par le
-/// fil SDL s'il tourne (sinon c'est l'app qui la joue, `InputPlatform::rumble`).
+/// Vibration demandée par l'ordinateur de la session active ou par la
+/// console : jouée par le fil SDL s'il tourne, sinon par l'app
+/// ([`set_app_feedback`] ; pour un ordinateur, `InputPlatform::rumble`).
 pub(crate) fn rumble(r: GamepadRumble) {
+    if let Some(f) = to_app() {
+        f.rumble(r);
+        return;
+    }
     #[cfg(feature = "sdl")]
     sdl::rumble(r);
     #[cfg(not(feature = "sdl"))]
