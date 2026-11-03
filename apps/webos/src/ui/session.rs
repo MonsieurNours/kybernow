@@ -23,7 +23,13 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
             capsule(cv, H / 2.0 - 32.0, tr("Déconnexion…", "Disconnecting…"), true);
         }
         Phase::Streaming | Phase::Reconnecting { .. } => {
-            if s.menu {
+            // Une console : le blocage du contenu protégé, sur l'image.
+            if s.ps.as_ref().is_some_and(|p| p.cant_display) && !s.menu {
+                super::consoles::cant_display(cv);
+            }
+            if let Some(ps) = s.ps.as_ref().filter(|p| p.keyboard.is_some()) {
+                super::consoles::keyboard(cv, f, ps);
+            } else if s.menu {
                 menu(app, cv, f, s);
             } else if s.lend_panel {
                 super::lend::draw(app, cv, f, s);
@@ -34,6 +40,8 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
                 } else {
                     super::share::draw(app, cv, f, s);
                 }
+            } else if s.show_stats && s.ps.is_some() {
+                super::consoles::stats(cv, s, 40.0);
             } else if s.show_stats {
                 stats_pill(cv, s, 40.0);
                 path_row(cv, s, 116.0);
@@ -84,17 +92,27 @@ fn arrival(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     }
     cv.line(560.0, 1080.0, 1640.0, 0.0, 3.0, SPECTRE.alpha(glow + 0.2));
 
-    let current = match s.phase {
+    let mut current: usize = match s.phase {
         Phase::Preparing => 0,
         Phase::Connecting => 1,
         _ => 2,
     };
-    let steps = [
+    let mut steps = vec![
         // Un emprunt : la Station a déjà mis l'ordinateur en mode console.
         if s.borrow.is_some() { tr("Préparation de l'ordinateur", "Preparing the computer") } else { tr("Préparation de l'écran", "Preparing the display") },
         tr("Connexion", "Connecting"),
         tr("Premières images", "First frames"),
     ];
+    // Une console : le même écran, ses étapes à elle (docs/link-ui.md, « Consoles PlayStation ») : le réveil si elle
+    // était en veille (hors de chez soi : la Station jointe d'abord), la connexion, les premières images.
+    if let Some(ps) = &s.ps {
+        steps = vec![tr("Connexion à la console", "Connecting to the console"), tr("Premières images", "First frames")];
+        if ps.waking {
+            steps.insert(0, tr("Réveil de la console", "Waking the console"));
+        } else {
+            current = current.saturating_sub(1);
+        }
+    }
     let (w, h) = (900.0, 400.0);
     let (x, y) = ((W - w) / 2.0, (H - h) / 2.0);
     cv.rrect(x, y, w, h, 28.0, Rgba(14, 19, 28, 240));
@@ -252,18 +270,29 @@ fn route_sub(s: &SessionUi) -> String {
 
 fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     cv.rect(0.0, 0.0, W, H, Rgba(2, 3, 4, 175));
-    stats_pill(cv, s, 70.0);
+    if s.ps.is_some() {
+        super::consoles::stats(cv, s, 30.0);
+    } else {
+        stats_pill(cv, s, 70.0);
+    }
     // Sous les mesures : l'ordinateur et son profil ; pour un invité, son rôle (il n'a pas de profil).
     let head = match (&s.guest, &s.borrow) {
         (Some(g), _) => format!("{} · {}", s.name.to_uppercase(), g.role.label().to_uppercase()),
         // Un emprunt : « Prêté par {hôte} · Encore 1 h 20 ».
         (None, Some(b)) => format!("{} · {}", b.lent_by().to_uppercase(), b.time_left(crate::model::now_secs()).to_uppercase()),
+        (None, None) if s.ps.is_some() => s.name.to_uppercase(),
         (None, None) => format!("{} · {} {}", s.name.to_uppercase(), tr("PROFIL", "PROFILE"), super::home::profile_label(s.profile).to_uppercase()),
     };
     cv.text(W / 2.0, 200.0, Text::new(Font::Mono, 16.0, FROST_3).tracking(3.0).align(Align::Center), &head);
 
     if s.keys {
         keys(cv, f);
+        return;
+    }
+
+    // Une console : la même barre, avec ce qui a du sens pour elle.
+    if let Some(ps) = &s.ps {
+        console_menu(app, cv, f, s, ps);
         return;
     }
 
@@ -364,6 +393,38 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     } else {
         tr("Menu : bouton Retour de la Magic Remote, ou Start, Select ou B d'une manette", "Menu: Magic Remote Back, or Start, Select or B on a controller")
     };
+    cv.text(W / 2.0, H - 70.0, Text::new(Font::Regular, 19.0, FROST_3).align(Align::Center), hint);
+}
+
+/// La barre d'une partie sur une console (docs/link-ui.md, « Barre de la partie ») : Reprendre, Statistiques, le son,
+/// les manettes, « Par le relais », « Réglages de {nom} », la mise en veille de la console, « Se déconnecter ». Ni
+/// profil, ni écrans, ni partage ; pas de souris sur un téléviseur.
+fn console_menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi, ps: &crate::ps::PsSessionUi) {
+    let mut tiles: Vec<(MenuItem, Icon, String, Option<String>, bool, bool)> = vec![(MenuItem::Resume, Icon::Play, tr("Reprendre", "Resume").into(), None, false, false)];
+    tiles.push((MenuItem::Stats, Icon::Chart, tr("Statistiques", "Statistics").into(), Some(tr("en haut de l'image", "over the picture").into()), false, s.show_stats));
+    let mute = if ps.muted { tr("Rétablir le son", "Unmute") } else { tr("Couper le son", "Mute") };
+    tiles.push((MenuItem::Mute, Icon::Speaker, mute.into(), None, false, ps.muted));
+    tiles.push((MenuItem::Gamepads, Icon::Gamepad, tr("Manettes", "Controllers").into(), Some(format!("{} {}", app.pads.len(), tr("branchée(s)", "connected"))), false, false));
+    if s.via_relay() {
+        tiles.push((MenuItem::Route, Icon::Wifi, s.path().label().into(), Some(route_sub(s)), false, false));
+    }
+    // « Réglages de {nom} » et « Mettre la console en veille » : le libellé entier en sous-titre (la tuile est étroite).
+    tiles.push((MenuItem::Settings, Icon::Gear, tr("Réglages", "Settings").into(), Some(crate::ps::settings_for(&s.name)), false, false));
+    tiles.push((MenuItem::ConsoleSleep, Icon::Power, tr("Veille", "Rest mode").into(), Some(tr("Mettre la console en veille", "Put the console in rest mode").into()), false, false));
+    tiles.push((MenuItem::Disconnect, Icon::Logout, tr("Se déconnecter", "Disconnect").into(), None, true, false));
+    let rows = tiles.len().div_ceil(5);
+    let (x0, y0, cols, gap) = (180.0, if rows > 2 { 250.0 } else { 270.0 }, 5usize, 26.0);
+    let tw = (W - 2.0 * x0 - gap * (cols as f32 - 1.0)) / cols as f32;
+    let th = if rows > 2 { 168.0 } else { 190.0 };
+    for (i, (item, icon, title, sub, danger, on)) in tiles.iter().enumerate() {
+        let (c, r) = (i % cols, i / cols);
+        let rect = Rect::new(x0 + c as f32 * (tw + gap), y0 + r as f32 * (th + gap), tw, th);
+        widgets::tile(cv, f, Target::Menu(*item), rect, *icon, title, sub.as_deref(), *danger, *on, false);
+    }
+    let hint = tr(
+        "Barre : bouton Retour de la Magic Remote, ou Options + Create + L1 + R1 · pendant la barre, la console reçoit une manette au repos",
+        "Bar: Magic Remote Back, or Options + Create + L1 + R1 · while the bar is open, the console gets a controller at rest",
+    );
     cv.text(W / 2.0, H - 70.0, Text::new(Font::Regular, 19.0, FROST_3).align(Align::Center), hint);
 }
 

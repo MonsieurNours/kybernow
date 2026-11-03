@@ -179,6 +179,8 @@ impl Feeder {
         if let Some(s) = self.shared.session() {
             s.request_keyframe();
         }
+        // Une partie sur une console : l'image clé est demandée à la console.
+        self.shared.console_keyframe(true);
     }
 
     fn lost(&mut self) {
@@ -188,6 +190,7 @@ impl Feeder {
             if let Some(s) = self.shared.session() {
                 s.keyframe_lost();
             }
+            self.shared.console_keyframe(true);
         }
     }
 
@@ -263,7 +266,10 @@ impl Feeder {
                         if let Some(s) = self.shared.session() {
                             s.keyframe_recovered();
                         }
+                        self.shared.console_keyframe(false);
                     }
+                    // Une partie sur une console : la première image montrée finit la connexion.
+                    self.shared.console_frame_shown();
                 }
                 // NDL ne dit pas quand l'image est montrée : estimée d'après les
                 // images en attente et la fréquence de la dalle.
@@ -540,11 +546,22 @@ impl AudioSink {
     }
 }
 
+/// « Couper le son » d'une partie sur une console : la sortie SDL rend du silence (le son continue d'être décodé,
+/// pour revenir aussitôt).
+static MUTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn set_muted(on: bool) {
+    MUTED.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
 extern "C" fn fill(user: *mut c_void, stream: *mut u8, len: c_int) {
     let engine = unsafe { &*(user as *const Arc<AudioEngine>) };
     let n = len.max(0) as usize / 4;
     let out = unsafe { std::slice::from_raw_parts_mut(stream as *mut f32, n) };
     engine.fill(out, n / 2);
+    if MUTED.load(std::sync::atomic::Ordering::Relaxed) {
+        out.fill(0.0);
+    }
 }
 
 impl PacketHandler for AudioSink {

@@ -464,6 +464,9 @@ pub enum MenuItem {
     /// Prêt de l'ordinateur, emprunt : « Rendre l'ordinateur » (après sa confirmation).
     GiveBack,
     Settings,
+    /// Console PlayStation : « Couper le son » / « Rétablir le son », « Mettre la console en veille ».
+    Mute,
+    ConsoleSleep,
     Disconnect,
 }
 
@@ -1619,6 +1622,8 @@ pub struct SessionUi {
     pub borrow: Option<BorrowSessionUi>,
     /// « HDR » dans le menu (`None` : pas de HDR proposé, écran SDR ou invité) : la puce de l'ordinateur.
     pub hdr: Option<HdrUi>,
+    /// Une partie sur une console PlayStation (`host` vaut alors `ps:<host_id>`, jamais un ordinateur).
+    pub ps: Option<crate::ps::PsSessionUi>,
 }
 
 impl SessionUi {
@@ -1656,6 +1661,7 @@ impl SessionUi {
             lend_steam: LendSteam::Friend,
             borrow: None,
             hdr: None,
+            ps: None,
         }
     }
 
@@ -1814,6 +1820,10 @@ pub enum Screen {
     Session,
     /// « Réglage du HDR » : les quatre mires.
     HdrCalibration,
+    /// « Ajouter un ordinateur ou une console » › « PlayStation » : comptes, consoles, recevoir, associer.
+    PlayStation,
+    /// « Réglages de {nom} » d'une console.
+    PsSettings,
 }
 
 /// Ce qu'on peut choisir.
@@ -1909,6 +1919,10 @@ pub enum Target {
     DialogOk,
     DialogCancel,
     Back,
+    /// L'espace du pavé des lettres (nom d'un compte PSN, clavier de la console).
+    KeySpace,
+    /// Les écrans des consoles PlayStation (`crate::ps`).
+    Ps(crate::ps::PsTarget),
 }
 
 /// Ce que l'app demande au pilote du téléviseur.
@@ -1969,6 +1983,8 @@ pub enum Action {
     Language,
     /// Chercher une mise à jour maintenant.
     CheckUpdate,
+    /// Consoles PlayStation (`crate::ps`).
+    Ps(crate::ps::PsAction),
     Quit,
 }
 
@@ -2029,6 +2045,8 @@ pub struct App {
     pub pending_link: Option<LinkUi>,
     /// « Réglage du HDR » ouvert.
     pub calibration: Option<CalibrationUi>,
+    /// Consoles PlayStation : trouvées, leur état, l'écran d'ajout, leurs réglages.
+    pub ps: crate::ps::PsUi,
 }
 
 /// L'écran « Réglage du HDR » (docs/hdr.md) : l'étape, le palier choisi à chaque étape, et où revenir.
@@ -2089,6 +2107,7 @@ impl App {
             friend: FriendForm::default(),
             pending_link: None,
             calibration: None,
+            ps: crate::ps::PsUi::default(),
         }
     }
 
@@ -2136,7 +2155,7 @@ impl App {
     /// L'ordinateur choisi sur l'accueil.
     pub fn selected(&self) -> Option<&Host> {
         // Un ordinateur emprunté choisi : pas d'ordinateur appairé (l'accueil montre sa carte à lui).
-        if self.selected_borrowed().is_some() {
+        if self.selected_borrowed().is_some() || self.selected_console().is_some() {
             return None;
         }
         let id = self.store.selected.as_deref();
@@ -2187,6 +2206,7 @@ impl App {
         self.screen = screen;
         self.focus = match screen {
             Screen::Home if self.selected_borrowed().is_some() => Target::Borrow,
+            Screen::Home if self.selected_console().is_some() => Target::Ps(crate::ps::PsTarget::Primary),
             Screen::Home => {
                 if self.store.hosts.is_empty() {
                     if self.new_found().is_empty() { Target::AddCard } else { Target::Found(0) }
@@ -2210,6 +2230,8 @@ impl App {
             Screen::Gamepads => Target::Pad(self.pad_selected.min(self.pads.len().saturating_sub(1))),
             Screen::Session => Target::Menu(MenuItem::Resume),
             Screen::HdrCalibration => Target::CalNext,
+            Screen::PlayStation => Target::Ps(crate::ps::PsTarget::AddAccount),
+            Screen::PsSettings => Target::Ps(crate::ps::PsTarget::Section(self.ps.section)),
         };
     }
 
@@ -2253,6 +2275,9 @@ impl App {
             }
             Nav::Back => self.back(),
             Nav::Options => {
+                if self.screen == Screen::Home && self.selected_console().is_some() {
+                    return self.activate(Target::Ps(crate::ps::PsTarget::Gear));
+                }
                 if self.screen == Screen::Home && !self.store.hosts.is_empty() {
                     return self.activate(Target::HostSettings);
                 }
@@ -2265,12 +2290,18 @@ impl App {
                 Vec::new()
             }
             Nav::Char(c) => {
+                if self.ps_typing() || self.ps_keyboard_open() {
+                    return self.ps_key(if c == ' ' { Target::KeySpace } else { Target::Key(c) });
+                }
                 if self.screen == Screen::Add && self.add.step == AddStep::Address || self.screen == Screen::Join || self.typing_friend() {
                     return self.activate(Target::Key(c));
                 }
                 Vec::new()
             }
             Nav::Erase => {
+                if self.ps_typing() || self.ps_keyboard_open() {
+                    return self.ps_key(Target::KeyErase);
+                }
                 if self.screen == Screen::Add && self.add.step == AddStep::Address || self.screen == Screen::Join || self.typing_friend() {
                     return self.activate(Target::KeyErase);
                 }
@@ -2278,6 +2309,11 @@ impl App {
             }
             // « Réglage du HDR » : gauche et droite font varier la valeur, où que soit le focus.
             Nav::Left | Nav::Right if self.screen == Screen::HdrCalibration => self.calibration_change(if n == Nav::Right { 1 } else { -1 }),
+            Nav::Left | Nav::Right if matches!(self.focus, Target::Ps(crate::ps::PsTarget::Setting(s)) if !s.is_action()) => {
+                let Target::Ps(crate::ps::PsTarget::Setting(s)) = self.focus else { return Vec::new() };
+                self.ps_adjust(s, if n == Nav::Right { 1 } else { -1 })
+            }
+            Nav::Right if matches!(self.focus, Target::Ps(crate::ps::PsTarget::Setting(_))) => Vec::new(),
             Nav::Left | Nav::Right if matches!(self.focus, Target::Setting(s) if !s.is_action()) => {
                 let Target::Setting(s) = self.focus else { return Vec::new() };
                 self.adjust(s, if n == Nav::Right { 1 } else { -1 })
@@ -2332,6 +2368,15 @@ impl App {
     }
 
     fn back(&mut self) -> Vec<Action> {
+        if matches!(self.screen, Screen::PlayStation | Screen::PsSettings) {
+            return self.ps_back();
+        }
+        // Le choix du compte d'une console, ouvert sous sa puce : Retour le referme.
+        if self.screen == Screen::Home && self.ps.account_menu {
+            self.ps.account_menu = false;
+            self.focus = Target::Ps(crate::ps::PsTarget::AccountChip);
+            return Vec::new();
+        }
         // Une confirmation par-dessus l'accueil ou la session : Retour l'annule.
         if self.dialog.is_some() && matches!(self.screen, Screen::Home | Screen::Session) {
             self.close_dialog();
@@ -2404,6 +2449,7 @@ impl App {
             Screen::HdrCalibration => {
                 if self.calibration.as_ref().is_some_and(|c| c.step > 0) { self.activate(Target::CalPrevious) } else { self.activate(Target::CalCancel) }
             }
+            Screen::PlayStation | Screen::PsSettings => self.ps_back(),
         }
     }
 
@@ -2454,6 +2500,10 @@ impl App {
                 Vec::new()
             }
             _ => {
+                // Le clavier de la console : Retour l'annule.
+                if s.ps.as_ref().is_some_and(|p| p.keyboard.is_some()) {
+                    return self.ps_keyboard_close(false);
+                }
                 if s.keys {
                     s.keys = false;
                     self.focus = Target::Menu(MenuItem::Keys);
@@ -2504,6 +2554,15 @@ impl App {
     }
 
     pub fn activate(&mut self, t: Target) -> Vec<Action> {
+        // Le pavé de l'écran PlayStation et du clavier de la console.
+        if matches!(t, Target::Key(_) | Target::KeyErase | Target::KeyOk | Target::KeyShift | Target::KeySpace) && (self.ps_typing() || self.ps_keyboard_open()) {
+            return self.ps_key(t);
+        }
+        match t {
+            Target::Ps(t) => return self.ps_activate(t),
+            Target::KeySpace => return Vec::new(),
+            _ => {}
+        }
         match t {
             // Le bouton principal : se connecter ; hors ligne, réveiller
             // l'ordinateur (adresse MAC connue) ou le sonder de nouveau.
@@ -2767,10 +2826,23 @@ impl App {
             Target::KeyOk => {
                 let a = self.add.address.trim().to_string();
                 match parse_address(&a) {
+                    // Une adresse IPv4 : une console PlayStation y est cherchée d'abord (1,5 s), puis la Station
+                    // (docs/link-ui.md, « Consoles PlayStation », « Par adresse »).
+                    Some((address, port)) if address.parse::<std::net::Ipv4Addr>().is_ok() => {
+                        self.add.busy = true;
+                        self.add.message = Some(tr("Recherche…", "Searching…").into());
+                        vec![Action::Ps(crate::ps::PsAction::ProbeAddress { address, then_station: Some(port) })]
+                    }
                     Some((address, port)) => {
                         self.add.busy = true;
                         self.add.message = Some(tr("Connexion à Admin…", "Reaching Admin…").into());
                         vec![Action::Probe { address, port }]
+                    }
+                    // Une adresse seule : une console.
+                    None if a.parse::<std::net::Ipv4Addr>().is_ok() => {
+                        self.add.busy = true;
+                        self.add.message = Some(tr("Recherche…", "Searching…").into());
+                        vec![Action::Ps(crate::ps::PsAction::ProbeAddress { address: a, then_station: None })]
                     }
                     None => {
                         self.add.message = Some(tr("Adresse et port d'Admin, par exemple 192.168.1.20:24811", "Admin address and port, for example 192.168.1.20:24811").into());
@@ -2869,6 +2941,7 @@ impl App {
                 vec![Action::Save]
             }
             Target::Back => self.back(),
+            Target::KeySpace | Target::Ps(_) => Vec::new(),
         }
     }
 
@@ -3615,6 +3688,11 @@ impl App {
                 Vec::new()
             }
             MenuItem::Settings => {
+                // Une console : ses réglages à elle.
+                if let Some(id) = s.ps.as_ref().map(|p| p.host_id.clone()) {
+                    self.ps_open_settings(&id, Screen::Session);
+                    return Vec::new();
+                }
                 self.open_settings(false, Screen::Session);
                 Vec::new()
             }
@@ -3639,6 +3717,16 @@ impl App {
                 self.dialog = Some(Dialog::GiveBack { host });
                 self.focus = Target::DialogCancel;
                 vec![Action::ReleaseAll]
+            }
+            MenuItem::Mute => {
+                let Some(p) = s.ps.as_mut() else { return Vec::new() };
+                p.muted = !p.muted;
+                s.menu = false;
+                vec![Action::Ps(crate::ps::PsAction::Mute(p.muted))]
+            }
+            MenuItem::ConsoleSleep => {
+                s.menu = false;
+                vec![Action::Ps(crate::ps::PsAction::Sleep)]
             }
             MenuItem::Disconnect => vec![Action::Disconnect],
         }

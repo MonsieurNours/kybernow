@@ -6,6 +6,7 @@
 
 mod calibration;
 pub mod canvas;
+mod consoles;
 mod home;
 pub mod icons;
 mod join;
@@ -64,6 +65,7 @@ pub fn session_overlay_visible(app: &App) -> bool {
         || s.lend_panel
         || app.dialog.is_some()
         || s.show_stats
+        || s.ps.as_ref().is_some_and(|p| p.keyboard.is_some() || p.cant_display)
         || !matches!(s.phase, Streaming)
         || s.notice.as_ref().is_some_and(|(_, t)| t.elapsed().as_secs_f32() < 4.0)
 }
@@ -85,6 +87,8 @@ pub fn draw(app: &App, cv: &mut Canvas, assets: &Assets) -> Vec<(Target, Rect)> 
         Screen::Gamepads => pads::draw(app, cv, &mut f),
         Screen::Session => session::draw(app, cv, &mut f),
         Screen::HdrCalibration => calibration::draw(app, cv, &mut f),
+        Screen::PlayStation => consoles::add_screen(app, cv, &mut f),
+        Screen::PsSettings => consoles::settings(app, cv, &mut f),
     }
     // Une confirmation par-dessus l'accueil (retirer un ordinateur emprunté) ou la session (rendre l'ordinateur) :
     // seuls ses boutons se choisissent.

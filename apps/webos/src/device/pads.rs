@@ -243,6 +243,17 @@ impl Pads {
         p.motors_until = Instant::now() + Duration::from_millis(ms as u64);
     }
 
+    /// Rapport d'effets de la DualSense (gâchettes adaptatives d'une partie sur une console PlayStation). Le journal
+    /// dit une fois si le téléviseur le refuse (pilote HIDAPI de SDL absent, manette en Bluetooth sans accès).
+    pub fn effect(&mut self, slot: usize, data: &[u8]) {
+        let Some(p) = self.pads.iter_mut().find(|p| p.slot == slot) else { return };
+        let r = unsafe { sdl::SDL_GameControllerSendEffect(p.ctrl, data.as_ptr() as *const std::ffi::c_void, data.len() as i32) };
+        static SAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        if !SAID.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            log::info!("manettes : gâchettes adaptatives de J{} : {}", slot + 1, if r == 0 { "acceptées".to_string() } else { format!("refusées ({})", sdl::error()) });
+        }
+    }
+
     /// Vibration d'essai (écran des manettes).
     pub fn test_rumble(&mut self, slot: usize, low: u16, high: u16, triggers: bool) {
         let Some(p) = self.pads.iter_mut().find(|p| p.slot == slot) else { return };
