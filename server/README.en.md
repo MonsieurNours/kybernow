@@ -172,6 +172,18 @@ The `C:\ProgramData\KyberNow` folder is reserved to SYSTEM and Administrators: A
 
 Commands: `kyber-admin.exe service install|uninstall`, `kyber-admin.exe reset-password` (then restart the service), `kyber-admin.exe migrate [--dry-run]` (brings `kyber-admin.toml` to this version's format, also done at each start; see [docs/releases.en.md](../docs/releases.en.md#settings-migrations)), `kyber-admin.exe init …` (used by the installer), `kyber-admin.exe` alone to run in a console window (diagnosis).
 
+## KyberNow Station for Mac (in progress)
+
+Contract and milestone status: [docs/station-macos.en.md](../docs/station-macos.en.md). Admin is the same program; `mac.rs` decides at startup whether this Mac is a **Station** (Kyber's LaunchAgent exists: `KYBERNOW_KYBER_PLIST`, otherwise `/Library/LaunchAgents/fr.leslignesclaires.kybernow.station.kyber.plist`) or the **development Mac** (everything stays simulated, as below; `cargo test` always goes through the simulation). On a Station:
+
+- **Kyber** is driven by launchd (`mac::Launchd`: `launchctl print`, `kickstart`, `bootstrap`, `bootout` in the `gui/<uid>` domain of the session shown on screen); the Bonjour announcement carries `kyber=1`.
+- **No virtual display or virtual sound output yet**: `display::Absent` and `audio::Absent`. `info` gives `virtual_display.available: false` (`max_screens`: 1) and `audio.speakers: false`; `prepare` answers `virtual_display: false` (the Mac's display as it is, like Windows without SudoVDA), whatever the trigger setting. HDR is not offered (`reason: display`).
+- **Encoders** offered: VideoToolbox (default) and x264.
+- **Computer name**: the one from System Settings (`scutil --get ComputerName`) in the announcement and the API, on any Mac; the network name stays the one of the Bonjour address and the certificate.
+- **Wake on LAN**: the hardware ports from `networksetup` (hardware address, not the Wi-Fi private address) that have an IPv4 address, the default route's card first; `armed` follows "Wake for network access" (`pmset -g`, `womp`).
+
+Test Station on this Mac: `server/macos/scripts/run-station.sh start|stop|status` (Admin and Kyber as session LaunchAgents, data in `~/Library/Application Support/KyberNow/station-essai`, see the script's header).
+
 ## Developing on the Mac
 
 ```bash

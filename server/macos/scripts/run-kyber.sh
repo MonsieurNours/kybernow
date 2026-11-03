@@ -5,6 +5,7 @@
 #   run-kyber.sh start   empaquette, signe et lance (launchd, session de l'utilisateur)
 #   run-kyber.sh stop    arrête
 #   run-kyber.sh status  état et fin du journal
+#   run-kyber.sh package empaquette et signe seulement (utilisé par run-station.sh)
 #
 # Le serveur tourne en LaunchAgent, comme le fera la Station : macOS demande
 # alors l'autorisation d'enregistrer l'écran pour lui (« KyberNow Station
@@ -101,10 +102,11 @@ case "${1:-}" in
         launchctl bootstrap "$DOMAIN" "$RUN/$LABEL.plist"
         echo "Kyber lancé : port 8080, compte kybernow, journal $RUN/kyber.log"
         ;;
+    package) package ;;
     stop) stop ;;
     status)
         launchctl print "$DOMAIN/$LABEL" 2>/dev/null | grep -E "state|pid" | head -3 || echo "Kyber n'est pas lancé"
         tail -20 "$RUN/kyber.log" 2>/dev/null || true
         ;;
-    *) echo "usage : $0 start|stop|status" >&2; exit 2 ;;
+    *) echo "usage : $0 start|stop|status|package" >&2; exit 2 ;;
 esac

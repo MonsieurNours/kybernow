@@ -368,8 +368,9 @@ mod platform {
     }
 }
 
-/// Hors Windows (Mac de développement) : une carte Ethernet simulée, à
-/// l'adresse de l'ordinateur, que Windows laisserait réveiller l'ordinateur.
+/// Hors Windows : sur une Station Mac, ses vraies cartes (`mac` ci-dessous) ;
+/// sinon (Mac de développement) une carte Ethernet simulée, à l'adresse de
+/// l'ordinateur, que Windows laisserait réveiller l'ordinateur.
 #[cfg(not(windows))]
 mod platform {
     use std::net::Ipv4Addr;
@@ -380,6 +381,10 @@ mod platform {
     const SIMULATED_MAC: &str = "02:4B:4E:00:00:01";
 
     pub fn cards(_armed: Option<&[String]>) -> Vec<Card> {
+        #[cfg(target_os = "macos")]
+        if crate::mac::is_station() {
+            return super::mac::cards();
+        }
         let ip = crate::tls::lan_ip().and_then(|a| a.parse::<Ipv4Addr>().ok());
         vec![Card {
             mac: SIMULATED_MAC.into(),
@@ -393,6 +398,108 @@ mod platform {
 
     pub fn armed() -> Option<Vec<String>> {
         None
+    }
+}
+
+/// Station Mac : les ports matériels de `networksetup` (adresse matérielle,
+/// pas l'adresse privée que macOS donne au Wi-Fi), ceux qui ont une adresse
+/// IPv4 (`ifconfig`), la carte de la route par défaut en tête. Le réveil suit
+/// « Réveil pour l'accès au réseau » (`pmset -g`, `womp`), pour toutes les cartes.
+#[cfg(target_os = "macos")]
+mod mac {
+    use std::net::Ipv4Addr;
+    use std::process::Command;
+
+    use super::{Card, Kind, broadcast};
+
+    fn run(program: &str, args: &[&str]) -> String {
+        Command::new(program)
+            .args(args)
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+            .unwrap_or_default()
+    }
+
+    /// (port, interface, adresse matérielle) de `networksetup -listallhardwareports`.
+    pub(super) fn ports(text: &str) -> Vec<(String, String, String)> {
+        let mut out = Vec::new();
+        let (mut port, mut device) = (None, None);
+        for line in text.lines() {
+            if let Some(p) = line.strip_prefix("Hardware Port: ") {
+                port = Some(p.trim().to_string());
+            } else if let Some(d) = line.strip_prefix("Device: ") {
+                device = Some(d.trim().to_string());
+            } else if let Some(m) = line.strip_prefix("Ethernet Address: ")
+                && let (Some(p), Some(d)) = (port.take(), device.take())
+            {
+                let mac = m.trim().to_ascii_uppercase();
+                if mac.len() == 17 {
+                    out.push((p, d, mac));
+                }
+            }
+        }
+        out
+    }
+
+    /// Adresse IPv4 et diffusion d'une interface active (`ifconfig <if>`).
+    pub(super) fn ipv4(text: &str) -> Option<(Ipv4Addr, Ipv4Addr)> {
+        if text.contains("status: inactive") {
+            return None;
+        }
+        let line = text.lines().map(str::trim).find(|l| l.starts_with("inet "))?;
+        let words: Vec<&str> = line.split_whitespace().collect();
+        let ip: Ipv4Addr = words.get(1)?.parse().ok()?;
+        let after = |key: &str| words.iter().position(|w| *w == key).and_then(|i| words.get(i + 1));
+        let bcast = match after("broadcast").and_then(|b| b.parse().ok()) {
+            Some(b) => b,
+            None => {
+                let mask = u32::from_str_radix(after("netmask")?.trim_start_matches("0x"), 16).ok()?;
+                broadcast(ip, mask.count_ones() as u8)
+            }
+        };
+        (!ip.is_link_local() && !ip.is_loopback()).then_some((ip, bcast))
+    }
+
+    fn kind_of(port: &str) -> Option<Kind> {
+        let p = port.to_ascii_lowercase();
+        if p.contains("wi-fi") || p.contains("airport") {
+            Some(Kind::Wifi)
+        } else if p.contains("bluetooth") || p.contains("bridge") || p.contains("iphone") || p.contains("vpn") {
+            None
+        } else {
+            Some(Kind::Ethernet)
+        }
+    }
+
+    pub fn cards() -> Vec<Card> {
+        let womp = run("/usr/bin/pmset", &["-g"]).lines().find_map(|l| {
+            let mut w = l.split_whitespace();
+            (w.next() == Some("womp")).then(|| w.next() == Some("1"))
+        });
+        let default_if = run("/sbin/route", &["-n", "get", "default"])
+            .lines()
+            .find_map(|l| l.trim().strip_prefix("interface: ").map(str::to_string));
+        let mut cards: Vec<(bool, Card)> = ports(&run("/usr/sbin/networksetup", &["-listallhardwareports"]))
+            .into_iter()
+            .filter_map(|(port, device, mac)| {
+                let kind = kind_of(&port)?;
+                let (ip, bcast) = ipv4(&run("/sbin/ifconfig", &[&device]))?;
+                let card = Card {
+                    mac,
+                    ipv4: Some(ip.to_string()),
+                    broadcast: Some(bcast.to_string()),
+                    kind,
+                    armed: womp,
+                    name: port,
+                };
+                Some((default_if.as_deref() == Some(device.as_str()), card))
+            })
+            .collect();
+        // La carte de la route par défaut, puis l'Ethernet, puis le Wi-Fi.
+        cards.sort_by_key(|(default, c)| (!default, c.kind));
+        cards.into_iter().map(|(_, c)| c).collect()
     }
 }
 
@@ -515,5 +622,31 @@ mod tests {
         assert!(armed.contains(&normalized("Intel® Ethernet Connection I219-V")));
         assert!(!armed.contains(&normalized("Intel® Ethernet Connection I219-V #2")));
         assert!(parse_armed("").is_empty());
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod mac_tests {
+    use std::net::Ipv4Addr;
+
+    use super::mac::{ipv4, ports};
+
+    #[test]
+    fn reads_the_hardware_ports() {
+        let text = "\nHardware Port: USB 10/100/1G/2.5G LAN\nDevice: en8\nEthernet Address: 00:e0:4c:68:02:9f\n\nHardware Port: Wi-Fi\nDevice: en0\nEthernet Address: a4:fc:14:00:11:22\n\nHardware Port: Thunderbolt Bridge\nDevice: bridge0\nEthernet Address: N/A\n";
+        let p = ports(text);
+        assert_eq!(p.len(), 2);
+        assert_eq!(p[0], ("USB 10/100/1G/2.5G LAN".into(), "en8".into(), "00:E0:4C:68:02:9F".into()));
+        assert_eq!(p[1].1, "en0");
+    }
+
+    #[test]
+    fn reads_an_active_interface() {
+        let text = "en0: flags=8863<UP,BROADCAST>\n\tether 32:6e:28:82:90:d7\n\tinet 192.168.1.49 netmask 0xffffff00 broadcast 192.168.1.255\n\tstatus: active\n";
+        assert_eq!(ipv4(text), Some((Ipv4Addr::new(192, 168, 1, 49), Ipv4Addr::new(192, 168, 1, 255))));
+        let no_bcast = "en8: flags=8863<UP>\n\tinet 10.0.0.7 netmask 0xffff0000\n";
+        assert_eq!(ipv4(no_bcast), Some((Ipv4Addr::new(10, 0, 0, 7), Ipv4Addr::new(10, 0, 255, 255))));
+        assert_eq!(ipv4("en5: flags=0<>\n\tstatus: inactive\n"), None);
+        assert_eq!(ipv4("en6: flags=8863<UP>\n\tinet 169.254.3.4 netmask 0xffff0000 broadcast 169.254.255.255\n"), None);
     }
 }

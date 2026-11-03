@@ -839,6 +839,10 @@ fn wgc_screens(slots: &[Slot]) -> Vec<(String, u32)> {
 
 trait Backend: Send + Sync {
     fn driver(&self) -> Result<Value>;
+    /// Ce système peut créer des écrans virtuels (faux : Station Mac pour l'instant).
+    fn supported(&self) -> bool {
+        true
+    }
     /// Exécutables en marche sur l'ordinateur (pour repérer un autre serveur de streaming).
     fn process_names(&self) -> Vec<String>;
     /// SID du compte connecté à la session console (`None` : personne).
@@ -920,11 +924,19 @@ pub fn now_secs() -> u64 {
 }
 
 impl Manager {
+    /// Des écrans virtuels peuvent être créés ici (faux sur une Station Mac,
+    /// docs/station-macos.md) : sinon, `prepare` prend l'écran tel qu'il est.
+    pub fn supported(&self) -> bool {
+        self.backend.supported()
+    }
+
     pub fn new(data_dir: PathBuf, settings: VdSettings) -> Arc<Self> {
         #[cfg(windows)]
         let backend: Box<dyn Backend> = Box::new(windows::WinBackend::new(data_dir.clone()));
+        // Station Mac : pas encore d'écran virtuel (docs/station-macos.md, jalon 3).
         #[cfg(not(windows))]
-        let backend: Box<dyn Backend> = Box::new(Simulated::default());
+        let backend: Box<dyn Backend> =
+            if crate::mac::is_station() { Box::new(Absent) } else { Box::new(Simulated::default()) };
         Self::with_backend(data_dir, settings, backend)
     }
 
@@ -2114,6 +2126,79 @@ impl Manager {
     }
 }
 
+
+/// Station Mac sans écran virtuel (en attendant `CGVirtualDisplay`,
+/// docs/station-macos.md) : le pilote est absent, `prepare` prend l'écran du
+/// Mac tel qu'il est, comme une Station Windows sans SudoVDA.
+#[cfg(not(windows))]
+struct Absent;
+
+#[cfg(not(windows))]
+fn absent<T>() -> Result<T> {
+    Err(crate::i18n::Msg::new("display.noMacVirtualDisplay").into())
+}
+
+#[cfg(not(windows))]
+impl Backend for Absent {
+    fn driver(&self) -> Result<Value> {
+        absent()
+    }
+    fn supported(&self) -> bool {
+        false
+    }
+    fn process_names(&self) -> Vec<String> {
+        Vec::new()
+    }
+    fn console_user(&self) -> Option<String> {
+        None
+    }
+    fn read_pointer(&self) -> Result<(String, PointerRecord)> {
+        absent()
+    }
+    fn enlarge_pointer(&self, _: u32, _: u32) -> Result<Value> {
+        absent()
+    }
+    fn restore_pointer(&self, _: &str, _: PointerRecord) -> Result<Value> {
+        absent()
+    }
+    fn start_wgc(&self, screens: &[(String, u32)]) -> Vec<(String, Result<Value>)> {
+        screens.iter().map(|(g, _)| (g.clone(), absent())).collect()
+    }
+    fn stop_wgc(&self) {}
+    fn create(&self, _: [u8; 16], _: usize, _: Mode) -> Result<Created> {
+        absent()
+    }
+    fn remove(&self, _: [u8; 16]) -> Result<()> {
+        Ok(())
+    }
+    fn ping(&self) -> Result<()> {
+        Ok(())
+    }
+    fn isolate(&self, _: &[(Created, Screen)]) -> Result<Value> {
+        absent()
+    }
+    fn restore(&self) -> Result<()> {
+        Ok(())
+    }
+    fn watch(&self, _: &[Created]) {}
+    fn unwatch(&self) {}
+    fn observe(&self) -> Option<Observed> {
+        None
+    }
+    fn set_mode(&self, _: &str, _: Mode) -> Result<Mode> {
+        absent()
+    }
+    fn displays(&self) -> Result<Vec<PhysicalDisplay>> {
+        Ok(Vec::new())
+    }
+    fn set_hdr(&self, _: &[hdr::HdrAsk]) -> Result<Vec<hdr::HdrSeen>> {
+        absent()
+    }
+    fn display_hdr(&self) -> Result<hdr::HdrSeen> {
+        // Lu, sans HDR : la session prend l'écran du Mac en SDR (pour l'instant).
+        Ok(hdr::HdrSeen { read: true, ..Default::default() })
+    }
+}
 
 /// Hors Windows : pilote simulé, pour développer l'interface sur Mac. La
 /// veille y voit le mode demandé ; les tests changent les écrans à la main.

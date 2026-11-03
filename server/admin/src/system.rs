@@ -10,6 +10,26 @@ pub fn os_name() -> Option<String> {
     NAME.get_or_init(read).clone()
 }
 
+/// Nom de l'ordinateur tel que l'utilisateur l'a choisi : celui de Windows,
+/// ou sur un Mac celui des Réglages (« MacBook Pro de Matthieu »), pas son
+/// nom réseau (« MacBook-Pro-de-Matthieu-6.local », que macOS renumérote).
+pub fn computer_name() -> Option<String> {
+    #[cfg(target_os = "macos")]
+    {
+        let named = std::process::Command::new("/usr/sbin/scutil")
+            .args(["--get", "ComputerName"])
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .filter(|n| !n.is_empty());
+        if named.is_some() {
+            return named;
+        }
+    }
+    hostname::get().ok().map(|h| h.to_string_lossy().into_owned())
+}
+
 /// Numéro de build de Windows (26100 : Windows 11 24H2) ; `None` ailleurs.
 pub fn windows_build() -> Option<u32> {
     #[cfg(windows)]

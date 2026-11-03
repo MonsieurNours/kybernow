@@ -31,8 +31,10 @@ pub fn announce(port: u16, fingerprint: Option<&str>, kyber: bool) -> Option<Ser
             return None;
         }
     };
-    let name = hostname::get().map(|h| h.to_string_lossy().into_owned()).unwrap_or_else(|_| "KyberNow".into());
-    let host = format!("{}.local.", name.to_lowercase());
+    let name = crate::system::computer_name().unwrap_or_else(|| "KyberNow".into());
+    // Nom réseau pour l'adresse (sans espaces) ; le nom affiché peut en avoir.
+    let host_name = hostname::get().map(|h| h.to_string_lossy().into_owned()).unwrap_or_else(|_| "kybernow".into());
+    let host = format!("{}.local.", host_name.trim_end_matches(".local").to_lowercase());
     let mut properties = vec![("v", "1".to_string()), ("name", name.clone()), ("kyber", if kyber { "1" } else { "0" }.to_string())];
     if let Some(fp) = fingerprint {
         properties.push(("fp", fp.to_string()));

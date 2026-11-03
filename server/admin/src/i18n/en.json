@@ -56,7 +56,8 @@
     "screensPrimary": "exactly one main display is needed",
     "screensOrigin": "the main display must be at (0, 0)",
     "screensOverlap": "some displays overlap",
-    "screensApart": "each display must share an edge with another display"
+    "screensApart": "each display must share an edge with another display",
+    "noMacVirtualDisplay": "no virtual display on Mac yet: the session takes the Mac's display as it is"
   },
   "update": {
     "sessionConflict": "A device is connected: installing will end its session",

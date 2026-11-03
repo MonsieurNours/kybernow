@@ -56,7 +56,8 @@
     "screensPrimary": "il faut un seul écran principal",
     "screensOrigin": "l'écran principal doit être en (0, 0)",
     "screensOverlap": "des écrans se chevauchent",
-    "screensApart": "chaque écran doit partager un bord avec un autre écran"
+    "screensApart": "chaque écran doit partager un bord avec un autre écran",
+    "noMacVirtualDisplay": "pas encore d'écran virtuel sur Mac : la session prend l'écran du Mac tel qu'il est"
   },
   "update": {
     "sessionConflict": "Un appareil est connecté : l'installation coupera sa session",

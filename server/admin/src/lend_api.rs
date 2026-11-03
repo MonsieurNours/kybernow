@@ -122,7 +122,7 @@ pub fn enabled(s: &AppState) -> bool {
 }
 
 fn hostname() -> String {
-    hostname::get().ok().map(|h| h.to_string_lossy().into_owned()).unwrap_or_default()
+    crate::system::computer_name().unwrap_or_default()
 }
 
 /// Le prénom de l'hôte : « Votre prénom » s'il est réglé, sinon le prénom du

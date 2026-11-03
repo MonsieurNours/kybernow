@@ -84,6 +84,10 @@ struct Active {
 
 trait Backend: Send + Sync {
     fn status(&self) -> Result<Value>;
+    /// Ce système a une sortie son virtuelle (faux : Station Mac pour l'instant).
+    fn supported(&self) -> bool {
+        true
+    }
     /// Route le son vers les haut-parleurs virtuels ; renvoie de quoi revenir en arrière
     /// et le nombre de canaux obtenu.
     fn route(&self, channels: u16) -> Result<(Record, u16)>;
@@ -106,8 +110,9 @@ impl Router {
     pub fn new(data_dir: PathBuf, settings: AudioSettings) -> Arc<Self> {
         #[cfg(windows)]
         let backend: Box<dyn Backend> = Box::new(windows::WinBackend { data_dir: data_dir.clone() });
+        // Station Mac : pas encore de sortie son virtuelle (docs/station-macos.md, jalon 4).
         #[cfg(not(windows))]
-        let backend: Box<dyn Backend> = Box::new(Simulated);
+        let backend: Box<dyn Backend> = if crate::mac::is_station() { Box::new(Absent) } else { Box::new(Simulated) };
         Arc::new(Self {
             backend,
             data_dir,
@@ -160,7 +165,7 @@ impl Router {
     /// Démarre (ou reprend) le routage. `requested` : canaux demandés par
     /// l'appareil (2, 6 ou 8 ; 0 = pas de son).
     pub fn start(&self, origin: Origin, requested: Option<u16>) -> Value {
-        if !self.allowed(origin) || requested == Some(0) {
+        if !self.allowed(origin) || requested == Some(0) || !self.backend.supported() {
             return json!({ "routed": false });
         }
         let channels = self.settings.lock().unwrap().channels.count(requested);
@@ -275,6 +280,27 @@ impl Router {
 }
 
 /// Hors Windows : sorties simulées, pour développer l'interface sur Mac.
+/// Station Mac sans sortie son virtuelle : le son de l'écran capturé part tel
+/// quel (Kyber le prend par ScreenCaptureKit), et rien n'est annoncé aux apps.
+#[cfg(not(windows))]
+struct Absent;
+
+#[cfg(not(windows))]
+impl Backend for Absent {
+    fn status(&self) -> Result<Value> {
+        Ok(json!({ "speakers": null, "default": null }))
+    }
+    fn supported(&self) -> bool {
+        false
+    }
+    fn route(&self, _: u16) -> Result<(Record, u16)> {
+        anyhow::bail!("pas de sortie son virtuelle sur Mac")
+    }
+    fn restore(&self, _: &Record) -> Result<()> {
+        Ok(())
+    }
+}
+
 #[cfg(not(windows))]
 struct Simulated;
 

@@ -20,6 +20,8 @@ mod lend_last;
 mod lend_sys;
 mod local_token;
 mod logs;
+#[cfg(not(windows))]
+mod mac;
 mod migrate;
 mod pairing;
 mod preview;

@@ -172,6 +172,18 @@ Le dossier `C:\ProgramData\KyberNow` est réservé à SYSTEM et aux Administrate
 
 Commandes : `kyber-admin.exe service install|uninstall`, `kyber-admin.exe reset-password` (puis redémarrer le service), `kyber-admin.exe migrate [--dry-run]` (met `kyber-admin.toml` au format de cette version, fait aussi à chaque démarrage ; voir [docs/releases.md](../docs/releases.md#migrations-des-réglages)), `kyber-admin.exe init …` (utilisée par l'installateur), `kyber-admin.exe` seul pour lancer en console (diagnostic).
 
+## KyberNow Station pour Mac (en cours)
+
+Contrat et état des jalons : [docs/station-macos.md](../docs/station-macos.md). Admin est le même programme ; `mac.rs` décide au démarrage si ce Mac est une **Station** (le LaunchAgent de Kyber existe : `KYBERNOW_KYBER_PLIST`, sinon `/Library/LaunchAgents/fr.leslignesclaires.kybernow.station.kyber.plist`) ou le **Mac de développement** (tout reste simulé, comme plus bas ; `cargo test` passe toujours par la simulation). Sur une Station :
+
+- **Kyber** est piloté par launchd (`mac::Launchd` : `launchctl print`, `kickstart`, `bootstrap`, `bootout` dans le domaine `gui/<uid>` de la session affichée à l'écran) ; l'annonce Bonjour porte `kyber=1`.
+- **Pas encore d'écran virtuel ni de sortie son virtuelle** : `display::Absent` et `audio::Absent`. `info` donne `virtual_display.available: false` (`max_screens` : 1) et `audio.speakers: false` ; `prepare` répond `virtual_display: false` (l'écran du Mac tel qu'il est, comme sous Windows sans SudoVDA), quel que soit le déclenchement réglé. Le HDR n'est pas proposé (`reason: display`).
+- **Encodeurs** proposés : VideoToolbox (défaut) et x264.
+- **Nom de l'ordinateur** : celui des Réglages (`scutil --get ComputerName`) dans l'annonce et l'API, sur tout Mac ; le nom réseau reste celui de l'adresse Bonjour et du certificat.
+- **Réveil par le réseau** : les ports matériels de `networksetup` (adresse matérielle, pas l'adresse privée du Wi-Fi) qui ont une adresse IPv4, la carte de la route par défaut en tête ; `armed` suit « Réveil pour l'accès au réseau » (`pmset -g`, `womp`).
+
+Station d'essai sur ce Mac : `server/macos/scripts/run-station.sh start|stop|status` (Admin et Kyber en LaunchAgents de la session, données dans `~/Library/Application Support/KyberNow/station-essai`, voir l'en-tête du script).
+
 ## Développer sur le Mac
 
 ```bash

@@ -163,6 +163,10 @@ pub fn start() {
 
 fn nvml() -> Option<&'static Nvml> {
     static NVML: OnceLock<Option<Nvml>> = OnceLock::new();
+    // Pas de carte NVIDIA sur un Mac à puce Apple.
+    if cfg!(target_os = "macos") {
+        return None;
+    }
     NVML.get_or_init(|| match Nvml::init() {
         Ok(n) => Some(n),
         Err(e) => {

@@ -191,7 +191,7 @@ async fn session(State(s): State<AppState>, headers: HeaderMap, via: Option<axum
         "authenticated": authenticated,
         "setup_code_file": s.data_dir.join(auth::SETUP_TOKEN_FILE),
         // Déjà annoncé sur le réseau (Bonjour) : l'écran de connexion le nomme.
-        "hostname": hostname::get().ok().map(|h| h.to_string_lossy().into_owned()),
+        "hostname": crate::system::computer_name(),
         // Contrôle de santé de l'applicateur de mises à jour (sans compte).
         "version": crate::update::current(),
     }))
@@ -308,7 +308,7 @@ async fn status(State(s): State<AppState>) -> ApiResult<Json<Value>> {
     let gpu = tokio::task::spawn_blocking(gpu::status).await.ok().flatten();
 
     Ok(Json(json!({
-        "hostname": hostname::get().ok().map(|h| h.to_string_lossy().into_owned()),
+        "hostname": crate::system::computer_name(),
         "os": crate::system::os_name(),
         "lan_ip": crate::tls::lan_ip(),
         "admin_version": env!("CARGO_PKG_VERSION"),
@@ -368,7 +368,7 @@ async fn local_state(
         "service": service_state,
         "session": !display.is_null() || !audio.is_null(),
         "user": user,
-        "hostname": hostname::get().ok().map(|h| h.to_string_lossy().into_owned()),
+        "hostname": crate::system::computer_name(),
         "address": crate::tls::lan_ip(),
         "console_port": s.listen_port,
         "activity": s.activity.summary(),
@@ -756,7 +756,7 @@ async fn web_ticket(State(s): State<AppState>) -> ApiResult<Response> {
         "user": user,
         "expires_in": LIFETIME,
         "kyber_port": s.kyber.port(),
-        "hostname": hostname::get().ok().map(|h| h.to_string_lossy().into_owned()),
+        "hostname": crate::system::computer_name(),
     });
     Ok(([(header::CACHE_CONTROL, "no-store")], Json(body)).into_response())
 }
@@ -837,7 +837,7 @@ fn wish(hdr: bool, luminance: Option<ScreenLuminance>) -> HdrWish {
 /// lien et en QR code (session de la console requise) : adresse, port et
 /// empreinte du certificat, pour une première connexion vérifiée sans question.
 async fn pairing(State(s): State<AppState>) -> ApiResult<Json<Value>> {
-    let hostname = hostname::get().ok().map(|h| h.to_string_lossy().into_owned()).unwrap_or_default();
+    let hostname = crate::system::computer_name().unwrap_or_default();
     let address = crate::tls::lan_ip().unwrap_or_else(|| "localhost".into());
     let mut link = format!("kybernow://{address}:{}?name={}", s.listen_port, urlencoding::encode(&hostname));
     if let Some(fp) = &s.tls_fingerprint {
@@ -870,7 +870,7 @@ async fn stream_info(State(s): State<AppState>, headers: HeaderMap) -> ApiResult
     let trigger = s.display.settings.lock().unwrap().trigger;
     let hdr = hdr_offer(&s, gpu.as_ref(), max_screens(available, trigger) > 1).await?;
     Ok(Json(json!({
-        "hostname": hostname::get().ok().map(|h| h.to_string_lossy().into_owned()),
+        "hostname": crate::system::computer_name(),
         "os": crate::system::os_name(),
         "gpu": gpu_name,
         "av1": av1,
@@ -1233,7 +1233,8 @@ async fn stream_prepare(
         return Err(ApiError::msg(StatusCode::CONFLICT, Msg::new("lend.inUse").with("name", name)));
     }
     let trigger = s.display.settings.lock().unwrap().trigger;
-    let virtual_display = trigger != Trigger::Off && body.virtual_display != Some(false);
+    // Sans écrans virtuels possibles (Station Mac pour l'instant), l'écran tel qu'il est.
+    let virtual_display = trigger != Trigger::Off && body.virtual_display != Some(false) && s.display.supported();
     let screens: Option<Vec<Screen>> = body.screens.as_ref().map(|l| l.iter().map(|p| p.screen).collect());
     // Disposition refusée avant de toucher à quoi que ce soit (son, écrans,
     // session en cours d'un autre appareil).

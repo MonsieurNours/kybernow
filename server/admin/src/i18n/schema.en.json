@@ -44,6 +44,10 @@
           "label": "Quick Sync — Intel",
           "hint": "The encoding chip of Intel Arc cards and of the graphics part of Intel processors. Fast, and leaves the rest of the computer free."
         },
+        "videotoolbox": {
+          "label": "VideoToolbox — Apple chip",
+          "hint": "The Mac chip's encoding engine. Fast, and leaves the rest of the computer free."
+        },
         "x264": {
           "label": "x264 — processor",
           "hint": "Encoding by the processor. Works everywhere, but loads the processor and adds latency."

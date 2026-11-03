@@ -86,7 +86,7 @@ fn guest_error(status: StatusCode, code: &str) -> Response {
 // --- Ce que voient l'hôte, le PC et Admin ---------------------------------------
 
 fn hostname() -> String {
-    hostname::get().ok().map(|h| h.to_string_lossy().into_owned()).unwrap_or_default()
+    crate::system::computer_name().unwrap_or_default()
 }
 
 /// Le partage de `multi_client` (réglage de Kyber, vrai par défaut) :
