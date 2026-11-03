@@ -609,7 +609,9 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_stats(mut
 /// « Mettre la console en veille » (la partie se termine ensuite).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_gotoBed(_: Env, _: JClass, h: jlong) {
-    with_play(h, Play::goto_bed);
+    with_play(h, |p| {
+        p.goto_bed();
+    });
 }
 
 /// Clavier de la console ouvert : le texte entier de son champ, à chaque changement.
