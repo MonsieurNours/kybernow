@@ -5,14 +5,19 @@
 //! Écrit pour l'instant : [`discovery`] (trouver les consoles du réseau et
 //! les réveiller), [`psn`] (identifiant du compte, lu une fois),
 //! [`regist`] (association par le code), [`rpcrypt`] (son chiffrement) et
-//! [`session`] (demande de session et canal de contrôle). Viennent ensuite
-//! le transport de l'image (Takion), l'image et le son, puis la manette.
+//! [`session`] (demande de session et canal de contrôle), [`takion`] (le
+//! transport), [`gkcrypt`] (son chiffrement), [`stream`] (l'ouverture du
+//! flux). Viennent ensuite l'image et le son, puis la manette.
 
 pub mod discovery;
+pub mod gkcrypt;
 mod keys;
+pub mod proto;
 pub mod psn;
 pub mod regist;
 pub mod rpcrypt;
 pub mod session;
+pub mod stream;
+pub mod takion;
 #[cfg(test)]
 mod test_vectors;

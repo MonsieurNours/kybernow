@@ -391,6 +391,12 @@ impl Ctrl {
         Ok((Ctrl { writer, crypt, stop, server_type, prohibited, thread: Some(thread) }, rx))
     }
 
+    /// Les clés de session, dont le flux a besoin pour masquer sa « launch
+    /// spec ».
+    pub fn crypt(&self) -> &RpCrypt {
+        &self.crypt
+    }
+
     /// Envoie un message chiffré.
     pub fn send(&self, kind: u16, payload: &[u8]) -> io::Result<()> {
         send_message(&self.writer, &self.crypt, kind, payload)

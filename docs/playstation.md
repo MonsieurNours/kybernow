@@ -4,7 +4,7 @@
 
 Les apps Link affichent aussi une PS5 ou une PS4 de la maison, comme la lecture à distance de Sony : l'image et le son de la console, la manette de l'appareil qui la pilote. La console apparaît à l'accueil à côté des ordinateurs.
 
-Ce document est le contrat de ce chantier. Les textes exacts iront dans [link-ui.md](link-ui.md), section « Consoles PlayStation », quand les écrans seront écrits. État : **cadré le 03/11/2026 ; blocs 1 et 2 (découverte, réveil, identifiant du compte, association) et début du bloc 3 (demande de session, canal de contrôle) écrits dans le cœur et essayés sur la PS5 Pro le 03/11/2026 ; prochain : le transport Takion** ([apps/core/README.md](../apps/core/README.md#consoles-playstation-srcplaystation)).
+Ce document est le contrat de ce chantier. Les textes exacts iront dans [link-ui.md](link-ui.md), section « Consoles PlayStation », quand les écrans seront écrits. État : **cadré le 03/11/2026 ; blocs 1 et 2 (découverte, réveil, identifiant du compte, association) et bloc 3 (demande de session, canal de contrôle, transport Takion, ouverture du flux : image H.265 et son reçus et déchiffrés) écrits dans le cœur et essayés sur la PS5 Pro le 03/11/2026 ; prochain : assembler et afficher l'image (bloc 4)** ([apps/core/README.md](../apps/core/README.md#consoles-playstation-srcplaystation)).
 
 ## Décisions
 
