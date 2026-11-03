@@ -30,6 +30,11 @@ pub const LEGACY_SETUP: &str = "KyberNow-Server-Setup.exe";
 /// Installateur de la Station pour Mac (`server/macos/scripts/build-station-app.sh`).
 pub const MAC_SETUP: &str = "KyberNow-Station-Mac.dmg";
 
+/// Installateur de la Station de ce système, quand aucun manifeste ne le nomme.
+pub fn default_setup() -> &'static str {
+    if cfg!(target_os = "macos") { MAC_SETUP } else { SETUP }
+}
+
 /// Canal de mises à jour suivi par l'ordinateur (réglage `update_channel`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

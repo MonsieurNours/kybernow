@@ -237,7 +237,7 @@ impl Updater {
             "requires_setup": matches!(refusal, Some(Refusal::Setup(_))),
             // Nom de l'installateur à télécharger : celui que liste le manifeste
             // signé (l'ancien nom pour une version publiée avant le renommage).
-            "setup": latest.and_then(|r| r.manifest.as_ref()).map_or(manifest::SETUP, Manifest::setup_installer),
+            "setup": latest.and_then(|r| r.manifest.as_ref()).map_or(manifest::default_setup(), Manifest::setup_installer),
             "checked_seconds_ago": s.checked.map(|t| t.elapsed().as_secs()),
             "error": s.error.as_ref().map(|e| i18n::error_text(lang, e)),
             "installing": s.installing,
@@ -264,7 +264,7 @@ impl Updater {
             installable: latest.is_some_and(Release::installable),
             requires_setup: matches!(refusal, Some(Refusal::Setup(_))),
             refusal: refusal.map(|r| r.message().clone()),
-            setup: latest.and_then(|r| r.manifest.as_ref()).map_or(manifest::SETUP, Manifest::setup_installer),
+            setup: latest.and_then(|r| r.manifest.as_ref()).map_or(manifest::default_setup(), Manifest::setup_installer),
             installing: s.installing.is_some(),
         }
     }
@@ -754,7 +754,7 @@ mod tests {
         assert_eq!(status["available"], true);
         assert_eq!(status["installable"], false);
         assert_eq!(status["requires_setup"], false);
-        assert_eq!(status["setup"], manifest::SETUP);
+        assert_eq!(status["setup"], manifest::default_setup());
         assert!(status["verify_error"].as_str().unwrap().contains("pas signée"), "{status}");
         assert_eq!(status["channel"], "stable");
         assert!(status["rollback"].is_null());
