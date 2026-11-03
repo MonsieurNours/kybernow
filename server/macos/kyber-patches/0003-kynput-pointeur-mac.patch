@@ -1,9 +1,6 @@
-diff --git a/kynput/src/macos/host_cursor.rs b/kynput/src/macos/host_cursor.rs
-new file mode 100644
-index 0000000..5a8c203
 --- /dev/null
 +++ b/kynput/src/macos/host_cursor.rs
-@@ -0,0 +1,474 @@
+@@ -0,0 +1,520 @@
 +// Project Kyber: host_cursor.rs (macOS)
 +// SPDX-License-Identifier: AGPL-3.0-or-later
 +//
@@ -20,14 +17,16 @@ index 0000000..5a8c203
 +// - Forme envoyée quand elle change, quand le pointeur change d'écran ou y
 +//   revient ; sinon la position seule (`CursorData::None`), quand elle bouge.
 +// - Image en ARGB non prémultiplié, comme celle de la duplication DXGI.
-+// - Pointeur masqué (jeu) : pas encore suivi, macOS ne le dit pas de façon
-+//   fiable à un processus d'arrière-plan.
++// - Pointeur masqué (jeu, frappe au clavier) : `CGCursorIsVisible` le suit
++//   depuis l'arrière-plan, que l'app le cache par `NSCursor.hide` ou
++//   `CGDisplayHideCursor` (l'image, elle, ne change pas) ; annoncé masqué
++//   après 250 ms, comme sous Windows (correctif 0002), pour ne pas clignoter.
 +
 +use std::ffi::{CStr, c_void};
 +use std::sync::atomic::{AtomicBool, Ordering};
 +use std::sync::{Arc, Mutex, Weak};
 +use std::thread;
-+use std::time::Duration;
++use std::time::{Duration, Instant};
 +
 +use log::{info, warn};
 +
@@ -37,6 +36,8 @@ index 0000000..5a8c203
 +
 +/// Lectures du pointeur par seconde.
 +const RATE: u64 = 120;
++/// Délai avant d'annoncer un pointeur masqué (Windows : correctif 0002).
++const HIDE_DELAY: Duration = Duration::from_millis(250);
 +
 +#[repr(C)]
 +#[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -146,6 +147,31 @@ index 0000000..5a8c203
 +
 +/// Compteur de forme du système (`CGSCurrentCursorSeed`, privée) : change à
 +/// chaque nouvelle forme. Absente : la forme est relue à chaque fois.
++/// Le pointeur est-il visible (`CGCursorIsVisible`, retirée des en-têtes mais
++/// toujours là) ? Absente : visible.
++fn cursor_visible() -> bool {
++    static VISIBLE: std::sync::OnceLock<Option<unsafe extern "C" fn() -> i32>> = std::sync::OnceLock::new();
++    let f = VISIBLE.get_or_init(|| {
++        let p = unsafe { dlsym(RTLD_DEFAULT, c"CGCursorIsVisible".as_ptr()) };
++        (!p.is_null()).then(|| unsafe { std::mem::transmute::<*mut c_void, unsafe extern "C" fn() -> i32>(p) })
++    });
++    f.is_none_or(|f| unsafe { f() } != 0)
++}
++
++/// Masquage annoncé seulement s'il dure (frappe, changement de forme).
++#[derive(Default)]
++struct HideDelay {
++    since: Option<Instant>,
++}
++
++impl HideDelay {
++    /// Vrai quand le pointeur est masqué depuis `HIDE_DELAY` au moins.
++    fn hidden(&mut self, visible: bool, now: Instant) -> bool {
++        self.since = if visible { None } else { self.since.or(Some(now)) };
++        self.since.is_some_and(|t| now.duration_since(t) >= HIDE_DELAY)
++    }
++}
++
 +fn cursor_seed() -> Option<i32> {
 +    static SEED: std::sync::OnceLock<Option<unsafe extern "C" fn() -> i32>> = std::sync::OnceLock::new();
 +    let f = SEED.get_or_init(|| {
@@ -362,6 +388,7 @@ index 0000000..5a8c203
 +            .spawn(move || {
 +                info!("Mac cursor reader started");
 +                let mut sent = Sent::default();
++                let mut hide = HideDelay::default();
 +                while !stop.load(Ordering::Relaxed) {
 +                    thread::sleep(Duration::from_millis(1000 / RATE));
 +                    let Some(p) = location() else { continue };
@@ -369,6 +396,8 @@ index 0000000..5a8c203
 +                        let displays = displays.lock().unwrap();
 +                        display_under(p, &displays, &active_bounds())
 +                    };
++                    // Masqué : comme hors des écrans, annoncé une fois ; la forme revient avec lui.
++                    let under = if hide.hidden(cursor_visible(), Instant::now()) { None } else { under };
 +                    let Some(cursor) = next_packet(&mut sent, under, &mut read_shape, cursor_seed()) else { continue };
 +                    let Some(consumer) = consumer.upgrade() else { break };
 +                    if let Err(err) = consumer.consume(InputPacket::new(InputTarget::Client, Payload::Cursor(cursor))) {
@@ -469,6 +498,20 @@ index 0000000..5a8c203
 +        let shape = shape.expect("forme du pointeur");
 +        println!("forme {}x{} point actif ({}, {}), compteur {seed:?}, position {at:?}", shape.width, shape.height, shape.xhot, shape.yhot);
 +        assert!(shape.data.iter().any(|px| px >> 24 != 0), "image non vide");
++    }
++
++    #[test]
++    fn hidden_only_after_the_delay() {
++        let mut hide = HideDelay::default();
++        let t0 = Instant::now();
++        assert!(!hide.hidden(true, t0));
++        assert!(!hide.hidden(false, t0));
++        assert!(!hide.hidden(false, t0 + Duration::from_millis(200)));
++        assert!(hide.hidden(false, t0 + Duration::from_millis(260)));
++        // Visible de nouveau : tout de suite ; un nouveau masquage repart de zéro.
++        assert!(!hide.hidden(true, t0 + Duration::from_millis(300)));
++        assert!(!hide.hidden(false, t0 + Duration::from_millis(400)));
++        assert!(hide.hidden(false, t0 + Duration::from_millis(700)));
 +    }
 +
 +    #[test]
