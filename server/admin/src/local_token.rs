@@ -135,9 +135,7 @@ fn write_atomically(path: &Path, text: &str) -> Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    let tmp = path.with_extension("tmp");
-    std::fs::write(&tmp, text).with_context(|| format!("écriture de {}", tmp.display()))?;
-    std::fs::rename(&tmp, path).with_context(|| format!("remplacement de {}", path.display()))?;
+    crate::durable::write(path, text).with_context(|| format!("remplacement de {}", path.display()))?;
     Ok(())
 }
 

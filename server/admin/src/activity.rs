@@ -195,13 +195,13 @@ impl Activity {
 
     fn save_devices(&self, s: &State) {
         if let Ok(bytes) = serde_json::to_vec_pretty(&s.stored) {
-            let _ = fs::write(self.dir.join(DEVICES_FILE), bytes);
+            let _ = crate::durable::write(&self.dir.join(DEVICES_FILE), bytes);
         }
     }
 
     fn save_events(&self, s: &State) {
         if let Ok(bytes) = serde_json::to_vec(&s.events) {
-            let _ = fs::write(self.dir.join(EVENTS_FILE), bytes);
+            let _ = crate::durable::write(&self.dir.join(EVENTS_FILE), bytes);
         }
     }
 

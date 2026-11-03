@@ -349,7 +349,7 @@ async fn prepare(s: &AppState, loan: lend::Loan) -> bool {
     if !alive(s, &loan.id) {
         return false;
     }
-    let _ = std::fs::write(s.data_dir.join(ACTIVE_FILE), &loan.id);
+    let _ = crate::durable::write(&s.data_dir.join(ACTIVE_FILE), &loan.id);
     // La session de l'hôte : on lui demande de finir (7 s), puis on la ferme.
     if s.activity.live().is_some() {
         s.activity.request_end();

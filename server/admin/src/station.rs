@@ -121,7 +121,7 @@ impl Restarter {
         let child = (self.launcher)(&self.data_dir).map_err(Refused::Failed)?;
         let now = SystemTime::now();
         let secs = now.duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or_default();
-        if let Err(e) = fs::create_dir_all(self.dir()).and_then(|_| fs::write(self.dir().join(LAST), secs.to_string())) {
+        if let Err(e) = fs::create_dir_all(self.dir()).and_then(|_| crate::durable::write(&self.dir().join(LAST), secs.to_string())) {
             tracing::warn!("heure du redémarrage non écrite : {e}");
         }
         s.last = Some(now);

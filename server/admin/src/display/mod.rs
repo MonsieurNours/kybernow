@@ -1029,7 +1029,7 @@ impl Manager {
             guids: if guids.len() > 1 { guids.iter().map(hex::encode).collect() } else { Vec::new() },
         };
         if let Ok(bytes) = serde_json::to_vec(&record) {
-            let _ = std::fs::write(self.record_path(), bytes);
+            let _ = crate::durable::write(&self.record_path(), bytes);
         }
     }
 
@@ -1050,7 +1050,7 @@ impl Manager {
         if screens.is_empty() {
             let _ = std::fs::remove_file(self.hdr_path());
         } else if let Ok(bytes) = serde_json::to_vec(&HdrRecords { screens }) {
-            let _ = std::fs::write(self.hdr_path(), bytes);
+            let _ = crate::durable::write(&self.hdr_path(), bytes);
         }
     }
 
@@ -1468,7 +1468,7 @@ impl Manager {
         if records.users.is_empty() {
             let _ = std::fs::remove_file(self.pointer_path());
         } else if let Ok(bytes) = serde_json::to_vec(records) {
-            let _ = std::fs::write(self.pointer_path(), bytes);
+            let _ = crate::durable::write(&self.pointer_path(), bytes);
         }
     }
 

@@ -172,9 +172,7 @@ impl KyberConfig {
         if let Some(dir) = file.parent() {
             fs::create_dir_all(dir)?;
         }
-        let tmp = file.with_extension("key.tmp");
-        fs::write(&tmp, secret).with_context(|| format!("écriture de {}", tmp.display()))?;
-        fs::rename(&tmp, file).with_context(|| format!("remplacement de {}", file.display()))?;
+        crate::durable::write(file, secret).with_context(|| format!("écriture de {}", file.display()))?;
         let _write = self.write.lock().unwrap();
         let mut doc = self.load()?;
         write_jwt_key(&mut doc, "file", &file.display().to_string())?;
@@ -325,21 +323,26 @@ impl KyberConfig {
 
     fn save(&self, text: &str) -> Result<()> {
         self.backup()?;
-        let tmp = self.path.with_extension("toml.kyber-admin-tmp");
-        fs::write(&tmp, text).with_context(|| format!("écriture de {}", tmp.display()))?;
-        // Le fichier neuf hérite des droits de Program Files (lisible par tous) :
-        // réservé à SYSTEM et aux Administrateurs avant de prendre la place.
-        if let Err(e) = crate::update::acl::secure_file(&tmp) {
-            tracing::warn!("droits de {} non posés : {e:#}", tmp.display());
-        }
-        fs::rename(&tmp, &self.path)
-            .with_context(|| format!("remplacement de {}", self.path.display()))?;
+        // Forcé sur le disque avant de prendre la place (`durable`) ; le
+        // fichier neuf hérite des droits de Program Files (lisible par tous) :
+        // réservé à SYSTEM et aux Administrateurs avant le renommage.
+        crate::durable::write_then(&self.path, text, |tmp| {
+            if let Err(e) = crate::update::acl::secure_file(tmp) {
+                tracing::warn!("droits de {} non posés : {e:#}", tmp.display());
+            }
+        })
+        .with_context(|| format!("remplacement de {}", self.path.display()))?;
         tracing::info!("kyber_config.toml mis à jour");
         Ok(())
     }
 
     fn backup(&self) -> Result<()> {
         if !self.path.exists() {
+            return Ok(());
+        }
+        // Un fichier abîmé ne se sauvegarde pas : il chasserait une bonne copie.
+        if let Some(why) = crate::kyber_repair::config_problem(&self.path) {
+            tracing::warn!("{} pas sauvegardé, illisible : {why}", self.path.display());
             return Ok(());
         }
         fs::create_dir_all(&self.backup_dir)?;
@@ -357,7 +360,7 @@ impl KyberConfig {
             dest = self.backup_dir.join(format!("kyber_config-{stamp}_{n:02}.toml"));
             n += 1;
         }
-        fs::copy(&self.path, &dest).with_context(|| format!("sauvegarde vers {}", dest.display()))?;
+        crate::durable::copy(&self.path, &dest).with_context(|| format!("sauvegarde vers {}", dest.display()))?;
 
         let mut backups: Vec<_> = fs::read_dir(&self.backup_dir)?
             .filter_map(|e| e.ok())
