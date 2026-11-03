@@ -321,11 +321,21 @@ pub fn field_label(lang: Lang, id: &str) -> String {
 
 /// Le catalogue des réglages (`/api/schema`) dans `lang` : l'anglais de
 /// `schema.en.json` par-dessus le français de `schema.rs`.
-pub fn localize_schema(lang: Lang, mut groups: Value, mut fields: Value) -> (Value, Value) {
-    if lang == Lang::Fr {
-        return (groups, fields);
+pub fn localize_schema(lang: Lang, groups: Value, fields: Value) -> (Value, Value) {
+    let (groups, fields) = if lang == Lang::Fr { (groups, fields) } else { patch_schema(&SCHEMA_EN, groups, fields) };
+    // Station Mac : la version Mac des textes propres à Windows (docs/i18n.md).
+    if cfg!(target_os = "macos") {
+        return patch_schema(&SCHEMA_MACOS[lang.code()], groups, fields);
     }
-    let en = &*SCHEMA_EN;
+    (groups, fields)
+}
+
+/// Textes des réglages propres au Mac, par langue (`schema.macos.json`).
+static SCHEMA_MACOS: LazyLock<Value> =
+    LazyLock::new(|| serde_json::from_str(include_str!("i18n/schema.macos.json")).expect("i18n/schema.macos.json"));
+
+/// `en` (textes par groupe et par réglage) par-dessus `groups` et `fields`.
+fn patch_schema(en: &Value, mut groups: Value, mut fields: Value) -> (Value, Value) {
     let patch = |target: &mut Value, from: &Value, names: &[&str]| {
         for name in names {
             if let (Some(slot), Some(text)) = (target.get_mut(*name), from.get(*name).and_then(Value::as_str))
@@ -412,6 +422,26 @@ mod tests {
         for (k, v) in &fr {
             let english = &en.iter().find(|(e, _)| e == k).unwrap().1;
             assert_eq!(placeholders(v), placeholders(english), "paramètres de {k}");
+        }
+    }
+
+    #[test]
+    fn versions_mac_des_reglages() {
+        // Chaque texte Mac vise un groupe ou un réglage qui existe, dans les deux langues.
+        let (fr, en) = (&SCHEMA_MACOS["fr"], &SCHEMA_MACOS["en"]);
+        for part in ["groups", "fields"] {
+            let ids: Vec<&String> = fr[part].as_object().unwrap().keys().collect();
+            assert_eq!(ids, en[part].as_object().unwrap().keys().collect::<Vec<_>>(), "{part}");
+            for id in ids {
+                let known = if part == "groups" {
+                    crate::schema::GROUPS.iter().any(|g| g.id == id)
+                } else {
+                    crate::schema::fields().iter().any(|f| f.id == id)
+                };
+                assert!(known, "{part}.{id} inconnu");
+                let names = |v: &Value| v.as_object().unwrap().keys().cloned().collect::<Vec<_>>();
+                assert_eq!(names(&fr[part][id]), names(&en[part][id]), "{part}.{id}");
+            }
         }
     }
 

@@ -1,0 +1,56 @@
+{
+  "fr": {
+    "groups": {
+      "audio": {
+        "help": "Comment le son de l'ordinateur est capturé puis envoyé. Le son suit la sortie KyberNow du Mac : stéréo, 5.1 ou 7.1, selon l'appareil."
+      }
+    },
+    "fields": {
+      "video.encoder": {
+        "details": "Une image 4K brute pèse environ 25 Mo : impossible de l'envoyer telle quelle 60 fois par seconde. L'encodeur la compresse en quelques millisecondes. VideoToolbox, le moteur d'encodage de la puce Apple, le fait sans ralentir le reste du Mac.",
+        "advice": "Gardez VideoToolbox. Essayez x264 seulement si l'image est corrompue."
+      },
+      "audio.quality": {
+        "help": "Le débit du son, adapté au nombre de canaux de la sortie KyberNow du Mac.",
+        "details": "Le son est compressé en Opus, le format le plus efficace aujourd'hui. Son débit grandit avec le nombre de canaux : la sortie KyberNow prend le nombre de canaux de l'appareil (stéréo, 5.1 ou 7.1), et l'appareil qui reçoit les réduit si sa propre sortie en a moins."
+      },
+      "video.intra_refresh": {
+        "advice": "Sans effet sur Mac : il ne fonctionne qu'avec l'encodeur NVENC des cartes NVIDIA."
+      },
+      "network.port": {
+        "caution": "Après un changement, les appareils qui connaissaient l'ancien port devront le mettre à jour. Si le pare-feu de macOS est allumé, il laisse passer la Station, quel que soit le port."
+      },
+      "network.tray": {
+        "label": "Icône de Kyber dans la barre des menus",
+        "help": "Affiche l'état du serveur Kyber dans la barre des menus du Mac, à côté de l'icône KyberNow Station."
+      }
+    }
+  },
+  "en": {
+    "groups": {
+      "audio": {
+        "help": "How the computer's sound is captured, then sent. Sound follows the Mac's KyberNow output: stereo, 5.1 or 7.1, depending on the device."
+      }
+    },
+    "fields": {
+      "video.encoder": {
+        "details": "A raw 4K frame weighs about 25 MB: impossible to send as is 60 times a second. The encoder compresses it in a few milliseconds. VideoToolbox, the Apple chip's encoding engine, does it without slowing down the rest of the Mac.",
+        "advice": "Keep VideoToolbox. Only try x264 if the picture is corrupted."
+      },
+      "audio.quality": {
+        "help": "The sound's bitrate, matched to the channel count of the Mac's KyberNow output.",
+        "details": "Sound is compressed with Opus, the most efficient format today. Its bitrate grows with the channel count: the KyberNow output takes the device's channel count (stereo, 5.1 or 7.1), and the receiving device downmixes if its own output has fewer."
+      },
+      "video.intra_refresh": {
+        "advice": "No effect on Mac: it only works with the NVENC encoder of NVIDIA cards."
+      },
+      "network.port": {
+        "caution": "After a change, devices that knew the old port will need to update it. If the macOS firewall is on, it lets the Station through whatever the port."
+      },
+      "network.tray": {
+        "label": "Kyber icon in the menu bar",
+        "help": "Shows the Kyber server's state in the Mac's menu bar, next to the KyberNow Station icon."
+      }
+    }
+  }
+}
