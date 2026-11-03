@@ -83,6 +83,33 @@ EOF
         --user kybernow --kyber-port 8080 --encoder videotoolbox
 }
 
+# Moteur du client web (invités du navigateur, /link) : servi par kycontroller
+# depuis le dossier `webclient` (réglage `webclient` de kyber_config.toml).
+# Comme sous Windows (server/kyber-patches/build.sh, « Surcouche ») : le
+# dossier de la version officielle de Kyber, puis notre moteur par-dessus
+# (kyber-web-out, compilé par server/kyber-patches/build.sh ; il ne dépend
+# pas du système). Pris dans le third_party du dépôt principal.
+webclient() {
+    local main official engine
+    main="$(cd "$(git -C "$ROOT" rev-parse --git-common-dir)/.." && pwd)"
+    official="${KYBER_WEBCLIENT:-$main/third_party/payload/kyber-0.29.0/webclient}"
+    engine="${KYBER_WEB_OUT:-$main/third_party/kyber-web-out}"
+    if [ ! -d "$official" ] || [ ! -f "$engine/kyclient_wasm_bg.wasm" ]; then
+        echo "    moteur web absent ($official, $engine) : pas d'invité du navigateur" >&2
+        return 0
+    fi
+    rm -rf "$KYBER/webclient" && mkdir -p "$KYBER/webclient"
+    cp -R "$official"/. "$KYBER/webclient/"
+    cp "$engine/kyclient_wasm.js" "$engine/kyclient_wasm_bg.wasm" "$KYBER/webclient/"
+    python3 - "$KYBER/kyber_config.toml" "$KYBER/webclient" <<'EOF'
+import re, sys
+path, d = sys.argv[1:]
+t = open(path).read()
+t = re.sub(r'^#?webclient = ".*"$', 'webclient = "%s"' % d, t, count=1, flags=re.M)
+open(path, 'w').write(t)
+EOF
+}
+
 plists() {
     cat > "$KYBER_PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -131,6 +158,7 @@ case "${1:-}" in
         echo "==> Kyber"
         "$HERE/run-kyber.sh" package >/dev/null 2>&1 || { echo "Empaquetage de Kyber raté (relancer server/macos/scripts/run-kyber.sh package)" >&2; exit 1; }
         first_setup
+        webclient
         plists
         launchctl bootstrap "$DOMAIN" "$KYBER_PLIST"
         launchctl bootstrap "$DOMAIN" "$ADMIN_PLIST"
