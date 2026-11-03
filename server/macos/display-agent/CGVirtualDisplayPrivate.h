@@ -17,6 +17,10 @@
 @property(readonly, nonatomic) NSUInteger width;
 @property(readonly, nonatomic) NSUInteger height;
 - (instancetype)initWithWidth:(NSUInteger)width height:(NSUInteger)height refreshRate:(double)refreshRate;
+// Fonction de transfert du mode : 1 = HDR (macOS en fait un écran HDR, EDR
+// jusqu'à 5×) ; 0 = SDR (essais du 03/11/2026, macOS 27.2).
+- (instancetype)initWithWidth:(unsigned int)width height:(unsigned int)height refreshRate:(double)refreshRate transferFunction:(unsigned int)transferFunction;
+@property(nonatomic) unsigned int transferFunction;
 @end
 @interface CGVirtualDisplaySettings : NSObject
 @property(retain, nonatomic) NSArray<CGVirtualDisplayMode *> *modes;

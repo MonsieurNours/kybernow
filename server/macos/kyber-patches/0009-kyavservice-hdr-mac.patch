@@ -1,0 +1,86 @@
+--- a/kyavservice/src/hdr.rs
++++ b/kyavservice/src/hdr.rs
+@@ -68,7 +68,10 @@
+     } else if !matches!(
+         encoder,
+         VideoEncoder::NVENC | VideoEncoder::AMF | VideoEncoder::QSV
+-    ) {
++    ) && !(cfg!(target_os = "macos") && matches!(encoder, VideoEncoder::VIDEOTOOLBOX))
++    {
++        // KyberNow (server/macos/kyber-patches/0009): VideoToolbox too, on a
++        // Mac Station (ScreenCaptureKit's 10-bit PQ capture).
+         Some(format!(
+             "HDR refused with the {encoder:?} encoder (NVENC, AMF or Quick Sync only): SDR image"
+         ))
+--- a/kyavservice/src/txproto/run.rs
++++ b/kyavservice/src/txproto/run.rs
+@@ -246,7 +246,8 @@
+                 config.encoder(),
+                 &codec,
+                 yuv444 && scale.is_none(),
+-                cfg!(target_os = "windows"),
++                // KyberNow (0009): HDR from a Mac Station too.
++                cfg!(target_os = "windows") || cfg!(target_os = "macos"),
+             );
+             if let Some(reason) = refused {
+                 warn!("{reason}");
+--- a/kyavservice/src/txproto/video.rs
++++ b/kyavservice/src/txproto/video.rs
+@@ -593,11 +593,13 @@
+     video_source: &txproto_rs::Handle,
+ ) -> Result<txproto_rs::Handle> {
+     let scale = config.scale;
++    // KyberNow (0009): HDR10, P010 frames from the capture, HEVC Main 10.
++    let pq = config.hdr.is_pq();
+     // Configure Codec
+     let mut options = vec![
+         ("preset", "medium").into(),
+         ("hardware", true).into(),
+-        ("pix_fmt", "nv12").into(),
++        ("pix_fmt", if pq { "p010" } else { "nv12" }).into(),
+         ("flags", "+global_header").into(),
+         ("prio_speed", true).into(),
+         ("realtime", true).into(),
+@@ -607,6 +609,17 @@
+         ("b_ref_mode", 0).into(),
+         ("b", config.bitrate as i64).into(),
+     ];
++
++    if let Some(profile) = hdr::hevc_profile(config.hdr, &config.codec) {
++        options.push(("profile", profile).into());
++    }
++    if pq {
++        // BT.2020, PQ, limited range: the labels players need to show HDR10.
++        options.push(("color_primaries", "bt2020").into());
++        options.push(("color_trc", "smpte2084").into());
++        options.push(("colorspace", "bt2020nc").into());
++        options.push(("color_range", "tv").into());
++    }
+ 
+     if let Some(encoder_config) = &config.encoder_config {
+         options.extend(encoder_config_to_dict(encoder_config));
+@@ -722,13 +735,17 @@
+     // KyberNow (0007): a guest's own image at a lower rate (ScreenCaptureKit's
+     // minimum frame interval).
+     #[cfg(target_os = "macos")]
+-    let grab_options = match video_config.max_fps {
+-        Some(max_fps) => Some(Dictionary::from_entries(&[(
+-            "max_framerate",
+-            i64::from(max_fps),
+-        )
+-            .into()])?),
+-        None => None,
++    let grab_options = {
++        let mut options: Vec<DictionaryEntry> = Vec::new();
++        if let Some(max_fps) = video_config.max_fps {
++            options.push(("max_framerate", i64::from(max_fps)).into());
++        }
++        // KyberNow (0009): HDR10 capture (ScreenCaptureKit in PQ, 10 bits),
++        // or the SDR image of an HDR display.
++        if video_config.hdr != HdrMode::Off {
++            options.push(("hdr", video_config.hdr.capture_option()).into());
++        }
++        if options.is_empty() { None } else { Some(Dictionary::from_entries(&options)?) }
+     };
+ 
+     #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]

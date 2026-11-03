@@ -275,8 +275,27 @@ impl Backend for MacBackend {
         }
         Ok(displays)
     }
-    fn set_hdr(&self, _: &[hdr::HdrAsk]) -> Result<Vec<hdr::HdrSeen>> {
-        bail!("HDR des écrans virtuels du Mac : pas encore (docs/station-macos.md)")
+    /// Écran virtuel du Mac en HDR : même mode, fonction de transfert HDR
+    /// (`set_hdr` de l'agent), confirmé par macOS (2 s au plus).
+    fn set_hdr(&self, asks: &[hdr::HdrAsk]) -> Result<Vec<hdr::HdrSeen>> {
+        asks.iter()
+            .map(|ask| {
+                let started = std::time::Instant::now();
+                let v = self.call(json!({ "cmd": "set_hdr", "id": ask.created.target, "on": ask.on }), false)?.context("agent arrêté")?;
+                let supported = v["supported"] == json!(true);
+                Ok(hdr::HdrSeen {
+                    read: true,
+                    supported,
+                    before: v["before"] == json!(true),
+                    active: v["active"] == json!(true),
+                    gdi_name: Some(name(ask.created.target)),
+                    method: Some("transfer_function".into()),
+                    waited_ms: Some(started.elapsed().as_millis() as u64),
+                    error: (!supported).then(|| "écran virtuel inconnu de l'agent".to_string()),
+                    ..Default::default()
+                })
+            })
+            .collect()
     }
     fn display_hdr(&self) -> Result<hdr::HdrSeen> {
         Ok(hdr::HdrSeen { read: true, ..Default::default() })

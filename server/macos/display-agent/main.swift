@@ -12,6 +12,8 @@
 //   state      {"ids"} → {"modes": [{"width", "height", "refresh"}], "displays", "others"}
 //   set_mode   {"id", "width", "height", "refresh", "hidpi"} → {"width", "height", "refresh"}
 //   displays   → {"displays": [{"id", "x", "y", "width", "height", "refresh", "primary"}]}
+//   set_hdr    {"id", "on"} → {"supported", "before", "active"} (mode du même écran, en HDR ou en SDR)
+//   hdr        {"id"} → {"supported", "active"}
 //   ping
 //
 // Le son de la session passe par les commandes ponctuelles `audio …`
@@ -55,6 +57,8 @@ final class Agent {
     private var virtuals: [Int: CGVirtualDisplay] = [:]
     /// Retina ou non, fixé à la création (le numéro de produit le dit à Kyber).
     private var retina: [CGDirectDisplayID: Bool] = [:]
+    /// Mode de chaque écran virtuel (pixels, Hz) et HDR ou non.
+    private var modes: [CGDirectDisplayID: (w: Int, h: Int, hz: Int, hdr: Bool)] = [:]
     /// Écrans du Mac éteints par `isolate`, et leur place d'avant.
     private var switchedOff: OffState?
 
@@ -77,6 +81,10 @@ final class Agent {
         case "state": return try state(req)
         case "set_mode": return try setMode(req)
         case "displays": return ["displays": physicalDisplays()]
+        case "set_hdr": return try setHDR(req)
+        case "hdr":
+            let id = CGDirectDisplayID(try int(req, "id"))
+            return ["supported": virtuals.values.contains { $0.displayID == id }, "active": hdrActive(id)]
         case "ping": return [:]
         default: throw Failure(message: "requête inconnue")
         }
@@ -116,6 +124,7 @@ final class Agent {
         }
         virtuals[slot] = display
         retina[display.displayID] = hidpi
+        modes[display.displayID] = (w, h, hz, false)
         // L'écran met un instant à prendre son mode.
         waitUntil(seconds: 3) { CGDisplayCopyDisplayMode(display.displayID) != nil }
         return ["id": display.displayID]
@@ -243,9 +252,11 @@ final class Agent {
         guard let display = virtuals.values.first(where: { $0.displayID == id }) else { throw Failure(message: "écran virtuel inconnu") }
         // Retina comme à la création : Kyber le lit dans le numéro de produit.
         let hidpi = retina[id] ?? false
-        guard display.apply(settings(width: w, height: h, refresh: hz, hidpi: hidpi)) else {
+        let hdr = modes[id]?.hdr ?? false
+        guard display.apply(settings(width: w, height: h, refresh: hz, hidpi: hidpi, hdr: hdr)) else {
             throw Failure(message: "macOS refuse le mode \(w) × \(h) à \(hz) Hz")
         }
+        modes[id] = (w, h, hz, hdr)
         waitUntil(seconds: 3) { matchingMode(id, width: w, height: h, hidpi: hidpi) != nil }
         if let mode = matchingMode(id, width: w, height: h, hidpi: hidpi) {
             configure { c in CGConfigureDisplayWithDisplayMode(c, id, mode, nil) }
@@ -253,6 +264,32 @@ final class Agent {
         waitUntil(seconds: 3) { CGDisplayCopyDisplayMode(id)?.pixelWidth == w }
         guard let m = CGDisplayCopyDisplayMode(id) else { return ["width": 0, "height": 0, "refresh": 0] }
         return ["width": m.pixelWidth, "height": m.pixelHeight, "refresh": Int(m.refreshRate.rounded())]
+    }
+
+    // MARK: HDR
+
+    /// Passe un écran virtuel en HDR ou en SDR (même mode, autre fonction de
+    /// transfert) et attend que macOS le confirme (2 s au plus).
+    private func setHDR(_ req: [String: Any]) throws -> [String: Any] {
+        let id = CGDirectDisplayID(try int(req, "id"))
+        let on = req["on"] as? Bool ?? false
+        guard let display = virtuals.values.first(where: { $0.displayID == id }), let m = modes[id] else {
+            return ["supported": false, "before": false, "active": false]
+        }
+        let before = hdrActive(id)
+        if before != on {
+            let hidpi = retina[id] ?? false
+            guard display.apply(settings(width: m.w, height: m.h, refresh: m.hz, hidpi: hidpi, hdr: on)) else {
+                throw Failure(message: "macOS refuse le HDR de l'écran virtuel")
+            }
+            modes[id] = (m.w, m.h, m.hz, on)
+            waitUntil(seconds: 2) { hdrActive(id) == on }
+            // Le changement de mode peut faire repasser l'écran en 1x : le mode Retina revient.
+            if hidpi, let mode = retinaMode(id, width: m.w, height: m.h) {
+                configure { c in CGConfigureDisplayWithDisplayMode(c, id, mode, nil) }
+            }
+        }
+        return ["supported": true, "before": before, "active": hdrActive(id)]
     }
 
     // MARK: écrans du Mac
@@ -277,12 +314,20 @@ final class Agent {
 /// `width` × `height` pixels. Déclaré en pixels, macOS prendrait le double
 /// (2868 points sur 5736 pixels), et son mode « moitié » n'est pas utilisable
 /// pour le bureau (essais du 03/11/2026).
-func settings(width w: Int, height h: Int, refresh hz: Int, hidpi: Bool) -> CGVirtualDisplaySettings {
+func settings(width w: Int, height h: Int, refresh hz: Int, hidpi: Bool, hdr: Bool = false) -> CGVirtualDisplaySettings {
     let s = CGVirtualDisplaySettings()
     s.hiDPI = hidpi ? 1 : 0
     let (mw, mh) = hidpi ? (w / 2, h / 2) : (w, h)
-    s.modes = [CGVirtualDisplayMode(width: UInt(mw), height: UInt(mh), refreshRate: Double(hz))]
+    // HDR : fonction de transfert 1 (voir CGVirtualDisplayPrivate.h).
+    s.modes = [CGVirtualDisplayMode(width: UInt32(mw), height: UInt32(mh), refreshRate: Double(hz), transferFunction: hdr ? 1 : 0)]
     return s
+}
+
+/// L'écran est-il en HDR ? (`SLSDisplayIsHDRModeEnabled`, privée.)
+func hdrActive(_ id: CGDirectDisplayID) -> Bool {
+    typealias Fn = @convention(c) (UInt32) -> Bool
+    guard let sym = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "SLSDisplayIsHDRModeEnabled") else { return false }
+    return unsafeBitCast(sym, to: Fn.self)(id)
 }
 
 /// Mode Retina de l'écran : `width` × `height` pixels, la moitié en points.

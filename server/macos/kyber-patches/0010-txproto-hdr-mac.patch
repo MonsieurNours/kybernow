@@ -1,0 +1,57 @@
+--- a/subprojects/txproto/src/iosys_screencapturekit.m
++++ b/subprojects/txproto/src/iosys_screencapturekit.m
+@@ -108,6 +108,11 @@
+ 
+     AVBufferPool *audio_pool;
+     int audio_pool_entry_size;
++
++    /* KyberNow (0010): "hdr" option of kyavservice (0009): 1 = HDR10
++     * (ScreenCaptureKit in PQ, 10-bit 4:2:0), 2 = the SDR image of an HDR
++     * display (ScreenCaptureKit's default capture), 0 = SDR. */
++    int hdr;
+ 
+     /* KyberNow (0008): a share guest's own image at a capped rate
+      * ("max_framerate", frames per second), 0 = the display's. */
+@@ -332,6 +337,14 @@
+ 
+     frame->time_base = AV_TIME_BASE_Q;
+ 
++    /* KyberNow (0010): HDR10 frames, labelled as such. */
++    if (capture->hdr == 1) {
++        frame->color_primaries = AVCOL_PRI_BT2020;
++        frame->color_trc = AVCOL_TRC_SMPTE2084;
++        frame->colorspace = AVCOL_SPC_BT2020_NCL;
++        frame->color_range = AVCOL_RANGE_MPEG;
++    }
++
+     frame->opaque_ref = av_buffer_allocz(sizeof(FormatExtraData));
+     if (!frame->opaque_ref) {
+         os_log(capture->os_log,
+@@ -786,6 +799,15 @@
+     [capture->streamConfiguration setShowsCursor:NO];
+     [capture->streamConfiguration setQueueDepth:3];
+     [capture->streamConfiguration setCapturesAudio:NO];
++    /* KyberNow (0010): HDR10, the display's HDR as PQ BT.2100, 10-bit
++     * 4:2:0 (P010 frames for VideoToolbox's HEVC Main 10). */
++    if (capture->hdr == 1) {
++        if (@available(macOS 15.0, *)) {
++            [capture->streamConfiguration setCaptureDynamicRange:SCCaptureDynamicRangeHDRCanonicalDisplay];
++        }
++        [capture->streamConfiguration setPixelFormat:kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange];
++        [capture->streamConfiguration setColorSpaceName:kCGColorSpaceITUR_2100_PQ];
++    }
+     /* KyberNow (0008): no more frames than the guest's image needs. */
+     if (capture->max_framerate > 0)
+         [capture->streamConfiguration setMinimumFrameInterval:
+@@ -1043,6 +1065,11 @@
+         return AVERROR(ENOMEM);
+ 
+     capture->quit = ATOMIC_VAR_INIT(0);
++
++    /* KyberNow (0010): "hdr" option of kyavservice (0009). */
++    AVDictionaryEntry *hdr_opt = av_dict_get(opts, "hdr", NULL, 0);
++    if (hdr_opt)
++        capture->hdr = (int)strtol(hdr_opt->value, NULL, 10);
+ 
+     /* KyberNow (0008): "max_framerate" option of kyavservice (0007). */
+     AVDictionaryEntry *max_fr = av_dict_get(opts, "max_framerate", NULL, 0);
