@@ -1,0 +1,105 @@
+diff --git a/subprojects/txproto/src/iosys_screencapturekit.m b/subprojects/txproto/src/iosys_screencapturekit.m
+--- a/subprojects/txproto/src/iosys_screencapturekit.m
++++ b/subprojects/txproto/src/iosys_screencapturekit.m
+@@ -135,6 +135,13 @@
+     AudioObjectID kn_device;
+     AudioDeviceIOProcID kn_proc;
+     int kn_channels;
++    /* KyberNow (0013): the loopback is cut into 10 ms frames (480 samples),
++     * like WASAPI on Windows. The encoder makes at most one Opus frame per
++     * input frame: with Core Audio's 512-sample cycles, 32 samples were left
++     * behind each time (6 % of the sound late, then missing on the device). */
++    float kn_acc[480 * 8];
++    int kn_acc_n;
++    int64_t kn_acc_pts;
+ } SCKCapture;
+ 
+ static inline int64_t sck_now() {
+@@ -1129,20 +1136,10 @@
+ 
+ /* KyberNow (0006): one frame per Core Audio cycle of the loopback input,
+  * interleaved floats, timed by the cycle's host time (same clock as SCK). */
+-static void kn_push_input(IOSysEntry *entry, const AudioBufferList *in,
+-                          const AudioTimeStamp *when)
++static void kn_emit(IOSysEntry *entry, const float *data, int nb_samples, int64_t pts)
+ {
+     SCKCapture *capture = (SCKCapture *)entry->io_priv;
+-    if (!in || in->mNumberBuffers < 1 || atomic_load(&capture->quit))
+-        return;
+     int ch = capture->kn_channels;
+-    const AudioBuffer *b = &in->mBuffers[0];
+-    if (!b->mData || b->mNumberChannels != (UInt32)ch)
+-        return;
+-    int nb_samples = b->mDataByteSize / (4 * ch);
+-    if (nb_samples <= 0)
+-        return;
+-
+     AVFrame *frame = av_frame_alloc();
+     if (!frame)
+         return;
+@@ -1154,11 +1151,8 @@
+         av_frame_free(&frame);
+         return;
+     }
+-    memcpy(frame->data[0], b->mData, (size_t)nb_samples * ch * 4);
+-
+-    uint64_t host = (when && (when->mFlags & kAudioTimeStampHostTimeValid))
+-                    ? when->mHostTime : mach_absolute_time();
+-    frame->pts = (int64_t)(AudioConvertHostTimeToNanos(host) / 1000) - capture->epoch;
++    memcpy(frame->data[0], data, (size_t)nb_samples * ch * 4);
++    frame->pts = pts;
+     frame->duration = av_rescale_q(nb_samples, (AVRational){1, 48000}, AV_TIME_BASE_Q);
+ 
+     frame->opaque_ref = av_buffer_allocz(sizeof(FormatExtraData));
+@@ -1179,6 +1173,43 @@
+         sp_log(entry, SP_LOG_ERROR, "Push audio frame failed: %s\n", av_err2str(err));
+     }
+     av_frame_free(&frame);
++}
++
++/* KyberNow (0006, 0013): the loopback input, interleaved floats, in 10 ms
++ * frames; each frame is timed by its first sample, from the cycle's host time
++ * (same clock as SCK). */
++static void kn_push_input(IOSysEntry *entry, const AudioBufferList *in,
++                          const AudioTimeStamp *when)
++{
++    SCKCapture *capture = (SCKCapture *)entry->io_priv;
++    if (!in || in->mNumberBuffers < 1 || atomic_load(&capture->quit))
++        return;
++    int ch = capture->kn_channels;
++    const AudioBuffer *b = &in->mBuffers[0];
++    if (!b->mData || b->mNumberChannels != (UInt32)ch || ch < 1 || ch > 8)
++        return;
++    int nb_samples = b->mDataByteSize / (4 * ch);
++    if (nb_samples <= 0)
++        return;
++
++    uint64_t host = (when && (when->mFlags & kAudioTimeStampHostTimeValid))
++                    ? when->mHostTime : mach_absolute_time();
++    int64_t base = (int64_t)(AudioConvertHostTimeToNanos(host) / 1000) - capture->epoch;
++    const float *src = (const float *)b->mData;
++    int done = 0;
++    while (done < nb_samples) {
++        if (!capture->kn_acc_n)
++            capture->kn_acc_pts = base + av_rescale(done, 1000000, 48000);
++        int take = FFMIN(480 - capture->kn_acc_n, nb_samples - done);
++        memcpy(capture->kn_acc + (size_t)capture->kn_acc_n * ch, src + (size_t)done * ch,
++               (size_t)take * ch * 4);
++        capture->kn_acc_n += take;
++        done += take;
++        if (capture->kn_acc_n == 480) {
++            kn_emit(entry, capture->kn_acc, 480, capture->kn_acc_pts);
++            capture->kn_acc_n = 0;
++        }
++    }
+ }
+ 
+ static int kn_startAudioCapture(IOSysEntry *entry, AudioObjectID dev, int channels)
+@@ -1198,6 +1229,7 @@
+ 
+     capture->kn_device = dev;
+     capture->kn_channels = channels;
++    capture->kn_acc_n = 0;
+     OSStatus st = AudioDeviceCreateIOProcIDWithBlock(&capture->kn_proc, dev, NULL,
+         ^(const AudioTimeStamp *now, const AudioBufferList *in, const AudioTimeStamp *in_time,
+           AudioBufferList *out, const AudioTimeStamp *out_time) {
