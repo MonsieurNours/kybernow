@@ -12,6 +12,7 @@
 //! ensuite la manette.
 
 pub mod audio;
+pub mod controller;
 pub mod discovery;
 pub mod fec;
 pub mod frame;

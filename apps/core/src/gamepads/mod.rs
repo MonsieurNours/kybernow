@@ -280,6 +280,15 @@ pub fn pads() -> Vec<PadInfo> {
     global().pads()
 }
 
+/// Effet propre à la manette `id` (rapport d'effets de la DualSense :
+/// gâchettes adaptatives), joué par le fil SDL s'il tourne.
+pub(crate) fn effect(id: PadId, data: Vec<u8>) {
+    #[cfg(feature = "sdl")]
+    sdl::effect(id, data);
+    #[cfg(not(feature = "sdl"))]
+    let _ = (id, data);
+}
+
 /// Vibration demandée par l'ordinateur de la session active : jouée par le
 /// fil SDL s'il tourne (sinon c'est l'app qui la joue, `InputPlatform::rumble`).
 pub(crate) fn rumble(r: GamepadRumble) {

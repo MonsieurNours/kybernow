@@ -317,9 +317,36 @@ impl Takion {
         Ok((received, lost))
     }
 
-    /// Envoie un paquet de retour (état de la manette, historique) : contenu
-    /// chiffré à partir de l'octet 12, position et GMAC aux octets 4 et 8
-    /// (`takion_send_feedback_packet`).
+    /// Un envoyeur de paquets de retour, pour un autre fil (la manette).
+    pub fn sender(&self) -> TakionSender {
+        TakionSender { shared: self.shared.clone() }
+    }
+
+    /// Arrête le fil de réception.
+    pub fn close(&mut self) {
+        self.shared.stop.store(true, Ordering::SeqCst);
+        if let Some(t) = self.thread.take() {
+            let _ = t.join();
+        }
+    }
+}
+
+impl Drop for Takion {
+    fn drop(&mut self) {
+        self.close();
+    }
+}
+
+/// Envoie les paquets de retour (état de la manette, historique) depuis un
+/// autre fil que celui du flux.
+#[derive(Clone)]
+pub struct TakionSender {
+    shared: Arc<Shared>,
+}
+
+impl TakionSender {
+    /// Envoie un paquet de retour : contenu chiffré à partir de l'octet 12,
+    /// position et GMAC aux octets 4 et 8 (`takion_send_feedback_packet`).
     pub fn send_feedback(&self, mut buf: Vec<u8>) -> io::Result<()> {
         if buf.len() < 0xc {
             return Err(io::Error::other("paquet de retour trop court"));
@@ -338,20 +365,6 @@ impl Takion {
         drop(local);
         self.shared.socket.send(&buf)?;
         Ok(())
-    }
-
-    /// Arrête le fil de réception.
-    pub fn close(&mut self) {
-        self.shared.stop.store(true, Ordering::SeqCst);
-        if let Some(t) = self.thread.take() {
-            let _ = t.join();
-        }
-    }
-}
-
-impl Drop for Takion {
-    fn drop(&mut self) {
-        self.close();
     }
 }
 

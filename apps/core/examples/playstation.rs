@@ -206,8 +206,16 @@ fn main() {
                 }
             };
             ctrl.enable_features(true).expect("envoi");
-            let profile = Profile { hdr, ..Profile::p1080() };
-            let (mut stream, events) = Stream::start(addr, target, session_id, ctrl.crypt().clone(), profile).unwrap_or_else(|e| {
+            // PS_RES=2560x1440, PS_KBPS=40000 : essais de définition et de débit.
+            let mut profile = Profile { hdr, ..Profile::p1080() };
+            if let Some((w, h)) = std::env::var("PS_RES").ok().and_then(|r| r.split_once('x').map(|(w, h)| (w.parse().unwrap_or(1920), h.parse().unwrap_or(1080)))) {
+                profile.width = w;
+                profile.height = h;
+            }
+            if let Some(k) = std::env::var("PS_KBPS").ok().and_then(|k| k.parse().ok()) {
+                profile.bitrate = k;
+            }
+            let (mut stream, events) = Stream::start(addr, target, session_id, ctrl.crypt().clone(), profile, None).unwrap_or_else(|e| {
                 eprintln!("Flux impossible : {e}");
                 std::process::exit(1)
             });

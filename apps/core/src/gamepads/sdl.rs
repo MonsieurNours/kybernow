@@ -28,7 +28,7 @@
 //! Les manettes sont numérotées dans l'ordre d'arrivée (0 à 3, joueurs 1 à
 //! 4), comme sous Linux ; une cinquième est ignorée.
 
-use std::ffi::{CStr, CString, c_char, c_int};
+use std::ffi::{CStr, CString, c_char, c_int, c_void};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, mpsc};
 use std::time::{Duration, Instant};
@@ -87,6 +87,7 @@ unsafe extern "C" {
     fn SDL_GameControllerGetVendor(c: *mut GameController) -> u16;
     fn SDL_GameControllerGetProduct(c: *mut GameController) -> u16;
     fn SDL_GameControllerRumble(c: *mut GameController, low: u16, high: u16, ms: u32) -> c_int;
+    fn SDL_GameControllerSendEffect(c: *mut GameController, data: *const c_void, size: c_int) -> c_int;
 }
 
 fn hint(name: &str, value: &str) {
@@ -120,6 +121,9 @@ static SDL_LIFE: Mutex<()> = Mutex::new(());
 static RUNNING: AtomicBool = AtomicBool::new(false);
 /// Vibrations à jouer, posées par le fil réseau de kynput ; réveillent le fil.
 static RUMBLES: Mutex<Option<mpsc::Sender<GamepadRumble>>> = Mutex::new(None);
+/// Effets propres à une manette (`SDL_GameControllerSendEffect` : rapport
+/// d'effets de la DualSense, gâchettes adaptatives), joués au tour suivant.
+static EFFECTS: Mutex<Option<mpsc::Sender<(PadId, Vec<u8>)>>> = Mutex::new(None);
 
 pub(super) fn running() -> bool {
     RUNNING.load(Ordering::Relaxed)
@@ -138,11 +142,13 @@ pub(super) fn start(keep: bool) -> bool {
     }
     let (ready_tx, ready_rx) = mpsc::channel();
     let (rumble_tx, rumble_rx) = mpsc::channel();
-    match std::thread::Builder::new().name("kybernow-manettes".into()).spawn(move || run(ready_tx, rumble_rx)) {
+    let (effect_tx, effect_rx) = mpsc::channel();
+    match std::thread::Builder::new().name("kybernow-manettes".into()).spawn(move || run(ready_tx, rumble_rx, effect_rx)) {
         Ok(_) => {
             let ok = ready_rx.recv().unwrap_or(false);
             if ok {
                 *RUMBLES.lock().unwrap() = Some(rumble_tx);
+                *EFFECTS.lock().unwrap() = Some(effect_tx);
             }
             ok
         }
@@ -178,6 +184,12 @@ pub(super) fn rumble(r: GamepadRumble) {
     }
 }
 
+pub(super) fn effect(id: PadId, data: Vec<u8>) {
+    if let Some(tx) = EFFECTS.lock().unwrap().as_ref() {
+        let _ = tx.send((id, data));
+    }
+}
+
 /// Une manette ouverte.
 struct Open {
     ctrl: *mut GameController,
@@ -185,13 +197,16 @@ struct Open {
     slot: PadId,
 }
 
-fn run(ready: mpsc::Sender<bool>, rumbles: mpsc::Receiver<GamepadRumble>) {
+fn run(ready: mpsc::Sender<bool>, rumbles: mpsc::Receiver<GamepadRumble>, effects: mpsc::Receiver<(PadId, Vec<u8>)>) {
     {
         let _sdl = SDL_LIFE.lock().unwrap();
         // Pas de gestionnaires de signaux de SDL ; les manettes même quand une
         // fenêtre d'une autre app a le clavier (aucune fenêtre SDL ici).
         hint("SDL_NO_SIGNAL_HANDLERS", "1");
         hint("SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "1");
+        // Rapports complets de la DualSense en Bluetooth : vibrations et
+        // effets (gâchettes adaptatives) comme en USB.
+        hint("SDL_JOYSTICK_HIDAPI_PS5_RUMBLE", "1");
         // https://github.com/libsdl-org/SDL/issues/5380 (comme kynput).
         #[cfg(windows)]
         hint("SDL_JOYSTICK_THREAD", "1");
@@ -210,6 +225,14 @@ fn run(ready: mpsc::Sender<bool>, rumbles: mpsc::Receiver<GamepadRumble>) {
     loop {
         while unsafe { SDL_PollEvent(&mut event) } != 0 {
             handle(&event, &mut open);
+        }
+        while let Ok((id, data)) = effects.try_recv() {
+            if let Some(pad) = open.iter().find(|p| p.slot == id) {
+                let r = unsafe { SDL_GameControllerSendEffect(pad.ctrl, data.as_ptr().cast(), data.len() as c_int) };
+                if r != 0 {
+                    log::debug!("manettes : effet refusé par J{} ({})", id + 1, error());
+                }
+            }
         }
         if stop_now() {
             break;
@@ -230,6 +253,7 @@ fn run(ready: mpsc::Sender<bool>, rumbles: mpsc::Receiver<GamepadRumble>) {
     // Plus aucune chaîne : manettes fermées (diodes, HIDAPI rendus), SDL fermé.
     let _sdl = SDL_LIFE.lock().unwrap();
     *RUMBLES.lock().unwrap() = None;
+    *EFFECTS.lock().unwrap() = None;
     for pad in open.drain(..) {
         unsafe { SDL_GameControllerClose(pad.ctrl) };
     }

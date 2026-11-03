@@ -14,6 +14,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use super::audio::{AudioOut, AudioReceiver, opus_head};
+use super::controller::ControllerState;
+use crate::gamepads;
+use crate::input::pipeline::GamepadRumble;
 use super::regist::Registered;
 use super::session::{self, Codec, Ctrl, CtrlEvent, Keys};
 use super::stream::{Profile, Stream, StreamEvent};
@@ -198,13 +201,25 @@ fn run(
     let _ = ctrl.enable_features(profile.dualsense);
     let crypt = ctrl.crypt().clone();
     *ctrl_slot.lock().unwrap() = Some(ctrl);
-    let (mut stream, stream_events) = match Stream::start(addr, target, session_id, crypt, profile) {
+    // Les manettes du lecteur du cœur (fil SDL, Mac et Windows), réunies :
+    // une seule manette pour la console.
+    gamepads::hold_sdl();
+    let _sdl = ReleaseSdl;
+    let source: super::stream::ControllerSource = Box::new(|| {
+        let g = gamepads::global();
+        g.pads()
+            .iter()
+            .map(|p| ControllerState::from_pad(&g.pressed(p.id), &g.axes(p.id)))
+            .fold(ControllerState::default(), |a, b| a.or(&b))
+    });
+    let (mut stream, stream_events) = match Stream::start(addr, target, session_id, crypt, profile, Some(source)) {
         Ok(s) => s,
         Err(e) => return PlayEnd::Unreachable(e.to_string()),
     };
     let hevc_out = profile.hevc || profile.hdr;
     video.packet(Packet::Codec { codec: if hevc_out { FOURCC_HEVC } else { FOURCC_H264 } });
     let mut receiver = AudioReceiver::new();
+    let mut haptics = HapticsToRumble::default();
     let mut audio_configured = false;
     let clock = Instant::now();
     let end = loop {
@@ -252,17 +267,161 @@ fn run(
                     }
                 }
             }
+            StreamEvent::Pad(super::takion::data::RUMBLE, buf) if buf.len() >= 3 => rumble(buf[1], buf[2]),
+            StreamEvent::Pad(super::takion::data::TRIGGER_EFFECTS, buf) if buf.len() >= 25 => {
+                triggers(buf[1], &buf[5..15], buf[2], &buf[15..25]);
+            }
+            StreamEvent::Audio(p) if p.is_haptics => {
+                if let Some((left, right)) = haptics.push(&p) {
+                    rumble16(left, right, 60);
+                }
+            }
             StreamEvent::Audio(_) | StreamEvent::Pad(..) => {}
             StreamEvent::Ended(why) => break PlayEnd::Remote(why),
         }
     };
     stream.stop();
+    rumble(0, 0);
+    // Gâchettes rendues libres (SDL ne le fait pas tout seul).
+    triggers(0x05, &[0; 10], 0x05, &[0; 10]);
     end
+}
+
+/// DualSense et DualSense Edge.
+fn is_dualsense(p: &gamepads::PadInfo) -> bool {
+    p.vendor == Some(0x054c) && matches!(p.product, Some(0x0ce6) | Some(0x0df2))
+}
+
+/// Rapport d'effets de la DualSense (`DS5EffectsState_t` de SDL, 47
+/// octets) qui pose les deux gâchettes adaptatives : type d'effet puis 10
+/// octets de paramètres, tels que la console les envoie.
+pub(crate) fn trigger_report(type_left: u8, left: &[u8], type_right: u8, right: &[u8]) -> Vec<u8> {
+    let mut r = vec![0u8; 47];
+    r[0] = 0x04 | 0x08;
+    r[10] = type_right;
+    r[11..21].copy_from_slice(&right[..10]);
+    r[21] = type_left;
+    r[22..32].copy_from_slice(&left[..10]);
+    r
+}
+
+/// Gâchettes adaptatives sur les DualSense branchées.
+fn triggers(type_left: u8, left: &[u8], type_right: u8, right: &[u8]) {
+    let report = trigger_report(type_left, left, type_right, right);
+    for p in gamepads::global().pads().iter().filter(|p| is_dualsense(p)) {
+        gamepads::effect(p.id, report.clone());
+    }
+}
+
+fn rumble16(large: u16, small: u16, ms: i32) {
+    for p in gamepads::global().pads() {
+        gamepads::rumble(GamepadRumble { id: p.id, large_motor: large, small_motor: small, duration_ms: ms });
+    }
+}
+
+/// Vibrations HD (son PCM 16 bits stéréo envoyé par la console à la place
+/// des vibrations simples quand la manette est une DualSense) traduites en
+/// vibrations ordinaires, comme chiaki-ng sans sortie de vibrations HD :
+/// l'amplitude moyenne de chaque voie, au-dessus d'un seuil, sur le gros
+/// moteur (gauche) et le petit (droite).
+#[derive(Default)]
+pub(crate) struct HapticsToRumble {
+    last: Option<u16>,
+}
+
+impl HapticsToRumble {
+    pub(crate) fn push(&mut self, p: &super::takion::AvPacket) -> Option<(u16, u16)> {
+        let source = (p.units_in_frame_fec & 0xf) as usize;
+        let unit = (p.units_in_frame_fec >> 8) as usize;
+        if unit == 0 || p.data.len() < unit * source {
+            return None;
+        }
+        let mut out = None;
+        for i in 0..source {
+            let index = p.frame_index.wrapping_add(i as u16);
+            // Seulement les trames plus récentes que la dernière jouée.
+            if let Some(last) = self.last {
+                let d = index.wrapping_sub(last);
+                if d == 0 || d >= 0x8000 {
+                    continue;
+                }
+            }
+            self.last = Some(index);
+            out = Some(strength(&p.data[unit * i..unit * (i + 1)]));
+        }
+        out
+    }
+}
+
+/// Force (gros moteur, petit moteur) d'une trame de vibrations HD.
+pub(crate) fn strength(pcm: &[u8]) -> (u16, u16) {
+    let frames = pcm.len() / 4;
+    if frames == 0 {
+        return (0, 0);
+    }
+    let (mut l, mut r) = (0u32, 0u32);
+    for f in pcm.chunks_exact(4) {
+        l += i16::from_le_bytes([f[0], f[1]]).unsigned_abs() as u32 * 2;
+        r += i16::from_le_bytes([f[2], f[3]]).unsigned_abs() as u32 * 2;
+    }
+    let level = |sum: u32| {
+        let v = sum / frames as u32;
+        if v <= 100 {
+            0
+        } else {
+            v.clamp(1 << 9, u16::MAX as u32) as u16
+        }
+    };
+    (level(l), level(r))
+}
+
+/// Relâche le fil SDL des manettes à la fin de la partie.
+struct ReleaseSdl;
+
+impl Drop for ReleaseSdl {
+    fn drop(&mut self) {
+        gamepads::release_sdl();
+    }
+}
+
+/// Vibrations de la console (gros moteur à gauche, petit à droite, 0 à
+/// 255) sur toutes les manettes ; tenues jusqu'au message suivant (la
+/// console envoie 0, 0 pour arrêter).
+fn rumble(left: u8, right: u8) {
+    for p in gamepads::global().pads() {
+        gamepads::rumble(GamepadRumble {
+            id: p.id,
+            large_motor: left as u16 * 257,
+            small_motor: right as u16 * 257,
+            duration_ms: if left == 0 && right == 0 { 0 } else { 10_000 },
+        });
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn trigger_report_layout() {
+        let r = trigger_report(0x21, &[1; 10], 0x26, &[2; 10]);
+        assert_eq!(r.len(), 47);
+        assert_eq!(r[0], 0x0c);
+        assert_eq!((r[10], r[11], r[20]), (0x26, 2, 2));
+        assert_eq!((r[21], r[22], r[31]), (0x21, 1, 1));
+        assert_eq!(r[32], 0);
+    }
+
+    #[test]
+    fn haptics_strength() {
+        assert_eq!(strength(&[0; 120]), (0, 0));
+        let mut pcm = Vec::new();
+        for _ in 0..30 {
+            pcm.extend_from_slice(&1000i16.to_le_bytes());
+            pcm.extend_from_slice(&(-30i16).to_le_bytes());
+        }
+        assert_eq!(strength(&pcm), (2000, 0));
+    }
 
     #[test]
     fn key_nal_detection() {

@@ -22,6 +22,7 @@ use super::discovery::Target;
 use super::gkcrypt::{Ecdh, GkCrypt, HANDSHAKE_KEY_SIZE};
 use super::proto::{self, Writer, kind};
 use super::rpcrypt::{self, RpCrypt};
+use super::controller::{self, ControllerState, History};
 use super::frame::{Assembler, Frame};
 use super::takion::{self, AvPacket, Takion, TakionEvent};
 
@@ -244,7 +245,16 @@ impl Stream {
     /// Ouvre le flux après le canal de contrôle : `session_id` vient de
     /// [`super::session::CtrlEvent::SessionId`], `crypt` est celui du canal
     /// de contrôle ([`super::session::Ctrl::crypt`]).
-    pub fn start(addr: Ipv4Addr, target: Target, session_id: String, crypt: RpCrypt, profile: Profile) -> io::Result<(Self, Receiver<StreamEvent>)> {
+    /// `controller` : lu toutes les 4 ms une fois le flux ouvert (l'état de
+    /// la manette à envoyer) ; aucun : pas de manette.
+    pub fn start(
+        addr: Ipv4Addr,
+        target: Target,
+        session_id: String,
+        crypt: RpCrypt,
+        profile: Profile,
+        controller: Option<ControllerSource>,
+    ) -> io::Result<(Self, Receiver<StreamEvent>)> {
         let (takion, events) = Takion::connect(addr, takion::PORT, rpcrypt::is_ps5(target))?;
         let (tx, rx) = mpsc::channel();
         let stop = Arc::new(AtomicBool::new(false));
@@ -252,7 +262,7 @@ impl Stream {
             let stop = stop.clone();
             std::thread::Builder::new()
                 .name("ps-stream".into())
-                .spawn(move || run(takion, events, target, session_id, crypt, profile, stop, tx))?
+                .spawn(move || run(takion, events, target, session_id, crypt, profile, controller, stop, tx))?
         };
         Ok((Stream { stop, thread: Some(thread) }, rx))
     }
@@ -272,6 +282,52 @@ impl Drop for Stream {
     }
 }
 
+/// Ce qui donne l'état de la manette.
+pub type ControllerSource = Box<dyn FnMut() -> ControllerState + Send>;
+
+/// Fil de la manette (`feedbacksender.c`) : l'état à chaque changement (8 ms
+/// au moins entre deux) ou toutes les 200 ms, l'historique à chaque
+/// changement de boutons, renvoyé 20, 50, 100 et 200 ms après.
+fn feedback_loop(sender: takion::TakionSender, mut source: ControllerSource, v12: bool, stop: Arc<AtomicBool>) {
+    let poll = Duration::from_millis(4);
+    let min_gap = Duration::from_millis(8);
+    let max_gap = Duration::from_millis(200);
+    let tail = [20u64, 50, 100, 200];
+    let mut prev = ControllerState::default();
+    let mut history = History::new();
+    let mut state_seq: u16 = 0;
+    let mut last_state = Instant::now() - max_gap;
+    let mut pending_state = true;
+    let mut last_history: Option<(Vec<u8>, Instant, usize)> = None;
+    while !stop.load(Ordering::SeqCst) {
+        let now_state = source();
+        if now_state != prev {
+            if let Some((seq, count, body)) = history.push(controller::history_events(&prev, &now_state)) {
+                let packet = controller::history_packet(seq, count, &body);
+                let _ = sender.send_feedback(packet.clone());
+                last_history = Some((packet, Instant::now(), 0));
+            }
+            pending_state = pending_state || (now_state.left_x, now_state.left_y, now_state.right_x, now_state.right_y, now_state.gyro, now_state.accel, now_state.orient)
+                != (prev.left_x, prev.left_y, prev.right_x, prev.right_y, prev.gyro, prev.accel, prev.orient);
+            prev = now_state;
+        }
+        let since = last_state.elapsed();
+        if (pending_state && since >= min_gap) || since >= max_gap {
+            let _ = sender.send_feedback(controller::state_packet(state_seq, &prev, v12));
+            state_seq = state_seq.wrapping_add(1);
+            last_state = Instant::now();
+            pending_state = false;
+        }
+        if let Some((packet, sent, n)) = last_history.as_mut() {
+            if *n < tail.len() && sent.elapsed() >= Duration::from_millis(tail[*n]) {
+                let _ = sender.send_feedback(packet.clone());
+                *n += 1;
+            }
+        }
+        std::thread::sleep(poll);
+    }
+}
+
 enum Phase {
     ExpectBang,
     ExpectStreamInfo,
@@ -286,9 +342,12 @@ fn run(
     session_id: String,
     crypt: RpCrypt,
     profile: Profile,
+    mut controller: Option<ControllerSource>,
     stop: Arc<AtomicBool>,
     tx: Sender<StreamEvent>,
 ) {
+    let mut feedback: Option<std::thread::JoinHandle<()>> = None;
+    let feedback_stop = Arc::new(AtomicBool::new(false));
     let mut handshake_key = [0u8; HANDSHAKE_KEY_SIZE];
     let _ = getrandom::getrandom(&mut handshake_key);
     let ecdh = Ecdh::generate();
@@ -389,6 +448,15 @@ fn run(
                         log::info!("PlayStation : flux ouvert ({} définition(s), son {audio:?})", resolutions.len());
                         assembler = Some(Assembler::new(resolutions.iter().map(|r| r.header.clone()).collect()));
                         let _ = tx.send(StreamEvent::Started { resolutions, audio });
+                        if let Some(source) = controller.take() {
+                            let sender = takion.sender();
+                            let fstop = feedback_stop.clone();
+                            let v12 = rpcrypt::is_ps5(target);
+                            feedback = std::thread::Builder::new()
+                                .name("ps-manette".into())
+                                .spawn(move || feedback_loop(sender, source, v12, fstop))
+                                .ok();
+                        }
                         phase = Phase::Running;
                     }
                     Phase::Running if t == kind::CONNECTIONQUALITY => log::debug!("PlayStation : qualité de connexion reçue"),
@@ -400,6 +468,10 @@ fn run(
             }
         }
     };
+    feedback_stop.store(true, Ordering::SeqCst);
+    if let Some(f) = feedback {
+        let _ = f.join();
+    }
     if send_disconnect {
         let _ = takion.send_data(1, 1, &disconnect_message(), true);
     }
