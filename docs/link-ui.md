@@ -595,7 +595,7 @@ Pas de profil, d'écrans, de presse-papiers, de partage ni de « Ordinateurs ».
 
 | Moment | Français | English |
 |---|---|---|
-| Connexion | « Connexion à la console… » | “Connecting to the console…” |
+| Connexion | l'écran de connexion d'un ordinateur, même composant (section « Connexion ») : le passage (l'accueil ouvert en deux le long de la couture), la capsule avec les étapes « Connexion » puis « Premières images » et « Annuler » ; l'image apparaît 0,9 s après le début du flux ; échec avant l'image : « La connexion a échoué » et la raison, « Fermer » ; fin en cours de partie : la raison seule, « Fermer ». Partie reprise après une coupure : les étapes par-dessus la dernière image. « Connexion à la console… » reste le texte du bouton principal pendant une connexion par le relais | “Connecting”, “First frames”, “Cancel”; “The connection failed”, “Close” |
 | Contenu protégé | « La console ne peut pas diffuser ce qu'elle affiche. » (sur l'image, tant que dure le blocage) | “The console can't stream what it's showing.” |
 | Menu de la session | « Mettre la console en veille » (barre de la partie) | “Put the console in rest mode” (game bar) |
 | Clavier et souris | Tant que la souris n'est pas capturée et qu'aucune manette n'est branchée : « Cliquez dans l'image pour jouer au clavier et à la souris » ; un instant après la capture : « ⌃⌥⌘M pour rendre la souris » (le raccourci de la souris des jeux ; Windows et Linux : Ctrl+Alt+Maj+M) | “Click the picture to play with keyboard and mouse”; “⌃⌥⌘M to release the mouse” |

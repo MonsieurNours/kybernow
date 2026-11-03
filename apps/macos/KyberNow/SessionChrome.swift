@@ -127,6 +127,53 @@ struct SessionChrome: View {
 
 // MARK: - Capsule du passage
 
+/// Les pièces de la capsule du passage, partagées par les sessions
+/// d'ordinateur et les parties sur console (docs/link-ui.md, « Connexion ») :
+/// le verre, les étapes, les lignes, le séparateur.
+enum PassageParts {
+    /// Le verre de la capsule, en bas de la fenêtre.
+    static func capsule<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        content()
+            .padding(.leading, 16).padding(.trailing, 20).padding(.vertical, 14)
+            .glass(16, tint: 0.55)
+            .shadow(color: .black.opacity(0.4), radius: 30, y: 16)
+    }
+
+    static var divider: some View { Rectangle().fill(Color.white.opacity(0.12)).frame(width: 1, height: 38) }
+
+    static func lines(title: String, sub: String, warn: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title).font(Theme.sans(16, .semibold)).foregroundStyle(Theme.text)
+                .contentTransition(.opacity)
+            Text(sub).font(Theme.sans(13)).foregroundStyle(warn ? Theme.warnText : Theme.muted)
+                .frame(maxWidth: 440, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// Une étape : faite (coche), en cours (points de suspension), à venir.
+    static func step(_ index: Int, _ title: String, current: Int) -> some View {
+        let done = index < current
+        let now = index == current
+        return HStack(spacing: 9) {
+            Group {
+                if done {
+                    Icon("check", size: 12, bold: true).foregroundStyle(Theme.ok)
+                } else if now {
+                    ProgressView().controlSize(.mini)
+                } else {
+                    Circle().strokeBorder(Theme.ghost, lineWidth: 1.2).frame(width: 8, height: 8)
+                }
+            }
+            .frame(width: 14, height: 14)
+            Text(now ? title + "…" : title)
+                .font(Theme.sans(14, now ? .semibold : .regular))
+                .foregroundStyle(done || now ? Theme.text : Theme.faint)
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
 /// Ce qui se passe, en une ligne : les étapes de la connexion, l'échec, la
 /// reconnexion, la fin.
 private struct PassageCapsule: View {
@@ -153,10 +200,7 @@ private struct PassageCapsule: View {
     var body: some View {
         Group {
             if mode != .hidden {
-                content
-                    .padding(.leading, 16).padding(.trailing, 20).padding(.vertical, 14)
-                    .glass(16, tint: 0.55)
-                    .shadow(color: .black.opacity(0.4), radius: 30, y: 16)
+                PassageParts.capsule { content }
                     .transition(.opacity.combined(with: .offset(y: 14)))
             }
         }
@@ -275,38 +319,14 @@ private struct PassageCapsule: View {
         }
     }
 
-    private var divider: some View { Rectangle().fill(Color.white.opacity(0.12)).frame(width: 1, height: 38) }
+    private var divider: some View { PassageParts.divider }
 
     private func lines(title: String, sub: String, warn: Bool = false) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(title).font(Theme.sans(16, .semibold)).foregroundStyle(Theme.text)
-                .contentTransition(.opacity)
-            Text(sub).font(Theme.sans(13)).foregroundStyle(warn ? Theme.warnText : Theme.muted)
-                .frame(maxWidth: 440, alignment: .leading)
-                .fixedSize(horizontal: false, vertical: true)
-        }
+        PassageParts.lines(title: title, sub: sub, warn: warn)
     }
 
-    /// Une étape : faite (coche), en cours (points de suspension), à venir.
     private func step(_ index: Int, _ title: String) -> some View {
-        let done = index < current
-        let now = index == current
-        return HStack(spacing: 9) {
-            Group {
-                if done {
-                    Icon("check", size: 12, bold: true).foregroundStyle(Theme.ok)
-                } else if now {
-                    ProgressView().controlSize(.mini)
-                } else {
-                    Circle().strokeBorder(Theme.ghost, lineWidth: 1.2).frame(width: 8, height: 8)
-                }
-            }
-            .frame(width: 14, height: 14)
-            Text(now ? title + "…" : title)
-                .font(Theme.sans(14, now ? .semibold : .regular))
-                .foregroundStyle(done || now ? Theme.text : Theme.faint)
-        }
-        .accessibilityElement(children: .combine)
+        PassageParts.step(index, title, current: current)
     }
 }
 
