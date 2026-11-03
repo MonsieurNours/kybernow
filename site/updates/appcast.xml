@@ -3,6 +3,24 @@
     <channel>
         <title>KyberNow</title>
         <item>
+            <title>0.9.3</title>
+            <pubDate>Tue, 03 Nov 2026 13:41:24 +0100</pubDate>
+            <sparkle:channel>beta</sparkle:channel>
+            <sparkle:version>202611031312</sparkle:version>
+            <sparkle:shortVersionString>0.9.3</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[
+Third HDR beta, before 0.9.5. It is only offered to Stations and apps set to beta versions.
+
+- **Mac: no more frozen screen.** On a display set to “more space” (a 4K display shown at 3008 × 1692, for example), opening the statistics in HDR could freeze the screen until the Mac restarted. The app now draws the picture at the display's real size, instead of a larger picture that macOS had to scale down: no more freeze, and less work for every frame.
+- **Your screen's real brightness for games**: on some PCs, Windows kept the virtual display's brightness (3,806 nits) instead of your device's, and games tuned their HDR for a much brighter screen than yours. The Station now tries several ways to make it take the right one, and keeps the first that works. Admin shows what games see on the Picture and sound page.
+- This beta has not yet been tried with a real PC: your feedback is welcome on the Discord.
+]]></description>
+            <sparkle:releaseNotesLink xml:lang="fr">https://www.kybernow.app/updates/notes/0.9.3/KyberNow-Link-macOS.fr.html</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/MonsieurNours/kybernow/releases/download/v0.9.3/KyberNow-Link-macOS.zip" length="49591386" type="application/octet-stream" sparkle:edSignature="TO3xYssIyWjCMp6dPSk0C5yT9Nz7Ww0hjZncq6dZcPNWkKaGnQF6qqHZUYkArC8QlkgDPC/UHAi4d2G814TdDQ=="/>
+        </item>
+        <item>
             <title>0.9.2</title>
             <pubDate>Tue, 03 Nov 2026 12:18:55 +0100</pubDate>
             <sparkle:channel>beta</sparkle:channel>
