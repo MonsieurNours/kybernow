@@ -51,7 +51,18 @@ Connecting through Sony's servers (`holepunch`, `rudp`, `stun` in chiaki-ng, the
 
 **Mac app**: the console's picture does not go through VLC (`kyvlcplayer` is tied to Kyber sessions). Decoding with VideoToolbox and display in the same window as Kyber sessions; the exact display layer is chosen in block 4. The DualSense goes through GameController (adaptive triggers); HD haptics arrive from the console as an audio stream, to be played on the controller's haptic channels over USB, and turned into simple rumble over Bluetooth (to be checked on macOS).
 
-**Away from home**: a Station running on the console's network forwards the session's packets inside the relay tunnel, without decoding the picture. Over a VPN, the app reaches the console directly.
+**Away from home**: a Station running on the console's network (Windows or Mac: the same Admin) forwards the session's packets inside the relay tunnel, without decoding the picture. Over a VPN, the app reaches the console directly (“By address”). Details: [relais.en.md](relais.en.md#playstation-consoles).
+
+- **Which Station**: the one that sees the console. Each Admin looks for the consoles on its network and lists them (`GET /api/consoles`); the app keeps by itself, for each console, the Stations that see it (by the console's ID), with no setting. Several: the first that answers.
+- **When**: the console doesn't answer directly (neither on the network nor at its kept address) and a Station that sees it can be reached through the relay, with “Access away from home” on. Waking, state and play then go through the Station.
+- **Packets**: through the relay, the app asks the console for packets of at most 1,200 bytes (Takion MTU given in BIG), what a tunnel datagram carries; on the network, 1,454 as before.
+- **Texts**: those of a computer through the relay: “Away from home” state on the home screen, “Via the relay” chip in the bar, “Path” line in the statistics.
+
+**HD haptics**: a DualSense (or DualSense Edge) plugged in over USB is also a four-channel sound card; channels 3 and 4 drive its motors. The console's HD haptics stream (PCM, two channels) is played there as is, resampled to 48 kHz, and no longer goes through simple rumble. Over Bluetooth, or without the controller's sound card: simple rumble taken from the same stream, as before.
+
+**DualSense intensities**: per console, in the settings (“Controls”): “Rumble” and “Adaptive triggers”, from 0% (off) to 100% (default), in steps of 10; at once during a game. Rumble (HD and simple) is multiplied by its intensity; triggers: the strength of each effect (resistance, trigger vibration) is multiplied by its own, 0% leaves the trigger free.
+
+**The console's keyboard**: when the console opens its on-screen keyboard (search, message; `KEYBOARD_OPEN`), the device's keyboard types into its field: a banner says so, keys give text (in the keyboard's layout) instead of holding the controller; the whole text is sent on each change (`KEYBOARD_TEXT_CHANGE_REQ`, increasing counter); Return accepts (`KEYBOARD_CLOSE_REQ`, accepted), Escape cancels (rejected); the console closes its keyboard (`KEYBOARD_CLOSE_REMOTE`): the banner goes away, the keyboard holds the controller again. Text sent back by the console (`KEYBOARD_TEXT_CHANGE_RES`) replaces the app's. With a controller plugged in too: the same, the controller stays with the console.
 
 ## Upscaling
 
@@ -61,6 +72,5 @@ Measured on 2026-11-03 on an M4 Max: MetalFX, 0.4 ms to 4K, 0.7 ms to 5K and 1 m
 
 ## Open points
 
-- **PS5 Pro resolution** in Remote Play: to be noted at the first trial.
-- **HD haptics on Mac**: is the DualSense haptic stream over USB reachable through Core Audio?
-- **Relay**: forwarding a console session needs a Station on the same network; the “console alone, no PC” case only works over a VPN.
+- **Resolution**: PS5 Remote Play goes no further than 1080p (1440p and 4K refused by the PS5 Pro, “AvCap failed to initialize video”; the author, 2026-11-03: the PS5 can't send them). Dropped; the app's upscaling makes up for it.
+- **Relay without a Station**: the “console alone, no computer on at home” case only works over a VPN.

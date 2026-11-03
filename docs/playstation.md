@@ -51,7 +51,18 @@ La connexion par les serveurs de Sony (`holepunch`, `rudp`, `stun` dans chiaki-n
 
 **App Mac** : l'image de la console ne passe pas par VLC (`kyvlcplayer` est lié aux sessions Kyber). Décodage par VideoToolbox et affichage dans la même fenêtre que les sessions Kyber ; le choix exact de la couche d'affichage se fait au bloc 4. La DualSense passe par GameController (gâchettes adaptatives) ; les vibrations HD arrivent de la console comme un flux sonore, à jouer sur les canaux de vibration de la manette en USB, et à traduire en vibrations simples en Bluetooth (à vérifier sur macOS).
 
-**Hors de chez soi** : une Station allumée sur le même réseau que la console fait suivre les paquets de la session dans le tunnel du relais, sans décoder l'image. Par un VPN, l'app joint la console directement.
+**Hors de chez soi** : une Station allumée sur le même réseau que la console (Windows ou Mac : le même Admin) fait suivre les paquets de la session dans le tunnel du relais, sans décoder l'image. Par un VPN, l'app joint la console directement (« Par adresse »). Détails : [relais.md](relais.md#consoles-playstation).
+
+- **Quelle Station** : celle qui voit la console. Chaque Admin cherche les consoles de son réseau et les annonce (`GET /api/consoles`) ; l'app retient d'elle-même, pour chaque console, les Stations qui la voient (par l'identifiant de la console), sans réglage. Plusieurs : la première qui répond.
+- **Quand** : la console ne répond pas en direct (ni sur le réseau, ni à son adresse retenue) et une Station qui la voit est joignable par le relais, « Accès hors de chez vous » allumé. Réveil, état et partie passent alors par la Station.
+- **Paquets** : par le relais, l'app demande à la console des paquets d'au plus 1 200 octets (MTU de Takion annoncé dans BIG), ce que porte un datagramme du tunnel ; sur le réseau, 1 454 comme avant.
+- **Textes** : ceux d'un ordinateur par le relais : état « Hors de chez vous » à l'accueil, puce « Par le relais » dans la barre, ligne « Chemin » des statistiques.
+
+**Vibrations HD** : une DualSense (ou DualSense Edge) branchée en USB est aussi une carte son à quatre voies ; les voies 3 et 4 tiennent ses moteurs. Le flux de vibrations HD de la console (PCM, deux voies) y est joué tel quel, rééchantillonné à 48 kHz, et ne passe plus par le grondement simple. En Bluetooth, ou sans la carte son de la manette : vibrations simples tirées du même flux, comme avant.
+
+**Intensités de la DualSense** : par console, dans les réglages (« Commandes ») : « Vibrations » et « Gâchettes adaptatives », de 0 % (coupé) à 100 % (défaut), par pas de 10 ; tout de suite pendant une partie. Les vibrations (HD et simples) sont multipliées par leur intensité ; les gâchettes : la force de chaque effet (résistance, vibration de la gâchette) est multipliée par la sienne, 0 % rend la gâchette libre.
+
+**Clavier de la console** : quand la console ouvre son clavier à l'écran (recherche, message ; `KEYBOARD_OPEN`), le clavier de l'appareil écrit dans son champ : un bandeau le dit, les touches donnent du texte (dans la disposition du clavier) au lieu de tenir la manette ; le texte entier part à chaque changement (`KEYBOARD_TEXT_CHANGE_REQ`, compteur croissant) ; Entrée valide (`KEYBOARD_CLOSE_REQ`, accepté), Échap annule (refusé) ; la console referme son clavier (`KEYBOARD_CLOSE_REMOTE`) : le bandeau disparaît, le clavier retient la manette. Le texte que la console renvoie (`KEYBOARD_TEXT_CHANGE_RES`) remplace celui de l'app. Avec une manette branchée aussi : même chose, la manette reste à la console.
 
 ## Agrandissement
 
@@ -61,6 +72,5 @@ Mesures du 03/11/2026 sur un M4 Max : MetalFX, 0,4 ms vers 4K, 0,7 ms vers 5K et
 
 ## Points ouverts
 
-- **Définition de la PS5 Pro** en lecture à distance : à relever au premier essai.
-- **Vibrations HD sur Mac** : le flux de vibrations de la DualSense en USB est-il accessible par Core Audio ?
-- **Relais** : faire suivre la session d'une console demande une Station sur le même réseau ; le cas « console seule, sans PC » ne passe que par un VPN.
+- **Définition** : la lecture à distance de la PS5 ne va pas au-delà de 1080p (1440p et 4K refusés par la PS5 Pro, « AvCap failed to initialize video » ; l'auteur, le 03/11/2026 : la PS5 ne sait pas les envoyer). Abandonné ; l'agrandissement de l'app y supplée.
+- **Relais sans Station** : le cas « console seule, sans ordinateur allumé chez soi » ne passe que par un VPN.

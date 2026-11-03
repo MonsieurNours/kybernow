@@ -218,6 +218,17 @@ What Admin does on top of the above, without changing any of it (`server/admin/s
 - Listening points: always on `127.0.0.1`, never `0.0.0.0`; TCP bound on port 0, then UDP on the same number (try again if taken). iPhone, iPad, Apple TV: no “Local Network” permission for the loopback; the sockets are recreated on coming back to the foreground (port changed: the session restarts).
 - Bridges: `kn_relay_*`, `kn_share_wait`; JNI `Native.relay*`, `Native.shareWait`.
 
+## PlayStation consoles
+
+A Station forwards the play of a PlayStation console on its network (contract: [playstation.en.md](playstation.en.md)). Admin alone: Kyber plays no part.
+
+- **The consoles seen**: Admin looks for the consoles on its network (`SRCH` broadcast, ports 9302 and 987, every 30 s, and on request) and keeps their ID (`host-id`), name, model, state and network address. `GET /api/consoles` → `{"consoles":[{"host_id":"C0151B2DAE08","name":"PS5 de Matthieu","model":"ps5"|"ps4","state":"ready"|"standby","seen":<Unix seconds>}]}` (never the address); for a paired device, directly or through the relay (“Access away from home” on), like `info`.
+- **The flows**: `open_flow` and relayed TCP connections carry `"to":"console","host_id":"<id>","port":<port>` instead of Kyber's port. Admin only reaches the address it found itself for that ID, and only these ports: TCP 9295 (session, control channel, pairing) and 997 (PS4); UDP 9296 (Takion), 9302 and 987 (state, wake). Unknown ID or other port: refused (`console_unknown`, `port_forbidden`). Never an address given by the app: the Station is not an open proxy.
+- **Authorisation**: that of a paired device away from home, renewed by its heartbeat (`POST /api/consoles/beat`, 30 s) during state, wake and play; “Access away from home” off: flows closed. A KyberNow Share guest never gets it.
+- **Packets**: unchanged (one UDP packet per datagram; the console sends packets of at most 1,200 bytes, asked for by the app). The socket to the console is kept 25 s after a drop, as towards Kyber.
+- **Core**: `relay::Tunnel::console_addr(host_id, port)` (TCP and UDP on `127.0.0.1:L`, like `kyber_addr`); `playstation`'s discovery, wake, pairing, session and Takion take an address and ports: through the relay, the loopback ones.
+- **Stations**: Windows and Mac (the same Admin, `server/admin`).
+
 ## Trust
 
 - **The relay** is checked by its certificate (web authorities, or pinned fingerprint).

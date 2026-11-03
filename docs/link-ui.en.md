@@ -558,8 +558,13 @@ Accounts kept from an earlier version (a single account, without an online ID): 
 | Changer une touche | un clic sur une touche : « Appuyez sur une touche ou cliquez… » (Échap annule, Effacement retire la touche) ; une touche déjà prise ailleurs y est retirée | “Press a key or click…” |
 | Souris | « La souris tient le stick droit » (case) ; « Sensibilité » (de 0,2 à 5, 1 par défaut) ; « Réactivité au départ » (courbe : « Douce », « Normale », « Vive » : 1,2 / 1 / 0,8 ; Vive par défaut) ; « Inclinaison minimale » (0 à 50 %, 20 % par défaut, aide : « Pour passer la zone morte des jeux. ») ; « Inverser l'axe vertical » | “The mouse holds the right stick”; “Sensitivity”; “Starting response”: “Soft”, “Normal”, “Brisk”; “Minimum tilt” (“To get past games' dead zone.”); “Invert vertical axis” |
 | Retour | « Disposition par défaut » | “Default layout” |
+| Controller | « Vibrations » et « Gâchettes adaptatives » ; « Pour la DualSense. Les vibrations HD passent par la manette branchée en USB. » | “Rumble” and “Adaptive triggers”, from 0% (off) to 100% in steps of 10 (100% by default); help: “For the DualSense. HD haptics go through the controller plugged in over USB.”; at once during a game |
 
 Settings apply to the next game; keyboard and mouse changes apply at once during a game.
+
+**The console's keyboard** (the console opens its on-screen keyboard): banner at the bottom of the picture, like the mouse hints: « Tapez votre texte · Entrée pour valider · Échap pour annuler » / “Type your text · Return to accept · Escape to cancel”; the keyboard types into the console's field (text in the keyboard's layout, Backspace; arrows not sent), then the banner goes away when the console closes its keyboard. ⌃⌥⌘ shortcuts stay with the app.
+
+**Away from home**, a console reached through a Station: “Away from home” state on the home screen, “Via the relay” chip in the bar, “Path” line in the statistics, like a computer ([relais.en.md](relais.en.md#playstation-consoles)). Nothing to set.
 
 **Game bar**: the same as a computer session's (same component, same layout), with what makes sense for a console. It opens like the pointer bar (pointer a quarter second against the top edge of the picture, only when the mouse is not captured; same short line at the top of the picture) or with the controller combination Options + Create + L1 + R1 held 250 ms (the same buttons as Start + Select + L1 + R1 in a computer session). Opened by the controller, the controller drives it (D-pad or stick, Cross to select, Circle to go back; Circle or the combination close it) and the console gets an idle controller; keyboard and mouse don't reach the console either while it is open.
 

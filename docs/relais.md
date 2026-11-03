@@ -218,6 +218,17 @@ Ce qu'Admin fait en plus de ce qui précède, sans rien y changer (`server/admin
 - Points d'écoute : toujours sur `127.0.0.1`, jamais `0.0.0.0` ; TCP lié sur le port 0, puis UDP sur le même numéro (on recommence s'il est pris). iPhone, iPad, Apple TV : pas d'autorisation « Réseau local » pour la boucle locale ; les sockets se recréent au retour au premier plan (port changé : la session repart).
 - Ponts : `kn_relay_*`, `kn_share_wait` ; JNI `Native.relay*`, `Native.shareWait`.
 
+## Consoles PlayStation
+
+Une Station fait suivre la partie d'une console PlayStation de son réseau (contrat : [playstation.md](playstation.md)). Admin seul : Kyber n'y est pour rien.
+
+- **Les consoles vues** : Admin cherche les consoles de son réseau (`SRCH` en diffusion, ports 9302 et 987, toutes les 30 s, et à la demande) et garde leur identifiant (`host-id`), nom, modèle, état et adresse sur le réseau. `GET /api/consoles` → `{"consoles":[{"host_id":"C0151B2DAE08","name":"PS5 de Matthieu","model":"ps5"|"ps4","state":"ready"|"standby","seen":<secondes Unix>}]}` (jamais l'adresse) ; pour un appareil appairé, en direct ou par le relais (« Accès hors de chez vous » allumé), comme `info`.
+- **Les flux** : `open_flow` et les connexions TCP relayées portent `"to":"console","host_id":"<identifiant>","port":<port>` au lieu du port de Kyber. Admin ne joint que l'adresse qu'il a lui-même trouvée pour cet identifiant, et seulement ces ports : TCP 9295 (session, canal de contrôle, association) et 997 (PS4) ; UDP 9296 (Takion), 9302 et 987 (état, réveil). Identifiant inconnu ou port autre : refus (`console_unknown`, `port_forbidden`). Jamais une adresse donnée par l'app : la Station n'est pas un mandataire ouvert.
+- **Autorisation** : celle d'un appareil appairé hors de chez soi, renouvelée par son signe de vie (`POST /api/consoles/beat`, 30 s) pendant l'état, le réveil et la partie ; « Accès hors de chez vous » coupé : flux fermés. Un invité de KyberNow Share n'y a jamais accès.
+- **Paquets** : sans changement (un paquet UDP par datagramme ; la console envoie des paquets d'au plus 1 200 octets, demandés par l'app). Le socket vers la console est gardé 25 s après une coupure, comme vers Kyber.
+- **Cœur** : `relay::Tunnel::console_addr(host_id, port)` (TCP et UDP sur `127.0.0.1:L`, comme `kyber_addr`) ; la découverte, le réveil, l'association, la session et Takion de `playstation` prennent une adresse et des ports : par le relais, ceux de la boucle locale.
+- **Stations** : Windows et Mac (le même Admin, `server/admin`).
+
 ## Confiance
 
 - **Le relais** est vérifié par son certificat (autorités du web, ou empreinte épinglée).
