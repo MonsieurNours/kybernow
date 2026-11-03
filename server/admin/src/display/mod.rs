@@ -452,7 +452,21 @@ pub struct PhysicalDisplay {
 /// Identifiant d'un écran pour Kyber, le même que txproto : le CRC-32 du nom
 /// GDI (`AV_CRC_32_IEEE` de FFmpeg, valeur de départ tous les bits à 1, sans
 /// inversion finale), comme `display_id` du correctif 0008.
+///
+/// Station Mac (`mac:<numéro>`, `display/mac.rs`) : la capture
+/// ScreenCaptureKit numérote ses écrans par `sp_iosys_gen_identifier` : le
+/// même CRC sur trois entiers de 32 bits (petit-boutistes) : le type du
+/// contexte (`SP_TYPE_CONTEXT`, 2), le numéro d'écran de macOS
+/// (`CGDirectDisplayID`) et le type d'entrée (`SP_IO_TYPE_VIDEO_DISPLAY`, 1).
 pub fn kyber_display_id(name: &str) -> u32 {
+    if let Some(id) = name.strip_prefix("mac:").and_then(|n| n.parse::<u32>().ok()) {
+        let bytes: Vec<u8> = [2u32, id, 1u32].iter().flat_map(|v| v.to_le_bytes()).collect();
+        return kyber_crc(&bytes);
+    }
+    kyber_crc(name.as_bytes())
+}
+
+fn kyber_crc(bytes: &[u8]) -> u32 {
     static TABLE: std::sync::OnceLock<[u32; 256]> = std::sync::OnceLock::new();
     let table = TABLE.get_or_init(|| {
         let mut t = [0u32; 256];
@@ -465,7 +479,7 @@ pub fn kyber_display_id(name: &str) -> u32 {
         }
         t
     });
-    name.bytes().fold(u32::MAX, |crc, b| table[((crc ^ u32::from(b)) & 0xff) as usize] ^ (crc >> 8))
+    bytes.iter().fold(u32::MAX, |crc, &b| table[((crc ^ u32::from(b)) & 0xff) as usize] ^ (crc >> 8))
 }
 
 /// Les écrans dans l'ordre où le partage les propose : le principal d'abord,
@@ -2947,6 +2961,9 @@ mod tests {
         // La valeur de l'exemple du contrat (docs/kybernow-share.md) : `\\.\DISPLAY5`.
         assert_eq!(kyber_display_id("\\\\.\\DISPLAY5"), 2221634456);
         assert_eq!(kyber_display_id("\\\\.\\DISPLAY1"), 1478326155);
+        // Station Mac : relevés dans le journal de Kyber (XG32UQ, écran 4 ; Studio Display, écran 3).
+        assert_eq!(kyber_display_id("mac:4"), 90593968);
+        assert_eq!(kyber_display_id("mac:3"), 3295542838);
     }
 
     #[test]
