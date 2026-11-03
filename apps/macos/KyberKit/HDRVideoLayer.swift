@@ -23,6 +23,9 @@ import UIKit
 final class HDRVideoLayer {
     let layer = AVSampleBufferDisplayLayer()
     private var format: CMVideoFormatDescription?
+    /// Métadonnées HDR10 de `format` : une image qui en porte d'autres
+    /// (palier d'une mire, nouvelle image clé) refait la description.
+    private var metadata: (display: Data?, content: Data?)
     private var failures = 0
     private var described = false
 
@@ -40,11 +43,19 @@ final class HDRVideoLayer {
         if CVBufferCopyAttachment(buffer, kCVImageBufferTransferFunctionKey, nil) == nil {
             Self.tagPQ(buffer)
         }
-        if format == nil || !CMVideoFormatDescriptionMatchesImageBuffer(format!, imageBuffer: buffer) {
+        let display = CVBufferCopyAttachment(buffer, kCVImageBufferMasteringDisplayColorVolumeKey, nil) as? Data
+        let content = CVBufferCopyAttachment(buffer, kCVImageBufferContentLightLevelInfoKey, nil) as? Data
+        let newMetadata = format != nil && (display != nil || content != nil) && (display != metadata.display || content != metadata.content)
+        if format == nil || newMetadata || !CMVideoFormatDescriptionMatchesImageBuffer(format!, imageBuffer: buffer) {
             var f: CMVideoFormatDescription?
             CMVideoFormatDescriptionCreateForImageBuffer(allocator: nil, imageBuffer: buffer, formatDescriptionOut: &f)
             format = f
+            if display != nil || content != nil { metadata = (display, content) }
             if let f { describe(f) }
+            // tvOS ne relit pas toujours les métadonnées d'une description
+            // qui change en cours de route : la file est vidée (l'image
+            // montrée reste jusqu'à la suivante).
+            if newMetadata { layer.sampleBufferRenderer.flush() }
         }
         guard let format else { return false }
         var timing = CMSampleTimingInfo(duration: .invalid, presentationTimeStamp: CMClockGetTime(CMClockGetHostTimeClock()), decodeTimeStamp: .invalid)
@@ -72,6 +83,7 @@ final class HDRVideoLayer {
     func clear() {
         layer.sampleBufferRenderer.flush(removingDisplayedImage: true, completionHandler: nil)
         format = nil
+        metadata = (nil, nil)
     }
 
     /// Étiquette PQ BT.2020 posée sur une image qui n'en a pas.
@@ -81,6 +93,24 @@ final class HDRVideoLayer {
         CVBufferSetAttachment(buffer, kCVImageBufferYCbCrMatrixKey, kCVImageBufferYCbCrMatrix_ITU_R_2020, .shouldPropagate)
     }
 
+    /// Métadonnées HDR10 posées sur une image (mires du réglage) : écran de
+    /// mastering BT.2020 D65 de `peak` nits au plus et 0,005 au moins,
+    /// MaxCLL et MaxFALL à `peak`. Format de CoreVideo, celui des SEI HEVC
+    /// (gros-boutiste ; primaires vert, bleu, rouge en 1/50 000 ; luminances
+    /// en 1/10 000 de nit).
+    static func tagHDR10(_ buffer: CVPixelBuffer, peak: Double) {
+        func be16(_ v: Int) -> [UInt8] { [UInt8((v >> 8) & 0xff), UInt8(v & 0xff)] }
+        func be32(_ v: Int) -> [UInt8] { [24, 16, 8, 0].map { UInt8((v >> $0) & 0xff) } }
+        let p = max(1, min(peak, 10000))
+        // G (0,170 ; 0,797), B (0,131 ; 0,046), R (0,708 ; 0,292), D65 (0,3127 ; 0,3290).
+        let xy = [8500, 39850, 6550, 2300, 35400, 14600, 15635, 16450]
+        let display = Data(xy.flatMap(be16) + be32(Int((p * 10000).rounded())) + be32(50))
+        let cll = Int(p.rounded())
+        let content = Data(be16(cll) + be16(cll))
+        CVBufferSetAttachment(buffer, kCVImageBufferMasteringDisplayColorVolumeKey, display as CFData, .shouldPropagate)
+        CVBufferSetAttachment(buffer, kCVImageBufferContentLightLevelInfoKey, content as CFData, .shouldPropagate)
+    }
+
     /// Le format de la couche, une fois par format (journal).
     private func describe(_ f: CMVideoFormatDescription) {
         let d = CMVideoFormatDescriptionGetDimensions(f)
@@ -88,9 +118,13 @@ final class HDRVideoLayer {
         func s(_ k: CFString) -> String { (ext[k] as? String) ?? "—" }
         let sub = CMFormatDescriptionGetMediaSubType(f)
         let code = String(bytes: [24, 16, 8, 0].map { UInt8((sub >> $0) & 0xff) }, encoding: .ascii) ?? "?"
-        let mastering = ext[kCMFormatDescriptionExtension_MasteringDisplayColorVolume] != nil
-        let cll = ext[kCMFormatDescriptionExtension_ContentLightLevelInfo] != nil
-        KyberLog.video.notice("couche vidéo HDR : \(code, privacy: .public) \(d.width)×\(d.height), primaires \(s(kCMFormatDescriptionExtension_ColorPrimaries), privacy: .public), transfert \(s(kCMFormatDescriptionExtension_TransferFunction), privacy: .public), matrice \(s(kCMFormatDescriptionExtension_YCbCrMatrix), privacy: .public), métadonnées HDR10 \(mastering ? "écran" : "—", privacy: .public)/\(cll ? "MaxCLL" : "—", privacy: .public)")
+        var info = VideoRenderer.EDRInfo()
+        info.display = ext[kCMFormatDescriptionExtension_MasteringDisplayColorVolume] as? Data
+        info.content = ext[kCMFormatDescriptionExtension_ContentLightLevelInfo] as? Data
+        let mastering = info.display != nil
+        let cll = info.content != nil
+        let peak = info.peakNits.map { ", crête \(Int($0.rounded())) nits" } ?? ""
+        KyberLog.video.notice("couche vidéo HDR : \(code, privacy: .public) \(d.width)×\(d.height), primaires \(s(kCMFormatDescriptionExtension_ColorPrimaries), privacy: .public), transfert \(s(kCMFormatDescriptionExtension_TransferFunction), privacy: .public), matrice \(s(kCMFormatDescriptionExtension_YCbCrMatrix), privacy: .public), métadonnées HDR10 \(mastering ? "écran" : "—", privacy: .public)/\(cll ? "MaxCLL" : "—", privacy: .public)\(peak, privacy: .public)")
     }
 }
 

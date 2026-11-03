@@ -19,6 +19,12 @@
 // délavé) : la mire y est une image Y'CbCr 4:2:0 10 bits étiquetée PQ
 // BT.2020, 1920 × 1080, faite par le processeur, montrée par la couche
 // vidéo du système (`HDRVideoLayer`), comme l'image HDR d'une session.
+// Sans métadonnées HDR10, tvOS et le téléviseur supposent une crête très
+// haute et compressent toute l'échelle (une LG G2 de 1 000 nits se réglait
+// vers 10 000) : chaque image porte donc des métadonnées dont la crête est
+// le palier essayé (maximum, plein écran), 1 000 nits pour le noir et le
+// blanc du bureau ; le fond reste au code de 10 000 nits. Même règle que
+// l'app LG.
 
 #if os(tvOS)
 import AVKit
@@ -207,6 +213,7 @@ final class HDRPatternSurface: PlatformPatternView {
         guard CVPixelBufferCreate(kCFAllocatorDefault, w, h, kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange, attrs as CFDictionary, &out) == kCVReturnSuccess,
               let buffer = out else { return nil }
         HDRVideoLayer.tagPQ(buffer)
+        HDRVideoLayer.tagHDR10(buffer, peak: step <= 1 ? value : 1000)
         CVPixelBufferLockBaseAddress(buffer, [])
         defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
         guard let yBase = CVPixelBufferGetBaseAddressOfPlane(buffer, 0), let cBase = CVPixelBufferGetBaseAddressOfPlane(buffer, 1) else { return nil }
