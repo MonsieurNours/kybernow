@@ -47,6 +47,15 @@ final class PlayStationSession: ObservableObject {
     static var screenIsHDR: Bool { HDRDisplay.isHDR(nil) }
 
     @Published private(set) var phase: Phase = .connecting
+    /// Étape de la carte de connexion (celle des ordinateurs) : 0 « Connexion »,
+    /// 1 « Premières images ».
+    @Published private(set) var connectStep = 0
+    /// L'image est apparue (le passage s'est ouvert) ; une coupure ensuite
+    /// remet les étapes par-dessus la dernière image.
+    @Published private(set) var revealed = false
+    /// Comme pour un ordinateur : les premières images irrégulières restent
+    /// sous l'écran de connexion.
+    private static let revealDelay: TimeInterval = 0.9
     /// Contenu protégé à l'écran de la console.
     @Published private(set) var cantDisplay = false
     @Published private(set) var barOpen = false
@@ -350,12 +359,22 @@ final class PlayStationSession: ObservableObject {
     private func stateChanged(_ s: PlayStationPlay.State) {
         switch s {
         case .connecting:
+            connectStep = 0
             phase = .connecting
         case let .streaming(w, h, hdr):
             KyberLog.app.notice("PlayStation : image \(w)x\(h) \(hdr ? "HDR" : "SDR", privacy: .public)")
-            if phase != .streaming {
+            guard phase != .streaming else { break }
+            if revealed {
+                // Partie reprise après une coupure : l'image revient seule.
                 withAnimation(Theme.easeOut) { phase = .streaming }
-                PlayStationPads.shared.setScreenPad(screenPad)
+            } else {
+                connectStep = 1
+                DispatchQueue.main.asyncAfter(deadline: .now() + Self.revealDelay) { [weak self] in
+                    guard let self, !self.revealed, !self.finished, self.phase == .connecting else { return }
+                    self.revealed = true
+                    withAnimation(Theme.easeOut) { self.phase = .streaming }
+                    PlayStationPads.shared.setScreenPad(self.screenPad)
+                }
             }
             startStats()
         case let .cantDisplay(on):
@@ -407,7 +426,9 @@ final class PlayStationSession: ObservableObject {
 #if DEBUG
 extension PlayStationSession {
     /// Démonstration au simulateur, sans console (`-screen psSession`) : une
-    /// mire à la place de l'image ; `-psDemo bar|stats|keyboard|pad|connecting|ended`.
+    /// mire à la place de l'image ; `-psDemo bar|padbar|stats|keyboard|pad|connecting|frames|failed|ended`
+    /// (`frames` : l'étape « Premières images » ; `failed` : échec avant l'image ;
+    /// `ended` : fin en cours de partie).
     func demo(_ what: String?) {
         Self.onOpen?(self)
         streamView.touchAsMouse = false
@@ -415,12 +436,20 @@ extension PlayStationSession {
         streamView.onTap = { [weak self] in if self?.barOpen == true { self?.setBar(false) } }
         switch what {
         case "connecting": return
+        case "frames":
+            connectStep = 1
+            return
+        case "failed":
+            phase = .ended(PSText.end(.unreachable))
+            return
         case "ended":
+            revealed = true
             phase = .ended(PSText.end(.inUse))
             return
         default: break
         }
         streamView.startTestPattern()
+        revealed = true
         phase = .streaming
         var st = PlayStationPlay.Stats()
         (st.width, st.height, st.hevc, st.hdr, st.targetKbps, st.fps, st.mbps) = (1920, 1080, true, true, 15000, 59.6, 12.4)

@@ -3,8 +3,8 @@
 // plein cadre, la languette et la barre de la partie (même présentation que
 // celle d'une session d'ordinateur), les statistiques (feuille sur iPhone,
 // panneau sur iPad), la manette à l'écran aux signes PlayStation, le champ
-// du clavier de la console, et ce qui se dit par-dessus l'image (connexion,
-// contenu protégé, fin).
+// du clavier de la console ; la connexion et la fin sont celles d'un ordinateur
+// (passage, carte des étapes, carte d'échec : SessionView.swift).
 
 import GameController
 import KyberKit
@@ -14,6 +14,9 @@ struct PlayStationSessionView: View {
     @ObservedObject var session: PlayStationSession
 
     private var streaming: Bool { session.phase == .streaming }
+    private var isEnded: Bool { if case .ended = session.phase { return true } else { return false } }
+    /// La signature de la console, comme sur l'accueil.
+    private var seed: String { session.console.hostID.isEmpty ? session.console.name : session.console.hostID }
 
     var body: some View {
         GeometryReader { g in
@@ -34,7 +37,35 @@ struct PlayStationSessionView: View {
                     chrome(size: g.size)
                 }
 
-                PlayStationOverlay(session: session)
+                // La connexion : l'écran d'un ordinateur (docs/link-ui.md,
+                // « Connexion »), le passage puis l'image, la carte et ses étapes.
+                if !isEnded {
+                    Passage(host: nil, open: session.revealed, title: session.console.name, button: PSText.play, seed: seed)
+                        .allowsHitTesting(false)
+                        .ignoresSafeArea()
+                }
+                if session.phase == .connecting {
+                    ConnectingCardLayout(cancel: { session.close() }) {
+                        VStack(alignment: .leading, spacing: 9) {
+                            ConnectingStep(index: 0, title: String(localized: "Connexion"), current: session.connectStep)
+                            ConnectingStep(index: 1, title: String(localized: "Premières images"), current: session.connectStep)
+                        }
+                    }
+                    .animation(Theme.easeOut, value: session.connectStep)
+                    .frame(maxWidth: 420)
+                    .frame(maxHeight: .infinity, alignment: .bottom)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 24)
+                    .transition(.opacity)
+                }
+                // Échec avant l'image : « La connexion a échoué » et la raison ;
+                // fin en cours de partie : la raison seule ; « Fermer ».
+                if case let .ended(text?) = session.phase {
+                    SessionFailure(host: nil, seed: seed, title: session.console.name, message: text,
+                                   connecting: !session.revealed, shareEnd: session.revealed,
+                                   doneTitle: String(localized: "Fermer")) { session.close() }
+                        .transition(.opacity)
+                }
             }
         }
         // Pas la zone du clavier : le champ du clavier de la console monte au-dessus.
@@ -284,49 +315,5 @@ private struct ConsoleKeyboardField: View {
         .padding(14)
         .glass(16, tint: 0.6)
         .onAppear { focused = true }
-    }
-}
-
-// MARK: - Par-dessus l'image
-
-/// La connexion, la fin (et sa raison), « Fermer ».
-private struct PlayStationOverlay: View {
-    @ObservedObject var session: PlayStationSession
-
-    var body: some View {
-        switch session.phase {
-        case .connecting:
-            ZStack {
-                Theme.background
-                HStack(spacing: 12) {
-                    ProgressView().tint(Theme.text2)
-                    Text(PSText.connecting).font(Theme.sans(16)).foregroundStyle(Theme.text2)
-                }
-            }
-            .ignoresSafeArea()
-            .overlay(alignment: .bottom) {
-                Button(PSText.cancel) { session.close() }
-                    .buttonStyle(GlassButton(height: 44, fontSize: 14))
-                    .padding(.bottom, 32)
-            }
-        case .streaming:
-            EmptyView()
-        case let .ended(text):
-            ZStack {
-                Theme.background
-                VStack(spacing: 18) {
-                    Text(session.console.name).font(Theme.sans(20, .semibold)).foregroundStyle(Theme.text)
-                    if let text {
-                        Text(text).font(Theme.sans(16)).foregroundStyle(Theme.text2)
-                            .multilineTextAlignment(.center)
-                            .frame(maxWidth: 480)
-                    }
-                    Button(String(localized: "Fermer")) { session.close() }
-                        .buttonStyle(GlassButton(height: 44, fontSize: 15))
-                }
-                .padding(24)
-            }
-            .ignoresSafeArea()
-        }
     }
 }
