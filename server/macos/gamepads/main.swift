@@ -55,6 +55,15 @@ func send(_ op: UInt8, _ id: UInt32, _ payload: Data = Data()) {
     }
 }
 
+/// Rapports déjà notés au journal : (manette, numéro du rapport).
+nonisolated(unsafe) var loggedReports = Set<UInt64>()
+
+func firstReport(_ id: UInt32, _ report: UInt8) -> Bool {
+    outputLock.lock()
+    defer { outputLock.unlock() }
+    return loggedReports.insert(UInt64(id) << 8 | UInt64(report)).inserted
+}
+
 // MARK: Entrée
 
 struct Frame {
@@ -157,6 +166,12 @@ struct Delegate: HIDVirtualDeviceDelegate {
                           id reportID: HIDReportID?, data: Data) async throws {
         var payload = Data([kind(type), reportID?.rawValue ?? 0])
         payload.append(data)
+        // Le premier rapport de chaque numéro, par manette, au journal de Kyber
+        // (un jeu peut en envoyer des dizaines par seconde).
+        if firstReport(id, reportID?.rawValue ?? 0) {
+            log("pad \(id): first \(type) report \(reportID?.rawValue ?? 0), \(data.count) bytes: "
+                + data.prefix(12).map { String(format: "%02x", $0) }.joined(separator: " "))
+        }
         send(opOutput, id, payload)
     }
 

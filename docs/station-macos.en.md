@@ -93,7 +93,7 @@ As few changes as possible, and only through what the Station announces:
 
 ## Gamepads
 
-**Status (03/11/2026)**: everything is built, waiting for Apple's entitlement. A KyberNow Link app connected to a Mac Station only has keyboard and mouse for now: macOS refuses to create a virtual gamepad without the `com.apple.developer.hid.virtual.device` entitlement, which Apple grants on request. Checked on the M4 Max: without it, CoreHID's `HIDVirtualDevice` returns `nil`, `IOHIDUserDeviceCreate` returns NULL, and an executable signed with the entitlement but no profile allowing it is killed at launch.
+**Status (03/11/2026)**: gamepads **work** on the M4 Max's installed Station with Apple's development entitlement (evening test from the iPhone, see below); a published version needs the distribution entitlement, requested from Apple the same day. Without any entitlement, macOS refuses to create a virtual gamepad: CoreHID's `HIDVirtualDevice` returns `nil`, and an executable signed with the entitlement but no profile allowing it is killed at launch.
 
 **The path.** CoreHID (`HIDVirtualDevice`, macOS 15) is the only one that works under Developer ID. Apple's support (developer forums, DTS answers) confirms it: this entitlement is enough, no need for DriverKit (heavier, with its own entitlements to request; according to Apple, `com.apple.developer.driverkit.family.hid.virtual.device` does nothing). Karabiner-VirtualHIDDevice only does keyboard and mouse, for root only; kernel extensions are out.
 
@@ -116,7 +116,16 @@ As few changes as possible, and only through what the Station announces:
 
 3. Wait for Apple's answer by e-mail (info@leslignesclaires.fr): several weeks, sometimes several months (a request from 30/06/2026 was still "Submitted" in mid-September according to Apple's forums).
 
-**Trying before the answer**: the "development" entitlement is enough for this Mac (registered in Devices) with a macOS development profile for this App ID and the Apple Development certificate; not for a distributed app.
+**Trying before the answer**: the "development" entitlement is enough for this Mac (registered in Devices). macOS development profile "KyberNow Manettes Dev M4 Max" (App ID above, the team's Apple Development certificate, this Mac), put in `~/Library/Developer/Xcode/UserData/Provisioning Profiles`; `KYBERNOW_GAMEPADS_DEV=1 server/macos/gamepads/build.sh` then signs the helper with that certificate and profile (this Mac only, no notarization: never for a published version).
+
+**Test of 03/11/2026** (Station installed on the M4 Max, libkynput and development helper put into the app by hand, session from the iPhone with a DualSense):
+
+- the gamepad arrives as an Xbox Series when the app asks for "all as Xbox" (per-computer setting of the Link apps, on by default), as a DualSense otherwise; GameController sees it as a real one ("Xbox Wireless Controller", Xbox One category; "DualSense Wireless Controller", DualSense category), taken by `AppleGCHIDUserEventDriver` despite `Transport = Virtual`;
+- sticks, A/B/X/Y, triggers, bumpers, D-pad and View received by GameController;
+- rumble sent the way SDL and Steam do (direct output report): received by the helper, sent from the Station to the iPhone ("first rumble for gamepad 2: 65535/65535" in Kyber's log); the iPhone does not play it, nor with a Windows Station: an iPhone app issue, separate. GameController announces no rumble (`haptics`) on these virtual gamepads: games that only go through it will not rumble;
+- **pitfall**: macOS also requires the permission to control the computer (`kTCCServicePostEvent`, the Accessibility one) from the helper's responsible process. Started by kynputserver, the helper inherits KyberNow Station's; started from a terminal or through `open`, it is refused ("IOHIDResourceDeviceUserClient failed MACF", "deny iokit-open-user-client"). To try it by hand, go through a session.
+
+Still to try: Steam and an SDL game, an Xbox gamepad on the device, Admin's check (`gamepads.available`) started from Admin.
 
 **The day Apple grants it**:
 

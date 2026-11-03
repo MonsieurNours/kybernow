@@ -93,7 +93,7 @@ Le moins de changements possible, et seulement par ce que la Station annonce :
 
 ## Manettes
 
-**État (03/11/2026)** : tout est construit, en attente du droit d'Apple. Une app KyberNow Link connectée à une Station Mac n'a pour l'instant que le clavier et la souris : macOS refuse de créer une manette virtuelle sans le droit `com.apple.developer.hid.virtual.device`, qu'Apple accorde sur demande. Vérifié sur le M4 Max : sans ce droit, `HIDVirtualDevice` de CoreHID rend `nil`, `IOHIDUserDeviceCreate` rend NULL, et un exécutable signé avec le droit mais sans profil qui l'autorise est tué au lancement.
+**État (03/11/2026)** : les manettes **marchent** sur la Station installée du M4 Max avec le droit de développement d'Apple (essai du soir depuis l'iPhone, voir plus bas) ; pour une version publiée, il faut le droit de distribution, demandé à Apple le même jour. Sans aucun droit, macOS refuse de créer une manette virtuelle : `HIDVirtualDevice` de CoreHID rend `nil`, et un exécutable signé avec le droit mais sans profil qui l'autorise est tué au lancement.
 
 **La voie.** CoreHID (`HIDVirtualDevice`, macOS 15) est la seule qui marche sous Developer ID. Le support d'Apple (forums des développeurs, réponses du DTS) le confirme : ce droit suffit, pas besoin de DriverKit (plus lourd, avec ses propres droits à demander ; `com.apple.developer.driverkit.family.hid.virtual.device` ne sert à rien selon Apple). Karabiner-VirtualHIDDevice ne fait que clavier et souris, réservé à root ; les extensions du noyau sont exclues.
 
@@ -116,7 +116,16 @@ Le moins de changements possible, et seulement par ce que la Station annonce :
 
 3. Attendre la réponse d'Apple par e-mail (info@leslignesclaires.fr) : plusieurs semaines, parfois plusieurs mois (une demande du 30/06/2026 était encore « Submitted » mi-septembre selon les forums d'Apple).
 
-**Essayer avant la réponse** : le droit « development » suffit pour ce Mac (inscrit dans Devices) avec un profil de développement macOS de cet App ID et le certificat Apple Development ; pas pour une app distribuée.
+**Essayer avant la réponse** : le droit « development » suffit pour ce Mac (inscrit dans Devices). Profil de développement macOS « KyberNow Manettes Dev M4 Max » (App ID ci-dessus, certificat Apple Development de l'équipe, ce Mac), posé dans `~/Library/Developer/Xcode/UserData/Provisioning Profiles` ; `KYBERNOW_GAMEPADS_DEV=1 server/macos/gamepads/build.sh` signe alors l'aide avec ce certificat et ce profil (ce Mac seulement, pas de notarisation : jamais pour une version publiée).
+
+**Essai du 03/11/2026** (Station installée sur le M4 Max, libkynput et aide de développement posées à la main dans l'app, session depuis l'iPhone avec une DualSense) :
+
+- la manette arrive en Xbox Series quand l'app demande « tout en Xbox » (réglage par ordinateur des apps Link, allumé par défaut), en DualSense sinon ; GameController la voit comme une vraie (« Xbox Wireless Controller », catégorie Xbox One ; « DualSense Wireless Controller », catégorie DualSense), prise par `AppleGCHIDUserEventDriver` malgré `Transport = Virtual` ;
+- sticks, A/B/X/Y, gâchettes, boutons de tranche, croix et View reçus par GameController ;
+- vibration envoyée comme SDL et Steam (rapport de sortie direct) : reçue par l'aide, partie de la Station vers l'iPhone (« first rumble for gamepad 2: 65535/65535 » dans le journal de Kyber) ; l'iPhone ne la joue pas, pas plus face à une Station Windows : souci de l'app iPhone, à part. GameController n'annonce pas de vibration (`haptics`) sur ces manettes virtuelles : les jeux qui ne passent que par lui ne vibreront pas ;
+- **piège** : macOS demande en plus l'autorisation de contrôler l'ordinateur (`kTCCServicePostEvent`, celle de l'Accessibilité) au processus responsable de l'aide. Lancée par kynputserver, l'aide hérite de celle de KyberNow Station ; lancée depuis un terminal ou par `open`, elle est refusée (« IOHIDResourceDeviceUserClient failed MACF », « deny iokit-open-user-client »). Pour l'essayer à la main, il faut donc passer par une session.
+
+Reste à essayer : Steam et un jeu SDL, une manette Xbox de l'appareil, la vérification d'Admin (`gamepads.available`) lancée depuis Admin.
 
 **Le jour où Apple l'accorde** :
 

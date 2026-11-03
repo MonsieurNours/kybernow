@@ -40,7 +40,7 @@
          let (allow_copy, allow_paste) = (service_config.clipboard_allow_copy, service_config.clipboard_allow_paste);
 --- /dev/null
 +++ b/kynput/src/macos/host_gamepad.rs
-@@ -0,0 +1,764 @@
+@@ -0,0 +1,768 @@
 +// Project Kyber: host_gamepad.rs
 +// Copyright © 2022-2026 Kyber SAS
 +// SPDX-License-Identifier: LicenseRef-Kyber-Commercial OR AGPL-3.0-or-later
@@ -414,6 +414,10 @@
 +                    let rumbled = p.rumbled.entry(id).or_default();
 +                    if large == 0 && small == 0 && !*rumbled {
 +                        continue;
++                    }
++                    // La première vibration de chaque manette, au journal.
++                    if !*rumbled {
++                        info!("Gamepads: first rumble for gamepad {id}: {large}/{small}");
 +                    }
 +                    *rumbled = true;
 +                }
