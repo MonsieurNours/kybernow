@@ -1207,6 +1207,8 @@ pub fn run(dir: &Path, lang: &str) {
         relay_shots(&mut app, &mut cv, &video, dir, prefix);
         // Le prêt de l'ordinateur (docs/pret.md) : l'ami (carte, attente, compte d'ami, session d'emprunt), l'hôte.
         lend_shots(&mut app, &mut cv, &video, dir, prefix);
+        // Les consoles PlayStation (docs/playstation.md) : accueil, ajout, réglages, partie.
+        ps_shots(&mut app, &mut cv, &video, dir, prefix);
     }
 
     // Raspberry Pi 5 sous Raspberry Pi OS (interface Bureau, écran 1080p) : les
@@ -2336,4 +2338,202 @@ mod tests {
         assert!(!lit(&cv, ink_below, 0), "rien sous le bouton : le refus est à sa droite");
         assert!(lit(&cv, go.y as u32..(go.y + go.h) as u32, (go.x + go.w + 24.0) as u32), "le refus se lit à droite du bouton");
     }
+}
+
+// MARK: - Consoles PlayStation
+
+/// Une PS5 du salon associée avec deux comptes, une PS4 avec un seul, une PS5 du réseau pas encore associée.
+fn ps_demo(app: &mut App) {
+    use crate::model::{PsAccount, PsConsole, PsPairing};
+    use crate::ps::{PsFound, PsLive, PsState};
+    app.store.ps_accounts = vec![
+        PsAccount { id: "acc-lea".into(), name: Some("LeaDu75".into()), psn_id: "AAAAAAAAAAA=".into() },
+        PsAccount { id: "acc-tom".into(), name: Some("Tom_42".into()), psn_id: "BBBBBBBBBBB=".into() },
+    ];
+    let pairing = |a: &str| PsPairing { account: a.into(), registered: serde_json::json!({}) };
+    app.store.ps_consoles = vec![
+        PsConsole { host_id: "A1B2C3D4E5F6".into(), name: "PS5 du salon".into(), model: "PS5".into(), pairings: vec![pairing("acc-lea"), pairing("acc-tom")], account: Some("acc-lea".into()), ..Default::default() },
+        PsConsole { host_id: "0F1E2D3C4B5A".into(), name: "PS4 de la chambre".into(), model: "PS4".into(), pairings: vec![pairing("acc-lea")], account: Some("acc-lea".into()), ..Default::default() },
+    ];
+    app.ps.live.insert("A1B2C3D4E5F6".into(), PsLive { state: PsState::Ready, address: Some("192.168.1.110".into()), running_app: Some("Astro Bot".into()), ..Default::default() });
+    app.ps.live.insert("0F1E2D3C4B5A".into(), PsLive { state: PsState::Standby, address: Some("192.168.1.111".into()), ..Default::default() });
+    app.ps.found = vec![
+        PsFound { host_id: "A1B2C3D4E5F6".into(), name: "PS5 du salon".into(), model: "PS5".into(), state: PsState::Ready, address: "192.168.1.110".into(), target: "ps5_v1".into(), running_app: Some("Astro Bot".into()) },
+        PsFound { host_id: "99AA88BB77CC".into(), name: "PS5 de Hugo".into(), model: "PS5".into(), state: PsState::Standby, address: "192.168.1.120".into(), target: "ps5_v1".into(), running_app: None },
+    ];
+    app.store.selected = Some("ps:A1B2C3D4E5F6".into());
+}
+
+fn ps_session(app: &App) -> SessionUi {
+    let mut s = SessionUi::new(9, "ps:A1B2C3D4E5F6", "PS5 du salon", Profile::Jeu, false, false, 1);
+    s.console = Some(crate::ps::PsSessionUi { host_id: "A1B2C3D4E5F6".into(), width: 1920, height: 1080, hevc: true, max_fps: 60, target_kbps: 15_000, fps: 59.0, mbps: 12.4, lost: 3, recovered: 2, ..Default::default() });
+    s.fullscreen = app.layout.console();
+    s.started = Instant::now() - Duration::from_millis(2100);
+    s
+}
+
+fn ps_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, prefix: &str) {
+    use crate::ps::{PsState, PsStep, PsWaiting};
+    let name = |n: &str| format!("{prefix}-{n}");
+    let desktop = app.layout == Layout::Desktop;
+    let (selected, accounts, consoles) = (app.store.selected.clone(), app.store.ps_accounts.clone(), app.store.ps_consoles.clone());
+    app.set_session(None);
+    app.pointer = None;
+    ps_demo(app);
+    // L'accueil : allumée (deux comptes : la puce), en veille, le réveil, hors ligne, hors de chez vous, le choix du compte.
+    app.go(Screen::Home);
+    shot(app, cv, None, dir, &name("30-console-accueil"));
+    app.ps.account_menu = true;
+    app.focus = Target::PsAccountPick(1);
+    shot(app, cv, None, dir, &name("30b-console-choix-du-compte"));
+    app.ps.account_menu = false;
+    app.store.selected = Some("ps:0F1E2D3C4B5A".into());
+    app.go(Screen::Home);
+    shot(app, cv, None, dir, &name("30c-console-en-veille"));
+    app.ps.live.get_mut("0F1E2D3C4B5A").unwrap().waking = Some(Instant::now());
+    shot(app, cv, None, dir, &name("30d-console-reveil"));
+    let l = app.ps.live.get_mut("0F1E2D3C4B5A").unwrap();
+    l.waking = None;
+    l.state = PsState::Offline;
+    app.ps.message = Some(("0F1E2D3C4B5A".into(), crate::i18n::tr("La console ne répond pas.", "The console isn't answering.").into()));
+    shot(app, cv, None, dir, &name("30e-console-hors-ligne"));
+    app.ps.message = None;
+    app.ps.live.get_mut("0F1E2D3C4B5A").unwrap().state = PsState::Away;
+    if let Some(c) = app.store.console_mut("0F1E2D3C4B5A") {
+        c.settings.resolution = "p720".into();
+    }
+    shot(app, cv, None, dir, &name("30f-console-hors-de-chez-vous-personnalise"));
+    app.ps.live.get_mut("0F1E2D3C4B5A").unwrap().state = PsState::Standby;
+    app.store.selected = Some("ps:A1B2C3D4E5F6".into());
+
+    // L'ajout : la fenêtre (le bouton PlayStation), l'onglet, ses étapes.
+    app.add.step = AddStep::Code;
+    app.add.code = "482913".into();
+    app.go(Screen::Add);
+    shot(app, cv, None, dir, &name("31-ajout-sur-le-reseau"));
+    app.ps_open_step(PsStep::Tab);
+    if desktop {
+        app.ps.add.devices = vec![PsWaiting { name: "Salon".into(), platform: "tvos".into(), addr: "192.168.1.30:51000".into() }, PsWaiting { name: "OLED65C3".into(), platform: "webos".into(), addr: "192.168.1.31:51001".into() }];
+    }
+    shot(app, cv, None, dir, &name("31b-ajout-playstation"));
+    let (acc, cons) = (std::mem::take(&mut app.store.ps_accounts), std::mem::take(&mut app.store.ps_consoles));
+    let found = std::mem::take(&mut app.ps.found);
+    app.ps.add.devices.clear();
+    app.ps_open_step(PsStep::Tab);
+    shot(app, cv, None, dir, &name("31c-ajout-playstation-sans-compte"));
+    app.ps_open_step(PsStep::Account { console: Some("99AA88BB77CC".into()) });
+    shot(app, cv, None, dir, &name("31d-compte"));
+    app.store.ps_accounts = acc;
+    app.store.ps_consoles = cons;
+    app.ps.found = found;
+    if desktop {
+        app.ps_open_step(PsStep::Paste { console: None });
+        app.ps.add.fields[0] = "https://remoteplay.dl.playstation.net/remoteplay/redirect?code=v3.Abc12".into();
+        shot(app, cv, None, dir, &name("31e-compte-adresse-de-sony"));
+    }
+    app.ps_open_step(PsStep::ByHand { console: None });
+    app.ps.add.fields = ["AbCdEfGhIjk=".into(), "Léa".into()];
+    app.ps.add.field = 1;
+    shot(app, cv, None, dir, &name("31f-compte-a-la-main"));
+    app.ps_open_step(PsStep::WhichAccount { console: "99AA88BB77CC".into() });
+    shot(app, cv, None, dir, &name("31g-quel-compte"));
+    app.ps_open_step(PsStep::Code { console: "99AA88BB77CC".into(), account: "acc-tom".into() });
+    app.ps.add.fields[0] = "1234".into();
+    shot(app, cv, None, dir, &name("31h-code"));
+    app.ps.add.fields[0] = "12345678".into();
+    app.ps.add.message = Some(crate::ps::regist_error_text("wrong_code").into());
+    shot(app, cv, None, dir, &name("31i-code-refuse"));
+    if desktop {
+        app.ps_open_step(PsStep::Send { name: "Salon".into(), addr: "192.168.1.30:51000".into() });
+        app.ps.add.fields[0] = "482".into();
+        shot(app, cv, None, dir, &name("31j-envoyer-code"));
+    }
+    app.ps_open_step(PsStep::Receive);
+    app.ps.add.receive_code = Some("482913".into());
+    shot(app, cv, None, dir, &name("31k-recevoir"));
+    app.ps.add.done = Some(crate::ps::received_label(2, 1));
+    shot(app, cv, None, dir, &name("31l-recu"));
+    app.ps.add.done = None;
+    app.ps.add.receive_expired = true;
+    shot(app, cv, None, dir, &name("31m-code-expire"));
+    app.ps_open_step(PsStep::Tab);
+    app.confirm = Some(Confirm::RemovePsAccount { account: "acc-lea".into(), name: "LeaDu75".into(), consoles: 2 });
+    app.focus = Target::ConfirmNo;
+    shot(app, cv, None, dir, &name("31n-retirer-le-compte"));
+    app.confirm = None;
+
+    // Les réglages de la console.
+    app.go(Screen::Home);
+    app.open_settings(false, Screen::Home);
+    shot(app, cv, None, dir, &name("32-console-reglages-image"));
+    app.section = 1;
+    app.go(Screen::Settings);
+    if !desktop {
+        app.focus = Target::Section(1);
+    }
+    shot(app, cv, None, dir, &name("32b-console-reglages-commandes"));
+    if desktop {
+        app.ps.capture = Some(4);
+        shot(app, cv, None, dir, &name("32c-console-reglages-touche"));
+        app.ps.capture = None;
+    }
+
+    // La partie : la même connexion (réveil, connexion), l'image, la barre et les statistiques, le clavier de la
+    // console, le contenu protégé, une fin.
+    let mut s = ps_session(app);
+    s.phase = Phase::Preparing;
+    s.console.as_mut().unwrap().waking = true;
+    app.set_session(Some(s));
+    app.focus = Target::CancelConnect;
+    shot(app, cv, None, dir, &name("33-partie-reveil"));
+    let mut s = ps_session(app);
+    s.phase = Phase::Connecting;
+    app.set_session(Some(s));
+    shot(app, cv, None, dir, &name("33b-partie-connexion"));
+    let mut s = ps_session(app);
+    s.phase = Phase::Streaming;
+    s.opened_at = Some(Instant::now());
+    app.set_session(Some(s.clone()));
+    shot(app, cv, Some(video), dir, &name("33c-partie"));
+    if desktop {
+        s.bar = true;
+        s.console.as_mut().unwrap().relayed = true;
+        app.set_session(Some(s.clone()));
+        app.pointer = Some((cv.w / 2.0 + 60.0, 20.0));
+        shot(app, cv, Some(video), dir, &name("33d-partie-barre-relais"));
+        app.pointer = None;
+        s.bar = false;
+    }
+    if !desktop {
+        s.menu = true;
+        app.set_session(Some(s.clone()));
+        app.focus = Target::Menu(crate::app::MenuItem::PsSettings);
+        shot(app, cv, Some(video), dir, &name("33d-partie-menu"));
+        s.menu = false;
+    }
+    s.show_stats = true;
+    s.console.as_mut().unwrap().captured_at = Some(Instant::now() - Duration::from_secs(10));
+    app.set_session(Some(s.clone()));
+    shot(app, cv, Some(video), dir, &name("33e-partie-statistiques"));
+    s.show_stats = false;
+    s.console.as_mut().unwrap().keyboard = Some("Astro".into());
+    app.set_session(Some(s.clone()));
+    shot(app, cv, Some(video), dir, &name("33f-partie-clavier-de-la-console"));
+    s.console.as_mut().unwrap().keyboard = None;
+    s.console.as_mut().unwrap().protected = true;
+    app.set_session(Some(s.clone()));
+    shot(app, cv, Some(video), dir, &name("33g-partie-contenu-protege"));
+    let mut s = ps_session(app);
+    s.phase = Phase::Ended { error: crate::ps::PsEnd::InUse.text().map(str::to_string) };
+    s.opened_at = Some(Instant::now());
+    app.set_session(Some(s));
+    app.focus = Target::Back;
+    shot(app, cv, None, dir, &name("33h-partie-fin"));
+    app.set_session(None);
+
+    app.store.selected = selected;
+    app.store.ps_accounts = accounts;
+    app.store.ps_consoles = consoles;
+    app.ps = crate::ps::PsUi::default();
+    app.go(Screen::Home);
 }

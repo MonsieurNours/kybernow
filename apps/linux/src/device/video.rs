@@ -45,7 +45,7 @@ unsafe extern "C" {
 /// Événement SDL qui réveille la boucle principale : une image est prête.
 pub static FRAME_EVENT: AtomicU32 = AtomicU32::new(0);
 
-fn wake_main() {
+pub(crate) fn wake_main() {
     let kind = FRAME_EVENT.load(Ordering::Relaxed);
     if kind == 0 {
         return;
@@ -277,8 +277,10 @@ impl Decoder {
             return;
         }
         self.last_request = Some(Instant::now());
-        if let Some(s) = self.shared.session() {
-            s.request_keyframe();
+        match self.shared.session() {
+            Some(s) => s.request_keyframe(),
+            // Une partie sur une console : la partie redemande l'image clé jusqu'à ce qu'elle arrive.
+            None => self.shared.keyframe(true),
         }
     }
 
@@ -286,9 +288,7 @@ impl Decoder {
         self.waiting_key = true;
         if !self.lost_reported {
             self.lost_reported = true;
-            if let Some(s) = self.shared.session() {
-                s.keyframe_lost();
-            }
+            self.shared.keyframe(true);
         }
     }
 
@@ -340,9 +340,7 @@ impl Decoder {
             self.errors = 0;
             if self.lost_reported {
                 self.lost_reported = false;
-                if let Some(s) = self.shared.session() {
-                    s.keyframe_recovered();
-                }
+                self.shared.keyframe(false);
             }
         }
         if got == 0 || f.format == 0 {

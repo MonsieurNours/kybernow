@@ -548,6 +548,20 @@ Un compte lu pendant une association est gardé, même si l'association échoue 
 
 **À l'accueil**, une carte par console, quel que soit le nombre de comptes. Associée avec plusieurs comptes : une puce « {pseudo} » à côté du bouton principal ouvre le choix du compte (le profil avec lequel la console ouvre la partie) ; retenu par console ; associée avec un seul : pas de puce. Les réglages restent ceux de la console, pour tous ses comptes. La console ne reconnaît plus un compte : cette association est effacée, et « Associer » revient si c'était la dernière.
 
+**Linux** (bureau, Steam Deck, salon, Raspberry Pi et KyberNow Link OS ; [apps/linux/README.md](../apps/linux/README.md#consoles-playstation)) : les textes ci-dessus, et ce qui est propre à l'app Linux (pas de fenêtre web, pas de HDR, la connexion dessinée en étapes comme celle d'un ordinateur) :
+
+| Élément | Français | English |
+|---|---|---|
+| Ajout, bouton (sous les deux autres façons) | « PlayStation » | “PlayStation” |
+| Compte, bureau : la page de Sony est ouverte dans le navigateur | titre « Se connecter à PlayStation Network » ; « La page de connexion de Sony s'est ouverte dans votre navigateur. Une fois connecté, Sony affiche une page presque vide : copiez son adresse (elle commence par https://remoteplay.dl.playstation.net) et collez-la ici. » ; champ « Adresse de la page de Sony » ; « Continuer » ; liens « Rouvrir la page de Sony », « Saisir l'identifiant à la main » | “Sign in to PlayStation Network”; “Sony's sign-in page opened in your browser. Once signed in, Sony shows an almost empty page: copy its address (it starts with https://remoteplay.dl.playstation.net) and paste it here.”; “Sony page address”; “Continue”; “Open Sony's page again”, “Enter the ID by hand” |
+| Compte, sans navigateur (Deck, salon, OS) | « Recevez le compte d'un Mac, d'un PC ou d'un téléphone où il est déjà, ou saisissez son identifiant. » | “Receive the account from a Mac, PC or phone that already has it, or enter its ID.” |
+| Onglet, sous « Recevoir d'un autre appareil » | « Les comptes et les consoles déjà associées d'un Mac, d'un PC ou d'un téléphone arrivent ici, sans refaire le code de la console. » | “Accounts and consoles already paired on a Mac, PC or phone come here, without the console's code again.” |
+| Par adresse, une adresse seule | « Recherche… », puis « Console injoignable. » si rien ne répond | “Searching…”, “Console unreachable.” |
+| Accueil, hors ligne | « Réessayer » (une recherche de plus, comme sur Mac) | “Try again” |
+| Connexion (la capsule d'un ordinateur) | étapes « Réveil de la console » (en veille), « Connexion à la console », « Premières images » ; « Déconnexion… » à la fin | “Waking the console”, “Connecting to the console”, “First frames”; “Disconnecting…” |
+| Réglages, sous-titres des rubriques | « Image » : « Ce que la console envoie. Les réglages valent pour la partie suivante. » ; « Commandes » : « Le clavier, la souris et la DualSense changent tout de suite pendant une partie. » | “What the console sends. Settings apply to the next game.”; “The keyboard, mouse and DualSense change at once during a game.” |
+| Menu de la partie (manette) | tuiles « Reprendre », « Son », « Statistiques », « Manettes », « Réglages » (« Réglages de {nom} »), « Veille » (« Mettre la console en veille »), « Par le relais », « Se déconnecter » (« Fin de la partie ») ; « Pendant ce menu, la console reçoit une manette au repos » ; légende « Options Create L1 R1 ouvre ce menu » | “Resume”, “Sound”, “Statistics”, “Controllers”, “Settings”, “Rest mode” (“Put the console in rest mode”), “Through the relay”, “Disconnect” (“Ends the game”); “While this menu is open, the console gets an idle controller”; “opens this menu” |
+
 Comptes gardés d'une version précédente (un seul compte, sans pseudo) : « Compte PlayStation », à renommer, ou mis à jour en se reconnectant.
 
 **Réglages de la console** (engrenage à côté du bouton principal, libellé accessible « Réglages de {nom} » / “Settings for {name}”, même présentation que les réglages d'un ordinateur) :

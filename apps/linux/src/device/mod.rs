@@ -21,6 +21,7 @@ mod log_file;
 mod media;
 mod os;
 mod pads;
+mod ps;
 pub mod sdl;
 mod screens;
 mod session;
@@ -123,6 +124,8 @@ pub enum Event {
     /// Ce qui se prépare au lancement : avancement, réseau, Bluetooth.
     OsLoading(f32, bool, bool),
     OsReady,
+    /// Consoles PlayStation (`ps.rs`).
+    Ps(ps::PsEvent),
 }
 
 /// Ce que le cœur dit d'une session (rappels de `session::Platform`).
@@ -737,6 +740,8 @@ pub fn run(args: &[String]) {
     // Plusieurs fenêtres plein écran (multi-écrans, plusieurs ordinateurs) : le clavier passe de l'une à l'autre sans que SDL les réduise.
     sdl::hint("SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS", "0");
     sdl::hint("SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "0");
+    // DualSense : vibrations et gâchettes adaptatives par le pilote HIDAPI de SDL (consoles PlayStation).
+    sdl::hint("SDL_JOYSTICK_HIDAPI_PS5_RUMBLE", "1");
     if let Ok(v) = std::env::var("KYBERNOW_VIDEO") {
         sdl::hint("SDL_VIDEODRIVER", &v);
     }
@@ -838,6 +843,9 @@ pub fn run(args: &[String]) {
         app.pending_link = Some(l);
     }
     jobs::discover(tx.clone());
+    // Les consoles PlayStation : recherche, association, parties ; les noms des touches de ce clavier.
+    let mut ps = ps::Runtime::new(tx.clone());
+    app.ps.key_names = ps::key_names();
     let mut last_update = Instant::now();
     app.update = crate::app::UpdateState::Checking;
     jobs::check_update(app.store.app.beta, tx.clone());
@@ -877,8 +885,9 @@ pub fn run(args: &[String]) {
         // Animations : lancement, passage, capsules, ajout, écran des manettes.
         let animating = app.screen == Screen::Launch
             || app.sessions.iter().any(|s| {
-                matches!(s.phase, Phase::Preparing | Phase::Connecting | Phase::StationRestarting | Phase::FirstImages | Phase::Ending) || s.notice.as_ref().is_some_and(|(_, t)| t.elapsed().as_secs_f32() < 4.2)
+                matches!(s.phase, Phase::Preparing | Phase::Connecting | Phase::StationRestarting | Phase::FirstImages | Phase::Ending) || s.notice.as_ref().is_some_and(|(_, t)| t.elapsed().as_secs_f32() < 4.2) || s.console.as_ref().is_some_and(|c| c.captured_at.is_some_and(|t| t.elapsed().as_secs_f32() < 4.4))
             })
+            || app.ps.live.values().any(|l| l.waking.is_some()) && app.screen == Screen::Home
             || app.waking_host().is_some() && app.screen == Screen::Home
             || app.station_op.as_ref().is_some_and(|o| o.busy()) && app.screen == Screen::Settings
             || app.toast.as_ref().is_some_and(|(_, t)| t.elapsed().as_secs_f32() < 4.2)
@@ -894,7 +903,9 @@ pub fn run(args: &[String]) {
         let mut actions: Vec<Action> = Vec::new();
         if unsafe { sdl::SDL_WaitEventTimeout(&mut ev, timeout) } != 0 {
             loop {
-                handle_sdl(&ev, &mut app, &mut pads, &mut lives, &mut wins, &mut actions, &mut dirty, &mut quit, &mut start_down);
+                if !ps.handle_sdl(&ev, &mut app, &mut pads, &mut wins, &mut actions, &mut dirty) {
+                    handle_sdl(&ev, &mut app, &mut pads, &mut lives, &mut wins, &mut actions, &mut dirty, &mut quit, &mut start_down);
+                }
                 if unsafe { sdl::SDL_PollEvent(&mut ev) } == 0 {
                     break;
                 }
@@ -923,10 +934,16 @@ pub fn run(args: &[String]) {
             } else {
                 dirty = true;
             }
+            if let Event::Ps(pe) = e {
+                ps.event(pe, &mut app, &mut pads, &mut actions);
+                continue;
+            }
             handle_event(e, &mut app, &mut pads, &mut lives, &mut wins, &mut actions, &mut pairing, &tx);
         }
         for a in actions.drain(..) {
-            perform(a, &mut app, &mut pads, &mut lives, &mut wins, &tx, &mut pairing, &mut quit);
+            if let Some(a) = route_ps(a, &mut ps, &mut app, &mut pads, &lives, &mut wins) {
+                perform(a, &mut app, &mut pads, &mut lives, &mut wins, &tx, &mut pairing, &mut quit);
+            }
             dirty = true;
         }
 
@@ -958,7 +975,9 @@ pub fn run(args: &[String]) {
             dirty |= app.pending_link.is_none();
         }
         for a in actions.drain(..) {
-            perform(a, &mut app, &mut pads, &mut lives, &mut wins, &tx, &mut pairing, &mut quit);
+            if let Some(a) = route_ps(a, &mut ps, &mut app, &mut pads, &lives, &mut wins) {
+                perform(a, &mut app, &mut pads, &mut lives, &mut wins, &tx, &mut pairing, &mut quit);
+            }
             dirty = true;
         }
 
@@ -983,6 +1002,10 @@ pub fn run(args: &[String]) {
             dirty = true;
         }
         raise_active(&app, &wins, &mut raised);
+        // Les consoles PlayStation : recherches, partie (images, statistiques, barre).
+        if ps.tick(&mut app, &mut wins, !lives.is_empty()) {
+            dirty = true;
+        }
 
         // Les écrans de l'appareil ont peut-être changé (événement de SDL) : relus tout de suite.
         let rescan_now = RESCAN.swap(false, Ordering::Relaxed);
@@ -1210,6 +1233,7 @@ pub fn run(args: &[String]) {
     }
 
     // Quitter l'app termine toutes les sessions, et attend que chaque ordinateur soit prévenu.
+    ps.stop_all();
     stop_all(&lives, &wins);
     for c in pairing.drain(..) {
         c.store(true, Ordering::Relaxed);
@@ -1218,6 +1242,25 @@ pub fn run(args: &[String]) {
     app.store.save();
     unsafe { sdl::SDL_Quit() };
     log::info!("KyberNow Link s'arrête");
+}
+
+/// Les actions qui visent une partie sur une console PlayStation (ou la recherche d'une console « Par adresse ») :
+/// prises ici ; les autres continuent (`perform`).
+fn route_ps(a: Action, ps: &mut ps::Runtime, app: &mut App, pads: &mut pads::Pads, lives: &Lives, wins: &mut Wins) -> Option<Action> {
+    match a {
+        Action::Ps(pa) => ps.perform(pa, app, wins, pads),
+        Action::Disconnect(id) | Action::CancelConnect(id) if ps.owns(id) => ps.stop(app, id),
+        Action::ToggleMouse(id) if ps.owns(id) => ps.toggle_mouse(app, pads),
+        Action::Mute(id, on) if ps.owns(id) => ps.mute(on),
+        Action::ToggleFullscreen(Some(id)) if ps.owns(id) => {
+            toggle_fullscreen(app, lives, wins, Some(id));
+            ps.remember_fullscreen(app);
+        }
+        // Une console d'abord (1,5 s), puis la Station comme avant (`ps::PsEvent::Probed`).
+        Action::Probe { address, port } => ps.probe(address, port),
+        a => return Some(a),
+    }
+    None
 }
 
 /// Combien de temps l'app attend, au plus, que les ordinateurs soient prévenus quand elle se ferme.
@@ -2550,6 +2593,8 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, lives: &mut Live
                 *label = if parts.is_empty() { tr("prêt", "ready").into() } else { parts.join(" · ") };
             }
         }
+        // Pris par la boucle avant (`ps::Runtime::event`).
+        Event::Ps(_) => {}
         Event::OsReady => {
             if app.os_loading.take().is_some() {
                 let hs = if app.reduce_motion { 0.45 } else { 1.8 };
@@ -2915,6 +2960,8 @@ fn toggle_fullscreen(app: &mut App, lives: &Lives, wins: &mut Wins, id: Option<S
 fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, wins: &mut Wins, tx: &Sender<Event>, pairing: &mut Vec<Arc<AtomicBool>>, quit: &mut bool) {
     match a {
         Action::Save => app.store.save(),
+        // Pris avant (`route_ps`).
+        Action::Ps(_) => {}
         Action::Quit => {
             // Quitter l'app termine toutes les sessions.
             for l in lives.iter() {

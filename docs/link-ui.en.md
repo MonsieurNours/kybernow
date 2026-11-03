@@ -548,6 +548,20 @@ An account read during a pairing is kept, even if the pairing then fails.
 
 **On the home screen**, one card per console, whatever the number of accounts. Paired with several accounts: a “{online ID}” chip next to the main button opens the account choice (the profile the console opens the game with); kept per console; paired with only one: no chip. The settings stay the console's, for all its accounts. The console no longer recognises an account: that pairing is erased, and “Pair” comes back if it was the last one.
 
+**Linux** (desktop, Steam Deck, living room, Raspberry Pi and KyberNow Link OS; [apps/linux/README.en.md](../apps/linux/README.en.md#playstation-consoles)): the texts above, and what is specific to the Linux app (no web view, no HDR, the connection drawn in steps like a computer's):
+
+| Element | Français | English |
+|---|---|---|
+| Adding, button (under the two other ways) | « PlayStation » | “PlayStation” |
+| Account, desktop: Sony's page is open in the browser | « Se connecter à PlayStation Network » ; « La page de connexion de Sony s'est ouverte dans votre navigateur. Une fois connecté, Sony affiche une page presque vide : copiez son adresse (elle commence par https://remoteplay.dl.playstation.net) et collez-la ici. » ; « Adresse de la page de Sony » ; « Continuer » ; « Rouvrir la page de Sony », « Saisir l'identifiant à la main » | title “Sign in to PlayStation Network”; “Sony's sign-in page opened in your browser. Once signed in, Sony shows an almost empty page: copy its address (it starts with https://remoteplay.dl.playstation.net) and paste it here.”; field “Sony page address”; “Continue”; links “Open Sony's page again”, “Enter the ID by hand” |
+| Account, no browser (Deck, living room, OS) | « Recevez le compte d'un Mac, d'un PC ou d'un téléphone où il est déjà, ou saisissez son identifiant. » | “Receive the account from a Mac, PC or phone that already has it, or enter its ID.” |
+| Tab, under “Receive from another device” | « Les comptes et les consoles déjà associées d'un Mac, d'un PC ou d'un téléphone arrivent ici, sans refaire le code de la console. » | “Accounts and consoles already paired on a Mac, PC or phone come here, without the console's code again.” |
+| By address, a bare address | « Recherche… », « Console injoignable. » | “Searching…”, then “Console unreachable.” if nothing answers |
+| Home, offline | « Réessayer » | “Try again” (one more search, as on Mac) |
+| Connection (a computer's capsule) | « Réveil de la console », « Connexion à la console », « Premières images » ; « Déconnexion… » | steps “Waking the console” (in rest mode), “Connecting to the console”, “First frames”; “Disconnecting…” at the end |
+| Settings, section subtitles | « Ce que la console envoie. Les réglages valent pour la partie suivante. » ; « Le clavier, la souris et la DualSense changent tout de suite pendant une partie. » | “Picture”: “What the console sends. Settings apply to the next game.”; “Controls”: “The keyboard, mouse and DualSense change at once during a game.” |
+| Game menu (controller) | « Reprendre », « Son », « Statistiques », « Manettes », « Réglages », « Veille » (« Mettre la console en veille »), « Par le relais », « Se déconnecter » (« Fin de la partie ») ; « Pendant ce menu, la console reçoit une manette au repos » ; « ouvre ce menu » | tiles “Resume”, “Sound”, “Statistics”, “Controllers”, “Settings” (“Settings for {name}”), “Rest mode” (“Put the console in rest mode”), “Through the relay”, “Disconnect” (“Ends the game”); “While this menu is open, the console gets an idle controller”; legend “Options Create L1 R1 opens this menu” |
+
 Accounts kept from an earlier version (a single account, without an online ID): « Compte PlayStation » / “PlayStation account”, to rename, or updated by signing in again.
 
 **Console settings** (gear next to the main button, accessible label “Settings for {name}”, laid out like a computer's settings):

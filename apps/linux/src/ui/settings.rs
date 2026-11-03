@@ -132,6 +132,8 @@ fn subtitle(app: &App, s: Section) -> String {
         Section::Station => tr("KyberNow Station, sur l'ordinateur : Admin, redémarrage, mise à jour.", "KyberNow Station, on the computer: Admin, restart, update.").into(),
         Section::App => tr("Langue, interface et mises à jour de l'app sur cet appareil.", "Language, interface and updates of the app on this device.").into(),
         Section::Gamepads => tr("Les manettes que voit cet appareil.", "The controllers this device sees.").into(),
+        Section::PsPicture => tr("Ce que la console envoie. Les réglages valent pour la partie suivante.", "What the console sends. Settings apply to the next game.").into(),
+        Section::PsControls => tr("Le clavier, la souris et la DualSense changent tout de suite pendant une partie.", "The keyboard, mouse and DualSense change at once during a game.").into(),
         _ => String::new(),
     };
     format!("{lead}{rest}")
@@ -203,7 +205,16 @@ fn desktop(app: &App, cv: &mut Canvas, f: &mut Frame) {
         }
         ny += 16.0;
     }
-    eyebrow(cv, nx + 14.0, ny + 11.0, 11.0, FAINT, if app.settings_global { tr("Réglages de l'app", "App settings") } else { tr("Réglages", "Settings") });
+    let console_title = app.selected_console().filter(|_| !app.settings_global).map(|c| crate::i18n::settings_for(&c.name));
+    match console_title {
+        // « Réglages de {nom} » : le nom de la console, raccourci à la largeur de la colonne.
+        Some(t) => {
+            cv.text_fit(nx + 14.0, ny + 11.0, Text::new(Font::Mono, 11.0, FAINT).tracking(0.88), &t.to_uppercase(), bw - 14.0);
+        }
+        None => {
+            eyebrow(cv, nx + 14.0, ny + 11.0, 11.0, FAINT, if app.settings_global { tr("Réglages de l'app", "App settings") } else { tr("Réglages", "Settings") });
+        }
+    }
     ny += 21.0;
     for (i, s) in app.sections().iter().enumerate().skip(app.first_desktop_section()) {
         nav_button(cv, f, Target::Section(i), nx, ny, bw, s.label(), i == app.section);
@@ -356,8 +367,9 @@ fn console(app: &App, cv: &mut Canvas, f: &mut Frame) {
     let by = ly + lh * 0.62;
     let mut x = lx + lw + 18.0 * u;
     x += cv.text(x, by, Text::new(Font::Mono, 14.0 * u, GHOST), "/") + 14.0 * u;
-    let title = match app.selected() {
-        Some(hst) if !app.settings_global => crate::i18n::settings_for(&hst.name),
+    let title = match (app.selected(), app.selected_console()) {
+        (_, Some(c)) if !app.settings_global => crate::i18n::settings_for(&c.name),
+        (Some(hst), _) if !app.settings_global => crate::i18n::settings_for(&hst.name),
         _ => tr("Réglages de l'app", "App settings").into(),
     };
     cv.text_fit(x, by + 2.0 * u, Text::new(Font::Title, 20.0 * u, FROST), &title, w - x - x0);
@@ -548,6 +560,12 @@ pub(super) fn confirm(app: &App, cv: &mut Canvas, f: &mut Frame) {
             if *kind == StationKind::Update { tr("La mise à jour coupera sa session.", "The update will end its session.") } else { tr("Redémarrer la Station coupera sa session.", "Restarting the Station will end its session.") }.to_string(),
             if *kind == StationKind::Update { tr("Mettre à jour quand même", "Update anyway") } else { tr("Redémarrer quand même", "Restart anyway") },
             false,
+        ),
+        Confirm::RemovePsAccount { name, consoles, .. } => (
+            crate::ps::remove_account_question(name, *consoles),
+            tr("Ses associations sont effacées de cet appareil. Une console associée aussi avec un autre compte reste, avec cet autre compte.", "Its pairings are erased from this device. A console also paired with another account stays, with that other account.").to_string(),
+            tr("Retirer", "Remove"),
+            true,
         ),
         // « Rendre l'ordinateur à {hôte} ? » : la question seule, sans autre texte (docs/link-ui.md).
         Confirm::GiveBack { host, .. } => (
