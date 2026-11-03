@@ -155,7 +155,8 @@ struct AppSettingsView: View {
             HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Synchroniser avec iCloud").font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text)
-                    Text("Vos ordinateurs et leurs accès arrivent sur l'Apple TV connectée au même compte iCloud, sans rien taper. Mots de passe dans le Trousseau iCloud, chiffré de bout en bout.")
+                    Text("Ordinateurs et consoles").font(Theme.sans(12, .semibold)).foregroundStyle(Theme.text2)
+                    Text("Vos ordinateurs et leurs accès arrivent sur l'Apple TV, l'iPhone et l'iPad connectés au même compte iCloud ; vos comptes PlayStation et leurs consoles, sur tous vos appareils Apple. Sans rien taper. Mots de passe et associations dans le Trousseau iCloud, chiffré de bout en bout.")
                         .font(Theme.sans(12)).foregroundStyle(Theme.muted).lineSpacing(2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
