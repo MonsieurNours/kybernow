@@ -1,11 +1,18 @@
-// « Envoyer à un appareil » et « Recevoir d'un autre appareil » dans l'onglet
-// « PlayStation » de la fenêtre d'ajout (docs/link-ui.md, « Consoles
-// PlayStation », « Plusieurs appareils » ; protocole : docs/playstation.md).
-// Le paquet : PSShared (PlayStationSync.swift), chiffré par le cœur.
+// « Envoyer à un appareil » et « Recevoir d'un autre appareil » (docs/link-ui.md,
+// « Consoles PlayStation », « Plusieurs appareils » ; protocole :
+// docs/playstation.md) : les textes et le modèle, communs au Mac, à l'Apple TV,
+// à l'iPhone et à l'iPad (ni AppKit ni UIKit, sauf le nom de l'appareil). Les
+// vues sont à chaque app (Mac : PlayStationHandoffViews.swift). Le paquet :
+// PSShared (PlayStationSync.swift), chiffré par le cœur (KyberKit, `PSHandoff`).
 
+import Combine
+import Foundation
 import KyberKit
-import SwiftUI
+#if os(macOS)
 import SystemConfiguration
+#else
+import UIKit
+#endif
 
 extension PSText {
     static var sendTitle: String { String(localized: "Envoyer à un appareil") }
@@ -42,8 +49,25 @@ final class PSHandoffModel: ObservableObject {
     private var listening: Task<Void, Never>?
     private var receiver: PSHandoff.Receiver?
 
-    /// Le nom de ce Mac, montré par l'appareil qui envoie (« MacBook Pro de Léa »).
-    static var deviceName: String { (SCDynamicStoreCopyComputerName(nil, nil) as String?) ?? "Mac" }
+    /// Le nom de cet appareil, montré par l'appareil qui envoie (« MacBook Pro de Léa »).
+    static var deviceName: String {
+        #if os(macOS)
+        (SCDynamicStoreCopyComputerName(nil, nil) as String?) ?? "Mac"
+        #else
+        UIDevice.current.name
+        #endif
+    }
+
+    /// La plateforme annoncée aux recherches (docs/playstation.md, « Le paquet »).
+    static var platform: String {
+        #if os(macOS)
+        "macos"
+        #elseif os(tvOS)
+        "tvos"
+        #else
+        UIDevice.current.userInterfaceIdiom == .pad ? "ipados" : "ios"
+        #endif
+    }
 
     // MARK: Envoi
 
@@ -55,8 +79,8 @@ final class PSHandoffModel: ObservableObject {
                 let list = await Task.detached(priority: .utility) { PSHandoff.discover(wait: 1500) }.value
                 guard let self, !Task.isCancelled else { return }
                 // Ce Mac lui-même, s'il attend aussi un envoi.
-                let me = Self.deviceName
-                self.waiting = list.filter { !(self.code != nil && $0.name == me && $0.platform == "macos") }
+                let me = Self.deviceName, platform = Self.platform
+                self.waiting = list.filter { !(self.code != nil && $0.name == me && $0.platform == platform) }
                     .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
                 try? await Task.sleep(for: .seconds(2))
             }
@@ -99,7 +123,7 @@ final class PSHandoffModel: ObservableObject {
         stopReceiving()
         expired = false
         received = nil
-        guard let r = PSHandoff.Receiver(name: Self.deviceName, platform: "macos") else {
+        guard let r = PSHandoff.Receiver(name: Self.deviceName, platform: Self.platform) else {
             KyberLog.app.error("PlayStation : attente d'un envoi impossible")
             return
         }
@@ -111,11 +135,7 @@ final class PSHandoffModel: ObservableObject {
                 guard let self, !Task.isCancelled else { return }
                 switch event {
                 case let .received(text):
-                    guard let bundle = PSShared.decode(Data(text.utf8)) else {
-                        KyberLog.app.error("PlayStation : paquet reçu illisible")
-                        continue
-                    }
-                    let n = store.receive(bundle)
+                    guard let n = store.receive(json: text) else { continue }
                     self.received = PSText.received(accounts: n.accounts, consoles: n.consoles)
                 case let .newCode(c):
                     self.code = c
@@ -149,109 +169,5 @@ final class PSHandoffModel: ObservableObject {
     /// « 482 913 ».
     static func spaced(_ code: String) -> String {
         code.count == 6 ? "\(code.prefix(3)) \(code.suffix(3))" : code
-    }
-}
-
-/// « Envoyer à un appareil » : la liste des appareils qui attendent, puis le code.
-struct PSSendSection: View {
-    @ObservedObject var model: PSHandoffModel
-    @ObservedObject var store: PlayStationStore
-    @State private var code = ""
-    @FocusState private var focused: Bool
-
-    private var digits: String { code.filter(\.isNumber) }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(PSText.sendTitle).font(Theme.display(17, .semibold)).foregroundStyle(Theme.text).padding(.top, 14)
-            if model.waiting.isEmpty {
-                Text(PSText.noDeviceWaiting).font(Theme.sans(13)).foregroundStyle(Theme.faint)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            ForEach(model.waiting) { w in
-                Button {
-                    model.choose(w)
-                    code = ""
-                    focused = true
-                } label: {
-                    PSListRow(title: "\(w.name) · \(PSPlatform.label(w.platform))", lit: model.chosen == w) {
-                        Icon("arrow-right", size: 14, bold: true).foregroundStyle(Theme.muted)
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-            if let to = model.chosen {
-                Text(PSText.enterCodeOn(to.name)).font(Theme.sans(14)).foregroundStyle(Theme.text2)
-                    .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 12) {
-                    TextField(text: $code, prompt: Text(verbatim: "123 456").foregroundColor(Theme.ghost)) { EmptyView() }
-                        .textFieldStyle(.plain)
-                        .font(Theme.mono(26, .medium))
-                        .tracking(3)
-                        .foregroundStyle(Theme.accentLight)
-                        .multilineTextAlignment(.center)
-                        .focused($focused)
-                        .onSubmit(send)
-                        .padding(.horizontal, 14)
-                        .frame(height: 58)
-                        .background(Theme.bar, in: RoundedRectangle(cornerRadius: 14))
-                        .overlay(RoundedRectangle(cornerRadius: 14).stroke(focused ? Theme.accentLine : Theme.line2))
-                        .disabled(model.sending)
-                        .accessibilityLabel(PSText.sixDigitCode)
-                        .help(PSText.sixDigitCode)
-                    Button(action: send) {
-                        HStack(spacing: 10) {
-                            if model.sending { ProgressView().controlSize(.small) }
-                            Text(PSText.send)
-                        }
-                    }
-                    .buttonStyle(PrimaryButton(height: 58, lit: model.sending))
-                    .disabled(digits.count != 6 || model.sending)
-                }
-                if let r = model.sendResult { Notice(kind: r.ok ? .info : .warn, text: r.text) }
-            }
-        }
-    }
-
-    private func send() {
-        guard digits.count == 6 else { return }
-        model.send(code: digits, store: store)
-    }
-}
-
-/// « Recevoir d'un autre appareil » : un code en grand, le temps de l'envoi.
-struct PSReceiveSection: View {
-    @ObservedObject var model: PSHandoffModel
-    @ObservedObject var store: PlayStationStore
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(PSText.receiveTitle).font(Theme.display(17, .semibold)).foregroundStyle(Theme.text).padding(.top, 14)
-            if let code = model.code {
-                Text(verbatim: PSHandoffModel.spaced(code))
-                    .font(Theme.mono(44, .medium))
-                    .tracking(6)
-                    .foregroundStyle(Theme.accentLight)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(Theme.bar, in: RoundedRectangle(cornerRadius: 14))
-                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.line2))
-                    .textSelection(.enabled)
-                    .accessibilityLabel(code.map(String.init).joined(separator: " "))
-                Text(PSText.receiveHelp).font(Theme.sans(13)).foregroundStyle(Theme.text2)
-                    .fixedSize(horizontal: false, vertical: true)
-            } else if model.expired {
-                Notice(kind: .warn, text: PSText.codeExpired)
-                Button(PSText.newCode) { model.startReceiving(store: store) }
-                    .buttonStyle(GhostButton(height: 40))
-            } else {
-                Button { model.startReceiving(store: store) } label: {
-                    HStack(spacing: 8) { Icon("television-simple", size: 15, bold: true); Text(PSText.receiveTitle) }
-                }
-                .buttonStyle(GhostButton(height: 40))
-            }
-            if let r = model.received { Notice(kind: .info, text: r) }
-        }
     }
 }

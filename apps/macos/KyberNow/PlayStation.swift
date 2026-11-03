@@ -1163,7 +1163,16 @@ extension PlayStationStore {
         return (bundle.accounts.count, bundle.consoles.count)
     }
 
-    // MARK: iCloud (CloudPublisher)
+    /// Un paquet reçu, en texte (`PSHandoff.Event.received`) : nil s'il est illisible.
+    func receive(json: String) -> (accounts: Int, consoles: Int)? {
+        guard let bundle = PSShared.decode(Data(json.utf8)) else {
+            KyberLog.app.error("PlayStation : paquet reçu illisible")
+            return nil
+        }
+        return receive(bundle)
+    }
+
+    // MARK: iCloud (PlayStationCloud)
 
     /// Ce que la synchro iCloud voit d'ici, secrets compris.
     var cloudLocal: PSLocal {
