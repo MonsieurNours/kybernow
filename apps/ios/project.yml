@@ -52,8 +52,8 @@ targets:
       - path: ../tvos/KyberKitTV/MetalSurface.swift
       - path: ../tvos/KyberKitTV/KeyboardMouse.swift
       - path: ../tvos/KyberKitTV/GamepadBridge.swift
-      # Manettes d'une partie sur console PlayStation (GameController → cœur).
-      - path: ../tvos/KyberKitTV/PlayStationPads.swift
+      # Les manettes d'une partie sur console, données au cœur (GamepadBridge).
+      - path: ../tvos/KyberKitTV/ConsolePads.swift
       - path: KyberKitIOS
     dependencies:
       # Le cœur Rust, son pont C, libkynput, libopus et les fonctions vides de VLC.

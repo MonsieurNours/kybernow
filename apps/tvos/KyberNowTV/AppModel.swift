@@ -1,6 +1,7 @@
-// État de l'app : ordinateurs, découverte sur le réseau, iCloud, écran en
-// cours, session. Un seul écran à la fois, comme une app de TV : l'accueil,
-// et par-dessus l'ajout, les réglages, les manettes ou la session.
+// État de l'app : ordinateurs, consoles PlayStation, découverte sur le
+// réseau, iCloud, écran en cours, session. Un seul écran à la fois, comme une
+// app de TV : l'accueil, et par-dessus l'ajout, les réglages, les manettes,
+// la session ou la partie sur une console.
 
 import Combine
 import KyberKit
@@ -24,12 +25,33 @@ final class AppModel: ObservableObject {
         /// « Réglage du HDR » du téléviseur (docs/hdr.md), depuis les Réglages de l'app ou Réglages › Image.
         case hdrCalibration
         case session(UUID)
+        /// Une partie sur une console PlayStation (docs/playstation.md).
+        case console(UUID)
+        /// « Réglages de {nom} » d'une console.
+        case consoleSettings(UUID)
+        /// Consoles : l'association d'une console (de l'accueil, de l'ajout), ou
+        /// l'ajout d'un compte sans console.
+        case consolePair(PairRequest)
     }
+
+    /// Ce qu'ouvre l'écran de l'association.
+    struct PairRequest: Equatable {
+        /// La console à associer ; nil : « Ajouter un compte ».
+        var hostID: String?
+        /// Ouverte depuis l'ajout : « Retour » y ramène (sinon l'accueil).
+        var fromAdd = false
+    }
+
+    /// L'app en cours (le magasin des consoles, partagé avec le Mac, ouvre
+    /// la partie par la session sans connaître l'interface).
+    private(set) static weak var current: AppModel?
 
     @Published var screen: Screen = .home
     /// Ordinateur mis en avant sur l'accueil.
     @Published var selected: UUID?
     @Published private(set) var session: SessionController?
+    /// La partie en cours sur une console.
+    @Published private(set) var consoleSession: PlayStationSession?
     /// Un avis bref sur l'accueil (« Ce lien d'invitation est illisible. »), effacé après 6 s.
     @Published private(set) var notice: String?
     /// Écran où revient le test des manettes (accueil ou réglages de l'app).
@@ -40,6 +62,12 @@ final class AppModel: ObservableObject {
     var settingsSection: ComputerSection = .picture
 
     let store: HostStore
+    /// Les consoles PlayStation et les comptes PlayStation Network (magasin
+    /// commun avec le Mac, apps/macos/KyberNow/PlayStation.swift).
+    let playstation: PlayStationStore
+    /// Comptes et associations des consoles dans iCloud, dans les deux sens
+    /// (sous « Synchroniser avec iCloud », comme les ordinateurs).
+    private var playstationCloud: PlayStationCloud?
     /// Les ordinateurs que des amis prêtent à cette Apple TV (docs/pret.md), à part des siens.
     let borrowed: BorrowedStore
     let discovery = Discovery()
@@ -63,6 +91,8 @@ final class AppModel: ObservableObject {
         #endif
         store = HostStore(demo: demo)
         borrowed = BorrowedStore(demo: demo)
+        playstation = PlayStationStore(demo: demo)
+        playstation.attach(hosts: store)
         hdrObservers = HDRDisplay.observe { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }
@@ -72,7 +102,17 @@ final class AppModel: ObservableObject {
         }
         if HDRDemo.requested { hdrDemo = HDRDemo() }
         discovery.start()
-        selected = store.ordered.first?.id
+        selected = store.ordered.first?.id ?? playstation.consoles.first?.id
+        Self.current = self
+        // Consoles : cherchées toutes les 3 s environ à l'accueil et à l'ajout.
+        playstation.startSearching { [weak self] in
+            guard let self else { return false }
+            switch self.screen {
+            case .home, .addHost, .consolePair: return true
+            default: return false
+            }
+        }
+
         // Le Top Shelf suit les ordinateurs, leur état et leurs images.
         store.objectWillChange.merge(with: store.imagery.objectWillChange)
             .debounce(for: .seconds(1), scheduler: RunLoop.main)
@@ -82,12 +122,34 @@ final class AppModel: ObservableObject {
         cloud.$hosts
             .sink { [weak self] list in self?.importCloud(list) }
             .store(in: &bag)
+        // Les consoles et leurs comptes : dans les deux sens, sous le même réglage.
+        if !demo {
+            let ps = PlayStationCloud(store: playstation) { Preferences.shared.icloudSync }
+            playstationCloud = ps
+            prefs.$icloudSync
+                .removeDuplicates()
+                .sink { [weak ps] on in
+                    // `sink` reçoit la valeur avant qu'elle soit posée : la synchro lit la suivante.
+                    DispatchQueue.main.async { if on { ps?.schedule() } else { ps?.forget() } }
+                }
+                .store(in: &bag)
+            // Le Trousseau iCloud arrive parfois après la liste : revu au retour au premier plan.
+            NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)
+                .sink { [weak ps] _ in ps?.schedule() }
+                .store(in: &bag)
+        }
         #if DEBUG
         if demo {
             store.loadDemo()
+            // `-demoPlayStation YES` : deux comptes, une console associée aux deux, une autre sur le réseau.
+            if UserDefaults.standard.bool(forKey: "demoPlayStation") {
+                playstation.loadDemo()
+            }
             let ordered = store.ordered
             let i = UserDefaults.standard.integer(forKey: "hostIndex")
             selected = ordered.indices.contains(i) ? ordered[i].id : ordered.first?.id
+            // `-demoConsoleFirst YES` : la console mise en avant.
+            if UserDefaults.standard.bool(forKey: "demoConsoleFirst") { selected = playstation.consoles.first?.id }
             // `-demoBorrowed free|busy|lent|locked|off|offline|slot|slot-now|refused` : « Ordinateur de Matthieu »
             // sur l'accueil, mis en avant ; `-demoLent YES` : la Tour est prêtée à Léa (`-demoLentNotice YES` : préavis).
             if let state = UserDefaults.standard.string(forKey: "demoBorrowed") {
@@ -130,6 +192,18 @@ final class AppModel: ObservableObject {
         case "invite":
             if let invite = Lend.parseInvite("kybernow://borrow?host=192.168.1.30&port=37462&fp=sha256:ab12&login=camille") { screen = .invite(invite) }
         case "app": screen = .appSettings
+        // Consoles (avec `-demoPlayStation YES`) : `-screen consoleSettings|consolePair|consoleAccount|consoleMenu`.
+        case "consoleSettings": if let c = playstation.consoles.first { screen = .consoleSettings(c.id) }
+        case "consolePair": screen = .consolePair(PairRequest(hostID: playstation.consoles.first?.hostID))
+        case "consoleAccount": screen = .consolePair(PairRequest(hostID: "DEMO-LEA"))
+        case "consoleMenu":
+            if let c = playstation.consoles.first {
+                let s = PlayStationSession(console: c, address: c.address, registered: "{}", settings: PlayStation.defaultSettings, layout: "{}", fullScreen: true,
+                                           onFullScreen: { _ in }) { _, _ in }
+                consoleSession = s
+                screen = .console(c.id)
+                s.demoMenu()
+            }
         // `-screen hdrCalibration -calibrationStep 0…3` (avec `-hdrScreen YES`) : le réglage du HDR, à cette étape.
         case "hdrCalibration": screen = .hdrCalibration
         case "gamepads": screen = .gamepads
@@ -164,7 +238,11 @@ final class AppModel: ObservableObject {
         #endif
     }
 
-    /// Le test des manettes, depuis l'accueil ou les réglages de l'app.
+    /// Un avis bref (le magasin des consoles, commun avec le Mac).
+    func show(_ text: String, warning: Bool = false) {
+        show(notice: text)
+    }
+
     /// Un avis bref, par-dessus l'écran du moment.
     func show(notice text: String) {
         notice = text
@@ -217,10 +295,40 @@ final class AppModel: ObservableObject {
         return true
     }
 
+    // MARK: - Consoles
+
+    /// La partie d'une console à l'écran (`PlayStationSession.open`).
+    func presentConsole(_ s: PlayStationSession) {
+        guard session == nil else { return }
+        selected = s.console.id
+        consoleSession = s
+        screen = .console(s.console.id)
+    }
+
+    /// La partie s'est fermée : retour à l'accueil, sur la console.
+    func consoleEnded(_ s: PlayStationSession) {
+        guard consoleSession === s else { return }
+        withAnimation(Theme.join) {
+            consoleSession = nil
+            screen = .home
+        }
+    }
+
+    /// « Jouer », « Réveiller et jouer », ou « Jouer » hors de chez soi.
+    func play(_ c: PlayStationConsole) {
+        guard session == nil, consoleSession == nil else { return }
+        switch playstation.status(c) {
+        case .on: playstation.play(c, app: self)
+        case .standby: playstation.wakeAndPlay(c, app: self)
+        case .away: playstation.playAway(c, app: self)
+        default: break
+        }
+    }
+
     // MARK: - Session
 
     func connect(_ id: UUID) {
-        guard session == nil, let host = store.host(id) else { return }
+        guard session == nil, consoleSession == nil, let host = store.host(id) else { return }
         selected = id
         let controller = SessionController(host: host, store: store) { [weak self] _ in
             withAnimation(Theme.join) {

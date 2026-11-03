@@ -20,8 +20,11 @@
 // l'image). Au-delà de 2 ms en médiane, l'agrandissement se coupe pour la
 // partie (filtre bilinéaire, comme avant) et le dit.
 //
-// Tous les appareils Apple : MetalFX existe sur macOS 13, iOS et tvOS 16
-// (pas dans les simulateurs : l'agrandissement y est « indisponible »).
+// Plateformes : Mac (macOS 13+), iPhone et iPad (iOS 16+), Apple TV
+// (tvOS 27.1+, MetalFX n'y est pas avant ; sur l'Apple TV, seulement en SDR :
+// en HDR, l'image passe par la couche vidéo du système, qui l'agrandit
+// elle-même). Ailleurs, `Upscaler` n'existe pas et le rendu garde le filtre
+// bilinéaire.
 
 import Metal
 #if canImport(MetalFX)
@@ -46,7 +49,7 @@ public struct UpscaleReport: Equatable, Sendable {
         case active(width: Int, height: Int)
         /// L'image n'est pas plus petite que l'écran : rien à agrandir.
         case notNeeded
-        /// Coupé : trop lent sur ce Mac (médiane mesurée, en ms).
+        /// Coupé : trop lent sur cet appareil (médiane mesurée, en ms).
         case tooSlow(ms: Double)
         /// Coupé : MetalFX n'est pas là ou refuse ce format.
         case unavailable
@@ -55,8 +58,38 @@ public struct UpscaleReport: Equatable, Sendable {
     public var state: State
     /// Coût médian des passes 1 et 2 (nil : pas encore mesuré).
     public var gpuMs: Double?
+
+    public init(state: State, gpuMs: Double?) {
+        self.state = state
+        self.gpuMs = gpuMs
+    }
 }
 
+/// L'agrandissement est possible sur cet appareil (MetalFX là, et la puce
+/// graphique le prend) : sinon, les réglages de la console ne le proposent pas.
+public enum Upscaling {
+    public static let available: Bool = {
+        #if canImport(MetalFX)
+        if #available(macOS 13.0, iOS 16.0, tvOS 27.1, *), let device = MTLCreateSystemDefaultDevice() {
+            return MTLFXSpatialScalerDescriptor.supportsDevice(device)
+        }
+        #endif
+        return false
+    }()
+}
+
+/// Réglages de la passe de netteté (passe 3), lus par le nuanceur.
+struct UpscalerSharpenUniforms {
+    /// 0 : coupée ; 1 : la plus forte (RCAS à 0 stop).
+    var sharpness: Float
+    /// Valeurs au-delà de 1 (lumière linéaire) : crête locale.
+    var hdr: Int32
+    /// Coin haut gauche de la zone d'affichage, en pixels du tampon.
+    var origin: SIMD2<Int32>
+}
+
+#if canImport(MetalFX)
+@available(macOS 13.0, iOS 16.0, tvOS 27.1, *)
 final class Upscaler {
     /// Au-delà, l'agrandissement se coupe pour la partie.
     static let budgetMs = 2.0
@@ -66,9 +99,7 @@ final class Upscaler {
     private let device: MTLDevice
     private let library: MTLLibrary?
     private var sharpenPipelines: [MTLPixelFormat: MTLRenderPipelineState] = [:]
-    #if canImport(MetalFX)
     private var scaler: MTLFXSpatialScaler?
-    #endif
     private var key: Key?
     private var input: MTLTexture?
     private var output: MTLTexture?
@@ -98,14 +129,11 @@ final class Upscaler {
     struct Textures {
         let input: MTLTexture
         let output: MTLTexture
-        #if canImport(MetalFX)
         let scaler: MTLFXSpatialScaler
-        #endif
         let sharpen: MTLRenderPipelineState
     }
 
     init?(device: MTLDevice) {
-        #if canImport(MetalFX)
         guard MTLFXSpatialScalerDescriptor.supportsDevice(device) else { return nil }
         self.device = device
         do {
@@ -114,9 +142,6 @@ final class Upscaler {
             KyberLog.video.error("netteté de l'agrandissement : \(error.localizedDescription, privacy: .public)")
             library = nil
         }
-        #else
-        return nil
-        #endif
     }
 
     /// Médiane mesurée sur les `measured` premières images (nil : pas encore).
@@ -130,7 +155,6 @@ final class Upscaler {
     /// Les textures et le scaler pour cette taille (refaits si elle change).
     /// `hdr` : valeurs au-delà de 1 (couche en lumière linéaire).
     func prepare(format: MTLPixelFormat, input inW: Int, _ inH: Int, output outW: Int, _ outH: Int, hdr: Bool) -> Textures? {
-        #if canImport(MetalFX)
         guard tooSlow == nil, !refused.contains(format), let sharpen = sharpenPipeline(format) else { return nil }
         let wanted = Key(format: format, inW: inW, inH: inH, outW: outW, outH: outH, hdr: hdr)
         if key != wanted || scaler == nil {
@@ -169,9 +193,6 @@ final class Upscaler {
         }
         guard let scaler, let input, let output else { return nil }
         return Textures(input: input, output: output, scaler: scaler, sharpen: sharpen)
-        #else
-        return nil
-        #endif
     }
 
     /// Coût des passes 1 et 2 d'une image (fin du GPU). Décide après
@@ -213,14 +234,7 @@ final class Upscaler {
         }
     }
 
-    struct SharpenUniforms {
-        /// 0 : coupée ; 1 : la plus forte (RCAS à 0 stop).
-        var sharpness: Float
-        /// Valeurs au-delà de 1 (lumière linéaire) : crête locale.
-        var hdr: Int32
-        /// Coin haut gauche de la zone d'affichage, en pixels du tampon.
-        var origin: SIMD2<Int32>
-    }
+    typealias SharpenUniforms = UpscalerSharpenUniforms
 
     /// RCAS (FidelityFX, AMD, licence MIT), sur l'image agrandie lue pixel à
     /// pixel (la zone d'affichage a sa taille exacte). En lumière linéaire,
@@ -263,3 +277,4 @@ final class Upscaler {
     }
     """
 }
+#endif

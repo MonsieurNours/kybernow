@@ -69,10 +69,13 @@ struct AppSettingsView: View {
 
     private var icloudRow: some View {
         let n = cloud.hosts.count
-        let note = !prefs.icloudSync ? String(localized: "Vos ordinateurs et leurs accès suivent votre Mac et votre compte iCloud.")
+        // « Ordinateurs et consoles » (link-ui) : les comptes PlayStation et leurs consoles suivent aussi.
+        let scope = String(localized: "Ordinateurs et consoles")
+        let detail = !prefs.icloudSync ? String(localized: "Vos ordinateurs et leurs accès suivent votre Mac et votre compte iCloud.")
             : n == 0 ? String(localized: "Aucun ordinateur dans iCloud pour l'instant.")
             : n == 1 ? String(localized: "1 ordinateur dans iCloud.")
             : String(localized: "\(n) ordinateurs dans iCloud.")
+        let note = "\(scope) · \(detail)"
         return Button {
             prefs.icloudSync.toggle()
             // Activée : ceux déjà publiés arrivent tout de suite.

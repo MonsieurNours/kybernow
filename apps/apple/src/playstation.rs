@@ -640,64 +640,15 @@ pub unsafe extern "C" fn kn_ps_handoff_send(address: *const c_char, code: *const
 }
 
 // MARK: - Manettes lues par l'app (Apple TV, iPhone, iPad)
-//
-// Sur le Mac, la partie lit les manettes par le fil SDL du cœur. L'Apple TV,
-// l'iPhone et l'iPad les lisent par GameController : l'app les donne ici au
-// lecteur du cœur (`gamepads`), le temps d'une partie, et reçoit en retour
-// les vibrations et les effets de la DualSense (gâchettes adaptatives).
-// Valeurs des touches et des axes : celles de kynput
-// (`KYNPUT_GAMEPAD_BUTTON_*`, `KYNPUT_GAMEPAD_AXIS_*`), axes comme SDL
-// (sticks de -32768 à 32767, bas positif ; gâchettes de 0 à 32767).
 
-/// Vibration (gros et petit moteur, 0 à 65535 ; durée en ms, 0 : arrêt).
-pub type KnPsRumbleCb = Option<unsafe extern "C" fn(userdata: *mut c_void, pad: u32, large: u16, small: u16, duration_ms: i32)>;
-/// Rapport d'effets de la DualSense (47 octets, `DS5EffectsState_t` de SDL ;
-/// gâchettes : type d'effet en 10 et 21, paramètres en 11 à 20 (droite) et
-/// 22 à 31 (gauche)), valable pendant l'appel.
-pub type KnPsEffectCb = Option<unsafe extern "C" fn(userdata: *mut c_void, pad: u32, data: *const u8, len: usize)>;
-
-struct FeedbackTarget {
-    rumble: KnPsRumbleCb,
-    effect: KnPsEffectCb,
-    userdata: *mut c_void,
-}
-
-unsafe impl Send for FeedbackTarget {}
-unsafe impl Sync for FeedbackTarget {}
-
-/// Le retour des manettes vers l'app (appelé sur les fils de la partie),
-/// jusqu'au prochain appel ; `rumble` et `effect` nuls : plus rien (le Mac
-/// et SDL reprennent).
+/// Une manette branchée, lue par l'app (GameController) : pour une partie
+/// sur console, le lecteur de manettes du cœur la reçoit de l'app
+/// (`vendor_id`, `product_id` : identifiants USB, -1 inconnus ; une DualSense
+/// se dit 054C:0CE6 pour ses gâchettes adaptatives). Les sessions
+/// d'ordinateur gardent `kn_input_gamepad_*`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn kn_ps_pad_set_feedback(rumble: KnPsRumbleCb, effect: KnPsEffectCb, userdata: *mut c_void) {
-    use kybernow_core::gamepads::{self, AppFeedback};
-    if rumble.is_none() && effect.is_none() {
-        gamepads::set_app_feedback(None);
-        return;
-    }
-    let t = FeedbackTarget { rumble, effect, userdata };
-    gamepads::set_app_feedback(Some(Box::new(move |f| {
-        let t = &t;
-        match f {
-            AppFeedback::Rumble(r) => {
-                if let Some(cb) = t.rumble {
-                    unsafe { cb(t.userdata, r.id, r.large_motor, r.small_motor, r.duration_ms) };
-                }
-            }
-            AppFeedback::Effect(id, data) => {
-                if let Some(cb) = t.effect {
-                    unsafe { cb(t.userdata, id, data.as_ptr(), data.len()) };
-                }
-            }
-        }
-    })));
-}
-
-/// Une manette branchée (`vendor`, `product` : -1 si inconnus ; 054C:0CE6
-/// pour une DualSense, qui reçoit alors les effets des gâchettes).
-#[unsafe(no_mangle)]
-pub extern "C" fn kn_ps_pad_plug(pad: u32, vendor: i32, product: i32) {
-    kybernow_core::gamepads::plug(pad, u16::try_from(vendor).ok(), u16::try_from(product).ok());
+pub extern "C" fn kn_ps_pad_plug(pad: u32, vendor_id: i32, product_id: i32) {
+    kybernow_core::gamepads::plug(pad, u16::try_from(vendor_id).ok(), u16::try_from(product_id).ok());
 }
 
 #[unsafe(no_mangle)]
@@ -705,6 +656,7 @@ pub extern "C" fn kn_ps_pad_unplug(pad: u32) {
     kybernow_core::gamepads::unplug(pad);
 }
 
+/// `button` : valeur kynput (`KYNPUT_GAMEPAD_BUTTON_*`, comme `kn_input_gamepad_button`).
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_ps_pad_button(pad: u32, button: u32, pressed: bool) {
     if let Some(b) = kybernow_core::input::PadButton::from_u32(button) {
@@ -712,6 +664,8 @@ pub extern "C" fn kn_ps_pad_button(pad: u32, button: u32, pressed: bool) {
     }
 }
 
+/// `axis` : valeur kynput (`KYNPUT_GAMEPAD_AXIS_*`) ; sticks de -32768 à
+/// 32767 (vers le bas : positif), gâchettes de 0 à 32767.
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_ps_pad_axis(pad: u32, axis: u32, value: i16) {
     if let Some(a) = kybernow_core::input::PadAxis::from_u32(axis) {
@@ -725,17 +679,46 @@ pub extern "C" fn kn_ps_pad_touch_click(pad: u32, pressed: bool) {
     kybernow_core::gamepads::touch_click(pad, pressed);
 }
 
-/// Doigt `finger` (0 ou 1) du pavé tactile posé en `(x, y)` (de 0 à 1,
-/// origine en haut à gauche), ou levé (`down` faux).
+/// Doigt `finger` (0 ou 1) posé en (`x`, `y`), de 0 à 1 depuis le coin haut
+/// gauche du pavé, ou levé (`down` faux).
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_ps_pad_touch(pad: u32, finger: u32, down: bool, x: f32, y: f32) {
     let at = down.then(|| (x.clamp(0.0, 1.0), y.clamp(0.0, 1.0)));
     kybernow_core::gamepads::touch_finger(pad, finger as usize, at);
 }
 
-/// Gyroscope (`gyro` vrai, rad/s) ou accéléromètre (m/s²), dans le repère de
-/// SDL (x à droite, y vers le haut, z vers soi), horodaté en µs.
+/// Mesure du gyroscope (`gyro` : rad/s) ou de l'accéléromètre (m/s²), dans
+/// le repère de SDL ; `timestamp_us` croissant.
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_ps_pad_sensor(pad: u32, gyro: bool, x: f32, y: f32, z: f32, timestamp_us: u64) {
     kybernow_core::gamepads::sensor(pad, gyro, [x, y, z], timestamp_us);
+}
+
+/// Retour d'une partie vers une manette lue par l'app : vibration (`effect`
+/// nul ; moteurs de 0 à 65535, `duration_ms` : 0 arrête), ou rapport
+/// d'effets de la DualSense (`effect` : 47 octets, `DS5EffectsState_t` de
+/// SDL, valables pendant l'appel ; gâchettes adaptatives). Fils de la partie.
+pub type KnPsPadFeedback =
+    Option<unsafe extern "C" fn(userdata: *mut c_void, pad: u32, large: u16, small: u16, duration_ms: i32, effect: *const u8, effect_len: usize)>;
+
+/// Pose (ou retire, `cb` nul) le rappel des vibrations et des gâchettes
+/// adaptatives des parties sur console.
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_ps_pad_set_feedback(cb: KnPsPadFeedback, userdata: *mut c_void) {
+    use kybernow_core::gamepads::{ConsoleFeedback, set_console_feedback};
+    let Some(f) = cb else {
+        set_console_feedback(None);
+        return;
+    };
+    struct Ud(*mut c_void);
+    unsafe impl Send for Ud {}
+    unsafe impl Sync for Ud {}
+    let ud = Ud(userdata);
+    set_console_feedback(Some(Arc::new(move |e: ConsoleFeedback| {
+        let ud = &ud;
+        match e {
+            ConsoleFeedback::Rumble(r) => unsafe { f(ud.0, r.id, r.large_motor, r.small_motor, r.duration_ms, std::ptr::null(), 0) },
+            ConsoleFeedback::Effect(id, data) => unsafe { f(ud.0, id, 0, 0, 0, data.as_ptr(), data.len()) },
+        }
+    })));
 }

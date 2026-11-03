@@ -226,9 +226,7 @@ final class ScreenPadView: UIView {
     }
     /// Le petit bouton de la manette : passer à l'autre disposition.
     var onToggleLayout: (() -> Void)?
-    /// Où partent les appuis : la session d'un ordinateur (GamepadBridge) ou
-    /// la partie sur une console (PlayStationPads).
-    var bridge: ScreenPadSink = GamepadBridge.shared
+    private let bridge = GamepadBridge.shared
     /// Les signes de la manette PlayStation (✕ ○ □ △, L1, R2…) au lieu de ceux de la Xbox.
     var playstation = false {
         didSet { if playstation != oldValue { rebuildLayers() } }
@@ -954,7 +952,8 @@ struct ScreenPadOverlay: UIViewRepresentable {
     let opacity: Double
     let haptics: ScreenPadHaptics
     var topReserved: CGFloat = 0
-    /// Partie sur une console : les appuis vont à `PlayStationPads`, signes PlayStation.
+    /// Partie sur une console : les signes PlayStation (les appuis vont à la
+    /// console par le mode console de GamepadBridge).
     var playstation = false
     let toggle: () -> Void
 
@@ -968,7 +967,6 @@ struct ScreenPadOverlay: UIViewRepresentable {
 
     private func update(_ view: ScreenPadView) {
         view.onToggleLayout = toggle
-        view.bridge = playstation ? PlayStationPads.shared : GamepadBridge.shared
         view.playstation = playstation
         view.haptics = haptics
         view.size = size
@@ -982,12 +980,3 @@ struct ScreenPadOverlay: UIViewRepresentable {
     }
 }
 
-/// Où la manette à l'écran envoie ses appuis.
-protocol ScreenPadSink: AnyObject {
-    func screenPadButton(_ button: PadButton, pressed: Bool)
-    func screenPadStick(right: Bool, x: Float, y: Float)
-    func screenPadTrigger(right: Bool, value: Float)
-}
-
-extension GamepadBridge: ScreenPadSink {}
-extension PlayStationPads: ScreenPadSink {}

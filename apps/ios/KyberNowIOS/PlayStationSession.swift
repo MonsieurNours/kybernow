@@ -9,7 +9,8 @@
 // (`AppModel.consoleSession`).
 //
 // Entrées (docs/playstation.md) :
-// - manettes (GameController) : `PlayStationPads`, une DualSense telle
+// - manettes (GameController) : le mode console de `GamepadBridge`
+//   (partagé avec l'Apple TV, `ConsolePads`), une DualSense telle
 //   quelle, les autres lues comme elle ; vibrations simples (iOS ne donne
 //   pas la carte son de la DualSense : pas de vibrations HD) ;
 // - la manette à l'écran de l'app (bouton de la barre, retenue pour chaque
@@ -42,9 +43,6 @@ final class PlayStationSession: ObservableObject {
 
     /// La partie qui s'ouvre (`AppModel` la met en plein écran).
     static var onOpen: ((PlayStationSession) -> Void)?
-
-    /// L'écran de la partie est HDR (celui de l'appareil).
-    static var screenIsHDR: Bool { HDRDisplay.isHDR(nil) }
 
     @Published private(set) var phase: Phase = .connecting
     /// Étape de la carte de connexion (celle des ordinateurs) : 0 « Connexion »,
@@ -141,8 +139,12 @@ final class PlayStationSession: ObservableObject {
         play.onKeyboard = { [weak self] in self?.keyboardEvent($0) }
         play.setUpscale((try? JSONDecoder().decode(PSSettings.self, from: Data(settings.utf8)))?.upscaleSettings)
         self.play = play
-        PlayStationPads.shared.onChange = { [weak self] n in self?.padsChanged(n) }
-        PlayStationPads.shared.start()
+        GamepadBridge.shared.attachConsole()
+        GamepadBridge.shared.$pads
+            .map(\.count)
+            .removeDuplicates()
+            .sink { [weak self] n in self?.padsChanged(n) }
+            .store(in: &bag)
         keyMouse.attach(play)
         keyMouse.onShortcut = { [weak self] key in self?.shortcut(key) ?? false }
         observe()
@@ -175,7 +177,6 @@ final class PlayStationSession: ObservableObject {
             guard phase == .streaming else { return }
             padFocus = 0
             padMode = pad
-            PlayStationPads.shared.releaseScreenPad()
         } else {
             padMode = false
         }
@@ -210,7 +211,7 @@ final class PlayStationSession: ObservableObject {
     func toggleScreenPad() {
         screenPad.toggle()
         UserDefaults.standard.set(screenPad, forKey: Self.screenPadKey(console))
-        PlayStationPads.shared.setScreenPad(screenPad && phase == .streaming)
+        GamepadBridge.shared.setScreenPad(screenPad && phase == .streaming, name: ScreenPadText.name)
         setBar(false)
     }
 
@@ -344,7 +345,6 @@ final class PlayStationSession: ObservableObject {
                 guard let self else { return }
                 self.play?.setCaptured(true)
                 self.keyMouse.suspended = true
-                PlayStationPads.shared.releaseScreenPad()
             }
         })
         observers.append(center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
@@ -373,7 +373,7 @@ final class PlayStationSession: ObservableObject {
                     guard let self, !self.revealed, !self.finished, self.phase == .connecting else { return }
                     self.revealed = true
                     withAnimation(Theme.easeOut) { self.phase = .streaming }
-                    PlayStationPads.shared.setScreenPad(self.screenPad)
+                    GamepadBridge.shared.setScreenPad(self.screenPad, name: ScreenPadText.name)
                 }
             }
             startStats()
@@ -397,8 +397,9 @@ final class PlayStationSession: ObservableObject {
 
     /// Arrêt hors du fil principal (`kn_ps_stop` attend sa fin).
     private func stopPlay() {
-        PlayStationPads.shared.stop()
-        PlayStationPads.shared.onChange = nil
+        GamepadBridge.shared.setScreenPad(false, name: ScreenPadText.name)
+        GamepadBridge.shared.detachConsole()
+        bag.removeAll()
         keyMouse.detach()
         guard let play else { return }
         self.play = nil
