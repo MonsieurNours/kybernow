@@ -1,6 +1,230 @@
 {
   "sourceLanguage" : "fr",
   "strings" : {
+    "Envoyer" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Send"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Envoyer"
+          }
+        }
+      }
+    },
+    "Envoyer à un appareil" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Send to a device"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Envoyer à un appareil"
+          }
+        }
+      }
+    },
+    "Aucun appareil en attente. Sur la télé ou l'autre appareil : Ajouter une console › Recevoir d'un autre appareil." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No device waiting. On the TV or the other device: Add a console › Receive from another device."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucun appareil en attente. Sur la télé ou l'autre appareil : Ajouter une console › Recevoir d'un autre appareil."
+          }
+        }
+      }
+    },
+    "Saisissez le code affiché sur %@." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enter the code shown on %@."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saisissez le code affiché sur %@."
+          }
+        }
+      }
+    },
+    "Code à 6 chiffres" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "6-digit code"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Code à 6 chiffres"
+          }
+        }
+      }
+    },
+    "Comptes et consoles envoyés à %@." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Accounts and consoles sent to %@."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Comptes et consoles envoyés à %@."
+          }
+        }
+      }
+    },
+    "Code refusé : vérifiez-le sur %@." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Code refused: check it on %@."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Code refusé : vérifiez-le sur %@."
+          }
+        }
+      }
+    },
+    "%@ ne répond plus." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ isn't answering any more."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ ne répond plus."
+          }
+        }
+      }
+    },
+    "Recevoir d'un autre appareil" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Receive from another device"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recevoir d'un autre appareil"
+          }
+        }
+      }
+    },
+    "Sur votre Mac, votre PC ou votre téléphone : Ajouter un ordinateur ou une console › PlayStation › Envoyer à un appareil, puis saisissez ce code." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On your Mac, PC or phone: Add a computer or a console › PlayStation › Send to a device, then enter this code."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sur votre Mac, votre PC ou votre téléphone : Ajouter un ordinateur ou une console › PlayStation › Envoyer à un appareil, puis saisissez ce code."
+          }
+        }
+      }
+    },
+    "%lld compte(s) et %lld console(s) reçus." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld account(s) and %lld console(s) received."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld compte(s) et %lld console(s) reçus."
+          }
+        }
+      }
+    },
+    "Code expiré." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Code expired."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Code expiré."
+          }
+        }
+      }
+    },
+    "Ordinateurs et consoles" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Computers and consoles"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ordinateurs et consoles"
+          }
+        }
+      }
+    },
+    "Vos ordinateurs et leurs accès arrivent sur l'Apple TV, l'iPhone et l'iPad connectés au même compte iCloud ; vos comptes PlayStation et leurs consoles, sur tous vos appareils Apple. Sans rien taper. Mots de passe et associations dans le Trousseau iCloud, chiffré de bout en bout." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your computers and their credentials appear on the Apple TV, iPhone and iPad signed in to the same iCloud account; your PlayStation accounts and their consoles, on all your Apple devices. Nothing to type. Passwords and pairings stay in iCloud Keychain, end-to-end encrypted."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vos ordinateurs et leurs accès arrivent sur l'Apple TV, l'iPhone et l'iPad connectés au même compte iCloud ; vos comptes PlayStation et leurs consoles, sur tous vos appareils Apple. Sans rien taper. Mots de passe et associations dans le Trousseau iCloud, chiffré de bout en bout."
+          }
+        }
+      }
+    },
     "Vibrations" : {
       "localizations" : {
         "en" : {
@@ -9599,22 +9823,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Vos autres ordinateurs"
-          }
-        }
-      }
-    },
-    "Vos ordinateurs et leurs accès arrivent sur l'Apple TV connectée au même compte iCloud, sans rien taper. Mots de passe dans le Trousseau iCloud, chiffré de bout en bout." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Your computers and their credentials appear on the Apple TV signed in to the same iCloud account, with nothing to type. Passwords stay in iCloud Keychain, end-to-end encrypted."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Vos ordinateurs et leurs accès arrivent sur l'Apple TV connectée au même compte iCloud, sans rien taper. Mots de passe dans le Trousseau iCloud, chiffré de bout en bout."
           }
         }
       }
