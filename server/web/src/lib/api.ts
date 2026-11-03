@@ -683,7 +683,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
 export const api = {
   session: () =>
-    request<{ configured: boolean; authenticated: boolean; setup_code_file: string; hostname?: string | null }>('GET', '/api/session'),
+    request<{ configured: boolean; authenticated: boolean; setup_code_file: string; hostname?: string | null; platform?: string }>('GET', '/api/session'),
   setup: (code: string, password: string) => request('POST', '/api/setup', { code, password }),
   login: (password: string) => request('POST', '/api/login', { password }),
   logout: () => request('POST', '/api/logout'),

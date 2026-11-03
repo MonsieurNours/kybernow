@@ -23,7 +23,7 @@
   import Home from './Home.svelte'
   import Join from './Join.svelte'
   import Session from './Session.svelte'
-  import { t } from '../lib/i18n/index.svelte'
+  import { setPlatform, t } from '../lib/i18n/index.svelte'
 
   let session = $state<ConsoleSession | null>(null)
   let prefs = $state<Prefs>(loadPrefs())
@@ -57,6 +57,7 @@
   async function load() {
     try {
       session = await backend.session()
+      setPlatform(session.platform)
       // Par le relais, l'image passera en WebSocket (Admin n'y ouvre pas WebTransport).
       if (session.relay) setRelay(true)
       if (session.hostname) document.title = `${session.hostname} · KyberNow Link`

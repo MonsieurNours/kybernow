@@ -183,6 +183,7 @@ async fn session(State(s): State<AppState>, headers: HeaderMap, via: Option<axum
             "authenticated": false,
             "relay": true,
             "version": crate::update::current(),
+            "platform": crate::i18n::PLATFORM,
         }));
     }
     let authenticated = auth::session_token(&headers).is_some_and(|t| s.auth.session_valid(&t));
@@ -194,6 +195,8 @@ async fn session(State(s): State<AppState>, headers: HeaderMap, via: Option<axum
         "hostname": crate::system::computer_name(),
         // Contrôle de santé de l'applicateur de mises à jour (sans compte).
         "version": crate::update::current(),
+        // Système de la Station : les textes propres à Windows ont leur version Mac.
+        "platform": crate::i18n::PLATFORM,
     }))
 }
 

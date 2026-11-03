@@ -1331,5 +1331,99 @@
         "done": "Done"
       }
     }
+  },
+  "macos": {
+    "session": {
+      "keys": {
+        "win": "⌘ key alone",
+        "winSub": "Command"
+      }
+    },
+    "web": {
+      "keys": {
+        "start": "Command key"
+      }
+    },
+    "overview": {
+      "display": {
+        "noDriver": "Virtual display unavailable"
+      }
+    },
+    "devices": {
+      "card": {
+        "launchText": "An app opens on the Mac as soon as the virtual display is ready, in your session. Already open, it comes back to the front."
+      },
+      "launch": {
+        "intro": "An app opens on the Mac as soon as its display is ready: Steam Big Picture, a game, a spreadsheet… Apps and their icons come from the Mac's Applications folder.",
+        "otherHint": "An app in Applications, in your applications or on the Desktop",
+        "roots": {
+          "programs": "Applications",
+          "userPrograms": "My applications"
+        },
+        "loading": "Reading the applications…",
+        "readFailed": "The applications couldn't be read: {error}. Log in to the Mac, then refresh.",
+        "allOf": "The Mac's applications",
+        "emptyCatalogue": "No app found. Log in to the Mac, then refresh."
+      }
+    },
+    "system": {
+      "update": {
+        "timeout": "The update did not complete within 5 minutes: see ~/Library/Logs/KyberNow/admin.log."
+      },
+      "server": {
+        "simulated": "(simulated outside a Station)"
+      },
+      "station": {
+        "timeout": "The Station did not restart within 3 minutes: see ~/Library/Logs/KyberNow/admin.log."
+      },
+      "wake": {
+        "allowedHelp": "macOS lets this Mac wake over the network. Your devices can wake it from the KyberNow Link app, from sleep: a Mac that is shut down doesn't wake.",
+        "notAllowedHelp": "To let your devices wake this Mac, turn on “Wake for network access” in macOS's Energy settings (Battery › Options on a laptop).",
+        "unknownHelp": "macOS doesn't say whether this Mac can wake over the network. To let your devices do it, turn on “Wake for network access” in macOS's Energy settings (Battery › Options on a laptop).",
+        "noneHelp": "Waking goes through an Ethernet or Wi-Fi card connected to the local network. This Mac has none in use."
+      }
+    },
+    "imageSound": {
+      "intro": "What your devices receive, and what this Mac becomes during a session. KyberNow Link apps set the picture quality themselves: there is nothing to set here to get started.",
+      "hdrGamma": {
+        "srgb": "sRGB"
+      },
+      "pill": {
+        "simulated": "Simulated: no Station installed on this Mac",
+        "driverUnavailable": "Virtual display unavailable",
+        "ready": "Ready · macOS virtual display",
+        "readyVersion": "Ready · macOS virtual display"
+      },
+      "display": {
+        "hdrWindows": "HDR needs macOS 15 Sequoia or later on this Mac.",
+        "hdrEncoder": "This Mac's chip doesn't do HDR.",
+        "hdrCheckProfile": "macOS didn't take the profile: games see {seen} nits instead of {wanted}.",
+        "hdrCheckUnread": "macOS doesn't give the virtual display's luminance.",
+        "hdrGammaHelp": "A setting for Windows Stations. On Mac, the desktop white follows the device screen's white: nothing to choose.",
+        "failsafeHelp": "The virtual display goes away by itself if the Station stops, and macOS turns your displays back on in their layout. You can also do it right away.",
+        "failsafeHelpSeconds": "The virtual display goes away by itself if the Station stops, and macOS turns your displays back on in their layout. You can also do it right away."
+      },
+      "sound": {
+        "installSteam": "Run the KyberNow Station installer again with the “Sound on your devices” option: it will add the KyberNow sound output. Without it, sound also comes out of the Mac's speakers."
+      }
+    },
+    "lend": {
+      "warning": "Your friend plays in your Mac session. They don't see your desktop or your windows, but a game can read your files: lend to friends you trust.",
+      "page": {
+        "intro": "Lend the Mac to a friend when you're not using it: they play from their device, with the apps you choose. At the end, everything goes back as before and the Mac session locks.",
+        "switchHelp": "While lending is on, the Mac session must stay open: the Station prevents sleep and automatic locking."
+      },
+      "apps": {
+        "pickIntro": "Your friend can open it from the launcher. Apps and their icons come from the Mac's Applications folder."
+      },
+      "admin": {
+        "settings": {
+          "session": "Your Mac session"
+        },
+        "off": {
+          "warning": "Your friend plays in your Mac session, in console mode: they only see the apps you choose. A game can still read your files: lend to friends you trust."
+        }
+      }
+    }
   }
 }

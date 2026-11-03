@@ -1331,5 +1331,99 @@
         "done": "Terminé"
       }
     }
+  },
+  "macos": {
+    "session": {
+      "keys": {
+        "win": "Touche ⌘ seule",
+        "winSub": "Commande"
+      }
+    },
+    "web": {
+      "keys": {
+        "start": "Touche ⌘"
+      }
+    },
+    "overview": {
+      "display": {
+        "noDriver": "Écran virtuel indisponible"
+      }
+    },
+    "devices": {
+      "card": {
+        "launchText": "Une app s'ouvre sur le Mac dès que l'écran virtuel est prêt, dans votre session. Déjà ouverte, elle revient au premier plan."
+      },
+      "launch": {
+        "intro": "Une app s'ouvre sur le Mac dès que son écran est prêt : Steam Big Picture, un jeu, un tableur… Les apps et leurs icônes viennent du dossier Applications du Mac.",
+        "otherHint": "Une app dans Applications, dans vos applications ou sur le Bureau",
+        "roots": {
+          "programs": "Applications",
+          "userPrograms": "Mes applications"
+        },
+        "loading": "Lecture des applications…",
+        "readFailed": "Les applications n'ont pas pu être relues : {error}. Ouvrez votre session sur le Mac, puis actualisez.",
+        "allOf": "Applications du Mac",
+        "emptyCatalogue": "Aucune app trouvée. Ouvrez votre session sur le Mac, puis actualisez."
+      }
+    },
+    "system": {
+      "update": {
+        "timeout": "La mise à jour n'a pas abouti en 5 minutes : voyez ~/Library/Logs/KyberNow/admin.log."
+      },
+      "server": {
+        "simulated": "(simulé hors Station)"
+      },
+      "station": {
+        "timeout": "La Station n'a pas redémarré en 3 minutes : voyez ~/Library/Logs/KyberNow/admin.log."
+      },
+      "wake": {
+        "allowedHelp": "macOS laisse ce Mac se réveiller par le réseau. Vos appareils peuvent le réveiller depuis l'app KyberNow Link, depuis la veille : un Mac éteint ne se réveille pas.",
+        "notAllowedHelp": "Pour que vos appareils puissent réveiller ce Mac, activez « Réveiller pour l'accès au réseau » dans les réglages Énergie de macOS (Batterie › Options sur un portable).",
+        "unknownHelp": "macOS ne dit pas si ce Mac peut se réveiller par le réseau. Pour que vos appareils le puissent, activez « Réveiller pour l'accès au réseau » dans les réglages Énergie de macOS (Batterie › Options sur un portable).",
+        "noneHelp": "Le réveil passe par une carte Ethernet ou Wi-Fi reliée au réseau local. Ce Mac n'en a aucune en service."
+      }
+    },
+    "imageSound": {
+      "intro": "Ce que vos appareils reçoivent, et ce que devient ce Mac le temps d'une session. Les apps KyberNow Link règlent elles-mêmes la qualité de l'image : il n'y a rien à régler ici pour bien démarrer.",
+      "hdrGamma": {
+        "srgb": "sRGB"
+      },
+      "pill": {
+        "simulated": "Simulé : pas de Station installée sur ce Mac",
+        "driverUnavailable": "Écran virtuel indisponible",
+        "ready": "Prêt · écran virtuel de macOS",
+        "readyVersion": "Prêt · écran virtuel de macOS"
+      },
+      "display": {
+        "hdrWindows": "Le HDR demande macOS 15 Sequoia ou plus récent sur ce Mac.",
+        "hdrEncoder": "La puce de ce Mac ne fait pas le HDR.",
+        "hdrCheckProfile": "macOS n'a pas pris le profil : les jeux voient {seen} nits au lieu de {wanted}.",
+        "hdrCheckUnread": "macOS ne donne pas les luminosités de l'écran virtuel.",
+        "hdrGammaHelp": "Réglage des Stations Windows. Sur Mac, le blanc du bureau suit celui de l'écran de l'appareil : rien à choisir.",
+        "failsafeHelp": "L'écran virtuel disparaît tout seul si la Station s'arrête, et macOS rallume vos écrans dans leur disposition. Vous pouvez aussi le faire tout de suite.",
+        "failsafeHelpSeconds": "L'écran virtuel disparaît tout seul si la Station s'arrête, et macOS rallume vos écrans dans leur disposition. Vous pouvez aussi le faire tout de suite."
+      },
+      "sound": {
+        "installSteam": "Relancez l'installateur de KyberNow Station avec l'option « Son sur vos appareils » : il ajoutera la sortie son KyberNow. Sans elle, le son sort aussi des haut-parleurs du Mac."
+      }
+    },
+    "lend": {
+      "warning": "Votre ami joue dans votre session du Mac. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance.",
+      "page": {
+        "intro": "Prêtez le Mac à un ami quand vous ne vous en servez pas : il joue depuis son appareil, avec les apps que vous choisissez. À la fin, tout revient comme avant et la session du Mac se verrouille.",
+        "switchHelp": "Tant que le prêt est activé, la session du Mac doit rester ouverte : la Station empêche la mise en veille et le verrouillage automatique."
+      },
+      "apps": {
+        "pickIntro": "Votre ami pourra l'ouvrir depuis le lanceur. Les apps et leurs icônes viennent du dossier Applications du Mac."
+      },
+      "admin": {
+        "settings": {
+          "session": "Votre session du Mac"
+        },
+        "off": {
+          "warning": "Votre ami joue dans votre session du Mac, en mode console : il ne voit que les apps que vous choisissez. Un jeu peut tout de même lire vos fichiers : prêtez à des amis de confiance."
+        }
+      }
+    }
   }
 }

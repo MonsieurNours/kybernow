@@ -35,8 +35,18 @@ function loadChoice(): LangChoice {
 
 const initial = loadChoice()
 
-/** État réactif : `choice` (réglage) et `lang` (langue en vigueur). */
-export const i18n = $state({ choice: initial, lang: initial === 'auto' ? systemLang() : initial })
+/**
+ * État réactif : `choice` (réglage), `lang` (langue en vigueur) et
+ * `platform`, le système de la Station (`/api/session`) : sur une Station
+ * Mac, un texte propre à Windows est remplacé par sa version Mac, rangée
+ * sous la même clé dans `macos` (docs/i18n.md).
+ */
+export const i18n = $state({ choice: initial, lang: initial === 'auto' ? systemLang() : initial, platform: 'windows' as 'windows' | 'macos' })
+
+/** Système de la Station, donné par `/api/session`. */
+export function setPlatform(platform: string | null | undefined) {
+  i18n.platform = platform === 'macos' ? 'macos' : 'windows'
+}
 
 export function setLangChoice(choice: LangChoice) {
   i18n.choice = choice
@@ -95,7 +105,8 @@ function fill(text: string, params?: Params): string {
  * Lu dans un gabarit ou un `$derived`, il suit les changements de langue.
  */
 export function t(key: string, params?: Params): string {
-  const text = lookup(catalogs[i18n.lang], key) ?? lookup(catalogs.fr, key)
+  const mac = i18n.platform === 'macos' ? (lookup(catalogs[i18n.lang], `macos.${key}`) ?? lookup(catalogs.fr, `macos.${key}`)) : undefined
+  const text = mac ?? lookup(catalogs[i18n.lang], key) ?? lookup(catalogs.fr, key)
   return typeof text === 'string' ? fill(text, params) : key
 }
 

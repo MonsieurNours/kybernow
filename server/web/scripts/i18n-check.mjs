@@ -47,6 +47,11 @@ function walk(d) {
 }
 walk(join(root, 'src'))
 
+// Version Mac d'un texte propre à Windows (`macos.<clé>`, docs/i18n.md) : la clé doit exister.
+for (const key of a.keys()) {
+  if (key.startsWith('macos.') && !a.has(key.slice(6))) problems.push(`version Mac sans texte d'origine : ${key}`)
+}
+
 if (problems.length) {
   console.error(`Catalogues de langue : ${problems.length} problème(s)\n  ${problems.join('\n  ')}`)
   process.exit(1)

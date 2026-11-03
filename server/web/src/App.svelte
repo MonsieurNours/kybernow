@@ -2,7 +2,7 @@
   import { onMount, tick, untrack } from 'svelte'
   import { api, joinedGuests, setUnauthorizedHandler } from './lib/api'
   import { app, refreshStatus, notify, errorText, accessReason, kyber, loadKyber } from './lib/store.svelte'
-  import { i18n, t, tn } from './lib/i18n/index.svelte'
+  import { i18n, setPlatform, t, tn } from './lib/i18n/index.svelte'
   import LangChoice from './lib/LangChoice.svelte'
   import Login from './pages/Login.svelte'
   import Overview from './pages/Overview.svelte'
@@ -88,6 +88,7 @@
 
   async function loadSession() {
     session = await api.session()
+    setPlatform((session as { platform?: string }).platform)
   }
 
   onMount(() => {

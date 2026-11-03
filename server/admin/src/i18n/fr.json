@@ -225,5 +225,15 @@
     "noLend": "Aucun prêt en cours.",
     "unknownFriend": "Ce compte d'ami n'existe plus.",
     "unknownApp": "Cette app n'est plus permise."
+  },
+  "macos": {
+    "station": {
+      "windowsOnly": "redémarrer la Station n'est possible que sur une Station installée"
+    },
+    "events": {
+      "displayKeepsTurningOn": "macOS rallume sans cesse un écran du Mac : il reste allumé pour le reste de la session",
+      "launchedAfterUnlock": "{app} ouvert pour {name}, une fois la session du Mac déverrouillée",
+      "launchLocked": "{app} n'a pas été ouvert pour {name} : la session du Mac est restée verrouillée pendant 2 minutes"
+    }
   }
 }

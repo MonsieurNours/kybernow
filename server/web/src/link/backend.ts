@@ -79,6 +79,8 @@ export interface Session {
   configured: boolean
   authenticated: boolean
   hostname?: string | null
+  /** Système de la Station (`macos`, `windows`) : textes propres à chacun (docs/i18n.md). */
+  platform?: string
   /**
    * La page est venue par le relais (docs/relais.md, « Partage ») : seul « Rejoindre un partage » est
    * ouvert, sans nom d'ordinateur (il n'est connu qu'après l'accord de l'hôte), image en WebSocket.

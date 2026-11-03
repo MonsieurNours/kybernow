@@ -89,8 +89,19 @@ fn lookup<'a>(root: &'a Value, key: &str) -> Option<&'a str> {
     key.split('.').try_fold(root, |node, part| node.get(part))?.as_str()
 }
 
-/// Texte brut de `key` (repli : français, puis la clé elle-même).
+/// Système de la Station (`/api/session`) : `macos` ou `windows`.
+pub const PLATFORM: &str = if cfg!(target_os = "macos") { "macos" } else { "windows" };
+
+/// Texte brut de `key` (repli : français, puis la clé elle-même). Sur une
+/// Station Mac, la version Mac d'un texte propre à Windows (`macos.<clé>`)
+/// passe d'abord (docs/i18n.md).
 fn text(lang: Lang, key: &str) -> &str {
+    if cfg!(target_os = "macos") {
+        let mac = format!("macos.{key}");
+        if let Some(t) = lookup(catalog(lang), &mac).or_else(|| lookup(&FR, &mac)) {
+            return t;
+        }
+    }
     lookup(catalog(lang), key).or_else(|| lookup(&FR, key)).unwrap_or(key)
 }
 

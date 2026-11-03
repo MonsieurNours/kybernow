@@ -193,9 +193,30 @@ fn launch_assistant(data_dir: &Path) -> Result<Option<Child>> {
     Ok(Some(child))
 }
 
+/// Station Mac : Kyber et Admin sont des LaunchAgents de la session ; launchd
+/// les relance lui-même (`kickstart -k`), Admin en dernier (il s'arrête alors).
+/// Pas d'assistant détaché : launchd arrêterait avec Admin tout ce qu'il lance.
 #[cfg(not(windows))]
-fn launch_assistant(_: &Path) -> Result<Option<Child>> {
-    Err(crate::i18n::Msg::new("station.windowsOnly").into())
+fn launch_assistant(data_dir: &Path) -> Result<Option<Child>> {
+    if !crate::mac::is_station() {
+        return Err(crate::i18n::Msg::new("station.windowsOnly").into());
+    }
+    let dir = data_dir.join(DIR);
+    let _ = fs::create_dir_all(&dir);
+    std::thread::spawn(move || {
+        let mut log = Journal::open(dir.join(LOG));
+        log.line("==> Redémarrage de KyberNow Station demandé depuis Admin (Mac)");
+        std::thread::sleep(GRACE);
+        use std::os::unix::fs::MetadataExt;
+        let uid = fs::metadata("/dev/console").map(|m| m.uid()).unwrap_or(0);
+        let domain = format!("gui/{uid}");
+        for label in [crate::mac::KYBER_LABEL, "fr.leslignesclaires.kybernow.station.admin"] {
+            log.line(format!("launchctl kickstart -k {domain}/{label}"));
+            let _ = std::process::Command::new("/bin/launchctl").args(["kickstart", "-k", &format!("{domain}/{label}")]).status();
+        }
+    });
+    tracing::info!("redémarrage de la Station : Kyber puis Admin relancés par launchd");
+    Ok(None)
 }
 
 #[cfg(windows)]
@@ -412,13 +433,17 @@ mod tests {
 
     #[cfg(not(windows))]
     #[test]
-    fn outside_windows_the_launch_fails_cleanly() {
+    fn outside_a_station_the_launch_fails_cleanly() {
         let dir = temp();
         let restarter = Restarter::new(&dir);
+        // Hors Station (tests, Mac de développement) : refusé, avec le texte du système.
+        let expected = if cfg!(target_os = "macos") {
+            "redémarrer la Station n'est possible que sur une Station installée"
+        } else {
+            "redémarrer la Station n'est possible que sous Windows"
+        };
         match restarter.restart() {
-            Err(Refused::Failed(e)) => {
-                assert_eq!(crate::i18n::error_text(crate::i18n::Lang::Fr, &e), "redémarrer la Station n'est possible que sous Windows")
-            }
+            Err(Refused::Failed(e)) => assert_eq!(crate::i18n::error_text(crate::i18n::Lang::Fr, &e), expected),
             other => panic!("{other:?}"),
         }
         assert!(!restarter.restarting());

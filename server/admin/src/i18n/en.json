@@ -225,5 +225,15 @@
     "noLend": "No loan in progress.",
     "unknownFriend": "This friend account no longer exists.",
     "unknownApp": "This app is no longer allowed."
+  },
+  "macos": {
+    "station": {
+      "windowsOnly": "restarting the Station is only possible on an installed Station"
+    },
+    "events": {
+      "displayKeepsTurningOn": "macOS keeps turning one of the Mac's displays back on: it stays on for the rest of the session",
+      "launchedAfterUnlock": "{app} opened for {name}, once the Mac session was unlocked",
+      "launchLocked": "{app} wasn't opened for {name}: the Mac session stayed locked for 2 minutes"
+    }
   }
 }
