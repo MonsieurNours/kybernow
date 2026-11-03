@@ -1,8 +1,6 @@
-// « Envoyer à un appareil » et « Recevoir d'un autre appareil » dans l'onglet
-// « PlayStation » de la fenêtre d'ajout (docs/link-ui.md, « Consoles
-// PlayStation », « Plusieurs appareils » ; protocole : docs/playstation.md).
-// Le paquet : PSShared (PlayStationSync.swift), chiffré par le cœur ; le
-// modèle et les textes, communs aux apps Apple : PlayStationHandoffModel.swift.
+// Vues de « Envoyer à un appareil » et « Recevoir d'un autre appareil » dans
+// l'onglet « PlayStation » de la fenêtre d'ajout du Mac (le modèle et les
+// textes, communs aux apps Apple : PlayStationHandoffModel.swift).
 
 import KyberKit
 import SwiftUI

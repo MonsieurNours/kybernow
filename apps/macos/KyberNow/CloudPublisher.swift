@@ -8,11 +8,9 @@
 // identifiant de l'ordinateur). L'élément local du Trousseau reste la
 // référence sur ce Mac ; la copie iCloud le suit.
 //
-// Les consoles PlayStation vont dans les deux sens (docs/playstation.md,
-// « Plusieurs appareils ») : la clé « playstation » du même magasin et le
-// service « fr.leslignesclaires.kybernow.cloud.playstation » du Trousseau
-// iCloud ; ce Mac publie ses comptes et associations et reprend ceux des
-// autres appareils Apple (format et règles : PlayStationSync.swift).
+// Les consoles PlayStation vont dans les deux sens, sous le même réglage
+// (docs/playstation.md, « Plusieurs appareils ») : `PlayStationCloud`,
+// commun aux apps Apple, branché ici.
 //
 // Il faut les droits iCloud (magasin clé-valeur, groupe du Trousseau), donc un
 // profil de provisionnement : une app signée sans eux ne publie rien et le dit
@@ -74,7 +72,7 @@ final class CloudPublisher: ObservableObject {
             guard enabled != oldValue else { return }
             UserDefaults.standard.set(enabled, forKey: Self.enabledKey)
             enabled ? publish(hosts) : withdraw()
-            if enabled { syncConsoles() }
+            enabled ? consoles?.sync() : consoles?.forget()
         }
     }
     /// Aucun compte iCloud sur ce Mac : la liste attend localement.
@@ -109,15 +107,9 @@ final class CloudPublisher: ObservableObject {
             let reason = note.userInfo?[NSUbiquitousKeyValueStoreChangeReasonKey] as? Int
             Task { @MainActor in
                 guard let self else { return }
-                if reason == NSUbiquitousKeyValueStoreAccountChange {
-                    self.copied = []
-                    // Un autre compte iCloud : rien de ce qu'il n'a pas n'est « retiré ailleurs ».
-                    self.consolesKnown = []
-                }
-                if self.enabled {
-                    self.publish(self.hosts)
-                    self.syncConsoles()
-                }
+                if reason == NSUbiquitousKeyValueStoreAccountChange { self.copied = [] }
+                // Les consoles : `PlayStationCloud` écoute la même notification.
+                if self.enabled { self.publish(self.hosts) }
             }
         })
         observers.append(center.addObserver(forName: .NSUbiquityIdentityDidChange, object: nil, queue: .main) { [weak self] _ in
@@ -125,10 +117,10 @@ final class CloudPublisher: ObservableObject {
                 guard let self else { return }
                 self.signedOut = FileManager.default.ubiquityIdentityToken == nil
                 self.copied = []
-                self.consolesKnown = []
+                self.consoles?.forget()
                 if self.enabled {
                     self.publish(self.hosts)
-                    self.syncConsoles()
+                    self.consoles?.schedule()
                 }
             }
         })
@@ -184,77 +176,23 @@ final class CloudPublisher: ObservableObject {
         write(cloudList.filter { !mine.contains($0.id) })
         published = []
         copied = []
-        // Consoles : rien n'est retiré d'iCloud (les comptes sont à tous les
-        // appareils), la prochaine synchro repartira d'une union.
-        consolesKnown = []
     }
 
-    // MARK: - Consoles PlayStation (format et règles : PlayStationSync.swift)
+    // MARK: - Consoles PlayStation
 
-    private static let consolesKey = "playstation"
-    /// `known` de la synchro des consoles (PSCloudPlan).
-    private static let consolesKnownKey = "icloudPlayStationKnown"
-    private weak var playstation: PlayStationStore?
-    private var consolesScheduled = false
-    private var retry: Task<Void, Never>?
+    private var consoles: PlayStationCloud?
 
-    private var consolesKnown: Set<String> {
-        get { Set(UserDefaults.standard.stringArray(forKey: Self.consolesKnownKey) ?? []) }
-        set { UserDefaults.standard.set(newValue.sorted(), forKey: Self.consolesKnownKey) }
-    }
-
-    /// Les consoles de ce Mac, synchronisées à chaque changement et au retour
-    /// de l'app au premier plan (le Trousseau iCloud arrive parfois après la liste).
+    /// Les comptes PlayStation et leurs associations, dans les deux sens.
     func attach(playstation store: PlayStationStore) {
-        playstation = store
-        store.onChange = { [weak self] in self?.scheduleConsoles() }
+        guard Self.entitled else { return }
+        let cloud = PlayStationCloud(store: store) { [weak self] in self?.enabled == true }
+        cloud.onKeychainError = { [weak self] in self?.state = .failed(CloudKeychain.message($0)) }
+        consoles = cloud
+        // Le Trousseau iCloud arrive parfois après la liste : revu au retour au premier plan.
         observers.append(NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.scheduleConsoles() }
+            Task { @MainActor in self?.consoles?.schedule() }
         })
-        syncConsoles()
-    }
-
-    /// Plusieurs changements de suite : une seule synchro.
-    private func scheduleConsoles() {
-        guard !consolesScheduled else { return }
-        consolesScheduled = true
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(500))
-            consolesScheduled = false
-            syncConsoles()
-        }
-    }
-
-    func syncConsoles() {
-        guard enabled, Self.entitled, let ps = playstation else { return }
-        let cloud = store.data(forKey: Self.consolesKey).flatMap(PSShared.decode) ?? PSShared()
-        let plan = PSCloudPlan.make(local: ps.cloudLocal, cloud: cloud, known: consolesKnown) {
-            CloudKeychain.get(service: CloudKeychain.playstation, account: $0)
-        }
-        ps.apply(plan)
-        for k in plan.deleteSecrets { CloudKeychain.delete(service: CloudKeychain.playstation, account: k) }
-        var failure: OSStatus?
-        for (k, v) in plan.writeSecrets {
-            let status = CloudKeychain.set(v, service: CloudKeychain.playstation, account: k)
-            if status != errSecSuccess { failure = status }
-        }
-        if let failure {
-            // Réessayé à la prochaine synchro ; l'élément manquant n'efface rien ailleurs.
-            KyberLog.app.error("Trousseau iCloud : \(failure, privacy: .public) pour une console PlayStation")
-            state = .failed(CloudKeychain.message(failure))
-        }
-        if plan.cloud != cloud, let data = plan.cloud.data {
-            store.set(data, forKey: Self.consolesKey)
-            store.synchronize()
-        }
-        consolesKnown = plan.known
-        // Des éléments attendent le Trousseau iCloud : un nouvel essai dans une minute.
-        retry?.cancel()
-        retry = plan.pending ? Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(60))
-            guard !Task.isCancelled else { return }
-            self?.syncConsoles()
-        } : nil
+        cloud.sync()
     }
 
     private var cloudList: [CloudHost] {
@@ -278,25 +216,17 @@ final class CloudPublisher: ObservableObject {
 /// éléments synchronisables), lus par l'Apple TV.
 enum CloudKeychain {
     private static let service = "fr.leslignesclaires.kybernow.cloud"
-    /// Comptes et associations PlayStation (`account.<UUID>`, `<HOSTID>.<UUID>`).
-    static let playstation = "fr.leslignesclaires.kybernow.cloud.playstation"
 
-    private static func query(_ service: String, _ account: String) -> [String: Any] {
+    private static func query(_ id: UUID) -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,
          kSecAttrService as String: service,
-         kSecAttrAccount as String: account,
+         kSecAttrAccount as String: id.uuidString,
          kSecAttrSynchronizable as String: true,
          kSecUseDataProtectionKeychain as String: true]
     }
 
-    static func get(_ id: UUID) -> String? { get(service: service, account: id.uuidString) }
-
-    static func set(_ password: String, for id: UUID) -> OSStatus { set(password, service: service, account: id.uuidString) }
-
-    static func delete(_ id: UUID) { delete(service: service, account: id.uuidString) }
-
-    static func get(service: String, account: String) -> String? {
-        var q = query(service, account)
+    static func get(_ id: UUID) -> String? {
+        var q = query(id)
         q[kSecReturnData as String] = true
         q[kSecMatchLimit as String] = kSecMatchLimitOne
         var out: CFTypeRef?
@@ -304,22 +234,22 @@ enum CloudKeychain {
         return String(data: data, encoding: .utf8)
     }
 
-    /// Écrit seulement si la valeur a changé.
-    static func set(_ value: String, service: String, account: String) -> OSStatus {
-        if let current = get(service: service, account: account) {
-            if current == value { return errSecSuccess }
-            return SecItemUpdate(query(service, account) as CFDictionary, [kSecValueData as String: Data(value.utf8)] as CFDictionary)
+    /// Écrit seulement si le mot de passe a changé.
+    static func set(_ password: String, for id: UUID) -> OSStatus {
+        if let current = get(id) {
+            if current == password { return errSecSuccess }
+            return SecItemUpdate(query(id) as CFDictionary, [kSecValueData as String: Data(password.utf8)] as CFDictionary)
         }
-        var item = query(service, account)
-        item[kSecValueData as String] = Data(value.utf8)
+        var item = query(id)
+        item[kSecValueData as String] = Data(password.utf8)
         item[kSecAttrLabel as String] = "KyberNow (iCloud)"
         // Synchronisable : pas d'accès réservé à cet appareil.
         item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
         return SecItemAdd(item as CFDictionary, nil)
     }
 
-    static func delete(service: String, account: String) {
-        SecItemDelete(query(service, account) as CFDictionary)
+    static func delete(_ id: UUID) {
+        SecItemDelete(query(id) as CFDictionary)
     }
 
     static func message(_ status: OSStatus) -> String {

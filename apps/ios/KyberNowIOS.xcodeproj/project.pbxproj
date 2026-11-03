@@ -26,6 +26,7 @@
 		1F6C9796230EE919A0E92F16 /* LatencyReporting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E2993F29818468CCDB59BBB /* LatencyReporting.swift */; };
 		2047075896E2379979E6B37D /* KyberNowApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A1FF214827149C582C43E77 /* KyberNowApp.swift */; };
 		230B0162F458FF6EEE9F9D67 /* KyberKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8F6A8F0E33DCD5B6CE030AD3 /* KyberKit.framework */; };
+		24D40D3F488A13AA0EA510CC /* PlayStationCloud.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECBF1456A4F19E45D580937C /* PlayStationCloud.swift */; };
 		24E7685D6AC661AFDCCA052B /* HDRCalibration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 216B5AACD7FD091DD1CF9E3A /* HDRCalibration.swift */; };
 		2638F094374303FC6BBF7ABE /* Discovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2B1FC1C1CB40956666D1104 /* Discovery.swift */; };
 		263D92DB45AF33815A440596 /* AddHostScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91FD6F412BECA15E4705994A /* AddHostScanner.swift */; };
@@ -36,7 +37,6 @@
 		3C818532EDC9B3E2AD14165F /* SessionStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3F54BF416D5315CDBC05036 /* SessionStats.swift */; };
 		420B9C9DFB363B4B19E275D8 /* GamepadBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87E8B27E96302CC1E18EB72E /* GamepadBridge.swift */; };
 		47C37D332CD0B56F626DCB89 /* PlayStationSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7ED34E62CB7D180D7EE6F2A /* PlayStationSettings.swift */; };
-		4982E2BAE6668D384BD72035 /* PlayStationCloud.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88D801E9F434B29A3C00E298 /* PlayStationCloud.swift */; };
 		4A243449E9012A83F5B25EBA /* SessionEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = C061F9A3683E8F0952178D5A /* SessionEngine.swift */; };
 		523DECF3B68F3B51B2E41970 /* libiconv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = FCC6D0F079A62951A979AFFB /* libiconv.tbd */; };
 		54DD1243C7F803D6F6294386 /* HomeParts.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC73DD292CBDBDF502F5FA6E /* HomeParts.swift */; };
@@ -163,7 +163,6 @@
 		7C5BC11DCB9BAF29FE7F1722 /* AppSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettingsView.swift; sourceTree = "<group>"; };
 		83DD82B5F895B89661901570 /* PlayStationHandoffViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayStationHandoffViews.swift; sourceTree = "<group>"; };
 		87E8B27E96302CC1E18EB72E /* GamepadBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadBridge.swift; sourceTree = "<group>"; };
-		88D801E9F434B29A3C00E298 /* PlayStationCloud.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayStationCloud.swift; sourceTree = "<group>"; };
 		8ACCD81A8B16FC7E417CA554 /* StreamView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamView.swift; sourceTree = "<group>"; };
 		8F6A8F0E33DCD5B6CE030AD3 /* KyberKit.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = KyberKit.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		90C6C805EDA4B6095D33A5AD /* MetalSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalSurface.swift; sourceTree = "<group>"; };
@@ -205,6 +204,7 @@
 		DF18C6379CA4387A4D910236 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
 		E507C6F92BBBC66E91277CD6 /* PlayStationCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayStationCore.swift; sourceTree = "<group>"; };
 		EAFEE158257746E0783DAB51 /* VideoPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPipeline.swift; sourceTree = "<group>"; };
+		ECBF1456A4F19E45D580937C /* PlayStationCloud.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayStationCloud.swift; sourceTree = "<group>"; };
 		ED5BA9A9A9B2AF57C3FEBB54 /* AV1.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AV1.swift; sourceTree = "<group>"; };
 		F0FC01552ACFFE060EB414DC /* OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = OFL.txt; sourceTree = "<group>"; };
 		F5209938CBDB61B7A681C9DB /* Platform.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Platform.swift; sourceTree = "<group>"; };
@@ -249,7 +249,6 @@
 			children = (
 				25D44B7B7CC32E4F400A995C /* Backdrops.swift */,
 				9F2CC5531BE91A2E596139D8 /* CloudSync.swift */,
-				88D801E9F434B29A3C00E298 /* PlayStationCloud.swift */,
 			);
 			name = KyberNowTV;
 			path = ../tvos/KyberNowTV;
@@ -354,6 +353,7 @@
 				B15AA9F9EFA3E6C151832988 /* LinkUI.swift */,
 				2A6E1351863BB088A8938F59 /* Model.swift */,
 				C81BE51F581BDDEB7CA26D63 /* PlayStation.swift */,
+				ECBF1456A4F19E45D580937C /* PlayStationCloud.swift */,
 				4A2DDF0D3DA8C83BA46D2835 /* PlayStationHandoffModel.swift */,
 				DEB71BF963EE2CBC44C8D23D /* PlayStationSync.swift */,
 				BDC7B1FA8B923B97CFD23EE6 /* Share.swift */,
@@ -539,7 +539,7 @@
 				8AC74F5174920E95A6B94BC0 /* Model.swift in Sources */,
 				B215E1C9CFE4119FBA31D9A2 /* Platform.swift in Sources */,
 				111ADB04F81302886F897C97 /* PlayStation.swift in Sources */,
-				4982E2BAE6668D384BD72035 /* PlayStationCloud.swift in Sources */,
+				24D40D3F488A13AA0EA510CC /* PlayStationCloud.swift in Sources */,
 				A1D9A1B81279D79708C8A383 /* PlayStationHandoffModel.swift in Sources */,
 				009690538F0D93F0BB964176 /* PlayStationHandoffViews.swift in Sources */,
 				79B7269B197B3236415A545F /* PlayStationHome.swift in Sources */,

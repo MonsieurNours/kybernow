@@ -1,12 +1,13 @@
-// « Envoyer à un appareil » et « Recevoir d'un autre appareil », communs aux
-// apps Apple (Mac, iPhone, iPad, Apple TV) : les textes (docs/link-ui.md,
-// « Consoles PlayStation », « Plusieurs appareils ») et le modèle, sur
-// `PSHandoff` (kn_ps_handoff_*, protocole : docs/playstation.md). Le paquet :
-// PSShared (PlayStationSync.swift), chiffré par le cœur. Les vues sont dans
-// chaque app (Mac : PlayStationHandoff.swift).
+// « Envoyer à un appareil » et « Recevoir d'un autre appareil » (docs/link-ui.md,
+// « Consoles PlayStation », « Plusieurs appareils » ; protocole :
+// docs/playstation.md) : les textes et le modèle, communs au Mac, à l'Apple TV,
+// à l'iPhone et à l'iPad (ni AppKit ni UIKit, sauf le nom de l'appareil). Les
+// vues sont à chaque app (Mac : PlayStationHandoff.swift). Le paquet :
+// PSShared (PlayStationSync.swift), chiffré par le cœur (KyberKit, `PSHandoff`).
 
+import Combine
+import Foundation
 import KyberKit
-import SwiftUI
 #if os(macOS)
 import SystemConfiguration
 #else
@@ -48,8 +49,7 @@ final class PSHandoffModel: ObservableObject {
     private var listening: Task<Void, Never>?
     private var receiver: PSHandoff.Receiver?
 
-    /// Le nom de cet appareil, montré par l'appareil qui envoie (« MacBook Pro
-    /// de Léa », « iPad de Léa »).
+    /// Le nom de cet appareil, montré par l'appareil qui envoie (« MacBook Pro de Léa »).
     static var deviceName: String {
         #if os(macOS)
         (SCDynamicStoreCopyComputerName(nil, nil) as String?) ?? "Mac"
@@ -58,7 +58,7 @@ final class PSHandoffModel: ObservableObject {
         #endif
     }
 
-    /// La plateforme annoncée (docs/playstation.md, « Le paquet »).
+    /// La plateforme annoncée aux recherches (docs/playstation.md, « Le paquet »).
     static var platform: String {
         #if os(macOS)
         "macos"
@@ -78,7 +78,7 @@ final class PSHandoffModel: ObservableObject {
             while !Task.isCancelled {
                 let list = await Task.detached(priority: .utility) { PSHandoff.discover(wait: 1500) }.value
                 guard let self, !Task.isCancelled else { return }
-                // Cet appareil lui-même, s'il attend aussi un envoi.
+                // Ce Mac lui-même, s'il attend aussi un envoi.
                 let me = Self.deviceName, platform = Self.platform
                 self.waiting = list.filter { !(self.code != nil && $0.name == me && $0.platform == platform) }
                     .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
@@ -135,11 +135,7 @@ final class PSHandoffModel: ObservableObject {
                 guard let self, !Task.isCancelled else { return }
                 switch event {
                 case let .received(text):
-                    guard let bundle = PSShared.decode(Data(text.utf8)) else {
-                        KyberLog.app.error("PlayStation : paquet reçu illisible")
-                        continue
-                    }
-                    let n = store.receive(bundle)
+                    guard let n = store.receive(json: text) else { continue }
                     self.received = PSText.received(accounts: n.accounts, consoles: n.consoles)
                 case let .newCode(c):
                     self.code = c
@@ -175,4 +171,3 @@ final class PSHandoffModel: ObservableObject {
         code.count == 6 ? "\(code.prefix(3)) \(code.suffix(3))" : code
     }
 }
-

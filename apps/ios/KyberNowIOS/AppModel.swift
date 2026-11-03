@@ -102,13 +102,24 @@ final class AppModel: ObservableObject {
             cloud.$hosts
                 .sink { [weak self] list in self?.importCloud(list) }
                 .store(in: &bag)
-            // Les consoles : publiées et reprises (comptes, associations), même réglage.
-            let consoles = PlayStationCloud(enabled: prefs.icloudSync)
-            consoles.attach(playstation)
+            // Les consoles : publiées et reprises (comptes, associations), même
+            // réglage (PlayStationCloud, commun aux apps Apple).
+            let prefs = prefs
+            let consoles = PlayStationCloud(store: playstation) { prefs.icloudSync }
             playstationCloud = consoles
             prefs.$icloudSync
                 .removeDuplicates()
-                .sink { [weak consoles] on in consoles?.enabled = on }
+                .sink { [weak consoles] on in if on { consoles?.schedule() } else { consoles?.forget() } }
+                .store(in: &bag)
+            // Retour au premier plan, autre compte iCloud : le Trousseau iCloud arrive parfois après la liste.
+            NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)
+                .sink { [weak consoles] _ in consoles?.schedule() }
+                .store(in: &bag)
+            NotificationCenter.default.publisher(for: .NSUbiquityIdentityDidChange)
+                .sink { [weak consoles] _ in
+                    consoles?.forget()
+                    consoles?.schedule()
+                }
                 .store(in: &bag)
         }
         #if DEBUG && targetEnvironment(simulator)

@@ -85,7 +85,7 @@ targets:
       # … sur plusieurs appareils : format partagé et règles d'iCloud, envoi par le réseau.
       - path: ../macos/KyberNow/PlayStationSync.swift
       - path: ../macos/KyberNow/PlayStationHandoffModel.swift
-      - path: ../tvos/KyberNowTV/PlayStationCloud.swift
+      - path: ../macos/KyberNow/PlayStationCloud.swift
       - path: ../tvos/KyberNowTV/CloudSync.swift
       - path: ../tvos/KyberNowTV/Backdrops.swift
       - path: ../macos/KyberNow/Fonts
