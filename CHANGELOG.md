@@ -5,6 +5,18 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## 0.9.1
+
+Version bêta, pour essayer le HDR avant la 0.9.5. Elle n'est proposée qu'aux Stations et aux apps réglées sur les versions bêta.
+
+- **Le HDR arrive**, sur Mac, iPhone, iPad, Apple TV et téléviseurs LG. Sur un écran HDR, une puce « HDR » apparaît sur la carte de l'ordinateur, à côté du profil. Elle est allumée d'office, et l'app retient votre choix pour chaque ordinateur. Les jeux et Windows en HDR arrivent tels quels sur votre écran, avec des couleurs plus riches et des lumières plus vives. Tous les profils passent en HDR, en 4:2:0 : le texte net (4:4:4) revient quand vous éteignez le HDR. En session, « HDR » se coche et se décoche dans la barre.
+- **Rien à régler sur le PC** : Windows passe l'écran virtuel en HDR au début de la session et le remet comme avant à la fin. Il faut Windows 11 24H2 et une carte graphique qui encode en 10 bits (HEVC ou AV1). Quand le HDR n'est pas possible, la puce dit pourquoi.
+- **Les vraies lumières de votre écran** : la Station donne à Windows et aux jeux la luminosité de l'écran de votre appareil, pour que les jeux règlent leur HDR pour lui, et le bureau de Windows n'est plus délavé. Pour régler votre écran à l'œil, comme sur une console, un nouvel écran « Réglage du HDR » propose quatre mires, dans les Réglages de l'app.
+- Avec plusieurs écrans, chacun suit le vôtre : l'écran XDR d'un Mac en HDR, un écran externe ordinaire en SDR. Un invité du partage sans écran HDR, ou dans un navigateur, reçoit une image convertie en SDR. L'ami à qui vous prêtez l'ordinateur a le HDR comme vous.
+- Station : correctifs 0022 de Kyber (capture en 16 bits flottants, conversion HDR10 sur la carte graphique, HEVC Main 10 et AV1 10 bits, image SDR des invités). Dans Admin, page Image et son : « HDR » et « Bureau en HDR ».
+- Le HDR viendra sur Android, Windows et Linux dans une prochaine version.
+- Cette bêta n'a pas encore été essayée avec un vrai PC, un écran XDR, une Apple TV ou un téléviseur LG : vos retours sont les bienvenus sur le Discord.
+
 ## 0.9.0
 
 - **Prêtez votre ordinateur à un ami.** Nouvelle page « Prêt » dans Admin : quand vous ne vous servez pas du PC, un ami joue dessus depuis son app KyberNow Link ou son navigateur, chez vous ou de chez lui. Il ne voit ni votre bureau ni vos fenêtres : votre session Windows passe en mode console, avec un lanceur plein écran aux couleurs de KyberNow Share qui ne montre que les apps que vous avez choisies (Steam en Big Picture, et celles de votre menu Démarrer). Le jeu joué en dernier est mis en avant. L'écran du PC est couvert (« Ordinateur prêté à Léa ») ; Entrée sur son clavier vous rend la main.

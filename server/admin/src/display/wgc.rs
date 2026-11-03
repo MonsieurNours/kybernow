@@ -11,6 +11,14 @@
 //! l'écran (disposition dans `wgc_shared.rs`). Le correctif Kyber 0018
 //! (txproto) les reprend sur le GPU à la place de la duplication.
 //!
+//! Sur un écran en HDR pour Windows (espace G2084 / BT.2020 de
+//! `IDXGIOutput6::GetDesc1`), la capture est en 16 bits flottants (scRGB) et
+//! l'anneau aussi (`format` de l'en-tête) ; txproto la convertit sur la carte
+//! (correctif 0022) : HDR10 pour une image HDR, SDR sinon. Sans drapeau à
+//! passer : l'agent suit l'état de l'écran, relu chaque seconde (Admin allume
+//! le HDR de l'écran virtuel avant de lancer l'agent ; un appareil qui change
+//! d'écran le fait changer en cours de session).
+//!
 //! Le pointeur est exclu de l'image (l'app le dessine elle-même ; txproto
 //! le lit à part). La bordure jaune est refusée quand Windows le permet.
 //! L'agent s'arrête quand le fichier `run` porte un autre jeton, ou quand il
@@ -37,10 +45,13 @@ use windows::Win32::Graphics::Direct3D11::{
     D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX, D3D11_RESOURCE_MISC_SHARED_NTHANDLE, D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC,
     D3D11_USAGE_DEFAULT, D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext, ID3D11Multithread, ID3D11Texture2D,
 };
-use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_SAMPLE_DESC};
+use windows::Win32::Graphics::Dxgi::Common::{
+    DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020, DXGI_FORMAT, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_R16G16B16A16_FLOAT,
+    DXGI_SAMPLE_DESC,
+};
 use windows::Win32::Graphics::Dxgi::{
     CreateDXGIFactory1, DXGI_SHARED_RESOURCE_READ, DXGI_SHARED_RESOURCE_WRITE, IDXGIAdapter, IDXGIAdapter1, IDXGIDevice,
-    IDXGIFactory1, IDXGIKeyedMutex, IDXGIResource1,
+    IDXGIFactory1, IDXGIKeyedMutex, IDXGIOutput, IDXGIOutput6, IDXGIResource1,
 };
 use windows::Win32::Graphics::Gdi::HMONITOR;
 use windows::Win32::Security::SECURITY_ATTRIBUTES;
@@ -50,8 +61,8 @@ use windows::Win32::System::WinRT::{RO_INIT_MULTITHREADED, RoInitialize};
 use windows::core::{HRESULT, HSTRING, IInspectable, Interface};
 
 use super::wgc_shared::{
-    FORMAT_BGRA8, HEADER_SIZE, Header, MAGIC, SLOTS, STATE_RUNNING, STATE_STARTING, STATE_STOPPED, VERSION, event_name,
-    header_name, ring_id, screen_id, texture_name,
+    FORMAT_BGRA8, FORMAT_RGBA16F, HEADER_SIZE, Header, MAGIC, SLOTS, STATE_RUNNING, STATE_STARTING, STATE_STOPPED, VERSION,
+    event_name, header_name, ring_id, screen_id, texture_name,
 };
 
 mod sys {
@@ -206,12 +217,15 @@ impl Shared {
     }
 
     /// Nouvelle image dans `slot` : les champs d'abord, le compteur en
-    /// dernier. La génération (et la taille) ne changent qu'ici : txproto
-    /// n'ouvre les textures d'un nouvel anneau qu'une fois une image dedans.
-    fn publish(&self, slot: u32, generation: u32, width: u32, height: u32, frame_time: i64) {
+    /// dernier. La génération (et la taille, le format) ne changent qu'ici :
+    /// txproto n'ouvre les textures d'un nouvel anneau qu'une fois une image
+    /// dedans.
+    fn publish(&self, slot: u32, ring: &Ring, frame_time: i64) {
+        let (generation, width, height) = (ring.generation, ring.width, ring.height);
         self.set(|h| unsafe { addr_of_mut!((*h).latest_slot) }, slot);
         self.set(|h| unsafe { addr_of_mut!((*h).width) }, width);
         self.set(|h| unsafe { addr_of_mut!((*h).height) }, height);
+        self.set(|h| unsafe { addr_of_mut!((*h).format) }, ring.format.shared());
         self.set(|h| unsafe { addr_of_mut!((*h).generation) }, generation);
         self.set(|h| unsafe { addr_of_mut!((*h).frame_time) }, frame_time);
         self.set(|h| unsafe { addr_of_mut!((*h).publish_time) }, now_100ns());
@@ -232,24 +246,58 @@ impl Drop for Shared {
     }
 }
 
-/// Les textures partagées d'une génération (une taille d'écran).
+/// Format de capture : 16 bits flottants (scRGB) sur un écran en HDR pour
+/// Windows, BGRA 8 bits sinon.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Format {
+    hdr: bool,
+}
+
+impl Format {
+    fn dxgi(self) -> DXGI_FORMAT {
+        if self.hdr { DXGI_FORMAT_R16G16B16A16_FLOAT } else { DXGI_FORMAT_B8G8R8A8_UNORM }
+    }
+
+    fn pixel(self) -> DirectXPixelFormat {
+        if self.hdr { DirectXPixelFormat::R16G16B16A16Float } else { DirectXPixelFormat::B8G8R8A8UIntNormalized }
+    }
+
+    /// `format` de l'en-tête partagé.
+    fn shared(self) -> u32 {
+        if self.hdr { FORMAT_RGBA16F } else { FORMAT_BGRA8 }
+    }
+
+    fn name(self) -> &'static str {
+        if self.hdr { "rgba16f" } else { "bgra8" }
+    }
+}
+
+/// Les textures partagées d'une génération (une taille et un format d'écran).
 struct Ring {
     generation: u32,
     width: u32,
     height: u32,
+    format: Format,
     textures: Vec<ID3D11Texture2D>,
     mutexes: Vec<IDXGIKeyedMutex>,
     handles: Vec<HANDLE>,
 }
 
 impl Ring {
-    fn create(device: &ID3D11Device, id: &str, generation: u32, width: u32, height: u32, security: &Security) -> Result<Self> {
+    fn create(
+        device: &ID3D11Device,
+        id: &str,
+        generation: u32,
+        (width, height): (u32, u32),
+        format: Format,
+        security: &Security,
+    ) -> Result<Self> {
         let desc = D3D11_TEXTURE2D_DESC {
             Width: width,
             Height: height,
             MipLevels: 1,
             ArraySize: 1,
-            Format: DXGI_FORMAT_B8G8R8A8_UNORM,
+            Format: format.dxgi(),
             SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
             Usage: D3D11_USAGE_DEFAULT,
             BindFlags: (D3D11_BIND_SHADER_RESOURCE.0 | D3D11_BIND_RENDER_TARGET.0) as u32,
@@ -257,7 +305,8 @@ impl Ring {
             MiscFlags: (D3D11_RESOURCE_MISC_SHARED_NTHANDLE.0 | D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX.0) as u32,
         };
         let attrs = security.attributes();
-        let mut ring = Ring { generation, width, height, textures: Vec::new(), mutexes: Vec::new(), handles: Vec::new() };
+        let mut ring =
+            Ring { generation, width, height, format, textures: Vec::new(), mutexes: Vec::new(), handles: Vec::new() };
         for slot in 0..SLOTS {
             let mut texture = None;
             unsafe { device.CreateTexture2D(&desc, None, Some(&mut texture)) }.context("texture partagée")?;
@@ -301,8 +350,9 @@ struct Device {
 unsafe impl Send for Device {}
 unsafe impl Sync for Device {}
 
-/// Carte graphique qui affiche l'écran `gdi_name` (celle de Kyber).
-fn adapter_for(gdi_name: &str) -> Result<(IDXGIAdapter1, (u32, i32))> {
+/// La carte et la sortie DXGI de l'écran `gdi_name`. Une fabrique neuve à
+/// chaque appel : celle d'avant garderait l'état HDR d'avant.
+fn output_for(gdi_name: &str) -> Result<(IDXGIAdapter1, IDXGIOutput)> {
     let factory: IDXGIFactory1 = unsafe { CreateDXGIFactory1()? };
     for i in 0.. {
         let Ok(adapter) = (unsafe { factory.EnumAdapters1(i) }) else { break };
@@ -311,12 +361,30 @@ fn adapter_for(gdi_name: &str) -> Result<(IDXGIAdapter1, (u32, i32))> {
             let desc = unsafe { output.GetDesc()? };
             let len = desc.DeviceName.iter().position(|c| *c == 0).unwrap_or(desc.DeviceName.len());
             if String::from_utf16_lossy(&desc.DeviceName[..len]).eq_ignore_ascii_case(gdi_name) {
-                let luid = unsafe { adapter.GetDesc1()? }.AdapterLuid;
-                return Ok((adapter, (luid.LowPart, luid.HighPart)));
+                return Ok((adapter, output));
             }
         }
     }
     bail!("aucune carte n'affiche {gdi_name}")
+}
+
+/// Carte graphique qui affiche l'écran `gdi_name` (celle de Kyber).
+fn adapter_for(gdi_name: &str) -> Result<(IDXGIAdapter1, (u32, i32))> {
+    let (adapter, _) = output_for(gdi_name)?;
+    let luid = unsafe { adapter.GetDesc1()? }.AdapterLuid;
+    Ok((adapter, (luid.LowPart, luid.HighPart)))
+}
+
+/// Format de capture de l'écran `gdi_name` : 16 bits flottants s'il est en
+/// HDR pour Windows (Windows 10 1803 et suivants), BGRA sinon ou si Windows
+/// ne sait pas le dire.
+fn capture_format(gdi_name: &str) -> Format {
+    let hdr = output_for(gdi_name)
+        .ok()
+        .and_then(|(_, output)| output.cast::<IDXGIOutput6>().ok())
+        .and_then(|output| unsafe { output.GetDesc1() }.ok())
+        .is_some_and(|desc| desc.ColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020);
+    Format { hdr }
 }
 
 fn create_device(gdi_name: &str) -> Result<Device> {
@@ -376,6 +444,8 @@ struct State {
     security: Security,
     shared: Shared,
     ring: Mutex<Ring>,
+    /// Format de la capture en cours : celui de l'anneau qu'elle remplit.
+    format: Mutex<Format>,
     next_slot: AtomicU32,
     /// La taille de l'écran a changé : l'anneau et la réserve sont à refaire.
     resized: AtomicBool,
@@ -392,6 +462,13 @@ impl State {
     /// de l'anneau, puis la publie.
     fn copy(&self, source: &ID3D11Texture2D, size: SizeInt32, frame_time: i64) {
         let ring = self.ring.lock().unwrap();
+        // Une image d'avant le changement de format : elle n'entre pas dans
+        // cet anneau.
+        let mut desc = D3D11_TEXTURE2D_DESC::default();
+        unsafe { source.GetDesc(&mut desc) };
+        if desc.Format != ring.format.dxgi() {
+            return;
+        }
         if size.Width as u32 != ring.width || size.Height as u32 != ring.height {
             self.resized.store(true, Ordering::SeqCst);
         }
@@ -412,16 +489,17 @@ impl State {
             self.device.context.CopySubresourceRegion(&ring.textures[slot as usize], 0, 0, 0, 0, source, 0, Some(&area));
             let _ = mutex.ReleaseSync(0);
         }
-        self.shared.publish(slot, ring.generation, ring.width, ring.height, frame_time);
+        self.shared.publish(slot, &ring, frame_time);
         self.frames.fetch_add(1, Ordering::Relaxed);
     }
 
-    /// Nouvelle taille : nouvel anneau (génération suivante), annoncé dans
-    /// l'en-tête avec sa première image (`publish`).
+    /// Nouvelle taille ou nouveau format : nouvel anneau (génération
+    /// suivante), annoncé dans l'en-tête avec sa première image (`publish`).
     fn resize(&self, width: u32, height: u32) -> Result<()> {
+        let format = *self.format.lock().unwrap();
         let mut ring = self.ring.lock().unwrap();
         let generation = ring.generation + 1;
-        *ring = Ring::create(&self.device.device, &self.id, generation, width, height, &self.security)?;
+        *ring = Ring::create(&self.device.device, &self.id, generation, (width, height), format, &self.security)?;
         Ok(())
     }
 }
@@ -450,7 +528,7 @@ impl Capture {
         state.resize(size.Width as u32, size.Height as u32)?;
         let pool = Direct3D11CaptureFramePool::CreateFreeThreaded(
             &state.device.winrt,
-            DirectXPixelFormat::B8G8R8A8UIntNormalized,
+            state.format.lock().unwrap().pixel(),
             2,
             size,
         )
@@ -579,14 +657,17 @@ fn run(gdi_name: &str, run_file: &Path, token: &str, status: &Path, refresh: u32
     shared.set(|h| unsafe { addr_of_mut!((*h).luid_low) }, device.luid.0);
     shared.set(|h| unsafe { addr_of_mut!((*h).luid_high) }, device.luid.1);
     shared.set(|h| unsafe { addr_of_mut!((*h).refresh) }, refresh);
+    // HDR de l'écran pour Windows : capture en 16 bits flottants.
+    let mut format = capture_format(gdi_name);
     // Anneau provisoire : la taille vient de l'élément de capture.
-    let ring = Ring::create(&device.device, &id, 1, 64, 64, &security)?;
+    let ring = Ring::create(&device.device, &id, 1, (64, 64), format, &security)?;
     let state = Arc::new(State {
         id: id.clone(),
         device,
         security,
         shared,
         ring: Mutex::new(ring),
+        format: Mutex::new(format),
         next_slot: AtomicU32::new(0),
         resized: AtomicBool::new(false),
         closed: AtomicBool::new(false),
@@ -605,18 +686,21 @@ fn run(gdi_name: &str, run_file: &Path, token: &str, status: &Path, refresh: u32
             "cursor_excluded": capture.options.cursor_excluded,
             "border_required": capture.options.border_required,
             "luid": [state.device.luid.0, state.device.luid.1],
+            "format": format.name(),
             "first_frame": state.frames.load(Ordering::Relaxed) > 0,
             "restarts": 0,
         }),
     );
 
-    let ready = json!({
+    let mut ready = json!({
         "state": "ready",
         "width": size.Width, "height": size.Height,
         "cursor_excluded": capture.options.cursor_excluded,
         "border_required": capture.options.border_required,
         "luid": [state.device.luid.0, state.device.luid.1],
+        "format": format.name(),
     });
+    let mut format_checked = Instant::now();
     let started = Instant::now();
     let mut last_retry = Instant::now();
     let mut first_frame_noted = false;
@@ -659,10 +743,26 @@ fn run(gdi_name: &str, run_file: &Path, token: &str, status: &Path, refresh: u32
             status_value["restarts"] = json!(restarts);
             write_status(status, status_value);
         }
+        // L'écran passe en HDR ou en sort (Admin, un appareil qui change
+        // d'écran) : anneau et réserve refaits dans le nouveau format.
+        if format_checked.elapsed() >= Duration::from_secs(1) {
+            format_checked = Instant::now();
+            let now = capture_format(gdi_name);
+            if now != format {
+                format = now;
+                *state.format.lock().unwrap() = format;
+                state.resized.store(true, Ordering::SeqCst);
+                ready["format"] = json!(format.name());
+                let mut status_value = ready.clone();
+                status_value["first_frame"] = json!(first_frame_noted);
+                status_value["restarts"] = json!(restarts);
+                write_status(status, status_value);
+            }
+        }
         if state.resized.swap(false, Ordering::SeqCst) {
             if let Ok(size) = capture.item.Size() {
                 if state.resize(size.Width as u32, size.Height as u32).is_ok() {
-                    let _ = capture.pool.Recreate(&state.device.winrt, DirectXPixelFormat::B8G8R8A8UIntNormalized, 2, size);
+                    let _ = capture.pool.Recreate(&state.device.winrt, format.pixel(), 2, size);
                 }
             }
         }

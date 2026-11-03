@@ -284,13 +284,39 @@ struct SettingsView: View {
             disabled: ["av1"] + (DecoderCapabilities.current.hevc ? [] : ["hevc"])) { v in
             edit { st in st.codec = v == "h264" ? .h264 : .hevc }
         }
-        let can444 = ConnectionSettings.decodes444(s.codec)
+        // HDR allumé : le 4:4:4 n'existe pas en HDR (docs/hdr.md), le texte net est inactif.
+        let hdr = s.hdrState(info, screenHDR: app.screenHDR)
+        let hdrOn = hdr.on(s.hdr)
+        let can444 = ConnectionSettings.decodes444(s.codec) && !hdrOn
         toggle("yuv", String(localized: "Texte net (4:4:4)"),
-               can444 ? SettingsText.sharpTextHelp : s.codec == .h264 ? String(localized: "Le 4:4:4 demande le HEVC.") : String(localized: "Cette Apple TV ne le décode pas en matériel : l'image reste en 4:2:0."),
+               hdrOn ? SettingsText.sharpTextHDR
+                   : can444 ? SettingsText.sharpTextHelp : s.codec == .h264 ? String(localized: "Le 4:4:4 demande le HEVC.") : String(localized: "Cette Apple TV ne le décode pas en matériel : l'image reste en 4:2:0."),
                s.yuv444 && can444) {
             edit { st in st.yuv444.toggle() }
         }
         .disabled(!can444)
+        // « HDR » : seulement sur un téléviseur HDR ; à part du profil (ne le rend pas « Personnalisé »).
+        if hdr.shown {
+            toggle("hdr", HDRText.label, HDRText.help(hdr, settings: true), hdrOn) {
+                edit { st in st.hdr.toggle() }
+            }
+            .disabled(!hdr.available)
+            // Sous « HDR » : le réglage du téléviseur (valeurs de l'appareil, pas de l'ordinateur).
+            Button {
+                // Au retour : la rubrique Image.
+                app.settingsSection = .picture
+                app.showCalibration(from: .settings(hostID))
+            } label: {
+                HStack(spacing: 12) {
+                    Text(HDRText.calibrateLink).font(Theme.sans(20, .medium)).foregroundStyle(Theme.accentLight)
+                    Icon("arrow-right", size: 20, bold: true).foregroundStyle(Theme.accentLight)
+                }
+                .padding(.horizontal, 24)
+                .frame(height: 56)
+            }
+            .buttonStyle(GlassButton(radius: 16, scale: 1.03, fill: Color.white.opacity(0.02)))
+            .focused($focus, equals: .row("hdrCalibration"))
+        }
         toggle("keep", String(localized: "Garder la dernière image"), String(localized: "Le fond de l'accueil, sur cette Apple TV seulement"), s.keepLastImage) {
             edit { st in st.keepLastImage.toggle() }
             if let h = store.host(hostID), !h.settings.keepLastImage { store.imagery.forgetLast(h) }

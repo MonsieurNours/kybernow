@@ -847,6 +847,14 @@
       "follow": "Let it be",
       "restore": "Put it back"
     },
+    "hdr": {
+      "auto": "When the device asks",
+      "never": "Never"
+    },
+    "hdrGamma": {
+      "gamma22": "Gamma 2.2 (recommended)",
+      "srgb": "Windows sRGB"
+    },
     "channels": {
       "auto": "Auto",
       "autoHint": "Auto follows what the device’s output accepts. A device with fewer channels downmixes on its own.",
@@ -898,6 +906,13 @@
       "modeChange": "If a game changes the resolution",
       "modeChangeHelp": "Let it be: the picture follows the game. Put it back: the display returns to the device’s size. The apps choose according to their profile (Game: let it be, Desktop: put it back); this choice applies to the others. With the libavconv engine, a resolution change can cut the picture.",
       "modeNow": "Right now: {current} (requested: {requested}).",
+      "hdr": "HDR",
+      "hdrHelp": "Richer colours and brighter highlights, for devices with an HDR screen: the virtual display switches to HDR during their session, then goes back to how it was. Without a virtual display, the picture keeps the HDR of the computer's display.",
+      "hdrWindows": "HDR needs Windows 11 24H2 on the computer.",
+      "hdrEncoder": "The computer's graphics card doesn't do HDR.",
+      "hdrDisplay": "The computer's display isn't in HDR.",
+      "hdrGamma": "Desktop in HDR",
+      "hdrGammaHelp": "In HDR, Windows shows windows and text with the sRGB curve, which lightens blacks. Gamma 2.2 keeps them as on an SDR screen. The brightness of the device's screen is given to Windows either way.",
       "failsafe": "If something goes wrong",
       "failsafeHelp": "The driver removes the virtual display on its own when it stops getting signs of life, and Windows turns your displays back on. You can also do it right away.",
       "failsafeHelpSeconds": "The driver removes the virtual display on its own after {s} s without signs of life, and Windows turns your displays back on. You can also do it right away.",

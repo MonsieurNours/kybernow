@@ -14,6 +14,8 @@ struct AppSettingsView: View {
     @ObservedObject private var login = LoginItem.shared
     /// Langue de l'app (`AppleLanguages` de KyberNow), lue au lancement.
     @State private var language: LanguageChoice? = LanguageChoice.current
+    /// Relu quand un réglage du HDR est gardé ou remis en automatique.
+    @State private var calibrationTick = 0
     /// Langue en vigueur depuis le lancement (le choix ne s'applique qu'à la relance).
     private static let launchLanguage = LanguageChoice.current
 
@@ -107,6 +109,35 @@ struct AppSettingsView: View {
                  : "Les profils demandent l'image à la fréquence de cet écran.")
                 .font(Theme.sans(12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
             GamepadStatus()
+            hdrCalibrationRow
+        }
+        .onReceive(NotificationCenter.default.publisher(for: HDRCalibrationWindow.changed)) { _ in calibrationTick += 1 }
+    }
+
+    /// « Réglage du HDR », seulement sur un écran HDR : l'état de cet écran
+    /// (« Automatique » ou « Réglé à l'œil »), et l'écran du réglage.
+    @ViewBuilder private var hdrCalibrationRow: some View {
+        let screen = NSApp.keyWindow?.screen ?? NSScreen.main
+        if HDRDisplay.isHDR(screen), let ref = HDRCalibrationStore.ScreenRef.current(screen) {
+            let calibrated = HDRCalibrationStore.luminance(for: ref).calibrated
+            Button { HDRCalibrationWindow.open(on: screen) } label: {
+                HStack(spacing: 12) {
+                    Icon("sparkle", size: 17).foregroundStyle(Theme.accent)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(HDRText.calibration).font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text)
+                        Text(HDRText.calibrationState(calibrated)).font(Theme.sans(12)).foregroundStyle(Theme.muted)
+                    }
+                    Spacer(minLength: 12)
+                    Icon("arrow-right", size: 14, bold: true).foregroundStyle(Theme.faint)
+                }
+                .padding(.horizontal, 12)
+                .frame(height: 50)
+                .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.line2))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .id(calibrationTick)
         }
     }
 

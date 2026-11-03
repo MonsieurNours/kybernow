@@ -101,7 +101,10 @@ if [ ! -f "$PREFIX/lib/libavcodec.a" ]; then
         if [ ! -f "$src/configure" ]; then
             echo "==> sources du FFmpeg de Raspberry Pi ($RPI_FFMPEG_BRANCH)"
             mkdir -p "$PREFIX/build" && rm -rf "$src" && mkdir -p "$src"
-            curl -fsSL "https://github.com/jc-kynesim/rpi-ffmpeg/archive/refs/heads/$RPI_FFMPEG_BRANCH.tar.gz" | tar xz -C "$src" --strip-components=1
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 10 -o "$PREFIX/build/rpi-ffmpeg.tar.gz" \
+                "https://github.com/jc-kynesim/rpi-ffmpeg/archive/refs/heads/$RPI_FFMPEG_BRANCH.tar.gz"
+            tar xzf "$PREFIX/build/rpi-ffmpeg.tar.gz" -C "$src" --strip-components=1
+            rm -f "$PREFIX/build/rpi-ffmpeg.tar.gz"
         fi
         extra=(--enable-v4l2-request --enable-libudev --enable-sand --enable-hwaccel=hevc_v4l2request --extra-version=kybernow-rpi)
         what="décodeurs H.264, HEVC, AV1, VA-API, V4L2 M2M et HEVC V4L2 request du Pi"
@@ -110,7 +113,12 @@ if [ ! -f "$PREFIX/lib/libavcodec.a" ]; then
         if [ ! -f "$src/configure" ]; then
             echo "==> sources de FFmpeg $FFMPEG_VERSION"
             mkdir -p "$PREFIX/build"
-            curl -fsSL "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz" | tar xJ -C "$PREFIX/build"
+            # Dans un fichier, avec réessais : le site de FFmpeg coupe parfois la
+            # connexion en plein téléchargement.
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 10 -o "$PREFIX/build/ffmpeg-$FFMPEG_VERSION.tar.xz" \
+                "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz"
+            tar xJf "$PREFIX/build/ffmpeg-$FFMPEG_VERSION.tar.xz" -C "$PREFIX/build"
+            rm -f "$PREFIX/build/ffmpeg-$FFMPEG_VERSION.tar.xz"
         fi
         extra=()
         what="décodeurs H.264, HEVC, AV1, VA-API, V4L2 M2M"

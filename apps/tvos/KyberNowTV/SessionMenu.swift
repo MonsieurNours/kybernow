@@ -22,7 +22,7 @@ struct SessionMenu: View {
     @State private var text = ""
     @FocusState private var focus: Item?
 
-    enum Item: Hashable { case resume, pads, sound, quality, qualityChoice(ShareQuality), mouse, padMouse, type, share, lend, disconnect, quit, restoreMode }
+    enum Item: Hashable { case resume, pads, sound, quality, qualityChoice(ShareQuality), mouse, padMouse, type, share, lend, disconnect, quit, restoreMode, hdr }
 
     init(session: SessionController) {
         self.session = session
@@ -105,6 +105,7 @@ struct SessionMenu: View {
                         Text("Retour ou L1 + R1 + Start + Select : fermer le menu")
                     }
                     Spacer()
+                    hdrToggle
                     if let offer = session.modeRestoreOffer {
                         // L'ordinateur a changé de définition (profil Bureau).
                         Button { session.restoreMode() } label: {
@@ -186,6 +187,8 @@ struct SessionMenu: View {
             Text("\(Int((s?.fps ?? 0).rounded())) i/s")
             Text("\(Int((s?.mbps ?? 0).rounded())) Mbit/s")
             Text(verbatim: "\(codec) \(format)")
+            // « HDR » après le format, quand un écran de la session l'est.
+            if session.streamHDR { Text(verbatim: HDRText.label) }
             // « Chemin » : Direct, Par le relais, Par le relais (TCP).
             Text(verbatim: session.path.label)
             HStack(spacing: 8) {
@@ -198,6 +201,35 @@ struct SessionMenu: View {
         .padding(.horizontal, 30)
         .frame(height: 72)
         .glass(20, tint: 0.55)
+    }
+
+    /// « HDR » cochable (docs/hdr.md) : seulement sur un téléviseur HDR, ni
+    /// pour un invité ; le changer relance l'image (« Premières images »).
+    /// Inactif (pas de focus sur tvOS) : sa raison à côté.
+    @ViewBuilder private var hdrToggle: some View {
+        let hdr = session.hdrState
+        if hdr.shown {
+            let on = session.hdrOn
+            HStack(spacing: 16) {
+                if let reason = hdr.reason {
+                    Text(reason).lineLimit(1)
+                }
+                Button { session.setHDR(!session.host.settings.hdr) } label: {
+                    HStack(spacing: 14) {
+                        Text(verbatim: HDRText.label).font(Theme.sans(22, .semibold)).foregroundStyle(hdr.available ? Theme.text : Theme.ghost)
+                        Toggle2(on: on)
+                    }
+                    .padding(.leading, 22).padding(.trailing, 10)
+                    .frame(height: 56)
+                }
+                .buttonStyle(GlassButton(radius: 18, scale: 1.05))
+                .disabled(!hdr.available)
+                .focused($focus, equals: .hdr)
+                .accessibilityLabel(HDRText.accessibility(on))
+                .accessibilityHint(HDRText.help(hdr))
+            }
+            .padding(.trailing, session.modeRestoreOffer == nil ? 24 : 0)
+        }
     }
 
     /// « Par le relais » : la session passe par le relais, hors de chez soi.

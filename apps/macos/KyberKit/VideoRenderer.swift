@@ -18,6 +18,16 @@
 // que l'image. Elle doit se voir sans composition (présentation directe en
 // plein écran) ; allumée ou éteinte, l'image affichée est redessinée en place.
 //
+// HDR (docs/hdr.md) : une image PQ (BT.2020, SMPTE ST 2084, étiquetée par
+// le flux) sur un écran HDR (`hdrDisplay`) passe par la chaîne HDR : couche
+// en `rgba16Float`, espace `itur_2100_PQ`, contenu EDR et `edrMetadata`
+// HDR10 (Mac, iPhone, iPad ; l'Apple TV n'a ni l'un ni l'autre, le
+// téléviseur passe en HDR par `AVDisplayManager`). Le shader écrit les
+// valeurs PQ telles quelles. Sur un écran SDR (fenêtre glissée sur un autre
+// écran, le temps que l'image reparte en SDR), une image PQ est ramenée en
+// SDR dans le shader (blanc à 203 nits, genou à 75 %, BT.709) ; la
+// photographie de la dernière image aussi. Sinon : la chaîne SDR (BGRA 8 bits, sRGB).
+//
 // Indépendant d'AppKit : sert tel quel sur iOS et tvOS.
 
 import CoreGraphics
@@ -156,6 +166,51 @@ final class VideoRenderer {
     /// Nom du rendu dans le journal (multi-écrans : son écran).
     var label = ""
 
+    /// L'écran qui montre ce rendu est HDR (surface, à chaque changement
+    /// d'écran) : une image PQ y passe par la chaîne HDR. Un changement
+    /// redessine l'image affichée dans la bonne chaîne.
+    var hdrDisplay: Bool {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return hdrScreen
+        }
+        set {
+            lock.lock()
+            let changed = hdrScreen != newValue
+            hdrScreen = newValue
+            lock.unlock()
+            if changed { renderQueue.async { [weak self] in self?.redrawInPlace() } }
+        }
+    }
+    private var hdrScreen = false
+
+    /// Le cœur dit ce flux en HDR (`on_hdr`) : une image 10 bits sans
+    /// étiquette de transfert est lue comme du PQ BT.2020.
+    var streamHDR: Bool {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return hdrStream
+        }
+        set {
+            lock.lock()
+            hdrStream = newValue
+            lock.unlock()
+        }
+    }
+    private var hdrStream = false
+    /// Chaîne de la couche en ce moment (fil de rendu).
+    private var chain = Chain.sdr
+    /// La chaîne de la couche change (fil de rendu) : HDR ou non.
+    var onChain: ((Bool) -> Void)?
+
+    /// Chaîne de la couche : SDR (BGRA 8 bits, sRGB) ou HDR (FP16, PQ, EDR).
+    enum Chain: Equatable {
+        case sdr
+        case hdr
+    }
+
     /// Trait de repère de la barre de session, par-dessus l'image. Coupé par
     /// défaut : l'Apple TV, l'iPhone et l'iPad ne l'ont pas. Un changement
     /// redessine l'image affichée (sans attendre la suivante, qui peut ne
@@ -194,12 +249,15 @@ final class VideoRenderer {
     private let device: MTLDevice
     private let queue: MTLCommandQueue
     private let pipeline: MTLRenderPipelineState
+    /// Même shader, cible FP16 (chaîne HDR).
+    private let hdrPipeline: MTLRenderPipelineState
     /// Trait de repère : absent si son shader n'a pas compilé (la session continue sans).
     private let markerPipeline: MTLRenderPipelineState?
+    private let hdrMarkerPipeline: MTLRenderPipelineState?
     private var cache: CVMetalTextureCache?
     /// Matrice de couleur du format en cours, relue au plus une fois par seconde
     /// (fil de rendu) : `CVBufferCopyAttachment` à chaque image coûtait pour rien.
-    private var colorCache: (format: OSType, width: Int, height: Int, read: CFTimeInterval, value: ColorConversion)?
+    private var colorCache: (format: OSType, width: Int, height: Int, read: CFTimeInterval, value: ColorConversion, edr: EDRInfo)?
     private let renderQueue = DispatchQueue(label: "fr.leslignesclaires.kybernow.render", qos: .userInteractive)
 
     private let lock = NSLock()
@@ -225,7 +283,12 @@ final class VideoRenderer {
         let device: MTLDevice
         let queue: MTLCommandQueue
         let pipeline: MTLRenderPipelineState
+        let hdrPipeline: MTLRenderPipelineState
     }
+
+    /// Format de la couche dans chaque chaîne.
+    static let sdrPixelFormat = MTLPixelFormat.bgra8Unorm
+    static let hdrPixelFormat = MTLPixelFormat.rgba16Float
 
     private static let core: Core? = {
         guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else { return nil }
@@ -234,8 +297,11 @@ final class VideoRenderer {
             let desc = MTLRenderPipelineDescriptor()
             desc.vertexFunction = library.makeFunction(name: "kn_vertex")
             desc.fragmentFunction = library.makeFunction(name: "kn_fragment")
-            desc.colorAttachments[0].pixelFormat = .bgra8Unorm
-            return Core(device: device, queue: queue, pipeline: try device.makeRenderPipelineState(descriptor: desc))
+            desc.colorAttachments[0].pixelFormat = sdrPixelFormat
+            let sdr = try device.makeRenderPipelineState(descriptor: desc)
+            desc.colorAttachments[0].pixelFormat = hdrPixelFormat
+            let hdr = try device.makeRenderPipelineState(descriptor: desc)
+            return Core(device: device, queue: queue, pipeline: sdr, hdrPipeline: hdr)
         } catch {
             KyberLog.video.error("rendu Metal : \(error.localizedDescription, privacy: .public)")
             return nil
@@ -244,7 +310,7 @@ final class VideoRenderer {
 
     /// Pipeline du trait de repère, compilé à part : un échec est au journal et
     /// n'empêche ni l'image ni la session.
-    private static let markerCore: MTLRenderPipelineState? = {
+    private static let markerCore: (sdr: MTLRenderPipelineState, hdr: MTLRenderPipelineState)? = {
         guard let device = core?.device else { return nil }
         do {
             let library = try device.makeLibrary(source: markerShader, options: nil)
@@ -252,7 +318,7 @@ final class VideoRenderer {
             desc.vertexFunction = library.makeFunction(name: "kn_marker_vertex")
             desc.fragmentFunction = library.makeFunction(name: "kn_marker_fragment")
             let color = desc.colorAttachments[0]!
-            color.pixelFormat = .bgra8Unorm
+            color.pixelFormat = sdrPixelFormat
             color.isBlendingEnabled = true
             color.rgbBlendOperation = .add
             color.alphaBlendOperation = .add
@@ -260,7 +326,9 @@ final class VideoRenderer {
             color.sourceAlphaBlendFactor = .sourceAlpha
             color.destinationRGBBlendFactor = .oneMinusSourceAlpha
             color.destinationAlphaBlendFactor = .oneMinusSourceAlpha
-            return try device.makeRenderPipelineState(descriptor: desc)
+            let sdr = try device.makeRenderPipelineState(descriptor: desc)
+            color.pixelFormat = hdrPixelFormat
+            return (sdr, try device.makeRenderPipelineState(descriptor: desc))
         } catch {
             KyberLog.video.error("trait de repère : \(error.localizedDescription, privacy: .public) ; la session continue sans lui")
             return nil
@@ -281,7 +349,9 @@ final class VideoRenderer {
         device = core.device
         queue = core.queue
         pipeline = core.pipeline
-        markerPipeline = Self.markerCore
+        hdrPipeline = core.hdrPipeline
+        markerPipeline = Self.markerCore?.sdr
+        hdrMarkerPipeline = Self.markerCore?.hdr
         CVMetalTextureCacheCreate(kCFAllocatorDefault, nil, device, nil, &cache)
         layer = CAMetalLayer()
         configure(layer)
@@ -297,15 +367,66 @@ final class VideoRenderer {
 
     private func configure(_ layer: CAMetalLayer) {
         layer.device = device
-        layer.pixelFormat = .bgra8Unorm
         layer.framebufferOnly = true
         layer.isOpaque = true
-        layer.colorspace = CGColorSpace(name: CGColorSpace.sRGB)
         layer.backgroundColor = CGColor(gray: 0, alpha: 1)
         layer.allowsNextDrawableTimeout = true
         #if os(macOS)
         layer.displaySyncEnabled = vsync
         #endif
+        apply(chain, edr: nil, to: layer)
+    }
+
+    /// Règle la couche pour une chaîne (fil de rendu). HDR : FP16, PQ BT.2100,
+    /// contenu EDR et métadonnées HDR10 (celles du flux, sinon 1000 nits).
+    private func apply(_ chain: Chain, edr: EDRInfo?, to layer: CAMetalLayer) {
+        switch chain {
+        case .sdr:
+            layer.pixelFormat = Self.sdrPixelFormat
+            layer.colorspace = CGColorSpace(name: CGColorSpace.sRGB)
+            #if !os(tvOS)
+            layer.wantsExtendedDynamicRangeContent = false
+            layer.edrMetadata = nil
+            #endif
+        case .hdr:
+            layer.pixelFormat = Self.hdrPixelFormat
+            layer.colorspace = CGColorSpace(name: CGColorSpace.itur_2100_PQ)
+            #if !os(tvOS)
+            layer.wantsExtendedDynamicRangeContent = true
+            // Valeurs PQ absolues : 100 nits de la scène valent 1,0 de l'écran (référence SDR).
+            if let edr, edr.display != nil || edr.content != nil {
+                layer.edrMetadata = CAEDRMetadata.hdr10(displayInfo: edr.display, contentInfo: edr.content, opticalOutputScale: 100)
+            } else {
+                layer.edrMetadata = CAEDRMetadata.hdr10(minLuminance: 0.005, maxLuminance: 1000, opticalOutputScale: 100)
+            }
+            #endif
+        }
+    }
+
+    /// Passe la couche dans la chaîne voulue pour cette image (fil de rendu).
+    private func select(_ wanted: Chain, edr: EDRInfo?) {
+        guard wanted != chain || (wanted == .hdr && edr != appliedEDR) else { return }
+        let from = chain
+        chain = wanted
+        appliedEDR = wanted == .hdr ? edr : nil
+        apply(wanted, edr: edr, to: layer)
+        if from != wanted {
+            KyberLog.video.notice("chaîne \(wanted == .hdr ? "HDR (FP16, PQ, EDR)" : "SDR", privacy: .public)\(self.label.isEmpty ? "" : " (\(self.label))", privacy: .public)")
+            onChain?(wanted == .hdr)
+        }
+    }
+    /// Métadonnées HDR10 posées sur la couche (fil de rendu).
+    private var appliedEDR: EDRInfo?
+
+    /// Chaîne voulue pour une image : HDR si l'image est PQ et l'écran HDR ;
+    /// la conversion dit alors au shader d'écrire le PQ tel quel, ou de le
+    /// ramener en SDR (écran SDR).
+    private func route(_ color: ColorConversion) -> (Chain, ColorConversion) {
+        guard color.mode != ColorConversion.sdr else { return (.sdr, color) }
+        var c = color
+        let hdr = hdrDisplay
+        c.mode = hdr ? ColorConversion.pq : ColorConversion.pqToSDR
+        return (hdr ? .hdr : .sdr, c)
     }
 
     /// Taille de l'image à l'écran, en pixels réels.
@@ -409,7 +530,16 @@ final class VideoRenderer {
     // MARK: - Rendu (fil de rendu)
 
     private func render() {
-        // Le tampon d'abord (il peut faire attendre un balayage quand tous
+        // La chaîne d'abord (le tampon doit être pris dans le bon format) :
+        // celle de l'image en attente, la même que la suivante presque toujours.
+        lock.lock()
+        let peek = pending
+        lock.unlock()
+        if let peek, let layout = Self.layout(CVPixelBufferGetPixelFormatType(peek.buffer)) {
+            let color = conversion(peek.buffer, layout: layout)
+            select(route(color).0, edr: colorCache?.edr)
+        }
+        // Le tampon ensuite (il peut faire attendre un balayage quand tous
         // sont pris) : l'image prise ensuite est la plus récente arrivée.
         let drawable = layer.nextDrawable()
         lock.lock()
@@ -427,7 +557,7 @@ final class VideoRenderer {
             return
         }
         guard let drawable, let commands = queue.makeCommandBuffer(),
-              draw(buffer, layout: layout, into: drawable.texture, commands: commands, color: conversion(buffer, layout: layout), marker: currentMarkerScale())
+              draw(buffer, layout: layout, into: drawable.texture, commands: commands, color: routed(conversion(buffer, layout: layout), for: drawable.texture), marker: currentMarkerScale())
         else {
             latency?.skipped(pts: frame.pts)
             return
@@ -500,9 +630,12 @@ final class VideoRenderer {
         let last = shown
         let waiting = pending != nil || scheduled
         lock.unlock()
-        guard !paused, !waiting, let last, layer.drawableSize.width >= 1, let drawable = layer.nextDrawable(), let commands = queue.makeCommandBuffer(),
+        guard !paused, !waiting, let last, layer.drawableSize.width >= 1 else { return }
+        // Écran changé (HDR ou non) : la chaîne suit, l'image est redessinée dedans.
+        select(route(conversion(last.buffer, layout: last.layout)).0, edr: colorCache?.edr)
+        guard let drawable = layer.nextDrawable(), let commands = queue.makeCommandBuffer(),
               draw(last.buffer, layout: last.layout, into: drawable.texture, commands: commands,
-                   color: conversion(last.buffer, layout: last.layout), marker: currentMarkerScale())
+                   color: routed(conversion(last.buffer, layout: last.layout), for: drawable.texture), marker: currentMarkerScale())
         else { return }
         #if !targetEnvironment(simulator)
         // Le simulateur ne dit pas quand l'image est montrée.
@@ -522,12 +655,26 @@ final class VideoRenderer {
         let width = CVPixelBufferGetWidth(buffer), height = CVPixelBufferGetHeight(buffer)
         let now = CACurrentMediaTime()
         if let c = colorCache, c.format == format, c.width == width, c.height == height, now - c.read < 1 { return c.value }
-        if colorCache?.format != format || colorCache?.width != width || colorCache?.height != height {
-            KyberLog.video.notice("images \(Self.fourcc(format), privacy: .public) \(width)×\(height), \(layout.label, privacy: .public)\(CVPixelBufferGetIOSurface(buffer) == nil ? ", sans IOSurface" : "", privacy: .public)")
+        var value = Self.color(buffer, fullRange: layout.full, deep: layout.deep)
+        if value.mode == ColorConversion.sdr, layout.deep, streamHDR,
+           CVBufferCopyAttachment(buffer, kCVImageBufferTransferFunctionKey, nil) == nil {
+            value = Self.color(buffer, fullRange: layout.full, deep: true, matrix: String(kCVImageBufferYCbCrMatrix_ITU_R_2020))
+            value.mode = ColorConversion.pqToSDR
         }
-        let value = Self.color(buffer, fullRange: layout.full, deep: layout.deep)
-        colorCache = (format, width, height, now, value)
+        if colorCache?.format != format || colorCache?.width != width || colorCache?.height != height || (colorCache?.value.mode == ColorConversion.sdr) != (value.mode == ColorConversion.sdr) {
+            KyberLog.video.notice("images \(Self.fourcc(format), privacy: .public) \(width)×\(height), \(layout.label, privacy: .public)\(value.mode == ColorConversion.sdr ? "" : ", PQ BT.2020", privacy: .public)\(CVPixelBufferGetIOSurface(buffer) == nil ? ", sans IOSurface" : "", privacy: .public)")
+        }
+        colorCache = (format, width, height, now, value, value.mode == ColorConversion.sdr ? EDRInfo() : EDRInfo(buffer))
         return value
+    }
+
+    /// La conversion d'une image PQ selon la cible : PQ tel quel dans une
+    /// cible FP16 (chaîne HDR), ramené en SDR dans une cible 8 bits.
+    private func routed(_ color: ColorConversion, for target: MTLTexture) -> ColorConversion {
+        guard color.mode != ColorConversion.sdr else { return color }
+        var c = color
+        c.mode = target.pixelFormat == Self.hdrPixelFormat ? ColorConversion.pq : ColorConversion.pqToSDR
+        return c
     }
 
     /// Dessine l'image dans `target`, centrée et entière. Faux si les plans
@@ -554,19 +701,21 @@ final class VideoRenderer {
         let scale = min(targetW / width, targetH / height)
         let w = (width * scale).rounded(), h = (height * scale).rounded()
         encoder.setViewport(MTLViewport(originX: ((targetW - w) / 2).rounded(), originY: ((targetH - h) / 2).rounded(), width: w, height: h, znear: 0, zfar: 1))
-        encoder.setRenderPipelineState(pipeline)
+        let hdrTarget = target.pixelFormat == Self.hdrPixelFormat
+        encoder.setRenderPipelineState(hdrTarget ? hdrPipeline : pipeline)
         encoder.setFragmentTexture(CVMetalTextureGetTexture(luma), index: 0)
         encoder.setFragmentTexture(CVMetalTextureGetTexture(chroma), index: 1)
-        var color = known ?? Self.color(buffer, fullRange: layout.full, deep: layout.deep)
+        var color = routed(known ?? Self.color(buffer, fullRange: layout.full, deep: layout.deep), for: target)
         encoder.setFragmentBytes(&color, length: MemoryLayout<ColorConversion>.stride, index: 0)
         encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
-        if let marker, let markerPipeline {
+        if let marker, let markerPipeline = hdrTarget ? hdrMarkerPipeline : markerPipeline {
             // Capsule de 220 × 3 points contre le bord haut de la vue (et non de
             // l'image : l'image peut être cernée de noir), centrée, mélange alpha.
             let markerW = (220 * marker).rounded(), markerH = (3 * marker).rounded()
             let x = ((targetW - markerW) / 2).rounded()
+            // Blanc du trait : 1 en SDR ; en PQ, le blanc de référence (203 nits).
             var uniforms = MarkerUniforms(rect: SIMD4(Float(x), 0, Float(x + markerW), Float(markerH)),
-                                          target: SIMD2(Float(targetW), Float(targetH)), opacity: 0.35)
+                                          target: SIMD2(Float(targetW), Float(targetH)), opacity: 0.35, white: hdrTarget ? 0.58 : 1)
             encoder.setViewport(MTLViewport(originX: 0, originY: 0, width: targetW, height: targetH, znear: 0, zfar: 1))
             encoder.setRenderPipelineState(markerPipeline)
             encoder.setVertexBytes(&uniforms, length: MemoryLayout<MarkerUniforms>.stride, index: 0)
@@ -775,9 +924,37 @@ final class VideoRenderer {
     static let lossless444Video: OSType = 0x2638_7634 // '&8v4'
     static let lossless444Full: OSType = 0x2638_6634 // '&8f4'
 
+    /// Même disposition que `Conversion` du shader (80 octets).
     struct ColorConversion {
         var matrix: simd_float3x3
         var offset: simd_float3
+        /// `sdr` : R'G'B' tels quels ; `pq` : valeurs PQ telles quelles (cible
+        /// FP16, espace PQ) ; `pqToSDR` : image PQ ramenée en SDR BT.709.
+        var mode: Int32 = 0
+
+        static let sdr: Int32 = 0
+        static let pq: Int32 = 1
+        static let pqToSDR: Int32 = 2
+    }
+
+    /// Métadonnées HDR10 du flux (SEI mastering display et MaxCLL), telles
+    /// que VideoToolbox les attache à l'image.
+    struct EDRInfo: Equatable {
+        var display: Data?
+        var content: Data?
+
+        init() {}
+
+        init(_ buffer: CVPixelBuffer) {
+            display = CVBufferCopyAttachment(buffer, kCVImageBufferMasteringDisplayColorVolumeKey, nil) as? Data
+            content = CVBufferCopyAttachment(buffer, kCVImageBufferContentLightLevelInfoKey, nil) as? Data
+        }
+    }
+
+    /// L'image est en PQ (SMPTE ST 2084) : étiquetée ainsi par le flux.
+    static func isPQ(_ buffer: CVPixelBuffer) -> Bool {
+        let transfer = CVBufferCopyAttachment(buffer, kCVImageBufferTransferFunctionKey, nil) as? String
+        return transfer == String(kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ)
     }
 
     /// Paramètres du trait de repère (même disposition que `MarkerU` du shader) :
@@ -787,11 +964,12 @@ final class VideoRenderer {
         var rect: SIMD4<Float>
         var target: SIMD2<Float>
         var opacity: Float
+        var white: Float
     }
 
     /// YCbCr → RGB selon la matrice annoncée par le flux (709 par défaut) et la plage.
-    static func color(_ buffer: CVPixelBuffer, fullRange: Bool, deep: Bool) -> ColorConversion {
-        let matrixName = CVBufferCopyAttachment(buffer, kCVImageBufferYCbCrMatrixKey, nil) as? String
+    static func color(_ buffer: CVPixelBuffer, fullRange: Bool, deep: Bool, matrix: String? = nil) -> ColorConversion {
+        let matrixName = matrix ?? CVBufferCopyAttachment(buffer, kCVImageBufferYCbCrMatrixKey, nil) as? String
         let (kr, kb): (Float, Float)
         switch matrixName {
         case String(kCVImageBufferYCbCrMatrix_ITU_R_601_4): (kr, kb) = (0.299, 0.114)
@@ -814,7 +992,10 @@ final class VideoRenderer {
         let yScale: Float = fullRange ? 1 : max / (219 * bits * unit)
         let cScale: Float = fullRange ? 1 : max / (224 * bits * unit)
         let range = simd_float3x3(diagonal: simd_float3(yScale, cScale, cScale))
-        return ColorConversion(matrix: rgb * range, offset: simd_float3(yOffset, cOffset, cOffset))
+        // Une image PQ se ramène en SDR par défaut (photographie, cible 8 bits) ;
+        // le rendu la laisse en PQ dans la chaîne HDR.
+        return ColorConversion(matrix: rgb * range, offset: simd_float3(yOffset, cOffset, cOffset),
+                               mode: isPQ(buffer) ? ColorConversion.pqToSDR : ColorConversion.sdr)
     }
 
     static func seconds(_ machTicks: UInt64) -> Double {
@@ -834,7 +1015,7 @@ final class VideoRenderer {
     #include <metal_stdlib>
     using namespace metal;
 
-    struct MarkerU { float4 rect; float2 target; float opacity; };
+    struct MarkerU { float4 rect; float2 target; float opacity; float white; };
     struct MarkerOut { float4 position [[position]]; float2 local; };
 
     // Un rectangle agrandi d'un pixel, en bande de deux triangles.
@@ -852,7 +1033,7 @@ final class VideoRenderer {
         float r = halfSize.y;
         float2 q = abs(in.local) - float2(halfSize.x - r, 0.0);
         float d = length(max(q, 0.0)) - r;
-        return float4(1.0, 1.0, 1.0, u.opacity * saturate(0.5 - d));
+        return float4(float3(u.white), u.opacity * saturate(0.5 - d));
     }
     """
 
@@ -861,7 +1042,35 @@ final class VideoRenderer {
     using namespace metal;
 
     struct VOut { float4 position [[position]]; float2 uv; };
-    struct Conversion { float3x3 matrix; float3 offset; };
+    struct Conversion { float3x3 matrix; float3 offset; int mode; };
+
+    // PQ (SMPTE ST 2084) → lumière linéaire, 1 = 10 000 nits.
+    float3 kn_pq_eotf(float3 e) {
+        const float m1 = 0.1593017578125, m2 = 78.84375;
+        const float c1 = 0.8359375, c2 = 18.8515625, c3 = 18.6875;
+        float3 p = pow(max(e, 0.0), 1.0 / m2);
+        return pow(max(p - c1, 0.0) / (c2 - c3 * p), 1.0 / m1);
+    }
+
+    // Image PQ BT.2020 ramenée en SDR BT.709 : blanc SDR à 203 nits, genou à
+    // 75 % du blanc, compression douce jusqu'à 4 fois le blanc (comme l'image
+    // à part de la Station), puis la courbe sRGB.
+    float3 kn_pq_to_sdr(float3 pq) {
+        float3 l = kn_pq_eotf(pq) * (10000.0 / 203.0);
+        float3 c = float3(dot(float3( 1.6605, -0.5876, -0.0728), l),
+                          dot(float3(-0.1246,  1.1329, -0.0083), l),
+                          dot(float3(-0.0182, -0.1006,  1.1187), l));
+        c = max(c, 0.0);
+        float m = max(max(c.r, c.g), c.b);
+        const float k = 0.75, b = (4.0 - k) / (1.0 - k);
+        if (m > k) {
+            float a = (m - k) / (1.0 - k);
+            float y = k + (1.0 - k) * a * (1.0 + a / (b * b)) / (1.0 + a);
+            c *= y / m;
+        }
+        c = saturate(c);
+        return select(1.055 * pow(c, 1.0 / 2.4) - 0.055, 12.92 * c, c <= 0.0031308);
+    }
 
     // Un triangle qui couvre la zone d'affichage.
     vertex VOut kn_vertex(uint id [[vertex_id]]) {
@@ -878,7 +1087,9 @@ final class VideoRenderer {
                                 constant Conversion &c [[buffer(0)]]) {
         constexpr sampler s(filter::linear, address::clamp_to_edge);
         float3 ycbcr = float3(luma.sample(s, in.uv).r, chroma.sample(s, in.uv).rg);
-        return float4(saturate(c.matrix * (ycbcr - c.offset)), 1.0);
+        float3 rgb = saturate(c.matrix * (ycbcr - c.offset));
+        if (c.mode == 2) { rgb = kn_pq_to_sdr(rgb); }
+        return float4(rgb, 1.0);
     }
     """
 }

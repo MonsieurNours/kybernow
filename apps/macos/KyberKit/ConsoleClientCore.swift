@@ -41,10 +41,13 @@ public struct HostInfo: Sendable, Equatable {
     /// Prêter l'ordinateur (Station 0.9.0 et suivantes) : le prêt existe, et
     /// s'il est activé dans Admin ; nil avec une Station plus ancienne.
     public let lend: LendInfo?
+    /// HDR (`hdr` de l'info, Station 0.10.0 et suivantes) : proposé, ou la
+    /// raison pour laquelle il ne l'est pas ; une Station d'avant ne le propose pas.
+    public let hdr: HDROffer
 
     public init(hostname: String? = nil, gpu: String? = nil, av1: Bool = false, virtualDisplay: Bool = true, speakers: Bool = true,
                 os: String? = nil, adminVersion: String? = nil, station: StationInfo? = nil, wake: [WakeTarget] = [], ownDevice: Bool = false, maxScreens: Int = 1,
-                share: ShareAvailability = .available, relay: RelayInfo? = nil, lend: LendInfo? = nil) {
+                share: ShareAvailability = .available, relay: RelayInfo? = nil, lend: LendInfo? = nil, hdr: HDROffer = .none) {
         self.hostname = hostname
         self.gpu = gpu
         self.av1 = av1
@@ -59,6 +62,7 @@ public struct HostInfo: Sendable, Equatable {
         self.share = share
         self.relay = relay
         self.lend = lend
+        self.hdr = hdr
     }
 
     /// Version de la Station : celle de `station`, sinon celle d'Admin.
@@ -306,7 +310,8 @@ public final class ConsoleClient: @unchecked Sendable {
             maxScreens: vd?["max_screens"] as? Int ?? 1,
             share: share,
             relay: RelayInfo(json: json["relay"] as? [String: Any]),
-            lend: LendInfo(json: json["lend"])
+            lend: LendInfo(json: json["lend"]),
+            hdr: HDROffer(json: json["hdr"])
         )
     }
 

@@ -33,12 +33,15 @@ private struct AppSettingsContent: View {
     private static let launchLanguage = LanguageChoice.current
     @State private var route = AudioRoute.current
     @StateObject private var link = SettingsLink()
+    /// L'écran « Réglage du HDR » ouvert.
+    @State private var calibrating = false
 
     private var isPad: Bool { DeviceDisplay.isPad }
 
     var body: some View {
         ZStack(alignment: .top) {
             backdrop
+            ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
                     header
@@ -46,6 +49,11 @@ private struct AppSettingsContent: View {
                     section(String(localized: "Langue")) { languageRow }
                     section(String(localized: "Réseau")) { networkRows }
                     section(isPad ? String(localized: "Cet iPad") : String(localized: "Cet iPhone")) { deviceRows }
+                    // Réglage du HDR : seulement sur un écran HDR ; les valeurs sont celles de l'appareil.
+                    if HDRDisplay.isHDR(nil) {
+                        section(HDRText.label) { calibrationRow }
+                            .id("hdrCalibration")
+                    }
                     section(String(localized: "À propos")) { aboutRows }
                 }
                 .padding(.horizontal, 24)
@@ -56,10 +64,37 @@ private struct AppSettingsContent: View {
             }
             .scrollIndicators(.hidden)
             .safeAreaInset(edge: .top, spacing: 0) { navigation }
+            .onAppear {
+                #if DEBUG
+                // Captures (`-scrollTo hdrCalibration`) : la fiche défile jusqu'à la ligne voulue.
+                if let target = UserDefaults.standard.string(forKey: "scrollTo") {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { proxy.scrollTo(target, anchor: .center) }
+                }
+                #endif
+            }
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification).receive(on: DispatchQueue.main)) { _ in
             route = AudioRoute.current
         }
+        .hdrCalibrationCover(isPresented: $calibrating)
+    }
+
+    /// « Réglage du HDR », avec l'état en dessous : « Automatique » ou « Réglé à l'œil ».
+    private var calibrationRow: some View {
+        let calibrated = HDRCalibrationStore.luminance(for: HDRCalibrationStore.ScreenRef(UIScreen.main)).calibrated
+        return Button { calibrating = true } label: {
+            HStack(spacing: 12) {
+                SettingsLabel(title: HDRText.calibration, note: HDRText.calibrationState(calibrated))
+                Icon("arrow-right", size: 18).foregroundStyle(Theme.text2)
+            }
+            .modifier(SettingsRowBackground())
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .id(calibrating)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
     }
 
     // MARK: Cadre

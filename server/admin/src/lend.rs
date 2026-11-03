@@ -606,6 +606,9 @@ pub struct Who {
     pub code: Option<String>,
     pub screen: Screen,
     pub browser: bool,
+    /// HDR voulu pour l'écran de l'ami (docs/hdr.md) : les valeurs de son
+    /// écran, ou `None` en SDR.
+    pub hdr: crate::display::HdrWish,
 }
 
 impl Who {
@@ -626,6 +629,7 @@ impl Who {
             friend: None,
             code: None,
             screen,
+            hdr: None,
         }
     }
 
@@ -697,6 +701,8 @@ pub struct Loan {
     pub notice: Option<Notice>,
     /// L'écran virtuel de l'ami (`kn_display`), une fois créé.
     pub display: Option<(u32, Screen)>,
+    /// Son écran virtuel est en HDR (`display.hdr` de la réponse).
+    pub display_hdr: bool,
     last_beat: Instant,
     pub connected: bool,
     /// L'ami a donné un premier signe de vie (son image arrive) : le lanceur
@@ -905,6 +911,7 @@ impl Lending {
             phase: Phase::Preparing,
             notice: None,
             display: None,
+            display_hdr: false,
             last_beat: Instant::now(),
             connected: true,
             beaten: false,
@@ -1023,9 +1030,10 @@ impl Lending {
     }
 
     /// L'écran virtuel de l'ami est là.
-    pub fn set_display(&self, id: &str, display: u32, screen: Screen) {
+    pub fn set_display(&self, id: &str, display: u32, screen: Screen, hdr: bool) {
         if let Some(l) = self.state.lock().unwrap().loan.as_mut().filter(|l| l.id == id) {
             l.display = Some((display, screen));
+            l.display_hdr = hdr;
         }
     }
 

@@ -100,7 +100,7 @@ struct SessionChrome: View {
             if streaming, session.statsPanel {
                 StatsPanel(stats: session.stats, history: session.statsHistory, audio: session.audioStats,
                            sessionLosses: session.sessionLosses, close: session.toggleStatsPanel, screens: session.screenCount,
-                           route: session.path)
+                           route: session.path, hdr: session.hdrStreaming)
                     .padding(20)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                     .transition(.opacity.combined(with: .offset(x: 24)))
@@ -625,6 +625,7 @@ private struct SessionBar: View {
             relayChip(compact: compact)
             statsButton(compact: compact)
             divider
+            hdrToggle(compact: compact)
             keepSound(compact: compact)
             GlassMenu(items: MouseChoice.allCases.map { choice in
                 .init(id: "\(choice)", title: choice.label, checked: choice == session.host.settings.mouse) { session.setMouse(choice) }
@@ -708,6 +709,7 @@ private struct SessionBar: View {
             }
             .help("Profil : Jeu, Bureau ou Max")
             .overlay(ring(0))
+            hdrToggle(compact: compact)
             keepSound(compact: compact)
             GlassMenu(items: MouseChoice.allCases.map { choice in
                 .init(id: "\(choice)", title: choice.label, checked: choice == session.host.settings.mouse) { session.setMouse(choice) }
@@ -794,6 +796,28 @@ private struct SessionBar: View {
             .buttonStyle(.plain)
             .help("Garder le son")
             .accessibilityLabel("Garder le son")
+            .accessibilityAddTraits(on ? .isSelected : [])
+        }
+    }
+
+    /// « HDR », cochable, près du profil (docs/link-ui.md, section HDR) :
+    /// seulement sur un écran HDR, jamais pour un invité ; inactif avec la
+    /// raison. Le changer relance l'image (étape « Premières images »).
+    @ViewBuilder private func hdrToggle(compact: Bool) -> some View {
+        let state = session.hdrState
+        if state.shown {
+            let on = state.on(session.host.settings.hdr)
+            Button { session.setHDR(!session.host.settings.hdr) } label: {
+                // « HDR » reste écrit, même dans la barre compacte : l'icône seule ne se lit pas.
+                chip(icon: "sparkle", text: HDRText.label, tint: on ? Theme.accent : Theme.text2)
+                    .background(on ? Theme.accentSoft : .clear, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Theme.accentLine.opacity(on ? 1 : 0)))
+            }
+            .buttonStyle(.plain)
+            .disabled(!state.available)
+            .opacity(state.available ? 1 : 0.45)
+            .help(HDRText.help(state))
+            .accessibilityLabel(HDRText.accessibility(on))
             .accessibilityAddTraits(on ? .isSelected : [])
         }
     }

@@ -195,12 +195,14 @@ struct SessionStatsView: View {
         }
     }
 
-    /// « médiane · p95 14,1 · 2622 × 1206 · 120 Hz · HEVC ».
+    /// « médiane · p95 14,1 · 2622 × 1206 · 120 Hz · HEVC » ; « · HDR » après
+    /// le format quand l'image est en HDR.
     private var headerDetail: String {
         var parts = [String(localized: "médiane")]
         if let p95 { parts.append("p95 " + StatsFormat.ms(p95, unit: false)) }
         if !session.modeLabel.isEmpty { parts.append(session.modeLabel) }
         parts.append(codecName)
+        if session.sessionHDR { parts.append(HDRText.label) }
         return parts.joined(separator: " · ")
     }
 

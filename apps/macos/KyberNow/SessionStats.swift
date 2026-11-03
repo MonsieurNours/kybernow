@@ -30,6 +30,8 @@ struct StatsPanel: View {
     /// Par où passe la session : la ligne « Chemin » (« Direct », « Par le relais »,
     /// « Par le relais (TCP) »).
     var route = RouteInfo.direct
+    /// Un écran au moins de la session est en HDR : « HDR » après le format.
+    var hdr = false
 
     /// Durée d'une image au débit du moment (repère des graphiques).
     private var budget: Double { 1000 / max(30, stats?.fps ?? 60) }
@@ -188,7 +190,8 @@ struct StatsPanel: View {
             row(LinkText.path, route.label)
             row(String(localized: "Réseau"), s.rttMs.map { String(localized: "aller-retour \(Moment.ms($0))") } ?? String(localized: "aller-retour —"))
             row(String(localized: "Image"), (screens > 1 ? String(localized: "\(screens) écrans") + " · " : "")
-                + String(localized: "\(s.width) × \(s.height) · \(s.format) · \(Int(s.fps.rounded())) i/s"))
+                + (hdr ? String(localized: "\(s.width) × \(s.height) · \(s.format) · HDR · \(Int(s.fps.rounded())) i/s")
+                       : String(localized: "\(s.width) × \(s.height) · \(s.format) · \(Int(s.fps.rounded())) i/s")))
             if s.latencyMs != nil || s.rejectedSamples > 0 {
                 row(String(localized: "Mesures"), String(localized: "\(Int((s.measuredRatio * 100).rounded())) % des images") + (s.rejectedSamples > 0 ? " · " + String(localized: "\(s.rejectedSamples) rejetées") : ""))
             }

@@ -11,6 +11,10 @@
 // décodée : s'il dessinait dans sa propre couche, attachée plus tard sur le
 // fil principal, l'écran resterait noir. Si l'écran écarte quand même tout
 // pendant deux secondes, la couche est refaite (`heal`, trois fois au plus).
+//
+// HDR : la surface dit à son rendu si l'écran est HDR (`HDRDisplay.isHDR` :
+// marge EDR sur iPhone et iPad, téléviseur HDR10 sur l'Apple TV), et le
+// redit à chaque changement ; le rendu change de chaîne (docs/hdr.md).
 
 import QuartzCore
 import UIKit
@@ -18,6 +22,11 @@ import UIKit
 final class MetalSurface: UIView {
     private var metal: CAMetalLayer?
     private var renderer: VideoRenderer?
+    private var screenObservers: [NSObjectProtocol] = []
+    /// L'écran est HDR (dernière valeur dite au rendu).
+    private(set) var screenHDR = false
+    /// L'écran gagne ou perd le HDR (fil principal).
+    var onScreenHDR: ((Bool) -> Void)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -49,7 +58,19 @@ final class MetalSurface: UIView {
         guard let renderer, window != nil else { return }
         let layer = metal ?? makeLayer()
         renderer.attach(to: layer)
+        renderer.hdrDisplay = screenHDR
         updateDrawableSize()
+        updateScreenHDR()
+    }
+
+    /// L'écran est-il HDR ? Dit au rendu, et à `onScreenHDR` s'il change.
+    func updateScreenHDR() {
+        let hdr = HDRDisplay.isHDR(window?.screen)
+        renderer?.hdrDisplay = hdr
+        guard hdr != screenHDR else { return }
+        screenHDR = hdr
+        KyberLog.video.notice("écran \(hdr ? "HDR" : "SDR", privacy: .public) (marge EDR \(String(format: "%.1f", HDRDisplay.headroom(self.window?.screen)), privacy: .public))")
+        onScreenHDR?(hdr)
     }
 
     private func makeLayer() -> CAMetalLayer {
@@ -73,7 +94,10 @@ final class MetalSurface: UIView {
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
+        screenObservers.forEach(NotificationCenter.default.removeObserver)
+        screenObservers = window == nil ? [] : HDRDisplay.observe { [weak self] in self?.updateScreenHDR() }
         if metal == nil { attachIfPossible() } else { updateDrawableSize() }
+        updateScreenHDR()
     }
 
     private func updateDrawableSize() {

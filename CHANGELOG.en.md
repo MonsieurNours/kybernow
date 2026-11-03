@@ -4,6 +4,18 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## 0.9.1
+
+Beta version, to try HDR before 0.9.5. It is only offered to Stations and apps set to beta versions.
+
+- **HDR is here**, on Mac, iPhone, iPad, Apple TV and LG TVs. On an HDR screen, an “HDR” chip appears on the computer's card, next to the profile. It is on from the start, and the app remembers your choice for each computer. Games and Windows in HDR reach your screen as they are, with richer colours and brighter highlights. Every profile goes HDR, in 4:2:0: sharp text (4:4:4) comes back when you turn HDR off. During a session, tick or untick “HDR” in the bar.
+- **Nothing to set on the PC**: Windows switches the virtual display to HDR when the session starts and puts it back as it was when it ends. It needs Windows 11 24H2 and a graphics card that encodes in 10-bit (HEVC or AV1). When HDR isn't possible, the chip says why.
+- **Your screen's real brightness**: the Station gives Windows and games the brightness of your device's screen, so games tune their HDR for it, and the Windows desktop no longer looks washed out. To tune your screen by eye, as on a console, a new “HDR calibration” screen offers four patterns, in the App settings.
+- With several displays, each one follows yours: a Mac's XDR display in HDR, an ordinary external monitor in SDR. A share guest without an HDR screen, or in a browser, gets a picture converted to SDR. The friend you lend the computer to gets HDR like you.
+- Station: Kyber patches 0022 (16-bit float capture, HDR10 conversion on the graphics card, HEVC Main 10 and 10-bit AV1, SDR picture for guests). In Admin, Picture and sound page: “HDR” and “Desktop in HDR”.
+- HDR will come to Android, Windows and Linux in a later version.
+- This beta has not yet been tried with a real PC, an XDR display, an Apple TV or an LG TV: your feedback is welcome on the Discord.
+
 ## 0.9.0
 
 - **Lend your computer to a friend.** A new “Lending” page in Admin: while you're not using the PC, a friend plays on it from their KyberNow Link app or their browser, at your place or from home. They see neither your desktop nor your windows: your Windows session switches to console mode, with a full-screen launcher in KyberNow Share colours that only shows the apps you picked (Steam in Big Picture, and apps from your Start menu). The last game played comes first. The PC's screen is covered (“Computer lent to Léa”); Enter on its keyboard hands it back to you.

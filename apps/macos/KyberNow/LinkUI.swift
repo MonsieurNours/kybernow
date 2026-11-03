@@ -110,18 +110,24 @@ enum LinkText {
 
     /// L'écran que la session demandera : virtuel (à la taille de cet écran
     /// ou sur mesure), ou ceux de l'ordinateur, tels quels.
-    static func screen(width: Int, height: Int, refresh: Int, virtual: Bool, sizedForThisScreen: Bool) -> String {
+    /// HDR allumé (et possible) : « …, en HDR » (docs/link-ui.md, section HDR).
+    static func screen(width: Int, height: Int, refresh: Int, virtual: Bool, sizedForThisScreen: Bool, hdr: Bool = false) -> String {
         guard virtual else { return String(localized: "Les écrans de l'ordinateur, tels quels") }
         let dims = LinkFormat.dims(width, height)
-        return sizedForThisScreen
-            ? String(localized: "Écran de \(dims) à \(refresh) Hz, à la taille de cet écran")
-            : String(localized: "Écran de \(dims) à \(refresh) Hz")
+        switch (sizedForThisScreen, hdr) {
+        case (true, false): return String(localized: "Écran de \(dims) à \(refresh) Hz, à la taille de cet écran")
+        case (true, true): return String(localized: "Écran de \(dims) à \(refresh) Hz, à la taille de cet écran, en HDR")
+        case (false, false): return String(localized: "Écran de \(dims) à \(refresh) Hz")
+        case (false, true): return String(localized: "Écran de \(dims) à \(refresh) Hz, en HDR")
+        }
     }
 
     /// Plusieurs écrans (Mac, Windows, Linux) : « 3 écrans, à la taille de
-    /// ceux de cet appareil » ; le nombre vient du plan du cœur.
-    static func screens(_ count: Int) -> String {
-        String(localized: "\(count) écrans, à la taille de ceux de cet appareil")
+    /// ceux de cet appareil » ; le nombre vient du plan du cœur. HDR : dès
+    /// qu'un écran l'est, « …, en HDR ».
+    static func screens(_ count: Int, hdr: Bool = false) -> String {
+        hdr ? String(localized: "\(count) écrans, à la taille de ceux de cet appareil, en HDR")
+            : String(localized: "\(count) écrans, à la taille de ceux de cet appareil")
     }
 
     /// Plusieurs écrans : la fenêtre d'un écran que l'ordinateur n'a pas pu
@@ -530,6 +536,81 @@ enum SettingsText {
     static var sharpTextHelp: String {
         String(localized: "Couleurs complètes : le texte reste net, au prix d'un débit plus élevé.")
     }
+
+    /// « Texte net (4:4:4) » inactif, le HDR allumé.
+    static var sharpTextHDR: String { String(localized: "Le HDR n'existe pas en 4:4:4.") }
+}
+
+/// HDR (docs/hdr.md ; textes de docs/link-ui.md, section HDR) : les mêmes
+/// partout. Les raisons d'une puce inactive viennent de `HDRState.reason`.
+enum HDRText {
+    /// La puce de l'accueil, l'interrupteur des réglages, la ligne de la barre, les statistiques.
+    static var label: String { "HDR" }
+    /// Libellé accessible de la puce.
+    static func accessibility(_ on: Bool) -> String {
+        on ? String(localized: "HDR, allumé") : String(localized: "HDR, éteint")
+    }
+    /// Aide de la puce active.
+    static var help: String { String(localized: "Couleurs plus riches et lumières plus vives, sur cet écran HDR.") }
+    /// Aide de l'interrupteur de Réglages › Image.
+    static var settingsHelp: String {
+        String(localized: "Couleurs plus riches et lumières plus vives, sur cet écran HDR. Le texte net (4:4:4) n'existe pas en HDR.")
+    }
+    /// Aide de la puce (ou de l'interrupteur) : la raison si elle est inactive.
+    static func help(_ state: HDRState, settings: Bool = false) -> String {
+        state.reason ?? (settings ? settingsHelp : help)
+    }
+    /// Windows n'a pas pu passer l'écran virtuel en HDR (une fois par session).
+    static var refused: String { String(localized: "L'ordinateur n'a pas pu passer en HDR : image en SDR.") }
+
+    // MARK: Réglage du HDR (docs/hdr.md, « Réglage du HDR »)
+
+    /// Réglages de l'app : la ligne, et son état en dessous.
+    static var calibration: String { String(localized: "Réglage du HDR") }
+    static func calibrationState(_ calibrated: Bool) -> String {
+        calibrated ? String(localized: "Réglé à l'œil") : String(localized: "Automatique")
+    }
+    /// Réglages › Image, sous l'interrupteur « HDR ».
+    static var calibrateLink: String { String(localized: "Régler le HDR de cet écran…") }
+    static var calibrationIntro: String { String(localized: "Quatre étapes pour que les jeux connaissent les vraies lumières de cet écran.") }
+
+    /// Titre et consigne de chaque étape.
+    static func title(_ step: HDRCalibrationModel.Step) -> String {
+        switch step {
+        case .peak: return String(localized: "Luminosité maximale")
+        case .fullFrame: return String(localized: "Luminosité sur tout l'écran")
+        case .black: return String(localized: "Noir")
+        case .desktopWhite: return String(localized: "Blanc du bureau")
+        }
+    }
+
+    static func instruction(_ step: HDRCalibrationModel.Step) -> String {
+        switch step {
+        case .peak, .fullFrame: return String(localized: "Montez jusqu'à ce que le symbole du centre disparaisse à peine.")
+        case .black: return String(localized: "Baissez jusqu'à ce que le symbole disparaisse à peine.")
+        case .desktopWhite: return String(localized: "Choisissez la luminosité des fenêtres et du texte de l'ordinateur.")
+        }
+    }
+
+    /// « 1 000 nits », « 0,05 nit » (étape du noir : deux décimales) ; “1,000 nits”, “0.05 nits”.
+    static func nits(_ value: Double, black: Bool = false) -> String {
+        let f = NumberFormatter()
+        f.locale = Locale(identifier: LanguageChoice.effective == "fr" ? "fr_FR" : "en_GB")
+        f.numberStyle = .decimal
+        f.minimumFractionDigits = black ? 2 : 0
+        f.maximumFractionDigits = black ? 3 : 0
+        let number = f.string(from: NSNumber(value: black ? value : value.rounded())) ?? "\(value)"
+        // Français : « nit » au singulier sous 2.
+        return value < 2 ? String(localized: "\(number) nit") : String(localized: "\(number) nits")
+    }
+
+    static var next: String { String(localized: "Suivant") }
+    static var back: String { String(localized: "Retour") }
+    static var done: String { String(localized: "Terminer") }
+    static var cancel: String { String(localized: "Annuler") }
+    static var backToAutomatic: String { String(localized: "Revenir au réglage automatique") }
+    /// Après « Terminer », une session en cours garde ses valeurs.
+    static var nextSession: String { String(localized: "Le réglage vaudra à la prochaine session.") }
 }
 
 /// Sous-titres des rubriques (colonne des réglages d'un ordinateur) : un
@@ -576,6 +657,8 @@ struct LastSessionSummary {
     let screens: Int?
     /// Par où elle est passée (nil : une session d'avant le relais).
     let route: RouteInfo.Transport?
+    /// Un écran au moins était en HDR.
+    let hdr: Bool
 
     /// Nil : pas encore de session (ou d'avant les mesures).
     init?(_ host: Host) {
@@ -591,6 +674,7 @@ struct LastSessionSummary {
         mbps = host.lastMbps
         screens = host.lastScreens
         route = host.lastRoute
+        hdr = host.lastHDR == true
     }
 
     /// « Chemin : Direct », « Chemin : Par le relais », « Chemin : Par le relais
@@ -604,13 +688,15 @@ struct LastSessionSummary {
 
     /// « 2560 × 1440 · 120 Hz · HEVC · 80 Mbit/s » (ce qui est connu) ; avec
     /// plusieurs écrans, leur nombre d'abord, puis l'écran principal et le
-    /// débit total : « 3 écrans · 3840 × 2160 · 160 Hz · HEVC · 120 Mbit/s ».
+    /// débit total : « 3 écrans · 3840 × 2160 · 160 Hz · HEVC · 120 Mbit/s » ;
+    /// « HDR » après le format quand un écran au moins l'était.
     var transmitted: String {
         var parts: [String] = []
         if let screens, screens > 1 { parts.append(String(localized: "\(screens) écrans")) }
         if let width, let height { parts.append(LinkFormat.dims(width, height)) }
         if let refresh { parts.append("\(refresh) Hz") }
         if let codec { parts.append(LinkFormat.codec(codec)) }
+        if hdr { parts.append(HDRText.label) }
         if let mbps { parts.append("\(mbps) Mbit/s") }
         return parts.joined(separator: " · ")
     }
@@ -866,7 +952,7 @@ extension HostStore {
                 if let info = status[host.id]?.info {
                     setDemoStatus(HostStatus(online: true, info: HostInfo(hostname: info.hostname, gpu: info.gpu, av1: info.av1, virtualDisplay: info.virtualDisplay,
                                                                            speakers: info.speakers, os: info.os, adminVersion: v,
-                                                                           station: StationInfo(version: v), maxScreens: info.maxScreens)), for: host.id)
+                                                                           station: StationInfo(version: v), maxScreens: info.maxScreens, hdr: info.hdr)), for: host.id)
                 }
                 stationTasks[host.id] = .done(StationText.installed(v))
             default: break
@@ -937,10 +1023,13 @@ extension HostStore {
             default: setDemoStatus(HostStatus(online: online, info: info, problem: problem), for: h.id)
             }
         }
+        // HDR : la Tour le propose (`-demoHDROffer off|windows|encoder` : la raison
+        // de la puce inactive), l'Atelier est sous Windows 10, le Studio n'en a pas.
+        let tourHDR = args.string(forKey: "demoHDROffer").map { HDROffer(available: false, reason: HDROffer.Reason(rawValue: $0)) } ?? HDROffer(available: true)
         put(tour, online: true, HostInfo(hostname: tour.name, gpu: "NVIDIA GeForce RTX 4080", av1: true, os: "Windows 11 Pro 24H2",
-                                          adminVersion: station?.version ?? "0.4.9", station: station), problem: problem)
+                                          adminVersion: station?.version ?? "0.4.9", station: station, hdr: tourHDR), problem: problem)
         put(atelier, online: false, HostInfo(hostname: atelier.name, gpu: "AMD Radeon RX 7800 XT", os: "Windows 10 Pro 22H2",
-                                              adminVersion: "0.5.0", station: StationInfo(version: "0.5.0")))
+                                              adminVersion: "0.5.0", station: StationInfo(version: "0.5.0"), hdr: HDROffer(available: false, reason: .windows)))
         put(studio, online: true, HostInfo(hostname: studio.name, gpu: "Apple M4", virtualDisplay: false, os: "macOS 26.1",
                                             adminVersion: "0.5.0", station: StationInfo(version: "0.5.0")))
         if args.string(forKey: "demoStation") == "restarting" { stationTasks[tour.id] = .restarting(since: Date()) }

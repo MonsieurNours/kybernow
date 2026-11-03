@@ -199,11 +199,24 @@ public struct LendScreen: Sendable, Equatable {
     public let width: Int
     public let height: Int
     public let refresh: Int
+    /// HDR voulu (docs/hdr.md) : écran de l'appareil HDR et choix « HDR »
+    /// allumé ; l'écran virtuel de l'ami est alors préparé en HDR.
+    public let hdr: Bool
+    /// Les valeurs HDR de cet écran (automatiques ou réglées à l'œil) ; nil : par défaut.
+    public let luminance: HDRLuminance?
 
-    public init(width: Int, height: Int, refresh: Int) {
+    public init(width: Int, height: Int, refresh: Int, hdr: Bool = false, luminance: HDRLuminance? = nil) {
         self.width = max(640, width) / 2 * 2
         self.height = max(360, height) / 2 * 2
         self.refresh = refresh > 0 ? refresh : 60
+        self.hdr = hdr
+        self.luminance = hdr ? luminance : nil
+    }
+
+    var json: [String: Any] {
+        var j: [String: Any] = ["width": width, "height": height, "refresh": refresh, "hdr": hdr]
+        if let luminance { j["luminance"] = luminance.json }
+        return j
     }
 }
 
@@ -233,7 +246,7 @@ public struct BorrowRequest: Sendable, Equatable {
         fields["name"] = name
         fields["device"] = ConsoleClient.thisDeviceID
         fields["app"] = Share.app
-        fields["screen"] = ["width": screen.width, "height": screen.height, "refresh": screen.refresh]
+        fields["screen"] = screen.json
         fields["codecs"] = codecs
         return LendJSON.text(fields)
     }

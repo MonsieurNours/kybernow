@@ -44,6 +44,8 @@ struct AppSettingsView: View {
                 icloudRow
                 languageRow
                 padsRow
+                // « Réglage du HDR » : seulement sur un téléviseur HDR ; les valeurs sont celles du téléviseur.
+                if app.screenHDR { calibrationRow }
                 versionRow
             }
             .focusSection()
@@ -123,6 +125,20 @@ struct AppSettingsView: View {
         }
         .buttonStyle(GlassButton(radius: 18, scale: 1.03, fill: Color.white.opacity(0.04)))
         .focused($focus, equals: .row("pads"))
+    }
+
+    private var calibrationRow: some View {
+        let calibrated = HDRCalibrationStore.ScreenRef.current().map { HDRCalibrationStore.luminance(for: $0).calibrated } ?? false
+        return Button { app.showCalibration(from: .appSettings) } label: {
+            HStack(spacing: 24) {
+                label(HDRText.calibration, HDRText.calibrationState(calibrated))
+                Icon("arrow-right", size: 22, bold: true).foregroundStyle(Theme.faint)
+            }
+            .padding(.horizontal, 24).padding(.vertical, 10)
+            .frame(minHeight: 88)
+        }
+        .buttonStyle(GlassButton(radius: 18, scale: 1.03, fill: Color.white.opacity(0.04)))
+        .focused($focus, equals: .row("hdrCalibration"))
     }
 
     private var padsSummary: String {

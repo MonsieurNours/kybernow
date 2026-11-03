@@ -169,6 +169,20 @@ enum AgentAction {
         #[arg(long)]
         out: PathBuf,
     },
+    /// HDR des écrans virtuels (demande JSON, `display::hdr::HdrRequest`) :
+    /// chacun passé à l'état voulu, confirmé par Windows en 2 s au plus, avec
+    /// son profil de couleur et son blanc du bureau posés ou remis.
+    Hdr {
+        #[arg(long)]
+        request: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// HDR de l'écran principal du PC, lu sans rien changer (session sans écran virtuel).
+    HdrPrimary {
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// Remet un mode sur l'écran `gdi_name` (politique « restore »).
     SetMode {
         #[arg(long)]
@@ -439,6 +453,14 @@ fn display_agent(action: AgentAction) -> Result<()> {
             (out, Ok(serde_json::json!({ "width": w, "height": h, "refresh": hz })))
         }
         AgentAction::Displays { out } => (out, display::topology::physical_displays().map(|d| serde_json::json!({ "displays": d }))),
+        AgentAction::Hdr { request, out } => {
+            let r = std::fs::read(&request)
+                .map_err(anyhow::Error::from)
+                .and_then(|b| Ok(serde_json::from_slice::<display::hdr::HdrRequest>(&b)?))
+                .and_then(|req| display::hdr::agent_set(&req.screens));
+            (out, r)
+        }
+        AgentAction::HdrPrimary { out } => (out, display::hdr::agent_primary()),
         AgentAction::AudioRoute { channels, out } => {
             display::pointer::begin(agent_dir(&out));
             (out, audio::endpoint::route(channels).and_then(|r| Ok(serde_json::to_value(r)?)))
@@ -474,6 +496,8 @@ fn display_agent(action: AgentAction) -> Result<()> {
         | AgentAction::Restore { out }
         | AgentAction::SetMode { out, .. }
         | AgentAction::Displays { out }
+        | AgentAction::Hdr { out, .. }
+        | AgentAction::HdrPrimary { out }
         | AgentAction::AudioRoute { out, .. }
         | AgentAction::AudioRestore { out, .. }
         | AgentAction::LocalToken { out, .. }

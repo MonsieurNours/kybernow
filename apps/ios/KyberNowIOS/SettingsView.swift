@@ -74,6 +74,8 @@ private struct SettingsPane: View {
     @State private var newPassword = ""
     /// Station réinstallée : l'empreinte qu'Admin présente maintenant.
     @State private var presented: String?
+    /// L'écran « Réglage du HDR » ouvert (lien sous « HDR »).
+    @State private var calibrating = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.openURL) private var openURL
 
@@ -120,6 +122,7 @@ private struct SettingsPane: View {
             #endif
             presented = await store.presentedFingerprint(of: host)
         }
+        .hdrCalibrationCover(isPresented: $calibrating)
     }
 
     // MARK: - Mises en page
@@ -471,9 +474,33 @@ private struct SettingsPane: View {
             if let c = VideoCodec(rawValue: v) { update(custom: true) { $0.codec = c } }
         }
 
-        let can444 = ConnectionSettings.decodes444(s.codec)
-        rows.toggle(String(localized: "Texte net (4:4:4)"), can444 ? SettingsText.sharpTextHelp : yuvNote, s.yuv444 && can444, enabled: can444) {
+        // HDR allumé (et possible) : pas de 4:4:4 (docs/hdr.md).
+        let hdrState = s.hdrState(info, screenHDR: HDRDisplay.isHDR(nil))
+        let hdrOn = hdrState.on(s.hdr)
+        let can444 = ConnectionSettings.decodes444(s.codec) && !hdrOn
+        rows.toggle(String(localized: "Texte net (4:4:4)"), hdrOn ? SettingsText.sharpTextHDR : can444 ? SettingsText.sharpTextHelp : yuvNote,
+                    s.yuv444 && can444, enabled: can444) {
             update(custom: true) { $0.yuv444 = !($0.yuv444 && can444) }
+        }
+        .id("hdr")
+
+        // Seulement sur un écran HDR ; à part du profil (pas de « Personnalisé »).
+        if hdrState.shown {
+            rows.toggle(HDRText.label, HDRText.help(hdrState, settings: true), hdrOn, enabled: hdrState.available) {
+                guard hdrState.available else { return }
+                update { $0.hdr.toggle() }
+            }
+            // Les lumières de cet écran (réglage de l'appareil, pas de l'ordinateur).
+            Button { calibrating = true } label: {
+                Text(HDRText.calibrateLink)
+                    .font(Theme.sans(14, .medium))
+                    .foregroundStyle(Theme.accentLight)
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    .padding(.horizontal, 14)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .id("hdrCalibrate")
         }
 
         rateRow

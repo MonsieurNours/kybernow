@@ -23,6 +23,7 @@
 		1F6C9796230EE919A0E92F16 /* LatencyReporting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E2993F29818468CCDB59BBB /* LatencyReporting.swift */; };
 		2047075896E2379979E6B37D /* KyberNowApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A1FF214827149C582C43E77 /* KyberNowApp.swift */; };
 		230B0162F458FF6EEE9F9D67 /* KyberKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8F6A8F0E33DCD5B6CE030AD3 /* KyberKit.framework */; };
+		24E7685D6AC661AFDCCA052B /* HDRCalibration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 216B5AACD7FD091DD1CF9E3A /* HDRCalibration.swift */; };
 		2638F094374303FC6BBF7ABE /* Discovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2B1FC1C1CB40956666D1104 /* Discovery.swift */; };
 		263D92DB45AF33815A440596 /* AddHostScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91FD6F412BECA15E4705994A /* AddHostScanner.swift */; };
 		2B10A24B0E02FA1FFC9F8DCE /* KyberLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = C924F6C6F8139DA17F956040 /* KyberLog.swift */; };
@@ -37,6 +38,7 @@
 		6EDDE77B6928268EBF954CF4 /* AV1.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED5BA9A9A9B2AF57C3FEBB54 /* AV1.swift */; };
 		6F9B57AA87C6D3AAA36655B9 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = C4F5C6D95599975901557ED5 /* Localizable.xcstrings */; };
 		6FE37D5BF61E9EC6F2E05395 /* Language.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFDC3C4579F50D443D946774 /* Language.swift */; };
+		70EAD097B4F376E782F1CE07 /* HDRPatternView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98D90F96A6B8BC39AA37500D /* HDRPatternView.swift */; };
 		72295CC1D8DDBEE9C1401465 /* MartianMono-wdth-wght.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 9E3B603CEA837A73C842BE69 /* MartianMono-wdth-wght.ttf */; };
 		728A75CFB137B4FC77F944B6 /* KyberKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 8F6A8F0E33DCD5B6CE030AD3 /* KyberKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		753300D2372C70A39FF07F61 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E3E0113565D7CF768FB0FE2 /* SettingsView.swift */; };
@@ -44,8 +46,11 @@
 		7CB98801894B060E3310BA8A /* ScreenPad.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11E7F53DBCDC4AAFE88274F2 /* ScreenPad.swift */; };
 		812AD19263390D73ABB5265E /* Backdrops.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25D44B7B7CC32E4F400A995C /* Backdrops.swift */; };
 		86468B92C625C587213360F0 /* OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = F0FC01552ACFFE060EB414DC /* OFL.txt */; };
+		86AEDB1A89AC4F8E0EC9009B /* HDRCalibrationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EA4B452EFF2B73B060EABC2 /* HDRCalibrationView.swift */; };
 		86BFD5BA8C1E2F5D7EB45061 /* ConsoleClientCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D768A88B9A4537A90254938 /* ConsoleClientCore.swift */; };
+		8A7C0B26C6A3CC163BB66686 /* HDRDemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 919619F97C936324087E9B51 /* HDRDemo.swift */; };
 		8AC74F5174920E95A6B94BC0 /* Model.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A6E1351863BB088A8938F59 /* Model.swift */; };
+		8D3AB8F32FBC7D00A49FC9E1 /* HDR.swift in Sources */ = {isa = PBXBuildFile; fileRef = D331E985159AA4E9325D7B46 /* HDR.swift */; };
 		8EE5514C9D6756205285D44F /* LinkUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = B15AA9F9EFA3E6C151832988 /* LinkUI.swift */; };
 		9E498A340104E6646FAC8CE6 /* LendViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74C7A88CB55772D75805439E /* LendViews.swift */; };
 		9ECBAC17D48DC6E5EFD0F599 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = BAA93A815BCDC3DCEF4B2B8B /* Assets.xcassets */; };
@@ -100,11 +105,13 @@
 
 /* Begin PBXFileReference section */
 		0226C33E74431675895CF43B /* SystemConfiguration.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SystemConfiguration.framework; path = System/Library/Frameworks/SystemConfiguration.framework; sourceTree = SDKROOT; };
+		0EA4B452EFF2B73B060EABC2 /* HDRCalibrationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HDRCalibrationView.swift; sourceTree = "<group>"; };
 		10273F938926D2DE6E4A186F /* ShareViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViews.swift; sourceTree = "<group>"; };
 		11E7F53DBCDC4AAFE88274F2 /* ScreenPad.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenPad.swift; sourceTree = "<group>"; };
 		12873856FE243A1B653ADFD4 /* Lend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Lend.swift; sourceTree = "<group>"; };
 		14EDFA8B001CCA8A8F0BE2E1 /* KyberNow.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = KyberNow.xcframework; path = Vendor/KyberNow.xcframework; sourceTree = "<group>"; };
 		1E301E824B7C8F017CF646A4 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		216B5AACD7FD091DD1CF9E3A /* HDRCalibration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HDRCalibration.swift; sourceTree = "<group>"; };
 		25D44B7B7CC32E4F400A995C /* Backdrops.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Backdrops.swift; sourceTree = "<group>"; };
 		2818F78F98BB9411EFA6DCC9 /* Archivo-wdth-wght.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Archivo-wdth-wght.ttf"; sourceTree = "<group>"; };
 		2A6E1351863BB088A8938F59 /* Model.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Model.swift; sourceTree = "<group>"; };
@@ -132,8 +139,10 @@
 		8ACCD81A8B16FC7E417CA554 /* StreamView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamView.swift; sourceTree = "<group>"; };
 		8F6A8F0E33DCD5B6CE030AD3 /* KyberKit.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = KyberKit.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		90C6C805EDA4B6095D33A5AD /* MetalSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalSurface.swift; sourceTree = "<group>"; };
+		919619F97C936324087E9B51 /* HDRDemo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HDRDemo.swift; sourceTree = "<group>"; };
 		91FD6F412BECA15E4705994A /* AddHostScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddHostScanner.swift; sourceTree = "<group>"; };
 		942EA9510C5B257877855EB8 /* SessionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionController.swift; sourceTree = "<group>"; };
+		98D90F96A6B8BC39AA37500D /* HDRPatternView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HDRPatternView.swift; sourceTree = "<group>"; };
 		9CDD825886035EA70C8A338E /* AudioPlayerCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayerCore.swift; sourceTree = "<group>"; };
 		9D768A88B9A4537A90254938 /* ConsoleClientCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsoleClientCore.swift; sourceTree = "<group>"; };
 		9DA666EFDB697E3073C49AC0 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon.icon; sourceTree = "<group>"; };
@@ -154,6 +163,7 @@
 		CFDC3C4579F50D443D946774 /* Language.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Language.swift; sourceTree = "<group>"; };
 		D096F84DF3830EBF98CCE6EF /* InputCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputCore.swift; sourceTree = "<group>"; };
 		D2FAD67B06247A688500776D /* ExternalDisplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalDisplay.swift; sourceTree = "<group>"; };
+		D331E985159AA4E9325D7B46 /* HDR.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HDR.swift; sourceTree = "<group>"; };
 		D64DA3D036216DDE52A215AB /* VideoRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoRenderer.swift; sourceTree = "<group>"; };
 		DC436DE0AD11DE6B0C09E612 /* ShareCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareCore.swift; sourceTree = "<group>"; };
 		DC73DD292CBDBDF502F5FA6E /* HomeParts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeParts.swift; sourceTree = "<group>"; };
@@ -229,6 +239,7 @@
 				7C5BC11DCB9BAF29FE7F1722 /* AppSettingsView.swift */,
 				BAA93A815BCDC3DCEF4B2B8B /* Assets.xcassets */,
 				D2FAD67B06247A688500776D /* ExternalDisplay.swift */,
+				0EA4B452EFF2B73B060EABC2 /* HDRCalibrationView.swift */,
 				DC73DD292CBDBDF502F5FA6E /* HomeParts.swift */,
 				306546BE41AD345E7A328812 /* HomeView.swift */,
 				548DFE9274D455AF36E2F65B /* Info.plist */,
@@ -323,6 +334,10 @@
 				9D768A88B9A4537A90254938 /* ConsoleClientCore.swift */,
 				A311A16A82D70847AAB768D2 /* CoreBridge.swift */,
 				3456E0200C841E3D3F7A55FB /* DecoderCapabilities.swift */,
+				D331E985159AA4E9325D7B46 /* HDR.swift */,
+				216B5AACD7FD091DD1CF9E3A /* HDRCalibration.swift */,
+				919619F97C936324087E9B51 /* HDRDemo.swift */,
+				98D90F96A6B8BC39AA37500D /* HDRPatternView.swift */,
 				D096F84DF3830EBF98CCE6EF /* InputCore.swift */,
 				C924F6C6F8139DA17F956040 /* KyberLog.swift */,
 				5B5D7314C1E329CB9A046BCD /* KyberTypes.swift */,
@@ -462,6 +477,7 @@
 				C17855BA68F77C49CA160194 /* CloudSync.swift in Sources */,
 				2638F094374303FC6BBF7ABE /* Discovery.swift in Sources */,
 				1BC0E5168D4A7AA78955BB8D /* ExternalDisplay.swift in Sources */,
+				86AEDB1A89AC4F8E0EC9009B /* HDRCalibrationView.swift in Sources */,
 				54DD1243C7F803D6F6294386 /* HomeParts.swift in Sources */,
 				D72A5578EFCFB0F409F02FF0 /* HomeView.swift in Sources */,
 				2047075896E2379979E6B37D /* KyberNowApp.swift in Sources */,
@@ -495,6 +511,10 @@
 				1B9D29A442EE30FB0C81B6CE /* CoreBridge.swift in Sources */,
 				7755C218AEA12E38263D5253 /* DecoderCapabilities.swift in Sources */,
 				420B9C9DFB363B4B19E275D8 /* GamepadBridge.swift in Sources */,
+				8D3AB8F32FBC7D00A49FC9E1 /* HDR.swift in Sources */,
+				24E7685D6AC661AFDCCA052B /* HDRCalibration.swift in Sources */,
+				8A7C0B26C6A3CC163BB66686 /* HDRDemo.swift in Sources */,
+				70EAD097B4F376E782F1CE07 /* HDRPatternView.swift in Sources */,
 				CF1672C3B10A503BCCE9BB62 /* InputCore.swift in Sources */,
 				AA646ACFCCEDA7CA1C36A75C /* KeyboardMouse.swift in Sources */,
 				2B10A24B0E02FA1FFC9F8DCE /* KyberLog.swift in Sources */,
@@ -590,7 +610,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 202610301300;
+				CURRENT_PROJECT_VERSION = 202611021734;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = P6DB682S4K;
@@ -613,7 +633,7 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 0.9.0;
+				MARKETING_VERSION = 0.9.1;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -663,7 +683,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 202610301300;
+				CURRENT_PROJECT_VERSION = 202611021734;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = P6DB682S4K;
@@ -680,7 +700,7 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 0.9.0;
+				MARKETING_VERSION = 0.9.1;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";

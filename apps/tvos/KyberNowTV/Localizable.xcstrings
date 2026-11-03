@@ -161,6 +161,38 @@
         }
       }
     },
+    "%@ nit" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ nits"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ nit"
+          }
+        }
+      }
+    },
+    "%@ nits" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ nits"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ nits"
+          }
+        }
+      }
+    },
     "%@ veut emprunter l'ordinateur." : {
       "localizations" : {
         "en" : {
@@ -557,6 +589,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%lld écrans, à la taille de ceux de cet appareil"
+          }
+        }
+      }
+    },
+    "%lld écrans, à la taille de ceux de cet appareil, en HDR" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld displays, sized for this device's screens, in HDR"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld écrans, à la taille de ceux de cet appareil, en HDR"
           }
         }
       }
@@ -1393,6 +1441,22 @@
         }
       }
     },
+    "Automatique" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatic"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatique"
+          }
+        }
+      }
+    },
     "Avec un compte d'ami" : {
       "localizations" : {
         "en" : {
@@ -1441,6 +1505,22 @@
         }
       }
     },
+    "Baissez jusqu'à ce que le symbole disparaisse à peine." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lower it until the symbol just disappears."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Baissez jusqu'à ce que le symbole disparaisse à peine."
+          }
+        }
+      }
+    },
     "Barre lumineuse" : {
       "localizations" : {
         "en" : {
@@ -1469,6 +1549,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bienvenue"
+          }
+        }
+      }
+    },
+    "Blanc du bureau" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Desktop white"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Blanc du bureau"
           }
         }
       }
@@ -1805,6 +1901,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Choisir"
+          }
+        }
+      }
+    },
+    "Choisissez la luminosité des fenêtres et du texte de l'ordinateur." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pick how bright the computer's windows and text look."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choisissez la luminosité des fenêtres et du texte de l'ordinateur."
           }
         }
       }
@@ -2157,6 +2269,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Couleurs complètes : le texte reste net, au prix d'un débit plus élevé."
+          }
+        }
+      }
+    },
+    "Couleurs plus riches et lumières plus vives, sur cet écran HDR." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Richer colours and brighter highlights, on this HDR screen."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couleurs plus riches et lumières plus vives, sur cet écran HDR."
+          }
+        }
+      }
+    },
+    "Couleurs plus riches et lumières plus vives, sur cet écran HDR. Le texte net (4:4:4) n'existe pas en HDR." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Richer colours and brighter highlights, on this HDR screen. Sharp text (4:4:4) doesn't exist in HDR."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couleurs plus riches et lumières plus vives, sur cet écran HDR. Le texte net (4:4:4) n'existe pas en HDR."
           }
         }
       }
@@ -2931,6 +3075,38 @@
         }
       }
     },
+    "HDR, allumé" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HDR, on"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HDR, allumé"
+          }
+        }
+      }
+    },
+    "HDR, éteint" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HDR, off"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HDR, éteint"
+          }
+        }
+      }
+    },
     "Hors de chez vous" : {
       "localizations" : {
         "en" : {
@@ -3395,6 +3571,22 @@
         }
       }
     },
+    "L'ordinateur n'a pas pu passer en HDR : image en SDR." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The computer couldn't switch to HDR: picture in SDR."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L'ordinateur n'a pas pu passer en HDR : image en SDR."
+          }
+        }
+      }
+    },
     "L'ordinateur ne voit que quatre manettes : elle prendra la place de la première qui se débranche" : {
       "localizations" : {
         "en" : {
@@ -3747,6 +3939,22 @@
         }
       }
     },
+    "Le HDR n'existe pas en 4:4:4." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HDR doesn't exist in 4:4:4."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le HDR n'existe pas en 4:4:4."
+          }
+        }
+      }
+    },
     "Le certificat de la Station ne correspond pas à l'annonce : ce n'est peut-être pas votre ordinateur." : {
       "localizations" : {
         "en" : {
@@ -3955,6 +4163,22 @@
         }
       }
     },
+    "Le réglage vaudra à la prochaine session." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The calibration will apply from the next session."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le réglage vaudra à la prochaine session."
+          }
+        }
+      }
+    },
     "Le son du jeu est spatialisé dans les AirPods, sans suivi de la tête. Pour jouer en rythme, préférez la sortie HDMI du téléviseur ou de l'ampli." : {
       "localizations" : {
         "en" : {
@@ -4143,6 +4367,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Linux"
+          }
+        }
+      }
+    },
+    "Luminosité maximale" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Maximum brightness"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Luminosité maximale"
+          }
+        }
+      }
+    },
+    "Luminosité sur tout l'écran" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Full-screen brightness"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Luminosité sur tout l'écran"
           }
         }
       }
@@ -4387,6 +4643,22 @@
         }
       }
     },
+    "Montez jusqu'à ce que le symbole du centre disparaisse à peine." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Raise it until the symbol in the middle just disappears."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Montez jusqu'à ce que le symbole du centre disparaisse à peine."
+          }
+        }
+      }
+    },
     "Mot de passe" : {
       "localizations" : {
         "en" : {
@@ -4447,6 +4719,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Navigateur"
+          }
+        }
+      }
+    },
+    "Noir" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Black"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Noir"
           }
         }
       }
@@ -5219,6 +5507,22 @@
         }
       }
     },
+    "Quatre étapes pour que les jeux connaissent les vraies lumières de cet écran." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Four steps so games know this screen's real brightness."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quatre étapes pour que les jeux connaissent les vraies lumières de cet écran."
+          }
+        }
+      }
+    },
     "Quitter le partage" : {
       "localizations" : {
         "en" : {
@@ -5843,6 +6147,22 @@
         }
       }
     },
+    "Revenir au réglage automatique" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Back to automatic"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Revenir au réglage automatique"
+          }
+        }
+      }
+    },
     "Rien de nouveau pour l'instant." : {
       "localizations" : {
         "en" : {
@@ -5871,6 +6191,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Réessayer"
+          }
+        }
+      }
+    },
+    "Réglage du HDR" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HDR calibration"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Réglage du HDR"
           }
         }
       }
@@ -5935,6 +6271,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Réglages de l'app"
+          }
+        }
+      }
+    },
+    "Régler le HDR de cet écran…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calibrate HDR for this screen…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Régler le HDR de cet écran…"
+          }
+        }
+      }
+    },
+    "Réglé à l'œil" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calibrated by eye"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Réglé à l'œil"
           }
         }
       }
@@ -6451,6 +6819,22 @@
         }
       }
     },
+    "Suivant" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Next"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Suivant"
+          }
+        }
+      }
+    },
     "Sur l'ordinateur" : {
       "localizations" : {
         "en" : {
@@ -6623,6 +7007,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Taper du texte sur %@"
+          }
+        }
+      }
+    },
+    "Terminer" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Done"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminer"
           }
         }
       }
@@ -7796,6 +8196,22 @@
         }
       }
     },
+    "Écran de %@ à %lld Hz, en HDR" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ display at %2$lld Hz, in HDR"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Écran de %@ à %lld Hz, en HDR"
+          }
+        }
+      }
+    },
     "Écran de %@ à %lld Hz, à la taille de cet écran" : {
       "localizations" : {
         "en" : {
@@ -7808,6 +8224,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Écran de %@ à %lld Hz, à la taille de cet écran"
+          }
+        }
+      }
+    },
+    "Écran de %@ à %lld Hz, à la taille de cet écran, en HDR" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ display at %2$lld Hz, sized for this screen, in HDR"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Écran de %@ à %lld Hz, à la taille de cet écran, en HDR"
           }
         }
       }

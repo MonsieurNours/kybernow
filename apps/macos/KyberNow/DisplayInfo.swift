@@ -63,7 +63,7 @@ enum DisplayInfo {
     /// premier, celui de la barre des menus, est l'écran principal), et leur
     /// description pour le cœur : cadre en points converti du repère de Cocoa
     /// (origine en bas à gauche de l'écran principal, y vers le haut) vers
-    /// celui du contrat (y vers le bas), pixels natifs, fréquence ; « Cet
+    /// celui du contrat (y vers le bas), pixels natifs, fréquence, HDR ; « Cet
     /// écran » (`current`), réglages de l'ordinateur et écrans que la Station
     /// sait créer.
     static func deviceScreens(current: NSScreen?, settings: ConnectionSettings, info: HostInfo?) -> (screens: [NSScreen], request: SessionEngine.DeviceScreens) {
@@ -73,7 +73,9 @@ enum DisplayInfo {
             let native = nativePixels(screen)
             return SessionEngine.DeviceScreens.Screen(
                 x: screen.frame.minX, y: top - screen.frame.maxY, width: screen.frame.width, height: screen.frame.height,
-                pixelWidth: native.width, pixelHeight: native.height, refresh: max(30, screen.maximumFramesPerSecond), primary: i == 0)
+                pixelWidth: native.width, pixelHeight: native.height, refresh: max(30, screen.maximumFramesPerSecond), primary: i == 0,
+                hdr: HDRDisplay.isHDR(screen),
+                luminance: HDRCalibrationStore.session(.init(screen), hdr: HDRDisplay.isHDR(screen)))
         }
         let currentID = current.flatMap(displayID)
         let index = all.firstIndex { displayID($0) == currentID } ?? 0
