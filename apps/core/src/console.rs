@@ -468,6 +468,11 @@ pub struct Prepared {
     /// Voies du son si la sortie virtuelle est en place.
     pub audio_channels: Option<u16>,
     pub kyber_port: Option<u16>,
+    /// Adresse de l'ordinateur à prendre pour l'image (Kyber) au lieu de celle
+    /// d'Admin : la Station la donne quand l'appareil est sur le même réseau
+    /// qu'une adresse qu'elle préfère (Station Mac branchée en Ethernet et en
+    /// Wi-Fi : l'Ethernet). Absente : l'adresse d'Admin.
+    pub kyber_host: Option<String>,
     pub heartbeat_seconds: u64,
     /// Empreinte du certificat de Kyber (console 0.2.8 et suivantes).
     pub kyber_fingerprint: Option<String>,
@@ -488,6 +493,8 @@ struct PreparedWire {
     applied: Option<Mode>,
     audio: Option<AudioWire>,
     kyber_port: Option<u16>,
+    #[serde(default)]
+    kyber_host: Option<String>,
     heartbeat_seconds: Option<u64>,
     kyber_fingerprint: Option<String>,
     #[serde(default)]
@@ -511,6 +518,7 @@ impl PreparedWire {
             applied: self.applied.filter(|m| m.width > 0 && m.height > 0),
             audio_channels: self.audio.filter(|a| a.routed).and_then(|a| a.channels),
             kyber_port: self.kyber_port,
+            kyber_host: self.kyber_host.map(|h| h.trim().to_string()).filter(|h| !h.is_empty()),
             heartbeat_seconds: self.heartbeat_seconds.unwrap_or(5).max(1),
             kyber_fingerprint: self.kyber_fingerprint.filter(|s| !s.is_empty()),
             screens: self.screens.map(|list| list.into_iter().map(|m| m.filter(usable)).collect()),
@@ -1306,6 +1314,17 @@ mod tests {
         assert_eq!(p.hdr, vec![true, false]);
         let p = serde_json::from_str::<PreparedWire>(r#"{"virtual_display": true}"#).unwrap().prepared();
         assert!(p.hdr.is_empty());
+    }
+
+    #[test]
+    fn adresse_preferee_pour_l_image() {
+        let p = serde_json::from_str::<PreparedWire>(r#"{"kyber_port": 8080, "kyber_host": "192.168.1.105"}"#).unwrap().prepared();
+        assert_eq!(p.kyber_host.as_deref(), Some("192.168.1.105"));
+        // Absente (Station d'avant) ou vide : l'adresse d'Admin.
+        let p = serde_json::from_str::<PreparedWire>(r#"{"kyber_port": 8080}"#).unwrap().prepared();
+        assert_eq!(p.kyber_host, None);
+        let p = serde_json::from_str::<PreparedWire>(r#"{"kyber_host": " "}"#).unwrap().prepared();
+        assert_eq!(p.kyber_host, None);
     }
 
     #[test]

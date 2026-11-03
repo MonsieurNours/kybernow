@@ -2425,7 +2425,7 @@ impl Worker {
         // Fournisseur de chiffrement par défaut de rustls (kyclient::init_crypto
         // échoue s'il est déjà posé, à la deuxième session par exemple).
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let (kyber_host, kyber_port) = self.kyber_endpoint(&console, prepared.kyber_port.unwrap_or(8080))?;
+        let (kyber_host, kyber_port) = self.kyber_endpoint(&console, prepared.kyber_host.as_deref(), prepared.kyber_port.unwrap_or(8080))?;
         let mut config = ConnectConfig {
             host: kyber_host,
             port: kyber_port,
@@ -2519,6 +2519,7 @@ impl Worker {
             applied: (d.width > 0 && d.height > 0).then_some(mode),
             audio_channels: None,
             kyber_port: Some(j.kyber.port),
+            kyber_host: None,
             heartbeat_seconds: j.beat.max(1),
             kyber_fingerprint: Some(fingerprint.clone()),
             screens: None,
@@ -2531,7 +2532,7 @@ impl Worker {
 
         self.status(Status::Connecting);
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let (kyber_host, kyber_port) = self.kyber_endpoint(&console, j.kyber.port)?;
+        let (kyber_host, kyber_port) = self.kyber_endpoint(&console, None, j.kyber.port)?;
         let mut config = ConnectConfig {
             host: kyber_host,
             port: kyber_port,
@@ -2589,6 +2590,7 @@ impl Worker {
             applied: (d.width > 0 && d.height > 0).then_some(mode),
             audio_channels: None,
             kyber_port: Some(b.kyber.port),
+            kyber_host: None,
             heartbeat_seconds: b.beat.max(1),
             kyber_fingerprint: Some(fingerprint.clone()),
             screens: None,
@@ -2597,7 +2599,7 @@ impl Worker {
 
         self.status(Status::Connecting);
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let (kyber_host, kyber_port) = self.kyber_endpoint(&console, b.kyber.port)?;
+        let (kyber_host, kyber_port) = self.kyber_endpoint(&console, None, b.kyber.port)?;
         let mut config = ConnectConfig {
             host: kyber_host,
             port: kyber_port,
@@ -2754,9 +2756,18 @@ impl Worker {
     /// Où kyclient joint Kyber : l'adresse de l'ordinateur et le port donné
     /// par Admin, ou, par le relais, le point d'écoute du tunnel sur la
     /// boucle locale (TCP et UDP, même numéro).
-    fn kyber_endpoint(&self, console: &Console, port: u16) -> Result<(String, u16), Failure> {
+    /// Adresse et port de Kyber : par le relais s'il y en a un ; sinon
+    /// l'adresse préférée de la Station (`kyber_host` de `prepare`), ou celle
+    /// d'Admin.
+    fn kyber_endpoint(&self, console: &Console, preferred: Option<&str>, port: u16) -> Result<(String, u16), Failure> {
         match &self.relay_tunnel {
-            None => Ok((console.host().to_string(), port)),
+            None => match preferred {
+                Some(host) if host != console.host() => {
+                    info!("image par l'adresse préférée de l'ordinateur : {host} (Admin : {})", console.host());
+                    Ok((host.to_string(), port))
+                }
+                _ => Ok((console.host().to_string(), port)),
+            },
             Some(t) => {
                 let a = t.kyber_addr(port).map_err(|e| self.relay_failure(e))?;
                 Ok(("127.0.0.1".to_string(), a.port()))
@@ -4561,6 +4572,7 @@ mod tests {
             applied: Some(Mode { width: 3840, height: 2160, refresh: 160 }),
             audio_channels: None,
             kyber_port: None,
+            kyber_host: None,
             heartbeat_seconds: 5,
             kyber_fingerprint: None,
             screens,
@@ -5676,7 +5688,10 @@ mod tests {
         assert_eq!(*recorder.routes.lock().unwrap(), [crate::relay::RouteInfo::direct()]);
         assert!(w.route_check_at.is_none() && w.relay_tunnel.is_none());
         // Kyber sur l'ordinateur, à son port.
-        assert_eq!(w.kyber_endpoint(&direct, 24812).map_err(|f| f.text), Ok(("192.0.2.1".to_string(), 24812)));
+        assert_eq!(w.kyber_endpoint(&direct, None, 24812).map_err(|f| f.text), Ok(("192.0.2.1".to_string(), 24812)));
+        // L'adresse préférée de la Station (Ethernet d'un Mac aussi en Wi-Fi) pour l'image.
+        assert_eq!(w.kyber_endpoint(&direct, Some("192.0.2.7"), 24812).map_err(|f| f.text), Ok(("192.0.2.7".to_string(), 24812)));
+        assert_eq!(w.kyber_endpoint(&direct, Some("192.0.2.1"), 24812).map_err(|f| f.text), Ok(("192.0.2.1".to_string(), 24812)));
     }
 
     #[test]

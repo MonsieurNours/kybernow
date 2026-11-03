@@ -1226,8 +1226,32 @@ async fn stream_station_update(
 }
 
 /// Une app annonce son écran avant de se connecter à Kyber.
+/// Adresse préférée de la Station pour l'image de cet appareil
+/// (`crate::mac::preferred_host`) ; l'adresse qu'il a appelée vient de
+/// l'en-tête `Host`. Station Windows : rien.
+fn preferred_kyber_host(peer: SocketAddr, headers: &HeaderMap) -> Option<String> {
+    #[cfg(not(windows))]
+    {
+        let called = headers
+            .get(axum::http::header::HOST)
+            .and_then(|h| h.to_str().ok())
+            .and_then(|h| h.parse::<SocketAddr>().ok().map(|a| a.ip()).or_else(|| h.parse().ok()));
+        let host = crate::mac::preferred_host(peer.ip(), called);
+        if let Some(h) = &host {
+            tracing::info!("image par l'adresse {h} (appelée : {:?})", called);
+        }
+        host
+    }
+    #[cfg(windows)]
+    {
+        let _ = (peer, headers);
+        None
+    }
+}
+
 async fn stream_prepare(
     State(s): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     via: Option<axum::Extension<crate::relay::Via>>,
     Json(body): Json<PrepareBody>,
@@ -1257,6 +1281,8 @@ async fn stream_prepare(
     let (device_id, device_name) = activity::identity(body.device.as_ref(), &user);
     // Par le relais : ce client joint Kyber, et le fil le dit une fois.
     let relay_session = via.map(|axum::Extension(v)| (v, device_id.clone(), device_name.clone()));
+    // Station Mac branchée en Ethernet et en Wi-Fi : l'image par l'Ethernet.
+    let kyber_host = if relay_session.is_none() { preferred_kyber_host(peer, &headers) } else { None };
     let relay_ready = |s: &AppState| {
         if let Some((via, id, name)) = &relay_session
             && s.relay.note_session(via, id, name)
@@ -1330,7 +1356,7 @@ async fn stream_prepare(
         }
         relay_ready(&s);
         return Ok(Json(json!({
-            "virtual_display": false, "audio": audio, "kyber_port": port, "heartbeat_seconds": 5,
+            "virtual_display": false, "audio": audio, "kyber_port": port, "kyber_host": kyber_host, "heartbeat_seconds": 5,
             "kyber_fingerprint": crate::kyber_proxy::kyber_fingerprint(&s),
             "launch": launch_name,
             "hdr": hdr,
@@ -1375,7 +1401,7 @@ async fn stream_prepare(
     }
     relay_ready(&s);
     let mut answer = json!({
-        "virtual_display": true, "applied": applied, "audio": audio, "kyber_port": port, "heartbeat_seconds": 5,
+        "virtual_display": true, "applied": applied, "audio": audio, "kyber_port": port, "kyber_host": kyber_host, "heartbeat_seconds": 5,
         "kyber_fingerprint": crate::kyber_proxy::kyber_fingerprint(&s),
         "launch": launch_name,
         // HDR obtenu pour chaque écran, dans l'ordre de `screens`.
@@ -2225,7 +2251,7 @@ mod tests {
             json!([]),
         ];
         for screens in bad {
-            let err = stream_prepare(State(c.s.clone()), basic("mac", "mot-de-passe-mac"), None, prepare_body(screens.clone())).await.unwrap_err();
+            let err = stream_prepare(State(c.s.clone()), peer(), basic("mac", "mot-de-passe-mac"), None, prepare_body(screens.clone())).await.unwrap_err();
             assert_eq!(err.0, StatusCode::BAD_REQUEST, "{screens}");
             assert!(!err.1.is_empty());
         }
@@ -2309,7 +2335,7 @@ mod tests {
     async fn prepare_and_switch_hdr() {
         let c = console_with_account();
         let body = json!({ "width": 3840, "height": 2160, "refresh": 120, "hdr": true, "device": { "id": "tv-1", "name": "Apple TV" } });
-        let Json(answer) = stream_prepare(State(c.s.clone()), basic("mac", "mot-de-passe-mac"), None, Json(serde_json::from_value(body).unwrap())).await.ok().unwrap();
+        let Json(answer) = stream_prepare(State(c.s.clone()), peer(), basic("mac", "mot-de-passe-mac"), None, Json(serde_json::from_value(body).unwrap())).await.ok().unwrap();
         assert_eq!(answer["hdr"], json!([true]));
         assert_eq!(c.s.display.status()["session"]["hdr"], json!([true]));
         // Un autre appareil ne touche pas au HDR de la session.
@@ -2333,7 +2359,7 @@ mod tests {
     async fn prepare_without_virtual_display_keeps_the_pc_hdr() {
         let c = console_with_account();
         let body = json!({ "width": 3840, "height": 2160, "refresh": 120, "hdr": true, "virtual_display": false, "device": { "id": "tv-1", "name": "Apple TV" } });
-        let Json(answer) = stream_prepare(State(c.s.clone()), basic("mac", "mot-de-passe-mac"), None, Json(serde_json::from_value(body).unwrap())).await.ok().unwrap();
+        let Json(answer) = stream_prepare(State(c.s.clone()), peer(), basic("mac", "mot-de-passe-mac"), None, Json(serde_json::from_value(body).unwrap())).await.ok().unwrap();
         // L'écran simulé du PC est en SDR : rien n'est changé, la réponse le dit.
         assert_eq!(answer["virtual_display"], false);
         assert_eq!(answer["hdr"], json!([false]));
