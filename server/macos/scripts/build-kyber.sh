@@ -69,9 +69,14 @@ for p in "$MAC_PATCHES"/*.patch; do
             subprojects/libavconv/*) dir="$repo/subprojects/libavconv" f="${f#subprojects/libavconv/}" ;;
             *) dir="$repo" ;;
         esac
-        # Un fichier déjà touché par un correctif commun reste tel quel.
-        if ! grep -qsF "+++ b/${orig}" "$HERE_PATCHES"/*.patch && git -C "$dir" cat-file -e "HEAD:$f" 2>/dev/null; then
-            git -C "$dir" checkout -q HEAD -- "$f"
+        # Un fichier déjà touché par un correctif commun reste tel quel ; un
+        # fichier que le correctif crée est retiré d'abord.
+        if ! grep -qsF "+++ b/${orig}" "$HERE_PATCHES"/*.patch; then
+            if git -C "$dir" cat-file -e "HEAD:$f" 2>/dev/null; then
+                git -C "$dir" checkout -q HEAD -- "$f"
+            else
+                rm -f "$dir/$f"
+            fi
         fi
     done
     echo "    $(basename "$p") (Mac)"
@@ -88,6 +93,9 @@ shopt -u nullglob
 # quinn-udp : sur macOS, réponse QUIC depuis l'adresse appelée par le client.
 SDK="$KYBER_DIR/kysdk"
 git -C "$SDK" checkout -q HEAD -- .cargo/config.toml
+# Verrou d'origine : celui d'un build précédent désigne la copie corrigée, et
+# cargo le résoudrait de nouveau sans elle (version plus récente).
+git -C "$KYCTL" checkout -q HEAD -- Cargo.lock
 (cd "$KYCTL" && cargo fetch --quiet)
 REGISTRY="${CARGO_HOME:-$HOME/.cargo}/registry/src"
 shopt -s nullglob

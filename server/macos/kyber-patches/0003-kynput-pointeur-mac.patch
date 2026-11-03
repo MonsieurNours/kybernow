@@ -1,0 +1,538 @@
+diff --git a/kynput/src/macos/host_cursor.rs b/kynput/src/macos/host_cursor.rs
+new file mode 100644
+index 0000000..5a8c203
+--- /dev/null
++++ b/kynput/src/macos/host_cursor.rs
+@@ -0,0 +1,474 @@
++// Project Kyber: host_cursor.rs (macOS)
++// SPDX-License-Identifier: AGPL-3.0-or-later
++//
++// KyberNow (server/macos/kyber-patches/0003) : le pointeur du Mac annoncé aux
++// clients, comme sous Windows (windows/host_cursor.rs), sans passer par la
++// capture : ScreenCaptureKit le laisse hors de l'image (`showsCursor` à NO).
++//
++// - Un fil lit le pointeur du système 120 fois par seconde : position
++//   (CGEventGetLocation, en points), forme (`[NSCursor currentSystemCursor]`,
++//   relue quand CGSCurrentCursorSeed change).
++// - L'écran de Kyber sous le pointeur est retrouvé parmi les écrans actifs par
++//   sa place et sa taille (Kyber les annonce en pixels, correctif 0001) ; la
++//   position et la forme sont mises à son échelle (Retina : ×2).
++// - Forme envoyée quand elle change, quand le pointeur change d'écran ou y
++//   revient ; sinon la position seule (`CursorData::None`), quand elle bouge.
++// - Image en ARGB non prémultiplié, comme celle de la duplication DXGI.
++// - Pointeur masqué (jeu) : pas encore suivi, macOS ne le dit pas de façon
++//   fiable à un processus d'arrière-plan.
++
++use std::ffi::{CStr, c_void};
++use std::sync::atomic::{AtomicBool, Ordering};
++use std::sync::{Arc, Mutex, Weak};
++use std::thread;
++use std::time::Duration;
++
++use log::{info, warn};
++
++use crate::pipeline::{InputConsumerHandle, InputHandler};
++use crate::{Cursor, CursorData, Display, HostConfig, InputConsumer, InputPacket, InputTarget, InputType, Payload};
++use crate::{Error, Result};
++
++/// Lectures du pointeur par seconde.
++const RATE: u64 = 120;
++
++#[repr(C)]
++#[derive(Clone, Copy, Debug, Default, PartialEq)]
++struct Point {
++    x: f64,
++    y: f64,
++}
++
++#[repr(C)]
++#[derive(Clone, Copy, Debug, Default, PartialEq)]
++struct Size {
++    width: f64,
++    height: f64,
++}
++
++#[repr(C)]
++#[derive(Clone, Copy, Debug, Default)]
++struct Rect {
++    origin: Point,
++    size: Size,
++}
++
++type Id = *mut c_void;
++
++#[link(name = "AppKit", kind = "framework")]
++unsafe extern "C" {}
++
++#[link(name = "CoreGraphics", kind = "framework")]
++unsafe extern "C" {
++    fn CGEventCreate(source: *const c_void) -> *const c_void;
++    fn CGEventGetLocation(event: *const c_void) -> Point;
++    fn CGGetActiveDisplayList(max: u32, displays: *mut u32, count: *mut u32) -> i32;
++    fn CGDisplayBounds(display: u32) -> Rect;
++    fn CGColorSpaceCreateDeviceRGB() -> *const c_void;
++    fn CGColorSpaceRelease(space: *const c_void);
++    fn CGBitmapContextCreate(
++        data: *mut c_void,
++        width: usize,
++        height: usize,
++        bits_per_component: usize,
++        bytes_per_row: usize,
++        space: *const c_void,
++        bitmap_info: u32,
++    ) -> *const c_void;
++    fn CGContextDrawImage(context: *const c_void, rect: Rect, image: *const c_void);
++    fn CGContextRelease(context: *const c_void);
++}
++
++#[link(name = "CoreFoundation", kind = "framework")]
++unsafe extern "C" {
++    fn CFRelease(object: *const c_void);
++}
++
++#[link(name = "objc")]
++unsafe extern "C" {
++    fn objc_getClass(name: *const std::ffi::c_char) -> Id;
++    fn sel_registerName(name: *const std::ffi::c_char) -> Id;
++    fn objc_msgSend();
++    fn objc_autoreleasePoolPush() -> *mut c_void;
++    fn objc_autoreleasePoolPop(pool: *mut c_void);
++}
++
++unsafe extern "C" {
++    fn dlsym(handle: *mut c_void, symbol: *const std::ffi::c_char) -> *mut c_void;
++}
++
++const RTLD_DEFAULT: *mut c_void = -2isize as *mut c_void;
++/// kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little : un u32 par
++/// pixel, 0xAARRGGBB (prémultiplié).
++const BITMAP_ARGB: u32 = 2 | (2 << 12);
++
++fn sel(name: &CStr) -> Id {
++    unsafe { sel_registerName(name.as_ptr()) }
++}
++
++unsafe fn send_id(receiver: Id, selector: &CStr) -> Id {
++    let f: unsafe extern "C" fn(Id, Id) -> Id = unsafe { std::mem::transmute(objc_msgSend as unsafe extern "C" fn()) };
++    if receiver.is_null() { std::ptr::null_mut() } else { unsafe { f(receiver, sel(selector)) } }
++}
++
++unsafe fn send_index(receiver: Id, selector: &CStr, index: usize) -> Id {
++    let f: unsafe extern "C" fn(Id, Id, usize) -> Id = unsafe { std::mem::transmute(objc_msgSend as unsafe extern "C" fn()) };
++    unsafe { f(receiver, sel(selector), index) }
++}
++
++unsafe fn send_usize(receiver: Id, selector: &CStr) -> usize {
++    let f: unsafe extern "C" fn(Id, Id) -> usize = unsafe { std::mem::transmute(objc_msgSend as unsafe extern "C" fn()) };
++    unsafe { f(receiver, sel(selector)) }
++}
++
++unsafe fn send_point(receiver: Id, selector: &CStr) -> Point {
++    let f: unsafe extern "C" fn(Id, Id) -> Point = unsafe { std::mem::transmute(objc_msgSend as unsafe extern "C" fn()) };
++    unsafe { f(receiver, sel(selector)) }
++}
++
++unsafe fn send_size(receiver: Id, selector: &CStr) -> Size {
++    let f: unsafe extern "C" fn(Id, Id) -> Size = unsafe { std::mem::transmute(objc_msgSend as unsafe extern "C" fn()) };
++    unsafe { f(receiver, sel(selector)) }
++}
++
++/// `[rep CGImageForProposedRect:NULL context:nil hints:nil]`.
++unsafe fn rep_cg_image(rep: Id) -> *const c_void {
++    let f: unsafe extern "C" fn(Id, Id, *mut Rect, Id, Id) -> *const c_void =
++        unsafe { std::mem::transmute(objc_msgSend as unsafe extern "C" fn()) };
++    unsafe { f(rep, sel(c"CGImageForProposedRect:context:hints:"), std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut()) }
++}
++
++/// Compteur de forme du système (`CGSCurrentCursorSeed`, privée) : change à
++/// chaque nouvelle forme. Absente : la forme est relue à chaque fois.
++fn cursor_seed() -> Option<i32> {
++    static SEED: std::sync::OnceLock<Option<unsafe extern "C" fn() -> i32>> = std::sync::OnceLock::new();
++    let f = SEED.get_or_init(|| {
++        let p = unsafe { dlsym(RTLD_DEFAULT, c"CGSCurrentCursorSeed".as_ptr()) };
++        (!p.is_null()).then(|| unsafe { std::mem::transmute::<*mut c_void, unsafe extern "C" fn() -> i32>(p) })
++    });
++    f.map(|f| unsafe { f() })
++}
++
++/// Position du pointeur, en points (origine en haut à gauche de l'écran principal).
++fn location() -> Option<Point> {
++    let event = unsafe { CGEventCreate(std::ptr::null()) };
++    if event.is_null() {
++        return None;
++    }
++    let p = unsafe { CGEventGetLocation(event) };
++    unsafe { CFRelease(event) };
++    Some(p)
++}
++
++fn active_bounds() -> Vec<Rect> {
++    let mut ids = [0u32; 16];
++    let mut count = 0u32;
++    if unsafe { CGGetActiveDisplayList(ids.len() as u32, ids.as_mut_ptr(), &mut count) } != 0 {
++        return Vec::new();
++    }
++    ids[..count as usize].iter().map(|&id| unsafe { CGDisplayBounds(id) }).collect()
++}
++
++/// Place d'un écran de Kyber (en pixels) parmi les écrans actifs : rectangle
++/// en points et échelle (pixels par point). Même règle que l'injection (0002).
++fn locate(display: &Display, bounds: &[Rect]) -> Option<(Rect, f64)> {
++    bounds.iter().find_map(|b| {
++        if b.size.width <= 0.0 || b.size.height <= 0.0 {
++            return None;
++        }
++        let scale = (f64::from(display.width) / b.size.width).round().max(1.0);
++        let same = |a: f64, b: f64| (a - b).abs() <= scale;
++        (same(f64::from(display.width), b.size.width * scale)
++            && same(f64::from(display.height), b.size.height * scale)
++            && same(f64::from(display.x), b.origin.x * scale)
++            && same(f64::from(display.y), b.origin.y * scale))
++        .then_some((*b, scale))
++    })
++}
++
++/// Écran de Kyber sous `p` : (identifiant, position en pixels dans l'écran, échelle).
++fn display_under(p: Point, displays: &[Display], bounds: &[Rect]) -> Option<(u32, i32, i32, f64)> {
++    displays.iter().find_map(|d| {
++        let (r, scale) = locate(d, bounds)?;
++        let inside = p.x >= r.origin.x && p.x < r.origin.x + r.size.width && p.y >= r.origin.y && p.y < r.origin.y + r.size.height;
++        inside.then(|| {
++            let x = ((p.x - r.origin.x) * scale).floor() as i32;
++            let y = ((p.y - r.origin.y) * scale).floor() as i32;
++            (d.id, x, y, scale)
++        })
++    })
++}
++
++#[derive(Clone, Debug, PartialEq)]
++struct Shape {
++    width: u32,
++    height: u32,
++    xhot: u32,
++    yhot: u32,
++    data: Vec<u32>,
++}
++
++/// ARGB prémultiplié → ARGB droit (ce qu'attendent le filtre PNG et les clients).
++fn unpremultiply(px: u32) -> u32 {
++    let a = px >> 24;
++    if a == 0 || a == 255 {
++        return if a == 0 { 0 } else { px };
++    }
++    let c = |shift: u32| (((px >> shift) & 0xFF) * 255 / a).min(255) << shift;
++    (a << 24) | c(16) | c(8) | c(0)
++}
++
++/// La forme du pointeur du système, dessinée à `scale` pixels par point.
++fn read_shape(scale: f64) -> Option<Shape> {
++    let pool = unsafe { objc_autoreleasePoolPush() };
++    let shape = unsafe { read_shape_in_pool(scale) };
++    unsafe { objc_autoreleasePoolPop(pool) };
++    shape
++}
++
++unsafe fn read_shape_in_pool(scale: f64) -> Option<Shape> {
++    let class = unsafe { objc_getClass(c"NSCursor".as_ptr()) };
++    let cursor = unsafe { send_id(class, c"currentSystemCursor") };
++    let image = unsafe { send_id(cursor, c"image") };
++    if image.is_null() {
++        return None;
++    }
++    let size = unsafe { send_size(image, c"size") };
++    let hot = unsafe { send_point(cursor, c"hotSpot") };
++    let width = (size.width * scale).round() as usize;
++    let height = (size.height * scale).round() as usize;
++    if width == 0 || height == 0 || width > 512 || height > 512 {
++        return None;
++    }
++    // La représentation la plus petite qui couvre la taille voulue, sinon la plus grande.
++    let reps = unsafe { send_id(image, c"representations") };
++    let count = if reps.is_null() { 0 } else { unsafe { send_usize(reps, c"count") } };
++    let mut best: Option<(usize, Id)> = None;
++    for i in 0..count {
++        let rep = unsafe { send_index(reps, c"objectAtIndex:", i) };
++        let w = unsafe { send_usize(rep, c"pixelsWide") };
++        let better = match best {
++            None => true,
++            Some((bw, _)) if bw < width => w > bw,
++            Some((bw, _)) => w >= width && w < bw,
++        };
++        if better {
++            best = Some((w, rep));
++        }
++    }
++    let cg = unsafe { rep_cg_image(best?.1) };
++    if cg.is_null() {
++        return None;
++    }
++    let mut data = vec![0u32; width * height];
++    let space = unsafe { CGColorSpaceCreateDeviceRGB() };
++    let ctx = unsafe { CGBitmapContextCreate(data.as_mut_ptr().cast(), width, height, 8, width * 4, space, BITMAP_ARGB) };
++    unsafe { CGColorSpaceRelease(space) };
++    if ctx.is_null() {
++        return None;
++    }
++    let rect = Rect { origin: Point::default(), size: Size { width: width as f64, height: height as f64 } };
++    unsafe { CGContextDrawImage(ctx, rect, cg) };
++    unsafe { CGContextRelease(ctx) };
++    data.iter_mut().for_each(|px| *px = unpremultiply(*px));
++    Some(Shape {
++        width: width as u32,
++        height: height as u32,
++        xhot: ((hot.x * scale).round().max(0.0) as u32).min(width as u32 - 1),
++        yhot: ((hot.y * scale).round().max(0.0) as u32).min(height as u32 - 1),
++        data,
++    })
++}
++
++/// Ce qui a été annoncé aux clients.
++#[derive(Default)]
++struct Sent {
++    seed: Option<i32>,
++    scale: f64,
++    shape: Option<Shape>,
++    /// Écran où les clients ont la forme courante.
++    shown_on: Option<u32>,
++    position: Option<(u32, i32, i32)>,
++}
++
++/// Le paquet à envoyer pour ce relevé (`None` : rien de neuf).
++fn next_packet(sent: &mut Sent, under: Option<(u32, i32, i32, f64)>, read: &mut dyn FnMut(f64) -> Option<Shape>, seed: Option<i32>) -> Option<Cursor> {
++    let Some((display_id, x, y, scale)) = under else {
++        // Hors des écrans de Kyber : masqué là où il était montré.
++        let id = sent.shown_on.take()?;
++        sent.position = None;
++        return Some(Cursor { display_id: id, visible: false, ..Default::default() });
++    };
++    let reread = seed.is_none() || seed != sent.seed || scale != sent.scale || sent.shape.is_none();
++    let mut new_shape = false;
++    if reread {
++        if let Some(shape) = read(scale) {
++            new_shape = sent.shape.as_ref() != Some(&shape);
++            sent.shape = Some(shape);
++        }
++        sent.seed = seed;
++        sent.scale = scale;
++    }
++    let shape = sent.shape.as_ref()?;
++    let full = new_shape || sent.shown_on != Some(display_id);
++    if !full && sent.position == Some((display_id, x, y)) {
++        return None;
++    }
++    sent.shown_on = Some(display_id);
++    sent.position = Some((display_id, x, y));
++    Some(Cursor {
++        display_id,
++        visible: true,
++        x,
++        y,
++        xhot: shape.xhot,
++        yhot: shape.yhot,
++        width: shape.width,
++        height: shape.height,
++        data: if full { CursorData::Raw(shape.data.clone()) } else { CursorData::None },
++    })
++}
++
++pub struct HostCursorHandler {
++    consumer: Weak<dyn InputConsumer>,
++    displays: Arc<Mutex<Vec<Display>>>,
++    stop: Arc<AtomicBool>,
++    thread: Mutex<Option<thread::JoinHandle<()>>>,
++}
++
++impl HostCursorHandler {
++    pub fn new(consumer: Weak<dyn InputConsumer>, host_config: Arc<HostConfig>) -> Result<Self> {
++        Ok(Self {
++            consumer,
++            displays: Arc::new(Mutex::new(host_config.display_list.clone())),
++            stop: Arc::new(AtomicBool::new(false)),
++            thread: Mutex::new(None),
++        })
++    }
++}
++
++impl InputHandler for HostCursorHandler {
++    fn start(self: Arc<Self>) -> Result<()> {
++        let (consumer, displays, stop) = (self.consumer.clone(), self.displays.clone(), self.stop.clone());
++        stop.store(false, Ordering::Relaxed);
++        let handle = thread::Builder::new()
++            .name("kynput-cursor".into())
++            .spawn(move || {
++                info!("Mac cursor reader started");
++                let mut sent = Sent::default();
++                while !stop.load(Ordering::Relaxed) {
++                    thread::sleep(Duration::from_millis(1000 / RATE));
++                    let Some(p) = location() else { continue };
++                    let under = {
++                        let displays = displays.lock().unwrap();
++                        display_under(p, &displays, &active_bounds())
++                    };
++                    let Some(cursor) = next_packet(&mut sent, under, &mut read_shape, cursor_seed()) else { continue };
++                    let Some(consumer) = consumer.upgrade() else { break };
++                    if let Err(err) = consumer.consume(InputPacket::new(InputTarget::Client, Payload::Cursor(cursor))) {
++                        warn!("Cursor not forwarded: {err:?}");
++                    }
++                }
++                info!("Mac cursor reader stopped");
++            })
++            .map_err(|_| Error::Rejected)?;
++        *self.thread.lock()? = Some(handle);
++        Ok(())
++    }
++
++    fn stop(self: Arc<Self>) -> Result<()> {
++        self.stop.store(true, Ordering::Relaxed);
++        if let Some(handle) = self.thread.lock()?.take() {
++            handle.join().map_err(|_| Error::ThreadPanicked)?;
++        }
++        Ok(())
++    }
++
++    fn update_host_config(self: Arc<Self>, host_config: Arc<HostConfig>) -> Result<()> {
++        *self.displays.lock()? = host_config.display_list.clone();
++        Ok(())
++    }
++
++    fn to_consumer(self: Arc<Self>) -> Option<InputConsumerHandle> {
++        None
++    }
++
++    fn produced_types(self: Arc<Self>) -> Option<Vec<InputType>> {
++        Some(vec![InputType::Cursor])
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn retina() -> (Vec<Display>, Vec<Rect>) {
++        let d = Display { id: 7, width: 2868, height: 1320, x: 0, y: 0 };
++        let b = Rect { origin: Point { x: 0.0, y: 0.0 }, size: Size { width: 1434.0, height: 660.0 } };
++        (vec![d], vec![b])
++    }
++
++    fn shape(n: u32) -> Shape {
++        Shape { width: 2, height: 2, xhot: 1, yhot: 1, data: vec![0xFF00_0000 | n; 4] }
++    }
++
++    #[test]
++    fn position_in_pixels_of_the_kyber_display() {
++        let (d, b) = retina();
++        assert_eq!(display_under(Point { x: 100.5, y: 10.0 }, &d, &b), Some((7, 201, 20, 2.0)));
++        assert_eq!(display_under(Point { x: 2000.0, y: 10.0 }, &d, &b), None);
++    }
++
++    #[test]
++    fn shape_then_positions_then_hidden() {
++        let mut sent = Sent::default();
++        let mut reads = 0;
++        let mut read = |_: f64| {
++            reads += 1;
++            Some(shape(1))
++        };
++        let first = next_packet(&mut sent, Some((7, 10, 10, 2.0)), &mut read, Some(1)).unwrap();
++        assert!(matches!(first.data, CursorData::Raw(_)) && first.visible);
++        // Même place : rien. Ailleurs : la position seule.
++        assert!(next_packet(&mut sent, Some((7, 10, 10, 2.0)), &mut read, Some(1)).is_none());
++        let moved = next_packet(&mut sent, Some((7, 11, 10, 2.0)), &mut read, Some(1)).unwrap();
++        assert_eq!((moved.x, moved.data), (11, CursorData::None));
++        // Hors des écrans : masqué une fois.
++        let hidden = next_packet(&mut sent, None, &mut read, Some(1)).unwrap();
++        assert!(!hidden.visible && hidden.display_id == 7);
++        assert!(next_packet(&mut sent, None, &mut read, Some(1)).is_none());
++        // De retour : la forme de nouveau.
++        let back = next_packet(&mut sent, Some((7, 11, 10, 2.0)), &mut read, Some(1)).unwrap();
++        assert!(matches!(back.data, CursorData::Raw(_)));
++        drop(read);
++        assert_eq!(reads, 1, "forme relue seulement quand le compteur change");
++    }
++
++    #[test]
++    fn new_seed_with_a_new_shape_sends_it() {
++        let mut sent = Sent::default();
++        next_packet(&mut sent, Some((7, 10, 10, 2.0)), &mut |_| Some(shape(1)), Some(1)).unwrap();
++        // Compteur changé, même image : la position seule.
++        let same = next_packet(&mut sent, Some((7, 12, 10, 2.0)), &mut |_| Some(shape(1)), Some(2)).unwrap();
++        assert_eq!(same.data, CursorData::None);
++        let other = next_packet(&mut sent, Some((7, 12, 10, 2.0)), &mut |_| Some(shape(2)), Some(3)).unwrap();
++        assert!(matches!(other.data, CursorData::Raw(_)));
++    }
++
++    /// Lit le vrai pointeur depuis un fil, comme kynputserver (`-- --ignored`).
++    #[test]
++    #[ignore]
++    fn reads_the_system_cursor() {
++        let (shape, seed, at) = thread::spawn(|| (read_shape(2.0), cursor_seed(), location())).join().unwrap();
++        let shape = shape.expect("forme du pointeur");
++        println!("forme {}x{} point actif ({}, {}), compteur {seed:?}, position {at:?}", shape.width, shape.height, shape.xhot, shape.yhot);
++        assert!(shape.data.iter().any(|px| px >> 24 != 0), "image non vide");
++    }
++
++    #[test]
++    fn straight_alpha() {
++        assert_eq!(unpremultiply(0x8040_2010), 0x807F_3F1F);
++        assert_eq!(unpremultiply(0x0012_3456), 0);
++        assert_eq!(unpremultiply(0xFF12_3456), 0xFF12_3456);
++    }
++}
+diff --git a/kynput/src/macos/mod.rs b/kynput/src/macos/mod.rs
+index b225ff7..e68a417 100644
+--- a/kynput/src/macos/mod.rs
++++ b/kynput/src/macos/mod.rs
+@@ -19,9 +19,11 @@
+ // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ 
+ mod client_keyboard_mouse;
++mod host_cursor;
+ mod host_keyboard_mouse;
+ mod pipeline_config;
+ 
+ pub use client_keyboard_mouse::ClientKeyboardMouseHandler;
++pub use host_cursor::HostCursorHandler;
+ pub use host_keyboard_mouse::HostKeyboardMouseHandler;
+ pub use pipeline_config::PipelineConfigBuilder;
+diff --git a/kynput/src/macos/pipeline_config.rs b/kynput/src/macos/pipeline_config.rs
+index 1c4ff58..a4b120a 100644
+--- a/kynput/src/macos/pipeline_config.rs
++++ b/kynput/src/macos/pipeline_config.rs
+@@ -20,11 +20,11 @@
+ 
+ use std::sync::Arc;
+ 
+-use crate::macos::{ClientKeyboardMouseHandler, HostKeyboardMouseHandler};
++use crate::macos::{ClientKeyboardMouseHandler, HostCursorHandler, HostKeyboardMouseHandler};
+ #[cfg(feature = "sdl2")]
+ use crate::sdl2::ClientGamepadHandler;
+ use crate::{
+-    CursorFormat, HostConfig, InputPipelineConfig, InputPipelineConfigBuilder, InputTarget,
++    HostConfig, InputPipelineConfig, InputPipelineConfigBuilder, InputTarget,
+     ServiceConfig, pipeline::InputHandlerBuilder,
+ };
+ 
+@@ -33,14 +33,18 @@ pub struct PipelineConfigBuilder;
+ impl InputPipelineConfigBuilder for PipelineConfigBuilder {
+     fn host_config(
+         host_config: Arc<HostConfig>,
+-        _service_config: &ServiceConfig,
++        service_config: &ServiceConfig,
+     ) -> Option<InputPipelineConfig> {
++        // KyberNow (0003) : le pointeur du Mac annoncé aux clients, au format
++        // qu'ils demandent (comme sous Windows).
++        let cursor_config = host_config.clone();
+         Some(InputPipelineConfig {
+             target: InputTarget::Host,
+-            cursor_format: CursorFormat::None,
+-            builders: vec![Box::new(move |router| {
+-                Ok(Arc::new(HostKeyboardMouseHandler::new(host_config)?))
+-            })],
++            cursor_format: service_config.cursor_format,
++            builders: vec![
++                Box::new(move |router| Ok(Arc::new(HostCursorHandler::new(router, cursor_config)?))),
++                Box::new(move |_router| Ok(Arc::new(HostKeyboardMouseHandler::new(host_config)?))),
++            ],
+         })
+     }
+ 
