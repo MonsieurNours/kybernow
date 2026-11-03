@@ -4,7 +4,7 @@ English · [Français](playstation.md)
 
 Link apps also show a PS5 or PS4 at home, like Sony's Remote Play: the console's picture and sound, driven by the device's controller. The console appears on the home screen next to the computers.
 
-This document is the contract for this work. The exact wording will go in [link-ui.en.md](link-ui.en.md), section “PlayStation consoles”, when the screens are written. Status: **framed on 2026-11-03; block 1 (discovery and wake) written in the core, discovery tried on the PS5 Pro, wake to be tried after pairing** ([apps/core/README.en.md](../apps/core/README.en.md#playstation-consoles-srcplaystation)).
+This document is the contract for this work. The exact wording will go in [link-ui.en.md](link-ui.en.md), section “PlayStation consoles”, when the screens are written. Status: **framed on 2026-11-03; blocks 1 and 2 (discovery, wake, account ID, pairing) written in the core and tried on the PS5 Pro on 2026-11-03; next: the session** ([apps/core/README.en.md](../apps/core/README.en.md#playstation-consoles-srcplaystation)).
 
 ## Decisions
 

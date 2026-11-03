@@ -26,6 +26,10 @@ getrandom = "0.2"
 kybernow-tunnel = { path = "../../server/relay/tunnel" }
 tokio = { version = "1.43", features = ["rt-multi-thread", "time", "sync", "net"] }
 minisign-verify = "0.3"
+# Consoles PlayStation (src/playstation/rpcrypt.rs) : AES-128-CFB et HMAC-SHA256.
+aes = "0.8"
+cfb-mode = "0.8"
+hmac = "0.12"
 
 [features]
 # Lecteur de manettes par SDL dans le cœur (`gamepads::start_sdl`) : apps Mac
