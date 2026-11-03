@@ -42,8 +42,11 @@ use std::sync::{Arc, Mutex, OnceLock, Weak};
 use crate::input::pipeline::{GamepadRumble, InputPipeline};
 use crate::input::{PadAxis, PadButton, PadId};
 
+pub mod motion;
 #[cfg(feature = "sdl")]
 mod sdl;
+
+use motion::{MotionTracker, PadMotion, PadTouch};
 
 /// Manettes suivies au plus (joueurs 1 à 4).
 pub const MAX_PADS: usize = 4;
@@ -63,6 +66,10 @@ struct Pad {
     info: PadInfo,
     pressed: HashSet<PadButton>,
     axes: [i16; 6],
+    /// Pavé tactile et mouvements (DualSense, DualShock 4 ; fil SDL) : seule
+    /// la partie sur une console PlayStation s'en sert.
+    touch: PadTouch,
+    motion: MotionTracker,
 }
 
 #[derive(Default)]
@@ -119,7 +126,7 @@ impl Gamepads {
 
     fn plug_named(&self, id: PadId, vendor: Option<u16>, product: Option<u16>, name: String) {
         let info = PadInfo { id, vendor, product, name };
-        self.state.lock().unwrap().pads.insert(id, Pad { info, pressed: HashSet::new(), axes: [0; 6] });
+        self.state.lock().unwrap().pads.insert(id, Pad { info, pressed: HashSet::new(), axes: [0; 6], touch: PadTouch::default(), motion: MotionTracker::default() });
         for t in self.targets() {
             t.gamepad_plug(id, vendor, product);
         }
@@ -176,6 +183,43 @@ impl Gamepads {
     /// Les manettes présentes.
     pub fn pads(&self) -> Vec<PadInfo> {
         self.state.lock().unwrap().pads.values().map(|p| p.info.clone()).collect()
+    }
+
+    /// Clic du pavé tactile (pas routé vers les sessions d'ordinateur).
+    pub fn touch_click(&self, id: PadId, pressed: bool) {
+        if let Some(pad) = self.state.lock().unwrap().pads.get_mut(&id) {
+            pad.touch.clicked = pressed;
+        }
+    }
+
+    /// Un doigt (0 ou 1) posé à `(x, y)` (de 0 à 1), ou levé.
+    pub fn touch_finger(&self, id: PadId, finger: usize, at: Option<(f32, f32)>) {
+        if let Some(pad) = self.state.lock().unwrap().pads.get_mut(&id) {
+            if let Some(f) = pad.touch.fingers.get_mut(finger) {
+                *f = at;
+            }
+        }
+    }
+
+    /// Mesure du gyroscope (rad/s) ou de l'accéléromètre (m/s²).
+    pub fn sensor(&self, id: PadId, gyro: bool, data: [f32; 3], timestamp_us: u64) {
+        if let Some(pad) = self.state.lock().unwrap().pads.get_mut(&id) {
+            if gyro {
+                pad.motion.gyro(data, timestamp_us);
+            } else {
+                pad.motion.accel(data, timestamp_us);
+            }
+        }
+    }
+
+    /// Le pavé tactile d'une manette.
+    pub fn touch(&self, id: PadId) -> PadTouch {
+        self.state.lock().unwrap().pads.get(&id).map(|p| p.touch).unwrap_or_default()
+    }
+
+    /// Les mouvements d'une manette, si elle en mesure.
+    pub fn motion(&self, id: PadId) -> Option<PadMotion> {
+        self.state.lock().unwrap().pads.get(&id).filter(|p| p.motion.active()).map(|p| p.motion.motion())
     }
 
     /// Touches tenues d'une manette.

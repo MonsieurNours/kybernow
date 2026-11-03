@@ -214,6 +214,24 @@ pub unsafe extern "C" fn kn_ps_start(address: *const c_char, registered_json: *c
     Box::into_raw(Box::new(KnPsPlay { play }))
 }
 
+/// Le décodeur a perdu sa référence : une image clé est demandée à la
+/// console, de nouveau toutes les 500 ms jusqu'à `kn_ps_keyframe_recovered`
+/// ou l'arrivée d'une image clé.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_ps_keyframe_lost(play: *mut KnPsPlay) {
+    if let Some(p) = unsafe { play.as_ref() } {
+        p.play.key_frame_lost();
+    }
+}
+
+/// Le décodeur a retrouvé une image clé.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_ps_keyframe_recovered(play: *mut KnPsPlay) {
+    if let Some(p) = unsafe { play.as_ref() } {
+        p.play.key_frame_recovered();
+    }
+}
+
 /// Met la console en mode repos (la partie se termine ensuite).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_ps_goto_bed(play: *mut KnPsPlay) {

@@ -13,6 +13,7 @@
 
 use std::collections::{HashSet, VecDeque};
 
+use crate::gamepads::Gamepads;
 use crate::input::{PadAxis, PadButton};
 
 /// Boutons (`ChiakiControllerButton`).
@@ -137,6 +138,54 @@ impl ControllerState {
             accel: motion.accel,
             orient: motion.orient,
         }
+    }
+}
+
+/// Taille du pavé tactile pour la console (`PS_TOUCHPAD_MAXX`/`MAXY`).
+const TOUCHPAD_W: f32 = 1920.0;
+const TOUCHPAD_H: f32 = 1079.0;
+
+/// Lit les manettes du lecteur du cœur et en fait une manette pour la
+/// console : boutons et axes réunis, pavé tactile et mouvements de la
+/// première qui en a. Garde les numéros des doigts d'une lecture à l'autre
+/// (`chiaki_controller_state_start_touch` : un numéro neuf par doigt posé).
+#[derive(Default)]
+pub struct PadReader {
+    next_touch: u8,
+    ids: [Option<i8>; 2],
+}
+
+impl PadReader {
+    pub fn read(&mut self, g: &Gamepads) -> ControllerState {
+        let pads = g.pads();
+        let mut s = pads
+            .iter()
+            .map(|p| ControllerState::from_pad(&g.pressed(p.id), &g.axes(p.id)))
+            .fold(ControllerState::default(), |a, b| a.or(&b));
+        let touches: Vec<_> = pads.iter().map(|p| g.touch(p.id)).collect();
+        if touches.iter().any(|t| t.clicked) {
+            s.buttons |= button::TOUCHPAD;
+        }
+        let fingers = touches.iter().find(|t| t.fingers.iter().any(Option::is_some)).map(|t| t.fingers).unwrap_or_default();
+        for (i, f) in fingers.iter().enumerate() {
+            match f {
+                Some((x, y)) => {
+                    let id = *self.ids[i].get_or_insert_with(|| {
+                        let id = self.next_touch as i8;
+                        self.next_touch = (self.next_touch + 1) & 0x7f;
+                        id
+                    });
+                    s.touches[i] = Touch { id, x: (x * TOUCHPAD_W) as u16, y: (y * TOUCHPAD_H) as u16 };
+                }
+                None => self.ids[i] = None,
+            }
+        }
+        if let Some(m) = pads.iter().find_map(|p| g.motion(p.id)) {
+            s.gyro = m.gyro;
+            s.accel = m.accel;
+            s.orient = m.orient;
+        }
+        s
     }
 }
 
@@ -361,6 +410,25 @@ mod tests {
         let s = ControllerState::from_pad(&pressed, &[100, -200, 0, 0, 32767, 0]);
         assert_eq!(s.buttons, button::CROSS | button::PS | button::SHARE);
         assert_eq!((s.left_x, s.left_y, s.l2, s.r2), (100, -200, 255, 0));
+    }
+
+    #[test]
+    fn reader_keeps_finger_ids() {
+        let g = Gamepads::new();
+        g.plug(0, Some(0x054c), Some(0x0ce6));
+        let mut r = PadReader::default();
+        assert_eq!(r.read(&g).touches[0].id, -1);
+        g.touch_finger(0, 0, Some((0.5, 1.0)));
+        let s = r.read(&g);
+        assert_eq!(s.touches[0], Touch { id: 0, x: 960, y: 1079 });
+        g.touch_finger(0, 0, Some((0.25, 0.0)));
+        assert_eq!(r.read(&g).touches[0].id, 0);
+        g.touch_finger(0, 0, None);
+        assert_eq!(r.read(&g).touches[0].id, -1);
+        g.touch_finger(0, 0, Some((0.1, 0.1)));
+        assert_eq!(r.read(&g).touches[0].id, 1);
+        g.touch_click(0, true);
+        assert_ne!(r.read(&g).buttons & button::TOUCHPAD, 0);
     }
 
     #[test]

@@ -224,6 +224,21 @@ public final class PlayStationPlay: @unchecked Sendable {
             return nil
         }
         pipeline.renderer.streamHDR = hdr
+        // Référence perdue : le cœur redemande une image clé à la console
+        // jusqu'à ce qu'elle arrive (verrou tenu : `stop` libère la partie
+        // après avoir remis `play` à nil sous le même verrou).
+        pipeline.decoder.onLostReference = { [weak self] in
+            guard let self else { return }
+            self.lock.lock()
+            if let p = self.play { kn_ps_keyframe_lost(p) }
+            self.lock.unlock()
+        }
+        pipeline.decoder.onRecovered = { [weak self] in
+            guard let self else { return }
+            self.lock.lock()
+            if let p = self.play { kn_ps_keyframe_recovered(p) }
+            self.lock.unlock()
+        }
         videos[stream] = pipeline
         lock.unlock()
         KyberLog.video.notice("PlayStation : image décodée par l'app (VideoToolbox, Metal), flux \(stream)")

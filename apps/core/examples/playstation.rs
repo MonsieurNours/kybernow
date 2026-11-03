@@ -208,6 +208,9 @@ fn main() {
             ctrl.enable_features(true).expect("envoi");
             // PS_RES=2560x1440, PS_KBPS=40000 : essais de définition et de débit.
             let mut profile = Profile { hdr, ..Profile::p1080() };
+            // PS_IDR_AT=3 : demande une image clé à 3 s (essai de la reprise).
+            let want_key = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let idr_at: Option<u64> = std::env::var("PS_IDR_AT").ok().and_then(|v| v.parse().ok());
             if let Some((w, h)) = std::env::var("PS_RES").ok().and_then(|r| r.split_once('x').map(|(w, h)| (w.parse().unwrap_or(1920), h.parse().unwrap_or(1080)))) {
                 profile.width = w;
                 profile.height = h;
@@ -215,14 +218,14 @@ fn main() {
             if let Some(k) = std::env::var("PS_KBPS").ok().and_then(|k| k.parse().ok()) {
                 profile.bitrate = k;
             }
-            let (mut stream, events) = Stream::start(addr, target, session_id, ctrl.crypt().clone(), profile, None).unwrap_or_else(|e| {
+            let (mut stream, events) = Stream::start(addr, target, session_id, ctrl.crypt().clone(), profile, None, want_key.clone()).unwrap_or_else(|e| {
                 eprintln!("Flux impossible : {e}");
                 std::process::exit(1)
             });
             // PS_DUMP : l'image en Annex B, lisible par ffprobe / ffplay.
             let mut dump = std::env::var("PS_DUMP").ok().map(|p| std::fs::File::create(p).expect("PS_DUMP"));
             let start = std::time::Instant::now();
-            let (mut frames, mut recovered, mut audio, mut haptics, mut bytes) = (0u64, 0u64, 0u64, 0u64, 0u64);
+            let (mut frames, mut recovered, mut audio, mut haptics, mut bytes, mut keys) = (0u64, 0u64, 0u64, 0u64, 0u64, 0u64);
             let mut first_frame: Option<f32> = None;
             while start.elapsed() < Duration::from_secs(secs) {
                 match events.recv_timeout(Duration::from_millis(200)) {
@@ -233,6 +236,18 @@ fn main() {
                         }
                     }
                     Ok(StreamEvent::Video(f)) => {
+                        if let Some(at) = idr_at {
+                            if start.elapsed().as_secs() >= at && frames > 0 && !want_key.load(std::sync::atomic::Ordering::Relaxed) && keys == 1 {
+                                println!("{:.1} s : image clé demandée", start.elapsed().as_secs_f32());
+                                want_key.store(true, std::sync::atomic::Ordering::Relaxed);
+                            }
+                        }
+                        // Image clé : NAL HEVC 16 à 21 après un code de début.
+                        if f.data.windows(4).any(|w| w[0] == 0 && w[1] == 0 && w[2] == 1 && (16..=21).contains(&((w[3] >> 1) & 0x3f))) {
+                            keys += 1;
+                            want_key.store(false, std::sync::atomic::Ordering::Relaxed);
+                            println!("{:.1} s : image clé (n° {})", start.elapsed().as_secs_f32(), f.index);
+                        }
                         frames += 1;
                         bytes += f.data.len() as u64;
                         recovered += f.recovered as u64;
@@ -249,6 +264,7 @@ fn main() {
                             audio += 1
                         }
                     }
+                    Ok(StreamEvent::VideoLost) => println!("{:.1} s : images perdues, image clé demandée", start.elapsed().as_secs_f32()),
                     Ok(StreamEvent::Pad(t, b)) => println!("{:.1} s : données manette type {t} ({} octets)", start.elapsed().as_secs_f32(), b.len()),
                     Ok(StreamEvent::Ended(why)) => {
                         println!("{:.1} s : fin : {why}", start.elapsed().as_secs_f32());

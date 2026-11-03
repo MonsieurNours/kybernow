@@ -43,6 +43,13 @@ const SDL_CONTROLLERBUTTONDOWN: u32 = 0x651;
 const SDL_CONTROLLERBUTTONUP: u32 = 0x652;
 const SDL_CONTROLLERDEVICEADDED: u32 = 0x653;
 const SDL_CONTROLLERDEVICEREMOVED: u32 = 0x654;
+const SDL_CONTROLLERTOUCHPADDOWN: u32 = 0x656;
+const SDL_CONTROLLERTOUCHPADMOTION: u32 = 0x657;
+const SDL_CONTROLLERTOUCHPADUP: u32 = 0x658;
+const SDL_CONTROLLERSENSORUPDATE: u32 = 0x659;
+const SDL_CONTROLLER_BUTTON_TOUCHPAD: u8 = 20;
+const SDL_SENSOR_ACCEL: c_int = 1;
+const SDL_SENSOR_GYRO: c_int = 2;
 
 /// Vibration sans durée (-1) : 5 s, comme kynput (le jeu l'arrête par une
 /// vibration nulle).
@@ -67,6 +74,23 @@ impl SdlEvent {
     fn pad(&self) -> (i32, u8, i16) {
         (i32::from_ne_bytes(self.raw[8..12].try_into().unwrap()), self.raw[12], i16::from_ne_bytes(self.raw[16..18].try_into().unwrap()))
     }
+    fn i32_at(&self, o: usize) -> i32 {
+        i32::from_ne_bytes(self.raw[o..o + 4].try_into().unwrap())
+    }
+    fn f32_at(&self, o: usize) -> f32 {
+        f32::from_ne_bytes(self.raw[o..o + 4].try_into().unwrap())
+    }
+    /// `SDL_ControllerTouchpadEvent` : doigt, x, y (de 0 à 1).
+    fn touchpad(&self) -> (i32, f32, f32) {
+        (self.i32_at(16), self.f32_at(20), self.f32_at(24))
+    }
+    /// `SDL_ControllerSensorEvent` : capteur, mesures, horodatage (µs, SDL
+    /// 2.26 et après ; sinon celui de l'événement en ms).
+    fn sensor(&self) -> (i32, [f32; 3], u64) {
+        let us = u64::from_ne_bytes(self.raw[32..40].try_into().unwrap());
+        let ms = u32::from_ne_bytes(self.raw[4..8].try_into().unwrap()) as u64;
+        (self.i32_at(12), [self.f32_at(16), self.f32_at(20), self.f32_at(24)], if us != 0 { us } else { ms * 1000 })
+    }
 }
 
 enum GameController {}
@@ -87,6 +111,8 @@ unsafe extern "C" {
     fn SDL_GameControllerGetVendor(c: *mut GameController) -> u16;
     fn SDL_GameControllerGetProduct(c: *mut GameController) -> u16;
     fn SDL_GameControllerRumble(c: *mut GameController, low: u16, high: u16, ms: u32) -> c_int;
+    fn SDL_GameControllerHasSensor(c: *mut GameController, sensor: c_int) -> c_int;
+    fn SDL_GameControllerSetSensorEnabled(c: *mut GameController, sensor: c_int, enabled: c_int) -> c_int;
     fn SDL_GameControllerSendEffect(c: *mut GameController, data: *const c_void, size: c_int) -> c_int;
 }
 
@@ -296,9 +322,26 @@ fn handle(event: &SdlEvent, open: &mut Vec<Open>) {
         }
         SDL_CONTROLLERBUTTONDOWN | SDL_CONTROLLERBUTTONUP => {
             let Some(pad) = open.iter().find(|p| p.instance == which) else { return };
+            if index == SDL_CONTROLLER_BUTTON_TOUCHPAD {
+                global().touch_click(pad.slot, kind == SDL_CONTROLLERBUTTONDOWN);
+                return;
+            }
             // Touches au-delà de la croix (palettes, pavé tactile…) : kynput les ignorait aussi.
             let Some(button) = PadButton::ALL.get(usize::from(index)).copied() else { return };
             global().button(pad.slot, button, kind == SDL_CONTROLLERBUTTONDOWN);
+        }
+        SDL_CONTROLLERTOUCHPADDOWN | SDL_CONTROLLERTOUCHPADMOTION | SDL_CONTROLLERTOUCHPADUP => {
+            let Some(pad) = open.iter().find(|p| p.instance == which) else { return };
+            let (finger, x, y) = event.touchpad();
+            let at = (kind != SDL_CONTROLLERTOUCHPADUP).then_some((x.clamp(0.0, 1.0), y.clamp(0.0, 1.0)));
+            global().touch_finger(pad.slot, finger.max(0) as usize, at);
+        }
+        SDL_CONTROLLERSENSORUPDATE => {
+            let Some(pad) = open.iter().find(|p| p.instance == which) else { return };
+            let (sensor, data, us) = event.sensor();
+            if sensor == SDL_SENSOR_GYRO || sensor == SDL_SENSOR_ACCEL {
+                global().sensor(pad.slot, sensor == SDL_SENSOR_GYRO, data, us);
+            }
         }
         SDL_CONTROLLERAXISMOTION => {
             let Some(pad) = open.iter().find(|p| p.instance == which) else { return };
@@ -339,6 +382,13 @@ fn add(index: i32, open: &mut Vec<Open>) {
         let id = |v: u16| (v != 0).then_some(v);
         let (vendor, product) = (id(SDL_GameControllerGetVendor(ctrl)), id(SDL_GameControllerGetProduct(ctrl)));
         log::info!("manettes : J{} {name} ({:04x}:{:04x})", slot + 1, vendor.unwrap_or(0), product.unwrap_or(0));
+        // Gyroscope et accéléromètre (DualSense, DualShock 4…), pour les
+        // consoles PlayStation.
+        for sensor in [SDL_SENSOR_ACCEL, SDL_SENSOR_GYRO] {
+            if SDL_GameControllerHasSensor(ctrl, sensor) != 0 {
+                SDL_GameControllerSetSensorEnabled(ctrl, sensor, 1);
+            }
+        }
         open.push(Open { ctrl, instance, slot });
         global().plug_named(slot, vendor, product, name);
     }

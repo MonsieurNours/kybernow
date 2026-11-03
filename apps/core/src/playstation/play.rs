@@ -14,7 +14,6 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use super::audio::{AudioOut, AudioReceiver, opus_head};
-use super::controller::ControllerState;
 use crate::gamepads;
 use crate::input::pipeline::GamepadRumble;
 use super::regist::Registered;
@@ -62,8 +61,22 @@ pub struct PlayOptions {
 /// Une partie en cours.
 pub struct Play {
     stop: Arc<AtomicBool>,
+    /// Une image clé est attendue : demandée à la console jusqu'à ce qu'elle
+    /// arrive (images perdues, décodeur de l'app qui a perdu sa référence,
+    /// plus d'image depuis une seconde).
+    want_key: Arc<AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
     ctrl: Arc<Mutex<Option<Ctrl>>>,
+}
+
+/// Une fin qui vaut une nouvelle tentative : réseau, ou flux coupé sans que
+/// la console l'ait voulu (pas « Server shutting down » : mise en veille).
+pub(crate) fn recoverable(end: &PlayEnd) -> bool {
+    match end {
+        PlayEnd::Unreachable(_) => true,
+        PlayEnd::Remote(why) => !why.contains("shutting down"),
+        PlayEnd::Stopped | PlayEnd::InUse | PlayEnd::NotPaired => false,
+    }
 }
 
 /// NAL de référence (image clé) dans une image en Annex B.
@@ -96,15 +109,38 @@ impl Play {
         on_state: Box<dyn Fn(PlayState) + Send>,
     ) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
+        let want_key = Arc::new(AtomicBool::new(false));
         let ctrl = Arc::new(Mutex::new(None));
         let registered = registered.clone();
         let thread = {
             let stop = stop.clone();
             let ctrl = ctrl.clone();
+            let want_key = want_key.clone();
             std::thread::Builder::new()
                 .name("ps-play".into())
                 .spawn(move || {
-                    let end = run(addr, &registered, options, &video, audio.as_ref(), &on_state, &stop, &ctrl);
+                    // Une partie qui tombe (réseau, console qui ne répond
+                    // plus) reprend toute seule, trois fois au plus ; une fin
+                    // voulue (app, mise en veille, « déjà en cours »,
+                    // association perdue) termine.
+                    let mut retries = 0;
+                    let end = loop {
+                        let started = Instant::now();
+                        let end = run(addr, &registered, options, &video, audio.as_ref(), &on_state, &stop, &ctrl, &want_key);
+                        if let Some(mut c) = ctrl.lock().unwrap().take() {
+                            c.stop();
+                        }
+                        // Une partie qui a tenu une minute remet le compte à zéro.
+                        if started.elapsed() > Duration::from_secs(60) {
+                            retries = 0;
+                        }
+                        if stop.load(Ordering::SeqCst) || !recoverable(&end) || retries >= 3 {
+                            break end;
+                        }
+                        retries += 1;
+                        log::warn!("PlayStation : partie interrompue ({end:?}), reprise {retries}/3");
+                        std::thread::sleep(Duration::from_secs(1));
+                    };
                     if let Some(mut c) = ctrl.lock().unwrap().take() {
                         c.stop();
                     }
@@ -112,7 +148,18 @@ impl Play {
                 })
                 .ok()
         };
-        Play { stop, thread, ctrl }
+        Play { stop, want_key, thread, ctrl }
+    }
+
+    /// Le décodeur de l'app a perdu sa référence : une image clé est
+    /// demandée à la console, de nouveau toutes les 500 ms.
+    pub fn key_frame_lost(&self) {
+        self.want_key.store(true, Ordering::Relaxed);
+    }
+
+    /// Le décodeur de l'app a retrouvé une image clé.
+    pub fn key_frame_recovered(&self) {
+        self.want_key.store(false, Ordering::Relaxed);
     }
 
     /// Met la console en mode repos (puis la partie se termine).
@@ -147,17 +194,19 @@ fn run(
     on_state: &dyn Fn(PlayState),
     stop: &AtomicBool,
     ctrl_slot: &Mutex<Option<Ctrl>>,
+    want_key: &Arc<AtomicBool>,
 ) -> PlayEnd {
     on_state(PlayState::Connecting);
     let Some(keys) = Keys::from_registered(registered) else { return PlayEnd::NotPaired };
     // La console garde la session précédente quelques secondes : « déjà en
-    // cours » est réessayé pendant 15 s.
+    // cours » est réessayé pendant 30 s (après une coupure, la console garde
+    // l'ancienne session jusqu'à une minute).
     let started = Instant::now();
     let (target, nonce) = loop {
         match session::request_session(addr, registered.target.into(), &keys) {
             Ok(r) => break r,
             Err(session::SessionError::Rejected { reason: Some(super::regist::REASON_IN_USE), .. })
-                if started.elapsed() < Duration::from_secs(15) && !stop.load(Ordering::SeqCst) =>
+                if started.elapsed() < Duration::from_secs(30) && !stop.load(Ordering::SeqCst) =>
             {
                 std::thread::sleep(Duration::from_secs(1));
             }
@@ -205,14 +254,9 @@ fn run(
     // une seule manette pour la console.
     gamepads::hold_sdl();
     let _sdl = ReleaseSdl;
-    let source: super::stream::ControllerSource = Box::new(|| {
-        let g = gamepads::global();
-        g.pads()
-            .iter()
-            .map(|p| ControllerState::from_pad(&g.pressed(p.id), &g.axes(p.id)))
-            .fold(ControllerState::default(), |a, b| a.or(&b))
-    });
-    let (mut stream, stream_events) = match Stream::start(addr, target, session_id, crypt, profile, Some(source)) {
+    let mut reader = super::controller::PadReader::default();
+    let source: super::stream::ControllerSource = Box::new(move || reader.read(gamepads::global()));
+    let (mut stream, stream_events) = match Stream::start(addr, target, session_id, crypt, profile, Some(source), want_key.clone()) {
         Ok(s) => s,
         Err(e) => return PlayEnd::Unreachable(e.to_string()),
     };
@@ -222,6 +266,9 @@ fn run(
     let mut haptics = HapticsToRumble::default();
     let mut audio_configured = false;
     let clock = Instant::now();
+    // Dernière image rendue : sans image depuis une seconde, une image clé
+    // est demandée (perte que rien n'a signalée).
+    let mut last_frame: Option<Instant> = None;
     let end = loop {
         if stop.load(Ordering::SeqCst) {
             break PlayEnd::Stopped;
@@ -233,6 +280,11 @@ fn run(
                 CtrlEvent::Closed(why) => log::info!("PlayStation : canal de contrôle fermé ({why})"),
                 _ => {}
             }
+        }
+        if last_frame.is_some_and(|t| t.elapsed() > Duration::from_secs(1)) && !want_key.load(Ordering::Relaxed) {
+            log::warn!("PlayStation : plus d'image depuis 1 s, image clé demandée");
+            want_key.store(true, Ordering::Relaxed);
+            last_frame = Some(Instant::now());
         }
         let event = match stream_events.recv_timeout(Duration::from_millis(100)) {
             Ok(e) => e,
@@ -253,6 +305,10 @@ fn run(
             StreamEvent::Video(frame) => {
                 let pts = clock.elapsed().as_micros() as u64;
                 let is_key = has_key_nal(&frame.data, hevc_out);
+                if is_key {
+                    want_key.store(false, Ordering::Relaxed);
+                }
+                last_frame = Some(Instant::now());
                 video.packet(Packet::Media { is_config: false, is_key, pts, data: &frame.data });
             }
             StreamEvent::Audio(p) if !p.is_haptics => {
@@ -276,6 +332,9 @@ fn run(
                     rumble16(left, right, 60);
                 }
             }
+            // Le décodeur de l'app attend alors une image clé au lieu de
+            // décoder des images aux références perdues.
+            StreamEvent::VideoLost => video.packet(Packet::Hole { missing_samples: 0 }),
             StreamEvent::Audio(_) | StreamEvent::Pad(..) => {}
             StreamEvent::Ended(why) => break PlayEnd::Remote(why),
         }
@@ -401,6 +460,16 @@ fn rumble(left: u8, right: u8) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn what_is_retried() {
+        assert!(recoverable(&PlayEnd::Unreachable("réseau".into())));
+        assert!(recoverable(&PlayEnd::Remote("Takion arrêté".into())));
+        assert!(!recoverable(&PlayEnd::Remote("Server shutting down".into())));
+        assert!(!recoverable(&PlayEnd::Stopped));
+        assert!(!recoverable(&PlayEnd::InUse));
+        assert!(!recoverable(&PlayEnd::NotPaired));
+    }
 
     #[test]
     fn trigger_report_layout() {

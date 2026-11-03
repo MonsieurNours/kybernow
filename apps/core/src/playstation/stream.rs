@@ -29,6 +29,8 @@ use super::takion::{self, AvPacket, Takion, TakionEvent};
 const EXPECT_TIMEOUT: Duration = Duration::from_secs(5);
 const HEARTBEAT: Duration = Duration::from_secs(1);
 const CONGESTION: Duration = Duration::from_millis(200);
+/// Intervalle entre deux demandes d'image clé tant qu'aucune n'arrive.
+const IDR_RETRY: Duration = Duration::from_millis(500);
 /// Valeurs de secours de chiaki-ng quand la mesure du réseau échoue.
 const MTU: u32 = 1454;
 const RTT_MS: u32 = 1;
@@ -95,6 +97,9 @@ pub enum StreamEvent {
     Video(Frame),
     /// Un paquet de son (Opus) ou de vibrations HD (`is_haptics`).
     Audio(AvPacket),
+    /// Des images ont été perdues : la suite s'appuie sur des références
+    /// manquantes jusqu'à la prochaine image clé (déjà demandée).
+    VideoLost,
     /// Données de la manette (vibrations, gâchettes, état) : type Takion et
     /// contenu.
     Pad(u8, Vec<u8>),
@@ -254,6 +259,7 @@ impl Stream {
         crypt: RpCrypt,
         profile: Profile,
         controller: Option<ControllerSource>,
+        want_key: Arc<AtomicBool>,
     ) -> io::Result<(Self, Receiver<StreamEvent>)> {
         let (takion, events) = Takion::connect(addr, takion::PORT, rpcrypt::is_ps5(target))?;
         let (tx, rx) = mpsc::channel();
@@ -262,7 +268,7 @@ impl Stream {
             let stop = stop.clone();
             std::thread::Builder::new()
                 .name("ps-stream".into())
-                .spawn(move || run(takion, events, target, session_id, crypt, profile, controller, stop, tx))?
+                .spawn(move || run(takion, events, target, session_id, crypt, profile, controller, want_key, stop, tx))?
         };
         Ok((Stream { stop, thread: Some(thread) }, rx))
     }
@@ -343,9 +349,12 @@ fn run(
     crypt: RpCrypt,
     profile: Profile,
     mut controller: Option<ControllerSource>,
+    want_key: Arc<AtomicBool>,
     stop: Arc<AtomicBool>,
     tx: Sender<StreamEvent>,
 ) {
+    // Demande d'image clé (IDRREQUEST) répétée tant qu'il en faut une.
+    let mut last_idr: Option<Instant> = None;
     let mut feedback: Option<std::thread::JoinHandle<()>> = None;
     let feedback_stop = Arc::new(AtomicBool::new(false));
     let mut handshake_key = [0u8; HANDSHAKE_KEY_SIZE];
@@ -382,6 +391,14 @@ fn run(
             let _ = takion.send_congestion();
             next_congestion = now + CONGESTION;
         }
+        if matches!(phase, Phase::Running) && want_key.load(Ordering::Relaxed) && last_idr.is_none_or(|t| t.elapsed() >= IDR_RETRY) {
+            log::info!("PlayStation : image clé demandée à la console");
+            let _ = takion.send_data(1, 2, &proto::simple(kind::IDRREQUEST), true);
+            last_idr = Some(now);
+        }
+        if !want_key.load(Ordering::Relaxed) {
+            last_idr = None;
+        }
         if matches!(phase, Phase::Running) && now >= next_heartbeat {
             let _ = takion.send_data(1, 1, &proto::simple(kind::HEARTBEAT), true);
             next_heartbeat = now + HEARTBEAT;
@@ -406,6 +423,8 @@ fn run(
                 if let Some((start, end)) = out.missing {
                     log::info!("PlayStation : images {start} à {end} perdues, signalées à la console");
                     let _ = takion.send_data(1, 2, &corrupt_frame(start, end), true);
+                    want_key.store(true, Ordering::Relaxed);
+                    let _ = tx.send(StreamEvent::VideoLost);
                 }
                 if let Some(frame) = out.frame {
                     let _ = tx.send(StreamEvent::Video(frame));
