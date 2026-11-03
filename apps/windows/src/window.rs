@@ -361,12 +361,20 @@ fn grab_key(k: &KBDLLHOOKSTRUCT, msg: u32) -> bool {
     let alt = (k.flags.0 & LLKHF_ALTDOWN.0) != 0;
     let ctrl = unsafe { GetAsyncKeyState(VK_CONTROL.0 as i32) } < 0;
     let vk = VIRTUAL_KEY(k.vkCode as u16);
-    let grab = match vk {
-        VK_LWIN | VK_RWIN | VK_APPS => true,
-        VK_TAB => alt,
-        VK_ESCAPE => alt || ctrl,
-        _ => false,
+    // Une touche ⊞ prise et tenue : toute la combinaison part à l'ordinateur
+    // (⊞+Tab, ⊞+D…), sinon Windows la complète lui-même (vue des tâches).
+    // Face à un Mac, ⊞ y est ⌘ : ⊞+Tab donne ⌘⇥.
+    let win_held = {
+        let grabbed = app.grabbed.lock().unwrap();
+        grabbed.contains(&(VK_LWIN.0 as u32)) || grabbed.contains(&(VK_RWIN.0 as u32))
     };
+    let grab = win_held
+        || match vk {
+            VK_LWIN | VK_RWIN | VK_APPS => true,
+            VK_TAB => alt,
+            VK_ESCAPE => alt || ctrl,
+            _ => false,
+        };
     if !grab {
         return false;
     }
