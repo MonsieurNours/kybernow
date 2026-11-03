@@ -43,6 +43,7 @@
 		6653A4ED3F13552933EA6268 /* SystemConfiguration.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C48FEEB2EF3F0C1C29CF932A /* SystemConfiguration.framework */; };
 		6900DF869CD96B84CB3D2982 /* OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 943CF5575AABD133E0381912 /* OFL.txt */; };
 		6AF6DC2A12BD51242201E613 /* SessionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7ECA1A96C6FB50960289154D /* SessionController.swift */; };
+		6D10BF1561E600B622751250 /* FramePath.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5CAB0A1CC458D1CAE235BF2 /* FramePath.swift */; };
 		6EB4D0D61C6AC05D90761C23 /* GamepadsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82813EE36CC6DB67A977F840 /* GamepadsView.swift */; };
 		6FDCDCDBBE4CBF939CD1AF71 /* KyberKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 99A7F2997495AE8E0846FCF2 /* KyberKit.framework */; };
 		72E9242B4F7DCC758E7412EA /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0E4AFD0C75F8B87AA9B1CE5 /* Theme.swift */; };
@@ -189,6 +190,7 @@
 		D19CC41E754DD4C2F46DE418 /* Share.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Share.swift; sourceTree = "<group>"; };
 		D2CB1819AEAB327E349B2FDD /* Archivo-wdth-wght.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Archivo-wdth-wght.ttf"; sourceTree = "<group>"; };
 		D3AE175305815BE8C8A6C859 /* TopShelf.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = TopShelf.entitlements; sourceTree = "<group>"; };
+		D5CAB0A1CC458D1CAE235BF2 /* FramePath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FramePath.swift; sourceTree = "<group>"; };
 		DA5781CC43CFB55F18BB4B91 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		DCB0A07752E4AD009B4519E9 /* Lend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Lend.swift; sourceTree = "<group>"; };
 		E0E4AFD0C75F8B87AA9B1CE5 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
@@ -378,6 +380,7 @@
 				A2FAFDEE9E251B51A36ED17B /* Assets.xcassets */,
 				F939135052A5C51A4CDFEDB0 /* Backdrops.swift */,
 				717AA2D038A1CC613B959D31 /* CloudSync.swift */,
+				D5CAB0A1CC458D1CAE235BF2 /* FramePath.swift */,
 				82813EE36CC6DB67A977F840 /* GamepadsView.swift */,
 				42567BEAC24E7ACEFBB3CAEB /* HDRCalibrationView.swift */,
 				609D971655FAFD446DC66236 /* HomeView.swift */,
@@ -576,6 +579,7 @@
 				49222371EEE67F2DE41F4B4A /* Backdrops.swift in Sources */,
 				19EC14DFC8515AF215310E98 /* CloudSync.swift in Sources */,
 				E82B7C26247B96A00884AB17 /* Discovery.swift in Sources */,
+				6D10BF1561E600B622751250 /* FramePath.swift in Sources */,
 				6EB4D0D61C6AC05D90761C23 /* GamepadsView.swift in Sources */,
 				58413F62BBD794C1808CBF34 /* HDRCalibrationView.swift in Sources */,
 				18228ACA5C76D4BDB8617E8A /* HomeView.swift in Sources */,

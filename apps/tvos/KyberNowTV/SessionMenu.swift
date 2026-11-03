@@ -57,6 +57,8 @@ struct SessionMenu: View {
                 VStack(alignment: .trailing, spacing: 10) {
                     Theme.eyebrow(String(localized: "Statistiques"))
                     statsStrip
+                    // Trajet d'une image : où partent les millisecondes (le HDR les change-t-il ?).
+                    FramePath(stats: session.stats)
                 }
             }
             .frame(width: 1920 - 192)
@@ -65,7 +67,7 @@ struct SessionMenu: View {
             if prefs.latencyAlert, session.route.isLate, session.host.settings.audio != .off {
                 audioWarning
                     .frame(width: 980)
-                    .padding(.leading, 96).padding(.top, 210)
+                    .padding(.leading, 96).padding(.top, 330)
             }
 
             // Le menu.

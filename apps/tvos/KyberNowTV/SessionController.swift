@@ -760,6 +760,14 @@ final class SessionController: ObservableObject {
             stats.fps = 60
             stats.mbps = 78
             stats.format = self.hdrOn ? "4:2:0 10 bits" : "4:2:0 8 bits"
+            stats.decodeMs = 2.1
+            stats.displayMs = 7.4
+            // Trajet d'une image ; `-demoChain NO` : une Station qui n'envoie pas ses étapes.
+            if UserDefaults.standard.object(forKey: "demoChain") == nil || UserDefaults.standard.bool(forKey: "demoChain") {
+                var c = ChainTimes()
+                (c.capture, c.encode, c.send, c.network, c.decode, c.display) = (0.9, 3.4, 0.6, 1.3, 2.1, 5.3)
+                stats.chain = c
+            }
             self.stats = stats
             // Le HDR demandé (`-hdrScreen YES`) : l'écran de la démonstration est « en HDR ».
             self.hdrScreens = [self.hdrOn]
