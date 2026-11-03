@@ -44,9 +44,22 @@ step() { printf '\n==> %s\n' "$*"; }
 
 mkdir -p "$WORK"
 
-step "Kyber (empaquetage et signature des bibliothèques)"
-"$HERE/run-kyber.sh" package >/dev/null
-KYAPP="$(cd "$ROOT/third_party/kyber-desktop" && pwd -P)/KyberNow-Station-Kyber.app"
+# KYBER_FROM_APP=<app KyberNow Station déjà construite> : Kyber (exécutables,
+# bibliothèques, réglages) repris de cette app, sans réempaqueter third_party
+# (essais pendant qu'un autre travail y recompile Kyber).
+if [ -n "${KYBER_FROM_APP:-}" ]; then
+    step "Kyber repris de $KYBER_FROM_APP"
+    KYAPP="$WORK/kyber-from-app.app"
+    rm -rf "$KYAPP"
+    mkdir -p "$KYAPP/Contents/MacOS" "$KYAPP/Contents/Resources"
+    cp "$KYBER_FROM_APP"/Contents/MacOS/{kycontroller,kyavserver,kynputserver} "$KYAPP/Contents/MacOS/"
+    cp -R "$KYBER_FROM_APP/Contents/Frameworks" "$KYAPP/Contents/Frameworks"
+    cp "$KYBER_FROM_APP/Contents/Resources/kyber/kyber_config.toml" "$KYAPP/Contents/Resources/"
+else
+    step "Kyber (empaquetage et signature des bibliothèques)"
+    "$HERE/run-kyber.sh" package >/dev/null
+    KYAPP="$(cd "$ROOT/third_party/kyber-desktop" && pwd -P)/KyberNow-Station-Kyber.app"
+fi
 
 step "Admin"
 (cd "$ROOT/server/web" && npm ci --silent && npm run build --silent)
