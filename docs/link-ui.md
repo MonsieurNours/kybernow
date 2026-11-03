@@ -359,6 +359,23 @@ Ce qui vaut pour toute l'app (langue, iCloud, mises à jour de l'app, test des m
 
 ## Statistiques
 
+**En session : trajet d'une image** / “Path of a frame”, dans toutes les apps (panneau « Statistiques » de la session, modèle : `SessionStats` de l'app Mac). Six étapes, médianes de la seconde écoulée, venues du cœur (`Second.chain`, `apps/core/src/latency.rs`) :
+
+| Étape | Lieu | Aide | English |
+|---|---|---|---|
+| « Capture » | Sur l'ordinateur | « De la capture de l'image au début de son encodage » (la conversion HDR y est comprise) | “Capture”, “From capturing the frame to the start of its encoding” |
+| « Encodage » | Sur l'ordinateur | « Compression de l'image par la carte graphique de l'ordinateur » | “Encoding”, “Frame compression by the computer's graphics card” |
+| « Envoi » | Sur l'ordinateur | « Mise en paquets et départ sur le réseau » | “Sending”, “Packetising and sending over the network” |
+| « Réseau » | Réseau | « Du départ de l'ordinateur à l'image complète reçue ici » | “Network”, “From leaving the computer to the full frame received here” |
+| « Décodage » | Sur cet appareil | « Décompression de l'image par {cet appareil} » | “Decoding”, “Frame decompression by {this device}” |
+| « Affichage » | Sur cet appareil | « Rendu et attente du prochain rafraîchissement de l'écran » | “Display”, “Rendering and waiting for the display's next refresh” |
+
+- Lieux : « Sur l'ordinateur » / “On the computer”, « Réseau » / “Network”, « Sur {cet appareil} » / “On {this device}”, où {cet appareil} est le nom que l'app se donne ailleurs : « ce Mac », « cet iPhone », « cet iPad », « cette Apple TV », « ce téléviseur », « ce PC », « cet appareil » (Linux, Android) ; en anglais “this Mac”, “this iPhone”, “this iPad”, “this Apple TV”, “this TV”, “this PC”, “this device”.
+- Une étape sans mesure (Station trop ancienne, première seconde) : « — ». Sans mesures de l'ordinateur, l'appareil garde ses propres temps de décodage et d'affichage.
+- Appareils de bureau et à main : une cascade (chaque étape commence où la précédente finit, sur une échelle commune, un pointillé à la durée d'une image), les valeurs à droite, l'aide au survol ou à l'appui long.
+- Téléviseurs et salon (Apple TV, LG, mode salon de Linux) : les six valeurs en une rangée lisible de loin, regroupées par lieu (« Sur l'ordinateur », « Réseau », « Sur ce téléviseur »), avec le total de chaque lieu ; pas d'aide.
+- La ligne « Image » dit « HDR » quand l'image l'est (« 3840 × 2160 · HEVC · HDR · 120 i/s ») : en allumant et éteignant le HDR depuis la barre, on voit quelle étape change.
+
 **Dernière session** / “Last session”, sur le modèle de la carte de l'app Mac (`FrameRuler`) :
 
 - en grand, la médiane : « 8,9 ms » et « médiane » / “median” ;
