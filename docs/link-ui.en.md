@@ -536,6 +536,16 @@ Found consoles also appear in “On this network”, with the computers (row “
 
 An account read during a pairing is kept, even if the pairing then fails.
 
+**Several devices** ([playstation.en.md](playstation.en.md#several-devices)):
+
+| Item | French | English |
+|---|---|---|
+| PlayStation tab, below the accounts (device with accounts) | « Envoyer à un appareil » ; « Aucun appareil en attente. Sur la télé ou l'autre appareil : Ajouter une console › Recevoir d'un autre appareil. » | “Send to a device”: the list of network devices waiting for a sending (“{name} · Apple TV”, “{name} · LG”…); empty: “No device waiting. On the TV or the other device: Add a console › Receive from another device.” |
+| Sending, code | « Saisissez le code affiché sur {nom}. », « Code à 6 chiffres », « Envoyer », « Comptes et consoles envoyés à {nom}. », « Code refusé : vérifiez-le sur {nom}. », « {nom} ne répond plus. » | “Enter the code shown on {name}.” Field: “6-digit code”; button: “Send”; done: “Accounts and consoles sent to {name}.”; wrong code: “Code refused: check it on {name}.”; unreachable: “{name} isn't answering any more.” |
+| PlayStation tab (and a TV's first screen without an account) | « Recevoir d'un autre appareil », « Sur votre Mac, votre PC ou votre téléphone : Ajouter un ordinateur ou une console › PlayStation › Envoyer à un appareil, puis saisissez ce code. », « {n} compte(s) et {n} console(s) reçus. », « Code expiré. », « Nouveau code » | “Receive from another device”: a large code (“482 913”), below “On your Mac, PC or phone: Add a computer or a console › PlayStation › Send to a device, then enter this code.”; received: “{n} account(s) and {n} console(s) received.”; after 5 min: “Code expired.” and “New code” |
+| Apple, iCloud on | « Ordinateurs et consoles » | nothing to do: accounts and consoles arrive by themselves, like computers; the iCloud card of the app's Settings says “Computers and consoles” |
+| TV (no browser) | « Recevoir d'un autre appareil », « Saisir l'identifiant à la main » | the Account step offers “Receive from another device” and “Enter the ID by hand” (no Sony sign-in) |
+
 **On the home screen**, one card per console, whatever the number of accounts. Paired with several accounts: a “{online ID}” chip next to the main button opens the account choice (the profile the console opens the game with); kept per console; paired with only one: no chip. The settings stay the console's, for all its accounts. The console no longer recognises an account: that pairing is erased, and “Pair” comes back if it was the last one.
 
 Accounts kept from an earlier version (a single account, without an online ID): « Compte PlayStation » / “PlayStation account”, to rename, or updated by signing in again.

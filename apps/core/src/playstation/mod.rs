@@ -20,6 +20,7 @@ pub mod endpoint;
 pub mod fec;
 pub mod frame;
 pub mod gkcrypt;
+pub mod handoff;
 mod keys;
 pub mod keymouse;
 pub mod play;

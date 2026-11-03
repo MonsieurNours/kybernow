@@ -536,6 +536,16 @@ Les consoles trouvées apparaissent aussi dans « Sur ce réseau », avec les or
 
 Un compte lu pendant une association est gardé, même si l'association échoue ensuite.
 
+**Plusieurs appareils** ([playstation.md](playstation.md#plusieurs-appareils)) :
+
+| Élément | Français | English |
+|---|---|---|
+| Onglet PlayStation, sous les comptes (appareil qui a des comptes) | « Envoyer à un appareil » : la liste des appareils du réseau qui attendent un envoi (« {nom} · Apple TV », « {nom} · LG »…) ; vide : « Aucun appareil en attente. Sur la télé ou l'autre appareil : Ajouter une console › Recevoir d'un autre appareil. » | “Send to a device”; “No device waiting. On the TV or the other device: Add a console › Receive from another device.” |
+| Envoi, code | « Saisissez le code affiché sur {nom}. » Champ : « Code à 6 chiffres » ; bouton : « Envoyer » ; fait : « Comptes et consoles envoyés à {nom}. » ; code faux : « Code refusé : vérifiez-le sur {nom}. » ; injoignable : « {nom} ne répond plus. » | “Enter the code shown on {name}.” Field: “6-digit code”; button: “Send”; “Accounts and consoles sent to {name}.”; “Code refused: check it on {name}.”; “{name} isn't answering any more.” |
+| Onglet PlayStation (et premier écran d'une télé sans compte) | « Recevoir d'un autre appareil » : un code en grand (« 482 913 »), dessous « Sur votre Mac, votre PC ou votre téléphone : Ajouter un ordinateur ou une console › PlayStation › Envoyer à un appareil, puis saisissez ce code. » ; reçu : « {n} compte(s) et {n} console(s) reçus. » ; après 5 min : « Code expiré. » et « Nouveau code » | “Receive from another device”; “On your Mac, PC or phone: Add a computer or a console › PlayStation › Send to a device, then enter this code.”; “{n} account(s) and {n} console(s) received.”; “Code expired.”, “New code” |
+| Apple, iCloud allumé | rien à faire : les comptes et les consoles arrivent seuls, comme les ordinateurs ; la carte iCloud des Réglages de l'app dit « Ordinateurs et consoles » | “Computers and consoles” |
+| Télé (sans navigateur) | l'étape Compte propose « Recevoir d'un autre appareil » et « Saisir l'identifiant à la main » (pas de connexion Sony) | “Receive from another device”, “Enter the ID by hand” |
+
 **À l'accueil**, une carte par console, quel que soit le nombre de comptes. Associée avec plusieurs comptes : une puce « {pseudo} » à côté du bouton principal ouvre le choix du compte (le profil avec lequel la console ouvre la partie) ; retenu par console ; associée avec un seul : pas de puce. Les réglages restent ceux de la console, pour tous ses comptes. La console ne reconnaît plus un compte : cette association est effacée, et « Associer » revient si c'était la dernière.
 
 Comptes gardés d'une version précédente (un seul compte, sans pseudo) : « Compte PlayStation », à renommer, ou mis à jour en se reconnectant.

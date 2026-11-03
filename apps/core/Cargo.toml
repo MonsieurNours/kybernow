@@ -35,6 +35,9 @@ k256 = { version = "0.13", default-features = false, features = ["arithmetic", "
 aes-gcm = { version = "0.10", default-features = false, features = ["aes", "alloc"] }
 # Flux Takion : mémoire de réception agrandie (une image clé arrive d'un bloc).
 socket2 = "0.6"
+# Envoi des comptes et associations d'un appareil à l'autre (src/playstation/handoff.rs) :
+# poignée de main sur le code à 6 chiffres.
+spake2 = "0.4"
 
 [features]
 # Lecteur de manettes par SDL dans le cœur (`gamepads::start_sdl`) : apps Mac

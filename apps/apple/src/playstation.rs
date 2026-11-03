@@ -558,3 +558,83 @@ pub unsafe extern "C" fn kn_ps_stop(play: *mut KnPsPlay) {
     let mut p = unsafe { Box::from_raw(play) };
     p.play.stop();
 }
+
+// MARK: - Envoi entre appareils (docs/playstation.md, « Plusieurs appareils »)
+
+/// Un appareil qui attend un envoi (`kn_ps_handoff_receive`).
+pub struct KnPsHandoff {
+    receiver: kybernow_core::playstation::handoff::Receiver,
+}
+
+/// Commence à attendre un envoi : `name` (nom de l'appareil), `platform`
+/// (`macos`, `ios`, `tvos`). Nul si l'écoute est impossible ; à libérer
+/// par `kn_ps_handoff_stop`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_ps_handoff_receive(name: *const c_char, platform: *const c_char) -> *mut KnPsHandoff {
+    match kybernow_core::playstation::handoff::Receiver::start(&text(name), &text(platform)) {
+        Ok(receiver) => Box::into_raw(Box::new(KnPsHandoff { receiver })),
+        Err(e) => {
+            log::warn!("PlayStation : attente d'un envoi impossible ({e})");
+            std::ptr::null_mut()
+        }
+    }
+}
+
+/// Le code à 6 chiffres à afficher (texte à libérer).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_ps_handoff_code(h: *mut KnPsHandoff) -> *mut c_char {
+    let Some(h) = (unsafe { h.as_ref() }) else { return std::ptr::null_mut() };
+    give(h.receiver.code())
+}
+
+/// Le prochain évènement, attendu `timeout_ms` au plus (bloque : hors du fil
+/// de l'interface). JSON à libérer : `{"event":"received","bundle":"<JSON>"}`,
+/// `{"event":"new_code","code":"123456"}`, `{"event":"expired"}`, ou nul
+/// s'il n'y a rien.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_ps_handoff_next(h: *mut KnPsHandoff, timeout_ms: u32) -> *mut c_char {
+    use kybernow_core::playstation::handoff::Event;
+    let Some(h) = (unsafe { h.as_ref() }) else { return std::ptr::null_mut() };
+    match h.receiver.next(Duration::from_millis(timeout_ms as u64)) {
+        Some(Event::Received(bundle)) => give(json!({ "event": "received", "bundle": bundle }).to_string()),
+        Some(Event::NewCode(code)) => give(json!({ "event": "new_code", "code": code }).to_string()),
+        Some(Event::Expired) => give(json!({ "event": "expired" }).to_string()),
+        None => std::ptr::null_mut(),
+    }
+}
+
+/// Arrête l'attente et la libère.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_ps_handoff_stop(h: *mut KnPsHandoff) {
+    if !h.is_null() {
+        drop(unsafe { Box::from_raw(h) });
+    }
+}
+
+/// Les appareils du réseau qui attendent un envoi, cherchés `wait_ms`
+/// (bloque). JSON à libérer : `[{"name","platform","address":"ip:port"}]`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_ps_handoff_discover(wait_ms: u32) -> *mut c_char {
+    let list = kybernow_core::playstation::handoff::discover(Duration::from_millis(wait_ms as u64), &[]).unwrap_or_default();
+    let v: Vec<_> = list
+        .iter()
+        .map(|w| json!({ "name": w.name, "platform": w.platform, "address": w.addr.to_string() }))
+        .collect();
+    give(serde_json::Value::Array(v).to_string())
+}
+
+/// Envoie le paquet (JSON du contrat) à `address` (`ip:port` de
+/// `kn_ps_handoff_discover`) avec le code tapé (bloque quelques secondes).
+/// JSON à libérer : `{"ok":true}` ou `{"error":"refused"|"unreachable","detail":"…"}`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_ps_handoff_send(address: *const c_char, code: *const c_char, bundle: *const c_char) -> *mut c_char {
+    use kybernow_core::playstation::handoff::{SendError, send};
+    let Ok(to) = text(address).parse::<std::net::SocketAddr>() else {
+        return give(json!({ "error": "unreachable", "detail": "adresse illisible" }).to_string());
+    };
+    match send(to, &text(code), &text(bundle)) {
+        Ok(()) => give(json!({ "ok": true }).to_string()),
+        Err(SendError::Refused) => give(json!({ "error": "refused", "detail": "" }).to_string()),
+        Err(SendError::Unreachable(d)) => give(json!({ "error": "unreachable", "detail": d }).to_string()),
+    }
+}
