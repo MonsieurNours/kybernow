@@ -14,6 +14,7 @@ use std::time::Duration;
 
 use kybernow_core::media::PacketHandler;
 use kybernow_core::playstation::discovery::{self, Model, State};
+use kybernow_core::playstation::keymouse::Layout;
 use kybernow_core::playstation::play::{Play, PlayEnd, PlayOptions, PlayState};
 use kybernow_core::playstation::psn;
 use kybernow_core::playstation::regist::{self, PsnId, RegistError, Registered};
@@ -230,6 +231,56 @@ pub unsafe extern "C" fn kn_ps_keyframe_recovered(play: *mut KnPsPlay) {
     if let Some(p) = unsafe { play.as_ref() } {
         p.play.key_frame_recovered();
     }
+}
+
+/// Touche du clavier (usage USB HID, la place de la touche : table kVK →
+/// HID de l'app), traduite en manette d'après la disposition de la console.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_ps_key(play: *mut KnPsPlay, usage: u16, pressed: bool) {
+    if let Some(p) = unsafe { play.as_ref() } {
+        p.play.key(usage, pressed);
+    }
+}
+
+/// Bouton de la souris : 0 gauche, 1 droit, 2 milieu, 3 et 4 latéraux.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_ps_mouse_button(play: *mut KnPsPlay, button: u8, pressed: bool) {
+    if let Some(p) = unsafe { play.as_ref() } {
+        p.play.mouse_button(button, pressed);
+    }
+}
+
+/// Déplacement brut de la souris capturée (comptes, y vers le bas).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_ps_mouse_move(play: *mut KnPsPlay, dx: f32, dy: f32) {
+    if let Some(p) = unsafe { play.as_ref() } {
+        p.play.mouse_move(dx, dy);
+    }
+}
+
+/// Tout relâcher : fenêtre qui perd le clavier, souris rendue.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_ps_release_all(play: *mut KnPsPlay) {
+    if let Some(p) = unsafe { play.as_ref() } {
+        p.play.release_all();
+    }
+}
+
+/// La disposition par défaut du clavier et de la souris (JSON, à libérer).
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_ps_default_layout() -> *mut c_char {
+    give(serde_json::to_string(&Layout::default()).unwrap_or_default())
+}
+
+/// Pose la disposition de la console (JSON de `kn_ps_default_layout`, tel
+/// que l'app le garde). Faux si le JSON est illisible (disposition gardée).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_ps_set_layout(play: *mut KnPsPlay, layout_json: *const c_char) -> bool {
+    let (Some(p), Ok(layout)) = (unsafe { play.as_ref() }, serde_json::from_str::<Layout>(&text(layout_json))) else {
+        return false;
+    };
+    p.play.set_layout(layout);
+    true
 }
 
 /// Met la console en mode repos (la partie se termine ensuite).

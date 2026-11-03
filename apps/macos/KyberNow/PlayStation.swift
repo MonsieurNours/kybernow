@@ -35,6 +35,10 @@ enum PSText {
     static var waking: String { String(localized: "Réveil de la console…") }
     static var pair: String { String(localized: "Associer") }
 
+    // Clavier et souris
+    static var clickToPlay: String { String(localized: "Cliquez dans l'image pour jouer au clavier et à la souris") }
+    static var releaseMouse: String { String(localized: "⌃⌥⌘M pour rendre la souris") }
+
     // Association
     static var signInHelp: String { String(localized: "Connectez-vous à votre compte PlayStation Network. KyberNow lit seulement l'identifiant de votre compte, une seule fois.") }
     static var signIn: String { String(localized: "Se connecter à PlayStation Network") }

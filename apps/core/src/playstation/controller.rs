@@ -3,7 +3,7 @@
 //!
 //! La console reçoit deux sortes de paquets (Takion, type 6 et type 1) :
 //!
-//! - **l'état** (sticks, capteurs de mouvement) à chaque changement (8 ms au
+//! - **l'état** (sticks, capteurs de mouvement) à chaque changement (2 ms au
 //!   moins entre deux) et au moins toutes les 200 ms ;
 //! - **l'historique** des boutons, gâchettes et doigts sur le pavé tactile :
 //!   chaque événement prend un numéro, un paquet porte les 8 derniers (le

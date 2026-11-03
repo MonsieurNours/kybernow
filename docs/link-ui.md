@@ -522,6 +522,7 @@ Dans la rangée : le nom et l'état. Une console trouvée sur le réseau et pas 
 | Connexion | « Connexion à la console… » | “Connecting to the console…” |
 | Contenu protégé | « La console ne peut pas diffuser ce qu'elle affiche. » (sur l'image, tant que dure le blocage) | “The console can't stream what it's showing.” |
 | Menu de la session | « Mettre la console en veille » | “Put the console in rest mode” |
+| Clavier et souris | Tant que la souris n'est pas capturée et qu'aucune manette n'est branchée : « Cliquez dans l'image pour jouer au clavier et à la souris » ; un instant après la capture : « ⌃⌥⌘M pour rendre la souris » (le raccourci de la souris des jeux ; Windows et Linux : Ctrl+Alt+Maj+M) | “Click the picture to play with keyboard and mouse”; “⌃⌥⌘M to release the mouse” |
 | Fin, déjà jouée ailleurs | « La console est déjà jouée à distance par un autre appareil. » | “The console is already being played remotely by another device.” |
 | Fin, plus associée | « La console ne reconnaît plus cet appareil : associez-la de nouveau. » | “The console no longer recognizes this device: pair it again.” |
 | Fin, injoignable | « La console ne répond pas. » | “The console isn't answering.” |

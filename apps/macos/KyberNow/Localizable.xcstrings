@@ -1,6 +1,22 @@
 {
   "sourceLanguage" : "fr",
   "strings" : {
+    "⌃⌥⌘M pour rendre la souris" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "⌃⌥⌘M to release the mouse"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "⌃⌥⌘M pour rendre la souris"
+          }
+        }
+      }
+    },
     "%@ a arrêté le partage." : {
       "localizations" : {
         "en" : {
@@ -2093,6 +2109,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Connexion à la Station…"
+          }
+        }
+      }
+    },
+    "Cliquez dans l'image pour jouer au clavier et à la souris" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Click the picture to play with keyboard and mouse"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cliquez dans l'image pour jouer au clavier et à la souris"
           }
         }
       }

@@ -14,6 +14,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use super::audio::{AudioOut, AudioReceiver, opus_head};
+use super::keymouse::{KeyMouse, Layout};
 use crate::gamepads;
 use crate::input::pipeline::GamepadRumble;
 use super::regist::Registered;
@@ -61,6 +62,9 @@ pub struct PlayOptions {
 /// Une partie en cours.
 pub struct Play {
     stop: Arc<AtomicBool>,
+    /// Clavier et souris traduits en manette (ignorés dès qu'une manette est
+    /// branchée).
+    keymouse: Arc<Mutex<KeyMouse>>,
     /// Une image clé est attendue : demandée à la console jusqu'à ce qu'elle
     /// arrive (images perdues, décodeur de l'app qui a perdu sa référence,
     /// plus d'image depuis une seconde).
@@ -110,12 +114,14 @@ impl Play {
     ) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
         let want_key = Arc::new(AtomicBool::new(false));
+        let keymouse = Arc::new(Mutex::new(KeyMouse::default()));
         let ctrl = Arc::new(Mutex::new(None));
         let registered = registered.clone();
         let thread = {
             let stop = stop.clone();
             let ctrl = ctrl.clone();
             let want_key = want_key.clone();
+            let keymouse = keymouse.clone();
             std::thread::Builder::new()
                 .name("ps-play".into())
                 .spawn(move || {
@@ -126,7 +132,7 @@ impl Play {
                     let mut retries = 0;
                     let end = loop {
                         let started = Instant::now();
-                        let end = run(addr, &registered, options, &video, audio.as_ref(), &on_state, &stop, &ctrl, &want_key);
+                        let end = run(addr, &registered, options, &video, audio.as_ref(), &on_state, &stop, &ctrl, &want_key, &keymouse);
                         if let Some(mut c) = ctrl.lock().unwrap().take() {
                             c.stop();
                         }
@@ -148,7 +154,32 @@ impl Play {
                 })
                 .ok()
         };
-        Play { stop, want_key, thread, ctrl }
+        Play { stop, keymouse, want_key, thread, ctrl }
+    }
+
+    /// Une touche (usage HID) du clavier de l'appareil.
+    pub fn key(&self, usage: u16, pressed: bool) {
+        self.keymouse.lock().unwrap().key(usage, pressed);
+    }
+
+    /// Un bouton de la souris (0 gauche, 1 droit, 2 milieu…).
+    pub fn mouse_button(&self, b: u8, pressed: bool) {
+        self.keymouse.lock().unwrap().mouse_button(b, pressed);
+    }
+
+    /// Déplacement brut de la souris capturée (comptes, y vers le bas).
+    pub fn mouse_move(&self, dx: f32, dy: f32) {
+        self.keymouse.lock().unwrap().mouse_move(dx, dy, Instant::now());
+    }
+
+    /// Tout relâcher (fenêtre qui perd le clavier, souris rendue).
+    pub fn release_all(&self) {
+        self.keymouse.lock().unwrap().release_all();
+    }
+
+    /// La disposition du clavier et de la souris de cette console.
+    pub fn set_layout(&self, layout: Layout) {
+        self.keymouse.lock().unwrap().set_layout(layout);
     }
 
     /// Le décodeur de l'app a perdu sa référence : une image clé est
@@ -195,6 +226,7 @@ fn run(
     stop: &AtomicBool,
     ctrl_slot: &Mutex<Option<Ctrl>>,
     want_key: &Arc<AtomicBool>,
+    keymouse: &Arc<Mutex<KeyMouse>>,
 ) -> PlayEnd {
     on_state(PlayState::Connecting);
     let Some(keys) = Keys::from_registered(registered) else { return PlayEnd::NotPaired };
@@ -254,8 +286,18 @@ fn run(
     // une seule manette pour la console.
     gamepads::hold_sdl();
     let _sdl = ReleaseSdl;
+    // Les manettes du lecteur du cœur ; sans manette branchée, le clavier et
+    // la souris (une manette branchée les exclut).
     let mut reader = super::controller::PadReader::default();
-    let source: super::stream::ControllerSource = Box::new(move || reader.read(gamepads::global()));
+    let keymouse = keymouse.clone();
+    let source: super::stream::ControllerSource = Box::new(move || {
+        let g = gamepads::global();
+        if g.pads().is_empty() {
+            keymouse.lock().unwrap().read(Instant::now())
+        } else {
+            reader.read(g)
+        }
+    });
     let (mut stream, stream_events) = match Stream::start(addr, target, session_id, crypt, profile, Some(source), want_key.clone()) {
         Ok(s) => s,
         Err(e) => return PlayEnd::Unreachable(e.to_string()),

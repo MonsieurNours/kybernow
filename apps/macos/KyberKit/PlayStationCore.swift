@@ -162,6 +162,29 @@ public final class PlayStationPlay: @unchecked Sendable {
         return p != nil
     }
 
+    // MARK: Clavier et souris (traduits en manette par le cœur)
+
+    /// Fait `body` avec la partie si elle tourne (verrou tenu : `stop` la
+    /// libère après avoir remis `play` à nil sous le même verrou).
+    private func withPlay(_ body: (OpaquePointer) -> Void) {
+        lock.lock()
+        defer { lock.unlock() }
+        if let p = play { body(p) }
+    }
+
+    func key(usage: UInt16, pressed: Bool) { withPlay { kn_ps_key($0, usage, pressed) } }
+    func mouseButton(_ button: UInt8, pressed: Bool) { withPlay { kn_ps_mouse_button($0, button, pressed) } }
+    func mouseMove(dx: Float, dy: Float) { withPlay { kn_ps_mouse_move($0, dx, dy) } }
+    func releaseAll() { withPlay { kn_ps_release_all($0) } }
+
+    /// Disposition du clavier et de la souris de la console (JSON du cœur).
+    @discardableResult
+    public func setLayout(_ json: String) -> Bool {
+        var ok = false
+        withPlay { ok = kn_ps_set_layout($0, json) }
+        return ok
+    }
+
     /// Met la console en mode repos (la partie se termine ensuite).
     public func gotoBed() {
         lock.lock()

@@ -250,7 +250,7 @@ impl Stream {
     /// Ouvre le flux après le canal de contrôle : `session_id` vient de
     /// [`super::session::CtrlEvent::SessionId`], `crypt` est celui du canal
     /// de contrôle ([`super::session::Ctrl::crypt`]).
-    /// `controller` : lu toutes les 4 ms une fois le flux ouvert (l'état de
+    /// `controller` : lu toutes les 1 ms une fois le flux ouvert (l'état de
     /// la manette à envoyer) ; aucun : pas de manette.
     pub fn start(
         addr: Ipv4Addr,
@@ -291,12 +291,15 @@ impl Drop for Stream {
 /// Ce qui donne l'état de la manette.
 pub type ControllerSource = Box<dyn FnMut() -> ControllerState + Send>;
 
-/// Fil de la manette (`feedbacksender.c`) : l'état à chaque changement (8 ms
-/// au moins entre deux) ou toutes les 200 ms, l'historique à chaque
+/// Fil de la manette (`feedbacksender.c`) : l'état à chaque changement (2 ms
+/// au moins entre deux, 8 chez chiaki-ng) ou toutes les 200 ms, l'historique à chaque
 /// changement de boutons, renvoyé 20, 50, 100 et 200 ms après.
 fn feedback_loop(sender: takion::TakionSender, mut source: ControllerSource, v12: bool, stop: Arc<AtomicBool>) {
-    let poll = Duration::from_millis(4);
-    let min_gap = Duration::from_millis(8);
+    // Lecture toutes les 1 ms, envoi de l'état au plus toutes les 2 ms
+    // (chiaki-ng : 8 ms ; essai du 03/11/2026, souris traduite en stick
+    // encore un peu saccadée à 8 ms).
+    let poll = Duration::from_millis(1);
+    let min_gap = Duration::from_millis(2);
     let max_gap = Duration::from_millis(200);
     let tail = [20u64, 50, 100, 200];
     let mut prev = ControllerState::default();

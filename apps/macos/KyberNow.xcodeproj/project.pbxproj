@@ -63,6 +63,7 @@
 		BEE11A3ED9A65F98B7828090 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E6C27264097C061402863DD /* SettingsView.swift */; };
 		C0ECE80FBFB9F20A2A8178CD /* HDR.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47A41505BA7061761C293ACB /* HDR.swift */; };
 		C1B3C4BCD7D8194F9A0CEB59 /* MartianMono-wdth-wght.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 2F30B29F401DF269013F5B54 /* MartianMono-wdth-wght.ttf */; };
+		C978ADB8A1B4AF7BF61DD9C1 /* PlayStationInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1A59205F0259E507159059F /* PlayStationInput.swift */; };
 		CB40242339185A91D8C170BF /* AppLife.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D634CDC1A4458A7960F3E02 /* AppLife.swift */; };
 		CD9C125280E6BF846AEE3C41 /* HDRVideoLayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87AD46654DDE4325A528470C /* HDRVideoLayer.swift */; };
 		D7C7376480AFCB3E28A16C26 /* PlayStationSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1A7A02CAE528231471C900A /* PlayStationSession.swift */; };
@@ -165,6 +166,7 @@
 		D90BE156020D93559B9D19DD /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		DA811FFEB543C824871A8AC1 /* Sessions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sessions.swift; sourceTree = "<group>"; };
 		DF454DEFA73A7E4436050ACE /* KyberLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KyberLog.swift; sourceTree = "<group>"; };
+		E1A59205F0259E507159059F /* PlayStationInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayStationInput.swift; sourceTree = "<group>"; };
 		E407651AF402DB27D895B5B2 /* Passage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Passage.swift; sourceTree = "<group>"; };
 		EE2ED0ACFFE0D513A3C9FB53 /* VideoDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoDecoder.swift; sourceTree = "<group>"; };
 		F085E5BE7C0D2D4AA3DFA3FF /* SessionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionController.swift; sourceTree = "<group>"; };
@@ -271,6 +273,7 @@
 				D90BE156020D93559B9D19DD /* Localizable.xcstrings */,
 				1FCD44F7C3241E02C2160B90 /* MetalSurface.swift */,
 				6AD538B60E8D4385065CFEE6 /* PlayStationCore.swift */,
+				E1A59205F0259E507159059F /* PlayStationInput.swift */,
 				8B7887298D6D4935E0FF18B9 /* RelativeMouse.swift */,
 				F32CBB9EE8F90E5403F9B308 /* RelayCore.swift */,
 				9E65F421E347662BB777AEE6 /* SessionEngine.swift */,
@@ -488,6 +491,7 @@
 				8816AB8EC3BBEA07B9756A6D /* LendCore.swift in Sources */,
 				34087FBAE7FD774DDB4AC62B /* MetalSurface.swift in Sources */,
 				A5C9DE552BAAC56F107ECA33 /* PlayStationCore.swift in Sources */,
+				C978ADB8A1B4AF7BF61DD9C1 /* PlayStationInput.swift in Sources */,
 				BCCAF3D8FF2DFA3D69052367 /* RelativeMouse.swift in Sources */,
 				30617C4D9DEA5D598CFD5D4A /* RelayCore.swift in Sources */,
 				126AE5ED1331AD168D8FDA6E /* SessionEngine.swift in Sources */,

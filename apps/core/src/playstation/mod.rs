@@ -18,6 +18,7 @@ pub mod fec;
 pub mod frame;
 pub mod gkcrypt;
 mod keys;
+pub mod keymouse;
 pub mod play;
 pub mod proto;
 pub mod psn;

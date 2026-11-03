@@ -28,6 +28,12 @@ final class PlayStationSession: NSObject, ObservableObject, NSWindowDelegate {
     private let hdr: Bool
     private let onEnd: (PlayStationSession, PlayStationPlay.End?) -> Void
     private let streamView = StreamView(frame: .zero)
+    /// Clavier et souris (au-dessus de l'image, sous les textes).
+    private let input = PlayStationInputView(frame: .zero)
+    /// Souris capturée : aide « ⌃⌥⌘M » montrée un instant, sinon l'invitation à cliquer.
+    @Published private(set) var mouseCaptured = false
+    @Published private(set) var showReleaseHint = false
+    private var hints: NSHostingView<PlayStationHints>?
     private var play: PlayStationPlay?
     private var window: NSWindow?
     private var overlay: NSHostingView<PlayStationOverlay>?
@@ -64,6 +70,15 @@ final class PlayStationSession: NSObject, ObservableObject, NSWindowDelegate {
         streamView.frame = container.bounds
         streamView.autoresizingMask = [.width, .height]
         container.addSubview(streamView)
+        input.frame = container.bounds
+        input.autoresizingMask = [.width, .height]
+        input.onCapture = { [weak self] captured in self?.captureChanged(captured) }
+        container.addSubview(input)
+        let hints = NSHostingView(rootView: PlayStationHints(session: self))
+        hints.frame = container.bounds
+        hints.autoresizingMask = [.width, .height]
+        container.addSubview(hints)
+        self.hints = hints
         let overlay = NSHostingView(rootView: PlayStationOverlay(session: self))
         overlay.frame = container.bounds
         overlay.autoresizingMask = [.width, .height]
@@ -85,8 +100,10 @@ final class PlayStationSession: NSObject, ObservableObject, NSWindowDelegate {
         window.delegate = self
         self.window = window
         window.makeKeyAndOrderFront(nil)
+        window.makeFirstResponder(input)
 
         let play = PlayStationPlay(view: streamView)
+        input.play = play
         play.onState = { [weak self] in self?.stateChanged($0) }
         self.play = play
         if !play.start(address: address, registered: registered, hdr: hdr) {
@@ -134,9 +151,19 @@ final class PlayStationSession: NSObject, ObservableObject, NSWindowDelegate {
         DispatchQueue.global(qos: .userInitiated).async { play.stop() }
     }
 
+    private func captureChanged(_ captured: Bool) {
+        mouseCaptured = captured
+        showReleaseHint = captured
+        if captured {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in self?.showReleaseHint = false }
+        }
+    }
+
     func close() {
         guard !finished else { return }
         finished = true
+        input.releaseAll()
+        input.play = nil
         stopPlay()
         streamView.detach()
         window?.delegate = nil
@@ -148,9 +175,45 @@ final class PlayStationSession: NSObject, ObservableObject, NSWindowDelegate {
 
     // MARK: NSWindowDelegate
 
+    /// La fenêtre perd le clavier : souris rendue, tout relâché.
+    nonisolated func windowDidResignKey(_ notification: Notification) {
+        MainActor.assumeIsolated { input.releaseAll() }
+    }
+
     nonisolated func windowShouldClose(_ sender: NSWindow) -> Bool {
         MainActor.assumeIsolated { close() }
         return false
+    }
+}
+
+/// Aides du clavier et de la souris, en bas de l'image pendant la partie :
+/// l'invitation à cliquer tant que la souris n'est pas capturée, puis
+/// « ⌃⌥⌘M » un instant après la capture. Ne prend pas les clics.
+struct PlayStationHints: View {
+    @ObservedObject var session: PlayStationSession
+
+    var body: some View {
+        VStack {
+            Spacer()
+            if session.phase == .streaming, let text = text {
+                Text(text)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(.black.opacity(0.6), in: Capsule())
+                    .padding(.bottom, 24)
+                    .transition(.opacity)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .allowsHitTesting(false)
+        .animation(.easeInOut(duration: 0.2), value: text)
+    }
+
+    private var text: String? {
+        if session.showReleaseHint { return PSText.releaseMouse }
+        return session.mouseCaptured ? nil : PSText.clickToPlay
     }
 }
 
