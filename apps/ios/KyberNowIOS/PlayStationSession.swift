@@ -44,6 +44,9 @@ final class PlayStationSession: ObservableObject {
     /// La partie qui s'ouvre (`AppModel` la met en plein écran).
     static var onOpen: ((PlayStationSession) -> Void)?
 
+    /// L'écran de la partie est HDR (celui de l'appareil ; PlayStationStore.play).
+    static var screenIsHDR: Bool { HDRDisplay.isHDR(nil) }
+
     @Published private(set) var phase: Phase = .connecting
     /// Étape de la carte de connexion (celle des ordinateurs) : 0 « Connexion »,
     /// 1 « Premières images ».

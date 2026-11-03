@@ -676,7 +676,7 @@ pub extern "C" fn kn_ps_pad_axis(pad: u32, axis: u32, value: i16) {
 /// Clic du pavé tactile.
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_ps_pad_touch_click(pad: u32, pressed: bool) {
-    kybernow_core::gamepads::touch_click(pad, pressed);
+    kybernow_core::gamepads::global().touch_click(pad, pressed);
 }
 
 /// Doigt `finger` (0 ou 1) posé en (`x`, `y`), de 0 à 1 depuis le coin haut
@@ -684,14 +684,14 @@ pub extern "C" fn kn_ps_pad_touch_click(pad: u32, pressed: bool) {
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_ps_pad_touch(pad: u32, finger: u32, down: bool, x: f32, y: f32) {
     let at = down.then(|| (x.clamp(0.0, 1.0), y.clamp(0.0, 1.0)));
-    kybernow_core::gamepads::touch_finger(pad, finger as usize, at);
+    kybernow_core::gamepads::global().touch_finger(pad, finger as usize, at);
 }
 
 /// Mesure du gyroscope (`gyro` : rad/s) ou de l'accéléromètre (m/s²), dans
 /// le repère de SDL ; `timestamp_us` croissant.
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_ps_pad_sensor(pad: u32, gyro: bool, x: f32, y: f32, z: f32, timestamp_us: u64) {
-    kybernow_core::gamepads::sensor(pad, gyro, [x, y, z], timestamp_us);
+    kybernow_core::gamepads::global().sensor(pad, gyro, [x, y, z], timestamp_us);
 }
 
 /// Retour d'une partie vers une manette lue par l'app : vibration (`effect`
@@ -701,24 +701,30 @@ pub extern "C" fn kn_ps_pad_sensor(pad: u32, gyro: bool, x: f32, y: f32, z: f32,
 pub type KnPsPadFeedback =
     Option<unsafe extern "C" fn(userdata: *mut c_void, pad: u32, large: u16, small: u16, duration_ms: i32, effect: *const u8, effect_len: usize)>;
 
+/// Le retour des manettes vers l'app (`gamepads::AppFeedback`).
+struct PadFeedback {
+    cb: unsafe extern "C" fn(*mut c_void, u32, u16, u16, i32, *const u8, usize),
+    userdata: *mut c_void,
+}
+
+unsafe impl Send for PadFeedback {}
+unsafe impl Sync for PadFeedback {}
+
+impl kybernow_core::gamepads::AppFeedback for PadFeedback {
+    fn rumble(&self, r: kybernow_core::input::pipeline::GamepadRumble) {
+        unsafe { (self.cb)(self.userdata, r.id, r.large_motor, r.small_motor, r.duration_ms, std::ptr::null(), 0) };
+    }
+
+    fn effect(&self, id: kybernow_core::input::PadId, data: &[u8]) {
+        unsafe { (self.cb)(self.userdata, id, 0, 0, 0, data.as_ptr(), data.len()) };
+    }
+}
+
 /// Pose (ou retire, `cb` nul) le rappel des vibrations et des gâchettes
-/// adaptatives des parties sur console.
+/// adaptatives, le temps d'une partie sur console seulement (une session
+/// d'ordinateur joue déjà ses vibrations par la chaîne d'entrées).
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_ps_pad_set_feedback(cb: KnPsPadFeedback, userdata: *mut c_void) {
-    use kybernow_core::gamepads::{ConsoleFeedback, set_console_feedback};
-    let Some(f) = cb else {
-        set_console_feedback(None);
-        return;
-    };
-    struct Ud(*mut c_void);
-    unsafe impl Send for Ud {}
-    unsafe impl Sync for Ud {}
-    let ud = Ud(userdata);
-    set_console_feedback(Some(Arc::new(move |e: ConsoleFeedback| {
-        let ud = &ud;
-        match e {
-            ConsoleFeedback::Rumble(r) => unsafe { f(ud.0, r.id, r.large_motor, r.small_motor, r.duration_ms, std::ptr::null(), 0) },
-            ConsoleFeedback::Effect(id, data) => unsafe { f(ud.0, id, 0, 0, 0, data.as_ptr(), data.len()) },
-        }
-    })));
+    let f = cb.map(|cb| Arc::new(PadFeedback { cb, userdata }) as Arc<dyn kybernow_core::gamepads::AppFeedback>);
+    kybernow_core::gamepads::set_app_feedback(f);
 }

@@ -83,7 +83,7 @@ targets:
       # sens, modèle de l'envoi (« Recevoir d'un autre appareil »).
       - path: ../macos/KyberNow/PlayStationSync.swift
       - path: ../macos/KyberNow/PlayStationCloud.swift
-      - path: ../macos/KyberNow/PlayStationHandoff.swift
+      - path: ../macos/KyberNow/PlayStationHandoffModel.swift
       - path: ../macos/KyberNow/Fonts
         buildPhase: resources
     dependencies:

@@ -3,8 +3,9 @@
 // « Consoles PlayStation »).
 //
 // La partie : l'image seule dans le même GCEventViewController qu'une
-// session d'ordinateur (`SessionStage`) ; par-dessus, seulement quand ils
-// servent, « Connexion à la console… », le contenu protégé, la fin, et le
+// session d'ordinateur (`SessionStage`), et le même écran de connexion
+// (`Passage`, `ConnectingCard`, `SessionFailure`, sur la scène de la
+// console) ; par-dessus, seulement quand ils servent, le contenu protégé et le
 // menu (la « barre de la partie » des autres apps, en tuiles comme le menu
 // d'une session d'ordinateur) : Reprendre, Manettes, Son, Réglages de {nom},
 // Mettre la console en veille, Se déconnecter ; les statistiques en haut.
@@ -18,52 +19,51 @@ struct ConsoleSessionView: View {
     @EnvironmentObject private var pads: GamepadBridge
 
     private var streaming: Bool { session.phase == .streaming }
+    private var revealed: Bool { session.revealedAt != nil }
+    private var ended: Bool { if case .ended = session.phase { return true } else { return false } }
 
     var body: some View {
         ZStack {
             Color.black
-            SessionStage(view: session.streamView, gameOnly: streaming && !session.menuOpen,
-                         scale: session.menuOpen ? 0.94 : 1, corner: session.menuOpen ? 28 : 0)
+            // Comme une session d'ordinateur (SessionView) : l'image recule
+            // derrière le menu ; le voile n'est là que pendant le passage et le
+            // menu (une couche laissée au-dessus obligerait tvOS à composer l'image).
+            SessionStage(view: session.streamView, gameOnly: streaming && revealed && !session.menuOpen,
+                         scale: revealed ? (session.menuOpen ? 0.94 : 1) : 1.06, corner: session.menuOpen ? 28 : 0)
                 .frame(width: 1920, height: 1080)
                 .overlay {
-                    // Le voile seulement le temps du menu : une couche laissée
-                    // au-dessus de l'image obligerait tvOS à la composer.
-                    if session.menuOpen {
+                    if !revealed || session.menuOpen {
                         ZStack {
-                            Rectangle().fill(.ultraThinMaterial).opacity(0.35)
-                            Color.black.opacity(0.58)
+                            Rectangle().fill(.ultraThinMaterial)
+                                .opacity(revealed ? (session.menuOpen ? 0.35 : 0) : 1)
+                            Color.black.opacity(revealed ? (session.menuOpen ? 0.58 : 0) : 0.45)
                         }
                         .allowsHitTesting(false)
                         .transition(.opacity)
                     }
                 }
+                .animation(.timingCurve(0.2, 0.9, 0.1, 1, duration: 0.5), value: session.menuOpen)
+                .animation(.timingCurve(0.2, 0.9, 0.1, 1, duration: 1.5), value: revealed)
 
-            switch session.phase {
-            case .connecting:
-                ZStack {
-                    Signature(seed: session.console.name)
-                    Color.black.opacity(0.35)
-                    VStack(spacing: 28) {
-                        Text(verbatim: session.console.name).font(Theme.display(96, 680)).tracking(-96 * 0.045).foregroundStyle(Theme.text)
-                        HStack(spacing: 16) {
-                            ProgressView()
-                            Text(PSText.connecting).font(Theme.sans(28)).foregroundStyle(Theme.text2)
-                        }
-                        HStack(spacing: 12) {
-                            Glyph(kind: .remote, role: .back, size: 26)
-                            Text(StationText.cancel).font(Theme.sans(22)).foregroundStyle(Theme.muted)
-                        }
-                        .padding(.top, 30)
-                    }
-                }
-                .transition(.opacity)
-            case .streaming:
-                if session.cantDisplay, !session.menuOpen {
-                    MenuHint(text: PSText.cantDisplay, glyph: false)
-                }
-            case let .ended(text):
-                ConsoleEnd(session: session, text: text)
-                    .transition(.opacity)
+            // Le passage d'un ordinateur, sur la scène de la console.
+            if !ended, session.passageShown {
+                Passage(host: nil, console: session.console, open: revealed, button: PSText.play)
+                    .allowsHitTesting(false)
+            }
+
+            // La connexion : la carte des ordinateurs, « Connexion » puis
+            // « Premières images » ; une partie reprise après une coupure : les
+            // étapes par-dessus la dernière image.
+            if !ended, !revealed || session.phase == .connecting {
+                ConnectingCard(steps: [String(localized: "Connexion"), String(localized: "Premières images")],
+                               current: streaming ? 1 : 0) { session.close() }
+                    .frame(maxHeight: .infinity, alignment: .bottom)
+                    .padding(.bottom, 110)
+                    .transition(.opacity.combined(with: .offset(y: 18)))
+            }
+
+            if streaming, revealed, session.cantDisplay, !session.menuOpen {
+                MenuHint(text: PSText.cantDisplay, glyph: false)
             }
 
             if session.menuHint, !session.menuOpen {
@@ -72,7 +72,7 @@ struct ConsoleSessionView: View {
                     .padding(.top, 48)
                     .transition(.opacity)
             }
-            if let note = pads.notice, streaming, !session.menuOpen {
+            if let note = pads.notice, streaming, revealed, !session.menuOpen {
                 MenuHint(text: note, glyph: false)
                     .frame(maxHeight: .infinity, alignment: .top)
                     .padding(.top, 124)
@@ -80,6 +80,13 @@ struct ConsoleSessionView: View {
             }
             if session.menuOpen {
                 ConsoleMenu(session: session)
+                    .transition(.opacity)
+            }
+
+            // Échec avant l'image : « La connexion a échoué » et la raison ;
+            // fin en cours de partie : la raison seule ; « Fermer ».
+            if case let .ended(text?) = session.phase {
+                SessionFailure(host: nil, console: session.console, message: text, afterImage: revealed, shareEnd: revealed) { session.close() }
                     .transition(.opacity)
             }
         }
@@ -92,37 +99,10 @@ struct ConsoleSessionView: View {
                 session.settingsOpen = false
             } else if session.menuOpen {
                 session.closeMenu()
-            } else if session.phase != .streaming {
+            } else if !streaming || !revealed {
                 session.close()
             }
         }
-    }
-}
-
-/// La fin d'une partie qui n'a pas été voulue ici : la raison, et « Fermer ».
-private struct ConsoleEnd: View {
-    @ObservedObject var session: PlayStationSession
-    let text: String?
-    @FocusState private var focused: Bool
-
-    var body: some View {
-        ZStack {
-            Signature(seed: session.console.name)
-            Color.black.opacity(0.4)
-            VStack(alignment: .leading, spacing: 26) {
-                Text(verbatim: session.console.name).font(Theme.display(72, 660)).tracking(-72 * 0.04).foregroundStyle(Theme.text)
-                if let text {
-                    Text(text).font(Theme.sans(28)).foregroundStyle(Theme.text2).frame(maxWidth: 1000, alignment: .leading)
-                }
-                Button(String(localized: "Fermer")) { session.close() }
-                    .buttonStyle(PrimaryButton(height: 76, fontSize: 26))
-                    .focused($focused)
-                    .padding(.top, 16)
-            }
-            .padding(.leading, 160)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .onAppear { focused = true }
     }
 }
 

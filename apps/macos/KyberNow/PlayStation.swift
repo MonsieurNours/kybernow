@@ -374,13 +374,7 @@ enum PSText {
         case 0xE6: return String(localized: "\("⌥") droite")
         case 0xE7: return String(localized: "\("⌘") droite")
         default:
-            #if os(macOS) || os(iOS)
-            // iPad : KyberKitIOS/KeymapIOS.swift.
             let c = Keymap.character(hid: k)
-            #else
-            // Pas de disposition du clavier à lire (Apple TV).
-            let c: String? = nil
-            #endif
             // Pavé numérique : 0x54 à 0x63 et 0x67.
             if let c, (0x54...0x63).contains(k) || k == 0x67 { return String(localized: "Pavé \(c)") }
             return c ?? String(localized: "Touche \(Int(k))")
@@ -963,14 +957,10 @@ final class PlayStationStore: ObservableObject {
         var console = c
         console.lastSession = Date()
         update(console)
-        // La puce « HDR » allumée et l'écran de la fenêtre HDR : demandé dans les réglages.
+        // La puce « HDR » allumée et l'écran de la partie HDR : demandé dans les
+        // réglages (`screenIsHDR` : celui de chaque app).
         var settings = self.settings(c)
-        #if os(macOS)
-        settings.hdr = c.hasHDR && c.hdr && HDRDisplay.isHDR((NSApp.keyWindow ?? NSApp.mainWindow)?.screen ?? NSScreen.main)
-        #else
-        // Apple TV, iPhone, iPad : l'écran de l'appareil.
-        settings.hdr = c.hasHDR && c.hdr && HDRDisplay.isHDR(nil)
-        #endif
+        settings.hdr = c.hasHDR && c.hdr && PlayStationSession.screenIsHDR
         let settingsJSON = (try? JSONEncoder().encode(settings)).flatMap { String(data: $0, encoding: .utf8) } ?? Self.defaultSettings
         let id = c.id
         let account = chosenAccount(c)?.id
