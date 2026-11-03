@@ -212,10 +212,10 @@ index ac217a2..e6ec33f 100644
      if (dxgi_output)
 diff --git a/subprojects/txproto/src/kn_timing.h b/subprojects/txproto/src/kn_timing.h
 new file mode 100644
-index 0000000..b37aafb
+index 0000000..fe9cc31
 --- /dev/null
 +++ b/subprojects/txproto/src/kn_timing.h
-@@ -0,0 +1,478 @@
+@@ -0,0 +1,467 @@
 +/*
 + * KyberNow (0023): time spent by each image at each step on the computer,
 + * in SDR and in HDR, for both capture engines. The same file is in txproto
@@ -431,14 +431,14 @@ index 0000000..b37aafb
 +
 +/* GPU priority of the capture and encoding work: during a game that keeps
 + * the card busy, the copy, the conversion and the encoding would otherwise
-+ * wait behind its frames (up to one game frame). Process class through
-+ * D3DKMTSetProcessSchedulingPriorityClass (gdi32.dll, loaded at run time):
-+ * REALTIME (SeIncreaseBasePriorityPrivilege, kyavserver runs as SYSTEM)
-+ * only when hardware-accelerated GPU scheduling is known to be off, HIGH
-+ * otherwise or if REALTIME is refused (with that scheduling on, REALTIME
-+ * can freeze NVENC or the driver, as Sunshine found); then
-+ * IDXGIDevice::SetGPUThreadPriority(7) on `device`. `buf` gets the log. */
-+enum { KN_KMT_PRIORITY_HIGH = 4, KN_KMT_PRIORITY_REALTIME = 5 };
++ * wait behind its frames (up to one game frame). Process class HIGH through
++ * D3DKMTSetProcessSchedulingPriorityClass (gdi32.dll, loaded at run time),
++ * never REALTIME: Microsoft warns that it can make the system unusable, and
++ * it is the suspect of two TDR freezes (0x116, nvlddmkm) right after a
++ * Station update on an NVIDIA card. Then IDXGIDevice::SetGPUThreadPriority(7)
++ * on `device`, as Sunshine does with HIGH. The hardware-accelerated GPU
++ * scheduling mode is only read, for the log. `buf` gets the log line. */
++enum { KN_KMT_PRIORITY_HIGH = 4 };
 +#define KN_KMTQAITYPE_WDDM_2_7_CAPS 70
 +
 +typedef struct KnKmtOpenAdapterFromLuid { LUID luid; UINT adapter; } KnKmtOpenAdapterFromLuid;
@@ -479,7 +479,8 @@ index 0000000..b37aafb
 +    return status < 0 ? -1 : !!(caps & 2);
 +}
 +
-+/* SeIncreaseBasePriorityPrivilege on, if the process holds it. */
++/* SeIncreaseBasePriorityPrivilege on, if the process holds it (kyavserver
++ * runs as SYSTEM): SetGPUThreadPriority() may need it. */
 +static inline int kn_gpu_priority_privilege(void)
 +{
 +    HANDLE token;
@@ -507,10 +508,9 @@ index 0000000..b37aafb
 +    IDXGIDevice *dxgi = NULL;
 +    IDXGIAdapter *adapter = NULL;
 +    DXGI_ADAPTER_DESC desc = { 0 };
-+    const char *class_name = "unchanged";
-+    char why[96] = "";
-+    int hags = -1, privilege, thread = 0;
-+    LONG status = 0;
++    char class_name[64] = "unchanged (D3DKMTSetProcessSchedulingPriorityClass not found)";
++    int hags = -1, thread = 0;
++    LONG status;
 +    HRESULT hr;
 +
 +    if (!gdi)
@@ -528,34 +528,23 @@ index 0000000..b37aafb
 +            hags = kn_gpu_hags(gdi, desc.AdapterLuid);
 +    }
 +
-+    privilege = kn_gpu_priority_privilege();
-+    if (!set) {
-+        snprintf(why, sizeof(why), ", D3DKMTSetProcessSchedulingPriorityClass not found");
-+    } else {
-+        if (hags == 0 && privilege && (status = set(GetCurrentProcess(), KN_KMT_PRIORITY_REALTIME)) >= 0) {
-+            class_name = "REALTIME";
-+        } else {
-+            if (hags != 0)
-+                snprintf(why, sizeof(why), ", %s", hags == 1 ? "hardware-accelerated GPU scheduling on"
-+                                                              : "GPU scheduling mode unknown");
-+            else
-+                snprintf(why, sizeof(why), ", REALTIME refused (%s 0x%lX)",
-+                         privilege ? "status" : "no privilege,", (unsigned long)status);
-+            status = set(GetCurrentProcess(), KN_KMT_PRIORITY_HIGH);
-+            class_name = status >= 0 ? "HIGH" : "unchanged";
-+            if (status < 0)
-+                snprintf(why + strlen(why), sizeof(why) - strlen(why), ", HIGH refused (0x%lX)",
-+                         (unsigned long)status);
-+        }
++    if (set) {
++        status = set(GetCurrentProcess(), KN_KMT_PRIORITY_HIGH);
++        if (status >= 0)
++            snprintf(class_name, sizeof(class_name), "HIGH");
++        else
++            snprintf(class_name, sizeof(class_name), "unchanged (HIGH refused: 0x%lX)", (unsigned long)status);
 +    }
 +
++    kn_gpu_priority_privilege();
 +    hr = IDXGIDevice_SetGPUThreadPriority(dxgi, 7);
 +    if (FAILED(hr) || FAILED(IDXGIDevice_GetGPUThreadPriority(dxgi, &thread)))
 +        thread = 0;
 +    IDXGIDevice_Release(dxgi);
-+    snprintf(buf, size, "GPU priority: process class %s%s, GPU thread priority %d%s (vendor 0x%04X)",
-+             class_name, why, thread, FAILED(hr) ? " (SetGPUThreadPriority refused)" : "",
-+             desc.VendorId);
++    snprintf(buf, size, "GPU priority: process class %s (never REALTIME), hardware-accelerated GPU "
++             "scheduling %s, GPU thread priority %d%s (vendor 0x%04X)",
++             class_name, hags == 1 ? "on" : hags == 0 ? "off" : "unknown", thread,
++             FAILED(hr) ? " (SetGPUThreadPriority refused)" : "", desc.VendorId);
 +}
 +#endif /* KN_TIMING_D3D11 */
 +
