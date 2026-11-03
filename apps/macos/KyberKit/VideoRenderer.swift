@@ -356,7 +356,11 @@ final class VideoRenderer {
         return ProcessInfo.processInfo.environment["KN_HDR_LAYER"].flatMap(HDRLayer.init(rawValue:)) ?? defaultHDRLayer
         #endif
     }()
-    static let defaultHDRLayer = HDRLayer.edr
+    /// `linear` : présentée directement à l'écran (« Direct » dans le HUD de
+    /// Metal), couleurs justes ; `edr` est composée par le système, `pq10`
+    /// n'a pas de courbe et écrête au-dessus de la marge (mesures du
+    /// 2026-11-03, apps/macos/README.md).
+    static let defaultHDRLayer = HDRLayer.linear
 
     private static let core: Core? = {
         guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else { return nil }
@@ -812,6 +816,7 @@ final class VideoRenderer {
             c.headroom = Float(max(headroomNow, 1))
             c.white = Float(sdrWhiteNits)
             lock.unlock()
+            c.peak = Float(colorCache?.edr.peakNits ?? 10000)
         }
         return c
     }
@@ -1074,6 +1079,9 @@ final class VideoRenderer {
         /// Marge EDR de l'écran (`pqToEDR`) et nits du blanc du bureau, posé à 1,0.
         var headroom: Float = 1
         var white: Float = 203
+        /// Crête du flux en nits (`pqToEDR`) : MaxCLL, sinon le maximum de
+        /// l'écran de mastering, sinon 10 000 (bout du PQ).
+        var peak: Float = 10000
 
         static let sdr: Int32 = 0
         static let pq: Int32 = 1
@@ -1099,6 +1107,22 @@ final class VideoRenderer {
         }
 
         var isEmpty: Bool { display == nil && content == nil }
+
+        /// Crête du flux en nits : MaxCLL (2 premiers octets, gros-boutiste),
+        /// sinon la luminance maximale de l'écran de mastering (octets 16 à
+        /// 19, en 1/10 000 de nit). Nil si aucune n'est donnée.
+        var peakNits: Double? {
+            if let content, content.count >= 2 {
+                let cll = Int(content[content.startIndex]) << 8 | Int(content[content.startIndex + 1])
+                if cll > 0 { return Double(cll) }
+            }
+            if let display, display.count >= 20 {
+                let b = display.startIndex + 16
+                let raw = (0..<4).reduce(0) { $0 << 8 | Int(display[b + $1]) }
+                if raw > 0 { return Double(raw) / 10000 }
+            }
+            return nil
+        }
     }
 
     /// L'image est en PQ (SMPTE ST 2084) : étiquetée ainsi par le flux.
@@ -1192,7 +1216,7 @@ final class VideoRenderer {
     using namespace metal;
 
     struct VOut { float4 position [[position]]; float2 uv; };
-    struct Conversion { float3x3 matrix; float3 offset; int mode; float headroom; float white; };
+    struct Conversion { float3x3 matrix; float3 offset; int mode; float headroom; float white; float peak; };
 
     // PQ (SMPTE ST 2084) → lumière linéaire, 1 = 10 000 nits.
     float3 kn_pq_eotf(float3 e) {
@@ -1224,8 +1248,9 @@ final class VideoRenderer {
 
     // Image PQ BT.2020 en lumière linéaire Display P3 étendue (couche
     // `linear`) : le blanc du bureau vaut 1,0 ; au-dessus de 80 % de la marge
-    // EDR du moment, compression douce jusqu'à la marge (10 000 nits au bout).
-    float3 kn_pq_to_edr(float3 pq, float white, float headroom) {
+    // EDR du moment, compression douce jusqu'à la marge, la crête du flux
+    // (MaxCLL ou écran de mastering, 10 000 nits sans métadonnées) au bout.
+    float3 kn_pq_to_edr(float3 pq, float white, float headroom, float peak) {
         float3 l = kn_pq_eotf(pq) * (10000.0 / white);
         float3 c = float3(dot(float3( 1.3436, -0.2822, -0.0614), l),
                           dot(float3(-0.0653,  1.0758, -0.0105), l),
@@ -1233,7 +1258,7 @@ final class VideoRenderer {
         c = max(c, 0.0);
         float h = max(headroom, 1.0);
         float k = h > 1.01 ? 0.8 * h : 0.75;
-        float top = 10000.0 / white;
+        float top = max(peak, white) / white;
         float m = max(max(c.r, c.g), c.b);
         if (m > k && top > h) {
             float a = (m - k) / (h - k);
@@ -1261,7 +1286,7 @@ final class VideoRenderer {
         float3 ycbcr = float3(luma.sample(s, in.uv).r, chroma.sample(s, in.uv).rg);
         float3 rgb = saturate(c.matrix * (ycbcr - c.offset));
         if (c.mode == 2) { rgb = kn_pq_to_sdr(rgb); }
-        else if (c.mode == 3) { rgb = kn_pq_to_edr(rgb, c.white, c.headroom); }
+        else if (c.mode == 3) { rgb = kn_pq_to_edr(rgb, c.white, c.headroom, c.peak); }
         return float4(rgb, 1.0);
     }
     """

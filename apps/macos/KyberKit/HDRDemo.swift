@@ -51,10 +51,14 @@ public final class HDRDemo {
         KyberLog.video.notice("mire HDR : \(width)×\(height), PQ BT.2020, 4:2:0 10 bits")
     }
 
-    /// Une image toutes les 33 ms, comme un bureau qui bouge.
+    /// Une image toutes les 33 ms, comme un bureau qui bouge. `KN_DEMO_FPS`
+    /// change la cadence : une cadence décalée de l'écran (29.3 par exemple)
+    /// fait passer les images à tous les instants du balayage, comme celles
+    /// d'un flux réel, et rend les mesures de présentation comparables.
     public func start() {
         timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] _ in self?.tick() }
+        let fps = ProcessInfo.processInfo.environment["KN_DEMO_FPS"].flatMap(Double.init).flatMap { $0 > 0 ? $0 : nil } ?? 30
+        timer = Timer.scheduledTimer(withTimeInterval: 1.0 / fps, repeats: true) { [weak self] _ in self?.tick() }
     }
 
     public func stop() {
