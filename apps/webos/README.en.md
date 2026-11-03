@@ -21,7 +21,7 @@ KyberNow Link on LG TVs: a **native** app (an ARM binary, not a web page), on th
 - **Session** (`src/ui/session.rs`, `src/device/`):
   - **Connecting**: the computer's name, the three steps ("Preparing the display", "Connecting", "First frames"; done, in progress, to come) and Cancel, the seam lighting up; then the picture alone, nothing on top. When the picture does not come, the core restarts the Station once (`Status::StationRestarting`): "The Station is restarting…" in place of the steps, which then resume. A failure before the first frame: "The connection failed" and the reason.
   - **Picture** on the TV's video plane; the app's window is transparent on top, and only shows the menu, the capsules and the computer's pointer.
-  - **Menu** with the Magic Remote's Back button (configurable), a long press on Back, the red button, or L1 + R1 + Start + Select: stream health at the top (latency, frames per second, bitrate, mode, codec, losses), then Resume, the other profiles, Magic Remote as mouse, Controller as mouse, Keys (Ctrl + Alt + Del, Alt + Tab, Windows key…), Statistics (the measurements over the picture), Controllers, Settings and Disconnect. While the menu is open, controllers drive the app and the computer releases everything. A reminder of the TV's game mode (see below), which can be turned off.
+  - **Menu** with the Magic Remote's Back button (configurable), a long press on Back, the red button, or L1 + R1 + Start + Select: stream health at the top (latency, frames per second, bitrate, mode, codec, losses), then Resume, the other profiles, Magic Remote as mouse, Controller as mouse, Keys (Ctrl + Alt + Del, Alt + Tab, Windows key…), Statistics (the measurements over the picture, and below them the path of a frame: see “Path of a frame”), Controllers, Settings and Disconnect. While the menu is open, controllers drive the app and the computer releases everything. A reminder of the TV's game mode (see below), which can be turned off.
   - **States** as capsules: reconnecting, picture restarted, computer mode changed, lighter picture, controller connected.
   - **End**: back home; an error shows with "Back home". A session of at least 3 s is kept for Statistics: median and 95th percentile latency, duration, date, resolution, refresh rate, codec, average bitrate (`LastSession`; a 0.4.x file, with no separate resolution or codec, still reads).
 - **KyberNow Share, local sharing** ([docs/kybernow-share.en.md](../../docs/kybernow-share.en.md), texts: [docs/link-ui.en.md](../../docs/link-ui.en.md), "Sharing"; core: `kybernow_core::share`), same texts as the other apps; on the same network, and away from home through the relay (see below). The app does not register the `kybernow://` link: the code and, for the host, the QR code are enough.
@@ -114,6 +114,17 @@ What proves HDR mode, in the log (`kybernow.log`):
 - `image : NDL_DirectVideoSetHDRInfo → 0 (primaires …)`: 0 means accepted; −1 and a message: refused (the structure's shape or its units);
 - `lecteur : chargement {…}`: LG's player document, which may say what it got of the HDR.
 
+### Path of a frame
+
+Contract: [docs/link-ui.md](../../docs/link-ui.md), “Statistics”, “In session: path of a frame”. Below the “Statistics” measurements (over the picture), a row readable from the couch: “On the computer” (Capture, Encoding, Sending), “Network”, “On this TV” (Decoding, Display). Each place has its total, in large type; a step without a measurement reads “—”, and so does a place missing one of its steps. No help text, as on the other TVs. The values are the medians of the past second, from the core (`Second.chain`). Without measurements from the computer (Station too old), the app keeps its own decoding and display times (`journal::Local`, medians per second).
+
+On an LG TV, the picture is decoded and shown by the TV itself (NDL), which says neither when it decoded nor when it shows. The two steps therefore cover:
+
+- **Decoding**: from the full frame received to the frame accepted by NDL, that is the hand-over to the picture thread and the `NDL_DirectVideoPlay` call. The decompression itself, in the TV's chip, is not included.
+- **Display**: an estimate, one panel period for the frame and one per frame waiting in NDL's queue (`NDL_DirectVideoGetRenderBufferLength`, read after each frame). Decompression and waiting for the refresh are included. The TV's own picture processing (outside Game Optimizer) is not.
+
+One more frame held by the TV therefore shows in “Display” (8.3 ms at 120 Hz); the queue summary every 5 s (next section) confirms it.
+
 ### Latency in HDR
 
 On the G2, the author sees about 10 ms more in HDR than in SDR. On the TV side, the HDR path differs from SDR by one call only: `NDL_DirectVideoSetHDRInfo`, once per load, on the first accepted frame (`hdr_applied`, reset only on load). Neither this call nor any other NDL call is added to the frame loop. NDL does not say when a frame is shown: the end of the measurement is estimated as the call that hands over the frame, plus one panel period for this frame and one for each frame waiting in the queue. One more frame held by the TV in HDR therefore counts 8.3 ms at 120 Hz.
@@ -163,7 +174,7 @@ apps/webos/
 │   ├── app.rs           interface state, spatial navigation, actions (no SDL nor core)
 │   ├── model.rs         computers, settings, the TV's identity (kybernow.json in Store::dir)
 │   ├── hdr.rs           HDR: the TV's screen (its settings), HDR10 metadata read in the stream
-│   ├── journal.rs       picture summaries every 5 s: NDL queue, latency step by step
+│   ├── journal.rs       picture summaries every 5 s (NDL queue, latency step by step), path of a frame
 │   ├── mires.rs         “HDR calibration” patterns (assets/hdr-mires.bin) and their levels
 │   ├── i18n.rs          French and English
 │   ├── ui/              drawing (tiny-skia, fontdue): home, adding, settings (Statistics,

@@ -21,7 +21,7 @@ KyberNow Link sur les téléviseurs LG : une app **native** (un binaire ARM, pas
 - **Session** (`src/ui/session.rs`, `src/device/`) :
   - **Connexion** : le nom de l'ordinateur, les trois étapes (« Préparation de l'écran », « Connexion », « Premières images » ; faites, en cours, à venir) et Annuler, la couture qui s'allume ; puis l'image seule, rien par-dessus. Quand l'image ne vient pas, le cœur redémarre la Station une fois (`Status::StationRestarting`) : « La Station redémarre… » à la place des étapes, qui reprennent ensuite. Un échec avant la première image : « La connexion a échoué » et la raison.
   - **Image** sur le plan vidéo du téléviseur ; la fenêtre de l'app est transparente par-dessus, et ne montre que le menu, les capsules et le pointeur de l'ordinateur.
-  - **Menu** par le bouton Retour de la Magic Remote (réglable), l'appui long sur Retour, le bouton rouge, ou L1 + R1 + Start + Select : santé du flux en haut (latence, images par seconde, débit, mode, format, pertes), puis Reprendre, les autres profils, Magic Remote en souris, Manette en souris, Touches (Ctrl + Alt + Suppr, Alt + Tab, touche Windows…), Statistiques (les mesures en haut de l'image), Manettes, Réglages et Se déconnecter. Pendant le menu, les manettes pilotent l'app et l'ordinateur relâche tout. Rappel du mode jeu de la télé (voir plus bas), désactivable.
+  - **Menu** par le bouton Retour de la Magic Remote (réglable), l'appui long sur Retour, le bouton rouge, ou L1 + R1 + Start + Select : santé du flux en haut (latence, images par seconde, débit, mode, format, pertes), puis Reprendre, les autres profils, Magic Remote en souris, Manette en souris, Touches (Ctrl + Alt + Suppr, Alt + Tab, touche Windows…), Statistiques (les mesures en haut de l'image, et dessous le trajet d'une image : voir « Trajet d'une image »), Manettes, Réglages et Se déconnecter. Pendant le menu, les manettes pilotent l'app et l'ordinateur relâche tout. Rappel du mode jeu de la télé (voir plus bas), désactivable.
   - **États** en capsule : reconnexion, image relancée, mode de l'ordinateur changé, image allégée, manette branchée.
   - **Fin** : retour à l'accueil ; une erreur s'affiche avec « Retour à l'accueil ». Une session d'au moins 3 s est gardée pour Statistiques : latence médiane et 95e centile, durée, date, définition, fréquence, format, débit moyen (`LastSession` ; un fichier de la 0.4.x, sans définition ni format à part, se lit encore).
 - **KyberNow Share, le partage en local** ([docs/kybernow-share.md](../../docs/kybernow-share.md), textes : [docs/link-ui.md](../../docs/link-ui.md), « Partage » ; cœur : `kybernow_core::share`), mêmes textes que les autres apps ; sur le même réseau, et hors de chez soi par le relais (voir plus bas). L'app n'enregistre pas le lien `kybernow://` : le code et, pour l'hôte, le QR code suffisent.
@@ -114,6 +114,17 @@ Ce qui prouve le mode HDR, dans le journal (`kybernow.log`) :
 - `image : NDL_DirectVideoSetHDRInfo → 0 (primaires …)` : 0, c'est accepté ; −1 et un message : refusé (la forme de la structure ou ses unités) ;
 - `lecteur : chargement {…}` : le document du lecteur de LG, qui peut dire ce qu'il a reçu du HDR.
 
+### Trajet d'une image
+
+Contrat : [docs/link-ui.md](../../docs/link-ui.md), « Statistiques », « En session : trajet d'une image ». Sous les mesures de « Statistiques » (en haut de l'image), une rangée lisible de loin : « Sur l'ordinateur » (Capture, Encodage, Envoi), « Réseau », « Sur ce téléviseur » (Décodage, Affichage). Chaque lieu a son total, en gros ; une étape sans mesure s'écrit « — », et un lieu dont une étape manque aussi. Pas d'aide, comme sur les autres téléviseurs. Les valeurs sont les médianes de la seconde écoulée, venues du cœur (`Second.chain`). Sans mesures de l'ordinateur (Station trop ancienne), l'app garde ses propres temps de décodage et d'affichage (`journal::Local`, médianes par seconde).
+
+Sur un téléviseur LG, l'image est décodée et montrée par le téléviseur lui-même (NDL), qui ne dit ni quand il a décodé ni quand il montre. Les deux étapes couvrent donc :
+
+- **Décodage** : de l'image complète reçue à l'image acceptée par NDL, soit le passage au fil de l'image et l'appel `NDL_DirectVideoPlay`. La décompression elle-même, dans la puce du téléviseur, n'y est pas.
+- **Affichage** : une estimation, une période de la dalle pour l'image et une par image en attente dans la file de NDL (`NDL_DirectVideoGetRenderBufferLength`, lue après chaque image). La décompression et l'attente du rafraîchissement y sont. Le traitement d'image propre du téléviseur (hors Optimiseur de jeu) n'y est pas.
+
+Une image de plus gardée par le téléviseur se voit donc dans « Affichage » (8,3 ms à 120 Hz) ; le bilan de la file toutes les 5 s (section suivante) le confirme.
+
 ### Latence en HDR
 
 Sur la G2, l'auteur voit environ 10 ms de plus en HDR qu'en SDR. Côté téléviseur, le chemin HDR ne diffère du SDR que par un appel : `NDL_DirectVideoSetHDRInfo`, une fois par chargement, à la première image acceptée (`hdr_applied`, remis à zéro au seul chargement). Ni cet appel ni un autre appel à NDL ne s'ajoute à la boucle des images. NDL ne dit pas quand une image est montrée : la fin de la mesure est estimée à l'appel qui donne l'image, plus une période de la dalle pour cette image et une pour chaque image en attente dans la file. Une image de plus gardée par le téléviseur en HDR compte donc 8,3 ms à 120 Hz.
@@ -164,7 +175,7 @@ apps/webos/
 │   ├── model.rs         ordinateurs, réglages, identité du téléviseur (kybernow.json dans Store::dir)
 │   ├── i18n.rs          français et anglais
 │   ├── hdr.rs           HDR : écran du téléviseur (ses réglages), métadonnées HDR10 lues dans le flux
-│   ├── journal.rs       bilans de l'image toutes les 5 s : file de NDL, latence étape par étape
+│   ├── journal.rs       bilans de l'image toutes les 5 s (file de NDL, latence étape par étape), trajet d'une image
 │   ├── mires.rs         mires du « Réglage du HDR » (assets/hdr-mires.bin) et leurs paliers
 │   ├── ui/              dessin (tiny-skia, fontdue) : accueil, ajout, réglages (Statistiques,
 │   │                    Station et son QR code), manettes, session ; join.rs (rejoindre un

@@ -1,7 +1,8 @@
 //! Bilans de l'image au journal, toutes les 5 s : la file du décodeur du
 //! téléviseur (NDL) et la latence étape par étape, en SDR comme en HDR, pour
 //! qu'un essai dise où part le temps (le téléviseur garde-t-il une image de
-//! plus en HDR, ou est-ce l'ordinateur ?).
+//! plus en HDR, ou est-ce l'ordinateur ?) ; et le trajet d'une image des
+//! statistiques de session.
 
 use std::time::{Duration, Instant};
 
@@ -115,6 +116,49 @@ impl Chain {
     }
 }
 
+/// Les temps de l'image sur ce téléviseur, mesurés par l'app, image par image : « Décodage » (image complète
+/// reçue → acceptée par NDL : le passage au fil de l'image et l'appel qui la donne) et « Affichage » (une période
+/// de la dalle pour l'image et une par image en attente dans la file de NDL, qui décode et montre l'image sans
+/// dire quand). Ils remplacent ceux du cœur quand l'ordinateur ne donne pas ses mesures.
+#[derive(Default)]
+pub struct Local {
+    decode: Vec<f64>,
+    display: Vec<f64>,
+}
+
+impl Local {
+    pub fn add(&mut self, decode_ms: f64, display_ms: f64) {
+        self.decode.push(decode_ms.max(0.0));
+        self.display.push(display_ms.max(0.0));
+    }
+
+    /// Médianes de la seconde (décodage, affichage), et une seconde neuve.
+    pub fn take(&mut self) -> (Option<f64>, Option<f64>) {
+        let r = (median(&mut self.decode), median(&mut self.display));
+        self.decode.clear();
+        self.display.clear();
+        r
+    }
+}
+
+fn median(v: &mut [f64]) -> Option<f64> {
+    if v.is_empty() {
+        return None;
+    }
+    v.sort_by(f64::total_cmp);
+    let n = v.len();
+    Some(if n % 2 == 1 { v[n / 2] } else { (v[n / 2 - 1] + v[n / 2]) / 2.0 })
+}
+
+/// Le trajet d'une image (docs/link-ui.md, « Statistiques » : capture, encodage, envoi, réseau, décodage,
+/// affichage ; `None` : « — ») : celui du cœur ; sans mesures de l'ordinateur, les temps du téléviseur seuls.
+pub fn path(chain: Option<[f64; 6]>, local: (Option<f64>, Option<f64>)) -> [Option<f64>; 6] {
+    match chain {
+        Some(c) => c.map(Some),
+        None => [None, None, None, None, local.0, local.1],
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -134,6 +178,20 @@ mod tests {
         assert!(line.contains("période 8333 µs (120 Hz)"), "{line}");
         assert!(line.contains("3 images, appel moyen 0.50 ms, max 0.70 ms ; 1 sans file"), "{line}");
         assert!(q.take(t + WINDOW, true, 8333).is_none());
+    }
+
+    #[test]
+    fn path_of_a_frame() {
+        let mut l = Local::default();
+        assert_eq!(l.take(), (None, None));
+        for (d, a) in [(0.4, 16.7), (0.6, 8.3), (0.5, 25.0)] {
+            l.add(d, a);
+        }
+        let local = l.take();
+        assert_eq!(local, (Some(0.5), Some(16.7)));
+        assert_eq!(path(None, local), [None, None, None, None, Some(0.5), Some(16.7)]);
+        let core = [1.0, 4.0, 0.5, 2.0, 0.6, 16.7];
+        assert_eq!(path(Some(core), local), core.map(Some));
     }
 
     #[test]

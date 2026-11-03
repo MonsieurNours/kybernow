@@ -270,6 +270,7 @@ impl Feeder {
                 let decoded = latency::now_micros();
                 let period = self.shared.frame_period_micros();
                 let at = decoded + period * (1 + queued.unwrap_or(0).max(0) as i64);
+                self.shared.frame_times(decoded - received, at - decoded);
                 if let Some(s) = self.shared.session() {
                     s.frame_displayed(pts, received, decoded, at);
                 }
