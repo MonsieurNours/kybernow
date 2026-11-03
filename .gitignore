@@ -31,3 +31,6 @@ apps/webos/dist/
 
 # App Linux : paquets Flatpak (scripts/flatpak.sh)
 apps/linux/dist/
+
+# Agent des écrans virtuels de la Station Mac
+server/macos/display-agent/build/

@@ -912,6 +912,11 @@ fn hdr_unavailable(s: &AppState, gpu: Option<&gpu::GpuStatus>) -> Option<&'stati
     if cfg!(windows) && crate::system::windows_build().unwrap_or(0) < crate::system::HDR_BUILD {
         return Some("windows");
     }
+    // Station Mac : HDR des écrans virtuels pas encore fait (docs/station-macos.md).
+    #[cfg(not(windows))]
+    if crate::mac::is_station() {
+        return Some("encoder");
+    }
     let encoder = s
         .kyber
         .values()

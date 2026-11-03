@@ -1,0 +1,222 @@
+diff --git a/subprojects/txproto/src/iosys_screencapturekit.m b/subprojects/txproto/src/iosys_screencapturekit.m
+index 9e5b3eb..1f2c74d 100644
+--- a/subprojects/txproto/src/iosys_screencapturekit.m
++++ b/subprojects/txproto/src/iosys_screencapturekit.m
+@@ -69,6 +69,14 @@
+     SPBufferList *entries;
+     SPBufferList *events;
+ 
++    /* KyberNow : veille des écrans (les rappels de CoreGraphics demandent une
++     * boucle d'événements que kyavserver n'a pas). */
++    pthread_mutex_t update_lock;
++    pthread_t watch_thread;
++    atomic_int watch_quit;
++    int watching;
++    char signature[1024];
++
+ } SCKCtx;
+ 
+ typedef struct SCKCapture {
+@@ -914,7 +922,23 @@ static int sck_init_io(AVBufferRef *ctx_ref, AVBufferRef *entry_ref,
+     return 0;
+ }
+ 
++static AVBufferRef *find_unplugged_iosysentry(AVBufferRef *entry, void *opaque)
++{
++    IOSysEntry *e = (IOSysEntry *)entry->data;
++    return e->is_unplugged ? entry : NULL;
++}
++
++static int update_entries_locked(SCKCtx *ctx);
++
+ static int update_entries(SCKCtx *ctx)
++{
++    pthread_mutex_lock(&ctx->update_lock);
++    int err = update_entries_locked(ctx);
++    pthread_mutex_unlock(&ctx->update_lock);
++    return err;
++}
++
++static int update_entries_locked(SCKCtx *ctx)
+ {
+     dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+     __block SCShareableContent *result = nil;
+@@ -941,12 +965,42 @@ static int update_entries(SCKCtx *ctx)
+ 
+     pthread_mutex_unlock(&ctx->content_lock);
+ 
++    /* KyberNow : identifiants vus cette fois, pour retirer les autres. */
++    NSMutableSet<NSNumber *> *seen = [NSMutableSet set];
++
+     for (SCDisplay *display in result.displays) {
+         uint32_t displayID = display.displayID;
+-        int x = (int)display.frame.origin.x;
+-        int y = (int)display.frame.origin.y;
+-        int w = (int)display.width;
+-        int h = (int)display.height;
++        /* KyberNow : place et taille en pixels, comme sous Windows (DXGI) : les
++         * apps retrouvent les écrans qu'elles ont demandés en pixels, et le
++         * débit suit les vrais pixels d'un écran Retina. L'échelle vient de
++         * ScreenCaptureKit (`pointPixelScale`) : un processus déjà lancé ne lit
++         * pas le mode d'un écran apparu après lui (CGDisplayCopyDisplayMode
++         * rend NULL, et pointPixelScale reste à 1), comme l'écran virtuel d'une
++         * session : pour lui, l'échelle est dans son numéro de produit. */
++        double px_scale = 0;
++        /* Écran virtuel de KyberNow : fabricant « KN », produit 0x4B32 en
++         * Retina (server/macos/display-agent). */
++        if (CGDisplayVendorNumber(displayID) == 0x4B4E)
++            px_scale = CGDisplayModelNumber(displayID) == 0x4B32 ? 2 : 1;
++        else if (@available(macOS 14.0, *)) {
++            SCContentFilter *f = [[SCContentFilter alloc] initWithDisplay:display excludingWindows:@[]];
++            px_scale = [SCShareableContent infoForFilter:f].pointPixelScale;
++        }
++        if (px_scale < 1) {
++            CGDisplayModeRef m = CGDisplayCopyDisplayMode(displayID);
++            if (m && display.width > 0)
++                px_scale = (double)CGDisplayModeGetPixelWidth(m) / display.width;
++            if (m)
++                CGDisplayModeRelease(m);
++        }
++        if (px_scale < 1)
++            px_scale = 1;
++        int x = (int)lround(display.frame.origin.x * px_scale);
++        int y = (int)lround(display.frame.origin.y * px_scale);
++        int w = (int)lround(display.width * px_scale);
++        int h = (int)lround(display.height * px_scale);
++        sp_log(ctx, SP_LOG_DEBUG, "SCK: display %u: %dx%d points, scale %.2f, %dx%d pixels at (%d, %d)\n",
++               displayID, (int)display.width, (int)display.height, px_scale, w, h, x, y);
+ 
+         CFUUIDRef uuidRef = CGDisplayCreateUUIDFromDisplayID(displayID);
+         NSString *uuid = @"";
+@@ -958,6 +1012,8 @@ static int update_entries(SCKCtx *ctx)
+ 
+         uint32_t vid_id = sp_iosys_gen_identifier(ctx, displayID, SP_IO_TYPE_VIDEO_DISPLAY);
+         uint32_t aud_id = sp_iosys_gen_identifier(ctx, displayID, SP_IO_TYPE_AUDIO_MONITOR);
++        [seen addObject:@(vid_id)];
++        [seen addObject:@(aud_id)];
+ 
+         NSString *display_name = sck_display_name(displayID, uuid);
+ 
+@@ -1004,10 +1060,17 @@ static int update_entries(SCKCtx *ctx)
+             entry->scale = scale;
+             entry->is_default = CGDisplayIsMain(displayID);
+ 
++            entry->is_unplugged = 0;
++
+             if (is_new) {
+                 AVBufferRef *buf = av_buffer_create((uint8_t *)entry, sizeof(*entry),
+                                                     destroy_entry, NULL, 0);
+                 sp_bufferlist_append_noref(ctx->entries, buf);
++                /* KyberNow : un écran apparu est annoncé, comme sous DXGI. */
++                sp_eventlist_dispatch(entry, ctx->events,
++                                      SP_EVENT_ON_CHANGE |
++                                      SP_EVENT_TYPE_SOURCE |
++                                      SP_EVENT_TYPE_SINK, entry);
+             } else {
+                 if (did_change)
+                     sp_eventlist_dispatch(entry, ctx->events,
+@@ -1052,9 +1115,71 @@ static int update_entries(SCKCtx *ctx)
+ #endif // #ifdef SCK_ENABLE_AUDIO
+     }
+ 
++    /* KyberNow : les écrans disparus (écran virtuel retiré, écran éteint ou
++     * en recopie) sont débranchés et annoncés, leur capture s'arrête, comme
++     * sous DXGI. */
++    AVBufferRef *entry_ref;
++    while ((entry_ref = sp_bufferlist_iter_ref(ctx->entries))) {
++        IOSysEntry *entry = (IOSysEntry *)entry_ref->data;
++        if (![seen containsObject:@(entry->identifier)] && !entry->is_unplugged) {
++            sp_log(ctx, SP_LOG_INFO, "SCK: output removed (%s)\n", sp_class_get_name(entry));
++            entry->is_unplugged = 1;
++            sp_eventlist_dispatch(entry, ctx->events,
++                                  SP_EVENT_ON_CHANGE |
++                                  SP_EVENT_TYPE_SOURCE |
++                                  SP_EVENT_TYPE_SINK, entry);
++            SCKCapture *capture = (SCKCapture *)entry->io_priv;
++            if (capture)
++                atomic_store(&capture->quit, 1);
++        }
++        av_buffer_unref(&entry_ref);
++    }
++    while ((entry_ref = sp_bufferlist_pop(ctx->entries, find_unplugged_iosysentry, NULL)))
++        av_buffer_unref(&entry_ref);
++
+     return 0;
+ }
+ 
++/* KyberNow : empreinte des écrans actifs (identifiant, place, mode), lue sans
++ * ScreenCaptureKit ; ScreenCaptureKit n'est interrogé que si elle change. */
++static void sck_signature(char *out, size_t size)
++{
++    CGDirectDisplayID ids[32];
++    uint32_t n = 0;
++    size_t len = 0;
++    out[0] = 0;
++    if (CGGetActiveDisplayList(32, ids, &n) != kCGErrorSuccess)
++        return;
++    for (uint32_t i = 0; i < n && len < size; i++) {
++        CGRect b = CGDisplayBounds(ids[i]);
++        size_t pw = 0, ph = 0;
++        CGDisplayModeRef m = CGDisplayCopyDisplayMode(ids[i]);
++        if (m) {
++            pw = CGDisplayModeGetPixelWidth(m);
++            ph = CGDisplayModeGetPixelHeight(m);
++            CGDisplayModeRelease(m);
++        }
++        len += snprintf(out + len, size - len, "%u:%d,%d,%d,%d,%zu,%zu,%d;", ids[i],
++                        (int)b.origin.x, (int)b.origin.y, (int)b.size.width,
++                        (int)b.size.height, pw, ph, CGDisplayIsMain(ids[i]));
++    }
++}
++
++static void *sck_watch_thread(void *s)
++{
++    SCKCtx *ctx = s;
++    char now[sizeof(ctx->signature)];
++    while (!atomic_load(&ctx->watch_quit)) {
++        av_usleep(250000);
++        sck_signature(now, sizeof(now));
++        if (strcmp(now, ctx->signature)) {
++            memcpy(ctx->signature, now, sizeof(now));
++            update_entries(ctx);
++        }
++    }
++    return NULL;
++}
++
+ static void sck_display_reconfig_cb(CGDirectDisplayID display,
+                                     CGDisplayChangeSummaryFlags flags,
+                                     void *userInfo)
+@@ -1105,11 +1230,17 @@ static void sck_uninit(void *opaque, uint8_t *data)
+ 
+     CGDisplayRemoveReconfigurationCallback(sck_display_reconfig_cb, ctx);
+ 
++    if (ctx->watching) {
++        atomic_store(&ctx->watch_quit, 1);
++        pthread_join(ctx->watch_thread, NULL);
++    }
++
+     sp_eventlist_dispatch(ctx, ctx->events, SP_EVENT_ON_DESTROY, ctx);
+     sp_bufferlist_free(&ctx->entries);
+     sp_bufferlist_free(&ctx->events);
+ 
+     pthread_mutex_destroy(&ctx->content_lock);
++    pthread_mutex_destroy(&ctx->update_lock);
+ 
+     ctx->contentToShare = nil;
+     ctx->os_log = nil;
+@@ -1141,9 +1272,14 @@ static int sck_init(AVBufferRef **s)
+     if (err < 0) goto fail;
+ 
+     pthread_mutex_init(&ctx->content_lock, NULL);
++    pthread_mutex_init(&ctx->update_lock, NULL);
+ 
++    sck_signature(ctx->signature, sizeof(ctx->signature));
+     update_entries(ctx);
+     CGDisplayRegisterReconfigurationCallback(sck_display_reconfig_cb, ctx);
++    /* KyberNow : veille des écrans, comme le fil de DXGI. */
++    atomic_init(&ctx->watch_quit, 0);
++    ctx->watching = !pthread_create(&ctx->watch_thread, NULL, sck_watch_thread, ctx);
+ 
+     *s = ctx_ref;
+     return 0;

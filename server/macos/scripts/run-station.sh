@@ -12,7 +12,8 @@
 # Dossier : $STATION_DIR (défaut : ~/Library/Application Support/KyberNow/station-essai)
 #   admin/   données d'Admin (réglages, certificat, comptes)
 #   kyber/   kyber_config.toml, certificat de Kyber, journaux, plist du LaunchAgent
-#   bin/     copie de kyber-admin (une recompilation ne gêne pas la Station en marche)
+#   bin/     copies de kyber-admin et de kybernow-display, l'agent des écrans
+#            virtuels (une recompilation ne gêne pas la Station en marche)
 # Mot de passe (Admin et compte Kyber « kybernow ») : $KYBERNOW_PASSWORD au
 # premier lancement, sinon tiré au hasard et écrit dans admin/mot-de-passe-essai
 # (lisible par vous seul). Rien n'est installé dans ~/Library/LaunchAgents : les
@@ -49,6 +50,8 @@ build_admin() {
     (cd "$ROOT/server/admin" && touch src/assets.rs && cargo build --release --quiet)
     mkdir -p "$BIN"
     cp "$ROOT/server/admin/target/release/kyber-admin" "$BIN/kyber-admin"
+    echo "==> Agent des écrans virtuels"
+    cp "$("$ROOT/server/macos/display-agent/build.sh" | tail -1)" "$BIN/kybernow-display"
 }
 
 # Première fois : réglages de Kyber, certificat propre à cette Station (pas le

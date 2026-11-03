@@ -31,6 +31,8 @@ pub mod agent;
 pub mod cursor;
 pub mod hdr;
 pub mod icc;
+#[cfg(target_os = "macos")]
+mod mac;
 #[cfg(windows)]
 pub mod pointer;
 #[cfg(windows)]
@@ -839,8 +841,13 @@ fn wgc_screens(slots: &[Slot]) -> Vec<(String, u32)> {
 
 trait Backend: Send + Sync {
     fn driver(&self) -> Result<Value>;
-    /// Ce système peut créer des écrans virtuels (faux : Station Mac pour l'instant).
+    /// Ce système peut créer des écrans virtuels (faux : Station Mac sans agent).
     fn supported(&self) -> bool {
+        true
+    }
+    /// Contournements propres à SudoVDA sous Windows, pour plusieurs écrans :
+    /// pointeur agrandi et capture WGC des écrans secondaires (faux sur Mac).
+    fn windows_workarounds(&self) -> bool {
         true
     }
     /// Exécutables en marche sur l'ordinateur (pour repérer un autre serveur de streaming).
@@ -933,10 +940,19 @@ impl Manager {
     pub fn new(data_dir: PathBuf, settings: VdSettings) -> Arc<Self> {
         #[cfg(windows)]
         let backend: Box<dyn Backend> = Box::new(windows::WinBackend::new(data_dir.clone()));
-        // Station Mac : pas encore d'écran virtuel (docs/station-macos.md, jalon 3).
-        #[cfg(not(windows))]
-        let backend: Box<dyn Backend> =
-            if crate::mac::is_station() { Box::new(Absent) } else { Box::new(Simulated::default()) };
+        // Station Mac : écrans `CGVirtualDisplay` par l'agent kybernow-display
+        // (docs/station-macos.md, jalon 3) ; sans lui, l'écran du Mac tel quel.
+        #[cfg(target_os = "macos")]
+        let backend: Box<dyn Backend> = match (crate::mac::is_station(), mac::agent_path()) {
+            (true, Some(path)) => Box::new(mac::MacBackend::new(path)),
+            (true, None) => {
+                tracing::warn!("agent des écrans virtuels introuvable (kybernow-display) : l'écran du Mac tel qu'il est");
+                Box::new(Absent)
+            }
+            (false, _) => Box::new(Simulated::default()),
+        };
+        #[cfg(all(not(windows), not(target_os = "macos")))]
+        let backend: Box<dyn Backend> = Box::new(Simulated::default());
         Self::with_backend(data_dir, settings, backend)
     }
 
@@ -1264,6 +1280,9 @@ impl Manager {
     /// avant tout changement (une fiche restée d'une session interrompue
     /// garde la vraie taille d'origine).
     fn enlarge_pointer(&self, min_scale: u32) {
+        if !self.backend.windows_workarounds() {
+            return;
+        }
         let _pointer = self.pointer.lock().unwrap();
         self.pointer_in_use.store(true, Ordering::SeqCst);
         let (step, base) = pointer_step(min_scale);
@@ -1309,6 +1328,9 @@ impl Manager {
     /// Lance la capture WGC des écrans secondaires et écrit au journal ce
     /// qu'elle donne pour chacun ; un écran sans elle garde la duplication.
     fn start_wgc(&self, screens: &[(String, u32)]) {
+        if !self.backend.windows_workarounds() {
+            return;
+        }
         for (gdi_name, result) in self.backend.start_wgc(screens) {
             match result {
                 Ok(v) => {
@@ -2127,7 +2149,7 @@ impl Manager {
 }
 
 
-/// Station Mac sans écran virtuel (en attendant `CGVirtualDisplay`,
+/// Station Mac sans l'agent des écrans virtuels (`kybernow-display`,
 /// docs/station-macos.md) : le pilote est absent, `prepare` prend l'écran du
 /// Mac tel qu'il est, comme une Station Windows sans SudoVDA.
 #[cfg(not(windows))]
@@ -2142,6 +2164,9 @@ fn absent<T>() -> Result<T> {
 impl Backend for Absent {
     fn driver(&self) -> Result<Value> {
         absent()
+    }
+    fn windows_workarounds(&self) -> bool {
+        false
     }
     fn supported(&self) -> bool {
         false
