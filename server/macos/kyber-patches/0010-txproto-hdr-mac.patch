@@ -1,38 +1,292 @@
 --- a/subprojects/txproto/src/iosys_screencapturekit.m
 +++ b/subprojects/txproto/src/iosys_screencapturekit.m
-@@ -108,6 +108,11 @@
+@@ -23,12 +23,14 @@
+ #include <CoreMedia/CoreMedia.h>
+ #include <CoreAudio/CoreAudio.h>
+ #include <mach/mach_time.h>
++#include <math.h>
+ #import <Foundation/Foundation.h>
+ #import <AppKit/AppKit.h>
+ #import <ScreenCaptureKit/ScreenCaptureKit.h>
+ #import <CoreGraphics/CoreGraphics.h>
+ #import <IOKit/graphics/IOGraphicsLib.h>
+ #import <os/log.h>
++#import <Metal/Metal.h>
  
+ #import <stdatomic.h>
+ 
+@@ -109,6 +111,22 @@
      AVBufferPool *audio_pool;
      int audio_pool_entry_size;
-+
+ 
 +    /* KyberNow (0010): "hdr" option of kyavservice (0009): 1 = HDR10
 +     * (ScreenCaptureKit in PQ, 10-bit 4:2:0), 2 = the SDR image of an HDR
 +     * display (ScreenCaptureKit's default capture), 0 = SDR. */
 +    int hdr;
- 
++    int hdr_frames; /* KyberNow (0010): frames since the last level log */
++    int hdr_top;    /* brightest 10-bit level to log (-1: none pending) */
++    double hdr_nits;
++    /* KyberNow (0010): linear gain of the HDR image (device's SDR white / 100). */
++    float hdr_gain;
++    id<MTLDevice> mtl_device;
++    id<MTLCommandQueue> mtl_queue;
++    id<MTLComputePipelineState> mtl_gain;
++    CVMetalTextureCacheRef mtl_cache;
++    CVPixelBufferPoolRef gain_pool;
++    int gain_w, gain_h;
++
      /* KyberNow (0008): a share guest's own image at a capped rate
       * ("max_framerate", frames per second), 0 = the display's. */
-@@ -332,6 +337,14 @@
+     int max_framerate;
+@@ -280,6 +298,149 @@
+ {
+     sp_assert(buf == opaque);
+     CVPixelBufferRelease((CVPixelBufferRef)opaque);
++}
++
++/*
++ * KyberNow (0010): the white of the desktop. ScreenCaptureKit writes SDR
++ * white at 100 nits in its PQ image (measured on 2026-11-03: 10-bit level
++ * 509), where the Windows Station puts it at the device's SDR white (203 nits
++ * by default): on the device, the desktop looked dim. The image is brought
++ * up on the GPU: P010 PQ -> R'G'B' -> linear x gain -> PQ -> P010, the gain
++ * being the device's SDR white / 100 (`hdr-sdr-white.json`, written by
++ * Admin when it switches the virtual display to HDR; 203 nits without it).
++ * HDR content keeps its ratio to the white.
++ */
++static NSString *const kn_gain_source =
++    @"#include <metal_stdlib>\n"
++     "using namespace metal;\n"
++     "constant float m1 = 0.1593017578125, m2 = 78.84375, c1 = 0.8359375, c2 = 18.8515625, c3 = 18.6875;\n"
++     "static float eotf(float e) { float p = pow(max(e, 0.0f), 1.0f / m2); return pow(max(p - c1, 0.0f) / (c2 - c3 * p), 1.0f / m1); }\n"
++     "static float oetf(float l) { float y = pow(clamp(l, 0.0f, 1.0f), m1); return pow((c1 + c2 * y) / (1.0f + c3 * y), m2); }\n"
++     "kernel void kn_gain(texture2d<float, access::read> yIn [[texture(0)]],\n"
++     "                    texture2d<float, access::read> cIn [[texture(1)]],\n"
++     "                    texture2d<float, access::write> yOut [[texture(2)]],\n"
++     "                    texture2d<float, access::write> cOut [[texture(3)]],\n"
++     "                    constant float &gain [[buffer(0)]],\n"
++     "                    uint2 gid [[thread_position_in_grid]]) {\n"
++     "    if (gid.x >= cIn.get_width() || gid.y >= cIn.get_height()) return;\n"
++     "    const float k = 65535.0f / 64.0f;\n"
++     "    float2 c = cIn.read(gid).rg * k;\n"
++     "    float cb = (c.x - 512.0f) / 896.0f, cr = (c.y - 512.0f) / 896.0f;\n"
++     "    float3 sum = 0.0f; float n = 0.0f;\n"
++     "    for (uint dy = 0; dy < 2; dy++) for (uint dx = 0; dx < 2; dx++) {\n"
++     "        uint2 p = gid * 2 + uint2(dx, dy);\n"
++     "        if (p.x >= yIn.get_width() || p.y >= yIn.get_height()) continue;\n"
++     "        float y = (yIn.read(p).r * k - 64.0f) / 876.0f;\n"
++     "        float3 rgb = clamp(float3(y + 1.4746f * cr, y - 0.16455f * cb - 0.57135f * cr, y + 1.8814f * cb), 0.0f, 1.0f);\n"
++     "        rgb = float3(oetf(eotf(rgb.r) * gain), oetf(eotf(rgb.g) * gain), oetf(eotf(rgb.b) * gain));\n"
++     "        float yo = dot(rgb, float3(0.2627f, 0.6780f, 0.0593f));\n"
++     "        yOut.write(float4((yo * 876.0f + 64.0f) / k), p);\n"
++     "        sum += rgb; n += 1.0f;\n"
++     "    }\n"
++     "    float3 a = sum / max(n, 1.0f);\n"
++     "    float ya = dot(a, float3(0.2627f, 0.6780f, 0.0593f));\n"
++     "    cOut.write(float4(((a.b - ya) / 1.8814f * 896.0f + 512.0f) / k, ((a.r - ya) / 1.4746f * 896.0f + 512.0f) / k, 0.0f, 0.0f), gid);\n"
++     "}\n";
++
++/* The device's SDR white for this display, in nits (203 by default). */
++static float kn_sdr_white(CGDirectDisplayID display)
++{
++    NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:
++                      @"Library/Application Support/KyberNow/hdr-sdr-white.json"];
++    NSData *data = [NSData dataWithContentsOfFile:path];
++    NSDictionary *map = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
++    id v = [map isKindOfClass:[NSDictionary class]] ? map[[NSString stringWithFormat:@"%u", display]] : nil;
++    float nits = [v isKindOfClass:[NSNumber class]] ? [v floatValue] : 203.0f;
++    return nits >= 80.0f && nits <= 1000.0f ? nits : 203.0f;
++}
++
++static int kn_gain_init(SCKCapture *capture)
++{
++    capture->mtl_device = MTLCreateSystemDefaultDevice();
++    if (!capture->mtl_device)
++        return -1;
++    NSError *err = nil;
++    id<MTLLibrary> lib = [capture->mtl_device newLibraryWithSource:kn_gain_source options:nil error:&err];
++    id<MTLFunction> fn = [lib newFunctionWithName:@"kn_gain"];
++    capture->mtl_gain = fn ? [capture->mtl_device newComputePipelineStateWithFunction:fn error:&err] : nil;
++    capture->mtl_queue = [capture->mtl_device newCommandQueue];
++    if (!capture->mtl_gain || !capture->mtl_queue ||
++        CVMetalTextureCacheCreate(NULL, NULL, capture->mtl_device, NULL, &capture->mtl_cache) != kCVReturnSuccess) {
++        capture->mtl_gain = nil;
++        return -1;
++    }
++    return 0;
++}
++
++static id<MTLTexture> kn_texture(SCKCapture *capture, CVPixelBufferRef pb, size_t plane,
++                                 MTLPixelFormat fmt, CVMetalTextureRef *keep)
++{
++    if (CVMetalTextureCacheCreateTextureFromImage(NULL, capture->mtl_cache, pb, NULL, fmt,
++            CVPixelBufferGetWidthOfPlane(pb, plane), CVPixelBufferGetHeightOfPlane(pb, plane),
++            plane, keep) != kCVReturnSuccess)
++        return nil;
++    return CVMetalTextureGetTexture(*keep);
++}
++
++/* `pb` brought to the device's SDR white: a new buffer (retained), or NULL
++ * to send `pb` as it is. */
++static CVPixelBufferRef kn_gain_apply(SCKCapture *capture, CVPixelBufferRef pb)
++{
++    if (!capture->mtl_gain || capture->hdr_gain <= 1.001f ||
++        CVPixelBufferGetPixelFormatType(pb) != kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange)
++        return NULL;
++    int w = (int)CVPixelBufferGetWidth(pb), h = (int)CVPixelBufferGetHeight(pb);
++    if (!capture->gain_pool || capture->gain_w != w || capture->gain_h != h) {
++        if (capture->gain_pool)
++            CVPixelBufferPoolRelease(capture->gain_pool);
++        capture->gain_pool = NULL;
++        NSDictionary *attrs = @{
++            (id)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange),
++            (id)kCVPixelBufferWidthKey: @(w), (id)kCVPixelBufferHeightKey: @(h),
++            (id)kCVPixelBufferIOSurfacePropertiesKey: @{},
++            (id)kCVPixelBufferMetalCompatibilityKey: @YES,
++        };
++        if (CVPixelBufferPoolCreate(NULL, NULL, (__bridge CFDictionaryRef)attrs, &capture->gain_pool) != kCVReturnSuccess)
++            return NULL;
++        capture->gain_w = w;
++        capture->gain_h = h;
++    }
++    CVPixelBufferRef out = NULL;
++    if (CVPixelBufferPoolCreatePixelBuffer(NULL, capture->gain_pool, &out) != kCVReturnSuccess)
++        return NULL;
++    CVMetalTextureRef t[4] = { NULL };
++    id<MTLTexture> yIn = kn_texture(capture, pb, 0, MTLPixelFormatR16Unorm, &t[0]);
++    id<MTLTexture> cIn = kn_texture(capture, pb, 1, MTLPixelFormatRG16Unorm, &t[1]);
++    id<MTLTexture> yOut = kn_texture(capture, out, 0, MTLPixelFormatR16Unorm, &t[2]);
++    id<MTLTexture> cOut = kn_texture(capture, out, 1, MTLPixelFormatRG16Unorm, &t[3]);
++    BOOL ok = yIn && cIn && yOut && cOut;
++    if (ok) {
++        id<MTLCommandBuffer> cmd = [capture->mtl_queue commandBuffer];
++        id<MTLComputeCommandEncoder> enc = [cmd computeCommandEncoder];
++        [enc setComputePipelineState:capture->mtl_gain];
++        [enc setTexture:yIn atIndex:0];
++        [enc setTexture:cIn atIndex:1];
++        [enc setTexture:yOut atIndex:2];
++        [enc setTexture:cOut atIndex:3];
++        float gain = capture->hdr_gain;
++        [enc setBytes:&gain length:sizeof(gain) atIndex:0];
++        MTLSize group = MTLSizeMake(16, 16, 1);
++        MTLSize grid = MTLSizeMake(((NSUInteger)cIn.width + 15) / 16, ((NSUInteger)cIn.height + 15) / 16, 1);
++        [enc dispatchThreadgroups:grid threadsPerThreadgroup:group];
++        [enc endEncoding];
++        [cmd commit];
++        [cmd waitUntilCompleted];
++        ok = cmd.status == MTLCommandBufferStatusCompleted;
++    }
++    for (int i = 0; i < 4; i++)
++        if (t[i])
++            CFRelease(t[i]);
++    if (!ok) {
++        CVPixelBufferRelease(out);
++        return NULL;
++    }
++    CVBufferPropagateAttachments(pb, out);
++    return out;
+ }
+ 
+ static AVFrame *avframe_from_video_samplebuffer(SCKCapture *capture, CMSampleBufferRef sb)
+@@ -290,6 +451,10 @@
+                    "%s : can't get image buffer\n", __FUNCTION__);
+         return NULL;
+     }
++    /* KyberNow (0010): HDR image brought to the device's SDR white. */
++    CVPixelBufferRef gained = capture->hdr == 1 ? kn_gain_apply(capture, pb) : NULL;
++    if (gained)
++        pb = gained;
+ 
+     size_t w = CVPixelBufferGetWidth(pb);
+     size_t h = CVPixelBufferGetHeight(pb);
+@@ -325,12 +490,42 @@
+         av_frame_free(&frame);
+         return NULL;
+     }
+-    CVBufferRetain(pb);
++    if (!gained)
++        CVBufferRetain(pb);
+ 
+     CMTime pts_cm = CMSampleBufferGetPresentationTimeStamp(sb);
+     frame->pts = (int64_t)(CMTimeGetSeconds(pts_cm) * 1e6) - capture->epoch;
  
      frame->time_base = AV_TIME_BASE_Q;
- 
-+    /* KyberNow (0010): HDR10 frames, labelled as such. */
++
++    /* KyberNow (0010): HDR10 frames, labelled as such. Every 240 frames,
++     * the brightest level of a 64 x 36 grid is logged, in nits: with no HDR
++     * content on screen, the white of the desktop. */
++    if (capture->hdr == 1 && ++capture->hdr_frames >= 240 &&
++        CVPixelBufferLockBaseAddress(pb, kCVPixelBufferLock_ReadOnly) == kCVReturnSuccess) {
++        capture->hdr_frames = 0;
++        const uint16_t *y = CVPixelBufferGetBaseAddressOfPlane(pb, 0);
++        size_t stride = CVPixelBufferGetBytesPerRowOfPlane(pb, 0) / 2;
++        int top = 0;
++        for (int gy = 0; y && gy < 36; gy++)
++            for (int gx = 0; gx < 64; gx++) {
++                int v = y[(h * (2 * gy + 1) / 72) * stride + (w * (2 * gx + 1) / 128)] >> 6;
++                if (v > top) top = v;
++            }
++        CVPixelBufferUnlockBaseAddress(pb, kCVPixelBufferLock_ReadOnly);
++        double e = (top - 64) / 876.0;
++        e = e < 0 ? 0 : e > 1 ? 1 : e;
++        double p = pow(e, 1 / 78.84375);
++        double nits = 10000 * pow(fmax(p - 0.8359375, 0) / (18.8515625 - 18.6875 * p), 1 / 0.1593017578125);
++        capture->hdr_top = top;
++        capture->hdr_nits = nits;
++    }
 +    if (capture->hdr == 1) {
 +        frame->color_primaries = AVCOL_PRI_BT2020;
 +        frame->color_trc = AVCOL_TRC_SMPTE2084;
 +        frame->colorspace = AVCOL_SPC_BT2020_NCL;
 +        frame->color_range = AVCOL_RANGE_MPEG;
 +    }
-+
+ 
      frame->opaque_ref = av_buffer_allocz(sizeof(FormatExtraData));
      if (!frame->opaque_ref) {
-         os_log(capture->os_log,
-@@ -786,6 +799,15 @@
+@@ -356,7 +551,11 @@
+         return;
+     }
+ 
++    capture->hdr_top = -1;
+     AVFrame *frame = avframe_from_video_samplebuffer(capture, sb);
++    if (capture->hdr_top >= 0)
++        sp_log(entry, SP_LOG_INFO, "HDR: brightest level %d (10-bit) = %.0f nits\n",
++               capture->hdr_top, capture->hdr_nits);
+ 
+     if (!frame) {
+         return;
+@@ -713,6 +912,17 @@
+     av_buffer_unref(&capture->hw_frames_ctx);
+     av_buffer_pool_uninit(&capture->audio_pool);
+ 
++    /* KyberNow (0010): the GPU correction of the HDR white. */
++    if (capture->gain_pool)
++        CVPixelBufferPoolRelease(capture->gain_pool);
++    capture->gain_pool = NULL;
++    if (capture->mtl_cache)
++        CFRelease(capture->mtl_cache);
++    capture->mtl_cache = NULL;
++    capture->mtl_gain = nil;
++    capture->mtl_queue = nil;
++    capture->mtl_device = nil;
++
+     return 0;
+ }
+ 
+@@ -786,6 +996,23 @@
      [capture->streamConfiguration setShowsCursor:NO];
      [capture->streamConfiguration setQueueDepth:3];
      [capture->streamConfiguration setCapturesAudio:NO];
 +    /* KyberNow (0010): HDR10, the display's HDR as PQ BT.2100, 10-bit
 +     * 4:2:0 (P010 frames for VideoToolbox's HEVC Main 10). */
++    if (capture->hdr == 1) {
++        capture->hdr_gain = kn_sdr_white(entry->api_id) / 100.0f;
++        if (!capture->mtl_gain && kn_gain_init(capture) < 0)
++            sp_log(entry, SP_LOG_WARN, "HDR: no Metal, SDR white left at 100 nits\n");
++    }
++    sp_log(entry, SP_LOG_INFO, "Capture: hdr option %d%s, SDR white %.0f nits\n", capture->hdr,
++           capture->hdr == 1 ? " (PQ BT.2100, 10-bit 4:2:0)" : "",
++           capture->hdr == 1 && capture->mtl_gain ? capture->hdr_gain * 100.0f : 100.0f);
 +    if (capture->hdr == 1) {
 +        if (@available(macOS 15.0, *)) {
 +            [capture->streamConfiguration setCaptureDynamicRange:SCCaptureDynamicRangeHDRCanonicalDisplay];
@@ -43,7 +297,7 @@
      /* KyberNow (0008): no more frames than the guest's image needs. */
      if (capture->max_framerate > 0)
          [capture->streamConfiguration setMinimumFrameInterval:
-@@ -1043,6 +1065,11 @@
+@@ -1043,6 +1270,11 @@
          return AVERROR(ENOMEM);
  
      capture->quit = ATOMIC_VAR_INIT(0);
@@ -55,3 +309,14 @@
  
      /* KyberNow (0008): "max_framerate" option of kyavservice (0007). */
      AVDictionaryEntry *max_fr = av_dict_get(opts, "max_framerate", NULL, 0);
+--- a/subprojects/txproto/src/meson.build
++++ b/subprojects/txproto/src/meson.build
+@@ -161,7 +161,7 @@
+ 
+ # ScreenCaptureKit
+ screencapturekit = dependency('appleframeworks',
+-    modules: ['ScreenCaptureKit', 'IOKit', 'AppKit', 'CoreAudio'],
++    modules: ['ScreenCaptureKit', 'IOKit', 'AppKit', 'CoreAudio', 'Metal'],
+     required: get_option('screencapturekit'))
+ if screencapturekit.found()
+     dependencies += screencapturekit

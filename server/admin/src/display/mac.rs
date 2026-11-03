@@ -44,6 +44,19 @@ pub fn agent_path() -> Option<PathBuf> {
     path.is_file().then_some(path)
 }
 
+/// `~/Library/Application Support/KyberNow/hdr-sdr-white.json` : le blanc SDR
+/// (nits) voulu par l'appareil, par écran (`CGDirectDisplayID`), lu par la
+/// capture de Kyber au début de chaque image HDR (correctif Mac 0010).
+fn write_sdr_whites(whites: &[(u32, f32)]) {
+    let Some(home) = std::env::var_os("HOME") else { return };
+    let path = PathBuf::from(home).join("Library/Application Support/KyberNow/hdr-sdr-white.json");
+    let map: serde_json::Map<String, Value> = whites.iter().map(|(id, nits)| (id.to_string(), json!(nits))).collect();
+    let _ = std::fs::create_dir_all(path.parent().unwrap());
+    if let Err(e) = std::fs::write(&path, Value::Object(map).to_string()) {
+        tracing::warn!("blanc SDR du HDR non écrit ({}) : {e}", path.display());
+    }
+}
+
 fn name(id: u32) -> String {
     format!("mac:{id}")
 }
@@ -278,6 +291,13 @@ impl Backend for MacBackend {
     /// Écran virtuel du Mac en HDR : même mode, fonction de transfert HDR
     /// (`set_hdr` de l'agent), confirmé par macOS (2 s au plus).
     fn set_hdr(&self, asks: &[hdr::HdrAsk]) -> Result<Vec<hdr::HdrSeen>> {
+        // Blanc SDR de l'appareil pour chaque écran passé en HDR : la capture
+        // de Kyber y remonte l'image (correctif Mac 0010 ; macOS met ce blanc
+        // à 100 nits, Windows au blanc de l'appareil).
+        let whites: Vec<(u32, f32)> = asks.iter().filter(|a| a.on).map(|a| (a.created.target, a.apply.as_ref().map_or(203.0, |c| c.sdr_white))).collect();
+        if !whites.is_empty() {
+            write_sdr_whites(&whites);
+        }
         asks.iter()
             .map(|ask| {
                 let started = std::time::Instant::now();
