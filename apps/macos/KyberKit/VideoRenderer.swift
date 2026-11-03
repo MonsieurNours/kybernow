@@ -356,11 +356,11 @@ final class VideoRenderer {
         return ProcessInfo.processInfo.environment["KN_HDR_LAYER"].flatMap(HDRLayer.init(rawValue:)) ?? defaultHDRLayer
         #endif
     }()
-    /// `linear` : présentée directement à l'écran (« Direct » dans le HUD de
-    /// Metal), couleurs justes ; `edr` est composée par le système, `pq10`
-    /// n'a pas de courbe et écrête au-dessus de la marge (mesures du
-    /// 2026-11-03, apps/macos/README.md).
-    static let defaultHDRLayer = HDRLayer.linear
+    /// `edr` : couleurs justes (courbe du système d'après les métadonnées du
+    /// flux). Sur l'écran HDR de l'auteur (ASUS XG32UQ, 160 Hz), les trois
+    /// couches ont le même délai à 1 ms près ; seule `pq10` y va directement
+    /// à l'écran, sans courbe (mesures du 2026-11-03, apps/macos/README.md).
+    static let defaultHDRLayer = HDRLayer.edr
 
     private static let core: Core? = {
         guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else { return nil }
