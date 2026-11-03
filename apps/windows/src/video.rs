@@ -228,7 +228,14 @@ impl PacketHandler for VideoHandler {
         match msg {
             // Début de flux et paramètres : jamais perdus (rares, et sans eux
             // le décodeur ne repart pas).
-            VideoMsg::Codec(_) | VideoMsg::Config(_) | VideoMsg::Lost => {
+            // Une perte ne bloque pas le fil de la console : file pleine, la reprise sur
+            // une image clé est déjà demandée par le débordement.
+            VideoMsg::Lost => {
+                if self.tx.try_send(VideoMsg::Lost).is_err() {
+                    self.overflow.store(true, Ordering::Relaxed);
+                }
+            }
+            VideoMsg::Codec(_) | VideoMsg::Config(_) => {
                 let _ = self.tx.send(msg);
             }
             msg => {

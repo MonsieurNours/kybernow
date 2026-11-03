@@ -18,11 +18,11 @@
 //! Wireless Controller », « DualSense Edge Wireless Controller ») et à ses
 //! quatre voies.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use windows::Win32::Foundation::{CloseHandle, PROPERTYKEY, WAIT_OBJECT_0};
+use windows::Win32::Foundation::{CloseHandle, HANDLE, PROPERTYKEY, WAIT_OBJECT_0};
 use windows::Win32::Media::Audio::*;
 use windows::Win32::Media::KernelStreaming::WAVE_FORMAT_EXTENSIBLE;
 use windows::Win32::Media::Multimedia::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
@@ -48,6 +48,28 @@ struct Output {
 
 static OUTPUT: Mutex<Output> = Mutex::new(Output { users: 0, stop: None });
 
+/// Le fil de sortie en cours : un fil remplacé (partie rendue puis reprise
+/// aussitôt) ne coupe plus la sortie de celui qui le suit.
+static GENERATION: AtomicU64 = AtomicU64::new(0);
+
+/// Seul le fil en cours dit au cœur si la sortie est ouverte.
+fn set_output(generation: u64, on: bool) {
+    if GENERATION.load(Ordering::SeqCst) == generation {
+        dualsense::hd_haptics().set_output(on);
+    }
+}
+
+/// L'objet d'attente de WASAPI, fermé quoi qu'il arrive.
+struct Event(HANDLE);
+
+impl Drop for Event {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = CloseHandle(self.0);
+        }
+    }
+}
+
 /// Une partie commence : la sortie s'ouvre dès qu'une DualSense est branchée en USB.
 pub fn retain() {
     let mut o = OUTPUT.lock().unwrap();
@@ -57,6 +79,7 @@ pub fn retain() {
     }
     let stop = Arc::new(AtomicBool::new(false));
     o.stop = Some(stop.clone());
+    let generation = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
     let spawned = std::thread::Builder::new().name("ps-vibrations-hd".into()).spawn(move || {
         unsafe {
             let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
@@ -66,7 +89,7 @@ pub fn retain() {
             match unsafe { find_controller() } {
                 Some((name, device)) => {
                     log::info!("PlayStation : vibrations HD par « {name} »");
-                    match unsafe { play(&device, &stop) } {
+                    match unsafe { play(&device, &stop, generation) } {
                         Ok(()) => last.clear(),
                         Err(e) => {
                             let msg = e.to_string();
@@ -74,14 +97,17 @@ pub fn retain() {
                                 log::warn!("PlayStation : sortie des vibrations HD fermée ({msg})");
                                 last = msg;
                             }
+                            // Carte son prise par une autre app, format refusé : on réessaie plus tard.
+                            set_output(generation, false);
+                            std::thread::sleep(Duration::from_secs(2));
                         }
                     }
-                    dualsense::hd_haptics().set_output(false);
+                    set_output(generation, false);
                 }
                 None => std::thread::sleep(Duration::from_secs(2)),
             }
         }
-        dualsense::hd_haptics().set_output(false);
+        set_output(generation, false);
     });
     if let Err(e) = spawned {
         log::warn!("PlayStation : fil des vibrations HD refusé ({e})");
@@ -144,7 +170,7 @@ unsafe fn friendly_name(device: &IMMDevice) -> Option<String> {
 }
 
 /// Joue les vibrations jusqu'à l'arrêt ou une erreur (manette débranchée).
-unsafe fn play(device: &IMMDevice, stop: &AtomicBool) -> windows::core::Result<()> {
+unsafe fn play(device: &IMMDevice, stop: &AtomicBool, generation: u64) -> windows::core::Result<()> {
     unsafe {
         let client: IAudioClient = device.Activate(CLSCTX_ALL, None)?;
         let fmt = WAVEFORMATEXTENSIBLE {
@@ -172,17 +198,17 @@ unsafe fn play(device: &IMMDevice, stop: &AtomicBool) -> windows::core::Result<(
             &fmt as *const _ as *const WAVEFORMATEX,
             None,
         )?;
-        let event = CreateEventW(None, false, false, None)?;
-        client.SetEventHandle(event)?;
+        let event = Event(CreateEventW(None, false, false, None)?);
+        client.SetEventHandle(event.0)?;
         let render: IAudioRenderClient = client.GetService()?;
         let size = client.GetBufferSize()?;
         client.Start()?;
-        dualsense::hd_haptics().set_output(true);
+        set_output(generation, true);
         let result = loop {
             if stop.load(Ordering::Relaxed) {
                 break Ok(());
             }
-            if WaitForSingleObject(event, 200) != WAIT_OBJECT_0 {
+            if WaitForSingleObject(event.0, 200) != WAIT_OBJECT_0 {
                 continue;
             }
             let padding = match client.GetCurrentPadding() {
@@ -203,9 +229,8 @@ unsafe fn play(device: &IMMDevice, stop: &AtomicBool) -> windows::core::Result<(
                 break Err(e);
             }
         };
-        dualsense::hd_haptics().set_output(false);
+        set_output(generation, false);
         let _ = client.Stop();
-        let _ = CloseHandle(event);
         result
     }
 }

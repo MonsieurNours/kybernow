@@ -263,8 +263,10 @@ fn kept_account(app: &AppHandle, psn_id: &str, name: Option<&str>) -> Result<Kep
 #[tauri::command(async)]
 pub fn ps_login(app: AppHandle) -> Result<Option<KeptAccount>, String> {
     let (tx, rx) = std::sync::mpsc::channel::<Option<String>>();
+    // Déjà ouverte (deuxième clic) : elle passe devant, la première attente la garde.
     if let Some(old) = app.get_webview_window("psn-login") {
-        let _ = old.close();
+        let _ = old.set_focus();
+        return Ok(None);
     }
     let url: tauri::Url = psn::LOGIN_URL.parse().map_err(|_| t("ps.account_unread", &[]))?;
     let caught = Arc::new(AtomicBool::new(false));
@@ -302,7 +304,7 @@ pub fn ps_login(app: AppHandle) -> Result<Option<KeptAccount>, String> {
     })?;
     drop(tx);
     let redirect = rx.recv().ok().flatten();
-    let _ = win.close();
+    let _ = win.destroy();
     let Some(redirect) = redirect else {
         log::info!("PlayStation : connexion de Sony fermée sans compte");
         return Ok(None);
@@ -775,9 +777,16 @@ fn launch_inner(app: &AppHandle, id: &str, host: String, kept: consoles::Kept, a
         near,
     };
     let events = Arc::new(Events { app: app.clone(), id: id.clone(), host: host.clone(), account, name: kept.name.clone() });
-    let session = Arc::new(PsSession::start(start, events));
-    ps(&app).sessions.lock().unwrap().push(session);
+    // Inscrite avant de démarrer : une fin très rapide (fenêtre impossible) la retire bien,
+    // et « Annuler » la trouve dès cet instant.
+    let session = Arc::new(PsSession::new(&start, events));
+    ps(&app).sessions.lock().unwrap().push(session.clone());
     ps(&app).totals.lock().unwrap().insert(id.clone(), (0, 0));
+    ps(&app).launching.lock().unwrap().retain(|l| l != &id);
+    if ps(&app).cancelled.lock().unwrap().iter().any(|c| c == &id) {
+        session.command(Command::Disconnect);
+    }
+    session.run(start);
     emit_sessions(&app);
     emit_state(&app);
 }
@@ -967,7 +976,12 @@ fn show_bar(app: &AppHandle, id: &str, hwnd: isize, pinned: bool, pad: bool) {
     let state = app.state::<UiState>();
     let Some(bar) = app.get_webview_window("bar") else { return };
     ps(app).pad_mode.store(pad, Ordering::Relaxed);
-    *state.bar_session.lock().unwrap() = Some(id.to_string());
+    let before = state.bar_session.lock().unwrap().replace(id.to_string());
+    if let Some(prev) = before.filter(|p| p != id && consoles::host_of(p).is_some()) {
+        if let Some(s) = session(app, &prev) {
+            s.command(Command::BarClosed);
+        }
+    }
     super::bar_menu(app.clone(), false, None);
     let hwnd = if hwnd != 0 { hwnd } else { s.hwnd() };
     let (center, top, scale) = crate::window::bar_anchor(hwnd).unwrap_or((0, 0, bar.scale_factor().unwrap_or(1.0) as f32));

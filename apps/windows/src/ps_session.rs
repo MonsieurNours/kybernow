@@ -204,7 +204,8 @@ pub struct PsSession {
 }
 
 impl PsSession {
-    pub fn start(start: Start, events: Arc<dyn Events>) -> PsSession {
+    /// La partie, pas encore lancée (`run`) : l'app l'inscrit d'abord.
+    pub fn new(start: &Start, events: Arc<dyn Events>) -> PsSession {
         let inner = Arc::new(Inner {
             id: start.id.clone(),
             name: start.name.clone(),
@@ -220,13 +221,17 @@ impl PsSession {
             end: Mutex::new(None),
             started: Instant::now(),
         });
-        let i = inner.clone();
+        PsSession { inner }
+    }
+
+    /// Lance la partie sur le fil de sa fenêtre.
+    pub fn run(&self, start: Start) {
+        let i = self.inner.clone();
         let spawned = std::thread::Builder::new().name("ps-fenetre".into()).spawn(move || run(start, i));
         if let Err(e) = spawned {
             log::error!("PlayStation : fil de la fenêtre refusé ({e})");
-            inner.events.ended(Some(PlayEnd::Unreachable(e.to_string())), false, 0);
+            self.inner.events.ended(Some(PlayEnd::Unreachable(e.to_string())), false, 0);
         }
-        PsSession { inner }
     }
 
     pub fn id(&self) -> &str {
@@ -377,7 +382,7 @@ fn scale_of(hwnd: HWND) -> f32 {
 fn run(start: Start, inner: Arc<Inner>) {
     let fail = |inner: &Arc<Inner>, why: String| {
         log::error!("PlayStation [{}] : {why}", inner.name);
-        inner.events.ended(Some(PlayEnd::Unreachable(why)), false, 0);
+        inner.events.ended(Some(PlayEnd::Unreachable(why)), inner.quiet.load(Ordering::Relaxed), 0);
     };
     if let Err(e) = register_class() {
         return fail(&inner, format!("classe de fenêtre : {e}"));
@@ -526,8 +531,11 @@ fn run(start: Start, inner: Arc<Inner>) {
 
     // Fin : la partie (si elle tourne encore), l'image, le son, les vibrations HD.
     let ctx = CTX.with(|c| c.borrow_mut().take());
-    if let Some(p) = inner.play.lock().unwrap().take() {
-        let mut p = p;
+    // Le fil de l'image s'arrête d'abord (la partie ne reste pas bloquée sur sa file), puis
+    // la partie (sa fin peut prendre quelques secondes pendant la connexion), verrou relâché.
+    video.stop();
+    let play = inner.play.lock().unwrap().take();
+    if let Some(mut p) = play {
         p.stop();
     }
     video.stop_and_wait(Duration::from_secs(2));
@@ -556,10 +564,7 @@ fn user_close(why: &str) {
     unsafe {
         let _ = ShowWindow(hwnd, SW_HIDE);
     }
-    let play = inner.play.lock().unwrap().take();
-    if let Some(mut p) = play {
-        p.stop();
-    }
+    // La partie s'arrête après la boucle de messages (`run`), pas dans la procédure de la fenêtre.
     destroy(hwnd);
 }
 
@@ -771,7 +776,8 @@ fn is_fullscreen() -> bool {
 fn capture_mouse() {
     let Some((inner, hwnd)) = with_ctx(|c| (c.inner.clone(), c.hwnd)) else { return };
     let already = with_ctx(|c| c.captured).unwrap_or(true);
-    if already || unsafe { GetForegroundWindow() } != hwnd {
+    // Une manette branchée : le cœur ignore clavier et souris, rien à prendre.
+    if already || inner.bar.lock().unwrap().pad || unsafe { GetForegroundWindow() } != hwnd {
         return;
     }
     // Barre ouverte : un clic dans l'image la ferme (l'app la cache).
@@ -1092,8 +1098,11 @@ fn command(c: usize) {
         Command::Fullscreen => set_fullscreen(!is_fullscreen(), true),
         Command::Rest => {
             log::info!("PlayStation [{}] : mise en veille demandée", inner.name);
-            inner.quiet.store(true, Ordering::Relaxed);
-            inner.with_play(|p| p.goto_bed());
+            inner.with_play(|p| {
+                if p.goto_bed() {
+                    inner.quiet.store(true, Ordering::Relaxed);
+                }
+            });
         }
         Command::Focus => {
             unsafe {

@@ -3047,7 +3047,11 @@ fn show_bar_notice(app: &AppHandle, id: &str, hwnd: isize, pinned: bool, notice:
     let share = host_session.then(|| share::view(app, id, share.as_ref()));
     let lend = host_session.then(|| lend::panel(app, id, lend_view.as_ref()));
     let borrow = borrow.map(|b| b.bar());
-    *state.bar_session.lock().unwrap() = Some(id.to_string());
+    let before = state.bar_session.lock().unwrap().replace(id.to_string());
+    // La barre servait une partie sur console : la console reçoit de nouveau la manette.
+    if let Some(prev) = before.filter(|p| p != id && crate::consoles::host_of(p).is_some()) {
+        playstation::bar_hidden(app, &prev, false);
+    }
     let mut mi = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
     unsafe {
         let m = MonitorFromWindow(HWND(hwnd as *mut _), MONITOR_DEFAULTTONEAREST);
@@ -3608,6 +3612,8 @@ pub fn run(args: Vec<String>) {
                     api.prevent_close();
                     connexion_closed(app, label);
                 }
+                // La connexion de Sony (consoles PlayStation) se ferme pour de bon.
+                "psn-login" => {}
                 // La barre ne se ferme pas (Alt+F4) : elle se cache, le
                 // clavier revient à la session qu'elle servait.
                 _ => {
