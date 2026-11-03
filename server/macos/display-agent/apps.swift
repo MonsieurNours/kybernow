@@ -124,6 +124,18 @@ private func close(_ args: [String]) throws -> [String: Any] {
     return ["closed": apps.filter { $0.terminate() }.count]
 }
 
+/// Verrouille la session (fin d'un prêt) : `SACLockScreenImmediate`, la
+/// fonction du menu Pomme › Verrouiller l'écran (login.framework, privée).
+private func lockScreen() throws {
+    guard let handle = dlopen("/System/Library/PrivateFrameworks/login.framework/Versions/Current/login", RTLD_NOW),
+          let symbol = dlsym(handle, "SACLockScreenImmediate") else {
+        throw Failure(message: "verrouillage indisponible (login.framework)")
+    }
+    typealias Lock = @convention(c) () -> Int32
+    let status = unsafeBitCast(symbol, to: Lock.self)()
+    if status != 0 { throw Failure(message: "verrouillage refusé (\(status))") }
+}
+
 private func screenLocked() -> Bool {
     guard let info = CGSessionCopyCurrentDictionary() as? [String: Any] else { return false }
     return info["CGSSessionScreenIsLocked"] as? Bool ?? false
@@ -138,6 +150,9 @@ func appsCommand(_ command: String, _ args: [String]) throws -> [String: Any]? {
     case "launch": return try launch(args)
     case "close": return try close(args)
     case "locked": return ["locked": screenLocked()]
+    case "lock":
+        try lockScreen()
+        return ["locked": true]
     default: return nil
     }
 }

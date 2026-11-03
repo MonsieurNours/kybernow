@@ -195,6 +195,12 @@ impl Drop for Watch {
 
 pub use platform::{host_name, idle_secs, keep_awake, lock_session, session_state, spawn_console, steam_dir, watch};
 
+/// Le mode console existe ici : Windows, ou une Station Mac installée (pas le
+/// Mac de développement, où tout est simulé).
+pub fn console_supported() -> bool {
+    cfg!(windows) || crate::mac::is_station()
+}
+
 #[cfg(windows)]
 mod platform {
     use std::collections::HashSet;
@@ -438,7 +444,249 @@ mod platform {
     }
 }
 
-#[cfg(not(windows))]
+/// Station Mac (docs/pret.md, « Station », équivalents Mac) : tout tourne dans
+/// la session de l'utilisateur (Admin est un LaunchAgent), sans élévation.
+/// Une app se reconnaît à l'identifiant de son paquet (`exe` des apps permises).
+#[cfg(target_os = "macos")]
+mod platform {
+    use std::collections::{HashMap, HashSet};
+    use std::path::{Path, PathBuf};
+    use std::process::Command;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+
+    use anyhow::{Context, Result, bail};
+
+    use super::{Rules, SessionState, Watch, parents_first};
+
+    /// Apps refusées pendant un prêt, même ouvertes par une app permise.
+    const DENIED: &[&str] = &[
+        "com.apple.Terminal",
+        "com.googlecode.iterm2",
+        "com.apple.ActivityMonitor",
+        "com.apple.systempreferences",
+        "com.apple.Settings",
+        "com.apple.ScriptEditor2",
+        "com.apple.Automator",
+        "com.apple.Console",
+        "com.apple.DiskUtility",
+        "com.apple.keychainaccess",
+        "com.apple.shortcuts",
+        "com.apple.exposelauncher",
+        "com.apple.launchpad.launcher",
+        "com.apple.finder.Open-iCloudDrive",
+    ];
+    const STEAM_ID: &str = "com.valvesoftware.steam";
+
+    fn home() -> PathBuf {
+        std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/tmp"))
+    }
+
+    fn own_uid() -> u32 {
+        use std::os::unix::fs::MetadataExt;
+        std::fs::metadata(home()).map(|m| m.uid()).unwrap_or(u32::MAX)
+    }
+
+    pub fn session_state() -> SessionState {
+        use std::os::unix::fs::MetadataExt;
+        // Une autre session (ou la fenêtre de connexion) devant l'écran : pas la nôtre.
+        let console = std::fs::metadata("/dev/console").map(|m| m.uid()).unwrap_or(0);
+        if console != own_uid() {
+            return SessionState::None;
+        }
+        if crate::launch::platform_session_locked() { SessionState::Locked } else { SessionState::Open }
+    }
+
+    /// Secondes depuis la dernière entrée (`HIDIdleTime` d'IOHIDSystem, en ns).
+    pub fn idle_secs() -> Option<u64> {
+        let out = Command::new("/usr/sbin/ioreg").args(["-c", "IOHIDSystem", "-d", "4"]).output().ok()?;
+        let text = String::from_utf8_lossy(&out.stdout);
+        let ns: u64 = text.lines().find_map(|l| l.split("\"HIDIdleTime\" = ").nth(1)).and_then(|v| v.trim().parse().ok())?;
+        Some(ns / 1_000_000_000)
+    }
+
+    /// Verrouille la session (`kybernow-display lock`).
+    pub fn lock_session() -> Result<()> {
+        let agent = crate::display::mac_agent_path().context("agent des écrans introuvable")?;
+        let out = Command::new(&agent).arg("lock").output().context("kybernow-display lock")?;
+        if !out.status.success() {
+            bail!("kybernow-display lock : {}", String::from_utf8_lossy(&out.stderr).trim());
+        }
+        Ok(())
+    }
+
+    /// L'agent de console (`kybernow-console --console`, dans l'app) : dans son
+    /// propre groupe de processus, pour que launchd ne l'arrête pas avec Admin
+    /// (il se remet alors en état seul et verrouille la session).
+    pub fn spawn_console() -> Result<()> {
+        use std::os::unix::process::CommandExt;
+        let exe = std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.join("kybernow-console"))).filter(|p| p.is_file());
+        let Some(exe) = exe else { bail!("kybernow-console introuvable") };
+        Command::new(&exe)
+            .arg("--console")
+            .process_group(0)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .with_context(|| format!("lancement de {}", exe.display()))?;
+        Ok(())
+    }
+
+    /// Le prénom de l'hôte : le nom complet du compte (`id -F`).
+    pub fn host_name() -> Option<String> {
+        let out = Command::new("/usr/bin/id").arg("-F").output().ok()?;
+        Some(String::from_utf8_lossy(&out.stdout).trim().to_string()).filter(|n| !n.is_empty())
+    }
+
+    /// Les données de Steam (`~/Library/Application Support/Steam`), s'il est installé.
+    pub fn steam_dir() -> Option<PathBuf> {
+        let dir = home().join("Library/Application Support/Steam");
+        (dir.join("steamapps").is_dir() || dir.join("config").is_dir()).then_some(dir)
+    }
+
+    /// Pas de veille ni d'écran éteint (qui verrouillerait la session) tant
+    /// que le prêt est activé : `caffeinate`, lié à Admin.
+    pub fn keep_awake(on: bool) {
+        static AWAKE: Mutex<Option<std::process::Child>> = Mutex::new(None);
+        let mut awake = AWAKE.lock().unwrap();
+        match (on, awake.is_some()) {
+            (true, false) => {
+                let pid = std::process::id().to_string();
+                *awake = Command::new("/usr/bin/caffeinate").args(["-d", "-i", "-m", "-s", "-w", &pid]).spawn().ok();
+            }
+            (false, true) => {
+                if let Some(mut child) = awake.take() {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Processus du compte : (pid, ppid, chemin de l'exécutable).
+    fn snapshot() -> Vec<(u32, u32, String)> {
+        let uid = own_uid().to_string();
+        let Ok(out) = Command::new("/bin/ps").args(["-U", &uid, "-o", "pid=,ppid=,comm="]).output() else { return Vec::new() };
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .filter_map(|l| {
+                let mut it = l.trim_start().splitn(3, char::is_whitespace);
+                let pid = it.next()?.trim().parse().ok()?;
+                let ppid = it.next()?.trim().parse().ok()?;
+                Some((pid, ppid, it.next()?.trim().to_string()))
+            })
+            .collect()
+    }
+
+    /// Le paquet `.app` le plus extérieur d'un chemin, et son identifiant.
+    fn bundle_of(path: &str, cache: &mut HashMap<String, Option<String>>) -> Option<(String, String)> {
+        let end = path.find(".app/")? + 4;
+        let app = path[..end].to_string();
+        let id = cache
+            .entry(app.clone())
+            .or_insert_with(|| {
+                let out = Command::new("/usr/bin/plutil")
+                    .args(["-extract", "CFBundleIdentifier", "raw", "-o", "-"])
+                    .arg(Path::new(&app).join("Contents/Info.plist"))
+                    .output()
+                    .ok()?;
+                Some(String::from_utf8_lossy(&out.stdout).trim().to_string()).filter(|s| !s.is_empty())
+            })
+            .clone()?;
+        Some((app, id))
+    }
+
+    /// Verdict sur un processus nouveau (docs/pret.md, point 4, équivalent Mac) :
+    /// seules les apps (`….app/Contents/…`) sont jugées. Refusées : la liste
+    /// `DENIED`, et toute app qui n'est ni permise, ni Steam ou un jeu, ni
+    /// KyberNow, ni un service de macOS (`/System/Library`), ni de la lignée
+    /// d'une app permise. Rend aussi si le processus est de cette lignée.
+    fn judge(rules: &Rules, path: &str, parent: super::Parent, cache: &mut HashMap<String, Option<String>>) -> (bool, bool) {
+        use super::Parent;
+        let lower = path.to_ascii_lowercase();
+        let game = lower.contains("/steamapps/") || (!rules.steam.is_empty() && lower.starts_with(&rules.steam.replace('\\', "/")));
+        let Some((app, id)) = bundle_of(path, cache) else {
+            // Pas une app : outils lancés par les apps, services du système.
+            return (true, parent == Parent::App || game);
+        };
+        if DENIED.iter().any(|d| d.eq_ignore_ascii_case(&id)) {
+            return (false, false);
+        }
+        let allowed_app = rules.apps.iter().any(|a| a.eq_ignore_ascii_case(&id) || a.eq_ignore_ascii_case(&app));
+        let is_app = parent == Parent::App || allowed_app || game || id == STEAM_ID;
+        let kept = rules.dirs.iter().any(|d| lower.starts_with(&d.replace('\\', "/"))) || lower.starts_with("/system/library/");
+        (is_app || kept || parent == Parent::Allowed, is_app)
+    }
+
+    pub fn watch(rules: Rules) -> Option<Watch> {
+        let before: HashSet<u32> = snapshot().into_iter().map(|(pid, _, _)| pid).collect();
+        let stop = Arc::new(AtomicBool::new(false));
+        let started = Arc::new(Mutex::new(HashSet::new()));
+        let (stop2, started2) = (stop.clone(), started.clone());
+        let thread = std::thread::spawn(move || {
+            let mut seen = before;
+            let mut allowed: HashMap<u32, bool> = HashMap::new();
+            let mut cache = HashMap::new();
+            while !stop2.load(Ordering::SeqCst) {
+                let all = snapshot();
+                let paths: HashMap<u32, String> = all.iter().map(|(p, _, c)| (*p, c.clone())).collect();
+                let fresh: Vec<(u32, u32)> = all.iter().filter(|(pid, _, _)| !seen.contains(pid)).map(|(p, pp, _)| (*p, *pp)).collect();
+                for (pid, ppid) in parents_first(fresh) {
+                    seen.insert(pid);
+                    let Some(path) = paths.get(&pid) else { continue };
+                    let parent = match allowed.get(&ppid) {
+                        None => super::Parent::Other,
+                        Some(false) => super::Parent::Allowed,
+                        Some(true) => super::Parent::App,
+                    };
+                    match judge(&rules, path, parent, &mut cache) {
+                        (true, app) => {
+                            allowed.insert(pid, app);
+                            started2.lock().unwrap().insert(pid);
+                        }
+                        (false, _) => {
+                            let done = unsafe { libc_kill(pid as i32, 9) } == 0;
+                            tracing::info!("prêt : {path} fermé ({})", if done { "fait" } else { "refusé par macOS" });
+                        }
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(500));
+            }
+        });
+        Some(Watch { stop, started, thread: Some(thread) })
+    }
+
+    unsafe extern "C" {
+        #[link_name = "kill"]
+        fn libc_kill(pid: i32, sig: i32) -> i32;
+    }
+
+    /// Ferme les apps ouvertes pendant le prêt qui restent après la remise en
+    /// état de l'agent, sauf KyberNow, Kyber, Steam (pas ses jeux) et macOS.
+    pub fn close_started(started: &[u32], rules: &Rules) -> usize {
+        let paths: HashMap<u32, String> = snapshot().into_iter().map(|(p, _, c)| (p, c)).collect();
+        let mut closed = 0;
+        for pid in started {
+            let Some(path) = paths.get(pid) else { continue };
+            let lower = path.to_ascii_lowercase();
+            if !lower.contains(".app/") || lower.starts_with("/system/") || lower.contains("/steam.app/") {
+                continue;
+            }
+            if !lower.contains("/steamapps/") && rules.dirs.iter().any(|d| lower.starts_with(&d.replace('\\', "/"))) {
+                continue;
+            }
+            if unsafe { libc_kill(*pid as i32, 15) } == 0 {
+                closed += 1;
+            }
+        }
+        closed
+    }
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 mod platform {
     use std::path::PathBuf;
 

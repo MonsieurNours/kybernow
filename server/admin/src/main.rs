@@ -9,6 +9,7 @@ mod auth;
 mod discovery;
 mod display;
 mod foreground;
+mod gamepads;
 mod gpu;
 mod i18n;
 mod kyber_config;

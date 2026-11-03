@@ -28,17 +28,24 @@ use serde_json::{Value, json};
 use tao::event::{Event, StartCause, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy, EventLoopWindowTarget};
 use tao::monitor::MonitorHandle;
+#[cfg(target_os = "macos")]
+use tao::platform::macos::WindowExtMacOS;
+#[cfg(windows)]
 use tao::platform::windows::{WindowBuilderExtWindows, WindowExtWindows};
 use tao::window::{Fullscreen, Window, WindowBuilder};
-use windows_sys::Win32::Foundation::{HWND, RECT};
-use windows_sys::Win32::UI::Input::XboxController::{XINPUT_STATE, XInputGetState};
-use windows_sys::Win32::UI::WindowsAndMessaging::GetClipCursor;
+// Station Mac : une fenêtre se désigne par son `NSWindow` (system_mac.rs).
+#[cfg(target_os = "macos")]
+use super::system::Hwnd as HWND;
+#[cfg(windows)]
+use windows_sys::Win32::Foundation::HWND;
 use wry::http::{Request, Response, header::CONTENT_TYPE};
-use wry::{WebContext, WebView, WebViewBuilder, WebViewBuilderExtWindows};
+#[cfg(windows)]
+use wry::WebViewBuilderExtWindows;
+use wry::{WebContext, WebView, WebViewBuilder};
 
 use super::store::{self, Saved};
 use super::system::{self, Born, Hooks};
-use super::{App, Cover, CoverKey, Display, Last, Machine, Notice, Pad, Phase, Reply, Step, View, base64, clock_at, countdown, cover_key, cover_text, end_text, left, notice_text, ring, steam, stick, wall_clock};
+use super::{App, Cover, CoverKey, Display, Last, Machine, Notice, Pad, Phase, Reply, Step, View, base64, clock_at, countdown, cover_key, cover_text, end_text, left, notice_text, ring, steam, wall_clock};
 use crate::console::{self, Client};
 use crate::i18n::{self, Lang, tr};
 
@@ -177,7 +184,7 @@ pub fn run() -> i32 {
             Pilot::new(proxy).run();
         });
     }
-    let data = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join(r"KyberNow\lend-webview");
+    let data = system::dir().map(|d| d.join("webview")).unwrap_or_else(|| std::env::temp_dir().join("KyberNow-lend-webview"));
     let mut screens = Screens::new(proxy, WebContext::new(Some(data)));
     event_loop.run(move |event, target, flow| match event {
         Event::NewEvents(StartCause::Init) | Event::NewEvents(StartCause::ResumeTimeReached { .. }) => {
@@ -593,15 +600,7 @@ impl Pilot {
     fn keep_up(&mut self) {
         system::taskbars(false);
         if let Some(d) = &self.display {
-            // Un jeu qui garde le curseur dans sa fenêtre (sur l'écran de l'ami) le garde.
-            let mut current: RECT = unsafe { std::mem::zeroed() };
-            let inside = unsafe { GetClipCursor(&mut current) } != 0
-                && d.contains(current.left, current.top)
-                && d.contains(current.right - 1, current.bottom - 1)
-                && (current.right - current.left, current.bottom - current.top) != (d.width as i32, d.height as i32);
-            if !inside {
-                system::clip(Some(d));
-            }
+            system::keep_cursor(d);
             if let Some(born) = self.born.as_mut() {
                 system::keep_on(d, born);
             }
@@ -652,8 +651,8 @@ impl Pilot {
 
 fn serve(request: Request<Vec<u8>>) -> Response<Cow<'static, [u8]>> {
     let (body, kind): (&'static [u8], &str) = match request.uri().path() {
-        "/fonts/archivo.woff2" => (crate::panel::ARCHIVO, "font/woff2"),
-        "/fonts/martian.woff2" => (crate::panel::MARTIAN, "font/woff2"),
+        "/fonts/archivo.woff2" => (crate::fonts::ARCHIVO, "font/woff2"),
+        "/fonts/martian.woff2" => (crate::fonts::MARTIAN, "font/woff2"),
         "/logo.svg" => (LOGO.as_bytes(), "image/svg+xml"),
         "/cover" => (COVER.as_bytes(), "text/html; charset=utf-8"),
         _ => (LAUNCHER.as_bytes(), "text/html; charset=utf-8"),
@@ -668,8 +667,14 @@ struct Surface {
 }
 
 impl Surface {
+    #[cfg(windows)]
     fn hwnd(&self) -> HWND {
         self.window.hwnd() as HWND
+    }
+
+    #[cfg(target_os = "macos")]
+    fn hwnd(&self) -> HWND {
+        self.window.ns_window() as HWND
     }
 
     fn eval(&self, script: &str) {
@@ -686,8 +691,10 @@ fn surface(target: &EventLoopWindowTarget<Ev>, context: &mut WebContext, proxy: 
     let window = WindowBuilder::new()
         .with_title("KyberNow Share")
         .with_decorations(false)
-        .with_resizable(false)
-        .with_skip_taskbar(true)
+        .with_resizable(false);
+    #[cfg(windows)]
+    let window = window.with_skip_taskbar(true);
+    let window = window
         .with_always_on_top(cover)
         .with_focused(!cover)
         .with_focusable(!cover)
@@ -695,20 +702,23 @@ fn surface(target: &EventLoopWindowTarget<Ev>, context: &mut WebContext, proxy: 
         .build(target)
         .context("fenêtre")?;
     let proxy = Mutex::new(proxy.clone());
+    // WebView2 sert le protocole maison en http://kn.localhost/, WKWebView en kn://localhost/.
+    let base = if cfg!(windows) { "http://kn.localhost/" } else { "kn://localhost/" };
     let webview = WebViewBuilder::new_with_web_context(context)
         .with_custom_protocol("kn".into(), |_id, request| serve(request))
         .with_ipc_handler(move |req: Request<String>| {
             let _ = proxy.lock().unwrap().send_event(Ev::Page(page, req.body().clone()));
         })
-        .with_navigation_handler(|url| url.starts_with("http://kn.localhost/"))
+        .with_navigation_handler(move |url| url.starts_with(base))
         .with_background_color((5, 7, 10, 255))
-        .with_devtools(cfg!(debug_assertions))
-        .with_browser_accelerator_keys(false)
-        .with_default_context_menus(false)
+        .with_devtools(cfg!(debug_assertions));
+    #[cfg(windows)]
+    let webview = webview.with_browser_accelerator_keys(false).with_default_context_menus(false);
+    let webview = webview
         .with_focused(!cover)
-        .with_url(if cover { "http://kn.localhost/cover" } else { "http://kn.localhost/launcher" })
+        .with_url(format!("{base}{}", if cover { "cover" } else { "launcher" }))
         .build(&window)
-        .context("vue web (WebView2)")?;
+        .context("vue web")?;
     Ok(Surface { window, webview, ready: false })
 }
 
@@ -725,17 +735,6 @@ fn screen_key(m: &MonitorHandle) -> String {
     format!("{}@{},{} {}x{}", m.name().unwrap_or_default(), p.x, p.y, s.width, s.height)
 }
 
-/// Les boutons de toutes les manettes réunis (la croix et le stick gauche).
-fn read_pads() -> u16 {
-    let mut all = 0;
-    for i in 0..4 {
-        let mut state: XINPUT_STATE = unsafe { std::mem::zeroed() };
-        if unsafe { XInputGetState(i, &mut state) } == 0 {
-            all |= state.Gamepad.wButtons | stick(state.Gamepad.sThumbLX, state.Gamepad.sThumbLY);
-        }
-    }
-    all
-}
 
 struct Screens {
     proxy: EventLoopProxy<Ev>,
@@ -1017,7 +1016,7 @@ impl Screens {
         // Les manettes, seulement quand le lanceur est devant.
         match &self.launcher {
             Some(l) if l.ready && system::foreground() == l.hwnd() => {
-                for action in self.pad.next(read_pads(), now) {
+                for action in self.pad.next(system::read_pads(), now) {
                     l.eval(&format!("window.__knPad && window.__knPad('{action}')"));
                 }
             }

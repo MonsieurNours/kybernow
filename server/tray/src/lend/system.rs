@@ -385,6 +385,32 @@ pub fn clip(display: Option<&Display>) {
 }
 
 /// Le curseur au milieu de l'écran de l'ami.
+/// Le curseur gardé sur l'écran de l'ami, toutes les 500 ms ; un jeu qui
+/// garde le curseur dans sa fenêtre (sur cet écran) le garde.
+pub fn keep_cursor(d: &Display) {
+    let mut current: RECT = unsafe { std::mem::zeroed() };
+    let inside = unsafe { windows_sys::Win32::UI::WindowsAndMessaging::GetClipCursor(&mut current) } != 0
+        && d.contains(current.left, current.top)
+        && d.contains(current.right - 1, current.bottom - 1)
+        && (current.right - current.left, current.bottom - current.top) != (d.width as i32, d.height as i32);
+    if !inside {
+        clip(Some(d));
+    }
+}
+
+/// Les boutons de toutes les manettes réunis (la croix et le stick gauche), pour le lanceur.
+pub fn read_pads() -> u16 {
+    use windows_sys::Win32::UI::Input::XboxController::{XINPUT_STATE, XInputGetState};
+    let mut all = 0;
+    for i in 0..4 {
+        let mut state: XINPUT_STATE = unsafe { std::mem::zeroed() };
+        if unsafe { XInputGetState(i, &mut state) } == 0 {
+            all |= state.Gamepad.wButtons | super::stick(state.Gamepad.sThumbLX, state.Gamepad.sThumbLY);
+        }
+    }
+    all
+}
+
 pub fn center_cursor(d: &Display) {
     unsafe { SetCursorPos(d.x + d.width as i32 / 2, d.y + d.height as i32 / 2) };
 }

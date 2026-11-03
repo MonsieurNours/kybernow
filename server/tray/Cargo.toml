@@ -12,6 +12,17 @@ anyhow = "1.0.104"
 qrcodegen = "1.8"
 serde_json = "1.0.154"
 
+# Station Mac : seulement le mode console d'un prêt (`kybernow-console --console`).
+[target.'cfg(target_os = "macos")'.dependencies]
+tao = "0.37.1"
+wry = "0.57.0"
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
+sha2 = "0.10"
+libc = "0.2"
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSString", "NSDate", "NSGeometry", "NSURL"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "libc", "NSApplication", "NSResponder", "NSRunningApplication", "NSWorkspace", "NSWindow", "NSView", "NSScreen", "NSGraphics"] }
+
 [target."cfg(windows)".dependencies]
 png = "0.18"
 tao = "0.37.1"

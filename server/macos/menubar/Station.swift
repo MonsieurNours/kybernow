@@ -157,12 +157,16 @@ final class AdminClient: NSObject, URLSessionDelegate {
     }
 
     /// Appel bloquant (fil de fond) ; `nil` si Admin ne répond pas.
-    func call(_ method: String, _ path: String) -> [String: Any]? {
+    func call(_ method: String, _ path: String, body: [String: Any]? = nil) -> [String: Any]? {
         guard let port = consolePort, let url = URL(string: "https://127.0.0.1:\(port)\(path)") else { return nil }
         var request = URLRequest(url: url, timeoutInterval: 4)
         request.httpMethod = method
         request.setValue(token, forHTTPHeaderField: "x-kyber-local")
         request.setValue(lang == .fr ? "fr" : "en", forHTTPHeaderField: "Accept-Language")
+        if let body, let data = try? JSONSerialization.data(withJSONObject: body) {
+            request.httpBody = data
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
         let done = DispatchSemaphore(value: 0)
         var result: [String: Any]?
         session.dataTask(with: request) { data, response, _ in
@@ -190,9 +194,16 @@ struct Snapshot {
     var version: String { state?["version"] as? String ?? (readRecord()?["version"] as? String ?? "") }
     var requests: Int { state?["pair_requests_count"] as? Int ?? 0 }
     var sharing: Bool { state?["share"] is [String: Any] }
+    var lend: [String: Any]? { state?["lend"] as? [String: Any] }
     var lent: Bool {
-        guard let lend = state?["lend"] as? [String: Any], lend["borrower"] is [String: Any] else { return false }
+        guard let lend, lend["borrower"] is [String: Any] else { return false }
         return ["preparing", "lent", "ending"].contains(lend["state"] as? String ?? "")
     }
+    var borrower: String { ((lend?["borrower"] as? [String: Any])?["name"] as? String) ?? "" }
+    var lendUntil: Double? { (lend?["borrower"] as? [String: Any])?["until"] as? Double }
+    /// Fin annoncée (préavis de reprise ou fin prévue), en secondes Unix.
+    var lendNotice: Double? { (lend?["notice"] as? [String: Any])?["at"] as? Double }
+    /// Demandes d'emprunt en attente (`id`, `name`).
+    var lendRequests: [[String: Any]] { lend?["requests"] as? [[String: Any]] ?? [] }
     var inSession: Bool { live != nil || (state?["session"] as? Bool ?? false) }
 }

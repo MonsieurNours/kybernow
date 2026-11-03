@@ -11,6 +11,7 @@
 #   KyberNow Station.app            l'app installée dans Applications : icône de la
 #                                   barre des menus (exécutable principal), Kyber,
 #                                   Admin, agent des écrans, fenêtres (kybernow-ui),
+#                                   agent de console du prêt (kybernow-console),
 #                                   sortie son et moteur du client web en ressources
 #   Install KyberNow Station.app    « Installer KyberNow Station » en français :
 #                                   kybernow-ui, l'app ci-dessus en ressources
@@ -51,10 +52,17 @@ step "Admin"
 (cd "$ROOT/server/web" && npm ci --silent && npm run build --silent)
 (cd "$ROOT/server/admin" && touch src/assets.rs && cargo build --release --quiet)
 
-step "Agent des écrans, icône de la barre des menus, sortie son"
+step "Agent des écrans, icône de la barre des menus, sortie son, manettes"
 AGENT="$("$ROOT/server/macos/display-agent/build.sh" | tail -1)"
 MENUBAR="$("$ROOT/server/macos/menubar/build.sh" | tail -1)"
 DRIVER="$("$ROOT/server/macos/audio-driver/build.sh" | tail -1)"
+# Manettes virtuelles : app d'aide à part, pour le profil d'Apple qui porte
+# le droit HID Virtual Device (docs/station-macos.md, « Manettes »).
+GAMEPADS="$("$ROOT/server/macos/gamepads/build.sh" "$VERSION" | tail -1)"
+
+step "Agent de console du prêt (server/tray, docs/pret.md)"
+(cd "$ROOT/server/tray" && cargo build --release --quiet)
+CONSOLE="$ROOT/server/tray/target/release/kybernow-tray"
 
 step "Fenêtres (installation, mise à jour, désinstallation, autorisations)"
 (cd "$ROOT/server/installer/ui" && npm ci --silent && npm run build --silent)
@@ -116,7 +124,11 @@ cp "$KYAPP"/Contents/MacOS/{kycontroller,kyavserver,kynputserver} "$APP/Contents
 cp -R "$KYAPP/Contents/Frameworks/." "$APP/Contents/Frameworks/"
 cp "$KYAPP/Contents/Resources/kyber_config.toml" "$APP/Contents/Resources/kyber/"
 cp "$ROOT/server/admin/target/release/kyber-admin" "$AGENT" "$UI" "$APP/Contents/MacOS/"
+cp "$CONSOLE" "$APP/Contents/MacOS/kybernow-console"
 cp -R "$DRIVER" "$APP/Contents/Resources/KyberNow.driver"
+# Déjà signée (avec son profil s'il existe) : copiée telle quelle.
+mkdir -p "$APP/Contents/Helpers"
+ditto "$GAMEPADS" "$APP/Contents/Helpers/KyberNow Manettes.app"
 cp "$ICNS" "$APP/Contents/Resources/AppIcon.icns"
 # Moteur du client web (invités du navigateur, /link) : la version officielle
 # de Kyber 0.29, puis notre moteur par-dessus, comme la surcouche Windows.
@@ -143,7 +155,7 @@ localized "$APP" "KyberNow Station" "KyberNow Station" \
 # exécutables (même droits : le son), puis le paquet.
 find "$APP/Contents/Frameworks" -type f -name '*.dylib' -print0 | while IFS= read -r -d '' lib; do sign "$lib"; done
 sign "$APP/Contents/Resources/KyberNow.driver"
-for exe in kycontroller kyavserver kynputserver kyber-admin kybernow-display kybernow-ui; do
+for exe in kycontroller kyavserver kynputserver kyber-admin kybernow-display kybernow-ui kybernow-console; do
     sign --entitlements "$ENTITLEMENTS" -i "$BUNDLE_ID.$exe" "$APP/Contents/MacOS/$exe"
 done
 sign --entitlements "$ENTITLEMENTS" "$APP"

@@ -85,9 +85,23 @@ final class StatusController: NSObject, NSMenuDelegate {
             }
         }
         if s.sharing { lines.append(t("session.sharing")) }
-        if s.lent { lines.append(t("session.lent")) }
+        if s.lent { lines.append(lendLine(s)) }
         if s.requests > 0 { lines.append(t("session.requests", ["n": s.requests])) }
         return lines
+    }
+
+    /// « Prêté à Léa jusqu'à 18 h », ou « Prêté à Léa · Reprise dans 1:42 »
+    /// pendant le préavis (comme l'icône Windows, `lend::host::status_line`).
+    private func lendLine(_ s: Snapshot) -> String {
+        if let at = s.lendNotice {
+            let left = max(0, Int(at - Date().timeIntervalSince1970))
+            return t("lend.lentTo", ["name": s.borrower]) + " · " + t("lend.takingBackIn", ["left": String(format: "%d:%02d", left / 60, left % 60)])
+        }
+        if let until = s.lendUntil {
+            let time = DateFormatter.localizedString(from: Date(timeIntervalSince1970: until), dateStyle: .none, timeStyle: .short)
+            return t("lend.lentToUntil", ["name": s.borrower, "time": time])
+        }
+        return t("lend.lentTo", ["name": s.borrower])
     }
 
     // MARK: Menu
@@ -161,6 +175,23 @@ final class StatusController: NSObject, NSMenuDelegate {
         let adminUp = s.state != nil
         if s.live != nil, adminUp { _ = add(menu, t("menu.end"), #selector(endSession)) }
         if s.requests > 0 { _ = add(menu, t("menu.requests"), #selector(openDevices)) }
+        // Prêt : reprendre l'ordinateur, et les demandes d'emprunt.
+        if s.lent, adminUp {
+            _ = add(menu, s.lendNotice != nil ? t("menu.takeBackNow") : t("menu.takeBack"), #selector(takeBack))
+        }
+        for request in s.lendRequests {
+            guard let id = request["id"] as? String, let name = request["name"] as? String else { continue }
+            let item = NSMenuItem(title: t("lend.wants", ["name": name]), action: nil, keyEquivalent: "")
+            let answers = NSMenu()
+            for (title, accept) in [(t("lend.accept"), true), (t("lend.refuse"), false)] {
+                let answer = NSMenuItem(title: title, action: #selector(answerRequest(_:)), keyEquivalent: "")
+                answer.target = self
+                answer.representedObject = ["id": id, "accept": accept] as [String: Any]
+                answers.addItem(answer)
+            }
+            item.submenu = answers
+            menu.addItem(item)
+        }
         menu.addItem(.separator())
         _ = add(menu, t("menu.open"), #selector(openAdmin), enabled: s.admin != .missing)
         _ = add(menu, t("menu.share"), #selector(openShare), enabled: running && adminUp)
@@ -200,6 +231,23 @@ final class StatusController: NSObject, NSMenuDelegate {
     @objc func openShare() { open(adminURL("ensemble")) }
     @objc func openLend() { open(adminURL("pret")) }
     @objc func openDevices() { open(adminURL("appareils")) }
+
+    @objc func takeBack() {
+        let now = snapshot.lendNotice != nil
+        poller.async { [weak self] in
+            _ = self?.admin.call("POST", "/api/local/lend/take-back", body: ["now": now])
+            DispatchQueue.main.async { self?.refresh() }
+        }
+    }
+
+    @objc func answerRequest(_ sender: NSMenuItem) {
+        guard let info = sender.representedObject as? [String: Any], let id = info["id"] as? String else { return }
+        let accept = info["accept"] as? Bool ?? false
+        poller.async { [weak self] in
+            _ = self?.admin.call("POST", "/api/local/lend/requests/\(id)", body: ["accept": accept, "steam": "friend"])
+            DispatchQueue.main.async { self?.refresh() }
+        }
+    }
 
     @objc func endSession() {
         poller.async { [weak self] in

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Manettes virtuelles par CoreHID : droit accordé par Apple sur demande
+         (docs/station-macos.md, « Manettes »). Posé seulement avec le profil
+         Developer ID qui l'autorise (build.sh) : sans lui, macOS tuerait
+         l'aide au lancement. -->
+    <key>com.apple.developer.hid.virtual.device</key>
+    <true/>
+    <key>com.apple.application-identifier</key>
+    <string>P6DB682S4K.fr.leslignesclaires.kybernow.station.gamepads</string>
+    <key>com.apple.developer.team-identifier</key>
+    <string>P6DB682S4K</string>
+</dict>
+</plist>

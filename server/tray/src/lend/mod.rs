@@ -17,11 +17,18 @@
 pub mod host;
 pub mod store;
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 pub mod agent;
 #[cfg(windows)]
 mod steam;
 #[cfg(windows)]
+mod system;
+// Station Mac : les mêmes fonctions, avec macOS (même agent, mêmes pages).
+#[cfg(target_os = "macos")]
+#[path = "steam_mac.rs"]
+mod steam;
+#[cfg(target_os = "macos")]
+#[path = "system_mac.rs"]
 mod system;
 
 use std::time::{Duration, Instant};
@@ -397,12 +404,12 @@ pub fn clock(lang: Lang, hour: u32, minute: u32) -> String {
 }
 
 /// L'heure de fin écrite (« 18 h ») d'un instant (secondes Unix), à l'heure du PC.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 pub fn clock_at(lang: Lang, unix: i64) -> Option<String> {
     system::local_clock(unix).map(|(h, m)| clock(lang, h, m))
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 pub fn unix_now() -> i64 {
     system::unix_now()
 }

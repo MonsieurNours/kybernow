@@ -651,6 +651,12 @@ pub fn agent_close(uri: Option<&str>, pid: Option<u32>, exe: Option<&str>) -> Re
     platform::agent_close(uri, pid, exe)
 }
 
+
+/// La session de l'utilisateur est-elle verrouillée ? (Prêt de l'ordinateur sur Mac.)
+pub fn platform_session_locked() -> bool {
+    platform::session_locked()
+}
+
 #[cfg(windows)]
 mod platform {
     //! Windows : agents avec le compte de l'utilisateur, API du shell.

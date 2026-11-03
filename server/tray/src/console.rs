@@ -28,6 +28,10 @@ fn env_dir(var: &str, fallback: &str) -> PathBuf {
 /// l'empreinte du mot de passe) est réservé à SYSTEM et aux administrateurs.
 /// Relu à chaque fois : une réinstallation peut changer le port ou le certificat.
 fn record() -> Option<Value> {
+    // Station Mac : `~/Library/Application Support/KyberNow/Station/kybernow.json`.
+    #[cfg(target_os = "macos")]
+    let json = env_dir("HOME", "/tmp").join("Library/Application Support/KyberNow/Station/kybernow.json");
+    #[cfg(not(target_os = "macos"))]
     let json = env_dir("ProgramFiles", r"C:\Program Files").join(r"KyberNow\kybernow.json");
     serde_json::from_slice(&std::fs::read(json).ok()?).ok()
 }
@@ -54,6 +58,10 @@ const LOCAL_HEADER: &str = "x-kyber-local";
 
 /// Jeton des routes locales, copié par la console dans le profil du compte.
 pub fn local_token_path() -> Option<PathBuf> {
+    // Station Mac : Admin tourne avec le compte de l'utilisateur, le jeton est dans ses données.
+    if cfg!(target_os = "macos") {
+        return std::env::var_os("HOME").map(|h| PathBuf::from(h).join("Library/Application Support/KyberNow/Station/admin/local-token"));
+    }
     std::env::var_os("LOCALAPPDATA").map(|dir| PathBuf::from(dir).join(r"KyberNow\local-token"))
 }
 

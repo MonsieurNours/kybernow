@@ -910,6 +910,7 @@ async fn stream_info(State(s): State<AppState>, headers: HeaderMap) -> ApiResult
     let available = display["driver"]["available"].as_bool().unwrap_or(false);
     let trigger = s.display.settings.lock().unwrap().trigger;
     let hdr = hdr_offer(&s, gpu.as_ref(), max_screens(available, trigger) > 1).await?;
+    let gamepads = tokio::task::spawn_blocking(crate::gamepads::info).await.unwrap_or(Value::Null);
     Ok(Json(json!({
         "hostname": crate::system::computer_name(),
         "os": crate::system::os_name(),
@@ -940,6 +941,8 @@ async fn stream_info(State(s): State<AppState>, headers: HeaderMap) -> ApiResult
         "lend": lend_api::info(&s),
         // HDR (docs/hdr.md) : `reason` dit pourquoi il n'est pas proposé.
         "hdr": hdr,
+        // Manettes (docs/station-macos.md) : `reason` dit pourquoi elles manquent.
+        "gamepads": gamepads,
     })))
 }
 

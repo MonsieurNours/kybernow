@@ -23,6 +23,12 @@
       "network.tray": {
         "label": "Icône de Kyber dans la barre des menus",
         "help": "Affiche l'état du serveur Kyber dans la barre des menus du Mac, à côté de l'icône KyberNow Station."
+      },
+      "input.gamepad_force_xbox360": {
+        "label": "Toutes les manettes en Xbox",
+        "help": "Présente chaque manette au Mac comme une manette Xbox sans fil.",
+        "details": "Par défaut, une manette PlayStation devient une DualSense sur le Mac, et toute autre manette une manette Xbox sans fil. Ce réglage fait passer toutes les manettes pour une manette Xbox, que certains jeux reconnaissent mieux.",
+        "advice": "Activez-le seulement si un jeu ne détecte pas votre manette."
       }
     }
   },
@@ -50,6 +56,12 @@
       "network.tray": {
         "label": "Kyber icon in the menu bar",
         "help": "Shows the Kyber server's state in the Mac's menu bar, next to the KyberNow Station icon."
+      },
+      "input.gamepad_force_xbox360": {
+        "label": "All gamepads as Xbox",
+        "help": "Presents every gamepad to the Mac as an Xbox Wireless Controller.",
+        "details": "By default, a PlayStation gamepad becomes a DualSense on the Mac, and any other gamepad an Xbox Wireless Controller. This setting makes every gamepad pass for an Xbox controller, which some games recognise better.",
+        "advice": "Turn it on only if a game does not detect your gamepad."
       }
     }
   }

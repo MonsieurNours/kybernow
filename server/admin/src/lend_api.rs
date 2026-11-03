@@ -425,7 +425,7 @@ async fn prepare(s: &AppState, loan: lend::Loan) -> bool {
         }
         *slot = watch;
     }
-    if cfg!(windows) {
+    if lend_sys::console_supported() {
         if !alive(s, &loan.id) {
             return abandoned(s, &loan.id);
         }
@@ -484,7 +484,7 @@ pub async fn finish(s: &AppState, id: &str, reason: Reason) {
     s.relay.revoke_guest(&loan.id);
     kyber_close(s, &loan).await;
     // L'agent de console se remet en état (apps fermées, Steam, fenêtres).
-    if cfg!(windows) && loan.console_ready {
+    if lend_sys::console_supported() && loan.console_ready {
         let deadline = tokio::time::Instant::now() + ENDED_WAIT;
         while tokio::time::Instant::now() < deadline && CONSOLE_ENDED.lock().unwrap().as_deref() != Some(loan.id.as_str()) {
             tokio::time::sleep(Duration::from_millis(250)).await;

@@ -1,0 +1,807 @@
+--- a/kynput/src/macos/mod.rs
++++ b/kynput/src/macos/mod.rs
+@@ -21,11 +21,13 @@
+ mod client_keyboard_mouse;
+ mod clipboard;
+ mod host_cursor;
++mod host_gamepad;
+ mod host_keyboard_mouse;
+ mod pipeline_config;
+ 
+ pub use client_keyboard_mouse::ClientKeyboardMouseHandler;
+ pub use clipboard::ClipboardHandler;
+ pub use host_cursor::HostCursorHandler;
++pub use host_gamepad::HostGamepadHandler;
+ pub use host_keyboard_mouse::HostKeyboardMouseHandler;
+ pub use pipeline_config::PipelineConfigBuilder;
+--- a/kynput/src/macos/pipeline_config.rs
++++ b/kynput/src/macos/pipeline_config.rs
+@@ -20,7 +20,9 @@
+ 
+ use std::sync::Arc;
+ 
+-use crate::macos::{ClientKeyboardMouseHandler, ClipboardHandler, HostCursorHandler, HostKeyboardMouseHandler};
++use crate::macos::{
++    ClientKeyboardMouseHandler, ClipboardHandler, HostCursorHandler, HostGamepadHandler, HostKeyboardMouseHandler,
++};
+ #[cfg(feature = "sdl2")]
+ use crate::sdl2::ClientGamepadHandler;
+ use crate::{
+@@ -42,6 +44,10 @@
+             Box::new(move |router| Ok(Arc::new(HostCursorHandler::new(router, cursor_config)?))),
+             Box::new(move |_router| Ok(Arc::new(HostKeyboardMouseHandler::new(host_config)?))),
+         ];
++        // KyberNow (0011) : les manettes, en manettes virtuelles du Mac
++        // (DualSense ou Xbox Series), comme ViGEmBus sous Windows.
++        let gamepad_force_xbox360 = service_config.gamepad_force_xbox360;
++        builders.push(Box::new(move |router| Ok(Arc::new(HostGamepadHandler::new(router, gamepad_force_xbox360)?))));
+         // KyberNow (0004) : le presse-papiers, avec les droits du service
+         // (copier depuis le Mac, coller dessus), comme sous Windows.
+         let (allow_copy, allow_paste) = (service_config.clipboard_allow_copy, service_config.clipboard_allow_paste);
+--- /dev/null
++++ b/kynput/src/macos/host_gamepad.rs
+@@ -0,0 +1,764 @@
++// Project Kyber: host_gamepad.rs
++// Copyright © 2022-2026 Kyber SAS
++// SPDX-License-Identifier: LicenseRef-Kyber-Commercial OR AGPL-3.0-or-later
++//
++// This file is both under dual license: AGPLv3 and a Commercial one.
++//
++// ----
++// This program is free software: you can redistribute it and/or modify
++// it under the terms of the GNU Affero General Public License as published by
++// the Free Software Foundation, either version 3 of the License, or
++// (at your option) any later version.
++//
++// This program is distributed in the hope that it will be useful,
++// but WITHOUT ANY WARRANTY; without even the implied warranty of
++// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++// GNU Affero General Public License for more details.
++//
++// You should have received a copy of the GNU Affero General Public License
++// along with this program.  If not, see <http://www.gnu.org/licenses/>.
++
++// KyberNow (0011) : les manettes de l'appareil deviennent des manettes
++// virtuelles du Mac, comme ViGEmBus sous Windows.
++//
++// - Manette Sony de l'appareil → DualSense (054C:0CE6, USB) ; toute autre, ou
++//   toutes avec `gamepad_force_xbox360`, → manette Xbox Series sans fil
++//   (045E:0B13, Bluetooth). macOS reconnaît ces deux modèles même virtuels
++//   (`GCIOMatchVirtual` dans AppleGameControllerPersonality.kext) : jeux
++//   GameController, SDL et Steam les voient comme les vraies.
++// - Les manettes sont créées par CoreHID (`HIDVirtualDevice`), qui n'a pas de
++//   pendant en C : l'aide « KyberNow Manettes » (Swift, server/macos/gamepads)
++//   les tient pour nous, lancée au premier branchement et pilotée par un tube
++//   (stdin/stdout). Elle porte le droit d'Apple
++//   `com.apple.developer.hid.virtual.device` ; sans lui, macOS refuse et le
++//   journal le dit.
++// - Ce module fabrique les rapports HID des vraies manettes (descripteurs
++//   relevés sur une DualSense CFI-ZCT1W et une manette Xbox Series, voir
++//   docs/station-macos.md) et lit leurs rapports de sortie pour renvoyer les
++//   vibrations à l'appareil, comme sous Windows (durée -1).
++
++use std::collections::HashMap;
++use std::io::{BufReader, Read, Write};
++use std::path::PathBuf;
++use std::process::{Child, ChildStdin, Command, Stdio};
++use std::sync::{Arc, Mutex, Weak};
++use std::thread;
++use std::time::{Duration, Instant};
++
++use log::{error, info, warn};
++
++use crate::pipeline::{InputConsumerHandle, InputHandler};
++use crate::utils::threaded_consumer::{ThreadedConsumer, ThreadedConsumerBackend};
++use crate::{
++    Error, GamepadAxis, GamepadButton, GamepadControl, GamepadEvent, InputConsumer, InputPacket, InputTarget,
++    InputType, Payload, Result,
++};
++
++/// Exécutable de l'aide, à côté de kynputserver dans l'app KyberNow Station ;
++/// `KYBERNOW_GAMEPADS_HELPER` le remplace (développement).
++const HELPER_ENV: &str = "KYBERNOW_GAMEPADS_HELPER";
++const HELPER_IN_APP: &str = "../Helpers/KyberNow Manettes.app/Contents/MacOS/kybernow-gamepads";
++/// Une aide morte n'est relancée qu'après ce délai (au branchement suivant).
++const HELPER_RETRY: Duration = Duration::from_secs(10);
++
++// Tube vers l'aide : [op u8][id u32 LE][longueur u32 LE][données].
++const OP_CREATE: u8 = 1;
++const OP_INPUT: u8 = 2;
++const OP_DESTROY: u8 = 3;
++// Et de l'aide vers nous.
++const OP_CREATED: u8 = 0x81;
++const OP_FAILED: u8 = 0x82;
++const OP_OUTPUT: u8 = 0x83;
++/// `OP_FAILED` : macOS a refusé la manette virtuelle (droit d'Apple absent).
++const FAILED_REFUSED: u8 = 1;
++
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++enum Model {
++    DualSense,
++    Xbox,
++}
++
++impl Model {
++    fn name(self) -> &'static str {
++        match self {
++            Model::DualSense => "DualSense",
++            Model::Xbox => "Xbox Series",
++        }
++    }
++
++    /// Message `OP_CREATE` : identité, descripteur et rapports de fonction.
++    fn create_payload(self, id: u32) -> Vec<u8> {
++        let (vid, pid, bluetooth, product, maker, descriptor, features): (u16, u16, bool, &str, &str, &[u8], &[&[u8]]) =
++            match self {
++                Model::DualSense => (
++                    0x054c,
++                    0x0ce6,
++                    false,
++                    "DualSense Wireless Controller",
++                    "Sony Interactive Entertainment",
++                    &DUALSENSE_DESCRIPTOR,
++                    &[&DUALSENSE_CALIBRATION, &DUALSENSE_PAIRING, &DUALSENSE_FIRMWARE],
++                ),
++                Model::Xbox => (0x045e, 0x0b13, true, "Xbox Wireless Controller", "Microsoft", &XBOX_DESCRIPTOR, &[]),
++            };
++        let mut p = Vec::with_capacity(512);
++        p.extend_from_slice(&vid.to_le_bytes());
++        p.extend_from_slice(&pid.to_le_bytes());
++        p.push(bluetooth as u8);
++        for s in [product, maker, &format!("KyberNow-{id}")] {
++            p.push(s.len() as u8);
++            p.extend_from_slice(s.as_bytes());
++        }
++        p.extend_from_slice(&(descriptor.len() as u16).to_le_bytes());
++        p.extend_from_slice(descriptor);
++        p.push(features.len() as u8);
++        for f in features {
++            p.push(f[0]);
++            p.extend_from_slice(&(f.len() as u16).to_le_bytes());
++            p.extend_from_slice(f);
++        }
++        p
++    }
++}
++
++/// État d'une manette, tel que l'appareil l'envoie (conventions de SDL :
++/// axes de -32768 à 32767, Y vers le bas, gâchettes de 0 à 32767).
++#[derive(Default)]
++struct PadState {
++    buttons: u16,
++    axes: [i16; 6],
++    seq: u8,
++}
++
++impl PadState {
++    fn pressed(&self, b: GamepadButton) -> bool {
++        self.buttons & (1 << b as u16) != 0
++    }
++
++    fn set(&mut self, b: GamepadButton, pressed: bool) {
++        if pressed {
++            self.buttons |= 1 << b as u16;
++        } else {
++            self.buttons &= !(1 << b as u16);
++        }
++    }
++
++    fn axis(&self, a: GamepadAxis) -> i16 {
++        self.axes[a as usize]
++    }
++
++    /// Croix directionnelle : 0 = haut, puis sens horaire (7 = haut-gauche),
++    /// `None` au repos ; haut et bas (ou gauche et droite) ensemble s'annulent.
++    fn hat(&self) -> Option<u8> {
++        let dy = self.pressed(GamepadButton::DPadDown) as i8 - self.pressed(GamepadButton::DPadUp) as i8;
++        let dx = self.pressed(GamepadButton::DPadRight) as i8 - self.pressed(GamepadButton::DPadLeft) as i8;
++        match (dx, dy) {
++            (0, -1) => Some(0),
++            (1, -1) => Some(1),
++            (1, 0) => Some(2),
++            (1, 1) => Some(3),
++            (0, 1) => Some(4),
++            (-1, 1) => Some(5),
++            (-1, 0) => Some(6),
++            (-1, -1) => Some(7),
++            _ => None,
++        }
++    }
++
++    fn stick8(v: i16) -> u8 {
++        ((v as i32 + 32768) >> 8) as u8
++    }
++
++    fn trigger(v: i16, max: u32) -> u32 {
++        v.max(0) as u32 * max / i16::MAX as u32
++    }
++
++    /// Rapport 0x01 d'une DualSense en USB (64 octets).
++    fn dualsense_report(&mut self, timestamp: u32) -> Vec<u8> {
++        use GamepadButton as B;
++        let mut r = vec![0u8; 64];
++        r[0] = 0x01;
++        r[1] = Self::stick8(self.axis(GamepadAxis::LeftX));
++        r[2] = Self::stick8(self.axis(GamepadAxis::LeftY));
++        r[3] = Self::stick8(self.axis(GamepadAxis::RightX));
++        r[4] = Self::stick8(self.axis(GamepadAxis::RightY));
++        let (l2, r2) = (
++            Self::trigger(self.axis(GamepadAxis::TriggerLeft), 255) as u8,
++            Self::trigger(self.axis(GamepadAxis::TriggerRight), 255) as u8,
++        );
++        r[5] = l2;
++        r[6] = r2;
++        self.seq = self.seq.wrapping_add(1);
++        r[7] = self.seq;
++        let bit = |b: GamepadButton, v: u8| if self.pressed(b) { v } else { 0 };
++        r[8] = self.hat().unwrap_or(8) | bit(B::X, 0x10) | bit(B::A, 0x20) | bit(B::B, 0x40) | bit(B::Y, 0x80);
++        r[9] = bit(B::LeftShoulder, 0x01)
++            | bit(B::RightShoulder, 0x02)
++            | if l2 > 0 { 0x04 } else { 0 }
++            | if r2 > 0 { 0x08 } else { 0 }
++            | bit(B::Back, 0x10)
++            | bit(B::Start, 0x20)
++            | bit(B::LeftStick, 0x40)
++            | bit(B::RightStick, 0x80);
++        r[10] = bit(B::Guide, 0x01);
++        r[28..32].copy_from_slice(&timestamp.to_le_bytes());
++        // Pavé tactile : deux points inactifs (bit haut levé).
++        r[33] = 0x80;
++        r[37] = 0x80;
++        // Batterie pleine, hors charge ; octet fixe 0x0C qui la suit.
++        r[53] = 0x2a;
++        r[54] = 0x0c;
++        r
++    }
++
++    /// Rapport 0x01 d'une manette Xbox Series en Bluetooth (17 octets).
++    fn xbox_report(&self) -> Vec<u8> {
++        use GamepadButton as B;
++        let mut r = vec![0u8; 17];
++        r[0] = 0x01;
++        let stick16 = |v: i16| ((v as i32 + 32768).min(65534) as u16).to_le_bytes();
++        r[1..3].copy_from_slice(&stick16(self.axis(GamepadAxis::LeftX)));
++        r[3..5].copy_from_slice(&stick16(self.axis(GamepadAxis::LeftY)));
++        r[5..7].copy_from_slice(&stick16(self.axis(GamepadAxis::RightX)));
++        r[7..9].copy_from_slice(&stick16(self.axis(GamepadAxis::RightY)));
++        r[9..11].copy_from_slice(&(Self::trigger(self.axis(GamepadAxis::TriggerLeft), 1023) as u16).to_le_bytes());
++        r[11..13].copy_from_slice(&(Self::trigger(self.axis(GamepadAxis::TriggerRight), 1023) as u16).to_le_bytes());
++        r[13] = self.hat().map_or(0, |h| h + 1);
++        let bit = |b: GamepadButton, v: u8| if self.pressed(b) { v } else { 0 };
++        r[14] = bit(B::A, 0x01)
++            | bit(B::B, 0x02)
++            | bit(B::X, 0x08)
++            | bit(B::Y, 0x10)
++            | bit(B::LeftShoulder, 0x40)
++            | bit(B::RightShoulder, 0x80);
++        r[15] = bit(B::Back, 0x04)
++            | bit(B::Start, 0x08)
++            | bit(B::Guide, 0x10)
++            | bit(B::LeftStick, 0x20)
++            | bit(B::RightStick, 0x40);
++        r
++    }
++}
++
++/// Vibration lue dans un rapport de sortie : (gros moteur, petit moteur),
++/// de 0 à 65535 ; `None` si le rapport ne parle pas de vibration.
++fn rumble_from_output(model: Model, report_id: u8, data: &[u8]) -> Option<(u16, u16)> {
++    // CoreHID peut donner le rapport avec ou sans son numéro en tête.
++    let body = |full: usize| -> Option<&[u8]> {
++        if data.len() >= full && data[0] == report_id {
++            Some(&data[1..])
++        } else if data.len() >= full - 1 {
++            Some(data)
++        } else {
++            None
++        }
++    };
++    match model {
++        // DualSense, rapport 0x02 (48 octets) : drapeaux, petit moteur, gros
++        // moteur ; la vibration ne compte que si l'un des deux bits de
++        // vibration est levé.
++        Model::DualSense if report_id == 0x02 => {
++            let b = body(48)?;
++            if b[0] & 0x03 == 0 {
++                return None;
++            }
++            let scale = |v: u8| (v as u32 * 65535 / 255) as u16;
++            Some((scale(b[3]), scale(b[2])))
++        }
++        // Xbox, rapport 0x03 (9 octets) : moteurs actifs (0x01 petit,
++        // 0x02 gros), gâchettes gauche et droite, gros, petit ; de 0 à 100.
++        Model::Xbox if report_id == 0x03 => {
++            let b = body(9)?;
++            let scale = |v: u8, on: bool| if on { (v.min(100) as u32 * 65535 / 100) as u16 } else { 0 };
++            Some((scale(b[3], b[0] & 0x02 != 0), scale(b[4], b[0] & 0x01 != 0)))
++        }
++        _ => None,
++    }
++}
++
++/// Manettes branchées, partagées avec le fil qui lit l'aide.
++struct Pads {
++    models: HashMap<u32, Model>,
++    /// Une vibration nulle n'est envoyée qu'après une vraie (comme sous Windows).
++    rumbled: HashMap<u32, bool>,
++}
++
++struct Helper {
++    child: Child,
++    stdin: ChildStdin,
++}
++
++impl Helper {
++    fn path() -> Option<PathBuf> {
++        if let Some(p) = std::env::var_os(HELPER_ENV) {
++            return Some(PathBuf::from(p));
++        }
++        let exe = std::env::current_exe().ok()?;
++        Some(exe.parent()?.join(HELPER_IN_APP))
++    }
++
++    fn spawn(pads: Arc<Mutex<Pads>>, consumer: Weak<dyn InputConsumer>) -> Result<Self> {
++        let path = Self::path().ok_or(Error::NotFound)?;
++        if !path.exists() {
++            warn!("Gamepads: helper not found at {} (KyberNow Manettes)", path.display());
++            return Err(Error::NotFound);
++        }
++        let mut child = Command::new(&path).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::inherit()).spawn()?;
++        let stdin = child.stdin.take().ok_or(Error::Rejected)?;
++        let stdout = child.stdout.take().ok_or(Error::Rejected)?;
++        info!("Gamepads: helper started ({})", path.display());
++        thread::Builder::new()
++            .name("kybernow-gamepads".into())
++            .spawn(move || read_helper(BufReader::new(stdout), pads, consumer))?;
++        Ok(Self { child, stdin })
++    }
++
++    fn send(&mut self, op: u8, id: u32, payload: &[u8]) -> std::io::Result<()> {
++        let mut frame = Vec::with_capacity(9 + payload.len());
++        frame.push(op);
++        frame.extend_from_slice(&id.to_le_bytes());
++        frame.extend_from_slice(&(payload.len() as u32).to_le_bytes());
++        frame.extend_from_slice(payload);
++        self.stdin.write_all(&frame)
++    }
++}
++
++impl Drop for Helper {
++    fn drop(&mut self) {
++        // Fin du tube : l'aide retire ses manettes et s'arrête.
++        let _ = self.stdin.flush();
++        let deadline = Instant::now() + Duration::from_secs(1);
++        loop {
++            match self.child.try_wait() {
++                Ok(Some(_)) => break,
++                Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(20)),
++                _ => {
++                    let _ = self.child.kill();
++                    let _ = self.child.wait();
++                    break;
++                }
++            }
++        }
++    }
++}
++
++/// Fil qui lit l'aide : création réussie ou refusée, rapports de sortie.
++fn read_helper(mut out: impl Read, pads: Arc<Mutex<Pads>>, consumer: Weak<dyn InputConsumer>) {
++    let mut head = [0u8; 9];
++    loop {
++        if out.read_exact(&mut head).is_err() {
++            info!("Gamepads: helper ended");
++            return;
++        }
++        let id = u32::from_le_bytes(head[1..5].try_into().unwrap());
++        let mut data = vec![0u8; u32::from_le_bytes(head[5..9].try_into().unwrap()) as usize];
++        if out.read_exact(&mut data).is_err() {
++            return;
++        }
++        match head[0] {
++            OP_CREATED => info!("Gamepads: virtual gamepad {id} ready"),
++            OP_FAILED if data.first() == Some(&FAILED_REFUSED) => error!(
++                "Gamepads: macOS refused virtual gamepad {id}: the helper lacks Apple's \
++                 com.apple.developer.hid.virtual.device entitlement (docs/station-macos.md)"
++            ),
++            OP_FAILED => error!("Gamepads: virtual gamepad {id} failed ({data:?})"),
++            OP_OUTPUT if data.len() >= 2 => {
++                // [type][numéro du rapport][octets]
++                let model = pads.lock().ok().and_then(|p| p.models.get(&id).copied());
++                let Some(model) = model else { continue };
++                let Some((large, small)) = rumble_from_output(model, data[1], &data[2..]) else { continue };
++                if let Ok(mut p) = pads.lock() {
++                    let rumbled = p.rumbled.entry(id).or_default();
++                    if large == 0 && small == 0 && !*rumbled {
++                        continue;
++                    }
++                    *rumbled = true;
++                }
++                if let Some(c) = consumer.upgrade() {
++                    let _ = c.consume(InputPacket::new(
++                        InputTarget::Client,
++                        Payload::GamepadEvent(GamepadEvent::Rumble {
++                            id,
++                            large_motor: large,
++                            small_motor: small,
++                            duration: -1,
++                        }),
++                    ));
++                }
++            }
++            _ => {}
++        }
++    }
++}
++
++struct Pad {
++    model: Model,
++    state: PadState,
++}
++
++struct Backend {
++    pads: Arc<Mutex<Pads>>,
++    devices: HashMap<u32, Pad>,
++    helper: Option<Helper>,
++    helper_failed: Option<Instant>,
++    consumer: Weak<dyn InputConsumer>,
++    force_xbox: bool,
++    started: Instant,
++}
++
++impl Backend {
++    fn create(consumer: Weak<dyn InputConsumer>, force_xbox: bool) -> Result<Box<dyn ThreadedConsumerBackend>> {
++        if force_xbox {
++            info!("Gamepads: every gamepad plugged as an Xbox controller");
++        }
++        Ok(Box::new(Self {
++            pads: Arc::new(Mutex::new(Pads { models: HashMap::new(), rumbled: HashMap::new() })),
++            devices: HashMap::new(),
++            helper: None,
++            helper_failed: None,
++            consumer,
++            force_xbox,
++            started: Instant::now(),
++        }))
++    }
++
++    /// Même choix que sous Windows : les manettes Sony (DS3, DS4, DualSense)
++    /// restent des PlayStation.
++    fn model_for(&self, vendor_id: Option<u16>, product_id: Option<u16>) -> Model {
++        const SONY: &[u16] = &[0x0268, 0x05c4, 0x0ba0, 0x09cc, 0x0ce6, 0x0df2];
++        match (vendor_id, product_id) {
++            (Some(0x054c), Some(p)) if !self.force_xbox && SONY.contains(&p) => Model::DualSense,
++            _ => Model::Xbox,
++        }
++    }
++
++    fn helper(&mut self) -> Result<&mut Helper> {
++        if self.helper.is_none() {
++            if self.helper_failed.is_some_and(|t| t.elapsed() < HELPER_RETRY) {
++                return Err(Error::Rejected);
++            }
++            match Helper::spawn(self.pads.clone(), self.consumer.clone()) {
++                Ok(h) => self.helper = Some(h),
++                Err(e) => {
++                    self.helper_failed = Some(Instant::now());
++                    return Err(e);
++                }
++            }
++        }
++        Ok(self.helper.as_mut().unwrap())
++    }
++
++    /// Message à l'aide ; une aide morte est oubliée (relancée plus tard).
++    fn send(&mut self, op: u8, id: u32, payload: &[u8]) -> Result<()> {
++        let ret = self.helper()?.send(op, id, payload);
++        if let Err(e) = ret {
++            warn!("Gamepads: helper unreachable ({e}), restarting it on the next plug");
++            self.helper = None;
++            self.helper_failed = Some(Instant::now());
++            return Err(e.into());
++        }
++        Ok(())
++    }
++
++    fn plug(&mut self, id: u32, vendor_id: Option<u16>, product_id: Option<u16>) -> Result<()> {
++        if self.devices.contains_key(&id) {
++            warn!("Gamepads: gamepad {id} already plugged");
++            return Err(Error::Rejected);
++        }
++        let model = self.model_for(vendor_id, product_id);
++        info!("Plug {} gamepad {id} (device {vendor_id:04x?}:{product_id:04x?})", model.name());
++        // Gardée même sans aide : ses événements sont alors ignorés sans
++        // bruit, et un branchement suivant qui relance l'aide la recrée.
++        if let Ok(mut p) = self.pads.lock() {
++            p.models.insert(id, model);
++            p.rumbled.remove(&id);
++        }
++        self.devices.insert(id, Pad { model, state: PadState::default() });
++        // Une aide (re)lancée n'a aucune manette : elle les reçoit toutes.
++        let fresh = self.helper.is_none();
++        if fresh {
++            let all: Vec<(u32, Model)> = self.devices.iter().map(|(i, p)| (*i, p.model)).collect();
++            for (i, m) in all {
++                self.send(OP_CREATE, i, &m.create_payload(i))?;
++                self.report(i)?;
++            }
++            Ok(())
++        } else {
++            self.send(OP_CREATE, id, &model.create_payload(id))?;
++            self.report(id)
++        }
++    }
++
++    fn unplug(&mut self, id: u32) -> Result<()> {
++        info!("Unplug gamepad {id}");
++        if self.devices.remove(&id).is_none() {
++            warn!("Gamepads: unplug of unknown gamepad {id}");
++            return Err(Error::Rejected);
++        }
++        if let Ok(mut p) = self.pads.lock() {
++            p.models.remove(&id);
++            p.rumbled.remove(&id);
++        }
++        if self.helper.is_some() {
++            self.send(OP_DESTROY, id, &[])?;
++        }
++        Ok(())
++    }
++
++    fn report(&mut self, id: u32) -> Result<()> {
++        // Pas d'aide (absente, ou morte et pas encore relancée) : rien à dire.
++        if self.helper.is_none() {
++            return Ok(());
++        }
++        // Horodatage des capteurs de la DualSense : en tiers de microseconde.
++        let timestamp = (self.started.elapsed().as_micros() as u64 * 3) as u32;
++        let report = match self.devices.get_mut(&id) {
++            Some(Pad { model: Model::DualSense, state }) => state.dualsense_report(timestamp),
++            Some(Pad { model: Model::Xbox, state }) => state.xbox_report(),
++            None => {
++                warn!("Gamepads: event for unknown gamepad {id}");
++                return Err(Error::Rejected);
++            }
++        };
++        self.send(OP_INPUT, id, &report)
++    }
++
++    fn handle_event(&mut self, event: &GamepadEvent) -> Result<()> {
++        match *event {
++            GamepadEvent::Button { id, type_, pressed } => {
++                if let Some(pad) = self.devices.get_mut(&id) {
++                    pad.state.set(type_, pressed);
++                }
++                self.report(id)
++            }
++            GamepadEvent::Axis { id, type_, value } => {
++                if let Some(pad) = self.devices.get_mut(&id) {
++                    pad.state.axes[type_ as usize] = value;
++                }
++                self.report(id)
++            }
++            GamepadEvent::Rumble { .. } => {
++                warn!("Unexpected Rumble on Host side");
++                Err(Error::Rejected)
++            }
++        }
++    }
++}
++
++impl ThreadedConsumerBackend for Backend {
++    fn on_packet(&mut self, pkt: InputPacket) -> Result<()> {
++        let ret = match pkt.payload {
++            Payload::GamepadControl(GamepadControl::Plug { id, vendor_id, product_id }) => {
++                self.plug(id, vendor_id, product_id)
++            }
++            Payload::GamepadControl(GamepadControl::Unplug { id }) => self.unplug(id),
++            Payload::GamepadEvent(ref event) => self.handle_event(event),
++            _ => {
++                error!("Unexpected packet type {:?}", pkt.get_type());
++                return Err(Error::InvalidType);
++            }
++        };
++        if let Err(err) = ret {
++            error!("Processing of Gamepad packet failed: {err:?}");
++        }
++        Ok(())
++    }
++}
++
++pub struct HostGamepadHandler {
++    handler: ThreadedConsumer,
++}
++
++impl HostGamepadHandler {
++    pub fn new(consumer: Weak<dyn InputConsumer>, gamepad_force_xbox360: bool) -> Result<Self> {
++        let builder = Box::new(move || Backend::create(consumer, gamepad_force_xbox360));
++        Ok(Self { handler: ThreadedConsumer::new("HostGamepadHandler", builder) })
++    }
++}
++
++impl InputConsumer for HostGamepadHandler {
++    fn consume(&self, pkt: InputPacket) -> Result<()> {
++        self.handler.consume(pkt)
++    }
++}
++
++impl InputHandler for HostGamepadHandler {
++    fn start(self: Arc<Self>) -> Result<()> {
++        Ok(())
++    }
++
++    fn stop(self: Arc<Self>) -> Result<()> {
++        self.handler.stop()
++    }
++
++    fn to_consumer(self: Arc<Self>) -> Option<InputConsumerHandle> {
++        Some(InputConsumerHandle { consumer: self, handled_types: vec![InputType::GamepadControl, InputType::GamepadEvent] })
++    }
++}
++
++// Descripteur d'une DualSense en USB (CFI-ZCT1W, 273 octets), relevé par
++// github.com/nondebug/dualsense.
++const DUALSENSE_DESCRIPTOR: [u8; 273] = [
++    0x05, 0x01, 0x09, 0x05, 0xa1, 0x01, 0x85, 0x01, 0x09, 0x30, 0x09, 0x31, 0x09, 0x32, 0x09, 0x35,
++    0x09, 0x33, 0x09, 0x34, 0x15, 0x00, 0x26, 0xff, 0x00, 0x75, 0x08, 0x95, 0x06, 0x81, 0x02, 0x06,
++    0x00, 0xff, 0x09, 0x20, 0x95, 0x01, 0x81, 0x02, 0x05, 0x01, 0x09, 0x39, 0x15, 0x00, 0x25, 0x07,
++    0x35, 0x00, 0x46, 0x3b, 0x01, 0x65, 0x14, 0x75, 0x04, 0x95, 0x01, 0x81, 0x42, 0x65, 0x00, 0x05,
++    0x09, 0x19, 0x01, 0x29, 0x0f, 0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95, 0x0f, 0x81, 0x02, 0x06,
++    0x00, 0xff, 0x09, 0x21, 0x95, 0x0d, 0x81, 0x02, 0x06, 0x00, 0xff, 0x09, 0x22, 0x15, 0x00, 0x26,
++    0xff, 0x00, 0x75, 0x08, 0x95, 0x34, 0x81, 0x02, 0x85, 0x02, 0x09, 0x23, 0x95, 0x2f, 0x91, 0x02,
++    0x85, 0x05, 0x09, 0x33, 0x95, 0x28, 0xb1, 0x02, 0x85, 0x08, 0x09, 0x34, 0x95, 0x2f, 0xb1, 0x02,
++    0x85, 0x09, 0x09, 0x24, 0x95, 0x13, 0xb1, 0x02, 0x85, 0x0a, 0x09, 0x25, 0x95, 0x1a, 0xb1, 0x02,
++    0x85, 0x20, 0x09, 0x26, 0x95, 0x3f, 0xb1, 0x02, 0x85, 0x21, 0x09, 0x27, 0x95, 0x04, 0xb1, 0x02,
++    0x85, 0x22, 0x09, 0x40, 0x95, 0x3f, 0xb1, 0x02, 0x85, 0x80, 0x09, 0x28, 0x95, 0x3f, 0xb1, 0x02,
++    0x85, 0x81, 0x09, 0x29, 0x95, 0x3f, 0xb1, 0x02, 0x85, 0x82, 0x09, 0x2a, 0x95, 0x09, 0xb1, 0x02,
++    0x85, 0x83, 0x09, 0x2b, 0x95, 0x3f, 0xb1, 0x02, 0x85, 0x84, 0x09, 0x2c, 0x95, 0x3f, 0xb1, 0x02,
++    0x85, 0x85, 0x09, 0x2d, 0x95, 0x02, 0xb1, 0x02, 0x85, 0xa0, 0x09, 0x2e, 0x95, 0x01, 0xb1, 0x02,
++    0x85, 0xe0, 0x09, 0x2f, 0x95, 0x3f, 0xb1, 0x02, 0x85, 0xf0, 0x09, 0x30, 0x95, 0x3f, 0xb1, 0x02,
++    0x85, 0xf1, 0x09, 0x31, 0x95, 0x3f, 0xb1, 0x02, 0x85, 0xf2, 0x09, 0x32, 0x95, 0x0f, 0xb1, 0x02,
++    0x85, 0xf4, 0x09, 0x35, 0x95, 0x3f, 0xb1, 0x02, 0x85, 0xf5, 0x09, 0x36, 0x95, 0x03, 0xb1, 0x02,
++    0xc0,
++];
++
++// Rapports de fonction que lisent SDL et GameController à l'ouverture d'une
++// DualSense : calibrage des capteurs (0x05), appairage (0x09), micrologiciel
++// (0x20). Valeurs d'inputtino (github.com/games-on-whales/inputtino, MIT).
++const DUALSENSE_CALIBRATION: [u8; 41] = [
++    0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x27, 0xf0, 0xd8, 0x10, 0x27, 0xf0, 0xd8, 0x10,
++    0x27, 0xf0, 0xd8, 0xf4, 0x01, 0xf4, 0x01, 0x10, 0x27, 0xf0, 0xd8, 0x10, 0x27, 0xf0, 0xd8, 0x10,
++    0x27, 0xf0, 0xd8, 0x0b, 0x00, 0x00, 0x00, 0x00, 0x00,
++];
++const DUALSENSE_PAIRING: [u8; 20] = [
++    0x09, 0x74, 0xe7, 0xd6, 0x3a, 0x53, 0x35, 0x08, 0x25, 0x00, 0x1e, 0x00, 0xee, 0x74, 0xd0, 0xbc,
++    0x00, 0x00, 0x00, 0x00,
++];
++const DUALSENSE_FIRMWARE: [u8; 64] = [
++    0x20, 0x4a, 0x75, 0x6e, 0x20, 0x31, 0x39, 0x20, 0x32, 0x30, 0x32, 0x33, 0x31, 0x34, 0x3a, 0x34,
++    0x37, 0x3a, 0x33, 0x34, 0x03, 0x00, 0x44, 0x00, 0x08, 0x02, 0x00, 0x01, 0x36, 0x00, 0x00, 0x01,
++    0xc1, 0xc8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x54, 0x01, 0x00, 0x00,
++    0x14, 0x00, 0x00, 0x00, 0x0b, 0x00, 0x01, 0x00, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++];
++
++// Descripteur d'une manette Xbox Series en Bluetooth (micrologiciel 5,
++// 283 octets), relevé par github.com/atar-axis/xpadneo (docs/descriptors).
++const XBOX_DESCRIPTOR: [u8; 283] = [
++    0x05, 0x01, 0x09, 0x05, 0xa1, 0x01, 0x85, 0x01, 0x09, 0x01, 0xa1, 0x00, 0x09, 0x30, 0x09, 0x31,
++    0x15, 0x00, 0x27, 0xff, 0xff, 0x00, 0x00, 0x95, 0x02, 0x75, 0x10, 0x81, 0x02, 0xc0, 0x09, 0x01,
++    0xa1, 0x00, 0x09, 0x32, 0x09, 0x35, 0x15, 0x00, 0x27, 0xff, 0xff, 0x00, 0x00, 0x95, 0x02, 0x75,
++    0x10, 0x81, 0x02, 0xc0, 0x05, 0x02, 0x09, 0xc5, 0x15, 0x00, 0x26, 0xff, 0x03, 0x95, 0x01, 0x75,
++    0x0a, 0x81, 0x02, 0x15, 0x00, 0x25, 0x00, 0x75, 0x06, 0x95, 0x01, 0x81, 0x03, 0x05, 0x02, 0x09,
++    0xc4, 0x15, 0x00, 0x26, 0xff, 0x03, 0x95, 0x01, 0x75, 0x0a, 0x81, 0x02, 0x15, 0x00, 0x25, 0x00,
++    0x75, 0x06, 0x95, 0x01, 0x81, 0x03, 0x05, 0x01, 0x09, 0x39, 0x15, 0x01, 0x25, 0x08, 0x35, 0x00,
++    0x46, 0x3b, 0x01, 0x66, 0x14, 0x00, 0x75, 0x04, 0x95, 0x01, 0x81, 0x42, 0x75, 0x04, 0x95, 0x01,
++    0x15, 0x00, 0x25, 0x00, 0x35, 0x00, 0x45, 0x00, 0x65, 0x00, 0x81, 0x03, 0x05, 0x09, 0x19, 0x01,
++    0x29, 0x0f, 0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95, 0x0f, 0x81, 0x02, 0x15, 0x00, 0x25, 0x00,
++    0x75, 0x01, 0x95, 0x01, 0x81, 0x03, 0x05, 0x0c, 0x0a, 0xb2, 0x00, 0x15, 0x00, 0x25, 0x01, 0x95,
++    0x01, 0x75, 0x01, 0x81, 0x02, 0x15, 0x00, 0x25, 0x00, 0x75, 0x07, 0x95, 0x01, 0x81, 0x03, 0x05,
++    0x0f, 0x09, 0x21, 0x85, 0x03, 0xa1, 0x02, 0x09, 0x97, 0x15, 0x00, 0x25, 0x01, 0x75, 0x04, 0x95,
++    0x01, 0x91, 0x02, 0x15, 0x00, 0x25, 0x00, 0x75, 0x04, 0x95, 0x01, 0x91, 0x03, 0x09, 0x70, 0x15,
++    0x00, 0x25, 0x64, 0x75, 0x08, 0x95, 0x04, 0x91, 0x02, 0x09, 0x50, 0x66, 0x01, 0x10, 0x55, 0x0e,
++    0x15, 0x00, 0x26, 0xff, 0x00, 0x75, 0x08, 0x95, 0x01, 0x91, 0x02, 0x09, 0xa7, 0x15, 0x00, 0x26,
++    0xff, 0x00, 0x75, 0x08, 0x95, 0x01, 0x91, 0x02, 0x65, 0x00, 0x55, 0x00, 0x09, 0x7c, 0x15, 0x00,
++    0x26, 0xff, 0x00, 0x75, 0x08, 0x95, 0x01, 0x91, 0x02, 0xc0, 0xc0,
++];
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn pad(buttons: &[GamepadButton]) -> PadState {
++        let mut s = PadState::default();
++        for b in buttons {
++            s.set(*b, true);
++        }
++        s
++    }
++
++    #[test]
++    fn dualsense_at_rest() {
++        let r = PadState::default().dualsense_report(0);
++        assert_eq!(r.len(), 64);
++        assert_eq!(&r[..7], &[0x01, 0x80, 0x80, 0x80, 0x80, 0, 0]);
++        assert_eq!(r[8], 0x08, "croix au repos");
++        assert_eq!((r[9], r[10]), (0, 0));
++        assert_eq!((r[33], r[37]), (0x80, 0x80), "pavé tactile non touché");
++    }
++
++    #[test]
++    fn dualsense_buttons_and_axes() {
++        use GamepadButton as B;
++        let mut s = pad(&[B::A, B::Y, B::DPadUp, B::DPadRight, B::Start, B::Guide, B::RightStick]);
++        s.axes[GamepadAxis::LeftX as usize] = i16::MIN;
++        s.axes[GamepadAxis::LeftY as usize] = i16::MAX;
++        s.axes[GamepadAxis::TriggerRight as usize] = i16::MAX;
++        let r = s.dualsense_report(0);
++        assert_eq!((r[1], r[2]), (0x00, 0xff));
++        assert_eq!(r[6], 0xff);
++        assert_eq!(r[8], 0x01 | 0x20 | 0x80, "haut-droite, croix, triangle");
++        assert_eq!(r[9], 0x08 | 0x20 | 0x80, "R2, Options, R3");
++        assert_eq!(r[10], 0x01, "PS");
++        assert_eq!(s.dualsense_report(0)[7], r[7].wrapping_add(1), "numéro de rapport");
++    }
++
++    #[test]
++    fn xbox_report_layout() {
++        use GamepadButton as B;
++        let r = PadState::default().xbox_report();
++        assert_eq!(r.len(), 17);
++        assert_eq!(&r[1..3], &0x8000u16.to_le_bytes());
++        assert_eq!(r[13], 0, "croix au repos");
++        let mut s = pad(&[B::B, B::LeftShoulder, B::Back, B::Start, B::Guide, B::LeftStick, B::DPadLeft]);
++        s.axes[GamepadAxis::RightY as usize] = i16::MAX;
++        s.axes[GamepadAxis::TriggerLeft as usize] = i16::MAX;
++        let r = s.xbox_report();
++        assert_eq!(&r[7..9], &65534u16.to_le_bytes());
++        assert_eq!(&r[9..11], &1023u16.to_le_bytes());
++        assert_eq!(r[13], 7, "gauche");
++        assert_eq!(r[14], 0x02 | 0x40);
++        assert_eq!(r[15], 0x04 | 0x08 | 0x10 | 0x20);
++    }
++
++    #[test]
++    fn opposite_directions_cancel() {
++        use GamepadButton as B;
++        assert_eq!(pad(&[B::DPadUp, B::DPadDown]).hat(), None);
++        assert_eq!(pad(&[B::DPadDown, B::DPadLeft]).hat(), Some(5));
++    }
++
++    #[test]
++    fn model_choice() {
++        let mut b = Backend { pads: Arc::new(Mutex::new(Pads { models: HashMap::new(), rumbled: HashMap::new() })), devices: HashMap::new(), helper: None, helper_failed: None, consumer: Weak::<HostGamepadHandler>::new(), force_xbox: false, started: Instant::now() };
++        assert_eq!(b.model_for(Some(0x054c), Some(0x0ce6)), Model::DualSense);
++        assert_eq!(b.model_for(Some(0x054c), Some(0x05c4)), Model::DualSense);
++        assert_eq!(b.model_for(Some(0x045e), Some(0x0b13)), Model::Xbox);
++        assert_eq!(b.model_for(None, None), Model::Xbox);
++        b.force_xbox = true;
++        assert_eq!(b.model_for(Some(0x054c), Some(0x0ce6)), Model::Xbox);
++    }
++
++    #[test]
++    fn rumble_reports() {
++        let mut ds = vec![0u8; 48];
++        ds[0] = 0x02;
++        ds[1] = 0x03;
++        ds[3] = 0x40; // petit moteur
++        ds[4] = 0xff; // gros moteur
++        assert_eq!(rumble_from_output(Model::DualSense, 0x02, &ds), Some((65535, 0x40 * 257)));
++        assert_eq!(rumble_from_output(Model::DualSense, 0x02, &ds[1..]), Some((65535, 0x40 * 257)));
++        ds[1] = 0x04; // effet de gâchette seulement
++        assert_eq!(rumble_from_output(Model::DualSense, 0x02, &ds), None);
++        let xb = [0x03, 0x03, 0, 0, 100, 50, 0xff, 0, 0xeb];
++        assert_eq!(rumble_from_output(Model::Xbox, 0x03, &xb), Some((65535, 32767)));
++        let xb = [0x03, 0x02, 0, 0, 100, 50, 0xff, 0, 0xeb];
++        assert_eq!(rumble_from_output(Model::Xbox, 0x03, &xb), Some((65535, 0)));
++        assert_eq!(rumble_from_output(Model::Xbox, 0x05, &xb), None);
++    }
++
++    #[test]
++    fn descriptors() {
++        assert_eq!(DUALSENSE_DESCRIPTOR.len(), 273);
++        assert_eq!(XBOX_DESCRIPTOR.len(), 283);
++        let p = Model::DualSense.create_payload(3);
++        assert_eq!(&p[..5], &[0x4c, 0x05, 0xe6, 0x0c, 0]);
++        assert_eq!(*p.last().unwrap(), 0x00, "fin du rapport 0x20");
++    }
++}
