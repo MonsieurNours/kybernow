@@ -59,7 +59,7 @@
    "name": "Pourquoi KyberNow est-il en bêta ?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "KyberNow n'a pas encore atteint la version 1.0. Nous l'utilisons déjà tous les jours, mais il reste des défauts, et des réglages ou des fonctions peuvent encore changer d'une version à l'autre. Certaines apps n'ont pas encore tourné sur du vrai matériel : celles du Steam Deck et du Raspberry Pi, et l'app Linux, essayée seulement en machine virtuelle. Le partage et le relais, nouveaux, n'ont pas encore été essayés sur tous les appareils. Gardez la Station et vos apps à jour, et signalez les problèmes sur GitHub ou sur Discord."
+    "text": "KyberNow n'a pas encore atteint la version 1.0. Nous l'utilisons déjà tous les jours, mais il reste des défauts, et des réglages ou des fonctions peuvent encore changer d'une version à l'autre. Certaines apps n'ont pas encore tourné sur du vrai matériel : celles du Steam Deck et du Raspberry Pi, et l'app Linux, essayée seulement en machine virtuelle. Les fonctions les plus récentes, le HDR, la Station pour Mac et les consoles PlayStation, ont moins de recul que les autres. Gardez la Station et vos apps à jour, et signalez les problèmes sur GitHub ou sur Discord."
    }
   },
   {
@@ -67,7 +67,7 @@
    "name": "KyberNow peut-il remplacer Sunshine et Moonlight ?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "Pour beaucoup d'usages, oui. Comme eux, KyberNow affiche votre PC sur vos autres appareils, pour jouer ou pour travailler, dans une app ou dans le navigateur. Il repose sur le moteur Kyber plutôt que sur le protocole GameStream. L'image est toujours chiffrée, l'écran virtuel à la taille de l'appareil est inclus, et la plupart des appareils se connectent quand vous acceptez leur code dans Admin, sans rien recopier. Il lui manque encore le HDR. Le détail est dans la comparaison."
+    "text": "Pour beaucoup d'usages, oui. Comme eux, KyberNow affiche votre PC sur vos autres appareils, pour jouer ou pour travailler, dans une app ou dans le navigateur. Il repose sur le moteur Kyber plutôt que sur le protocole GameStream. L'image est toujours chiffrée, l'écran virtuel à la taille de l'appareil est inclus, et la plupart des appareils se connectent quand vous acceptez leur code dans Admin, sans rien recopier. Le détail est dans la comparaison."
    }
   },
   {
@@ -139,7 +139,7 @@
    "name": "KyberNow gère-t-il le HDR ?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "Pas encore : le moteur Kyber 0.29 capture l'écran en 8 bits. Gardez le HDR de Windows désactivé pendant les sessions."
+    "text": "Oui, sur Mac, iPhone, iPad, Apple TV et téléviseurs LG. Sur un écran HDR, une puce « HDR » apparaît sur la carte de l'ordinateur, allumée d'office, et les jeux arrivent avec leurs couleurs et leurs lumières. Sur le PC, il faut Windows 11 24H2 et une carte graphique qui encode en 10 bits."
    }
   },
   {
@@ -256,10 +256,34 @@
   },
   {
    "@type": "Question",
+   "name": "KyberNow Station fonctionne-t-elle sur un Mac ?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Oui, sur un Mac à puce Apple sous macOS 15 ou plus récent. Le Mac devient une Station comme un PC Windows : même Admin, écran virtuel à la taille de chaque appareil, sortie son, partage, prêt et HDR."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Puis-je prêter mon ordinateur à un ami ?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Oui : avec un code pour une séance, ou un compte que vous lui créez dans Admin, votre ami joue ou travaille depuis son appareil pendant que vous ne vous servez pas de l'ordinateur, avec les apps que vous permettez."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Puis-je jouer à ma PlayStation avec KyberNow ?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Oui. Une PS5 ou une PS4 de la maison apparaît à l'accueil de KyberNow Link, à côté de vos ordinateurs ; vous l'associez une fois avec le code qu'elle affiche, puis « Jouer »."
+   }
+  },
+  {
+   "@type": "Question",
    "name": "Quelles données KyberNow collecte-t-il ?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "Pas de statistiques d'usage, et chez vous rien n'est envoyé à un serveur à nous : l'image va directement de votre PC à vos appareils. Si vous partagez avec quelqu'un de loin ou allumez « Accès hors de chez vous », la connexion passe par le relais de KyberNow, qui garde les adresses IP dans ses journaux quelques jours, jamais les codes de partage. Les autres connexions vers l'extérieur servent à chercher les mises à jour (sur GitHub, et sur kybernow.app pour l'app Mac) et, entre vos appareils Apple, à synchroniser par iCloud vos ordinateurs et vos mots de passe, ce que vous pouvez couper."
+    "text": "Pas de statistiques d'usage, et chez vous rien n'est envoyé à un serveur à nous : l'image va directement de votre ordinateur à vos appareils. Si vous partagez avec quelqu'un de loin ou allumez « Accès hors de chez vous », la connexion passe par le relais de KyberNow, qui garde les adresses IP dans ses journaux quelques jours, jamais les codes de partage. Les autres connexions vers l'extérieur servent à chercher les mises à jour (sur GitHub, et sur kybernow.app pour l'app Mac) et, entre vos appareils Apple, à synchroniser par iCloud vos ordinateurs et vos mots de passe, ce que vous pouvez couper."
    }
   }
  ]
@@ -276,6 +300,7 @@
   <nav class="nav-links" aria-label="Sections">
     <a href="/#appareils">Usages</a>
     <a href="/#apps">Les apps</a>
+    <a href="/share/">Share</a>
     <a href="/technologie/">Technologie</a>
     <a href="/technologie/#comparer">Comparer</a>
     <a href="/guide/">Guide</a>
@@ -292,6 +317,7 @@
     <a href="/#presentation">La vidéo</a>
     <a href="/#appareils">Usages</a>
     <a href="/#apps">Les apps</a>
+    <a href="/share/">Share</a>
     <a href="/technologie/">Technologie</a>
     <a href="/technologie/#comparer">Comparer</a>
     <a href="/guide/">Guide et FAQ</a>
@@ -309,7 +335,7 @@
   <div class="wrap">
     <p class="label" data-reveal>Guide et FAQ</p>
     <h1 class="title page-title" data-split>Installer KyberNow, <strong>pas à pas.</strong></h1>
-    <p class="lede" data-reveal style="--d:.3s">Vous installez KyberNow Station sur le PC Windows à partager, puis l'app KyberNow Link sur chacun de vos appareils. Comptez trois minutes pour le PC, et pour un appareil, d'une minute à un quart d'heure selon le modèle.</p>
+    <p class="lede" data-reveal style="--d:.3s">Vous installez KyberNow Station sur l'ordinateur à partager, PC Windows ou Mac, puis l'app KyberNow Link sur chacun de vos appareils. Comptez trois minutes pour l'ordinateur, et pour un appareil, d'une minute à un quart d'heure selon le modèle.</p>
     <ol class="quick" data-reveal style="--d:.45s">
       <li><a href="#serveur"><span>1</span>Installer KyberNow Station</a></li>
       <li><a href="#appareil"><span>2</span>Connecter un appareil</a></li>
@@ -325,7 +351,9 @@
     <a href="#serveur">1 · KyberNow Station</a>
     <a href="#appareil">2 · Connecter un appareil</a>
     <a href="#session">3 · Pendant la session</a>
+    <a href="#playstation">Jouer à votre PlayStation</a>
     <a href="#partage">Partager avec quelqu'un</a>
+    <a href="#pret">Prêter votre ordinateur</a>
     <a href="#distance">Hors de chez vous</a>
     <a href="#relais">Installer votre propre relais</a>
     <a href="#mises-a-jour">Mettre à jour</a>
@@ -340,12 +368,13 @@
       <div class="req">
         <div class="req-card">
           <img class="req-logo" src="/assets/img/kybernow-station-dark.svg" alt="KyberNow Station" width="196" height="36">
-          <h3>Le PC à partager</h3>
+          <h3>L'ordinateur à partager</h3>
           <ul class="ticks ticks-on">
-            <li>Windows 10 ou 11, et un compte avec les droits d'administrateur</li>
+            <li>Un PC sous Windows 10 ou 11, avec un compte administrateur, ou un Mac à puce Apple (M1 ou plus récent) sous macOS 15 ou plus récent</li>
             <li>Une carte graphique NVIDIA, AMD ou Intel, même externe (eGPU). Sans carte graphique, c'est le processeur qui compresse l'image, et l'installateur vous en avertit</li>
             <li>Microsoft Edge WebView2, déjà présent sur Windows 11 et la plupart des Windows 10. S'il manque, l'installateur vous le dit et ouvre la page de Microsoft pour le télécharger</li>
-            <li>Steam, pour que le son parte vers vos appareils. Sans Steam, le son sort aussi des haut-parleurs du PC</li>
+            <li>Sur le PC, Steam, pour que le son parte vers vos appareils. Sans Steam, le son sort aussi des haut-parleurs du PC. Sur un Mac, rien à ajouter&#8239;: la Station installe sa propre sortie son</li>
+            <li>Pour le HDR, Windows 11 24H2 et une carte graphique qui encode en 10&nbsp;bits (HEVC ou AV1)&#8239;; sur un Mac, la puce Apple suffit</li>
           </ul>
         </div>
         <div class="req-card">
@@ -361,7 +390,8 @@
             <li>Un PC sous Linux avec Flatpak (x86_64 ou ARM), un Steam Deck, ou une Steam Machine ou un PC sous SteamOS</li>
             <li>Un Raspberry Pi 3, 4 ou 5, avec une carte microSD de 8&nbsp;Go au moins pour KyberNow Link OS</li>
             <li>Sinon, un navigateur récent, sur n'importe quel appareil&#8239;: Chrome ou Edge de préférence, Safari ou Firefox aussi</li>
-            <li>Pour l'ajouter, l'appareil doit être sur le même réseau que le PC, ou relié à lui par un VPN. Hors de chez vous, il peut ensuite passer par le relais de KyberNow</li>
+            <li>Pour l'ajouter, l'appareil doit être sur le même réseau que l'ordinateur, ou relié à lui par un VPN. Hors de chez vous, il peut ensuite passer par le relais de KyberNow</li>
+            <li>Pour jouer à votre console, une PS5 ou une PS4 sur le même réseau que l'appareil</li>
           </ul>
         </div>
       </div>
@@ -394,7 +424,17 @@
         </li>
       </ol>
       <p class="callout"><svg class="ic"><use href="/assets/icons.svg#shield-check"/></svg><span>La première fois que vous ouvrez Admin, le navigateur affiche un avertissement de sécurité. C'est normal&#8239;: la Station chiffre la connexion avec un certificat qu'elle a créé elle-même, et que le navigateur ne connaît pas. Acceptez-le pour continuer. Les apps KyberNow Link, elles, reconnaissent ce certificat à son empreinte.</span></p>
-      <p>Une icône KyberNow Station apparaît près de l'horloge de Windows. Sa pastille est verte quand la Station est en marche, violette pendant une session. Un clic ouvre un panneau avec l'état de la Station et l'accès à Admin&#8239;; un clic droit, un menu avec les mêmes actions. Admin, l'administration de la Station dans le navigateur, compte cinq espaces&#8239;: <b>Vue d'ensemble</b>, <b>Image et son</b>, <b>Appareils Link</b>, <b>Utilisateurs</b> et <b>Système</b>.</p>
+      <p>Une icône KyberNow Station apparaît près de l'horloge de Windows. Sa pastille est verte quand la Station est en marche, violette pendant une session. Un clic ouvre un panneau avec l'état de la Station et l'accès à Admin&#8239;; un clic droit, un menu avec les mêmes actions. Admin, l'administration de la Station dans le navigateur, compte cinq espaces&#8239;: <b>Vue d'ensemble</b>, <b>Image et son</b>, <b>Appareils Link</b>, <b>Utilisateurs</b> et <b>Système</b>, plus la page <b>Prêt</b>.</p>
+      <h3 class="sub" id="serveur-mac">Sur un Mac</h3>
+      <p>Sur le Mac à partager, téléchargez <a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Station-Mac.dmg">KyberNow-Station-Mac.dmg</a>, ouvrez-le et lancez «&#8239;Installer KyberNow Station&#8239;». L'app est signée et notarisée par Apple&#8239;: macOS l'ouvre sans avertissement. Les écrans sont les mêmes que sous Windows, avec une étape en plus.</p>
+      <ol class="steps-doc">
+        <li><p><b>Bienvenue et votre compte</b>&#8239;: l'installateur examine le Mac (puce, écrans, réseau, ports), puis vous choisissez l'identifiant et le mot de passe d'Admin, comme sur un PC.</p></li>
+        <li><p><b>Mot de passe du Mac</b>&#8239;: macOS le demande une fois, pour copier l'app dans Applications, installer la sortie son KyberNow, ouvrir le pare-feu s'il est allumé et permettre le réveil par le réseau.</p></li>
+        <li><p><b>Autorisations</b>&#8239;: macOS en demande trois à «&#8239;KyberNow Station&#8239;», et l'installateur coche chaque ligne quand elle est donnée. <b>Enregistrement de l'écran</b>, pour capturer l'image. <b>Accessibilité</b>, pour que vos appareils tapent et cliquent. <b>Micro</b>, parce que la Station lit le son par sa sortie son virtuelle, que macOS classe avec les micros&#8239;; le vrai micro du Mac n'est jamais écouté.</p></li>
+        <li><p><b>Terminé</b>&#8239;: une icône KyberNow Station apparaît dans la barre des menus, avec l'état de la Station et l'accès à Admin, qui a les mêmes espaces que sous Windows. Tout tourne dans votre session&#8239;: la Station démarre quand vous ouvrez votre session, et s'arrête avec elle.</p></li>
+      </ol>
+      <p>Pendant une session, le Mac crée un écran virtuel à la taille de l'appareil et éteint ses propres écrans, comme un PC&#8239;; ils se rallument à la fin, dans la même disposition. Le son part vers l'appareil par la sortie son KyberNow, en stéréo, 5.1 ou 7.1, et la sortie d'avant revient à la fin. Un Mac verrouillé se diffuse aussi&#8239;: vous tapez le mot de passe depuis votre appareil. Après un redémarrage, ouvrez la session une fois devant le Mac. Depuis un PC ou une télé, la touche <kbd>⊞</kbd> vaut <kbd>⌘</kbd>, et le menu Touches de la barre de session propose les combinaisons du Mac et l'option «&#8239;Ctrl agit comme ⌘&#8239;».</p>
+      <p class="callout"><svg class="ic"><use href="/assets/icons.svg#lightning"/></svg><span>macOS 15 rappelle de temps en temps qu'une app enregistre l'écran. Confirmez&#8239;: c'est la Station.</span></p>
     </section>
 
     <section id="appareil" class="doc-section">
@@ -616,7 +656,7 @@ ares-install --device tv KyberNow-Link-webOS.ipk</code></pre>
     <section id="session" class="doc-section">
       <p class="step-label">Étape 3</p>
       <h2>Pendant la session</h2>
-      <p>Quand vous vous connectez, le PC crée un écran virtuel à la définition et à la fréquence de votre appareil, éteint ses propres écrans et envoie le son vers l'appareil (si Steam est installé sur le PC). À la fin, tout revient comme avant&#8239;: écrans et sortie du son. Windows n'est pas verrouillé.</p>
+      <p>Quand vous vous connectez, l'ordinateur crée un écran virtuel à la définition et à la fréquence de votre appareil, éteint ses propres écrans et envoie le son vers l'appareil (sur un PC, si Steam est installé&#8239;; sur un Mac, par la sortie son KyberNow). À la fin, tout revient comme avant&#8239;: écrans et sortie du son. L'ordinateur n'est pas verrouillé. Avec plusieurs écrans sur l'appareil, la session peut les prendre tous, chacun à sa taille (réglage «&#8239;Écrans&#8239;»), et vous pouvez ouvrir plusieurs ordinateurs à la fois, une fenêtre chacun.</p>
       <h3 class="sub">Les profils</h3>
       <div class="table">
         <div class="tr"><span class="th">Jeu</span><span>Pour jouer&#8239;: la latence la plus basse. Des données de secours voyagent avec l'image et comblent les petites pertes, sans attendre un renvoi.</span></div>
@@ -624,6 +664,9 @@ ares-install --device tv KyberNow-Link-webOS.ipk</code></pre>
         <div class="tr"><span class="th">Max</span><span>Latence basse, texte net et débit élevé, avec les données de secours du profil Jeu. Pour un réseau câblé.</span></div>
       </div>
       <p>Modifier un réglage fait passer le profil en «&#8239;Personnalisé&#8239;». Par défaut, la souris est en mode <b>Auto</b>&#8239;: elle se comporte comme sur un bureau, et passe en mode jeu quand un jeu occupe tout l'écran du PC. Elle envoie alors ses mouvements bruts, comme les jeux les attendent.</p>
+      <h3 class="sub" id="hdr">Le HDR</h3>
+      <p>Sur un écran HDR (l'écran XDR d'un Mac, un iPhone, un iPad, une télé HDR derrière l'Apple TV, un téléviseur LG), une puce «&#8239;HDR&#8239;» apparaît sur la carte de l'ordinateur, à côté du profil. Elle est allumée d'office, l'app retient votre choix pour chaque ordinateur, et en session «&#8239;HDR&#8239;» se coche et se décoche dans la barre. Les jeux et Windows en HDR arrivent tels quels&#8239;: l'ordinateur passe son écran virtuel en HDR au début de la session et le remet comme avant à la fin, rien à régler dessus. Tous les profils passent en HDR, en 4:2:0&#8239;: le texte net (4:4:4) revient quand vous éteignez le HDR. Sur un PC, il faut Windows 11 24H2 et une carte graphique qui encode en 10&nbsp;bits (HEVC ou AV1)&#8239;; un Mac en Station passe en HDR de la même façon. Quand le HDR n'est pas possible, la puce dit pourquoi.</p>
+      <p>L'ordinateur et les jeux connaissent la luminosité de votre écran, pas celle d'un écran virtuel quelconque. Pour régler votre écran à l'œil, comme sur une console, l'écran «&#8239;Réglage du HDR&#8239;» des Réglages de l'app propose quatre mires&#8239;; sur un téléviseur, passez-le en mode Jeu avec le HGIG. Un invité du partage sans écran HDR, ou dans un navigateur, reçoit une image convertie en SDR. Les statistiques de la session disent «&#8239;HDR&#8239;» quand il est transmis.</p>
       <h3 class="sub">Raccourcis de l'app Mac</h3>
       <div class="table">
         <div class="tr"><span class="th"><kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>D</kbd></span><span>Se déconnecter</span></div>
@@ -639,7 +682,7 @@ ares-install --device tv KyberNow-Link-webOS.ipk</code></pre>
         <div class="tr"><span class="th"><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>Maj</kbd><kbd>F</kbd></span><span>Plein écran ou fenêtre</span></div>
         <div class="tr"><span class="th"><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>Maj</kbd><kbd>M</kbd></span><span>Souris en mode jeu ou bureau</span></div>
       </div>
-      <p class="muted">La barre de session apparaît quand le pointeur touche le haut de l'écran. En plein écran, les raccourcis de Windows partent vers le PC, la touche <kbd>⊞</kbd> et <kbd>Alt</kbd><kbd>Tab</kbd> compris&#8239;; le menu Touches de la barre envoie <kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>Suppr</kbd> et les autres combinaisons que Windows garde pour lui. Avec plusieurs écrans, une session peut les prendre tous, chacun à sa taille (réglage « Écrans »), et vous pouvez ouvrir plusieurs ordinateurs à la fois, une fenêtre chacun.</p>
+      <p class="muted">La barre de session apparaît quand le pointeur touche le haut de l'écran. En plein écran, les raccourcis de Windows partent vers le PC, la touche <kbd>⊞</kbd> et <kbd>Alt</kbd><kbd>Tab</kbd> compris&#8239;; le menu Touches de la barre envoie <kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>Suppr</kbd> et les autres combinaisons que Windows garde pour lui. Face à une Station Mac, il propose les combinaisons du Mac (<kbd>⌘</kbd><kbd>⇥</kbd>, <kbd>⌘</kbd> Espace…) et l'option «&#8239;Ctrl agit comme ⌘&#8239;».</p>
       <h3 class="sub">Raccourcis de l'app Linux</h3>
       <div class="table">
         <div class="tr"><span class="th"><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>Maj</kbd><kbd>D</kbd></span><span>Se déconnecter</span></div>
@@ -680,9 +723,33 @@ ares-install --device tv KyberNow-Link-webOS.ipk</code></pre>
       <p class="muted">Hors session, à la manette&#8239;: <kbd>A</kbd> valide, <kbd>B</kbd> revient, <kbd>Y</kbd> ouvre les réglages de l'ordinateur, <kbd>X</kbd> ajoute un ordinateur, <kbd>L1</kbd> et <kbd>R1</kbd> changent de profil, <kbd>Start</kbd> ouvre les réglages de l'app. Jusqu'à quatre manettes, chacune un joueur sur le PC, avec leurs vibrations.</p>
     </section>
 
+    <section id="playstation" class="doc-section">
+      <h2>Jouer à votre PlayStation</h2>
+      <p>Les apps KyberNow Link affichent aussi une PS5 ou une PS4 de la maison, comme la lecture à distance de Sony&#8239;: l'image et le son de la console, et la manette de l'appareil qui la pilote. Il faut KyberNow Link en version 0.9.5 ou plus récente. La console et l'appareil sont sur le même réseau&#8239;; pour jouer de loin, voir plus bas.</p>
+      <h3 class="sub">Trouver et associer la console</h3>
+      <ol class="steps-doc">
+        <li><p>Une PS5 ou une PS4 allumée ou en mode repos apparaît sur l'accueil, à côté de vos ordinateurs, avec son nom et son état. Si elle n'apparaît pas, «&#8239;Ajouter un ordinateur ou une console&#8239;» › «&#8239;Par adresse&#8239;» la cherche à l'adresse que vous tapez.</p></li>
+        <li><p>Choisissez «&#8239;Associer&#8239;». L'app ouvre la page de connexion de Sony pour lire l'identifiant et le pseudo de votre compte PlayStation Network, une seule fois pour toutes les consoles de ce compte&#8239;; ce compte ne sert à rien d'autre. Sur une télé, sans navigateur, recevez le compte d'un autre appareil ou saisissez l'identifiant à la main.</p></li>
+        <li><p>Sur la console&#8239;: Réglages › Système › Lecture à distance › Associer un appareil. Tapez dans l'app le code à 8&nbsp;chiffres affiché&#8239;; il change toutes les 5&nbsp;minutes. L'association est gardée par l'app.</p></li>
+      </ol>
+      <p>Plusieurs comptes PlayStation Network peuvent vivre sur le même appareil, chacun avec ses consoles, et une console peut être associée avec plusieurs comptes (un profil par personne). Tout se gère dans l'onglet «&#8239;PlayStation&#8239;» de la fenêtre d'ajout. À l'accueil, une puce à côté de «&#8239;Jouer&#8239;» choisit le compte de la partie.</p>
+      <h3 class="sub">Jouer</h3>
+      <p>«&#8239;Jouer&#8239;» ouvre la partie&#8239;; «&#8239;Réveiller et jouer&#8239;» réveille d'abord une console en mode repos. La partie a la même barre, les mêmes statistiques et les mêmes raccourcis qu'une session d'ordinateur, plus «&#8239;Mettre la console en veille&#8239;». À la manette, Options + Create + L1 + R1 tenus ensemble ouvrent la barre. Sur un écran HDR, la partie est en HDR. La console envoie du 1080p au plus, à 60 images par seconde&#8239;: sur Mac, iPhone, iPad et Apple TV, l'image est agrandie aux pixels de votre écran, avec une netteté réglable. Une seule partie à la fois par console. Quand la console ne peut pas diffuser ce qu'elle affiche (certaines vidéos), l'app le dit.</p>
+      <h3 class="sub">La manette, le clavier et la souris</h3>
+      <p>Une DualSense branchée en USB ou en Bluetooth passe au complet&#8239;: boutons, sticks, gâchettes adaptatives, vibrations, pavé tactile et gyroscope. Sur Mac, branchée en USB, elle reçoit aussi les vibrations HD. Leur intensité se règle. Une autre manette est vue comme une manette PlayStation, avec des vibrations simples.</p>
+      <p>Sans manette, le clavier et la souris tiennent lieu de manette&#8239;: le clavier sur les boutons et le stick gauche (ZQSD sur un clavier AZERTY), la souris sur le stick droit, les clics sur R2 et L2. Cliquez dans l'image pour jouer&#8239;; <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>M</kbd> (sur Windows et Linux, <kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>Maj</kbd><kbd>M</kbd>) rend la souris. La disposition se change touche par touche dans les réglages de la console, avec la sensibilité et la courbe de la souris. Quand la console ouvre son clavier (une recherche, un message), vous tapez directement au vôtre.</p>
+      <h3 class="sub">Les réglages de la console</h3>
+      <p>L'engrenage à côté de «&#8239;Jouer&#8239;» ouvre les réglages de la console. Par défaut, «&#8239;Auto&#8239;»&#8239;: le mieux que la console et votre écran permettent. Sinon, choisissez la définition (jusqu'à 1080p), 30 ou 60 images par seconde, le débit (jusqu'à 100&nbsp;Mbit/s) et le format&#8239;: H.265, avec le HDR, ou H.264. La PS4 n'envoie que du H.264. Le plein écran est retenu pour chaque console.</p>
+      <h3 class="sub">Sur vos autres appareils</h3>
+      <p>Entre vos appareils Apple, vos comptes et vos consoles suivent par iCloud, comme vos ordinateurs. Vers une télé ou un PC&#8239;: sur l'appareil qui a déjà les comptes, «&#8239;Ajouter un ordinateur ou une console&#8239;» › «&#8239;PlayStation&#8239;» › «&#8239;Envoyer à un appareil&#8239;», puis tapez le code à 6&nbsp;chiffres que l'autre appareil affiche dans «&#8239;Recevoir d'un autre appareil&#8239;». Pas besoin de refaire le code de la console.</p>
+      <h3 class="sub">Hors de chez vous</h3>
+      <p>Par un VPN, ajoutez la console «&#8239;Par adresse&#8239;» avec son adresse dans le VPN&#8239;: l'app la joint directement. Par le relais de KyberNow, il faut une Station allumée chez vous, sur le même réseau que la console, avec «&#8239;Accès hors de chez vous&#8239;» allumé&#8239;: elle fait suivre la partie sans la décoder, et l'app affiche «&#8239;Par le relais&#8239;» comme pour un ordinateur. Rien à régler. KyberNow ne passe jamais par les serveurs de Sony.</p>
+      <p class="muted">PlayStation, PS5, PS4 et DualSense sont des marques de Sony Interactive Entertainment. KyberNow n'a aucun lien avec Sony.</p>
+    </section>
+
     <section id="partage" class="doc-section">
       <h2>Partager avec quelqu'un</h2>
-      <p>KyberNow Share fait entrer jusqu'à quatre invités sur votre PC&#8239;: ils voient l'écran et entendent le son, et vous décidez de ce qu'ils peuvent faire. Il faut KyberNow Station et l'app KyberNow Link en version 0.8.0 ou plus récente&#8239;; sinon l'app vous le dit.</p>
+      <p>KyberNow Share fait entrer jusqu'à quatre invités sur votre ordinateur&#8239;: ils voient l'écran et entendent le son, et vous décidez de ce qu'ils peuvent faire. Pour confier l'ordinateur à quelqu'un pendant que vous ne vous en servez pas, voir <a href="#pret">Prêter votre ordinateur</a>. Il faut KyberNow Station et l'app KyberNow Link en version 0.8.0 ou plus récente&#8239;; sinon l'app vous le dit.</p>
       <h3 class="sub">Ouvrir un partage</h3>
       <ol class="steps-doc">
         <li><p><b>Depuis votre session</b>&#8239;: dans la barre de session, choisissez «&#8239;Partager&#8239;». Le partage montre l'écran principal de votre session, avec le son.</p></li>
@@ -708,6 +775,32 @@ ares-install --device tv KyberNow-Link-webOS.ipk</code></pre>
       <p class="muted">Dans un partage lancé depuis le PC, le premier invité fixe le format et le débit de l'image partagée.</p>
       <h3 class="sub">Quand l'invité est loin de chez vous</h3>
       <p>Le même code, le même lien et le même QR code marchent de partout&#8239;: l'invité passe par le relais de KyberNow (voir <a href="#distance">Hors de chez vous</a>). Vous acceptez chaque invité venu d'Internet&#8239;: sa demande apparaît dans la section «&#8239;Demandes&#8239;» du panneau, avec «&#8239;Accepter&#8239;» et «&#8239;Refuser&#8239;». Sur le même réseau, il n'y a rien à accepter. Gardez le relais réglé dans Admin (Appareils Link › «&#8239;Hors de chez vous&#8239;» › «&#8239;Relais&#8239;», le relais public de KyberNow par défaut)&#8239;: quand il ne répond pas, le panneau dit «&#8239;Pas encore joignable hors de chez vous.&#8239;».</p>
+    </section>
+
+    <section id="pret" class="doc-section">
+      <h2>Prêter votre ordinateur</h2>
+      <p>Prêter l'ordinateur, c'est le confier à quelqu'un pendant que vous ne vous en servez pas&#8239;: un proche qui profite de votre PC de jeu, un collaborateur qui a besoin de la station de travail. La personne joue ou travaille depuis son app KyberNow Link ou son navigateur, chez vous ou de chez elle. Elle ne voit ni votre bureau ni vos fenêtres&#8239;: la Station passe votre session Windows en <b>mode console</b>, un lanceur plein écran qui ne montre que les apps que vous avez choisies. Le prêt fait partie de KyberNow Share et demande KyberNow Station 0.9.0 ou plus récente.</p>
+      <h3 class="sub">Activer le prêt</h3>
+      <ol class="steps-doc">
+        <li><p>Dans Admin, page <b>Prêt</b>, allumez «&#8239;Prêter l'ordinateur&#8239;». Tant que le prêt est activé, votre session Windows doit rester ouverte&#8239;: la Station empêche la mise en veille et le verrouillage automatique. Elle se verrouille à la fin de chaque prêt.</p></li>
+        <li><p>Choisissez les <b>apps permises</b>&#8239;: n'importe quelle app du menu Démarrer de l'ordinateur, un lanceur de jeux (Steam en Big Picture, Epic, GOG, Playnite…), un jeu, un logiciel de travail. Votre invité ne peut rien ouvrir d'autre.</p></li>
+        <li><p>Donnez votre prénom&#8239;: vos amis lisent «&#8239;Matthieu vous prête son ordinateur&#8239;».</p></li>
+      </ol>
+      <h3 class="sub">Trois façons de prêter</h3>
+      <div class="table">
+        <div class="tr"><span class="th">Un code pour une séance</span><span>«&#8239;Prêter l'ordinateur…&#8239;» dans Admin, dans le menu de l'icône près de l'horloge ou dans la barre de session de vos apps Link. Choisissez la durée (1, 2 ou 4&nbsp;heures, ou jusqu'à ce que vous repreniez) et le compte Steam, puis donnez le code à six chiffres, le lien ou le QR code. Le code sert une seule fois et vaut 24&nbsp;heures.</span></div>
+        <div class="tr"><span class="th">Les comptes d'amis</span><span>Dans Admin, page Prêt, onglet Amis&#8239;: un compte par personne (prénom, identifiant, mot de passe, compte Steam proposé). Admin donne un lien d'invitation et son QR code&#8239;; votre ami l'ouvre, et «&#8239;Ordinateur de Matthieu&#8239;» apparaît sur l'accueil de son app. Il emprunte ensuite avec son identifiant et son mot de passe, sans code.</span></div>
+        <div class="tr"><span class="th">Les créneaux</span><span>Sur le compte d'un ami, des plages de la semaine («&#8239;mercredi, de 14&nbsp;h à 18&nbsp;h&#8239;»). Pendant son créneau, il emprunte sans vous demander, et passe avant vous.</span></div>
+      </div>
+      <h3 class="sub">Le compte Steam</h3>
+      <p>Si Steam fait partie des apps permises, à chaque prêt, vous choisissez «&#8239;Son compte Steam&#8239;» (Steam se déconnecte du vôtre, votre ami se connecte avec le sien et joue à ses jeux, et aux vôtres s'il fait partie de votre famille Steam&#8239;; vos comptes enregistrés sont mis de côté) ou «&#8239;Votre compte Steam&#8239;» (il joue avec vos jeux et vos sauvegardes). À la fin, Steam revient sur votre compte.</p>
+      <h3 class="sub">Quand votre ami arrive</h3>
+      <p>Si l'ordinateur est libre (personne devant depuis 5&nbsp;minutes, ni session ni partage), le prêt démarre. S'il est utilisé, vous recevez «&#8239;Léa veut emprunter l'ordinateur&#8239;» dans Admin, sur l'icône et dans la barre de votre session, avec «&#8239;Accepter&#8239;» et «&#8239;Refuser&#8239;»&#8239;; accepter ferme votre session. Pendant son créneau, votre ami passe avant vous&#8239;: vous êtes prévenu deux minutes avant. Un code créé depuis votre session vaut accord. Un seul prêt à la fois.</p>
+      <h3 class="sub">Pendant le prêt</h3>
+      <p>Votre ami a une session ordinaire à son écran, avec le clavier, la souris et ses manettes, sans presse-papiers. Son lanceur, en plein écran comme une console, montre une tuile par app permise, sa dernière partie en tête, le temps restant et «&#8239;Rendre l'ordinateur&#8239;». Sur l'écran de votre ordinateur&#8239;: «&#8239;Ordinateur prêté à Léa&#8239;» et la touche Entrée pour reprendre. L'Explorateur, la touche Windows, Alt+Tab, le Gestionnaire des tâches, les invites de commande, les fenêtres «&#8239;Ouvrir&#8239;» et «&#8239;Enregistrer sous&#8239;» et les apps hors liste sont bloqués. Si sa connexion coupe, votre ami peut revenir pendant 15&nbsp;minutes.</p>
+      <h3 class="sub">Reprendre</h3>
+      <p>«&#8239;Reprendre l'ordinateur&#8239;» dans Admin, sur l'icône, dans vos apps Link, ou la touche Entrée sur l'ordinateur&#8239;: votre ami a deux minutes pour sauvegarder («&#8239;Reprendre tout de suite&#8239;» coupe sans attendre). Le même préavis précède la fin de la durée ou du créneau. Ensuite, ses apps se ferment, Steam revient sur votre compte, vos fenêtres reviennent, l'écran virtuel disparaît et la session Windows se verrouille.</p>
+      <p class="callout callout-warn"><svg class="ic"><use href="/assets/icons.svg#lock-simple"/></svg><span>Vos fichiers sont protégés au mieux, pas de façon étanche&#8239;: un jeu ou une app permise peut lire votre disque. Prêtez l'ordinateur à des personnes de confiance.</span></p>
     </section>
 
     <section id="distance" class="doc-section">
@@ -758,7 +851,7 @@ ares-install --device tv KyberNow-Link-webOS.ipk</code></pre>
 
     <section id="mises-a-jour" class="doc-section">
       <h2>Mettre à jour</h2>
-      <p><b>La Station</b>&#8239;: Admin cherche une nouvelle version toutes les 6&nbsp;heures. Dans <b>Système › Mises à jour</b>, «&#8239;Installer maintenant&#8239;» la télécharge, vérifie qu'elle vient bien de KyberNow et l'installe en une minute environ&#8239;; une session en cours est coupée. Si la nouvelle version ne démarre pas correctement, la Station revient d'elle-même à la précédente, et «&#8239;Revenir à la version précédente&#8239;» le fait aussi à la demande. L'icône près de l'horloge propose aussi la mise à jour.</p>
+      <p><b>La Station</b>&#8239;: Admin cherche une nouvelle version toutes les 6&nbsp;heures. Dans <b>Système › Mises à jour</b>, «&#8239;Installer maintenant&#8239;» la télécharge, vérifie qu'elle vient bien de KyberNow et l'installe en une minute environ&#8239;; une session en cours est coupée. Si la nouvelle version ne démarre pas correctement, la Station revient d'elle-même à la précédente, et «&#8239;Revenir à la version précédente&#8239;» le fait aussi à la demande. L'icône près de l'horloge propose aussi la mise à jour. Sur un Mac, c'est pareil, depuis Admin ou l'icône de la barre des menus.</p>
       <p><b>L'app Mac</b>&#8239;: elle cherche une nouvelle version chaque jour, la télécharge et l'installe elle-même. Pour recevoir aussi les bêtas, cochez «&#8239;Recevoir les versions bêta&#8239;» dans ses réglages (KyberNow Link › Réglages…). Pour chercher tout de suite&#8239;: <b>KyberNow Link › Rechercher des mises à jour…</b></p>
       <p><b>L'app Windows</b>&#8239;: elle cherche une nouvelle version au lancement, puis toutes les 6&nbsp;heures, et vous la propose&#8239;: «&#8239;Installer et relancer&#8239;» l'installe et rouvre l'app, jamais pendant une session. Ses réglages (la roue dentée de la barre de titre) proposent aussi les bêtas.</p>
       <p><b>Les apps Apple TV, iPhone et iPad</b>&#8239;: elles se réinstallent depuis le Mac. Dans le dossier <code>kybernow</code>, faites <code>git pull</code>, effacez les bibliothèques téléchargées par le script (<code>rm -rf apps/tvos/Vendor</code> pour l'Apple TV, <code>rm -rf apps/ios/Vendor</code> pour l'iPhone et l'iPad), puis relancez la commande d'installation. Avec un compte Apple gratuit, faites-le avant la fin des 7&nbsp;jours.</p>
@@ -772,6 +865,7 @@ ares-install --device tv KyberNow-Link-webOS.ipk</code></pre>
     <section id="desinstaller" class="doc-section">
       <h2>Désinstaller</h2>
       <p><b>La Station</b>&#8239;: Paramètres Windows › Applications › Applications installées › KyberNow Station › Désinstaller. Le désinstalleur vous demande si vous gardez vos réglages, utiles pour une réinstallation. Il retire ensuite les services, Admin, l'écran virtuel et son certificat, et les règles du pare-feu. Il remet aussi le mode d'alimentation d'avant, et votre réseau en «&#8239;Public&#8239;» s'il l'avait passé en «&#8239;Privé&#8239;». Le pilote de manettes ViGEmBus reste installé, car d'autres logiciels peuvent s'en servir.</p>
+      <p><b>La Station sur Mac</b>&#8239;: rouvrez le fichier <code>KyberNow-Station-Mac.dmg</code> et lancez «&#8239;Désinstaller KyberNow Station&#8239;». Il retire l'app, la sortie son et les services, et vous demande si vous gardez vos réglages.</p>
       <p><b>Le Mac</b>&#8239;: glissez KyberNow Link du dossier Applications à la corbeille.</p>
       <p><b>Le PC Windows</b>&#8239;: Paramètres Windows › Applications › Applications installées › KyberNow Link › Désinstaller. L'app propose d'effacer aussi vos ordinateurs, réglages et mots de passe.</p>
       <p><b>L'Apple TV</b>&#8239;: sur l'écran d'accueil, maintenez le pavé tactile appuyé sur l'icône de KyberNow, puis choisissez de supprimer l'app. <b>L'iPhone et l'iPad</b>&#8239;: touchez longuement l'icône de KyberNow, puis «&#8239;Supprimer l'app&#8239;».</p>
@@ -787,8 +881,8 @@ rm -rf ~/.var/app/fr.leslignesclaires.kybernow</code></pre>
       <h2>Questions fréquentes</h2>
       <div class="faq">
         <details><summary>KyberNow est-il vraiment gratuit&#8239;?</summary><p>Oui. KyberNow est un logiciel libre, sous licence AGPL-3.0, développé sans but commercial. Il n'y a ni abonnement ni publicité, et aucun compte en ligne à créer. Le code est sur <a href="https://github.com/MonsieurNours/kybernow">GitHub</a>.</p></details>
-        <details><summary>Pourquoi KyberNow est-il en bêta&#8239;?</summary><p>KyberNow n'a pas encore atteint la version&nbsp;1.0. Nous l'utilisons déjà tous les jours, mais il reste des défauts, et des réglages ou des fonctions peuvent encore changer d'une version à l'autre. Certaines apps n'ont pas encore tourné sur du vrai matériel&#8239;: celles du Steam Deck et du Raspberry Pi, et l'app Linux, essayée seulement en machine virtuelle. Le partage et le relais, nouveaux, n'ont pas encore été essayés sur tous les appareils. Gardez la Station et vos apps à jour, et signalez les problèmes sur <a href="https://github.com/MonsieurNours/kybernow/issues">GitHub</a> ou sur <a href="https://discord.gg/sVy2mu5WdT">Discord</a>.</p></details>
-        <details><summary>KyberNow peut-il remplacer Sunshine et Moonlight&#8239;?</summary><p>Pour beaucoup d'usages, oui. Comme eux, KyberNow affiche votre PC sur vos autres appareils, pour jouer ou pour travailler, dans une app ou dans le navigateur. Il repose sur le moteur Kyber plutôt que sur le protocole GameStream. L'image est toujours chiffrée, l'écran virtuel à la taille de l'appareil est inclus, et la plupart des appareils se connectent quand vous acceptez leur code dans Admin, sans rien recopier. Il lui manque encore le HDR. Le détail est dans la <a href="/technologie/#comparer">comparaison</a>.</p></details>
+        <details><summary>Pourquoi KyberNow est-il en bêta&#8239;?</summary><p>KyberNow n'a pas encore atteint la version&nbsp;1.0. Nous l'utilisons déjà tous les jours, mais il reste des défauts, et des réglages ou des fonctions peuvent encore changer d'une version à l'autre. Certaines apps n'ont pas encore tourné sur du vrai matériel&#8239;: celles du Steam Deck et du Raspberry Pi, et l'app Linux, essayée seulement en machine virtuelle. Les fonctions les plus récentes, le HDR, la Station pour Mac et les consoles PlayStation, ont moins de recul que les autres. Gardez la Station et vos apps à jour, et signalez les problèmes sur <a href="https://github.com/MonsieurNours/kybernow/issues">GitHub</a> ou sur <a href="https://discord.gg/sVy2mu5WdT">Discord</a>.</p></details>
+        <details><summary>KyberNow peut-il remplacer Sunshine et Moonlight&#8239;?</summary><p>Pour beaucoup d'usages, oui. Comme eux, KyberNow affiche votre PC sur vos autres appareils, pour jouer ou pour travailler, dans une app ou dans le navigateur. Il repose sur le moteur Kyber plutôt que sur le protocole GameStream. L'image est toujours chiffrée, l'écran virtuel à la taille de l'appareil est inclus, et la plupart des appareils se connectent quand vous acceptez leur code dans Admin, sans rien recopier. Le détail est dans la <a href="/technologie/#comparer">comparaison</a>.</p></details>
         <details><summary>KyberNow, est-ce du cloud gaming&#8239;?</summary><p>Non. Le cloud gaming vous loue un ordinateur dans un centre de données, avec un abonnement. KyberNow se sert du vôtre&#8239;: vous retrouvez vos jeux et vos logiciels tels que vous les avez installés, sans abonnement ni file d'attente. Chez vous, l'image va directement de votre PC à votre appareil, sans passer par un serveur&#8239;; hors de chez vous, elle peut passer par un relais, qui ne peut pas la lire dans les apps. Voir <a href="#distance">Hors de chez vous</a>.</p></details>
         <details><summary>Puis-je utiliser KyberNow loin de chez moi&#8239;?</summary><p>Oui, de deux façons. Par le relais de KyberNow&#8239;: ajoutez l'appareil chez vous, puis allumez «&#8239;Accès hors de chez vous&#8239;» dans Admin&#8239;; rien à ouvrir sur votre box. Autre solution, un VPN, un réseau privé et chiffré entre vos appareils, comme Tailscale ou WireGuard&#8239;: installez le même VPN sur le PC et sur l'appareil, puis ajoutez le PC par son adresse dans le VPN. Le PC doit rester allumé. Voir <a href="#distance">Hors de chez vous</a>.</p></details>
         <details><summary>Puis-je partager mon PC avec un ami&#8239;?</summary><p>Oui, avec KyberNow Share&#8239;: vous ouvrez un partage, et jusqu'à quatre invités entrent avec un code à six chiffres, un lien ou un QR code, dans l'app KyberNow Link ou dans un navigateur, chez vous comme à distance. Un invité arrive en spectateur&#8239;; vous lui donnez, ou non, les manettes et le clavier et la souris. Voir <a href="#partage">Partager avec quelqu'un</a>.</p></details>
@@ -797,7 +891,7 @@ rm -rf ~/.var/app/fr.leslignesclaires.kybernow</code></pre>
         <details><summary>Faut-il une carte graphique particulière&#8239;?</summary><p>Non. Le PC compresse l'image avec n'importe quelle carte graphique NVIDIA, AMD ou Intel, même externe (eGPU). Sans carte graphique, le processeur s'en charge. Seul le format AV1 demande une carte NVIDIA RTX 40 ou 50. L'encodeur se change dans KyberNow Admin, Système › Avancé.</p></details>
         <details><summary>Quelles définitions et fréquences d'image sont possibles&#8239;?</summary><p>Celles de votre écran&#8239;: à chaque session, le PC crée un écran virtuel à la définition et à la fréquence de votre appareil. Le plus haut que nous ayons vérifié&#8239;: 3840&nbsp;×&nbsp;2160 (la 4K) à 160&nbsp;Hz. Certains appareils ont leur propre plafond&#8239;: 4K à 60&nbsp;Hz sur l'Apple TV, la NVIDIA Shield et le Raspberry Pi, 4K à 120&nbsp;Hz sur les téléviseurs LG. En H.264, l'image fait au plus 4096&nbsp;pixels de large. Si le réseau ou la carte graphique peinent, l'option «&#8239;Au plus 4K&#8239;» des apps Mac, Windows, iPhone et iPad allège le flux.</p></details>
         <details><summary>Quelle latence attendre&#8239;?</summary><p>Sur un réseau local, nous avons mesuré 9,4&nbsp;ms entre la capture de l'image sur le PC et son affichage sur l'appareil, avec le moteur Kyber. C'est une médiane&#8239;: la moitié des images arrivent plus vite. Avec l'écran virtuel de KyberNow en 4K à 160&nbsp;Hz, 8,3&nbsp;ms&#8239;; avec l'app Windows, environ 10&nbsp;ms. Chez vous, la latence dépend surtout de la carte graphique, du réseau et de l'appareil&#8239;; l'app l'affiche en direct pendant la session.</p></details>
-        <details><summary>KyberNow gère-t-il le HDR&#8239;?</summary><p>Pas encore&#8239;: le moteur Kyber 0.29 capture l'écran en 8&nbsp;bits. Gardez le HDR de Windows désactivé pendant les sessions.</p></details>
+        <details><summary>KyberNow gère-t-il le HDR&#8239;?</summary><p>Oui, sur Mac, iPhone, iPad, Apple TV et téléviseurs LG. Sur un écran HDR, une puce «&#8239;HDR&#8239;» apparaît sur la carte de l'ordinateur, allumée d'office, et les jeux arrivent avec leurs couleurs et leurs lumières. Sur le PC, il faut Windows 11 24H2 et une carte graphique qui encode en 10&nbsp;bits. Voir <a href="#hdr">Le HDR</a>.</p></details>
         <details><summary>Mes écrans s'éteignent pendant la session, c'est normal&#8239;?</summary><p>Oui. Pendant la session, le PC n'affiche que l'écran virtuel, à la taille de votre appareil, et éteint ses propres écrans. Ils se rallument à la fin. Si l'app se coupe sans prévenir, la Station attend 20&nbsp;secondes, puis retire l'écran virtuel et rallume vos écrans. Au besoin, Admin a un bouton «&#8239;Rallumer mes écrans&#8239;», dans Image et son.</p></details>
         <details><summary>Pourquoi le son sort-il encore des haut-parleurs du PC&#8239;?</summary><p>Pour envoyer le son vers vos appareils, la Station se sert des haut-parleurs virtuels de Steam. Installez Steam sur le PC, puis relancez l'installateur de KyberNow Station et choisissez «&#8239;Conserver mes réglages&#8239;»&#8239;: l'option «&#8239;Son à distance&#8239;» devient disponible, et vos appareils restent connectés.</p></details>
         <details><summary>Ma manette ne répond pas&#8239;: que faire&#8239;?</summary><p>Vérifiez d'abord qu'elle est bien reliée à votre appareil, en Bluetooth ou par câble&#8239;; les apps Apple TV, Android, LG et Linux ont un écran pour tester les manettes. Sur le PC, les manettes passent par le pilote ViGEmBus, installé avec la Station si l'option Manettes était cochée&#8239;; après la première installation, il faut parfois redémarrer le PC. Le PC accepte quatre manettes au plus&#8239;: une cinquième attend qu'une place se libère. Enfin, tant que le menu de session est ouvert, la manette pilote l'app et le jeu ne reçoit rien.</p></details>
@@ -812,7 +906,10 @@ rm -rf ~/.var/app/fr.leslignesclaires.kybernow</code></pre>
         <details><summary>KyberNow fonctionne-t-il sur un Raspberry Pi&#8239;?</summary><p>Oui, avec un Pi 3, 4 ou 5, de deux façons. KyberNow Link OS est un système à copier sur la carte microSD&#8239;: le Pi démarre directement sur KyberNow Link, comme une console branchée au téléviseur. Vous pouvez aussi installer l'app seule sur Raspberry Pi OS 64&nbsp;bits. Sur Pi 4 et 5, l'image va jusqu'à la 4K à 60&nbsp;Hz. Ni l'un ni l'autre n'a encore tourné sur une vraie carte, seulement en machine virtuelle et en émulation. Voir <a href="#raspberry-pi">Sur un Raspberry Pi</a>.</p></details>
         <details><summary>Pourquoi l'app Apple TV n'est-elle pas sur l'App Store&#8239;?</summary><p>Pas encore&#8239;: pour l'instant, KyberNow est publié seulement sur GitHub, et TestFlight puis l'App Store sont prévus. Sur l'Apple TV, une app qui n'est pas sur l'App Store s'installe depuis un Mac avec Xcode, signée avec votre propre compte Apple&#8239;: voir <a href="#apple-tv">Sur l'Apple TV</a>. Il faut une Apple TV 4K de 2021 ou plus récente&#8239;; les modèles plus anciens ne peuvent pas faire tourner l'app.</p></details>
         <details><summary>Quel est le lien entre KyberNow et Kyber&#8239;?</summary><p>KyberNow utilise <a href="https://kyber.tech">Kyber</a>, le moteur libre qui transporte l'image, le son et les commandes, conçu par des développeurs de VLC. Il y ajoute KyberNow Station (l'installateur, les écrans et les haut-parleurs virtuels), KyberNow Admin et les apps KyberNow Link. KyberNow n'est ni édité ni approuvé par l'équipe de Kyber, et n'y est pas affilié. Nos correctifs du moteur sont publiés.</p></details>
-        <details><summary>Quelles données KyberNow collecte-t-il&#8239;?</summary><p>Pas de statistiques d'usage, et chez vous rien n'est envoyé à un serveur à nous&#8239;: l'image va directement de votre PC à vos appareils. Si vous partagez avec quelqu'un de loin ou allumez «&#8239;Accès hors de chez vous&#8239;», la connexion passe par le relais de KyberNow, qui garde les adresses IP dans ses journaux quelques jours, jamais les codes de partage. Les autres connexions vers l'extérieur servent à chercher les mises à jour (sur GitHub, et sur kybernow.app pour l'app Mac) et, entre vos appareils Apple, à synchroniser par iCloud vos ordinateurs et vos mots de passe, ce que vous pouvez couper.</p></details>
+        <details><summary>KyberNow Station fonctionne-t-elle sur un Mac&#8239;?</summary><p>Oui, sur un Mac à puce Apple sous macOS&nbsp;15 ou plus récent. Le Mac devient une Station comme un PC Windows&#8239;: même Admin, écran virtuel à la taille de chaque appareil, sortie son, partage, prêt et HDR. Voir <a href="#serveur-mac">Sur un Mac</a>.</p></details>
+        <details><summary>Puis-je prêter mon ordinateur à un ami&#8239;?</summary><p>Oui&#8239;: avec un code pour une séance, ou un compte que vous lui créez dans Admin, votre ami joue ou travaille depuis son appareil pendant que vous ne vous servez pas de l'ordinateur, avec les apps que vous permettez. Voir <a href="#pret">Prêter votre ordinateur</a>.</p></details>
+        <details><summary>Puis-je jouer à ma PlayStation avec KyberNow&#8239;?</summary><p>Oui. Une PS5 ou une PS4 de la maison apparaît à l'accueil de KyberNow Link, à côté de vos ordinateurs&#8239;; vous l'associez une fois avec le code qu'elle affiche, puis «&#8239;Jouer&#8239;». Voir <a href="#playstation">Jouer à votre PlayStation</a>.</p></details>
+        <details><summary>Quelles données KyberNow collecte-t-il&#8239;?</summary><p>Pas de statistiques d'usage, et chez vous rien n'est envoyé à un serveur à nous&#8239;: l'image va directement de votre ordinateur à vos appareils. Si vous partagez avec quelqu'un de loin ou allumez «&#8239;Accès hors de chez vous&#8239;», la connexion passe par le relais de KyberNow, qui garde les adresses IP dans ses journaux quelques jours, jamais les codes de partage. Les autres connexions vers l'extérieur servent à chercher les mises à jour (sur GitHub, et sur kybernow.app pour l'app Mac) et, entre vos appareils Apple, à synchroniser par iCloud vos ordinateurs et vos mots de passe, ce que vous pouvez couper.</p></details>
       </div>
     </section>
 
@@ -837,6 +934,7 @@ rm -rf ~/.var/app/fr.leslignesclaires.kybernow</code></pre>
     </div>
     <ul class="footer-links">
       <li><a href="/guide/"><svg class="ic"><use href="/assets/icons.svg#book-open-text"/></svg>Guide et FAQ</a></li>
+      <li><a href="/share/"><svg class="ic"><use href="/assets/icons.svg#devices"/></svg>KyberNow Share</a></li>
       <li><a href="https://discord.gg/sVy2mu5WdT" rel="noopener"><svg class="ic"><use href="/assets/icons.svg#discord-logo"/></svg>Discord</a></li>
       <li><a href="https://github.com/MonsieurNours/kybernow" rel="noopener"><svg class="ic"><use href="/assets/icons.svg#github-logo"/></svg>GitHub</a></li>
       <li><a href="/mentions-legales/"><svg class="ic"><use href="/assets/icons.svg#scales"/></svg>Mentions légales</a></li>
