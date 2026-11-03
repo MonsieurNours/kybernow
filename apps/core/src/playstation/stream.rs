@@ -22,6 +22,7 @@ use super::discovery::Target;
 use super::gkcrypt::{Ecdh, GkCrypt, HANDSHAKE_KEY_SIZE};
 use super::proto::{self, Writer, kind};
 use super::rpcrypt::{self, RpCrypt};
+use super::frame::{Assembler, Frame};
 use super::takion::{self, AvPacket, Takion, TakionEvent};
 
 const EXPECT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -89,7 +90,10 @@ impl AudioHeader {
 pub enum StreamEvent {
     /// La console envoie l'image : définitions et son.
     Started { resolutions: Vec<Resolution>, audio: AudioHeader },
-    Av(AvPacket),
+    /// Une image assemblée (Annex B), prête pour le décodeur.
+    Video(Frame),
+    /// Un paquet de son (Opus) ou de vibrations HD (`is_haptics`).
+    Audio(AvPacket),
     /// Données de la manette (vibrations, gâchettes, état) : type Takion et
     /// contenu.
     Pad(u8, Vec<u8>),
@@ -186,6 +190,15 @@ fn controller_connection(dualsense: bool) -> Vec<u8> {
         .uint(2, 1)
         .uint(3, if dualsense { proto::CONTROLLER_DUALSENSE } else { proto::CONTROLLER_DUALSHOCK4 });
     Writer::default().uint(1, kind::CONTROLLERCONNECTION).message(22, payload).finish()
+}
+
+/// CORRUPTFRAME : images perdues de `start` à `end` (la console renvoie
+/// une image de référence).
+fn corrupt_frame(start: u16, end: u16) -> Vec<u8> {
+    Writer::default()
+        .uint(1, kind::CORRUPTFRAME)
+        .message(6, Writer::default().uint(1, start as u64).uint(2, end as u64))
+        .finish()
 }
 
 fn disconnect_message() -> Vec<u8> {
@@ -294,6 +307,7 @@ fn run(
     let mut next_heartbeat = Instant::now() + HEARTBEAT;
     let mut next_congestion = Instant::now() + CONGESTION;
     let mut send_disconnect = true;
+    let mut assembler: Option<Assembler> = None;
     let reason = loop {
         if stop.load(Ordering::SeqCst) {
             break "arrêt demandé".to_string();
@@ -327,8 +341,19 @@ fn run(
                 send_disconnect = false;
                 break why;
             }
+            TakionEvent::Av(av) if av.is_video => {
+                let Some(a) = assembler.as_mut() else { continue };
+                let out = a.push(&av);
+                if let Some((start, end)) = out.missing {
+                    log::info!("PlayStation : images {start} à {end} perdues, signalées à la console");
+                    let _ = takion.send_data(1, 2, &corrupt_frame(start, end), true);
+                }
+                if let Some(frame) = out.frame {
+                    let _ = tx.send(StreamEvent::Video(frame));
+                }
+            }
             TakionEvent::Av(av) => {
-                let _ = tx.send(StreamEvent::Av(av));
+                let _ = tx.send(StreamEvent::Audio(av));
             }
             TakionEvent::Data(takion::data::PROTOBUF, body) => {
                 let Some(f) = proto::fields(&body) else { continue };
@@ -362,6 +387,7 @@ fn run(
                         let _ = takion.send_data(1, 1, &controller_connection(profile.dualsense), true);
                         let _ = takion.send_data(1, 1, &mic_streaminfo(), true);
                         log::info!("PlayStation : flux ouvert ({} définition(s), son {audio:?})", resolutions.len());
+                        assembler = Some(Assembler::new(resolutions.iter().map(|r| r.header.clone()).collect()));
                         let _ = tx.send(StreamEvent::Started { resolutions, audio });
                         phase = Phase::Running;
                     }
@@ -440,6 +466,15 @@ mod tests {
         assert_eq!((r.len(), r[0].width, r[0].height), (1, 1920, 1080));
         assert_eq!(r[0].header, vec![0, 0, 0, 1, 0x40]);
         assert_eq!(a, AudioHeader { channels: 2, bits: 16, rate: 48000, frame_size: 480 });
+    }
+
+    #[test]
+    fn corrupt_frame_message() {
+        let msg = corrupt_frame(10, 12);
+        let f = proto::fields(&msg).unwrap();
+        assert_eq!(proto::uint(&f, 1), Some(kind::CORRUPTFRAME));
+        let c = proto::fields(proto::bytes(&f, 6).unwrap()).unwrap();
+        assert_eq!((proto::uint(&c, 1), proto::uint(&c, 2)), (Some(10), Some(12)));
     }
 
     #[test]

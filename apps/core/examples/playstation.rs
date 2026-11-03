@@ -8,7 +8,7 @@
 //! playstation regist <adresse> <code>   (associe la console : écran « Associer un appareil » ouvert)
 //! playstation wake <adresse>            (réveille une console associée)
 //! playstation session <adresse> [h264|h265|hdr] (demande de session et canal de contrôle, 20 s)
-//! playstation stream <adresse> [secondes] (ouvre le flux et compte les paquets ; image brute dans PS_DUMP)
+//! playstation stream <adresse> [secondes] [hdr] (ouvre le flux ; image en Annex B dans PS_DUMP)
 //! ```
 //!
 //! L'identifiant et les consoles associées sont gardés dans le fichier
@@ -181,6 +181,7 @@ fn main() {
         Some("stream") if args.len() >= 2 => {
             let addr: Ipv4Addr = args[1].parse().expect("adresse IPv4");
             let secs: u64 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(10);
+            let hdr = args.get(3).map(String::as_str) == Some("hdr");
             let console = find(addr);
             let state = load();
             let r = state.consoles.get(&console.host_id.to_ascii_uppercase()).expect("console pas encore associée");
@@ -189,7 +190,8 @@ fn main() {
                 eprintln!("Demande de session refusée : {e}");
                 std::process::exit(1)
             });
-            let (mut ctrl, events) = Ctrl::connect(addr, target, &nonce, &keys, Codec::H265).unwrap_or_else(|e| {
+            let codec = if hdr { Codec::H265Hdr } else { Codec::H265 };
+            let (mut ctrl, events) = Ctrl::connect(addr, target, &nonce, &keys, codec).unwrap_or_else(|e| {
                 eprintln!("Canal de contrôle refusé : {e}");
                 std::process::exit(1)
             });
@@ -204,15 +206,16 @@ fn main() {
                 }
             };
             ctrl.enable_features(true).expect("envoi");
-            let (mut stream, events) = Stream::start(addr, target, session_id, ctrl.crypt().clone(), Profile::p1080()).unwrap_or_else(|e| {
+            let profile = Profile { hdr, ..Profile::p1080() };
+            let (mut stream, events) = Stream::start(addr, target, session_id, ctrl.crypt().clone(), profile).unwrap_or_else(|e| {
                 eprintln!("Flux impossible : {e}");
                 std::process::exit(1)
             });
+            // PS_DUMP : l'image en Annex B, lisible par ffprobe / ffplay.
             let mut dump = std::env::var("PS_DUMP").ok().map(|p| std::fs::File::create(p).expect("PS_DUMP"));
             let start = std::time::Instant::now();
-            let (mut video, mut audio, mut haptics, mut frames) = (0u64, 0u64, 0u64, std::collections::BTreeSet::new());
-            let mut video_bytes = 0u64;
-            let mut first_video: Option<f32> = None;
+            let (mut frames, mut recovered, mut audio, mut haptics, mut bytes) = (0u64, 0u64, 0u64, 0u64, 0u64);
+            let mut first_frame: Option<f32> = None;
             while start.elapsed() < Duration::from_secs(secs) {
                 match events.recv_timeout(Duration::from_millis(200)) {
                     Ok(StreamEvent::Started { resolutions, audio: a }) => {
@@ -221,25 +224,21 @@ fn main() {
                             println!("  définition {}x{}, en-tête vidéo de {} octets", r.width, r.height, r.header.len());
                         }
                     }
-                    Ok(StreamEvent::Av(p)) => {
-                        if p.is_video {
-                            video += 1;
-                            video_bytes += p.data.len() as u64;
-                            frames.insert(p.frame_index);
-                            first_video.get_or_insert(start.elapsed().as_secs_f32());
-                            if let Some(f) = dump.as_mut() {
-                                use std::io::Write;
-                                let _ = f.write_all(&p.frame_index.to_be_bytes());
-                                let _ = f.write_all(&p.unit_index.to_be_bytes());
-                                let _ = f.write_all(&p.units_in_frame_total.to_be_bytes());
-                                let _ = f.write_all(&p.units_in_frame_fec.to_be_bytes());
-                                let _ = f.write_all(&(p.data.len() as u16).to_be_bytes());
-                                let _ = f.write_all(&p.data);
-                            }
-                        } else if p.is_haptics {
-                            haptics += 1;
+                    Ok(StreamEvent::Video(f)) => {
+                        frames += 1;
+                        bytes += f.data.len() as u64;
+                        recovered += f.recovered as u64;
+                        first_frame.get_or_insert(start.elapsed().as_secs_f32());
+                        if let Some(out) = dump.as_mut() {
+                            use std::io::Write;
+                            let _ = out.write_all(&f.data);
+                        }
+                    }
+                    Ok(StreamEvent::Audio(p)) => {
+                        if p.is_haptics {
+                            haptics += 1
                         } else {
-                            audio += 1;
+                            audio += 1
                         }
                     }
                     Ok(StreamEvent::Pad(t, b)) => println!("{:.1} s : données manette type {t} ({} octets)", start.elapsed().as_secs_f32(), b.len()),
@@ -251,10 +250,9 @@ fn main() {
                 }
             }
             println!(
-                "Image : {video} paquets ({:.1} Mo), {} images, première après {:?} s ; son : {audio} paquets ; vibrations : {haptics}",
-                video_bytes as f64 / 1e6,
-                frames.len(),
-                first_video
+                "Images : {frames} ({:.1} Mo, {recovered} réparées), première après {:?} s ; son : {audio} paquets ; vibrations : {haptics}",
+                bytes as f64 / 1e6,
+                first_frame
             );
             stream.stop();
             ctrl.stop();

@@ -10,6 +10,8 @@
 //! flux). Viennent ensuite l'image et le son, puis la manette.
 
 pub mod discovery;
+pub mod fec;
+pub mod frame;
 pub mod gkcrypt;
 mod keys;
 pub mod proto;
