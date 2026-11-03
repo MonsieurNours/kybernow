@@ -525,6 +525,14 @@ export type Trigger = 'off' | 'apps' | 'all'
 /** Si le mode de l'écran virtuel change en session : laisser faire ou le remettre. */
 export type ModePolicy = 'follow' | 'restore'
 
+/** Vérification du HDR d'un écran virtuel : `GetDesc1` et blanc SDR relus, comparés aux valeurs de l'appareil (5 % près). */
+export type HdrCheck = {
+  status: 'ok' | 'profile' | 'white' | 'not_hdr' | 'unread'
+  wanted: { max: number; full_frame: number; min: number; sdr_white: number }
+  seen?: { min: number; max: number; max_full_frame: number } | null
+  sdr_white?: number | null
+}
+
 /** HDR proposé aux apps (docs/hdr.md) : « Si l'appareil le demande » ou « Jamais ». */
 export type HdrSetting = 'auto' | 'never'
 export type DesktopGamma = '2.2' | 'srgb'
@@ -558,6 +566,8 @@ export interface DisplayStatus {
     mode_policy: ModePolicy
     /** HDR en place pour chaque écran, dans l'ordre de la demande. */
     hdr?: boolean[]
+    /** Vérification du HDR de chaque écran au début de la session (ce que Windows annonce aux jeux) ; `null` : écran en SDR. */
+    hdr_check?: (HdrCheck | null)[]
   }
   /** HDR proposé par cette Station ; sinon pourquoi (`off` : réglé sur « Jamais » ; `windows` : avant Windows 11 24H2 ; `encoder` : x264 ou carte sans 10 bits ; `display` : sans écran virtuel, écran du PC en SDR). */
   hdr?: { available: boolean; reason?: 'off' | 'windows' | 'encoder' | 'display' }

@@ -13,6 +13,9 @@
 //! ramené au gamma 2.2 selon le réglage), associé par les API de couleur de
 //! Windows (WCS), et règle le blanc du bureau (niveau de blanc SDR) ; l'état
 //! d'avant (profil par défaut, blanc) est noté et remis comme le HDR.
+//! Puis l'agent relit ce que Windows annonce aux jeux (`GetDesc1`, blanc
+//! SDR) et Admin le compare aux valeurs de l'appareil (`check`) : le verdict
+//! va au journal, dans `hdr-session.json` et dans la console.
 //!
 //! Comme la disposition des écrans, la lecture et la bascule se font dans la
 //! session de l'écran, par l'agent d'affichage (`display-agent hdr --request
@@ -79,8 +82,11 @@ pub struct ColorApply {
     pub profile: PathBuf,
     /// Blanc du bureau, en nits.
     pub sdr_white: f32,
-    /// Luminosité maximale du profil : DXGI est attendu jusqu'à la rendre.
+    /// Luminosités maximale et plein écran du profil : DXGI est attendu
+    /// jusqu'à les rendre (vérification du HDR).
     pub max: f32,
+    #[serde(default)]
+    pub full_frame: Option<f32>,
     /// Profil de KyberNow posé avant sur cet écran, à retirer.
     #[serde(default)]
     pub replace: Option<String>,
@@ -176,6 +182,92 @@ pub struct HdrSeen {
     /// Profil et blanc (pose ou remise).
     #[serde(default)]
     pub color: Option<ColorSeen>,
+}
+
+/// Écart toléré entre ce que Windows annonce aux jeux et les valeurs voulues.
+pub const CHECK_TOLERANCE: f32 = 0.05;
+
+fn close(seen: f32, wanted: f32) -> bool {
+    (seen - wanted).abs() <= wanted.abs() * CHECK_TOLERANCE
+}
+
+/// `GetDesc1` annonce les luminosités du profil (maximale, plein écran),
+/// à 5 % près.
+pub fn desc_matches(l: &Luminance, max: f32, full_frame: Option<f32>) -> bool {
+    close(l.max, max) && full_frame.is_none_or(|f| close(l.max_full_frame, f))
+}
+
+/// Verdict de la vérification du HDR d'un écran virtuel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CheckStatus {
+    /// Windows annonce aux jeux les valeurs de l'écran de l'appareil.
+    Ok,
+    /// Les luminosités annoncées ne sont pas celles du profil.
+    Profile,
+    /// Luminosités justes, blanc du bureau à côté.
+    White,
+    /// L'écran virtuel n'est pas en HDR.
+    NotHdr,
+    /// `GetDesc1` ne connaît pas l'écran.
+    Unread,
+}
+
+/// Vérification du HDR d'un écran virtuel, au début d'une session HDR :
+/// ce que Windows annonce aux jeux (`IDXGIOutput6::GetDesc1`, et le blanc
+/// SDR), comparé aux valeurs de l'écran de l'appareil. Gardée dans
+/// `hdr-session.json` et donnée par `/api/display` (`session.hdr_check`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HdrCheck {
+    pub status: CheckStatus,
+    /// Valeurs voulues (écran de l'appareil).
+    pub wanted: ScreenLuminance,
+    /// Ce que `GetDesc1` annonce.
+    #[serde(default)]
+    pub seen: Option<Luminance>,
+    /// Blanc SDR relu, en nits.
+    #[serde(default)]
+    pub sdr_white: Option<f32>,
+}
+
+/// Compare ce que l'agent a relu aux valeurs voulues (5 % près ; le noir
+/// est noté sans être jugé : quelques millièmes de nit n'ont pas de sens
+/// en pourcentage).
+pub fn check(wanted: &ScreenLuminance, seen: &HdrSeen) -> HdrCheck {
+    let status = if !seen.active {
+        CheckStatus::NotHdr
+    } else {
+        match seen.luminance {
+            None => CheckStatus::Unread,
+            Some(l) if !desc_matches(&l, wanted.max, Some(wanted.full_frame)) => CheckStatus::Profile,
+            Some(_) if seen.sdr_white.is_some_and(|w| !close(w, wanted.sdr_white)) => CheckStatus::White,
+            Some(_) => CheckStatus::Ok,
+        }
+    };
+    HdrCheck { status, wanted: *wanted, seen: seen.luminance.filter(|_| seen.active), sdr_white: seen.sdr_white }
+}
+
+/// Ligne de journal de la vérification.
+pub fn check_line(name: &str, c: &HdrCheck) -> String {
+    let w = &c.wanted;
+    let seen = |l: &Luminance| format!("{:.0} nits (plein écran {:.0}, noir {:.3})", l.max, l.max_full_frame, l.min);
+    let white = c.sdr_white.map(|v| format!("{v:.0}")).unwrap_or_else(|| "?".into());
+    match (c.status, c.seen.as_ref()) {
+        (CheckStatus::Ok, Some(l)) => format!(
+            "écran {name} : vérification du HDR bonne : les jeux voient {}, blanc du bureau {white} nits (voulu {:.0} nits, plein écran {:.0}, blanc {:.0})",
+            seen(l), w.max, w.full_frame, w.sdr_white
+        ),
+        (CheckStatus::Profile, Some(l)) => format!(
+            "écran {name} : vérification du HDR : Windows n'a pas pris le profil : les jeux voient {} au lieu de {:.0} nits (plein écran {:.0}, noir {:.3})",
+            seen(l), w.max, w.full_frame, w.min
+        ),
+        (CheckStatus::White, Some(l)) => format!(
+            "écran {name} : vérification du HDR : les jeux voient {}, mais le blanc du bureau est à {white} nits au lieu de {:.0}",
+            seen(l), w.sdr_white
+        ),
+        (CheckStatus::NotHdr, _) => format!("écran {name} : vérification du HDR : l'écran virtuel n'est pas en HDR"),
+        _ => format!("écran {name} : vérification du HDR : GetDesc1 ne connaît pas l'écran, luminosités annoncées aux jeux inconnues"),
+    }
 }
 
 /// Ligne de journal de la couleur posée sur un écran : valeurs, profil
@@ -629,34 +721,38 @@ mod win {
             s.luminance = s.gdi_name.as_deref().and_then(dxgi).map(|(l, _)| l);
             s.sdr_white = sdr_white(c);
         }
-        // Profil et blanc sur les écrans en HDR, puis la luminosité que
-        // DXGI rend ensuite (attendue 1 s au plus : ce que liront les jeux).
-        let mut expected: Vec<Option<f32>> = vec![None; asks.len()];
+        // Profil et blanc sur les écrans en HDR, puis la vérification : ce
+        // que DXGI annonce aux jeux et le blanc SDR, relus jusqu'à ce qu'ils
+        // suivent le profil (Windows l'applique en différé, 2 s au plus).
+        // L'agent tourne dans la session de l'écran : DXGI y voit ses sorties.
+        let mut expected: Vec<Option<&ColorApply>> = vec![None; asks.len()];
         for (i, (ask, restored)) in asks.iter().zip(restored).enumerate() {
             let s = &mut seen[i];
             s.color = restored;
             if let Some(apply) = ask.apply.as_ref().filter(|_| ask.on && s.active) {
                 let color = apply_color(&ask.created, apply);
                 if color.installed.is_some() {
-                    expected[i] = Some(apply.max);
+                    expected[i] = Some(apply);
                 }
                 s.sdr_white = color.white.or(s.sdr_white);
                 s.color = Some(color);
             }
         }
         if expected.iter().any(Option::is_some) {
-            let deadline = Instant::now() + Duration::from_secs(1);
+            let deadline = Instant::now() + CONFIRM;
             loop {
                 let mut waiting = false;
-                for (s, max) in seen.iter_mut().zip(&expected) {
-                    let Some(max) = max else { continue };
+                for ((s, apply), ask) in seen.iter_mut().zip(&expected).zip(asks) {
+                    let Some(apply) = apply else { continue };
                     s.luminance = s.gdi_name.as_deref().and_then(dxgi).map(|(l, _)| l);
-                    waiting |= s.luminance.is_none_or(|l| (l.max - max).abs() > 1.0);
+                    s.sdr_white = sdr_white(&ask.created).or(s.sdr_white);
+                    let white_ok = s.sdr_white.is_none_or(|w| (w - apply.sdr_white).abs() <= apply.sdr_white * super::CHECK_TOLERANCE);
+                    waiting |= !white_ok || s.luminance.is_none_or(|l| !super::desc_matches(&l, apply.max, apply.full_frame));
                 }
                 if !waiting || Instant::now() >= deadline {
                     break;
                 }
-                std::thread::sleep(Duration::from_millis(100));
+                std::thread::sleep(Duration::from_millis(200));
             }
         }
         Ok(json!({ "screens": seen }))

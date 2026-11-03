@@ -653,6 +653,8 @@ struct Slot {
     luminance: Option<hdr::ScreenLuminance>,
     /// Notre profil posé, et le profil et le blanc d'avant, à remettre.
     color: Option<hdr::ColorOriginal>,
+    /// Vérification du HDR au début de la session (ce que voient les jeux).
+    check: Option<hdr::HdrCheck>,
 }
 
 impl Slot {
@@ -716,6 +718,15 @@ impl Session {
         }
         Started { applied: self.applied.clone(), screens, hdr }
     }
+
+    /// Vérification du HDR de chaque écran, dans l'ordre de la demande.
+    fn hdr_checks(&self) -> Vec<Option<hdr::HdrCheck>> {
+        let mut checks = vec![None; self.layout.len()];
+        for slot in &self.slots {
+            checks[slot.index] = slot.check.clone();
+        }
+        checks
+    }
 }
 
 /// Fil des événements de la console (vue d'ensemble).
@@ -760,6 +771,9 @@ struct HdrRecord {
     /// Profil de couleur et blanc d'avant, et notre profil à retirer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     color: Option<hdr::ColorOriginal>,
+    /// Dernière vérification du HDR de l'écran (ce que voient les jeux).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    check: Option<hdr::HdrCheck>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -790,6 +804,7 @@ struct HdrDone {
     original: bool,
     luminance: Option<hdr::ScreenLuminance>,
     color: Option<hdr::ColorOriginal>,
+    check: Option<hdr::HdrCheck>,
 }
 
 /// HDR voulu pour chaque écran d'une demande : les valeurs de l'écran de
@@ -1041,6 +1056,7 @@ impl Manager {
                             profile: path,
                             sdr_white: lum.sdr_white,
                             max: lum.max,
+                            full_frame: Some(lum.full_frame),
                             replace: color.as_ref().map(|c| c.installed.clone()),
                         }),
                         Err(e) => {
@@ -1094,9 +1110,12 @@ impl Manager {
                 (None, Some(_)) if color_seen.restored => None,
                 _ => known,
             };
+            // Vérification : ce que Windows annonce aux jeux, comparé aux
+            // valeurs de l'écran de l'appareil.
+            let check = t.luminance.filter(|_| t.want && !restoring).map(|lum| hdr::check(&lum, &seen));
             records.retain(|r| r.guid != hex::encode(t.guid));
             if seen.active != original || color.is_some() {
-                records.push(HdrRecord { guid: hex::encode(t.guid), original, created: t.created, color: color.clone() });
+                records.push(HdrRecord { guid: hex::encode(t.guid), original, created: t.created, color: color.clone(), check: check.clone() });
             }
             if restoring {
                 if seen.active == t.want {
@@ -1132,7 +1151,11 @@ impl Manager {
                 }
                 _ => None,
             };
-            done.push(HdrDone { slot: t.slot, active: seen.active, original, luminance, color });
+            if let Some(c) = &check {
+                let line = hdr::check_line(&name, c);
+                if c.status == hdr::CheckStatus::Ok { tracing::info!("{line}") } else { tracing::warn!("{line}") }
+            }
+            done.push(HdrDone { slot: t.slot, active: seen.active, original, luminance, color, check });
         }
         self.write_hdr_records(records);
         done
@@ -1150,6 +1173,7 @@ impl Manager {
             slot.hdr_original = Some(d.original);
             slot.luminance = d.luminance;
             slot.color = d.color.clone();
+            slot.check = d.check.clone();
         }
         secondary
     }
@@ -1637,7 +1661,7 @@ impl Manager {
         for (i, ((index, guid, created), placed)) in pending.into_iter().zip(placed).enumerate() {
             let gdi_name = gdi_names.get(i).cloned().flatten();
             match placed {
-                Some(placed) => slots.push(Slot { guid, created, index, placed, gdi_name, announced: None, hdr: false, hdr_original: None, luminance: None, color: None }),
+                Some(placed) => slots.push(Slot { guid, created, index, placed, gdi_name, announced: None, hdr: false, hdr_original: None, luminance: None, color: None, check: None }),
                 None => {
                     tracing::warn!("un écran virtuel n'a pas été activé par Windows : retiré");
                     let _ = self.backend.remove(guid);
@@ -1836,8 +1860,10 @@ impl Manager {
                 "seconds_left": s.until.map(|u| u.saturating_duration_since(Instant::now()).as_secs()),
                 "applied": s.applied,
                 "mode_policy": s.effective_policy(self.settings.lock().unwrap().on_mode_change),
-                // HDR en place pour chaque écran, dans l'ordre de la demande.
+                // HDR en place pour chaque écran, dans l'ordre de la demande,
+                // et sa vérification (`null` : écran en SDR, ou pas vérifié).
                 "hdr": s.started().hdr,
+                "hdr_check": s.hdr_checks(),
             })
         });
         let driver = match self.backend.driver() {
@@ -2157,6 +2183,8 @@ struct SimScreen {
     whites: [Option<f32>; MAX_SCREENS],
     installed: Vec<String>,
     color_fails: bool,
+    /// `GetDesc1` ne suit pas le profil (garde 1000 / 600 nits).
+    desc_ignores_profile: bool,
 }
 
 #[cfg(not(windows))]
@@ -2399,7 +2427,9 @@ impl Backend for Simulated {
                     screen.whites[slot] = Some(apply.sdr_white);
                     color.installed = Some(name);
                     // Windows lit le profil : GetDesc1 rend ses luminosités.
-                    s.luminance = Some(hdr::Luminance { min: 0.0, max: apply.max, max_full_frame: apply.max });
+                    if !screen.desc_ignores_profile {
+                        s.luminance = Some(hdr::Luminance { min: 0.0, max: apply.max, max_full_frame: apply.full_frame.unwrap_or(apply.max) });
+                    }
                 }
                 color.white = Some(screen.whites[slot].unwrap_or(240.0));
                 s.sdr_white = color.white;
@@ -3722,7 +3752,7 @@ mod tests {
         // Un écran que Windows a gardé en HDR (session interrompue) : la
         // session suivante en HDR n'y change rien, et la fin le remet en SDR.
         let (m, sim, _) = simulated(VdSettings::default());
-        m.write_hdr_records(vec![HdrRecord { guid: hex::encode(slot_guid(0)), original: false, created: Created { luid_low: 0, luid_high: 0, target: 0 }, color: None }]);
+        m.write_hdr_records(vec![HdrRecord { guid: hex::encode(slot_guid(0)), original: false, created: Created { luid_low: 0, luid_high: 0, target: 0 }, color: None, check: None }]);
         sim.screen.lock().unwrap().hdr_memory[0] = true;
         let started = m.start_screens_hdr(Origin::App, vec![Screen::single(TV)], &on(&[true]), None, Some("tv".into()), None).unwrap();
         assert_eq!(started.hdr, vec![true]);
@@ -3758,7 +3788,7 @@ mod tests {
             screens: vec![hdr::HdrAsk {
                 created: c,
                 on: true,
-                apply: Some(hdr::ColorApply { profile: "C:\\x.icm".into(), sdr_white: 203.0, max: 1000.0, replace: None }),
+                apply: Some(hdr::ColorApply { profile: "C:\\x.icm".into(), sdr_white: 203.0, max: 1000.0, full_frame: Some(1000.0), replace: None }),
                 restore: None,
             }],
         };
@@ -3913,6 +3943,64 @@ mod tests {
         // Sans HDR demandé : comme avant.
         let started = m.start_keeping_others(TV, Some("pret-2".into()), None).unwrap();
         assert_eq!(started.hdr, vec![false]);
+    }
+
+    #[test]
+    fn verification_du_hdr_bonne_gardee_et_donnee() {
+        let (m, _sim, _) = simulated(VdSettings::default());
+        m.start_screens_hdr(Origin::App, trois_ecrans(), &[Some(XDR), None, Some(XDR)], None, Some("mac".into()), None).unwrap();
+        let checks = m.status()["session"]["hdr_check"].clone();
+        assert_eq!(checks[0]["status"], "ok");
+        assert_eq!(checks[0]["seen"]["max"], 1600.0);
+        assert_eq!(checks[0]["seen"]["max_full_frame"], 1000.0);
+        assert_eq!(checks[1], Value::Null, "écran en SDR : rien à vérifier");
+        assert_eq!(checks[2]["status"], "ok");
+        // Gardée dans hdr-session.json avec l'état d'origine.
+        let noted = hdr_file(&m).unwrap();
+        assert!(noted.screens.iter().all(|r| r.check.as_ref().is_some_and(|c| c.status == hdr::CheckStatus::Ok)));
+        // Retour en SDR d'un écran : sa vérification part.
+        m.set_session_hdr("mac", &[Some(XDR), None, None]).unwrap();
+        assert_eq!(m.status()["session"]["hdr_check"][2], Value::Null);
+        m.stop("fin du test");
+        assert!(!m.hdr_path().exists());
+    }
+
+    #[test]
+    fn verification_du_hdr_profil_pas_pris() {
+        let (m, sim, _) = simulated(VdSettings::default());
+        sim.screen.lock().unwrap().desc_ignores_profile = true;
+        let started = m.start_screens_hdr(Origin::App, vec![Screen::single(TV)], &[Some(XDR)], None, Some("tv".into()), None).unwrap();
+        assert_eq!(started.hdr, vec![true], "la stratégie ne change pas : le HDR reste");
+        let check = &m.status()["session"]["hdr_check"][0];
+        assert_eq!(check["status"], "profile");
+        assert_eq!(check["seen"]["max"], 1000.0);
+        assert_eq!(check["wanted"]["max"], 1600.0);
+        assert_eq!(hdr_file(&m).unwrap().screens[0].check.as_ref().unwrap().status, hdr::CheckStatus::Profile);
+    }
+
+    #[test]
+    fn verification_du_hdr_ecran_pas_en_hdr() {
+        let (m, sim, _) = simulated(VdSettings::default());
+        sim.screen.lock().unwrap().hdr_unsupported = vec![0];
+        let started = m.start_screens_hdr(Origin::App, vec![Screen::single(TV)], &[Some(XDR)], None, Some("tv".into()), None).unwrap();
+        assert_eq!(started.hdr, vec![false]);
+        assert_eq!(m.status()["session"]["hdr_check"][0]["status"], "not_hdr");
+    }
+
+    #[test]
+    fn verification_du_hdr_tolerance_et_blanc() {
+        let lum = |max, max_full_frame| Some(hdr::Luminance { min: 0.0, max, max_full_frame });
+        let seen = |l, w| hdr::HdrSeen { read: true, active: true, luminance: l, sdr_white: w, ..hdr::HdrSeen::default() };
+        // 5 % près.
+        assert_eq!(hdr::check(&XDR, &seen(lum(1560.0, 1040.0), Some(240.0))).status, hdr::CheckStatus::Ok);
+        assert_eq!(hdr::check(&XDR, &seen(lum(1500.0, 1000.0), Some(240.0))).status, hdr::CheckStatus::Profile);
+        assert_eq!(hdr::check(&XDR, &seen(lum(1600.0, 600.0), Some(240.0))).status, hdr::CheckStatus::Profile);
+        assert_eq!(hdr::check(&XDR, &seen(lum(1600.0, 1000.0), Some(80.0))).status, hdr::CheckStatus::White);
+        assert_eq!(hdr::check(&XDR, &seen(lum(1600.0, 1000.0), None)).status, hdr::CheckStatus::Ok, "blanc illisible : pas jugé");
+        assert_eq!(hdr::check(&XDR, &seen(None, Some(240.0))).status, hdr::CheckStatus::Unread);
+        let line = hdr::check_line("\\\\.\\DISPLAY9", &hdr::check(&XDR, &seen(lum(1000.0, 600.0), Some(240.0))));
+        assert!(line.contains("Windows n'a pas pris le profil : les jeux voient 1000 nits (plein écran 600"), "{line}");
+        assert!(line.contains("au lieu de 1600 nits"), "{line}");
     }
 
     #[test]
