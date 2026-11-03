@@ -10,7 +10,7 @@
 //!   que les sessions d'ordinateur (`VideoSink` : VA-API, V4L2 sur le Pi, sinon le processeur) et le son au même
 //!   moteur (`AudioSink`). Le clavier et la souris tiennent lieu de manette (`Play::key`, `mouse_*`), les manettes
 //!   passent par le lecteur du cœur (que la boucle SDL nourrit, avec pavé tactile et capteurs), vibrations et
-//!   gâchettes reviennent par `gamepads::set_feedback`.
+//!   gâchettes reviennent par `gamepads::set_app_feedback`, posé le temps de la partie.
 //! - **Vibrations HD** : une DualSense branchée en USB est aussi une carte son à quatre voies ; ses voies 3 et 4
 //!   tiennent les moteurs. SDL l'ouvre par son nom (PipeWire, PulseAudio ou ALSA) avec quatre voies ; sinon le cœur
 //!   traduit en vibrations simples.
@@ -26,7 +26,8 @@ use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use kybernow_core::console::Console as Admin;
-use kybernow_core::gamepads::{self, Feedback};
+use kybernow_core::gamepads::{self, AppFeedback};
+use kybernow_core::input::{GamepadRumble, PadId};
 use kybernow_core::media::PacketHandler;
 use kybernow_core::playstation::discovery::{self, Console, Model, State};
 use kybernow_core::playstation::dualsense;
@@ -72,6 +73,30 @@ pub enum PsEvent {
     Keyboard { id: SessionId, event: KeyboardEvent },
     Feedback(Feedback),
 }
+
+/// Ce que la partie demande aux manettes (`gamepads::AppFeedback`), joué par la boucle SDL.
+pub enum Feedback {
+    Rumble(GamepadRumble),
+    /// Rapport d'effets de la DualSense (47 octets : gâchettes adaptatives).
+    Effect { id: PadId, data: Vec<u8> },
+}
+
+/// Le retour des manettes d'une partie : posé le temps de la partie seulement (`gamepads::set_app_feedback`) ;
+/// pendant une session d'ordinateur, les vibrations passent par `InputPlatform::rumble`.
+struct FeedbackSink(Mutex<Sender<Event>>);
+
+impl AppFeedback for FeedbackSink {
+    fn rumble(&self, r: GamepadRumble) {
+        send(&self.0.lock().unwrap(), PsEvent::Feedback(Feedback::Rumble(r)));
+    }
+
+    fn effect(&self, id: PadId, data: &[u8]) {
+        send(&self.0.lock().unwrap(), PsEvent::Feedback(Feedback::Effect { id, data: data.to_vec() }));
+    }
+}
+
+/// Parties commencées : le retour des manettes d'une partie finie n'est retiré que si aucune autre n'a commencé.
+static GAMES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// La touche V (code USB).
 const SC_V: i32 = 25;
@@ -149,9 +174,6 @@ pub struct Runtime {
 
 impl Runtime {
     pub fn new(tx: Sender<Event>) -> Self {
-        // Vibrations et gâchettes d'une partie : le fil de la partie les envoie ici, la boucle SDL les joue.
-        let ftx = Mutex::new(tx.clone());
-        gamepads::set_feedback(Some(Box::new(move |f| send(&ftx.lock().unwrap(), PsEvent::Feedback(f)))));
         Self {
             tx,
             game: None,
@@ -550,6 +572,9 @@ impl Runtime {
         let on_state = Box::new(move |state: PlayState| send(&tx.lock().unwrap(), PsEvent::State { id, state }));
         let tx = Mutex::new(self.tx.clone());
         let on_pad = Box::new(move |event: PadEvent| send(&tx.lock().unwrap(), PsEvent::Pad { id, event }));
+        // Vibrations et gâchettes de la partie : le fil de la partie les envoie ici, la boucle SDL les joue.
+        GAMES.fetch_add(1, Ordering::SeqCst);
+        gamepads::set_app_feedback(Some(Arc::new(FeedbackSink(Mutex::new(self.tx.clone())))));
         let play = Arc::new(Play::start(endpoint, &registered, options, video, Some(audio as Arc<dyn PacketHandler>), on_state, on_pad));
         let tx = Mutex::new(self.tx.clone());
         play.set_on_keyboard(Some(Box::new(move |event| send(&tx.lock().unwrap(), PsEvent::Keyboard { id, event }))));
@@ -587,8 +612,14 @@ impl Runtime {
         }
         drop(g.haptics);
         let (play, shared, remote) = (g.play, g.shared, g.remote);
+        let generation = GAMES.load(Ordering::SeqCst);
         std::thread::spawn(move || {
+            // La partie s'arrête : ses derniers effets (moteurs arrêtés, gâchettes libres) passent encore par le
+            // retour des manettes, retiré ensuite (sauf si une autre partie a commencé entre-temps).
             drop(play);
+            if GAMES.load(Ordering::SeqCst) == generation {
+                gamepads::set_app_feedback(None);
+            }
             drop(shared);
             drop(remote);
         });
@@ -636,7 +667,7 @@ impl Runtime {
         if let Some(s) = self.receiving.take() {
             s.store(true, Ordering::SeqCst);
         }
-        gamepads::set_feedback(None);
+        gamepads::set_app_feedback(None);
     }
 
     // MARK: - Événements
