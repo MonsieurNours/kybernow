@@ -9,11 +9,13 @@ mod auth;
 mod consoles;
 mod discovery;
 mod display;
+mod durable;
 mod foreground;
 mod gpu;
 mod i18n;
 mod kyber_config;
 mod kyber_proxy;
+mod kyber_repair;
 mod launch;
 mod lend;
 mod lend_api;
@@ -176,6 +178,16 @@ enum AgentAction {
     Hdr {
         #[arg(long)]
         request: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Lancé avec le compte de l'utilisateur : notre profil HDR associé (ou
+    /// retiré) dans la portée de son compte (demande JSON
+    /// `display::hdr::UserRequest`, en hexadécimal : le dossier des données
+    /// d'Admin lui est fermé).
+    HdrUser {
+        #[arg(long)]
+        request_hex: String,
         #[arg(long)]
         out: PathBuf,
     },
@@ -461,6 +473,13 @@ fn display_agent(action: AgentAction) -> Result<()> {
                 .and_then(|req| display::hdr::agent_set(&req.screens));
             (out, r)
         }
+        AgentAction::HdrUser { request_hex, out } => {
+            let r = hex::decode(&request_hex)
+                .map_err(anyhow::Error::from)
+                .and_then(|b| Ok(serde_json::from_slice::<display::hdr::UserRequest>(&b)?))
+                .and_then(|req| display::hdr::agent_user(&req.screens, req.wait_ms));
+            (out, r)
+        }
         AgentAction::HdrPrimary { out } => (out, display::hdr::agent_primary()),
         AgentAction::AudioRoute { channels, out } => {
             display::pointer::begin(agent_dir(&out));
@@ -498,6 +517,7 @@ fn display_agent(action: AgentAction) -> Result<()> {
         | AgentAction::SetMode { out, .. }
         | AgentAction::Displays { out }
         | AgentAction::Hdr { out, .. }
+        | AgentAction::HdrUser { out, .. }
         | AgentAction::HdrPrimary { out }
         | AgentAction::AudioRoute { out, .. }
         | AgentAction::AudioRestore { out, .. }
@@ -794,6 +814,17 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
         tracing::warn!("{} introuvable : Kyber est-il installé ?", config_path.display());
     }
     let kyber = KyberConfig::new(config_path.clone(), data_dir.join("backups"));
+    // Réglages, certificat ou clé de Kyber abîmés (gel du PC pendant une
+    // mise à jour) : remis depuis une sauvegarde, avant tout le reste.
+    let repairs = kyber_repair::repair(
+        &kyber_repair::KyberFiles::of(&kyber),
+        kyber_dir.parent().map(|d| d.join("kyber.prev")).filter(|d| d.is_dir()).as_deref(),
+        &data_dir.join("backups"),
+        &kyber_repair::cert_gen,
+    );
+    for r in &repairs {
+        tracing::warn!("{}", r.log_line());
+    }
     let settings = kyber_secrets_at_start(&kyber, settings, &data_dir);
     let listen: SocketAddr = args
         .listen
@@ -857,6 +888,19 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
 
     // Fil des événements : l'écran virtuel y annonce ce que la veille voit.
     let activity = Arc::new(activity::Activity::new(&data_dir));
+    for r in &repairs {
+        activity.event("warn", r.event());
+    }
+    if repairs.iter().any(kyber_repair::Repair::changed) {
+        // Kyber a pu s'arrêter sur les fichiers abîmés : relancé avec les bons.
+        tokio::spawn(async {
+            let kyber = service::platform();
+            match service::restart(kyber.as_ref()).await {
+                Ok(()) => tracing::info!("Kyber relancé après la réparation de ses fichiers"),
+                Err(e) => tracing::warn!("Kyber pas relancé après la réparation de ses fichiers : {e:#}"),
+            }
+        });
+    }
     {
         let a = activity.clone();
         display.on_event(Arc::new(move |kind: &str, msg: i18n::Msg| a.event(kind, msg)));

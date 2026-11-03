@@ -19,6 +19,13 @@
 //! l'ordinateur (quirk hid-apple ; SDL fait le même échange). Confirmé le
 //! 2026-10-20 sur un MacBook AZERTY : `@` donnait `<`.
 //!
+//! Face à une Station Mac (docs/link-ui.md, « Face à une Station Mac ») : la
+//! touche ⊞ d'un PC y arrive en ⌘ (kynput Mac traduit le jeu de touches de
+//! Windows). « Ctrl agit comme ⌘ », allumé par défaut, échange Ctrl et ⊞ dans
+//! les scancodes envoyés ([`swap_control_command`]) : copier, coller avec Ctrl
+//! comme sur un PC, ⊞ devient ⌃. La Station se dit Mac par son système
+//! (`os` de `GET /api/stream/info`, [`station_is_mac`]).
+//!
 //! Verr. maj. et Verr. num. sont des bascules, pas des touches tenues : chaque
 //! plateforme les envoie en appui + relâchement (une frappe), l'ordinateur
 //! bascule son verrouillage à l'appui, et elles ne sont jamais comptées parmi
@@ -74,6 +81,37 @@ pub fn usage(hid: u16, command_as_control: bool, iso: impl FnOnce() -> bool) -> 
         usage = if usage == GRAVE { ISO_SECTION } else { GRAVE };
     }
     usage
+}
+
+/// Scancodes (jeu 1 de Windows, `0xE000` pour les touches étendues) de Ctrl
+/// et de ⊞, à gauche et à droite.
+pub const SC_LEFT_CONTROL: u16 = 0x1D;
+pub const SC_RIGHT_CONTROL: u16 = 0xE01D;
+pub const SC_LEFT_WIN: u16 = 0xE05B;
+pub const SC_RIGHT_WIN: u16 = 0xE05C;
+
+/// La Station est un Mac : son système (`Info::os`, « macOS 26.1 ») commence
+/// par « macOS ».
+pub fn station_is_mac(os: &str) -> bool {
+    os.trim_start().get(..5).is_some_and(|p| p.eq_ignore_ascii_case("macos"))
+}
+
+/// « Ctrl agit comme ⌘ » pour cet ordinateur : seulement face à un Mac, et
+/// allumé tant que l'utilisateur ne l'a pas éteint (`setting` : le réglage
+/// gardé par l'app, `None` jamais changé).
+pub fn control_as_command(setting: Option<bool>, os: &str) -> bool {
+    station_is_mac(os) && setting.unwrap_or(true)
+}
+
+/// Ctrl ↔ ⊞, à gauche comme à droite ; les autres touches inchangées.
+pub fn swap_control_command(scancode: u16) -> u16 {
+    match scancode {
+        SC_LEFT_CONTROL => SC_LEFT_WIN,
+        SC_LEFT_WIN => SC_LEFT_CONTROL,
+        SC_RIGHT_CONTROL => SC_RIGHT_WIN,
+        SC_RIGHT_WIN => SC_RIGHT_CONTROL,
+        other => other,
+    }
 }
 
 /// Scancode Windows (kynput) d'un usage HID ; `None` : touche inconnue de kynput.
@@ -136,6 +174,17 @@ mod tests {
     fn commande_comme_controle() {
         assert!(usage(0xE3, true, || false) == 0xE0 && usage(0xE7, true, || false) == 0xE4, "⌘ envoyée comme Ctrl, des deux côtés");
         assert_eq!(usage(0xE3, false, || false), 0xE3, "⌘ gardée sinon");
+    }
+
+    #[test]
+    fn station_mac_et_controle_comme_commande() {
+        assert!(station_is_mac("macOS 26.1") && station_is_mac(" MacOS 15") && !station_is_mac("Windows 11 Pro") && !station_is_mac(""), "un Mac se reconnaît à « macOS »");
+        assert!(control_as_command(None, "macOS 26.1"), "allumé par défaut face à un Mac");
+        assert!(!control_as_command(Some(false), "macOS 26.1"), "éteint par l'utilisateur");
+        assert!(!control_as_command(Some(true), "Windows 11 Pro") && !control_as_command(None, ""), "jamais face à un PC, ni sans système connu");
+        assert!(swap_control_command(SC_LEFT_CONTROL) == SC_LEFT_WIN && swap_control_command(SC_LEFT_WIN) == SC_LEFT_CONTROL, "Ctrl gauche ↔ ⊞ gauche");
+        assert!(swap_control_command(SC_RIGHT_CONTROL) == SC_RIGHT_WIN && swap_control_command(SC_RIGHT_WIN) == SC_RIGHT_CONTROL, "Ctrl droit ↔ ⊞ droit");
+        assert_eq!(swap_control_command(0x1E), 0x1E, "A inchangée");
     }
 
     #[test]

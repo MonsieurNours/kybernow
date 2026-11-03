@@ -343,6 +343,8 @@ pub fn main() -> i32 {
             window_size: system::initial_window_size(mode),
             at: None,
             title_stats: true,
+            // Face à un Mac : Ctrl agit comme ⌘ (réglage par défaut du cœur).
+            control_as_command: kybernow_core::input::keymap::control_as_command(None, &info.os),
             layout,
         },
         Arc::new(CliEvents(std::sync::Mutex::new(tx))),

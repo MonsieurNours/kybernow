@@ -71,8 +71,7 @@ impl LastPlayed {
     }
 
     fn save(&self, map: &HashMap<String, Entry>) {
-        let tmp = self.path.with_extension("json.tmp");
-        let written = serde_json::to_vec_pretty(map).map_err(std::io::Error::other).and_then(|b| std::fs::write(&tmp, b)).and_then(|_| std::fs::rename(&tmp, &self.path));
+        let written = serde_json::to_vec_pretty(map).map_err(std::io::Error::other).and_then(|b| crate::durable::write(&self.path, b));
         if let Err(e) = written {
             tracing::warn!("prêt : dernière partie non gardée : {e}");
         }

@@ -97,8 +97,8 @@
 #         0022-kycontroller-hdr) ; les apps le posent aussi, après leurs
 #         propres correctifs (apps/macos/scripts/build-kyclient.sh…)
 #   0023  latence (txproto, et libavgrab/libavconv) : priorité GPU au
-#         démarrage de la capture (classe REALTIME du processus sans
-#         ordonnancement GPU matériel, HIGH sinon ; SetGPUThreadPriority(7)) ;
+#         démarrage de la capture (classe HIGH du processus, jamais REALTIME ;
+#         SetGPUThreadPriority(7) ; mode d'ordonnancement lu pour le journal) ;
 #         chronométrage par étape : la capture joint à chaque image ses heures
 #         (affichage par Windows, prise, soumission à la carte) et le temps de
 #         la carte pour la copie ou la conversion (requêtes d'horodatage D3D11

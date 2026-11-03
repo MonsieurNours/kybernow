@@ -984,9 +984,7 @@ fn show_bar(app: &AppHandle, id: &str, hwnd: isize, pinned: bool, pad: bool) {
     }
     super::bar_menu(app.clone(), false, None);
     let hwnd = if hwnd != 0 { hwnd } else { s.hwnd() };
-    let (center, top, scale) = crate::window::bar_anchor(hwnd).unwrap_or((0, 0, bar.scale_factor().unwrap_or(1.0) as f32));
-    let width = (super::BAR_WINDOW_WIDTH * scale as f64).round() as i32;
-    let _ = bar.set_position(tauri::PhysicalPosition::new(center - width / 2, top));
+    super::place_bar_for(&bar, hwnd);
     let _ = bar.set_always_on_top(true);
     let _ = bar.show();
     if pad {

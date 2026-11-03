@@ -648,7 +648,7 @@ private struct FoundCard: View {
             ignite += 1
             if !reduceMotion {
                 try? await Task.sleep(for: .seconds(1.8))
-                withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) { breathe = true }
+                Theme.breathe { breathe = $0 }
             }
         }
     }

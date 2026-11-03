@@ -13,7 +13,7 @@
   import Station from './Station.svelte'
   import { onMount, untrack } from 'svelte'
   import type { Battery, Computer, DisplaysInfo, Settings, ThisPc } from './lib/api'
-  import { invoke, isCustom, listen, profileBase, sessionPlan } from './lib/api'
+  import { invoke, isCustom, isMacStation, listen, profileBase, sessionPlan } from './lib/api'
   import { beforeName, t } from './lib/i18n/index.svelte'
 
   let {
@@ -62,6 +62,8 @@
   }
 
   const custom = $derived(isCustom(s, thisPc))
+  /** Une Station Mac : « Ctrl agit comme ⌘ » et l'aide du clavier face à un Mac. */
+  const mac = $derived(isMacStation(computer.info?.os || computer.os))
   const profiles = $derived((['jeu', 'bureau', 'max'] as const).map((value) => ({ value, title: t(`profiles.${value}`), sub: t(`profiles.${value}_sub`) })))
 
   /** Valeurs du profil choisi, comme le cœur les calcule (profile.rs). */
@@ -327,8 +329,18 @@
           </div>
           <div class="line stack">
             <span>{t('settings.keyboard')}</span>
-            <span class="help">{t('settings.keyboard_help')}</span>
+            <span class="help">{t(mac ? 'settings.keyboard_help_mac' : 'settings.keyboard_help')}</span>
           </div>
+          {#if mac}
+            <!-- Face à une Station Mac seulement : allumé tant qu'on ne l'a pas éteint. -->
+            <div class="line stack">
+              <div class="lr">
+                <span>{t('settings.ctrl_command')}</span>
+                <Switch label={t('settings.ctrl_command')} checked={s.ctrl_command ?? true} onchange={(v) => save({ ctrl_command: v })} />
+              </div>
+              <span class="help">{t('settings.ctrl_command_help')}</span>
+            </div>
+          {/if}
           <div class="line">
             <span>{t('settings.clipboard')}</span>
             <Switch label={t('settings.clipboard')} checked={s.clipboard} onchange={(v) => save({ clipboard: v })} />

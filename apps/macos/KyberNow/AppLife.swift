@@ -656,6 +656,21 @@ enum DemoRemote {
         }
     }
 
+    /// Une image 1600 × 900 de teinte changeante (dégradé et bandes), pour `picture:`.
+    private static func demoPicture() -> CGImage? {
+        let (w, h) = (1600, 900)
+        guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
+        let hue = CGFloat.random(in: 0...1)
+        let a = NSColor(hue: hue, saturation: 0.7, brightness: 0.8, alpha: 1).cgColor
+        let b = NSColor(hue: (hue + 0.4).truncatingRemainder(dividingBy: 1), saturation: 0.6, brightness: 0.3, alpha: 1).cgColor
+        let gradient = CGGradient(colorsSpace: nil, colors: [a, b] as CFArray, locations: [0, 1])!
+        ctx.drawLinearGradient(gradient, start: .zero, end: CGPoint(x: w, y: h), options: [])
+        ctx.setFillColor(NSColor.white.withAlphaComponent(0.12).cgColor)
+        for i in stride(from: 0, to: w, by: 80) { ctx.fill(CGRect(x: i, y: 0, width: 24, height: h)) }
+        return ctx.makeImage()
+    }
+
     private static func host(_ index: String) -> Host? {
         guard let app, let i = Int(index), app.store.ordered.indices.contains(i) else { return nil }
         return app.store.ordered[i]
@@ -824,6 +839,11 @@ enum DemoRemote {
             // la session de cet ordinateur (sans lui : l'active) finie par l'ordinateur.
             let session = parts.count > 2 ? host(parts[2]).flatMap { app.sessions.session(for: $0.id) } : app.sessions.active
             session?.demoEndedByComputer(error: parts.count > 1 && !parts[1].isEmpty ? parts[1] : nil)
+        case "picture":
+            // picture:<ordinateur>:last|preview : une image de fond 1600 × 900 posée
+            // comme à la fin d'une session (fondu) ou comme un aperçu (balayage).
+            guard let h = host(parts[1]), let cg = demoPicture() else { return }
+            app.store.imagery.demoSet(cg, for: h, source: parts.count > 2 && parts[2] == "preview" ? .preview : .lastSession)
         case "connect":
             // connect:<ordinateur> : « Se connecter » du menu de l'icône (une session de plus pendant les autres).
             if let h = host(parts[1]) { app.perform(.connect(h.id)) }

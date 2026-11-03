@@ -98,11 +98,9 @@ pub fn migrate(data_dir: &Path, dry_run: bool) -> Result<Outcome> {
         let dir = data_dir.join("backups");
         fs::create_dir_all(&dir).with_context(|| format!("création de {}", dir.display()))?;
         let backup = dir.join(format!("{FILE_NAME}.schema-{from}-{}", crate::display::now_secs()));
-        fs::copy(&path, &backup).with_context(|| format!("sauvegarde dans {}", backup.display()))?;
+        crate::durable::copy(&path, &backup).with_context(|| format!("sauvegarde dans {}", backup.display()))?;
         // Même écriture d'un bloc que Settings::save.
-        let tmp = data_dir.join(format!("{FILE_NAME}.tmp"));
-        fs::write(&tmp, doc.to_string()).with_context(|| format!("écriture de {}", tmp.display()))?;
-        fs::rename(&tmp, &path).with_context(|| format!("remplacement de {}", path.display()))?;
+        crate::durable::write(&path, doc.to_string()).with_context(|| format!("remplacement de {}", path.display()))?;
         Some(backup)
     };
     Ok(Outcome::Migrated { from, to: CURRENT, backup, changes })

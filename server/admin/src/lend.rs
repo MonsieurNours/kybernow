@@ -159,8 +159,7 @@ impl History {
         let mut list = self.list.lock().unwrap();
         list.insert(0, past);
         list.truncate(HISTORY_MAX);
-        let tmp = self.path.with_extension("json.tmp");
-        let written = serde_json::to_vec_pretty(&*list).map_err(std::io::Error::other).and_then(|b| std::fs::write(&tmp, b)).and_then(|_| std::fs::rename(&tmp, &self.path));
+        let written = serde_json::to_vec_pretty(&*list).map_err(std::io::Error::other).and_then(|b| crate::durable::write(&self.path, b));
         if let Err(e) = written {
             tracing::warn!("prêt : historique non gardé : {e}");
         }
@@ -355,9 +354,7 @@ impl Friends {
     }
 
     fn save(&self, list: &[Friend]) -> Result<()> {
-        let tmp = self.path.with_extension("json.tmp");
-        std::fs::write(&tmp, serde_json::to_vec_pretty(list)?).with_context(|| format!("écriture de {}", tmp.display()))?;
-        std::fs::rename(&tmp, &self.path).with_context(|| format!("remplacement de {}", self.path.display()))
+        crate::durable::write(&self.path, serde_json::to_vec_pretty(list)?).with_context(|| format!("remplacement de {}", self.path.display()))
     }
 
     pub fn all(&self) -> Vec<Friend> {

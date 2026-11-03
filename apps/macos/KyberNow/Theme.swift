@@ -8,6 +8,18 @@ import CoreText
 import SwiftUI
 
 enum Theme {
+    /// Respiration d'une lumière : `breaths` allers-retours de `half` secondes
+    /// chacun, puis retour au repos. Toujours finie : sur Mac, une animation
+    /// SwiftUI sans fin fait recalculer toute la fenêtre à chaque image (50 à
+    /// 70 % d'un cœur pour l'accueil au repos, mesuré le 03/11/2026).
+    static func breathe(half: Double = 1.6, breaths: Int = 3, _ set: @escaping (Bool) -> Void) {
+        withAnimation(.easeInOut(duration: half).repeatCount(breaths * 2 - 1, autoreverses: true), completionCriteria: .logicallyComplete) {
+            set(true)
+        } completion: {
+            withAnimation(.easeInOut(duration: half)) { set(false) }
+        }
+    }
+
     static func rgb(_ hex: UInt32, _ alpha: Double = 1) -> Color {
         Color(red: Double((hex >> 16) & 0xFF) / 255, green: Double((hex >> 8) & 0xFF) / 255, blue: Double(hex & 0xFF) / 255).opacity(alpha)
     }
@@ -281,7 +293,7 @@ struct NeonGlow: ViewModifier {
             .animation(.easeOut(duration: level == .flash ? 0.04 : 0.2), value: level)
             .onChange(of: level, initial: true) { _, new in
                 guard new == .lit, !reduceMotion else { breathe = false; return }
-                withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) { breathe = true }
+                Theme.breathe { breathe = $0 }
             }
     }
 }
@@ -440,7 +452,7 @@ struct Mark: View {
         .animation(.easeOut(duration: 0.2), value: level)
         .onChange(of: level, initial: true) { _, new in
             guard new == .lit, !reduceMotion else { breathe = false; return }
-            withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) { breathe = true }
+            Theme.breathe { breathe = $0 }
         }
         .accessibilityHidden(true)
     }
@@ -886,9 +898,16 @@ struct StatusPill: View {
         .frame(height: 30)
         .glass(15)
         .foregroundStyle(online == false ? Theme.faint : Theme.text)
-        .onAppear {
+        // Quelques pulsations à chaque changement d'état, puis le point se tient
+        // tranquille (en ligne : l'onde s'éteint ; recherche : le point revient plein).
+        .onChange(of: online, initial: true) { _, now in
+            pulse = false
             guard !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: online == nil ? 1.2 : 2.4).repeatForever(autoreverses: online == nil)) { pulse = true }
+            if now == nil {
+                Theme.breathe(half: 1.2, breaths: 4) { pulse = $0 }
+            } else if now == true {
+                withAnimation(.easeOut(duration: 2.4).repeatCount(3, autoreverses: false)) { pulse = true }
+            }
         }
     }
 }

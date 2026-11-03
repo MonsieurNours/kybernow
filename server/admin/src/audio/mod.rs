@@ -178,7 +178,7 @@ impl Router {
         self.stop_locked("autre nombre de canaux demandé");
         match self.backend.route(channels) {
             Ok((record, got)) => {
-                let _ = std::fs::write(self.record_path(), serde_json::to_vec(&record).unwrap_or_default());
+                let _ = crate::durable::write(&self.record_path(), serde_json::to_vec(&record).unwrap_or_default());
                 tracing::info!("son envoyé vers les haut-parleurs virtuels, {got} canaux ({origin:?})");
                 *self.last_error.lock().unwrap() = None;
                 *self.active.lock().unwrap() = Some(Active {

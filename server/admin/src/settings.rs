@@ -85,10 +85,8 @@ impl Settings {
     pub fn save(&self, data_dir: &Path) -> Result<()> {
         fs::create_dir_all(data_dir)?;
         let path = data_dir.join(FILE_NAME);
-        let tmp = data_dir.join(format!("{FILE_NAME}.tmp"));
-        fs::write(&tmp, toml::to_string_pretty(self)?)
-            .with_context(|| format!("écriture de {}", tmp.display()))?;
-        fs::rename(&tmp, &path).with_context(|| format!("remplacement de {}", path.display()))
+        // Forcé sur le disque avant de prendre la place (`durable`).
+        crate::durable::write(&path, toml::to_string_pretty(self)?).with_context(|| format!("remplacement de {}", path.display()))
     }
 }
 

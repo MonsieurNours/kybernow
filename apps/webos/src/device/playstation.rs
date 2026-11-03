@@ -232,7 +232,9 @@ pub fn perform(a: PsAction, app: &mut App, tx: &Sender<Event>, search: &Search, 
         PsAction::Mute(on) => super::media::set_muted(on),
         PsAction::Sleep => {
             if let Some(p) = playing.as_ref() {
-                p.with(|p| p.goto_bed());
+                p.with(|p| {
+                    p.goto_bed();
+                });
             }
         }
         PsAction::Intensities(r, t) => {

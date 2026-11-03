@@ -210,6 +210,8 @@ pub fn extract(zip: &Path, dest: &Path) -> Result<usize> {
             .open(&out)
             .with_context(|| format!("entrée en double ou impossible à créer : {name:?}"))?;
         std::io::copy(&mut entry, &mut target).with_context(|| format!("extraction de {name:?}"))?;
+        // Forcé sur le disque : un gel du PC juste après laisserait sinon des zéros.
+        target.sync_all().with_context(|| format!("écriture de {name:?}"))?;
         files += 1;
     }
     Ok(files)
@@ -241,7 +243,7 @@ pub fn copy_tree(from: &Path, to: &Path, skip: &[&str]) -> Result<()> {
                 perms.set_readonly(false);
                 let _ = fs::set_permissions(&dst, perms);
             }
-            fs::copy(&src, &dst).with_context(|| format!("copie de {}", src.display()))?;
+            crate::durable::copy(&src, &dst).with_context(|| format!("copie de {}", src.display()))?;
         }
     }
     Ok(())
@@ -252,7 +254,7 @@ pub fn copy_tree(from: &Path, to: &Path, skip: &[&str]) -> Result<()> {
 fn rename_retry(from: &Path, to: &Path) -> Result<()> {
     let mut tries = 0;
     loop {
-        match fs::rename(from, to) {
+        match crate::durable::rename(from, to) {
             Ok(()) => return Ok(()),
             Err(e) if tries >= 9 => {
                 return Err(e).with_context(|| format!("renommage de {} en {} impossible", from.display(), to.display()));
@@ -300,22 +302,20 @@ fn record_version(layout: &Layout, version: &str) -> Result<()> {
     let Ok(bytes) = fs::read(&path) else { return Ok(()) };
     let mut record: Value = serde_json::from_slice(&bytes).context("kybernow.json illisible")?;
     record["version"] = json!(version);
-    let tmp = layout.install.join("kybernow.json.tmp");
-    fs::write(&tmp, serde_json::to_vec_pretty(&record)?)?;
-    fs::rename(&tmp, &path)?;
+    crate::durable::write(&path, serde_json::to_vec_pretty(&record)?)?;
     Ok(())
 }
 
 fn write_result(layout: &Layout, value: Value) {
     let dir = layout.updates();
     let _ = fs::create_dir_all(&dir);
-    let _ = fs::write(dir.join(RESULT), serde_json::to_vec_pretty(&value).unwrap_or_default());
+    let _ = crate::durable::write(&dir.join(RESULT), serde_json::to_vec_pretty(&value).unwrap_or_default());
 }
 
 /// Demande à la console qui démarre de relancer l'icône dans la session de l'utilisateur.
 fn request_tray_relaunch(layout: &Layout) {
     let _ = fs::create_dir_all(layout.updates());
-    let _ = fs::write(layout.updates().join("relaunch-tray"), b"");
+    let _ = crate::durable::write(&layout.updates().join("relaunch-tray"), b"");
 }
 
 /// Paquets téléchargés : les deux versions les plus récentes restent.
@@ -408,6 +408,24 @@ fn move_kyber_log(from: &Path, to: &Path) {
     }
 }
 
+/// Réglages, certificat et clé de Kyber du dossier `kyber` actuel,
+/// sauvegardés dans `<données>\backups` (s'ils sont lisibles).
+fn backup_kyber(layout: &Layout, reason: &str, log: &mut Journal) {
+    let config = crate::kyber_config::KyberConfig::new(layout.part("kyber").join("kyber_config.toml"), layout.data.join("backups"));
+    for line in crate::kyber_repair::backup(&crate::kyber_repair::KyberFiles::of(&config), &layout.data.join("backups"), reason) {
+        log.line(format!("    {line}"));
+    }
+}
+
+/// Force sur le disque tout ce qui attend sur le volume de l'installation
+/// (copies et renommages), pour qu'un gel du PC juste après ne laisse pas de
+/// fichiers remplis de zéros ; à défaut, chaque fichier l'a déjà été.
+fn flush(layout: &Layout, log: &mut Journal) {
+    if let Err(e) = crate::durable::flush_volume(&layout.install) {
+        log.line(format!("    volume pas forcé sur le disque ({e}) : chaque fichier l'a été"));
+    }
+}
+
 /// Ce qu'on vérifie avant de toucher à quoi que ce soit.
 pub struct Checks<'a> {
     /// Clé publique de publication (format minisign).
@@ -466,7 +484,8 @@ pub fn apply(layout: &Layout, sys: &mut dyn System, zip: &Path, version: &str, c
             return Err(e);
         }
     }
-    let (result, undo_failed) = run_switch(layout, sys, &mut log, version, || {
+    let (result, undo_failed) = run_switch(layout, sys, &mut log, version, |log| {
+        backup_kyber(layout, &format!("avant la mise à jour {version}"), log);
         let mut plan = Vec::new();
         // Copie du dossier actuel (réglages, certificat), puis le paquet par-dessus.
         for part in PARTS {
@@ -479,7 +498,7 @@ pub fn apply(layout: &Layout, sys: &mut dyn System, zip: &Path, version: &str, c
             plan.push((part, target));
         }
         Ok(plan)
-    }, "prev", |layout| {
+    }, "prev", |layout, _| {
         move_kyber_log(&layout.with_suffix("kyber", "prev"), &layout.part("kyber"));
     });
     if result.is_ok() {
@@ -512,12 +531,34 @@ pub fn rollback(layout: &Layout, sys: &mut dyn System) -> Result<String> {
     let mut log = Journal::open(layout.updates().join(&previous).join("update.log"));
     log.line(format!("==> Retour à KyberNow Station {previous} (version précédente)"));
     let plan: Plan = PARTS.iter().map(|p| (*p, layout.with_suffix(p, "prev"))).collect();
-    let (result, _) = run_switch(layout, sys, &mut log, &previous, || Ok(plan), "bad", |layout| {
-        // Réglages de Kyber changés depuis la mise à jour : gardés.
-        let (bad, kyber) = (layout.with_suffix("kyber", "bad"), layout.part("kyber"));
-        let _ = fs::copy(bad.join("kyber_config.toml"), kyber.join("kyber_config.toml"));
-        move_kyber_log(&bad, &kyber);
-    });
+    let (result, _) = run_switch(
+        layout,
+        sys,
+        &mut log,
+        &previous,
+        |log| {
+            backup_kyber(layout, &format!("avant le retour à {previous}"), log);
+            Ok(plan)
+        },
+        "bad",
+        |layout, log| {
+            // Réglages de Kyber changés depuis la mise à jour : gardés, s'ils
+            // sont lisibles. Le 03/11, un gel juste après la mise à jour les
+            // avait remplis de zéros : la copie avait écrasé ceux de `.prev`.
+            let (bad, kyber) = (layout.with_suffix("kyber", "bad"), layout.part("kyber"));
+            let (from, to) = (bad.join("kyber_config.toml"), kyber.join("kyber_config.toml"));
+            if from.exists() {
+                match crate::kyber_repair::config_problem(&from) {
+                    None => match crate::durable::copy(&from, &to) {
+                        Ok(_) => log.line("    réglages de Kyber de la version retirée gardés"),
+                        Err(e) => log.line(format!("    réglages de Kyber de la version retirée pas recopiés ({e}) : ceux de la version remise restent")),
+                    },
+                    Some(why) => log.line(format!("    réglages de Kyber de la version retirée illisibles ({why}) : ceux de la version remise restent")),
+                }
+            }
+            move_kyber_log(&bad, &kyber);
+        },
+    );
     if result.is_ok() {
         // La version retirée ne sert plus : elle se réinstalle depuis la page.
         for p in PARTS {
@@ -534,9 +575,9 @@ fn run_switch(
     sys: &mut dyn System,
     log: &mut Journal,
     version: &str,
-    prepare: impl FnOnce() -> Result<Plan>,
+    prepare: impl FnOnce(&mut Journal) -> Result<Plan>,
     old_suffix: &str,
-    after_switch: impl Fn(&Layout),
+    after_switch: impl Fn(&Layout, &mut Journal),
 ) -> (Result<()>, bool) {
     log.line("==> Arrêt de l'icône, du serveur puis de la console");
     let tray_was_running = sys.stop_tray();
@@ -545,10 +586,12 @@ fn run_switch(
         sys.stop_server()?;
         sys.stop_console()?;
         log.line("==> Préparation des nouveaux dossiers");
-        let plan = prepare()?;
+        let plan = prepare(log)?;
+        flush(layout, log);
         log.line(format!("==> Bascule (les dossiers remplacés partent en .{old_suffix})"));
         switch(layout, &plan, old_suffix, &mut swaps, log)?;
-        after_switch(layout);
+        after_switch(layout, log);
+        flush(layout, log);
         log.line("==> Droits des services et pare-feu");
         sys.service_rights(layout)?;
         if tray_was_running {
@@ -583,7 +626,9 @@ fn run_switch(
                 sys.stop_tray();
                 let _ = sys.stop_server();
                 let _ = sys.stop_console();
-                match undo(layout, &mut swaps, log) {
+                let undone = undo(layout, &mut swaps, log);
+                flush(layout, log);
+                match undone {
                     Ok(()) => rolled_back = true,
                     Err(u) => {
                         undo_failed = true;
@@ -1049,7 +1094,7 @@ mod tests {
                 fs::write(path, text).unwrap();
             };
             w("kyber/kyavserver.exe", "kyavserver 0.2.5");
-            w("kyber/kyber_config.toml", "port = 30000");
+            w("kyber/kyber_config.toml", "[kycontroller]\nport = 30000\n");
             w("kyber/log/kyber.log", "ancien journal");
             w("admin/kyber-admin.exe", "kyber-admin 0.2.5");
             w("tray/kybernow-tray.exe", "tray 0.2.5");
@@ -1180,7 +1225,7 @@ mod tests {
         assert_eq!(sys.calls, ["stop_tray", "stop_server", "stop_console", "rights", "start", "health 127.0.0.1:9555 0.2.6", "rebrand"]);
         // Nouveaux fichiers, réglages de Kyber gardés, journaux déplacés.
         assert_eq!(bench.read("kyber/kyavserver.exe"), "kyavserver 0.2.6");
-        assert_eq!(bench.read("kyber/kyber_config.toml"), "port = 30000");
+        assert_eq!(bench.read("kyber/kyber_config.toml"), "[kycontroller]\nport = 30000\n");
         assert_eq!(bench.read("kyber/log/kyber.log"), "ancien journal");
         assert_eq!(bench.read("admin/kyber-admin.exe"), "kyber-admin 0.2.6");
         // Version précédente gardée.
@@ -1305,20 +1350,46 @@ mod tests {
         let zip = bench.package("0.2.6", &[]);
         bench.apply(&mut Fake::default(), &zip, "0.2.6").unwrap();
         // Réglage de Kyber changé après la mise à jour : il reste.
-        fs::write(bench.layout.install.join("kyber/kyber_config.toml"), "port = 31000").unwrap();
+        fs::write(bench.layout.install.join("kyber/kyber_config.toml"), "[kycontroller]\nport = 31000\n").unwrap();
 
         let mut sys = Fake::default();
         assert_eq!(rollback(&bench.layout, &mut sys).unwrap(), "0.2.5");
         assert_eq!(sys.calls, ["stop_tray", "stop_server", "stop_console", "rights", "start", "health 127.0.0.1:9555 0.2.5"]);
         assert_eq!(bench.read("kyber/kyavserver.exe"), "kyavserver 0.2.5");
         assert_eq!(bench.read("admin/kyber-admin.exe"), "kyber-admin 0.2.5");
-        assert_eq!(bench.read("kyber/kyber_config.toml"), "port = 31000");
+        assert_eq!(bench.read("kyber/kyber_config.toml"), "[kycontroller]\nport = 31000\n");
         assert_eq!(bench.read("kyber/log/kyber.log"), "ancien journal");
         assert!(!bench.layout.has_previous());
         assert!(!bench.layout.with_suffix("kyber", "bad").exists());
         let record: Value = serde_json::from_str(&bench.read("kybernow.json")).unwrap();
         assert_eq!(record["version"], "0.2.5");
         assert_eq!(sys.registered.as_deref(), Some("0.2.5"));
+    }
+
+    #[test]
+    fn damaged_kyber_settings_are_not_carried_back_and_backups_are_made() {
+        let bench = Bench::new("back-zeros");
+        let zip = bench.package("0.2.6", &[]);
+        bench.apply(&mut Fake::default(), &zip, "0.2.6").unwrap();
+        // Sauvegarde faite avant la mise à jour, avec les bons réglages.
+        let backups = bench.layout.data.join("backups");
+        let saved: Vec<String> = fs::read_dir(&backups)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .filter(|p| p.extension().is_some_and(|x| x == "toml"))
+            .map(|p| fs::read_to_string(p).unwrap())
+            .collect();
+        assert_eq!(saved, ["[kycontroller]\nport = 30000\n"]);
+        // Le 03/11 : un gel juste après la mise à jour remplit les réglages de zéros.
+        fs::write(bench.layout.install.join("kyber/kyber_config.toml"), vec![0u8; 18_329]).unwrap();
+        assert_eq!(rollback(&bench.layout, &mut Fake::default()).unwrap(), "0.2.5");
+        // Ceux de .prev restent ; le fichier abîmé n'est ni recopié ni sauvegardé.
+        assert_eq!(bench.read("kyber/kyber_config.toml"), "[kycontroller]\nport = 30000\n");
+        let toml_backups = fs::read_dir(&backups).unwrap().filter(|e| e.as_ref().unwrap().path().extension().is_some_and(|x| x == "toml")).count();
+        assert_eq!(toml_backups, 1);
+        let log = fs::read_to_string(bench.layout.updates().join("0.2.5").join("update.log")).unwrap();
+        assert!(log.contains("illisibles"), "{log}");
+        assert!(log.contains("pas sauvegardé"), "{log}");
     }
 
     #[test]
