@@ -54,6 +54,7 @@
   <nav class="nav-links" aria-label="Sections">
     <a href="/en/#appareils">Uses</a>
     <a href="/en/#apps">The apps</a>
+    <a href="/en/share/">Share</a>
     <a href="/en/technology/">Technology</a>
     <a href="/en/technology/#comparer">Compare</a>
     <a href="/en/guide/">Guide</a>
@@ -72,6 +73,7 @@
     <a href="/en/technology/#kyber">Kyber</a>
     <a href="/en/technology/#comparer">Compare</a>
     <a href="/en/technology/#fonctions">Features</a>
+    <a href="/en/share/">KyberNow Share</a>
     <a href="/en/guide/">Guide and FAQ</a>
     <a href="/en/#telecharger">Download</a>
   </nav>
@@ -212,12 +214,15 @@
       <div class="cmp-row" role="row"><span role="rowheader">Display at the device's resolution</span><span class="yes" role="cell">Built in, created and removed with each session, verified up to 3840&nbsp;×&nbsp;2160 at 160&nbsp;Hz</span><span role="cell">Outside Sunshine (Apollo fork or a driver to add)</span></div>
       <div class="cmp-row" role="row"><span role="rowheader">Pairing</span><span class="yes" role="cell">Six-digit code accepted in Admin, or password; certificate fingerprint checked</span><span role="cell">PIN shown by Moonlight, entered in Sunshine's web interface</span></div>
       <div class="cmp-row" role="row"><span role="rowheader">Sound</span><span class="yes" role="cell">Stereo, 5.1 or 7.1 depending on the device (5.1 at most on LG, stereo in the browser)</span><span role="cell">Stereo, 5.1 and 7.1</span></div>
-      <div class="cmp-row" role="row"><span role="rowheader">On Mac</span><span class="yes" role="cell">Native app (SwiftUI, VideoToolbox, Metal)</span><span role="cell">Cross-platform (Qt)</span></div>
+      <div class="cmp-row" role="row"><span role="rowheader">On Mac</span><span class="yes" role="cell">Native app (SwiftUI, VideoToolbox, Metal), and an Apple-silicon Mac can be the Station too</span><span role="cell">Cross-platform (Qt); Sunshine runs on Mac as well</span></div>
       <div class="cmp-row" role="row"><span role="rowheader">In the browser</span><span class="yes" role="cell">Yes, served by the Station, with stereo sound</span><span role="cell">No official client</span></div>
       <div class="cmp-row" role="row"><span role="rowheader">Installation</span><span class="yes" role="cell">One installer for the engine, virtual display, gamepad driver and firewall, plus Steam's virtual speakers if Steam is installed</span><span role="cell">The server; a virtual display is installed separately</span></div>
-      <div class="cmp-row" role="row"><span role="rowheader">HDR</span><span class="not-yet" role="cell">Not yet (Kyber&nbsp;0.29 captures in 8-bit)</span><span role="cell">Yes</span></div>
+      <div class="cmp-row" role="row"><span role="rowheader">HDR</span><span class="yes" role="cell">Yes (HEVC Main&nbsp;10 or 10-bit AV1), virtual display switched to HDR on its own, your device's screen brightness passed on to games, test patterns; Mac, iPhone, iPad, Apple TV and LG TVs</span><span role="cell">Yes</span></div>
+      <div class="cmp-row" role="row"><span role="rowheader">Guests</span><span class="yes" role="cell">KyberNow Share: up to four guests with a code, each with their own picture, rights handed over one by one; the computer lent out in console mode</span><span role="cell">One session at a time</span></div>
+      <div class="cmp-row" role="row"><span role="rowheader">Away from home</span><span class="yes" role="cell">A public relay or your own, with nothing to open on your router; end-to-end encrypted in the apps</span><span role="cell">Port forwarding or a VPN</span></div>
+      <div class="cmp-row" role="row"><span role="rowheader">PlayStation consoles</span><span class="yes" role="cell">PS5 and PS4 in the same apps, the full DualSense, through the relay with a Station</span><span role="cell">No</span></div>
     </div>
-    <p class="footnote" data-reveal>Comparison made in October 2026, with each piece of software in its default configuration. To mute the PC during a session, KyberNow, like Sunshine, uses Steam's virtual speakers. If you spot a mistake, <a href="https://github.com/MonsieurNours/kybernow/issues" rel="noopener">let us know</a>.</p>
+    <p class="footnote" data-reveal>Comparison made in November 2026, with each piece of software in its default configuration. To mute the PC during a session, KyberNow, like Sunshine, uses Steam's virtual speakers. If you spot a mistake, <a href="https://github.com/MonsieurNours/kybernow/issues" rel="noopener">let us know</a>.</p>
   </div>
 </section>
 
@@ -231,14 +236,15 @@
       <article class="card card-feature" data-reveal>
         <svg class="ic-lg"><use href="/assets/icons.svg#frame-corners"/></svg>
         <h3>A display that matches your device</h3>
-        <p>For each session, the Station creates a virtual display on the PC at your device's resolution and refresh rate, turns off the PC's own screens, then turns them back on at the end. There is nothing to set up. The virtual display accepts up to 7680&nbsp;×&nbsp;4320 and 500&nbsp;Hz; the highest mode verified so far is 3840&nbsp;×&nbsp;2160 at 160&nbsp;Hz.</p>
+        <p>For each session, the Station creates a virtual display on the computer, Windows PC or Mac, at your device's resolution and refresh rate, turns off its screens, then turns them back on at the end. There is nothing to set up. The virtual display accepts up to 7680&nbsp;×&nbsp;4320 and 500&nbsp;Hz; the highest mode verified so far is 3840&nbsp;×&nbsp;2160 at 160&nbsp;Hz.</p>
         <div class="res-demo" aria-hidden="true"><span>1920&nbsp;×&nbsp;1080</span><span>2560&nbsp;×&nbsp;1440</span><span>3840&nbsp;×&nbsp;2160</span></div>
       </article>
       <article class="card" data-reveal style="--d:.05s"><svg class="ic-lg"><use href="/assets/icons.svg#speaker-hifi"/></svg><h3>Stereo, 5.1 or 7.1 sound</h3><p>The format depends on the device: 5.1 at most on an LG TV, stereo in the browser. Sound is compressed with Opus (up to 768&nbsp;kbit/s in 7.1), in 10&nbsp;ms packets, with a buffer of about twenty milliseconds. If Steam is installed, sound moves from the PC's speakers to Steam's virtual speakers; otherwise it also plays on the PC.</p></article>
       <article class="card" data-reveal style="--d:.1s"><svg class="ic-lg"><use href="/assets/icons.svg#gauge"/></svg><h3>Variable refresh rate (VRR)</h3><p>Each frame is shown as soon as it is decoded, and a variable refresh rate screen refreshes as each one arrives. This works with the Mac, Windows, Linux and Android phone apps (the Steam Deck has not been tried yet). The TV apps have no access to it.</p></article>
       <article class="card" data-reveal style="--d:.15s"><svg class="ic-lg"><use href="/assets/icons.svg#qr-code"/></svg><h3>Adding a device</h3><p>The PC appears on your local network by itself. Otherwise, the QR code or link shown in Admin gives its address and its certificate fingerprint, which the app checks. A six-digit code, accepted in Admin, gives each device its own access, which you can revoke.</p></article>
       <article class="card" data-reveal style="--d:.2s"><svg class="ic-lg"><use href="/assets/icons.svg#browser"/></svg><h3>In a browser</h3><p>The Station also serves a web version of Link. Open its address in Chrome or Edge on a computer, tablet or phone, and use a trackpad or your finger. In Safari, on iPhone and in Firefox, it goes through WebSocket, which adds a little latency. Sound is in stereo.</p></article>
-      <article class="card" data-reveal style="--d:.25s"><svg class="ic-lg"><use href="/assets/icons.svg#arrows-clockwise"/></svg><h3>Updates</h3><p>The Station updates in one click from Admin. The Mac, Windows and Android apps update themselves; the Linux, Raspberry Pi and LG TV apps tell you when a new version is out. On Apple TV, iPhone and iPad, you reinstall the app from a Mac. Every package is verified before it is installed.</p></article>
+      <article class="card" data-reveal style="--d:.25s"><svg class="ic-lg"><use href="/assets/icons.svg#sparkle"/></svg><h3>HDR</h3><p>The Station captures the screen in 16-bit floating point, converts it to PQ BT.2020 on the graphics card and encodes it in HEVC Main&nbsp;10 or 10-bit AV1, in 4:2:0. The virtual display switches to HDR at the start of the session (Windows 11 24H2), and the Station tells games the brightness of your device's screen, not that of some generic virtual display. A Mac used as the Station does the same with VideoToolbox. A guest without an HDR screen gets a picture converted to SDR.</p></article>
+      <article class="card" data-reveal style="--d:.3s"><svg class="ic-lg"><use href="/assets/icons.svg#arrows-clockwise"/></svg><h3>Updates</h3><p>The Station updates in one click from Admin. The Mac, Windows and Android apps update themselves; the Linux, Raspberry Pi and LG TV apps tell you when a new version is out. On Apple TV, iPhone and iPad, you reinstall the app from a Mac. Every package is verified before it is installed.</p></article>
     </div>
 
     <div class="profiles" data-reveal>
@@ -266,7 +272,7 @@
   <div class="wrap">
     <p class="label" data-reveal>Getting started</p>
     <h2 class="title" data-split>Install KyberNow <strong>in three steps.</strong></h2>
-    <p class="body-lg" data-reveal>Install KyberNow Station on the PC you want to share, connect your device with the KyberNow Link app, then start your first session. The guide covers each step, screen by screen. KyberNow is free and needs no online account.</p>
+    <p class="body-lg" data-reveal>Install KyberNow Station on the computer you want to share, PC or Mac, connect your device with the KyberNow Link app, then start your first session. The guide covers each step, screen by screen. KyberNow is free and needs no online account.</p>
     <div class="hero-cta" data-reveal><a class="btn kn-primary" href="/en/#telecharger">Download</a><a class="btn btn-ghost" href="/en/guide/">Read the guide<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a></div>
   </div>
 </section>
@@ -282,6 +288,7 @@
     <ul class="footer-links">
       <li><a href="/en/"><svg class="ic"><use href="/assets/icons.svg#devices"/></svg>Home</a></li>
       <li><a href="/en/guide/"><svg class="ic"><use href="/assets/icons.svg#book-open-text"/></svg>Guide and FAQ</a></li>
+      <li><a href="/en/share/"><svg class="ic"><use href="/assets/icons.svg#devices"/></svg>KyberNow Share</a></li>
       <li><a href="https://discord.gg/sVy2mu5WdT" rel="noopener"><svg class="ic"><use href="/assets/icons.svg#discord-logo"/></svg>Discord</a></li>
       <li><a href="https://github.com/MonsieurNours/kybernow" rel="noopener"><svg class="ic"><use href="/assets/icons.svg#github-logo"/></svg>GitHub</a></li>
       <li><a href="/en/legal/"><svg class="ic"><use href="/assets/icons.svg#scales"/></svg>Legal notice</a></li>

@@ -57,7 +57,7 @@ Tout ce qui fait entrer quelqu'un d'autre sur votre ordinateur. Nom choisi le 26
 - **Invité retiré** : il peut revenir avec le même code tant que l'hôte n'a pas demandé « Nouveau code ».
 - **Public Suffix List** : inscrire `share.kybernow.app` à la liste, pour que les navigateurs traitent l'adresse de chaque Station (`<identifiant>.share.kybernow.app`) comme un site à part (cookies, stockage).
 - **Lien montant de la maison** : le partager équitablement entre plusieurs invités.
-- **Prêt de l'ordinateur** (publié en 0.9.0, contrat : [docs/pret.md](docs/pret.md)), suite : réveiller l'ordinateur endormi pour un ami hors de chez vous ; manettes et écran tactile branchés au PC bloqués pendant un prêt ; fenêtres des apps lancées en administrateur ; un chapitre du guide du site.
+- **Prêt de l'ordinateur** (publié en 0.9.0, contrat : [docs/pret.md](docs/pret.md)), suite : réveiller l'ordinateur endormi pour un ami hors de chez vous ; manettes et écran tactile branchés au PC bloqués pendant un prêt ; fenêtres des apps lancées en administrateur.
 - **Piste** : prêter l'ordinateur pendant que vous l'utilisez, par une machine virtuelle qui partage la carte graphique (Hyper-V) ; demande Windows Pro et une 2e licence, se heurte aux anti-triche, encodeur à vérifier.
 
 ## Consoles PlayStation
