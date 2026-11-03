@@ -39,8 +39,12 @@
 // rallume avant de partir.
 //
 // Les dimensions échangées sont en pixels. En HiDPI, l'écran prend le mode
-// Retina (la moitié en points) : une interface lisible sur un téléphone ou un
-// téléviseur 4K, comme macOS le choisit pour un écran 4K.
+// Retina (la moitié en points) : une interface lisible sur un téléphone ou une
+// tablette. Dès 4K, l'écran a toutes les échelles de macOS, comme un vrai
+// écran 4K (Réglages › Moniteurs : du plus grand texte au plus d'espace) :
+// macOS y met celle qu'il recommande (« 2560 × 1440 ») ou celle choisie la
+// dernière fois à cette définition ; l'image reste à la définition de
+// l'appareil (`virtual-displays.json`, correctif Kyber Mac 0014).
 
 import CoreGraphics
 import Foundation
@@ -59,6 +63,10 @@ final class Agent {
     private var retina: [CGDirectDisplayID: Bool] = [:]
     /// Mode de chaque écran virtuel (pixels, Hz) et HDR ou non.
     private var modes: [CGDirectDisplayID: (w: Int, h: Int, hz: Int, hdr: Bool)] = [:]
+    /// Écrans à toutes les échelles de macOS (4K et plus, voir `scaleList`) :
+    /// le bureau suit l'échelle choisie dans Réglages, l'image garde la
+    /// définition de l'appareil.
+    private var scaled: Set<CGDirectDisplayID> = []
     /// Écrans du Mac éteints par `isolate`, et leur place d'avant.
     private var switchedOff: OffState?
 
@@ -75,6 +83,7 @@ final class Agent {
                 _ = restore()
             }
             virtuals[slot] = nil
+            writePanels()
             return [:]
         case "isolate": return try isolate(req)
         case "restore": return restore()
@@ -102,14 +111,21 @@ final class Agent {
         let desc = CGVirtualDisplayDescriptor()
         desc.queue = displayQueue
         desc.name = slot == 0 ? "KyberNow" : "KyberNow \(slot + 1)"
-        desc.maxPixelsWide = UInt32(w)
-        desc.maxPixelsHigh = UInt32(h)
+        let allScales = hidpi && w >= scaledFromWidth
+        // Toutes les échelles : macOS dessine jusqu'au double de la définition
+        // de l'appareil (« 2560 × 1440 » sur un écran 4K : 5120 × 2880).
+        desc.maxPixelsWide = UInt32(allScales ? 2 * w : w)
+        desc.maxPixelsHigh = UInt32(allScales ? 2 * h : h)
         // Taille physique : environ 110 points par pouce, ce que macOS
-        // considère comme une densité normale (pas d'agrandissement imposé).
-        let ppi = hidpi ? 220.0 : 110.0
+        // considère comme une densité normale (pas d'agrandissement imposé) ;
+        // un écran 4K se présente comme un 27 pouces, macOS y recommande
+        // alors « 2560 × 1440 » (essai du 04/11/2026).
+        let ppi = allScales ? 163.0 : hidpi ? 220.0 : 110.0
         desc.sizeInMillimeters = CGSize(width: Double(w) / ppi * 25.4, height: Double(h) / ppi * 25.4)
-        // Même numéro de série à chaque session : macOS retrouve les réglages de l'écran.
-        desc.serialNum = 0x4B4E_0001 + UInt32(slot)
+        // Même numéro de série à chaque session : macOS retrouve les réglages
+        // de l'écran. À toutes les échelles : un numéro par définition, pour
+        // que macOS retienne l'échelle choisie pour chacune.
+        desc.serialNum = allScales ? scaledSerial(slot: slot, width: w, height: h) : 0x4B4E_0001 + UInt32(slot)
         // Fabricant « KN » ; produit : 0x4B31 en 1x, 0x4B32 en Retina. Kyber
         // (correctif server/macos/kyber-patches/0001) y lit l'échelle : un
         // processus déjà lancé ne voit pas le mode d'un écran apparu après lui.
@@ -119,13 +135,20 @@ final class Agent {
         guard let display = CGVirtualDisplay(descriptor: desc) else {
             throw Failure(message: "macOS refuse de créer l'écran virtuel")
         }
-        guard display.apply(settings(width: w, height: h, refresh: hz, hidpi: hidpi)) else {
-            throw Failure(message: "macOS refuse le mode \(w) × \(h) à \(hz) Hz")
-        }
         virtuals[slot] = display
         retina[display.displayID] = hidpi
         modes[display.displayID] = (w, h, hz, false)
-        // L'écran met un instant à prendre son mode.
+        if allScales { scaled.insert(display.displayID) } else { scaled.remove(display.displayID) }
+        // La définition pour Kyber avant que l'écran s'allume : Kyber le
+        // découvre dès qu'il apparaît.
+        writePanels()
+        guard display.apply(settings(width: w, height: h, refresh: hz, hidpi: hidpi, allScales: allScales)) else {
+            virtuals[slot] = nil
+            writePanels()
+            throw Failure(message: "macOS refuse le mode \(w) × \(h) à \(hz) Hz")
+        }
+        // L'écran met un instant à prendre son mode (macOS y met l'échelle
+        // retenue pour cet écran, sinon celle qu'il recommande).
         waitUntil(seconds: 3) { CGDisplayCopyDisplayMode(display.displayID) != nil }
         return ["id": display.displayID]
     }
@@ -142,11 +165,14 @@ final class Agent {
         // Mode Retina d'abord : les positions sont en points.
         var config: CGDisplayConfigRef?
         CGBeginDisplayConfiguration(&config)
-        var scales: [Int] = []
+        var scales: [Double] = []
         for screen in list {
             let id = CGDirectDisplayID(try int(screen, "id"))
             let hidpi = screen["hidpi"] as? Bool ?? false
-            if hidpi, let mode = retinaMode(id, width: try int(screen, "width"), height: try int(screen, "height")) {
+            if scaled.contains(id) {
+                // L'échelle de macOS reste (celle retenue ou recommandée).
+                scales.append(scaleOf(id))
+            } else if hidpi, let mode = retinaMode(id, width: try int(screen, "width"), height: try int(screen, "height")) {
                 CGConfigureDisplayWithDisplayMode(config, id, mode, nil)
                 scales.append(2)
             } else {
@@ -155,7 +181,8 @@ final class Agent {
         }
         for (i, screen) in list.enumerated() {
             let id = ids[i]
-            CGConfigureDisplayOrigin(config, id, Int32(try int(screen, "x") / scales[0]), Int32(try int(screen, "y") / scales[0]))
+            CGConfigureDisplayOrigin(config, id, Int32((Double(try int(screen, "x")) / scales[0]).rounded()),
+                                     Int32((Double(try int(screen, "y")) / scales[0]).rounded()))
         }
         var others: [CGDirectDisplayID] = []
         if !keepOthers {
@@ -164,9 +191,9 @@ final class Agent {
             // virtuel principal, en (0, 0), devient l'écran principal.
             var right: Int32 = 0
             for (i, screen) in list.enumerated() {
-                let x = ((try? int(screen, "x")) ?? 0) / scales[0]
-                let w = ((try? int(screen, "width")) ?? 0) / scales[i]
-                right = max(right, Int32(x + w))
+                let x = Double((try? int(screen, "x")) ?? 0) / scales[0]
+                let w = Double((try? int(screen, "width")) ?? 0) / scales[i]
+                right = max(right, Int32((x + w).rounded()))
             }
             // Noté avant de toucher à quoi que ce soit (voir l'en-tête).
             noteOff(others)
@@ -191,12 +218,14 @@ final class Agent {
         let screens: [Any] = ids.map { id in
             guard active.contains(id), let m = CGDisplayCopyDisplayMode(id) else { return NSNull() }
             let b = CGDisplayBounds(id)
-            // Positions en pixels, comme celles demandées.
-            return ["id": id, "width": m.pixelWidth, "height": m.pixelHeight, "refresh": Int(m.refreshRate.rounded()),
-                    "x": Int(b.origin.x) * scales[0], "y": Int(b.origin.y) * scales[0]] as [String: Any]
+            // Positions en pixels, comme celles demandées ; à toutes les
+            // échelles, la définition de l'appareil.
+            let (w, h) = panel(id) ?? (m.pixelWidth, m.pixelHeight)
+            return ["id": id, "width": w, "height": h, "refresh": Int(m.refreshRate.rounded()),
+                    "x": Int((b.origin.x * scales[0]).rounded()), "y": Int((b.origin.y * scales[0]).rounded())] as [String: Any]
         }
         let stillOn = keepOthers ? 0 : active.subtracting(want).count
-        return ["screens": screens, "disabled_others": others.count - stillOn, "scales": scales.map { $0 * 100 }]
+        return ["screens": screens, "disabled_others": others.count - stillOn, "scales": scales.map { Int(($0 * 100).rounded()) }]
     }
 
     /// Note les écrans `ids` comme éteints, avec leur place d'avant (celle
@@ -231,6 +260,7 @@ final class Agent {
     /// Admin s'est arrêté (fin de l'entrée standard) : les écrans du Mac reviennent.
     func shutdown() {
         _ = restore()
+        clearPanels()
     }
 
     // MARK: veille et modes
@@ -240,7 +270,8 @@ final class Agent {
         let active = activeDisplays()
         let modes: [[String: Int]] = ids.map { id in
             guard active.contains(id), let m = CGDisplayCopyDisplayMode(id) else { return ["width": 0, "height": 0, "refresh": 0] }
-            return ["width": m.pixelWidth, "height": m.pixelHeight, "refresh": Int(m.refreshRate.rounded())]
+            let (w, h) = panel(id) ?? (m.pixelWidth, m.pixelHeight)
+            return ["width": w, "height": h, "refresh": Int(m.refreshRate.rounded())]
         }
         let virtualIds = Set(virtuals.values.map(\.displayID))
         return ["modes": modes, "displays": active.count, "others": active.filter { !virtualIds.contains($0) }.count]
@@ -253,10 +284,18 @@ final class Agent {
         // Retina comme à la création : Kyber le lit dans le numéro de produit.
         let hidpi = retina[id] ?? false
         let hdr = modes[id]?.hdr ?? false
-        guard display.apply(settings(width: w, height: h, refresh: hz, hidpi: hidpi, hdr: hdr)) else {
+        let allScales = scaled.contains(id)
+        guard display.apply(settings(width: w, height: h, refresh: hz, hidpi: hidpi, hdr: hdr, allScales: allScales)) else {
             throw Failure(message: "macOS refuse le mode \(w) × \(h) à \(hz) Hz")
         }
         modes[id] = (w, h, hz, hdr)
+        if allScales {
+            // L'échelle reste celle de macOS ; l'image suit la nouvelle définition.
+            waitUntil(seconds: 3) { CGDisplayCopyDisplayMode(id) != nil }
+            writePanels()
+            let m = CGDisplayCopyDisplayMode(id)
+            return ["width": w, "height": h, "refresh": Int((m?.refreshRate ?? Double(hz)).rounded())]
+        }
         waitUntil(seconds: 3) { matchingMode(id, width: w, height: h, hidpi: hidpi) != nil }
         if let mode = matchingMode(id, width: w, height: h, hidpi: hidpi) {
             configure { c in CGConfigureDisplayWithDisplayMode(c, id, mode, nil) }
@@ -279,17 +318,51 @@ final class Agent {
         let before = hdrActive(id)
         if before != on {
             let hidpi = retina[id] ?? false
-            guard display.apply(settings(width: m.w, height: m.h, refresh: m.hz, hidpi: hidpi, hdr: on)) else {
+            let allScales = scaled.contains(id)
+            let kept = CGDisplayCopyDisplayMode(id)
+            guard display.apply(settings(width: m.w, height: m.h, refresh: m.hz, hidpi: hidpi, hdr: on, allScales: allScales)) else {
                 throw Failure(message: "macOS refuse le HDR de l'écran virtuel")
             }
             modes[id] = (m.w, m.h, m.hz, on)
             waitUntil(seconds: 2) { hdrActive(id) == on }
-            // Le changement de mode peut faire repasser l'écran en 1x : le mode Retina revient.
-            if hidpi, let mode = retinaMode(id, width: m.w, height: m.h) {
+            // Le changement de mode peut faire changer l'échelle : celle d'avant revient.
+            if allScales, let k = kept, let mode = sameMode(id, as: k) {
+                configure { c in CGConfigureDisplayWithDisplayMode(c, id, mode, nil) }
+            } else if !allScales, hidpi, let mode = retinaMode(id, width: m.w, height: m.h) {
                 configure { c in CGConfigureDisplayWithDisplayMode(c, id, mode, nil) }
             }
         }
         return ["supported": true, "before": before, "active": hdrActive(id)]
+    }
+
+    // MARK: échelles
+
+    /// Définition de l'appareil d'un écran à toutes les échelles.
+    private func panel(_ id: CGDirectDisplayID) -> (Int, Int)? {
+        guard scaled.contains(id), let m = modes[id] else { return nil }
+        return (m.w, m.h)
+    }
+
+    /// Pixels de l'appareil par point du bureau (3840 / 2560 = 1,5).
+    private func scaleOf(_ id: CGDirectDisplayID) -> Double {
+        let b = CGDisplayBounds(id)
+        guard let (w, _) = panel(id), b.width > 0 else { return 2 }
+        return Double(w) / b.width
+    }
+
+    /// Pour Kyber (correctif Mac 0014) : la définition de l'appareil de chaque
+    /// écran à toutes les échelles, dans `virtual-displays.json`.
+    private func writePanels() {
+        let live = Set(virtuals.values.map(\.displayID))
+        var out: [String: [String: Int]] = [:]
+        for id in scaled where live.contains(id) {
+            if let (w, h) = panel(id) { out[String(id)] = ["width": w, "height": h] }
+        }
+        writePanelFile(out)
+    }
+
+    func clearPanels() {
+        writePanelFile([:])
     }
 
     // MARK: écrans du Mac
@@ -333,13 +406,51 @@ final class Agent {
 /// `width` × `height` pixels. Déclaré en pixels, macOS prendrait le double
 /// (2868 points sur 5736 pixels), et son mode « moitié » n'est pas utilisable
 /// pour le bureau (essais du 03/11/2026).
-func settings(width w: Int, height h: Int, refresh hz: Int, hidpi: Bool, hdr: Bool = false) -> CGVirtualDisplaySettings {
+func settings(width w: Int, height h: Int, refresh hz: Int, hidpi: Bool, hdr: Bool = false, allScales: Bool = false) -> CGVirtualDisplaySettings {
     let s = CGVirtualDisplaySettings()
     s.hiDPI = hidpi ? 1 : 0
-    let (mw, mh) = hidpi ? (w / 2, h / 2) : (w, h)
     // HDR : fonction de transfert 1 (voir CGVirtualDisplayPrivate.h).
-    s.modes = [CGVirtualDisplayMode(width: UInt32(mw), height: UInt32(mh), refreshRate: Double(hz), transferFunction: hdr ? 1 : 0)]
+    let sizes = allScales ? scaleList(width: w, height: h) : [hidpi ? (w / 2, h / 2) : (w, h)]
+    s.modes = sizes.map { CGVirtualDisplayMode(width: UInt32($0.0), height: UInt32($0.1), refreshRate: Double(hz), transferFunction: hdr ? 1 : 0) }
     return s
+}
+
+/// À partir de cette largeur (4K), l'écran virtuel a toutes les échelles de
+/// macOS, comme un vrai écran 4K ; en dessous (téléphones, tablettes), le
+/// mode Retina seul, qui leur va mieux que la recommandation de macOS.
+let scaledFromWidth = 3840
+
+/// Échelles d'un écran de `width` × `height` pixels, en points (Retina : le
+/// double en pixels) : du plus grand texte au plus d'espace, comme macOS les
+/// propose pour un écran 4K (1280, 1600, 1920, 2400, 2560, 3008, 3360, 3840).
+func scaleList(width w: Int, height h: Int) -> [(Int, Int)] {
+    var out: [(Int, Int)] = []
+    for f in [1.0 / 3, 5.0 / 12, 0.5, 0.625, 2.0 / 3, 47.0 / 60, 0.875, 1.0] {
+        let pw = Int((Double(w) * f / 2).rounded()) * 2, ph = Int((Double(h) * f / 2).rounded()) * 2
+        if !out.contains(where: { $0.0 == pw }) { out.append((pw, ph)) }
+    }
+    return out
+}
+
+/// Numéro de série d'un écran à toutes les échelles : sa place et sa
+/// définition (macOS retient l'échelle choisie par numéro de série).
+func scaledSerial(slot: Int, width w: Int, height h: Int) -> UInt32 {
+    0x8000_0000 | UInt32(slot & 7) << 26 | UInt32((w / 2) & 0x1FFF) << 13 | UInt32((h / 2) & 0x1FFF)
+}
+
+/// Le mode de l'écran pareil à `m` (même bureau, mêmes pixels).
+func sameMode(_ id: CGDirectDisplayID, as m: CGDisplayMode) -> CGDisplayMode? {
+    let options = [kCGDisplayShowDuplicateLowResolutionModes: kCFBooleanTrue] as CFDictionary
+    let modes = CGDisplayCopyAllDisplayModes(id, options) as? [CGDisplayMode] ?? []
+    return modes.first { $0.isUsableForDesktopGUI() && $0.width == m.width && $0.height == m.height && $0.pixelWidth == m.pixelWidth }
+}
+
+/// `~/Library/Application Support/KyberNow/virtual-displays.json`, que lit Kyber.
+func writePanelFile(_ panels: [String: [String: Int]]) {
+    let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/KyberNow")
+    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    guard let data = try? JSONSerialization.data(withJSONObject: panels, options: [.sortedKeys]) else { return }
+    try? data.write(to: dir.appendingPathComponent("virtual-displays.json"), options: .atomic)
 }
 
 /// L'écran est-il en HDR ? (`SLSDisplayIsHDRModeEnabled`, privée.)

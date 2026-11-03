@@ -1,0 +1,36 @@
+diff --git a/kynput/src/macos/host_keyboard_mouse.rs b/kynput/src/macos/host_keyboard_mouse.rs
+--- a/kynput/src/macos/host_keyboard_mouse.rs
++++ b/kynput/src/macos/host_keyboard_mouse.rs
+@@ -149,8 +149,12 @@
+         if b.size.width <= 0.0 || b.size.height <= 0.0 {
+             return None;
+         }
+-        let scale = (f64::from(display.width) / b.size.width).round().max(1.0);
+-        let same = |a: f64, b: f64| (a - b).abs() <= scale;
++        // Pixels par point : 1 ou 2 (Retina), ou, pour un écran virtuel de
++        // KyberNow à une autre échelle (correctif Mac 0014), le rapport entre
++        // la définition de l'appareil et le bureau (3840 / 2560 = 1,5).
++        let raw = f64::from(display.width) / b.size.width;
++        let scale = if (raw - raw.round()).abs() < 0.02 { raw.round().max(1.0) } else { raw };
++        let same = |a: f64, b: f64| (a - b).abs() <= scale.ceil();
+         (same(f64::from(display.width), b.size.width * scale)
+             && same(f64::from(display.height), b.size.height * scale)
+             && same(f64::from(display.x), b.origin.x * scale)
+diff --git a/kynput/src/macos/host_cursor.rs b/kynput/src/macos/host_cursor.rs
+--- a/kynput/src/macos/host_cursor.rs
++++ b/kynput/src/macos/host_cursor.rs
+@@ -205,8 +205,12 @@
+         if b.size.width <= 0.0 || b.size.height <= 0.0 {
+             return None;
+         }
+-        let scale = (f64::from(display.width) / b.size.width).round().max(1.0);
+-        let same = |a: f64, b: f64| (a - b).abs() <= scale;
++        // Pixels par point : 1 ou 2 (Retina), ou, pour un écran virtuel de
++        // KyberNow à une autre échelle (correctif Mac 0014), le rapport entre
++        // la définition de l'appareil et le bureau (3840 / 2560 = 1,5).
++        let raw = f64::from(display.width) / b.size.width;
++        let scale = if (raw - raw.round()).abs() < 0.02 { raw.round().max(1.0) } else { raw };
++        let same = |a: f64, b: f64| (a - b).abs() <= scale.ceil();
+         (same(f64::from(display.width), b.size.width * scale)
+             && same(f64::from(display.height), b.size.height * scale)
+             && same(f64::from(display.x), b.origin.x * scale)

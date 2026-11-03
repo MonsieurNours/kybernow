@@ -1,0 +1,114 @@
+diff --git a/subprojects/txproto/src/iosys_screencapturekit.m b/subprojects/txproto/src/iosys_screencapturekit.m
+--- a/subprojects/txproto/src/iosys_screencapturekit.m
++++ b/subprojects/txproto/src/iosys_screencapturekit.m
+@@ -1,3 +1,4 @@
++#include <sys/stat.h>
+ /*
+  * This file is part of txproto.
+  *
+@@ -931,6 +932,38 @@
+     capture->mtl_device = nil;
+ 
+     return 0;
++}
++
++/* KyberNow (0014): a KyberNow virtual display of 4K or more gets every
++ * macOS scale (server/macos/display-agent): macOS draws it larger than the
++ * device's screen ("looks like 2560 x 1440" on a 4K screen: 5120 x 2880) and
++ * the image is brought back to the device's definition here, like a real 4K
++ * panel does. The display agent writes that definition, per display, in
++ * ~/Library/Application Support/KyberNow/virtual-displays.json
++ * ({"<display id>": {"width": 3840, "height": 2160}}). */
++static int kn_panel_size(uint32_t display_id, int *w, int *h)
++{
++    if (CGDisplayVendorNumber(display_id) != 0x4B4E)
++        return 0;
++    @autoreleasepool {
++        NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:
++                          @"Library/Application Support/KyberNow/virtual-displays.json"];
++        NSData *data = [NSData dataWithContentsOfFile:path];
++        if (!data)
++            return 0;
++        NSDictionary *all = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
++        if (![all isKindOfClass:[NSDictionary class]])
++            return 0;
++        NSDictionary *d = all[[NSString stringWithFormat:@"%u", display_id]];
++        if (![d isKindOfClass:[NSDictionary class]])
++            return 0;
++        int pw = [d[@"width"] intValue], ph = [d[@"height"] intValue];
++        if (pw <= 0 || ph <= 0)
++            return 0;
++        *w = pw;
++        *h = ph;
++        return 1;
++    }
+ }
+ 
+ static SCContentFilter *sck_make_filter(IOSysEntry *entry, SCKCtx *ctx)
+@@ -1018,12 +1051,19 @@
+         [capture->streamConfiguration setMinimumFrameInterval:
+             CMTimeMake(1, capture->max_framerate)];
+ 
++    int kn_w = 0, kn_h = 0;
+     CGDisplayModeRef mode = CGDisplayCopyDisplayMode(entry->api_id);
+-    if (mode) {
++    if (kn_panel_size(entry->api_id, &kn_w, &kn_h)) {
++        /* KyberNow (0014): the device's definition, whatever the scale. */
++        [capture->streamConfiguration setWidth:kn_w];
++        [capture->streamConfiguration setHeight:kn_h];
++        [capture->streamConfiguration setScalesToFit:YES];
++    } else if (mode) {
+         [capture->streamConfiguration setWidth:CGDisplayModeGetPixelWidth(mode)];
+         [capture->streamConfiguration setHeight:CGDisplayModeGetPixelHeight(mode)];
+-        CGDisplayModeRelease(mode);
+     }
++    if (mode)
++        CGDisplayModeRelease(mode);
+ 
+     delegate = [[SCKVideoDelegate alloc] init];
+     delegate.entry = entry;
+@@ -1413,9 +1453,15 @@
+          * rend NULL, et pointPixelScale reste à 1), comme l'écran virtuel d'une
+          * session : pour lui, l'échelle est dans son numéro de produit. */
+         double px_scale = 0;
++        /* KyberNow (0014) : écran virtuel à toutes les échelles, présenté à la
++         * définition de l'appareil (voir kn_panel_size). */
++        int kn_w = 0, kn_h = 0;
++        int kn_panel = kn_panel_size(displayID, &kn_w, &kn_h) && display.width > 0;
++        if (kn_panel)
++            px_scale = (double)kn_w / display.width;
+         /* Écran virtuel de KyberNow : fabricant « KN », produit 0x4B32 en
+          * Retina (server/macos/display-agent). */
+-        if (CGDisplayVendorNumber(displayID) == 0x4B4E)
++        else if (CGDisplayVendorNumber(displayID) == 0x4B4E)
+             px_scale = CGDisplayModelNumber(displayID) == 0x4B32 ? 2 : 1;
+         else if (@available(macOS 14.0, *)) {
+             SCContentFilter *f = [[SCContentFilter alloc] initWithDisplay:display excludingWindows:@[]];
+@@ -1432,8 +1478,8 @@
+             px_scale = 1;
+         int x = (int)lround(display.frame.origin.x * px_scale);
+         int y = (int)lround(display.frame.origin.y * px_scale);
+-        int w = (int)lround(display.width * px_scale);
+-        int h = (int)lround(display.height * px_scale);
++        int w = kn_panel ? kn_w : (int)lround(display.width * px_scale);
++        int h = kn_panel ? kn_h : (int)lround(display.height * px_scale);
+         sp_log(ctx, SP_LOG_DEBUG, "SCK: display %u: %dx%d points, scale %.2f, %dx%d pixels at (%d, %d)\n",
+                displayID, (int)display.width, (int)display.height, px_scale, w, h, x, y);
+ 
+@@ -1600,6 +1646,16 @@
+         len += snprintf(out + len, size - len, "%u:%d,%d,%d,%d,%zu,%zu,%d;", ids[i],
+                         (int)b.origin.x, (int)b.origin.y, (int)b.size.width,
+                         (int)b.size.height, pw, ph, CGDisplayIsMain(ids[i]));
++    }
++    /* KyberNow (0014) : la définition des écrans à toutes les échelles,
++     * écrite par l'agent des écrans, compte aussi. */
++    @autoreleasepool {
++        struct stat st;
++        NSString *panels = [NSHomeDirectory() stringByAppendingPathComponent:
++                            @"Library/Application Support/KyberNow/virtual-displays.json"];
++        if (len < size && stat(panels.fileSystemRepresentation, &st) == 0)
++            snprintf(out + len, size - len, "p%lld.%ld;", (long long)st.st_mtimespec.tv_sec,
++                     (long)st.st_mtimespec.tv_nsec);
+     }
+ }
+ 
