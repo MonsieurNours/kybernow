@@ -4,6 +4,14 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## 0.9.3
+
+Third HDR beta, before 0.9.5. It is only offered to Stations and apps set to beta versions.
+
+- **Mac: no more frozen screen.** On a display set to “more space” (a 4K display shown at 3008 × 1692, for example), opening the statistics in HDR could freeze the screen until the Mac restarted. The app now draws the picture at the display's real size, instead of a larger picture that macOS had to scale down: no more freeze, and less work for every frame.
+- **Your screen's real brightness for games**: on some PCs, Windows kept the virtual display's brightness (3,806 nits) instead of your device's, and games tuned their HDR for a much brighter screen than yours. The Station now tries several ways to make it take the right one, and keeps the first that works. Admin shows what games see on the Picture and sound page.
+- This beta has not yet been tried with a real PC: your feedback is welcome on the Discord.
+
 ## 0.9.2
 
 Second HDR beta, before 0.9.5. It is only offered to Stations and apps set to beta versions.

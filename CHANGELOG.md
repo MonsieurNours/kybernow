@@ -5,6 +5,14 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## 0.9.3
+
+Troisième bêta du HDR, avant la 0.9.5. Elle n'est proposée qu'aux Stations et aux apps réglées sur les versions bêta.
+
+- **Mac : plus de gel de l'écran.** Sur un écran réglé en « plus d'espace » (un 4K affiché en 3008 × 1692, par exemple), ouvrir les statistiques en HDR pouvait figer l'écran jusqu'au redémarrage du Mac. L'app dessine maintenant l'image à la taille réelle de l'écran, au lieu d'une image plus grande que macOS devait réduire : plus de gel, et moins de travail à chaque image.
+- **La vraie luminosité de votre écran pour les jeux** : sur certains PC, Windows gardait la luminosité de l'écran virtuel (3 806 nits) au lieu de celle de votre appareil, et les jeux réglaient leur HDR pour un écran bien plus lumineux que le vôtre. La Station essaie maintenant plusieurs façons de lui faire prendre la bonne, et garde la première qui marche. Admin dit dans la page Image et son ce que voient les jeux.
+- Cette bêta n'a pas encore été essayée avec un vrai PC : vos retours sont les bienvenus sur le Discord.
+
 ## 0.9.2
 
 Deuxième bêta du HDR, avant la 0.9.5. Elle n'est proposée qu'aux Stations et aux apps réglées sur les versions bêta.
