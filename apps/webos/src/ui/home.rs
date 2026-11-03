@@ -53,6 +53,10 @@ pub fn draw(app: &App, cv: &mut Canvas, assets: &Assets, f: &mut Frame) {
     let mut primary = tr("Se connecter", "Connect");
     let mut borrow_hint = None;
     match host {
+        // Une console PlayStation : sa carte à elle (docs/link-ui.md, « Consoles PlayStation »).
+        None if app.selected_console().is_some() => {
+            borrow_hint = Some(super::consoles::hero(app, cv, f));
+        }
         // L'ordinateur d'un ami (prêt de l'ordinateur) : sa carte à lui.
         None if app.selected_borrowed().is_some() => {
             borrow_hint = Some(borrowed_hero(app, cv, f));
@@ -175,6 +179,9 @@ pub fn draw(app: &App, cv: &mut Canvas, assets: &Assets, f: &mut Frame) {
         x += widgets::hint(cv, x, y, Key::Dots, &settings_for(&h.name)) + 40.0;
     } else if let Some(label) = &borrow_hint {
         x += widgets::hint(cv, x, y, Key::Ok, label) + 40.0;
+        if let Some(c) = app.selected_console().filter(|c| !c.pairings.is_empty()) {
+            x += widgets::hint(cv, x, y, Key::Dots, &settings_for(&c.name)) + 40.0;
+        }
     }
     x += widgets::hint(cv, x, y, Key::Back, tr("Quitter", "Quit")) + 40.0;
     x += widgets::hint(cv, x, y, Key::Green, tr("Rejoindre avec un code", "Join with a code")) + 40.0;
@@ -251,9 +258,10 @@ const FOUND_MAX: usize = 3;
 /// fait glisser la rangée en survolant la carte coupée au bord.
 pub fn row_offset(app: &App, focus: Target) -> f32 {
     let paired = app.store.hosts.len();
-    let hosts = paired + app.store.borrowed.len();
+    let (consoles, found_consoles) = super::consoles::card_count(app, FOUND_MAX);
+    let hosts = paired + app.store.borrowed.len() + consoles;
     let found = app.new_found().len().min(FOUND_MAX);
-    let x_add = 96.0 + (hosts + found) as f32 * PITCH;
+    let x_add = 96.0 + (hosts + found + found_consoles) as f32 * PITCH;
     let end = x_add + ACTION_PITCH + 168.0;
     let limit = W - 96.0;
     if end <= limit {
@@ -264,6 +272,8 @@ pub fn row_offset(app: &App, focus: Target) -> f32 {
         Target::Host(i) => 96.0 + i as f32 * PITCH + 300.0,
         Target::Borrowed(i) => 96.0 + (paired + i) as f32 * PITCH + 300.0,
         Target::Found(i) => 96.0 + (hosts + i) as f32 * PITCH + 300.0,
+        Target::Ps(crate::ps::PsTarget::Card(i)) => 96.0 + (paired + app.store.borrowed.len() + super::consoles::card_slot(app, i)) as f32 * PITCH + 300.0,
+        Target::Ps(crate::ps::PsTarget::FoundCard(i)) => 96.0 + (hosts + found + i) as f32 * PITCH + 300.0,
         Target::AddCard => x_add + 168.0,
         Target::JoinCard => end,
         _ => 96.0 + selected as f32 * PITCH + 300.0,
@@ -327,6 +337,8 @@ fn cards(app: &App, cv: &mut Canvas, f: &mut Frame) {
         }
         x += PITCH;
     }
+    // Les consoles PlayStation associées, après les ordinateurs empruntés.
+    super::consoles::cards(app, cv, f, &mut x, y, PITCH);
     for (i, found) in app.new_found().iter().enumerate().take(FOUND_MAX) {
         let r = Rect::new(x, y, 300.0, 168.0);
         let focused = f.hit(Target::Found(i), r);
@@ -341,7 +353,9 @@ fn cards(app: &App, cv: &mut Canvas, f: &mut Frame) {
         }
         x += PITCH;
     }
-    action_card(cv, f, Target::AddCard, Rect::new(x, y, 168.0, 168.0), Icon::Plus, tr("Ajouter un ordinateur", "Add a computer"));
+    // Les consoles trouvées sur le réseau et pas encore associées.
+    super::consoles::found_cards(app, cv, f, &mut x, y, PITCH, FOUND_MAX);
+    action_card(cv, f, Target::AddCard, Rect::new(x, y, 168.0, 168.0), Icon::Plus, tr("Ajouter un ordinateur ou une console", "Add a computer or a console"));
     // KyberNow Share : rejoindre le partage de quelqu'un, à côté de « Ajouter un ordinateur ».
     action_card(cv, f, Target::JoinCard, Rect::new(x + ACTION_PITCH, y, 168.0, 168.0), Icon::Share, tr("Rejoindre avec un code", "Join with a code"));
 }

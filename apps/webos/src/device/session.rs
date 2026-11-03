@@ -47,6 +47,17 @@ pub struct Shared {
     chain: Mutex<crate::journal::Chain>,
     /// Décodage et affichage mesurés par l'app, image par image (le trajet d'une image sans mesures de l'ordinateur).
     local: Mutex<crate::journal::Local>,
+    /// Une partie sur une console PlayStation (`super::playstation`) : ses images clés et sa première image montrée.
+    pub console: OnceLock<Arc<dyn ConsoleHooks>>,
+}
+
+/// Ce que l'image d'une partie sur une console dit à la partie (le fil de l'image de NDL est le même que pour un
+/// ordinateur).
+pub trait ConsoleHooks: Send + Sync {
+    /// `true` : le décodeur a perdu sa référence, une image clé est demandée à la console ; `false` : retrouvée.
+    fn keyframe(&self, lost: bool);
+    /// Une image donnée à NDL et acceptée.
+    fn frame_shown(&self);
 }
 
 impl Shared {
@@ -102,6 +113,53 @@ impl Shared {
 
     pub fn decoder_failed(&self, e: &str) {
         self.send(Event::DecoderFailed(e.to_string()));
+    }
+
+    /// Le `Shared` d'une partie sur une console : pas de session Kyber, pas de pointeur ; l'image et le son passent par
+    /// les mêmes fils (NDL, SDL) que pour un ordinateur.
+    pub fn for_console(tx: Sender<Event>, refresh: u32, hdr: bool, hooks: Arc<dyn ConsoleHooks>) -> Arc<Shared> {
+        let clock = Arc::new(MonotonicClock::new());
+        let s = Arc::new(Shared {
+            tx: Mutex::new(tx),
+            session: OnceLock::new(),
+            pointer: Arc::new(PointerLayer::new(clock.clone(), true)),
+            clock,
+            input: Mutex::new(None),
+            display: Mutex::new((0, 1920, 1080)),
+            mode: Mutex::new(Mode { width: 1920, height: 1080, refresh: 60 }),
+            refresh: AtomicU32::new(refresh),
+            has_audio: true,
+            surround: false,
+            dolby: false,
+            combo_enabled: AtomicBool::new(false),
+            codec: Mutex::new(String::new()),
+            hdr_expected: AtomicBool::new(hdr),
+            chain: Mutex::new(crate::journal::Chain::default()),
+            local: Mutex::new(crate::journal::Local::default()),
+            console: OnceLock::new(),
+        });
+        let _ = s.console.set(hooks);
+        s
+    }
+
+    /// La définition du flux d'une console (le chargement de NDL la prend).
+    pub fn set_video_size(&self, width: u32, height: u32) {
+        let mut m = self.mode.lock().unwrap();
+        m.width = width;
+        m.height = height;
+        *self.display.lock().unwrap() = (0, width, height);
+    }
+
+    pub fn console_keyframe(&self, lost: bool) {
+        if let Some(c) = self.console.get() {
+            c.keyframe(lost);
+        }
+    }
+
+    pub fn console_frame_shown(&self) {
+        if let Some(c) = self.console.get() {
+            c.frame_shown();
+        }
     }
 }
 
@@ -593,6 +651,7 @@ pub fn start(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32), 
         hdr_expected: AtomicBool::new(hdr.on()),
         chain: Mutex::new(crate::journal::Chain::default()),
         local: Mutex::new(crate::journal::Local::default()),
+        console: OnceLock::new(),
     });
     // Le pointeur de l'ordinateur, dessiné par l'app : position et forme.
     let weak = Arc::downgrade(&shared);

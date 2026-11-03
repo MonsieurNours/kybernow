@@ -201,6 +201,8 @@ unsafe extern "C" {
     pub fn SDL_GameControllerRumble(c: *mut SDL_GameController, low: u16, high: u16, ms: u32) -> c_int;
     pub fn SDL_GameControllerRumbleTriggers(c: *mut SDL_GameController, left: u16, right: u16, ms: u32) -> c_int;
     pub fn SDL_GameControllerHasRumble(c: *mut SDL_GameController) -> c_int;
+    /// Rapport propre à la manette (DualSense : `DS5EffectsState_t`, gâchettes adaptatives) ; SDL 2.0.16 et après.
+    pub fn SDL_GameControllerSendEffect(c: *mut SDL_GameController, data: *const c_void, size: c_int) -> c_int;
     pub fn SDL_GameControllerHasRumbleTriggers(c: *mut SDL_GameController) -> c_int;
     pub fn SDL_JoystickInstanceID(j: *mut SDL_Joystick) -> i32;
     pub fn SDL_JoystickCurrentPowerLevel(j: *mut SDL_Joystick) -> c_int;

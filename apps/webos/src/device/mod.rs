@@ -17,6 +17,7 @@ mod mires;
 mod starfish;
 mod ndl;
 mod pads;
+mod playstation;
 pub mod sdl;
 mod session;
 mod system;
@@ -103,6 +104,8 @@ pub enum Event {
     LendNotice { text: String, at: u64 },
     /// Prêt de l'ordinateur, emprunt : le prêt finit la session (son texte).
     LendEnd(String),
+    /// Consoles PlayStation (`playstation.rs`).
+    Ps(playstation::PsEvent),
 }
 
 struct Video {
@@ -215,6 +218,11 @@ pub fn run(args: &[String]) {
     app.update = crate::app::UpdateState::Checking;
     jobs::check_update(app.store.app.beta, tx.clone());
     let mut pads = pads::Pads::default();
+    // Consoles PlayStation : la recherche (en pause pendant une partie) et la partie en cours.
+    let search = playstation::Search::start(tx.clone());
+    search.set_direct(&app.store.playstation);
+    let mut playing: Option<playstation::Playing> = None;
+    let mut last_consoles = Instant::now() - Duration::from_secs(50);
     let mut cv = Canvas::new();
     let assets = Assets::load();
     let mut live: Option<Live> = None;
@@ -246,7 +254,12 @@ pub fn run(args: &[String]) {
         let mut actions: Vec<Action> = Vec::new();
         if unsafe { sdl::SDL_WaitEventTimeout(&mut ev, timeout) } != 0 {
             loop {
-                handle_sdl(&ev, &mut app, &mut pads, live.as_mut(), &mut actions, &mut dirty, &mut present, &mut quit);
+                // Une partie sur une console : ses entrées d'abord (manettes au lecteur du cœur, clavier et Magic Remote
+                // traduits en manette) ; la barre et le clavier de la console se pilotent comme les menus de l'app.
+                let ps_done = playing.as_mut().is_some_and(|p| playstation::handle_sdl(&ev, &mut app, &mut pads, p, &mut actions, &mut dirty));
+                if !ps_done {
+                    handle_sdl(&ev, &mut app, &mut pads, live.as_mut(), &mut actions, &mut dirty, &mut present, &mut quit);
+                }
                 if unsafe { sdl::SDL_PollEvent(&mut ev) } == 0 {
                     break;
                 }
@@ -272,6 +285,10 @@ pub fn run(args: &[String]) {
             } else {
                 dirty = true;
             }
+            if let Event::Ps(e) = e {
+                playstation::handle(e, &mut app, &mut actions, &search, &mut playing, &mut pads);
+                continue;
+            }
             handle_event(e, &mut app, &mut pads, &mut live, &mut video, &mut actions, &mut pairing, &tx);
         }
 
@@ -281,8 +298,48 @@ pub fn run(args: &[String]) {
             dirty |= app.pending_link.is_none();
         }
         for a in actions {
-            perform(a, &mut app, &mut pads, &mut live, &tx, &mut pairing, &mut quit);
+            match a {
+                Action::Ps(a) => {
+                    let start = playing.is_none();
+                    playstation::perform(a, &mut app, &tx, &search, &mut playing);
+                    if start && let Some(p) = playing.as_mut() {
+                        p.plug_all(&pads);
+                    }
+                }
+                // Une partie sur une console : « Annuler » et « Se déconnecter » l'arrêtent.
+                Action::CancelConnect | Action::Disconnect if playing.is_some() => {
+                    if let Some(p) = playing.as_ref() {
+                        p.stop();
+                    }
+                    if let Some(s) = app.session.as_mut() {
+                        s.menu = false;
+                        s.phase = Phase::Ending;
+                    }
+                }
+                Action::ReleaseAll | Action::Connect { .. } if playing.is_some() => {}
+                a => perform(a, &mut app, &mut pads, &mut live, &tx, &mut pairing, &mut quit),
+            }
             dirty = true;
+        }
+        // Une partie sur une console : la console reçoit une manette au repos quand la barre ou son clavier sont
+        // ouverts ; à la fin, manettes et recherche reviennent.
+        if let Some(p) = playing.as_mut() {
+            p.set_captured(playstation::want_captured(&app));
+        }
+        if playing.is_some() && matches!(app.session.as_ref().map(|s| &s.phase), Some(Phase::Ended { .. }) | None) {
+            playing.take().unwrap().finish(&mut pads, &search);
+            dirty = true;
+        }
+        // Les Stations qui voient chaque console (hors de chez soi) : une fois par minute au plus.
+        if live.is_none() && playing.is_none() && last_consoles.elapsed() > Duration::from_secs(60) {
+            last_consoles = Instant::now();
+            for h in &app.store.hosts {
+                match app.live.get(&h.id).map(|l| l.online) {
+                    Some(Online::Online) => playstation::station_consoles(h.clone(), false, tx.clone()),
+                    Some(Online::Away) => playstation::station_consoles(h.clone(), true, tx.clone()),
+                    _ => {}
+                }
+            }
         }
 
         // Fin de session : l'accueil, la dernière session enregistrée.
@@ -390,6 +447,9 @@ pub fn run(args: &[String]) {
     if let Some(l) = live.take() {
         l.handle.session.stop();
     }
+    if let Some(p) = playing.take() {
+        p.finish(&mut pads, &search);
+    }
     for c in pairing.drain(..) {
         c.store(true, Ordering::Relaxed);
     }
@@ -441,7 +501,9 @@ fn draw_frame(video: &Video, show_ui: bool, live: Option<&Live>, app: &App) {
 
 #[allow(clippy::too_many_arguments)]
 fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, live: Option<&mut Live>, actions: &mut Vec<Action>, dirty: &mut bool, present: &mut bool, quit: &mut bool) {
-    let in_game = app.screen == Screen::Session && app.session.as_ref().is_some_and(|s| !s.menu && !s.keys && !s.share_panel && matches!(s.phase, Phase::Streaming | Phase::Reconnecting { .. }));
+    // Une partie sur une console n'est jamais « en jeu » ici : ses entrées passent par `playstation::handle_sdl`, et sa barre
+    // ou son clavier se pilotent comme les menus.
+    let in_game = app.screen == Screen::Session && app.session.as_ref().is_some_and(|s| s.ps.is_none() && !s.menu && !s.keys && !s.share_panel && matches!(s.phase, Phase::Streaming | Phase::Reconnecting { .. }));
     let input = live.as_ref().and_then(|l| l.handle.shared.current_input());
     match ev.kind() {
         sdl::SDL_QUIT => *quit = true,
@@ -515,7 +577,7 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, live: O
             }
             for c in ev.text().chars() {
                 // « Rejoindre un partage » : les chiffres du code, les lettres du prénom (accents compris).
-                if app.screen == Screen::Join || c.is_ascii_digit() || c == '.' || c == ':' || c.is_ascii_alphabetic() || c == '-' {
+                if app.screen == Screen::Join || app.ps_typing() || app.ps_keyboard_open() || c.is_ascii_digit() || c == '.' || c == ':' || c.is_ascii_alphabetic() || c == '-' {
                     actions.extend(app.nav(Nav::Char(c)));
                 }
             }
@@ -933,6 +995,7 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
                 l.relay_error = Some(e);
             }
         }
+        Event::Ps(_) => {}
         Event::Update(r) => {
             app.update = match r {
                 Ok(Some(a)) => {
@@ -956,6 +1019,7 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
     match a {
         Action::Save => app.store.save(),
         Action::Quit => *quit = true,
+        Action::Ps(_) => {}
         Action::Language => {
             i18n::set_english(i18n::resolve(&app.store.app.language, &sdl::locale()));
             kybernow_core::i18n::set_current(if i18n::english() { kybernow_core::i18n::Lang::En } else { kybernow_core::i18n::Lang::Fr });

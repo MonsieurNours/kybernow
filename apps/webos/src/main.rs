@@ -12,6 +12,7 @@ mod journal;
 mod mires;
 mod model;
 mod preview;
+mod ps;
 mod ui;
 
 fn main() {

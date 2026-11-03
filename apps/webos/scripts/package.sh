@@ -22,7 +22,8 @@ if [ -z "${WEBOS_TOOLCHAIN:-}" ]; then
     esac
 fi
 SDL_PREFIX="${SDL_PREFIX:-$THIRD_PARTY/sdl-webos-dist}"
-BIN="$APPS/target/$TARGET/$PROFILE/kybernow-webos"
+# CARGO_TARGET_DIR posé (un dossier de compilation à part, par exemple un worktree) : le binaire y est.
+BIN="${CARGO_TARGET_DIR:-$APPS/target}/$TARGET/$PROFILE/kybernow-webos"
 VERSION="$(awk -F'"' '/^version *=/ {print $2; exit}' "$APPS/Cargo.toml")"
 APP_ID=fr.leslignesclaires.kybernow
 
