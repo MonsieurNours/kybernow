@@ -18,17 +18,23 @@
 // (audio.swift), l'app du début de la session par `apps`, `launch`, `close`
 // et `locked` (apps.swift).
 //
-// Les écrans du Mac recopient l'écran virtuel principal pendant la session
-// (`CGConfigureDisplayMirrorOfDisplay`) : seul l'écran virtuel reste actif, il
-// devient l'écran principal, et la bascule est immédiate. Les éteindre
-// (`CGSConfigureDisplayEnabled`, privé) n'était appliqué par macOS qu'avec
-// retard, parfois à la sortie du programme seulement (essais du 03/11/2026).
+// Les écrans du Mac sont éteints pendant la session, comme sous Windows :
+// l'écran virtuel principal devient l'écran principal (en (0, 0), les écrans
+// du Mac décalés à sa droite), puis chaque écran du Mac est éteint
+// (`CGSConfigureDisplayEnabled`, privé), **un par configuration**, en
+// attendant qu'il le soit : plusieurs à la fois, macOS les éteint en retard,
+// un à un et dans le désordre, et un écran qui perd ainsi son signal (l'Asus
+// XG32UQ de l'auteur) ne revient qu'en le débranchant. Un par un, c'est fait
+// en moins d'une demi-seconde chacun ; le rallumage aussi, puis la
+// disposition d'avant (principal, places) est remise (essais du 03/11/2026).
 //
-// Filet de sécurité : les écrans virtuels vivent avec ce processus, et les
-// changements de disposition sont faits « pour ce programme seulement »
-// (kCGConfigureForAppOnly). Si Admin s'arrête (fin de l'entrée standard) ou si
-// l'agent plante, macOS retire les écrans virtuels et rend les écrans du Mac
-// à leur place.
+// Filet de sécurité : les écrans virtuels vivent avec ce processus. Les écrans
+// éteints, eux, le restent même s'il s'arrête : la liste et la disposition
+// d'avant sont écrites dans `~/Library/Application Support/KyberNow/
+// display-off.json` avant de les éteindre, et rallumées au démarrage de
+// l'agent suivant (ou par `kybernow-display recover`, qu'Admin lance à son
+// démarrage) ; à la fin de l'entrée standard (Admin arrêté), l'agent les
+// rallume avant de partir.
 //
 // Les dimensions échangées sont en pixels. En HiDPI, l'écran prend le mode
 // Retina (la moitié en points) : une interface lisible sur un téléphone ou un
@@ -49,8 +55,8 @@ final class Agent {
     private var virtuals: [Int: CGVirtualDisplay] = [:]
     /// Retina ou non, fixé à la création (le numéro de produit le dit à Kyber).
     private var retina: [CGDirectDisplayID: Bool] = [:]
-    /// Écrans du Mac mis en recopie par `isolate`, à rendre.
-    private var mirroring: [CGDirectDisplayID] = []
+    /// Écrans du Mac éteints par `isolate`, et leur place d'avant.
+    private var switchedOff: OffState?
 
     func handle(_ req: [String: Any]) throws -> [String: Any] {
         switch req["cmd"] as? String {
@@ -113,6 +119,9 @@ final class Agent {
         guard let list = req["screens"] as? [[String: Any]], !list.isEmpty else { throw Failure(message: "aucun écran") }
         let keepOthers = req["keep_others"] as? Bool ?? false
         let ids = try list.map { CGDirectDisplayID(try int($0, "id")) }
+        if switchedOff == nil {
+            previousOrigins = Dictionary(uniqueKeysWithValues: onlineDisplays().filter { !isVirtual($0) }.map { ($0, CGDisplayBounds($0).origin) })
+        }
         // Mode Retina d'abord : les positions sont en points.
         var config: CGDisplayConfigRef?
         CGBeginDisplayConfiguration(&config)
@@ -133,12 +142,28 @@ final class Agent {
         }
         var others: [CGDirectDisplayID] = []
         if !keepOthers {
-            others = onlineDisplays().filter { !ids.contains($0) && !isVirtual($0) }
-            for id in others { CGConfigureDisplayMirrorOfDisplay(config, id, ids[0]) }
+            others = onlineDisplays().filter { !ids.contains($0) && !isVirtual($0) && !(switchedOff?.ids.contains($0) ?? false) }
+            // Les écrans du Mac collés à droite des écrans virtuels : l'écran
+            // virtuel principal, en (0, 0), devient l'écran principal.
+            var right: Int32 = 0
+            for (i, screen) in list.enumerated() {
+                let x = ((try? int(screen, "x")) ?? 0) / scales[0]
+                let w = ((try? int(screen, "width")) ?? 0) / scales[i]
+                right = max(right, Int32(x + w))
+            }
+            // Noté avant de toucher à quoi que ce soit (voir l'en-tête).
+            noteOff(others)
+            for id in others {
+                CGConfigureDisplayOrigin(config, id, right, 0)
+                right += Int32(CGDisplayBounds(id).width)
+            }
         }
-        let err = CGCompleteDisplayConfiguration(config, .forAppOnly)
+        let err = CGCompleteDisplayConfiguration(config, keepOthers ? .forAppOnly : .forSession)
         guard err == .success else { throw Failure(message: "configuration des écrans refusée (\(err.rawValue))") }
-        mirroring = Array(Set(mirroring + others))
+        if !keepOthers {
+            waitUntil(seconds: 4) { CGDisplayIsMain(ids[0]) != 0 }
+            switchOff(others)
+        }
         // Il ne reste que les écrans virtuels (ou ils sont actifs), le principal en (0, 0) ; 8 s au plus.
         let want = Set(ids)
         waitUntil(seconds: 8) {
@@ -157,15 +182,38 @@ final class Agent {
         return ["screens": screens, "disabled_others": others.count - stillOn, "scales": scales.map { $0 * 100 }]
     }
 
+    /// Note les écrans `ids` comme éteints, avec leur place d'avant (celle
+    /// de la première configuration de la session), sur disque aussi.
+    private func noteOff(_ ids: [CGDirectDisplayID]) {
+        guard !ids.isEmpty else { return }
+        var state = switchedOff ?? OffState(ids: [], origins: [:])
+        for id in ids where state.origins[id] == nil {
+            state.origins[id] = previousOrigins[id] ?? CGDisplayBounds(id).origin
+        }
+        state.ids.append(contentsOf: ids.filter { !state.ids.contains($0) })
+        switchedOff = state
+        state.save()
+    }
+
+    /// Éteint les écrans `ids` un par un (voir l'en-tête).
+    private func switchOff(_ ids: [CGDirectDisplayID]) {
+        for id in ids { setDisplayEnabled(id, false) }
+    }
+
+    /// Places des écrans du Mac avant la première configuration de la session.
+    private var previousOrigins: [CGDirectDisplayID: CGPoint] = [:]
+
     private func restore() -> [String: Any] {
-        if !mirroring.isEmpty {
-            var config: CGDisplayConfigRef?
-            CGBeginDisplayConfiguration(&config)
-            for id in mirroring { CGConfigureDisplayMirrorOfDisplay(config, id, kCGNullDirectDisplay) }
-            CGCompleteDisplayConfiguration(config, .forAppOnly)
-            mirroring.removeAll()
+        if let state = switchedOff {
+            state.switchOn()
+            switchedOff = nil
         }
         return ["exit": virtuals.isEmpty]
+    }
+
+    /// Admin s'est arrêté (fin de l'entrée standard) : les écrans du Mac reviennent.
+    func shutdown() {
+        _ = restore()
     }
 
     // MARK: veille et modes
@@ -187,21 +235,13 @@ final class Agent {
         guard let display = virtuals.values.first(where: { $0.displayID == id }) else { throw Failure(message: "écran virtuel inconnu") }
         // Retina comme à la création : Kyber le lit dans le numéro de produit.
         let hidpi = retina[id] ?? false
-        // Un écran que d'autres recopient garde son mode : la recopie est
-        // suspendue le temps du changement, puis remise.
-        let mirrors = mirroring
-        if !mirrors.isEmpty { configure { c in for m in mirrors { CGConfigureDisplayMirrorOfDisplay(c, m, kCGNullDirectDisplay) } } }
-        let remirror = { if !mirrors.isEmpty { configure { c in for m in mirrors { CGConfigureDisplayMirrorOfDisplay(c, m, id) } } } }
         guard display.apply(settings(width: w, height: h, refresh: hz, hidpi: hidpi)) else {
-            remirror()
             throw Failure(message: "macOS refuse le mode \(w) × \(h) à \(hz) Hz")
         }
         waitUntil(seconds: 3) { matchingMode(id, width: w, height: h, hidpi: hidpi) != nil }
         if let mode = matchingMode(id, width: w, height: h, hidpi: hidpi) {
             configure { c in CGConfigureDisplayWithDisplayMode(c, id, mode, nil) }
         }
-        // Le nouveau mode n'est en place qu'une fois la recopie remise.
-        remirror()
         waitUntil(seconds: 3) { CGDisplayCopyDisplayMode(id)?.pixelWidth == w }
         guard let m = CGDisplayCopyDisplayMode(id) else { return ["width": 0, "height": 0, "refresh": 0] }
         return ["width": m.pixelWidth, "height": m.pixelHeight, "refresh": Int(m.refreshRate.rounded())]
@@ -259,6 +299,61 @@ func configure(_ change: (CGDisplayConfigRef?) -> Void) {
     CGCompleteDisplayConfiguration(config, .forAppOnly)
 }
 
+/// Allume ou éteint un écran du Mac (`CGSConfigureDisplayEnabled`, privé),
+/// seul dans sa configuration, et attend que macOS l'ait fait (4 s au plus).
+func setDisplayEnabled(_ id: CGDirectDisplayID, _ on: Bool) {
+    typealias Fn = @convention(c) (CGDisplayConfigRef?, CGDirectDisplayID, Bool) -> CGError
+    guard let sym = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGSConfigureDisplayEnabled") else { return }
+    let enable = unsafeBitCast(sym, to: Fn.self)
+    var config: CGDisplayConfigRef?
+    CGBeginDisplayConfiguration(&config)
+    _ = enable(config, id, on)
+    CGCompleteDisplayConfiguration(config, .forSession)
+    waitUntil(seconds: 4) { activeDisplays().contains(id) == on }
+}
+
+/// Écrans du Mac éteints pendant la session et leur place d'avant, aussi
+/// écrits sur disque pour les rallumer si l'agent s'arrête (voir l'en-tête).
+struct OffState {
+    var ids: [CGDirectDisplayID]
+    var origins: [CGDirectDisplayID: CGPoint]
+
+    static let file = URL(fileURLWithPath: NSHomeDirectory() + "/Library/Application Support/KyberNow/display-off.json")
+
+    func save() {
+        let body: [String: Any] = [
+            "ids": ids,
+            "origins": Dictionary(uniqueKeysWithValues: origins.map { ("\($0.key)", [Int($0.value.x), Int($0.value.y)]) }),
+        ]
+        try? FileManager.default.createDirectory(at: Self.file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? JSONSerialization.data(withJSONObject: body).write(to: Self.file)
+    }
+
+    static func load() -> OffState? {
+        guard let data = try? Data(contentsOf: file),
+              let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        let ids = (body["ids"] as? [NSNumber] ?? []).map { CGDirectDisplayID($0.uint32Value) }
+        var origins: [CGDirectDisplayID: CGPoint] = [:]
+        for (k, v) in body["origins"] as? [String: [Int]] ?? [:] where v.count == 2 {
+            if let id = UInt32(k) { origins[id] = CGPoint(x: v[0], y: v[1]) }
+        }
+        return OffState(ids: ids, origins: origins)
+    }
+
+    /// Rallume les écrans un par un (le dernier éteint d'abord), remet leur
+    /// place, puis efface le fichier.
+    func switchOn() {
+        for id in ids.reversed() { setDisplayEnabled(id, true) }
+        var config: CGDisplayConfigRef?
+        CGBeginDisplayConfiguration(&config)
+        for (id, o) in origins where onlineDisplays().contains(id) {
+            CGConfigureDisplayOrigin(config, id, Int32(o.x), Int32(o.y))
+        }
+        CGCompleteDisplayConfiguration(config, .forSession)
+        try? FileManager.default.removeItem(at: Self.file)
+    }
+}
+
 func onlineDisplays() -> [CGDirectDisplayID] {
     var ids = [CGDirectDisplayID](repeating: 0, count: 32)
     var n: UInt32 = 0
@@ -307,6 +402,16 @@ if CommandLine.arguments.count > 1, ["audio", "apps", "launch", "close", "locked
     exit(1)
 }
 
+// Écrans laissés éteints par un agent arrêté en route : rallumés d'abord.
+// `kybernow-display recover` ne fait que cela (Admin le lance à son démarrage).
+if let left = OffState.load() {
+    left.switchOn()
+}
+if CommandLine.arguments.count > 1, CommandLine.arguments[1] == "recover" {
+    reply(["ok": true])
+    exit(0)
+}
+
 let agent = Agent()
 while let line = readLine() {
     guard let data = line.data(using: .utf8), let req = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
@@ -325,5 +430,6 @@ while let line = readLine() {
         reply(["ok": false, "error": "\(error)"])
     }
 }
-// Admin s'est arrêté : macOS défait tout en même temps que ce processus.
+// Admin s'est arrêté : les écrans du Mac reviennent, macOS retire les écrans virtuels.
+agent.shutdown()
 exit(0)

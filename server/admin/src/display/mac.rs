@@ -2,11 +2,13 @@
 //!
 //! Admin lance l'agent `kybernow-display` (`server/macos/display-agent`) et lui
 //! parle par lignes JSON. L'agent tient les écrans `CGVirtualDisplay` tant
-//! qu'il vit, met les écrans du Mac en recopie de l'écran virtuel principal
-//! (seul l'écran virtuel reste actif) et fait ses changements « pour ce
-//! programme seulement » : si Admin s'arrête (fin de l'entrée de l'agent) ou
-//! si l'agent plante, macOS défait tout. C'est le filet de sécurité qui
-//! remplace, sur Mac, le chien de garde de SudoVDA et `recover`.
+//! qu'il vit, fait de l'écran virtuel principal l'écran principal et éteint
+//! les écrans du Mac un par un (comme sous Windows ; prêt : gardés allumés).
+//! Filet de sécurité : les écrans virtuels partent avec l'agent ; les écrans
+//! éteints sont notés sur disque et rallumés par l'agent suivant, par
+//! `kybernow-display recover` au démarrage d'Admin, et par l'agent lui-même
+//! si Admin s'arrête (fin de son entrée). C'est ce qui remplace, sur Mac, le
+//! chien de garde de SudoVDA et `recover`.
 //!
 //! Nom d'écran (`gdi_name` du reste du module) : `mac:<CGDirectDisplayID>`.
 //! Retina dès 2048 pixels de large ([`hidpi`]).
@@ -67,6 +69,15 @@ pub struct MacBackend {
 
 impl MacBackend {
     pub fn new(path: PathBuf) -> Self {
+        // Écrans du Mac laissés éteints par un agent arrêté en route (Admin
+        // ou l'agent tombé pendant une session) : rallumés au démarrage
+        // (`kybernow-display recover`, fichier `display-off.json`).
+        let recover = path.clone();
+        std::thread::spawn(move || match Command::new(&recover).arg("recover").output() {
+            Ok(out) if out.status.success() => {}
+            Ok(out) => tracing::warn!("reprise des écrans du Mac : {}", String::from_utf8_lossy(&out.stdout).trim()),
+            Err(e) => tracing::warn!("reprise des écrans du Mac : {e}"),
+        });
         Self { path, agent: Mutex::new(None), created: Mutex::new([None; MAX_SCREENS]), watched: Mutex::new(Vec::new()) }
     }
 
