@@ -90,6 +90,8 @@ final class AppModel: ObservableObject {
         #endif
         store.didSave = { [cloud] in cloud.publish($0) }
         cloud.publish(store.hosts)
+        // Les comptes PlayStation et leurs associations, dans les deux sens.
+        cloud.attach(playstation: playstation)
     }
 
     func add(link: Candidate? = nil, tab: AddHostSheet.Tab = .network) {
@@ -374,6 +376,35 @@ final class AppModel: ObservableObject {
     /// de l'accueil), `-screen settings|app|connecting|failed|session`,
     /// `-section picture|sound|controls|network|statistics|station`,
     /// `-demoUpdate 0.5.1` (mise à jour de l'app proposée).
+    private static var demoHandoffModel: PSHandoffModel?
+
+    private func demoHandoff(_ what: String) {
+        let model = PSHandoffModel()
+        Self.demoHandoffModel = model
+        Task { @MainActor in
+            if what == "receive" {
+                model.startReceiving(store: playstation)
+                KyberLog.app.notice("Démonstration : code \(model.code ?? "", privacy: .public)")
+                var last: String?
+                for _ in 0..<600 {
+                    try? await Task.sleep(for: .milliseconds(200))
+                    if model.received != last, let r = model.received {
+                        last = r
+                        KyberLog.app.notice("Démonstration : \(r, privacy: .public) Comptes : \(self.playstation.accounts.map { self.playstation.name($0) }.joined(separator: ", "), privacy: .public) ; consoles : \(self.playstation.consoles.map { "\($0.name) [\(self.playstation.pairedAccounts($0).count)]" }.joined(separator: ", "), privacy: .public)")
+                    }
+                }
+                return
+            }
+            model.startDiscovery()
+            for _ in 0..<50 where model.waiting.isEmpty { try? await Task.sleep(for: .milliseconds(200)) }
+            guard let w = model.waiting.first else { KyberLog.app.notice("Démonstration : aucun appareil en attente"); return }
+            model.choose(w)
+            model.send(code: what, store: playstation)
+            while model.sending || model.sendResult == nil { try? await Task.sleep(for: .milliseconds(200)) }
+            KyberLog.app.notice("Démonstration : \(model.sendResult?.text ?? "", privacy: .public)")
+        }
+    }
+
     private func applyDemoArguments() {
         let args = UserDefaults.standard
         let ordered = store.ordered
@@ -403,6 +434,10 @@ final class AppModel: ObservableObject {
             let tabs: [String: AddHostSheet.Tab] = ["playstation": .playstation, "network": .network, "address": .address]
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { self.add(tab: tabs[tab] ?? .network) }
         }
+        // Plusieurs appareils, essai sans l'interface : `-demoHandoff receive`
+        // (attente d'un envoi dès le lancement, le code au journal) ou
+        // `-demoHandoff <code>` (envoi au premier appareil en attente).
+        if let h = args.string(forKey: "demoHandoff") { demoHandoff(h) }
         if let host = args.string(forKey: "demoPair"), let f = playstation.onNetwork.first(where: { $0.hostID == host }) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                 self.playstation.pairing = self.playstation.console(hostID: host).map { PairTarget(console: $0, live: f) } ?? PairTarget(found: f)
