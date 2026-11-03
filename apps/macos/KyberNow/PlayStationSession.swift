@@ -25,6 +25,16 @@ final class PlayStationSession: NSObject, ObservableObject, NSWindowDelegate {
     }
 
     @Published private(set) var phase: Phase = .connecting
+    /// Étape de la connexion montrée dans la capsule : 0 « Connexion »,
+    /// 1 « Premières images » (comme pour un ordinateur, docs/link-ui.md).
+    @Published private(set) var connectStep = 0
+    /// Le passage : l'accueil photographié, ouvert en deux à la première image.
+    private let scene = PassageScene(frame: .zero)
+    /// L'image est apparue (le passage s'est ouvert).
+    private(set) var revealed = false
+    /// Délai entre le début du flux et l'apparition, comme pour un ordinateur :
+    /// les premières images irrégulières restent sous l'écran d'attente.
+    private static let revealDelay: TimeInterval = 0.9
     /// Contenu protégé à l'écran de la console.
     @Published private(set) var cantDisplay = false
 
@@ -140,6 +150,8 @@ final class PlayStationSession: NSObject, ObservableObject, NSWindowDelegate {
         var w = area.width * 2 / 3, h = w * 9 / 16
         if h > area.height * 0.85 { h = area.height * 0.85; w = h * 16 / 9 }
         let content = NSRect(x: area.midX - w / 2, y: area.midY - h / 2, width: w, height: h)
+        // L'accueil photographié avant que la fenêtre de la partie le recouvre.
+        let home = AppModel.shared.homeWindow?.contentView.flatMap { SessionController.photograph($0) }
         let window = NSWindow(contentRect: content, styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.title = console.name
         window.appearance = NSAppearance(named: .darkAqua)
@@ -154,6 +166,11 @@ final class PlayStationSession: NSObject, ObservableObject, NSWindowDelegate {
         streamView.frame = container.bounds
         streamView.autoresizingMask = [.width, .height]
         container.addSubview(streamView)
+        // Le passage, comme pour un ordinateur : par-dessus l'image jusqu'à son apparition.
+        scene.frame = container.bounds
+        scene.autoresizingMask = [.width, .height]
+        container.addSubview(scene)
+        scene.prepare(home: home)
         input.frame = container.bounds
         input.autoresizingMask = [.width, .height]
         input.onCapture = { [weak self] captured in self?.captureChanged(captured) }
@@ -183,6 +200,7 @@ final class PlayStationSession: NSObject, ObservableObject, NSWindowDelegate {
         window.makeKeyAndOrderFront(nil)
         window.makeFirstResponder(input)
         if fullScreen { window.toggleFullScreen(nil) }
+        scene.ignite()
 
         let play = PlayStationPlay(view: streamView)
         input.play = play
@@ -483,10 +501,26 @@ final class PlayStationSession: NSObject, ObservableObject, NSWindowDelegate {
     private func stateChanged(_ s: PlayStationPlay.State) {
         switch s {
         case .connecting:
+            // Aussi pour une partie reprise après une coupure : les étapes
+            // reviennent par-dessus la dernière image.
             phase = .connecting
+            connectStep = 0
         case let .streaming(w, h, hdr):
             KyberLog.app.notice("PlayStation : image \(w)x\(h) \(hdr ? "HDR" : "SDR", privacy: .public)")
-            phase = .streaming
+            if revealed {
+                // Partie reprise après une coupure : l'image revient seule.
+                phase = .streaming
+            } else {
+                connectStep = 1
+                DispatchQueue.main.asyncAfter(deadline: .now() + Self.revealDelay) { [weak self] in
+                    guard let self, !self.revealed, !self.finished, self.phase == .connecting else { return }
+                    self.revealed = true
+                    self.phase = .streaming
+                    self.scene.open()
+                    self.overlay?.isHidden = !self.cantDisplay
+                    self.updateChrome()
+                }
+            }
             startStats()
         case let .cantDisplay(on):
             cantDisplay = on
@@ -502,6 +536,7 @@ final class PlayStationSession: NSObject, ObservableObject, NSWindowDelegate {
             statsTask = nil
             // Fin voulue ici (fenêtre fermée) ou mise en veille : la fenêtre se ferme.
             let text = resting ? nil : PSText.end(e)
+            if !revealed { scene.dim() }
             phase = .ended(text)
             stopPlay()
             if text == nil { close() }
@@ -639,13 +674,25 @@ struct PlayStationOverlay: View {
         ZStack {
             switch session.phase {
             case .connecting:
-                ZStack {
-                    Theme.background
-                    HStack(spacing: 12) {
-                        ProgressView().controlSize(.small)
-                        Text(PSText.connecting).font(Theme.sans(16)).foregroundStyle(Theme.text2)
+                // La capsule du passage d'un ordinateur, mêmes pièces, mêmes étapes
+                // (docs/link-ui.md, « Connexion ») ; le passage est dessous.
+                PassageParts.capsule {
+                    HStack(spacing: 18) {
+                        Mark(size: 34, level: .lit)
+                        VStack(alignment: .leading, spacing: 7) {
+                            PassageParts.step(0, String(localized: "Connexion"), current: session.connectStep)
+                            PassageParts.step(1, String(localized: "Premières images"), current: session.connectStep)
+                        }
+                        PassageParts.divider
+                        Button("Annuler") { session.close() }
+                            .buttonStyle(GhostButton(height: 34))
+                            .keyboardShortcut(.cancelAction)
                     }
+                    .fixedSize()
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                .padding(.bottom, 92)
+                .transition(.opacity.combined(with: .offset(y: 14)))
             case .streaming:
                 if session.cantDisplay {
                     Text(PSText.cantDisplay)
@@ -654,19 +701,28 @@ struct PlayStationOverlay: View {
                         .glass(12, tint: 0.6)
                 }
             case let .ended(text):
-                ZStack {
-                    Theme.background
-                    VStack(spacing: 18) {
+                // L'échec comme pour un ordinateur : la capsule, le néon éteint,
+                // la raison, « Fermer ».
+                PassageParts.capsule {
+                    HStack(spacing: 18) {
+                        Mark(size: 34, level: .off)
                         if let text {
-                            Text(text).font(Theme.sans(17)).foregroundStyle(Theme.text)
-                                .multilineTextAlignment(.center)
-                                .frame(maxWidth: 520)
+                            // Avant l'image : « La connexion a échoué » et la raison ;
+                            // en cours de partie : la raison seule.
+                            if session.revealed {
+                                PassageParts.lines(title: text, sub: "")
+                            } else {
+                                PassageParts.lines(title: String(localized: "La connexion a échoué"), sub: text, warn: true)
+                            }
                         }
                         Button(String(localized: "Fermer")) { session.close() }
-                            .buttonStyle(GhostButton(height: 40))
+                            .buttonStyle(PrimaryButton(height: 40))
                             .keyboardShortcut(.defaultAction)
                     }
+                    .fixedSize()
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                .padding(.bottom, 92)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
