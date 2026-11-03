@@ -33,6 +33,8 @@ hmac = "0.12"
 # Flux Takion (src/playstation/gkcrypt.rs) : ECDH secp256k1 et GMAC (AES-GCM, IV de 16 octets).
 k256 = { version = "0.13", default-features = false, features = ["arithmetic", "ecdh", "std"] }
 aes-gcm = { version = "0.10", default-features = false, features = ["aes", "alloc"] }
+# Flux Takion : mémoire de réception agrandie (une image clé arrive d'un bloc).
+socket2 = "0.6"
 
 [features]
 # Lecteur de manettes par SDL dans le cœur (`gamepads::start_sdl`) : apps Mac

@@ -9,11 +9,12 @@
 //! perdue.
 
 use std::net::Ipv4Addr;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use super::audio::{AudioOut, AudioReceiver, opus_head};
+use super::controller::ControllerState;
 use super::keymouse::{KeyMouse, Layout};
 use crate::gamepads;
 use crate::input::pipeline::GamepadRumble;
@@ -54,6 +55,44 @@ pub enum PlayEnd {
     Remote(String),
 }
 
+/// Ce que la manette dit à l'app (fil `ps-manette`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PadEvent {
+    /// Options + Create + L1 + R1 tenus 250 ms : ouvrir la barre ou le menu.
+    Menu,
+    /// Manette prise par l'app (barre ouverte) : une touche de navigation.
+    Navigate(crate::input::PadKey),
+}
+
+/// Mesures de la partie, remises à zéro à chaque lecture ([`Play::stats`]).
+#[derive(Debug, Default)]
+pub(crate) struct Counters {
+    frames: AtomicU64,
+    bytes: AtomicU64,
+    lost: AtomicU64,
+    recovered: AtomicU64,
+}
+
+/// Ce que montrent les statistiques, sur le temps depuis la lecture
+/// précédente.
+#[derive(Debug, Clone, Copy, PartialEq, Default, serde::Serialize)]
+pub struct PlayStats {
+    pub width: u32,
+    pub height: u32,
+    pub hevc: bool,
+    pub hdr: bool,
+    /// Débit demandé à la console, kbit/s.
+    pub target_kbps: u32,
+    /// Images par seconde reçues.
+    pub fps: f32,
+    /// Débit reçu, Mbit/s.
+    pub mbps: f32,
+    /// Images perdues et réparées (correction d'erreurs) depuis la lecture
+    /// précédente.
+    pub lost: u64,
+    pub recovered: u64,
+}
+
 /// Réglages d'une partie.
 #[derive(Debug, Clone)]
 pub struct PlayOptions {
@@ -69,6 +108,11 @@ pub struct Play {
     /// Clavier et souris traduits en manette (ignorés dès qu'une manette est
     /// branchée).
     keymouse: Arc<Mutex<KeyMouse>>,
+    /// La barre ou le menu de l'app est ouvert : la console reçoit une
+    /// manette au repos, la manette navigue dans l'app.
+    captured: Arc<AtomicBool>,
+    counters: Arc<Counters>,
+    stats_at: Mutex<(Instant, PlayStats)>,
     /// Une image clé est attendue : demandée à la console jusqu'à ce qu'elle
     /// arrive (images perdues, décodeur de l'app qui a perdu sa référence,
     /// plus d'image depuis une seconde).
@@ -115,10 +159,18 @@ impl Play {
         video: Arc<dyn PacketHandler>,
         audio: Option<Arc<dyn PacketHandler>>,
         on_state: Box<dyn Fn(PlayState) + Send>,
+        on_pad: Box<dyn Fn(PadEvent) + Send + Sync>,
     ) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
         let want_key = Arc::new(AtomicBool::new(false));
         let keymouse = Arc::new(Mutex::new(KeyMouse::default()));
+        let captured = Arc::new(AtomicBool::new(false));
+        let counters = Arc::new(Counters::default());
+        let on_pad: Arc<dyn Fn(PadEvent) + Send + Sync> = Arc::from(on_pad);
+        let initial = {
+            let p = options.settings.profile(options.hevc_decoder, true);
+            PlayStats { width: p.width, height: p.height, hevc: p.hevc, hdr: p.hdr, target_kbps: p.bitrate, ..Default::default() }
+        };
         let ctrl = Arc::new(Mutex::new(None));
         let registered = registered.clone();
         let thread = {
@@ -126,6 +178,9 @@ impl Play {
             let ctrl = ctrl.clone();
             let want_key = want_key.clone();
             let keymouse = keymouse.clone();
+            let captured = captured.clone();
+            let counters = counters.clone();
+            let on_pad = on_pad.clone();
             std::thread::Builder::new()
                 .name("ps-play".into())
                 .spawn(move || {
@@ -136,7 +191,7 @@ impl Play {
                     let mut retries = 0;
                     let end = loop {
                         let started = Instant::now();
-                        let end = run(addr, &registered, options.clone(), &video, audio.as_ref(), &on_state, &stop, &ctrl, &want_key, &keymouse);
+                        let end = run(addr, &registered, options.clone(), &video, audio.as_ref(), &on_state, &stop, &ctrl, &want_key, &keymouse, &captured, &counters, &on_pad);
                         if let Some(mut c) = ctrl.lock().unwrap().take() {
                             c.stop();
                         }
@@ -158,7 +213,30 @@ impl Play {
                 })
                 .ok()
         };
-        Play { stop, keymouse, want_key, thread, ctrl }
+        Play { stop, keymouse, captured, counters, stats_at: Mutex::new((Instant::now(), initial)), want_key, thread, ctrl }
+    }
+
+    /// La barre ou le menu de l'app s'ouvre (`true`) ou se ferme : la manette
+    /// (et le clavier) ne vont plus à la console tant qu'ils sont ouverts.
+    pub fn set_captured(&self, on: bool) {
+        self.captured.store(on, Ordering::SeqCst);
+        if on {
+            self.keymouse.lock().unwrap().release_all();
+        }
+    }
+
+    /// Statistiques depuis la lecture précédente (une fois par seconde).
+    pub fn stats(&self) -> PlayStats {
+        let mut g = self.stats_at.lock().unwrap();
+        let dt = g.0.elapsed().as_secs_f32().max(0.001);
+        g.0 = Instant::now();
+        let c = &self.counters;
+        let mut s = g.1;
+        s.fps = c.frames.swap(0, Ordering::Relaxed) as f32 / dt;
+        s.mbps = c.bytes.swap(0, Ordering::Relaxed) as f32 * 8.0 / dt / 1e6;
+        s.lost = c.lost.swap(0, Ordering::Relaxed);
+        s.recovered = c.recovered.swap(0, Ordering::Relaxed);
+        s
     }
 
     /// Une touche (usage HID) du clavier de l'appareil.
@@ -231,6 +309,9 @@ fn run(
     ctrl_slot: &Mutex<Option<Ctrl>>,
     want_key: &Arc<AtomicBool>,
     keymouse: &Arc<Mutex<KeyMouse>>,
+    captured: &Arc<AtomicBool>,
+    counters: &Arc<Counters>,
+    on_pad: &Arc<dyn Fn(PadEvent) + Send + Sync>,
 ) -> PlayEnd {
     on_state(PlayState::Connecting);
     let Some(keys) = Keys::from_registered(registered) else { return PlayEnd::NotPaired };
@@ -305,13 +386,22 @@ fn run(
     // la souris (une manette branchée les exclut).
     let mut reader = super::controller::PadReader::default();
     let keymouse = keymouse.clone();
+    let captured = captured.clone();
+    let on_pad = on_pad.clone();
+    let mut menu = super::controller::PadMenu::default();
     let source: super::stream::ControllerSource = Box::new(move || {
         let g = gamepads::global();
+        let now = Instant::now();
         if g.pads().is_empty() {
-            keymouse.lock().unwrap().read(Instant::now())
-        } else {
-            reader.read(g)
+            let s = keymouse.lock().unwrap().read(now);
+            return if captured.load(Ordering::SeqCst) { ControllerState::default() } else { s };
         }
+        let s = reader.read(g);
+        let open = captured.load(Ordering::SeqCst);
+        for e in menu.update(&s, open, now) {
+            on_pad(e);
+        }
+        if open { ControllerState::default() } else { s }
     });
     let (mut stream, stream_events) = match Stream::start(addr, target, session_id, crypt, profile, Some(source), want_key.clone()) {
         Ok(s) => s,
@@ -366,6 +456,11 @@ fn run(
                     want_key.store(false, Ordering::Relaxed);
                 }
                 last_frame = Some(Instant::now());
+                counters.frames.fetch_add(1, Ordering::Relaxed);
+                counters.bytes.fetch_add(frame.data.len() as u64, Ordering::Relaxed);
+                if frame.recovered {
+                    counters.recovered.fetch_add(1, Ordering::Relaxed);
+                }
                 video.packet(Packet::Media { is_config: false, is_key, pts, data: &frame.data });
             }
             StreamEvent::Audio(p) if !p.is_haptics => {
@@ -391,7 +486,14 @@ fn run(
             }
             // Le décodeur de l'app attend alors une image clé au lieu de
             // décoder des images aux références perdues.
-            StreamEvent::VideoLost => video.packet(Packet::Hole { missing_samples: 0 }),
+            StreamEvent::VideoLost => {
+                counters.lost.fetch_add(1, Ordering::Relaxed);
+                video.packet(Packet::Hole { missing_samples: 0 })
+            }
+            // Perte réparée par la console : le décodeur ne voit que des images saines.
+            StreamEvent::VideoDropped => {
+                counters.lost.fetch_add(1, Ordering::Relaxed);
+            }
             StreamEvent::Audio(_) | StreamEvent::Pad(..) => {}
             StreamEvent::Ended(why) => break PlayEnd::Remote(why),
         }

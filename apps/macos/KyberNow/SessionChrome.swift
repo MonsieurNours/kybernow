@@ -437,8 +437,8 @@ struct Keycap: View {
 
 /// Rectangle de la barre, dans le repère de la vue de session : la zone
 /// d'ouverture a sa largeur, et la barre se referme quand le pointeur quitte
-/// ce rectangle.
-private struct SessionBarRectKey: PreferenceKey {
+/// ce rectangle. Aussi celui de la barre d'une partie sur console.
+struct SessionBarRectKey: PreferenceKey {
     static let defaultValue: CGRect = .zero
     static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
         let next = nextValue()
@@ -453,11 +453,7 @@ private struct SessionBar: View {
 
     /// Anneau de focus en mode manette.
     private func ring(_ index: Int) -> some View {
-        RoundedRectangle(cornerRadius: 9)
-            .stroke(Theme.accent, lineWidth: 2)
-            .neon(.lit)
-            .opacity(session.padMode && session.padFocus == index ? 1 : 0)
-            .animation(.easeOut(duration: 0.15), value: session.padFocus)
+        BarRing(on: session.padMode && session.padFocus == index, focus: session.padFocus)
     }
 
     private var mouseLabel: String {
@@ -756,20 +752,7 @@ private struct SessionBar: View {
                 .accessibilityLabel("Plein écran")
                 .overlay(ring(2))
             }
-            Button { session.end() } label: {
-                HStack(spacing: 8) {
-                    Icon("power", size: 15, bold: true)
-                    Text("Se déconnecter").lineLimit(1).fixedSize()
-                }
-                .font(Theme.sans(13, .semibold))
-                .foregroundStyle(Theme.dangerText)
-                .padding(.horizontal, 14)
-                .frame(height: 36)
-                .background(Theme.danger.opacity(0.14), in: RoundedRectangle(cornerRadius: 9))
-                .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Theme.danger.opacity(0.4)))
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
+            BarEndButton(title: String(localized: "Se déconnecter")) { session.end() }
             .help("Se déconnecter (⌃⌥⌘D)")
             .overlay(ring(session.padItems - 1))
         }
@@ -831,7 +814,7 @@ private struct SessionBar: View {
         }
     }
 
-    private var divider: some View { Rectangle().fill(Color.white.opacity(0.12)).frame(width: 1, height: 26) }
+    private var divider: some View { BarDivider() }
 
     /// « Par le relais » (docs/relais.md) : la session passe par le relais, hors
     /// de chez soi ; rien quand elle est directe.
@@ -841,8 +824,23 @@ private struct SessionBar: View {
         }
     }
 
-    /// `compact` : l'icône seule (barre étroite), le texte reste pour VoiceOver.
     private func chip(icon: String, text: String, tint: Color = Theme.text2, caret: Bool = false, compact: Bool = false) -> some View {
+        BarChip(icon: icon, text: text, tint: tint, caret: caret, compact: compact)
+    }
+}
+
+// MARK: - Pièces de la barre (sessions d'ordinateur et parties sur console)
+
+/// Une pastille de la barre : icône et texte. `compact` : l'icône seule
+/// (barre étroite), le texte reste pour VoiceOver.
+struct BarChip: View {
+    let icon: String
+    let text: String
+    var tint: Color = Theme.text2
+    var caret = false
+    var compact = false
+
+    var body: some View {
         HStack(spacing: 7) {
             Icon(icon, size: 16, bold: true).foregroundStyle(tint)
             if !compact {
@@ -855,6 +853,49 @@ private struct SessionBar: View {
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(text))
+    }
+}
+
+/// Séparateur vertical de la barre.
+struct BarDivider: View {
+    var body: some View { Rectangle().fill(Color.white.opacity(0.12)).frame(width: 1, height: 26) }
+}
+
+/// Anneau de focus quand la manette pilote la barre.
+struct BarRing: View {
+    let on: Bool
+    let focus: Int
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 9)
+            .stroke(Theme.accent, lineWidth: 2)
+            .neon(.lit)
+            .opacity(on ? 1 : 0)
+            .animation(.easeOut(duration: 0.15), value: focus)
+    }
+}
+
+/// « Se déconnecter » : le bouton rouge au bout de la barre.
+struct BarEndButton: View {
+    let title: String
+    var icon = "power"
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Icon(icon, size: 15, bold: true)
+                Text(title).lineLimit(1).fixedSize()
+            }
+            .font(Theme.sans(13, .semibold))
+            .foregroundStyle(Theme.dangerText)
+            .padding(.horizontal, 14)
+            .frame(height: 36)
+            .background(Theme.danger.opacity(0.14), in: RoundedRectangle(cornerRadius: 9))
+            .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Theme.danger.opacity(0.4)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -949,8 +990,15 @@ private struct Sparkline: View {
     }
 }
 
-/// Rappel des touches quand la manette pilote la barre.
-private struct PadBanner: View {
+/// Rappel des touches quand la manette pilote la barre (une partie sur
+/// console : ses textes et ses touches).
+struct PadBanner: View {
+    var away = String(localized: "L'ordinateur ne la reçoit plus")
+    var accept = "A / ✕"
+    var back = "B / ○"
+    var combo = "L1 R1 START SELECT"
+    var comboLabel = String(localized: "revenir à l'ordinateur")
+
     private func key(_ k: String, _ label: String) -> some View {
         HStack(spacing: 5) {
             Text(k).font(Theme.mono(11, .medium)).foregroundStyle(Theme.text)
@@ -966,12 +1014,12 @@ private struct PadBanner: View {
             }
             .font(Theme.sans(12, .semibold))
             .foregroundStyle(Theme.accentLight)
-            Text("L'ordinateur ne la reçoit plus").font(Theme.sans(12)).foregroundStyle(Theme.faint)
+            Text(away).font(Theme.sans(12)).foregroundStyle(Theme.faint)
             Rectangle().fill(Color.white.opacity(0.18)).frame(width: 1, height: 18)
             key("◀ ▶", String(localized: "naviguer"))
-            key("A / ✕", String(localized: "choisir"))
-            key("B / ○", String(localized: "fermer"))
-            key("L1 R1 START SELECT", String(localized: "revenir à l'ordinateur"))
+            key(accept, String(localized: "choisir"))
+            key(back, String(localized: "fermer"))
+            key(combo, comboLabel)
         }
         .padding(.horizontal, 16)
         .frame(height: 40)

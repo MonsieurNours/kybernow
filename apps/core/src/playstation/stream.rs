@@ -24,6 +24,7 @@ use super::proto::{self, Writer, kind};
 use super::rpcrypt::{self, RpCrypt};
 use super::controller::{self, ControllerState, History};
 use super::frame::{Assembler, Frame};
+use super::refs::{RefTracker, Verdict};
 use super::takion::{self, AvPacket, Takion, TakionEvent};
 
 const EXPECT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -31,6 +32,9 @@ const HEARTBEAT: Duration = Duration::from_secs(1);
 const CONGESTION: Duration = Duration::from_millis(200);
 /// Intervalle entre deux demandes d'image clé tant qu'aucune n'arrive.
 const IDR_RETRY: Duration = Duration::from_millis(500);
+/// Après une perte, l'image de réparation de la console arrive deux images
+/// plus tard (essai du 03/11/2026) ; sans elle passé ce délai, image clé.
+const REPAIR_WAIT: Duration = Duration::from_millis(250);
 /// Valeurs de secours de chiaki-ng quand la mesure du réseau échoue.
 const MTU: u32 = 1454;
 const RTT_MS: u32 = 1;
@@ -100,6 +104,9 @@ pub enum StreamEvent {
     /// Des images ont été perdues : la suite s'appuie sur des références
     /// manquantes jusqu'à la prochaine image clé (déjà demandée).
     VideoLost,
+    /// Des images ont été perdues, mais la suite est triée ([`super::refs`]) :
+    /// le décodeur ne reçoit que des images saines, rien à attendre.
+    VideoDropped,
     /// Données de la manette (vibrations, gâchettes, état) : type Takion et
     /// contenu.
     Pad(u8, Vec<u8>),
@@ -379,6 +386,16 @@ fn run(
     let mut next_congestion = Instant::now() + CONGESTION;
     let mut send_disconnect = true;
     let mut assembler: Option<Assembler> = None;
+    // Tri des images HEVC après une perte (la PS4 et le H.264 : image clé).
+    let mut refs = profile.hevc.then(RefTracker::new);
+    // Perte en cours de réparation par la console (depuis quand).
+    let mut repairing: Option<Instant> = None;
+    // Essai : `KN_PS_NO_IDR=1` ne demande jamais d'image clé (ce que la
+    // console fait d'elle-même après un signalement de perte).
+    let no_idr = std::env::var("KN_PS_NO_IDR").is_ok();
+    let drop_frames: Vec<u16> = std::env::var("KN_PS_DROP")
+        .map(|v| v.split(',').filter_map(|n| n.trim().parse().ok()).collect())
+        .unwrap_or_default();
     let reason = loop {
         if stop.load(Ordering::SeqCst) {
             break "arrêt demandé".to_string();
@@ -394,7 +411,7 @@ fn run(
             let _ = takion.send_congestion();
             next_congestion = now + CONGESTION;
         }
-        if matches!(phase, Phase::Running) && want_key.load(Ordering::Relaxed) && last_idr.is_none_or(|t| t.elapsed() >= IDR_RETRY) {
+        if matches!(phase, Phase::Running) && !no_idr && want_key.load(Ordering::Relaxed) && last_idr.is_none_or(|t| t.elapsed() >= IDR_RETRY) {
             log::info!("PlayStation : image clé demandée à la console");
             let _ = takion.send_data(1, 2, &proto::simple(kind::IDRREQUEST), true);
             last_idr = Some(now);
@@ -422,15 +439,53 @@ fn run(
             }
             TakionEvent::Av(av) if av.is_video => {
                 let Some(a) = assembler.as_mut() else { continue };
+                // Essai : `KN_PS_DROP=600,1200` jette ces images (pertes simulées).
+                if drop_frames.contains(&av.frame_index) {
+                    continue;
+                }
                 let out = a.push(&av);
                 if let Some((start, end)) = out.missing {
                     log::info!("PlayStation : images {start} à {end} perdues, signalées à la console");
                     let _ = takion.send_data(1, 2, &corrupt_frame(start, end), true);
-                    want_key.store(true, Ordering::Relaxed);
-                    let _ = tx.send(StreamEvent::VideoLost);
+                    if refs.is_some() && !want_key.load(Ordering::Relaxed) {
+                        // La console répare d'elle-même : on trie en attendant.
+                        repairing.get_or_insert(now);
+                        let _ = tx.send(StreamEvent::VideoDropped);
+                    } else {
+                        want_key.store(true, Ordering::Relaxed);
+                        let _ = tx.send(StreamEvent::VideoLost);
+                    }
                 }
                 if let Some(frame) = out.frame {
-                    let _ = tx.send(StreamEvent::Video(frame));
+                    let verdict = refs.as_mut().map(|r| r.check(frame.index, &frame.data));
+                    match verdict {
+                        None | Some(Verdict::Clean) => {
+                            if let Some(since) = repairing.take() {
+                                log::info!("PlayStation : image reprise sans image clé en {} ms (n° {})", since.elapsed().as_millis(), frame.index);
+                            }
+                            let _ = tx.send(StreamEvent::Video(frame));
+                        }
+                        Some(Verdict::Broken) => {
+                            // S'appuie sur une image perdue : écartée. Sans
+                            // réparation à temps, image clé.
+                            let since = *repairing.get_or_insert(now);
+                            if since.elapsed() >= REPAIR_WAIT && !want_key.load(Ordering::Relaxed) {
+                                log::info!("PlayStation : pas de réparation en {} ms, image clé demandée", since.elapsed().as_millis());
+                                repairing = None;
+                                want_key.store(true, Ordering::Relaxed);
+                                let _ = tx.send(StreamEvent::VideoLost);
+                            }
+                        }
+                        Some(Verdict::Unknown) => {
+                            // Tri impossible sur cette image : image clé s'il
+                            // y avait une perte en cours, et l'image passe.
+                            if repairing.take().is_some() && !want_key.load(Ordering::Relaxed) {
+                                want_key.store(true, Ordering::Relaxed);
+                                let _ = tx.send(StreamEvent::VideoLost);
+                            }
+                            let _ = tx.send(StreamEvent::Video(frame));
+                        }
+                    }
                 }
             }
             TakionEvent::Av(av) => {

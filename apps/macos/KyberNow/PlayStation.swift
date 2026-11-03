@@ -43,9 +43,18 @@ struct PSSettings: Codable, Equatable {
     var codec = "auto"
     var hdr = false
     var fullscreen = true
+    /// Image agrandie aux pixels de l'écran (MetalFX), allumée par défaut.
+    var upscale = true
+    /// Netteté après l'agrandissement, de 0 (coupée) à 100.
+    var sharpness = PSSettings.defaultSharpness
+
+    static let defaultSharpness = 40
+
+    /// Ce que le rendu reçoit (nil : filtre bilinéaire).
+    var upscaleSettings: UpscaleSettings? { upscale ? UpscaleSettings(sharpness: Float(sharpness) / 100) : nil }
 
     private enum CodingKeys: String, CodingKey {
-        case resolution, fps, codec, hdr, fullscreen
+        case resolution, fps, codec, hdr, fullscreen, upscale, sharpness
         case bitrateKbps = "bitrate_kbps"
     }
 
@@ -59,6 +68,8 @@ struct PSSettings: Codable, Equatable {
         codec = (try? c.decodeIfPresent(String.self, forKey: .codec)) ?? "auto"
         hdr = (try? c.decodeIfPresent(Bool.self, forKey: .hdr)) ?? false
         fullscreen = (try? c.decodeIfPresent(Bool.self, forKey: .fullscreen)) ?? true
+        upscale = (try? c.decodeIfPresent(Bool.self, forKey: .upscale)) ?? true
+        sharpness = min(100, max(0, (try? c.decodeIfPresent(Int.self, forKey: .sharpness)) ?? Self.defaultSharpness))
     }
 
     /// Définitions, dans l'ordre des réglages.
@@ -219,6 +230,38 @@ enum PSText {
     static var formatH264Help: String { String(localized: "Sans HDR.") }
     static var formatPS4Help: String { String(localized: "La PS4 n'envoie que du H.264.") }
     static var fullScreen: String { String(localized: "Ouvrir la partie en plein écran") }
+    static var upscale: String { String(localized: "Agrandir l'image à la taille de l'écran") }
+    static var upscaleHelp: String { String(localized: "La console envoie du 1080p au plus : l'image est agrandie aux pixels de votre écran par la puce graphique du Mac. Coupé de lui-même si ce Mac est trop lent.") }
+    static var sharpness: String { String(localized: "Netteté") }
+    static func percent(_ n: Int) -> String { String(localized: "\(n) %") }
+
+    // Barre de la partie
+    static var mute: String { String(localized: "Couper le son") }
+    static var unmute: String { String(localized: "Rétablir le son") }
+    static var exitFullScreen: String { String(localized: "Quitter le plein écran") }
+    static var takeMouse: String { String(localized: "Prendre la souris") }
+    static var giveMouse: String { String(localized: "Rendre la souris") }
+    static var padAway: String { String(localized: "La console ne la reçoit plus") }
+    static var padBack: String { String(localized: "revenir à la console") }
+
+    /// « 1920 × 1080 · 60 i/s · H.265 · HDR · 15 Mbit/s demandés ».
+    static func statsAsked(_ s: PlayStationPlay.Stats, fps: Int) -> String {
+        var parts = ["\(s.width) × \(s.height)", Self.fps(fps), s.hevc ? "H.265" : "H.264"]
+        if s.hdr { parts.append("HDR") }
+        parts.append(String(localized: "\(Int((Double(s.targetKbps) / 1000).rounded())) Mbit/s demandés"))
+        return parts.joined(separator: " · ")
+    }
+
+    /// « Reçu : 59 i/s · 12,4 Mbit/s ».
+    static func statsReceived(_ s: PlayStationPlay.Stats) -> String {
+        let mbps = String(format: "%.1f", s.mbps).replacingOccurrences(of: ".", with: LanguageChoice.effective == "fr" ? "," : ".")
+        return String(localized: "Reçu : \(Int(s.fps.rounded())) i/s · \(mbps) Mbit/s")
+    }
+
+    /// « Images perdues : 3 · réparées : 2 » (depuis le début de la partie).
+    static func statsLosses(lost: Int, repaired: Int) -> String {
+        String(localized: "Images perdues : \(lost) · réparées : \(repaired)")
+    }
     static var controlsHelp: String { String(localized: "Le clavier et la souris tiennent lieu de manette. Une manette branchée les remplace.") }
     static var none: String { String(localized: "Aucune") }
     static var pressKey: String { String(localized: "Appuyez sur une touche ou cliquez…") }
@@ -404,6 +447,8 @@ final class PlayStationStore: ObservableObject {
     @Published var pairing: PairTarget?
     /// Parties en cours, une fenêtre chacune.
     @Published private(set) var sessions: [UUID: PlayStationSession] = [:]
+    /// La partie dont la fenêtre a le clavier (menu Session).
+    var keySession: PlayStationSession? { sessions.values.first { $0.isKey } }
 
     private let key = "playstationConsoles"
     private static let accountKey = "playstation.psn-account"
@@ -506,7 +551,10 @@ final class PlayStationStore: ObservableObject {
         searching = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
-                if visible() || !self.waking.isEmpty { await self.searchOnce() }
+                // Pas pendant une partie : rien à chercher, et la console répond
+                // à la découverte sur le réseau du flux (essai du 03/11/2026 :
+                // une image perdue toutes les 15 s pendant la recherche).
+                if (visible() && self.sessions.isEmpty) || !self.waking.isEmpty { await self.searchOnce() }
                 try? await Task.sleep(for: .seconds(3))
             }
         }
@@ -596,6 +644,8 @@ final class PlayStationStore: ObservableObject {
         guard var c = console(c.id), let data = try? JSONEncoder().encode(s) else { return }
         c.settings = String(data: data, encoding: .utf8)
         update(c)
+        // L'agrandissement suit tout de suite dans une partie en cours.
+        sessions[c.id]?.setUpscale(s.upscaleSettings)
     }
 
     /// « Personnalisé » à l'accueil (la règle du cœur).

@@ -235,11 +235,33 @@ pub struct Takion {
     thread: Option<std::thread::JoinHandle<()>>,
 }
 
+/// Mémoire de réception voulue : une image clé de la console (plusieurs
+/// centaines de Ko) arrive d'un bloc, au débit du réseau ; avec les 768 Ko de
+/// macOS par défaut, des paquets étaient jetés « socket plein » toutes les
+/// 15 s environ, puis les images de secours, grosses elles aussi (essai du
+/// 03/11/2026 : une seconde figée à chaque fois).
+const RECEIVE_BUFFER: usize = 8 * 1024 * 1024;
+
+/// Agrandit la mémoire de réception (le système peut donner moins : au journal).
+fn grow_receive_buffer(socket: &UdpSocket) {
+    let s = socket2::SockRef::from(socket);
+    let mut want = RECEIVE_BUFFER;
+    // macOS refuse au-delà de kern.ipc.maxsockbuf (8 Mo, en-têtes compris) : on descend.
+    while want >= 1024 * 1024 && s.set_recv_buffer_size(want).is_err() {
+        want /= 2;
+    }
+    match s.recv_buffer_size() {
+        Ok(n) => log::info!("PlayStation : mémoire de réception du flux, {} Ko", n / 1024),
+        Err(e) => log::warn!("PlayStation : mémoire de réception du flux illisible ({e})"),
+    }
+}
+
 impl Takion {
     /// Ouvre la connexion : poignée de main, puis un fil `ps-takion` qui
     /// reçoit. `v12` : version 12 (PS5), sinon 9 (PS4).
     pub fn connect(addr: Ipv4Addr, port: u16, v12: bool) -> io::Result<(Self, Receiver<TakionEvent>)> {
         let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0))?;
+        grow_receive_buffer(&socket);
         socket.connect(SocketAddrV4::new(addr, port))?;
         let mut tag_local = [0u8; 4];
         getrandom::getrandom(&mut tag_local).map_err(|e| io::Error::other(e.to_string()))?;

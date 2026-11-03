@@ -59,6 +59,7 @@
 		AA76CB48D0BD4DCE0A0EA724 /* HostImagery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1812D9E52662E7BEB0D9CDC5 /* HostImagery.swift */; };
 		B1DF8E0399B418A165156B1F /* KyberLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF454DEFA73A7E4436050ACE /* KyberLog.swift */; };
 		B6793F11C20A1C6F678627BC /* KyberKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C060A812A5011BB6AEC276EC /* KyberKit.framework */; };
+		B6AAD686C2F71AC2502601E5 /* PlayStationBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2CEC5C5F5B9CD1F113D86F9 /* PlayStationBar.swift */; };
 		B9A3A3996E03B51DA8C7C19D /* HDRCalibration.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4ED4A7AED04F3E6BFC4AD7D /* HDRCalibration.swift */; };
 		BCCAF3D8FF2DFA3D69052367 /* RelativeMouse.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B7887298D6D4935E0FF18B9 /* RelativeMouse.swift */; };
 		BEE11A3ED9A65F98B7828090 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E6C27264097C061402863DD /* SettingsView.swift */; };
@@ -76,6 +77,7 @@
 		E918DDDF875BCF67DB6E4B84 /* HDRCalibrationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89E04E220C974B33C3998C25 /* HDRCalibrationView.swift */; };
 		EC7BE0F92DE4BE9C45C6E280 /* CloudPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99198F43007755A8AA639EA3 /* CloudPublisher.swift */; };
 		EF3A238235E625C782A326F0 /* InputCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 940774B27B5F893F6D351931 /* InputCore.swift */; };
+		F9B571259ABAB213143E1CEA /* Upscaler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 299561D683D5C9CF287F4E73 /* Upscaler.swift */; };
 		FF944D9B7152051097FCA7BA /* AddHostFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = F46D6860BE7B12712A7135A1 /* AddHostFlow.swift */; };
 /* End PBXBuildFile section */
 
@@ -117,6 +119,7 @@
 		1B18D524B92EC557D60FED25 /* Discovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Discovery.swift; sourceTree = "<group>"; };
 		1FCD44F7C3241E02C2160B90 /* MetalSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalSurface.swift; sourceTree = "<group>"; };
 		2132FE7F8A22F4F68C254657 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		299561D683D5C9CF287F4E73 /* Upscaler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Upscaler.swift; sourceTree = "<group>"; };
 		2E6ACE0A3AFFD6A6DD55DDCC /* KyberNowApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KyberNowApp.swift; sourceTree = "<group>"; };
 		2F30B29F401DF269013F5B54 /* MartianMono-wdth-wght.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "MartianMono-wdth-wght.ttf"; sourceTree = "<group>"; };
 		3210FD450E18DC92F261D207 /* LinkUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkUI.swift; sourceTree = "<group>"; };
@@ -162,6 +165,7 @@
 		C060A812A5011BB6AEC276EC /* KyberKit.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = KyberKit.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		D005C450D358A2CD1ED7A01C /* SessionScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionScreens.swift; sourceTree = "<group>"; };
 		D171932E28609169E868FDC5 /* DecoderCapabilities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecoderCapabilities.swift; sourceTree = "<group>"; };
+		D2CEC5C5F5B9CD1F113D86F9 /* PlayStationBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayStationBar.swift; sourceTree = "<group>"; };
 		D3ABCA23CDAEC61857280E88 /* ConsoleClientCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsoleClientCore.swift; sourceTree = "<group>"; };
 		D483541A3EAA9029B05A3FBD /* MenuBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBar.swift; sourceTree = "<group>"; };
 		D90BE156020D93559B9D19DD /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
@@ -236,6 +240,7 @@
 				376C853A2208FC82714BAC81 /* Notifications.swift */,
 				E407651AF402DB27D895B5B2 /* Passage.swift */,
 				0B24F6100CB4E6124445AC55 /* PlayStation.swift */,
+				D2CEC5C5F5B9CD1F113D86F9 /* PlayStationBar.swift */,
 				A1A7A02CAE528231471C900A /* PlayStationSession.swift */,
 				F6B90BA7CD90EBC558307D36 /* PlayStationSettings.swift */,
 				59175CEA836F6D1D12160DAB /* PlayStationViews.swift */,
@@ -282,6 +287,7 @@
 				9E65F421E347662BB777AEE6 /* SessionEngine.swift */,
 				BD9DA692CBE7C2DFC43EFA1D /* ShareCore.swift */,
 				5DF4EB6B53960D68B69DE19D /* StreamView.swift */,
+				299561D683D5C9CF287F4E73 /* Upscaler.swift */,
 				EE2ED0ACFFE0D513A3C9FB53 /* VideoDecoder.swift */,
 				83841ADFE3E6392BEA27AD93 /* VideoPipeline.swift */,
 				323EA304E0762094819E42DC /* VideoRenderer.swift */,
@@ -457,6 +463,7 @@
 				7722544BA349FA3A8CC26F5E /* Notifications.swift in Sources */,
 				09EDBBBAF52A03E69634CFFF /* Passage.swift in Sources */,
 				E0FB2A1B7501B881B3BF7FA2 /* PlayStation.swift in Sources */,
+				B6AAD686C2F71AC2502601E5 /* PlayStationBar.swift in Sources */,
 				D7C7376480AFCB3E28A16C26 /* PlayStationSession.swift in Sources */,
 				5A4903BA6EDAE4288A5C79A4 /* PlayStationSettings.swift in Sources */,
 				01C72D414F47D44DBE853ADD /* PlayStationViews.swift in Sources */,
@@ -501,6 +508,7 @@
 				126AE5ED1331AD168D8FDA6E /* SessionEngine.swift in Sources */,
 				1270F18D3267B9210642F9C7 /* ShareCore.swift in Sources */,
 				2DE9B29C2785364D29FD4B56 /* StreamView.swift in Sources */,
+				F9B571259ABAB213143E1CEA /* Upscaler.swift in Sources */,
 				83B905E69CFA18FE4DCA7F4D /* VideoDecoder.swift in Sources */,
 				881145A1789565EA44E79632 /* VideoPipeline.swift in Sources */,
 				DA6906C0CE3D758F5B735BDE /* VideoRenderer.swift in Sources */,

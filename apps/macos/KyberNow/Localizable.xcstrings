@@ -1,6 +1,70 @@
 {
   "sourceLanguage" : "fr",
   "strings" : {
+    "%lld %%" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld%%"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld %%"
+          }
+        }
+      }
+    },
+    "Agrandir l'image à la taille de l'écran" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Upscale the picture to the screen size"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agrandir l'image à la taille de l'écran"
+          }
+        }
+      }
+    },
+    "La console envoie du 1080p au plus : l'image est agrandie aux pixels de votre écran par la puce graphique du Mac. Coupé de lui-même si ce Mac est trop lent." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The console sends 1080p at most: the Mac's graphics chip upscales the picture to your screen's pixels. Turns itself off if this Mac is too slow."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console envoie du 1080p au plus : l'image est agrandie aux pixels de votre écran par la puce graphique du Mac. Coupé de lui-même si ce Mac est trop lent."
+          }
+        }
+      }
+    },
+    "Netteté" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sharpness"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Netteté"
+          }
+        }
+      }
+    },
     "%@ droite" : {
       "localizations" : {
         "en" : {
@@ -45,6 +109,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%lld Mbit/s"
+          }
+        }
+      }
+    },
+    "%lld Mbit/s demandés" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld Mbit/s requested"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld Mbit/s demandés"
           }
         }
       }
@@ -173,6 +253,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Clic gauche"
+          }
+        }
+      }
+    },
+    "Couper le son" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mute"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couper le son"
           }
         }
       }
@@ -369,6 +465,22 @@
         }
       }
     },
+    "Images perdues : %lld · réparées : %lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pictures lost: %lld · repaired: %lld"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Images perdues : %lld · réparées : %lld"
+          }
+        }
+      }
+    },
     "Inclinaison minimale" : {
       "localizations" : {
         "en" : {
@@ -413,6 +525,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La PS4 n'envoie que du H.264."
+          }
+        }
+      }
+    },
+    "La console ne la reçoit plus" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The console no longer receives it"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console ne la reçoit plus"
           }
         }
       }
@@ -561,6 +689,70 @@
         }
       }
     },
+    "Prendre la souris" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Capture the mouse"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prendre la souris"
+          }
+        }
+      }
+    },
+    "Quitter le plein écran" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Exit full screen"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quitter le plein écran"
+          }
+        }
+      }
+    },
+    "Rendre la souris" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Release the mouse"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rendre la souris"
+          }
+        }
+      }
+    },
+    "Reçu : %lld i/s · %@ Mbit/s" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Received: %lld fps · %@ Mbit/s"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reçu : %lld i/s · %@ Mbit/s"
+          }
+        }
+      }
+    },
     "Rond" : {
       "localizations" : {
         "en" : {
@@ -589,6 +781,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Réactivité au départ"
+          }
+        }
+      }
+    },
+    "Rétablir le son" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unmute"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rétablir le son"
           }
         }
       }
@@ -813,6 +1021,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Vive"
+          }
+        }
+      }
+    },
+    "revenir à la console" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "back to the console"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "revenir à la console"
           }
         }
       }

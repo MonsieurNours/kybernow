@@ -567,10 +567,13 @@ struct KyberNowApp: App {
             CommandGroup(replacing: .newItem) {}
             // Les commandes vont à la session de la fenêtre clé (même en échec),
             // sinon à la session active du registre ; relue au moment du clic.
+            // La fenêtre d'une partie sur console a le clavier : à cette partie
+            // (ses raccourcis passent aussi par sa vue, PlayStationInputView).
             CommandMenu("Session") {
                 let target = app.sessions.commandTarget
                 // Un invité quitte le partage (docs/link-ui.md, « Partage »).
                 Button(target?.isGuest == true ? ShareText.leave : String(localized: "Se déconnecter")) {
+                    if let ps = app.playstation.keySession { return ps.close() }
                     guard let s = app.sessions.commandTarget else { return }
                     if s.isLive { s.end() } else { s.dismissFailure() }
                 }
@@ -578,15 +581,24 @@ struct KyberNowApp: App {
                 .disabled(target == nil)
                 // Plusieurs écrans : pas de « Plein écran » (docs/link-ui.md).
                 if target?.canToggleFullScreen ?? true {
-                    Button("Plein écran") { app.sessions.commandTarget?.toggleFullScreen() }
+                    Button("Plein écran") {
+                        if let ps = app.playstation.keySession { return ps.toggleFullScreen() }
+                        app.sessions.commandTarget?.toggleFullScreen()
+                    }
                         .keyboardShortcut("f", modifiers: [.control, .option, .command])
                         .disabled(target?.isLive != true)
                 }
                 // La souris seulement avec le clavier et la souris (invité : s'ils lui sont donnés).
-                Button("Souris des jeux ou du bureau") { app.sessions.commandTarget?.toggleMouseCapture() }
+                Button("Souris des jeux ou du bureau") {
+                    if let ps = app.playstation.keySession { return ps.toggleMouse() }
+                    app.sessions.commandTarget?.toggleMouseCapture()
+                }
                     .keyboardShortcut("m", modifiers: [.control, .option, .command])
                     .disabled(target?.isLive != true || target?.hasKeyboardAndMouse != true)
-                Button("Statistiques") { app.sessions.commandTarget?.toggleStatsPanel() }
+                Button("Statistiques") {
+                    if let ps = app.playstation.keySession { return ps.toggleStatsPanel() }
+                    app.sessions.commandTarget?.toggleStatsPanel()
+                }
                     .keyboardShortcut("s", modifiers: [.control, .option, .command])
                     .disabled(target?.isLive != true)
                 // Plusieurs ordinateurs : la fenêtre de l'ordinateur suivant, dans l'ordre d'ouverture.

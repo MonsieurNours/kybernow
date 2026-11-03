@@ -12,10 +12,13 @@
 //!   H.265. Le HDR demande le H.265 ; la PS4 ne connaît que le H.264.
 //! - **Plein écran** : retenu par console, plein écran la première fois
 //!   (côté app seulement).
+//! - **Agrandissement** : l'image de la console (1080p au plus) agrandie
+//!   aux pixels de l'écran par MetalFX (côté app), allumé par défaut, avec
+//!   une netteté de 0 à 100 (40 par défaut, 0 la coupe).
 //!
 //! « Personnalisé » : définition, images par seconde, débit ou format qui
-//! s'écartent d'Auto. Le HDR (puce de l'accueil) et le plein écran n'en
-//! font pas partie.
+//! s'écartent d'Auto. Le HDR (puce de l'accueil), le plein écran et
+//! l'agrandissement n'en font pas partie.
 
 use serde::{Deserialize, Serialize};
 
@@ -90,6 +93,19 @@ pub struct PlaySettings {
     /// Côté app : la partie s'ouvre en plein écran.
     #[serde(default = "yes")]
     pub fullscreen: bool,
+    /// Côté app : l'image est agrandie aux pixels de l'écran (MetalFX).
+    #[serde(default = "yes")]
+    pub upscale: bool,
+    /// Côté app : netteté après l'agrandissement, de 0 (coupée) à 100.
+    #[serde(default = "default_sharpness")]
+    pub sharpness: u8,
+}
+
+/// Netteté par défaut : modérée.
+pub const DEFAULT_SHARPNESS: u8 = 40;
+
+fn default_sharpness() -> u8 {
+    DEFAULT_SHARPNESS
 }
 
 fn sixty() -> u32 {
@@ -101,7 +117,7 @@ fn yes() -> bool {
 
 impl Default for PlaySettings {
     fn default() -> Self {
-        PlaySettings { resolution: Resolution::Auto, fps: 60, bitrate_kbps: None, codec: CodecChoice::Auto, hdr: false, fullscreen: true }
+        PlaySettings { resolution: Resolution::Auto, fps: 60, bitrate_kbps: None, codec: CodecChoice::Auto, hdr: false, fullscreen: true, upscale: true, sharpness: DEFAULT_SHARPNESS }
     }
 }
 
@@ -154,14 +170,14 @@ mod tests {
 
     #[test]
     fn custom_settings() {
-        let s = PlaySettings { resolution: Resolution::P720, fps: 30, bitrate_kbps: Some(250_000), codec: CodecChoice::H264, hdr: true, fullscreen: false };
+        let s = PlaySettings { resolution: Resolution::P720, fps: 30, bitrate_kbps: Some(250_000), codec: CodecChoice::H264, hdr: true, fullscreen: false, upscale: false, sharpness: 0 };
         assert!(s.is_custom());
         let p = s.profile(true, true);
         assert_eq!((p.width, p.height, p.max_fps, p.bitrate), (1280, 720, 30, BITRATE_MAX));
         // Le HDR demande le H.265.
         assert!(!p.hevc && !p.hdr);
-        // HDR et plein écran ne rendent pas « Personnalisé ».
-        assert!(!PlaySettings { hdr: true, fullscreen: false, ..Default::default() }.is_custom());
+        // HDR, plein écran et agrandissement ne rendent pas « Personnalisé ».
+        assert!(!PlaySettings { hdr: true, fullscreen: false, upscale: false, sharpness: 90, ..Default::default() }.is_custom());
     }
 
     #[test]
@@ -178,5 +194,8 @@ mod tests {
         assert!(json.contains("\"resolution\":\"p540\"") && json.contains("\"codec\":\"auto\""));
         assert_eq!(serde_json::from_str::<PlaySettings>(&json).unwrap(), s);
         assert_eq!(serde_json::from_str::<PlaySettings>("{}").unwrap(), PlaySettings::default());
+        // Réglages d'avant l'agrandissement : allumé, netteté par défaut.
+        let old: PlaySettings = serde_json::from_str("{\"resolution\":\"p720\",\"fullscreen\":false}").unwrap();
+        assert!(old.upscale && old.sharpness == DEFAULT_SHARPNESS && !old.fullscreen);
     }
 }

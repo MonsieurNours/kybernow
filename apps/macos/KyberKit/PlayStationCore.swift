@@ -140,6 +140,12 @@ public final class PlayStationPlay: @unchecked Sendable {
     }
 
     public var onState: ((State) -> Void)?
+    /// Options + Create + L1 + R1 tenus 250 ms : ouvrir ou fermer la barre
+    /// (fil principal).
+    public var onMenu: (() -> Void)?
+    /// Barre ouverte (`setCaptured`) : touche de navigation de la manette
+    /// (fil principal).
+    public var onNavigate: ((PadKey) -> Void)?
     public let view: StreamView
     private let lock = NSLock()
     private var play: OpaquePointer?
@@ -147,6 +153,18 @@ public final class PlayStationPlay: @unchecked Sendable {
     private var audios: [UInt64: AudioPlayer] = [:]
     private var hdr = false
     private var stopped = false
+    /// Son coupé depuis la barre (repris par chaque flux de son).
+    private var silenced = false
+    /// Trait de repère de la barre (repris par chaque flux d'image).
+    private var marker = false
+    /// Agrandissement MetalFX (repris par chaque flux d'image).
+    private var upscale: UpscaleSettings?
+    /// Dernier état de l'agrandissement (statistiques).
+    public private(set) var upscaleReport: UpscaleReport? {
+        get { lock.lock(); defer { lock.unlock() }; return report }
+        set { lock.lock(); report = newValue; lock.unlock() }
+    }
+    private var report: UpscaleReport?
 
     public init(view: StreamView) {
         Core.install()
@@ -172,6 +190,26 @@ public final class PlayStationPlay: @unchecked Sendable {
             guard let ud else { return }
             let d = detail.map { String(cString: $0) } ?? ""
             Unmanaged<PlayStationPlay>.fromOpaque(ud).takeUnretainedValue().stateChanged(state, Int(w), Int(h), hdr, d)
+        }
+        cb.on_menu = { ud in
+            guard let ud else { return }
+            let me = Unmanaged<PlayStationPlay>.fromOpaque(ud).takeUnretainedValue()
+            KyberLog.app.notice("PlayStation : combinaison Options + Create + L1 + R1")
+            DispatchQueue.main.async { [weak me] in me?.onMenu?() }
+        }
+        cb.on_navigate = { ud, key in
+            guard let ud else { return }
+            let me = Unmanaged<PlayStationPlay>.fromOpaque(ud).takeUnretainedValue()
+            let k: PadKey
+            switch Int32(key) {
+            case KN_PAD_KEY_LEFT: k = .left
+            case KN_PAD_KEY_RIGHT: k = .right
+            case KN_PAD_KEY_UP: k = .up
+            case KN_PAD_KEY_DOWN: k = .down
+            case KN_PAD_KEY_ACCEPT: k = .accept
+            default: k = .back
+            }
+            DispatchQueue.main.async { [weak me] in me?.onNavigate?(k) }
         }
         KyberLog.app.notice("PlayStation : partie demandée (\(settings, privacy: .public), H.265 \(hevcDecoder ? "lu" : "pas lu", privacy: .public))")
         let p = withUnsafePointer(to: &cb) { kn_ps_start(address, registered, settings, hevcDecoder, $0) }
@@ -206,6 +244,65 @@ public final class PlayStationPlay: @unchecked Sendable {
         var ok = false
         withPlay { ok = kn_ps_set_layout($0, json) }
         return ok
+    }
+
+    /// La barre s'ouvre (`true`) ou se ferme : tant qu'elle est ouverte, la
+    /// console reçoit une manette au repos, le clavier et la souris ne vont
+    /// plus à la console et la manette navigue dans la barre (`onNavigate`).
+    public func setCaptured(_ on: Bool) { withPlay { kn_ps_set_captured($0, on) } }
+
+    /// Mesures de la partie, une fois par seconde.
+    public struct Stats: Equatable, Sendable {
+        public var width = 0, height = 0
+        public var hevc = false, hdr = false
+        /// Débit demandé à la console, kbit/s.
+        public var targetKbps = 0
+        /// Reçu depuis la lecture précédente.
+        public var fps = 0.0, mbps = 0.0
+        /// Images perdues et réparées depuis la lecture précédente.
+        public var lost = 0, recovered = 0
+    }
+
+    /// Mesures depuis l'appel précédent ; nil sans partie.
+    public func stats() -> Stats? {
+        var text: String?
+        withPlay { text = Core.take(kn_ps_stats($0)) }
+        guard let text, let o = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any] else { return nil }
+        let int = { (k: String) in (o[k] as? NSNumber)?.intValue ?? 0 }
+        let num = { (k: String) in (o[k] as? NSNumber)?.doubleValue ?? 0 }
+        return Stats(width: int("width"), height: int("height"), hevc: o["hevc"] as? Bool ?? false, hdr: o["hdr"] as? Bool ?? false,
+                     targetKbps: int("target_kbps"), fps: num("fps"), mbps: num("mbps"), lost: int("lost"), recovered: int("recovered"))
+    }
+
+    /// Son coupé (« Couper le son ») : la partie continue, en silence.
+    public var muted: Bool {
+        get { lock.withLock { silenced } }
+        set {
+            lock.lock()
+            silenced = newValue
+            let players = Array(audios.values)
+            lock.unlock()
+            players.forEach { $0.volume = newValue ? 0 : 1 }
+        }
+    }
+
+    /// Trait de repère de la barre, tracé dans l'image : allumé quand le
+    /// geste qui ouvre la barre est possible.
+    public func setTopMarker(_ on: Bool) {
+        lock.lock()
+        marker = on
+        let renderers = videos.values.map(\.renderer)
+        lock.unlock()
+        renderers.forEach { $0.topMarker = on }
+    }
+
+    /// Agrandissement de l'image (nil : filtre bilinéaire), tout de suite.
+    public func setUpscale(_ u: UpscaleSettings?) {
+        lock.lock()
+        upscale = u
+        let renderers = videos.values.map(\.renderer)
+        lock.unlock()
+        renderers.forEach { $0.upscale = u }
     }
 
     /// Met la console en mode repos (la partie se termine ensuite).
@@ -270,6 +367,12 @@ public final class PlayStationPlay: @unchecked Sendable {
             return nil
         }
         pipeline.renderer.streamHDR = hdr
+        pipeline.renderer.topMarker = marker
+        pipeline.renderer.upscale = upscale
+        pipeline.renderer.onUpscale = { [weak self] r in
+            self?.upscaleReport = r
+            KyberLog.video.notice("PlayStation : agrandissement \(String(describing: r.state), privacy: .public)")
+        }
         // Référence perdue : le cœur redemande une image clé à la console
         // jusqu'à ce qu'elle arrive (verrou tenu : `stop` libère la partie
         // après avoir remis `play` à nil sous le même verrou).
@@ -317,6 +420,7 @@ public final class PlayStationPlay: @unchecked Sendable {
         if let p = audios[stream] { return p }
         guard !stopped else { return nil }
         let player = AudioPlayer()
+        if silenced { player.volume = 0 }
         audios[stream] = player
         return player
     }

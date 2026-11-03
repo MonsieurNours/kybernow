@@ -526,6 +526,7 @@ Dans la rangée : le nom et l'état. Une console trouvée sur le réseau et pas 
 | Débit | « Débit » : « Auto » (aide : « Suit la définition. ») ou « {n} Mbit/s », de 2 à 100 | “Bitrate”: “Auto” (“Follows the resolution.”) or “{n} Mbit/s” |
 | Format | « Format » : « Auto », « H.264 », « H.265 » ; aide d'Auto : « H.265 si cet appareil le lit. » ; aide de H.264 : « Sans HDR. » ; PS4 : réglage inactif, aide « La PS4 n'envoie que du H.264. » | “Format”: “Auto”, “H.264”, “H.265”; “H.265 if this device can play it.”; “No HDR.”; “The PS4 only sends H.264.” |
 | Plein écran | « Ouvrir la partie en plein écran » (coché la première fois ; retenu aussi quand on quitte ou rejoint le plein écran pendant la partie) | “Open the game in full screen” |
+| Agrandissement | « Agrandir l'image à la taille de l'écran », allumé par défaut, avec l'aide « La console envoie du 1080p au plus : l'image est agrandie aux pixels de votre écran par la puce graphique du Mac. Coupé de lui-même si ce Mac est trop lent. » ; « Netteté », de 0 à 100 % par pas de 5 (40 % par défaut), grisée quand l'agrandissement est coupé ; les deux s'appliquent tout de suite à une partie en cours | “Upscale the picture to the screen size”, “The console sends 1080p at most: the Mac's graphics chip upscales the picture to your screen's pixels. Turns itself off if this Mac is too slow.”; “Sharpness” |
 | Section | « Commandes » | “Controls” |
 | Aide de la section | « Le clavier et la souris tiennent lieu de manette. Une manette branchée les remplace. » | “The keyboard and mouse stand in for a controller. A connected controller replaces them.” |
 | Liste | une ligne par action de la manette, dans l'ordre du cœur (`Action::ALL`) : « Stick gauche vers le haut / le bas / la gauche / la droite », « Croix », « Rond », « Carré », « Triangle », « L1 », « R1 », « L2 », « R2 », « L3 », « R3 », « Croix directionnelle vers le haut / le bas / la gauche / la droite », « Options », « Create », « Bouton PS », « Pavé tactile », « Stick droit vers le haut / le bas / la gauche / la droite » ; à droite, ses touches (la lettre du clavier du Mac, ou « Clic gauche », « Clic droit », « Clic du milieu », « Bouton 4 », « Bouton 5 ») et « + » pour en ajouter une ; « Aucune » s'il n'y en a pas | “Left stick up / down / left / right”, “Cross”, “Circle”, “Square”, “Triangle”, …, “D-pad up / down / left / right”, “Options”, “Create”, “PS button”, “Touchpad”, “Right stick up / down / left / right”; “Left click”, “Right click”, “Middle click”, “Button 4”, “Button 5”; “None” |
@@ -535,13 +536,28 @@ Dans la rangée : le nom et l'état. Une console trouvée sur le réseau et pas 
 
 Les réglages valent pour la partie suivante ; le clavier et la souris changent tout de suite pendant une partie.
 
+**Barre de la partie** : la même que celle d'une session d'ordinateur (même composant, même présentation), avec ce qui a du sens pour une console. Elle s'ouvre comme la barre au pointeur (pointeur un quart de seconde contre le bord haut de l'image, seulement quand la souris n'est pas capturée ; même trait court en haut de l'image) ou par la combinaison de la manette Options + Create + L1 + R1 tenue 250 ms (les mêmes touches que Start + Select + L1 + R1 d'une session d'ordinateur). Ouverte par la manette, la manette la pilote (croix ou stick, Croix pour valider, Rond pour revenir ; Rond ou la combinaison la referment) et la console reçoit une manette au repos ; le clavier et la souris ne vont pas non plus à la console tant qu'elle est ouverte.
+
+| Élément | Français | English |
+|---|---|---|
+| Nom | le nom de la console | |
+| Statistiques | « Statistiques » : panneau des mesures, une fois par seconde : « 1920 × 1080 · 60 i/s · H.265 · HDR · 15 Mbit/s demandés », « Reçu : 59 i/s · 12,4 Mbit/s », « Images perdues : {n} · réparées : {n} » (depuis le début de la partie) | “Statistics”: “… · 15 Mbit/s requested”, “Received: 59 fps · 12.4 Mbit/s”, “Pictures lost: {n} · repaired: {n}” |
+| Son | « Couper le son » / « Rétablir le son » | “Mute” / “Unmute” |
+| Plein écran | « Plein écran » / « Quitter le plein écran » (retenu pour la console) | “Full screen” / “Exit full screen” |
+| Souris | « Prendre la souris » / « Rendre la souris » (⌃⌥⌘M), absent avec une manette branchée | “Capture the mouse” / “Release the mouse” |
+| Réglages | « Réglages de {nom} » | “Settings for {name}” |
+| Veille | « Mettre la console en veille » (dans la barre, plus dans la barre de titre) | “Put the console in rest mode” |
+| Fin | « Se déconnecter » (⌃⌥⌘D) | “Disconnect” |
+
+Pas de profil, d'écrans, de presse-papiers, de partage ni de « Ordinateurs ».
+
 **Session** :
 
 | Moment | Français | English |
 |---|---|---|
 | Connexion | « Connexion à la console… » | “Connecting to the console…” |
 | Contenu protégé | « La console ne peut pas diffuser ce qu'elle affiche. » (sur l'image, tant que dure le blocage) | “The console can't stream what it's showing.” |
-| Menu de la session | « Mettre la console en veille » | “Put the console in rest mode” |
+| Menu de la session | « Mettre la console en veille » (barre de la partie) | “Put the console in rest mode” (game bar) |
 | Clavier et souris | Tant que la souris n'est pas capturée et qu'aucune manette n'est branchée : « Cliquez dans l'image pour jouer au clavier et à la souris » ; un instant après la capture : « ⌃⌥⌘M pour rendre la souris » (le raccourci de la souris des jeux ; Windows et Linux : Ctrl+Alt+Maj+M) | “Click the picture to play with keyboard and mouse”; “⌃⌥⌘M to release the mouse” |
 | Fin, déjà jouée ailleurs | « La console est déjà jouée à distance par un autre appareil. » | “The console is already being played remotely by another device.” |
 | Fin, plus associée | « La console ne reconnaît plus cet appareil : associez-la de nouveau. » | “The console no longer recognizes this device: pair it again.” |

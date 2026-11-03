@@ -186,15 +186,37 @@ fn main() {
             let state = load();
             let r = state.consoles.get(&console.host_id.to_ascii_uppercase()).expect("console pas encore associée");
             let keys = Keys::from_registered(r).expect("association illisible");
-            let (target, nonce) = session::request_session(addr, r.target.into(), &keys).unwrap_or_else(|e| {
-                eprintln!("Demande de session refusée : {e}");
-                std::process::exit(1)
-            });
+            // Comme l'app (play.rs) : « déjà en cours » réessayé 30 s, canal
+            // de contrôle réessayé sur la même session (juste après un réveil).
+            let asked = std::time::Instant::now();
+            let (target, nonce) = loop {
+                match session::request_session(addr, r.target.into(), &keys) {
+                    Ok(t) => break t,
+                    Err(e) if asked.elapsed() < Duration::from_secs(30) => {
+                        eprintln!("Demande de session refusée ({e}), nouvel essai");
+                        std::thread::sleep(Duration::from_secs(1));
+                    }
+                    Err(e) => {
+                        eprintln!("Demande de session refusée : {e}");
+                        std::process::exit(1)
+                    }
+                }
+            };
             let codec = if hdr { Codec::H265Hdr } else { Codec::H265 };
-            let (mut ctrl, events) = Ctrl::connect(addr, target, &nonce, &keys, codec).unwrap_or_else(|e| {
-                eprintln!("Canal de contrôle refusé : {e}");
-                std::process::exit(1)
-            });
+            let mut tries = 0;
+            let (mut ctrl, events) = loop {
+                match Ctrl::connect(addr, target, &nonce, &keys, codec) {
+                    Ok(c) => break c,
+                    Err(_) if tries < 5 => {
+                        tries += 1;
+                        std::thread::sleep(Duration::from_secs(2));
+                    }
+                    Err(e) => {
+                        eprintln!("Canal de contrôle refusé : {e}");
+                        std::process::exit(1)
+                    }
+                }
+            };
             let session_id = loop {
                 match events.recv_timeout(Duration::from_secs(10)) {
                     Ok(CtrlEvent::SessionId(id)) => break id,
@@ -248,6 +270,12 @@ fn main() {
                             want_key.store(false, std::sync::atomic::Ordering::Relaxed);
                             println!("{:.1} s : image clé (n° {})", start.elapsed().as_secs_f32(), f.index);
                         }
+                        if std::env::var("PS_FRAMES").is_ok() {
+                            println!("{:.2} s : image n° {} {} ({} Ko)", start.elapsed().as_secs_f32(), f.index, hevc_kind(&f.data), f.data.len() / 1024);
+                        }
+                        if f.data.len() > 100_000 || f.recovered {
+                            println!("{:.1} s : image n° {} de {} Ko{}", start.elapsed().as_secs_f32(), f.index, f.data.len() / 1024, if f.recovered { ", réparée" } else { "" });
+                        }
                         frames += 1;
                         bytes += f.data.len() as u64;
                         recovered += f.recovered as u64;
@@ -264,6 +292,7 @@ fn main() {
                             audio += 1
                         }
                     }
+                    Ok(StreamEvent::VideoDropped) => println!("{:.1} s : images perdues, réparation attendue", start.elapsed().as_secs_f32()),
                     Ok(StreamEvent::VideoLost) => println!("{:.1} s : images perdues, image clé demandée", start.elapsed().as_secs_f32()),
                     Ok(StreamEvent::Pad(t, b)) => println!("{:.1} s : données manette type {t} ({} octets)", start.elapsed().as_secs_f32(), b.len()),
                     Ok(StreamEvent::Ended(why)) => {
@@ -296,5 +325,54 @@ fn simple_log() -> Result<(), log::SetLoggerError> {
         }
         fn flush(&self) {}
     }
-    log::set_logger(&L).map(|()| log::set_max_level(log::LevelFilter::Info))
+    log::set_logger(&L).map(|()| log::set_max_level(if std::env::var("PS_DEBUG").is_ok() { log::LevelFilter::Debug } else { log::LevelFilter::Info }))
+}
+
+/// Genre de la première tranche HEVC d'une image : type de NAL et type de
+/// tranche (0 B, 1 P, 2 I), en supposant 0 bit d'en-tête en plus (PPS).
+fn hevc_kind(data: &[u8]) -> String {
+    let mut i = 0;
+    while i + 4 < data.len() {
+        if data[i] == 0 && data[i + 1] == 0 && data[i + 2] == 1 {
+            let nal = (data[i + 3] >> 1) & 0x3f;
+            if nal < 32 {
+                let mut r = BitReader { d: &data[i + 5..], bit: 0 };
+                let first = r.bit();
+                if (16..=23).contains(&nal) {
+                    r.bit();
+                }
+                let _pps = r.ue();
+                let ty = if first == 1 { r.ue() } else { 99 };
+                return format!("NAL {nal} tranche {}", match ty { 0 => "B", 1 => "P", 2 => "I", _ => "?" });
+            }
+            i += 3;
+        } else {
+            i += 1;
+        }
+    }
+    "sans tranche".into()
+}
+
+struct BitReader<'a> {
+    d: &'a [u8],
+    bit: usize,
+}
+
+impl BitReader<'_> {
+    fn bit(&mut self) -> u32 {
+        let b = self.d.get(self.bit / 8).map(|x| (x >> (7 - self.bit % 8)) & 1).unwrap_or(0);
+        self.bit += 1;
+        b as u32
+    }
+    fn ue(&mut self) -> u32 {
+        let mut zeros = 0;
+        while self.bit() == 0 && zeros < 31 {
+            zeros += 1;
+        }
+        let mut v = 1u32;
+        for _ in 0..zeros {
+            v = (v << 1) | self.bit();
+        }
+        v - 1
+    }
 }

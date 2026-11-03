@@ -22,6 +22,7 @@ pub mod keymouse;
 pub mod play;
 pub mod proto;
 pub mod psn;
+pub mod refs;
 pub mod regist;
 pub mod rpcrypt;
 pub mod session;

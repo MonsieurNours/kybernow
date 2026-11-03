@@ -275,6 +275,23 @@ private struct ConsoleSettingsContent: View {
                 }
             }
             toggleRow(PSText.fullScreen, isOn: Binding(get: { s.fullscreen }, set: { v in update { $0.fullscreen = v } }))
+            toggleRow(PSText.upscale, PSText.upscaleHelp, isOn: Binding(get: { s.upscale }, set: { v in update { $0.upscale = v } }))
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    label(PSText.sharpness)
+                    Spacer()
+                    Text(PSText.percent(s.sharpness)).font(Theme.mono(13)).foregroundStyle(Theme.text)
+                }
+                Slider(value: Binding(get: { Double(s.sharpness) }, set: { v in
+                    let n = min(max(Int((v / 5).rounded()) * 5, 0), 100)
+                    update { $0.sharpness = n }
+                }), in: 0...100, step: 5)
+                .tint(Theme.accent)
+                .accessibilityLabel(PSText.sharpness)
+                .accessibilityValue(PSText.percent(s.sharpness))
+            }
+            .disabled(!s.upscale)
+            .opacity(s.upscale ? 1 : 0.45)
         }
     }
 

@@ -15,7 +15,8 @@ use std::time::Duration;
 use kybernow_core::media::PacketHandler;
 use kybernow_core::playstation::discovery::{self, Model, State};
 use kybernow_core::playstation::keymouse::Layout;
-use kybernow_core::playstation::play::{Play, PlayEnd, PlayOptions, PlayState};
+use kybernow_core::input::PadKey;
+use kybernow_core::playstation::play::{PadEvent, Play, PlayEnd, PlayOptions, PlayState};
 use kybernow_core::playstation::psn;
 use kybernow_core::playstation::regist::{self, PsnId, RegistError, Registered};
 use kybernow_core::playstation::settings::PlaySettings;
@@ -159,6 +160,12 @@ pub struct KnPsCallbacks {
     /// `state` : `KN_PS_*` ; `width`, `height`, `hdr` pour `KN_PS_STREAMING` ;
     /// `detail` : la raison d'une fin, pour le journal (peut être vide).
     pub on_state: Option<unsafe extern "C" fn(userdata: *mut c_void, state: i32, width: u32, height: u32, hdr: bool, detail: *const c_char)>,
+    /// Options + Create + L1 + R1 tenus 250 ms : ouvrir la barre ou le menu
+    /// (fil de la manette).
+    pub on_menu: Option<unsafe extern "C" fn(userdata: *mut c_void)>,
+    /// Barre ouverte (`kn_ps_set_captured`) : touche de navigation de la
+    /// manette (`KN_PAD_KEY_*`, comme les sessions d'ordinateur).
+    pub on_navigate: Option<unsafe extern "C" fn(userdata: *mut c_void, key: u32)>,
 }
 
 unsafe impl Send for KnPsCallbacks {}
@@ -219,7 +226,30 @@ pub unsafe extern "C" fn kn_ps_start(
         let c = std::ffi::CString::new(detail.replace('\0', " ")).unwrap_or_default();
         unsafe { f(cb.userdata, code, w, h, hdr, c.as_ptr()) };
     });
-    let play = Play::start(addr, &r, PlayOptions { settings, hevc_decoder }, video, audio, on_state);
+    let on_pad = Box::new(move |e: PadEvent| {
+        let cb: KnPsCallbacks = cb;
+        match e {
+            PadEvent::Menu => {
+                if let Some(f) = cb.on_menu {
+                    unsafe { f(cb.userdata) };
+                }
+            }
+            PadEvent::Navigate(k) => {
+                if let Some(f) = cb.on_navigate {
+                    let key = match k {
+                        PadKey::Left => crate::input::KN_PAD_KEY_LEFT,
+                        PadKey::Right => crate::input::KN_PAD_KEY_RIGHT,
+                        PadKey::Up => crate::input::KN_PAD_KEY_UP,
+                        PadKey::Down => crate::input::KN_PAD_KEY_DOWN,
+                        PadKey::Accept => crate::input::KN_PAD_KEY_ACCEPT,
+                        PadKey::Back => crate::input::KN_PAD_KEY_BACK,
+                    };
+                    unsafe { f(cb.userdata, key) };
+                }
+            }
+        }
+    });
+    let play = Play::start(addr, &r, PlayOptions { settings, hevc_decoder }, video, audio, on_state, on_pad);
     Box::into_raw(Box::new(KnPsPlay { play }))
 }
 
@@ -302,6 +332,25 @@ pub unsafe extern "C" fn kn_ps_set_layout(play: *mut KnPsPlay, layout_json: *con
     };
     p.play.set_layout(layout);
     true
+}
+
+/// La barre ou le menu de l'app s'ouvre (`true`) ou se ferme : tant qu'ils
+/// sont ouverts, la console reçoit une manette au repos et la manette
+/// navigue dans l'app (`on_navigate`).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_ps_set_captured(play: *mut KnPsPlay, on: bool) {
+    if let Some(p) = unsafe { play.as_ref() } {
+        p.play.set_captured(on);
+    }
+}
+
+/// Statistiques depuis l'appel précédent (une fois par seconde), JSON à
+/// libérer : `width`, `height`, `hevc`, `hdr`, `target_kbps`, `fps`,
+/// `mbps`, `lost`, `recovered`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_ps_stats(play: *mut KnPsPlay) -> *mut c_char {
+    let Some(p) = (unsafe { play.as_ref() }) else { return std::ptr::null_mut() };
+    give(serde_json::to_string(&p.play.stats()).unwrap_or_default())
 }
 
 /// Met la console en mode repos (la partie se termine ensuite).

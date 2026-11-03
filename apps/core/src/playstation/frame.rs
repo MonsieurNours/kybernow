@@ -134,6 +134,7 @@ impl Assembler {
             unit_size += u16::from_be_bytes([p.data[0], p.data[1]]) as usize;
         }
         if k + m > UNIT_SLOTS_MAX || unit_size == 0 {
+            log::info!("PlayStation : image {} refusée ({k} morceaux et {m} de correction, {unit_size} octets)", p.frame_index);
             return None;
         }
         Some(Building {
@@ -154,7 +155,7 @@ impl Assembler {
         let mut recovered = false;
         if data_received < k {
             if data_received + fec_received < k {
-                log::debug!("PlayStation : image {index} incomplète ({data_received}+{fec_received}/{k}), perdue");
+                log::info!("PlayStation : image {index} incomplète : {data_received} morceaux sur {k}, {fec_received} de correction sur {m}");
                 return None;
             }
             let erased: Vec<usize> = (0..k + m).filter(|&i| units[i].is_none()).collect();
@@ -167,7 +168,7 @@ impl Assembler {
                 })
                 .collect();
             if !fec::decode(&mut full, unit_size, k, m, &erased) {
-                log::debug!("PlayStation : correction d'erreurs impossible sur l'image {index}");
+                log::info!("PlayStation : correction d'erreurs impossible sur l'image {index} ({data_received}+{fec_received}/{k})");
                 return None;
             }
             // Taille réelle de chaque unité retrouvée : taille commune moins

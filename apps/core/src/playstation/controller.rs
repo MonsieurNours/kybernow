@@ -189,6 +189,73 @@ impl PadReader {
     }
 }
 
+/// La combinaison Options + Create + L1 + R1 (celle des sessions
+/// d'ordinateur, `input::pad_combo` : 250 ms tenues sans qu'aucune soit
+/// lâchée), et la navigation quand l'app tient la manette (barre ouverte) :
+/// croix ou stick gauche, Croix pour valider, Rond pour revenir.
+#[derive(Default)]
+pub struct PadMenu {
+    since: Option<std::time::Instant>,
+    fired: bool,
+    prev: u32,
+    prev_stick: Option<crate::input::PadKey>,
+}
+
+const COMBO: u32 = button::OPTIONS | button::SHARE | button::L1 | button::R1;
+
+impl PadMenu {
+    pub fn update(&mut self, s: &ControllerState, open: bool, now: std::time::Instant) -> Vec<super::play::PadEvent> {
+        use super::play::PadEvent;
+        use crate::input::PadKey;
+        let mut out = Vec::new();
+        if s.buttons & COMBO == COMBO {
+            let since = *self.since.get_or_insert(now);
+            if !self.fired && now.saturating_duration_since(since) >= crate::input::pad_combo::HOLD_DELAY {
+                self.fired = true;
+                out.push(PadEvent::Menu);
+            }
+        } else {
+            self.since = None;
+            self.fired = false;
+        }
+        if open {
+            let pressed = s.buttons & !self.prev;
+            for (b, k) in [
+                (button::DPAD_LEFT, PadKey::Left),
+                (button::DPAD_RIGHT, PadKey::Right),
+                (button::DPAD_UP, PadKey::Up),
+                (button::DPAD_DOWN, PadKey::Down),
+                (button::CROSS, PadKey::Accept),
+                (button::MOON, PadKey::Back),
+            ] {
+                if pressed & b != 0 {
+                    out.push(PadEvent::Navigate(k));
+                }
+            }
+            let t = i16::MAX / 2;
+            let stick = if s.left_x < -t {
+                Some(PadKey::Left)
+            } else if s.left_x > t {
+                Some(PadKey::Right)
+            } else if s.left_y < -t {
+                Some(PadKey::Up)
+            } else if s.left_y > t {
+                Some(PadKey::Down)
+            } else {
+                None
+            };
+            if stick.is_some() && stick != self.prev_stick {
+                out.push(PadEvent::Navigate(stick.unwrap()));
+            }
+            self.prev_stick = stick;
+        } else {
+            self.prev_stick = None;
+        }
+        self.prev = s.buttons;
+        out
+    }
+}
+
 const GYRO: (f32, f32) = (-30.0, 30.0);
 const ACCEL: (f32, f32) = (-5.0, 5.0);
 
@@ -429,6 +496,30 @@ mod tests {
         assert_eq!(r.read(&g).touches[0].id, 1);
         g.touch_click(0, true);
         assert_ne!(r.read(&g).buttons & button::TOUCHPAD, 0);
+    }
+
+    #[test]
+    fn combo_opens_menu_after_250ms_and_navigates() {
+        use super::super::play::PadEvent;
+        use crate::input::PadKey;
+        use std::time::{Duration, Instant};
+        let mut m = PadMenu::default();
+        let t = Instant::now();
+        let combo = ControllerState { buttons: COMBO, ..Default::default() };
+        assert!(m.update(&combo, false, t).is_empty());
+        assert!(m.update(&combo, false, t + Duration::from_millis(200)).is_empty());
+        assert_eq!(m.update(&combo, false, t + Duration::from_millis(260)), vec![PadEvent::Menu]);
+        assert!(m.update(&combo, false, t + Duration::from_millis(400)).is_empty());
+        // Barre ouverte : la croix et Croix naviguent, sur l'appui seulement.
+        let idle = ControllerState::default();
+        m.update(&idle, true, t + Duration::from_millis(500));
+        let down = ControllerState { buttons: button::DPAD_DOWN, ..Default::default() };
+        assert_eq!(m.update(&down, true, t + Duration::from_millis(510)), vec![PadEvent::Navigate(PadKey::Down)]);
+        assert!(m.update(&down, true, t + Duration::from_millis(520)).is_empty());
+        let stick = ControllerState { left_x: i16::MAX, ..Default::default() };
+        assert_eq!(m.update(&stick, true, t + Duration::from_millis(530)), vec![PadEvent::Navigate(PadKey::Right)]);
+        let accept = ControllerState { buttons: button::CROSS, ..Default::default() };
+        assert_eq!(m.update(&accept, true, t + Duration::from_millis(540)), vec![PadEvent::Navigate(PadKey::Accept)]);
     }
 
     #[test]

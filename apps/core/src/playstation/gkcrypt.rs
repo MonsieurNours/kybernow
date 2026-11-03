@@ -315,3 +315,25 @@ mod tests {
         assert_eq!(k.request(0xffff_ff00, false), 0xffff_ff00);
     }
 }
+
+#[cfg(test)]
+mod bench {
+    use super::*;
+
+    /// `cargo test --release --lib gkcrypt::bench -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn per_packet_cost() {
+        let mut c = GkCrypt::new(3, &[1; 16], &[2; 32]);
+        let mut buf = vec![7u8; 1454];
+        let n = 20_000u64;
+        let t = std::time::Instant::now();
+        for i in 0..n {
+            let pos = 0x1000 + i * 1400;
+            let _ = c.gmac(pos, &buf);
+            c.crypt(pos + 16, &mut buf);
+        }
+        let us = t.elapsed().as_secs_f64() * 1e6 / n as f64;
+        println!("GMAC + déchiffrement : {us:.2} µs par paquet de 1454 octets ; à 9 000 paquets/s : {:.1} % d'un cœur", us * 9000.0 / 1e4);
+    }
+}
