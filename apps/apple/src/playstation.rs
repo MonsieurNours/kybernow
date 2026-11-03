@@ -638,3 +638,93 @@ pub unsafe extern "C" fn kn_ps_handoff_send(address: *const c_char, code: *const
         Err(SendError::Unreachable(d)) => give(json!({ "error": "unreachable", "detail": d }).to_string()),
     }
 }
+
+// MARK: - Manettes lues par l'app (Apple TV, iPhone, iPad)
+
+/// Une manette branchée, lue par l'app (GameController) : pour une partie
+/// sur console, le lecteur de manettes du cœur la reçoit de l'app
+/// (`vendor_id`, `product_id` : identifiants USB, -1 inconnus ; une DualSense
+/// se dit 054C:0CE6 pour ses gâchettes adaptatives). Les sessions
+/// d'ordinateur gardent `kn_input_gamepad_*`.
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_ps_pad_plug(pad: u32, vendor_id: i32, product_id: i32) {
+    kybernow_core::gamepads::plug(pad, u16::try_from(vendor_id).ok(), u16::try_from(product_id).ok());
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_ps_pad_unplug(pad: u32) {
+    kybernow_core::gamepads::unplug(pad);
+}
+
+/// `button` : valeur kynput (`KYNPUT_GAMEPAD_BUTTON_*`, comme `kn_input_gamepad_button`).
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_ps_pad_button(pad: u32, button: u32, pressed: bool) {
+    if let Some(b) = kybernow_core::input::PadButton::from_u32(button) {
+        kybernow_core::gamepads::button(pad, b, pressed);
+    }
+}
+
+/// `axis` : valeur kynput (`KYNPUT_GAMEPAD_AXIS_*`) ; sticks de -32768 à
+/// 32767 (vers le bas : positif), gâchettes de 0 à 32767.
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_ps_pad_axis(pad: u32, axis: u32, value: i16) {
+    if let Some(a) = kybernow_core::input::PadAxis::from_u32(axis) {
+        kybernow_core::gamepads::axis(pad, a, value);
+    }
+}
+
+/// Clic du pavé tactile.
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_ps_pad_touch_click(pad: u32, pressed: bool) {
+    kybernow_core::gamepads::global().touch_click(pad, pressed);
+}
+
+/// Doigt `finger` (0 ou 1) posé en (`x`, `y`), de 0 à 1 depuis le coin haut
+/// gauche du pavé, ou levé (`down` faux).
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_ps_pad_touch(pad: u32, finger: u32, down: bool, x: f32, y: f32) {
+    let at = down.then(|| (x.clamp(0.0, 1.0), y.clamp(0.0, 1.0)));
+    kybernow_core::gamepads::global().touch_finger(pad, finger as usize, at);
+}
+
+/// Mesure du gyroscope (`gyro` : rad/s) ou de l'accéléromètre (m/s²), dans
+/// le repère de SDL ; `timestamp_us` croissant.
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_ps_pad_sensor(pad: u32, gyro: bool, x: f32, y: f32, z: f32, timestamp_us: u64) {
+    kybernow_core::gamepads::global().sensor(pad, gyro, [x, y, z], timestamp_us);
+}
+
+/// Retour d'une partie vers une manette lue par l'app : vibration (`effect`
+/// nul ; moteurs de 0 à 65535, `duration_ms` : 0 arrête), ou rapport
+/// d'effets de la DualSense (`effect` : 47 octets, `DS5EffectsState_t` de
+/// SDL, valables pendant l'appel ; gâchettes adaptatives). Fils de la partie.
+pub type KnPsPadFeedback =
+    Option<unsafe extern "C" fn(userdata: *mut c_void, pad: u32, large: u16, small: u16, duration_ms: i32, effect: *const u8, effect_len: usize)>;
+
+/// Le retour des manettes vers l'app (`gamepads::AppFeedback`).
+struct PadFeedback {
+    cb: unsafe extern "C" fn(*mut c_void, u32, u16, u16, i32, *const u8, usize),
+    userdata: *mut c_void,
+}
+
+unsafe impl Send for PadFeedback {}
+unsafe impl Sync for PadFeedback {}
+
+impl kybernow_core::gamepads::AppFeedback for PadFeedback {
+    fn rumble(&self, r: kybernow_core::input::pipeline::GamepadRumble) {
+        unsafe { (self.cb)(self.userdata, r.id, r.large_motor, r.small_motor, r.duration_ms, std::ptr::null(), 0) };
+    }
+
+    fn effect(&self, id: kybernow_core::input::PadId, data: &[u8]) {
+        unsafe { (self.cb)(self.userdata, id, 0, 0, 0, data.as_ptr(), data.len()) };
+    }
+}
+
+/// Pose (ou retire, `cb` nul) le rappel des vibrations et des gâchettes
+/// adaptatives, le temps d'une partie sur console seulement (une session
+/// d'ordinateur joue déjà ses vibrations par la chaîne d'entrées).
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_ps_pad_set_feedback(cb: KnPsPadFeedback, userdata: *mut c_void) {
+    let f = cb.map(|cb| Arc::new(PadFeedback { cb, userdata }) as Arc<dyn kybernow_core::gamepads::AppFeedback>);
+    kybernow_core::gamepads::set_app_feedback(f);
+}

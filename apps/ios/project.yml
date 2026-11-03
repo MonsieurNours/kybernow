@@ -46,9 +46,13 @@ targets:
           - MetalSurface.swift
           - RelativeMouse.swift
           - StreamView.swift
+          # Clavier et souris traduits en manette pour une console (AppKit).
+          - PlayStationInput.swift
       - path: ../tvos/KyberKitTV/MetalSurface.swift
       - path: ../tvos/KyberKitTV/KeyboardMouse.swift
       - path: ../tvos/KyberKitTV/GamepadBridge.swift
+      # Les manettes d'une partie sur console, données au cœur (GamepadBridge).
+      - path: ../tvos/KyberKitTV/ConsolePads.swift
       - path: KyberKitIOS
     dependencies:
       # Le cœur Rust, son pont C, libkynput, libopus et les fonctions vides de VLC.

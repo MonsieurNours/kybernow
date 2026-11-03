@@ -521,7 +521,7 @@ struct SessionMenu: View {
 }
 
 /// « Reprendre » : l'aplat Spectre et son pan coupé, allumé quand il a le focus.
-private struct ResumeTileStyle: ButtonStyle {
+struct ResumeTileStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         Styled(configuration: configuration)
     }
