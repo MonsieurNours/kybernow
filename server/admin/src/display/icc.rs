@@ -201,9 +201,12 @@ pub fn profile(lum: &ScreenLuminance, gamma22: bool) -> Vec<u8> {
     let mut out = Vec::with_capacity(size as usize);
     out.extend(size.to_be_bytes());
     out.extend([0u8; 4]); // CMM
-    out.extend(0x0440_0000u32.to_be_bytes()); // version 4.4
+    // Version 4.3, date fixe valide : comme les profils des outils de
+    // Windows (une date nulle ou une version récente peut être refusée par
+    // un lecteur strict ; la date fixe garde le même profil pour les mêmes valeurs).
+    out.extend(0x0430_0000u32.to_be_bytes());
     out.extend(b"mntrRGB XYZ ");
-    out.extend([0u8; 12]); // date : sans
+    [2026u16, 11, 4, 0, 0, 0].iter().for_each(|v| out.extend(v.to_be_bytes()));
     out.extend(b"acspMSFT");
     out.extend([0u8; 4]); // drapeaux
     out.extend([0u8; 8]); // fabricant, modèle
@@ -295,6 +298,8 @@ mod tests {
         assert_eq!(u32_at(&p, 0) as usize, p.len());
         assert_eq!(&p[12..20], b"mntrRGB ");
         assert_eq!(&p[36..40], b"acsp");
+        assert_eq!(u32_at(&p, 8), 0x0430_0000, "version 4.3");
+        assert_eq!(u16::from_be_bytes([p[24], p[25]]), 2026, "date valide");
         let count = u32_at(&p, 128) as usize;
         assert_eq!(count, 12);
         let tag = |sig: &[u8; 4]| {

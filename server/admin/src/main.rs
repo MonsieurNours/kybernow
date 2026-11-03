@@ -178,6 +178,16 @@ enum AgentAction {
         #[arg(long)]
         out: PathBuf,
     },
+    /// Lancé avec le compte de l'utilisateur : notre profil HDR associé (ou
+    /// retiré) dans la portée de son compte (demande JSON
+    /// `display::hdr::UserRequest`, en hexadécimal : le dossier des données
+    /// d'Admin lui est fermé).
+    HdrUser {
+        #[arg(long)]
+        request_hex: String,
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// HDR de l'écran principal du PC, lu sans rien changer (session sans écran virtuel).
     HdrPrimary {
         #[arg(long)]
@@ -460,6 +470,13 @@ fn display_agent(action: AgentAction) -> Result<()> {
                 .and_then(|req| display::hdr::agent_set(&req.screens));
             (out, r)
         }
+        AgentAction::HdrUser { request_hex, out } => {
+            let r = hex::decode(&request_hex)
+                .map_err(anyhow::Error::from)
+                .and_then(|b| Ok(serde_json::from_slice::<display::hdr::UserRequest>(&b)?))
+                .and_then(|req| display::hdr::agent_user(&req.screens, req.wait_ms));
+            (out, r)
+        }
         AgentAction::HdrPrimary { out } => (out, display::hdr::agent_primary()),
         AgentAction::AudioRoute { channels, out } => {
             display::pointer::begin(agent_dir(&out));
@@ -497,6 +514,7 @@ fn display_agent(action: AgentAction) -> Result<()> {
         | AgentAction::SetMode { out, .. }
         | AgentAction::Displays { out }
         | AgentAction::Hdr { out, .. }
+        | AgentAction::HdrUser { out, .. }
         | AgentAction::HdrPrimary { out }
         | AgentAction::AudioRoute { out, .. }
         | AgentAction::AudioRestore { out, .. }
