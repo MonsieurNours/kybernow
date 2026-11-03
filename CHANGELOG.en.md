@@ -4,6 +4,18 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## 0.9.2
+
+Second HDR beta, before 0.9.5. It is only offered to Stations and apps set to beta versions.
+
+- **Less latency in HDR**: the Station converts the HDR picture without copying it, in a single pass, and gives capture and encoding priority on the graphics card, which also helps in SDR during a heavy game. The Apple apps create their decoder in the right format from the start, and the iPhone finally shows the picture at 120 Hz.
+- **The path of a frame in every app**: in Statistics, during a session, capture, encoding, sending, network, decoding and display each have their own time, on Apple TV, LG TVs, Windows and Linux as on Mac, iPhone, iPad and Android. Turn HDR on and off in the bar to see which stage changes.
+- **Apple TV**: the HDR picture no longer looks washed out.
+- **HDR calibration**: on Apple TV and LG TVs, the pattern scale now follows the screen's real brightness (the symbol disappeared too high, up to 10,000 nits). For an accurate result on a TV, put it in Game mode with HGIG, in its HDR picture settings.
+- **Admin checks the virtual display's HDR**: when each HDR session starts, Admin reads back what Windows tells games and shows it on the Picture and sound page (“HDR: games see 1,000 nits.”), or reports that Windows did not take your screen's profile.
+- Station: Kyber patch 0023 (graphics card priority, timing of each stage in the log every 5 s) and a lighter HDR10 conversion (0022).
+- This beta has not yet been tried with a real PC: your feedback is welcome on the Discord.
+
 ## 0.9.1
 
 Beta version, to try HDR before 0.9.5. It is only offered to Stations and apps set to beta versions.

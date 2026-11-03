@@ -5,6 +5,18 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## 0.9.2
+
+Deuxième bêta du HDR, avant la 0.9.5. Elle n'est proposée qu'aux Stations et aux apps réglées sur les versions bêta.
+
+- **Moins de latence en HDR** : la Station convertit l'image HDR sans la recopier, en une seule passe, et donne la priorité à la capture et à l'encodage sur la carte graphique, ce qui aide aussi en SDR pendant un jeu lourd. Les apps Apple créent leur décodeur d'emblée au bon format, et l'iPhone affiche enfin l'image à 120 Hz.
+- **Le trajet d'une image dans toutes les apps** : dans Statistiques, en session, la capture, l'encodage, l'envoi, le réseau, le décodage et l'affichage ont chacun leur temps, sur Apple TV, téléviseurs LG, Windows et Linux comme sur Mac, iPhone, iPad et Android. En allumant et éteignant le HDR dans la barre, vous voyez quelle étape change.
+- **Apple TV** : l'image HDR n'est plus délavée.
+- **Réglage du HDR** : sur Apple TV et sur les téléviseurs LG, l'échelle des mires suit maintenant la vraie luminosité de l'écran (le symbole disparaissait trop haut, jusqu'à 10 000 nits). Pour un réglage juste sur un téléviseur, passez-le en mode Jeu avec le HGIG, dans ses réglages d'image HDR.
+- **Admin vérifie le HDR de l'écran virtuel** : au début de chaque session HDR, Admin relit ce que Windows annonce aux jeux et le dit dans la page Image et son (« HDR : les jeux voient 1 000 nits. »), ou signale que Windows n'a pas pris le profil de votre écran.
+- Station : correctif 0023 de Kyber (priorité de la carte graphique, chronométrage de chaque étape dans le journal toutes les 5 s) et conversion HDR10 plus légère (0022).
+- Cette bêta n'a pas encore été essayée avec un vrai PC : vos retours sont les bienvenus sur le Discord.
+
 ## 0.9.1
 
 Version bêta, pour essayer le HDR avant la 0.9.5. Elle n'est proposée qu'aux Stations et aux apps réglées sur les versions bêta.
