@@ -25,6 +25,13 @@ Scoped on 02/11/2026, contract: [docs/hdr.en.md](docs/hdr.en.md).
 - **First version**: Station (Kyber patches 0022: FP16 capture in both engines and WGC, PQ/BT.2020 conversion to P010, HEVC Main 10 and 10-bit AV1, separate SDR picture for guests; Admin: virtual display HDR, colour profile and desktop white for the device's screen, setting, announcement), HDR calibration by eye in the apps, core, Apple apps and LG TVs; tests on the Mac's XDR display, the Apple TV, the LG G2.
 - **Next version**: Android, Windows, Linux (Raspberry Pi after).
 
+## KyberNow Station for Mac
+
+Scoped on 2026-11-03, contract: [docs/station-macos.en.md](docs/station-macos.en.md). Apple silicon, macOS 15 and later; everything the Windows Station does, except gamepads.
+
+- **Milestones**: Kyber on this Mac, Admin on Mac, virtual display (`CGVirtualDisplay`), KyberNow audio device, input, icon and `.pkg`, advanced features (Share, Lend the PC, HDR, app at start), Link apps (`gamepads`, Ctrl/⌘).
+- **Requests to Apple**: virtual HID (gamepads) and `persistent-content-capture` (no monthly screen recording reminder).
+
 ## KyberNow Station and Admin
 
 - **H.264 silent on an Intel card**: PC-ATELIER (Intel UHD) does send HEVC but no picture in H.264 (“its encoder does not respond”), already in 0.5; to understand on the Station side (Kyber's encoder, QSV).

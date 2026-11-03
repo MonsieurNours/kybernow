@@ -25,6 +25,13 @@ Cadré le 02/11/2026, contrat : [docs/hdr.md](docs/hdr.md).
 - **Première version** : Station (correctifs Kyber 0022 : capture FP16 des deux moteurs et de WGC, conversion PQ/BT.2020 en P010, HEVC Main 10 et AV1 10 bits, image à part SDR des invités ; Admin : HDR de l'écran virtuel, profil de couleur et blanc du bureau pour l'écran de l'appareil, réglage, annonce), réglage du HDR à l'œil dans les apps, cœur, apps Apple et téléviseurs LG ; essais sur l'écran XDR du Mac, l'Apple TV, la LG G2.
 - **Version suivante** : Android, Windows, Linux (Raspberry Pi après).
 
+## KyberNow Station pour Mac
+
+Cadrée le 03/11/2026, contrat : [docs/station-macos.md](docs/station-macos.md). Puce Apple, macOS 15 et plus ; tout ce que fait la Station Windows, sauf les manettes.
+
+- **Jalons** : Kyber sur ce Mac, Admin sur Mac, écran virtuel (`CGVirtualDisplay`), périphérique audio KyberNow, entrées, icône et `.pkg`, fonctions avancées (Share, Prêt du PC, HDR, app au début), apps Link (`gamepads`, Ctrl/⌘).
+- **Demandes à Apple** : HID virtuel (manettes) et `persistent-content-capture` (pas de rappel mensuel d'enregistrement de l'écran).
+
 ## KyberNow Station et Admin
 
 - **H.264 muet sur une carte Intel** : PC-ATELIER (Intel UHD) envoie bien du HEVC mais aucune image en H.264 (« son encodeur ne répond pas »), déjà en 0.5 ; à comprendre côté Station (encodeur de Kyber, QSV).
