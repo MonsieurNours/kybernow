@@ -945,6 +945,22 @@
         }
       }
     },
+    "Affichage" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Display"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Affichage"
+          }
+        }
+      }
+    },
     "Afficher la session" : {
       "localizations" : {
         "en" : {
@@ -1645,6 +1661,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Caler le téléviseur sur la session"
+          }
+        }
+      }
+    },
+    "Capture" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Capture"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Capture"
           }
         }
       }
@@ -2481,6 +2513,22 @@
         }
       }
     },
+    "Décodage" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Decoding"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Décodage"
+          }
+        }
+      }
+    },
     "Décodage matériel" : {
       "localizations" : {
         "en" : {
@@ -2785,6 +2833,22 @@
         }
       }
     },
+    "Encodage" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Encoding"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Encodage"
+          }
+        }
+      }
+    },
     "Encore %@" : {
       "localizations" : {
         "en" : {
@@ -2861,6 +2925,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Environ 30 secondes. Une session en cours sera coupée."
+          }
+        }
+      }
+    },
+    "Envoi" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sending"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Envoi"
           }
         }
       }
@@ -6835,6 +6915,22 @@
         }
       }
     },
+    "Sur cette Apple TV" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On this Apple TV"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sur cette Apple TV"
+          }
+        }
+      }
+    },
     "Sur l'ordinateur" : {
       "localizations" : {
         "en" : {
@@ -7151,6 +7247,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Toutes les manettes, PlayStation comprises, deviennent des manettes Xbox 360 sur l'ordinateur : celles que tous les jeux reconnaissent."
+          }
+        }
+      }
+    },
+    "Trajet d'une image" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Path of a frame"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trajet d'une image"
           }
         }
       }

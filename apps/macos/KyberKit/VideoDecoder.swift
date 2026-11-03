@@ -284,8 +284,9 @@ final class VideoDecoder {
         generation += 1
         guard let format = makeFormat() else { return }
         let dims = CMVideoFormatDescriptionGetDimensions(format)
-        guard let session = Self.makeSession(format: format, pixelFormat: forcedPixelFormat, requireHardware: true)
-            ?? Self.makeSession(format: format, pixelFormat: forcedPixelFormat, requireHardware: false)
+        let pixelFormat = forcedPixelFormat ?? Self.preferredPixelFormat(format)
+        guard let session = Self.makeSession(format: format, pixelFormat: pixelFormat, requireHardware: true)
+            ?? Self.makeSession(format: format, pixelFormat: pixelFormat, requireHardware: false)
         else {
             KyberLog.video.error("aucun décodeur pour \(String(describing: self.codec), privacy: .public) \(dims.width)×\(dims.height)")
             return
@@ -296,7 +297,18 @@ final class VideoDecoder {
         #if os(macOS)
         VTSessionCopyProperty(session, key: kVTDecompressionPropertyKey_UsingHardwareAcceleratedVideoDecoder, allocator: nil, valueOut: &hardware)
         #endif
-        KyberLog.video.notice("décodeur \(String(describing: self.codec), privacy: .public) \(dims.width)×\(dims.height), matériel : \(hardware.map { CFBooleanGetValue($0) } ?? true)")
+        KyberLog.video.notice("décodeur \(String(describing: self.codec), privacy: .public) \(dims.width)×\(dims.height), matériel : \(hardware.map { CFBooleanGetValue($0) } ?? true)\(pixelFormat == kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange ? ", sortie 4:2:0 10 bits (x420)" : "", privacy: .public)")
+    }
+
+    /// Format de sortie demandé d'emblée. Flux 10 bits (HEVC Main 10, AV1
+    /// 10 bits : le HDR) : 4:2:0 10 bits en deux plans (`x420`), que le rendu
+    /// lit. Laissé libre, le décodeur des puces Apple sortirait un format
+    /// tassé (`p420`, ou `&xv0` compressé sans perte) que Metal ne lit pas :
+    /// le rendu le refusait, et le décodeur était refait à la première image,
+    /// avec une image clé de plus. 8 bits : le format natif du décodeur.
+    static func preferredPixelFormat(_ format: CMVideoFormatDescription) -> OSType? {
+        let bits = CMFormatDescriptionGetExtension(format, extensionKey: kCMFormatDescriptionExtension_BitsPerComponent) as? Int ?? 8
+        return bits > 8 ? kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange : nil
     }
 
     static func makeSession(format: CMVideoFormatDescription, pixelFormat: OSType?, requireHardware: Bool) -> VTDecompressionSession? {

@@ -431,7 +431,7 @@ final class SessionController: ObservableObject {
         guard let criteria = HDRDisplay.criteria(refresh: rate, width: streamMode.width, height: streamMode.height, hdr: hdr) else { return }
         window.avDisplayManager.preferredDisplayCriteria = criteria
         displayCriteriaSet = true
-        KyberLog.app.notice("téléviseur : \(rate) Hz\(hdr ? ", HDR10" : "", privacy: .public) demandés (adapter la plage dynamique : \(window.avDisplayManager.isDisplayCriteriaMatchingEnabled ? "oui" : "non", privacy: .public))")
+        KyberLog.app.notice("téléviseur : \(rate) Hz\(hdr ? ", HDR10" : "", privacy: .public) demandés ; \(HDRDisplay.describeTV(window), privacy: .public)")
     }
 
     /// Les états du cœur : l'image n'apparaît qu'après `revealDelay`, seule
@@ -760,6 +760,14 @@ final class SessionController: ObservableObject {
             stats.fps = 60
             stats.mbps = 78
             stats.format = self.hdrOn ? "4:2:0 10 bits" : "4:2:0 8 bits"
+            stats.decodeMs = 2.1
+            stats.displayMs = 7.4
+            // Trajet d'une image ; `-demoChain NO` : une Station qui n'envoie pas ses étapes.
+            if UserDefaults.standard.object(forKey: "demoChain") == nil || UserDefaults.standard.bool(forKey: "demoChain") {
+                var c = ChainTimes()
+                (c.capture, c.encode, c.send, c.network, c.decode, c.display) = (0.9, 3.4, 0.6, 1.3, 2.1, 5.3)
+                stats.chain = c
+            }
             self.stats = stats
             // Le HDR demandé (`-hdrScreen YES`) : l'écran de la démonstration est « en HDR ».
             self.hdrScreens = [self.hdrOn]

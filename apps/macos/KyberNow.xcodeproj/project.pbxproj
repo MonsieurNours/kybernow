@@ -62,6 +62,7 @@
 		C0ECE80FBFB9F20A2A8178CD /* HDR.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47A41505BA7061761C293ACB /* HDR.swift */; };
 		C1B3C4BCD7D8194F9A0CEB59 /* MartianMono-wdth-wght.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 2F30B29F401DF269013F5B54 /* MartianMono-wdth-wght.ttf */; };
 		CB40242339185A91D8C170BF /* AppLife.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D634CDC1A4458A7960F3E02 /* AppLife.swift */; };
+		CD9C125280E6BF846AEE3C41 /* HDRVideoLayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87AD46654DDE4325A528470C /* HDRVideoLayer.swift */; };
 		DA276E7D52B66821093E4641 /* KyberTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01C32CCA3D27566E365281AC /* KyberTypes.swift */; };
 		DA6906C0CE3D758F5B735BDE /* VideoRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 323EA304E0762094819E42DC /* VideoRenderer.swift */; };
 		E5E04EDDEE0F0409632DB0CC /* LendViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 158698A45499ED85877056C8 /* LendViews.swift */; };
@@ -129,6 +130,7 @@
 		80362106CECC77FF3DAFF939 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		83841ADFE3E6392BEA27AD93 /* VideoPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPipeline.swift; sourceTree = "<group>"; };
 		8731611A950718FECBB1AEFD /* OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = OFL.txt; sourceTree = "<group>"; };
+		87AD46654DDE4325A528470C /* HDRVideoLayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HDRVideoLayer.swift; sourceTree = "<group>"; };
 		87D53565DD3FA5B79DF1D652 /* SessionStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStats.swift; sourceTree = "<group>"; };
 		886C131A95488837E1F01A0F /* Share.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Share.swift; sourceTree = "<group>"; };
 		89E04E220C974B33C3998C25 /* HDRCalibrationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HDRCalibrationView.swift; sourceTree = "<group>"; };
@@ -247,6 +249,7 @@
 				B4ED4A7AED04F3E6BFC4AD7D /* HDRCalibration.swift */,
 				6A16C5153CFA8B9A8EC07CEB /* HDRDemo.swift */,
 				B4ED9823FE738E797E819ACE /* HDRPatternView.swift */,
+				87AD46654DDE4325A528470C /* HDRVideoLayer.swift */,
 				940774B27B5F893F6D351931 /* InputCore.swift */,
 				660EA29E7D18D98FB3C21A9F /* KeymapMac.swift */,
 				DF454DEFA73A7E4436050ACE /* KyberLog.swift */,
@@ -460,6 +463,7 @@
 				B9A3A3996E03B51DA8C7C19D /* HDRCalibration.swift in Sources */,
 				12034EA33F19153239227110 /* HDRDemo.swift in Sources */,
 				0B283BC384A9C86C71D4265A /* HDRPatternView.swift in Sources */,
+				CD9C125280E6BF846AEE3C41 /* HDRVideoLayer.swift in Sources */,
 				EF3A238235E625C782A326F0 /* InputCore.swift in Sources */,
 				08492ED020ED23978215AE43 /* KeymapMac.swift in Sources */,
 				B1DF8E0399B418A165156B1F /* KyberLog.swift in Sources */,

@@ -51,10 +51,14 @@ public final class HDRDemo {
         KyberLog.video.notice("mire HDR : \(width)×\(height), PQ BT.2020, 4:2:0 10 bits")
     }
 
-    /// Une image toutes les 33 ms, comme un bureau qui bouge.
+    /// Une image toutes les 33 ms, comme un bureau qui bouge. `KN_DEMO_FPS`
+    /// change la cadence : une cadence décalée de l'écran (29.3 par exemple)
+    /// fait passer les images à tous les instants du balayage, comme celles
+    /// d'un flux réel, et rend les mesures de présentation comparables.
     public func start() {
         timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] _ in self?.tick() }
+        let fps = ProcessInfo.processInfo.environment["KN_DEMO_FPS"].flatMap(Double.init).flatMap { $0 > 0 ? $0 : nil } ?? 30
+        timer = Timer.scheduledTimer(withTimeInterval: 1.0 / fps, repeats: true) { [weak self] _ in self?.tick() }
     }
 
     public func stop() {
@@ -71,7 +75,7 @@ public final class HDRDemo {
         if !askedTV, let window = surface.window {
             askedTV = true
             window.avDisplayManager.preferredDisplayCriteria = HDRDisplay.criteria(refresh: 60, width: CVPixelBufferGetWidth(frame), height: CVPixelBufferGetHeight(frame), hdr: true)
-            KyberLog.video.notice("mire HDR : téléviseur prié de passer en HDR10 (adapter la plage dynamique : \(window.avDisplayManager.isDisplayCriteriaMatchingEnabled ? "oui" : "non", privacy: .public))")
+            KyberLog.video.notice("mire HDR : téléviseur prié de passer en HDR10 ; \(MainActor.assumeIsolated { HDRDisplay.describeTV(window) }, privacy: .public)")
         }
         #endif
         pts += 33_333
@@ -81,8 +85,7 @@ public final class HDRDemo {
         guard t - lastReport >= 1 else { return }
         lastReport = t
         #if os(tvOS)
-        // tvOS ne donne pas de marge EDR : seul le HDR10 du téléviseur se dit.
-        KyberLog.video.notice("mire HDR : chaîne \(self.hdrChain ? "HDR" : "SDR", privacy: .public), téléviseur \(self.surface.screenHDR ? "HDR" : "SDR", privacy: .public)")
+        KyberLog.video.notice("mire HDR : chaîne \(self.hdrChain ? "HDR" : "SDR", privacy: .public), téléviseur \(self.surface.screenHDR ? "HDR" : "SDR", privacy: .public) ; \(MainActor.assumeIsolated { HDRDisplay.describeTV(self.surface.window) }, privacy: .public)")
         #else
         KyberLog.video.notice("mire HDR : chaîne \(self.hdrChain ? "HDR" : "SDR", privacy: .public), écran \(self.surface.screenHDR ? "HDR" : "SDR", privacy: .public), marge EDR en cours \(String(format: "%.2f", self.currentHeadroom), privacy: .public)")
         #endif
@@ -133,6 +136,7 @@ public final class HDRDemo {
               let buffer = out else { return nil }
         CVBufferSetAttachment(buffer, kCVImageBufferColorPrimariesKey, kCVImageBufferColorPrimaries_ITU_R_2020, .shouldPropagate)
         CVBufferSetAttachment(buffer, kCVImageBufferTransferFunctionKey, kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ, .shouldPropagate)
+        CVBufferSetAttachment(buffer, kCVImageBufferYCbCrMatrixKey, kCVImageBufferYCbCrMatrix_ITU_R_2020, .shouldPropagate)
         CVBufferSetAttachment(buffer, kCVImageBufferYCbCrMatrixKey, kCVImageBufferYCbCrMatrix_ITU_R_2020, .shouldPropagate)
 
         // Six cases par bande, de gauche à droite.
