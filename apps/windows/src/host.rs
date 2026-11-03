@@ -201,6 +201,9 @@ pub struct SessionHost {
     control: Arc<AtomicIsize>,
     /// Ses fenêtres, une fois créées sur son fil.
     app: Arc<OnceLock<Arc<App>>>,
+    /// L'app a demandé la fin : lu par `run` quand le cœur part, pour une fin
+    /// demandée avant que les fenêtres existent (sinon elle serait perdue).
+    end_asked: Arc<Mutex<bool>>,
 }
 
 impl SessionHost {
@@ -214,12 +217,13 @@ impl SessionHost {
     pub fn start_as(id: u64, host_name: String, params: SessionParams, opts: HostOptions, events: Arc<dyn HostEvents>) -> Self {
         let control = Arc::new(AtomicIsize::new(0));
         let app = Arc::new(OnceLock::new());
-        let (c, a) = (control.clone(), app.clone());
+        let end_asked = Arc::new(Mutex::new(false));
+        let (c, a, e) = (control.clone(), app.clone(), end_asked.clone());
         std::thread::Builder::new()
             .name("kybernow-window".into())
-            .spawn(move || run(id, host_name, params, opts, events, c, a))
+            .spawn(move || run(id, host_name, params, opts, events, c, a, e))
             .expect("fil de la fenêtre de session");
-        Self { id, control, app }
+        Self { id, control, app, end_asked }
     }
 
     pub fn id(&self) -> u64 {
@@ -246,7 +250,32 @@ impl SessionHost {
     }
 
     pub fn command(&self, c: Command) {
-        self.post(c, 0);
+        match c {
+            Command::Disconnect => self.end("ordre de l'app"),
+            _ => self.post(c, 0),
+        }
+    }
+
+    /// Fin demandée par l'app (« Annuler », « Se déconnecter », « Quitter »),
+    /// à cette session seule : le cœur la reçoit tout de suite, depuis le fil
+    /// qui la demande, même si celui des fenêtres est occupé ; avant que les
+    /// fenêtres existent, elle est gardée et transmise au départ du cœur.
+    pub fn end(&self, why: &str) {
+        let app = {
+            let mut asked = self.end_asked.lock().unwrap();
+            *asked = true;
+            self.app().cloned()
+        };
+        match app {
+            Some(app) => window::user_close(&app, why),
+            None => log::info!("session n°{} : fin demandée ({why}) avant ses fenêtres, transmise à leur création", self.id),
+        }
+    }
+
+    /// Ses fenêtres ferment tout de suite, sans attendre la fin du cœur (une
+    /// session que l'app abandonne parce qu'elle ne finit pas).
+    pub fn close_windows(&self) {
+        self.post(Command::Close, 0);
     }
 
     /// Le clavier va à cette fenêtre de session (celle où la barre s'ouvre ;
@@ -560,6 +589,7 @@ fn run(
     events: Arc<dyn HostEvents>,
     control_out: Arc<AtomicIsize>,
     app_out: Arc<OnceLock<Arc<App>>>,
+    end_asked: Arc<Mutex<bool>>,
 ) {
     let started = Instant::now();
     let fail = |events: &Arc<dyn HostEvents>, e: String| {
@@ -674,6 +704,10 @@ fn run(
     let _ = app.link.session.set(Arc::downgrade(&session));
     let _ = app.link.latency.set(session.latency());
     let _ = app.session.set(session.clone());
+    // Une fin demandée pendant la mise en place (avant les fenêtres, ou avant
+    // le cœur) lui est transmise maintenant.
+    let asked = *end_asked.lock().unwrap();
+    app.session_ready(asked);
 
     // Raccourcis de Windows (⊞, Alt+Tab…) vers l'ordinateur en plein écran :
     // un seul crochet pour toutes les sessions, tenu tant qu'il en reste une.

@@ -53,6 +53,9 @@ The connection screen shows the steps, nothing else:
 | 3 | « Premières images » | “First frames” |
 | Failure | « La connexion a échoué », then the reason in one sentence | “The connection failed”, then the reason |
 | Button | « Annuler » | “Cancel” |
+| Computer not answering | « La connexion a échoué : l'ordinateur ne répond pas (rien en {secondes} s) : vérifiez qu'il est allumé et que KyberNow Station tourne, puis réessayez » | “The connection failed: the computer is not responding (nothing in {seconds} s): check that it is on and that KyberNow Station is running, then try again” |
+
+A connection never waits forever: each set-up call (Admin, relay) has its own timeout, and a computer that does not answer ends with “The connection failed”, with the reason above. “Cancel” stops the connection right away, at any step, without waiting for the computer's answer; the connection screen closes at once, even if the session no longer answers.
 
 If Admin answers but the picture does not arrive despite the session's own repairs (keyframe, restart, lower bitrate, 4:2:0), or the connection to the streaming engine fails, the app restarts the Station, once, without ending another device's session, waits for it to come back (1 min 30 at most) and tries to connect once more. The connection screen says so: « La Station redémarre… » / “The Station is restarting…”, then resumes its steps. If the picture still does not come: “The connection failed”, and the reason.
 
@@ -458,7 +461,7 @@ At the bottom:
 | Adding | « Ajouter un ordinateur » (Mac: « Ajouter un ordinateur… ») | “Add a computer” (Mac: “Add a computer…”) |
 | App settings | « Réglages de l'app » (Mac: « Réglages de l'app… ») | “App settings” (Mac: “App settings…”) |
 | App update | Mac: « Rechercher des mises à jour… »; Windows: « Version {v} disponible » when a version is waiting (opens the app settings), otherwise « Rechercher des mises à jour » (opens the app settings and starts the check) | “Check for updates…”; “Version {v} available”; “Check for updates” |
-| Quit | « Quitter KyberNow Link »; the sessions in progress end first | “Quit KyberNow Link” |
+| Quit | « Quitter KyberNow Link »; the sessions in progress end first, a few seconds at most (5 s on Windows): then the app closes anyway | “Quit KyberNow Link” |
 
 ### Window and startup
 

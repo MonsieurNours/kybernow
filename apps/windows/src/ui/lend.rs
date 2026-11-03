@@ -596,6 +596,23 @@ pub fn lend_connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
     if let Some(f) = &follow {
         open_connexion(&app, &connexion, f.at, (f.client.0 as u32, f.client.1 as u32), &title);
     }
+    let events = Arc::new(UiEvents {
+        app: app.clone(),
+        id: id.clone(),
+        sent: sent.clone(),
+        stats: stats.clone(),
+        spec,
+        this_screen,
+        spot,
+        first,
+        connexion,
+        guest: None,
+        borrow: Some(borrow.clone()),
+        share: share.clone(),
+        lend: lend_view.clone(),
+        lend_seen: AtomicBool::new(false),
+        route: route.clone(),
+    });
     let mut running = state.sessions.lock().unwrap();
     let host = SessionHost::start_as(
         session,
@@ -614,30 +631,13 @@ pub fn lend_connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
             title_stats: false,
             layout,
         },
-        Arc::new(UiEvents {
-            app: app.clone(),
-            id: id.clone(),
-            sent: sent.clone(),
-            stats: stats.clone(),
-            spec,
-            this_screen,
-            spot,
-            first,
-            connexion,
-            guest: None,
-            borrow: Some(borrow.clone()),
-            share: share.clone(),
-            lend: lend_view.clone(),
-            lend_seen: AtomicBool::new(false),
-            route: route.clone(),
-        }),
+        events.clone(),
     );
-    running.push(Running { id: id.clone(), name: title, host, bar, sent, stats, guest: None, borrow: Some(borrow), share, lend: lend_view, route });
+    running.push(Running { id: id.clone(), name: title, host, bar, sent, stats, guest: None, borrow: Some(borrow), share, lend: lend_view, route, events });
+    let cancelled = take_cancelled_launch(&state, &id);
     drop(running);
     drop(_launching);
-    if state.quitting.load(Ordering::Relaxed) {
-        end_instance(&state, session, "Quitter pendant le lancement");
-    }
+    after_launch(&app, session, cancelled);
     emit_sessions(&app);
     Ok(ConnectInfo { screens: 1, windowed: !first })
 }
