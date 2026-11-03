@@ -226,8 +226,14 @@ final class ScreenPadView: UIView {
     }
     /// Le petit bouton de la manette : passer à l'autre disposition.
     var onToggleLayout: (() -> Void)?
+    /// Où partent les appuis : la session d'un ordinateur (GamepadBridge) ou
+    /// la partie sur une console (PlayStationPads).
+    var bridge: ScreenPadSink = GamepadBridge.shared
+    /// Les signes de la manette PlayStation (✕ ○ □ △, L1, R2…) au lieu de ceux de la Xbox.
+    var playstation = false {
+        didSet { if playstation != oldValue { rebuildLayers() } }
+    }
 
-    private let bridge = GamepadBridge.shared
     private let feedback = PadHaptics()
     private var geometry: PadGeometry?
     private var layers: [PadControl: ControlLayers] = [:]
@@ -565,7 +571,7 @@ final class ScreenPadView: UIView {
             return
         }
         for (control, item) in geometry.items {
-            let l = ControlLayers(control: control, frame: item.frame, scale: geometry.scale, screenScale: window?.screen.scale ?? 3)
+            let l = ControlLayers(control: control, frame: item.frame, scale: geometry.scale, screenScale: window?.screen.scale ?? 3, playstation: playstation)
             layer.addSublayer(l.root)
             layers[control] = l
         }
@@ -667,7 +673,7 @@ private final class ControlLayers {
     private let screenScale: CGFloat
     private var lastToggleSimple: Bool?
 
-    init(control: PadControl, frame: CGRect, scale: CGFloat, screenScale: CGFloat) {
+    init(control: PadControl, frame: CGRect, scale: CGFloat, screenScale: CGFloat, playstation: Bool = false) {
         self.control = control
         self.s = scale
         self.screenScale = screenScale
@@ -718,13 +724,15 @@ private final class ControlLayers {
             root.addSublayer(g)
             gauge = g
             gaugeMask = mask
-            addLabel(control == .lt ? "LT" : "RT", size: 15, at: CGPoint(x: bounds.midX, y: bounds.minY + 17 * scale))
+            addLabel(playstation ? (control == .lt ? "L2" : "R2") : (control == .lt ? "LT" : "RT"), size: 15, at: CGPoint(x: bounds.midX, y: bounds.minY + 17 * scale))
         case .lb, .rb:
             plate.path = UIBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), cornerRadius: bounds.height / 2).cgPath
-            addLabel(control == .lb ? "LB" : "RB", size: 15, at: CGPoint(x: bounds.midX, y: bounds.midY))
+            addLabel(playstation ? (control == .lb ? "L1" : "R1") : (control == .lb ? "LB" : "RB"), size: 15, at: CGPoint(x: bounds.midX, y: bounds.midY))
         case .a, .b, .x, .y:
             plate.path = UIBezierPath(ovalIn: bounds.insetBy(dx: 0.5, dy: 0.5)).cgPath
-            addLabel(control.rawValue.uppercased(), size: 21, at: CGPoint(x: bounds.midX, y: bounds.midY))
+            // PlayStation : Croix en bas (A), Rond à droite (B), Carré à gauche (X), Triangle en haut (Y).
+            let ps: [PadControl: String] = [.a: "✕", .b: "○", .x: "□", .y: "△"]
+            addLabel(playstation ? ps[control] ?? "" : control.rawValue.uppercased(), size: 21, at: CGPoint(x: bounds.midX, y: bounds.midY))
         case .view:
             plate.path = UIBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), cornerRadius: bounds.height / 2).cgPath
             // Deux fenêtres décalées.
@@ -946,6 +954,8 @@ struct ScreenPadOverlay: UIViewRepresentable {
     let opacity: Double
     let haptics: ScreenPadHaptics
     var topReserved: CGFloat = 0
+    /// Partie sur une console : les appuis vont à `PlayStationPads`, signes PlayStation.
+    var playstation = false
     let toggle: () -> Void
 
     func makeUIView(context: Context) -> ScreenPadView {
@@ -958,6 +968,8 @@ struct ScreenPadOverlay: UIViewRepresentable {
 
     private func update(_ view: ScreenPadView) {
         view.onToggleLayout = toggle
+        view.bridge = playstation ? PlayStationPads.shared : GamepadBridge.shared
+        view.playstation = playstation
         view.haptics = haptics
         view.size = size
         view.padOpacity = CGFloat(opacity)
@@ -969,3 +981,13 @@ struct ScreenPadOverlay: UIViewRepresentable {
         view.releaseEverything()
     }
 }
+
+/// Où la manette à l'écran envoie ses appuis.
+protocol ScreenPadSink: AnyObject {
+    func screenPadButton(_ button: PadButton, pressed: Bool)
+    func screenPadStick(right: Bool, x: Float, y: Float)
+    func screenPadTrigger(right: Bool, value: Float)
+}
+
+extension GamepadBridge: ScreenPadSink {}
+extension PlayStationPads: ScreenPadSink {}

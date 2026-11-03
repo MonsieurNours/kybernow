@@ -604,6 +604,20 @@ Pas de profil, d'écrans, de presse-papiers, de partage ni de « Ordinateurs ».
 | Fin, injoignable | « La console ne répond pas. » | “The console isn't answering.” |
 | Fin, par la console | « La console a terminé la partie. » | “The console ended the session.” |
 
+**iPhone et iPad** (même contrat ; ce que l'appareil ne permet pas est absent) :
+
+| Élément | Français | English |
+|---|---|---|
+| Partie | toujours en plein écran (pas de réglage « Ouvrir la partie en plein écran », pas de « Plein écran » dans la barre) ; sur iPhone, en paysage | |
+| Barre | ouverte par la languette, en glissant depuis le bord haut ou par Options + Create + L1 + R1 ; dans l'ordre : « Statistiques », « Couper le son » / « Rétablir le son », « Manette à l'écran », « Réglages » (libellé accessible « Réglages de {nom} »), « Mettre la console en veille », puis, fixes : « Par le relais » s'il y a lieu, masquer la barre, « Se déconnecter » ; pas de « Prendre la souris » | “Statistics”, “Mute” / “Unmute”, “On-screen controller”, “Settings”, “Put the console in rest mode”, “Disconnect” |
+| Statistiques | les trois lignes de la barre de la partie, en feuille sur iPhone, en panneau sur iPad ; « Chemin : … » par le relais | |
+| Manette à l'écran | celle des sessions d'ordinateur (mêmes dispositions, mêmes gestes), avec les signes de la manette PlayStation : ✕ ○ □ △, L1, R1, L2, R2 ; retenue pour chaque console ; affichée, elle compte comme une manette branchée | |
+| Clavier et souris (iPad) | traduits en manette comme sur Mac, sans capture à demander (le pointeur d'iPadOS est caché sur l'image) ; ⌃⌥⌘D se déconnecte, ⌃⌥⌘S ouvre les statistiques ; la disposition se règle seulement sur iPad | |
+| Clavier de la console | un champ en bas de l'image, au-dessus du clavier : avec un clavier branché, le bandeau « Tapez votre texte · Entrée pour valider · Échap pour annuler » ; sans, « Tapez votre texte » et le clavier de l'écran (sa touche « OK » valide) ; « Annuler » refuse | “Type your text” |
+| Agrandissement, aide | « La console envoie du 1080p au plus : l'image est agrandie aux pixels de votre écran par la puce graphique de l'appareil. Coupé de lui-même si cet appareil est trop lent. » | “The console sends 1080p at most: the device's graphics chip upscales the picture to your screen's pixels. Turns itself off if this device is too slow.” |
+| Manette, aide | « Pour la DualSense. » (pas de vibrations HD : iOS ne donne pas la carte son de la manette ; vibrations simples) | “For the DualSense.” |
+| iCloud (Réglages de l'app) | « Ordinateurs et consoles : vos ordinateurs et leurs accès, vos comptes PlayStation et leurs consoles suivent votre Mac et vos autres appareils, sans rien taper. Mots de passe et associations dans le Trousseau iCloud, chiffré de bout en bout. » | “Computers and consoles: your computers and their access, your PlayStation accounts and their consoles follow your Mac and your other devices, without typing anything. Passwords and pairings in iCloud Keychain, end-to-end encrypted.” |
+
 ## Où sont les textes
 
 Chaque app garde ses catalogues ([i18n.md](i18n.md), « Fichiers ») ; les textes ci-dessus y sont recopiés à l'identique. Un texte propre à une plateforme suit les mêmes règles.

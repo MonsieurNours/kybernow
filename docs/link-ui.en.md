@@ -604,6 +604,20 @@ No profile, displays, clipboard, sharing or “Computers”.
 | Fin, injoignable | « La console ne répond pas. » | “The console isn't answering.” |
 | Fin, par la console | « La console a terminé la partie. » | “The console ended the session.” |
 
+**iPhone and iPad** (same contract; what the device can't do is absent):
+
+| Element | Français | English |
+|---|---|---|
+| Game | always full screen (no “Open the game in full screen” setting, no “Full screen” in the bar); landscape on iPhone | |
+| Bar | opened by the tab, by swiping down from the top edge or with Options + Create + L1 + R1; in order: « Statistiques », « Couper le son » / « Rétablir le son », « Manette à l'écran », « Réglages » (accessibility label « Réglages de {nom} »), « Mettre la console en veille », then, fixed: « Par le relais » when relevant, hide the bar, « Se déconnecter »; no “Capture the mouse” | “Statistics”, “Mute” / “Unmute”, “On-screen controller”, “Settings”, “Put the console in rest mode”, “Disconnect” |
+| Statistics | the game bar's three lines, as a sheet on iPhone, a panel on iPad; « Chemin : … » through the relay | |
+| On-screen controller | the computer sessions' one (same layouts, same gestures), with PlayStation signs: ✕ ○ □ △, L1, R1, L2, R2; remembered per console; shown, it counts as a connected controller | |
+| Keyboard and mouse (iPad) | turned into a controller as on Mac, no capture to ask for (the iPadOS pointer is hidden over the picture); ⌃⌥⌘D disconnects, ⌃⌥⌘S opens the statistics; the layout is set on iPad only | |
+| Console keyboard | a field at the bottom of the picture, above the keyboard: with a hardware keyboard, the banner « Tapez votre texte · Entrée pour valider · Échap pour annuler »; without, « Tapez votre texte » and the on-screen keyboard (its “OK” key accepts); « Annuler » rejects | “Type your text” |
+| Upscaling, help | « La console envoie du 1080p au plus : l'image est agrandie aux pixels de votre écran par la puce graphique de l'appareil. Coupé de lui-même si cet appareil est trop lent. » | “The console sends 1080p at most: the device's graphics chip upscales the picture to your screen's pixels. Turns itself off if this device is too slow.” |
+| Controller, help | « Pour la DualSense. » (no HD haptics: iOS doesn't expose the controller's sound card; simple rumble) | “For the DualSense.” |
+| iCloud (App settings) | « Ordinateurs et consoles : vos ordinateurs et leurs accès, vos comptes PlayStation et leurs consoles suivent votre Mac et vos autres appareils, sans rien taper. Mots de passe et associations dans le Trousseau iCloud, chiffré de bout en bout. » | “Computers and consoles: your computers and their access, your PlayStation accounts and their consoles follow your Mac and your other devices, without typing anything. Passwords and pairings in iCloud Keychain, end-to-end encrypted.” |
+
 ## Where the texts live
 
 Each app keeps its catalogues ([i18n.en.md](i18n.en.md), “Files”); the texts above are copied into them verbatim. A platform-specific text follows the same rules.

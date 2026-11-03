@@ -1,9 +1,6 @@
 {
   "sourceLanguage" : "fr",
   "strings" : {
-    "" : {
-      "shouldTranslate" : false
-    },
     " · « %@ » dans la barre" : {
       "localizations" : {
         "en" : {
@@ -148,6 +145,22 @@
         }
       }
     },
+    "%@ droite" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Right %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ droite"
+          }
+        }
+      }
+    },
     "%@ est ajouté" : {
       "localizations" : {
         "en" : {
@@ -212,6 +225,22 @@
         }
       }
     },
+    "%@ gauche" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Left %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ gauche"
+          }
+        }
+      }
+    },
     "%@ ne répond pas encore" : {
       "localizations" : {
         "en" : {
@@ -240,6 +269,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ ne répond pas. Il est peut-être en veille."
+          }
+        }
+      }
+    },
+    "%@ ne répond plus." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ isn't answering any more."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ ne répond plus."
           }
         }
       }
@@ -452,6 +497,86 @@
         }
       }
     },
+    "%lld %%" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld%%"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld %%"
+          }
+        }
+      }
+    },
+    "%lld Mbit/s" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld Mbit/s"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld Mbit/s"
+          }
+        }
+      }
+    },
+    "%lld Mbit/s demandés" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld Mbit/s requested"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld Mbit/s demandés"
+          }
+        }
+      }
+    },
+    "%lld compte(s) et %lld console(s) reçus." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld account(s) and %lld console(s) received."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld compte(s) et %lld console(s) reçus."
+          }
+        }
+      }
+    },
+    "%lld consoles" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld consoles"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld consoles"
+          }
+        }
+      }
+    },
     "%lld demandes" : {
       "localizations" : {
         "en" : {
@@ -464,6 +589,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%lld demandes"
+          }
+        }
+      }
+    },
+    "%lld i/s" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld fps"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld i/s"
           }
         }
       }
@@ -640,6 +781,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%lld écrans, à la taille de ceux de cet appareil, en HDR"
+          }
+        }
+      }
+    },
+    "1 console" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 console"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 console"
           }
         }
       }
@@ -1092,6 +1249,22 @@
         }
       }
     },
+    "Agrandir l'image à la taille de l'écran" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Upscale the picture to the screen size"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agrandir l'image à la taille de l'écran"
+          }
+        }
+      }
+    },
     "AirPods, enceintes Bluetooth, AirPlay : une alerte au-delà de 40 ms ajoutées." : {
       "localizations" : {
         "en" : {
@@ -1156,6 +1329,22 @@
         }
       }
     },
+    "Ajouter un compte" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add an account"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ajouter un compte"
+          }
+        }
+      }
+    },
     "Ajouter un ordinateur" : {
       "localizations" : {
         "en" : {
@@ -1168,6 +1357,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ajouter un ordinateur"
+          }
+        }
+      }
+    },
+    "Ajouter un ordinateur ou une console" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add a computer or a console"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ajouter un ordinateur ou une console"
           }
         }
       }
@@ -1216,6 +1421,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Allume l'ordinateur à distance quand il est en veille. Il faut aussi l'autoriser sur l'ordinateur (Admin › Système)."
+          }
+        }
+      }
+    },
+    "Allumée" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Allumée"
           }
         }
       }
@@ -1332,6 +1553,22 @@
         }
       }
     },
+    "Appuyez sur une touche ou cliquez…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Press a key or click…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Appuyez sur une touche ou cliquez…"
+          }
+        }
+      }
+    },
     "Après une coupure, la session reprend où elle était." : {
       "localizations" : {
         "en" : {
@@ -1360,6 +1597,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Arrêter le partage"
+          }
+        }
+      }
+    },
+    "Associer" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pair"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Associer"
+          }
+        }
+      }
+    },
+    "Associer avec un autre compte" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pair with another account"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Associer avec un autre compte"
+          }
+        }
+      }
+    },
+    "Associée : %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Paired: %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Associée : %@"
           }
         }
       }
@@ -1428,6 +1713,38 @@
         }
       }
     },
+    "Aucun appareil en attente. Sur la télé ou l'autre appareil : Ajouter une console › Recevoir d'un autre appareil." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No device waiting. On the TV or the other device: Add a console › Receive from another device."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucun appareil en attente. Sur la télé ou l'autre appareil : Ajouter une console › Recevoir d'un autre appareil."
+          }
+        }
+      }
+    },
+    "Aucun compte : ajoutez-en un pour associer une console." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No account: add one to pair a console."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucun compte : ajoutez-en un pour associer une console."
+          }
+        }
+      }
+    },
     "Aucun ordinateur dans iCloud pour l'instant." : {
       "localizations" : {
         "en" : {
@@ -1476,6 +1793,22 @@
         }
       }
     },
+    "Aucune" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "None"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucune"
+          }
+        }
+      }
+    },
     "Aucune Station sur ce réseau pour l'instant…" : {
       "localizations" : {
         "en" : {
@@ -1488,6 +1821,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Aucune Station sur ce réseau pour l'instant…"
+          }
+        }
+      }
+    },
+    "Aucune console" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No console"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucune console"
+          }
+        }
+      }
+    },
+    "Aucune console trouvée. Allumez-la ou mettez-la en veille, ou saisissez son adresse dans « Par adresse »." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No console found. Turn it on or put it in rest mode, or enter its address in “By address”."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucune console trouvée. Allumez-la ou mettez-la en veille, ou saisissez son adresse dans « Par adresse »."
           }
         }
       }
@@ -1700,6 +2065,22 @@
         }
       }
     },
+    "Avec quel compte ?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Which account?"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avec quel compte ?"
+          }
+        }
+      }
+    },
     "Avec un compte d'ami" : {
       "localizations" : {
         "en" : {
@@ -1796,6 +2177,38 @@
         }
       }
     },
+    "Bouton %lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Button %lld"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bouton %lld"
+          }
+        }
+      }
+    },
+    "Bouton PS" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PS button"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bouton PS"
+          }
+        }
+      }
+    },
     "Bureau" : {
       "localizations" : {
         "en" : {
@@ -1876,6 +2289,22 @@
         }
       }
     },
+    "Carré" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Square"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Carré"
+          }
+        }
+      }
+    },
     "Carte graphique" : {
       "localizations" : {
         "en" : {
@@ -1888,6 +2317,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Carte graphique"
+          }
+        }
+      }
+    },
+    "Ce compte est déjà là." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This account is already here."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce compte est déjà là."
           }
         }
       }
@@ -2260,22 +2705,6 @@
         }
       }
     },
-    "Cinq voies" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Five ways"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cinq voies"
-          }
-        }
-      }
-    },
     "Clavier" : {
       "localizations" : {
         "en" : {
@@ -2340,6 +2769,70 @@
         }
       }
     },
+    "Clic droit" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Right click"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clic droit"
+          }
+        }
+      }
+    },
+    "Clic du milieu" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Middle click"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clic du milieu"
+          }
+        }
+      }
+    },
+    "Clic gauche" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Left click"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clic gauche"
+          }
+        }
+      }
+    },
+    "Cliquez dans l'image pour jouer au clavier et à la souris" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Click the picture to play with keyboard and mouse"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cliquez dans l'image pour jouer au clavier et à la souris"
+          }
+        }
+      }
+    },
     "Code" : {
       "localizations" : {
         "en" : {
@@ -2384,6 +2877,86 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Code et QR code"
+          }
+        }
+      }
+    },
+    "Code expiré." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Code expired."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Code expiré."
+          }
+        }
+      }
+    },
+    "Code refusé : il change toutes les 5 minutes." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Code refused: it changes every 5 minutes."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Code refusé : il change toutes les 5 minutes."
+          }
+        }
+      }
+    },
+    "Code refusé : vérifiez-le sur %@." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Code refused: check it on %@."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Code refusé : vérifiez-le sur %@."
+          }
+        }
+      }
+    },
+    "Code à 6 chiffres" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "6-digit code"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Code à 6 chiffres"
+          }
+        }
+      }
+    },
+    "Code à 8 chiffres" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "8-digit code"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Code à 8 chiffres"
           }
         }
       }
@@ -2596,6 +3169,38 @@
         }
       }
     },
+    "Compte : %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Account: %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Compte : %@"
+          }
+        }
+      }
+    },
+    "Compte PlayStation" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PlayStation account"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Compte PlayStation"
+          }
+        }
+      }
+    },
     "Compte Steam" : {
       "localizations" : {
         "en" : {
@@ -2608,6 +3213,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Compte Steam"
+          }
+        }
+      }
+    },
+    "Comptes PlayStation Network" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PlayStation Network accounts"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Comptes PlayStation Network"
+          }
+        }
+      }
+    },
+    "Comptes et consoles envoyés à %@." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Accounts and consoles sent to %@."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Comptes et consoles envoyés à %@."
+          }
+        }
+      }
+    },
+    "Connectez-vous au compte PlayStation Network à associer. KyberNow lit seulement l'identifiant et le pseudo du compte, une seule fois." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sign in to the PlayStation Network account to pair. KyberNow only reads the account's ID and online ID, once."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connectez-vous au compte PlayStation Network à associer. KyberNow lit seulement l'identifiant et le pseudo du compte, une seule fois."
           }
         }
       }
@@ -2676,6 +3329,22 @@
         }
       }
     },
+    "Connexion à la console…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connecting to the console…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connexion à la console…"
+          }
+        }
+      }
+    },
     "Conseillé" : {
       "localizations" : {
         "en" : {
@@ -2688,6 +3357,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Conseillé"
+          }
+        }
+      }
+    },
+    "Console injoignable." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Console unreachable."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Console injoignable."
+          }
+        }
+      }
+    },
+    "Consoles sur ce réseau" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Consoles on this network"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Consoles sur ce réseau"
           }
         }
       }
@@ -2784,6 +3485,118 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Couleurs plus riches et lumières plus vives, sur cet écran HDR. Le texte net (4:4:4) n'existe pas en HDR."
+          }
+        }
+      }
+    },
+    "Couper le son" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mute"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couper le son"
+          }
+        }
+      }
+    },
+    "Create" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Create"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Create"
+          }
+        }
+      }
+    },
+    "Croix" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cross"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Croix"
+          }
+        }
+      }
+    },
+    "Croix directionnelle vers la droite" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "D-pad right"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Croix directionnelle vers la droite"
+          }
+        }
+      }
+    },
+    "Croix directionnelle vers la gauche" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "D-pad left"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Croix directionnelle vers la gauche"
+          }
+        }
+      }
+    },
+    "Croix directionnelle vers le bas" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "D-pad down"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Croix directionnelle vers le bas"
+          }
+        }
+      }
+    },
+    "Croix directionnelle vers le haut" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "D-pad up"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Croix directionnelle vers le haut"
           }
         }
       }
@@ -2996,6 +3809,22 @@
         }
       }
     },
+    "Disposition par défaut" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Default layout"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disposition par défaut"
+          }
+        }
+      }
+    },
     "Donner le clavier et la souris" : {
       "localizations" : {
         "en" : {
@@ -3040,6 +3869,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Données mobiles"
+          }
+        }
+      }
+    },
+    "Douce" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Soft"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Douce"
           }
         }
       }
@@ -3444,6 +4289,22 @@
         }
       }
     },
+    "En veille" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In rest mode"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En veille"
+          }
+        }
+      }
+    },
     "Encodage" : {
       "localizations" : {
         "en" : {
@@ -3552,6 +4413,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Envoi"
+          }
+        }
+      }
+    },
+    "Envoyer" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Send"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Envoyer"
+          }
+        }
+      }
+    },
+    "Envoyer à un appareil" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Send to a device"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Envoyer à un appareil"
+          }
+        }
+      }
+    },
+    "Espace" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Space"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Espace"
           }
         }
       }
@@ -3718,6 +4627,22 @@
         }
       }
     },
+    "Format" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Format"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Format"
+          }
+        }
+      }
+    },
     "Format vidéo" : {
       "localizations" : {
         "en" : {
@@ -3826,6 +4751,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Gros débit en données mobiles : environ %@ Go par heure, et des images perdues si le réseau faiblit."
+          }
+        }
+      }
+    },
+    "Gâchettes adaptatives" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Adaptive triggers"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gâchettes adaptatives"
+          }
+        }
+      }
+    },
+    "H.265 si cet appareil le lit." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "H.265 if this device can play it."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "H.265 si cet appareil le lit."
           }
         }
       }
@@ -3958,6 +4915,38 @@
         }
       }
     },
+    "Identifiant du compte" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Account ID"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Identifiant du compte"
+          }
+        }
+      }
+    },
+    "Identifiant du compte non lu : réessayez, ou saisissez-le à la main." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't read the account ID: try again, or enter it by hand."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Identifiant du compte non lu : réessayez, ou saisissez-le à la main."
+          }
+        }
+      }
+    },
     "Identifiant ou mot de passe refusé." : {
       "localizations" : {
         "en" : {
@@ -4086,6 +5075,38 @@
         }
       }
     },
+    "Images par seconde" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Frame rate"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Images par seconde"
+          }
+        }
+      }
+    },
+    "Images perdues : %lld · réparées : %lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pictures lost: %lld · repaired: %lld"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Images perdues : %lld · réparées : %lld"
+          }
+        }
+      }
+    },
     "Immédiat" : {
       "localizations" : {
         "en" : {
@@ -4134,6 +5155,38 @@
         }
       }
     },
+    "Inclinaison minimale" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Minimum tilt"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Inclinaison minimale"
+          }
+        }
+      }
+    },
+    "Inverser l'axe vertical" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invert vertical axis"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Inverser l'axe vertical"
+          }
+        }
+      }
+    },
     "Invité sur %@" : {
       "localizations" : {
         "en" : {
@@ -4178,6 +5231,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Jeu"
+          }
+        }
+      }
+    },
+    "Jouer" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Play"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jouer"
           }
         }
       }
@@ -4306,6 +5375,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "KyberNow Station %@ est en place."
+          }
+        }
+      }
+    },
+    "L'adresse d'un ordinateur, ou d'une console PlayStation (par un VPN ou depuis un autre réseau)." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The address of a computer, or of a PlayStation console (through a VPN or from another network)."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L'adresse d'un ordinateur, ou d'une console PlayStation (par un VPN ou depuis un autre réseau)."
           }
         }
       }
@@ -4598,6 +5683,22 @@
         }
       }
     },
+    "La PS4 n'envoie que du H.264." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The PS4 only sends H.264."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La PS4 n'envoie que du H.264."
+          }
+        }
+      }
+    },
     "La Station a redémarré." : {
       "localizations" : {
         "en" : {
@@ -4710,6 +5811,166 @@
         }
       }
     },
+    "La console a terminé la partie." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The console ended the session."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console a terminé la partie."
+          }
+        }
+      }
+    },
+    "La console envoie du 1080p au plus : l'image est agrandie aux pixels de votre écran par la puce graphique de l'appareil. Coupé de lui-même si cet appareil est trop lent." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The console sends 1080p at most: the device's graphics chip upscales the picture to your screen's pixels. Turns itself off if this device is too slow."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console envoie du 1080p au plus : l'image est agrandie aux pixels de votre écran par la puce graphique de l'appareil. Coupé de lui-même si cet appareil est trop lent."
+          }
+        }
+      }
+    },
+    "La console envoie du 1080p au plus : l'image est agrandie aux pixels de votre écran par la puce graphique du Mac. Coupé de lui-même si ce Mac est trop lent." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The console sends 1080p at most: the Mac's graphics chip upscales the picture to your screen's pixels. Turns itself off if this Mac is too slow."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console envoie du 1080p au plus : l'image est agrandie aux pixels de votre écran par la puce graphique du Mac. Coupé de lui-même si ce Mac est trop lent."
+          }
+        }
+      }
+    },
+    "La console est déjà jouée à distance par un autre appareil." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The console is already being played remotely by another device."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console est déjà jouée à distance par un autre appareil."
+          }
+        }
+      }
+    },
+    "La console ne la reçoit plus" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The console no longer receives it"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console ne la reçoit plus"
+          }
+        }
+      }
+    },
+    "La console ne peut pas diffuser ce qu'elle affiche." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The console can't stream what it's showing."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console ne peut pas diffuser ce qu'elle affiche."
+          }
+        }
+      }
+    },
+    "La console ne reconnaît plus cet appareil : associez-la de nouveau." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The console no longer recognizes this device: pair it again."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console ne reconnaît plus cet appareil : associez-la de nouveau."
+          }
+        }
+      }
+    },
+    "La console ne répond pas : gardez l'écran « Associer un appareil » ouvert." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The console isn't answering: keep the “Link Device” screen open."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console ne répond pas : gardez l'écran « Associer un appareil » ouvert."
+          }
+        }
+      }
+    },
+    "La console ne répond pas." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The console isn't answering."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console ne répond pas."
+          }
+        }
+      }
+    },
+    "La console refuse ce compte." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The console refuses this account."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console refuse ce compte."
+          }
+        }
+      }
+    },
     "La meilleure image que cet appareil affiche." : {
       "localizations" : {
         "en" : {
@@ -4758,6 +6019,22 @@
         }
       }
     },
+    "La plus haute que la console accepte : 1080p." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The highest the console accepts: 1080p."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La plus haute que la console accepte : 1080p."
+          }
+        }
+      }
+    },
     "La réactivité d'abord, pour jouer." : {
       "localizations" : {
         "en" : {
@@ -4786,6 +6063,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La session s'est arrêtée"
+          }
+        }
+      }
+    },
+    "La souris tient le stick droit" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The mouse holds the right stick"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La souris tient le stick droit"
           }
         }
       }
@@ -4930,6 +6223,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Le clavier et la souris sont repris."
+          }
+        }
+      }
+    },
+    "Le clavier et la souris tiennent lieu de manette. Une manette branchée les remplace." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The keyboard and mouse stand in for a controller. A connected controller replaces them."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le clavier et la souris tiennent lieu de manette. Une manette branchée les remplace."
           }
         }
       }
@@ -5606,6 +6915,22 @@
         }
       }
     },
+    "Mettre la console en veille" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Put the console in rest mode"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mettre la console en veille"
+          }
+        }
+      }
+    },
     "Mettre à jour la Station" : {
       "localizations" : {
         "en" : {
@@ -5830,6 +7155,22 @@
         }
       }
     },
+    "Netteté" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sharpness"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Netteté"
+          }
+        }
+      }
+    },
     "Noir" : {
       "localizations" : {
         "en" : {
@@ -5842,6 +7183,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Noir"
+          }
+        }
+      }
+    },
+    "Nom" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Name"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nom"
           }
         }
       }
@@ -5906,6 +7263,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Opacité"
+          }
+        }
+      }
+    },
+    "Options" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Options"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Options"
           }
         }
       }
@@ -5990,6 +7363,22 @@
         }
       }
     },
+    "Ordinateurs et consoles : vos ordinateurs et leurs accès, vos comptes PlayStation et leurs consoles suivent votre Mac et vos autres appareils, sans rien taper. Mots de passe et associations dans le Trousseau iCloud, chiffré de bout en bout." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Computers and consoles: your computers and their access, your PlayStation accounts and their consoles follow your Mac and your other devices, without typing anything. Passwords and pairings in iCloud Keychain, end-to-end encrypted."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ordinateurs et consoles : vos ordinateurs et leurs accès, vos comptes PlayStation et leurs consoles suivent votre Mac et vos autres appareils, sans rien taper. Mots de passe et associations dans le Trousseau iCloud, chiffré de bout en bout."
+          }
+        }
+      }
+    },
     "Ou collez le lien kybernow:// copié depuis KyberNow Admin." : {
       "localizations" : {
         "en" : {
@@ -6050,6 +7439,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ouvrir Admin"
+          }
+        }
+      }
+    },
+    "Ouvrir la partie en plein écran" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open the game in full screen"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ouvrir la partie en plein écran"
           }
         }
       }
@@ -6262,6 +7667,22 @@
         }
       }
     },
+    "Pavé %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keypad %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pavé %@"
+          }
+        }
+      }
+    },
     "Pavé tactile" : {
       "localizations" : {
         "en" : {
@@ -6374,6 +7795,22 @@
         }
       }
     },
+    "PlayStation" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PlayStation"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PlayStation"
+          }
+        }
+      }
+    },
     "Plein écran" : {
       "localizations" : {
         "en" : {
@@ -6418,6 +7855,70 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Port d'Admin"
+          }
+        }
+      }
+    },
+    "Pour la DualSense." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "For the DualSense."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pour la DualSense."
+          }
+        }
+      }
+    },
+    "Pour la DualSense. Les vibrations HD passent par la manette branchée en USB." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "For the DualSense. HD haptics go through the controller plugged in over USB."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pour la DualSense. Les vibrations HD passent par la manette branchée en USB."
+          }
+        }
+      }
+    },
+    "Pour le reconnaître dans la liste." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "To recognise it in the list."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pour le reconnaître dans la liste."
+          }
+        }
+      }
+    },
+    "Pour passer la zone morte des jeux." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "To get past games' dead zone."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pour passer la zone morte des jeux."
           }
         }
       }
@@ -6482,6 +7983,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Premières images"
+          }
+        }
+      }
+    },
+    "Prendre la souris" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Capture the mouse"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prendre la souris"
           }
         }
       }
@@ -6822,6 +8339,22 @@
         }
       }
     },
+    "Quitter le plein écran" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Exit full screen"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quitter le plein écran"
+          }
+        }
+      }
+    },
     "Rapide" : {
       "localizations" : {
         "en" : {
@@ -6850,6 +8383,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Rapide convient au réseau local et au jeu. Fiable renvoie ce qui se perd, au prix d'un peu de délai."
+          }
+        }
+      }
+    },
+    "Recevoir d'un autre appareil" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Receive from another device"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recevoir d'un autre appareil"
           }
         }
       }
@@ -7110,6 +8659,22 @@
         }
       }
     },
+    "Rendre la souris" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Release the mouse"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rendre la souris"
+          }
+        }
+      }
+    },
     "Rendu et attente du prochain rafraîchissement de l'écran" : {
       "localizations" : {
         "en" : {
@@ -7122,6 +8687,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Rendu et attente du prochain rafraîchissement de l'écran"
+          }
+        }
+      }
+    },
+    "Renommer" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rename"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Renommer"
           }
         }
       }
@@ -7350,6 +8931,54 @@
         }
       }
     },
+    "Retirer le compte %@ ?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove the account %@?"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retirer le compte %@ ?"
+          }
+        }
+      }
+    },
+    "Retirer le compte %@ et sa console ?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove the account %@ and its console?"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retirer le compte %@ et sa console ?"
+          }
+        }
+      }
+    },
+    "Retirer le compte %@ et ses %lld consoles ?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove the account %@ and its %lld consoles?"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retirer le compte %@ et ses %lld consoles ?"
+          }
+        }
+      }
+    },
     "Retour" : {
       "localizations" : {
         "en" : {
@@ -7414,6 +9043,22 @@
         }
       }
     },
+    "Reçu : %lld i/s · %@ Mbit/s" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Received: %lld fps · %@ Mbit/s"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reçu : %lld i/s · %@ Mbit/s"
+          }
+        }
+      }
+    },
     "Rien de nouveau pour l'instant." : {
       "localizations" : {
         "en" : {
@@ -7426,6 +9071,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Rien de nouveau pour l'instant."
+          }
+        }
+      }
+    },
+    "Rond" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Circle"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rond"
+          }
+        }
+      }
+    },
+    "Réactivité au départ" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Starting response"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Réactivité au départ"
           }
         }
       }
@@ -7574,6 +9251,22 @@
         }
       }
     },
+    "Rétablir le son" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unmute"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rétablir le son"
+          }
+        }
+      }
+    },
     "Réveil de l'ordinateur…" : {
       "localizations" : {
         "en" : {
@@ -7586,6 +9279,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Réveil de l'ordinateur…"
+          }
+        }
+      }
+    },
+    "Réveil de la console…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Waking the console…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Réveil de la console…"
           }
         }
       }
@@ -7606,6 +9315,22 @@
         }
       }
     },
+    "Réveiller et jouer" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wake and play"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Réveiller et jouer"
+          }
+        }
+      }
+    },
     "Réveiller l'ordinateur" : {
       "localizations" : {
         "en" : {
@@ -7618,6 +9343,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Réveiller l'ordinateur"
+          }
+        }
+      }
+    },
+    "Saisir l'identifiant à la main" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enter the ID by hand"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saisir l'identifiant à la main"
+          }
+        }
+      }
+    },
+    "Saisissez le code affiché sur %@." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enter the code shown on %@."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saisissez le code affiché sur %@."
+          }
+        }
+      }
+    },
+    "Sans HDR." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No HDR."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sans HDR."
           }
         }
       }
@@ -7734,6 +9507,22 @@
         }
       }
     },
+    "Se connecter à PlayStation Network" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sign in to PlayStation Network"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se connecter à PlayStation Network"
+          }
+        }
+      }
+    },
     "Se déconnecter" : {
       "localizations" : {
         "en" : {
@@ -7746,6 +9535,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Se déconnecter"
+          }
+        }
+      }
+    },
+    "Sensibilité" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sensitivity"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sensibilité"
+          }
+        }
+      }
+    },
+    "Ses associations sont effacées de cet appareil. Une console associée aussi avec un autre compte reste, avec cet autre compte." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Its pairings are erased from this device. A console also paired with another account stays, with that other account."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ses associations sont effacées de cet appareil. Une console associée aussi avec un autre compte reste, avec cet autre compte."
           }
         }
       }
@@ -7794,6 +9615,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Six canaux. Il faut une sortie 5.1 sur ce Mac (ampli HDMI, barre de son)."
+          }
+        }
+      }
+    },
+    "Six voies" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Six ways"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Six voies"
           }
         }
       }
@@ -8086,6 +9923,134 @@
         }
       }
     },
+    "Stick droit vers la droite" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Right stick right"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stick droit vers la droite"
+          }
+        }
+      }
+    },
+    "Stick droit vers la gauche" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Right stick left"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stick droit vers la gauche"
+          }
+        }
+      }
+    },
+    "Stick droit vers le bas" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Right stick down"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stick droit vers le bas"
+          }
+        }
+      }
+    },
+    "Stick droit vers le haut" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Right stick up"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stick droit vers le haut"
+          }
+        }
+      }
+    },
+    "Stick gauche vers la droite" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Left stick right"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stick gauche vers la droite"
+          }
+        }
+      }
+    },
+    "Stick gauche vers la gauche" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Left stick left"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stick gauche vers la gauche"
+          }
+        }
+      }
+    },
+    "Stick gauche vers le bas" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Left stick down"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stick gauche vers le bas"
+          }
+        }
+      }
+    },
+    "Stick gauche vers le haut" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Left stick up"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stick gauche vers le haut"
+          }
+        }
+      }
+    },
     "Stéréo" : {
       "localizations" : {
         "en" : {
@@ -8098,6 +10063,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Stéréo"
+          }
+        }
+      }
+    },
+    "Suit la définition." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Follows the resolution."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Suit la définition."
           }
         }
       }
@@ -8182,6 +10163,22 @@
         }
       }
     },
+    "Sur la console : Réglages › Système › Lecture à distance › Associer un appareil. Saisissez le code affiché." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On the console: Settings › System › Remote Play › Link Device. Enter the code shown."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sur la console : Réglages › Système › Lecture à distance › Associer un appareil. Saisissez le code affiché."
+          }
+        }
+      }
+    },
     "Sur le même réseau : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur." : {
       "localizations" : {
         "en" : {
@@ -8258,6 +10255,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sur mesure, choisie sur un autre appareil."
+          }
+        }
+      }
+    },
+    "Sur votre Mac, votre PC ou votre téléphone : Ajouter un ordinateur ou une console › PlayStation › Envoyer à un appareil, puis saisissez ce code." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On your Mac, PC or phone: Add a computer or a console › PlayStation › Send to a device, then enter this code."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sur votre Mac, votre PC ou votre téléphone : Ajouter un ordinateur ou une console › PlayStation › Envoyer à un appareil, puis saisissez ce code."
           }
         }
       }
@@ -8390,6 +10403,38 @@
         }
       }
     },
+    "Tapez votre texte" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Type your text"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tapez votre texte"
+          }
+        }
+      }
+    },
+    "Tapez votre texte · Entrée pour valider · Échap pour annuler" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Type your text · Return to accept · Escape to cancel"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tapez votre texte · Entrée pour valider · Échap pour annuler"
+          }
+        }
+      }
+    },
     "Terminer" : {
       "localizations" : {
         "en" : {
@@ -8450,6 +10495,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Texte net (4:4:4) testé au lancement : oui."
+          }
+        }
+      }
+    },
+    "Touche %lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Key %lld"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Touche %lld"
           }
         }
       }
@@ -8642,6 +10703,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Transport de l'image"
+          }
+        }
+      }
+    },
+    "Triangle" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Triangle"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Triangle"
           }
         }
       }
@@ -9014,6 +11091,22 @@
         }
       }
     },
+    "Vive" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Brisk"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vive"
+          }
+        }
+      }
+    },
     "Vos ordinateurs" : {
       "localizations" : {
         "en" : {
@@ -9026,22 +11119,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Vos ordinateurs"
-          }
-        }
-      }
-    },
-    "Vos ordinateurs et leurs accès suivent votre Mac et vos autres appareils, sans rien taper. Mots de passe dans le Trousseau iCloud, chiffré de bout en bout." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Your computers and their credentials follow your Mac and your other devices, with nothing to type. Passwords stay in iCloud Keychain, end-to-end encrypted."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Vos ordinateurs et leurs accès suivent votre Mac et vos autres appareils, sans rien taper. Mots de passe dans le Trousseau iCloud, chiffré de bout en bout."
           }
         }
       }
@@ -9719,6 +11796,22 @@
         }
       }
     },
+    "revenir à la console" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "back to the console"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "revenir à la console"
+          }
+        }
+      }
+    },
     "réel pour %@ à %lld Hz" : {
       "localizations" : {
         "en" : {
@@ -10051,6 +12144,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Étape 1 sur 3"
+          }
+        }
+      }
+    },
+    "⌃⌥⌘M pour rendre la souris" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "⌃⌥⌘M to release the mouse"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "⌃⌥⌘M pour rendre la souris"
           }
         }
       }

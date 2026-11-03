@@ -1,9 +1,12 @@
 // Les volets de l'ajout (AddHostView) : depuis le Mac (iCloud), sur le
 // réseau, code à l'écran, adresse ; puis la vérification de l'empreinte et
-// le compte. La logique est celle de l'Apple TV et du Mac ; la mise en page
+// le compte. « Sur le réseau » montre aussi les consoles PlayStation, et
+// « Adresse » cherche une console avant la Station (docs/link-ui.md,
+// « Consoles PlayStation » ; la voie « PlayStation » : PlayStationViews.swift). La logique est celle de l'Apple TV et du Mac ; la mise en page
 // suit les maquettes iOS (planche 2).
 
 import KyberKit
+import Network
 import SwiftUI
 import UIKit
 
@@ -301,6 +304,7 @@ struct AddHostNetworkPane: View {
 
     var body: some View {
         let list = app.newOnNetwork
+        let consoles = app.playstation.onNetwork
         VStack(alignment: .leading, spacing: wide ? 20 : 14) {
             AddHostHeader(eyebrow: String(localized: "Recherche sur le réseau local"), compactTitle: String(localized: "Sur le réseau"), wideTitle: String(localized: "Trouvé autour de vous")) {
                 AddHostWaitingDots(size: 7)
@@ -311,13 +315,17 @@ struct AddHostNetworkPane: View {
                     AddHostWaitingDots()
                 }
             }
-            if list.isEmpty {
+            if list.isEmpty, consoles.isEmpty {
                 Text("Rien de nouveau pour l'instant.")
                     .font(Theme.sans(wide ? 16 : 14.5)).foregroundStyle(Theme.muted)
             }
             ForEach(list) { found in
                 Button { pick(found) } label: { row(found) }
                     .buttonStyle(AddHostPressStyle())
+            }
+            // Les consoles PlayStation qui répondent, avec les ordinateurs (« {nom} · PS5 », « Associer »).
+            ForEach(consoles, id: \.hostID) { f in
+                PSFoundRow(found: f, store: app.playstation) { app.pair(fromAddSheet: $0) }
             }
             Text("Un ordinateur n'apparaît pas ? Il doit être allumé, sur le même réseau, avec KyberNow Station installée. Par VPN, passez par l'adresse ou le QR code.")
                 .font(Theme.sans(wide ? 15 : 13.5)).foregroundStyle(Theme.muted)
@@ -329,6 +337,14 @@ struct AddHostNetworkPane: View {
         .task(id: discovery.found.map(\.id)) {
             for f in discovery.found where resolved[f.id] == nil {
                 if let c = await Discovery.resolve(f) { resolved[f.id] = c }
+            }
+        }
+        // Les consoles sont cherchées tant que le volet est à l'écran (pas en démonstration).
+        .task {
+            guard !app.store.demo else { return }
+            while !Task.isCancelled {
+                if app.playstation.sessions.isEmpty { await app.playstation.searchOnce() }
+                try? await Task.sleep(for: .seconds(3))
             }
         }
     }
@@ -555,21 +571,28 @@ struct AddHostCodePane: View {
 // MARK: - Adresse
 
 struct AddHostAddressPane: View {
+    @EnvironmentObject private var app: AppModel
     @EnvironmentObject private var flow: AddHostFlow
     @EnvironmentObject private var store: HostStore
     @Environment(\.addHostWide) private var wide
     @State private var address = ""
     @State private var port = ""
     @State private var error: String?
+    /// Recherche d'une console à cette adresse en cours.
+    @State private var looking = false
 
     init() {}
 
     private var host: String { address.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var portNumber: UInt16? { UInt16(port.trimmingCharacters(in: .whitespaces)) }
+    /// Une console se cherche à une adresse IPv4 (découverte en direct) : le port est alors facultatif.
+    private var consoleAddress: Bool { IPv4Address(host) != nil }
+    private var valid: Bool { !host.isEmpty && ((portNumber ?? 0) > 0 || consoleAddress) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: wide ? 20 : 14) {
             AddHostHeader(eyebrow: String(localized: "VPN, autre réseau"), title: String(localized: "Son adresse et son port"))
+            AddHostParagraph(PSText.addressHelp)
             AddHostParagraph(String(localized: "Affichés dans KyberNow Admin, espace Appareils Link. Le port a été tiré au hasard à l'installation."))
             if wide {
                 HStack(alignment: .top, spacing: 16) {
@@ -584,14 +607,20 @@ struct AddHostAddressPane: View {
                 AddHostNotice(kind: .warn, text: error)
             }
             HStack(spacing: 16) {
-                Button("Continuer", action: next)
-                    .addHostPrimary()
-                    .disabled(host.isEmpty || portNumber == nil)
+                Button(action: next) {
+                    HStack(spacing: 10) {
+                        if looking { ProgressView().tint(.white) }
+                        Text("Continuer")
+                    }
+                }
+                .addHostPrimary()
+                .disabled(!valid || looking)
                 if wide { caption }
             }
             .padding(.top, 8)
             if !wide { caption }
         }
+        .onChange(of: address) { _, _ in error = nil }
     }
 
     private var addressField: some View {
@@ -607,9 +636,38 @@ struct AddHostAddressPane: View {
             .font(Theme.sans(wide ? 14 : 13)).foregroundStyle(Theme.faint)
     }
 
+    /// Une console et une Station cherchées à cette adresse : la console
+    /// d'abord (1,5 s), qui ouvre son association (adresse retenue) ; sinon
+    /// la Station, comme avant. Une adresse seule qui ne répond pas :
+    /// « Console injoignable. ».
     private func next() {
-        guard !host.isEmpty, let p = portNumber, p > 0 else { return }
-        let c = Candidate(name: host, address: host, port: p, expected: nil)
+        guard valid, !looking else { return }
+        let a = host
+        let port = portNumber.flatMap { $0 > 0 ? $0 : nil }
+        error = nil
+        guard consoleAddress else {
+            if let port { station(a, port) }
+            return
+        }
+        looking = true
+        Task {
+            // La découverte en direct répond aussi pour les consoles du réseau local : seule celle de cette adresse compte.
+            let list = await Task.detached(priority: .userInitiated) { PlayStation.search(direct: [a], wait: 1500) }.value
+            looking = false
+            if let console = list.first(where: { $0.address == a }) {
+                app.playstation.remember(address: a, found: console)
+                let kept = app.playstation.console(hostID: console.hostID)
+                app.pair(fromAddSheet: kept.map { PairTarget(console: $0, live: console) } ?? PairTarget(found: console))
+            } else if let port {
+                station(a, port)
+            } else {
+                error = PSText.unreachable
+            }
+        }
+    }
+
+    private func station(_ a: String, _ p: UInt16) {
+        let c = Candidate(name: a, address: a, port: p, expected: nil)
         if AddHostFlow.known(c, in: store) {
             error = String(localized: "Cet ordinateur est déjà dans vos ordinateurs.")
             return

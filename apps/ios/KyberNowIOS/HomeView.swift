@@ -27,7 +27,7 @@ struct HomeView: View {
         // iCloud, les images et les manettes, quels que soient les objets
         // d'environnement posés plus haut.
         HomeScreen(app: app, store: app.store, discovery: app.discovery, cloud: app.cloud,
-                   imagery: app.store.imagery, pads: GamepadBridge.shared, borrowed: app.borrowed)
+                   imagery: app.store.imagery, pads: GamepadBridge.shared, borrowed: app.borrowed, playstation: app.playstation)
             .environmentObject(app.store.imagery)
     }
 
@@ -44,6 +44,8 @@ struct HomeScreen: View {
     @ObservedObject var pads: GamepadBridge
     /// Les ordinateurs que des amis prêtent à cet appareil.
     @ObservedObject var borrowed: BorrowedStore
+    /// Consoles PlayStation (docs/playstation.md), dans la même rangée.
+    @ObservedObject var playstation: PlayStationStore
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -64,14 +66,21 @@ struct HomeScreen: View {
     @State private var hdrReason: String?
     @State private var removing: Host?
     @State private var removingBorrowed: BorrowedComputer?
+    @State private var removingConsole: PlayStationConsole?
     /// Adresses des ordinateurs annoncés sur le réseau, trouvées en arrière-plan.
     @State private var resolved: [String: Candidate] = [:]
 
     private static let space = "home"
 
-    private var host: Host? { app.selectedHost }
+    /// La console PlayStation en scène : choisie, ou la première quand il
+    /// n'y a ni ordinateur à soi ni ordinateur prêté.
+    private var console: PlayStationConsole? {
+        if let id = app.selected, let c = playstation.console(id) { return c }
+        return store.hosts.isEmpty && borrowed.computers.isEmpty ? playstation.consoles.first : nil
+    }
+    private var host: Host? { console == nil ? app.selectedHost : nil }
     /// L'ordinateur d'un ami en scène (prêter l'ordinateur).
-    private var friend: BorrowedComputer? { app.selectedBorrowed }
+    private var friend: BorrowedComputer? { console == nil ? app.selectedBorrowed : nil }
     private var isPad: Bool { DeviceDisplay.isPad }
     /// iPad en pleine largeur (ou presque) : la scène de l'Apple TV.
     private var wide: Bool { isPad && sizeClass == .regular }
@@ -81,7 +90,8 @@ struct HomeScreen: View {
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .topLeading) {
-                HomeBackdrop(host: host, online: host.map { online($0) != false } ?? true, wide: wide)
+                HomeBackdrop(host: host, online: host.map { online($0) != false } ?? true, wide: wide,
+                             seed: console.map { $0.hostID.isEmpty ? $0.name : $0.hostID })
                     .ignoresSafeArea()
                     .opacity(sceneShown ? 1 : 0)
                 if wide { wideLayout(geo.size) } else { compactLayout(geo.size) }
@@ -96,6 +106,11 @@ struct HomeScreen: View {
             Button(StationText.cancel, role: .cancel) {}
         }
         // L'ordinateur d'un ami : « Retirer l'ordinateur de {hôte} de cet appareil ? ».
+        // Une console : la même question qu'un ordinateur.
+        .confirmationDialog(StationText.removeQuestion(removingConsole?.name ?? ""), isPresented: Binding(get: { removingConsole != nil }, set: { if !$0 { removingConsole = nil } }), titleVisibility: .visible) {
+            Button(StationText.removeConfirm, role: .destructive) { if let c = removingConsole { removeConsole(c) } }
+            Button(StationText.cancel, role: .cancel) {}
+        }
         .confirmationDialog(LendText.removeQuestion(removingBorrowed?.hostName ?? ""), isPresented: Binding(get: { removingBorrowed != nil }, set: { if !$0 { removingBorrowed = nil } }), titleVisibility: .visible) {
             Button(StationText.removeConfirm, role: .destructive) { if let c = removingBorrowed { app.removeBorrowed(c) } }
             Button(StationText.cancel, role: .cancel) {}
@@ -116,6 +131,16 @@ struct HomeScreen: View {
         }
         .onAppear {
             if app.selected == nil { app.selected = store.ordered.first?.id }
+            // Consoles PlayStation : cherchées tant que l'accueil est à l'écran (pas
+            // pendant une session), la fenêtre d'ajout comprise.
+            let model = app
+            playstation.startSearching { [weak model] in
+                guard let model else { return false }
+                return !model.inSession && UIApplication.shared.applicationState == .active
+            }
+            #if DEBUG
+            ConsoleDemo.apply(app)
+            #endif
             if app.launched {
                 igniteCTA(after: 0.9)
             } else if !reduceMotion {
@@ -220,7 +245,7 @@ struct HomeScreen: View {
                 }
                 Button { app.sheet = .addHost(nil) } label: { Icon("plus", size: 20, bold: true) }
                     .buttonStyle(HomeCircleStyle())
-                    .accessibilityLabel(Text("Ajouter un ordinateur"))
+                    .accessibilityLabel(Text(LinkText.addTitle))
                 // KyberNow Share : rejoindre le partage de quelqu'un (sur iPhone : la carte de la rangée).
                 if wide {
                     Button { app.sheet = .join(nil) } label: {
@@ -278,7 +303,7 @@ struct HomeScreen: View {
     }
 
     private func openSettings() {
-        if let host { app.sheet = .settings(host.id) } else { app.sheet = .appSettings }
+        if let console { app.openConsoleSettings(console) } else if let host { app.sheet = .settings(host.id) } else { app.sheet = .appSettings }
     }
 
     // MARK: Composition de l'iPhone (et de l'iPad en largeur réduite)
@@ -344,7 +369,10 @@ struct HomeScreen: View {
 
     @ViewBuilder private func hero(wide: Bool) -> some View {
         let gap: CGFloat = wide ? 16 : 11
-        if let friend {
+        if let console {
+            ConsoleStageHero(console: console, store: playstation, wide: wide, revealed: revealed)
+                .id(console.id)
+        } else if let friend {
             BorrowedHero(borrowed: borrowed, computer: friend, wide: wide)
                 .homeRise(revealed, 0.1)
         } else if let host {
@@ -427,7 +455,10 @@ struct HomeScreen: View {
     // MARK: Se connecter, puis le profil
 
     @ViewBuilder private func actions(wide: Bool) -> some View {
-        if let friend {
+        if let console {
+            ConsoleStageActions(app: app, console: console, store: playstation, wide: wide, glow: ctaGlow)
+                .homeRise(revealed, 0.48)
+        } else if let friend {
             BorrowedActions(borrowed: borrowed, computer: friend, wide: wide) { removingBorrowed = friend }
                 .homeRise(revealed, 0.48)
         } else if let host, let lent = LentHome.view(of: host.id, in: store) {
@@ -520,7 +551,7 @@ struct HomeScreen: View {
             VStack(alignment: .leading, spacing: 12) {
             Button { app.sheet = .addHost(nil) } label: {
                 HStack(spacing: 12) {
-                    Text("Ajouter un ordinateur")
+                    Text(LinkText.addTitle)
                     if !wide { Spacer(minLength: 0) }
                     Icon("plus", size: 20, bold: true)
                 }
@@ -570,6 +601,10 @@ struct HomeScreen: View {
                         ForEach(borrowed.computers) { c in
                             borrowedCard(c, m: m).id(c.id)
                         }
+                        // Les consoles PlayStation associées, dans la même rangée.
+                        ForEach(playstation.consoles) { c in
+                            consoleCard(c, m: m).id(c.id)
+                        }
                         ForEach(app.newOnNetwork) { found in
                             Button { app.sheet = .addHost(resolved[found.id]) } label: {
                                 HomeFoundCard(name: found.name, m: m, wide: wide)
@@ -578,6 +613,16 @@ struct HomeScreen: View {
                             .hoverEffect(.lift)
                             .transition(.opacity.combined(with: .scale(scale: 0.96)))
                             .accessibilityLabel(Text("\(found.name), sur le réseau. Ajouter"))
+                        }
+                        // Une console sur le réseau, pas encore associée : « Associer ».
+                        ForEach(playstation.newcomers, id: \.hostID) { found in
+                            Button { playstation.pairing = PairTarget(found: found) } label: {
+                                HomeFoundCard(name: found.name, m: m, wide: wide, detail: found.model, action: PSText.pair)
+                            }
+                            .buttonStyle(HomePressStyle())
+                            .hoverEffect(.lift)
+                            .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                            .accessibilityLabel(Text(verbatim: "\(found.name), \(found.model), \(String(localized: "Sur le réseau")). \(PSText.pair)"))
                         }
                         Button { app.sheet = .addHost(nil) } label: { HomeAddCard(m: m, wide: wide) }
                             .buttonStyle(HomePressStyle())
@@ -589,6 +634,7 @@ struct HomeScreen: View {
                     .padding(.horizontal, wide ? 0 : 24)
                     .padding(.bottom, 8)
                     .animation(Theme.easeOut, value: app.newOnNetwork.map(\.id))
+                    .animation(Theme.easeOut, value: playstation.newcomers.map(\.hostID))
                 }
                 .scrollIndicators(.hidden)
                 .scrollClipDisabled()
@@ -622,6 +668,33 @@ struct HomeScreen: View {
         .accessibilityHint(Text("Met l'ordinateur en scène ; appui long : réglages, retirer"))
     }
 
+    private func consoleCard(_ c: PlayStationConsole, m: HomeCardMetrics) -> some View {
+        let status = playstation.status(c)
+        let paired = playstation.paired.contains(c.id)
+        return Button {
+            withAnimation(Theme.easeOut) { app.selected = c.id }
+        } label: {
+            HomeConsoleCard(console: c, status: status, selected: c.id == console?.id, m: m)
+        }
+        .buttonStyle(HomePressStyle())
+        .hoverEffect(.lift)
+        .contextMenu {
+            if paired, status == .on || status == .away {
+                Button { status == .away ? playstation.playAway(c, app: app) : playstation.play(c, app: app) } label: {
+                    Label { Text(PSText.play) } icon: { Image(systemName: "play.fill") }
+                }
+            } else if !paired {
+                Button { playstation.pairing = PairTarget(console: c, live: playstation.live(c)) } label: {
+                    Label { Text(PSText.pair) } icon: { Image(systemName: "link") }
+                }
+            }
+            Button { app.openConsoleSettings(c) } label: { Label { Text("Réglages") } icon: { Image(systemName: "slider.horizontal.3") } }
+            Button(role: .destructive) { removingConsole = c } label: { Label { Text("Retirer") } icon: { Image(systemName: "trash") } }
+        }
+        .accessibilityLabel(Text(verbatim: "\(c.name), \(c.model), \(status.text)"))
+        .accessibilityAddTraits(c.id == console?.id ? [.isSelected] : [])
+    }
+
     private func borrowedCard(_ c: BorrowedComputer, m: HomeCardMetrics) -> some View {
         let state = borrowed.states[c.id] ?? .checking
         return Button {
@@ -648,7 +721,7 @@ struct HomeScreen: View {
     private var shortcuts: some View {
         ZStack {
             Button("Réglages") { openSettings() }.keyboardShortcut(",", modifiers: .command)
-            Button("Ajouter un ordinateur") { app.sheet = .addHost(nil) }.keyboardShortcut("n", modifiers: .command)
+            Button(LinkText.addTitle) { app.sheet = .addHost(nil) }.keyboardShortcut("n", modifiers: .command)
             Button("Ordinateur précédent") { move(-1) }.keyboardShortcut(.leftArrow, modifiers: [])
             Button("Ordinateur suivant") { move(1) }.keyboardShortcut(.rightArrow, modifiers: [])
         }
@@ -658,11 +731,13 @@ struct HomeScreen: View {
     }
 
     private func move(_ step: Int) {
-        let list = store.ordered
+        // Ordinateurs, ordinateurs prêtés et consoles, dans l'ordre de la rangée.
+        let list = store.ordered.map(\.id) + borrowed.computers.map(\.id) + playstation.consoles.map(\.id)
         guard !list.isEmpty, app.sheet == nil else { return }
-        let i = list.firstIndex { $0.id == host?.id } ?? 0
+        let current = console?.id ?? friend?.id ?? host?.id
+        let i = list.firstIndex { $0 == current } ?? 0
         let next = min(max(i + step, 0), list.count - 1)
-        withAnimation(Theme.easeOut) { app.selected = list[next].id }
+        withAnimation(Theme.easeOut) { app.selected = list[next] }
     }
 
     // MARK: Actions
@@ -676,6 +751,13 @@ struct HomeScreen: View {
                 app.show(String(localized: "\(host.name) ne répond pas encore"))
             }
         }
+    }
+
+    private func removeConsole(_ c: PlayStationConsole) {
+        let wasSelected = c.id == console?.id
+        playstation.remove(c)
+        removingConsole = nil
+        if wasSelected { app.selected = store.ordered.first?.id ?? playstation.consoles.first?.id }
     }
 
     private func remove(_ h: Host) {

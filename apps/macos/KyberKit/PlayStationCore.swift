@@ -376,6 +376,13 @@ public final class PlayStationPlay: @unchecked Sendable {
         public var fps = 0.0, mbps = 0.0
         /// Images perdues et réparées depuis la lecture précédente.
         public var lost = 0, recovered = 0
+
+        public init() {}
+
+        init(width: Int, height: Int, hevc: Bool, hdr: Bool, targetKbps: Int, fps: Double, mbps: Double, lost: Int, recovered: Int) {
+            (self.width, self.height, self.hevc, self.hdr, self.targetKbps) = (width, height, hevc, hdr, targetKbps)
+            (self.fps, self.mbps, self.lost, self.recovered) = (fps, mbps, lost, recovered)
+        }
     }
 
     /// Mesures depuis l'appel précédent ; nil sans partie.
