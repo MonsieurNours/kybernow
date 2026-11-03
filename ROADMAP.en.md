@@ -60,6 +60,13 @@ Everything that lets someone else onto your computer. Name chosen on 26/10/2026;
 - **Lending the computer** (released in 0.9.0, contract: [docs/pret.en.md](docs/pret.en.md)), next: waking a sleeping computer for a friend away from your home; controllers and touchscreen plugged into the PC blocked during a loan; windows of apps run as administrator; a chapter in the site's guide.
 - **Lead**: lending the computer while you use it, through a virtual machine that shares the graphics card (Hyper-V); needs Windows Pro and a second licence, runs into anti-cheat, encoder to be checked.
 
+## PlayStation consoles
+
+Framed on 2026-11-03, contract: [docs/playstation.en.md](docs/playstation.en.md).
+
+- **First version, Mac app**: PS5 and PS4 in the Rust core (discovery, wake, pairing by code, session, picture, sound, full DualSense), after chiaki-ng; trials on a PS5 Pro, the PS4 remains to be tried.
+- **Next**: the other Link apps, and a console session through the relay (a Station on the same network forwards the packets).
+
 ## Sony controllers in “Faithful” mode
 
 The computer sees a DualShock 4 (ViGEmBus driver): buttons, sticks, triggers and rumble go through; the touchpad is only a button.

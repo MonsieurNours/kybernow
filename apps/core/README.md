@@ -21,6 +21,7 @@ Le cœur ne dépend d'aucun système : rien n'y appelle AppKit, UIKit, Win32 ni 
 | `src/screens.rs` | Multi-écrans (ci-dessous) : écrans de l'appareil, plan des écrans virtuels (définition, fréquence, disposition sur le bureau de Windows) |
 | `src/latency.rs` | Latence de bout en bout, horloge de Kyber |
 | `src/update.rs` | Mises à jour (Windows, Android, Linux, webOS) : manifeste signé (minisign), canal, téléchargement vérifié (taille, SHA-256) ; le fichier de l'app est cherché sous son nom actuel puis sous ses anciens noms (Windows : `KyberNow-Link-Setup.exe`, puis `KyberNow-Client-Setup.exe`, seul nom des versions 0.3.1 et antérieures) |
+| `src/playstation/` | Consoles PlayStation (ci-dessous, contrat : [docs/playstation.md](../../docs/playstation.md)) : découverte et réveil (`discovery.rs`) |
 | `src/wake.rs` | Réveil par le réseau (Wake-on-LAN, ci-dessous) : `WakeTarget`, paquet magique, envoi en diffusion et en direct |
 | `src/focus.rs` | Plusieurs ordinateurs à la fois (ci-dessous) : le registre des sessions de l'app, « qui est active », « Garder le son », quatre au plus |
 | `src/gamepads/` | Le lecteur de manettes unique de l'app (ci-dessous) : nourri par son fil SDL (`sdl.rs`, feature `sdl`) ou par l'app, routage vers les sessions |
@@ -57,6 +58,15 @@ Les apps proposent « Réveiller l'ordinateur » quand il est hors ligne, sans r
 - `parse_mac`, `format_mac`, `magic_packet`, `broadcast(ip, prefix)` : les briques, testées (`cargo test -p kybernow-core wake`) ; `envoi_reel`, ignoré par défaut, envoie vraiment vers une carte fictive (`-- --ignored`).
 
 **Piège Apple.** Sur iPhone, iPad et Apple TV, envoyer vers une adresse de diffusion (le sous-réseau comme 255.255.255.255) demande l'autorisation `com.apple.developer.networking.multicast`, qu'Apple accorde sur demande (formulaire du compte développeur, puis l'autorisation dans les fichiers `.entitlements`). Sans elle, l'envoi en diffusion échoue, souvent avec `EHOSTUNREACH`. L'envoi direct vers la dernière adresse IPv4 passe sans elle, mais ne réveille que si le réseau sait encore joindre cette adresse (cache ARP du routeur ou du commutateur, carte en veille qui répond encore à l'ARP), ce qui n'est pas toujours le cas après un arrêt complet. C'est pourquoi `send` tente toujours l'envoi direct en plus de la diffusion et réussit dès qu'un paquet part : sans l'autorisation, le réveil marche parfois, avec elle, comme ailleurs. Sur Mac, pas de restriction (l'autorisation « Réseau local », déjà demandée pour joindre Admin, suffit).
+
+## Consoles PlayStation (`src/playstation/`)
+
+Le protocole de lecture à distance de Sony, écrit en Rust d'après chiaki-ng, bloc par bloc ([docs/playstation.md](../../docs/playstation.md)). Écrit pour l'instant : la découverte et le réveil.
+
+- `discovery::search(attente, &adresses)` : la recherche (`SRCH * HTTP/1.1`) part en diffusion vers 255.255.255.255 et en direct vers chaque adresse donnée, ports 9302 (PS5) et 987 (PS4), toutes les 500 ms jusqu'à la fin de l'attente ; port local entre 9303 et 9319, sinon au hasard. Rend les `Console` qui ont répondu (une par `host-id`) : adresse, état (`Ready` pour 200, `Standby` pour 620), nom, identifiant, version du système, port de contrôle, jeu en cours, `model()` (PS5 ou PS4, d'après la version du protocole) et `target()` (version du protocole de session, comme `ChiakiTarget`). Bloque pendant l'attente : à appeler hors du fil de l'interface.
+- `discovery::wake(adresse, modèle, clé)` : `WAKEUP * HTTP/1.1` en direct vers la console. La clé est `credential_from_regist_key(RP-RegistKey)` : la clé d'association lue en hexadécimal (comme `strtoull` chez chiaki-ng). Le réveil demande donc une console associée (bloc suivant).
+- Paquets, clé et réponses testés (`cargo test -p kybernow-core playstation`). Essai depuis le terminal : `cargo run -p kybernow-core --example playstation -- search [adresse…]` et `… -- wake <adresse> <ps5|ps4> <clé>`.
+- **Essayé le 03/11/2026** : la PS5 Pro de l'auteur trouvée en diffusion et en direct, en mode repos (système 14200007, cible `Ps5V1`, port 997). Le réveil n'est pas encore essayé (il faut la clé d'association).
 
 ## Multi-écrans (`src/screens.rs`, `src/session.rs`, `src/input/pipeline.rs`)
 

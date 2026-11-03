@@ -21,6 +21,7 @@ The core depends on no system: nothing in it calls AppKit, UIKit, Win32 or Core 
 | `src/screens.rs` | Multiple displays (below): the device's displays, plan of the virtual displays (resolution, refresh rate, layout on the Windows desktop) |
 | `src/latency.rs` | End-to-end latency, Kyber's clock |
 | `src/update.rs` | Updates (Windows, Android, Linux, webOS): signed manifest (minisign), channel, verified download (size, SHA-256); the app's file is looked up under its current name, then its former names (Windows: `KyberNow-Link-Setup.exe`, then `KyberNow-Client-Setup.exe`, the only name in releases 0.3.1 and earlier) |
+| `src/playstation/` | PlayStation consoles (below, contract: [docs/playstation.en.md](../../docs/playstation.en.md)): discovery and wake (`discovery.rs`) |
 | `src/wake.rs` | Wake on LAN (below): `WakeTarget`, magic packet, broadcast and direct sending |
 | `src/focus.rs` | Several computers at once (below): the app's session registry, “which one is active”, “Keep sound”, four at most |
 | `src/gamepads/` | The app's single gamepad reader (below): fed by its SDL thread (`sdl.rs`, `sdl` feature) or by the app, routing to the sessions |
@@ -57,6 +58,15 @@ The apps offer “Wake the computer” when it is offline, with nothing to type:
 - `parse_mac`, `format_mac`, `magic_packet`, `broadcast(ip, prefix)`: the building blocks, tested (`cargo test -p kybernow-core wake`); `envoi_reel`, ignored by default, really sends to a dummy card (`-- --ignored`).
 
 **Apple pitfall.** On iPhone, iPad and Apple TV, sending to a broadcast address (the subnet's as well as 255.255.255.255) requires the `com.apple.developer.networking.multicast` entitlement, which Apple grants on request (a form in the developer account, then the entitlement in the `.entitlements` files). Without it, broadcast sending fails, often with `EHOSTUNREACH`. Sending directly to the last IPv4 address works without it, but only wakes the computer if the network can still reach that address (ARP cache of the router or switch, a sleeping card that still answers ARP), which is not always the case after a full shutdown. That is why `send` always tries direct sending as well as broadcast and succeeds as soon as one packet goes out: without the entitlement, waking sometimes works; with it, as everywhere else. On the Mac there is no restriction (the “Local Network” permission, already asked for to reach Admin, is enough).
+
+## PlayStation consoles (`src/playstation/`)
+
+Sony's Remote Play protocol, written in Rust after chiaki-ng, block by block ([docs/playstation.en.md](../../docs/playstation.en.md)). Written so far: discovery and wake.
+
+- `discovery::search(wait, &addresses)`: the search (`SRCH * HTTP/1.1`) is broadcast to 255.255.255.255 and sent directly to each given address, ports 9302 (PS5) and 987 (PS4), every 500 ms until the wait ends; local port between 9303 and 9319, otherwise random. Returns the `Console`s that answered (one per `host-id`): address, state (`Ready` for 200, `Standby` for 620), name, ID, system version, control port, running game, `model()` (PS5 or PS4, from the protocol version) and `target()` (session protocol version, like `ChiakiTarget`). Blocks for the wait: call it off the UI thread.
+- `discovery::wake(address, model, key)`: `WAKEUP * HTTP/1.1` sent directly to the console. The key is `credential_from_regist_key(RP-RegistKey)`: the pairing key read as hexadecimal (like `strtoull` in chiaki-ng). Waking therefore needs a paired console (next block).
+- Packets, key and replies are tested (`cargo test -p kybernow-core playstation`). Trying it from the terminal: `cargo run -p kybernow-core --example playstation -- search [address…]` and `… -- wake <address> <ps5|ps4> <key>`.
+- **Tried on 2026-11-03**: the author's PS5 Pro found by broadcast and directly, in rest mode (system 14200007, target `Ps5V1`, port 997). Waking is not tried yet (it needs the pairing key).
 
 ## Multiple displays (`src/screens.rs`, `src/session.rs`, `src/input/pipeline.rs`)
 

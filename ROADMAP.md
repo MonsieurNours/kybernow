@@ -60,6 +60,13 @@ Tout ce qui fait entrer quelqu'un d'autre sur votre ordinateur. Nom choisi le 26
 - **Prêt de l'ordinateur** (publié en 0.9.0, contrat : [docs/pret.md](docs/pret.md)), suite : réveiller l'ordinateur endormi pour un ami hors de chez vous ; manettes et écran tactile branchés au PC bloqués pendant un prêt ; fenêtres des apps lancées en administrateur ; un chapitre du guide du site.
 - **Piste** : prêter l'ordinateur pendant que vous l'utilisez, par une machine virtuelle qui partage la carte graphique (Hyper-V) ; demande Windows Pro et une 2e licence, se heurte aux anti-triche, encodeur à vérifier.
 
+## Consoles PlayStation
+
+Cadré le 03/11/2026, contrat : [docs/playstation.md](docs/playstation.md).
+
+- **Première version, app Mac** : PS5 et PS4 dans le cœur Rust (découverte, réveil, association par code, session, image, son, DualSense complète), d'après chiaki-ng ; essais sur une PS5 Pro, la PS4 reste à essayer.
+- **Ensuite** : les autres apps Link, et la session d'une console par le relais (une Station du même réseau fait suivre les paquets).
+
 ## Manettes Sony en mode « Fidèle »
 
 L'ordinateur voit une DualShock 4 (pilote ViGEmBus) : boutons, sticks, gâchettes et vibrations passent ; le pavé tactile n'est qu'un bouton.

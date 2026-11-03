@@ -17,6 +17,7 @@ pub mod journal;
 pub mod latency;
 pub mod lend;
 pub mod media;
+pub mod playstation;
 pub mod profile;
 pub mod relay;
 pub mod screens;
