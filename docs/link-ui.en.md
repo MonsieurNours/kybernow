@@ -359,6 +359,23 @@ What applies to the whole app (language, iCloud, the app's updates, controller t
 
 ## Statistics
 
+**In session: path of a frame**, in every app (the session's “Statistics” panel, modelled on the Mac app's `SessionStats`). Six stages, medians of the last second, from the core (`Second.chain`, `apps/core/src/latency.rs`):
+
+| Stage | Place | Help |
+|---|---|---|
+| “Capture” | On the computer | “From capturing the frame to the start of its encoding” (includes the HDR conversion) |
+| “Encoding” | On the computer | “Frame compression by the computer's graphics card” |
+| “Sending” | On the computer | “Packetising and sending over the network” |
+| “Network” | Network | “From leaving the computer to the full frame received here” |
+| “Decoding” | On this device | “Frame decompression by {this device}” |
+| “Display” | On this device | “Rendering and waiting for the display's next refresh” |
+
+- Places: “On the computer”, “Network”, “On {this device}”, where {this device} is the name the app uses elsewhere: “this Mac”, “this iPhone”, “this iPad”, “this Apple TV”, “this TV”, “this PC”, “this device” (Linux, Android). French texts in the French version of this page.
+- A stage with no measurement (Station too old, first second): “—”. Without the computer's measurements, the device keeps its own decoding and display times.
+- Desktop and handheld devices: a waterfall (each stage starts where the previous one ends, on a shared scale, a dotted line at one frame's duration), values on the right, help on hover or long press.
+- TVs and living room (Apple TV, LG, Linux living-room mode): the six values in one row readable from a distance, grouped by place (“On the computer”, “Network”, “On this TV”), with each place's total; no help.
+- The “Picture” row says “HDR” when the picture is (“3840 × 2160 · HEVC · HDR · 120 fps”): turning HDR on and off from the bar shows which stage changes.
+
 **Last session**, modelled on the Mac app's card (`FrameRuler`):
 
 - large, the median: “8.9 ms” and “median”;
