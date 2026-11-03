@@ -21,7 +21,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../../.." && pwd)"
-KYBER_DIR="$(cd "${KYBER_DIR:-$ROOT/third_party/kyber-desktop}" && pwd -P)"
+KYBER_DIR="$(cd "${KYBER_DIR:-$ROOT/third_party/kyber-desktop-macos}" && pwd -P)"
 OUT="$KYBER_DIR/rootfs-arm64-macos"
 APP="$KYBER_DIR/KyberNow-Station-Kyber.app"
 RUN="${KYBER_RUN_DIR:-$HOME/Library/Application Support/KyberNow/essai-kyber}"

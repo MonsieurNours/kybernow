@@ -282,6 +282,11 @@ done
 if CHECK="$(apps/android/scripts/release-apk.sh --check 2>&1)"; then ok "app Android : ${CHECK##*$'\n'}"
 else problem "app Android : ${CHECK##*$'\n'}"; fi
 
+# Station pour Mac : Kyber compilé pour Mac (server/macos/scripts/build-kyber.sh),
+# dans sa copie à part des sources.
+if [ -x third_party/kyber-desktop-macos/rootfs-arm64-macos/bin/kycontroller ]; then ok "Station Mac : Kyber pour Mac compilé"
+else problem "Station Mac : third_party/kyber-desktop-macos/rootfs-arm64-macos absent (server/macos/scripts/build-kyber.sh, docs/build-notes.md)"; fi
+
 # App des téléviseurs LG : sources de Kyber (kysdk) ; la chaîne webOS est
 # téléchargée par apps/webos/scripts/build.sh si elle manque.
 if [ -d third_party/kyber-desktop/kysdk/kyctl ]; then ok "app webOS : sources de Kyber"

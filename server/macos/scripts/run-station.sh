@@ -22,7 +22,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../../.." && pwd)"
-KYBER_DIR_SRC="$(cd "${KYBER_DIR:-$ROOT/third_party/kyber-desktop}" && pwd -P)"
+KYBER_DIR_SRC="$(cd "${KYBER_DIR:-$ROOT/third_party/kyber-desktop-macos}" && pwd -P)"
 APP="$KYBER_DIR_SRC/KyberNow-Station-Kyber.app"
 BASE="${STATION_DIR:-$HOME/Library/Application Support/KyberNow/station-essai}"
 DATA="$BASE/admin"

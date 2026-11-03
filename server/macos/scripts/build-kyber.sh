@@ -8,8 +8,9 @@
 # server/kyber-patches/apply.sh), puis ceux propres au Mac
 # (server/macos/kyber-patches, s'il y en a), dans l'ordre de leur nom.
 #
-# Sources : $KYBER_DIR (défaut : third_party/kyber-desktop du dépôt ou du
-# worktree). Les sources sont remises à l'origine fichier par fichier, comme
+# Sources : $KYBER_DIR (défaut : third_party/kyber-desktop-macos, une copie de
+# kyber-desktop à part : les correctifs Mac et son rootfs-arm64-macos ne se
+# mêlent pas à ceux de la Station Windows et des apps, docs/build-notes.md). Les sources sont remises à l'origine fichier par fichier, comme
 # sous Windows : ne pas lancer ce script sur des sources qu'une autre
 # compilation utilise en même temps (une publication en cours, par exemple).
 #
@@ -24,7 +25,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../../.." && pwd)"
 . "$ROOT/scripts/kyber-toolchain.sh"
 
-KYBER_DIR="$(cd "${KYBER_DIR:-$ROOT/third_party/kyber-desktop}" 2>/dev/null && pwd -P)" \
+KYBER_DIR="$(cd "${KYBER_DIR:-$ROOT/third_party/kyber-desktop-macos}" 2>/dev/null && pwd -P)" \
     || { echo "Sources de Kyber introuvables (KYBER_DIR, docs/build-notes.md)" >&2; exit 1; }
 KYMEDIA="$KYBER_DIR/kysdk/kymedia"
 KYCTL="$KYBER_DIR/kysdk/kyctl"

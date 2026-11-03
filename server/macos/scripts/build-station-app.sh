@@ -58,7 +58,7 @@ if [ -n "${KYBER_FROM_APP:-}" ]; then
 else
     step "Kyber (empaquetage et signature des bibliothèques)"
     "$HERE/run-kyber.sh" package >/dev/null
-    KYAPP="$(cd "$ROOT/third_party/kyber-desktop" && pwd -P)/KyberNow-Station-Kyber.app"
+    KYAPP="$(cd "${KYBER_DIR:-$ROOT/third_party/kyber-desktop-macos}" && pwd -P)/KyberNow-Station-Kyber.app"
 fi
 
 step "Admin"
@@ -155,7 +155,7 @@ if [ -d "$WEB_OFFICIAL" ] && [ -f "$WEB_ENGINE/kyclient_wasm_bg.wasm" ]; then
 else
     echo "    moteur web absent ($WEB_OFFICIAL, $WEB_ENGINE) : pas d'invité du navigateur" >&2
 fi
-cp "$ROOT/third_party/kyber-desktop/COPYING.AGPLv3" "$APP/Contents/Resources/licenses/AGPL-3.0.txt"
+cp "$ROOT/third_party/kyber-desktop-macos/COPYING.AGPLv3" "$APP/Contents/Resources/licenses/AGPL-3.0.txt"
 cp "$ROOT/server/installer/resources/THIRD-PARTY.txt" "$APP/Contents/Resources/licenses/"
 info_plist "KyberNow Station" "$BUNDLE_ID" "KyberNow Station" "    <key>LSUIElement</key><true/>
     <key>NSMicrophoneUsageDescription</key><string>KyberNow Station lit le son de la session sur la sortie KyberNow pour l'envoyer à vos appareils. Aucun vrai micro n'est écouté.</string>
