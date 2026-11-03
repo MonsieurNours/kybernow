@@ -33,6 +33,10 @@ pub enum VideoMsg {
     Config(Vec<u8>),
     /// `received` : l'image complète vient d'arriver (µs, [`now_micros`]).
     Frame { data: Vec<u8>, pts: u64, key: bool, received: i64 },
+    /// Console PlayStation : une image perdue que la console n'a pas réparée
+    /// (le décodeur attend une image clé au lieu de décoder des images aux
+    /// références perdues).
+    Lost,
     /// La fenêtre a changé de taille : le fil se réveille pour redessiner
     /// l'image en place tout de suite (bureau immobile, aucune image ne vient).
     Resized,
@@ -52,6 +56,17 @@ pub struct Link {
     /// le trajet d'une image les garde quand l'ordinateur n'envoie pas ses
     /// mesures (docs/link-ui.md « Statistiques »).
     local: Mutex<[Vec<f64>; 2]>,
+    /// Console PlayStation (`ps_session.rs`) : pas de session de Kyber, la
+    /// partie du cœur demande elle-même ses images clés.
+    pub console: OnceLock<ConsoleLink>,
+}
+
+/// Ce que le fil de l'image dit à une partie sur console : le décodeur a
+/// perdu sa référence (une image clé est demandée à la console, de nouveau
+/// toutes les 500 ms par le cœur), puis l'a retrouvée.
+pub struct ConsoleLink {
+    pub lost: Box<dyn Fn() + Send + Sync>,
+    pub recovered: Box<dyn Fn() + Send + Sync>,
 }
 
 /// Au-delà, plus rien ne s'ajoute avant la seconde suivante (aucune session
@@ -173,6 +188,10 @@ impl Shared {
     }
 
     fn request_keyframe(&self) {
+        if let Some(c) = self.link.console.get() {
+            (c.lost)();
+            return;
+        }
         if let Some(s) = self.link.session.get().and_then(Weak::upgrade) {
             s.request_keyframe();
         }
@@ -187,6 +206,8 @@ pub struct VideoHandler {
     pending: AtomicUsize,
     /// Arrêt demandé (le message d'arrêt peut être refusé par une file pleine).
     stopped: AtomicBool,
+    /// Partie sur console : les pertes comptent (`Packet::Hole`).
+    console: bool,
 }
 
 impl PacketHandler for VideoHandler {
@@ -200,11 +221,20 @@ impl PacketHandler for VideoHandler {
                 key: is_key,
                 received: now_micros(),
             },
+            // Une perte n'a de sens que pour une console (Kyber n'en envoie pas pour l'image).
+            Packet::Hole { .. } if self.console => VideoMsg::Lost,
             Packet::Hole { .. } => return,
         };
         match msg {
             // Début de flux et paramètres : jamais perdus (rares, et sans eux
             // le décodeur ne repart pas).
+            // Une perte ne bloque pas le fil de la console : file pleine, la reprise sur
+            // une image clé est déjà demandée par le débordement.
+            VideoMsg::Lost => {
+                if self.tx.try_send(VideoMsg::Lost).is_err() {
+                    self.overflow.store(true, Ordering::Relaxed);
+                }
+            }
             VideoMsg::Codec(_) | VideoMsg::Config(_) => {
                 let _ = self.tx.send(msg);
             }
@@ -324,6 +354,7 @@ pub fn spawn(renderer: Renderer, hwnd: isize, gpu: Arc<Gpu>, opts: VideoOptions,
         overflow: AtomicBool::new(false),
         pending: AtomicUsize::new(0),
         stopped: AtomicBool::new(false),
+        console: shared.link.console.get().is_some(),
     });
     let h = handler.clone();
     let thread = std::thread::Builder::new()
@@ -419,6 +450,13 @@ fn run(
             VideoMsg::Stop => break,
             // Le redessin se fait en haut de la boucle, au tour suivant.
             VideoMsg::Resized => {}
+            VideoMsg::Lost => {
+                if !waiting_key {
+                    log::info!("image : perte non réparée, attente d'une image clé");
+                }
+                waiting_key = true;
+                keyframe(&shared, true);
+            }
             VideoMsg::Codec(c) => {
                 codec_announced = true;
                 if !seen_codec {
@@ -485,6 +523,11 @@ fn run(
                     continue;
                 }
                 if key {
+                    if waiting_key {
+                        if let Some(c) = shared.link.console.get() {
+                            (c.recovered)();
+                        }
+                    }
                     waiting_key = false;
                 }
                 let Some(dec) = decoder.as_mut() else {

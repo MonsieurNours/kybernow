@@ -54,8 +54,8 @@
     "shortcut": "Votre ordinateur sur ce PC",
     "connect_to": "Se connecter à {name}",
     "computers": "Ordinateurs",
-    "add": "Ajouter un ordinateur",
-    "add_description": "Ajouter un ordinateur à KyberNow Link"
+    "add": "Ajouter un ordinateur ou une console",
+    "add_description": "Ajouter un ordinateur ou une console à KyberNow Link"
   },
   "window": {
     "preparing": "préparation de l'écran",
@@ -113,7 +113,7 @@
     "update": "Mettre à jour la Station ({version})",
     "updating": "Mise à jour de la Station…",
     "open": "Ouvrir KyberNow Link",
-    "add": "Ajouter un ordinateur",
+    "add": "Ajouter un ordinateur ou une console",
     "join": "Rejoindre avec un code",
     "app_settings": "Réglages de l'app",
     "app_update": "Version {version} disponible",
@@ -153,5 +153,31 @@
     "computer_of": "Ordinateur de {host}",
     "notice_request": "{name} veut emprunter l'ordinateur.",
     "come_back": "Vous pouvez revenir pendant 15 min."
+  },
+  "ps": {
+    "sign_in_title": "Se connecter à PlayStation Network",
+    "account_unread": "Identifiant du compte non lu : réessayez, ou saisissez-le à la main.",
+    "bad_account_id": "L'identifiant du compte a 12 caractères (base64 de 8 octets).",
+    "no_answer": "La console ne répond pas : gardez l'écran « Associer un appareil » ouvert.",
+    "wrong_code": "Code refusé : il change toutes les 5 minutes.",
+    "account_refused": "La console refuse ce compte.",
+    "unreachable": "Console injoignable.",
+    "click_to_play": "Cliquez dans l'image pour jouer au clavier et à la souris",
+    "release_mouse": "Ctrl+Alt+Maj+M pour rendre la souris",
+    "console_keyboard": "Tapez votre texte · Entrée pour valider · Échap pour annuler",
+    "cant_display": "La console ne peut pas diffuser ce qu'elle affiche.",
+    "end_in_use": "La console est déjà jouée à distance par un autre appareil.",
+    "end_not_paired": "La console ne reconnaît plus cet appareil : associez-la de nouveau.",
+    "end_unreachable": "La console ne répond pas.",
+    "end_remote": "La console a terminé la partie.",
+    "sent": "Comptes et consoles envoyés à {name}.",
+    "send_refused": "Code refusé : vérifiez-le sur {name}.",
+    "send_unreachable": "{name} ne répond plus.",
+    "receive_failed": "Cet appareil ne peut pas attendre un envoi : vérifiez que le pare-feu de Windows laisse passer KyberNow Link.",
+    "received": "{accounts} et {consoles} reçus.",
+    "n_accounts_one": "1 compte",
+    "n_accounts_other": "{n} comptes",
+    "n_consoles_one": "1 console",
+    "n_consoles_other": "{n} consoles"
   }
 }

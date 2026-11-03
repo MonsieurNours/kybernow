@@ -60,6 +60,9 @@ mod share;
 // Prêt de l'ordinateur (KyberNow Share) : l'ami (ordinateurs empruntés, session
 // d'emprunt) et l'hôte (« Prêter l'ordinateur… », « Reprendre l'ordinateur »).
 mod lend;
+// Consoles PlayStation : recherche, comptes PSN, association, partie et sa
+// barre, réglages, envoi entre appareils (docs/playstation.md).
+mod playstation;
 
 #[derive(Debug, Clone, Default)]
 struct Live {
@@ -289,6 +292,8 @@ pub struct UiState {
     presence: Mutex<relais::Presence>,
     /// Prêt de l'ordinateur : ordinateurs empruntés, demandes, prêt accordé.
     lend: lend::LendState,
+    /// Consoles PlayStation : comptes, consoles, parties en cours.
+    ps: playstation::PsState,
 }
 
 /// Ce que l'ouverture demande à l'app.
@@ -310,6 +315,9 @@ pub enum Action {
     Settings { id: String, rubric: Option<String> },
     /// Les réglages de l'app ; `check` : en cherchant une mise à jour.
     App { check: bool },
+    /// Les réglages d'une console PlayStation (« Réglages de {nom} » de la barre de la partie).
+    #[serde(rename = "ps_settings")]
+    PsSettings { id: String },
 }
 
 fn parse_action(args: &[String]) -> Option<Action> {
@@ -544,7 +552,9 @@ fn emit_computers(app: &AppHandle) {
 /// Les sessions ont changé (une de plus, une de moins) : l'accueil (« Afficher
 /// la session », quatre au plus), la barre (menu « Ordinateurs ») et l'icône.
 fn emit_sessions(app: &AppHandle) {
-    let ids = app.state::<UiState>().session_ids();
+    let mut ids = app.state::<UiState>().session_ids();
+    // Les parties sur console aussi (« Afficher la session », la barre).
+    ids.extend(playstation::session_ids(app));
     let _ = app.emit("sessions", &ids);
     emit_bar_computers(app);
     tray::refresh();
@@ -920,6 +930,8 @@ fn refresh(app: &AppHandle, c: &Computer) -> bool {
     }
     if let Some(i) = &info {
         station_news(app, c, i);
+        // Consoles PlayStation : celles que cette Station voit (hors de chez soi).
+        playstation::learn(app, &c.id, &console);
     }
     // Prêté à un ami : « Prêté à {prénom} » sur l'accueil.
     let lend_view = info.as_ref().and_then(|i| lend::home_view(&console, i));
@@ -1218,12 +1230,14 @@ fn fond_state(window: tauri::WebviewWindow, state: tauri::State<'_, UiState>) ->
 }
 
 #[tauri::command(async)]
-fn snapshot(state: tauri::State<'_, UiState>) -> Snapshot {
+fn snapshot(app: AppHandle, state: tauri::State<'_, UiState>) -> Snapshot {
+    let mut sessions = state.session_ids();
+    sessions.extend(playstation::session_ids(&app));
     Snapshot {
         computers: state.views(),
         discovered: state.discovery.get().map(|d| d.list()).unwrap_or_default(),
         this_pc: state.this_pc.lock().unwrap().clone(),
-        sessions: state.session_ids(),
+        sessions,
         version: env!("CARGO_PKG_VERSION").into(),
     }
 }
@@ -1590,6 +1604,7 @@ fn remove_computer(app: AppHandle, id: String) {
     state.with_store(|s| s.remove(&id));
     state.live.lock().unwrap().remove(&id);
     snapshot::forget(&id);
+    playstation::forget_station(&app, &id);
     emit_computers(&app);
 }
 
@@ -1666,6 +1681,32 @@ struct BarShown {
     /// Par où passe la session (puce « Par le relais ») ; absent tant que le cœur
     /// ne l'a pas dit.
     route: Option<relais::RouteView>,
+    /// Une partie sur console PlayStation : la barre de la partie (son, souris,
+    /// réglages, plein écran, veille, « Se déconnecter »).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    console: Option<playstation::BarView>,
+}
+
+/// `bar-shown` pour une partie sur console : la même barre, réduite à ce qui
+/// a du sens pour une console.
+fn console_bar_shown(id: &str, name: &str, pinned: bool, sessions: usize, route: Option<relais::RouteView>, console: playstation::BarView) -> BarShown {
+    BarShown {
+        id: id.to_string(),
+        label: BarLabel { label: name.to_string(), profile: String::new() },
+        pinned,
+        multi: false,
+        keep_sound: false,
+        sessions,
+        guest: None,
+        share: None,
+        lend: None,
+        borrow: None,
+        notice: None,
+        notice_opens_share: false,
+        notice_opens_lend: false,
+        route,
+        console: Some(console),
+    }
 }
 
 /// `share-request` : une demande à rejoindre arrive pendant que la barre est déjà
@@ -2539,7 +2580,7 @@ fn connexion_focused(app: &AppHandle, label: &str) {
 /// Plus rien ne tourne : ni session, ni connexion qui se lance, ni fenêtre de
 /// connexion ouverte (l'échec d'une session suivante).
 fn idle(state: &UiState) -> bool {
-    state.sessions.lock().unwrap().is_empty() && state.launching.lock().unwrap().is_empty() && state.connexions.lock().unwrap().is_empty()
+    state.sessions.lock().unwrap().is_empty() && state.launching.lock().unwrap().is_empty() && state.connexions.lock().unwrap().is_empty() && !state.ps.playing()
 }
 
 /// La dernière session finie (ou la fenêtre d'un échec refermée) ramène
@@ -2561,7 +2602,7 @@ fn show_home_if_idle(app: &AppHandle) {
 /// avec elle).
 fn exit_when_idle(app: &AppHandle) {
     let state = app.state::<UiState>();
-    let done = state.sessions.lock().unwrap().is_empty() && state.launching.lock().unwrap().is_empty();
+    let done = state.sessions.lock().unwrap().is_empty() && state.launching.lock().unwrap().is_empty() && !state.ps.playing();
     if done {
         log::info!("quitter");
         app.exit(0);
@@ -2647,7 +2688,10 @@ fn show_session_of(state: &UiState, id: &str) -> bool {
 /// « Afficher la session » de l'accueil, « Afficher » de la barre et du menu
 /// de l'icône (plusieurs ordinateurs).
 #[tauri::command(async)]
-fn show_session(state: tauri::State<'_, UiState>, id: String) -> Result<(), String> {
+fn show_session(app: AppHandle, state: tauri::State<'_, UiState>, id: String) -> Result<(), String> {
+    if let Some(shown) = playstation::show(&app, &id) {
+        return if shown { Ok(()) } else { Err(t("errors.no_session", &[])) };
+    }
     if show_session_of(&state, &id) { Ok(()) } else { Err(t("errors.no_session", &[])) }
 }
 
@@ -2864,7 +2908,11 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
 
 /// Un ordre de la barre (ou du passage, « Annuler ») à la session de cet ordinateur.
 #[tauri::command(async)]
-fn session_command(state: tauri::State<'_, UiState>, id: String, command: String) {
+fn session_command(app: AppHandle, state: tauri::State<'_, UiState>, id: String, command: String) {
+    // Une partie sur console PlayStation (`ps-…`).
+    if playstation::command(&app, &id, &command) {
+        return;
+    }
     let c = match command.as_str() {
         "disconnect" => {
             end_session(&state, &id, "« Se déconnecter » de la barre, ou « Annuler » du passage de l'accueil");
@@ -2999,7 +3047,11 @@ fn show_bar_notice(app: &AppHandle, id: &str, hwnd: isize, pinned: bool, notice:
     let share = host_session.then(|| share::view(app, id, share.as_ref()));
     let lend = host_session.then(|| lend::panel(app, id, lend_view.as_ref()));
     let borrow = borrow.map(|b| b.bar());
-    *state.bar_session.lock().unwrap() = Some(id.to_string());
+    let before = state.bar_session.lock().unwrap().replace(id.to_string());
+    // La barre servait une partie sur console : la console reçoit de nouveau la manette.
+    if let Some(prev) = before.filter(|p| p != id && crate::consoles::host_of(p).is_some()) {
+        playstation::bar_hidden(app, &prev, false);
+    }
     let mut mi = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
     unsafe {
         let m = MonitorFromWindow(HWND(hwnd as *mut _), MONITOR_DEFAULTTONEAREST);
@@ -3040,6 +3092,7 @@ fn show_bar_notice(app: &AppHandle, id: &str, hwnd: isize, pinned: bool, notice:
         notice_opens_share: panel == Some("share"),
         notice_opens_lend: panel == Some("lend"),
         route,
+        console: None,
     };
     let _ = app.emit_to("bar", "bar-shown", shown);
     let _ = app.emit_to("bar", "bar-computers", bar_computer_list(app));
@@ -3108,6 +3161,11 @@ fn bar_hide(app: AppHandle, id: Option<String>, focus: Option<bool>) {
     bar_menu(app.clone(), false, None);
     let state = app.state::<UiState>();
     let served = state.bar_session.lock().unwrap().take();
+    // Une partie sur console : la console reçoit de nouveau la manette.
+    if let Some(ps) = served.as_deref().or(id.as_deref()).filter(|i| crate::consoles::host_of(i).is_some()) {
+        playstation::bar_hidden(&app, ps, focus != Some(false));
+        return;
+    }
     if focus == Some(false) {
         return;
     }
@@ -3292,6 +3350,7 @@ pub fn quit(app: &AppHandle) {
             r.host.command(Command::Disconnect);
         }
     }
+    playstation::stop_all(app);
     // Rien en cours : tout de suite. Sinon à la fin de la dernière session,
     // ou de la connexion qui se lance (`ended`, `Launching`).
     exit_when_idle(app);
@@ -3416,7 +3475,25 @@ pub fn run(args: Vec<String>) {
             lend::lend_code,
             lend::lend_cancel_code,
             lend::lend_answer,
-            lend::lend_take_back
+            lend::lend_take_back,
+            playstation::ps_state,
+            playstation::ps_search_now,
+            playstation::ps_login,
+            playstation::ps_account_manual,
+            playstation::ps_account_rename,
+            playstation::ps_account_remove,
+            playstation::ps_choose_account,
+            playstation::ps_pair,
+            playstation::ps_probe_address,
+            playstation::ps_settings,
+            playstation::ps_save_settings,
+            playstation::ps_save_layout,
+            playstation::ps_default_layout,
+            playstation::ps_remove,
+            playstation::ps_play,
+            playstation::ps_handoff_discover,
+            playstation::ps_handoff_send,
+            playstation::ps_handoff_receive
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -3496,6 +3573,8 @@ pub fn run(args: Vec<String>) {
             std::thread::spawn(move || lend::poll_friends(h));
             let h = handle.clone();
             std::thread::spawn(move || follow_loop(h));
+            // Consoles PlayStation : le fichier, les secrets, la recherche.
+            playstation::start(&handle);
             log::info!("app : prête");
             Ok(())
         })
@@ -3533,6 +3612,8 @@ pub fn run(args: Vec<String>) {
                     api.prevent_close();
                     connexion_closed(app, label);
                 }
+                // La connexion de Sony (consoles PlayStation) se ferme pour de bon.
+                "psn-login" => {}
                 // La barre ne se ferme pas (Alt+F4) : elle se cache, le
                 // clavier revient à la session qu'elle servait.
                 _ => {

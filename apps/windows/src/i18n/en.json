@@ -54,8 +54,8 @@
     "shortcut": "Your computer on this PC",
     "connect_to": "Connect to {name}",
     "computers": "Computers",
-    "add": "Add a computer",
-    "add_description": "Add a computer to KyberNow Link"
+    "add": "Add a computer or a console",
+    "add_description": "Add a computer or a console to KyberNow Link"
   },
   "window": {
     "preparing": "preparing the display",
@@ -113,7 +113,7 @@
     "update": "Update the Station ({version})",
     "updating": "Updating the Station…",
     "open": "Open KyberNow Link",
-    "add": "Add a computer",
+    "add": "Add a computer or a console",
     "join": "Join with a code",
     "app_settings": "App settings",
     "app_update": "Version {version} available",
@@ -153,5 +153,31 @@
     "computer_of": "{host}'s computer",
     "notice_request": "{name} wants to borrow the computer.",
     "come_back": "You can come back for 15 min."
+  },
+  "ps": {
+    "sign_in_title": "Sign in to PlayStation Network",
+    "account_unread": "Couldn't read the account ID: try again, or enter it by hand.",
+    "bad_account_id": "The account ID is 12 characters long (base64 of 8 bytes).",
+    "no_answer": "The console isn't answering: keep the “Link Device” screen open.",
+    "wrong_code": "Code refused: it changes every 5 minutes.",
+    "account_refused": "The console refuses this account.",
+    "unreachable": "Console unreachable.",
+    "click_to_play": "Click the picture to play with keyboard and mouse",
+    "release_mouse": "Ctrl+Alt+Shift+M to release the mouse",
+    "console_keyboard": "Type your text · Return to accept · Escape to cancel",
+    "cant_display": "The console can't stream what it's showing.",
+    "end_in_use": "The console is already being played remotely by another device.",
+    "end_not_paired": "The console no longer recognizes this device: pair it again.",
+    "end_unreachable": "The console isn't answering.",
+    "end_remote": "The console ended the session.",
+    "sent": "Accounts and consoles sent to {name}.",
+    "send_refused": "Code refused: check it on {name}.",
+    "send_unreachable": "{name} isn't answering any more.",
+    "receive_failed": "This device can't wait for a transfer: check that Windows Firewall lets KyberNow Link through.",
+    "received": "{accounts} and {consoles} received.",
+    "n_accounts_one": "1 account",
+    "n_accounts_other": "{n} accounts",
+    "n_consoles_one": "1 console",
+    "n_consoles_other": "{n} consoles"
   }
 }

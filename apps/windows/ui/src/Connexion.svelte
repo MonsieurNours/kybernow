@@ -8,6 +8,8 @@
   `open_connexion`). Si la connexion échoue, le passage se referme et la
   raison reste, avec un seul bouton « Fermer », qui ferme la fenêtre. Fermer
   la fenêtre pendant la connexion, c'est « Annuler ».
+  Partie sur une console PlayStation (`console` de `connexion_state`) : les étapes de la console
+  (« Réveil de la console » quand elle dort), son nom et sa signature ; sa raison d'échec se lit telle quelle.
 -->
 <script lang="ts">
   import { onMount } from 'svelte'
@@ -24,6 +26,9 @@
   let guest = $state(false)
   /** Session d'emprunt (prêt de l'ordinateur) : « Préparation de l'ordinateur » en première étape. */
   let borrow = $state(false)
+  /** Partie sur une console : ses étapes ; `wakes` : elle dort, « Réveil de la console » d'abord. */
+  let ps = $state(false)
+  let wakes = $state(false)
   let phase = $state<Phase['phase']>('preparing')
   let restarting = $state(false)
   let opening = $state(false)
@@ -38,6 +43,7 @@
       listen<Phase>('session-status', (p) => {
         if (p.id !== id) return
         restarting = false
+        if (ps && p.phase === 'preparing') wakes = true
         phase = step(p.phase)
       }),
       listen<StationRestarting>('session-station-restarting', (r) => {
@@ -66,6 +72,11 @@
         restarting = v.restarting
         error = v.error
         borrow = v.borrow === true
+        if (v.console) {
+          ps = true
+          wakes = v.console.wakes || v.phase === 'preparing'
+          computer = { name: v.console.name, preview: null, fingerprint: v.console.name }
+        }
         // Un invité : « Invité sur {nom} » à la place du nom d'un ordinateur de l'app.
         if (v.guest && v.title) {
           guest = true
@@ -74,7 +85,7 @@
       })
       invoke<Snapshot>('snapshot').then((s) => {
         const known = s.computers.find((c) => c.id === id)
-        if (known) computer = known
+        if (known && !ps) computer = known
       })
       invoke<AppInfo>('app_info').then((i) => setLang(i.lang))
     })
@@ -93,12 +104,12 @@
 </script>
 
 {#if computer}
-  <Passage {computer} {phase} {opening} closing={error !== null} {restarting} {guest} {borrow} oncancel={close} />
+  <Passage {computer} {phase} {opening} closing={error !== null} {restarting} {guest} {borrow} {ps} {wakes} oncancel={close} />
 {/if}
 
 {#if error}
   <div class="failed" class:leaving role="alert">
-    <p>{guest ? error : t('app.connect_failed', { error })}</p>
+    <p>{guest || ps ? error : t('app.connect_failed', { error })}</p>
     <button onclick={close} disabled={leaving}>{t('common.close')}</button>
   </div>
 {/if}

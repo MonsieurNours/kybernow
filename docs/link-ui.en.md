@@ -574,6 +574,18 @@ Settings apply to the next game; keyboard and mouse changes apply at once during
 
 **The console's keyboard** (the console opens its on-screen keyboard): banner at the bottom of the picture, like the mouse hints: « Tapez votre texte · Entrée pour valider · Échap pour annuler » / “Type your text · Return to accept · Escape to cancel”; the keyboard types into the console's field (text in the keyboard's layout, Backspace; arrows not sent), then the banner goes away when the console closes its keyboard. ⌃⌥⌘ shortcuts stay with the app.
 
+**Complementary texts** (written first for the Windows app; the other apps take them when they have the same element):
+
+| Element | Français | English |
+|---|---|---|
+| Subtitle of the PlayStation tab (add window whose ways to add are listed with a subtitle) | « Comptes PSN et consoles » | “PSN accounts and consoles” |
+| Sony sign-in in its own window (Windows: Sony's page is not inside the sheet) | « Connectez-vous dans la fenêtre de PlayStation Network… » | “Sign in in the PlayStation Network window…” |
+| Removing a console (bottom of its settings) | « Retirer cette console », then « Retirer {nom} de cet appareil ? Vous pourrez l'associer de nouveau. » | “Remove this console”, “Remove {name} from this device? You can pair it again later.” |
+| Accessible labels | account chip: « Compte de la partie : {pseudo} »; an action's “+”: « Ajouter une touche : {action} »; “On your network” card: « Associer {nom} » | “Account for the game: {online ID}”; “Add a key: {action}”; “Pair {name}” |
+| Statistics panel | through the relay, a « Chemin : {chemin} » line; before the picture: « Les statistiques s'affichent dès que l'image arrive. » | “Path: {path}”; “Statistics appear as soon as the picture arrives.” |
+| Bar driven by the controller | banner under the bar: « La manette pilote KyberNow Link · La console ne la reçoit plus », « naviguer », « ✕ choisir », « ○ fermer », « L1 R1 OPTIONS CREATE revenir à la console » | “The controller drives KyberNow Link · The console no longer receives it”, “navigate”, “select”, “close”, “back to the console” |
+| Shortcuts (Windows, Linux) | Ctrl+Alt+Shift+M for the mouse, Ctrl+Alt+Shift+D to disconnect, Ctrl+Alt+Shift+F for full screen; the layout's key names are the system's | |
+
 **Away from home**, a console reached through a Station: “Away from home” state on the home screen, “Via the relay” chip in the bar, “Path” line in the statistics, like a computer ([relais.en.md](relais.en.md#playstation-consoles)). Nothing to set. The main button is “Play” (the exact state is only read by reaching the Station): “Connecting to the console…” while it is reached, then “Waking the console…” if it was in rest mode, then the game. Relay refusals (access turned off, Station off or asleep): the texts of a computer through the relay, with the Station's name; the Station doesn't see the console, or it doesn't wake: “The console isn't answering.”
 
 **Game bar**: the same as a computer session's (same component, same layout), with what makes sense for a console. It opens like the pointer bar (pointer a quarter second against the top edge of the picture, only when the mouse is not captured; same short line at the top of the picture) or with the controller combination Options + Create + L1 + R1 held 250 ms (the same buttons as Start + Select + L1 + R1 in a computer session). Opened by the controller, the controller drives it (D-pad or stick, Cross to select, Circle to go back; Circle or the combination close it) and the console gets an idle controller; keyboard and mouse don't reach the console either while it is open.

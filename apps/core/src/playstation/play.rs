@@ -352,10 +352,12 @@ impl Play {
         self.want_key.store(false, Ordering::Relaxed);
     }
 
-    /// Met la console en mode repos (puis la partie se termine).
-    pub fn goto_bed(&self) {
-        if let Some(c) = self.ctrl.lock().unwrap().as_ref() {
-            let _ = c.goto_bed();
+    /// Met la console en mode repos (puis la partie se termine). Vrai si la
+    /// demande est partie (canal de contrôle ouvert).
+    pub fn goto_bed(&self) -> bool {
+        match self.ctrl.lock().unwrap().as_ref() {
+            Some(c) => c.goto_bed().is_ok(),
+            None => false,
         }
     }
 

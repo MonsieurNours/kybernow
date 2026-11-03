@@ -4,6 +4,7 @@
 // réglage Langue de l'app (comme dans l'app, sans recharger).
 
 import { i18n, langFromTag, t } from './i18n/index.svelte'
+import type { PsAccount, PsBar, PsConsole, PsFound, PsHandoffEvent, PsKept, PsLayout, PsSettings, PsSettingsView, PsState, PsWaiting } from './api'
 import type { BarComputer, BorrowBar, BorrowOutcome, Friend, HomeLend, LendEnd, LendPanel, LendRequest, LendWaitOutcome, Computer, ConnectInfo, ConnexionView, DisplaysInfo, FondState, GuestBar, Info, KeepSound, LastSession, RouteEvent, RouteView, ScreensEvent, Settings, Share, ShareGuest, ShareImageEvent, ShareJoinOutcome, ShareJoined, ShareQuality, ShareRole, ShareRoleEvent, ShareWaitOutcome, StationInfo, StationOutcome, StationRestarting, WakeTarget } from './api'
 
 const listeners = new Map<string, ((e: { payload: unknown }) => void)[]>()
@@ -1170,6 +1171,296 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
   },
 }
 
+// MARK: - Consoles PlayStation
+//
+// `?consoles` : deux comptes (« Matthieu_PSN », « Camille-92 ») et un compte d'une version précédente
+// (sans pseudo) ; la « PS5 du salon », associée avec les deux premiers, allumée, « Astro Bot » en cours ;
+// la « PS5 de Léa » en veille sur le réseau, pas gardée. `?consoles=vide` : aucun compte, les deux consoles
+// sur le réseau ; `?consoles=releve` : la PS5 du salon ne répond pas sur le réseau, une Station la voit
+// (« Hors de chez vous ») ; `?consoles=fin` : la partie s'arrête d'elle-même (« La console ne répond pas. »).
+// Association : 12345678 passe, 00000000 est refusé, un autre code reste sans réponse. « Par adresse » :
+// 192.168.1.111 est la PS5 de Léa. « Envoyer à un appareil » : une Apple TV attend (le code 000000 est
+// refusé) ; « Recevoir d'un autre appareil » : le code 482 913, puis des comptes reçus au bout de 6 s
+// (`&recevoir=expire` : le code expire). La barre d'une partie : `/bar.html?console` (souris, son, plein
+// écran, mesures), `&manette` (une manette branchée, la barre pilotée par la manette : l'anneau se déplace).
+const psFlag = flags.has('consoles') ? flags.get('consoles') || 'demo' : null
+const salonId = 'A1B2C3D4E5F6'
+const leaId = 'F6E5D4C3B2A1'
+const psAccounts: PsAccount[] =
+  psFlag && psFlag !== 'vide'
+    ? [
+        { id: 'acc-1', name: 'Matthieu_PSN', consoles: 1 },
+        { id: 'acc-2', name: 'Camille-92', consoles: 1 },
+        { id: 'acc-3', name: null, consoles: 0 },
+      ]
+    : []
+const salonFound: PsFound = { host_id: salonId, name: t('mock.ps_living_room'), model: 'PS5', address: '192.168.1.110', state: 'ready', target: 'ps5_v1', running_app: 'Astro Bot' }
+const leaFound: PsFound = { host_id: leaId, name: t('mock.ps_lea'), model: 'PS5', address: '192.168.1.111', state: 'standby', target: 'ps5_v1', running_app: null }
+const away = psFlag === 'releve'
+let psConsoles: PsConsole[] =
+  psFlag && psFlag !== 'vide'
+    ? [
+        {
+          id: `ps-${salonId}`,
+          host_id: salonId,
+          name: salonFound.name,
+          model: 'PS5',
+          address: salonFound.address,
+          status: away ? 'away' : 'on',
+          running_app: away ? null : 'Astro Bot',
+          accounts: [
+            { id: 'acc-1', name: 'Matthieu_PSN' },
+            { id: 'acc-2', name: 'Camille-92' },
+          ],
+          chosen: 'acc-1',
+          free_accounts: 1,
+          custom: false,
+          waking: false,
+          reaching: false,
+          in_session: false,
+          found: away ? null : salonFound,
+        },
+      ]
+    : []
+let psFoundList: PsFound[] = psFlag ? [...(away ? [] : [salonFound]), leaFound] : []
+const psSettingsOf = new Map<string, PsSettings>()
+const psLayoutOf = new Map<string, PsLayout>()
+const psDefaultSettings: PsSettings = { resolution: 'auto', fps: 60, bitrate_kbps: null, codec: 'auto', hdr: false, fullscreen: true, upscale: true, sharpness: 40, rumble: 100, triggers: 100 }
+/** La disposition par défaut du cœur (keymouse.rs). */
+const psDefaultLayout = (): PsLayout => ({
+  bindings: [
+    [{ key: 0x1a }, 'left_stick_up'], [{ key: 0x16 }, 'left_stick_down'], [{ key: 0x04 }, 'left_stick_left'], [{ key: 0x07 }, 'left_stick_right'],
+    [{ key: 0x2c }, 'cross'], [{ key: 0x28 }, 'cross'], [{ key: 0x06 }, 'circle'], [{ key: 0x2a }, 'circle'], [{ key: 0x15 }, 'square'], [{ key: 0x09 }, 'triangle'],
+    [{ key: 0x14 }, 'l1'], [{ key: 0x08 }, 'r1'], [{ mouse: 1 }, 'l2'], [{ mouse: 0 }, 'r2'], [{ key: 0xe1 }, 'l3'], [{ key: 0x19 }, 'r3'], [{ mouse: 2 }, 'r3'],
+    [{ key: 0x52 }, 'dpad_up'], [{ key: 0x51 }, 'dpad_down'], [{ key: 0x50 }, 'dpad_left'], [{ key: 0x4f }, 'dpad_right'],
+    [{ key: 0x29 }, 'options'], [{ key: 0x31 }, 'create'], [{ key: 0x35 }, 'ps'], [{ key: 0x2b }, 'touchpad'],
+  ],
+  mouse_stick: true,
+  sensitivity: 1,
+  curve: 0.8,
+  deadzone: 0.2,
+  invert_y: false,
+})
+/** Les noms des touches que Windows donnerait, sur un clavier AZERTY (la place de A est le Q). */
+const psKeyNames = (): Record<string, string> => {
+  const fr = i18n.lang === 'fr'
+  const names: Record<string, string> = {}
+  const azerty = 'QBCDEFGHIJKL,NOPARSTUVZXYW'
+  for (let i = 0; i < 26; i++) names[String(0x04 + i)] = azerty[i]
+  for (let i = 1; i <= 12; i++) names[String(0x39 + i)] = `F${i}`
+  Object.assign(names, {
+    [0x28]: fr ? 'Entrée' : 'Enter', [0x29]: fr ? 'Échap' : 'Esc', [0x2a]: fr ? 'Retour arrière' : 'Backspace', [0x2b]: 'Tab',
+    [0x2c]: fr ? 'Espace' : 'Space', [0x31]: '*', [0x35]: '²', [0x33]: 'M',
+    [0x52]: fr ? 'Haut' : 'Up', [0x51]: fr ? 'Bas' : 'Down', [0x50]: fr ? 'Gauche' : 'Left', [0x4f]: fr ? 'Droite' : 'Right',
+    [0xe0]: fr ? 'Ctrl gauche' : 'Left Ctrl', [0xe1]: fr ? 'Maj gauche' : 'Left Shift', [0xe2]: 'Alt', [0xe4]: fr ? 'Ctrl droite' : 'Right Ctrl', [0xe5]: fr ? 'Maj droite' : 'Right Shift', [0xe6]: 'Alt Gr',
+  })
+  return names
+}
+const psState = (): PsState => {
+  // Le nombre de consoles de chaque compte, et les comptes libres de chaque console, d'après les associations.
+  for (const a of psAccounts) a.consoles = psConsoles.filter((c) => c.accounts.some((x) => x.id === a.id)).length
+  for (const c of psConsoles) {
+    c.free_accounts = psAccounts.filter((a) => !c.accounts.some((x) => x.id === a.id)).length
+    c.accounts = c.accounts.map((x) => ({ id: x.id, name: psAccounts.find((a) => a.id === x.id)?.name ?? x.name }))
+  }
+  return structuredClone({ accounts: psAccounts, consoles: psConsoles, found: psFoundList, searched: true })
+}
+const emitPs = () => emit('ps-state', psState())
+const psConsole = (id: unknown) => psConsoles.find((c) => c.id === id)
+let psHandoffTimer: ReturnType<typeof setTimeout> | null = null
+let psAccountSeq = 3
+/** La barre d'une partie imitée (`/bar.html?console`). */
+const psBarFlag = flags.has('console')
+let psBarState: PsBar = { id: `ps-${salonId}`, name: t('mock.ps_living_room'), pad: flags.has('manette'), captured: false, muted: false, fullscreen: true, pad_mode: flags.has('manette') }
+
+const psCommands: Record<string, (a: Record<string, unknown>) => unknown> = {
+  ps_state: () => psState(),
+  ps_search_now: async () => {
+    await sleep(2000)
+    return psState()
+  },
+  // La fenêtre de Sony : le compte est lu au bout de 1,5 s.
+  ps_login: async () => {
+    await sleep(1500)
+    const account: PsAccount = { id: `acc-${++psAccountSeq}`, name: t('mock.ps_new_account'), consoles: 0 }
+    psAccounts.push(account)
+    emitPs()
+    return { account, existed: false } satisfies PsKept
+  },
+  ps_account_manual: async (a) => {
+    await sleep(300)
+    const psnId = String(a.psnId)
+    if (!/^[A-Za-z0-9+/]{11}=$/.test(psnId)) throw t('mock.ps_bad_id')
+    const id = `manual-${psnId}`
+    const known = psAccounts.find((x) => x.id === id)
+    if (known) {
+      if (a.name) known.name = String(a.name)
+      emitPs()
+      return { account: { ...known }, existed: true } satisfies PsKept
+    }
+    const account: PsAccount = { id, name: String(a.name || '') || null, consoles: 0 }
+    psAccounts.push(account)
+    emitPs()
+    return { account, existed: false } satisfies PsKept
+  },
+  ps_account_rename: (a) => {
+    const x = psAccounts.find((y) => y.id === a.account)
+    if (x) x.name = String(a.name)
+    emitPs()
+    return null
+  },
+  ps_account_remove: (a) => {
+    psAccounts.splice(psAccounts.findIndex((y) => y.id === a.account), 1)
+    for (const c of psConsoles) c.accounts = c.accounts.filter((x) => x.id !== a.account)
+    psConsoles = psConsoles.filter((c) => c.accounts.length > 0)
+    emitPs()
+    return null
+  },
+  ps_pair: async (a) => {
+    await sleep(1200)
+    if (a.pin === '00000000') throw t('mock.ps_wrong_code')
+    if (a.pin !== '12345678') throw t('mock.ps_no_answer')
+    const id = `ps-${a.hostId}`
+    const found = psFoundList.find((f) => f.host_id === a.hostId)
+    const account = psAccounts.find((x) => x.id === a.account)!
+    const kept = psConsole(id)
+    if (kept) {
+      kept.accounts.push({ id: account.id, name: account.name })
+    } else {
+      psConsoles.push({
+        id,
+        host_id: String(a.hostId),
+        name: found?.name ?? String(a.hostId),
+        model: found?.model ?? 'PS5',
+        address: String(a.address),
+        status: found?.state === 'ready' ? 'on' : found?.state === 'standby' ? 'standby' : 'offline',
+        running_app: found?.running_app ?? null,
+        accounts: [{ id: account.id, name: account.name }],
+        chosen: account.id,
+        free_accounts: 0,
+        custom: false,
+        waking: false,
+        reaching: false,
+        in_session: false,
+        found: found ?? null,
+      })
+    }
+    emitPs()
+    return id
+  },
+  // « Par adresse » : la PS5 de Léa répond à son adresse.
+  ps_probe_address: async (a) => {
+    await sleep(1500)
+    return a.host === leaFound.address ? leaFound : null
+  },
+  ps_play: (a) => {
+    const id = String(a.id)
+    const c = psConsole(id)
+    if (!c) throw t('mock.no_session')
+    if (sessions.includes(id)) return { windowed: true }
+    const windowed = sessions.length > 0
+    sessions = [...sessions, id]
+    emitSessions()
+    void (async () => {
+      if (c.status === 'standby') {
+        c.waking = true
+        emitPs()
+        emit('session-status', { id, phase: 'preparing', detail: null })
+        await sleep(2000)
+        c.waking = false
+        c.status = 'on'
+      }
+      c.in_session = true
+      emitPs()
+      emit('session-status', { id, phase: 'connecting', detail: null })
+      emit('session-route', { id, route: c.status === 'away' ? routeView() : directRoute } satisfies RouteEvent)
+      await sleep(1500)
+      emit('session-status', { id, phase: 'streaming', detail: null })
+      await sleep(600)
+      emit('session-shown', id)
+      await sleep(psFlag === 'fin' ? 3000 : 8000)
+      sessions = sessions.filter((s) => s !== id)
+      c.in_session = false
+      emitPs()
+      emit('session-status', { id, phase: 'ended', detail: null })
+      emit('session-ended', { id, summary: { error: psFlag === 'fin' ? t('mock.ps_not_answering') : null, median_ms: null, p95_ms: null, seconds: 10 } })
+      emitSessions()
+    })()
+    return { windowed }
+  },
+  ps_choose_account: (a) => {
+    const c = psConsole(a.id)
+    if (c) c.chosen = String(a.account)
+    emitPs()
+    return null
+  },
+  ps_settings: (a) => {
+    const c = psConsole(a.id)
+    if (!c) throw t('mock.no_session')
+    return {
+      id: c.id,
+      name: c.name,
+      model: c.model,
+      settings: structuredClone(psSettingsOf.get(c.id) ?? psDefaultSettings),
+      layout: structuredClone(psLayoutOf.get(c.id) ?? psDefaultLayout()),
+      key_names: psKeyNames(),
+    } satisfies PsSettingsView
+  },
+  ps_save_settings: (a) => {
+    const s = a.settings as PsSettings
+    psSettingsOf.set(String(a.id), s)
+    const c = psConsole(a.id)
+    if (c) c.custom = s.resolution !== 'auto' || s.fps !== 60 || s.bitrate_kbps != null || s.codec !== 'auto'
+    emitPs()
+    return null
+  },
+  ps_save_layout: (a) => {
+    psLayoutOf.set(String(a.id), a.layout as PsLayout)
+    return null
+  },
+  ps_default_layout: (a) => {
+    psLayoutOf.delete(String(a.id))
+    return psDefaultLayout()
+  },
+  ps_remove: (a) => {
+    psConsoles = psConsoles.filter((c) => c.id !== a.id)
+    emitPs()
+    return null
+  },
+  // Une Apple TV attend un envoi (la recherche prend 1 s).
+  ps_handoff_discover: async () => {
+    await sleep(1000)
+    return [{ name: t('mock.ps_tv'), platform: 'tvos', address: '192.168.1.50:41234' }] satisfies PsWaiting[]
+  },
+  ps_handoff_send: async (a) => {
+    await sleep(1000)
+    if (a.code === '000000') throw t('mock.ps_send_refused', { name: String(a.name) })
+    return t('mock.ps_sent', { name: String(a.name) })
+  },
+  ps_handoff_receive: (a) => {
+    if (psHandoffTimer) clearTimeout(psHandoffTimer)
+    psHandoffTimer = null
+    if (!a.on) return null
+    psHandoffTimer = setTimeout(() => {
+      psHandoffTimer = null
+      emit('ps-handoff', (flags.get('recevoir') === 'expire' ? { event: 'expired' } : { event: 'received', text: t('mock.ps_received') }) satisfies PsHandoffEvent)
+    }, 6000)
+    return '482913'
+  },
+  // La barre d'une partie : le son, la souris, le plein écran changent ; « Se déconnecter » et la veille la ferment.
+  session_command: (a) => {
+    if (typeof a.id !== 'string' || !a.id.startsWith('ps-')) return null
+    const change = { mute: { muted: !psBarState.muted }, mouse: { captured: !psBarState.captured }, fullscreen: { fullscreen: !psBarState.fullscreen } }[a.command as 'mute']
+    if (change) {
+      psBarState = { ...psBarState, ...change }
+      emit('ps-bar', psBarState)
+    }
+    console.info(`session_command ${a.command} : ${a.id}`)
+    return null
+  },
+}
+Object.assign(commands, psCommands)
+
 export function mockTauri() {
   // `?copie=non` : le presse-papiers de la page refuse aussi, « Copier le lien » échoue.
   if (flags.get('copie') === 'non') {
@@ -1187,7 +1478,7 @@ export function mockTauri() {
       listen: async (name: string, cb: (e: { payload: unknown }) => void) => {
         listeners.set(name, [...(listeners.get(name) ?? []), cb])
         // La barre sert la première session (`a1` sans `?ordinateurs`), ou celle d'un invité (`?invite=…`).
-        const served = guestFlag !== null ? 'guest-1' : borrowFlag ? 'lend-1' : (sessions[0] ?? 'a1')
+        const served = psBarFlag ? psBarState.id : guestFlag !== null ? 'guest-1' : borrowFlag ? 'lend-1' : (sessions[0] ?? 'a1')
         // « Garder le son » à partir de deux sessions (`?ordinateurs=2`) ; sans session imitée, celle de la barre.
         if (name === 'bar-shown') {
           const guest: GuestBar | null = guestFlag !== null ? { role: guestRole, host: 'Léa', quality: guestQuality, image: imageOf(guestQuality) } : null
@@ -1195,7 +1486,13 @@ export function mockTauri() {
           const route = relayJoined ? routeView() : null
           const borrow = borrowFlag ? borrowBar() : null
           const host = !guest && !borrow
-          const shown = { id: served, label: 'Jeu · HEVC', profile: 'jeu', multi: deviceScreens > 1, keep_sound: keepSound.has(served), sessions: Math.max(1, sessions.length), guest, share: host ? shareView() : null, lend: host ? lendView() : null, borrow, route }
+          const shown = { id: served, label: 'Jeu · HEVC', profile: 'jeu', multi: deviceScreens > 1, keep_sound: keepSound.has(served), sessions: Math.max(1, sessions.length), guest, share: host ? shareView() : null, lend: host ? lendView() : null, borrow, route, console: psBarFlag ? psBarState : null }
+          // `&manette` : la barre pilotée par la manette, l'anneau va et vient.
+          if (psBarFlag && flags.has('manette')) {
+            const keys = ['right', 'right', 'right', 'right', 'left', 'left', 'left', 'left'] as const
+            let n = 0
+            setInterval(() => emit('ps-bar-nav', { id: served, key: keys[n++ % keys.length] }), 1200)
+          }
           setTimeout(() => cb({ payload: shown }), 300)
           // `&avis` : le changement de rôle d'un invité, montré à la place des statistiques.
           if (guest && flags.has('avis')) {
@@ -1220,6 +1517,16 @@ export function mockTauri() {
           }
         }
         if (name === 'bar-computers') setTimeout(() => cb({ payload: barComputers() }), 300)
+        // La partie d'une console : ses mesures à elle, une fois par seconde.
+        if (name === 'ps-stats' && psBarFlag) {
+          let lost = 0
+          const timer = setInterval(() => {
+            if (Math.random() < 0.2) lost++
+            cb({ payload: { id: served, width: 1920, height: 1080, fps_asked: 60, hevc: true, hdr: false, target_kbps: 15000, fps: 58 + Math.random() * 2, mbps: 11.5 + Math.random() * 2, lost, recovered: Math.max(0, lost - 1) } })
+          }, 1000)
+          return () => clearInterval(timer)
+        }
+        if (name === 'stats' && psBarFlag) return () => {}
         if (name === 'stats') {
           const timer = setInterval(() => cb({ payload: { id: served, latency_ms: 8 + Math.random() * 3, fps: 60, width: 1920, height: 1200, decoder: `HEVC · ${t('mock.hardware')}`, relative: false, rtt_ms: 2.1, audio_ms: 18 + Math.random() * 4, audio_gaps: 0, screens: deviceScreens, chain: [0.4 + Math.random() * 0.3, 2.6 + Math.random() * 0.8, 0.3, 1.2 + Math.random(), 1.1 + Math.random() * 0.4, 2.4 + Math.random() * 1.5], hdr: false } }), 1000)
           return () => clearInterval(timer)
