@@ -805,7 +805,26 @@ struct HdrDone {
     luminance: Option<hdr::ScreenLuminance>,
     color: Option<hdr::ColorOriginal>,
     check: Option<hdr::HdrCheck>,
+    /// HDR coupé puis remis (voie `Toggle`) : une capture WGC est à relancer.
+    toggled: bool,
 }
+
+/// Ce qu'ont donné les voies de la vérification, par rang de la demande.
+struct Ladder {
+    way: Vec<Option<hdr::Way>>,
+    tries: Vec<Vec<hdr::Try>>,
+    user: Vec<Option<hdr::UserSeen>>,
+    toggled: Vec<bool>,
+}
+
+impl Ladder {
+    fn new(n: usize) -> Self {
+        Ladder { way: vec![None; n], tries: vec![Vec::new(); n], user: vec![None; n], toggled: vec![false; n] }
+    }
+}
+
+/// Attente de chaque voie de la vérification du HDR (Windows applique le profil en différé).
+const CHECK_WAIT_MS: u64 = 2_000;
 
 /// HDR voulu pour chaque écran d'une demande : les valeurs de l'écran de
 /// l'appareil pour un écran en HDR, `None` pour un écran en SDR.
@@ -886,6 +905,10 @@ trait Backend: Send + Sync {
     fn set_hdr(&self, asks: &[hdr::HdrAsk]) -> Result<Vec<hdr::HdrSeen>>;
     /// HDR de l'écran principal du PC, lu sans rien changer (session sans écran virtuel).
     fn display_hdr(&self) -> Result<hdr::HdrSeen>;
+    /// Notre profil associé (ou retiré) dans la portée du compte de
+    /// l'utilisateur, par l'agent lancé avec son compte dans sa session ;
+    /// relit ensuite `GetDesc1` (`wait_ms` au plus).
+    fn hdr_user(&self, request: &hdr::UserRequest) -> Result<Vec<hdr::UserSeen>>;
 }
 
 pub struct Manager {
@@ -913,6 +936,9 @@ pub struct Manager {
     sharing: AtomicBool,
     /// HDR de l'écran principal du PC, lu il y a moins de 30 s (`info`).
     display_hdr_seen: Mutex<Option<(Instant, bool)>>,
+    /// La voie qui a fait suivre `GetDesc1` au profil (`hdr::Way`), gardée
+    /// tant qu'Admin tourne : les voies d'avant sont ensuite faites sans attendre.
+    hdr_way: Mutex<Option<hdr::Way>>,
 }
 
 pub fn now_secs() -> u64 {
@@ -944,6 +970,7 @@ impl Manager {
             events: Mutex::new(None),
             sharing: AtomicBool::new(false),
             display_hdr_seen: Mutex::new(None),
+            hdr_way: Mutex::new(None),
         })
     }
 
@@ -1044,8 +1071,14 @@ impl Manager {
         let noted = |records: &[HdrRecord], guid: &[u8; 16]| records.iter().find(|r| r.guid == hex::encode(guid)).cloned();
         let gamma22 = self.settings.lock().unwrap().hdr_desktop_gamma == DesktopGamma::Gamma22;
         let dir = self.data_dir.join("display");
+        let kept = *self.hdr_way.lock().unwrap();
+        // Une voie gardée plus loin : celles d'avant sont faites sans attendre.
+        let quick = |w: hdr::Way| kept.is_some_and(|k| k > w);
         let mut asks = Vec::new();
-        for t in targets {
+        // Notre profil associé dans la portée du compte, à retirer d'abord
+        // (rang de la demande, remise de fin ou profil remplacé).
+        let mut user_undo: Vec<(usize, hdr::UserAsk)> = Vec::new();
+        for (i, t) in targets.iter().enumerate() {
             let color = t.color.clone().or_else(|| noted(&records, &t.guid).and_then(|r| r.color));
             let apply = match t.luminance.filter(|_| t.want && !restoring) {
                 Some(lum) => {
@@ -1068,8 +1101,39 @@ impl Manager {
                 None => None,
             };
             // Couleur remise quand l'écran repasse en SDR, ou à la remise.
+            let undo = restoring || !t.want || apply.is_some();
+            if let Some(c) = color.as_ref().filter(|_| undo)
+                && let Some(u) = &c.user
+            {
+                user_undo.push((
+                    i,
+                    hdr::UserAsk { created: t.created, profile: c.installed.clone(), restore: true, original: u.original.clone(), expect: None },
+                ));
+            }
             let restore = color.filter(|_| restoring || !t.want);
-            asks.push(hdr::HdrAsk { created: t.created, on: t.want, apply, restore });
+            let wait_ms = quick(hdr::Way::System).then_some(0);
+            asks.push(hdr::HdrAsk { created: t.created, on: t.want, apply, restore, toggle: false, expect: None, wait_ms });
+        }
+        if !user_undo.is_empty() {
+            let request = hdr::UserRequest { screens: user_undo.iter().map(|(_, a)| a.clone()).collect(), wait_ms: 0 };
+            let results = self.backend.hdr_user(&request).map_err(|e| format!("{e:#}"));
+            for (k, (i, a)) in user_undo.iter().enumerate() {
+                let t = &targets[*i];
+                let name = t.name.clone().unwrap_or_else(|| format!("virtuel {}", t.slot + 1));
+                match results.as_ref().map(|r| r.get(k)) {
+                    Ok(Some(u)) if u.restored => tracing::info!("écran {name} : profil {} retiré de la portée du compte de l'utilisateur", a.profile),
+                    other => {
+                        let why = match other {
+                            Ok(Some(u)) => u.error.clone().unwrap_or_else(|| "raison inconnue".into()),
+                            Ok(None) => "pas de réponse".into(),
+                            Err(e) => e.clone(),
+                        };
+                        tracing::warn!("écran {name} : profil {} pas encore retiré de la portée du compte de l'utilisateur ({why})", a.profile);
+                        // Rien n'est remis tant que le compte n'est pas fait : l'état d'origine reste noté.
+                        asks[*i].restore = None;
+                    }
+                }
+            }
         }
         let seen = match self.backend.set_hdr(&asks) {
             Ok(seen) => seen,
@@ -1081,8 +1145,10 @@ impl Manager {
                 return Vec::new();
             }
         };
+        let mut seen = seen;
+        let ladder = if restoring { Ladder::new(targets.len()) } else { self.hdr_ladder(targets, &asks, &mut seen, kept) };
         let mut done = Vec::new();
-        for ((t, ask), seen) in targets.iter().zip(&asks).zip(seen) {
+        for (i, ((t, ask), seen)) in targets.iter().zip(&asks).zip(seen).enumerate() {
             let name = t.name.clone().or_else(|| seen.gdi_name.clone()).unwrap_or_else(|| format!("virtuel {}", t.slot + 1));
             // Écran introuvable (déjà retiré) : son état d'origine reste noté.
             if !seen.read {
@@ -1104,6 +1170,13 @@ impl Manager {
                             |k| k.profile.clone(),
                         ),
                         sdr_white: known.as_ref().map_or(color_seen.original_white, |k| k.sdr_white),
+                        // Associé aussi dans la portée du compte (voie `User`).
+                        user: ladder.user[i].as_ref().map(|u| hdr::UserColor {
+                            original: known.as_ref().and_then(|k| k.user.clone()).map_or_else(
+                                || u.original.clone().filter(|p| !p.starts_with("KyberNow-HDR-")),
+                                |k| k.original,
+                            ),
+                        }),
                     }),
                     None => known,
                 },
@@ -1112,7 +1185,11 @@ impl Manager {
             };
             // Vérification : ce que Windows annonce aux jeux, comparé aux
             // valeurs de l'écran de l'appareil.
-            let check = t.luminance.filter(|_| t.want && !restoring).map(|lum| hdr::check(&lum, &seen));
+            let check = t.luminance.filter(|_| t.want && !restoring).map(|lum| hdr::HdrCheck {
+                way: ladder.way[i],
+                tries: ladder.tries[i].clone(),
+                ..hdr::check(&lum, &seen)
+            });
             records.retain(|r| r.guid != hex::encode(t.guid));
             if seen.active != original || color.is_some() {
                 records.push(HdrRecord { guid: hex::encode(t.guid), original, created: t.created, color: color.clone(), check: check.clone() });
@@ -1155,10 +1232,159 @@ impl Manager {
                 let line = hdr::check_line(&name, c);
                 if c.status == hdr::CheckStatus::Ok { tracing::info!("{line}") } else { tracing::warn!("{line}") }
             }
-            done.push(HdrDone { slot: t.slot, active: seen.active, original, luminance, color, check });
+            done.push(HdrDone { slot: t.slot, active: seen.active, original, luminance, color, check, toggled: ladder.toggled[i] });
         }
         self.write_hdr_records(records);
         done
+    }
+
+    /// Les voies (`hdr::Way`), dans l'ordre, pour les écrans dont `GetDesc1`
+    /// ne suit pas le profil posé : profil associé pour tout l'ordinateur
+    /// (déjà fait par `set_hdr`), puis aussi dans la portée du compte de
+    /// l'utilisateur, puis HDR coupé et remis ; 2 s d'attente chacune
+    /// (aucune pour les voies d'avant une voie gardée). Une ligne de
+    /// journal par voie ; la première qui marche est gardée. Met à jour `seen`.
+    fn hdr_ladder(&self, targets: &[HdrTarget], asks: &[hdr::HdrAsk], seen: &mut [hdr::HdrSeen], kept: Option<hdr::Way>) -> Ladder {
+        use hdr::{CheckStatus, Try, Way};
+        let n = targets.len();
+        let mut ladder = Ladder::new(n);
+        let quick = |w: Way| kept.is_some_and(|k| k > w);
+        // Les écrans à vérifier : HDR voulu et en place, notre profil posé.
+        let wanted: Vec<Option<hdr::ScreenLuminance>> = (0..n)
+            .map(|i| {
+                let installed = seen[i].color.as_ref().is_some_and(|c| c.installed.is_some());
+                targets[i].luminance.filter(|_| targets[i].want && asks[i].apply.is_some() && seen[i].read && seen[i].active && installed)
+            })
+            .collect();
+        let status = |i: usize, seen: &[hdr::HdrSeen]| wanted[i].map(|lum| hdr::check(&lum, &seen[i]).status);
+        let names: Vec<String> = (0..n)
+            .map(|i| {
+                let t = &targets[i];
+                t.name.clone().or_else(|| seen[i].gdi_name.clone()).unwrap_or_else(|| format!("virtuel {}", t.slot + 1))
+            })
+            .collect();
+        for i in 0..n {
+            if let Some(lum) = wanted[i] {
+                let t = Try { way: Way::System, seen: seen[i].luminance, quick: quick(Way::System), error: None };
+                let defaults = seen[i].color.as_ref().and_then(|c| c.system_default.clone()).unwrap_or_else(|| "aucun".into());
+                let line = hdr::try_line(&names[i], &t, lum.max, &format!(" (profil par défaut relu : {defaults})"));
+                ladder.tries[i].push(t);
+                if status(i, seen) == Some(CheckStatus::Ok) {
+                    ladder.way[i] = Some(Way::System);
+                    tracing::info!("{line}");
+                } else {
+                    tracing::warn!("{line}");
+                }
+            }
+        }
+        let failing = |seen: &[hdr::HdrSeen]| (0..n).filter(|&i| status(i, seen) == Some(CheckStatus::Profile)).collect::<Vec<_>>();
+        // Voie `User` : l'agent lancé avec le compte de l'utilisateur.
+        let idx = failing(seen);
+        if !idx.is_empty() {
+            let request = hdr::UserRequest {
+                screens: idx
+                    .iter()
+                    .map(|&i| hdr::UserAsk {
+                        created: targets[i].created,
+                        profile: seen[i].color.as_ref().and_then(|c| c.installed.clone()).unwrap_or_default(),
+                        restore: false,
+                        original: None,
+                        expect: wanted[i],
+                    })
+                    .collect(),
+                wait_ms: if quick(Way::User) { 0 } else { CHECK_WAIT_MS },
+            };
+            let results = self.backend.hdr_user(&request).map_err(|e| format!("{e:#}"));
+            for (k, &i) in idx.iter().enumerate() {
+                let u = match &results {
+                    Ok(r) => r.get(k).cloned().ok_or_else(|| "pas de réponse".to_string()),
+                    Err(e) => Err(e.clone()),
+                };
+                let (t, extra) = match u {
+                    Ok(u) => {
+                        if u.luminance.is_some() {
+                            seen[i].luminance = u.luminance;
+                            seen[i].red_primary = u.red_primary.or(seen[i].red_primary);
+                        }
+                        let scope = match u.scope.as_deref() {
+                            Some("user") => "celle du compte",
+                            Some(_) => "celle de l'ordinateur",
+                            None => "inconnue",
+                        };
+                        let extra = format!(
+                            " (portée que Windows applique pour ce compte : {scope} ; profil par défaut du compte avant : {}, après : {})",
+                            u.original.as_deref().unwrap_or("aucun"),
+                            u.default_after.as_deref().unwrap_or("aucun")
+                        );
+                        let t = Try { way: Way::User, seen: u.luminance, quick: quick(Way::User), error: u.error.clone() };
+                        if u.associated {
+                            ladder.user[i] = Some(u);
+                        }
+                        (t, extra)
+                    }
+                    Err(e) => (Try { way: Way::User, seen: None, quick: false, error: Some(e) }, String::new()),
+                };
+                let line = hdr::try_line(&names[i], &t, wanted[i].map_or(0.0, |l| l.max), &extra);
+                ladder.tries[i].push(t);
+                if status(i, seen) == Some(CheckStatus::Ok) {
+                    ladder.way[i] = Some(Way::User);
+                    tracing::info!("{line}");
+                } else {
+                    tracing::warn!("{line}");
+                }
+            }
+        }
+        // Voie `Toggle` : HDR coupé puis remis, le profil déjà associé.
+        let idx = failing(seen);
+        if !idx.is_empty() {
+            let toggle: Vec<hdr::HdrAsk> = idx
+                .iter()
+                .map(|&i| hdr::HdrAsk {
+                    created: targets[i].created,
+                    on: true,
+                    apply: None,
+                    restore: None,
+                    toggle: true,
+                    expect: wanted[i],
+                    wait_ms: None,
+                })
+                .collect();
+            let results = self.backend.set_hdr(&toggle).map_err(|e| format!("{e:#}"));
+            for (k, &i) in idx.iter().enumerate() {
+                let t = match results.as_ref().map(|r| r.get(k)) {
+                    Ok(Some(s2)) => {
+                        ladder.toggled[i] = true;
+                        seen[i].active = s2.active;
+                        seen[i].luminance = s2.luminance;
+                        seen[i].red_primary = s2.red_primary.or(seen[i].red_primary);
+                        seen[i].sdr_white = s2.sdr_white.or(seen[i].sdr_white);
+                        if !s2.active {
+                            seen[i].error = s2.error.clone().or_else(|| Some("HDR pas remis après la coupure".into()));
+                        }
+                        let error = (!s2.active).then(|| seen[i].error.clone()).flatten();
+                        Try { way: Way::Toggle, seen: s2.luminance.filter(|_| s2.active), quick: false, error }
+                    }
+                    Ok(None) => Try { way: Way::Toggle, seen: None, quick: false, error: Some("pas de réponse".into()) },
+                    Err(e) => Try { way: Way::Toggle, seen: None, quick: false, error: Some(e.clone()) },
+                };
+                let line = hdr::try_line(&names[i], &t, wanted[i].map_or(0.0, |l| l.max), "");
+                ladder.tries[i].push(t);
+                if status(i, seen) == Some(CheckStatus::Ok) {
+                    ladder.way[i] = Some(Way::Toggle);
+                    tracing::info!("{line}");
+                } else {
+                    tracing::warn!("{line}");
+                }
+            }
+        }
+        // La voie qui a marché est gardée (la plus loin, s'il y a plusieurs écrans).
+        if let Some(found) = ladder.way.iter().flatten().max().copied()
+            && kept != Some(found)
+        {
+            tracing::info!("HDR : voie « {} » gardée pour les sessions suivantes tant qu'Admin tourne", found.label());
+            *self.hdr_way.lock().unwrap() = Some(found);
+        }
+        ladder
     }
 
     /// Reporte le résultat d'`apply_hdr` sur les écrans de la session ; vrai
@@ -1168,7 +1394,7 @@ impl Manager {
         let mut secondary = false;
         for d in done {
             let Some(slot) = slots.get_mut(d.slot) else { continue };
-            secondary |= d.slot > 0 && slot.hdr != d.active;
+            secondary |= d.slot > 0 && (slot.hdr != d.active || d.toggled);
             slot.hdr = d.active;
             slot.hdr_original = Some(d.original);
             slot.luminance = d.luminance;
@@ -2183,8 +2409,38 @@ struct SimScreen {
     whites: [Option<f32>; MAX_SCREENS],
     installed: Vec<String>,
     color_fails: bool,
-    /// `GetDesc1` ne suit pas le profil (garde 1000 / 600 nits).
+    /// `GetDesc1` ne suit pas le profil (garde 1000 / 600 nits) ; ou
+    /// seulement après cette voie (`None` : dès l'association pour tout l'ordinateur).
     desc_ignores_profile: bool,
+    desc_needs: Option<hdr::Way>,
+    /// Luminosité maximale de notre profil posé, par rang ; HDR coupé et remis depuis.
+    profile_max: [Option<f32>; MAX_SCREENS],
+    toggled: [bool; MAX_SCREENS],
+    /// Portée du compte de l'utilisateur : profil par défaut par rang, nos
+    /// profils associés ; l'agent de l'utilisateur ne répond pas, ou ne retire rien.
+    user_profiles: [Option<String>; MAX_SCREENS],
+    user_assoc: Vec<String>,
+    user_fails: bool,
+    user_restore_fails: bool,
+    /// Attente demandée (`wait_ms`) à chaque pose de profil, et à chaque appel de l'agent de l'utilisateur.
+    waits: Vec<Option<u64>>,
+    user_waits: Vec<u64>,
+}
+
+#[cfg(not(windows))]
+impl SimScreen {
+    /// Ce que `GetDesc1` rend pour l'écran `slot`.
+    fn desc(&self, slot: usize) -> hdr::Luminance {
+        let follows = match self.desc_needs {
+            None | Some(hdr::Way::System) => true,
+            Some(hdr::Way::User) => self.profiles[slot].as_ref().is_some_and(|p| self.user_assoc.contains(p)),
+            Some(hdr::Way::Toggle) => self.toggled[slot],
+        };
+        match self.profile_max[slot].filter(|_| follows && !self.desc_ignores_profile) {
+            Some(max) => hdr::Luminance { min: 0.0, max, max_full_frame: max },
+            None => hdr::Luminance { min: 0.01, max: 1000.0, max_full_frame: 600.0 },
+        }
+    }
 }
 
 #[cfg(not(windows))]
@@ -2383,6 +2639,7 @@ impl Backend for Simulated {
             }
             // Couleur d'avant remise d'abord.
             if let Some(r) = &ask.restore {
+                screen.profile_max[slot] = None;
                 screen.profiles[slot] = r.profile.clone();
                 screen.whites[slot] = r.sdr_white;
                 screen.installed.retain(|p| *p != r.installed);
@@ -2391,6 +2648,12 @@ impl Backend for Simulated {
             s.read = true;
             s.supported = !screen.hdr_unsupported.contains(&slot);
             s.before = screen.hdr[slot];
+            // Voie `Toggle` : HDR coupé puis remis ; Windows relit le profil posé.
+            if ask.toggle && *want && s.before {
+                screen.toggled[slot] = screen.profile_max[slot].is_some();
+                s.method = Some("simulé".into());
+                s.waited_ms = Some(0);
+            }
             if *want != s.before {
                 if *want && !s.supported {
                     s.error = Some("l'écran ne propose pas le HDR".into());
@@ -2406,9 +2669,9 @@ impl Backend for Simulated {
                 }
             }
             s.active = screen.hdr[slot];
-            s.luminance = Some(hdr::Luminance { min: 0.01, max: 1000.0, max_full_frame: 600.0 });
             s.sdr_white = Some(screen.whites[slot].unwrap_or(240.0));
             if let Some(apply) = ask.apply.as_ref().filter(|_| s.active) {
+                screen.waits.push(ask.wait_ms);
                 let mut color = hdr::ColorSeen {
                     original_profile: screen.profiles[slot].clone(),
                     original_white: Some(screen.whites[slot].unwrap_or(240.0)),
@@ -2425,19 +2688,50 @@ impl Backend for Simulated {
                     screen.installed.push(name.clone());
                     screen.profiles[slot] = Some(name.clone());
                     screen.whites[slot] = Some(apply.sdr_white);
-                    color.installed = Some(name);
-                    // Windows lit le profil : GetDesc1 rend ses luminosités.
-                    if !screen.desc_ignores_profile {
-                        s.luminance = Some(hdr::Luminance { min: 0.0, max: apply.max, max_full_frame: apply.full_frame.unwrap_or(apply.max) });
-                    }
+                    color.installed = Some(name.clone());
+                    color.system_default = Some(name);
+                    screen.profile_max[slot] = Some(apply.max);
+                    screen.toggled[slot] = false;
                 }
                 color.white = Some(screen.whites[slot].unwrap_or(240.0));
                 s.sdr_white = color.white;
                 s.color = Some(color);
             }
+            s.luminance = Some(screen.desc(slot));
             seen.push(s);
         }
         screen.hdr_calls.push(changed);
+        Ok(seen)
+    }
+    fn hdr_user(&self, request: &hdr::UserRequest) -> Result<Vec<hdr::UserSeen>> {
+        let mut screen = self.screen.lock().unwrap();
+        screen.steps.push("user");
+        if screen.user_fails {
+            bail!("(simulé) aucun compte connecté à la session");
+        }
+        screen.user_waits.push(request.wait_ms);
+        let mut seen = Vec::new();
+        for ask in &request.screens {
+            let slot = ask.created.target as usize;
+            let mut u = hdr::UserSeen { scope: Some("user".into()), ..hdr::UserSeen::default() };
+            if ask.restore {
+                if screen.user_restore_fails {
+                    u.error = Some("(simulé) portée du compte inaccessible".into());
+                } else {
+                    screen.user_assoc.retain(|p| *p != ask.profile);
+                    screen.user_profiles[slot] = ask.original.clone();
+                    u.restored = true;
+                }
+            } else {
+                u.original = screen.user_profiles[slot].clone();
+                screen.user_assoc.push(ask.profile.clone());
+                screen.user_profiles[slot] = Some(ask.profile.clone());
+                u.associated = true;
+                u.luminance = Some(screen.desc(slot));
+            }
+            u.default_after = screen.user_profiles[slot].clone();
+            seen.push(u);
+        }
         Ok(seen)
     }
     fn display_hdr(&self) -> Result<hdr::HdrSeen> {
@@ -2819,6 +3113,17 @@ mod windows {
         fn display_hdr(&self) -> Result<hdr::HdrSeen> {
             let v = agent::run_with_timeout(&self.data_dir, &["hdr-primary".to_string()], 10_000)?;
             Ok(serde_json::from_value(v)?)
+        }
+        fn hdr_user(&self, request: &hdr::UserRequest) -> Result<Vec<hdr::UserSeen>> {
+            // Demande en hexadécimal sur la ligne de commande : l'agent de
+            // l'utilisateur ne peut pas lire le dossier des données d'Admin.
+            let args = ["hdr-user".to_string(), "--request-hex".into(), hex::encode(serde_json::to_vec(request)?)];
+            let v = agent::run_as_user(&args, 10_000 + request.wait_ms as u32)?;
+            let seen: Vec<hdr::UserSeen> = serde_json::from_value(v["screens"].clone())?;
+            if seen.len() != request.screens.len() {
+                bail!("l'agent de l'utilisateur a répondu pour {} écran(s) sur {}", seen.len(), request.screens.len());
+            }
+            Ok(seen)
         }
     }
 }
@@ -3790,6 +4095,9 @@ mod tests {
                 on: true,
                 apply: Some(hdr::ColorApply { profile: "C:\\x.icm".into(), sdr_white: 203.0, max: 1000.0, full_frame: Some(1000.0), replace: None }),
                 restore: None,
+                toggle: false,
+                expect: None,
+                wait_ms: Some(0),
             }],
         };
         assert_eq!(serde_json::from_slice::<hdr::HdrRequest>(&serde_json::to_vec(&req).unwrap()).unwrap(), req);
@@ -3848,7 +4156,7 @@ mod tests {
         // L'état d'avant est noté, pour une remise même après un plantage.
         let noted = hdr_file(&m).unwrap();
         let color = noted.screens[0].color.clone().unwrap();
-        assert_eq!(color, hdr::ColorOriginal { installed: installed.clone(), profile: Some("Mon écran.icm".into()), sdr_white: Some(300.0) });
+        assert_eq!(color, hdr::ColorOriginal { installed: installed.clone(), profile: Some("Mon écran.icm".into()), sdr_white: Some(300.0), user: None });
         // Fin : profil retiré, profil et blanc d'avant remis, HDR remis.
         m.stop("fin du test");
         let screen = sim.screen.lock().unwrap();
@@ -3952,7 +4260,8 @@ mod tests {
         let checks = m.status()["session"]["hdr_check"].clone();
         assert_eq!(checks[0]["status"], "ok");
         assert_eq!(checks[0]["seen"]["max"], 1600.0);
-        assert_eq!(checks[0]["seen"]["max_full_frame"], 1000.0);
+        assert_eq!(checks[0]["seen"]["max_full_frame"], 1600.0);
+        assert_eq!(checks[0]["way"], "system");
         assert_eq!(checks[1], Value::Null, "écran en SDR : rien à vérifier");
         assert_eq!(checks[2]["status"], "ok");
         // Gardée dans hdr-session.json avec l'état d'origine.
@@ -3976,6 +4285,93 @@ mod tests {
         assert_eq!(check["seen"]["max"], 1000.0);
         assert_eq!(check["wanted"]["max"], 1600.0);
         assert_eq!(hdr_file(&m).unwrap().screens[0].check.as_ref().unwrap().status, hdr::CheckStatus::Profile);
+        // Les trois voies essayées, aucune gardée.
+        let ways: Vec<Value> = check["tries"].as_array().unwrap().iter().map(|t| t["way"].clone()).collect();
+        assert_eq!(ways, vec![json!("system"), json!("user"), json!("toggle")]);
+        assert_eq!(check["way"], Value::Null);
+        assert_eq!(*m.hdr_way.lock().unwrap(), None);
+        // Toujours en HDR après la coupure.
+        assert!(sim.screen.lock().unwrap().hdr[0]);
+    }
+
+    #[test]
+    fn voie_du_compte_de_l_utilisateur_gardee_puis_remise() {
+        let (m, sim, _) = simulated(VdSettings::default());
+        {
+            let mut screen = sim.screen.lock().unwrap();
+            screen.desc_needs = Some(hdr::Way::User);
+            screen.user_profiles[0] = Some("Mon profil.icm".into());
+        }
+        m.start_screens_hdr(Origin::App, vec![Screen::single(TV)], &[Some(XDR)], None, Some("tv".into()), None).unwrap();
+        let check = m.status()["session"]["hdr_check"][0].clone();
+        assert_eq!(check["status"], "ok");
+        assert_eq!(check["way"], "user");
+        assert_eq!(check["tries"].as_array().unwrap().len(), 2);
+        assert_eq!(*m.hdr_way.lock().unwrap(), Some(hdr::Way::User));
+        let user = hdr_file(&m).unwrap().screens[0].color.clone().unwrap().user.unwrap();
+        assert_eq!(user.original.as_deref(), Some("Mon profil.icm"));
+        assert_eq!(sim.screen.lock().unwrap().user_waits, vec![CHECK_WAIT_MS]);
+        // Fin : profil retiré du compte aussi, le profil du compte d'avant remis.
+        m.stop("fin du test");
+        {
+            let screen = sim.screen.lock().unwrap();
+            assert!(screen.user_assoc.is_empty());
+            assert_eq!(screen.user_profiles[0].as_deref(), Some("Mon profil.icm"));
+            assert!(screen.installed.is_empty());
+        }
+        assert!(!m.hdr_path().exists());
+        // Session suivante : la voie gardée, celle d'avant faite sans attendre.
+        m.start_screens_hdr(Origin::App, vec![Screen::single(TV)], &[Some(XDR)], None, Some("tv".into()), None).unwrap();
+        assert_eq!(m.status()["session"]["hdr_check"][0]["way"], "user");
+        let screen = sim.screen.lock().unwrap();
+        assert_eq!(screen.waits.last(), Some(&Some(0)));
+        assert_eq!(screen.user_waits.last(), Some(&CHECK_WAIT_MS));
+    }
+
+    #[test]
+    fn voie_hdr_coupe_puis_remis_et_capture_relancee() {
+        let (m, sim, _) = simulated(VdSettings::default());
+        {
+            let mut screen = sim.screen.lock().unwrap();
+            screen.desc_needs = Some(hdr::Way::Toggle);
+            screen.user_fails = true;
+        }
+        let started = m.start_screens_hdr(Origin::App, trois_ecrans(), &[Some(XDR), None, Some(XDR)], None, Some("mac".into()), None).unwrap();
+        assert_eq!(started.hdr, vec![true, false, true]);
+        let check = m.status()["session"]["hdr_check"][2].clone();
+        assert_eq!(check["status"], "ok");
+        assert_eq!(check["way"], "toggle");
+        assert!(check["tries"][1]["error"].as_str().unwrap().contains("aucun compte"), "{check}");
+        assert_eq!(*m.hdr_way.lock().unwrap(), Some(hdr::Way::Toggle));
+        // Nouvelles valeurs pour un écran secondaire : refait, sa capture WGC relancée.
+        let wgc = |sim: &Simulated| sim.screen.lock().unwrap().steps.iter().filter(|s| **s == "wgc").count();
+        let before = wgc(&sim);
+        let other = hdr::ScreenLuminance { max: 1200.0, ..XDR };
+        assert_eq!(m.set_session_hdr("mac", &[Some(XDR), None, Some(other)]), Some(vec![true, false, true]));
+        assert_eq!(m.status()["session"]["hdr_check"][2]["status"], "ok");
+        assert_eq!(m.status()["session"]["hdr_check"][2]["seen"]["max"], 1200.0);
+        assert!(wgc(&sim) > before, "HDR coupé sur un écran secondaire : capture relancée");
+    }
+
+    #[test]
+    fn compte_pas_encore_remis_l_etat_d_origine_reste_note() {
+        let (m, sim, _) = simulated(VdSettings::default());
+        sim.screen.lock().unwrap().desc_needs = Some(hdr::Way::User);
+        m.start_screens_hdr(Origin::App, vec![Screen::single(TV)], &[Some(XDR)], None, Some("tv".into()), None).unwrap();
+        sim.screen.lock().unwrap().user_restore_fails = true;
+        m.stop("fin du test");
+        assert!(hdr_file(&m).unwrap().screens[0].color.as_ref().is_some_and(|c| c.user.is_some()), "remise à refaire");
+        assert_eq!(sim.screen.lock().unwrap().installed.len(), 1, "profil gardé tant que le compte n'est pas fait");
+        // Session suivante, le compte répond : l'ancien profil est remplacé, puis tout est remis à la fin.
+        sim.screen.lock().unwrap().user_restore_fails = false;
+        m.start_screens_hdr(Origin::App, vec![Screen::single(TV)], &[Some(XDR)], None, Some("tv".into()), None).unwrap();
+        assert_eq!(sim.screen.lock().unwrap().user_assoc.len(), 1, "un seul profil dans la portée du compte");
+        m.stop("fin du test");
+        let screen = sim.screen.lock().unwrap();
+        assert!(screen.user_assoc.is_empty());
+        assert_eq!(screen.user_profiles[0], None);
+        assert!(screen.installed.is_empty());
+        assert!(!m.hdr_path().exists());
     }
 
     #[test]
@@ -3994,7 +4390,7 @@ mod tests {
         // 5 % près.
         assert_eq!(hdr::check(&XDR, &seen(lum(1560.0, 1040.0), Some(240.0))).status, hdr::CheckStatus::Ok);
         assert_eq!(hdr::check(&XDR, &seen(lum(1500.0, 1000.0), Some(240.0))).status, hdr::CheckStatus::Profile);
-        assert_eq!(hdr::check(&XDR, &seen(lum(1600.0, 600.0), Some(240.0))).status, hdr::CheckStatus::Profile);
+        assert_eq!(hdr::check(&XDR, &seen(lum(1600.0, 1600.0), Some(240.0))).status, hdr::CheckStatus::Ok, "plein écran noté, pas jugé");
         assert_eq!(hdr::check(&XDR, &seen(lum(1600.0, 1000.0), Some(80.0))).status, hdr::CheckStatus::White);
         assert_eq!(hdr::check(&XDR, &seen(lum(1600.0, 1000.0), None)).status, hdr::CheckStatus::Ok, "blanc illisible : pas jugé");
         assert_eq!(hdr::check(&XDR, &seen(None, Some(240.0))).status, hdr::CheckStatus::Unread);

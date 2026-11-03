@@ -101,6 +101,17 @@ pub struct ColorOriginal {
     pub profile: Option<String>,
     #[serde(default)]
     pub sdr_white: Option<f32>,
+    /// Notre profil associé aussi dans la portée du compte de l'utilisateur
+    /// (voie `User`), avec son profil par défaut d'avant dans cette portée.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<UserColor>,
+}
+
+/// Portée du compte de l'utilisateur : profil par défaut d'avant notre passage.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct UserColor {
+    #[serde(default)]
+    pub original: Option<String>,
 }
 
 /// Un écran pour l'agent : son HDR voulu, la couleur à poser ou à remettre.
@@ -112,6 +123,17 @@ pub struct HdrAsk {
     pub apply: Option<ColorApply>,
     #[serde(default)]
     pub restore: Option<ColorOriginal>,
+    /// Voie `Toggle` : HDR coupé puis remis (profil déjà associé), pour que
+    /// Windows relise le profil au passage en couleurs avancées.
+    #[serde(default)]
+    pub toggle: bool,
+    /// Valeurs que `GetDesc1` doit rendre (sans `apply` : voie `Toggle`).
+    #[serde(default)]
+    pub expect: Option<ScreenLuminance>,
+    /// Attente de la vérification, en millisecondes (absente : 2 s ; 0 : une
+    /// voie suivante est déjà gardée, celle-ci est faite sans attendre).
+    #[serde(default)]
+    pub wait_ms: Option<u64>,
 }
 
 /// La demande que lit l'agent (`--request`).
@@ -139,6 +161,9 @@ pub struct ColorSeen {
     pub restored: bool,
     #[serde(default)]
     pub error: Option<String>,
+    /// Profil par défaut de l'écran relu après l'association (portée de l'ordinateur).
+    #[serde(default)]
+    pub system_default: Option<String>,
 }
 
 /// Luminance que Windows donne pour un écran (`IDXGIOutput6::GetDesc1`), en nits.
@@ -182,6 +207,95 @@ pub struct HdrSeen {
     /// Profil et blanc (pose ou remise).
     #[serde(default)]
     pub color: Option<ColorSeen>,
+    /// Primaire rouge (x, y) que donne `GetDesc1` : celle du profil (0.708,
+    /// 0.292) si Windows a pris sa colorimétrie, sinon celle de l'écran virtuel.
+    #[serde(default)]
+    pub red_primary: Option<[f32; 2]>,
+}
+
+/// Les voies essayées, dans l'ordre, pour que Windows annonce aux jeux les
+/// valeurs du profil ; elles s'ajoutent l'une à l'autre.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Way {
+    /// Profil associé pour tout l'ordinateur, par l'agent (SYSTEM).
+    System,
+    /// Profil associé aussi dans la portée du compte de l'utilisateur, par
+    /// un agent lancé avec son compte dans sa session (comme l'outil
+    /// d'étalonnage HDR de Windows).
+    User,
+    /// HDR coupé puis remis, le profil déjà associé.
+    Toggle,
+}
+
+impl Way {
+
+    /// Nom de la voie au journal.
+    pub fn label(self) -> &'static str {
+        match self {
+            Way::System => "profil pour tout l'ordinateur",
+            Way::User => "profil aussi pour le compte de l'utilisateur",
+            Way::Toggle => "HDR coupé puis remis",
+        }
+    }
+}
+
+/// Ce que `GetDesc1` a rendu après une voie.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Try {
+    pub way: Way,
+    #[serde(default)]
+    pub seen: Option<Luminance>,
+    /// Faite sans attendre (une voie suivante était gardée).
+    #[serde(default)]
+    pub quick: bool,
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
+/// Un écran pour l'agent lancé avec le compte de l'utilisateur (`hdr-user`) :
+/// notre profil (déjà installé par l'agent SYSTEM) à associer dans la portée
+/// du compte, ou à retirer (`restore`, avec le profil par défaut d'avant).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UserAsk {
+    pub created: Created,
+    pub profile: String,
+    #[serde(default)]
+    pub restore: bool,
+    #[serde(default)]
+    pub original: Option<String>,
+    #[serde(default)]
+    pub expect: Option<ScreenLuminance>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UserRequest {
+    pub screens: Vec<UserAsk>,
+    #[serde(default)]
+    pub wait_ms: u64,
+}
+
+/// Ce que l'agent de l'utilisateur a fait d'un écran.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct UserSeen {
+    /// Portée que Windows applique pour ce compte (`ColorProfileGetDisplayUserScope`) : `user` ou `system`.
+    #[serde(default)]
+    pub scope: Option<String>,
+    /// Profil par défaut de la portée du compte avant, et relu après.
+    #[serde(default)]
+    pub original: Option<String>,
+    #[serde(default)]
+    pub default_after: Option<String>,
+    #[serde(default)]
+    pub associated: bool,
+    #[serde(default)]
+    pub restored: bool,
+    #[serde(default)]
+    pub luminance: Option<Luminance>,
+    #[serde(default)]
+    pub red_primary: Option<[f32; 2]>,
+    #[serde(default)]
+    pub error: Option<String>,
 }
 
 /// Écart toléré entre ce que Windows annonce aux jeux et les valeurs voulues.
@@ -191,10 +305,11 @@ fn close(seen: f32, wanted: f32) -> bool {
     (seen - wanted).abs() <= wanted.abs() * CHECK_TOLERANCE
 }
 
-/// `GetDesc1` annonce les luminosités du profil (maximale, plein écran),
-/// à 5 % près.
-pub fn desc_matches(l: &Luminance, max: f32, full_frame: Option<f32>) -> bool {
-    close(l.max, max) && full_frame.is_none_or(|f| close(l.max_full_frame, f))
+/// `GetDesc1` annonce la luminosité maximale du profil, à 5 % près. Le
+/// plein écran est noté sans être jugé : l'étiquette `MHC2` n'en a pas, et
+/// Windows peut le tirer du maximum.
+pub fn desc_matches(l: &Luminance, max: f32) -> bool {
+    close(l.max, max)
 }
 
 /// Verdict de la vérification du HDR d'un écran virtuel.
@@ -228,6 +343,12 @@ pub struct HdrCheck {
     /// Blanc SDR relu, en nits.
     #[serde(default)]
     pub sdr_white: Option<f32>,
+    /// La voie qui a fait suivre `GetDesc1` (aucune : `status` le dit).
+    #[serde(default)]
+    pub way: Option<Way>,
+    /// Ce que `GetDesc1` a rendu après chaque voie essayée.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tries: Vec<Try>,
 }
 
 /// Compare ce que l'agent a relu aux valeurs voulues (5 % près ; le noir
@@ -239,16 +360,56 @@ pub fn check(wanted: &ScreenLuminance, seen: &HdrSeen) -> HdrCheck {
     } else {
         match seen.luminance {
             None => CheckStatus::Unread,
-            Some(l) if !desc_matches(&l, wanted.max, Some(wanted.full_frame)) => CheckStatus::Profile,
+            Some(l) if !desc_matches(&l, wanted.max) => CheckStatus::Profile,
             Some(_) if seen.sdr_white.is_some_and(|w| !close(w, wanted.sdr_white)) => CheckStatus::White,
             Some(_) => CheckStatus::Ok,
         }
     };
-    HdrCheck { status, wanted: *wanted, seen: seen.luminance.filter(|_| seen.active), sdr_white: seen.sdr_white }
+    HdrCheck {
+        status,
+        wanted: *wanted,
+        seen: seen.luminance.filter(|_| seen.active),
+        sdr_white: seen.sdr_white,
+        way: None,
+        tries: Vec::new(),
+    }
+}
+
+/// Ligne de journal d'une voie essayée : ce que `GetDesc1` rend ensuite.
+pub fn try_line(name: &str, t: &Try, wanted: f32, extra: &str) -> String {
+    let mut line = format!("écran {name} : voie « {} »", t.way.label());
+    if t.quick {
+        line.push_str(" (sans attendre : une voie suivante est gardée)");
+    }
+    line.push_str(extra);
+    match (&t.error, t.seen) {
+        (Some(e), _) => line.push_str(&format!(" ; impossible : {e}")),
+        (None, Some(l)) => line.push_str(&format!(
+            " ; GetDesc1 rend {:.3}–{:.0} nits (plein écran {:.0}) pour {wanted:.0} voulus : {}",
+            l.min,
+            l.max,
+            l.max_full_frame,
+            if desc_matches(&l, wanted) { "suivi" } else { "pas suivi" }
+        )),
+        (None, None) => line.push_str(" ; GetDesc1 illisible"),
+    }
+    line
 }
 
 /// Ligne de journal de la vérification.
 pub fn check_line(name: &str, c: &HdrCheck) -> String {
+    let mut line = check_verdict(name, c);
+    match c.way {
+        Some(w) if c.status == CheckStatus::Ok && c.tries.len() > 1 => line.push_str(&format!(" ; voie gardée : « {} »", w.label())),
+        None if c.status == CheckStatus::Profile && c.tries.len() > 1 => {
+            line.push_str(&format!(" ; aucune des {} voies n'a fait suivre GetDesc1, la session continue en HDR", c.tries.len()))
+        }
+        _ => {}
+    }
+    line
+}
+
+fn check_verdict(name: &str, c: &HdrCheck) -> String {
     let w = &c.wanted;
     let seen = |l: &Luminance| format!("{:.0} nits (plein écran {:.0}, noir {:.3})", l.max, l.max_full_frame, l.min);
     let white = c.sdr_white.map(|v| format!("{v:.0}")).unwrap_or_else(|| "?".into());
@@ -304,6 +465,9 @@ pub fn color_line(name: &str, lum: &ScreenLuminance, gamma22: bool, seen: &HdrSe
         )),
         None => line.push_str(" ; GetDesc1 illisible"),
     }
+    if let Some([x, y]) = seen.red_primary {
+        line.push_str(&format!(", primaire rouge {x:.3},{y:.3} (celle du profil : 0.708,0.292)"));
+    }
     line
 }
 
@@ -336,7 +500,7 @@ pub fn log_line(name: &str, wanted: bool, seen: &HdrSeen) -> String {
 }
 
 #[cfg(windows)]
-pub use win::{agent_primary, agent_set};
+pub use win::{agent_primary, agent_set, agent_user};
 
 #[cfg(windows)]
 mod win {
@@ -352,7 +516,7 @@ mod win {
     };
     use windows_sys::Win32::Foundation::LUID;
 
-    use super::{ColorApply, ColorOriginal, ColorSeen, HdrAsk, HdrSeen, Luminance};
+    use super::{ColorApply, ColorOriginal, ColorSeen, HdrAsk, HdrSeen, Luminance, UserAsk, UserSeen};
     use crate::display::Created;
     use crate::display::topology;
 
@@ -397,8 +561,21 @@ mod win {
         use windows_sys::Win32::UI::ColorSystem::{
             CPST_EXTENDED_DISPLAY_COLOR_MODE, CPT_ICC, ColorProfileAddDisplayAssociation, ColorProfileGetDisplayDefault,
             ColorProfileRemoveDisplayAssociation, ColorProfileSetDisplayDefaultAssociation, GetColorDirectoryW,
-            InstallColorProfileW, UninstallColorProfileW, WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE as SCOPE,
+            ColorProfileGetDisplayUserScope, InstallColorProfileW, UninstallColorProfileW, WCS_PROFILE_MANAGEMENT_SCOPE,
+            WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER, WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE,
         };
+
+        /// Portée de l'ordinateur (agent SYSTEM) ou du compte (agent de l'utilisateur).
+        pub type Scope = WCS_PROFILE_MANAGEMENT_SCOPE;
+        pub const SYSTEM: Scope = WCS_PROFILE_MANAGEMENT_SCOPE_SYSTEM_WIDE;
+        pub const USER: Scope = WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER;
+
+        /// Portée que Windows applique à l'écran pour le compte qui appelle.
+        pub fn user_scope(luid: LUID, source: u32) -> Option<&'static str> {
+            let mut scope: Scope = 0;
+            let hr = unsafe { ColorProfileGetDisplayUserScope(luid, source, &mut scope) };
+            (hr >= 0).then_some(if scope == USER { "user" } else { "system" })
+        }
 
         fn wide(s: &str) -> Vec<u16> {
             s.encode_utf16().chain(std::iter::once(0)).collect()
@@ -412,9 +589,9 @@ mod win {
         }
 
         /// Profil par défaut de l'écran en mode couleurs avancées (HDR).
-        pub fn default_profile(luid: LUID, source: u32) -> Option<String> {
+        pub fn default_profile(scope: Scope, luid: LUID, source: u32) -> Option<String> {
             let mut name: *mut u16 = std::ptr::null_mut();
-            let hr = unsafe { ColorProfileGetDisplayDefault(SCOPE, luid, source, CPT_ICC, CPST_EXTENDED_DISPLAY_COLOR_MODE, &mut name) };
+            let hr = unsafe { ColorProfileGetDisplayDefault(scope, luid, source, CPT_ICC, CPST_EXTENDED_DISPLAY_COLOR_MODE, &mut name) };
             if hr < 0 || name.is_null() {
                 return None;
             }
@@ -451,17 +628,18 @@ mod win {
         }
 
         /// Associe le profil à l'écran, par défaut, en mode couleurs avancées.
-        pub fn associate(name: &str, luid: LUID, source: u32) -> Result<()> {
-            check(unsafe { ColorProfileAddDisplayAssociation(SCOPE, wide(name).as_ptr(), luid, source, 1, 1) }, "association du profil")
+        /// (`setAsDefault` et `associateAsAdvancedColor` à vrai.)
+        pub fn associate(scope: Scope, name: &str, luid: LUID, source: u32) -> Result<()> {
+            check(unsafe { ColorProfileAddDisplayAssociation(scope, wide(name).as_ptr(), luid, source, 1, 1) }, "association du profil")
         }
 
-        pub fn dissociate(name: &str, luid: LUID, source: u32) -> Result<()> {
-            check(unsafe { ColorProfileRemoveDisplayAssociation(SCOPE, wide(name).as_ptr(), luid, source, 1) }, "retrait de l'association")
+        pub fn dissociate(scope: Scope, name: &str, luid: LUID, source: u32) -> Result<()> {
+            check(unsafe { ColorProfileRemoveDisplayAssociation(scope, wide(name).as_ptr(), luid, source, 1) }, "retrait de l'association")
         }
 
-        pub fn set_default(name: &str, luid: LUID, source: u32) -> Result<()> {
+        pub fn set_default(scope: Scope, name: &str, luid: LUID, source: u32) -> Result<()> {
             check(
-                unsafe { ColorProfileSetDisplayDefaultAssociation(SCOPE, wide(name).as_ptr(), CPT_ICC, CPST_EXTENDED_DISPLAY_COLOR_MODE, luid, source) },
+                unsafe { ColorProfileSetDisplayDefaultAssociation(scope, wide(name).as_ptr(), CPT_ICC, CPST_EXTENDED_DISPLAY_COLOR_MODE, luid, source) },
                 "profil par défaut",
             )
         }
@@ -481,16 +659,17 @@ mod win {
             seen.error = Some("écran introuvable".into());
             return seen;
         };
-        seen.original_profile = wcs::default_profile(luid, source);
+        seen.original_profile = wcs::default_profile(wcs::SYSTEM, luid, source);
         let mut errors = Vec::new();
         if let Some(old) = &apply.replace {
-            let _ = wcs::dissociate(old, luid, source);
+            let _ = wcs::dissociate(wcs::SYSTEM, old, luid, source);
             let _ = wcs::uninstall(old);
         }
-        match wcs::install(&apply.profile).and_then(|name| wcs::associate(&name, luid, source).map(|_| name)) {
+        match wcs::install(&apply.profile).and_then(|name| wcs::associate(wcs::SYSTEM, &name, luid, source).map(|_| name)) {
             Ok(name) => seen.installed = Some(name),
             Err(e) => errors.push(format!("{e:#}")),
         }
+        seen.system_default = wcs::default_profile(wcs::SYSTEM, luid, source);
         if let Err(e) = set_sdr_white(c, apply.sdr_white) {
             errors.push(format!("{e:#}"));
         }
@@ -507,11 +686,11 @@ mod win {
             return seen;
         };
         let mut errors = Vec::new();
-        if let Err(e) = wcs::dissociate(&original.installed, luid, source) {
+        if let Err(e) = wcs::dissociate(wcs::SYSTEM, &original.installed, luid, source) {
             errors.push(format!("{e:#}"));
         }
         if let Some(profile) = &original.profile
-            && let Err(e) = wcs::set_default(profile, luid, source)
+            && let Err(e) = wcs::set_default(wcs::SYSTEM, profile, luid, source)
         {
             errors.push(format!("{e:#}"));
         }
@@ -622,6 +801,17 @@ mod win {
     /// l'agent WGC). Fabrique neuve à chaque lecture : DXGI garde sinon
     /// l'état du moment où elle a été créée.
     fn dxgi(gdi_name: &str) -> Option<(Luminance, bool)> {
+        desc(gdi_name).map(|d| (d.luminance, d.hdr))
+    }
+
+    /// Ce que `GetDesc1` donne d'un écran.
+    struct Desc {
+        luminance: Luminance,
+        hdr: bool,
+        red: [f32; 2],
+    }
+
+    fn desc(gdi_name: &str) -> Option<Desc> {
         use windows::Win32::Graphics::Dxgi::Common::DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020;
         use windows::Win32::Graphics::Dxgi::{CreateDXGIFactory1, IDXGIFactory1, IDXGIOutput6};
         use windows::core::Interface;
@@ -633,8 +823,12 @@ mod win {
                 if let Ok(desc) = output.cast::<IDXGIOutput6>().and_then(|o6| unsafe { o6.GetDesc1() }) {
                     let len = desc.DeviceName.iter().position(|c| *c == 0).unwrap_or(desc.DeviceName.len());
                     if String::from_utf16_lossy(&desc.DeviceName[..len]) == gdi_name {
-                        let l = Luminance { min: desc.MinLuminance, max: desc.MaxLuminance, max_full_frame: desc.MaxFullFrameLuminance };
-                        return Some((l, desc.ColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020));
+                        let luminance = Luminance { min: desc.MinLuminance, max: desc.MaxLuminance, max_full_frame: desc.MaxFullFrameLuminance };
+                        return Some(Desc {
+                            luminance,
+                            hdr: desc.ColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020,
+                            red: desc.RedPrimary,
+                        });
                     }
                 }
                 o += 1;
@@ -670,7 +864,21 @@ mod win {
                     s.supported = state.supported;
                     s.before = state.active;
                     s.active = state.active;
-                    if state.active != *want {
+                    // Voie `Toggle` : HDR coupé (attendu 1 s au plus), puis remis plus bas.
+                    let toggle = ask_of(asks, c).is_some_and(|a| a.toggle) && *want && state.active;
+                    if toggle {
+                        match write_state(c, false, state.hdr_api) {
+                            Ok(_) => {
+                                let off = Instant::now() + Duration::from_secs(1);
+                                while Instant::now() < off && read_state(c).is_ok_and(|st| st.active) {
+                                    std::thread::sleep(Duration::from_millis(50));
+                                }
+                                s.active = false;
+                            }
+                            Err(e) => s.error = Some(format!("HDR non coupé : {e:#}")),
+                        }
+                    }
+                    if s.active != *want {
                         if *want && !state.supported {
                             s.error = Some("l'écran ne propose pas le HDR".into());
                         } else {
@@ -725,35 +933,105 @@ mod win {
         // que DXGI annonce aux jeux et le blanc SDR, relus jusqu'à ce qu'ils
         // suivent le profil (Windows l'applique en différé, 2 s au plus).
         // L'agent tourne dans la session de l'écran : DXGI y voit ses sorties.
-        let mut expected: Vec<Option<&ColorApply>> = vec![None; asks.len()];
+        let mut expected: Vec<Option<(f32, f32, u64)>> = vec![None; asks.len()];
         for (i, (ask, restored)) in asks.iter().zip(restored).enumerate() {
             let s = &mut seen[i];
             s.color = restored;
+            let wait = |w: Option<u64>| w.unwrap_or(CONFIRM.as_millis() as u64);
             if let Some(apply) = ask.apply.as_ref().filter(|_| ask.on && s.active) {
                 let color = apply_color(&ask.created, apply);
                 if color.installed.is_some() {
-                    expected[i] = Some(apply);
+                    expected[i] = Some((apply.max, apply.sdr_white, wait(ask.wait_ms)));
                 }
                 s.sdr_white = color.white.or(s.sdr_white);
                 s.color = Some(color);
+            } else if let Some(e) = ask.expect.filter(|_| ask.on && s.active) {
+                expected[i] = Some((e.max, e.sdr_white, wait(ask.wait_ms)));
             }
         }
-        if expected.iter().any(Option::is_some) {
-            let deadline = Instant::now() + CONFIRM;
-            loop {
-                let mut waiting = false;
-                for ((s, apply), ask) in seen.iter_mut().zip(&expected).zip(asks) {
-                    let Some(apply) = apply else { continue };
-                    s.luminance = s.gdi_name.as_deref().and_then(dxgi).map(|(l, _)| l);
-                    s.sdr_white = sdr_white(&ask.created).or(s.sdr_white);
-                    let white_ok = s.sdr_white.is_none_or(|w| (w - apply.sdr_white).abs() <= apply.sdr_white * super::CHECK_TOLERANCE);
-                    waiting |= !white_ok || s.luminance.is_none_or(|l| !super::desc_matches(&l, apply.max, apply.full_frame));
-                }
-                if !waiting || Instant::now() >= deadline {
-                    break;
-                }
-                std::thread::sleep(Duration::from_millis(200));
+        // Relu toutes les 200 ms, fabrique DXGI neuve à chaque fois (`desc`).
+        let begun = Instant::now();
+        loop {
+            let mut waiting = false;
+            for ((s, e), ask) in seen.iter_mut().zip(&expected).zip(asks) {
+                let Some((max, white, wait_ms)) = e else { continue };
+                let d = s.gdi_name.as_deref().and_then(desc);
+                s.luminance = d.as_ref().map(|d| d.luminance);
+                s.red_primary = d.as_ref().map(|d| d.red);
+                s.sdr_white = sdr_white(&ask.created).or(s.sdr_white);
+                let white_ok = s.sdr_white.is_none_or(|w| (w - white).abs() <= white * super::CHECK_TOLERANCE);
+                let ok = white_ok && s.luminance.is_some_and(|l| super::desc_matches(&l, *max));
+                waiting |= !ok && begun.elapsed() < Duration::from_millis(*wait_ms);
             }
+            if !waiting {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(200));
+        }
+        for s in seen.iter_mut().filter(|s| s.red_primary.is_none()) {
+            s.red_primary = s.gdi_name.as_deref().and_then(desc).map(|d| d.red);
+        }
+        Ok(json!({ "screens": seen }))
+    }
+
+    fn ask_of<'a>(asks: &'a [HdrAsk], c: &Created) -> Option<&'a HdrAsk> {
+        asks.iter().find(|a| a.created == *c)
+    }
+
+    /// `display-agent hdr-user`, lancé avec le compte de l'utilisateur dans
+    /// sa session : associe notre profil (installé par l'agent SYSTEM) dans
+    /// la portée de son compte, par défaut et en couleurs avancées, comme le
+    /// fait l'outil d'étalonnage HDR de Windows, puis relit `GetDesc1`
+    /// (`wait_ms` au plus) ; ou le retire et remet le profil d'avant (`restore`).
+    pub fn agent_user(asks: &[UserAsk], wait_ms: u64) -> Result<Value> {
+        let mut seen: Vec<UserSeen> = Vec::with_capacity(asks.len());
+        let mut names: Vec<Option<String>> = Vec::with_capacity(asks.len());
+        for ask in asks {
+            let mut s = UserSeen::default();
+            names.push(gdi_of(&ask.created));
+            let Some((luid, source)) = source_of(&ask.created) else {
+                s.error = Some("écran introuvable".into());
+                seen.push(s);
+                continue;
+            };
+            s.scope = wcs::user_scope(luid, source).map(str::to_string);
+            if ask.restore {
+                let mut errors = Vec::new();
+                if let Err(e) = wcs::dissociate(wcs::USER, &ask.profile, luid, source) {
+                    errors.push(format!("{e:#}"));
+                }
+                if let Some(original) = &ask.original
+                    && let Err(e) = wcs::set_default(wcs::USER, original, luid, source)
+                {
+                    errors.push(format!("{e:#}"));
+                }
+                s.restored = errors.is_empty();
+                s.error = (!errors.is_empty()).then(|| errors.join(" ; "));
+            } else {
+                s.original = wcs::default_profile(wcs::USER, luid, source);
+                match wcs::associate(wcs::USER, &ask.profile, luid, source) {
+                    Ok(()) => s.associated = true,
+                    Err(e) => s.error = Some(format!("{e:#}")),
+                }
+            }
+            s.default_after = wcs::default_profile(wcs::USER, luid, source);
+            seen.push(s);
+        }
+        let begun = Instant::now();
+        loop {
+            let mut waiting = false;
+            for ((s, ask), name) in seen.iter_mut().zip(asks).zip(&names) {
+                let Some(e) = ask.expect.filter(|_| s.associated) else { continue };
+                let d = name.as_deref().and_then(desc);
+                s.luminance = d.as_ref().map(|d| d.luminance);
+                s.red_primary = d.as_ref().map(|d| d.red);
+                let ok = s.luminance.is_some_and(|l| super::desc_matches(&l, e.max));
+                waiting |= !ok && begun.elapsed() < Duration::from_millis(wait_ms);
+            }
+            if !waiting {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(200));
         }
         Ok(json!({ "screens": seen }))
     }
