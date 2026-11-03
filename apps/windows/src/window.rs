@@ -14,6 +14,7 @@
 //! | Ctrl+Alt+Maj+F | plein écran ou fenêtre (un seul écran) |
 //! | Ctrl+Alt+Maj+M | souris des jeux (relative) ou du bureau |
 //! | Ctrl+Alt+Maj+O | ordinateur suivant (plusieurs ordinateurs) |
+//! | Ctrl+Alt+Maj+S | statistiques (la barre et son panneau) |
 //!
 //! Tout vit sur le fil de la session (voir `host.rs`) : l'accueil de l'app
 //! garde le fil principal. Une fenêtre invisible (« de contrôle ») reçoit ce
@@ -118,9 +119,10 @@ pub fn set_bar_session(id: Option<u64>) {
 }
 
 /// Où se place la barre de session : le haut de la zone cliente de la session,
-/// en pixels de l'écran (son milieu, son bord haut) et l'échelle de son
-/// écran. Rien si la fenêtre n'existe pas ou est réduite.
-pub fn bar_anchor(hwnd: isize) -> Option<(i32, i32, f32)> {
+/// en pixels de l'écran (son milieu, son bord haut), l'échelle de son écran et
+/// la largeur de la zone cliente (pixels : la barre se fait étroite quand elle
+/// n'y tient pas). Rien si la fenêtre n'existe pas ou est réduite.
+pub fn bar_anchor(hwnd: isize) -> Option<(i32, i32, f32, i32)> {
     let hwnd = HWND(hwnd as *mut _);
     unsafe {
         if hwnd.0.is_null() || IsIconic(hwnd).as_bool() {
@@ -132,7 +134,7 @@ pub fn bar_anchor(hwnd: isize) -> Option<(i32, i32, f32)> {
         let mut br = POINT { x: client.right, y: client.bottom };
         let _ = ClientToScreen(hwnd, &mut tl);
         let _ = ClientToScreen(hwnd, &mut br);
-        Some(((tl.x + br.x) / 2, tl.y, dpi_scale(hwnd)))
+        Some(((tl.x + br.x) / 2, tl.y, dpi_scale(hwnd), br.x - tl.x))
     }
 }
 
@@ -177,6 +179,13 @@ pub enum Command {
     WinKey = 11,
     AltTab = 12,
     PrintScreen = 13,
+    // Le même menu face à une Station Mac (docs/link-ui.md, « Face à une
+    // Station Mac ») : la touche ⊞ y est ⌘.
+    MacSwitchApp = 15,
+    MacSpotlight = 16,
+    MacLock = 17,
+    MacScreenshot = 18,
+    MacForceQuit = 19,
     /// Les fenêtres de la session ferment tout de suite, sans attendre la fin
     /// du cœur (qui reçoit sa fin et finit derrière, `host::run`) : une fin
     /// demandée avant le départ du cœur, ou une session que l'app abandonne
@@ -188,6 +197,11 @@ pub enum Command {
 mod sc {
     pub const CTRL: u16 = 0x1D;
     pub const ALT: u16 = 0x38;
+    pub const SHIFT: u16 = 0x2A;
+    pub const ESC: u16 = 0x01;
+    pub const SPACE: u16 = 0x39;
+    pub const Q: u16 = 0x10;
+    pub const FIVE: u16 = 0x06;
     pub const TAB: u16 = 0x0F;
     pub const DEL: u16 = 0xE053;
     pub const LWIN: u16 = 0xE05B;
@@ -195,19 +209,29 @@ mod sc {
 }
 
 /// Envoie une combinaison : touches enfoncées dans l'ordre, relâchées à l'envers.
+/// Une combinaison du menu Touches : ses touches partent telles quelles
+/// (« ⌘ ⇥ » reste ⌘ ⇥, sans l'échange de « Ctrl agit comme ⌘ »).
 fn send_combo(app: &App, keys: &[u16]) {
     for &k in keys {
-        send_key(app, k, true);
+        send_key_as_is(app, k, true);
     }
     for &k in keys.iter().rev() {
-        send_key(app, k, false);
+        send_key_as_is(app, k, false);
     }
+}
+
+/// Touche tapée sur ce PC vers l'ordinateur : face à un Mac, Ctrl et ⊞
+/// échangés avec « Ctrl agit comme ⌘ » (le cœur décide, et relâche chaque
+/// touche telle qu'elle est partie).
+fn send_key(app: &App, scancode: u16, pressed: bool) {
+    let Some(input) = app.input() else { return };
+    send_key_as_is(app, input.outgoing_scancode(scancode, pressed), pressed);
 }
 
 /// Touche vers l'ordinateur. Le relâchement d'une touche dont l'appui n'est
 /// pas parti (raccourci de l'app, touche tenue avant la session ou avant une
 /// relance de l'image) ne part pas.
-fn send_key(app: &App, scancode: u16, pressed: bool) {
+fn send_key_as_is(app: &App, scancode: u16, pressed: bool) {
     // Un invité sans le clavier et la souris : rien ne part (le cœur filtre aussi,
     // mais la page n'a pas à lui donner ces touches).
     if !app.keyboard_mouse() {
@@ -220,9 +244,13 @@ fn send_key(app: &App, scancode: u16, pressed: bool) {
     input.key(scancode, pressed);
 }
 
-/// La touche est-elle tenue sur l'ordinateur ?
+/// La touche tapée est-elle tenue sur l'ordinateur ? (Telle qu'elle y est
+/// partie : face à un Mac, Ctrl et ⊞ peuvent être échangés.)
 fn key_held(app: &App, scancode: u16) -> bool {
-    app.input().is_some_and(|i| i.held().lock().unwrap().is_held(scancode))
+    app.input().is_some_and(|i| {
+        let sent = i.outgoing_scancode(scancode, true);
+        i.held().lock().unwrap().is_held(sent)
+    })
 }
 
 /// Le fil du crochet clavier : combien de sessions le demandent, et le fil
@@ -493,6 +521,9 @@ pub struct App {
     /// du bureau (jamais retenue dans la fenêtre) et ses réglages ne
     /// changent rien. La Station l'impose aussi, de son côté.
     keyboard_mouse: AtomicBool,
+    /// « Ctrl agit comme ⌘ » (face à une Station Mac) : donné à chaque chaîne
+    /// d'entrées, qui échange Ctrl et ⊞ des touches tapées.
+    control_as_command: AtomicBool,
     pub closing: AtomicBool,
     pub error: Mutex<Option<String>>,
     pub events: Arc<dyn HostEvents>,
@@ -606,6 +637,7 @@ impl App {
             game: AtomicBool::new(false),
             mouse_mode: Mutex::new(MouseMode::Auto),
             keyboard_mouse: AtomicBool::new(true),
+            control_as_command: AtomicBool::new(false),
             closing: AtomicBool::new(false),
             error: Mutex::new(None),
             events,
@@ -668,6 +700,19 @@ impl App {
         if self.keyboard_mouse.swap(on, Ordering::Relaxed) != on && self.control_hwnd() != 0 {
             self.post(WM_APP_MOUSE);
         }
+    }
+
+    /// « Ctrl agit comme ⌘ » : pour les chaînes d'entrées à venir et celle
+    /// en cours (réglage changé en session).
+    pub fn set_control_as_command(&self, on: bool) {
+        self.control_as_command.store(on, Ordering::Relaxed);
+        if let Some(input) = self.input() {
+            input.set_control_as_command(on);
+        }
+    }
+
+    pub fn control_as_command(&self) -> bool {
+        self.control_as_command.load(Ordering::Relaxed)
     }
 
     /// Fin demandée par l'utilisateur.
@@ -2100,6 +2145,11 @@ fn command(app: &Arc<App>, c: usize, arg: isize) {
         x if x == Command::WinKey as usize => send_combo(app, &[sc::LWIN]),
         x if x == Command::AltTab as usize => send_combo(app, &[sc::ALT, sc::TAB]),
         x if x == Command::PrintScreen as usize => send_combo(app, &[sc::PRINT]),
+        x if x == Command::MacSwitchApp as usize => send_combo(app, &[sc::LWIN, sc::TAB]),
+        x if x == Command::MacSpotlight as usize => send_combo(app, &[sc::LWIN, sc::SPACE]),
+        x if x == Command::MacLock as usize => send_combo(app, &[sc::CTRL, sc::LWIN, sc::Q]),
+        x if x == Command::MacScreenshot as usize => send_combo(app, &[sc::SHIFT, sc::LWIN, sc::FIVE]),
+        x if x == Command::MacForceQuit as usize => send_combo(app, &[sc::ALT, sc::LWIN, sc::ESC]),
         _ => {}
     }
 }
@@ -2183,6 +2233,12 @@ unsafe extern "system" fn screen_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
                         b'M' => {
                             if !repeat {
                                 toggle_mouse(&app);
+                            }
+                            true
+                        }
+                        b'S' => {
+                            if !repeat {
+                                app.events.statistics(win.hwnd);
                             }
                             true
                         }

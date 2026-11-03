@@ -34,6 +34,8 @@ export type Settings = {
   mouse: 'auto' | 'bureau' | 'jeu'
   gamepad: 'xbox360' | 'fidele'
   clipboard: boolean
+  /** « Ctrl agit comme ⌘ », face à une Station Mac ; `null` ou absent : jamais changé, allumé. */
+  ctrl_command?: boolean | null
   audio: 'auto' | '2' | '6' | '8' | '0'
   virtual_display: boolean
   /** Repris par les réglages de l'app (`AppInfo.battery`) ; gardé pour l'aller-retour. */
@@ -293,6 +295,21 @@ export type Stats = {
   chain: (number | null)[]
   /** Un écran au moins de l'image est en HDR. */
   hdr: boolean
+  /** Fréquence de l'écran principal de la session ; 0 tant qu'elle n'est pas connue. */
+  refresh?: number
+  /** Débit de l'image dans la seconde (Mbit/s). */
+  mbps?: number
+  /** Pertes de la seconde : images jamais montrées, paquets perdus, images clés redemandées. */
+  lost_frames?: number
+  lost_packets?: number
+  keyframes?: number
+  /** Part des images montrées dont la latence est mesurée (0 à 100) ; mesures écartées. */
+  measured_pct?: number | null
+  rejected?: number
+  /** Son : voies de la session (0 : son coupé), tampon et sortie (ms). */
+  audio_channels?: number
+  audio_buffer_ms?: number | null
+  audio_output_ms?: number | null
 }
 
 /** Événement `stats` de la barre : les mesures de la session `id` (une seule barre, elle garde celles de la session qu'elle sert). */
@@ -480,6 +497,12 @@ export const sinceText = (since: number, now = Date.now() / 1000) => {
 }
 
 /** « 8,9 » en français, « 8.9 » en anglais. */
+/**
+ * La Station est un Mac : son système (« macOS 26.1 ») commence par « macOS » (la règle du cœur,
+ * `keymap::station_is_mac` ; docs/link-ui.md « Face à une Station Mac »).
+ */
+export const isMacStation = (os: string | null | undefined) => /^\s*macos/i.test(os ?? '')
+
 export const ms = (v: number | null | undefined, digits = 1) => {
   if (v == null) return '—'
   const s = v.toFixed(digits)

@@ -156,7 +156,8 @@ let computers = [
     by_code: false,
     wake: wakeOf.a1,
     fingerprint: fp('bureau-salon'),
-    os: 'Windows 11 Pro 24H2',
+    // `?mac` : une Station Mac (réglage « Ctrl agit comme ⌘ », menu Touches du Mac).
+    os: flags.has('mac') ? 'macOS 26.1' : 'Windows 11 Pro 24H2',
     gpu: 'NVIDIA GeForce RTX 3080 Ti',
     settings: { ...settings },
     last: {
@@ -174,7 +175,7 @@ let computers = [
     online: true as boolean | null,
     info: {
       hostname: 'BUREAU-SALON',
-      os: 'Windows 11 Pro 24H2',
+      os: flags.has('mac') ? 'macOS 26.1' : 'Windows 11 Pro 24H2',
       gpu: 'NVIDIA GeForce RTX 3080 Ti',
       av1: false,
       admin_version: '0.5.0',
@@ -1014,6 +1015,10 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
     emit('session-keep-sound', { id: a.id as string, on: Boolean(a.on) } satisfies KeepSound)
     return null
   },
+  session_mouse: (a) => {
+    console.info(`session_mouse : souris ${a.mode} pour ${a.id}`)
+    return null
+  },
   bar_computers: () => barComputers(),
   // La fenêtre de connexion d'une session suivante (`/connexion.html?id=c3`) : ses étapes, puis la
   // première image (le passage s'ouvre), ou ?echec : la raison.
@@ -1195,8 +1200,14 @@ export function mockTauri() {
           const route = relayJoined ? routeView() : null
           const borrow = borrowFlag ? borrowBar() : null
           const host = !guest && !borrow
-          const shown = { id: served, label: 'Jeu · HEVC', profile: 'jeu', multi: deviceScreens > 1, keep_sound: keepSound.has(served), sessions: Math.max(1, sessions.length), guest, share: host ? shareView() : null, lend: host ? lendView() : null, borrow, route }
-          setTimeout(() => cb({ payload: shown }), 300)
+          // Le nom à côté du symbole ; `?largeur=900` : une session étroite (barre compacte) ; `?statistiques` : avec son panneau.
+          const title = guest ? t('mock.guest_on') : (computers.find((c) => c.id === served)?.name ?? '')
+          const room = Number(flags.get('largeur') ?? 1240) || 1240
+          // `?mac` : une Station Mac (menu Touches du Mac).
+          const shown = { id: served, label: 'Jeu · HEVC', profile: 'jeu', title, mouse: 'auto', clipboard: true, mac: flags.has('mac'), room, stats: flags.has('statistiques'), multi: deviceScreens > 1, keep_sound: keepSound.has(served), sessions: Math.max(1, sessions.length), guest, share: host ? shareView() : null, lend: host ? lendView() : null, borrow, route }
+          // Un avis bref (`&avis`, `?arrivee`, `&preavis`) : sa capsule seule, sans la barre.
+          const capsuleOnly = (guest && flags.has('avis')) || (!guest && flags.has('arrivee')) || !!borrow?.notice
+          if (!capsuleOnly) setTimeout(() => cb({ payload: shown }), 300)
           // `&avis` : le changement de rôle d'un invité, montré à la place des statistiques.
           if (guest && flags.has('avis')) {
             const kind = flags.get('avis') || (guestRole === 'spectator' ? 'watch' : guestRole === 'player' ? 'play' : 'kbm')
@@ -1221,7 +1232,7 @@ export function mockTauri() {
         }
         if (name === 'bar-computers') setTimeout(() => cb({ payload: barComputers() }), 300)
         if (name === 'stats') {
-          const timer = setInterval(() => cb({ payload: { id: served, latency_ms: 8 + Math.random() * 3, fps: 60, width: 1920, height: 1200, decoder: `HEVC · ${t('mock.hardware')}`, relative: false, rtt_ms: 2.1, audio_ms: 18 + Math.random() * 4, audio_gaps: 0, screens: deviceScreens, chain: [0.4 + Math.random() * 0.3, 2.6 + Math.random() * 0.8, 0.3, 1.2 + Math.random(), 1.1 + Math.random() * 0.4, 2.4 + Math.random() * 1.5], hdr: false } }), 1000)
+          const timer = setInterval(() => cb({ payload: { id: served, latency_ms: 8 + Math.random() * 3, fps: 60, width: 1920, height: 1200, decoder: `HEVC · ${t('mock.hardware')}`, relative: false, rtt_ms: 2.1, audio_ms: 18 + Math.random() * 4, audio_gaps: 0, screens: deviceScreens, chain: [0.4 + Math.random() * 0.3, 2.6 + Math.random() * 0.8, 0.3, 1.2 + Math.random(), 1.1 + Math.random() * 0.4, 2.4 + Math.random() * 1.5], hdr: false, refresh: 120, mbps: 70 + Math.random() * 15, lost_frames: Math.random() < 0.1 ? 1 : 0, lost_packets: Math.random() < 0.2 ? 3 : 0, keyframes: 0, measured_pct: 98, rejected: 0, audio_channels: 2, audio_buffer_ms: 14 + Math.random() * 3, audio_output_ms: 10 } }), 1000)
           return () => clearInterval(timer)
         }
         return () => {}

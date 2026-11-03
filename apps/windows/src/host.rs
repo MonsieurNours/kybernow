@@ -12,7 +12,7 @@
 //! sur son fil, inscrite au registre des sessions du cœur (`focus.rs`), qui
 //! coupe les entrées et le son de celles qui ne sont pas actives.
 
-use std::sync::atomic::{AtomicIsize, Ordering};
+use std::sync::atomic::{AtomicIsize, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 
@@ -62,6 +62,25 @@ pub struct Stats {
     pub chain: [Option<f64>; 6],
     /// Un écran au moins de l'image est en HDR.
     pub hdr: bool,
+    /// Fréquence de l'écran principal de la session (celle que la Station a
+    /// appliquée) ; 0 tant qu'elle n'est pas connue.
+    pub refresh: u32,
+    /// Débit de l'image dans la seconde (Mbit/s).
+    pub mbps: f64,
+    /// Pertes de la seconde (panneau « Statistiques ») : images jamais
+    /// montrées (avec les trous du flux), paquets perdus d'après Kyber, images
+    /// clés redemandées.
+    pub lost_frames: u32,
+    pub lost_packets: u32,
+    pub keyframes: u32,
+    /// Part des images montrées dont la latence a été mesurée (0 à 100), et
+    /// mesures écartées ; `None` sans image montrée.
+    pub measured_pct: Option<u32>,
+    pub rejected: u32,
+    /// Son : voies de la session (0 : son coupé), tampon et sortie (ms).
+    pub audio_channels: u16,
+    pub audio_buffer_ms: Option<f64>,
+    pub audio_output_ms: Option<f64>,
 }
 
 /// Bilan d'une session terminée.
@@ -137,6 +156,9 @@ pub trait HostEvents: Send + Sync {
     /// session, dans la zone de la barre (app au premier plan, souris du
     /// bureau) : la barre de session s'ouvre sur cet écran.
     fn top_edge(&self, _hwnd: isize) {}
+    /// Ctrl+Alt+Maj+S sur une fenêtre de la session : la barre et son panneau
+    /// « Statistiques » s'ouvrent sur cet écran, ou se referment.
+    fn statistics(&self, _hwnd: isize) {}
     /// « Afficher » (ou Ctrl+Alt+Maj+O) alors que sa fenêtre n'est pas encore
     /// montrée : la session se connecte, sa fenêtre de connexion passe devant.
     fn connexion_front(&self) {}
@@ -193,6 +215,9 @@ pub struct HostOptions {
     /// celui du lancement, relevé avant que l'accueil passe sur l'écran
     /// principal : la session le garde (profil Jeu choisi en session).
     pub layout: Layout,
+    /// « Ctrl agit comme ⌘ » au départ (face à une Station Mac,
+    /// `keymap::control_as_command`) ; ensuite [`SessionHost::set_control_as_command`].
+    pub control_as_command: bool,
 }
 
 pub struct SessionHost {
@@ -355,6 +380,13 @@ impl SessionHost {
         self.focus_id().is_some_and(focus::keep_sound)
     }
 
+    /// « Ctrl agit comme ⌘ » changé dans les réglages pendant la session.
+    pub fn set_control_as_command(&self, on: bool) {
+        if let Some(a) = self.app() {
+            a.set_control_as_command(on);
+        }
+    }
+
     pub fn set_keep_sound(&self, on: bool) {
         if let Some(id) = self.focus_id() {
             focus::set_keep_sound(id, on);
@@ -398,6 +430,10 @@ struct WinPlatform {
     /// forcément calée sur celles de la latence).
     audio_stats: Mutex<Option<AudioStats>>,
     last_frames: Mutex<u64>,
+    /// Fréquence de l'écran principal de la session (`on_screens`).
+    refresh: AtomicU32,
+    /// Voies du son demandées (0 : son coupé dans les réglages).
+    audio_channels: u16,
     events: Arc<dyn HostEvents>,
     session: Mutex<Option<Arc<Session>>>,
     /// Presse-papiers partagé (réglage de l'ordinateur).
@@ -425,6 +461,9 @@ impl Platform for WinPlatform {
     /// Les écrans pris par la session : les fenêtres se mettent en place (le
     /// cœur attend), avant que `screen_video_handler` soit demandé.
     fn on_screens(&self, screens: &[StreamScreen], not_created: &[usize]) {
+        if let Some(main) = screens.iter().find(|s| s.primary).or_else(|| screens.first()) {
+            self.refresh.store(main.refresh, Ordering::Relaxed);
+        }
         self.app.screens_changed(screens, not_created);
     }
     /// Chaîne d'entrées neuve pour les écrans pris (donnés juste avant par
@@ -450,6 +489,7 @@ impl Platform for WinPlatform {
             self.app.clock.clone(),
         );
         input.set_screens(self.app.targets());
+        input.set_control_as_command(self.app.control_as_command());
         if let Err(e) = input.spawn_driver() {
             log::error!("entrées : fil des réessais refusé ({e})");
         }
@@ -535,6 +575,16 @@ impl Platform for WinPlatform {
             screens: self.app.stream_count(),
             chain,
             hdr: second.hdr,
+            refresh: self.refresh.load(Ordering::Relaxed),
+            mbps: second.bytes as f64 * 8.0 / 1_000_000.0,
+            lost_frames: second.lost_frames + second.holes,
+            lost_packets: second.lost_packets,
+            keyframes: second.keyframe_requests,
+            measured_pct: (second.displayed > 0).then(|| (second.measured as f64 * 100.0 / second.displayed as f64).round() as u32),
+            rejected: second.rejected,
+            audio_channels: audio.map_or(self.audio_channels, |a| a.channels as u16),
+            audio_buffer_ms: audio.map(|a| a.buffer_ms),
+            audio_output_ms: audio.map(|a| a.output_ms),
         });
     }
     fn on_game_fullscreen(&self, game: bool) {
@@ -626,6 +676,7 @@ fn run(
         opts.fullscreen,
         opts.title_stats,
     );
+    app.set_control_as_command(opts.control_as_command);
     app.set_mouse_mode(match opts.mouse {
         None => MouseMode::Auto,
         Some(true) => MouseMode::Game,
@@ -672,6 +723,8 @@ fn run(
         audio: audio.clone(),
         audio_stats: Mutex::new(None),
         last_frames: Mutex::new(0),
+        refresh: AtomicU32::new(0),
+        audio_channels: params.audio_channels,
         events: events.clone(),
         session: Mutex::new(None),
         clipboard: params.clipboard,

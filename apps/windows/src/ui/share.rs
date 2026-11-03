@@ -435,7 +435,7 @@ pub fn share_connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> 
         (layout, Some(follow))
     };
     log::info!("session d'invité chez {} : {}×{} à {} Hz", guest.computer, mode.width, mode.height, mode.refresh);
-    let bar = Arc::new(Mutex::new(BarLabel { label: String::new(), profile: String::new() }));
+    let bar = Arc::new(Mutex::new(BarLabel { label: String::new(), profile: String::new(), custom: false }));
     let sent = Arc::new(Mutex::new(Sent { settings, mode, screens: 1, pixel_rate: 0.0, virtual_display: false }));
     let stats = Arc::new(Mutex::new(None));
     let spot = Arc::new(Mutex::new(Spot::default()));
@@ -495,6 +495,8 @@ pub fn share_connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> 
             },
             at: follow.as_ref().map(|f| f.at),
             title_stats: false,
+            // Un invité ne connaît pas le système de l'ordinateur : Ctrl reste Ctrl.
+            control_as_command: false,
             layout,
         },
         events.clone(),

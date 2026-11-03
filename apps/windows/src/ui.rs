@@ -1640,14 +1640,27 @@ fn save_settings(app: AppHandle, id: String, settings: Settings) -> Result<(), S
             l.last = None;
         }
     }
+    let ctrl_command = settings.ctrl_command;
     state.with_store(|s| {
         let c = s.get_mut(&id).ok_or_else(|| t("errors.unknown_computer", &[]))?;
         c.settings = settings;
         s.save();
         Ok::<_, String>(())
     })?;
+    // « Ctrl agit comme ⌘ » changé pendant sa session : tout de suite.
+    let on = kybernow_core::input::keymap::control_as_command(ctrl_command, &computer_os(&state, &id));
+    state.with_session(&id, |r| r.host.set_control_as_command(on));
     emit_computers(&app);
     Ok(())
+}
+
+/// Le système de l'ordinateur (« macOS 26.1 », « Windows 11 Pro ») : celui que
+/// la Station donne maintenant, sinon celui gardé à l'ajout.
+fn computer_os(state: &UiState, id: &str) -> String {
+    let live = state.live.lock().unwrap().get(id).and_then(|l| l.info.as_ref().map(|i| i.os.clone()));
+    live.filter(|os| !os.is_empty())
+        .or_else(|| state.with_store(|s| s.get(id).map(|c| c.os.clone())))
+        .unwrap_or_default()
 }
 
 #[tauri::command(async)]
@@ -1719,6 +1732,21 @@ struct BarShown {
     id: String,
     #[serde(flatten)]
     label: BarLabel,
+    /// Le nom de l'ordinateur à côté du symbole (« Invité sur {nom} » pour un invité).
+    title: String,
+    /// Le réglage « Souris » de l'ordinateur (`auto`, `bureau`, `jeu`) : le menu Souris le coche.
+    mouse: String,
+    /// Presse-papiers partagé (réglage de l'ordinateur) : la pastille, estompée sinon.
+    clipboard: bool,
+    /// L'ordinateur est une Station Mac : le menu Touches propose ses touches
+    /// (« ⌘ ⇥ », « ⌘ Espace »…). Faux pour un invité ou un ami, qui ne
+    /// connaissent pas son système.
+    mac: bool,
+    /// La largeur de la zone cliente de la session, en points (bornée par la
+    /// fenêtre de la barre) : au-delà, la barre se fait étroite.
+    room: f64,
+    /// Ouverte par « Statistiques » (menu de l'icône, Ctrl+Alt+Maj+S) : son panneau est ouvert.
+    stats: bool,
     pinned: bool,
     multi: bool,
     keep_sound: bool,
@@ -1807,6 +1835,8 @@ struct ReplanEvent {
 struct BarLabel {
     label: String,
     profile: String,
+    /// Les réglages s'écartent du profil : la barre dit « Personnalisé ».
+    custom: bool,
 }
 
 #[derive(Clone, Serialize)]
@@ -1974,6 +2004,10 @@ impl HostEvents for UiEvents {
         let id = self.id.clone();
         // Sur le fil de Tauri : la fenêtre de la session ne doit pas attendre.
         let _ = self.app.run_on_main_thread(move || show_bar(&app, &id, hwnd, false));
+    }
+
+    fn statistics(&self, hwnd: isize) {
+        toggle_stats_on(&self.app, &self.id, hwnd);
     }
 
     /// « Afficher », « Se connecter » sur cet ordinateur ou Ctrl+Alt+Maj+O
@@ -2861,7 +2895,7 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
     if let Some(p) = &plan {
         log::info!("session sur {} écrans de ce PC (la Station en crée {} au plus)", p.len(), layout.spec.max_screens);
     }
-    let bar = Arc::new(Mutex::new(BarLabel { label: label.clone(), profile: s.profile.clone() }));
+    let bar = Arc::new(Mutex::new(BarLabel { label: label.clone(), profile: s.profile.clone(), custom: is_custom(s, Some(&pc)) }));
     let sent = Arc::new(Mutex::new(Sent {
         settings,
         mode,
@@ -2925,6 +2959,8 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
         lend_seen: std::sync::atomic::AtomicBool::new(false),
         route: route.clone(),
     });
+    // Face à un Mac, « Ctrl agit comme ⌘ » (avant de tenir la table des sessions).
+    let control_as_command = kybernow_core::input::keymap::control_as_command(s.ctrl_command, &computer_os(&state, &id));
     let mut running = state.sessions.lock().unwrap();
     let host = SessionHost::start_as(
         session,
@@ -2942,6 +2978,7 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
             at: follow.as_ref().map(|f| f.at),
             title_stats: false,
             layout,
+            control_as_command,
         },
         events.clone(),
     );
@@ -2972,9 +3009,28 @@ fn session_command(app: AppHandle, id: String, command: String) {
         "keys:win" => Command::WinKey,
         "keys:alt-tab" => Command::AltTab,
         "keys:print" => Command::PrintScreen,
+        // Face à une Station Mac.
+        "keys:mac-switch" => Command::MacSwitchApp,
+        "keys:mac-spotlight" => Command::MacSpotlight,
+        "keys:mac-lock" => Command::MacLock,
+        "keys:mac-screenshot" => Command::MacScreenshot,
+        "keys:mac-force-quit" => Command::MacForceQuit,
         _ => return,
     };
     state.with_session(&id, |r| r.host.command(c));
+}
+
+/// Le menu Souris de la barre : « Auto », « Souris du bureau », « Souris des
+/// jeux », appliqué tout de suite et gardé pour l'ordinateur, comme le menu de
+/// l'icône.
+#[tauri::command(async)]
+fn session_mouse(app: AppHandle, id: String, mode: String) {
+    let mode = match mode.as_str() {
+        "jeu" => "jeu",
+        "bureau" => "bureau",
+        _ => "auto",
+    };
+    tray_command(&app, Cmd::Mouse(id, mode));
 }
 
 /// « Garder le son » de la barre (bouton du haut-parleur) ou du menu de
@@ -3007,7 +3063,8 @@ fn session_profile(app: AppHandle, id: String, profile: String) -> Result<(), St
     // Les réglages du profil seulement : la taille de l'écran ne change pas.
     let (settings, _, label) = session_plan(&c, &pc, lighten, None);
     sent.lock().unwrap().settings = settings.clone();
-    let shown = BarLabel { label, profile };
+    // Un profil choisi remet ses réglages (`save_profile`) : plus de « Personnalisé ».
+    let shown = BarLabel { label, profile, custom: false };
     *bar.lock().unwrap() = shown.clone();
     let _ = app.emit_to("bar", "bar-label", BarLabelEvent { id: id.clone(), label: shown });
     let applied = state.with_session(&id, |r| r.host.set_settings(settings)).unwrap_or(false);
@@ -3044,9 +3101,39 @@ fn set_profile(app: AppHandle, id: String, profile: String) -> Result<(), String
     Ok(())
 }
 
-/// Largeur de la fenêtre de la barre de session, en points (la barre
-/// elle-même, centrée dedans, est plus étroite : `bar_width`).
+/// Largeur de la fenêtre de la barre de session à sa création, en points ;
+/// ensuite, celle de la barre (`bar_width`), bornée par la session.
 const BAR_WINDOW_WIDTH: f64 = 1240.0;
+
+/// La fenêtre de la barre n'est jamais plus étroite (ses menus et panneaux,
+/// 400 points au plus, s'ouvrent sous leur bouton), en points.
+const BAR_WINDOW_MIN: f64 = 720.0;
+
+/// Où la fenêtre de la barre se pose : le milieu et le haut de la session, les
+/// bords de son écran (pixels), l'échelle de l'écran et la taille de la
+/// fenêtre (points).
+#[derive(Clone, Copy)]
+struct BarPlace {
+    center: i32,
+    top: i32,
+    left: i32,
+    right: i32,
+    scale: f64,
+    width: f64,
+    height: f64,
+}
+
+static BAR_PLACE: Mutex<Option<BarPlace>> = Mutex::new(None);
+
+/// La fenêtre de la barre à sa place : centrée sur la session, sans sortir de
+/// son écran.
+fn place_bar(bar: &tauri::WebviewWindow) {
+    let Some(p) = *BAR_PLACE.lock().unwrap() else { return };
+    let w = (p.width * p.scale).round() as i32;
+    let x = (p.center - w / 2).max(p.left).min(p.right - w);
+    let _ = bar.set_size(tauri::Size::Physical(tauri::PhysicalSize::new(w as u32, (p.height * p.scale).round() as u32)));
+    let _ = bar.set_position(tauri::PhysicalPosition::new(x, p.top));
+}
 
 /// La barre de session au bord haut de la zone cliente de la session (en
 /// plein écran, le haut de l'écran), centrée sur elle : là où le trait la
@@ -3068,8 +3155,9 @@ fn show_bar_with(app: &AppHandle, id: &str, hwnd: isize, pinned: bool, notice: O
 /// panneau de « Partager » ou de « Prêter l'ordinateur… »).
 fn show_bar_notice(app: &AppHandle, id: &str, hwnd: isize, pinned: bool, notice: Option<String>, panel: Option<&str>) {
     let state = app.state::<UiState>();
-    let Some((label, multi, keep_sound, session, guest, share, route, borrow, lend_view)) = state.with_session(id, |r| {
+    let Some((title, label, multi, keep_sound, session, guest, share, route, borrow, lend_view)) = state.with_session(id, |r| {
         (
+            r.name.clone(),
             r.bar.lock().unwrap().clone(),
             r.host.stream_count() > 1,
             r.host.keep_sound(),
@@ -3095,6 +3183,14 @@ fn show_bar_notice(app: &AppHandle, id: &str, hwnd: isize, pinned: bool, notice:
     let share = host_session.then(|| share::view(app, id, share.as_ref()));
     let lend = host_session.then(|| lend::panel(app, id, lend_view.as_ref()));
     let borrow = borrow.map(|b| b.bar());
+    // La souris et le presse-papiers de l'ordinateur (un invité : Auto, et le presse-papiers n'est pas partagé).
+    let (mouse, clipboard) = match &guest {
+        Some(_) => ("auto".to_string(), false),
+        None => state
+            .with_store(|s| s.get(id).map(|c| (c.settings.mouse.clone(), c.settings.clipboard)))
+            .unwrap_or_else(|| ("auto".to_string(), false)),
+    };
+    let mac = host_session && kybernow_core::input::keymap::station_is_mac(&computer_os(&state, id));
     *state.bar_session.lock().unwrap() = Some(id.to_string());
     let mut mi = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
     unsafe {
@@ -3102,16 +3198,29 @@ fn show_bar_notice(app: &AppHandle, id: &str, hwnd: isize, pinned: bool, notice:
         let _ = GetMonitorInfoW(m, &mut mi);
     }
     let r = mi.rcMonitor;
-    // Toujours à sa taille sans menu en se montrant.
-    bar_menu(app.clone(), false, None);
     let Some(bar) = app.get_webview_window("bar") else { return };
     // Session réduite ou sans fenêtre : le haut de l'écran.
-    let (center, top, scale) =
-        window::bar_anchor(hwnd).unwrap_or(((r.left + r.right) / 2, r.top, bar.scale_factor().unwrap_or(1.0) as f32));
-    // Sa largeur à l'échelle de l'écran où elle va, pas de celui où elle était.
-    let width = (BAR_WINDOW_WIDTH * scale as f64).round() as i32;
-    let x = (center - width / 2).max(r.left).min(r.right - width);
-    let _ = bar.set_position(tauri::PhysicalPosition::new(x, top.max(r.top)));
+    let (center, top, scale, client) = window::bar_anchor(hwnd).unwrap_or((
+        (r.left + r.right) / 2,
+        r.top,
+        bar.scale_factor().unwrap_or(1.0) as f32,
+        r.right - r.left,
+    ));
+    // La place de la barre : la largeur de la session (sans dépasser son écran), à
+    // l'échelle de l'écran où elle va. La fenêtre prend d'abord toute cette place, puis
+    // la largeur de la barre (`bar_width`) ; toujours à sa taille sans menu en se montrant.
+    let scale = scale as f64;
+    let room = (client.min(r.right - r.left) as f64 / scale).floor();
+    *BAR_PLACE.lock().unwrap() = Some(BarPlace {
+        center,
+        top: top.max(r.top),
+        left: r.left,
+        right: r.right,
+        scale,
+        width: room.max(BAR_WINDOW_MIN.min((r.right - r.left) as f64 / scale)),
+        height: 76.0,
+    });
+    place_bar(&bar);
     let _ = bar.set_always_on_top(true);
     if notice.is_some() {
         share::show_without_focus(&bar);
@@ -3124,6 +3233,12 @@ fn show_bar_notice(app: &AppHandle, id: &str, hwnd: isize, pinned: bool, notice:
     let shown = BarShown {
         id: id.to_string(),
         label,
+        title,
+        mouse,
+        clipboard,
+        mac,
+        room,
+        stats: panel == Some("stats"),
         pinned,
         multi,
         keep_sound,
@@ -3150,6 +3265,11 @@ fn toggle_stats(app: &AppHandle, id: &str) {
     let Some(hwnd) = state.with_session(id, |r| r.host.bar_window()) else {
         return;
     };
+    toggle_stats_on(app, id, hwnd);
+}
+
+/// [`toggle_stats`] sur la fenêtre `hwnd` (Ctrl+Alt+Maj+S : celle qui a le clavier).
+fn toggle_stats_on(app: &AppHandle, id: &str, hwnd: isize) {
     let (a, id) = (app.clone(), id.to_string());
     let _ = app.run_on_main_thread(move || {
         let shown = a.get_webview_window("bar").and_then(|b| b.is_visible().ok()).unwrap_or(false);
@@ -3158,7 +3278,8 @@ fn toggle_stats(app: &AppHandle, id: &str) {
             bar_hide(a.clone(), Some(id), None);
             return;
         }
-        show_bar(&a, &id, hwnd, true);
+        // La barre et son panneau « Statistiques ».
+        show_bar_notice(&a, &id, hwnd, true, None, Some("stats"));
         // La fenêtre où la barre s'ouvre devient la fenêtre active.
         a.state::<UiState>().with_session(&id, |r| r.host.focus(hwnd));
     });
@@ -3179,16 +3300,35 @@ fn bar_menu(app: AppHandle, open: bool, height: Option<f64>) {
         };
         let top = 900.0f64.min(room.max(300.0));
         let h = if open { height.filter(|h| h.is_finite()).unwrap_or(300.0).clamp(300.0, top) } else { 76.0 };
-        let _ = bar.set_size(tauri::Size::Physical(tauri::PhysicalSize::new((BAR_WINDOW_WIDTH * scale) as u32, (h * scale) as u32)));
+        let placed = BAR_PLACE.lock().unwrap().as_mut().map(|p| p.height = h).is_some();
+        if placed {
+            place_bar(&bar);
+        } else {
+            let _ = bar.set_size(tauri::Size::Physical(tauri::PhysicalSize::new((BAR_WINDOW_WIDTH * scale) as u32, (h * scale) as u32)));
+        }
     }
 }
 
 /// La barre dit sa largeur en points (le texte des mesures et la langue la
 /// font varier) : le pointeur l'ouvre dans une zone du bord haut centrée de
-/// cette largeur.
+/// cette largeur, et la fenêtre de la barre la suit (la session n'est cachée
+/// que là où est la barre).
 #[tauri::command]
-fn bar_width(width: f64) {
+fn bar_width(app: AppHandle, width: f64) {
     window::set_bar_width(width);
+    if !width.is_finite() || width < 1.0 {
+        return;
+    }
+    let changed = BAR_PLACE.lock().unwrap().as_mut().is_some_and(|p| {
+        let screen = (p.right - p.left) as f64 / p.scale;
+        let w = (width + 24.0).max(BAR_WINDOW_MIN).min(screen);
+        let changed = (w - p.width).abs() >= 1.0;
+        p.width = w;
+        changed
+    });
+    if changed && let Some(bar) = app.get_webview_window("bar") {
+        place_bar(&bar);
+    }
 }
 
 /// La barre se cache : le clavier revient à la session qu'elle servait
@@ -3498,6 +3638,7 @@ pub fn run(args: Vec<String>) {
             connect,
             show_session,
             session_command,
+            session_mouse,
             session_keep_sound,
             bar_hide,
             bar_menu,

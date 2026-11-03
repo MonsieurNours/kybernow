@@ -204,6 +204,9 @@ pub struct InputPipeline {
     switch: Mutex<()>,
     /// La chaîne tient le fil SDL du cœur (à rendre à l'arrêt).
     sdl_held: AtomicBool,
+    /// « Ctrl agit comme ⌘ » (face à une Station Mac) : Ctrl et ⊞ échangés
+    /// dans [`Self::outgoing_scancode`].
+    control_as_command: AtomicBool,
     /// KyberNow Share : les droits de la chaîne ([`InputRights`], tous par défaut).
     kbm_allowed: AtomicBool,
     pads_allowed: AtomicBool,
@@ -313,6 +316,7 @@ impl InputPipeline {
                 switch: Mutex::new(()),
                 sdl_held: AtomicBool::new(core_pads),
                 rumbling: Mutex::new(HashSet::new()),
+                control_as_command: AtomicBool::new(false),
                 kbm_allowed: AtomicBool::new(true),
                 pads_allowed: AtomicBool::new(true),
                 clipboard_allowed: AtomicBool::new(true),
@@ -843,6 +847,37 @@ impl InputPipeline {
         self.once(OwnedPacket::from_packet(MouseMove { dx, dy }.to_packet(InputTarget::Host)), "déplacement relatif");
     }
 
+    /// « Ctrl agit comme ⌘ » (docs/link-ui.md, « Face à une Station Mac ») :
+    /// l'app le règle d'après [`keymap::control_as_command`], au départ et
+    /// quand le réglage change en session.
+    ///
+    /// [`keymap::control_as_command`]: super::keymap::control_as_command
+    pub fn set_control_as_command(&self, on: bool) {
+        self.control_as_command.store(on, Ordering::Relaxed);
+    }
+
+    /// Le scancode à envoyer pour une touche tapée sur l'appareil (avant
+    /// [`Self::key`]) : Ctrl et ⊞ échangés avec « Ctrl agit comme ⌘ ». Un
+    /// relâchement suit l'appui : la touche se relâche telle qu'elle est
+    /// partie, même si le réglage a changé entre-temps. Les combinaisons
+    /// d'un menu (« ⌘ ⇥ ») partent telles quelles, sans passer par ici.
+    pub fn outgoing_scancode(&self, scancode: u16, pressed: bool) -> u16 {
+        let swapped = super::keymap::swap_control_command(scancode);
+        if swapped == scancode {
+            return scancode;
+        }
+        let on = self.control_as_command.load(Ordering::Relaxed);
+        if !pressed {
+            let held = self.held.lock().unwrap();
+            match (held.is_held(scancode), held.is_held(swapped)) {
+                (true, false) => return scancode,
+                (false, true) => return swapped,
+                _ => {}
+            }
+        }
+        if on { swapped } else { scancode }
+    }
+
     /// Touche par son scancode (Windows : tel quel ; Apple : `keymap::scancode`).
     /// Notée dans [`Self::held`] pour « tout relâcher ».
     pub fn key(&self, scancode: u16, pressed: bool) {
@@ -1355,6 +1390,33 @@ mod tests {
                 self.pipeline.poll();
             }
         }
+    }
+
+    /// Face à un Mac, « Ctrl agit comme ⌘ » : Ctrl et ⊞ échangés à l'appui, et
+    /// chaque touche relâchée telle qu'elle est partie, même si le réglage
+    /// change pendant qu'elle est tenue.
+    #[test]
+    fn controle_comme_commande() {
+        use crate::input::keymap::{SC_LEFT_CONTROL as CTRL, SC_LEFT_WIN as WIN};
+        let b = Bench::new();
+        let p = &b.pipeline;
+        let send = |sc: u16, pressed: bool| {
+            let out = p.outgoing_scancode(sc, pressed);
+            p.key(out, pressed);
+            out
+        };
+        assert_eq!(p.outgoing_scancode(CTRL, true), CTRL, "éteint par défaut dans la chaîne : Ctrl reste Ctrl");
+        p.set_control_as_command(true);
+        assert_eq!(send(CTRL, true), WIN, "Ctrl part en ⌘ (⊞)");
+        assert_eq!(send(0x2E, true), 0x2E, "C inchangée");
+        p.set_control_as_command(false);
+        assert_eq!(send(CTRL, false), WIN, "relâché tel qu'il est parti, réglage changé entre-temps");
+        p.set_control_as_command(true);
+        assert_eq!(send(WIN, true), CTRL, "⊞ part en ⌃");
+        assert_eq!(send(CTRL, true), WIN, "les deux tenus");
+        assert_eq!(send(CTRL, false), WIN, "Ctrl relâché en ⌘");
+        assert_eq!(send(WIN, false), CTRL, "⊞ relâché en ⌃");
+        assert!(!p.held().lock().unwrap().is_held(CTRL) && !p.held().lock().unwrap().is_held(WIN), "plus rien de tenu");
     }
 
     /// KyberNow Share : la chaîne d'un invité ne laisse partir que ses droits.
