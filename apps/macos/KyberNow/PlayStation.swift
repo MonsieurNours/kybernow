@@ -374,7 +374,12 @@ enum PSText {
         case 0xE6: return String(localized: "\("⌥") droite")
         case 0xE7: return String(localized: "\("⌘") droite")
         default:
+            #if os(macOS)
             let c = Keymap.character(hid: k)
+            #else
+            // Pas de disposition du clavier à lire (Apple TV, iPhone, iPad).
+            let c: String? = nil
+            #endif
             // Pavé numérique : 0x54 à 0x63 et 0x67.
             if let c, (0x54...0x63).contains(k) || k == 0x67 { return String(localized: "Pavé \(c)") }
             return c ?? String(localized: "Touche \(Int(k))")
@@ -959,7 +964,12 @@ final class PlayStationStore: ObservableObject {
         update(console)
         // La puce « HDR » allumée et l'écran de la fenêtre HDR : demandé dans les réglages.
         var settings = self.settings(c)
+        #if os(macOS)
         settings.hdr = c.hasHDR && c.hdr && HDRDisplay.isHDR((NSApp.keyWindow ?? NSApp.mainWindow)?.screen ?? NSScreen.main)
+        #else
+        // Apple TV, iPhone, iPad : l'écran de l'appareil.
+        settings.hdr = c.hasHDR && c.hdr && HDRDisplay.isHDR()
+        #endif
         let settingsJSON = (try? JSONEncoder().encode(settings)).flatMap { String(data: $0, encoding: .utf8) } ?? Self.defaultSettings
         let id = c.id
         let account = chosenAccount(c)?.id

@@ -847,11 +847,12 @@ final class VideoRenderer {
         pass.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
         pass.colorAttachments[0].storeAction = .store
 
-        #if os(macOS)
-        let upscaled = !upscaling ? nil : upscaleIfWanted(luma: luma, chroma: chroma, color: &color, source: (Int(width), Int(height)),
+        var upscaled: (MTLTexture, MTLRenderPipelineState, UpscalerSharpenUniforms)?
+        #if canImport(MetalFX)
+        if upscaling, #available(macOS 13.0, iOS 16.0, tvOS 27.1, *) {
+            upscaled = upscaleIfWanted(luma: luma, chroma: chroma, color: &color, source: (Int(width), Int(height)),
                                        shown: (Int(w), Int(h)), target: target, commands: commands)
-        #else
-        let upscaled: (MTLTexture, MTLRenderPipelineState, Upscaler.SharpenUniforms)? = nil
+        }
         #endif
         guard let encoder = commands.makeRenderCommandEncoder(descriptor: pass) else { return false }
         encoder.setViewport(MTLViewport(originX: originX, originY: originY, width: w, height: h, znear: 0, zfar: 1))
@@ -861,7 +862,7 @@ final class VideoRenderer {
             u.origin = SIMD2(Int32(originX), Int32(originY))
             encoder.setRenderPipelineState(sharpen)
             encoder.setFragmentTexture(image, index: 0)
-            encoder.setFragmentBytes(&u, length: MemoryLayout<Upscaler.SharpenUniforms>.stride, index: 0)
+            encoder.setFragmentBytes(&u, length: MemoryLayout<UpscalerSharpenUniforms>.stride, index: 0)
         } else {
             encoder.setRenderPipelineState(hdrTarget ? hdrPipeline : pipeline)
             encoder.setFragmentTexture(CVMetalTextureGetTexture(luma), index: 0)
@@ -888,9 +889,9 @@ final class VideoRenderer {
         return true
     }
 
-    #if os(macOS)
     /// Agrandissement MetalFX de l'image (consoles, `Upscaler`) ; nil : filtre
     /// bilinéaire, comme pour un ordinateur. Un changement redessine l'image.
+    /// Sans MetalFX (Apple TV avant tvOS 27.1), l'état dit `unavailable`.
     var upscale: UpscaleSettings? {
         get { lock.lock(); defer { lock.unlock() }; return upscaleWanted }
         set {
@@ -904,25 +905,31 @@ final class VideoRenderer {
     private var upscaleWanted: UpscaleSettings?
     /// L'état de l'agrandissement change (fil de rendu ; statistiques).
     var onUpscale: ((UpscaleReport) -> Void)?
-    /// Créé à la première image à agrandir (fil de rendu).
-    private var upscaler: Upscaler?
+    /// Créé à la première image à agrandir (fil de rendu) : un `Upscaler`,
+    /// gardé sans son type (il n'existe qu'avec MetalFX).
+    private var upscalerBox: AnyObject?
     private var upscalerTried = false
+
+    #if canImport(MetalFX)
+    @available(macOS 13.0, iOS 16.0, tvOS 27.1, *)
+    private var upscaler: Upscaler? { upscalerBox as? Upscaler }
 
     /// Passes 1 et 2 de l'agrandissement, dans une commande à part (son coût
     /// est mesuré seul) : l'image en RGB à sa taille, puis MetalFX à la
     /// taille affichée. Rend l'image agrandie et la passe 3 à faire, ou nil
     /// (pas voulu, pas plus petite que l'écran, trop lent, refusé).
+    @available(macOS 13.0, iOS 16.0, tvOS 27.1, *)
     private func upscaleIfWanted(luma: CVMetalTexture, chroma: CVMetalTexture, color: inout ColorConversion,
                                  source: (Int, Int), shown: (Int, Int), target: MTLTexture,
-                                 commands: MTLCommandBuffer) -> (MTLTexture, MTLRenderPipelineState, Upscaler.SharpenUniforms)? {
+                                 commands: MTLCommandBuffer) -> (MTLTexture, MTLRenderPipelineState, UpscalerSharpenUniforms)? {
         lock.lock()
         let wanted = upscaleWanted
         lock.unlock()
         guard let wanted else { return nil }
         if !upscalerTried {
             upscalerTried = true
-            upscaler = Upscaler(device: device)
-            if upscaler == nil { KyberLog.video.notice("MetalFX absent : pas d'agrandissement") }
+            upscalerBox = Upscaler(device: device)
+            if upscalerBox == nil { KyberLog.video.notice("MetalFX absent : pas d'agrandissement") }
         }
         guard let upscaler else { return report(UpscaleReport(state: .unavailable, gpuMs: nil)) }
         if let slow = upscaler.tooSlow { return report(UpscaleReport(state: .tooSlow(ms: slow), gpuMs: slow)) }
@@ -952,11 +959,12 @@ final class VideoRenderer {
         // Envoyée avant la commande de l'image : la file les garde dans l'ordre.
         pre.commit()
         _ = report(UpscaleReport(state: .active(width: shown.0, height: shown.1), gpuMs: upscaler.medianMs.map { ($0 * 10).rounded() / 10 }))
-        return (t.output, t.sharpen, Upscaler.SharpenUniforms(sharpness: wanted.sharpness, hdr: linear ? 1 : 0, origin: .zero))
+        return (t.output, t.sharpen, UpscalerSharpenUniforms(sharpness: wanted.sharpness, hdr: linear ? 1 : 0, origin: .zero))
     }
 
     /// Dit l'état de l'agrandissement s'il a changé ; rend toujours nil.
-    private func report(_ r: UpscaleReport) -> (MTLTexture, MTLRenderPipelineState, Upscaler.SharpenUniforms)? {
+    @available(macOS 13.0, iOS 16.0, tvOS 27.1, *)
+    private func report(_ r: UpscaleReport) -> (MTLTexture, MTLRenderPipelineState, UpscalerSharpenUniforms)? {
         if let upscaler {
             guard upscaler.lastReport != r else { return nil }
             upscaler.lastReport = r

@@ -19,10 +19,17 @@
 // Coût : mesuré sur les 120 premières images (passes 1 et 2, à part de
 // l'image). Au-delà de 2 ms en médiane, l'agrandissement se coupe pour la
 // partie (filtre bilinéaire, comme avant) et le dit.
+//
+// Plateformes : Mac (macOS 13+), iPhone et iPad (iOS 16+), Apple TV
+// (tvOS 27.1+, MetalFX n'y est pas avant ; sur l'Apple TV, seulement en SDR :
+// en HDR, l'image passe par la couche vidéo du système, qui l'agrandit
+// elle-même). Ailleurs, `Upscaler` n'existe pas et le rendu garde le filtre
+// bilinéaire.
 
-#if os(macOS)
 import Metal
+#if canImport(MetalFX)
 import MetalFX
+#endif
 import QuartzCore
 
 /// Réglages de l'agrandissement (ceux de la console).
@@ -42,7 +49,7 @@ public struct UpscaleReport: Equatable, Sendable {
         case active(width: Int, height: Int)
         /// L'image n'est pas plus petite que l'écran : rien à agrandir.
         case notNeeded
-        /// Coupé : trop lent sur ce Mac (médiane mesurée, en ms).
+        /// Coupé : trop lent sur cet appareil (médiane mesurée, en ms).
         case tooSlow(ms: Double)
         /// Coupé : MetalFX n'est pas là ou refuse ce format.
         case unavailable
@@ -51,8 +58,38 @@ public struct UpscaleReport: Equatable, Sendable {
     public var state: State
     /// Coût médian des passes 1 et 2 (nil : pas encore mesuré).
     public var gpuMs: Double?
+
+    public init(state: State, gpuMs: Double?) {
+        self.state = state
+        self.gpuMs = gpuMs
+    }
 }
 
+/// L'agrandissement est possible sur cet appareil (MetalFX là, et la puce
+/// graphique le prend) : sinon, les réglages de la console ne le proposent pas.
+public enum Upscaling {
+    public static let available: Bool = {
+        #if canImport(MetalFX)
+        if #available(macOS 13.0, iOS 16.0, tvOS 27.1, *), let device = MTLCreateSystemDefaultDevice() {
+            return MTLFXSpatialScalerDescriptor.supportsDevice(device)
+        }
+        #endif
+        return false
+    }()
+}
+
+/// Réglages de la passe de netteté (passe 3), lus par le nuanceur.
+struct UpscalerSharpenUniforms {
+    /// 0 : coupée ; 1 : la plus forte (RCAS à 0 stop).
+    var sharpness: Float
+    /// Valeurs au-delà de 1 (lumière linéaire) : crête locale.
+    var hdr: Int32
+    /// Coin haut gauche de la zone d'affichage, en pixels du tampon.
+    var origin: SIMD2<Int32>
+}
+
+#if canImport(MetalFX)
+@available(macOS 13.0, iOS 16.0, tvOS 27.1, *)
 final class Upscaler {
     /// Au-delà, l'agrandissement se coupe pour la partie.
     static let budgetMs = 2.0
@@ -197,14 +234,7 @@ final class Upscaler {
         }
     }
 
-    struct SharpenUniforms {
-        /// 0 : coupée ; 1 : la plus forte (RCAS à 0 stop).
-        var sharpness: Float
-        /// Valeurs au-delà de 1 (lumière linéaire) : crête locale.
-        var hdr: Int32
-        /// Coin haut gauche de la zone d'affichage, en pixels du tampon.
-        var origin: SIMD2<Int32>
-    }
+    typealias SharpenUniforms = UpscalerSharpenUniforms
 
     /// RCAS (FidelityFX, AMD, licence MIT), sur l'image agrandie lue pixel à
     /// pixel (la zone d'affichage a sa taille exacte). En lumière linéaire,
