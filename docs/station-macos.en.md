@@ -107,14 +107,16 @@ As few changes as possible, and only through what the Station announces:
 - Admin: `gamepads` in `GET /api/stream/info` is `{ "available": false, "reason": "entitlement" }` until Apple answers (`kybernow-gamepads --check`, once per Admin launch), `reason: "helper"` without the helper, `{ "available": true }` on Windows and on an entitled Mac. Kyber's log, in session: "macOS refused virtual gamepad … lacks Apple's com.apple.developer.hid.virtual.device entitlement".
 - Tried on the Mac: report and rumble tests (kynput's `cargo test`), the whole chain Kyber → helper → macOS (refusal reported), Admin.
 
-**Requesting the entitlement from Apple** (the author, once):
+**Request to Apple: sent on 03/11/2026** (ID T5CC4W26A8). What was done, for reference:
 
-1. [developer.apple.com/account](https://developer.apple.com/account) › Certificates, Identifiers & Profiles › Identifiers › "+" › App IDs › App: description "KyberNow Station Manettes", explicit Bundle ID `fr.leslignesclaires.kybernow.station.gamepads`, no box ticked › Register.
-2. Open that App ID again › **Capability Requests** tab › **HID Virtual Device** › Request. Text to paste if asked:
+1. App ID `fr.leslignesclaires.kybernow.station.gamepads` ("KyberNow Station Manettes") created in Certificates, Identifiers & Profiles, team P6DB682S4K, with the **HID Virtual Device (development)** capability ticked: the team already had it ("Assigned"), it works for development profiles.
+2. The distribution version ("HID Virtual Device", Capability Requests tab) is requested through Apple's "Request a System Extension or DriverKit Entitlement" form (developer.apple.com/contact/request/system-extension), choice **Virtual HID**, with this text:
 
-   > KyberNow Station turns a Mac into a game-streaming host (open source, AGPL-3.0, distributed with Developer ID and notarized). Remote devices (iPhone, iPad, Apple TV, Windows PC, smart TV) display the Mac's screen and send the input of their own gamepads over the network. The background helper "KyberNow Manettes" uses CoreHID `HIDVirtualDevice` to create one virtual gamepad per controller connected on the remote device, using the DualSense or Xbox Wireless Controller report format, so that games on the Mac receive the remote player's input; it forwards rumble output reports back to the remote device. Virtual gamepads exist only during a streaming session, only for controllers the user connected on their device, and are removed when the session ends. No physical device is intercepted, hidden or modified. This is the macOS counterpart of the ViGEmBus driver used by our Windows host.
+   > KyberNow Station turns a Mac into a game-streaming host (open source, AGPL-3.0, distributed outside the Mac App Store with Developer ID and notarized). Remote devices (iPhone, iPad, Apple TV, Windows PC, smart TV) display the Mac's screen and send the input of their own gamepads over the network. We are requesting com.apple.developer.hid.virtual.device (CoreHID HIDVirtualDevice) for Developer ID distribution, for the App ID P6DB682S4K.fr.leslignesclaires.kybernow.station.gamepads. […] The background helper "KyberNow Manettes" uses CoreHID HIDVirtualDevice to create one virtual gamepad per controller connected on the remote device, using the DualSense or Xbox Wireless Controller report format […]; it forwards rumble output reports back to the remote device. Virtual gamepads exist only during a streaming session […]. No physical device is intercepted, hidden or modified, and no keyboard or mouse is emulated through this API. This is the macOS counterpart of the ViGEmBus driver used by our Windows host.
 
-3. Wait: several weeks, sometimes several months (a request from 30/06/2026 was still "Submitted" in mid-September according to Apple's forums).
+3. Wait for Apple's answer by e-mail (info@leslignesclaires.fr): several weeks, sometimes several months (a request from 30/06/2026 was still "Submitted" in mid-September according to Apple's forums).
+
+**Trying before the answer**: the "development" entitlement is enough for this Mac (registered in Devices) with a macOS development profile for this App ID and the Apple Development certificate; not for a distributed app.
 
 **The day Apple grants it**:
 
