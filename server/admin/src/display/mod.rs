@@ -2472,6 +2472,9 @@ impl Backend for Absent {
         // Lu, sans HDR : la session prend l'écran du Mac en SDR (pour l'instant).
         Ok(hdr::HdrSeen { read: true, ..Default::default() })
     }
+    fn hdr_user(&self, _: &hdr::UserRequest) -> Result<Vec<hdr::UserSeen>> {
+        absent()
+    }
 }
 
 /// Hors Windows : pilote simulé, pour développer l'interface sur Mac. La

@@ -198,7 +198,10 @@ pub use platform::{host_name, idle_secs, keep_awake, lock_session, session_state
 /// Le mode console existe ici : Windows, ou une Station Mac installée (pas le
 /// Mac de développement, où tout est simulé).
 pub fn console_supported() -> bool {
-    cfg!(windows) || crate::mac::is_station()
+    #[cfg(target_os = "macos")]
+    return crate::mac::is_station();
+    #[cfg(not(target_os = "macos"))]
+    return cfg!(windows);
 }
 
 #[cfg(windows)]
@@ -447,21 +450,18 @@ mod platform {
 /// Station Mac (docs/pret.md, « Station », équivalents Mac) : tout tourne dans
 /// la session de l'utilisateur (Admin est un LaunchAgent), sans élévation.
 /// Une app se reconnaît à l'identifiant de son paquet (`exe` des apps permises).
+/// Les règles des apps sur une Station Mac (docs/pret.md), à part du reste
+/// pour être testées : les tests d'Admin passent par la plateforme simulée,
+/// jamais par le vrai Mac (verrouillage, agent, veille).
 #[cfg(target_os = "macos")]
-mod platform {
-    use std::collections::{HashMap, HashSet};
-    use std::path::{Path, PathBuf};
+mod mac_rules {
+    use std::collections::HashMap;
+    use std::path::Path;
     use std::process::Command;
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::{Arc, Mutex};
-    use std::time::Duration;
 
-    use anyhow::{Context, Result, bail};
+    use super::Rules;
 
-    use super::{Rules, SessionState, Watch, parents_first};
-
-    /// Apps refusées pendant un prêt, même ouvertes par une app permise.
-    const DENIED: &[&str] = &[
+    pub(super) const DENIED: &[&str] = &[
         "com.apple.Terminal",
         "com.googlecode.iterm2",
         "com.apple.ActivityMonitor",
@@ -477,7 +477,97 @@ mod platform {
         "com.apple.launchpad.launcher",
         "com.apple.finder.Open-iCloudDrive",
     ];
-    const STEAM_ID: &str = "com.valvesoftware.steam";
+    pub(super) const STEAM_ID: &str = "com.valvesoftware.steam";
+
+    /// Le paquet `.app` le plus extérieur d'un chemin, et son identifiant.
+    pub(super) fn bundle_of(path: &str, cache: &mut HashMap<String, Option<String>>) -> Option<(String, String)> {
+        let end = path.find(".app/")? + 4;
+        let app = path[..end].to_string();
+        let id = cache
+            .entry(app.clone())
+            .or_insert_with(|| {
+                let out = Command::new("/usr/bin/plutil")
+                    .args(["-extract", "CFBundleIdentifier", "raw", "-o", "-"])
+                    .arg(Path::new(&app).join("Contents/Info.plist"))
+                    .output()
+                    .ok()?;
+                Some(String::from_utf8_lossy(&out.stdout).trim().to_string()).filter(|s| !s.is_empty())
+            })
+            .clone()?;
+        Some((app, id))
+    }
+
+    /// Verdict sur un processus nouveau (docs/pret.md, point 4, équivalent Mac) :
+    /// seules les apps (`….app/Contents/…`) sont jugées. Refusées : la liste
+    /// `DENIED`, et toute app qui n'est ni permise, ni Steam ou un jeu, ni
+    /// KyberNow, ni un service de macOS (`/System/Library`), ni de la lignée
+    /// d'une app permise. Rend aussi si le processus est de cette lignée.
+    pub(super) fn judge(rules: &Rules, path: &str, parent: super::Parent, cache: &mut HashMap<String, Option<String>>) -> (bool, bool) {
+        use super::Parent;
+        let lower = path.to_ascii_lowercase();
+        let game = lower.contains("/steamapps/") || (!rules.steam.is_empty() && lower.starts_with(&rules.steam.replace('\\', "/")));
+        let Some((app, id)) = bundle_of(path, cache) else {
+            // Pas une app : outils lancés par les apps, services du système.
+            return (true, parent == Parent::App || game);
+        };
+        // Seul l'exécutable principal d'une app est jugé : ses aides et ses
+        // services XPC (lancés par launchd) suivent le sort de l'app.
+        if path.get(app.len()..).is_none_or(|rest| !rest.starts_with("/Contents/MacOS/") || rest.contains(".app/")) {
+            return (true, parent == Parent::App || game);
+        }
+        if DENIED.iter().any(|d| d.eq_ignore_ascii_case(&id)) {
+            return (false, false);
+        }
+        let allowed_app = rules.apps.iter().any(|a| a.eq_ignore_ascii_case(&id) || a.eq_ignore_ascii_case(&app));
+        let is_app = parent == Parent::App || allowed_app || game || id == STEAM_ID;
+        let kept = rules.dirs.iter().any(|d| lower.starts_with(&d.replace('\\', "/"))) || lower.starts_with("/system/library/");
+        (is_app || kept || parent == Parent::Allowed, is_app)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use std::collections::HashMap;
+
+        use super::super::{Parent, Rules};
+        use super::judge;
+
+        #[test]
+        fn seul_l_executable_principal_d_une_app_est_juge() {
+            let rules = Rules { apps: vec!["org.example.permise".into()], ..Rules::default() };
+            let mut cache = HashMap::new();
+            cache.insert("/Applications/Google Chrome.app".to_string(), Some("com.google.Chrome".to_string()));
+            cache.insert("/Applications/Permise.app".to_string(), Some("org.example.permise".to_string()));
+            cache.insert("/Applications/Utilities/Terminal.app".to_string(), Some("com.apple.Terminal".to_string()));
+            let chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+            let helper = "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/1/Helpers/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer)";
+            let xpc = "/Applications/Google Chrome.app/Contents/XPCServices/outil.xpc/Contents/MacOS/outil";
+            // Une app hors liste lancée pendant le prêt : fermée ; ses aides suivent son sort.
+            assert!(!judge(&rules, chrome, Parent::Other, &mut cache).0);
+            assert!(judge(&rules, helper, Parent::Other, &mut cache).0);
+            assert!(judge(&rules, xpc, Parent::Other, &mut cache).0);
+            // Une app permise, et la lignée de ses enfants.
+            assert_eq!(judge(&rules, "/Applications/Permise.app/Contents/MacOS/Permise", Parent::Other, &mut cache), (true, true));
+            // Refusée même sous une app.
+            assert!(!judge(&rules, "/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal", Parent::App, &mut cache).0);
+        }
+    }
+}
+
+#[cfg(all(target_os = "macos", not(test)))]
+mod platform {
+    use std::collections::{HashMap, HashSet};
+    use std::path::PathBuf;
+    use std::process::Command;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+
+    use anyhow::{Context, Result, bail};
+
+    use super::mac_rules::judge;
+    use super::{Rules, SessionState, Watch, parents_first};
+
+    /// Apps refusées pendant un prêt, même ouvertes par une app permise.
 
     fn home() -> PathBuf {
         std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/tmp"))
@@ -581,51 +671,6 @@ mod platform {
             .collect()
     }
 
-    /// Le paquet `.app` le plus extérieur d'un chemin, et son identifiant.
-    fn bundle_of(path: &str, cache: &mut HashMap<String, Option<String>>) -> Option<(String, String)> {
-        let end = path.find(".app/")? + 4;
-        let app = path[..end].to_string();
-        let id = cache
-            .entry(app.clone())
-            .or_insert_with(|| {
-                let out = Command::new("/usr/bin/plutil")
-                    .args(["-extract", "CFBundleIdentifier", "raw", "-o", "-"])
-                    .arg(Path::new(&app).join("Contents/Info.plist"))
-                    .output()
-                    .ok()?;
-                Some(String::from_utf8_lossy(&out.stdout).trim().to_string()).filter(|s| !s.is_empty())
-            })
-            .clone()?;
-        Some((app, id))
-    }
-
-    /// Verdict sur un processus nouveau (docs/pret.md, point 4, équivalent Mac) :
-    /// seules les apps (`….app/Contents/…`) sont jugées. Refusées : la liste
-    /// `DENIED`, et toute app qui n'est ni permise, ni Steam ou un jeu, ni
-    /// KyberNow, ni un service de macOS (`/System/Library`), ni de la lignée
-    /// d'une app permise. Rend aussi si le processus est de cette lignée.
-    fn judge(rules: &Rules, path: &str, parent: super::Parent, cache: &mut HashMap<String, Option<String>>) -> (bool, bool) {
-        use super::Parent;
-        let lower = path.to_ascii_lowercase();
-        let game = lower.contains("/steamapps/") || (!rules.steam.is_empty() && lower.starts_with(&rules.steam.replace('\\', "/")));
-        let Some((app, id)) = bundle_of(path, cache) else {
-            // Pas une app : outils lancés par les apps, services du système.
-            return (true, parent == Parent::App || game);
-        };
-        // Seul l'exécutable principal d'une app est jugé : ses aides et ses
-        // services XPC (lancés par launchd) suivent le sort de l'app.
-        if path.get(app.len()..).is_none_or(|rest| !rest.starts_with("/Contents/MacOS/") || rest.contains(".app/")) {
-            return (true, parent == Parent::App || game);
-        }
-        if DENIED.iter().any(|d| d.eq_ignore_ascii_case(&id)) {
-            return (false, false);
-        }
-        let allowed_app = rules.apps.iter().any(|a| a.eq_ignore_ascii_case(&id) || a.eq_ignore_ascii_case(&app));
-        let is_app = parent == Parent::App || allowed_app || game || id == STEAM_ID;
-        let kept = rules.dirs.iter().any(|d| lower.starts_with(&d.replace('\\', "/"))) || lower.starts_with("/system/library/");
-        (is_app || kept || parent == Parent::Allowed, is_app)
-    }
-
     /// Surveille les processus de l'utilisateur toutes les 500 ms : ceux
     /// d'avant le prêt et ce que lancent les apps de l'hôte (les onglets d'un
     /// navigateur masqué…) ne sont pas touchés, sauf un jeu ; une app nouvelle
@@ -700,37 +745,9 @@ mod platform {
         }
         closed
     }
-
-    #[cfg(test)]
-    mod tests {
-        use std::collections::HashMap;
-
-        use super::super::{Parent, Rules};
-        use super::judge;
-
-        #[test]
-        fn seul_l_executable_principal_d_une_app_est_juge() {
-            let rules = Rules { apps: vec!["org.example.permise".into()], ..Rules::default() };
-            let mut cache = HashMap::new();
-            cache.insert("/Applications/Google Chrome.app".to_string(), Some("com.google.Chrome".to_string()));
-            cache.insert("/Applications/Permise.app".to_string(), Some("org.example.permise".to_string()));
-            cache.insert("/Applications/Utilities/Terminal.app".to_string(), Some("com.apple.Terminal".to_string()));
-            let chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-            let helper = "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/1/Helpers/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer)";
-            let xpc = "/Applications/Google Chrome.app/Contents/XPCServices/outil.xpc/Contents/MacOS/outil";
-            // Une app hors liste lancée pendant le prêt : fermée ; ses aides suivent son sort.
-            assert!(!judge(&rules, chrome, Parent::Other, &mut cache).0);
-            assert!(judge(&rules, helper, Parent::Other, &mut cache).0);
-            assert!(judge(&rules, xpc, Parent::Other, &mut cache).0);
-            // Une app permise, et la lignée de ses enfants.
-            assert_eq!(judge(&rules, "/Applications/Permise.app/Contents/MacOS/Permise", Parent::Other, &mut cache), (true, true));
-            // Refusée même sous une app.
-            assert!(!judge(&rules, "/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal", Parent::App, &mut cache).0);
-        }
-    }
 }
 
-#[cfg(not(any(windows, target_os = "macos")))]
+#[cfg(any(all(target_os = "macos", test), not(any(windows, target_os = "macos"))))]
 mod platform {
     use std::path::PathBuf;
 

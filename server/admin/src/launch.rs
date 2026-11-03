@@ -653,6 +653,7 @@ pub fn agent_close(uri: Option<&str>, pid: Option<u32>, exe: Option<&str>) -> Re
 
 
 /// La session de l'utilisateur est-elle verrouillée ? (Prêt de l'ordinateur sur Mac.)
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub fn platform_session_locked() -> bool {
     platform::session_locked()
 }

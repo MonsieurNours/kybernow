@@ -320,6 +320,11 @@ impl Backend for MacBackend {
     fn display_hdr(&self) -> Result<hdr::HdrSeen> {
         Ok(hdr::HdrSeen { read: true, ..Default::default() })
     }
+    /// Profils de couleur dans la portée du compte : propres à Windows. Sur
+    /// Mac, aucun profil n'est associé (`color` reste vide), rien à faire.
+    fn hdr_user(&self, _: &hdr::UserRequest) -> Result<Vec<hdr::UserSeen>> {
+        Ok(Vec::new())
+    }
 }
 
 #[cfg(test)]
