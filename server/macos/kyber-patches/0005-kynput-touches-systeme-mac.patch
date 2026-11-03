@@ -1,0 +1,76 @@
+--- a/kynputservice/src/pipeline_state.rs
++++ b/kynputservice/src/pipeline_state.rs
+@@ -39,6 +39,14 @@
+ const CTRL: [u16; 2] = [0x001d, 0xe01d];
+ const ALT: [u16; 2] = [0x0038, 0xe038];
+ const WIN: [u16; 2] = [0xe05b, 0xe05c];
++/// KyberNow (server/macos/kyber-patches/0005): on a Mac Station, the
++/// client's Win key is ⌘ (kynput Mac, 0002). The Mac's own shortcuts that
++/// take the computer from its host: lock the screen (⌃⌘Q) and log out
++/// (⇧⌘Q, ⌥⇧⌘Q). Win+L there is ⌘L, harmless, and Ctrl+Alt+Del means nothing.
++#[cfg(target_os = "macos")]
++const KEY_Q: u16 = 0x0010;
++#[cfg(target_os = "macos")]
++const SHIFT: [u16; 2] = [0x002a, 0x0036];
+ 
+ pub struct State {
+     keys: HashSet<u16>,
+@@ -91,9 +99,12 @@
+     /// with the keys the client holds (the modifiers kynput checks).
+     fn is_system_shortcut(&self, key: &kynput_rs::KeyboardKey) -> bool {
+         let holds = |keys: &[u16]| keys.iter().any(|key| self.keys.contains(key));
+-        key.pressed
++        #[cfg(target_os = "macos")]
++        return key.pressed && key.scancode == KEY_Q && holds(&WIN) && (holds(&CTRL) || holds(&SHIFT));
++        #[cfg(not(target_os = "macos"))]
++        return key.pressed
+             && ((key.scancode == DEL && holds(&CTRL) && holds(&ALT))
+-                || (key.scancode == KEY_L && holds(&WIN)))
++                || (key.scancode == KEY_L && holds(&WIN)));
+     }
+ 
+     /// KyberNow: keeps the client's Plug packets (forgotten on Unplug).
+@@ -668,6 +679,7 @@
+     }
+ 
+     #[test]
++    #[cfg(not(target_os = "macos"))]
+     fn system_shortcuts_are_the_hosts() {
+         let guest = ServerPipelineState::new(KEYBOARD);
+         // Ctrl+Alt+Del (either Ctrl, either Alt): the Del press stops, its
+@@ -706,6 +718,35 @@
+         assert!(passes(&host, &key(KEY_L, true)));
+     }
+ 
++    /// KyberNow (0005): a Mac Station refuses its guests ⌃⌘Q and ⇧⌘Q.
++    #[test]
++    #[cfg(target_os = "macos")]
++    fn mac_system_shortcuts_are_the_hosts() {
++        let guest = ServerPipelineState::new(KEYBOARD);
++        for (win, other) in [(0xe05b, 0x001d), (0xe05c, 0xe01d), (0xe05b, 0x002a), (0xe05c, 0x0036)] {
++            assert!(passes(&guest, &key(win, true)));
++            assert!(passes(&guest, &key(other, true)));
++            assert!(!passes(&guest, &key(KEY_Q, true)), "⌘ + {other:#x} + Q");
++            assert!(passes(&guest, &key(KEY_Q, false)));
++            assert!(passes(&guest, &key(other, false)));
++            assert!(passes(&guest, &key(win, false)));
++        }
++        // ⌘Q (quit the app), ⌘L, Ctrl+Alt+Del pass.
++        for k in [KEY_Q, KEY_L] {
++            assert!(passes(&guest, &key(0xe05b, true)));
++            assert!(passes(&guest, &key(k, true)));
++            assert!(passes(&guest, &key(k, false)));
++            assert!(passes(&guest, &key(0xe05b, false)));
++        }
++        assert!(passes(&guest, &key(0x001d, true)));
++        assert!(passes(&guest, &key(0x0038, true)));
++        assert!(passes(&guest, &key(DEL, true)));
++        // The host keeps them.
++        let host = ServerPipelineState::new(InputRights::ALL);
++        assert!(passes(&host, &key(0xe05b, true)));
++        assert!(passes(&host, &key(0x001d, true)));
++        assert!(passes(&host, &key(KEY_Q, true)));
++    }
+ 
+     fn passes(state: &ServerPipelineState, pkt: &Packet) -> bool {
+         state.on_packet(pkt).eq(&RouterHookPacketResult {
