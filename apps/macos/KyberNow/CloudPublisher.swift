@@ -8,10 +8,15 @@
 // identifiant de l'ordinateur). L'élément local du Trousseau reste la
 // référence sur ce Mac ; la copie iCloud le suit.
 //
+// Les consoles PlayStation vont dans les deux sens, sous le même réglage
+// (docs/playstation.md, « Plusieurs appareils ») : `PlayStationCloud`,
+// commun aux apps Apple, branché ici.
+//
 // Il faut les droits iCloud (magasin clé-valeur, groupe du Trousseau), donc un
 // profil de provisionnement : une app signée sans eux ne publie rien et le dit
 // dans ses réglages.
 
+import AppKit
 import Foundation
 import KyberKit
 import Security
@@ -67,6 +72,7 @@ final class CloudPublisher: ObservableObject {
             guard enabled != oldValue else { return }
             UserDefaults.standard.set(enabled, forKey: Self.enabledKey)
             enabled ? publish(hosts) : withdraw()
+            enabled ? consoles?.sync() : consoles?.forget()
         }
     }
     /// Aucun compte iCloud sur ce Mac : la liste attend localement.
@@ -102,6 +108,7 @@ final class CloudPublisher: ObservableObject {
             Task { @MainActor in
                 guard let self else { return }
                 if reason == NSUbiquitousKeyValueStoreAccountChange { self.copied = [] }
+                // Les consoles : `PlayStationCloud` écoute la même notification.
                 if self.enabled { self.publish(self.hosts) }
             }
         })
@@ -110,7 +117,11 @@ final class CloudPublisher: ObservableObject {
                 guard let self else { return }
                 self.signedOut = FileManager.default.ubiquityIdentityToken == nil
                 self.copied = []
-                if self.enabled { self.publish(self.hosts) }
+                self.consoles?.forget()
+                if self.enabled {
+                    self.publish(self.hosts)
+                    self.consoles?.schedule()
+                }
             }
         })
         store.synchronize()
@@ -165,6 +176,23 @@ final class CloudPublisher: ObservableObject {
         write(cloudList.filter { !mine.contains($0.id) })
         published = []
         copied = []
+    }
+
+    // MARK: - Consoles PlayStation
+
+    private var consoles: PlayStationCloud?
+
+    /// Les comptes PlayStation et leurs associations, dans les deux sens.
+    func attach(playstation store: PlayStationStore) {
+        guard Self.entitled else { return }
+        let cloud = PlayStationCloud(store: store) { [weak self] in self?.enabled == true }
+        cloud.onKeychainError = { [weak self] in self?.state = .failed(CloudKeychain.message($0)) }
+        consoles = cloud
+        // Le Trousseau iCloud arrive parfois après la liste : revu au retour au premier plan.
+        observers.append(NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.consoles?.schedule() }
+        })
+        cloud.sync()
     }
 
     private var cloudList: [CloudHost] {

@@ -584,11 +584,17 @@ final class PlayStationStore: ObservableObject {
 
     private func save() {
         if let data = try? JSONEncoder().encode(consoles) { defaults.set(data, forKey: key) }
+        onChange?()
     }
 
     private func saveAccounts() {
         if let data = try? JSONEncoder().encode(accounts) { defaults.set(data, forKey: accountsKey) }
+        onChange?()
     }
+
+    /// Comptes, consoles ou associations changés : la synchro iCloud
+    /// (CloudPublisher) repart.
+    var onChange: (() -> Void)?
 
     /// Version précédente (un seul compte, une association par console) :
     /// le compte devient « Compte PlayStation », sans pseudo, et chaque
@@ -635,8 +641,10 @@ final class PlayStationStore: ObservableObject {
 
     /// Un compte lu chez Sony ou saisi à la main : gardé. Même identifiant
     /// qu'un compte gardé : son pseudo est mis à jour, sans doublon (`existed`).
+    /// `preferred` : l'identifiant du compte venu d'un autre appareil (iCloud,
+    /// envoi), gardé s'il est libre.
     @discardableResult
-    func keep(accountID id: String, name: String?) -> (account: PSNAccount, existed: Bool) {
+    func keep(accountID id: String, name: String?, preferred: UUID? = nil) -> (account: PSNAccount, existed: Bool) {
         let name = name.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 }
         if let i = accounts.firstIndex(where: { accountIDs[$0.id] == id }) {
             if let name, accounts[i].name != name {
@@ -645,7 +653,8 @@ final class PlayStationStore: ObservableObject {
             }
             return (accounts[i], true)
         }
-        let a = PSNAccount(name: name)
+        var a = PSNAccount(name: name)
+        if let preferred, !accounts.contains(where: { $0.id == preferred }) { a.id = preferred }
         if !demo { Keychain.set(id, account: Self.accountSecret(a.id)) }
         accountIDs[a.id] = id
         accounts.append(a)
@@ -742,6 +751,7 @@ final class PlayStationStore: ObservableObject {
         if !demo { Keychain.delete(account: Self.pairSecret(c.id, account)) }
         pairings[c.id]?.remove(account)
         if pairings[c.id]?.isEmpty == true { pairings[c.id] = nil }
+        onChange?()
     }
 
     func remove(_ c: PlayStationConsole) {
@@ -1050,4 +1060,181 @@ final class PlayStationStore: ObservableObject {
         searched = true
     }
     #endif
+}
+
+// MARK: - Plusieurs appareils (docs/playstation.md ; format : PlayStationSync.swift)
+
+extension PlayStationStore {
+    /// Les comptes, consoles et associations de ce Mac, au format partagé.
+    /// `secrets` : identifiants PSN, associations et Stations (paquet de
+    /// l'envoi) ; sans : la liste d'iCloud.
+    func shared(secrets: Bool, from: String? = nil) -> PSShared {
+        var out = PSShared(from: from)
+        out.accounts = accounts.compactMap { a in
+            guard let id = accountIDs[a.id] else { return nil }
+            return PSShared.Account(id: a.id.uuidString, name: a.name, psnID: secrets ? id : nil)
+        }
+        let known = Set(out.accounts.map(\.id))
+        for c in consoles {
+            var list: [String] = [], keys: [String: String] = [:]
+            for a in pairedAccounts(c) where known.contains(a.id.uuidString) {
+                guard let r = registered(c, account: a.id) else { continue }
+                list.append(a.id.uuidString)
+                keys[a.id.uuidString] = r
+            }
+            guard !list.isEmpty else { continue }
+            var stations: [PSShared.Station]?
+            if secrets {
+                stations = (seenBy[c.hostID.uppercased()] ?? []).compactMap { hosts?.host($0) }.map {
+                    PSShared.Station(id: $0.id.uuidString, name: $0.name, address: $0.address, fingerprint: $0.consoleFingerprint)
+                }
+            }
+            out.consoles.append(PSShared.Console(hostID: c.hostID, name: c.name, model: c.model, addresses: consoleAddresses(c),
+                                                 accounts: list, target: c.target.isEmpty ? nil : c.target,
+                                                 pairings: secrets ? keys : nil, stations: stations))
+        }
+        return out
+    }
+
+    /// Les adresses retenues d'une console : la dernière connue, puis celles
+    /// de « Par adresse » où elle a répondu.
+    private func consoleAddresses(_ c: PlayStationConsole) -> [String] {
+        var list = c.address.isEmpty ? [] : [c.address]
+        if let f = found[c.hostID]?.console, !list.contains(f.address), addresses.contains(f.address) { list.append(f.address) }
+        return list
+    }
+
+    /// Une console venue d'ailleurs : gardée (ou retrouvée par son identifiant).
+    private func adopt(_ s: PSShared.Console, registered: String?) -> PlayStationConsole {
+        if let c = console(hostID: s.hostID) { return c }
+        let target = s.target ?? PSShared.target(model: s.model, registered: registered)
+        let c = PlayStationConsole(name: s.name, hostID: s.hostID, model: s.model, address: s.addresses.first ?? "", target: target)
+        consoles.append(c)
+        // Ses autres adresses (un VPN, un autre réseau) : cherchées en direct.
+        for a in s.addresses.dropFirst() where !addresses.contains(a) { addresses.append(a) }
+        defaults.set(addresses, forKey: addressesKey)
+        return c
+    }
+
+    /// Une association venue d'ailleurs ; une déjà là pour ce compte reste.
+    private func addPairing(_ c: PlayStationConsole, account: UUID, registered: String) {
+        guard pairings[c.id]?.contains(account) != true else { return }
+        if !demo { Keychain.set(registered, account: Self.pairSecret(c.id, account)) }
+        pairings[c.id, default: []].insert(account)
+        if let i = consoles.firstIndex(where: { $0.id == c.id }), consoles[i].account == nil { consoles[i].account = account }
+    }
+
+    // MARK: Envoi par le réseau
+
+    /// « Recevoir d'un autre appareil » : fusion du paquet. Même identifiant
+    /// de compte ou même console : rien en double, les associations
+    /// s'ajoutent. Rend les nombres du paquet (« {n} compte(s) et {n} console(s) reçus. »).
+    @discardableResult
+    func receive(_ bundle: PSShared) -> (accounts: Int, consoles: Int) {
+        var map: [String: UUID] = [:]
+        for a in bundle.accounts {
+            guard let psn = a.psnID, !psn.isEmpty else { continue }
+            if let kept = accounts.first(where: { accountIDs[$0.id] == psn }) {
+                // Même compte : son nom pris s'il n'en avait pas.
+                if kept.name == nil, let name = a.name { rename(kept, to: name) }
+                map[a.id] = kept.id
+            } else {
+                map[a.id] = keep(accountID: psn, name: a.name, preferred: UUID(uuidString: a.id)).account.id
+            }
+        }
+        for s in bundle.consoles {
+            let list = (s.pairings ?? [:]).compactMap { k, v in map[k].map { ($0, v) } }
+            guard !list.isEmpty else { continue }
+            let c = adopt(s, registered: list.first?.1)
+            for (account, registered) in list { addPairing(c, account: account, registered: registered) }
+            // Les Stations qui la voient : celles de ce Mac, retrouvées par
+            // leur identifiant, leur empreinte ou leur adresse.
+            let mine = hosts?.hosts ?? []
+            for st in s.stations ?? [] {
+                let h = mine.first { $0.id.uuidString == st.id?.uppercased() }
+                    ?? mine.first { st.fingerprint != nil && $0.consoleFingerprint == st.fingerprint }
+                    ?? mine.first { st.address != nil && $0.address == st.address }
+                if let h, !(seenBy[s.hostID]?.contains(h.id) ?? false) { seenBy[s.hostID, default: []].append(h.id) }
+            }
+        }
+        defaults.set(seenBy.mapValues { $0.map(\.uuidString) }, forKey: seenByKey)
+        save()
+        KyberLog.app.notice("PlayStation : reçu \(bundle.accounts.count, privacy: .public) compte(s) et \(bundle.consoles.count, privacy: .public) console(s)")
+        return (bundle.accounts.count, bundle.consoles.count)
+    }
+
+    /// Un paquet reçu, en texte (`PSHandoff.Event.received`) : nil s'il est illisible.
+    func receive(json: String) -> (accounts: Int, consoles: Int)? {
+        guard let bundle = PSShared.decode(Data(json.utf8)) else {
+            KyberLog.app.error("PlayStation : paquet reçu illisible")
+            return nil
+        }
+        return receive(bundle)
+    }
+
+    // MARK: iCloud (PlayStationCloud)
+
+    /// Ce que la synchro iCloud voit d'ici, secrets compris.
+    var cloudLocal: PSLocal {
+        let s = shared(secrets: true)
+        return PSLocal(accounts: s.accounts.map { PSLocal.Account(id: $0.id, name: $0.name, psnID: $0.psnID ?? "") },
+                       consoles: s.consoles.map { PSLocal.Console(hostID: $0.hostID, name: $0.name, model: $0.model, addresses: $0.addresses,
+                                                                  target: $0.target, pairings: $0.pairings ?? [:]) })
+    }
+
+    /// Applique ici une synchro iCloud (sans la relancer).
+    func apply(_ plan: PSCloudPlan) {
+        guard !plan.quiet else { return }
+        let notify = onChange
+        onChange = nil
+        defer { onChange = notify }
+        for r in plan.renames {
+            guard let from = UUID(uuidString: r.from), let to = UUID(uuidString: r.to) else { continue }
+            renameAccount(from, to: to)
+        }
+        for id in plan.removeAccounts {
+            if let a = accounts.first(where: { $0.id.uuidString == id }) { removeAccount(a) }
+        }
+        for p in plan.removePairings {
+            guard let c = console(hostID: p.hostID), let a = UUID(uuidString: p.account) else { continue }
+            unpair(c, account: a)
+            if pairings[c.id] == nil { remove(c) }
+        }
+        for a in plan.importAccounts {
+            keep(accountID: a.psnID, name: a.name, preferred: UUID(uuidString: a.id))
+        }
+        for p in plan.importPairings {
+            guard let a = UUID(uuidString: p.account), accounts.contains(where: { $0.id == a }) else { continue }
+            addPairing(adopt(p.console, registered: p.registered), account: a, registered: p.registered)
+        }
+        save()
+        KyberLog.app.notice("PlayStation : synchro iCloud appliquée (\(plan.importAccounts.count, privacy: .public) compte(s), \(plan.importPairings.count, privacy: .public) association(s) reprises ; \(plan.removeAccounts.count + plan.removePairings.count, privacy: .public) retrait(s))")
+    }
+
+    /// Un compte change d'identifiant (doublon d'iCloud, règle 0) : Trousseau
+    /// et associations déplacés ; l'ancien n'est effacé qu'une fois le nouveau relu.
+    private func renameAccount(_ from: UUID, to: UUID) {
+        guard let i = accounts.firstIndex(where: { $0.id == from }), !accounts.contains(where: { $0.id == to }),
+              let psn = accountIDs[from] else { return }
+        if !demo {
+            Keychain.set(psn, account: Self.accountSecret(to))
+            guard Keychain.get(account: Self.accountSecret(to)) == psn else { return }
+        }
+        for c in consoles where pairings[c.id]?.contains(from) == true {
+            if let r = registered(c, account: from), !demo {
+                Keychain.set(r, account: Self.pairSecret(c.id, to))
+                guard Keychain.get(account: Self.pairSecret(c.id, to)) == r else { continue }
+                Keychain.delete(account: Self.pairSecret(c.id, from))
+            }
+            pairings[c.id]?.remove(from)
+            pairings[c.id]?.insert(to)
+        }
+        for j in consoles.indices where consoles[j].account == from { consoles[j].account = to }
+        if !demo { Keychain.delete(account: Self.accountSecret(from)) }
+        accountIDs[from] = nil
+        accountIDs[to] = psn
+        accounts[i].id = to
+        saveAccounts()
+        save()
+    }
 }

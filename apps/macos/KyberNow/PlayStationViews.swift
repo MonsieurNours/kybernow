@@ -581,6 +581,8 @@ struct PlayStationTab: View {
     @State private var renaming: PSNAccount?
     @State private var newName = ""
     @State private var removing: PSNAccount?
+    /// « Envoyer à un appareil » et « Recevoir d'un autre appareil ».
+    @StateObject private var handoff = PSHandoffModel()
 
     var body: some View {
         ScrollView {
@@ -604,6 +606,10 @@ struct PlayStationTab: View {
                 }
                 .buttonStyle(GhostButton(height: 40))
 
+                // Plusieurs appareils : sous les comptes, l'envoi (s'il y a des comptes) et la réception.
+                if !store.accounts.isEmpty { PSSendSection(model: handoff, store: store) }
+                PSReceiveSection(model: handoff, store: store)
+
                 Text(PSText.consolesTitle).font(Theme.display(17, .semibold)).foregroundStyle(Theme.text).padding(.top, 14)
                 let list = store.onNetwork
                 if list.isEmpty {
@@ -617,6 +623,8 @@ struct PlayStationTab: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxHeight: 460)
+        .onAppear { handoff.startDiscovery() }
+        .onDisappear { handoff.stop() }
         .sheet(isPresented: $adding) {
             PairConsoleSheet(target: .newAccount) { existed in already = existed }
                 .environmentObject(app)

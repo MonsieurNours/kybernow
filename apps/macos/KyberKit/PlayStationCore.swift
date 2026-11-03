@@ -607,3 +607,114 @@ extension ConsoleClient {
         }
     }
 }
+
+// MARK: - Envoi entre appareils (docs/playstation.md, « Plusieurs appareils »)
+
+/// « Envoyer à un appareil » et « Recevoir d'un autre appareil » : le
+/// protocole est dans le cœur (`playstation::handoff`), le paquet est un JSON
+/// opaque pour lui (format : apps/macos/KyberNow/PlayStationSync.swift).
+public enum PSHandoff {
+    /// Un appareil du réseau qui attend un envoi.
+    public struct Waiting: Equatable, Sendable, Identifiable, Hashable {
+        public var name: String
+        /// `macos`, `ios`, `tvos`, `windows`, `webos`…
+        public var platform: String
+        /// `ip:port` de son écoute TCP.
+        public var address: String
+        public var id: String { address }
+    }
+
+    /// Pourquoi un envoi n'a pas abouti.
+    public enum SendError: Error, Sendable, Equatable {
+        /// Code faux.
+        case refused
+        /// L'appareil ne répond plus (le détail : pour le journal).
+        case unreachable(String)
+    }
+
+    /// Ce que dit l'attente d'un envoi.
+    public enum Event: Equatable, Sendable {
+        /// Le paquet reçu (JSON).
+        case received(String)
+        /// Trois codes faux : voici le nouveau.
+        case newCode(String)
+        /// Cinq minutes passées : plus d'écoute.
+        case expired
+    }
+
+    /// Les appareils qui attendent un envoi, cherchés `wait` ms. Bloque.
+    public static func discover(wait: UInt32 = 1500) -> [Waiting] {
+        Core.install()
+        guard let text = Core.take(kn_ps_handoff_discover(wait)),
+              let list = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [[String: Any]] else { return [] }
+        return list.compactMap { o in
+            guard let address = o["address"] as? String else { return nil }
+            return Waiting(name: o["name"] as? String ?? "", platform: o["platform"] as? String ?? "", address: address)
+        }
+    }
+
+    /// Envoie le paquet avec le code tapé. Bloque quelques secondes.
+    public static func send(to address: String, code: String, bundle: String) -> Result<Void, SendError> {
+        Core.install()
+        guard let text = Core.take(kn_ps_handoff_send(address, code, bundle)),
+              let o = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any] else { return .failure(.unreachable("")) }
+        if o["ok"] as? Bool == true { return .success(()) }
+        if o["error"] as? String == "refused" { return .failure(.refused) }
+        return .failure(.unreachable(o["detail"] as? String ?? ""))
+    }
+
+    /// L'attente d'un envoi : écoute tant qu'elle vit (5 minutes au plus).
+    public final class Receiver: @unchecked Sendable {
+        private let handle: OpaquePointer
+        private let lock = NSLock()
+        private var stopped = false
+        /// `next` attend dans le cœur.
+        private var busy = false
+
+        /// Nil si l'écoute est impossible. `platform` : `macos`, `ios`, `ipados`, `tvos`.
+        public init?(name: String, platform: String = "macos") {
+            Core.install()
+            guard let h = kn_ps_handoff_receive(name, platform) else { return nil }
+            handle = h
+        }
+
+        deinit { stop() }
+
+        /// Le code à 6 chiffres à afficher.
+        public var code: String {
+            lock.lock(); defer { lock.unlock() }
+            return stopped ? "" : (Core.take(kn_ps_handoff_code(handle)) ?? "")
+        }
+
+        /// Le prochain évènement, attendu `timeout` ms au plus. Bloque : hors du
+        /// fil de l'interface. Nil s'il n'y a rien (ou après `stop`).
+        public func next(timeout: UInt32 = 500) -> Event? {
+            lock.lock()
+            guard !stopped else { lock.unlock(); return nil }
+            busy = true
+            lock.unlock()
+            // Sans verrou pendant l'attente, pour que `stop` ne l'attende pas ;
+            // `stop` laisse alors la libération à la fin de cet appel.
+            let raw = Core.take(kn_ps_handoff_next(handle, timeout))
+            lock.lock()
+            busy = false
+            if stopped { kn_ps_handoff_stop(handle) }
+            lock.unlock()
+            guard let raw, let o = try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any] else { return nil }
+            switch o["event"] as? String {
+            case "received": return (o["bundle"] as? String).map(Event.received)
+            case "new_code": return (o["code"] as? String).map(Event.newCode)
+            case "expired": return .expired
+            default: return nil
+            }
+        }
+
+        /// Arrête l'écoute (une seule fois).
+        public func stop() {
+            lock.lock(); defer { lock.unlock() }
+            guard !stopped else { return }
+            stopped = true
+            if !busy { kn_ps_handoff_stop(handle) }
+        }
+    }
+}
