@@ -287,8 +287,20 @@ fn spawn_backend(rx: mpsc::Receiver<String>, proxy: EventLoopProxy<UserEvent>, b
                     }
                 }
                 Command::PermissionsDone => permissions::apply(),
-                Command::UpdateCheck => emit(mac::update::info()),
-                Command::UpdateStart => emit(Event::UpdateFailed { message: t("mac.update.notYet", &[]) }),
+                Command::UpdateCheck => {
+                    let emit = emit.clone();
+                    std::thread::spawn(move || emit(mac::update::info()));
+                }
+                Command::UpdateStart => {
+                    if busy.swap(true, Ordering::SeqCst) {
+                        continue;
+                    }
+                    let (emit, busy) = (emit.clone(), busy.clone());
+                    std::thread::spawn(move || {
+                        mac::update::start(&emit);
+                        busy.store(false, Ordering::SeqCst);
+                    });
+                }
                 Command::Uninstall { keep_settings } => {
                     if busy.swap(true, Ordering::SeqCst) {
                         continue;

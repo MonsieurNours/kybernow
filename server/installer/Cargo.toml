@@ -43,6 +43,9 @@ wry = { version = "0.57.0", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
+# Fenêtre de mise à jour : client HTTPS épinglé sur le certificat d'Admin.
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
+sha2 = "0.10"
 # Menus de l'app (Édition : copier-coller dans les champs de la fenêtre).
 muda = { version = "0.17.2", optional = true }
 # Feux de la fenêtre posés sur la colonne de la maquette (NSWindow).

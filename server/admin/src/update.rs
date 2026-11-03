@@ -28,13 +28,17 @@ use crate::i18n::{self, Msg};
 
 pub mod acl;
 pub mod apply;
+#[cfg(target_os = "macos")]
+pub mod mac;
 pub mod manifest;
 
 pub use manifest::Channel;
 use manifest::{Manifest, Refusal};
 
 pub const REPO: &str = "MonsieurNours/kybernow";
-pub const PACKAGE: &str = "kybernow-update.zip";
+/// Paquet de mise à jour de cette Station : `kybernow-update.zip` sous
+/// Windows, l'app entière sur Mac (`server/macos/scripts/build-station-app.sh`).
+pub const PACKAGE: &str = if cfg!(target_os = "macos") { "KyberNow-Station-Mac-update.zip" } else { "kybernow-update.zip" };
 /// Résultat de la dernière installation, écrit par l'applicateur (ou `update.ps1`).
 const RESULT: &str = "resultat.json";
 const CHECK_EVERY: Duration = Duration::from_secs(6 * 3600);
@@ -119,6 +123,10 @@ pub struct Updater {
 
 /// Dossier d'installation : celui de la console (`<installation>\admin\kyber-admin.exe`).
 fn install_dir() -> PathBuf {
+    // Mac : l'app KyberNow Station qui contient cet Admin.
+    #[cfg(target_os = "macos")]
+    return mac::installed_app();
+    #[cfg_attr(target_os = "macos", allow(unreachable_code))]
     std::env::current_exe()
         .ok()
         .and_then(|exe| {
@@ -419,7 +427,7 @@ impl Updater {
         manifest.check_file(PACKAGE, &zip)?;
         tracing::info!("mise à jour {version} : paquet vérifié (signature, taille, empreinte), installation");
         let args = vec!["update".into(), "apply".into(), zip.into_os_string(), "--version".into(), version.into()];
-        self.launch(&dir, args).map(Some)
+        self.launch(&dir, args)
     }
 
     /// Remet la version précédente (dossiers `.prev`) ; la console s'arrête
@@ -443,7 +451,7 @@ impl Updater {
         let mut s = self.state.lock().unwrap();
         match result {
             Ok(child) => {
-                s.child = Some(child);
+                s.child = child;
                 Ok(previous)
             }
             Err(e) => {
@@ -453,11 +461,15 @@ impl Updater {
         }
     }
 
-    /// Lance l'applicateur, détaché, avec les dossiers de cet ordinateur.
-    fn launch(&self, log_dir: &Path, mut args: Vec<std::ffi::OsString>) -> Result<std::process::Child> {
+    /// Lance l'applicateur, détaché, avec les dossiers de cet ordinateur. Sur
+    /// Mac, launchd le suit (service à part) : pas de processus à surveiller ici.
+    fn launch(&self, log_dir: &Path, mut args: Vec<std::ffi::OsString>) -> Result<Option<std::process::Child>> {
         args.extend(["--install-dir".into(), self.layout.install.clone().into_os_string()]);
         args.extend(["--data-dir".into(), self.layout.data.clone().into_os_string()]);
-        launch_applicator(&self.layout, log_dir, &args)
+        #[cfg(target_os = "macos")]
+        return mac::launch(&self.layout, log_dir, &args).map(|()| None);
+        #[cfg_attr(target_os = "macos", allow(unreachable_code))]
+        launch_applicator(&self.layout, log_dir, &args).map(Some)
     }
 }
 
@@ -611,6 +623,7 @@ pub fn spawn_detached(exe: &Path, args: &[std::ffi::OsString], cwd: &Path, outpu
 }
 
 #[cfg(not(windows))]
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 fn launch_applicator(_: &apply::Layout, log_dir: &Path, _: &[std::ffi::OsString]) -> Result<std::process::Child> {
     bail!("installation réservée à Windows (paquet vérifié dans {})", log_dir.display())
 }
@@ -772,13 +785,14 @@ mod tests {
         let status = updater.status();
         assert_eq!(status["installable"], false);
         assert_eq!(status["requires_setup"], true);
-        assert!(status["verify_error"].as_str().unwrap().contains("KyberNow-Station-Setup.exe"));
-        assert_eq!(status["setup"], "KyberNow-Station-Setup.exe");
+        let setup = if cfg!(target_os = "macos") { manifest::MAC_SETUP } else { manifest::SETUP };
+        assert!(status["verify_error"].as_str().unwrap().contains(setup));
+        assert_eq!(status["setup"], setup);
         // Signée : l'icône la signale (pour réinstaller), les apps aussi.
         assert_eq!(updater.available().as_deref(), Some("99.0.0"));
         let brief = updater.brief();
         assert_eq!((brief.available.as_deref(), brief.installable, brief.requires_setup), (Some("99.0.0"), false, true));
-        assert_eq!(brief.setup, "KyberNow-Station-Setup.exe");
+        assert_eq!(brief.setup, setup);
         assert_eq!(
             brief.json(),
             json!({ "available": true, "version": "99.0.0", "installable": false, "requires_setup": true, "installing": false })
@@ -793,8 +807,10 @@ mod tests {
         r.manifest = Some(m);
         updater.state.lock().unwrap().latest = Some(r);
         let status = updater.status();
-        assert_eq!(status["setup"], "KyberNow-Server-Setup.exe");
-        assert!(status["verify_error"].as_str().unwrap().contains("KyberNow-Server-Setup.exe"), "{status}");
+        // (Sur Mac, toujours le .dmg : les anciens noms sont ceux de Windows.)
+        let legacy = if cfg!(target_os = "macos") { manifest::MAC_SETUP } else { manifest::LEGACY_SETUP };
+        assert_eq!(status["setup"], legacy);
+        assert!(status["verify_error"].as_str().unwrap().contains(legacy), "{status}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

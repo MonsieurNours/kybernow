@@ -100,7 +100,7 @@ Même interface (Svelte, `ui/src/mac`, d'après la maquette validée par l'auteu
 - **Autorisations** : macOS les rattache au paquet de l'exécutable responsable. L'installateur lance donc `KyberNow Station --permissions check|request …` (l'exécutable de l'app installée) en se désignant non responsable (`posix_spawn` avec `responsibility_spawnattrs_setdisclaim`), toutes les 1,5 s pendant l'étape ; à la fin, Kyber et Admin sont relancés pour prendre les accords.
 - **Réinstaller** : comme sous Windows, « Garder mes réglages » (compte, ports, certificat, appareils) ou « Repartir de zéro ».
 - **Désinstaller** : services de la session arrêtés et retirés, écrans et sortie son d'origine rendus (`kybernow-display recover`, `audio restore`), puis en administrateur sortie son, règles du pare-feu et app ; autorisations oubliées (`tccutil reset`) ; `~/Library/Application Support/KyberNow/Station` effacé sauf si l'on garde ses réglages.
-- **Mise à jour** : la fenêtre existe ; l'applicateur Mac d'Admin et le paquet de mise à jour restent à faire (en attendant, elle renvoie à la page Système d'Admin).
+- **Mise à jour** (`src/mac/update.rs`) : la fenêtre demande à Admin de chercher la dernière version (`/api/local/update/check`), montre ses nouveautés et l'appareil en session, puis lance l'installation (`/api/local/update/install`) et suit la Station jusqu'à son retour dans la nouvelle version (3 minutes au plus ; sinon la raison écrite par l'applicateur). Client HTTPS épinglé sur le certificat d'Admin (`src/mac/http.rs`, celui de l'icône Windows), jeton local. Applicateur : [docs/releases.md](../../docs/releases.md#mettre-à-jour).
 
 ## Langues
 

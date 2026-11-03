@@ -12,6 +12,8 @@ One version number for all of KyberNow: KyberNow Station (installer, icon, servi
 |---|---|
 | `KyberNow-Station-Setup.exe` | KyberNow Station: first installation on the Windows computer that will stream its image (full installation, or reinstallation when an update requires it) |
 | `kybernow-update.zip` | Update of a Station that is already installed: Kyber overlay, Admin, icon, `update.ps1` |
+| `KyberNow-Station-Mac.dmg` | Station installer for Mac: "Install KyberNow Station" and "Uninstall KyberNow Station", Developer ID signed and notarized (`server/macos/scripts/build-station-app.sh`) |
+| `KyberNow-Station-Mac-update.zip` | Update of a Mac Station that is already installed: the whole "KyberNow Station" app, notarized |
 | `update.ps1` | Manual update, without Admin |
 | `KyberNow-Link-macOS.zip` | The Mac app, “KyberNow Link.app” (first installation: drag it into Applications); the Sparkle feed's archive |
 | `appcast.xml` | Update feed for the Mac app (Sparkle), signed with EdDSA |
@@ -99,6 +101,8 @@ apps/macos/build/SourcePackages/artifacts/sparkle/Sparkle/bin/generate_keys -x ~
 ```
 
 Without it, no app update could be signed any more. To restore it on another Mac: `generate_keys -f ~/sparkle-kybernow.key`.
+
+**The Mac Station** (docs/station-macos.en.md, milestone 6) follows the same path up to the verified package, with `KyberNow-Station-Mac-update.zip` instead of `kybernow-update.zip`; a release whose manifest doesn't list that package is refused on Mac ("reinstall with `KyberNow-Station-Mac.dmg`" if it requires the installer). The applier (`server/admin/src/update/mac.rs`) is a copy of Admin started by launchd as a separate job (`fr.leslignesclaires.kybernow.station.update`): launchd would stop with Admin anything Admin starts. It extracts the app (`ditto`), checks its signature again (`codesign --verify --deep --strict`, identifier `fr.leslignesclaires.kybernow.station`, same team as the installed app, expected version), stops the icon, Admin and Kyber, puts the app in place by renaming (the old one into `update/previous`, for "Go back to the previous version"), restarts everything and waits for Admin to answer in the new version within 60 s, otherwise puts the old one back. Same signature: macOS keeps the permissions, and nothing asks for the Mac's password; a newer sound output in the app is only noted in the log (installing it would need that password). Log in `~/Library/Application Support/KyberNow/Station/admin/update/<version>/update.log`, result in `update/resultat.json` as on Windows. The icon's "Update" window goes through Admin's local routes (`GET /api/local/update`, `POST /api/local/update/check`, `POST /api/local/update/install`, local token and pinned certificate) and follows the Station until it comes back.
 
 ## Update signing key (minisign)
 

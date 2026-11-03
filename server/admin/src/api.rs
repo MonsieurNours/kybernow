@@ -35,6 +35,9 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/local/state", get(local_state))
         .route("/api/local/end", post(local_end))
         .route("/api/local/pair/{id}/{action}", post(local_pair_answer))
+        .route("/api/local/update", get(local_update))
+        .route("/api/local/update/check", post(local_update_check))
+        .route("/api/local/update/install", post(local_update_install))
         // KyberNow Share depuis le PC (icône près de l'horloge, ou accueil d'Admin avec sa session).
         .route("/api/local/displays", get(share_api::local_displays))
         .route("/api/local/share", get(share_api::local_get).delete(share_api::local_close))
@@ -399,6 +402,41 @@ async fn local_end(
 ) -> ApiResult<Json<Value>> {
     local_only(&s, peer, &headers)?;
     end_session(State(s)).await
+}
+
+/// État de la mise à jour pour la fenêtre de l'icône (Station Mac), avec
+/// l'appareil en session, que l'installation couperait. Réservé à
+/// l'ordinateur lui-même, comme les autres routes locales.
+async fn local_update(
+    State(s): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+) -> ApiResult<Json<Value>> {
+    local_only(&s, peer, &headers)?;
+    let mut status = s.updater.status();
+    status["session"] = s.activity.summary()["live"]["name"].clone();
+    Ok(Json(status))
+}
+
+async fn local_update_check(
+    State(s): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+) -> ApiResult<Json<Value>> {
+    local_only(&s, peer, &headers)?;
+    update_check(State(s)).await
+}
+
+/// Installation depuis la fenêtre de l'icône : comme depuis Admin (409 en
+/// session sauf `{"force": true}`).
+async fn local_update_install(
+    State(s): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> ApiResult<Json<Value>> {
+    local_only(&s, peer, &headers)?;
+    update_install(State(s), body).await
 }
 
 /// Réponse à une demande d'appairage depuis le panneau de l'icône (réservé à

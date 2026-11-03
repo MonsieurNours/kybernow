@@ -143,9 +143,6 @@
     "uninstall": {
       "passwordPrompt": "KyberNow Station va retirer son app et sa sortie son.",
       "cancelled": "Désinstallation annulée : macOS a besoin du mot de passe de votre Mac pour retirer la sortie son."
-    },
-    "update": {
-      "notYet": "La mise à jour depuis l'icône arrive bientôt. En attendant, passez par la page Système de KyberNow Admin."
     }
   }
 }

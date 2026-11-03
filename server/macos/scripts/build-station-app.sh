@@ -3,8 +3,9 @@
 # installateur, son désinstalleur et le .dmg, signés Developer ID.
 #
 #   build-station-app.sh             construit tout dans server/macos/dist/
-#   build-station-app.sh --notarize  et fait notariser le .dmg par Apple
-#                                    (profil « kybernow » de notarytool, docs/releases.md)
+#   build-station-app.sh --notarize  et fait notariser l'app puis le .dmg par
+#                                    Apple (profil « kybernow » de notarytool,
+#                                    docs/releases.md), tickets agrafés
 #
 # dist/
 #   KyberNow Station.app            l'app installée dans Applications : icône de la
@@ -16,6 +17,8 @@
 #   Uninstall KyberNow Station.app  « Désinstaller KyberNow Station » : kybernow-ui
 #                                   en mode désinstallation (KyberNowMode)
 #   KyberNow-Station-Mac.dmg        les deux dernières
+#   KyberNow-Station-Mac-update.zip l'app seule, pour la mise à jour depuis Admin
+#                                   (applicateur : server/admin/src/update/mac.rs)
 #
 # Prérequis : server/macos/scripts/build-kyber.sh (Kyber compilé), node et npm,
 # Rust, Xcode (swiftc, clang), l'identité Developer ID dans le trousseau, et
@@ -145,6 +148,19 @@ for exe in kycontroller kyavserver kynputserver kyber-admin kybernow-display kyb
 done
 sign --entitlements "$ENTITLEMENTS" "$APP"
 codesign --verify --deep --strict "$APP"
+if [ "$NOTARIZE" = 1 ]; then
+    step "Notarisation de l'app (Apple, quelques minutes)"
+    ditto -c -k --keepParent "$APP" "$WORK/notarisation-app.zip"
+    xcrun notarytool submit "$WORK/notarisation-app.zip" --keychain-profile kybernow --wait --timeout 30m
+    rm "$WORK/notarisation-app.zip"
+    xcrun stapler staple "$APP"
+fi
+
+step "KyberNow-Station-Mac-update.zip"
+# Paquet de mise à jour : l'app seule (Admin la vérifie contre le manifeste
+# signé, l'applicateur revérifie sa signature avant de la mettre en place).
+rm -f "$OUT/KyberNow-Station-Mac-update.zip"
+ditto -c -k --keepParent "$APP" "$OUT/KyberNow-Station-Mac-update.zip"
 
 # Installateur et désinstalleur : la même interface (kybernow-ui).
 window_app() {
@@ -186,12 +202,12 @@ hdiutil create -quiet -volname "KyberNow Station" -srcfolder "$STAGE" -ov -forma
 codesign -f -s "$IDENTITY" --timestamp "$DMG"
 
 if [ "$NOTARIZE" = 1 ]; then
-    step "Notarisation (Apple, quelques minutes)"
+    step "Notarisation du .dmg (Apple, quelques minutes)"
     xcrun notarytool submit "$DMG" --keychain-profile kybernow --wait --timeout 30m
     xcrun stapler staple "$DMG"
     spctl --assess --type open --context context:primary-signature -vv "$DMG"
 fi
 
 step "Fait"
-du -sh "$APP" "$DMG" | sed 's|'"$OUT"'/||'
+du -sh "$APP" "$DMG" "$OUT/KyberNow-Station-Mac-update.zip" | sed 's|'"$OUT"'/||'
 echo "$DMG"

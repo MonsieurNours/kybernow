@@ -612,6 +612,9 @@ fn run_switch(
 
 /// Point d'entrée de `kyber-admin update …`.
 pub fn run(action: Action, data_dir: &Path) -> Result<()> {
+    #[cfg(target_os = "macos")]
+    return super::mac::run(action, data_dir);
+    #[cfg_attr(target_os = "macos", allow(unreachable_code))]
     let install_dir = match &action {
         Action::Apply { install_dir, .. } | Action::Rollback { install_dir } => install_dir.clone().unwrap_or_else(default_install_dir),
     };
@@ -965,8 +968,14 @@ pub fn previous_version(layout: &Layout) -> Option<String> {
 }
 
 #[cfg(not(windows))]
-pub fn previous_version(_: &Layout) -> Option<String> {
-    None
+pub fn previous_version(layout: &Layout) -> Option<String> {
+    #[cfg(target_os = "macos")]
+    return super::mac::previous_version(layout);
+    #[cfg_attr(target_os = "macos", allow(unreachable_code))]
+    {
+        let _ = layout;
+        None
+    }
 }
 
 #[cfg(test)]

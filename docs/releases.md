@@ -12,6 +12,8 @@ Un seul numéro de version pour tout KyberNow : KyberNow Station (installateur, 
 |---|---|
 | `KyberNow-Station-Setup.exe` | KyberNow Station : première installation sur l'ordinateur Windows qui diffusera son image (installation complète, ou réinstallation quand une mise à jour l'exige) |
 | `kybernow-update.zip` | Mise à jour d'une Station déjà installée : surcouche Kyber, Admin, icône, `update.ps1` |
+| `KyberNow-Station-Mac.dmg` | Installateur de la Station pour Mac : « Installer KyberNow Station » et « Désinstaller KyberNow Station », signés Developer ID et notarisés (`server/macos/scripts/build-station-app.sh`) |
+| `KyberNow-Station-Mac-update.zip` | Mise à jour d'une Station Mac déjà installée : l'app « KyberNow Station » entière, notarisée |
 | `update.ps1` | Mise à jour à la main, sans Admin |
 | `KyberNow-Link-macOS.zip` | L'app Mac, « KyberNow Link.app » (première installation : la glisser dans Applications) ; archive du flux Sparkle |
 | `appcast.xml` | Flux des mises à jour de l'app Mac (Sparkle), signé EdDSA |
@@ -99,6 +101,8 @@ apps/macos/build/SourcePackages/artifacts/sparkle/Sparkle/bin/generate_keys -x ~
 ```
 
 Sans elle, aucune mise à jour de l'app ne pourrait plus être signée. Pour la remettre sur un autre Mac : `generate_keys -f ~/sparkle-kybernow.key`.
+
+**La Station Mac** (docs/station-macos.md, jalon 6) suit le même chemin jusqu'au paquet vérifié, avec `KyberNow-Station-Mac-update.zip` au lieu de `kybernow-update.zip` ; une version dont le manifeste ne liste pas ce paquet est refusée sur Mac (« réinstallez avec `KyberNow-Station-Mac.dmg` » si elle exige l'installateur). L'applicateur (`server/admin/src/update/mac.rs`) est une copie d'Admin lancée par launchd en service à part (`fr.leslignesclaires.kybernow.station.update`) : launchd arrêterait avec Admin tout ce qu'Admin lance. Il extrait l'app (`ditto`), revérifie sa signature (`codesign --verify --deep --strict`, identifiant `fr.leslignesclaires.kybernow.station`, même équipe que l'app installée, version attendue), arrête l'icône, Admin et Kyber, met l'app en place par renommage (l'ancienne dans `update/previous`, pour « Revenir à la version précédente »), relance tout et attend qu'Admin réponde dans la nouvelle version en 60 s, sinon remet l'ancienne. Même signature : macOS garde les autorisations, et rien ne demande le mot de passe du Mac ; une sortie son plus récente dans l'app est seulement notée au journal (la poser demanderait ce mot de passe). Journal dans `~/Library/Application Support/KyberNow/Station/admin/update/<version>/update.log`, résultat dans `update/resultat.json` comme sous Windows. La fenêtre « Mettre à jour » de l'icône passe par les routes locales d'Admin (`GET /api/local/update`, `POST /api/local/update/check`, `POST /api/local/update/install`, jeton local et certificat épinglé) et suit la Station jusqu'à son retour.
 
 ## Clé de signature des mises à jour (minisign)
 

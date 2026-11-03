@@ -100,7 +100,7 @@ Same interface (Svelte, `ui/src/mac`, following the mockup validated by the auth
 - **Permissions**: macOS ties them to the bundle of the responsible executable. The installer therefore starts `KyberNow Station --permissions check|request …` (the installed app's executable) while disclaiming responsibility (`posix_spawn` with `responsibility_spawnattrs_setdisclaim`), every 1.5 s during the step; at the end, Kyber and Admin are restarted to pick up the grants.
 - **Reinstalling**: as on Windows, "Keep my settings" (account, ports, certificate, devices) or "Start from scratch".
 - **Uninstalling**: session services stopped and removed, displays and original sound output restored (`kybernow-display recover`, `audio restore`), then as administrator the sound output, firewall rules and app; permissions forgotten (`tccutil reset`); `~/Library/Application Support/KyberNow/Station` erased unless settings are kept.
-- **Update**: the window exists; Admin's Mac applier and the update package are still to do (meanwhile it points to Admin's System page).
+- **Update** (`src/mac/update.rs`): the window asks Admin to look for the latest release (`/api/local/update/check`), shows what's new and the device in session, then starts the installation (`/api/local/update/install`) and follows the Station until it comes back in the new version (3 minutes at most; otherwise the reason written by the applier). HTTPS client pinned on Admin's certificate (`src/mac/http.rs`, the Windows icon's), local token. Applier: [docs/releases.en.md](../../docs/releases.en.md).
 
 ## Languages
 

@@ -110,7 +110,7 @@ FEED_SUBJECT="Flux des mises à jour : KyberNow $VERSION"
 # docs/releases.md, « Anciens noms des installateurs ».
 LEGACY_STATION=(KyberNow-Server-Setup.exe KyberNow-Setup.exe)
 LEGACY_LINK=(KyberNow-Client-Setup.exe)
-ASSETS=(KyberNow-Station-Setup.exe kybernow-update.zip update.ps1 "$MAC_ZIP" "${LEGACY_MAC[@]}" appcast.xml KyberSDK-tvOS.zip KyberSDK-iOS.zip
+ASSETS=(KyberNow-Station-Setup.exe kybernow-update.zip update.ps1 KyberNow-Station-Mac.dmg KyberNow-Station-Mac-update.zip "$MAC_ZIP" "${LEGACY_MAC[@]}" appcast.xml KyberSDK-tvOS.zip KyberSDK-iOS.zip
     KyberNow-Link-Setup.exe "${LEGACY_STATION[@]}" "${LEGACY_LINK[@]}" KyberNow-Link-Android.apk KyberNow-Link-webOS.ipk
     KyberNow-Link-Linux-x86_64.flatpak KyberNow-Link-Linux-aarch64.flatpak KyberNow-Link-RaspberryPi-arm64.deb KyberNow-Link-OS.img.xz
     SHA256SUMS kybernow-release.json kybernow-release.json.minisig)
@@ -416,6 +416,13 @@ server/installer/build.sh 2>&1 > /dev/null \
     | { grep -Ev '^ +(Compiling|Checking|Fresh|Downloaded|Downloading|Locking|Adding|Updating|Finished) ' || true; }
 server/installer/package-update.sh ${UPDATE_FLAGS[@]+"${UPDATE_FLAGS[@]}"}
 
+step "KyberNow Station pour Mac : app, installateur et paquet de mise à jour"
+# docs/station-macos.md (jalon 6) ; notarisée seulement à la publication.
+NOTARIZE_FLAG=()
+[ "$MODE" = release ] && NOTARIZE_FLAG=(--notarize)
+server/macos/scripts/build-station-app.sh ${NOTARIZE_FLAG[@]+"${NOTARIZE_FLAG[@]}"} 2>&1 > /dev/null \
+    | { grep -Ev '^ +(Compiling|Checking|Fresh|Downloaded|Downloading|Locking|Adding|Updating|Finished) |replacing existing signature' || true; }
+
 step "Cœur Rust de l'app Mac (apps/core, apps/apple)"
 # Bibliothèques client de Kyber périmées (vérifications préalables) : recompilées
 # d'abord, puis contrôlées (empreinte, libkynput sans SDL).
@@ -527,6 +534,7 @@ fi
 ditto -c -k --keepParent "$APP" "$OUT/$MAC_ZIP"
 for f in "${LEGACY_MAC[@]}"; do cp "$OUT/$MAC_ZIP" "$OUT/$f"; done
 cp server/installer/dist/KyberNow-Station-Setup.exe server/installer/dist/kybernow-update.zip server/installer/dist/update.ps1 "$OUT/"
+cp server/macos/dist/KyberNow-Station-Mac.dmg server/macos/dist/KyberNow-Station-Mac-update.zip "$OUT/"
 for f in "${LEGACY_STATION[@]}"; do cp "$OUT/KyberNow-Station-Setup.exe" "$OUT/$f"; done
 
 step "Flux de mises à jour de l'app (Sparkle, canal $CHANNEL)"
@@ -590,7 +598,7 @@ fi
 
 step "Empreintes et manifeste signé"
 # Nouveaux et anciens noms des installateurs (même empreinte), comme le manifeste.
-(cd "$OUT" && shasum -a 256 KyberNow-Station-Setup.exe kybernow-update.zip update.ps1 "$MAC_ZIP" "${LEGACY_MAC[@]}" appcast.xml KyberSDK-tvOS.zip KyberSDK-iOS.zip \
+(cd "$OUT" && shasum -a 256 KyberNow-Station-Setup.exe kybernow-update.zip update.ps1 KyberNow-Station-Mac.dmg KyberNow-Station-Mac-update.zip "$MAC_ZIP" "${LEGACY_MAC[@]}" appcast.xml KyberSDK-tvOS.zip KyberSDK-iOS.zip \
     KyberNow-Link-Setup.exe "${LEGACY_STATION[@]}" "${LEGACY_LINK[@]}" KyberNow-Link-Android.apk KyberNow-Link-webOS.ipk \
     KyberNow-Link-Linux-x86_64.flatpak KyberNow-Link-Linux-aarch64.flatpak KyberNow-Link-RaspberryPi-arm64.deb KyberNow-Link-OS.img.xz > SHA256SUMS)
 cat "$OUT/SHA256SUMS"

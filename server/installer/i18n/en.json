@@ -143,9 +143,6 @@
     "uninstall": {
       "passwordPrompt": "KyberNow Station will remove its app and its sound output.",
       "cancelled": "Uninstall canceled: macOS needs your Mac's password to remove the sound output."
-    },
-    "update": {
-      "notYet": "Updating from the icon is coming soon. Meanwhile, use the System page of KyberNow Admin."
     }
   }
 }

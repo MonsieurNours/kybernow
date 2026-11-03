@@ -21,6 +21,7 @@
 
 pub mod checks;
 pub mod commands;
+pub mod http;
 pub mod install;
 pub mod permissions;
 pub mod root;
