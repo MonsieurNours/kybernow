@@ -39,23 +39,59 @@ pub fn announce(port: u16, fingerprint: Option<&str>, kyber: bool) -> Option<Ser
     if let Some(fp) = fingerprint {
         properties.push(("fp", fp.to_string()));
     }
-    let info = match ServiceInfo::new(SERVICE_TYPE, &name, &host, "", port, &properties[..]) {
-        Ok(i) => i.enable_addr_auto(),
+    // Station Mac : une seule adresse, celle par laquelle le Mac répond (la
+    // route principale : l'Ethernet avant le Wi-Fi). Un Mac branché deux fois
+    // au même réseau répond depuis cette adresse-là ; une app qui en visait une
+    // autre ne recevait pas l'image de Kyber (UDP, docs/station-macos.md).
+    #[cfg(not(windows))]
+    let single = crate::mac::is_station();
+    #[cfg(windows)]
+    let single = false;
+    let make = |ip: Option<&str>| -> Option<ServiceInfo> {
+        match ServiceInfo::new(SERVICE_TYPE, &name, &host, ip.unwrap_or(""), port, &properties[..]) {
+            Ok(i) if ip.is_some() => Some(i),
+            Ok(i) => Some(i.enable_addr_auto()),
+            Err(e) => {
+                tracing::warn!("annonce Bonjour impossible : {e}");
+                None
+            }
+        }
+    };
+    let address = if single { crate::tls::lan_ip() } else { None };
+    let info = make(address.as_deref())?;
+    match daemon.register(info) {
+        Ok(()) => {
+            tracing::info!(
+                "annoncé sur le réseau local (Bonjour) : {name}, port {port}, kyber={}{}",
+                u8::from(kyber),
+                address.as_deref().map(|a| format!(", adresse {a}")).unwrap_or_default()
+            );
+        }
         Err(e) => {
             tracing::warn!("annonce Bonjour impossible : {e}");
             return None;
         }
-    };
-    match daemon.register(info) {
-        Ok(()) => {
-            tracing::info!("annoncé sur le réseau local (Bonjour) : {name}, port {port}, kyber={}", u8::from(kyber));
-            Some(daemon)
-        }
-        Err(e) => {
-            tracing::warn!("annonce Bonjour impossible : {e}");
-            None
-        }
     }
+    if single {
+        // L'adresse suit la route principale (Ethernet débranché : le Wi-Fi).
+        let (daemon, mut current) = (daemon.clone(), address);
+        let make = move |ip: &str| ServiceInfo::new(SERVICE_TYPE, &name, &host, ip, port, &properties[..]).ok();
+        std::thread::spawn(move || {
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(15));
+                let now = crate::tls::lan_ip();
+                if now != current {
+                    if let Some(info) = now.as_deref().and_then(&make)
+                        && daemon.register(info).is_ok()
+                    {
+                        tracing::info!("annonce Bonjour : nouvelle adresse {}", now.as_deref().unwrap_or("?"));
+                    }
+                    current = now;
+                }
+            }
+        });
+    }
+    Some(daemon)
 }
 
 #[cfg(test)]

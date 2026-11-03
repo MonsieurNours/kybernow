@@ -1,0 +1,451 @@
+diff --git a/kynput/src/macos/host_keyboard_mouse.rs b/kynput/src/macos/host_keyboard_mouse.rs
+index 002bd64..04b6cb8 100644
+--- a/kynput/src/macos/host_keyboard_mouse.rs
++++ b/kynput/src/macos/host_keyboard_mouse.rs
+@@ -1,5 +1,4 @@
+ use std::collections::HashMap;
+-use std::ffi::c_int;
+ use std::sync::Arc;
+ 
+ use keycode::{KeyMap, KeyMapping};
+@@ -21,53 +20,71 @@ fn convert_host_config(host_config: Arc<HostConfig>) -> HashMap<u32, Display> {
+         .collect()
+ }
+ 
++// KyberNow (server/macos/kyber-patches/0002) : injection par CGEvent.
++//
++// - Positions : Kyber annonce les écrans en pixels (correctif 0001), macOS
++//   place la souris en points. Chaque écran de Kyber est retrouvé parmi les
++//   écrans actifs (CGDisplayBounds, lu en direct) par sa place et sa taille,
++//   à l'échelle près, et la position est ramenée en points.
++// - Déplacements relatifs (jeux) : la position avance du déplacement, bornée
++//   aux écrans, et l'événement porte les deltas que lisent les jeux.
++// - Boutons : appui, relâche et glisser (`*MouseDragged`) pour les cinq
++//   boutons, double et triple clic (`MOUSE_EVENT_CLICK_STATE`), touches de
++//   modification sur les clics (⌘-clic, ⇧-clic).
++// - Molette : en lignes pour des crans entiers, en pixels sinon (trackpad).
++// - La source d'événements ne bloque pas la souris et le clavier du Mac
++//   (intervalle de suppression à 0).
++// - Il faut l'autorisation Accessibilité (Réglages > Confidentialité et
++//   sécurité) pour le paquet qui lance Kyber ; sans elle, macOS ignore les
++//   événements sans erreur : un avertissement le dit une fois.
++
++/// Écart maximal entre deux clics d'un double clic (comme le réglage par défaut de macOS).
++const MULTI_CLICK_TIME: std::time::Duration = std::time::Duration::from_millis(500);
++/// Distance maximale, en points, entre deux clics d'un double clic.
++const MULTI_CLICK_DISTANCE: f64 = 4.0;
++/// Pixels de défilement par unité de molette fractionnaire (trackpad).
++const PIXELS_PER_WHEEL_UNIT: f64 = 12.0;
++
++/// cbindgen:ignore
++#[link(name = "CoreGraphics", kind = "framework")]
++unsafe extern "C" {
++    fn CGEventSourceSetLocalEventsSuppressionInterval(source: *const std::ffi::c_void, seconds: f64);
++    fn CGPreflightPostEventAccess() -> bool;
++    fn CGRequestPostEventAccess() -> bool;
++    fn CGEventSetLocation(event: *const std::ffi::c_void, location: CGPoint);
++}
++
++/// Pointeur CoreFoundation d'un objet de core-graphics (foreign_type!,
++/// repr(transparent)) ; foreign-types n'est pas une dépendance de kynput.
++fn raw<T>(object: &T) -> *const std::ffi::c_void {
++    const { assert!(std::mem::size_of::<T>() == std::mem::size_of::<*const std::ffi::c_void>()) };
++    unsafe { std::mem::transmute_copy(object) }
++}
++
+ struct Backend {
+     modifiers: Modifiers,
+     position: CGPoint,
+     buttons: ButtonState,
+     displays: HashMap<u32, Display>,
++    source: Option<CGEventSource>,
++    last_click: Option<(MouseButtonType, std::time::Instant, CGPoint, i64)>,
++    warned_access: bool,
+ }
+ 
+-use core_graphics::base::kCGErrorSuccess;
++use core_graphics::display::CGDisplay;
+ use core_graphics::event::{
+-    CGEvent, CGEventFlags, CGEventTapLocation, CGEventType, CGMouseButton, ScrollEventUnit,
++    CGEvent, CGEventFlags, CGEventTapLocation, CGEventType, CGMouseButton, EventField, ScrollEventUnit,
+ };
+ use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
+ use core_graphics::geometry::CGPoint;
+ 
+-/// cbindgen:ignore
+-#[link(name = "CoreGraphics", kind = "framework")]
+-unsafe extern "C" {
+-    fn CGPostMouseEvent(
+-        mouseCursorPosition: CGPoint,
+-        updateMouseCursorPosition: c_int,
+-        buttonCount: c_int,
+-        mouseButtonDown: c_int,
+-        ...
+-    ) -> c_int;
+-}
+-
+-fn post_mouse_event(position: CGPoint, left_down: bool, right_down: bool, middle_down: bool) {
+-    let err = unsafe {
+-        CGPostMouseEvent(
+-            position,
+-            1, // true
+-            3,
+-            left_down as c_int,
+-            right_down as c_int,
+-            middle_down as c_int,
+-        )
+-    };
+-    if err != kCGErrorSuccess {
+-        warn!("CGPostMouseEvent() => {err}");
+-    }
+-}
+-
+ #[derive(Default)]
+ struct ButtonState {
+     left: bool,
+     right: bool,
+     middle: bool,
++    side: bool,
++    extra: bool,
+ }
+ 
+ impl ButtonState {
+@@ -76,9 +93,43 @@ impl ButtonState {
+             MouseButtonType::Left => self.left = pressed,
+             MouseButtonType::Right => self.right = pressed,
+             MouseButtonType::Middle => self.middle = pressed,
+-            MouseButtonType::Side | MouseButtonType::Extra => {}
++            MouseButtonType::Side => self.side = pressed,
++            MouseButtonType::Extra => self.extra = pressed,
+         }
+     }
++
++    /// Bouton tenu, pour un déplacement en glisser (le gauche d'abord).
++    fn held(&self) -> Option<MouseButtonType> {
++        [
++            (self.left, MouseButtonType::Left),
++            (self.right, MouseButtonType::Right),
++            (self.middle, MouseButtonType::Middle),
++            (self.side, MouseButtonType::Side),
++            (self.extra, MouseButtonType::Extra),
++        ]
++        .into_iter()
++        .find_map(|(down, b)| down.then_some(b))
++    }
++}
++
++/// Numéro de bouton de macOS (0 gauche, 1 droit, 2 milieu, puis ordre USB).
++fn button_number(button: MouseButtonType) -> i64 {
++    match button {
++        MouseButtonType::Left => 0,
++        MouseButtonType::Right => 1,
++        MouseButtonType::Middle => 2,
++        MouseButtonType::Side => 3,
++        MouseButtonType::Extra => 4,
++    }
++}
++
++/// Types d'événement d'un bouton : appui, relâche, glisser.
++fn button_types(button: MouseButtonType) -> (CGEventType, CGEventType, CGEventType) {
++    match button {
++        MouseButtonType::Left => (CGEventType::LeftMouseDown, CGEventType::LeftMouseUp, CGEventType::LeftMouseDragged),
++        MouseButtonType::Right => (CGEventType::RightMouseDown, CGEventType::RightMouseUp, CGEventType::RightMouseDragged),
++        _ => (CGEventType::OtherMouseDown, CGEventType::OtherMouseUp, CGEventType::OtherMouseDragged),
++    }
+ }
+ 
+ fn scancode_to_keycode(scancode: u16) -> Option<u16> {
+@@ -89,54 +140,183 @@ fn scancode_to_keycode(scancode: u16) -> Option<u16> {
+     }
+ }
+ 
++/// Place d'un écran de Kyber (en pixels) parmi les écrans actifs : origine en
++/// points et échelle (pixels par point). `None` : écran introuvable.
++fn locate(display: &Display) -> Option<(CGPoint, f64)> {
++    let ids = CGDisplay::active_displays().ok()?;
++    ids.into_iter().find_map(|id| {
++        let b = CGDisplay::new(id).bounds();
++        if b.size.width <= 0.0 || b.size.height <= 0.0 {
++            return None;
++        }
++        let scale = (f64::from(display.width) / b.size.width).round().max(1.0);
++        let same = |a: f64, b: f64| (a - b).abs() <= scale;
++        (same(f64::from(display.width), b.size.width * scale)
++            && same(f64::from(display.height), b.size.height * scale)
++            && same(f64::from(display.x), b.origin.x * scale)
++            && same(f64::from(display.y), b.origin.y * scale))
++        .then_some((b.origin, scale))
++    })
++}
++
++/// La position bornée aux écrans actifs (un déplacement relatif ne sort pas du bureau).
++fn clamp_to_displays(p: CGPoint) -> CGPoint {
++    let Ok(ids) = CGDisplay::active_displays() else { return p };
++    let rects: Vec<_> = ids.into_iter().map(|id| CGDisplay::new(id).bounds()).collect();
++    if rects.iter().any(|r| p.x >= r.origin.x && p.x < r.origin.x + r.size.width && p.y >= r.origin.y && p.y < r.origin.y + r.size.height) {
++        return p;
++    }
++    // Hors de tout écran : ramenée sur le plus proche.
++    rects
++        .iter()
++        .map(|r| {
++            CGPoint::new(
++                p.x.clamp(r.origin.x, r.origin.x + r.size.width - 1.0),
++                p.y.clamp(r.origin.y, r.origin.y + r.size.height - 1.0),
++            )
++        })
++        .min_by(|a, b| {
++            let d = |q: &CGPoint| (q.x - p.x).powi(2) + (q.y - p.y).powi(2);
++            d(a).total_cmp(&d(b))
++        })
++        .unwrap_or(p)
++}
++
+ impl Backend {
+     fn create(host_config: Arc<HostConfig>) -> Result<Box<dyn ThreadedConsumerBackend>> {
++        // Sans l'autorisation, macOS affiche sa demande (une fois) et ignore les événements.
++        if !unsafe { CGPreflightPostEventAccess() } && !unsafe { CGRequestPostEventAccess() } {
++            warn!("autorisation Accessibilité demandée à macOS : sans elle, la souris et le clavier sont ignorés");
++        }
++        let source = CGEventSource::new(CGEventSourceStateID::HIDSystemState).ok();
++        if let Some(s) = &source {
++            // La souris et le clavier du Mac restent utilisables pendant l'injection.
++            unsafe { CGEventSourceSetLocalEventsSuppressionInterval(raw(s), 0.0) };
++        }
++        // Position de départ : là où est le pointeur.
++        let position = source
++            .as_ref()
++            .and_then(|s| CGEvent::new(s.clone()).ok())
++            .map(|e| e.location())
++            .unwrap_or(CGPoint::new(0.0, 0.0));
+         Ok(Box::new(Self {
+             modifiers: Modifiers::default(),
+-            position: CGPoint::new(0.0, 0.0),
++            position,
+             buttons: Default::default(),
+             displays: convert_host_config(host_config),
++            source,
++            last_click: None,
++            warned_access: false,
+         }))
+     }
+ 
++    fn source(&self) -> Option<CGEventSource> {
++        self.source.clone()
++    }
++
++    fn flags(&self) -> CGEventFlags {
++        let mut flags = CGEventFlags::empty();
++        if self.modifiers.ctrl {
++            flags |= CGEventFlags::CGEventFlagControl;
++        }
++        if self.modifiers.alt {
++            flags |= CGEventFlags::CGEventFlagAlternate;
++        }
++        if self.modifiers.win {
++            flags |= CGEventFlags::CGEventFlagCommand;
++        }
++        if self.modifiers.shift {
++            flags |= CGEventFlags::CGEventFlagShift;
++        }
++        if self.modifiers.capslock {
++            flags |= CGEventFlags::CGEventFlagAlphaShift;
++        }
++        flags
++    }
++
++    fn post(&mut self, event: &CGEvent) {
++        if !self.warned_access && !unsafe { CGPreflightPostEventAccess() } {
++            warn!("macOS refuse les événements de Kyber : autoriser « KyberNow Station » dans Réglages > Confidentialité et sécurité > Accessibilité");
++            self.warned_access = true;
++        }
++        event.post(CGEventTapLocation::HID);
++    }
++
++    /// Déplacement du pointeur à `self.position` (glisser si un bouton est tenu).
++    fn post_move(&mut self, dx: i64, dy: i64) {
++        let Some(source) = self.source() else { return };
++        let (kind, button) = match self.buttons.held() {
++            Some(b) => (button_types(b).2, Some(b)),
++            None => (CGEventType::MouseMoved, None),
++        };
++        let Ok(event) = CGEvent::new_mouse_event(source, kind, self.position, CGMouseButton::Left) else {
++            warn!("Failed to create mouse move event");
++            return;
++        };
++        if let Some(b) = button {
++            event.set_integer_value_field(EventField::MOUSE_EVENT_BUTTON_NUMBER, button_number(b));
++        }
++        event.set_integer_value_field(EventField::MOUSE_EVENT_DELTA_X, dx);
++        event.set_integer_value_field(EventField::MOUSE_EVENT_DELTA_Y, dy);
++        event.set_flags(self.flags());
++        self.post(&event);
++    }
++
+     fn inject_position(&mut self, position: &MousePosition) -> Result<()> {
+         let Some(display) = self.displays.get(&position.display_id) else {
+-            warn!(
+-                "Got a MousePosition on unknown Display ID {}",
+-                position.display_id
+-            );
++            warn!("Got a MousePosition on unknown Display ID {}", position.display_id);
+             return Ok(());
+         };
+-
+-        self.position = CGPoint::new(
+-            (display.x + position.x as i32).into(),
+-            (display.y + position.y as i32).into(),
+-        );
+-
+-        post_mouse_event(
+-            self.position,
+-            self.buttons.left,
+-            self.buttons.right,
+-            self.buttons.middle,
+-        );
+-
++        let Some((origin, scale)) = locate(display) else {
++            warn!("Display {} ({}x{} at {},{}) not found among the active displays", display.id, display.width, display.height, display.x, display.y);
++            return Ok(());
++        };
++        let target = CGPoint::new(origin.x + f64::from(position.x) / scale, origin.y + f64::from(position.y) / scale);
++        let (dx, dy) = ((target.x - self.position.x).round() as i64, (target.y - self.position.y).round() as i64);
++        self.position = target;
++        self.post_move(dx, dy);
+         Ok(())
+     }
+ 
+-    fn inject_button(&mut self, event: &MouseButton) -> Result<()> {
+-        self.buttons.update(event.button, event.pressed);
+-
+-        post_mouse_event(
+-            self.position,
+-            self.buttons.left,
+-            self.buttons.right,
+-            self.buttons.middle,
+-        );
+-
++    fn inject_move(&mut self, event: &MouseMove) -> Result<()> {
++        let (dx, dy) = (f64::from(event.dx), f64::from(event.dy));
++        self.position = clamp_to_displays(CGPoint::new(self.position.x + dx, self.position.y + dy));
++        self.post_move(i64::from(event.dx), i64::from(event.dy));
+         Ok(())
+     }
+ 
+-    fn inject_move(&mut self, event: &MouseMove) -> Result<()> {
++    fn inject_button(&mut self, event: &MouseButton) -> Result<()> {
++        self.buttons.update(event.button, event.pressed);
++        let Some(source) = self.source() else { return Ok(()) };
++        let (down, up, _) = button_types(event.button);
++        let kind = if event.pressed { down } else { up };
++        let Ok(cg) = CGEvent::new_mouse_event(source, kind, self.position, CGMouseButton::Left) else {
++            warn!("Failed to create mouse button event");
++            return Ok(());
++        };
++        cg.set_integer_value_field(EventField::MOUSE_EVENT_BUTTON_NUMBER, button_number(event.button));
++        // Double et triple clic : même bouton, assez tôt et assez près du précédent.
++        let now = std::time::Instant::now();
++        let clicks = if event.pressed {
++            let n = match self.last_click {
++                Some((b, t, p, n))
++                    if b == event.button
++                        && now.duration_since(t) <= MULTI_CLICK_TIME
++                        && (p.x - self.position.x).abs() <= MULTI_CLICK_DISTANCE
++                        && (p.y - self.position.y).abs() <= MULTI_CLICK_DISTANCE =>
++                {
++                    n + 1
++                }
++                _ => 1,
++            };
++            self.last_click = Some((event.button, now, self.position, n));
++            n
++        } else {
++            self.last_click.map_or(1, |(_, _, _, n)| n)
++        };
++        cg.set_integer_value_field(EventField::MOUSE_EVENT_CLICK_STATE, clicks);
++        cg.set_flags(self.flags());
++        self.post(&cg);
+         Ok(())
+     }
+ 
+@@ -150,63 +330,39 @@ impl Backend {
+             return Ok(());
+         };
+ 
+-        let Ok(source) = CGEventSource::new(CGEventSourceStateID::CombinedSessionState) else {
+-            warn!("Failed to create CGEventSource for keyboard event");
+-            return Ok(());
+-        };
++        let Some(source) = self.source() else { return Ok(()) };
+         let Ok(event) = CGEvent::new_keyboard_event(source, keycode, key.pressed) else {
+             warn!("Failed to create keyboard event for keycode {keycode}");
+             return Ok(());
+         };
+-
+-        // CGEventSetFlags replaces the whole flag field, so accumulate every
+-        // active modifier into one value and set it a single time.
+-        let mut flags = CGEventFlags::empty();
+-        if self.modifiers.ctrl {
+-            flags |= CGEventFlags::CGEventFlagControl;
+-        }
+-        if self.modifiers.alt {
+-            flags |= CGEventFlags::CGEventFlagAlternate;
+-        }
+-        if self.modifiers.win {
+-            flags |= CGEventFlags::CGEventFlagCommand;
+-        }
+-        if self.modifiers.shift {
+-            flags |= CGEventFlags::CGEventFlagShift;
+-        }
++        // CGEventSetFlags remplace tout le champ : toutes les touches de
++        // modification tenues, d'un coup (pavé numérique compris).
++        let mut flags = self.flags();
+         if self.modifiers.numlock {
+             flags |= CGEventFlags::CGEventFlagNumericPad;
+         }
+-        if self.modifiers.capslock {
+-            flags |= CGEventFlags::CGEventFlagAlphaShift;
+-        }
+         event.set_flags(flags);
+-
+-        event.post(CGEventTapLocation::HID);
+-
++        self.post(&event);
+         Ok(())
+     }
+ 
+     fn inject_wheel(&mut self, event: &MouseWheel) -> Result<()> {
+-        let Ok(source) = CGEventSource::new(CGEventSourceStateID::CombinedSessionState) else {
+-            warn!("Failed to create CGEventSource for scroll event");
+-            return Ok(());
++        let Some(source) = self.source() else { return Ok(()) };
++        // Kyber : dy positif fait défiler vers le bas ; macOS : wheel1 positif vers le haut.
++        let whole = event.dx.fract() == 0.0 && event.dy.fract() == 0.0;
++        let scroll = if whole {
++            CGEvent::new_scroll_event(source, ScrollEventUnit::LINE, 2, -event.dy as i32, -event.dx as i32, 0)
++        } else {
++            let px = |v: f32| (-f64::from(v) * PIXELS_PER_WHEEL_UNIT).round() as i32;
++            CGEvent::new_scroll_event(source, ScrollEventUnit::PIXEL, 2, px(event.dy), px(event.dx), 0)
+         };
+-        let scroll_event = CGEvent::new_scroll_event(
+-            source,
+-            ScrollEventUnit::LINE,
+-            2,
+-            event.dy as i32,
+-            event.dx as i32,
+-            0,
+-        );
+-        let Ok(scroll_event) = scroll_event else {
++        let Ok(scroll) = scroll else {
+             warn!("Failed to create scroll event");
+             return Ok(());
+         };
+-
+-        scroll_event.post(CGEventTapLocation::HID);
+-
++        unsafe { CGEventSetLocation(raw(&scroll), self.position) };
++        scroll.set_flags(self.flags());
++        self.post(&scroll);
+         Ok(())
+     }
+ }
