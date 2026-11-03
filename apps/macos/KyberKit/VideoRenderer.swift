@@ -847,12 +847,8 @@ final class VideoRenderer {
         pass.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
         pass.colorAttachments[0].storeAction = .store
 
-        #if os(macOS)
         let upscaled = !upscaling ? nil : upscaleIfWanted(luma: luma, chroma: chroma, color: &color, source: (Int(width), Int(height)),
                                        shown: (Int(w), Int(h)), target: target, commands: commands)
-        #else
-        let upscaled: (MTLTexture, MTLRenderPipelineState, Upscaler.SharpenUniforms)? = nil
-        #endif
         guard let encoder = commands.makeRenderCommandEncoder(descriptor: pass) else { return false }
         encoder.setViewport(MTLViewport(originX: originX, originY: originY, width: w, height: h, znear: 0, zfar: 1))
         if let (image, sharpen, uniforms) = upscaled {
@@ -888,7 +884,6 @@ final class VideoRenderer {
         return true
     }
 
-    #if os(macOS)
     /// Agrandissement MetalFX de l'image (consoles, `Upscaler`) ; nil : filtre
     /// bilinéaire, comme pour un ordinateur. Un changement redessine l'image.
     var upscale: UpscaleSettings? {
@@ -947,7 +942,9 @@ final class VideoRenderer {
         encoder.setFragmentBytes(&color, length: MemoryLayout<ColorConversion>.stride, index: 0)
         encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
         encoder.endEncoding()
+        #if canImport(MetalFX)
         t.scaler.encode(commandBuffer: pre)
+        #endif
         pre.addCompletedHandler { [weak upscaler] cb in upscaler?.record(cb) }
         // Envoyée avant la commande de l'image : la file les garde dans l'ordre.
         pre.commit()
@@ -964,7 +961,6 @@ final class VideoRenderer {
         onUpscale?(r)
         return nil
     }
-    #endif
 
     /// Photographie de la dernière image affichée, réduite à `maxWidth` pixels
     /// de large (la dernière image d'un ordinateur, sur l'accueil).

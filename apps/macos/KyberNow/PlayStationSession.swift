@@ -129,6 +129,11 @@ final class PlayStationSession: NSObject, ObservableObject, NSWindowDelegate {
         path = remote?.route ?? .direct
     }
 
+    /// L'écran où la partie s'ouvrira est HDR (celui de la fenêtre au premier plan).
+    static var screenIsHDR: Bool {
+        HDRDisplay.isHDR((NSApp.keyWindow ?? NSApp.mainWindow)?.screen ?? NSScreen.main)
+    }
+
     func open() {
         let screen = NSApp.keyWindow?.screen ?? NSScreen.main ?? NSScreen.screens[0]
         let area = screen.visibleFrame

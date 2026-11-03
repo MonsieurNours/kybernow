@@ -1233,7 +1233,7 @@ extension PadButton {
 /// premier démarrage du moteur peut prendre des dizaines de millisecondes) :
 /// ils ont leur propre file, pour ne jamais retarder une touche sur la file
 /// des entrées. Les méthodes publiques y passent elles-mêmes.
-private final class Motors {
+final class Motors {
     static let queue = DispatchQueue(label: "fr.leslignesclaires.kybernow.vibrations", qos: .userInitiated)
     private var large: Motor?
     private var small: Motor?

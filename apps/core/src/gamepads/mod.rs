@@ -324,22 +324,82 @@ pub fn pads() -> Vec<PadInfo> {
     global().pads()
 }
 
+/// Retour vers une app qui nourrit elle-même le lecteur ([`plug`],
+/// [`button`]… : Apple TV, iPhone, iPad, qui lisent leurs manettes par
+/// GameController) pendant une partie sur console PlayStation : vibrations
+/// et effets de la DualSense, à jouer par l'app.
+pub enum AppFeedback {
+    Rumble(GamepadRumble),
+    /// Rapport d'effets de la DualSense (47 octets, `DS5EffectsState_t` de SDL).
+    Effect(PadId, Vec<u8>),
+}
+
+type FeedbackSink = Box<dyn Fn(AppFeedback) + Send + Sync>;
+
+fn app_feedback() -> &'static Mutex<Option<FeedbackSink>> {
+    static SINK: OnceLock<Mutex<Option<FeedbackSink>>> = OnceLock::new();
+    SINK.get_or_init(|| Mutex::new(None))
+}
+
+/// L'app qui nourrit le lecteur reçoit désormais vibrations et effets
+/// (`None` : plus rien). Appelée sur le fil de la partie : l'app repasse sur
+/// le sien.
+pub fn set_app_feedback(sink: Option<FeedbackSink>) {
+    *app_feedback().lock().unwrap() = sink;
+}
+
+/// Vrai si l'app a pris le retour (et l'a reçu).
+fn to_app(f: impl FnOnce() -> AppFeedback) -> bool {
+    let sink = app_feedback().lock().unwrap();
+    match sink.as_ref() {
+        Some(s) => {
+            s(f());
+            true
+        }
+        None => false,
+    }
+}
+
 /// Effet propre à la manette `id` (rapport d'effets de la DualSense :
-/// gâchettes adaptatives), joué par le fil SDL s'il tourne.
+/// gâchettes adaptatives), joué par l'app qui nourrit le lecteur, sinon par
+/// le fil SDL s'il tourne.
 pub(crate) fn effect(id: PadId, data: Vec<u8>) {
+    if to_app(|| AppFeedback::Effect(id, data.clone())) {
+        return;
+    }
     #[cfg(feature = "sdl")]
     sdl::effect(id, data);
     #[cfg(not(feature = "sdl"))]
     let _ = (id, data);
 }
 
-/// Vibration demandée par l'ordinateur de la session active : jouée par le
-/// fil SDL s'il tourne (sinon c'est l'app qui la joue, `InputPlatform::rumble`).
+/// Vibration demandée par la console ou l'ordinateur de la session active :
+/// jouée par l'app qui nourrit le lecteur ([`set_app_feedback`]), sinon par
+/// le fil SDL s'il tourne (sinon c'est l'app qui la joue,
+/// `InputPlatform::rumble`).
 pub(crate) fn rumble(r: GamepadRumble) {
+    if to_app(|| AppFeedback::Rumble(r)) {
+        return;
+    }
     #[cfg(feature = "sdl")]
     sdl::rumble(r);
     #[cfg(not(feature = "sdl"))]
     let _ = r;
+}
+
+/// Clic du pavé tactile (app qui nourrit le lecteur).
+pub fn touch_click(id: PadId, pressed: bool) {
+    global().touch_click(id, pressed);
+}
+
+/// Un doigt du pavé tactile (app qui nourrit le lecteur).
+pub fn touch_finger(id: PadId, finger: usize, at: Option<(f32, f32)>) {
+    global().touch_finger(id, finger, at);
+}
+
+/// Gyroscope (rad/s) ou accéléromètre (m/s²) (app qui nourrit le lecteur).
+pub fn sensor(id: PadId, gyro: bool, data: [f32; 3], timestamp_us: u64) {
+    global().sensor(id, gyro, data, timestamp_us);
 }
 
 #[cfg(test)]

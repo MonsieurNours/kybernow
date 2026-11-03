@@ -19,10 +19,14 @@
 // Coût : mesuré sur les 120 premières images (passes 1 et 2, à part de
 // l'image). Au-delà de 2 ms en médiane, l'agrandissement se coupe pour la
 // partie (filtre bilinéaire, comme avant) et le dit.
+//
+// Tous les appareils Apple : MetalFX existe sur macOS 13, iOS et tvOS 16
+// (pas dans les simulateurs : l'agrandissement y est « indisponible »).
 
-#if os(macOS)
 import Metal
+#if canImport(MetalFX)
 import MetalFX
+#endif
 import QuartzCore
 
 /// Réglages de l'agrandissement (ceux de la console).
@@ -62,7 +66,9 @@ final class Upscaler {
     private let device: MTLDevice
     private let library: MTLLibrary?
     private var sharpenPipelines: [MTLPixelFormat: MTLRenderPipelineState] = [:]
+    #if canImport(MetalFX)
     private var scaler: MTLFXSpatialScaler?
+    #endif
     private var key: Key?
     private var input: MTLTexture?
     private var output: MTLTexture?
@@ -92,11 +98,14 @@ final class Upscaler {
     struct Textures {
         let input: MTLTexture
         let output: MTLTexture
+        #if canImport(MetalFX)
         let scaler: MTLFXSpatialScaler
+        #endif
         let sharpen: MTLRenderPipelineState
     }
 
     init?(device: MTLDevice) {
+        #if canImport(MetalFX)
         guard MTLFXSpatialScalerDescriptor.supportsDevice(device) else { return nil }
         self.device = device
         do {
@@ -105,6 +114,9 @@ final class Upscaler {
             KyberLog.video.error("netteté de l'agrandissement : \(error.localizedDescription, privacy: .public)")
             library = nil
         }
+        #else
+        return nil
+        #endif
     }
 
     /// Médiane mesurée sur les `measured` premières images (nil : pas encore).
@@ -118,6 +130,7 @@ final class Upscaler {
     /// Les textures et le scaler pour cette taille (refaits si elle change).
     /// `hdr` : valeurs au-delà de 1 (couche en lumière linéaire).
     func prepare(format: MTLPixelFormat, input inW: Int, _ inH: Int, output outW: Int, _ outH: Int, hdr: Bool) -> Textures? {
+        #if canImport(MetalFX)
         guard tooSlow == nil, !refused.contains(format), let sharpen = sharpenPipeline(format) else { return nil }
         let wanted = Key(format: format, inW: inW, inH: inH, outW: outW, outH: outH, hdr: hdr)
         if key != wanted || scaler == nil {
@@ -156,6 +169,9 @@ final class Upscaler {
         }
         guard let scaler, let input, let output else { return nil }
         return Textures(input: input, output: output, scaler: scaler, sharpen: sharpen)
+        #else
+        return nil
+        #endif
     }
 
     /// Coût des passes 1 et 2 d'une image (fin du GPU). Décide après
@@ -247,4 +263,3 @@ final class Upscaler {
     }
     """
 }
-#endif

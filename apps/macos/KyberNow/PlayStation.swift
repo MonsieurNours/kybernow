@@ -947,9 +947,10 @@ final class PlayStationStore: ObservableObject {
         var console = c
         console.lastSession = Date()
         update(console)
-        // La puce « HDR » allumée et l'écran de la fenêtre HDR : demandé dans les réglages.
+        // La puce « HDR » allumée et l'écran de la partie HDR : demandé dans les
+        // réglages (`screenIsHDR` : celui de chaque app).
         var settings = self.settings(c)
-        settings.hdr = c.hasHDR && c.hdr && HDRDisplay.isHDR((NSApp.keyWindow ?? NSApp.mainWindow)?.screen ?? NSScreen.main)
+        settings.hdr = c.hasHDR && c.hdr && PlayStationSession.screenIsHDR
         let settingsJSON = (try? JSONEncoder().encode(settings)).flatMap { String(data: $0, encoding: .utf8) } ?? Self.defaultSettings
         let id = c.id
         let account = chosenAccount(c)?.id
