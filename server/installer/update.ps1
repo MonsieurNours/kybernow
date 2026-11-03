@@ -70,6 +70,40 @@ function Rename-Retry([string]$Path, [string]$NewName) {
     }
 }
 
+# Force sur le disque ce qui attend sur le volume (copies, renommages) : un
+# gel du PC juste apres laisserait sinon des fichiers remplis de zeros (le
+# 03/11, kyber_config.toml et la cle de Kyber).
+function Flush-Volume([string]$Path) {
+    try {
+        $letter = (Get-Item -LiteralPath $Path).PSDrive.Name
+        Write-VolumeCache -DriveLetter $letter -ErrorAction Stop
+    } catch {
+        Write-Warning "volume pas force sur le disque ($($_.Exception.Message))"
+    }
+}
+
+# Sauvegarde des reglages, du certificat et de la cle de Kyber dans
+# C:\ProgramData\KyberNow\backups, seulement s'ils sont lisibles (sans octets
+# nuls) : une copie abimee chasserait une bonne sauvegarde.
+function Backup-KyberFiles([string]$Kyber) {
+    $backups = Join-Path $data 'backups'
+    New-Item -ItemType Directory -Force $backups | Out-Null
+    $stamp = (Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss-fff')
+    foreach ($f in @(
+            @{ Name = 'kyber_config.toml'; Dest = "kyber_config-$stamp.toml" },
+            @{ Name = 'kybertest_cert.pem'; Dest = "kybertest_cert-$stamp.pem" },
+            @{ Name = 'kybertest_key.pem'; Dest = "kybertest_key-$stamp.pem" })) {
+        $src = Join-Path $Kyber $f.Name
+        if (-not (Test-Path -LiteralPath $src)) { continue }
+        $bytes = [IO.File]::ReadAllBytes($src)
+        if ($bytes.Length -eq 0 -or ([Array]::IndexOf($bytes, [byte]0) -ge 0)) {
+            Write-Warning "$($f.Name) illisible (vide ou octets nuls) : pas sauvegarde"
+            continue
+        }
+        Copy-Item -LiteralPath $src -Destination (Join-Path $backups $f.Dest) -Force
+    }
+}
+
 function Remove-Dir([string]$Path) {
     if (Test-Path -LiteralPath $Path) { Remove-Item -LiteralPath $Path -Recurse -Force }
 }
@@ -257,6 +291,9 @@ try {
     Get-Process kybernow-tray -ErrorAction SilentlyContinue | Stop-Process -Force
     Start-Sleep -Seconds 1
 
+    Write-Host '==> Sauvegarde des reglages et du certificat de Kyber'
+    Backup-KyberFiles (Join-Path $dir 'kyber')
+
     Write-Host '==> Preparation des nouveaux dossiers (kyber.new, admin.new, tray.new)'
     foreach ($p in $parts) {
         $cur = Join-Path $dir $p
@@ -275,6 +312,7 @@ try {
         # Puis les fichiers du paquet par-dessus.
         Copy-Item (Join-Path $pkg "$p\*") "$cur.new" -Recurse -Force
     }
+    Flush-Volume $dir
 
     Write-Host '==> Bascule (les dossiers precedents restent en .prev)'
     foreach ($p in $parts) {
@@ -287,6 +325,7 @@ try {
     # Journaux de Kyber : deplaces, pas copies.
     $prevLog = Join-Path $dir 'kyber.prev\log'
     if ((Test-Path $prevLog) -and -not (Test-Path (Join-Path $dir 'kyber\log'))) { Move-Item -LiteralPath $prevLog (Join-Path $dir 'kyber\log') }
+    Flush-Volume $dir
 
     Write-Host '==> Droits des services (l''icone les demarre et les arrete sans droits administrateur)'
     foreach ($s in 'kyber', 'kyber-admin') {
@@ -402,6 +441,7 @@ try {
                 if ($swapped[$i].HadPrevious) { Rename-Retry "$cur.prev" $p }
                 Remove-Item -LiteralPath "$cur.bad" -Recurse -Force -ErrorAction SilentlyContinue
             }
+            Flush-Volume $dir
             $rolledBack = $true
             Write-Host '    version precedente remise en place'
         } catch {
