@@ -26,7 +26,7 @@ use ndk::media::media_format::MediaFormat;
 use kybernow_core::latency;
 use kybernow_core::media::{Packet, PacketHandler, FOURCC_AV1, FOURCC_HEVC};
 
-use crate::session::Shared;
+use crate::media::MediaHost;
 
 const BUFFER_FLAG_KEY_FRAME: u32 = 1;
 
@@ -44,19 +44,19 @@ pub enum Msg {
 pub struct VideoSink {
     tx: Mutex<Sender<Msg>>,
     thread: Mutex<Option<JoinHandle<()>>>,
-    shared: Arc<Shared>,
+    host: Arc<dyn MediaHost>,
 }
 
 impl VideoSink {
-    pub fn new(shared: Arc<Shared>) -> Arc<Self> {
+    pub fn new(host: Arc<dyn MediaHost>) -> Arc<Self> {
         let (tx, rx) = channel();
-        *shared.video_tx.lock().unwrap() = Some(tx.clone());
-        let s = shared.clone();
+        host.set_video_tx(tx.clone());
+        let h = host.clone();
         let thread = std::thread::Builder::new()
             .name("kybernow-image".into())
-            .spawn(move || DecodeLoop::new(s).run(rx))
+            .spawn(move || DecodeLoop::new(h).run(rx))
             .ok();
-        Arc::new(Self { tx: Mutex::new(tx), thread: Mutex::new(thread), shared })
+        Arc::new(Self { tx: Mutex::new(tx), thread: Mutex::new(thread), host })
     }
 
     fn send(&self, m: Msg) {
@@ -70,15 +70,11 @@ impl PacketHandler for VideoSink {
             Packet::Codec { codec } => self.send(Msg::Codec(codec)),
             Packet::Media { is_config: true, data, .. } => self.send(Msg::Config(data.to_vec())),
             Packet::Media { is_key, pts, data, .. } => {
-                if let Some(s) = self.shared.session() {
-                    s.latency().received_bytes(data.len());
-                }
+                self.host.received_bytes(data.len());
                 self.send(Msg::Frame { key: is_key, pts, data: data.to_vec(), received: latency::now_micros() });
             }
             Packet::Hole { .. } => {
-                if let Some(s) = self.shared.session() {
-                    s.latency().hole();
-                }
+                self.host.hole();
                 self.send(Msg::Hole);
             }
         }
@@ -121,7 +117,7 @@ impl Drop for Decoder {
 type Received = Arc<Mutex<VecDeque<(u64, i64)>>>;
 
 struct DecodeLoop {
-    shared: Arc<Shared>,
+    host: Arc<dyn MediaHost>,
     fourcc: u32,
     config: Vec<u8>,
     /// Le dernier paquet reçu était un jeu de paramètres (les suivants s'y ajoutent).
@@ -135,9 +131,9 @@ struct DecodeLoop {
 }
 
 impl DecodeLoop {
-    fn new(shared: Arc<Shared>) -> Self {
+    fn new(host: Arc<dyn MediaHost>) -> Self {
         Self {
-            shared,
+            host,
             fourcc: 0,
             config: Vec::new(),
             in_config: false,
@@ -186,18 +182,14 @@ impl DecodeLoop {
             return;
         }
         self.last_request = Some(Instant::now());
-        if let Some(s) = self.shared.session() {
-            s.request_keyframe();
-        }
+        self.host.request_keyframe();
     }
 
     fn lost(&mut self) {
         self.waiting_key = true;
         if !self.lost_reported {
             self.lost_reported = true;
-            if let Some(s) = self.shared.session() {
-                s.keyframe_lost();
-            }
+            self.host.keyframe_lost();
         }
     }
 
@@ -256,9 +248,7 @@ impl DecodeLoop {
                     self.waiting_key = false;
                     if self.lost_reported {
                         self.lost_reported = false;
-                        if let Some(s) = self.shared.session() {
-                            s.keyframe_recovered();
-                        }
+                        self.host.keyframe_recovered();
                     }
                 }
             }
@@ -275,17 +265,18 @@ impl DecodeLoop {
     }
 
     fn open(&mut self) -> Option<Decoder> {
-        let window = self.shared.window.lock().unwrap().clone()?;
+        let window = self.host.window()?;
         let mime = match self.fourcc {
             FOURCC_HEVC => "video/hevc",
             FOURCC_AV1 => "video/av01",
             _ => "video/avc",
         };
-        let (w, h) = self.shared.video_size();
+        let (w, h) = self.host.video_size();
+        let hdr = self.host.hdr();
         let codec = MediaCodec::from_decoder_type(mime)?;
         let configured = codec
-            .configure(&format(mime, w, h, true), Some(&window), MediaCodecDirection::Decoder)
-            .or_else(|_| codec.configure(&format(mime, w, h, false), Some(&window), MediaCodecDirection::Decoder));
+            .configure(&format(mime, w, h, hdr, true), Some(&window), MediaCodecDirection::Decoder)
+            .or_else(|_| codec.configure(&format(mime, w, h, hdr, false), Some(&window), MediaCodecDirection::Decoder));
         if let Err(e) = configured {
             log::error!("image : décodeur {mime} impossible à configurer ({e:?})");
             return None;
@@ -295,15 +286,15 @@ impl DecodeLoop {
             return None;
         }
         let name = codec.name().unwrap_or_default();
-        log::info!("image : décodeur {name} ({mime}, {w} × {h})");
-        self.shared.listener.with(|env, obj| {
+        log::info!("image : décodeur {name} ({mime}, {w} × {h}{})", if hdr { ", HDR10" } else { "" });
+        self.host.listener().with(|env, obj| {
             let n = env.new_string(&name)?;
             env.call_method(obj, "onDecoder", "(Ljava/lang/String;)V", &[JValue::Object(&n)]).map(|_| ())
         });
         self.waiting_key = true;
         let codec = Arc::new(Codec(codec));
         let stop = Arc::new(AtomicBool::new(false));
-        let (c, st, sh, rec) = (codec.clone(), stop.clone(), self.shared.clone(), self.received.clone());
+        let (c, st, sh, rec) = (codec.clone(), stop.clone(), self.host.clone(), self.received.clone());
         let output = std::thread::Builder::new().name("kybernow-affichage".into()).spawn(move || drain(c, st, sh, rec)).ok();
         Some(Decoder { codec, stop, output, config: self.config.clone() })
     }
@@ -312,7 +303,9 @@ impl DecodeLoop {
 /// Format du décodeur : faible latence (Android 11), priorité temps réel, et
 /// les clés des fabricants connues pour couper la remise en ordre des images
 /// (Qualcomm, Samsung Exynos, Amlogic). Refusé avec elles : on réessaie sans.
-fn format(mime: &str, w: u32, h: u32, vendor: bool) -> MediaFormat {
+/// En HDR10 : HEVC Main10, BT.2020 et PQ annoncés (le flux les porte aussi
+/// dans son VUI), pour que l'écran passe en HDR.
+fn format(mime: &str, w: u32, h: u32, hdr: bool, vendor: bool) -> MediaFormat {
     let mut f = MediaFormat::new();
     f.set_str("mime", mime);
     f.set_i32("width", w as i32);
@@ -321,6 +314,14 @@ fn format(mime: &str, w: u32, h: u32, vendor: bool) -> MediaFormat {
     f.set_i32("max-height", h.max(2160) as i32);
     f.set_i32("low-latency", 1);
     f.set_i32("priority", 0);
+    if hdr && mime == "video/hevc" {
+        // MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10HDR10 ; MediaFormat.COLOR_STANDARD_BT2020,
+        // COLOR_TRANSFER_ST2084, COLOR_RANGE_LIMITED.
+        f.set_i32("profile", 0x1000);
+        f.set_i32("color-standard", 6);
+        f.set_i32("color-transfer", 6);
+        f.set_i32("color-range", 2);
+    }
     if vendor {
         f.set_i32("vendor.qti-ext-dec-picture-order.enable", 1);
         f.set_i32("vendor.qti-ext-dec-low-latency.enable", 1);
@@ -331,7 +332,7 @@ fn format(mime: &str, w: u32, h: u32, vendor: bool) -> MediaFormat {
 }
 
 /// Fil de sortie : montre la plus récente des images décodées.
-fn drain(codec: Arc<Codec>, stop: Arc<AtomicBool>, shared: Arc<Shared>, received: Received) {
+fn drain(codec: Arc<Codec>, stop: Arc<AtomicBool>, host: Arc<dyn MediaHost>, received: Received) {
     let c = &codec.0;
     while !stop.load(Ordering::Acquire) {
         let mut latest = None;
@@ -342,9 +343,7 @@ fn drain(codec: Arc<Codec>, stop: Arc<AtomicBool>, shared: Arc<Shared>, received
                     if let Some(old) = latest.replace(b) {
                         let pts = old.info().presentation_time_us() as u64;
                         let _ = c.release_output_buffer(old, false);
-                        if let Some(s) = shared.session() {
-                            s.latency().skipped(pts);
-                        }
+                        host.skipped(pts);
                     }
                     timeout = Duration::ZERO;
                 }
@@ -355,10 +354,8 @@ fn drain(codec: Arc<Codec>, stop: Arc<AtomicBool>, shared: Arc<Shared>, received
                         None => (f.i32("width").unwrap_or(0) as u32, f.i32("height").unwrap_or(0) as u32),
                     };
                     if w > 0 && h > 0 {
-                        if let Some(s) = shared.session() {
-                            s.decoded_size(w, h);
-                        }
-                        shared.listener.void("onVideoSize", "(II)V", &[JValue::Int(w as i32), JValue::Int(h as i32)]);
+                        host.decoded_size(w, h);
+                        host.listener().void("onVideoSize", "(II)V", &[JValue::Int(w as i32), JValue::Int(h as i32)]);
                     }
                 }
                 Ok(DequeuedOutputBufferInfoResult::OutputBuffersChanged) => {}
@@ -385,10 +382,10 @@ fn drain(codec: Arc<Codec>, stop: Arc<AtomicBool>, shared: Arc<Shared>, received
             })
         };
         if c.release_output_buffer(b, true).is_ok()
-            && let (Some(s), Some(rx)) = (shared.session(), rx)
+            && let Some(rx) = rx
         {
             // Rendu demandé maintenant : l'écran le montre au balayage suivant.
-            s.frame_displayed(pts, rx, decoded, latency::now_micros() + shared.frame_period_micros());
+            host.frame_displayed(pts, rx, decoded, latency::now_micros() + host.frame_period_micros());
         }
     }
 }

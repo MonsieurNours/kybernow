@@ -9,7 +9,7 @@
     <string name="home_waking">Réveil de l\'ordinateur…</string>
     <string name="home_app_settings">Réglages de l\'app</string>
     <string name="home_host_settings">Réglages</string>
-    <string name="home_add">Ajouter un ordinateur</string>
+    <string name="home_add">Ajouter un ordinateur ou une console</string>
     <string name="home_join">Rejoindre avec un code</string>
     <string name="home_on_network">Sur le réseau</string>
     <string name="home_your_computers">Vos ordinateurs</string>
@@ -51,14 +51,15 @@
     <string name="audio_stereo">Stéréo</string>
     <string name="audio_bluetooth_delay">En Bluetooth, le son arrive souvent en retard.</string>
     <string name="cancel">Annuler</string>
-    <string name="add_title">Ajouter un ordinateur</string>
+    <string name="add_title">Ajouter un ordinateur ou une console</string>
     <string name="add_tab_network">Réseau</string>
     <string name="add_tab_code">Code</string>
     <string name="add_tab_address">Adresse</string>
     <string name="add_tab_qr">QR code</string>
     <string name="add_network_help">Les ordinateurs équipés de KyberNow Station s\'annoncent sur le réseau local.</string>
     <string name="add_network_searching">Recherche sur le réseau…</string>
-    <string name="add_address_help">L\'adresse et le port de KyberNow Admin (réseau local ou VPN), affichés dans Admin.</string>
+    <string name="add_address_help">L\'adresse d\'un ordinateur, ou d\'une console PlayStation (par un VPN ou depuis un autre réseau).</string>
+    <string name="add_address_port_help">Pour un ordinateur : le port de KyberNow Admin, affiché dans Admin. Une console n\'en a pas besoin.</string>
     <string name="add_address">Adresse</string>
     <string name="add_port">Port d\'Admin</string>
     <string name="add_continue">Continuer</string>
@@ -458,6 +459,163 @@
     <string name="lend_end_eyebrow">KyberNow Share</string>
     <string name="lend_end_left">Vous avez rendu l\'ordinateur.</string>
     <string name="lend_end_stopped">Le prêt s\'est arrêté.</string>
+    <string name="ps_on">Allumée</string>
+    <string name="ps_standby">En veille</string>
+    <string name="ps_play">Jouer</string>
+    <string name="ps_wake_play">Réveiller et jouer</string>
+    <string name="ps_waking">Réveil de la console…</string>
+    <string name="ps_pair">Associer</string>
+    <string name="ps_auto">Auto</string>
+    <string name="ps_custom">Personnalisé</string>
+    <string name="ps_hdr">HDR</string>
+    <string name="ps_hdr_on">HDR, allumé</string>
+    <string name="ps_hdr_off">HDR, éteint</string>
+    <string name="ps_hdr_help">Couleurs plus riches et lumières plus vives, sur cet écran HDR.</string>
+    <string name="ps_hdr_needs_hevc">Le HDR demande le format HEVC ou AV1.</string>
+    <string name="ps_hdr_no_decoder">Cet appareil ne décode pas le HDR.</string>
+    <string name="ps_hdr_ps4">La PS4 n\'envoie que du H.264.</string>
+    <string name="ps_model_line" formatted="true">%1$s · %2$s</string>
+    <string name="ps_tab">PlayStation</string>
+    <string name="ps_accounts_title">Comptes PlayStation Network</string>
+    <string name="ps_no_account">Aucun compte : ajoutez-en un pour associer une console.</string>
+    <string name="ps_no_console_of_account">Aucune console</string>
+    <string name="ps_one_console">1 console</string>
+    <string name="ps_n_consoles" formatted="true">%1$d consoles</string>
+    <string name="ps_rename">Renommer</string>
+    <string name="ps_remove">Retirer</string>
+    <string name="ps_add_account">Ajouter un compte</string>
+    <string name="ps_account_exists">Ce compte est déjà là.</string>
+    <string name="ps_remove_account_none" formatted="true">Retirer le compte %1$s ?</string>
+    <string name="ps_remove_account_one" formatted="true">Retirer le compte %1$s et sa console ?</string>
+    <string name="ps_remove_account_many" formatted="true">Retirer le compte %1$s et ses %2$d consoles ?</string>
+    <string name="ps_remove_account_body">Ses associations sont effacées de cet appareil. Une console associée aussi avec un autre compte reste, avec cet autre compte.</string>
+    <string name="ps_legacy_account">Compte PlayStation</string>
+    <string name="ps_consoles_title">Consoles sur ce réseau</string>
+    <string name="ps_no_console_found">Aucune console trouvée. Allumez-la ou mettez-la en veille, ou saisissez son adresse dans l\'onglet « Adresse ».</string>
+    <string name="ps_paired_with" formatted="true">Associée : %1$s</string>
+    <string name="ps_pair_other">Associer avec un autre compte</string>
+    <string name="ps_console_unreachable">Console injoignable.</string>
+    <string name="ps_which_account">Avec quel compte ?</string>
+    <string name="ps_account_intro">Connectez-vous au compte PlayStation Network à associer. KyberNow lit seulement l\'identifiant et le pseudo du compte, une seule fois.</string>
+    <string name="ps_sign_in">Se connecter à PlayStation Network</string>
+    <string name="ps_by_hand">Saisir l\'identifiant à la main</string>
+    <string name="ps_account_id">Identifiant du compte</string>
+    <string name="ps_account_name">Nom</string>
+    <string name="ps_account_name_help">Pour le reconnaître dans la liste.</string>
+    <string name="ps_continue">Continuer</string>
+    <string name="ps_id_not_read">Identifiant du compte non lu : réessayez, ou saisissez-le à la main.</string>
+    <string name="ps_account_line" formatted="true">Compte : %1$s</string>
+    <string name="ps_code_help">Sur la console : Réglages › Système › Lecture à distance › Associer un appareil. Saisissez le code affiché.</string>
+    <string name="ps_code_field">Code à 8 chiffres</string>
+    <string name="ps_no_answer">La console ne répond pas : gardez l\'écran « Associer un appareil » ouvert.</string>
+    <string name="ps_wrong_code">Code refusé : il change toutes les 5 minutes.</string>
+    <string name="ps_account_refused">La console refuse ce compte.</string>
+    <string name="ps_send_title">Envoyer à un appareil</string>
+    <string name="ps_send_none">Aucun appareil en attente. Sur la télé ou l\'autre appareil : Ajouter une console › Recevoir d\'un autre appareil.</string>
+    <string name="ps_send_code_help" formatted="true">Saisissez le code affiché sur %1$s.</string>
+    <string name="ps_send_code_field">Code à 6 chiffres</string>
+    <string name="ps_send">Envoyer</string>
+    <string name="ps_sent" formatted="true">Comptes et consoles envoyés à %1$s.</string>
+    <string name="ps_send_refused" formatted="true">Code refusé : vérifiez-le sur %1$s.</string>
+    <string name="ps_send_unreachable" formatted="true">%1$s ne répond plus.</string>
+    <string name="ps_receive_title">Recevoir d\'un autre appareil</string>
+    <string name="ps_receive_help">Sur votre Mac, votre PC ou votre téléphone : Ajouter un ordinateur ou une console › PlayStation › Envoyer à un appareil, puis saisissez ce code.</string>
+    <string name="ps_received" formatted="true">%1$s et %2$s reçus.</string>
+    <string name="ps_received_accounts_one">1 compte</string>
+    <string name="ps_received_accounts_many" formatted="true">%1$d comptes</string>
+    <string name="ps_received_consoles_one">1 console</string>
+    <string name="ps_received_consoles_many" formatted="true">%1$d consoles</string>
+    <string name="ps_code_expired">Code expiré.</string>
+    <string name="ps_new_code">Nouveau code</string>
+    <string name="ps_settings_for" formatted="true">Réglages de %1$s</string>
+    <string name="ps_settings_for_elided" formatted="true">Réglages d\'%1$s</string>
+    <string name="ps_section_picture">Image</string>
+    <string name="ps_resolution">Définition</string>
+    <string name="ps_resolution_auto_help">La plus haute que la console accepte : 1080p.</string>
+    <string name="ps_fps">Images par seconde</string>
+    <string name="ps_fps_n" formatted="true">%1$d i/s</string>
+    <string name="ps_bitrate">Débit</string>
+    <string name="ps_bitrate_auto_help">Suit la définition.</string>
+    <string name="ps_mbps" formatted="true">%1$d Mbit/s</string>
+    <string name="ps_format">Format</string>
+    <string name="ps_format_auto_help">H.265 si cet appareil le lit.</string>
+    <string name="ps_format_h264_help">Sans HDR.</string>
+    <string name="ps_section_controls">Commandes</string>
+    <string name="ps_controls_help">Le clavier et la souris tiennent lieu de manette. Une manette branchée les remplace.</string>
+    <string name="ps_rumble">Vibrations</string>
+    <string name="ps_triggers">Gâchettes adaptatives</string>
+    <string name="ps_intensity_help">Pour la DualSense. Les vibrations HD passent par la manette branchée en USB.</string>
+    <string name="ps_android_triggers">Android ne donne pas accès aux gâchettes adaptatives ni aux vibrations HD : la DualSense reçoit des vibrations simples.</string>
+    <string name="ps_percent" formatted="true">%1$d %%</string>
+    <string name="ps_percent_off">Coupé</string>
+    <string name="ps_default_layout">Disposition par défaut</string>
+    <string name="ps_remove_console">Retirer la console</string>
+    <string name="ps_remove_console_confirm" formatted="true">Retirer %1$s de cet appareil ?</string>
+    <string name="ps_connecting">Connexion à la console…</string>
+    <string name="ps_step_wake">Réveil de la console</string>
+    <string name="ps_step_connect">Connexion à la console</string>
+    <string name="ps_cant_display">La console ne peut pas diffuser ce qu\'elle affiche.</string>
+    <string name="ps_rest_mode">Mettre la console en veille</string>
+    <string name="ps_end_in_use">La console est déjà jouée à distance par un autre appareil.</string>
+    <string name="ps_end_not_paired">La console ne reconnaît plus cet appareil : associez-la de nouveau.</string>
+    <string name="ps_end_unreachable">La console ne répond pas.</string>
+    <string name="ps_end_remote">La console a terminé la partie.</string>
+    <string name="ps_mute">Couper le son</string>
+    <string name="ps_unmute">Rétablir le son</string>
+    <string name="ps_stats_asked" formatted="true">%1$d × %2$d · %3$d i/s · %4$s · %5$d Mbit/s demandés</string>
+    <string name="ps_stats_asked_hdr" formatted="true">%1$d × %2$d · %3$d i/s · %4$s · HDR · %5$d Mbit/s demandés</string>
+    <string name="ps_stats_received" formatted="true">Reçu : %1$d i/s · %2$s Mbit/s</string>
+    <string name="ps_stats_losses" formatted="true">Images perdues : %1$d · réparées : %2$d</string>
+    <string name="ps_keyboard_banner">Tapez votre texte · Entrée pour valider · Échap pour annuler</string>
+    <string name="ps_keyboard_banner_touch">Tapez votre texte · ✓ pour valider · ✕ pour annuler</string>
+    <string name="ps_touchpad">Pavé tactile</string>
+    <string name="ps_hint_tv">Le bouton Retour ouvre le menu, comme Options + Create + L1 + R1.</string>
+    <string name="ps_pad_bar">La manette pilote la barre, la console ne reçoit rien ; Rond la ferme.</string>
+    <string name="ps_sign_in_title">PlayStation Network</string>
+    <string name="ps_action_left_stick_up">Stick gauche vers le haut</string>
+    <string name="ps_action_left_stick_down">Stick gauche vers le bas</string>
+    <string name="ps_action_left_stick_left">Stick gauche vers la gauche</string>
+    <string name="ps_action_left_stick_right">Stick gauche vers la droite</string>
+    <string name="ps_action_cross">Croix</string>
+    <string name="ps_action_circle">Rond</string>
+    <string name="ps_action_square">Carré</string>
+    <string name="ps_action_triangle">Triangle</string>
+    <string name="ps_action_l1">L1</string>
+    <string name="ps_action_r1">R1</string>
+    <string name="ps_action_l2">L2</string>
+    <string name="ps_action_r2">R2</string>
+    <string name="ps_action_l3">L3</string>
+    <string name="ps_action_r3">R3</string>
+    <string name="ps_action_dpad_up">Croix directionnelle vers le haut</string>
+    <string name="ps_action_dpad_down">Croix directionnelle vers le bas</string>
+    <string name="ps_action_dpad_left">Croix directionnelle vers la gauche</string>
+    <string name="ps_action_dpad_right">Croix directionnelle vers la droite</string>
+    <string name="ps_action_options">Options</string>
+    <string name="ps_action_create">Create</string>
+    <string name="ps_action_ps">Bouton PS</string>
+    <string name="ps_action_touchpad">Pavé tactile</string>
+    <string name="ps_action_right_stick_up">Stick droit vers le haut</string>
+    <string name="ps_action_right_stick_down">Stick droit vers le bas</string>
+    <string name="ps_action_right_stick_left">Stick droit vers la gauche</string>
+    <string name="ps_action_right_stick_right">Stick droit vers la droite</string>
+    <string name="ps_input_left_click">Clic gauche</string>
+    <string name="ps_input_right_click">Clic droit</string>
+    <string name="ps_input_middle_click">Clic du milieu</string>
+    <string name="ps_input_button4">Bouton 4</string>
+    <string name="ps_input_button5">Bouton 5</string>
+    <string name="ps_input_space">Espace</string>
+    <string name="ps_input_none">Aucune</string>
+    <string name="ps_press_key">Appuyez sur une touche ou cliquez…</string>
+    <string name="ps_press_key_help">Échap annule, Effacement retire la touche.</string>
+    <string name="ps_mouse_stick">La souris tient le stick droit</string>
+    <string name="ps_sensitivity">Sensibilité</string>
+    <string name="ps_curve">Réactivité au départ</string>
+    <string name="ps_curve_soft">Douce</string>
+    <string name="ps_curve_normal">Normale</string>
+    <string name="ps_curve_brisk">Vive</string>
+    <string name="ps_deadzone">Inclinaison minimale</string>
+    <string name="ps_deadzone_help">Pour passer la zone morte des jeux.</string>
+    <string name="ps_invert_y">Inverser l\'axe vertical</string>
     <plurals name="share_guests">
         <item quantity="one">%d invité</item>
         <item quantity="many">%d invités</item>

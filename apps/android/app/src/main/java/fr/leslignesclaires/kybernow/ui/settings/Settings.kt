@@ -98,7 +98,7 @@ private fun Header(title: String, onBack: () -> Unit) {
 }
 
 @Composable
-private fun Page(title: String, onBack: () -> Unit, content: @Composable () -> Unit) {
+internal fun Page(title: String, onBack: () -> Unit, content: @Composable () -> Unit) {
     val s = LocalScale.current
     Box(Modifier.fillMaxSize().background(Kn.ink).statusBarsPadding().navigationBarsPadding()) {
         Column(

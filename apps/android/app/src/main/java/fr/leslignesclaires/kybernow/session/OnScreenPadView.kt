@@ -86,7 +86,7 @@ fun OnScreenPadLayer(ui: SessionUi) {
         val simple = pad.simple
         val geo = remember(w, h, l, t, r, b, ui.padSize, simple, density.density) { PadGeometry.compute(w, h, l, t, r, b, density.density, ui.padSize, simple) }
         SideEffect { pad.geometry = geo }
-        val labels = padLabels(geo.u)
+        val labels = padLabels(geo.u, ui.console != null)
         val opacity = ui.padOpacity / 100f
         Canvas(Modifier.fillMaxSize().pointerInput(pad) { padTouches(pad) }) { drawPad(pad, geo, opacity, labels) }
         // Le petit bouton de disposition, pour les lecteurs d'écran (le toucher passe par le dessin).
@@ -132,10 +132,10 @@ private suspend fun PointerInputScope.padTouches(pad: OnScreenPad) {
 private class PadLabels(val face: Map<Int, TextLayoutResult>, val shoulders: Map<PadControl, TextLayoutResult>)
 
 @Composable
-private fun padLabels(u: Float): PadLabels {
+private fun padLabels(u: Float, playstation: Boolean = false): PadLabels {
     val measurer: TextMeasurer = rememberTextMeasurer()
     val density = LocalDensity.current
-    return remember(u, measurer, density) {
+    return remember(u, measurer, density, playstation) {
         // Le dessin a sa taille propre : la taille du texte d'Android ne la change pas.
         fun style(px: Float, weight: Int) = TextStyle(
             fontFamily = KnFonts.display,
@@ -146,8 +146,9 @@ private fun padLabels(u: Float): PadLabels {
         val big = style(18 * u, 620)
         val small = style(12.5f * u, 600)
         PadLabels(
-            mapOf(Pad.A to "A", Pad.B to "B", Pad.X to "X", Pad.Y to "Y").mapValues { measurer.measure(it.value, big) },
-            mapOf(PadControl.LB to "LB", PadControl.RB to "RB", PadControl.LT to "LT", PadControl.RT to "RT").mapValues { measurer.measure(it.value, small) },
+            // Une console PlayStation : les symboles de la manette PlayStation, aux mêmes places (Croix en bas, Rond à droite).
+            (if (playstation) mapOf(Pad.A to "✕", Pad.B to "○", Pad.X to "□", Pad.Y to "△") else mapOf(Pad.A to "A", Pad.B to "B", Pad.X to "X", Pad.Y to "Y")).mapValues { measurer.measure(it.value, big) },
+            (if (playstation) mapOf(PadControl.LB to "L1", PadControl.RB to "R1", PadControl.LT to "L2", PadControl.RT to "R2") else mapOf(PadControl.LB to "LB", PadControl.RB to "RB", PadControl.LT to "LT", PadControl.RT to "RT")).mapValues { measurer.measure(it.value, small) },
         )
     }
 }

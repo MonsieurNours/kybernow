@@ -45,14 +45,14 @@ pub(crate) fn give(env: &mut Env, s: &str) -> jstring {
     env.new_string(s).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut())
 }
 
-fn window(env: &mut Env, surface: &JObject) -> Option<NativeWindow> {
+pub(crate) fn window(env: &mut Env, surface: &JObject) -> Option<NativeWindow> {
     if surface.is_null() {
         return None;
     }
     unsafe { NativeWindow::from_surface(env.get_raw() as _, surface.as_raw() as _) }
 }
 
-fn jbool(b: bool) -> jboolean {
+pub(crate) fn jbool(b: bool) -> jboolean {
     if b { JNI_TRUE } else { JNI_FALSE }
 }
 

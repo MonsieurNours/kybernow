@@ -26,6 +26,7 @@ use kybernow_core::{Display, WindowHandle};
 
 use crate::audio::AudioSink;
 use crate::jvm::{jstring_or_null, Listener};
+use crate::media::MediaHost;
 use crate::video::{Msg, VideoSink};
 
 /// Ce que partagent la session, ses flux et les appels de Kotlin.
@@ -75,6 +76,76 @@ impl Shared {
 
     pub fn current_input(&self) -> Option<Arc<InputPipeline>> {
         self.input.lock().unwrap().clone()
+    }
+}
+
+impl MediaHost for Shared {
+    fn listener(&self) -> &Listener {
+        &self.listener
+    }
+
+    fn window(&self) -> Option<NativeWindow> {
+        self.window.lock().unwrap().clone()
+    }
+
+    fn video_size(&self) -> (u32, u32) {
+        Shared::video_size(self)
+    }
+
+    fn frame_period_micros(&self) -> i64 {
+        Shared::frame_period_micros(self)
+    }
+
+    fn set_video_tx(&self, tx: Sender<Msg>) {
+        *self.video_tx.lock().unwrap() = Some(tx);
+    }
+
+    fn received_bytes(&self, n: usize) {
+        if let Some(s) = self.session() {
+            s.latency().received_bytes(n);
+        }
+    }
+
+    fn hole(&self) {
+        if let Some(s) = self.session() {
+            s.latency().hole();
+        }
+    }
+
+    fn request_keyframe(&self) {
+        if let Some(s) = self.session() {
+            s.request_keyframe();
+        }
+    }
+
+    fn keyframe_lost(&self) {
+        if let Some(s) = self.session() {
+            s.keyframe_lost();
+        }
+    }
+
+    fn keyframe_recovered(&self) {
+        if let Some(s) = self.session() {
+            s.keyframe_recovered();
+        }
+    }
+
+    fn decoded_size(&self, w: u32, h: u32) {
+        if let Some(s) = self.session() {
+            s.decoded_size(w, h);
+        }
+    }
+
+    fn skipped(&self, pts: u64) {
+        if let Some(s) = self.session() {
+            s.latency().skipped(pts);
+        }
+    }
+
+    fn frame_displayed(&self, pts: u64, received: i64, decoded: i64, shown: i64) {
+        if let Some(s) = self.session() {
+            s.frame_displayed(pts, received, decoded, shown);
+        }
     }
 }
 
@@ -188,11 +259,11 @@ impl Platform for AndroidPlatform {
     }
 
     fn video_handler(&self) -> Arc<dyn PacketHandler> {
-        VideoSink::new(self.0.clone())
+        VideoSink::new(self.0.clone() as Arc<dyn MediaHost>)
     }
 
     fn audio_handler(&self) -> Option<Arc<dyn PacketHandler>> {
-        self.0.has_audio.then(|| AudioSink::new(self.0.clone()) as Arc<dyn PacketHandler>)
+        self.0.has_audio.then(|| AudioSink::new(self.0.clone() as Arc<dyn MediaHost>) as Arc<dyn PacketHandler>)
     }
 
     fn input_pipeline(&self) -> Pipeline {

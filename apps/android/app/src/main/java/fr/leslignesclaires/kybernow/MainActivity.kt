@@ -1,5 +1,14 @@
 package fr.leslignesclaires.kybernow
 
+import androidx.lifecycle.lifecycleScope
+import fr.leslignesclaires.kybernow.playstation.PsConsole
+import fr.leslignesclaires.kybernow.playstation.PsRemote
+import fr.leslignesclaires.kybernow.playstation.PsStatus
+import fr.leslignesclaires.kybernow.session.PsSessionActivity
+import fr.leslignesclaires.kybernow.ui.playstation.PsHomeActions
+import fr.leslignesclaires.kybernow.ui.settings.ConsoleSettingsScreen
+import kotlinx.coroutines.launch
+
 import android.content.Intent
 import android.os.Bundle
 import android.view.KeyEvent
@@ -44,7 +53,9 @@ sealed class Route {
      * « Ajouter un ordinateur » ; [invite] : un lien d'invitation `kybernow://borrow` (prêt de l'ordinateur, compte d'ami) ;
      * [inviteUnreadable] : un lien `kybernow://borrow` illisible.
      */
-    data class Add(val target: Target? = null, val invite: LendInvite? = null, val inviteUnreadable: Boolean = false) : Route()
+    data class Add(val target: Target? = null, val invite: LendInvite? = null, val inviteUnreadable: Boolean = false, val pairConsole: String? = null) : Route()
+    /** « Réglages de {nom} » d'une console PlayStation. */
+    data class ConsoleSettings(val id: String) : Route()
     data class HostSettings(val id: String) : Route()
     data object AppSettings : Route()
     data object Gamepads : Route()
@@ -83,6 +94,14 @@ class MainActivity : AppCompatActivity() {
                             cancelBorrow = { b -> model.cancelBorrow(b.id) },
                             removeBorrowed = { b -> model.removeBorrowed(b.id) },
                             takeBack = { h, now -> model.takeBack(h.id, now) },
+                            ps = PsHomeActions(
+                                play = ::playConsole,
+                                pair = { f -> route = Route.Add(pairConsole = f.hostId) },
+                                pairConsole = { c -> route = Route.Add(pairConsole = c.hostId) },
+                                settings = { c -> route = Route.ConsoleSettings(c.id) },
+                                choose = { c, a -> app.ps.store.update(c.id) { it.copy(account = a.id) } },
+                                setHdr = { c, on -> app.ps.store.update(c.id) { it.copy(hdr = on) } },
+                            ),
                         ),
                     )
                     is Route.Add -> AddHostScreen(
@@ -91,7 +110,10 @@ class MainActivity : AppCompatActivity() {
                         invite = r.invite,
                         inviteUnreadable = r.inviteUnreadable,
                         onFriendAdded = { c -> model.select(c.id); route = Route.Home },
+                        pairConsole = r.pairConsole,
+                        onConsolePaired = { c -> model.select(c.id); route = Route.Home },
                     )
+                    is Route.ConsoleSettings -> ConsoleSettingsScreen(r.id, onBack = { route = Route.Home }, onRemoved = { route = Route.Home })
                     is Route.Join -> JoinScreen(r.link, onBack = { route = Route.Home }, onJoined = ::joined, onBorrowed = ::borrowed)
                     is Route.HostSettings -> HostSettingsScreen(model, r.id, onBack = { route = Route.Home }, onRemoved = { route = Route.Home })
                     Route.AppSettings -> AppSettingsScreen(onBack = { route = Route.Home }, onGamepads = { route = Route.Gamepads })
@@ -185,6 +207,35 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun wake(h: Host) = model.wake(h.id)
+
+    /**
+     * « Jouer » une console (docs/link-ui.md, « Consoles PlayStation ») : allumée, la partie s'ouvre ; en veille, elle
+     * est réveillée d'abord (« Réveil de la console… ») ; hors de chez vous, elle est jointe par une Station qui la voit
+     * (« Connexion à la console… »), réveillée s'il le faut, puis la partie passe par le tunnel du relais.
+     */
+    private fun playConsole(c: PsConsole) {
+        val ps = KyberNowApp.instance.ps
+        lifecycleScope.launch {
+            var address = c.address
+            var remote: PsRemote? = null
+            when (ps.status(c)) {
+                PsStatus.STANDBY -> if (!ps.wake(c)) return@launch
+                PsStatus.AWAY -> {
+                    remote = ps.reach(c) ?: return@launch
+                    address = remote.address
+                }
+                PsStatus.OFFLINE -> return@launch
+                else -> ps.live(c.hostId)?.let { address = it.address }
+            }
+            if (!lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                remote?.close()
+                return@launch
+            }
+            val i = Intent(this@MainActivity, PsSessionActivity::class.java).putExtra(PsSessionActivity.EXTRA_CONSOLE, c.id).putExtra(PsSessionActivity.EXTRA_ADDRESS, address)
+            remote?.let { KyberNowApp.instance.handOverRemote(it); i.putExtra(PsSessionActivity.EXTRA_REMOTE, true) }
+            startActivity(i)
+        }
+    }
 
     // L'écran de test des manettes lit tout ce qu'elles envoient.
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {

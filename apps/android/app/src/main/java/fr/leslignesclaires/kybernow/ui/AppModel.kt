@@ -244,6 +244,9 @@ class AppModel(app: Application) : AndroidViewModel(app) {
             }
         }
         _status.value = _status.value + (h.id to st)
+        // Consoles PlayStation : la Station joignable par le relais seulement, ou ses consoles quand elle répond sur le réseau.
+        kn.ps.setAway(h.id, st.away)
+        if (reply is Reply.Ok) kn.ps.stationReachable(h, password)
         // Un nouveau sondage efface le refus d'un essai précédent (l'état peut avoir changé).
         if (_refusals.value.containsKey(h.id) && h.id !in _connecting.value) _refusals.value = _refusals.value - h.id
         if (reply is Reply.Ok) {

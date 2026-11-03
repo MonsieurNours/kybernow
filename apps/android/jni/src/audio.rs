@@ -21,7 +21,7 @@ use ndk::audio::{
 use kybernow_core::audio::{AudioEngine, MonotonicClock, OutputOrder};
 use kybernow_core::media::{Packet, PacketHandler};
 
-use crate::session::Shared;
+use crate::media::MediaHost;
 
 const RATE: i32 = 48_000;
 
@@ -32,18 +32,19 @@ pub struct AudioSink {
     engine: Arc<AudioEngine>,
     stream: Arc<Mutex<Option<Stream>>>,
     closed: Arc<AtomicBool>,
-    shared: Arc<Shared>,
+    host: Arc<dyn MediaHost>,
 }
 
 impl AudioSink {
-    pub fn new(shared: Arc<Shared>) -> Arc<Self> {
+    pub fn new(host: Arc<dyn MediaHost>) -> Arc<Self> {
         // Ordre des voies d'Android : celui de Windows (G, D, C, LFE, arrière G, D, côtés G, D).
         let engine = Arc::new(AudioEngine::with_order(Arc::new(MonotonicClock::new()), OutputOrder::Windows));
-        Arc::new(Self { engine, stream: Arc::new(Mutex::new(None)), closed: Arc::new(AtomicBool::new(false)), shared })
+        host.audio_engine(&engine);
+        Arc::new(Self { engine, stream: Arc::new(Mutex::new(None)), closed: Arc::new(AtomicBool::new(false)), host })
     }
 
     fn open_later(&self) {
-        let (engine, stream, closed, shared) = (self.engine.clone(), self.stream.clone(), self.closed.clone(), self.shared.clone());
+        let (engine, stream, closed, shared) = (self.engine.clone(), self.stream.clone(), self.closed.clone(), self.host.clone());
         let _ = std::thread::Builder::new().name("kybernow-son".into()).spawn(move || open(engine, stream, closed, shared));
     }
 }
@@ -76,7 +77,7 @@ impl Drop for AudioSink {
     }
 }
 
-fn open(engine: Arc<AudioEngine>, slot: Arc<Mutex<Option<Stream>>>, closed: Arc<AtomicBool>, shared: Arc<Shared>) {
+fn open(engine: Arc<AudioEngine>, slot: Arc<Mutex<Option<Stream>>>, closed: Arc<AtomicBool>, shared: Arc<dyn MediaHost>) {
     if closed.load(Ordering::Acquire) {
         return;
     }
@@ -116,7 +117,7 @@ fn open(engine: Arc<AudioEngine>, slot: Arc<Mutex<Option<Stream>>>, closed: Arc<
         stream.sharing_mode(),
         stream.performance_mode()
     );
-    shared.listener.void("onAudioOutput", "(ID)V", &[JValue::Int(channels), JValue::Double(buffer_ms)]);
+    shared.listener().void("onAudioOutput", "(ID)V", &[JValue::Int(channels), JValue::Double(buffer_ms)]);
     *slot.lock().unwrap() = Some(Stream(stream));
 }
 
@@ -124,7 +125,7 @@ fn build(
     engine: Arc<AudioEngine>,
     slot: Arc<Mutex<Option<Stream>>>,
     closed: Arc<AtomicBool>,
-    shared: Arc<Shared>,
+    shared: Arc<dyn MediaHost>,
     channels: i32,
     sharing: AudioSharingMode,
 ) -> ndk::audio::Result<AudioStream> {

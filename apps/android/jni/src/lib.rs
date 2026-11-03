@@ -16,6 +16,10 @@ mod jvm;
 #[cfg(target_os = "android")]
 mod lend;
 #[cfg(target_os = "android")]
+mod media;
+#[cfg(target_os = "android")]
+mod playstation;
+#[cfg(target_os = "android")]
 mod relay;
 #[cfg(target_os = "android")]
 mod session;
