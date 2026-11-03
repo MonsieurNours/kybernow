@@ -71,6 +71,14 @@ final class HostImagery: ObservableObject {
         pictures[host.id] = Picture(image: NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height)), date: Date(), source: .lastSession)
     }
 
+    #if DEBUG
+    /// Démonstration (`picture:<n>:last|preview`) : une image posée comme une
+    /// fin de session ou un aperçu, en mémoire seulement.
+    func demoSet(_ cg: CGImage, for host: Host, source: Source) {
+        pictures[host.id] = Picture(image: NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height)), date: Date(), source: source)
+    }
+    #endif
+
     /// « Garder la dernière image » désactivé : on l'efface tout de suite.
     func forgetLast(_ host: Host) {
         try? FileManager.default.removeItem(at: url(host.id, .lastSession))
@@ -143,6 +151,14 @@ struct Signature: View {
 // MARK: - Fond de l'accueil
 
 /// Image d'un ordinateur en plein cadre : dernière image, aperçu ou signature.
+///
+/// L'image, son zoom très lent (40 s, comme une image qui respire), son
+/// arrivée (fondu pour la dernière image, balayage pour un aperçu) et sa mise
+/// en gris hors ligne sont des animations de Core Animation (`BackdropLayers`),
+/// jouées par le serveur d'affichage : une animation SwiftUI sans fin fait
+/// recalculer toute la fenêtre à chaque image (50 à 70 % d'un cœur en
+/// démonstration, et un accueil figé au retour d'une session quand le fondu
+/// de la dernière image héritait du zoom sans fin).
 struct HostBackdrop: View {
     let host: Host
     let picture: HostImagery.Picture?
@@ -150,85 +166,236 @@ struct HostBackdrop: View {
     /// Zoom très lent (40 s), comme une image qui respire.
     var drift = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var zoom = false
 
     var body: some View {
-        // L'image remplit le cadre sans jamais l'agrandir : la mise en page
-        // de l'écran ne dépend pas de la taille de l'image.
-        GeometryReader { geo in
-            ZStack {
-                Signature(seed: host.consoleFingerprint ?? host.name)
-                if let picture {
-                    Image(nsImage: picture.image)
-                        .resizable()
-                        .interpolation(.high)
-                        .scaledToFill()
-                        .frame(width: geo.size.width, height: geo.size.height)
-                        .clipped()
-                        .id(picture.date)
-                        .transition(picture.source == .preview ? .diagonalReveal : .opacity)
-                }
-            }
-            .frame(width: geo.size.width, height: geo.size.height)
+        ZStack {
+            Signature(seed: host.consoleFingerprint ?? host.name)
+                .saturation(online == false ? 0 : 1)
+                .brightness(online == false ? -0.3 : 0)
+                .animation(.easeInOut(duration: 0.8), value: online)
+            BackdropLayers(picture: picture, drift: drift && !reduceMotion, dimmed: online == false)
         }
-        .scaleEffect(zoom ? 1.05 : 1, anchor: UnitPoint(x: 0.65, y: 0.6))
-        .saturation(online == false ? 0 : 1)
-        .brightness(online == false ? -0.3 : 0)
         .clipped()
-        .animation(.easeInOut(duration: 1.4), value: picture?.date)
-        .animation(.easeInOut(duration: 0.8), value: online)
-        .onAppear {
-            guard drift, !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: 40).repeatForever(autoreverses: true)) { zoom = true }
-        }
         .accessibilityHidden(true)
     }
 }
 
-/// Arrivée d'une image en balayage à 45°, du haut-gauche vers le bas-droite
-/// (le sens du signal), avec un front de néon.
-struct DiagonalReveal: ViewModifier, Animatable {
-    var progress: CGFloat
-    var animatableData: CGFloat {
-        get { progress }
-        set { progress = newValue }
-    }
+/// Les couches de l'image de fond (voir `HostBackdrop`).
+private struct BackdropLayers: NSViewRepresentable {
+    let picture: HostImagery.Picture?
+    let drift: Bool
+    let dimmed: Bool
 
-    func body(content: Content) -> some View {
-        content
-            .mask {
-                GeometryReader { geo in
-                    let c = progress * (geo.size.width + geo.size.height) * 1.05
-                    Path { p in
-                        p.move(to: .zero)
-                        p.addLine(to: CGPoint(x: c, y: 0))
-                        p.addLine(to: CGPoint(x: 0, y: c))
-                        p.closeSubpath()
-                    }
-                }
-            }
-            .overlay {
-                GeometryReader { geo in
-                    let c = progress * (geo.size.width + geo.size.height) * 1.05
-                    Path { p in
-                        p.move(to: CGPoint(x: c, y: 0))
-                        p.addLine(to: CGPoint(x: 0, y: c))
-                    }
-                    .stroke(Theme.neonCore, lineWidth: 3)
-                    .shadow(color: Theme.accent, radius: 6)
-                    .shadow(color: Theme.accentFill, radius: 22)
-                    .opacity(progress > 0.02 && progress < 0.98 ? 1 : 0)
-                }
-                .allowsHitTesting(false)
-            }
+    func makeNSView(context: Context) -> BackdropView { BackdropView() }
+
+    func updateNSView(_ view: BackdropView, context: Context) {
+        view.show(picture)
+        view.setDrift(drift)
+        view.setDimmed(dimmed)
     }
 }
 
-extension AnyTransition {
-    static var diagonalReveal: AnyTransition {
-        .asymmetric(
-            insertion: .modifier(active: DiagonalReveal(progress: 0), identity: DiagonalReveal(progress: 1)),
-            removal: .opacity
-        )
+/// Vue qui porte ses propres couches : une scène qui zoome (40 s, aller et
+/// retour, ancrée aux deux tiers), l'image remplissant le cadre sans le
+/// dépasser, et sa version grise et assombrie par-dessus, montrée hors ligne
+/// (calculée une fois par image).
+final class BackdropView: NSView {
+    private let stage = CALayer()
+    private var current: CALayer?
+    private var shown: (date: Date, image: NSImage)?
+    /// Première mise à jour : l'image est posée sans animation.
+    private var updated = false
+    private var drifting = false
+    private var dimmed = false
+    private static let anchor = CGPoint(x: 0.65, y: 0.4) // 0,6 depuis le haut, la couche n'est pas retournée
+
+    init() {
+        super.init(frame: .zero)
+        layer = CALayer()
+        wantsLayer = true
+        layer?.masksToBounds = true
+        stage.anchorPoint = Self.anchor
+        layer?.addSublayer(stage)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) n'est pas pris en charge") }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func layout() {
+        super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        stage.bounds = bounds
+        stage.position = CGPoint(x: bounds.width * Self.anchor.x, y: bounds.height * Self.anchor.y)
+        for layer in stage.sublayers ?? [] {
+            layer.frame = stage.bounds
+            layer.sublayers?.forEach { $0.frame = layer.bounds }
+        }
+        CATransaction.commit()
+    }
+
+    /// Nouvelle image (autre date) : fondu de 1,4 s pour une dernière image,
+    /// balayage à 45° pour un aperçu ; aucune au premier affichage.
+    func show(_ picture: HostImagery.Picture?) {
+        let first = !updated
+        updated = true
+        guard first || picture?.date != shown?.date || picture?.image !== shown?.image else { return }
+        shown = picture.map { ($0.date, $0.image) }
+        let old = current
+        guard let picture else {
+            current = nil
+            fadeOut(old)
+            return
+        }
+        let layer = CALayer()
+        layer.contents = picture.image
+        layer.contentsGravity = .resizeAspectFill
+        layer.masksToBounds = true
+        layer.frame = stage.bounds
+        let gray = CALayer()
+        gray.contents = Self.dimmed(picture.image)
+        gray.contentsGravity = .resizeAspectFill
+        gray.frame = layer.bounds
+        gray.opacity = dimmed ? 1 : 0
+        layer.addSublayer(gray)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        stage.addSublayer(layer)
+        CATransaction.commit()
+        current = layer
+        guard !first, window != nil else { old?.removeFromSuperlayer(); return }
+        if picture.source == .preview {
+            reveal(layer, over: old)
+        } else {
+            let fade = CABasicAnimation(keyPath: "opacity")
+            fade.fromValue = 0
+            fade.toValue = 1
+            fade.duration = 1.4
+            fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            CATransaction.begin()
+            CATransaction.setCompletionBlock { old?.removeFromSuperlayer() }
+            layer.add(fade, forKey: "arrivée")
+            CATransaction.commit()
+        }
+    }
+
+    /// Arrivée d'un aperçu en balayage à 45°, du haut-gauche vers le
+    /// bas-droite (le sens du signal), avec un front de néon.
+    private func reveal(_ layer: CALayer, over old: CALayer?) {
+        let size = stage.bounds.size
+        let reach = (size.width + size.height) * 1.05
+        // Couche non retournée : le haut est à y = hauteur.
+        func triangle(_ c: CGFloat) -> CGPath {
+            let p = CGMutablePath()
+            p.move(to: CGPoint(x: 0, y: size.height))
+            p.addLine(to: CGPoint(x: c, y: size.height))
+            p.addLine(to: CGPoint(x: 0, y: size.height - c))
+            p.closeSubpath()
+            return p
+        }
+        func front(_ c: CGFloat) -> CGPath {
+            let p = CGMutablePath()
+            p.move(to: CGPoint(x: c, y: size.height))
+            p.addLine(to: CGPoint(x: 0, y: size.height - c))
+            return p
+        }
+        let mask = CAShapeLayer()
+        mask.frame = stage.bounds
+        mask.path = triangle(reach)
+        layer.mask = mask
+        let line = CAShapeLayer()
+        line.frame = stage.bounds
+        line.path = front(reach)
+        line.strokeColor = NSColor(Theme.neonCore).cgColor
+        line.fillColor = nil
+        line.lineWidth = 3
+        line.shadowColor = NSColor(Theme.accent).cgColor
+        line.shadowRadius = 10
+        line.shadowOpacity = 1
+        line.shadowOffset = .zero
+        line.opacity = 0
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        stage.addSublayer(line)
+        CATransaction.commit()
+
+        let timing = CAMediaTimingFunction(name: .easeInEaseOut)
+        func sweep(_ from: CGPath, _ to: CGPath) -> CABasicAnimation {
+            let a = CABasicAnimation(keyPath: "path")
+            a.fromValue = from
+            a.toValue = to
+            a.duration = 1.4
+            a.timingFunction = timing
+            return a
+        }
+        let glow = CAKeyframeAnimation(keyPath: "opacity")
+        glow.values = [0, 1, 1, 0]
+        glow.keyTimes = [0, 0.02, 0.96, 1]
+        glow.duration = 1.4
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { [weak layer] in
+            layer?.mask = nil
+            line.removeFromSuperlayer()
+            old?.removeFromSuperlayer()
+        }
+        mask.add(sweep(triangle(0), triangle(reach)), forKey: "balayage")
+        line.add(sweep(front(0), front(reach)), forKey: "balayage")
+        line.add(glow, forKey: "lueur")
+        CATransaction.commit()
+    }
+
+    private func fadeOut(_ layer: CALayer?) {
+        guard let layer else { return }
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(window == nil ? 0 : 1.4)
+        CATransaction.setCompletionBlock { layer.removeFromSuperlayer() }
+        layer.opacity = 0
+        CATransaction.commit()
+    }
+
+    /// Zoom très lent, joué par le serveur d'affichage (rien à faire pour l'app).
+    func setDrift(_ on: Bool) {
+        guard on != drifting else { return }
+        drifting = on
+        if on {
+            let zoom = CABasicAnimation(keyPath: "transform.scale")
+            zoom.fromValue = 1
+            zoom.toValue = 1.05
+            zoom.duration = 40
+            zoom.autoreverses = true
+            zoom.repeatCount = .infinity
+            zoom.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            zoom.isRemovedOnCompletion = false
+            stage.add(zoom, forKey: "dérive")
+        } else {
+            stage.removeAnimation(forKey: "dérive")
+        }
+    }
+
+    /// Hors ligne : l'image passe en gris et s'assombrit (0,8 s).
+    func setDimmed(_ on: Bool) {
+        guard on != dimmed else { return }
+        dimmed = on
+        guard let gray = current?.sublayers?.first else { return }
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(window == nil ? 0 : 0.8)
+        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeInEaseOut))
+        gray.opacity = on ? 1 : 0
+        CATransaction.commit()
+    }
+
+    /// L'image sans couleur et assombrie de 0,3 (comme `saturation(0)` et
+    /// `brightness(-0.3)` de SwiftUI).
+    private static let context = CIContext()
+    private static func dimmed(_ image: NSImage) -> CGImage? {
+        guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil),
+              let filter = CIFilter(name: "CIColorControls") else { return nil }
+        let input = CIImage(cgImage: cg)
+        filter.setValue(input, forKey: kCIInputImageKey)
+        filter.setValue(0.0, forKey: kCIInputSaturationKey)
+        filter.setValue(-0.3, forKey: kCIInputBrightnessKey)
+        guard let output = filter.outputImage else { return nil }
+        return context.createCGImage(output, from: input.extent)
     }
 }
