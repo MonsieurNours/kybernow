@@ -10,6 +10,7 @@
 //! de son flux, et partage l'appareil Direct3D de la session (`gpu.rs`) avec
 //! ceux des autres écrans ; rien n'attend ailleurs.
 
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
@@ -30,7 +31,8 @@ use crate::render::Renderer;
 pub enum VideoMsg {
     Codec(u32),
     Config(Vec<u8>),
-    Frame { data: Vec<u8>, pts: u64, key: bool },
+    /// `received` : l'image complète vient d'arriver (µs, [`now_micros`]).
+    Frame { data: Vec<u8>, pts: u64, key: bool, received: i64 },
     /// La fenêtre a changé de taille : le fil se réveille pour redessiner
     /// l'image en place tout de suite (bureau immobile, aucune image ne vient).
     Resized,
@@ -46,6 +48,41 @@ pub struct Link {
     /// Format demandé pour la session (`media::FOURCC_*`), suivi en cas de
     /// changement de profil : il sert si le paquet de format se perd.
     pub codec: AtomicU32,
+    /// Temps de décodage et d'affichage de ce PC sur l'écran principal (ms) :
+    /// le trajet d'une image les garde quand l'ordinateur n'envoie pas ses
+    /// mesures (docs/link-ui.md « Statistiques »).
+    local: Mutex<[Vec<f64>; 2]>,
+}
+
+/// Au-delà, plus rien ne s'ajoute avant la seconde suivante (aucune session
+/// ne montre autant d'images en une seconde).
+const LOCAL_MAX: usize = 1000;
+
+impl Link {
+    fn push_local(&self, decode_ms: f64, display_ms: f64) {
+        let mut l = self.local.lock().unwrap();
+        if l[0].len() < LOCAL_MAX {
+            l[0].push(decode_ms.max(0.0));
+            l[1].push(display_ms.max(0.0));
+        }
+    }
+
+    /// Médianes de décodage et d'affichage depuis l'appel précédent (une fois
+    /// par seconde) ; `None` sans image montrée.
+    pub fn local_second(&self) -> (Option<f64>, Option<f64>) {
+        let mut l = self.local.lock().unwrap();
+        let median = |v: &mut Vec<f64>| {
+            if v.is_empty() {
+                return None;
+            }
+            v.sort_by(|a, b| a.total_cmp(b));
+            let m = v[v.len() / 2];
+            v.clear();
+            Some(m)
+        };
+        let [decode, display] = &mut *l;
+        (median(decode), median(display))
+    }
 }
 
 /// État partagé entre la fenêtre d'un écran, son fil de l'image et la session.
@@ -161,6 +198,7 @@ impl PacketHandler for VideoHandler {
                 data: data.to_vec(),
                 pts,
                 key: is_key,
+                received: now_micros(),
             },
             Packet::Hole { .. } => return,
         };
@@ -325,6 +363,9 @@ fn run(
     shared.link.codec.store(opts.codec, Ordering::Relaxed);
     let mut last_wanted = opts.codec;
     let mut codec_announced = false;
+    // Arrivée des dernières images (pts, µs) : le décodeur peut rendre une
+    // image un peu après d'autres arrivées.
+    let mut arrivals: VecDeque<(u64, i64)> = VecDeque::with_capacity(32);
     let mut keyframe = |shared: &Shared, force: bool| {
         if force || last_request.elapsed() >= Duration::from_millis(300) {
             last_request = Instant::now();
@@ -402,7 +443,11 @@ fn run(
                 config = if fourcc == FOURCC_AV1 && d.len() > 4 && d[0] == 0x81 { d[4..].to_vec() } else { d };
                 send_config = true;
             }
-            VideoMsg::Frame { data, pts, key } => {
+            VideoMsg::Frame { data, pts, key, received } => {
+                if arrivals.len() >= 32 {
+                    arrivals.pop_front();
+                }
+                arrivals.push_back((pts, received));
                 // D'autres images attendent derrière celle-ci : on la décode
                 // sans la montrer.
                 let newer_waiting = handler.pending.fetch_sub(1, Ordering::Relaxed) > 1;
@@ -467,6 +512,7 @@ fn run(
                 while let Some(r) = dec.receive() {
                     match r {
                         Ok(frame) => {
+                            let decoded = now_micros();
                             if is_corrupt(frame) {
                                 keyframe(&shared, false);
                             }
@@ -476,11 +522,16 @@ fn run(
                             }
                             match renderer.draw(frame, shared.edge_hint.load(Ordering::Relaxed)) {
                                 Ok(()) => {
-                                    // Les mesures sont celles de l'écran principal.
+                                    // Les mesures sont celles de l'écran principal :
+                                    // arrivée, décodage et affichage de l'image, pour
+                                    // le trajet d'une image.
                                     if shared.is_primary() {
+                                        let at = now_micros();
+                                        let received = arrivals.iter().rev().find(|(p, _)| *p == pts).map_or(decoded, |(_, r)| *r);
                                         if let Some(l) = shared.link.latency.get() {
-                                            l.displayed(pts, now_micros());
+                                            l.frame_displayed(pts, received, decoded, at);
                                         }
+                                        shared.link.push_local((decoded - received) as f64 / 1000.0, (at - decoded) as f64 / 1000.0);
                                     }
                                     shared.frames.fetch_add(1, Ordering::Relaxed);
                                     if !shared.first_image.swap(true, Ordering::Relaxed) {
