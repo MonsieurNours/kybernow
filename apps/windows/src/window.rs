@@ -1206,6 +1206,35 @@ pub fn create_screen(app: &Arc<App>, key: &str, primary: bool, at: Option<(i32, 
     Ok(win)
 }
 
+/// Consoles PlayStation (`ps_session.rs`) : souris capturée, les
+/// déplacements bruts vont à la fenêtre de la partie, sans prendre la place
+/// gardée pour les sessions d'ordinateur.
+pub fn raw_input_to(hwnd: isize) {
+    let rid = RAWINPUTDEVICE { usUsagePage: 0x01, usUsage: 0x02, dwFlags: RAWINPUTDEVICE_FLAGS(0), hwndTarget: HWND(hwnd as *mut _) };
+    unsafe {
+        let _ = RegisterRawInputDevices(&[rid], std::mem::size_of::<RAWINPUTDEVICE>() as u32);
+    }
+}
+
+/// Souris rendue par la partie sur console : les déplacements bruts reviennent
+/// à la fenêtre de session d'ordinateur qui les avait, sinon à personne.
+pub fn raw_input_back() {
+    let target = RAW_TARGET.load(Ordering::Relaxed);
+    let rid = if target != 0 {
+        RAWINPUTDEVICE { usUsagePage: 0x01, usUsage: 0x02, dwFlags: RAWINPUTDEVICE_FLAGS(0), hwndTarget: HWND(target as *mut _) }
+    } else {
+        RAWINPUTDEVICE { usUsagePage: 0x01, usUsage: 0x02, dwFlags: RIDEV_REMOVE, hwndTarget: HWND(std::ptr::null_mut()) }
+    };
+    unsafe {
+        let _ = RegisterRawInputDevices(&[rid], std::mem::size_of::<RAWINPUTDEVICE>() as u32);
+    }
+}
+
+/// Largeur de la barre de session en points (zone du bord haut où le pointeur l'ouvre).
+pub fn bar_width_points() -> u32 {
+    BAR_WIDTH.load(Ordering::Relaxed)
+}
+
 /// Déplacements bruts de la souris (mode jeu) vers cette fenêtre (sur son fil).
 fn register_raw_input(hwnd: HWND) {
     let rid = RAWINPUTDEVICE { usUsagePage: 0x01, usUsage: 0x02, dwFlags: RAWINPUTDEVICE_FLAGS(0), hwndTarget: hwnd };

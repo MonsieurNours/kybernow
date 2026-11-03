@@ -5,6 +5,8 @@
   avant de reprendre), puis les deux moitiés s'écartent quand la fenêtre de
   la session se montre : l'image seule, sans chiffre ni capsule par-dessus.
   Au retour, elles se referment. Comme l'app Mac (Passage.swift).
+  Partie sur une console PlayStation : « Réveil de la console » (seulement quand elle dort),
+  « Connexion à la console », « Premières images » ; le titre est son nom, le fond sa signature.
 -->
 <script lang="ts">
   import Icon from './lib/Icon.svelte'
@@ -22,6 +24,8 @@
     guest = false,
     borrow = false,
     cancellable = true,
+    ps = false,
+    wakes = false,
     oncancel,
   }: {
     /** L'ordinateur ; pour un invité (KyberNow Share), « Invité sur {nom} » et la teinte de l'ordinateur qui partage. */
@@ -39,6 +43,10 @@
     borrow?: boolean
     /** Faux pendant l'emprunt lui-même (la Station prépare l'ordinateur) : rien à annuler encore. */
     cancellable?: boolean
+    /** Partie sur une console PlayStation : ses étapes à elle, pas de conseil sur le journal d'Admin. */
+    ps?: boolean
+    /** La console dort : « Réveil de la console » en première étape (phase `preparing`). */
+    wakes?: boolean
     oncancel: () => void
   } = $props()
 
@@ -53,11 +61,15 @@
 
   const order: Phase['phase'][] = ['preparing', 'connecting', 'first_images', 'streaming']
   const at = $derived(order.indexOf(phase))
-  const steps = $derived([
-    { label: borrow ? t('lend.preparing') : many ? t('passage.preparing_many') : t('passage.preparing'), from: 0 },
-    { label: t('passage.connecting'), from: 1 },
-    { label: t('passage.first_images'), from: 2 },
-  ])
+  const steps = $derived(
+    ps
+      ? [...(wakes ? [{ label: t('ps.step_waking'), from: 0 }] : []), { label: t('ps.step_connecting'), from: 1 }, { label: t('passage.first_images'), from: 2 }]
+      : [
+          { label: borrow ? t('lend.preparing') : many ? t('passage.preparing_many') : t('passage.preparing'), from: 0 },
+          { label: t('passage.connecting'), from: 1 },
+          { label: t('passage.first_images'), from: 2 },
+        ],
+  )
 
   const background = $derived(
     computer.preview
@@ -85,7 +97,7 @@
       {/if}
       {#if cancellable}<button onclick={oncancel}>{t('common.cancel')}</button>{/if}
     </div>
-    {#if slow && !guest && !borrow}
+    {#if slow && !guest && !borrow && !ps}
       <p class="slow" role="status">
         {t('passage.slow', { name: computer.name })}
       </p>

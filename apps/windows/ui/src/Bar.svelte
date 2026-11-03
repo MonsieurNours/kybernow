@@ -54,6 +54,15 @@
   la souris et les touches, et « Rendre l'ordinateur » (confirmation : « Rendre l'ordinateur à
   {hôte} ? ») ; ni profil de la Station, ni partage, ni « Ordinateurs ». Le préavis de 2 minutes
   s'affiche comme un avis bref.
+
+  Consoles PlayStation (docs/link-ui.md « Consoles PlayStation », « Barre de la partie ») : la même
+  barre, avec ce qui a du sens pour une console (`console` dans `bar-shown`, événement `ps-bar`) : son
+  nom, les statistiques (un clic ouvre les mesures de la partie : demandé, reçu, pertes, chemin), « Par
+  le relais », le son, la souris (absente avec une manette branchée), « Réglages de {nom} », le plein
+  écran, « Mettre la console en veille » et « Se déconnecter ». Ni profil, ni touches, ni partage, ni
+  prêt, ni « Ordinateurs ». Ouverte par la manette (Options + Create + L1 + R1), la manette la pilote
+  (`ps-bar-nav` : un anneau passe d'un élément à l'autre, Croix choisit, Rond referme) et un bandeau
+  le dit sous la barre.
 -->
 <script lang="ts">
   import { onMount, tick } from 'svelte'
@@ -61,6 +70,8 @@
   import FramePath from './lib/FramePath.svelte'
   import Mark from './lib/Mark.svelte'
   import Segmented from './lib/Segmented.svelte'
+  import type { PsBar, PsBarNav, PsStats } from './lib/api'
+  import { psStatsLines } from './lib/api'
   import type { AppInfo, BarComputer, BorrowBar, BorrowEvent, GuestBar, KeepSound, LendPanel, LendRequest, LendStateEvent, RouteEvent, RouteView, SessionStats, Share, ShareGuest, ShareImageEvent, ShareQr, ShareQuality, ShareRequestEvent, ShareRole, ShareRoleEvent, ShareStateEvent, Stats } from './lib/api'
   import { invoke, leftText, lendDurations, listen, localLabel, ms, roleKbm, roleOf, rolePads, rolePlays, shareQualities, sinceText } from './lib/api'
   import { setLang, t } from './lib/i18n/index.svelte'
@@ -154,7 +165,38 @@
     route?: RouteView | null
     lend?: LendPanel | null
     borrow?: BorrowBar | null
+    /** Partie sur une console PlayStation : la barre de la console. */
+    console?: PsBar | null
   }
+
+  /** Partie sur une console : la barre de la console (nulle pour un ordinateur). */
+  let psBar = $state<PsBar | null>(null)
+  /** Les mesures de la partie servie ; celles de chaque partie, gardées même barre cachée. */
+  let psStats = $state<PsStats | null>(null)
+  const psSeen = new Map<string, PsStats>()
+  /** Barre pilotée par la manette : l'élément sous l'anneau. */
+  let padFocus = $state(0)
+  type PsItem = 'stats' | 'sound' | 'mouse' | 'settings' | 'fullscreen' | 'rest' | 'disconnect'
+  /** Les éléments de la barre d'une console, dans l'ordre (la souris est absente avec une manette branchée). */
+  const psItems = $derived<PsItem[]>(psBar ? ['stats', 'sound', ...(psBar.pad ? [] : ['mouse' as const]), 'settings', 'fullscreen', 'rest', 'disconnect'] : [])
+  const ringed = (item: PsItem) => !!psBar?.pad_mode && psItems[padFocus] === item
+
+  /** Un élément de la barre d'une console : au clic, ou choisi à la manette. */
+  async function psAct(item: PsItem) {
+    if (item === 'stats') return toggle('stats')
+    if (item === 'settings') {
+      // L'accueil passe devant, sur les réglages de la console.
+      await closeMenu()
+      await command('settings')
+      invoke('bar_hide', { id, focus: false })
+      return
+    }
+    const commands = { sound: 'mute', mouse: 'mouse', fullscreen: 'fullscreen', rest: 'rest', disconnect: 'disconnect' } as const
+    await command(commands[item])
+  }
+
+  /** Les trois lignes des mesures, et le chemin. */
+  const psLines = $derived(psStats && psStats.width > 0 ? [...psStatsLines(psStats), ...(route ? [t('ps.path_line', { path: route.label })] : [])] : [])
   const profiles = $derived(
     ['jeu', 'bureau', 'max'].map((id) => ({ id, name: t(`profiles.${id}`), hint: t(`profiles.${id}_sub`) })),
   )
@@ -207,8 +249,32 @@
         computers = c
         reportWidth()
       }),
+      // Partie sur une console : sa barre change (souris prise, son coupé, manette branchée, barre pilotée par la manette).
+      listen<PsBar>('ps-bar', (b) => {
+        if (b.id !== id) return
+        if (b.pad_mode && !psBar?.pad_mode) padFocus = 0
+        psBar = b
+        if (padFocus >= psItems.length) padFocus = Math.max(0, psItems.length - 1)
+        reportWidth()
+        fitWindow()
+      }),
+      listen<PsStats>('ps-stats', (st) => {
+        psSeen.set(st.id, st)
+        if (st.id === id) psStats = st
+      }),
+      listen<PsBarNav>('ps-bar-nav', (n) => {
+        if (n.id !== id || !psBar?.pad_mode) return
+        if (n.key === 'left') padFocus = Math.max(0, padFocus - 1)
+        else if (n.key === 'right') padFocus = Math.min(psItems.length - 1, padFocus + 1)
+        else if (n.key === 'accept') psAct(psItems[padFocus])
+        else if (n.key === 'back') {
+          if (menu) closeMenu()
+          else invoke('bar_hide', { id })
+        }
+      }),
       listen<string[]>('sessions', (s) => {
         sessionCount = s.length
+        for (const k of [...psSeen.keys()]) if (!s.includes(k)) psSeen.delete(k)
         // Les mesures des sessions finies s'oublient.
         for (const k of [...seen.keys()]) if (!s.includes(k)) seen.delete(k)
         for (const k of [...shares.keys()]) if (!s.includes(k)) shares.delete(k)
@@ -314,6 +380,10 @@
         if (s.lend) lends.set(s.id, s.lend)
         lendError = null
         lendCopied = null
+        // Partie sur une console : sa barre et ses mesures.
+        psBar = s.console ?? null
+        psStats = psSeen.get(s.id) ?? null
+        padFocus = 0
         // Montrée de nouveau : aucun menu d'une fois précédente.
         menu = null
         if (s.notice) {
@@ -331,6 +401,7 @@
         }
         cancelHide()
         reportWidth()
+        fitWindow()
       }),
       listen<string>('lang', (l) => {
         setLang(l)
@@ -382,7 +453,8 @@
   /** Se cache dans 0,4 s, sauf menu ouvert ou barre de « Statistiques » pas encore visitée. */
   function scheduleHide(delay = 400) {
     cancelHide()
-    if (menu || held) return
+    // Pilotée par la manette : le pointeur n'y est pour rien.
+    if (menu || held || psBar?.pad_mode) return
     hideTimer = setTimeout(() => {
       hideTimer = null
       invoke('bar_hide', { id })
@@ -420,20 +492,27 @@
     if (next && !menu) await invoke('bar_menu', { open: true })
     menu = next
     if (next) await growForMenu()
-    else await invoke('bar_menu', { open: false })
+    else await fitWindow()
   }
 
-  /** La fenêtre grandit jusqu'au bas du menu ouvert (« Ordinateurs » : selon leur nombre). */
+  /** La fenêtre grandit jusqu'au bas du menu ouvert (« Ordinateurs » : selon leur nombre), ou du bandeau de la manette. */
   async function growForMenu() {
     await tick()
-    const bottom = bar?.querySelector('.menu')?.getBoundingClientRect().bottom ?? 0
+    const bottom = Math.max(0, ...[...(bar?.querySelectorAll('.menu, .padbanner') ?? [])].map((e) => e.getBoundingClientRect().bottom))
     if (bottom > 0) await invoke('bar_menu', { open: true, height: Math.ceil(bottom + 24) })
+  }
+
+  /** Sans menu : la fenêtre reprend sa taille, sauf pour le bandeau de la manette (barre d'une console). */
+  async function fitWindow() {
+    if (menu) return
+    if (psBar?.pad_mode) await growForMenu()
+    else await invoke('bar_menu', { open: false })
   }
 
   async function closeMenu() {
     menu = null
     refusal = null
-    await invoke('bar_menu', { open: false })
+    await fitWindow()
   }
 
   async function pickProfile(p: string) {
@@ -845,7 +924,80 @@
   }}
 />
 
-<div class="bar" role="toolbar" aria-label={t('bar.toolbar')} tabindex="-1" bind:this={bar}>
+<div class="bar" class:padmode={psBar?.pad_mode} role="toolbar" aria-label={t('bar.toolbar')} tabindex="-1" bind:this={bar}>
+  {#if psBar}
+  {@const b = psBar}
+  <!-- Partie sur une console : son nom, les mesures, le son, la souris, ses réglages, le plein écran, la veille, la fin. -->
+  <Mark size={20} state="now" lit />
+  <span class="psname">{b.name}</span>
+  <span class="sep"></span>
+  <div class="slot">
+    <button
+      class="stats"
+      class:open={menu === 'stats'}
+      class:ring={ringed('stats')}
+      aria-haspopup="dialog"
+      aria-expanded={menu === 'stats'}
+      aria-label={t('bar.statistics')}
+      title={t('bar.statistics')}
+      onclick={() => psAct('stats')}
+    >
+      {#if psStats && psStats.width > 0}
+        <span class="mono lat">{t('ps.fps', { n: Math.round(psStats.fps) })}</span>
+        <span class="sep"></span>
+        <span class="mono info">{psStats.width} × {psStats.height} · {psStats.hevc ? 'H.265' : 'H.264'}{psStats.hdr ? ' · HDR' : ''}</span>
+      {:else}
+        <span class="lat"><Icon name="chart" size={18} stroke={1.6} /></span>
+      {/if}
+    </button>
+    {#if menu === 'stats'}
+      <div class="menu path psstats" role="dialog" aria-label={t('bar.statistics')}>
+        <div class="eyebrow">{t('bar.statistics')}</div>
+        {#if psLines.length}
+          {#each psLines as line, i (i)}<p class="mono">{line}</p>{/each}
+        {:else}
+          <p class="help">{t('ps.stats_waiting')}</p>
+        {/if}
+      </div>
+    {/if}
+  </div>
+  {#if route?.via_relay}
+    <span class="relay" class:tcp={route.transport === 'relay_tcp'} title={routeTitle}><Icon name="globe" size={14} stroke={1.6} />{t('relay.via')}</span>
+  {/if}
+  <span class="sep"></span>
+  <button class="icon" class:on={b.muted} class:ring={ringed('sound')} aria-pressed={b.muted} aria-label={b.muted ? t('ps.unmute') : t('ps.mute')} title={b.muted ? t('ps.unmute') : t('ps.mute')} onclick={() => psAct('sound')}>
+    <Icon name={b.muted ? 'speakeroff' : 'speaker'} size={20} stroke={1.6} />
+  </button>
+  {#if !b.pad}
+    <!-- Une manette branchée l'emporte sur le clavier et la souris : pas de souris. -->
+    <button class="icon" class:on={b.captured} class:ring={ringed('mouse')} aria-pressed={b.captured} aria-label={(b.captured ? t('ps.give_mouse') : t('ps.take_mouse')) + t('bar.mouse_shortcut')} title={(b.captured ? t('ps.give_mouse') : t('ps.take_mouse')) + t('bar.mouse_shortcut')} onclick={() => psAct('mouse')}>
+      <Icon name="mouse" size={20} stroke={1.6} />
+    </button>
+  {/if}
+  <button class="icon" class:ring={ringed('settings')} aria-label={t('home.settings_for', { name: b.name })} title={t('home.settings_for', { name: b.name })} onclick={() => psAct('settings')}>
+    <Icon name="gear" size={20} stroke={1.6} />
+  </button>
+  <button class="icon" class:ring={ringed('fullscreen')} aria-label={(b.fullscreen ? t('ps.exit_fullscreen') : t('bar.fullscreen')) + t('bar.fullscreen_shortcut')} title={b.fullscreen ? t('ps.exit_fullscreen') : t('bar.fullscreen')} onclick={() => psAct('fullscreen')}>
+    <Icon name="fullscreen" size={20} stroke={1.6} />
+  </button>
+  <button class="icon" class:ring={ringed('rest')} aria-label={t('ps.rest')} title={t('ps.rest')} onclick={() => psAct('rest')}>
+    <Icon name="power" size={20} stroke={1.6} />
+  </button>
+  <span class="sep"></span>
+  <button class="quit" class:ring={ringed('disconnect')} title={t('bar.disconnect') + t('bar.disconnect_shortcut')} onclick={() => psAct('disconnect')}>{t('bar.disconnect')}</button>
+  {#if b.pad_mode}
+    <!-- La manette pilote la barre : la console reçoit une manette au repos. -->
+    <div class="padbanner" role="note">
+      <span class="drives"><Icon name="gamepad" size={16} stroke={1.8} />{t('ps.pad_drives')}</span>
+      <span class="away">{t('ps.pad_away')}</span>
+      <span class="sep"></span>
+      <span class="k"><span class="mono">◀ ▶</span>{t('ps.pad_navigate')}</span>
+      <span class="k"><span class="mono">✕</span>{t('ps.pad_select')}</span>
+      <span class="k"><span class="mono">○</span>{t('ps.pad_close')}</span>
+      <span class="k"><span class="mono">L1 R1 OPTIONS CREATE</span>{t('ps.pad_back')}</span>
+    </div>
+  {/if}
+  {:else}
   <Mark size={20} state="now" lit />
   <!-- Un avis bref (changement de rôle d'un invité) prend la place des statistiques, sans changer la largeur de la barre. -->
   <!-- Un clic sur les mesures ouvre le trajet d'une image (docs/link-ui.md « Statistiques »). -->
@@ -1191,6 +1343,7 @@
   {:else}
     <button class="quit" title={(guest ? t('share.leave') : t('bar.disconnect')) + t('bar.disconnect_shortcut')} onclick={() => command('disconnect')}>{guest ? t('share.leave') : t('bar.disconnect')}</button>
   {/if}
+  {/if}
 </div>
 
 <style>
@@ -1224,6 +1377,90 @@
       transform: translateY(-10px);
       opacity: 0;
     }
+  }
+
+  /* Barre d'une console : son nom, puis les mêmes pièces qu'une session d'ordinateur. */
+  .psname {
+    padding: 0 6px 0 4px;
+    font-size: 14px;
+    font-weight: 600;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .menu.psstats {
+    gap: 8px;
+    width: 440px;
+  }
+
+  .menu.psstats p {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--muted);
+    white-space: normal;
+  }
+
+  .menu.psstats .help {
+    font-family: var(--sans);
+    font-size: 13px;
+  }
+
+  /* Barre pilotée par la manette : l'anneau sur l'élément choisi, le bandeau sous la barre. */
+  .bar.padmode {
+    position: relative;
+  }
+
+  .ring {
+    box-shadow: 0 0 0 2px var(--signal), 0 0 14px rgb(109 91 255 / 0.55) !important;
+  }
+
+  .padbanner {
+    position: absolute;
+    top: calc(100% + 10px);
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    height: 40px;
+    padding: 0 16px;
+    border: 1px solid rgb(154 140 255 / 0.4);
+    border-radius: 12px;
+    background: rgb(9 13 18 / 0.92);
+    box-shadow: 0 16px 40px rgb(0 0 0 / 0.5);
+    font-size: 12px;
+    color: var(--muted);
+    animation: drop 0.2s var(--ease-out);
+  }
+
+  .padbanner .drives {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-weight: 600;
+    color: var(--signal);
+  }
+
+  .padbanner .away {
+    color: var(--faint);
+  }
+
+  .padbanner .k {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .padbanner .k .mono {
+    font-size: 11px;
+    color: var(--text);
+  }
+
+  /* Le bandeau sous la barre : un menu ouvert passe dessous. */
+  .bar.padmode .menu {
+    top: calc(100% + 62px);
   }
 
   .stats {

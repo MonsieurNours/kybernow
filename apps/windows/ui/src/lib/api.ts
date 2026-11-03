@@ -245,6 +245,10 @@ export type Action =
   | { kind: 'show'; id: string }
   | { kind: 'settings'; id: string; rubric: string | null }
   | { kind: 'app'; check: boolean }
+  /** « Réglages de {nom} » depuis la barre d'une partie : les réglages de la console. */
+  | { kind: 'ps_settings'; id: string }
+  /** L'ajout, sur l'onglet PlayStation (pas encore demandé par l'app). */
+  | { kind: 'add_console' }
 
 /**
  * Événement `station-outcome` : fin du suivi d'un redémarrage ou d'une mise à jour de la Station,
@@ -332,6 +336,8 @@ export type ConnexionView = {
   guest?: boolean
   /** Session d'emprunt (prêt de l'ordinateur) : « Préparation de l'ordinateur » en première étape. */
   borrow?: boolean
+  /** Partie sur une console PlayStation : son nom (titre, teinte) et `wakes` (« Réveil de la console » en première étape). */
+  console?: { name: string; wakes: boolean } | null
 }
 
 /**
@@ -722,3 +728,207 @@ export type LendSheetKind =
   | { kind: 'preparing'; host: string }
   | { kind: 'waiting'; wait: number; host: string }
   | { kind: 'end'; end: LendEnd }
+
+// Consoles PlayStation (docs/playstation.md, textes de docs/link-ui.md « Consoles PlayStation »). Les
+// identifiants de session d'une console sont `ps-<HOSTID>` : c'est aussi `PsConsole.id`.
+
+export type PsModel = 'PS5' | 'PS4'
+/** Un compte PlayStation Network gardé sur ce PC. `name` nul : compte d'une version précédente (« Compte PlayStation »). `consoles` : nombre de consoles associées avec lui. */
+export type PsAccount = { id: string; name: string | null; consoles: number }
+/** Une console qui répond (réseau, adresse retenue). `target` : à repasser tel quel à `ps_pair`. */
+export type PsFound = { host_id: string; name: string; model: PsModel; address: string; state: 'ready' | 'standby' | 'unknown'; target: string; running_app: string | null }
+/**
+ * Une console gardée (associée au moins une fois). `status` : `searching` (« Recherche… »), `on` (« Allumée »),
+ * `standby` (« En veille »), `offline` (« Hors ligne »), `away` (« Hors de chez vous » : par une Station et le relais).
+ * `accounts` : les comptes associés (ordre des comptes) ; vide : « Associer » ; `chosen` : le compte choisi (puce).
+ * `free_accounts` : comptes gardés pas encore associés à cette console (« Associer avec un autre compte »).
+ * `custom` : réglages « Personnalisé » (sinon « Auto »). `waking` : « Réveil de la console… » ; `reaching` : hors de
+ * chez soi, la Station est jointe (« Connexion à la console… »). `in_session` : sa partie est ouverte (« Afficher la session »).
+ * `found` : sa dernière réponse (nul si elle ne répond pas), pour l'association.
+ */
+export type PsConsole = {
+  id: string
+  host_id: string
+  name: string
+  model: PsModel
+  address: string
+  status: 'searching' | 'on' | 'standby' | 'offline' | 'away'
+  running_app: string | null
+  accounts: { id: string; name: string | null }[]
+  chosen: string | null
+  free_accounts: number
+  custom: boolean
+  waking: boolean
+  reaching: boolean
+  in_session: boolean
+  found: PsFound | null
+}
+/** Tout l'état des consoles (`ps_state`, événement `ps-state`). `found` : TOUTES les consoles qui répondent (onglet PlayStation) ; `searched` : une recherche au moins a abouti. */
+export type PsState = { accounts: PsAccount[]; consoles: PsConsole[]; found: PsFound[]; searched: boolean }
+
+/** Réglages d'une console (JSON stable du cœur, apps/core/src/playstation/settings.rs). `upscale`/`sharpness` : gardés tels quels, jamais montrés (agrandissement : Apple seulement). `hdr` : jamais montré sur Windows (pas de HDR). */
+export type PsSettings = {
+  resolution: 'auto' | 'p1080' | 'p720' | 'p540' | 'p360'
+  fps: number
+  bitrate_kbps: number | null
+  codec: 'auto' | 'h264' | 'h265'
+  hdr: boolean
+  fullscreen: boolean
+  upscale: boolean
+  sharpness: number
+  rumble: number
+  triggers: number
+}
+/** Une touche (usage USB HID, page 7 : la place de la touche) ou un bouton de la souris (0 gauche, 1 droit, 2 milieu, 3 et 4 latéraux). */
+export type PsInput = { key: number } | { mouse: number }
+/** Disposition du clavier et de la souris (apps/core/src/playstation/keymouse.rs `Layout`) : `bindings` en `[input, action]`. */
+export type PsLayout = { bindings: [PsInput, string][]; mouse_stick: boolean; sensitivity: number; curve: number; deadzone: number; invert_y: boolean }
+/** Les actions de la manette, dans l'ordre du cœur (`Action::ALL`) : l'ordre de la liste des réglages. */
+export const psActions = ['left_stick_up', 'left_stick_down', 'left_stick_left', 'left_stick_right', 'cross', 'circle', 'square', 'triangle', 'l1', 'r1', 'l2', 'r2', 'l3', 'r3', 'dpad_up', 'dpad_down', 'dpad_left', 'dpad_right', 'options', 'create', 'ps', 'touchpad', 'right_stick_up', 'right_stick_down', 'right_stick_left', 'right_stick_right']
+/** « Réactivité au départ » : Douce, Normale, Vive. */
+export const psCurves = [1.2, 1.0, 0.8]
+/** `ps_settings` : réglages, disposition, et le nom de chaque touche (usage HID → « Z », « Espace »… dans la disposition du clavier de ce PC, donné par Windows). */
+export type PsSettingsView = { id: string; name: string; model: PsModel; settings: PsSettings; layout: PsLayout; key_names: Record<string, string> }
+/** Un appareil qui attend un envoi (`ps_handoff_discover`) : `platform` `macos`, `ios`, `ipados`, `tvos`, `windows`, `linux`, `steamdeck`, `raspberrypi`, `android`, `androidtv`, `webos` ; `address` « ip:port ». */
+export type PsWaiting = { name: string; platform: string; address: string }
+/** Événement `ps-handoff` (attente d'un envoi, « Recevoir d'un autre appareil ») : reçu (`text` : « 2 comptes et 1 console reçus. »), nouveau code (après 3 échecs), expiré (5 min). */
+export type PsHandoffEvent = { event: 'received'; text: string } | { event: 'new_code'; code: string } | { event: 'expired' }
+/** Barre d'une partie (dans `bar-shown`, champ `console`, et événement `ps-bar`) : `pad` une manette est branchée (pas de « Prendre la souris ») ; `captured` souris prise ; `muted` ; `fullscreen` ; `pad_mode` la barre est pilotée par la manette (ouverte par Options + Create + L1 + R1). */
+export type PsBar = { id: string; name: string; pad: boolean; captured: boolean; muted: boolean; fullscreen: boolean; pad_mode: boolean }
+/** Événement `ps-stats` (une fois par seconde pendant une partie) : ce qui est demandé à la console, ce qui est reçu dans la seconde, et les pertes depuis le début de la partie. */
+export type PsStats = { id: string; width: number; height: number; fps_asked: number; hevc: boolean; hdr: boolean; target_kbps: number; fps: number; mbps: number; lost: number; recovered: number }
+/** Événement `ps-bar-nav` : barre ouverte par la manette, une touche de navigation. */
+export type PsBarNav = { id: string; key: 'left' | 'right' | 'up' | 'down' | 'accept' | 'back' }
+/** Réponse de `ps_login` et `ps_account_manual` : le compte gardé (`existed` : « Ce compte est déjà là. »). */
+export type PsKept = { account: PsAccount; existed: boolean }
+
+/** Une session de console (`ps-<HOSTID>`) plutôt que d'ordinateur. */
+export const isConsoleId = (id: string | null | undefined) => !!id && id.startsWith('ps-')
+
+/** L'état d'une console gardée, comme l'accueil le dit : « Allumée », « En veille », « Hors ligne », « Recherche… », « Hors de chez vous ». */
+export function psStatusText(c: Pick<PsConsole, 'status'>) {
+  switch (c.status) {
+    case 'on':
+      return t('ps.on')
+    case 'standby':
+      return t('ps.standby')
+    case 'offline':
+      return t('home.offline')
+    case 'away':
+      return t('home.away')
+    default:
+      return t('common.searching')
+  }
+}
+
+/** Le nom d'un compte : son pseudo, ou « Compte PlayStation » (compte d'une version précédente). */
+export const psAccountName = (a: { name: string | null }) => a.name || t('ps.legacy_account')
+
+/** « 2 consoles », « 1 console », « Aucune console ». */
+export const psConsoleCount = (n: number) => (n === 0 ? t('ps.consoles_none') : n === 1 ? t('ps.consoles_one') : t('ps.consoles_other', { n }))
+
+/**
+ * Ce qu'il faut à l'association d'une console gardée : sa dernière réponse, sinon ce qu'on en sait (cible par défaut
+ * de son modèle quand l'app n'en a pas retenu).
+ */
+export function psTarget(c: PsConsole): PsFound {
+  const f = c.found ?? { host_id: c.host_id, name: c.name, model: c.model, address: c.address, state: 'unknown' as const, target: '', running_app: null }
+  return f.target ? f : { ...f, target: f.model === 'PS4' ? 'ps4_v10' : 'ps5_v1' }
+}
+
+/** Réglages « Personnalisé » : définition, images par seconde, débit ou format s'écartent d'Auto (`is_custom` du cœur). */
+export const psIsCustom = (s: PsSettings) => s.resolution !== 'auto' || s.fps !== 60 || s.bitrate_kbps != null || s.codec !== 'auto'
+
+/** Débit d'Auto pour une définition, en kbit/s (comme le cœur : 15 Mbit/s en 1080p). */
+export const psAutoBitrate = (r: PsSettings['resolution']) => ({ p720: 10_000, p540: 6_000, p360: 2_000 })[r as 'p720'] ?? 15_000
+
+/** « Auto », « 1080p »… */
+export const psResolutionLabel = (r: PsSettings['resolution']) => (r === 'auto' ? t('ps.auto') : r.slice(1) + 'p')
+
+/** Le nom d'une plateforme (« Envoyer à un appareil ») : « Mac », « Apple TV », « LG »… ; inconnue, telle quelle. */
+const platformNames: Record<string, string> = {
+  macos: 'Mac',
+  ios: 'iPhone',
+  ipados: 'iPad',
+  tvos: 'Apple TV',
+  windows: 'PC',
+  linux: 'Linux',
+  steamdeck: 'Steam Deck',
+  raspberrypi: 'Raspberry Pi',
+  android: 'Android',
+  androidtv: 'Android TV',
+  webos: 'LG',
+}
+export const psPlatform = (p: string) => platformNames[p] ?? p
+
+/** « 482 913 » : un code à 6 chiffres, en deux groupes de trois. */
+export const psGroupCode = (code: string) => code.replace(/^(\d{3})(\d{3})$/, '$1 $2')
+
+/** Identifiant de compte saisi à la main : 8 octets en base64 (12 caractères). */
+export function psValidId(id: string) {
+  const s = id.trim()
+  if (!/^[A-Za-z0-9+/]{11}=$/.test(s)) return false
+  try {
+    return atob(s).length === 8
+  } catch {
+    return false
+  }
+}
+
+/** Les trois lignes des statistiques d'une partie : demandé, reçu, pertes (depuis le début de la partie). */
+export function psStatsLines(s: PsStats) {
+  const asked = [`${s.width} × ${s.height}`, t('ps.fps', { n: s.fps_asked }), s.hevc ? 'H.265' : 'H.264', ...(s.hdr ? ['HDR'] : []), t('ps.stats_asked', { mbps: Math.round(s.target_kbps / 1000) })]
+  return [
+    asked.join(' · '),
+    t('ps.stats_received', { fps: Math.round(s.fps), mbps: ms(s.mbps, 1) }),
+    t('ps.stats_losses', { lost: s.lost, repaired: s.recovered }),
+  ]
+}
+
+/** Même touche ou même bouton. */
+export const psSameInput = (a: PsInput, b: PsInput) => ('key' in a && 'key' in b && a.key === b.key) || ('mouse' in a && 'mouse' in b && a.mouse === b.mouse)
+
+/** Les touches d'une action, dans l'ordre de la disposition. */
+export const psInputsOf = (l: PsLayout, action: string) => l.bindings.filter(([, a]) => a === action).map(([i]) => i)
+
+/**
+ * Lie `input` à `action` (à la place de `replacing`, sinon en plus) ; une touche déjà prise ailleurs y est retirée
+ * (`PSLayout.bind` de l'app Mac).
+ */
+export function psBind(l: PsLayout, input: PsInput, action: string, replacing: PsInput | null): PsLayout {
+  const list = l.bindings.map(([i, a]) => [i, a] as [PsInput, string])
+  const at = replacing ? list.findIndex(([i, a]) => psSameInput(i, replacing) && a === action) : -1
+  if (at >= 0) list[at] = [input, action]
+  else list.push([input, action])
+  const mine = at >= 0 ? at : list.length - 1
+  return { ...l, bindings: list.filter(([i], n) => n === mine || !psSameInput(i, input)) }
+}
+
+/** Retire `input` de `action`. */
+export const psUnbind = (l: PsLayout, input: PsInput, action: string): PsLayout => ({ ...l, bindings: l.bindings.filter(([i, a]) => !(a === action && psSameInput(i, input))) })
+
+/** Le bouton de la souris d'un `MouseEvent.button` : 0 gauche, 2 droit → 1, 1 milieu → 2, 3 et 4 latéraux. */
+export const psMouseButton = (button: number) => ({ 0: 0, 2: 1, 1: 2, 3: 3, 4: 4 })[button as 0] ?? null
+
+/** `KeyboardEvent.code` (la place de la touche) → usage USB HID (page 7), comme le cœur les lit. */
+export const codeToUsage: Record<string, number> = (() => {
+  const m: Record<string, number> = {}
+  for (let i = 0; i < 26; i++) m[`Key${String.fromCharCode(65 + i)}`] = 0x04 + i
+  for (let i = 1; i <= 9; i++) m[`Digit${i}`] = 0x1d + i
+  m.Digit0 = 0x27
+  for (let i = 1; i <= 12; i++) m[`F${i}`] = 0x39 + i
+  for (let i = 13; i <= 24; i++) m[`F${i}`] = 0x68 + i - 13
+  for (let i = 1; i <= 9; i++) m[`Numpad${i}`] = 0x58 + i
+  Object.assign(m, {
+    Enter: 0x28, Escape: 0x29, Backspace: 0x2a, Tab: 0x2b, Space: 0x2c,
+    Minus: 0x2d, Equal: 0x2e, BracketLeft: 0x2f, BracketRight: 0x30, Backslash: 0x31, IntlHash: 0x32,
+    Semicolon: 0x33, Quote: 0x34, Backquote: 0x35, Comma: 0x36, Period: 0x37, Slash: 0x38,
+    CapsLock: 0x39, PrintScreen: 0x46, ScrollLock: 0x47, Pause: 0x48, Insert: 0x49, Home: 0x4a, PageUp: 0x4b,
+    Delete: 0x4c, End: 0x4d, PageDown: 0x4e, ArrowRight: 0x4f, ArrowLeft: 0x50, ArrowDown: 0x51, ArrowUp: 0x52,
+    NumLock: 0x53, NumpadDivide: 0x54, NumpadMultiply: 0x55, NumpadSubtract: 0x56, NumpadAdd: 0x57, NumpadEnter: 0x58,
+    Numpad0: 0x62, NumpadDecimal: 0x63, IntlBackslash: 0x64, ContextMenu: 0x65, NumpadEqual: 0x67, NumpadComma: 0x85,
+    IntlRo: 0x87, KanaMode: 0x88, IntlYen: 0x89, Convert: 0x8a, NonConvert: 0x8b,
+    ControlLeft: 0xe0, ShiftLeft: 0xe1, AltLeft: 0xe2, MetaLeft: 0xe3, ControlRight: 0xe4, ShiftRight: 0xe5, AltRight: 0xe6, MetaRight: 0xe7,
+  })
+  return m
+})()

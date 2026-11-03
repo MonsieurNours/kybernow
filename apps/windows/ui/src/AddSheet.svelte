@@ -4,13 +4,20 @@
   Pas de QR code à la caméra : sur un PC, le lien d'Admin suffit.
   « Avec un compte d'ami » (prêt de l'ordinateur) : l'identifiant et le mot de passe que l'ami
   vous a donnés dans son Admin ; l'ordinateur s'ajoute à part, « Ordinateur de {hôte} ».
+
+  Consoles PlayStation (docs/link-ui.md « Consoles PlayStation ») : l'onglet « PlayStation » (les
+  comptes PlayStation Network, « Renommer », « Retirer », « Ajouter un compte » ; les consoles sur ce
+  réseau et « Associer » ; « Envoyer à un appareil » et « Recevoir d'un autre appareil » entre
+  appareils), les consoles trouvées aussi dans « Sur ce réseau », et « Par adresse » qui cherche
+  d'abord une console à l'adresse (1,5 s), puis la Station comme avant. Associer une console ferme
+  l'ajout et ouvre l'association (PairSheet, App.svelte).
 -->
 <script lang="ts">
-  import { onDestroy, untrack } from 'svelte'
+  import { onDestroy, onMount, untrack } from 'svelte'
   import Icon from './lib/Icon.svelte'
   import Switch from './lib/Switch.svelte'
-  import type { Candidate, Computer, Found } from './lib/api'
-  import { fingerprintGroups, invoke } from './lib/api'
+  import type { Candidate, Computer, Found, PsAccount, PsFound, PsHandoffEvent, PsState, PsWaiting } from './lib/api'
+  import { fingerprintGroups, invoke, listen, psAccountName, psConsoleCount, psGroupCode, psPlatform } from './lib/api'
   import { t } from './lib/i18n/index.svelte'
 
   let {
@@ -20,6 +27,11 @@
     initial,
     onclose,
     onadded,
+    ps = { accounts: [], consoles: [], found: [], searched: false },
+    initialWay = null,
+    already = false,
+    onpair = () => {},
+    onaddaccount = () => {},
   }: {
     discovered: Found[]
     computers: Computer[]
@@ -27,10 +39,20 @@
     initial: Found | null
     onclose: () => void
     onadded: (id: string) => void
+    /** Les consoles PlayStation : comptes, consoles gardées, consoles qui répondent. */
+    ps?: PsState
+    /** L'onglet ouvert d'abord (`playstation`). */
+    initialWay?: 'playstation' | null
+    /** « Ajouter un compte » a lu un compte déjà gardé : « Ce compte est déjà là. » */
+    already?: boolean
+    /** « Associer » une console : l'ajout se ferme, l'association s'ouvre. */
+    onpair?: (found: PsFound) => void
+    /** « Ajouter un compte » : l'association sans console, par-dessus l'ajout. */
+    onaddaccount?: () => void
   } = $props()
 
-  type Way = 'reseau' | 'lien' | 'adresse'
-  let way = $state<Way>('reseau')
+  type Way = 'reseau' | 'lien' | 'adresse' | 'playstation'
+  let way = $state<Way>(untrack(() => initialWay) ?? 'reseau')
   let candidate = $state<Candidate | null>(null)
   let access = $state<'code' | 'compte' | 'ami'>('code')
   let error = $state<string | null>(null)
@@ -97,10 +119,164 @@
     if (c) choose(c)
   }
 
+  /**
+   * « Continuer » de « Par adresse » : une console à cette adresse d'abord (1,5 s : une Station et une console ne
+   * répondent pas à la même adresse), qui ouvre son association ; sinon la Station, comme avant. Sans port d'Admin,
+   * rien qui réponde : « Console injoignable. ».
+   */
   async function fromAddress() {
+    working = true
+    error = null
+    try {
+      const f = await invoke<PsFound | null>('ps_probe_address', { host: host.trim() })
+      if (f) {
+        working = false
+        onpair(f)
+        return
+      }
+    } catch {
+      // Rien de la console : la Station, comme avant.
+    }
+    working = false
+    if (!port.trim()) {
+      error = t('ps.unreachable')
+      return
+    }
     const c = await run(() => invoke<Candidate>('probe_address', { host: host.trim(), port: Number(port) || 9443 }))
     if (c) seen = c
   }
+
+  // MARK: - Consoles PlayStation
+
+  /** La console d'une réponse, si elle est gardée, et ses comptes associés. */
+  const keptOf = (f: PsFound) => ps.consoles.find((c) => c.host_id === f.host_id) ?? null
+  /** « Allumée · 192.168.1.110 », « En veille · Associée : Matthieu_PSN, Camille-92 ». */
+  function foundDetail(f: PsFound) {
+    const state = f.state === 'ready' ? t('ps.on') : t('ps.standby')
+    const kept = keptOf(f)
+    return kept?.accounts.length ? `${state} · ${t('ps.paired_with', { names: kept.accounts.map(psAccountName).join(', ') })}` : `${state} · ${f.address}`
+  }
+
+  // Renommer, retirer un compte.
+  let renaming = $state<string | null>(null)
+  let newName = $state('')
+  let removing = $state<PsAccount | null>(null)
+
+  async function psCall(f: () => Promise<unknown>) {
+    error = null
+    try {
+      await f()
+    } catch (e) {
+      error = String(e)
+    }
+  }
+
+  async function rename(a: PsAccount) {
+    const name = newName.trim()
+    renaming = null
+    if (name && name !== a.name) await psCall(() => invoke('ps_account_rename', { account: a.id, name }))
+  }
+
+  async function removeAccount(a: PsAccount) {
+    removing = null
+    await psCall(() => invoke('ps_account_remove', { account: a.id }))
+  }
+
+  const removeQuestion = (a: PsAccount) =>
+    t(a.consoles === 0 ? 'ps.remove_question_none' : a.consoles === 1 ? 'ps.remove_question_one' : 'ps.remove_question_other', { name: psAccountName(a), n: a.consoles })
+
+  // « Envoyer à un appareil » : les appareils qui attendent, cherchés toutes les 3 s tant que l'onglet est ouvert.
+  const hasAccounts = $derived(ps.accounts.length > 0)
+  const psOpen = $derived(way === 'playstation' && !candidate)
+  let waiting = $state<PsWaiting[]>([])
+  let sendTo = $state<PsWaiting | null>(null)
+  let sendCode = $state('')
+  let sending = $state(false)
+  let sent = $state<string | null>(null)
+  let sendError = $state<string | null>(null)
+  $effect(() => {
+    if (!psOpen || !hasAccounts) return
+    let stop = false
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const look = async () => {
+      try {
+        const w = await invoke<PsWaiting[]>('ps_handoff_discover')
+        if (!stop) waiting = w
+      } catch {
+        // Une recherche manquée : la suivante.
+      }
+      if (!stop) timer = setTimeout(look, 3000)
+    }
+    look()
+    return () => {
+      stop = true
+      if (timer) clearTimeout(timer)
+    }
+  })
+
+  function chooseDevice(d: PsWaiting) {
+    sendTo = sendTo?.address === d.address ? null : d
+    sendCode = ''
+    sent = null
+    sendError = null
+  }
+
+  async function send(e: Event) {
+    e.preventDefault()
+    if (!sendTo || sendCode.length !== 6 || sending) return
+    sending = true
+    sendError = null
+    try {
+      sent = await invoke<string>('ps_handoff_send', { address: sendTo.address, name: sendTo.name, code: sendCode })
+      sendTo = null
+      sendCode = ''
+    } catch (e) {
+      sendError = String(e)
+    } finally {
+      sending = false
+    }
+  }
+
+  // « Recevoir d'un autre appareil » : un code à 6 chiffres, l'attente s'arrête à la fermeture.
+  let receiveCode = $state<string | null>(null)
+  let receiveExpired = $state(false)
+  let received = $state<string | null>(null)
+  let receiving = false
+
+  async function startReceive() {
+    error = null
+    receiveExpired = false
+    received = null
+    try {
+      receiveCode = await invoke<string | null>('ps_handoff_receive', { on: true })
+      receiving = receiveCode !== null
+    } catch (e) {
+      error = String(e)
+    }
+  }
+
+  function stopReceive() {
+    receiveCode = null
+    if (!receiving) return
+    receiving = false
+    invoke('ps_handoff_receive', { on: false }).catch(() => {})
+  }
+
+  onMount(() => {
+    const off = listen<PsHandoffEvent>('ps-handoff', (e) => {
+      if (e.event === 'received') {
+        received = e.text
+        stopReceive()
+      } else if (e.event === 'new_code') {
+        receiveCode = e.code
+      } else {
+        receiveExpired = true
+        stopReceive()
+      }
+    })
+    return () => off.then((f) => f())
+  })
+  onDestroy(stopReceive)
 
   async function startCode() {
     stopPolling()
@@ -161,6 +337,7 @@
     { value: 'reseau', title: t('add.way_network'), sub: t('add.way_network_sub'), icon: 'wifi' },
     { value: 'lien', title: t('add.way_link'), sub: t('add.way_link_sub'), icon: 'link' },
     { value: 'adresse', title: t('add.way_address'), sub: t('add.way_address_sub'), icon: 'globe' },
+    { value: 'playstation', title: t('ps.tab'), sub: t('ps.tab_sub'), icon: 'gamepad' },
   ])
 </script>
 
@@ -169,7 +346,7 @@
     <nav>
       <h2 id="add-title">{t('add.title')}</h2>
       {#each ways as w (w.value)}
-        <button class="way" class:on={!candidate && way === w.value} onclick={() => { back(); way = w.value }}>
+        <button class="way" class:on={!candidate && way === w.value} onclick={() => { back(); if (w.value !== 'playstation') stopReceive(); way = w.value }}>
           <Icon name={w.icon} size={18} />
           <span><span class="t">{w.title}</span><span class="s">{w.sub}</span></span>
         </button>
@@ -183,10 +360,22 @@
       {#if !candidate}
         {#if way === 'reseau'}
           <div class="eyebrow">{t('add.on_this_network')}</div>
-          {#if discovered.length === 0}
+          {#if discovered.length === 0 && ps.found.length === 0}
             <p class="hint">{t('add.none_found')}</p>
           {:else}
             <ul class="found">
+              <!-- Les consoles trouvées, avec les ordinateurs : « {nom} · PS5 », « Associer ». -->
+              {#each ps.found as f (f.host_id)}
+                {@const kept = keptOf(f)}
+                {@const done = !!kept?.accounts.length && kept.free_accounts === 0}
+                <li>
+                  <button disabled={done} onclick={() => onpair(f)}>
+                    <span class="name">{f.name} · {f.model}</span>
+                    <span class="mono addr">{f.address}</span>
+                    <span class="go">{done ? t('ps.paired_with', { names: kept!.accounts.map(psAccountName).join(', ') }) : kept?.accounts.length ? t('ps.pair_another') : t('ps.pair')}</span>
+                  </button>
+                </li>
+              {/each}
               {#each discovered as f (f.id)}
                 <li>
                   <button disabled={known(f)} onclick={() => choose({ host: f.host, port: f.port, name: f.name, fingerprint: f.fingerprint })}>
@@ -204,8 +393,117 @@
             <textarea class="field area mono" rows="3" placeholder="kybernow://192.168.1.100:31544?name=…&fp=sha256:…" bind:value={link}></textarea>
           </label>
           <div><button class="primary" disabled={working || !link.trim()} onclick={fromLink}>{t('common.continue')}</button></div>
+        {:else if way === 'playstation'}
+          <!-- Comptes PlayStation Network, consoles sur ce réseau, envoi et réception entre appareils. -->
+          <section class="ps">
+            <h3>{t('ps.accounts_title')}</h3>
+            {#if ps.accounts.length === 0}<p class="hint">{t('ps.no_account')}</p>{/if}
+            {#each ps.accounts as a (a.id)}
+              <div class="psrow">
+                {#if renaming === a.id}
+                  <!-- svelte-ignore a11y_autofocus -->
+                  <input
+                    class="field"
+                    aria-label={t('ps.name_field')}
+                    maxlength="40"
+                    autofocus
+                    bind:value={newName}
+                    onkeydown={(e) => (e.key === 'Enter' ? rename(a) : e.key === 'Escape' && (renaming = null))}
+                  />
+                  <div class="acts">
+                    <button class="ghost" onclick={() => rename(a)}>{t('ps.rename')}</button>
+                    <button class="ghost" onclick={() => (renaming = null)}>{t('common.cancel')}</button>
+                  </div>
+                {:else}
+                  <span class="txt"><span class="t">{psAccountName(a)}</span><span class="s">{psConsoleCount(a.consoles)}</span></span>
+                  <div class="acts">
+                    <button class="ghost" onclick={() => ((newName = a.name ?? ''), (removing = null), (renaming = a.id))}>{t('ps.rename')}</button>
+                    <button class="ghost" onclick={() => ((renaming = null), (removing = a))}>{t('ps.remove')}</button>
+                  </div>
+                {/if}
+              </div>
+              {#if removing?.id === a.id}
+                <div class="confirm" role="alertdialog" aria-label={removeQuestion(a)}>
+                  <strong>{removeQuestion(a)}</strong>
+                  <p class="hint">{t('ps.remove_help')}</p>
+                  <div class="acts">
+                    <button class="danger" onclick={() => removeAccount(a)}>{t('ps.remove')}</button>
+                    <button class="ghost" onclick={() => (removing = null)}>{t('common.cancel')}</button>
+                  </div>
+                </div>
+              {/if}
+            {/each}
+            {#if already}<div class="info" role="status">{t('ps.already_here')}</div>{/if}
+            <div><button class="ghost add" onclick={onaddaccount}><Icon name="plus" size={14} />{t('ps.add_account')}</button></div>
+          </section>
+
+          <section class="ps">
+            <h3>{t('ps.consoles_title')}</h3>
+            {#if ps.found.length === 0}<p class="hint">{t('ps.no_console')}</p>{/if}
+            {#each ps.found as f (f.host_id)}
+              {@const kept = keptOf(f)}
+              <div class="psrow" class:lit={!kept?.accounts.length}>
+                <span class="txt"><span class="t">{f.name} · {f.model}</span><span class="s">{foundDetail(f)}</span></span>
+                {#if !kept?.accounts.length}
+                  <button class="primary small" onclick={() => onpair(f)}>{t('ps.pair')}</button>
+                {:else if kept.free_accounts > 0}
+                  <button class="ghost" onclick={() => onpair(f)}>{t('ps.pair_another')}</button>
+                {/if}
+              </div>
+            {/each}
+          </section>
+
+          {#if hasAccounts}
+            <section class="ps">
+              <h3>{t('ps.send_title')}</h3>
+              {#if waiting.length === 0}<p class="hint">{t('ps.no_device')}</p>{/if}
+              {#each waiting as d (d.address)}
+                <button class="psrow pick" class:lit={sendTo?.address === d.address} aria-expanded={sendTo?.address === d.address} onclick={() => chooseDevice(d)}>
+                  <span class="txt"><span class="t">{d.name} · {psPlatform(d.platform)}</span></span>
+                  <Icon name="send" size={16} />
+                </button>
+                {#if sendTo?.address === d.address}
+                  <form class="send" onsubmit={send}>
+                    <p class="hint">{t('ps.send_code', { name: d.name })}</p>
+                    <div class="row">
+                      <input
+                        class="field code6 mono"
+                        inputmode="numeric"
+                        autocomplete="off"
+                        maxlength="6"
+                        placeholder="123456"
+                        aria-label={t('ps.code6_field')}
+                        title={t('ps.code6_field')}
+                        value={sendCode}
+                        oninput={(e) => (sendCode = (e.currentTarget as HTMLInputElement).value.replace(/\D/g, '').slice(0, 6))}
+                        disabled={sending}
+                      />
+                      <button type="submit" class="primary small" disabled={sendCode.length !== 6 || sending}>{t('ps.send')}</button>
+                    </div>
+                    {#if sendError}<div class="error" role="alert">{sendError}</div>{/if}
+                  </form>
+                {/if}
+              {/each}
+              {#if sent}<div class="info" role="status">{sent}</div>{/if}
+            </section>
+          {/if}
+
+          <section class="ps">
+            <h3>{t('ps.receive_title')}</h3>
+            {#if receiveCode}
+              <div class="bigcode mono" aria-label={t('ps.code6_field') + ' ' + receiveCode}>{psGroupCode(receiveCode)}</div>
+              <p class="hint">{t('ps.receive_help')}</p>
+            {:else if receiveExpired}
+              <p class="hint">{t('ps.code_expired')}</p>
+              <div><button class="ghost" onclick={startReceive}>{t('add.new_code')}</button></div>
+            {:else}
+              {#if received}<div class="info" role="status">{received}</div>{/if}
+              <div><button class="ghost add" onclick={startReceive}><Icon name="receive" size={16} />{t('ps.receive_title')}</button></div>
+            {/if}
+          </section>
         {:else}
           {#if !seen}
+            <p class="hint">{t('ps.address_help')}</p>
             <div class="grid">
               <label class="col"><span class="eyebrow">{t('add.address')}</span><input class="field" placeholder="192.168.1.100" bind:value={host} /></label>
               <label class="col"><span class="eyebrow">{t('add.console_port')}</span><input class="field mono" inputmode="numeric" bind:value={port} /></label>
@@ -604,5 +902,142 @@
     align-items: center;
     gap: 12px;
     font-size: 14px;
+  }
+
+  /* Onglet PlayStation : des rangées comme celles de « Sur ce réseau ». */
+  .ps {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .ps + .ps {
+    margin-top: 8px;
+  }
+
+  h3 {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 600;
+  }
+
+  .psrow {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 14px 12px 18px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--ink-2);
+    text-align: left;
+    color: var(--muted);
+  }
+
+  .psrow.lit {
+    border-color: rgb(154 140 255 / 0.5);
+    background: var(--signal-soft);
+  }
+
+  .psrow.pick:hover {
+    border-color: var(--signal);
+  }
+
+  .psrow .field {
+    flex: 1;
+    height: 38px;
+  }
+
+  .txt {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .txt .t {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .txt .s {
+    font-size: 13px;
+    color: var(--faint);
+  }
+
+  .acts {
+    display: flex;
+    gap: 8px;
+  }
+
+  .acts .ghost,
+  .psrow > .ghost {
+    height: 34px;
+  }
+
+  .primary.small {
+    height: 38px;
+    padding: 0 18px;
+    font-size: 14px;
+  }
+
+  .ghost.add {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .confirm {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px 18px;
+    border: 1px solid rgb(255 107 107 / 0.4);
+    border-radius: 12px;
+    background: rgb(255 107 107 / 0.06);
+    font-size: 14px;
+  }
+
+  .danger {
+    height: 34px;
+    padding: 0 14px;
+    border: 0;
+    border-radius: 8px;
+    background: var(--bad);
+    color: #1a0705;
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  .info {
+    padding: 10px 14px;
+    border: 1px solid rgb(154 140 255 / 0.4);
+    border-radius: 10px;
+    background: var(--signal-soft);
+    font-size: 13px;
+  }
+
+  .send {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 0 4px 6px;
+  }
+
+  .code6 {
+    width: 180px;
+    font-size: 20px;
+    letter-spacing: 0.14em;
+  }
+
+  .bigcode {
+    font-size: 44px;
+    letter-spacing: 0.08em;
+    color: var(--text);
+    user-select: text;
   }
 </style>

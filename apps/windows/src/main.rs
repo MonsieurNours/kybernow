@@ -13,6 +13,10 @@ fn main() {
 mod audio;
 #[cfg(windows)]
 mod cli;
+// Consoles PlayStation : comptes, associations, état, envoi entre appareils
+// (se teste sur le Mac).
+#[cfg_attr(not(windows), allow(dead_code))]
+mod consoles;
 #[cfg(windows)]
 mod decoder;
 // Les écrans de ce PC : la relève est Windows, le reste (conversion pour le
@@ -63,6 +67,14 @@ mod plan;
 // session, textes des refus (se teste sur le Mac).
 #[cfg_attr(not(windows), allow(dead_code))]
 mod relais;
+// Consoles PlayStation : la partie (fenêtre, image, son, entrées) et les
+// vibrations HD par la DualSense en USB ; les touches se testent sur le Mac.
+#[cfg(windows)]
+mod ps_haptics;
+#[cfg_attr(not(windows), allow(dead_code))]
+mod ps_keys;
+#[cfg(windows)]
+mod ps_session;
 #[cfg(windows)]
 mod render;
 #[cfg(windows)]

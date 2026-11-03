@@ -18,13 +18,21 @@
   {hôte} ») et « Retirer ». Un de vos ordinateurs prêté à un ami dit « Prêté à {prénom} » (jusqu'à
   18 h) et propose « Reprendre l'ordinateur » ; pendant le préavis, « Reprise dans 1:42 » et
   « Reprendre tout de suite ».
+
+  Consoles PlayStation (docs/link-ui.md « Consoles PlayStation ») : dans la même rangée, après les
+  ordinateurs, une carte par console gardée (son nom et son état : « Allumée », « En veille »…) et
+  « Sur le réseau » pour une console trouvée pas encore associée (un clic ouvre l'association).
+  Choisie, elle montre son état, son nom, son modèle, le jeu en cours, le bouton principal
+  (« Associer », « Jouer », « Réveiller et jouer », « Afficher la session », « Réessayer »…), la puce
+  du compte (associée avec deux comptes ou plus), la puce « Auto » ou « Personnalisé » et l'engrenage
+  de ses réglages. Pas de profils, pas de puce HDR sur Windows.
 -->
 <script lang="ts">
   import Icon from './lib/Icon.svelte'
   import Mark from './lib/Mark.svelte'
   import { onMount } from 'svelte'
-  import type { Battery, Computer, DisplaysInfo, Found, Friend, Settings, ThisPc } from './lib/api'
-  import { MAX_SESSIONS, clock, countdown, friendStateText, hue, invoke, isCustom, listen, sessionPlan, slotText } from './lib/api'
+  import type { Battery, Computer, DisplaysInfo, Found, Friend, PsConsole, PsFound, Settings, ThisPc } from './lib/api'
+  import { MAX_SESSIONS, clock, countdown, friendStateText, hue, invoke, isCustom, listen, psAccountName, psStatusText, psTarget, sessionPlan, slotText } from './lib/api'
   import { t } from './lib/i18n/index.svelte'
 
   let {
@@ -51,6 +59,15 @@
     onborrow,
     onremovefriend,
     ontakeback,
+    consoles = [],
+    psFound = [],
+    selectedConsole = null,
+    psSearching = false,
+    onplay,
+    onpair,
+    onconsolesettings,
+    onchooseaccount,
+    onpssearch,
   }: {
     computers: Computer[]
     discovered: Found[]
@@ -85,7 +102,33 @@
     onremovefriend: (id: string) => void
     /** « Reprendre l'ordinateur » (`now` faux : préavis de 2 min) ou « Reprendre tout de suite ». */
     ontakeback: (id: string, now: boolean) => void
+    /** Les consoles PlayStation gardées (associées au moins une fois). */
+    consoles?: PsConsole[]
+    /** Les consoles qui répondent : celles qui ne sont pas gardées ont leur carte « Sur le réseau ». */
+    psFound?: PsFound[]
+    /** La console choisie (à la place d'un ordinateur). */
+    selectedConsole?: PsConsole | null
+    /** « Réessayer » d'une console hors ligne en cours (`ps_search_now`). */
+    psSearching?: boolean
+    /** « Jouer », « Réveiller et jouer » (réveil et relais compris : l'app tranche). */
+    onplay?: (id: string) => void
+    /** « Associer » : la feuille de l'association, pour cette console. */
+    onpair?: (found: PsFound) => void
+    /** L'engrenage, ou la puce « Auto » / « Personnalisé » : les réglages de la console. */
+    onconsolesettings?: (id: string) => void
+    /** La puce « {pseudo} » : le compte avec lequel la console ouvre la partie. */
+    onchooseaccount?: (id: string, account: string) => void
+    /** « Réessayer » : une recherche des consoles tout de suite. */
+    onpssearch?: () => void
   } = $props()
+
+  /** Les consoles trouvées sur le réseau et pas encore gardées : « Sur le réseau ». */
+  const psFresh = $derived(psFound.filter((f) => !consoles.some((c) => c.host_id === f.host_id)))
+  /** Le point de l'état d'une console : allumée (ou hors de chez vous), recherche ou réveil, en veille ou hors ligne. */
+  const psTone = (c: PsConsole) => (c.waking || c.reaching || c.status === 'searching' || (psSearching && c.status === 'offline') ? 'wait' : c.status === 'on' || c.status === 'away' ? 'ok' : 'off')
+  /** Le menu du compte de la partie (puce « {pseudo} »). */
+  let accountMenu = $state(false)
+  const chosenAccount = $derived(selectedConsole ? (selectedConsole.accounts.find((a) => a.id === selectedConsole!.chosen) ?? selectedConsole.accounts[0] ?? null) : null)
 
   const fresh = $derived(discovered.filter((f) => !computers.some((c) => c.host === f.host && c.port === f.port)))
 
@@ -189,9 +232,15 @@
     `radial-gradient(900px 600px at 78% 22%, hsl(${hue(fp)} 90% 62% / 0.38), transparent 70%), radial-gradient(700px 520px at 18% 78%, hsl(${hue(fp, 7)} 70% 55% / 0.16), transparent 70%), #070a0e`
 </script>
 
+<!-- Clic ailleurs : le menu du compte se referme. -->
+<svelte:window onpointerdown={(e) => accountMenu && !(e.target as Element).closest('.anchor') && (accountMenu = false)} />
+
 <main>
-  <div class="backdrop" class:offline={selected?.online === false}>
-    {#if selected?.preview}
+  <div class="backdrop" class:offline={selectedConsole ? selectedConsole.status === 'offline' : selected?.online === false}>
+    {#if selectedConsole}
+      <div class="signature" style:background={signature(selectedConsole.name)}></div>
+      <div class="watermark"><Mark size={760} state="console" seam="transparent" /></div>
+    {:else if selected?.preview}
       {#key selected.preview}<img src={selected.preview} alt="" />{/key}
     {:else}
       <div class="signature" style:background={signature(selected?.fingerprint ?? null)}></div>
@@ -202,7 +251,59 @@
 
   <div class="layout">
   <section class="hero">
-    {#if selectedFriend}
+    {#if selectedConsole}
+      {@const c = selectedConsole}
+      <div class="eyebrow status {psTone(c)}"><span class="dot"></span>{psStatusText(c)}</div>
+      <h1>{c.name}</h1>
+      <div class="system">{c.model}</div>
+      {#if c.running_app}
+        <div class="chip"><Icon name="gamepad" size={20} /><span>{c.running_app}</span></div>
+      {/if}
+      {#if error}<div class="error" role="alert">{error}</div>{/if}
+      <div class="actions">
+        {#if c.accounts.length === 0}
+          <button class="primary" disabled={busy} onclick={() => onpair?.(psTarget(c))}><Icon name="link" size={18} />{t('ps.pair')}</button>
+        {:else if c.in_session}
+          <button class="primary" onclick={() => onshow(c.id)}><Icon name="monitor" size={18} />{t('home.show_session')}</button>
+        {:else if c.waking}
+          <button class="primary" disabled><Icon name="power" size={18} />{t('ps.waking')}</button>
+        {:else if c.reaching}
+          <button class="primary" disabled><Icon name="gamepad" size={18} />{t('ps.connecting')}</button>
+        {:else if c.status === 'on' || c.status === 'away'}
+          <button class="primary" disabled={busy} onclick={() => onplay?.(c.id)}><Icon name="gamepad" size={18} />{t('ps.play')}</button>
+        {:else if c.status === 'standby'}
+          <button class="primary" disabled={busy} onclick={() => onplay?.(c.id)}><Icon name="power" size={18} />{t('ps.wake_and_play')}</button>
+        {:else if c.status === 'offline'}
+          <button class="gear" disabled={psSearching} onclick={() => onpssearch?.()}><Icon name="restart" size={18} stroke={1.6} />{t('home.retry')}</button>
+        {:else}
+          <button class="primary" disabled><Icon name="gamepad" size={18} />{t('ps.play')}</button>
+        {/if}
+        {#if c.accounts.length > 1 && chosenAccount}
+          <!-- Associée avec plusieurs comptes : le profil avec lequel la console ouvre la partie. -->
+          <div class="anchor">
+            <button class="gear" aria-haspopup="menu" aria-expanded={accountMenu} aria-label={t('ps.choose_account', { name: psAccountName(chosenAccount) })} onclick={() => (accountMenu = !accountMenu)}>
+              <Icon name="user" size={18} stroke={1.6} />{psAccountName(chosenAccount)}<Icon name="caret" size={14} stroke={2} />
+            </button>
+            {#if accountMenu}
+              <div class="menu" role="menu">
+                {#each c.accounts as a (a.id)}
+                  <button role="menuitemradio" aria-checked={a.id === chosenAccount.id} onclick={() => ((accountMenu = false), a.id !== chosenAccount.id && onchooseaccount?.(c.id, a.id))}>
+                    <span class="tick">{#if a.id === chosenAccount.id}<Icon name="check" size={14} stroke={2.2} />{/if}</span>{psAccountName(a)}
+                  </button>
+                {/each}
+              </div>
+            {/if}
+          </div>
+        {/if}
+        <!-- « Auto » ou « Personnalisé » (pas de profils pour une console) : ouvre ses réglages. -->
+        <button class="gear" title={t('home.settings_for', { name: c.name })} onclick={() => onconsolesettings?.(c.id)}>
+          <Icon name="sliders" size={18} stroke={1.6} />{c.custom ? t('ps.custom') : t('ps.auto')}
+        </button>
+        <button class="gear" aria-label={t('home.settings_for', { name: c.name })} onclick={() => onconsolesettings?.(c.id)}>
+          <Icon name="gear" size={18} stroke={1.6} />{t('home.settings')}
+        </button>
+      </div>
+    {:else if selectedFriend}
       {@const f = selectedFriend}
       {@const slot = slotText(f.slot)}
       {#if friendStateText(f.state)}<div class="eyebrow status {friendTone(f)}"><span class="dot"></span>{friendStateText(f.state)}</div>{/if}
@@ -303,6 +404,15 @@
           </span>
         </button>
       {/each}
+      {#each consoles as c (c.id)}
+        <button class="card" class:current={c.id === selectedConsole?.id} class:offline={c.status === 'offline'} onclick={() => onselect(c.id)}>
+          <span class="sig" style:background={signature(c.name)}></span>
+          <span class="label">
+            <span class="name">{c.name}</span>
+            <span class="state">{c.waking ? t('ps.waking') : psStatusText(c)}</span>
+          </span>
+        </button>
+      {/each}
       {#each friends as f (f.id)}
         <button class="card friend" class:current={f.id === selectedFriend?.id} class:offline={!canBorrow(f)} onclick={() => onselect(f.id)}>
           <span class="sig" style:background={signature(f.id)}></span>
@@ -314,6 +424,14 @@
       {/each}
       {#each fresh as f (f.id)}
         <button class="card found" aria-label={t('home.add_named', { name: f.name })} onclick={() => onadd(f)}>
+          <span class="label">
+            <span class="name">{f.name}</span>
+            <span class="state found-state"><span class="pulse"></span>{t('home.on_network')}</span>
+          </span>
+        </button>
+      {/each}
+      {#each psFresh as f (f.host_id)}
+        <button class="card found" aria-label={t('ps.pair_named', { name: f.name })} onclick={() => onpair?.(f)}>
           <span class="label">
             <span class="name">{f.name}</span>
             <span class="state found-state"><span class="pulse"></span>{t('home.on_network')}</span>
@@ -705,5 +823,49 @@
 
   .error {
     max-width: 620px;
+  }
+
+  /* La puce du compte et son menu (le compte avec lequel la console ouvre la partie). */
+  .anchor {
+    position: relative;
+  }
+
+  .menu {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    z-index: 5;
+    min-width: 100%;
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--line-2);
+    border-radius: 12px;
+    background: rgb(9 13 18 / 0.97);
+    box-shadow: 0 16px 40px rgb(0 0 0 / 0.5);
+  }
+
+  .menu button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 12px 9px 8px;
+    border: 0;
+    border-radius: 8px;
+    background: none;
+    color: var(--text);
+    font-size: 14px;
+    text-align: left;
+    white-space: nowrap;
+  }
+
+  .menu button:hover {
+    background: rgb(255 255 255 / 0.07);
+  }
+
+  .tick {
+    width: 16px;
+    display: flex;
+    color: var(--signal);
   }
 </style>

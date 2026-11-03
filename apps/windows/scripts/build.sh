@@ -172,7 +172,7 @@ cargo_flags=(--target "$TARGET" -p kybernow-windows)
 echo "==> cargo build ($ARCH, $PROFILE)"
 (cd "$APPS" && cargo build "${cargo_flags[@]}" 2>&1 | { grep -Ev '^ +(Compiling|Checking|Fresh|Downloaded|Downloading|Locking|Adding|Updating) ' || true; })
 
-EXE="$APPS/target/$TARGET/$PROFILE/kybernow.exe"
+EXE="${CARGO_TARGET_DIR:-$APPS/target}/$TARGET/$PROFILE/kybernow.exe"
 [ -f "$EXE" ] || { echo "kybernow.exe absent" >&2; exit 1; }
 
 echo "==> $DIST"

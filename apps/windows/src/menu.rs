@@ -556,13 +556,13 @@ mod tests {
     }
 
     const BOTTOM_FR: [&str; 7] =
-        ["Ouvrir KyberNow Link *", "Ajouter un ordinateur", "Rejoindre avec un code", "Réglages de l'app", "Rechercher des mises à jour", "---", "Quitter KyberNow Link"];
+        ["Ouvrir KyberNow Link *", "Ajouter un ordinateur ou une console", "Rejoindre avec un code", "Réglages de l'app", "Rechercher des mises à jour", "---", "Quitter KyberNow Link"];
 
     #[test]
     fn sans_ordinateur() {
         assert_eq!(lines(&State::default(), Lang::Fr), BOTTOM_FR);
         let en = lines(&State { app_update: Some("0.5.3".into()), ..Default::default() }, Lang::En);
-        assert_eq!(en, ["Open KyberNow Link *", "Add a computer", "Join with a code", "App settings", "Version 0.5.3 available", "---", "Quit KyberNow Link"]);
+        assert_eq!(en, ["Open KyberNow Link *", "Add a computer or a console", "Join with a code", "App settings", "Version 0.5.3 available", "---", "Quit KyberNow Link"]);
     }
 
     #[test]

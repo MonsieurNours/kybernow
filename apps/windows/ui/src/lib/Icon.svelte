@@ -45,6 +45,13 @@
     pencil: 'M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4',
     share: 'M18 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 22a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM8.6 10.5l6.8-4M8.6 13.5l6.8 4',
     other: 'M5 7h14a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2zM8 12h.01M12 12h.01M16 12h.01',
+    // Consoles PlayStation : compte, choix du compte, réglages « Auto », envoi et réception entre appareils.
+    user: 'M12 4a4 4 0 1 1 0 8 4 4 0 0 1 0-8zM4.5 20.5a7.5 7.5 0 0 1 15 0',
+    caret: 'M7 10l5 5 5-5',
+    sliders: 'M4 7h9M17 7h3M4 17h3M11 17h9M15 5v4M9 15v4',
+    send: 'M21 3L10 14M21 3l-6.5 18-4.5-7-7-4.5z',
+    receive: 'M12 3v11M7 9.5l5 5 5-5M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15',
+    speakeroff: 'M11 5L6 9H2v6h4l5 4zM16 9.5l5 5M21 9.5l-5 5',
   }
 </script>
 
