@@ -62,7 +62,15 @@ final class Agent {
         switch req["cmd"] as? String {
         case "create": return try create(req)
         case "remove":
-            virtuals[try int(req, "slot")] = nil
+            let slot = try int(req, "slot")
+            // Le dernier écran virtuel : les écrans du Mac reviennent d'abord.
+            // Sans aucun écran, même un instant, macOS allume l'écran intégré
+            // et ne rallume plus les autres (fin de session du 03/11/2026 :
+            // Admin retire les écrans virtuels avant `restore`).
+            if switchedOff != nil, virtuals.keys.allSatisfy({ $0 == slot }) {
+                _ = restore()
+            }
+            virtuals[slot] = nil
             return [:]
         case "isolate": return try isolate(req)
         case "restore": return restore()
