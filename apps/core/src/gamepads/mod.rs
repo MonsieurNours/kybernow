@@ -34,7 +34,10 @@
 //! Une app à une session se comporte comme avant : sa session est active.
 //! Les apps qui lisent leurs manettes elles-mêmes sans passer par ici
 //! (Apple TV, iPhone, iPad, Android, webOS) ne changent pas : le lecteur n'a
-//! alors aucune manette.
+//! alors aucune manette. Pendant une partie sur une console PlayStation,
+//! une telle app le nourrit elle-même ([`plug`], [`button`], [`axis`],
+//! [`touch_finger`], [`touch_click`], [`sensor`]) et reçoit vibrations et
+//! gâchettes adaptatives par [`set_console_feedback`].
 
 use std::collections::{BTreeMap, HashSet};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
@@ -340,6 +343,71 @@ pub(crate) fn rumble(r: GamepadRumble) {
     sdl::rumble(r);
     #[cfg(not(feature = "sdl"))]
     let _ = r;
+}
+
+// MARK: - Partie sur une console, manettes lues par l'app
+
+/// Ce qu'une partie sur une console PlayStation renvoie aux manettes, pour
+/// une app qui les lit elle-même et nourrit le lecteur ([`plug`],
+/// [`button`], [`axis`], pavé tactile et mouvements : Apple TV, iPhone,
+/// iPad) : sans fil SDL, personne d'autre ne les joue.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConsoleFeedback {
+    /// Vibration (gros moteur, petit moteur), tenue `duration_ms` (0 : arrêt).
+    Rumble(GamepadRumble),
+    /// Rapport d'effets de la DualSense (47 octets, `DS5EffectsState_t` de
+    /// SDL) : gâchettes adaptatives.
+    Effect(PadId, Vec<u8>),
+}
+
+type ConsoleFeedbackFn = Arc<dyn Fn(ConsoleFeedback) + Send + Sync>;
+
+fn console_feedback_slot() -> &'static Mutex<Option<ConsoleFeedbackFn>> {
+    static SLOT: OnceLock<Mutex<Option<ConsoleFeedbackFn>>> = OnceLock::new();
+    SLOT.get_or_init(|| Mutex::new(None))
+}
+
+/// L'app reçoit les vibrations et les effets d'une partie sur console
+/// (`None` : plus rien). Les sessions d'ordinateur n'y passent pas : leurs
+/// vibrations vont à l'app par `InputPlatform::rumble`, comme avant.
+pub fn set_console_feedback(f: Option<ConsoleFeedbackFn>) {
+    *console_feedback_slot().lock().unwrap() = f;
+}
+
+fn console_feedback(e: ConsoleFeedback) {
+    let f = console_feedback_slot().lock().unwrap().clone();
+    if let Some(f) = f {
+        f(e);
+    }
+}
+
+/// Vibration d'une partie sur console : au fil SDL, et à l'app qui lit
+/// ses manettes elle-même.
+pub(crate) fn console_rumble(r: GamepadRumble) {
+    rumble(r);
+    console_feedback(ConsoleFeedback::Rumble(r));
+}
+
+/// Effet de la DualSense d'une partie sur console : au fil SDL, et à l'app.
+pub(crate) fn console_effect(id: PadId, data: Vec<u8>) {
+    effect(id, data.clone());
+    console_feedback(ConsoleFeedback::Effect(id, data));
+}
+
+/// Clic du pavé tactile (app qui nourrit le lecteur).
+pub fn touch_click(id: PadId, pressed: bool) {
+    global().touch_click(id, pressed);
+}
+
+/// Doigt sur le pavé tactile, de 0 à 1 (app qui nourrit le lecteur).
+pub fn touch_finger(id: PadId, finger: usize, at: Option<(f32, f32)>) {
+    global().touch_finger(id, finger, at);
+}
+
+/// Gyroscope (rad/s) ou accéléromètre (m/s²), repère de SDL (app qui
+/// nourrit le lecteur).
+pub fn sensor(id: PadId, gyro: bool, data: [f32; 3], timestamp_us: u64) {
+    global().sensor(id, gyro, data, timestamp_us);
 }
 
 #[cfg(test)]
