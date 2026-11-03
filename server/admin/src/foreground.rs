@@ -188,7 +188,165 @@ pub fn probe() -> Value {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 fn probe() -> Value {
     json!({ "fullscreen": false, "game": false, "exe": null, "d3d": false })
+}
+
+/// Plein écran mais pas un jeu, sur Mac (nom de l'app, en minuscules).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+const MAC_NOT_GAMES: &[&str] = &[
+    "safari", "google chrome", "firefox", "microsoft edge", "arc", "brave browser", "opera", "vivaldi", "orion",
+    "quicktime player", "vlc", "iina", "infuse", "mpv", "tv", "music", "podcasts", "photos", "preview", "spotify",
+    "plex", "kodi", "keynote", "microsoft powerpoint", "zoom.us", "microsoft teams", "facetime", "finder",
+    "loginwindow", "screensaverengine", "kybernow link",
+];
+
+/// Une fenêtre de la liste du serveur de fenêtres, de l'avant vers l'arrière.
+#[derive(Debug, Clone)]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+struct MacWindow {
+    layer: i32,
+    /// x, y, largeur, hauteur, en points.
+    bounds: (f64, f64, f64, f64),
+    owner: String,
+}
+
+/// La fenêtre de premier plan (la première du niveau des apps) couvre-t-elle
+/// un écran, et son app est-elle un jeu ?
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn classify_mac(windows: &[MacWindow], displays: &[(f64, f64, f64, f64)]) -> Value {
+    let Some(front) = windows.iter().find(|w| w.layer == 0 && w.bounds.2 > 1.0 && w.bounds.3 > 1.0) else {
+        return json!({ "fullscreen": false, "game": false, "exe": null, "d3d": false });
+    };
+    let (x, y, w, h) = front.bounds;
+    let covers = displays.iter().any(|&(dx, dy, dw, dh)| x <= dx && y <= dy && x + w >= dx + dw && y + h >= dy + dh);
+    let exe = front.owner.to_lowercase();
+    let game = covers && !MAC_NOT_GAMES.contains(&exe.as_str());
+    json!({ "fullscreen": covers, "game": game, "exe": exe, "d3d": false })
+}
+
+/// Station Mac : la fenêtre au premier plan d'après `CGWindowListCopyWindowInfo`
+/// (place et app de chaque fenêtre, sans l'autorisation d'enregistrer l'écran).
+#[cfg(target_os = "macos")]
+pub fn probe() -> Value {
+    classify_mac(&mac::windows(), &mac::displays())
+}
+
+#[cfg(target_os = "macos")]
+mod mac {
+    use std::ffi::{c_char, c_void};
+
+    use super::MacWindow;
+
+    type CFTypeRef = *const c_void;
+
+    #[repr(C)]
+    #[derive(Default, Clone, Copy)]
+    struct CGRect {
+        x: f64,
+        y: f64,
+        w: f64,
+        h: f64,
+    }
+
+    #[link(name = "CoreGraphics", kind = "framework")]
+    unsafe extern "C" {
+        static kCGWindowLayer: CFTypeRef;
+        static kCGWindowBounds: CFTypeRef;
+        static kCGWindowOwnerName: CFTypeRef;
+        fn CGWindowListCopyWindowInfo(option: u32, relative_to: u32) -> CFTypeRef;
+        fn CGRectMakeWithDictionaryRepresentation(dict: CFTypeRef, rect: *mut CGRect) -> bool;
+        fn CGGetActiveDisplayList(max: u32, displays: *mut u32, count: *mut u32) -> i32;
+        fn CGDisplayBounds(display: u32) -> CGRect;
+    }
+
+    #[link(name = "CoreFoundation", kind = "framework")]
+    unsafe extern "C" {
+        fn CFArrayGetCount(array: CFTypeRef) -> isize;
+        fn CFArrayGetValueAtIndex(array: CFTypeRef, index: isize) -> CFTypeRef;
+        fn CFDictionaryGetValue(dict: CFTypeRef, key: CFTypeRef) -> CFTypeRef;
+        fn CFNumberGetValue(number: CFTypeRef, kind: isize, value: *mut c_void) -> bool;
+        fn CFStringGetCString(string: CFTypeRef, buffer: *mut c_char, size: isize, encoding: u32) -> bool;
+        fn CFRelease(object: CFTypeRef);
+    }
+
+    /// kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements.
+    const ON_SCREEN: u32 = 1 | 16;
+    const SINT32: isize = 3;
+    const UTF8: u32 = 0x0800_0100;
+
+    pub(super) fn windows() -> Vec<MacWindow> {
+        let mut out = Vec::new();
+        unsafe {
+            let list = CGWindowListCopyWindowInfo(ON_SCREEN, 0);
+            if list.is_null() {
+                return out;
+            }
+            for i in 0..CFArrayGetCount(list) {
+                let dict = CFArrayGetValueAtIndex(list, i);
+                let mut layer = 0i32;
+                let n = CFDictionaryGetValue(dict, kCGWindowLayer);
+                if n.is_null() || !CFNumberGetValue(n, SINT32, (&mut layer as *mut i32).cast()) {
+                    continue;
+                }
+                let mut r = CGRect::default();
+                let b = CFDictionaryGetValue(dict, kCGWindowBounds);
+                if b.is_null() || !CGRectMakeWithDictionaryRepresentation(b, &mut r) {
+                    continue;
+                }
+                let mut owner = String::new();
+                let s = CFDictionaryGetValue(dict, kCGWindowOwnerName);
+                let mut buf = [0 as c_char; 256];
+                if !s.is_null() && CFStringGetCString(s, buf.as_mut_ptr(), buf.len() as isize, UTF8) {
+                    owner = std::ffi::CStr::from_ptr(buf.as_ptr()).to_string_lossy().into_owned();
+                }
+                out.push(MacWindow { layer, bounds: (r.x, r.y, r.w, r.h), owner });
+            }
+            CFRelease(list);
+        }
+        out
+    }
+
+    pub(super) fn displays() -> Vec<(f64, f64, f64, f64)> {
+        let mut ids = [0u32; 16];
+        let mut count = 0u32;
+        if unsafe { CGGetActiveDisplayList(ids.len() as u32, ids.as_mut_ptr(), &mut count) } != 0 {
+            return Vec::new();
+        }
+        ids[..count as usize]
+            .iter()
+            .map(|&id| {
+                let r = unsafe { CGDisplayBounds(id) };
+                (r.x, r.y, r.w, r.h)
+            })
+            .collect()
+    }
+}
+
+#[cfg(test)]
+mod mac_tests {
+    use super::{MacWindow, classify_mac};
+
+    fn win(layer: i32, bounds: (f64, f64, f64, f64), owner: &str) -> MacWindow {
+        MacWindow { layer, bounds, owner: owner.into() }
+    }
+
+    #[test]
+    fn a_full_screen_game_on_a_virtual_display() {
+        let displays = [(0.0, 0.0, 1920.0, 1080.0), (1920.0, 0.0, 2560.0, 1440.0)];
+        // Barre des menus (niveau 24) devant, jeu sans bordure sur le second écran.
+        let game = [win(24, (0.0, 0.0, 1920.0, 24.0), "Window Server"), win(0, (1920.0, 0.0, 2560.0, 1440.0), "Baldur's Gate 3")];
+        let v = classify_mac(&game, &displays);
+        assert_eq!((v["fullscreen"].as_bool(), v["game"].as_bool()), (Some(true), Some(true)));
+        assert_eq!(v["exe"], "baldur's gate 3");
+        // Vidéo en plein écran dans Safari : pas un jeu.
+        let video = [win(0, (0.0, 0.0, 1920.0, 1080.0), "Safari")];
+        let v = classify_mac(&video, &displays);
+        assert_eq!((v["fullscreen"].as_bool(), v["game"].as_bool()), (Some(true), Some(false)));
+        // Fenêtre ordinaire : rien.
+        let window = [win(0, (100.0, 100.0, 800.0, 600.0), "Baldur's Gate 3")];
+        assert_eq!(classify_mac(&window, &displays)["fullscreen"], false);
+        assert_eq!(classify_mac(&[], &displays)["game"], false);
+    }
 }
