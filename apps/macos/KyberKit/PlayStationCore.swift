@@ -38,14 +38,74 @@ public enum PlayStation {
     public static func search(direct: [String], wait: UInt32 = 2000) -> [Found] {
         Core.install()
         let json = (try? JSONSerialization.data(withJSONObject: direct)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
-        guard let text = Core.take(kn_ps_search(json, wait)),
-              let list = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [[String: Any]] else { return [] }
+        guard let text = Core.take(kn_ps_search(json, wait)) else { return [] }
+        return found(text)
+    }
+
+    /// Cherche la seule console à `address` (sans diffusion) : par le relais,
+    /// l'adresse de `Remote.address`, l'état de la console à travers la
+    /// Station. L'adresse des réponses est alors celle de la boucle locale : à
+    /// ne pas retenir. Bloque.
+    public static func search(at address: String, wait: UInt32 = 1500) -> [Found] {
+        Core.install()
+        guard let text = Core.take(kn_ps_search_at(address, wait)) else { return [] }
+        return found(text)
+    }
+
+    private static func found(_ text: String) -> [Found] {
+        guard let list = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [[String: Any]] else { return [] }
         return list.compactMap { o in
             guard let address = o["address"] as? String, let host = o["host_id"] as? String else { return nil }
             let app = (o["running_app"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             return Found(address: address, hostID: host, name: o["name"] as? String ?? "PlayStation", model: o["model"] as? String ?? "PS5",
                          state: o["state"] as? String ?? "unknown", target: o["target"] as? String ?? "", runningApp: app)
         }
+    }
+
+    // MARK: Hors de chez soi (docs/relais.md, « Consoles PlayStation »)
+
+    /// Une console que voit une Station sur son réseau (`GET /api/consoles`).
+    public struct StationConsole: Sendable, Equatable {
+        /// Identifiant de la console, en majuscules.
+        public var hostID: String
+        public var name: String
+        /// `ps5` ou `ps4`.
+        public var model: String
+        /// `ready`, `standby` ou `unknown`.
+        public var state: String
+    }
+
+    /// Pourquoi la console n'est pas jointe par une Station.
+    public enum RemoteError: Error, Sendable {
+        /// La Station ne voit pas (ou plus) la console sur son réseau.
+        case notSeen
+        /// Admin ou le relais refuse (accès coupé, Station absente, compte…).
+        case console(ConsoleError)
+    }
+
+    /// Une console jointe par une Station et le relais : `address` sert à
+    /// `wake`, `search(at:)`, `regist` et à la partie comme l'adresse d'une
+    /// console du réseau. Tant qu'elle vit, le cœur redonne signe de vie à
+    /// Admin toutes les 10 s et le tunnel reste ouvert.
+    public final class Remote: @unchecked Sendable {
+        private let handle: OpaquePointer
+        public let address: String
+
+        init(handle: OpaquePointer) {
+            self.handle = handle
+            address = Core.take(kn_ps_remote_address(handle)) ?? ""
+        }
+
+        deinit {
+            kn_ps_remote_free(handle)
+        }
+
+        /// L'état de la console vu par la Station au dernier signe de vie
+        /// (`ready`, `standby`) ; nil si elle ne la voit plus.
+        public var state: String? { Core.take(kn_ps_remote_state(handle)) }
+
+        /// Le chemin : puce « Par le relais », ligne « Chemin » des statistiques.
+        public var route: RouteInfo { RouteInfo(json: Core.take(kn_ps_remote_route(handle))) ?? .direct }
     }
 
     /// Page de connexion au compte Sony.
@@ -500,6 +560,50 @@ public final class PlayStationPlay: @unchecked Sendable {
             player(for: p.stream)?.conceal(samples: Int(p.missing_samples))
         default:
             break
+        }
+    }
+}
+
+// MARK: - Consoles vues par une Station (docs/relais.md, « Consoles PlayStation »)
+
+extension ConsoleClient {
+    /// `GET /api/consoles` : les consoles PlayStation que voit la Station de
+    /// cet ordinateur (jamais leur adresse). `ConsoleError.http(404, …)` :
+    /// Station d'avant les consoles.
+    public func consoles() async throws -> [PlayStation.StationConsole] {
+        let text = try await call { console -> String? in
+            var out: UnsafeMutablePointer<CChar>?
+            var error: UnsafeMutablePointer<CChar>?
+            try Self.check(kn_console_consoles(console, &out, &error), error)
+            return Core.take(out)
+        }
+        guard let text, let list = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [[String: Any]] else { return [] }
+        return list.compactMap { o in
+            guard let id = o["host_id"] as? String, !id.isEmpty else { return nil }
+            return PlayStation.StationConsole(hostID: id.uppercased(), name: o["name"] as? String ?? "", model: o["model"] as? String ?? "",
+                                              state: o["state"] as? String ?? "unknown")
+        }
+    }
+
+    /// Joint la console `hostID` par cette Station et le relais (la console
+    /// d'Admin doit passer par le relais : `ConsoleClient(…, relay:)`).
+    /// Quelques secondes au plus.
+    public func reachConsole(hostID: String) async throws -> PlayStation.Remote {
+        do {
+            return try await call { console -> PlayStation.Remote in
+                var out: OpaquePointer?
+                var error: UnsafeMutablePointer<CChar>?
+                let code = kn_ps_remote_open(console, hostID, &out, &error)
+                if code == KN_PS_NOT_SEEN {
+                    _ = Core.take(error)
+                    throw PlayStation.RemoteError.notSeen
+                }
+                try Self.check(code, error)
+                guard let out else { throw ConsoleError.network("") }
+                return PlayStation.Remote(handle: out)
+            }
+        } catch let e as ConsoleError {
+            throw PlayStation.RemoteError.console(e)
         }
     }
 }

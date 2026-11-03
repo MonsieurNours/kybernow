@@ -8,13 +8,15 @@
 //! [`session`] (demande de session et canal de contrôle), [`takion`] (le
 //! transport), [`gkcrypt`] (son chiffrement), [`stream`] (l'ouverture du
 //! flux), [`frame`] et [`fec`] (les images), [`audio`] (le son) et [`play`]
-//! (une partie entière, vers les gestionnaires de paquets de l'app). Vient
-//! ensuite la manette.
+//! (une partie entière, vers les gestionnaires de paquets de l'app),
+//! [`endpoint`] (où joindre la console : son adresse et ses ports) et
+//! [`remote`] (hors de chez soi, par une Station de son réseau et le relais).
 
 pub mod audio;
 pub mod controller;
 pub mod discovery;
 pub mod dualsense;
+pub mod endpoint;
 pub mod fec;
 pub mod frame;
 pub mod gkcrypt;
@@ -25,6 +27,7 @@ pub mod proto;
 pub mod psn;
 pub mod refs;
 pub mod regist;
+pub mod remote;
 pub mod rpcrypt;
 pub mod session;
 pub mod settings;

@@ -19,7 +19,7 @@
 //! qui n'est pas encore écrit.
 
 use std::io::{self, Read, Write};
-use std::net::{Ipv4Addr, Shutdown, SocketAddr, SocketAddrV4, TcpStream};
+use std::net::{Ipv4Addr, Shutdown, SocketAddr, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
@@ -28,6 +28,7 @@ use std::time::{Duration, Instant};
 use base64::Engine;
 
 use super::discovery::Target;
+use super::endpoint::Endpoint;
 use super::regist::{self, Registered};
 use super::rpcrypt::{self, KEY_SIZE, RpCrypt};
 
@@ -275,13 +276,16 @@ fn reason(head: &HttpHead) -> Option<u32> {
 
 /// Demande une session ; rend la cible acceptée par la console et son
 /// `nonce`. Une version refusée est redemandée avec celle de la console.
-pub fn request_session(addr: Ipv4Addr, target: Target, keys: &Keys) -> Result<(Target, [u8; KEY_SIZE]), SessionError> {
+///
+/// `at` : la console sur le réseau ([`Endpoint::direct`]) ou par le relais
+/// (le port du tunnel pour 9295 ; `Host` garde l'adresse donnée et le port 9295).
+pub fn request_session(at: &Endpoint, target: Target, keys: &Keys) -> Result<(Target, [u8; KEY_SIZE]), SessionError> {
     let ps5 = rpcrypt::is_ps5(target);
     let mut target = target;
     for _ in 0..3 {
-        let mut stream = TcpStream::connect_timeout(&SocketAddr::V4(SocketAddrV4::new(addr, PORT)), CONNECT_TIMEOUT)?;
+        let mut stream = TcpStream::connect_timeout(&SocketAddr::V4(at.rp()), CONNECT_TIMEOUT)?;
         stream.set_write_timeout(Some(RESPONSE_TIMEOUT))?;
-        stream.write_all(session_request(target, addr, keys).as_bytes())?;
+        stream.write_all(session_request(target, at.ip, keys).as_bytes())?;
         let head = read_head(&mut stream, RESPONSE_TIMEOUT)?;
         let _ = stream.shutdown(Shutdown::Both);
         if head.status == 200 {
@@ -373,10 +377,10 @@ pub struct Ctrl {
 impl Ctrl {
     /// Ouvre le canal de contrôle. `events` reçoit l'identifiant de session
     /// et la suite.
-    pub fn connect(addr: Ipv4Addr, target: Target, nonce: &[u8; KEY_SIZE], keys: &Keys, codec: Codec) -> Result<(Self, Receiver<CtrlEvent>), SessionError> {
+    pub fn connect(at: &Endpoint, target: Target, nonce: &[u8; KEY_SIZE], keys: &Keys, codec: Codec) -> Result<(Self, Receiver<CtrlEvent>), SessionError> {
         let crypt = RpCrypt::auth(target, nonce, &keys.morning);
-        let (request, counter) = ctrl_request(&crypt, target, addr, keys, &random_did(), codec);
-        let mut stream = TcpStream::connect_timeout(&SocketAddr::V4(SocketAddrV4::new(addr, PORT)), CONNECT_TIMEOUT)?;
+        let (request, counter) = ctrl_request(&crypt, target, at.ip, keys, &random_did(), codec);
+        let mut stream = TcpStream::connect_timeout(&SocketAddr::V4(at.rp()), CONNECT_TIMEOUT)?;
         stream.set_nodelay(true)?;
         stream.set_write_timeout(Some(RESPONSE_TIMEOUT))?;
         stream.write_all(request.as_bytes())?;

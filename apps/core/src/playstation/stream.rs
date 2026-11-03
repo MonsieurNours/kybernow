@@ -7,10 +7,11 @@
 //! les 200 ms. Pour finir, DISCONNECT.
 //!
 //! Pas de mesure du réseau (Senkusha) pour l'instant : les valeurs de
-//! secours de chiaki-ng (MTU 1454, 1 ms) sont employées.
+//! secours de chiaki-ng (MTU 1454, 1 ms) sont employées sur le réseau ; par
+//! le relais, la MTU est de 1 200 octets ([`super::endpoint::MTU_RELAY`]) :
+//! la console n'envoie pas de paquet plus grand qu'un datagramme du tunnel.
 
 use std::io;
-use std::net::Ipv4Addr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::Arc;
@@ -19,6 +20,7 @@ use std::time::{Duration, Instant};
 use base64::Engine;
 
 use super::discovery::Target;
+use super::endpoint::{Endpoint, MTU_LAN};
 use super::gkcrypt::{Ecdh, GkCrypt, HANDSHAKE_KEY_SIZE};
 use super::proto::{self, Writer, kind};
 use super::rpcrypt::{self, RpCrypt};
@@ -35,8 +37,8 @@ const IDR_RETRY: Duration = Duration::from_millis(500);
 /// Après une perte, l'image de réparation de la console arrive deux images
 /// plus tard (essai du 03/11/2026) ; sans elle passé ce délai, image clé.
 const REPAIR_WAIT: Duration = Duration::from_millis(250);
-/// Valeurs de secours de chiaki-ng quand la mesure du réseau échoue.
-const MTU: u32 = 1454;
+/// Valeur de secours de chiaki-ng quand la mesure du réseau échoue (la
+/// MTU est dans [`Profile::mtu`]).
 const RTT_MS: u32 = 1;
 
 /// Ce que l'app demande à la console.
@@ -51,12 +53,15 @@ pub struct Profile {
     pub hdr: bool,
     /// Annonce une DualSense (sinon une DualShock 4).
     pub dualsense: bool,
+    /// MTU de Takion annoncée (la taille des paquets de la console) :
+    /// [`Endpoint::mtu`], 1 454 sur le réseau, 1 200 par le relais.
+    pub mtu: u32,
 }
 
 impl Profile {
     /// 1080p à 60 i/s, H.265, 15 Mbit/s (préréglage 1080p de chiaki-ng).
     pub fn p1080() -> Self {
-        Profile { width: 1920, height: 1080, max_fps: 60, bitrate: 15000, hevc: true, hdr: false, dualsense: true }
+        Profile { width: 1920, height: 1080, max_fps: 60, bitrate: 15000, hevc: true, hdr: false, dualsense: true, mtu: MTU_LAN }
     }
 }
 
@@ -129,13 +134,13 @@ pub(crate) fn launch_spec(target: Target, profile: &Profile, handshake_key: &[u8
     let key = base64::engine::general_purpose::STANDARD.encode(handshake_key);
     format!(
         "{{\"sessionId\":\"sessionId4321\",\"streamResolutions\":[{{\"resolution\":{{\"width\":{},\"height\":{}}},\"maxFps\":{},\"score\":10}}],\
-\"network\":{{\"bwKbpsSent\":{},\"bwLoss\":0.001000,\"mtu\":{MTU},\"rtt\":{RTT_MS},\"ports\":[53,2053]}},\"slotId\":1,\
+\"network\":{{\"bwKbpsSent\":{},\"bwLoss\":0.001000,\"mtu\":{},\"rtt\":{RTT_MS},\"ports\":[53,2053]}},\"slotId\":1,\
 \"appSpecification\":{{\"minFps\":30,\"minBandwidth\":0,\"extTitleId\":\"ps3\",\"version\":1,\"timeLimit\":1,\"startTimeout\":100,\"afkTimeout\":100,\"afkTimeoutDisconnect\":100}},\
 \"konan\":{{\"ps3AccessToken\":\"accessToken\",\"ps3RefreshToken\":\"refreshToken\"}},\"requestGameSpecification\":{{\"model\":\"bravia_tv\",\"platform\":\"android\",\
 \"audioChannels\":\"5.1\",\"language\":\"sp\",\"acceptButton\":\"X\",\"connectedControllers\":[\"xinput\",\"ds3\",\"ds4\"],\"yuvCoefficient\":\"bt601\",\
 \"videoEncoderProfile\":\"hw4.1\",\"audioEncoderProfile\":\"audio1\"{adaptive}}},\"userProfile\":{{\"onlineId\":\"psnId\",\"npId\":\"npId\",\"region\":\"US\",\
 \"languagesUsed\":[\"en\",\"jp\"]}},{codec}{range}\"handshakeKey\":\"{key}\"}}",
-        profile.width, profile.height, profile.max_fps, profile.bitrate
+        profile.width, profile.height, profile.max_fps, profile.bitrate, profile.mtu
     )
 }
 
@@ -171,8 +176,8 @@ pub(crate) fn big_message(
 }
 
 /// Envoie un message découpé selon la MTU, comme `stream_connection_send_big`.
-fn send_split(takion: &Takion, msg: &[u8]) -> io::Result<()> {
-    let mtu = (MTU - 50) as usize;
+fn send_split(takion: &Takion, msg: &[u8], mtu: u32) -> io::Result<()> {
+    let mtu = mtu.saturating_sub(50).max(64) as usize;
     let mut rest = msg;
     let mut first = true;
     while mtu < rest.len() + 26 || (mtu < rest.len() + 25 && !first) {
@@ -260,7 +265,7 @@ impl Stream {
     /// `controller` : lu toutes les 1 ms une fois le flux ouvert (l'état de
     /// la manette à envoyer) ; aucun : pas de manette.
     pub fn start(
-        addr: Ipv4Addr,
+        at: &Endpoint,
         target: Target,
         session_id: String,
         crypt: RpCrypt,
@@ -268,7 +273,7 @@ impl Stream {
         controller: Option<ControllerSource>,
         want_key: Arc<AtomicBool>,
     ) -> io::Result<(Self, Receiver<StreamEvent>)> {
-        let (takion, events) = Takion::connect(addr, takion::PORT, rpcrypt::is_ps5(target))?;
+        let (takion, events) = Takion::connect(at.ip, at.ports.takion, rpcrypt::is_ps5(target))?;
         let (tx, rx) = mpsc::channel();
         let stop = Arc::new(AtomicBool::new(false));
         let thread = {
@@ -374,7 +379,7 @@ fn run(
         log::info!("PlayStation : fin du flux ({reason})");
         reason
     };
-    if let Err(e) = send_split(&takion, &big_message(target, &profile, &session_id, &crypt, &handshake_key, &ecdh)) {
+    if let Err(e) = send_split(&takion, &big_message(target, &profile, &session_id, &crypt, &handshake_key, &ecdh), profile.mtu) {
         let _ = tx.send(StreamEvent::Ended(end(format!("BIG non envoyé : {e}"))));
         return;
     }
@@ -568,6 +573,12 @@ mod tests {
         assert!(s.contains("\"audioEncoderProfile\":\"audio1\",\"adaptiveStreamMode\": \"resize\"},"));
         assert!(s.ends_with("\"videoCodec\":\"hevc\",\"dynamicRange\":\"SDR\",\"handshakeKey\":\"AAAAAAAAAAAAAAAAAAAAAA==\"}"));
         serde_json::from_str::<serde_json::Value>(&s).unwrap();
+    }
+
+    #[test]
+    fn launch_spec_by_the_relay_asks_for_smaller_packets() {
+        let s = launch_spec(Target::Ps5V1, &Profile { mtu: super::super::endpoint::MTU_RELAY, ..Profile::p1080() }, &[0u8; 16]);
+        assert!(s.contains("\"mtu\":1200,\"rtt\":1,"), "{s}");
     }
 
     #[test]

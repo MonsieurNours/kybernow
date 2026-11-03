@@ -3,8 +3,13 @@
 // consoles associées, gardés comme les ordinateurs (préférences ; les
 // identifiants des comptes et les associations, qui portent les clés, au
 // Trousseau : une association par console et par compte), et leur
-// recherche sur le réseau tant que l'accueil est à l'écran.
+// recherche sur le réseau tant que l'accueil est à l'écran. Hors de chez
+// soi, une console passe par une Station de son réseau et le relais
+// (docs/playstation.md, « Hors de chez soi » ; docs/relais.md, « Consoles
+// PlayStation ») : l'app retient d'elle-même, par console, les Stations qui
+// la voient (`GET /api/consoles`, à chaque sondage d'un ordinateur sur le réseau).
 
+import Combine
 import KyberKit
 import SwiftUI
 
@@ -480,12 +485,14 @@ struct PairTarget: Identifiable {
 final class PlayStationStore: ObservableObject {
     /// État d'une console vue d'ici.
     enum Status: Equatable {
-        case searching, on, standby, offline
+        /// `away` : la console ne répond pas sur le réseau, mais une Station qui
+        /// la voit est joignable par le relais (« Hors de chez vous »).
+        case searching, on, standby, offline, away
 
         var online: Bool? {
             switch self {
             case .searching: return nil
-            case .on: return true
+            case .on, .away: return true
             case .standby, .offline: return false
             }
         }
@@ -496,6 +503,7 @@ final class PlayStationStore: ObservableObject {
             case .on: return PSText.on
             case .standby: return PSText.standby
             case .offline: return LinkText.status(false)
+            case .away: return LinkText.status(true, away: true)
             }
         }
     }
@@ -516,6 +524,16 @@ final class PlayStationStore: ObservableObject {
     @Published private(set) var searched = false
     /// Réveil en cours (« Réveil de la console… »).
     @Published private(set) var waking: Set<UUID> = []
+    /// Hors de chez soi : la console est jointe par une Station (« Connexion à la console… »).
+    @Published private(set) var reaching: Set<UUID> = []
+    /// Les Stations (ordinateurs de l'app) qui voient chaque console, par
+    /// identifiant de console ; appris sur le réseau, gardé dans les préférences.
+    private var seenBy: [String: [UUID]] = [:]
+    /// Les ordinateurs joignables seulement par le relais en ce moment (accueil
+    /// des ordinateurs : « Hors de chez vous »).
+    @Published private(set) var awayHosts: Set<UUID> = []
+    private weak var hosts: HostStore?
+    private var watchers: Set<AnyCancellable> = []
     /// Feuille de l'association ouverte.
     @Published var pairing: PairTarget?
     /// Parties en cours, une fenêtre chacune.
@@ -526,6 +544,7 @@ final class PlayStationStore: ObservableObject {
     private let key = "playstationConsoles"
     private let accountsKey = "playstationAccounts"
     private let addressesKey = "playstationAddresses"
+    private let seenByKey = "playstationStations"
     /// Le compte unique d'une version précédente (repris par `migrate`).
     private static let legacyAccountKey = "playstation.psn-account"
     private let defaults: UserDefaults
@@ -546,6 +565,9 @@ final class PlayStationStore: ObservableObject {
             accounts = saved
         }
         addresses = defaults.stringArray(forKey: addressesKey) ?? []
+        if let saved = defaults.dictionary(forKey: seenByKey) as? [String: [String]] {
+            seenBy = saved.mapValues { $0.compactMap(UUID.init(uuidString:)) }
+        }
         guard !demo else { return }
         for a in accounts { accountIDs[a.id] = Keychain.get(account: Self.accountSecret(a.id)) }
         migrate()
@@ -747,7 +769,86 @@ final class PlayStationStore: ObservableObject {
 
     func status(_ c: PlayStationConsole) -> Status {
         if let f = live(c) { return f.ready ? .on : .standby }
+        if awayStation(c) != nil { return .away }
         return searched ? .offline : .searching
+    }
+
+    // MARK: - Hors de chez soi (docs/relais.md, « Consoles PlayStation »)
+
+    /// Les ordinateurs de l'app : leurs Stations voient peut-être des consoles,
+    /// et leur état dit s'ils sont joignables par le relais.
+    func attach(hosts: HostStore) {
+        self.hosts = hosts
+        hosts.$status
+            .map { Set($0.compactMap { $0.value.away ? $0.key : nil }) }
+            .removeDuplicates()
+            .sink { [weak self] in self?.awayHosts = $0 }
+            .store(in: &watchers)
+        hosts.onConsoles = { [weak self] station, list in self?.learn(station: station, consoles: list) }
+    }
+
+    /// Une Station (sur le réseau) dit les consoles qu'elle voit : retenu pour
+    /// chacune ; sa liste ne retire rien (une console éteinte ne répond plus).
+    func learn(station: UUID, consoles list: [PlayStation.StationConsole]) {
+        var changed = false
+        for c in list where !(seenBy[c.hostID]?.contains(station) ?? false) {
+            seenBy[c.hostID, default: []].append(station)
+            changed = true
+        }
+        guard changed else { return }
+        defaults.set(seenBy.mapValues { $0.map(\.uuidString) }, forKey: seenByKey)
+        KyberLog.app.notice("PlayStation : une Station voit \(list.count, privacy: .public) console(s)")
+    }
+
+    /// La Station par laquelle joindre cette console hors de chez soi : une
+    /// qui la voit et que le relais joint en ce moment (la première).
+    func awayStation(_ c: PlayStationConsole) -> Host? {
+        guard Relay.mode != .off, let hosts else { return nil }
+        let ids = seenBy[c.hostID.uppercased()] ?? []
+        return ids.lazy.filter { self.awayHosts.contains($0) }.compactMap { hosts.host($0) }.first { $0.relayRoute != nil }
+    }
+
+    /// « Jouer » hors de chez soi : la console est jointe par une Station et le
+    /// relais, réveillée si elle est en mode repos, puis la partie s'ouvre.
+    /// Les refus du relais se disent avec le nom de la Station, comme pour un
+    /// ordinateur ; une console que la Station ne voit pas : « La console ne répond pas. ».
+    func playAway(_ c: PlayStationConsole, app: AppModel) {
+        guard let registered = registered(c), !reaching.contains(c.id), !waking.contains(c.id),
+              let station = awayStation(c), let console = hosts?.console(for: station, route: .relay) else { return }
+        reaching.insert(c.id)
+        Task {
+            defer { reaching.remove(c.id); waking.remove(c.id) }
+            let remote: PlayStation.Remote
+            do {
+                remote = try await console.reachConsole(hostID: c.hostID)
+            } catch let PlayStation.RemoteError.console(e) {
+                KyberLog.app.notice("PlayStation : console injoignable par la Station (\(e.localizedDescription, privacy: .public))")
+                app.show(e.relayFailure?.text(name: station.name) ?? (PSText.end(.unreachable) ?? ""), warning: true)
+                return
+            } catch {
+                KyberLog.app.notice("PlayStation : la Station ne voit pas la console")
+                app.show(PSText.end(.unreachable) ?? "", warning: true)
+                return
+            }
+            let address = remote.address
+            var ready = remote.state == "ready"
+            if !ready {
+                reaching.remove(c.id)
+                waking.insert(c.id)
+                let sent = await Task.detached { PlayStation.wake(address: address, registered: registered) }.value
+                KyberLog.app.notice("PlayStation : réveil par le relais \(sent ? "envoyé" : "pas envoyé", privacy: .public)")
+                let deadline = Date().addingTimeInterval(60)
+                while sent, !ready, Date() < deadline {
+                    let list = await Task.detached { PlayStation.search(at: address, wait: 1500) }.value
+                    ready = list.contains { $0.hostID == c.hostID.uppercased() && $0.ready }
+                }
+            }
+            guard ready else {
+                app.show(PSText.end(.unreachable) ?? "", warning: true)
+                return
+            }
+            play(c, app: app, remote: remote)
+        }
     }
 
     /// Toutes les consoles qui répondent (onglet « PlayStation », « Sur ce réseau »).
@@ -834,13 +935,15 @@ final class PlayStationStore: ObservableObject {
     }
 
     /// « Jouer » : la partie dans sa fenêtre (déjà ouverte : elle passe devant).
-    func play(_ c: PlayStationConsole, app: AppModel) {
+    /// `remote` : hors de chez soi, la console jointe par une Station (gardée
+    /// le temps de la partie).
+    func play(_ c: PlayStationConsole, app: AppModel, remote: PlayStation.Remote? = nil) {
         if let s = sessions[c.id] {
             s.bringToFront()
             return
         }
         guard let registered = registered(c) else { return }
-        let address = live(c)?.address ?? c.address
+        let address = remote?.address ?? live(c)?.address ?? c.address
         var console = c
         console.lastSession = Date()
         update(console)
@@ -850,7 +953,7 @@ final class PlayStationStore: ObservableObject {
         let settingsJSON = (try? JSONEncoder().encode(settings)).flatMap { String(data: $0, encoding: .utf8) } ?? Self.defaultSettings
         let id = c.id
         let account = chosenAccount(c)?.id
-        let session = PlayStationSession(console: console, address: address, registered: registered, settings: settingsJSON,
+        let session = PlayStationSession(console: console, address: address, remote: remote, registered: registered, settings: settingsJSON,
                                          layout: layoutJSON(c), fullScreen: settings.fullscreen,
                                          onFullScreen: { [weak self] on in self?.rememberFullScreen(on, id: id) }) { [weak self] s, end in
             guard let self else { return }
