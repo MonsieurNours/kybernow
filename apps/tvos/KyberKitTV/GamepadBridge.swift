@@ -983,7 +983,7 @@ public final class GamepadBridge: ObservableObject {
         #if os(iOS)
         // Les vibrations du jeu passent par le moteur de l'appareil (iPhone).
         slot.motors = Motors.device()
-        slot.motors?.setSession(input != nil)
+        slot.motors?.setSession(input != nil || console)
         #endif
         if player > 0 {
             seat(slot, player)
@@ -1002,6 +1002,11 @@ public final class GamepadBridge: ObservableObject {
         if slot.active, let input {
             releaseAll(slot, input: input)
             input.gamepadUnplug(id: slot.id)
+        } else if slot.active, console {
+            // Partie sur console : débranchée du lecteur du cœur (sinon le
+            // clavier et la souris resteraient exclus).
+            consoleReleaseAll(slot)
+            ConsolePads.unplug(slot.id)
         }
         combo.forget(slot.id)
         KyberLog.app.notice("manette à l'écran débranchée")
@@ -1409,7 +1414,7 @@ extension PadButton {
 /// premier démarrage du moteur peut prendre des dizaines de millisecondes) :
 /// ils ont leur propre file, pour ne jamais retarder une touche sur la file
 /// des entrées. Les méthodes publiques y passent elles-mêmes.
-private final class Motors {
+final class Motors {
     static let queue = DispatchQueue(label: "fr.leslignesclaires.kybernow.vibrations", qos: .userInitiated)
     private var large: Motor?
     private var small: Motor?
