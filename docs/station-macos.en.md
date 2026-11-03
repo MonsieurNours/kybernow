@@ -2,11 +2,24 @@
 
 English · [Français](station-macos.md)
 
-Scoped on 2026-11-03. This document sets the choices and the milestones; nothing is written yet. What is planned lives in [ROADMAP.en.md](../ROADMAP.en.md).
+Scoped on 2026-11-03. This document sets the choices, the milestones and their status. What is planned lives in [ROADMAP.en.md](../ROADMAP.en.md).
 
 ## Goal
 
 A Mac with Apple silicon becomes a Station like a Windows PC: same features, same Admin, same icon, and the KyberNow Link apps connect to it without (almost) knowing it is a Mac. For gaming (Steam for Mac, CrossOver, Game Porting Toolkit) as well as remote desktop, with the Game, Desktop and Max profiles.
+
+## Status
+
+**Milestone 1, in progress (2026-11-03)**: Kyber server built for Apple silicon with the Windows Station's 30 server patches, none changed (`server/macos/scripts/build-kyber.sh`, shared application in `server/kyber-patches/apply.sh`), started as a signed LaunchAgent by `server/macos/scripts/run-kyber.sh`. Tried on the M4 Max, locally with this Mac's Kyber client:
+
+- the Mac's three displays found by ScreenCaptureKit, once Screen Recording is allowed for "KyberNow Station (Kyber)";
+- HEVC picture through VideoToolbox (about 29 Mbit/s measured for 20 asked on a very busy screen, kyavserver at 3% CPU), stereo Opus sound at 256 kbit/s (output of the chosen display), keyframe on demand (0005);
+- HEVC 4:4:4: the encoder opens (4:4:4 picture actually received: to check with a KyberNow app);
+- H.264: refused by VideoToolbox on the main display (−12903), probably beyond 4,096 real pixels wide; the virtual display at the device's resolution will avoid it;
+- `kVTCompressionPropertyKey_MaxFrameDelayCount` is not honoured by the HEVC encoder: VideoToolbox may hold frames back, to measure with latency;
+- the Kyber client (VLC player) often runs short of sound samples: to revisit with the core's sound engine.
+
+Left to finish the milestone: a picture on another device (KyberNow apps go through Admin, milestone 2; or the original Kyber client on the PC), end-to-end latency, input (kynputserver, Accessibility permission).
 
 ## Choices
 

@@ -2,11 +2,24 @@
 
 [English](station-macos.en.md) · Français
 
-Cadré le 03/11/2026. Ce document fixe les choix et le découpage ; rien n'est écrit. Le prévu suit dans [ROADMAP.md](../ROADMAP.md).
+Cadré le 03/11/2026. Ce document fixe les choix, le découpage et l'état des jalons. Le prévu suit dans [ROADMAP.md](../ROADMAP.md).
 
 ## Le but
 
 Un Mac à puce Apple devient une Station comme un PC Windows : mêmes fonctions, même Admin, même icône, et les apps KyberNow Link s'y connectent sans savoir (presque) qu'il s'agit d'un Mac. Pour le jeu (Steam pour Mac, CrossOver, Game Porting Toolkit) comme pour le bureau à distance, avec les profils Jeu, Bureau et Max.
+
+## État
+
+**Jalon 1, en cours (03/11/2026)** : serveur Kyber compilé pour la puce Apple avec les 30 correctifs serveur de Windows, sans en changer un (`server/macos/scripts/build-kyber.sh`, pose commune `server/kyber-patches/apply.sh`), lancé en LaunchAgent signé par `server/macos/scripts/run-kyber.sh`. Essayé sur le M4 Max, en local avec le client Kyber de ce Mac :
+
+- les trois écrans du Mac trouvés par ScreenCaptureKit, une fois l'enregistrement de l'écran autorisé pour « KyberNow Station (Kyber) » ;
+- image en HEVC par VideoToolbox (environ 29 Mbit/s mesurés pour 20 demandés sur un écran très animé, kyavserver à 3 % de processeur), son en Opus stéréo à 256 kbit/s (sortie de l'écran choisi), image clé à la demande (0005) ;
+- HEVC 4:4:4 : l'encodeur s'ouvre (image 4:4:4 réellement reçue : à vérifier avec une app KyberNow) ;
+- H.264 : refusé par VideoToolbox sur l'écran principal (−12903), sans doute au-delà de 4 096 de large en pixels réels ; l'écran virtuel à la définition de l'appareil l'évitera ;
+- `kVTCompressionPropertyKey_MaxFrameDelayCount` n'est pas pris en compte par l'encodeur HEVC : VideoToolbox peut garder des images en réserve, à mesurer avec la latence ;
+- le client Kyber (lecteur VLC) manque souvent d'échantillons de son : à revoir avec le moteur de son du cœur.
+
+Reste pour finir le jalon : une image sur un autre appareil (les apps KyberNow passent par Admin, jalon 2 ; ou le client Kyber d'origine sur le PC), la latence de bout en bout, les entrées (kynputserver, autorisation Accessibilité).
 
 ## Choix
 

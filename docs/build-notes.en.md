@@ -110,6 +110,16 @@ Kyber's own web client page works in Chrome; in Safari, the screen stays black (
 - **kynputserver's build.rs**: Kyber's tests `cfg!(target_os = "macos")`, that is the machine doing the build; from a Mac, it assembles the macOS code with MinGW and fails. Patch 0012 tests `CARGO_CFG_TARGET_OS`.
 - **Runtime**: like the rest of the overlay, `kynput.dll` and `kynputserver.exe` are UCRT, next to the official `kyclient.dll` and `kyclient.exe` (msvcrt) which load the same `kynput.dll`. No risk here: kynput's C API always frees what it allocates itself (`kynput_*_unref`, `kynput_free_string`). It exports the official release's functions, plus the clipboard ones if client patch 0002 is applied in `third_party` at build time.
 
+## Kyber 0.29 server for Mac (KyberNow Station for Mac)
+
+`server/macos/scripts/build-kyber.sh` builds kycontroller, kyavserver (txproto: ScreenCaptureKit capture, VideoToolbox encoding), kynputserver and their libraries for `aarch64-apple-darwin`, with **the same patches as the Windows Station**: applying them is shared, in `server/kyber-patches/apply.sh` (sourced by `build.sh` and by the Mac script), then those in `server/macos/kyber-patches` if any. Output: `third_party/kyber-desktop/rootfs-arm64-macos`. `server/macos/scripts/run-kyber.sh start|stop|status` turns it into a signed bundle and starts it for tests ([docs/station-macos.en.md](station-macos.en.md)).
+
+- **Separate sources**: the script resets the patched files to their origin, like `build.sh`. Do not run it on the `third_party` of a release in progress: in a worktree, copy `third_party/kyber-desktop` without the `target`, `builddir-*` and `rootfs-*` folders (2 GB), then `git reset --hard` in each submodule of the copy.
+- **cargo**: rustup's comes from Homebrew (`/opt/homebrew/opt/rustup/bin`), not `~/.cargo/bin`. Without it, Kyber's `build-macos.sh` stops at "cargo: command not found" **and returns 0**: the script therefore checks that kycontroller, kyavserver and kynputserver come from this build.
+- **Screen Recording**: started from a terminal (or by Claude), kyavserver is attributed to the app that opened the terminal; without its permission, ScreenCaptureKit returns no display ("SCK getShareableContent error", `Got initial displays: []`) or the session stalls after the encoder is created. `run-kyber.sh` therefore starts a bundle (`fr.leslignesclaires.kybernow.station.kyber`, "KyberNow Station (Kyber)") as a LaunchAgent: permission is asked for it, and the Developer ID signature keeps it across builds. After granting it, restart (`launchctl kickstart -k`).
+- **Bundle signature**: Kyber's `package_server` leaves the certificates and `kyber_config.toml` in `Contents/MacOS`, which `codesign` refuses ("code object is not signed at all"); `run-kyber.sh` moves them to `Resources`.
+- **Patches**: the 30 server patches apply and build as they are (the DXGI, WGC and WASAPI ones only touch Windows code); `*-kyctlweb-*` and `*-kyberweb-*` stay with the web engine.
+
 ## Windows client (apps/windows), from macOS
 
 `apps/windows/scripts/build.sh` builds the client core (`apps/core`) and the Windows app with the server's toolchain (`x86_64-pc-windows-gnu`, Homebrew MinGW), relying on what `server/kyber-patches/build.sh` produced: static FFmpeg and libopus (`third_party/rootfs-win64`).
