@@ -115,6 +115,9 @@ final class SessionController: ObservableObject {
     var isVisitor: Bool { isGuest || isBorrower }
     /// L'emprunt avant la session : « Préparation de l'ordinateur », « En attente de {hôte}… ».
     let borrowFlow: BorrowFlow?
+    /// Les vues lisent `borrowFlow.state` à travers la session : chaque
+    /// changement de l'emprunt (« En attente de {hôte}… ») les redessine.
+    private var borrowWatch: AnyCancellable?
     /// Le prêt obtenu : la fin prévue (« Encore 1 h 20 ») et {hôte}.
     @Published private(set) var loan: LendLoan?
     /// Le préavis de 2 minutes en cours (le temps restant le suit).
@@ -301,6 +304,7 @@ final class SessionController: ObservableObject {
         // téléviseur ; la session se connecte une fois le prêt obtenu.
         if let flow = borrowFlow, loan == nil {
             phase = .preparing
+            borrowWatch = flow.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
             flow.onReady = { [weak self] loan in
                 guard let self, self.isLive else {
                     Lend.leave(loan)

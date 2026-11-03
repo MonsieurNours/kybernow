@@ -32,7 +32,9 @@ use tao::monitor::MonitorHandle;
 use tao::platform::macos::WindowExtMacOS;
 #[cfg(windows)]
 use tao::platform::windows::{WindowBuilderExtWindows, WindowExtWindows};
-use tao::window::{Fullscreen, Window, WindowBuilder};
+#[cfg(windows)]
+use tao::window::Fullscreen;
+use tao::window::{Window, WindowBuilder};
 // Station Mac : une fenêtre se désigne par son `NSWindow` (system_mac.rs).
 #[cfg(target_os = "macos")]
 use super::system::Hwnd as HWND;
@@ -694,13 +696,16 @@ fn surface(target: &EventLoopWindowTarget<Ev>, context: &mut WebContext, proxy: 
         .with_resizable(false);
     #[cfg(windows)]
     let window = window.with_skip_taskbar(true);
-    let window = window
-        .with_always_on_top(cover)
-        .with_focused(!cover)
-        .with_focusable(!cover)
-        .with_fullscreen(Some(Fullscreen::Borderless(Some(monitor))))
-        .build(target)
-        .context("fenêtre")?;
+    let window = window.with_always_on_top(cover).with_focused(!cover).with_focusable(!cover);
+    // macOS : pas de plein écran natif (un Bureau à part, animé, que l'agent
+    // n'obtient pas en arrière-plan) ; une fenêtre sans bord posée sur l'écran.
+    #[cfg(windows)]
+    let window = window.with_fullscreen(Some(Fullscreen::Borderless(Some(monitor))));
+    #[cfg(target_os = "macos")]
+    let window = window.with_visible(false);
+    let window = window.build(target).context("fenêtre")?;
+    #[cfg(target_os = "macos")]
+    fill(&window, &monitor, cover);
     let proxy = Mutex::new(proxy.clone());
     // WebView2 sert le protocole maison en http://kn.localhost/, WKWebView en kn://localhost/.
     let base = if cfg!(windows) { "http://kn.localhost/" } else { "kn://localhost/" };
@@ -720,6 +725,13 @@ fn surface(target: &EventLoopWindowTarget<Ev>, context: &mut WebContext, proxy: 
         .build(&window)
         .context("vue web")?;
     Ok(Surface { window, webview, ready: false })
+}
+
+/// macOS : la fenêtre couvre tout l'écran `monitor` (barre des menus comprise).
+#[cfg(target_os = "macos")]
+fn fill(window: &Window, monitor: &MonitorHandle, cover: bool) {
+    use tao::platform::macos::MonitorHandleExtMacOS;
+    system::fill(window.ns_window() as system::Hwnd, monitor.ns_screen().unwrap_or(std::ptr::null_mut()), cover);
 }
 
 /// L'écran (de `tao`) qui est celui de l'ami : son nom GDI, sinon sa position.
@@ -822,7 +834,10 @@ impl Screens {
     fn place_launcher(&mut self, display: &Display, target: &EventLoopWindowTarget<Ev>) -> bool {
         let Some(monitor) = target.available_monitors().find(|m| friend_screen(m, display)) else { return false };
         if let Some(launcher) = &self.launcher {
+            #[cfg(windows)]
             launcher.window.set_fullscreen(Some(Fullscreen::Borderless(Some(monitor))));
+            #[cfg(target_os = "macos")]
+            fill(&launcher.window, &monitor, false);
             return true;
         }
         match surface(target, &mut self.context, &self.proxy, monitor, Page::Launcher) {

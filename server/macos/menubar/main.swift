@@ -8,6 +8,9 @@
 // Autres usages du même exécutable :
 //   --permissions check|request …   autorisations (Permissions.swift)
 //   --check-strings                  catalogues fr/en alignés
+//
+// Une demande nouvelle (emprunt, accès d'un appareil) arrive en notification
+// de macOS, comme le panneau de l'icône Windows qui s'ouvre de lui-même.
 
 import AppKit
 
@@ -19,9 +22,13 @@ final class StatusController: NSObject, NSMenuDelegate {
     private var timer: Timer?
     /// Fenêtres de `kybernow-ui` ouvertes, par usage.
     private var windows: [String: pid_t] = [:]
+    /// Les demandes en notifications (Notify.swift).
+    private let notifier = Notifier()
 
     override init() {
         super.init()
+        notifier.onAnswer = { [weak self] id, accept, steam in self?.answer(id, accept: accept, steam: steam) }
+        notifier.onOpen = { [weak self] page in self?.open(adminURL(page)) }
         item.button?.image = statusIcon(.idle)
         item.button?.toolTip = "KyberNow Station"
         let menu = NSMenu()
@@ -45,6 +52,7 @@ final class StatusController: NSObject, NSMenuDelegate {
             s.permissions = PermissionState.current()
             DispatchQueue.main.async {
                 self.snapshot = s
+                self.notifier.update(s)
                 self.item.button?.image = statusIcon(s.kyber != .running || s.permissions.count < 3 ? .idle : s.inSession ? .session : .running)
                 self.item.button?.toolTip = "KyberNow Station · \(self.statusLine(s).0)"
                 if let menu = self.item.menu, menu.numberOfItems > 0 { self.build(menu) }
@@ -186,7 +194,7 @@ final class StatusController: NSObject, NSMenuDelegate {
             for (title, accept) in [(t("lend.accept"), true), (t("lend.refuse"), false)] {
                 let answer = NSMenuItem(title: title, action: #selector(answerRequest(_:)), keyEquivalent: "")
                 answer.target = self
-                answer.representedObject = ["id": id, "accept": accept] as [String: Any]
+                answer.representedObject = ["id": id, "accept": accept, "steam": request["steam"] as? String ?? "friend"] as [String: Any]
                 answers.addItem(answer)
             }
             item.submenu = answers
@@ -242,9 +250,14 @@ final class StatusController: NSObject, NSMenuDelegate {
 
     @objc func answerRequest(_ sender: NSMenuItem) {
         guard let info = sender.representedObject as? [String: Any], let id = info["id"] as? String else { return }
-        let accept = info["accept"] as? Bool ?? false
+        answer(id, accept: info["accept"] as? Bool ?? false, steam: info["steam"] as? String ?? "friend")
+    }
+
+    /// « Accepter » ou « Refuser » une demande d'emprunt, avec le compte Steam
+    /// choisi avec le code ou sur le compte de l'ami.
+    func answer(_ id: String, accept: Bool, steam: String) {
         poller.async { [weak self] in
-            _ = self?.admin.call("POST", "/api/local/lend/requests/\(id)", body: ["accept": accept, "steam": "friend"])
+            _ = self?.admin.call("POST", "/api/local/lend/requests/\(id)", body: ["accept": accept, "steam": steam])
             DispatchQueue.main.async { self?.refresh() }
         }
     }

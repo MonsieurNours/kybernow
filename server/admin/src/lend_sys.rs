@@ -612,6 +612,11 @@ mod platform {
             // Pas une app : outils lancés par les apps, services du système.
             return (true, parent == Parent::App || game);
         };
+        // Seul l'exécutable principal d'une app est jugé : ses aides et ses
+        // services XPC (lancés par launchd) suivent le sort de l'app.
+        if path.get(app.len()..).is_none_or(|rest| !rest.starts_with("/Contents/MacOS/") || rest.contains(".app/")) {
+            return (true, parent == Parent::App || game);
+        }
         if DENIED.iter().any(|d| d.eq_ignore_ascii_case(&id)) {
             return (false, false);
         }
@@ -621,12 +626,19 @@ mod platform {
         (is_app || kept || parent == Parent::Allowed, is_app)
     }
 
+    /// Surveille les processus de l'utilisateur toutes les 500 ms : ceux
+    /// d'avant le prêt et ce que lancent les apps de l'hôte (les onglets d'un
+    /// navigateur masqué…) ne sont pas touchés, sauf un jeu ; une app nouvelle
+    /// (lancée par macOS, `launchd`, ou par une app du prêt) est permise selon
+    /// `rules`, sinon fermée.
     pub fn watch(rules: Rules) -> Option<Watch> {
         let before: HashSet<u32> = snapshot().into_iter().map(|(pid, _, _)| pid).collect();
         let stop = Arc::new(AtomicBool::new(false));
         let started = Arc::new(Mutex::new(HashSet::new()));
         let (stop2, started2) = (stop.clone(), started.clone());
         let thread = std::thread::spawn(move || {
+            // La lignée des processus de l'hôte (pas launchd, qui lance tout).
+            let mut host: HashSet<u32> = before.iter().copied().filter(|p| *p > 1).collect();
             let mut seen = before;
             let mut allowed: HashMap<u32, bool> = HashMap::new();
             let mut cache = HashMap::new();
@@ -637,6 +649,10 @@ mod platform {
                 for (pid, ppid) in parents_first(fresh) {
                     seen.insert(pid);
                     let Some(path) = paths.get(&pid) else { continue };
+                    if host.contains(&ppid) && !path.to_ascii_lowercase().contains("/steamapps/") {
+                        host.insert(pid);
+                        continue;
+                    }
                     let parent = match allowed.get(&ppid) {
                         None => super::Parent::Other,
                         Some(false) => super::Parent::Allowed,
@@ -683,6 +699,34 @@ mod platform {
             }
         }
         closed
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use std::collections::HashMap;
+
+        use super::super::{Parent, Rules};
+        use super::judge;
+
+        #[test]
+        fn seul_l_executable_principal_d_une_app_est_juge() {
+            let rules = Rules { apps: vec!["org.example.permise".into()], ..Rules::default() };
+            let mut cache = HashMap::new();
+            cache.insert("/Applications/Google Chrome.app".to_string(), Some("com.google.Chrome".to_string()));
+            cache.insert("/Applications/Permise.app".to_string(), Some("org.example.permise".to_string()));
+            cache.insert("/Applications/Utilities/Terminal.app".to_string(), Some("com.apple.Terminal".to_string()));
+            let chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+            let helper = "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/1/Helpers/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer)";
+            let xpc = "/Applications/Google Chrome.app/Contents/XPCServices/outil.xpc/Contents/MacOS/outil";
+            // Une app hors liste lancée pendant le prêt : fermée ; ses aides suivent son sort.
+            assert!(!judge(&rules, chrome, Parent::Other, &mut cache).0);
+            assert!(judge(&rules, helper, Parent::Other, &mut cache).0);
+            assert!(judge(&rules, xpc, Parent::Other, &mut cache).0);
+            // Une app permise, et la lignée de ses enfants.
+            assert_eq!(judge(&rules, "/Applications/Permise.app/Contents/MacOS/Permise", Parent::Other, &mut cache), (true, true));
+            // Refusée même sous une app.
+            assert!(!judge(&rules, "/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal", Parent::App, &mut cache).0);
+        }
     }
 }
 

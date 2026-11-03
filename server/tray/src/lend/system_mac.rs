@@ -25,7 +25,10 @@ use std::thread::JoinHandle;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Result, bail};
-use objc2_app_kit::{NSApplication, NSApplicationActivationOptions, NSApplicationActivationPolicy, NSRunningApplication, NSWindow, NSWorkspace};
+use objc2_app_kit::{
+    NSApplication, NSApplicationActivationOptions, NSApplicationActivationPolicy, NSApplicationPresentationOptions, NSRunningApplication, NSScreen, NSWindow,
+    NSWindowCollectionBehavior, NSWorkspace,
+};
 use objc2_foundation::MainThreadMarker;
 
 use super::store::Window;
@@ -512,14 +515,44 @@ pub fn bring_to_front(hwnd: Hwnd) {
 
 pub fn allow_foreground() {}
 
+/// CGShieldingWindowLevel : au-dessus de tout, comme les économiseurs d'écran.
+const SHIELD: isize = 2_147_483_628;
+
 /// Un cache au-dessus de tout (même du Dock et de la barre des menus).
 pub fn topmost(hwnd: Hwnd) {
     if hwnd > 0 {
         let window = unsafe { &*(hwnd as *const NSWindow) };
-        // CGShieldingWindowLevel : au-dessus de tout, comme les économiseurs d'écran.
-        window.setLevel(2_147_483_628);
+        window.setLevel(SHIELD);
         window.orderFrontRegardless();
     }
+}
+
+/// Une fenêtre de l'agent sur tout un écran (`screen`, un `NSScreen`), sur
+/// tous les Bureaux, à la place du plein écran natif de macOS (un Bureau à
+/// part, animé) : un cache au-dessus de tout ; le lanceur au niveau des
+/// apps (un jeu passe devant), Dock et barre des menus cachés quand il est actif.
+pub fn fill(hwnd: Hwnd, screen: *mut c_void, cover: bool) {
+    let Some(mtm) = MainThreadMarker::new() else { return };
+    if hwnd <= 0 {
+        return;
+    }
+    let window = unsafe { &*(hwnd as *const NSWindow) };
+    if !screen.is_null() {
+        let screen = unsafe { &*(screen as *const NSScreen) };
+        window.setFrame_display(screen.frame(), true);
+    }
+    window.setCollectionBehavior(
+        NSWindowCollectionBehavior::CanJoinAllSpaces
+            | NSWindowCollectionBehavior::Stationary
+            | NSWindowCollectionBehavior::FullScreenAuxiliary
+            | NSWindowCollectionBehavior::IgnoresCycle,
+    );
+    if cover {
+        window.setLevel(SHIELD);
+    } else {
+        NSApplication::sharedApplication(mtm).setPresentationOptions(NSApplicationPresentationOptions::HideDock | NSApplicationPresentationOptions::HideMenuBar);
+    }
+    window.orderFrontRegardless();
 }
 
 /// Les manettes du lanceur : pas encore de manettes sur la Station Mac.

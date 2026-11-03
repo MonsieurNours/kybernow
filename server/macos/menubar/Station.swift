@@ -162,6 +162,8 @@ final class AdminClient: NSObject, URLSessionDelegate {
         var request = URLRequest(url: url, timeoutInterval: 4)
         request.httpMethod = method
         request.setValue(token, forHTTPHeaderField: "x-kyber-local")
+        // Admin refuse sans lui les appels qui changent quelque chose (comme l'icône Windows).
+        request.setValue("1", forHTTPHeaderField: "x-kyber-admin")
         request.setValue(lang == .fr ? "fr" : "en", forHTTPHeaderField: "Accept-Language")
         if let body, let data = try? JSONSerialization.data(withJSONObject: body) {
             request.httpBody = data
@@ -203,7 +205,9 @@ struct Snapshot {
     var lendUntil: Double? { (lend?["borrower"] as? [String: Any])?["until"] as? Double }
     /// Fin annoncée (préavis de reprise ou fin prévue), en secondes Unix.
     var lendNotice: Double? { (lend?["notice"] as? [String: Any])?["at"] as? Double }
-    /// Demandes d'emprunt en attente (`id`, `name`).
+    /// Demandes d'accès d'un appareil (`id`, `name`).
+    var pairRequests: [[String: Any]] { state?["pair_requests"] as? [[String: Any]] ?? [] }
+    /// Demandes d'emprunt en attente (`id`, `name`, `steam`).
     var lendRequests: [[String: Any]] { lend?["requests"] as? [[String: Any]] ?? [] }
     var inSession: Bool { live != nil || (state?["session"] as? Bool ?? false) }
 }
