@@ -134,7 +134,8 @@ case "${1:-}" in
         plists
         launchctl bootstrap "$DOMAIN" "$KYBER_PLIST"
         launchctl bootstrap "$DOMAIN" "$ADMIN_PLIST"
-        echo "Station d'essai lancée : Admin sur https://$(ipconfig getifaddr en0 2>/dev/null || echo localhost):9443, Kyber sur le port 8080"
+        ip=$(ipconfig getifaddr "$(route -n get default 2>/dev/null | awk '/interface:/{print $2}')" 2>/dev/null || echo localhost)
+        echo "Station d'essai lancée : Admin sur https://$ip:9443, Kyber sur le port 8080"
         ;;
     stop) stop ;;
     status)

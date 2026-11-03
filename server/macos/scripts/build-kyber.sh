@@ -82,6 +82,33 @@ for p in "$MAC_PATCHES"/*.patch; do
 done
 shopt -u nullglob
 
+# Crates corrigées (server/macos/crates/<crate>-<version>-*.patch) : copie de la
+# version du registre que verrouille kyctl, correctif posé, branchée par
+# [patch.crates-io] dans kysdk/.cargo/config.toml (remis à l'origine d'abord).
+# quinn-udp : sur macOS, réponse QUIC depuis l'adresse appelée par le client.
+SDK="$KYBER_DIR/kysdk"
+git -C "$SDK" checkout -q HEAD -- .cargo/config.toml
+(cd "$KYCTL" && cargo fetch --quiet)
+REGISTRY="${CARGO_HOME:-$HOME/.cargo}/registry/src"
+shopt -s nullglob
+for p in "$ROOT"/server/macos/crates/*.patch; do
+    name="$(basename "$p" .patch)"
+    crate="${name%%-[0-9]*}"
+    version="${name#"$crate"-}"; version="${version%%-[!0-9.]*}"
+    locked=$(awk -v c="$crate" '$0=="name = \""c"\"" {getline; gsub(/version = |"/, ""); print; exit}' "$KYCTL/Cargo.lock")
+    [ "$locked" = "$version" ] || { echo "$crate : kyctl verrouille $locked, le correctif vise $version" >&2; exit 1; }
+    src=$(find "$REGISTRY" -mindepth 2 -maxdepth 2 -type d -name "$crate-$version" | head -1)
+    [ -n "$src" ] || { echo "$crate $version absent du registre de cargo" >&2; exit 1; }
+    dst="$KYBER_DIR/target/kybernow-crates/$crate"
+    rm -rf "$dst"; mkdir -p "$(dirname "$dst")"; cp -R "$src" "$dst"; chmod -R u+w "$dst"
+    echo "    $(basename "$p") (crate)"
+    (cd "$dst" && patch -p1 --forward --no-backup-if-mismatch -r - < "$p" | sed 's/^/        /') || {
+        echo "Correctif $(basename "$p") inapplicable" >&2; exit 1
+    }
+    printf '%s = { path = "%s" }\n' "$crate" "$dst" >> "$SDK/.cargo/config.toml"
+done
+shopt -u nullglob
+
 echo "==> Compilation (txproto, kyavserver, kynput, kycontroller)"
 cd "$KYBER_DIR"
 ./build-macos.sh -a arm64 -o "$OUT" server

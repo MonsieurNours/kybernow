@@ -1,0 +1,56 @@
+--- a/src/unix.rs
++++ b/src/unix.rs
+@@ -566,6 +566,20 @@
+     Ok(1)
+ }
+ 
++/// KyberNow : adresse source d'un envoi sur macOS. Un Mac branché deux fois au
++/// même réseau (Ethernet et Wi-Fi) répondait sinon depuis l'adresse de la route
++/// par défaut, que le client QUIC rejette (il a appelé l'autre adresse).
++#[cfg(apple)]
++fn apple_src_pktinfo(v4: std::net::Ipv4Addr) -> libc::in_pktinfo {
++    libc::in_pktinfo {
++        ipi_ifindex: 0,
++        ipi_spec_dst: libc::in_addr {
++            s_addr: u32::from_ne_bytes(v4.octets()),
++        },
++        ipi_addr: libc::in_addr { s_addr: 0 },
++    }
++}
++
+ const CMSG_LEN: usize = 88;
+ 
+ fn prepare_msg(
+@@ -637,9 +651,17 @@
+                     };
+                     encoder.push(libc::IPPROTO_IP, libc::IP_PKTINFO, pktinfo);
+                 }
+-                #[cfg(any(bsd, apple, solarish))]
++                // KyberNow : macOS ignore IP_RECVDSTADDR à l'envoi et ne
++                // respecte que IP_PKTINFO (voir apple_src_pktinfo).
++                #[cfg(apple)]
+                 {
+                     if encode_src_ip {
++                        encoder.push(libc::IPPROTO_IP, libc::IP_PKTINFO, apple_src_pktinfo(*v4));
++                    }
++                }
++                #[cfg(any(bsd, solarish))]
++                {
++                    if encode_src_ip {
+                         let addr = libc::in_addr {
+                             s_addr: u32::from_ne_bytes(v4.octets()),
+                         };
+@@ -647,6 +669,13 @@
+                     }
+                 }
+             }
++            // KyberNow : sur une socket double pile, macOS ignore IPV6_PKTINFO
++            // pour une adresse IPv4 mappée ; seul IP_PKTINFO choisit la source.
++            #[cfg(apple)]
++            IpAddr::V6(v6) if v6.to_ipv4_mapped().is_some() => {
++                let v4 = v6.to_ipv4_mapped().unwrap();
++                encoder.push(libc::IPPROTO_IP, libc::IP_PKTINFO, apple_src_pktinfo(v4));
++            }
+             IpAddr::V6(v6) => {
+                 let pktinfo = libc::in6_pktinfo {
+                     ipi6_ifindex: 0,
