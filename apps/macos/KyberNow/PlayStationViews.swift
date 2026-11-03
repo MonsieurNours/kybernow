@@ -103,6 +103,29 @@ struct ConsoleHero: View {
                     store.setHDR(!console.hdr, for: console)
                 }
             }
+            // « Auto » ou « Personnalisé » (pas de profils pour une console) : ouvre les réglages.
+            let custom = store.isCustom(console)
+            Button { app.openSettings(console, section: .picture) } label: {
+                HStack(spacing: 8) {
+                    Icon("sliders-horizontal", size: 16, bold: true)
+                    Text(custom ? PSText.custom : PSText.auto)
+                }
+                .font(Theme.sans(14, .semibold))
+                .foregroundStyle(Theme.text2)
+                .padding(.horizontal, 16)
+                .frame(height: 40)
+                .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.line2))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(LinkText.settingsTitle(console.name))
+            Button { app.openSettings(console) } label: {
+                HStack(spacing: 8) { Icon("gear-six", size: 17); Text("Réglages") }
+            }
+            .buttonStyle(GhostButton(height: 48))
+            .help(LinkText.settingsTitle(console.name))
+            .accessibilityLabel(LinkText.settingsTitle(console.name))
         }
     }
 }
@@ -146,6 +169,7 @@ struct ConsoleCard: View {
         .buttonStyle(.plain)
         .onHover { h in withAnimation(Theme.easeOut) { hovering = h } }
         .contextMenu {
+            Button(LinkText.settingsTitle(console.name)) { app.openSettings(console) }
             Button(String(localized: "Retirer")) { store.remove(console) }
         }
     }

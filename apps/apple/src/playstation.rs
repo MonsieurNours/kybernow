@@ -18,7 +18,7 @@ use kybernow_core::playstation::keymouse::Layout;
 use kybernow_core::playstation::play::{Play, PlayEnd, PlayOptions, PlayState};
 use kybernow_core::playstation::psn;
 use kybernow_core::playstation::regist::{self, PsnId, RegistError, Registered};
-use kybernow_core::playstation::stream::Profile;
+use kybernow_core::playstation::settings::PlaySettings;
 use serde_json::json;
 
 use crate::{KnPacketCb, Sink, give, text};
@@ -170,10 +170,18 @@ pub struct KnPsPlay {
 }
 
 /// Lance une partie : la console doit être allumée (`kn_ps_wake` sinon).
-/// `hdr` : demande le HDR10 (H.265 Main 10, PQ). À terminer par
-/// `kn_ps_stop`, qui libère.
+/// `settings_json` : les réglages de la console (`kn_ps_default_settings`,
+/// tels que l'app les garde ; vide ou illisible : Auto), HDR compris ;
+/// `hevc_decoder` : l'appareil décode le H.265 (Auto en profite). À terminer
+/// par `kn_ps_stop`, qui libère.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn kn_ps_start(address: *const c_char, registered_json: *const c_char, hdr: bool, cb: *const KnPsCallbacks) -> *mut KnPsPlay {
+pub unsafe extern "C" fn kn_ps_start(
+    address: *const c_char,
+    registered_json: *const c_char,
+    settings_json: *const c_char,
+    hevc_decoder: bool,
+    cb: *const KnPsCallbacks,
+) -> *mut KnPsPlay {
     let (Some(addr), Ok(r), Some(cb)) = (parse_addr(address), serde_json::from_str::<Registered>(&text(registered_json)), unsafe { cb.as_ref() }) else {
         return std::ptr::null_mut();
     };
@@ -185,7 +193,7 @@ pub unsafe extern "C" fn kn_ps_start(address: *const c_char, registered_json: *c
     };
     let Some(video) = sink(cb.video_packet) else { return std::ptr::null_mut() };
     let audio = sink(cb.audio_packet);
-    let profile = Profile { hdr, ..Profile::p1080() };
+    let settings = serde_json::from_str::<PlaySettings>(&text(settings_json)).unwrap_or_default();
     let on_state = Box::new(move |state: PlayState| {
         // Toute la structure (Send) est prise, pas seulement ses champs.
         let cb: KnPsCallbacks = cb;
@@ -211,7 +219,7 @@ pub unsafe extern "C" fn kn_ps_start(address: *const c_char, registered_json: *c
         let c = std::ffi::CString::new(detail.replace('\0', " ")).unwrap_or_default();
         unsafe { f(cb.userdata, code, w, h, hdr, c.as_ptr()) };
     });
-    let play = Play::start(addr, &r, PlayOptions { profile }, video, audio, on_state);
+    let play = Play::start(addr, &r, PlayOptions { settings, hevc_decoder }, video, audio, on_state);
     Box::into_raw(Box::new(KnPsPlay { play }))
 }
 
@@ -264,6 +272,19 @@ pub unsafe extern "C" fn kn_ps_release_all(play: *mut KnPsPlay) {
     if let Some(p) = unsafe { play.as_ref() } {
         p.play.release_all();
     }
+}
+
+/// Les réglages par défaut d'une console (JSON, à libérer) : Auto, 60 i/s,
+/// plein écran.
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_ps_default_settings() -> *mut c_char {
+    give(serde_json::to_string(&PlaySettings::default()).unwrap_or_default())
+}
+
+/// Vrai si les réglages s'écartent d'Auto (« Personnalisé » à l'accueil).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_ps_settings_custom(settings_json: *const c_char) -> bool {
+    serde_json::from_str::<PlaySettings>(&text(settings_json)).is_ok_and(|s| s.is_custom())
 }
 
 /// La disposition par défaut du clavier et de la souris (JSON, à libérer).

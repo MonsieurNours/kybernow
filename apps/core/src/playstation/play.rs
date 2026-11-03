@@ -19,7 +19,8 @@ use crate::gamepads;
 use crate::input::pipeline::GamepadRumble;
 use super::regist::Registered;
 use super::session::{self, Codec, Ctrl, CtrlEvent, Keys};
-use super::stream::{Profile, Stream, StreamEvent};
+use super::settings::PlaySettings;
+use super::stream::{Stream, StreamEvent};
 use crate::media::{FOURCC_H264, FOURCC_HEVC, FOURCC_OPUS, Packet, PacketHandler};
 
 /// Échantillons d'une trame de son (10 ms à 48 kHz).
@@ -54,9 +55,12 @@ pub enum PlayEnd {
 }
 
 /// Réglages d'une partie.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct PlayOptions {
-    pub profile: Profile,
+    /// Les réglages de la console.
+    pub settings: PlaySettings,
+    /// L'appareil décode le H.265 (Auto en profite).
+    pub hevc_decoder: bool,
 }
 
 /// Une partie en cours.
@@ -132,7 +136,7 @@ impl Play {
                     let mut retries = 0;
                     let end = loop {
                         let started = Instant::now();
-                        let end = run(addr, &registered, options, &video, audio.as_ref(), &on_state, &stop, &ctrl, &want_key, &keymouse);
+                        let end = run(addr, &registered, options.clone(), &video, audio.as_ref(), &on_state, &stop, &ctrl, &want_key, &keymouse);
                         if let Some(mut c) = ctrl.lock().unwrap().take() {
                             c.stop();
                         }
@@ -247,7 +251,18 @@ fn run(
             Err(e) => return PlayEnd::Unreachable(e.to_string()),
         }
     };
-    let profile = options.profile;
+    // La cible n'est sûre qu'après la demande de session : une PS4 ne
+    // reçoit que du H.264, sans HDR.
+    let profile = options.settings.profile(options.hevc_decoder, super::rpcrypt::is_ps5(target));
+    log::info!(
+        "PlayStation : {}×{} à {} i/s, {} kbit/s, {}{}",
+        profile.width,
+        profile.height,
+        profile.max_fps,
+        profile.bitrate,
+        if profile.hevc { "H.265" } else { "H.264" },
+        if profile.hdr { ", HDR" } else { "" }
+    );
     let codec = match (profile.hevc, profile.hdr) {
         (_, true) => Codec::H265Hdr,
         (true, false) => Codec::H265,

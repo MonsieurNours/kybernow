@@ -8,6 +8,8 @@ import SwiftUI
 enum Route: Equatable {
     case home
     case settings(UUID)
+    /// Réglages d'une console PlayStation.
+    case console(UUID)
 }
 
 @MainActor
@@ -26,6 +28,8 @@ final class AppModel: ObservableObject {
     @Published var selectedID: UUID?
     /// Rubrique ouverte dans les réglages d'un ordinateur.
     @Published var section: ComputerSection = .picture
+    /// Rubrique ouverte dans les réglages d'une console.
+    @Published var consoleSection: ConsoleSection = .picture
     /// Les sessions, une fenêtre chacune (plusieurs ordinateurs à la fois, Sessions.swift).
     let sessions = SessionManager()
     @Published var toast: String?
@@ -118,6 +122,12 @@ final class AppModel: ObservableObject {
     func openSettings(_ host: Host, section: ComputerSection? = nil) {
         if let section { self.section = section }
         route = .settings(host.id)
+    }
+
+    /// Réglages d'une console PlayStation.
+    func openSettings(_ console: PlayStationConsole, section: ConsoleSection? = nil) {
+        if let section { consoleSection = section }
+        route = .console(console.id)
     }
 
     /// kybernow://adresse:port?name=…&fp=… (QR code ou lien de la console).
@@ -502,6 +512,7 @@ struct KyberNowApp: App {
         switch app.route {
         case .home: HomeView()
         case let .settings(id): SettingsView(hostID: id)
+        case let .console(id): ConsoleSettingsView(consoleID: id)
         }
     }
 

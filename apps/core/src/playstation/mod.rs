@@ -25,6 +25,7 @@ pub mod psn;
 pub mod regist;
 pub mod rpcrypt;
 pub mod session;
+pub mod settings;
 pub mod stream;
 pub mod takion;
 #[cfg(test)]

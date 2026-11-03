@@ -22,8 +22,177 @@ struct PlayStationConsole: Codable, Identifiable, Hashable {
     /// La puce « HDR » de l'accueil (allumée la première fois).
     var hdr = true
     var lastSession: Date?
+    /// Réglages de la console (JSON du cœur, `PSSettings` ; nil : par défaut).
+    var settings: String?
+    /// Disposition du clavier et de la souris (JSON du cœur, `PSLayout` ; nil : par défaut).
+    var layout: String?
 
     var hasHDR: Bool { model == "PS5" }
+}
+
+// MARK: - Réglages d'une console
+
+/// Réglages d'une console (`apps/core/src/playstation/settings.rs`, JSON
+/// stable) : définition, images par seconde, débit, format, plein écran. Le
+/// HDR vient de la puce de l'accueil au lancement de la partie.
+struct PSSettings: Codable, Equatable {
+    var resolution = "auto"
+    var fps = 60
+    /// kbit/s ; nil : Auto (suit la définition).
+    var bitrateKbps: Int?
+    var codec = "auto"
+    var hdr = false
+    var fullscreen = true
+
+    private enum CodingKeys: String, CodingKey {
+        case resolution, fps, codec, hdr, fullscreen
+        case bitrateKbps = "bitrate_kbps"
+    }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        resolution = (try? c.decodeIfPresent(String.self, forKey: .resolution)) ?? "auto"
+        fps = (try? c.decodeIfPresent(Int.self, forKey: .fps)) ?? 60
+        bitrateKbps = try? c.decodeIfPresent(Int.self, forKey: .bitrateKbps)
+        codec = (try? c.decodeIfPresent(String.self, forKey: .codec)) ?? "auto"
+        hdr = (try? c.decodeIfPresent(Bool.self, forKey: .hdr)) ?? false
+        fullscreen = (try? c.decodeIfPresent(Bool.self, forKey: .fullscreen)) ?? true
+    }
+
+    /// Définitions, dans l'ordre des réglages.
+    static let resolutions = ["auto", "p1080", "p720", "p540", "p360"]
+    static let codecs = ["auto", "h264", "h265"]
+    /// Débit choisi à la main, en Mbit/s.
+    static let bitrateRange = 2...100
+
+    static func resolutionLabel(_ r: String) -> String {
+        switch r {
+        case "p1080": return "1080p"
+        case "p720": return "720p"
+        case "p540": return "540p"
+        case "p360": return "360p"
+        default: return PSText.auto
+        }
+    }
+
+    /// Débit d'Auto pour une définition, en kbit/s (celui du cœur).
+    static func autoBitrate(_ r: String) -> Int {
+        switch r {
+        case "p720": return 10_000
+        case "p540": return 6_000
+        case "p360": return 2_000
+        default: return 15_000
+        }
+    }
+}
+
+/// Ce qui déclenche une action : une touche (usage HID) ou un bouton de la
+/// souris (0 gauche, 1 droit, 2 milieu, 3 et 4 latéraux).
+enum PSInput: Hashable, Codable {
+    case key(UInt16)
+    case mouse(UInt8)
+
+    private enum CodingKeys: String, CodingKey { case key, mouse }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        if let k = try c.decodeIfPresent(UInt16.self, forKey: .key) { self = .key(k); return }
+        self = .mouse(try c.decode(UInt8.self, forKey: .mouse))
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case let .key(k): try c.encode(k, forKey: .key)
+        case let .mouse(b): try c.encode(b, forKey: .mouse)
+        }
+    }
+}
+
+/// Un lien de la disposition : `[input, action]` en JSON.
+struct PSBinding: Codable, Equatable {
+    var input: PSInput
+    var action: String
+
+    init(input: PSInput, action: String) { (self.input, self.action) = (input, action) }
+
+    init(from decoder: Decoder) throws {
+        var c = try decoder.unkeyedContainer()
+        input = try c.decode(PSInput.self)
+        action = try c.decode(String.self)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.unkeyedContainer()
+        try c.encode(input)
+        try c.encode(action)
+    }
+}
+
+/// Disposition du clavier et de la souris d'une console
+/// (`apps/core/src/playstation/keymouse.rs`, `Layout`).
+struct PSLayout: Codable, Equatable {
+    var bindings: [PSBinding] = []
+    var mouseStick = true
+    var sensitivity = 1.0
+    var curve = 0.8
+    var deadzone = 0.2
+    var invertY = false
+
+    private enum CodingKeys: String, CodingKey {
+        case bindings, sensitivity, curve, deadzone
+        case mouseStick = "mouse_stick"
+        case invertY = "invert_y"
+    }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        bindings = try c.decode([PSBinding].self, forKey: .bindings)
+        mouseStick = (try? c.decodeIfPresent(Bool.self, forKey: .mouseStick)) ?? true
+        sensitivity = (try? c.decodeIfPresent(Double.self, forKey: .sensitivity)) ?? 1
+        curve = (try? c.decodeIfPresent(Double.self, forKey: .curve)) ?? 0.8
+        deadzone = (try? c.decodeIfPresent(Double.self, forKey: .deadzone)) ?? 0.2
+        invertY = (try? c.decodeIfPresent(Bool.self, forKey: .invertY)) ?? false
+    }
+
+    /// Les actions de la manette, dans l'ordre du cœur (`Action::ALL`).
+    static let actions = [
+        "left_stick_up", "left_stick_down", "left_stick_left", "left_stick_right",
+        "cross", "circle", "square", "triangle", "l1", "r1", "l2", "r2", "l3", "r3",
+        "dpad_up", "dpad_down", "dpad_left", "dpad_right",
+        "options", "create", "ps", "touchpad",
+        "right_stick_up", "right_stick_down", "right_stick_left", "right_stick_right",
+    ]
+
+    /// « Réactivité au départ » : exposants de la courbe (Douce, Normale, Vive).
+    static let curves = [1.2, 1.0, 0.8]
+
+    func inputs(_ action: String) -> [PSInput] {
+        bindings.filter { $0.action == action }.map(\.input)
+    }
+
+    /// Lie `input` à `action` (à la place de `replacing`, sinon en plus) ;
+    /// une touche déjà prise ailleurs y est retirée.
+    mutating func bind(_ input: PSInput, to action: String, replacing: PSInput?) {
+        let at = replacing.flatMap { r in bindings.firstIndex { $0.input == r && $0.action == action } }
+        var list = bindings
+        if let at { list[at].input = input } else { list.append(PSBinding(input: input, action: action)) }
+        var kept: [PSBinding] = []
+        for (i, b) in list.enumerated() {
+            let mine = i == (at ?? list.count - 1)
+            if b.input == input, !mine { continue }
+            kept.append(b)
+        }
+        bindings = kept
+    }
+
+    mutating func unbind(_ input: PSInput, from action: String) {
+        bindings.removeAll { $0.input == input && $0.action == action }
+    }
 }
 
 /// Textes des consoles (docs/link-ui.md, « Consoles PlayStation »).
@@ -34,6 +203,113 @@ enum PSText {
     static var wakeAndPlay: String { String(localized: "Réveiller et jouer") }
     static var waking: String { String(localized: "Réveil de la console…") }
     static var pair: String { String(localized: "Associer") }
+
+    // Réglages de la console
+    static var auto: String { String(localized: "Auto") }
+    static var custom: String { String(localized: "Personnalisé") }
+    static var resolution: String { String(localized: "Définition") }
+    static var resolutionAutoHelp: String { String(localized: "La plus haute que la console accepte : 1080p.") }
+    static var frameRate: String { String(localized: "Images par seconde") }
+    static func fps(_ n: Int) -> String { String(localized: "\(n) i/s") }
+    static var bitrate: String { String(localized: "Débit") }
+    static var bitrateAutoHelp: String { String(localized: "Suit la définition.") }
+    static func mbps(_ n: Int) -> String { String(localized: "\(n) Mbit/s") }
+    static var format: String { String(localized: "Format") }
+    static var formatAutoHelp: String { String(localized: "H.265 si cet appareil le lit.") }
+    static var formatH264Help: String { String(localized: "Sans HDR.") }
+    static var formatPS4Help: String { String(localized: "La PS4 n'envoie que du H.264.") }
+    static var fullScreen: String { String(localized: "Ouvrir la partie en plein écran") }
+    static var controlsHelp: String { String(localized: "Le clavier et la souris tiennent lieu de manette. Une manette branchée les remplace.") }
+    static var none: String { String(localized: "Aucune") }
+    static var pressKey: String { String(localized: "Appuyez sur une touche ou cliquez…") }
+    static var mouseStick: String { String(localized: "La souris tient le stick droit") }
+    static var sensitivity: String { String(localized: "Sensibilité") }
+    static var startingResponse: String { String(localized: "Réactivité au départ") }
+    static var curves: [String] { [String(localized: "Douce"), String(localized: "Normale"), String(localized: "Vive")] }
+    static var minimumTilt: String { String(localized: "Inclinaison minimale") }
+    static var minimumTiltHelp: String { String(localized: "Pour passer la zone morte des jeux.") }
+    static var invertY: String { String(localized: "Inverser l'axe vertical") }
+    static var defaultLayout: String { String(localized: "Disposition par défaut") }
+
+    /// Une action de la manette.
+    static func action(_ a: String) -> String {
+        switch a {
+        case "left_stick_up": return String(localized: "Stick gauche vers le haut")
+        case "left_stick_down": return String(localized: "Stick gauche vers le bas")
+        case "left_stick_left": return String(localized: "Stick gauche vers la gauche")
+        case "left_stick_right": return String(localized: "Stick gauche vers la droite")
+        case "cross": return String(localized: "Croix")
+        case "circle": return String(localized: "Rond")
+        case "square": return String(localized: "Carré")
+        case "triangle": return String(localized: "Triangle")
+        case "dpad_up": return String(localized: "Croix directionnelle vers le haut")
+        case "dpad_down": return String(localized: "Croix directionnelle vers le bas")
+        case "dpad_left": return String(localized: "Croix directionnelle vers la gauche")
+        case "dpad_right": return String(localized: "Croix directionnelle vers la droite")
+        case "options": return String(localized: "Options")
+        case "create": return String(localized: "Create")
+        case "ps": return String(localized: "Bouton PS")
+        case "touchpad": return String(localized: "Pavé tactile")
+        case "right_stick_up": return String(localized: "Stick droit vers le haut")
+        case "right_stick_down": return String(localized: "Stick droit vers le bas")
+        case "right_stick_left": return String(localized: "Stick droit vers la gauche")
+        case "right_stick_right": return String(localized: "Stick droit vers la droite")
+        default: return a.uppercased()  // L1, R1, L2, R2, L3, R3
+        }
+    }
+
+    /// Une touche ou un bouton de la souris : la lettre du clavier du Mac,
+    /// le symbole d'une touche spéciale, ou le nom du bouton.
+    static func input(_ i: PSInput) -> String {
+        switch i {
+        case let .mouse(b):
+            switch b {
+            case 0: return String(localized: "Clic gauche")
+            case 1: return String(localized: "Clic droit")
+            case 2: return String(localized: "Clic du milieu")
+            default: return String(localized: "Bouton \(Int(b) + 1)")
+            }
+        case let .key(k):
+            return key(k)
+        }
+    }
+
+    private static func key(_ k: UInt16) -> String {
+        switch k {
+        case 0x28: return "↩"
+        case 0x29: return "⎋"
+        case 0x2A: return "⌫"
+        case 0x2B: return "⇥"
+        case 0x2C: return String(localized: "Espace")
+        case 0x39: return "⇪"
+        case 0x3A...0x45: return "F\(k - 0x3A + 1)"
+        case 0x68...0x6F: return "F\(k - 0x68 + 13)"
+        case 0x4A: return "↖"
+        case 0x4B: return "⇞"
+        case 0x4C: return "⌦"
+        case 0x4D: return "↘"
+        case 0x4E: return "⇟"
+        case 0x4F: return "→"
+        case 0x50: return "←"
+        case 0x51: return "↓"
+        case 0x52: return "↑"
+        case 0x53: return "⌧"
+        case 0x58: return "⌤"
+        case 0xE0: return String(localized: "\("⌃") gauche")
+        case 0xE1: return String(localized: "\("⇧") gauche")
+        case 0xE2: return String(localized: "\("⌥") gauche")
+        case 0xE3: return String(localized: "\("⌘") gauche")
+        case 0xE4: return String(localized: "\("⌃") droite")
+        case 0xE5: return String(localized: "\("⇧") droite")
+        case 0xE6: return String(localized: "\("⌥") droite")
+        case 0xE7: return String(localized: "\("⌘") droite")
+        default:
+            let c = Keymap.character(hid: k)
+            // Pavé numérique : 0x54 à 0x63 et 0x67.
+            if let c, (0x54...0x63).contains(k) || k == 0x67 { return String(localized: "Pavé \(c)") }
+            return c ?? String(localized: "Touche \(Int(k))")
+        }
+    }
 
     // Clavier et souris
     static var clickToPlay: String { String(localized: "Cliquez dans l'image pour jouer au clavier et à la souris") }
@@ -289,8 +565,14 @@ final class PlayStationStore: ObservableObject {
         var console = c
         console.lastSession = Date()
         update(console)
-        let hdr = c.hasHDR && c.hdr && HDRDisplay.isHDR((NSApp.keyWindow ?? NSApp.mainWindow)?.screen ?? NSScreen.main)
-        let session = PlayStationSession(console: console, address: address, registered: registered, hdr: hdr) { [weak self] s, end in
+        // La puce « HDR » allumée et l'écran de la fenêtre HDR : demandé dans les réglages.
+        var settings = self.settings(c)
+        settings.hdr = c.hasHDR && c.hdr && HDRDisplay.isHDR((NSApp.keyWindow ?? NSApp.mainWindow)?.screen ?? NSScreen.main)
+        let settingsJSON = (try? JSONEncoder().encode(settings)).flatMap { String(data: $0, encoding: .utf8) } ?? Self.defaultSettings
+        let id = c.id
+        let session = PlayStationSession(console: console, address: address, registered: registered, settings: settingsJSON,
+                                         layout: layoutJSON(c), fullScreen: settings.fullscreen,
+                                         onFullScreen: { [weak self] on in self?.rememberFullScreen(on, id: id) }) { [weak self] s, end in
             guard let self else { return }
             self.sessions[s.console.id] = nil
             // La fin se dit dans la fenêtre ; « Associer » revient si la console ne reconnaît plus ce Mac.
@@ -298,6 +580,61 @@ final class PlayStationStore: ObservableObject {
         }
         sessions[c.id] = session
         session.open()
+    }
+
+    // MARK: - Réglages
+
+    private static let defaultSettings = PlayStation.defaultSettings
+    private static let defaultLayout = PlayStation.defaultLayout
+
+    func settings(_ c: PlayStationConsole) -> PSSettings {
+        let json = console(c.id)?.settings ?? c.settings ?? Self.defaultSettings
+        return (try? JSONDecoder().decode(PSSettings.self, from: Data(json.utf8))) ?? PSSettings()
+    }
+
+    func setSettings(_ s: PSSettings, for c: PlayStationConsole) {
+        guard var c = console(c.id), let data = try? JSONEncoder().encode(s) else { return }
+        c.settings = String(data: data, encoding: .utf8)
+        update(c)
+    }
+
+    /// « Personnalisé » à l'accueil (la règle du cœur).
+    func isCustom(_ c: PlayStationConsole) -> Bool {
+        PlayStation.settingsCustom(console(c.id)?.settings ?? Self.defaultSettings)
+    }
+
+    func layout(_ c: PlayStationConsole) -> PSLayout {
+        let json = console(c.id)?.layout ?? c.layout ?? Self.defaultLayout
+        return (try? JSONDecoder().decode(PSLayout.self, from: Data(json.utf8)))
+            ?? (try? JSONDecoder().decode(PSLayout.self, from: Data(Self.defaultLayout.utf8))) ?? PSLayout()
+    }
+
+    private func layoutJSON(_ c: PlayStationConsole) -> String {
+        console(c.id)?.layout ?? Self.defaultLayout
+    }
+
+    /// Nouvelle disposition : gardée, et tout de suite dans la partie de cette console.
+    func setLayout(_ l: PSLayout, for c: PlayStationConsole) {
+        guard var c = console(c.id), let data = try? JSONEncoder().encode(l), let json = String(data: data, encoding: .utf8) else { return }
+        c.layout = json
+        update(c)
+        sessions[c.id]?.setLayout(json)
+    }
+
+    func resetLayout(for c: PlayStationConsole) {
+        guard var c = console(c.id) else { return }
+        c.layout = nil
+        update(c)
+        sessions[c.id]?.setLayout(Self.defaultLayout)
+    }
+
+    /// Plein écran rejoint ou quitté pendant la partie : retenu pour la suivante.
+    private func rememberFullScreen(_ on: Bool, id: UUID) {
+        guard let c = console(id) else { return }
+        var s = settings(c)
+        guard s.fullscreen != on else { return }
+        s.fullscreen = on
+        setSettings(s, for: c)
     }
 
     func setHDR(_ on: Bool, for c: PlayStationConsole) {

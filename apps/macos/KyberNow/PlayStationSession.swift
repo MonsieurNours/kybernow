@@ -3,8 +3,8 @@
 // et le même rendu qu'une session d'ordinateur (StreamView, VideoToolbox,
 // Metal, HDR sur un écran HDR) ; le protocole est dans le cœur
 // (`PlayStationPlay`). La fenêtre s'ouvre aux deux tiers de l'écran, en
-// 16:9 ; le plein écran est celui de macOS. Les manettes ne sont pas encore
-// transmises.
+// 16:9, ou en plein écran (celui de macOS) selon les réglages de la console ;
+// le plein écran rejoint ou quitté pendant la partie y est retenu.
 
 import AppKit
 import KyberKit
@@ -25,7 +25,11 @@ final class PlayStationSession: NSObject, ObservableObject, NSWindowDelegate {
     let console: PlayStationConsole
     private let address: String
     private let registered: String
-    private let hdr: Bool
+    /// Réglages de la console (JSON du cœur, HDR compris) et disposition du clavier et de la souris.
+    private let settings: String
+    private var layout: String
+    private let fullScreen: Bool
+    private let onFullScreen: (Bool) -> Void
     private let onEnd: (PlayStationSession, PlayStationPlay.End?) -> Void
     private let streamView = StreamView(frame: .zero)
     /// Clavier et souris (au-dessus de l'image, sous les textes).
@@ -42,11 +46,15 @@ final class PlayStationSession: NSObject, ObservableObject, NSWindowDelegate {
     /// Mise en veille demandée ici : sa fin ne se dit pas.
     private var resting = false
 
-    init(console: PlayStationConsole, address: String, registered: String, hdr: Bool, onEnd: @escaping (PlayStationSession, PlayStationPlay.End?) -> Void) {
+    init(console: PlayStationConsole, address: String, registered: String, settings: String, layout: String, fullScreen: Bool,
+         onFullScreen: @escaping (Bool) -> Void, onEnd: @escaping (PlayStationSession, PlayStationPlay.End?) -> Void) {
         self.console = console
         self.address = address
         self.registered = registered
-        self.hdr = hdr
+        self.settings = settings
+        self.layout = layout
+        self.fullScreen = fullScreen
+        self.onFullScreen = onFullScreen
         self.onEnd = onEnd
     }
 
@@ -101,14 +109,22 @@ final class PlayStationSession: NSObject, ObservableObject, NSWindowDelegate {
         self.window = window
         window.makeKeyAndOrderFront(nil)
         window.makeFirstResponder(input)
+        if fullScreen { window.toggleFullScreen(nil) }
 
         let play = PlayStationPlay(view: streamView)
         input.play = play
         play.onState = { [weak self] in self?.stateChanged($0) }
         self.play = play
-        if !play.start(address: address, registered: registered, hdr: hdr) {
+        if !play.start(address: address, registered: registered, settings: settings,
+                       hevcDecoder: DecoderCapabilities.current.hevc, layout: layout) {
             stateChanged(.ended(.notPaired))
         }
+    }
+
+    /// Disposition changée dans les réglages : tout de suite dans la partie.
+    func setLayout(_ json: String) {
+        layout = json
+        play?.setLayout(json)
     }
 
     func bringToFront() {
@@ -178,6 +194,14 @@ final class PlayStationSession: NSObject, ObservableObject, NSWindowDelegate {
     /// La fenêtre perd le clavier : souris rendue, tout relâché.
     nonisolated func windowDidResignKey(_ notification: Notification) {
         MainActor.assumeIsolated { input.releaseAll() }
+    }
+
+    nonisolated func windowDidEnterFullScreen(_ notification: Notification) {
+        MainActor.assumeIsolated { onFullScreen(true) }
+    }
+
+    nonisolated func windowDidExitFullScreen(_ notification: Notification) {
+        MainActor.assumeIsolated { onFullScreen(false) }
     }
 
     nonisolated func windowShouldClose(_ sender: NSWindow) -> Bool {

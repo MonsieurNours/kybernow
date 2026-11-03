@@ -515,6 +515,26 @@ Dans la rangée : le nom et l'état. Une console trouvée sur le réseau et pas 
 | Saisie à la main | Champ : « Identifiant du compte » ; bouton : « Continuer » | Field: “Account ID”; button: “Continue” |
 | Identifiant non lu | « Identifiant du compte non lu : réessayez, ou saisissez-le à la main. » | “Couldn't read the account ID: try again, or enter it by hand.” |
 
+**Réglages de la console** (engrenage à côté du bouton principal, libellé accessible « Réglages de {nom} » / “Settings for {name}”, même présentation que les réglages d'un ordinateur) :
+
+| Élément | Français | English |
+|---|---|---|
+| À l'accueil, à côté de la puce HDR | puce « Auto » ou « Personnalisé » (définition, images par seconde, débit ou format changés) ; un clic ouvre les réglages | “Auto” or “Custom” |
+| Section | « Image » | “Picture” |
+| Définition | « Définition » : « Auto », « 1080p », « 720p », « 540p », « 360p » ; aide d'Auto : « La plus haute que la console accepte : 1080p. » | “Resolution”: “Auto”…; “The highest the console accepts: 1080p.” |
+| Images par seconde | « Images par seconde » : « 60 i/s », « 30 i/s » | “Frame rate”: “60 fps”, “30 fps” |
+| Débit | « Débit » : « Auto » (aide : « Suit la définition. ») ou « {n} Mbit/s », de 2 à 100 | “Bitrate”: “Auto” (“Follows the resolution.”) or “{n} Mbit/s” |
+| Format | « Format » : « Auto », « H.264 », « H.265 » ; aide d'Auto : « H.265 si cet appareil le lit. » ; aide de H.264 : « Sans HDR. » ; PS4 : réglage inactif, aide « La PS4 n'envoie que du H.264. » | “Format”: “Auto”, “H.264”, “H.265”; “H.265 if this device can play it.”; “No HDR.”; “The PS4 only sends H.264.” |
+| Plein écran | « Ouvrir la partie en plein écran » (coché la première fois ; retenu aussi quand on quitte ou rejoint le plein écran pendant la partie) | “Open the game in full screen” |
+| Section | « Commandes » | “Controls” |
+| Aide de la section | « Le clavier et la souris tiennent lieu de manette. Une manette branchée les remplace. » | “The keyboard and mouse stand in for a controller. A connected controller replaces them.” |
+| Liste | une ligne par action de la manette, dans l'ordre du cœur (`Action::ALL`) : « Stick gauche vers le haut / le bas / la gauche / la droite », « Croix », « Rond », « Carré », « Triangle », « L1 », « R1 », « L2 », « R2 », « L3 », « R3 », « Croix directionnelle vers le haut / le bas / la gauche / la droite », « Options », « Create », « Bouton PS », « Pavé tactile », « Stick droit vers le haut / le bas / la gauche / la droite » ; à droite, ses touches (la lettre du clavier du Mac, ou « Clic gauche », « Clic droit », « Clic du milieu », « Bouton 4 », « Bouton 5 ») et « + » pour en ajouter une ; « Aucune » s'il n'y en a pas | “Left stick up / down / left / right”, “Cross”, “Circle”, “Square”, “Triangle”, …, “D-pad up / down / left / right”, “Options”, “Create”, “PS button”, “Touchpad”, “Right stick up / down / left / right”; “Left click”, “Right click”, “Middle click”, “Button 4”, “Button 5”; “None” |
+| Changer une touche | un clic sur une touche : « Appuyez sur une touche ou cliquez… » (Échap annule, Effacement retire la touche) ; une touche déjà prise ailleurs y est retirée | “Press a key or click…” |
+| Souris | « La souris tient le stick droit » (case) ; « Sensibilité » (de 0,2 à 5, 1 par défaut) ; « Réactivité au départ » (courbe : « Douce », « Normale », « Vive » : 1,2 / 1 / 0,8 ; Vive par défaut) ; « Inclinaison minimale » (0 à 50 %, 20 % par défaut, aide : « Pour passer la zone morte des jeux. ») ; « Inverser l'axe vertical » | “The mouse holds the right stick”; “Sensitivity”; “Starting response”: “Soft”, “Normal”, “Brisk”; “Minimum tilt” (“To get past games' dead zone.”); “Invert vertical axis” |
+| Retour | « Disposition par défaut » | “Default layout” |
+
+Les réglages valent pour la partie suivante ; le clavier et la souris changent tout de suite pendant une partie.
+
 **Session** :
 
 | Moment | Français | English |

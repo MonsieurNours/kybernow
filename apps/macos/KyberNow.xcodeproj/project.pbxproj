@@ -33,6 +33,7 @@
 		50406270A670BB5C2BA37545 /* MenuBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = D483541A3EAA9029B05A3FBD /* MenuBar.swift */; };
 		5518069B204C619DC5508112 /* AppSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AD6D0A4E78C5A89FB64E492 /* AppSettingsView.swift */; };
 		56ADD2F99CFE6C7BA14A69EA /* Language.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09097EF9FD0A52E596CF313E /* Language.swift */; };
+		5A4903BA6EDAE4288A5C79A4 /* PlayStationSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6B90BA7CD90EBC558307D36 /* PlayStationSettings.swift */; };
 		651E54D8B3D686ADCAE9F76A /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2132FE7F8A22F4F68C254657 /* Theme.swift */; };
 		655F1B59A57986B919A6CAE9 /* Sessions.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA811FFEB543C824871A8AC1 /* Sessions.swift */; };
 		6568003A1DE3783D41253FE9 /* SessionChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5894FA6B7B20AA3B540B6E37 /* SessionChrome.swift */; };
@@ -172,6 +173,7 @@
 		F085E5BE7C0D2D4AA3DFA3FF /* SessionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionController.swift; sourceTree = "<group>"; };
 		F32CBB9EE8F90E5403F9B308 /* RelayCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayCore.swift; sourceTree = "<group>"; };
 		F46D6860BE7B12712A7135A1 /* AddHostFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddHostFlow.swift; sourceTree = "<group>"; };
+		F6B90BA7CD90EBC558307D36 /* PlayStationSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayStationSettings.swift; sourceTree = "<group>"; };
 		F7D0FAABB1D481B0A0B691B9 /* LatencyReporting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LatencyReporting.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -235,6 +237,7 @@
 				E407651AF402DB27D895B5B2 /* Passage.swift */,
 				0B24F6100CB4E6124445AC55 /* PlayStation.swift */,
 				A1A7A02CAE528231471C900A /* PlayStationSession.swift */,
+				F6B90BA7CD90EBC558307D36 /* PlayStationSettings.swift */,
 				59175CEA836F6D1D12160DAB /* PlayStationViews.swift */,
 				5894FA6B7B20AA3B540B6E37 /* SessionChrome.swift */,
 				F085E5BE7C0D2D4AA3DFA3FF /* SessionController.swift */,
@@ -455,6 +458,7 @@
 				09EDBBBAF52A03E69634CFFF /* Passage.swift in Sources */,
 				E0FB2A1B7501B881B3BF7FA2 /* PlayStation.swift in Sources */,
 				D7C7376480AFCB3E28A16C26 /* PlayStationSession.swift in Sources */,
+				5A4903BA6EDAE4288A5C79A4 /* PlayStationSettings.swift in Sources */,
 				01C72D414F47D44DBE853ADD /* PlayStationViews.swift in Sources */,
 				6568003A1DE3783D41253FE9 /* SessionChrome.swift in Sources */,
 				16C0354618A9B5E7CD26DE58 /* SessionController.swift in Sources */,

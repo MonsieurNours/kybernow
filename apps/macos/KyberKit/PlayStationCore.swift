@@ -100,6 +100,23 @@ public enum PlayStation {
         kn_ps_wake(address, registered)
     }
 
+    /// Réglages par défaut d'une console (JSON du cœur : Auto, 60 i/s, plein écran).
+    public static var defaultSettings: String {
+        Core.install()
+        return Core.take(kn_ps_default_settings()) ?? "{}"
+    }
+
+    /// Les réglages s'écartent d'Auto : « Personnalisé » à l'accueil.
+    public static func settingsCustom(_ json: String) -> Bool {
+        kn_ps_settings_custom(json)
+    }
+
+    /// Disposition par défaut du clavier et de la souris (JSON du cœur).
+    public static var defaultLayout: String {
+        Core.install()
+        return Core.take(kn_ps_default_layout()) ?? "{}"
+    }
+
     /// Identifiant de la console dans une association (`mac`, en majuscules).
     public static func hostID(ofRegistered json: String) -> String? {
         guard let o = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] else { return nil }
@@ -136,9 +153,11 @@ public final class PlayStationPlay: @unchecked Sendable {
         self.view = view
     }
 
-    /// Lance la partie (la console doit être allumée). Faux si le cœur refuse
-    /// (adresse ou association illisible).
-    public func start(address: String, registered: String, hdr: Bool) -> Bool {
+    /// Lance la partie (la console doit être allumée) avec les réglages de la
+    /// console (`settings` : JSON, HDR compris) et sa disposition du clavier
+    /// et de la souris. `hevcDecoder` : ce Mac décode le H.265. Faux si le
+    /// cœur refuse (adresse ou association illisible).
+    public func start(address: String, registered: String, settings: String, hevcDecoder: Bool, layout: String) -> Bool {
         var cb = KnPsCallbacks()
         cb.userdata = Unmanaged.passUnretained(self).toOpaque()
         cb.video_packet = { ud, p in
@@ -154,8 +173,12 @@ public final class PlayStationPlay: @unchecked Sendable {
             let d = detail.map { String(cString: $0) } ?? ""
             Unmanaged<PlayStationPlay>.fromOpaque(ud).takeUnretainedValue().stateChanged(state, Int(w), Int(h), hdr, d)
         }
-        KyberLog.app.notice("PlayStation : partie demandée (\(hdr ? "HDR" : "SDR", privacy: .public))")
-        let p = withUnsafePointer(to: &cb) { kn_ps_start(address, registered, hdr, $0) }
+        KyberLog.app.notice("PlayStation : partie demandée (\(settings, privacy: .public), H.265 \(hevcDecoder ? "lu" : "pas lu", privacy: .public))")
+        let p = withUnsafePointer(to: &cb) { kn_ps_start(address, registered, settings, hevcDecoder, $0) }
+        // La disposition de la console avant toute entrée.
+        if let p, !kn_ps_set_layout(p, layout) {
+            KyberLog.app.notice("PlayStation : disposition illisible, celle par défaut est gardée")
+        }
         lock.lock()
         play = p
         lock.unlock()

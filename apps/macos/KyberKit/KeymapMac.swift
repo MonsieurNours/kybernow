@@ -60,6 +60,44 @@ extension Keymap {
         return scancode(hid: hid, commandAsControl: commandAsControl, iso: isISO(keyboardType: keyboardType))
     }
 
+    /// Usage HID d'une touche du Mac (réglages des consoles PlayStation : la
+    /// touche qu'on vient de presser).
+    public static func usage(keyCode: UInt16) -> UInt16? {
+        hid(keyCode: keyCode)
+    }
+
+    /// La touche de modification de cet événement `flagsChanged` vient d'être
+    /// enfoncée (nil : pas une touche de modification).
+    public static func modifierPressed(_ event: NSEvent) -> Bool? {
+        modifierFlags[event.keyCode].map { event.modifierFlags.contains($0) }
+    }
+
+    /// Le chemin inverse : usage HID → code kVK.
+    private static let keyCodes: [UInt16: UInt16] = Dictionary(hid.map { ($0.value, UInt16($0.key)) }, uniquingKeysWith: { a, _ in a })
+
+    /// Ce qu'affiche la touche de cet usage HID sur la disposition du clavier
+    /// du Mac (« Z » à la place du W en AZERTY), en majuscules ; nil pour une
+    /// touche sans caractère (Entrée, flèches, modificateurs…). Fil principal.
+    public static func character(hid usage: UInt16) -> String? {
+        guard let code = keyCodes[usage],
+              let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
+              let ptr = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else { return nil }
+        let data = Unmanaged<CFData>.fromOpaque(ptr).takeUnretainedValue() as Data
+        var dead: UInt32 = 0
+        var chars = [UniChar](repeating: 0, count: 4)
+        var length = 0
+        let status = data.withUnsafeBytes { raw -> OSStatus in
+            guard let layout = raw.baseAddress?.assumingMemoryBound(to: UCKeyboardLayout.self) else { return -1 }
+            return UCKeyTranslate(layout, code, UInt16(kUCKeyActionDisplay), 0, UInt32(LMGetKbdType()),
+                                  OptionBits(kUCKeyTranslateNoDeadKeysBit), &dead, chars.count, &length, &chars)
+        }
+        guard status == noErr, length > 0 else { return nil }
+        let text = String(utf16CodeUnits: chars, count: length)
+        let invisible = CharacterSet.controlCharacters.union(.whitespacesAndNewlines)
+        guard !text.unicodeScalars.contains(where: invisible.contains) else { return nil }
+        return text.uppercased()
+    }
+
     /// Dispositions déjà interrogées, par type de clavier. Fil principal seulement.
     private static var layouts: [Int16: Bool] = [:]
 
