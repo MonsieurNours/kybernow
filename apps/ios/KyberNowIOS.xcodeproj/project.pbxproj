@@ -7,14 +7,17 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		009690538F0D93F0BB964176 /* PlayStationHandoffViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83DD82B5F895B89661901570 /* PlayStationHandoffViews.swift */; };
 		00BA5E4BEE7036BBEC9CE678 /* AddHostPanes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 410A9B3CA2E17E8B50C9D9E4 /* AddHostPanes.swift */; };
 		0186090A9EACDF478809466D /* ConsolePads.swift in Sources */ = {isa = PBXBuildFile; fileRef = 946A6AC2CB4F854613684D80 /* ConsolePads.swift */; };
 		02594DD6D18BFE82BCB4798A /* VideoDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDC3D5B8E4E8636948D8DA1D /* VideoDecoder.swift */; };
 		03D28F3EBC73744D15FC4F83 /* Share.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDC7B1FA8B923B97CFD23EE6 /* Share.swift */; };
+		045E458A3A55633A568AC3D1 /* PlayStationSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD69181BE50E83AE3DF7CB04 /* PlayStationSession.swift */; };
 		06785FC2BC19C1A9C896BAFC /* KyberTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B5D7314C1E329CB9A046BCD /* KyberTypes.swift */; };
 		0B20F98F515386F14517B926 /* ScreenPadLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6252F747ADD2695330E7860 /* ScreenPadLogic.swift */; };
 		0E7898AA1D72BAD6801ED2FF /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 1E301E824B7C8F017CF646A4 /* Localizable.xcstrings */; };
 		107AEFB5CC68D0181C5D3412 /* Lend.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12873856FE243A1B653ADFD4 /* Lend.swift */; };
+		111ADB04F81302886F897C97 /* PlayStation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C81BE51F581BDDEB7CA26D63 /* PlayStation.swift */; };
 		19E6B33FA39328971210BB37 /* MetalSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90C6C805EDA4B6095D33A5AD /* MetalSurface.swift */; };
 		1AEF18F956012111B3CEACC4 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DF18C6379CA4387A4D910236 /* Security.framework */; };
 		1B9D29A442EE30FB0C81B6CE /* CoreBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A311A16A82D70847AAB768D2 /* CoreBridge.swift */; };
@@ -24,6 +27,7 @@
 		1F6C9796230EE919A0E92F16 /* LatencyReporting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E2993F29818468CCDB59BBB /* LatencyReporting.swift */; };
 		2047075896E2379979E6B37D /* KyberNowApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A1FF214827149C582C43E77 /* KyberNowApp.swift */; };
 		230B0162F458FF6EEE9F9D67 /* KyberKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8F6A8F0E33DCD5B6CE030AD3 /* KyberKit.framework */; };
+		24D40D3F488A13AA0EA510CC /* PlayStationCloud.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECBF1456A4F19E45D580937C /* PlayStationCloud.swift */; };
 		24E7685D6AC661AFDCCA052B /* HDRCalibration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 216B5AACD7FD091DD1CF9E3A /* HDRCalibration.swift */; };
 		2638F094374303FC6BBF7ABE /* Discovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2B1FC1C1CB40956666D1104 /* Discovery.swift */; };
 		263D92DB45AF33815A440596 /* AddHostScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91FD6F412BECA15E4705994A /* AddHostScanner.swift */; };
@@ -32,9 +36,11 @@
 		3AF2A47B1780A6EF38E902EF /* PlayStationCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E507C6F92BBBC66E91277CD6 /* PlayStationCore.swift */; };
 		3C818532EDC9B3E2AD14165F /* SessionStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3F54BF416D5315CDBC05036 /* SessionStats.swift */; };
 		420B9C9DFB363B4B19E275D8 /* GamepadBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87E8B27E96302CC1E18EB72E /* GamepadBridge.swift */; };
+		47C37D332CD0B56F626DCB89 /* PlayStationSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7ED34E62CB7D180D7EE6F2A /* PlayStationSettings.swift */; };
 		4A243449E9012A83F5B25EBA /* SessionEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = C061F9A3683E8F0952178D5A /* SessionEngine.swift */; };
 		523DECF3B68F3B51B2E41970 /* libiconv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = FCC6D0F079A62951A979AFFB /* libiconv.tbd */; };
 		54DD1243C7F803D6F6294386 /* HomeParts.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC73DD292CBDBDF502F5FA6E /* HomeParts.swift */; };
+		6044180EED63D7C090C56C5A /* KeymapIOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02C8E35A110CBAFE43FA26DF /* KeymapIOS.swift */; };
 		60A82D0A011624FC38C9BADE /* VideoPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAFEE158257746E0783DAB51 /* VideoPipeline.swift */; };
 		644211D9653E7804B75A37CD /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D24E60CD6CB22677E5A6149 /* Theme.swift */; };
 		6EDDE77B6928268EBF954CF4 /* AV1.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED5BA9A9A9B2AF57C3FEBB54 /* AV1.swift */; };
@@ -45,6 +51,7 @@
 		728A75CFB137B4FC77F944B6 /* KyberKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 8F6A8F0E33DCD5B6CE030AD3 /* KyberKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		753300D2372C70A39FF07F61 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E3E0113565D7CF768FB0FE2 /* SettingsView.swift */; };
 		7755C218AEA12E38263D5253 /* DecoderCapabilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3456E0200C841E3D3F7A55FB /* DecoderCapabilities.swift */; };
+		79B7269B197B3236415A545F /* PlayStationHome.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA3E039F87EAC01BD5C8C349 /* PlayStationHome.swift */; };
 		7CB98801894B060E3310BA8A /* ScreenPad.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11E7F53DBCDC4AAFE88274F2 /* ScreenPad.swift */; };
 		812AD19263390D73ABB5265E /* Backdrops.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25D44B7B7CC32E4F400A995C /* Backdrops.swift */; };
 		86468B92C625C587213360F0 /* OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = F0FC01552ACFFE060EB414DC /* OFL.txt */; };
@@ -57,6 +64,7 @@
 		962E9235A44D43A17C764D7C /* HDRVideoLayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A902278E773A170D6D6A7A8 /* HDRVideoLayer.swift */; };
 		9E498A340104E6646FAC8CE6 /* LendViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74C7A88CB55772D75805439E /* LendViews.swift */; };
 		9ECBAC17D48DC6E5EFD0F599 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = BAA93A815BCDC3DCEF4B2B8B /* Assets.xcassets */; };
+		A1D9A1B81279D79708C8A383 /* PlayStationHandoffModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A2DDF0D3DA8C83BA46D2835 /* PlayStationHandoffModel.swift */; };
 		A45FF4CDC0895C8FD97A9715 /* LendCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBA048343AC7B500A33C2331 /* LendCore.swift */; };
 		A7EB72E7360A2589DCCAA24E /* AppSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C5BC11DCB9BAF29FE7F1722 /* AppSettingsView.swift */; };
 		AA646ACFCCEDA7CA1C36A75C /* KeyboardMouse.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62BC5E83B7193B1F27746462 /* KeyboardMouse.swift */; };
@@ -64,8 +72,10 @@
 		B215E1C9CFE4119FBA31D9A2 /* Platform.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5209938CBDB61B7A681C9DB /* Platform.swift */; };
 		B807C6D5D7D989473B8C327D /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 383556364DF843C9D46F9B81 /* AppModel.swift */; };
 		B8212CF41830876E669E0A4A /* AudioPlayerCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CDD825886035EA70C8A338E /* AudioPlayerCore.swift */; };
+		BA6D8687CF7C4F8F78B41389 /* PlayStationSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEB71BF963EE2CBC44C8D23D /* PlayStationSync.swift */; };
 		BA981DE8BEA2B6DDFA59F919 /* SettingsStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5B21EE1EB8228AF8F50DED6 /* SettingsStats.swift */; };
 		C17855BA68F77C49CA160194 /* CloudSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F2CC5531BE91A2E596139D8 /* CloudSync.swift */; };
+		CE526D8C81653C72A4796EF0 /* PlayStationSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AAAAD7AA3A792535998A631 /* PlayStationSessionView.swift */; };
 		CF1672C3B10A503BCCE9BB62 /* InputCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D096F84DF3830EBF98CCE6EF /* InputCore.swift */; };
 		D0970783026227DA84F25AEC /* SessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFDADC5155C777613D3C1002 /* SessionView.swift */; };
 		D1492923578D3C0489E60327 /* ShareViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10273F938926D2DE6E4A186F /* ShareViews.swift */; };
@@ -75,6 +85,8 @@
 		DD0EC04F7DB918283F35ECDD /* DualSenseHaptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F7DE9C5954CF031E79AD56B /* DualSenseHaptics.swift */; };
 		E8263E68D4949ECF8EE3C104 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 7850FA5612B72BECD1D05CFE /* InfoPlist.xcstrings */; };
 		E8DE8C2727D5FF30241722F8 /* SystemConfiguration.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0226C33E74431675895CF43B /* SystemConfiguration.framework */; };
+		EEE6FB1A2ADA531B262CDB3C /* PlayStationViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C465535454BA9CB60049064 /* PlayStationViews.swift */; };
+		EFBB54B2A3267D21FD5F7228 /* PlayStationKeyMouse.swift in Sources */ = {isa = PBXBuildFile; fileRef = 216A2A00CF555F2A470BEDAD /* PlayStationKeyMouse.swift */; };
 		F3AA316CF4C8F01ECA8EEEA5 /* SessionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 942EA9510C5B257877855EB8 /* SessionController.swift */; };
 		F7F8816C831CE386C3848E6F /* TouchRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE9798DFB50233072B5736FF /* TouchRules.swift */; };
 		F948F3A6F51E9DAF681F542B /* Archivo-wdth-wght.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 2818F78F98BB9411EFA6DCC9 /* Archivo-wdth-wght.ttf */; };
@@ -110,6 +122,7 @@
 
 /* Begin PBXFileReference section */
 		0226C33E74431675895CF43B /* SystemConfiguration.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SystemConfiguration.framework; path = System/Library/Frameworks/SystemConfiguration.framework; sourceTree = SDKROOT; };
+		02C8E35A110CBAFE43FA26DF /* KeymapIOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeymapIOS.swift; sourceTree = "<group>"; };
 		0EA4B452EFF2B73B060EABC2 /* HDRCalibrationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HDRCalibrationView.swift; sourceTree = "<group>"; };
 		10273F938926D2DE6E4A186F /* ShareViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViews.swift; sourceTree = "<group>"; };
 		11E7F53DBCDC4AAFE88274F2 /* ScreenPad.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenPad.swift; sourceTree = "<group>"; };
@@ -118,19 +131,23 @@
 		1A902278E773A170D6D6A7A8 /* HDRVideoLayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HDRVideoLayer.swift; sourceTree = "<group>"; };
 		1E301E824B7C8F017CF646A4 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		1F7DE9C5954CF031E79AD56B /* DualSenseHaptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DualSenseHaptics.swift; sourceTree = "<group>"; };
+		216A2A00CF555F2A470BEDAD /* PlayStationKeyMouse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayStationKeyMouse.swift; sourceTree = "<group>"; };
 		216B5AACD7FD091DD1CF9E3A /* HDRCalibration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HDRCalibration.swift; sourceTree = "<group>"; };
 		25D44B7B7CC32E4F400A995C /* Backdrops.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Backdrops.swift; sourceTree = "<group>"; };
 		2818F78F98BB9411EFA6DCC9 /* Archivo-wdth-wght.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Archivo-wdth-wght.ttf"; sourceTree = "<group>"; };
 		2A6E1351863BB088A8938F59 /* Model.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Model.swift; sourceTree = "<group>"; };
 		2BB7B0671210C532F6EDFD65 /* Upscaler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Upscaler.swift; sourceTree = "<group>"; };
+		2C465535454BA9CB60049064 /* PlayStationViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayStationViews.swift; sourceTree = "<group>"; };
 		2E3E0113565D7CF768FB0FE2 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		306546BE41AD345E7A328812 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		33BFA98ADC8A49589A10B603 /* RelayCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayCore.swift; sourceTree = "<group>"; };
 		3456E0200C841E3D3F7A55FB /* DecoderCapabilities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecoderCapabilities.swift; sourceTree = "<group>"; };
 		383556364DF843C9D46F9B81 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		410A9B3CA2E17E8B50C9D9E4 /* AddHostPanes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddHostPanes.swift; sourceTree = "<group>"; };
+		4A2DDF0D3DA8C83BA46D2835 /* PlayStationHandoffModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayStationHandoffModel.swift; sourceTree = "<group>"; };
 		4D24E60CD6CB22677E5A6149 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		548DFE9274D455AF36E2F65B /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		5AAAAD7AA3A792535998A631 /* PlayStationSessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayStationSessionView.swift; sourceTree = "<group>"; };
 		5B5D7314C1E329CB9A046BCD /* KyberTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KyberTypes.swift; sourceTree = "<group>"; };
 		5C29930A44A76B2FE97E93EF /* KyberNowIOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = KyberNowIOS.entitlements; sourceTree = "<group>"; };
 		5E2993F29818468CCDB59BBB /* LatencyReporting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LatencyReporting.swift; sourceTree = "<group>"; };
@@ -143,6 +160,7 @@
 		7850FA5612B72BECD1D05CFE /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
 		7A1FF214827149C582C43E77 /* KyberNowApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KyberNowApp.swift; sourceTree = "<group>"; };
 		7C5BC11DCB9BAF29FE7F1722 /* AppSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettingsView.swift; sourceTree = "<group>"; };
+		83DD82B5F895B89661901570 /* PlayStationHandoffViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayStationHandoffViews.swift; sourceTree = "<group>"; };
 		87E8B27E96302CC1E18EB72E /* GamepadBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadBridge.swift; sourceTree = "<group>"; };
 		8ACCD81A8B16FC7E417CA554 /* StreamView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamView.swift; sourceTree = "<group>"; };
 		8F6A8F0E33DCD5B6CE030AD3 /* KyberKit.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = KyberKit.framework; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -167,20 +185,26 @@
 		BDC7B1FA8B923B97CFD23EE6 /* Share.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Share.swift; sourceTree = "<group>"; };
 		C061F9A3683E8F0952178D5A /* SessionEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionEngine.swift; sourceTree = "<group>"; };
 		C4F5C6D95599975901557ED5 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		C81BE51F581BDDEB7CA26D63 /* PlayStation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayStation.swift; sourceTree = "<group>"; };
 		C924F6C6F8139DA17F956040 /* KyberLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KyberLog.swift; sourceTree = "<group>"; };
+		CA3E039F87EAC01BD5C8C349 /* PlayStationHome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayStationHome.swift; sourceTree = "<group>"; };
+		CD69181BE50E83AE3DF7CB04 /* PlayStationSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayStationSession.swift; sourceTree = "<group>"; };
 		CFDADC5155C777613D3C1002 /* SessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionView.swift; sourceTree = "<group>"; };
 		CFDC3C4579F50D443D946774 /* Language.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Language.swift; sourceTree = "<group>"; };
 		D096F84DF3830EBF98CCE6EF /* InputCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputCore.swift; sourceTree = "<group>"; };
 		D2FAD67B06247A688500776D /* ExternalDisplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalDisplay.swift; sourceTree = "<group>"; };
 		D331E985159AA4E9325D7B46 /* HDR.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HDR.swift; sourceTree = "<group>"; };
 		D64DA3D036216DDE52A215AB /* VideoRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoRenderer.swift; sourceTree = "<group>"; };
+		D7ED34E62CB7D180D7EE6F2A /* PlayStationSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayStationSettings.swift; sourceTree = "<group>"; };
 		DC436DE0AD11DE6B0C09E612 /* ShareCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareCore.swift; sourceTree = "<group>"; };
 		DC73DD292CBDBDF502F5FA6E /* HomeParts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeParts.swift; sourceTree = "<group>"; };
 		DDC3D5B8E4E8636948D8DA1D /* VideoDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoDecoder.swift; sourceTree = "<group>"; };
 		DE9798DFB50233072B5736FF /* TouchRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TouchRules.swift; sourceTree = "<group>"; };
+		DEB71BF963EE2CBC44C8D23D /* PlayStationSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayStationSync.swift; sourceTree = "<group>"; };
 		DF18C6379CA4387A4D910236 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
 		E507C6F92BBBC66E91277CD6 /* PlayStationCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayStationCore.swift; sourceTree = "<group>"; };
 		EAFEE158257746E0783DAB51 /* VideoPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPipeline.swift; sourceTree = "<group>"; };
+		ECBF1456A4F19E45D580937C /* PlayStationCloud.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayStationCloud.swift; sourceTree = "<group>"; };
 		ED5BA9A9A9B2AF57C3FEBB54 /* AV1.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AV1.swift; sourceTree = "<group>"; };
 		F0FC01552ACFFE060EB414DC /* OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = OFL.txt; sourceTree = "<group>"; };
 		F5209938CBDB61B7A681C9DB /* Platform.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Platform.swift; sourceTree = "<group>"; };
@@ -233,6 +257,8 @@
 		7617DED7C69AACF74C1ABBAE /* KyberKitIOS */ = {
 			isa = PBXGroup;
 			children = (
+				02C8E35A110CBAFE43FA26DF /* KeymapIOS.swift */,
+				216A2A00CF555F2A470BEDAD /* PlayStationKeyMouse.swift */,
 				8ACCD81A8B16FC7E417CA554 /* StreamView.swift */,
 				DE9798DFB50233072B5736FF /* TouchRules.swift */,
 			);
@@ -260,6 +286,12 @@
 				74C7A88CB55772D75805439E /* LendViews.swift */,
 				1E301E824B7C8F017CF646A4 /* Localizable.xcstrings */,
 				F5209938CBDB61B7A681C9DB /* Platform.swift */,
+				83DD82B5F895B89661901570 /* PlayStationHandoffViews.swift */,
+				CA3E039F87EAC01BD5C8C349 /* PlayStationHome.swift */,
+				CD69181BE50E83AE3DF7CB04 /* PlayStationSession.swift */,
+				5AAAAD7AA3A792535998A631 /* PlayStationSessionView.swift */,
+				D7ED34E62CB7D180D7EE6F2A /* PlayStationSettings.swift */,
+				2C465535454BA9CB60049064 /* PlayStationViews.swift */,
 				11E7F53DBCDC4AAFE88274F2 /* ScreenPad.swift */,
 				F6252F747ADD2695330E7860 /* ScreenPadLogic.swift */,
 				942EA9510C5B257877855EB8 /* SessionController.swift */,
@@ -320,6 +352,10 @@
 				12873856FE243A1B653ADFD4 /* Lend.swift */,
 				B15AA9F9EFA3E6C151832988 /* LinkUI.swift */,
 				2A6E1351863BB088A8938F59 /* Model.swift */,
+				C81BE51F581BDDEB7CA26D63 /* PlayStation.swift */,
+				ECBF1456A4F19E45D580937C /* PlayStationCloud.swift */,
+				4A2DDF0D3DA8C83BA46D2835 /* PlayStationHandoffModel.swift */,
+				DEB71BF963EE2CBC44C8D23D /* PlayStationSync.swift */,
 				BDC7B1FA8B923B97CFD23EE6 /* Share.swift */,
 			);
 			name = KyberNow;
@@ -502,6 +538,16 @@
 				8EE5514C9D6756205285D44F /* LinkUI.swift in Sources */,
 				8AC74F5174920E95A6B94BC0 /* Model.swift in Sources */,
 				B215E1C9CFE4119FBA31D9A2 /* Platform.swift in Sources */,
+				111ADB04F81302886F897C97 /* PlayStation.swift in Sources */,
+				24D40D3F488A13AA0EA510CC /* PlayStationCloud.swift in Sources */,
+				A1D9A1B81279D79708C8A383 /* PlayStationHandoffModel.swift in Sources */,
+				009690538F0D93F0BB964176 /* PlayStationHandoffViews.swift in Sources */,
+				79B7269B197B3236415A545F /* PlayStationHome.swift in Sources */,
+				045E458A3A55633A568AC3D1 /* PlayStationSession.swift in Sources */,
+				CE526D8C81653C72A4796EF0 /* PlayStationSessionView.swift in Sources */,
+				47C37D332CD0B56F626DCB89 /* PlayStationSettings.swift in Sources */,
+				BA6D8687CF7C4F8F78B41389 /* PlayStationSync.swift in Sources */,
+				EEE6FB1A2ADA531B262CDB3C /* PlayStationViews.swift in Sources */,
 				7CB98801894B060E3310BA8A /* ScreenPad.swift in Sources */,
 				0B20F98F515386F14517B926 /* ScreenPadLogic.swift in Sources */,
 				F3AA316CF4C8F01ECA8EEEA5 /* SessionController.swift in Sources */,
@@ -535,6 +581,7 @@
 				962E9235A44D43A17C764D7C /* HDRVideoLayer.swift in Sources */,
 				CF1672C3B10A503BCCE9BB62 /* InputCore.swift in Sources */,
 				AA646ACFCCEDA7CA1C36A75C /* KeyboardMouse.swift in Sources */,
+				6044180EED63D7C090C56C5A /* KeymapIOS.swift in Sources */,
 				2B10A24B0E02FA1FFC9F8DCE /* KyberLog.swift in Sources */,
 				06785FC2BC19C1A9C896BAFC /* KyberTypes.swift in Sources */,
 				6FE37D5BF61E9EC6F2E05395 /* Language.swift in Sources */,
@@ -542,6 +589,7 @@
 				A45FF4CDC0895C8FD97A9715 /* LendCore.swift in Sources */,
 				19E6B33FA39328971210BB37 /* MetalSurface.swift in Sources */,
 				3AF2A47B1780A6EF38E902EF /* PlayStationCore.swift in Sources */,
+				EFBB54B2A3267D21FD5F7228 /* PlayStationKeyMouse.swift in Sources */,
 				FBD75728DEE3B6F7452B074C /* RelayCore.swift in Sources */,
 				4A243449E9012A83F5B25EBA /* SessionEngine.swift in Sources */,
 				FBDB346D99F1EDA2A3F86258 /* ShareCore.swift in Sources */,

@@ -19,6 +19,8 @@ final class AppModel: ObservableObject {
         case invite(LendInvite)
         /// Le mot de passe d'un ordinateur prêté, demandé à « Emprunter ».
         case borrowPassword(UUID)
+        /// « Réglages de {nom} » d'une console PlayStation.
+        case consoleSettings(UUID)
 
         var id: String {
             switch self {
@@ -28,6 +30,7 @@ final class AppModel: ObservableObject {
             case .appSettings: return "app"
             case let .invite(invite): return "invite-\(invite.id)"
             case let .borrowPassword(id): return "borrow-\(id)"
+            case let .consoleSettings(id): return "console-\(id)"
             }
         }
     }
@@ -40,6 +43,10 @@ final class AppModel: ObservableObject {
     /// Ordinateur mis en avant sur l'accueil.
     @Published var selected: UUID?
     @Published private(set) var session: SessionController?
+    /// La partie en cours sur une console PlayStation (une session à la fois).
+    @Published private(set) var consoleSession: PlayStationSession?
+    /// Le modèle de l'app (la partie l'atteint pour ouvrir les réglages de la console).
+    static weak var shared: AppModel?
     /// Le lancement animé (une fois par démarrage de l'app).
     @Published var launched = false
     @Published var toast: String?
@@ -50,6 +57,10 @@ final class AppModel: ObservableObject {
     let store: HostStore
     /// Les ordinateurs que des amis prêtent à cet appareil (docs/pret.md), à part des siens.
     let borrowed: BorrowedStore
+    /// Consoles PlayStation : comptes PSN, consoles, associations (docs/playstation.md).
+    let playstation: PlayStationStore
+    /// Comptes et associations PlayStation par iCloud, dans les deux sens.
+    private var playstationCloud: PlayStationCloud?
     let discovery = Discovery()
     let cloud = CloudSync()
     let prefs = Preferences.shared
@@ -65,8 +76,24 @@ final class AppModel: ObservableObject {
         #endif
         store = HostStore(demo: demo)
         borrowed = BorrowedStore(demo: demo)
+        playstation = PlayStationStore(demo: demo)
         borrowed.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &bag)
+        playstation.attach(hosts: store)
+        playstation.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &bag)
+        // La partie s'ouvre en plein écran ; finie, l'accueil revient.
+        PlayStationSession.onOpen = { [weak self] s in
+            self?.sheet = nil
+            withAnimation(Theme.join) { self?.consoleSession = s }
+        }
+        playstation.$sessions
+            .filter(\.isEmpty)
+            .sink { [weak self] _ in
+                guard self?.consoleSession != nil else { return }
+                withAnimation(Theme.join) { self?.consoleSession = nil }
+            }
+            .store(in: &bag)
         discovery.start()
+        defer { Self.shared = self }
         path.start(queue: DispatchQueue(label: "fr.leslignesclaires.kybernow.path"))
         selected = store.ordered.first?.id
         // iCloud : les ordinateurs du Mac arrivent tout seuls si la synchro est
@@ -74,6 +101,25 @@ final class AppModel: ObservableObject {
         if !demo {
             cloud.$hosts
                 .sink { [weak self] list in self?.importCloud(list) }
+                .store(in: &bag)
+            // Les consoles : publiées et reprises (comptes, associations), même
+            // réglage (PlayStationCloud, commun aux apps Apple).
+            let prefs = prefs
+            let consoles = PlayStationCloud(store: playstation) { prefs.icloudSync }
+            playstationCloud = consoles
+            prefs.$icloudSync
+                .removeDuplicates()
+                .sink { [weak consoles] on in if on { consoles?.schedule() } else { consoles?.forget() } }
+                .store(in: &bag)
+            // Retour au premier plan, autre compte iCloud : le Trousseau iCloud arrive parfois après la liste.
+            NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)
+                .sink { [weak consoles] _ in consoles?.schedule() }
+                .store(in: &bag)
+            NotificationCenter.default.publisher(for: .NSUbiquityIdentityDidChange)
+                .sink { [weak consoles] _ in
+                    consoles?.forget()
+                    consoles?.schedule()
+                }
                 .store(in: &bag)
         }
         #if DEBUG && targetEnvironment(simulator)
@@ -96,6 +142,8 @@ final class AppModel: ObservableObject {
         // ordinateur prêté à Léa (`-demoLent notice` : pendant le préavis de reprise).
         guard demo else { return }
         store.loadDemo()
+        // `-demoPlayStation YES` : deux comptes PSN, une console associée avec les deux, une autre sur le réseau.
+        if UserDefaults.standard.bool(forKey: "demoPlayStation") { playstation.loadDemo() }
         let list = store.ordered
         let index = UserDefaults.standard.integer(forKey: "hostIndex")
         selected = list.indices.contains(index) ? list[index].id : list.first?.id
@@ -135,6 +183,15 @@ final class AppModel: ObservableObject {
         case "invite":
             if let invite = Lend.parseInvite("kybernow://borrow?host=192.168.1.30&port=37462&fp=sha256:ab12&login=camille") { sheet = .invite(invite) }
         case "app": sheet = .appSettings
+        // `-screen psSession -demoPlayStation YES -psDemo bar|padbar|stats|keyboard|pad|connecting|ended` :
+        // une partie sur console, sans console (une mire).
+        case "psSession":
+            launched = true
+            if let c = playstation.consoles.first {
+                let s = PlayStationSession(console: c, address: c.address, registered: "", settings: "{}", layout: "{}", fullScreen: true,
+                                           onFullScreen: { _ in }) { [weak self] _, _ in self?.consoleSession = nil }
+                s.demo(UserDefaults.standard.string(forKey: "psDemo"))
+            }
         // `-screen hdrCalibration -calibrationStep 0…3` (avec `-hdrScreen YES`) : l'écran « Réglage du HDR ».
         case "hdrCalibration": calibrating = true
         case "settings": if let id = selected { sheet = .settings(id) }
@@ -351,6 +408,17 @@ final class AppModel: ObservableObject {
         }
         sheet = .addHost(candidate)
     }
+
+    /// Les avis des consoles PlayStation (comme le Mac : `warning`, sans effet ici).
+    func show(_ text: String, warning: Bool) { show(text) }
+
+    /// « Réglages de {nom} » d'une console, depuis l'accueil ou la barre de la partie.
+    func openConsoleSettings(_ c: PlayStationConsole) {
+        sheet = .consoleSettings(c.id)
+    }
+
+    /// Une session (ordinateur ou console) est à l'écran.
+    var inSession: Bool { session != nil || consoleSession != nil }
 
     func show(_ text: String) {
         withAnimation(Theme.easeOut) { toast = text }

@@ -159,7 +159,7 @@ private struct AppSettingsContent: View {
 
     @ViewBuilder private var icloudRows: some View {
         SettingsToggleRow(title: String(localized: "Synchroniser avec iCloud"),
-                          note: String(localized: "Vos ordinateurs et leurs accès suivent votre Mac et vos autres appareils, sans rien taper. Mots de passe dans le Trousseau iCloud, chiffré de bout en bout."),
+                          note: String(localized: "Ordinateurs et consoles : vos ordinateurs et leurs accès, vos comptes PlayStation et leurs consoles suivent votre Mac et vos autres appareils, sans rien taper. Mots de passe et associations dans le Trousseau iCloud, chiffré de bout en bout."),
                           on: prefs.icloudSync) {
             prefs.icloudSync.toggle()
             // Activée : ceux déjà publiés arrivent tout de suite, sans attendre un changement d'iCloud.
