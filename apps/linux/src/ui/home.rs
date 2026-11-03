@@ -22,6 +22,13 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
 /// L'accueil ; `logo` : dessiner le logo de l'en-tête (le lancement le pose lui-même).
 pub fn draw_body(app: &App, cv: &mut Canvas, f: &mut Frame, logo: bool) {
     let host = app.selected();
+    if let Some(c) = app.selected_console() {
+        super::ps::backdrop(cv, c, app.ps_state(&c.host_id) == crate::ps::PsState::Offline);
+        return match app.layout {
+            Layout::Desktop => desktop(app, cv, f, None),
+            Layout::Handheld | Layout::Tv => console(app, cv, f, None, logo),
+        };
+    }
     match app.selected_borrowed() {
         // L'ordinateur d'un ami : sa signature, d'après l'empreinte de son Admin.
         Some(b) => {
@@ -188,7 +195,10 @@ fn desktop(app: &App, cv: &mut Canvas, f: &mut Frame, host: Option<&Host>) {
     if let Some(b) = app.selected_borrowed() {
         borrowed_hero(app, cv, f, b, x0, y, 1.0, hero_max);
     }
-    match host.filter(|_| app.selected_borrowed().is_none()) {
+    if let Some(c) = app.selected_console() {
+        super::ps::hero(app, cv, f, c, x0, y, 1.0, hero_max);
+    }
+    match host.filter(|_| app.selected_borrowed().is_none() && app.selected_console().is_none()) {
         Some(hst) => {
             let (st, color, glow) = status(app, hst);
             widgets::dot(cv, x0 + 4.0, y + 7.0, 4.0, color, glow);
@@ -209,7 +219,7 @@ fn desktop(app: &App, cv: &mut Canvas, f: &mut Frame, host: Option<&Host>) {
             y += 52.0 + 30.0;
             cv.text_fit(x0, y, Text::new(Font::Regular, 14.0, FAINT), phrase(hst), hero_max);
         }
-        None if app.selected_borrowed().is_some() => {}
+        None if app.selected_borrowed().is_some() || app.selected_console().is_some() => {}
         None => welcome(cv, f, x0, y, 1.0, hero_max),
     }
     // Les ordinateurs.
@@ -236,7 +246,7 @@ fn welcome(cv: &mut Canvas, f: &mut Frame, x0: f32, y: f32, u: f32, max: f32) {
         max.min(620.0 * u),
         23.0 * u,
     );
-    let bw = primary(cv, f, Target::AddCard, x0, y + 226.0 * u, 52.0 * u, tr("Ajouter un ordinateur", "Add a computer"), false);
+    let bw = primary(cv, f, Target::AddCard, x0, y + 226.0 * u, 52.0 * u, tr("Ajouter un ordinateur ou une console", "Add a computer or a console"), false);
     // KyberNow Share : rejoindre le partage de quelqu'un, à côté de « Ajouter un ordinateur ».
     widgets::ghost(cv, f, Target::JoinCard, x0 + bw + 18.0 * u, y + 226.0 * u + 3.0 * u, 46.0 * u, 15.0 * u, Some(Icon::Share), tr("Rejoindre avec un code", "Join with a code"), MUTED);
 }
@@ -246,15 +256,16 @@ fn welcome(cv: &mut Canvas, f: &mut Frame, x0: f32, y: f32, u: f32, max: f32) {
 #[allow(clippy::too_many_arguments)]
 fn cards(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y: f32, cw: f32, ch: f32, gap: f32, width: f32, u: f32, add_card: bool) {
     let fit = (((width + gap) / (cw + gap)).floor() as usize).max(1);
-    let selected = app.selected_borrowed().map(|b| b.id.clone()).or_else(|| app.selected().map(|h| h.id.clone()));
+    let selected = app.store.selected.clone().filter(|s| s.starts_with(crate::ps::SELECTED)).or_else(|| app.selected_borrowed().map(|b| b.id.clone())).or_else(|| app.selected().map(|h| h.id.clone()));
     let mut slots = fit;
     let found = app.new_found();
     if add_card {
         slots = slots.saturating_sub(1);
     }
     let mut x = x0;
-    // Les ordinateurs empruntés gardent leur place dans la rangée (une au moins reste aux ordinateurs appairés).
-    let reserved = app.store.borrowed.len().min(slots.saturating_sub(1));
+    // Les ordinateurs empruntés et les consoles gardent leur place dans la rangée (une au moins reste aux ordinateurs
+    // appairés).
+    let reserved = (app.store.borrowed.len() + app.store.ps_consoles.len()).min(slots.saturating_sub(1));
     for (i, h) in app.store.hosts.iter().enumerate() {
         if slots <= reserved {
             break;
@@ -288,6 +299,8 @@ fn cards(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y: f32, cw: f32, ch
         x += cw + gap;
         slots -= 1;
     }
+    // Les consoles PlayStation : associées, puis celles du réseau pas encore associées.
+    super::ps::cards(app, cv, f, &mut x, y, cw, ch, gap, u, &mut slots, selected.as_deref());
     for (i, fd) in found.iter().enumerate() {
         if slots == 0 {
             break;
@@ -301,7 +314,7 @@ fn cards(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y: f32, cw: f32, ch
         // code » (KyberNow Share) ; la rangée ne perd pas un ordinateur de plus.
         let gap = 8.0 * u;
         let hh = (ch - gap) / 2.0;
-        action_card(cv, f, Target::AddCard, Rect::new(x, y, cw, hh), u, Icon::Plus, tr("Ajouter un ordinateur", "Add a computer"));
+        action_card(cv, f, Target::AddCard, Rect::new(x, y, cw, hh), u, Icon::Plus, tr("Ajouter un ordinateur ou une console", "Add a computer or a console"));
         action_card(cv, f, Target::JoinCard, Rect::new(x, y + hh + gap, cw, hh), u, Icon::Share, tr("Rejoindre avec un code", "Join with a code"));
     }
 }
@@ -416,7 +429,10 @@ fn console(app: &App, cv: &mut Canvas, f: &mut Frame, host: Option<&Host>, logo:
     if let Some(b) = app.selected_borrowed() {
         borrowed_hero(app, cv, f, b, x0, y, u, hero_max);
     }
-    match host.filter(|_| app.selected_borrowed().is_none()) {
+    if let Some(c) = app.selected_console() {
+        super::ps::hero(app, cv, f, c, x0, y, u, hero_max);
+    }
+    match host.filter(|_| app.selected_borrowed().is_none() && app.selected_console().is_none()) {
         Some(hst) => {
             let (st, color, glow) = status(app, hst);
             widgets::dot(cv, x0 + 4.0 * u, y + 8.0 * u, 4.0 * u, color, glow);
@@ -455,7 +471,7 @@ fn console(app: &App, cv: &mut Canvas, f: &mut Frame, host: Option<&Host>, logo:
             y += 60.0 * u + 30.0 * u;
             cv.text_fit(x0, y, Text::new(Font::Regular, 15.0 * u, FAINT), phrase(hst), hero_max);
         }
-        None if app.selected_borrowed().is_some() => {}
+        None if app.selected_borrowed().is_some() || app.selected_console().is_some() => {}
         None => welcome(cv, f, x0, y, u, hero_max),
     }
 
@@ -477,8 +493,11 @@ fn console(app: &App, cv: &mut Canvas, f: &mut Frame, host: Option<&Host>, logo:
         x += legend(cv, x, gy, g, &["Y"], tr("Réglages", "Settings")) + 28.0 * u;
     } else if let Some(b) = app.selected_borrowed() {
         x += legend(cv, x, gy, g, &["A"], &borrow_label(app, b)) + 28.0 * u;
+    } else if let Some(c) = app.selected_console() {
+        x += legend(cv, x, gy, g, &["A"], super::ps::legend_label(app, c)) + 28.0 * u;
+        x += legend(cv, x, gy, g, &["Y"], tr("Réglages", "Settings")) + 28.0 * u;
     }
-    x += legend(cv, x, gy, g, &["X"], tr("Ajouter un ordinateur", "Add a computer")) + 28.0 * u;
+    x += legend(cv, x, gy, g, &["X"], tr("Ajouter un ordinateur ou une console", "Add a computer or a console")) + 28.0 * u;
     x += legend(cv, x, gy, g, &["⧉"], tr("Rejoindre avec un code", "Join with a code")) + 28.0 * u;
     if host.is_some() {
         legend(cv, x, gy, g, &["L1", "R1"], tr("Profil", "Profile"));

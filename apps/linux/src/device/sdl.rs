@@ -58,6 +58,15 @@ pub const SDL_CONTROLLERBUTTONDOWN: u32 = 0x651;
 pub const SDL_CONTROLLERBUTTONUP: u32 = 0x652;
 pub const SDL_CONTROLLERDEVICEADDED: u32 = 0x653;
 pub const SDL_CONTROLLERDEVICEREMOVED: u32 = 0x654;
+/// Pavé tactile et capteurs d'une manette (DualSense, DualShock 4 : la partie sur une console PlayStation).
+pub const SDL_CONTROLLERTOUCHPADDOWN: u32 = 0x656;
+pub const SDL_CONTROLLERTOUCHPADMOTION: u32 = 0x657;
+pub const SDL_CONTROLLERTOUCHPADUP: u32 = 0x658;
+pub const SDL_CONTROLLERSENSORUPDATE: u32 = 0x659;
+pub const SDL_SENSOR_ACCEL: c_int = 1;
+pub const SDL_SENSOR_GYRO: c_int = 2;
+/// `SDL_JOYSTICK_POWER_WIRED` : la manette est branchée par un câble.
+pub const SDL_JOYSTICK_POWER_WIRED: c_int = 5;
 pub const SDL_FINGERDOWN: u32 = 0x700;
 pub const SDL_CLIPBOARDUPDATE: u32 = 0x900;
 pub const SDL_AUDIODEVICEADDED: u32 = 0x1100;
@@ -219,6 +228,15 @@ impl SDL_Event {
     pub fn pad(&self) -> (i32, u8, i16) {
         (self.i32(8), self.u8(12), self.i16(16))
     }
+    /// Pavé tactile : instance, doigt, x et y (de 0 à 1).
+    pub fn touchpad(&self) -> (i32, i32, f32, f32) {
+        (self.i32(8), self.i32(16), self.f32(20), self.f32(24))
+    }
+    /// Capteur : instance, type (`SDL_SENSOR_*`), mesures, horodatage en microsecondes (SDL 2.26 ; 0 avant).
+    pub fn sensor(&self) -> (i32, c_int, [f32; 3], u64) {
+        let us = u64::from_ne_bytes(self.raw[32..40].try_into().unwrap_or([0; 8]));
+        (self.i32(8), self.i32(12), [self.f32(16), self.f32(20), self.f32(24)], us)
+    }
     /// Fenêtre : l'événement et ses deux valeurs.
     pub fn window(&self) -> (u8, i32, i32) {
         (self.u8(12), self.i32(16), self.i32(20))
@@ -345,6 +363,13 @@ unsafe extern "C" {
     pub fn SDL_GameControllerHasRumble(c: *mut SDL_GameController) -> c_int;
     pub fn SDL_GameControllerHasRumbleTriggers(c: *mut SDL_GameController) -> c_int;
     pub fn SDL_JoystickInstanceID(j: *mut SDL_Joystick) -> i32;
+    pub fn SDL_GameControllerSendEffect(c: *mut SDL_GameController, data: *const c_void, size: c_int) -> c_int;
+    pub fn SDL_GameControllerHasSensor(c: *mut SDL_GameController, kind: c_int) -> c_int;
+    pub fn SDL_GameControllerSetSensorEnabled(c: *mut SDL_GameController, kind: c_int, enabled: c_int) -> c_int;
+    pub fn SDL_GetNumAudioDevices(iscapture: c_int) -> c_int;
+    pub fn SDL_GetAudioDeviceName(index: c_int, iscapture: c_int) -> *const c_char;
+    pub fn SDL_GetKeyFromScancode(sc: c_int) -> i32;
+    pub fn SDL_GetKeyName(key: i32) -> *const c_char;
     pub fn SDL_JoystickCurrentPowerLevel(j: *mut SDL_Joystick) -> c_int;
 
     pub fn SDL_OpenAudioDevice(device: *const c_char, iscapture: c_int, desired: *const SDL_AudioSpec, obtained: *mut SDL_AudioSpec, allowed: c_int) -> u32;

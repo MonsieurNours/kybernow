@@ -64,8 +64,16 @@ Tout ce qui fait entrer quelqu'un d'autre sur votre ordinateur. Nom choisi le 26
 - **Invité retiré** : il peut revenir avec le même code tant que l'hôte n'a pas demandé « Nouveau code ».
 - **Public Suffix List** : inscrire `share.kybernow.app` à la liste, pour que les navigateurs traitent l'adresse de chaque Station (`<identifiant>.share.kybernow.app`) comme un site à part (cookies, stockage).
 - **Lien montant de la maison** : le partager équitablement entre plusieurs invités.
-- **Prêt de l'ordinateur** (publié en 0.9.0, contrat : [docs/pret.md](docs/pret.md)), suite : réveiller l'ordinateur endormi pour un ami hors de chez vous ; manettes et écran tactile branchés au PC bloqués pendant un prêt ; fenêtres des apps lancées en administrateur ; un chapitre du guide du site.
+- **Prêt de l'ordinateur** (publié en 0.9.0, contrat : [docs/pret.md](docs/pret.md)), suite : réveiller l'ordinateur endormi pour un ami hors de chez vous ; manettes et écran tactile branchés au PC bloqués pendant un prêt ; fenêtres des apps lancées en administrateur.
 - **Piste** : prêter l'ordinateur pendant que vous l'utilisez, par une machine virtuelle qui partage la carte graphique (Hyper-V) ; demande Windows Pro et une 2e licence, se heurte aux anti-triche, encodeur à vérifier.
+
+## Consoles PlayStation
+
+Cadré le 03/11/2026, contrat : [docs/playstation.md](docs/playstation.md).
+
+- **Première version, app Mac** : PS5 et PS4 dans le cœur Rust (découverte, réveil, association par code, session, image, son, DualSense complète), d'après chiaki-ng ; essais sur une PS5 Pro, la PS4 reste à essayer.
+- **Par le relais** : une Station du même réseau fait suivre les paquets ; écrit (relais, Admin, cœur, app Mac) et essayé sur la boucle locale vers la PS5 Pro le 03/11/2026 ; reste à essayer avec le vrai relais et une vraie Station.
+- **Ensuite** : les autres apps Link.
 
 ## Manettes Sony en mode « Fidèle »
 

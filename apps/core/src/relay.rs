@@ -9,7 +9,9 @@
 //! - [`lookup`] : la Station d'un code de partage chez un relais ;
 //! - [`presence`] : quelles Stations sont joignables par le relais (accueil) ;
 //! - [`RouteInfo`] : le chemin d'une session, pour la puce « Par le relais »
-//!   et la ligne « Chemin » des statistiques.
+//!   et la ligne « Chemin » des statistiques ;
+//! - [`RelayTunnel::console_addr`] : un port d'une console PlayStation que
+//!   voit la Station, sur la boucle locale (docs/relais.md, « Consoles PlayStation »).
 //!
 //! Le tunnel (`kybernow-tunnel`) est tokio : le cœur tient son propre
 //! runtime, deux fils (`kybernow-relais`), créé au premier usage.
@@ -26,7 +28,7 @@ use crate::i18n::{self, Lang, tr};
 pub use kybernow_tunnel::lookup::CodeLookup;
 pub use kybernow_tunnel::{DEFAULT_RELAY, RelayAddr, Transport, TunnelError};
 
-use kybernow_tunnel::{ClientConfig, LocalListener, Tunnel as KyTunnel};
+use kybernow_tunnel::{ClientConfig, ConsoleTarget, LocalListener, Tunnel as KyTunnel};
 
 /// Un tunnel sans usage depuis ce délai est fermé.
 pub const IDLE_CLOSE: Duration = Duration::from_secs(30);
@@ -316,6 +318,8 @@ struct Entry {
     tunnel: KyTunnel,
     admin: LocalListener,
     kyber: Mutex<Option<LocalListener>>,
+    /// Points d'écoute vers les consoles, par (identifiant, port).
+    consoles: Mutex<HashMap<(String, u16), LocalListener>>,
     route: RelayRoute,
 }
 
@@ -416,6 +420,25 @@ impl RelayTunnel {
         Ok(addr)
     }
 
+    /// Un port d'une console PlayStation que voit la Station (`host_id`, son
+    /// identifiant ; `port`, le vrai port : 9295, 9296, 9302, 987, 997), sur
+    /// la boucle locale, TCP et UDP sur le même numéro, comme Kyber. La
+    /// Station n'accepte que ses consoles et ces ports, pour un client qui
+    /// donne signe de vie (`Console::consoles_beat`).
+    pub fn console_addr(&self, host_id: &str, port: u16) -> Result<SocketAddr, RelayError> {
+        let host_id = host_id.trim().to_ascii_uppercase();
+        let mut consoles = self.0.consoles.lock().unwrap();
+        if let Some(l) = consoles.get(&(host_id.clone(), port)) {
+            return Ok(l.addr());
+        }
+        let (tunnel, target) = (self.0.tunnel.clone(), ConsoleTarget::new(host_id.clone(), port));
+        let listener = runtime().block_on(async move { tunnel.listen_console(target).await }).map_err(|e| RelayError::Unreachable(e.to_string()))?;
+        log::info!("relais : port {port} de la console sur {}", listener.addr());
+        let addr = listener.addr();
+        consoles.insert((host_id, port), listener);
+        Ok(addr)
+    }
+
     /// Le chemin en ce moment : relais en QUIC ou en TCP, allers-retours.
     pub fn route_info(&self) -> RouteInfo {
         let s = self.0.tunnel.stats();
@@ -462,7 +485,7 @@ pub(crate) fn open_with(route: &RelayRoute, roots: Option<Arc<rustls::RootCertSt
                 Ok::<_, TunnelError>((tunnel, admin))
             })?;
             log::info!("relais {relay} : tunnel vers {station} ({}), Admin sur {}", tunnel.client_id(), admin.addr());
-            let entry = Arc::new(Entry { tunnel, admin, kyber: Mutex::new(None), route: route.clone() });
+            let entry = Arc::new(Entry { tunnel, admin, kyber: Mutex::new(None), consoles: Mutex::new(HashMap::new()), route: route.clone() });
             cache().lock().unwrap().insert(key, Cached { entry: entry.clone(), idle_since: None });
             entry
         }
@@ -739,6 +762,26 @@ pub(crate) mod essai {
 
     /// Le faux relais et le faux Admin ; `admin` répond aux routes d'Admin.
     pub(crate) fn start(admin: Route) -> Bench {
+        start_with(admin, Vec::new())
+    }
+
+    /// La console que voit la fausse Station (docs/relais.md, « Consoles PlayStation »).
+    pub(crate) const CONSOLE: &str = "C0151B2DAE08";
+
+    /// [`start`], et la fausse Station fait suivre les flux vers la console
+    /// [`CONSOLE`] : chaque vrai port (9295, 9296, 9302…) vers une adresse de
+    /// la boucle locale (`consoles`), en TCP et en UDP. Une autre console :
+    /// `console_unknown` ; un autre port : `port_forbidden`.
+    pub(crate) fn start_with(admin: Route, consoles: Vec<(u16, std::net::SocketAddr)>) -> Bench {
+        start_console(admin, CONSOLE, consoles)
+    }
+
+    /// [`start_with`] pour la console `host_id` (une vraie console).
+    pub(crate) fn start_console(admin: Route, host_id: &str, consoles: Vec<(u16, std::net::SocketAddr)>) -> Bench {
+        let host_id: Arc<String> = Arc::new(host_id.to_ascii_uppercase());
+        let consoles: Arc<std::collections::HashMap<u16, std::net::SocketAddr>> = Arc::new(consoles.into_iter().collect());
+        let media: Arc<std::sync::Mutex<Option<kybernow_tunnel::transport::MediaSender>>> = Arc::default();
+        let flows: Arc<std::sync::Mutex<std::collections::HashMap<u64, Arc<tokio::net::UdpSocket>>>> = Arc::default();
         let _ = rustls::crypto::ring::default_provider().install_default();
         let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
         let relay_cert = cert("relay.test");
@@ -786,12 +829,20 @@ pub(crate) mod essai {
         });
         rt.spawn(async move {
             while let Some(incoming) = endpoint.accept().await {
+                let (consoles, media, flows, host_id) = (consoles.clone(), media.clone(), flows.clone(), host_id.clone());
                 tokio::spawn(async move {
                     let Ok(conn) = incoming.await else { return };
                     let alpn = conn.handshake_data().and_then(|h| h.downcast::<quinn::crypto::rustls::HandshakeData>().ok()).and_then(|h| h.protocol);
                     if alpn.as_deref() == Some(ALPN_MEDIA) {
-                        // Les datagrammes ne servent pas ici : la connexion est tenue.
-                        conn.closed().await;
+                        // Les paquets de l'app vont au socket de leur flux (vers la console).
+                        *media.lock().unwrap() = Some(kybernow_tunnel::transport::MediaSender::quic(conn.clone()));
+                        let mut rx = kybernow_tunnel::transport::MediaReceiver::quic(conn.clone());
+                        while let Some((flow, payload)) = rx.recv().await {
+                            let socket = flows.lock().unwrap().get(&flow).cloned();
+                            if let Some(s) = socket {
+                                let _ = s.send(&payload).await;
+                            }
+                        }
                         return;
                     }
                     let conn = Conn::Quic(conn);
@@ -802,16 +853,63 @@ pub(crate) mod essai {
                     if write_msg(&mut ctl, &Msg::Welcome(welcome)).await.is_err() {
                         return;
                     }
-                    // Le flux des messages reste ouvert ; les autres flux vont à Admin.
+                    // Le flux des messages reste ouvert : les flux UDP vers la
+                    // console s'y demandent ; les autres flux vont à Admin ou à la console.
+                    let (ctl_consoles, ctl_host) = (consoles.clone(), host_id.clone());
                     tokio::spawn(async move {
-                        while let Ok(Some(_)) = read_msg(&mut ctl).await {}
+                        let mut next_flow = 1u64;
+                        while let Ok(Some(msg)) = read_msg(&mut ctl).await {
+                            let Msg::OpenFlow { req, to, host_id, port, .. } = msg else { continue };
+                            let target = kybernow_tunnel::ConsoleTarget::from_fields(to, &host_id, port).ok().flatten();
+                            let reply = match target {
+                                Some(t) if t.host_id != *ctl_host => Msg::FlowRefused { req, reason: "console_unknown".into() },
+                                Some(t) => match ctl_consoles.get(&t.port) {
+                                    None => Msg::FlowRefused { req, reason: "port_forbidden".into() },
+                                    Some(to) => {
+                                        let socket = Arc::new(tokio::net::UdpSocket::bind("0.0.0.0:0").await.unwrap());
+                                        socket.connect(to).await.unwrap();
+                                        let flow = next_flow;
+                                        next_flow += 1;
+                                        flows.lock().unwrap().insert(flow, socket.clone());
+                                        let media = media.clone();
+                                        tokio::spawn(async move {
+                                            let mut buf = vec![0u8; 65_536];
+                                            while let Ok(n) = socket.recv(&mut buf).await {
+                                                let sender = media.lock().unwrap().clone();
+                                                if let Some(m) = sender {
+                                                    m.send(flow, &buf[..n]);
+                                                }
+                                            }
+                                        });
+                                        Msg::FlowReady { req, flow }
+                                    }
+                                },
+                                None => Msg::FlowRefused { req, reason: "not_authorized".into() },
+                            };
+                            if write_msg(&mut ctl, &reply).await.is_err() {
+                                return;
+                            }
+                        }
                     });
                     while let Some(mut s) = conn.accept().await {
+                        let (consoles, wanted) = (consoles.clone(), host_id.clone());
                         tokio::spawn(async move {
-                            if let Ok(Some(Msg::Open { service: Service::AdminTls })) = read_msg(&mut s).await
-                                && let Ok(mut admin) = TcpStream::connect(("127.0.0.1", admin_port)).await
-                            {
-                                let _ = tokio::io::copy_bidirectional(&mut s, &mut admin).await;
+                            match read_msg(&mut s).await {
+                                Ok(Some(Msg::Open { service: Service::AdminTls, .. })) => {
+                                    if let Ok(mut admin) = TcpStream::connect(("127.0.0.1", admin_port)).await {
+                                        let _ = tokio::io::copy_bidirectional(&mut s, &mut admin).await;
+                                    }
+                                }
+                                Ok(Some(Msg::Open { service: Service::ConsoleTcp, to, host_id, port })) => {
+                                    let target = kybernow_tunnel::ConsoleTarget::from_fields(to, &host_id, port).ok().flatten();
+                                    let addr = target.filter(|t| t.host_id == *wanted).and_then(|t| consoles.get(&t.port).copied());
+                                    if let Some(addr) = addr
+                                        && let Ok(mut console) = TcpStream::connect(addr).await
+                                    {
+                                        let _ = tokio::io::copy_bidirectional(&mut s, &mut console).await;
+                                    }
+                                }
+                                _ => {}
                             }
                         });
                     }

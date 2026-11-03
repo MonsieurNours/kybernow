@@ -417,13 +417,13 @@ impl Updater {
         let signature = get(signature_url, MANIFEST_LIMIT)?;
         let manifest = manifest::verify_release(&json, &String::from_utf8_lossy(&signature))?;
         manifest.check(version, channel, current()).map_err(|r| anyhow::Error::new(r.message().clone()))?;
-        std::fs::write(dir.join(manifest::MANIFEST), &json)?;
-        std::fs::write(dir.join(manifest::SIGNATURE), &signature)?;
+        crate::durable::write(&dir.join(manifest::MANIFEST), &json)?;
+        crate::durable::write(&dir.join(manifest::SIGNATURE), &signature)?;
         let zip = dir.join(PACKAGE);
         let expected = manifest.file(PACKAGE)?;
         tracing::info!("mise à jour {version} : téléchargement ({} octets)", expected.size);
         // Jamais plus que la taille annoncée par le manifeste signé.
-        std::fs::write(&zip, get(package_url, expected.size + 1)?)?;
+        crate::durable::write(&zip, get(package_url, expected.size + 1)?)?;
         manifest.check_file(PACKAGE, &zip)?;
         tracing::info!("mise à jour {version} : paquet vérifié (signature, taille, empreinte), installation");
         let args = vec!["update".into(), "apply".into(), zip.into_os_string(), "--version".into(), version.into()];
@@ -587,7 +587,7 @@ fn launch_applicator(layout: &apply::Layout, log_dir: &Path, args: &[std::ffi::O
     std::fs::create_dir_all(&staging).with_context(|| format!("création de {}", staging.display()))?;
     let applicator = staging.join(apply::APPLICATOR);
     let exe = std::env::current_exe().context("chemin de la console")?;
-    std::fs::copy(&exe, &applicator).with_context(|| format!("copie de la console dans {}", applicator.display()))?;
+    crate::durable::copy(&exe, &applicator).with_context(|| format!("copie de la console dans {}", applicator.display()))?;
     let child = spawn_detached(&applicator, args, &staging, &log_dir.join("lancement.log")).context("lancement de l'applicateur")?;
     tracing::info!("mise à jour : applicateur lancé (processus {})", child.id());
     Ok(child)

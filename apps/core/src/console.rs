@@ -226,6 +226,31 @@ fn base_url(host: &str, port: u16) -> String {
     }
 }
 
+/// Une console PlayStation que voit une Station (`GET /api/consoles`) :
+/// l'app retient, par `host_id`, les Stations qui la voient.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StationConsole {
+    /// `host-id` de la console, en majuscules.
+    pub host_id: String,
+    #[serde(default)]
+    pub name: String,
+    /// `ps5` ou `ps4`.
+    #[serde(default)]
+    pub model: String,
+    /// `ready`, `standby` (ou `unknown`).
+    #[serde(default)]
+    pub state: String,
+    /// Dernière réponse à la Station, en secondes Unix.
+    #[serde(default)]
+    pub seen: u64,
+}
+
+#[derive(Deserialize)]
+struct ConsoleList {
+    #[serde(default)]
+    consoles: Vec<StationConsole>,
+}
+
 /// Adresse d'Admin à ouvrir dans le navigateur ou à mettre dans un QR code
 /// (`https://adresse:port/`), sans créer de [`Console`] : pour les écrans qui
 /// la montrent hors de toute connexion.
@@ -684,6 +709,17 @@ impl Console {
         self.relay.as_ref().map(|l| &l.route)
     }
 
+    /// Une autre console vers la même Station par le relais (même compte,
+    /// même route, même tunnel) : pour un signe de vie tenu sur un autre fil
+    /// (`playstation::remote`). `None` sans relais.
+    pub fn relay_twin(&self) -> Option<Console> {
+        let link = self.relay.as_ref()?;
+        let mut c = Self::build(&self.host, 0, self.authorization.clone(), Some(link.route.admin_fp.clone()));
+        c.base = self.base.clone();
+        c.relay = Some(RelayLink { route: link.route.clone(), tunnel: Mutex::new(None), error: Mutex::new(None) });
+        Some(c)
+    }
+
     /// Le tunnel de cette console (ouvert s'il ne l'est pas) : la session y
     /// prend aussi Kyber ([`crate::relay::RelayTunnel::kyber_addr`]).
     pub fn relay_tunnel(&self) -> Option<std::result::Result<crate::relay::RelayTunnel, crate::relay::RelayError>> {
@@ -812,6 +848,22 @@ impl Console {
             .request("POST", "api/stream/heartbeat", Duration::from_secs(20))
             .send_json(hb);
         self.read(r)
+    }
+
+    /// `GET /api/consoles` : les consoles PlayStation que voit cette Station
+    /// sur son réseau (docs/relais.md, « Consoles PlayStation »), jamais leur
+    /// adresse. `404` : Station d'avant les consoles.
+    pub fn consoles(&self) -> Result<Vec<StationConsole>> {
+        let r = self.request("GET", "api/consoles", Duration::from_secs(6)).call();
+        self.read::<ConsoleList>(r).map(|l| l.consoles)
+    }
+
+    /// `POST /api/consoles/beat` : par le relais, ce client joint les consoles
+    /// de la Station 30 s de plus (état, réveil, partie) ; rend la liste de
+    /// [`Self::consoles`].
+    pub fn consoles_beat(&self) -> Result<Vec<StationConsole>> {
+        let r = self.request("POST", "api/consoles/beat", Duration::from_secs(6)).send_json(serde_json::json!({}));
+        self.read::<ConsoleList>(r).map(|l| l.consoles)
     }
 
     pub fn foreground(&self) -> Result<Foreground> {

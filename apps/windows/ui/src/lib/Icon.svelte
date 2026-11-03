@@ -44,7 +44,22 @@
     maximize: 'M6 6h12v12H6z',
     pencil: 'M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4',
     share: 'M18 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 22a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM8.6 10.5l6.8-4M8.6 13.5l6.8 4',
+    tower: 'M3 5h9a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM5 19h5M7.5 15v4M16 3h5a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1h-5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zM17.5 7h2M17.5 10h2',
+    cursor: 'M5 3l13 7-6 2-2 6z',
+    crosshair: 'M12 4a8 8 0 1 1 0 16 8 8 0 0 1 0-16zM12 2v5M12 17v5M2 12h5M17 12h5',
+    eye: 'M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12zM12 9a3 3 0 1 1 0 6 3 3 0 0 1 0-6z',
+    article: 'M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zM8 9h8M8 12h8M8 15h5',
+    lightning: 'M13 2L4 14h7l-1 8 9-12h-7z',
+    sliders: 'M4 6h9M17 6h3M15 4v4M4 12h3M11 12h9M9 10v4M4 18h11M19 18h1M17 16v4',
+    'speaker-off': 'M11 5L6 9H2v6h4l5 4zM16 9l6 6M22 9l-6 6',
     other: 'M5 7h14a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2zM8 12h.01M12 12h.01M16 12h.01',
+    // Consoles PlayStation : compte, choix du compte, réglages « Auto », envoi et réception entre appareils.
+    user: 'M12 4a4 4 0 1 1 0 8 4 4 0 0 1 0-8zM4.5 20.5a7.5 7.5 0 0 1 15 0',
+    caret: 'M7 10l5 5 5-5',
+    sliders: 'M4 7h9M17 7h3M4 17h3M11 17h9M15 5v4M9 15v4',
+    send: 'M21 3L10 14M21 3l-6.5 18-4.5-7-7-4.5z',
+    receive: 'M12 3v11M7 9.5l5 5 5-5M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15',
+    speakeroff: 'M11 5L6 9H2v6h4l5 4zM16 9.5l5 5M21 9.5l-5 5',
   }
 </script>
 

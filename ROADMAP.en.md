@@ -64,8 +64,16 @@ Everything that lets someone else onto your computer. Name chosen on 26/10/2026;
 - **Removed guest**: they can come back with the same code until the host asks for a “New code”.
 - **Public Suffix List**: add `share.kybernow.app` to the list, so browsers treat each Station's address (`<id>.share.kybernow.app`) as a separate site (cookies, storage).
 - **Fair use of the home's upload bandwidth**: split it fairly between several guests.
-- **Lending the computer** (released in 0.9.0, contract: [docs/pret.en.md](docs/pret.en.md)), next: waking a sleeping computer for a friend away from your home; controllers and touchscreen plugged into the PC blocked during a loan; windows of apps run as administrator; a chapter in the site's guide.
+- **Lending the computer** (released in 0.9.0, contract: [docs/pret.en.md](docs/pret.en.md)), next: waking a sleeping computer for a friend away from your home; controllers and touchscreen plugged into the PC blocked during a loan; windows of apps run as administrator.
 - **Lead**: lending the computer while you use it, through a virtual machine that shares the graphics card (Hyper-V); needs Windows Pro and a second licence, runs into anti-cheat, encoder to be checked.
+
+## PlayStation consoles
+
+Framed on 2026-11-03, contract: [docs/playstation.en.md](docs/playstation.en.md).
+
+- **First version, Mac app**: PS5 and PS4 in the Rust core (discovery, wake, pairing by code, session, picture, sound, full DualSense), after chiaki-ng; trials on a PS5 Pro, the PS4 remains to be tried.
+- **Through the relay**: a Station on the same network forwards the packets; written (relay, Admin, core, Mac app) and tried over the loopback to the PS5 Pro on 2026-11-03; still to try with the real relay and a real Station.
+- **Next**: the other Link apps.
 
 ## Sony controllers in “Faithful” mode
 

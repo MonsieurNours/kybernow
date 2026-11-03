@@ -13,6 +13,7 @@ mod launch;
 mod lend;
 mod pads;
 mod pair;
+mod ps;
 mod quality;
 mod session;
 mod settings;
@@ -173,7 +174,7 @@ fn session_overlay_busy(app: &App, view: View) -> bool {
     }
     let toast = !background_session(app, view) && app.toast.as_ref().is_some_and(|(_, t)| t.elapsed().as_secs_f32() < 4.2);
     let capsule = view.main && (s.notice.as_ref().is_some_and(|(_, t)| t.elapsed().as_secs_f32() < 4.2) || toast);
-    s.menu || s.keys || s.share_panel || s.lend_panel || (view.main && app.confirm.is_some()) || (view.main && s.show_stats) || (s.bar && view.bar) || capsule
+    s.menu || s.keys || s.share_panel || s.lend_panel || (view.main && app.confirm.is_some()) || (view.main && s.show_stats) || (s.bar && view.bar) || capsule || (view.main && s.console_overlay(app.layout))
 }
 
 /// L'échelle des éléments d'une interface par rapport aux maquettes du Deck

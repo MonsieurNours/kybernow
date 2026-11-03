@@ -6,7 +6,9 @@
 //! - [`Tunnel::listen_admin`] : `127.0.0.1:A` en TCP, chaque connexion devient
 //!   un flux `admin_tls` (TLS de bout en bout, empreinte d'Admin épinglée) ;
 //! - [`Tunnel::listen_kyber`] : `127.0.0.1:L` en TCP **et** en UDP sur le même
-//!   numéro ; TCP devient `kyber_tcp`, chaque source UDP un flux UDP.
+//!   numéro ; TCP devient `kyber_tcp`, chaque source UDP un flux UDP ;
+//! - [`Tunnel::listen_console`] : de même vers un port d'une console
+//!   PlayStation que voit la Station (`console_tcp`, flux UDP `to: "console"`).
 
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
@@ -27,7 +29,7 @@ use crate::dial::{DialConfig, DialError, Pinger, Session, backoff, dial};
 pub use crate::error::TunnelError;
 use crate::frame::{read_msg, write_msg};
 use crate::id;
-use crate::msg::{ErrorCode, ErrorMsg, Hello, Msg, Role, Service};
+use crate::msg::{ConsoleTarget, ErrorCode, ErrorMsg, Hello, Msg, Role, Service};
 use crate::quic::CLIENT_KEEP_ALIVE;
 use crate::transport::{AbortOnDrop, ActiveCounter, Conn, MediaReceiver, MediaSender, RelayStream, Transport};
 
@@ -84,6 +86,8 @@ enum FlowState {
 }
 
 struct FlowEntry {
+    /// Vers une console (`None` : Kyber).
+    to: Option<ConsoleTarget>,
     relay_flow: Option<u64>,
     /// Une demande `open_flow` est partie sur la connexion en cours.
     requested: bool,
@@ -140,9 +144,20 @@ struct Shared {
     flows: Mutex<Flows>,
     active: ActiveCounter,
     last_error: Mutex<Option<TunnelError>>,
+    /// Clés des flux UDP, uniques pour tout le tunnel (Kyber et consoles).
+    next_key: AtomicU32,
 }
 
 impl Shared {
+    fn new_key(&self) -> u32 {
+        loop {
+            let k = self.next_key.fetch_add(1, Ordering::Relaxed);
+            if k != 0 {
+                return k;
+            }
+        }
+    }
+
     fn current(&self) -> Option<Arc<Live>> {
         self.live.borrow().clone()
     }
@@ -158,16 +173,19 @@ impl Shared {
 
     /// Demande au relais d'ouvrir le flux de cette clé.
     fn request_flow(&self, live: &Live, key: u32) {
-        {
+        let to = {
             let mut flows = self.flows.lock().unwrap();
             match flows.by_key.get_mut(&key) {
-                Some(e) if !e.requested => e.requested = true,
+                Some(e) if !e.requested => {
+                    e.requested = true;
+                    e.to.clone()
+                }
                 _ => return,
             }
-        }
+        };
         let req = live.req();
         live.open_reqs.lock().unwrap().insert(req, key);
-        let _ = live.ctl.send(Msg::OpenFlow { req, key });
+        let _ = live.ctl.send(Msg::open_flow(req, key, to.as_ref()));
     }
 
     fn reopen_flows(&self, live: &Live) {
@@ -246,6 +264,7 @@ impl Tunnel {
             flows: Mutex::new(Flows::default()),
             active: ActiveCounter::default(),
             last_error: Mutex::new(None),
+            next_key: AtomicU32::new(1),
         });
         let (first_tx, first_rx) = oneshot::channel();
         let task = tokio::spawn(run(shared.clone(), first_tx));
@@ -315,24 +334,44 @@ impl Tunnel {
 
     /// Ouvre un flux vers Admin (`admin_tls`) ou Kyber (`kyber_tcp`).
     pub async fn open_stream(&self, service: Service) -> Result<RelayStream, TunnelError> {
+        self.open_stream_msg(Msg::open(service)).await
+    }
+
+    /// Ouvre un flux TCP vers un port d'une console que voit la Station
+    /// (`console_tcp`).
+    pub async fn open_console_stream(&self, target: &ConsoleTarget) -> Result<RelayStream, TunnelError> {
+        self.open_stream_msg(Msg::open_console(target)).await
+    }
+
+    async fn open_stream_msg(&self, open: Msg) -> Result<RelayStream, TunnelError> {
         let live = self.shared().wait_live(LIVE_TIMEOUT).await?;
         if !live.station_online.load(Ordering::Relaxed) {
             return Err(TunnelError::StationOffline);
         }
         let mut s = live.conn.open().await.map_err(|e| TunnelError::Io(e.to_string()))?;
-        write_msg(&mut s, &Msg::Open { service }).await.map_err(|e| TunnelError::Io(e.to_string()))?;
+        write_msg(&mut s, &open).await.map_err(|e| TunnelError::Io(e.to_string()))?;
         Ok(s.counted(&self.shared().active))
+    }
+
+    /// Une clé de flux libre dans ce tunnel.
+    pub fn new_key(&self) -> u32 {
+        self.shared().new_key()
     }
 
     /// Un flux UDP vers Kyber, de clé `key` (stable tant que la source vit) :
     /// les paquets envoyés avant que la Station l'accepte sont gardés.
     pub fn flow(&self, key: u32) -> Flow {
+        self.flow_to(key, None)
+    }
+
+    /// [`Tunnel::flow`] vers Kyber (`None`) ou un port d'une console.
+    pub fn flow_to(&self, key: u32, to: Option<ConsoleTarget>) -> Flow {
         let shared = self.shared().clone();
         let (to_local, rx) = mpsc::channel(1024);
         let (state, state_rx) = watch::channel(FlowState::Pending);
         shared.flows.lock().unwrap().by_key.insert(
             key,
-            FlowEntry { relay_flow: None, requested: false, to_local: Some(to_local), queued: VecDeque::new(), state },
+            FlowEntry { to, relay_flow: None, requested: false, to_local: Some(to_local), queued: VecDeque::new(), state },
         );
         if let Some(live) = shared.current()
             && live.station_online.load(Ordering::Relaxed)
@@ -373,8 +412,22 @@ impl Tunnel {
         let addr = tcp.local_addr()?;
         let tcp = TcpListener::from_std(tcp)?;
         let udp = Arc::new(UdpSocket::from_std(udp)?);
-        let t1 = tokio::spawn(accept_tcp(tcp, self.clone(), Service::KyberTcp));
-        let t2 = tokio::spawn(bridge_udp(udp, self.clone()));
+        let t1 = tokio::spawn(accept_tcp(tcp, self.clone(), None));
+        let t2 = tokio::spawn(bridge_udp(udp, self.clone(), None));
+        Ok(LocalListener { addr, _tasks: vec![AbortOnDrop(t1), AbortOnDrop(t2)] })
+    }
+
+    /// Point d'écoute vers un port d'une console que voit la Station :
+    /// `127.0.0.1:L` en TCP et en UDP, même numéro, comme Kyber. La Station
+    /// n'accepte que ses propres consoles et leurs ports (docs/relais.md,
+    /// « Consoles PlayStation »).
+    pub async fn listen_console(&self, target: ConsoleTarget) -> io::Result<LocalListener> {
+        let (tcp, udp) = bind_pair()?;
+        let addr = tcp.local_addr()?;
+        let tcp = TcpListener::from_std(tcp)?;
+        let udp = Arc::new(UdpSocket::from_std(udp)?);
+        let t1 = tokio::spawn(accept_tcp(tcp, self.clone(), Some(target.clone())));
+        let t2 = tokio::spawn(bridge_udp(udp, self.clone(), Some(target)));
         Ok(LocalListener { addr, _tasks: vec![AbortOnDrop(t1), AbortOnDrop(t2)] })
     }
 
@@ -716,18 +769,47 @@ async fn media_loop(shared: Arc<Shared>, mut rx: MediaReceiver) {
     }
 }
 
-async fn accept_tcp(listener: TcpListener, tunnel: Tunnel, service: Service) {
+/// Chaque connexion TCP devient un flux : `admin_tls` ou `kyber_tcp`
+/// (`Service`), ou `console_tcp` vers cette console.
+async fn accept_tcp(listener: TcpListener, tunnel: Tunnel, to: impl Into<TcpTo>) {
+    let to = to.into();
     while let Ok((mut tcp, _)) = listener.accept().await {
-        let tunnel = tunnel.clone();
+        let (tunnel, to) = (tunnel.clone(), to.clone());
         tokio::spawn(async move {
             let _ = tcp.set_nodelay(true);
-            match tunnel.open_stream(service).await {
+            let s = match &to {
+                TcpTo::Service(service) => tunnel.open_stream(*service).await,
+                TcpTo::Console(target) => tunnel.open_console_stream(target).await,
+            };
+            match s {
                 Ok(mut s) => {
                     let _ = tokio::io::copy_bidirectional(&mut tcp, &mut s).await;
                 }
-                Err(e) => log::info!("tunnel : flux {service:?} impossible ({e})"),
+                Err(e) => log::info!("tunnel : flux {to:?} impossible ({e})"),
             }
         });
+    }
+}
+
+#[derive(Debug, Clone)]
+enum TcpTo {
+    Service(Service),
+    Console(ConsoleTarget),
+}
+
+impl From<Service> for TcpTo {
+    fn from(s: Service) -> Self {
+        TcpTo::Service(s)
+    }
+}
+
+/// Un point d'écoute de Kyber (`None`) ou d'une console.
+impl From<Option<ConsoleTarget>> for TcpTo {
+    fn from(t: Option<ConsoleTarget>) -> Self {
+        match t {
+            Some(t) => TcpTo::Console(t),
+            None => TcpTo::Service(Service::KyberTcp),
+        }
     }
 }
 
@@ -749,6 +831,9 @@ fn bind_pair() -> io::Result<(std::net::TcpListener, std::net::UdpSocket)> {
 struct Source {
     sender: FlowSender,
     last: Instant,
+    /// Où renvoyer les paquets de la Station : la source elle-même, ou, vers
+    /// une console, la dernière source qui a parlé.
+    reply: Arc<Mutex<SocketAddr>>,
     /// Flux refusé ou fermé par la Station : la source se tait jusque-là,
     /// puis redemande un flux (sans marteler la Station à chaque paquet).
     dead_until: Option<Instant>,
@@ -758,16 +843,28 @@ struct Source {
 /// Silence d'une source dont le flux a été refusé.
 const REFUSED_PAUSE: Duration = Duration::from_secs(5);
 
-/// Chaque source UDP (un socket de kyclient) devient un flux du tunnel.
-async fn bridge_udp(udp: Arc<UdpSocket>, tunnel: Tunnel) {
+/// Une source vers une console muette depuis ce temps libère son flux :
+/// la recherche et le réveil prennent un socket neuf à chaque fois, et le
+/// relais ne laisse que quatre flux par client.
+const CONSOLE_SOURCE_IDLE: Duration = Duration::from_secs(15);
+
+/// Chaque source UDP (un socket de kyclient) devient un flux du tunnel vers
+/// Kyber. Vers une console (`to`), un seul flux par point d'écoute (un port
+/// de la console) : les paquets de la Station vont à la dernière source qui
+/// a parlé (la recherche, le réveil et l'association changent de socket à
+/// chaque essai ; Takion n'en a qu'un).
+async fn bridge_udp(udp: Arc<UdpSocket>, tunnel: Tunnel, to: Option<ConsoleTarget>) {
     let mut sources: HashMap<SocketAddr, Source> = HashMap::new();
-    let mut next_key = 1u32;
     let mut buf = vec![0u8; 65_536];
-    let mut sweep = tokio::time::interval(Duration::from_secs(10));
+    let mut sweep = tokio::time::interval(Duration::from_secs(5));
+    let idle = if to.is_some() { CONSOLE_SOURCE_IDLE } else { SOURCE_IDLE };
+    // Vers une console, toutes les sources sous une seule clé.
+    let one = SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0));
     loop {
         tokio::select! {
             r = udp.recv_from(&mut buf) => {
-                let Ok((n, from)) = r else { return };
+                let Ok((n, real)) = r else { return };
+                let from = if to.is_some() { one } else { real };
                 let now = Instant::now();
                 if sources.get(&from).is_some_and(|s| s.dead_until.is_some_and(|t| now >= t)) {
                     sources.remove(&from);
@@ -779,24 +876,27 @@ async fn bridge_udp(udp: Arc<UdpSocket>, tunnel: Tunnel) {
                             sources.remove(&oldest);
                         }
                     }
-                    let (sender, mut receiver) = tunnel.flow(next_key).into_split();
-                    next_key = next_key.wrapping_add(1).max(1);
+                    let (sender, mut receiver) = tunnel.flow_to(tunnel.new_key(), to.clone()).into_split();
                     let udp = udp.clone();
+                    let reply = Arc::new(Mutex::new(real));
+                    let reply_to = reply.clone();
                     let reader = tokio::spawn(async move {
                         while let Some(p) = receiver.recv().await {
-                            let _ = udp.send_to(&p, from).await;
+                            let dest = *reply_to.lock().unwrap();
+                            let _ = udp.send_to(&p, dest).await;
                         }
                     });
-                    sources.insert(from, Source { sender, last: now, dead_until: None, _reader: AbortOnDrop(reader) });
+                    sources.insert(from, Source { sender, last: now, reply, dead_until: None, _reader: AbortOnDrop(reader) });
                 }
                 let source = sources.get_mut(&from).expect("source présente");
                 source.last = now;
+                *source.reply.lock().unwrap() = real;
                 if source.dead_until.is_none() && !source.sender.send(&buf[..n]) {
                     source.dead_until = Some(now + REFUSED_PAUSE);
                 }
             }
             _ = sweep.tick() => {
-                sources.retain(|_, s| s.last.elapsed() < SOURCE_IDLE);
+                sources.retain(|_, s| s.last.elapsed() < idle);
             }
         }
     }

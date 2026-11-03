@@ -139,7 +139,7 @@ enum MenuContent {
         if !hosts.isEmpty { out.append(.line) }
         out.append(MenuEntry(title: String(localized: "Ouvrir KyberNow Link"), action: .open))
         // L'accueil n'est plus la fenêtre d'une session : l'ajout et les réglages passent par-dessus les sessions.
-        out.append(MenuEntry(title: String(localized: "Ajouter un ordinateur…"), action: .add))
+        out.append(MenuEntry(title: LinkText.addTitle + "…", action: .add))
         // KyberNow Share : l'écran du code et du prénom (une fenêtre : points de suspension).
         out.append(MenuEntry(title: ShareText.join + "…", action: .join))
         out.append(MenuEntry(title: String(localized: "Réglages de l'app…"), action: .appSettings))

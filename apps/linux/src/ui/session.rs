@@ -54,11 +54,21 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame, view: super::View) {
                     share::overlay(app, cv, f, s);
                 }
             } else {
-                if s.show_stats && view.main {
+                if s.show_stats && view.main && s.console.is_none() {
                     stats(app, cv, s);
                 }
+                if s.show_stats && view.main && s.console.is_some() {
+                    super::ps::stats(app, cv, s);
+                }
+                if view.main {
+                    super::ps::session_overlay(app, cv, s);
+                }
                 if s.bar && view.bar && app.layout == Layout::Desktop {
-                    bar(app, cv, f, s);
+                    if s.console.is_some() {
+                        super::ps::bar(app, cv, f, s);
+                    } else {
+                        bar(app, cv, f, s);
+                    }
                 } else if bar_hint(app, s) {
                     hint(cv);
                 }
@@ -158,7 +168,10 @@ fn ignite(t: f32, reduced: bool) -> (f32, f32) {
 fn passage(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     let u = unit(app.layout);
     let (w, h) = (cv.w, cv.h);
-    home::backdrop(app, cv, app.store.host(&s.host));
+    match s.console.as_ref().and_then(|c| app.store.console(&c.host_id)) {
+        Some(c) => super::ps::backdrop(cv, c, false),
+        None => home::backdrop(app, cv, app.store.host(&s.host)),
+    }
     let t = s.started.elapsed().as_secs_f32();
     cv.rect(0.0, 0.0, w, h, Rgba(5, 7, 10, (110.0 + 60.0 * ease(t / 0.4)) as u8));
     band(cv, u, 0.75 * ease(t / 0.6));
@@ -195,7 +208,7 @@ fn capsule_steps(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi, t: f3
     yy += 26.0 * u;
     // Le dernier recours : la Station redémarre à la place de l'étape « Connexion », puis les étapes reprennent.
     let restarting = s.phase == Phase::StationRestarting;
-    let steps = [
+    let mut steps = vec![
         // Un emprunt : la Station a déjà mis l'ordinateur en mode console (« Préparation de l'ordinateur »).
         if s.borrow.is_some() {
             tr("Préparation de l'ordinateur", "Preparing the computer")
@@ -207,11 +220,21 @@ fn capsule_steps(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi, t: f3
         if restarting { tr("La Station redémarre", "The Station is restarting") } else { tr("Connexion", "Connecting") },
         tr("Premières images", "First frames"),
     ];
-    let current = match s.phase {
+    let mut current = match s.phase {
         Phase::Preparing => 0,
         Phase::Connecting | Phase::StationRestarting => 1,
         _ => 2,
     };
+    // Une console : la même capsule, ses étapes à elle (« Réveil de la console », quand elle était en veille, puis
+    // « Connexion à la console » et « Premières images »).
+    if let Some(ps) = &s.console {
+        steps = vec![tr("Connexion à la console", "Connecting to the console"), tr("Premières images", "First frames")];
+        current = if matches!(s.phase, Phase::FirstImages | Phase::Streaming) { 1 } else { 0 };
+        if ps.waking || s.phase == Phase::Preparing {
+            steps.insert(0, tr("Réveil de la console", "Waking the console"));
+            current = if s.phase == Phase::Preparing { 0 } else { current + 1 };
+        }
+    }
     for (i, label) in steps.iter().enumerate() {
         let sy = yy + 10.0 * u;
         let c = ix + 9.0 * u;
@@ -275,7 +298,7 @@ fn ending(app: &App, cv: &mut Canvas, s: &SessionUi) {
     // « Déconnexion… », une fois les moitiés jointes.
     let a = ((t - dur) / 0.3).clamp(0.0, 1.0);
     if a > 0.0 {
-        let msg = tr("Déconnexion… l'ordinateur remet son écran", "Disconnecting… the computer restores its screen");
+        let msg = if s.console.is_some() { tr("Déconnexion…", "Disconnecting…") } else { tr("Déconnexion… l'ordinateur remet son écran", "Disconnecting… the computer restores its screen") };
         let style = Text::new(Font::Regular, 14.0 * u, MUTED.alpha(a));
         let ch = 38.0 * u;
         let cw = cv.text_width(style, msg) + 56.0 * u;
@@ -353,7 +376,7 @@ fn borrow_ended(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi, by_len
 // MARK: - Barre du bureau
 
 /// Hauteur de la barre du bureau.
-const BAR_H: f32 = 46.0;
+pub(super) const BAR_H: f32 = 46.0;
 /// Le pointeur ouvre la barre à 2 points au plus du bord haut ; il la garde
 /// ouverte à 8 points au plus de son rectangle.
 const BAR_EDGE: f32 = 2.0;
@@ -519,7 +542,7 @@ fn bar_frame(w: f32, total: f32) -> Rect {
 
 /// `w` : la largeur de la fenêtre, en points (chaque écran a la sienne).
 fn bar_rect(cv: &mut Canvas, app: &App, s: &SessionUi, w: f32) -> Rect {
-    let total = BarLayout::measure(cv, app, s, w).total;
+    let total = if s.console.is_some() { super::ps::bar_width(cv, s) } else { BarLayout::measure(cv, app, s, w).total };
     bar_frame(w, total)
 }
 
@@ -747,7 +770,7 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
 }
 
 /// Le nom d'un bouton de la barre, en petite capsule sous lui.
-fn tooltip(cv: &mut Canvas, r: Rect, y: f32, name: &str) {
+pub(super) fn tooltip(cv: &mut Canvas, r: Rect, y: f32, name: &str) {
     let style = Text::new(Font::Regular, 12.5, FROST);
     let w = cv.text_width(style, name) + 24.0;
     let x = (r.x + r.w / 2.0 - w / 2.0).clamp(8.0, (cv.w - w - 8.0).max(8.0));
@@ -1139,6 +1162,9 @@ fn stats(app: &App, cv: &mut Canvas, s: &SessionUi) {
 // MARK: - Menu à la manette
 
 fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
+    if s.console.is_some() {
+        return super::ps::menu(app, cv, f, s);
+    }
     let u = unit(app.layout);
     let tv = app.layout == Layout::Tv;
     let (w, h) = (cv.w, cv.h);
@@ -1309,7 +1335,7 @@ fn route_sub(s: &SessionUi) -> String {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn tile(cv: &mut Canvas, f: &mut Frame, t: Target, r: Rect, u: f32, title: &str, sub: &str, primary: bool, on: bool, danger: bool, dim: bool) {
+pub(super) fn tile(cv: &mut Canvas, f: &mut Frame, t: Target, r: Rect, u: f32, title: &str, sub: &str, primary: bool, on: bool, danger: bool, dim: bool) {
     let (focused, hover) = f.state(t, r);
     let radius = 12.0 * u;
     if focused {

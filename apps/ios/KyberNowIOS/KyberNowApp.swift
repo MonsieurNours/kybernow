@@ -96,6 +96,11 @@ struct RootView: View {
                     .transition(.opacity)
                     .zIndex(2)
             }
+            if let session = app.consoleSession {
+                PlayStationSessionView(session: session)
+                    .transition(.opacity)
+                    .zIndex(2)
+            }
             if let toast = app.toast {
                 VStack {
                     Spacer()
@@ -121,9 +126,15 @@ struct RootView: View {
             case let .invite(invite): InviteView(invite: invite)
             case let .borrowPassword(id):
                 if let computer = app.borrowed.computer(id) { BorrowPasswordView(computer: computer) }
+            case let .consoleSettings(id):
+                if let console = app.playstation.console(id) { ConsoleSettingsView(console: console, store: app.playstation) }
             }
         }
-        .onChange(of: app.session != nil, initial: true) { _, inSession in
+        // Consoles PlayStation : l'association (compte PSN, puis le code de la console).
+        .sheet(item: Binding(get: { app.playstation.pairing }, set: { app.playstation.pairing = $0 })) { target in
+            PairConsoleSheet(target: target, store: app.playstation)
+        }
+        .onChange(of: app.inSession, initial: true) { _, inSession in
             Orientation.lockLandscape(inSession)
         }
     }

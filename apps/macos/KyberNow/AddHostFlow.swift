@@ -1,7 +1,8 @@
-// Ajouter un ordinateur (écrans « 2 · Ajouter un ordinateur » et
-// « 3 · Première connexion » de la maquette) : le trouver (réseau local,
-// adresse, QR code ou lien), vérifier que c'est bien lui (empreinte du
-// certificat de sa console), puis enregistrer le compte.
+// Ajouter un ordinateur ou une console (écrans « 2 · Ajouter un
+// ordinateur » et « 3 · Première connexion » de la maquette) : le trouver
+// (réseau local, adresse, QR code ou lien), vérifier que c'est bien lui
+// (empreinte du certificat de sa console), puis enregistrer le compte ;
+// les consoles PlayStation et les comptes PSN dans l'onglet « PlayStation ».
 
 import AVFoundation
 import KyberKit
@@ -85,8 +86,9 @@ struct AddHostSheet: View {
     var initialLink: Candidate?
     var initialTab: Tab = .network
 
-    /// `friend` : « Avec un compte d'ami », l'ordinateur qu'un ami prête (docs/pret.md).
-    enum Tab: Hashable { case network, address, link, friend }
+    /// `friend` : « Avec un compte d'ami », l'ordinateur qu'un ami prête (docs/pret.md) ;
+    /// `playstation` : comptes PSN et consoles (docs/playstation.md).
+    enum Tab: Hashable { case network, address, link, friend, playstation }
     enum Step { case find, trust, account }
 
     @State private var tab: Tab? = .network
@@ -135,7 +137,7 @@ private struct FindStep: View {
         VStack(alignment: .leading, spacing: 22) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Ajouter un ordinateur").font(Theme.display(30)).foregroundStyle(Theme.text)
+                    Text(LinkText.addTitle).font(Theme.display(30)).foregroundStyle(Theme.text)
                     Text("Trois façons de faire, choisissez la plus simple pour vous.").font(Theme.sans(14)).foregroundStyle(Theme.muted)
                 }
                 Spacer()
@@ -144,19 +146,20 @@ private struct FindStep: View {
                     .keyboardShortcut(.cancelAction)
             }
             Segmented(options: [(.network, String(localized: "Sur ce réseau")), (.address, String(localized: "Par adresse")), (.link, String(localized: "QR code ou lien")),
-                                (.friend, LendText.withFriendAccount)], selection: $tab, height: 40, fill: true)
+                                (.friend, LendText.withFriendAccount), (.playstation, PSText.tab)], selection: $tab, height: 40, fill: true)
             Group {
                 switch tab ?? .address {
                 case .network: NetworkTab(found: found)
                 case .address: AddressTab(found: found)
                 case .link: LinkTab(found: found)
                 case .friend: FriendTab()
+                case .playstation: PlayStationTab()
                 }
             }
             .frame(minHeight: 320, alignment: .top)
         }
         .padding(.horizontal, 36).padding(.vertical, 32)
-        .frame(width: 760)
+        .frame(width: 860)
     }
 }
 
@@ -164,6 +167,8 @@ private struct NetworkTab: View {
     let found: (Candidate) -> Void
     @EnvironmentObject var app: AppModel
     @StateObject private var discovery = Discovery()
+    /// Consoles PlayStation trouvées, avec les ordinateurs.
+    @ObservedObject private var playstation = AppModel.shared.playstation
     /// Annonces joignables (une annonce périmée ne se résout pas : on la tait).
     @State private var resolved: [String: Candidate] = [:]
     @State private var searched = false
@@ -195,6 +200,9 @@ private struct NetworkTab: View {
                 .padding(.horizontal, 18).padding(.vertical, 16)
                 .background(known ? Theme.well : Theme.accentSoft.opacity(0.35), in: RoundedRectangle(cornerRadius: 14))
                 .overlay(RoundedRectangle(cornerRadius: 14).stroke(known ? Theme.line : Theme.accentLine))
+            }
+            ForEach(playstation.onNetwork, id: \.hostID) { f in
+                ConsoleFoundRow(found: f, store: playstation) { app.pair(fromAddSheet: $0) }
             }
             if resolved.isEmpty, searched {
                 Text("Aucun ordinateur trouvé pour l'instant. Il est peut-être sur un autre réseau (VPN), ou sa Station n'est pas encore à jour : passez par l'onglet Par adresse.")
@@ -231,28 +239,74 @@ private struct FriendTab: View {
 
 private struct AddressTab: View {
     let found: (Candidate) -> Void
+    @EnvironmentObject var app: AppModel
     @State private var address = ""
     @State private var port = ""
+    /// Recherche d'une console à cette adresse en cours.
+    @State private var looking = false
+    /// Ni console ni port d'Admin : « Console injoignable. »
+    @State private var nothing = false
 
-    private var valid: Bool { !address.trimmingCharacters(in: .whitespaces).isEmpty && UInt16(port.trimmingCharacters(in: .whitespaces)) != nil }
+    private var trimmedAddress: String { address.trimmingCharacters(in: .whitespaces) }
+    private var portNumber: UInt16? { UInt16(port.trimmingCharacters(in: .whitespaces)) }
+    /// Une console se cherche à une adresse IPv4 (découverte en direct).
+    private var consoleAddress: Bool { IPv4Address(trimmedAddress) != nil }
+    private var valid: Bool { !trimmedAddress.isEmpty && (portNumber != nil || consoleAddress) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
+            Text(PSText.addressHelp).font(Theme.sans(14)).foregroundStyle(Theme.text2)
+                .fixedSize(horizontal: false, vertical: true)
             HStack(alignment: .top, spacing: 14) {
                 LabeledField(label: String(localized: "Adresse de l'ordinateur"), text: $address, prompt: String(localized: "ex. 192.168.1.100"), mono: true)
+                    .onSubmit(go)
                 LabeledField(label: String(localized: "Port d'Admin"), text: $port, prompt: String(localized: "ex. 37462"), mono: true).frame(width: 170)
+                    .onSubmit(go)
             }
             Notice(kind: .info, text: String(localized: "Le port d'Admin s'affiche à la fin de l'installation de KyberNow Station sur l'ordinateur, et dans KyberNow Admin lui-même. L'app y lit tout le reste : port du flux, nom et carte graphique. Par VPN (Tailscale, WireGuard…), utilisez l'adresse de l'ordinateur dans le VPN."))
+            if nothing { Notice(kind: .warn, text: PSText.unreachable) }
             Spacer(minLength: 0)
             HStack {
                 Spacer()
-                Button("Continuer") {
-                    let a = address.trimmingCharacters(in: .whitespaces)
-                    found(Candidate(name: a, address: a, port: UInt16(port.trimmingCharacters(in: .whitespaces))!, expected: nil))
+                Button(action: go) {
+                    HStack(spacing: 10) {
+                        if looking { ProgressView().controlSize(.small) }
+                        Text("Continuer")
+                    }
                 }
-                .buttonStyle(PrimaryButton())
-                .disabled(!valid)
+                .buttonStyle(PrimaryButton(lit: looking))
+                .disabled(!valid || looking)
                 .keyboardShortcut(.defaultAction)
+            }
+        }
+        .onChange(of: address) { _, _ in nothing = false }
+    }
+
+    /// Une console et une Station cherchées à cette adresse : une console qui
+    /// répond ouvre son association (adresse retenue) ; sinon la Station,
+    /// comme avant (elle dit elle-même si elle ne répond pas).
+    private func go() {
+        guard valid, !looking else { return }
+        let a = trimmedAddress
+        let port = portNumber
+        nothing = false
+        guard consoleAddress else {
+            if let port { found(Candidate(name: a, address: a, port: port, expected: nil)) }
+            return
+        }
+        looking = true
+        Task {
+            // La découverte en direct répond aussi pour les consoles du réseau local : seule celle de cette adresse compte.
+            let list = await Task.detached(priority: .userInitiated) { PlayStation.search(direct: [a], wait: 1500) }.value
+            looking = false
+            if let console = list.first(where: { $0.address == a }) {
+                app.playstation.remember(address: a, found: console)
+                let kept = app.playstation.console(hostID: console.hostID)
+                app.pair(fromAddSheet: kept.map { PairTarget(console: $0, live: console) } ?? PairTarget(found: console))
+            } else if let port {
+                found(Candidate(name: a, address: a, port: port, expected: nil))
+            } else {
+                nothing = true
             }
         }
     }

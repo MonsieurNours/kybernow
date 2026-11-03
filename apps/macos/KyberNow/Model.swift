@@ -595,6 +595,12 @@ final class HostStore: ObservableObject {
     private var presenceResults: [String: (at: Date, present: [String: Bool])] = [:]
     private var presenceTasks: [String: Task<[String: Bool]?, Never>] = [:]
     private static let presenceInterval: TimeInterval = 30
+    /// Les consoles PlayStation que voit la Station d'un ordinateur sur le
+    /// réseau (`GET /api/consoles`, docs/relais.md) : données aux consoles
+    /// (PlayStationStore), qui retiennent par quelle Station passer hors de
+    /// chez soi. Demandé une fois par minute au plus par ordinateur.
+    var onConsoles: ((UUID, [PlayStation.StationConsole]) -> Void)?
+    private var consolesAsked: [UUID: Date] = [:]
 
     init(demo: Bool = false) {
         self.demo = demo
@@ -747,6 +753,11 @@ final class HostStore: ObservableObject {
             }
             // Jamais ouvert depuis cet appareil (ou image non gardée) : un aperçu à jour.
             if imagery.wantsPreview(host) { await imagery.fetchPreview(for: host, console: console) }
+            // Les consoles que voit sa Station (une Station d'avant les consoles répond 404).
+            if let onConsoles, Date().timeIntervalSince(consolesAsked[host.id] ?? .distantPast) > 60 {
+                consolesAsked[host.id] = Date()
+                if let list = try? await console.consoles(), !list.isEmpty { onConsoles(host.id, list) }
+            }
             if host.consoleFingerprint == nil, let fp = console.fingerprint, var h = self.host(host.id) {
                 h.consoleFingerprint = fp
                 update(h)
@@ -856,20 +867,25 @@ final class HostStore: ObservableObject {
 enum Keychain {
     private static let service = "fr.leslignesclaires.kybernow"
 
-    private static func query(_ id: UUID) -> [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: id.uuidString]
+    private static func query(_ account: String) -> [String: Any] {
+        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account]
     }
 
-    static func set(_ password: String, for id: UUID) {
-        SecItemDelete(query(id) as CFDictionary)
-        var item = query(id)
+    static func set(_ password: String, for id: UUID) { set(password, account: id.uuidString) }
+    static func get(_ id: UUID) -> String? { get(account: id.uuidString) }
+    static func delete(_ id: UUID) { delete(account: id.uuidString) }
+
+    /// Secret rangé sous un nom (consoles PlayStation : association, compte PSN).
+    static func set(_ password: String, account: String) {
+        SecItemDelete(query(account) as CFDictionary)
+        var item = query(account)
         item[kSecValueData as String] = Data(password.utf8)
         item[kSecAttrLabel as String] = "KyberNow"
         SecItemAdd(item as CFDictionary, nil)
     }
 
-    static func get(_ id: UUID) -> String? {
-        var q = query(id)
+    static func get(account: String) -> String? {
+        var q = query(account)
         q[kSecReturnData as String] = true
         q[kSecMatchLimit as String] = kSecMatchLimitOne
         var out: CFTypeRef?
@@ -877,7 +893,7 @@ enum Keychain {
         return String(data: data, encoding: .utf8)
     }
 
-    static func delete(_ id: UUID) {
-        SecItemDelete(query(id) as CFDictionary)
+    static func delete(account: String) {
+        SecItemDelete(query(account) as CFDictionary)
     }
 }

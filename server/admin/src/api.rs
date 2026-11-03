@@ -116,6 +116,10 @@ pub fn router(state: AppState) -> Router<AppState> {
         // Réglages « Station » des apps : redémarrer, mettre à jour.
         .route("/api/stream/station/restart", post(stream_station_restart))
         .route("/api/stream/station/update", post(stream_station_update))
+        // Consoles PlayStation du réseau (docs/relais.md, « Consoles
+        // PlayStation ») : la liste, et le signe de vie par le relais.
+        .route("/api/consoles", get(crate::consoles::get))
+        .route("/api/consoles/beat", post(crate::consoles::beat))
         // KyberNow Share (docs/kybernow-share.md) : l'hôte (compte de
         // l'appareil en session), puis l'invité (sans compte).
         .route("/api/share", get(share_api::host_get).delete(share_api::host_close))
@@ -174,7 +178,7 @@ impl From<anyhow::Error> for ApiError {
     }
 }
 
-type ApiResult<T> = Result<T, ApiError>;
+pub(crate) type ApiResult<T> = Result<T, ApiError>;
 
 async fn session(State(s): State<AppState>, headers: HeaderMap, via: Option<axum::Extension<crate::relay::Via>>) -> Json<Value> {
     // Par le relais : un invité du navigateur. Ni nom de l'ordinateur (connu

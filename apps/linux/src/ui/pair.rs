@@ -36,6 +36,7 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
         AddStep::Mac => mac(app, cv, f, x0, y0, u),
         AddStep::Verify { address, port, fingerprint } => verify(app, cv, f, x0, y0, u, &address, port, &fingerprint),
         AddStep::Friend => friend(app, cv, f, x0, y0, u),
+        AddStep::Ps(step) => super::ps::add(app, cv, f, &step, x0, y0, u, footer),
     }
     if app.layout.console() {
         cv.rect(0.0, h - footer, w, footer, Rgba(5, 7, 10, 178));
@@ -60,7 +61,11 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
                 x += legend(cv, x, gy, g, &["A"], tr("Choisir", "Choose")) + 28.0 * u;
                 legend(cv, x, gy, g, &["B"], tr("Retour", "Back"));
             }
+            AddStep::Ps(_) => super::ps::add_legend(app, cv, x0, gy, g, u),
         }
+    }
+    if app.confirm.is_some() {
+        super::settings::confirm(app, cv, f);
     }
 }
 
@@ -77,7 +82,7 @@ fn code(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f32, foo
         y += 56.0;
     }
     let left_w = (560.0 * u).min(w * 0.46);
-    eyebrow(cv, x0, y + 12.0 * u, 12.0 * u, FAINT, tr("Ajouter un ordinateur", "Add a computer"));
+    eyebrow(cv, x0, y + 12.0 * u, 12.0 * u, FAINT, tr("Ajouter un ordinateur ou une console", "Add a computer or a console"));
     cv.text(x0 - 1.0, y + 58.0 * u, Text::new(Font::Display, 40.0 * u, FROST).tracking(-0.8 * u), tr("Sur le réseau", "On the network"));
     y += 80.0 * u;
     let found = app.new_found();
@@ -95,6 +100,22 @@ fn code(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f32, foo
         let fp = fd.fingerprint.as_deref().map(short_fp).unwrap_or_default();
         cv.text_fit(r.x + 44.0 * u, r.y + 56.0 * u, Text::new(Font::Mono, 12.0 * u, FAINT), &format!("{} · Admin {} · fp {fp}", fd.address, fd.port), r.w - 60.0 * u);
         cv.text(r.x + r.w - 18.0 * u, r.y + 31.0 * u, Text::new(Font::Mono, 10.5 * u, SPECTRE).tracking(u).align(Align::Right), "KYBERNOW STATION");
+        y += item_h + 12.0 * u;
+    }
+    // Les consoles du réseau pas encore associées : « {nom} · PS5 », « Associer » (docs/link-ui.md).
+    for (i, c) in app.new_ps_found().iter().enumerate().take(2usize.saturating_sub(found.len().min(2))) {
+        let r = Rect::new(x0, y, left_w, item_h);
+        let (focused, hover) = f.state(Target::PsFound(i), r);
+        if focused {
+            widgets::ring(cv, r, 10.0 * u);
+        }
+        cv.rrect(r.x, r.y, r.w, r.h, 10.0 * u, if hover { Rgba(20, 27, 35, 240) } else { CARD });
+        cv.rrect_stroke(r.x, r.y, r.w, r.h, 10.0 * u, 1.0, if focused { SPECTRE } else { LINE });
+        let (dot, glow) = super::ps::state_color(c.state);
+        widgets::dot(cv, r.x + 22.0 * u, r.y + r.h / 2.0, 5.0 * u, dot, glow);
+        cv.text_fit(r.x + 44.0 * u, r.y + 32.0 * u, Text::new(Font::Semibold, 18.0 * u, FROST), &format!("{} · {}", c.name, c.model), r.w - 160.0 * u);
+        cv.text_fit(r.x + 44.0 * u, r.y + 56.0 * u, Text::new(Font::Mono, 12.0 * u, FAINT), &format!("{} · {}", c.address, c.state.label()), r.w - 60.0 * u);
+        cv.text(r.x + r.w - 18.0 * u, r.y + 31.0 * u, Text::new(Font::Mono, 10.5 * u, SPECTRE).tracking(u).align(Align::Right), &tr("Associer", "Pair").to_uppercase());
         y += item_h + 12.0 * u;
     }
     // Les ordinateurs déjà ajoutés, en rappel.
@@ -121,7 +142,11 @@ fn code(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f32, foo
     y += 44.0 * u;
     let bw = widgets::ghost(cv, f, Target::AddByAddress, x0, y, 44.0 * u, 15.0 * u, Some(Icon::Ethernet), tr("Avec une adresse", "With an address"), MUTED);
     // Prêt de l'ordinateur : l'ordinateur d'un ami, avec le compte qu'il a créé pour vous (Admin, page « Prêt »).
-    widgets::ghost(cv, f, Target::AddFriend, x0 + bw + 12.0 * u, y, 44.0 * u, 15.0 * u, Some(Icon::Lend), tr("Avec un compte d'ami", "With a friend account"), MUTED);
+    let fw = widgets::ghost(cv, f, Target::AddFriend, x0 + bw + 12.0 * u, y, 44.0 * u, 15.0 * u, Some(Icon::Lend), tr("Avec un compte d'ami", "With a friend account"), MUTED);
+    // Les consoles PlayStation : l'onglet après « Avec un compte d'ami » (dessous quand la colonne est étroite).
+    let ps_w = cv.text_width(Text::new(Font::Regular, 15.0 * u, MUTED), "PlayStation") + 15.0 * u * (2.0 + 1.15 + 0.6);
+    let (px, py) = if bw + fw + 24.0 * u + ps_w <= left_w { (x0 + bw + fw + 24.0 * u, y) } else { (x0, y + 56.0 * u) };
+    widgets::ghost(cv, f, Target::AddPs, px, py, 44.0 * u, 15.0 * u, Some(Icon::Gamepad), "PlayStation", MUTED);
 
     // Le code, à droite.
     let px = x0 + left_w + 40.0 * u;
@@ -180,14 +205,17 @@ fn address(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f32) 
         back_button(cv, f, x0, y, u);
         y += 56.0;
     }
-    eyebrow(cv, x0, y + 12.0 * u, 12.0 * u, FAINT, tr("Ajouter un ordinateur", "Add a computer"));
+    eyebrow(cv, x0, y + 12.0 * u, 12.0 * u, FAINT, tr("Ajouter un ordinateur ou une console", "Add a computer or a console"));
     cv.text(x0 - 1.0, y + 58.0 * u, Text::new(Font::Display, 40.0 * u, FROST).tracking(-0.8 * u), tr("Par adresse", "By address"));
     y += 82.0 * u;
     cv.paragraph(
         x0,
         y,
         Text::new(Font::Regular, 16.0 * u, MUTED),
-        tr("L'adresse et le port d'Admin, tels qu'Admin les affiche (Appareils Link), par exemple 192.168.1.20:24811. Tailscale et WireGuard marchent aussi.", "Admin's address and port, as Admin shows them (Link devices), for example 192.168.1.20:24811. Tailscale and WireGuard work too."),
+        tr(
+            "L'adresse d'un ordinateur, ou d'une console PlayStation (par un VPN ou depuis un autre réseau). Pour un ordinateur : l'adresse et le port d'Admin, tels qu'Admin les affiche (Appareils Link), par exemple 192.168.1.20:24811.",
+            "The address of a computer, or of a PlayStation console (through a VPN or from another network). For a computer: Admin's address and port, as Admin shows them (Link devices), for example 192.168.1.20:24811.",
+        ),
         (w - 2.0 * x0).min(760.0 * u),
         24.0 * u,
     );
@@ -291,7 +319,7 @@ fn friend(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f32) {
         y += 56.0;
     }
     let left_w = if console { (w * 0.46).min(560.0 * u) } else { (w - 2.0 * x0).min(640.0) };
-    eyebrow(cv, x0, y + 12.0 * u, 12.0 * u, FAINT, tr("Ajouter un ordinateur", "Add a computer"));
+    eyebrow(cv, x0, y + 12.0 * u, 12.0 * u, FAINT, tr("Ajouter un ordinateur ou une console", "Add a computer or a console"));
     let title = match (editing, &fr.invite) {
         (Some(b), _) => b.title(),
         (None, Some(inv)) => inv.title(),

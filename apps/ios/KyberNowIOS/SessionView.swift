@@ -236,11 +236,14 @@ struct StreamStage: UIViewRepresentable {
 /// le tube de néon de la couture à 45°, puis l'ouverture sur l'image. Même
 /// passage que sur Mac et Apple TV.
 struct Passage: View {
-    let host: Host
+    /// L'ordinateur (sa dernière image) ; nil : une console, sur sa signature (`seed`).
+    let host: Host?
     let open: Bool
     /// Le titre de la session (« Invité sur {nom} » pour un invité) et le bouton de l'accueil qu'il imite.
     var title: String?
     var button = String(localized: "Se connecter")
+    /// Une console PlayStation : la signature de son accueil.
+    var seed: String?
     @State private var tube = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -292,9 +295,9 @@ struct Passage: View {
     private func half(_ corner: Alignment, size: CGSize) -> some View {
         let compact = size.height < 500
         return ZStack(alignment: .topLeading) {
-            HostBackdrop(host: host)
+            if let host { HostBackdrop(host: host) } else { Signature(seed: seed ?? "KyberNow").opacity(0.8) }
             VStack(alignment: .leading, spacing: 12) {
-                Text(title ?? host.name)
+                Text(title ?? host?.name ?? "")
                     .font(Theme.display(compact ? 34 : 54, 680))
                     .tracking(-(compact ? 34 : 54) * 0.04)
                     .lineLimit(2)
@@ -371,9 +374,7 @@ struct ConnectingCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 14) {
-                Mark(size: 30, level: .lit)
+        ConnectingCardLayout(cancel: { session.end() }) {
                 if session.stationRestarting {
                     HStack(spacing: 10) {
                         HomeSpinner(size: 13).foregroundStyle(Theme.accentLight).frame(width: 16, height: 16)
@@ -402,28 +403,51 @@ struct ConnectingCard: View {
                             Text(session.title).font(Theme.sans(16, .semibold)).foregroundStyle(Theme.text).lineLimit(1)
                         }
                         // Un emprunt : le mode console se met en place d'abord.
-                        step(0, session.isBorrower ? LendText.preparing : String(localized: "Préparation de l'écran"))
-                        step(1, String(localized: "Connexion"))
-                        step(2, String(localized: "Premières images"))
+                        ConnectingStep(index: 0, title: session.isBorrower ? LendText.preparing : String(localized: "Préparation de l'écran"), current: current)
+                        ConnectingStep(index: 1, title: String(localized: "Connexion"), current: current)
+                        ConnectingStep(index: 2, title: String(localized: "Premières images"), current: current)
                     }
                     .transition(.opacity)
                 }
+        }
+        .animation(Theme.easeOut, value: current)
+        .animation(Theme.easeOut, value: session.stationRestarting)
+    }
+}
+
+/// La carte de connexion, commune aux ordinateurs et aux consoles
+/// (docs/link-ui.md, « Connexion ») : le symbole allumé, l'état (les étapes),
+/// « Annuler ».
+struct ConnectingCardLayout<Status: View>: View {
+    let cancel: () -> Void
+    @ViewBuilder let status: () -> Status
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 14) {
+                Mark(size: 30, level: .lit)
+                status()
                 Spacer(minLength: 0)
             }
-            Button("Annuler") { session.end() }
+            Button("Annuler", action: cancel)
                 .buttonStyle(GlassButton(height: 48, fontSize: 16))
                 .frame(maxWidth: .infinity)
         }
         .padding(18)
         .glass(22, tint: 0.5)
-        .animation(Theme.easeOut, value: current)
-        .animation(Theme.easeOut, value: session.stationRestarting)
     }
+}
 
-    private func step(_ index: Int, _ title: String) -> some View {
+/// Une étape de la connexion : faite (coche), en cours (roue, « … »), à venir.
+struct ConnectingStep: View {
+    let index: Int
+    let title: String
+    let current: Int
+
+    var body: some View {
         let done = index < current
         let now = index == current
-        return HStack(spacing: 10) {
+        HStack(spacing: 10) {
             ZStack {
                 if done {
                     Icon("check", size: 12, bold: true).foregroundStyle(Theme.ok)
@@ -1176,7 +1200,9 @@ private struct KeyboardRowView: View {
 /// « La connexion a échoué » (avant l'image) ou « La session s'est arrêtée »,
 /// puis la raison en une phrase.
 struct SessionFailure: View {
-    let host: Host
+    /// L'ordinateur ; nil : une console, sur sa signature (`seed`).
+    let host: Host?
+    var seed: String?
     /// Le titre : le nom de l'ordinateur, ou « Invité sur {nom} ».
     var title: String?
     let message: String
@@ -1199,7 +1225,7 @@ struct SessionFailure: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            HostBackdrop(host: host, online: false)
+            if let host { HostBackdrop(host: host, online: false) } else { Signature(seed: seed ?? "KyberNow").opacity(0.5) }
             VStack(alignment: .leading, spacing: 16) {
                 if let eyebrow { Theme.eyebrow(eyebrow, color: Theme.faint) }
                 if !shareEnd {
@@ -1208,7 +1234,7 @@ struct SessionFailure: View {
                         Theme.eyebrow(connecting ? String(localized: "La connexion a échoué") : String(localized: "La session s'est arrêtée"), color: Theme.warnText)
                     }
                 }
-                Text(title ?? host.name).font(Theme.display(40, 680)).tracking(-40 * 0.04).foregroundStyle(Theme.text)
+                Text(title ?? host?.name ?? "").font(Theme.display(40, 680)).tracking(-40 * 0.04).foregroundStyle(Theme.text)
                 Text(reason)
                     .font(Theme.sans(16)).foregroundStyle(Theme.text2)
                 if let comeBack {

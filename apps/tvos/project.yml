@@ -23,8 +23,8 @@ settings:
     # Chaînes de l'interface extraites à la compilation vers les catalogues.
     LOCALIZATION_PREFERS_STRING_CATALOGS: YES
     SWIFT_EMIT_LOC_STRINGS: YES
-    MARKETING_VERSION: "0.9.2"
-    CURRENT_PROJECT_VERSION: "202611031154"
+    MARKETING_VERSION: "0.9.5"
+    CURRENT_PROJECT_VERSION: "202611032206"
     TARGETED_DEVICE_FAMILY: "3"
     DEVELOPMENT_TEAM: P6DB682S4K
     CODE_SIGN_STYLE: Automatic
@@ -43,6 +43,9 @@ targets:
           - MetalSurface.swift
           - RelativeMouse.swift
           - StreamView.swift
+          # Clavier et souris traduits en manette pour une console (AppKit) :
+          # sur l'Apple TV, la manette suffit.
+          - PlayStationInput.swift
       - path: KyberKitTV
     dependencies:
       # Le cœur Rust et son pont C (apps/apple/scripts/build-apple-mobile.sh tvos).
@@ -73,6 +76,14 @@ targets:
       - path: ../macos/KyberNow/LinkUI.swift
       - path: ../macos/KyberNow/Share.swift
       - path: ../macos/KyberNow/Lend.swift
+      # Consoles PlayStation : le magasin des comptes et des consoles, leurs
+      # réglages et leurs textes, communs avec le Mac (docs/playstation.md).
+      - path: ../macos/KyberNow/PlayStation.swift
+      # Plusieurs appareils : format partagé, synchro iCloud dans les deux
+      # sens, modèle de l'envoi (« Recevoir d'un autre appareil »).
+      - path: ../macos/KyberNow/PlayStationSync.swift
+      - path: ../macos/KyberNow/PlayStationCloud.swift
+      - path: ../macos/KyberNow/PlayStationHandoffModel.swift
       - path: ../macos/KyberNow/Fonts
         buildPhase: resources
     dependencies:

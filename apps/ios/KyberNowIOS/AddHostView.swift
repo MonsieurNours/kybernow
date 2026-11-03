@@ -1,7 +1,10 @@
-// Ajouter un ordinateur (maquettes iOS, planche 2) : le QR code d'Admin lu
-// à la caméra, puis cinq voies : les quatre de l'Apple TV (depuis le Mac par
-// iCloud, sur le réseau, code à l'écran, adresse) et « Avec un compte d'ami »
-// (l'ordinateur qu'un ami prête).
+// Ajouter un ordinateur ou une console (maquettes iOS, planche 2) : le QR
+// code d'Admin lu à la caméra, puis six voies : les quatre de l'Apple TV
+// (depuis le Mac par iCloud, sur le réseau, code à l'écran, adresse),
+// « Avec un compte d'ami » (l'ordinateur qu'un ami prête) et « PlayStation »
+// (comptes PlayStation Network et consoles, docs/link-ui.md, « Consoles
+// PlayStation » ; PlayStationViews.swift). « Sur le réseau » et « Adresse »
+// trouvent aussi les consoles.
 //
 // Sur iPhone, et sur iPad en Split View étroit, une fiche aux étapes
 // empilées : les voies, le volet de la voie, la vérification de l'empreinte,
@@ -18,8 +21,9 @@ import SwiftUI
 
 /// Les voies d'ajout, dans l'ordre des maquettes.
 enum AddHostMethod: Int, CaseIterable, Identifiable {
-    /// `friend` : « Avec un compte d'ami », l'ordinateur qu'un ami prête (docs/pret.md).
-    case cloud, network, code, address, qr, friend
+    /// `friend` : « Avec un compte d'ami », l'ordinateur qu'un ami prête (docs/pret.md) ;
+    /// `playstation` : comptes PSN et consoles (docs/playstation.md).
+    case cloud, network, code, address, qr, friend, playstation
 
     var id: Int { rawValue }
 }
@@ -54,7 +58,7 @@ final class AddHostFlow: ObservableObject {
             stage = .verify(link)
         }
         #if DEBUG
-        // Vérification au simulateur : `-addMethod 0…5`, `-addStage account`.
+        // Vérification au simulateur : `-addMethod 0…6` (6 : PlayStation), `-addStage account`.
         if let raw = UserDefaults.standard.string(forKey: "addMethod"), let n = Int(raw) {
             method = AddHostMethod(rawValue: n)
         }
@@ -240,11 +244,12 @@ private struct AddHostStack: View {
         case .account: return String(localized: "Dernière étape")
         case .pane:
             switch flow.method {
-            case nil: return String(localized: "Cinq voies")
+            case nil: return String(localized: "Six voies")
             case .cloud?, .code?: return String(localized: "Étape 1 sur 1")
             case .network?, .qr?: return String(localized: "Étape 1 sur 2")
             case .address?: return String(localized: "Étape 1 sur 3")
             case .friend?: return String(localized: "Étape 1 sur 1")
+            case .playstation?: return String(localized: "Étape 1 sur 2")
             }
         }
     }
@@ -266,18 +271,19 @@ private struct AddHostStack: View {
             case .address?: AddHostAddressPane()
             case .qr?: AddHostQRPane()
             case .friend?: AddHostFriendPane()
+            case .playstation?: AddHostPlayStationPane()
             }
         }
     }
 }
 
-/// Première étape de la fiche : la caméra, puis les cinq voies.
+/// Première étape de la fiche : la caméra, puis les six voies.
 private struct AddHostMenu: View {
     @EnvironmentObject private var flow: AddHostFlow
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Ajouter un ordinateur")
+            Text(LinkText.addTitle)
                 .font(Theme.display(34, 660)).tracking(-34 * 0.03)
                 .foregroundStyle(Theme.text)
                 .fixedSize(horizontal: false, vertical: true)
@@ -289,7 +295,7 @@ private struct AddHostMenu: View {
                 Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1)
             }
             VStack(spacing: 10) {
-                ForEach([AddHostMethod.cloud, .network, .code, .address, .friend]) { m in
+                ForEach([AddHostMethod.cloud, .network, .code, .address, .friend, .playstation]) { m in
                     Button { flow.pick(m) } label: {
                         AddHostMethodLabel(method: m, selected: false, compact: true)
                     }
@@ -374,7 +380,7 @@ private struct AddHostSplit: View {
 
     private var methods: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Ajouter un ordinateur")
+            Text(LinkText.addTitle)
                 .font(Theme.display(40, 660)).tracking(-40 * 0.035)
                 .foregroundStyle(Theme.text)
                 .fixedSize(horizontal: false, vertical: true)
@@ -412,6 +418,7 @@ private struct AddHostSplit: View {
                     case .address: AddHostAddressPane()
                     case .qr: AddHostQRPane()
                     case .friend: AddHostFriendPane()
+                    case .playstation: AddHostPlayStationPane()
                     }
                 }
             }
@@ -493,6 +500,7 @@ private struct AddHostMethodLabel: View {
         case .address: Icon("globe-hemisphere-west", size: 22)
         case .qr: AddHostQRGlyph().stroke(style: StrokeStyle(lineWidth: 1.7, lineCap: .round, lineJoin: .round)).frame(width: 22, height: 22)
         case .friend: Icon("key", size: 22)
+        case .playstation: Icon("game-controller", size: 22)
         }
     }
 
@@ -504,6 +512,7 @@ private struct AddHostMethodLabel: View {
         case .address: return String(localized: "Adresse")
         case .qr: return String(localized: "QR code d'appairage")
         case .friend: return LendText.withFriendAccount
+        case .playstation: return PSText.tab
         }
     }
 
@@ -519,6 +528,7 @@ private struct AddHostMethodLabel: View {
         case .address: return String(localized: "VPN ou réseau sans découverte")
         case .qr: return DeviceDisplay.isPad ? String(localized: "Avec la caméra de l'iPad") : String(localized: "Avec la caméra de l'iPhone")
         case .friend: return LendText.username + " · " + LendText.password
+        case .playstation: return PSText.accountsTitle
         }
     }
 }

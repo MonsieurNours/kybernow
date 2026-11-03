@@ -26,8 +26,8 @@ pub fn ensure_certificate(data_dir: &Path) -> Result<(PathBuf, PathBuf)> {
     }
     let generated = rcgen::generate_simple_self_signed(names.clone())
         .context("génération du certificat")?;
-    fs::write(&cert, generated.cert.pem())?;
-    fs::write(&key, generated.key_pair.serialize_pem())?;
+    crate::durable::write(&key, generated.key_pair.serialize_pem())?;
+    crate::durable::write(&cert, generated.cert.pem())?;
     tracing::info!("certificat auto-signé créé pour {}", names.join(", "));
     Ok((cert, key))
 }
@@ -60,11 +60,9 @@ pub fn publish_fingerprint(fingerprint: &str, kyber_dir: &Path) {
         return;
     }
     json["console_fingerprint"] = serde_json::Value::from(fingerprint);
-    let tmp = record.with_extension("json.tmp");
     let written = serde_json::to_vec_pretty(&json)
         .map_err(anyhow::Error::from)
-        .and_then(|b| Ok(fs::write(&tmp, b)?))
-        .and_then(|_| Ok(fs::rename(&tmp, &record)?));
+        .and_then(|b| Ok(crate::durable::write(&record, b)?));
     match written {
         Ok(()) => tracing::info!("empreinte de la console notée dans {}", record.display()),
         Err(e) => tracing::warn!("empreinte de la console non notée dans {} : {e:#}", record.display()),

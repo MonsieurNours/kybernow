@@ -30,6 +30,16 @@
 // file ; seuls `pads`, `live`, `lastKind`, `remoteConnected`, `notice` et le
 // rappel vers l'interface (`onMenuRequest`) remontent sur le fil principal. Les
 // réglages venus de l'interface sont recopiés sur la file.
+//
+// Partie sur une console PlayStation (`attachConsole`) : les manettes vont au
+// lecteur de manettes du cœur (`ConsolePads`) au lieu de la chaîne kynput ;
+// le cœur suit lui-même Options + Create + L1 + R1 (la barre de la partie)
+// et, barre ouverte, envoie une manette au repos à la console. Le pavé
+// tactile de la DualSense y est un pavé (doigts et clic), pas Select ; ses
+// mouvements partent aussi ; Home devient le bouton PS (réglage « Bouton
+// Guide » sur Jeu ; « Appui long » n'y vaut pas : Options et Create doivent
+// arriver tout de suite pour la combinaison). Vibrations et gâchettes adaptatives
+// reviennent de la console par `ConsolePads.setFeedback`.
 
 import Combine
 import CoreHaptics
@@ -205,6 +215,9 @@ public final class GamepadBridge: ObservableObject {
     private let combo = PadCombo(on: GamepadBridge.queue)
     private var nextID: UInt32 = 1
     private weak var input: InputPipeline?
+    /// Partie sur une console PlayStation : les manettes vont au lecteur du
+    /// cœur (`ConsolePads`), pas à une chaîne d'entrées.
+    private var console = false
     /// La manette pilote l'app (menu ouvert) : rien ne part vers l'ordinateur.
     private var captured = false
     private var liveTimer: DispatchSourceTimer?
@@ -349,6 +362,100 @@ public final class GamepadBridge: ObservableObject {
         }
     }
 
+    /// Début d'une partie sur une console PlayStation (fil principal ;
+    /// synchrone) : les manettes sont données au lecteur du cœur, leurs
+    /// mouvements mesurés, et les retours de la console (vibrations,
+    /// gâchettes adaptatives) joués sur la file.
+    public func attachConsole() {
+        ConsolePads.setFeedback { [weak self] e in
+            guard let self else { return }
+            self.queue.async { self.consoleFeedback(e) }
+        }
+        queue.sync {
+            guard !console else { return }
+            console = true
+            captured = false
+            for slot in orderedSlots where slot.active {
+                let ids = Self.usbIDs(slot)
+                ConsolePads.plug(slot.id, vendor: ids?.vendor, product: ids?.product)
+                slot.motors?.setSession(true)
+                setSensors(slot, on: true)
+            }
+            applyHomeGesture()
+            KyberLog.app.notice("manettes : partie sur une console (lecteur du cœur)")
+        }
+    }
+
+    /// Fin de la partie (fil principal ; synchrone) : tout est relâché et
+    /// débranché du lecteur du cœur, gâchettes rendues libres.
+    public func detachConsole() {
+        ConsolePads.setFeedback(nil)
+        queue.sync {
+            guard console else { return }
+            for slot in slots.values {
+                slot.motors?.stop()
+                slot.motors?.setSession(false)
+                setSensors(slot, on: false)
+                if let ds = slot.controller?.extendedGamepad as? GCDualSenseGamepad { ConsolePads.release(ds) }
+                if slot.active {
+                    consoleReleaseAll(slot)
+                    ConsolePads.unplug(slot.id)
+                }
+            }
+            console = false
+            captured = false
+            rumbleLogged = []
+            rumbleLoggedActive = []
+            applyHomeGesture()
+        }
+    }
+
+    /// Une touche vers la partie en cours : la console, ou l'ordinateur.
+    private func sendButton(_ id: UInt32, _ button: PadButton, _ pressed: Bool) {
+        if console {
+            ConsolePads.button(id, button, pressed: pressed)
+        } else {
+            input?.gamepadButton(id: id, button, pressed: pressed)
+        }
+    }
+
+    /// Partie sur console : touches tenues relâchées, axes au repos, doigts levés.
+    private func consoleReleaseAll(_ slot: Slot) {
+        dropLongPress(slot, input: nil)
+        for b in combo.pressed(slot.id) { ConsolePads.button(slot.id, b, pressed: false) }
+        for a in PadAxis.allCases { ConsolePads.axis(slot.id, a, 0) }
+        ConsolePads.touchClick(slot.id, pressed: false)
+        ConsolePads.touch(slot.id, finger: 0, x: 0, y: 0)
+        ConsolePads.touch(slot.id, finger: 1, x: 0, y: 0)
+    }
+
+    /// Mouvements de la manette mesurés (partie sur console) ou non.
+    private func setSensors(_ slot: Slot, on: Bool) {
+        guard let motion = slot.controller?.motion, motion.sensorsRequireManualActivation else { return }
+        motion.sensorsActive = on
+    }
+
+    /// Retour de la console : vibrations sur les moteurs de la manette,
+    /// gâchettes adaptatives sur une DualSense.
+    private func consoleFeedback(_ e: ConsolePads.Feedback) {
+        onQueue()
+        guard console else { return }
+        switch e {
+        case let .rumble(r):
+            guard let slot = slots.values.first(where: { $0.id == r.id }) else { return }
+            if rumbleLogged.insert(r.id).inserted {
+                KyberLog.app.notice("vibrations de la console : premier paquet pour \(self.name(slot), privacy: .public) (\(r.largeMotor)/\(r.smallMotor)) ; moteur \(slot.motors == nil ? "absent" : "prêt", privacy: .public)")
+            }
+            slot.motors?.play(large: r.largeMotor, small: r.smallMotor, durationMs: r.durationMs)
+        case let .effect(id, report):
+            guard let slot = slots.values.first(where: { $0.id == id }), let ds = slot.controller?.extendedGamepad as? GCDualSenseGamepad else { return }
+            if rumbleLoggedActive.insert(id).inserted {
+                KyberLog.app.notice("gâchettes adaptatives de la console : premier effet pour \(self.name(slot), privacy: .public)")
+            }
+            ConsolePads.apply(report: report, to: ds)
+        }
+    }
+
     /// Le menu s'ouvre (true) ou se ferme : la manette quitte ou rejoint le jeu.
     /// À l'ouverture, tout est remis à zéro sur l'ordinateur (touches tenues,
     /// six axes, et les clics et touches de la manette en souris) ; à la
@@ -383,7 +490,7 @@ public final class GamepadBridge: ObservableObject {
     }
 
     private func resync(_ slot: Slot) {
-        guard input != nil, !captured, !config.padMouse, slot.active else { return }
+        guard input != nil || console, !captured, !config.padMouse, slot.active else { return }
         if slot.isScreen {
             resyncScreen(slot)
             return
@@ -406,6 +513,12 @@ public final class GamepadBridge: ObservableObject {
     private var inBackground = false
 
     private func appLeft() {
+        if !inBackground, console {
+            inBackground = true
+            KyberLog.app.notice("app en arrière-plan : tout relâché sur la console")
+            for slot in slots.values where slot.active { consoleReleaseAll(slot) }
+            return
+        }
         guard !inBackground, let input else { return }
         inBackground = true
         KyberLog.app.notice("app en arrière-plan : tout relâché sur l'ordinateur")
@@ -475,6 +588,10 @@ public final class GamepadBridge: ObservableObject {
         if let input {
             let ids = Self.usbIDs(slot)
             input.gamepadPlug(id: slot.id, vendor: ids?.vendor, product: ids?.product)
+        } else if console {
+            let ids = Self.usbIDs(slot)
+            ConsolePads.plug(slot.id, vendor: ids?.vendor, product: ids?.product)
+            setSensors(slot, on: true)
         }
         KyberLog.app.notice("manette branchée : \(slot.controller?.vendorName ?? "à l'écran", privacy: .public) (J\(player))")
     }
@@ -501,6 +618,9 @@ public final class GamepadBridge: ObservableObject {
         if slot.active, let input {
             releaseAll(slot, input: input)
             input.gamepadUnplug(id: slot.id)
+        } else if slot.active, console {
+            consoleReleaseAll(slot)
+            ConsolePads.unplug(slot.id)
         }
         // Manette en souris coupée en plein glisser : le clic ne reste pas enfoncé.
         if config.padMouse, !combo.pressed(slot.id).isEmpty, let input { releaseMouse(input) }
@@ -552,15 +672,45 @@ public final class GamepadBridge: ObservableObject {
 
     private func setUpPad(_ slot: Slot) {
         guard let pad = slot.controller?.extendedGamepad else { return }
+        let dualSense = pad as? GCDualSenseGamepad
         for (element, button) in Self.buttons(pad) {
             // Gestes du système (capture d'écran sur Options ou Partager) :
             // coupés, la touche part au jeu sans délai. Le bouton Home suit
             // le réglage « Bouton Guide » (`applyHomeGesture`).
             if button != .guide { element?.preferredSystemGestureState = .disabled }
+            // Pavé tactile de la DualSense : Select pour un ordinateur, le
+            // clic du pavé pour une console.
+            if let element, element === dualSense?.touchpadButton {
+                element.pressedChangedHandler = { [weak self, weak slot] _, _, pressed in
+                    guard let self, let slot else { return }
+                    if self.console {
+                        guard slot.active else { return }
+                        ConsolePads.touchClick(slot.id, pressed: pressed)
+                    } else {
+                        self.button(slot, button, pressed: pressed)
+                    }
+                }
+                continue
+            }
             element?.pressedChangedHandler = { [weak self, weak slot] _, _, pressed in
                 guard let self, let slot else { return }
                 self.button(slot, button, pressed: pressed)
             }
+        }
+        // Doigts sur le pavé et mouvements : seulement pour une console.
+        if let ds = dualSense {
+            ds.touchpadPrimary.valueChangedHandler = { [weak self, weak slot] _, x, y in
+                guard let self, let slot, self.console, slot.active else { return }
+                ConsolePads.touch(slot.id, finger: 0, x: x, y: y)
+            }
+            ds.touchpadSecondary.valueChangedHandler = { [weak self, weak slot] _, x, y in
+                guard let self, let slot, self.console, slot.active else { return }
+                ConsolePads.touch(slot.id, finger: 1, x: x, y: y)
+            }
+        }
+        slot.controller?.motion?.valueChangedHandler = { [weak self, weak slot] m in
+            guard let self, let slot, self.console, slot.active, !self.captured else { return }
+            ConsolePads.motion(slot.id, m)
         }
         pad.leftThumbstick.valueChangedHandler = { [weak self, weak slot] _, x, y in
             guard let self, let slot else { return }
@@ -595,6 +745,10 @@ public final class GamepadBridge: ObservableObject {
         if pressed { slot.live.pressed.insert(button.name) } else { slot.live.pressed.remove(button.name) }
         liveDirty = true
         noteKind(slot.controller.map(Self.kind) ?? .xbox)
+        if console {
+            consoleButton(slot, button, pressed: pressed)
+            return
+        }
         guard let input else { return }
         guard !captured else { return }
         if config.padMouse {
@@ -623,6 +777,22 @@ public final class GamepadBridge: ObservableObject {
         input.gamepadButton(id: slot.id, button, pressed: pressed)
     }
 
+    /// Partie sur console : la touche va au lecteur du cœur, même barre
+    /// ouverte (le cœur y suit la combinaison et la navigation, et envoie une
+    /// manette au repos à la console). Home : le bouton PS, avec le réglage
+    /// « Bouton Guide » sur Jeu.
+    private func consoleButton(_ slot: Slot, _ button: PadButton, pressed: Bool) {
+        guard slot.active else { return }
+        if slot.isScreen {
+            ConsolePads.button(slot.id, button, pressed: pressed)
+            return
+        }
+        // « Appui long » n'a pas cours ici : Options et Create doivent arriver
+        // tout de suite au cœur, qui forme avec eux la combinaison de la barre.
+        if button == .guide, config.guideMode != .game { return }
+        ConsolePads.button(slot.id, button, pressed: pressed)
+    }
+
     private var guideLogged = false
     private static let guideHold: DispatchTimeInterval = .milliseconds(600)
 
@@ -632,31 +802,31 @@ public final class GamepadBridge: ObservableObject {
     /// 50 ms plus tard (un jeu XInput lit l'état une fois par image : un appui
     /// et un relâchement collés passeraient inaperçus). Le prix : Start et
     /// Select arrivent au jeu au relâchement.
-    private func longPress(_ slot: Slot, _ button: PadButton, pressed: Bool, input: InputPipeline) {
+    private func longPress(_ slot: Slot, _ button: PadButton, pressed: Bool, input: InputPipeline?) {
         if pressed {
             if let pending = slot.tapRelease.removeValue(forKey: button) {
                 pending.cancel()
-                input.gamepadButton(id: slot.id, button, pressed: false)
+                sendButton(slot.id, button, false)
             }
             slot.deferred[button]?.cancel()
             armGuide(slot, button, after: Self.guideHold)
         } else if let item = slot.deferred.removeValue(forKey: button) {
             item.cancel()
-            input.gamepadButton(id: slot.id, button, pressed: true)
+            sendButton(slot.id, button, true)
             let release = DispatchWorkItem { [weak self, weak slot] in
-                guard let self, let slot, slot.tapRelease.removeValue(forKey: button) != nil, let input = self.input else { return }
-                input.gamepadButton(id: slot.id, button, pressed: false)
+                guard let self, let slot, slot.tapRelease.removeValue(forKey: button) != nil, self.input != nil || self.console else { return }
+                self.sendButton(slot.id, button, false)
             }
             slot.tapRelease[button] = release
             queue.asyncAfter(deadline: .now() + .milliseconds(50), execute: release)
         } else if slot.guideHeld.remove(button) != nil, slot.guideHeld.isEmpty {
-            input.gamepadButton(id: slot.id, .guide, pressed: false)
+            sendButton(slot.id, .guide, false)
         }
     }
 
     private func armGuide(_ slot: Slot, _ button: PadButton, after delay: DispatchTimeInterval) {
         let item = DispatchWorkItem { [weak self, weak slot] in
-            guard let self, let slot, slot.deferred[button] != nil, let input = self.input, !self.captured else { return }
+            guard let self, let slot, slot.deferred[button] != nil, self.input != nil || self.console, !self.captured else { return }
             // L1 ou R1 tenus : la combinaison du menu est peut-être en train
             // de se former ; pas de Guide au jeu juste avant le menu.
             if !self.combo.pressed(slot.id).isDisjoint(with: [.leftShoulder, .rightShoulder]) {
@@ -664,7 +834,7 @@ public final class GamepadBridge: ObservableObject {
                 return
             }
             slot.deferred[button] = nil
-            if slot.guideHeld.isEmpty { input.gamepadButton(id: slot.id, .guide, pressed: true) }
+            if slot.guideHeld.isEmpty { self.sendButton(slot.id, .guide, true) }
             slot.guideHeld.insert(button)
         }
         slot.deferred[button] = item
@@ -678,10 +848,10 @@ public final class GamepadBridge: ObservableObject {
         slot.deferred.removeAll()
         for (button, release) in slot.tapRelease {
             release.cancel()
-            if slot.active { input?.gamepadButton(id: slot.id, button, pressed: false) }
+            if slot.active { sendButton(slot.id, button, false) }
         }
         slot.tapRelease.removeAll()
-        if !slot.guideHeld.isEmpty, slot.active { input?.gamepadButton(id: slot.id, .guide, pressed: false) }
+        if !slot.guideHeld.isEmpty, slot.active { sendButton(slot.id, .guide, false) }
         slot.guideHeld.removeAll()
     }
 
@@ -699,7 +869,7 @@ public final class GamepadBridge: ObservableObject {
     /// tvOS agir, qui renverrait à l'accueil. tvOS peut refuser : l'écran de
     /// test le montre (Home allumé, ou retour à l'accueil).
     private func applyHomeGesture() {
-        let toGame = config.guideMode == .game && ((input != nil && !captured) || config.monitoring)
+        let toGame = config.guideMode == .game && (((input != nil || console) && !captured) || config.monitoring)
         let state: GCControllerElement.SystemGestureState = toGame ? .disabled : .enabled
         for slot in slots.values {
             // Manette en attente : rien ne part au jeu, Home reste à tvOS.
@@ -733,6 +903,12 @@ public final class GamepadBridge: ObservableObject {
     private func axis(_ slot: Slot, _ axis: PadAxis, _ value: Int16) {
         onQueue()
         liveDirty = true
+        if console {
+            // Barre ouverte : le cœur envoie de lui-même une manette au repos.
+            guard slot.active else { return }
+            ConsolePads.axis(slot.id, axis, value)
+            return
+        }
         guard let input, !captured, !config.padMouse, slot.active else { return }
         input.gamepadAxis(id: slot.id, axis, value: value)
     }
@@ -807,7 +983,7 @@ public final class GamepadBridge: ObservableObject {
         #if os(iOS)
         // Les vibrations du jeu passent par le moteur de l'appareil (iPhone).
         slot.motors = Motors.device()
-        slot.motors?.setSession(input != nil)
+        slot.motors?.setSession(input != nil || console)
         #endif
         if player > 0 {
             seat(slot, player)
@@ -826,6 +1002,11 @@ public final class GamepadBridge: ObservableObject {
         if slot.active, let input {
             releaseAll(slot, input: input)
             input.gamepadUnplug(id: slot.id)
+        } else if slot.active, console {
+            // Partie sur console : débranchée du lecteur du cœur (sinon le
+            // clavier et la souris resteraient exclus).
+            consoleReleaseAll(slot)
+            ConsolePads.unplug(slot.id)
         }
         combo.forget(slot.id)
         KyberLog.app.notice("manette à l'écran débranchée")
@@ -1043,7 +1224,7 @@ public final class GamepadBridge: ObservableObject {
         micro.reportsAbsoluteDpadValues = true
         micro.allowsRotation = false
         micro.buttonMenu.pressedChangedHandler = { [weak self] _, _, pressed in
-            guard let self, pressed, self.config.menuFromRemote, self.input != nil, !self.captured else { return }
+            guard let self, pressed, self.config.menuFromRemote, self.input != nil || self.console, !self.captured else { return }
             self.requestMenu()
         }
         // Doigt sur le pavé : bouton « surface tactile » de la Siri Remote
@@ -1233,7 +1414,7 @@ extension PadButton {
 /// premier démarrage du moteur peut prendre des dizaines de millisecondes) :
 /// ils ont leur propre file, pour ne jamais retarder une touche sur la file
 /// des entrées. Les méthodes publiques y passent elles-mêmes.
-private final class Motors {
+final class Motors {
     static let queue = DispatchQueue(label: "fr.leslignesclaires.kybernow.vibrations", qos: .userInitiated)
     private var large: Motor?
     private var small: Motor?

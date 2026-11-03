@@ -107,6 +107,12 @@ impl Pads {
                 motors: (0.0, 0.0),
                 motors_until: Instant::now(),
             };
+            // Gyroscope et accéléromètre (DualSense, DualShock 4) : la partie sur une console les transmet.
+            for kind in [sdl::SDL_SENSOR_GYRO, sdl::SDL_SENSOR_ACCEL] {
+                if sdl::SDL_GameControllerHasSensor(ctrl, kind) != 0 {
+                    sdl::SDL_GameControllerSetSensorEnabled(ctrl, kind, 1);
+                }
+            }
             log::info!("manettes : J{} {name} ({:04x}:{:04x}), vibrations {}", slot + 1, pad.vendor, pad.product, if pad.rumble { "oui" } else { "non" });
             self.pads.push(pad);
             self.pads.sort_by_key(|p| p.slot);
@@ -251,6 +257,38 @@ impl Pads {
         }
         p.motors = (large as f32 / 65535.0, small as f32 / 65535.0);
         p.motors_until = Instant::now() + Duration::from_millis(ms as u64);
+    }
+
+    /// Vibration d'une partie sur une console : tenue `duration_ms` (la console envoie 0 et 0 pour arrêter).
+    pub fn rumble_exact(&mut self, slot: usize, large: u16, small: u16, duration_ms: i32) {
+        let Some(p) = self.pads.iter_mut().find(|p| p.slot == slot) else { return };
+        let ms = duration_ms.clamp(0, 60_000) as u32;
+        unsafe {
+            sdl::SDL_GameControllerRumble(p.ctrl, large, small, ms);
+        }
+        p.motors = (large as f32 / 65535.0, small as f32 / 65535.0);
+        p.motors_until = Instant::now() + Duration::from_millis(ms as u64);
+    }
+
+    /// Rapport d'effets de la DualSense (gâchettes adaptatives), par le pilote HIDAPI de SDL.
+    pub fn effect(&mut self, slot: usize, data: &[u8]) {
+        let Some(p) = self.pads.iter().find(|p| p.slot == slot) else { return };
+        let r = unsafe { sdl::SDL_GameControllerSendEffect(p.ctrl, data.as_ptr() as *const std::ffi::c_void, data.len() as std::ffi::c_int) };
+        if r != 0 {
+            log::debug!("manettes : effet refusé par SDL ({})", sdl::error());
+        }
+    }
+
+    /// Une DualSense (ou DualSense Edge) branchée par un câble : sa carte son porte les vibrations HD.
+    pub fn dualsense_usb(&self) -> bool {
+        self.pads.iter().any(|p| {
+            p.vendor == 0x054c && matches!(p.product, 0x0ce6 | 0x0df2) && unsafe { sdl::SDL_JoystickCurrentPowerLevel(sdl::SDL_GameControllerGetJoystick(p.ctrl)) } == sdl::SDL_JOYSTICK_POWER_WIRED
+        })
+    }
+
+    /// Le nombre de manettes ouvertes.
+    pub fn count(&self) -> usize {
+        self.pads.len()
     }
 
     /// Les moteurs s'arrêtent : la session qui faisait vibrer les manettes n'est plus l'active. Une

@@ -5,6 +5,35 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## 0.9.5
+
+Bêta des consoles PlayStation. Elle n'est proposée qu'aux Stations et aux apps réglées sur les versions bêta.
+
+- **Jouez à votre PS5 ou à votre PS4 dans KyberNow Link.** Les consoles de votre réseau apparaissent à l'accueil, à côté de vos ordinateurs. Associez la console une fois avec le code qu'elle affiche (Réglages › Système › Lecture à distance), puis « Jouer » : elle se réveille si elle est en veille, et la partie s'ouvre, en HDR sur un écran HDR. Plusieurs comptes PlayStation Network sur un même appareil, chacun avec ses consoles.
+- **La manette, au complet.** Avec une DualSense : vibrations, gâchettes adaptatives, pavé tactile et gyroscope, et sur Mac, branchée en USB, les vibrations HD ; leur intensité se règle. Sans manette, le clavier et la souris tiennent lieu de manette, avec une disposition à votre main. Quand la console ouvre son clavier (une recherche, un message), vous tapez directement au clavier.
+- **Une image propre et fluide.** Sur Mac, iPhone, iPad et Apple TV, l'image de la console (1080p au plus) est agrandie à la taille de votre écran, avec une netteté réglable. Une image perdue en route ne fige plus la partie : elle repart en quelques centièmes de seconde.
+- **Vos comptes sur tous vos appareils.** Un appareil Apple reprend vos comptes et vos consoles par iCloud. Ailleurs, sur une télé ou un PC, « Envoyer à un appareil » les envoie avec un code à 6 chiffres : pas besoin de refaire l'association.
+- **Hors de chez vous** : par votre VPN dès maintenant ; par le relais de KyberNow, avec une Station allumée chez vous, dès la mise à jour du relais, très bientôt.
+- **App Windows : la même barre de session que sur Mac**, et face à une Station Mac, le menu Touches du Mac et « Ctrl agit comme ⌘ ».
+- **Mac : l'accueil ne se fige plus** au retour d'une session.
+- Les consoles n'ont encore été essayées que sur Mac, avec une PS5 Pro : vos retours sont les bienvenus sur le Discord.
+
+## 0.9.4
+
+Quatrième bêta du HDR, avant la 0.9.5. Elle n'est proposée qu'aux Stations et aux apps réglées sur les versions bêta.
+
+- **Plus de PC figé après une mise à jour.** Depuis la 0.9.2, la Station donnait à la capture la priorité la plus haute sur la carte graphique. Sur certains PC avec une carte NVIDIA, ça pouvait bloquer la carte et figer Windows juste après une mise à jour, jusqu'à l'écran bleu. La Station demande maintenant une priorité haute, sans aller jusqu'au maximum.
+- **La Station se répare toute seule.** Si le PC s'arrête brutalement pendant une mise à jour, les réglages ou le certificat de Kyber pouvaient être abîmés, et Kyber ne démarrait plus. La Station enregistre désormais ses fichiers pour de bon, les sauvegarde avant chaque mise à jour, et au démarrage remet d'elle-même une sauvegarde ou un certificat neuf ; Admin le signale. Le retour à la version précédente ne recopie plus des réglages abîmés.
+- Cette bêta n'a pas encore été essayée avec un vrai PC : vos retours sont les bienvenus sur le Discord.
+
+## 0.9.3
+
+Troisième bêta du HDR, avant la 0.9.5. Elle n'est proposée qu'aux Stations et aux apps réglées sur les versions bêta.
+
+- **Mac : plus de gel de l'écran.** Sur un écran réglé en « plus d'espace » (un 4K affiché en 3008 × 1692, par exemple), ouvrir les statistiques en HDR pouvait figer l'écran jusqu'au redémarrage du Mac. L'app dessine maintenant l'image à la taille réelle de l'écran, au lieu d'une image plus grande que macOS devait réduire : plus de gel, et moins de travail à chaque image.
+- **La vraie luminosité de votre écran pour les jeux** : sur certains PC, Windows gardait la luminosité de l'écran virtuel (3 806 nits) au lieu de celle de votre appareil, et les jeux réglaient leur HDR pour un écran bien plus lumineux que le vôtre. La Station essaie maintenant plusieurs façons de lui faire prendre la bonne, et garde la première qui marche. Admin dit dans la page Image et son ce que voient les jeux.
+- Cette bêta n'a pas encore été essayée avec un vrai PC : vos retours sont les bienvenus sur le Discord.
+
 ## 0.9.2
 
 Deuxième bêta du HDR, avant la 0.9.5. Elle n'est proposée qu'aux Stations et aux apps réglées sur les versions bêta.

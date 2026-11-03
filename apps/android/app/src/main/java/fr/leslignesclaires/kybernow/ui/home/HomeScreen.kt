@@ -100,6 +100,13 @@ import fr.leslignesclaires.kybernow.ui.Mono
 import fr.leslignesclaires.kybernow.ui.PrimaryButton
 import fr.leslignesclaires.kybernow.ui.Title
 import fr.leslignesclaires.kybernow.ui.panel
+import fr.leslignesclaires.kybernow.ui.playstation.ConsoleCard
+import fr.leslignesclaires.kybernow.ui.playstation.ConsoleHero
+import fr.leslignesclaires.kybernow.ui.playstation.FoundCard
+import fr.leslignesclaires.kybernow.ui.playstation.PsHdr
+import fr.leslignesclaires.kybernow.ui.playstation.PsHomeActions
+import fr.leslignesclaires.kybernow.ui.playstation.PsHomeState
+import androidx.compose.runtime.DisposableEffect
 import java.util.Locale
 
 /** Ce que l'accueil demande à l'app. */
@@ -125,6 +132,8 @@ class HomeActions(
     val removeBorrowed: (BorrowedComputer) -> Unit = {},
     /** Chez l'hôte : « Reprendre l'ordinateur » (`false` : préavis de 2 min) ou « Reprendre tout de suite » (`true`). */
     val takeBack: (Host, Boolean) -> Unit = { _, _ -> },
+    /** Consoles PlayStation (docs/link-ui.md, « Consoles PlayStation »). */
+    val ps: PsHomeActions = PsHomeActions(),
 )
 
 /** Tout ce que l'accueil montre. */
@@ -158,6 +167,8 @@ data class HomeState(
     /** Chez l'hôte : la vue du prêt de ses ordinateurs, et le refus du dernier « Reprendre l'ordinateur ». */
     val lend: Map<String, LendView> = emptyMap(),
     val lendErrors: Map<String, String> = emptyMap(),
+    /** Consoles PlayStation : dans la même rangée que les ordinateurs, après eux. */
+    val ps: PsHomeState = PsHomeState(),
 )
 
 @Composable
@@ -182,10 +193,37 @@ fun HomeScreen(model: AppModel, actions: HomeActions) {
     val lend by model.lend.collectAsState()
     val lendErrors by model.lendErrors.collectAsState()
     val known = remember(borrowed, friends, borrowing) { borrowed.filter { model.friendPassword(it.id) != null }.map { it.id }.toSet() }
+    val ps = app.ps
+    val consoles by ps.store.consoles.collectAsState()
+    val pairings by ps.store.pairings.collectAsState()
+    val accounts by ps.store.accounts.collectAsState()
+    val found by ps.found.collectAsState()
+    val searched by ps.searched.collectAsState()
+    val awayHosts by ps.awayHosts.collectAsState()
+    val psWaking by ps.waking.collectAsState()
+    val reaching by ps.reaching.collectAsState()
+    val reachErrors by ps.reachErrors.collectAsState()
+    val hdrScreen = remember { PsHdr.screen(context) }
+    val psState = remember(consoles, pairings, accounts, found, searched, awayHosts, psWaking, reaching, reachErrors) {
+        PsHomeState(
+            consoles = consoles,
+            status = consoles.associate { it.id to ps.status(it) },
+            running = consoles.mapNotNull { c -> ps.live(c.hostId)?.runningApp?.let { c.id to it } }.toMap(),
+            accounts = consoles.associate { it.id to ps.store.pairedAccounts(it) },
+            chosen = consoles.mapNotNull { c -> ps.store.chosenAccount(c)?.let { c.id to it } }.toMap(),
+            unpaired = found.values.filter { f -> consoles.none { it.hostId == f.hostId } }.sortedBy { it.name },
+            waking = psWaking, reaching = reaching, reachErrors = reachErrors,
+            hdrScreen = hdrScreen, hdrDecoder = PsHdr.decoder,
+        )
+    }
+    DisposableEffect(Unit) {
+        ps.start()
+        onDispose { ps.stop() }
+    }
     HomeContent(
         HomeState(
             hosts, selectedId, status, images, announced, screen, app.decoders, pads.count { !it.onScreen }, update.offered, waking, connecting, refusals,
-            borrowed, friends, borrowing, borrowErrors, known, lend, lendErrors,
+            borrowed, friends, borrowing, borrowErrors, known, lend, lendErrors, psState,
         ),
         actions,
     )
@@ -200,11 +238,14 @@ fun HomeScreen(model: AppModel, actions: HomeActions) {
 fun HomeContent(state: HomeState, actions: HomeActions) {
     val (hosts, selectedId, status, images, announced) = state
     // Un ordinateur prêté par un ami peut être choisi ; sans ordinateur à soi, le premier prêté s'affiche.
-    val friend = state.borrowed.firstOrNull { it.id == selectedId } ?: if (hosts.isEmpty()) state.borrowed.firstOrNull() else null
-    val host = if (friend != null) null else hosts.firstOrNull { it.id == selectedId } ?: hosts.firstOrNull()
+    // Une console choisie à l'accueil ; sans ordinateur ni ordinateur prêté, la première console.
+    val console = state.ps.consoles.firstOrNull { it.id == selectedId }
+        ?: if (hosts.isEmpty() && state.borrowed.isEmpty()) state.ps.consoles.firstOrNull() else null
+    val friend = if (console != null) null else state.borrowed.firstOrNull { it.id == selectedId } ?: if (hosts.isEmpty()) state.borrowed.firstOrNull() else null
+    val host = if (friend != null || console != null) null else hosts.firstOrNull { it.id == selectedId } ?: hosts.firstOrNull()
 
-    if (host == null && friend == null) {
-        Welcome(announced, state.update, actions)
+    if (host == null && friend == null && console == null) {
+        Welcome(announced, state.update, actions, state.ps.unpaired)
         return
     }
     BoxWithConstraints(Modifier.fillMaxSize().background(Kn.ink)) {
@@ -214,6 +255,10 @@ fun HomeContent(state: HomeState, actions: HomeActions) {
             Backdrop(images[host.id], st.online == false, wide)
             val hero: @Composable (Float, FocusRequester?, Boolean) -> Unit = { size, focus, stacked -> Hero(host, st, state, actions, size, focus, stacked) }
             if (wide) WideHome(host.id, state, actions, hero) else TallHome(state, actions, hero)
+        } else if (console != null) {
+            Backdrop(null, false, wide)
+            val hero: @Composable (Float, FocusRequester?, Boolean) -> Unit = { size, focus, stacked -> ConsoleHero(console, state.ps, actions.ps, size, focus, stacked) }
+            if (wide) WideHome(console.id, state, actions, hero) else TallHome(state, actions, hero)
         } else if (friend != null) {
             Backdrop(null, false, wide)
             val hero: @Composable (Float, FocusRequester?, Boolean) -> Unit = { size, focus, stacked ->
@@ -522,6 +567,9 @@ private fun HostRow(state: HomeState, actions: HomeActions, card: Float) {
                 }
             }
         }
+        items(state.ps.consoles, key = { it.id }) { c ->
+            ConsoleCard(c, state.ps.status[c.id] ?: fr.leslignesclaires.kybernow.playstation.PsStatus.SEARCHING, c.id == selected, card, { actions.select(c.id) }, { actions.ps.settings(c) })
+        }
         items(state.borrowed, key = { it.id }) { b ->
             FriendCard(b, state.friends[b.id], b.id in state.knownPasswords, b.id == selected, card) { actions.select(b.id) }
         }
@@ -539,6 +587,7 @@ private fun HostRow(state: HomeState, actions: HomeActions, card: Float) {
                 }
             }
         }
+        items(state.ps.unpaired, key = { "ps:" + it.hostId }) { f -> FoundCard(f, card) { actions.ps.pair(f) } }
         item(key = "ajout") {
             Column(Modifier.width(s.dp(card)), verticalArrangement = Arrangement.spacedBy(s.dp(6f))) {
                 FocusCard(actions.add) {
@@ -601,7 +650,7 @@ private fun TallHome(state: HomeState, actions: HomeActions, hero: @Composable (
 
 /** Aucun ordinateur ajouté : la bienvenue, ceux annoncés sur le réseau et l'ajout. */
 @Composable
-private fun Welcome(announced: List<Announced>, update: String?, actions: HomeActions) {
+private fun Welcome(announced: List<Announced>, update: String?, actions: HomeActions, consoles: List<fr.leslignesclaires.kybernow.playstation.PsFound> = emptyList()) {
     val s = LocalScale.current
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { if (s.tv) runCatching { focus.requestFocus() } }
@@ -625,6 +674,20 @@ private fun Welcome(announced: List<Announced>, update: String?, actions: HomeAc
                             Spacer(Modifier.width(s.dp(12f)))
                             Column(Modifier.weight(1f)) {
                                 Body(a.name, size = 17f, weight = 600)
+                                Mono(stringResource(R.string.home_on_network), size = 11f, color = Kn.spectre)
+                            }
+                            KnIcon(KnIcons.chevron, size = 18f)
+                        }
+                    }
+                }
+                // Les consoles du réseau pas encore associées : « {nom} · PS5 », « Sur le réseau ».
+                consoles.forEach { f ->
+                    FocusCard({ actions.ps.pair(f) }, Modifier.fillMaxWidth()) {
+                        Row(Modifier.panel().padding(s.dp(16f)).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            KnIcon(KnIcons.gamepad, tint = Kn.spectre)
+                            Spacer(Modifier.width(s.dp(12f)))
+                            Column(Modifier.weight(1f)) {
+                                Body(stringResource(R.string.ps_model_line, f.name, f.model), size = 17f, weight = 600)
                                 Mono(stringResource(R.string.home_on_network), size = 11f, color = Kn.spectre)
                             }
                             KnIcon(KnIcons.chevron, size = 18f)

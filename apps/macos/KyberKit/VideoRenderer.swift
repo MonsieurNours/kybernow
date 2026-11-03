@@ -654,7 +654,7 @@ final class VideoRenderer {
             return
         }
         guard let drawable, let commands = queue.makeCommandBuffer(),
-              draw(buffer, layout: layout, into: drawable.texture, commands: commands, color: routed(conversion(buffer, layout: layout), for: drawable.texture), marker: currentMarkerScale())
+              draw(buffer, layout: layout, into: drawable.texture, commands: commands, color: routed(conversion(buffer, layout: layout), for: drawable.texture), marker: currentMarkerScale(), upscaling: true)
         else {
             latency?.skipped(pts: frame.pts)
             return
@@ -764,7 +764,7 @@ final class VideoRenderer {
         #endif
         guard let drawable = layer.nextDrawable(), let commands = queue.makeCommandBuffer(),
               draw(last.buffer, layout: last.layout, into: drawable.texture, commands: commands,
-                   color: routed(conversion(last.buffer, layout: last.layout), for: drawable.texture), marker: currentMarkerScale())
+                   color: routed(conversion(last.buffer, layout: last.layout), for: drawable.texture), marker: currentMarkerScale(), upscaling: true)
         else { return }
         #if !targetEnvironment(simulator)
         // Le simulateur ne dit pas quand l'image est montrée.
@@ -826,31 +826,49 @@ final class VideoRenderer {
     /// sur l'image). `marker` : pixels par point du trait de repère, à tracer
     /// par-dessus (nil : pas de trait, comme pour les photographies).
     func draw(_ buffer: CVPixelBuffer, layout: Layout, into target: MTLTexture, commands: MTLCommandBuffer,
-              color known: ColorConversion? = nil, marker: Double? = nil) -> Bool {
+              color known: ColorConversion? = nil, marker: Double? = nil, upscaling: Bool = false) -> Bool {
         guard let cache,
               let luma = texture(buffer, plane: 0, format: layout.deep ? .r16Unorm : .r8Unorm, cache: cache),
               let chroma = texture(buffer, plane: 1, format: layout.deep ? .rg16Unorm : .rg8Unorm, cache: cache)
         else { return false }
-
-        let pass = MTLRenderPassDescriptor()
-        pass.colorAttachments[0].texture = target
-        pass.colorAttachments[0].loadAction = .clear
-        pass.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
-        pass.colorAttachments[0].storeAction = .store
-        guard let encoder = commands.makeRenderCommandEncoder(descriptor: pass) else { return false }
 
         // Image entière, centrée, sans déformation (comme le calcul des entrées kynput).
         let width = Double(CVPixelBufferGetWidth(buffer)), height = Double(CVPixelBufferGetHeight(buffer))
         let targetW = Double(target.width), targetH = Double(target.height)
         let scale = min(targetW / width, targetH / height)
         let w = (width * scale).rounded(), h = (height * scale).rounded()
-        encoder.setViewport(MTLViewport(originX: ((targetW - w) / 2).rounded(), originY: ((targetH - h) / 2).rounded(), width: w, height: h, znear: 0, zfar: 1))
+        let originX = ((targetW - w) / 2).rounded(), originY = ((targetH - h) / 2).rounded()
         let hdrTarget = target.pixelFormat == Self.hdrPixelFormat
-        encoder.setRenderPipelineState(hdrTarget ? hdrPipeline : pipeline)
-        encoder.setFragmentTexture(CVMetalTextureGetTexture(luma), index: 0)
-        encoder.setFragmentTexture(CVMetalTextureGetTexture(chroma), index: 1)
         var color = routed(known ?? Self.color(buffer, fullRange: layout.full, deep: layout.deep), for: target)
-        encoder.setFragmentBytes(&color, length: MemoryLayout<ColorConversion>.stride, index: 0)
+
+        let pass = MTLRenderPassDescriptor()
+        pass.colorAttachments[0].texture = target
+        pass.colorAttachments[0].loadAction = .clear
+        pass.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
+        pass.colorAttachments[0].storeAction = .store
+
+        var upscaled: (MTLTexture, MTLRenderPipelineState, UpscalerSharpenUniforms)?
+        #if canImport(MetalFX)
+        if upscaling, #available(macOS 13.0, iOS 16.0, tvOS 27.1, *) {
+            upscaled = upscaleIfWanted(luma: luma, chroma: chroma, color: &color, source: (Int(width), Int(height)),
+                                       shown: (Int(w), Int(h)), target: target, commands: commands)
+        }
+        #endif
+        guard let encoder = commands.makeRenderCommandEncoder(descriptor: pass) else { return false }
+        encoder.setViewport(MTLViewport(originX: originX, originY: originY, width: w, height: h, znear: 0, zfar: 1))
+        if let (image, sharpen, uniforms) = upscaled {
+            // Passe 3 : l'image agrandie, plus nette, dans le tampon de l'écran.
+            var u = uniforms
+            u.origin = SIMD2(Int32(originX), Int32(originY))
+            encoder.setRenderPipelineState(sharpen)
+            encoder.setFragmentTexture(image, index: 0)
+            encoder.setFragmentBytes(&u, length: MemoryLayout<UpscalerSharpenUniforms>.stride, index: 0)
+        } else {
+            encoder.setRenderPipelineState(hdrTarget ? hdrPipeline : pipeline)
+            encoder.setFragmentTexture(CVMetalTextureGetTexture(luma), index: 0)
+            encoder.setFragmentTexture(CVMetalTextureGetTexture(chroma), index: 1)
+            encoder.setFragmentBytes(&color, length: MemoryLayout<ColorConversion>.stride, index: 0)
+        }
         encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
         if let marker, let markerPipeline = hdrTarget ? hdrMarkerPipeline : markerPipeline {
             // Capsule de 220 × 3 points contre le bord haut de la vue (et non de
@@ -870,6 +888,91 @@ final class VideoRenderer {
         commands.addCompletedHandler { _ in _ = (luma, chroma) } // garde les textures jusqu'à la fin du GPU
         return true
     }
+
+    /// Agrandissement MetalFX de l'image (consoles, `Upscaler`) ; nil : filtre
+    /// bilinéaire, comme pour un ordinateur. Un changement redessine l'image.
+    /// Sans MetalFX (Apple TV avant tvOS 27.1), l'état dit `unavailable`.
+    var upscale: UpscaleSettings? {
+        get { lock.lock(); defer { lock.unlock() }; return upscaleWanted }
+        set {
+            lock.lock()
+            let changed = upscaleWanted != newValue
+            upscaleWanted = newValue
+            lock.unlock()
+            if changed { renderQueue.async { [weak self] in self?.redrawInPlace() } }
+        }
+    }
+    private var upscaleWanted: UpscaleSettings?
+    /// L'état de l'agrandissement change (fil de rendu ; statistiques).
+    var onUpscale: ((UpscaleReport) -> Void)?
+    /// Créé à la première image à agrandir (fil de rendu) : un `Upscaler`,
+    /// gardé sans son type (il n'existe qu'avec MetalFX).
+    private var upscalerBox: AnyObject?
+    private var upscalerTried = false
+
+    #if canImport(MetalFX)
+    @available(macOS 13.0, iOS 16.0, tvOS 27.1, *)
+    private var upscaler: Upscaler? { upscalerBox as? Upscaler }
+
+    /// Passes 1 et 2 de l'agrandissement, dans une commande à part (son coût
+    /// est mesuré seul) : l'image en RGB à sa taille, puis MetalFX à la
+    /// taille affichée. Rend l'image agrandie et la passe 3 à faire, ou nil
+    /// (pas voulu, pas plus petite que l'écran, trop lent, refusé).
+    @available(macOS 13.0, iOS 16.0, tvOS 27.1, *)
+    private func upscaleIfWanted(luma: CVMetalTexture, chroma: CVMetalTexture, color: inout ColorConversion,
+                                 source: (Int, Int), shown: (Int, Int), target: MTLTexture,
+                                 commands: MTLCommandBuffer) -> (MTLTexture, MTLRenderPipelineState, UpscalerSharpenUniforms)? {
+        lock.lock()
+        let wanted = upscaleWanted
+        lock.unlock()
+        guard let wanted else { return nil }
+        if !upscalerTried {
+            upscalerTried = true
+            upscalerBox = Upscaler(device: device)
+            if upscalerBox == nil { KyberLog.video.notice("MetalFX absent : pas d'agrandissement") }
+        }
+        guard let upscaler else { return report(UpscaleReport(state: .unavailable, gpuMs: nil)) }
+        if let slow = upscaler.tooSlow { return report(UpscaleReport(state: .tooSlow(ms: slow), gpuMs: slow)) }
+        // Pas plus petite que l'écran (à 2 % près) : rien à agrandir.
+        guard Double(shown.0) > Double(source.0) * 1.02 || Double(shown.1) > Double(source.1) * 1.02 else {
+            return report(UpscaleReport(state: .notNeeded, gpuMs: nil))
+        }
+        let hdrTarget = target.pixelFormat == Self.hdrPixelFormat
+        let linear = hdrTarget && color.mode == ColorConversion.pqToEDR
+        guard let t = upscaler.prepare(format: target.pixelFormat, input: source.0, source.1, output: shown.0, shown.1, hdr: linear),
+              let pre = queue.makeCommandBuffer()
+        else { return report(UpscaleReport(state: .unavailable, gpuMs: nil)) }
+        let pass = MTLRenderPassDescriptor()
+        pass.colorAttachments[0].texture = t.input
+        pass.colorAttachments[0].loadAction = .dontCare
+        pass.colorAttachments[0].storeAction = .store
+        guard let encoder = pre.makeRenderCommandEncoder(descriptor: pass) else { return nil }
+        encoder.setViewport(MTLViewport(originX: 0, originY: 0, width: Double(source.0), height: Double(source.1), znear: 0, zfar: 1))
+        encoder.setRenderPipelineState(hdrTarget ? hdrPipeline : pipeline)
+        encoder.setFragmentTexture(CVMetalTextureGetTexture(luma), index: 0)
+        encoder.setFragmentTexture(CVMetalTextureGetTexture(chroma), index: 1)
+        encoder.setFragmentBytes(&color, length: MemoryLayout<ColorConversion>.stride, index: 0)
+        encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+        encoder.endEncoding()
+        t.scaler.encode(commandBuffer: pre)
+        pre.addCompletedHandler { [weak upscaler] cb in upscaler?.record(cb) }
+        // Envoyée avant la commande de l'image : la file les garde dans l'ordre.
+        pre.commit()
+        _ = report(UpscaleReport(state: .active(width: shown.0, height: shown.1), gpuMs: upscaler.medianMs.map { ($0 * 10).rounded() / 10 }))
+        return (t.output, t.sharpen, UpscalerSharpenUniforms(sharpness: wanted.sharpness, hdr: linear ? 1 : 0, origin: .zero))
+    }
+
+    /// Dit l'état de l'agrandissement s'il a changé ; rend toujours nil.
+    @available(macOS 13.0, iOS 16.0, tvOS 27.1, *)
+    private func report(_ r: UpscaleReport) -> (MTLTexture, MTLRenderPipelineState, UpscalerSharpenUniforms)? {
+        if let upscaler {
+            guard upscaler.lastReport != r else { return nil }
+            upscaler.lastReport = r
+        }
+        onUpscale?(r)
+        return nil
+    }
+    #endif
 
     /// Photographie de la dernière image affichée, réduite à `maxWidth` pixels
     /// de large (la dernière image d'un ordinateur, sur l'accueil).

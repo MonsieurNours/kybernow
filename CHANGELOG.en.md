@@ -4,6 +4,35 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## 0.9.5
+
+PlayStation consoles beta. It is only offered to Stations and apps set to beta versions.
+
+- **Play your PS5 or PS4 in KyberNow Link.** The consoles on your network appear on the home screen, next to your computers. Pair the console once with the code it shows (Settings › System › Remote Play), then “Play”: it wakes up if it's in rest mode, and the game opens, in HDR on an HDR screen. Several PlayStation Network accounts on one device, each with its consoles.
+- **The full controller.** With a DualSense: rumble, adaptive triggers, touchpad and gyroscope, and on Mac, plugged in over USB, HD haptics; their strength can be set. Without a controller, the keyboard and mouse stand in for one, with a layout of your choosing. When the console opens its keyboard (a search, a message), you type straight on your keyboard.
+- **A clean, smooth picture.** On Mac, iPhone, iPad and Apple TV, the console's picture (1080p at most) is upscaled to your screen's size, with adjustable sharpness. A picture lost on the way no longer freezes the game: it picks up again within a few hundredths of a second.
+- **Your accounts on all your devices.** An Apple device picks up your accounts and consoles through iCloud. Elsewhere, on a TV or a PC, “Send to a device” sends them with a 6-digit code: no need to pair again.
+- **Away from home**: through your VPN right now; through the KyberNow relay, with a Station on at home, as soon as the relay is updated, very soon.
+- **Windows app: the same session bar as on Mac**, and with a Mac Station, the Mac's Keys menu and “Ctrl acts as ⌘”.
+- **Mac: the home screen no longer freezes** when you come back from a session.
+- Consoles have only been tried on Mac so far, with a PS5 Pro: your feedback is welcome on the Discord.
+
+## 0.9.4
+
+Fourth HDR beta, before 0.9.5. It is only offered to Stations and apps set to beta versions.
+
+- **No more frozen PC after an update.** Since 0.9.2, the Station gave capture the very highest priority on the graphics card. On some PCs with an NVIDIA card, this could hang the card and freeze Windows right after an update, up to a blue screen. The Station now asks for a high priority, without going all the way to the maximum.
+- **The Station repairs itself.** If the PC stops abruptly during an update, Kyber's settings or certificate could be damaged, and Kyber would no longer start. The Station now saves its files for good, backs them up before every update, and on startup restores a backup or a fresh certificate by itself; Admin reports it. Going back to the previous version no longer copies damaged settings.
+- This beta has not yet been tried with a real PC: your feedback is welcome on the Discord.
+
+## 0.9.3
+
+Third HDR beta, before 0.9.5. It is only offered to Stations and apps set to beta versions.
+
+- **Mac: no more frozen screen.** On a display set to “more space” (a 4K display shown at 3008 × 1692, for example), opening the statistics in HDR could freeze the screen until the Mac restarted. The app now draws the picture at the display's real size, instead of a larger picture that macOS had to scale down: no more freeze, and less work for every frame.
+- **Your screen's real brightness for games**: on some PCs, Windows kept the virtual display's brightness (3,806 nits) instead of your device's, and games tuned their HDR for a much brighter screen than yours. The Station now tries several ways to make it take the right one, and keeps the first that works. Admin shows what games see on the Picture and sound page.
+- This beta has not yet been tried with a real PC: your feedback is welcome on the Discord.
+
 ## 0.9.2
 
 Second HDR beta, before 0.9.5. It is only offered to Stations and apps set to beta versions.

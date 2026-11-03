@@ -131,6 +131,11 @@ class SessionUi(
     val borrower: Boolean = false,
     val lender: String = "",
     val lendUntil: Long? = null,
+    /**
+     * Partie sur une console PlayStation (docs/link-ui.md, « Consoles PlayStation ») : même écran de connexion, même
+     * barre et même menu, avec ce qui a du sens pour une console ; nul pour un ordinateur.
+     */
+    val console: ConsoleUi? = null,
 ) {
     var menuOpen by mutableStateOf(false)
     var barOpen by mutableStateOf(false)
@@ -308,9 +313,13 @@ fun SessionOverlay(ui: SessionUi) {
         if (ui.shareOpen) SharePanel(ui, Modifier.align(Alignment.Center))
         if (ui.lendOpen && !ui.guest && !ui.borrower) LendPanel(ui, Modifier.align(Alignment.Center))
         if (ui.giveBackConfirm && ui.borrower) GiveBackConfirm(ui, Modifier.align(Alignment.Center))
+        ui.console?.let { c ->
+            if (ui.passageDone && ended == null) ConsoleCantDisplay(c, Modifier.align(Alignment.Center))
+            if (ended == null) ConsoleKeyboard(c, !ui.tv, Modifier.align(Alignment.BottomCenter).imePadding())
+        }
         ended?.takeIf { it.error != null }?.let { EndedCard(ui, it, Modifier.align(Alignment.Center)) }
         // Un invité et l'ami qui emprunte ne changent rien à l'ordinateur : pas de remise en place à attendre.
-        AnimatedVisibility(ui.leaving, enter = fadeIn(tween(220)), exit = fadeOut(tween(160))) { Leaving(ui.guest || ui.borrower) }
+        AnimatedVisibility(ui.leaving, enter = fadeIn(tween(220)), exit = fadeOut(tween(160))) { Leaving(ui.guest || ui.borrower || ui.console != null) }
     }
 }
 
@@ -372,7 +381,12 @@ private fun Passage(ui: SessionUi) {
         }
         // Un échec laisse sa carte seule (EndedCard).
         if (open.value < 0.5f && ended == null) {
-            val step = when (phase) {
+            // Une console : « Connexion à la console », puis « Premières images ».
+            val step = if (ui.console != null) when (phase) {
+                Phase.PREPARING, Phase.CONNECTING -> 0
+                Phase.FIRST_IMAGES -> 1
+                else -> 2
+            } else when (phase) {
                 Phase.PREPARING -> 0
                 Phase.CONNECTING -> 1
                 Phase.FIRST_IMAGES -> 2
@@ -388,7 +402,7 @@ private fun Passage(ui: SessionUi) {
                 // La Station redémarre (dernier recours) : à la place des étapes, qui reprennent ensuite.
                 if (restarting) StepLine(stringResource(R.string.station_restarting), done = false, current = true)
                 // L'emprunt : « Préparation de l'ordinateur » en première étape (le mode console de la Station).
-                else listOf(if (ui.borrower) R.string.lend_preparing else R.string.session_preparing, R.string.session_connecting, R.string.session_first_images).forEachIndexed { i, label ->
+                else (if (ui.console != null) listOf(R.string.ps_step_connect, R.string.session_first_images) else listOf(if (ui.borrower) R.string.lend_preparing else R.string.session_preparing, R.string.session_connecting, R.string.session_first_images)).forEachIndexed { i, label ->
                     StepLine(stringResource(label), done = i < step, current = i == step)
                 }
                 hint(ui)?.let { Body(it, size = 13f, color = Kn.muted, modifier = Modifier.padding(top = s.dp(4f))) }
@@ -428,6 +442,7 @@ private fun hint(ui: SessionUi): String? {
     val combo = ui.combo && !(ui.guest && !role.pads)
     return when {
         !ui.tv -> stringResource(R.string.session_hint_touch)
+        ui.console != null -> stringResource(R.string.ps_hint_tv)
         ui.backOpensMenu && combo -> stringResource(R.string.session_hint_tv_both)
         ui.backOpensMenu -> stringResource(R.string.session_hint_tv_back)
         combo -> stringResource(R.string.session_hint_combo)
@@ -525,6 +540,7 @@ private fun PhoneBar(ui: SessionUi) {
                     horizontalArrangement = Arrangement.spacedBy(s.dp(6f)),
                 ) {
                     when {
+                        ui.console != null -> ConsoleBarItems(ui, ui.console, first)
                         ui.guest -> GuestBarItems(ui, sec, role, first)
                         ui.borrower -> BorrowerBarItems(ui, sec, first)
                         else -> HostBarItems(ui, sec, first)
@@ -534,7 +550,7 @@ private fun PhoneBar(ui: SessionUi) {
                 RouteChip(ui)
                 // Un invité n'a rien à partager ; l'ami qui emprunte a « Prêté par {hôte} », le temps et « Rendre l'ordinateur ».
                 if (ui.borrower) LentItems(ui)
-                else if (!ui.guest) {
+                else if (!ui.guest && ui.console == null) {
                     ShareItems(ui, compact)
                     LendItems(ui)
                 }
@@ -543,7 +559,7 @@ private fun PhoneBar(ui: SessionUi) {
                 GlassButton(stringResource(if (ui.guest) R.string.share_leave else R.string.session_disconnect), { ui.actions.quit() })
                 BarIcon(KnIcons.close, stringResource(R.string.session_close)) { ui.barOpen = false }
             }
-            if (ui.padBar) Body(stringResource(R.string.session_pad_bar), Modifier.panel(999.dp).padding(horizontal = s.dp(14f), vertical = s.dp(6f)), size = 12f, color = Kn.frost2)
+            if (ui.padBar) Body(stringResource(if (ui.console != null) R.string.ps_pad_bar else R.string.session_pad_bar), Modifier.panel(999.dp).padding(horizontal = s.dp(14f), vertical = s.dp(6f)), size = 12f, color = Kn.frost2)
         }
     }
 }
@@ -836,12 +852,14 @@ private fun TvMenu(ui: SessionUi) {
             }
             Eyebrow(
                 when {
+                    ui.console != null -> ui.hostName
                     ui.guest -> "${ui.hostName} · ${roleLabel(role)}"
                     ui.borrower -> "${ui.hostName} · ${stringResource(R.string.lend_lent_by, ui.lender)}"
                     else -> "${ui.hostName} · ${profileLabel(ui.profile)}"
                 },
             )
             when {
+                ui.console != null -> ConsoleTiles(ui, ui.console, first)
                 ui.guest -> GuestTiles(ui, role, first, audio)
                 ui.borrower -> BorrowerTiles(ui, first, audio)
                 else -> TvTiles(ui, first, audio)
@@ -996,16 +1014,20 @@ private fun Stats(ui: SessionUi, modifier: Modifier) {
     fun f(v: Double?) = v?.let { String.format(locale, "%.1f", it) } ?: "—"
     Column(modifier.panel(18.dp).padding(s.dp(16f)).widthIn(max = s.dp(340f)), verticalArrangement = Arrangement.spacedBy(s.dp(5f))) {
         Eyebrow(stringResource(R.string.session_stats))
-        Mono("${stringResource(R.string.stats_latency)} ${f(sec?.latencyMs)} ms", color = Kn.frost)
+        // Une console : ce qui est demandé, ce qui arrive, les images perdues et réparées.
+        ui.console?.let { ConsoleStatsLines(it) }
+        if (ui.console == null) Mono("${stringResource(R.string.stats_latency)} ${f(sec?.latencyMs)} ms", color = Kn.frost)
         sec?.chain?.let { c ->
             val names = listOf(R.string.stats_capture, R.string.stats_encode, R.string.stats_send, R.string.stats_network, R.string.stats_decode, R.string.stats_display)
             names.forEachIndexed { i, n -> Mono("  ${stringResource(n)} ${f(c[i])} ms", size = 11f) }
         }
-        Mono("${stringResource(R.string.stats_rtt)} ${f(sec?.rttMs)} ms", size = 11f)
+        if (ui.console == null) Mono("${stringResource(R.string.stats_rtt)} ${f(sec?.rttMs)} ms", size = 11f)
         // « Chemin : Direct », « Chemin : Par le relais », « Chemin : Par le relais (TCP) ».
         route?.let { Mono(stringResource(R.string.stats_path, routeLabel(it.transport)), size = 11f) }
-        Mono(stringResource(R.string.session_fps, sec?.fps ?: 0) + " · " + fmt("%.1f Mbit/s", sec?.mbps ?: 0.0), size = 11f)
-        Mono(stringResource(R.string.stats_losses, sec?.lostFrames ?: 0, sec?.holes ?: 0, sec?.lostPackets ?: 0), size = 11f)
+        if (ui.console == null) {
+            Mono(stringResource(R.string.session_fps, sec?.fps ?: 0) + " · " + fmt("%.1f Mbit/s", sec?.mbps ?: 0.0), size = 11f)
+            Mono(stringResource(R.string.stats_losses, sec?.lostFrames ?: 0, sec?.holes ?: 0, sec?.lostPackets ?: 0), size = 11f)
+        }
         video?.let { (w, h) -> Mono("$w × $h · ${decoder ?: ""}", size = 11f) }
         audio?.let { (c, ms) -> Mono(stringResource(R.string.session_sound_detail, c, ms), size = 11f) }
         if (!ui.tv) GlassButton(stringResource(R.string.session_close), { ui.statsOpen = false })

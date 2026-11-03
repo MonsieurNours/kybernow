@@ -234,7 +234,7 @@ build_target() {
     started=$(date +%s)
     (cd "$APPS" && cargo_quiet cargo "$COMMAND" -p kybernow-android --lib "${flags[@]}" --target "$target")
     [ "$COMMAND" = build ] || { echo "    $target vérifiée ($(( $(date +%s) - started )) s)"; return 0; }
-    lib="$APPS/target/$target/$PROFILE/libkybernow.so"
+    lib="${CARGO_TARGET_DIR:-$APPS/target}/$target/$PROFILE/libkybernow.so"
     [ -f "$lib" ] || { echo "$lib absent" >&2; exit 1; }
     abi="$(abi_of "$target")"
     mkdir -p "$JNILIBS/$abi"

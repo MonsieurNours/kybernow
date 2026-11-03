@@ -1,0 +1,8 @@
+# Puces ARM (Mac Apple Silicon, iPhone, iPad, Apple TV, Windows ARM, Linux
+# ARM) : `aes` et `polyval` n'utilisent les instructions AES et PMULL de la
+# puce que sur demande. Sans elles, vérifier et déchiffrer un paquet d'une
+# console PlayStation prenait 22 µs (M4 Max), un cinquième d'un cœur à
+# 100 Mbit/s, et le fil de réception prenait du retard pendant les rafales.
+# Une variable RUSTFLAGS (scripts Linux et webOS) remplace ce réglage.
+[target.'cfg(target_arch = "aarch64")']
+rustflags = ["--cfg", "aes_armv8", "--cfg", "polyval_armv8"]

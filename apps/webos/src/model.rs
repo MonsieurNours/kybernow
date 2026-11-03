@@ -343,8 +343,10 @@ pub struct Store {
     pub hosts: Vec<Host>,
     /// KyberNow Share : les ordinateurs empruntés (comptes d'amis), à part des ordinateurs appairés.
     pub borrowed: Vec<Borrowed>,
-    /// Dernier ordinateur choisi sur l'accueil (appairé, ou emprunté : `lend:…`).
+    /// Dernier ordinateur choisi sur l'accueil (appairé, emprunté : `lend:…`, ou console : `ps:<host_id>`).
     pub selected: Option<String>,
+    /// Consoles PlayStation : comptes PSN, consoles associées et leurs réglages (docs/playstation.md).
+    pub playstation: PsStore,
     pub app: AppSettings,
     #[serde(skip)]
     path: Option<PathBuf>,
@@ -450,6 +452,7 @@ impl Store {
     pub fn remove(&mut self, id: &str) {
         self.hosts.retain(|h| h.id != id);
         self.borrowed.retain(|b| b.id != id);
+        self.playstation.consoles.retain(|c| c.key() != id);
         if self.selected.as_deref() == Some(id) {
             self.selected = None;
         }
@@ -493,4 +496,221 @@ pub fn pair_code() -> String {
 
 pub fn now_secs() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}
+
+// MARK: - Consoles PlayStation (docs/playstation.md, textes : docs/link-ui.md, « Consoles PlayStation »)
+
+/// Les consoles PlayStation de ce téléviseur : les comptes PSN et les consoles associées, gardés dans
+/// `kybernow.json` comme les comptes des ordinateurs (webOS ne donne pas de trousseau à une app en mode
+/// développeur ; le dossier de l'app n'est lisible qu'en ssh sur le téléviseur).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
+#[serde(default)]
+pub struct PsStore {
+    pub accounts: Vec<PsAccount>,
+    pub consoles: Vec<PsConsole>,
+}
+
+/// Un compte PlayStation Network : son identifiant (base64, `PsnId` du cœur) et son nom (le pseudo reçu d'un
+/// autre appareil, ou le nom saisi à la main ; `None` : « Compte PlayStation »).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(default)]
+pub struct PsAccount {
+    /// Un UUID propre à ce téléviseur.
+    pub id: String,
+    pub name: Option<String>,
+    pub psn_id: String,
+}
+
+impl PsAccount {
+    /// Le nom montré : le pseudo, sinon « Compte PlayStation ».
+    pub fn label(&self) -> String {
+        match self.name.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
+            Some(n) => n.to_string(),
+            None => crate::i18n::tr("Compte PlayStation", "PlayStation account").to_string(),
+        }
+    }
+}
+
+/// Une console associée (au moins un compte) ou retenue (adresse saisie, reçue d'un autre appareil).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
+#[serde(default)]
+pub struct PsConsole {
+    /// Le `host_id` de la découverte, en majuscules (le `mac` de l'association).
+    pub host_id: String,
+    pub name: String,
+    /// « PS5 » ou « PS4 ».
+    pub model: String,
+    /// Pour associer de nouveau (`TargetName` du cœur, ex. `ps5_v1`) ; vide : lu à la découverte.
+    pub target: String,
+    /// Adresses retenues (la dernière trouvée d'abord) : cherchées en direct en plus du réseau local.
+    pub addresses: Vec<String>,
+    /// Les Stations (identifiants `Host::id` de ce téléviseur) qui voient la console (`GET /api/consoles`) : de quoi
+    /// la joindre hors de chez soi par le relais.
+    pub stations: Vec<String>,
+    /// Les associations, par compte (`PsAccount::id`) : le `Registered` du cœur, tel quel (JSON stable).
+    pub pairings: std::collections::BTreeMap<String, serde_json::Value>,
+    /// Le compte choisi à l'accueil (la puce « {pseudo} »), parmi ceux associés.
+    pub account: Option<String>,
+    /// La puce « HDR » de l'accueil (PS5, écran HDR) : allumée la première fois.
+    #[serde(default = "yes")]
+    pub hdr: bool,
+    pub settings: PsSettings,
+}
+
+impl PsConsole {
+    /// La clé de la console dans `Store::selected`.
+    pub fn key(&self) -> String {
+        format!("ps:{}", self.host_id)
+    }
+
+    pub fn ps5(&self) -> bool {
+        !self.model.eq_ignore_ascii_case("PS4")
+    }
+
+    /// Les comptes associés, dans l'ordre des comptes du téléviseur.
+    pub fn paired_accounts<'a>(&self, accounts: &'a [PsAccount]) -> Vec<&'a PsAccount> {
+        accounts.iter().filter(|a| self.pairings.contains_key(&a.id)).collect()
+    }
+
+    /// Le compte qui ouvre la partie : celui choisi, sinon le premier associé.
+    pub fn play_account<'a>(&self, accounts: &'a [PsAccount]) -> Option<&'a PsAccount> {
+        let paired = self.paired_accounts(accounts);
+        self.account.as_ref().and_then(|id| paired.iter().find(|a| &a.id == id).copied()).or_else(|| paired.first().copied())
+    }
+}
+
+/// Réglages d'une console : le JSON de `PlaySettings` du cœur (`apps/core/src/playstation/settings.rs`), recopié
+/// pour l'interface seule (sans le cœur) ; mêmes noms, mêmes valeurs par défaut. Le plein écran et
+/// l'agrandissement (Apple) n'ont pas de sens sur le téléviseur : gardés tels quels pour les autres appareils.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PsSettings {
+    /// `auto`, `p1080`, `p720`, `p540`, `p360`.
+    #[serde(default = "auto")]
+    pub resolution: String,
+    #[serde(default = "sixty")]
+    pub fps: u32,
+    /// kbit/s ; absent : Auto (suit la définition).
+    #[serde(default)]
+    pub bitrate_kbps: Option<u32>,
+    /// `auto`, `h264`, `h265`.
+    #[serde(default = "auto")]
+    pub codec: String,
+    #[serde(default)]
+    pub hdr: bool,
+    #[serde(default = "yes")]
+    pub fullscreen: bool,
+    #[serde(default = "yes")]
+    pub upscale: bool,
+    #[serde(default = "sharpness")]
+    pub sharpness: u8,
+    #[serde(default = "hundred")]
+    pub rumble: u8,
+    #[serde(default = "hundred")]
+    pub triggers: u8,
+}
+
+fn auto() -> String {
+    "auto".into()
+}
+fn sixty() -> u32 {
+    60
+}
+fn sharpness() -> u8 {
+    40
+}
+fn hundred() -> u8 {
+    100
+}
+
+impl Default for PsSettings {
+    fn default() -> Self {
+        Self { resolution: auto(), fps: 60, bitrate_kbps: None, codec: auto(), hdr: false, fullscreen: true, upscale: true, sharpness: 40, rumble: 100, triggers: 100 }
+    }
+}
+
+impl PsSettings {
+    /// « Personnalisé » à l'accueil : définition, images par seconde, débit ou format s'écartent d'Auto (règle du cœur,
+    /// `PlaySettings::is_custom`).
+    pub fn is_custom(&self) -> bool {
+        self.resolution != "auto" || self.fps != 60 || self.bitrate_kbps.is_some() || self.codec != "auto"
+    }
+}
+
+impl PsStore {
+    pub fn console(&self, host_id: &str) -> Option<&PsConsole> {
+        self.consoles.iter().find(|c| c.host_id.eq_ignore_ascii_case(host_id))
+    }
+
+    pub fn console_mut(&mut self, host_id: &str) -> Option<&mut PsConsole> {
+        self.consoles.iter_mut().find(|c| c.host_id.eq_ignore_ascii_case(host_id))
+    }
+
+    pub fn account(&self, id: &str) -> Option<&PsAccount> {
+        self.accounts.iter().find(|a| a.id == id)
+    }
+
+    /// Ajoute un compte, ou met à jour celui de même identifiant PSN (son nom, s'il en a un) : rend son `id` et s'il
+    /// était déjà là (« Ce compte est déjà là. »).
+    pub fn put_account(&mut self, psn_id: &str, name: Option<String>) -> (String, bool) {
+        let name = name.map(|n| n.trim().to_string()).filter(|n| !n.is_empty());
+        if let Some(a) = self.accounts.iter_mut().find(|a| a.psn_id == psn_id) {
+            if name.is_some() {
+                a.name = name;
+            }
+            return (a.id.clone(), true);
+        }
+        let id = new_id();
+        self.accounts.push(PsAccount { id: id.clone(), name, psn_id: psn_id.to_string() });
+        (id, false)
+    }
+
+    /// Retire un compte et ses associations ; une console sans plus aucune association est retirée aussi (sauf une
+    /// console retenue par son adresse, qu'on peut associer de nouveau). Rend le nombre de consoles touchées.
+    pub fn remove_account(&mut self, id: &str) -> usize {
+        self.accounts.retain(|a| a.id != id);
+        let mut n = 0;
+        for c in &mut self.consoles {
+            if c.pairings.remove(id).is_some() {
+                n += 1;
+            }
+            if c.account.as_deref() == Some(id) {
+                c.account = None;
+            }
+        }
+        self.consoles.retain(|c| !c.pairings.is_empty() || !c.addresses.is_empty());
+        n
+    }
+
+    /// Les consoles associées avec ce compte.
+    pub fn consoles_of(&self, account: &str) -> usize {
+        self.consoles.iter().filter(|c| c.pairings.contains_key(account)).count()
+    }
+
+    /// Ajoute une console ou met à jour celle de même `host_id` (nom, modèle, cible, adresse en tête).
+    pub fn put_console(&mut self, host_id: &str, name: &str, model: &str, target: &str, address: Option<&str>) -> &mut PsConsole {
+        let host_id = host_id.to_ascii_uppercase();
+        let i = match self.consoles.iter().position(|c| c.host_id.eq_ignore_ascii_case(&host_id)) {
+            Some(i) => i,
+            None => {
+                self.consoles.push(PsConsole { host_id: host_id.clone(), hdr: true, ..Default::default() });
+                self.consoles.len() - 1
+            }
+        };
+        let c = &mut self.consoles[i];
+        if !name.is_empty() {
+            c.name = name.to_string();
+        }
+        if !model.is_empty() {
+            c.model = model.to_ascii_uppercase();
+        }
+        if !target.is_empty() {
+            c.target = target.to_string();
+        }
+        if let Some(a) = address.filter(|a| !a.is_empty() && *a != "127.0.0.1") {
+            c.addresses.retain(|x| x != a);
+            c.addresses.insert(0, a.to_string());
+            c.addresses.truncate(4);
+        }
+        c
+    }
 }

@@ -53,6 +53,9 @@ The connection screen shows the steps, nothing else:
 | 3 | « Premières images » | “First frames” |
 | Failure | « La connexion a échoué », then the reason in one sentence | “The connection failed”, then the reason |
 | Button | « Annuler » | “Cancel” |
+| Computer not answering | « La connexion a échoué : l'ordinateur ne répond pas (rien en {secondes} s) : vérifiez qu'il est allumé et que KyberNow Station tourne, puis réessayez » | “The connection failed: the computer is not responding (nothing in {seconds} s): check that it is on and that KyberNow Station is running, then try again” |
+
+A connection never waits forever: each set-up call (Admin, relay) has its own timeout, and a computer that does not answer ends with “The connection failed”, with the reason above. “Cancel” stops the connection right away, at any step, without waiting for the computer's answer; the connection screen closes at once, even if the session no longer answers.
 
 If Admin answers but the picture does not arrive despite the session's own repairs (keyframe, restart, lower bitrate, 4:2:0), or the connection to the streaming engine fails, the app restarts the Station, once, without ending another device's session, waits for it to come back (1 min 30 at most) and tries to connect once more. The connection screen says so: « La Station redémarre… » / “The Station is restarting…”, then resumes its steps. If the picture still does not come: “The connection failed”, and the reason.
 
@@ -60,11 +63,56 @@ From the first frame, the picture alone. No arrival capsule, no bar that shows t
 
 **Several displays** (Mac, Windows and Linux apps, see [multi-ecrans.en.md](multi-ecrans.en.md)): the connection screen shows on the device's main display; the others show its background (its colour, without the home screen photo), with no text; each display switches to its picture at its first frame. If the connection fails, the message is on the main display and the other windows close. A display the computer could not create keeps that background, with a single line: « L'ordinateur n'a pas pu créer cet écran. » / “The computer could not create this display.” When the device's displays change during the session, or a profile picked during the session changes their number, the connection starts again at its first step on the main display; if the computer then refuses the new displays, the session ends with the reason, like a failed connection. A display created but left without a picture (never announced, or its encoder did not open) shows the same line as a display not created. With a Station that handles only one display, the other displays' windows do not open, with no message. A single session bar, on the display the pointer is on; the window it opens in becomes the active window; its commands apply to the whole session. The “Displays” setting changed in Settings during a session applies to the next session; the profile picked in the bar or the icon's menu applies at once. “Full screen” is not offered (bar, menu, shortcut): the windows stay full screen; to work in a window, choose “This display”. Every window has the same title.
 
-**Several computers** (Mac, Windows and Linux apps in Desktop mode, see [plusieurs-ordinateurs.en.md](plusieurs-ordinateurs.en.md)): during a session, the bar has a « Ordinateurs » / “Computers” menu, presented like the other menus of the app's bar (a computer icon; alone where the bar shows its menus as icons, like “Keys” on Windows and Linux; with its label on the Mac, the icon alone in a narrow bar) and absent when you have no other computer: your other computers, in the home screen's order, with their colour dot and state as in the icon's menu (“{name} — Online”…); a click on an online computer opens its session, on an offline computer wakes it (“Wake the computer”, like the home screen); those already in a session are checked and offer « Afficher » / “Show”. The first session opens as usual; each further session opens in a window on top, on the active window's display, centred, two thirds of that display, with a single display, and its connection shows in that window. Each window bears its computer's name. The session of the foreground window gets the keyboard, the mouse, the controllers, the clipboard and the sound; the others keep their picture, without sound. With at least two sessions open, the bar's sound chip becomes a button, accessible label « Garder le son » / “Keep sound” (a speaker icon, lit when the session stays audible even when not active; off by default, for the current session); with a single session, it stays as before. « Ordinateur suivant » / “Next computer” shortcut: ⌃⌥⌘O on the Mac, Ctrl+Alt+Shift+O on Windows and Linux, to the next computer's window in opening order. “Connect” on a computer already in a session brings its window to the front. Four computers at most: beyond that, “Connect” is inactive, help « Quatre ordinateurs au plus en même temps. » / “Four computers at most at the same time.” The click that brings a session window to the front also goes to its computer, as with a single session. A session that stops without “Disconnect” (another device, Admin, an error) while others go on always gives its notification, even with the app in front and even if it was the active session, except when its message stays shown in its window (a failed connection, with “Close”): no duplicate (Linux, without notifications: the message stays in its window until “Close”). If a further session's connection fails, the message stays in its window with a single button, « Fermer » / “Close”, which closes that window (instead of going back to the home screen: the other sessions go on). Closing a window or “Disconnect” only ends its own session; quitting the app ends them all.
+**Several computers** (Mac, Windows and Linux apps in Desktop mode, see [plusieurs-ordinateurs.en.md](plusieurs-ordinateurs.en.md)): during a session, the bar has a « Ordinateurs » / “Computers” menu, presented like the other menus of the app's bar (a computer icon; with its label on the Mac and Windows, the icon alone in a narrow bar; alone on Linux, whose bar shows its menus as icons) and absent when you have no other computer: your other computers, in the home screen's order, with their colour dot and state as in the icon's menu (“{name} — Online”…); a click on an online computer opens its session, on an offline computer wakes it (“Wake the computer”, like the home screen); those already in a session are checked and offer « Afficher » / “Show”. The first session opens as usual; each further session opens in a window on top, on the active window's display, centred, two thirds of that display, with a single display, and its connection shows in that window. Each window bears its computer's name. The session of the foreground window gets the keyboard, the mouse, the controllers, the clipboard and the sound; the others keep their picture, without sound. With at least two sessions open, the bar's sound chip becomes a button, accessible label « Garder le son » / “Keep sound” (a speaker icon, lit when the session stays audible even when not active; off by default, for the current session); with a single session, it stays as before. « Ordinateur suivant » / “Next computer” shortcut: ⌃⌥⌘O on the Mac, Ctrl+Alt+Shift+O on Windows and Linux, to the next computer's window in opening order. “Connect” on a computer already in a session brings its window to the front. Four computers at most: beyond that, “Connect” is inactive, help « Quatre ordinateurs au plus en même temps. » / “Four computers at most at the same time.” The click that brings a session window to the front also goes to its computer, as with a single session. A session that stops without “Disconnect” (another device, Admin, an error) while others go on always gives its notification, even with the app in front and even if it was the active session, except when its message stays shown in its window (a failed connection, with “Close”): no duplicate (Linux, without notifications: the message stays in its window until “Close”). If a further session's connection fails, the message stays in its window with a single button, « Fermer » / “Close”, which closes that window (instead of going back to the home screen: the other sessions go on). Closing a window or “Disconnect” only ends its own session; quitting the app ends them all.
 
 During a session: « Se déconnecter » / “Disconnect” (bar, menu, shortcut), « Statistiques » / “Statistics” for live measurements, « Touches » / “Keys”, « Plein écran » / “Full screen”, « Clavier » / “Keyboard”, « Ordinateurs » / “Computers” and « Garder le son » / “Keep sound” (several computers, below).
 
 **Session bar from the pointer** (Mac and Windows apps, Linux app in Desktop mode, web client): it opens when the pointer stays a quarter of a second against the top edge of the picture (2 points at most), in a centred zone as wide as the bar, and only if the app is in the foreground, the pointer is on the session window and the mouse is in desktop mode. Passing quickly does not open it; nor does a pointer on another display or another app, or a mouse button held down (a window on the computer dragged to the top). With the game mouse, the pointer is captured: the bar comes through the app's other means (the icon's menu, the controller). A short line (220 points), centred at the top of the picture, marks the spot, only when the gesture is possible (app in the foreground, desktop mouse, bar closed); the web client also makes it tappable. The bar closes 0.4 s after the pointer has left it, never while one of its menus is open. With several displays, it opens on the display where the gesture happens.
+
+**Session bar** (Mac and Windows apps: same bar, same order, same words, same icons; model: the Mac app's `SessionChrome`). A dark capsule centred at the top of the picture; its menus and panels open below it. Menus are chips: icon, label, ▾ when they open a menu. From left to right, for the host:
+
+| Item | French | English | Icon |
+|---|---|---|---|
+| Computer | the KyberNow Link symbol, lit, and the computer's name | | |
+| Other computers (absent without another computer) | « Ordinateurs » ▾ (see “Several computers”) | “Computers” | computer tower |
+| Sharing | « Partager », its pills inside the button: « 2 invités », « 1 demande » (see “Sharing”) | “Share”, “2 guests”, “1 request” | share (three linked dots) |
+| Lending | « Prêter l'ordinateur… », its « 1 demande » pill inside the button (see “Lending the computer”) | “Lend the computer…” | key |
+| Relay (only via the relay) | « Par le relais » | “Via the relay” | globe |
+| *divider* | | | |
+| Measurements (a button: it opens “Statistics”) | « 12,4 ms » lit and the curve of the last seconds, then the format: « 2560 × 1440 · 120 Hz · HEVC » (resolution and refresh rate of the session's display, the format; several displays: « 3 écrans · » first; Mac: « 4:4:4 » or « 4:2:0 » after the format); before the first latency, « 60 i/s » | “12.4 ms”; “2560 × 1440 · 120 Hz · HEVC”; “60 fps” | |
+| *divider* | | | |
+| Profile | the profile's name ▾: « Jeu », « Bureau », « Max », the computer's one ticked; « Personnalisé » when the settings differ; tooltip « Profil : Jeu, Bureau ou Max » | “Game”, “Desktop”, “Max”, “Custom”; “Profile: Game, Desktop or Max” | controller (Game), text (Desktop), lightning (Max), sliders (Custom) |
+| HDR (HDR screen only, see “HDR”) | « HDR », on or off | | sparkle |
+| Sound | « Stéréo », « 5.1 », « 7.1 » (the session's channels), « Son coupé » when sound is off in the settings; from two sessions, the pill becomes the « Garder le son » button | “Stereo”, “5.1”, “7.1”, “Sound off”; “Keep sound” | speaker (struck through: sound off) |
+| Mouse | the current mode ▾: « Souris du bureau » or « Souris des jeux » (in Auto too); menu: « Auto », « Souris du bureau », « Souris des jeux », the computer's setting ticked; picking one applies it at once and keeps it for this computer, like the icon's menu; tooltip « Souris : Auto passe en souris des jeux quand un jeu est en plein écran sur l'ordinateur ({raccourci} bascule) » | “Desktop mouse”, “Game mouse”, “Auto”; “Mouse: Auto switches to the game mouse when a game is full screen on the computer ({shortcut} switches)” | pointer; crosshair in game mouse |
+| Keys (Windows and Linux only) | « Touches » ▾: « Ctrl + Alt + Suppr », « Touche ⊞ seule », « Alt + Tab », « Impr. écran »; with a Mac Station, its equivalents (see “With a Mac Station”) | “Keys” | keyboard |
+| Clipboard (a pill, no action) | « Presse-papiers », dimmed when not shared; tooltip « Presse-papiers partagé avec l'ordinateur (texte) » or « Presse-papiers non partagé (Réglages) » | “Clipboard”; “Clipboard shared with the computer (text)”, “Clipboard not shared (Settings)” | clipboard |
+| Computer's display (Mac only: without a virtual display, with several displays on the computer) | « Écran 1 » ▾: « Écran 1 · 2560 × 1440 »…; then, when the Mac's display changes, « Adapter à 2560 × 1440 », and « Remettre 2560 × 1440 » when the computer changed resolution | | display |
+| *divider* | | | |
+| Full screen (absent with several displays) | icon only; tooltip « Plein écran ({raccourci}) » | “Full screen ({shortcut})” | four corners |
+| End | « Se déconnecter », in red; tooltip « Se déconnecter ({raccourci}) » | “Disconnect ({shortcut})” | power |
+
+Shortcuts: ⌃⌥⌘ + letter on the Mac, Ctrl+Alt+Shift + letter on Windows and Linux: D disconnect, F full screen, M mouse, O next computer, S statistics.
+
+**Narrow bar** (an extra session, in a window two thirds of the screen): when the bar does not fit in the window's width, its chips lose their text (icon only; accessible label and tooltip kept), except the profile and “HDR”; pills shrink to the number (“2”); the measurements' format disappears. Never a clipped button.
+
+**Guest of a share** (reduced bar, see “Sharing”): the symbol and « Invité sur {nom} » / “Guest on {name}”; their role as a chip (« Spectateur », eye icon; « Joueur », controller icon; keyboard and mouse only: keyboard icon); « Par le relais »; the measurements | sound; « Qualité de l'image » (display icon, the received quality ▾); with the keyboard and mouse: the mouse and « Touches » (Windows, Linux) | full screen; « Quitter le partage » (power, in red).
+
+**Friend borrowing** (reduced bar, see “Lending the computer”): the symbol, « Prêté par {hôte} » and the time left (« Encore 1 h 20 », amber during the notice) | « Par le relais »; the measurements | « HDR »; sound; the mouse; « Touches » (Windows, Linux) | full screen; « Se déconnecter » (power, low-key: one can come back); « Rendre l'ordinateur » (key, in red, confirmation « Rendre l'ordinateur à {hôte} ? »).
+
+**Statistics** (a click on the measurements, the S shortcut, or « Statistiques » in the icon's menu; a second click or the cross closes them): title « Statistiques », the latency in large type and « de la capture à votre écran » (“from capture to your screen”), the shortcut, a « Fermer les statistiques » cross (“Close statistics”); then the path of a frame (see “Statistics”); « Latence » and « Débit » over the last 30 seconds (“Latency”, “Bitrate”), with the « 1 image » mark (“1 frame”); « Pertes · 30 s » (“Losses · 30 s”): « Images perdues », « Paquets perdus », « Images clés » (“Lost frames”, “Lost packets”, “Keyframes”), on the Mac also « Remplacées », and « Session : 12 images, 40 paquets » (“Session: 12 frames, 40 packets”); finally « Chemin » (« Direct », « Par le relais »), « Réseau » (« aller-retour 2,1 ms » / “round trip 2.1 ms”), « Image » (resolution, the format as the device decodes it, frames per second: « 2560 × 1440 · HEVC · matériel · 120 i/s »), « Mesures » (« 98 % des images » / “98% of frames”) and « Son » (« tampon 20 ms · sortie 12 ms » / “buffer 20 ms · output 12 ms”). Before the first frame: « Les statistiques s'affichent dès que l'image arrive. » / “Statistics appear as soon as the picture arrives.” On the Mac, the panel is at the bottom right of the picture and stays open with the bar closed, letting clicks and moves through; on Windows, the bar being a window of its own, it hangs below the measurements and the bar stays open as long as it is (a click on the picture closes them).
+
+**With a Mac Station** (KyberNow Station for Mac, see `docs/station-macos.en.md`, on the Mac Station's branch): the app knows it from the system the Station gives (`os` in `GET /api/stream/info`, “macOS 26.1”: it starts with “macOS”), kept for each computer; the rule lives in the core (`keymap::station_is_mac`). A PC keyboard reaches the Mac with the ⊞ key as ⌘ (the Mac's kynput translates the Windows key set). Two things change:
+
+| Item | French | English |
+|---|---|---|
+| The bar's “Keys” menu (Windows, Linux) | « ⌘ ⇥ » (changer d'app), « ⌘ Espace » (Spotlight), « ⌃ ⌘ Q » (verrouiller), « ⇧ ⌘ 5 » (capture), « ⌥ ⌘ Échap » (forcer à quitter); these keys go as they are, without the swap below | “⌘ ⇥” (switch app), “⌘ Space” (Spotlight), “⌃ ⌘ Q” (lock), “⇧ ⌘ 5” (screenshot), “⌥ ⌘ Esc” (force quit) |
+| Setting, Controls section, only with a Mac Station | « Ctrl agit comme ⌘ », on by default, kept for each computer; help « Copier, coller et les autres raccourcis du Mac avec Ctrl, comme sur un PC. La touche ⊞ devient ⌃. » | “Ctrl acts as ⌘”; “Copy, paste and the Mac's other shortcuts with Ctrl, as on a PC. The ⊞ key becomes ⌃.” |
+| “Keyboard” help in the settings (Windows) | « Face à un Mac, la touche ⊞ est ⌘, et Ctrl agit comme ⌘ si l'option est allumée (⊞ devient alors ⌃). ⌃⌘Q et ⌥⌘Échap passent par le menu Touches de la barre de session. » | “With a Mac, the ⊞ key is ⌘, and Ctrl acts as ⌘ when the option is on (⊞ then becomes ⌃). ⌃⌘Q and ⌥⌘Esc go through the Keys menu of the session bar.” |
+
+“Ctrl acts as ⌘” swaps the two keys, left and right: Ctrl goes as ⌘ and ⊞ as ⌃ (as macOS does when you swap a PC keyboard's keys). The core does the swap (`InputPipeline::set_control_as_command`, `keymap::control_as_command`, on by default with a Mac), on typed keys only; a key held while the setting changes is released as it went. A change in session applies at once. The app's shortcuts (⌃⌥⌘ / Ctrl+Alt+Shift + letter) do not change. With a PC, none of this appears. A share guest or a friend borrowing, whose app does not know the computer's system, keeps a PC's menu and no swap. The Windows app follows these rules; the other apps in milestone 8 of the Mac Station (Linux, Android, web client: the same option; Apple apps: “⌘ sent as Ctrl” does not apply with a Mac, whose ⌘ is the real key).
+
+**Brief notices** (« Léa demande à rejoindre. », « Vous pouvez jouer à la manette. », « Image allégée pour suivre. »…): a small capsule centred at the top of the picture, without the bar, with its icon, for a few seconds; it does not take the keyboard from the session. A request's capsule can be picked: the bar opens with the « Partager » or « Prêter l'ordinateur… » panel. With the bar open, no capsule: the pills and chips already show it.
 
 With touch (iPhone, iPad, Android outside the TV):
 
@@ -351,6 +399,7 @@ What applies to the whole app (language, iCloud, the app's updates, controller t
 | Son | Sound | Auto; Stéréo / Stereo; 5.1; 7.1; Sur l'ordinateur / On the computer |
 | Manette vue par l'ordinateur | Controller seen by the computer | Xbox 360; Fidèle / As is |
 | Souris | Mouse | Auto; Souris du bureau / Desktop mouse; Souris des jeux / Game mouse |
+| Ctrl agit comme ⌘ | Ctrl acts as ⌘ | only with a Mac Station, on by default (see “With a Mac Station”) |
 | Presse-papiers partagé | Shared clipboard | |
 | Vibrations | Rumble | |
 | Transport de l'image | Picture transport | Rapide / Fast; Fiable / Reliable; help: « Rapide convient au réseau local et au jeu. Fiable renvoie ce qui se perd, au prix d'un peu de délai. » / “Fast suits your home network and gaming. Reliable resends what gets lost, at the cost of a little delay.” |
@@ -431,7 +480,7 @@ From top to bottom. During a session, first (with several computers, for the act
 | Measurements (inactive, updated while the menu is open) | « 12,4 ms · 60 i/s · 80 Mbit/s »: the latency as in the session bar, to the tenth, frames per second and bitrate; “—” for what is not measured yet; before the first frame, the connection step | “12.4 ms · 60 fps · 80 Mbit/s” |
 | Full screen (checked in full screen; absent with several displays) | « Plein écran » | “Full screen” |
 | Mouse | « Souris » ▸ « Auto », « Souris du bureau », « Souris des jeux » (the settings' order), the computer's mode checked; picking a mode applies it at once and keeps it for that computer | “Mouse” ▸ “Auto”, “Desktop mouse”, “Game mouse” |
-| Live measurements | « Statistiques » (Mac: the measurements panel; Windows: the session bar stays shown until the pointer passes over it, a second click hides it) | “Statistics” |
+| Live measurements | « Statistiques » (the session bar's statistics panel; Mac: at the bottom right of the picture; Windows: the session bar shows with it and stays until the pointer passes over it; a second click hides them) | “Statistics” |
 | End | « Se déconnecter » | “Disconnect” |
 
 Then your computers, in the home screen's order: « {nom} — En ligne », « {nom} — Hors ligne », « {nom} — Recherche… » (“{name} — Online”, “Offline”, “Searching…”), each preceded by a small coloured dot: green online, red offline, amber while waking and while the Station restarts or updates, grey while searching (state colours from [brand/v2](../brand/v2/tokens/kybernow.css), `--kn-ok`, `--kn-bad`, `--kn-warn`, `--kn-faint`, in their light or dark version to match the menu); the state's text stays, colour alone is not enough for everyone. Those in a session are checked; their submenu starts with « Afficher » / “Show”, « Garder le son » / “Keep sound” (from two open sessions on, checked when on) and « Se déconnecter » / “Disconnect”. Each one opens a submenu:
@@ -458,7 +507,7 @@ At the bottom:
 | Adding | « Ajouter un ordinateur » (Mac: « Ajouter un ordinateur… ») | “Add a computer” (Mac: “Add a computer…”) |
 | App settings | « Réglages de l'app » (Mac: « Réglages de l'app… ») | “App settings” (Mac: “App settings…”) |
 | App update | Mac: « Rechercher des mises à jour… »; Windows: « Version {v} disponible » when a version is waiting (opens the app settings), otherwise « Rechercher des mises à jour » (opens the app settings and starts the check) | “Check for updates…”; “Version {v} available”; “Check for updates” |
-| Quit | « Quitter KyberNow Link »; the sessions in progress end first | “Quit KyberNow Link” |
+| Quit | « Quitter KyberNow Link »; the sessions in progress end first, a few seconds at most (5 s on Windows): then the app closes anyway | “Quit KyberNow Link” |
 
 ### Window and startup
 
@@ -482,6 +531,169 @@ System notifications, only when the app is not in the foreground (for the end of
 | End of a restart or update started from the menu, or a refusal | the computer's name | the Station section's texts (“The Station has restarted.”, “KyberNow Station {v} is installed.”, “The Station is taking a while to come back…”, “The update did not complete…”, “The Station has just restarted…”, Station too old) | |
 
 A click on the notification opens the app on what it announces (the home screen on that computer, or its Station section).
+
+## PlayStation consoles
+
+Contract: [playstation.en.md](playstation.en.md). Consoles appear on the home screen with the computers, in the same row, with their own texts; the session keeps the bar, statistics and shortcuts of a computer session.
+
+For the chosen console, in this order:
+
+| Item | French | English |
+|---|---|---|
+| État | « Allumée », « En veille », « Hors ligne », « Recherche… » | “On”, “In rest mode”, “Offline”, “Searching…” |
+| Nom | le nom de la console | |
+| Modèle | « PS5 », « PS4 » | |
+| Jeu en cours | le nom du jeu, quand la console en annonce un | |
+| Bouton principal, allumée | « Jouer » | “Play” |
+| Bouton principal, en veille | « Réveiller et jouer » ; pendant le réveil : « Réveil de la console… » | “Wake and play”; while waking: “Waking the console…” |
+| Bouton principal, pas encore associée | « Associer » | “Pair” |
+| HDR | la puce « HDR » de la section HDR, mêmes règles | |
+
+In the row: name and state. A console found on the network and not yet paired: “On your network”.
+
+**Accounts and adding a console.** Several PlayStation Network accounts on one device, each with its consoles; one console can be paired with several accounts (one profile per person on the console). Everything is managed in the add window: in the apps that have consoles, the home screen button, the menu and the window title become « Ajouter un ordinateur ou une console » / “Add a computer or a console”, and a “PlayStation” tab comes after “With a friend account”.
+
+| Item | French | English |
+|---|---|---|
+| Tab | « PlayStation » | “PlayStation” |
+| Accounts, title | « Comptes PlayStation Network » | “PlayStation Network accounts” |
+| One row per account | le pseudo PSN ; « {n} console(s) » ou « Aucune console » ; « Renommer », « Retirer » | the PSN online ID (read at the Sony sign-in; typed by hand: the given name); below “{n} console(s)” or “No console”; on the right “Rename” and “Remove” |
+| No account | « Aucun compte : ajoutez-en un pour associer une console. » | “No account: add one to pair a console.” |
+| Add | « Ajouter un compte » | “Add an account”: the Account step below |
+| Already there | « Ce compte est déjà là. » | same ID as a kept account: its online ID is updated, no duplicate; notice “This account is already here.” |
+| Remove | « Retirer le compte {nom} et ses {n} consoles ? », « Ses associations sont effacées de cet appareil. Une console associée aussi avec un autre compte reste, avec cet autre compte. », « Retirer », « Annuler » | confirmation “Remove the account {name} and its {n} consoles?” (one console: “… and its console?”; none: “Remove the account {name}?”), text “Its pairings are erased from this device. A console also paired with another account stays, with that other account.”, buttons “Remove” and “Cancel” |
+| Consoles, title | « Consoles sur ce réseau » ; « Aucune console trouvée. Allumez-la ou mettez-la en veille, ou saisissez son adresse dans « Par adresse ». » | “Consoles on this network”; empty: “No console found. Turn it on or put it in rest mode, or enter its address in “By address”.” |
+| One row per found console | « Associer » ; « Associée : {pseudos} », « Associer avec un autre compte » | name, model, state; not paired: “Pair”; paired: “Paired: {online IDs}” and “Pair with another account” (only if an account not yet paired with it remains) |
+
+Found consoles also appear in “On this network”, with the computers (row “{name} · PS5”, same “Pair” button), and on the home screen (“On your network”).
+
+**By address**: the same field as for a computer, help « L'adresse d'un ordinateur, ou d'une console PlayStation (par un VPN ou depuis un autre réseau). » / “The address of a computer, or of a PlayStation console (through a VPN or from another network).” The app looks for both a Station and a console at that address; a console that answers (on or in rest mode) opens its pairing. Its address is kept: the console is then searched directly at that address, as well as on the local network. The console is looked for first (1.5 s; a Station and a console don't answer at the same address), then the Station as before. Nothing answers: the tab's usual text; an address alone, without an Admin port, that doesn't answer: “Console unreachable.”
+
+**Pairing** (from the tab, “On this network”, “By address” or the home screen card):
+
+| Step | French | English |
+|---|---|---|
+| Account choice (two or more accounts not yet paired with this console) | « Avec quel compte ? », « Ajouter un compte » | “Which account?”, one row per account, and “Add an account”; a single possible account: step skipped; no account: the Account step |
+| Account | « Connectez-vous au compte PlayStation Network à associer. KyberNow lit seulement l'identifiant et le pseudo du compte, une seule fois. » Bouton : « Se connecter à PlayStation Network » ; lien : « Saisir l'identifiant à la main » | “Sign in to the PlayStation Network account to pair. KyberNow only reads the account's ID and online ID, once.” Button: “Sign in to PlayStation Network”; link: “Enter the ID by hand” |
+| By hand | Champs : « Identifiant du compte », « Nom » (« Pour le reconnaître dans la liste. ») ; « Continuer » | Fields: “Account ID” and “Name” (“To recognise it in the list.”); button: “Continue” |
+| ID not read | « Identifiant du compte non lu : réessayez, ou saisissez-le à la main. » | “Couldn't read the account ID: try again, or enter it by hand.” |
+| Code | « Compte : {pseudo} » ; « Sur la console : Réglages › Système › Lecture à distance › Associer un appareil. Saisissez le code affiché. » Champ : « Code à 8 chiffres » ; bouton : « Associer » | above it, “Account: {online ID}”; “On the console: Settings › System › Remote Play › Link Device. Enter the code shown.” Field: “8-digit code”; button: “Pair” |
+| No answer | « La console ne répond pas : gardez l'écran « Associer un appareil » ouvert. » | “The console isn't answering: keep the “Link Device” screen open.” |
+| Code refused | « Code refusé : il change toutes les 5 minutes. » | “Code refused: it changes every 5 minutes.” |
+| Account refused | « La console refuse ce compte. » | “The console refuses this account.” |
+| Unreachable | « Console injoignable. » | “Console unreachable.” |
+
+An account read during a pairing is kept, even if the pairing then fails.
+
+**Several devices** ([playstation.en.md](playstation.en.md#several-devices)):
+
+| Item | French | English |
+|---|---|---|
+| PlayStation tab, below the accounts (device with accounts) | « Envoyer à un appareil » ; « Aucun appareil en attente. Sur la télé ou l'autre appareil : Ajouter une console › Recevoir d'un autre appareil. » | “Send to a device”: the list of network devices waiting for a sending (“{name} · Apple TV”, “{name} · LG”…); empty: “No device waiting. On the TV or the other device: Add a console › Receive from another device.” |
+| Sending, code | « Saisissez le code affiché sur {nom}. », « Code à 6 chiffres », « Envoyer », « Comptes et consoles envoyés à {nom}. », « Code refusé : vérifiez-le sur {nom}. », « {nom} ne répond plus. » | “Enter the code shown on {name}.” Field: “6-digit code”; button: “Send”; done: “Accounts and consoles sent to {name}.”; wrong code: “Code refused: check it on {name}.”; unreachable: “{name} isn't answering any more.” |
+| PlayStation tab (and a TV's first screen without an account) | « Recevoir d'un autre appareil », « Sur votre Mac, votre PC ou votre téléphone : Ajouter un ordinateur ou une console › PlayStation › Envoyer à un appareil, puis saisissez ce code. », « {n} compte(s) et {n} console(s) reçus. », « Code expiré. », « Nouveau code » | “Receive from another device”: a large code (“482 913”), below “On your Mac, PC or phone: Add a computer or a console › PlayStation › Send to a device, then enter this code.”; received: “{n} account(s) and {n} console(s) received.”; after 5 min: “Code expired.” and “New code” |
+| Apple, iCloud on | « Ordinateurs et consoles » | nothing to do: accounts and consoles arrive by themselves, like computers; the iCloud card of the app's Settings says “Computers and consoles” |
+| TV (no browser) | « Recevoir d'un autre appareil », « Saisir l'identifiant à la main » | the Account step offers “Receive from another device” and “Enter the ID by hand” (no Sony sign-in) |
+
+**On the home screen**, one card per console, whatever the number of accounts. Paired with several accounts: a “{online ID}” chip next to the main button opens the account choice (the profile the console opens the game with); kept per console; paired with only one: no chip. The settings stay the console's, for all its accounts. The console no longer recognises an account: that pairing is erased, and “Pair” comes back if it was the last one.
+
+**Linux** (desktop, Steam Deck, living room, Raspberry Pi and KyberNow Link OS; [apps/linux/README.en.md](../apps/linux/README.en.md#playstation-consoles)): the texts above, and what is specific to the Linux app (no web view, no HDR, the connection drawn in steps like a computer's):
+
+| Element | Français | English |
+|---|---|---|
+| Adding, button (under the two other ways) | « PlayStation » | “PlayStation” |
+| Account, desktop: Sony's page is open in the browser | « Se connecter à PlayStation Network » ; « La page de connexion de Sony s'est ouverte dans votre navigateur. Une fois connecté, Sony affiche une page presque vide : copiez son adresse (elle commence par https://remoteplay.dl.playstation.net) et collez-la ici. » ; « Adresse de la page de Sony » ; « Continuer » ; « Rouvrir la page de Sony », « Saisir l'identifiant à la main » | title “Sign in to PlayStation Network”; “Sony's sign-in page opened in your browser. Once signed in, Sony shows an almost empty page: copy its address (it starts with https://remoteplay.dl.playstation.net) and paste it here.”; field “Sony page address”; “Continue”; links “Open Sony's page again”, “Enter the ID by hand” |
+| Account, no browser (Deck, living room, OS) | « Recevez le compte d'un Mac, d'un PC ou d'un téléphone où il est déjà, ou saisissez son identifiant. » | “Receive the account from a Mac, PC or phone that already has it, or enter its ID.” |
+| Tab, under “Receive from another device” | « Les comptes et les consoles déjà associées d'un Mac, d'un PC ou d'un téléphone arrivent ici, sans refaire le code de la console. » | “Accounts and consoles already paired on a Mac, PC or phone come here, without the console's code again.” |
+| By address, a bare address | « Recherche… », « Console injoignable. » | “Searching…”, then “Console unreachable.” if nothing answers |
+| Home, offline | « Réessayer » | “Try again” (one more search, as on Mac) |
+| Connection (a computer's capsule) | « Réveil de la console », « Connexion à la console », « Premières images » ; « Déconnexion… » | steps “Waking the console” (in rest mode), “Connecting to the console”, “First frames”; “Disconnecting…” at the end |
+| Settings, section subtitles | « Ce que la console envoie. Les réglages valent pour la partie suivante. » ; « Le clavier, la souris et la DualSense changent tout de suite pendant une partie. » | “Picture”: “What the console sends. Settings apply to the next game.”; “Controls”: “The keyboard, mouse and DualSense change at once during a game.” |
+| Game menu (controller) | « Reprendre », « Son », « Statistiques », « Manettes », « Réglages », « Veille » (« Mettre la console en veille »), « Par le relais », « Se déconnecter » (« Fin de la partie ») ; « Pendant ce menu, la console reçoit une manette au repos » ; « ouvre ce menu » | tiles “Resume”, “Sound”, “Statistics”, “Controllers”, “Settings” (“Settings for {name}”), “Rest mode” (“Put the console in rest mode”), “Through the relay”, “Disconnect” (“Ends the game”); “While this menu is open, the console gets an idle controller”; legend “Options Create L1 R1 opens this menu” |
+
+Accounts kept from an earlier version (a single account, without an online ID): « Compte PlayStation » / “PlayStation account”, to rename, or updated by signing in again.
+
+**Console settings** (gear next to the main button, accessible label “Settings for {name}”, laid out like a computer's settings):
+
+| Item | French | English |
+|---|---|---|
+| À l'accueil, à côté de la puce HDR | puce « Auto » ou « Personnalisé » (définition, images par seconde, débit ou format changés) ; un clic ouvre les réglages | “Auto” or “Custom” |
+| Section | « Image » | “Picture” |
+| Définition | « Définition » : « Auto », « 1080p », « 720p », « 540p », « 360p » ; aide d'Auto : « La plus haute que la console accepte : 1080p. » | “Resolution”: “Auto”…; “The highest the console accepts: 1080p.” |
+| Images par seconde | « Images par seconde » : « 60 i/s », « 30 i/s » | “Frame rate”: “60 fps”, “30 fps” |
+| Débit | « Débit » : « Auto » (aide : « Suit la définition. ») ou « {n} Mbit/s », de 2 à 100 | “Bitrate”: “Auto” (“Follows the resolution.”) or “{n} Mbit/s” |
+| Format | « Format » : « Auto », « H.264 », « H.265 » ; aide d'Auto : « H.265 si cet appareil le lit. » ; aide de H.264 : « Sans HDR. » ; PS4 : réglage inactif, aide « La PS4 n'envoie que du H.264. » | “Format”: “Auto”, “H.264”, “H.265”; “H.265 if this device can play it.”; “No HDR.”; “The PS4 only sends H.264.” |
+| Plein écran | « Ouvrir la partie en plein écran » (coché la première fois ; retenu aussi quand on quitte ou rejoint le plein écran pendant la partie) | “Open the game in full screen” |
+| Upscaling | « Agrandir l'image à la taille de l'écran », on by default, with the help « La console envoie du 1080p au plus : l'image est agrandie aux pixels de votre écran par la puce graphique du Mac. Coupé de lui-même si ce Mac est trop lent. »; « Netteté », 0 to 100 % in steps of 5 (40 % by default), greyed out when upscaling is off; both apply at once to a game in progress | “Upscale the picture to the screen size”, “The console sends 1080p at most: the Mac's graphics chip upscales the picture to your screen's pixels. Turns itself off if this Mac is too slow.”; “Sharpness” |
+| Section | « Commandes » | “Controls” |
+| Aide de la section | « Le clavier et la souris tiennent lieu de manette. Une manette branchée les remplace. » | “The keyboard and mouse stand in for a controller. A connected controller replaces them.” |
+| Liste | une ligne par action de la manette, dans l'ordre du cœur (`Action::ALL`) : « Stick gauche vers le haut / le bas / la gauche / la droite », « Croix », « Rond », « Carré », « Triangle », « L1 », « R1 », « L2 », « R2 », « L3 », « R3 », « Croix directionnelle vers le haut / le bas / la gauche / la droite », « Options », « Create », « Bouton PS », « Pavé tactile », « Stick droit vers le haut / le bas / la gauche / la droite » ; à droite, ses touches (la lettre du clavier du Mac, ou « Clic gauche », « Clic droit », « Clic du milieu », « Bouton 4 », « Bouton 5 ») et « + » pour en ajouter une ; « Aucune » s'il n'y en a pas | “Left stick up / down / left / right”, “Cross”, “Circle”, “Square”, “Triangle”, …, “D-pad up / down / left / right”, “Options”, “Create”, “PS button”, “Touchpad”, “Right stick up / down / left / right”; “Left click”, “Right click”, “Middle click”, “Button 4”, “Button 5”; “None” |
+| Changer une touche | un clic sur une touche : « Appuyez sur une touche ou cliquez… » (Échap annule, Effacement retire la touche) ; une touche déjà prise ailleurs y est retirée | “Press a key or click…” |
+| Souris | « La souris tient le stick droit » (case) ; « Sensibilité » (de 0,2 à 5, 1 par défaut) ; « Réactivité au départ » (courbe : « Douce », « Normale », « Vive » : 1,2 / 1 / 0,8 ; Vive par défaut) ; « Inclinaison minimale » (0 à 50 %, 20 % par défaut, aide : « Pour passer la zone morte des jeux. ») ; « Inverser l'axe vertical » | “The mouse holds the right stick”; “Sensitivity”; “Starting response”: “Soft”, “Normal”, “Brisk”; “Minimum tilt” (“To get past games' dead zone.”); “Invert vertical axis” |
+| Retour | « Disposition par défaut » | “Default layout” |
+| Controller | « Vibrations » et « Gâchettes adaptatives » ; « Pour la DualSense. Les vibrations HD passent par la manette branchée en USB. » | “Rumble” and “Adaptive triggers”, from 0% (off) to 100% in steps of 10 (100% by default); help: “For the DualSense. HD haptics go through the controller plugged in over USB.”; at once during a game |
+
+Settings apply to the next game; keyboard and mouse changes apply at once during a game.
+
+**The console's keyboard** (the console opens its on-screen keyboard): banner at the bottom of the picture, like the mouse hints: « Tapez votre texte · Entrée pour valider · Échap pour annuler » / “Type your text · Return to accept · Escape to cancel”; the keyboard types into the console's field (text in the keyboard's layout, Backspace; arrows not sent), then the banner goes away when the console closes its keyboard. ⌃⌥⌘ shortcuts stay with the app.
+
+**Complementary texts** (written first for the Windows app; the other apps take them when they have the same element):
+
+| Element | Français | English |
+|---|---|---|
+| Subtitle of the PlayStation tab (add window whose ways to add are listed with a subtitle) | « Comptes PSN et consoles » | “PSN accounts and consoles” |
+| Sony sign-in in its own window (Windows: Sony's page is not inside the sheet) | « Connectez-vous dans la fenêtre de PlayStation Network… » | “Sign in in the PlayStation Network window…” |
+| Removing a console (bottom of its settings) | « Retirer cette console », then « Retirer {nom} de cet appareil ? Vous pourrez l'associer de nouveau. » | “Remove this console”, “Remove {name} from this device? You can pair it again later.” |
+| Accessible labels | account chip: « Compte de la partie : {pseudo} »; an action's “+”: « Ajouter une touche : {action} »; “On your network” card: « Associer {nom} » | “Account for the game: {online ID}”; “Add a key: {action}”; “Pair {name}” |
+| Statistics panel | through the relay, a « Chemin : {chemin} » line; before the picture: « Les statistiques s'affichent dès que l'image arrive. » | “Path: {path}”; “Statistics appear as soon as the picture arrives.” |
+| Bar driven by the controller | banner under the bar: « La manette pilote KyberNow Link · La console ne la reçoit plus », « naviguer », « ✕ choisir », « ○ fermer », « L1 R1 OPTIONS CREATE revenir à la console » | “The controller drives KyberNow Link · The console no longer receives it”, “navigate”, “select”, “close”, “back to the console” |
+| Shortcuts (Windows, Linux) | Ctrl+Alt+Shift+M for the mouse, Ctrl+Alt+Shift+D to disconnect, Ctrl+Alt+Shift+F for full screen; the layout's key names are the system's | |
+
+**Away from home**, a console reached through a Station: “Away from home” state on the home screen, “Via the relay” chip in the bar, “Path” line in the statistics, like a computer ([relais.en.md](relais.en.md#playstation-consoles)). Nothing to set. The main button is “Play” (the exact state is only read by reaching the Station): “Connecting to the console…” while it is reached, then “Waking the console…” if it was in rest mode, then the game. Relay refusals (access turned off, Station off or asleep): the texts of a computer through the relay, with the Station's name; the Station doesn't see the console, or it doesn't wake: “The console isn't answering.”
+
+**Game bar**: the same as a computer session's (same component, same layout), with what makes sense for a console. It opens like the pointer bar (pointer a quarter second against the top edge of the picture, only when the mouse is not captured; same short line at the top of the picture) or with the controller combination Options + Create + L1 + R1 held 250 ms (the same buttons as Start + Select + L1 + R1 in a computer session). Opened by the controller, the controller drives it (D-pad or stick, Cross to select, Circle to go back; Circle or the combination close it) and the console gets an idle controller; keyboard and mouse don't reach the console either while it is open.
+
+| Item | French | English |
+|---|---|---|
+| Nom | le nom de la console | |
+| Statistiques | « Statistiques » : panneau des mesures, une fois par seconde : « 1920 × 1080 · 60 i/s · H.265 · HDR · 15 Mbit/s demandés », « Reçu : 59 i/s · 12,4 Mbit/s », « Images perdues : {n} · réparées : {n} » (depuis le début de la partie) | “Statistics”: “… · 15 Mbit/s requested”, “Received: 59 fps · 12.4 Mbit/s”, “Pictures lost: {n} · repaired: {n}” |
+| Son | « Couper le son » / « Rétablir le son » | “Mute” / “Unmute” |
+| Plein écran | « Plein écran » / « Quitter le plein écran » (retenu pour la console) | “Full screen” / “Exit full screen” |
+| Souris | « Prendre la souris » / « Rendre la souris » (⌃⌥⌘M), absent avec une manette branchée | “Capture the mouse” / “Release the mouse” |
+| Réglages | « Réglages de {nom} » | “Settings for {name}” |
+| Veille | « Mettre la console en veille » (dans la barre, plus dans la barre de titre) | “Put the console in rest mode” |
+| Fin | « Se déconnecter » (⌃⌥⌘D) | “Disconnect” |
+
+No profile, displays, clipboard, sharing or “Computers”.
+
+**Session**:
+
+| Moment | French | English |
+|---|---|---|
+| Connecting | « Connexion », « Premières images », « Annuler » ; « La connexion a échoué », « Fermer » | a computer's connection screen, the same component (section “Connection”): the passage (the home screen opening in two along the seam), the capsule with the steps “Connecting” then “First frames” and “Cancel”; the picture appears 0.9 s after the stream starts; failure before the picture: “The connection failed” and the reason, “Close”; end during a game: the reason alone, “Close”. Play resumed after a drop: the steps over the last picture. « Connexion à la console… » / “Connecting to the console…” stays the main button's text while connecting through the relay |
+| Contenu protégé | « La console ne peut pas diffuser ce qu'elle affiche. » (sur l'image, tant que dure le blocage) | “The console can't stream what it's showing.” |
+| Menu de la session | « Mettre la console en veille » (barre de la partie) | “Put the console in rest mode” (game bar) |
+| Clavier et souris | Tant que la souris n'est pas capturée et qu'aucune manette n'est branchée : « Cliquez dans l'image pour jouer au clavier et à la souris » ; un instant après la capture : « ⌃⌥⌘M pour rendre la souris » (le raccourci de la souris des jeux ; Windows et Linux : Ctrl+Alt+Maj+M) | “Click the picture to play with keyboard and mouse”; “⌃⌥⌘M to release the mouse” |
+| Fin, déjà jouée ailleurs | « La console est déjà jouée à distance par un autre appareil. » | “The console is already being played remotely by another device.” |
+| Fin, plus associée | « La console ne reconnaît plus cet appareil : associez-la de nouveau. » | “The console no longer recognizes this device: pair it again.” |
+| Fin, injoignable | « La console ne répond pas. » | “The console isn't answering.” |
+| Fin, par la console | « La console a terminé la partie. » | “The console ended the session.” |
+
+**iPhone and iPad** (same contract; what the device can't do is absent):
+
+| Element | Français | English |
+|---|---|---|
+| Game | always full screen (no “Open the game in full screen” setting, no “Full screen” in the bar); landscape on iPhone | |
+| Bar | opened by the tab, by swiping down from the top edge or with Options + Create + L1 + R1; in order: « Statistiques », « Couper le son » / « Rétablir le son », « Manette à l'écran », « Réglages » (accessibility label « Réglages de {nom} »), « Mettre la console en veille », then, fixed: « Par le relais » when relevant, hide the bar, « Se déconnecter »; no “Capture the mouse” | “Statistics”, “Mute” / “Unmute”, “On-screen controller”, “Settings”, “Put the console in rest mode”, “Disconnect” |
+| Statistics | the game bar's three lines, as a sheet on iPhone, a panel on iPad; « Chemin : … » through the relay | |
+| On-screen controller | the computer sessions' one (same layouts, same gestures), with PlayStation signs: ✕ ○ □ △, L1, R1, L2, R2; remembered per console; shown, it counts as a connected controller | |
+| Keyboard and mouse (iPad) | turned into a controller as on Mac, no capture to ask for (the iPadOS pointer is hidden over the picture); ⌃⌥⌘D disconnects, ⌃⌥⌘S opens the statistics; the layout is set on iPad only | |
+| Console keyboard | a field at the bottom of the picture, above the keyboard: with a hardware keyboard, the banner « Tapez votre texte · Entrée pour valider · Échap pour annuler »; without, « Tapez votre texte » and the on-screen keyboard (its “OK” key accepts); « Annuler » rejects | “Type your text” |
+| Upscaling, help | « La console envoie du 1080p au plus : l'image est agrandie aux pixels de votre écran par la puce graphique de l'appareil. Coupé de lui-même si cet appareil est trop lent. » | “The console sends 1080p at most: the device's graphics chip upscales the picture to your screen's pixels. Turns itself off if this device is too slow.” |
+| Controller, help | « Pour la DualSense. » (no HD haptics: iOS doesn't expose the controller's sound card; simple rumble) | “For the DualSense.” |
+| iCloud (App settings) | « Ordinateurs et consoles : vos ordinateurs et leurs accès, vos comptes PlayStation et leurs consoles suivent votre Mac et vos autres appareils, sans rien taper. Mots de passe et associations dans le Trousseau iCloud, chiffré de bout en bout. » | “Computers and consoles: your computers and their access, your PlayStation accounts and their consoles follow your Mac and your other devices, without typing anything. Passwords and pairings in iCloud Keychain, end-to-end encrypted.” |
+
+**Apple TV** (and any TV with no keyboard or mouse): the game bar is a computer session's tile menu, opened with Back or Options + Create + L1 + R1; hint when the picture arrives “Back or Options + Create + L1 + R1: menu”; at the bottom of the menu “Back or Options + Create + L1 + R1: close the menu”. Tiles: “Resume”, “Controllers”, “Mute” / “Unmute”, “Settings for {name}”, “Put the console in rest mode”, “Disconnect” (below: “The console stays on”). The statistics at the top of the menu, with an upscaling line (“Upscaled to 3840 × 2160 · 0.9 ms”, or “Upscaling off: Apple TV too slow”). No full screen, no keyboard and mouse. Console settings in three sections: “Picture” (“Picture · the console sends 1080p at most”), “Controls” (summary “Rumble 100 % · triggers 100 %”; help: “For the DualSense. On Apple TV, HD haptics become simple rumble.”) and “Console” (pairings, “Pair with another account”, “Remove this console” with “Remove {name} from this device?”). Upscaling help: “The console sends 1080p at most: the Apple TV's graphics chip upscales the picture to your TV's pixels, in SDR. Turns itself off if this Apple TV is too slow.” (tvOS 27.1 and later). On the home screen, in place of the profiles: the “Auto” or “Custom” chip; the add card: “Add a computer or a console”, “iCloud, network, code, address or PlayStation”; the tab: “PlayStation”, “Accounts, consoles, sending between devices”.
 
 ## Where the texts live
 

@@ -26,8 +26,8 @@ settings:
     SWIFT_VERSION: "5.0"
     LOCALIZATION_PREFERS_STRING_CATALOGS: YES
     SWIFT_EMIT_LOC_STRINGS: YES
-    MARKETING_VERSION: "0.9.2"
-    CURRENT_PROJECT_VERSION: "202611031154"
+    MARKETING_VERSION: "0.9.5"
+    CURRENT_PROJECT_VERSION: "202611032206"
     TARGETED_DEVICE_FAMILY: "1,2"
     DEVELOPMENT_TEAM: P6DB682S4K
     CODE_SIGN_STYLE: Automatic
@@ -46,9 +46,14 @@ targets:
           - MetalSurface.swift
           - RelativeMouse.swift
           - StreamView.swift
+          # Clavier et souris d'une console sur Mac (AppKit) ; iOS :
+          # KyberKitIOS/PlayStationKeyMouse.swift.
+          - PlayStationInput.swift
       - path: ../tvos/KyberKitTV/MetalSurface.swift
       - path: ../tvos/KyberKitTV/KeyboardMouse.swift
       - path: ../tvos/KyberKitTV/GamepadBridge.swift
+      # Les manettes d'une partie sur console, données au cœur (GamepadBridge).
+      - path: ../tvos/KyberKitTV/ConsolePads.swift
       - path: KyberKitIOS
     dependencies:
       # Le cœur Rust, son pont C, libkynput, libopus et les fonctions vides de VLC.
@@ -74,6 +79,13 @@ targets:
       - path: ../macos/KyberNow/LinkUI.swift
       - path: ../macos/KyberNow/Share.swift
       - path: ../macos/KyberNow/Lend.swift
+      # Consoles PlayStation : comptes, consoles, associations, réglages,
+      # textes (le modèle de l'app Mac).
+      - path: ../macos/KyberNow/PlayStation.swift
+      # … sur plusieurs appareils : format partagé et règles d'iCloud, envoi par le réseau.
+      - path: ../macos/KyberNow/PlayStationSync.swift
+      - path: ../macos/KyberNow/PlayStationHandoffModel.swift
+      - path: ../macos/KyberNow/PlayStationCloud.swift
       - path: ../tvos/KyberNowTV/CloudSync.swift
       - path: ../tvos/KyberNowTV/Backdrops.swift
       - path: ../macos/KyberNow/Fonts

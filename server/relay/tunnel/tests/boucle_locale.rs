@@ -86,7 +86,7 @@ async fn quic_flux_messages_et_octets() {
         let conn = Conn::Quic(c);
         let mut s = conn.accept().await.unwrap();
         let open = read_msg(&mut s).await.unwrap().unwrap();
-        assert_eq!(open, Msg::Open { service: Service::AdminTls });
+        assert_eq!(open, Msg::open(Service::AdminTls));
         // Écho jusqu'à la fermeture du côté client (demi-fermeture).
         let mut data = Vec::new();
         s.read_to_end(&mut data).await.unwrap();
@@ -97,7 +97,7 @@ async fn quic_flux_messages_et_octets() {
     let c = connect(&relay(addr.port()), addr, Some(pki.roots.clone()), ALPN_CTL, Kind::Ctl, None).await.unwrap();
     let conn = Conn::Quic(c);
     let mut s = conn.open().await.unwrap();
-    write_msg(&mut s, &Msg::Open { service: Service::AdminTls }).await.unwrap();
+    write_msg(&mut s, &Msg::open(Service::AdminTls)).await.unwrap();
     let big = vec![7u8; 300_000];
     s.write_all(&big).await.unwrap();
     s.shutdown().await.unwrap();

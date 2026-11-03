@@ -19,7 +19,7 @@ use hyper_util::rt::TokioIo;
 use kybernow_relay::config::Config;
 use kybernow_relay::{Relay, start};
 use kybernow_tunnel::station::{Agent, AgentConfig, Incoming};
-use kybernow_tunnel::{RelayAddr, StationIdentity, StreamHeader, StreamKind, id};
+use kybernow_tunnel::{ConsoleTarget, RelayAddr, StationIdentity, StreamHeader, StreamKind, id};
 use rustls::RootCertStore;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName, UnixTime};
@@ -97,9 +97,15 @@ pub struct FakeStation {
     pub identity: Arc<StationIdentity>,
     pub admin_fp: String,
     pub headers: Arc<Mutex<Vec<StreamHeader>>>,
+    /// La cible de chaque flux UDP demandé (`None` : Kyber).
+    pub flow_targets: Arc<Mutex<Vec<Option<ConsoleTarget>>>>,
     pub udp_echo: SocketAddr,
     tasks: Vec<JoinHandle<()>>,
 }
+
+/// La seule console que voit la fausse Station, et ses ports permis.
+pub const CONSOLE: &str = "C0151B2DAE08";
+pub const CONSOLE_PORTS: [u16; 4] = [9295, 9296, 9302, 987];
 
 impl Drop for FakeStation {
     fn drop(&mut self) {
@@ -227,6 +233,8 @@ pub fn fake_station_with(identity: Arc<StationIdentity>, relay: RelayAddr, roots
     };
     let waits = Arc::new(AtomicU32::new(0));
     let seen = headers.clone();
+    let flow_targets = Arc::new(Mutex::new(Vec::new()));
+    let targets = flow_targets.clone();
     let task = tokio::spawn(async move {
         while let Some(ev) = incoming.recv().await {
             match ev {
@@ -245,6 +253,21 @@ pub fn fake_station_with(identity: Arc<StationIdentity>, relay: RelayAddr, roots
                                 let _ = stream.shutdown().await;
                             }
                             StreamKind::KyberTcp => drop(stream),
+                            // Une console : l'écho, précédé de son port, pour la
+                            // console connue et ses ports ; le reste lâché.
+                            StreamKind::ConsoleTcp => {
+                                let Some(c) = header.console().filter(|c| c.host_id == CONSOLE && CONSOLE_PORTS.contains(&c.port)) else {
+                                    return drop(stream);
+                                };
+                                let _ = stream.write_all(format!("{}:", c.port).as_bytes()).await;
+                                let mut buf = vec![0u8; 16 * 1024];
+                                while let Ok(n) = stream.read(&mut buf).await {
+                                    if n == 0 || stream.write_all(&buf[..n]).await.is_err() {
+                                        break;
+                                    }
+                                }
+                                let _ = stream.shutdown().await;
+                            }
                             StreamKind::AdminTls => {
                                 if let Ok(tls) = tls.accept(stream).await {
                                     let svc = service_fn(move |req| fake_admin(req, waits.clone(), policy.clone()));
@@ -259,7 +282,16 @@ pub fn fake_station_with(identity: Arc<StationIdentity>, relay: RelayAddr, roots
                     });
                 }
                 Incoming::Flow(req) => {
-                    if policy.flows {
+                    targets.lock().unwrap().push(req.console.clone());
+                    if let Some(c) = req.console.clone() {
+                        if c.host_id != CONSOLE {
+                            req.refuse("console_unknown");
+                        } else if !CONSOLE_PORTS.contains(&c.port) {
+                            req.refuse("port_forbidden");
+                        } else {
+                            req.accept("127.0.0.1:0".parse().unwrap(), udp_echo_addr).unwrap();
+                        }
+                    } else if policy.flows {
                         req.accept("127.0.0.1:0".parse().unwrap(), udp_echo_addr).unwrap();
                     } else {
                         req.refuse("not_authorized");
@@ -269,7 +301,7 @@ pub fn fake_station_with(identity: Arc<StationIdentity>, relay: RelayAddr, roots
             }
         }
     });
-    FakeStation { agent, identity, admin_fp: admin.fp, headers, udp_echo: udp_echo_addr, tasks: vec![task, echo_task] }
+    FakeStation { agent, identity, admin_fp: admin.fp, headers, flow_targets, udp_echo: udp_echo_addr, tasks: vec![task, echo_task] }
 }
 
 impl FakeStation {

@@ -14,13 +14,16 @@ enum HomeCurve {
 
 /// La dernière image de l'ordinateur choisi, en plein écran, qui dérive
 /// lentement ; un autre ordinateur la remplace en fondu (avec un flou qui se
-/// dissipe, comme sur l'Apple TV). Sans ordinateur : la signature de KyberNow.
+/// dissipe, comme sur l'Apple TV). Sans ordinateur : la signature de KyberNow,
+/// ou celle de la console en scène (`seed`).
 struct HomeBackdrop: View {
     let host: Host?
     var online = true
     /// iPad pleine largeur : le voile de l'Apple TV (à gauche et en bas) ;
     /// sinon celui du portrait, en bas seulement, sous le texte.
     var wide = false
+    /// La console PlayStation en scène (sa signature, pas de dernière image).
+    var seed: String?
 
     var body: some View {
         ZStack {
@@ -37,11 +40,14 @@ struct HomeBackdrop: View {
                     .id(host.id)
                     .transition(.opacity.combined(with: .blurReplace))
                 } else {
-                    Signature(seed: "KyberNow")
+                    Signature(seed: seed ?? "KyberNow")
+                        .opacity(seed == nil ? 1 : 0.8)
+                        .id(seed ?? "KyberNow")
                         .transition(.opacity)
                 }
             }
             .animation(HomeCurve.rise(0.6), value: host?.id)
+            .animation(HomeCurve.rise(0.6), value: seed)
         }
         .accessibilityHidden(true)
     }
@@ -410,6 +416,10 @@ struct HomeFoundCard: View {
     let name: String
     let m: HomeCardMetrics
     let wide: Bool
+    /// Sous le nom (une console : « PS5 »).
+    var detail: String?
+    /// L'action, en bas : « Ajouter » (un ordinateur), « Associer » (une console).
+    var action: String = String(localized: "Ajouter")
     @State private var arrived = false
     @State private var breathe = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -430,8 +440,11 @@ struct HomeFoundCard: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.5)
                 .foregroundStyle(Theme.text)
+            if let detail {
+                Text(verbatim: detail).font(Theme.sans(wide ? 13 : 12)).foregroundStyle(Theme.muted).lineLimit(1)
+            }
             Spacer(minLength: 0)
-            Text("Ajouter").font(Theme.sans(wide ? 14 : 13, .semibold)).foregroundStyle(Theme.accentLight)
+            Text(action).font(Theme.sans(wide ? 14 : 13, .semibold)).foregroundStyle(Theme.accentLight)
         }
         .padding(wide ? 16 : 12)
         .frame(width: m.width, height: m.height, alignment: .leading)
@@ -461,7 +474,7 @@ struct HomeAddCard: View {
         VStack(alignment: .leading, spacing: 0) {
             Icon("plus", size: wide ? 28 : 24).foregroundStyle(Theme.accent)
             Spacer(minLength: 0)
-            Text("Ajouter un ordinateur").font(Theme.sans(m.name, .semibold)).foregroundStyle(Theme.text)
+            Text(LinkText.addTitle).font(Theme.sans(m.name, .semibold)).foregroundStyle(Theme.text)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(wide ? 16 : 12)

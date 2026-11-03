@@ -1,4 +1,8 @@
-<!-- L'app : accueil, ajout, réglages, passage vers la session. -->
+<!--
+  L'app : accueil, ajout, réglages, passage vers la session. Les consoles PlayStation (docs/link-ui.md
+  « Consoles PlayStation ») : leur état (`ps_state`, événement `ps-state`), leur association
+  (PairSheet), leurs réglages (ConsoleSettings) et leur partie, ouverte comme une session d'ordinateur.
+-->
 <script lang="ts">
   import { onMount } from 'svelte'
   import TitleBar from './TitleBar.svelte'
@@ -9,8 +13,11 @@
   import AppSheet from './AppSheet.svelte'
   import JoinSheet from './JoinSheet.svelte'
   import LendSheet from './LendSheet.svelte'
+  import PairSheet from './PairSheet.svelte'
+  import ConsoleSettings from './ConsoleSettings.svelte'
   import type { Action, AppInfo, Battery, BorrowOutcome, Candidate, Computer, ConnectInfo, Found, Friend, LendEnd, LendInvite, LendSheetKind, LoanReady, Phase, ScreensEvent, ShareJoined, Snapshot, StationRestarting, Summary, ThisPc, Update } from './lib/api'
-  import { MAX_SESSIONS, guestComputer, invoke, listen } from './lib/api'
+  import type { PsFound, PsState } from './lib/api'
+  import { MAX_SESSIONS, guestComputer, invoke, isConsoleId, listen } from './lib/api'
   import { setLang, t } from './lib/i18n/index.svelte'
 
   let computers = $state<Computer[]>([])
@@ -39,7 +46,21 @@
     borrow?: { title: string; fingerprint: string | null }
     /** L'emprunt lui-même (la Station passe en mode console) : rien à annuler encore. */
     borrowing?: boolean
+    /** Partie sur une console PlayStation : son nom ; `wakes` : « Réveil de la console » en première étape. */
+    console?: { name: string; wakes: boolean }
   } | null>(null)
+  /** Les consoles PlayStation : comptes, consoles gardées, consoles qui répondent. */
+  let ps = $state<PsState>({ accounts: [], consoles: [], found: [], searched: false })
+  /** Les réglages d'une console (à la place de l'accueil, comme ceux d'un ordinateur). */
+  let consoleSettingsId = $state<string | null>(null)
+  /** La feuille de l'association : une console (`found`), ou un compte seul (« Ajouter un compte », `found` nul). */
+  let pairing = $state<{ found: PsFound | null } | null>(null)
+  /** « Ce compte est déjà là. » sur l'onglet PlayStation de l'ajout, après « Ajouter un compte ». */
+  let psAlready = $state(false)
+  /** « Réessayer » d'une console hors ligne en cours. */
+  let psSearching = $state(false)
+  /** L'ajout s'ouvre sur l'onglet PlayStation. */
+  let addingWay = $state<'playstation' | null>(null)
   /** Les ordinateurs empruntés (« Ordinateur de {hôte} »), à part des ordinateurs appairés. */
   let friends = $state<Friend[]>([])
   /** Une feuille du prêt côté ami : lien d'invitation, mot de passe, attente de l'hôte, carte de fin. */
@@ -72,14 +93,26 @@
     }
   }
 
+  /** La console choisie sur l'accueil ; sans ordinateur ni ordinateur d'ami, la première. */
+  const selectedConsole = $derived(
+    ps.consoles.find((c) => c.id === selectedId) ?? (computers.length === 0 && friends.length === 0 ? (ps.consoles[0] ?? null) : null),
+  )
   /** L'ordinateur d'un ami choisi sur l'accueil (prêt de l'ordinateur). */
-  const selectedFriend = $derived(friends.find((f) => f.id === selectedId) ?? (computers.length === 0 ? (friends[0] ?? null) : null))
-  const selected = $derived(selectedFriend ? null : (computers.find((c) => c.id === selectedId) ?? computers[0] ?? null))
+  const selectedFriend = $derived(selectedConsole ? null : (friends.find((f) => f.id === selectedId) ?? (computers.length === 0 ? (friends[0] ?? null) : null)))
+  const selected = $derived(selectedFriend || selectedConsole ? null : (computers.find((c) => c.id === selectedId) ?? computers[0] ?? null))
+  const consoleSettingsFor = $derived(ps.consoles.find((c) => c.id === consoleSettingsId) ?? null)
   const settingsFor = $derived(computers.find((c) => c.id === settingsId) ?? null)
   /** Ce que le passage montre : l'ordinateur, ou « Invité sur {nom} » pour une session d'invité. */
   const passageFor = $derived(
     computers.find((c) => c.id === passage?.id) ??
-      (passage?.guest ? guestComputer(passage.guest) : passage?.borrow ? guestComputer(passage.borrow) : null),
+      (passage?.guest
+        ? guestComputer(passage.guest)
+        : passage?.borrow
+          ? guestComputer(passage.borrow)
+          : passage?.console
+            ? // La signature d'une console vient de son nom (comme sur Mac).
+              { name: passage.console.name, preview: null, fingerprint: passage.console.name }
+            : null),
   )
 
   function select(id: string) {
@@ -100,12 +133,15 @@
       listen<null>('action-ready', () => invoke<Action | null>('take_action').then((a) => a && handle(a))),
       listen<Update | null>('update', (u) => (update = u)),
       listen<string[]>('sessions', (s) => (sessions = s)),
+      listen<PsState>('ps-state', (s) => (ps = s)),
       listen<string>('lang', setLang),
       listen<number>('update-progress', (p) => (progress = p)),
       listen<Phase>('session-status', (p) => {
         if (!passage || passage.id !== p.id) return
         // « La Station redémarre… » jusqu'à l'étape suivante (voir StationRestarting).
         passage.restarting = false
+        // Une console qui dort : son réveil d'abord (« Réveil de la console »).
+        if (passage.console && p.phase === 'preparing') passage.console.wakes = true
         // Connectée mais sans image encore : le passage attend la première,
         // il ne s'ouvre pas sur du noir.
         passage.phase = p.phase === 'streaming' && !passage.opening ? 'first_images' : p.phase
@@ -142,7 +178,7 @@
         const failed = !passage.opening
         // Un invité : la raison du partage, telle quelle (« Léa a arrêté le partage. »).
         error = summary.error
-          ? passage.guest || passage.borrow
+          ? passage.guest || passage.borrow || isConsoleId(id)
             ? lend
               ? null
               : summary.error
@@ -164,6 +200,7 @@
         sessions = s.sessions ?? []
       })
         .then(() => invoke<Friend[]>('lend_friends').then((f) => (friends = f)))
+        .then(() => invoke<PsState>('ps_state').then((s) => (ps = s)))
         .then(() =>
           invoke<AppInfo>('app_info').then((i) => {
             update = i.update
@@ -181,8 +218,20 @@
   async function handle(a: Action) {
     settingsId = null
     settingsRubric = null
+    consoleSettingsId = null
     if (a.kind === 'show') {
-      if (computers.some((c) => c.id === a.id)) select(a.id)
+      if (computers.some((c) => c.id === a.id) || ps.consoles.some((c) => c.id === a.id)) select(a.id)
+    } else if (a.kind === 'ps_settings') {
+      // « Réglages de {nom} » depuis la barre d'une partie.
+      if (!ps.consoles.some((c) => c.id === a.id)) return
+      adding = null
+      appSheet = false
+      pairing = null
+      select(a.id)
+      consoleSettingsId = a.id
+    } else if (a.kind === 'add_console') {
+      addingWay = 'playstation'
+      adding = { found: null }
     } else if (a.kind === 'settings') {
       if (!computers.some((c) => c.id === a.id)) return
       adding = null
@@ -199,6 +248,7 @@
       select(a.id)
       connect(a.id)
     } else if (a.kind === 'add') {
+      addingWay = null
       adding = { found: null }
     } else if (a.kind === 'join') {
       adding = null
@@ -435,16 +485,78 @@
     adding = null
     select(id)
   }
+
+  // MARK: - Consoles PlayStation
+
+  /**
+   * « Jouer », « Réveiller et jouer » : la partie s'ouvre comme une session d'ordinateur — la première avec le
+   * passage de l'accueil, les suivantes dans leur fenêtre (l'app tranche, `windowed`). Une console qui dort
+   * commence par son réveil.
+   */
+  async function play(id: string) {
+    error = null
+    const c = ps.consoles.find((x) => x.id === id)
+    const following = sessions.length > 0 || passage !== null
+    const fresh = () => ({
+      id,
+      phase: (c?.status === 'standby' ? 'preparing' : 'connecting') as Phase['phase'],
+      opening: false,
+      closing: false,
+      restarting: false,
+      many: false,
+      console: { name: c?.name ?? '', wakes: c?.status === 'standby' },
+    })
+    if (!following) passage = fresh()
+    try {
+      const started = await invoke<{ windowed: boolean }>('ps_play', { id })
+      if (started.windowed) {
+        if (passage?.id === id && !passage.opening) passage = null
+      } else if (!(passage?.id === id && !passage.closing)) {
+        passage = fresh()
+      }
+    } catch (e) {
+      if (passage?.id === id && !passage.opening) passage = null
+      error = String(e)
+    }
+  }
+
+  /** « Associer » : la feuille de l'association ; depuis l'ajout, l'ajout se ferme d'abord (comme sur Mac). */
+  function pair(found: PsFound) {
+    error = null
+    adding = null
+    pairing = { found }
+  }
+
+  /** « Réessayer » (console hors ligne) : une recherche tout de suite. */
+  async function psSearch() {
+    error = null
+    psSearching = true
+    try {
+      ps = await invoke<PsState>('ps_search_now')
+    } catch (e) {
+      error = String(e)
+    } finally {
+      psSearching = false
+    }
+  }
+
+  async function chooseAccount(id: string, account: string) {
+    try {
+      await invoke('ps_choose_account', { id, account })
+    } catch (e) {
+      error = String(e)
+    }
+  }
 </script>
 
 <TitleBar
-  title={settingsFor ? t('app.title_settings') : 'KyberNow Link'}
-  onback={settingsFor ? () => (settingsId = null) : undefined}
+  title={settingsFor || consoleSettingsFor ? t('app.title_settings') : 'KyberNow Link'}
+  onback={settingsFor ? () => (settingsId = null) : consoleSettingsFor ? () => (consoleSettingsId = null) : undefined}
   onapp={() => ((appCheck = false), (appSheet = true))}
   badge={update !== null}
 />
 
-{#if (update || notice) && !settingsFor && !passage}
+{#if (update || notice) && !settingsFor && !consoleSettingsFor && !passage}
   <div class="banner" role="status">
     <!-- Un avis bref (« Vous avez rendu l'ordinateur. ») passe avant la mise à jour, qui revient après « OK ». -->
     {#if notice}
@@ -462,6 +574,10 @@
   {#key settingsFor.id}
     <Settings computer={settingsFor} {thisPc} {battery} start={settingsRubric} onremoved={() => (settingsId = null)} />
   {/key}
+{:else if consoleSettingsFor}
+  {#key consoleSettingsFor.id}
+    <ConsoleSettings console={consoleSettingsFor} onremoved={() => ((consoleSettingsId = null), (selectedId = null))} />
+  {/key}
 {:else}
   <Home
     {computers}
@@ -469,6 +585,15 @@
     {thisPc}
     {battery}
     {selected}
+    {selectedConsole}
+    consoles={ps.consoles}
+    psFound={ps.found}
+    {psSearching}
+    onplay={play}
+    onpair={pair}
+    onconsolesettings={(id) => (consoleSettingsId = id)}
+    onchooseaccount={chooseAccount}
+    onpssearch={psSearch}
     {friends}
     {selectedFriend}
     {sessions}
@@ -482,7 +607,7 @@
     onwake={wake}
     onsettings={(id) => (settingsId = id)}
     onprofile={setProfile}
-    onadd={(found) => (adding = { found: found ?? null })}
+    onadd={(found) => ((addingWay = null), (adding = { found: found ?? null }))}
     onjoin={() => join()}
     onborrow={(f) => borrow({ friend: f.id }, f.owner, f.state === 'busy')}
     onremovefriend={removeFriend}
@@ -524,10 +649,28 @@
   <AddSheet
     {discovered}
     {computers}
+    {ps}
     deviceName={thisPc?.name ?? ''}
     initial={adding.found}
+    initialWay={addingWay}
+    already={psAlready}
     onclose={() => (adding = null)}
     onadded={added}
+    onpair={pair}
+    onaddaccount={() => ((psAlready = false), (pairing = { found: null }))}
+  />
+{/if}
+
+{#if pairing}
+  <PairSheet
+    target={pairing.found}
+    {ps}
+    onclose={() => (pairing = null)}
+    onaccount={(existed) => (psAlready = existed)}
+    onpaired={(id) => {
+      pairing = null
+      select(id)
+    }}
   />
 {/if}
 
@@ -546,6 +689,8 @@
     guest={!!passage.guest}
     borrow={!!passage.borrow}
     cancellable={!passage.borrowing}
+    ps={!!passage.console}
+    wakes={passage.console?.wakes ?? false}
     oncancel={() => passage && invoke('session_command', { id: passage.id, command: 'disconnect' })}
   />
 {/if}

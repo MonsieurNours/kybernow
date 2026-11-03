@@ -15,7 +15,7 @@ use bytes::Bytes;
 use kybernow_tunnel::frame::{read_msg, write_msg};
 use kybernow_tunnel::id;
 use kybernow_tunnel::lookup::{self, CodeLookup};
-use kybernow_tunnel::msg::{ErrorCode, Hello, Msg, Role, Service, StreamHeader, StreamKind, Welcome};
+use kybernow_tunnel::msg::{ConsoleTarget, ErrorCode, Hello, Msg, Role, Service, StreamHeader, StreamKind, Welcome};
 use kybernow_tunnel::transport::{Conn, DropReason, MediaReceiver, MediaSender, RelayStream, Sent, Transport, media_over_stream};
 use tokio::io::{AsyncRead, AsyncWrite, ReadHalf};
 use tokio::sync::mpsc;
@@ -641,7 +641,14 @@ impl Hub {
 
     fn client_msg(&self, peer: &Arc<ClientPeer>, msg: Msg) {
         match msg {
-            Msg::OpenFlow { req, key } => {
+            Msg::OpenFlow { req, key, to, host_id, port } => {
+                // Vers une console (docs/relais.md, « Consoles PlayStation ») :
+                // passé tel quel à la Station, qui seule décide ; incomplet, refusé.
+                let Ok(console) = ConsoleTarget::from_fields(to, &host_id, port) else {
+                    let _ = peer.ctl.send(Msg::FlowRefused { req, reason: "bad_request".into() });
+                    return;
+                };
+                let (to, host_id, port) = ConsoleTarget::fields(console.as_ref());
                 let Some(station) = peer.station.as_deref().and_then(|s| self.station(s)) else {
                     let _ = peer.ctl.send(Msg::FlowRefused { req, reason: "offline".into() });
                     return;
@@ -656,7 +663,7 @@ impl Hub {
                 let sflow = station.next_flow.fetch_add(1, Ordering::Relaxed);
                 let cflow = peer.next_flow.fetch_add(1, Ordering::Relaxed);
                 station.pending.lock().unwrap().insert(sflow, Pending { client: Arc::downgrade(peer), req, cflow });
-                let _ = station.ctl.send(Msg::FlowOpen { flow: sflow, client: peer.id.clone(), key, ip: peer.ip });
+                let _ = station.ctl.send(Msg::FlowOpen { flow: sflow, client: peer.id.clone(), key, ip: peer.ip, to, host_id, port });
                 let (st, client) = (Arc::downgrade(&station), Arc::downgrade(peer));
                 tokio::spawn(async move {
                     tokio::time::sleep(FLOW_TIMEOUT).await;
@@ -691,11 +698,18 @@ impl Hub {
     /// connexion des paquets du repli TCP.
     async fn client_stream(self: Arc<Self>, peer: Arc<ClientPeer>, mut s: RelayStream) {
         match timeout(HELLO_TIMEOUT, read_msg(&mut s)).await {
-            Ok(Ok(Some(Msg::Open { service }))) => {
+            Ok(Ok(Some(Msg::Open { service, to, host_id, port }))) => {
                 let _busy = StreamBusy::new(peer.clone());
                 let station = peer.station.as_deref().and_then(|id| self.station(id));
                 let Some(station) = station else { return s.reset() };
-                let header = StreamHeader { v: 1, kind: service.kind(), client: peer.id.clone(), ip: peer.ip, host: None };
+                // L'en-tête, que seul le relais écrit : vers une console, avec
+                // son identifiant et son port (la Station décide) ; `console_tcp`
+                // sans console, ou une console pour un autre service : coupé.
+                let header = match (service, ConsoleTarget::from_fields(to, &host_id, port)) {
+                    (Service::ConsoleTcp, Ok(Some(target))) => StreamHeader::console_tcp(peer.id.clone(), peer.ip, &target),
+                    (Service::ConsoleTcp, _) | (_, Err(())) | (_, Ok(Some(_))) => return s.reset(),
+                    (_, Ok(None)) => StreamHeader::new(service.kind(), peer.id.clone(), peer.ip, None),
+                };
                 let Some(mut to_station) = open_to_station(&station, header).await else { return s.reset() };
                 let (up, down) = tokio::io::copy_bidirectional(&mut s, &mut to_station).await.unwrap_or((0, 0));
                 self.metrics.add_bytes(Leg::Stream, Dir::ToStation, up);
@@ -885,7 +899,7 @@ impl Hub {
     /// Un flux `admin_http` vers la Station, pour une connexion de navigateur.
     pub async fn open_web_stream(&self, station: &str, browser: &str, ip: IpAddr, host: &str) -> Option<RelayStream> {
         let station = self.station(station)?;
-        let header = StreamHeader { v: 1, kind: StreamKind::AdminHttp, client: browser.into(), ip, host: Some(host.into()) };
+        let header = StreamHeader::new(StreamKind::AdminHttp, browser, ip, Some(host.into()));
         open_to_station(&station, header).await
     }
 }

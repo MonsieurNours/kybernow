@@ -1,7 +1,9 @@
-// Ajouter un ordinateur (maquette « 2 · Ajouter un ordinateur ») : sans rien
-// taper à la télécommande, de préférence. Depuis le Mac (iCloud), trouvé sur
-// le réseau (compte à saisir, au clavier de l'iPhone), code à accepter dans
-// KyberNow Admin sur l'ordinateur, ou adresse (VPN).
+// Ajouter un ordinateur ou une console (maquette « 2 · Ajouter un
+// ordinateur ») : sans rien taper à la télécommande, de préférence. Depuis le
+// Mac (iCloud), trouvé sur le réseau (compte à saisir, au clavier de
+// l'iPhone), code à accepter dans KyberNow Admin sur l'ordinateur, ou adresse
+// (VPN : une Station ou une console) ; consoles PlayStation dans leur onglet
+// (PlayStationAdd.swift).
 //
 // Chaque fois, l'empreinte du certificat d'Admin est retenue (et comparée à
 // celle de l'annonce Bonjour quand il y en a une).
@@ -33,6 +35,8 @@ struct AddHostView: View {
         ("globe-hemisphere-west", String(localized: "Adresse"), String(localized: "VPN ou réseau sans découverte"), nil),
         // Prêter l'ordinateur (docs/pret.md) : l'ordinateur qu'un ami prête, sur ce réseau.
         ("key", LendText.withFriendAccount, String(localized: "L'ordinateur qu'un ami vous prête"), nil),
+        // Consoles PlayStation (docs/playstation.md) : comptes, consoles, envoi entre appareils.
+        ("game-controller", PSText.tab, String(localized: "Comptes, consoles, envoi entre appareils"), nil),
     ]
 
     var body: some View {
@@ -51,7 +55,7 @@ struct AddHostView: View {
             .padding(.leading, 96).padding(.top, 56)
 
             VStack(alignment: .leading, spacing: 14) {
-                Text("Ajouter un ordinateur").font(Theme.display(64, 660)).tracking(-64 * 0.035).padding(.bottom, 4)
+                Text(LinkText.addTitle).font(Theme.display(56, 660)).tracking(-56 * 0.035).lineLimit(2).minimumScaleFactor(0.7).padding(.bottom, 4)
                 Text("Sans rien taper à la télécommande, de préférence.")
                     .font(Theme.sans(23)).foregroundStyle(Theme.muted).padding(.bottom, 12)
                 ForEach(Array(methods.enumerated()), id: \.offset) { i, m in
@@ -68,7 +72,8 @@ struct AddHostView: View {
                 case 1: NetworkPane()
                 case 2: CodePane()
                 case 3: AddressPane()
-                default: FriendPane()
+                case 4: FriendPane()
+                default: PlayStationPane()
                 }
             }
             .id(method)
@@ -209,6 +214,7 @@ private struct CloudPane: View {
 private struct NetworkPane: View {
     @EnvironmentObject private var app: AppModel
     @EnvironmentObject private var discovery: Discovery
+    @EnvironmentObject private var playstation: PlayStationStore
     @State private var candidate: Candidate?
     @State private var resolving: String?
 
@@ -223,8 +229,28 @@ private struct NetworkPane: View {
                 }
                 Text("Trouvé autour de vous").font(Theme.display(48, 640)).tracking(-48 * 0.03)
                 let list = app.newOnNetwork
-                if list.isEmpty {
+                if list.isEmpty, playstation.newcomers.isEmpty {
                     Text("Rien de nouveau pour l'instant.").font(Theme.sans(23)).foregroundStyle(Theme.muted)
+                }
+                // Les consoles trouvées et pas encore associées : « {nom} · PS5 », « Associer ».
+                ForEach(playstation.newcomers, id: \.hostID) { f in
+                    Button { app.screen = .consolePair(AppModel.PairRequest(hostID: f.hostID, fromAdd: true)) } label: {
+                        HStack(spacing: 24) {
+                            Icon("game-controller", size: 36).foregroundStyle(Theme.accent)
+                                .frame(width: 72, height: 72)
+                                .background(RoundedRectangle(cornerRadius: 16).fill(Theme.surface))
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(verbatim: "\(f.name) · \(f.model)").font(Theme.display(34, 640)).tracking(-0.7)
+                                Text(verbatim: f.ready ? PSText.on : PSText.standby).font(Theme.mono(17)).foregroundStyle(Theme.muted)
+                            }
+                            Spacer()
+                            Text(PSText.pair).font(Theme.sans(22, .semibold)).foregroundStyle(Theme.accentLight)
+                        }
+                        .padding(.horizontal, 32)
+                        .frame(height: 120)
+                        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(Theme.accent.opacity(0.6), lineWidth: 2))
+                    }
+                    .buttonStyle(GlassButton(radius: 22, scale: 1.04, fill: Theme.accentFill.opacity(0.14)))
                 }
                 ForEach(list) { found in
                     Button { pick(found) } label: {
@@ -572,9 +598,18 @@ private struct FriendPane: View {
 // MARK: - Adresse
 
 private struct AddressPane: View {
+    @EnvironmentObject private var app: AppModel
     @State private var address = ""
     @State private var port = ""
     @State private var candidate: Candidate?
+    /// Une console cherchée à l'adresse (1,5 s), avant la Station.
+    @State private var looking = false
+    /// Une adresse seule (sans port d'Admin) où rien n'a répondu.
+    @State private var nothing = false
+
+    private var host: String { address.trimmingCharacters(in: .whitespaces) }
+    /// Une adresse IPv4 : une console y est peut-être (la PlayStation ne parle qu'en IPv4).
+    private var consoleAddress: Bool { IPv4Address(host) != nil }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 26) {
@@ -584,6 +619,8 @@ private struct AddressPane: View {
                 paneTitle(String(localized: "VPN, autre réseau"), String(localized: "Son adresse et son port"))
                 Text("Affichés dans KyberNow Admin, Appareils Link › « Ajouter un appareil ». Le port a été tiré au hasard à l'installation.")
                     .font(Theme.sans(22)).foregroundStyle(Theme.text2).lineSpacing(7)
+                    .frame(maxWidth: 860, alignment: .leading)
+                Text(PSText.addressHelp).font(Theme.sans(20)).foregroundStyle(Theme.muted)
                     .frame(maxWidth: 860, alignment: .leading)
                 HStack(spacing: 20) {
                     VStack(alignment: .leading, spacing: 10) {
@@ -603,18 +640,43 @@ private struct AddressPane: View {
                             .frame(width: 220)
                     }
                 }
+                if nothing {
+                    Text(PSText.unreachable).font(Theme.sans(21)).foregroundStyle(Theme.warnText)
+                }
                 Spacer(minLength: 0)
                 HStack(spacing: 20) {
-                    Button("Continuer") {
-                        let host = address.trimmingCharacters(in: .whitespaces)
-                        if let p = UInt16(port), !host.isEmpty {
-                            candidate = Candidate(name: host, address: host, port: p, expected: nil)
-                        }
-                    }
-                    .buttonStyle(PrimaryButton(height: 72, fontSize: 25))
-                    .disabled(address.isEmpty || UInt16(port) == nil)
+                    Button { go() } label: { looking ? Text(PSText.connecting) : Text("Continuer") }
+                        .buttonStyle(PrimaryButton(height: 72, fontSize: 25))
+                        .disabled(host.isEmpty || (UInt16(port) == nil && !consoleAddress) || looking)
                     Text("Ensuite : le compte de l'ordinateur.").font(Theme.sans(20)).foregroundStyle(Theme.muted)
                 }
+            }
+        }
+    }
+
+    /// Une console et une Station cherchées à cette adresse : une console qui
+    /// répond ouvre son association (adresse retenue) ; sinon la Station,
+    /// comme avant ; une adresse seule où rien ne répond : « Console injoignable. ».
+    private func go() {
+        nothing = false
+        let a = host
+        let p = UInt16(port)
+        guard consoleAddress else {
+            if let p { candidate = Candidate(name: a, address: a, port: p, expected: nil) }
+            return
+        }
+        looking = true
+        Task {
+            // La découverte en direct répond aussi pour les consoles du réseau local : seule celle de cette adresse compte.
+            let list = await Task.detached(priority: .userInitiated) { PlayStation.search(direct: [a], wait: 1500) }.value
+            looking = false
+            if let console = list.first(where: { $0.address == a }) {
+                app.playstation.remember(address: a, found: console)
+                app.screen = .consolePair(AppModel.PairRequest(hostID: console.hostID, fromAdd: true))
+            } else if let p {
+                candidate = Candidate(name: a, address: a, port: p, expected: nil)
+            } else {
+                nothing = true
             }
         }
     }

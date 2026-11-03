@@ -8,6 +8,7 @@ import SwiftUI
 
 struct HomeView: View {
     @EnvironmentObject var app: AppModel
+    @ObservedObject var playstation = AppModel.shared.playstation
 
     var body: some View {
         HomeContent(imagery: app.store.imagery, discovery: app.discovery)
@@ -16,6 +17,8 @@ struct HomeView: View {
             // Prêter l'ordinateur : le lien d'invitation d'un ami, le mot de passe d'un ordinateur prêté.
             .sheet(item: $app.inviting) { InviteSheet(invite: $0) }
             .sheet(item: $app.borrowPassword) { BorrowPasswordSheet(computer: $0) }
+            // Consoles PlayStation : l'association (compte PSN, puis le code de la console).
+            .sheet(item: $playstation.pairing) { PairConsoleSheet(target: $0) }
             .preferredColorScheme(.dark)
             .frame(minWidth: 1100, minHeight: 760)
     }
@@ -27,6 +30,7 @@ private struct HomeContent: View {
     @ObservedObject var discovery: Discovery
     @ObservedObject var updates = UpdateChannels.shared
     @ObservedObject var borrowed = AppModel.shared.borrowed
+    @ObservedObject var playstation = AppModel.shared.playstation
     @Environment(\.openSettings) private var openSettings
     /// Arrivée de l'écran : cascade et allumage du symbole, une fois.
     @State private var arrived = false
@@ -37,10 +41,16 @@ private struct HomeContent: View {
     private var featuredBorrowed: BorrowedComputer? {
         borrowed.computers.first { $0.id == app.selectedID } ?? (hosts.isEmpty ? borrowed.computers.first : nil)
     }
-    private var featured: Host? { featuredBorrowed != nil ? nil : hosts.first { $0.id == app.selectedID } ?? hosts.first }
+    /// La console PlayStation mise en avant (choisie, ou seule à montrer).
+    private var featuredConsole: PlayStationConsole? {
+        guard featuredBorrowed == nil else { return nil }
+        return playstation.consoles.first { $0.id == app.selectedID } ?? (hosts.isEmpty ? playstation.consoles.first : nil)
+    }
+    private var featured: Host? { featuredBorrowed != nil || featuredConsole != nil ? nil : hosts.first { $0.id == app.selectedID } ?? hosts.first }
     private var others: [Host] { hosts.filter { $0.id != featured?.id } }
     private var otherBorrowed: [BorrowedComputer] { borrowed.computers.filter { $0.id != featuredBorrowed?.id } }
-    private var featuredID: UUID? { featuredBorrowed?.id ?? featured?.id }
+    private var otherConsoles: [PlayStationConsole] { playstation.consoles.filter { $0.id != featuredConsole?.id } }
+    private var featuredID: UUID? { featuredBorrowed?.id ?? featuredConsole?.id ?? featured?.id }
 
     var body: some View {
         GeometryReader { geo in
@@ -51,6 +61,12 @@ private struct HomeContent: View {
                 if let computer = featuredBorrowed {
                     BorrowedHero(computer: computer, arrived: arrived, size: geo.size)
                         .id(computer.id)
+                        .transition(.opacity)
+                        .padding(.leading, 72)
+                        .padding(.top, max(96, geo.size.height * 0.15))
+                } else if let console = featuredConsole {
+                    ConsoleHero(console: console, store: playstation, arrived: arrived, size: geo.size)
+                        .id(console.id)
                         .transition(.opacity)
                         .padding(.leading, 72)
                         .padding(.top, max(96, geo.size.height * 0.15))
@@ -65,7 +81,8 @@ private struct HomeContent: View {
                         .padding(.leading, 72)
                         .padding(.top, max(150, geo.size.height * 0.24))
                 }
-                Shelf(featured: featuredID, others: others, borrowed: otherBorrowed, discovery: discovery, imagery: imagery, arrived: arrived)
+                Shelf(featured: featuredID, others: others, borrowed: otherBorrowed, consoles: otherConsoles, playstation: playstation,
+                      discovery: discovery, imagery: imagery, arrived: arrived)
                     .padding(.horizontal, 72)
                     .padding(.bottom, 34)
                     .frame(maxHeight: .infinity, alignment: .bottom)
@@ -82,6 +99,8 @@ private struct HomeContent: View {
         .animation(.easeInOut(duration: 0.45), value: featuredID)
         .onAppear {
             discovery.start()
+            // Consoles PlayStation : cherchées tant que l'accueil est à l'écran.
+            playstation.startSearching { AppModel.shared.homeWindow?.isVisible ?? true }
             arrived = true
             ignite += 1
             #if DEBUG
@@ -97,6 +116,10 @@ private struct HomeContent: View {
         if let computer = featuredBorrowed {
             Signature(seed: computer.title)
                 .id(computer.id)
+                .transition(.opacity)
+        } else if let console = featuredConsole {
+            Signature(seed: console.name)
+                .id(console.id)
                 .transition(.opacity)
         } else if let host = featured {
             HostBackdrop(host: host, picture: imagery.pictures[host.id], online: app.store.status[host.id]?.online)
@@ -303,28 +326,41 @@ struct HDRChip: View {
     var body: some View {
         let state = host.settings.hdrState(info, screenHDR: screen.hdr)
         if state.shown {
-            let on = state.on(host.settings.hdr)
-            Button { app.setHDR(!host.settings.hdr, for: host) } label: {
-                HStack(spacing: 8) {
-                    Icon("sparkle", size: 16, bold: true)
-                    Text(verbatim: HDRText.label)
-                }
-                .font(Theme.sans(14, .semibold))
-                .foregroundStyle(on ? Theme.accent : Theme.text2)
-                .padding(.horizontal, 16)
-                .frame(height: 40)
-                .background(on ? Theme.accentSoft : Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(on ? Theme.accentLine : Theme.line2))
-                .contentShape(Rectangle())
+            HDRChipButton(on: state.on(host.settings.hdr), available: state.available, help: HDRText.help(state)) {
+                app.setHDR(!host.settings.hdr, for: host)
             }
-            .buttonStyle(.plain)
-            .disabled(!state.available)
-            .opacity(state.available ? 1 : 0.45)
-            .help(HDRText.help(state))
-            .accessibilityLabel(HDRText.accessibility(on))
-            .accessibilityHint(HDRText.help(state))
-            .accessibilityAddTraits(on ? .isSelected : [])
         }
+    }
+}
+
+/// L'apparence de la puce « HDR » : ordinateurs et consoles PlayStation.
+struct HDRChipButton: View {
+    let on: Bool
+    let available: Bool
+    let help: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Icon("sparkle", size: 16, bold: true)
+                Text(verbatim: HDRText.label)
+            }
+            .font(Theme.sans(14, .semibold))
+            .foregroundStyle(on ? Theme.accent : Theme.text2)
+            .padding(.horizontal, 16)
+            .frame(height: 40)
+            .background(on ? Theme.accentSoft : Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(on ? Theme.accentLine : Theme.line2))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!available)
+        .opacity(available ? 1 : 0.45)
+        .help(help)
+        .accessibilityLabel(HDRText.accessibility(on))
+        .accessibilityHint(help)
+        .accessibilityAddTraits(on ? .isSelected : [])
     }
 }
 
@@ -434,7 +470,7 @@ private struct Welcome: View {
                 .modifier(Rise(arrived: arrived, delay: 0.35))
             HStack(spacing: 14) {
                 Button { app.add() } label: {
-                    HStack(spacing: 12) { Icon("plus", size: 18, bold: true); Text("Ajouter un ordinateur") }
+                    HStack(spacing: 12) { Icon("plus", size: 18, bold: true); Text(LinkText.addTitle) }
                 }
                 .buttonStyle(PrimaryButton(height: 56))
                 // KyberNow Share : rejoindre le partage de quelqu'un, sans ordinateur à soi.
@@ -457,6 +493,9 @@ private struct Shelf: View {
     let others: [Host]
     /// Les ordinateurs que des amis prêtent à ce Mac, à part des siens.
     let borrowed: [BorrowedComputer]
+    /// Consoles PlayStation associées, dans la même rangée.
+    let consoles: [PlayStationConsole]
+    @ObservedObject var playstation: PlayStationStore
     @ObservedObject var discovery: Discovery
     @ObservedObject var imagery: HostImagery
     let arrived: Bool
@@ -491,8 +530,17 @@ private struct Shelf: View {
                         BorrowedCard(computer: computer) { app.selectedID = computer.id }
                             .modifier(Rise(arrived: arrived, delay: 0.9))
                     }
+                    ForEach(consoles) { console in
+                        ConsoleCard(console: console, store: playstation) { app.selectedID = console.id }
+                            .modifier(Rise(arrived: arrived, delay: 0.9))
+                    }
                     ForEach(newcomers, id: \.found.id) { item in
                         FoundCard(found: item.found, candidate: item.candidate)
+                            .modifier(Rise(arrived: arrived, delay: 1.0))
+                            .transition(.scale(scale: 0.96).combined(with: .opacity))
+                    }
+                    ForEach(playstation.newcomers, id: \.hostID) { found in
+                        ConsoleFoundCard(found: found) { playstation.pairing = PairTarget(found: found) }
                             .modifier(Rise(arrived: arrived, delay: 1.0))
                             .transition(.scale(scale: 0.96).combined(with: .opacity))
                     }
@@ -516,7 +564,7 @@ private struct Shelf: View {
     }
 }
 
-private let cardSize = CGSize(width: 244, height: 164)
+let cardSize = CGSize(width: 244, height: 164)
 
 /// Un autre ordinateur : son nom et son état, rien d'autre.
 private struct HostCard: View {
@@ -600,7 +648,7 @@ private struct FoundCard: View {
             ignite += 1
             if !reduceMotion {
                 try? await Task.sleep(for: .seconds(1.8))
-                withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) { breathe = true }
+                Theme.breathe { breathe = $0 }
             }
         }
     }
@@ -615,7 +663,8 @@ private struct AddCard: View {
             VStack(alignment: .leading, spacing: 12) {
                 Icon("plus", size: 22, bold: true).foregroundStyle(Theme.accent)
                 Spacer()
-                Text("Ajouter un ordinateur").font(Theme.sans(15, .semibold)).foregroundStyle(Theme.text)
+                Text(LinkText.addTitle).font(Theme.sans(15, .semibold)).foregroundStyle(Theme.text)
+                    .multilineTextAlignment(.leading)
             }
             .padding(16)
             .frame(width: cardSize.width, height: cardSize.height, alignment: .topLeading)

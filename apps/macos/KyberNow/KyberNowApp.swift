@@ -8,6 +8,8 @@ import SwiftUI
 enum Route: Equatable {
     case home
     case settings(UUID)
+    /// Réglages d'une console PlayStation.
+    case console(UUID)
 }
 
 @MainActor
@@ -19,11 +21,15 @@ final class AppModel: ObservableObject {
     let store: HostStore
     /// Les ordinateurs que des amis prêtent à ce Mac (docs/pret.md), à part des siens.
     let borrowed: BorrowedStore
+    /// Les consoles PlayStation associées à ce Mac (PlayStation.swift).
+    let playstation: PlayStationStore
     @Published var route: Route = .home
     /// Ordinateur mis en avant sur l'accueil (le plus récent par défaut).
     @Published var selectedID: UUID?
     /// Rubrique ouverte dans les réglages d'un ordinateur.
     @Published var section: ComputerSection = .picture
+    /// Rubrique ouverte dans les réglages d'une console.
+    @Published var consoleSection: ConsoleSection = .picture
     /// Les sessions, une fenêtre chacune (plusieurs ordinateurs à la fois, Sessions.swift).
     let sessions = SessionManager()
     @Published var toast: String?
@@ -67,7 +73,10 @@ final class AppModel: ObservableObject {
         Core.install()
         store = HostStore(demo: Self.demo)
         borrowed = BorrowedStore(demo: Self.demo)
+        playstation = PlayStationStore(demo: Self.demo)
         defaults = Self.demo ? (UserDefaults(suiteName: "fr.leslignesclaires.kybernow.demo") ?? .standard) : .standard
+        // Les consoles passent hors de chez soi par une Station qui les voit (docs/relais.md).
+        playstation.attach(hosts: store)
         // Les sessions (ouvertes, fermées, active) redessinent l'accueil et les menus.
         sessions.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &watchers)
         borrowed.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &watchers)
@@ -81,6 +90,8 @@ final class AppModel: ObservableObject {
         #endif
         store.didSave = { [cloud] in cloud.publish($0) }
         cloud.publish(store.hosts)
+        // Les comptes PlayStation et leurs associations, dans les deux sens.
+        cloud.attach(playstation: playstation)
     }
 
     func add(link: Candidate? = nil, tab: AddHostSheet.Tab = .network) {
@@ -115,6 +126,12 @@ final class AppModel: ObservableObject {
     func openSettings(_ host: Host, section: ComputerSection? = nil) {
         if let section { self.section = section }
         route = .settings(host.id)
+    }
+
+    /// Réglages d'une console PlayStation.
+    func openSettings(_ console: PlayStationConsole, section: ConsoleSection? = nil) {
+        if let section { consoleSection = section }
+        route = .console(console.id)
     }
 
     /// kybernow://adresse:port?name=…&fp=… (QR code ou lien de la console).
@@ -163,6 +180,14 @@ final class AppModel: ObservableObject {
 
     /// Un QR code ou un lien d'invitation lu dans la feuille d'ajout : elle se
     /// ferme, l'ajout de l'ordinateur prêté s'ouvre à sa place.
+    /// Une console à associer depuis la fenêtre d'ajout (onglets
+    /// « PlayStation », « Sur ce réseau », « Par adresse ») : elle se ferme,
+    /// puis l'association s'ouvre à sa place.
+    func pair(fromAddSheet target: PairTarget) {
+        adding = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.playstation.pairing = target }
+    }
+
     func openInvite(fromAddSheet invite: LendInvite) {
         adding = false
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.inviting = invite }
@@ -351,6 +376,35 @@ final class AppModel: ObservableObject {
     /// de l'accueil), `-screen settings|app|connecting|failed|session`,
     /// `-section picture|sound|controls|network|statistics|station`,
     /// `-demoUpdate 0.5.1` (mise à jour de l'app proposée).
+    private static var demoHandoffModel: PSHandoffModel?
+
+    private func demoHandoff(_ what: String) {
+        let model = PSHandoffModel()
+        Self.demoHandoffModel = model
+        Task { @MainActor in
+            if what == "receive" {
+                model.startReceiving(store: playstation)
+                KyberLog.app.notice("Démonstration : code \(model.code ?? "", privacy: .public)")
+                var last: String?
+                for _ in 0..<600 {
+                    try? await Task.sleep(for: .milliseconds(200))
+                    if model.received != last, let r = model.received {
+                        last = r
+                        KyberLog.app.notice("Démonstration : \(r, privacy: .public) Comptes : \(self.playstation.accounts.map { self.playstation.name($0) }.joined(separator: ", "), privacy: .public) ; consoles : \(self.playstation.consoles.map { "\($0.name) [\(self.playstation.pairedAccounts($0).count)]" }.joined(separator: ", "), privacy: .public)")
+                    }
+                }
+                return
+            }
+            model.startDiscovery()
+            for _ in 0..<50 where model.waiting.isEmpty { try? await Task.sleep(for: .milliseconds(200)) }
+            guard let w = model.waiting.first else { KyberLog.app.notice("Démonstration : aucun appareil en attente"); return }
+            model.choose(w)
+            model.send(code: what, store: playstation)
+            while model.sending || model.sendResult == nil { try? await Task.sleep(for: .milliseconds(200)) }
+            KyberLog.app.notice("Démonstration : \(model.sendResult?.text ?? "", privacy: .public)")
+        }
+    }
+
     private func applyDemoArguments() {
         let args = UserDefaults.standard
         let ordered = store.ordered
@@ -369,6 +423,26 @@ final class AppModel: ObservableObject {
         if let raw = args.string(forKey: "section"), let s = ComputerSection(rawValue: raw) { section = s }
         if args.string(forKey: "screen") == "settings", let id = selectedID ?? ordered.first?.id { route = .settings(id) }
         if let v = args.string(forKey: "demoUpdate") { UpdateChannels.shared.available = v }
+        // Consoles PlayStation : `-demoPlayStation YES` (comptes et consoles de démonstration),
+        // `-demoAdd playstation|network|address` (la fenêtre d'ajout à cet onglet),
+        // `-demoPair <identifiant>` (l'association de cette console : DEMO-LEA, DEMO-SALON).
+        if args.bool(forKey: "demoPlayStation") {
+            playstation.loadDemo()
+            if let console = playstation.consoles.first { selectedID = console.id }
+        }
+        if let tab = args.string(forKey: "demoAdd") {
+            let tabs: [String: AddHostSheet.Tab] = ["playstation": .playstation, "network": .network, "address": .address]
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { self.add(tab: tabs[tab] ?? .network) }
+        }
+        // Plusieurs appareils, essai sans l'interface : `-demoHandoff receive`
+        // (attente d'un envoi dès le lancement, le code au journal) ou
+        // `-demoHandoff <code>` (envoi au premier appareil en attente).
+        if let h = args.string(forKey: "demoHandoff") { demoHandoff(h) }
+        if let host = args.string(forKey: "demoPair"), let f = playstation.onNetwork.first(where: { $0.hostID == host }) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                self.playstation.pairing = self.playstation.console(hostID: host).map { PairTarget(console: $0, live: f) } ?? PairTarget(found: f)
+            }
+        }
         // `-demoWake YES` : le réveil de l'ordinateur choisi lancé d'emblée.
         if args.bool(forKey: "demoWake"), let host = store.ordered.first(where: { $0.id == selectedID }) ?? ordered.first {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [store] in store.wake(host) }
@@ -499,6 +573,7 @@ struct KyberNowApp: App {
         switch app.route {
         case .home: HomeView()
         case let .settings(id): SettingsView(hostID: id)
+        case let .console(id): ConsoleSettingsView(consoleID: id)
         }
     }
 
@@ -553,10 +628,13 @@ struct KyberNowApp: App {
             CommandGroup(replacing: .newItem) {}
             // Les commandes vont à la session de la fenêtre clé (même en échec),
             // sinon à la session active du registre ; relue au moment du clic.
+            // La fenêtre d'une partie sur console a le clavier : à cette partie
+            // (ses raccourcis passent aussi par sa vue, PlayStationInputView).
             CommandMenu("Session") {
                 let target = app.sessions.commandTarget
                 // Un invité quitte le partage (docs/link-ui.md, « Partage »).
                 Button(target?.isGuest == true ? ShareText.leave : String(localized: "Se déconnecter")) {
+                    if let ps = app.playstation.keySession { return ps.close() }
                     guard let s = app.sessions.commandTarget else { return }
                     if s.isLive { s.end() } else { s.dismissFailure() }
                 }
@@ -564,15 +642,24 @@ struct KyberNowApp: App {
                 .disabled(target == nil)
                 // Plusieurs écrans : pas de « Plein écran » (docs/link-ui.md).
                 if target?.canToggleFullScreen ?? true {
-                    Button("Plein écran") { app.sessions.commandTarget?.toggleFullScreen() }
+                    Button("Plein écran") {
+                        if let ps = app.playstation.keySession { return ps.toggleFullScreen() }
+                        app.sessions.commandTarget?.toggleFullScreen()
+                    }
                         .keyboardShortcut("f", modifiers: [.control, .option, .command])
                         .disabled(target?.isLive != true)
                 }
                 // La souris seulement avec le clavier et la souris (invité : s'ils lui sont donnés).
-                Button("Souris des jeux ou du bureau") { app.sessions.commandTarget?.toggleMouseCapture() }
+                Button("Souris des jeux ou du bureau") {
+                    if let ps = app.playstation.keySession { return ps.toggleMouse() }
+                    app.sessions.commandTarget?.toggleMouseCapture()
+                }
                     .keyboardShortcut("m", modifiers: [.control, .option, .command])
                     .disabled(target?.isLive != true || target?.hasKeyboardAndMouse != true)
-                Button("Statistiques") { app.sessions.commandTarget?.toggleStatsPanel() }
+                Button("Statistiques") {
+                    if let ps = app.playstation.keySession { return ps.toggleStatsPanel() }
+                    app.sessions.commandTarget?.toggleStatsPanel()
+                }
                     .keyboardShortcut("s", modifiers: [.control, .option, .command])
                     .disabled(target?.isLive != true)
                 // Plusieurs ordinateurs : la fenêtre de l'ordinateur suivant, dans l'ordre d'ouverture.

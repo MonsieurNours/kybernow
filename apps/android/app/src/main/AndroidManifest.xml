@@ -74,6 +74,17 @@
             android:theme="@style/Theme.KyberNow.Session"
             android:windowSoftInputMode="adjustNothing" />
 
+        <!-- Partie sur une console PlayStation (docs/playstation.md) : même présentation que la session d'un ordinateur.
+             Le clavier de la console (champ de texte) pousse l'interface au-dessus du clavier du système. -->
+        <activity
+            android:name=".session.PsSessionActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density"
+            android:launchMode="singleTask"
+            android:resizeableActivity="true"
+            android:theme="@style/Theme.KyberNow.Session"
+            android:windowSoftInputMode="adjustNothing" />
+
         <!-- Issue de l'installation d'une mise à jour. -->
         <receiver
             android:name=".update.InstallReceiver"

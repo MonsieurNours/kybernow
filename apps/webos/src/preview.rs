@@ -748,6 +748,149 @@ pub fn run(dir: &Path, lang: &str) {
     relay_shots(&mut app, &mut cv, &assets, &video, dir);
     // Le prêt de l'ordinateur (docs/pret.md) : l'ami (carte, attente, compte d'ami, session d'emprunt), l'hôte.
     lend_shots(&mut app, &mut cv, &assets, &video, dir);
+    // Les consoles PlayStation (docs/playstation.md ; textes : docs/link-ui.md, « Consoles PlayStation »).
+    playstation_shots(&mut app, &mut cv, &assets, &video, dir);
+}
+
+/// Une PS5 associée avec deux comptes, une PS4 trouvée sur le réseau, un appareil qui attend un envoi.
+fn playstation_demo(app: &mut App) {
+    use crate::ps::{PsFound, PsLive, PsState, PsWaiting};
+    let ps = &mut app.store.playstation;
+    *ps = Default::default();
+    let (a, _) = ps.put_account("AAAAAAAAAAE=", Some("MonsieurNours".into()));
+    let (b, _) = ps.put_account("AAAAAAAAAAI=", Some("Lea_42".into()));
+    let c = ps.put_console("F8461C0A1B2C", "PS5-Salon", "PS5", "ps5_v1", Some("192.168.1.110"));
+    c.pairings.insert(a.clone(), serde_json::json!({}));
+    c.pairings.insert(b, serde_json::json!({}));
+    c.account = Some(a);
+    app.ps.found = vec![
+        PsFound { address: "192.168.1.110".into(), host_id: "F8461C0A1B2C".into(), name: "PS5-Salon".into(), model: "PS5".into(), state: PsState::On, target: "ps5_v1".into(), running_app: Some("Astro Bot".into()) },
+        PsFound { address: "192.168.1.111".into(), host_id: "A0B1C2D3E4F5".into(), name: "PS4-Chambre".into(), model: "PS4".into(), state: PsState::Standby, target: "ps4_v10".into(), running_app: None },
+    ];
+    app.ps.live.insert("F8461C0A1B2C".into(), PsLive { state: PsState::On, running_app: Some("Astro Bot".into()), seen: Some(Instant::now()) });
+    app.ps.add.waiting = vec![PsWaiting { name: "Apple TV du salon".into(), platform: "tvos".into(), address: "192.168.1.60:52011".into() }];
+    app.tv.hdr = true;
+    app.tv.hdr_decoder = true;
+}
+
+/// Les consoles PlayStation : l'accueil (allumée, en veille, plusieurs comptes, réveil), l'écran « PlayStation » de
+/// l'ajout (comptes et consoles, recevoir, saisie à la main, choix du compte, code, envoi), les réglages, la partie
+/// (connexion, barre, mesures, clavier de la console, fin).
+fn playstation_shots(app: &mut App, cv: &mut Canvas, assets: &Assets, video: &Pixmap, dir: &Path) {
+    use crate::ps::{PsPairing, PsSessionUi, PsState, PsStats, PsStep, PsTarget};
+    let saved = app.store.playstation.clone();
+    let saved_selected = app.store.selected.clone();
+    playstation_demo(app);
+    app.session = None;
+    app.store.selected = Some("ps:F8461C0A1B2C".into());
+    app.go(Screen::Home);
+    shot(app, cv, assets, None, dir, "30-console-accueil");
+    app.focus = Target::Ps(PsTarget::HdrChip);
+    shot(app, cv, assets, None, dir, "30b-console-accueil-hdr");
+    app.focus = Target::Ps(PsTarget::AccountChip);
+    let _ = app.activate(Target::Ps(PsTarget::AccountChip));
+    shot(app, cv, assets, None, dir, "30c-console-choix-du-compte");
+    app.ps.account_menu = false;
+    app.ps.live.get_mut("F8461C0A1B2C").unwrap().state = PsState::Standby;
+    app.focus = Target::Ps(PsTarget::Primary);
+    shot(app, cv, assets, None, dir, "30d-console-en-veille");
+    app.ps.waking = Some("F8461C0A1B2C".into());
+    shot(app, cv, assets, None, dir, "30e-console-reveil");
+    app.ps.waking = None;
+    app.ps.live.get_mut("F8461C0A1B2C").unwrap().state = PsState::On;
+    app.focus = Target::Ps(PsTarget::FoundCard(0));
+    shot(app, cv, assets, None, dir, "30f-console-sur-le-reseau");
+
+    // L'ajout : l'écran « PlayStation ».
+    app.add.step = AddStep::Code;
+    app.go(Screen::Add);
+    app.focus = Target::Ps(PsTarget::OpenTab);
+    shot(app, cv, assets, None, dir, "31-ajout-playstation-bouton");
+    let _ = app.ps_open(Screen::Add);
+    app.ps.add.step = PsStep::Main;
+    app.ps.add.waiting = vec![crate::ps::PsWaiting { name: "Apple TV du salon".into(), platform: "tvos".into(), address: "192.168.1.60:52011".into() }];
+    app.focus = Target::Ps(PsTarget::Pair(1));
+    shot(app, cv, assets, None, dir, "31b-ajout-playstation");
+    let _ = app.activate(Target::Ps(PsTarget::Receive));
+    app.ps.add.receive_code = Some("482913".into());
+    shot(app, cv, assets, None, dir, "31c-recevoir");
+    app.ps.add.receive_expired = true;
+    shot(app, cv, assets, None, dir, "31d-recevoir-expire");
+    let _ = app.activate(Target::Ps(PsTarget::Manual));
+    app.ps.add.manual_id = "2961472053014".into();
+    app.ps.add.manual_name = "Hugo".into();
+    app.ps.add.manual_field = crate::ps::ManualField::Name;
+    shot(app, cv, assets, None, dir, "31e-saisie-a-la-main");
+    let _ = app.ps_back();
+    let p = PsPairing { host_id: "A0B1C2D3E4F5".into(), name: "PS4-Chambre".into(), model: "PS4".into(), address: "192.168.1.111".into(), target: "ps4_v10".into(), account: None };
+    let _ = app.ps_start_pairing(p);
+    shot(app, cv, assets, None, dir, "31f-avec-quel-compte");
+    let _ = app.activate(Target::Ps(PsTarget::Choose(0)));
+    app.ps.add.code = "1234".into();
+    shot(app, cv, assets, None, dir, "31g-code-de-la-console");
+    app.ps.add.code = "12345678".into();
+    app.ps_pair_failed(crate::ps::PairError::WrongCode);
+    shot(app, cv, assets, None, dir, "31h-code-refuse");
+    app.ps.add.pairing = None;
+    app.ps.add.message = None;
+    let _ = app.ps_back();
+    let _ = app.activate(Target::Ps(PsTarget::SendTo(0)));
+    app.ps.add.send_code = "48291".into();
+    shot(app, cv, assets, None, dir, "31i-envoyer");
+    app.ps.add.message = None;
+    app.ps.add.step = PsStep::Main;
+    app.ps.dialog = Some(crate::ps::PsDialog::RemoveAccount(app.store.playstation.accounts[0].id.clone()));
+    app.focus = Target::Ps(PsTarget::DialogCancel);
+    shot(app, cv, assets, None, dir, "31j-retirer-un-compte");
+    app.ps.dialog = None;
+
+    // Les réglages d'une console.
+    app.ps_open_settings("F8461C0A1B2C", Screen::Home);
+    app.focus = Target::Ps(PsTarget::Setting(crate::ps::PsSetting::Resolution));
+    shot(app, cv, assets, None, dir, "32-console-reglages-image");
+    let _ = app.activate(Target::Ps(PsTarget::Section(1)));
+    shot(app, cv, assets, None, dir, "32b-console-reglages-commandes");
+    let _ = app.activate(Target::Ps(PsTarget::Section(2)));
+    shot(app, cv, assets, None, dir, "32c-console-reglages-console");
+
+    // La partie : la connexion (l'écran d'un ordinateur), la barre, les mesures, le clavier de la console, la fin.
+    let mut s = SessionUi::new("ps:F8461C0A1B2C", "PS5-Salon", Profile::Jeu, false);
+    s.ps = Some(PsSessionUi { host_id: "F8461C0A1B2C".into(), waking: true, ..Default::default() });
+    s.phase = Phase::Connecting;
+    s.started = Instant::now() - Duration::from_millis(400);
+    app.session = Some(s);
+    app.screen = Screen::Session;
+    app.focus = Target::CancelConnect;
+    shot(app, cv, assets, None, dir, "33-console-connexion");
+    let stats = PsStats { width: 1920, height: 1080, fps_target: 60, hevc: true, hdr: true, target_kbps: 15_000, fps: 59.0, mbps: 12.4, lost: 3, recovered: 2 };
+    if let Some(s) = app.session.as_mut() {
+        s.phase = Phase::Streaming;
+        s.streamed = true;
+        s.menu = true;
+        s.ps.as_mut().unwrap().stats = Some(stats);
+    }
+    app.focus = Target::Menu(MenuItem::Resume);
+    shot(app, cv, assets, Some(video), dir, "33b-console-barre");
+    if let Some(s) = app.session.as_mut() {
+        s.menu = false;
+        s.show_stats = true;
+    }
+    shot(app, cv, assets, Some(video), dir, "33c-console-mesures");
+    if let Some(s) = app.session.as_mut() {
+        s.show_stats = false;
+        s.ps.as_mut().unwrap().keyboard = Some("Astro".into());
+    }
+    app.focus = Target::Key('b');
+    shot(app, cv, assets, Some(video), dir, "33d-console-clavier");
+    if let Some(s) = app.session.as_mut() {
+        s.ps.as_mut().unwrap().keyboard = None;
+    }
+    app.ps_ended(crate::ps::PsEnd::InUse);
+    shot(app, cv, assets, None, dir, "33e-console-fin");
+    app.session = None;
+    app.store.playstation = saved;
+    app.store.selected = saved_selected;
+    app.ps = Default::default();
 }
 
 /// L'ordinateur de Matthieu, emprunté avec un compte d'ami (prêt de l'ordinateur).

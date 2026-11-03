@@ -13,7 +13,8 @@ use crate::i18n::tr;
 pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
     cv.clear(INK);
     cv.line(1300.0, 1080.0, 1920.0, 460.0, 3.0, SPECTRE.alpha(0.08));
-    widgets::label(cv, 96.0, 104.0, tr("Ajouter un ordinateur", "Add a computer"));
+    // Les consoles PlayStation sont là aussi (docs/link-ui.md, « Consoles PlayStation »).
+    widgets::label(cv, 96.0, 104.0, tr("Ajouter un ordinateur ou une console", "Add a computer or a console"));
     match &app.add.step {
         AddStep::Code => code(app, cv, f),
         AddStep::Address => address(app, cv, f),
@@ -104,6 +105,8 @@ fn code(app: &App, cv: &mut Canvas, f: &mut Frame) {
     let bw = widgets::secondary(cv, f, Target::AddByAddress, rx, yy + 44.0, tr("Par adresse et port", "With address and port"), 24.0);
     // Prêt de l'ordinateur : l'ordinateur d'un ami, avec le compte qu'il a créé pour vous (Admin, page « Prêt »).
     widgets::secondary(cv, f, Target::AddFriend, rx + bw + 20.0, yy + 44.0, tr("Avec un compte d'ami", "With a friend account"), 24.0);
+    // Les consoles PlayStation : comptes, consoles du réseau, recevoir d'un autre appareil.
+    widgets::secondary(cv, f, Target::Ps(crate::ps::PsTarget::OpenTab), rx, yy + 130.0, "PlayStation", 24.0);
 }
 
 /// « Ajouter un ordinateur » › « Avec un compte d'ami » (prêt de l'ordinateur, docs/link-ui.md) : la Station du réseau,
@@ -193,8 +196,8 @@ fn address(app: &App, cv: &mut Canvas, f: &mut Frame) {
         262.0,
         Text::new(Font::Regular, 24.0, FROST_2),
         tr(
-            "L'adresse et le port d'Admin sont dans KyberNow Admin › Appareils Link, sous le QR code. Un clavier branché à la télé marche aussi.",
-            "Admin's address and port are in KyberNow Admin › Link devices, under the QR code. A keyboard plugged into the TV works too.",
+            "L'adresse et le port d'Admin sont dans KyberNow Admin › Appareils Link, sous le QR code. L'adresse seule d'une console PlayStation (par un VPN ou depuis un autre réseau) marche aussi. Un clavier branché à la télé aussi.",
+            "Admin's address and port are in KyberNow Admin › Link devices, under the QR code. The address alone of a PlayStation console (over a VPN or from another network) works too. So does a keyboard plugged into the TV.",
         ),
         820.0,
         36.0,

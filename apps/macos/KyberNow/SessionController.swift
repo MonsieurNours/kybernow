@@ -702,7 +702,7 @@ final class SessionController: NSObject, ObservableObject {
     }
 
     /// Photographie de l'accueil, pour les deux moitiés du passage.
-    private static func photograph(_ view: NSView) -> CGImage? {
+    static func photograph(_ view: NSView) -> CGImage? {
         guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return nil }
         view.cacheDisplay(in: view.bounds, to: rep)
         return rep.cgImage

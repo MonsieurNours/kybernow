@@ -104,6 +104,80 @@ async fn autorisations_refusees_par_la_station() {
     .expect("délai");
 }
 
+/// Une console que voit la Station (docs/relais.md, « Consoles PlayStation ») :
+/// les flux UDP et TCP portent `to: "console"`, son identifiant et le port,
+/// que le relais fait suivre tels quels ; la Station refuse le reste.
+async fn console_par_la_station(client_tcp: bool) {
+    use kybernow_tunnel::ConsoleTarget;
+    let pki = pki();
+    let relay = relay(&pki, |_| {}).await;
+    let station = fake_station(relay_addr(&relay), pki.roots.clone(), false, Policy::default());
+    station.joined().await;
+    let tunnel = Tunnel::open(client_cfg(&relay, &pki, station.id(), client_tcp)).await.unwrap();
+    assert!(tunnel.wait_station(T).await);
+    // Takion (UDP 9296) : un point d'écoute local, des paquets de 1200 octets.
+    let takion = tunnel.listen_console(ConsoleTarget::new(CONSOLE, 9296)).await.unwrap();
+    assert!(takion.addr().ip().is_loopback());
+    let udp = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    udp.connect(takion.addr()).await.unwrap();
+    for i in 0..10u8 {
+        let packet = vec![i; 1200];
+        udp.send(&packet).await.unwrap();
+        let mut buf = [0u8; 2048];
+        let n = timeout(T, udp.recv(&mut buf)).await.expect("écho de la console").unwrap();
+        assert_eq!(&buf[..n], &packet[..]);
+    }
+    // Un autre socket vers le même port de la console (la recherche, le réveil
+    // en prennent un neuf à chaque fois) : le même flux, la réponse va au dernier.
+    let other = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    other.connect(takion.addr()).await.unwrap();
+    other.send(b"encore").await.unwrap();
+    let mut buf = [0u8; 64];
+    let n = timeout(T, other.recv(&mut buf)).await.expect("écho au dernier socket").unwrap();
+    assert_eq!(&buf[..n], b"encore");
+    let to_takion = station.flow_targets.lock().unwrap().iter().filter(|t| t.as_ref().is_some_and(|c| c.port == 9296)).count();
+    assert_eq!(to_takion, 1, "un seul flux par port de la console");
+    // La session (TCP 9295) : l'en-tête du relais porte la console et le port.
+    let session = tunnel.listen_console(ConsoleTarget::new(CONSOLE, 9295)).await.unwrap();
+    let mut tcp = TcpStream::connect(session.addr()).await.unwrap();
+    tcp.write_all(b"GET /sie/ps5/rp/sess/init").await.unwrap();
+    let mut back = vec![0u8; 5 + 25];
+    timeout(T, tcp.read_exact(&mut back)).await.expect("écho TCP").unwrap();
+    assert_eq!(&back, b"9295:GET /sie/ps5/rp/sess/init");
+    let headers = station.headers.lock().unwrap().clone();
+    let h = headers.iter().find(|h| h.kind == StreamKind::ConsoleTcp).expect("flux vers la console");
+    assert_eq!(h.console(), Some(ConsoleTarget::new(CONSOLE, 9295)));
+    assert_eq!(h.client, tunnel.client_id());
+    // Console inconnue, port interdit : refusés par la Station, avec la raison.
+    let refused = |c: ConsoleTarget| {
+        let tunnel = tunnel.clone();
+        async move {
+            let mut f = tunnel.flow_to(tunnel.new_key(), Some(c));
+            match f.receiver.ready().await {
+                Err(TunnelError::FlowRefused(why)) => why,
+                other => panic!("flux accepté : {other:?}"),
+            }
+        }
+    };
+    assert_eq!(refused(ConsoleTarget::new("AAAAAAAAAAAA", 9296)).await, "console_unknown");
+    assert_eq!(refused(ConsoleTarget::new(CONSOLE, 22)).await, "port_forbidden");
+    let targets = station.flow_targets.lock().unwrap().clone();
+    assert_eq!(targets.first(), Some(&Some(ConsoleTarget::new(CONSOLE, 9296))), "la cible arrive à la Station");
+    // Kyber reste Kyber : un flux sans cible.
+    echo_through(&tunnel).await;
+    assert!(station.flow_targets.lock().unwrap().iter().any(Option::is_none));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn console_par_la_station_en_quic() {
+    timeout(T * 2, console_par_la_station(false)).await.expect("délai");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn console_par_la_station_en_repli_tcp() {
+    timeout(T * 2, console_par_la_station(true)).await.expect("délai");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn station_absente_puis_connectee() {
     timeout(T * 2, async {

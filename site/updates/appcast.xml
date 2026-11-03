@@ -3,6 +3,87 @@
     <channel>
         <title>KyberNow</title>
         <item>
+            <title>0.9.5</title>
+            <pubDate>Tue, 03 Nov 2026 23:01:16 +0100</pubDate>
+            <sparkle:channel>beta</sparkle:channel>
+            <sparkle:version>202611032206</sparkle:version>
+            <sparkle:shortVersionString>0.9.5</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[
+PlayStation consoles beta. It is only offered to Stations and apps set to beta versions.
+
+- **Play your PS5 or PS4 in KyberNow Link.** The consoles on your network appear on the home screen, next to your computers. Pair the console once with the code it shows (Settings › System › Remote Play), then “Play”: it wakes up if it's in rest mode, and the game opens, in HDR on an HDR screen. Several PlayStation Network accounts on one device, each with its consoles.
+- **The full controller.** With a DualSense: rumble, adaptive triggers, touchpad and gyroscope, and on Mac, plugged in over USB, HD haptics; their strength can be set. Without a controller, the keyboard and mouse stand in for one, with a layout of your choosing. When the console opens its keyboard (a search, a message), you type straight on your keyboard.
+- **A clean, smooth picture.** On Mac, iPhone, iPad and Apple TV, the console's picture (1080p at most) is upscaled to your screen's size, with adjustable sharpness. A picture lost on the way no longer freezes the game: it picks up again within a few hundredths of a second.
+- **Your accounts on all your devices.** An Apple device picks up your accounts and consoles through iCloud. Elsewhere, on a TV or a PC, “Send to a device” sends them with a 6-digit code: no need to pair again.
+- **Away from home**: through your VPN right now; through the KyberNow relay, with a Station on at home, as soon as the relay is updated, very soon.
+- **Windows app: the same session bar as on Mac**, and with a Mac Station, the Mac's Keys menu and “Ctrl acts as ⌘”.
+- **Mac: the home screen no longer freezes** when you come back from a session.
+- Consoles have only been tried on Mac so far, with a PS5 Pro: your feedback is welcome on the Discord.
+]]></description>
+            <sparkle:releaseNotesLink xml:lang="fr">https://www.kybernow.app/updates/notes/0.9.5/KyberNow-Link-macOS.fr.html</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/MonsieurNours/kybernow/releases/download/v0.9.5/KyberNow-Link-macOS.zip" length="50663015" type="application/octet-stream" sparkle:edSignature="ZyK5RFXIL/MwEJvQ/VZJvO/bZGvapFlM117g2pQJkZmLOqfS9eoQdAdNSIYKSs2PD3OEov4gtNyS341vCXGTCA=="/>
+        </item>
+        <item>
+            <title>0.9.4</title>
+            <pubDate>Tue, 03 Nov 2026 14:56:21 +0100</pubDate>
+            <sparkle:channel>beta</sparkle:channel>
+            <sparkle:version>202611031433</sparkle:version>
+            <sparkle:shortVersionString>0.9.4</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[
+Fourth HDR beta, before 0.9.5. It is only offered to Stations and apps set to beta versions.
+
+- **No more frozen PC after an update.** Since 0.9.2, the Station gave capture the very highest priority on the graphics card. On some PCs with an NVIDIA card, this could hang the card and freeze Windows right after an update, up to a blue screen. The Station now asks for a high priority, without going all the way to the maximum.
+- **The Station repairs itself.** If the PC stops abruptly during an update, Kyber's settings or certificate could be damaged, and Kyber would no longer start. The Station now saves its files for good, backs them up before every update, and on startup restores a backup or a fresh certificate by itself; Admin reports it. Going back to the previous version no longer copies damaged settings.
+- This beta has not yet been tried with a real PC: your feedback is welcome on the Discord.
+]]></description>
+            <sparkle:releaseNotesLink xml:lang="fr">https://www.kybernow.app/updates/notes/0.9.4/KyberNow-Link-macOS.fr.html</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/MonsieurNours/kybernow/releases/download/v0.9.4/KyberNow-Link-macOS.zip" length="49590990" type="application/octet-stream" sparkle:edSignature="oGZSSaqr+Wfbl7h0zlhGglY6R53C0L0SwU/g4ci3YlPYr8pKPQZbalUx+z3ZY2tVEwXG3/KiXQ8Lg2ML1tOsBg=="/>
+        </item>
+        <item>
+            <title>0.9.3</title>
+            <pubDate>Tue, 03 Nov 2026 13:41:24 +0100</pubDate>
+            <sparkle:channel>beta</sparkle:channel>
+            <sparkle:version>202611031312</sparkle:version>
+            <sparkle:shortVersionString>0.9.3</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[
+Third HDR beta, before 0.9.5. It is only offered to Stations and apps set to beta versions.
+
+- **Mac: no more frozen screen.** On a display set to “more space” (a 4K display shown at 3008 × 1692, for example), opening the statistics in HDR could freeze the screen until the Mac restarted. The app now draws the picture at the display's real size, instead of a larger picture that macOS had to scale down: no more freeze, and less work for every frame.
+- **Your screen's real brightness for games**: on some PCs, Windows kept the virtual display's brightness (3,806 nits) instead of your device's, and games tuned their HDR for a much brighter screen than yours. The Station now tries several ways to make it take the right one, and keeps the first that works. Admin shows what games see on the Picture and sound page.
+- This beta has not yet been tried with a real PC: your feedback is welcome on the Discord.
+]]></description>
+            <sparkle:releaseNotesLink xml:lang="fr">https://www.kybernow.app/updates/notes/0.9.3/KyberNow-Link-macOS.fr.html</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/MonsieurNours/kybernow/releases/download/v0.9.3/KyberNow-Link-macOS.zip" length="49591386" type="application/octet-stream" sparkle:edSignature="TO3xYssIyWjCMp6dPSk0C5yT9Nz7Ww0hjZncq6dZcPNWkKaGnQF6qqHZUYkArC8QlkgDPC/UHAi4d2G814TdDQ=="/>
+        </item>
+        <item>
+            <title>0.9.2</title>
+            <pubDate>Tue, 03 Nov 2026 12:18:55 +0100</pubDate>
+            <sparkle:channel>beta</sparkle:channel>
+            <sparkle:version>202611031154</sparkle:version>
+            <sparkle:shortVersionString>0.9.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[
+Second HDR beta, before 0.9.5. It is only offered to Stations and apps set to beta versions.
+
+- **Less latency in HDR**: the Station converts the HDR picture without copying it, in a single pass, and gives capture and encoding priority on the graphics card, which also helps in SDR during a heavy game. The Apple apps create their decoder in the right format from the start, and the iPhone finally shows the picture at 120 Hz.
+- **The path of a frame in every app**: in Statistics, during a session, capture, encoding, sending, network, decoding and display each have their own time, on Apple TV, LG TVs, Windows and Linux as on Mac, iPhone, iPad and Android. Turn HDR on and off in the bar to see which stage changes.
+- **Apple TV**: the HDR picture no longer looks washed out.
+- **HDR calibration**: on Apple TV and LG TVs, the pattern scale now follows the screen's real brightness (the symbol disappeared too high, up to 10,000 nits). For an accurate result on a TV, put it in Game mode with HGIG, in its HDR picture settings.
+- **Admin checks the virtual display's HDR**: when each HDR session starts, Admin reads back what Windows tells games and shows it on the Picture and sound page (“HDR: games see 1,000 nits.”), or reports that Windows did not take your screen's profile.
+- Station: Kyber patch 0023 (graphics card priority, timing of each stage in the log every 5 s) and a lighter HDR10 conversion (0022).
+- This beta has not yet been tried with a real PC: your feedback is welcome on the Discord.
+]]></description>
+            <sparkle:releaseNotesLink xml:lang="fr">https://www.kybernow.app/updates/notes/0.9.2/KyberNow-Link-macOS.fr.html</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/MonsieurNours/kybernow/releases/download/v0.9.2/KyberNow-Link-macOS.zip" length="49589212" type="application/octet-stream" sparkle:edSignature="3QfczI0II7uEL30+g+H+T+/YeRY0bfmeepUg8pWnQE2hs1+Bj035dlHdHlHx0SRfdcOorBWqJyyWEVK/r+edAA=="/>
+        </item>
+        <item>
             <title>0.9.1</title>
             <pubDate>Mon, 02 Nov 2026 17:53:49 +0100</pubDate>
             <sparkle:channel>beta</sparkle:channel>

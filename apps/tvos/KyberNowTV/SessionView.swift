@@ -191,9 +191,13 @@ struct SessionStage: UIViewControllerRepresentable {
 // MARK: - Le passage
 
 /// Les deux moitiés de l'accueil (sa photographie : l'ordinateur, son nom,
-/// le bouton allumé), le tube de néon de la couture, puis l'ouverture.
+/// le bouton allumé), le tube de néon de la couture, puis l'ouverture. Une
+/// partie sur une console passe par le même passage, avec la scène de la
+/// console à l'accueil (docs/link-ui.md, « Consoles PlayStation »).
 struct Passage: View {
-    let host: Host
+    let host: Host?
+    /// Une partie sur une console : sa scène de l'accueil à la place de l'ordinateur.
+    var console: PlayStationConsole?
     let open: Bool
     /// Le titre de la session (« Invité sur {nom} » pour un invité) et le bouton de l'accueil qu'il imite.
     var title: String?
@@ -246,28 +250,36 @@ struct Passage: View {
     /// Comme sur l'accueil : la photographie de l'accueil s'ouvre.
     private func half(_ corner: Alignment) -> some View {
         ZStack(alignment: .topLeading) {
-            HostBackdrop(host: host)
+            if let console {
+                Signature(seed: console.name)
+            } else if let host {
+                HostBackdrop(host: host)
+            }
             VStack(alignment: .leading, spacing: 22) {
                 HStack(spacing: 12) {
                     Circle().fill(Theme.ok).frame(width: 10, height: 10)
-                    Text(LinkText.status(true)).font(Theme.sans(21))
+                    Text(console != nil ? PSText.on : LinkText.status(true)).font(Theme.sans(21))
                 }
                 .padding(.leading, 16).padding(.trailing, 18)
                 .frame(height: 44)
                 .glass(22)
-                Text(title ?? host.name)
+                Text(title ?? console?.name ?? host?.name ?? "")
                     .font(Theme.display(140, 680))
                     .tracking(-140 * 0.045)
                     .lineLimit(1)
                     .minimumScaleFactor(0.5)
                     .foregroundStyle(Theme.text)
                     .padding(.vertical, -16)
-                if let os = store.status[host.id]?.info?.os {
-                    Text(os).font(Theme.sans(24)).foregroundStyle(Theme.muted)
-                }
-                HStack(spacing: 14) {
-                    Icon("monitor", size: 28).foregroundStyle(Theme.accent)
-                    Text(HomeView.screenLine(host, info: store.status[host.id]?.info, screenHDR: HDRDisplay.isHDR())).font(Theme.sans(24)).foregroundStyle(Theme.text2)
+                if let console {
+                    Text(verbatim: console.model).font(Theme.sans(24)).foregroundStyle(Theme.muted)
+                } else if let host {
+                    if let os = store.status[host.id]?.info?.os {
+                        Text(os).font(Theme.sans(24)).foregroundStyle(Theme.muted)
+                    }
+                    HStack(spacing: 14) {
+                        Icon("monitor", size: 28).foregroundStyle(Theme.accent)
+                        Text(HomeView.screenLine(host, info: store.status[host.id]?.info, screenHDR: HDRDisplay.isHDR())).font(Theme.sans(24)).foregroundStyle(Theme.text2)
+                    }
                 }
                 Text(button)
                     .font(Theme.sans(28, .semibold))
@@ -309,16 +321,13 @@ struct HalfShape: Shape {
     }
 }
 
-// MARK: - Connexion : les trois étapes
+// MARK: - Connexion : les étapes
 
 /// « Préparation de l'écran », « Connexion », « Premières images » et
 /// « Annuler » (le bouton Retour annule aussi) ; « La Station redémarre… » à
 /// leur place pendant le dernier recours de la connexion.
 struct ConnectingPanel: View {
     @ObservedObject var session: SessionController
-    @FocusState private var cancelFocused: Bool
-    @State private var pulse = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Étape en cours : 0, 1 ou 2.
     private var current: Int {
@@ -336,36 +345,57 @@ struct ConnectingPanel: View {
     }
 
     var body: some View {
+        // Un invité : les mêmes étapes, titrées « Invité sur {nom} » ; un ami : « Ordinateur de {hôte} ».
+        // Un emprunt : le mode console se met en place d'abord.
+        ConnectingCard(steps: [session.isBorrower ? LendText.preparing : String(localized: "Préparation de l'écran"),
+                               String(localized: "Connexion"), String(localized: "Premières images")],
+                       current: current, title: session.isVisitor || waitingHost != nil ? session.title : nil,
+                       restarting: session.stationRestarting, waiting: waitingHost.map(LendText.waiting)) { session.end() }
+    }
+}
+
+/// La carte de la connexion, commune aux ordinateurs et aux consoles : la
+/// marque allumée, les étapes (faite, en cours, à venir) ou une attente, et
+/// « Annuler ».
+struct ConnectingCard: View {
+    let steps: [String]
+    let current: Int
+    /// Au-dessus des étapes (« Invité sur {nom} », « Ordinateur de {hôte} »).
+    var title: String?
+    /// « La Station redémarre… » à la place des étapes.
+    var restarting = false
+    /// Une attente à la place des étapes (« En attente de {hôte}… »).
+    var waiting: String?
+    let cancel: () -> Void
+    @FocusState private var cancelFocused: Bool
+    @State private var pulse = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
         HStack(spacing: 34) {
             Mark(size: 48, level: .lit)
             VStack(alignment: .leading, spacing: 14) {
-                if session.stationRestarting {
+                if restarting {
                     // Dernier recours : la Station redémarre, puis les étapes reprennent.
                     restartLine
-                } else if let host = waitingHost {
+                } else if let waiting {
                     // « Annuler » retire la demande chez l'hôte.
-                    Text(session.title).font(Theme.sans(28, .semibold)).foregroundStyle(Theme.text).lineLimit(1)
+                    if let title { Text(title).font(Theme.sans(28, .semibold)).foregroundStyle(Theme.text).lineLimit(1) }
                     HStack(spacing: 16) {
                         Circle().fill(Theme.accent).frame(width: 12, height: 12)
                             .shadow(color: Theme.accentFill, radius: 8)
                             .opacity(pulse ? 0.4 : 1)
                             .frame(width: 24, height: 24)
-                        Text(LendText.waiting(host)).font(Theme.sans(24, .semibold)).foregroundStyle(Theme.text)
+                        Text(waiting).font(Theme.sans(24, .semibold)).foregroundStyle(Theme.text)
                     }
                 } else {
-                    // Un invité : les mêmes étapes, titrées « Invité sur {nom} » ; un ami : « Ordinateur de {hôte} ».
-                    if session.isVisitor {
-                        Text(session.title).font(Theme.sans(28, .semibold)).foregroundStyle(Theme.text).lineLimit(1)
-                    }
-                    // Un emprunt : le mode console se met en place d'abord.
-                    step(0, session.isBorrower ? LendText.preparing : String(localized: "Préparation de l'écran"))
-                    step(1, String(localized: "Connexion"))
-                    step(2, String(localized: "Premières images"))
+                    if let title { Text(title).font(Theme.sans(28, .semibold)).foregroundStyle(Theme.text).lineLimit(1) }
+                    ForEach(Array(steps.enumerated()), id: \.offset) { i, t in step(i, t) }
                 }
             }
             .frame(minWidth: 420, alignment: .leading)
             Rectangle().fill(Color.white.opacity(0.12)).frame(width: 1)
-            Button(String(localized: "Annuler")) { session.end() }
+            Button(String(localized: "Annuler"), action: cancel)
                 .buttonStyle(ChoiceButton(selected: false, height: 64, light: true))
                 .focused($cancelFocused)
         }
@@ -430,7 +460,9 @@ struct MenuHint: View {
 // MARK: - Échec
 
 struct SessionFailure: View {
-    let host: Host
+    let host: Host?
+    /// Une partie sur une console : sa scène, et « Fermer » (docs/link-ui.md, « Consoles PlayStation »).
+    var console: PlayStationConsole?
     /// Le titre : le nom de l'ordinateur, ou « Invité sur {nom} ».
     var title: String?
     let message: String
@@ -448,7 +480,11 @@ struct SessionFailure: View {
 
     var body: some View {
         ZStack {
-            HostBackdrop(host: host, online: false)
+            if let console {
+                Signature(seed: console.name).opacity(0.6)
+            } else if let host {
+                HostBackdrop(host: host, online: false)
+            }
             VStack(alignment: .leading, spacing: 26) {
                 // La carte de fin d'un emprunt : surtitre « KyberNow Share ».
                 if borrower { Theme.eyebrow(LendText.endEyebrow, color: Theme.faint).font(Theme.mono(18)) }
@@ -458,7 +494,7 @@ struct SessionFailure: View {
                         Theme.eyebrow(afterImage ? String(localized: "La session s'est arrêtée") : String(localized: "La connexion a échoué"), color: Theme.warnText).font(Theme.mono(18))
                     }
                 }
-                Text(title ?? host.name).font(Theme.display(110, 680)).tracking(-110 * 0.045).foregroundStyle(Theme.text)
+                Text(title ?? console?.name ?? host?.name ?? "").font(Theme.display(110, 680)).tracking(-110 * 0.045).foregroundStyle(Theme.text)
                 // La raison du cœur n'a pas de point final, sauf celle du partage (« {hôte} a arrêté le partage. »).
                 Text(message.prefix(1).uppercased() + message.dropFirst() + (message.hasSuffix(".") ? "" : "."))
                     .font(Theme.sans(28)).foregroundStyle(Theme.text2)
@@ -473,7 +509,7 @@ struct SessionFailure: View {
                     }
                     .padding(.top, 30)
                     .onAppear { focus = 0 }
-                } else if borrower {
+                } else if borrower || console != nil {
                     Button(LendText.close, action: done)
                         .buttonStyle(PrimaryButton(height: 80, fontSize: 28))
                         .padding(.top, 30)

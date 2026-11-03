@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en" class="no-js">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KyberNow Share · Play together, lend your computer, at home or from afar</title>
+<meta name="description" content="KyberNow Share lets other people onto your computer: friends who watch or play with you, someone close who borrows it while you are not using it, a team taking turns on a workstation. No account, at home or through the relay.">
+<link rel="canonical" href="https://www.kybernow.app/en/share/">
+<meta name="theme-color" content="#05070A">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="KyberNow">
+<meta property="og:locale" content="en_GB">
+<meta property="og:locale:alternate" content="fr_FR">
+<meta property="og:title" content="KyberNow Share: your computer, shared with whoever you choose">
+<meta property="og:description" content="Friends who watch or play with you, someone close who borrows your gaming PC, a team taking turns on a workstation. A six-digit code, and you decide everything.">
+<meta property="og:url" content="https://www.kybernow.app/en/share/">
+<meta property="og:image" content="https://www.kybernow.app/assets/og/kybernow-en.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="KyberNow: your PC on every screen. Play and work on your computer from all your devices, the free and open-source alternative to Sunshine and Moonlight.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="KyberNow Share: your computer, shared with whoever you choose">
+<meta name="twitter:description" content="Friends who watch or play with you, someone close who borrows your gaming PC, a team taking turns on a workstation. A six-digit code, and you decide everything.">
+<meta name="twitter:image" content="https://www.kybernow.app/assets/og/kybernow-en.jpg">
+<meta name="twitter:image:alt" content="KyberNow: your PC on every screen. Play and work on your computer from all your devices, the free and open-source alternative to Sunshine and Moonlight.">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="alternate" hreflang="fr" href="https://www.kybernow.app/share/">
+<link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/share/">
+<link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/share/">
+<script src="/assets/lang.js"></script>
+<link rel="preload" href="/fonts/Archivo-wdth-wght.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/assets/kybernow.css">
+<link rel="stylesheet" href="/assets/site.css">
+<link rel="stylesheet" href="/assets/doc.css">
+<script type="importmap">
+{ "imports": {
+  "three": "/vendor/three/three.module.min.js",
+  "three/addons/": "/vendor/three/addons/"
+} }
+</script>
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"WebPage","@id":"https://www.kybernow.app/en/share/","url":"https://www.kybernow.app/en/share/","name":"KyberNow Share: your computer, shared with whoever you choose","description":"KyberNow Share lets other people onto your computer: guests who watch or play with you, someone close or a colleague who borrows it while you are not using it, at home or through KyberNow's relay.","inLanguage":"en","isPartOf":{"@id":"https://www.kybernow.app/#site"},"about":{"@id":"https://www.kybernow.app/#kybernow"}}
+</script>
+</head>
+<body>
+
+<canvas id="scene" aria-hidden="true"></canvas>
+<div class="veil" aria-hidden="true"></div>
+
+<header class="nav" id="nav">
+  <a class="nav-logo" href="/en/" aria-label="KyberNow, beta version, home"><img src="/assets/img/kybernow-logo-dark.svg" alt="KyberNow" width="132" height="18"><span class="beta" aria-hidden="true">Beta</span></a>
+  <nav class="nav-links" aria-label="Sections">
+    <a href="/en/#appareils">Uses</a>
+    <a href="/en/#apps">The apps</a>
+    <a href="/en/share/" aria-current="page">Share</a>
+    <a href="/en/technology/">Technology</a>
+    <a href="/en/technology/#comparer">Compare</a>
+    <a href="/en/guide/">Guide</a>
+  </nav>
+  <div class="nav-actions">
+    <a class="nav-icon" href="https://discord.gg/sVy2mu5WdT" rel="noopener" aria-label="Discord"><svg class="ic"><use href="/assets/icons.svg#discord-logo"/></svg></a>
+    <a class="nav-lang" href="/share/" hreflang="fr" lang="fr" data-set-lang="fr">FR</a>
+    <a class="btn btn-ghost btn-sm nav-dl" href="/en/#telecharger"><svg class="ic"><use href="/assets/icons.svg#download-simple"/></svg>Download</a>
+    <button class="nav-burger" type="button" aria-expanded="false" aria-controls="menu" aria-label="Menu"><span></span><span></span></button>
+  </div>
+</header>
+<div class="menu" id="menu" hidden>
+  <nav aria-label="Menu">
+    <a href="/en/share/#ensemble">Play together</a>
+    <a href="/en/share/#preter">Lend the computer</a>
+    <a href="/en/share/#distance">Away from home</a>
+    <a href="/en/share/#questions">Questions</a>
+    <a href="/en/guide/#partage">Step by step</a>
+    <a href="/en/#telecharger">Download</a>
+  </nav>
+  <div class="menu-foot">
+    <a class="btn btn-ghost" href="https://discord.gg/sVy2mu5WdT" rel="noopener"><svg class="ic"><use href="/assets/icons.svg#discord-logo"/></svg>Discord</a>
+    <a class="btn btn-ghost" href="/share/" hreflang="fr" lang="fr" data-set-lang="fr"><svg class="ic"><use href="/assets/icons.svg#globe"/></svg>Français</a>
+  </div>
+</div>
+
+<main>
+
+<!-- 1 · Introduction -->
+<section class="page-hero share-hero" data-scene="guide">
+  <div class="wrap">
+    <img class="share-logo" src="/assets/img/kybernow-share-dark.svg" alt="KyberNow Share" width="219" height="40" data-reveal>
+    <h1 class="title page-title" data-split>Your computer, <strong>shared with whoever you choose.</strong></h1>
+    <p class="lede" data-reveal style="--d:.3s">KyberNow Share lets other people onto your computer: friends who watch or play with you, someone close who borrows your gaming PC while you are not using it, a team taking turns on a workstation. They come in with a code, at home or from afar, with no account to create. You decide what each of them can do, and you take back control whenever you like.</p>
+    <ol class="quick" data-reveal style="--d:.45s">
+      <li><a href="#ensemble"><span>1</span>Play together</a></li>
+      <li><a href="#preter"><span>2</span>Lend the computer</a></li>
+      <li><a href="#distance"><span>3</span>Away from home</a></li>
+    </ol>
+  </div>
+</section>
+
+<!-- 2 · Watching and playing together: guests -->
+<section class="section" id="ensemble" data-scene="edge-r">
+  <div class="wrap">
+    <p class="label" data-reveal>Play together</p>
+    <h2 class="title" data-split>Up to four guests <strong>on your screen.</strong></h2>
+    <p class="body-lg" data-reveal>You are playing or working, and you open a share: a friend watches your game from their phone, a second player picks up a controller from the sofa, a colleague follows your screen from their desk. You carry on using your computer as before.</p>
+
+    <figure class="share-split" data-reveal>
+      <img src="/assets/img/scenes/salon-amis-960.webp" srcset="/assets/img/scenes/salon-amis-960.webp 960w, /assets/img/scenes/salon-amis.webp 1536w" sizes="(max-width: 900px) 100vw, 56vw" width="960" height="540" loading="lazy" decoding="async" alt="Four friends in their thirties to fifties on a sofa: two of them play a game together on the TV, the others laugh.">
+      <figcaption>
+        <h3>One code, and your guests are in</h3>
+        <p>From the session bar of your KyberNow Link app, or from the computer itself by choosing the screen to show, you open a share. It gives you a six-digit code, a link and a QR code.</p>
+        <p>Your guests come in with the code in the KyberNow Link app, on any device, or with the link in a browser. They give their first name, and that's all: no account, and nothing to install for anyone using the browser.</p>
+        <p class="notice-links"><a href="/en/guide/#partage">Open and join a share, step by step<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a></p>
+      </figcaption>
+    </figure>
+
+    <div class="proofs-2 share-cards">
+      <article class="card" data-reveal><svg class="ic-lg"><use href="/assets/icons.svg#shield-check"/></svg><h3>You stay in charge</h3><p>A guest arrives as a spectator: they see your screen and hear the sound, and send nothing to your computer. You give them their controllers, or the keyboard and mouse, or both, and take them back in one move. The Station only lets through what you have given, even if their device tried to send something else.</p></article>
+      <article class="card" data-reveal style="--d:.05s"><svg class="ic-lg"><use href="/assets/icons.svg#game-controller"/></svg><h3>Their controller becomes the next controller</h3><p>When you give a guest their controllers, your computer sees them as one more controller, plugged in after yours. Games for several players on the same screen work with no setting to change, as if your friend were sitting next to you.</p></article>
+      <article class="card" data-reveal style="--d:.10s"><svg class="ic-lg"><use href="/assets/icons.svg#frame-corners"/></svg><h3>A picture for each guest</h3><p>Each guest picks the quality of their picture: Auto, the same as yours, 4K at 60&nbsp;Hz, 1080p at 60&nbsp;Hz or 720p at 30&nbsp;Hz. It is never bigger than yours, and nothing they do changes your screen or your picture. A guest whose connection weakens gets a lighter picture, without you noticing.</p></article>
+    </div>
+
+    <div class="table share-rights" data-reveal>
+      <div class="tr"><span class="th">Spectator</span><span>They see and hear. Nothing leaves their device for your computer. This is how every guest arrives.</span></div>
+      <div class="tr"><span class="th">Give controllers</span><span>Their controllers play on your computer. “Take back controllers” takes them away again.</span></div>
+      <div class="tr"><span class="th">Give keyboard and mouse</span><span>They can type and move the pointer. The clipboard is never shared with a guest.</span></div>
+      <div class="tr"><span class="th">Remove</span><span>They leave the share. “New code” stops them coming back; the others stay. “Stop sharing” sends everyone out.</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- 3 · Lending the computer -->
+<section class="section" id="preter" data-scene="edge-r">
+  <div class="wrap">
+    <p class="label" data-reveal>Lend the computer</p>
+    <h2 class="title" data-split>A powerful computer <strong>that serves several people.</strong></h2>
+    <p class="body-lg" data-reveal>A gaming computer or a workstation costs a lot, and it spends a good part of the day switched off or sitting idle. With KyberNow Share, you lend it while you are not using it: the person plays or works from their own device, at your place or from theirs, and you take it back whenever you like.</p>
+
+    <div class="share-angles">
+      <article class="card" data-reveal>
+        <p class="mono-label">At home</p>
+        <h3>Your games, and theirs, for family and friends</h3>
+        <p>One good graphics card in a single machine is enough for the whole household. Your son plays on the living-room TV while you are at work, your friend picks up her game from her laptop, your brother borrows your computer from his place on a Saturday afternoon.</p>
+        <p>You choose what they can open: your game launchers, Steam, Epic, GOG, Xbox or Playnite, one game in particular, an emulator, any installed app. With Steam, you also decide at each loan whether the person plays with their own account, with their games and yours through Family Sharing, or with yours, with your library and your saves.</p>
+      </article>
+      <article class="card" data-reveal style="--d:.06s">
+        <p class="mono-label">At work</p>
+        <h3>One workstation for the whole team</h3>
+        <p>The machine that carries the professional graphics card, the heavy software and the licences stays in the workshop. Your colleagues borrow it one after another, from a light laptop, a tablet or a plain browser, in the office or working from home.</p>
+        <p>You allow the software they need, Blender, DaVinci Resolve, a CAD or computation program, and you create an account per person, with time slots if you like: Tuesday morning for one, Thursday for another. Outside those, each of them asks, and you accept with one click.</p>
+      </article>
+    </div>
+
+    <h3 class="share-sub" data-reveal>Three ways to lend</h3>
+    <div class="proofs-2 share-cards share-ways">
+      <article class="card" data-reveal><svg class="ic-lg"><use href="/assets/icons.svg#qr-code"/></svg><h3>A code for one session</h3><p>“Lend the computer…”, from Admin, the icon next to the clock or your KyberNow Link app. You choose the length (1, 2 or 4&nbsp;hours, or until you take it back), and you hand over the code, the link or the QR code. It works once.</p></article>
+      <article class="card" data-reveal style="--d:.05s"><svg class="ic-lg"><use href="/assets/icons.svg#devices"/></svg><h3>Accounts for the people close to you</h3><p>In Admin, you create an account per person: a first name, a username, a password. They receive an invitation link, and “Matthieu's computer” appears on the home screen of their app. When the computer is free, they borrow it without asking you.</p></article>
+      <article class="card" data-reveal style="--d:.10s"><svg class="ic-lg"><use href="/assets/icons.svg#list"/></svg><h3>Time slots</h3><p>On a person's account, you set aside parts of the week: Wednesday from 2&nbsp;PM to 6&nbsp;PM, for example. During their slot, they go before you: if you are on the computer, you are warned two minutes ahead.</p></article>
+    </div>
+
+    <figure class="share-split share-split-rev" data-reveal>
+      <img src="/assets/img/scenes/canape-en-960.webp" srcset="/assets/img/scenes/canape-en-960.webp 960w, /assets/img/scenes/canape-en.webp 1536w" sizes="(max-width: 900px) 100vw, 56vw" width="960" height="540" loading="lazy" decoding="async" alt="A woman curled up on the sofa holds a Steam Deck showing KyberNow Link; beside her, a man reads.">
+      <figcaption>
+        <h3>What the person borrowing sees</h3>
+        <p>They see neither your desktop nor your windows. Your computer switches to <b>console mode</b>: a full-screen launcher, with one tile per app you have allowed, games, launchers or software, the time left and “Give back the computer”. They move around it with a controller, keyboard or mouse, and next time they find whatever they opened last at the top.</p>
+        <p>On the spot, your computer's screen is covered: “Computer lent to Léa”, and the Enter key to take it back. During the loan, File Explorer, the Windows key, Task Manager and apps outside the list are blocked.</p>
+        <p>At the end, their apps close, your accounts and windows come back, and the session locks. You take it back whenever you like: they have two minutes to save.</p>
+        <p class="notice-links"><a href="/en/guide/#pret">Lend your computer, step by step<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a></p>
+      </figcaption>
+    </figure>
+
+    <p class="share-foot" data-reveal>Your files are protected as well as we can, not watertight: a game or an allowed app can still read your disk. Lend your computer to people you trust.</p>
+  </div>
+</section>
+
+<!-- 4 · Away from home: the relay -->
+<section class="section" id="distance" data-scene="edge-r">
+  <div class="wrap">
+    <p class="label" data-reveal>Away from home</p>
+    <h2 class="title" data-split>Your guests can be <strong>anywhere.</strong></h2>
+    <p class="body-lg" data-reveal>The same code, the same link and the same QR code work from anywhere. A guest who is not at your place goes through KyberNow's relay, a server on the internet open to everyone, and you accept each person who comes from afar before they get in. Nothing to open on your router.</p>
+
+    <figure class="share-split" data-reveal>
+      <img src="/assets/img/scenes/hotel-960.webp" srcset="/assets/img/scenes/hotel-960.webp 960w, /assets/img/scenes/hotel.webp 1536w" sizes="(max-width: 900px) 100vw, 56vw" width="960" height="540" loading="lazy" decoding="async" alt="In a hotel room at night, a woman plays on a laptop the game running on her PC at home, a controller beside her.">
+      <figcaption>
+        <h3>What the relay sees, and what it doesn't</h3>
+        <p>In the KyberNow Link apps, the picture, the sound and your keystrokes stay encrypted end to end: they pass through the relay without it being able to read them, and the app checks that it is really talking to your computer. The relay sees addresses, bitrates and share codes, nothing more.</p>
+        <p>The browser is the exception: to pass the picture on, the relay decrypts it. If that matters to you, ask your guests to use the app, or install your own relay: a Linux machine, a domain name, and your household's or your team's shares no longer go through a server run by someone else.</p>
+        <p class="notice-links"><a href="/en/guide/#distance">The relay and VPNs, in the guide<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a><a href="/en/guide/#relais">Install your own relay<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a></p>
+      </figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- 5 · Questions -->
+<section class="section" id="questions" data-scene="edge-r">
+  <div class="wrap faq-wrap">
+    <p class="label" data-reveal>Questions</p>
+    <h2 class="title" data-split>The questions <strong>we get asked about Share.</strong></h2>
+    <div class="faq" data-reveal>
+        <details><summary>Do I need to install anything extra?</summary><p>No. KyberNow Share comes with KyberNow Station and the KyberNow Link apps. A guest who doesn't have the app simply opens the link in their browser.</p></details>
+        <details><summary>Do my guests need an account?</summary><p>No. For a share, a guest only gives their first name. To borrow the computer, they enter a code you give them, or the username and password of the account you created for them in Admin. Nothing is created online.</p></details>
+        <details><summary>Can I carry on playing while guests watch?</summary><p>Yes, that is the whole point of a share: you always come first. Your guests get their own picture, never bigger than yours, and nothing they do changes your screen. Lending, on the other hand, happens while you are not using the computer.</p></details>
+        <details><summary>Can a guest see my files?</summary><p>A spectator only sees your screen. A guest you give the keyboard and mouse to can do what you would do with them, while you watch. The person borrowing the computer only sees the apps you have allowed, but a game can read your disk: lend to people you trust.</p></details>
+        <details><summary>How many people at once?</summary><p>Four guests at most in a share. One loan at a time: during a loan, nobody else connects to the computer, and you yourself take back control with two minutes' notice.</p></details>
+        <details><summary>What about a shared Mac?</summary><p>A Mac with KyberNow Station takes guests like a PC: the same code, the same rights, the same relay.</p></details>
+        <details><summary>What happens if my guest's connection drops?</summary><p>A guest in a share comes back with the same code as long as you haven't asked for a new one. The person borrowing the computer can come back within fifteen minutes: their game is waiting for them.</p></details>
+    </div>
+    <a class="tech-more" href="/en/guide/#faq" data-reveal>All the questions in the guide<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a>
+  </div>
+</section>
+
+<!-- 6 · Getting started -->
+<section class="section" id="commencer" data-scene="rest-r">
+  <div class="wrap">
+    <p class="label" data-reveal>Getting started</p>
+    <h2 class="title" data-split>Share is already <strong>in KyberNow.</strong></h2>
+    <p class="body-lg" data-reveal>Install KyberNow Station on the computer you want to share and KyberNow Link on your devices: “Share” is in the session bar, “Lend the computer…” in Admin and next to the clock, “Join with a code” on the home screen of every app.</p>
+    <div class="hero-cta share-cta" data-reveal>
+      <a class="btn kn-primary" href="/en/#telecharger">Download KyberNow</a>
+      <a class="btn btn-ghost" href="/en/guide/#partage">Read the guide</a>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="footer">
+  <div class="wrap footer-grid">
+    <div>
+      <img src="/assets/img/kybernow-logo-dark.svg" alt="KyberNow" width="132" height="18">
+      <p class="footer-mention">KyberNow uses <a href="https://kyber.tech" rel="noopener">Kyber</a>, free software released under the AGPL-3.0 licence. KyberNow is a community, non-commercial project, developed by <a href="https://www.leslignesclaires.fr" rel="noopener">Les Lignes Claires</a>; it is neither published nor endorsed by the Kyber team, and is not affiliated with it. Sunshine, Moonlight, Steam, Playnite, Discord, Windows, macOS, Apple TV, Android, Linux and Raspberry Pi belong to their respective owners.</p>
+    </div>
+    <ul class="footer-links">
+      <li><a href="/en/guide/"><svg class="ic"><use href="/assets/icons.svg#book-open-text"/></svg>Guide and FAQ</a></li>
+      <li><a href="/en/share/"><svg class="ic"><use href="/assets/icons.svg#devices"/></svg>KyberNow Share</a></li>
+      <li><a href="/en/technology/"><svg class="ic"><use href="/assets/icons.svg#cpu"/></svg>Technology</a></li>
+      <li><a href="https://discord.gg/sVy2mu5WdT" rel="noopener"><svg class="ic"><use href="/assets/icons.svg#discord-logo"/></svg>Discord</a></li>
+      <li><a href="https://github.com/MonsieurNours/kybernow" rel="noopener"><svg class="ic"><use href="/assets/icons.svg#github-logo"/></svg>GitHub</a></li>
+      <li><a href="/en/legal/"><svg class="ic"><use href="/assets/icons.svg#scales"/></svg>Legal notice</a></li>
+      <li><a href="/share/" hreflang="fr" lang="fr" data-set-lang="fr"><svg class="ic"><use href="/assets/icons.svg#globe"/></svg>Français</a></li>
+    </ul>
+  </div>
+</footer>
+
+<script type="module" src="/assets/main.js"></script>
+<script type="module" src="/assets/scene.js"></script>
+</body>
+</html>

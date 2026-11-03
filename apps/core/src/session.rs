@@ -22,10 +22,10 @@
 //! Tout se décide sur un fil dédié ; les événements de Kyber, le signal de vie
 //! et les demandes de l'app lui arrivent par un canal.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -700,6 +700,8 @@ enum Msg {
     /// Réponse de `POST /api/stream/hdr` : numéro de la demande, la demande
     /// (écrans de l'appareil, HDR voulu, valeurs), HDR obtenu.
     HdrApplied(u64, HdrAsk, Result<Vec<bool>, String>),
+    /// Un appel de la mise en route (`Worker::step`) a répondu (son numéro).
+    StepDone(u64),
 }
 
 /// Une demande `POST /api/stream/hdr` : écrans de l'appareil dans l'ordre de
@@ -818,6 +820,53 @@ struct Attempt {
 /// garde ses propres reprises (reconnexion, relances).
 fn restart_wanted(cause: Option<Cause>, a: Attempt) -> bool {
     cause.is_some() && a.enabled && a.prepared && !a.shown && !a.end_requested && !a.restarted
+}
+
+/// Mise en route (docs/link-ui.md, « Connexion ») : chaque appel bloquant
+/// (Admin, relais) passe par [`Worker::step`], borné à son propre délai plus
+/// cette marge (la résolution du nom n'a pas de délai), et « Annuler » coupe
+/// l'attente tout de suite.
+const STEP_MARGIN: Duration = Duration::from_secs(5);
+/// `prepare` : le délai d'Admin ([`Console::prepare`]).
+const PREPARE_WITHIN: Duration = Duration::from_secs(40);
+/// `info` : le délai d'Admin ([`Console::info`]).
+const INFO_WITHIN: Duration = Duration::from_secs(4);
+/// Le tunnel du relais : relais joint (TCP, QUIC, poignée de main), puis la
+/// Station attendue 3 s.
+const RELAY_OPEN_WITHIN: Duration = Duration::from_secs(30);
+/// Kyber prévenu de la fin (`disconnect_and_stop`, sans délai dans
+/// kyclient) : au-delà, la fin continue sans lui.
+const KYBER_STOP_WITHIN: Duration = Duration::from_secs(5);
+
+/// Préparations demandées par ce processus, par Admin (`hôte:port`) : une
+/// fin dite en retard (après un appel abandonné, ou par une session que l'app
+/// a cessé d'attendre) ne finit jamais la session plus récente du même
+/// appareil sur le même ordinateur.
+fn prepares() -> &'static Mutex<HashMap<String, u64>> {
+    static PREPARES: OnceLock<Mutex<HashMap<String, u64>>> = OnceLock::new();
+    PREPARES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Une préparation de plus vers cet Admin : son numéro.
+fn prepare_started(admin: &str) -> u64 {
+    let mut all = prepares().lock().unwrap();
+    let n = all.entry(admin.to_string()).or_insert(0);
+    *n += 1;
+    *n
+}
+
+/// Le numéro de la dernière préparation vers cet Admin (0 : aucune).
+fn last_prepare(admin: &str) -> u64 {
+    prepares().lock().unwrap().get(admin).copied().unwrap_or(0)
+}
+
+/// Un appel de la mise en route coupé avant sa réponse.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Cut {
+    /// « Annuler » (ou la fin de la session demandée par l'app).
+    Cancelled,
+    /// Pas de réponse dans le délai (en secondes).
+    Late(u64),
 }
 
 /// Retour de la Station après un redémarrage de dernier recours : `info`
@@ -1651,6 +1700,36 @@ struct Worker {
     hdr_pending: bool,
     /// Un écran au moins a été en HDR pendant la session.
     hdr_used: Arc<AtomicBool>,
+    /// La fin a été demandée pendant un appel de la mise en route
+    /// ([`Worker::step`]) : la tentative s'arrête sans échec.
+    cancelled: bool,
+    /// Numéro du dernier appel de la mise en route.
+    step_seq: u64,
+    /// L'appel de la mise en route abandonné (annulé, ou sans réponse dans son
+    /// délai), qui finit seul : la fin dite à Admin l'attend, sur un fil à part.
+    inflight: Option<JoinHandle<()>>,
+    /// Numéro de la dernière préparation de cette session ([`prepare_started`]) ;
+    /// 0 avant la première.
+    prepare_no: u64,
+}
+
+/// Kyber prévenu de la fin (`disconnect_and_stop`), `within` au plus :
+/// kyclient attend sans délai que sa boucle traite l'ordre, et elle peut
+/// être prise par une connexion qui ne répond pas. Au-delà, la fin
+/// continue ; le fil d'appel garde le client jusqu'à sa réponse.
+fn stop_kyber(client: Arc<Client>, within: Duration) {
+    let (tx, rx) = mpsc::channel();
+    let spawned = std::thread::Builder::new().name("kybernow-kyber-stop".into()).spawn(move || {
+        let _ = client.disconnect_and_stop(true);
+        let _ = tx.send(());
+    });
+    if let Err(e) = spawned {
+        warn!("Kyber : fil de fin refusé ({e})");
+        return;
+    }
+    if rx.recv_timeout(within).is_err() {
+        warn!("Kyber : pas de réponse à la fin en {} s, la session finit sans lui", within.as_secs());
+    }
 }
 
 /// Raison d'une fin de session, dans la langue de l'app (montrée à l'utilisateur).
@@ -1796,6 +1875,10 @@ impl Worker {
             hdr_asked: 0,
             hdr_pending: false,
             hdr_used: Arc::new(AtomicBool::new(false)),
+            cancelled: false,
+            step_seq: 0,
+            inflight: None,
+            prepare_no: 0,
         }
     }
 
@@ -1856,9 +1939,77 @@ impl Worker {
     /// Une tentative de connexion : préparation, Kyber, puis la session
     /// jusqu'à sa fin ; `None` : fin voulue (app, Admin).
     fn attempt(&mut self) -> Option<Failure> {
-        match self.open() {
+        let failure = match self.open() {
             Ok(()) => self.event_loop(),
             Err(e) => Some(e),
+        };
+        // Annulée pendant un appel de la mise en route : une fin voulue.
+        if self.cancelled { None } else { failure }
+    }
+
+    /// Un appel bloquant de la mise en route (Admin, relais) sur un fil à
+    /// part, pendant que le fil de la session reste à l'écoute de son canal :
+    /// « Annuler » (`Msg::Stop`) coupe l'attente tout de suite, et sans réponse
+    /// dans `within`, l'appel est abandonné ([`Cut::Late`]). L'appel abandonné
+    /// finit seul, dans ses propres délais ; la fin dite à Admin l'attend
+    /// ([`Self::release`]). Les autres messages arrivés pendant l'attente sont
+    /// rendus au canal, dans leur ordre.
+    fn step<T: Send + 'static>(&mut self, what: &str, within: Duration, call: impl FnOnce() -> T + Send + 'static) -> Result<T, Cut> {
+        if self.cancelled {
+            return Err(Cut::Cancelled);
+        }
+        self.step_seq += 1;
+        let n = self.step_seq;
+        let slot = Arc::new(Mutex::new(None));
+        let (out, tx, label) = (slot.clone(), self.tx.clone(), self.focus.label().clone());
+        let handle = std::thread::Builder::new()
+            .name("kybernow-step".into())
+            .spawn(move || {
+                journal::enter(label);
+                let value = call();
+                *out.lock().unwrap() = Some(value);
+                let _ = tx.send(Msg::StepDone(n));
+            })
+            .expect("fil d'appel de la mise en route");
+        let until = Instant::now() + within;
+        let mut held = Vec::new();
+        let result = loop {
+            match self.rx.recv_timeout(until.saturating_duration_since(Instant::now())) {
+                Ok(Msg::StepDone(m)) if m == n => {
+                    let _ = handle.join();
+                    match slot.lock().unwrap().take() {
+                        Some(value) => break Ok(value),
+                        None => break Err(Cut::Late(within.as_secs())),
+                    }
+                }
+                // La réponse tardive d'un appel déjà abandonné.
+                Ok(Msg::StepDone(_)) => {}
+                Ok(Msg::Stop) | Err(RecvTimeoutError::Disconnected) => {
+                    info!("{what} : annulé pendant l'attente");
+                    self.cancelled = true;
+                    self.inflight = Some(handle);
+                    break Err(Cut::Cancelled);
+                }
+                Ok(msg) => held.push(msg),
+                Err(RecvTimeoutError::Timeout) => {
+                    warn!("{what} : pas de réponse en {} s, abandonné", within.as_secs());
+                    self.inflight = Some(handle);
+                    break Err(Cut::Late(within.as_secs()));
+                }
+            }
+        };
+        for msg in held {
+            let _ = self.tx.send(msg);
+        }
+        result
+    }
+
+    /// Un appel coupé : l'échec à dire (rien ne s'affiche pour une annulation,
+    /// la tentative finissant sans échec, voir [`Self::attempt`]).
+    fn cut_failure(&self, cut: Cut) -> Failure {
+        match cut {
+            Cut::Cancelled => String::from("annulée").into(),
+            Cut::Late(seconds) => t("session.admin_silent", &[("seconds", &seconds.to_string())]).into(),
         }
     }
 
@@ -2053,13 +2204,22 @@ impl Worker {
         }
     }
 
+    /// Admin de cette session, pour [`prepare_started`].
+    fn admin_key(&self) -> String {
+        format!("{}:{}", self.params.console_host, self.params.console_port)
+    }
+
     fn prepare(&mut self) -> Result<(), Failure> {
         if !self.host_only(HostOnly::Prepare) {
             return Ok(());
         }
         let console = self.console.clone().expect("console");
         let req = self.prepare_request(self.requested, None);
-        let prepared = console.prepare(&req).map_err(|e| self.console_failure(e))?;
+        self.prepare_no = prepare_started(&self.admin_key());
+        let prepared = self
+            .step("préparation de l'écran (prepare)", PREPARE_WITHIN + STEP_MARGIN, move || console.prepare(&req))
+            .map_err(|cut| self.cut_failure(cut))?
+            .map_err(|e| self.console_failure(e))?;
         info!(
             "console : écran {:?}, son {:?}, port {:?}",
             prepared.applied, prepared.audio_channels, prepared.kyber_port
@@ -2252,21 +2412,25 @@ impl Worker {
 
     /// Lit ce que la Station annonce du HDR, au début d'une session d'hôte
     /// dont un écran de l'appareil est HDR (sinon rien à demander).
-    fn read_station_hdr(&mut self, console: &Console) {
+    fn read_station_hdr(&mut self, console: &Arc<Console>) -> Result<(), Failure> {
         let any_hdr = match &self.screens {
             Some(s) => s.list.iter().any(|d| d.hdr),
             None => self.params.screen_hdr,
         };
         if !any_hdr {
-            return;
+            return Ok(());
         }
-        match console.info() {
-            Ok(i) => {
+        let c = console.clone();
+        match self.step("HDR de la Station", INFO_WITHIN + STEP_MARGIN, move || c.info()) {
+            Ok(Ok(i)) => {
                 info!("HDR de la Station : {:?}", i.hdr);
                 self.station_hdr = i.hdr;
             }
-            Err(e) => warn!("HDR : annonce de la Station illisible ({e}) : SDR"),
+            Ok(Err(e)) => warn!("HDR : annonce de la Station illisible ({e}) : SDR"),
+            Err(Cut::Late(_)) => warn!("HDR : annonce de la Station sans réponse : SDR"),
+            Err(cut) => return Err(self.cut_failure(cut)),
         }
+        Ok(())
     }
 
     /// Le choix « HDR » ou le HDR d'un écran de l'appareil a changé : la
@@ -2406,8 +2570,24 @@ impl Worker {
         self.status(Status::Preparing);
         let p = self.params.clone();
         let direct = Arc::new(Console::new(&p.console_host, p.console_port, &p.user, &p.password, p.console_fingerprint.clone()));
-        // Par où passer : le réseau, ou le relais (docs/relais.md).
-        let relay = choose_route(&p.route, crate::relay::RelayMode::current(), || direct.info_within(DIRECT_PROBE).map(|_| ()))?;
+        // Par où passer : le réseau, ou le relais (docs/relais.md). La sonde
+        // passe par `step` : « Annuler » la coupe aussi.
+        let mut cut = None;
+        let probe = || {
+            let d = direct.clone();
+            match self.step("sonde du réseau", DIRECT_PROBE + STEP_MARGIN, move || d.info_within(DIRECT_PROBE).map(|_| ())) {
+                Ok(r) => r,
+                Err(c) => {
+                    cut = Some(c);
+                    Err(ConsoleError::Network(String::from("pas de réponse")))
+                }
+            }
+        };
+        let relay = choose_route(&p.route, crate::relay::RelayMode::current(), probe);
+        if cut == Some(Cut::Cancelled) {
+            return Err(self.cut_failure(Cut::Cancelled));
+        }
+        let relay = relay?;
         let console = match relay {
             None => direct,
             Some(r) => {
@@ -2417,7 +2597,7 @@ impl Worker {
         };
         self.console = Some(console.clone());
         self.open_relay(&console)?;
-        self.read_station_hdr(&console);
+        self.read_station_hdr(&console)?;
         self.prepare()?;
         let prepared = self.prepared.clone().expect("prepare");
 
@@ -2742,8 +2922,11 @@ impl Worker {
     /// Par le relais : le tunnel ouvert tout de suite (raison claire s'il ne
     /// s'ouvre pas), tenu pour toute la session ; le chemin dit à la
     /// plateforme, puis regardé toutes les 5 s. Sans relais : « Direct ».
-    fn open_relay(&mut self, console: &Console) -> Result<(), Failure> {
-        if let Some(r) = console.relay_tunnel() {
+    fn open_relay(&mut self, console: &Arc<Console>) -> Result<(), Failure> {
+        if console.relay().is_some() {
+            let c = console.clone();
+            let opened = self.step("tunnel du relais", RELAY_OPEN_WITHIN, move || c.relay_tunnel()).map_err(|cut| self.cut_failure(cut))?;
+            let Some(r) = opened else { return Ok(()) };
             let tunnel = r.map_err(|e| self.relay_failure(e))?;
             info!("par le relais {} vers {}", tunnel.route().server, tunnel.route().station);
             self.relay_tunnel = Some(tunnel);
@@ -3267,6 +3450,8 @@ impl Worker {
                         return Some(e);
                     }
                 }
+                // La réponse tardive d'un appel de la mise en route abandonné.
+                Ok(Msg::StepDone(_)) => {}
                 Ok(Msg::Event(e)) => {
                     if let Some(err) = self.on_event(e) {
                         return Some(err);
@@ -4338,11 +4523,41 @@ impl Worker {
         }
         self.platform.on_stream_stopped();
         if let Some(c) = self.client.take() {
-            let _ = c.disconnect_and_stop(true);
+            stop_kyber(c, KYBER_STOP_WITHIN);
         }
         self.pipeline = None;
         self.streaming = None;
         let console = self.console.clone()?;
+        // Un appel de la mise en route abandonné (« Annuler », Admin muet) :
+        // la fin est dite à Admin après lui, sur un fil à part (sinon Admin
+        // finirait la préparation après la fin). La session finit tout de
+        // suite, sans rapport ; une Station muette rend de toute façon ses
+        // écrans d'elle-même, faute de signal de vie.
+        if !self.visitor()
+            && let Some(call) = self.inflight.take()
+        {
+            let device_id = self.device_id.clone();
+            let label = self.focus.label().clone();
+            let admin = self.admin_key();
+            let seen = last_prepare(&admin);
+            let spawned = std::thread::Builder::new().name("kybernow-end".into()).spawn(move || {
+                journal::enter(label);
+                let _ = call.join();
+                // Une nouvelle connexion de cet appareil a été préparée depuis : elle seule compte.
+                if last_prepare(&admin) != seen {
+                    info!("fin non dite à Admin : une connexion plus récente de cet appareil a été préparée depuis");
+                    return;
+                }
+                match console.end(&device_id, None) {
+                    Ok(_) => info!("fin dite à Admin après l'appel abandonné"),
+                    Err(e) => warn!("fin de session, après l'appel abandonné : {}", e.text(Lang::Fr)),
+                }
+            });
+            if let Err(e) = spawned {
+                warn!("fin de session : fil refusé ({e})");
+            }
+            return None;
+        }
         if !self.host_only(HostOnly::End) {
             // Invité : il quitte le partage ; rien à rétablir, pas de rapport.
             if let Some(g) = &self.guest {
@@ -4363,6 +4578,12 @@ impl Worker {
                     info!("emprunt fermé sans rendre l'ordinateur : retour possible pendant 15 min");
                 }
             }
+            return None;
+        }
+        // Une connexion plus récente de cet appareil a été préparée depuis (l'app
+        // a cessé d'attendre celle-ci) : la fin ne la couperait pas, elle n'est pas dite.
+        if self.prepare_no != 0 && last_prepare(&self.admin_key()) != self.prepare_no {
+            info!("fin non dite à Admin : une connexion plus récente de cet appareil a été préparée depuis");
             return None;
         }
         let latency = if failed { None } else { self.latency.session().0 };
@@ -5682,7 +5903,7 @@ mod tests {
     fn chemin_dit_a_la_plateforme() {
         // Sur le réseau : « Direct », une fois, sans regarder de nouveau.
         let (mut w, recorder) = worker(crate::profile::Profile::Jeu, two_screens(0));
-        let direct = Console::new("192.0.2.1", 9, "u", "p", None);
+        let direct = Arc::new(Console::new("192.0.2.1", 9, "u", "p", None));
         assert!(w.open_relay(&direct).is_ok());
         w.announce_route();
         assert_eq!(*recorder.routes.lock().unwrap(), [crate::relay::RouteInfo::direct()]);
@@ -5939,5 +6160,91 @@ mod tests {
         l.displayed(1, crate::latency::now_micros());
         l.reset();
         assert!(l.any_displayed(), "la session a eu ses premières images");
+    }
+
+    #[test]
+    fn annuler_coupe_l_appel_de_la_mise_en_route() {
+        let (mut w, _) = worker(crate::profile::Profile::Bureau, two_screens(0));
+        let tx = w.tx.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(50));
+            let _ = tx.send(Msg::Stop);
+        });
+        let started = Instant::now();
+        let r = w.step("essai", Duration::from_secs(30), || std::thread::sleep(Duration::from_secs(2)));
+        assert_eq!(r, Err(Cut::Cancelled));
+        assert!(started.elapsed() < Duration::from_secs(1), "l'attente est coupée tout de suite");
+        assert!(w.cancelled && w.inflight.is_some(), "l'appel abandonné est gardé pour la fin");
+        // Plus rien ne part ensuite.
+        assert_eq!(w.step("suivant", Duration::from_secs(30), || 1), Err(Cut::Cancelled));
+    }
+
+    #[test]
+    fn appel_sans_reponse_abandonne_dans_son_delai() {
+        let (mut w, _) = worker(crate::profile::Profile::Bureau, two_screens(0));
+        let started = Instant::now();
+        let r = w.step("essai", Duration::from_millis(100), || std::thread::sleep(Duration::from_secs(2)));
+        assert_eq!(r, Err(Cut::Late(0)));
+        assert!(started.elapsed() < Duration::from_secs(1));
+        assert!(!w.cancelled && w.inflight.is_some());
+        let f = w.cut_failure(Cut::Late(45));
+        assert!(f.text.contains("45") && f.cause.is_none(), "une raison, jamais de redémarrage de la Station : {}", f.text);
+    }
+
+    #[test]
+    fn messages_rendus_apres_l_appel() {
+        let (mut w, _) = worker(crate::profile::Profile::Bureau, two_screens(0));
+        let _ = w.tx.send(Msg::BitrateCap(Some(5)));
+        assert_eq!(w.step("essai", Duration::from_secs(5), || 7), Ok(7));
+        assert!(matches!(w.rx.try_recv(), Ok(Msg::BitrateCap(Some(5)))), "rendu au canal après l'appel");
+        assert!(w.rx.try_recv().is_err());
+    }
+
+    /// Admin accepte la connexion et ne répond jamais : « Annuler » finit la
+    /// session tout de suite, sans échec, et la fin ne l'attend pas.
+    #[test]
+    fn annuler_pendant_une_preparation_sans_reponse() {
+        let silent = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = silent.local_addr().unwrap().port();
+        let held = Arc::new(Mutex::new(Vec::new()));
+        let h = held.clone();
+        std::thread::spawn(move || {
+            for c in silent.incoming().flatten() {
+                h.lock().unwrap().push(c);
+            }
+        });
+        let (mut w, rec) = worker(crate::profile::Profile::Bureau, two_screens(0));
+        w.params.console_host = "127.0.0.1".into();
+        w.params.console_port = port;
+        let tx = w.tx.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            let _ = tx.send(Msg::Stop);
+        });
+        let started = Instant::now();
+        assert!(w.attempt().is_none(), "une annulation n'est pas un échec");
+        w.finish(None);
+        assert!(started.elapsed() < Duration::from_secs(3), "fin en {:?}", started.elapsed());
+        let events = rec.events.lock().unwrap().clone();
+        assert_eq!(events.first().map(String::as_str), Some("Preparing"));
+        assert_eq!(events.last().map(String::as_str), Some("terminée None"));
+        assert_eq!(*rec.reports.lock().unwrap(), vec![false], "pas de rapport d'Admin : la fin lui est dite après l'appel abandonné");
+    }
+
+    #[test]
+    fn fin_en_retard_jamais_dite_a_une_connexion_plus_recente() {
+        let admin = "198.51.100.7:9443";
+        assert_eq!(last_prepare(admin), 0);
+        let first = prepare_started(admin);
+        assert_eq!(last_prepare(admin), first);
+        let (mut w, _) = worker(crate::profile::Profile::Bureau, two_screens(0));
+        w.params.console_host = "198.51.100.7".into();
+        w.console = Some(Arc::new(Console::new("198.51.100.7", 9443, "u", "p", None)));
+        w.prepare_no = first;
+        // Une autre connexion de cet appareil est préparée depuis : la fin n'est pas dite
+        // (sinon Admin, ici injoignable, serait appelé et rendrait un rapport).
+        prepare_started(admin);
+        assert!(w.release(false).is_none());
+        assert_eq!(last_prepare("198.51.100.8:9443"), 0, "chaque ordinateur compte à part");
     }
 }

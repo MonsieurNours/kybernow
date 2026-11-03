@@ -23,6 +23,7 @@ struct KyberNowTVApp: App {
                 .environmentObject(app)
                 .environmentObject(app.store)
                 .environmentObject(app.borrowed)
+                .environmentObject(app.playstation)
                 .environmentObject(app.store.imagery)
                 .environmentObject(app.cloud)
                 .environmentObject(app.discovery)
@@ -74,6 +75,17 @@ struct RootView: View {
                     SessionView(session: session)
                         .transition(.identity)
                 }
+            case .console:
+                if let session = app.consoleSession {
+                    ConsoleSessionView(session: session)
+                        .transition(.opacity)
+                }
+            case let .consoleSettings(id):
+                ConsoleSettingsView(consoleID: id)
+                    .transition(.opacity.combined(with: .scale(scale: 1.02)))
+            case let .consolePair(request):
+                ConsolePairView(request: request)
+                    .transition(.opacity.combined(with: .scale(scale: 1.02)))
             }
         }
         .overlay(alignment: .top) {
