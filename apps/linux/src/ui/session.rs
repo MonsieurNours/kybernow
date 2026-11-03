@@ -896,13 +896,207 @@ fn capsule(app: &App, cv: &mut Canvas, msg: &str, busy: bool) {
 
 // MARK: - Statistiques (par-dessus l'image, à la demande)
 
+/// Le lieu d'une étape du trajet d'une image (docs/link-ui.md, « Statistiques »).
+#[derive(Clone, Copy, PartialEq)]
+enum Place {
+    Computer,
+    Network,
+    Device,
+}
+
+impl Place {
+    fn label(self) -> &'static str {
+        match self {
+            Place::Computer => tr("Sur l'ordinateur", "On the computer"),
+            Place::Network => tr("Réseau", "Network"),
+            Place::Device => tr("Sur cet appareil", "On this device"),
+        }
+    }
+}
+
+/// Les six étapes : nom, lieu, aide (l'ordre de `Stats::stages`).
+fn stages() -> [(&'static str, Place, &'static str); 6] {
+    [
+        (tr("Capture", "Capture"), Place::Computer, tr("De la capture de l'image au début de son encodage", "From capturing the frame to the start of its encoding")),
+        (tr("Encodage", "Encoding"), Place::Computer, tr("Compression de l'image par la carte graphique de l'ordinateur", "Frame compression by the computer's graphics card")),
+        (tr("Envoi", "Sending"), Place::Computer, tr("Mise en paquets et départ sur le réseau", "Packetising and sending over the network")),
+        (tr("Réseau", "Network"), Place::Network, tr("Du départ de l'ordinateur à l'image complète reçue ici", "From leaving the computer to the full frame received here")),
+        (tr("Décodage", "Decoding"), Place::Device, tr("Décompression de l'image par cet appareil", "Frame decompression by this device")),
+        (tr("Affichage", "Display"), Place::Device, tr("Rendu et attente du prochain rafraîchissement de l'écran", "Rendering and waiting for the display's next refresh")),
+    ]
+}
+
+/// Une durée du trajet, « — » sans mesure.
+fn stage_ms(v: Option<f64>) -> String {
+    v.map(|v| format!("{} ms", decimal(v, 1))).unwrap_or_else(|| "—".into())
+}
+
+/// Le panneau des statistiques : son coin, sa largeur de base, et le haut du trajet d'une image.
+struct StatsBox {
+    x: f32,
+    y: f32,
+    w: f32,
+    u: f32,
+    /// Haut de la rubrique « Trajet d'une image ».
+    path: f32,
+}
+
+/// Cascade (bureau, Deck) : hauteur d'une étiquette de lieu et d'une étape, largeurs du nom et de la valeur.
+const PLACE_H: f32 = 16.0;
+const STAGE_H: f32 = 18.0;
+const STAGE_NAME_W: f32 = 78.0;
+const STAGE_VALUE_W: f32 = 58.0;
+
+impl StatsBox {
+    fn new(layout: Layout) -> Self {
+        let u = unit(layout);
+        let y = if layout == Layout::Desktop { 24.0 } else { 24.0 * u };
+        // La cascade demande un peu plus de largeur que les seules lignes de mesures.
+        let w = if layout == Layout::Tv { 300.0 * u } else { 340.0 };
+        Self { x: 24.0 * u, y, w, u, path: y + 96.0 * u }
+    }
+
+    /// Le haut de la ligne de l'étape `i` dans la cascade (une étiquette de lieu avant chaque nouveau lieu).
+    fn stage_top(&self, i: usize) -> f32 {
+        let places = match i {
+            0..=2 => 1.0,
+            3 => 2.0,
+            _ => 3.0,
+        };
+        self.path + 22.0 + STAGE_H * i as f32 + PLACE_H * places
+    }
+
+    /// Le bas de la cascade.
+    fn path_end(&self) -> f32 {
+        self.stage_top(5) + STAGE_H
+    }
+}
+
+/// L'étape du trajet d'une image sous le pointeur (`ux`, `uy` en points), pour son aide : bureau et Deck, statistiques
+/// ouvertes ; au salon, pas d'aide.
+pub fn stats_stage_at(app: &App, s: &SessionUi, ux: f32, uy: f32) -> Option<usize> {
+    if !s.show_stats || s.menu || s.keys || app.layout == Layout::Tv {
+        return None;
+    }
+    let b = StatsBox::new(app.layout);
+    if ux < b.x || ux >= b.x + b.w {
+        return None;
+    }
+    (0..6).find(|&i| {
+        let top = b.stage_top(i);
+        uy >= top && uy < top + STAGE_H
+    })
+}
+
+/// Le trajet d'une image en cascade (bureau, Deck) : chaque étape commence où la précédente finit, sur une échelle
+/// commune ; le pointillé marque la durée d'une image ; les valeurs à droite.
+fn frame_path_waterfall(cv: &mut Canvas, b: &StatsBox, st: &crate::app::Stats) {
+    let stages = stages();
+    let ix = b.x + 16.0;
+    let right = b.x + b.w - 16.0;
+    eyebrow(cv, ix, b.path + 10.0, 10.5, FAINT, tr("Trajet d'une image", "Path of a frame"));
+    let budget = 1000.0 / st.fps.max(30.0);
+    let total: f64 = st.stages.iter().flatten().sum();
+    let scale = total.max(budget) * 1.08;
+    let bar_x = ix + STAGE_NAME_W + 10.0;
+    let bar_w = right - STAGE_VALUE_W - 10.0 - bar_x;
+    let mut start = 0.0;
+    for (i, (name, place, _)) in stages.iter().enumerate() {
+        let top = b.stage_top(i);
+        if i == 0 || stages[i - 1].1 != *place {
+            cv.text(ix, top - PLACE_H + 11.0, Text::new(Font::MonoMedium, 9.0, GHOST).tracking(0.8), &place.label().to_uppercase());
+        }
+        let ms = st.stages[i];
+        let cy = top + STAGE_H / 2.0;
+        cv.text_fit(ix, top + 13.0, Text::new(Font::Regular, 12.0, if ms.is_some() { MUTED } else { FAINT }), name, STAGE_NAME_W);
+        cv.rect(bar_x, cy.round(), bar_w, 1.0, Rgba(255, 255, 255, 13));
+        if let Some(v) = ms {
+            let x0 = bar_x + bar_w * (start / scale) as f32;
+            let len = (bar_w * (v / scale) as f32).max(2.0);
+            cv.rrect(x0, cy - 4.0, len, 8.0, 2.0, SPECTRE);
+            start += v;
+        }
+        cv.text(right, top + 13.0, Text::new(Font::Mono, 11.5, if ms.is_some() { FROST } else { GHOST }).align(Align::Right), &stage_ms(ms));
+    }
+    // Le repère : une image au débit du moment, en pointillé à travers les étapes.
+    let gx = (bar_x + bar_w * (budget / scale) as f32).round();
+    let (top, bottom) = (b.stage_top(0), b.path_end());
+    let mut yy = top;
+    while yy < bottom {
+        cv.rect(gx, yy, 1.0, 2.0f32.min(bottom - yy), Rgba(255, 255, 255, 102));
+        yy += 5.0;
+    }
+}
+
+/// L'aide d'une étape, en capsule à droite du panneau, à hauteur de sa ligne.
+fn stage_help(cv: &mut Canvas, b: &StatsBox, i: usize) {
+    let help = stages()[i].2;
+    let style = Text::new(Font::Regular, 12.5, FROST);
+    let w = cv.text_width(style, help) + 24.0;
+    let x = (b.x + b.w + 8.0).min((cv.w - w - 8.0).max(8.0));
+    let y = b.stage_top(i) - 4.0;
+    cv.rrect(x, y, w, 26.0, 8.0, Rgba(9, 13, 18, 240));
+    cv.rrect_stroke(x, y, w, 26.0, 8.0, 1.0, LINE_2);
+    cv.text(x + 12.0, y + 17.5, style, help);
+}
+
+/// Le trajet d'une image au salon : les six valeurs en une rangée lisible de loin, regroupées par lieu, avec le
+/// total de chaque lieu ; pas d'aide. Rend la largeur du panneau qu'il lui faut ; `draw` faux : mesure seulement.
+fn frame_path_row(cv: &mut Canvas, b: &StatsBox, st: &crate::app::Stats, draw: bool) -> f32 {
+    let u = b.u;
+    let stages = stages();
+    let ix = b.x + 16.0 * u;
+    let put = |cv: &mut Canvas, x: f32, y: f32, style: Text, s: &str| if draw { cv.text(x, y, style, s) } else { cv.text_width(style, s) };
+    if draw {
+        eyebrow(cv, ix, b.path + 10.0 * u, 10.5 * u, FAINT, tr("Trajet d'une image", "Path of a frame"));
+    }
+    let place_style = Text::new(Font::Mono, 10.0 * u, FAINT).tracking(0.8 * u);
+    let total_style = Text::new(Font::MonoMedium, 22.0 * u, FROST);
+    let name_style = Text::new(Font::Regular, 12.0 * u, FAINT);
+    let value_style = Text::new(Font::MonoMedium, 16.0 * u, FROST);
+    let (col_gap, group_gap) = (18.0 * u, 28.0 * u);
+    let (y_place, y_total, y_name, y_value) = (b.path + 34.0 * u, b.path + 64.0 * u, b.path + 88.0 * u, b.path + 112.0 * u);
+    // Des colonnes à la largeur d'une valeur à deux chiffres : la rangée ne bouge pas d'une seconde à l'autre.
+    let sample = format!("{} ms", decimal(88.8, 1));
+    let (min_value, min_total) = (cv.text_width(value_style, &sample), cv.text_width(total_style, &sample));
+    let mut x = ix;
+    for (g, place) in [Place::Computer, Place::Network, Place::Device].into_iter().enumerate() {
+        let idx: Vec<usize> = (0..6).filter(|&i| stages[i].1 == place).collect();
+        let known: Vec<f64> = idx.iter().filter_map(|&i| st.stages[i]).collect();
+        let total = (!known.is_empty()).then(|| known.iter().sum::<f64>());
+        if g > 0 && draw {
+            cv.rect((x - group_gap / 2.0).round(), y_place - 10.0 * u, 1.0, y_value - y_place + 16.0 * u, LINE_2);
+        }
+        let label = place.label().to_uppercase();
+        let mut group_w = put(cv, x, y_place, place_style, &label);
+        let total_text = stage_ms(total);
+        group_w = group_w.max(put(cv, x, y_total, if total.is_some() { total_style } else { total_style.color(GHOST) }, &total_text)).max(min_total);
+        let mut cx = x;
+        for (n, &i) in idx.iter().enumerate() {
+            let ms = st.stages[i];
+            let value = stage_ms(ms);
+            let nw = put(cv, cx, y_name, name_style, stages[i].0);
+            let vw = put(cv, cx, y_value, if ms.is_some() { value_style } else { value_style.color(GHOST) }, &value);
+            cx += nw.max(vw).max(min_value) + if n + 1 < idx.len() { col_gap } else { 0.0 };
+        }
+        group_w = group_w.max(cx - x);
+        x += group_w + group_gap;
+    }
+    x - group_gap - b.x + 16.0 * u
+}
+
+/// Hauteur de la rangée du salon, depuis le haut de la rubrique.
+const ROW_H: f32 = 124.0;
+
 fn stats(app: &App, cv: &mut Canvas, s: &SessionUi) {
-    let u = unit(app.layout);
     let st = s.stats.clone().unwrap_or_default();
-    let x = 24.0 * u;
-    let y = if app.layout == Layout::Desktop { 24.0 } else { 24.0 * u };
-    let w = 300.0 * u;
-    let h = 187.0 * u;
+    let tv = app.layout == Layout::Tv;
+    let b = StatsBox::new(app.layout);
+    let (x, y, u) = (b.x, b.y, b.u);
+    // Au salon, la rangée du trajet donne sa largeur au panneau : mesurée d'abord.
+    let w = if tv { b.w.max(frame_path_row(cv, &b, &st, false)) } else { b.w };
+    let end = if tv { b.path + ROW_H * u } else { b.path_end() };
+    let h = end - y + 24.0 * u + 3.0 * 19.0 * u + 24.0 * u;
     cv.rrect(x, y, w, h, 12.0 * u, Rgba(9, 13, 18, 214));
     cv.rrect_stroke(x, y, w, h, 12.0 * u, 1.0, LINE);
     let ix = x + 16.0 * u;
@@ -913,13 +1107,20 @@ fn stats(app: &App, cv: &mut Canvas, s: &SessionUi) {
     let hist = &st.history;
     if hist.len() >= 2 {
         let max = hist.iter().cloned().fold(1.0f64, f64::max).max(16.7);
-        let gw = w - 32.0 * u;
+        let gw = b.w - 32.0 * u;
         let pts: Vec<(f32, f32)> = hist.iter().enumerate().map(|(i, v)| (ix + i as f32 * gw / (hist.len() - 1) as f32, yy + 36.0 * u - (*v / max) as f32 * 32.0 * u)).collect();
         cv.polyline(&pts, 1.5, SPECTRE);
     }
-    yy += 58.0 * u;
+    if tv {
+        frame_path_row(cv, &b, &st, true);
+    } else {
+        frame_path_waterfall(cv, &b, &st);
+    }
+    yy = end + 24.0 * u;
     let mono = Text::new(Font::Mono, 11.5 * u, MUTED);
-    cv.text_fit(ix, yy, mono, &format!("{} · {:.0} {} · {:.0} Mbit/s", st.mode, st.fps, tr("i/s", "fps"), st.mbps), w - 32.0 * u);
+    // « HDR » après la définition quand l'image l'est : en l'allumant et l'éteignant, on voit quelle étape change.
+    let hdr = if st.hdr { " · HDR" } else { "" };
+    cv.text_fit(ix, yy, mono, &format!("{}{hdr} · {:.0} {} · {:.0} Mbit/s", st.mode, st.fps, tr("i/s", "fps"), st.mbps), w - 32.0 * u);
     yy += 19.0 * u;
     let audio = st.audio_ms.map(|a| format!(" · {} {} ms", tr("son", "sound"), decimal(a, 0))).unwrap_or_default();
     cv.text_fit(ix, yy, mono, &format!("{}{audio}", st.decoder), w - 32.0 * u);
@@ -929,6 +1130,10 @@ fn stats(app: &App, cv: &mut Canvas, s: &SessionUi) {
     // « Chemin » : Direct, Par le relais, Par le relais (TCP) ; par le relais, l'aller-retour mesuré s'y ajoute.
     let ms = s.route.and_then(|r| r.total_ms()).filter(|_| s.via_relay()).map(|v| format!(" · {} ms", decimal(v, 0))).unwrap_or_default();
     cv.text_fit(ix, yy, mono, &format!("{}{} {}{ms}", tr("Chemin", "Path"), if crate::i18n::english() { ":" } else { " :" }, s.path().label()), w - 32.0 * u);
+    // L'aide de l'étape survolée (bureau, Deck).
+    if !tv && let Some(i) = s.stats_help.filter(|&i| i < 6) {
+        stage_help(cv, &b, i);
+    }
 }
 
 // MARK: - Menu à la manette

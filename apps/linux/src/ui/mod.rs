@@ -30,7 +30,7 @@ pub use home::{gbit as gbit_label, profile_label};
 pub use launch::{TOTAL as LAUNCH, TOTAL_REDUCED as LAUNCH_REDUCED};
 // Le geste du pointeur sur la barre du bureau (app de bureau seulement).
 #[allow(unused_imports)]
-pub use session::{at_bar_edge, over_bar, HINT_STRIP};
+pub use session::{at_bar_edge, over_bar, stats_stage_at, HINT_STRIP};
 
 use crate::app::{App, Layout, Phase, Rect, Screen, SessionId, SessionUi, Target};
 use canvas::{Align, Canvas, Font, Rgba, Text};

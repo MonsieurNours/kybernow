@@ -129,7 +129,9 @@ pub enum Event {
 pub enum SessionEvent {
     Status(Status),
     Mode(Mode),
-    Second { latency_ms: Option<f64>, fps: f64, mbps: f64, lost: u32, codec: String, audio_ms: Option<f64> },
+    /// `chain` : le trajet d'une image mesuré avec l'ordinateur (`Second::chain`, ses six étapes) ; `hdr` : un
+    /// écran au moins de l'image est en HDR.
+    Second { latency_ms: Option<f64>, fps: f64, mbps: f64, lost: u32, codec: String, audio_ms: Option<f64>, chain: Option<[f64; 6]>, hdr: bool },
     Notice(String),
     /// Le pointeur de l'ordinateur sur l'écran `screen` de l'appareil (multi-écrans :
     /// une couche par écran ; la forme est celle de l'écran où il se trouve).
@@ -594,6 +596,9 @@ struct Live {
     last_frame: Option<Instant>,
     /// Image clé de la dernière image montrée (latence).
     shown: Option<(u64, i64, i64)>,
+    /// Temps de décodage et d'affichage mesurés ici (ms) depuis la dernière seconde du cœur : le trajet
+    /// d'une image les garde quand l'ordinateur n'envoie pas ses mesures.
+    local: Vec<(f64, f64)>,
     /// Dernière image de la session, réduite (accueil).
     snapshot: Option<tiny_skia::Pixmap>,
     snapshot_at: Option<Instant>,
@@ -1191,6 +1196,11 @@ pub fn run(args: &[String]) {
                 if let Some(l) = lives.get_mut(id) {
                     let at = latency::now_micros();
                     l.handle.session.frame_displayed(pts, received, decoded, at);
+                    // Décodage (reçue → décodée) et affichage (décodée → montrée), sur l'horloge de l'appareil.
+                    let (dec, disp) = ((decoded - received) as f64 / 1000.0, (at - decoded) as f64 / 1000.0);
+                    if (0.0..1000.0).contains(&dec) && (0.0..1000.0).contains(&disp) && l.local.len() < 1000 {
+                        l.local.push((dec, disp));
+                    }
                     l.last_frame = Some(Instant::now());
                     l.shown = Some((pts, received, decoded));
                 }
@@ -2051,6 +2061,18 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
                     }
                     return;
                 }
+                // Statistiques ouvertes (fenêtre principale de la session) : l'aide de l'étape du trajet d'une image
+                // sous le pointeur ; le dessin n'est refait que quand elle change.
+                if view_of(app, lives, &wins.list[wi]).main {
+                    let (ux, uy) = to_ui(&wins.list[wi], app.layout, x, y);
+                    let help = app.session_by(id).and_then(|s| ui::stats_stage_at(app, s, ux, uy));
+                    if let Some(s) = app.session_by_mut(id)
+                        && s.stats_help != help
+                    {
+                        s.stats_help = help;
+                        *dirty = true;
+                    }
+                }
                 // Barre du bureau. Fermée : elle s'ouvre quand le pointeur reste un quart de
                 // seconde contre le bord haut, dans la zone de sa largeur (`session_tick`
                 // mesure le délai : un pointeur immobile n'envoie plus d'événements) ;
@@ -2652,11 +2674,13 @@ fn session_event(id: SessionId, e: SessionEvent, app: &mut App, pads: &mut pads:
                 l.hz = m.refresh;
             }
         }
-        SessionEvent::Second { latency_ms, fps, mbps, lost, codec, audio_ms } => {
+        SessionEvent::Second { latency_ms, fps, mbps, lost, codec, audio_ms, chain, hdr } => {
             let Some(l) = lives.get_mut(id) else { return };
+            let local = Stats::local_medians(&l.local);
+            l.local.clear();
             // Toutes les 10 s au journal : ce qu'on voit dans la barre.
             if l.started.elapsed().as_secs() % 10 == 0 {
-                log::info!("session {} : latence {:?} ms, {fps:.0} i/s, {mbps:.1} Mbit/s, {lost} perdues, {codec}", l.host, latency_ms.map(|v| (v * 10.0).round() / 10.0));
+                log::info!("session {} : latence {:?} ms, {fps:.0} i/s, {mbps:.1} Mbit/s, {lost} perdues, {codec}{}, trajet {:?}", l.host, latency_ms.map(|v| (v * 10.0).round() / 10.0), if hdr { ", HDR" } else { "" }, chain.map(|c| c.map(|v| (v * 10.0).round() / 10.0)));
             }
             if let Some(v) = latency_ms {
                 l.latencies.push(v);
@@ -2672,7 +2696,8 @@ fn session_event(id: SessionId, e: SessionEvent, app: &mut App, pads: &mut pads:
                         history.remove(0);
                     }
                 }
-                s.stats = Some(Stats { latency_ms, fps, mbps, lost, mode: l.mode.clone(), decoder: codec, audio_ms, history });
+                let stages = Stats::stages(chain, local);
+                s.stats = Some(Stats { latency_ms, fps, mbps, lost, mode: l.mode.clone(), decoder: codec, audio_ms, history, stages, hdr });
             }
         }
         SessionEvent::Notice(n) => {
@@ -3468,6 +3493,7 @@ fn open_session(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<E
         decoded: None,
         last_frame: None,
         shown: None,
+        local: Vec::new(),
         snapshot: None,
         snapshot_at: None,
         multi: !visitor && base.is_some(),

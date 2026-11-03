@@ -516,6 +516,37 @@ pub struct Stats {
     pub audio_ms: Option<f64>,
     /// Latences des dernières secondes (courbe de la barre).
     pub history: Vec<f64>,
+    /// Le trajet d'une image (docs/link-ui.md, « Statistiques ») : capture, encodage, envoi, réseau, décodage,
+    /// affichage, en ms (médianes de la seconde) ; `None` : pas de mesure (« — »). Voir [`Stats::stages`].
+    pub stages: [Option<f64>; 6],
+    /// Un écran au moins de l'image est en HDR (`Second::hdr`) : « HDR » après le format.
+    pub hdr: bool,
+}
+
+impl Stats {
+    /// Les six étapes : celles de l'ordinateur (`Second::chain`) quand il les envoie ; sinon, l'appareil garde
+    /// ses propres temps de décodage et d'affichage (`local`, médianes de la seconde, comme sur Mac).
+    pub fn stages(chain: Option<[f64; 6]>, local: Option<(f64, f64)>) -> [Option<f64>; 6] {
+        match (chain, local) {
+            (Some(c), _) => c.map(Some),
+            (None, Some((decode, display))) => [None, None, None, None, Some(decode), Some(display)],
+            (None, None) => [None; 6],
+        }
+    }
+
+    /// Médianes des temps de décodage et d'affichage mesurés par l'appareil pendant la seconde (`None` sans
+    /// image montrée).
+    pub fn local_medians(samples: &[(f64, f64)]) -> Option<(f64, f64)> {
+        let median = |mut v: Vec<f64>| {
+            v.sort_by(f64::total_cmp);
+            let n = v.len();
+            if n % 2 == 1 { v[n / 2] } else { (v[n / 2 - 1] + v[n / 2]) / 2.0 }
+        };
+        if samples.is_empty() {
+            return None;
+        }
+        Some((median(samples.iter().map(|s| s.0).collect()), median(samples.iter().map(|s| s.1).collect())))
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1659,6 +1690,8 @@ pub struct SessionUi {
     pub keys: bool,
     pub stats: Option<Stats>,
     pub show_stats: bool,
+    /// L'étape du trajet d'une image sous le pointeur : son aide, à côté des statistiques (bureau, Deck).
+    pub stats_help: Option<usize>,
     pub pad_mouse: bool,
     pub muted: bool,
     pub light: bool,
@@ -1738,6 +1771,7 @@ impl SessionUi {
             keys: false,
             stats: None,
             show_stats: false,
+            stats_help: None,
             pad_mouse: false,
             muted: false,
             light,
@@ -4546,6 +4580,7 @@ impl App {
             }
             MenuItem::Stats => {
                 s.show_stats = !s.show_stats;
+                s.stats_help = None;
                 s.menu = false;
                 Vec::new()
             }
@@ -5714,6 +5749,19 @@ mod tests {
         assert_eq!(parse_address("192.168.1.20:24811"), Some(("192.168.1.20".into(), 24811)));
         assert_eq!(parse_address("192.168.1.20"), None);
         assert_eq!(parse_address(":24811"), None);
+    }
+
+    #[test]
+    fn frame_path_stages() {
+        // L'ordinateur envoie ses mesures : les six étapes viennent de lui.
+        let chain = [0.9, 3.4, 0.6, 1.3, 2.1, 5.3];
+        assert_eq!(Stats::stages(Some(chain), Some((4.0, 9.0))), chain.map(Some));
+        // Sans elles, l'appareil garde ses temps de décodage et d'affichage ; le reste est « — ».
+        assert_eq!(Stats::stages(None, Some((2.0, 6.5))), [None, None, None, None, Some(2.0), Some(6.5)]);
+        assert_eq!(Stats::stages(None, None), [None; 6]);
+        assert_eq!(Stats::local_medians(&[]), None);
+        assert_eq!(Stats::local_medians(&[(3.0, 9.0), (1.0, 5.0), (2.0, 7.0)]), Some((2.0, 7.0)));
+        assert_eq!(Stats::local_medians(&[(1.0, 4.0), (2.0, 6.0)]), Some((1.5, 5.0)));
     }
 
     #[test]

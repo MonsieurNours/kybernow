@@ -152,6 +152,9 @@ fn session(app: &App) -> SessionUi {
         decoder: "VA-API HEVC".into(),
         audio_ms: Some(12.0),
         history: vec![7.0, 7.4, 6.9, 8.1, 7.2, 7.6, 6.8, 9.0, 7.1, 7.3, 7.0, 7.5],
+        // Le trajet d'une image : les mesures de l'ordinateur (capture, encodage, envoi, réseau) et de l'appareil.
+        stages: Stats::stages(Some([0.8, 2.2, 0.4, 0.8, 1.3, 1.9]), None),
+        hdr: false,
     });
     s.started = Instant::now() - Duration::from_millis(2100);
     s.opened_at = Some(Instant::now() - Duration::from_secs(30));
@@ -374,7 +377,7 @@ fn shared_view() -> ShareView {
 fn guest_session(role: ShareRole) -> SessionUi {
     let mut s = SessionUi::guest(1, "share:g1", "Atelier", role);
     s.phase = Phase::Streaming;
-    s.stats = Some(Stats { latency_ms: Some(8.1), fps: 60.0, mbps: 24.0, lost: 0, mode: "1920 × 1080".into(), decoder: "VA-API HEVC".into(), audio_ms: Some(14.0), history: vec![8.0, 8.4, 7.9, 9.1, 8.2, 8.0, 8.8, 8.1] });
+    s.stats = Some(Stats { latency_ms: Some(8.1), fps: 60.0, mbps: 24.0, lost: 0, mode: "1920 × 1080".into(), decoder: "VA-API HEVC".into(), audio_ms: Some(14.0), history: vec![8.0, 8.4, 7.9, 9.1, 8.2, 8.0, 8.8, 8.1], ..Default::default() });
     s.started = Instant::now() - Duration::from_millis(2100);
     s.opened_at = Some(Instant::now() - Duration::from_secs(30));
     // « Auto » demandé, 1080p à 60 Hz reçu : la puce de la barre et la tuile du menu montrent la qualité reçue.
@@ -714,7 +717,7 @@ fn borrow_session(source: BorrowSource) -> SessionUi {
     let until = crate::model::now_secs() + 80 * 60 + 30;
     let mut s = SessionUi::borrower(1, "lend:m", BorrowSessionUi::new("Matthieu", "PC-SALON", Some(until), source));
     s.phase = Phase::Streaming;
-    s.stats = Some(Stats { latency_ms: Some(9.2), fps: 60.0, mbps: 28.0, lost: 0, mode: "1920 × 1080".into(), decoder: "VA-API HEVC".into(), audio_ms: Some(13.0), history: vec![9.0, 9.4, 8.9, 10.1, 9.2, 9.0, 9.8, 9.1] });
+    s.stats = Some(Stats { latency_ms: Some(9.2), fps: 60.0, mbps: 28.0, lost: 0, mode: "1920 × 1080".into(), decoder: "VA-API HEVC".into(), audio_ms: Some(13.0), history: vec![9.0, 9.4, 8.9, 10.1, 9.2, 9.0, 9.8, 9.1], ..Default::default() });
     s.started = Instant::now() - Duration::from_millis(2100);
     s.opened_at = Some(Instant::now() - Duration::from_secs(30));
     s
@@ -1170,6 +1173,22 @@ pub fn run(dir: &Path, lang: &str) {
         s.show_stats = true;
         app.set_session(Some(s));
         shot(&mut app, &mut cv, Some(&video), dir, &p("13-session-statistiques"));
+        // Le trajet d'une image sans les mesures de l'ordinateur (Station trop ancienne) : « — », l'appareil garde
+        // ses temps de décodage et d'affichage ; image en HDR.
+        if let Some(st) = app.session_mut().and_then(|s| s.stats.as_mut()) {
+            st.stages = Stats::stages(None, Some((1.4, 2.1)));
+            st.hdr = true;
+        }
+        shot(&mut app, &mut cv, Some(&video), dir, &p("13b-session-statistiques-sans-mesures"));
+        // L'aide d'une étape, au survol (bureau, Deck ; pas au salon).
+        if layout != Layout::Tv {
+            let mut s = session(&app);
+            s.menu = false;
+            s.show_stats = true;
+            s.stats_help = Some(1);
+            app.set_session(Some(s));
+            shot(&mut app, &mut cv, Some(&video), dir, &p("13c-session-statistiques-aide"));
+        }
 
         let mut s = session(&app);
         s.phase = Phase::Ended { error: Some(if en { "Admin did not answer: is the computer still on the network?" } else { "Admin ne répond plus : l'ordinateur est-il toujours sur le réseau ?" }.into()) };
@@ -1433,6 +1452,49 @@ mod tests {
         app.set_session(Some(s));
         app.screen = Screen::Session;
         (app, cv)
+    }
+
+    /// Le trajet d'une image : au bureau et au Deck, chaque étape a sa ligne sous le pointeur (son aide), dans
+    /// l'ordre, et rien hors du panneau ni panneau fermé ; au salon, pas d'aide. Le panneau tient dans la fenêtre la
+    /// plus basse (960 × 600) et la rangée du salon dans son écran, avec et sans mesures de l'ordinateur.
+    #[test]
+    fn frame_path_rows_and_sizes() {
+        let rows = |app: &App, ux: f32| {
+            let s = app.session().unwrap();
+            let mut seen: Vec<usize> = Vec::new();
+            for uy in 0..800 {
+                if let Some(i) = ui::stats_stage_at(app, s, ux, uy as f32)
+                    && seen.last() != Some(&i)
+                {
+                    seen.push(i);
+                }
+            }
+            seen
+        };
+        for layout in [Layout::Desktop, Layout::Handheld, Layout::Tv] {
+            let (mut app, _) = streaming(layout);
+            assert!(rows(&app, 100.0).is_empty(), "statistiques fermées");
+            app.session_mut().unwrap().show_stats = true;
+            if layout == Layout::Tv {
+                assert!(rows(&app, 100.0).is_empty(), "pas d'aide au salon");
+            } else {
+                assert_eq!(rows(&app, 100.0), vec![0, 1, 2, 3, 4, 5]);
+                assert!(rows(&app, 700.0).is_empty(), "hors du panneau");
+            }
+            for local in [false, true] {
+                if local && let Some(st) = app.session_mut().unwrap().stats.as_mut() {
+                    st.stages = Stats::stages(None, Some((1.4, 2.1)));
+                    st.hdr = true;
+                }
+                let mut cv = Canvas::new();
+                let (w, h) = if layout == Layout::Tv { (1920, 1080) } else { (960, 600) };
+                cv.resize(w, h, 1.0);
+                ui::draw(&app, &mut cv);
+                // Sous le panneau (bureau, Deck) et à droite de la rangée (salon), l'image reste visible.
+                assert_eq!(cv.pix.pixel(100, h - 8).unwrap().alpha(), 0, "{layout:?}");
+                assert_eq!(cv.pix.pixel(w - 8, 100).unwrap().alpha(), 0, "{layout:?}");
+            }
+        }
     }
 
     /// Au bureau, à la souris du bureau, barre fermée : un trait de 220 × 3 points,
