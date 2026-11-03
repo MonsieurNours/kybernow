@@ -4,13 +4,13 @@
   choix s'applique tout de suite.
 -->
 <script lang="ts">
-  import { api, type AudioChannels, type AudioStatus, type DesktopGamma, type DisplayStatus, type HdrSetting, type ModePolicy, type Trigger } from '../lib/api'
+  import { api, type AudioChannels, type AudioStatus, type DesktopGamma, type DisplayStatus, type HdrCheck, type HdrSetting, type ModePolicy, type Trigger } from '../lib/api'
   import { app, errorText, field, kyber, loadKyber, notify, setValues, value } from '../lib/store.svelte'
   import { mode } from '../lib/format'
   import Icon from '../lib/Icon.svelte'
   import Segmented from '../lib/Segmented.svelte'
   import Switch from '../lib/Switch.svelte'
-  import { t } from '../lib/i18n/index.svelte'
+  import { i18n, t } from '../lib/i18n/index.svelte'
 
   const PRESETS = [
     { width: 1920, height: 1080, refresh: 60 },
@@ -55,6 +55,22 @@
     if (reason === 'encoder') return t('imageSound.display.hdrEncoder')
     if (reason === 'display') return t('imageSound.display.hdrDisplay')
     return null
+  })
+
+  // Vérification du HDR de la session en cours : ce que Windows annonce aux jeux.
+  const nits = (v: number) => new Intl.NumberFormat(i18n.lang, { maximumFractionDigits: 0 }).format(v)
+  function checkText(c: HdrCheck): string {
+    const seen = c.seen?.max ?? 0
+    if (c.status === 'ok') return t('imageSound.display.hdrCheckOk', { nits: nits(seen) })
+    if (c.status === 'profile') return t('imageSound.display.hdrCheckProfile', { seen: nits(seen), wanted: nits(c.wanted.max) })
+    if (c.status === 'white') return t('imageSound.display.hdrCheckWhite', { nits: nits(seen), seen: nits(c.sdr_white ?? 0), wanted: nits(c.wanted.sdr_white) })
+    if (c.status === 'not_hdr') return t('imageSound.display.hdrCheckNotHdr')
+    return t('imageSound.display.hdrCheckUnread')
+  }
+  const hdrChecks = $derived.by(() => {
+    const checks = display?.session?.hdr_check ?? []
+    const several = checks.length > 1
+    return checks.flatMap((c, i) => (c ? [several ? t('imageSound.display.hdrCheckScreen', { n: i + 1, text: checkText(c) }) : checkText(c)] : []))
   })
 
   const CHANNELS: { value: AudioChannels; label: string; hint: string }[] = $derived([
@@ -244,6 +260,7 @@
           <h3>{t('imageSound.display.hdr')}</h3>
           <p>{t('imageSound.display.hdrHelp')}</p>
           {#if hdrReason && display.settings.hdr !== 'never'}<p>{hdrReason}</p>{/if}
+          {#each hdrChecks as line}<p>{line}</p>{/each}
         </div>
         <Segmented label={t('imageSound.display.hdr')} options={HDR_CHOICES} value={display.settings.hdr ?? 'auto'} disabled={busy} onchange={(v) => setDisplay({ hdr: v }, t('imageSound.toast.saved'))} />
       </div>
