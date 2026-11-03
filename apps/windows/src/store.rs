@@ -49,6 +49,16 @@ pub struct Settings {
     pub keep_last_image: bool,
     /// Reconnexion automatique quand le réseau décroche pendant la session.
     pub auto_reconnect: bool,
+    /// Le choix « HDR » pour cet ordinateur (docs/hdr.md) ; `None` : jamais
+    /// changé, allumé (le HDR est automatique sur un écran HDR).
+    pub hdr: Option<bool>,
+}
+
+impl Settings {
+    /// Le choix « HDR » (allumé tant qu'il n'a pas été changé).
+    pub fn hdr_on(&self) -> bool {
+        self.hdr.unwrap_or(true)
+    }
 }
 
 impl Default for Settings {
@@ -72,6 +82,7 @@ impl Default for Settings {
             battery: "alleger".into(),
             keep_last_image: true,
             auto_reconnect: true,
+            hdr: None,
         }
     }
 }
@@ -104,6 +115,9 @@ pub struct LastSession {
     /// sessions d'avant le relais.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub route: Option<kybernow_core::relay::RouteInfo>,
+    /// Un écran au moins a été en HDR (« HDR » après le format).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hdr: bool,
     /// Profil et format en français (« Bureau · HEVC 4:4:4 ») : seulement
     /// dans les fichiers de la 0.4.x, montré tant qu'une session ne l'a pas
     /// remplacé.

@@ -299,6 +299,31 @@ struct Ctx {
     last_route: Option<RouteInfo>,
     hint: Hint,
     notice: Hint,
+    /// HDR : l'écran (`HMONITOR`) où était la fenêtre au dernier relevé.
+    monitor: isize,
+}
+
+/// L'état HDR de l'écran de ce PC où est la fenêtre `hwnd`.
+fn screen_of(hwnd: HWND) -> crate::hdr::ScreenHdr {
+    let Some(key) = crate::system::monitor_key_of(hwnd.0 as isize) else { return Default::default() };
+    crate::displays::enumerate().iter().find(|m| m.key.eq_ignore_ascii_case(&key)).map(|m| m.screen_hdr()).unwrap_or_default()
+}
+
+/// HDR : la fenêtre a changé d'écran (ou `force` : les écrans ont changé) ; le
+/// rendu prend l'état de son écran à l'image suivante.
+fn follow_screen(force: bool) {
+    let Some((hwnd, shared, last)) = with_ctx(|c| (c.hwnd, c.shared.clone(), c.monitor)) else { return };
+    let monitor = unsafe { MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) }.0 as isize;
+    if monitor == last && !force {
+        return;
+    }
+    with_ctx(|c| c.monitor = monitor);
+    let state = screen_of(hwnd);
+    let mut cur = shared.screen_hdr.lock().unwrap();
+    if *cur != state {
+        log::info!("PlayStation : l'écran de la partie est maintenant en {}", if state.hdr { "HDR" } else { "SDR" });
+        *cur = state;
+    }
 }
 
 thread_local! {
@@ -424,6 +449,10 @@ fn run(start: Start, inner: Arc<Inner>) {
         });
     }
     let shared = Shared::new(link, true);
+    // HDR (docs/hdr.md) : la partie est demandée en HDR ou non pour toute sa durée ; le rendu
+    // suit l'écran de la fenêtre (ramenée au SDR sur un écran SDR).
+    shared.stream_hdr.store(profile.hdr, Ordering::Relaxed);
+    *shared.screen_hdr.lock().unwrap() = screen_of(hwnd);
     let size = client_size(hwnd);
     shared.set_client_size(size.0, size.1);
     let renderer = match Renderer::new(&gpu, hwnd, size, false) {
@@ -518,6 +547,7 @@ fn run(start: Start, inner: Arc<Inner>) {
             last_route: None,
             hint,
             notice,
+            monitor: 0,
         })
     });
     unsafe {
@@ -1162,12 +1192,18 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPA
                 }
                 LRESULT(0)
             }
+            WM_DISPLAYCHANGE => {
+                // HDR allumé ou coupé dans Windows, écrans changés.
+                follow_screen(true);
+                DefWindowProcW(hwnd, msg, wparam, lparam)
+            }
             WM_SIZE | WM_MOVE => {
                 with_ctx(|c| {
                     let (w, h) = client_size(hwnd);
                     c.shared.set_client_size(w, h);
                     c.video.resized();
                 });
+                follow_screen(false);
                 if with_ctx(|c| c.captured).unwrap_or(false) {
                     // Le pointeur reste retenu dans la nouvelle image.
                     release_mouse();

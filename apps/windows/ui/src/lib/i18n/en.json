@@ -47,8 +47,11 @@
     "offline": "Offline",
     "screens_as_is": "The computer's own displays, as they are",
     "screen_match": "{width} × {height} display at {refresh} Hz, sized for this screen",
+    "screen_match_hdr": "{width} × {height} display at {refresh} Hz, sized for this screen, in HDR",
     "screen": "{width} × {height} display at {refresh} Hz",
+    "screen_hdr": "{width} × {height} display at {refresh} Hz, in HDR",
     "screens_many": "{count} displays, sized for this device's screens",
+    "screens_many_hdr": "{count} displays, sized for this device's screens, in HDR",
     "connect": "Connect",
     "show_session": "Show session",
     "retry": "Try again",
@@ -474,7 +477,9 @@
     "ps_living_room": "Living room PS5",
     "ps_lea": "Léa's PS5",
     "ps_new_account": "New_Player",
-    "ps_tv": "Living room Apple TV"
+    "ps_tv": "Living room Apple TV",
+    "hdr_windows": "HDR needs Windows 11 24H2 on the computer.",
+    "hdr_codec": "HDR needs the HEVC or AV1 format."
   },
   "lend": {
     "lend": "Lend the computer…",
@@ -676,5 +681,12 @@
       "right_stick_right": "Right stick right"
     },
     "path_line": "Path: {path}"
+  },
+  "hdr": {
+    "on": "HDR, on",
+    "off": "HDR, off",
+    "help": "Richer colours and brighter highlights, on this HDR screen.",
+    "settings_help": "Richer colours and brighter highlights, on this HDR screen. Sharp text (4:4:4) doesn't exist in HDR.",
+    "no_444": "HDR doesn't exist in 4:4:4."
   }
 }

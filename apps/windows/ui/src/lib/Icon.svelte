@@ -50,7 +50,8 @@
     eye: 'M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12zM12 9a3 3 0 1 1 0 6 3 3 0 0 1 0-6z',
     article: 'M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zM8 9h8M8 12h8M8 15h5',
     lightning: 'M13 2L4 14h7l-1 8 9-12h-7z',
-    sliders: 'M4 6h9M17 6h3M15 4v4M4 12h3M11 12h9M9 10v4M4 18h11M19 18h1M17 16v4',
+    // HDR : une étincelle et une petite, comme sur Mac.
+    sparkle: 'M11 3l1.9 5.6L18.5 10.5l-5.6 1.9L11 18l-1.9-5.6L3.5 10.5l5.6-1.9zM18.5 15l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z',
     'speaker-off': 'M11 5L6 9H2v6h4l5 4zM16 9l6 6M22 9l-6 6',
     other: 'M5 7h14a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2zM8 12h.01M12 12h.01M16 12h.01',
     // Consoles PlayStation : compte, choix du compte, réglages « Auto », envoi et réception entre appareils.

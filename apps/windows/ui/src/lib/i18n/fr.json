@@ -47,8 +47,11 @@
     "offline": "Hors ligne",
     "screens_as_is": "Les écrans de l'ordinateur, tels quels",
     "screen_match": "Écran de {width} × {height} à {refresh} Hz, à la taille de cet écran",
+    "screen_match_hdr": "Écran de {width} × {height} à {refresh} Hz, à la taille de cet écran, en HDR",
     "screen": "Écran de {width} × {height} à {refresh} Hz",
+    "screen_hdr": "Écran de {width} × {height} à {refresh} Hz, en HDR",
     "screens_many": "{count} écrans, à la taille de ceux de cet appareil",
+    "screens_many_hdr": "{count} écrans, à la taille de ceux de cet appareil, en HDR",
     "connect": "Se connecter",
     "show_session": "Afficher la session",
     "retry": "Réessayer",
@@ -474,7 +477,9 @@
     "ps_living_room": "PS5 du salon",
     "ps_lea": "PS5 de Léa",
     "ps_new_account": "Nouveau_Joueur",
-    "ps_tv": "Apple TV du salon"
+    "ps_tv": "Apple TV du salon",
+    "hdr_windows": "Le HDR demande Windows 11 24H2 sur l'ordinateur.",
+    "hdr_codec": "Le HDR demande le format HEVC ou AV1."
   },
   "lend": {
     "lend": "Prêter l'ordinateur…",
@@ -676,5 +681,12 @@
       "right_stick_right": "Stick droit vers la droite"
     },
     "path_line": "Chemin : {path}"
+  },
+  "hdr": {
+    "on": "HDR, allumé",
+    "off": "HDR, éteint",
+    "help": "Couleurs plus riches et lumières plus vives, sur cet écran HDR.",
+    "settings_help": "Couleurs plus riches et lumières plus vives, sur cet écran HDR. Le texte net (4:4:4) n'existe pas en HDR.",
+    "no_444": "Le HDR n'existe pas en 4:4:4."
   }
 }

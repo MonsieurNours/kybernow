@@ -93,6 +93,9 @@ pub struct Summary {
     /// Dernière image de la session (JPEG), pour l'accueil.
     #[serde(skip)]
     pub last_image: Option<Vec<u8>>,
+    /// Un écran au moins a été en HDR pendant la session.
+    #[serde(skip)]
+    pub hdr: bool,
     /// Fin demandée par l'utilisateur (« Se déconnecter », fenêtre fermée,
     /// Ctrl+Alt+Maj+D) : pas de notification de fin.
     #[serde(skip)]
@@ -192,6 +195,9 @@ pub trait HostEvents: Send + Sync {
     /// Session d'hôte : la vue du prêt de l'ordinateur (signe de vie), quand
     /// elle change ; `None` : rien à dire.
     fn lend(&self, _lend: Option<&kybernow_core::lend::LendView>) {}
+    /// Un avis bref du cœur, dans la langue de l'app (« L'ordinateur n'a pas
+    /// pu passer en HDR : image en SDR. », une fois par session).
+    fn notice(&self, _text: &str) {}
 }
 
 pub struct HostOptions {
@@ -343,6 +349,24 @@ impl SessionHost {
         }
     }
 
+    /// « HDR » coché ou non en session (barre, menu de l'icône, réglages) :
+    /// le cœur passe les écrans en HDR ou en SDR et relance l'image. Faux
+    /// quand la session n'est pas encore là.
+    pub fn set_hdr(&self, on: bool) -> bool {
+        match self.app().and_then(|a| a.current_session()) {
+            Some(s) => {
+                s.set_hdr(on);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Un écran de la session au moins est HDR (la puce de la barre se montre).
+    pub fn screen_hdr(&self) -> bool {
+        self.app().is_some_and(|a| a.any_hdr_screen())
+    }
+
     /// KyberNow Share, session d'invité : une autre « Qualité de l'image » ;
     /// Kyber relance l'image de l'invité seulement, la session n'a rien à
     /// relancer (l'image reçue revient par `HostEvents::share_image`). Faux
@@ -432,6 +456,9 @@ struct WinPlatform {
     last_frames: Mutex<u64>,
     /// Fréquence de l'écran principal de la session (`on_screens`).
     refresh: AtomicU32,
+    /// Les écrans de ce PC des flux, dans l'ordre du cœur (`on_screens`) :
+    /// celui de `on_hdr`.
+    stream_order: Mutex<Vec<usize>>,
     /// Voies du son demandées (0 : son coupé dans les réglages).
     audio_channels: u16,
     events: Arc<dyn HostEvents>,
@@ -464,7 +491,15 @@ impl Platform for WinPlatform {
         if let Some(main) = screens.iter().find(|s| s.primary).or_else(|| screens.first()) {
             self.refresh.store(main.refresh, Ordering::Relaxed);
         }
+        *self.stream_order.lock().unwrap() = screens.iter().map(|s| s.screen).collect();
         self.app.screens_changed(screens, not_created);
+    }
+    /// HDR (docs/hdr.md) : les écrans dont l'image part en HDR. Le rendu suit
+    /// l'image elle-même (étiquetée PQ) ; ceci sert aux images sans étiquette.
+    fn on_hdr(&self, hdr: &[bool]) {
+        let order = self.stream_order.lock().unwrap().clone();
+        log::info!("HDR des écrans de la session : {hdr:?}");
+        self.app.set_stream_hdr(&order, hdr);
     }
     /// Chaîne d'entrées neuve pour les écrans pris (donnés juste avant par
     /// `on_display` et `on_screens`) ; celle d'avant s'arrête. Le cœur la
@@ -586,6 +621,12 @@ impl Platform for WinPlatform {
             audio_buffer_ms: audio.map(|a| a.buffer_ms),
             audio_output_ms: audio.map(|a| a.output_ms),
         });
+    }
+    fn on_notice(&self, notice: &kybernow_core::session::Notice) {
+        if matches!(notice, kybernow_core::session::Notice::HdrRefused) {
+            log::warn!("HDR : refusé par l'ordinateur, image en SDR");
+            self.events.notice(&kybernow_core::profile::hdr_refused_text(crate::i18n::lang()));
+        }
     }
     fn on_game_fullscreen(&self, game: bool) {
         self.app.game.store(game, Ordering::Relaxed);
@@ -724,6 +765,7 @@ fn run(
         audio_stats: Mutex::new(None),
         last_frames: Mutex::new(0),
         refresh: AtomicU32::new(0),
+        stream_order: Mutex::new(Vec::new()),
         audio_channels: params.audio_channels,
         events: events.clone(),
         session: Mutex::new(None),
@@ -806,5 +848,6 @@ fn run(
         requested,
         shown,
         was_front,
+        hdr: session.hdr_used(),
     });
 }

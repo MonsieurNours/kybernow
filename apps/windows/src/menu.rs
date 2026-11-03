@@ -23,6 +23,8 @@ pub enum Cmd {
     Show(String),
     /// « Garder le son » allumé ou éteint pour cette session.
     KeepSound(String),
+    /// « HDR » coché ou décoché pour cette session (gardé pour l'ordinateur).
+    Hdr(String),
     Connect(String),
     Wake(String),
     Retry(String),
@@ -127,6 +129,9 @@ pub struct Session {
     pub mouse: String,
     /// « Garder le son » (plusieurs ordinateurs).
     pub keep_sound: bool,
+    /// HDR (docs/hdr.md) : la ligne « HDR » cochable, quand un écran de la
+    /// session est HDR et que le HDR est possible (`Some(allumé)`).
+    pub hdr: Option<bool>,
     /// Session d'invité (KyberNow Share) : son rôle. `name` est alors
     /// l'ordinateur qui partage, pas un ordinateur de l'app ; ni profil ni
     /// réglages, la souris seulement avec le clavier et la souris, et
@@ -431,6 +436,10 @@ pub fn computer(s: &State, c: &Computer, tr: Tr) -> Vec<Item> {
         profiles.push(Item::Line { text: profile_name("custom"), cmd: None, enabled: false, mark: Mark::Radio, default: false });
     }
     out.push(Item::Sub { text: tr("tray.profile", &[]), key: None, checked: false, dot: None, items: profiles });
+    // En session sur un écran HDR : « HDR », cochable, près du profil (docs/link-ui.md, « HDR »).
+    if let Some(on) = s.session(&c.id).and_then(|x| x.hdr) {
+        out.push(Item::Line { text: tr("tray.hdr", &[]), cmd: Some(Cmd::Hdr(c.id.clone())), enabled: true, mark: if on { Mark::Check } else { Mark::None }, default: false });
+    }
     out.push(Item::line(tr("tray.settings", &[]), Some(Cmd::Settings(c.id.clone()))));
 
     // Hors de chez vous : ni Admin dans le navigateur, ni la Station à redémarrer. Par le relais (une
@@ -646,7 +655,7 @@ mod tests {
     }
 
     fn session_atelier() -> Session {
-        Session { id: "a".into(), name: "Atelier".into(), latency_ms: Some(11.6), fps: Some(60), mbps: Some(80), fullscreen: true, multi: false, mouse: "jeu".into(), keep_sound: false, guest: None }
+        Session { id: "a".into(), name: "Atelier".into(), latency_ms: Some(11.6), fps: Some(60), mbps: Some(80), fullscreen: true, multi: false, mouse: "jeu".into(), keep_sound: false, hdr: None, guest: None }
     }
 
     #[test]
@@ -732,6 +741,7 @@ mod tests {
             multi: false,
             mouse: "auto".into(),
             keep_sound: true,
+            hdr: None,
             guest: None,
         };
         let s = State {
@@ -775,6 +785,20 @@ mod tests {
         assert_eq!(pick(&State::default(), &Computer { can_wake: false, ..offline.clone() }).code(), "retry");
         assert_eq!(pick(&State::default(), &Computer { waking: true, ..offline.clone() }).code(), "waking");
         assert_eq!(status(&Computer { waking: true, ..offline }), (Seen::Offline, Dot::Warn));
+        // HDR : la ligne cochable, près du profil, seulement sur un écran HDR.
+        assert!(!fr.iter().any(|l| l.contains("HDR")));
+        let mut hdr = s.clone();
+        hdr.sessions[0].hdr = Some(false);
+        hdr.sessions[1].hdr = Some(true);
+        let fr = lines(&hdr, Lang::Fr);
+        let a = fr.iter().position(|x| x == "[x] {vert} Atelier — En ligne >").unwrap();
+        let b = fr.iter().position(|x| x == "[x] {vert} Bureau-Salon — En ligne >").unwrap();
+        let after = |i: usize| fr[i..].iter().position(|l| l.trim_start().ends_with("HDR")).map(|p| fr[i + p].trim_start().to_string());
+        assert_eq!(after(a).as_deref(), Some("HDR"), "Atelier : HDR éteint");
+        assert_eq!(after(b).as_deref(), Some("[x] HDR"), "Bureau-Salon : HDR allumé");
+        let mut c = Vec::new();
+        cmds(&build(&hdr, &tr(Lang::En)), &mut c);
+        assert!(c.contains(&Cmd::Hdr("b".into())));
         // Quatre en session : Se connecter inactif.
         let full = State { full: true, ..s };
         assert_eq!(pick(&full, &full.computers[2]).code(), "full");
@@ -794,6 +818,7 @@ mod tests {
             multi: false,
             mouse: "auto".into(),
             keep_sound: false,
+            hdr: None,
             guest: Some(role),
         }
     }

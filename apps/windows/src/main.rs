@@ -39,6 +39,9 @@ mod glyph;
 mod fonds;
 #[cfg(windows)]
 mod gpu;
+// HDR : écrans de ce PC (Windows), règles et courbes du rendu (se testent sur le Mac).
+#[cfg_attr(not(windows), allow(dead_code))]
+mod hdr;
 #[cfg(windows)]
 mod host;
 #[cfg(windows)]

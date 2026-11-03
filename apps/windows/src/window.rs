@@ -57,6 +57,7 @@ use crate::gpu::Gpu;
 use crate::host::{HostEvents, Role, ScreenSet, ScreenState};
 use crate::i18n::t;
 use crate::render::{Renderer, video_rect};
+use crate::hdr::ScreenHdr;
 use crate::video::{self, Discard, LateFeed, Link, Shared, VideoHandler, VideoOptions};
 
 /// Fenêtre de contrôle : l'état de la session a changé (titre, fin).
@@ -450,6 +451,10 @@ pub struct ScreenWin {
     active: AtomicBool,
     /// Le pointeur est dans la zone du bord haut et la minuterie court.
     edge_armed: AtomicBool,
+    /// HDR : l'écran de ce PC où la fenêtre se trouvait au dernier relevé
+    /// (`HMONITOR`), et l'état HDR dit au cœur pour elle (docs/hdr.md).
+    last_monitor: AtomicIsize,
+    reported_hdr: Mutex<ScreenHdr>,
 }
 
 impl ScreenWin {
@@ -564,6 +569,10 @@ pub struct App {
     failed: Mutex<Vec<String>>,
     /// Dernière image de l'écran principal, gardée à la fermeture de sa fenêtre.
     last_image: Mutex<Option<Vec<u8>>>,
+    /// HDR : les écrans de ce PC (nom du périphérique) dont le flux est en
+    /// HDR, d'après le cœur (`Platform::on_hdr`) ; une fenêtre créée ensuite
+    /// le prend aussi.
+    stream_hdr: Mutex<Vec<String>>,
 }
 
 /// Les sessions en cours, dans l'ordre d'ouverture (plusieurs ordinateurs à
@@ -658,6 +667,7 @@ impl App {
             late: Mutex::new(Vec::new()),
             failed: Mutex::new(Vec::new()),
             last_image: Mutex::new(None),
+            stream_hdr: Mutex::new(Vec::new()),
         });
         APPS.lock().unwrap().push(app.clone());
         app
@@ -1194,6 +1204,10 @@ pub fn create_screen(app: &Arc<App>, key: &str, primary: bool, at: Option<(i32, 
     };
     let shared = Shared::new(app.link.clone(), primary);
     update_size(&shared, hwnd);
+    // HDR : l'écran où elle s'ouvre (le cœur a reçu le même), et le flux s'il est déjà annoncé.
+    let screen = app.layout.lock().unwrap().find(key).map(|(_, m)| m.screen_hdr()).unwrap_or_default();
+    *shared.screen_hdr.lock().unwrap() = screen;
+    shared.stream_hdr.store(app.stream_hdr.lock().unwrap().iter().any(|k| k.eq_ignore_ascii_case(key)), Ordering::Relaxed);
     let renderer = match Renderer::new(&app.gpu, hwnd, shared.client_size(), app.video.vsync) {
         Ok(r) => r,
         Err(e) => {
@@ -1250,6 +1264,8 @@ pub fn create_screen(app: &Arc<App>, key: &str, primary: bool, at: Option<(i32, 
         shown: AtomicBool::new(false),
         active: AtomicBool::new(false),
         edge_armed: AtomicBool::new(false),
+        last_monitor: AtomicIsize::new(0),
+        reported_hdr: Mutex::new(screen),
     });
     app.windows.lock().unwrap().push(win.clone());
     log::info!("fenêtre de session : écran {key}{}", if primary { " (principal)" } else { "" });
@@ -2071,6 +2087,56 @@ fn displays_changed(app: &Arc<App>) {
     if let Some(s) = app.session.get() {
         s.set_screens(screens);
     }
+    // HDR allumé ou coupé, luminosités changées : chaque fenêtre relit son écran.
+    for w in app.windows() {
+        follow_monitor(app, &w, true);
+    }
+}
+
+/// HDR (docs/hdr.md) : l'écran de ce PC où se trouve la fenêtre et son état
+/// HDR. S'il a changé (fenêtre glissée sur un autre écran, ou `force` : les
+/// écrans de ce PC viennent de changer), le rendu le prend à l'image suivante
+/// et le cœur l'apprend (`screen_hdr_changed` : l'image de cet écran repasse
+/// en SDR ou en HDR, sans message). Seulement d'après les écrans relevés
+/// (`layout`) : pas de DXGI ici, le message arrive à chaque déplacement.
+fn follow_monitor(app: &Arc<App>, win: &Arc<ScreenWin>, force: bool) {
+    let monitor = unsafe { MonitorFromWindow(win.hwnd(), MONITOR_DEFAULTTONEAREST) }.0 as isize;
+    if win.last_monitor.swap(monitor, Ordering::Relaxed) == monitor && !force {
+        return;
+    }
+    let Some(key) = crate::system::monitor_key_of(win.hwnd) else { return };
+    let Some(state) = app.layout.lock().unwrap().find(&key).map(|(_, m)| m.screen_hdr()) else { return };
+    *win.shared.screen_hdr.lock().unwrap() = state;
+    let changed = {
+        let mut reported = win.reported_hdr.lock().unwrap();
+        std::mem::replace(&mut *reported, state) != state
+    };
+    if changed {
+        log::info!("HDR : la fenêtre de l'écran {} est maintenant sur {key}, en {}", win.key, if state.hdr { "HDR" } else { "SDR" });
+        if let Some(s) = app.session.get() {
+            s.screen_hdr_changed(win.index(), state.hdr, state.luminance);
+        }
+    }
+}
+
+impl App {
+    /// HDR : une fenêtre de la session au moins est sur un écran HDR.
+    pub fn any_hdr_screen(&self) -> bool {
+        self.windows().iter().any(|w| w.shared.screen_hdr.lock().unwrap().hdr)
+    }
+
+    /// HDR : les écrans dont le flux est en HDR, dans l'ordre des écrans du
+    /// flux (`Platform::on_hdr`, `screens` : les écrans de ce PC de ces flux).
+    pub fn set_stream_hdr(&self, screens: &[usize], hdr: &[bool]) {
+        let keys: Vec<String> = {
+            let layout = self.layout.lock().unwrap();
+            screens.iter().zip(hdr).filter(|(_, h)| **h).filter_map(|(i, _)| layout.monitors.get(*i).map(|m| m.key.clone())).collect()
+        };
+        for w in self.windows() {
+            w.shared.stream_hdr.store(keys.iter().any(|k| k.eq_ignore_ascii_case(&w.key)), Ordering::Relaxed);
+        }
+        *self.stream_hdr.lock().unwrap() = keys;
+    }
 }
 
 unsafe extern "system" fn control_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
@@ -2236,6 +2302,11 @@ unsafe extern "system" fn screen_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
             WM_ERASEBKGND => LRESULT(1),
             WM_DISPLAYCHANGE => {
                 app.post(WM_APP_DISPLAYS);
+                DefWindowProcW(hwnd, msg, wparam, lparam)
+            }
+            // HDR : la fenêtre a pu passer sur un autre écran (glissée, Win+Maj+flèche).
+            WM_WINDOWPOSCHANGED => {
+                follow_monitor(&app, &win, false);
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             }
             WM_KEYDOWN | WM_SYSKEYDOWN | WM_KEYUP | WM_SYSKEYUP => {

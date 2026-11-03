@@ -41,11 +41,11 @@ fn main() {
     let bindings = bindgen::Builder::default()
         .header_contents(
             "ffmpeg.h",
-            "#include <libavcodec/avcodec.h>\n#include <libavutil/hwcontext.h>\n#include <libavutil/pixdesc.h>\n#include <libavutil/error.h>\n",
+            "#include <libavcodec/avcodec.h>\n#include <libavutil/hwcontext.h>\n#include <libavutil/pixdesc.h>\n#include <libavutil/error.h>\n#include <libavutil/mastering_display_metadata.h>\n",
         )
         .clang_arg(format!("-I{prefix}/include"))
         .allowlist_function("avcodec_.*|av_new_packet|av_packet_.*|av_frame_.*|av_hwdevice_.*|av_buffer_.*|av_log_set_level|av_strerror|av_get_pix_fmt_name")
-        .allowlist_type("AVCodecContext|AVPacket|AVFrame|AVHWDeviceContext|AVPixelFormat|AVHWDeviceType|AVColorSpace|AVColorRange|AVCodecID")
+        .allowlist_type("AVCodecContext|AVPacket|AVFrame|AVHWDeviceContext|AVPixelFormat|AVHWDeviceType|AVColorSpace|AVColorRange|AVColorTransferCharacteristic|AVCodecID|AVFrameSideDataType|AVMasteringDisplayMetadata|AVContentLightMetadata")
         .allowlist_var("AV_CODEC_FLAG.*|AV_CODEC_FLAG2.*|AV_PKT_FLAG_.*|AV_FRAME_FLAG_.*|FF_THREAD_.*|AV_LOG_.*|AV_NUM_DATA_POINTERS")
         .default_enum_style(bindgen::EnumVariation::Consts)
         .prepend_enum_name(false)
