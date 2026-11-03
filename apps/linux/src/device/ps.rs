@@ -277,6 +277,7 @@ impl Runtime {
                 ps.width = st.width;
                 ps.height = st.height;
                 ps.hevc = st.hevc;
+                ps.hdr = st.hdr;
                 ps.target_kbps = st.target_kbps;
                 ps.fps = st.fps;
                 ps.mbps = st.mbps;
@@ -290,7 +291,7 @@ impl Runtime {
             let latest = shared.latest_for(0);
             if let Some(f) = latest.take() {
                 let w = wins.app();
-                if w.session == Some(id) && w.video.upload(w.renderer, &f) {
+                if w.session == Some(id) && super::show_frame(w, &f, &mut dirty) {
                     w.present = true;
                     if let Some(s) = app.session_by_mut(id)
                         && s.phase != Phase::Streaming
@@ -566,7 +567,11 @@ impl Runtime {
         let video: Arc<dyn PacketHandler> = VideoSink::new(shared.clone(), 0);
         let audio = AudioSink::new(2, shared.silenced_flag());
         *shared.audio.lock().unwrap() = Some(Arc::downgrade(&audio));
-        let settings = serde_json::to_value(&c.settings).ok().and_then(|v| serde_json::from_value::<PlaySettings>(v).ok()).unwrap_or_default();
+        let mut settings = serde_json::to_value(&c.settings).ok().and_then(|v| serde_json::from_value::<PlaySettings>(v).ok()).unwrap_or_default();
+        // Le HDR : la puce de l'accueil allumée, sur un écran HDR que l'app sait afficher (le cœur le demande à la
+        // console en H.265, jamais à une PS4).
+        settings.hdr = app.ps_hdr_ui(&c).is_some_and(|u| u.lit());
+        log::info!("PlayStation : HDR {}", if settings.hdr { "demandé" } else { "non" });
         let options = PlayOptions { settings, hevc_decoder: app.machine.decodes("hevc") };
         let tx = Mutex::new(self.tx.clone());
         let on_state = Box::new(move |state: PlayState| send(&tx.lock().unwrap(), PsEvent::State { id, state }));

@@ -13,7 +13,8 @@ finish-args:
   # Admin, Kyber (QUIC), annonce Bonjour des Stations.
   - --share=network
   - --share=ipc
-  # SDL2 prend X11 (Xwayland sous GNOME et KDE, gamescope sur le Steam Deck).
+  # SDL2 prend X11 (Xwayland sous GNOME et KDE, gamescope sur le Steam Deck),
+  # Wayland quand un écran est en HDR (gestion des couleurs du compositeur).
   - --socket=x11
   - --socket=wayland
   - --socket=pulseaudio

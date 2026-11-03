@@ -10,6 +10,11 @@
 // « SAND » du décodeur y devient linéaire) puis montrées par SDL : une copie par
 // image, négligeable à la taille du Steam Deck.
 //
+// HDR (HEVC Main 10, AV1 10 bits) : les images 10 bits sortent telles quelles,
+// P010 (VA-API) ou yuv420p10le (processeur), avec ce que le flux dit de sa
+// couleur (PQ, BT.2020) et ses métadonnées HDR10 (écran de matriçage, MaxCLL,
+// MaxFALL), pour le rendu HDR de l'app (src/native/hdr_gl.c).
+//
 // 4:4:4 (en option, HEVC) : SDL n'a pas de texture YUV 4:4:4 ; les images sont
 // converties ici en BGRA (virgule fixe, sur quelques fils), sur le fil du
 // décodeur, et montrées telles quelles.
@@ -30,6 +35,7 @@
 #include <libavutil/pixdesc.h>
 #include <libavutil/error.h>
 #include <libavutil/log.h>
+#include <libavutil/mastering_display_metadata.h>
 
 #include <va/va.h>
 #include <va/va_drm.h>
@@ -38,6 +44,10 @@
 #define KN_FMT_NV12 1
 #define KN_FMT_I420 2
 #define KN_FMT_BGRA 3
+// 10 bits : P010 (deux plans, valeurs dans les bits de poids fort) et
+// yuv420p10le (trois plans, bits de poids faible).
+#define KN_FMT_P010 4
+#define KN_FMT_I010 5
 
 // Décodeur matériel demandé : aucun, VA-API, V4L2 (Raspberry Pi).
 #define KN_HW_NONE 0
@@ -51,6 +61,10 @@ typedef struct kn_frame {
     int64_t pts;
     // 1 : BT.709, 0 : BT.601 ; 1 : plage complète.
     int bt709, full_range;
+    // 1 : courbe PQ (SMPTE ST 2084) ; 1 : primaires BT.2020.
+    int pq, bt2020;
+    // Métadonnées HDR10 de l'image (cd/m² ; 0 : absentes).
+    float mastering_min, mastering_max, max_cll, max_fall;
 } kn_frame;
 
 typedef struct kn_decoder {
@@ -303,9 +317,10 @@ int kn_decoder_receive(kn_decoder *d, kn_frame *out) {
         AVFrame *src = d->frame;
         if (d->frame->format == AV_PIX_FMT_VAAPI || d->frame->format == AV_PIX_FMT_DRM_PRIME) {
             av_frame_unref(d->sw);
-            // NV12 en 4:2:0 (VA-API : le format des surfaces en 4:4:4, VUYX, 444P…).
-            // Sur le Pi, les images SAND du décodeur deviennent du NV12 linéaire ici.
-            enum AVPixelFormat swf = AV_PIX_FMT_NV12;
+            // NV12 en 4:2:0 (VA-API : le format des surfaces, P010 en 10 bits, VUYX, 444P…
+            // en 4:4:4). Sur le Pi, les images SAND du décodeur deviennent du NV12 linéaire
+            // ici, ou du 4:2:0 planaire 10 bits pour un flux 10 bits.
+            enum AVPixelFormat swf = d->ctx->sw_pix_fmt == AV_PIX_FMT_YUV420P10LE ? AV_PIX_FMT_YUV420P10LE : AV_PIX_FMT_NV12;
             if (d->frame->format == AV_PIX_FMT_VAAPI && d->frame->hw_frames_ctx) swf = ((AVHWFramesContext *)d->frame->hw_frames_ctx->data)->sw_format;
             d->sw->format = swf;
             r = av_hwframe_transfer_data(d->sw, d->frame, 0);
@@ -317,8 +332,8 @@ int kn_decoder_receive(kn_decoder *d, kn_frame *out) {
             }
             if (r < 0) { av_frame_unref(d->frame); return r; }
             d->sw->pts = d->frame->pts;
-            d->sw->colorspace = d->frame->colorspace;
-            d->sw->color_range = d->frame->color_range;
+            // La couleur et les métadonnées HDR10 suivent l'image recopiée.
+            av_frame_copy_props(d->sw, d->frame);
             av_frame_unref(d->frame);
             src = d->sw;
         }
@@ -337,12 +352,30 @@ int kn_decoder_receive(kn_decoder *d, kn_frame *out) {
     case AV_PIX_FMT_NV12: out->format = KN_FMT_NV12; break;
     case AV_PIX_FMT_YUV420P:
     case AV_PIX_FMT_YUVJ420P: out->format = KN_FMT_I420; break;
+    case AV_PIX_FMT_P010LE: out->format = KN_FMT_P010; break;
+    case AV_PIX_FMT_YUV420P10LE: out->format = KN_FMT_I010; break;
     default: out->format = KN_FMT_NONE; break;
     }
     for (int i = 0; i < 3; i++) { out->data[i] = f->data[i]; out->linesize[i] = f->linesize[i]; }
     out->pts = f->pts;
     out->bt709 = f->colorspace != AVCOL_SPC_BT470BG && f->colorspace != AVCOL_SPC_SMPTE170M;
     out->full_range = f->color_range == AVCOL_RANGE_JPEG || f->format == AV_PIX_FMT_YUVJ420P || f->format == AV_PIX_FMT_YUVJ444P;
+    out->pq = f->color_trc == AVCOL_TRC_SMPTE2084;
+    out->bt2020 = f->color_primaries == AVCOL_PRI_BT2020 || f->colorspace == AVCOL_SPC_BT2020_NCL;
+    const AVFrameSideData *sd = av_frame_get_side_data(f, AV_FRAME_DATA_MASTERING_DISPLAY_METADATA);
+    if (sd) {
+        const AVMasteringDisplayMetadata *m = (const AVMasteringDisplayMetadata *)sd->data;
+        if (m->has_luminance) {
+            out->mastering_min = (float)av_q2d(m->min_luminance);
+            out->mastering_max = (float)av_q2d(m->max_luminance);
+        }
+    }
+    sd = av_frame_get_side_data(f, AV_FRAME_DATA_CONTENT_LIGHT_LEVEL);
+    if (sd) {
+        const AVContentLightMetadata *c = (const AVContentLightMetadata *)sd->data;
+        out->max_cll = (float)c->MaxCLL;
+        out->max_fall = (float)c->MaxFALL;
+    }
     if (out->format == KN_FMT_NONE && to_bgra(d, f, out->bt709, out->full_range) == 0) {
         out->format = KN_FMT_BGRA;
         memset(out->data, 0, sizeof out->data);
@@ -395,7 +428,8 @@ static int has_vld(VADisplay dpy, VAProfile p) {
 }
 
 // Ce que décode VA-API (premier nœud de rendu qui s'initialise) : bit 0 H.264,
-// bit 1 HEVC, bit 2 AV1, bit 3 HEVC 4:4:4. `vendor` : le pilote (« Mesa Gallium
+// bit 1 HEVC, bit 2 AV1 (8 et 10 bits : profil 0), bit 3 HEVC 4:4:4, bit 4
+// HEVC Main 10. `vendor` : le pilote (« Mesa Gallium
 // driver … for AMD Custom GPU 0405 »). -1 : pas de VA-API (pas de nœud de
 // rendu, pas de pilote).
 int kn_vaapi_probe(char *vendor, int len) {
@@ -422,6 +456,7 @@ int kn_vaapi_probe(char *vendor, int len) {
                     if (p == VAProfileHEVCMain) mask |= 2;
                     if (p == VAProfileAV1Profile0) mask |= 4;
                     if (p == VAProfileHEVCMain444) mask |= 8;
+                    if (p == VAProfileHEVCMain10) mask |= 16;
                 }
             }
         }

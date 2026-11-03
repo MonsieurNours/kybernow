@@ -202,6 +202,32 @@ pub fn ghost(cv: &mut Canvas, f: &mut Frame, t: Target, x: f32, y: f32, h: f32, 
     w
 }
 
+/// La puce « HDR » (accueil, à côté du profil ; docs/link-ui.md, « HDR ») : « HDR » et un voyant, allumée (fond,
+/// texte clair, voyant allumé), éteinte (contour), ou inactive (estompée ; elle reste choisissable : son clic dit la
+/// raison). Rend sa largeur ; `hover` : survolée ou au focus (l'appelant montre alors son aide).
+pub fn hdr_chip(cv: &mut Canvas, f: &mut Frame, x: f32, y: f32, h: f32, size: f32, ui: crate::app::HdrUi) -> (f32, bool) {
+    let style = Text::new(if ui.lit() { Font::Semibold } else { Font::Regular }, size, if !ui.available() { DIM } else if ui.on { FROST } else { MUTED });
+    let dot = size * 0.42;
+    let w = cv.text_width(style, "HDR") + size * 2.0 + dot + size * 0.55;
+    let r = Rect::new(x, y, w, h);
+    let (focused, hover) = f.state(Target::HdrChip, r);
+    if focused {
+        ring(cv, r, 8.0);
+    }
+    let bg = if ui.lit() { INK_3 } else if hover { Rgba(227, 237, 240, 16) } else { Rgba(9, 13, 18, 120) };
+    cv.rrect(x, y, w, h, 8.0, bg);
+    cv.rrect_stroke(x, y, w, h, 8.0, 1.0, if hover { FAINT } else { LINE_2 });
+    let cx = x + size + dot / 2.0;
+    if ui.lit() {
+        cv.glow(cx, y + h / 2.0, dot * 1.6, dot * 1.6, HALO.alpha(0.5));
+        cv.circle(cx, y + h / 2.0, dot / 2.0, SPECTRE);
+    } else {
+        cv.circle_stroke(cx, y + h / 2.0, dot / 2.0, 1.2, if ui.available() { MUTED } else { DIM });
+    }
+    cv.text(x + size + dot + size * 0.55, y + h / 2.0 + size * 0.36, style, "HDR");
+    (w, hover || f.focus == Target::HdrChip && f.show_focus)
+}
+
 /// Bouton à contour inactif (« Accepter » quand les quatre places sont prises) : estompé, rien n'est inscrit au cadre,
 /// il ne prend ni le focus, ni le survol, ni le clic. Rend sa largeur (celle de `ghost`).
 pub fn ghost_inactive(cv: &mut Canvas, x: f32, y: f32, h: f32, size: f32, s: &str) -> f32 {

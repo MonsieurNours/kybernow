@@ -64,6 +64,9 @@ pub fn hero(app: &App, cv: &mut Canvas, f: &mut Frame, c: &PsConsole, x0: f32, y
         account_x = x;
         x += widgets::ghost(cv, f, Target::PsAccountChip, x, y + 3.0 * u, chip_h, size, None, &format!("{account}  ▾"), FROST) + 12.0 * u;
     }
+    // La puce « HDR » (une PS5 sur un écran HDR), puis « Auto » ou « Personnalisé ».
+    let (hw, help) = super::home::hdr_chip(cv, f, app.ps_hdr_ui(c), x, y + 3.0 * u, chip_h, size, 12.0 * u);
+    x += hw;
     let custom = c.settings.custom();
     x += widgets::ghost(cv, f, Target::PsCustomChip, x, y + 3.0 * u, chip_h, size, None, if custom { tr("Personnalisé", "Custom") } else { "Auto" }, MUTED) + 12.0 * u;
     widgets::ghost(cv, f, Target::PsSettings, x, y + 3.0 * u, chip_h, size, Some(Icon::Gear), tr("Réglages", "Settings"), MUTED);
@@ -72,6 +75,8 @@ pub fn hero(app: &App, cv: &mut Canvas, f: &mut Frame, c: &PsConsole, x0: f32, y
         && id.eq_ignore_ascii_case(&c.host_id)
     {
         cv.text_fit(x0, y, Text::new(Font::Regular, 15.0 * u, WARN), m, hero_max);
+    } else if let Some(help) = help {
+        cv.text_fit(x0, y, Text::new(Font::Regular, 15.0 * u, FAINT), help, hero_max);
     }
     // Le choix du compte : une ligne par compte associé, le choisi coché.
     if many && app.ps.account_menu {
@@ -616,7 +621,12 @@ pub fn stats(app: &App, cv: &mut Canvas, s: &SessionUi) {
     let Some(ps) = &s.console else { return };
     let u = unit(app.layout);
     let fps_unit = tr("i/s", "fps");
-    let line1 = format!("{} × {} · {} {fps_unit} · {} · {} Mbit/s {}", ps.width, ps.height, ps.max_fps, if ps.hevc { "H.265" } else { "H.264" }, ps.target_kbps / 1000, tr("demandés", "requested"));
+    let format = match (ps.hevc, ps.hdr) {
+        (_, true) => "H.265 · HDR",
+        (true, false) => "H.265",
+        (false, false) => "H.264",
+    };
+    let line1 = format!("{} × {} · {} {fps_unit} · {format} · {} Mbit/s {}", ps.width, ps.height, ps.max_fps, ps.target_kbps / 1000, tr("demandés", "requested"));
     let line1 = if ps.width == 0 { format!("— · {} Mbit/s {}", ps.target_kbps / 1000, tr("demandés", "requested")) } else { line1 };
     let line2 = format!("{} {:.0} {fps_unit} · {} Mbit/s", tr("Reçu :", "Received:"), ps.fps, decimal(ps.mbps as f64, 1));
     let line3 = if english() { format!("Pictures lost: {} · repaired: {}", ps.lost, ps.recovered) } else { format!("Images perdues : {} · réparées : {}", ps.lost, ps.recovered) };
@@ -741,7 +751,7 @@ pub fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     let cells: Vec<(String, &str, Rgba)> = vec![
         (format!("{:.0} {}", ps.fps, tr("i/s", "fps")), tr("Images", "Frames"), FROST),
         (format!("{} Mbit/s", decimal(ps.mbps as f64, 1)), tr("Débit", "Bitrate"), FROST),
-        ((if ps.hevc { "H.265" } else { "H.264" }).into(), tr("Format", "Format"), FROST),
+        ((if ps.hdr { "H.265 · HDR" } else if ps.hevc { "H.265" } else { "H.264" }).into(), tr("Format", "Format"), FROST),
         (format!("{} · {}", ps.lost, ps.recovered), tr("Perdues · réparées", "Lost · repaired"), if ps.lost == 0 { OK } else { WARN }),
     ];
     for (v, k, c) in &cells {
