@@ -5,6 +5,19 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## 0.9.5
+
+Bêta des consoles PlayStation. Elle n'est proposée qu'aux Stations et aux apps réglées sur les versions bêta.
+
+- **Jouez à votre PS5 ou à votre PS4 dans KyberNow Link.** Les consoles de votre réseau apparaissent à l'accueil, à côté de vos ordinateurs. Associez la console une fois avec le code qu'elle affiche (Réglages › Système › Lecture à distance), puis « Jouer » : elle se réveille si elle est en veille, et la partie s'ouvre, en HDR sur un écran HDR. Plusieurs comptes PlayStation Network sur un même appareil, chacun avec ses consoles.
+- **La manette, au complet.** Avec une DualSense : vibrations, gâchettes adaptatives, pavé tactile et gyroscope, et sur Mac, branchée en USB, les vibrations HD ; leur intensité se règle. Sans manette, le clavier et la souris tiennent lieu de manette, avec une disposition à votre main. Quand la console ouvre son clavier (une recherche, un message), vous tapez directement au clavier.
+- **Une image propre et fluide.** Sur Mac, iPhone, iPad et Apple TV, l'image de la console (1080p au plus) est agrandie à la taille de votre écran, avec une netteté réglable. Une image perdue en route ne fige plus la partie : elle repart en quelques centièmes de seconde.
+- **Vos comptes sur tous vos appareils.** Un appareil Apple reprend vos comptes et vos consoles par iCloud. Ailleurs, sur une télé ou un PC, « Envoyer à un appareil » les envoie avec un code à 6 chiffres : pas besoin de refaire l'association.
+- **Hors de chez vous** : par votre VPN dès maintenant ; par le relais de KyberNow, avec une Station allumée chez vous, dès la mise à jour du relais, très bientôt.
+- **App Windows : la même barre de session que sur Mac**, et face à une Station Mac, le menu Touches du Mac et « Ctrl agit comme ⌘ ».
+- **Mac : l'accueil ne se fige plus** au retour d'une session.
+- Les consoles n'ont encore été essayées que sur Mac, avec une PS5 Pro : vos retours sont les bienvenus sur le Discord.
+
 ## 0.9.4
 
 Quatrième bêta du HDR, avant la 0.9.5. Elle n'est proposée qu'aux Stations et aux apps réglées sur les versions bêta.

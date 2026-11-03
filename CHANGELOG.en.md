@@ -4,6 +4,19 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## 0.9.5
+
+PlayStation consoles beta. It is only offered to Stations and apps set to beta versions.
+
+- **Play your PS5 or PS4 in KyberNow Link.** The consoles on your network appear on the home screen, next to your computers. Pair the console once with the code it shows (Settings › System › Remote Play), then “Play”: it wakes up if it's in rest mode, and the game opens, in HDR on an HDR screen. Several PlayStation Network accounts on one device, each with its consoles.
+- **The full controller.** With a DualSense: rumble, adaptive triggers, touchpad and gyroscope, and on Mac, plugged in over USB, HD haptics; their strength can be set. Without a controller, the keyboard and mouse stand in for one, with a layout of your choosing. When the console opens its keyboard (a search, a message), you type straight on your keyboard.
+- **A clean, smooth picture.** On Mac, iPhone, iPad and Apple TV, the console's picture (1080p at most) is upscaled to your screen's size, with adjustable sharpness. A picture lost on the way no longer freezes the game: it picks up again within a few hundredths of a second.
+- **Your accounts on all your devices.** An Apple device picks up your accounts and consoles through iCloud. Elsewhere, on a TV or a PC, “Send to a device” sends them with a 6-digit code: no need to pair again.
+- **Away from home**: through your VPN right now; through the KyberNow relay, with a Station on at home, as soon as the relay is updated, very soon.
+- **Windows app: the same session bar as on Mac**, and with a Mac Station, the Mac's Keys menu and “Ctrl acts as ⌘”.
+- **Mac: the home screen no longer freezes** when you come back from a session.
+- Consoles have only been tried on Mac so far, with a PS5 Pro: your feedback is welcome on the Discord.
+
 ## 0.9.4
 
 Fourth HDR beta, before 0.9.5. It is only offered to Stations and apps set to beta versions.
