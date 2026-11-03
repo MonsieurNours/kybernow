@@ -4,6 +4,14 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## 0.9.4
+
+Fourth HDR beta, before 0.9.5. It is only offered to Stations and apps set to beta versions.
+
+- **No more frozen PC after an update.** Since 0.9.2, the Station gave capture the very highest priority on the graphics card. On some PCs with an NVIDIA card, this could hang the card and freeze Windows right after an update, up to a blue screen. The Station now asks for a high priority, without going all the way to the maximum.
+- **The Station repairs itself.** If the PC stops abruptly during an update, Kyber's settings or certificate could be damaged, and Kyber would no longer start. The Station now saves its files for good, backs them up before every update, and on startup restores a backup or a fresh certificate by itself; Admin reports it. Going back to the previous version no longer copies damaged settings.
+- This beta has not yet been tried with a real PC: your feedback is welcome on the Discord.
+
 ## 0.9.3
 
 Third HDR beta, before 0.9.5. It is only offered to Stations and apps set to beta versions.

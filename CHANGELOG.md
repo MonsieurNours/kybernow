@@ -5,6 +5,14 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## 0.9.4
+
+Quatrième bêta du HDR, avant la 0.9.5. Elle n'est proposée qu'aux Stations et aux apps réglées sur les versions bêta.
+
+- **Plus de PC figé après une mise à jour.** Depuis la 0.9.2, la Station donnait à la capture la priorité la plus haute sur la carte graphique. Sur certains PC avec une carte NVIDIA, ça pouvait bloquer la carte et figer Windows juste après une mise à jour, jusqu'à l'écran bleu. La Station demande maintenant une priorité haute, sans aller jusqu'au maximum.
+- **La Station se répare toute seule.** Si le PC s'arrête brutalement pendant une mise à jour, les réglages ou le certificat de Kyber pouvaient être abîmés, et Kyber ne démarrait plus. La Station enregistre désormais ses fichiers pour de bon, les sauvegarde avant chaque mise à jour, et au démarrage remet d'elle-même une sauvegarde ou un certificat neuf ; Admin le signale. Le retour à la version précédente ne recopie plus des réglages abîmés.
+- Cette bêta n'a pas encore été essayée avec un vrai PC : vos retours sont les bienvenus sur le Discord.
+
 ## 0.9.3
 
 Troisième bêta du HDR, avant la 0.9.5. Elle n'est proposée qu'aux Stations et aux apps réglées sur les versions bêta.
