@@ -28,6 +28,8 @@
 //! - les mires du « Réglage du HDR » (`super::mires`) prennent le décodeur,
 //!   même en session : le fil de l'image de la session attend (`BUSY`), puis
 //!   recharge NDL à l'image clé suivante quand elles le rendent (`NOT_LOADED`).
+//!   Chaque mire porte les métadonnées de son palier : pendant les mires,
+//!   `NDL_DirectVideoSetHDRInfo` est rappelée à chaque changement de mire.
 
 #![allow(non_snake_case)]
 
@@ -362,10 +364,14 @@ fn ensure_any(kind: i32, width: u32, height: u32, hdr: Option<HdrMeta>) -> Resul
     let hdr = hdr.filter(|_| st.api.set_hdr.is_some());
     if st.loaded.as_ref().is_some_and(|(k, _)| *k == (kind, width, height)) && st.plane == plane && st.hdr.is_some() == hdr.is_some() {
         if hdr.is_some() && st.hdr != hdr {
-            // Mêmes métadonnées à un détail près : gardées pour le prochain
-            // chargement, sans repasser la dalle en HDR (elle y perdrait sa
-            // fréquence un moment).
             st.hdr = hdr;
+            if MIRES.load(Ordering::Acquire) {
+                // Chaque mire du réglage du HDR annonce son palier : ses métadonnées sont redonnées au téléviseur à
+                // l'image suivante, sans recharger NDL.
+                st.hdr_applied = false;
+            }
+            // En session : mêmes métadonnées à un détail près, gardées pour le prochain chargement, sans repasser
+            // la dalle en HDR (elle y perdrait sa fréquence un moment).
         }
         return Ok(());
     }

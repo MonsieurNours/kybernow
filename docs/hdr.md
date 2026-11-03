@@ -37,6 +37,8 @@ Windows règle mal le HDR d'un écran virtuel vu sur un autre appareil : les jeu
 3. **Noir** : un symbole à peine plus clair que le noir ; on baisse jusqu'à ce qu'il disparaisse à peine.
 4. **Blanc du bureau** : une fenêtre et du texte comme sur l'ordinateur ; on choisit la luminosité qui convient.
 
+**Métadonnées des mires** (quand l'app donne des métadonnées HDR10 à l'écran, comme sur un téléviseur) : pour les étapes 1 et 2, celles du palier essayé X (écran de matriçage de X nits, MaxCLL et MaxFALL X) ; le fond reste à 10 000 nits. Pour les étapes 3 et 4, 1 000 nits, comme une session aux valeurs par défaut. Pourquoi : hors HGIG, un téléviseur règle sa courbe sur ces métadonnées. Des mires qui annoncent 10 000 nits lui font comprimer tout 0–10 000 sur sa dalle, et le symbole reste visible presque jusqu'en haut de l'échelle, quelle que soit la dalle. Avec X, rien n'est comprimé tant que X tient sur la dalle ; au-delà, l'écran ramène X à sa crête, le symbole se confond avec le fond écrêté et disparaît au bon palier. En HGIG, les métadonnées sont ignorées et la dalle écrête : même résultat. Le mappage dynamique des tons activé (le téléviseur refait sa courbe d'après l'image) fausse toujours le réglage : l'écran rappelle de choisir le mode jeu avec HGIG.
+
 Toucher, flèches, molette ou manette (gauche, droite) font varier la valeur ; « Suivant », « Retour », « Terminer », « Annuler », et « Revenir au réglage automatique ». Les valeurs sont gardées pour cet écran de l'appareil et valent pour la session suivante. Une session en cours garde les siennes.
 
 ## Quand le HDR n'est pas possible

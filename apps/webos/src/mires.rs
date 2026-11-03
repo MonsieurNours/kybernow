@@ -163,10 +163,19 @@ mod tests {
         let auto = luminance(&indices(&Luminance::default()));
         assert_eq!((auto.max, auto.full_frame, auto.min, auto.sdr_white), (1000.0, 1000.0, 0.0, 200.0));
         // Chaque mire est une image HEVC Main 10 avec ses métadonnées HDR10.
+        // Métadonnées : le palier essayé pour la luminosité maximale et le plein écran (sinon le téléviseur
+        // comprimerait 0–10 000 nits sur sa dalle), 1 000 nits pour le noir et le blanc du bureau.
         for s in Step::ALL {
-            let seen = crate::hdr::scan_hevc(image(s, 0).unwrap());
-            assert!(seen.main10 && seen.has_metadata(), "{s:?}");
+            for (i, v) in values(s).iter().enumerate() {
+                let seen = crate::hdr::scan_hevc(image(s, i).unwrap());
+                assert!(seen.main10 && seen.has_metadata(), "{s:?} {v}");
+                let m = crate::hdr::decide(&seen, true, true).unwrap();
+                let (master, cll, fall) = if matches!(s, Step::Peak | Step::Full) { (*v as u32, *v as u32, *v as u32) } else { (1000, 1000, 400) };
+                assert_eq!((m.max_luminance, m.min_luminance, m.max_cll, m.max_fall), (master * 10_000, 50, cll, fall), "{s:?} {v}");
+            }
         }
+        let peak_1000 = crate::hdr::decide(&crate::hdr::scan_hevc(image(Step::Peak, nearest(Step::Peak, 1000.0)).unwrap()), true, true).unwrap();
+        assert_eq!(peak_1000.max_cll, 1000);
         assert_eq!(nits_label(1000.0), "1\u{a0}000 nits");
         assert_eq!(nits_label(0.05), "0,05 nit");
         assert_eq!(nits_label(0.0), "0 nit");

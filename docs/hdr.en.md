@@ -37,6 +37,8 @@ Windows handles HDR poorly for a virtual display shown on another device: games 
 3. **Black**: a symbol barely lighter than black; lower until it just disappears.
 4. **Desktop white**: a window and text as on the computer; pick the brightness that suits you.
 
+**Pattern metadata** (when the app gives HDR10 metadata to the screen, as on a TV): for steps 1 and 2, those of the level being tried X (X-nit mastering display, MaxCLL and MaxFALL X); the background stays at 10,000 nits. For steps 3 and 4, 1,000 nits, like a session with the default values. Why: outside HGIG, a TV sets its curve from this metadata. Patterns announcing 10,000 nits make it compress the whole 0–10,000 range onto its panel, and the symbol stays visible almost to the top of the scale, whatever the panel. With X, nothing is compressed while X fits on the panel; beyond it, the screen brings X down to its peak, the symbol merges with the clipped background and disappears at the right level. In HGIG, the metadata is ignored and the panel clips: same result. Dynamic tone mapping turned on (the TV redoes its curve from the picture) always skews the calibration: the screen reminds you to choose game mode with HGIG.
+
 Touch, arrows, scroll wheel or controller (left, right) change the value; “Next”, “Back”, “Done”, “Cancel”, and “Back to automatic”. The values are kept for that screen of the device and apply to the next session. A session in progress keeps its own.
 
 ## When HDR is not possible
