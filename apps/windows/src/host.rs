@@ -23,6 +23,7 @@ use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 use kybernow_core::audio::AudioStats;
 use kybernow_core::input::{Clock, InputPipeline, InputPlatform, MonotonicClock, MouseMode, Options, Pasteboard, PointerLayer};
 use kybernow_core::kynput_rs::Pipeline;
+use kybernow_core::latency::Second;
 use kybernow_core::media::PacketHandler;
 use kybernow_core::relay::{RelayError, RouteInfo};
 use kybernow_core::screens::session_plan_for;
@@ -54,6 +55,13 @@ pub struct Stats {
     pub audio_gaps: Option<usize>,
     /// Écrans de la session (la barre les dit avec plusieurs).
     pub screens: usize,
+    /// Trajet d'une image (docs/link-ui.md « Statistiques ») : capture,
+    /// encodage, envoi, réseau, décodage, affichage, médianes de la seconde en
+    /// ms ; `None` pour une étape sans mesure. Sans les mesures de l'ordinateur,
+    /// le décodage et l'affichage sont ceux de ce PC.
+    pub chain: [Option<f64>; 6],
+    /// Un écran au moins de l'image est en HDR.
+    pub hdr: bool,
 }
 
 /// Bilan d'une session terminée.
@@ -456,7 +464,8 @@ impl Platform for WinPlatform {
         // écrans par `on_screens`, juste après.
         self.app.set_primary_display(display.id, size);
     }
-    fn on_latency(&self, ms: Option<f64>) {
+    fn on_second(&self, second: &Second) {
+        let ms = second.latency_ms;
         let primary = self.app.primary_window();
         let frames = primary.as_ref().map_or(0, |w| w.shared.frames.load(Ordering::Relaxed));
         let fps = {
@@ -478,6 +487,12 @@ impl Platform for WinPlatform {
             }
             *last
         };
+        // Les temps de ce PC, toujours relevés (la seconde suivante repart de zéro).
+        let (decode, display) = self.app.link.local_second();
+        let chain = match second.chain {
+            Some(c) => c.all().map(Some),
+            None => [None, None, None, None, decode, display],
+        };
         self.events.stats(&Stats {
             latency_ms: ms,
             fps,
@@ -489,6 +504,8 @@ impl Platform for WinPlatform {
             audio_ms: audio.map(|a| a.buffer_ms + a.output_ms),
             audio_gaps: audio.map(|a| a.gaps),
             screens: self.app.stream_count(),
+            chain,
+            hdr: second.hdr,
         });
     }
     fn on_game_fullscreen(&self, game: bool) {

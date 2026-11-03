@@ -285,6 +285,14 @@ export type Stats = {
   audio_gaps: number | null
   /** Écrans de la session. */
   screens: number
+  /**
+   * Trajet d'une image (docs/link-ui.md « Statistiques ») : capture, encodage, envoi, réseau, décodage,
+   * affichage, médianes de la seconde en ms ; `null` pour une étape sans mesure. Sans les mesures de
+   * l'ordinateur, le décodage et l'affichage sont ceux de ce PC.
+   */
+  chain: (number | null)[]
+  /** Un écran au moins de l'image est en HDR. */
+  hdr: boolean
 }
 
 /** Événement `stats` de la barre : les mesures de la session `id` (une seule barre, elle garde celles de la session qu'elle sert). */

@@ -2,8 +2,8 @@
   Barre de session : fenêtre transparente au-dessus de la session, montrée
   quand le pointeur reste contre le bord haut (l'app décide : src/window.rs),
   cachée 0,4 s après qu'il l'a quittée, jamais pendant qu'un de ses menus est
-  ouvert (le clavier revient alors à la session). Statistiques en direct,
-  profil, touches, souris, plein écran, « Ordinateurs », « Garder le son »,
+  ouvert (le clavier revient alors à la session). Statistiques en direct (un
+  clic ouvre le trajet d'une image, lib/FramePath.svelte), profil, touches, souris, plein écran, « Ordinateurs », « Garder le son »,
   « Se déconnecter ». Un menu ouvert fait grandir la fenêtre vers le bas le
   temps de son affichage. Elle dit sa largeur à l'app, qui en fait la zone du
   bord haut où le pointeur l'ouvre.
@@ -58,6 +58,7 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
   import Icon from './lib/Icon.svelte'
+  import FramePath from './lib/FramePath.svelte'
   import Mark from './lib/Mark.svelte'
   import Segmented from './lib/Segmented.svelte'
   import type { AppInfo, BarComputer, BorrowBar, BorrowEvent, GuestBar, KeepSound, LendPanel, LendRequest, LendStateEvent, RouteEvent, RouteView, SessionStats, Share, ShareGuest, ShareImageEvent, ShareQr, ShareQuality, ShareRequestEvent, ShareRole, ShareRoleEvent, ShareStateEvent, Stats } from './lib/api'
@@ -71,7 +72,7 @@
   let label = $state('')
   let profile = $state('')
   let menu = $state<Menu | null>(null)
-  type Menu = 'profile' | 'keys' | 'computers' | 'share' | 'quality' | 'lend' | 'giveback'
+  type Menu = 'profile' | 'keys' | 'computers' | 'share' | 'quality' | 'lend' | 'giveback' | 'stats'
   /** Session d'emprunt (prêt de l'ordinateur) : l'hôte, la fin, le préavis ; la barre est réduite. */
   let borrow = $state<BorrowBar | null>(null)
   /** Session d'hôte : « Prêter l'ordinateur… » et le prêt, tels que l'app les dit. */
@@ -363,7 +364,7 @@
 
   /** « 3840 × 2160 · 160 i/s · HEVC » ; avec plusieurs écrans, leur nombre d'abord (les mesures sont celles de l'écran principal). */
   const infoLine = (s: Stats) => {
-    const line = t('bar.info', { width: s.width, height: s.height, fps: s.fps, decoder: s.decoder })
+    const line = t(s.hdr ? 'bar.info_hdr' : 'bar.info', { width: s.width, height: s.height, fps: s.fps, decoder: s.decoder })
     return s.screens > 1 ? `${t('stats.screens', { count: s.screens })} · ${line}` : line
   }
 
@@ -847,15 +848,30 @@
 <div class="bar" role="toolbar" aria-label={t('bar.toolbar')} tabindex="-1" bind:this={bar}>
   <Mark size={20} state="now" lit />
   <!-- Un avis bref (changement de rôle d'un invité) prend la place des statistiques, sans changer la largeur de la barre. -->
+  <!-- Un clic sur les mesures ouvre le trajet d'une image (docs/link-ui.md « Statistiques »). -->
   <div class="slot">
-    <div class="stats" class:hidden={!!notice} role="group" aria-label={t('bar.statistics')} title={t('bar.statistics')}>
-      <div class="lat" title={stats?.audio_ms != null ? t('bar.audio', { ms: ms(stats.audio_ms, 0), gaps: stats.audio_gaps ?? 0 }) : undefined}>
+    <button
+      class="stats"
+      class:hidden={!!notice}
+      class:open={menu === 'stats'}
+      aria-haspopup="dialog"
+      aria-expanded={menu === 'stats'}
+      aria-label={t('bar.statistics')}
+      title={t('bar.statistics')}
+      onclick={() => toggle('stats')}
+    >
+      <span class="lat" title={stats?.audio_ms != null ? t('bar.audio', { ms: ms(stats.audio_ms, 0), gaps: stats.audio_gaps ?? 0 }) : undefined}>
         <span class="mono">{ms(stats?.latency_ms)} ms</span>
         <svg width="70" height="20" viewBox="0 0 70 20" aria-hidden="true"><polyline points={spark} fill="none" stroke="#9A8CFF" stroke-width="1.5" /></svg>
-      </div>
+      </span>
       <span class="sep"></span>
       <span class="mono info">{stats ? infoLine(stats) : '—'}</span>
-    </div>
+    </button>
+    {#if menu === 'stats'}
+      <div class="menu path" role="dialog" aria-label={t('stats.frame_path')}>
+        <FramePath chain={stats?.chain ?? []} fps={stats?.fps ?? 0} />
+      </div>
+    {/if}
     {#if notice && noticePanel}
       <!-- Une demande à rejoindre : choisir l'avis ouvre le panneau de « Partager ». -->
       <button class="notice choice" aria-live="polite" onclick={openShareFromNotice}>{notice}</button>
@@ -1215,6 +1231,27 @@
     align-items: center;
     gap: 6px;
     min-width: 0;
+    height: 40px;
+    padding: 0 2px;
+    border: 0;
+    border-radius: 8px;
+    background: none;
+    color: inherit;
+    text-align: left;
+  }
+
+  .stats:hover,
+  .stats.open {
+    background: rgb(255 255 255 / 0.06);
+  }
+
+  /* Le trajet d'une image : sous les mesures, aligné sur leur bord gauche. */
+  .menu.path {
+    left: -8px;
+    transform: none;
+    width: 380px;
+    padding: 16px;
+    white-space: normal;
   }
 
   .lat {
@@ -1409,6 +1446,7 @@
 
   /* Les statistiques et, à leur place pour quelques secondes, l'avis d'un changement de rôle. */
   .slot {
+    position: relative;
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     align-items: center;
