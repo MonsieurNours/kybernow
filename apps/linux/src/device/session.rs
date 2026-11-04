@@ -448,6 +448,12 @@ impl Platform for LinuxPlatform {
         self.0.send(SessionEvent::Notice(msg));
     }
 
+    /// À chaque démarrage de l'image : quels écrans sont en HDR. Le rendu suit l'image elle-même (PQ ou non, lu
+    /// dans le flux par FFmpeg) : ici, le journal.
+    fn on_hdr(&self, hdr: &[bool]) {
+        log::info!("session : image {:?} d'après la Station", hdr.iter().map(|h| if *h { "HDR" } else { "SDR" }).collect::<Vec<_>>());
+    }
+
     // KyberNow Share. Hôte : la liste des invités arrive avec le signe de vie.
     fn on_guests(&self, state: Option<&ShareState>) {
         self.0.send(SessionEvent::Guests(state.and_then(share_view)));
@@ -625,7 +631,13 @@ pub fn share_view(st: &ShareState) -> Option<ShareView> {
 /// plus : il reçoit une image qu'il lit, `share::guest_format`) : le HEVC par la carte ou le processeur, le 4:4:4
 /// avec lui, l'AV1 par la carte.
 pub fn guest_capabilities(m: &Machine) -> Capabilities {
-    Capabilities { hevc: m.decodes("hevc"), hevc444: m.decodes("hevc"), av1: m.decodes("av1"), hdr: false }
+    Capabilities { hevc: m.decodes("hevc"), hevc444: m.decodes("hevc"), av1: m.decodes("av1"), hdr: hdr_decodes(m) }
+}
+
+/// Le HDR possible sur cet appareil (`Capabilities::hdr` du cœur) : la voie du HDR ouverte (bureau Wayland avec la
+/// gestion des couleurs, `hdr_wl`) et un décodeur 10 bits (HEVC Main 10 : la carte, sinon le processeur).
+pub fn hdr_decodes(m: &Machine) -> bool {
+    super::hdr_wl::active() && m.decodes("hevc")
 }
 
 /// Ce que le décodeur de cet appareil suit, pour « Auto » (`auto_quality`) : ses formats et, quand on les connaît,
@@ -680,7 +692,7 @@ pub fn core_profile(p: Profile) -> CoreProfile {
 /// (`Screens::capabilities`, docs/multi-ecrans.md).
 pub fn capabilities(host: &Host, codec: &str, m: &Machine) -> Capabilities {
     let yuv444 = host.settings.yuv444 && codec == "hevc";
-    Capabilities { hevc: m.decodes("hevc"), hevc444: yuv444, av1: codec == "av1", hdr: false }
+    Capabilities { hevc: m.decodes("hevc"), hevc444: yuv444, av1: codec == "av1", hdr: hdr_decodes(m) }
 }
 
 /// Les réglages du flux : le profil ramené à ce que décode cette machine, le
@@ -698,6 +710,9 @@ pub fn settings(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32
         _ => Codec::Hevc,
     };
     s.yuv444 = yuv444;
+    // Le choix « HDR » de cet ordinateur (hors du profil) ; le cœur ne s'en sert que si l'écran, la Station et le
+    // décodeur le permettent, et impose alors 4:2:0 et HEVC ou AV1.
+    s.hdr = host.settings.hdr && hdr_decodes(m);
     if host.settings.reliable {
         s.reliable = true;
     }
@@ -742,7 +757,11 @@ pub fn audio_channels(host: &Host, m: &Machine) -> u16 {
 /// partage (KyberNow Share) : l'écran et l'image sont ceux de l'hôte, jamais de presse-papiers, aucun écran
 /// de plus ; `host` n'est alors qu'une enveloppe (nom, adresse, réglages par défaut), absente du magasin.
 #[allow(clippy::too_many_arguments)]
-pub fn start(id: SessionId, host: &Host, settings: StreamSettings, mode: (u32, u32, u32), m: &Machine, relative: bool, device: DeviceInfo, screens: Option<Screens>, current: usize, guest: Option<&share::Found>, loan: Option<&kybernow_core::lend::Loan>, tx: Sender<Event>) -> Handle {
+///
+/// `screen_hdr` : les valeurs de l'écran de la fenêtre s'il est HDR (gestion des couleurs de Wayland), pour une
+/// session à un écran, l'invité et l'emprunt (`SessionParams::screen_hdr`, `screen_luminance`) ; à plusieurs écrans,
+/// chaque écran de `screens` a les siens.
+pub fn start(id: SessionId, host: &Host, settings: StreamSettings, mode: (u32, u32, u32), m: &Machine, relative: bool, device: DeviceInfo, screens: Option<Screens>, current: usize, guest: Option<&share::Found>, loan: Option<&kybernow_core::lend::Loan>, screen_hdr: Option<crate::hdr::Luminance>, tx: Sender<Event>) -> Handle {
     let (w, h, fps) = mode;
     let clock = Arc::new(MonotonicClock::new());
     let pointer = Arc::new(PointerLayer::new(clock.clone(), true));
@@ -782,10 +801,23 @@ pub fn start(id: SessionId, host: &Host, settings: StreamSettings, mode: (u32, u
     let recovery = Recovery { watch_image: true, fallback_bitrate: Some(20_000_000), ..Recovery::default() };
     let params = match (guest, loan) {
         // Un invité : la Station qui partage, le jeton de son partage, l'écran de l'hôte (`SessionParams::guest`).
-        (Some(found), _) => SessionParams { auto_reconnect: host.settings.reconnect, gamepad_xbox360: host.settings.xbox360, recovery, ..SessionParams::guest(found, device, settings, guest_capabilities(m), audio_channels) },
+        (Some(found), _) => SessionParams {
+            auto_reconnect: host.settings.reconnect,
+            gamepad_xbox360: host.settings.xbox360,
+            recovery,
+            screen_hdr: screen_hdr.is_some(),
+            screen_luminance: screen_hdr.map(super::hdr_wl::core_luminance),
+            ..SessionParams::guest(found, device, settings, guest_capabilities(m), audio_channels)
+        },
         // Un emprunt : la Station de l'ami, le jeton du prêt renouvelé par son signe de vie, l'écran virtuel fait à la
         // taille de cet appareil (`SessionParams::borrower`) ; clavier, souris et manettes, jamais le presse-papiers.
-        (None, Some(loan)) => SessionParams { gamepad_xbox360: host.settings.xbox360, recovery, ..SessionParams::borrower(loan, device, settings, audio_channels) },
+        (None, Some(loan)) => SessionParams {
+            gamepad_xbox360: host.settings.xbox360,
+            recovery,
+            screen_hdr: screen_hdr.is_some(),
+            screen_luminance: screen_hdr.map(super::hdr_wl::core_luminance),
+            ..SessionParams::borrower(loan, device, settings, audio_channels)
+        },
         (None, None) => SessionParams {
             console_host: host.address.clone(),
             console_port: host.port,
@@ -804,8 +836,8 @@ pub fn start(id: SessionId, host: &Host, settings: StreamSettings, mode: (u32, u
             role: SessionRole::Host,
             // Un relais connu pour cet ordinateur : l'image passe par le réseau, et par lui quand le réseau ne répond pas.
             route: kybernow_core::session::Route::Auto(relay_route(host)),
-            screen_hdr: false,
-            screen_luminance: None,
+            screen_hdr: screen_hdr.is_some(),
+            screen_luminance: screen_hdr.map(super::hdr_wl::core_luminance),
             capabilities: None,
         },
     };

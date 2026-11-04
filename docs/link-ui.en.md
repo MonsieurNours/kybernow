@@ -597,7 +597,7 @@ An account read during a pairing is kept, even if the pairing then fails.
 
 **On the home screen**, one card per console, whatever the number of accounts. Paired with several accounts: a “{online ID}” chip next to the main button opens the account choice (the profile the console opens the game with); kept per console; paired with only one: no chip. The settings stay the console's, for all its accounts. The console no longer recognises an account: that pairing is erased, and “Pair” comes back if it was the last one.
 
-**Linux** (desktop, Steam Deck, living room, Raspberry Pi and KyberNow Link OS; [apps/linux/README.en.md](../apps/linux/README.en.md#playstation-consoles)): the texts above, and what is specific to the Linux app (no web view, no HDR, the connection drawn in steps like a computer's):
+**Linux** (desktop, Steam Deck, living room, Raspberry Pi and KyberNow Link OS; [apps/linux/README.en.md](../apps/linux/README.en.md#playstation-consoles)): the texts above, and what is specific to the Linux app (no web view; HDR only on a Wayland desktop with colour management, not on the Steam Deck, in the living room, or on the Raspberry Pi and KyberNow Link OS, and without an “HDR calibration” screen; the connection drawn in steps like a computer's):
 
 | Element | Français | English |
 |---|---|---|

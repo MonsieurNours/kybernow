@@ -22,7 +22,8 @@
 #   --install où copier l'app (bin/kybernow), sinon elle reste dans apps/target
 #
 # Dépendances (Ubuntu/Debian) : build-essential pkg-config nasm clang libclang-dev
-# libsdl2-dev libva-dev libdrm-dev libopus-dev (et libudev-dev pour --rpi),
+# libsdl2-dev libva-dev libdrm-dev libopus-dev libwayland-dev libegl-dev libgles-dev
+# (et libudev-dev pour --rpi),
 # Rust 1.89 ou après et cargo-c. Dans le SDK de freedesktop : extensions rust-stable et llvm.
 set -euo pipefail
 

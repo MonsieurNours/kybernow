@@ -6,6 +6,11 @@
 //! devant chaque image clé ; après une perte, rien avant l'image clé suivante,
 //! redemandée par le cœur. Seule l'image la plus récente est gardée pour le
 //! fil principal, qui la montre (`take`) : le retard ne s'accumule pas.
+//!
+//! HDR (docs/hdr.md) : une image 10 bits (P010 par VA-API, yuv420p10le par le
+//! processeur) garde ses 10 bits et ce que le flux dit de sa couleur ; la
+//! fenêtre la donne à sa sous-surface HDR (`hdr_wl.rs`). Sans elle, `Screen`
+//! la ramène en 8 bits pour SDL (couleurs approchées : un repli).
 
 use std::ffi::{c_char, c_int, c_void, CStr};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -30,6 +35,12 @@ struct KnFrame {
     pts: i64,
     bt709: c_int,
     full_range: c_int,
+    pq: c_int,
+    bt2020: c_int,
+    mastering_min: f32,
+    mastering_max: f32,
+    max_cll: f32,
+    max_fall: f32,
 }
 
 unsafe extern "C" {
@@ -61,6 +72,17 @@ pub enum Format {
     I420,
     /// 4:4:4 converti en RVB par `decoder.c` (octets B, G, R, A).
     Bgra,
+    /// 10 bits, mots de 16 bits petit-boutistes, lignes serrées (largeur × 2
+    /// octets) : P010 (luma, chroma entrelacée ; valeurs dans les bits de poids
+    /// fort) et I010 (trois plans ; bits de poids faible).
+    P010,
+    I010,
+}
+
+impl Format {
+    pub fn ten_bit(self) -> bool {
+        matches!(self, Format::P010 | Format::I010)
+    }
 }
 
 /// Une image décodée, prête à montrer.
@@ -75,6 +97,13 @@ pub struct Frame {
     pub decoded: i64,
     pub bt709: bool,
     pub full_range: bool,
+    /// Courbe PQ (HDR10) ; métadonnées HDR10 de l'image (cd/m², 0 : absentes),
+    /// gardées d'une image clé à la suivante.
+    pub pq: bool,
+    pub mastering_min: f32,
+    pub mastering_max: f32,
+    pub max_cll: f32,
+    pub max_fall: f32,
 }
 
 /// L'image la plus récente, et les tampons à réutiliser.
@@ -187,6 +216,8 @@ struct Decoder {
     last_request: Option<Instant>,
     errors: u32,
     failed: bool,
+    /// Les dernières métadonnées HDR10 vues (FFmpeg ne les met qu'à certaines images).
+    meta: (f32, f32, f32, f32),
 }
 
 impl Decoder {
@@ -206,6 +237,7 @@ impl Decoder {
             last_request: None,
             errors: 0,
             failed: false,
+            meta: (0.0, 0.0, 0.0, 0.0),
         }
     }
 
@@ -213,6 +245,7 @@ impl Decoder {
         while let Ok(m) = rx.recv() {
             match m {
                 Msg::Codec(c) => {
+                    self.meta = (0.0, 0.0, 0.0, 0.0);
                     self.codec = match c {
                         FOURCC_HEVC => 1,
                         FOURCC_AV1 => 2,
@@ -329,7 +362,22 @@ impl Decoder {
             self.decode_error(r);
             return;
         }
-        let mut f = KnFrame { width: 0, height: 0, format: 0, data: [std::ptr::null_mut(); 3], linesize: [0; 3], pts: 0, bt709: 1, full_range: 0 };
+        let mut f = KnFrame {
+            width: 0,
+            height: 0,
+            format: 0,
+            data: [std::ptr::null_mut(); 3],
+            linesize: [0; 3],
+            pts: 0,
+            bt709: 1,
+            full_range: 0,
+            pq: 0,
+            bt2020: 0,
+            mastering_min: 0.0,
+            mastering_max: 0.0,
+            max_cll: 0.0,
+            max_fall: 0.0,
+        };
         let got = unsafe { kn_decoder_receive(self.dec, &mut f) };
         if got < 0 {
             self.decode_error(got);
@@ -347,6 +395,9 @@ impl Decoder {
             return;
         }
         let decoded = latency::now_micros();
+        if f.mastering_max > 0.0 || f.max_cll > 0.0 {
+            self.meta = (f.mastering_min, f.mastering_max, f.max_cll, f.max_fall);
+        }
         let out = self.copy(&f, pts, received, decoded);
         self.latest.put(out);
         wake_main();
@@ -373,6 +424,8 @@ impl Decoder {
         let format = match f.format {
             1 => Format::Nv12,
             3 => Format::Bgra,
+            4 => Format::P010,
+            5 => Format::I010,
             _ => Format::I420,
         };
         let mut out = self.latest.buffer().unwrap_or_else(|| Frame {
@@ -386,13 +439,26 @@ impl Decoder {
             decoded: 0,
             bt709: true,
             full_range: false,
+            pq: false,
+            mastering_min: 0.0,
+            mastering_max: 0.0,
+            max_cll: 0.0,
+            max_fall: 0.0,
         });
         let rows = |plane: usize| match (format, plane) {
             (_, 0) => h,
             (Format::Bgra, _) => 0,
-            (Format::Nv12, 1) => h.div_ceil(2),
-            (Format::Nv12, _) => 0,
-            (Format::I420, _) => h.div_ceil(2),
+            (Format::Nv12 | Format::P010, 1) => h.div_ceil(2),
+            (Format::Nv12 | Format::P010, _) => 0,
+            (Format::I420 | Format::I010, _) => h.div_ceil(2),
+        };
+        // 10 bits : lignes serrées (OpenGL ES 2 n'a pas de pas de ligne) : largeur × 2 octets, chroma à moitié
+        // (P010 : U et V entrelacés, la largeur de la luma).
+        let tight = |plane: usize| match (format, plane) {
+            (Format::P010 | Format::I010, 0) => Some(w * 2),
+            (Format::P010, 1) => Some(w.div_ceil(2) * 4),
+            (Format::I010, _) => Some(w.div_ceil(2) * 2),
+            _ => None,
         };
         for p in 0..3 {
             let n = rows(p);
@@ -403,8 +469,18 @@ impl Decoder {
                 continue;
             }
             let src = unsafe { std::slice::from_raw_parts(f.data[p], pitch * n) };
-            out.planes[p].extend_from_slice(src);
-            out.pitch[p] = pitch;
+            match tight(p).filter(|&t| t < pitch) {
+                Some(t) => {
+                    for row in src.chunks(pitch).take(n) {
+                        out.planes[p].extend_from_slice(&row[..t]);
+                    }
+                    out.pitch[p] = t;
+                }
+                None => {
+                    out.planes[p].extend_from_slice(src);
+                    out.pitch[p] = pitch;
+                }
+            }
         }
         out.width = w as u32;
         out.height = h as u32;
@@ -414,6 +490,8 @@ impl Decoder {
         out.decoded = decoded;
         out.bt709 = f.bt709 != 0;
         out.full_range = f.full_range != 0;
+        out.pq = f.pq != 0;
+        (out.mastering_min, out.mastering_max, out.max_cll, out.max_fall) = self.meta;
         out
     }
 }
@@ -437,7 +515,11 @@ impl Default for Screen {
 
 impl Screen {
     /// Envoie l'image à la texture (recréée si la taille ou le format change).
+    /// Une image 10 bits (sans sous-surface HDR) est d'abord ramenée en 8 bits.
     pub fn upload(&mut self, r: *mut sdl::SDL_Renderer, f: &Frame) -> bool {
+        if f.format.ten_bit() {
+            return self.upload(r, &eight_bit(f));
+        }
         unsafe {
             if self.texture.is_null() || self.size != (f.width, f.height) || self.format != Some(f.format) {
                 if !self.texture.is_null() {
@@ -448,6 +530,7 @@ impl Screen {
                     Format::I420 => sdl::SDL_PIXELFORMAT_IYUV,
                     // Octets B, G, R, A : ARGB8888 en petit-boutiste.
                     Format::Bgra => sdl::SDL_PIXELFORMAT_ARGB8888,
+                    Format::P010 | Format::I010 => unreachable!(),
                 };
                 self.texture = sdl::SDL_CreateTexture(r, fmt, sdl::SDL_TEXTUREACCESS_STREAMING, f.width as c_int, f.height as c_int);
                 if self.texture.is_null() {
@@ -472,6 +555,7 @@ impl Screen {
                     f.pitch[2] as c_int,
                 ),
                 Format::Bgra => sdl::SDL_UpdateTexture(self.texture, std::ptr::null(), f.planes[0].as_ptr() as *const c_void, f.pitch[0] as c_int),
+                Format::P010 | Format::I010 => unreachable!(),
             };
             self.last = Some((f.width, f.height));
             ok == 0
@@ -483,10 +567,7 @@ impl Screen {
         if self.texture.is_null() {
             return None;
         }
-        let (vw, vh) = (self.size.0 as f64, self.size.1 as f64);
-        let s = (out.0 as f64 / vw).min(out.1 as f64 / vh);
-        let (dw, dh) = ((vw * s).round() as i32, (vh * s).round() as i32);
-        let dst = sdl::SDL_Rect { x: (out.0 - dw) / 2, y: (out.1 - dh) / 2, w: dw, h: dh };
+        let dst = fit(self.size, out);
         unsafe { sdl::SDL_RenderCopy(r, self.texture, std::ptr::null(), &dst) };
         Some(dst)
     }
@@ -499,9 +580,87 @@ impl Screen {
     }
 }
 
+/// Où poser une image de `size` pixels dans la sortie `out`, proportions gardées, centrée.
+pub fn fit(size: (u32, u32), out: (i32, i32)) -> sdl::SDL_Rect {
+    let (vw, vh) = (f64::from(size.0.max(1)), f64::from(size.1.max(1)));
+    let s = (f64::from(out.0) / vw).min(f64::from(out.1) / vh);
+    let (dw, dh) = ((vw * s).round() as i32, (vh * s).round() as i32);
+    sdl::SDL_Rect { x: (out.0 - dw) / 2, y: (out.1 - dh) / 2, w: dw, h: dh }
+}
+
+/// Le code 10 bits du mot de 16 bits à `off` du plan `p` (P010 : bits de poids fort).
+fn code10(f: &Frame, p: usize, off: usize) -> u16 {
+    let w = f.planes[p].get(off..off + 2).map_or(0, |b| u16::from_le_bytes([b[0], b[1]]));
+    if f.format == Format::P010 { w >> 6 } else { w & 0x3ff }
+}
+
+/// Les codes 10 bits (Y', Cb, Cr) du pixel (x, y) d'une image 10 bits.
+fn ycbcr10(f: &Frame, x: usize, y: usize) -> (u16, u16, u16) {
+    let yy = code10(f, 0, y * f.pitch[0] + x * 2);
+    match f.format {
+        Format::P010 => {
+            let o = (y / 2) * f.pitch[1] + (x / 2) * 4;
+            (yy, code10(f, 1, o), code10(f, 1, o + 2))
+        }
+        _ => {
+            let o = (y / 2) * f.pitch[1] + (x / 2) * 2;
+            (yy, code10(f, 1, o), code10(f, 2, (y / 2) * f.pitch[2] + (x / 2) * 2))
+        }
+    }
+}
+
+/// Une image 10 bits ramenée en 8 bits pour SDL (NV12 ou I420, codes divisés
+/// par 4) : le repli sans sous-surface HDR, couleurs approchées (une image PQ
+/// y paraît terne).
+fn eight_bit(f: &Frame) -> Frame {
+    let (w, h) = (f.width as usize, f.height as usize);
+    let (cw, ch) = (w.div_ceil(2), h.div_ceil(2));
+    let mut out = Frame {
+        width: f.width,
+        height: f.height,
+        format: if f.format == Format::P010 { Format::Nv12 } else { Format::I420 },
+        planes: [Vec::with_capacity(w * h), Vec::new(), Vec::new()],
+        pitch: [w, 0, 0],
+        pts: f.pts,
+        received: f.received,
+        decoded: f.decoded,
+        bt709: true,
+        full_range: false,
+        pq: false,
+        mastering_min: 0.0,
+        mastering_max: 0.0,
+        max_cll: 0.0,
+        max_fall: 0.0,
+    };
+    for y in 0..h {
+        for x in 0..w {
+            out.planes[0].push((code10(f, 0, y * f.pitch[0] + x * 2) >> 2) as u8);
+        }
+    }
+    if f.format == Format::P010 {
+        out.pitch[1] = cw * 2;
+        for y in 0..ch {
+            for x in 0..cw * 2 {
+                out.planes[1].push((code10(f, 1, y * f.pitch[1] + x * 2) >> 2) as u8);
+            }
+        }
+    } else {
+        out.pitch[1] = cw;
+        out.pitch[2] = cw;
+        for p in 1..3 {
+            for y in 0..ch {
+                for x in 0..cw {
+                    out.planes[p].push((code10(f, p, y * f.pitch[p] + x * 2) >> 2) as u8);
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Une image réduite à `width` de large, en RVB (BT.709 ou BT.601, plage
-/// limitée ou complète, selon l'image), pour l'accueil : la dernière image de
-/// la session.
+/// limitée ou complète, selon l'image ; une image PQ ramenée au SDR, le blanc
+/// du bureau à 203 cd/m²), pour l'accueil : la dernière image de la session.
 pub fn snapshot(f: &Frame, width: u32) -> Option<tiny_skia::Pixmap> {
     if f.width == 0 || f.height == 0 || f.planes[0].is_empty() {
         return None;
@@ -517,6 +676,13 @@ pub fn snapshot(f: &Frame, width: u32) -> Option<tiny_skia::Pixmap> {
         for x in 0..w {
             let sx = (x as u64 * f.width as u64 / w as u64) as usize;
             let i = ((y * w + x) * 4) as usize;
+            if f.format.ten_bit() {
+                let (yy, cb, cr) = ycbcr10(f, sx, sy);
+                let rgb = if f.pq { crate::hdr::pq_to_srgb8(yy, cb, cr, crate::hdr::Luminance::default().sdr_white) } else { bt709_8(yy, cb, cr) };
+                d[i..i + 3].copy_from_slice(&rgb);
+                d[i + 3] = 255;
+                continue;
+            }
             if f.format == Format::Bgra {
                 let s = sy * f.pitch[0] + sx * 4;
                 d[i] = f.planes[0][s + 2];
@@ -532,7 +698,7 @@ pub fn snapshot(f: &Frame, width: u32) -> Option<tiny_skia::Pixmap> {
                     (f.planes[1][i] as f32, f.planes[1][i + 1] as f32)
                 }
                 Format::I420 => (f.planes[1][(sy / 2) * f.pitch[1] + sx / 2] as f32, f.planes[2][(sy / 2) * f.pitch[2] + sx / 2] as f32),
-                Format::Bgra => unreachable!(),
+                Format::Bgra | Format::P010 | Format::I010 => unreachable!(),
             };
             let (yn, un, vn) = if f.full_range { (yy / 255.0, (u - 128.0) / 255.0, (v - 128.0) / 255.0) } else { ((yy - 16.0) / 219.0, (u - 128.0) / 224.0, (v - 128.0) / 224.0) };
             let r = yn + 2.0 * (1.0 - kr) * vn;
@@ -545,4 +711,14 @@ pub fn snapshot(f: &Frame, width: u32) -> Option<tiny_skia::Pixmap> {
         }
     }
     Some(p)
+}
+
+/// Un pixel 10 bits sans PQ (BT.709, plage limitée), en sRGB 8 bits approché.
+fn bt709_8(y: u16, cb: u16, cr: u16) -> [u8; 3] {
+    let yn = (f32::from(y) - 64.0) / 876.0;
+    let (un, vn) = ((f32::from(cb) - 512.0) / 896.0, (f32::from(cr) - 512.0) / 896.0);
+    let r = yn + 1.5748 * vn;
+    let b = yn + 1.8556 * un;
+    let g = (yn - 0.2126 * r - 0.0722 * b) / 0.7152;
+    [r, g, b].map(|c| (c.clamp(0.0, 1.0) * 255.0) as u8)
 }

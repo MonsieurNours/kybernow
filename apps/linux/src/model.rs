@@ -75,6 +75,10 @@ pub struct HostSettings {
     /// Couleurs 4:4:4 (texte net) en HEVC : en option, la carte (VA-API) ou le
     /// processeur décode, l'app convertit en RVB.
     pub yuv444: bool,
+    /// Le HDR pour cet ordinateur (puce de l'accueil, Réglages › Image, barre et menu de session) : allumé la
+    /// première fois (absent d'un fichier d'avant le HDR : allumé aussi). Il ne compte pas dans le profil. Sans
+    /// effet sur un écran SDR.
+    pub hdr: bool,
 }
 
 impl Default for HostSettings {
@@ -97,6 +101,7 @@ impl Default for HostSettings {
             battery_light: true,
             virtual_display: true,
             yuv444: false,
+            hdr: true,
         }
     }
 }
@@ -141,12 +146,16 @@ pub struct LastSession {
     /// (le `RouteInfo` du cœur, ramené à son transport).
     #[serde(default)]
     pub route: String,
+    /// Un écran au moins était en HDR : « HDR » après le format.
+    #[serde(default)]
+    pub hdr: bool,
 }
 
 impl LastSession {
     /// Ce qui a été transmis : « 2560 × 1440 · 120 Hz · HEVC · 80 Mbit/s » ; avec
     /// plusieurs écrans, leur nombre d'abord : « 3 écrans · 3840 × 2160 · 160 Hz
-    /// · HEVC · 120 Mbit/s » (docs/link-ui.md, « Statistiques »).
+    /// · HEVC · 120 Mbit/s » ; « HDR » après le format quand un écran au moins
+    /// l'était (docs/link-ui.md, « Statistiques »).
     pub fn transmitted(&self) -> String {
         let mut v: Vec<String> = Vec::new();
         if self.screens >= 2 {
@@ -160,6 +169,9 @@ impl LastSession {
         }
         if !self.codec.is_empty() {
             v.push(self.codec.clone());
+        }
+        if self.hdr {
+            v.push("HDR".into());
         }
         if self.mbps > 0.0 {
             v.push(format!("{:.0} Mbit/s", self.mbps));
@@ -309,6 +321,8 @@ pub struct Borrowed {
     pub login: String,
     pub password: String,
     pub remember: bool,
+    /// La puce « HDR » de cet ordinateur emprunté éteinte (allumée la première fois, comme celle d'un hôte).
+    pub hdr_off: bool,
 }
 
 impl Borrowed {
@@ -434,6 +448,8 @@ pub struct PsConsole {
     pub settings: PsSettings,
     /// La disposition du clavier et de la souris (JSON de `keymouse::Layout`) ; `None` : celle par défaut.
     pub layout: Option<serde_json::Value>,
+    /// La puce « HDR » de l'accueil éteinte pour cette console (allumée la première fois ; une PS5 sur un écran HDR).
+    pub hdr_off: bool,
 }
 
 impl PsConsole {
@@ -546,7 +562,8 @@ impl Store {
     pub fn put_borrowed(&mut self, b: Borrowed) -> String {
         if let Some(old) = self.borrowed.iter_mut().find(|o| o.address == b.address && o.port == b.port && o.login == b.login) {
             let id = old.id.clone();
-            *old = Borrowed { id: id.clone(), ..b };
+            // Le choix « HDR » de cet ordinateur reste.
+            *old = Borrowed { id: id.clone(), hdr_off: old.hdr_off, ..b };
             return id;
         }
         let id = b.id.clone();

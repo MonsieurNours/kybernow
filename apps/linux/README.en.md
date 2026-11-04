@@ -52,6 +52,27 @@ Under gamescope the app picks the console interface (handheld up to 1280 × 800,
 - **Session mode**: the screen's ("like this screen") or the chosen height, at the screen's or the chosen refresh rate; on battery with "Lighter", 60 fps and 20 Mbit/s at most.
 - **TV game mode (ALLM)**: handled by the compositor (gamescope), not by the app.
 
+## HDR
+
+HDR (HEVC Main 10 or 10-bit AV1, PQ, BT.2020, HDR10 metadata; contract: [docs/hdr.en.md](../../docs/hdr.en.md)) goes through **Wayland colour management** (`wp_color_management_v1`: KDE Plasma 6.3 and later, GNOME 48 and later), on a Linux desktop. It is the only path:
+
+- **Why Wayland**: SDL2 (the one in the freedesktop runtime and in distributions) has neither 10-bit textures nor HDR output, and under X11 or Xwayland nothing describes a PQ picture to the compositor. With colour management, the app puts its picture on a surface of its own with its description (PQ, BT.2020, luminances), and the compositor composes it with the rest of the desktop, whether the screen is in HDR or not.
+- **Steam Deck OLED and living room (gamescope)**: gamescope only gives HDR to the Vulkan images of its layer (HDR10 swapchain, `VK_EXT_hdr_metadata`); the app draws through SDL2 and OpenGL in gamescope's Xwayland: SDR, with no trace of HDR.
+- **Raspberry Pi and KyberNow Link OS (KMS/DRM)**: the Pi's HDMI output knows `HDR_OUTPUT_METADATA` and `Colorspace`, but SDL2 on KMS/DRM holds the display alone with an 8-bit primary plane without alpha: no 10-bit plane, no video plane under the interface. SDR, with no trace of HDR. The Raspberry Pi OS desktop (labwc) has no colour management.
+
+How (`src/native/wayland_hdr.c`, `src/native/hdr_gl.c`, `src/device/hdr_wl.rs`, `src/hdr.rs`):
+
+- **Before SDL**, a probe (a separate Wayland connection) reads what the compositor can do (parametric image, PQ, BT.2020) and what each output prefers. If a screen is in HDR, SDL takes Wayland rather than X11 (never under gamescope, on KyberNow Link OS, with `KYBERNOW_VIDEO` or with `KYBERNOW_HDR=0`) and the window can be transparent. Otherwise nothing changes (X11, SDR): a screen switched to HDR after launch needs the app to be restarted.
+- **Each window** has a subsurface of its own, under its own surface: the 10-bit picture (P010 from VA-API, yuv420p10le from the processor, as is) is drawn there by OpenGL ES 2 into a 10-bit buffer (8 if the compositor has none), without waiting for vertical sync; position and size through `wp_viewporter`. The SDL window leaves a transparent hole there; the interface (bar, capsules, pointer) stays on top, in SDR, composed by the compositor. SDL's EGL context is put back after each picture.
+- **The screen**: the feedback of the window's surface (`get_surface_feedback`) says whether the screen it is on is in HDR (PQ curve) and its luminances: peak from `target_max_cll` (otherwise the target maximum), full frame from `target_max_fall`, black from the target minimum, desktop white from the reference white; what is missing takes the core's defaults. They go to the Station (`SessionParams::screen_luminance`; with several screens, `DeviceScreen::luminance`, from the outputs' positions). A window moving to another screen, a screen losing or regaining HDR: `Session::screen_hdr_changed`, the picture goes back to SDR or HDR, without a message.
+- **Rendering** (`hdr::render_for`; the shader does the same computation): an HDR screen that holds the stream's peak (MaxCLL, otherwise the mastering display, otherwise the peak given to the Station, within 2 %) gets PQ as is; a stream brighter than the screen goes through the BT.2390 EETF, on the largest component (hue kept), towards the screen's peak and black; on an SDR screen (window dragged, HDR turned off, until the picture goes back to SDR), BT.2020 to BT.709, the computer's desktop white brought to white, knee at 75 % and compression up to 4 times white (the Station's separate SDR picture curve), sRGB. The image description gives PQ, BT.2020, the mastering luminance (the screen's after the EETF), MaxCLL, MaxFALL and the reference white (Windows' desktop white anchored to the Linux desktop's); towards SDR, no description (sRGB).
+- **Decoding**: HEVC Main 10 by VA-API (`HEVCMain10` profile, probed) or by the processor, 10-bit AV1 by VA-API; the HDR10 metadata comes from FFmpeg (mastering display, content light level) and is kept from one keyframe to the next. `Capabilities::hdr`: the Wayland path open and an HEVC decoder.
+- **Fallback**: a subsurface that gives up (EGL, shader) leaves the picture to SDL, brought down to 8 bits (approximate colours), and the log says so. The home screen's reduced picture of an HDR session is brought to SDR.
+
+Interface (docs/link-ui.en.md, “HDR”), only on an HDR screen: the “HDR” chip next to the profile (on the first time, kept per computer; inactive with the core's reason, in its order: Station, format, decoder; on focus or hover, its help or reason under the profiles, and a click on the inactive chip says its reason), also on “Borrow” and on a PS5 console (before “Auto”); “…, in HDR” on the display line; Settings › Picture: “HDR” after “Sharp text (4:4:4)”, which is inactive with HDR on (“HDR doesn't exist in 4:4:4.”); in a session, “HDR” as a checkbox after the profile in the desktop bar (its state on hover) and as a tile in the controller menu (Deck, living room): changing it restarts the picture; “HDR” after the resolution in the statistics and after the format in the last session; the notice “The computer couldn't switch to HDR: picture in SDR.”. PlayStation consoles: the chip on asks the console for HDR (H.265, through the core); “H.265 · HDR” in the game's statistics. No “HDR calibration” screen: the values are the compositor's.
+
+Tests: `cargo test` (curves and rules of `src/hdr.rs`, chip and settings; the shader against the reference, on the graphics card through Mesa's surfaceless EGL, in P010 and I010, the three renderings, within 2/255; skipped without EGL), `tests/video/run.sh` (an HDR10 stream from x265 comes out in 10 bits with PQ, BT.2020 and its metadata), `40-hdr-*` screenshots, and `kybernow --hdr-test`: the HDR test pattern (ramp from 0 to 1,000 cd/m², bars) on the subsurface of a Wayland window, a semi-transparent interface band on top, for `KYBERNOW_HDR_TEST_SECONDS` seconds; without colour management, the screen is taken for an SDR screen and the pattern goes through the curve towards SDR.
+
 ## Raspberry Pi
 
 The same app, on Raspberry Pi OS (Debian 13 "trixie", arm64), as a `.deb` package, or alone on the card with KyberNow Link OS (below); the decision is in [PROJECT.en.md](../../PROJECT.en.md) ("Raspberry Pi client"), mock-ups: https://claude.ai/artifact/6crVeg3QyrA5vs8TRhWRft.
@@ -107,7 +128,7 @@ apps/linux/
 ```
 
 - **Interface**: drawn in memory in *points* (the mock-ups': 1280 × 800 for desktop and Deck, 1920 × 1080 for the living room), multiplied by the screen scale (HiDPI); the signed logo is traced from the `brand/v2` paths (like the Windows app's `Mark.svelte`), sharp at any size.
-- **Desktop window**: borderless; the app's title bar drags the window, the edges resize it (`SDL_SetWindowHitTest`), double-click maximises. SDL2 uses X11 (Xwayland on GNOME and KDE, gamescope on the Deck); `KYBERNOW_VIDEO=wayland` tries Wayland. The window class is the app ID (`fr.leslignesclaires.kybernow`).
+- **Desktop window**: borderless; the app's title bar drags the window, the edges resize it (`SDL_SetWindowHitTest`), double-click maximises. SDL2 uses X11 (Xwayland on GNOME and KDE, gamescope on the Deck), except when a screen is in HDR under a compositor with colour management (see “HDR”); `KYBERNOW_VIDEO=wayland` tries Wayland. The window class is the app ID (`fr.leslignesclaires.kybernow`).
 - **kynput**: client only, with the webOS patch (`apps/webos/kyber-patches/0001`, `--cfg kybernow_webos`): without the server's input injection (libinput, libevdev, X11).
 - **VLC**: kyvlcplayer references libvlc, never called: `build.rs` compiles an empty function per `libvlc_*` function, as on Android, iOS and webOS.
 
@@ -124,7 +145,8 @@ apps/linux/
 cargo run --release -p kybernow-linux --no-default-features -- --preview /tmp/kn-linux en
 
 # On Linux (Ubuntu 24.04: build-essential pkg-config nasm clang libclang-dev
-# libsdl2-dev libva-dev libdrm-dev libopus-dev, Rust 1.89 or later, cargo-c):
+# libsdl2-dev libva-dev libdrm-dev libopus-dev libwayland-dev libegl-dev libgles-dev,
+# Rust 1.89 or later, cargo-c):
 apps/linux/scripts/build.sh                    # → apps/target/release/kybernow
 
 # The Flatpak (flatpak-builder, org.freedesktop.Platform 25.08 runtime,
@@ -142,6 +164,9 @@ apps/linux/scripts/apt-repo.sh [DIR]           # → dist/apt (KYBERNOW_APT_GPG_
 
 # The decoder, offline (after build.sh; ffmpeg and x265 generate the streams):
 apps/linux/tests/video/run.sh [--hw]
+
+# The HDR test pattern on a Wayland window's subsurface (see “HDR”):
+apps/target/release/kybernow --hdr-test
 ```
 
 `build.sh` applies Kyber's client patches, builds libkynput (`cargo cinstall`, static) and FFmpeg 7.1.1 reduced to decoding (VA-API) into a prefix, then the app. `sources.sh` gathers the needed sources only (about a hundred megabytes instead of Kyber's build outputs), which `flatpak.sh` hands to flatpak-builder in two modules: the dependencies (cached while Kyber does not change), then the app. Kyber 0.29's sources go in `third_party/kyber-desktop` (see [docs/build-notes.en.md](../../docs/build-notes.en.md)).
@@ -190,7 +215,7 @@ It takes a Station 0.8.0 or later (the KyberNow Share Station), a computer on th
 
 The home PS5s and PS4s, next to the computers (contract: [docs/playstation.en.md](../../docs/playstation.en.md), texts: [docs/link-ui.en.md](../../docs/link-ui.en.md), “PlayStation consoles”), on the core (`kybernow_core::playstation`), in all three interfaces and on KyberNow Link OS. A project unrelated to Sony: “PS5” and “PS4” spelled out, no logo.
 
-- **Home**: one card per paired console in the row (“PS5 · On”), then the network's consoles not paired yet (“PS5 · On your network”); once picked, the console takes the top of the home screen (background: its signature, from its ID): state (“On”, “In rest mode”, “Offline”, “Away from home”, “Searching…”), name, model and running game, then “Play”, “Wake and play” (“Waking the console…”), “Pair” or “Try again” (offline: one more search, as on Mac), the account chip (several accounts: its menu, kept per console), “Auto” or “Custom” and “Settings”. Without a computer, the first console is picked. With a controller, ‹ › go from a computer to a console. No HDR chip: the Linux app doesn't show HDR yet (docs/hdr.en.md, “Second stage”).
+- **Home**: one card per paired console in the row (“PS5 · On”), then the network's consoles not paired yet (“PS5 · On your network”); once picked, the console takes the top of the home screen (background: its signature, from its ID): state (“On”, “In rest mode”, “Offline”, “Away from home”, “Searching…”), name, model and running game, then “Play”, “Wake and play” (“Waking the console…”), “Pair” or “Try again” (offline: one more search, as on Mac), the account chip (several accounts: its menu, kept per console), “Auto” or “Custom” and “Settings”. Without a computer, the first console is picked. With a controller, ‹ › go from a computer to a console. On an HDR screen (see “HDR”), a PS5 has the “HDR” chip, before “Auto”; when on, the game asks for HDR.
 - **Search** (`device/ps.rs`): every 3 s outside a game, by broadcast and directly to the kept addresses; “By address” first looks for a console (1.5 s), then the Station; a bare address (no Admin port) is accepted for a console and says “Console unreachable.” if nothing answers. Once a minute, the consoles each computer's Station sees (`GET /api/consoles`, on the network or through the relay), kept with the console (`PsConsole::stations`): away from home, a silent console that a Station reachable through the relay sees is “Away from home”.
 - **Add a computer or a console** › “PlayStation” (a button after “With a friend account”, `AddStep::Ps`): the accounts (“Rename”, “Remove” and its confirmation), “Add an account”, the network's consoles (“Pair”, “Paired: {online IDs}”, “Pair with another account”), “Send to a device” (desktop, with accounts: the waiting devices, searched every 3 s, then the 6-digit code), “Receive from another device” (everywhere: the big code, “{n} account(s) and {n} console(s) received.”, “Code expired.” and “New code”). Pairing: “Which account?” (skipped with a single possible account), the Account step, then the 8-digit code (keypad with a controller); the core's refusal texts.
 - **PSN account**: no web view in the app (SDL). On the desktop, “Sign in to PlayStation Network” opens Sony's page in the browser, then you paste (Ctrl+V) the address of the page Sony leads to (`https://remoteplay.dl.playstation.net/…?code=…`): the app reads the ID and online ID (`psn::account`). In the living room, on the Steam Deck and on KyberNow Link OS: “Receive from another device” or “Enter the ID by hand” (base64, letter pad with a controller). Accounts and pairings are in `kybernow.json` (mode 0600), like the computers' passwords.
@@ -209,6 +234,7 @@ The home PS5s and PS4s, next to the computers (contract: [docs/playstation.en.md
 
 ## Not yet tried
 
+- HDR (see “HDR”): nothing has run on a real HDR screen (KDE Plasma 6.3 and later, GNOME 48 and later) nor with a Station in HDR. Checked in the Ubuntu 24.04 VM (Mesa virgl): the tests, the offline decoder, and `--hdr-test` under GNOME 46 (Wayland without colour management: 10-bit output, about 145 pictures per second) and under headless Weston 13 (screenshot: the pattern in the window's hole, the interface band and square on top). To try: the PQ description accepted by KWin and Mutter and a right picture (blacks, whites, colours), Windows' desktop white anchored to the reference white, the EETF on a screen dimmer than the stream, the window dragged to an SDR screen and back, VA-API Main 10 on an AMD or Intel card, latency against SDR, several screens with only one in HDR, a PS5 in HDR.
 - PlayStation consoles: see “PlayStation consoles” above (a real game, the DualSense, the relay).
 - On the Steam Deck: an end-to-end session (VA-API on the Van Gogh APU, PipeWire sound, controls and trackpads through Steam Input, Steam keyboard), latency, Gaming Mode.
 - On desktop Linux with an AMD or Intel GPU: VA-API in HEVC and AV1, VRR on a FreeSync display, game mouse under Xwayland.

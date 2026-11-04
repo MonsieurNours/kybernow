@@ -202,6 +202,8 @@ pub struct PsSessionUi {
     pub width: u32,
     pub height: u32,
     pub hevc: bool,
+    /// La partie est en HDR (demandé à la console) : « HDR » après le format.
+    pub hdr: bool,
     pub max_fps: u32,
     pub target_kbps: u32,
     pub fps: f32,

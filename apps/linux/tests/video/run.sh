@@ -23,6 +23,9 @@ if [ -z "${SAMPLES:-}" ]; then
         ffmpeg -hide_banner -loglevel error -y -f lavfi -i "testsrc2=size=2560x1440:rate=60" -frames:v 120 -pix_fmt "$f" \
             -c:v libx265 -preset ultrafast -x265-params "log-level=none:bframes=0:aud=1:repeat-headers=1:keyint=60:info=0" -f hevc "$S/$f.hevc"
     done
+    # HDR10 : HEVC Main 10, PQ, BT.2020, métadonnées statiques (comme la Station, correctifs 0022).
+    ffmpeg -hide_banner -loglevel error -y -f lavfi -i "testsrc2=size=1920x1080:rate=60" -frames:v 60 -pix_fmt yuv420p10le \
+        -c:v libx265 -preset ultrafast -x265-params "log-level=none:bframes=0:aud=1:repeat-headers=1:keyint=60:info=0:colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc:master-display=G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(10000000,1):max-cll=1000,400:hdr10=1" -f hevc "$S/hdr10.hevc"
     for c in 3366CC FF0000 FFFFFF 202020; do
         ffmpeg -hide_banner -loglevel error -y -f lavfi -i "color=c=0x${c}:size=256x256:rate=30" -frames:v 3 \
             -vf "scale=out_color_matrix=bt709:out_range=tv,format=yuv444p" -colorspace bt709 -color_primaries bt709 -color_trc bt709 \
@@ -33,6 +36,7 @@ fi
 fail=0
 "$WORK/check" "$S/yuv420p.hevc" $HW || fail=1
 "$WORK/check" "$S/yuv444p.hevc" $HW || fail=1
+[ -f "$S/hdr10.hevc" ] && { "$WORK/check" "$S/hdr10.hevc" $HW hdr10 || fail=1; }
 for c in 3366CC FF0000 FFFFFF 202020; do
     "$WORK/check" "$S/c_${c}_yuv444p.hevc" $HW "$c" || fail=1
 done

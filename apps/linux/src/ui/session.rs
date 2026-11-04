@@ -465,6 +465,8 @@ struct BarLayout {
     quality: Option<(String, f32)>,
     /// « Par le relais » (« Par le relais (TCP) » en repli) : la session passe par le relais ; sa largeur.
     route: Option<(String, f32)>,
+    /// « HDR », cochable, après le profil (écran HDR seulement) : son état et sa largeur.
+    hdr: Option<(crate::app::HdrUi, f32)>,
     total: f32,
 }
 
@@ -527,11 +529,12 @@ impl BarLayout {
             let w = cv.text_width(Text::new(Font::Regular, 12.5, FROST), &t) + 22.0;
             (t, w)
         });
-        let others = 16.0 + 16.0 + 12.0 + lat_w + 8.0 + 64.0 + 12.0 + 1.0 + 12.0 + 12.0 + 1.0 + 12.0 + prof_w + 12.0 + left.as_ref().map_or(0.0, |(_, lw)| lw + 8.0) + route.as_ref().map_or(0.0, |(_, rw)| rw + 8.0) + quality.as_ref().map_or(0.0, |(_, qw)| qw + 8.0) + 34.0 * icons.len() as f32 + pill.as_ref().map_or(0.0, |(_, pw)| pw + 4.0) + requests.as_ref().map_or(0.0, |(_, pw)| pw + 4.0) + 24.0 + 1.0 + 12.0 + if disc_w > 0.0 { disc_w + 4.0 } else { 0.0 } + quit_w + 10.0;
+        let hdr = s.hdr.map(|u| (u, cv.text_width(Text::new(Font::Semibold, 13.0, FROST), "HDR") + 40.0));
+        let others = 16.0 + 16.0 + 12.0 + lat_w + 8.0 + 64.0 + 12.0 + 1.0 + 12.0 + 12.0 + 1.0 + 12.0 + prof_w + 12.0 + hdr.as_ref().map_or(0.0, |(_, hw)| hw + 8.0) + left.as_ref().map_or(0.0, |(_, lw)| lw + 8.0) + route.as_ref().map_or(0.0, |(_, rw)| rw + 8.0) + quality.as_ref().map_or(0.0, |(_, qw)| qw + 8.0) + 34.0 * icons.len() as f32 + pill.as_ref().map_or(0.0, |(_, pw)| pw + 4.0) + requests.as_ref().map_or(0.0, |(_, pw)| pw + 4.0) + 24.0 + 1.0 + 12.0 + if disc_w > 0.0 { disc_w + 4.0 } else { 0.0 } + quit_w + 10.0;
         // Une fenêtre étroite (960 points) avec « Ordinateurs », « Garder le son » et la pastille : les mesures se resserrent.
         info_w = info_w.min((w - 8.0 - others).max(60.0));
         let total = others + info_w;
-        Self { lat, info, profile, quit, left, mono14, mono12, lat_w, info_w, prof_w, quit_w, disc_w, icons, pill, requests, quality, route, total }
+        Self { lat, info, profile, quit, left, mono14, mono12, lat_w, info_w, prof_w, quit_w, disc_w, icons, pill, requests, quality, route, hdr, total }
     }
 }
 
@@ -588,7 +591,7 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     let h = BAR_H;
     let st = s.stats.clone().unwrap_or_default();
     let width = cv.w;
-    let BarLayout { lat, info, profile, quit, left, mono14, mono12, lat_w, info_w, prof_w, quit_w, disc_w, icons, pill, requests, quality, route, total } = BarLayout::measure(cv, app, s, width);
+    let BarLayout { lat, info, profile, quit, left, mono14, mono12, lat_w, info_w, prof_w, quit_w, disc_w, icons, pill, requests, quality, route, hdr, total } = BarLayout::measure(cv, app, s, width);
     let r = bar_frame(cv.w, total);
     let x0 = r.x;
     cv.rrect(r.x, r.y - 12.0, r.w, r.h + 12.0, 12.0, Rgba(9, 13, 18, 235));
@@ -632,6 +635,29 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     }
     let profile_x = pr.x;
     x += prof_w + 12.0;
+    let mut tip: Option<(Rect, String)> = None;
+    // « HDR », cochable, près du profil : allumé (fond, voyant), éteint, ou inactif (estompé ; son clic dit la raison).
+    if let Some((u, hw)) = hdr {
+        let hr = Rect::new(x, cy - 15.0, hw, 30.0);
+        let (focused, hover) = f.state(Target::BarHdr, hr);
+        cv.rrect(hr.x, hr.y, hr.w, hr.h, 7.0, if u.lit() { FLAT.alpha(0.22) } else if hover { INK_3 } else { Rgba(20, 27, 35, 255) });
+        cv.rrect_stroke(hr.x, hr.y, hr.w, hr.h, 7.0, 1.0, LINE_2);
+        if focused {
+            widgets::ring(cv, hr, 7.0);
+        }
+        if hover {
+            tip = Some((hr, if u.available() { crate::app::hdr_state_label(u.on).to_string() } else { u.help().to_string() }));
+        }
+        let (dx, dot) = (hr.x + 12.0 + 3.0, 6.0);
+        if u.lit() {
+            cv.circle(dx, cy, dot / 2.0, SPECTRE);
+        } else {
+            cv.circle_stroke(dx, cy, dot / 2.0, 1.2, if u.available() { MUTED } else { DIM });
+        }
+        let color = if !u.available() { DIM } else if u.on { FROST } else { MUTED };
+        cv.text(hr.x + 26.0, cy + 5.0, Text::new(if u.lit() { Font::Semibold } else { Font::Regular }, 13.0, color), "HDR");
+        x += hw + 8.0;
+    }
     // Un emprunt : le temps qui reste, en puce (ambrée pendant le préavis de 2 minutes).
     if let Some((label, lw)) = &left {
         let lr = Rect::new(x, cy - 12.0, *lw, 24.0);
@@ -640,7 +666,6 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         cv.text(lr.x + lr.w / 2.0, cy + 4.5, Text::new(Font::Regular, 12.5, FROST).align(Align::Center), label);
         x += lw + 8.0;
     }
-    let mut tip: Option<(Rect, String)> = None;
     // Par le relais : une puce, sans menu (le chemin se lit, il ne se choisit pas).
     if let Some((label, rw)) = &route {
         let rr = Rect::new(x, cy - 12.0, *rw, 24.0);
@@ -1229,6 +1254,10 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
             tiles.push((MenuItem::Profile(*p), home::profile_label(*p).into(), tr("Changer de profil", "Change profile").into(), false, false));
         }
     }
+    // « HDR », cochable, près du profil (écran HDR ; hôte et emprunt) : le changer relance l'image.
+    if let Some(u) = s.hdr {
+        tiles.push((MenuItem::Hdr, "HDR".into(), on_off(u.lit()).into(), u.lit(), false));
+    }
     tiles.push((MenuItem::Sound, tr("Son", "Sound").into(), audio, s.muted, false));
     if kbm {
         tiles.push((MenuItem::PadMouse, tr("Manette en souris", "Controller as mouse").into(), format!("{} · {}", on_off(s.pad_mouse), tr("stick gauche", "left stick")), s.pad_mouse, false));
@@ -1283,7 +1312,8 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     for (i, (item, title, sub, on, danger)) in tiles.iter().enumerate() {
         let (col, row) = (i % 5, i / 5);
         let r = Rect::new(x0 + col as f32 * (tw + gap), ty + row as f32 * (th + gap), tw, th);
-        let dim = (*item == MenuItem::Share && share_blocked) || (*item == MenuItem::Lend && lend_blocked);
+        let hdr_blocked = s.hdr.is_some_and(|u| !u.available());
+        let dim = (*item == MenuItem::Share && share_blocked) || (*item == MenuItem::Lend && lend_blocked) || (*item == MenuItem::Hdr && hdr_blocked);
         tile(cv, f, Target::Menu(*item), r, u, title, sub, i == 0, *on, *danger, dim);
     }
     // État, au-dessus de la légende.

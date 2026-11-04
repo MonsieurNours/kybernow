@@ -75,7 +75,7 @@ fn demo(english: bool, layout: Layout) -> App {
     let mut store = Store::default();
     let mut a = host("a", "Tour du salon", "192.168.1.42");
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-    a.last = Some(LastSession { median: 6.8, p95: 9.4, seconds: 4320, mode: "1920 × 1200".into(), hz: 120, codec: "HEVC".into(), mbps: 38.0, at: now - 86400, screens: 1, route: String::new() });
+    a.last = Some(LastSession { hdr: false, median: 6.8, p95: 9.4, seconds: 4320, mode: "1920 × 1200".into(), hz: 120, codec: "HEVC".into(), mbps: 38.0, at: now - 86400, screens: 1, route: String::new() });
     store.hosts.push(a);
     let mut b = host("b", "Portable pro", "100.84.12.9");
     b.os = Some("Windows 11 Pro".into());
@@ -125,9 +125,9 @@ fn demo(english: bool, layout: Layout) -> App {
     app.net.kind = if layout == Layout::Tv { NetKind::Ethernet } else { NetKind::Wifi };
     app.net.link_mbps = Some(2500);
     app.net.band = Some("5 GHz".into());
-    app.live.insert("a".into(), HostLive { online: Online::Online, virtual_display: Some(true), station: Some(station("0.5.0", None)), own_device: Some(true), max_screens: Some(4), share: Some(crate::app::ShareAvail::Available), lend: Some(crate::app::LendAvail::Available), lend_view: None });
+    app.live.insert("a".into(), HostLive { hdr: None, online: Online::Online, virtual_display: Some(true), station: Some(station("0.5.0", None)), own_device: Some(true), max_screens: Some(4), share: Some(crate::app::ShareAvail::Available), lend: Some(crate::app::LendAvail::Available), lend_view: None });
     app.live.insert("b".into(), HostLive { online: Online::Offline, ..Default::default() });
-    app.live.insert("c".into(), HostLive { online: Online::Online, virtual_display: Some(true), station: Some(station("0.5.0", None)), own_device: Some(true), max_screens: Some(4), share: Some(crate::app::ShareAvail::Available), lend: Some(crate::app::LendAvail::Available), lend_view: None });
+    app.live.insert("c".into(), HostLive { hdr: None, online: Online::Online, virtual_display: Some(true), station: Some(station("0.5.0", None)), own_device: Some(true), max_screens: Some(4), share: Some(crate::app::ShareAvail::Available), lend: Some(crate::app::LendAvail::Available), lend_view: None });
     app.images.insert("a".into(), demo_image(1));
     app.image_is_last.insert("a".into(), true);
     app.found.push(Found { name: "MINI-PC".into(), address: "192.168.1.57".into(), port: 31207, fingerprint: Some("sha256:7c:3a:91:e0:4b:2d:a8:1f".into()) });
@@ -230,7 +230,7 @@ fn multi_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, prefi
     // Les statistiques : leur nombre d'abord, puis l'écran principal et le débit total.
     let last = app.store.host_mut("a").and_then(|h| h.last.take());
     if let Some(h) = app.store.host_mut("a") {
-        h.last = Some(LastSession { median: 8.9, p95: 14.2, seconds: 2520, mode: "3840 × 2160".into(), hz: 160, codec: "HEVC".into(), mbps: 120.0, at: 0, screens: 3, route: String::new() });
+        h.last = Some(LastSession { hdr: false, median: 8.9, p95: 14.2, seconds: 2520, mode: "3840 × 2160".into(), hz: 160, codec: "HEVC".into(), mbps: 120.0, at: 0, screens: 3, route: String::new() });
     }
     app.open_host_section(Section::Statistics, Screen::Home);
     shot(app, cv, None, dir, &name("15e-reglages-statistiques-ecrans"));
@@ -709,7 +709,7 @@ fn relay_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, prefi
 
 /// L'ordinateur de Matthieu, emprunté avec un compte d'ami (prêt de l'ordinateur).
 fn borrowed() -> Borrowed {
-    Borrowed { id: "lend:m".into(), host: "Matthieu".into(), computer: "PC-SALON".into(), address: "192.168.1.42".into(), port: 24811, fingerprint: Some("sha256:3e:91:0a:7c:55:d2:18:b4".into()), relay: None, sid: None, login: "lea".into(), password: "secret".into(), remember: true }
+    Borrowed { hdr_off: false, id: "lend:m".into(), host: "Matthieu".into(), computer: "PC-SALON".into(), address: "192.168.1.42".into(), port: 24811, fingerprint: Some("sha256:3e:91:0a:7c:55:d2:18:b4".into()), relay: None, sid: None, login: "lea".into(), password: "secret".into(), remember: true }
 }
 
 /// Un emprunt à l'image : l'ordinateur de Matthieu, jusqu'à dans 1 h 20.
@@ -1209,6 +1209,8 @@ pub fn run(dir: &Path, lang: &str) {
         lend_shots(&mut app, &mut cv, &video, dir, prefix);
         // Les consoles PlayStation (docs/playstation.md) : accueil, ajout, réglages, partie.
         ps_shots(&mut app, &mut cv, &video, dir, prefix);
+        // Le HDR (docs/hdr.md) : sur un écran HDR (bureau Wayland avec la gestion des couleurs).
+        hdr_shots(&mut app, &mut cv, &video, dir, prefix);
     }
 
     // Raspberry Pi 5 sous Raspberry Pi OS (interface Bureau, écran 1080p) : les
@@ -1272,7 +1274,7 @@ fn os_shots(en: bool, dir: &Path) {
     app.machine.audio_name = "vc4hdmi0".into();
     if let Some(h) = app.store.host_mut("a") {
         h.settings.profile = Profile::Jeu;
-        h.last = Some(LastSession { median: 9.8, p95: 14.0, seconds: 6000, mode: "3840 × 2160".into(), hz: 60, codec: "HEVC".into(), mbps: 60.0, at: 0, screens: 1, route: String::new() });
+        h.last = Some(LastSession { hdr: false, median: 9.8, p95: 14.0, seconds: 6000, mode: "3840 × 2160".into(), hz: 60, codec: "HEVC".into(), mbps: 60.0, at: 0, screens: 1, route: String::new() });
     }
     let mut cv = Canvas::new();
     cv.resize(1920, 1080, 1.0);
@@ -1375,7 +1377,7 @@ fn raspberry(app: &mut App) {
     app.net.band = None;
     if let Some(h) = app.store.host_mut("a") {
         h.settings.profile = Profile::Bureau;
-        h.last = Some(LastSession { median: 11.2, p95: 15.0, seconds: 6000, mode: "1920 × 1080".into(), hz: 60, codec: "HEVC".into(), mbps: 28.0, at: 0, screens: 1, route: String::new() });
+        h.last = Some(LastSession { hdr: false, median: 11.2, p95: 15.0, seconds: 6000, mode: "1920 × 1080".into(), hz: 60, codec: "HEVC".into(), mbps: 28.0, at: 0, screens: 1, route: String::new() });
     }
 }
 
@@ -2370,6 +2372,66 @@ fn ps_session(app: &App) -> SessionUi {
     s.fullscreen = app.layout.console();
     s.started = Instant::now() - Duration::from_millis(2100);
     s
+}
+
+/// Le HDR, sur un écran HDR (docs/link-ui.md, « HDR ») : la puce de l'accueil allumée, éteinte, inactive avec sa
+/// raison ; « en HDR » sur la ligne de l'écran ; Réglages › Image (« HDR », texte net inactif) ; « HDR » dans la barre
+/// (bureau) ou le menu (console), et dans les mesures ; la puce d'une console PS5.
+fn hdr_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, prefix: &str) {
+    use crate::app::{HdrUi, StationHdr};
+    let name = |n: &str| format!("{prefix}-{n}");
+    let desktop = app.layout == Layout::Desktop;
+    let (selected, consoles) = (app.store.selected.clone(), app.store.ps_consoles.clone());
+    app.set_session(None);
+    app.pointer = None;
+    app.screen_hdr = Some(crate::hdr::Luminance { max: 600.0, full_frame: 350.0, min: 0.005, sdr_white: 203.0 });
+    app.store.selected = Some("a".into());
+    app.live.entry("a".into()).or_default().hdr = Some(StationHdr::Available);
+    app.go(Screen::Home);
+    app.focus = Target::HdrChip;
+    shot(app, cv, None, dir, &name("40-hdr-accueil"));
+    if let Some(h) = app.store.host_mut("a") {
+        h.settings.hdr = false;
+    }
+    shot(app, cv, None, dir, &name("40b-hdr-accueil-eteint"));
+    if let Some(h) = app.store.host_mut("a") {
+        h.settings.hdr = true;
+    }
+    app.live.entry("a".into()).or_default().hdr = Some(StationHdr::Windows);
+    app.keyboard_focus = true;
+    shot(app, cv, None, dir, &name("40c-hdr-accueil-inactif"));
+    app.keyboard_focus = app.layout.console();
+    app.live.entry("a".into()).or_default().hdr = Some(StationHdr::Available);
+    app.open_host_section(Section::Picture, Screen::Home);
+    shot(app, cv, None, dir, &name("40d-hdr-reglages-image"));
+    // En session : « HDR » dans la barre (bureau) ou dans le menu (console), et après le format dans les mesures.
+    let mut s = session(app);
+    s.hdr = Some(HdrUi { on: true, reason: None });
+    if let Some(st) = s.stats.as_mut() {
+        st.hdr = true;
+        st.mode = "3840 × 2160".into();
+    }
+    if desktop {
+        s.menu = false;
+        s.relative = false;
+        s.bar = true;
+        app.pointer = Some((700.0, 20.0));
+    }
+    s.show_stats = true;
+    app.set_session(Some(s));
+    app.screen = Screen::Session;
+    shot(app, cv, Some(video), dir, &name("40e-hdr-session"));
+    app.set_session(None);
+    app.pointer = None;
+    // Une console PS5 : la puce, avant « Auto ».
+    ps_demo(app);
+    app.go(Screen::Home);
+    app.focus = Target::HdrChip;
+    shot(app, cv, None, dir, &name("40f-hdr-console"));
+    app.screen_hdr = None;
+    app.store.selected = selected;
+    app.store.ps_consoles = consoles;
+    app.go(Screen::Home);
 }
 
 fn ps_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, prefix: &str) {

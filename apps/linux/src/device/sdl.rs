@@ -41,6 +41,7 @@ pub const AUDIO_F32SYS: u16 = 0x8120;
 pub const SDL_YUV_CONVERSION_JPEG: c_int = 0;
 pub const SDL_YUV_CONVERSION_BT601: c_int = 1;
 pub const SDL_YUV_CONVERSION_BT709: c_int = 2;
+pub const SDL_GL_ALPHA_SIZE: c_int = 3;
 
 pub const SDL_QUIT: u32 = 0x100;
 pub const SDL_APP_WILLENTERBACKGROUND: u32 = 0x103;
@@ -128,7 +129,7 @@ pub enum SDL_Surface {}
 pub enum SDL_Cursor {}
 
 #[repr(C)]
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
 pub struct SDL_Rect {
     pub x: c_int,
     pub y: c_int,
@@ -323,6 +324,9 @@ unsafe extern "C" {
     pub fn SDL_SetRenderDrawColor(r: *mut SDL_Renderer, red: u8, g: u8, b: u8, a: u8) -> c_int;
     pub fn SDL_SetRenderDrawBlendMode(r: *mut SDL_Renderer, mode: c_int) -> c_int;
     pub fn SDL_RenderClear(r: *mut SDL_Renderer) -> c_int;
+    pub fn SDL_RenderFillRect(r: *mut SDL_Renderer, rect: *const SDL_Rect) -> c_int;
+    /// Attributs des surfaces OpenGL (avant la création des fenêtres) : `SDL_GL_ALPHA_SIZE`.
+    pub fn SDL_GL_SetAttribute(attr: c_int, value: c_int) -> c_int;
     pub fn SDL_RenderCopy(r: *mut SDL_Renderer, t: *mut SDL_Texture, src: *const SDL_Rect, dst: *const SDL_Rect) -> c_int;
     pub fn SDL_RenderPresent(r: *mut SDL_Renderer);
     pub fn SDL_WaitEventTimeout(e: *mut SDL_Event, timeout: c_int) -> c_int;

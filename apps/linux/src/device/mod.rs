@@ -15,6 +15,7 @@
 
 mod chime;
 mod focus;
+mod hdr_wl;
 mod jobs;
 mod link;
 mod log_file;
@@ -72,6 +73,8 @@ pub enum Event {
         /// Les cartes réseau de l'ordinateur (vide : Station 0.4.9, ou rien de neuf).
         wake: Vec<crate::model::WakeCard>,
         own_device: Option<bool>,
+        /// Le HDR que la Station propose ; `None` : pas de réponse.
+        hdr: Option<crate::app::StationHdr>,
         /// Ce que « Partager » peut faire (KyberNow Share) ; `None` : pas de réponse d'Admin.
         share: Option<crate::app::ShareAvail>,
         /// Ce que « Prêter l'ordinateur… » peut faire, et la vue du prêt quand il est activé ; `None` : pas de réponse.
@@ -244,6 +247,11 @@ struct Win {
     sys_cursor: *mut sdl::SDL_Cursor,
     /// La texture de l'image de l'ordinateur.
     video: video::Screen,
+    /// HDR (voie Wayland, `hdr_wl`) : la sous-surface de cette fenêtre, où se dessinent les images 10 bits ; les
+    /// valeurs de l'écran données à la Station (le blanc du bureau d'une image ramenée au SDR) ; où l'image est posée.
+    hdr: Option<hdr_wl::HdrSurface>,
+    hdr_sent: crate::hdr::Luminance,
+    hdr_rect: Option<sdl::SDL_Rect>,
     premul: c_int,
     vsync: bool,
     /// Taille de la fenêtre (coordonnées des événements) et de la sortie (pixels).
@@ -276,6 +284,9 @@ impl Win {
             cursor_pixels: Vec::new(),
             sys_cursor: std::ptr::null_mut(),
             video: video::Screen::default(),
+            hdr: if hdr_wl::active() { hdr_wl::HdrSurface::new(window) } else { None },
+            hdr_sent: crate::hdr::Luminance::default(),
+            hdr_rect: None,
             premul,
             vsync: true,
             win_size: size,
@@ -283,6 +294,7 @@ impl Win {
             video_rect: None,
             present: true,
         };
+        w.hdr_sent = w.screen_hdr().unwrap_or_default();
         w.sizes();
         w
     }
@@ -331,9 +343,24 @@ impl Win {
         }
     }
 
+    /// L'écran de cette fenêtre est HDR (sa description préférée) : ses valeurs.
+    fn screen_hdr(&self) -> Option<crate::hdr::Luminance> {
+        self.hdr.as_ref().and_then(hdr_wl::HdrSurface::screen)
+    }
+
+    /// L'image repasse par SDL (session finie, image SDR).
+    fn hide_hdr(&mut self) {
+        if let Some(h) = self.hdr.as_mut() {
+            h.hide();
+        }
+        self.hdr_rect = None;
+    }
+
     /// Ferme la fenêtre et ce qui lui appartient.
     fn destroy(mut self) {
         self.video.reset();
+        // La sous-surface HDR avant la fenêtre dont elle dépend.
+        self.hdr = None;
         unsafe {
             if !self.cursor.is_null() {
                 sdl::SDL_DestroyTexture(self.cursor);
@@ -392,6 +419,7 @@ impl Wins {
         for w in &mut self.list {
             w.ui_size = (0, 0);
             w.video.reset();
+            w.hide_hdr();
         }
     }
 
@@ -425,6 +453,7 @@ impl Wins {
     fn forget_frames(&mut self, session: SessionId) {
         for w in self.list.iter_mut().filter(|w| w.session == Some(session)) {
             w.video.reset();
+            w.hide_hdr();
             w.hint_key = None;
             w.present = true;
         }
@@ -711,6 +740,36 @@ fn set_language(app: &App) {
     kybernow_core::i18n::set_current(if i18n::english() { kybernow_core::i18n::Lang::En } else { kybernow_core::i18n::Lang::Fr });
 }
 
+/// Montre une image dans sa fenêtre : une image 10 bits va à la sous-surface HDR de la fenêtre ; sans elle (ou si elle
+/// renonce), SDL la montre, ramenée en 8 bits, comme toute autre image. `dirty` : la fenêtre de SDL est à redessiner
+/// (le trou de l'image a bougé, paru ou disparu).
+fn show_frame(w: &mut Win, f: &video::Frame, dirty: &mut bool) -> bool {
+    if f.format.ten_bit() && w.hdr.as_ref().is_some_and(|h| !h.failed()) {
+        let rect = video::fit((f.width, f.height), w.out_size);
+        let (density, sent) = (w.density(), w.hdr_sent);
+        if w.hdr.as_mut().is_some_and(|h| h.present(f, rect, density, sent)) {
+            if w.hdr_rect != Some(rect) {
+                w.video.reset();
+                *dirty = true;
+            }
+            w.hdr_rect = Some(rect);
+            w.video.last = Some((f.width, f.height));
+            return true;
+        }
+    }
+    if w.hdr_rect.is_some() {
+        w.hide_hdr();
+        *dirty = true;
+    }
+    w.video.upload(w.renderer, f)
+}
+
+/// `--hdr-test` : la mire HDR sur la sous-surface d'une fenêtre Wayland (`hdr_wl::selftest`).
+pub fn hdr_test() {
+    log_file::init();
+    hdr_wl::selftest();
+}
+
 pub fn run(args: &[String]) {
     log_file::init();
     log::info!("KyberNow Link {} (Linux, {}) démarre", env!("CARGO_PKG_VERSION"), std::env::consts::ARCH);
@@ -745,6 +804,27 @@ pub fn run(args: &[String]) {
     if let Ok(v) = std::env::var("KYBERNOW_VIDEO") {
         sdl::hint("SDL_VIDEODRIVER", &v);
     }
+    // HDR (docs/hdr.md) : sur un bureau Wayland dont la gestion des couleurs décrit une image PQ BT.2020 et dont un
+    // écran est en HDR, SDL prend Wayland (seule voie du HDR ; X11 et Xwayland n'en ont pas), et la fenêtre peut être
+    // transparente : l'image HDR, sur une sous-surface dessous, se voit par le trou que l'app y laisse.
+    let probe = if std::env::var_os("WAYLAND_DISPLAY").is_some() { hdr_wl::probe() } else { None };
+    let video_env = std::env::var("KYBERNOW_VIDEO").ok();
+    let hdr_off = std::env::var("KYBERNOW_HDR").is_ok_and(|v| v == "0");
+    let hdr_wayland = probe.as_ref().is_some_and(|p| crate::hdr::want_wayland(p, video_env.as_deref(), system::gamescope(), os::is_os(), hdr_off));
+    if let Some(p) = &probe {
+        log::info!(
+            "HDR : gestion des couleurs {}, {} sortie(s) : {}",
+            if p.supported { "avec PQ BT.2020" } else { "absente ou sans PQ BT.2020" },
+            p.outputs.len(),
+            p.outputs.iter().map(|o| format!("({}, {}) {}", o.x, o.y, hdr_wl::describe(&o.desc))).collect::<Vec<_>>().join(" ; ")
+        );
+    }
+    if hdr_wayland {
+        log::info!("HDR : SDL sur Wayland, fenêtre transparente");
+        sdl::hint("SDL_VIDEODRIVER", "wayland");
+        sdl::hint("SDL_VIDEO_EGL_ALLOW_TRANSPARENCY", "1");
+    }
+    hdr_wl::set_probe(probe);
     unsafe {
         if sdl::SDL_Init(sdl::SDL_INIT_VIDEO | sdl::SDL_INIT_AUDIO | sdl::SDL_INIT_GAMECONTROLLER | sdl::SDL_INIT_EVENTS) != 0 {
             log::error!("SDL : {}", sdl::error());
@@ -753,6 +833,11 @@ pub fn run(args: &[String]) {
         }
     }
     log::info!("SDL : vidéo {}, son {}", sdl::video_driver(), sdl::audio_driver());
+    let hdr_wayland = hdr_wayland && sdl::video_driver() == "wayland";
+    if hdr_wayland {
+        // Une couche alpha dans la fenêtre : le trou de l'image HDR.
+        unsafe { sdl::SDL_GL_SetAttribute(sdl::SDL_GL_ALPHA_SIZE, 8) };
+    }
 
     let store = Store::load();
     let ui_arg = args.iter().position(|a| a == "--ui").and_then(|i| args.get(i + 1)).map(String::as_str);
@@ -797,6 +882,8 @@ pub fn run(args: &[String]) {
         sdl::SDL_SetWindowMinimumSize(window, 960, 600);
         sdl::SDL_SetWindowHitTest(window, Some(hit_test), std::ptr::null_mut());
     }
+    // HDR : la sous-surface de la fenêtre de l'app ; sans elle, pas de voie du HDR (aucune trace dans l'interface).
+    let main_hdr = if hdr_wayland { hdr_wl::HdrSurface::new(window) } else { None };
     // Interface en RGBA prémultiplié (tiny-skia) : source ONE, destination 1 − alpha.
     // SDL_BlendFactor : 2 = ONE, 6 = ONE_MINUS_SRC_ALPHA ; SDL_BlendOperation : 1 = ADD.
     let premul = unsafe { sdl::SDL_ComposeCustomBlendMode(2, 6, 1, 2, 6, 1) };
@@ -804,6 +891,9 @@ pub fn run(args: &[String]) {
     let mut devices = screens::detect();
     let first_screen = devices.current(window);
     let mut wins = Wins { prev: None, list: vec![Win::new(window, renderer, premul, first_screen, (ww, wh))], hover: None };
+    wins.list[0].hdr = main_hdr;
+    // Les fenêtres suivantes (écrans de plus, sessions de plus) ont la leur dès leur création.
+    hdr_wl::set_active(wins.list[0].hdr.is_some());
     log_devices(&devices);
     video::FRAME_EVENT.store(unsafe { sdl::SDL_RegisterEvents(1) }, Ordering::Relaxed);
 
@@ -816,6 +906,7 @@ pub fn run(args: &[String]) {
     }
     set_language(&app);
     app.machine = system::machine(window);
+    app.screen_hdr = wins.list[0].screen_hdr();
     app.device_name = system::device_name(&app.machine);
     app.net = system::net();
     app.reduce_motion = system::reduce_motion();
@@ -1102,6 +1193,29 @@ pub fn run(args: &[String]) {
             }
         }
 
+        // HDR : ce que le compositeur dit de l'écran de chaque fenêtre (fenêtre glissée sur un autre écran, HDR coupé
+        // ou remis) ; une session y fait repasser l'image de cet écran en SDR ou en HDR, sans message.
+        for (wi, w) in wins.list.iter_mut().enumerate() {
+            let Some(h) = w.hdr.as_mut() else { continue };
+            if !h.poll() {
+                continue;
+            }
+            let screen = h.screen();
+            log::info!("HDR : l'écran de la fenêtre {} est {}", w.id, hdr_wl::describe(&h.preferred));
+            if let Some(lum) = screen {
+                w.hdr_sent = lum;
+            }
+            // La fenêtre de l'app : la puce de l'accueil et ce que la prochaine session demandera.
+            if wi == 0 {
+                app.screen_hdr = screen;
+                dirty = true;
+            }
+            if let Some(l) = w.session.and_then(|id| lives.get(id)) {
+                let index = if l.screens_base.is_some() { w.screen } else { 0 };
+                l.handle.session.screen_hdr_changed(index, screen.is_some(), screen.map(hdr_wl::core_luminance));
+            }
+        }
+
         // Les images décodées qui attendent partent à la texture de leur fenêtre.
         let mut new_frames: Vec<(SessionId, (u64, i64, i64))> = Vec::new();
         for l in lives.iter_mut() {
@@ -1117,7 +1231,7 @@ pub fn run(args: &[String]) {
                     l.snapshot = video::snapshot(&f, 640);
                 }
                 let first = !w.has_frame();
-                if w.video.upload(w.renderer, &f) {
+                if show_frame(w, &f, &mut dirty) {
                     if is_primary {
                         if l.decoded != Some((f.width, f.height)) {
                             l.decoded = Some((f.width, f.height));
@@ -1371,7 +1485,23 @@ fn draw_frame(win: &mut Win, show_ui: bool, strip: Option<c_int>, live: Option<&
         // Une session qui n'est pas active garde son image quel que soit l'écran que l'app montre à l'active.
         let background = s.is_some_and(|s| Some(s.id) != app.active);
         let in_session = s.is_some_and(|s| (app.screen == Screen::Session || background) && matches!(s.phase, Phase::Streaming | Phase::Reconnecting { .. } | Phase::Ending));
-        win.video_rect = if in_session { win.video.draw(win.renderer, win.out_size) } else { None };
+        // L'image HDR est sur la sous-surface, sous la fenêtre : un trou transparent à sa place.
+        win.video_rect = match (in_session, win.hdr_rect) {
+            (true, Some(r)) => {
+                sdl::SDL_SetRenderDrawBlendMode(win.renderer, sdl::SDL_BLENDMODE_NONE);
+                sdl::SDL_SetRenderDrawColor(win.renderer, 0, 0, 0, 0);
+                sdl::SDL_RenderFillRect(win.renderer, &r);
+                Some(r)
+            }
+            (true, None) => win.video.draw(win.renderer, win.out_size),
+            // Hors de l'image (connexion, fin) : la sous-surface se retire.
+            (false, hdr) => {
+                if hdr.is_some() {
+                    win.hide_hdr();
+                }
+                None
+            }
+        };
         if show_ui && !win.ui.is_null() {
             match strip {
                 // La texture a la taille de la sortie : le bandeau se pose où il est.
@@ -1733,6 +1863,11 @@ fn log_devices(d: &screens::Detected) {
 /// Hors session : les écrans de l'appareil relus. Rend vrai quand l'interface doit se redessiner.
 /// « Cet écran » (celui de la fenêtre) donne la définition et la fréquence de la machine.
 fn refresh_devices(app: &mut App, devices: &mut screens::Detected, wins: &mut Wins) -> bool {
+    // HDR : les sorties de Wayland relues, pour les écrans d'une session à plusieurs écrans (la fenêtre de l'app suit
+    // le sien par sa sous-surface).
+    if app.multi_screens() {
+        hdr_wl::reprobe();
+    }
     let d = screens::detect();
     let mut changed = false;
     if !displays::same_layout(&d.grouped, &devices.grouped) {
@@ -2368,7 +2503,7 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
 #[allow(clippy::too_many_arguments)]
 fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, wins: &mut Wins, actions: &mut Vec<Action>, pairing: &mut Vec<Arc<AtomicBool>>, tx: &Sender<Event>) {
     match e {
-        Event::HostInfo { id, online, away, relay, os, gpu, av1, virtual_display, max_screens, station, wake, own_device, share, lend, lend_view } => {
+        Event::HostInfo { id, online, away, relay, os, gpu, av1, virtual_display, max_screens, station, wake, own_device, share, lend, lend_view, hdr } => {
             let entry = app.live.entry(id.clone()).or_insert_with(HostLive::default);
             entry.online = if online {
                 Online::Online
@@ -2385,6 +2520,7 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, lives: &mut Live
                 entry.share = share;
                 entry.lend = lend;
                 entry.lend_view = lend_view;
+                entry.hdr = hdr;
                 // Le réveil a marché : l'ordinateur répond.
                 if app.waking.as_ref().is_some_and(|(w, _)| *w == id) {
                     app.waking = None;
@@ -2467,7 +2603,7 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, lives: &mut Live
             Err(share::ShareError::Lend(c)) => {
                 if app.join_lending(attempt) {
                     let c = *c;
-                    let request = jobs::borrow_request(lend::LendCredentials::Code { code: c.code.clone() }, app.join.name.trim().to_string(), app.store.device_id.clone(), borrow_screen(app), app.machine.hw_av1);
+                    let request = jobs::borrow_request(lend::LendCredentials::Code { code: c.code.clone() }, app.join.name.trim().to_string(), app.store.device_id.clone(), borrow_screen(app), app.machine.hw_av1, borrow_hdr(app, ""));
                     jobs::borrow(crate::app::BorrowSource::Code { attempt }, c.target, c.route, request, tx.clone());
                 }
             }
@@ -3068,6 +3204,13 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, w
                 push_settings(l, session::settings(&h, p, codec, mode, &app.machine, light), session::capabilities(&h, codec, &app.machine));
             }
         }
+        Action::SetHdr(id, on) => {
+            // Admin passe les écrans virtuels en HDR ou en SDR, puis l'image se relance (le cœur, `Session::set_hdr`).
+            if let Some(l) = lives.get(id) {
+                log::info!("session : HDR {} demandé", if on { "allumé" } else { "éteint" });
+                l.handle.session.set_hdr(on);
+            }
+        }
         Action::Light(id, on) => {
             let Some((host, profile)) = app.session_by(id).map(|s| (s.host.clone(), s.profile)) else { return };
             let Some(h) = app.store.host(&host).cloned() else { return };
@@ -3211,7 +3354,7 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, w
             let Some(b) = app.store.borrowed(&id).cloned() else { return };
             let target = ShareTarget { host: b.address.clone(), port: b.port, fingerprint: b.fingerprint.clone() };
             let name = if app.store.app.share_name.trim().is_empty() { app.device_name.clone() } else { app.store.app.share_name.trim().to_string() };
-            let request = jobs::borrow_request(lend::LendCredentials::Account { login: b.login.clone(), password }, name, app.store.device_id.clone(), borrow_screen(app), app.machine.hw_av1);
+            let request = jobs::borrow_request(lend::LendCredentials::Account { login: b.login.clone(), password }, name, app.store.device_id.clone(), borrow_screen(app), app.machine.hw_av1, borrow_hdr(app, &b.id));
             // Ajouté par un lien d'invitation avec relais : aussi hors de chez soi (le réseau d'abord).
             let route = jobs::borrowed_route(b.relay.as_deref(), b.sid.as_deref(), b.fingerprint.as_deref());
             jobs::borrow(app.borrow_source(), target, route, request, tx.clone());
@@ -3285,6 +3428,12 @@ fn connect_borrower(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Send
 
 /// L'écran de cet appareil pour un emprunt : la Station fait l'écran virtuel à sa taille (définition et fréquence de
 /// l'écran de la fenêtre).
+/// Le HDR de l'écran de l'appareil pour un emprunt (`id` : l'ordinateur emprunté, vide pour un code) : ses valeurs
+/// quand l'écran est HDR et la puce allumée ; l'écran virtuel de l'ami est alors préparé en HDR.
+fn borrow_hdr(app: &App, id: &str) -> Option<kybernow_core::profile::HdrLuminance> {
+    app.borrowed_hdr_on(id).then(|| app.screen_hdr.map(hdr_wl::core_luminance)).flatten()
+}
+
 fn borrow_screen(app: &App) -> (u32, u32, u32) {
     (app.machine.display.0, app.machine.display.1, app.machine.refresh.max(30))
 }
@@ -3380,7 +3529,12 @@ fn open_session(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<E
     });
     let h = match (&guest, &guest_title, &loan, &borrow_key) {
         (Some(f), Some(title), _, _) => guest_host(f, title),
-        (_, _, Some((l, _)), Some(key)) => borrower_host(l, key),
+        (_, _, Some((l, _)), Some(key)) => {
+            let mut h = borrower_host(l, key);
+            // La puce « HDR » de l'ordinateur emprunté (allumée sans compte d'ami, comme la première fois).
+            h.settings.hdr = !app.store.borrowed(key).is_some_and(|b| b.hdr_off);
+            h
+        }
         _ => {
             let Some(h) = app.store.host(host).cloned() else { return };
             h
@@ -3470,7 +3624,13 @@ fn open_session(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<E
             }
         }
     };
-    let handle = session::start(id, &h, settings.clone(), mode, &app.machine, relative, device, if visitor { None } else { base.clone() }, current, guest.as_ref(), loan.as_ref().map(|(l, _)| l), tx.clone());
+    // HDR : l'écran de la fenêtre de la session (celle de l'app, ou la sienne pour une session de plus) ; à plusieurs
+    // écrans, chacun a les siens dans `base`.
+    let screen_hdr = match &own_window {
+        Some(w) => w.screen_hdr(),
+        None => wins.list[0].screen_hdr(),
+    };
+    let handle = session::start(id, &h, settings.clone(), mode, &app.machine, relative, device, if visitor { None } else { base.clone() }, current, guest.as_ref(), loan.as_ref().map(|(l, _)| l), screen_hdr, tx.clone());
     // Le registre du cœur : quatre au plus, et la session devient active. Refusée (il n'en reste pas de
     // place : l'interface l'aurait déjà grisé), elle s'arrête et sa fenêtre se ferme.
     let focus_id = match focus::register(&handle.session, &h.name) {
@@ -3508,6 +3668,12 @@ fn open_session(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<E
         None => SessionUi::new(id, &h.id, &h.name, profile, light, relative, plan.as_ref().map_or(1, Vec::len)),
     };
     ui.fullscreen = first && app.fullscreen;
+    // « HDR » dans la barre et le menu : la puce de l'ordinateur (hôte, emprunt) sur un écran HDR ; un invité n'en a pas.
+    ui.hdr = match (&guest, &borrow_key) {
+        (Some(_), _) => None,
+        (None, Some(key)) => app.borrowed_hdr_ui(key),
+        (None, None) => app.hdr_ui(&h),
+    };
     let mut l = Live {
         id,
         handle,
@@ -3560,12 +3726,14 @@ fn open_session(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<E
         let w = wins.app();
         w.session = Some(id);
         w.extra = false;
+        w.hdr_sent = screen_hdr.unwrap_or_default();
         sdl::set_title(w.window, &title);
         w.screen = current;
         w.set_vsync(vsync);
-    } else if let Some(w) = own_window {
+    } else if let Some(mut w) = own_window {
         // Une session de plus : sa fenêtre, par-dessus. Jamais celle de la première : `own_window` existe
         // forcément ici (sans fenêtre, la session n'a pas démarré).
+        w.hdr_sent = screen_hdr.unwrap_or_default();
         wins.list.push(w);
     }
     app.open_session(ui);
@@ -3760,7 +3928,7 @@ fn finish(app: &mut App, l: Live) {
     if seconds >= 3
         && let Some(h) = app.store.host_mut(&id)
     {
-        h.last = Some(LastSession { median, p95, seconds, mode: l.mode.clone(), hz: l.hz, codec: l.codec.into(), mbps, at: now_secs(), screens: l.screens as u32, route: l.path.as_str().into() });
+        h.last = Some(LastSession { median, p95, seconds, mode: l.mode.clone(), hz: l.hz, codec: l.codec.into(), mbps, at: now_secs(), screens: l.screens as u32, route: l.path.as_str().into(), hdr: l.handle.session.hdr_used() });
     }
     app.store.save();
     if app.store.app.keep_last_image
@@ -3847,6 +4015,11 @@ mod tests {
                 decoded: 0,
                 bt709: true,
                 full_range: false,
+                pq: false,
+                mastering_min: 0.0,
+                mastering_max: 0.0,
+                max_cll: 0.0,
+                max_fall: 0.0,
             };
             assert!(w.video.upload(w.renderer, &frame), "l'image de la fenêtre {i} ne part pas à sa texture");
             assert!(w.has_frame());

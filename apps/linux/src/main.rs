@@ -8,6 +8,7 @@ mod app_time;
 #[cfg(feature = "device")]
 mod device;
 mod displays;
+mod hdr;
 mod i18n;
 mod model;
 mod preview;
@@ -32,6 +33,11 @@ fn main() {
     }
     if args.iter().any(|a| a == "--version" || a == "-V") {
         println!("KyberNow Link {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
+    #[cfg(feature = "device")]
+    if args.iter().any(|a| a == "--hdr-test") {
+        device::hdr_test();
         return;
     }
     #[cfg(feature = "device")]
