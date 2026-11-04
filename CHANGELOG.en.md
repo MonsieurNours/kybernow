@@ -4,6 +4,14 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## 0.9.7
+
+Fixes for 0.9.6. It is only offered to Stations and apps set to beta versions.
+
+- **Lending the computer to a friend with an HDR screen.** On a PC, when the friend borrowed the computer from an HDR screen (a recent iPhone, for example), they never got a picture and the computer ended up going back to its host. The picture now arrives, in HDR, and in SDR if the friend turned HDR off in their app.
+- **Several displays with a Mac Station.** From a PC with two displays, the Mac only created one. Both now open, ready in a moment, and the mouse moves from one to the other.
+- Lending in HDR hasn't been tried with a real PC yet: your feedback is welcome on the Discord.
+
 ## 0.9.6
 
 KyberNow Station for Mac beta. It is only offered to Stations and apps set to beta versions.

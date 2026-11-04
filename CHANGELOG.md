@@ -5,6 +5,14 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## 0.9.7
+
+Correctifs de la 0.9.6. Elle n'est proposée qu'aux Stations et aux apps réglées sur les versions bêta.
+
+- **Prêter l'ordinateur à un ami qui a un écran HDR.** Sur un PC, quand l'ami empruntait l'ordinateur depuis un écran HDR (un iPhone récent, par exemple), il n'avait jamais d'image et l'ordinateur finissait par revenir à son hôte. L'image arrive maintenant, en HDR, et en SDR si l'ami a coupé le HDR dans son app.
+- **Plusieurs écrans avec une Station Mac.** Depuis un PC à deux écrans, le Mac n'en créait qu'un. Les deux s'ouvrent maintenant, prêts en un instant, et la souris passe de l'un à l'autre.
+- Le prêt en HDR n'a pas encore été essayé avec un vrai PC : vos retours sont les bienvenus sur le Discord.
+
 ## 0.9.6
 
 Bêta de KyberNow Station pour Mac. Elle n'est proposée qu'aux Stations et aux apps réglées sur les versions bêta.
