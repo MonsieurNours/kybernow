@@ -611,7 +611,7 @@ Un compte lu pendant une association est gardé, même si l'association échoue 
 
 **À l'accueil**, une carte par console, quel que soit le nombre de comptes. Associée avec plusieurs comptes : une puce « {pseudo} » à côté du bouton principal ouvre le choix du compte (le profil avec lequel la console ouvre la partie) ; retenu par console ; associée avec un seul : pas de puce. Les réglages restent ceux de la console, pour tous ses comptes. La console ne reconnaît plus un compte : cette association est effacée, et « Associer » revient si c'était la dernière.
 
-**Linux** (bureau, Steam Deck, salon, Raspberry Pi et KyberNow Link OS ; [apps/linux/README.md](../apps/linux/README.md#consoles-playstation)) : les textes ci-dessus, et ce qui est propre à l'app Linux (pas de fenêtre web, pas de HDR, la connexion dessinée en étapes comme celle d'un ordinateur) :
+**Linux** (bureau, Steam Deck, salon, Raspberry Pi et KyberNow Link OS ; [apps/linux/README.md](../apps/linux/README.md#consoles-playstation)) : les textes ci-dessus, et ce qui est propre à l'app Linux (pas de fenêtre web ; le HDR seulement sur un bureau Wayland à gestion des couleurs, ni sur le Steam Deck, ni au salon, ni sur le Raspberry Pi et KyberNow Link OS, et sans écran « Réglage du HDR » ; la connexion dessinée en étapes comme celle d'un ordinateur) :
 
 | Élément | Français | English |
 |---|---|---|

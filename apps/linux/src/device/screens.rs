@@ -81,22 +81,26 @@ pub fn primary_refresh(h: &Host, screen_refresh: u32, on_battery: bool) -> u32 {
 
 /// Les écrans de l'appareil au format du cœur : cadre logique, définition
 /// native, fréquence (celle du réglage pour l'écran principal), l'écran 0 de
-/// SDL est le principal.
+/// SDL est le principal ; HDR et luminosités d'après la gestion des couleurs
+/// de Wayland (`hdr_wl::screen_at`, rien hors de la voie du HDR).
 pub fn device_screens(d: &Detected, h: &Host, on_battery: bool) -> Vec<DeviceScreen> {
     d.grouped
         .iter()
         .enumerate()
-        .map(|(i, s)| DeviceScreen {
-            x: f64::from(s.x),
-            y: f64::from(s.y),
-            width: f64::from(s.w),
-            height: f64::from(s.h),
-            pixel_width: s.pixel_w,
-            pixel_height: s.pixel_h,
-            refresh: if i == 0 { primary_refresh(h, s.refresh, on_battery) } else { s.refresh },
-            primary: i == 0,
-            hdr: false,
-            luminance: None,
+        .map(|(i, s)| {
+            let hdr = super::hdr_wl::screen_at(s.x, s.y);
+            DeviceScreen {
+                x: f64::from(s.x),
+                y: f64::from(s.y),
+                width: f64::from(s.w),
+                height: f64::from(s.h),
+                pixel_width: s.pixel_w,
+                pixel_height: s.pixel_h,
+                refresh: if i == 0 { primary_refresh(h, s.refresh, on_battery) } else { s.refresh },
+                primary: i == 0,
+                hdr: hdr.is_some(),
+                luminance: hdr.map(super::hdr_wl::core_luminance),
+            }
         })
         .collect()
 }

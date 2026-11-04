@@ -82,6 +82,7 @@ class MainActivity : AppCompatActivity() {
                         HomeActions(
                             select = model::select,
                             setProfile = model::setProfile,
+                            setHdr = { h, on -> app.hosts.update(h.id) { it.copy(settings = it.settings.copy(hdr = on)) } },
                             connect = ::connect,
                             retry = { h -> model.retry(h.id) },
                             add = { route = Route.Add() },

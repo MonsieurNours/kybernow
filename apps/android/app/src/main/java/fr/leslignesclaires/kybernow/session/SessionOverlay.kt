@@ -87,11 +87,13 @@ import fr.leslignesclaires.kybernow.core.ShareAvailability
 import fr.leslignesclaires.kybernow.core.ShareGuest
 import fr.leslignesclaires.kybernow.core.ShareQuality
 import fr.leslignesclaires.kybernow.core.ShareRole
+import fr.leslignesclaires.kybernow.model.HdrState
 import fr.leslignesclaires.kybernow.model.Profile
 import fr.leslignesclaires.kybernow.ui.Body
 import fr.leslignesclaires.kybernow.ui.Eyebrow
 import fr.leslignesclaires.kybernow.ui.FocusCard
 import fr.leslignesclaires.kybernow.ui.GlassButton
+import fr.leslignesclaires.kybernow.ui.HdrChip
 import fr.leslignesclaires.kybernow.ui.Kn
 import fr.leslignesclaires.kybernow.ui.KnIcon
 import fr.leslignesclaires.kybernow.ui.KnIcons
@@ -152,6 +154,12 @@ class SessionUi(
     /** « Se déconnecter » demandé : on attend la fin de la session. */
     var leaving by mutableStateOf(false)
     var profile by mutableStateOf(Profile.GAME)
+    /**
+     * « HDR » de la barre et du menu (docs/link-ui.md, section HDR) : la puce telle que le cœur la donne pour cet
+     * ordinateur et cet écran ([HdrState.HIDDEN] sur un écran SDR, et toujours pour un invité), et le choix gardé.
+     */
+    var hdrState by mutableStateOf(HdrState.HIDDEN)
+    var hdrChoice by mutableStateOf(true)
     var mouseMode by mutableStateOf(0)
     var directTouch by mutableStateOf(false)
     var remoteMouse by mutableStateOf(false)
@@ -229,6 +237,8 @@ interface SessionActions {
     fun resume()
     fun quit()
     fun setProfile(p: Profile)
+    /** « HDR » coché ou non en session : gardé pour cet ordinateur, l'image est relancée. */
+    fun setHdr(on: Boolean) {}
     fun setMouseMode(m: Int)
     fun setDirectTouch(on: Boolean)
     fun setRemoteMouse(on: Boolean)
@@ -516,6 +526,7 @@ private fun capsuleText(c: Capsule): String = when (c) {
     is Capsule.LendRequest -> stringResource(if (c.slot) R.string.lend_slot_start else R.string.lend_request_wants, c.name)
     is Capsule.LendHostNotice -> c.text
     Capsule.PadsUnavailable -> stringResource(R.string.capsule_pads_unavailable)
+    is Capsule.HdrRefused -> c.text.ifBlank { stringResource(R.string.hdr_refused) }
 }
 
 // MARK: - Téléphone et tablette
@@ -595,6 +606,8 @@ internal fun StatsCard(ui: SessionUi, sec: Second?, modifier: Modifier) {
 private fun HostBarItems(ui: SessionUi, sec: Second?, first: FocusRequester) {
     StatsCard(ui, sec, Modifier.focusRequester(first))
     Profile.entries.forEach { p -> GlassButton(profileLabel(p), { ui.actions.setProfile(p) }, selected = ui.profile == p) }
+    // « HDR », cochable, près du profil (écran HDR seulement).
+    HdrChip(ui.hdrState, ui.hdrChoice, { ui.actions.setHdr(!ui.hdrChoice) }, icon = true)
     GlassButton(stringResource(if (ui.directTouch) R.string.touch_direct else R.string.touch_trackpad), { ui.actions.setDirectTouch(!ui.directTouch) })
     GlassButton(stringResource(R.string.pad_on_screen), { ui.actions.setOnScreenPad(!ui.padShown) }, selected = ui.padShown)
     GlassButton(
@@ -921,6 +934,7 @@ private fun TvTiles(ui: SessionUi, first: FocusRequester, audio: Pair<Int, Doubl
         Profile.entries.forEach { p ->
             if (p != ui.profile) Tile(KnIcons.screen, profileLabel(p), stringResource(R.string.session_switch_profile)) { ui.actions.setProfile(p) }
         }
+        HdrTile(ui)
         Tile(KnIcons.sound, stringResource(R.string.session_sound), audio?.let { (c, _) -> stringResource(R.string.session_sound_channels, c) }) { ui.statsOpen = !ui.statsOpen }
         Tile(KnIcons.remote, stringResource(R.string.session_remote_mouse), stringResource(if (ui.remoteMouse) R.string.session_on else R.string.session_off), selected = ui.remoteMouse) { ui.actions.setRemoteMouse(!ui.remoteMouse) }
         Tile(KnIcons.gamepad, stringResource(R.string.session_pad_mouse), stringResource(if (ui.padMouse) R.string.session_on else R.string.session_off), selected = ui.padMouse) { ui.actions.setPadMouse(!ui.padMouse) }
@@ -945,6 +959,20 @@ private fun TvTiles(ui: SessionUi, first: FocusRequester, audio: Pair<Int, Doubl
         LendTile(ui)
         Tile(KnIcons.pulse, stringResource(R.string.session_stats), null) { ui.statsOpen = !ui.statsOpen }
         Tile(KnIcons.exit, stringResource(R.string.session_disconnect), null, danger = true) { ui.actions.quit() }
+    }
+}
+
+/**
+ * « HDR » au menu du téléviseur (écran HDR seulement) : allumé ou éteint ; estompée quand le HDR n'est pas possible
+ * (la raison est dans Réglages › Image).
+ */
+@Composable
+internal fun HdrTile(ui: SessionUi) {
+    val state = ui.hdrState
+    if (!state.shown) return
+    val on = state.on(ui.hdrChoice)
+    Tile(KnIcons.sparkle, stringResource(R.string.hdr), stringResource(if (on) R.string.hdr_tile_on else R.string.hdr_tile_off), selected = on, dimmed = !state.available) {
+        if (state.available) ui.actions.setHdr(!ui.hdrChoice)
     }
 }
 
@@ -1042,6 +1070,7 @@ private fun Stats(ui: SessionUi, modifier: Modifier) {
     val audio by ui.state.audioOutput.collectAsState()
     val video by ui.state.videoSize.collectAsState()
     val route by ui.state.route.collectAsState()
+    val hdr by ui.state.hdr.collectAsState()
     val locale = androidx.compose.ui.platform.LocalConfiguration.current.locales[0]
     fun f(v: Double?) = v?.let { String.format(locale, "%.1f", it) } ?: "—"
     Column(modifier.panel(18.dp).padding(s.dp(16f)).widthIn(max = s.dp(340f)), verticalArrangement = Arrangement.spacedBy(s.dp(5f))) {
@@ -1060,7 +1089,8 @@ private fun Stats(ui: SessionUi, modifier: Modifier) {
             Mono(stringResource(R.string.session_fps, sec?.fps ?: 0) + " · " + fmt("%.1f Mbit/s", sec?.mbps ?: 0.0), size = 11f)
             Mono(stringResource(R.string.stats_losses, sec?.lostFrames ?: 0, sec?.holes ?: 0, sec?.lostPackets ?: 0), size = 11f)
         }
-        video?.let { (w, h) -> Mono("$w × $h · ${decoder ?: ""}", size = 11f) }
+        // « HDR » quand l'image l'est : en allumant et éteignant le HDR depuis la barre, on voit quelle étape change.
+        video?.let { (w, h) -> Mono("$w × $h · ${decoder ?: ""}" + if (hdr && ui.console == null) " · HDR" else "", size = 11f) }
         audio?.let { (c, ms) -> Mono(stringResource(R.string.session_sound_detail, c, ms), size = 11f) }
         if (!ui.tv) GlassButton(stringResource(R.string.session_close), { ui.statsOpen = false })
     }

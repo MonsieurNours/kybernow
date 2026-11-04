@@ -55,6 +55,8 @@ import fr.leslignesclaires.kybernow.core.FormFactor
 import fr.leslignesclaires.kybernow.core.Native
 import fr.leslignesclaires.kybernow.model.AudioOutput
 import fr.leslignesclaires.kybernow.model.Decoders
+import fr.leslignesclaires.kybernow.model.Hdr
+import fr.leslignesclaires.kybernow.model.HdrState
 import fr.leslignesclaires.kybernow.model.Host
 import fr.leslignesclaires.kybernow.model.HostSettings
 import fr.leslignesclaires.kybernow.model.Profile
@@ -65,6 +67,8 @@ import fr.leslignesclaires.kybernow.ui.Eyebrow
 import fr.leslignesclaires.kybernow.ui.FitTitle
 import fr.leslignesclaires.kybernow.ui.FocusCard
 import fr.leslignesclaires.kybernow.ui.GlassButton
+import fr.leslignesclaires.kybernow.ui.hdrHelp
+import fr.leslignesclaires.kybernow.ui.rememberHdrScreen
 import fr.leslignesclaires.kybernow.ui.HostStatus
 import fr.leslignesclaires.kybernow.ui.Kn
 import fr.leslignesclaires.kybernow.ui.KnIcon
@@ -154,14 +158,19 @@ fun SwitchRow(label: String, help: String?, checked: Boolean, enabled: Boolean =
     }
 }
 
-/** Une rangée d'information (lecture seule, focalisable au téléviseur) ; au téléphone, la valeur sous le libellé. */
+/**
+ * Une rangée d'information (lecture seule, focalisable au téléviseur) ; au téléphone, la valeur sous le libellé.
+ * [enabled] faux : estompée (le texte net avec le HDR allumé).
+ */
 @Composable
-fun InfoRow(label: String, value: String, help: String? = null) {
+fun InfoRow(label: String, value: String, help: String? = null, enabled: Boolean = true) {
     val s = LocalScale.current
+    val labelColor = if (enabled) Kn.frost else Kn.frost2
+    val valueColor = if (enabled) Kn.frost else Kn.muted
     if (LocalForm.current == FormFactor.PHONE) {
         Column(Modifier.panel().fillMaxWidth().padding(s.dp(16f)), verticalArrangement = Arrangement.spacedBy(s.dp(4f))) {
-            Body(label, size = 16f)
-            Mono(value, size = 13f, color = Kn.frost)
+            Body(label, size = 16f, color = labelColor)
+            Mono(value, size = 13f, color = valueColor)
             help?.let { Body(it, size = 13f, color = Kn.muted) }
         }
         return
@@ -169,11 +178,11 @@ fun InfoRow(label: String, value: String, help: String? = null) {
     FocusCard({}, Modifier.fillMaxWidth()) {
         Row(Modifier.panel().fillMaxWidth().padding(s.dp(16f)), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(s.dp(4f))) {
-                Body(label, size = 16f)
+                Body(label, size = 16f, color = labelColor)
                 help?.let { Body(it, size = 13f, color = Kn.muted) }
             }
             Spacer(Modifier.width(s.dp(12f)))
-            Mono(value, Modifier.widthIn(max = s.dp(260f)), size = 13f, color = Kn.frost)
+            Mono(value, Modifier.widthIn(max = s.dp(260f)), size = 13f, color = valueColor)
         }
     }
 }
@@ -222,6 +231,8 @@ data class HostSettingsState(
     val vibrator: Boolean = true,
     /** L'ordinateur est une Station Mac (`keymap::station_is_mac` du cœur) : « Ctrl agit comme ⌘ » dans Commandes. */
     val mac: Boolean = false,
+    /** L'interrupteur « HDR » de Réglages › Image (absent sur un écran SDR). */
+    val hdr: HdrState = HdrState.HIDDEN,
 )
 
 /** Ce que les réglages d'un ordinateur demandent à l'app. */
@@ -248,6 +259,8 @@ fun HostSettingsScreen(model: AppModel, hostId: String, onBack: () -> Unit, onRe
     val host = hosts.firstOrNull { it.id == hostId } ?: return
     val st = status[hostId] ?: HostStatus()
     val screen = remember { Screen.of(context) }
+    val hdrScreen = rememberHdrScreen()
+    val hdr = remember(host, st.info, hdrScreen) { Hdr.state(host, st.info, app.decoders, hdrScreen) }
     val vibrator = remember { fr.leslignesclaires.kybernow.session.Haptics.available(context) }
     val adminUrl = remember(host.address, host.port) {
         ConsoleClient(host.address, host.port).use { it.adminUrl } ?: "https://${host.address}:${host.port}/"
@@ -281,7 +294,7 @@ fun HostSettingsScreen(model: AppModel, hostId: String, onBack: () -> Unit, onRe
         else -> Rubric.PICTURE
     }
     val mac = remember(host.os) { Native.stationIsMac(host.os ?: "") }
-    HostSettingsContent(HostSettingsState(host, st, screen, app.decoders, adminUrl, tasks[hostId], check, vibrator = vibrator, mac = mac), actions, start)
+    HostSettingsContent(HostSettingsState(host, st, screen, app.decoders, adminUrl, tasks[hostId], check, vibrator = vibrator, mac = mac, hdr = hdr), actions, start)
 }
 
 /**
@@ -433,8 +446,19 @@ private fun PictureRubric(state: HostSettingsState, actions: HostSettingsActions
         stringResource(R.string.settings_bitrate), stringResource(R.string.settings_bitrate_help),
         listOf(0 to auto) + listOf(20, 40, 60, 90, 150, 300).map { it to stringResource(R.string.settings_mbps, it) }, set.mbps,
     ) { v -> actions.update { it.copy(mbps = v) } }
-    // Le 4:4:4 vient du profil (Bureau, Max) quand l'appareil le décode : pas de choix à faire ici.
-    InfoRow(stringResource(R.string.settings_444), stringResource(if (d.hevc444) R.string.settings_444_yes else R.string.settings_444_no), stringResource(R.string.settings_444_help))
+    // Le 4:4:4 vient du profil (Bureau, Max) quand l'appareil le décode : pas de choix à faire ici. Le HDR allumé
+    // l'éteint (le HDR n'existe qu'en 4:2:0) : la rangée s'estompe et le dit.
+    val hdrOn = state.hdr.on(set.hdr)
+    InfoRow(
+        stringResource(R.string.settings_444), stringResource(if (d.hevc444) R.string.settings_444_yes else R.string.settings_444_no),
+        stringResource(if (hdrOn) R.string.settings_444_hdr else R.string.settings_444_help), enabled = !hdrOn,
+    )
+    // HDR : seulement sur un écran HDR ; à part du profil (jamais « Personnalisé ») ; inactif avec la raison du cœur.
+    if (state.hdr.shown) {
+        SwitchRow(stringResource(R.string.hdr), hdrHelp(state.hdr, settings = true), hdrOn, enabled = state.hdr.available) { v ->
+            actions.update { it.copy(hdr = v) }
+        }
+    }
     InfoRow(stringResource(R.string.settings_frame_display), stringResource(R.string.settings_frame_immediate), stringResource(R.string.settings_frame_display_help))
     // Au téléviseur seulement : la sortie HDMI change de mode. Le téléphone et la tablette prennent
     // déjà la fréquence de la session à leur définition (SessionActivity.applyDisplay).

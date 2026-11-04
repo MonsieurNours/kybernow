@@ -27,6 +27,11 @@ pub trait MediaHost: Send + Sync + 'static {
     fn hdr(&self) -> bool {
         false
     }
+    /// Les valeurs HDR de l'écran de l'appareil (métadonnées HDR10 de
+    /// secours, si le flux n'a pas les siennes) ; `None` : rien à donner.
+    fn hdr_luminance(&self) -> Option<kybernow_core::profile::HdrLuminance> {
+        None
+    }
     /// Octets d'une image reçue (mesures).
     fn received_bytes(&self, _n: usize) {}
     /// Trou dans le flux (mesures).

@@ -72,6 +72,8 @@ fun LastSessionCard(last: LastSession, now: Long) {
                 "${last.width}$NB×$NB${last.height}",
                 last.refresh.takeIf { it > 0 }?.let { "$it${NB}Hz" },
                 last.codec?.let(::codecLabel),
+                // « HDR » après le format quand l'image l'a été (docs/link-ui.md, Statistiques).
+                "HDR".takeIf { last.hdr },
                 last.mbps.takeIf { it > 0 }?.let { "$it${NB}Mbit/s" },
             ).joinToString(" · ")
             Body(sent, size = 14f, color = Kn.frost2)

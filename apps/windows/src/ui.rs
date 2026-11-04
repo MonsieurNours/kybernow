@@ -1238,6 +1238,11 @@ struct DisplaysInfo {
     /// L'écran virtuel servira : demandé et utilisable sur la Station ; sinon
     /// la ligne de l'accueil dit « Les écrans de l'ordinateur, tels quels ».
     virtual_display: bool,
+    /// La puce « HDR » (docs/hdr.md) : cachée sans écran HDR, inactive avec la raison.
+    hdr: kybernow_core::profile::HdrState,
+    /// Le HDR sera demandé (allumé et possible, sur un écran HDR) : la ligne
+    /// « Écran » dit « …, en HDR », « Texte net (4:4:4) » est inactif.
+    hdr_on: bool,
 }
 
 /// `settings` : ceux de l'ordinateur `id`, enregistrés ou en cours de
@@ -1254,8 +1259,13 @@ fn displays_info(app: AppHandle, id: String, settings: Settings) -> Result<Displ
     let info = state.live.lock().unwrap().get(&id).and_then(|l| l.info.clone());
     let screens = Layout::now(displays_spec(&c.settings, info.as_ref(), lighten, &pc)).screens();
     let choice = screens.choice(screens::screens_profile(&stream, screens.capabilities), c.settings.virtual_display);
-    let count = screens::session_plan_for(&screens, &stream, c.settings.virtual_display).map_or(1, |p| p.len());
-    Ok(DisplaysInfo { enabled: choice.setting_enabled(), shown: choice.shown_setting().as_str(), count, virtual_display: choice.virtual_display })
+    let plan = screens::session_plan_for(&screens, &stream, c.settings.virtual_display);
+    let count = plan.as_ref().map_or(1, |p| p.len());
+    let devices: Option<Vec<usize>> = plan.map(|p| p.iter().map(|x| x.device).collect());
+    let (screen_hdr, _) = displays::session_hdr(&screens, devices.as_deref());
+    let hdr = hdr_chip(info.as_ref(), &stream, &pc, screen_hdr);
+    let hdr_on = hdr.shown && hdr.available && c.settings.hdr_on();
+    Ok(DisplaysInfo { enabled: choice.setting_enabled(), shown: choice.shown_setting().as_str(), count, virtual_display: choice.virtual_display, hdr, hdr_on })
 }
 
 /// Les écrans de ce PC ont changé (branché, débranché, disposition) : l'accueil
@@ -1655,12 +1665,18 @@ fn save_settings(app: AppHandle, id: String, settings: Settings) -> Result<(), S
         }
     }
     let ctrl_command = settings.ctrl_command;
-    state.with_store(|s| {
+    let hdr = settings.hdr_on();
+    let hdr_before = state.with_store(|s| {
         let c = s.get_mut(&id).ok_or_else(|| t("errors.unknown_computer", &[]))?;
+        let before = c.settings.hdr_on();
         c.settings = settings;
         s.save();
-        Ok::<_, String>(())
+        Ok::<_, String>(before)
     })?;
+    // « HDR » changé dans les réglages pendant sa session : tout de suite.
+    if hdr != hdr_before {
+        apply_hdr(&app, &id, hdr);
+    }
     // « Ctrl agit comme ⌘ » changé pendant sa session : tout de suite.
     let on = kybernow_core::input::keymap::control_as_command(ctrl_command, &computer_os(&state, &id));
     state.with_session(&id, |r| r.host.set_control_as_command(on));
@@ -1799,6 +1815,8 @@ struct BarShown {
     /// Par où passe la session (puce « Par le relais ») ; absent tant que le cœur
     /// ne l'a pas dit.
     route: Option<relais::RouteView>,
+    /// La puce « HDR » (écran HDR seulement, jamais pour un invité).
+    hdr: Option<BarHdr>,
     /// Une partie sur console PlayStation : la barre de la partie (son, souris,
     /// réglages, plein écran, veille, « Se déconnecter »).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1832,6 +1850,7 @@ fn console_bar_shown(id: &str, name: &str, pinned: bool, sessions: usize, route:
         notice_opens_lend: false,
         notice_icon: None,
         route,
+        hdr: None,
         console: Some(console),
     }
 }
@@ -2123,6 +2142,11 @@ impl HostEvents for UiEvents {
     /// (signe de vie, « Qualité de l'image » changée). La barre montre la
     /// qualité reçue ; l'avis (« Image allégée pour suivre. », « L'ordinateur ne
     /// peut pas faire une image de plus… ») s'affiche comme celui d'un rôle.
+    /// Un avis bref du cœur (HDR refusé) : dans la capsule de la session.
+    fn notice(&self, text: &str) {
+        share::notice(&self.app, &self.id, &self.connexion.name, text);
+    }
+
     fn share_image(&self, image: &ShareImage, _previous: Option<&ShareImage>, notice: Option<&str>) {
         let Some(g) = &self.guest else { return };
         let view = crate::sharing::ImageView::from(image);
@@ -2215,6 +2239,7 @@ impl HostEvents for UiEvents {
                     codec: Some(sent.settings.codec.label().into()),
                     mbps: Some(sent.mbps()),
                     route: self.route.lock().unwrap().clone(),
+                    hdr: s.hdr,
                     label: String::new(),
                 }
             };
@@ -2527,7 +2552,9 @@ fn session_plan(
         size: window.or_else(|| custom_mode(s)),
         lighten,
     };
-    let (settings, mode) = plan(&choices, capabilities(pc), window.unwrap_or_else(system::screen_mode));
+    let (mut settings, mode) = plan(&choices, capabilities(pc), window.unwrap_or_else(system::screen_mode));
+    // Le choix « HDR » de cet ordinateur (hors du profil) : la session ne s'en sert que si c'est possible.
+    settings.hdr = s.hdr_on();
     let label = format!(
         "{} · {}{}",
         settings.label(),
@@ -2561,7 +2588,36 @@ fn displays_spec(s: &Settings, info: Option<&Info>, lighten: bool, pc: &ThisPc) 
 
 /// Ce que ce PC décode (sonde de la carte graphique).
 fn capabilities(pc: &ThisPc) -> kybernow_core::profile::Capabilities {
-    kybernow_core::profile::Capabilities { hevc: pc.hevc, hevc444: pc.hevc444, av1: pc.av1, hdr: false }
+    kybernow_core::profile::Capabilities { hevc: pc.hevc, hevc444: pc.hevc444, av1: pc.av1, hdr: pc.hdr }
+}
+
+/// La puce « HDR » (docs/hdr.md, `profile::hdr_state`) : `info`, ce que la
+/// Station annonce (pas encore lue : comme si elle le proposait, la puce ne
+/// s'éteint pas avant sa réponse) ; `screen_hdr` : l'écran de la session est
+/// HDR (sinon aucune trace du HDR).
+pub(crate) fn hdr_chip(info: Option<&Info>, settings: &kybernow_core::profile::StreamSettings, pc: &ThisPc, screen_hdr: bool) -> kybernow_core::profile::HdrState {
+    let unknown = kybernow_core::console::HdrInfo { available: true, reason: None };
+    let station = match info {
+        Some(i) => i.hdr.as_ref(),
+        None => Some(&unknown),
+    };
+    let kind = kybernow_core::profile::hdr_block(station, settings, capabilities(pc));
+    kybernow_core::profile::HdrState { shown: screen_hdr, available: kind.is_none(), reason: kind.map(|k| k.text(i18n::lang())), kind }
+}
+
+/// HDR : l'écran de l'accueil est HDR (puce des consoles ; revu à chaque
+/// événement `displays`).
+#[tauri::command(async)]
+fn home_hdr() -> bool {
+    home_screen_hdr().0
+}
+
+/// HDR : l'écran de la fenêtre de l'accueil (« Cet écran ») et ses luminosités.
+fn home_screen_hdr() -> (bool, Option<kybernow_core::profile::HdrLuminance>) {
+    let monitors = displays::enumerate();
+    let key = system::home_monitor_key();
+    let m = key.and_then(|k| monitors.iter().find(|m| m.key.eq_ignore_ascii_case(&k))).or_else(|| monitors.iter().find(|m| m.primary));
+    m.filter(|m| m.hdr).map_or((false, None), |m| (true, m.luminance))
 }
 
 /// Réponse de `connect` : les écrans que la session prend (l'étape « Préparation
@@ -2937,6 +2993,10 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
     };
     let (settings, mode, label) = session_plan(&c, &pc, lighten, follow.as_ref().map(|f| f.mode));
     let plan = screens::session_plan_for(&layout.screens(), &settings, s.virtual_display);
+    // HDR : l'écran de la session (« Cet écran », ou dès qu'un des écrans pris l'est) ;
+    // le cœur relit chaque écran dans les écrans de ce PC.
+    let devices: Option<Vec<usize>> = plan.as_ref().map(|p| p.iter().map(|x| x.device).collect());
+    let (screen_hdr, screen_luminance) = displays::session_hdr(&layout.screens(), devices.as_deref());
     let audio_channels = match s.audio.as_str() {
         "auto" => audio::default_output_channels(),
         other => other.parse().unwrap_or(2),
@@ -2960,8 +3020,8 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
         // Sur le réseau d'abord (`info` en 1,5 s), par le relais sinon quand l'ordinateur
         // y est connu (docs/relais.md) ; une empreinte changée ne bascule jamais.
         route: kybernow_core::session::Route::Auto(relais::route_of(c.relay.as_ref(), c.fingerprint.as_deref())),
-        screen_hdr: false,
-        screen_luminance: None,
+        screen_hdr,
+        screen_luminance,
         capabilities: None,
     };
     let mouse = match s.mouse.as_str() {
@@ -3129,6 +3189,82 @@ fn set_keep_sound(app: &AppHandle, id: &str, on: bool) {
         let _ = app.emit("session-keep-sound", KeepSoundEvent { id: id.to_string(), on });
         tray::refresh();
     }
+}
+
+/// « HDR » de la barre (docs/link-ui.md, « HDR ») : la puce, cochable, près
+/// du profil ; seulement quand un écran de la session est HDR, jamais pour
+/// un invité ; inactive avec la raison.
+#[derive(Debug, Clone, Serialize)]
+struct BarHdr {
+    on: bool,
+    available: bool,
+    reason: Option<String>,
+}
+
+#[derive(Clone, Serialize)]
+struct BarHdrEvent {
+    id: String,
+    hdr: Option<BarHdr>,
+}
+
+/// La puce « HDR » de la barre pour la session `id`.
+fn bar_hdr(state: &UiState, id: &str) -> Option<BarHdr> {
+    let (settings, screen_hdr, guest, borrow) =
+        state.with_session(id, |r| (r.sent.lock().unwrap().settings.clone(), r.host.screen_hdr(), r.guest.is_some(), r.borrow.is_some()))?;
+    let pc = state.this_pc.lock().unwrap().clone().unwrap_or_default();
+    let info = state.live.lock().unwrap().get(id).and_then(|l| l.info.clone());
+    bar_hdr_with(&pc, info.as_ref(), &settings, screen_hdr, guest, borrow)
+}
+
+/// [`bar_hdr`] d'après ce que la session a déjà donné (sans prendre de
+/// verrou : le menu de l'icône l'appelle en parcourant les sessions) : ce PC,
+/// l'annonce de la Station, les réglages de la session, son écran, invité ou
+/// ami qui emprunte.
+fn bar_hdr_with(pc: &ThisPc, info: Option<&Info>, settings: &kybernow_core::profile::StreamSettings, screen_hdr: bool, guest: bool, borrow: bool) -> Option<BarHdr> {
+    if guest || !screen_hdr {
+        return None;
+    }
+    // L'ami d'un prêt ne lit pas l'annonce de la Station : Kyber repasse en SDR ce qu'il ne peut pas faire.
+    let chip = hdr_chip(if borrow { None } else { info }, settings, pc, true);
+    Some(BarHdr { on: chip.available && settings.hdr, available: chip.available, reason: chip.reason })
+}
+
+/// « HDR » coché ou décoché en session (barre, menu de l'icône) : gardé
+/// pour cet ordinateur (pas pour un ami qui emprunte), et appliqué tout de
+/// suite (le cœur relance l'image, étape « Premières images »).
+#[tauri::command(async)]
+fn session_hdr(app: AppHandle, id: String, on: bool) -> Result<(), String> {
+    let state = app.state::<UiState>();
+    if !state.in_session(&id) {
+        return Err(t("errors.no_session", &[]));
+    }
+    let saved = state.with_store(|s| match s.get_mut(&id) {
+        Some(c) => {
+            c.settings.hdr = Some(on);
+            s.save();
+            true
+        }
+        None => false,
+    });
+    if saved {
+        emit_computers(&app);
+    }
+    if apply_hdr(&app, &id, on) { Ok(()) } else { Err(t("errors.session_not_ready", &[])) }
+}
+
+/// Le choix « HDR » donné à la session en cours de cet ordinateur (rien
+/// sans session) ; la barre et le menu de l'icône suivent.
+fn apply_hdr(app: &AppHandle, id: &str, on: bool) -> bool {
+    let state = app.state::<UiState>();
+    let Some(applied) = state.with_session(id, |r| {
+        r.sent.lock().unwrap().settings.hdr = on;
+        r.host.set_hdr(on)
+    }) else {
+        return false;
+    };
+    let _ = app.emit_to("bar", "bar-hdr", BarHdrEvent { id: id.to_string(), hdr: bar_hdr(&state, id) });
+    tray::refresh();
+    applied
 }
 
 /// Autre profil depuis la barre : enregistré pour cet ordinateur (comme
@@ -3371,6 +3507,7 @@ pub(crate) fn show_bar_notice(app: &AppHandle, id: &str, hwnd: isize, pinned: bo
         notice_opens_lend: panel == Some("lend"),
         notice_icon: icon,
         route,
+        hdr: bar_hdr(&state, id),
         console: None,
     };
     let _ = app.emit_to("bar", "bar-shown", shown);
@@ -3493,6 +3630,9 @@ pub fn tray_state(app: &AppHandle) -> menu::State {
     let computers = state.with_store(|s| s.computers.clone());
     let waking: Vec<String> = state.waking.lock().unwrap().keys().cloned().collect();
     let following: HashMap<String, Kind> = state.following.lock().unwrap().iter().map(|(k, (p, _))| (k.clone(), p.kind)).collect();
+    // HDR : ce que chaque Station annonce, lu avant la liste des sessions (pas deux verrous à la fois).
+    let infos: HashMap<String, Info> = state.live.lock().unwrap().iter().filter_map(|(k, l)| l.info.clone().map(|i| (k.clone(), i))).collect();
+    let pc_now = pc.clone().unwrap_or_default();
     let sessions: Vec<menu::Session> = state
         .sessions
         .lock()
@@ -3521,6 +3661,9 @@ pub fn tray_state(app: &AppHandle) -> menu::State {
                     None => computers.iter().find(|c| c.id == r.id).map(|c| c.settings.mouse.clone()).unwrap_or_default(),
                 },
                 keep_sound: r.host.keep_sound(),
+                hdr: bar_hdr_with(&pc_now, infos.get(&r.id), &sent.settings, r.host.screen_hdr(), guest.is_some(), r.borrow.is_some())
+                    .filter(|h| h.available)
+                    .map(|h| h.on),
                 guest: guest.map(|(_, role)| role),
             }
         })
@@ -3613,6 +3756,10 @@ pub fn tray_command(app: &AppHandle, cmd: Cmd) {
             Cmd::KeepSound(id) => {
                 let on = state.with_session(&id, |r| r.host.keep_sound()).unwrap_or(false);
                 set_keep_sound(&app, &id, !on);
+            }
+            Cmd::Hdr(id) => {
+                let on = state.with_session(&id, |r| r.sent.lock().unwrap().settings.hdr).unwrap_or(false);
+                let _ = session_hdr(app.clone(), id, !on);
             }
             Cmd::Connect(id) => show_action(&app, Action::Connect { id }),
             Cmd::Wake(id) => fail(wake(app.clone(), id).map(|_| ())),
@@ -3789,6 +3936,7 @@ pub fn run(args: Vec<String>) {
             set_profile,
             set_open_at_login,
             displays_info,
+            session_hdr,
             fond_state,
             share::share_defaults,
             share::share_link_code,
@@ -3828,6 +3976,8 @@ pub fn run(args: Vec<String>) {
             playstation::ps_account_rename,
             playstation::ps_account_remove,
             playstation::ps_choose_account,
+            playstation::ps_set_hdr,
+            home_hdr,
             playstation::ps_pair,
             playstation::ps_probe_address,
             playstation::ps_settings,

@@ -90,6 +90,7 @@
     "disconnect": "Disconnect",
     "show": "Show",
     "keep_sound": "Keep sound",
+    "hdr": "HDR",
     "computer": "{name} — {state}",
     "online": "Online",
     "away": "Away from home",

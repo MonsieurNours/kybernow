@@ -5,6 +5,10 @@
 //! paquets de son vers AAudio, chaîne d'entrées kynput. Kotlin ne reçoit
 //! que les états, les mesures de chaque seconde, le pointeur à dessiner,
 //! les vibrations et la combinaison de la manette.
+//!
+//! HDR (docs/hdr.md) : le cœur décide de l'image en HDR ; `on_hdr` le dit à
+//! chaque démarrage de l'image, avant le décodeur, qui s'ouvre alors en
+//! HDR10 (`MediaHost::hdr`) et sort sur la même `SurfaceView`.
 
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc::Sender;
@@ -19,7 +23,7 @@ use kybernow_core::input::{Clock, GamepadRumble, InputPipeline, InputPlatform, M
 use kybernow_core::kynput_rs::Pipeline;
 use kybernow_core::latency::Second;
 use kybernow_core::media::PacketHandler;
-use kybernow_core::profile::StreamSettings;
+use kybernow_core::profile::{HdrLuminance, StreamSettings};
 use kybernow_core::session::{Notice, Platform, Session, SessionParams, Status};
 use kybernow_core::share::{ShareEnd, ShareImage, ShareRole, ShareState};
 use kybernow_core::{Display, WindowHandle};
@@ -49,6 +53,12 @@ pub struct Shared {
     pub combo_enabled: AtomicBool,
     /// « Ctrl agit comme ⌘ » (face à une Station Mac) : donné à chaque chaîne d'entrées.
     control_as_command: AtomicBool,
+    /// L'image en cours est en HDR (`on_hdr` du cœur, un seul écran) : le
+    /// décodeur suivant s'ouvre en HDR10.
+    hdr: AtomicBool,
+    /// Les valeurs HDR de l'écran de l'appareil (données à la Station) :
+    /// métadonnées HDR10 de secours du décodeur.
+    luminance: Mutex<Option<HdrLuminance>>,
 }
 
 impl Shared {
@@ -87,6 +97,11 @@ impl Shared {
             p.set_control_as_command(on);
         }
     }
+
+    /// L'écran de l'appareil a changé de valeurs HDR (`screen_hdr_changed`).
+    pub fn set_luminance(&self, luminance: Option<HdrLuminance>) {
+        *self.luminance.lock().unwrap() = luminance;
+    }
 }
 
 impl MediaHost for Shared {
@@ -108,6 +123,14 @@ impl MediaHost for Shared {
 
     fn set_video_tx(&self, tx: Sender<Msg>) {
         *self.video_tx.lock().unwrap() = Some(tx);
+    }
+
+    fn hdr(&self) -> bool {
+        self.hdr.load(Ordering::Acquire)
+    }
+
+    fn hdr_luminance(&self) -> Option<HdrLuminance> {
+        *self.luminance.lock().unwrap()
     }
 
     fn received_bytes(&self, n: usize) {
@@ -394,6 +417,15 @@ impl Platform for AndroidPlatform {
         );
     }
 
+    /// HDR : à chaque démarrage de l'image, avant le décodeur. Un seul écran
+    /// sur Android : le premier dit tout. `SessionListener.onHdr(hdr)` pour la
+    /// barre et les statistiques.
+    fn on_hdr(&self, hdr: &[bool]) {
+        let on = hdr.first().copied().unwrap_or(false);
+        self.0.hdr.store(on, Ordering::Release);
+        self.0.listener.void("onHdr", "(Z)V", &[JValue::Bool(on as u8)]);
+    }
+
     fn on_stream_started(&self) {
         if let Some(p) = self.0.current_input() {
             p.start_clipboard();
@@ -434,6 +466,7 @@ impl Platform for AndroidPlatform {
             chain[3],
             chain[4],
             chain[5],
+            if s.hdr { 1.0 } else { 0.0 },
         ];
         self.0.listener.with(|env, obj| {
             let a = env.new_double_array(values.len() as i32)?;
@@ -458,7 +491,7 @@ impl Platform for AndroidPlatform {
                 let (w, h) = mode.map(|m| (m.width, m.height)).unwrap_or((0, 0));
                 (6, w, h, false, 0, 0, mode.is_some(), None)
             }
-            // HDR : au deuxième temps sur Android (docs/hdr.md) ; le texte voyage déjà.
+            // HDR : Windows a refusé le HDR de l'écran virtuel (une fois par session) ; le texte du cœur.
             Notice::HdrRefused => (8, 0, 0, false, 0, 0, false, Some(kybernow_core::profile::hdr_refused_text(kybernow_core::i18n::current()))),
         };
         self.0.listener.with(|env, obj| {
@@ -581,6 +614,7 @@ pub fn start(params_json: &str, listener: Listener, window: Option<NativeWindow>
     let (params, _screens) = SessionParams::from_json(params_json)?;
     let android: AndroidJson = serde_json::from_str(params_json).map_err(|e| e.to_string())?;
     let mode = params.mode;
+    let luminance = params.screen_luminance;
     let clock = Arc::new(MonotonicClock::new());
     let pointer = Arc::new(PointerLayer::new(clock.clone(), true));
     let shared = Arc::new(Shared {
@@ -599,6 +633,8 @@ pub fn start(params_json: &str, listener: Listener, window: Option<NativeWindow>
         clipboard: params.clipboard && !params.is_guest(),
         combo_enabled: AtomicBool::new(android.combo),
         control_as_command: AtomicBool::new(android.control_as_command),
+        hdr: AtomicBool::new(false),
+        luminance: Mutex::new(luminance),
     });
     // Le pointeur à dessiner : position, visibilité, forme.
     let weak = Arc::downgrade(&shared);

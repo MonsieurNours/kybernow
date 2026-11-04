@@ -273,10 +273,11 @@ impl DecodeLoop {
         };
         let (w, h) = self.host.video_size();
         let hdr = self.host.hdr();
+        let luminance = if hdr { self.host.hdr_luminance() } else { None };
         let codec = MediaCodec::from_decoder_type(mime)?;
         let configured = codec
-            .configure(&format(mime, w, h, hdr, true), Some(&window), MediaCodecDirection::Decoder)
-            .or_else(|_| codec.configure(&format(mime, w, h, hdr, false), Some(&window), MediaCodecDirection::Decoder));
+            .configure(&format(mime, w, h, hdr, luminance, true), Some(&window), MediaCodecDirection::Decoder)
+            .or_else(|_| codec.configure(&format(mime, w, h, hdr, luminance, false), Some(&window), MediaCodecDirection::Decoder));
         if let Err(e) = configured {
             log::error!("image : décodeur {mime} impossible à configurer ({e:?})");
             return None;
@@ -303,9 +304,13 @@ impl DecodeLoop {
 /// Format du décodeur : faible latence (Android 11), priorité temps réel, et
 /// les clés des fabricants connues pour couper la remise en ordre des images
 /// (Qualcomm, Samsung Exynos, Amlogic). Refusé avec elles : on réessaie sans.
-/// En HDR10 : HEVC Main10, BT.2020 et PQ annoncés (le flux les porte aussi
-/// dans son VUI), pour que l'écran passe en HDR.
-fn format(mime: &str, w: u32, h: u32, hdr: bool, vendor: bool) -> MediaFormat {
+/// En HDR10 (HEVC Main 10 ou AV1 10 bits) : profil HDR10, BT.2020 et PQ
+/// annoncés (le flux les porte aussi dans son VUI ou son en-tête de
+/// séquence), pour que la surface soit étiquetée HDR10 et que l'écran passe
+/// en HDR ; sur un écran qui ne l'est plus, Android ramène l'image au SDR.
+/// `luminance` : les métadonnées HDR10 de secours (`hdr-static-info`), que le
+/// décodeur ne prend que si le flux n'a pas les siennes.
+fn format(mime: &str, w: u32, h: u32, hdr: bool, luminance: Option<kybernow_core::profile::HdrLuminance>, vendor: bool) -> MediaFormat {
     let mut f = MediaFormat::new();
     f.set_str("mime", mime);
     f.set_i32("width", w as i32);
@@ -314,13 +319,16 @@ fn format(mime: &str, w: u32, h: u32, hdr: bool, vendor: bool) -> MediaFormat {
     f.set_i32("max-height", h.max(2160) as i32);
     f.set_i32("low-latency", 1);
     f.set_i32("priority", 0);
-    if hdr && mime == "video/hevc" {
-        // MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10HDR10 ; MediaFormat.COLOR_STANDARD_BT2020,
-        // COLOR_TRANSFER_ST2084, COLOR_RANGE_LIMITED.
+    if hdr && (mime == "video/hevc" || mime == "video/av01") {
+        // MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10HDR10 et AV1ProfileMain10HDR10 (0x1000 tous deux) ;
+        // MediaFormat.COLOR_STANDARD_BT2020, COLOR_TRANSFER_ST2084, COLOR_RANGE_LIMITED.
         f.set_i32("profile", 0x1000);
         f.set_i32("color-standard", 6);
         f.set_i32("color-transfer", 6);
         f.set_i32("color-range", 2);
+        if let Some(l) = luminance {
+            f.set_buffer("hdr-static-info", &crate::hdr::static_info(l));
+        }
     }
     if vendor {
         f.set_i32("vendor.qti-ext-dec-picture-order.enable", 1);

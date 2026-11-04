@@ -81,6 +81,12 @@ data class HostSettings(
     val padOpacity: Int = 70,
     /** Son retour haptique : 0 désactivé, 1 faible, 2 moyen, 3 fort. */
     val padHaptics: Int = 2,
+    /**
+     * Le choix « HDR » de cet ordinateur (docs/hdr.md) : allumé la première fois (le HDR est automatique), gardé
+     * ensuite. À part du profil : il ne fait jamais passer en « Personnalisé ». Ne sert que sur un écran HDR
+     * ([Hdr.state]).
+     */
+    val hdr: Boolean = true,
 ) {
     val padSimple get() = padLayout == "simple"
 
@@ -110,7 +116,7 @@ data class HostSettings(
         .put("gameMode", gameMode).put("mouse", mouse).put("directTouch", directTouch)
         .put("clipboard", clipboard).put("ctrlCommand", ctrlCommand ?: JSONObject.NULL).put("reconnect", reconnect).put("transport", transport)
         .put("onScreenPad", onScreenPad).put("padLayout", padLayout).put("padSize", padSize)
-        .put("padOpacity", padOpacity).put("padHaptics", padHaptics)
+        .put("padOpacity", padOpacity).put("padHaptics", padHaptics).put("hdr", hdr)
 
     companion object {
         /** Les opacités proposées pour la manette à l'écran. */
@@ -146,6 +152,7 @@ data class HostSettings(
                 padSize = o.optInt("padSize", d.padSize).coerceIn(0, 2),
                 padOpacity = o.optInt("padOpacity", d.padOpacity).takeIf { it in PAD_OPACITIES } ?: d.padOpacity,
                 padHaptics = o.optInt("padHaptics", d.padHaptics).coerceIn(0, 3),
+                hdr = o.optBoolean("hdr", d.hdr),
             ).let { if (it.transport == "reliable" && it.profile.reliable) it.copy(transport = "auto") else it }
         }
     }
@@ -168,10 +175,12 @@ data class LastSession(
     val mbps: Int = 0,
     /** Le chemin de la session (`route` du cœur : `direct`, `relay`, `relay_tcp`) ; nul avant le relais (0.7.x). */
     val route: String? = null,
+    /** L'image a été en HDR (« HDR » après le format) ; absent : non. */
+    val hdr: Boolean = false,
 ) {
     fun json(): JSONObject = JSONObject().put("median", median).put("p95", p95).put("seconds", seconds).put("at", at)
         .put("width", width).put("height", height).put("refresh", refresh).put("codec", codec ?: JSONObject.NULL).put("mbps", mbps)
-        .put("route", route ?: JSONObject.NULL)
+        .put("route", route ?: JSONObject.NULL).put("hdr", hdr)
 
     companion object {
         fun parse(o: JSONObject) = LastSession(
@@ -180,6 +189,7 @@ data class LastSession(
             codec = if (o.isNull("codec")) null else o.optString("codec").takeIf { it.isNotEmpty() },
             mbps = o.optInt("mbps"),
             route = if (o.isNull("route")) null else o.optString("route").takeIf { it.isNotEmpty() },
+            hdr = o.optBoolean("hdr"),
         )
     }
 }

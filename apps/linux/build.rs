@@ -11,7 +11,12 @@
 //!   Raspberry Pi et son HEVC V4L2 request, lié à libudev), en statique,
 //!   derrière `src/native/decoder.c` ;
 //! - libva et libdrm (runtime) : sonde des décodeurs, du VRR et des modes de
-//!   l'écran, `src/native/`.
+//!   l'écran, `src/native/` ;
+//! - HDR sur Wayland (`src/native/wayland_hdr.c`, `hdr_gl.c`) : libwayland-client,
+//!   libwayland-egl, EGL et OpenGL ES 2, et les en-têtes de SDL2 (fenêtre
+//!   Wayland de SDL) ; le code des protocoles `color-management-v1` et
+//!   `viewporter` (wayland-protocols 1.45) est déjà produit par wayland-scanner
+//!   dans `src/native/wayland`.
 
 use std::path::PathBuf;
 use std::{env, fs};
@@ -50,12 +55,20 @@ fn main() {
     let prefix = PathBuf::from(env::var("KYBERNOW_PREFIX").expect("KYBERNOW_PREFIX (posé par apps/linux/scripts/build.sh)"));
     let va = pkg_config::Config::new().cargo_metadata(false).probe("libva").expect("libva introuvable (pkg-config libva)");
     let drm = pkg_config::Config::new().cargo_metadata(false).probe("libdrm").expect("libdrm introuvable (pkg-config libdrm)");
+    let mut hdr_libs = Vec::new();
+    for lib in ["wayland-client", "wayland-egl", "egl", "glesv2", "sdl2"] {
+        hdr_libs.push(pkg_config::Config::new().cargo_metadata(false).probe(lib).unwrap_or_else(|e| panic!("{lib} introuvable ({e})")));
+    }
     // Le FFmpeg de Raspberry Pi (build.sh --rpi) : hwaccel HEVC V4L2 request, avec libudev.
     let v4l2_request = env::var("KYBERNOW_V4L2_REQUEST").is_ok_and(|v| v == "1");
     let mut native = cc::Build::new();
     native
         .file("src/native/decoder.c")
         .file("src/native/display.c")
+        .file("src/native/hdr_gl.c")
+        .file("src/native/wayland_hdr.c")
+        .file("src/native/wayland/color-management-v1.c")
+        .file("src/native/wayland/viewporter.c")
         .include(prefix.join("include"))
         .flag_if_supported("-Wno-deprecated-declarations")
         .opt_level(2)
@@ -63,7 +76,7 @@ fn main() {
     if v4l2_request {
         native.define("KN_V4L2_REQUEST", None);
     }
-    for p in va.include_paths.iter().chain(drm.include_paths.iter()) {
+    for p in va.include_paths.iter().chain(drm.include_paths.iter()).chain(hdr_libs.iter().flat_map(|l| l.include_paths.iter())) {
         native.include(p);
     }
     native.compile("kybernow_native");
@@ -75,6 +88,9 @@ fn main() {
     println!("cargo:rustc-link-arg=-lva");
     println!("cargo:rustc-link-arg=-lva-drm");
     println!("cargo:rustc-link-arg=-ldrm");
+    for lib in ["wayland-client", "wayland-egl", "EGL", "GLESv2"] {
+        println!("cargo:rustc-link-arg=-l{lib}");
+    }
     if v4l2_request {
         println!("cargo:rustc-link-arg=-ludev");
     }

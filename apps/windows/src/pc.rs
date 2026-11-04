@@ -23,6 +23,9 @@ pub struct ThisPc {
     pub hevc: bool,
     pub hevc444: bool,
     pub av1: bool,
+    /// HDR (docs/hdr.md) : la carte décode en 10 bits ce qu'une session HDR
+    /// prend (`decoder::hdr_capable`).
+    pub hdr: bool,
     pub width: u32,
     pub height: u32,
     pub refresh: u32,
@@ -39,6 +42,11 @@ pub struct Gpu {
     pub hevc: bool,
     pub hevc444: bool,
     pub av1: bool,
+    /// HEVC Main 10, AV1 10 bits (absents d'une sonde d'avant le HDR).
+    #[serde(default)]
+    pub hevc10: bool,
+    #[serde(default)]
+    pub av1_10: bool,
 }
 
 /// Côté processus de sonde : la carte et ses décodeurs.
@@ -49,7 +57,7 @@ pub fn probe_gpu() -> Gpu {
             let gpu = render::adapter_name(&device);
             log::info!("sonde : {gpu}, décodeurs");
             let p = decoder::probe(&device);
-            Gpu { gpu, h264: p.h264, hevc: p.caps.hevc, hevc444: p.caps.hevc444, av1: p.caps.av1 }
+            Gpu { gpu, h264: p.h264, hevc: p.caps.hevc, hevc444: p.caps.hevc444, av1: p.caps.av1, hevc10: p.hevc10, av1_10: p.av1_10 }
         }
         Err(e) => {
             log::warn!("sonde : Direct3D 11 indisponible ({e})");
@@ -114,6 +122,7 @@ pub fn this_pc() -> ThisPc {
         hevc: gpu.hevc,
         hevc444: gpu.hevc444,
         av1: gpu.av1,
+        hdr: decoder::hdr_capable(gpu.hevc, gpu.hevc10, gpu.av1, gpu.av1_10),
         width: mode.width,
         height: mode.height,
         refresh: mode.refresh,

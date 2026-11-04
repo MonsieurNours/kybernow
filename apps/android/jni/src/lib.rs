@@ -4,13 +4,15 @@
 //! entrées. Le décodage de l'image (MediaCodec) et la sortie du son (AAudio)
 //! sont ici aussi, en Rust : le chemin chaud ne passe jamais par Java.
 //!
-//! Hors d'Android la crate est vide (le reste de l'espace de travail se
-//! compile sans le NDK).
+//! Hors d'Android la crate se réduit aux règles pures (`hdr`), essayées par
+//! `cargo test` : le reste de l'espace de travail se compile sans le NDK.
 
 #[cfg(target_os = "android")]
 mod audio;
 #[cfg(target_os = "android")]
 mod exports;
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+mod hdr;
 #[cfg(target_os = "android")]
 mod jvm;
 #[cfg(target_os = "android")]

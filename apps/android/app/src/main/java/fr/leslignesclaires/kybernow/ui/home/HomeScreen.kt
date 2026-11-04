@@ -73,6 +73,8 @@ import fr.leslignesclaires.kybernow.core.LendView
 import fr.leslignesclaires.kybernow.model.Announced
 import fr.leslignesclaires.kybernow.model.BorrowedComputer
 import fr.leslignesclaires.kybernow.model.Decoders
+import fr.leslignesclaires.kybernow.model.Hdr
+import fr.leslignesclaires.kybernow.model.HdrState
 import fr.leslignesclaires.kybernow.model.Host
 import fr.leslignesclaires.kybernow.model.HostSettings
 import fr.leslignesclaires.kybernow.model.Profile
@@ -86,6 +88,8 @@ import fr.leslignesclaires.kybernow.ui.Eyebrow
 import fr.leslignesclaires.kybernow.ui.FitTitle
 import fr.leslignesclaires.kybernow.ui.FocusCard
 import fr.leslignesclaires.kybernow.ui.GlassButton
+import fr.leslignesclaires.kybernow.ui.HdrChip
+import fr.leslignesclaires.kybernow.ui.rememberHdrScreen
 import fr.leslignesclaires.kybernow.ui.HostStatus
 import fr.leslignesclaires.kybernow.ui.RelayRefusal
 import fr.leslignesclaires.kybernow.ui.Kn
@@ -134,6 +138,8 @@ class HomeActions(
     val takeBack: (Host, Boolean) -> Unit = { _, _ -> },
     /** Consoles PlayStation (docs/link-ui.md, « Consoles PlayStation »). */
     val ps: PsHomeActions = PsHomeActions(),
+    /** La puce « HDR » d'un ordinateur : le choix gardé pour lui (docs/hdr.md). */
+    val setHdr: (Host, Boolean) -> Unit = { _, _ -> },
 )
 
 /** Tout ce que l'accueil montre. */
@@ -169,6 +175,8 @@ data class HomeState(
     val lendErrors: Map<String, String> = emptyMap(),
     /** Consoles PlayStation : dans la même rangée que les ordinateurs, après eux. */
     val ps: PsHomeState = PsHomeState(),
+    /** La puce « HDR » de chaque ordinateur (absente : écran SDR, aucune trace du HDR). */
+    val hdr: Map<String, HdrState> = emptyMap(),
 )
 
 @Composable
@@ -203,8 +211,10 @@ fun HomeScreen(model: AppModel, actions: HomeActions) {
     val psWaking by ps.waking.collectAsState()
     val reaching by ps.reaching.collectAsState()
     val reachErrors by ps.reachErrors.collectAsState()
-    val hdrScreen = remember { PsHdr.screen(context) }
-    val psState = remember(consoles, pairings, accounts, found, searched, awayHosts, psWaking, reaching, reachErrors) {
+    // L'écran de l'appareil, suivi : un téléviseur qui coupe le HDR fait disparaître les puces.
+    val hdrScreen = rememberHdrScreen()
+    val hdr = remember(hosts, status, hdrScreen) { hosts.associate { it.id to Hdr.state(it, status[it.id]?.info, app.decoders, hdrScreen) } }
+    val psState = remember(consoles, pairings, accounts, found, searched, awayHosts, psWaking, reaching, reachErrors, hdrScreen) {
         PsHomeState(
             consoles = consoles,
             status = consoles.associate { it.id to ps.status(it) },
@@ -213,7 +223,7 @@ fun HomeScreen(model: AppModel, actions: HomeActions) {
             chosen = consoles.mapNotNull { c -> ps.store.chosenAccount(c)?.let { c.id to it } }.toMap(),
             unpaired = found.values.filter { f -> consoles.none { it.hostId == f.hostId } }.sortedBy { it.name },
             waking = psWaking, reaching = reaching, reachErrors = reachErrors,
-            hdrScreen = hdrScreen, hdrDecoder = PsHdr.decoder,
+            hdrScreen = hdrScreen.hdr, hdrDecoder = PsHdr.decoder,
         )
     }
     DisposableEffect(Unit) {
@@ -223,7 +233,7 @@ fun HomeScreen(model: AppModel, actions: HomeActions) {
     HomeContent(
         HomeState(
             hosts, selectedId, status, images, announced, screen, app.decoders, pads.count { !it.onScreen }, update.offered, waking, connecting, refusals,
-            borrowed, friends, borrowing, borrowErrors, known, lend, lendErrors, psState,
+            borrowed, friends, borrowing, borrowErrors, known, lend, lendErrors, psState, hdr,
         ),
         actions,
     )
@@ -330,13 +340,20 @@ private fun IconPill(icon: androidx.compose.ui.graphics.vector.ImageVector, labe
     }
 }
 
-/** L'écran que la session créera (même calcul que la session, `SessionMode`). */
+/** L'écran que la session créera (même calcul que la session, `SessionMode`) ; HDR allumé et possible : « …, en HDR ». */
 @Composable
-fun displayLine(host: Host, screen: Screen, decoders: Decoders): String {
+fun displayLine(host: Host, screen: Screen, decoders: Decoders, hdr: Boolean = false): String {
     if (!host.virtualDisplay || !host.settings.virtualDisplay) return stringResource(R.string.home_display_as_is)
     val mode = SessionMode.pick(screen, host.settings, SessionMode.codec(host, decoders), decoders)
     val (w, h, r) = mode
-    return stringResource(if (SessionMode.matchesScreen(screen, host.settings, mode)) R.string.home_display_match else R.string.home_display_custom, w, h, r)
+    val match = SessionMode.matchesScreen(screen, host.settings, mode)
+    val text = when {
+        match && hdr -> R.string.home_display_match_hdr
+        match -> R.string.home_display_match
+        hdr -> R.string.home_display_custom_hdr
+        else -> R.string.home_display_custom
+    }
+    return stringResource(text, w, h, r)
 }
 
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
@@ -356,10 +373,11 @@ private fun Hero(host: Host, st: HostStatus, state: HomeState, actions: HomeActi
         lent?.let { LentLine(it) }
         state.lendErrors[host.id]?.takeIf { it.isNotBlank() }?.let { Body(it, color = Kn.warn, size = 13f) }
         (st.info?.os ?: host.os)?.takeIf { it.isNotBlank() }?.let { Body(it, size = 16f, color = Kn.frost2, maxLines = 1) }
+        val hdr = state.hdr[host.id] ?: HdrState.HIDDEN
         Row(verticalAlignment = Alignment.CenterVertically) {
             KnIcon(KnIcons.screen, tint = Kn.muted, size = 16f)
             Spacer(Modifier.width(s.dp(8f)))
-            Body(displayLine(host, state.screen, state.decoders), size = 14f, color = Kn.frost2)
+            Body(displayLine(host, state.screen, state.decoders, hdr.on(set.hdr)), size = 14f, color = Kn.frost2)
         }
         Spacer(Modifier.height(s.dp(if (s.tv) 2f else 6f)))
         val first = Modifier.then(if (focus != null) Modifier.focusRequester(focus) else Modifier)
@@ -372,6 +390,11 @@ private fun Hero(host: Host, st: HostStatus, state: HomeState, actions: HomeActi
             else MainButton(host, st, state, actions, first.widthIn(max = s.dp(560f)).fillMaxWidth())
             Row(Modifier.widthIn(max = s.dp(560f)), verticalAlignment = Alignment.CenterVertically) {
                 ProfileSegments(set, { p -> actions.setProfile(host.id, p) }, { actions.hostSettings(host) }, Modifier.weight(1f))
+                // La puce « HDR » à côté du profil (écran HDR seulement).
+                if (hdr.shown) {
+                    Spacer(Modifier.width(s.dp(10f)))
+                    HdrChip(hdr, set.hdr, { actions.setHdr(host, !set.hdr) })
+                }
                 Spacer(Modifier.width(s.dp(10f)))
                 IconPill(KnIcons.settings, a11y) { actions.hostSettings(host) }
             }
@@ -385,6 +408,8 @@ private fun Hero(host: Host, st: HostStatus, state: HomeState, actions: HomeActi
                 }
                 // « Personnalisé » n'est pas un choix : il dit que les réglages s'écartent du profil.
                 if (set.custom) GlassButton(stringResource(R.string.profile_custom), { actions.hostSettings(host) }, selected = true)
+                // La puce « HDR », à côté du profil (écran HDR seulement ; à part du profil : jamais « Personnalisé »).
+                HdrChip(hdr, set.hdr, { actions.setHdr(host, !set.hdr) })
                 GlassButton(
                     stringResource(R.string.home_host_settings), { actions.hostSettings(host) },
                     Modifier.semantics { contentDescription = a11y },

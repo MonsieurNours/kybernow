@@ -55,6 +55,7 @@ pub fn poll(host: Host, want_preview: bool, tx: Sender<Event>) {
                     lend: Some(lend_avail),
                     lend_view,
                     gamepads: Some(info.gamepads_available()),
+                    hdr: Some(station_hdr(&info)),
                 });
                 if want_preview
                     && let Ok(bytes) = c.preview(960)
@@ -67,10 +68,27 @@ pub fn poll(host: Host, want_preview: bool, tx: Sender<Event>) {
                 log::info!("{} : hors ligne ({e})", host.name);
                 // Le réseau ne répond pas : l'ordinateur est peut-être joignable par le relais (« Hors de chez vous »).
                 let away = away_from_home(&host, &e);
-                let _ = tx.send(Event::HostInfo { id: host.id.clone(), online: false, away, relay: None, os: None, gpu: None, av1: false, virtual_display: None, max_screens: None, station: None, wake: Vec::new(), own_device: None, share: None, lend: None, lend_view: None, gamepads: None });
+                let _ = tx.send(Event::HostInfo { id: host.id.clone(), online: false, away, relay: None, os: None, gpu: None, av1: false, virtual_display: None, max_screens: None, station: None, wake: Vec::new(), own_device: None, share: None, lend: None, lend_view: None, gamepads: None, hdr: None });
             }
         }
     });
+}
+
+/// Le HDR que la Station annonce (`Info::hdr` du cœur, `GET /api/stream/info`) ; absent (Station d'avant le HDR) :
+/// « L'ordinateur ne propose pas le HDR. ».
+pub fn station_hdr(info: &kybernow_core::console::Info) -> crate::app::StationHdr {
+    use crate::app::StationHdr;
+    use kybernow_core::profile::HdrReason;
+    match &info.hdr {
+        Some(h) if h.available => StationHdr::Available,
+        Some(h) => match HdrReason::from_station(h.reason.as_deref()) {
+            HdrReason::Windows => StationHdr::Windows,
+            HdrReason::Encoder => StationHdr::Encoder,
+            HdrReason::Display => StationHdr::Display,
+            _ => StationHdr::Off,
+        },
+        None => StationHdr::Off,
+    }
 }
 
 /// Le relais d'un ordinateur tel qu'Admin le donne (`info.relay`), à garder avec lui.
@@ -555,12 +573,15 @@ static LAST_BORROW: std::sync::Mutex<Option<LastBorrow>> = std::sync::Mutex::new
 
 /// La demande d'emprunt de cet appareil : le prénom, l'identifiant de l'appareil, `linux`, l'écran (la Station fait
 /// l'écran virtuel à sa taille) et les formats que l'appareil décode.
-pub fn borrow_request(credentials: lend::LendCredentials, name: String, device: String, screen: (u32, u32, u32), av1: bool) -> lend::BorrowRequest {
+/// `hdr` : le HDR voulu pour l'écran de l'appareil (écran HDR, puce allumée) et ses valeurs ; l'écran virtuel de l'ami
+/// est préparé en HDR comme celui d'un hôte.
+pub fn borrow_request(credentials: lend::LendCredentials, name: String, device: String, screen: (u32, u32, u32), av1: bool, hdr: Option<kybernow_core::profile::HdrLuminance>) -> lend::BorrowRequest {
     let mut codecs = vec!["hevc".to_string(), "h264".to_string()];
     if av1 {
         codecs.push("av1".into());
     }
-    lend::BorrowRequest { credentials, name, device, app: "linux".into(), screen: Mode { width: screen.0, height: screen.1, refresh: screen.2 }.into(), codecs }
+    let screen = lend::BorrowScreen::from(Mode { width: screen.0, height: screen.1, refresh: screen.2 }).with_hdr(hdr.is_some(), hdr);
+    lend::BorrowRequest { credentials, name, device, app: "linux".into(), screen, codecs }
 }
 
 /// Emprunter (`lend::borrow`, 30 s au plus) : le prêt démarre (`Event::Borrowed`), ou l'hôte doit accepter
@@ -713,6 +734,8 @@ pub fn friend_add(address: String, port: u16, fingerprint: Option<String>, relay
                     login: login.clone(),
                     password: if remember { password.clone() } else { String::new() },
                     remember,
+                    // `put_borrowed` garde le choix d'un ordinateur déjà emprunté.
+                    hdr_off: false,
                 };
                 Box::new((b, lend_live(&s), password.clone()))
             });

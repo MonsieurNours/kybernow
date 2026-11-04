@@ -94,14 +94,18 @@ fn display_parts(app: &App, h: &Host) -> Vec<(String, bool)> {
     if !app.virtual_display_usable(h) {
         return vec![(tr("Les écrans de l'ordinateur, tels quels", "The computer's own displays, as they are").into(), false)];
     }
+    // HDR allumé et proposé : « …, en HDR » (docs/link-ui.md, « HDR »).
+    let hdr = app.hdr_on(h).then(|| (tr(", en HDR", ", in HDR").to_string(), false));
     // Plusieurs écrans (bureau) : « 3 écrans, à la taille de ceux de cet appareil », le même calcul que la session.
     if app.multi_screens() && app.screens_plan.count >= 2 {
         let n = app.screens_plan.count.to_string();
-        return if english() {
+        let mut v = if english() {
             vec![(n, true), (" displays, sized for this device's screens".into(), false)]
         } else {
             vec![(n, true), (" écrans, à la taille de ceux de cet appareil".into(), false)]
         };
+        v.extend(hdr);
+        return v;
     }
     let (w, hh, fps) = app.session_mode(h);
     let custom = h.settings.resolution != 0 || h.settings.fps != 0;
@@ -114,7 +118,17 @@ fn display_parts(app: &App, h: &Host) -> Vec<(String, bool)> {
     if !custom {
         v.push((tr(", à la taille de cet écran", ", sized for this screen").into(), false));
     }
+    v.extend(hdr);
     v
+}
+
+/// La puce « HDR » de cet ordinateur, à côté du profil (écran HDR seulement) ; rend sa largeur (avec l'écart qui la
+/// suit) et son aide quand elle est survolée ou au focus.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn hdr_chip(cv: &mut Canvas, f: &mut Frame, ui: Option<crate::app::HdrUi>, x: f32, y: f32, h: f32, size: f32, gap: f32) -> (f32, Option<&'static str>) {
+    let Some(u) = ui else { return (0.0, None) };
+    let (w, over) = widgets::hdr_chip(cv, f, x, y, h, size, u);
+    (w + gap, over.then(|| u.help()))
 }
 
 fn display_chip(app: &App, cv: &mut Canvas, h: &Host, x: f32, y: f32, ch: f32, size: f32) -> f32 {
@@ -220,9 +234,11 @@ fn desktop(app: &App, cv: &mut Canvas, f: &mut Frame, host: Option<&Host>) {
             let mut x = x0;
             x += main_button(app, cv, f, hst, x, y, 52.0) + 18.0;
             x += profiles(cv, f, hst, x, y + 3.0, 46.0, 14.0) + 12.0;
+            let (hw, help) = hdr_chip(cv, f, app.hdr_ui(hst), x, y + 3.0, 46.0, 14.0, 12.0);
+            x += hw;
             widgets::ghost(cv, f, Target::HostSettings, x, y + 3.0, 46.0, 14.0, Some(Icon::Gear), tr("Réglages", "Settings"), MUTED);
             y += 52.0 + 30.0;
-            cv.text_fit(x0, y, Text::new(Font::Regular, 14.0, FAINT), phrase(hst), hero_max);
+            cv.text_fit(x0, y, Text::new(Font::Regular, 14.0, FAINT), help.unwrap_or_else(|| phrase(hst)), hero_max);
         }
         None if app.selected_borrowed().is_some() || app.selected_console().is_some() => {}
         None => welcome(cv, f, x0, y, 1.0, hero_max),
@@ -390,7 +406,12 @@ fn borrowed_hero(app: &App, cv: &mut Canvas, f: &mut Frame, b: &crate::model::Bo
     } else {
         let enabled = state.is_none_or(LendState::borrowable);
         let bw = widgets::primary_state(cv, f, Target::Borrow, x0, y, bh, &borrow_label(app, b), true, enabled);
-        widgets::ghost(cv, f, Target::BorrowRemove, x0 + bw + 18.0 * u, y + 3.0 * u, bh - 6.0 * u, 14.0 * u, None, tr("Retirer cet ordinateur", "Remove this computer"), MUTED);
+        // La puce « HDR » de l'ami, comme celle d'un hôte (écran HDR seulement).
+        let (hw, help) = hdr_chip(cv, f, app.borrowed_hdr_ui(&b.id), x0 + bw + 18.0 * u, y + 3.0 * u, bh - 6.0 * u, 14.0 * u, 12.0 * u);
+        widgets::ghost(cv, f, Target::BorrowRemove, x0 + bw + 18.0 * u + hw, y + 3.0 * u, bh - 6.0 * u, 14.0 * u, None, tr("Retirer cet ordinateur", "Remove this computer"), MUTED);
+        if let Some(help) = help {
+            cv.text_fit(x0, y + bh + 26.0 * u, Text::new(Font::Regular, 15.0 * u, FAINT), help, hero_max);
+        }
     }
     y += bh + 26.0 * u;
     if let Some(m) = app.borrow.message.as_ref().filter(|_| app.borrow.id == b.id && !busy) {
@@ -471,10 +492,12 @@ fn console(app: &App, cv: &mut Canvas, f: &mut Frame, host: Option<&Host>, logo:
             let mut x = x0;
             x += main_button(app, cv, f, hst, x, y, 60.0 * u) + 22.0 * u;
             x += profiles(cv, f, hst, x, y + 4.0 * u, 52.0 * u, 17.0 * u) + 14.0 * u;
+            let (hw, help) = hdr_chip(cv, f, app.hdr_ui(hst), x, y + 4.0 * u, 52.0 * u, 17.0 * u, 14.0 * u);
+            x += hw;
             // « Réglages » se voit et se touche (écran tactile du Deck, souris) ; Y l'ouvre aussi.
             widgets::ghost(cv, f, Target::HostSettings, x, y + 4.0 * u, 52.0 * u, 17.0 * u, Some(Icon::Gear), tr("Réglages", "Settings"), MUTED);
             y += 60.0 * u + 30.0 * u;
-            cv.text_fit(x0, y, Text::new(Font::Regular, 15.0 * u, FAINT), phrase(hst), hero_max);
+            cv.text_fit(x0, y, Text::new(Font::Regular, 15.0 * u, FAINT), help.unwrap_or_else(|| phrase(hst)), hero_max);
         }
         None if app.selected_borrowed().is_some() || app.selected_console().is_some() => {}
         None => welcome(cv, f, x0, y, u, hero_max),

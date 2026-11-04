@@ -76,7 +76,7 @@
   import StatsPanel from './lib/StatsPanel.svelte'
   import Mark from './lib/Mark.svelte'
   import Segmented from './lib/Segmented.svelte'
-  import type { PsBar, PsBarNav, PsStats } from './lib/api'
+  import type { BarHdr, PsBar, PsBarNav, PsStats } from './lib/api'
   import { psStatsLines } from './lib/api'
   import type { AppInfo, BarComputer, BorrowBar, BorrowEvent, GuestBar, KeepSound, LendPanel, LendRequest, LendStateEvent, RouteEvent, RouteView, SessionStats, Share, ShareGuest, ShareImageEvent, ShareQr, ShareQuality, ShareRequestEvent, ShareRole, ShareRoleEvent, ShareStateEvent, Stats } from './lib/api'
   import { invoke, leftText, lendDurations, listen, ms, roleKbm, roleOf, rolePads, rolePlays, shareQualities, sinceText } from './lib/api'
@@ -161,6 +161,8 @@
   let multi = $state(false)
   /** « Garder le son » de cette session. */
   let keepSound = $state(false)
+  /** « HDR », cochable, près du profil (docs/link-ui.md, « HDR ») : absent sans écran HDR, et pour un invité. */
+  let hdr = $state<BarHdr | null>(null)
   /** Sessions ouvertes : le bouton « Garder le son » à partir de deux. */
   let sessionCount = $state(1)
   /** Le menu « Ordinateurs » : tous les ordinateurs (celui de la session est écarté à l'affichage). */
@@ -198,6 +200,8 @@
     notice_opens_lend?: boolean
     notice_icon?: string | null
     route?: RouteView | null
+    /** La puce « HDR » (écran HDR seulement). */
+    hdr?: BarHdr | null
     lend?: LendPanel | null
     borrow?: BorrowBar | null
     /** Partie sur une console PlayStation : la barre de la console. */
@@ -293,6 +297,11 @@
         seconds = entry.seconds
         losses = entry.losses
         multi = s.screens > 1
+        reportWidth()
+      }),
+      listen<{ id: string; hdr: BarHdr | null }>('bar-hdr', (e) => {
+        if (e.id !== id) return
+        hdr = e.hdr
         reportWidth()
       }),
       listen<Shown>('bar-label', (s) => {
@@ -437,6 +446,7 @@
         sentWidth = 0
         multi = !!s.multi
         keepSound = !!s.keep_sound
+        hdr = s.hdr ?? null
         sessionCount = s.sessions ?? 1
         refusal = null
         // Par où passe cette session (puce « Par le relais »).
@@ -683,6 +693,13 @@
       refusal = String(e)
       await growForMenu()
     }
+  }
+
+  /** « HDR » coché ou non : gardé pour l'ordinateur, l'image se relance (étape « Premières images »). */
+  async function toggleHdr() {
+    if (!hdr?.available) return
+    hdr = { ...hdr, on: !hdr.on }
+    await invoke('session_hdr', { id, on: hdr.on }).catch(() => {})
   }
 
   async function toggleKeepSound() {
@@ -1047,6 +1064,24 @@
   {#if caret}<span class="caret" aria-hidden="true">▾</span>{/if}
 {/snippet}
 
+<!-- « HDR », cochable (écran HDR seulement) ; son texte reste même en barre étroite ; inactif avec la raison. -->
+{#snippet hdrChip()}
+  {#if hdr}
+    <button
+      class="chip"
+      class:on={hdr.on}
+      class:dim={!hdr.available}
+      disabled={!hdr.available}
+      aria-pressed={hdr.on}
+      aria-label={hdr.on ? t('hdr.on') : t('hdr.off')}
+      title={hdr.reason ?? t('hdr.help')}
+      onclick={toggleHdr}
+    >
+      {@render chipBody('sparkle', 'HDR', false, true)}
+    </button>
+  {/if}
+{/snippet}
+
 <!-- Le haut-parleur : « Stéréo », « 5.1 », « Son coupé » ; à partir de deux sessions, le bouton « Garder le son ». -->
 {#snippet soundChip()}
   {#if soundOff || sessionCount < 2}
@@ -1256,6 +1291,7 @@
     {@render relayChip()}
     {@render statsButton()}
     <span class="sep"></span>
+    {@render hdrChip()}
     {@render soundChip()}
     {@render mouseChip()}
     {@render keysChip()}
@@ -1550,6 +1586,7 @@
         </div>
       {/if}
     </div>
+    {@render hdrChip()}
     {@render soundChip()}
     {@render mouseChip()}
     {@render keysChip()}

@@ -26,6 +26,7 @@ use kybernow_core::session::Session;
 
 use crate::decoder::{self, Decoder, codec_name, is_corrupt};
 use crate::gpu::Gpu;
+use crate::hdr::ScreenHdr;
 use crate::render::Renderer;
 
 pub enum VideoMsg {
@@ -121,6 +122,13 @@ pub struct Shared {
     /// l'écran en centièmes (100 : 100 %), 0 quand il n'a pas lieu d'être.
     /// Posé par la fenêtre, lu à chaque image.
     pub edge_hint: AtomicU32,
+    /// HDR (docs/hdr.md) : l'écran de ce PC où est la fenêtre, posé par le
+    /// fil des fenêtres (création, fenêtre glissée, écrans changés), lu à
+    /// chaque image par le rendu.
+    pub screen_hdr: Mutex<ScreenHdr>,
+    /// Le flux de cet écran est annoncé HDR (`Platform::on_hdr`, ou la
+    /// console) : une image 10 bits sans étiquette compte comme PQ.
+    pub stream_hdr: AtomicBool,
 }
 
 impl Shared {
@@ -135,6 +143,8 @@ impl Shared {
             watch: Mutex::new(None),
             last_image: Mutex::new(None),
             edge_hint: AtomicU32::new(0),
+            screen_hdr: Mutex::new(ScreenHdr::default()),
+            stream_hdr: AtomicBool::new(false),
         })
     }
 
@@ -563,7 +573,8 @@ fn run(
                             if newer_waiting {
                                 continue;
                             }
-                            match renderer.draw(frame, shared.edge_hint.load(Ordering::Relaxed)) {
+                            renderer.set_screen(*shared.screen_hdr.lock().unwrap());
+                            match renderer.draw(frame, shared.edge_hint.load(Ordering::Relaxed), shared.stream_hdr.load(Ordering::Relaxed)) {
                                 Ok(()) => {
                                     // Les mesures sont celles de l'écran principal :
                                     // arrivée, décodage et affichage de l'image, pour

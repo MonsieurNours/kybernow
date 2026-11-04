@@ -345,6 +345,7 @@ const thisPc = {
   hevc: true,
   hevc444: true,
   av1: true,
+  hdr: true,
   width: 1920,
   height: 1200,
   refresh: 60,
@@ -1059,8 +1060,20 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
     const max = c?.info?.virtual_display.max_screens ?? 1
     const perso = s.codec != null || s.yuv444 != null || s.mbps != null || s.reliable != null
     const all = shown === 'all' || (shown === 'auto' && !perso && (s.profile === 'bureau' || s.profile === 'max'))
-    return { enabled, shown, count: all ? Math.max(1, Math.min(deviceScreens, max, 4)) : 1, virtual_display } satisfies DisplaysInfo
+    // HDR (`?hdr` : l'écran de ce PC est HDR ; `?hdr=windows` : la Station ne le peut pas) : la puce du cœur.
+    const hdrShown = flags.has('hdr')
+    const hdrReason = flags.get('hdr') === 'windows' ? t('mock.hdr_windows') : s.codec === 'h264' ? t('mock.hdr_codec') : null
+    const hdr = { shown: hdrShown, available: !hdrReason, reason: hdrReason, kind: null }
+    return { enabled, shown, count: all ? Math.max(1, Math.min(deviceScreens, max, 4)) : 1, virtual_display, hdr, hdr_on: hdrShown && !hdrReason && ((s as Partial<Settings>).hdr ?? true) } satisfies DisplaysInfo
   },
+  home_hdr: () => flags.has('hdr'),
+  ps_set_hdr: (a) => {
+    const c = psConsole(String(a.id))
+    if (c) c.hdr = !!a.on
+    emitPs()
+    return null
+  },
+  session_hdr: () => null,
   fond_state: () => ({ not_created: flags.has('sanscreation') }) satisfies FondState,
   session_command: () => null,
   bar_hide: () => null,
@@ -1220,6 +1233,7 @@ let psConsoles: PsConsole[] =
           chosen: 'acc-1',
           free_accounts: 1,
           custom: false,
+          hdr: true,
           waking: false,
           reaching: false,
           in_session: false,
@@ -1344,6 +1358,7 @@ const psCommands: Record<string, (a: Record<string, unknown>) => unknown> = {
         chosen: account.id,
         free_accounts: 0,
         custom: false,
+        hdr: true,
         waking: false,
         reaching: false,
         in_session: false,
@@ -1495,7 +1510,7 @@ export function mockTauri() {
           const title = guest ? t('mock.guest_on') : (computers.find((c) => c.id === served)?.name ?? '')
           const room = Number(flags.get('largeur') ?? 1240) || 1240
           // `?mac` : une Station Mac (menu Touches du Mac).
-          const shown = { id: served, label: 'Jeu · HEVC', profile: 'jeu', title, mouse: 'auto', clipboard: true, mac: flags.has('mac'), room, stats: flags.has('statistiques'), multi: deviceScreens > 1, keep_sound: keepSound.has(served), sessions: Math.max(1, sessions.length), guest, share: host ? shareView() : null, lend: host ? lendView() : null, borrow, route, console: psBarFlag ? psBarState : null }
+          const shown = { id: served, label: 'Jeu · HEVC', profile: 'jeu', title, mouse: 'auto', clipboard: true, mac: flags.has('mac'), room, stats: flags.has('statistiques'), multi: deviceScreens > 1, keep_sound: keepSound.has(served), sessions: Math.max(1, sessions.length), guest, share: host ? shareView() : null, lend: host ? lendView() : null, borrow, route, hdr: flags.has('hdr') && !guest ? { on: true, available: flags.get('hdr') !== 'windows', reason: flags.get('hdr') === 'windows' ? t('mock.hdr_windows') : null } : null, console: psBarFlag ? psBarState : null }
           // Un avis bref (`&avis`, `?arrivee`, `&preavis`) : sa capsule seule, sans la barre.
           const capsuleOnly = (guest && flags.has('avis')) || (!guest && flags.has('arrivee')) || !!borrow?.notice
           // `&manette` : la barre pilotée par la manette, l'anneau va et vient.

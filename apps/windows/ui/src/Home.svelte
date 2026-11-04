@@ -25,13 +25,17 @@
   Choisie, elle montre son état, son nom, son modèle, le jeu en cours, le bouton principal
   (« Associer », « Jouer », « Réveiller et jouer », « Afficher la session », « Réessayer »…), la puce
   du compte (associée avec deux comptes ou plus), la puce « Auto » ou « Personnalisé » et l'engrenage
-  de ses réglages. Pas de profils, pas de puce HDR sur Windows.
+  de ses réglages. Pas de profils ; la puce « HDR » d'une PS5 sur un écran HDR (docs/hdr.md).
+
+  HDR (docs/link-ui.md « HDR ») : sur un écran HDR seulement, la puce « HDR » à côté du profil,
+  allumée la première fois, gardée pour l'ordinateur (`Settings.hdr`) ; inactive avec la raison du
+  cœur ; la ligne « Écran » dit alors « …, en HDR ». Ailleurs, aucune trace du HDR.
 -->
 <script lang="ts">
   import Icon from './lib/Icon.svelte'
   import Mark from './lib/Mark.svelte'
   import { onMount } from 'svelte'
-  import type { Battery, Computer, DisplaysInfo, Found, Friend, PsConsole, PsFound, Settings, ThisPc } from './lib/api'
+  import type { Battery, Computer, DisplaysInfo, Found, Friend, HdrState, PsConsole, PsFound, Settings, ThisPc } from './lib/api'
   import { MAX_SESSIONS, clock, countdown, friendStateText, hue, invoke, isCustom, listen, psAccountName, psStatusText, psTarget, sessionPlan, slotText } from './lib/api'
   import { t } from './lib/i18n/index.svelte'
 
@@ -161,6 +165,11 @@
   let screens = $state(1)
   // L'écran virtuel servira (demandé et utilisable sur la Station), d'après le cœur.
   let virtualDisplay = $state(true)
+  // La puce « HDR » de l'ordinateur (cœur) et si le HDR sera demandé.
+  let hdrChip = $state<HdrState | null>(null)
+  let hdrOn = $state(false)
+  // L'écran de l'accueil est HDR (puce des consoles).
+  let homeHdr = $state(false)
   let screensEpoch = $state(0)
   let asked = 0
   $effect(() => {
@@ -181,7 +190,15 @@
         if (n !== asked) return
         screens = i.count
         virtualDisplay = i.virtual_display
+        hdrChip = i.hdr
+        hdrOn = i.hdr_on
       })
+      .catch(() => {})
+  })
+  $effect(() => {
+    void screensEpoch
+    invoke<boolean>('home_hdr')
+      .then((h) => (homeHdr = h))
       .catch(() => {})
   })
   onMount(() => {
@@ -189,16 +206,25 @@
     return () => off.then((f) => f())
   })
 
+  /** La puce « HDR » de l'ordinateur : le choix est gardé pour lui (hors du profil). */
+  function toggleHdr() {
+    if (!selected || !hdrChip?.available) return
+    const settings = { ...$state.snapshot(selected.settings), hdr: !(selected.settings.hdr ?? true) }
+    hdrOn = !!settings.hdr
+    invoke('save_settings', { id: selected.id, settings }).catch(() => {})
+  }
+
   /** L'écran que la session demandera (même calcul que plan.rs : au plus 4K, H.264, sur batterie), ou le nombre d'écrans. */
   const screen = $derived.by(() => {
     if (!selected || !thisPc) return null
     const s = selected.settings
     if (!virtualDisplay) return t('home.screens_as_is')
-    if (screens > 1) return t('home.screens_many', { count: screens })
+    if (screens > 1) return t(hdrOn ? 'home.screens_many_hdr' : 'home.screens_many', { count: screens })
     const p = sessionPlan(s, thisPc, battery)
     if (!p) return null
     const params = { width: p.width, height: p.height, refresh: p.refresh }
-    return !s.custom && p.width === thisPc.width && p.height === thisPc.height ? t('home.screen_match', params) : t('home.screen', params)
+    const match = !s.custom && p.width === thisPc.width && p.height === thisPc.height
+    return t(match ? (hdrOn ? 'home.screen_match_hdr' : 'home.screen_match') : hdrOn ? 'home.screen_hdr' : 'home.screen', params)
   })
 
   const custom = $derived(selected ? isCustom(selected.settings, thisPc) : false)
@@ -295,6 +321,10 @@
             {/if}
           </div>
         {/if}
+        <!-- La puce « HDR » : mêmes règles que pour un ordinateur (écran HDR, décodeur 10 bits ; PS5). -->
+        {#if c.accounts.length > 0 && c.model === 'PS5' && homeHdr && thisPc?.hdr}
+          {@render hdrButton(c.hdr, true, null, () => invoke('ps_set_hdr', { id: c.id, on: !c.hdr }).catch(() => {}))}
+        {/if}
         <!-- « Auto » ou « Personnalisé » (pas de profils pour une console) : ouvre ses réglages. -->
         <button class="gear" title={t('home.settings_for', { name: c.name })} onclick={() => onconsolesettings?.(c.id)}>
           <Icon name="sliders" size={18} stroke={1.6} />{c.custom ? t('ps.custom') : t('ps.auto')}
@@ -372,6 +402,10 @@
           {/each}
           {#if custom}<span class="on custom" role="radio" aria-checked="true" aria-disabled="true">{t('profiles.custom')}</span>{/if}
         </div>
+        {#if hdrChip?.shown}
+          {@const on = hdrChip.available && (selected.settings.hdr ?? true)}
+          {@render hdrButton(on, hdrChip.available, hdrChip.reason, toggleHdr)}
+        {/if}
         <button class="gear" aria-label={t('home.settings_for', { name: selected.name })} onclick={() => onsettings(selected!.id)}>
           <Icon name="gear" size={18} stroke={1.6} />{t('home.settings')}
         </button>
@@ -451,6 +485,13 @@
   </section>
   </div>
 </main>
+
+{#snippet hdrButton(on: boolean, available: boolean, reason: string | null, toggle: () => void)}
+  <!-- « HDR » : allumée ou éteinte ; inactive avec la raison dans son aide. -->
+  <button class="gear hdr" class:on disabled={!available} aria-pressed={on} aria-label={on ? t('hdr.on') : t('hdr.off')} title={reason ?? t('hdr.help')} onclick={toggle}>
+    <Icon name="sparkle" size={18} stroke={1.6} />HDR
+  </button>
+{/snippet}
 
 <style>
   main {
@@ -688,6 +729,17 @@
   .gear:hover {
     color: var(--text);
     border-color: var(--faint);
+  }
+
+  /* La puce « HDR » allumée ; inactive, estompée (sa raison dans l'aide). */
+  .gear.hdr.on {
+    color: var(--text);
+    border-color: var(--signal);
+    background: var(--signal-soft);
+  }
+
+  .gear.hdr:disabled {
+    opacity: 0.45;
   }
 
   .sentence {

@@ -100,6 +100,9 @@ pub struct Kept {
     /// Disposition du clavier et de la souris ; absente : par défaut.
     #[serde(default)]
     pub layout: Option<Layout>,
+    /// La puce « HDR » de l'accueil (docs/hdr.md) ; absente : allumée.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hdr: Option<bool>,
 }
 
 impl Kept {
@@ -113,6 +116,12 @@ impl Kept {
 
     pub fn is_ps5(&self) -> bool {
         self.model.eq_ignore_ascii_case("PS5")
+    }
+
+    /// Le choix « HDR » de la console (allumé tant qu'il n'a pas été changé) ;
+    /// seule une PS5 envoie du HDR.
+    pub fn hdr_on(&self) -> bool {
+        self.is_ps5() && self.hdr.unwrap_or(true)
     }
 
     /// La cible à associer (gardée, sinon celle de son modèle).
@@ -202,6 +211,9 @@ pub struct ConsoleView {
     pub chosen: Option<String>,
     pub free_accounts: usize,
     pub custom: bool,
+    /// La puce « HDR » allumée (PS5 ; l'accueil ne la montre que sur un écran
+    /// HDR, avec un décodeur qui le lit).
+    pub hdr: bool,
     pub waking: bool,
     pub reaching: bool,
     pub in_session: bool,
@@ -458,6 +470,7 @@ impl Consoles {
                 account: Some(account.to_string()),
                 settings: None,
                 layout: None,
+                hdr: None,
             }),
         }
         true
@@ -547,6 +560,7 @@ impl Consoles {
                     chosen: self.chosen(c),
                     free_accounts: self.free_accounts(&c.host_id).len(),
                     custom: c.settings().is_custom(),
+                    hdr: c.hdr_on(),
                     waking: self.waking.iter().any(|h| h.eq_ignore_ascii_case(&c.host_id)),
                     reaching: self.reaching.iter().any(|h| h.eq_ignore_ascii_case(&c.host_id)),
                     found: live,
@@ -652,6 +666,7 @@ impl Consoles {
                     account: None,
                     settings: None,
                     layout: None,
+                    hdr: None,
                 });
             }
             let mut added = Vec::new();

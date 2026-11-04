@@ -118,6 +118,96 @@ pub struct HostLive {
     /// L'ordinateur ne crée pas les manettes de l'appareil (`gamepads` de `GET /api/stream/info`, Station Mac tant
     /// qu'Apple n'a pas accordé son droit) : « Manettes indisponibles sur cet ordinateur » (docs/link-ui.md).
     pub pads_unavailable: bool,
+    /// Le HDR que la Station propose (`info.hdr`) ; `None` : pas encore sondée.
+    pub hdr: Option<StationHdr>,
+}
+
+// MARK: - HDR (docs/hdr.md ; textes : docs/link-ui.md, « HDR »)
+
+/// Le HDR que la Station annonce (`GET /api/stream/info` : `hdr: { available, reason }`), miroir de celui du cœur
+/// (l'interface seule n'a pas le cœur).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StationHdr {
+    Available,
+    /// Station d'avant le HDR, ou Admin réglé sur « Jamais » (`reason: "off"`).
+    Off,
+    /// Windows d'avant Windows 11 24H2.
+    Windows,
+    /// Encodeur sans 10 bits.
+    Encoder,
+    /// Sans écran virtuel, l'écran du PC est en SDR.
+    Display,
+}
+
+/// Pourquoi la puce « HDR » est inactive, la première raison qui s'applique, dans l'ordre du cœur
+/// (`profile::hdr_block` : la Station, puis le format, puis le décodeur).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HdrReason {
+    Station,
+    Windows,
+    Encoder,
+    PcDisplay,
+    Format,
+    Decoder,
+}
+
+impl HdrReason {
+    pub fn text(self) -> &'static str {
+        match self {
+            HdrReason::Station => tr("L'ordinateur ne propose pas le HDR.", "The computer doesn't offer HDR."),
+            HdrReason::Windows => tr("Le HDR demande Windows 11 24H2 sur l'ordinateur.", "HDR needs Windows 11 24H2 on the computer."),
+            HdrReason::Encoder => tr("La carte graphique de l'ordinateur ne fait pas le HDR.", "The computer's graphics card doesn't do HDR."),
+            HdrReason::PcDisplay => tr("L'écran de l'ordinateur n'est pas en HDR.", "The computer's display isn't in HDR."),
+            HdrReason::Format => tr("Le HDR demande le format HEVC ou AV1.", "HDR needs the HEVC or AV1 format."),
+            HdrReason::Decoder => tr("Cet appareil ne décode pas le HDR.", "This device can't decode HDR."),
+        }
+    }
+}
+
+/// La puce « HDR » d'un ordinateur (ou d'une console) : son choix, et la raison quand elle est inactive.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HdrUi {
+    pub on: bool,
+    pub reason: Option<HdrReason>,
+}
+
+impl HdrUi {
+    pub fn available(&self) -> bool {
+        self.reason.is_none()
+    }
+
+    /// Ce que la session demandera : la puce active et allumée.
+    pub fn lit(&self) -> bool {
+        self.on && self.available()
+    }
+
+    /// L'aide : la raison quand elle est inactive.
+    pub fn help(&self) -> &'static str {
+        self.reason.map(HdrReason::text).unwrap_or_else(hdr_help)
+    }
+}
+
+/// « Couleurs plus riches et lumières plus vives, sur cet écran HDR. »
+pub fn hdr_help() -> &'static str {
+    tr("Couleurs plus riches et lumières plus vives, sur cet écran HDR.", "Richer colours and brighter highlights, on this HDR screen.")
+}
+
+/// La rubrique Image : l'aide du réglage « HDR ».
+pub fn hdr_setting_help() -> &'static str {
+    tr(
+        "Couleurs plus riches et lumières plus vives, sur cet écran HDR. Le texte net (4:4:4) n'existe pas en HDR.",
+        "Richer colours and brighter highlights, on this HDR screen. Sharp text (4:4:4) doesn't exist in HDR.",
+    )
+}
+
+/// « Texte net (4:4:4) » inactif avec le HDR allumé.
+pub fn hdr_no_444() -> &'static str {
+    tr("Le HDR n'existe pas en 4:4:4.", "HDR doesn't exist in 4:4:4.")
+}
+
+/// « HDR, allumé » / « HDR, éteint » : l'état de la puce, dit au survol.
+pub fn hdr_state_label(on: bool) -> &'static str {
+    if on { tr("HDR, allumé", "HDR, on") } else { tr("HDR, éteint", "HDR, off") }
 }
 
 /// Multi-écrans (docs/multi-ecrans.md) : ce que la session prendra pour
@@ -558,6 +648,8 @@ impl Stats {
 pub enum MenuItem {
     Resume,
     Profile(Profile),
+    /// « HDR », cochable, près du profil (écran HDR ; hôte et emprunt).
+    Hdr,
     Sound,
     PadMouse,
     Keyboard,
@@ -1794,6 +1886,8 @@ pub struct SessionUi {
     pub console: Option<crate::ps::PsSessionUi>,
     /// « Manettes indisponibles sur cet ordinateur. » a été dit dans cette session (une fois par session).
     pub pads_unavailable_said: bool,
+    /// « HDR » dans la barre et le menu (`None` : pas de HDR proposé, écran SDR ou invité) : la puce de l'ordinateur.
+    pub hdr: Option<HdrUi>,
 }
 
 impl SessionUi {
@@ -1844,6 +1938,7 @@ impl SessionUi {
             borrow: None,
             console: None,
             pads_unavailable_said: false,
+            hdr: None,
         }
     }
 
@@ -1956,6 +2051,8 @@ pub enum Setting {
     Fps,
     Codec,
     Yuv444,
+    /// « HDR » (écran HDR seulement).
+    Hdr,
     Display,
     Bitrate,
     VirtualDisplay,
@@ -2291,6 +2388,8 @@ pub enum Target {
     Chip(Profile),
     /// « Personnalisé » sur l'accueil : ouvre les réglages de l'ordinateur.
     CustomChip,
+    /// La puce « HDR » de l'ordinateur choisi, à côté du profil (aussi d'un ordinateur emprunté, d'une console).
+    HdrChip,
     Host(usize),
     Found(usize),
     AddCard,
@@ -2328,6 +2427,8 @@ pub enum Target {
     WinClose,
     /// Barre de session (bureau).
     BarProfile,
+    /// « HDR », cochable, près du profil (écran HDR seulement).
+    BarHdr,
     BarPick(Profile),
     BarKeys,
     BarShortcut(usize),
@@ -2505,6 +2606,8 @@ pub enum Action {
     /// « Ctrl agit comme ⌘ » changé pour cet ordinateur : ses sessions le prennent tout de suite.
     ControlAsCommand(String, bool),
     SetProfile(SessionId, Profile),
+    /// L'interrupteur « HDR » de la barre ou du menu de session (`Session::set_hdr`).
+    SetHdr(SessionId, bool),
     PadMouse(SessionId, bool),
     /// Le son coupé depuis le menu de session.
     Mute(SessionId, bool),
@@ -2567,6 +2670,10 @@ pub struct App {
     pub image_is_last: HashMap<String, bool>,
     pub found: Vec<Found>,
     pub machine: Machine,
+    /// HDR (docs/hdr.md) : l'écran de la fenêtre de l'app est HDR et l'app sait l'afficher (bureau Wayland avec la
+    /// gestion des couleurs, `device::hdr_wl`) : ses valeurs. `None` : écran SDR, ou pas de voie du HDR (X11,
+    /// gamescope, KyberNow Link OS) : aucune trace du HDR (ni puce, ni réglage, ni ligne de barre).
+    pub screen_hdr: Option<crate::hdr::Luminance>,
     pub net: NetInfo,
     pub pads: Vec<PadInfo>,
     pub add: AddState,
@@ -2790,6 +2897,7 @@ impl App {
             image_is_last: HashMap::new(),
             found: Vec::new(),
             machine: Machine::default(),
+            screen_hdr: None,
             net: NetInfo::default(),
             pads: Vec::new(),
             add: AddState {
@@ -3786,6 +3894,7 @@ impl App {
                 self.open_settings(false, Screen::Home);
                 Vec::new()
             }
+            Target::HdrChip => self.toggle_hdr(),
             Target::Retry => {
                 if let Some(id) = self.selected().map(|h| h.id.clone()) {
                     self.live.entry(id).or_default().online = Online::Unknown;
@@ -4098,6 +4207,7 @@ impl App {
             Target::WinMaximize => vec![Action::Maximize],
             Target::WinClose => vec![Action::Quit],
             Target::BarProfile => self.toggle_bar_menu(BarMenu::Profile),
+            Target::BarHdr => self.session_hdr(false),
             Target::BarKeys => self.toggle_bar_menu(BarMenu::Keys),
             Target::BarComputers => self.toggle_bar_menu(BarMenu::Computers),
             Target::BarQuality => self.toggle_bar_menu(BarMenu::Quality),
@@ -4741,6 +4851,7 @@ impl App {
                 self.remember_profile(p);
                 vec![Action::SetProfile(id, p), Action::Save]
             }
+            MenuItem::Hdr => self.session_hdr(true),
             MenuItem::Sound => {
                 s.muted = !s.muted;
                 vec![Action::Mute(id, s.muted)]
@@ -5271,6 +5382,8 @@ impl App {
                 let fps_tags: Vec<Option<Tag>> = fps.iter().map(|f| if pi.is_some_and(|p| p.generation >= 4) && *f == 120 { Tag::note("1080p") } else { None }).collect();
                 let codecs = ["auto", "hevc", "h264", "av1"];
                 let hevc = self.codec_for(h) == "hevc";
+                let hdr = self.hdr_ui(h);
+                let hdr_lit = hdr.is_some_and(|u| u.lit());
                 let codec_off: Vec<bool> = codecs.iter().map(|c| *c != "auto" && !m.decodes(c)).collect();
                 let who = |hw: bool| if hw { Tag::hw(m.hw_name()) } else { Tag::cpu() };
                 let codec_tags = vec![None, who(m.hw_hevc), who(m.hw_h264), if m.hw_av1 { Tag::hw(m.hw_name()) } else { None }];
@@ -5306,13 +5419,18 @@ impl App {
                         st.virtual_display,
                     ),
                     codec_row,
-                    Row {
-                        setting: Setting::Yuv444,
-                        label: tr("Texte net (4:4:4)", "Sharp text (4:4:4)").into(),
-                        hint: yuv444_hint(m, hevc),
-                        kind: RowKind::Toggle(st.yuv444 && hevc),
-                        enabled: hevc,
-                        tag: if hevc { who(m.hw_hevc444) } else { None },
+                    // Le HDR allumé : le 4:4:4 n'existe pas, la ligne est inactive avec sa raison.
+                    if hdr_lit {
+                        Row { setting: Setting::Yuv444, label: tr("Texte net (4:4:4)", "Sharp text (4:4:4)").into(), hint: hdr_no_444().into(), kind: RowKind::Toggle(false), enabled: false, tag: None }
+                    } else {
+                        Row {
+                            setting: Setting::Yuv444,
+                            label: tr("Texte net (4:4:4)", "Sharp text (4:4:4)").into(),
+                            hint: yuv444_hint(m, hevc),
+                            kind: RowKind::Toggle(st.yuv444 && hevc),
+                            enabled: hevc,
+                            tag: if hevc { who(m.hw_hevc444) } else { None },
+                        }
                     },
                     choice(Setting::Bitrate, tr("Débit", "Bitrate"), tr("Auto : il suit la définition, la fréquence et le profil.", "Auto: it follows the resolution, the refresh rate and the profile.").into(), br_labels, BITRATES.iter().position(|v| *v == st.mbps).unwrap_or(0), vec![false; BITRATES.len()]),
                     choice(
@@ -5324,6 +5442,11 @@ impl App {
                         vec![false, false, false, m.vrr == Some(false) || pi.is_some()],
                     ),
                 ];
+                // « HDR », après le texte net, seulement sur un écran HDR ; inactif avec la raison de la puce.
+                if let Some(u) = hdr {
+                    let at = rows.iter().position(|r| r.setting == Setting::Yuv444).map_or(rows.len(), |i| i + 1);
+                    rows.insert(at, Row { setting: Setting::Hdr, label: "HDR".into(), hint: if u.available() { hdr_setting_help() } else { u.help() }.into(), kind: RowKind::Toggle(u.lit()), enabled: u.available(), tag: None });
+                }
                 // Écrans, sous Définition (multi-écrans : le bureau seulement).
                 if self.multi_screens() {
                     rows.insert(1, self.displays_row(h));
@@ -5737,6 +5860,11 @@ impl App {
             _ => {}
         }
         let enabled = self.screens_plan.enabled;
+        // « HDR » inactif (sa raison) : rien à changer ; allumé, le texte net est inactif.
+        let hdr = self.selected().and_then(|h| self.hdr_ui(h));
+        if (s == Setting::Hdr && !hdr.is_some_and(|u| u.available())) || (s == Setting::Yuv444 && hdr.is_some_and(|u| u.lit())) {
+            return Vec::new();
+        }
         let Some(h) = self.store.host_mut(&id) else { return Vec::new() };
         let st = &mut h.settings;
         let pick = |opts: &[&str], i: usize| opts[i.min(opts.len() - 1)].to_string();
@@ -5765,6 +5893,7 @@ impl App {
             Setting::Clipboard => st.clipboard = !st.clipboard,
             Setting::Reconnect => st.reconnect = !st.reconnect,
             Setting::Yuv444 => st.yuv444 = !st.yuv444,
+            Setting::Hdr => st.hdr = !st.hdr,
             _ => {}
         }
         vec![Action::Save]
@@ -5792,6 +5921,114 @@ impl App {
             fps = fps.min(60);
         }
         (width, height, fps)
+    }
+
+    // MARK: - HDR
+
+    /// « HDR » de la barre (`from_menu` : du menu à la manette, qui se ferme) : le même choix que la puce et le
+    /// réglage, gardé pour cet ordinateur ; le changer relance l'image (étape « Premières images »). Inactif : la
+    /// raison, en capsule.
+    fn session_hdr(&mut self, from_menu: bool) -> Vec<Action> {
+        let Some(s) = Self::active_in(&mut self.sessions, self.active) else { return Vec::new() };
+        let Some(hdr) = s.hdr else { return Vec::new() };
+        if let Some(r) = hdr.reason {
+            s.notice = Some((r.text().into(), Instant::now()));
+            return Vec::new();
+        }
+        let on = !hdr.on;
+        s.hdr = Some(HdrUi { on, reason: None });
+        if from_menu {
+            s.menu = false;
+        }
+        let (id, key) = (s.id, s.host.clone());
+        if let Some(h) = self.store.host_mut(&key) {
+            h.settings.hdr = on;
+        } else if let Some(b) = self.store.borrowed.iter_mut().find(|b| b.id == key) {
+            b.hdr_off = !on;
+        }
+        vec![Action::SetHdr(id, on), Action::Save]
+    }
+
+    /// La puce « HDR » de cet ordinateur ; `None` sur un écran SDR (aucune trace du HDR). Miroir de
+    /// `profile::hdr_state` du cœur : la Station, puis le format choisi à la main, puis le décodeur (le processeur
+    /// décode toujours le HEVC Main 10 : seul un AV1 sans carte qui le décode compterait, et il n'est pas proposé).
+    pub fn hdr_ui(&self, h: &Host) -> Option<HdrUi> {
+        self.screen_hdr?;
+        let station = self.live.get(&h.id).and_then(|l| l.hdr);
+        let reason = match station {
+            // Pas encore sondée : le choix, sans raison (la session tranche).
+            None | Some(StationHdr::Available) => None,
+            Some(StationHdr::Off) => Some(HdrReason::Station),
+            Some(StationHdr::Windows) => Some(HdrReason::Windows),
+            Some(StationHdr::Encoder) => Some(HdrReason::Encoder),
+            Some(StationHdr::Display) => Some(HdrReason::PcDisplay),
+        }
+        .or((h.settings.codec == "h264").then_some(HdrReason::Format))
+        .or((!self.machine.decodes("hevc") && !self.machine.decodes("av1")).then_some(HdrReason::Decoder));
+        Some(HdrUi { on: h.settings.hdr, reason })
+    }
+
+    /// La session demandera le HDR à cet ordinateur.
+    pub fn hdr_on(&self, h: &Host) -> bool {
+        self.hdr_ui(h).is_some_and(|u| u.lit())
+    }
+
+    /// La puce « HDR » d'un ordinateur emprunté (prêt de l'ordinateur) : rien ne dit avant l'emprunt ce que la Station
+    /// de l'ami propose, la session tranche.
+    pub fn borrowed_hdr_ui(&self, id: &str) -> Option<HdrUi> {
+        self.screen_hdr?;
+        let on = self.store.borrowed(id).is_none_or(|b| !b.hdr_off);
+        Some(HdrUi { on, reason: None })
+    }
+
+    pub fn borrowed_hdr_on(&self, id: &str) -> bool {
+        self.borrowed_hdr_ui(id).is_some_and(|u| u.lit())
+    }
+
+    /// La puce « HDR » d'une console PlayStation : une PS5 sur un écran HDR ; inactive si le format est réglé sur
+    /// H.264 (« Sans HDR. »).
+    pub fn ps_hdr_ui(&self, c: &crate::model::PsConsole) -> Option<HdrUi> {
+        if self.screen_hdr.is_none() || c.ps4() {
+            return None;
+        }
+        Some(HdrUi { on: !c.hdr_off, reason: (c.settings.codec == "h264").then_some(HdrReason::Format) })
+    }
+
+    /// La puce « HDR » de l'accueil : allume ou éteint le HDR de l'ordinateur choisi (emprunté, ou de la console) ;
+    /// inactive, sa raison en capsule.
+    fn toggle_hdr(&mut self) -> Vec<Action> {
+        if let Some(c) = self.selected_console() {
+            let Some(ui) = self.ps_hdr_ui(c) else { return Vec::new() };
+            if let Some(r) = ui.reason {
+                self.toast(r.text());
+                return Vec::new();
+            }
+            let id = c.host_id.clone();
+            if let Some(c) = self.store.ps_consoles.iter_mut().find(|c| c.host_id == id) {
+                c.hdr_off = !c.hdr_off;
+            }
+            return vec![Action::Save];
+        }
+        if let Some(id) = self.selected_borrowed().map(|b| b.id.clone()) {
+            if self.borrowed_hdr_ui(&id).is_none() {
+                return Vec::new();
+            }
+            if let Some(b) = self.store.borrowed.iter_mut().find(|b| b.id == id) {
+                b.hdr_off = !b.hdr_off;
+            }
+            return vec![Action::Save];
+        }
+        let Some(h) = self.selected() else { return Vec::new() };
+        let Some(ui) = self.hdr_ui(h) else { return Vec::new() };
+        if let Some(r) = ui.reason {
+            self.toast(r.text());
+            return Vec::new();
+        }
+        let id = h.id.clone();
+        if let Some(h) = self.store.host_mut(&id) {
+            h.settings.hdr = !h.settings.hdr;
+        }
+        vec![Action::Save]
     }
 
     /// Le format choisi : celui demandé s'il est décodé (AV1 : si l'ordinateur
@@ -6013,6 +6250,66 @@ mod tests {
             settings: Default::default(),
             last: None,
         }
+    }
+
+    /// La puce « HDR » (docs/link-ui.md, « HDR ») : aucune trace sur un écran SDR, allumée par défaut, inactive avec la
+    /// première raison qui s'applique (la Station, puis le format), gardée pour l'ordinateur sans le rendre
+    /// « Personnalisé » ; « en HDR » sur la ligne de l'écran ; « Texte net (4:4:4) » inactif avec le HDR allumé ; la
+    /// barre, le menu, l'emprunt et la console.
+    #[test]
+    fn hdr_chip_and_rules() {
+        crate::i18n::force_english(false);
+        let mut store = Store::default();
+        store.hosts.push(host());
+        store.selected = Some("a".into());
+        let mut app = App::new(store, Layout::Desktop);
+        assert_eq!(app.hdr_ui(&app.store.hosts[0]), None, "écran SDR : pas de puce");
+        assert!(app.activate(Target::HdrChip).is_empty());
+        app.screen_hdr = Some(crate::hdr::Luminance::default());
+        let u = app.hdr_ui(&app.store.hosts[0]).unwrap();
+        assert!(u.on && u.lit() && u.help() == hdr_help());
+        // La Station passe avant le format.
+        app.store.hosts[0].settings.codec = "h264".into();
+        app.live.insert("a".into(), HostLive { hdr: Some(StationHdr::Windows), ..Default::default() });
+        assert_eq!(app.hdr_ui(&app.store.hosts[0]).unwrap().help(), "Le HDR demande Windows 11 24H2 sur l'ordinateur.");
+        app.live.get_mut("a").unwrap().hdr = Some(StationHdr::Display);
+        assert_eq!(app.hdr_ui(&app.store.hosts[0]).unwrap().reason, Some(HdrReason::PcDisplay));
+        app.live.get_mut("a").unwrap().hdr = Some(StationHdr::Available);
+        assert_eq!(app.hdr_ui(&app.store.hosts[0]).unwrap().help(), "Le HDR demande le format HEVC ou AV1.");
+        // Inactive : la puce ne change rien, elle dit sa raison.
+        assert!(app.activate(Target::HdrChip).is_empty());
+        assert!(app.store.hosts[0].settings.hdr);
+        assert_eq!(app.toast.as_ref().map(|t| t.0.as_str()), Some("Le HDR demande le format HEVC ou AV1."));
+        app.store.hosts[0].settings.codec = "auto".into();
+        // Le texte net est inactif, sa ligne dit pourquoi ; « HDR » vient juste après.
+        let rows = app.rows(Section::Picture);
+        let i = rows.iter().position(|r| r.setting == Setting::Yuv444).unwrap();
+        assert!(!rows[i].enabled && rows[i].hint == hdr_no_444());
+        assert_eq!(rows[i + 1].setting, Setting::Hdr);
+        assert!(app.activate(Target::Setting(Setting::Yuv444)).is_empty(), "4:4:4 inactif avec le HDR");
+        // Éteinte depuis l'accueil : gardé pour l'ordinateur, sans « Personnalisé » ; le texte net revient.
+        assert_eq!(app.activate(Target::HdrChip), vec![Action::Save]);
+        assert!(!app.store.hosts[0].settings.hdr && !app.hdr_on(&app.store.hosts[0]));
+        assert!(!app.store.hosts[0].settings.custom());
+        assert!(app.rows(Section::Picture).iter().any(|r| r.setting == Setting::Yuv444 && r.enabled));
+        // Un fichier d'avant le HDR : allumé.
+        let old: crate::model::HostSettings = serde_json::from_str("{}").unwrap();
+        assert!(old.hdr);
+        // En session : « HDR » de la barre relance l'image et garde le choix.
+        let mut s = SessionUi::new(1, "a", "A", Profile::Jeu, false, false, 1);
+        s.hdr = app.hdr_ui(&app.store.hosts[0]);
+        app.open_session(s);
+        assert_eq!(app.activate(Target::BarHdr), vec![Action::SetHdr(1, true), Action::Save]);
+        assert!(app.store.hosts[0].settings.hdr);
+        app.set_session(None);
+        // L'emprunt et la console PS5 ont leur puce ; la PS4 n'en a pas.
+        assert!(app.borrowed_hdr_ui("lend:x").is_some_and(|u| u.lit()));
+        let mut c = crate::model::PsConsole { model: "PS5".into(), ..Default::default() };
+        assert!(app.ps_hdr_ui(&c).is_some_and(|u| u.lit()));
+        c.settings.codec = "h264".into();
+        assert_eq!(app.ps_hdr_ui(&c).unwrap().reason, Some(HdrReason::Format));
+        c.model = "PS4".into();
+        assert_eq!(app.ps_hdr_ui(&c), None);
     }
 
     #[test]
