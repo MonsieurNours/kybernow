@@ -136,6 +136,11 @@ class SessionUi(
      * barre et même menu, avec ce qui a du sens pour une console ; nul pour un ordinateur.
      */
     val console: ConsoleUi? = null,
+    /**
+     * L'ordinateur est une Station Mac (docs/link-ui.md, « Face à une Station Mac ») : le menu Touches et la rangée du
+     * clavier de l'écran proposent les touches du Mac. Toujours faux pour un invité et un ami qui emprunte.
+     */
+    val mac: Boolean = false,
 ) {
     var menuOpen by mutableStateOf(false)
     var barOpen by mutableStateOf(false)
@@ -156,7 +161,7 @@ class SessionUi(
     /** Ce qui ouvre le menu (réglages de l'ordinateur), pour l'aide de l'écran de connexion. */
     var backOpensMenu by mutableStateOf(true)
     var combo by mutableStateOf(true)
-    /** Modificateurs collants de la rangée de touches (Ctrl, Alt, ⊞). */
+    /** Modificateurs collants de la rangée de touches (Ctrl, Alt, ⊞ ; face à un Mac, ⌃, ⌥, ⌘). */
     var sticky by mutableStateOf(emptySet<Int>())
     /** Manette à l'écran affichée (réglage de l'ordinateur, bouton de la barre), sa taille (0 à 2) et son opacité (%). */
     var padShown by mutableStateOf(false)
@@ -474,6 +479,10 @@ private fun Capsules(ui: SessionUi, modifier: Modifier) {
                     Box(Modifier.size(s.dp(8f)).clip(CircleShape).background(Kn.spectre))
                     Spacer(Modifier.width(s.dp(10f)))
                 }
+                if (capsule is Capsule.PadsUnavailable) {
+                    KnIcon(KnIcons.gamepad, tint = Kn.frost2, size = 16f)
+                    Spacer(Modifier.width(s.dp(8f)))
+                }
                 Body(capsuleText(capsule), size = 14f)
                 if (capsule is Capsule.Reconnecting) {
                     Spacer(Modifier.width(s.dp(12f)))
@@ -506,6 +515,7 @@ private fun capsuleText(c: Capsule): String = when (c) {
     // Hôte : « Léa veut emprunter l'ordinateur. » (la choisir ouvre le panneau du prêt).
     is Capsule.LendRequest -> stringResource(if (c.slot) R.string.lend_slot_start else R.string.lend_request_wants, c.name)
     is Capsule.LendHostNotice -> c.text
+    Capsule.PadsUnavailable -> stringResource(R.string.capsule_pads_unavailable)
 }
 
 // MARK: - Téléphone et tablette
@@ -768,8 +778,9 @@ internal fun BarIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, labe
 
 /**
  * Au-dessus du clavier de l'écran : Échap, Tab, Ctrl, Alt et ⊞ collants,
- * flèches, F1 à F12, Ctrl + Alt + Suppr ; et le champ invisible qui reçoit
- * le texte tapé (envoyé en Unicode) et l'effacement.
+ * flèches, F1 à F12, Ctrl + Alt + Suppr (face à un Mac : ⌃, ⌥, ⌘ et
+ * ⌥ ⌘ Échap) ; et le champ invisible qui reçoit le texte tapé (envoyé en
+ * Unicode) et l'effacement.
  */
 @Composable
 private fun KeyRow(ui: SessionUi, modifier: Modifier) {
@@ -804,7 +815,7 @@ private fun KeyRow(ui: SessionUi, modifier: Modifier) {
         ) {
             KeyCap(stringResource(R.string.keys_escape)) { ui.actions.key(Sc.ESC) }
             KeyCap("Tab") { ui.actions.key(Sc.TAB) }
-            for ((code, label) in listOf(Sc.CTRL to "Ctrl", Sc.ALT to "Alt", Sc.WIN to "⊞")) {
+            for ((code, label) in stickyKeys(ui.mac)) {
                 KeyCap(label, selected = code in ui.sticky) { ui.sticky = if (code in ui.sticky) ui.sticky - code else ui.sticky + code }
             }
             KeyCap("←") { ui.actions.key(Sc.LEFT) }
@@ -812,7 +823,7 @@ private fun KeyRow(ui: SessionUi, modifier: Modifier) {
             KeyCap("↓") { ui.actions.key(Sc.DOWN) }
             KeyCap("→") { ui.actions.key(Sc.RIGHT) }
             Sc.F.forEachIndexed { i, c -> KeyCap("F${i + 1}") { ui.actions.key(c) } }
-            KeyCap(stringResource(R.string.keys_ctrl_alt_del_short)) { ui.actions.shortcut(Shortcut.CTRL_ALT_DEL) }
+            KeyCap(keysDetail(ui)) { ui.actions.shortcut(Shortcut.rowKey(ui.mac)) }
             KeyCap("✕") { ui.actions.openKeyboard(false) }
         }
     }
@@ -916,7 +927,7 @@ private fun TvTiles(ui: SessionUi, first: FocusRequester, audio: Pair<Int, Doubl
         // Le menu reste ouvert : on passe d'un écran à l'autre en voyant l'image derrière.
         screenChoice(ui)?.let { c -> Tile(KnIcons.screen, stringResource(R.string.session_computer_screen), "${c.index + 1} / ${c.count} · ${c.width} × ${c.height}") { ui.actions.pickDisplay(c.next) } }
         Tile(KnIcons.keyboard, stringResource(R.string.session_type_text), null) { ui.typing = true }
-        Tile(KnIcons.keys, stringResource(R.string.session_keys), stringResource(R.string.keys_ctrl_alt_del_short)) { ui.keysOpen = true }
+        Tile(KnIcons.keys, stringResource(R.string.session_keys), keysDetail(ui)) { ui.keysOpen = true }
         // Sous-titre de la tuile (link-ui) : les demandes d'abord, puis les invités (« 1 demande · 2 invités » ; sans
         // pastille dans un menu à tuiles, c'est ce qui les montre à l'hôte) ; ni l'un ni l'autre : le code du partage
         // ouvert, sinon « Code et QR code ». Impossible : estompée, mais sélectionnable (OK ouvre le panneau réduit à la raison).
@@ -963,11 +974,8 @@ private fun KeysSheet(ui: SessionUi, modifier: Modifier) {
     val s = LocalScale.current
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
-    val items = listOf(
-        Shortcut.CTRL_ALT_DEL to stringResource(R.string.keys_ctrl_alt_del), Shortcut.ALT_TAB to "Alt + Tab", Shortcut.WIN to "⊞", Shortcut.WIN_D to "⊞ + D",
-        Shortcut.PRINT to stringResource(R.string.keys_print), Shortcut.ALT_F4 to "Alt + F4", Shortcut.WIN_L to "⊞ + L",
-        Shortcut.TASK_MANAGER to stringResource(R.string.keys_task_manager), Shortcut.F11 to "F11", Shortcut.ESC to stringResource(R.string.keys_escape),
-    )
+    // Face à une Station Mac, ses touches à la place de celles d'un PC (docs/link-ui.md).
+    val items = Shortcut.menu(ui.mac).map { it to shortcutLabel(it) }
     Column(modifier.padding(s.dp(20f)).panel(22.dp).padding(s.dp(22f)).widthIn(max = s.dp(720f)), verticalArrangement = Arrangement.spacedBy(s.dp(14f))) {
         Eyebrow(stringResource(R.string.session_keys))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(s.dp(8f)), verticalArrangement = Arrangement.spacedBy(s.dp(8f))) {
@@ -978,6 +986,30 @@ private fun KeysSheet(ui: SessionUi, modifier: Modifier) {
         GlassButton(stringResource(R.string.session_close), { ui.keysOpen = false })
     }
 }
+
+/** Le nom d'un raccourci du menu Touches. */
+@Composable
+private fun shortcutLabel(s: Shortcut): String = when (s) {
+    Shortcut.CTRL_ALT_DEL -> stringResource(R.string.keys_ctrl_alt_del)
+    Shortcut.ALT_TAB -> "Alt + Tab"
+    Shortcut.WIN -> "⊞"
+    Shortcut.WIN_D -> "⊞ + D"
+    Shortcut.WIN_L -> "⊞ + L"
+    Shortcut.PRINT -> stringResource(R.string.keys_print)
+    Shortcut.ALT_F4 -> "Alt + F4"
+    Shortcut.TASK_MANAGER -> stringResource(R.string.keys_task_manager)
+    Shortcut.F11 -> "F11"
+    Shortcut.ESC -> stringResource(R.string.keys_escape)
+    Shortcut.MAC_SWITCH_APP -> stringResource(R.string.keys_mac_switch)
+    Shortcut.MAC_SPOTLIGHT -> stringResource(R.string.keys_mac_spotlight)
+    Shortcut.MAC_LOCK -> stringResource(R.string.keys_mac_lock)
+    Shortcut.MAC_SCREENSHOT -> stringResource(R.string.keys_mac_screenshot)
+    Shortcut.MAC_FORCE_QUIT -> stringResource(R.string.keys_mac_force_quit)
+}
+
+/** La touche que montrent la tuile « Touches » et la rangée du clavier de l'écran : « Ctrl+Alt+Suppr », « ⌥ ⌘ Échap » face à un Mac. */
+@Composable
+internal fun keysDetail(ui: SessionUi): String = stringResource(if (ui.mac) R.string.keys_mac_force_quit else R.string.keys_ctrl_alt_del_short)
 
 @Composable
 private fun TypeText(ui: SessionUi, modifier: Modifier) {

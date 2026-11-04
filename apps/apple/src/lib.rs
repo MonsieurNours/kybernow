@@ -227,6 +227,15 @@ pub unsafe extern "C" fn kn_console_info(c: *const KnConsole, out: *mut *mut c_c
     console_result(c.0.info(), out, error)
 }
 
+/// L'ordinateur crée les manettes de l'appareil, d'après `info_json`
+/// (`kn_console_info`) : faux quand la Station le refuse (`gamepads.available`,
+/// Station Mac sans le droit d'Apple) ; vrai sans le champ ou JSON illisible.
+/// docs/link-ui.md, « Manettes indisponibles ».
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_gamepads_available(info_json: *const c_char) -> bool {
+    serde_json::from_str::<kybernow_core::console::Info>(&text(info_json)).map_or(true, |i| i.gamepads_available())
+}
+
 /// Premier contact sans compte : la poignée de main suffit à voir le
 /// certificat (`kn_console_fingerprint_seen`), la console répondant 401.
 /// `out` : l'info si le compte est accepté, sinon nul.
@@ -1668,4 +1677,20 @@ pub unsafe extern "C" fn kn_session_latency(s: *const KnSession, median: *mut f6
         }
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn manettes_de_l_ordinateur() {
+        let available = |json: &str| {
+            let c = CString::new(json).unwrap();
+            unsafe { kn_gamepads_available(c.as_ptr()) }
+        };
+        assert!(available("{}") && available("illisible"), "Station d'avant ou réponse illisible : disponibles");
+        assert!(!available(r#"{"os": "macOS 26.1", "gamepads": {"available": false, "reason": "entitlement"}}"#));
+        assert!(available(r#"{"gamepads": {"available": true}}"#));
+    }
 }

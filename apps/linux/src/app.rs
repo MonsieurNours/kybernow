@@ -115,6 +115,9 @@ pub struct HostLive {
     /// Prêt de l'ordinateur, hors session : la vue du prêt (`Console::lend_state`), sondée quand le prêt est activé :
     /// l'accueil dit « Prêté à {prénom} » et propose « Reprendre l'ordinateur ».
     pub lend_view: Option<LendHostView>,
+    /// L'ordinateur ne crée pas les manettes de l'appareil (`gamepads` de `GET /api/stream/info`, Station Mac tant
+    /// qu'Apple n'a pas accordé son droit) : « Manettes indisponibles sur cet ordinateur » (docs/link-ui.md).
+    pub pads_unavailable: bool,
 }
 
 /// Multi-écrans (docs/multi-ecrans.md) : ce que la session prendra pour
@@ -591,6 +594,32 @@ pub const SHORTCUTS: [(&str, &str, &[u16]); 10] = [
     ("Impr. écran", "Print Screen", &[0xE037]),
     ("Windows + L : verrouiller", "Windows + L: lock", &[0xE05B, 0x26]),
 ];
+
+/// Le même menu face à une Station Mac (docs/link-ui.md, « Face à une Station Mac ») : la touche ⊞ y est ⌘.
+/// Ces touches partent telles quelles, sans l'échange de « Ctrl agit comme ⌘ ».
+pub const MAC_SHORTCUTS: [(&str, &str, &[u16]); 5] = [
+    ("⌘ ⇥ : changer d'app", "⌘ ⇥: switch app", &[0xE05B, 0x0F]),
+    ("⌘ Espace : Spotlight", "⌘ Space: Spotlight", &[0xE05B, 0x39]),
+    ("⌃ ⌘ Q : verrouiller", "⌃ ⌘ Q: lock", &[0x1D, 0xE05B, 0x10]),
+    ("⇧ ⌘ 5 : capture", "⇧ ⌘ 5: screenshot", &[0x2A, 0xE05B, 0x06]),
+    ("⌥ ⌘ Échap : forcer à quitter", "⌥ ⌘ Esc: force quit", &[0x38, 0xE05B, 0x01]),
+];
+
+/// Les raccourcis du menu Touches : ceux d'un PC, ou ceux du Mac face à une Station Mac.
+pub fn shortcuts(mac: bool) -> &'static [(&'static str, &'static str, &'static [u16])] {
+    if mac { &MAC_SHORTCUTS } else { &SHORTCUTS }
+}
+
+/// L'avis bref des manettes indisponibles (docs/link-ui.md), montré avec l'icône de manette.
+pub fn pads_unavailable_notice() -> &'static str {
+    tr("Manettes indisponibles sur cet ordinateur.", "Controllers unavailable on this computer.")
+}
+
+/// La Station est un Mac : son système (`os` de `GET /api/stream/info`, « macOS 26.1 ») commence par « macOS ».
+/// Miroir de `kybernow_core::input::keymap::station_is_mac` (l'interface seule n'a pas le cœur).
+pub fn station_is_mac(os: &str) -> bool {
+    os.trim_start().get(..5).is_some_and(|p| p.eq_ignore_ascii_case("macos"))
+}
 
 /// Menu déroulant de la barre de session (bureau).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1763,6 +1792,8 @@ pub struct SessionUi {
     pub borrow: Option<BorrowSessionUi>,
     /// Une partie sur une console PlayStation (`crate::ps`) : la même session, avec ce qui a du sens pour une console.
     pub console: Option<crate::ps::PsSessionUi>,
+    /// « Manettes indisponibles sur cet ordinateur. » a été dit dans cette session (une fois par session).
+    pub pads_unavailable_said: bool,
 }
 
 impl SessionUi {
@@ -1812,6 +1843,7 @@ impl SessionUi {
             lend_copied: None,
             borrow: None,
             console: None,
+            pads_unavailable_said: false,
         }
     }
 
@@ -1931,6 +1963,8 @@ pub enum Setting {
     Audio,
     Xbox360,
     Combo,
+    /// « Ctrl agit comme ⌘ » (face à une Station Mac seulement).
+    CtrlCommand,
     Pads,
     Mouse,
     Clipboard,
@@ -2468,6 +2502,8 @@ pub enum Action {
     TextInput,
     Rumble { pad: usize, low: u16, high: u16, triggers: bool },
     Shortcut(SessionId, Vec<u16>),
+    /// « Ctrl agit comme ⌘ » changé pour cet ordinateur : ses sessions le prennent tout de suite.
+    ControlAsCommand(String, bool),
     SetProfile(SessionId, Profile),
     PadMouse(SessionId, bool),
     /// Le son coupé depuis le menu de session.
@@ -4048,7 +4084,8 @@ impl App {
             }
             Target::Menu(item) => self.menu(item),
             Target::Shortcut(i) | Target::BarShortcut(i) => {
-                let keys = SHORTCUTS[i].2.to_vec();
+                let mac = self.session().is_some_and(|s| self.session_mac(s));
+                let Some(keys) = shortcuts(mac).get(i).map(|k| k.2.to_vec()) else { return Vec::new() };
                 let Some(s) = self.session_mut() else { return Vec::new() };
                 s.keys = false;
                 s.menu = false;
@@ -4663,6 +4700,26 @@ impl App {
         self.screen = Screen::Settings;
         self.screen_since = Instant::now();
         self.focus = Target::Setting(Setting::WakeMac);
+    }
+
+    /// L'ordinateur de la session ne crée pas les manettes : l'avis bref, une fois par session, à l'arrivée de
+    /// l'image si une manette est branchée (`pads`), sinon quand la première se branche (docs/link-ui.md, « Manettes
+    /// indisponibles »). Jamais pour un invité, un emprunt ou une console (l'app ne lit pas leur `/api/stream/info`).
+    pub fn pads_unavailable_notice(&mut self, id: SessionId, pads: usize) {
+        let Some(s) = self.session_by(id) else { return };
+        let unavailable = self.live.get(&s.host).is_some_and(|l| l.pads_unavailable);
+        if !unavailable || s.visitor() || s.pads_unavailable_said || s.opened_at.is_none() || pads == 0 {
+            return;
+        }
+        let Some(s) = self.session_by_mut(id) else { return };
+        s.pads_unavailable_said = true;
+        s.notice = Some((pads_unavailable_notice().into(), Instant::now()));
+    }
+
+    /// L'ordinateur de cette session est une Station Mac (`os` gardé pour chaque ordinateur) : le menu Touches
+    /// propose celles du Mac. Un invité, un emprunt ou une console : jamais (l'app ne connaît pas leur système).
+    pub fn session_mac(&self, s: &SessionUi) -> bool {
+        !s.visitor() && self.store.host(&s.host).and_then(|h| h.os.as_deref()).is_some_and(station_is_mac)
     }
 
     fn menu(&mut self, item: MenuItem) -> Vec<Action> {
@@ -5288,26 +5345,42 @@ impl App {
                     off,
                 )]
             }
-            Section::Controls => vec![
-                choice(
-                    Setting::Xbox360,
-                    tr("Manette vue par l'ordinateur", "Controller seen by the computer"),
-                    tr("Xbox 360 : tous les jeux la reconnaissent. Fidèle : le modèle branché.", "Xbox 360: every game recognises it. As is: the model you plugged in.").into(),
-                    vec!["Xbox 360".into(), tr("Fidèle", "As is").into()],
-                    (!st.xbox360) as usize,
-                    vec![false; 2],
-                ),
-                toggle(Setting::Combo, "L1 + R1 + Start + Select", tr("Tenus ensemble, ils ouvrent le menu de session.", "Held together, they open the session menu.").into(), st.combo),
-                choice(
-                    Setting::Mouse,
-                    tr("Souris", "Mouse"),
-                    tr("Auto : souris des jeux quand un jeu en plein écran cache le pointeur de l'ordinateur.", "Auto: game mouse when a full-screen game hides the computer's pointer.").into(),
-                    vec!["Auto".into(), tr("Souris du bureau", "Desktop mouse").into(), tr("Souris des jeux", "Game mouse").into()],
-                    ["auto", "desktop", "game"].iter().position(|v| *v == st.mouse).unwrap_or(0),
-                    vec![false; 3],
-                ),
-                toggle(Setting::Clipboard, tr("Presse-papiers partagé", "Shared clipboard"), tr("Le texte copié passe dans les deux sens.", "Copied text goes both ways.").into(), st.clipboard),
-            ],
+            Section::Controls => {
+                let mut rows = vec![
+                    choice(
+                        Setting::Xbox360,
+                        tr("Manette vue par l'ordinateur", "Controller seen by the computer"),
+                        tr("Xbox 360 : tous les jeux la reconnaissent. Fidèle : le modèle branché.", "Xbox 360: every game recognises it. As is: the model you plugged in.").into(),
+                        vec!["Xbox 360".into(), tr("Fidèle", "As is").into()],
+                        (!st.xbox360) as usize,
+                        vec![false; 2],
+                    ),
+                    toggle(Setting::Combo, "L1 + R1 + Start + Select", tr("Tenus ensemble, ils ouvrent le menu de session.", "Held together, they open the session menu.").into(), st.combo),
+                    choice(
+                        Setting::Mouse,
+                        tr("Souris", "Mouse"),
+                        tr("Auto : souris des jeux quand un jeu en plein écran cache le pointeur de l'ordinateur.", "Auto: game mouse when a full-screen game hides the computer's pointer.").into(),
+                        vec!["Auto".into(), tr("Souris du bureau", "Desktop mouse").into(), tr("Souris des jeux", "Game mouse").into()],
+                        ["auto", "desktop", "game"].iter().position(|v| *v == st.mouse).unwrap_or(0),
+                        vec![false; 3],
+                    ),
+                    toggle(Setting::Clipboard, tr("Presse-papiers partagé", "Shared clipboard"), tr("Le texte copié passe dans les deux sens.", "Copied text goes both ways.").into(), st.clipboard),
+                ];
+                // Face à une Station Mac seulement, allumé tant qu'on ne l'a pas éteint (docs/link-ui.md).
+                if h.os.as_deref().is_some_and(station_is_mac) {
+                    rows.push(toggle(
+                        Setting::CtrlCommand,
+                        tr("Ctrl agit comme ⌘", "Ctrl acts as ⌘"),
+                        tr(
+                            "Copier, coller et les autres raccourcis du Mac avec Ctrl, comme sur un PC. La touche ⊞ devient ⌃.",
+                            "Copy, paste and the Mac's other shortcuts with Ctrl, as on a PC. The ⊞ key becomes ⌃.",
+                        )
+                        .into(),
+                        st.ctrl_command.unwrap_or(true),
+                    ));
+                }
+                rows
+            }
             Section::Network => vec![
                 choice(
                     Setting::Reliable,
@@ -5683,6 +5756,12 @@ impl App {
             Setting::VirtualDisplay => st.virtual_display = !st.virtual_display,
             Setting::BatteryLight => st.battery_light = !st.battery_light,
             Setting::Combo => st.combo = !st.combo,
+            // Vaut tout de suite pour les sessions de cet ordinateur.
+            Setting::CtrlCommand => {
+                let on = !st.ctrl_command.unwrap_or(true);
+                st.ctrl_command = Some(on);
+                return vec![Action::Save, Action::ControlAsCommand(id, on)];
+            }
             Setting::Clipboard => st.clipboard = !st.clipboard,
             Setting::Reconnect => st.reconnect = !st.reconnect,
             Setting::Yuv444 => st.yuv444 = !st.yuv444,
@@ -6444,6 +6523,70 @@ mod tests {
         assert_eq!((app.running_sessions(), app.active), (1, Some(b)));
         // Un identifiant ne sert jamais deux fois : la session finie garde le sien tant qu'elle est dans la liste.
         assert!(app.session_by(a).is_some_and(|s| !s.running()));
+    }
+
+    /// Face à une Station Mac (docs/link-ui.md) : le menu Touches propose les touches du Mac, envoyées telles
+    /// quelles ; un invité garde celles d'un PC ; « Ctrl agit comme ⌘ » n'est dans Commandes que face à un Mac,
+    /// allumé tant qu'on ne l'a pas éteint, gardé pour l'ordinateur et donné tout de suite à ses sessions.
+    #[test]
+    fn keys_and_ctrl_command_with_a_mac() {
+        crate::i18n::force_english(false);
+        let mut app = desk();
+        app.store.hosts[0].os = Some("macOS 26.1".into());
+        app.store.hosts[1].os = Some("Windows 11 Pro".into());
+        let (a, b) = (open(&mut app, "a"), open(&mut app, "b"));
+        assert!(app.session_mac(app.session_by(a).unwrap()));
+        assert!(!app.session_mac(app.session_by(b).unwrap()));
+        assert_eq!(app.activate(Target::Shortcut(0)), vec![Action::Shortcut(b, SHORTCUTS[0].2.to_vec())]);
+        app.activate_session(a);
+        assert_eq!(app.activate(Target::BarShortcut(0)), vec![Action::Shortcut(a, vec![0xE05B, 0x0F])], "⌘ ⇥");
+        assert_eq!(app.activate(Target::BarShortcut(4)), vec![Action::Shortcut(a, vec![0x38, 0xE05B, 0x01])], "⌥ ⌘ Échap");
+        assert!(app.activate(Target::Shortcut(5)).is_empty(), "le menu du Mac n'a que cinq touches");
+        // Un invité ne connaît pas le système de l'ordinateur : le menu d'un PC.
+        let g = app.new_session_id();
+        app.open_session(SessionUi::guest(g, "a", "A", ShareRole::Kbm));
+        assert!(!app.session_mac(app.session_by(g).unwrap()));
+        // Le réglage, face au Mac seulement.
+        app.store.selected = Some("a".into());
+        let row = app.rows(Section::Controls).into_iter().find(|r| r.setting == Setting::CtrlCommand).expect("face à un Mac");
+        assert_eq!((row.label.as_str(), &row.kind), ("Ctrl agit comme ⌘", &RowKind::Toggle(true)));
+        assert_eq!(app.activate(Target::Setting(Setting::CtrlCommand)), vec![Action::Save, Action::ControlAsCommand("a".into(), false)]);
+        assert_eq!(app.store.hosts[0].settings.ctrl_command, Some(false));
+        assert_eq!(app.activate(Target::Setting(Setting::CtrlCommand)), vec![Action::Save, Action::ControlAsCommand("a".into(), true)]);
+        app.store.selected = Some("b".into());
+        assert!(!app.rows(Section::Controls).iter().any(|r| r.setting == Setting::CtrlCommand));
+        assert!(station_is_mac("macOS 15.5") && station_is_mac(" MacOS") && !station_is_mac("Windows 11") && !station_is_mac("mac"));
+    }
+
+    /// Manettes indisponibles sur l'ordinateur (docs/link-ui.md) : l'avis bref une fois par session, quand l'image
+    /// est là et qu'une manette est branchée ; jamais pour un ordinateur qui les crée, ni pour un invité.
+    #[test]
+    fn pads_unavailable_said_once_per_session() {
+        crate::i18n::force_english(false);
+        let mut app = desk();
+        app.live.get_mut("a").unwrap().pads_unavailable = true;
+        let a = open(&mut app, "a");
+        let said = |app: &App, id| app.session_by(id).unwrap().notice.as_ref().map(|n| n.0.clone());
+        app.pads_unavailable_notice(a, 1);
+        assert_eq!(said(&app, a), None, "pas encore d'image");
+        app.session_by_mut(a).unwrap().opened_at = Some(Instant::now());
+        app.pads_unavailable_notice(a, 0);
+        assert_eq!(said(&app, a), None, "aucune manette branchée");
+        app.pads_unavailable_notice(a, 1);
+        assert_eq!(said(&app, a).as_deref(), Some("Manettes indisponibles sur cet ordinateur."));
+        app.session_by_mut(a).unwrap().notice = None;
+        app.pads_unavailable_notice(a, 2);
+        assert_eq!(said(&app, a), None, "une fois par session");
+        let b = open(&mut app, "b");
+        app.session_by_mut(b).unwrap().opened_at = Some(Instant::now());
+        app.pads_unavailable_notice(b, 1);
+        assert_eq!(said(&app, b), None, "l'ordinateur b crée les manettes");
+        let g = app.new_session_id();
+        let mut guest = SessionUi::guest(g, "a", "A", ShareRole::Player);
+        guest.opened_at = Some(Instant::now());
+        app.open_session(guest);
+        app.pads_unavailable_notice(g, 1);
+        assert_eq!(said(&app, g), None, "un invité ne le voit pas");
     }
 
     /// Le Steam Deck, le salon et KyberNow Link OS gardent une session ; le bureau en tient plusieurs.

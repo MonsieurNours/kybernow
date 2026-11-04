@@ -125,9 +125,9 @@ fn demo(english: bool, layout: Layout) -> App {
     app.net.kind = if layout == Layout::Tv { NetKind::Ethernet } else { NetKind::Wifi };
     app.net.link_mbps = Some(2500);
     app.net.band = Some("5 GHz".into());
-    app.live.insert("a".into(), HostLive { online: Online::Online, virtual_display: Some(true), station: Some(station("0.5.0", None)), own_device: Some(true), max_screens: Some(4), share: Some(crate::app::ShareAvail::Available), lend: Some(crate::app::LendAvail::Available), lend_view: None });
+    app.live.insert("a".into(), HostLive { online: Online::Online, virtual_display: Some(true), station: Some(station("0.5.0", None)), own_device: Some(true), max_screens: Some(4), share: Some(crate::app::ShareAvail::Available), lend: Some(crate::app::LendAvail::Available), lend_view: None, ..Default::default() });
     app.live.insert("b".into(), HostLive { online: Online::Offline, ..Default::default() });
-    app.live.insert("c".into(), HostLive { online: Online::Online, virtual_display: Some(true), station: Some(station("0.5.0", None)), own_device: Some(true), max_screens: Some(4), share: Some(crate::app::ShareAvail::Available), lend: Some(crate::app::LendAvail::Available), lend_view: None });
+    app.live.insert("c".into(), HostLive { online: Online::Online, virtual_display: Some(true), station: Some(station("0.5.0", None)), own_device: Some(true), max_screens: Some(4), share: Some(crate::app::ShareAvail::Available), lend: Some(crate::app::LendAvail::Available), lend_view: None, ..Default::default() });
     app.images.insert("a".into(), demo_image(1));
     app.image_is_last.insert("a".into(), true);
     app.found.push(Found { name: "MINI-PC".into(), address: "192.168.1.57".into(), port: 31207, fingerprint: Some("sha256:7c:3a:91:e0:4b:2d:a8:1f".into()) });

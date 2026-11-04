@@ -47,6 +47,8 @@ pub struct Shared {
     has_audio: bool,
     clipboard: bool,
     pub combo_enabled: AtomicBool,
+    /// « Ctrl agit comme ⌘ » (face à une Station Mac) : donné à chaque chaîne d'entrées.
+    control_as_command: AtomicBool,
 }
 
 impl Shared {
@@ -76,6 +78,14 @@ impl Shared {
 
     pub fn current_input(&self) -> Option<Arc<InputPipeline>> {
         self.input.lock().unwrap().clone()
+    }
+
+    /// « Ctrl agit comme ⌘ » : la chaîne en cours et les suivantes.
+    pub fn set_control_as_command(&self, on: bool) {
+        self.control_as_command.store(on, Ordering::Relaxed);
+        if let Some(p) = self.current_input() {
+            p.set_control_as_command(on);
+        }
     }
 }
 
@@ -278,6 +288,7 @@ impl Platform for AndroidPlatform {
             clock,
         );
         pipeline.combo().set_enabled(self.0.combo_enabled.load(Ordering::Relaxed));
+        pipeline.set_control_as_command(self.0.control_as_command.load(Ordering::Relaxed));
         if let Err(e) = pipeline.spawn_driver() {
             log::error!("entrées : fil des minuteries impossible ({e})");
         }
@@ -548,6 +559,9 @@ struct AndroidJson {
     /// La combinaison L1 + R1 + Start + Select ouvre le menu.
     #[serde(default = "yes")]
     combo: bool,
+    /// « Ctrl agit comme ⌘ » au départ (face à une Station Mac, `keymap::control_as_command`).
+    #[serde(default)]
+    control_as_command: bool,
 }
 
 fn yes() -> bool {
@@ -561,7 +575,8 @@ pub struct Handle {
 
 /// Démarre une session ; même JSON que `kn_session_start` des apps Apple
 /// (`SessionParams::from_json` du cœur, `guest` compris pour une session
-/// d'invité de KyberNow Share), plus `combo` (la combinaison ouvre le menu).
+/// d'invité de KyberNow Share), plus `combo` (la combinaison ouvre le menu)
+/// et `control_as_command` (« Ctrl agit comme ⌘ »).
 pub fn start(params_json: &str, listener: Listener, window: Option<NativeWindow>, refresh: u32) -> Result<Handle, String> {
     let (params, _screens) = SessionParams::from_json(params_json)?;
     let android: AndroidJson = serde_json::from_str(params_json).map_err(|e| e.to_string())?;
@@ -583,6 +598,7 @@ pub fn start(params_json: &str, listener: Listener, window: Option<NativeWindow>
         // Jamais le presse-papiers pour un invité.
         clipboard: params.clipboard && !params.is_guest(),
         combo_enabled: AtomicBool::new(android.combo),
+        control_as_command: AtomicBool::new(android.control_as_command),
     });
     // Le pointeur à dessiner : position, visibilité, forme.
     let weak = Arc::downgrade(&shared);

@@ -30,6 +30,7 @@
     <string name="home_pads_none">No controller</string>
     <string name="home_pads_one">1 controller</string>
     <string name="home_pads_many" formatted="true">%1$d controllers</string>
+    <string name="home_pads_unavailable">Controllers unavailable on this computer</string>
     <string name="home_account_refused">Password refused: update it in the settings.</string>
     <string name="home_certificate_changed">The Station was reinstalled: check its fingerprint in the settings.</string>
     <string name="welcome_title">Bring your computer here</string>
@@ -141,6 +142,8 @@
     <string name="touch_direct">Direct touch</string>
     <string name="settings_clipboard">Shared clipboard</string>
     <string name="settings_clipboard_help">Copied text goes both ways; this device\'s is read only when the computer pastes.</string>
+    <string name="settings_ctrl_command">Ctrl acts as ⌘</string>
+    <string name="settings_ctrl_command_help">Copy, paste and the Mac\'s other shortcuts with Ctrl, as on a PC. The ⊞ key becomes ⌃.</string>
     <string name="pad_on_screen">On-screen controller</string>
     <string name="pad_on_screen_help">An Xbox controller over the picture, for both thumbs; the session bar button shows or hides it. While it is shown, the screen does not act as a mouse. Tap a stick twice to click it.</string>
     <string name="pad_layout">Layout</string>
@@ -324,11 +327,17 @@
     <string name="capsule_adapting" formatted="true">The virtual display switches to %1$d × %2$d…</string>
     <string name="capsule_adapt_failed">The virtual display could not change</string>
     <string name="capsule_gamepad" formatted="true">%1$s connected · P%2$d · %3$s</string>
+    <string name="capsule_pads_unavailable">Controllers unavailable on this computer.</string>
     <string name="keys_print">Print Screen</string>
     <string name="keys_task_manager">Task Manager</string>
     <string name="keys_escape">Esc</string>
     <string name="keys_ctrl_alt_del">Ctrl + Alt + Del</string>
     <string name="keys_ctrl_alt_del_short">Ctrl+Alt+Del</string>
+    <string name="keys_mac_switch">⌘ ⇥</string>
+    <string name="keys_mac_spotlight">⌘ Space</string>
+    <string name="keys_mac_lock">⌃ ⌘ Q</string>
+    <string name="keys_mac_screenshot">⇧ ⌘ 5</string>
+    <string name="keys_mac_force_quit">⌥ ⌘ Esc</string>
     <string name="stats_latency">Latency</string>
     <string name="stats_capture">capture</string>
     <string name="stats_encode">encoding</string>

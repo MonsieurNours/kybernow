@@ -478,6 +478,8 @@ pub fn share_connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> 
         lend: lend.clone(),
         lend_seen: AtomicBool::new(false),
         route: route.clone(),
+        pads_off: false,
+        pads_told: AtomicBool::new(false),
     });
     let mut running = state.sessions.lock().unwrap();
     let host = SessionHost::start_as(
@@ -723,7 +725,13 @@ pub fn show_without_focus(bar: &tauri::WebviewWindow) {
 /// le fil de Tauri, comme `top_edge`, pour que le cœur n'attende ni la fenêtre
 /// de la barre (`is_visible` attend le fil de Tauri) ni les verrous de l'app.
 pub fn notice(app: &AppHandle, id: &str, title: &str, text: &str) {
-    notice_with(app, id, title, text, None);
+    notice_with(app, id, title, text, None, None);
+}
+
+/// [`notice`] avec l'icône de sa capsule (`gamepad` : « Manettes indisponibles
+/// sur cet ordinateur. »).
+pub fn icon_notice(app: &AppHandle, id: &str, title: &str, text: &str, icon: &'static str) {
+    notice_with(app, id, title, text, None, Some(icon));
 }
 
 /// L'avis d'une demande à rejoindre arrivée pendant la session d'hôte `id`
@@ -732,20 +740,20 @@ pub fn notice(app: &AppHandle, id: &str, title: &str, text: &str) {
 /// l'avis de la barre, sur la notification) ouvre le panneau de « Partager », où
 /// « Accepter » et « Refuser » attendent. `title` : le nom de l'ordinateur.
 pub fn request_notice(app: &AppHandle, id: &str, title: &str, name: &str) {
-    notice_with(app, id, title, &t("share.notice_request", &[("name", name)]), Some("share"));
+    notice_with(app, id, title, &t("share.notice_request", &[("name", name)]), Some("share"), None);
 }
 
 /// L'avis d'une demande qui ouvre un panneau de la barre quand on le choisit :
 /// `share` (« Partager ») ou `lend` (« Prêter l'ordinateur… », « {prénom} veut
 /// emprunter l'ordinateur. »).
 pub fn panel_notice(app: &AppHandle, id: &str, title: &str, text: &str, panel: &'static str) {
-    notice_with(app, id, title, text, Some(panel));
+    notice_with(app, id, title, text, Some(panel), None);
 }
 
 /// `panel` : l'avis est celui d'une demande, que l'on peut choisir pour ouvrir ce panneau.
 /// La barre déjà ouverte sur cette session décide elle-même de le montrer (`share-request`) :
 /// son panneau ouvert montre déjà la demande, l'avis ne le referme pas.
-fn notice_with(app: &AppHandle, id: &str, title: &str, text: &str, panel: Option<&'static str>) {
+fn notice_with(app: &AppHandle, id: &str, title: &str, text: &str, panel: Option<&'static str>, icon: Option<&'static str>) {
     let (a, id, title, text) = (app.clone(), id.to_string(), title.to_string(), text.to_string());
     let _ = app.run_on_main_thread(move || {
         let state = a.state::<UiState>();
@@ -758,7 +766,7 @@ fn notice_with(app: &AppHandle, id: &str, title: &str, text: &str, panel: Option
                 return;
             }
             let hwnd = state.with_session(&id, |r| r.host.bar_window()).unwrap_or(0);
-            show_bar_notice(&a, &id, hwnd, true, Some(text), panel);
+            show_bar_notice(&a, &id, hwnd, true, Some(text), panel, icon);
         } else {
             let launch = match panel {
                 Some(p) => format!("kybernow://{p}?id={id}"),

@@ -152,6 +152,8 @@
   let notice = $state<string | null>(null)
   /** L'avis est celui d'une demande (à rejoindre, à emprunter) : le choisir ouvre ce panneau. */
   let noticePanel = $state<'share' | 'lend' | null>(null)
+  /** L'icône de la capsule d'un avis (`gamepad` : « Manettes indisponibles sur cet ordinateur. ») ; sinon celle d'un écran. */
+  let noticeIcon = $state<string | null>(null)
   let noticeTimer: ReturnType<typeof setTimeout> | null = null
   /** L'heure, pour « depuis 3 min » dans la liste des invités (revue toutes les 30 s). */
   let now = $state(Date.now())
@@ -194,6 +196,7 @@
     notice?: string | null
     notice_opens_share?: boolean
     notice_opens_lend?: boolean
+    notice_icon?: string | null
     route?: RouteView | null
     lend?: LendPanel | null
     borrow?: BorrowBar | null
@@ -464,6 +467,7 @@
           held = false
           inside = false
           showNotice(s.notice, s.notice_opens_share ? 'share' : s.notice_opens_lend ? 'lend' : null)
+          noticeIcon = s.notice_icon ?? null
         } else {
           view = 'bar'
           clearNotice()
@@ -740,6 +744,7 @@
     noticeTimer = null
     notice = null
     noticePanel = null
+    noticeIcon = null
   }
 
   /** Choisir l'avis d'une demande à rejoindre : le panneau de « Partager » s'ouvre, où « Accepter » et « Refuser » attendent. */
@@ -1167,7 +1172,7 @@
       <Icon name={noticePanel === 'lend' ? 'key' : 'share'} size={15} stroke={1.8} />{notice}
     </button>
   {:else if notice}
-    <div class="capsule" role="status" bind:this={bar}><Icon name="monitor" size={15} stroke={1.8} />{notice}</div>
+    <div class="capsule" role="status" bind:this={bar}><Icon name={noticeIcon ?? 'monitor'} size={15} stroke={1.8} />{notice}</div>
   {/if}
 {:else}
 <div class="bar" class:compact class:padmode={psBar?.pad_mode} role="toolbar" aria-label={t('bar.toolbar')} tabindex="-1" bind:this={bar}>

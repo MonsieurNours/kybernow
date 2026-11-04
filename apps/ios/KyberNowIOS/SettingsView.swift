@@ -771,8 +771,11 @@ private struct SettingsPane: View {
         rows.toggle(String(localized: "Barre avec L1 + R1 + Start + Select"), String(localized: "Ouvre la barre de session depuis la manette, sans toucher l'écran."), prefs.menuCombo) {
             prefs.menuCombo.toggle()
         }
-        rows.toggle(String(localized: "⌘ envoyée comme Ctrl"), String(localized: "Clavier externe : ⌘C fait Ctrl+C sur l'ordinateur."), s.commandAsControl) {
-            update { $0.commandAsControl.toggle() }
+        // Face à une Station Mac, ⌘ part comme ⌘ : pas de réglage (docs/link-ui.md).
+        if !host.isMac {
+            rows.toggle(String(localized: "⌘ envoyée comme Ctrl"), String(localized: "Clavier externe : ⌘C fait Ctrl+C sur l'ordinateur."), s.commandAsControl) {
+                update { $0.commandAsControl.toggle() }
+            }
         }
         rows.toggle(String(localized: "Clavier Apple ISO"), String(localized: "Clavier Apple européen (touche @# ou §± sous Échap) : la touche sous Échap et celle près de Maj retrouvent leur place sur l'ordinateur."), prefs.appleISOKeyboard) {
             prefs.appleISOKeyboard.toggle()

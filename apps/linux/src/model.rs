@@ -64,6 +64,9 @@ pub struct HostSettings {
     pub xbox360: bool,
     /// L1 + R1 + Start + Select ouvrent le menu.
     pub combo: bool,
+    /// « Ctrl agit comme ⌘ », face à une Station Mac seulement ; `None` : jamais changé, allumé
+    /// (`keymap::control_as_command` du cœur).
+    pub ctrl_command: Option<bool>,
     pub clipboard: bool,
     pub reconnect: bool,
     /// Transport fiable même en profil Jeu (Wi-Fi chargé).
@@ -91,6 +94,7 @@ impl Default for HostSettings {
             mouse: "auto".into(),
             xbox360: true,
             combo: true,
+            ctrl_command: None,
             clipboard: true,
             reconnect: true,
             reliable: false,

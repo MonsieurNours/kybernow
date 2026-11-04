@@ -17,11 +17,12 @@
   import { Engine, allStopped, isFixedEngine, retire, supportedCodecs, type DisplayInfo, type Latency } from './engine'
   import { choose, preferredProtocol, setRelay, viaRelay, type Plan } from './plan'
   import { deviceId, isCustom, MIN_SESSION_SECONDS, profileName, saveLastSession, type MouseMode, type Prefs, type TouchMode } from './prefs'
-  import { deviceKind, deviceName, hasKeyboardLock, hasTouchScreen, isIsolated, isTouch, measureRefresh, screenMode, type Mode } from './device'
+  import { deviceKind, deviceName, hasKeyboardLock, isAppleDevice, hasTouchScreen, isIsolated, isTouch, measureRefresh, screenMode, type Mode } from './device'
   import { installAbsoluteMouse, installPointerGate, isRemoteCursorHidden, releasePointer, removeAbsoluteMouse, removePointerGate, setPositionMapper, setRemoteCursorHidden } from './pointer'
   import { allowPackets, currentDisplayId, engineInputs, forgetInputSocket, injected, learnDisplayId, watchInputSocket } from './inputs'
   import { installInputGuard, releaseAll, removeInputGuard } from './guard'
-  import { SPECIAL_KEYS, TEXT_ATTRIBUTE, TouchInput, TypedText, sendKey } from './touch'
+  import { MAC_FORCE_QUIT, MAC_KEYS, MAC_SPECIAL_LABELS, SPECIAL_KEYS, TEXT_ATTRIBUTE, TouchInput, TypedText, sendKey, type Combo } from './touch'
+  import { stationIsMac } from './keyswap'
   import { errorText } from '../lib/store.svelte'
   import Mark from '../lib/Mark.svelte'
   import Icon from '../lib/Icon.svelte'
@@ -110,6 +111,14 @@
   let gamepads = $state<{ index: number; name: string }[]>([])
   const gamepadText = $derived(tn('session.gamepads.count', gamepads.length))
   const gamepadAria = $derived(t('session.gamepads.aria', { count: gamepadText, names: gamepads.map((p) => p.name).join(', ') }))
+  /** La Station ne sait pas créer de manettes (`gamepads.available` faux dans `/api/stream/info`) :
+   * un avis bref, une fois par session (docs/link-ui.md, « Manettes indisponibles »). Hôte seulement. */
+  let padsUnavailable = false
+  let padsNoticed = false
+  /** Face à une Station Mac (`os` de `/api/stream/info`) : menu « Touches » et touches à l'écran du
+   * Mac, « Ctrl agit comme ⌘ » (docs/link-ui.md, « Face à une Station Mac »). Hôte seulement : un
+   * invité ou un ami qui emprunte garde ceux d'un PC. */
+  let stationMac = $state(false)
   /** Droits d'un invité : son rôle, changé en cours de partage par le signe de vie. L'hôte a tout. */
   let role = $state<ShareRole>(g?.join.role ?? 'player_kbm')
   // Deux droits indépendants : les manettes (`player`), le clavier et la souris (`kbm`), ou les deux.
@@ -1012,6 +1021,19 @@
     noticeTimer = setTimeout(() => (notice = ''), duration)
   }
 
+  /** « Manettes indisponibles sur cet ordinateur. » : à l'arrivée de l'image si une manette est
+   * branchée, sinon quand la première se branche ; une fois par session. */
+  function noticePads() {
+    if (!padsUnavailable || padsNoticed || phase !== 'live' || !gamepads.length) return
+    padsNoticed = true
+    showNotice(t('session.gamepads.unavailable'))
+  }
+
+  /** Combinaison d'un menu ou des touches à l'écran, envoyée telle quelle (sans « Ctrl agit comme ⌘ »). */
+  function sendMacCombo(c: Combo) {
+    sendKey(canvas(), c.key, c.code, new Set(c.mods))
+  }
+
   /** Relance de l'image sans recharger la page ni se déconnecter. */
   function restartVideo(text: string) {
     if (!engine || phase !== 'live') return
@@ -1108,6 +1130,7 @@
         break
       case 'gamepad':
         gamepads = e.plugged ? [...gamepads.filter((g) => g.index !== e.index), { index: e.index, name: e.name }] : gamepads.filter((g) => g.index !== e.index)
+        if (e.plugged) noticePads()
         break
       case 'first-image': {
         // Aussi après une relance de l'image : la session est déjà en cours.
@@ -1120,6 +1143,7 @@
           showNotice(pendingNotice)
           pendingNotice = ''
         }
+        noticePads()
         if (!heartbeat.running) heartbeat.start(heartbeatBody(null, profileLabel, extra()))
         learnDisplayId().then((list) => {
           if (list && !displays) displays = list.map((d) => ({ id: d.id, name: String(d.name ?? ''), width: Number(d.width) || 0, height: Number(d.height) || 0 }))
@@ -1585,6 +1609,8 @@
         if (mods.size) mods = new Set()
       },
       allowed: () => ({ keyboard: canKbm, mouse: canKbm }),
+      // Un clavier d'Apple a sa touche ⌘ : elle part comme ⌘, sans échange.
+      swapControl: () => stationMac && !isAppleDevice && prefs.controlAsCommand,
     })
     installPointerGate(pointerAllowed)
     installAbsoluteMouse()
@@ -1614,6 +1640,9 @@
         .then((i: Info) => {
           shareSupport = !i.share ? 'old' : i.share.enabled ? 'ok' : 'off'
           lendSupport = !i.lend ? 'none' : i.lend.enabled ? 'ok' : 'off'
+          stationMac = stationIsMac(i.os)
+          padsUnavailable = i.gamepads?.available === false
+          noticePads()
         })
         .catch(() => {})
     }
@@ -1826,7 +1855,7 @@
               {#if !lendOver}<button type="button" class="primary" onclick={comeBack}>{t('lend.friend.comeBack')}</button>{/if}
               <button type="button" class={lendOver ? 'primary' : 'ghost'} onclick={quit}>{t('lend.close')}</button>
             {:else}
-              <button type="button" class="primary" onclick={() => { ended = false; wasLive = false; resetStats(); restart() }}>{t('session.start.reconnect')}</button>
+              <button type="button" class="primary" onclick={() => { ended = false; wasLive = false; padsNoticed = false; resetStats(); restart() }}>{t('session.start.reconnect')}</button>
               <button type="button" class="ghost" onclick={quit}>{t('session.start.home')}</button>
             {/if}
           </div>
@@ -2008,10 +2037,17 @@
 
       {#if keysOpen && canKbm}
         <div class="menu glass" role="menu" aria-label={t('session.keys.title')}>
-          <button type="button" role="menuitem" onclick={() => { engine?.ctrlAltDel(); keysOpen = false }}>{t('session.keys.cad')}<span class="mono">{t('session.keys.cadSub')}</span></button>
-          <button type="button" role="menuitem" onclick={() => { sendKey(canvas(), 'Meta', 'MetaLeft', new Set()); keysOpen = false }}>{t('session.keys.win')}<span class="mono">{t('session.keys.winSub')}</span></button>
-          <button type="button" role="menuitem" onclick={() => { sendCombo([{ key: 'Alt', code: 'AltLeft' }], { key: 'Tab', code: 'Tab' }); keysOpen = false }}>{t('session.keys.altTab')}<span class="mono">{t('session.keys.altTabSub')}</span></button>
-          <button type="button" role="menuitem" onclick={() => { sendKey(canvas(), 'PrintScreen', 'PrintScreen', new Set()); keysOpen = false }}>{t('session.keys.print')}<span class="mono">{t('session.keys.printSub')}</span></button>
+          {#if stationMac}
+            <!-- Face à une Station Mac : ses combinaisons, envoyées telles quelles. -->
+            {#each MAC_KEYS as k (k.code)}
+              <button type="button" role="menuitem" onclick={() => { sendMacCombo(k); keysOpen = false }}>{k.label}<span class="mono">{k.sub}</span></button>
+            {/each}
+          {:else}
+            <button type="button" role="menuitem" onclick={() => { engine?.ctrlAltDel(); keysOpen = false }}>{t('session.keys.cad')}<span class="mono">{t('session.keys.cadSub')}</span></button>
+            <button type="button" role="menuitem" onclick={() => { sendKey(canvas(), 'Meta', 'MetaLeft', new Set()); keysOpen = false }}>{t('session.keys.win')}<span class="mono">{t('session.keys.winSub')}</span></button>
+            <button type="button" role="menuitem" onclick={() => { sendCombo([{ key: 'Alt', code: 'AltLeft' }], { key: 'Tab', code: 'Tab' }); keysOpen = false }}>{t('session.keys.altTab')}<span class="mono">{t('session.keys.altTabSub')}</span></button>
+            <button type="button" role="menuitem" onclick={() => { sendKey(canvas(), 'PrintScreen', 'PrintScreen', new Set()); keysOpen = false }}>{t('session.keys.print')}<span class="mono">{t('session.keys.printSub')}</span></button>
+          {/if}
         </div>
       {/if}
     </div>
@@ -2133,9 +2169,15 @@
     {:else}
       <div class="keys" role="toolbar" aria-label={t('session.touch.specialKeys')}>
         {#each SPECIAL_KEYS as k (k.code)}
-          <button type="button" class="key" aria-pressed={k.sticky ? mods.has(k.key) : undefined} aria-label={k.aria} onpointerdown={(e) => e.preventDefault()} onclick={() => pressSpecial(k)}>{k.label}</button>
+          <!-- Face à une Station Mac : « ⌃ », « ⌥ », « ⌘ » au lieu de « Ctrl », « Alt », « ⊞ » (mêmes touches envoyées). -->
+          {@const mac = stationMac ? MAC_SPECIAL_LABELS[k.code] : undefined}
+          <button type="button" class="key" aria-pressed={k.sticky ? mods.has(k.key) : undefined} aria-label={mac?.aria ?? k.aria} onpointerdown={(e) => e.preventDefault()} onclick={() => pressSpecial(k)}>{mac?.label ?? k.label}</button>
         {/each}
-        <button type="button" class="key" onpointerdown={(e) => e.preventDefault()} onclick={() => engine?.ctrlAltDel()}>{t('session.touch.cad')}</button>
+        {#if stationMac}
+          <button type="button" class="key" onpointerdown={(e) => e.preventDefault()} onclick={() => sendMacCombo(MAC_FORCE_QUIT)}>{MAC_FORCE_QUIT.label}</button>
+        {:else}
+          <button type="button" class="key" onpointerdown={(e) => e.preventDefault()} onclick={() => engine?.ctrlAltDel()}>{t('session.touch.cad')}</button>
+        {/if}
         <button type="button" class="key close" aria-label={t('session.touch.closeKeyboard')} onclick={closeKeyboard}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
         </button>

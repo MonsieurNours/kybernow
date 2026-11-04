@@ -23,6 +23,7 @@
 
 import AppKit
 import Combine
+import GameController
 import KyberKit
 import SwiftUI
 
@@ -98,14 +99,17 @@ final class SessionController: NSObject, ObservableObject {
     /// Dernier recours de la connexion : la Station redémarre (« La Station
     /// redémarre… » à la place des étapes, jusqu'à la phase suivante).
     @Published private(set) var stationRestarting = false
-    /// Rappel affiché quelques secondes, sur un événement de la session (jamais à l'arrivée de l'image).
-    enum Hint: Equatable { case mouse, fallback(String), notice(String), request(String), lendRequest(String) }
+    /// Rappel affiché quelques secondes, sur un événement de la session (jamais à
+    /// l'arrivée de l'image, sauf les manettes indisponibles).
+    enum Hint: Equatable { case mouse, fallback(String), notice(String), request(String), lendRequest(String), gamepads(String) }
     /// Profil Bureau, écran de l'ordinateur passé à un autre mode : « Remettre
     /// 3840 × 2160 » dans la barre (le cœur le propose et le retire).
     @Published private(set) var modeRestoreOffer: String?
     /// Rappel affiché quelques secondes en haut de l'écran.
     @Published private(set) var hint: Hint?
     private var mouseHintShown = false
+    /// « Manettes indisponibles sur cet ordinateur. » déjà dit dans cette session.
+    private var gamepadsHintShown = false
 
     /// Mode d'un écran : définition réelle et fréquence.
     struct ScreenMode: Equatable {
@@ -605,7 +609,12 @@ final class SessionController: NSObject, ObservableObject {
             NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.appActive = NSApp.isActive }
             }
-        }
+        } + [
+            // Une manette branchée face à un ordinateur qui n'en crée pas.
+            NotificationCenter.default.addObserver(forName: .GCControllerDidConnect, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.gamepadsUnavailableHint(after: 0) }
+            },
+        ]
         // Fermer la fenêtre (bouton rouge, ⌘W), c'est se déconnecter : elle
         // se ferme d'elle-même une fois la session finie.
         windowDelegate.onClose = { [weak self] in self?.closeRequested() }
@@ -800,7 +809,8 @@ final class SessionController: NSObject, ObservableObject {
     private func configure(_ surface: ScreenSurface) {
         let view = surface.streamView
         let settings = host.settings
-        view.commandAsControl = settings.commandAsControl
+        // Face à une Station Mac, ⌘ part comme ⌘ (réglage ni montré ni appliqué).
+        view.commandAsControl = host.commandAsControl
         view.mouseMode = settings.mouse.streamMode
         view.pcGameFullscreen = pcGame
         view.tracksInActiveApp = multiScreen && focusActive
@@ -1440,6 +1450,7 @@ final class SessionController: NSObject, ObservableObject {
                 self.window?.makeFirstResponder(self.streamView)
                 // L'écran de ce Mac a pu changer pendant la connexion.
                 self.checkScreenMode()
+                self.gamepadsUnavailableHint()
             }
         case let .reconnecting(attempt, _):
             phase = .reconnecting(attempt)
@@ -1830,6 +1841,17 @@ final class SessionController: NSObject, ObservableObject {
             guard self?.hint == which else { return }
             withAnimation(.easeIn(duration: 0.35)) { self?.hint = nil }
         }
+    }
+
+    /// « Manettes indisponibles sur cet ordinateur. » (docs/link-ui.md) : une
+    /// fois par session, à l'arrivée de l'image si une manette est branchée,
+    /// sinon quand la première se branche. Pas pour un invité ni un ami, qui ne
+    /// savent pas ce que l'ordinateur crée.
+    private func gamepadsUnavailableHint(after delay: TimeInterval = 1.6) {
+        guard !isVisitor, !host.gamepadsAvailable, !gamepadsHintShown, revealedAt != nil,
+              GCController.controllers().contains(where: { $0.extendedGamepad != nil }) else { return }
+        gamepadsHintShown = true
+        showHint(.gamepads(LinkText.controllersUnavailableNotice), after: delay, for: 5)
     }
 
     /// ⌃⌥⌘S : panneau des mesures détaillées.

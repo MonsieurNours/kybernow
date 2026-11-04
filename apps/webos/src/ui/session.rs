@@ -8,7 +8,7 @@ use super::icons::Icon;
 use super::theme::*;
 use super::widgets::{self};
 use super::Frame;
-use crate::app::{share_tile, App, MenuItem, Phase, Rect, SessionUi, ShareAvail, Target, SHORTCUTS};
+use crate::app::{share_tile, shortcuts, App, MenuItem, Phase, Rect, SessionUi, ShareAvail, Target};
 use crate::i18n::{decimal, english, tr};
 use crate::model::Profile;
 
@@ -53,7 +53,12 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
                 && at.elapsed().as_secs_f32() < 4.0
                 && !s.menu
             {
-                capsule(cv, H - 140.0, n, false);
+                // Les manettes indisponibles : avec l'icône de manette.
+                if n == crate::app::pads_unavailable_notice() {
+                    capsule_icon(cv, H - 140.0, n, Icon::Gamepad);
+                } else {
+                    capsule(cv, H - 140.0, n, false);
+                }
             }
         }
     }
@@ -73,6 +78,17 @@ fn capsule(cv: &mut Canvas, y: f32, msg: &str, lit: bool) {
         tx += 32.0;
     }
     cv.text(tx, y + 41.0, style, msg);
+}
+
+/// La même capsule, avec une icône devant le texte.
+fn capsule_icon(cv: &mut Canvas, y: f32, msg: &str, icon: Icon) {
+    let style = Text::new(Font::Regular, 24.0, FROST);
+    let w = cv.text_width(style, msg) + 112.0;
+    let x = (W - w) / 2.0;
+    cv.rrect(x, y, w, 64.0, 32.0, Rgba(14, 19, 28, 235));
+    cv.rrect_stroke(x, y, w, 64.0, 32.0, 1.5, SPECTRE.alpha(0.35));
+    cv.icon(&icon, x + 32.0, y + 17.0, 30.0, 1.6, SPECTRE);
+    cv.text(x + 76.0, y + 41.0, style, msg);
 }
 
 /// La connexion (docs/link-ui.md) : le nom, les trois étapes et Annuler,
@@ -286,7 +302,7 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     cv.text(W / 2.0, 200.0, Text::new(Font::Mono, 16.0, FROST_3).tracking(3.0).align(Align::Center), &head);
 
     if s.keys {
-        keys(cv, f);
+        keys(cv, f, app.session_mac());
         return;
     }
 
@@ -321,7 +337,9 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     if kbm {
         tiles.push((MenuItem::RemoteMouse, Icon::Pointer, "Magic Remote".into(), Some(tr("en souris · OK = clic", "as mouse · OK = click").into()), false, s.remote_mouse));
         tiles.push((MenuItem::PadMouse, Icon::Gamepad, tr("Manette en souris", "Controller as mouse").into(), Some(tr("stick gauche", "left stick").into()), false, s.pad_mouse));
-        tiles.push((MenuItem::Keys, Icon::Keys, tr("Touches", "Keys").into(), Some("Ctrl+Alt+Suppr…".into()), false, false));
+        // Face à une Station Mac, les touches du Mac (docs/link-ui.md, « Face à une Station Mac »).
+        let keys_sub = if app.session_mac() { tr("⌥ ⌘ Échap…", "⌥ ⌘ Esc…") } else { "Ctrl+Alt+Suppr…" };
+        tiles.push((MenuItem::Keys, Icon::Keys, tr("Touches", "Keys").into(), Some(keys_sub.into()), false, false));
     }
     tiles.push((MenuItem::Stats, Icon::Chart, tr("Statistiques", "Statistics").into(), Some(tr("en haut de l'image", "over the picture").into()), false, s.show_stats));
     if pads {
@@ -428,11 +446,11 @@ fn console_menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi, ps: &c
     cv.text(W / 2.0, H - 70.0, Text::new(Font::Regular, 19.0, FROST_3).align(Align::Center), hint);
 }
 
-fn keys(cv: &mut Canvas, f: &mut Frame) {
+fn keys(cv: &mut Canvas, f: &mut Frame, mac: bool) {
     cv.text(W / 2.0, 290.0, Text::new(Font::Title, 40.0, FROST).align(Align::Center), tr("Touches", "Keys"));
     let (x0, y0, cols, gap) = (300.0, 340.0, 2usize, 22.0);
     let w = (W - 2.0 * x0 - gap) / cols as f32;
-    for (i, (fr, en, _)) in SHORTCUTS.iter().enumerate() {
+    for (i, (fr, en, _)) in shortcuts(mac).iter().enumerate() {
         let (c, r) = (i % cols, i / cols);
         let rect = Rect::new(x0 + c as f32 * (w + gap), y0 + r as f32 * 96.0, w, 80.0);
         let focused = f.hit(Target::Shortcut(i), rect);

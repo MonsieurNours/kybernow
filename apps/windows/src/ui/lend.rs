@@ -612,6 +612,8 @@ pub fn lend_connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
         lend: lend_view.clone(),
         lend_seen: AtomicBool::new(false),
         route: route.clone(),
+        pads_off: false,
+        pads_told: AtomicBool::new(false),
     });
     let mut running = state.sessions.lock().unwrap();
     let host = SessionHost::start_as(

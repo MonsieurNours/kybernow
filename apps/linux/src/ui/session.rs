@@ -15,7 +15,7 @@ use super::quality;
 use super::share;
 use super::widgets::{self, eyebrow, legend};
 use super::{unit, Frame};
-use crate::app::{share_tile, App, BarMenu, Layout, MenuItem, Online, Phase, Rect, Screen, SessionUi, ShareAvail, Target, SHORTCUTS};
+use crate::app::{share_tile, shortcuts, App, BarMenu, Layout, MenuItem, Online, Phase, Rect, Screen, SessionUi, ShareAvail, Target};
 use crate::i18n::{decimal, tr};
 use crate::model::Profile;
 
@@ -41,7 +41,7 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame, view: super::View) {
         _ => {
             cv.clear_transparent();
             if s.keys {
-                keys(app, cv, f);
+                keys(app, cv, f, s);
             } else if s.menu {
                 menu(app, cv, f, s);
             } else if s.lend_panel {
@@ -80,7 +80,12 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame, view: super::View) {
                 } else if let Some((n, t)) = &s.notice
                     && t.elapsed().as_secs_f32() < 4.0
                 {
-                    capsule(app, cv, n, false);
+                    // Les manettes indisponibles : avec l'icône de manette.
+                    if n == crate::app::pads_unavailable_notice() {
+                        capsule_icon(app, cv, n, Icon::Gamepad);
+                    } else {
+                        capsule(app, cv, n, false);
+                    }
                 }
             }
         }
@@ -753,7 +758,7 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
             dropdown(cv, f, profile_x, h + 6.0, 420.0, &items);
         }
         Some(BarMenu::Keys) => {
-            let items: Vec<(Target, String, String, bool)> = SHORTCUTS.iter().enumerate().map(|(i, k)| (Target::BarShortcut(i), tr(k.0, k.1).to_string(), String::new(), false)).collect();
+            let items: Vec<(Target, String, String, bool)> = shortcuts(app.session_mac(s)).iter().enumerate().map(|(i, k)| (Target::BarShortcut(i), tr(k.0, k.1).to_string(), String::new(), false)).collect();
             dropdown(cv, f, keys_x, h + 6.0, 280.0, &items);
         }
         Some(BarMenu::Computers) => computers_menu(cv, f, app, s, computers_x, h + 6.0),
@@ -915,6 +920,20 @@ fn capsule(app: &App, cv: &mut Canvas, msg: &str, busy: bool) {
     cv.rrect_stroke(x, y, w, h, h / 2.0, 1.0, LINE_2);
     widgets::dot(cv, x + 18.0 * u, y + h / 2.0, 3.5 * u, if busy { WARN } else { SPECTRE }, true);
     cv.text(x + 32.0 * u, y + h / 2.0 + 5.0 * u, style, msg);
+}
+
+/// La même capsule, avec une icône à la place du point.
+fn capsule_icon(app: &App, cv: &mut Canvas, msg: &str, icon: Icon) {
+    let u = unit(app.layout);
+    let style = Text::new(Font::Regular, 13.0 * u, MUTED);
+    let h = 34.0 * u;
+    let w = cv.text_width(style, msg) + 54.0 * u;
+    let x = (cv.w - w) / 2.0;
+    let y = if app.layout == Layout::Desktop { 70.0 } else { cv.h - 90.0 * u };
+    cv.rrect(x, y, w, h, h / 2.0, Rgba(9, 13, 18, 220));
+    cv.rrect_stroke(x, y, w, h, h / 2.0, 1.0, LINE_2);
+    cv.icon(&icon, x + 14.0 * u, y + (h - 16.0 * u) / 2.0, 16.0 * u, 1.6, SPECTRE);
+    cv.text(x + 40.0 * u, y + h / 2.0 + 5.0 * u, style, msg);
 }
 
 // MARK: - Statistiques (par-dessus l'image, à la demande)
@@ -1233,7 +1252,9 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     if kbm {
         tiles.push((MenuItem::PadMouse, tr("Manette en souris", "Controller as mouse").into(), format!("{} · {}", on_off(s.pad_mouse), tr("stick gauche", "left stick")), s.pad_mouse, false));
         tiles.push((MenuItem::Keyboard, row2_keyboard.into(), tr("Clavier de Steam", "Steam keyboard").into(), false, false));
-        tiles.push((MenuItem::Keys, tr("Touches", "Keys").into(), tr("Ctrl+Alt+Suppr, Alt+Tab", "Ctrl+Alt+Del, Alt+Tab").into(), false, false));
+        // Face à une Station Mac, les touches du Mac (docs/link-ui.md, « Face à une Station Mac »).
+        let keys_sub = if app.session_mac(s) { tr("⌘ ⇥, ⌥ ⌘ Échap", "⌘ ⇥, ⌥ ⌘ Esc") } else { tr("Ctrl+Alt+Suppr, Alt+Tab", "Ctrl+Alt+Del, Alt+Tab") };
+        tiles.push((MenuItem::Keys, tr("Touches", "Keys").into(), keys_sub.into(), false, false));
     }
     tiles.push((MenuItem::Stats, tr("Statistiques", "Statistics").into(), tr("Latence, débit", "Latency, bitrate").into(), s.show_stats, false));
     // Un invité : « Qualité de l'image », qui montre la qualité reçue (le choix tant qu'on ne la connaît pas).
@@ -1370,7 +1391,7 @@ pub(super) fn tile(cv: &mut Canvas, f: &mut Frame, t: Target, r: Rect, u: f32, t
 
 // MARK: - Touches
 
-fn keys(app: &App, cv: &mut Canvas, f: &mut Frame) {
+fn keys(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     let u = unit(app.layout);
     let (w, h) = (cv.w, cv.h);
     cv.rect(0.0, 0.0, w, h, Rgba(5, 7, 10, 200));
@@ -1381,7 +1402,7 @@ fn keys(app: &App, cv: &mut Canvas, f: &mut Frame) {
     let gap = 12.0 * u;
     let tw = (w - 2.0 * x0 - gap) / 2.0;
     let th = 58.0 * u;
-    for (i, k) in SHORTCUTS.iter().enumerate() {
+    for (i, k) in shortcuts(app.session_mac(s)).iter().enumerate() {
         let (col, row) = (i % 2, i / 2);
         let r = Rect::new(x0 + col as f32 * (tw + gap), y + row as f32 * (th + gap), tw, th);
         let (focused, hover) = f.state(Target::Shortcut(i), r);

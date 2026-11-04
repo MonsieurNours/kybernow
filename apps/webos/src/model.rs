@@ -64,6 +64,9 @@ pub struct HostSettings {
     pub combo: bool,
     /// Bouton Retour de la Magic Remote : ouvre le menu (sinon Échap).
     pub back_opens_menu: bool,
+    /// « Ctrl agit comme ⌘ », face à une Station Mac seulement ; `None` : jamais changé, allumé
+    /// (`keymap::control_as_command` du cœur).
+    pub ctrl_command: Option<bool>,
     /// Sans effet : pas de presse-papiers sur webOS (la session le coupe).
     pub clipboard: bool,
     pub reconnect: bool,
@@ -92,6 +95,7 @@ impl Default for HostSettings {
             xbox360: true,
             combo: true,
             back_opens_menu: true,
+            ctrl_command: None,
             clipboard: true,
             reconnect: true,
             transport: String::new(),

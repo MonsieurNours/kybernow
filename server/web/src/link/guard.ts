@@ -9,10 +9,15 @@
 // - elle remet la molette en pixels : le moteur ignore tout `deltaMode` autre
 //   que DOM_DELTA_PIXEL (Firefox compte en lignes : sa molette serait muette),
 //   et sur la couche tactile, qui recouvre la toile, la molette n'atteindrait
-//   pas le moteur (il l'écoute sur la toile).
+//   pas le moteur (il l'écoute sur la toile) ;
+// - face à une Station Mac, avec « Ctrl agit comme ⌘ », elle échange Ctrl et
+//   ⊞ des touches tapées (`keyswap.ts`) : le moteur ne voit pas la frappe
+//   d'origine, mais sa copie au code échangé.
 //
 // `click` et `auxclick` ne sont pas arrêtés : le moteur ne les lit pas, et les
 // arrêter en capture sur `window` couperait aussi les boutons de la page.
+
+import { keyOfCode, outgoingCode } from './keyswap'
 
 interface GuardOptions {
   /** La cible est-elle l'image (toile ou couche tactile) ? */
@@ -23,6 +28,8 @@ interface GuardOptions {
   onRelease: () => void
   /** Ce que cette session peut envoyer à l'ordinateur (tout, pour l'hôte). */
   allowed?: () => { keyboard: boolean; mouse: boolean }
+  /** « Ctrl agit comme ⌘ » en vigueur (face à une Station Mac, hôte seulement), lu à chaque touche. */
+  swapControl?: () => boolean
 }
 
 let options: GuardOptions | null = null
@@ -31,7 +38,7 @@ let options: GuardOptions | null = null
  * que la souris soit lâchée (sinon le bouton resterait enfoncé là-bas). */
 const buttons = new Set<number>()
 
-/** Touches enfoncées, par `code` (ce que lit le moteur), avec leur `key`. */
+/** Touches enfoncées, par `code` envoyé (ce que lit le moteur), avec leur `key`. */
 const keys = new Map<string, string>()
 
 function rights() {
@@ -72,8 +79,31 @@ function onKey(e: KeyboardEvent) {
     return
   }
   if (!e.code) return
+  // Touche tapée (pas une copie de la page) : Ctrl et ⊞ échangés au besoin.
+  if (e.isTrusted) {
+    const pressed = e.type === 'keydown'
+    const out = outgoingCode(e.code, pressed, options?.swapControl?.() ?? false, (c) => keys.has(c))
+    if (out !== e.code) {
+      forward(e, out)
+      return
+    }
+  }
   if (e.type === 'keydown') keys.set(e.code, e.key)
   else keys.delete(e.code)
+}
+
+/** Le moteur reçoit la touche sous le code `code` : la frappe d'origine
+ * s'arrête ici (les autres écouteurs de `window`, raccourci de la barre
+ * compris, la voient encore), sa copie part de la toile et repasse par
+ * `onKey`, qui la note. Sans modificateurs : le moteur ne lit que le code, et
+ * le raccourci de la barre ne doit pas la prendre pour un Ctrl. */
+function forward(e: KeyboardEvent, code: string) {
+  e.stopPropagation()
+  e.preventDefault()
+  // Le moteur ignore les répétitions.
+  if (e.repeat) return
+  const target = options?.canvas() ?? document.body
+  target.dispatchEvent(new KeyboardEvent(e.type, { key: keyOfCode(code), code, location: e.location, bubbles: true, cancelable: true }))
 }
 
 /** Pixels par ligne. Firefox compte trois lignes par cran ; le moteur divise

@@ -73,7 +73,7 @@ struct SessionView: View {
             }
 
             if let note = session.notice, session.fallbackNote == nil, !session.menuOpen {
-                MenuHint(text: note)
+                MenuHint(text: note, icon: session.noticeIcon)
                     .frame(maxHeight: .infinity, alignment: .top)
                     .padding(.top, 48)
                     .transition(.opacity)
@@ -445,10 +445,16 @@ struct ConnectingCard: View {
 struct MenuHint: View {
     let text: String
     var glyph = true
+    /// Une icône à la place du glyphe de la télécommande (« game-controller »).
+    var icon: String?
 
     var body: some View {
         HStack(spacing: 12) {
-            if glyph { Glyph(kind: .remote, role: .back, size: 24) }
+            if let icon {
+                Icon(icon, size: 24).foregroundStyle(Theme.accent)
+            } else if glyph {
+                Glyph(kind: .remote, role: .back, size: 24)
+            }
             Text(text).font(Theme.sans(20)).foregroundStyle(Theme.text2)
         }
         .padding(.horizontal, 28)

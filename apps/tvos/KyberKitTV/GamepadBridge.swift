@@ -133,6 +133,12 @@ public final class GamepadBridge: ObservableObject {
     public var padMouse = false {
         didSet { let v = padMouse; queue.async { self.setPadMouse(v) } }
     }
+    /// Face à une Station Mac (docs/link-ui.md, « Manette en souris ») : L1 / R1
+    /// tiennent ⌘ au lieu d'Alt (⇧ ⌘ ⇥ / ⌘ ⇥), Start envoie ⌘ Espace (Spotlight).
+    /// Faux pour un invité ou un ami qui emprunte (comportement d'un PC).
+    public var macKeys = false {
+        didSet { let v = macKeys; configure { $0.macKeys = v } }
+    }
     /// Bouton Guide de la manette (Xbox, PS) : qui le reçoit.
     public enum GuideMode: String, CaseIterable, Sendable {
         /// Le bouton Home reste à tvOS (accueil, Centre de contrôle).
@@ -170,6 +176,7 @@ public final class GamepadBridge: ObservableObject {
         var rumbleEnabled = true
         var fixedOrder = false
         var padMouse = false
+        var macKeys = false
         var padMouseSpeed = 1.0
         var guideMode = GuideMode.game
     }
@@ -1031,7 +1038,9 @@ public final class GamepadBridge: ObservableObject {
     // Clics et touches tenus par la manette en souris et la télécommande :
     // tenus par la chaîne d'entrées du cœur (« tout relâcher » : menu,
     // arrière-plan, fin de session).
-    private var altHeld = false
+    /// Alt (⌘ face à un Mac) tenu par L1 / R1 : la touche réellement enfoncée,
+    /// relâchée telle quelle même si l'ordinateur change entre-temps.
+    private var altHeld: UInt16?
     private var altRelease: DispatchWorkItem?
     private var mouseTimer: DispatchSourceTimer?
     private var moveRest = (x: 0.0, y: 0.0)
@@ -1039,7 +1048,7 @@ public final class GamepadBridge: ObservableObject {
 
     // Usages HID (page 7) des touches envoyées.
     private static let keyUp: UInt16 = 0x52, keyDown: UInt16 = 0x51, keyLeft: UInt16 = 0x50, keyRight: UInt16 = 0x4F
-    private static let keyTab: UInt16 = 0x2B, keyEscape: UInt16 = 0x29
+    private static let keyTab: UInt16 = 0x2B, keyEscape: UInt16 = 0x29, keySpace: UInt16 = 0x2C
     private static let keyLeftShift: UInt16 = 0xE1, keyLeftAlt: UInt16 = 0xE2, keyLeftGUI: UInt16 = 0xE3
 
     private func setPadMouse(_ on: Bool) {
@@ -1088,7 +1097,16 @@ public final class GamepadBridge: ObservableObject {
         case .dpadDown: key(Self.keyDown, pressed, input: input)
         case .dpadLeft: key(Self.keyLeft, pressed, input: input)
         case .dpadRight: key(Self.keyRight, pressed, input: input)
-        case .start: if released { tap(Self.keyLeftGUI, input: input) }
+        case .start:
+            guard released else { break }
+            if config.macKeys {
+                // ⌘ Espace : Spotlight (⊞ seule ne fait rien sur un Mac).
+                key(Self.keyLeftGUI, true, input: input)
+                tap(Self.keySpace, input: input)
+                key(Self.keyLeftGUI, false, input: input)
+            } else {
+                tap(Self.keyLeftGUI, input: input)
+            }
         case .back: if released { tap(Self.keyEscape, input: input) }
         case .rightShoulder: if released { altTab(forward: true, input: input) }
         case .leftShoulder: if released { altTab(forward: false, input: input) }
@@ -1096,21 +1114,26 @@ public final class GamepadBridge: ObservableObject {
         }
     }
 
-    /// Alt reste tenu tant qu'on enchaîne (sélecteur de fenêtres ouvert),
-    /// puis il est relâché : la fenêtre choisie passe devant.
+    /// Alt (⌘ face à un Mac) reste tenu tant qu'on enchaîne (sélecteur de
+    /// fenêtres ou d'apps ouvert), puis il est relâché : le choix passe devant.
     private func altTab(forward: Bool, input: InputPipeline) {
-        if !altHeld {
-            key(Self.keyLeftAlt, true, input: input)
-            altHeld = true
+        let modifier = config.macKeys ? Self.keyLeftGUI : Self.keyLeftAlt
+        if let held = altHeld, held != modifier {
+            key(held, false, input: input)
+            altHeld = nil
+        }
+        if altHeld == nil {
+            key(modifier, true, input: input)
+            altHeld = modifier
         }
         if !forward { key(Self.keyLeftShift, true, input: input) }
         tap(Self.keyTab, input: input)
         if !forward { key(Self.keyLeftShift, false, input: input) }
         altRelease?.cancel()
         let release = DispatchWorkItem { [weak self] in
-            guard let self, self.altHeld, let input = self.input else { return }
-            self.key(Self.keyLeftAlt, false, input: input)
-            self.altHeld = false
+            guard let self, let held = self.altHeld, let input = self.input else { return }
+            self.key(held, false, input: input)
+            self.altHeld = nil
         }
         altRelease = release
         queue.asyncAfter(deadline: .now() + 0.9, execute: release)
@@ -1136,7 +1159,7 @@ public final class GamepadBridge: ObservableObject {
     /// touches, Alt compris).
     private func releaseMouse(_ input: InputPipeline) {
         altRelease?.cancel()
-        altHeld = false
+        altHeld = nil
         input.releaseAll()
     }
 

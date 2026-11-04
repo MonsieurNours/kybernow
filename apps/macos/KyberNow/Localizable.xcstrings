@@ -49,6 +49,38 @@
         }
       }
     },
+    "Manettes indisponibles sur cet ordinateur" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Controllers unavailable on this computer"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Manettes indisponibles sur cet ordinateur"
+          }
+        }
+      }
+    },
+    "Manettes indisponibles sur cet ordinateur." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Controllers unavailable on this computer."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Manettes indisponibles sur cet ordinateur."
+          }
+        }
+      }
+    },
     "Saisissez le code affiché sur %@." : {
       "localizations" : {
         "en" : {

@@ -143,7 +143,7 @@ struct SessionView: View {
                 } else if let note = session.fallbackNote {
                     StateCapsule(icon: "warning", tint: Theme.warn, title: note, detail: nil) { EmptyView() }
                 } else if let note = session.notice {
-                    let capsule = StateCapsule(icon: nil, title: note, detail: nil) {
+                    let capsule = StateCapsule(icon: session.noticeIcon, title: note, detail: nil) {
                         if let offer = session.modeRestoreOffer {
                             Button(offer) { session.restoreMode() }.buttonStyle(GlassButton(height: 44, fontSize: 14))
                         }
@@ -1061,6 +1061,7 @@ enum HID {
     static let control: UInt16 = 0xE0, shift: UInt16 = 0xE1, alt: UInt16 = 0xE2, gui: UInt16 = 0xE3
     static let right: UInt16 = 0x4F, left: UInt16 = 0x50, down: UInt16 = 0x51, up: UInt16 = 0x52
     static let printScreen: UInt16 = 0x46, d: UInt16 = 0x07, l: UInt16 = 0x0F
+    static let space: UInt16 = 0x2C, q: UInt16 = 0x14, five: UInt16 = 0x22
     static func f(_ n: Int) -> UInt16 { UInt16(0x3A + n - 1) }
 }
 
@@ -1070,7 +1071,18 @@ struct KeysMenu: View {
     @Environment(\.dismiss) private var dismiss
 
     private var shortcuts: [(String, String, [UInt16], UInt16)] {
-        [
+        // Face à une Station Mac, les touches du Mac, envoyées telles quelles
+        // (⌘ : la touche ⊞, que le Mac reçoit en ⌘) ; docs/link-ui.md.
+        if session.macKeys {
+            return [
+                ("⌘ ⇥", String(localized: "Changer d'app"), [HID.gui], HID.tab),
+                (String(localized: "⌘ Espace"), String(localized: "Spotlight"), [HID.gui], HID.space),
+                ("⌃ ⌘ Q", String(localized: "Verrouiller"), [HID.control, HID.gui], HID.q),
+                ("⇧ ⌘ 5", String(localized: "Capture (touches du Mac)"), [HID.shift, HID.gui], HID.five),
+                (String(localized: "⌥ ⌘ Échap"), String(localized: "Forcer à quitter"), [HID.alt, HID.gui], HID.escape),
+            ]
+        }
+        return [
             ("Ctrl + Alt + Suppr", String(localized: "Écran de sécurité"), [HID.control, HID.alt], HID.delete),
             ("Alt + Tab", String(localized: "Changer de fenêtre"), [HID.alt], HID.tab),
             ("⊞ + D", String(localized: "Afficher le bureau"), [HID.gui], HID.d),
@@ -1114,7 +1126,8 @@ struct KeysMenu: View {
 }
 
 /// La rangée au-dessus du clavier de l'écran (vue accessoire) : Échap, Tab,
-/// Ctrl, Alt et ⊞ collants, flèches, F1 à F12, Ctrl + Alt + Suppr.
+/// Ctrl, Alt et ⊞ collants, flèches, F1 à F12, Ctrl + Alt + Suppr ; face à une
+/// Station Mac, ⌃, ⌥, ⌘ (mêmes touches) et ⌥ ⌘ Échap.
 @MainActor
 final class KeyboardRow {
     let view: UIView
@@ -1146,9 +1159,7 @@ private struct KeyboardRowView: View {
                 HStack(spacing: 6) {
                     key(String(localized: "Échap")) { session.tap(HID.escape) }
                     key("Tab") { session.tap(HID.tab) }
-                    sticky("Ctrl", HID.control)
-                    sticky("Alt", HID.alt)
-                    sticky("⊞", HID.gui)
+                    ForEach(modifiers, id: \.0) { m in sticky(m.1, m.0) }
                     key("←") { session.tap(HID.left) }
                     key("↑") { session.tap(HID.up) }
                     key("↓") { session.tap(HID.down) }
@@ -1156,7 +1167,11 @@ private struct KeyboardRowView: View {
                     ForEach(1...12, id: \.self) { n in
                         key("F\(n)") { session.tap(HID.f(n)) }
                     }
-                    key("Ctrl+Alt+Suppr") { session.chord([HID.control, HID.alt], HID.delete) }
+                    if session.macKeys {
+                        key(String(localized: "⌥ ⌘ Échap")) { session.chord([HID.alt, HID.gui], HID.escape) }
+                    } else {
+                        key("Ctrl+Alt+Suppr") { session.chord([HID.control, HID.alt], HID.delete) }
+                    }
                     key(String(localized: "Touches")) { session.keysMenu = true }
                 }
                 .padding(.horizontal, 8)
@@ -1166,8 +1181,13 @@ private struct KeyboardRowView: View {
         .background(Theme.bar.opacity(0.92))
     }
 
+    /// Les touches collantes et leur nom : celui du Mac face à une Station Mac.
+    private var modifiers: [(UInt16, String)] {
+        session.macKeys ? [(HID.control, "⌃"), (HID.alt, "⌥"), (HID.gui, "⌘")] : [(HID.control, "Ctrl"), (HID.alt, "Alt"), (HID.gui, "⊞")]
+    }
+
     private var stickyNames: String {
-        [(HID.control, "Ctrl"), (HID.alt, "Alt"), (HID.gui, "⊞")].filter { session.sticky.contains($0.0) }.map(\.1).joined(separator: " + ")
+        modifiers.filter { session.sticky.contains($0.0) }.map(\.1).joined(separator: " + ")
     }
 
     private func key(_ label: String, action: @escaping () -> Void) -> some View {

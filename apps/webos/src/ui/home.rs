@@ -38,7 +38,7 @@ pub fn draw(app: &App, cv: &mut Canvas, assets: &Assets, f: &mut Frame) {
     let mut x = W - 96.0 - gw;
     widgets::icon_chip(cv, f, Target::AppSettings, x, 64.0, Icon::Gear, label);
     x -= 36.0;
-    let pads = pads_label(app.pads.len());
+    let pads = pads_label(app.pads.len(), app.selected().is_some_and(|h| app.live.get(&h.id).is_some_and(|l| l.pads_unavailable)));
     let style = Text::new(Font::Regular, 22.0, FROST_2);
     let pw = cv.text_width(style, &pads);
     cv.text(x - pw, 100.0, style, &pads);
@@ -189,8 +189,12 @@ pub fn draw(app: &App, cv: &mut Canvas, assets: &Assets, f: &mut Frame) {
     cv.text(W - 96.0, y, Text::new(Font::Mono, 15.0, FROST_4).align(Align::Right), &format!("KyberNow Link {}", app.version));
 }
 
-/// « 2 manettes », « 1 manette », « Aucune manette ».
-pub fn pads_label(n: usize) -> String {
+/// « 2 manettes », « 1 manette », « Aucune manette » ; « Manettes indisponibles sur cet ordinateur » quand
+/// l'ordinateur choisi n'en crée pas (docs/link-ui.md, « Manettes indisponibles »).
+pub fn pads_label(n: usize, unavailable: bool) -> String {
+    if unavailable {
+        return tr("Manettes indisponibles sur cet ordinateur", "Controllers unavailable on this computer").into();
+    }
     match n {
         0 => tr("Aucune manette", "No controller").into(),
         1 => tr("1 manette", "1 controller").into(),

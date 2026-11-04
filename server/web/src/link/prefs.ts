@@ -20,6 +20,8 @@ export interface Prefs {
   touch: TouchMode
   /** Souris : capturée en mode jeu (déplacements bruts), libre en mode bureau. */
   mouse: MouseMode
+  /** « Ctrl agit comme ⌘ », face à une Station Mac seulement (allumé tant qu'on ne l'a pas éteint). */
+  controlAsCommand: boolean
   /** Fiche des gestes déjà vue. */
   touchGuideSeen: boolean
 }
@@ -43,6 +45,7 @@ export const defaults: Prefs = {
   codec: 'auto',
   touch: 'trackpad',
   mouse: 'auto',
+  controlAsCommand: true,
   touchGuideSeen: false,
 }
 

@@ -225,6 +225,37 @@ export const SPECIAL_KEYS: { readonly label: string; key: string; code: string; 
   { label: '→', key: 'ArrowRight', code: 'ArrowRight', get aria() { return t('web.keys.right') } },
 ]
 
+/** Combinaison envoyée d'un coup : les modificateurs (`key` : « Meta », « Control »,
+ * « Alt », « Shift »), puis la touche. */
+export interface Combo {
+  mods: string[]
+  key: string
+  code: string
+  readonly label: string
+}
+
+/** Face à une Station Mac (docs/link-ui.md) : « ⌥ ⌘ Échap » (forcer à quitter), au menu
+ * « Touches » et à la place de « Ctrl+Alt+Suppr » au-dessus du clavier à l'écran. */
+export const MAC_FORCE_QUIT: Combo = { mods: ['Alt', 'Meta'], key: 'Escape', code: 'Escape', get label() { return t('session.keys.macForceQuit') } }
+
+/** Le menu « Touches » face à une Station Mac : ses combinaisons, envoyées telles quelles
+ * (⊞ est ⌘ sur le Mac, sans l'échange de « Ctrl agit comme ⌘ »). */
+export const MAC_KEYS: (Combo & { readonly sub: string })[] = [
+  { mods: ['Meta'], key: 'Tab', code: 'Tab', get label() { return t('session.keys.macSwitch') }, get sub() { return t('session.keys.macSwitchSub') } },
+  { mods: ['Meta'], key: ' ', code: 'Space', get label() { return t('session.keys.macSpotlight') }, get sub() { return t('session.keys.macSpotlightSub') } },
+  { mods: ['Control', 'Meta'], key: 'q', code: 'KeyQ', get label() { return t('session.keys.macLock') }, get sub() { return t('session.keys.macLockSub') } },
+  { mods: ['Shift', 'Meta'], key: '5', code: 'Digit5', get label() { return t('session.keys.macScreenshot') }, get sub() { return t('session.keys.macScreenshotSub') } },
+  { mods: MAC_FORCE_QUIT.mods, key: MAC_FORCE_QUIT.key, code: MAC_FORCE_QUIT.code, get label() { return MAC_FORCE_QUIT.label }, get sub() { return t('session.keys.macForceQuitSub') } },
+]
+
+/** Touches collantes face à une Station Mac : « ⌃ », « ⌥ », « ⌘ » au lieu de « Ctrl »,
+ * « Alt », « ⊞ » (mêmes touches envoyées). */
+export const MAC_SPECIAL_LABELS: Record<string, { label: string; readonly aria: string }> = {
+  ControlLeft: { label: '⌃', get aria() { return t('web.keys.control') } },
+  AltLeft: { label: '⌥', get aria() { return t('web.keys.option') } },
+  MetaLeft: { label: '⌘', get aria() { return t('web.keys.command') } },
+}
+
 function codeFor(ch: string): string {
   if (/^[a-z]$/i.test(ch)) return `Key${ch.toUpperCase()}`
   if (/^[0-9]$/.test(ch)) return `Digit${ch}`

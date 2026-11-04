@@ -52,6 +52,7 @@ import fr.leslignesclaires.kybernow.KyberNowApp
 import fr.leslignesclaires.kybernow.R
 import fr.leslignesclaires.kybernow.core.ConsoleClient
 import fr.leslignesclaires.kybernow.core.FormFactor
+import fr.leslignesclaires.kybernow.core.Native
 import fr.leslignesclaires.kybernow.model.AudioOutput
 import fr.leslignesclaires.kybernow.model.Decoders
 import fr.leslignesclaires.kybernow.model.Host
@@ -219,6 +220,8 @@ data class HostSettingsState(
     val now: Long = System.currentTimeMillis(),
     /** L'appareil a un vibreur (retour haptique de la manette à l'écran). */
     val vibrator: Boolean = true,
+    /** L'ordinateur est une Station Mac (`keymap::station_is_mac` du cœur) : « Ctrl agit comme ⌘ » dans Commandes. */
+    val mac: Boolean = false,
 )
 
 /** Ce que les réglages d'un ordinateur demandent à l'app. */
@@ -277,7 +280,8 @@ fun HostSettingsScreen(model: AppModel, hostId: String, onBack: () -> Unit, onRe
         st.accountRefused -> Rubric.STATION
         else -> Rubric.PICTURE
     }
-    HostSettingsContent(HostSettingsState(host, st, screen, app.decoders, adminUrl, tasks[hostId], check, vibrator = vibrator), actions, start)
+    val mac = remember(host.os) { Native.stationIsMac(host.os ?: "") }
+    HostSettingsContent(HostSettingsState(host, st, screen, app.decoders, adminUrl, tasks[hostId], check, vibrator = vibrator, mac = mac), actions, start)
 }
 
 /**
@@ -476,6 +480,12 @@ private fun ControlsRubric(state: HostSettingsState, actions: HostSettingsAction
         stringResource(R.string.settings_mouse), stringResource(R.string.settings_mouse_help),
         listOf(0 to stringResource(R.string.settings_auto), 1 to stringResource(R.string.mouse_desktop), 2 to stringResource(R.string.mouse_game)), set.mouse,
     ) { v -> actions.update { it.copy(mouse = v) } }
+    // Face à une Station Mac seulement (docs/link-ui.md) : un clavier de PC tape les raccourcis du Mac avec Ctrl.
+    if (state.mac) {
+        SwitchRow(stringResource(R.string.settings_ctrl_command), stringResource(R.string.settings_ctrl_command_help), set.ctrlCommand ?: true) { v ->
+            actions.update { it.copy(ctrlCommand = v) }
+        }
+    }
     if (!tv) {
         ChoiceRow(
             stringResource(R.string.settings_touch), null,

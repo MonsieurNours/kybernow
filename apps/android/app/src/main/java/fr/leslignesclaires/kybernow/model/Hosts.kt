@@ -66,6 +66,8 @@ data class HostSettings(
     /** Au doigt : pavé tactile ou toucher direct. */
     val directTouch: Boolean = false,
     val clipboard: Boolean = true,
+    /** « Ctrl agit comme ⌘ », face à une Station Mac seulement ; nul : jamais changé, allumé (`keymap::control_as_command` du cœur). */
+    val ctrlCommand: Boolean? = null,
     val reconnect: Boolean = true,
     /** Transport de l'image : `auto` (celui du profil), `fast`, `reliable`. */
     val transport: String = "auto",
@@ -81,6 +83,9 @@ data class HostSettings(
     val padHaptics: Int = 2,
 ) {
     val padSimple get() = padLayout == "simple"
+
+    /** [ctrlCommand] pour le cœur ([fr.leslignesclaires.kybernow.core.Native.controlAsCommand]) : −1 jamais changé, 0, 1. */
+    val ctrlCommandCode get() = when (ctrlCommand) { null -> -1; true -> 1; false -> 0 }
 
     /** Les réglages s'écartent du profil : « Personnalisé ». */
     val custom get() = codec != "auto" || mbps != 0 || transport != "auto"
@@ -103,7 +108,7 @@ data class HostSettings(
         .put("codec", codec).put("mbps", mbps).put("audio", audio).put("xbox360", xbox360).put("combo", combo)
         .put("backOpensMenu", backOpensMenu).put("guide", guide).put("matchDisplay", matchDisplay)
         .put("gameMode", gameMode).put("mouse", mouse).put("directTouch", directTouch)
-        .put("clipboard", clipboard).put("reconnect", reconnect).put("transport", transport)
+        .put("clipboard", clipboard).put("ctrlCommand", ctrlCommand ?: JSONObject.NULL).put("reconnect", reconnect).put("transport", transport)
         .put("onScreenPad", onScreenPad).put("padLayout", padLayout).put("padSize", padSize)
         .put("padOpacity", padOpacity).put("padHaptics", padHaptics)
 
@@ -131,6 +136,7 @@ data class HostSettings(
                 mouse = o.optInt("mouse", d.mouse),
                 directTouch = o.optBoolean("directTouch", d.directTouch),
                 clipboard = o.optBoolean("clipboard", d.clipboard),
+                ctrlCommand = if (o.has("ctrlCommand") && !o.isNull("ctrlCommand")) o.optBoolean("ctrlCommand") else d.ctrlCommand,
                 reconnect = o.optBoolean("reconnect", d.reconnect),
                 // Jusqu'à la 0.4.x : `reliable`, le transport fiable forcé.
                 transport = o.optString("transport", "").ifEmpty { if (o.optBoolean("reliable")) "reliable" else d.transport },
@@ -202,6 +208,11 @@ data class Host(
     val paired: Boolean = false,
     /** Le relais de l'ordinateur, appris d'Admin (`relay` de `info`) et gardé hors ligne : l'accès hors de chez soi. */
     val relay: HostRelay? = null,
+    /**
+     * L'ordinateur crée les manettes de l'appareil (`gamepads` de `info`, `Info::gamepads_available` du cœur) ; faux pour
+     * une Station Mac tant qu'Apple n'a pas accordé son droit : « Manettes indisponibles sur cet ordinateur ».
+     */
+    val gamepads: Boolean = true,
 ) {
     /**
      * La route par le relais (`{server, station, admin_fp}`) pour une session « Auto » ou une console hors de chez
@@ -228,7 +239,7 @@ data class Host(
         .put("wake", JSONArray(WakeTarget.toJson(wake)))
         .put("settings", settings.json())
         .put("last", last?.json() ?: JSONObject.NULL).put("paired", paired)
-        .put("relay", relay?.json() ?: JSONObject.NULL)
+        .put("relay", relay?.json() ?: JSONObject.NULL).put("gamepads", gamepads)
 
     companion object {
         private fun JSONObject.str(key: String): String? = if (isNull(key)) null else optString(key).takeIf { it.isNotEmpty() }
@@ -250,6 +261,7 @@ data class Host(
             last = o.optJSONObject("last")?.let(LastSession::parse),
             paired = o.optBoolean("paired"),
             relay = HostRelay.parse(o.optJSONObject("relay")),
+            gamepads = o.optBoolean("gamepads", true),
         )
     }
 }

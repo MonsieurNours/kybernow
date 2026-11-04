@@ -65,6 +65,7 @@ pub fn poll(host: Host, want_preview: bool, tx: Sender<Event>) {
                     lend: Some(lend_avail),
                     lend_view,
                     hdr: Some(super::session::station_hdr(&info)),
+                    pads_unavailable: !info.gamepads_available(),
                 };
                 let _ = tx.send(Event::Polled { id: host.id.clone(), polled });
                 if want_preview

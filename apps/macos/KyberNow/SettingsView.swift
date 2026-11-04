@@ -540,9 +540,12 @@ private struct SettingsContent: View {
                     Text("Pendant la session, la barre en haut de l'écran change de souris, et ⌃⌥⌘M bascule.")
                         .font(Theme.sans(12)).foregroundStyle(Theme.faint).fixedSize(horizontal: false, vertical: true)
                 }
-                toggleRow(String(localized: "Touche ⌘ envoyée comme Ctrl"),
-                          String(localized: "⌘C, ⌘V et les autres raccourcis du Mac font Ctrl+C, Ctrl+V sur l'ordinateur."),
-                          isOn: Binding(get: { s.commandAsControl }, set: { v in update { $0.commandAsControl = v } }))
+                // Face à une Station Mac, ⌘ part comme ⌘ : pas de réglage (docs/link-ui.md).
+                if !host.isMac {
+                    toggleRow(String(localized: "Touche ⌘ envoyée comme Ctrl"),
+                              String(localized: "⌘C, ⌘V et les autres raccourcis du Mac font Ctrl+C, Ctrl+V sur l'ordinateur."),
+                              isOn: Binding(get: { s.commandAsControl }, set: { v in update { $0.commandAsControl = v } }))
+                }
                 toggleRow(String(localized: "Presse-papiers partagé"),
                           String(localized: "Le texte copié sur ce Mac se colle sur l'ordinateur, et inversement, jusqu'à 60 Ko. Admin peut l'interdire dans un sens ou dans l'autre."),
                           isOn: Binding(get: { s.clipboard }, set: { v in update { $0.clipboard = v } }))

@@ -1727,6 +1727,11 @@ struct UiEvents {
     lend_seen: std::sync::atomic::AtomicBool,
     /// Le chemin de la session (le même que celui de `Running`).
     route: Arc<Mutex<Option<RouteInfo>>>,
+    /// L'ordinateur ne crée pas de manettes (`gamepads` de `/api/stream/info`,
+    /// Station Mac sans le droit d'Apple) ; jamais pour un invité ou un ami.
+    pads_off: bool,
+    /// « Manettes indisponibles sur cet ordinateur. » déjà dit dans cette session.
+    pads_told: std::sync::atomic::AtomicBool,
 }
 
 /// `session-route` : par où passe la session `id` (la puce « Par le relais » de la
@@ -1787,6 +1792,10 @@ struct BarShown {
     /// L'avis est celui d'une demande d'emprunt : le choisir ouvre le panneau de
     /// « Prêter l'ordinateur… ».
     notice_opens_lend: bool,
+    /// L'icône de l'avis dans sa capsule (`gamepad` : « Manettes indisponibles sur
+    /// cet ordinateur. ») ; absente : celle d'un écran.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    notice_icon: Option<&'static str>,
     /// Par où passe la session (puce « Par le relais ») ; absent tant que le cœur
     /// ne l'a pas dit.
     route: Option<relais::RouteView>,
@@ -1821,6 +1830,7 @@ fn console_bar_shown(id: &str, name: &str, pinned: bool, sessions: usize, route:
         notice: None,
         notice_opens_share: false,
         notice_opens_lend: false,
+        notice_icon: None,
         route,
         console: Some(console),
     }
@@ -1944,6 +1954,7 @@ impl HostEvents for UiEvents {
         }
         let _ = self.app.emit_to("bar", "stats", StatsEvent { id: &self.id, stats: s });
         *self.stats.lock().unwrap() = Some(s.clone());
+        self.tell_pads_off();
         tray::refresh();
     }
 
@@ -2369,6 +2380,21 @@ fn expected_screens(spec: Spec, this_screen: Option<String>, settings: &kybernow
 }
 
 impl UiEvents {
+    /// Une fois par session, à l'image montrée avec une manette branchée (ou
+    /// dès que la première se branche) : l'ordinateur ne la verra pas
+    /// (docs/link-ui.md, « Manettes indisponibles »). Vu à chaque mesure.
+    fn tell_pads_off(&self) {
+        use std::sync::atomic::Ordering;
+        if !self.pads_off || self.pads_told.load(Ordering::Relaxed) || !self.spot.lock().unwrap().shown {
+            return;
+        }
+        if kybernow_core::gamepads::pads().is_empty() || self.pads_told.swap(true, Ordering::Relaxed) {
+            return;
+        }
+        log::info!("[{}] manettes indisponibles sur cet ordinateur : avis", self.connexion.name);
+        share::icon_notice(&self.app, &self.id, &self.connexion.name, &t("session.gamepads_unavailable", &[]), "gamepad");
+    }
+
     /// La barre servait cette session : elle se referme.
     fn hide_bar_if_mine(&self) {
         let state = self.app.state::<UiState>();
@@ -3010,6 +3036,8 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
         lend: lend_state.clone(),
         lend_seen: std::sync::atomic::AtomicBool::new(false),
         route: route.clone(),
+        pads_off: info.as_ref().is_some_and(|i| !i.gamepads_available()),
+        pads_told: std::sync::atomic::AtomicBool::new(false),
     });
     // Face à un Mac, « Ctrl agit comme ⌘ » (avant de tenir la table des sessions).
     let control_as_command = kybernow_core::input::keymap::control_as_command(s.ctrl_command, &computer_os(&state, &id));
@@ -3233,13 +3261,14 @@ fn show_bar(app: &AppHandle, id: &str, hwnd: isize, pinned: bool) {
 /// invité). La barre se montre alors sans prendre le clavier à la session (une
 /// manette ou une touche en cours ne s'interrompt pas) et repart d'elle-même.
 fn show_bar_with(app: &AppHandle, id: &str, hwnd: isize, pinned: bool, notice: Option<String>) {
-    show_bar_notice(app, id, hwnd, pinned, notice, None);
+    show_bar_notice(app, id, hwnd, pinned, notice, None, None);
 }
 
 /// [`show_bar_with`] ; `panel` : l'avis est celui d'une demande (à rejoindre :
 /// `share`, à emprunter : `lend`), que la barre rend choisissable (il ouvre le
-/// panneau de « Partager » ou de « Prêter l'ordinateur… »).
-fn show_bar_notice(app: &AppHandle, id: &str, hwnd: isize, pinned: bool, notice: Option<String>, panel: Option<&str>) {
+/// panneau de « Partager » ou de « Prêter l'ordinateur… ») ; `icon` : celle de
+/// l'avis dans sa capsule (`BarShown::notice_icon`).
+pub(crate) fn show_bar_notice(app: &AppHandle, id: &str, hwnd: isize, pinned: bool, notice: Option<String>, panel: Option<&str>, icon: Option<&'static str>) {
     let state = app.state::<UiState>();
     let Some((title, label, multi, keep_sound, session, guest, share, route, borrow, lend_view)) = state.with_session(id, |r| {
         (
@@ -3340,6 +3369,7 @@ fn show_bar_notice(app: &AppHandle, id: &str, hwnd: isize, pinned: bool, notice:
         notice,
         notice_opens_share: panel == Some("share"),
         notice_opens_lend: panel == Some("lend"),
+        notice_icon: icon,
         route,
         console: None,
     };
@@ -3370,7 +3400,7 @@ fn toggle_stats_on(app: &AppHandle, id: &str, hwnd: isize) {
             return;
         }
         // La barre et son panneau « Statistiques ».
-        show_bar_notice(&a, &id, hwnd, true, None, Some("stats"));
+        show_bar_notice(&a, &id, hwnd, true, None, Some("stats"), None);
         // La fenêtre où la barre s'ouvre devient la fenêtre active.
         a.state::<UiState>().with_session(&id, |r| r.host.focus(hwnd));
     });

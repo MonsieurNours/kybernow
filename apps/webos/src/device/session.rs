@@ -7,6 +7,7 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use kybernow_core::console::{DeviceInfo, Mode};
+use kybernow_core::input::keymap;
 use kybernow_core::input::{Clock, GamepadRumble, InputPipeline, InputPlatform, MonotonicClock, Options, PadId, PadKey, PointerLayer};
 use kybernow_core::kynput_rs::Pipeline;
 use kybernow_core::latency::Second;
@@ -39,6 +40,9 @@ pub struct Shared {
     /// … encodé en E-AC-3.
     dolby: bool,
     pub combo_enabled: AtomicBool,
+    /// « Ctrl agit comme ⌘ » (face à une Station Mac) : donné à chaque chaîne d'entrées, qui échange Ctrl et ⊞
+    /// des touches tapées.
+    control_as_command: AtomicBool,
     codec: Mutex<String>,
     /// La session demande le HDR (réglage, écran du téléviseur, décodeur) ;
     /// le cœur dit ensuite ce que l'ordinateur a obtenu (`Platform::on_hdr`).
@@ -88,6 +92,15 @@ impl Shared {
         1_000_000 / self.refresh.load(Ordering::Relaxed).max(24) as i64
     }
 
+    /// « Ctrl agit comme ⌘ » : pour les chaînes d'entrées à venir (reconnexion) et celle en cours (réglage changé en
+    /// session).
+    pub fn set_control_as_command(&self, on: bool) {
+        self.control_as_command.store(on, Ordering::Relaxed);
+        if let Some(p) = self.current_input() {
+            p.set_control_as_command(on);
+        }
+    }
+
     pub fn current_input(&self) -> Option<Arc<InputPipeline>> {
         self.input.lock().unwrap().clone()
     }
@@ -132,6 +145,7 @@ impl Shared {
             surround: false,
             dolby: false,
             combo_enabled: AtomicBool::new(false),
+            control_as_command: AtomicBool::new(false),
             codec: Mutex::new(String::new()),
             hdr_expected: AtomicBool::new(hdr),
             chain: Mutex::new(crate::journal::Chain::default()),
@@ -190,6 +204,7 @@ impl Platform for WebOsPlatform {
             clock,
         );
         pipeline.combo().set_enabled(self.0.combo_enabled.load(Ordering::Relaxed));
+        pipeline.set_control_as_command(self.0.control_as_command.load(Ordering::Relaxed));
         if let Err(e) = pipeline.spawn_driver() {
             log::error!("entrées : fil des minuteries impossible ({e})");
         }
@@ -634,6 +649,9 @@ pub fn start(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32), 
     // la cadence (comme en stéréo) ; le Dolby a sa propre chaîne, audio seule.
     ndl::set_audio_plane(if surround && !dolby { ndl::AudioPlane::Pcm51 } else { ndl::AudioPlane::OpusClock });
     let _ = (w, h, codec);
+    // Face à une Station Mac, « Ctrl agit comme ⌘ » (allumé tant qu'on ne l'a pas éteint). Un invité ou un emprunt
+    // ne connaît pas le système de l'ordinateur : Ctrl reste Ctrl.
+    let control_as_command = guest.is_none() && loan.is_none() && keymap::control_as_command(host.settings.ctrl_command, host.os.as_deref().unwrap_or(""));
     let shared = Arc::new(Shared {
         tx: Mutex::new(tx),
         session: OnceLock::new(),
@@ -647,6 +665,7 @@ pub fn start(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32), 
         surround,
         dolby: surround && dolby,
         combo_enabled: AtomicBool::new(host.settings.combo),
+        control_as_command: AtomicBool::new(control_as_command),
         codec: Mutex::new(String::new()),
         hdr_expected: AtomicBool::new(hdr.on()),
         chain: Mutex::new(crate::journal::Chain::default()),

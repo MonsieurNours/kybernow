@@ -413,6 +413,21 @@ struct Host: Codable, Identifiable, Hashable {
     /// d'Admin à chaque info, suivi tel qu'il le dit ; hors de chez soi, la
     /// session et la présence passent par lui (« Hors de chez vous »).
     var relay: RelayInfo?
+    /// Le système de l'ordinateur (`os` de `info`, « macOS 26.1 ») : appris
+    /// d'Admin à chaque info. Face à une Station Mac, ⌘ part comme ⌘ et les
+    /// touches proposées sont celles du Mac (docs/link-ui.md).
+    var os: String?
+    /// L'ordinateur ne crée pas les manettes de l'appareil (`gamepads` de
+    /// `info`, Station Mac sans le droit d'Apple) : appris à chaque info.
+    var gamepadsUnavailable: Bool?
+
+    /// Une Station Mac (règle du cœur, `keymap::station_is_mac`).
+    var isMac: Bool { Keymap.stationIsMac(os) }
+    /// « ⌘ envoyée comme Ctrl » tel qu'il s'applique : jamais face à un Mac ;
+    /// le réglage gardé pour les PC ne change pas.
+    var commandAsControl: Bool { Keymap.commandAsControl(settings.commandAsControl, os: os) }
+    /// « Manettes indisponibles sur cet ordinateur » (docs/link-ui.md).
+    var gamepadsAvailable: Bool { gamepadsUnavailable != true }
 
     /// La route de l'ordinateur par son relais : celle de sa Station, avec
     /// l'empreinte d'Admin retenue ; nil sans relais, ou sans empreinte (jamais
@@ -458,6 +473,7 @@ struct Host: Codable, Identifiable, Hashable {
     private enum CodingKeys: String, CodingKey {
         case id, name, address, consolePort, username, streamPort, consoleFingerprint, settings, lastSession, lastLatencyMs, lastLatencyP95Ms, lastDuration, profile
         case lastWidth, lastHeight, lastRefresh, lastCodec, lastMbps, lastScreens, lastRoute, lastHDR, pairedByCode, wake, relay
+        case os, gamepadsUnavailable
     }
 
     init(from decoder: Decoder) throws {
@@ -484,6 +500,8 @@ struct Host: Codable, Identifiable, Hashable {
         pairedByCode = try? c.decodeIfPresent(Bool.self, forKey: .pairedByCode)
         wake = try? c.decodeIfPresent([WakeTarget].self, forKey: .wake)
         relay = try? c.decodeIfPresent(RelayInfo.self, forKey: .relay)
+        os = try? c.decodeIfPresent(String.self, forKey: .os)
+        gamepadsUnavailable = try? c.decodeIfPresent(Bool.self, forKey: .gamepadsUnavailable)
         if let s = try c.decodeIfPresent(ConnectionSettings.self, forKey: .settings) {
             settings = s
         } else if let p = try c.decodeIfPresent(Profile.self, forKey: .profile) {
@@ -516,6 +534,8 @@ struct Host: Codable, Identifiable, Hashable {
         try c.encodeIfPresent(pairedByCode, forKey: .pairedByCode)
         try c.encodeIfPresent(wake, forKey: .wake)
         try c.encodeIfPresent(relay, forKey: .relay)
+        try c.encodeIfPresent(os, forKey: .os)
+        try c.encodeIfPresent(gamepadsUnavailable, forKey: .gamepadsUnavailable)
     }
 }
 
@@ -743,6 +763,14 @@ final class HostStore: ObservableObject {
             // Le relais de l'ordinateur, tel que sa Station le dit (absent : plus de relais).
             if var h = self.host(host.id), h.relay != info.relay {
                 h.relay = info.relay
+                update(h)
+            }
+            // Le système et les manettes de l'ordinateur, gardés pour lui (une
+            // Station sans `os` garde le précédent).
+            let unavailable: Bool? = info.gamepadsAvailable ? nil : true
+            if var h = self.host(host.id), (info.os != nil && h.os != info.os) || h.gamepadsUnavailable != unavailable {
+                h.os = info.os ?? h.os
+                h.gamepadsUnavailable = unavailable
                 update(h)
             }
             // Les cartes réseau pour le réveil : une liste vide (Station

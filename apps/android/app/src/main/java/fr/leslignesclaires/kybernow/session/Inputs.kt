@@ -37,6 +37,8 @@ object Sc {
     const val PRINT = 0xE037
     const val D = 0x20
     const val L = 0x26
+    const val Q = 0x10
+    const val FIVE = 0x06
     val F = intArrayOf(0x3B, 0x3C, 0x3D, 0x3E, 0x3F, 0x40, 0x41, 0x42, 0x43, 0x44, 0x57, 0x58)
 
     fun press(h: Long, vararg keys: Int) {
@@ -45,7 +47,10 @@ object Sc {
     }
 }
 
-/** Raccourcis du menu Touches. */
+/**
+ * Raccourcis du menu Touches, envoyés tels quels (sans l'échange de « Ctrl agit comme ⌘ »). Face à une Station Mac,
+ * ceux du Mac ([MAC]) : la touche ⊞ y arrive en ⌘ (docs/link-ui.md, « Face à une Station Mac »).
+ */
 enum class Shortcut(val keys: IntArray) {
     CTRL_ALT_DEL(intArrayOf(Sc.CTRL, Sc.ALT, Sc.DELETE)),
     ALT_TAB(intArrayOf(Sc.ALT, Sc.TAB)),
@@ -57,7 +62,32 @@ enum class Shortcut(val keys: IntArray) {
     TASK_MANAGER(intArrayOf(Sc.CTRL, Sc.SHIFT, Sc.ESC)),
     F11(intArrayOf(0x57)),
     ESC(intArrayOf(Sc.ESC)),
+    MAC_SWITCH_APP(intArrayOf(Sc.WIN, Sc.TAB)),
+    MAC_SPOTLIGHT(intArrayOf(Sc.WIN, Sc.SPACE)),
+    MAC_LOCK(intArrayOf(Sc.CTRL, Sc.WIN, Sc.Q)),
+    MAC_SCREENSHOT(intArrayOf(Sc.SHIFT, Sc.WIN, Sc.FIVE)),
+    MAC_FORCE_QUIT(intArrayOf(Sc.ALT, Sc.WIN, Sc.ESC));
+
+    companion object {
+        /** Le menu Touches d'un PC, dans son ordre. */
+        val PC = listOf(CTRL_ALT_DEL, ALT_TAB, WIN, WIN_D, PRINT, ALT_F4, WIN_L, TASK_MANAGER, F11, ESC)
+        /** Face à une Station Mac, à la place : ⌘ ⇥, ⌘ Espace, ⌃ ⌘ Q, ⇧ ⌘ 5, ⌥ ⌘ Échap. */
+        val MAC = listOf(MAC_SWITCH_APP, MAC_SPOTLIGHT, MAC_LOCK, MAC_SCREENSHOT, MAC_FORCE_QUIT)
+
+        /** Le menu Touches de cet ordinateur ; un invité et un ami qui emprunte ont celui d'un PC ([mac] faux). */
+        fun menu(mac: Boolean) = if (mac) MAC else PC
+
+        /** La dernière touche de la rangée du clavier de l'écran : Ctrl+Alt+Suppr, ⌥ ⌘ Échap face à un Mac. */
+        fun rowKey(mac: Boolean) = if (mac) MAC_FORCE_QUIT else CTRL_ALT_DEL
+    }
 }
+
+/**
+ * Les modificateurs collants de la rangée du clavier de l'écran et leur nom : « Ctrl », « Alt », « ⊞ », ou face à une
+ * Station Mac « ⌃ », « ⌥ », « ⌘ » (mêmes touches envoyées).
+ */
+fun stickyKeys(mac: Boolean): List<Pair<Int, String>> =
+    if (mac) listOf(Sc.CTRL to "⌃", Sc.ALT to "⌥", Sc.WIN to "⌘") else listOf(Sc.CTRL to "Ctrl", Sc.ALT to "Alt", Sc.WIN to "⊞")
 
 /**
  * Les manettes vers l'ordinateur : chaque manette a sa place (J1 à J4) ; les
@@ -209,14 +239,19 @@ class PadRouter(private val handle: () -> Long, private val gamepads: Gamepads) 
  * l'écran traversé en 1,5 s à fond), LT pour la précision, RT pour aller
  * vite ; stick droit = molette ; A clic gauche, X clic droit, B clic du
  * milieu ; croix = flèches ; Start = touche Windows, Select = Échap ;
- * L1 / R1 = Alt + Tab (Maj en plus avec L1).
+ * L1 / R1 = Alt + Tab (Maj en plus avec L1). Face à une Station Mac ([mac]) :
+ * L1 / R1 tiennent ⌘ au lieu d'Alt (⇧ ⌘ ⇥ / ⌘ ⇥) et Start envoie ⌘ Espace
+ * (docs/link-ui.md, « Face à une Station Mac »).
  */
 class PadMouse(private val handle: () -> Long) {
     private val main = Handler(Looper.getMainLooper())
     private var axes = PadAxes.REST
     private var running = false
     var hostWidth = 1920.0
-    private var altHeld = false
+    /** L'ordinateur est une Station Mac (jamais pour un invité ni un ami qui emprunte). */
+    var mac = false
+    /** La touche tenue pour passer d'une fenêtre à l'autre (Alt, ou ⌘ face à un Mac) ; 0 : aucune. */
+    private var switcherHeld = 0
     private var wheelAcc = 0.0
     private val tick = object : Runnable {
         override fun run() {
@@ -295,10 +330,10 @@ class PadMouse(private val handle: () -> Long) {
         if (held.isEmpty()) mixed = false
         if (!solo) return
         when (code) {
-            KeyEvent.KEYCODE_BUTTON_START -> Sc.press(h, Sc.WIN)
+            KeyEvent.KEYCODE_BUTTON_START -> Sc.press(h, *startKeys(mac))
             KeyEvent.KEYCODE_BUTTON_SELECT -> Sc.press(h, Sc.ESC)
             else -> {
-                if (!altHeld) { Native.inputKey(h, Sc.ALT, true); altHeld = true }
+                if (switcherHeld == 0) { switcherHeld = switcherKey(mac); Native.inputKey(h, switcherHeld, true) }
                 if (code == KeyEvent.KEYCODE_BUTTON_L1) Native.inputKey(h, Sc.SHIFT, true)
                 Sc.press(h, Sc.TAB)
                 if (code == KeyEvent.KEYCODE_BUTTON_L1) Native.inputKey(h, Sc.SHIFT, false)
@@ -308,8 +343,17 @@ class PadMouse(private val handle: () -> Long) {
         }
     }
 
+    /** La touche tenue se relâche telle qu'elle est partie, un instant après la dernière pression. */
     private val releaseAlt = Runnable {
-        if (altHeld) { Native.inputKey(handle(), Sc.ALT, false); altHeld = false }
+        if (switcherHeld != 0) { Native.inputKey(handle(), switcherHeld, false); switcherHeld = 0 }
+    }
+
+    companion object {
+        /** La touche que L1 / R1 tiennent : Alt (Alt + Tab), ⌘ face à un Mac (⌘ ⇥, la touche ⊞ pour Kyber). */
+        fun switcherKey(mac: Boolean) = if (mac) Sc.WIN else Sc.ALT
+
+        /** Ce que Start envoie : la touche ⊞ seule, « ⌘ Espace » (Spotlight) face à un Mac. */
+        fun startKeys(mac: Boolean) = if (mac) intArrayOf(Sc.WIN, Sc.SPACE) else intArrayOf(Sc.WIN)
     }
 
     fun stop() {

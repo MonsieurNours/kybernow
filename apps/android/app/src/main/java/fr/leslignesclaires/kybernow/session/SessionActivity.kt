@@ -61,6 +61,8 @@ import fr.leslignesclaires.kybernow.ui.KnTheme
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.io.FileOutputStream
@@ -131,6 +133,12 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         override fun feel(f: Feel) = haptics.feel(f)
     }
 
+    /**
+     * L'avis « Manettes indisponibles sur cet ordinateur. » (Station Mac sans le droit d'Apple), une fois par session ;
+     * jamais pour un invité ni un ami qui emprunte, qui ne lisent pas l'info de l'ordinateur.
+     */
+    private lateinit var padsNotice: PadsNotice
+
     /** Boutons de manette enfoncés depuis l'ouverture d'un menu : le relâché des autres (le combo) est ignoré. */
     private val padDowns = mutableSetOf<Int>()
     private var quitting = false
@@ -181,9 +189,15 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         remote = RemoteRouter { handle }
         // Un invité : « Invité sur {nom} » (la connexion, le menu), la barre réduite. Un emprunt : « Ordinateur de {hôte} ».
         val title = guest?.let { getString(R.string.share_guest_on, it.computer) } ?: loan?.let { getString(R.string.lend_card_title, it.host) } ?: host.name
+        // Face à une Station Mac, ses touches (menu, rangée du clavier) ; un invité ou un ami qui emprunte ne connaît pas
+        // le système de l'ordinateur : celles d'un PC.
+        val mac = hostSession && Native.stationIsMac(host.os ?: "")
+        padsNotice = PadsNotice(hostSession && !host.gamepads)
+        // Manette en souris face à un Mac : ⌘ pour L1 / R1, ⌘ Espace pour Start.
+        pads.mouse.mac = mac
         ui = SessionUi(
             title, tv, state, this, OnScreenPad(onScreenOut), guest = guest != null, computerName = host.name,
-            borrower = loan != null, lender = loan?.host ?: "", lendUntil = loan?.until,
+            borrower = loan != null, lender = loan?.host ?: "", lendUntil = loan?.until, mac = mac,
         ).apply {
             lendWarning = !app.lendWarned
             profile = host.settings.profile
@@ -346,6 +360,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
             .put("gamepad_xbox360", host.settings.xbox360)
             .put("clipboard", host.settings.clipboard && !tv)
             .put("combo", host.settings.combo)
+            // Face à une Station Mac : « Ctrl agit comme ⌘ » (allumé tant qu'on ne l'a pas éteint ; la règle est au cœur).
+            .put("control_as_command", Native.controlAsCommand(host.settings.ctrlCommandCode, host.os ?: ""))
             .put("recovery", JSONObject().put("watch_image", true).put("fallback_bitrate", 150_000_000))
         // Hors de chez soi : « Auto », le réseau d'abord (Admin répond en 1,5 s), le relais de l'ordinateur sinon, Admin
         // épinglé sur l'empreinte connue (docs/relais.md). Sans relais connu, ou avec `KYBERNOW_RELAY=off` : sur le réseau.
@@ -389,8 +405,22 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
                         // Une manette branchée en cours de session : annoncée à l'ordinateur et dans une capsule
                         // (pas la manette à l'écran : on vient de l'afficher soi-même).
                         val added = pads.sync()
+                        // L'ordinateur ne crée pas de manettes : l'avis, une fois (la première branchée), à la place de « branchée ».
+                        if (padsNotice.due(state.firstImageAt.get() > 0, it.size)) state.show(Capsule.PadsUnavailable)
                         // Un invité sans les manettes n'en envoie pas : sa manette n'est annoncée à personne, pas de capsule.
-                        if (state.firstImageAt.get() > 0 && padsAllowed()) added.firstOrNull { !it.onScreen }?.let { p -> state.show(Capsule.GamepadConnected(p.name, p.slot, p.motors)) }
+                        else if (state.firstImageAt.get() > 0 && padsAllowed() && host.gamepads) added.firstOrNull { !it.onScreen }?.let { p -> state.show(Capsule.GamepadConnected(p.name, p.slot, p.motors)) }
+                    }
+                }
+                launch {
+                    // L'image arrive avec une manette déjà branchée : l'avis des manettes indisponibles.
+                    state.phase.collect { p ->
+                        if (p == Phase.STREAMING && padsNotice.due(true, app.gamepads.pads.value.size)) state.show(Capsule.PadsUnavailable)
+                    }
+                }
+                if (hostSession) launch {
+                    // « Ctrl agit comme ⌘ » changé dans les réglages pendant la session : tout de suite.
+                    app.hosts.hosts.map { l -> l.firstOrNull { it.id == host.id }?.settings?.ctrlCommandCode }.distinctUntilChanged().collect { code ->
+                        if (code != null && handle != 0L) Native.inputSetControlAsCommand(handle, Native.controlAsCommand(code, host.os ?: ""))
                     }
                 }
                 launch {
@@ -1170,7 +1200,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
             if (!ui.keyboardMouseAllowed()) return true
             val sc = Native.scancode(event.scanCode)
             if (sc >= 0) {
-                if (event.repeatCount == 0) Native.inputKey(handle, sc, down)
+                // Face à un Mac, Ctrl et ⊞ échangés avec « Ctrl agit comme ⌘ » (le cœur).
+                if (event.repeatCount == 0) Native.inputKeyTyped(handle, sc, down)
                 return true
             }
             // Touche sans code matériel (clavier logiciel, certains claviers Bluetooth) : le texte.

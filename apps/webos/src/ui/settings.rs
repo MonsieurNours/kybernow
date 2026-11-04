@@ -155,7 +155,24 @@ fn host_section(app: &App, cv: &mut Canvas, f: &mut Frame, h: &Host) {
             let pads: Vec<String> = vec!["Xbox 360".into(), tr("Fidèle", "As is").into()];
             y += widgets::row(cv, f, s(Setting::Gamepad), x, y, w, tr("Manette vue par l'ordinateur", "Controller seen by the computer"), tr("Xbox 360 : reconnue par tous les jeux. Fidèle : chaque manette telle qu'elle est.", "Xbox 360: recognised by every game. As is: each controller as it is."), Value::Choices(&pads, usize::from(!st.xbox360))) + GAP;
             y += widgets::row(cv, f, s(Setting::Combo), x, y, w, tr("L1 + R1 + Start + Select : menu", "L1 + R1 + Start + Select: menu"), tr("La combinaison ouvre le menu de session", "The combination opens the session menu"), Value::Toggle(st.combo)) + GAP;
-            widgets::row(cv, f, s(Setting::BackMenu), x, y, w, tr("Retour de la Magic Remote : menu", "Magic Remote Back: menu"), tr("Sinon, Retour part à l'ordinateur comme Échap", "Otherwise Back goes to the computer as Esc"), Value::Toggle(st.back_opens_menu));
+            y += widgets::row(cv, f, s(Setting::BackMenu), x, y, w, tr("Retour de la Magic Remote : menu", "Magic Remote Back: menu"), tr("Sinon, Retour part à l'ordinateur comme Échap", "Otherwise Back goes to the computer as Esc"), Value::Toggle(st.back_opens_menu)) + GAP;
+            // Face à une Station Mac seulement, allumé tant qu'on ne l'a pas éteint (docs/link-ui.md).
+            if h.os.as_deref().is_some_and(crate::app::station_is_mac) {
+                widgets::row(
+                    cv,
+                    f,
+                    s(Setting::CtrlCommand),
+                    x,
+                    y,
+                    w,
+                    tr("Ctrl agit comme ⌘", "Ctrl acts as ⌘"),
+                    tr(
+                        "Copier, coller et les autres raccourcis du Mac avec Ctrl, comme sur un PC. La touche ⊞ devient ⌃.",
+                        "Copy, paste and the Mac's other shortcuts with Ctrl, as on a PC. The ⊞ key becomes ⌃.",
+                    ),
+                    Value::Toggle(st.ctrl_command.unwrap_or(true)),
+                );
+            }
         }
         Section::Network => {
             let opts: Vec<String> = vec![tr("Rapide", "Fast").into(), tr("Fiable", "Reliable").into()];

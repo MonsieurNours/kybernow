@@ -19,7 +19,7 @@ use ndk::native_window::NativeWindow;
 
 use kybernow_core::console::{Console, ConsoleError, DeviceInfo, Mode, PairStatus, StationError};
 use kybernow_core::i18n::{self, Lang};
-use kybernow_core::input::{MouseMode, MouseModeRules, PadAxis, PadButton};
+use kybernow_core::input::{keymap, MouseMode, MouseModeRules, PadAxis, PadButton};
 use kybernow_core::kynput_rs::MouseButtonType;
 use kybernow_core::latency;
 use kybernow_core::wake;
@@ -432,9 +432,50 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_scancode(_:
     if evdev > 0 && evdev < 0xFFFF && unsafe { kynput_keycode_evdev_to_kyber(evdev as u16, &mut sc) } { sc as jint } else { -1 }
 }
 
+/// Touche envoyée telle quelle (combinaisons des menus, rangée du clavier de l'écran).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_inputKey(_: Env, _: JClass, h: jlong, scancode: jint, pressed: jboolean) {
     input(h, |p| p.key(scancode as u16, pressed != 0));
+}
+
+/// Touche tapée sur un clavier physique : face à une Station Mac, Ctrl et ⊞
+/// échangés avec « Ctrl agit comme ⌘ » (`outgoing_scancode` du cœur, qui
+/// relâche chaque touche telle qu'elle est partie).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_inputKeyTyped(_: Env, _: JClass, h: jlong, scancode: jint, pressed: jboolean) {
+    let pressed = pressed != 0;
+    input(h, |p| p.key(p.outgoing_scancode(scancode as u16, pressed), pressed));
+}
+
+/// « Ctrl agit comme ⌘ » changé pendant la session : tout de suite, et pour
+/// les chaînes d'entrées suivantes (relance, reconnexion).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_inputSetControlAsCommand(_: Env, _: JClass, h: jlong, on: jboolean) {
+    if let Some(h) = handle(h) {
+        h.shared.set_control_as_command(on != 0);
+    }
+}
+
+/// La Station est un Mac (`keymap::station_is_mac` : son système commence par « macOS »).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_stationIsMac(mut env: Env, _: JClass, os: JString) -> jboolean {
+    jbool(keymap::station_is_mac(&string(&mut env, &os)))
+}
+
+/// « Ctrl agit comme ⌘ » pour cet ordinateur (`keymap::control_as_command`) ;
+/// `setting` : −1 jamais changé, 0 éteint, 1 allumé.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_controlAsCommand(mut env: Env, _: JClass, setting: jint, os: JString) -> jboolean {
+    let setting = (setting >= 0).then_some(setting != 0);
+    jbool(keymap::control_as_command(setting, &string(&mut env, &os)))
+}
+
+/// L'ordinateur crée les manettes de l'appareil (`Info::gamepads_available`,
+/// d'après le JSON de `consoleInfo`) : vrai sans le champ (Stations d'avant).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_gamepadsAvailable(mut env: Env, _: JClass, info: JString) -> jboolean {
+    let info: kybernow_core::console::Info = serde_json::from_str(&string(&mut env, &info)).unwrap_or_default();
+    jbool(info.gamepads_available())
 }
 
 #[unsafe(no_mangle)]

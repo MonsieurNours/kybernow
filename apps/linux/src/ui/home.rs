@@ -124,7 +124,12 @@ fn display_chip(app: &App, cv: &mut Canvas, h: &Host, x: f32, y: f32, ch: f32, s
 }
 
 /// « 2 manettes », « 1 manette », « Aucune manette ».
-fn pads_label(n: usize) -> String {
+/// Les manettes branchées ; « Manettes indisponibles sur cet ordinateur » quand l'ordinateur n'en crée pas
+/// (docs/link-ui.md, « Manettes indisponibles »).
+fn pads_label(n: usize, unavailable: bool) -> String {
+    if unavailable {
+        return tr("Manettes indisponibles sur cet ordinateur", "Controllers unavailable on this computer").into();
+    }
     match n {
         0 => tr("Aucune manette", "No controller").into(),
         1 => tr("1 manette", "1 controller").into(),
@@ -460,7 +465,7 @@ fn console(app: &App, cv: &mut Canvas, f: &mut Frame, host: Option<&Host>, logo:
             let cw = display_chip(app, cv, hst, x0, y, 40.0 * u, 16.0 * u);
             // Au salon (et sur KyberNow Link OS), les manettes branchées.
             if tv {
-                widgets::info_chip(cv, x0 + cw + 14.0 * u, y, 40.0 * u, 16.0 * u, Icon::Gamepad, &[(&pads_label(app.pads.len()), false)]);
+                widgets::info_chip(cv, x0 + cw + 14.0 * u, y, 40.0 * u, 16.0 * u, Icon::Gamepad, &[(&pads_label(app.pads.len(), app.live.get(&hst.id).is_some_and(|l| l.pads_unavailable)), false)]);
             }
             y += 40.0 * u + 28.0 * u;
             let mut x = x0;

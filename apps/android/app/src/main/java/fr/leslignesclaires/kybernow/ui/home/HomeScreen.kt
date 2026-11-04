@@ -397,7 +397,8 @@ private fun Hero(host: Host, st: HostStatus, state: HomeState, actions: HomeActi
             Row(verticalAlignment = Alignment.CenterVertically) {
                 KnIcon(KnIcons.gamepad, tint = Kn.muted, size = 18f)
                 Spacer(Modifier.width(s.dp(8f)))
-                Body(padsLabel(state.pads), size = 14f, color = Kn.frost2)
+                // L'ordinateur ne crée pas de manettes (Station Mac sans le droit d'Apple) : il le dit à la place du nombre.
+                Body(if (host.gamepads) padsLabel(state.pads) else stringResource(R.string.home_pads_unavailable), size = 14f, color = Kn.frost2)
             }
         }
     }

@@ -54,6 +54,8 @@ final class SessionController: ObservableObject {
     @Published private(set) var fallbackNote: String?
     /// Capsule d'information en haut de l'écran (mode de l'ordinateur changé…).
     @Published private(set) var notice: String?
+    /// Son icône, quand elle en a une (« Manettes indisponibles… » : la manette).
+    @Published private(set) var noticeIcon: String?
     /// Profil Bureau, écran de l'ordinateur passé à un autre mode : « Remettre
     /// 3840 × 2160 » dans le menu (le cœur le propose et le retire).
     @Published private(set) var modeRestoreOffer: String?
@@ -118,6 +120,10 @@ final class SessionController: ObservableObject {
     /// Les vues lisent `borrowFlow.state` à travers la session : chaque
     /// changement de l'emprunt (« En attente de {hôte}… ») les redessine.
     private var borrowWatch: AnyCancellable?
+    /// Les manettes branchées, pour l'avis des manettes indisponibles ; déjà
+    /// dit dans cette session.
+    private var padsWatch: AnyCancellable?
+    private var padsUnavailableShown = false
     /// Le prêt obtenu : la fin prévue (« Encore 1 h 20 ») et {hôte}.
     @Published private(set) var loan: LendLoan?
     /// Le préavis de 2 minutes en cours (le temps restant le suit).
@@ -292,6 +298,11 @@ final class SessionController: ObservableObject {
         gamepads.menuFromCombo = prefs.menuCombo
         gamepads.rumbleEnabled = prefs.rumble
         gamepads.padMouseSpeed = prefs.padMouseSpeed.factor
+        // Manette en souris face à une Station Mac : ⌘ ⇥ et ⌘ Espace (invité, ami : d'un PC).
+        gamepads.macKeys = !isVisitor && host.isMac
+        padsWatch = gamepads.$pads.receive(on: RunLoop.main).sink { [weak self] pads in
+            if !pads.isEmpty { self?.padsUnavailableNotice() }
+        }
         streamView.padMouse = padMouse
         streamView.remoteMouse = remoteMouse
         streamView.appleISOKeyboard = prefs.appleISOKeyboard
@@ -465,6 +476,7 @@ final class SessionController: ObservableObject {
                 }
                 self.startedAt = Date()
                 self.dismissPassage()
+                self.padsUnavailableNotice()
             }
         case let .reconnecting(attempt, _):
             phase = .reconnecting(attempt)
@@ -663,12 +675,29 @@ final class SessionController: ObservableObject {
     }
 
     /// Capsule en haut de l'écran pendant quelques secondes.
-    private func show(notice text: String, for seconds: TimeInterval = 5) {
-        withAnimation(.easeOut(duration: 0.35)) { notice = text }
+    private func show(notice text: String, for seconds: TimeInterval = 5, icon: String? = nil) {
+        withAnimation(.easeOut(duration: 0.35)) {
+            notice = text
+            noticeIcon = icon
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
             guard self?.notice == text else { return }
-            withAnimation(.easeIn(duration: 0.35)) { self?.notice = nil }
+            withAnimation(.easeIn(duration: 0.35)) {
+                self?.notice = nil
+                self?.noticeIcon = nil
+            }
         }
+    }
+
+    /// « Manettes indisponibles sur cet ordinateur. » (docs/link-ui.md) : une
+    /// fois par session, à l'arrivée de l'image si une manette est branchée,
+    /// sinon quand la première se branche. Pas pour un invité ni un ami, qui
+    /// ne savent pas ce que l'ordinateur crée.
+    private func padsUnavailableNotice() {
+        guard !isVisitor, !host.gamepadsAvailable, !padsUnavailableShown, phase == .streaming,
+              !GamepadBridge.shared.pads.isEmpty else { return }
+        padsUnavailableShown = true
+        show(notice: LinkText.controllersUnavailableNotice, icon: "game-controller")
     }
 
     /// « Remettre » : Admin remet le mode demandé au début de la session.
@@ -935,6 +964,8 @@ final class SessionController: ObservableObject {
         // « Annuler » pendant la préparation ou l'attente de l'hôte : la demande est retirée.
         if loan == nil { borrowFlow?.cancel() }
         GamepadBridge.shared.onMenuRequest = nil
+        padsWatch = nil
+        GamepadBridge.shared.macKeys = false
         streamView.padMouse = false
         // Un invité ou un ami ne laisse rien sur cet appareil : ni dernière image, ni statistiques.
         if let last = engine?.snapshot(maxWidth: 1920), !isVisitor { store.imagery.saveLast(last, for: host) }
@@ -970,6 +1001,8 @@ final class SessionController: ObservableObject {
     private func fail(_ message: String) {
         KyberLog.app.error("session : \(message, privacy: .public)")
         GamepadBridge.shared.onMenuRequest = nil
+        padsWatch = nil
+        GamepadBridge.shared.macKeys = false
         streamView.detach()
         engine?.stop()
         matchDisplay(nil)

@@ -540,7 +540,9 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, live: O
                 let sc = if remote_back { sdl::SC_ESCAPE } else { sc };
                 if !repeat && let Some(win) = pads::win_scancode(sc) {
                     log::debug!("clavier : touche SDL {sc} (Windows {win:#x}) {} vers l'ordinateur", if down { "appuyée" } else { "relâchée" });
-                    p.key(win, down);
+                    // Face à un Mac, Ctrl et ⊞ échangés avec « Ctrl agit comme ⌘ » (le cœur décide, et relâche chaque
+                    // touche telle qu'elle est partie).
+                    p.key(p.outgoing_scancode(win, down), down);
                 }
                 return;
             }
@@ -651,6 +653,8 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, live: O
                 if let Some(s) = app.session.as_mut() {
                     s.notice = Some((format!("{} {}{} : {}", tr("Manette", "Controller"), tr("J", "P"), slot + 1, pads.name(slot)), Instant::now()));
                 }
+                // L'ordinateur ne crée pas les manettes : il le dit, une fois par session, à la première branchée.
+                app.pads_unavailable_notice(pads.slots().len());
                 *dirty = true;
             }
         }
@@ -828,6 +832,10 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
                 let come_back = s.borrow.as_ref().is_some_and(|b| !b.ended_by_lend);
                 app.screen = Screen::Session;
                 app.focus = if come_back { crate::app::Target::ComeBack } else { crate::app::Target::Back };
+            }
+            // L'image arrive : les manettes indisponibles sur l'ordinateur se disent, si une manette est branchée.
+            if app.session.as_ref().is_some_and(|s| s.phase == Phase::Streaming) {
+                app.pads_unavailable_notice(pads.slots().len());
             }
         }
         Event::Mode(m) => {
@@ -1107,6 +1115,14 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
                 for slot in pads.slots() {
                     p.gamepad_axes_rest(slot as u32);
                 }
+            }
+        }
+        // « Ctrl agit comme ⌘ » changé dans les réglages : la session de cet ordinateur le prend tout de suite.
+        Action::ControlAsCommand(on) => {
+            if let Some(l) = live.as_ref()
+                && !l.guest
+            {
+                l.handle.shared.set_control_as_command(on);
             }
         }
         Action::Shortcut(keys) => {

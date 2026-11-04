@@ -77,6 +77,8 @@ pub enum Event {
         /// Ce que « Prêter l'ordinateur… » peut faire, et la vue du prêt quand il est activé ; `None` : pas de réponse.
         lend: Option<crate::app::LendAvail>,
         lend_view: Option<crate::app::LendHostView>,
+        /// L'ordinateur crée les manettes de l'appareil (`Info::gamepads_available`) ; `None` : pas de réponse.
+        gamepads: Option<bool>,
     },
     /// Prêt de l'ordinateur, ami : l'emprunt attend l'accord de l'hôte (son prénom).
     BorrowPending { source: crate::app::BorrowSource, host: String },
@@ -2037,8 +2039,10 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
                 if l.typing && !matches!(sc, sdl::SC_RETURN | sdl::SC_BACKSPACE | sdl::SC_ESCAPE | sdl::SC_TAB | sdl::SC_UP | sdl::SC_DOWN | sdl::SC_LEFT | sdl::SC_RIGHT | sdl::SC_KP_ENTER) {
                     return;
                 }
+                // Face à un Mac, Ctrl et ⊞ échangés avec « Ctrl agit comme ⌘ » (le cœur décide, et relâche chaque
+                // touche telle qu'elle est partie).
                 if !repeat && let Some(w) = pads::win_scancode(sc) {
-                    p.key(w, down);
+                    p.key(p.outgoing_scancode(w, down), down);
                 }
                 return;
             }
@@ -2256,6 +2260,10 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
                 if let Some(s) = app.session_mut() {
                     s.notice = Some((format!("{} {}{} : {}", tr("Manette", "Controller"), tr("J", "P"), slot + 1, pads.name(slot)), Instant::now()));
                 }
+                // L'ordinateur ne crée pas les manettes : il le dit, une fois par session, à la première branchée.
+                for sid in app.sessions.iter().map(|s| s.id).collect::<Vec<_>>() {
+                    app.pads_unavailable_notice(sid, pads.count());
+                }
                 *dirty = true;
             }
         }
@@ -2368,7 +2376,7 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
 #[allow(clippy::too_many_arguments)]
 fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, wins: &mut Wins, actions: &mut Vec<Action>, pairing: &mut Vec<Arc<AtomicBool>>, tx: &Sender<Event>) {
     match e {
-        Event::HostInfo { id, online, away, relay, os, gpu, av1, virtual_display, max_screens, station, wake, own_device, share, lend, lend_view } => {
+        Event::HostInfo { id, online, away, relay, os, gpu, av1, virtual_display, max_screens, station, wake, own_device, share, lend, lend_view, gamepads } => {
             let entry = app.live.entry(id.clone()).or_insert_with(HostLive::default);
             entry.online = if online {
                 Online::Online
@@ -2385,6 +2393,7 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, lives: &mut Live
                 entry.share = share;
                 entry.lend = lend;
                 entry.lend_view = lend_view;
+                entry.pads_unavailable = gamepads == Some(false);
                 // Le réveil a marché : l'ordinateur répond.
                 if app.waking.as_ref().is_some_and(|(w, _)| *w == id) {
                     app.waking = None;
@@ -2683,6 +2692,11 @@ fn session_event(id: SessionId, e: SessionEvent, app: &mut App, pads: &mut pads:
             // Une session finie n'a plus la souris des jeux (la carte d'erreur est une carte de l'interface) ; si
             // elle était l'active, le pointeur est rendu et visible tout de suite (l'état de SDL suit ensuite
             // d'après les sessions qui restent : `focus::sync`).
+            // L'image arrive : les manettes indisponibles sur l'ordinateur se disent, si une manette est branchée.
+            if s.phase == Phase::Streaming {
+                app.pads_unavailable_notice(id, pads.count());
+            }
+            let Some(s) = app.sessions.iter_mut().find(|s| s.id == id) else { return };
             if finished || failed {
                 s.relative = false;
                 s.bar = false;
@@ -3118,6 +3132,15 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, w
                 for k in keys.iter().rev() {
                     p.key(*k, false);
                 }
+            }
+        }
+        // « Ctrl agit comme ⌘ » changé dans les réglages : les sessions de cet ordinateur le prennent tout de suite
+        // (un invité n'en a pas : l'app ne connaît pas le système de l'ordinateur).
+        Action::ControlAsCommand(host, on) => {
+            let os = app.store.host(&host).and_then(|h| h.os.clone()).unwrap_or_default();
+            let on = kybernow_core::input::keymap::control_as_command(Some(on), &os);
+            for l in lives.iter().filter(|l| l.host == host && !l.guest) {
+                l.handle.shared.set_control_as_command(on);
             }
         }
         Action::StartPairing => {

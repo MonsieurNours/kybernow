@@ -179,5 +179,8 @@
     "n_accounts_other": "{n} accounts",
     "n_consoles_one": "1 console",
     "n_consoles_other": "{n} consoles"
+  },
+  "session": {
+    "gamepads_unavailable": "Controllers unavailable on this computer."
   }
 }

@@ -121,6 +121,9 @@ export interface Info {
   share?: { available: boolean; enabled: boolean }
   /** Prêt de l'ordinateur : absent avant la 0.9.0 ; `enabled` est faux si le prêt est coupé dans Admin. */
   lend?: { available: boolean; enabled: boolean }
+  /** Manettes : `available` faux quand la Station ne sait pas en créer (Station Mac sans le droit
+   * d'Apple, `reason` « entitlement ») ; absent (Stations d'avant) : disponibles. */
+  gamepads?: { available: boolean; reason?: string | null }
 }
 
 /** Écran que reçoit un invité (celui du partage). */

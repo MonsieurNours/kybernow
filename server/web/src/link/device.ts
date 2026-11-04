@@ -20,6 +20,10 @@ export const hasWebTransport = typeof (globalThis as any).WebTransport === 'func
  * vérifie pas un certificat par son empreinte, l'image passe par WebSocket. */
 export const isWebKit = /AppleWebKit/.test(navigator.userAgent) && !/Chrome|Chromium|Edg\/|OPR\//.test(navigator.userAgent)
 
+/** Mac, iPhone, iPad : un clavier d'Apple a sa touche ⌘, qui part comme ⌘
+ * face à une Station Mac ; pas de « Ctrl agit comme ⌘ » (docs/link-ui.md). */
+export const isAppleDevice = /Macintosh|iPhone|iPad/.test(navigator.userAgent)
+
 /** Firefox : image par WebSocket et en H.264 par défaut (`plan.ts`). */
 export const isFirefox = /Firefox\//.test(navigator.userAgent)
 

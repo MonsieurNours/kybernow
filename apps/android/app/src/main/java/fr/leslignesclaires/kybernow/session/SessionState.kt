@@ -101,6 +101,24 @@ sealed class Capsule {
     data class LendRequest(val name: String, val slot: Boolean = false) : Capsule()
     /** Hôte : un avis du prêt écrit par le cœur (« Créneau de Léa : l'ordinateur lui est prêté dans 2 min. »). */
     data class LendHostNotice(val text: String) : Capsule()
+    /** « Manettes indisponibles sur cet ordinateur. » (icône de manette), une fois par session : voir [PadsNotice]. */
+    data object PadsUnavailable : Capsule()
+}
+
+/**
+ * L'avis des manettes indisponibles (docs/link-ui.md, « Manettes indisponibles ») : [unavailable] quand l'ordinateur ne
+ * crée pas les manettes de l'appareil (jamais pour un invité ni un ami qui emprunte). Une fois par session, à l'arrivée
+ * de l'image si une manette est branchée, sinon quand la première se branche.
+ */
+internal class PadsNotice(private val unavailable: Boolean) {
+    private var shown = false
+
+    /** L'image est là ([streaming]) avec [pads] manettes branchées : vrai s'il faut montrer l'avis maintenant. */
+    fun due(streaming: Boolean, pads: Int): Boolean {
+        if (!unavailable || shown || !streaming || pads <= 0) return false
+        shown = true
+        return true
+    }
 }
 
 data class DisplayInfo(val id: Int, val width: Int, val height: Int)

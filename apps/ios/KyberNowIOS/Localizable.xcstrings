@@ -2289,6 +2289,22 @@
         }
       }
     },
+    "Capture (touches du Mac)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Screenshot"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Capture"
+          }
+        }
+      }
+    },
     "Carré" : {
       "localizations" : {
         "en" : {
@@ -2621,6 +2637,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cet écran"
+          }
+        }
+      }
+    },
+    "Changer d'app" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Switch app"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Changer d'app"
           }
         }
       }
@@ -4623,6 +4655,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Fidèle"
+          }
+        }
+      }
+    },
+    "Forcer à quitter" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Force quit"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Forcer à quitter"
           }
         }
       }
@@ -6863,6 +6911,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Manette à l'écran"
+          }
+        }
+      }
+    },
+    "Manettes indisponibles sur cet ordinateur" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Controllers unavailable on this computer"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Manettes indisponibles sur cet ordinateur"
+          }
+        }
+      }
+    },
+    "Manettes indisponibles sur cet ordinateur." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Controllers unavailable on this computer."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Manettes indisponibles sur cet ordinateur."
           }
         }
       }
@@ -9891,6 +9971,22 @@
         }
       }
     },
+    "Spotlight" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Spotlight"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Spotlight"
+          }
+        }
+      }
+    },
     "Station" : {
       "localizations" : {
         "en" : {
@@ -10927,6 +11023,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Une session peut consommer plusieurs gigaoctets par heure sur votre forfait."
+          }
+        }
+      }
+    },
+    "Verrouiller" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lock"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verrouiller"
           }
         }
       }
@@ -12176,6 +12288,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "⌘ envoyée comme Ctrl"
+          }
+        }
+      }
+    },
+    "⌘ Espace" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "⌘ Space"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "⌘ Espace"
+          }
+        }
+      }
+    },
+    "⌥ ⌘ Échap" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "⌥ ⌘ Esc"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "⌥ ⌘ Échap"
           }
         }
       }

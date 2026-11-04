@@ -430,6 +430,9 @@ private struct HintToast: View {
             case let .lendRequest(text):
                 Icon("key", size: 14, bold: true).foregroundStyle(Theme.accent)
                 Text(text)
+            case let .gamepads(text):
+                Icon("game-controller", size: 14, bold: true).foregroundStyle(Theme.accent)
+                Text(text)
             }
         }
         .font(Theme.sans(12.5))

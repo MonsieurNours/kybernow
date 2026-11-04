@@ -71,7 +71,8 @@
         "one": "{n} gamepad",
         "other": "{n} gamepads"
       },
-      "aria": "{count}: {names}"
+      "aria": "{count}: {names}",
+      "unavailable": "Controllers unavailable on this computer."
     },
     "mouse": {
       "auto": "Auto mouse",
@@ -98,7 +99,17 @@
       "altTab": "Alt + Tab",
       "altTabSub": "switch apps",
       "print": "Print Screen",
-      "printSub": "screenshot"
+      "printSub": "screenshot",
+      "macSwitch": "⌘ ⇥",
+      "macSwitchSub": "switch app",
+      "macSpotlight": "⌘ Space",
+      "macSpotlightSub": "Spotlight",
+      "macLock": "⌃ ⌘ Q",
+      "macLockSub": "lock",
+      "macScreenshot": "⇧ ⌘ 5",
+      "macScreenshotSub": "screenshot",
+      "macForceQuit": "⌥ ⌘ Esc",
+      "macForceQuitSub": "force quit"
     },
     "metrics": {
       "title": "Statistics",
@@ -180,6 +191,8 @@
       "soundSub": "The computer's sound, in stereo.",
       "clipboard": "Shared clipboard",
       "clipboardSub": "The browser asks for permission once.",
+      "controlAsCommand": "Ctrl acts as ⌘",
+      "controlAsCommandHelp": "Copy, paste and the Mac's other shortcuts with Ctrl, as on a PC. The ⊞ key becomes ⌃.",
       "mouse": "Mouse",
       "mouseAuto": "Captured only when a game is full screen on the computer. Ctrl + Alt + Shift releases it.",
       "mouseGame": "Captured: raw movement, for aiming. Ctrl + Alt + Shift releases it.",
@@ -236,7 +249,10 @@
       "left": "Left arrow",
       "up": "Up arrow",
       "down": "Down arrow",
-      "right": "Right arrow"
+      "right": "Right arrow",
+      "control": "Control",
+      "option": "Option",
+      "command": "Command"
     },
     "profile": {
       "jeu": "Game",

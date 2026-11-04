@@ -71,7 +71,8 @@
         "one": "{n} manette",
         "other": "{n} manettes"
       },
-      "aria": "{count} : {names}"
+      "aria": "{count} : {names}",
+      "unavailable": "Manettes indisponibles sur cet ordinateur."
     },
     "mouse": {
       "auto": "Souris auto",
@@ -98,7 +99,17 @@
       "altTab": "Alt + Tab",
       "altTabSub": "changer d'app",
       "print": "Impr. écran",
-      "printSub": "capture"
+      "printSub": "capture",
+      "macSwitch": "⌘ ⇥",
+      "macSwitchSub": "changer d'app",
+      "macSpotlight": "⌘ Espace",
+      "macSpotlightSub": "Spotlight",
+      "macLock": "⌃ ⌘ Q",
+      "macLockSub": "verrouiller",
+      "macScreenshot": "⇧ ⌘ 5",
+      "macScreenshotSub": "capture",
+      "macForceQuit": "⌥ ⌘ Échap",
+      "macForceQuitSub": "forcer à quitter"
     },
     "metrics": {
       "title": "Statistiques",
@@ -180,6 +191,8 @@
       "soundSub": "Le son de l'ordinateur, en stéréo.",
       "clipboard": "Presse-papiers partagé",
       "clipboardSub": "Le navigateur demande l'autorisation une fois.",
+      "controlAsCommand": "Ctrl agit comme ⌘",
+      "controlAsCommandHelp": "Copier, coller et les autres raccourcis du Mac avec Ctrl, comme sur un PC. La touche ⊞ devient ⌃.",
       "mouse": "Souris",
       "mouseAuto": "Capturée seulement quand un jeu est en plein écran sur l’ordinateur. Ctrl + Alt + Maj la rend.",
       "mouseGame": "Capturée : déplacements bruts, pour viser. Ctrl + Alt + Maj la rend.",
@@ -236,7 +249,10 @@
       "left": "Flèche gauche",
       "up": "Flèche haut",
       "down": "Flèche bas",
-      "right": "Flèche droite"
+      "right": "Flèche droite",
+      "control": "Contrôle",
+      "option": "Option",
+      "command": "Commande"
     },
     "profile": {
       "jeu": "Jeu",

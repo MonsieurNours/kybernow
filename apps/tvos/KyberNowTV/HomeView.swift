@@ -561,11 +561,13 @@ struct HomeView: View {
     }
 
     /// La ligne des manettes (apps de salon) : « 2 manettes » ; un clic ouvre leur test.
+    /// Un ordinateur qui n'en crée pas : « Manettes indisponibles sur cet ordinateur ».
     private var padsLine: some View {
-        Button { app.showGamepads(from: .home) } label: {
+        let unavailable = host.map { !$0.gamepadsAvailable } ?? false
+        return Button { app.showGamepads(from: .home) } label: {
             HStack(spacing: 12) {
-                Icon("game-controller", size: 28).foregroundStyle(pads.pads.isEmpty ? Theme.faint : Theme.accent)
-                Text(LinkText.controllers(pads.pads.count)).font(Theme.sans(22, .medium))
+                Icon("game-controller", size: 28).foregroundStyle(pads.pads.isEmpty || unavailable ? Theme.faint : Theme.accent)
+                Text(unavailable ? LinkText.controllersUnavailable : LinkText.controllers(pads.pads.count)).font(Theme.sans(22, .medium))
             }
             .padding(.leading, 20).padding(.trailing, 24)
             .frame(height: 60)

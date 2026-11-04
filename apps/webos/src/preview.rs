@@ -159,7 +159,7 @@ fn demo(english: bool) -> App {
     app.tv.model = "OLED83G2".into();
     app.tv.webos = "25".into();
     app.net.kind = NetKind::Wifi;
-    app.live.insert("a".into(), HostLive { online: Online::Online, virtual_display: Some(true), station: station("0.5.0"), problem: None, own_device: Some(true), share: Some(ShareAvail::Available), lend: Some(crate::app::LendAvail::Available), lend_view: None, hdr: Some(crate::app::StationHdr::Available) });
+    app.live.insert("a".into(), HostLive { online: Online::Online, virtual_display: Some(true), station: station("0.5.0"), problem: None, own_device: Some(true), share: Some(ShareAvail::Available), lend: Some(crate::app::LendAvail::Available), lend_view: None, hdr: Some(crate::app::StationHdr::Available), ..Default::default() });
     app.live.insert("b".into(), HostLive { online: Online::Offline, ..Default::default() });
     app.images.insert("a".into(), demo_image(1));
     app.found.push(Found { name: "Salon-PC".into(), address: "192.168.1.42".into(), port: 31250, fingerprint: None });

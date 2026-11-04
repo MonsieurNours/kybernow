@@ -155,6 +155,14 @@ object Native {
         fun onProgress(received: Long)
     }
 
+    // Face à une Station Mac (docs/link-ui.md, « Face à une Station Mac » ; règles du cœur, `keymap`).
+    /** La Station est un Mac : son système (`os` de l'info, « macOS 26.1 ») commence par « macOS ». */
+    @JvmStatic external fun stationIsMac(os: String): Boolean
+    /** « Ctrl agit comme ⌘ » pour cet ordinateur : face à un Mac seulement, allumé par défaut ; `setting` −1 jamais changé, 0, 1. */
+    @JvmStatic external fun controlAsCommand(setting: Int, os: String): Boolean
+    /** L'ordinateur crée les manettes de l'appareil (`gamepads` de l'info, JSON de [consoleInfo]) ; vrai sans le champ. */
+    @JvmStatic external fun gamepadsAvailable(infoJson: String): Boolean
+
     /** Réglages d'un profil (`jeu`, `bureau`, `max`) selon les décodeurs de l'appareil. */
     @JvmStatic external fun profileSettings(profile: String, hevc: Boolean, hevc444: Boolean, av1: Boolean): String
 
@@ -177,7 +185,12 @@ object Native {
     // Entrées.
     /** Scancode Windows d'un code de touche Linux (`KeyEvent.getScanCode()`) ; −1 : inconnu. */
     @JvmStatic external fun scancode(evdev: Int): Int
+    /** Touche envoyée telle quelle (combinaisons des menus, rangée du clavier de l'écran). */
     @JvmStatic external fun inputKey(handle: Long, scancode: Int, pressed: Boolean)
+    /** Touche d'un clavier physique : face à un Mac, Ctrl et ⊞ échangés avec « Ctrl agit comme ⌘ » (le cœur décide). */
+    @JvmStatic external fun inputKeyTyped(handle: Long, scancode: Int, pressed: Boolean)
+    /** « Ctrl agit comme ⌘ » changé pendant la session : tout de suite. */
+    @JvmStatic external fun inputSetControlAsCommand(handle: Long, on: Boolean)
     @JvmStatic external fun inputText(handle: Long, text: String)
     @JvmStatic external fun pointerMoveBy(handle: Long, dx: Double, dy: Double)
     @JvmStatic external fun pointerMoveTo(handle: Long, x: Double, y: Double)

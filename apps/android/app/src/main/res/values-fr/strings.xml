@@ -30,6 +30,7 @@
     <string name="home_pads_none">Aucune manette</string>
     <string name="home_pads_one">1 manette</string>
     <string name="home_pads_many" formatted="true">%1$d manettes</string>
+    <string name="home_pads_unavailable">Manettes indisponibles sur cet ordinateur</string>
     <string name="home_account_refused">Mot de passe refusé : mettez-le à jour dans les réglages.</string>
     <string name="home_certificate_changed">La Station a été réinstallée : vérifiez son empreinte dans les réglages.</string>
     <string name="welcome_title">Retrouvez votre ordinateur</string>
@@ -141,6 +142,8 @@
     <string name="touch_direct">Toucher direct</string>
     <string name="settings_clipboard">Presse-papiers partagé</string>
     <string name="settings_clipboard_help">Le texte copié passe d\'un côté à l\'autre ; celui de l\'appareil n\'est lu que quand l\'ordinateur colle.</string>
+    <string name="settings_ctrl_command">Ctrl agit comme ⌘</string>
+    <string name="settings_ctrl_command_help">Copier, coller et les autres raccourcis du Mac avec Ctrl, comme sur un PC. La touche ⊞ devient ⌃.</string>
     <string name="pad_on_screen">Manette à l\'écran</string>
     <string name="pad_on_screen_help">Une manette Xbox par-dessus l\'image, pour les deux pouces ; le bouton de la barre de session l\'affiche ou la cache. Tant qu\'elle est affichée, l\'écran ne sert pas de souris. Touchez deux fois un stick pour l\'enfoncer.</string>
     <string name="pad_layout">Disposition</string>
@@ -324,11 +327,17 @@
     <string name="capsule_adapting" formatted="true">L\'écran virtuel passe en %1$d × %2$d…</string>
     <string name="capsule_adapt_failed">L\'écran virtuel n\'a pas pu changer</string>
     <string name="capsule_gamepad" formatted="true">%1$s branchée · J%2$d · %3$s</string>
+    <string name="capsule_pads_unavailable">Manettes indisponibles sur cet ordinateur.</string>
     <string name="keys_print">Impr. écran</string>
     <string name="keys_task_manager">Gestionnaire des tâches</string>
     <string name="keys_escape">Échap</string>
     <string name="keys_ctrl_alt_del">Ctrl + Alt + Suppr</string>
     <string name="keys_ctrl_alt_del_short">Ctrl+Alt+Suppr</string>
+    <string name="keys_mac_switch">⌘ ⇥</string>
+    <string name="keys_mac_spotlight">⌘ Espace</string>
+    <string name="keys_mac_lock">⌃ ⌘ Q</string>
+    <string name="keys_mac_screenshot">⇧ ⌘ 5</string>
+    <string name="keys_mac_force_quit">⌥ ⌘ Échap</string>
     <string name="stats_latency">Latence</string>
     <string name="stats_capture">capture</string>
     <string name="stats_encode">encodage</string>

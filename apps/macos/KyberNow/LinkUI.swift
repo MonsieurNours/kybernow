@@ -172,6 +172,13 @@ enum LinkText {
         }
     }
 
+    /// Apps de salon : l'ordinateur ne crée pas les manettes de l'appareil
+    /// (Station Mac sans le droit d'Apple ; docs/link-ui.md, « Manettes indisponibles »).
+    static var controllersUnavailable: String { String(localized: "Manettes indisponibles sur cet ordinateur") }
+    /// Le même, en avis bref de la session : une fois, à l'arrivée de l'image
+    /// si une manette est branchée, sinon quand la première se branche.
+    static var controllersUnavailableNotice: String { String(localized: "Manettes indisponibles sur cet ordinateur.") }
+
     /// Libellé accessible du bouton des réglages d'un ordinateur, et titre de ses réglages.
     static func settingsTitle(_ name: String) -> String {
         French.elides(name) ? String(localized: "Réglages d'\(name)") : String(localized: "Réglages de \(name)")

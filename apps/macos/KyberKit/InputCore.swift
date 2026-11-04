@@ -182,6 +182,18 @@ public enum Keymap {
         kn_keymap_apple_keyboard(vendorName)
     }
 
+    /// La Station est un Mac (`os` de l'info, « macOS 26.1 ») : règle du cœur,
+    /// docs/link-ui.md, « Face à une Station Mac ».
+    public static func stationIsMac(_ os: String?) -> Bool {
+        kn_station_is_mac(os ?? "")
+    }
+
+    /// « ⌘ envoyée comme Ctrl » pour cet ordinateur : le réglage, sauf face à
+    /// une Station Mac (⌘ y part comme ⌘) ; système inconnu : le réglage.
+    public static func commandAsControl(_ setting: Bool, os: String?) -> Bool {
+        kn_command_as_control(setting, os ?? "")
+    }
+
     /// Scancode d'un usage HID tel quel (sans échange ni « ⌘ envoyée comme Ctrl »).
     static func scancode(usage: UInt16) -> UInt16? {
         let code = kn_keymap_scancode(usage, false, false)

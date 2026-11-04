@@ -63,6 +63,8 @@ final class SessionController: ObservableObject {
     @Published private(set) var startedAt = Date()
     /// Capsule d'information en haut de l'image (mode changé, image relancée…).
     @Published private(set) var notice: String?
+    /// Son icône, quand elle en a une (« Manettes indisponibles… » : la manette).
+    @Published private(set) var noticeIcon: String?
     /// La capsule se choisit : elle ouvre le panneau du partage (la demande d'un invité, « Léa demande à rejoindre. »).
     @Published private(set) var noticeOpensShare = false
     /// La capsule est une demande d'emprunt : la choisir ouvre le panneau du prêt.
@@ -103,6 +105,10 @@ final class SessionController: ObservableObject {
     private var streamMode = (width: 0, height: 0, refresh: 0)
     private var observers: [NSObjectProtocol] = []
     private var externalWatch: AnyCancellable?
+    /// Les manettes branchées (et la manette à l'écran), pour l'avis des
+    /// manettes indisponibles ; déjà dit dans cette session.
+    private var padsWatch: AnyCancellable?
+    private var padsUnavailableShown = false
     private static let revealDelay: TimeInterval = 0.9
     /// Arrière-plan : débit plafonné, image figée (la session continue).
     private static let backgroundBitrate: UInt32 = 8_000_000
@@ -146,6 +152,10 @@ final class SessionController: ObservableObject {
     var isBorrower: Bool { borrowSource != nil }
     /// Un invité ou un ami qui emprunte : ni profil, ni réglages, ni dernière image.
     var isVisitor: Bool { isGuest || isBorrower }
+    /// Face à une Station Mac : menu Touches et rangée du clavier du Mac
+    /// (docs/link-ui.md). Un invité ou un ami ne connaît pas le système de
+    /// l'ordinateur : touches d'un PC.
+    var macKeys: Bool { !isVisitor && host.isMac }
     /// L'emprunt avant la session : « Préparation de l'ordinateur », « En attente de {hôte}… ».
     let borrowFlow: BorrowFlow?
     /// Les vues lisent `borrowFlow.state` à travers la session : chaque
@@ -319,6 +329,9 @@ final class SessionController: ObservableObject {
         if ExternalDisplay.shared.scene != nil { useExternal(true, adapt: false) }
         externalWatch = ExternalDisplay.shared.$scene.dropFirst().sink { [weak self] scene in
             self?.useExternal(scene != nil, adapt: true)
+        }
+        padsWatch = GamepadBridge.shared.$pads.receive(on: RunLoop.main).sink { [weak self] pads in
+            if !pads.isEmpty { self?.padsUnavailableNotice() }
         }
 
         // Prêt de l'ordinateur : l'emprunt d'abord (« Préparation de
@@ -505,7 +518,8 @@ final class SessionController: ObservableObject {
         streamView.directTouch = prefs.directTouch
         streamView.pointerSpeed = prefs.pointerSpeed
         streamView.appleISOKeyboard = prefs.appleISOKeyboard
-        streamView.commandAsControl = host.settings.commandAsControl
+        // Face à une Station Mac, ⌘ part comme ⌘ (réglage ni montré ni appliqué).
+        streamView.commandAsControl = host.commandAsControl
         streamView.mouseMode = host.settings.mouse.streamMode
         streamView.onTap = { [weak self] in self?.setBar(false) }
         streamView.onTopEdgeSwipe = { [weak self] in self?.setBar(true) }
@@ -555,6 +569,8 @@ final class SessionController: ObservableObject {
             center.addObserver(forName: .GCControllerDidConnect, object: nil, queue: .main) { [weak self] note in
                 MainActor.assumeIsolated {
                     guard let self, let c = note.object as? GCController, c.extendedGamepad != nil else { return }
+                    // Face à un ordinateur qui n'en crée pas, l'avis des manettes indisponibles d'abord.
+                    if !self.isVisitor, !self.host.gamepadsAvailable, !self.padsUnavailableShown { return }
                     self.show(notice: String(localized: "\(c.vendorName ?? String(localized: "Manette")) branchée"), for: 3)
                 }
             },
@@ -635,6 +651,18 @@ final class SessionController: ObservableObject {
         startedAt = Date()
         host.lastSession = Date()
         store.update(host)
+        padsUnavailableNotice()
+    }
+
+    /// « Manettes indisponibles sur cet ordinateur. » (docs/link-ui.md) : une
+    /// fois par session, à l'arrivée de l'image si une manette est branchée
+    /// (la manette à l'écran comprise), sinon quand la première se branche.
+    /// Pas pour un invité ni un ami, qui ne savent pas ce que l'ordinateur crée.
+    private func padsUnavailableNotice() {
+        guard !isVisitor, !host.gamepadsAvailable, !padsUnavailableShown, phase == .streaming,
+              !GamepadBridge.shared.pads.isEmpty else { return }
+        padsUnavailableShown = true
+        show(notice: LinkText.controllersUnavailableNotice, icon: "game-controller")
     }
 
     /// L'hôte a changé les droits de l'invité (« Vous pouvez jouer à la
@@ -719,9 +747,10 @@ final class SessionController: ObservableObject {
 
     /// Capsule en haut de l'image pendant quelques secondes (`opensShare` : la choisir
     /// ouvre le panneau du partage).
-    func show(notice text: String, for seconds: TimeInterval = 5, opensShare: Bool = false, opensLend: Bool = false) {
+    func show(notice text: String, for seconds: TimeInterval = 5, icon: String? = nil, opensShare: Bool = false, opensLend: Bool = false) {
         withAnimation(.easeOut(duration: 0.3)) {
             notice = text
+            noticeIcon = icon
             noticeOpensShare = opensShare
             noticeOpensLend = opensLend
         }
@@ -729,6 +758,7 @@ final class SessionController: ObservableObject {
             guard self?.notice == text else { return }
             withAnimation(.easeIn(duration: 0.3)) {
                 self?.notice = nil
+                self?.noticeIcon = nil
                 self?.noticeOpensShare = false
                 self?.noticeOpensLend = false
             }
@@ -1146,6 +1176,7 @@ final class SessionController: ObservableObject {
         engine?.stop()
         observers.forEach(NotificationCenter.default.removeObserver)
         observers = []
+        padsWatch = nil
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in self?.finish() }
     }
 
@@ -1175,6 +1206,7 @@ final class SessionController: ObservableObject {
         engine?.stop()
         observers.forEach(NotificationCenter.default.removeObserver)
         observers = []
+        padsWatch = nil
         withAnimation(Theme.easeOut) {
             barOpen = false
             phase = .failed(message)

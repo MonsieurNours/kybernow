@@ -212,6 +212,26 @@ pub extern "C" fn kn_keymap_scancode(hid: u16, command_as_control: bool, iso: bo
     keymap::scancode(hid, command_as_control, || iso).map_or(-1, i32::from)
 }
 
+/// La Station est un Mac (`os` de `kn_console_info`, « macOS 26.1 ») :
+/// docs/link-ui.md, « Face à une Station Mac ».
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_station_is_mac(os: *const c_char) -> bool {
+    keymap::station_is_mac(&text(os))
+}
+
+/// « ⌘ envoyée comme Ctrl » pour cet ordinateur : le réglage gardé, sauf face
+/// à une Station Mac, où ⌘ part comme ⌘ (la touche ⊞ pour Kyber, que le Mac
+/// reçoit en ⌘). `os` : le système gardé pour l'ordinateur (vide : inconnu,
+/// comme pour un invité ou un ami qui emprunte : le réglage s'applique).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_command_as_control(setting: bool, os: *const c_char) -> bool {
+    command_as_control(setting, &text(os))
+}
+
+fn command_as_control(setting: bool, os: &str) -> bool {
+    setting && !keymap::station_is_mac(os)
+}
+
 /// Verr. maj. ou Verr. num. : une bascule, envoyée en appui + relâchement.
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_keymap_is_lock(hid: u16) -> bool {
@@ -820,5 +840,21 @@ pub unsafe extern "C" fn kn_combo_forget(c: *const KnCombo, pad: u32) {
 pub unsafe extern "C" fn kn_pointer_resend_held(p: *const KnPointer) {
     if let Some(p) = unsafe { p.as_ref() } {
         p.layer.resend_held();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn commande_face_a_un_mac() {
+        assert!(command_as_control(true, "Windows 11 Pro"), "face à un PC, le réglage s'applique");
+        assert!(command_as_control(true, ""), "système inconnu (invité, ami) : comme un PC");
+        assert!(!command_as_control(false, "Windows 11 Pro"), "réglage éteint");
+        assert!(!command_as_control(true, "macOS 26.1"), "face à un Mac, ⌘ part comme ⌘");
+        let mac = std::ffi::CString::new("macOS 15.4").unwrap();
+        assert!(unsafe { kn_station_is_mac(mac.as_ptr()) } && !unsafe { kn_station_is_mac(std::ptr::null()) });
+        assert!(!unsafe { kn_command_as_control(true, mac.as_ptr()) } && unsafe { kn_command_as_control(true, std::ptr::null()) });
     }
 }

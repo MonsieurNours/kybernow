@@ -54,6 +54,7 @@ pub fn poll(host: Host, want_preview: bool, tx: Sender<Event>) {
                     share: Some(share_avail(&info)),
                     lend: Some(lend_avail),
                     lend_view,
+                    gamepads: Some(info.gamepads_available()),
                 });
                 if want_preview
                     && let Ok(bytes) = c.preview(960)
@@ -66,7 +67,7 @@ pub fn poll(host: Host, want_preview: bool, tx: Sender<Event>) {
                 log::info!("{} : hors ligne ({e})", host.name);
                 // Le réseau ne répond pas : l'ordinateur est peut-être joignable par le relais (« Hors de chez vous »).
                 let away = away_from_home(&host, &e);
-                let _ = tx.send(Event::HostInfo { id: host.id.clone(), online: false, away, relay: None, os: None, gpu: None, av1: false, virtual_display: None, max_screens: None, station: None, wake: Vec::new(), own_device: None, share: None, lend: None, lend_view: None });
+                let _ = tx.send(Event::HostInfo { id: host.id.clone(), online: false, away, relay: None, os: None, gpu: None, av1: false, virtual_display: None, max_screens: None, station: None, wake: Vec::new(), own_device: None, share: None, lend: None, lend_view: None, gamepads: None });
             }
         }
     });

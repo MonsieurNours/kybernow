@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::Duration;
 
 use kybernow_core::console::{DeviceInfo, Mode};
+use kybernow_core::input::keymap;
 use kybernow_core::input::{Clock, GamepadRumble, InputPipeline, InputPlatform, MonotonicClock, Options, PadId, PadKey, Pasteboard, PointerLayer, ScreenTarget};
 use kybernow_core::kynput_rs::Pipeline;
 use kybernow_core::latency::Second;
@@ -91,6 +92,9 @@ pub struct Shared {
     audio_channels: u8,
     pub combo_enabled: AtomicBool,
     pub relative: AtomicBool,
+    /// « Ctrl agit comme ⌘ » (face à une Station Mac) : donné à chaque chaîne d'entrées, qui échange Ctrl et ⊞
+    /// des touches tapées.
+    control_as_command: AtomicBool,
     codec: Mutex<String>,
     /// L'image la plus récente de chaque écran de l'appareil, pour le fil
     /// principal (une seule en dehors du multi-écrans).
@@ -143,6 +147,7 @@ impl Shared {
             audio_channels: 2,
             combo_enabled: AtomicBool::new(false),
             relative: AtomicBool::new(false),
+            control_as_command: AtomicBool::new(false),
             codec: Mutex::new(String::new()),
             latests: Mutex::new(HashMap::new()),
             screens: Mutex::new(ScreensState::default()),
@@ -272,6 +277,15 @@ impl Shared {
         layer
     }
 
+    /// « Ctrl agit comme ⌘ » : pour les chaînes d'entrées à venir (reconnexion) et celle en cours (réglage changé en
+    /// session).
+    pub fn set_control_as_command(&self, on: bool) {
+        self.control_as_command.store(on, Ordering::Relaxed);
+        if let Some(p) = self.current_input() {
+            p.set_control_as_command(on);
+        }
+    }
+
     pub fn current_input(&self) -> Option<Arc<InputPipeline>> {
         self.input.lock().unwrap().clone()
     }
@@ -366,6 +380,7 @@ impl Platform for LinuxPlatform {
         let pipeline = InputPipeline::new(Options { display_id: id, host_size: (w, h), clipboard, gamepads_from_app: true }, self.0.pointer.clone(), callbacks, clock);
         pipeline.combo().set_enabled(self.0.combo_enabled.load(Ordering::Relaxed));
         pipeline.set_relative(self.0.relative.load(Ordering::Relaxed));
+        pipeline.set_control_as_command(self.0.control_as_command.load(Ordering::Relaxed));
         // Multi-écrans : les écrans de la session (reçus par `on_screens`, juste avant).
         let targets = self.0.targets();
         if !targets.is_empty() {
@@ -747,6 +762,9 @@ pub fn start(id: SessionId, host: &Host, settings: StreamSettings, mode: (u32, u
     let clock = Arc::new(MonotonicClock::new());
     let pointer = Arc::new(PointerLayer::new(clock.clone(), true));
     let audio_channels = audio_channels(host, m);
+    // Face à une Station Mac, « Ctrl agit comme ⌘ » (allumé tant qu'on ne l'a pas éteint). Un invité ou un emprunt
+    // ne connaît pas le système de l'ordinateur : Ctrl reste Ctrl.
+    let control_as_command = guest.is_none() && loan.is_none() && keymap::control_as_command(host.settings.ctrl_command, host.os.as_deref().unwrap_or(""));
     let shared = Arc::new(Shared {
         id,
         tx: Mutex::new(tx),
@@ -759,6 +777,7 @@ pub fn start(id: SessionId, host: &Host, settings: StreamSettings, mode: (u32, u
         audio_channels: audio_channels as u8,
         combo_enabled: AtomicBool::new(host.settings.combo),
         relative: AtomicBool::new(relative),
+        control_as_command: AtomicBool::new(control_as_command),
         codec: Mutex::new(String::new()),
         latests: Mutex::new(HashMap::new()),
         screens: Mutex::new(ScreensState::default()),
@@ -862,6 +881,7 @@ mod tests {
             audio_channels: 2,
             combo_enabled: AtomicBool::new(true),
             relative: AtomicBool::new(false),
+            control_as_command: AtomicBool::new(false),
             codec: Mutex::new(String::new()),
             latests: Mutex::new(HashMap::new()),
             screens: Mutex::new(ScreensState::default()),
@@ -889,6 +909,23 @@ mod tests {
 
     fn cursor(visible: bool) -> kybernow_core::input::RemoteCursor {
         kybernow_core::input::RemoteCursor { visible, image: None, position: (10, 20) }
+    }
+
+    /// Le miroir de l'interface (`app::station_is_mac`, sans le cœur) dit comme le cœur ; « Ctrl agit comme ⌘ »
+    /// part dans la chaîne d'entrées d'un ordinateur Mac, jamais d'un PC ni d'un invité.
+    #[test]
+    fn mac_station_like_the_core() {
+        for os in ["macOS 26.1", " macos 15", "MacOS", "Windows 11 Pro", "", "mac", "Linux"] {
+            assert_eq!(crate::app::station_is_mac(os), keymap::station_is_mac(os), "{os:?}");
+        }
+        let mut mac = host(HostSettings::default());
+        mac.os = Some("macOS 26.1".into());
+        assert!(keymap::control_as_command(mac.settings.ctrl_command, mac.os.as_deref().unwrap_or("")));
+        mac.settings.ctrl_command = Some(false);
+        assert!(!keymap::control_as_command(mac.settings.ctrl_command, mac.os.as_deref().unwrap_or("")));
+        let (sh, _rx) = shared(0);
+        sh.set_control_as_command(true);
+        assert!(sh.control_as_command.load(Ordering::Relaxed));
     }
 
     /// `on_screens` : les écrans pris, leur écran principal, une couche de pointeur pour chaque autre

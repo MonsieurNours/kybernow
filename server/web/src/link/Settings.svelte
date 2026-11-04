@@ -13,7 +13,8 @@
   import { t } from '../lib/i18n/index.svelte'
   import { tName } from './names'
   import type { Info } from './backend'
-  import { deviceKind, isFirefox, isStandalone, isTouch, type Mode } from './device'
+  import { deviceKind, isAppleDevice, isFirefox, isStandalone, isTouch, type Mode } from './device'
+  import { stationIsMac } from './keyswap'
   import type { CodecSupport } from './engine'
   import type { Plan } from './plan'
   import { MAX_MBPS, MIN_MBPS, websocketReason } from './plan'
@@ -46,6 +47,8 @@
   } = $props()
 
   const custom = $derived(isCustom(prefs))
+  /** « Ctrl agit comme ⌘ » : face à une Station Mac, pour un clavier de PC (un clavier d'Apple a sa touche ⌘). */
+  const controlAsCommand = $derived(stationIsMac(info?.os) && !isAppleDevice)
   const rubrics = $derived([
     { id: 'picture', label: t('web.settings.picture') },
     { id: 'sound', label: t('web.settings.sound') },
@@ -226,6 +229,13 @@
         <div class="text"><span>{t('web.settings.clipboard')}</span><span class="sub">{t('web.settings.clipboardSub')}</span></div>
         <Switch checked={prefs.clipboard} label={t('web.settings.clipboard')} onchange={(v) => (prefs.clipboard = v)} />
       </div>
+      {#if controlAsCommand}
+        <!-- Face à une Station Mac seulement : allumé tant qu'on ne l'a pas éteint (docs/link-ui.md). -->
+        <div class="row">
+          <div class="text"><span>{t('web.settings.controlAsCommand')}</span><span class="sub">{t('web.settings.controlAsCommandHelp')}</span></div>
+          <Switch checked={prefs.controlAsCommand} label={t('web.settings.controlAsCommand')} onchange={(v) => (prefs.controlAsCommand = v)} />
+        </div>
+      {/if}
       {#if !isTouch}
         <p class="sub">{t('web.settings.barShortcut')}</p>
       {/if}

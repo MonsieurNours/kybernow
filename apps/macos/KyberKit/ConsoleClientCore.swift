@@ -44,10 +44,14 @@ public struct HostInfo: Sendable, Equatable {
     /// HDR (`hdr` de l'info, Station 0.10.0 et suivantes) : proposé, ou la
     /// raison pour laquelle il ne l'est pas ; une Station d'avant ne le propose pas.
     public let hdr: HDROffer
+    /// L'ordinateur crée les manettes de l'appareil (`gamepads` de l'info, lu
+    /// par le cœur) : faux sur une Station Mac sans le droit d'Apple ; vrai
+    /// avec une Station d'avant (docs/link-ui.md, « Manettes indisponibles »).
+    public let gamepadsAvailable: Bool
 
     public init(hostname: String? = nil, gpu: String? = nil, av1: Bool = false, virtualDisplay: Bool = true, speakers: Bool = true,
                 os: String? = nil, adminVersion: String? = nil, station: StationInfo? = nil, wake: [WakeTarget] = [], ownDevice: Bool = false, maxScreens: Int = 1,
-                share: ShareAvailability = .available, relay: RelayInfo? = nil, lend: LendInfo? = nil, hdr: HDROffer = .none) {
+                share: ShareAvailability = .available, relay: RelayInfo? = nil, lend: LendInfo? = nil, hdr: HDROffer = .none, gamepadsAvailable: Bool = true) {
         self.hostname = hostname
         self.gpu = gpu
         self.av1 = av1
@@ -63,6 +67,7 @@ public struct HostInfo: Sendable, Equatable {
         self.relay = relay
         self.lend = lend
         self.hdr = hdr
+        self.gamepadsAvailable = gamepadsAvailable
     }
 
     /// Version de la Station : celle de `station`, sinon celle d'Admin.
@@ -293,7 +298,7 @@ public final class ConsoleClient: @unchecked Sendable {
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
     }
 
-    private static func hostInfo(_ json: [String: Any], share: ShareAvailability) -> HostInfo {
+    private static func hostInfo(_ json: [String: Any], share: ShareAvailability, gamepads: Bool) -> HostInfo {
         let vd = json["virtual_display"] as? [String: Any]
         let audio = json["audio"] as? [String: Any]
         return HostInfo(
@@ -311,7 +316,8 @@ public final class ConsoleClient: @unchecked Sendable {
             share: share,
             relay: RelayInfo(json: json["relay"] as? [String: Any]),
             lend: LendInfo(json: json["lend"]),
-            hdr: HDROffer(json: json["hdr"])
+            hdr: HDROffer(json: json["hdr"]),
+            gamepadsAvailable: gamepads
         )
     }
 
@@ -339,7 +345,7 @@ public final class ConsoleClient: @unchecked Sendable {
             var error: UnsafeMutablePointer<CChar>?
             try Self.check(kn_console_info(console, &out, &error), error)
             let text = Core.take(out)
-            return Self.hostInfo(Self.json(text), share: Share.availability(infoJSON: text ?? "{}"))
+            return Self.hostInfo(Self.json(text), share: Share.availability(infoJSON: text ?? "{}"), gamepads: kn_gamepads_available(text ?? "{}"))
         }
     }
 
