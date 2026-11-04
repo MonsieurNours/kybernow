@@ -70,7 +70,7 @@ All JSON, on Admin's port, certificate pinned as for sharing. The names below ar
 
 **Codes**: the same six-digit space as sharing (Admin never hands out a code already taken). `POST /api/share/join` with a lending code answers `404 {"error":"no_share","lend":true}`: the app then calls `borrow`. Away from home, the relay also holds the lending code, and lets `/api/lend/status`, `borrow`, `wait`, `beat` and `leave` through (not the host's routes, except for a paired device with “Away-from-home access”).
 
-**Kyber**: the friend connects with the JWT, role `player_kbm` (keyboard, mouse, controllers, never the clipboard) and `kn_display` = their virtual display (patch 0019, unchanged); `kn_hdr` = their display is in HDR (patch 0022: with no host picture on that display, Kyber then captures it in HDR; absent or false: SDR). `sub` = `kn-lend-<lend>`.
+**Kyber**: the friend connects with the JWT, role `player_kbm` (keyboard, mouse, controllers, never the clipboard) and `kn_display` = their virtual display (patch 0019, unchanged); `kn_hdr` = their display is in HDR (patch 0022: with no host picture on that display, Kyber then captures it in HDR; absent or false: SDR; tried successfully on 2026-11-04 in 0.9.7, iPhone in HDR then in SDR). `sub` = `kn-lend-<lend>`.
 
 ## Station
 

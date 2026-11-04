@@ -70,7 +70,7 @@ Tout en JSON, sur le port d'Admin, certificat épinglé comme pour le partage. L
 
 **Codes** : même espace de six chiffres que le partage (Admin ne donne jamais un code déjà pris). `POST /api/share/join` avec un code de prêt répond `404 {"error":"no_share","lend":true}` : l'app appelle alors `borrow`. Hors de chez soi, le relais tient aussi le code de prêt, et laisse passer `/api/lend/status`, `borrow`, `wait`, `beat` et `leave` (pas les routes de l'hôte, sauf pour un appareil appairé avec « Accès hors de chez vous »).
 
-**Kyber** : l'ami se connecte avec le JWT, rôle `player_kbm` (clavier, souris, manettes, jamais le presse-papiers) et `kn_display` = son écran virtuel (correctif 0019, sans changement) ; `kn_hdr` = son écran est en HDR (correctif 0022 : sans image de l'hôte sur cet écran, Kyber le capte alors en HDR ; absent ou faux : SDR). `sub` = `kn-lend-<lend>`.
+**Kyber** : l'ami se connecte avec le JWT, rôle `player_kbm` (clavier, souris, manettes, jamais le presse-papiers) et `kn_display` = son écran virtuel (correctif 0019, sans changement) ; `kn_hdr` = son écran est en HDR (correctif 0022 : sans image de l'hôte sur cet écran, Kyber le capte alors en HDR ; absent ou faux : SDR ; essayé avec succès le 04/11/2026 en 0.9.7, iPhone en HDR puis en SDR). `sub` = `kn-lend-<lend>`.
 
 ## Station
 
