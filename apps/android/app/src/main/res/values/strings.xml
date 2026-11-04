@@ -26,6 +26,8 @@
     <string name="stats_path" formatted="true">Path: %1$s</string>
     <string name="home_display_match" formatted="true">%1$d × %2$d display at %3$d Hz, sized for this screen</string>
     <string name="home_display_custom" formatted="true">%1$d × %2$d display at %3$d Hz</string>
+    <string name="home_display_match_hdr" formatted="true">%1$d × %2$d display at %3$d Hz, sized for this screen, in HDR</string>
+    <string name="home_display_custom_hdr" formatted="true">%1$d × %2$d display at %3$d Hz, in HDR</string>
     <string name="home_display_as_is">The computer\'s own displays, as they are</string>
     <string name="home_pads_none">No controller</string>
     <string name="home_pads_one">1 controller</string>
@@ -110,6 +112,15 @@
     <string name="settings_444_help">Full colour: text stays sharp, at the cost of a higher bitrate.</string>
     <string name="settings_444_yes">Desktop and Max profiles</string>
     <string name="settings_444_no">Not on this device</string>
+    <string name="settings_444_hdr">HDR doesn\'t exist in 4:4:4.</string>
+    <string name="hdr">HDR</string>
+    <string name="hdr_on">HDR, on</string>
+    <string name="hdr_off">HDR, off</string>
+    <string name="hdr_help">Richer colours and brighter highlights, on this HDR screen.</string>
+    <string name="hdr_help_settings">Richer colours and brighter highlights, on this HDR screen. Sharp text (4:4:4) doesn\'t exist in HDR.</string>
+    <string name="hdr_tile_on">on</string>
+    <string name="hdr_tile_off">off</string>
+    <string name="hdr_refused">The computer couldn\'t switch to HDR: picture in SDR.</string>
     <string name="settings_frame_display">Frame display</string>
     <string name="settings_frame_immediate">Immediate</string>
     <string name="settings_frame_display_help">Each frame shows as soon as it is decoded; the newest replaces the others.</string>

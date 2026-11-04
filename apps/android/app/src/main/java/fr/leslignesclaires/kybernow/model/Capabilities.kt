@@ -12,8 +12,18 @@ import kotlin.math.roundToInt
 /** Un décodeur matériel trouvé pour un format. */
 data class DecoderInfo(val name: String, val maxWidth: Int, val maxHeight: Int, val lowLatency: Boolean)
 
-/** Ce que l'appareil décode en matériel (vérifié au lancement, comme les autres apps). */
-data class Decoders(val h264: DecoderInfo?, val hevc: DecoderInfo?, val av1: DecoderInfo?, val hevc444: Boolean) {
+/**
+ * Ce que l'appareil décode en matériel (vérifié au lancement, comme les autres apps). [hevcHdr], [av1Hdr] : un
+ * décodeur matériel du format annonce le profil HDR10 (HEVC Main 10 HDR10, AV1 Main 10 HDR10 ; docs/hdr.md).
+ */
+data class Decoders(
+    val h264: DecoderInfo?,
+    val hevc: DecoderInfo?,
+    val av1: DecoderInfo?,
+    val hevc444: Boolean,
+    val hevcHdr: Boolean = false,
+    val av1Hdr: Boolean = false,
+) {
     /** Au moins un décodeur matériel est connu : sinon, rien à interroger pour « Auto » ([AutoQuality.limits]). */
     val any get() = h264 != null || hevc != null || av1 != null
 
@@ -51,7 +61,14 @@ data class Decoders(val h264: DecoderInfo?, val hevc: DecoderInfo?, val av1: Dec
             val rext = infos.filter { info -> info.supportedTypes.any { it.equals("video/hevc", true) } }.any { info ->
                 info.getCapabilitiesForType("video/hevc").profileLevels.any { it.profile == RANGE_EXTENSIONS }
             }
-            return Decoders(find("video/avc"), hevc, find("video/av01"), hevc != null && rext)
+            fun hdr10(mime: String, profile: Int) = infos.filter { info -> info.supportedTypes.any { it.equals(mime, true) } }.any { info ->
+                runCatching { info.getCapabilitiesForType(mime).profileLevels.any { it.profile == profile } }.getOrDefault(false)
+            }
+            return Decoders(
+                find("video/avc"), hevc, find("video/av01"), hevc != null && rext,
+                hevcHdr = hdr10("video/hevc", MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10HDR10),
+                av1Hdr = hdr10("video/av01", MediaCodecInfo.CodecProfileLevel.AV1ProfileMain10HDR10),
+            )
         }
 
         /** `HEVCProfileMain444` n'existe pas dans le SDK ; profil RExt de la norme. */

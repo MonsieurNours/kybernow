@@ -1,11 +1,8 @@
 package fr.leslignesclaires.kybernow.ui.playstation
 
 import android.content.Context
-import android.hardware.display.DisplayManager
 import android.media.MediaCodecInfo
 import android.media.MediaCodecList
-import android.os.Build
-import android.view.Display
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -43,6 +40,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import fr.leslignesclaires.kybernow.R
 import fr.leslignesclaires.kybernow.core.PsNative
+import fr.leslignesclaires.kybernow.model.HdrScreen
 import fr.leslignesclaires.kybernow.playstation.PsAccount
 import fr.leslignesclaires.kybernow.playstation.PsConsole
 import fr.leslignesclaires.kybernow.playstation.PsFound
@@ -93,11 +91,8 @@ class PsHomeActions(
 
 /** HDR de l'écran et du décodeur (docs/link-ui.md, « HDR » : la puce n'existe que sur un écran HDR). */
 object PsHdr {
-    fun screen(context: Context): Boolean = runCatching {
-        val d = context.getSystemService(DisplayManager::class.java).getDisplay(Display.DEFAULT_DISPLAY)
-        val types = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) d.mode.supportedHdrTypes else @Suppress("DEPRECATION") d.hdrCapabilities?.supportedHdrTypes
-        types?.contains(Display.HdrCapabilities.HDR_TYPE_HDR10) == true
-    }.getOrDefault(false)
+    /** L'écran principal affiche le HDR10 (la même règle que pour un ordinateur, [HdrScreen]). */
+    fun screen(context: Context): Boolean = HdrScreen.of(context).hdr
 
     /** Un décodeur matériel HEVC qui lit le Main10 HDR10. */
     val decoder: Boolean by lazy {

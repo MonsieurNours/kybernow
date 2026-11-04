@@ -41,6 +41,7 @@ import fr.leslignesclaires.kybernow.core.LendRequest
 import fr.leslignesclaires.kybernow.core.LendView
 import fr.leslignesclaires.kybernow.core.Loan
 import fr.leslignesclaires.kybernow.core.FormFactor
+import fr.leslignesclaires.kybernow.core.HostInfo
 import fr.leslignesclaires.kybernow.core.Native
 import fr.leslignesclaires.kybernow.core.Relays
 import fr.leslignesclaires.kybernow.core.Reply
@@ -51,6 +52,9 @@ import fr.leslignesclaires.kybernow.core.ShareQuality
 import fr.leslignesclaires.kybernow.core.ShareRole
 import fr.leslignesclaires.kybernow.model.AudioOutput
 import fr.leslignesclaires.kybernow.model.Gamepads
+import fr.leslignesclaires.kybernow.model.Hdr
+import fr.leslignesclaires.kybernow.model.HdrScreen
+import fr.leslignesclaires.kybernow.model.HdrState
 import fr.leslignesclaires.kybernow.model.Host
 import fr.leslignesclaires.kybernow.model.LastSession
 import fr.leslignesclaires.kybernow.model.Profile
@@ -81,6 +85,9 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         const val EXTRA_GUEST = "guest"
         /** Session d'emprunt (prêt de l'ordinateur) : le prêt et sa demande sont remis en mémoire par `KyberNowApp.handOverLoan`. */
         const val EXTRA_BORROW = "borrow"
+
+        /** Un emprunt : la Station du prêt prépare l'écran en HDR à la demande (le cœur fait de même), sans info à lire. */
+        private val LENT_HDR by lazy { HostInfo.parse(JSONObject().put("hdr", JSONObject().put("available", true))) }
     }
 
     private val app get() = KyberNowApp.instance
@@ -130,6 +137,14 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         }
         override fun feel(f: Feel) = haptics.feel(f)
     }
+
+    /**
+     * HDR (docs/hdr.md) : l'écran de l'appareil (suivi pendant la session), l'info de l'ordinateur qui décide de la
+     * puce de la barre (relue à l'ouverture de la barre), et le suivi de l'écran.
+     */
+    private var hdrScreen = HdrScreen.SDR
+    private var hdrInfo: HostInfo? = null
+    private var hdrWatch: AutoCloseable? = null
 
     /** Boutons de manette enfoncés depuis l'ouverture d'un menu : le relâché des autres (le combo) est ignoré. */
     private val padDowns = mutableSetOf<Int>()
@@ -187,6 +202,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         ).apply {
             lendWarning = !app.lendWarned
             profile = host.settings.profile
+            hdrChoice = host.settings.hdr
             mouseMode = host.settings.mouse
             directTouch = host.settings.directTouch
             backOpensMenu = host.settings.backOpensMenu
@@ -270,7 +286,55 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         }
         if (set.mbps > 0) base.put("mbps", set.mbps).remove("profile")
         if (set.transport != "auto") base.put("reliable", set.reliable)
+        // Le choix « HDR » de cet ordinateur ; le cœur ne s'en sert que sur un écran HDR, quand la Station le propose.
+        base.put("hdr", Hdr.wanted(host))
         return base
+    }
+
+    /** Ce que le cœur doit savoir du HDR de cet écran : `screen_hdr`, ses valeurs, ce que le décodeur lit. */
+    private fun JSONObject.putHdr(): JSONObject {
+        put("screen_hdr", hdrScreen.hdr)
+        if (hdrScreen.hdr) hdrScreen.luminance?.let { put("screen_luminance", it.json()) }
+        return put("capabilities", Hdr.capabilities(host, app.decoders))
+    }
+
+    /**
+     * « HDR » de la barre et du menu : rien pour un invité (son HDR suit son écran) ; l'ami d'un prêt l'a comme un hôte
+     * (la Station a préparé l'écran du prêt) ; l'hôte d'après l'info de l'ordinateur, dès qu'elle est lue.
+     */
+    private fun updateHdrState() {
+        ui.hdrState = when {
+            guest != null -> HdrState.HIDDEN
+            loan != null -> Hdr.state(host, LENT_HDR, app.decoders, hdrScreen)
+            else -> hdrInfo?.let { Hdr.state(host, it, app.decoders, hdrScreen) } ?: HdrState.HIDDEN
+        }
+    }
+
+    /** Session d'hôte sur un écran HDR : l'info de l'ordinateur, pour la puce de la barre. */
+    private fun refreshHdr() {
+        if (!hostSession || !hdrScreen.hdr) return
+        lifecycleScope.launch {
+            val info = (console().use { it.info() } as? Reply.Ok)?.value ?: return@launch
+            hdrInfo = info
+            updateHdrState()
+        }
+    }
+
+    /**
+     * L'écran de l'appareil gagne ou perd le HDR en session (téléviseur qui coupe le HDR, autre sortie HDMI) : le cœur
+     * fait repasser l'image en SDR, puis en HDR, sans message ; la barre suit.
+     */
+    private fun watchHdr() {
+        val d = display ?: return
+        hdrWatch?.close()
+        hdrWatch = HdrScreen.watch(this, d.displayId, hdrScreen) { now ->
+            val was = hdrScreen
+            hdrScreen = now
+            android.util.Log.i("KyberNow", "HDR : écran de l'appareil ${if (now.hdr) "HDR" else "SDR"}")
+            if (handle != 0L) Native.sessionScreenHdrChanged(handle, now.hdr, now.luminance?.json()?.toString())
+            if (now.hdr && !was.hdr && hdrInfo == null) refreshHdr()
+            updateHdrState()
+        }
     }
 
     private fun audioChannels(): Int = when (host.settings.audio) {
@@ -283,6 +347,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
 
     private fun start() {
         val screen = Screen.of(display ?: return)
+        hdrScreen = HdrScreen.of(display)
         val settings = settingsJson(ui.profile)
         val g = guest
         // Le même calcul que l'accueil (« Écran de … »). Un invité reçoit l'écran du partage, tel que la Station le donne.
@@ -312,7 +377,9 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
                 .put("clipboard", false)
                 .put("combo", host.settings.combo)
                 .put("recovery", JSONObject().put("watch_image", true))
-                .put("guest", JSONObject().put("joined", g.joined).put("capabilities", JSONObject().put("hevc", d.hevc != null).put("hevc444", d.hevc444).put("av1", d.av1 != null)))
+                .put("guest", JSONObject().put("joined", g.joined).put("capabilities", JSONObject().put("hevc", d.hevc != null).put("hevc444", d.hevc444).put("av1", d.av1 != null).put("hdr", Hdr.decodes(host, d))))
+                // Un invité à écran HDR reçoit le HDR quand l'hôte est en HDR (sinon une image à part en SDR).
+                .putHdr()
         } else if (l != null) {
             // Pas de compte, pas de mode ni d'écran virtuel à demander : le cœur ouvre la session avec la réponse de
             // « Emprunter » (jeton de Kyber renouvelé par le signe de vie du prêt, écran, route par le relais s'il y est
@@ -331,6 +398,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
                 .put("combo", host.settings.combo)
                 .put("recovery", JSONObject().put("watch_image", true).put("restart_station", false))
                 .put("borrower", JSONObject().put("borrowed", l.borrowed))
+                .putHdr()
         } else JSONObject()
             .put("console_host", host.address)
             .put("console_port", host.port)
@@ -347,6 +415,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
             .put("clipboard", host.settings.clipboard && !tv)
             .put("combo", host.settings.combo)
             .put("recovery", JSONObject().put("watch_image", true).put("fallback_bitrate", 150_000_000))
+            .putHdr()
         // Hors de chez soi : « Auto », le réseau d'abord (Admin répond en 1,5 s), le relais de l'ordinateur sinon, Admin
         // épinglé sur l'empreinte connue (docs/relais.md). Sans relais connu, ou avec `KYBERNOW_RELAY=off` : sur le réseau.
         if (hostSession && !Relays.off) host.relayRoute?.let { params.put("route", "auto").put("relay", JSONObject(it)) }
@@ -355,7 +424,11 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
             // Un invité que la Station a déjà accepté repart tout de suite (sinon elle l'attend 20 s sans signe de vie).
             g?.let(Share::leave)
             finish()
+            return
         }
+        updateHdrState()
+        refreshHdr()
+        watchHdr()
     }
 
     private fun observe() {
@@ -482,6 +555,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         // activité recréés : les jetons ne se gardent pas) ou que l'ordinateur n'existe plus : `onDestroy` suit aussitôt.
         if (!::state.isInitialized) return
         if (::haptics.isInitialized) haptics.stop()
+        hdrWatch?.close()
+        hdrWatch = null
         // La manette à l'écran n'existe qu'en session : sa place se libère.
         app.gamepads.setOnScreen(false)
         app.gamepads.stop()
@@ -564,7 +639,10 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         val (w, hh, r) = state.mode.value ?: sessionMode
         val settings = settingsJson(ui.profile)
         val mbps = SessionMode.bitrate(settings.optInt("mbps"), settings.has("profile"), w, hh, r)
-        val last = LastSession(lat[0], lat[1], seconds, System.currentTimeMillis(), w, hh, r, settings.optString("codec").ifEmpty { null }, mbps, state.route.value?.transport?.id)
+        val last = LastSession(
+            lat[0], lat[1], seconds, System.currentTimeMillis(), w, hh, r, settings.optString("codec").ifEmpty { null }, mbps, state.route.value?.transport?.id,
+            hdr = Native.sessionHdrUsed(h),
+        )
         app.hosts.update(host.id) { it.copy(last = last) }
     }
 
@@ -632,6 +710,15 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
     override fun setProfile(p: Profile) {
         ui.profile = p
         Native.sessionSetSettings(handle, settingsJson(p).toString())
+        if (tv) resume()
+    }
+
+    override fun setHdr(on: Boolean) {
+        if (guest != null || on == ui.hdrChoice) return
+        ui.hdrChoice = on
+        // Gardé pour cet ordinateur (un emprunt : pour cette session) ; un profil choisi ensuite le garde aussi.
+        saveSettings { it.copy(hdr = on) }
+        Native.sessionSetHdr(handle, on)
         if (tv) resume()
     }
 
@@ -785,6 +872,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
             ui.shareAvailability = a
             ui.shareUnavailable = Share.availabilityText(a)
             ui.lendAvailable = info.lend
+            hdrInfo = info
+            updateHdrState()
             // Le prêt possible : sa vue (les demandes, le code), que le signe de vie tient ensuite à jour.
             if (info.lend == LendAvailable.ON && state.lend.value == null) refreshLend()
         }
