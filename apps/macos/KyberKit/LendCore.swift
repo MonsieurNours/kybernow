@@ -496,7 +496,7 @@ public enum LendHostState: String, Sendable, Equatable {
     case preparing
     /// « Prêté à {prénom} ».
     case lent
-    /// Les apps du prêt se ferment, la session se verrouille.
+    /// Les apps du prêt se ferment ; la session de l'hôte reste ouverte.
     case ending
 }
 

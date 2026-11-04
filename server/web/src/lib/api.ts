@@ -251,6 +251,8 @@ export interface LendBorrower {
   steam: LendSteam
   /** Son image arrive (faux : fenêtre fermée ou réseau perdu, il a 15 min pour revenir). */
   connected: boolean
+  /** Son image n'a pas démarré dans son navigateur : la raison qu'il a donnée, jusqu'à ce qu'elle parte. */
+  image_error?: string | null
 }
 
 /**

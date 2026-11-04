@@ -5,6 +5,11 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## 0.9.9
+
+- **Prêt depuis un navigateur : l'image arrive même quand le navigateur bute.** Si le navigateur de votre ami n'arrive pas à démarrer l'image en HEVC, la page recommence d'elle-même en H.264, puis, s'il le faut, sans le son ; un avis bref le dit. Même chose pour un invité de KyberNow Share. Quand rien ne marche, l'écran d'échec montre une ligne « Détails » à recopier, et la Station note la raison : dans le fil de la Vue d'ensemble et sur la carte du prêt.
+- **Fin du prêt : votre session reste ouverte.** Quand le prêt se termine, vous retrouvez votre ordinateur comme vous l'aviez laissé, sans écran de verrouillage. La session ne se verrouille plus qu'après un arrêt brutal (la Station arrêtée en plein prêt).
+
 ## 0.9.8
 
 Première version stable depuis la 0.9.0 : elle réunit tout ce que les bêtas 0.9.1 à 0.9.7 ont apporté.

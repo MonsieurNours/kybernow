@@ -304,13 +304,15 @@ impl Machine {
         };
         self.silent_since = None;
         let Some(view) = view else {
-            // Plus de prêt (fini, ou Admin redémarré en plein prêt) : remise en
-            // état, puis la session se verrouille si l'agent était en place.
+            // Plus de prêt. Fini normalement (`ended` envoyé) : la session reste
+            // ouverte, l'hôte la retrouve telle quelle. Admin redémarré en plein
+            // prêt : remise en état, puis la session se verrouille si l'agent
+            // était en place (l'ami a peut-être encore l'image).
             if self.dirty && !self.torn_down {
                 steps.push(Step::TearDown);
                 self.torn_down = true;
             }
-            if self.dirty {
+            if self.dirty && !self.ended_sent {
                 steps.push(Step::Lock);
             }
             steps.push(Step::Exit);
@@ -745,8 +747,8 @@ mod tests {
         assert_eq!(m.next(&view("ending", true), at(8)), [Step::TearDown, Step::Ended]);
         m.retry(Step::Ended);
         assert_eq!(m.next(&view("ending", true), at(9)), [Step::Ended]);
-        // Admin a conclu : la session se verrouille (déjà fait par Admin, sans effet de plus).
-        assert_eq!(m.next(&view("idle", false), at(10)), [Step::Lock, Step::Exit]);
+        // Admin a conclu : sortie, la session reste ouverte (pas de verrouillage au retour du prêt).
+        assert_eq!(m.next(&view("idle", false), at(10)), [Step::Exit]);
     }
 
     #[test]

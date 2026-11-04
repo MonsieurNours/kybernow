@@ -607,7 +607,7 @@ pub enum LendHostState {
     Preparing,
     /// « Prêté à {prénom} ».
     Lent,
-    /// Les apps du prêt se ferment, la session se verrouille.
+    /// Les apps du prêt se ferment ; la session de l'hôte reste ouverte.
     Ending,
     /// Rien de prêté (aussi tout état inconnu).
     #[default]

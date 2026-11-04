@@ -568,7 +568,7 @@ pub enum Phase {
     /// L'écran virtuel et le mode console se mettent en place.
     Preparing,
     Lent,
-    /// Remise en état (agent de console, apps, écran, verrouillage).
+    /// Remise en état (agent de console, apps, écran).
     Ending,
 }
 
@@ -713,6 +713,9 @@ pub struct Loan {
     pub console_restarts: u32,
     /// La demande d'où il vient et son secret (pour `wait`).
     request: Option<(String, String)>,
+    /// Son image n'a pas démarré dans son navigateur : la raison qu'il a donnée
+    /// (`error` du signe de vie), jusqu'à ce qu'elle parte (`started`).
+    pub image_error: Option<String>,
 }
 
 impl Loan {
@@ -917,6 +920,7 @@ impl Lending {
             console_beat: None,
             console_restarts: 0,
             request,
+            image_error: None,
         };
         s.loan = Some(loan.clone());
         if let Some((r, _)) = &loan.request {
@@ -1079,6 +1083,16 @@ impl Lending {
         }
     }
 
+    /// L'image de l'ami n'a pas démarré (`Some(raison)`), ou elle est partie (`None`).
+    pub fn image_error(&self, id: &str, error: Option<String>) {
+        let mut s = self.state.lock().unwrap();
+        if let Some(loan) = s.loan.as_mut().filter(|l| l.id == id) {
+            loan.image_error = error;
+        }
+        drop(s);
+        self.notify();
+    }
+
     /// Préavis de 2 min (reprise, fin prévue), s'il n'y en a pas déjà un plus proche.
     pub fn notice(&self, reason: Reason, at: u64) -> Option<Loan> {
         let mut s = self.state.lock().unwrap();
@@ -1202,6 +1216,7 @@ impl Lending {
                 "until": l.until,
                 "steam": l.steam,
                 "connected": l.connected,
+                "image_error": l.image_error,
             })
         });
         let requests: Vec<Value> = s

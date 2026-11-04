@@ -36,6 +36,7 @@
       "noImageArrive": "{host} is sending the picture, but it is not reaching this browser. Try the H.264 format in Settings › Picture, or use Chrome or Edge.",
       "pipeline": "The picture from {host} stopped on the computer (capture or encoding), despite {max} restarts. Reconnecting starts it again.",
       "unauthorized": "Kyber on {host} rejects KyberNow Admin’s token. Reload the page; if it keeps happening, check Kyber in Admin.",
+      "details": "Details:",
       "startFailed": "Kyber on {host} could not start the picture. Try again in a moment.",
       "decode": "This browser cannot decode the picture. Try the H.264 format in Settings › Picture.",
       "closed": "Kyber on {host} closed the connection.",
@@ -44,6 +45,8 @@
     },
     "notice": {
       "displayChanged": "The computer’s display changed: the picture is coming back…",
+      "h264": "Picture in H.264: this browser couldn’t start HEVC.",
+      "noAudio": "Picture without sound: this browser couldn’t start the audio.",
       "soundStopped": "The computer’s sound stopped.",
       "imageRestart": "The picture stopped on the computer: restarting ({n} of {max})…",
       "reconnecting": "Connection lost, retrying ({attempt} of {max})…"
@@ -1130,7 +1133,7 @@
     },
     "page": {
       "title": "Lending",
-      "intro": "Lend the computer to a friend while you're not using it: they play from their own device, with the apps you choose. Afterwards, everything goes back to how it was and the Windows session locks.",
+      "intro": "Lend the computer to a friend while you're not using it: they play from their own device, with the apps you choose. Afterwards, everything goes back to how it was, and your Windows session stays open.",
       "switch": "Lend the computer",
       "switchHelp": "While lending is on, the Windows session must stay open: the Station keeps the computer from sleeping and locking on its own.",
       "current": "Current loan"
@@ -1270,6 +1273,7 @@
           "since": "Since {time}",
           "connected": "Connected"
         },
+        "imageError": "Their picture didn’t start: {reason}",
         "preparing": {
           "status": "Preparing",
           "title": "Getting the computer ready for {name}"
@@ -1324,7 +1328,7 @@
         "steam": "Steam in Big Picture",
         "steamHelp": "A Steam tile in the launcher, with the account chosen for each loan.",
         "session": "Your Windows session",
-        "sessionHelp": "It must stay open: while lending is on, the Station keeps the computer from sleeping and locking on its own. It locks at the end of each loan.",
+        "sessionHelp": "It must stay open: while lending is on, the Station keeps the computer from sleeping and locking on its own. You find it open at the end of each loan.",
         "off": "Turn lending off",
         "offHelp": "No code or friend account works any more. Your settings are kept."
       },
@@ -1426,7 +1430,7 @@
     "lend": {
       "warning": "Your friend plays in your Mac session. They don't see your desktop or your windows, but a game can read your files: lend to friends you trust.",
       "page": {
-        "intro": "Lend the Mac to a friend when you're not using it: they play from their device, with the apps you choose. At the end, everything goes back as before and the Mac session locks.",
+        "intro": "Lend the Mac to a friend when you're not using it: they play from their device, with the apps you choose. At the end, everything goes back as before, and the Mac session stays open.",
         "switchHelp": "While lending is on, the Mac session must stay open: the Station prevents sleep and automatic locking."
       },
       "apps": {

@@ -196,7 +196,12 @@
     "lendRefused": "{name}: request declined",
     "lendOn": "Lending the computer turned on",
     "lendOff": "Lending the computer turned off",
-    "lendFriendAdded": "Friend account added: {name}"
+    "lendFriendAdded": "Friend account added: {name}",
+    "startFailed": "{name} couldn’t start the picture: {reason}{next}",
+    "retryH264": "; trying again in H.264",
+    "retryNoAudio": "; trying again without sound",
+    "startedAfter": "{name}’s picture started in {format}{audio}",
+    "noAudioSuffix": ", without sound"
   },
   "share": {
     "display": "Display {n}",

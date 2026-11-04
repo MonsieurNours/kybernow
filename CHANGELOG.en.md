@@ -4,6 +4,11 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## 0.9.9
+
+- **Lending from a browser: the picture arrives even when the browser stumbles.** If your friend's browser can't start the picture in HEVC, the page tries again on its own in H.264, then, if needed, without sound; a brief notice says so. Same for a KyberNow Share guest. When nothing works, the failure screen shows a “Details” line to copy, and the Station notes the reason: in the Overview feed and on the loan card.
+- **End of a loan: your session stays open.** When the loan ends, you find your computer as you left it, without the lock screen. The session now locks only after an abrupt stop (the Station stopped in the middle of a loan).
+
 ## 0.9.8
 
 The first stable release since 0.9.0: it brings together everything the 0.9.1 to 0.9.7 betas added.

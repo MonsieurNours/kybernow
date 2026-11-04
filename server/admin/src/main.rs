@@ -35,6 +35,7 @@ mod service;
 mod settings;
 mod share;
 mod share_api;
+mod start_report;
 mod station;
 mod system;
 mod tls;

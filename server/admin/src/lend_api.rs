@@ -33,6 +33,7 @@ use crate::lend::{self, Beat, Kind, LocalTime, Reason, Screen, Steam, Wait, Who}
 use crate::lend_last;
 use crate::lend_sys::{self, SessionState};
 use crate::relay::Via;
+use crate::start_report;
 
 /// En-tête du secret de l'ami (et de sa demande).
 const LEND_HEADER: &str = "x-kybernow-lend";
@@ -497,7 +498,8 @@ pub async fn finish(s: &AppState, id: &str, reason: Reason) {
             tokio::time::sleep(Duration::from_millis(250)).await;
         }
     }
-    // Ce qui reste des apps du prêt, l'écran virtuel, le son, puis le verrouillage.
+    // Ce qui reste des apps du prêt, l'écran virtuel, le son. La session n'est
+    // pas verrouillée : l'hôte la retrouve ouverte (choix de l'auteur, 04/11).
     let watch = WATCH.lock().unwrap().take();
     let (d, a) = (s.display.clone(), s.audio.clone());
     let _ = blocking(move || {
@@ -509,9 +511,6 @@ pub async fn finish(s: &AppState, id: &str, reason: Reason) {
         }
         d.stop("fin du prêt");
         a.stop("fin du prêt");
-        if let Err(e) = lend_sys::lock_session() {
-            tracing::warn!("prêt : session non verrouillée : {e:#}");
-        }
         Ok(())
     })
     .await;
@@ -817,6 +816,12 @@ pub struct LendBody {
     lend: Option<String>,
     #[serde(default)]
     request: Option<String>,
+    /// Son image n'a pas démarré (`start_report`).
+    #[serde(default)]
+    error: Option<start_report::StartError>,
+    /// Son image est partie après un échec.
+    #[serde(default)]
+    started: Option<start_report::Started>,
 }
 
 /// `POST /api/lend/beat` : signe de vie de l'ami, jeton renouvelé, préavis, fin.
@@ -827,6 +832,15 @@ pub async fn beat(State(s): State<AppState>, headers: HeaderMap, via: Option<axu
         Beat::Live(loan) => {
             if let Some(axum::Extension(via)) = &via {
                 s.relay.grant_guest(via, &loan.id);
+            }
+            if let Some(e) = &body.error
+                && let Some(reason) = start_report::report_error(&s.activity, start_report::Who::Friend, &loan.id, &loan.who.name, e)
+            {
+                s.lend.image_error(&loan.id, Some(reason));
+            }
+            if let Some(st) = &body.started {
+                start_report::report_started(&s.activity, start_report::Who::Friend, &loan.id, &loan.who.name, st);
+                s.lend.image_error(&loan.id, None);
             }
             json!({
                 "token": kyber_token(&s, &loan),
@@ -1670,10 +1684,25 @@ mod tests {
         assert!(matches!(status, StatusCode::NOT_FOUND | StatusCode::CONFLICT), "{v}");
         // Signe de vie, puis « Rendre l'ordinateur ».
         let (id, secret) = (lent["lend"].as_str().unwrap().to_string(), lent["secret"].as_str().unwrap().to_string());
-        let (status, b) = body(beat(State(s.clone()), secret_headers(&secret), None, Json(LendBody { lend: Some(id.clone()), request: None })).await).await;
+        let (status, b) = body(beat(State(s.clone()), secret_headers(&secret), None, Json(LendBody { lend: Some(id.clone()), request: None, error: None, started: None })).await).await;
         assert_eq!(status, StatusCode::OK);
         assert!(b["token"].is_string() && b["end"].is_null());
-        let res = leave(State(s.clone()), secret_headers(&secret), None, Json(LendBody { lend: Some(id.clone()), request: None })).await;
+        // Son image ne démarre pas : la raison au fil et sur la carte du prêt, jusqu'à ce qu'elle parte.
+        let error: start_report::StartError = serde_json::from_value(json!({
+            "reason": "Streaming start failed: NotAllowedError", "codec": "hevc", "yuv444": false, "audio": true,
+            "browser": "Mozilla/5.0 (Windows NT 10.0) Chrome/156", "next": "h264"
+        }))
+        .unwrap();
+        let (status, _) = body(beat(State(s.clone()), secret_headers(&secret), None, Json(LendBody { lend: Some(id.clone()), request: None, error: Some(error), started: None })).await).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(s.lend.view(true)["borrower"]["image_error"], "Streaming start failed: NotAllowedError");
+        let events = s.activity.events(5, crate::i18n::Lang::Fr);
+        assert!(events.iter().any(|e| e.text == "Léa n'a pas pu démarrer l'image : Streaming start failed: NotAllowedError ; nouvel essai en H.264"), "{:?}", events.iter().map(|e| &e.text).collect::<Vec<_>>());
+        let started = start_report::Started { codec: "h264".into(), audio: true };
+        body(beat(State(s.clone()), secret_headers(&secret), None, Json(LendBody { lend: Some(id.clone()), request: None, error: None, started: Some(started) })).await).await;
+        assert!(s.lend.view(true)["borrower"]["image_error"].is_null());
+        assert!(s.activity.events(5, crate::i18n::Lang::Fr).iter().any(|e| e.text == "Image de Léa démarrée en H.264"));
+        let res = leave(State(s.clone()), secret_headers(&secret), None, Json(LendBody { lend: Some(id.clone()), request: None, error: None, started: None })).await;
         assert_eq!(res.status(), StatusCode::OK);
         for _ in 0..50 {
             if s.lend.loan().is_none() {
@@ -1681,7 +1710,7 @@ mod tests {
             }
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
-        let (_, b) = body(beat(State(s.clone()), secret_headers(&secret), None, Json(LendBody { lend: Some(id), request: None })).await).await;
+        let (_, b) = body(beat(State(s.clone()), secret_headers(&secret), None, Json(LendBody { lend: Some(id), request: None, error: None, started: None })).await).await;
         assert_eq!(b["end"], "left");
         assert!(s.activity.events(5, crate::i18n::Lang::Fr).iter().any(|e| e.text.contains("Léa")));
         let _ = std::fs::remove_dir_all(dir);
@@ -1713,9 +1742,9 @@ mod tests {
         let (status, asked) = body(borrow(State(s.clone()), peer(30), None, login("secret-lea")).await).await;
         assert_eq!(status, StatusCode::ACCEPTED, "{asked}");
         let (request, secret) = (asked["request"].as_str().unwrap().to_string(), asked["secret"].as_str().unwrap().to_string());
-        let (status, _) = body(leave(State(s.clone()), secret_headers("faux"), None, Json(LendBody { lend: None, request: Some(request.clone()) })).await).await;
+        let (status, _) = body(leave(State(s.clone()), secret_headers("faux"), None, Json(LendBody { lend: None, request: Some(request.clone()), error: None, started: None })).await).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
-        let (status, _) = body(leave(State(s.clone()), secret_headers(&secret), None, Json(LendBody { lend: None, request: Some(request.clone()) })).await).await;
+        let (status, _) = body(leave(State(s.clone()), secret_headers(&secret), None, Json(LendBody { lend: None, request: Some(request.clone()), error: None, started: None })).await).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(view(&s)["requests"].as_array().map(Vec::len), Some(0));
         let (status, _) = body(wait(State(s.clone()), secret_headers(&secret), None, Json(WaitBody { request: Some(request), lend: None })).await).await;

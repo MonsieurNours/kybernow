@@ -36,6 +36,7 @@
       "noImageArrive": "{host} envoie l'image, mais elle n'arrive pas dans ce navigateur. Essayez le format H.264 dans Réglages › Image, ou Chrome ou Edge.",
       "pipeline": "L'image de {host} s'est arrêtée sur l'ordinateur (capture ou encodage), malgré {max} relances. Se reconnecter la redémarre.",
       "unauthorized": "Kyber sur {host} refuse le jeton de KyberNow Admin. Rechargez la page ; si cela continue, vérifiez Kyber dans Admin.",
+      "details": "Détails :",
       "startFailed": "Kyber sur {host} n'a pas pu démarrer l'image. Réessayez dans un instant.",
       "decode": "Ce navigateur n'arrive pas à décoder l'image. Essayez le format H.264 dans Réglages › Image.",
       "closed": "Kyber sur {host} a fermé la connexion.",
@@ -44,6 +45,8 @@
     },
     "notice": {
       "displayChanged": "L’écran de l’ordinateur a changé : l’image reprend…",
+      "h264": "Image en H.264 : ce navigateur n'a pas pu démarrer le HEVC.",
+      "noAudio": "Image sans le son : ce navigateur n'a pas pu démarrer l'audio.",
       "soundStopped": "Le son de l’ordinateur s’est interrompu.",
       "imageRestart": "L’image s’est interrompue sur l’ordinateur : relance ({n} sur {max})…",
       "reconnecting": "Connexion perdue, nouvelle tentative ({attempt} sur {max})…"
@@ -1130,7 +1133,7 @@
     },
     "page": {
       "title": "Prêt",
-      "intro": "Prêtez l'ordinateur à un ami quand vous ne vous en servez pas : il joue depuis son appareil, avec les apps que vous choisissez. À la fin, tout revient comme avant et la session Windows se verrouille.",
+      "intro": "Prêtez l'ordinateur à un ami quand vous ne vous en servez pas : il joue depuis son appareil, avec les apps que vous choisissez. À la fin, tout revient comme avant, et votre session Windows reste ouverte.",
       "switch": "Prêter l'ordinateur",
       "switchHelp": "Tant que le prêt est activé, la session Windows doit rester ouverte : la Station empêche la mise en veille et le verrouillage automatique.",
       "current": "Prêt en cours"
@@ -1270,6 +1273,7 @@
           "since": "Depuis {time}",
           "connected": "Connecté"
         },
+        "imageError": "Son image n'a pas démarré : {reason}",
         "preparing": {
           "status": "Préparation",
           "title": "Préparation de l'ordinateur pour {name}"
@@ -1324,7 +1328,7 @@
         "steam": "Steam en Big Picture",
         "steamHelp": "Une tuile Steam dans le lanceur, avec le compte choisi à chaque prêt.",
         "session": "Votre session Windows",
-        "sessionHelp": "Elle doit rester ouverte : tant que le prêt est activé, la Station empêche la veille et le verrouillage automatique. Elle se verrouille à la fin de chaque prêt.",
+        "sessionHelp": "Elle doit rester ouverte : tant que le prêt est activé, la Station empêche la veille et le verrouillage automatique. Vous la retrouvez ouverte à la fin de chaque prêt.",
         "off": "Couper le prêt",
         "offHelp": "Plus aucun code ni compte d'ami ne fonctionne. Vos réglages sont gardés."
       },
@@ -1426,7 +1430,7 @@
     "lend": {
       "warning": "Votre ami joue dans votre session du Mac. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance.",
       "page": {
-        "intro": "Prêtez le Mac à un ami quand vous ne vous en servez pas : il joue depuis son appareil, avec les apps que vous choisissez. À la fin, tout revient comme avant et la session du Mac se verrouille.",
+        "intro": "Prêtez le Mac à un ami quand vous ne vous en servez pas : il joue depuis son appareil, avec les apps que vous choisissez. À la fin, tout revient comme avant, et la session du Mac reste ouverte.",
         "switchHelp": "Tant que le prêt est activé, la session du Mac doit rester ouverte : la Station empêche la mise en veille et le verrouillage automatique."
       },
       "apps": {

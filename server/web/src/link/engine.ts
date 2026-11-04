@@ -65,9 +65,56 @@ export type EngineEvent =
   | { type: 'pipeline'; kind: string; stage: string; event: string }
   | { type: 'gamepad'; plugged: boolean; index: number; name: string }
   | { type: 'stopped'; reason: string }
-  | { type: 'error'; message: string }
+  /** `detail` : le message du moteur, avec la raison qu'il a écrite en console quand l'événement ne la porte pas. */
+  | { type: 'error'; message: string; detail?: string }
 
 type Wasm = any
+
+/** Dernières lignes écrites en console (avertissements, erreurs). Le moteur écrit la raison d'un échec
+ * au démarrage (« Streaming start failed: … ») sans la mettre dans son événement
+ * `streaming_start_failed` : la page la relit ici pour la dire (docs/link-ui.md, « Image qui ne démarre pas »). */
+const consoleLines: { at: number; text: string }[] = []
+let consoleHooked = false
+
+function hookConsole() {
+  if (consoleHooked) return
+  consoleHooked = true
+  for (const level of ['warn', 'error'] as const) {
+    const original = console[level]
+    console[level] = function (...args: unknown[]) {
+      try {
+        if (typeof args[0] === 'string' && !args[0].startsWith('KyberNow')) {
+          consoleLines.push({ at: performance.now(), text: args[0] })
+          if (consoleLines.length > 40) consoleLines.shift()
+        }
+      } catch {
+        // Rien ne doit empêcher la ligne de s'écrire.
+      }
+      return original.apply(console, args)
+    }
+  }
+}
+
+/** La raison que le moteur a écrite pour un échec au démarrage, dans les 5 dernières secondes. */
+export function startFailureNote(lines = consoleLines, now = performance.now()): string | null {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const l = lines[i]
+    if (now - l.at > 5000) break
+    const m = /Streaming start failed:\s*([\s\S]*?)(?:\.\s*Stop client\.?)?\s*$/i.exec(l.text)
+    if (m) return m[1].trim() || null
+  }
+  return null
+}
+
+/** Le message d'un échec au démarrage, avec la raison du moteur quand il l'a écrite. */
+export function startFailureDetail(message: string, note: string | null = startFailureNote()): string {
+  return note && message === 'streaming_start_failed' ? `${message}: ${note}` : message
+}
+
+/** L'image n'a pas démarré dans ce navigateur (et non : Kyber ne répond pas, jeton refusé). */
+export function isStartFailure(message: string): boolean {
+  return message === 'streaming_start_failed' || message.startsWith('start_streaming')
+}
 
 let modulePromise: Promise<Wasm> | null = null
 let fixed = false
@@ -98,6 +145,7 @@ export function isFixedEngine(): boolean {
 /** Charge le moteur une fois (fichier JS + WebAssembly). */
 export function loadEngine(): Promise<Wasm> {
   if (!modulePromise) {
+    hookConsole()
     const url = new URL('kyclient_wasm.js', new URL('/link/', location.origin)).href
     modulePromise = import(/* @vite-ignore */ url).then(async (m) => {
       await m.default()
@@ -297,7 +345,7 @@ export class Engine {
         this.onEvent({ type: 'streaming' })
         break
       case 'streaming_start_failed':
-        this.onEvent({ type: 'error', message: 'streaming_start_failed' })
+        this.onEvent({ type: 'error', message: 'streaming_start_failed', detail: startFailureDetail('streaming_start_failed') })
         break
       case 'controlplane_connect_failed':
         this.onEvent({ type: 'error', message: String(event) })

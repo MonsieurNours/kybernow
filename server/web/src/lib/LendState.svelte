@@ -168,6 +168,7 @@
       <span class="status">{t('lend.admin.state.preparing.status')}</span>
       <h2 class="disp">{t('lend.admin.state.preparing.title', { name: b.name })}</h2>
       <div class="meta"><span>{t(`lend.admin.kind.${b.kind}`)}</span><span>{lendAppName(b.app)}</span><span>{steamName(b.steam)}</span></div>
+      {#if b.image_error}<p class="hint">{t('lend.admin.state.imageError', { reason: b.image_error })}</p>{/if}
     {:else if mode === 'notice' && b && noticeAt !== null}
       <span class="status">{view.notice?.reason === 'taken_back' ? t('lend.admin.state.notice.status') : t('lend.admin.state.notice.endStatus')}</span>
       <h2 class="disp">
@@ -190,6 +191,7 @@
         {#if b.until}<span>{t('lend.bar.left', { time: sinceText(b.until - now) })}</span>{/if}
         <span class:off={!b.connected}>{b.connected ? t('lend.admin.state.lent.connected') : t('lend.host.disconnected')}</span>
       </div>
+      {#if b.image_error}<p class="hint">{t('lend.admin.state.imageError', { reason: b.image_error })}</p>{/if}
     {/if}
   </div>
 

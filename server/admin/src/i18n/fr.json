@@ -196,7 +196,12 @@
     "lendRefused": "{name} : demande refusée",
     "lendOn": "Prêt de l'ordinateur activé",
     "lendOff": "Prêt de l'ordinateur coupé",
-    "lendFriendAdded": "Compte d'ami ajouté : {name}"
+    "lendFriendAdded": "Compte d'ami ajouté : {name}",
+    "startFailed": "{name} n'a pas pu démarrer l'image : {reason}{next}",
+    "retryH264": " ; nouvel essai en H.264",
+    "retryNoAudio": " ; nouvel essai sans le son",
+    "startedAfter": "Image de {name} démarrée en {format}{audio}",
+    "noAudioSuffix": ", sans le son"
   },
   "share": {
     "display": "Écran {n}",

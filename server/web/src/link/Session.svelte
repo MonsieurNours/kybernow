@@ -14,7 +14,8 @@
   import { Heartbeat } from './heartbeat'
   import { guestTarget, lendTarget, sendHeartbeat, type HeartbeatResult } from './heartbeat-call'
   import { ApiError, joinedGuests, lendOps, shareRequests, type GuestImage, type LendView, type ShareQuality, type ShareRole, type ShareView } from '../lib/api'
-  import { Engine, allStopped, isFixedEngine, retire, supportedCodecs, type DisplayInfo, type Latency } from './engine'
+  import { Engine, allStopped, isFixedEngine, isStartFailure, retire, supportedCodecs, type DisplayInfo, type Latency } from './engine'
+  import { applyFallbacks, NO_FALLBACK, nextFallback, take, type Fallbacks, type StartFallback } from './fallback'
   import { choose, preferredProtocol, setRelay, viaRelay, type Plan } from './plan'
   import { deviceId, isCustom, MIN_SESSION_SECONDS, profileName, saveLastSession, type MouseMode, type Prefs, type TouchMode } from './prefs'
   import { deviceKind, deviceName, hasKeyboardLock, isAppleDevice, hasTouchScreen, isIsolated, isTouch, measureRefresh, screenMode, type Mode } from './device'
@@ -82,6 +83,8 @@
   type Phase = 'preparing' | 'waiting' | 'connecting' | 'restarting' | 'live' | 'ended'
   let phase = $state<Phase>('preparing')
   let error = $state('')
+  /** Le message du moteur sous l'échec (« Détails »), à recopier. */
+  let errorDetail = $state('')
   let reconnecting = $state('')
   let plan = $state<Plan | null>(null)
   let mode = $state<Mode | null>(null)
@@ -198,6 +201,10 @@
   let pendingNotice = ''
   /** Dernier recours après une erreur de décodage : l'invité est déjà repassé en 720p30. */
   let fallbackTried = false
+  /** Replis pris parce que l'image ne démarrait pas (H.264, son coupé) : pour toute la page, sans toucher aux réglages. */
+  let fallbacks: Fallbacks = NO_FALLBACK
+  /** Un échec a été dit à la Station : elle apprendra aussi comment l'image est partie. */
+  let reportedFailure = false
 
   let stage: HTMLElement
   let canvasBox: HTMLElement
@@ -826,6 +833,7 @@
   async function start() {
     const gen = ++generation
     error = ''
+    errorDetail = ''
     endSwitch()
     phase = 'preparing'
     try {
@@ -948,8 +956,12 @@
     connectStep = 'kyber'
     clearWatches()
     // Un ami : le profil Jeu de la Station (docs/pret.md), jamais de presse-papiers.
-    plan = b ? { ...choose({ ...prefs, profile: 'jeu' }, mode, codecList, protocol), clipboard: false } : choose(prefs, mode, codecList, protocol)
+    const base: Prefs = b ? { ...prefs, profile: 'jeu' } : prefs
+    // Repli en H.264 : le débit du H.264 (plus élevé que celui du HEVC).
+    plan = choose(fallbacks.h264 ? { ...base, codec: 'h264' } : base, mode, codecList, protocol)
+    if (b) plan = { ...plan, clipboard: false }
     if (g) plan = guestPlan(plan)
+    plan = applyFallbacks(plan, fallbacks, codecList)
     // Jamais deux moteurs à la fois : chacun écoute souris et clavier sur la page.
     await allStopped()
     if (stale(gen)) return
@@ -1082,7 +1094,7 @@
       // Un ami : son signe de vie dit d'abord si le prêt est fini ; sinon, la connexion s'est interrompue.
       return b ? t('session.error.interrupted', { host: hostname }) : t('session.error.unauthorized', { host: hostname })
     }
-    if (message === 'streaming_start_failed' || message.startsWith('start_streaming')) return t('session.error.startFailed', { host: hostname })
+    if (isStartFailure(message)) return t('session.error.startFailed', { host: hostname })
     return tName('session.error.noReply', 'host', hostname)
   }
 
@@ -1143,6 +1155,11 @@
           showNotice(pendingNotice)
           pendingNotice = ''
         }
+        if (reportedFailure && plan) {
+          // La Station apprend que l'image est partie, et dans quel format.
+          reportedFailure = false
+          toStation({ started: { codec: plan.codec, audio: plan.audio } })
+        }
         noticePads()
         if (!heartbeat.running) heartbeat.start(heartbeatBody(null, profileLabel, extra()))
         learnDisplayId().then((list) => {
@@ -1169,24 +1186,40 @@
         }
         break
       }
-      case 'error':
-        console.warn('KyberNow : connexion impossible', redact(e.message, g ? [g.join.secret, ticketToken] : []))
+      case 'error': {
+        const detail = redact(e.detail ?? e.message, secrets())
+        console.warn('KyberNow : connexion impossible', detail)
         // Un jeton refusé ne se répare pas en redémarrant la Station.
         if (e.message === 'unauthorized') {
           // Un invité retiré n'a plus de jeton : son signe de vie dit pourquoi (de même pour un prêt fini).
           if (g || b) guestClosed(connectError(e.message))
           else fail(connectError(e.message))
+        } else if (isStartFailure(e.message)) {
+          // L'image ne démarre pas dans ce navigateur : H.264, puis sans le son, puis l'échec et sa raison.
+          const next = plan ? nextFallback(plan, fallbacks, codecList, detail) : null
+          reportFailure(detail, next)
+          if (next) retryWith(next)
+          else failOrRestart(connectError(e.message), detail)
         } else failOrRestart(connectError(e.message))
         break
+      }
       case 'stopped':
         if (ended) return
         if (e.reason === 'restart') {
           // Le moteur a perdu sa toile en se reconnectant : on recommence proprement.
           restart()
         } else if (e.reason === 'decode_error') {
-          // Le moteur a redemandé une image clé, en vain (correctif 0020) : un invité repasse en 720p30, une fois.
-          if (g && !fallbackTried && tokenPreset(ticketToken) !== '720p30') void guestFallback()
-          else fail(g ? t('share.guest.decode', { host: hostname }) : t('session.error.decode'))
+          // Le moteur a redemandé une image clé, en vain (correctif 0020) : en HEVC, H.264 une fois (tous) ;
+          // puis un invité repasse en 720p30, une fois.
+          const next = plan ? nextFallback(plan, fallbacks, codecList, e.reason, true) : null
+          if (next) {
+            reportFailure(e.reason, next)
+            retryWith(next)
+          } else if (g && !fallbackTried && tokenPreset(ticketToken) !== '720p30') void guestFallback()
+          else {
+            reportFailure(e.reason, null)
+            fail(g ? t('share.guest.decode', { host: hostname }) : t('session.error.decode'), e.reason)
+          }
         } else if (e.reason === 'controlplane_closed') {
           const message = t('session.error.closed', { host: hostname })
           if (g || b) guestClosed(message)
@@ -1203,6 +1236,41 @@
     }
   }
 
+  /** Les secrets à retirer d'un message avant de l'écrire (console, Station, écran). */
+  function secrets(): string[] {
+    return [ticketToken, g?.join.secret ?? '', lendAnswer?.secret ?? '']
+  }
+
+  /** Un rapport de l'ami ou de l'invité à la Station, dans un signe de vie (`error`, `started`). */
+  function toStation(extra: Record<string, unknown>) {
+    if (b && lendAnswer) void sendHeartbeat(location.origin, { lend: lendAnswer.lend, ...extra }, lendTarget(lendAnswer.secret))
+    else if (g) void sendHeartbeat(location.origin, { guest: g.join.guest, ...extra }, guestTarget(g.join.secret))
+  }
+
+  /** L'image n'a pas démarré : la raison, ce qui était demandé, et le repli essayé ensuite (docs/pret.md). */
+  function reportFailure(reason: string, next: StartFallback | null) {
+    if (!b && !g) return
+    reportedFailure = true
+    toStation({
+      error: {
+        reason: reason.slice(0, 300),
+        codec: plan?.codec ?? '',
+        yuv444: !!plan?.yuv444,
+        audio: !!plan?.audio,
+        browser: navigator.userAgent.slice(0, 200),
+        next,
+      },
+    })
+  }
+
+  /** Recommence la session avec un repli de plus ; son avis vient avec l'image. */
+  function retryWith(next: StartFallback) {
+    console.warn('KyberNow : image non démarrée, nouvel essai', next === 'h264' ? 'en H.264' : 'sans le son')
+    fallbacks = take(fallbacks, next)
+    pendingNotice = t(next === 'h264' ? 'session.notice.h264' : 'session.notice.noAudio')
+    restart()
+  }
+
   async function restart() {
     const e = engine
     engine = null
@@ -1211,8 +1279,9 @@
     if (!stale(gen)) start()
   }
 
-  function fail(message: string) {
+  function fail(message: string, detail = '') {
     generation++
+    errorDetail = detail
     giveBackOpen = false
     lendAbort?.abort()
     endSwitch()
@@ -1238,13 +1307,13 @@
    * répond : la Station redémarre une fois (dernier recours, docs/link-ui.md),
    * puis la page reprend la connexion après le mot de passe. Pas pour une
    * image qui part mais n'arrive pas : c'est ce navigateur ou le réseau. */
-  function failOrRestart(message: string) {
+  function failOrRestart(message: string, detail = '') {
     // Un invité ou un ami ne redémarre jamais la Station.
-    if (g || b || wasLive || !lastResortAllowed()) fail(message)
-    else void lastResort(message)
+    if (g || b || wasLive || !lastResortAllowed()) fail(message, detail)
+    else void lastResort(message, detail)
   }
 
-  async function lastResort(message: string) {
+  async function lastResort(message: string, detail = '') {
     const gen = ++generation
     clearWatches()
     phase = 'restarting'
@@ -1260,7 +1329,7 @@
     const out = await restartForConnection(() => !ended)
     if (stale(gen)) return
     // Refusé (un autre appareil en session, trop tôt…) : l'échec d'origine.
-    fail(out === 'slow' ? t('web.station.slow') : message)
+    fail(out === 'slow' ? t('web.station.slow') : message, out === 'slow' ? '' : detail)
   }
 
   async function quit() {
@@ -1845,6 +1914,7 @@
           <Mark size={34} state="now" />
           <h2 class="disp">{wasLive || lendOver ? t('session.start.ended') : t('session.start.failed')}</h2>
           <p>{error}</p>
+          {#if errorDetail}<p class="detail">{t('session.error.details')}{' '}<code>{errorDetail}</code></p>{/if}
           {#if b && !lendOver}<p class="comeback">{t('lend.friend.comeBackHint')}</p>{/if}
           <div class="row">
             {#if g}
@@ -2337,6 +2407,19 @@
 
   .overlay .comeback {
     color: var(--signal-light);
+  }
+
+  /* « Détails » : le message du moteur, à recopier tel quel. */
+  .overlay .detail {
+    font-size: 12px;
+    opacity: 0.75;
+    overflow-wrap: anywhere;
+  }
+
+  .overlay .detail code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    user-select: all;
+    -webkit-user-select: all;
   }
 
   .overlay .waiting {
