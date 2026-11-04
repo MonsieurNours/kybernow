@@ -5,6 +5,20 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## 0.9.6
+
+Bêta de KyberNow Station pour Mac. Elle n'est proposée qu'aux Stations et aux apps réglées sur les versions bêta.
+
+- **Votre Mac devient une Station.** Installez KyberNow Station sur un Mac à puce Apple (macOS 15 ou plus) et retrouvez-le sur tous vos appareils, comme un PC : un écran virtuel à la taille de votre appareil (les écrans du Mac s'éteignent le temps de la session, puis reviennent), le son, le clavier, la souris, le presse-papiers, le HDR, le partage avec KyberNow Share et le prêt de l'ordinateur. Tout tient dans une seule app, avec son icône dans la barre des menus.
+- **Un écran 4K comme les autres.** En 4K, l'écran virtuel a toutes les tailles de texte de macOS, « 2560 × 1440 » par défaut ; celle que vous choisissez dans Réglages › Moniteurs est retenue pour vos prochaines sessions.
+- **Face à un Mac, chaque app parle Mac.** Le menu Touches propose ⌘ ⇥, ⌘ Espace, ⌃ ⌘ Q et les autres raccourcis du Mac ; avec un clavier de PC, « Ctrl agit comme ⌘ » (allumé d'office) fait copier, coller et le reste avec Ctrl. Sur Mac, iPhone, iPad et Apple TV, ⌘ part tel quel.
+- **Les manettes sur Mac arrivent bientôt** : elles attendent l'accord d'Apple. D'ici là, les apps le disent (« Manettes indisponibles sur cet ordinateur ») et, sur Apple TV et Android, la manette en souris pilote le Mac.
+- **Le HDR sur Windows, Android et Linux.** Sur un écran HDR, la puce « HDR » s'allume aussi dans ces apps, comme sur Mac, iPhone, iPad, Apple TV et les téléviseurs LG.
+- **Prêt de l'ordinateur sous Windows** : ce que vos apps déjà ouvertes lancent pendant un prêt n'est plus fermé.
+- **App Windows** : en plein écran, ⊞ + Tab et les autres raccourcis de la touche ⊞ vont à l'ordinateur.
+- **DualSense sur iPhone et Apple TV** : les vibrations marchent, à l'intensité voulue par le jeu (la manette refusait le mode de vibration avancé d'iOS).
+- La Station pour Mac a été essayée sur un Mac M4 Max depuis un PC et un iPhone ; le HDR de Windows, Android et Linux n'a pas encore été essayé sur un vrai écran HDR : vos retours sont les bienvenus sur le Discord.
+
 ## 0.9.5
 
 Bêta des consoles PlayStation. Elle n'est proposée qu'aux Stations et aux apps réglées sur les versions bêta.

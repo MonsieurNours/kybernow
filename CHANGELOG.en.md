@@ -4,6 +4,20 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## 0.9.6
+
+KyberNow Station for Mac beta. It is only offered to Stations and apps set to beta versions.
+
+- **Your Mac becomes a Station.** Install KyberNow Station on a Mac with Apple silicon (macOS 15 or later) and find it on all your devices, like a PC: a virtual display sized for your device (the Mac's displays turn off for the session, then come back), sound, keyboard, mouse, clipboard, HDR, sharing with KyberNow Share and lending the computer. It all fits in one app, with its icon in the menu bar.
+- **A 4K display like any other.** In 4K, the virtual display has every macOS text size, “2560 × 1440” by default; the one you pick in System Settings › Displays is kept for your next sessions.
+- **With a Mac, every app speaks Mac.** The Keys menu offers ⌘ ⇥, ⌘ Space, ⌃ ⌘ Q and the Mac's other shortcuts; with a PC keyboard, “Ctrl acts as ⌘” (on by default) lets you copy, paste and the rest with Ctrl. On Mac, iPhone, iPad and Apple TV, ⌘ goes as it is.
+- **Controllers on Mac are coming soon**: they are waiting for Apple's approval. Until then, the apps say so (“Controllers unavailable on this computer”) and, on Apple TV and Android, the controller as mouse drives the Mac.
+- **HDR on Windows, Android and Linux.** On an HDR screen, the “HDR” chip now lights up in these apps too, as on Mac, iPhone, iPad, Apple TV and LG TVs.
+- **Lending the computer on Windows**: what your already open apps start during a loan is no longer closed.
+- **Windows app**: in full screen, ⊞ + Tab and the other ⊞ key shortcuts go to the computer.
+- **DualSense on iPhone and Apple TV**: rumble works, at the strength the game asks for (the controller refused iOS's advanced rumble mode).
+- The Station for Mac has been tried on an M4 Max Mac from a PC and an iPhone; HDR on Windows, Android and Linux hasn't been tried on a real HDR screen yet: your feedback is welcome on the Discord.
+
 ## 0.9.5
 
 PlayStation consoles beta. It is only offered to Stations and apps set to beta versions.
