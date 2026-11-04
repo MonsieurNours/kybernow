@@ -193,6 +193,33 @@ pub struct Info {
     /// [`crate::profile::hdr_state`].
     #[serde(default)]
     pub hdr: Option<HdrInfo>,
+    /// Les manettes de la Station (Station Mac : absentes tant qu'Apple n'a
+    /// pas accordé son droit) ; `None` avec une Station d'avant : disponibles.
+    /// Voir [`Info::gamepads_available`].
+    #[serde(default)]
+    pub gamepads: Option<GamepadsInfo>,
+}
+
+impl Info {
+    /// L'ordinateur crée les manettes de l'appareil (docs/link-ui.md,
+    /// « Manettes indisponibles ») : vrai sans le champ (Stations d'avant).
+    pub fn gamepads_available(&self) -> bool {
+        self.gamepads.as_ref().is_none_or(|g| g.available)
+    }
+}
+
+/// `gamepads` de `GET /api/stream/info`.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct GamepadsInfo {
+    #[serde(default = "gamepads_yes")]
+    pub available: bool,
+    /// Pourquoi elles manquent (« entitlement » : droit d'Apple pas accordé).
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+fn gamepads_yes() -> bool {
+    true
 }
 
 /// `hdr` de `GET /api/stream/info`.
@@ -1245,6 +1272,17 @@ pub(crate) fn path_segment(id: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn manettes_de_la_station() {
+        let info = |json: &str| serde_json::from_str::<super::Info>(json).unwrap();
+        assert!(info("{}").gamepads_available());
+        assert!(info(r#"{"gamepads": null}"#).gamepads_available());
+        assert!(info(r#"{"gamepads": {"available": true, "reason": null}}"#).gamepads_available());
+        let mac = info(r#"{"os": "macOS 26.1", "gamepads": {"available": false, "reason": "entitlement"}}"#);
+        assert!(!mac.gamepads_available());
+        assert_eq!(mac.gamepads.unwrap().reason.as_deref(), Some("entitlement"));
+    }
+
     #[test]
     fn adresse_d_admin_sans_console() {
         assert_eq!(super::admin_url("192.168.1.20", 24811), "https://192.168.1.20:24811/");
