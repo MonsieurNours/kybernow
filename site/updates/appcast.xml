@@ -3,6 +3,24 @@
     <channel>
         <title>KyberNow</title>
         <item>
+            <title>0.9.7</title>
+            <pubDate>Wed, 04 Nov 2026 13:13:23 +0100</pubDate>
+            <sparkle:channel>beta</sparkle:channel>
+            <sparkle:version>202611041249</sparkle:version>
+            <sparkle:shortVersionString>0.9.7</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[
+Fixes for 0.9.6. It is only offered to Stations and apps set to beta versions.
+
+- **Lending the computer to a friend with an HDR screen.** On a PC, when the friend borrowed the computer from an HDR screen (a recent iPhone, for example), they never got a picture and the computer ended up going back to its host. The picture now arrives, in HDR, and in SDR if the friend turned HDR off in their app.
+- **Several displays with a Mac Station.** From a PC with two displays, the Mac only created one. Both now open, ready in a moment, and the mouse moves from one to the other.
+- Lending in HDR hasn't been tried with a real PC yet: your feedback is welcome on the Discord.
+]]></description>
+            <sparkle:releaseNotesLink xml:lang="fr">https://www.kybernow.app/updates/notes/0.9.7/KyberNow-Link-macOS.fr.html</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/MonsieurNours/kybernow/releases/download/v0.9.7/KyberNow-Link-macOS.zip" length="50675685" type="application/octet-stream" sparkle:edSignature="zbIFe7COJtEtcZp9CwLfmIzAMafqnXCcB5//H86xmtZWmBD9pOOInXXdjHS7NW8UfUFgyhMUNHCESCjSCM3EAw=="/>
+        </item>
+        <item>
             <title>0.9.6</title>
             <pubDate>Wed, 04 Nov 2026 11:19:56 +0100</pubDate>
             <sparkle:channel>beta</sparkle:channel>
