@@ -145,6 +145,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
      * jamais pour un invité ni un ami qui emprunte, qui ne lisent pas l'info de l'ordinateur.
      */
     private lateinit var padsNotice: PadsNotice
+
+    /**
      * HDR (docs/hdr.md) : l'écran de l'appareil (suivi pendant la session), l'info de l'ordinateur qui décide de la
      * puce de la barre (relue à l'ouverture de la barre), et le suivi de l'écran.
      */
