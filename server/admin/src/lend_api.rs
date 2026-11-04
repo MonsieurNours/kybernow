@@ -196,8 +196,15 @@ pub fn for_host(s: &AppState) -> Option<Value> {
 fn kyber_token(s: &AppState, loan: &lend::Loan) -> Option<String> {
     let secret = s.kyber.jwt_secret()?;
     let display = loan.display.map(|(id, _)| id)?;
-    let claims = json!({ "kn_role": "player_kbm", "kn_display": display, "kn_rev": 1 });
-    Some(crate::kyber_proxy::jwt_with(&secret, &loan.kyber_user(), lend::TOKEN_LIFETIME, claims))
+    Some(crate::kyber_proxy::jwt_with(&secret, &loan.kyber_user(), lend::TOKEN_LIFETIME, lend_claims(display, loan.display_hdr)))
+}
+
+/// Les droits de l'ami dans Kyber : joueur au clavier, à la souris et aux
+/// manettes, sur son écran. `kn_hdr` (correctif Kyber 0022) : son écran est
+/// en HDR ; personne d'autre n'y a d'image, c'est à Kyber de le capter en HDR
+/// (sinon la capture SDR refuse les images HDR et l'ami n'a jamais d'image).
+fn lend_claims(display: u32, hdr: bool) -> serde_json::Value {
+    json!({ "kn_role": "player_kbm", "kn_display": display, "kn_rev": 1, "kn_hdr": hdr })
 }
 
 /// Plus d'entrées pour l'ami (rôle spectateur, révision 2 : un jeton renouvelé
@@ -1459,6 +1466,15 @@ async fn supervise_tick(s: &AppState) {
 #[cfg(all(test, not(windows)))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn le_jeton_du_pret_dit_le_hdr_de_l_ecran() {
+        let sdr = lend_claims(7, false);
+        assert_eq!(sdr["kn_display"], 7);
+        assert_eq!(sdr["kn_role"], "player_kbm");
+        assert_eq!(sdr["kn_hdr"], false);
+        assert_eq!(lend_claims(7, true)["kn_hdr"], true);
+    }
 
     #[test]
     fn borrow_carries_the_friend_hdr() {

@@ -1125,6 +1125,15 @@ mod tests {
         .unwrap();
         let BorrowAnswer::Ready(b) = ready else { panic!() };
         assert_eq!((b.lend.as_str(), b.kyber.port, b.display.id, b.until, b.steam, b.beat), ("l1", 24812, 7, None, LendSteam::Host, 5));
+        assert!(!b.display.hdr, "sans « hdr » : SDR");
+        let hdr = borrow_answer(200, serde_json::json!({
+            "lend": "l1", "secret": "S", "host": "Matthieu", "computer": "PC-SALON",
+            "kyber": { "port": 24812, "fingerprint": "sha256:kk", "token": "JWT", "expires": 120 },
+            "display": { "id": 7, "width": 2868, "height": 1320, "refresh": 120, "hdr": true }, "until": null, "steam": "host", "beat": 5
+        }))
+        .unwrap();
+        let BorrowAnswer::Ready(b) = hdr else { panic!() };
+        assert!(b.display.hdr, "écran du prêt en HDR");
         assert!(!format!("{b:?}").contains("\"S\"") && !format!("{b:?}").contains("JWT"));
         let pending = borrow_answer(202, serde_json::json!({ "request": "r1", "secret": "S2", "host": "Matthieu" })).unwrap();
         assert!(matches!(pending, BorrowAnswer::Pending { ref request, ref host, .. } if request == "r1" && host == "Matthieu"));

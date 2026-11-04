@@ -2387,7 +2387,8 @@ impl Worker {
     }
 
     /// L'image de l'écran de l'appareil `screen` part en HDR : hôte, ce que
-    /// la Station a obtenu ; ami d'un prêt, ce qu'il demande ; invité, son
+    /// la Station a obtenu ; ami d'un prêt, le HDR que la Station a mis sur
+    /// son écran ([`Self::apply_borrowed_hdr`]) ; invité, son
     /// écran et son décodeur, sur l'image de l'hôte en HEVC ou AV1 4:2:0 (Kyber
     /// lui fait sinon une image à part en SDR). Jamais en H.264 ni en 4:4:4.
     fn stream_hdr_for(&self, screen: usize, s: &StreamSettings) -> bool {
@@ -2397,10 +2398,25 @@ impl Worker {
         if self.guest.is_some() {
             return self.params.screen_hdr && self.capabilities().is_some_and(|c| c.hdr);
         }
-        if self.borrow.is_some() {
-            return self.wants_hdr(screen);
-        }
         self.obtained(screen)
+    }
+
+    /// Ami d'un prêt : le HDR que la Station a mis sur son écran (`display.hdr`
+    /// de `borrow`), pour l'écran de la session, et seulement s'il l'a voulu.
+    /// Le premier flux part ainsi au bon format : demandé en SDR sur un écran
+    /// HDR, Kyber le capte en HDR et le ramène en SDR (correctif 0022) ; un
+    /// souhait que la Station n'a pas suivi n'est jamais lu en HDR.
+    fn apply_borrowed_hdr(&mut self, display_hdr: bool) {
+        let screen = self.primary_screen();
+        let wanted = self.wants_hdr(screen);
+        let got = display_hdr && wanted;
+        self.hdr_obtained.clear();
+        self.hdr_luminance.clear();
+        let lum = if got { self.luminance_for(screen) } else { None };
+        self.set_obtained(screen, got, lum);
+        if wanted || display_hdr {
+            info!("HDR de l'emprunt : demandé {wanted}, écran de la Station en HDR : {display_hdr}, image en HDR : {got}");
+        }
     }
 
     /// « L'ordinateur n'a pas pu passer en HDR : image en SDR. », une fois.
@@ -2774,8 +2790,9 @@ impl Worker {
             heartbeat_seconds: b.beat.max(1),
             kyber_fingerprint: Some(fingerprint.clone()),
             screens: None,
-            hdr: Vec::new(),
+            hdr: vec![d.hdr],
         });
+        self.apply_borrowed_hdr(d.hdr);
 
         self.status(Status::Connecting);
         let _ = rustls::crypto::ring::default_provider().install_default();
@@ -5206,9 +5223,14 @@ mod tests {
         w.params.capabilities = Some(crate::profile::Capabilities { hevc: true, hevc444: false, av1: false, hdr: true });
         let s = w.effective();
         assert_eq!((s.codec, s.yuv444), (Codec::Hevc, false));
-        assert!(w.stream_hdr_for(0, &s), "l'ami a le HDR de son écran, sans demander à la Station");
+        // L'image suit le HDR que la Station a mis sur l'écran du prêt.
+        w.apply_borrowed_hdr(true);
+        assert!(w.stream_hdr_for(0, &s), "écran du prêt en HDR : image HDR dès le premier flux");
+        w.apply_borrowed_hdr(false);
+        assert!(!w.stream_hdr_for(0, &s), "la Station a gardé l'écran en SDR : jamais lu en HDR");
         w.params.settings.hdr = false;
-        assert!(!w.stream_hdr_for(0, &w.effective()));
+        w.apply_borrowed_hdr(true);
+        assert!(!w.stream_hdr_for(0, &w.effective()), "HDR coupé dans l'app");
     }
 
     #[test]
@@ -5570,7 +5592,7 @@ mod tests {
     }
 
     fn beat(role: ShareRole) -> ShareBeat {
-        ShareBeat { role, token: Some("jwt-2".into()), expires: Some(120), display: Some(ShareDisplay { id: 7, width: 1920, height: 1080, refresh: 60 }), image: None, end: None }
+        ShareBeat { role, token: Some("jwt-2".into()), expires: Some(120), display: Some(ShareDisplay { id: 7, width: 1920, height: 1080, refresh: 60, hdr: false }), image: None, end: None }
     }
 
     const ALL_HOST_ONLY: [HostOnly; 12] = [
@@ -5788,7 +5810,7 @@ mod tests {
         assert!(w.on_share_beat(beat(ShareRole::Spectator)).is_none());
         assert!(w.streaming.is_some() && !w.share_reconnecting);
         // L'hôte a refait l'écran : reconnexion à Kyber avec le jeton du signe de vie.
-        let moved = ShareBeat { display: Some(ShareDisplay { id: 9, width: 2560, height: 1440, refresh: 144 }), ..beat(ShareRole::Spectator) };
+        let moved = ShareBeat { display: Some(ShareDisplay { id: 9, width: 2560, height: 1440, refresh: 144, hdr: false }), ..beat(ShareRole::Spectator) };
         assert!(w.on_share_beat(moved).is_none());
         let g = w.guest.as_ref().unwrap();
         assert_eq!((g.joined.display.id, g.joined.kyber.token.as_str()), (9, "jwt-2"));
@@ -5806,7 +5828,7 @@ mod tests {
         // Joueur et nouvel écran ensemble : la reconnexion ouvre aussi les entrées.
         let (mut w, _) = guest(ShareRole::Spectator);
         w.streaming = Some(display(7, 0, 0, 1920, 1080));
-        let both = ShareBeat { display: Some(ShareDisplay { id: 4, width: 1920, height: 1080, refresh: 60 }), ..beat(ShareRole::Player) };
+        let both = ShareBeat { display: Some(ShareDisplay { id: 4, width: 1920, height: 1080, refresh: 60, hdr: false }), ..beat(ShareRole::Player) };
         assert!(w.on_share_beat(both).is_none());
         assert!(w.share_reconnecting && w.start_at.is_none() && w.wants_input());
     }

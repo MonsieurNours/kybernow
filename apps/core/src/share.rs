@@ -790,6 +790,10 @@ pub struct ShareDisplay {
     pub height: u32,
     #[serde(default)]
     pub refresh: u32,
+    /// L'écran est en HDR (écran d'un prêt : la Station l'y a mis à la
+    /// demande de l'ami, docs/hdr.md) ; absent : SDR.
+    #[serde(default)]
+    pub hdr: bool,
 }
 
 /// Réponse de `POST /api/share/join`, à donner telle quelle à la session de
@@ -1684,7 +1688,7 @@ mod tests {
         let j: ShareJoined = serde_json::from_str(body).unwrap();
         assert_eq!((j.guest.as_str(), j.role, j.host_name()), ("g1", ShareRole::Spectator, "Matthieu"));
         assert_eq!(j.kyber.port, 12345);
-        assert_eq!(j.display, ShareDisplay { id: 2_221_634_456, width: 1920, height: 1080, refresh: 60 });
+        assert_eq!(j.display, ShareDisplay { id: 2_221_634_456, width: 1920, height: 1080, refresh: 60, hdr: false });
         assert_eq!(j.codec(), Some(Codec::Hevc));
         // Repassée telle quelle par les ponts.
         let again: ShareJoined = serde_json::from_value(serde_json::to_value(&j).unwrap()).unwrap();
@@ -1715,7 +1719,7 @@ mod tests {
         assert_eq!((b.end, b.token, b.expires), (Some(ShareEnd::Removed), None, Some(0)));
         // L'écran partagé, toujours donné.
         let b: ShareBeat = serde_json::from_str(r#"{"role":"spectator","token":"t","display":{"id":9,"width":2560,"height":1440,"refresh":144}}"#).unwrap();
-        assert_eq!(b.display, Some(ShareDisplay { id: 9, width: 2560, height: 1440, refresh: 144 }));
+        assert_eq!(b.display, Some(ShareDisplay { id: 9, width: 2560, height: 1440, refresh: 144, hdr: false }));
     }
 
     #[test]
@@ -1816,7 +1820,7 @@ mod tests {
         assert_eq!((a.width, a.height, a.fps, a.yuv444), (2556, 1179, 60, false));
         assert_eq!(a.codecs, ["h264", "hevc"]);
         // Jamais au-dessus de l'image de l'hôte, quand on la connaît.
-        let host = ShareDisplay { id: 7, width: 1920, height: 1080, refresh: 50 };
+        let host = ShareDisplay { id: 7, width: 1920, height: 1080, refresh: 50, hdr: false };
         let a = auto_quality(&iphone, &decoder, Some(&host));
         assert_eq!((a.width, a.height, a.fps), (1920, 1080, 50), "des bornes : la Station garde les proportions de l'image de l'hôte");
         // Un téléviseur 4K dont le décodeur suit 1080p ; sans limite connue : l'écran.

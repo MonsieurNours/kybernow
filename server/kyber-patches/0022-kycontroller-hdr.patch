@@ -1,3 +1,71 @@
+diff --git a/kycontroller/src/auth/jwt.rs b/kycontroller/src/auth/jwt.rs
+index 35e6fa4..e0f82b1 100644
+--- a/kycontroller/src/auth/jwt.rs
++++ b/kycontroller/src/auth/jwt.rs
+@@ -137,6 +137,11 @@ struct Claims {
+     /// KyberNow: KyberNow Admin's own token, for the `/kybernow` routes.
+     #[serde(default)]
+     kn_admin: bool,
++
++    /// KyberNow (0022): the guest's display is in HDR though no host image
++    /// runs on it (a lent display KyberNow Admin put in HDR). Absent: no.
++    #[serde(default)]
++    kn_hdr: bool,
+ }
+ 
+ pub struct Jwt {
+@@ -199,6 +204,7 @@ impl Backend for Jwt {
+                 display,
+                 rev: jwt.claims.kn_rev.unwrap_or(0),
+                 quality: guest_quality(jwt.claims.kn_quality.as_deref()),
++                hdr: jwt.claims.kn_hdr,
+             }),
+             (Some(_), None) => {
+                 return Err(Error::MissingField {
+@@ -338,11 +344,30 @@ mod tests {
+                 display: 2221634456,
+                 rev: 3,
+                 quality: ShareQuality::Host,
++                hdr: false,
+             })
+         );
+         assert!(!session.admin);
+     }
+ 
++    #[test]
++    fn a_lent_display_in_hdr_is_in_the_token() {
++        let hdr = |value: serde_json::Value| {
++            let mut claims = serde_json::json!({
++                "sub": "kn-lend-1",
++                "kn_role": "player_kbm",
++                "kn_display": 7,
++            });
++            if !value.is_null() {
++                claims["kn_hdr"] = value;
++            }
++            authenticate(claims).unwrap().share.unwrap().hdr
++        };
++        assert!(!hdr(serde_json::Value::Null));
++        assert!(!hdr(false.into()));
++        assert!(hdr(true.into()));
++    }
++
+     #[test]
+     fn keyboard_and_mouse_without_gamepads_is_a_role() {
+         let session = authenticate(serde_json::json!({
+diff --git a/kycontroller/src/auth/mod.rs b/kycontroller/src/auth/mod.rs
+index 25d681c..122d8bb 100644
+--- a/kycontroller/src/auth/mod.rs
++++ b/kycontroller/src/auth/mod.rs
+@@ -182,6 +182,8 @@ pub struct GuestShare {
+     pub display: u32,
+     pub rev: u64,
+     pub quality: ShareQuality,
++    /// KyberNow (0022): its display is in HDR without a host image (`kn_hdr`).
++    pub hdr: bool,
+ }
+ 
+ /// Configuration for authentication backends loaded from TOML.
 diff --git a/kycontroller/src/avservice.rs b/kycontroller/src/avservice.rs
 index c2deb57..b5a5940 100644
 --- a/kycontroller/src/avservice.rs
@@ -98,7 +166,7 @@ index 651f5a2..016d757 100644
              manager.host_start(1, &with_bitrate(20_000_000)),
              HostStart::Join {
 diff --git a/kycontroller/src/guest_image.rs b/kycontroller/src/guest_image.rs
-index 0680cce..04f4024 100644
+index 0680cce..bd382fd 100644
 --- a/kycontroller/src/guest_image.rs
 +++ b/kycontroller/src/guest_image.rs
 @@ -9,6 +9,11 @@
@@ -170,18 +238,31 @@ index 0680cce..04f4024 100644
      }
  }
  
-@@ -475,7 +497,9 @@ fn place(
+@@ -312,6 +334,10 @@ pub(crate) struct Ask {
+     pub(crate) reader: Reader,
+     /// Its bitrate.
+     pub(crate) bitrate: u32,
++    /// KyberNow (0022): its display is in HDR though no host image runs on
++    /// it (a lent display: its token's `kn_hdr`). With a host image, the
++    /// host's HDR counts.
++    pub(crate) source_hdr: bool,
+ }
+ 
+ #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+@@ -475,7 +501,11 @@ fn place(
      capped_by: ShareQuality,
      reads_host: bool,
  ) -> Result<Choice, Refused> {
 -    let image = GuestImage::new(mode, ask.reader.codec);
 +    // KyberNow (0022): from an HDR capture, HDR for a guest that shows it.
-+    let hdr_source = s.host.is_some_and(|h| h.hdr);
++    // Without a host image, the guest's own display tells (a lent display
++    // in HDR: captured in HDR, brought to SDR for an SDR reader).
++    let hdr_source = s.host.map_or(ask.source_hdr, |h| h.hdr);
 +    let image = GuestImage::new(mode, ask.reader.codec, hdr_source && ask.reader.hdr, hdr_source);
      if s.open.contains(&image) {
          return Ok(Choice {
              placement: Placement::Join(image),
-@@ -501,7 +525,7 @@ fn place(
+@@ -501,7 +531,7 @@ fn place(
      let candidates: Vec<(u64, Placement)> = s
          .open
          .iter()
@@ -190,7 +271,7 @@ index 0680cce..04f4024 100644
          .map(|open| (open.mode().weight(), Placement::Join(*open)))
          .chain(
              s.host
-@@ -633,12 +657,17 @@ mod tests {
+@@ -633,12 +663,17 @@ mod tests {
              mode,
              codec,
              yuv444,
@@ -209,7 +290,15 @@ index 0680cce..04f4024 100644
      }
  
      fn ask(quality: ShareQuality, reader: Reader) -> Ask {
-@@ -667,9 +696,120 @@ mod tests {
+@@ -647,6 +682,7 @@ mod tests {
+             steps: 0,
+             reader,
+             bitrate: 50_000_000,
++            source_hdr: false,
+         }
+     }
+ 
+@@ -667,9 +703,166 @@ mod tests {
              height,
              fps,
              codec,
@@ -285,6 +374,52 @@ index 0680cce..04f4024 100644
 +        )
 +        .unwrap();
 +        let image = opened(c);
++        assert!(!image.hdr && !image.hdr_source);
++    }
++
++    /// A lent display (no host image) that KyberNow Admin put in HDR.
++    fn lent_display(open: &[GuestImage]) -> Situation<'_> {
++        Situation {
++            host: None,
++            host_session: false,
++            screen: Mode {
++                width: 2868,
++                height: 1320,
++                fps: 120,
++            },
++            open,
++            used: 0,
++            budget: NVENC,
++        }
++    }
++
++    fn lent_hdr(reader: Reader) -> Ask {
++        Ask {
++            source_hdr: true,
++            ..ask(ShareQuality::Host, reader)
++        }
++    }
++
++    #[test]
++    fn a_lent_display_in_hdr_is_captured_in_hdr() {
++        // The friend's screen shows HDR: an HDR image (it found none to
++        // read before, and its SDR one could not be captured).
++        let Placement::Open { image, .. } = choose(&lent_display(&[]), &lent_hdr(hdr_reader(true))).unwrap().placement else {
++            panic!("an image of its own")
++        };
++        assert!(image.hdr && image.hdr_source);
++        // An SDR reader: captured in HDR all the same, brought to SDR.
++        let Placement::Open { image, .. } = choose(&lent_display(&[]), &lent_hdr(hdr_reader(false))).unwrap().placement else {
++            panic!("an image of its own")
++        };
++        assert!(!image.hdr && image.hdr_source);
++    }
++
++    #[test]
++    fn a_lent_display_in_sdr_stays_sdr() {
++        let Placement::Open { image, .. } = choose(&lent_display(&[]), &ask(ShareQuality::Host, hdr_reader(true))).unwrap().placement else {
++            panic!("an image of its own")
++        };
 +        assert!(!image.hdr && !image.hdr_source);
 +    }
 +
@@ -427,7 +562,7 @@ index 0000000..f9a197b
 +    }
 +}
 diff --git a/kycontroller/src/kybernow.rs b/kycontroller/src/kybernow.rs
-index 55e9ffc..a2cfa15 100644
+index 55e9ffc..06ff9c2 100644
 --- a/kycontroller/src/kybernow.rs
 +++ b/kycontroller/src/kybernow.rs
 @@ -260,6 +260,8 @@ pub(crate) struct GuestRequest {
@@ -439,15 +574,18 @@ index 55e9ffc..a2cfa15 100644
      pub(crate) bitrate: u32,
      pub(crate) intra_refresh: Option<bool>,
  }
-@@ -354,6 +356,7 @@ fn guest_ask(ctrl: &Controller, uid: &Uuid, request: &GuestRequest) -> crate::er
+@@ -354,8 +356,10 @@ fn guest_ask(ctrl: &Controller, uid: &Uuid, request: &GuestRequest) -> crate::er
              reader: Reader {
                  codec: request.codec,
                  yuv444: request.yuv444,
 +                hdr: request.hdr,
              },
              bitrate: request.bitrate,
++            source_hdr: s.share.as_ref().is_some_and(|share| share.hdr),
          })
-@@ -495,6 +498,10 @@ async fn acquire_placement(
+     })
+ }
+@@ -495,6 +499,10 @@ async fn acquire_placement(
                  yuv444: false,
                  intra_refresh: request.intra_refresh,
                  pixel_rate: image.mode().weight(),
@@ -458,7 +596,7 @@ index 55e9ffc..a2cfa15 100644
              };
              let topology = VideoTopology::Guest {
                  display_id,
-@@ -1212,6 +1219,8 @@ struct StreamEntry {
+@@ -1212,6 +1220,8 @@ struct StreamEntry {
      display: u32,
      codec: &'static str,
      yuv444: bool,
@@ -467,7 +605,7 @@ index 55e9ffc..a2cfa15 100644
      /// Patch 0020: `host` (the host's image, first) or `guest` (a guest
      /// image).
      kind: &'static str,
-@@ -1316,6 +1325,7 @@ pub(crate) async fn get_sessions(ctrl: web::Data<Controller>, req: HttpRequest)
+@@ -1316,6 +1326,7 @@ pub(crate) async fn get_sessions(ctrl: web::Data<Controller>, req: HttpRequest)
                      display: key.display_id(),
                      codec: ImageCodec::from(&stream.config.codec).name(),
                      yuv444: stream.config.yuv444,
@@ -475,7 +613,15 @@ index 55e9ffc..a2cfa15 100644
                      kind,
                      width: mode.width,
                      height: mode.height,
-@@ -1671,6 +1681,8 @@ mod tests {
+@@ -1519,6 +1530,7 @@ mod tests {
+             display: 7,
+             rev,
+             quality: ShareQuality::Host,
++            hdr: false,
+         })
+     }
+ 
+@@ -1671,6 +1683,8 @@ mod tests {
              yuv444: false,
              intra_refresh: None,
              pixel_rate: 0,
@@ -484,7 +630,7 @@ index 55e9ffc..a2cfa15 100644
          }
      }
  
-@@ -1694,6 +1706,8 @@ mod tests {
+@@ -1694,6 +1708,8 @@ mod tests {
                  height,
                  fps,
                  codec: ImageCodec::H264,
@@ -493,7 +639,7 @@ index 55e9ffc..a2cfa15 100644
              },
              screen,
          }
-@@ -1710,6 +1724,7 @@ mod tests {
+@@ -1710,6 +1726,7 @@ mod tests {
              request: GuestRequest {
                  codec: ImageCodec::H264,
                  yuv444: false,
@@ -501,14 +647,17 @@ index 55e9ffc..a2cfa15 100644
                  bitrate: 40_000_000,
                  intra_refresh: None,
              },
-@@ -1727,6 +1742,7 @@ mod tests {
+@@ -1727,8 +1744,10 @@ mod tests {
              reader: Reader {
                  codec: ImageCodec::H264,
                  yuv444: false,
 +                hdr: false,
              },
              bitrate: 40_000_000,
++            source_hdr: false,
          }
+     }
+ 
 diff --git a/kycontroller/src/kymux_controller/mod.rs b/kycontroller/src/kymux_controller/mod.rs
 index fd01cc4..34f0646 100644
 --- a/kycontroller/src/kymux_controller/mod.rs
