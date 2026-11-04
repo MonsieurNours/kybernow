@@ -22,6 +22,6 @@
     <control>gamepad</control>
   </supports>
   <releases>
-    <release version="0.9.7" date="2026-11-04"/>
+    <release version="0.9.8" date="2026-11-04"/>
   </releases>
 </component>
