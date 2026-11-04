@@ -148,8 +148,8 @@ final class Agent {
             throw Failure(message: "macOS refuse le mode \(w) × \(h) à \(hz) Hz")
         }
         // L'écran met un instant à prendre son mode (macOS y met l'échelle
-        // retenue pour cet écran, sinon celle qu'il recommande).
-        waitUntil(seconds: 3) { CGDisplayCopyDisplayMode(display.displayID) != nil }
+        // retenue pour cet écran, sinon celle qu'il recommande) ; voir `shown`.
+        waitUntil(seconds: 3) { CGDisplayBounds(display.displayID).width > 0 }
         return ["id": display.displayID]
     }
 
@@ -162,6 +162,9 @@ final class Agent {
         if switchedOff == nil {
             previousOrigins = Dictionary(uniqueKeysWithValues: onlineDisplays().filter { !isVirtual($0) }.map { ($0, CGDisplayBounds($0).origin) })
         }
+        // Les écrans virtuels en place (un écran juste créé met un instant à
+        // prendre son mode) : leurs échelles en dépendent.
+        waitUntil(seconds: 4) { ids.allSatisfy { CGDisplayBounds($0).width > 0 } }
         // Mode Retina d'abord : les positions sont en points.
         var config: CGDisplayConfigRef?
         CGBeginDisplayConfiguration(&config)
@@ -169,20 +172,24 @@ final class Agent {
         for screen in list {
             let id = CGDirectDisplayID(try int(screen, "id"))
             let hidpi = screen["hidpi"] as? Bool ?? false
+            let width = try int(screen, "width")
             if scaled.contains(id) {
                 // L'échelle de macOS reste (celle retenue ou recommandée).
                 scales.append(scaleOf(id))
-            } else if hidpi, let mode = retinaMode(id, width: try int(screen, "width"), height: try int(screen, "height")) {
+            } else if hidpi, let mode = retinaMode(id, width: width, height: try int(screen, "height")) {
                 CGConfigureDisplayWithDisplayMode(config, id, mode, nil)
                 scales.append(2)
+            } else if CGDisplayBounds(id).width > 0 {
+                // Modes invisibles d'ici (voir `shown`) : l'échelle d'après ses bornes.
+                scales.append(Double(width) / CGDisplayBounds(id).width)
             } else {
                 scales.append(1)
             }
         }
         for (i, screen) in list.enumerated() {
             let id = ids[i]
-            CGConfigureDisplayOrigin(config, id, Int32((Double(try int(screen, "x")) / scales[0]).rounded()),
-                                     Int32((Double(try int(screen, "y")) / scales[0]).rounded()))
+            CGConfigureDisplayOrigin(config, id, toPoints(try int(screen, "x"), own: scales[i], main: scales[0]),
+                                     toPoints(try int(screen, "y"), own: scales[i], main: scales[0]))
         }
         var others: [CGDirectDisplayID] = []
         if !keepOthers {
@@ -191,7 +198,7 @@ final class Agent {
             // virtuel principal, en (0, 0), devient l'écran principal.
             var right: Int32 = 0
             for (i, screen) in list.enumerated() {
-                let x = Double((try? int(screen, "x")) ?? 0) / scales[0]
+                let x = Double(toPoints((try? int(screen, "x")) ?? 0, own: scales[i], main: scales[0]))
                 let w = Double((try? int(screen, "width")) ?? 0) / scales[i]
                 right = max(right, Int32((x + w).rounded()))
             }
@@ -213,16 +220,17 @@ final class Agent {
         waitUntil(seconds: 8) {
             let active = Set(activeDisplays())
             return want.isSubset(of: active) && (keepOthers || active == want) && CGDisplayIsMain(ids[0]) != 0
+                && ids.allSatisfy { shown($0) != nil }
         }
         let active = Set(activeDisplays())
-        let screens: [Any] = ids.map { id in
-            guard active.contains(id), let m = CGDisplayCopyDisplayMode(id) else { return NSNull() }
+        let screens: [Any] = ids.enumerated().map { i, id in
+            guard active.contains(id), let m = shown(id) else { return NSNull() }
             let b = CGDisplayBounds(id)
             // Positions en pixels, comme celles demandées ; à toutes les
             // échelles, la définition de l'appareil.
-            let (w, h) = panel(id) ?? (m.pixelWidth, m.pixelHeight)
-            return ["id": id, "width": w, "height": h, "refresh": Int(m.refreshRate.rounded()),
-                    "x": Int((b.origin.x * scales[0]).rounded()), "y": Int((b.origin.y * scales[0]).rounded())] as [String: Any]
+            return ["id": id, "width": m.w, "height": m.h, "refresh": m.hz,
+                    "x": toPixels(b.origin.x, own: scales[i], main: scales[0]),
+                    "y": toPixels(b.origin.y, own: scales[i], main: scales[0])] as [String: Any]
         }
         let stillOn = keepOthers ? 0 : active.subtracting(want).count
         return ["screens": screens, "disabled_others": others.count - stillOn, "scales": scales.map { Int(($0 * 100).rounded()) }]
@@ -269,9 +277,8 @@ final class Agent {
         let ids = (req["ids"] as? [Any] ?? []).compactMap { ($0 as? NSNumber).map { CGDirectDisplayID($0.uint32Value) } }
         let active = activeDisplays()
         let modes: [[String: Int]] = ids.map { id in
-            guard active.contains(id), let m = CGDisplayCopyDisplayMode(id) else { return ["width": 0, "height": 0, "refresh": 0] }
-            let (w, h) = panel(id) ?? (m.pixelWidth, m.pixelHeight)
-            return ["width": w, "height": h, "refresh": Int(m.refreshRate.rounded())]
+            guard active.contains(id), let m = shown(id) else { return ["width": 0, "height": 0, "refresh": 0] }
+            return ["width": m.w, "height": m.h, "refresh": m.hz]
         }
         let virtualIds = Set(virtuals.values.map(\.displayID))
         return ["modes": modes, "displays": active.count, "others": active.filter { !virtualIds.contains($0) }.count]
@@ -291,18 +298,22 @@ final class Agent {
         modes[id] = (w, h, hz, hdr)
         if allScales {
             // L'échelle reste celle de macOS ; l'image suit la nouvelle définition.
-            waitUntil(seconds: 3) { CGDisplayCopyDisplayMode(id) != nil }
+            waitUntil(seconds: 3) { shown(id) != nil }
             writePanels()
-            let m = CGDisplayCopyDisplayMode(id)
-            return ["width": w, "height": h, "refresh": Int((m?.refreshRate ?? Double(hz)).rounded())]
+            return ["width": w, "height": h, "refresh": shown(id)?.hz ?? hz]
         }
-        waitUntil(seconds: 3) { matchingMode(id, width: w, height: h, hidpi: hidpi) != nil }
-        if let mode = matchingMode(id, width: w, height: h, hidpi: hidpi) {
-            configure { c in CGConfigureDisplayWithDisplayMode(c, id, mode, nil) }
+        // Les modes d'un écran apparu après la première requête de ce
+        // processus ne se voient pas d'ici (voir `shown`) : macOS prend alors
+        // de lui-même le mode déclaré.
+        if CGDisplayCopyDisplayMode(id) != nil {
+            waitUntil(seconds: 3) { matchingMode(id, width: w, height: h, hidpi: hidpi) != nil }
+            if let mode = matchingMode(id, width: w, height: h, hidpi: hidpi) {
+                configure { c in CGConfigureDisplayWithDisplayMode(c, id, mode, nil) }
+            }
+            waitUntil(seconds: 3) { CGDisplayCopyDisplayMode(id)?.pixelWidth == w }
         }
-        waitUntil(seconds: 3) { CGDisplayCopyDisplayMode(id)?.pixelWidth == w }
-        guard let m = CGDisplayCopyDisplayMode(id) else { return ["width": 0, "height": 0, "refresh": 0] }
-        return ["width": m.pixelWidth, "height": m.pixelHeight, "refresh": Int(m.refreshRate.rounded())]
+        guard let m = shown(id) else { return ["width": 0, "height": 0, "refresh": 0] }
+        return ["width": m.w, "height": m.h, "refresh": m.hz]
     }
 
     // MARK: HDR
@@ -348,6 +359,22 @@ final class Agent {
         let b = CGDisplayBounds(id)
         guard let (w, _) = panel(id), b.width > 0 else { return 2 }
         return Double(w) / b.width
+    }
+
+    /// Le mode d'un écran virtuel tel que l'appareil le reçoit (pixels de
+    /// l'appareil, fréquence). Un processus ne voit pas le mode d'un écran
+    /// apparu après sa première requête à macOS : `CGDisplayCopyDisplayMode`
+    /// y reste vide, et `CGDisplayCopyAllDisplayModes` aussi, alors que ses
+    /// bornes suivent (le 2e écran d'une session multi-écrans : essai du
+    /// 04/11/2026, un autre processus le voyait en « 2560 × 1440 »). Un écran
+    /// en place a donc des bornes, et son mode est celui demandé ; la
+    /// fréquence vient de macOS quand il la donne.
+    private func shown(_ id: CGDirectDisplayID) -> (w: Int, h: Int, hz: Int)? {
+        guard CGDisplayBounds(id).width > 0, let m = modes[id] else { return nil }
+        let cg = CGDisplayCopyDisplayMode(id)
+        let hz = cg.map { Int($0.refreshRate.rounded()) }.flatMap { $0 > 0 ? $0 : nil } ?? m.hz
+        if let cg, !scaled.contains(id) { return (cg.pixelWidth, cg.pixelHeight, hz) }
+        return (m.w, m.h, hz)
     }
 
     /// Pour Kyber (correctif Mac 0014) : la définition de l'appareil de chaque
@@ -458,6 +485,20 @@ func hdrActive(_ id: CGDirectDisplayID) -> Bool {
     typealias Fn = @convention(c) (UInt32) -> Bool
     guard let sym = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "SLSDisplayIsHDRModeEnabled") else { return false }
     return unsafeBitCast(sym, to: Fn.self)(id)
+}
+
+/// Une place de l'appareil (pixels) en points du bureau. Devant l'écran
+/// principal (place positive), l'écart se compte en écrans de la taille du
+/// principal ; derrière (négative), en écrans de la taille de celui qu'on
+/// place : un écran collé à gauche du principal le reste quelles que soient
+/// les deux échelles (4K à 150 % à gauche d'un 4K à 150 % : −3840 → −2560).
+func toPoints(_ px: Int, own: Double, main: Double) -> Int32 {
+    Int32((Double(px) / (px < 0 ? own : main)).rounded())
+}
+
+/// L'inverse de `toPoints` : une place du bureau (points) en pixels de l'appareil.
+func toPixels(_ pt: CGFloat, own: Double, main: Double) -> Int {
+    Int((Double(pt) * (pt < 0 ? own : main)).rounded())
 }
 
 /// Mode Retina de l'écran : `width` × `height` pixels, la moitié en points.

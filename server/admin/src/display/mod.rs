@@ -1946,7 +1946,7 @@ impl Manager {
             match placed {
                 Some(placed) => slots.push(Slot { guid, created, index, placed, gdi_name, announced: None, hdr: false, hdr_original: None, luminance: None, color: None, check: None }),
                 None => {
-                    tracing::warn!("un écran virtuel n'a pas été activé par Windows : retiré");
+                    tracing::warn!("un écran virtuel n'a pas été activé par le système : retiré");
                     let _ = self.backend.remove(guid);
                 }
             }
