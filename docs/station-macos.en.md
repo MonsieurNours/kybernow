@@ -10,6 +10,8 @@ A Mac with Apple silicon becomes a Station like a Windows PC: same features, sam
 
 ## Status
 
+**On a par with the Windows Station** (2026-11-04, the author's decision after the tests): released without any beta label in the 0.9.8 stable, like the Windows Station; only controllers wait for Apple's entitlement. The milestones below keep their history.
+
 **Milestone 1, in progress (2026-11-03)**: Kyber server built for Apple silicon with the Windows Station's 30 server patches, none changed (`server/macos/scripts/build-kyber.sh`, shared application in `server/kyber-patches/apply.sh`), started as a signed LaunchAgent by `server/macos/scripts/run-kyber.sh`. Tried on the M4 Max, locally with this Mac's Kyber client:
 
 - the Mac's three displays found by ScreenCaptureKit, once Screen Recording is allowed for "KyberNow Station (Kyber)";

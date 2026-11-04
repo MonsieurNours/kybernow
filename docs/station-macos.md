@@ -10,6 +10,8 @@ Un Mac à puce Apple devient une Station comme un PC Windows : mêmes fonctions,
 
 ## État
 
+**Au même niveau que la Station Windows** (04/11/2026, décision de l'auteur après les essais) : publiée sans mention de bêta dans la 0.9.8 stable, comme la Station Windows ; seules les manettes attendent le droit d'Apple. Les jalons ci-dessous gardent leur historique.
+
 **Jalon 1, en cours (03/11/2026)** : serveur Kyber compilé pour la puce Apple avec les 30 correctifs serveur de Windows, sans en changer un (`server/macos/scripts/build-kyber.sh`, pose commune `server/kyber-patches/apply.sh`), lancé en LaunchAgent signé par `server/macos/scripts/run-kyber.sh`. Essayé sur le M4 Max, en local avec le client Kyber de ce Mac :
 
 - les trois écrans du Mac trouvés par ScreenCaptureKit, une fois l'enregistrement de l'écran autorisé pour « KyberNow Station (Kyber) » ;

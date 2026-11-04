@@ -5,6 +5,20 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## 0.9.8
+
+Première version stable depuis la 0.9.0 : elle réunit tout ce que les bêtas 0.9.1 à 0.9.7 ont apporté.
+
+- **Votre Mac devient une Station.** Installez KyberNow Station sur un Mac à puce Apple (macOS 15 ou plus) et retrouvez-le sur tous vos appareils, comme un PC : un écran virtuel à la taille de votre appareil (plusieurs depuis un ordinateur à plusieurs écrans), le son, le clavier, la souris, le presse-papiers, le HDR, le partage avec KyberNow Share et le prêt de l'ordinateur. Tout tient dans une seule app, avec son icône dans la barre des menus. Les écrans du Mac s'éteignent le temps de la session, puis reviennent. En 4K, l'écran virtuel a toutes les tailles de texte de macOS. Seules les manettes manquent encore : elles attendent l'accord d'Apple, et les apps le disent (« Manettes indisponibles sur cet ordinateur »).
+- **Le HDR, dans toutes les apps.** Sur un écran HDR, une puce « HDR » apparaît sur la carte de l'ordinateur, allumée d'office, et se coche ou se décoche dans la barre en session. La Station passe l'écran virtuel en HDR au début de la session et le remet comme avant à la fin ; elle donne aux jeux la vraie luminosité de votre écran, et un écran « Réglage du HDR » permet de l'ajuster à l'œil. Un invité sans écran HDR reçoit une image convertie en SDR, et l'ami à qui vous prêtez l'ordinateur a le HDR comme vous. Sur PC, il faut Windows 11 24H2 et une carte graphique qui encode en 10 bits.
+- **Jouez à votre PS5 ou à votre PS4 dans KyberNow Link.** Les consoles de votre réseau apparaissent à l'accueil, à côté de vos ordinateurs. Associez-les une fois, puis « Jouer » : la console se réveille, et la partie s'ouvre, en HDR sur un écran HDR. Avec une DualSense : vibrations, gâchettes adaptatives, pavé tactile et gyroscope. Vos comptes passent d'un appareil à l'autre par iCloud, ou avec un code à 6 chiffres.
+- **Face à un Mac, chaque app parle Mac.** Le menu Touches propose ⌘ ⇥, ⌘ Espace, ⌃ ⌘ Q et les autres raccourcis du Mac ; avec un clavier de PC, « Ctrl agit comme ⌘ » fait copier, coller et le reste avec Ctrl.
+- **Statistiques plus parlantes** : en session, le trajet d'une image (capture, encodage, envoi, réseau, décodage, affichage), chaque étape avec son temps, dans toutes les apps.
+- **App Windows** : la même barre de session que sur Mac, et en plein écran, ⊞ + Tab et les autres raccourcis de la touche ⊞ vont à l'ordinateur.
+- **Prêt de l'ordinateur** : l'ami qui emprunte depuis un écran HDR reçoit enfin son image, et sur PC, ce que vos apps déjà ouvertes lancent pendant un prêt n'est plus fermé.
+- **Plus solide** : plus de PC figé après une mise à jour sur certaines cartes NVIDIA, et la Station répare d'elle-même ses réglages ou son certificat abîmés par un arrêt brutal. Sur Mac, plus de gel de l'écran avec les statistiques en HDR, ni de l'accueil au retour d'une session. Les vibrations de la DualSense marchent sur iPhone et Apple TV.
+- Le HDR des apps Windows, Android et Linux, et les consoles PlayStation ailleurs que sur Mac, ont encore peu servi : vos retours sont les bienvenus sur le Discord.
+
 ## 0.9.7
 
 Correctifs de la 0.9.6. Elle n'est proposée qu'aux Stations et aux apps réglées sur les versions bêta.

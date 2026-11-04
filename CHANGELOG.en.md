@@ -4,6 +4,20 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## 0.9.8
+
+The first stable release since 0.9.0: it brings together everything the 0.9.1 to 0.9.7 betas added.
+
+- **Your Mac becomes a Station.** Install KyberNow Station on a Mac with Apple silicon (macOS 15 or later) and find it on all your devices, like a PC: a virtual display sized for your device (several from a computer with several displays), sound, keyboard, mouse, clipboard, HDR, sharing with KyberNow Share and lending the computer. It all fits in one app, with its icon in the menu bar. The Mac's displays turn off for the session, then come back. In 4K, the virtual display has every macOS text size. Only controllers are still missing: they are waiting for Apple's approval, and the apps say so (“Controllers unavailable on this computer”).
+- **HDR, in every app.** On an HDR screen, an “HDR” chip appears on the computer's card, on by default, and can be ticked or unticked in the bar during the session. The Station puts the virtual display in HDR at the start of the session and sets it back at the end; it gives games your screen's real brightness, and an “HDR calibration” screen lets you adjust it by eye. A guest without an HDR screen gets a picture converted to SDR, and the friend you lend the computer to gets HDR like you. On a PC, it needs Windows 11 24H2 and a graphics card that encodes in 10 bits.
+- **Play your PS5 or PS4 in KyberNow Link.** The consoles on your network appear on the home screen, next to your computers. Pair them once, then “Play”: the console wakes up, and the game opens, in HDR on an HDR screen. With a DualSense: rumble, adaptive triggers, touchpad and gyroscope. Your accounts move from one device to another through iCloud, or with a 6-digit code.
+- **With a Mac, every app speaks Mac.** The Keys menu offers ⌘ ⇥, ⌘ Space, ⌃ ⌘ Q and the Mac's other shortcuts; with a PC keyboard, “Ctrl acts as ⌘” lets you copy, paste and the rest with Ctrl.
+- **Clearer statistics**: during a session, the path of a picture (capture, encoding, sending, network, decoding, display), each step with its time, in every app.
+- **Windows app**: the same session bar as on Mac, and in full screen, ⊞ + Tab and the other ⊞ key shortcuts go to the computer.
+- **Lending the computer**: a friend borrowing from an HDR screen now gets their picture, and on a PC, what your already open apps start during a loan is no longer closed.
+- **Sturdier**: no more frozen PC after an update on some NVIDIA cards, and the Station repairs by itself settings or a certificate damaged by a sudden shutdown. On Mac, no more frozen screen with statistics in HDR, nor a frozen home screen after a session. DualSense rumble works on iPhone and Apple TV.
+- HDR in the Windows, Android and Linux apps, and PlayStation consoles anywhere but on Mac, have seen little use yet: your feedback is welcome on the Discord.
+
 ## 0.9.7
 
 Fixes for 0.9.6. It is only offered to Stations and apps set to beta versions.
