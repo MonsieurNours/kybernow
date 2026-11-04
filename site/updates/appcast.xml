@@ -3,6 +3,20 @@
     <channel>
         <title>KyberNow</title>
         <item>
+            <title>0.9.9</title>
+            <pubDate>Wed, 04 Nov 2026 18:16:01 +0100</pubDate>
+            <sparkle:version>202611041752</sparkle:version>
+            <sparkle:shortVersionString>0.9.9</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[
+- **Lending from a browser: the picture arrives even when the browser stumbles.** If your friend's browser can't start the picture in HEVC, the page tries again on its own in H.264, then, if needed, without sound; a brief notice says so. Same for a KyberNow Share guest. When nothing works, the failure screen shows a “Details” line to copy, and the Station notes the reason: in the Overview feed and on the loan card.
+- **End of a loan: your session stays open.** When the loan ends, you find your computer as you left it, without the lock screen. The session now locks only after an abrupt stop (the Station stopped in the middle of a loan).
+]]></description>
+            <sparkle:releaseNotesLink xml:lang="fr">https://www.kybernow.app/updates/notes/0.9.9/KyberNow-Link-macOS.fr.html</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/MonsieurNours/kybernow/releases/download/v0.9.9/KyberNow-Link-macOS.zip" length="50674228" type="application/octet-stream" sparkle:edSignature="fEYF+7JIQp7kcqrk9o+Dwi4Wqsh5xidXCaA3mO5CVMGFcD9EAwj7EY8K/Ofz4SNTmHzUYEDU8PPg33tCxWkCDQ=="/>
+        </item>
+        <item>
             <title>0.9.8</title>
             <pubDate>Wed, 04 Nov 2026 14:15:12 +0100</pubDate>
             <sparkle:version>202611041349</sparkle:version>
