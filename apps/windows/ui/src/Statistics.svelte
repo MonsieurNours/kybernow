@@ -27,6 +27,7 @@
         `${last.width} × ${last.height}`,
         last.refresh ? `${last.refresh} Hz` : null,
         last.codec,
+        last.hdr ? 'HDR' : null,
         last.mbps ? `${last.mbps} Mbit/s` : null,
       ]
         .filter(Boolean)

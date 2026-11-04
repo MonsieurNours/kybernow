@@ -103,6 +103,9 @@
    *  ligne grisée sur « Cet écran » se suffit (docs/link-ui.md, comme sur Mac et Linux). */
   const displaysCustom = $derived(!!s.custom)
   const displaysNoVirtual = $derived(displaysInfo ? !displaysInfo.virtual_display : false)
+  /** HDR : la puce du cœur, et le HDR sera demandé (« Texte net (4:4:4) » inactif). */
+  const hdr = $derived(displaysInfo?.hdr ?? null)
+  const hdrOn = $derived(!!displaysInfo?.hdr_on)
 
   function pickProfile(p: Settings['profile']) {
     save({ profile: p, codec: null, yuv444: null, mbps: null, reliable: null })
@@ -253,10 +256,25 @@
           <div class="line stack">
             <div class="lr">
               <span>{t('settings.sharp_text')}</span>
-              <Switch label={t('settings.sharp_text')} checked={yuv444 && codec === 'hevc'} disabled={codec !== 'hevc' || !thisPc?.hevc444} onchange={(v) => over('yuv444', v, base.yuv444)} />
+              <Switch
+                label={t('settings.sharp_text')}
+                checked={yuv444 && codec === 'hevc' && !hdrOn}
+                disabled={codec !== 'hevc' || !thisPc?.hevc444 || hdrOn}
+                onchange={(v) => over('yuv444', v, base.yuv444)}
+              />
             </div>
-            <span class="help">{t('settings.sharp_text_help')}</span>
+            <span class="help">{hdrOn ? t('hdr.no_444') : t('settings.sharp_text_help')}</span>
           </div>
+          {#if hdr?.shown}
+            <!-- HDR (docs/link-ui.md « HDR ») : sur un écran HDR seulement ; inactif avec la raison. -->
+            <div class="line stack">
+              <div class="lr">
+                <span>HDR</span>
+                <Switch label="HDR" checked={hdr.available && (s.hdr ?? true)} disabled={!hdr.available} onchange={(v) => save({ hdr: v })} />
+              </div>
+              <span class="help">{hdr.reason ?? t('hdr.settings_help')}</span>
+            </div>
+          {/if}
           <div class="line stack">
             <div class="lr">
               <span>{t('settings.bitrate')}</span>

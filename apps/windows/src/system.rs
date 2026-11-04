@@ -186,6 +186,11 @@ pub fn home_monitor_key() -> Option<String> {
     if hwnd == 0 {
         return None;
     }
+    monitor_key_of(hwnd)
+}
+
+/// Le nom du périphérique (`\\.\DISPLAY2`) de l'écran où est la fenêtre `hwnd`.
+pub fn monitor_key_of(hwnd: isize) -> Option<String> {
     unsafe {
         let monitor = MonitorFromWindow(HWND(hwnd as *mut _), MONITOR_DEFAULTTONEAREST);
         let mut info = MONITORINFOEXW::default();

@@ -414,7 +414,9 @@ pub fn share_connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> 
     let caps = capabilities(&pc);
     // Le profil de l'app (transport rapide) : le format est celui de l'hôte.
     let settings = StreamSettings::for_profile(Profile::Jeu, caps);
-    let params = SessionParams::guest(&found, system::device_info(), settings.clone(), caps, audio::default_output_channels());
+    let mut params = SessionParams::guest(&found, system::device_info(), settings.clone(), caps, audio::default_output_channels());
+    // HDR (docs/hdr.md) : un invité à écran HDR reçoit l'image HDR de l'hôte, sans puce.
+    (params.screen_hdr, params.screen_luminance) = super::home_screen_hdr();
     let d = found.joined.display;
     let mode = if d.width > 0 && d.height > 0 { Mode { width: d.width, height: d.height, refresh: d.refresh.max(1) } } else { Mode { width: 1920, height: 1080, refresh: 60 } };
     // Un seul écran de ce PC, « Cet écran » ; sans écran virtuel ni écrans de

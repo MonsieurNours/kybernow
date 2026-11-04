@@ -42,6 +42,8 @@ export type Settings = {
   battery: 'alleger' | 'garder'
   keep_last_image: boolean
   auto_reconnect: boolean
+  /** Le choix « HDR » (docs/hdr.md), hors du profil ; `null` ou absent : jamais changé, allumé. */
+  hdr?: boolean | null
 }
 
 /** Mise à jour de la Station, telle qu'Admin la connaît (`installable` : depuis l'app ; `requires_setup` : avec l'installateur, sur l'ordinateur). */
@@ -142,6 +144,8 @@ export type LastSession = {
   mbps?: number | null
   /** Par où est passée la session : ligne « Chemin » (absent des sessions d'avant le relais). */
   route?: RouteInfo | null
+  /** Un écran au moins a été en HDR : « HDR » après le format. */
+  hdr?: boolean
   /** « Bureau · HEVC 4:4:4 », en français (0.4.x). */
   label?: string
 }
@@ -200,6 +204,8 @@ export type ThisPc = {
   hevc: boolean
   hevc444: boolean
   av1: boolean
+  /** La carte décode le HEVC Main 10 (ou l'AV1 10 bits) : le HDR est possible sur un écran HDR. */
+  hdr: boolean
   width: number
   height: number
   refresh: number
@@ -364,7 +370,17 @@ export type ConnexionView = {
  * demandé et utilisable sur la Station ; sinon « Les écrans de l'ordinateur, tels quels »). Le
  * même calcul que la session.
  */
-export type DisplaysInfo = { enabled: boolean; shown: Settings['displays']; count: number; virtual_display: boolean }
+/**
+ * La puce « HDR » (`profile::hdr_state` du cœur) : `shown` seulement sur un écran HDR (ailleurs, aucune
+ * trace du HDR) ; inactive (`available` faux) avec la raison traduite.
+ */
+export type HdrState = { shown: boolean; available: boolean; reason: string | null; kind: string | null }
+
+/** `hdr_on` : le HDR sera demandé (allumé et possible, sur un écran HDR) : « …, en HDR », 4:4:4 inactif. */
+export type DisplaysInfo = { enabled: boolean; shown: Settings['displays']; count: number; virtual_display: boolean; hdr: HdrState; hdr_on: boolean }
+
+/** La puce « HDR » de la barre de session (absente sans écran HDR, et pour un invité). */
+export type BarHdr = { on: boolean; available: boolean; reason: string | null }
 
 /**
  * Réponse de `connect` : les écrans que la session prend (« Préparation des écrans ») ;
@@ -781,6 +797,8 @@ export type PsConsole = {
   chosen: string | null
   free_accounts: number
   custom: boolean
+  /** La puce « HDR » allumée (PS5 seulement ; montrée sur un écran HDR, avec `ThisPc.hdr`). */
+  hdr: boolean
   waking: boolean
   reaching: boolean
   in_session: boolean
@@ -789,7 +807,7 @@ export type PsConsole = {
 /** Tout l'état des consoles (`ps_state`, événement `ps-state`). `found` : TOUTES les consoles qui répondent (onglet PlayStation) ; `searched` : une recherche au moins a abouti. */
 export type PsState = { accounts: PsAccount[]; consoles: PsConsole[]; found: PsFound[]; searched: boolean }
 
-/** Réglages d'une console (JSON stable du cœur, apps/core/src/playstation/settings.rs). `upscale`/`sharpness` : gardés tels quels, jamais montrés (agrandissement : Apple seulement). `hdr` : jamais montré sur Windows (pas de HDR). */
+/** Réglages d'une console (JSON stable du cœur, apps/core/src/playstation/settings.rs). `upscale`/`sharpness` : gardés tels quels, jamais montrés (agrandissement : Apple seulement). `hdr` : gardé tel quel ; la puce « HDR » de l'accueil est `PsConsole.hdr` (demandée au lancement de la partie). */
 export type PsSettings = {
   resolution: 'auto' | 'p1080' | 'p720' | 'p540' | 'p360'
   fps: number

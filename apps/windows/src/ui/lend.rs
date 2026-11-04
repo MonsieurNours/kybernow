@@ -394,7 +394,10 @@ pub fn lend_borrow(app: AppHandle, friend: Option<String>, ticket: Option<u64>, 
         }
         (None, None) => return Err(t("errors.no_session", &[])),
     };
-    let request = BorrowRequest { credentials, name, device: device.id, app: "windows".into(), screen: system::screen_mode().into(), codecs: lending::codecs(caps.hevc, caps.av1) };
+    // HDR (docs/hdr.md) : l'écran virtuel de l'ami est préparé en HDR comme pour un hôte.
+    let (screen_hdr, luminance) = super::home_screen_hdr();
+    let screen = kybernow_core::lend::BorrowScreen::from(system::screen_mode()).with_hdr(screen_hdr && caps.hdr, luminance);
+    let request = BorrowRequest { credentials, name, device: device.id, app: "windows".into(), screen, codecs: lending::codecs(caps.hevc, caps.av1) };
     let again = Again { target: target.clone(), route: route.clone(), request: request.clone() };
     let answer = lend::borrow(&target, route.as_ref(), &request).map_err(|e| {
         log::info!("prêt : refusé ({})", e.kind());
@@ -553,8 +556,11 @@ pub fn lend_connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
     let pc = super::share::this_pc_of(&state);
     let caps = capabilities(&pc);
     // Le profil Jeu (docs/pret.md) ; rien n'est changé sur l'ordinateur prêté.
-    let settings = StreamSettings::for_profile(Profile::Jeu, caps);
-    let params = SessionParams::borrower(&loan, system::device_info(), settings.clone(), audio::default_output_channels());
+    let mut settings = StreamSettings::for_profile(Profile::Jeu, caps);
+    // HDR : allumé (l'ami a la puce de la barre, comme un hôte), sur un écran HDR.
+    settings.hdr = true;
+    let mut params = SessionParams::borrower(&loan, system::device_info(), settings.clone(), audio::default_output_channels());
+    (params.screen_hdr, params.screen_luminance) = super::home_screen_hdr();
     let d = loan.borrowed.display;
     let mode = if d.width > 0 && d.height > 0 { Mode { width: d.width, height: d.height, refresh: d.refresh.max(1) } } else { system::screen_mode() };
     let spec = Spec {

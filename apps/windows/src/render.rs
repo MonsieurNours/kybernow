@@ -5,6 +5,13 @@
 //! du bord haut, qui signale où s'ouvre la barre de session, est tracé dans
 //! la même passe, par-dessus l'image.
 //!
+//! HDR (docs/hdr.md, `hdr.rs`) : une image PQ / BT.2020 (P010 de la carte,
+//! ou 10 bits du processeur) part telle quelle dans une chaîne d'échange
+//! 10 bits (`R10G10B10A2`, espace `RGB_FULL_G2084_NONE_P2020`, métadonnées
+//! HDR10 par `SetHDRMetaData`) quand l'écran de la fenêtre est en HDR, avec
+//! la courbe BT.2390 si le flux dépasse sa crête ; sur un écran SDR, le
+//! shader la ramène au SDR. La chaîne change de format à la volée.
+//!
 //! Un `Renderer` par écran (fenêtre), tous sur l'appareil de la session
 //! (`gpu.rs`) : le tracé d'une image est une suite d'appels sur le contexte
 //! partagé, tenue sous son verrou ; la présentation se fait dehors, et
@@ -29,8 +36,9 @@ use windows::Win32::System::Threading::WaitForSingleObjectEx;
 use windows::core::{BOOL, Interface, PCSTR, s};
 
 use crate::decoder::ff::*;
-use crate::decoder::is_hw_frame;
+use crate::decoder::{FrameHdr, frame_hdr, is_hw_frame};
 use crate::gpu::{ContextLock, Gpu};
+use crate::hdr::{self, Output, ScreenHdr};
 
 const SHADER: &str = r#"
 struct VSOut { float4 pos : SV_Position; float2 uv : TEXCOORD0; };
@@ -45,21 +53,85 @@ Texture2D t0 : register(t0);
 Texture2D t1 : register(t1);
 Texture2D t2 : register(t2);
 SamplerState smp : register(s0);
-cbuffer Params : register(b0) { float4 m0; float4 m1; float4 m2; uint mode; float2 hint_px; float pad; };
+cbuffer Params : register(b0) {
+    float4 m0; float4 m1; float4 m2;
+    uint mode; float2 hint_px; float pad;
+    // Sortie (hdr.rs, `Tone`) : 0 SDR telle quelle, 1 PQ vers un écran HDR,
+    // 2 PQ ramenée au SDR ; courbe BT.2390 (sortie 1) de src_pq à dst_pq.
+    uint out_mode; uint tone; float src_pq; float dst_pq;
+    float sdr_white; float hint_level; float2 pad2;
+};
+static const float PQ_M1 = 0.1593017578125;
+static const float PQ_M2 = 78.84375;
+static const float PQ_C1 = 0.8359375;
+static const float PQ_C2 = 18.8515625;
+static const float PQ_C3 = 18.6875;
+// PQ → linéaire (1 = 10 000 nits), et retour.
+float3 pq_eotf(float3 e) {
+    float3 p = pow(saturate(e), 1.0 / PQ_M2);
+    return pow(max(p - PQ_C1, 0.0) / (PQ_C2 - PQ_C3 * p), 1.0 / PQ_M1);
+}
+float3 pq_oetf(float3 y) {
+    float3 p = pow(saturate(y), PQ_M1);
+    return pow((PQ_C1 + PQ_C2 * p) / (1.0 + PQ_C3 * p), PQ_M2);
+}
+// BT.2390 sur une valeur PQ (hdr::eetf).
+float eetf(float e) {
+    float x = min(e / src_pq, 1.0);
+    float maxl = dst_pq / src_pq;
+    float ks = 1.5 * maxl - 0.5;
+    if (x <= ks) return e;
+    float t = (x - ks) / (1.0 - ks);
+    float t2 = t * t;
+    float t3 = t2 * t;
+    float p = (2.0 * t3 - 3.0 * t2 + 1.0) * ks + (t3 - 2.0 * t2 + t) * (1.0 - ks) + (-2.0 * t3 + 3.0 * t2) * maxl;
+    return p * src_pq;
+}
+// Vers le SDR, relatif au blanc du bureau (hdr::sdr_curve) : genou à 0,75,
+// Reinhard étendu jusqu'à 4 fois le blanc.
+float sdr_curve(float r) {
+    if (r <= 0.75) return r;
+    float s = (r - 0.75) / 0.25;
+    float smax = 13.0;
+    return min(0.75 + 0.25 * s * (1.0 + s / (smax * smax)) / (1.0 + s), 1.0);
+}
+static const float3x3 BT2020_TO_709 = {
+     1.6605, -0.5876, -0.0728,
+    -0.1246,  1.1329, -0.0083,
+    -0.0182, -0.1006,  1.1187
+};
 float4 ps(VSOut i) : SV_Target {
     float3 yuv;
     if (mode == 0) { yuv = float3(t0.Sample(smp, i.uv).r, t1.Sample(smp, i.uv).rg); }
     else if (mode == 1) { yuv = float3(t0.Sample(smp, i.uv).r, t1.Sample(smp, i.uv).r, t2.Sample(smp, i.uv).r); }
     else { float4 a = t0.Sample(smp, i.uv); yuv = float3(a.b, a.g, a.r); }
     float4 v = float4(yuv, 1);
-    return float4(saturate(float3(dot(m0, v), dot(m1, v), dot(m2, v))), 1);
+    float3 rgb = saturate(float3(dot(m0, v), dot(m1, v), dot(m2, v)));
+    if (out_mode == 1) {
+        if (tone != 0) {
+            // Sur le maximum des trois composantes : la teinte reste.
+            float m = max(max(rgb.r, rgb.g), rgb.b);
+            float lm = pq_eotf(m.xxx).x;
+            float k = lm > 0.0 ? pq_eotf(eetf(m).xxx).x / lm : 1.0;
+            rgb = pq_oetf(pq_eotf(rgb) * k);
+        }
+        return float4(rgb, 1);
+    }
+    if (out_mode == 2) {
+        float3 lin = max(mul(BT2020_TO_709, pq_eotf(rgb) * (10000.0 / sdr_white)), 0.0);
+        float m = max(max(lin.r, lin.g), lin.b);
+        if (m > 0.75) lin *= sdr_curve(m) / m;
+        return float4(pow(saturate(lin), 1.0 / 2.2), 1);
+    }
+    return float4(rgb, 1);
 }
 // Trait du bord haut : une capsule blanche de `hint_px` pixels (le tracé
 // couvre exactement sa zone), bord adouci sur un pixel, opacité de 35 %.
+// Sur un écran HDR, son blanc est celui du bureau (`hint_level`, en PQ).
 float4 ps_hint(VSOut i) : SV_Target {
     float2 p = (i.uv - 0.5) * hint_px;
     float d = length(float2(max(abs(p.x) - (hint_px.x - hint_px.y) * 0.5, 0.0), p.y)) - hint_px.y * 0.5;
-    return float4(1.0, 1.0, 1.0, saturate(0.5 - d) * 0.35);
+    return float4(hint_level.xxx, saturate(0.5 - d) * 0.35);
 }
 "#;
 
@@ -76,6 +148,25 @@ struct Params {
     /// Taille du trait du bord haut en pixels (lue par `ps_hint` seulement).
     hint_px: [f32; 2],
     pad: f32,
+    /// Sortie et courbes (`hdr::Tone`).
+    out_mode: u32,
+    tone: u32,
+    src_pq: f32,
+    dst_pq: f32,
+    sdr_white: f32,
+    hint_level: f32,
+    pad2: [f32; 2],
+}
+
+impl Params {
+    fn set_tone(&mut self, t: &hdr::Tone) {
+        self.out_mode = t.out_mode;
+        self.tone = t.tone as u32;
+        self.src_pq = t.src_pq;
+        self.dst_pq = t.dst_pq;
+        self.sdr_white = t.sdr_white;
+        self.hint_level = t.hint_level;
+    }
 }
 
 /// Disposition des plans de l'image dans nos textures.
@@ -83,8 +174,12 @@ struct Params {
 enum Layout {
     /// NV12 : luminance, puis chrominance entrelacée à demi-résolution.
     Nv12,
-    /// Trois plans (Y, U, V), en 4:2:0 ou 4:4:4.
-    Planar { chroma_shift: u32 },
+    /// P010 (carte graphique, 10 bits) : comme le NV12, sur 16 bits, le code
+    /// dans les 10 bits du haut.
+    P010,
+    /// Trois plans (Y, U, V), en 4:2:0 ou 4:4:4 ; `wide` : 16 bits par
+    /// échantillon (10 bits par le processeur, code dans les bits du bas).
+    Planar { chroma_shift: u32, wide: bool },
     /// AYUV 4:4:4 (carte graphique) : V, U, Y, A.
     Ayuv,
 }
@@ -212,26 +307,6 @@ fn blob(b: &ID3DBlob) -> &[u8] {
     unsafe { std::slice::from_raw_parts(b.GetBufferPointer() as *const u8, b.GetBufferSize()) }
 }
 
-/// Matrice YUV → RVB (lignes, constante en 4e colonne) selon l'espace et la
-/// plage de couleurs du flux ; BT.709 en plage limitée par défaut.
-fn matrix(colorspace: i32, full_range: bool) -> [[f32; 4]; 3] {
-    let (r_cr, g_cb, g_cr, b_cb) = match colorspace {
-        5 | 6 => (1.402, -0.344_136, -0.714_136, 1.772),
-        9 | 10 => (1.4746, -0.164_553, -0.571_353, 1.8814),
-        _ => (1.5748, -0.187_324, -0.468_124, 1.8556),
-    };
-    let (sy, oy, sc) = if full_range {
-        (1.0, 0.0, 1.0)
-    } else {
-        (255.0 / 219.0, 16.0 / 255.0, 255.0 / 224.0)
-    };
-    let oc = 128.0 / 255.0;
-    let row = |a: f32, b: f32, c: f32| -> [f32; 4] {
-        [a * sy, b * sc, c * sc, -(a * sy * oy + b * sc * oc + c * sc * oc)]
-    };
-    [row(1.0, 0.0, r_cr), row(1.0, g_cb, g_cr), row(1.0, b_cb, 0.0)]
-}
-
 /// L'objet d'attente d'une chaîne d'échange (un handle de Windows, valable
 /// de tout fil tant que la chaîne vit), fermé avec le rendu : sans quoi
 /// chaque fenêtre de chaque session en laissait un ouvert.
@@ -277,6 +352,22 @@ pub struct Renderer {
     /// Copie réduite de l'image (accueil : dernière image de la session).
     snap: Option<(ID3D11Texture2D, ID3D11RenderTargetView, u32, u32)>,
     last_snap: Option<std::time::Instant>,
+    /// HDR : la chaîne d'échange en espace PQ (10 bits, `swapchain3` pour
+    /// l'espace, `swapchain4` pour les métadonnées).
+    swapchain3: Option<IDXGISwapChain3>,
+    swapchain4: Option<IDXGISwapChain4>,
+    hdr_chain: bool,
+    /// L'écran de la fenêtre (posé par le fil de l'image d'après `Shared`).
+    screen: ScreenHdr,
+    /// La chaîne a refusé l'espace PQ sur cet écran : image ramenée au SDR
+    /// jusqu'au prochain changement de l'écran.
+    pq_refused: bool,
+    /// Ce que montre la dernière image (le journal note chaque changement).
+    output: Output,
+    /// Métadonnées HDR10 du flux, la dernière vue (gardée d'une image à l'autre).
+    stream_hdr: FrameHdr,
+    /// Métadonnées données à la chaîne d'échange.
+    meta_sent: Option<hdr::Hdr10>,
 }
 
 /// Largeur de la dernière image gardée pour l'accueil.
@@ -391,7 +482,17 @@ impl Renderer {
                 present_failed: false,
                 snap: None,
                 last_snap: None,
+                swapchain3: None,
+                swapchain4: None,
+                hdr_chain: false,
+                screen: ScreenHdr::default(),
+                pq_refused: false,
+                output: Output::Sdr,
+                stream_hdr: FrameHdr::default(),
+                meta_sent: None,
             };
+            r.swapchain3 = r.swapchain.cast::<IDXGISwapChain3>().ok();
+            r.swapchain4 = r.swapchain.cast::<IDXGISwapChain4>().ok();
             r.create_rtv()?;
             Ok(r)
         }
@@ -489,18 +590,25 @@ impl Renderer {
                 let uv = self.view(&t, DXGI_FORMAT_R8G8_UNORM)?;
                 (vec![t], vec![y, uv])
             }
+            Layout::P010 => {
+                let t = self.texture(w, h, DXGI_FORMAT_P010)?;
+                let y = self.view(&t, DXGI_FORMAT_R16_UNORM)?;
+                let uv = self.view(&t, DXGI_FORMAT_R16G16_UNORM)?;
+                (vec![t], vec![y, uv])
+            }
             Layout::Ayuv => {
                 let t = self.texture(w, h, DXGI_FORMAT_AYUV)?;
                 let v = self.view(&t, DXGI_FORMAT_R8G8B8A8_UNORM)?;
                 (vec![t], vec![v])
             }
-            Layout::Planar { chroma_shift } => {
+            Layout::Planar { chroma_shift, wide } => {
                 let (cw, ch) = ((w + chroma_shift) >> chroma_shift, (h + chroma_shift) >> chroma_shift);
+                let format = if wide { DXGI_FORMAT_R16_UNORM } else { DXGI_FORMAT_R8_UNORM };
                 let mut ts = Vec::new();
                 let mut vs = Vec::new();
                 for (pw, ph) in [(w, h), (cw, ch), (cw, ch)] {
-                    let t = self.texture(pw, ph, DXGI_FORMAT_R8_UNORM)?;
-                    vs.push(self.view(&t, DXGI_FORMAT_R8_UNORM)?);
+                    let t = self.texture(pw, ph, format)?;
+                    vs.push(self.view(&t, format)?);
                     ts.push(t);
                 }
                 (ts, vs)
@@ -524,11 +632,12 @@ impl Renderer {
             unsafe { src.GetDesc(&mut desc) };
             let layout = match desc.Format {
                 DXGI_FORMAT_NV12 => Layout::Nv12,
+                DXGI_FORMAT_P010 => Layout::P010,
                 DXGI_FORMAT_AYUV => Layout::Ayuv,
                 other => return Err(Unsupported(format!("format de la carte {other:?}"))),
             };
-            // Largeur et hauteur paires pour le NV12.
-            let (w, h) = if layout == Layout::Nv12 { (w & !1, h & !1) } else { (w, h) };
+            // Largeur et hauteur paires pour le NV12 et le P010.
+            let (w, h) = if matches!(layout, Layout::Nv12 | Layout::P010) { (w & !1, h & !1) } else { (w, h) };
             self.ensure_planes(layout, w, h).map_err(fail)?;
             let dst = &self.planes.as_ref().unwrap().textures[0];
             let bx = D3D11_BOX { left: 0, top: 0, front: 0, right: w, bottom: h, back: 1 };
@@ -537,8 +646,9 @@ impl Renderer {
         }
         // Décodage par le processeur : trois plans.
         let layout = match f.format {
-            AV_PIX_FMT_YUV420P | AV_PIX_FMT_YUVJ420P => Layout::Planar { chroma_shift: 1 },
-            AV_PIX_FMT_YUV444P | AV_PIX_FMT_YUVJ444P => Layout::Planar { chroma_shift: 0 },
+            AV_PIX_FMT_YUV420P | AV_PIX_FMT_YUVJ420P => Layout::Planar { chroma_shift: 1, wide: false },
+            AV_PIX_FMT_YUV444P | AV_PIX_FMT_YUVJ444P => Layout::Planar { chroma_shift: 0, wide: false },
+            AV_PIX_FMT_YUV420P10LE => Layout::Planar { chroma_shift: 1, wide: true },
             other => return Err(Unsupported(format!("format d'image {other}"))),
         };
         self.ensure_planes(layout, w, h).map_err(fail)?;
@@ -553,7 +663,7 @@ impl Renderer {
 
     /// Montre une image décodée et la présente aussitôt. `hint` : échelle (en
     /// centièmes) du trait du bord haut posé par-dessus ; 0 : aucun.
-    pub fn draw(&mut self, f: &AVFrame, hint: u32) -> Result<(), Unsupported> {
+    pub fn draw(&mut self, f: &AVFrame, hint: u32, stream_hdr: bool) -> Result<(), Unsupported> {
         // L'attente de la chaîne avant de prendre le verrou : un autre écran
         // continue de tracer pendant qu'on attend la synchro de celui-ci.
         self.wait_ready();
@@ -562,13 +672,21 @@ impl Renderer {
             let _held = lock.lock();
             self.upload(f)?;
             let planes = self.planes.as_ref().unwrap();
-            self.params.mode = match planes.layout {
-                Layout::Nv12 => 0,
+            let layout = planes.layout;
+            self.params.mode = match layout {
+                Layout::Nv12 | Layout::P010 => 0,
                 Layout::Planar { .. } => 1,
                 Layout::Ayuv => 2,
             };
-            self.params.m = matrix(f.colorspace as i32, f.color_range as i32 == 2);
+            let (bits, unit) = match layout {
+                Layout::P010 => (10, 64.0 / 65535.0),
+                Layout::Planar { wide: true, .. } => (10, 1.0 / 65535.0),
+                _ => (8, 1.0 / 255.0),
+            };
+            self.params.m = hdr::yuv_matrix(f.colorspace as i32, f.color_range as i32 == 2, bits, unit);
             let (fw, fh) = (planes.width, planes.height);
+            let pq = hdr::frame_is_pq(f.color_trc as i32, bits == 10, stream_hdr);
+            self.choose_output(pq, f);
             (fw, fh, self.encode(hint))
         };
         if painted {
@@ -578,6 +696,127 @@ impl Renderer {
             self.snapshot(fw, fh);
         }
         Ok(())
+    }
+
+    /// L'écran de la fenêtre a changé (HDR allumé ou coupé, fenêtre glissée
+    /// sur un autre écran, luminosités) : pris à l'image suivante.
+    pub fn set_screen(&mut self, screen: ScreenHdr) {
+        if screen != self.screen {
+            self.screen = screen;
+            self.pq_refused = false;
+        }
+    }
+
+    /// La sortie de cette image (`hdr::Output`), la chaîne d'échange au bon
+    /// format, les constantes du shader et les métadonnées HDR10. Sous le
+    /// verrou du contexte.
+    fn choose_output(&mut self, pq: bool, f: &AVFrame) {
+        if pq {
+            let seen = frame_hdr(f);
+            if !seen.is_empty() {
+                self.stream_hdr = seen;
+            }
+        }
+        let mut output = Output::of(pq, self.screen.hdr && !self.pq_refused);
+        if output.hdr_chain() != self.hdr_chain && !self.set_chain(output.hdr_chain()) && output == Output::Pq {
+            self.pq_refused = true;
+            output = Output::PqToSdr;
+        }
+        let peak = hdr::content_peak(self.stream_hdr.max_cll, self.stream_hdr.mastering_max);
+        let luminance = self.screen.luminance;
+        let t = hdr::tone(output, peak, luminance);
+        self.params.set_tone(&t);
+        if output != self.output {
+            log::info!(
+                "image : {} (crête du flux {peak:.0} nits, écran {}{})",
+                match output {
+                    Output::Sdr => "SDR",
+                    Output::Pq => "HDR, chaîne d'échange PQ 10 bits",
+                    Output::PqToSdr => "HDR ramené au SDR",
+                },
+                if self.screen.hdr { "HDR" } else { "SDR" },
+                if t.tone { ", courbe BT.2390 vers l'écran" } else { "" }
+            );
+            self.output = output;
+        }
+        if output == Output::Pq {
+            let meta = hdr::hdr10_for(peak, self.stream_hdr.mastering_min.unwrap_or(0.0), self.stream_hdr.max_fall, &t, luminance);
+            if self.meta_sent != Some(meta) {
+                self.meta_sent = Some(meta);
+                self.send_metadata(&meta);
+            }
+        }
+    }
+
+    /// La chaîne d'échange en 10 bits espace PQ BT.2020 (`hdr`), ou en 8 bits
+    /// sRGB. Faux si la carte ou l'écran refusent (elle reste alors en 8 bits).
+    fn set_chain(&mut self, hdr: bool) -> bool {
+        let Some(sc3) = self.swapchain3.clone() else { return !hdr };
+        let (format, space) = if hdr {
+            (DXGI_FORMAT_R10G10B10A2_UNORM, DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020)
+        } else {
+            (DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709)
+        };
+        self.rtv = None;
+        let done = unsafe {
+            self.ctx.ClearState();
+            self.ctx.Flush();
+            (|| -> windows::core::Result<()> {
+                self.swapchain.ResizeBuffers(0, self.size.0.max(1), self.size.1.max(1), format, self.swap_flags)?;
+                if hdr {
+                    let support = sc3.CheckColorSpaceSupport(space)?;
+                    if support & DXGI_SWAP_CHAIN_COLOR_SPACE_SUPPORT_FLAG_PRESENT.0 as u32 == 0 {
+                        return Err(windows::core::Error::new(windows::Win32::Foundation::E_FAIL, "espace PQ refusé pour cet écran"));
+                    }
+                }
+                sc3.SetColorSpace1(space)
+            })()
+        };
+        let ok = done.is_ok();
+        match done {
+            Ok(()) => {
+                self.hdr_chain = hdr;
+                self.meta_sent = None;
+                log::info!("chaîne d'échange : {}", if hdr { "10 bits, PQ BT.2020" } else { "8 bits, sRGB" });
+            }
+            Err(e) => {
+                log::warn!("chaîne d'échange {} : {e}", if hdr { "HDR" } else { "SDR" });
+                if hdr {
+                    // De retour en 8 bits.
+                    unsafe {
+                        let _ = self.swapchain.ResizeBuffers(0, self.size.0.max(1), self.size.1.max(1), DXGI_FORMAT_B8G8R8A8_UNORM, self.swap_flags);
+                        let _ = sc3.SetColorSpace1(DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709);
+                    }
+                    self.hdr_chain = false;
+                }
+            }
+        }
+        if let Err(e) = self.create_rtv() {
+            log::warn!("vue de la chaîne d'échange : {e}");
+        }
+        ok && self.rtv.is_some()
+    }
+
+    /// Les métadonnées HDR10 de l'image pour l'écran (primaires BT.2020, blanc D65).
+    fn send_metadata(&self, m: &hdr::Hdr10) {
+        let Some(sc4) = &self.swapchain4 else { return };
+        let xy = |x: f64, y: f64| [(x * 50_000.0).round() as u16, (y * 50_000.0).round() as u16];
+        let meta = DXGI_HDR_METADATA_HDR10 {
+            RedPrimary: xy(0.708, 0.292),
+            GreenPrimary: xy(0.170, 0.797),
+            BluePrimary: xy(0.131, 0.046),
+            WhitePoint: xy(0.3127, 0.3290),
+            MaxMasteringLuminance: (m.max_mastering * 10_000.0).round() as u32,
+            MinMasteringLuminance: (m.min_mastering * 10_000.0).round() as u32,
+            MaxContentLightLevel: m.max_cll.min(u16::MAX as u32) as u16,
+            MaxFrameAverageLightLevel: m.max_fall.min(u16::MAX as u32) as u16,
+        };
+        let bytes = unsafe {
+            std::slice::from_raw_parts(&meta as *const DXGI_HDR_METADATA_HDR10 as *const u8, std::mem::size_of::<DXGI_HDR_METADATA_HDR10>())
+        };
+        if let Err(e) = unsafe { sc4.SetHDRMetaData(DXGI_HDR_METADATA_TYPE_HDR10, Some(bytes)) } {
+            log::warn!("métadonnées HDR10 : {e}");
+        }
     }
 
     /// Le trait du bord haut a changé alors qu'aucune image ne vient (écran
@@ -723,6 +962,12 @@ impl Renderer {
         let Some((_, rtv, w, h)) = &self.snap else { return };
         let viewport = D3D11_VIEWPORT { TopLeftX: 0.0, TopLeftY: 0.0, Width: *w as f32, Height: *h as f32, MinDepth: 0.0, MaxDepth: 1.0 };
         unsafe {
+            // Une image HDR est gardée ramenée au SDR (l'accueil est en SDR).
+            if self.output != Output::Sdr {
+                let mut p = self.params;
+                p.set_tone(&hdr::tone(Output::PqToSdr, hdr::content_peak(self.stream_hdr.max_cll, self.stream_hdr.mastering_max), None));
+                self.ctx.UpdateSubresource(&self.cbuf, 0, None, &p as *const _ as *const c_void, 0, 0);
+            }
             self.ctx.OMSetRenderTargets(Some(&[Some(rtv.clone())]), None);
             self.ctx.RSSetViewports(Some(&[viewport]));
             self.ctx.Draw(3, 0);

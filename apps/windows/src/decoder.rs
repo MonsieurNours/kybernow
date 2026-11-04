@@ -225,6 +225,50 @@ pub fn is_hw_frame(f: &AVFrame) -> bool {
     f.format == AV_PIX_FMT_D3D11
 }
 
+/// Les métadonnées HDR10 portées par l'image (SEI du flux) : MaxCLL et
+/// MaxFALL, luminosités maximale et minimale de l'écran de matriçage (nits).
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct FrameHdr {
+    pub max_cll: Option<u32>,
+    pub max_fall: Option<u32>,
+    pub mastering_max: Option<f64>,
+    pub mastering_min: Option<f64>,
+}
+
+impl FrameHdr {
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+fn rational(r: AVRational) -> Option<f64> {
+    (r.den != 0).then(|| f64::from(r.num) / f64::from(r.den))
+}
+
+/// Les métadonnées HDR10 de l'image (vides sans SEI : la plupart des images
+/// d'un flux n'en portent pas, la dernière vue reste valable).
+pub fn frame_hdr(f: &AVFrame) -> FrameHdr {
+    let mut out = FrameHdr::default();
+    unsafe {
+        let frame = f as *const AVFrame;
+        let sd = av_frame_get_side_data(frame, AV_FRAME_DATA_CONTENT_LIGHT_LEVEL);
+        if !sd.is_null() && (*sd).size as usize >= std::mem::size_of::<AVContentLightMetadata>() {
+            let c = &*((*sd).data as *const AVContentLightMetadata);
+            out.max_cll = Some(c.MaxCLL);
+            out.max_fall = Some(c.MaxFALL);
+        }
+        let sd = av_frame_get_side_data(frame, AV_FRAME_DATA_MASTERING_DISPLAY_METADATA);
+        if !sd.is_null() && (*sd).size as usize >= std::mem::size_of::<AVMasteringDisplayMetadata>() {
+            let m = &*((*sd).data as *const AVMasteringDisplayMetadata);
+            if m.has_luminance != 0 {
+                out.mastering_max = rational(m.max_luminance);
+                out.mastering_min = rational(m.min_luminance);
+            }
+        }
+    }
+    out
+}
+
 /// L'image dépend d'une image perdue (à redemander).
 pub fn is_corrupt(f: &AVFrame) -> bool {
     (f.flags & AV_FRAME_FLAG_CORRUPT as i32) != 0 || f.decode_error_flags != 0
@@ -234,6 +278,9 @@ const PROBE_H264: &[u8] = include_bytes!("probe/h264.bin");
 const PROBE_HEVC: &[u8] = include_bytes!("probe/hevc.bin");
 const PROBE_HEVC444: &[u8] = include_bytes!("probe/hevc444.bin");
 const PROBE_AV1: &[u8] = include_bytes!("probe/av1.bin");
+// HDR (docs/hdr.md) : HEVC Main 10 et AV1 10 bits, étiquetés PQ / BT.2020.
+const PROBE_HEVC10: &[u8] = include_bytes!("probe/hevc10.bin");
+const PROBE_AV1_10: &[u8] = include_bytes!("probe/av1_10.bin");
 
 /// Décode pour de bon une image de chaque format et dit lesquels la carte
 /// graphique prend en charge (comme l'app Mac au lancement).
@@ -255,18 +302,35 @@ fn probe_one(fourcc: u32, data: &[u8], device: &ID3D11Device) -> bool {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Probe {
     pub h264: bool,
+    /// HEVC Main 10 et AV1 10 bits par la carte (en P010, que le rendu montre).
+    pub hevc10: bool,
+    pub av1_10: bool,
     pub caps: Capabilities,
+}
+
+/// Le HDR est possible (`Capabilities::hdr`) : la carte décode en 10 bits le
+/// format qu'une session HDR prendra (HEVC, ou l'AV1 sur une carte sans
+/// HEVC, la règle de `profile::hdr_format`). Le rendu montre toujours le
+/// P010 (en PQ sur un écran HDR, ramené au SDR ailleurs).
+pub fn hdr_capable(hevc: bool, hevc10: bool, av1: bool, av1_10: bool) -> bool {
+    if hevc { hevc10 } else { av1 && av1_10 }
 }
 
 pub fn probe(device: &ID3D11Device) -> Probe {
     unsafe { av_log_set_level(AV_LOG_QUIET as i32) };
+    let hevc = probe_one(FOURCC_HEVC, PROBE_HEVC, device);
+    let av1 = probe_one(FOURCC_AV1, PROBE_AV1, device);
+    let hevc10 = hevc && probe_one(FOURCC_HEVC, PROBE_HEVC10, device);
+    let av1_10 = av1 && probe_one(FOURCC_AV1, PROBE_AV1_10, device);
     let p = Probe {
         h264: probe_one(FOURCC_H264, PROBE_H264, device),
+        hevc10,
+        av1_10,
         caps: Capabilities {
-            hevc: probe_one(FOURCC_HEVC, PROBE_HEVC, device),
+            hevc,
             hevc444: probe_one(FOURCC_HEVC, PROBE_HEVC444, device),
-            av1: probe_one(FOURCC_AV1, PROBE_AV1, device),
-            hdr: false,
+            av1,
+            hdr: hdr_capable(hevc, hevc10, av1, av1_10),
         },
     };
     unsafe { av_log_set_level(AV_LOG_ERROR as i32) };

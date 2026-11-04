@@ -10,11 +10,11 @@
 //! session ; « Cet écran » (session à un écran) est celui de la fenêtre de
 //! l'accueil, comme sur Mac et Linux.
 
-use kybernow_core::profile::Capabilities;
+use kybernow_core::profile::{Capabilities, HdrLuminance};
 use kybernow_core::screens::{DeviceScreen, DisplaysSetting, Screens};
 
 /// Un écran de ce PC.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Monitor {
     /// Nom du périphérique (`\\.\DISPLAY2`) : ce qui reconnaît un écran d'un
     /// relevé à l'autre (les index changent quand on en débranche un).
@@ -29,6 +29,10 @@ pub struct Monitor {
     pub refresh: u32,
     /// Échelle de l'écran, en DPI (96 : 100 %).
     pub dpi: u32,
+    /// Windows l'affiche en HDR (`hdr::outputs`, docs/hdr.md).
+    pub hdr: bool,
+    /// Ses luminosités (écran HDR seulement ; `None` : par défaut).
+    pub luminance: Option<HdrLuminance>,
 }
 
 impl Monitor {
@@ -42,6 +46,11 @@ impl Monitor {
 
     pub fn contains(&self, x: i32, y: i32) -> bool {
         (self.x..self.right()).contains(&x) && (self.y..self.bottom()).contains(&y)
+    }
+
+    /// Son état HDR, pour le rendu de sa fenêtre et le cœur.
+    pub fn screen_hdr(&self) -> crate::hdr::ScreenHdr {
+        crate::hdr::ScreenHdr { hdr: self.hdr, luminance: self.luminance }
     }
 }
 
@@ -130,8 +139,8 @@ pub fn screens(monitors: &[Monitor], spec: Spec) -> Screens {
                 pixel_height: m.height.max(0) as u32,
                 refresh: if spec.lighten { m.refresh.min(30) } else { m.refresh },
                 primary: m.primary,
-                hdr: false,
-                luminance: None,
+                hdr: m.hdr,
+                luminance: m.luminance,
             })
             .collect(),
         current: current(monitors),
@@ -142,6 +151,18 @@ pub fn screens(monitors: &[Monitor], spec: Spec) -> Screens {
         virtual_display_available: spec.virtual_display_available,
         capabilities: spec.capabilities,
     }
+}
+
+/// HDR (docs/hdr.md) : la session aura un écran HDR. `devices` : les écrans
+/// de ce PC que la session prendra (plusieurs écrans : dès qu'un l'est) ;
+/// `None` (un écran) : « Cet écran ». Ses luminosités suivent.
+pub fn session_hdr(s: &Screens, devices: Option<&[usize]>) -> (bool, Option<HdrLuminance>) {
+    let pick = |i: usize| s.list.get(i).filter(|d| d.hdr).map(|d| d.luminance);
+    let found = match devices {
+        Some(d) => d.iter().find_map(|&i| pick(i)),
+        None => pick(s.current),
+    };
+    (found.is_some(), found.flatten())
 }
 
 /// Écrans que la Station sait créer : ce qu'elle annonce (`virtual_display.
@@ -223,6 +244,8 @@ pub fn enumerate() -> Vec<Monitor> {
                 primary: info.monitorInfo.dwFlags & MONITORINFOF_PRIMARY != 0,
                 refresh: refresh.max(30),
                 dpi: dpi_x.max(48),
+                hdr: false,
+                luminance: None,
             });
             BOOL(1)
         }
@@ -235,7 +258,15 @@ pub fn enumerate() -> Vec<Monitor> {
     // Sans écran lisible (session distante, pilote de base) : un écran par défaut.
     if out.is_empty() {
         let m = crate::system::screen_mode();
-        out.push(Monitor { key: "\\\\.\\DISPLAY1".into(), x: 0, y: 0, width: m.width as i32, height: m.height as i32, primary: true, refresh: m.refresh, dpi: 96 });
+        out.push(Monitor { key: "\\\\.\\DISPLAY1".into(), x: 0, y: 0, width: m.width as i32, height: m.height as i32, primary: true, refresh: m.refresh, dpi: 96, hdr: false, luminance: None });
+    }
+    // HDR de chaque écran (une fabrique DXGI neuve : l'état de maintenant).
+    let outputs = crate::hdr::outputs();
+    for m in &mut out {
+        if let Some((_, h)) = outputs.iter().find(|(k, _)| k.eq_ignore_ascii_case(&m.key)) {
+            m.hdr = h.hdr;
+            m.luminance = h.luminance;
+        }
     }
     out
 }
@@ -245,7 +276,7 @@ mod tests {
     use super::*;
 
     fn monitor(key: &str, x: i32, y: i32, width: i32, height: i32, primary: bool, refresh: u32) -> Monitor {
-        Monitor { key: key.into(), x, y, width, height, primary, refresh, dpi: 96 }
+        Monitor { key: key.into(), x, y, width, height, primary, refresh, dpi: 96, hdr: false, luminance: None }
     }
 
     fn auteur() -> Vec<Monitor> {
@@ -280,6 +311,23 @@ mod tests {
         // Sans écran marqué principal : le premier.
         let none: Vec<Monitor> = m.iter().cloned().map(|x| Monitor { primary: false, ..x }).collect();
         assert_eq!(primary(&none), 0);
+    }
+
+    #[test]
+    fn le_hdr_des_ecrans_passe_au_coeur() {
+        let xdr = HdrLuminance { max: 1000.0, full_frame: 600.0, min: 0.0, sdr_white: 240.0 };
+        let mut m = auteur();
+        m[0].hdr = true;
+        m[0].luminance = Some(xdr);
+        let s = screens(&m, spec());
+        assert!(s.list[0].hdr && !s.list[1].hdr);
+        assert_eq!(s.list[0].luminance, Some(xdr));
+        // Un écran : « Cet écran » (le principal, SDR) ; plusieurs : dès qu'un l'est.
+        assert_eq!(session_hdr(&s, None), (false, None));
+        assert_eq!(session_hdr(&s, Some(&[1, 0])), (true, Some(xdr)));
+        assert_eq!(session_hdr(&s, Some(&[1, 2])), (false, None));
+        let on_xdr = Screens { current: 0, ..s };
+        assert_eq!(session_hdr(&on_xdr, None), (true, Some(xdr)));
     }
 
     #[test]

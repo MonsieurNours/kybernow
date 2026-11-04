@@ -348,6 +348,19 @@ pub fn ps_account_remove(app: AppHandle, account: String) {
     emit_state(&app);
 }
 
+/// La puce « HDR » de la console, à l'accueil.
+#[tauri::command]
+pub fn ps_set_hdr(app: AppHandle, id: String, on: bool) {
+    let Some(host) = consoles::host_of(&id).map(str::to_string) else { return };
+    with(&app, |c| {
+        if let Some(k) = c.kept_mut(&host) {
+            k.hdr = Some(on);
+        }
+    });
+    save(&app);
+    emit_state(&app);
+}
+
 #[tauri::command]
 pub fn ps_choose_account(app: AppHandle, id: String, account: String) {
     let Some(host) = consoles::host_of(&id).map(str::to_string) else { return };
@@ -755,10 +768,12 @@ fn launch_inner(app: &AppHandle, id: &str, host: String, kept: consoles::Kept, a
     }
     phase(&app, &id, "connecting");
     let state = app.state::<UiState>();
-    let hevc = state.this_pc.lock().unwrap().as_ref().is_none_or(|p| p.hevc);
+    let (hevc, pc_hdr) = state.this_pc.lock().unwrap().as_ref().map_or((true, false), |p| (p.hevc, p.hdr));
     let mut settings = kept.settings();
-    // Pas de HDR dans l'app Windows (l'image des sessions y est en SDR).
-    settings.hdr = false;
+    // HDR (docs/hdr.md) : la puce allumée (PS5), un décodeur 10 bits et l'écran où la partie
+    // s'ouvre (celui de l'accueil) en HDR ; sinon la console envoie du SDR.
+    settings.hdr = kept.hdr_on() && pc_hdr && super::home_screen_hdr().0;
+    log::info!("PlayStation [{}] : HDR {}", kept.name, if settings.hdr { "demandé" } else { "non" });
     let near = app.get_webview_window("main").and_then(|w| {
         let p = w.outer_position().ok()?;
         let s = w.outer_size().ok()?;
