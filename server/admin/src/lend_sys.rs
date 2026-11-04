@@ -6,7 +6,7 @@
 //! final et la veille empêchée. Hors de Windows (développement) : une session
 //! toujours ouverte, personne devant, pas d'agent.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 /// La session de l'utilisateur sur l'écran de l'ordinateur.
@@ -122,6 +122,111 @@ impl Rules {
     }
 }
 
+fn norm(path: &str) -> String {
+    path.to_ascii_lowercase().replace('/', "\\")
+}
+
+/// Programmes qui ne passent jamais la main à une instance déjà ouverte :
+/// la WebView2 du lanceur n'a rien à voir avec celles des apps de l'hôte.
+#[cfg_attr(not(windows), allow(dead_code))]
+const NO_HANDOFF: &[&str] = &["msedgewebview2.exe"];
+
+#[cfg_attr(not(windows), allow(dead_code))]
+impl Rules {
+    /// Un processus de la session d'avant le prêt est-il une racine de la
+    /// lignée de l'hôte ? Pas un programme de Windows (l'Explorateur, et ce
+    /// qui ouvre ce qu'on lui demande : `sihost`, `RuntimeBroker`,
+    /// `svchost`…), ni KyberNow, Kyber ou Steam (qui lancent les apps du
+    /// prêt), ni un jeu, ni une app permise (que l'ami peut ramener devant).
+    fn host_root(&self, path: &str) -> bool {
+        let path = norm(path);
+        !(path.contains("\\steamapps\\")
+            || (!self.system.is_empty() && path.starts_with(self.system.as_str()))
+            || self.dirs.iter().any(|d| path.starts_with(d.as_str()))
+            || (!self.steam.is_empty() && path.starts_with(self.steam.as_str()))
+            || self.apps.contains(&path))
+    }
+}
+
+/// La lignée de l'hôte pendant un prêt (docs/pret.md, « Station », point 4) :
+/// ce que lancent ses apps déjà ouvertes (les onglets d'un Chrome réduit…)
+/// n'est pas jugé, sauf un jeu et les programmes refusés. Chaque processus
+/// est noté avec l'instant de sa création : un identifiant repris par un
+/// autre processus ne passe pas pour l'hôte.
+#[derive(Debug, Default)]
+#[cfg_attr(not(windows), allow(dead_code))]
+pub struct HostLine {
+    pids: HashMap<u32, (u64, String)>,
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+impl HostLine {
+    /// Les racines : les processus de la session d'avant le prêt
+    /// (pid, création, exécutable) que [`Rules::host_root`] garde.
+    pub fn new(rules: &Rules, before: impl IntoIterator<Item = (u32, u64, String)>) -> Self {
+        let pids = before.into_iter().filter(|(_, _, path)| rules.host_root(path)).map(|(pid, born, path)| (pid, (born, norm(&path)))).collect();
+        Self { pids }
+    }
+
+    /// Oublie les processus qui ne sont plus là.
+    pub fn retain(&mut self, alive: &HashSet<u32>) {
+        self.pids.retain(|pid, _| alive.contains(pid));
+    }
+
+    fn len(&self) -> usize {
+        self.pids.len()
+    }
+
+    /// Ceux du passage (`fresh` : pid, pid du parent, exécutable ; parents
+    /// d'abord) dont le parent est de la lignée, ou en devient.
+    fn members(&self, fresh: &[(u32, u32, String)], born: &impl Fn(u32) -> Option<u64>) -> HashSet<u32> {
+        let mut out = HashSet::new();
+        for (pid, ppid, path) in fresh {
+            let name = path.rsplit('\\').next().unwrap_or(path);
+            if path.contains("\\steamapps\\") || DENIED.contains(&name) {
+                continue;
+            }
+            let parent = out.contains(ppid) || self.pids.get(ppid).is_some_and(|(at, _)| born(*ppid) == Some(*at));
+            if parent {
+                out.insert(*pid);
+            }
+        }
+        out
+    }
+
+    /// Un passage de la surveillance : rend les processus de la lignée de
+    /// l'hôte (à laisser, ils y entrent) et les exécutables de l'hôte qui
+    /// l'ont perdue. Une app de l'hôte que le prêt relance (instance unique :
+    /// le `chrome.exe` d'un lien ouvert par un jeu passe la main au Chrome
+    /// déjà ouvert) perd la lignée : ce qu'elle lance ensuite pour l'ami
+    /// est jugé. `born` : l'instant de création d'un processus encore là.
+    pub fn pass(&mut self, fresh: &[(u32, u32, String)], born: impl Fn(u32) -> Option<u64>) -> (HashSet<u32>, Vec<String>) {
+        let fresh: Vec<(u32, u32, String)> = fresh.iter().map(|(pid, ppid, path)| (*pid, *ppid, norm(path))).collect();
+        let first = self.members(&fresh, &born);
+        let mut lost = Vec::new();
+        for (pid, _, path) in &fresh {
+            let name = path.rsplit('\\').next().unwrap_or(path);
+            if first.contains(pid) || NO_HANDOFF.contains(&name) || lost.contains(path) {
+                continue;
+            }
+            let before = self.pids.len();
+            self.pids.retain(|_, (_, p)| p != path);
+            if self.pids.len() != before {
+                lost.push(path.clone());
+            }
+        }
+        let members = if lost.is_empty() { first } else { self.members(&fresh, &born) };
+        for (pid, _, path) in &fresh {
+            if members.contains(pid)
+                && let Some(at) = born(*pid)
+            {
+                self.pids.insert(*pid, (at, path.clone()));
+            }
+        }
+        (members, lost)
+    }
+}
+
 /// Les processus nouveaux, chaque parent avant ses enfants.
 #[cfg_attr(not(windows), allow(dead_code))]
 fn parents_first(mut fresh: Vec<(u32, u32)>) -> Vec<(u32, u32)> {
@@ -214,7 +319,7 @@ mod platform {
 
     use anyhow::{Result, bail};
 
-    use super::{Parent, Rules, SessionState, Verdict, Watch, parents_first};
+    use super::{HostLine, Parent, Rules, SessionState, Verdict, Watch, parents_first};
     use crate::display::agent;
 
     fn console_session() -> Option<u32> {
@@ -369,6 +474,23 @@ mod platform {
         }
     }
 
+    /// L'instant de création d'un processus (FILETIME).
+    fn born(pid: u32) -> Option<u64> {
+        use windows_sys::Win32::Foundation::{CloseHandle, FILETIME};
+        use windows_sys::Win32::System::Threading::{GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+        unsafe {
+            let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+            if h.is_null() {
+                return None;
+            }
+            let zero = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
+            let (mut created, mut exited, mut kernel, mut user) = (zero, zero, zero, zero);
+            let ok = GetProcessTimes(h, &mut created, &mut exited, &mut kernel, &mut user) != 0;
+            CloseHandle(h);
+            ok.then(|| (u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime))
+        }
+    }
+
     fn terminate(pid: u32) -> bool {
         use windows_sys::Win32::Foundation::CloseHandle;
         use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_TERMINATE, TerminateProcess};
@@ -384,8 +506,12 @@ mod platform {
     }
 
     /// Surveille les processus de la session de l'utilisateur toutes les
-    /// 500 ms : ceux d'avant le prêt ne sont pas touchés ; un nouveau est
-    /// permis selon `rules`, sinon fermé.
+    /// 500 ms : ceux d'avant le prêt et ce que lancent les apps de l'hôte
+    /// (les onglets d'un Chrome réduit…) ne sont pas touchés, sauf un jeu et
+    /// les programmes refusés ([`HostLine`]) ; un nouveau est permis selon
+    /// `rules`, sinon fermé. Les apps du prêt (lancées par `display-agent`,
+    /// enfant d'Admin, ou par l'Explorateur et les services du shell) ne sont
+    /// jamais de la lignée de l'hôte.
     pub fn watch(rules: Rules) -> Option<Watch> {
         let session = console_session()?;
         let before: HashSet<u32> = snapshot().into_iter().map(|(pid, _)| pid).collect();
@@ -393,13 +519,19 @@ mod platform {
         let started = Arc::new(Mutex::new(HashSet::new()));
         let (stop2, started2) = (stop.clone(), started.clone());
         let thread = std::thread::spawn(move || {
+            let roots = before.iter().filter(|pid| session_of(**pid) == Some(session)).filter_map(|pid| Some((*pid, born(*pid)?, image_path(*pid)?)));
+            let mut host = HostLine::new(&rules, roots);
+            tracing::info!("prêt : {} processus de l'hôte épargnés avec ce qu'ils lancent", host.len());
             let mut seen = before;
             // Les processus permis pendant le prêt, et s'ils sont de la lignée d'une app.
             let mut allowed: std::collections::HashMap<u32, bool> = std::collections::HashMap::new();
             while !stop2.load(Ordering::SeqCst) {
-                let fresh: Vec<(u32, u32)> = snapshot().into_iter().filter(|(pid, _)| !seen.contains(pid)).collect();
+                let all = snapshot();
+                host.retain(&all.iter().map(|(pid, _)| *pid).collect::<HashSet<u32>>());
+                let fresh: Vec<(u32, u32)> = all.into_iter().filter(|(pid, _)| !seen.contains(pid)).collect();
                 // Les parents avant leurs enfants : les processus de WebView2
                 // du lanceur, nés dans le même passage que lui, sont permis.
+                let mut mine = Vec::new();
                 for (pid, ppid) in parents_first(fresh) {
                     if session_of(pid) != Some(session) {
                         seen.insert(pid);
@@ -408,6 +540,16 @@ mod platform {
                     // Un processus encore illisible est revu au passage suivant.
                     let Some(path) = image_path(pid) else { continue };
                     seen.insert(pid);
+                    mine.push((pid, ppid, path));
+                }
+                let (spared, lost) = host.pass(&mine, born);
+                for path in lost {
+                    tracing::info!("prêt : {path} relancé pour l'ami, l'instance de l'hôte n'est plus épargnée");
+                }
+                for (pid, ppid, path) in mine {
+                    if spared.contains(&pid) {
+                        continue;
+                    }
                     let parent = match allowed.get(&ppid) {
                         None => Parent::Other,
                         Some(false) => Parent::Allowed,
@@ -866,5 +1008,85 @@ mod tests {
         assert_eq!(order.len(), 4);
         // Une boucle d'identifiants ne bloque pas.
         assert_eq!(parents_first(vec![(1, 2), (2, 1)]).len(), 2);
+    }
+
+    #[test]
+    fn la_lignee_de_l_hote_sous_windows() {
+        let rules = r();
+        let chrome = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
+        let edge = "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
+        // Avant le prêt : l'Explorateur (1), sihost (2), Chrome (3) et Edge (4)
+        // réduits, Steam (5), l'icône de KyberNow (6), Celeste déjà ouvert (7).
+        let before = [
+            (1, 100, "C:\\Windows\\explorer.exe"),
+            (2, 100, "C:\\Windows\\System32\\sihost.exe"),
+            (3, 110, chrome),
+            (4, 120, edge),
+            (5, 130, "C:\\Program Files (x86)\\Steam\\steam.exe"),
+            (6, 140, "C:\\Program Files\\KyberNow\\tray\\kybernow-tray.exe"),
+            (7, 150, "D:\\Jeux\\Celeste\\Celeste.exe"),
+        ];
+        let mut host = HostLine::new(&rules, before.iter().map(|(pid, at, path)| (*pid, *at, path.to_string())));
+        assert_eq!(host.len(), 2, "seuls Chrome et Edge sont de l'hôte");
+        let mut born: HashMap<u32, u64> = before.iter().map(|(pid, at, _)| (*pid, *at)).collect();
+        let fresh = |list: &[(u32, u32, &str)]| list.iter().map(|(pid, ppid, path)| (*pid, *ppid, path.to_string())).collect::<Vec<_>>();
+
+        // Les onglets de Chrome et d'Edge, et leurs enfants dans le même passage : épargnés.
+        for (pid, at) in [(10, 200), (11, 201), (12, 202)] {
+            born.insert(pid, at);
+        }
+        let b = born.clone();
+        let (spared, lost) = host.pass(&fresh(&[(10, 3, chrome), (11, 10, chrome), (12, 4, edge)]), |p| b.get(&p).copied());
+        assert_eq!(spared, HashSet::from([10, 11, 12]));
+        assert!(lost.is_empty());
+
+        // Ce que lancent l'Explorateur, sihost, Steam, KyberNow (display-agent),
+        // ou une app permise : jamais de l'hôte.
+        let b = born.clone();
+        let (spared, _) = host.pass(
+            &fresh(&[
+                (20, 1, "C:\\Program Files\\Mozilla Firefox\\firefox.exe"),
+                (21, 2, "C:\\Program Files\\Outil\\outil.exe"),
+                (22, 5, "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Hades\\Hades.exe"),
+                (23, 6, "D:\\Jeux\\Celeste\\Celeste.exe"),
+                (24, 7, "D:\\Jeux\\Celeste\\crash.exe"),
+            ]),
+            |p| b.get(&p).copied(),
+        );
+        assert!(spared.is_empty());
+
+        // Un jeu ou un programme refusé lancé par Chrome : jugé.
+        let b = born.clone();
+        let (spared, _) = host.pass(
+            &fresh(&[(30, 3, "E:\\SteamLibrary\\steamapps\\common\\Hades\\Hades.exe"), (31, 3, "C:\\Windows\\System32\\Taskmgr.exe")]),
+            |p| b.get(&p).copied(),
+        );
+        assert!(spared.is_empty());
+
+        // L'identifiant de Chrome repris par un autre processus : pas de l'hôte.
+        born.insert(4, 999);
+        let b = born.clone();
+        let (spared, _) = host.pass(&fresh(&[(40, 4, "C:\\Program Files\\Outil\\outil.exe")]), |p| b.get(&p).copied());
+        assert!(spared.is_empty());
+        born.insert(4, 120);
+
+        // Un jeu ouvre un lien : son chrome.exe passe la main au Chrome de
+        // l'hôte, qui perd la lignée ; l'onglet né dans le même passage est jugé.
+        // La WebView2 du lanceur, elle, ne retire rien.
+        born.insert(50, 300);
+        let b = born.clone();
+        let (spared, lost) = host.pass(
+            &fresh(&[
+                (50, 3, chrome),
+                (51, 24, chrome),
+                (52, 6, "C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\142.0\\msedgewebview2.exe"),
+            ]),
+            |p| b.get(&p).copied(),
+        );
+        assert!(spared.is_empty());
+        assert_eq!(lost, vec![chrome.to_ascii_lowercase()]);
+        // Edge, lui, reste de l'hôte.
+        let b = born.clone();
+        assert_eq!(host.pass(&fresh(&[(60, 4, edge)]), |p| b.get(&p).copied()).0, HashSet::from([60]));
     }
 }
